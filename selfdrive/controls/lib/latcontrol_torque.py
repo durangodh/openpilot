@@ -43,15 +43,13 @@ class LatControlTorque(LatControl):
     #self.pid.reset()
     self.errors = []
 
-  def update(self, active, CS, VM, params, last_actuators, desired_curvature, desired_curvature_rate, llk):
+  def update(self, active, CS, VM, params, last_actuators, steer_limited, desired_curvature, desired_curvature_rate, llk):
     self.tune.check()
     pid_log = log.ControlsState.LateralTorqueState.new_message()
 
     if CS.vEgo < MIN_STEER_SPEED or not active:
       output_torque = 0.0
       pid_log.active = False
-      if not active:
-        self.pid.reset()
         self.errors = []
       angle_steers_des = 0.0
     else:
@@ -88,10 +86,11 @@ class LatControlTorque(LatControl):
       # convert friction into lateral accel units for feedforward
       friction_compensation = interp(apply_deadzone(error, lateral_accel_deadzone), [-FRICTION_THRESHOLD, FRICTION_THRESHOLD], [-self.friction, self.friction])
       ff += friction_compensation / self.kf
+      freeze_integrator = CS.steeringRateLimited or CS.steeringPressed or CS.vEgo < 5
       output_torque = self.pid.update(error, error_rate,
-                                      override=CS.steeringPressed, feedforward=ff,
+                                      feedforward=ff,
                                       speed=CS.vEgo,
-                                      freeze_integrator=CS.steeringRateLimited)
+                                      freeze_integrator=freeze_integrator)
 
       pid_log.active = True
       pid_log.p = self.pid.p
