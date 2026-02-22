@@ -155,6 +155,8 @@ struct CarState {
   vEgo @1 :Float32;         # best estimate of speed
   aEgo @16 :Float32;        # best estimate of acceleration
   vEgoRaw @17 :Float32;     # unfiltered speed from CAN sensors
+  vEgoCluster @41 :Float32;  # best estimate of speed shown on car's instrument cluster, used for UI
+
   yawRate @22 :Float32;     # best estimate of yaw rate
   standstill @18 :Bool;
   wheelSpeeds @2 :WheelSpeeds;
@@ -209,7 +211,6 @@ struct CarState {
   leftBlindspot @33 :Bool; # Is there something blocking the left lane change
   rightBlindspot @34 :Bool; # Is there something blocking the right lane change
 
-  cluSpeedMs @41 :Float32;
   cruiseGap @42 : Int32;
   autoHold @43 : Int32;
   tpms @44 : Tpms;
@@ -234,11 +235,12 @@ struct CarState {
   struct CruiseState {
     enabled @0 :Bool;
     speed @1 :Float32;
+    speedCluster @6 :Float32;  # Set speed as shown on instrument cluster
     available @2 :Bool;
     speedOffset @3 :Float32;
     standstill @4 :Bool;
     nonAdaptive @5 :Bool;
-    enabledAcc @6 :Bool;
+    enabledAcc @7 :Bool;
   }
 
   enum GearShifter {
