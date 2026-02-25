@@ -352,7 +352,7 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
       "BRAKE!",
       "Risk of Collision",
       AlertStatus.critical, AlertSize.full,
-      Priority.HIGHEST, VisualAlert.fcw, AudibleAlert.warningSoft, 2.),
+      Priority.HIGHEST, VisualAlert.fcw, AudibleAlert.none, 2.),
   },
 
   EventName.ldw: {
@@ -360,7 +360,7 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
       "Lane Departure Detected",
       "",
       AlertStatus.userPrompt, AlertSize.small,
-      Priority.LOW, VisualAlert.ldw, AudibleAlert.prompt, 3.),
+      Priority.LOW, VisualAlert.ldw, AudibleAlert.none, 3.),
   },
 
   # ********** events only containing alerts that display while engaged **********
@@ -383,7 +383,7 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
       "Steering Temporarily Unavailable",
       "",
       AlertStatus.userPrompt, AlertSize.small,
-      Priority.LOW, VisualAlert.steerRequired, AudibleAlert.prompt, 1.),
+      Priority.LOW, VisualAlert.steerRequired, AudibleAlert.none, 1.),
   },
 
   EventName.preDriverDistracted: {
@@ -491,7 +491,7 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
       "Take Control",
       "Turn Exceeds Steering Limit",
       AlertStatus.userPrompt, AlertSize.mid,
-      Priority.LOW, VisualAlert.steerRequired, AudibleAlert.promptRepeat, 1.),
+      Priority.LOW, VisualAlert.none, AudibleAlert.none, 1.),
   },
 
   # Thrown when the fan is driven at >50% but is not rotating
@@ -858,7 +858,7 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
       "Speed Too High",
       "Model uncertain at this speed",
       AlertStatus.userPrompt, AlertSize.mid,
-      Priority.HIGH, VisualAlert.steerRequired, AudibleAlert.promptRepeat, 4.),
+      Priority.HIGH, VisualAlert.steerRequired, AudibleAlert.none, 4.),
     ET.NO_ENTRY: NoEntryAlert("Slow down to engage"),
   },
 
@@ -891,7 +891,7 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
 
   EventName.slowingDownSpeedSound: {
     ET.PERMANENT: Alert("Slowing down","", AlertStatus.normal, AlertSize.small,
-      Priority.HIGH, VisualAlert.none, AudibleAlert.slowingDownSpeed, 2.),
+      Priority.HIGH, VisualAlert.none, AudibleAlert.none, 2.),
   },
 
 }
