@@ -642,6 +642,12 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "../assets/offroad/icon_road.png",
                                             this));
 
+  toggles.append(new ParamControl("AutoAscc",
+                                            "Ascc auto set",
+                                            "Ascc auto set 적용",
+                                            "../assets/offroad/icon_road.png",
+                                            this));
+
   toggles.append(new ParamControl("LongControlEnabled",
                                             "Enable HKG Long Control",
                                             "warnings: it is beta, be careful!! Openpilot will control the speed of your car",
