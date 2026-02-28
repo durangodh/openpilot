@@ -228,6 +228,12 @@ class CarState(CarStateBase):
     ret.tpms.rl = tpms_unit * cp.vl["TPMS11"]["PRESSURE_RL"]
     ret.tpms.rr = tpms_unit * cp.vl["TPMS11"]["PRESSURE_RR"]
 
+    # Auto-resume Cruise Set Speed by JangPoo
+    self.prev_cruiseState_speed = self.cruiseState_speed if self.cruiseState_speed else self.prev_cruiseState_speed
+    self.obj_valid = cp_scc.vl["SCC11"]["ObjValid"]
+    if self.prev_cruise_buttons == 4:
+      self.prev_cruiseState_speed = 0
+
     return ret
 
   @staticmethod
