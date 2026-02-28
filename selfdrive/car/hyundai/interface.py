@@ -14,12 +14,14 @@ GearShifter = car.CarState.GearShifter
 EventName = car.CarEvent.EventName
 ButtonType = car.CarState.ButtonEvent.Type
 
-def torque_tune(tune, max_lat_accel=2.5, friction=0.01, kd=0.0, steering_angle_deadzone_deg=0.0):
+def torque_tune(tune, lat_accel_factor=3.0, friction=0.01, kd=0.0, steering_angle_deadzone_deg=0.0):
   tune.init('torque')
   tune.torque.useSteeringAngle = True
-  tune.torque.kp = 1.0 / max_lat_accel
-  tune.torque.kf = 1.0 / max_lat_accel
-  tune.torque.ki = 0.1 / max_lat_accel
+  tune.torque.kp = 1.0
+  tune.torque.kf = 1.0
+  tune.torque.ki = 0.1
+  tune.torque.latAccelFactor = lat_accel_factor
+  tune.torque.latAccelOffset = 0.0
   tune.torque.friction = friction
   tune.torque.steeringAngleDeadzoneDeg = steering_angle_deadzone_deg
   tune.torque.kd = kd
