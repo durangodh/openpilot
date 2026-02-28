@@ -45,6 +45,7 @@ def manager_init() -> None:
     ("IsMetric", "1"),
 
     # HKG
+    ("AutoAscc", "1"),
     ("LateralControl", "TORQUE"),
     ("UseClusterSpeed", "0"),
     ("LongControlEnabled", "0"),
