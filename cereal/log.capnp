@@ -672,7 +672,7 @@ struct ControlsState @0x97ff69c53601abf1 {
     desiredLateralAccel @10 :Float32;
     latAccelFactor @11 :Float32;
     latAccelOffset @12 :Float32;
-    friction @13 :Float32
+    friction @13 :Float32;
    }
 
   struct LateralLQRState {
