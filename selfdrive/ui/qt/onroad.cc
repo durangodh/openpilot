@@ -477,23 +477,16 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   const auto controls_state = sm["controlsState"].getControlsState();
   const auto car_params = sm["carParams"].getCarParams();
   const auto live_params = sm["liveParameters"].getLiveParameters();
-
-  //const auto scc_smoother = sm["carControl"].getCarControl().getSccSmoother();
-  //bool is_metric = s->scene.is_metric;
-  //bool long_control = scc_smoother.getLongControl();
-
-  // kph
-  //float applyMaxSpeed = scc_smoother.getApplyMaxSpeed();
-  //float cruiseMaxSpeed = scc_smoother.getCruiseMaxSpeed();
-
-  //bool is_cruise_set = (cruiseMaxSpeed > 0 && cruiseMaxSpeed < 255);
+  const auto torque_state = controls_state.getLateralControlState().getTorqueState();
 
   int mdps_bus = car_params.getMdpsBus();
   int scc_bus = car_params.getSccBus();
 
   QString infoText;
-  infoText.sprintf("%s AO(%.2f/%.2f) SR(%.2f) SAD(%.2f) BUS(MDPS %d, SCC %d) SCC(%.2f/%.2f/%.2f)",
+  infoText.sprintf("%s TS(%.2f/%.2f) AO(%.2f/%.2f) SR(%.2f) SAD(%.2f) BUS(MDPS %d, SCC %d) SCC(%.2f/%.2f/%.2f)",
                       s->lat_control.c_str(),
+	                  torque_state.getLatAccelFactor(),
+                      torque_state.getFriction(),
                       live_params.getAngleOffsetDeg(),
                       live_params.getAngleOffsetAverageDeg(),
                       controls_state.getSteerRatio(),
