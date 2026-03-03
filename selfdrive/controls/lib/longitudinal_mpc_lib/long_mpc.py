@@ -109,7 +109,7 @@ def gen_long_model():
   x_obstacle = SX.sym('x_obstacle')
   prev_a = SX.sym('prev_a')
   desired_TF = SX.sym('desired_TF')
-  model.p = vertcat(a_min, a_max, x_obstacle, prev_a, tr)
+  model.p = vertcat(a_min, a_max, x_obstacle, prev_a, desired_TF)
 
   # dynamics model
   f_expl = vertcat(v_ego, a_ego, j_ego)
