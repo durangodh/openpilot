@@ -74,7 +74,7 @@ class CarInterface(CarInterfaceBase):
       try:
         CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
       except:
-        torque_tune(ret.lateralTuning, 2.7, 0.01)
+        torque_tune(ret.lateralTuning, 2.5, 0.01)
 
     ret.steerRatio = 16.0
     ret.steerActuatorDelay = 0.2
