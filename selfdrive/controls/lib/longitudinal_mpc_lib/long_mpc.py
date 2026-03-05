@@ -48,6 +48,8 @@ CRUISE_GAP_V = [1.0, 1.25, 1.8, 2.0]
 AUTO_TR_BP = [0., 30.*CV.KPH_TO_MS, 70.*CV.KPH_TO_MS, 110.*CV.KPH_TO_MS]
 AUTO_TR_V = [1.0, 1.1, 1.25, 1.45]
 
+E2E_TR_FACTOR = 1.3
+
 AUTO_TR_CRUISE_GAP = 4
 DIFF_RADAR_VISION = 1.0
 
@@ -64,7 +66,7 @@ MIN_ACCEL = -3.5
 MAX_ACCEL = 2.0
 T_FOLLOW = 1.45
 COMFORT_BRAKE = 2.3
-STOP_DISTANCE = 6.0
+STOP_DISTANCE = 6.5
 
 def get_stopped_equivalence_factor(v_lead):
   return (v_lead**2) / (2 * COMFORT_BRAKE)
@@ -327,6 +329,9 @@ class LongitudinalMpc:
     else:
       tr = interp(float(cruise_gap), CRUISE_GAP_BP, CRUISE_GAP_V)
 
+    if self.mode is not 'acc':
+      tr *= E2E_TR_FACTOR
+      
     self.param_tr = tr
 
     # To estimate a safe distance from a moving lead, we calculate how much stopping
