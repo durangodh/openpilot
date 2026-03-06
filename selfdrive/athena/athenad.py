@@ -696,7 +696,7 @@ def main():
                              enable_multithread=True,
                              timeout=30.0)
       cloudlog.event("athenad.main.connected_ws", ws_uri=ws_uri)
-      params.delete("PrimeRedirected")
+      params.remove("PrimeRedirected")
 
       conn_retries = 0
       cur_upload_items.clear()
@@ -706,8 +706,8 @@ def main():
       break
     except (ConnectionError, TimeoutError, WebSocketException):
       conn_retries += 1
-      params.delete("PrimeRedirected")
-      params.delete("LastAthenaPingTime")
+      params.remove("PrimeRedirected")
+      params.remove("LastAthenaPingTime")
     except socket.timeout:
       try:
         r = requests.get("http://api.commadotai.com/v1/me", allow_redirects=False,
@@ -716,13 +716,13 @@ def main():
           params.put_bool("PrimeRedirected", True)
       except Exception:
         cloudlog.exception("athenad.socket_timeout.exception")
-      params.delete("LastAthenaPingTime")
+      params.remove("LastAthenaPingTime")
     except Exception:
       cloudlog.exception("athenad.main.exception")
 
       conn_retries += 1
-      params.delete("PrimeRedirected")
-      params.delete("LastAthenaPingTime")
+      params.remove("PrimeRedirected")
+      params.remove("LastAthenaPingTime")
 
     time.sleep(backoff(conn_retries))
 
