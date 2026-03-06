@@ -5,6 +5,12 @@ from common.numpy_fast import clip
 # kg of standard extra cargo to count for drive, gas, etc...
 STD_CARGO_KG = 136.
 
+def apply_hysteresis(val: float, val_steady: float, hyst_gap: float) -> float:
+  if val > val_steady + hyst_gap:
+    val_steady = val - hyst_gap
+  elif val < val_steady - hyst_gap:
+    val_steady = val + hyst_gap
+  return val_steady
 
 def gen_empty_fingerprint():
   return {i: {} for i in range(0, 4)}
