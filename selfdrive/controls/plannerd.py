@@ -3,7 +3,7 @@ from cereal import car
 from common.params import Params
 from common.realtime import Priority, config_realtime_process
 from selfdrive.swaglog import cloudlog
-from selfdrive.controls.lib.longitudinal_planner import Planner
+from selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
 from selfdrive.controls.lib.lateral_planner import LateralPlanner
 from selfdrive.hardware import TICI
 import cereal.messaging as messaging
@@ -22,7 +22,7 @@ def plannerd_thread(sm=None, pm=None):
 
   cloudlog.event("e2e mode", on=use_lanelines)
 
-  longitudinal_planner = Planner(CP)
+  longitudinal_planner = LongitudinalPlanner(CP)
   lateral_planner = LateralPlanner(CP, use_lanelines=use_lanelines, wide_camera=wide_camera)
 
   if sm is None:
