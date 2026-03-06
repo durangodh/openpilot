@@ -10,7 +10,7 @@ from common.conversions import Conversions as CV
 from common.kalman.simple_kalman import KF1D
 from common.numpy_fast import interp
 from common.realtime import DT_CTRL
-from selfdrive.car import gen_empty_fingerprint
+from selfdrive.car import apply_hysteresis, gen_empty_fingerprint
 from common.conversions import Conversions as CV
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, apply_deadzone
 from selfdrive.controls.lib.events import Events
@@ -188,6 +188,12 @@ class CarInterfaceBase(ABC):
     else:
       self.v_ego_cluster_seen = True
 
+    # Many cars apply hysteresis to the ego dash speed
+    if self.CS is not None:
+      ret.vEgoCluster = apply_hysteresis(ret.vEgoCluster, self.CS.out.vEgoCluster, self.CS.cluster_speed_hyst_gap)
+      if abs(ret.vEgo) < self.CS.cluster_min_speed:
+        ret.vEgoCluster = 0.0
+        
     if ret.cruiseState.speedCluster == 0:
       ret.cruiseState.speedCluster = ret.cruiseState.speed
       
@@ -285,6 +291,8 @@ class CarStateBase(ABC):
     self.right_blinker_cnt = 0
     self.left_blinker_prev = False
     self.right_blinker_prev = False
+    self.cluster_speed_hyst_gap = 0.0
+    self.cluster_min_speed = 0.0  # min speed before dropping to 0
 
     # Q = np.matrix([[0.0, 0.0], [0.0, 100.0]])
     # R = 0.3
