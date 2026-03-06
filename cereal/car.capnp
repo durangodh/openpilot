@@ -490,7 +490,7 @@ struct CarParams {
   stopAccel @60 :Float32; # Required acceleration to keep vehicle stationary
   stoppingDecelRate @52 :Float32; # m/s^2/s while trying to stop
   startAccel @32 :Float32; # Required acceleration to get car moving
-  startingState @79 :Bool; # Does this car make use of special starting state
+  startingState @80 :Bool; # Does this car make use of special starting state
 
   steerActuatorDelay @36 :Float32; # Steering wheel actuator delay in seconds
   longitudinalActuatorDelayLowerBound @61 :Float32; # Gas/Brake actuator delay in seconds, lower bound
