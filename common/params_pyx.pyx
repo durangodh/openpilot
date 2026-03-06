@@ -2,6 +2,7 @@
 # cython: language_level = 3
 from libcpp cimport bool
 from libcpp.string cimport string
+from libcpp.vector cimport vector
 import threading
 
 cdef extern from "selfdrive/common/params.h":
@@ -21,6 +22,7 @@ cdef extern from "selfdrive/common/params.h":
     int putBool(string, bool) nogil
     bool checkKey(string) nogil
     void clearAll(ParamKeyType)
+    vector[string] allKeys()
 
 
 def ensure_bytes(v):
@@ -94,6 +96,9 @@ cdef class Params:
     with nogil:
       self.p.remove(k)
 
+  def all_keys(self):
+    return self.p.allKeys()
+  
 def put_nonblocking(key, val, d=""):
   def f(key, val):
     params = Params(d)
