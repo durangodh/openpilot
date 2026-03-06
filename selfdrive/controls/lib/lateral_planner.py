@@ -1,20 +1,24 @@
 import numpy as np
 from common.realtime import sec_since_boot, DT_MDL
 from common.numpy_fast import interp
+from selfdrive.controls.lib.lane_planner import LanePlanner
 from selfdrive.ntune import ntune_common_get
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import LateralMpc
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, MPC_COST_LAT, LAT_MPC_N
-from selfdrive.controls.lib.lane_planner import LanePlanner, TRAJECTORY_SIZE
 from selfdrive.controls.lib.desire_helper import DesireHelper, AUTO_LCA_START_TIME
 import cereal.messaging as messaging
 from cereal import log
+from common.params import Params
+
+TRAJECTORY_SIZE = 33
+CAMERA_OFFSET = -0.06
 
 
 class LateralPlanner:
-  def __init__(self, CP, use_lanelines=True, wide_camera=False):
-    self.use_lanelines = use_lanelines
-    self.LP = LanePlanner(wide_camera)
+  def __init__(self, CP):
+    self.use_lanelines = not Params().get_bool('EndToEndToggle')
+    self.LP = LanePlanner()
     self.DH = DesireHelper()
 
     # Vehicle model parameters used to calculate lateral movement of car
