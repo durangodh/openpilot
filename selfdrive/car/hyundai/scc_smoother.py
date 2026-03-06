@@ -63,14 +63,10 @@ class SccSmoother:
 
   def __init__(self):
 
-    params = Params()
+    self.params = Params()
+    self.read_param()
 
-    self.longcontrol = params.get_bool('LongControlEnabled')
-    self.slow_on_curves = params.get_bool('SccSmootherSlowOnCurves')
-    self.sync_set_speed_while_gas_pressed = params.get_bool('SccSmootherSyncGasPressed')
-    self.is_metric = params.get_bool('IsMetric')
-    self.e2e_long = params.get_bool('EndToEndLong')
-    self.autoascc = params.get_bool('AutoAscc')
+    self.param_read_counter = 0
 
     self.speed_conv_to_ms = CV.KPH_TO_MS if self.is_metric else CV.MPH_TO_MS
     self.speed_conv_to_clu = CV.MS_TO_KPH if self.is_metric else CV.MS_TO_MPH
@@ -100,6 +96,14 @@ class SccSmoother:
     self.curve_speed_ms = 0.
     self.stock_weight = 0.
 
+  def read_param(self):
+    self.longcontrol = self.params.get_bool('LongControlEnabled')
+    self.slow_on_curves = self.params.get_bool('SccSmootherSlowOnCurves')
+    self.sync_set_speed_while_gas_pressed = self.params.get_bool('SccSmootherSyncGasPressed')
+    self.is_metric = self.params.get_bool('IsMetric')
+    self.e2e_long = self.params.get_bool('EndToEndLong')
+    self.autoascc = self.params.get_bool('AutoAscc')
+  
   def reset(self):
 
     self.wait_timer = 0
@@ -203,6 +207,10 @@ class SccSmoother:
 
   def update(self, enabled, can_sends, packer, CC, CS, frame, controls):
 
+    if self.param_read_counter % 100 == 0:
+      self.read_param()
+    self.param_read_counter += 1
+    
     # mph or kph
     clu11_speed = CS.clu11["CF_Clu_Vanz"]
 
