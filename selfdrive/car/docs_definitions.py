@@ -68,7 +68,7 @@ class CarInfo:
       Column.MODEL: self.model,
       Column.PACKAGE: self.package,
       # StarColumns
-      Column.LONGITUDINAL: CP.openpilotLongitudinalControl and not CP.radarOffCan,
+      Column.LONGITUDINAL: CP.openpilotLongitudinalControl or CP.experimentalLongitudinalAvailable,
       Column.FSR_LONGITUDINAL: min_enable_speed <= 0.,
       Column.FSR_STEERING: min_steer_speed <= 0.,
       #Column.STEERING_TORQUE: self.good_torque,
