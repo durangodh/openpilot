@@ -48,10 +48,11 @@ def limit_accel_in_turns(v_ego, angle_steers, a_target, CP):
 class LongitudinalPlanner:
   def __init__(self, CP, init_v=0.0, init_a=0.0):
     self.CP = CP
-    params = Params()
-    # TODO read param in the loop for live toggling
-    mode = 'blended' if params.get_bool('EndToEndLong') else 'acc'
-    self.mpc = LongitudinalMpc(mode=mode)
+    self.params = Params()
+    self.param_read_counter = 0
+
+    self.mpc = LongitudinalMpc()
+    self.read_param()
 
     self.fcw = False
 
@@ -66,6 +67,10 @@ class LongitudinalPlanner:
 
     self.use_cluster_speed = Params().get_bool('UseClusterSpeed')
 
+  def read_param(self):
+    e2e = self.params.get_bool('EndToEndLong') and self.CP.openpilotLongitudinalControl
+    self.mpc.mode = 'blended' if e2e else 'acc'
+    
   def parse_model(self, model_msg):
     if (len(model_msg.position.x) == 33 and
        len(model_msg.velocity.x) == 33 and
@@ -85,6 +90,10 @@ class LongitudinalPlanner:
     return x, v, a, j
 
   def update(self, sm):
+    if self.param_read_counter % 100 == 0:
+      self.read_param()
+    self.param_read_counter += 1
+
     v_ego = sm['carState'].vEgo
 
     v_cruise_kph = sm['controlsState'].vCruise
