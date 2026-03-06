@@ -152,7 +152,7 @@ class LateralMpc():
     self.solve_time = 0.0
     self.cost = 0
 
- def set_weights(self, path_weight, heading_weight,
+  def set_weights(self, path_weight, heading_weight,
                   lat_accel_weight, lat_jerk_weight,
                   steering_rate_weight):
     W = np.asfortranarray(np.diag([path_weight, heading_weight,
