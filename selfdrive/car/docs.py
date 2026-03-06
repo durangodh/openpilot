@@ -9,7 +9,6 @@ from typing import Dict, List
 from common.basedir import BASEDIR
 from selfdrive.car.docs_definitions import CarInfo, Column, Star, Tier
 from selfdrive.car.car_helpers import interfaces, get_interface_attr
-from selfdrive.car.hyundai.radar_interface import RADAR_START_ADDR as HKG_RADAR_START_ADDR
 from selfdrive.car.tests.routes import non_tested_cars
 
 
@@ -28,10 +27,8 @@ CARS_MD_TEMPLATE = os.path.join(BASEDIR, "selfdrive", "car", "CARS_template.md")
 def get_all_car_info() -> List[CarInfo]:
   all_car_info: List[CarInfo] = []
   for model, car_info in get_interface_attr("CAR_INFO", combine_brands=True).items():
-    # Hyundai exception: those with radar have openpilot longitudinal
-    fingerprint = {0: {}, 1: {HKG_RADAR_START_ADDR: 8}, 2: {}, 3: {}}
-    CP = interfaces[model][0].get_params(model, fingerprint=fingerprint, disable_radar=True)
-
+    CP = interfaces[model][0].get_params(model, fingerprint=gen_empty_fingerprint(), experimental_long=True)
+ 
     if CP.dashcamOnly:
       continue
 
