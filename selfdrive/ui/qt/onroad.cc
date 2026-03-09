@@ -5,6 +5,7 @@
 #include <QDebug>
 #include <QSound>
 #include <QMouseEvent>
+#include <QDateTime>
 
 #include "selfdrive/common/timing.h"
 #include "selfdrive/ui/qt/util.h"
@@ -642,6 +643,21 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
     bg_alpha = autohold > 0 ? 0.3f : 0.1f;
     drawIcon(p, x, y, autohold > 1 ? ic_autohold_warning : ic_autohold_active,
             QColor(0, 0, 0, (255 * bg_alpha)), img_alpha);
+  }
+
+  // 현재 시간 표시
+  if (width() > 1200) {
+    QTextOption textOpt = QTextOption(Qt::AlignLeft);
+    p.setOpacity(1.0);
+    p.setPen(QColor(255, 255, 255, 230));
+
+    configFont(p, "Open Sans", 65, "Bold");
+    p.drawText(QRect(270, 30, width(), 70),
+               QDateTime::currentDateTime().toString("hh:mm"), textOpt);
+
+    configFont(p, "Open Sans", 60, "Bold");
+    p.drawText(QRect(270, 110, width(), 70),
+               QDateTime::currentDateTime().toString("MM-dd(ddd)"), textOpt);
   }
 
   p.restore();
