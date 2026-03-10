@@ -48,6 +48,7 @@ protected:
 
   double prev_draw_t = 0;
   FirstOrderFilter fps_filter;
+  FirstOrderFilter accel_filter;
 
   // neokii
   void drawIcon(QPainter &p, int x, int y, QPixmap &img, QBrush bg, float opacity);
@@ -82,8 +83,6 @@ protected:
   void drawGpsStatus(QPainter &p);
   void drawDebugText(QPainter &p);
   void drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model);
-
-private:
 
 };
 
