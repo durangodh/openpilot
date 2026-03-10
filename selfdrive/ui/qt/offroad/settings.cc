@@ -237,7 +237,7 @@ DevicePanel::DevicePanel(SettingsWindow *parent) : ListWidget(parent) {
     auto regulatoryBtn = new ButtonControl("Regulatory", "VIEW", "");
     connect(regulatoryBtn, &ButtonControl::clicked, [=]() {
       const std::string txt = util::read_file("../assets/offroad/fcc.html");
-      RichTextDialog::alert(QString::fromStdString(txt), this);
+      ConfirmationDialog::rich(QString::fromStdString(txt), this);
     });
     addItem(regulatoryBtn);
   }
