@@ -105,9 +105,18 @@ TogglesPanel::TogglesPanel(SettingsWindow *parent) : ListWidget(parent) {
     toggles[param.toStdString()] = toggle;
   }
 
+  // Toggles with confirmation dialogs
+  toggles["ExperimentalMode"]->setActiveIcon("../assets/img_experimental.svg");
+  toggles["ExperimentalMode"]->setConfirmation(true, true);
+  toggles["ExperimentalLongitudinalEnabled"]->setConfirmation(true, false);
+  
   connect(toggles["ExperimentalLongitudinalEnabled"], &ToggleControl::toggleFlipped, [=]() {
     updateToggles();
   });
+}
+
+void TogglesPanel::expandToggleDescription(const QString &param) {
+  toggles[param.toStdString()]->showDescription();
 }
 
 void TogglesPanel::showEvent(QShowEvent *event) {
@@ -117,14 +126,17 @@ void TogglesPanel::showEvent(QShowEvent *event) {
 void TogglesPanel::updateToggles() {
   auto e2e_toggle = toggles["ExperimentalMode"];
   auto op_long_toggle = toggles["ExperimentalLongitudinalEnabled"];
-  const QString e2e_description = tr("\
-    openpilot defaults to driving in <b>chill mode</b>.\
-    Experimental mode enables <b>alpha-level features</b> that aren't ready for chill mode. \
-    Experimental features are listed below:\
-    <br> \
-    <h4>🌮 End-to-End Longitudinal Control 🌮</h4> \
-    Let the driving model control the gas and brakes. openpilot will drive as it thinks a human would, including stopping for red lights and stop signs.");
-
+  const QString e2e_description = QString("%1<br>"
+                                          "<h4>%2</h4><br>"
+                                          "%3<br>"
+                                          "<h4>%4</h4><br>"
+                                          "%5")
+                                  .arg(tr("openpilot defaults to driving in <b>chill mode</b>. Experimental mode enables <b>alpha-level features</b> that aren't ready for chill mode. Experimental features are listed below:"))
+                                  .arg(tr("🌮 End-to-End Longitudinal Control 🌮"))
+                                  .arg(tr("Let the driving model control the gas and brakes. openpilot will drive as it thinks a human would, including stopping for red lights and stop signs. "
+                                       "Since the driving model decides the speed to drive, the set speed will only act as an upper bound. This is an alpha quality feature; mistakes should be expected."))
+                                  .arg(tr("New Driving Visualization"))
+                                  .arg(tr("The driving visualization will transition to the road-facing wide-angle camera at low speeds to better show some turns. The Experimental mode logo will also be shown in the top right corner."));
   auto cp_bytes = params.get("CarParamsPersistent");
   if (!cp_bytes.empty()) {
     AlignedBuffer aligned_buf;
@@ -147,8 +159,8 @@ void TogglesPanel::updateToggles() {
       e2e_toggle->setEnabled(false);
       params.remove("ExperimentalMode");
 
-      const QString no_long = "openpilot longitudinal control is not currently available for this car.";
-      const QString exp_long = "Enable experimental longitudinal control to enable this.";
+      const QString no_long = tr("Experimental mode is currently unavailable on this car, since the car's stock ACC is used for longitudinal control.");
+      const QString exp_long = tr("Enable experimental longitudinal control to allow experimental mode.");
       e2e_toggle->setDescription("<b>" + (CP.getExperimentalLongitudinalAvailable() ? exp_long : no_long) + "</b><br><br>" + e2e_description);
     }
 
@@ -469,8 +481,15 @@ static QStringList get_list(const char* path)
 }
 
 void SettingsWindow::showEvent(QShowEvent *event) {
-  panel_widget->setCurrentIndex(0);
-  nav_btns->buttons()[0]->setChecked(true);
+  setCurrentPanel(0);
+}
+
+void SettingsWindow::setCurrentPanel(int index, const QString &param) {
+  panel_widget->setCurrentIndex(index);
+  nav_btns->buttons()[index]->setChecked(true);
+  if (!param.isEmpty()) {
+    emit expandToggleDescription(param);
+  }
 }
 
 SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
@@ -514,10 +533,13 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
   QObject::connect(device, &DevicePanel::showDriverView, this, &SettingsWindow::showDriverView);
   QObject::connect(device, &DevicePanel::closeSettings, this, &SettingsWindow::closeSettings);
 
+  TogglesPanel *toggles = new TogglesPanel(this);
+  QObject::connect(this, &SettingsWindow::expandToggleDescription, toggles, &TogglesPanel::expandToggleDescription);
+
   QList<QPair<QString, QWidget *>> panels = {
     {"Device", device},
     {"Network", network_panel(this)},
-    {"Toggles", new TogglesPanel(this)},
+    {"Toggles", toggles},
     {"Software", new SoftwarePanel(this)},
     {"Community", new CommunityPanel(this)},
   };
