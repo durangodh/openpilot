@@ -52,6 +52,7 @@ def manager_init() -> None:
     ("IsLdwsCar", "0"),
     ("LaneChangeEnabled", "0"),
     ("AutoLaneChangeEnabled", "0"),
+    ("ExperimentalMode", "0"),
 
     ("SccSmootherSlowOnCurves", "0"),
     ("SccSmootherSyncGasPressed", "0"),
