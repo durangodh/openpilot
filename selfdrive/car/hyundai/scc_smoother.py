@@ -101,7 +101,7 @@ class SccSmoother:
     self.slow_on_curves = self.params.get_bool('SccSmootherSlowOnCurves')
     self.sync_set_speed_while_gas_pressed = self.params.get_bool('SccSmootherSyncGasPressed')
     self.is_metric = self.params.get_bool('IsMetric')
-    self.e2e_long = self.params.get_bool('EndToEndLong')
+    self.e2e_long = self.params.get_bool('ExperimentalMode')
     self.autoascc = self.params.get_bool('AutoAscc')
   
   def reset(self):
