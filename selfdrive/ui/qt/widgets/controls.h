@@ -7,6 +7,7 @@
 #include <QPushButton>
 
 #include "selfdrive/common/params.h"
+#include "selfdrive/ui/qt/widgets/input.h"
 #include "selfdrive/ui/qt/widgets/toggle.h"
 
 QFrame *horizontal_line(QWidget *parent = nullptr);
@@ -39,6 +40,10 @@ public:
 
   void setTitle(const QString &title) {
     title_label->setText(title);
+  }
+
+  const QString getDescription() {
+    return description->text();
   }
 
 signals:
@@ -121,7 +126,14 @@ public:
   ParamControl(const QString &param, const QString &title, const QString &desc, const QString &icon, QWidget *parent = nullptr) : ToggleControl(title, desc, icon, false, parent) {
     key = param.toStdString();
     QObject::connect(this, &ParamControl::toggleFlipped, [=](bool state) {
-      params.putBool(key, state);
+      QString content("<body><h2>" + title + "</h2><br><br>"
+                      "<p style=\"text-align: center; margin: 0 128px;\">" + getDescription() + "</p></body>");
+      ConfirmationDialog dialog(content, tr("Ok"), tr("Cancel"), true, this);
+      if (!confirm || !state || dialog.exec()) {
+        params.putBool(key, state);
+      } else {
+        toggle.togglePosition();
+      }
     });
   }
 
