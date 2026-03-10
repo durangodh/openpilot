@@ -61,6 +61,8 @@ protected:
 
   uint64_t last_update_params;
 
+  QPixmap experimental_img;
+
   // neokii
   QPixmap ic_brake;
   QPixmap ic_autohold_warning;
