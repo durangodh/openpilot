@@ -70,7 +70,6 @@ TogglesPanel::TogglesPanel(SettingsWindow *parent) : ListWidget(parent) {
       tr("Experimental mode"),
       "",
       "../assets/offroad/icon_road.png",
-      false,
     },
     {
       "ExperimentalLongitudinalEnabled",
@@ -78,7 +77,6 @@ TogglesPanel::TogglesPanel(SettingsWindow *parent) : ListWidget(parent) {
       tr("<b>WARNING: openpilot longitudinal control is experimental for this car and will disable AEB.</b><br>\
           openpilot defaults to the car's built-in ACC instead of openpilot's longitudinal control on this car. Enable this to switch to openpilot longitudinal control."),
       "../assets/offroad/icon_speed_limit.png",
-      true,
     },
     {
       "UseLanelines",
