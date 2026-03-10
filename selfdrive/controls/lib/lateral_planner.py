@@ -30,7 +30,7 @@ MIN_SPEED = .3
 
 class LateralPlanner:
   def __init__(self, CP):
-    self.use_lanelines = not Params().get_bool('EndToEndToggle')
+    self.use_lanelines = Params().get_bool('UseLanelines')
     self.LP = LanePlanner()
     self.DH = DesireHelper()
 
@@ -79,16 +79,14 @@ class LateralPlanner:
     # Calculate final driving path and set MPC costs
     if self.use_lanelines:
       d_path_xyz = self.LP.get_d_path(self.v_ego, self.t_idxs, self.path_xyz)
-      d_path_xyz[:, 1] += ntune_common_get('pathOffset')
-      self.lat_mpc.set_weights(PATH_COST, LATERAL_MOTION_COST,
-                               LATERAL_ACCEL_COST, LATERAL_JERK_COST,
-                               STEERING_RATE_COST)
     else:
       d_path_xyz = self.path_xyz
-      d_path_xyz[:, 1] += ntune_common_get('pathOffset')
-      self.lat_mpc.set_weights(PATH_COST, LATERAL_MOTION_COST,
-                               LATERAL_ACCEL_COST, LATERAL_JERK_COST,
-                               STEERING_RATE_COST)
+
+    d_path_xyz[:, 1] += ntune_common_get('pathOffset')
+
+    self.lat_mpc.set_weights(PATH_COST, LATERAL_MOTION_COST,
+                             LATERAL_ACCEL_COST, LATERAL_JERK_COST,
+                             STEERING_RATE_COST)
 
     y_pts = np.interp(self.v_ego * self.t_idxs[:LAT_MPC_N + 1], np.linalg.norm(d_path_xyz, axis=1), d_path_xyz[:, 1])
     heading_pts = np.interp(self.v_ego * self.t_idxs[:LAT_MPC_N + 1], np.linalg.norm(self.path_xyz, axis=1), self.plan_yaw)
