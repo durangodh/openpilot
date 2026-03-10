@@ -3,7 +3,7 @@
 #include <QLabel>
 #include <QPushButton>
 
-#include "common/params.h"
+#include "selfdrive/common/params.h"
 
 class ExperimentalModeButton : public QPushButton {
   Q_OBJECT
