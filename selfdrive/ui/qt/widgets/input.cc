@@ -187,7 +187,7 @@ ConfirmationDialog::ConfirmationDialog(const QString &prompt_text, const QString
   QFrame *container = new QFrame(this);
   container->setStyleSheet("QFrame { background-color: #1B1B1B; color: #C9C9C9; }");
   QVBoxLayout *main_layout = new QVBoxLayout(container);
-  main_layout->setContentsMargins((32, rich ? 32 : 120, 32, 32);
+  main_layout->setContentsMargins(32, rich ? 32 : 120, 32, 32);
 
   QLabel *prompt = new QLabel(prompt_text, this);
   prompt->setWordWrap(true);
@@ -219,12 +219,12 @@ ConfirmationDialog::ConfirmationDialog(const QString &prompt_text, const QString
 }
 
 bool ConfirmationDialog::alert(const QString &prompt_text, QWidget *parent) {
-  ConfirmationDialog d = ConfirmationDialog(prompt_text, "Ok", "", false, parent);
+  ConfirmationDialog d = ConfirmationDialog(prompt_text, tr("Ok"), "", false, parent);
   return d.exec();
 }
 
 bool ConfirmationDialog::confirm(const QString &prompt_text, QWidget *parent) {
-  ConfirmationDialog d = ConfirmationDialog(prompt_text, "Ok", "Cancel", false, parent);
+  ConfirmationDialog d = ConfirmationDialog(prompt_text, tr("Ok"), tr("Cancel"), false, parent);
   return d.exec();
 }
 
