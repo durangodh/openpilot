@@ -187,7 +187,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"SelectedCar", PERSISTENT},
     {"LateralControl", PERSISTENT},
     {"UseClusterSpeed", PERSISTENT},
-    {"UseLanelines", PERSISTENT},
     {"LongControlEnabled", PERSISTENT},
 
     {"IsLdwsCar", PERSISTENT},
