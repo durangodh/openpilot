@@ -251,6 +251,8 @@ void NvgWindow::initializeGL() {
   prev_draw_t = millis_since_boot();
   setBackgroundColor(bg_colors[STATUS_DISENGAGED]);
 
+  experimental_img = loadPixmap("../assets/img_experimental.svg", {img_size - 5, img_size - 5});
+	
   // neokii
   ic_brake = QPixmap("../assets/images/img_brake_disc.png").scaled(img_size, img_size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
   ic_autohold_warning = QPixmap("../assets/images/img_autohold_warning.png").scaled(img_size, img_size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
@@ -288,6 +290,8 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   painter.save();
 	
   const UIScene &scene = s->scene;
+  SubMaster &sm = *(s->sm);
+	
   // lanelines
   for (int i = 0; i < std::size(scene.lane_line_vertices); ++i) {
     painter.setBrush(QColor::fromRgbF(1.0, 1.0, 1.0, std::clamp<float>(scene.lane_line_probs[i], 0.0, 0.7)));
@@ -303,8 +307,8 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   // paint path
   QLinearGradient bg(0, height(), 0, height() / 4);
   float start_hue, end_hue;
-  if (scene.experimental_mode) {
-    const auto &acceleration = (*s->sm)["modelV2"].getModelV2().getAcceleration();
+  if (sm["controlsState"].getControlsState().getExperimentalMode()) {
+    const auto &acceleration = sm["modelV2"].getModelV2().getAcceleration();
     float acceleration_future = 0;
     if (acceleration.getZ().size() > 16) {
       acceleration_future = acceleration.getX()[16];  // 2.5 seconds
