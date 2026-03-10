@@ -46,6 +46,9 @@ public:
     return description->text();
   }
 
+  QLabel *icon_label;
+  QPixmap icon_pixmap;
+
 signals:
   void showDescription();
 
@@ -129,17 +132,32 @@ public:
       QString content("<body><h2>" + title + "</h2><br><br>"
                       "<p style=\"text-align: center; margin: 0 128px;\">" + getDescription() + "</p></body>");
       ConfirmationDialog dialog(content, tr("Ok"), tr("Cancel"), true, this);
-      if (!confirm || !state || dialog.exec()) {
+
+      bool confirmed = store_confirm && params.getBool(key + "Confirmed");
+      if (!confirm || confirmed || !state || dialog.exec()) {
+        if (store_confirm && state) params.putBool(key + "Confirmed", true);
         params.putBool(key, state);
+        setIcon(state);
       } else {
         toggle.togglePosition();
       }
     });
   }
 
+   void setConfirmation(bool _confirm, bool _store_confirm) {
+    confirm = _confirm;
+    store_confirm = _store_confirm;
+  };
+
+  void setActiveIcon(const QString &icon) {
+    active_icon_pixmap = QPixmap(icon).scaledToWidth(80, Qt::SmoothTransformation);
+  }
+
   void refresh() {
-    if (params.getBool(key) != toggle.on) {
+    bool state = params.getBool(key);
+    if (state != toggle.on) {
       toggle.togglePosition();
+      setIcon(state);
     }
   };
 
@@ -148,8 +166,19 @@ void showEvent(QShowEvent *event) override {
   };
 
 private:
+  void setIcon(bool state) {
+    if (state && !active_icon_pixmap.isNull()) {
+      icon_label->setPixmap(active_icon_pixmap);
+    } else if (!icon_pixmap.isNull()) {
+      icon_label->setPixmap(icon_pixmap);
+    }
+  };
+
   std::string key;
   Params params;
+  QPixmap active_icon_pixmap;
+  bool confirm = false;
+  bool store_confirm = false;
 };
 
 class ListWidget : public QWidget {
