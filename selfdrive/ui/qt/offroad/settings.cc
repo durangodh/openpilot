@@ -67,20 +67,19 @@ TogglesPanel::TogglesPanel(SettingsWindow *parent) : ListWidget(parent) {
     },
     {
       "ExperimentalMode",
-      tr("Experimental Mode"),
-      "",
-      "../assets/offroad/icon_road.png",
+      "Experimental mode",
+      "알파 수준 기능을 활성화합니다. (실험 기능/안전 경고를 확인하세요)",
+      "../assets/img_experimental_white.svg",
     },
     {
       "ExperimentalLongitudinalEnabled",
-      tr("Experimental openpilot Longitudinal Control"),
-      QString("<b>%1</b><br>%2")
-      .arg(tr("WARNING: openpilot longitudinal control is experimental for this car and will disable Automatic Emergency Braking (AEB)."))
-      .arg(tr("openpilot defaults to the car's built-in ACC instead of openpilot's longitudinal control on this car. Enable this to switch to openpilot longitudinal control.")),
-    },
+      "Experimental openpilot longitudinal control",
+      "<b>WARNING: openpilot longitudinal control is experimental for this car and will disable AEB.</b><br>\
+          openpilot defaults to the car's built-in ACC instead of openpilot's longitudinal control on this car. Enable this to switch to openpilot longitudinal control.",
+      "../assets/offroad/icon_speed_limit.png",
     {
       "UseLanelines",
-      tr("Use lane lines instead of e2e"),
+      "Use lane lines instead of e2e",
       "",
       "../assets/offroad/icon_road.png",
     },
