@@ -306,7 +306,7 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   if (scene.end_to_end_long) {
     const auto &acceleration = (*s->sm)["modelV2"].getModelV2().getAcceleration();
     float acceleration_future = 0;
-    if (acceleration.getZ().size() > 10) {
+    if (acceleration.getZ().size() > 10 && (*s->sm)["carControl"].getCarControl().getLongActive()) {
       acceleration_future = acceleration.getX()[10];  // 2.5 seconds
     }
     // speed up: 148, slow down: 0
