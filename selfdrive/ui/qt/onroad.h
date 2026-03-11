@@ -32,6 +32,8 @@ private:
 // container window for the NVG UI
 class NvgWindow : public CameraViewWidget {
   Q_OBJECT
+  Q_PROPERTY(bool engageable MEMBER engageable NOTIFY valueChanged); 
+  Q_PROPERTY(int status MEMBER status NOTIFY valueChanged);
 
 public:
   explicit NvgWindow(VisionStreamType type, QWidget* parent = 0);
@@ -61,6 +63,7 @@ protected:
 
   uint64_t last_update_params;
 
+  QPixmap engage_img;
   QPixmap experimental_img;
 
   // neokii
