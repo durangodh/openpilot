@@ -275,6 +275,7 @@ void NvgWindow::updateState(const UIState &s) {
   // update engageability and DM icons at 2Hz
   if (sm.frame % (UI_FREQ / 2) == 0) {
     setProperty("engageable", cs.getEngageable() || cs.getEnabled());
+	setProperty("experimentalMode", cs.getExperimentalMode());
   }
 }
 
@@ -648,6 +649,13 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
     configFont(p, "Open Sans", 60, "Bold");
     p.drawText(QRect(270, 110, width(), 70),
                QDateTime::currentDateTime().toString("MM-dd(ddd)"), textOpt);
+  }
+
+  // engage-ability icon
+  if (engageable) {
+    drawIcon(p, rect().right() - radius / 2 - bdr_s * 2, radius / 2 + int(bdr_s * 1.5),
+             experimentalMode ? experimental_img : engage_img,
+             blackColor(166), 1.0);
   }
 
   p.restore();
