@@ -33,10 +33,14 @@ private:
 class NvgWindow : public CameraViewWidget {
   Q_OBJECT
   Q_PROPERTY(bool engageable MEMBER engageable NOTIFY valueChanged); 
+  Q_PROPERTY(bool experimentalMode MEMBER experimentalMode NOTIFY valueChanged);
   Q_PROPERTY(int status MEMBER status NOTIFY valueChanged);
 
 public:
   explicit NvgWindow(VisionStreamType type, QWidget* parent = 0);
+
+signals:
+  void valueChanged();
 
 protected:
   void paintGL() override;
@@ -49,6 +53,9 @@ protected:
   inline QColor whiteColor(int alpha = 255) { return QColor(255, 255, 255, alpha); }
 
   double prev_draw_t = 0;
+  bool engageable = false;
+  bool experimentalMode = false;
+  int status = STATUS_DISENGAGED;
   FirstOrderFilter fps_filter;
 
   // neokii
