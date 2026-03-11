@@ -251,6 +251,7 @@ void NvgWindow::initializeGL() {
   prev_draw_t = millis_since_boot();
   setBackgroundColor(bg_colors[STATUS_DISENGAGED]);
 
+  engage_img = loadPixmap("../assets/img_chffr_wheel.png", {img_size, img_size});
   experimental_img = loadPixmap("../assets/img_experimental.svg", {img_size - 5, img_size - 5});
 	
   // neokii
@@ -263,6 +264,18 @@ void NvgWindow::initializeGL() {
   ic_turn_signal_l = QPixmap("../assets/images/turn_signal_l.png");
   ic_turn_signal_r = QPixmap("../assets/images/turn_signal_r.png");
   ic_satellite = QPixmap("../assets/images/satellite.png");
+}
+
+void NvgWindow::updateState(const UIState &s) {	
+  const SubMaster &sm = *(s.sm);
+  const auto cs = sm["controlsState"].getControlsState();
+
+  setProperty("status", s.status);
+
+  // update engageability and DM icons at 2Hz
+  if (sm.frame % (UI_FREQ / 2) == 0) {
+    setProperty("engageable", cs.getEngageable() || cs.getEnabled());
+  }
 }
 
 void NvgWindow::updateFrameMat(int w, int h) {
