@@ -76,22 +76,22 @@ class CarInterface(CarInterfaceBase):
       except:
         torque_tune(ret.lateralTuning, 2.5, 0.01)
 
-    ret.steerRatio = 16.0
-    ret.steerActuatorDelay = 0.2
-    ret.steerLimitTimer = 2.5
+    ret.steerRatio = 16.5
+    ret.steerActuatorDelay = 0.25
+    ret.steerLimitTimer = 3.0
 
     # longitudinal
     ret.longitudinalTuning.kpBP = [0., 5.*CV.KPH_TO_MS, 10.*CV.KPH_TO_MS, 30.*CV.KPH_TO_MS, 130.*CV.KPH_TO_MS]
     ret.longitudinalTuning.kpV = [1.2, 1.05, 1.0, 0.92, 0.55]
     ret.longitudinalTuning.kiBP = [0., 130. * CV.KPH_TO_MS]
-    ret.longitudinalTuning.kiV = [0.1, 0.05]
-    ret.longitudinalActuatorDelayLowerBound = 0.3
-    ret.longitudinalActuatorDelayUpperBound = 0.3
+    ret.longitudinalTuning.kiV = [0.06, 0.025]
+    ret.longitudinalActuatorDelayLowerBound = 0.35
+    ret.longitudinalActuatorDelayUpperBound = 0.45
 
-    ret.stopAccel = -2.5
-    ret.stoppingDecelRate = 0.2  # brake_travel/s while trying to stop
-    ret.vEgoStopping = 0.4
-    ret.vEgoStarting = 0.3
+    ret.stopAccel = -2.0
+    ret.stoppingDecelRate = 0.10  # brake_travel/s while trying to stop
+    ret.vEgoStopping = 0.5
+    ret.vEgoStarting = 0.4
 
     # genesis
     if candidate == CAR.GENESIS:
