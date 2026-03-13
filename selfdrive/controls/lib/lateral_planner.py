@@ -16,15 +16,15 @@ TRAJECTORY_SIZE = 33
 CAMERA_OFFSET = -0.06
 
 
-PATH_COST = 1.05
+PATH_COST = 1.0
 LATERAL_MOTION_COST = 0.11
-LATERAL_ACCEL_COST = 0.0
+LATERAL_ACCEL_COST = 1.0
 LATERAL_JERK_COST = 0.05
 # Extreme steering rate is unpleasant, even
 # when it does not cause bad jerk.
 # TODO this cost should be lowered when low
 # speed lateral control is stable on all cars
-STEERING_RATE_COST = 600.0
+STEERING_RATE_COST = 8.0
 
 MIN_SPEED = .3
 
