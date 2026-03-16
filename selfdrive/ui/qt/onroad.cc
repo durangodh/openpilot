@@ -443,11 +443,13 @@ void NvgWindow::drawTextWithColor(QPainter &p, int x, int y, const QString &text
 }
 
 void NvgWindow::drawIcon(QPainter &p, int x, int y, QPixmap &img, QBrush bg, float opacity) {
+  p.save();                          // ← 추가
+  p.setOpacity(opacity);             // ← 맨 먼저 설정
   p.setPen(Qt::NoPen);
   p.setBrush(bg);
   p.drawEllipse(x - radius / 2, y - radius / 2, radius, radius);
-  p.setOpacity(opacity);
   p.drawPixmap(x - img_size / 2, y - img_size / 2, img_size, img_size, img);
+  p.restore();    
 }
 
 void NvgWindow::drawText2(QPainter &p, int x, int y, int flags, const QString &text, const QColor& color) {
