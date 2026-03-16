@@ -75,16 +75,12 @@ typedef enum UIStatus {
   STATUS_DISENGAGED,
   STATUS_OVERRIDE,
   STATUS_ENGAGED,
-  STATUS_WARNING,
-  STATUS_ALERT,
 } UIStatus;
 
 const QColor bg_colors [] = {
-  [STATUS_DISENGAGED] =  QColor(0x17, 0x33, 0x49, 0xc8),
-  [STATUS_OVERRIDE] = QColor(0x91, 0x9b, 0x95, 0xf1),
-  [STATUS_ENGAGED] = QColor(0x17, 0x86, 0x44, 0xf1),
-  [STATUS_WARNING] = QColor(0xDA, 0x6F, 0x25, 0xf1),
-  [STATUS_ALERT] = QColor(0xC9, 0x22, 0x31, 0xf1),
+  [STATUS_DISENGAGED] =  QColor(0x80, 0x80, 0x80, 0xe6),
+  [STATUS_OVERRIDE] = QColor(0x87, 0xce, 0xeb, 0x88),
+  [STATUS_ENGAGED] = QColor(0x87, 0xce, 0xeb, 0x66),
 };
 
 typedef struct {
