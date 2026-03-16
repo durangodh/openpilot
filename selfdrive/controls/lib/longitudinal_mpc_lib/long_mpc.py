@@ -265,7 +265,7 @@ class LongitudinalMpc:
     for i in range(N):
       self.solver.cost_set(i, 'Zl', Zl)
 
-  def set_weights(self, v_ego, a_desired, prev_accel_constraint=True):
+  def set_weights(self, v_ego=0., a_desired=0., prev_accel_constraint=True):
     if self.mode == 'acc':
       a_change_cost = A_CHANGE_COST if prev_accel_constraint else 0
       if v_ego < 0.1 or a_desired > 0.:
