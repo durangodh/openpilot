@@ -59,6 +59,7 @@ protected:
   bool experimentalMode = false;
   int status = STATUS_DISENGAGED;
   FirstOrderFilter fps_filter;
+  FirstOrderFilter accel_filter;
 
   // neokii
   void drawIcon(QPainter &p, int x, int y, QPixmap &img, QBrush bg, float opacity);
