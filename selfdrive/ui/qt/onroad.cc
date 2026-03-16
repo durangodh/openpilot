@@ -320,7 +320,7 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
 
   // paint path
   QLinearGradient bg(0, height(), 0, height() / 4);
-  float start_hue, end_hue;
+  float start_hue;
   if (sm["controlsState"].getControlsState().getExperimentalMode()) {
     const auto &acceleration = sm["modelV2"].getModelV2().getAcceleration();
     float acceleration_future = 0;
