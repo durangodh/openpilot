@@ -594,6 +594,7 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
   bool longControl = scc_smoother.getLongControl();
   int autoTrGap = scc_smoother.getAutoTrGap();
 
+  p.setOpacity(1.0);
   p.setPen(Qt::NoPen);
   p.setBrush(QBrush(QColor(0, 0, 0, 255 * .1f)));
   p.drawEllipse(x - radius / 2, y - radius / 2, radius, radius);
