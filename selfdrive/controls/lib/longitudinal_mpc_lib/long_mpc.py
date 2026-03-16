@@ -269,9 +269,9 @@ class LongitudinalMpc:
     if self.mode == 'acc':
       a_change_cost = A_CHANGE_COST if prev_accel_constraint else 0
       if v_ego < 0.1 or a_desired > 0.:
-        x_cost = interp(v_ego, [1., 6.], [0.1, X_EGO_COST])
-        v_cost = interp(v_ego, [1., 6.], [0.2, V_EGO_COST])
-        a_cost = interp(v_ego, [1., 6.], [5.0, A_EGO_COST])
+        x_cost = interp(v_ego, [1., 10.], [0.1, X_EGO_COST])
+        v_cost = interp(v_ego, [1., 10.], [0.2, V_EGO_COST])
+        a_cost = interp(v_ego, [1., 10.], [5.0, A_EGO_COST])
       else:
         x_cost, v_cost, a_cost = 0., 0., 0.
 
