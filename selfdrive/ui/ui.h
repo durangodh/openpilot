@@ -108,7 +108,7 @@ typedef struct UIScene {
   bool lead_radar[2] = {false, false};
 
   float light_sensor, accel_sensor, gyro_sensor;
-  bool started, ignition, is_metric, longitudinal_control, end_to_end, experimental_mode;
+  bool started, ignition, is_metric, longitudinal_control, experimental_mode;
   uint64_t started_frame;
 } UIScene;
 
