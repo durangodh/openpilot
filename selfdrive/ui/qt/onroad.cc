@@ -655,7 +655,7 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
   }
 
   // engage-ability icon
-  if (engageable) {
+  {
     drawIcon(p, rect().right() - radius / 2 - bdr_s * 2, radius / 2 + int(bdr_s * 1.5),
              experimentalMode ? experimental_img : engage_img,
              blackColor(166), 1.0);
