@@ -129,22 +129,26 @@ public:
   ParamControl(const QString &param, const QString &title, const QString &desc, const QString &icon, QWidget *parent = nullptr) : ToggleControl(title, desc, icon, false, parent) {
     key = param.toStdString();
     QObject::connect(this, &ParamControl::toggleFlipped, [=](bool state) {
-      QString content("<body><h2>" + title + "</h2><br><br>"
-                      "<p style=\"text-align: center; margin: 0 128px;\">" + getDescription() + "</p></body>");
-      ConfirmationDialog dialog(content, tr("Ok"), tr("Cancel"), true, this);
-
-      bool confirmed = store_confirm && params.getBool(key + "Confirmed");
-      if (!confirm || confirmed || !state || dialog.exec()) {
-        if (store_confirm && state) params.putBool(key + "Confirmed", true);
+      // confirm=false인 경우 dialog를 아예 생성하지 않음 (블랙스크린 방지)
+      if (!confirm || (!state) || (store_confirm && params.getBool(key + "Confirmed"))) {
         params.putBool(key, state);
         setIcon(state);
       } else {
-        toggle.togglePosition();
+        QString content("<body><h2>" + title + "</h2><br><br>"
+                        "<p style=\"text-align: center; margin: 0 128px;\">" + getDescription() + "</p></body>");
+        ConfirmationDialog dialog(content, tr("Ok"), tr("Cancel"), true, this);
+        if (dialog.exec()) {
+          if (store_confirm && state) params.putBool(key + "Confirmed", true);
+          params.putBool(key, state);
+          setIcon(state);
+        } else {
+          toggle.togglePosition();
+        }
       }
     });
   }
 
-   void setConfirmation(bool _confirm, bool _store_confirm) {
+  void setConfirmation(bool _confirm, bool _store_confirm) {
     confirm = _confirm;
     store_confirm = _store_confirm;
   };
@@ -201,12 +205,12 @@ private:
     QPainter p(this);
     p.setPen(Qt::gray);
     for (int i = 0; i < inner_layout.count() - 1; ++i) {
-    QWidget *widget = inner_layout.itemAt(i)->widget();
+      QWidget *widget = inner_layout.itemAt(i)->widget();
       if (widget == nullptr || widget->isVisible()) {
         QRect r = inner_layout.itemAt(i)->geometry();
         int bottom = r.bottom() + inner_layout.spacing() / 2;
         p.drawLine(r.left() + 40, bottom, r.right() - 40, bottom);
-      }  
+      }
     }
   }
   QVBoxLayout outer_layout;
