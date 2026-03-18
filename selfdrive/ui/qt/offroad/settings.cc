@@ -78,12 +78,6 @@ TogglesPanel::TogglesPanel(SettingsWindow *parent) : ListWidget(parent) {
           openpilot defaults to the car's built-in ACC instead of openpilot's longitudinal control on this car. Enable this to switch to openpilot longitudinal control.",
       "../assets/offroad/icon_speed_limit.png",
     },
-    {
-      "EndToEndToggle",
-      "\U0001f96c Disable use of lanelines (Alpha) \U0001f96c",
-      "In this mode openpilot will ignore lanelines and just drive how it thinks a human would.",
-      "../assets/offroad/icon_road.png",
-    },
 #ifdef ENABLE_MAPS
     {
       "NavSettingTime24h",
@@ -703,6 +697,12 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   )");
 
   QList<ParamControl*> toggles;
+
+  toggles.append(new ParamControl("UseLanelines",
+                                            "Use lane lines instead of e2e",
+                                            "",
+                                            "../assets/offroad/icon_openpilot.png",
+                                            this));
 
   toggles.append(new ParamControl("UseClusterSpeed",
                                             "Use Cluster Speed",
