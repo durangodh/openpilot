@@ -35,6 +35,7 @@ class NvgWindow : public CameraViewWidget {
   Q_PROPERTY(bool engageable MEMBER engageable NOTIFY valueChanged); 
   Q_PROPERTY(bool experimentalMode MEMBER experimentalMode NOTIFY valueChanged);
   Q_PROPERTY(int status MEMBER status NOTIFY valueChanged);
+  Q_PROPERTY(float ang_str MEMBER ang_str NOTIFY valueChanged); // ✅ 추가
 
 public:
   explicit NvgWindow(VisionStreamType type, QWidget* parent = 0);
@@ -58,11 +59,14 @@ protected:
   bool engageable = false;
   bool experimentalMode = false;
   int status = STATUS_DISENGAGED;
+  float ang_str = 0;  // ✅ 추가
   FirstOrderFilter fps_filter;
   FirstOrderFilter accel_filter;
 
   // neokii
-  void drawIcon(QPainter &p, int x, int y, QPixmap &img, QBrush bg, float opacity);
+  // ✅ rotation, angle 파라미터 추가
+  void drawIcon(QPainter &p, int x, int y, QPixmap &img, QBrush bg, float opacity,
+                bool rotation = false, float angle = 0.0f);
   void drawText(QPainter &p, int x, int y, const QString &text, int alpha = 255);
   void drawText2(QPainter &p, int x, int y, int flags, const QString &text, const QColor& color);
   void drawTextWithColor(QPainter &p, int x, int y, const QString &text, QColor& color);
