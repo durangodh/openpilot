@@ -118,7 +118,7 @@ class CarInterfaceBase(ABC):
 
   def torque_from_lateral_accel(self) -> TorqueFromLateralAccelCallbackType:
     return self.torque_from_lateral_accel_linear
-    
+
   # returns a set of default params to avoid repetition in car specific params
   @staticmethod
   def get_std_params(candidate, fingerprint):
@@ -166,7 +166,7 @@ class CarInterfaceBase(ABC):
     tune.torque.latAccelFactor = params['LAT_ACCEL_FACTOR']
     tune.torque.latAccelOffset = 0.0
     tune.torque.steeringAngleDeadzoneDeg = steering_angle_deadzone_deg
-    
+
   @abstractmethod
   def _update(self, c: car.CarControl) -> car.CarState:
     pass
@@ -193,10 +193,10 @@ class CarInterfaceBase(ABC):
       ret.vEgoCluster = apply_hysteresis(ret.vEgoCluster, self.CS.out.vEgoCluster, self.CS.cluster_speed_hyst_gap)
       if abs(ret.vEgo) < self.CS.cluster_min_speed:
         ret.vEgoCluster = 0.0
-        
+
     if ret.cruiseState.speedCluster == 0:
       ret.cruiseState.speedCluster = ret.cruiseState.speed
-      
+
     # copy back for next iteration
     reader = ret.as_reader()
     if self.CS is not None:
@@ -251,18 +251,26 @@ class CarInterfaceBase(ABC):
     if cs_out.steerFaultPermanent:
       events.add(EventName.steerUnavailable)
 
+    # 오토 인게이지 조건 사전 계산
+    auto_engage_condition = (
+      allow_enable and
+      cs_out.gearShifter == GearShifter.drive and
+      cs_out.vEgo > 5. * CV.KPH_TO_MS
+    )
+
     # we engage when pcm is active (rising edge)
     if pcm_enable:
       if cs_out.cruiseState.enabled and not self.CS.out.cruiseState.enabled and allow_enable:
         events.add(EventName.pcmEnable)
       elif not cs_out.cruiseState.enabled:
-        events.add(EventName.pcmDisable)
+        # 오토 인게이지 조건이 충족된 경우 pcmDisable 억제 (경고음 방지)
+        if not auto_engage_condition:
+          events.add(EventName.pcmDisable)
 
-    # 오토 인게이지
-    if allow_enable and cs_out.cruiseState.enabled:
-      if cs_out.gearShifter == GearShifter.drive and cs_out.vEgo > 5. * CV.KPH_TO_MS:
-        events.add(EventName.pcmEnable)
-        
+    # 오토 인게이지: D기어 + 시속 5km/h 이상이면 자동 인게이지
+    if auto_engage_condition and cs_out.cruiseState.enabled:
+      events.add(EventName.pcmEnable)
+
     return events
 
 
