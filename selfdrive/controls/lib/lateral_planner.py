@@ -30,7 +30,7 @@ MIN_SPEED = .3
 
 class LateralPlanner:
   def __init__(self, CP):
-    self.use_lanelines = not Params().get_bool('EndToEndToggle')
+    self.use_lanelines = Params().get_bool('UseLanelines')
     self.LP = LanePlanner()
     self.DH = DesireHelper()
 
