@@ -442,14 +442,24 @@ void NvgWindow::drawTextWithColor(QPainter &p, int x, int y, const QString &text
   p.drawText(real_rect.x(), real_rect.bottom(), text);
 }
 
-void NvgWindow::drawIcon(QPainter &p, int x, int y, QPixmap &img, QBrush bg, float opacity) {
-  p.save();                          // ← 추가
-  p.setOpacity(opacity);             // ← 맨 먼저 설정
+void NvgWindow::drawIcon(QPainter &p, int x, int y, QPixmap &img, QBrush bg, float opacity, bool rotation, float angle) {
+  p.save();
+  p.setOpacity(opacity);
   p.setPen(Qt::NoPen);
   p.setBrush(bg);
   p.drawEllipse(x - radius / 2, y - radius / 2, radius, radius);
-  p.drawPixmap(x - img_size / 2, y - img_size / 2, img_size, img_size, img);
-  p.restore();    
+
+  if (rotation) {
+    p.translate(x, y);
+    p.rotate(-angle);           // 조향각만큼 회전 (반시계)
+    QRect r = img.rect();
+    r.moveCenter(QPoint(0, 0));
+    p.drawPixmap(r, img);
+  } else {
+    p.drawPixmap(x - img_size / 2, y - img_size / 2, img_size, img_size, img);
+  }
+
+  p.restore();
 }
 
 void NvgWindow::drawText2(QPainter &p, int x, int y, int flags, const QString &text, const QColor& color) {
@@ -656,9 +666,14 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
 
   // engage-ability icon
   {
+    const SubMaster &sm = *(uiState()->sm);
+    float steer_angle = sm["carState"].getCarState().getSteeringAngleDeg();
+
     drawIcon(p, rect().right() - radius / 2 - bdr_s * 2, radius / 2 + int(bdr_s * 1.5),
              experimentalMode ? experimental_img : engage_img,
-             blackColor(166), 1.0);
+             blackColor(166), 1.0,
+             true,         // rotation ON
+             steer_angle); // 실시간 조향각
   }
 
   p.restore();
