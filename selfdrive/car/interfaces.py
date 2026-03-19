@@ -263,12 +263,16 @@ class CarInterfaceBase(ABC):
       if cs_out.cruiseState.enabled and not self.CS.out.cruiseState.enabled and allow_enable:
         events.add(EventName.pcmEnable)
       elif not cs_out.cruiseState.enabled:
-        # 오토 인게이지 조건이 충족된 경우 pcmDisable 억제 (경고음 방지)
+        # 오토 인게이지 조건이면 pcmDisable 억제
         if not auto_engage_condition:
           events.add(EventName.pcmDisable)
 
-    # 오토 인게이지: D기어 + 시속 5km/h 이상이면 자동 인게이지
-    if auto_engage_condition and cs_out.cruiseState.enabled:
+    # 오토 인게이지 - 라이징 엣지만 처리 (controlsMismatch 방지)
+    if (allow_enable and
+        cs_out.gearShifter == GearShifter.drive and
+        cs_out.vEgo > 5. * CV.KPH_TO_MS and
+        cs_out.cruiseState.enabled and
+        not self.CS.out.cruiseState.enabled):  # ← 핵심: 상태 변화 순간 1회만
       events.add(EventName.pcmEnable)
 
     return events
