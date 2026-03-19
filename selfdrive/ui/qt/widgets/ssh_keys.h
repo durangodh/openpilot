@@ -32,3 +32,18 @@ private:
   void refresh();
   void getUserKeys(const QString &username);
 };
+
+class TimeZoneSelectCombo : public AbstractControl 
+{
+  Q_OBJECT
+
+public:
+  TimeZoneSelectCombo();
+
+private:
+  QPushButton btn;
+  QComboBox combobox;
+  Params params;
+
+  void refresh();
+};
