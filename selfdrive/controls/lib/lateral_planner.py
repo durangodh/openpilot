@@ -30,7 +30,10 @@ MIN_SPEED = .3
 
 class LateralPlanner:
   def __init__(self, CP):
-    self.use_lanelines = Params().get_bool('UseLanelines')
+    self.params = Params()
+    self.use_lanelines = self.params.get_bool('UseLanelines')
+    self.last_params_update = 0
+    
     self.LP = LanePlanner()
     self.DH = DesireHelper()
 
@@ -54,6 +57,11 @@ class LateralPlanner:
     self.lat_mpc.reset(x0=self.x0)
 
   def update(self, sm):
+    t = sec_since_boot()
+    if t - self.last_params_update > 1.0:
+        self.use_lanelines = self.params.get_bool('UseLanelines')
+        self.last_params_update = t
+      
     # clip speed , lateral planning is not possible at 0 speed
     self.v_ego = max(MIN_SPEED, sm['carState'].vEgo)
     measured_curvature = sm['controlsState'].curvature
