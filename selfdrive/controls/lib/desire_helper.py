@@ -43,12 +43,22 @@ class DesireHelper:
     self.prev_one_blinker = False
     self.desire = log.LateralPlan.Desire.none
 
-    self.lane_change_enabled = Params().get_bool('LaneChangeEnabled')
-    self.auto_lane_change_enabled = Params().get_bool('AutoLaneChangeEnabled')
+    self.params = Params()                                                    # ← 인스턴스 재사용
+    self.lane_change_enabled = self.params.get_bool('LaneChangeEnabled')
+    self.auto_lane_change_enabled = self.params.get_bool('AutoLaneChangeEnabled')
+    self.last_params_update = 0.0
+    
     self.auto_lane_change_timer = 0.0
     self.prev_torque_applied = False
 
   def update(self, carstate, lateral_active, lane_change_prob):
+    import time
+    t = time.monotonic()
+    if t - self.last_params_update > 1.0:
+        self.lane_change_enabled = self.params.get_bool('LaneChangeEnabled')
+        self.auto_lane_change_enabled = self.params.get_bool('AutoLaneChangeEnabled')
+        self.last_params_update = t
+      
     v_ego = carstate.vEgo
     one_blinker = carstate.leftBlinker != carstate.rightBlinker
     below_lane_change_speed = v_ego < LANE_CHANGE_SPEED_MIN
