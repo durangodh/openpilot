@@ -666,7 +666,7 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
 
   // engage-ability icon
   {
-    const SubMaster &sm = *(uiState()->sm);
+    //const SubMaster &sm = *(uiState()->sm);
     float steer_angle = sm["carState"].getCarState().getSteeringAngleDeg();
 
     drawIcon(p, rect().right() - radius / 2 - bdr_s * 2, radius / 2 + int(bdr_s * 1.5),
