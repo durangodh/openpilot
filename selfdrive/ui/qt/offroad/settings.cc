@@ -696,9 +696,10 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     }
   )");
 
-  QList<ParamControl*> toggles;
-  toggles.append(new TimeZoneSelectCombo());
+  toggleLayout->addWidget(new TimeZoneSelectCombo());
+  toggleLayout->addWidget(horizontal_line());
   
+  QList<ParamControl*> toggles;
   toggles.append(new ParamControl("UseLanelines",
                                             "Use lane lines instead of e2e",
                                             "",
