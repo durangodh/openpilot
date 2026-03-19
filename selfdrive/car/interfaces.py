@@ -255,7 +255,8 @@ class CarInterfaceBase(ABC):
     auto_engage_condition = (
       allow_enable and
       cs_out.gearShifter == GearShifter.drive and
-      cs_out.vEgo > 5. * CV.KPH_TO_MS
+      cs_out.vEgo > 5. * CV.KPH_TO_MS and
+      cs_out.cruiseState.enabledAcc  # ← PCM ACC 실제 활성 확인 추가
     )
 
     # we engage when pcm is active (rising edge)
@@ -271,8 +272,9 @@ class CarInterfaceBase(ABC):
     if (allow_enable and
         cs_out.gearShifter == GearShifter.drive and
         cs_out.vEgo > 5. * CV.KPH_TO_MS and
+        cs_out.cruiseState.enabledAcc and          # ← PCM ACC 실제 활성 확인 추가
         cs_out.cruiseState.enabled and
-        not self.CS.out.cruiseState.enabled):  # ← 핵심: 상태 변화 순간 1회만
+        not self.CS.out.cruiseState.enabled):
       events.add(EventName.pcmEnable)
 
     return events
