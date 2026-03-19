@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QPushButton>
+#include <QComboBox>
 
 #include "selfdrive/hardware/hw.h"
 #include "selfdrive/ui/qt/widgets/controls.h"
