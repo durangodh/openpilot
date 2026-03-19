@@ -46,7 +46,7 @@ def build(spinner: Spinner, dirty: bool = False) -> None:
         prefix = b'progress: '
         if line.startswith(prefix):
           i = int(line[len(prefix):])
-          spinner.update(f"openpilotÁøÇàÁß... {round(MAX_BUILD_PROGRESS * ( i /  TOTAL_SCONS_NODES))}%")
+          spinner.update(f"openpilot ì§„í•¸ì¤‘... {round(MAX_BUILD_PROGRESS * ( i /  TOTAL_SCONS_NODES))}%")
         elif len(line):
           compile_output.append(line)
           print(line.decode('utf8', 'replace'))
