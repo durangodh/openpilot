@@ -672,14 +672,14 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
 
   // engage-ability icon
   {
-    //const SubMaster &sm = *(uiState()->sm);
     float steer_angle = sm["carState"].getCarState().getSteeringAngleDeg();
-
+    QColor engageBgColor = bg_colors[uiState()->status];
+    engageBgColor.setAlpha(166);
     drawIcon(p, rect().right() - radius / 2 - bdr_s * 2, radius / 2 + int(bdr_s * 1.5),
              experimentalMode ? experimental_img : engage_img,
-             blackColor(166), 1.0,
-             true,         // rotation ON
-             steer_angle); // 실시간 조향각
+             engageBgColor, 1.0,
+             true,
+             steer_angle);
   }
 
   p.restore();
