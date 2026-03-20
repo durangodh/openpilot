@@ -321,6 +321,7 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   // paint path
   QLinearGradient bg(0, height(), 0, height() / 4);
   float start_hue, end_hue;
+  bool use_lanelines = Params().getBool("UseLanelines");
   if (sm["controlsState"].getControlsState().getExperimentalMode()) {
     const auto &acceleration = sm["modelV2"].getModelV2().getAcceleration();
     float acceleration_future = 0;
@@ -337,6 +338,11 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
     bg.setColorAt(0.0, QColor::fromHslF(start_hue / 360., 0.97, 0.56, 0.4));
     bg.setColorAt(0.5, QColor::fromHslF(end_hue / 360., 1.0, 0.68, 0.35));
     bg.setColorAt(1.0, QColor::fromHslF(end_hue / 360., 1.0, 0.68, 0.0));
+  } else if (use_lanelines) {
+    // Cyan(하늘색) 계열
+    bg.setColorAt(0.0, QColor::fromHslF(195 / 360., 0.94, 0.51, 0.45));
+    bg.setColorAt(0.5, QColor::fromHslF(210 / 360., 1.0, 0.68, 0.35));
+    bg.setColorAt(1.0, QColor::fromHslF(210 / 360., 1.0, 0.68, 0.0));
   } else {
     bg.setColorAt(0.0, QColor::fromHslF(148 / 360., 0.94, 0.51, 0.4));
     bg.setColorAt(0.5, QColor::fromHslF(112 / 360., 1.0, 0.68, 0.35));
