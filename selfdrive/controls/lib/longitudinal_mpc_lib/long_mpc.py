@@ -213,7 +213,7 @@ def gen_long_ocp():
 class LongitudinalMpc:
   def __init__(self, mode='acc'):
     self.mode = mode
-    self.applyLongDynamicCost = False
+    self.applyLongDynamicCost = True
     # planner에서 넘긴 값을 저장해두는 변수 (set_weights 이중 호출 충돌 방지)
     self.prev_accel_constraint = True
     self.a_desired = 0.
