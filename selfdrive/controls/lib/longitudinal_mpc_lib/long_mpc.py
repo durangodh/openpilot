@@ -71,12 +71,10 @@ STOP_DISTANCE = 6.5
 STOP_DISTANCE_E2E = 6.0
  
  
-# ── krkeegan: v_ego, t_follow, stop_dist 파라미터 추가 ──────────────────────
 def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, krkeegan=False):
   if not krkeegan:
     return (v_lead**2) / (2 * COMFORT_BRAKE)
  
-  # KRKeegan: lead 거리값을 고의로 늘려 solver가 더 빠른 가속을 유발하도록 함
   v_diff_offset = 0
   if np.all(v_lead - v_ego > 0):
     v_diff_offset = ((v_lead - v_ego) * 1.)
@@ -84,7 +82,6 @@ def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dis
     v_diff_offset = np.maximum(v_diff_offset * ((10 - v_ego) / 10), 0)
   distance = (v_lead**2) / (2 * COMFORT_BRAKE) + v_diff_offset
   return distance
-# ───────────────────────────────────────────────────────────────────────────
  
  
 def get_safe_obstacle_distance(v_ego, t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE):
@@ -280,7 +277,6 @@ class LongitudinalMpc:
     for i in range(N):
       self.solver.cost_set(i, 'Zl', Zl)
  
-  # ── krkeegan: TF 및 v_ego에 따른 cost 배율 계산 ─────────────────────────
   def get_cost_multipliers(self, v_lead0, v_lead1):
     v_ego = self.x0[1]
     v_ego_bps = [0, 10]
@@ -300,7 +296,6 @@ class LongitudinalMpc:
     j_ego    = min(j_ego_tf, j_ego_v_ego)
     a_change = min(a_change_tf, a_change_v_ego)
     return (a_change, j_ego, d_zone_tf)
-  # ─────────────────────────────────────────────────────────────────────────
  
   def set_weights(self, v_ego=0., a_desired=0., prev_accel_constraint=True, v_lead0=0, v_lead1=0):
  
