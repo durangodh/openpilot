@@ -266,7 +266,7 @@ class CarInterface(CarInterfaceBase):
 
 
 
-    ret.radarTimeStep = 0.05
+    ret.radarTimeStep = (1.0 / 50)
 
     if ret.centerToFront == 0:
       ret.centerToFront = ret.wheelbase * 0.4
