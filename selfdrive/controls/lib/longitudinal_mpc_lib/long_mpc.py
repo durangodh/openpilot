@@ -229,9 +229,7 @@ def gen_long_ocp():
 class LongitudinalMpc:
   def __init__(self, mode='acc'):
     self.mode = mode
-    # ── krkeegan: dynamic cost 플래그 추가 ───────────────────────────────────
-    self.applyLongDynamicCost = False
-    # ─────────────────────────────────────────────────────────────────────────
+    self.applyLongDynamicCost = True
     self.solver = AcadosOcpSolverCython(MODEL_NAME, ACADOS_SOLVER_TYPE, N)
     self.reset()
     self.source = SOURCES[2]
