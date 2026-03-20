@@ -35,7 +35,7 @@ X_EGO_COST = 0.
 V_EGO_COST = 0.
 A_EGO_COST = 0.
 J_EGO_COST = 5.0
-A_CHANGE_COST = 100. # 200.
+A_CHANGE_COST = 100.
 DANGER_ZONE_COST = 100.
 CRASH_DISTANCE = .25
 LEAD_DANGER_FACTOR = 0.8
@@ -75,6 +75,7 @@ def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dis
   if not krkeegan:
     return (v_lead**2) / (2 * COMFORT_BRAKE)
  
+  # KRKeegan: lead 거리값을 고의로 늘려 solver가 더 빠른 가속을 유발하도록 함
   v_diff_offset = 0
   if np.all(v_lead - v_ego > 0):
     v_diff_offset = ((v_lead - v_ego) * 1.)
@@ -163,10 +164,6 @@ def gen_long_ocp():
  
   desired_dist_comfort = get_safe_obstacle_distance(v_ego, lead_t_follow, stop_dist)
  
-  # The main cost in normal operation is how close you are to the "desired" distance
-  # from an obstacle at every timestep. This obstacle can be a lead car
-  # or other object. In e2e mode we can use x_position targets as a cost
-  # instead.
   costs = [((x_obstacle - x_ego) - (desired_dist_comfort)) / (v_ego + 10.),
            x_ego,
            v_ego,
@@ -176,9 +173,6 @@ def gen_long_ocp():
   ocp.model.cost_y_expr = vertcat(*costs)
   ocp.model.cost_y_expr_e = vertcat(*costs[:-1])
  
-  # Constraints on speed, acceleration and desired distance to
-  # the obstacle, which is treated as a slack constraint so it
-  # behaves like an asymmetrical cost.
   constraints = vertcat(v_ego,
                         (a_ego - a_min),
                         (a_max - a_ego),
@@ -189,7 +183,6 @@ def gen_long_ocp():
   ocp.constraints.x0 = x0
   ocp.parameter_values = np.array([-1.2, 1.2, 0.0, 0.0, T_FOLLOW, LEAD_DANGER_FACTOR, STOP_DISTANCE])
  
-  # We put all constraint cost weights to 0 and only set them at runtime
   cost_weights = np.zeros(CONSTR_DIM)
   ocp.cost.zl = cost_weights
   ocp.cost.Zl = cost_weights
@@ -200,18 +193,12 @@ def gen_long_ocp():
   ocp.constraints.uh = 1e4*np.ones(CONSTR_DIM)
   ocp.constraints.idxsh = np.arange(CONSTR_DIM)
  
-  # The HPIPM solver can give decent solutions even when it is stopped early
-  # Which is critical for our purpose where compute time is strictly bounded
-  # We use HPIPM in the SPEED_ABS mode, which ensures fastest runtime. This
-  # does not cause issues since the problem is well bounded.
   ocp.solver_options.qp_solver = 'PARTIAL_CONDENSING_HPIPM'
   ocp.solver_options.hessian_approx = 'GAUSS_NEWTON'
   ocp.solver_options.integrator_type = 'ERK'
   ocp.solver_options.nlp_solver_type = ACADOS_SOLVER_TYPE
   ocp.solver_options.qp_solver_cond_N = 1
  
-  # More iterations take too much time and less lead to inaccurate convergence in
-  # some situations. Ideally we would run just 1 iteration to ensure fixed runtime.
   ocp.solver_options.qp_solver_iter_max = 10
   ocp.solver_options.qp_tol = 1e-3
  
@@ -226,15 +213,16 @@ def gen_long_ocp():
 class LongitudinalMpc:
   def __init__(self, mode='acc'):
     self.mode = mode
-    self.applyLongDynamicCost = True
+    self.applyLongDynamicCost = False
+    # planner에서 넘긴 값을 저장해두는 변수 (set_weights 이중 호출 충돌 방지)
+    self.prev_accel_constraint = True
+    self.a_desired = 0.
     self.solver = AcadosOcpSolverCython(MODEL_NAME, ACADOS_SOLVER_TYPE, N)
     self.reset()
     self.source = SOURCES[2]
  
   def reset(self):
-    # self.solver = AcadosOcpSolverCython(MODEL_NAME, ACADOS_SOLVER_TYPE, N)
     self.solver.reset()
-    # self.solver.options_set('print_level', 2)
     self.v_solution = np.zeros(N+1)
     self.a_solution = np.zeros(N+1)
     self.prev_a = np.array(self.a_solution)
@@ -268,11 +256,8 @@ class LongitudinalMpc:
       # reduce the cost on (a-a_prev) later in the horizon.
       W[4,4] = cost_weights[4] * np.interp(T_IDXS[i], [0.0, 1.0, 2.0], [1.0, 1.0, 0.0])
       self.solver.cost_set(i, 'W', W)
-    # Setting the slice without the copy make the array not contiguous,
-    # causing issues with the C interface.
     self.solver.cost_set(N, 'W', np.copy(W[:COST_E_DIM, :COST_E_DIM]))
  
-    # Set L2 slack cost on lower bound constraints
     Zl = np.array(constraint_cost_weights)
     for i in range(N):
       self.solver.cost_set(i, 'Zl', Zl)
@@ -286,7 +271,7 @@ class LongitudinalMpc:
     j_ego_tf    = interp(self.t_follow, TFs, [.8, 1., 1.1])  # 가까울수록 작게
     d_zone_tf   = interp(self.t_follow, TFs, [1.3, 1., 1.])  # 가까울수록 크게
  
-    # 상대 차량이 현재 속도보다 빠를 때 sluggish 가속 개선
+    # 선행차가 빠를 때(가속 국면) + 저속이면 배율 추가 감소
     j_ego_v_ego    = 1
     a_change_v_ego = 1
     if (v_lead0 - v_ego >= 0) and (v_lead1 - v_ego >= 0):
@@ -298,6 +283,9 @@ class LongitudinalMpc:
     return (a_change, j_ego, d_zone_tf)
  
   def set_weights(self, v_ego=0., a_desired=0., prev_accel_constraint=True, v_lead0=0, v_lead1=0):
+    # planner에서 넘긴 값 저장 (update() 내부 재호출 시 사용)
+    self.prev_accel_constraint = prev_accel_constraint
+    self.a_desired = a_desired
  
     # Prevent sudden acceleration changes (jerk) after gas overriding.
     # Proposed by ajouatom
@@ -307,16 +295,16 @@ class LongitudinalMpc:
     if self.mode == 'acc':
       a_change_cost = A_CHANGE_COST if prev_accel_constraint else 0
  
-      # ── krkeegan: applyLongDynamicCost 시 배율 기반 cost 사용 ────────────
       if self.applyLongDynamicCost:
+        # krkeegan: t_follow, v_lead 기반 동적 cost 배율 적용
         cost_multipliers = self.get_cost_multipliers(v_lead0, v_lead1)
         cost_weights = [X_EGO_OBSTACLE_COST, X_EGO_COST, V_EGO_COST, A_EGO_COST,
                         a_change_cost * cost_multipliers[0],
                         J_EGO_COST * cost_multipliers[1]]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST,
                                    DANGER_ZONE_COST * cost_multipliers[2]]
-      # ── 기존 Doc2 v_ego 기반 cost (applyLongDynamicCost=False 시 유지) ──
       else:
+        # 기본: v_ego 기반 보간 cost
         if v_ego < 0.1 or a_desired > 0.:
           x_cost = interp(v_ego, [1., 10.], [0.1, X_EGO_COST])
           v_cost = interp(v_ego, [1., 10.], [0.2, V_EGO_COST])
@@ -325,7 +313,6 @@ class LongitudinalMpc:
           x_cost, v_cost, a_cost = 0., 0., 0.
         cost_weights = [X_EGO_OBSTACLE_COST, x_cost, v_cost, a_cost, a_change_cost, J_EGO_COST]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, DANGER_ZONE_COST]
-      # ─────────────────────────────────────────────────────────────────────
  
     elif self.mode == 'blended':
       cost_weights = [0., 0.1, 0.2, 5.0, 0.0, 1.0]
@@ -374,8 +361,6 @@ class LongitudinalMpc:
     return lead_xv
  
   def set_accel_limits(self, min_a, max_a):
-    # TODO this sets a max accel limit, but the minimum limit is only for cruise decel
-    # needs refactor
     self.cruise_min_a = min_a
     self.max_a = max_a
  
@@ -396,22 +381,20 @@ class LongitudinalMpc:
     self.t_follow = tr
     self.stop_dist = STOP_DISTANCE if self.mode == 'acc' else STOP_DISTANCE_E2E
  
-    # ── krkeegan: set_weights를 lead 속도와 함께 호출 ──────────────────────
-    self.set_weights(v_ego=v_ego, prev_accel_constraint=True,
-                     v_lead0=lead_xv_0[0, 1], v_lead1=lead_xv_1[0, 1])
-    # ─────────────────────────────────────────────────────────────────────────
+    # planner에서 저장된 값 + lead 속도 함께 전달 (set_weights 이중 호출 충돌 방지)
+    self.set_weights(v_ego=v_ego,
+                     a_desired=self.a_desired,
+                     prev_accel_constraint=self.prev_accel_constraint,
+                     v_lead0=lead_xv_0[0, 1],
+                     v_lead1=lead_xv_1[0, 1])
  
-    # To estimate a safe distance from a moving lead, we calculate how much stopping
-    # distance that lead needs as a minimum. We can add that to the current distance
-    # and then treat that as a stopped car/obstacle at this new distance.
-    # ── krkeegan: krkeegan 플래그를 get_stopped_equivalence_factor에 전달 ──
+    # krkeegan: applyLongDynamicCost 플래그를 krkeegan 파라미터로 전달
     lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(
       lead_xv_0[:,1], self.x_sol[:,1], self.t_follow, self.stop_dist,
       krkeegan=self.applyLongDynamicCost)
     lead_1_obstacle = lead_xv_1[:,0] + get_stopped_equivalence_factor(
       lead_xv_1[:,1], self.x_sol[:,1], self.t_follow, self.stop_dist,
       krkeegan=self.applyLongDynamicCost)
-    # ─────────────────────────────────────────────────────────────────────────
  
     self.params[:,0] = MIN_ACCEL
     self.params[:,1] = self.max_a
@@ -420,8 +403,6 @@ class LongitudinalMpc:
     if self.mode == 'acc':
       self.params[:,5] = LEAD_DANGER_FACTOR
  
-      # Fake an obstacle for cruise, this ensures smooth acceleration to set speed
-      # when the leads are no factor.
       v_lower = v_ego + (T_IDXS * self.cruise_min_a * 1.05)
       v_upper = v_ego + (T_IDXS * self.max_a * 1.05)
       v_cruise_clipped = np.clip(v_cruise * np.ones(N+1),
@@ -488,8 +469,6 @@ class LongitudinalMpc:
  
  
   def run(self):
-    # t0 = sec_since_boot()
-    # reset = 0
     for i in range(N+1):
       self.solver.set(i, 'p', self.params[i])
     self.solver.constraints_set(0, "lbx", self.x0)
@@ -500,12 +479,6 @@ class LongitudinalMpc:
     self.time_qp_solution = float(self.solver.get_stats('time_qp')[0])
     self.time_linearization = float(self.solver.get_stats('time_lin')[0])
     self.time_integrator = float(self.solver.get_stats('time_sim')[0])
- 
-    # qp_iter = self.solver.get_stats('statistics')[-1][-1] # SQP_RTI specific
-    # print(f"long_mpc timings: tot {self.solve_time:.2e}, qp {self.time_qp_solution:.2e}, lin {self.time_linearization:.2e}, integrator {self.time_integrator:.2e}, qp_iter {qp_iter}")
-    # res = self.solver.get_residuals()
-    # print(f"long_mpc residuals: {res[0]:.2e}, {res[1]:.2e}, {res[2]:.2e}, {res[3]:.2e}")
-    # self.solver.print_statistics()
  
     for i in range(N+1):
       self.x_sol[i] = self.solver.get(i, 'x')
@@ -524,8 +497,6 @@ class LongitudinalMpc:
         self.last_cloudlog_t = t
         cloudlog.warning(f"Long mpc reset, solution_status: {self.solution_status}")
       self.reset()
-      # reset = 1
-    # print(f"long_mpc timings: total internal {self.solve_time:.2e}, external: {(sec_since_boot() - t0):.2e} qp {self.time_qp_solution:.2e}, lin {self.time_linearization:.2e} qp_iter {qp_iter}, reset {reset}")
  
  
 if __name__ == "__main__":
