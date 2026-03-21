@@ -47,6 +47,7 @@ def manager_init() -> None:
     # HKG
     ("AutoAscc", "1"),
     ("ChevronInfo", "4"),
+    ("BlindSpot", "1"),
     ("LateralControl", "TORQUE"),
     ("UseClusterSpeed", "0"),
     ("LongControlEnabled", "0"),
