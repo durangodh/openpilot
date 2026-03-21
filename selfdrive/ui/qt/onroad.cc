@@ -558,28 +558,7 @@ void NvgWindow::drawLeadStatusAtPosition(QPainter &p,
                Qt::AlignBottom | Qt::AlignHCenter, line);
 
     // 본문 색상 결정
-    QColor text_color;
-
-    if (line.contains("m") || line.contains("ft")) {
-      // 거리 — 위험도별 색상
-      if (d_rel < 20.0f)
-        text_color = QColor(255, 80,  80,  (int)(255 * lead_status_alpha)); // 빨강
-      else if (d_rel < 40.0f)
-        text_color = QColor(255, 200, 80,  (int)(255 * lead_status_alpha)); // 노랑
-      else
-        text_color = QColor(80,  255, 120, (int)(255 * lead_status_alpha)); // 초록
-    } else if (line.contains("s") && !line.contains("---")) {
-      // TTC — 위험도별 색상
-      float ttc_val = line.left(line.length() - 1).toFloat();
-      if (ttc_val < 3.0f)
-        text_color = QColor(255, 80,  80,  (int)(255 * lead_status_alpha));
-      else if (ttc_val < 6.0f)
-        text_color = QColor(255, 200, 80,  (int)(255 * lead_status_alpha));
-      else
-        text_color = QColor(255, 255, 255, (int)(255 * lead_status_alpha));
-    } else {
-      text_color = QColor(255, 255, 255, (int)(255 * lead_status_alpha));
-    }
+    QColor text_color = QColor(255, 255, 255, (int)(255 * lead_status_alpha));
 
     p.setPen(text_color);
     p.drawText(textRect, Qt::AlignBottom | Qt::AlignHCenter, line);
