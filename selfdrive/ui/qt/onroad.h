@@ -1,29 +1,21 @@
 #pragma once
-
 #include <QStackedLayout>
 #include <QWidget>
-
 #include "selfdrive/common/util.h"
 #include "selfdrive/ui/qt/widgets/cameraview.h"
 #include "selfdrive/ui/ui.h"
-
 #include <QTimer>
 #include <QMap>
 #include "selfdrive/ui/qt/screenrecorder/screenrecorder.h"
 
-
 // ***** onroad widgets *****
-
 class OnroadAlerts : public QWidget {
   Q_OBJECT
-
 public:
   OnroadAlerts(QWidget *parent = 0) : QWidget(parent) {};
   void updateAlert(const Alert &a, const QColor &color);
-
 protected:
   void paintEvent(QPaintEvent*) override;
-
 private:
   QColor bg;
   Alert alert = {};
@@ -32,7 +24,7 @@ private:
 // container window for the NVG UI
 class NvgWindow : public CameraViewWidget {
   Q_OBJECT
-  Q_PROPERTY(bool engageable MEMBER engageable NOTIFY valueChanged); 
+  Q_PROPERTY(bool engageable MEMBER engageable NOTIFY valueChanged);
   Q_PROPERTY(bool experimentalMode MEMBER experimentalMode NOTIFY valueChanged);
   Q_PROPERTY(int status MEMBER status NOTIFY valueChanged);
   Q_PROPERTY(float ang_str MEMBER ang_str NOTIFY valueChanged);
@@ -50,8 +42,17 @@ protected:
   void showEvent(QShowEvent *event) override;
   void updateFrameMat(int w, int h) override;
   void drawLaneLines(QPainter &painter, const UIState *s);
-  void drawLead(QPainter &painter, const cereal::ModelDataV2::LeadDataV3::Reader &lead_data, const QPointF &vd, bool is_radar);
-  inline QColor redColor(int alpha = 255) { return QColor(201, 34, 49, alpha); }
+  void drawLead(QPainter &painter, const cereal::ModelDataV2::LeadDataV3::Reader &lead_data,
+                const QPointF &vd, bool is_radar);
+
+  // ChevronInfo: lead status display
+  void drawLeadStatus(QPainter &p);
+  void drawLeadStatusAtPosition(QPainter &p,
+                                const cereal::RadarState::LeadData::Reader &lead_data,
+                                const QPointF &chevron_pos,
+                                const QString &label);
+
+  inline QColor redColor(int alpha = 255)   { return QColor(201, 34, 49, alpha); }
   inline QColor whiteColor(int alpha = 255) { return QColor(255, 255, 255, alpha); }
   inline QColor blackColor(int alpha = 255) { return QColor(0, 0, 0, alpha); }
 
@@ -60,19 +61,23 @@ protected:
   bool experimentalMode = false;
   int status = STATUS_DISENGAGED;
   float ang_str = 0;
+
+  // ChevronInfo: fade alpha for lead status overlay
+  float lead_status_alpha = 0.0f;
+
   FirstOrderFilter fps_filter;
   FirstOrderFilter accel_filter;
 
+  // neokii
   void drawIcon(QPainter &p, int x, int y, QPixmap &img, QBrush bg, float opacity,
                 bool rotation = false, float angle = 0.0f);
   void drawText(QPainter &p, int x, int y, const QString &text, int alpha = 255);
-  void drawText2(QPainter &p, int x, int y, int flags, const QString &text, const QColor& color);
-  void drawTextWithColor(QPainter &p, int x, int y, const QString &text, QColor& color);
+  void drawText2(QPainter &p, int x, int y, int flags, const QString &text, const QColor &color);
+  void drawTextWithColor(QPainter &p, int x, int y, const QString &text, QColor &color);
   void paintEvent(QPaintEvent *event) override;
 
-  const int radius = 192;
+  const int radius   = 192;
   const int img_size = (radius / 2) * 1.5;
-
   uint64_t last_update_params;
 
   QPixmap engage_img;
@@ -99,13 +104,11 @@ protected:
   void drawGpsStatus(QPainter &p);
   void drawDebugText(QPainter &p);
   void drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model);
-
 };
 
 // container for all onroad widgets
 class OnroadWindow : public QWidget {
   Q_OBJECT
-
 public:
   OnroadWindow(QWidget* parent = 0);
   bool isMapVisible() const { return map && map->isVisible(); }
@@ -113,7 +116,6 @@ public:
 protected:
   void mousePressEvent(QMouseEvent* e) override;
   void mouseReleaseEvent(QMouseEvent* e) override;
-
   void paintEvent(QPaintEvent *event) override;
 
 private:
@@ -121,11 +123,10 @@ private:
   NvgWindow *nvg;
   QColor bg = bg_colors[STATUS_DISENGAGED];
   QWidget *map = nullptr;
-  QHBoxLayout* split;
+  QHBoxLayout *split;
 
   // neokii
-private:
-  ScreenRecoder* recorder;
+  ScreenRecoder *recorder;
   std::shared_ptr<QTimer> record_timer;
   QPoint startPos;
 
