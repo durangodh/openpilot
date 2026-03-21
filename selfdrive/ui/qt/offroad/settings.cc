@@ -32,6 +32,56 @@
 #include <QListView>
 #include <QListWidget>
 
+// ── ChevronInfo Control ─────────────────────────────────────────
+ChevronInfoControl::ChevronInfoControl(const QString &title,
+                                       const QString &desc,
+                                       const QString &icon,
+                                       QWidget *parent)
+    : AbstractControl(title, desc, icon, parent) {
+
+  QHBoxLayout *btn_layout = new QHBoxLayout();
+  btn_layout->setSpacing(10);
+
+  for (int i = 0; i < labels.size(); i++) {
+    buttons[i] = new QPushButton(labels[i]);
+    buttons[i]->setFixedSize(160, 80);
+    buttons[i]->setCheckable(true);
+    buttons[i]->setStyleSheet(R"(
+      QPushButton {
+        font-size: 36px;
+        border-radius: 10px;
+        background-color: #393939;
+        color: #aaaaaa;
+      }
+      QPushButton:checked {
+        background-color: #0064ff;
+        color: #ffffff;
+      }
+      QPushButton:pressed {
+        background-color: #4a4a4a;
+      }
+    )");
+
+    connect(buttons[i], &QPushButton::clicked, [=]() {
+      params.put("ChevronInfo", std::to_string(i));
+      refresh();
+    });
+
+    btn_layout->addWidget(buttons[i]);
+  }
+
+  hlayout->addLayout(btn_layout);
+  refresh();
+}
+
+void ChevronInfoControl::refresh() {
+  int val = std::atoi(params.get("ChevronInfo").c_str());
+  val = std::clamp(val, 0, 4);
+  for (int i = 0; i < labels.size(); i++) {
+    buttons[i]->setChecked(i == val);
+  }
+}
+
 TogglesPanel::TogglesPanel(SettingsWindow *parent) : ListWidget(parent) {
   // param, title, desc, icon
   std::vector<std::tuple<QString, QString, QString, QString>> toggle_defs{
@@ -801,6 +851,17 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     }
     toggleLayout->addWidget(toggle);
   }
+  // ── ChevronInfo 추가 ──────────────────────────────────────────
+  toggleLayout->addWidget(horizontal_line());
+
+  auto *chevron_info = new ChevronInfoControl(
+      "Display Metrics Below Chevron",
+      "Display useful metrics below the chevron that tracks the lead car "
+      "(only applicable to cars with openpilot longitudinal control).",
+      "../assets/offroad/icon_road.png",
+      this);
+  chevron_info->showDescription();
+  toggleLayout->addWidget(chevron_info);
 }
 
 SelectCar::SelectCar(QWidget* parent): QWidget(parent) {
