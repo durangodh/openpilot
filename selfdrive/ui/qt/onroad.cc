@@ -389,6 +389,162 @@ void NvgWindow::drawLead(QPainter &painter, const cereal::ModelDataV2::LeadDataV
   painter.restore();
 }
 
+void NvgWindow::drawLeadStatus(QPainter &p) {
+  UIState *s = uiState();
+  auto &sm = *(s->sm);
+
+  if (!sm.updated("radarState")) return;
+
+  const auto &radar_state = sm["radarState"].getRadarState();
+  const auto &lead_one    = radar_state.getLeadOne();
+  const auto &lead_two    = radar_state.getLeadTwo();
+
+  bool has_lead_one = lead_one.getStatus();
+  bool has_lead_two = lead_two.getStatus();
+
+  // 리드 없으면 서서히 페이드아웃
+  if (!has_lead_one && !has_lead_two) {
+    lead_status_alpha = std::max(0.0f, lead_status_alpha - 0.05f);
+    if (lead_status_alpha <= 0.0f) return;
+  } else {
+    lead_status_alpha = std::min(1.0f, lead_status_alpha + 0.1f);
+  }
+
+  // L1: 항상 시도 (has_lead_one 여부 무관하게 위치 유지)
+  if (true) {
+    drawLeadStatusAtPosition(p, lead_one, s->scene.lead_vertices[0], "L1");
+  }
+
+  // L2: 두 리드 거리 차이 3m 이상일 때만
+  if (has_lead_two &&
+      std::abs(lead_one.getDRel() - lead_two.getDRel()) > 3.0) {
+    drawLeadStatusAtPosition(p, lead_two, s->scene.lead_vertices[1], "L2");
+  }
+}
+
+void NvgWindow::drawLeadStatusAtPosition(QPainter &p,
+                                         const cereal::RadarState::LeadData::Reader &lead_data,
+                                         const QPointF &chevron_pos,
+                                         const QString &label) {
+  UIState *s = uiState();
+  auto &sm   = *(s->sm);
+
+  float d_rel = lead_data.getDRel();
+  float v_rel = lead_data.getVRel();
+  float v_ego = sm["carState"].getCarState().getVEgo();
+  bool is_metric = s->scene.is_metric;
+
+  // 파라미터에서 표시 모드 읽기 (0=Off, 1=Distance, 2=Speed, 3=Time, 4=All)
+  int chevron_data = std::atoi(Params().get("ChevronInfo").c_str());
+  if (chevron_data == 0) return;
+
+  // 쉐브론 크기 (drawLead 와 동일 로직)
+  float sz = std::clamp((25 * 30) / (d_rel / 3 + 30), 15.0f, 30.0f) * 2.35;
+
+  QFont content_font = p.font();
+  content_font.setPixelSize(35);
+  content_font.setBold(true);
+  p.setFont(content_font);
+
+  const int chevron_types = 3;
+  const int chevron_all   = chevron_types + 1; // value 4 = All
+
+  QStringList chevron_text[chevron_types];
+
+  // 1) Distance
+  if (chevron_data == 1 || chevron_data == chevron_all) {
+    float val = std::max(0.0f, d_rel);
+    QString unit = is_metric ? "m" : "ft";
+    if (!is_metric) val *= 3.28084f;
+    chevron_text[0].append(QString::number(val, 'f', 0) + " " + unit);
+  }
+
+  // 2) Absolute speed
+  if (chevron_data == 2 || chevron_data == chevron_all) {
+    int pos = (chevron_data == 2) ? 0 : 1;
+    float val = std::max(0.0f,
+        (v_rel + v_ego) * (is_metric ? static_cast<float>(MS_TO_KPH)
+                                     : static_cast<float>(MS_TO_MPH)));
+    chevron_text[pos].append(QString::number(val, 'f', 0) + " " +
+                             (is_metric ? "km/h" : "mph"));
+  }
+
+  // 3) Time-to-contact
+  if (chevron_data == 3 || chevron_data == chevron_all) {
+    int pos = (chevron_data == 3) ? 0 : 2;
+    float val = (d_rel > 0 && v_ego > 0)
+                    ? std::max(0.0f, d_rel / v_ego)
+                    : 0.0f;
+    QString ttc_str = (val > 0 && val < 200)
+                          ? QString::number(val, 'f', 1) + "s"
+                          : "---";
+    chevron_text[pos].append(ttc_str);
+  }
+
+  // 빈 항목 제거하여 최종 라인 목록 생성
+  QStringList text_lines;
+  for (int i = 0; i < chevron_types; ++i) {
+    if (!chevron_text[i].isEmpty())
+      text_lines.append(chevron_text[i]);
+  }
+  if (text_lines.isEmpty()) return;
+
+  // 텍스트 박스 위치 (쉐브론 아래 중앙)
+  const float str_w = 150.0f;
+  const float str_h = 45.0f;
+  float text_x = chevron_pos.x() - str_w / 2;
+  float text_y = chevron_pos.y() + sz + 15;
+
+  // 화면 경계 클램핑
+  text_x = std::clamp(text_x, 10.0f, (float)width() - str_w - 10);
+
+  QPoint shadow_offset(2, 2);
+
+  for (int i = 0; i < text_lines.size(); ++i) {
+    const QString &line = text_lines[i];
+    if (line.isEmpty()) continue;
+
+    QRect textRect((int)text_x,
+                   (int)(text_y + i * str_h),
+                   (int)str_w,
+                   (int)str_h);
+
+    // 그림자
+    p.setPen(QColor(0, 0, 0, (int)(200 * lead_status_alpha)));
+    p.drawText(textRect.translated(shadow_offset.x(), shadow_offset.y()),
+               Qt::AlignBottom | Qt::AlignHCenter, line);
+
+    // 본문 색상 결정
+    QColor text_color;
+
+    if (line.contains("m") || line.contains("ft")) {
+      // 거리 — 위험도별 색상
+      if (d_rel < 20.0f)
+        text_color = QColor(255, 80,  80,  (int)(255 * lead_status_alpha)); // 빨강
+      else if (d_rel < 40.0f)
+        text_color = QColor(255, 200, 80,  (int)(255 * lead_status_alpha)); // 노랑
+      else
+        text_color = QColor(80,  255, 120, (int)(255 * lead_status_alpha)); // 초록
+    } else if (line.contains("s") && !line.contains("---")) {
+      // TTC — 위험도별 색상
+      float ttc_val = line.left(line.length() - 1).toFloat();
+      if (ttc_val < 3.0f)
+        text_color = QColor(255, 80,  80,  (int)(255 * lead_status_alpha));
+      else if (ttc_val < 6.0f)
+        text_color = QColor(255, 200, 80,  (int)(255 * lead_status_alpha));
+      else
+        text_color = QColor(255, 255, 255, (int)(255 * lead_status_alpha));
+    } else {
+      text_color = QColor(255, 255, 255, (int)(255 * lead_status_alpha));
+    }
+
+    p.setPen(text_color);
+    p.drawText(textRect, Qt::AlignBottom | Qt::AlignHCenter, line);
+  }
+
+  p.setPen(Qt::NoPen);
+}
+
 void NvgWindow::paintGL() {
 }
 
@@ -502,6 +658,7 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
     drawLead(p, leads[1], s->scene.lead_vertices[1], s->scene.lead_radar[1]);
   }
 
+  drawLeadStatus(p);
   drawMaxSpeed(p);
   drawSpeed(p);
   drawSpeedLimit(p);
