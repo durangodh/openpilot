@@ -125,6 +125,21 @@ void OnroadWindow::mouseReleaseEvent(QMouseEvent* e) {
     return;
   }
 
+  // ── ChevronInfo 탭 토글 ──────────────────────────────
+  {
+    int tap_x = endPos.x();
+    int tap_y = endPos.y();
+    int center_x = width() / 2;
+    int bottom_y = height() * 2 / 3;
+
+    if (std::abs(tap_x - center_x) < 200 && tap_y > bottom_y) {
+      int cur = std::atoi(Params().get("ChevronInfo").c_str());
+      int next = (cur + 1) % 5;  // 0(Off)→1(Dist)→2(Spd)→3(TTC)→4(All)→0
+      Params().put("ChevronInfo", std::to_string(next));
+      return;
+    }
+  }
+	
   if (map != nullptr) {
     bool sidebarVisible = geometry().x() > 0;
     map->setVisible(!sidebarVisible && !map->isVisible());
