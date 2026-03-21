@@ -256,7 +256,7 @@ class CarInterfaceBase(ABC):
       allow_enable and
       cs_out.gearShifter == GearShifter.drive and
       cs_out.vEgo > 5. * CV.KPH_TO_MS and
-      cs_out.cruiseState.enabledAcc  # ← PCM ACC 실제 활성 확인 추가
+      cs_out.cruiseState.enabledAcc
     )
 
     # we engage when pcm is active (rising edge)
@@ -264,17 +264,16 @@ class CarInterfaceBase(ABC):
       if cs_out.cruiseState.enabled and not self.CS.out.cruiseState.enabled and allow_enable:
         events.add(EventName.pcmEnable)
       elif not cs_out.cruiseState.enabled:
-        # 오토 인게이지 조건이면 pcmDisable 억제
         if not auto_engage_condition:
           events.add(EventName.pcmDisable)
 
-    # 오토 인게이지 - 라이징 엣지만 처리 (controlsMismatch 방지)
+    # 오토 인게이지 - enabledAcc 라이징 엣지 기준으로 변경
     if (allow_enable and
         cs_out.gearShifter == GearShifter.drive and
         cs_out.vEgo > 5. * CV.KPH_TO_MS and
-        cs_out.cruiseState.enabledAcc and          # ← PCM ACC 실제 활성 확인 추가
+        cs_out.cruiseState.enabledAcc and
         cs_out.cruiseState.enabled and
-        not self.CS.out.cruiseState.enabled):
+        not self.CS.out.cruiseState.enabledAcc):  # ← enabledAcc 기준 라이징 엣지
       events.add(EventName.pcmEnable)
 
     return events
