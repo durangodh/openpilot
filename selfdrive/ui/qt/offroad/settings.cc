@@ -839,6 +839,12 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "../assets/offroad/icon_shell.png",
                                             this));
 
+  toggles.append(new ParamControl("BlindSpot",
+                                            "Show Blind Spot Warnings",
+                                            "Enabling this will display warnings when a vehicle is detected in your blind spot as long as your car has BSM supported.",
+                                            "../assets/offroad/icon_monitoring.png",
+                                            this));
+  
   /*toggles.append(new ParamControl("CustomLeadMark",
                                             "Use custom lead mark",
                                             "",
