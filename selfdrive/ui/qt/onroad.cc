@@ -485,7 +485,7 @@ void NvgWindow::drawLeadStatusAtPosition(QPainter &p,
   float sz = std::clamp((25 * 30) / (d_rel / 3 + 30), 15.0f, 30.0f) * 2.35;
 
   QFont content_font = p.font();
-  content_font.setPixelSize(35);
+  content_font.setPixelSize(45);
   content_font.setBold(true);
   p.setFont(content_font);
 
@@ -533,8 +533,8 @@ void NvgWindow::drawLeadStatusAtPosition(QPainter &p,
   if (text_lines.isEmpty()) return;
 
   // 텍스트 박스 위치 (쉐브론 아래 중앙)
-  const float str_w = 150.0f;
-  const float str_h = 45.0f;
+  const float str_w = 190.0f;
+  const float str_h = 58.0f;
   float text_x = chevron_pos.x() - str_w / 2;
   float text_y = chevron_pos.y() + sz + 15;
 
