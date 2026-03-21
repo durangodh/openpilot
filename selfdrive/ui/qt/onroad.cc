@@ -346,7 +346,7 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
       gradient.setColorAt(0.0, QColor(255, 165, 0, 102));
       gradient.setColorAt(1.0, QColor(255, 255, 0, 102));
       painter.setBrush(gradient);
-      painter.setPen(Qt::NoPen);
+      painter.setPen(QPen(QColor(255, 165, 0, 250), 16, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
       painter.drawPolygon(scene.lane_line_vertices[1].v, scene.lane_line_vertices[1].cnt);
     }
 
@@ -356,7 +356,7 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
       gradient.setColorAt(0.0, QColor(255, 165, 0, 102));
       gradient.setColorAt(1.0, QColor(255, 255, 0, 102));
       painter.setBrush(gradient);
-      painter.setPen(Qt::NoPen);
+      painter.setPen(QPen(QColor(255, 165, 0, 250), 16, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
       painter.drawPolygon(scene.lane_line_vertices[2].v, scene.lane_line_vertices[2].cnt);
     }
   }
