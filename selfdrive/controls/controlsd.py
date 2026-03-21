@@ -106,7 +106,6 @@ class Controls:
                                      'managerState', 'liveParameters', 'radarState'] + self.camera_packets + joystick_packet,
                                     ignore_alive=ignore, ignore_avg_freq=['radarState', 'longitudinalPlan'])
 
-
     # set alternative experiences from parameters
     self.disengage_on_accelerator = params.get_bool("DisengageOnAccelerator")
     self.CP.alternativeExperience = 0
@@ -133,7 +132,7 @@ class Controls:
 
     if is_tested_branch():
       self.CP.experimentalLongitudinalAvailable = False
-      
+
     # Write CarParams for radard
     cp_bytes = self.CP.to_bytes()
     params.put("CarParams", cp_bytes)
@@ -187,6 +186,9 @@ class Controls:
     self.steer_limited = False
     self.desired_curvature = 0.0
     self.desired_curvature_rate = 0.0
+
+    # [FIX] experimental mode 초기화 추가
+    self.experimental_mode = False
 
     # scc smoother
     self.is_cruise_enabled = False
@@ -248,7 +250,7 @@ class Controls:
     resume_pressed = any(be.type in (ButtonType.accelCruise, ButtonType.resumeCruise) for be in CS.buttonEvents)
     if not self.CP.pcmCruise and self.v_cruise_kph == V_CRUISE_INITIAL and resume_pressed:
       self.events.add(EventName.resumeBlocked)
-      
+
     if CS.gasPressed:
       self.events.add(EventName.pedalPressedPreEnable if self.disengage_on_accelerator else
                       EventName.gasPressedOverride)
@@ -341,7 +343,7 @@ class Controls:
         self.events.add(EventName.commIssue)
       elif not self.sm.all_freq_ok():
         self.events.add(EventName.commIssueAvgFreq)
-      else: # invalid or can_rcv_error.
+      else:  # invalid or can_rcv_error.
         self.events.add(EventName.commIssue)
 
       if not self.logged_comm_issue:
@@ -594,28 +596,44 @@ class Controls:
       self.last_blinker_frame = self.sm.frame
 
     # State specific actions
-
     if not CC.latActive:
       self.LaC.reset()
     if not CC.longActive:
       self.LoC.reset(v_pid=CS.vEgo)
 
-    if not CS.cruiseState.enabledAcc:
+    # [FIX] openpilot 롱컨(ExperimentalMode 포함) 시에는 차량 SCC enabledAcc 상태와 무관하게 동작해야 함.
+    # 기존: if not CS.cruiseState.enabledAcc: self.LoC.reset(v_pid=CS.vEgo)
+    # → openpilotLongitudinalControl=True 일 때도 무조건 리셋되어 가속 불가 문제 발생.
+    # 수정: SCC 롱컨(비openpilot) 모드일 때만 enabledAcc 기준으로 리셋.
+    if not self.CP.openpilotLongitudinalControl and not CS.cruiseState.enabledAcc:
       self.LoC.reset(v_pid=CS.vEgo)
 
     if not self.joystick_mode:
       # accel PID loop
       pid_accel_limits = self.CI.get_pid_accel_limits(self.CP, CS.vEgo, self.v_cruise_kph * CV.KPH_TO_MS)
       t_since_plan = (self.sm.frame - self.sm.rcv_frame['longitudinalPlan']) * DT_CTRL
-      actuators.accel = self.LoC.update(CC.longActive and CS.cruiseState.enabledAcc, CS, long_plan, pid_accel_limits, t_since_plan,
-                                        self.sm['radarState'])
+
+      # [FIX] openpilot 롱컨(ExperimentalMode) 시 enabledAcc 조건 제거.
+      # 기존: self.LoC.update(CC.longActive and CS.cruiseState.enabledAcc, ...)
+      # → enabledAcc=False 이면 longActive=True 여도 accel 계산이 0으로 고정됨.
+      # 수정: openpilotLongitudinalControl이면 CC.longActive만으로 판단.
+      if self.CP.openpilotLongitudinalControl:
+        actuators.accel = self.LoC.update(
+          CC.longActive, CS, long_plan, pid_accel_limits, t_since_plan,
+          self.sm['radarState']
+        )
+      else:
+        actuators.accel = self.LoC.update(
+          CC.longActive and CS.cruiseState.enabledAcc, CS, long_plan, pid_accel_limits, t_since_plan,
+          self.sm['radarState']
+        )
 
       # Steering PID loop and lateral MPC
       self.desired_curvature, self.desired_curvature_rate = get_lag_adjusted_curvature(self.CP, CS.vEgo,
                                                                                        lat_plan.psis,
                                                                                        lat_plan.curvatures,
                                                                                        lat_plan.curvatureRates)
-      actuators.steer, actuators.steeringAngleDeg, lac_log = self.LaC.update(CC.latActive, CS, self.VM, params, 
+      actuators.steer, actuators.steeringAngleDeg, lac_log = self.LaC.update(CC.latActive, CS, self.VM, params,
                                                                              self.last_actuators, self.steer_limited, self.desired_curvature,
                                                                              self.desired_curvature_rate, self.sm['liveLocationKalman'])
     else:
@@ -699,7 +717,7 @@ class Controls:
     speeds = self.sm['longitudinalPlan'].speeds
     if len(speeds):
       CC.cruiseControl.resume = self.enabled and CS.cruiseState.standstill and speeds[-1] > 0.1
-      
+
     hudControl = CC.hudControl
     hudControl.setSpeed = float(self.v_cruise_cluster_kph * CV.KPH_TO_MS)
     hudControl.speedVisible = self.enabled
@@ -816,6 +834,9 @@ class Controls:
     controlsState.sccBrakeFactor = ntune_scc_get('sccBrakeFactor')
     controlsState.sccCurvatureFactor = ntune_scc_get('sccCurvatureFactor')
 
+    # [FIX] plannerd가 ExperimentalMode(blended) 로 전환하도록 experimentalMode publish
+    controlsState.experimentalMode = self.experimental_mode
+
     lat_tuning = self.CP.lateralTuning.which()
     if self.joystick_mode:
       controlsState.lateralControlState.debugState = lac_log
@@ -864,6 +885,9 @@ class Controls:
     start_time = sec_since_boot()
     self.prof.checkpoint("Ratekeeper", ignore=True)
 
+    # [FIX] ExperimentalMode 매 스텝 갱신 → plannerd로 publish되어 mpc.mode='blended' 전환
+    self.experimental_mode = Params().get_bool("ExperimentalMode") and self.CP.openpilotLongitudinalControl
+
     # Sample data from sockets and get a carState
     CS = self.data_sample()
     cloudlog.timestamp("Data sampled")
@@ -894,6 +918,7 @@ class Controls:
       self.step()
       self.rk.monitor_time()
       self.prof.display()
+
 
 def main(sm=None, pm=None, logcan=None):
   controls = Controls(sm, pm, logcan)
