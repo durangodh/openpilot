@@ -103,7 +103,7 @@ class SccSmoother:
     self.is_metric = self.params.get_bool('IsMetric')
     self.e2e_long = self.params.get_bool('ExperimentalMode')
     self.autoascc = self.params.get_bool('AutoAscc')
-  
+
   def reset(self):
 
     self.wait_timer = 0
@@ -138,7 +138,6 @@ class SccSmoother:
   def cal_max_speed(self, frame, CC, CS, sm, clu11_speed, controls):
 
     # kph
-
     road_speed_limiter = get_road_speed_limiter()
     apply_limit_speed, road_limit_speed, left_dist, first_started, max_speed_log = \
       road_speed_limiter.get_max_speed(clu11_speed, self.is_metric)
@@ -159,10 +158,6 @@ class SccSmoother:
                               0 < road_limit_speed * camSpeedFactor < clu11_speed + 2
     else:
       self.over_speed_limit = False
-
-    #max_speed_log = "{:.1f}/{:.1f}/{:.1f}".format(float(limit_speed),
-    #                                              float(self.curve_speed_ms*self.speed_conv_to_clu),
-    #                                              float(lead_speed))
 
     max_speed_log = ""
 
@@ -210,7 +205,7 @@ class SccSmoother:
     if self.param_read_counter % 100 == 0:
       self.read_param()
     self.param_read_counter += 1
-    
+
     # mph or kph
     clu11_speed = CS.clu11["CF_Clu_Vanz"]
 
@@ -228,7 +223,7 @@ class SccSmoother:
     ascc_enabled = CS.acc_mode and enabled and CS.cruiseState_enabled \
                    and 1 < CS.cruiseState_speed < 255 and not CS.brake_pressed
 
-    # Auto-resume Cruise Set Speed by JangPoo 
+    # Auto-resume Cruise Set Speed by JangPoo
     dRel = 0.
     lead = self.get_lead(controls.sm)
     if lead is not None:
@@ -236,7 +231,7 @@ class SccSmoother:
 
     # Auto-resume Cruise Set Speed by JangPoo
     ascc_auto_set = enabled and (clu11_speed > 30 or (CS.obj_valid and dRel > 1)) \
-                    and CS.gas_pressed and CS.prev_cruiseState_speed and not CS.cruiseState_speed # Auto-resume Cruise Set Speed by JangPoo - ??
+                    and CS.gas_pressed and CS.prev_cruiseState_speed and not CS.cruiseState_speed
 
     if not self.longcontrol:
       if not ascc_enabled or CS.standstill or CS.cruise_buttons != Buttons.NONE:
@@ -255,16 +250,16 @@ class SccSmoother:
       self.wait_timer -= 1
     elif (ascc_enabled and not CS.out.cruiseState.standstill) or ascc_auto_set:
       if self.alive_timer == 0:
-        if ascc_enabled: 
-          if self.autoascc:  
+        if ascc_enabled:
+          if self.autoascc:
             self.btn = self.get_button(CS.cruiseState_speed * self.speed_conv_to_clu)
         elif ascc_auto_set and clu11_speed < 30:
-          if self.autoascc:  
+          if self.autoascc:
             self.btn = Buttons.SET_DECEL
         else:
           self.btn = Buttons.RES_ACCEL
         self.alive_count = SccSmoother.get_alive_count()
-        
+
       if self.btn != Buttons.NONE:
 
         can_sends.append(SccSmoother.create_clu11(packer, CS.scc_bus, CS.clu11, self.btn))
@@ -388,7 +383,7 @@ class SccSmoother:
     is_accelerating = interp(accel, [0.0, 0.2], [0.0, 1.0])
     boost = start_boost * is_accelerating
     accel += boost
-    
+
     if accel > 0:
       accel *= gas_factor
     else:
@@ -421,7 +416,15 @@ class SccSmoother:
         v_cruise_kph = SccSmoother.update_v_cruise(controls.v_cruise_kph, CS.buttonEvents, controls.enabled,
                                                    controls.is_metric)
     else:
-      v_cruise_kph = 0
+      # [FIX] longcontrol(openpilot 롱컨 / ExperimentalMode) 시 크루즈 비활성화여도 기존 속도 유지
+      # 기존: v_cruise_kph = 0
+      #   → controls.v_cruise_kph = 0 → applyMaxSpeed = 0
+      #   → plannerd v_cruise = 0 → MPC 목표속도 0 → 가속 불가
+      # 수정: longcontrol이면 이전 값 유지, SCC 전용(비longcontrol)일 때만 0으로 리셋
+      if longcontrol:
+        v_cruise_kph = controls.v_cruise_kph  # 이전 값 유지
+      else:
+        v_cruise_kph = 0
 
     if controls.is_cruise_enabled != is_cruise_enabled:
       controls.is_cruise_enabled = is_cruise_enabled
@@ -431,7 +434,13 @@ class SccSmoother:
       else:
         v_cruise_kph = 0
 
-      controls.LoC.reset(v_pid=CS.vEgo)
+      # [FIX] longcontrol(ExperimentalMode) 시 크루즈 상태 변경으로 LoC 리셋 안 함
+      # 기존: controls.LoC.reset(v_pid=CS.vEgo) 무조건 호출
+      #   → longActive=True여도 long_control_state = off → plannerd reset_state=True
+      #   → MPC 궤적 초기화 → 가속 불가
+      # 수정: SCC 전용(비longcontrol) 모드일 때만 리셋
+      if not longcontrol:
+        controls.LoC.reset(v_pid=CS.vEgo)
 
     controls.v_cruise_kph = v_cruise_kph
 
