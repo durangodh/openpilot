@@ -25,7 +25,7 @@ def torque_tune(tune, lat_accel_factor=3.0, friction=0.01, kd=0.0, steering_angl
   tune.torque.friction = friction
   tune.torque.steeringAngleDeadzoneDeg = steering_angle_deadzone_deg
   tune.torque.kd = kd
-  
+
 class CarInterface(CarInterfaceBase):
   def __init__(self, CP, CarController, CarState):
     super().__init__(CP, CarController, CarState)
@@ -176,8 +176,6 @@ class CarInterface(CarInterfaceBase):
       ret.mass = 1490. + STD_CARGO_KG
       ret.wheelbase = 2.7
       tire_stiffness_factor = 0.385
-      #if candidate not in [CAR.IONIQ_EV_2020, CAR.IONIQ_PHEV]:
-      #  ret.minSteerSpeed = 32 * CV.MPH_TO_MS
       ret.centerToFront = ret.wheelbase * 0.4
     elif candidate in [CAR.GRANDEUR_IG, CAR.GRANDEUR_IG_HEV]:
       tire_stiffness_factor = 0.8
@@ -185,7 +183,6 @@ class CarInterface(CarInterfaceBase):
       ret.wheelbase = 2.845
       ret.centerToFront = ret.wheelbase * 0.385
       ret.steerRatio = 16.
-
     elif candidate in [CAR.GRANDEUR_IG_FL, CAR.GRANDEUR_IG_FL_HEV]:
       tire_stiffness_factor = 0.8
       ret.mass = 1600. + STD_CARGO_KG
@@ -198,7 +195,7 @@ class CarInterface(CarInterfaceBase):
       tire_stiffness_factor = 0.9
       ret.centerToFront = ret.wheelbase * 0.4
     elif candidate == CAR.TUCSON_TL_SCC:
-      ret.mass = 1594. + STD_CARGO_KG #1730
+      ret.mass = 1594. + STD_CARGO_KG
       ret.wheelbase = 2.67
       tire_stiffness_factor = 0.7
       ret.centerToFront = ret.wheelbase * 0.4
@@ -218,7 +215,7 @@ class CarInterface(CarInterfaceBase):
       ret.wheelbase = 2.85
       tire_stiffness_factor = 0.7
     elif candidate == CAR.STINGER:
-      tire_stiffness_factor = 1.125 # LiveParameters (Tunder's 2020)
+      tire_stiffness_factor = 1.125  # LiveParameters (Tunder's 2020)
       ret.mass = 1825.0 + STD_CARGO_KG
       ret.wheelbase = 2.906
       ret.centerToFront = ret.wheelbase * 0.4
@@ -264,13 +261,10 @@ class CarInterface(CarInterfaceBase):
       ret.centerToFront = ret.wheelbase * 0.4
       tire_stiffness_factor = 0.8
 
-
-
     ret.radarTimeStep = (1.0 / 50)
 
     if ret.centerToFront == 0:
       ret.centerToFront = ret.wheelbase * 0.4
-
 
     # TODO: get actual value, for now starting with reasonable value for
     # civic and scaling by mass and wheelbase
@@ -329,8 +323,6 @@ class CarInterface(CarInterfaceBase):
       self.CP.pcmCruise = True
 
     # most HKG cars has no long control, it is safer and easier to engage by main on
-
-    #if self.mad_mode_enabled:
     ret.cruiseState.enabled = ret.cruiseState.available
 
     # turning indicator alert logic
@@ -372,18 +364,17 @@ class CarInterface(CarInterfaceBase):
 
     if self.CC.longcontrol and self.CS.cruise_unavail:
       events.add(EventName.brakeUnavailable)
-    #if abs(ret.steeringAngleDeg) > 90. and EventName.steerTempUnavailable not in events.events:
-    #  events.add(EventName.steerTempUnavailable)
     if self.low_speed_alert and not self.CS.mdps_bus:
       events.add(EventName.belowSteerSpeed)
     if self.CC.turning_indicator_alert:
       events.add(EventName.turningIndicatorOn)
 
-  # handle button presses
+    # handle button presses
     for b in ret.buttonEvents:
       # do disable on button down
       if b.type == ButtonType.cancel and b.pressed:
         events.add(EventName.buttonCancel)
+
       if self.CC.longcontrol and not self.CC.scc_live:
         # do enable on both accel and decel buttons
         if b.type in [ButtonType.accelCruise, ButtonType.decelCruise] and not b.pressed:
@@ -396,6 +387,19 @@ class CarInterface(CarInterfaceBase):
         # do enable on decel button only
         if b.type == ButtonType.decelCruise and not b.pressed:
           events.add(EventName.buttonEnable)
+
+    # [FIX] longcontrol(ExperimentalMode)에서 scc_live=True인 경우에도
+    # wrongCarMode / pcmDisable 이벤트를 제거해야 openpilot이 해제되지 않음.
+    # 기존: not self.CC.scc_live 조건일 때만 제거
+    #   → scc_live=True(레이더 정상 차량)에서 ExperimentalMode 사용 시
+    #     wrongCarMode/pcmDisable이 남아 controlsd가 state=disabled로 전환
+    #   → 결과: openpilot 강제 해제 → 가속 불가
+    # 수정: longcontrol=True이면 scc_live 여부 무관하게 항상 제거
+    if self.CC.longcontrol:
+      if EventName.wrongCarMode in events.events:
+        events.events.remove(EventName.wrongCarMode)
+      if EventName.pcmDisable in events.events:
+        events.events.remove(EventName.pcmDisable)
 
     # scc smoother
     if self.CC.scc_smoother is not None:
