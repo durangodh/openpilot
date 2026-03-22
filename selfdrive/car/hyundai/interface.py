@@ -153,13 +153,13 @@ class CarInterface(CarInterfaceBase):
     elif candidate == CAR.ELANTRA_2021:
       ret.mass = (2800. * CV.LB_TO_KG) + STD_CARGO_KG
       ret.wheelbase = 2.72
-      ret.steerRatio = 13.27 * 1.15   # 15% higher at the center seems reasonable
+      ret.steerRatio = 13.27 * 1.15
       tire_stiffness_factor = 0.65
       ret.centerToFront = ret.wheelbase * 0.4
     elif candidate == CAR.ELANTRA_HEV_2021:
       ret.mass = (3017. * CV.LB_TO_KG) + STD_CARGO_KG
       ret.wheelbase = 2.72
-      ret.steerRatio = 13.27 * 1.15  # 15% higher at the center seems reasonable
+      ret.steerRatio = 13.27 * 1.15
       tire_stiffness_factor = 0.65
       ret.centerToFront = ret.wheelbase * 0.4
     elif candidate == CAR.KONA:
@@ -215,7 +215,7 @@ class CarInterface(CarInterfaceBase):
       ret.wheelbase = 2.85
       tire_stiffness_factor = 0.7
     elif candidate == CAR.STINGER:
-      tire_stiffness_factor = 1.125  # LiveParameters (Tunder's 2020)
+      tire_stiffness_factor = 1.125
       ret.mass = 1825.0 + STD_CARGO_KG
       ret.wheelbase = 2.906
       ret.centerToFront = ret.wheelbase * 0.4
@@ -266,16 +266,11 @@ class CarInterface(CarInterfaceBase):
     if ret.centerToFront == 0:
       ret.centerToFront = ret.wheelbase * 0.4
 
-    # TODO: get actual value, for now starting with reasonable value for
-    # civic and scaling by mass and wheelbase
     ret.rotationalInertia = scale_rot_inertia(ret.mass, ret.wheelbase)
 
-    # TODO: start from empirically derived lateral slip stiffness for the civic and scale by
-    # mass and CG position, so all cars will have approximately similar dyn behaviors
     ret.tireStiffnessFront, ret.tireStiffnessRear = scale_tire_stiffness(ret.mass, ret.wheelbase, ret.centerToFront,
                                                                          tire_stiffness_factor=tire_stiffness_factor)
 
-    # no rear steering, at least on the listed cars above
     ret.steerRatioRear = 0.
     ret.steerControlType = car.CarParams.SteerControlType.torque
 
@@ -284,7 +279,6 @@ class CarInterface(CarInterfaceBase):
     ret.enableBsm = 0x58b in fingerprint[0]
     ret.enableAutoHold = 1151 in fingerprint[0]
 
-    # ignore CAN2 address if L-CAN on the same BUS
     ret.mdpsBus = 1 if 593 in fingerprint[1] and 1296 not in fingerprint[1] else 0
     ret.sasBus = 1 if 688 in fingerprint[1] and 1296 not in fingerprint[1] else 0
     ret.sccBus = 0 if 1056 in fingerprint[0] else 1 if 1056 in fingerprint[1] and 1296 not in fingerprint[1] \
@@ -300,7 +294,6 @@ class CarInterface(CarInterfaceBase):
     ret.radarOffCan = ret.sccBus == -1
     ret.pcmCruise = not ret.radarOffCan
 
-    # set safety_hyundai_community only for non-SCC, MDPS harrness or SCC harrness cars or cars that have unknown issue
     if ret.radarOffCan or ret.mdpsBus == 1 or ret.openpilotLongitudinalControl or ret.sccBus == 1 or Params().get_bool('MadModeEnabled'):
       ret.safetyConfigs = [get_safety_config(car.CarParams.SafetyModel.hyundaiCommunity, 0)]
     return ret
@@ -348,8 +341,6 @@ class CarInterface(CarInterfaceBase):
         be.type = ButtonType.decelCruise
       elif but == Buttons.GAP_DIST:
         be.type = ButtonType.gapAdjustCruise
-      #elif but == Buttons.CANCEL:
-      #  be.type = ButtonType.cancel
       else:
         be.type = ButtonType.unknown
       buttonEvents.append(be)
@@ -376,7 +367,7 @@ class CarInterface(CarInterfaceBase):
         events.add(EventName.buttonCancel)
 
       if self.CC.longcontrol and not self.CC.scc_live:
-        # do enable on both accel and decel buttons
+        # scc_live=False(레이더 없는 차): 버튼으로 인게이지/디스인게이지
         if b.type in [ButtonType.accelCruise, ButtonType.decelCruise] and not b.pressed:
           events.add(EventName.buttonEnable)
         if EventName.wrongCarMode in events.events:
@@ -388,18 +379,19 @@ class CarInterface(CarInterfaceBase):
         if b.type == ButtonType.decelCruise and not b.pressed:
           events.add(EventName.buttonEnable)
 
-    # [FIX] longcontrol(ExperimentalMode)에서 scc_live=True인 경우에도
-    # wrongCarMode / pcmDisable 이벤트를 제거해야 openpilot이 해제되지 않음.
-    # 기존: not self.CC.scc_live 조건일 때만 제거
-    #   → scc_live=True(레이더 정상 차량)에서 ExperimentalMode 사용 시
-    #     wrongCarMode/pcmDisable이 남아 controlsd가 state=disabled로 전환
-    #   → 결과: openpilot 강제 해제 → 가속 불가
-    # 수정: longcontrol=True이면 scc_live 여부 무관하게 항상 제거
-    if self.CC.longcontrol:
-      if EventName.wrongCarMode in events.events:
-        events.events.remove(EventName.wrongCarMode)
-      if EventName.pcmDisable in events.events:
-        events.events.remove(EventName.pcmDisable)
+    # [FIX] longcontrol=True이면서 scc_live=True인 경우(레이더 있는 차 ExperimentalMode):
+    # 이전 수정에서 wrongCarMode/pcmDisable을 무조건 제거했으나,
+    # 이것이 크루즈 메인 OFF(available=False) 시에도 이벤트를 제거해 디스인게이지 불가 문제 유발.
+    # 수정: cruiseState.available=True(메인 ON)일 때만 제거.
+    #   → available=True: SCC 비활성이어도 openpilot 유지 (ExperimentalMode 정상 동작)
+    #   → available=False: 크루즈 메인 OFF → 이벤트 유지 → 정상 디스인게이지
+    if self.CC.longcontrol and self.CC.scc_live:
+      if ret.cruiseState.available:  # 크루즈 메인이 ON인 경우만 이벤트 제거
+        if EventName.wrongCarMode in events.events:
+          events.events.remove(EventName.wrongCarMode)
+        if EventName.pcmDisable in events.events:
+          events.events.remove(EventName.pcmDisable)
+      # available=False(메인 OFF)이면 제거하지 않음 → 디스인게이지 정상 동작
 
     # scc smoother
     if self.CC.scc_smoother is not None:
