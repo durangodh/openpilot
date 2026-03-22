@@ -129,7 +129,6 @@ class CarInterfaceBase(ABC):
     ret.steerControlType = car.CarParams.SteerControlType.torque
     ret.minSteerSpeed = 0.
     ret.wheelSpeedFactor = 1.0
-    #ret.maxLateralAccel = CarInterfaceBase.get_torque_params(candidate)['MAX_LAT_ACCEL_MEASURED']
 
     ret.pcmCruise = True     # openpilot's state is tied to the PCM's cruise state on most cars
     ret.minEnableSpeed = -1. # enable is done by stock ACC, so ignore this
@@ -211,13 +210,6 @@ class CarInterfaceBase(ABC):
   def create_common_events(self, cs_out, extra_gears=None, pcm_enable=True, allow_enable=True):
     events = Events()
 
-    #if cs_out.doorOpen:
-    #  events.add(EventName.doorOpen)
-    #if cs_out.seatbeltUnlatched:
-    #  events.add(EventName.seatbeltNotLatched)
-    #if cs_out.gearShifter != GearShifter.drive and (extra_gears is None or
-    #   cs_out.gearShifter not in extra_gears):
-    #  events.add(EventName.wrongGear)
     if cs_out.gearShifter == GearShifter.reverse:
       events.add(EventName.reverseGear)
     if not cs_out.cruiseState.available:
@@ -232,8 +224,6 @@ class CarInterfaceBase(ABC):
       events.add(EventName.speedTooHigh)
     if cs_out.cruiseState.nonAdaptive:
       events.add(EventName.wrongCruiseMode)
-    #if cs_out.brakeHoldActive and self.CP.openpilotLongitudinalControl:
-    #  events.add(EventName.brakeHold)
     if cs_out.parkingBrake:
       events.add(EventName.parkBrake)
 
@@ -264,14 +254,14 @@ class CarInterfaceBase(ABC):
       if cs_out.cruiseState.enabled and not self.CS.out.cruiseState.enabled and allow_enable:
         events.add(EventName.pcmEnable)
       elif not cs_out.cruiseState.enabled:
-        # [FIX] openpilot 롱컨(ExperimentalMode) 시에는 차량 SCC가 비활성(cruiseState.enabled=False)
-        # 이어도 pcmDisable 발생 안 함.
-        # 기존: not auto_engage_condition 조건만 체크
-        #   → ExperimentalMode에서 enabledAcc=False → auto_engage_condition=False
-        #   → pcmDisable 이벤트 발생 → controlsd가 state=disabled로 전환
-        #   → openpilot 강제 해제되어 가속 불가
-        # 수정: openpilotLongitudinalControl=True이면 pcmDisable 발생 안 함
-        if not auto_engage_condition and not self.CP.openpilotLongitudinalControl:
+        # [FIX] 이전 수정에서 openpilotLongitudinalControl이면 pcmDisable을 아예 막았는데,
+        # 이것이 크루즈 메인 OFF(available=False → enabled=False) 시에도 디스인게이지를
+        # 막아버리는 문제를 유발함.
+        # 원복: 원래 조건 그대로 사용.
+        # hyundai interface에서 enabled=available로 설정하므로,
+        # available=True(메인 ON)이면 enabled=True → 이 분기 자체가 실행 안 됨.
+        # available=False(메인 OFF)이면 enabled=False → pcmDisable 정상 발생 → 디스인게이지 OK.
+        if not auto_engage_condition:
           events.add(EventName.pcmDisable)
 
     # 오토 인게이지 - enabledAcc 라이징 엣지 기준으로 변경
@@ -314,8 +304,6 @@ class CarStateBase(ABC):
     self.cluster_speed_hyst_gap = 0.0
     self.cluster_min_speed = 0.0  # min speed before dropping to 0
 
-    # Q = np.matrix([[0.0, 0.0], [0.0, 100.0]])
-    # R = 0.3
     self.v_ego_kf = KF1D(x0=[[0.0], [0.0]],
                          A=[[1.0, DT_CTRL], [0.0, 1.0]],
                          C=[1.0, 0.0],
@@ -353,7 +341,6 @@ class CarStateBase(ABC):
   def update_blinker_from_lamp(self, blinker_time: int, left_blinker_lamp: bool, right_blinker_lamp: bool):
     """Update blinkers from lights. Enable output when light was seen within the last `blinker_time`
     iterations"""
-    # TODO: Handle case when switching direction. Now both blinkers can be on at the same time
     self.left_blinker_cnt = blinker_time if left_blinker_lamp else max(self.left_blinker_cnt - 1, 0)
     self.right_blinker_cnt = blinker_time if right_blinker_lamp else max(self.right_blinker_cnt - 1, 0)
     return self.left_blinker_cnt > 0, self.right_blinker_cnt > 0
@@ -410,9 +397,6 @@ class CarStateBase(ABC):
 # interface-specific helpers
 
 def get_interface_attr(attr: str, combine_brands: bool = False, ignore_none: bool = False) -> Dict[str, Any]:
-  # read all the folders in selfdrive/car and return a dict where:
-  # - keys are all the car models or brand names
-  # - values are attr values from all car folders
   result = {}
   for car_folder in sorted([x[0] for x in os.walk(BASEDIR + '/selfdrive/car')]):
     try:
