@@ -264,7 +264,14 @@ class CarInterfaceBase(ABC):
       if cs_out.cruiseState.enabled and not self.CS.out.cruiseState.enabled and allow_enable:
         events.add(EventName.pcmEnable)
       elif not cs_out.cruiseState.enabled:
-        if not auto_engage_condition:
+        # [FIX] openpilot 롱컨(ExperimentalMode) 시에는 차량 SCC가 비활성(cruiseState.enabled=False)
+        # 이어도 pcmDisable 발생 안 함.
+        # 기존: not auto_engage_condition 조건만 체크
+        #   → ExperimentalMode에서 enabledAcc=False → auto_engage_condition=False
+        #   → pcmDisable 이벤트 발생 → controlsd가 state=disabled로 전환
+        #   → openpilot 강제 해제되어 가속 불가
+        # 수정: openpilotLongitudinalControl=True이면 pcmDisable 발생 안 함
+        if not auto_engage_condition and not self.CP.openpilotLongitudinalControl:
           events.add(EventName.pcmDisable)
 
     # 오토 인게이지 - enabledAcc 라이징 엣지 기준으로 변경
