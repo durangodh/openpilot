@@ -99,7 +99,7 @@ class CarController:
     # Disable steering while turning blinker on and speed below 60 kph
     if CS.out.leftBlinker or CS.out.rightBlinker:
       self.turning_signal_timer = 0.5 / DT_CTRL  # Disable for 0.5 Seconds after blinker turned off
-    if self.turning_indicator_alert: # set and clear by interface
+    if self.turning_indicator_alert:  # set and clear by interface
       lkas_active = 0
     if self.turning_signal_timer > 0:
       self.turning_signal_timer -= 1
@@ -164,7 +164,7 @@ class CarController:
                                      CS.lkas11, sys_warning, sys_state, CC.enabled, hud_control.leftLaneVisible, hud_control.rightLaneVisible,
                                      left_lane_warning, right_lane_warning, 1, self.ldws_opt, cut_steer_temp))
 
-    if self.frame % 2 and CS.mdps_bus: # send clu11 to mdps if it is not on bus 0
+    if self.frame % 2 and CS.mdps_bus:  # send clu11 to mdps if it is not on bus 0
       can_sends.append(create_clu11(self.packer, CS.mdps_bus, CS.clu11, Buttons.NONE, enabled_speed))
 
     #if pcm_cancel_cmd and (self.longcontrol and not self.mad_mode_enabled):
@@ -222,8 +222,12 @@ class CarController:
     # scc smoother
     self.scc_smoother.update(CC.enabled, can_sends, self.packer, CC, CS, self.frame, controls)
 
-    # send scc to car if longcontrol enabled and SCC not on bus 0 or ont live
-    if self.longcontrol and CS.cruiseState_enabled and (CS.scc_bus or not self.scc_live):
+    # [FIX] ExperimentalMode(openpilot 롱컨)에서 CS.cruiseState_enabled=False여도 SCC 명령 전송해야 함.
+    # 기존: CS.cruiseState_enabled 단독 조건
+    #   → ExperimentalMode에서 차량 SCC가 비활성이면 이 블록 통째로 스킵
+    #   → SCC12 가속 명령이 차량으로 전달 안됨 → self.accel=0 유지 → 가속 불가
+    # 수정: CC.longActive=True이면 cruiseState_enabled 무관하게 SCC 명령 전송
+    if self.longcontrol and (CS.cruiseState_enabled or CC.longActive) and (CS.scc_bus or not self.scc_live):
 
       if self.frame % 2 == 0:
 
