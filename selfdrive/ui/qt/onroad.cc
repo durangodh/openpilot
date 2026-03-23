@@ -355,33 +355,14 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
     painter.drawPolygon(scene.road_edge_vertices[i].v, scene.road_edge_vertices[i].cnt);
   }
 
-  //Blind Spot Warnings
-  bool blindspot_enabled = Params().getBool("BlindSpot");
-  if (blindspot_enabled) {
-    auto car_state = sm["carState"].getCarState();
-    bool left_blindspot  = car_state.getLeftBlindspot();
-    bool right_blindspot = car_state.getRightBlindspot();
+  auto car_state = sm["carState"].getCarState();
+  bool left_blindspot  = car_state.getLeftBlindspot();
+  bool right_blindspot = car_state.getRightBlindspot();
 
-    if (left_blindspot && scene.lane_line_vertices[1].cnt > 0) {
-      // 왼쪽: 왼→오 방향 그라디언트 (오렌지→노랑)
-      QLinearGradient gradient(0, 0, width(), 0);
-      gradient.setColorAt(0.0, QColor(255, 165, 0, 102));
-      gradient.setColorAt(1.0, QColor(255, 255, 0, 102));
-      painter.setBrush(gradient);
-      painter.setPen(QPen(QColor(255, 165, 0, 250), 16, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-      painter.drawPolygon(scene.lane_line_vertices[1].v, scene.lane_line_vertices[1].cnt);
-    }
-
-    if (right_blindspot && scene.lane_line_vertices[2].cnt > 0) {
-      // 오른쪽: 오→왼 방향 그라디언트 (오렌지→노랑)
-      QLinearGradient gradient(width(), 0, 0, 0);
-      gradient.setColorAt(0.0, QColor(255, 165, 0, 102));
-      gradient.setColorAt(1.0, QColor(255, 255, 0, 102));
-      painter.setBrush(gradient);
-      painter.setPen(QPen(QColor(255, 165, 0, 250), 16, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-      painter.drawPolygon(scene.lane_line_vertices[2].v, scene.lane_line_vertices[2].cnt);
-    }
-  }
+  painter.setPen(Qt::NoPen);
+  painter.setBrush(QColor::fromRgbF(1.0, 0.0, 0.0, 0.2));
+  if (left_blindspot)  painter.drawPolygon(scene.lane_barrier_vertices[0]);
+  if (right_blindspot) painter.drawPolygon(scene.lane_barrier_vertices[1]);
 	
   // paint path
   QLinearGradient bg(0, height(), 0, height() / 4);
