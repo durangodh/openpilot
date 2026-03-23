@@ -19,7 +19,7 @@ ENABLE_ZORROBYTE = True
 ENABLE_INC_LANE_PROB = True
 
 class LanePlanner:
-  def __init__(self):
+  def __init__(self, wide_camera=False):
     self.ll_t = np.zeros((TRAJECTORY_SIZE,))
     self.ll_x = np.zeros((TRAJECTORY_SIZE,))
     self.lll_y = np.zeros((TRAJECTORY_SIZE,))
