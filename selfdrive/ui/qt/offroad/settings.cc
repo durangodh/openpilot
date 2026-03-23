@@ -82,6 +82,57 @@ void ChevronInfoControl::refresh() {
   }
 }
 
+// ── AutoLaneChangeTimer Control ─────────────────────────────────
+AutoLaneChangeTimerControl::AutoLaneChangeTimerControl(const QString &title,
+                                                       const QString &desc,
+                                                       const QString &icon,
+                                                       QWidget *parent)
+    : AbstractControl(title, desc, icon, parent) {
+
+  QHBoxLayout *btn_layout = new QHBoxLayout();
+  btn_layout->setSpacing(10);
+
+  // 0: 즉시, 1: 0.1s, 2: 0.5s, 3: 1.0s, 4: 1.5s, 5: 2.0s
+  for (int i = 0; i < labels.size(); i++) {
+    buttons[i] = new QPushButton(labels[i]);
+    buttons[i]->setFixedSize(130, 80);
+    buttons[i]->setCheckable(true);
+    buttons[i]->setStyleSheet(R"(
+      QPushButton {
+        font-size: 32px;
+        border-radius: 10px;
+        background-color: #393939;
+        color: #aaaaaa;
+      }
+      QPushButton:checked {
+        background-color: #0064ff;
+        color: #ffffff;
+      }
+      QPushButton:pressed {
+        background-color: #4a4a4a;
+      }
+    )");
+
+    connect(buttons[i], &QPushButton::clicked, [=]() {
+      params.put("AutoLaneChangeTimer", std::to_string(i));
+      refresh();
+    });
+
+    btn_layout->addWidget(buttons[i]);
+  }
+
+  hlayout->addLayout(btn_layout);
+  refresh();
+}
+
+void AutoLaneChangeTimerControl::refresh() {
+  int val = std::atoi(params.get("AutoLaneChangeTimer").c_str());
+  val = std::clamp(val, 0, (int)labels.size() - 1);
+  for (int i = 0; i < labels.size(); i++) {
+    buttons[i]->setChecked(i == val);
+  }
+}
+
 TogglesPanel::TogglesPanel(SettingsWindow *parent) : ListWidget(parent) {
   // param, title, desc, icon
   std::vector<std::tuple<QString, QString, QString, QString>> toggle_defs{
@@ -671,8 +722,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
 
   QPushButton* selectCarBtn = new QPushButton(selected.length() ? selected : "Select your car");
   selectCarBtn->setObjectName("selectCarBtn");
-  //selectCarBtn->setStyleSheet("margin-right: 30px;");
-  //selectCarBtn->setFixedSize(350, 100);
   connect(selectCarBtn, &QPushButton::clicked, [=]() { main_layout->setCurrentWidget(selectCar); });
 
   homeWidget = new QWidget(this);
@@ -701,8 +750,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
 
   QPushButton* lateralControlBtn = new QPushButton(lateral_control);
   lateralControlBtn->setObjectName("lateralControlBtn");
-  //lateralControlBtn->setStyleSheet("margin-right: 30px;");
-  //lateralControlBtn->setFixedSize(350, 100);
   connect(lateralControlBtn, &QPushButton::clicked, [=]() { main_layout->setCurrentWidget(lateralControl); });
 
 
@@ -792,71 +839,89 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "../assets/offroad/icon_road.png",
                                             this));
 
-  toggles.append(new ParamControl("SccSmootherSlowOnCurves",
-                                            "Enable Slow On Curves",
-                                            "",
-                                            "../assets/offroad/icon_road.png",
-                                            this));
-
-  toggles.append(new ParamControl("SccSmootherSyncGasPressed",
-                                            "Sync set speed on gas pressed",
-                                            "",
-                                            "../assets/offroad/icon_road.png",
-                                            this));
-
-  toggles.append(new ParamControl("StockNaviDecelEnabled",
-                                            "Stock Navi based deceleration",
-                                            "Use the stock navi based deceleration for longcontrol",
-                                            "../assets/offroad/icon_road.png",
-                                            this));
-
-  toggles.append(new ParamControl("KeepSteeringTurnSignals",
-                                            "Keep steering while turn signals",
-                                            "",
-                                            "../assets/offroad/icon_openpilot.png",
-                                            this));
-  toggles.append(new ParamControl("HapticFeedbackWhenSpeedCamera",
-                                            "Haptic feedback (speed-cam alert)",
-                                            "Haptic feedback when a speed camera is detected",
-                                            "../assets/offroad/icon_openpilot.png",
-                                            this));
-
-  /*toggles.append(new ParamControl("NewRadarInterface",
-                                            "Use new radar interface",
-                                            "",
-                                            "../assets/offroad/icon_road.png",
-                                            this));*/
-
-  toggles.append(new ParamControl("DisableOpFcw",
-                                            "Disable Openpilot FCW",
-                                            "",
-                                            "../assets/offroad/icon_shell.png",
-                                            this));
-
-  toggles.append(new ParamControl("ShowDebugUI",
-                                            "Show Debug UI",
-                                            "",
-                                            "../assets/offroad/icon_shell.png",
-                                            this));
-
-  toggles.append(new ParamControl("BlindSpot",
-                                            "Show Blind Spot Warnings",
-                                            "Enabling this will display warnings when a vehicle is detected in your blind spot as long as your car has BSM supported.",
-                                            "../assets/offroad/icon_monitoring.png",
-                                            this));
-  
-  /*toggles.append(new ParamControl("CustomLeadMark",
-                                            "Use custom lead mark",
-                                            "",
-                                            "../assets/offroad/icon_road.png",
-                                            this));*/
-
   for(ParamControl *toggle : toggles) {
     if(main_layout->count() != 0) {
       toggleLayout->addWidget(horizontal_line());
     }
     toggleLayout->addWidget(toggle);
   }
+
+  // ── AutoLaneChangeTimer 추가 (AutoLaneChangeEnabled 바로 아래) ──
+  toggleLayout->addWidget(horizontal_line());
+
+  auto *lc_timer = new AutoLaneChangeTimerControl(
+      "Auto Lane Change Timer",
+      "차선변경 자동 시작까지의 대기 시간을 설정합니다.\n"
+      "즉시: 조건 충족 즉시 / 0.1s ~ 2.0s: 해당 시간 대기 후 자동 차선변경",
+      "../assets/offroad/icon_road.png",
+      this);
+  lc_timer->showDescription();
+  toggleLayout->addWidget(lc_timer);
+
+  toggleLayout->addWidget(horizontal_line());
+
+  toggleLayout->addWidget(new ParamControl("SccSmootherSlowOnCurves",
+                                            "Enable Slow On Curves",
+                                            "",
+                                            "../assets/offroad/icon_road.png",
+                                            this));
+
+  toggleLayout->addWidget(horizontal_line());
+
+  toggleLayout->addWidget(new ParamControl("SccSmootherSyncGasPressed",
+                                            "Sync set speed on gas pressed",
+                                            "",
+                                            "../assets/offroad/icon_road.png",
+                                            this));
+
+  toggleLayout->addWidget(horizontal_line());
+
+  toggleLayout->addWidget(new ParamControl("StockNaviDecelEnabled",
+                                            "Stock Navi based deceleration",
+                                            "Use the stock navi based deceleration for longcontrol",
+                                            "../assets/offroad/icon_road.png",
+                                            this));
+
+  toggleLayout->addWidget(horizontal_line());
+
+  toggleLayout->addWidget(new ParamControl("KeepSteeringTurnSignals",
+                                            "Keep steering while turn signals",
+                                            "",
+                                            "../assets/offroad/icon_openpilot.png",
+                                            this));
+
+  toggleLayout->addWidget(horizontal_line());
+
+  toggleLayout->addWidget(new ParamControl("HapticFeedbackWhenSpeedCamera",
+                                            "Haptic feedback (speed-cam alert)",
+                                            "Haptic feedback when a speed camera is detected",
+                                            "../assets/offroad/icon_openpilot.png",
+                                            this));
+
+  toggleLayout->addWidget(horizontal_line());
+
+  toggleLayout->addWidget(new ParamControl("DisableOpFcw",
+                                            "Disable Openpilot FCW",
+                                            "",
+                                            "../assets/offroad/icon_shell.png",
+                                            this));
+
+  toggleLayout->addWidget(horizontal_line());
+
+  toggleLayout->addWidget(new ParamControl("ShowDebugUI",
+                                            "Show Debug UI",
+                                            "",
+                                            "../assets/offroad/icon_shell.png",
+                                            this));
+
+  toggleLayout->addWidget(horizontal_line());
+
+  toggleLayout->addWidget(new ParamControl("BlindSpot",
+                                            "Show Blind Spot Warnings",
+                                            "Enabling this will display warnings when a vehicle is detected in your blind spot as long as your car has BSM supported.",
+                                            "../assets/offroad/icon_monitoring.png",
+                                            this));
+
   // ── ChevronInfo 추가 ──────────────────────────────────────────
   toggleLayout->addWidget(horizontal_line());
 
@@ -885,7 +950,6 @@ SelectCar::SelectCar(QWidget* parent): QWidget(parent) {
 
   QListWidget* list = new QListWidget(this);
   list->setStyleSheet("QListView {padding: 40px; background-color: #393939; border-radius: 15px; height: 140px;} QListView::item{height: 100px}");
-  //list->setAttribute(Qt::WA_AcceptTouchEvents, true);
   QScroller::grabGesture(list->viewport(), QScroller::LeftMouseButtonGesture);
   list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
 
@@ -935,7 +999,6 @@ LateralControl::LateralControl(QWidget* parent): QWidget(parent) {
 
   QListWidget* list = new QListWidget(this);
   list->setStyleSheet("QListView {padding: 40px; background-color: #393939; border-radius: 15px; height: 140px;} QListView::item{height: 100px}");
-  //list->setAttribute(Qt::WA_AcceptTouchEvents, true);
   QScroller::grabGesture(list->viewport(), QScroller::LeftMouseButtonGesture);
   list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
 
