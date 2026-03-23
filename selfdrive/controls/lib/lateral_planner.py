@@ -27,7 +27,7 @@ LATERAL_JERK_COST = 0.04
 STEERING_RATE_COST = 700.0
 
 class LateralPlanner:
-  def __init__(self, CP):
+  def __init__(self, CP, use_lanelines=True, wide_camera=False):
     self.params = Params()
     self.use_lanelines = self.params.get_bool('UseLanelines')
     self.last_params_update = 0
