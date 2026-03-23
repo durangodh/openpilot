@@ -19,7 +19,7 @@
 // Projects a point in car to space to the corresponding point in full frame
 // image space.
 static bool calib_frame_to_full_frame(const UIState *s, float in_x, float in_y, float in_z, QPointF *out) {
-  const float margin = 500.0f;
+  const float margin = 1000.0f;  // 500 -> 1000
   const QRectF clip_region{-margin, -margin, s->fb_w + 2 * margin, s->fb_h + 2 * margin};
 
   const vec3 pt = (vec3){{in_x, in_y, in_z}};
@@ -57,15 +57,18 @@ static void update_leads(UIState *s, const cereal::RadarState::Reader &radar_sta
   }
 }
 
+// z_off -> z_off_left, z_off_right 분리 + allow_invert 파라미터 추가
 static void update_line_data(const UIState *s, const cereal::ModelDataV2::XYZTData::Reader &line,
-                             float y_off, float z_off, line_vertices_data *pvd, int max_idx) {
+                             float y_off, float z_off_left, float z_off_right, line_vertices_data *pvd, int max_idx, bool allow_invert=true) {
   const auto line_x = line.getX(), line_y = line.getY(), line_z = line.getZ();
   QPointF *v = &pvd->v[0];
   for (int i = 0; i <= max_idx; i++) {
-    v += calib_frame_to_full_frame(s, line_x[i], line_y[i] - y_off, line_z[i] + z_off, v);
+    if (line_x[i] < 0) continue;  // 음수 x 좌표 스킵
+    v += calib_frame_to_full_frame(s, line_x[i], line_y[i] - y_off, line_z[i] + z_off_left, v);
   }
   for (int i = max_idx; i >= 0; i--) {
-    v += calib_frame_to_full_frame(s, line_x[i], line_y[i] + y_off, line_z[i] + z_off, v);
+    if (line_x[i] < 0) continue;  // 음수 x 좌표 스킵
+    v += calib_frame_to_full_frame(s, line_x[i], line_y[i] + y_off, line_z[i] + z_off_right, v);
   }
   pvd->cnt = v - pvd->v;
   assert(pvd->cnt <= std::size(pvd->v));
@@ -83,15 +86,21 @@ static void update_model(UIState *s, const cereal::ModelDataV2::Reader &model) {
   int max_idx = get_path_length_idx(lane_lines[0], max_distance);
   for (int i = 0; i < std::size(scene.lane_line_vertices); i++) {
     scene.lane_line_probs[i] = lane_line_probs[i];
-    update_line_data(s, lane_lines[i], 0.025 * scene.lane_line_probs[i], 0, &scene.lane_line_vertices[i], max_idx);
+    update_line_data(s, lane_lines[i], 0.025 * scene.lane_line_probs[i], 0, 0, &scene.lane_line_vertices[i], max_idx);
   }
+
+  // lane barriers for blind spot
+  int max_distance_barrier = 40;
+  int max_idx_barrier = std::min(max_idx, get_path_length_idx(lane_lines[0], max_distance_barrier));
+  update_line_data(s, lane_lines[1], 0, -0.05, -0.6, &scene.lane_barrier_vertices[0], max_idx_barrier, false);
+  update_line_data(s, lane_lines[2], 0, -0.05, -0.6, &scene.lane_barrier_vertices[1], max_idx_barrier, false);
 
   // update road edges
   const auto road_edges = model.getRoadEdges();
   const auto road_edge_stds = model.getRoadEdgeStds();
   for (int i = 0; i < std::size(scene.road_edge_vertices); i++) {
     scene.road_edge_stds[i] = road_edge_stds[i];
-    update_line_data(s, road_edges[i], 0.025, 0, &scene.road_edge_vertices[i], max_idx);
+    update_line_data(s, road_edges[i], 0.025, 0, 0, &scene.road_edge_vertices[i], max_idx);
   }
 
   // update path
@@ -101,7 +110,7 @@ static void update_model(UIState *s, const cereal::ModelDataV2::Reader &model) {
     max_distance = std::clamp((float)(lead_d - fmin(lead_d * 0.35, 10.)), 0.0f, max_distance);
   }
   max_idx = get_path_length_idx(model_position, max_distance);
-  update_line_data(s, model_position, 0.9, 1.22, &scene.track_vertices, max_idx);
+  update_line_data(s, model_position, 0.9, 1.22, 1.22, &scene.track_vertices, max_idx, false);
 }
 
 static void update_sockets(UIState *s) {
