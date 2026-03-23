@@ -80,6 +80,12 @@ void OnroadWindow::updateState(const UIState &s) {
     alerts->updateAlert(alert, bgColor);
   }
 
+  if (s.scene.map_on_left) {
+    split->setDirection(QBoxLayout::LeftToRight);
+  } else {
+    split->setDirection(QBoxLayout::RightToLeft);
+  }
+
   if (bg != bgColor) {
     // repaint border
     bg = bgColor;
@@ -139,7 +145,20 @@ void OnroadWindow::mouseReleaseEvent(QMouseEvent* e) {
       return;
     }
   }
-	
+
+  // ── Dynamic Lane Profile 버튼 ──────────────────────────
+  {
+    UIState *s = uiState();
+    UIScene &scene = s->scene;
+    QRect dlp_btn_rect = QRect(bdr_s * 2 + 220, (rect().bottom() - footer_h / 2 - 75), 150, 150);
+    if (scene.dynamic_lane_profile_toggle && dlp_btn_rect.contains(endPos.x(), endPos.y())) {
+      scene.dynamic_lane_profile++;
+      scene.dynamic_lane_profile = scene.dynamic_lane_profile > 2 ? 0 : scene.dynamic_lane_profile;
+      params.put("DynamicLaneProfile", std::to_string(scene.dynamic_lane_profile));
+      return;
+    }
+  }
+
   if (map != nullptr) {
     bool sidebarVisible = geometry().x() > 0;
     map->setVisible(!sidebarVisible && !map->isVisible());
@@ -290,8 +309,11 @@ void NvgWindow::updateState(const UIState &s) {
   // update engageability and DM icons at 2Hz
   if (sm.frame % (UI_FREQ / 2) == 0) {
     setProperty("engageable", cs.getEngageable() || cs.getEnabled());
-	setProperty("experimentalMode", cs.getExperimentalMode());
+    setProperty("experimentalMode", cs.getExperimentalMode());
   }
+
+  setProperty("dynamicLaneProfileToggle", s.scene.dynamic_lane_profile_toggle);
+  setProperty("dynamicLaneProfile", s.scene.dynamic_lane_profile);
 }
 
 void NvgWindow::updateFrameMat(int w, int h) {
@@ -364,37 +386,70 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   // paint path
   QLinearGradient bg(0, height(), 0, height() / 4);
   float start_hue, end_hue;
-  bool use_lanelines = Params().getBool("UseLanelines");
   if (sm["controlsState"].getControlsState().getExperimentalMode()) {
     const auto &acceleration = sm["modelV2"].getModelV2().getAcceleration();
     float acceleration_future = 0;
     if (acceleration.getZ().size() > 16) {
       acceleration_future = acceleration.getX()[16];  // 2.5 seconds
     }
-    start_hue = 60;
-	// speed up: 120, slow down: 0
-    end_hue = fmax(fmin(start_hue + acceleration_future * 45, 148), 0); 
-
+    if (scene.dynamic_lane_profile_status) {
+      start_hue = 60;
+      // speed up: 120, slow down: 0
+      end_hue = fmax(fmin(start_hue + acceleration_future * 45, 148), 0);
+    } else {
+      start_hue = 240;
+      // speed up: 300, slow down: 180
+      end_hue = fmin(fmax(start_hue + acceleration_future * 45, 180), 328);
+    }
     // FIXME: painter.drawPolygon can be slow if hue is not rounded
     end_hue = int(end_hue * 100 + 0.5) / 100;
 
     bg.setColorAt(0.0, QColor::fromHslF(start_hue / 360., 0.97, 0.56, 0.4));
     bg.setColorAt(0.5, QColor::fromHslF(end_hue / 360., 1.0, 0.68, 0.35));
     bg.setColorAt(1.0, QColor::fromHslF(end_hue / 360., 1.0, 0.68, 0.0));
-  } else if (use_lanelines) {
-    // Cyan(하늘색) 계열
-    bg.setColorAt(0.0, QColor::fromHslF(195 / 360., 0.94, 0.51, 0.45));
-    bg.setColorAt(0.5, QColor::fromHslF(210 / 360., 1.0, 0.68, 0.35));
-    bg.setColorAt(1.0, QColor::fromHslF(210 / 360., 1.0, 0.68, 0.0));
-  } else {
+  } else if (scene.dynamic_lane_profile_status) {
+    // laneline mode: green
     bg.setColorAt(0.0, QColor::fromHslF(148 / 360., 0.94, 0.51, 0.4));
     bg.setColorAt(0.5, QColor::fromHslF(112 / 360., 1.0, 0.68, 0.35));
     bg.setColorAt(1.0, QColor::fromHslF(112 / 360., 1.0, 0.68, 0.0));
+  } else {
+    // laneless mode: blue
+    bg.setColorAt(0.0, QColor::fromHslF(240 / 360., 0.94, 0.51, 0.4));
+    bg.setColorAt(0.5, QColor::fromHslF(204 / 360., 1.0, 0.68, 0.35));
+    bg.setColorAt(1.0, QColor::fromHslF(204 / 360., 1.0, 0.68, 0.0));
   }
   painter.setBrush(bg);
   painter.drawPolygon(scene.track_vertices.v, scene.track_vertices.cnt);
 
   painter.restore();
+}
+
+void NvgWindow::drawDlpButton(QPainter &p, int x, int y, int w, int h) {
+  int prev_dynamic_lane_profile = -1;
+  QString dlp_text = "";
+  QColor dlp_border = QColor(255, 255, 255, 255);
+
+  if (prev_dynamic_lane_profile != dynamicLaneProfile) {
+    prev_dynamic_lane_profile = dynamicLaneProfile;
+    if (dynamicLaneProfile == 0) {
+      dlp_text = tr("Lane\nonly");
+      dlp_border = QColor("#2020f8");
+    } else if (dynamicLaneProfile == 1) {
+      dlp_text = tr("Lane\nless");
+      dlp_border = QColor("#0df87a");
+    } else if (dynamicLaneProfile == 2) {
+      dlp_text = tr("Auto\nLane");
+      dlp_border = QColor("#0df8f8");
+    }
+  }
+
+  QRect dlpBtn(x, y, w, h);
+  p.setPen(QPen(dlp_border, 6));
+  p.setBrush(QColor(75, 75, 75, 75));
+  p.drawEllipse(dlpBtn);
+  p.setPen(QColor(Qt::white));
+  configFont(p, "Inter", 36, "SemiBold");
+  p.drawText(dlpBtn, Qt::AlignCenter, dlp_text);
 }
 
 void NvgWindow::drawLead(QPainter &painter, const cereal::ModelDataV2::LeadDataV3::Reader &lead_data, const QPointF &vd, bool is_radar) {
@@ -722,6 +777,11 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   p.setPen(QColor(0xff, 0xff, 0xff, 200));
   p.drawText(rect().left() + 20, rect().height() - 15, infoText);
   p.restore();
+
+  // Dynamic Lane Profile Button
+  if (dynamicLaneProfileToggle) {
+    drawDlpButton(p, bdr_s * 2 + 220, (rect().bottom() - footer_h / 2 - 75), 150, 150);
+  }
 
   drawBottomIcons(p);
 }
@@ -1134,14 +1194,6 @@ void NvgWindow::drawThermal(QPainter &p) {
     cpuTemp = cpuTemp / (float)std::size(cpuTempC);
   }
 
-  /*if(std::size(gpuTempC) > 0) {
-    for(int i = 0; i < std::size(gpuTempC); i++) {
-      gpuTemp += gpuTempC[i];
-    }
-    gpuTemp = gpuTemp / (float)std::size(gpuTempC);
-    cpuTemp = (cpuTemp + gpuTemp) / 2.f;
-  }*/
-
   int w = 192;
   int x = width() - (30 + w);
   int y = 450;
@@ -1312,9 +1364,6 @@ void NvgWindow::drawDebugText(QPainter &p) {
   float aReqValue = controls_state.getAReqValue();
   float aReqValueMin = controls_state.getAReqValueMin();
   float aReqValueMax = controls_state.getAReqValueMax();
-
-  //int sccStockCamAct = (int)controls_state.getSccStockCamAct();
-  //int sccStockCamStatus = (int)controls_state.getSccStockCamStatus();
 
   float vEgo = car_state.getVEgo();
   float vEgoRaw = car_state.getVEgoRaw();
