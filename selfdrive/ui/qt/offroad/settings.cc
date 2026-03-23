@@ -92,7 +92,6 @@ AutoLaneChangeTimerControl::AutoLaneChangeTimerControl(const QString &title,
   QHBoxLayout *btn_layout = new QHBoxLayout();
   btn_layout->setSpacing(10);
 
-  // 0: 즉시, 1: 0.1s, 2: 0.5s, 3: 1.0s, 4: 1.5s, 5: 2.0s
   for (int i = 0; i < labels.size(); i++) {
     buttons[i] = new QPushButton(labels[i]);
     buttons[i]->setFixedSize(130, 80);
@@ -127,6 +126,56 @@ AutoLaneChangeTimerControl::AutoLaneChangeTimerControl(const QString &title,
 
 void AutoLaneChangeTimerControl::refresh() {
   int val = std::atoi(params.get("AutoLaneChangeTimer").c_str());
+  val = std::clamp(val, 0, (int)labels.size() - 1);
+  for (int i = 0; i < labels.size(); i++) {
+    buttons[i]->setChecked(i == val);
+  }
+}
+
+// ── DynamicLaneProfile Control ──────────────────────────────────
+DynamicLaneProfileControl::DynamicLaneProfileControl(const QString &title,
+                                                     const QString &desc,
+                                                     const QString &icon,
+                                                     QWidget *parent)
+    : AbstractControl(title, desc, icon, parent) {
+
+  QHBoxLayout *btn_layout = new QHBoxLayout();
+  btn_layout->setSpacing(10);
+
+  for (int i = 0; i < labels.size(); i++) {
+    buttons[i] = new QPushButton(labels[i]);
+    buttons[i]->setFixedSize(200, 80);
+    buttons[i]->setCheckable(true);
+    buttons[i]->setStyleSheet(R"(
+      QPushButton {
+        font-size: 32px;
+        border-radius: 10px;
+        background-color: #393939;
+        color: #aaaaaa;
+      }
+      QPushButton:checked {
+        background-color: #0064ff;
+        color: #ffffff;
+      }
+      QPushButton:pressed {
+        background-color: #4a4a4a;
+      }
+    )");
+
+    connect(buttons[i], &QPushButton::clicked, [=]() {
+      params.put("DynamicLaneProfile", std::to_string(i));
+      refresh();
+    });
+
+    btn_layout->addWidget(buttons[i]);
+  }
+
+  hlayout->addLayout(btn_layout);
+  refresh();
+}
+
+void DynamicLaneProfileControl::refresh() {
+  int val = std::atoi(params.get("DynamicLaneProfile").c_str());
   val = std::clamp(val, 0, (int)labels.size() - 1);
   for (int i = 0; i < labels.size(); i++) {
     buttons[i]->setChecked(i == val);
@@ -243,11 +292,9 @@ void TogglesPanel::updateToggles() {
     const bool op_long = CP.getOpenpilotLongitudinalControl() && !CP.getExperimentalLongitudinalAvailable();
     const bool exp_long_enabled = CP.getExperimentalLongitudinalAvailable() && params.getBool("ExperimentalLongitudinalEnabled");
     if (op_long || exp_long_enabled) {
-      // normal description and toggle
       e2e_toggle->setEnabled(true);
       e2e_toggle->setDescription(e2e_description);
     } else {
-      // no long for now
       e2e_toggle->setEnabled(false);
       params.remove("ExperimentalMode");
 
@@ -271,7 +318,6 @@ DevicePanel::DevicePanel(SettingsWindow *parent) : ListWidget(parent) {
   QHBoxLayout *reset_layout = new QHBoxLayout();
   reset_layout->setSpacing(30);
 
-  // reset calibration button
   QPushButton *restart_openpilot_btn = new QPushButton("Soft restart");
   restart_openpilot_btn->setStyleSheet("height: 120px;border-radius: 15px;background-color: #393939;");
   reset_layout->addWidget(restart_openpilot_btn);
@@ -282,7 +328,6 @@ DevicePanel::DevicePanel(SettingsWindow *parent) : ListWidget(parent) {
     });
   });
 
-  // reset calibration button
   QPushButton *reset_calib_btn = new QPushButton("Reset Calibration");
   reset_calib_btn->setStyleSheet("height: 120px;border-radius: 15px;background-color: #393939;");
   reset_layout->addWidget(reset_calib_btn);
@@ -298,8 +343,6 @@ DevicePanel::DevicePanel(SettingsWindow *parent) : ListWidget(parent) {
   });
 
   addItem(reset_layout);
-
-  // offroad-only buttons
 
   auto dcamBtn = new ButtonControl("Driver Camera", "PREVIEW",
                                    "Preview the driver facing camera to help optimize device mounting position for best driver monitoring experience. (vehicle must be off)");
@@ -334,13 +377,6 @@ DevicePanel::DevicePanel(SettingsWindow *parent) : ListWidget(parent) {
     addItem(regulatoryBtn);
   }
 
-  /*QObject::connect(uiState(), &UIState::offroadTransition, [=](bool offroad) {
-    for (auto btn : findChildren<ButtonControl *>()) {
-      btn->setEnabled(offroad);
-    }
-  });*/
-
-  // power buttons
   QHBoxLayout *power_layout = new QHBoxLayout();
   power_layout->setSpacing(30);
 
@@ -348,7 +384,6 @@ DevicePanel::DevicePanel(SettingsWindow *parent) : ListWidget(parent) {
   rebuild_btn->setObjectName("rebuild_btn");
   power_layout->addWidget(rebuild_btn);
   QObject::connect(rebuild_btn, &QPushButton::clicked, [=]() {
-
     if (ConfirmationDialog::confirm("Are you sure you want to rebuild?", this)) {
       std::system("cd /data/openpilot && scons -c");
       std::system("rm /data/openpilot/.sconsign.dblite");
@@ -413,7 +448,6 @@ void DevicePanel::updateCalibDescription() {
 void DevicePanel::reboot() {
   if (!uiState()->engaged()) {
     if (ConfirmationDialog::confirm("Are you sure you want to reboot?", this)) {
-      // Check engaged again in case it changed while the dialog was open
       if (!uiState()->engaged()) {
         Params().putBool("DoReboot", true);
       }
@@ -426,7 +460,6 @@ void DevicePanel::reboot() {
 void DevicePanel::poweroff() {
   if (!uiState()->engaged()) {
     if (ConfirmationDialog::confirm("Are you sure you want to power off?", this)) {
-      // Check engaged again in case it changed while the dialog was open
       if (!uiState()->engaged()) {
         Params().putBool("DoShutdown", true);
       }
@@ -452,7 +485,6 @@ SoftwarePanel::SoftwarePanel(QWidget* parent) : ListWidget(parent) {
     }
     std::system("pkill -1 -f selfdrive.updated");
   });
-
 
   auto uninstallBtn = new ButtonControl("Uninstall " + getBrand(), "UNINSTALL");
   connect(uninstallBtn, &ButtonControl::clicked, [&]() {
@@ -505,7 +537,6 @@ C2NetworkPanel::C2NetworkPanel(QWidget *parent) : QWidget(parent) {
 
   ListWidget *list = new ListWidget();
   list->setSpacing(30);
-  // wifi + tethering buttons
 #ifdef QCOM
   auto wifiBtn = new ButtonControl("Wi-Fi Settings", "OPEN");
   QObject::connect(wifiBtn, &ButtonControl::clicked, [=]() { HardwareEon::launch_wifi(); });
@@ -518,7 +549,6 @@ C2NetworkPanel::C2NetworkPanel(QWidget *parent) : QWidget(parent) {
   ipaddress = new LabelControl("IP Address", "");
   list->addItem(ipaddress);
 
-  // SSH key management
   list->addItem(new SshToggle());
   list->addItem(new SshControl());
   layout->addWidget(list);
@@ -586,7 +616,6 @@ void SettingsWindow::setCurrentPanel(int index, const QString &param) {
 
 SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
 
-  // setup two main layouts
   sidebar_widget = new QWidget;
   QVBoxLayout *sidebar_layout = new QVBoxLayout(sidebar_widget);
   sidebar_layout->setMargin(0);
@@ -596,7 +625,6 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
     background-color: #292929;
   )");
 
-  // close button
   QPushButton *close_btn = new QPushButton("← Back");
   close_btn->setStyleSheet(R"(
     QPushButton {
@@ -619,7 +647,6 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
   sidebar_layout->addSpacing(10);
   QObject::connect(close_btn, &QPushButton::clicked, this, &SettingsWindow::closeSettings);
 
-  // setup panels
   DevicePanel *device = new DevicePanel(this);
   QObject::connect(device, &DevicePanel::reviewTrainingGuide, this, &SettingsWindow::reviewTrainingGuide);
   QObject::connect(device, &DevicePanel::showDriverView, this, &SettingsWindow::showDriverView);
@@ -634,6 +661,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
     {"Toggles", toggles},
     {"Software", new SoftwarePanel(this)},
     {"Community", new CommunityPanel(this)},
+    {"VIP", new VIPPanel(this)},
   };
 
 #ifdef ENABLE_MAPS
@@ -670,7 +698,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
     nav_btns->addButton(btn);
     sidebar_layout->addWidget(btn, 0, Qt::AlignRight);
 
-    const int lr_margin = name != "Network" ? 50 : 0;  // Network panel handles its own margins
+    const int lr_margin = name != "Network" ? 50 : 0;
     panel->setContentsMargins(lr_margin, 25, lr_margin, 25);
 
     ScrollView *panel_frame = new ScrollView(panel, this);
@@ -683,7 +711,6 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
   }
   sidebar_layout->setContentsMargins(50, 50, 100, 50);
 
-  // main settings layout, sidebar + main panel
   QHBoxLayout *main_layout = new QHBoxLayout(this);
 
   sidebar_widget->setFixedWidth(500);
@@ -736,13 +763,11 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   selectCar = new SelectCar(this);
   connect(selectCar, &SelectCar::backPress, [=]() { main_layout->setCurrentWidget(homeScreen); });
   connect(selectCar, &SelectCar::selectedCar, [=]() {
-
      QString selected = QString::fromStdString(Params().get("SelectedCar"));
      selectCarBtn->setText(selected.length() ? selected : "Select your car");
      main_layout->setCurrentWidget(homeScreen);
   });
   main_layout->addWidget(selectCar);
-
 
   QString lateral_control = QString::fromStdString(Params().get("LateralControl"));
   if(lateral_control.length() == 0)
@@ -752,11 +777,9 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   lateralControlBtn->setObjectName("lateralControlBtn");
   connect(lateralControlBtn, &QPushButton::clicked, [=]() { main_layout->setCurrentWidget(lateralControl); });
 
-
   lateralControl = new LateralControl(this);
   connect(lateralControl, &LateralControl::backPress, [=]() { main_layout->setCurrentWidget(homeScreen); });
   connect(lateralControl, &LateralControl::selected, [=]() {
-
      QString lateral_control = QString::fromStdString(Params().get("LateralControl"));
      if(lateral_control.length() == 0)
        lateral_control = "TORQUE";
@@ -795,7 +818,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
 
   toggleLayout->addWidget(new TimeZoneSelectCombo());
   toggleLayout->addWidget(horizontal_line());
-  
+
   QList<ParamControl*> toggles;
   toggles.append(new ParamControl("UseLanelines",
                                             "Use lane lines instead of e2e",
@@ -846,7 +869,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     toggleLayout->addWidget(toggle);
   }
 
-  // ── AutoLaneChangeTimer 추가 (AutoLaneChangeEnabled 바로 아래) ──
+  // ── AutoLaneChangeTimer ──────────────────────────────────────
   toggleLayout->addWidget(horizontal_line());
 
   auto *lc_timer = new AutoLaneChangeTimerControl(
@@ -932,7 +955,6 @@ SelectCar::SelectCar(QWidget* parent): QWidget(parent) {
   main_layout->setMargin(20);
   main_layout->setSpacing(20);
 
-  // Back button
   QPushButton* back = new QPushButton("Back");
   back->setObjectName("back_btn");
   back->setFixedSize(500, 100);
@@ -963,12 +985,10 @@ SelectCar::SelectCar(QWidget* parent): QWidget(parent) {
 
   QObject::connect(list, QOverload<QListWidgetItem*>::of(&QListWidget::itemClicked),
     [=](QListWidgetItem* item){
-
     if(list->currentRow() == 0)
         Params().remove("SelectedCar");
     else
         Params().put("SelectedCar", list->currentItem()->text().toStdString());
-
     emit selectedCar();
     });
 
@@ -981,7 +1001,6 @@ LateralControl::LateralControl(QWidget* parent): QWidget(parent) {
   main_layout->setMargin(20);
   main_layout->setSpacing(20);
 
-  // Back button
   QPushButton* back = new QPushButton("Back");
   back->setObjectName("back_btn");
   back->setFixedSize(500, 100);
@@ -1010,15 +1029,47 @@ LateralControl::LateralControl(QWidget* parent): QWidget(parent) {
 
   QObject::connect(list, QOverload<QListWidgetItem*>::of(&QListWidget::itemClicked),
     [=](QListWidgetItem* item){
-
     Params().put("LateralControl", list->currentItem()->text().toStdString());
     emit selected();
-
     QTimer::singleShot(1000, []() {
         Params().putBool("SoftRestartTriggered", true);
       });
-
     });
 
   main_layout->addWidget(list);
+}
+/////////////////////////////////////////////////////////////////////////
+
+VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
+  QVBoxLayout* layout = new QVBoxLayout(this);
+  layout->setContentsMargins(50, 20, 50, 20);
+  layout->setSpacing(0);
+
+  ListWidget* list = new ListWidget(this);
+  list->setSpacing(0);
+
+  // ── Dynamic Lane Profile Toggle ──────────────────────────────
+  list->addItem(new ParamControl("DynamicLaneProfileToggle",
+                                  "Enable Dynamic Lane Profile",
+                                  "Dynamic Lane Profile 기능을 활성화합니다.\n"
+                                  "활성화 시 아래 모드 선택이 적용됩니다.",
+                                  "../assets/offroad/icon_road.png",
+                                  this));
+
+  list->addItem(horizontal_line());
+
+  // ── Dynamic Lane Profile Mode ────────────────────────────────
+  auto *dlp_control = new DynamicLaneProfileControl(
+      "Dynamic Lane Profile Mode",
+      "Lane only: 항상 차선 기반\n"
+      "Lane less: 항상 차선 미사용(e2e)\n"
+      "Auto: 차선 인식률에 따라 자동 전환",
+      "../assets/offroad/icon_road.png",
+      this);
+  dlp_control->showDescription();
+  list->addItem(dlp_control);
+
+  ScrollView *scroller = new ScrollView(list, this);
+  scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  layout->addWidget(scroller);
 }
