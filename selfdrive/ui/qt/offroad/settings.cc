@@ -40,7 +40,7 @@ ChevronInfoControl::ChevronInfoControl(const QString &title,
     : AbstractControl(title, desc, icon, parent) {
 
   QWidget *btn_widget = new QWidget();
-  QVBoxLayout *btn_layout = new QVBoxLayout(btn_widget);
+  QHBoxLayout *btn_layout = new QHBoxLayout(btn_widget);
   btn_layout->setContentsMargins(0, 8, 0, 8);
   btn_layout->setSpacing(8);
 
@@ -94,7 +94,7 @@ AutoLaneChangeTimerControl::AutoLaneChangeTimerControl(const QString &title,
 
   // 버튼을 제목 아래에 배치
   QWidget *btn_widget = new QWidget();
-  QVBoxLayout *btn_layout = new QVBoxLayout(btn_widget);
+  QHBoxLayout *btn_layout = new QHBoxLayout(btn_widget);
   btn_layout->setContentsMargins(0, 8, 0, 8);
   btn_layout->setSpacing(8);
 
@@ -147,7 +147,7 @@ DynamicLaneProfileControl::DynamicLaneProfileControl(const QString &title,
 
   // 버튼을 제목 아래에 배치
   QWidget *btn_widget = new QWidget();
-  QVBoxLayout *btn_layout = new QVBoxLayout(btn_widget);
+  QHBoxLayout *btn_layout = new QHBoxLayout(btn_widget);
   btn_layout->setContentsMargins(0, 8, 0, 8);
   btn_layout->setSpacing(8);
 
