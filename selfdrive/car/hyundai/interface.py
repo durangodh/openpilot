@@ -341,6 +341,16 @@ class CarInterface(CarInterfaceBase):
         be.type = ButtonType.decelCruise
       elif but == Buttons.GAP_DIST:
         be.type = ButtonType.gapAdjustCruise
+      elif but == Buttons.CANCEL:
+        # [FIX] scc_live=False(레이더 없는 차)일 때만 CANCEL을 user cancel로 처리.
+        # scc_live=True(레이더 있는 차)에서는 SCC 시스템이 정상 동작 중에도
+        # CANCEL 신호를 CAN에 전송하므로, ButtonType.cancel로 처리하면
+        # 오토인게이지 직후 SCC CANCEL 신호에 의해 즉시 디스인게이지되는 문제 발생.
+        # scc_live=True 차량의 디스인게이지는 크루즈 메인 버튼 OFF(available=False)로 처리.
+        if not self.CC.scc_live:
+          be.type = ButtonType.cancel
+        else:
+          be.type = ButtonType.unknown
       else:
         be.type = ButtonType.unknown
       buttonEvents.append(be)
@@ -362,12 +372,12 @@ class CarInterface(CarInterfaceBase):
 
     # handle button presses
     for b in ret.buttonEvents:
-      # do disable on button down
+      # do disable on button down (scc_live=False 차량에서만 실제로 cancel 이벤트 발생)
       if b.type == ButtonType.cancel and b.pressed:
         events.add(EventName.buttonCancel)
 
       if self.CC.longcontrol and not self.CC.scc_live:
-        # scc_live=False(레이더 없는 차): 버튼으로 인게이지/디스인게이지
+        # scc_live=False: 버튼으로 인게이지/디스인게이지
         if b.type in [ButtonType.accelCruise, ButtonType.decelCruise] and not b.pressed:
           events.add(EventName.buttonEnable)
         if EventName.wrongCarMode in events.events:
@@ -379,19 +389,15 @@ class CarInterface(CarInterfaceBase):
         if b.type == ButtonType.decelCruise and not b.pressed:
           events.add(EventName.buttonEnable)
 
-    # [FIX] longcontrol=True이면서 scc_live=True인 경우(레이더 있는 차 ExperimentalMode):
-    # 이전 수정에서 wrongCarMode/pcmDisable을 무조건 제거했으나,
-    # 이것이 크루즈 메인 OFF(available=False) 시에도 이벤트를 제거해 디스인게이지 불가 문제 유발.
-    # 수정: cruiseState.available=True(메인 ON)일 때만 제거.
-    #   → available=True: SCC 비활성이어도 openpilot 유지 (ExperimentalMode 정상 동작)
-    #   → available=False: 크루즈 메인 OFF → 이벤트 유지 → 정상 디스인게이지
+    # longcontrol=True이면서 scc_live=True인 경우:
+    # cruiseState.available=True(메인 ON)일 때만 wrongCarMode/pcmDisable 제거
+    # available=False(메인 OFF) → 이벤트 유지 → 정상 디스인게이지
     if self.CC.longcontrol and self.CC.scc_live:
-      if ret.cruiseState.available:  # 크루즈 메인이 ON인 경우만 이벤트 제거
+      if ret.cruiseState.available:
         if EventName.wrongCarMode in events.events:
           events.events.remove(EventName.wrongCarMode)
         if EventName.pcmDisable in events.events:
           events.events.remove(EventName.pcmDisable)
-      # available=False(메인 OFF)이면 제거하지 않음 → 디스인게이지 정상 동작
 
     # scc smoother
     if self.CC.scc_smoother is not None:
