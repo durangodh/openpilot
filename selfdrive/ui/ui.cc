@@ -169,33 +169,23 @@ static void update_state(UIState *s) {
       }
     }
   }
-  if (!Hardware::TICI() && sm.updated("roadCameraState")) {
-    auto camera_state = sm["roadCameraState"].getRoadCameraState();
-
-    float max_lines = Hardware::EON() ? 5408 : 1904;
-    float max_gain = Hardware::EON() ? 1.0: 10.0;
-    float max_ev = max_lines * max_gain;
-
-    float ev = camera_state.getGain() * float(camera_state.getIntegLines());
-
-    scene.light_sensor = std::clamp<float>(1.0 - (ev / max_ev), 0.0, 1.0);
-  } else if (Hardware::TICI() && sm.updated("wideRoadCameraState")) {
-    auto camera_state = sm["wideRoadCameraState"].getWideRoadCameraState();
-
-    float max_lines = 1618;
-    float max_gain = 10.0;
-    float max_ev = max_lines * max_gain / 6;
-
-    float ev = camera_state.getGain() * float(camera_state.getIntegLines());
-
-    scene.light_sensor = std::clamp<float>(1.0 - (ev / max_ev), 0.0, 1.0);
+  if (sm.updated("wideRoadCameraState")) {
+    float scale = (sm["wideRoadCameraState"].getWideRoadCameraState().getSensor() == cereal::FrameData::ImageSensor::AR0231) ? 6.0f : 1.0f;
+    scene.light_sensor = std::max(100.0f - scale * sm["wideRoadCameraState"].getWideRoadCameraState().getExposureValPercent(), 0.0f);
   }
   scene.started = sm["deviceState"].getDeviceState().getStarted() && scene.ignition;
+
+  if (sm.updated("lateralPlan")) {
+    scene.dynamic_lane_profile = sm["lateralPlan"].getLateralPlan().getDynamicLaneProfile();
+    scene.dynamic_lane_profile_status = sm["lateralPlan"].getLateralPlan().getDynamicLaneProfileStatus();
+  }
 }
 
 void ui_update_params(UIState *s) {
-  Params params;
+  auto params = Params();
   s->scene.is_metric = params.getBool("IsMetric");
+  s->scene.map_on_left = params.getBool("NavSettingLeftSide");
+  s->scene.dynamic_lane_profile_toggle = params.getBool("DynamicLaneProfileToggle");
   s->scene.experimental_mode = params.getBool("ExperimentalMode");
   s->show_debug = params.getBool("ShowDebugUI");
   s->lat_control = std::string(Params().get("LateralControl"));
@@ -232,9 +222,10 @@ void UIState::updateStatus() {
 UIState::UIState(QObject *parent) : QObject(parent) {
   sm = std::make_unique<SubMaster, const std::initializer_list<const char *>>({
     "modelV2", "controlsState", "liveCalibration", "radarState", "deviceState", "roadCameraState",
-    "pandaStates", "carParams", "driverMonitoringState", "sensorEvents", "carState", "liveLocationKalman",
-    "wideRoadCameraState",
-    "gpsLocationExternal", "carControl", "liveParameters", "roadLimitSpeed",
+    "pandaStates", "carParams", "driverMonitoringState", "carState", "liveLocationKalman",
+    "wideRoadCameraState", "managerState", "navInstruction", "navRoute", "gnssMeasurements",
+    "carControl", "lateralPlan",
+    "gpsLocationExternal", "liveParameters", "roadLimitSpeed",
   });
 
   Params params;
