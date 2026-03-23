@@ -28,8 +28,6 @@ class NvgWindow : public CameraViewWidget {
   Q_PROPERTY(bool experimentalMode MEMBER experimentalMode NOTIFY valueChanged);
   Q_PROPERTY(int status MEMBER status NOTIFY valueChanged);
   Q_PROPERTY(float ang_str MEMBER ang_str NOTIFY valueChanged);
-  Q_PROPERTY(bool dynamicLaneProfileToggle MEMBER dynamicLaneProfileToggle NOTIFY valueChanged);
-  Q_PROPERTY(int dynamicLaneProfile MEMBER dynamicLaneProfile NOTIFY valueChanged);
   Q_PROPERTY(bool left_blindspot MEMBER left_blindspot);   // blind spot
   Q_PROPERTY(bool right_blindspot MEMBER right_blindspot); // blind spot
 
@@ -66,9 +64,6 @@ protected:
   int status = STATUS_DISENGAGED;
   float ang_str = 0;
 
-  bool dynamicLaneProfileToggle = false;
-  int dynamicLaneProfile = 0;
-
   bool left_blindspot  = false; // blind spot
   bool right_blindspot = false; // blind spot
 
@@ -84,7 +79,6 @@ protected:
   void drawText(QPainter &p, int x, int y, const QString &text, int alpha = 255);
   void drawText2(QPainter &p, int x, int y, int flags, const QString &text, const QColor &color);
   void drawTextWithColor(QPainter &p, int x, int y, const QString &text, QColor &color);
-  void drawDlpButton(QPainter &p, int x, int y, int w, int h);
   void paintEvent(QPaintEvent *event) override;
 
   const int radius   = 192;
