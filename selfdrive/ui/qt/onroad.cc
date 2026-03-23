@@ -314,6 +314,11 @@ void NvgWindow::updateState(const UIState &s) {
 
   setProperty("dynamicLaneProfileToggle", s.scene.dynamic_lane_profile_toggle);
   setProperty("dynamicLaneProfile", s.scene.dynamic_lane_profile);
+
+  // blind spot state sync
+  auto car_state = sm["carState"].getCarState();
+  setProperty("left_blindspot",  car_state.getLeftBlindspot());
+  setProperty("right_blindspot", car_state.getRightBlindspot());
 }
 
 void NvgWindow::updateFrameMat(int w, int h) {
@@ -355,15 +360,26 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
     painter.drawPolygon(scene.road_edge_vertices[i].v, scene.road_edge_vertices[i].cnt);
   }
 
+  // ── blind spot barriers: 항상 표시, 감지 시 빨간색으로 강조 ──────────
   auto car_state = sm["carState"].getCarState();
   bool left_blindspot  = car_state.getLeftBlindspot();
   bool right_blindspot = car_state.getRightBlindspot();
 
   painter.setPen(Qt::NoPen);
-  painter.setBrush(QColor::fromRgbF(1.0, 0.0, 0.0, 0.2));
-  if (left_blindspot)  painter.drawPolygon(scene.lane_barrier_vertices[0]);
-  if (right_blindspot) painter.drawPolygon(scene.lane_barrier_vertices[1]);
-	
+
+  // 왼쪽 barrier: 감지=빨강(alpha 0.45), 평상시=흰색(alpha 0.10)
+  painter.setBrush(left_blindspot
+      ? QColor::fromRgbF(1.0, 0.0, 0.0, 0.45)
+      : QColor::fromRgbF(1.0, 1.0, 1.0, 0.10));
+  painter.drawPolygon(scene.lane_barrier_vertices[0].v, scene.lane_barrier_vertices[0].cnt);
+
+  // 오른쪽 barrier: 감지=빨강(alpha 0.45), 평상시=흰색(alpha 0.10)
+  painter.setBrush(right_blindspot
+      ? QColor::fromRgbF(1.0, 0.0, 0.0, 0.45)
+      : QColor::fromRgbF(1.0, 1.0, 1.0, 0.10));
+  painter.drawPolygon(scene.lane_barrier_vertices[1].v, scene.lane_barrier_vertices[1].cnt);
+  // ─────────────────────────────────────────────────────────────────────
+
   // paint path
   QLinearGradient bg(0, height(), 0, height() / 4);
   float start_hue, end_hue;
