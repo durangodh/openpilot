@@ -28,6 +28,8 @@ class NvgWindow : public CameraViewWidget {
   Q_PROPERTY(bool experimentalMode MEMBER experimentalMode NOTIFY valueChanged);
   Q_PROPERTY(int status MEMBER status NOTIFY valueChanged);
   Q_PROPERTY(float ang_str MEMBER ang_str NOTIFY valueChanged);
+  Q_PROPERTY(bool dynamicLaneProfileToggle MEMBER dynamicLaneProfileToggle NOTIFY valueChanged);
+  Q_PROPERTY(int dynamicLaneProfile MEMBER dynamicLaneProfile NOTIFY valueChanged);
 
 public:
   explicit NvgWindow(VisionStreamType type, QWidget* parent = 0);
@@ -62,6 +64,9 @@ protected:
   int status = STATUS_DISENGAGED;
   float ang_str = 0;
 
+  bool dynamicLaneProfileToggle = false;
+  int dynamicLaneProfile = 0;
+
   // ChevronInfo: fade alpha for lead status overlay
   float lead_status_alpha = 0.0f;
 
@@ -74,6 +79,7 @@ protected:
   void drawText(QPainter &p, int x, int y, const QString &text, int alpha = 255);
   void drawText2(QPainter &p, int x, int y, int flags, const QString &text, const QColor &color);
   void drawTextWithColor(QPainter &p, int x, int y, const QString &text, QColor &color);
+  void drawDlpButton(QPainter &p, int x, int y, int w, int h);
   void paintEvent(QPaintEvent *event) override;
 
   const int radius   = 192;
@@ -129,6 +135,8 @@ private:
   ScreenRecoder *recorder;
   std::shared_ptr<QTimer> record_timer;
   QPoint startPos;
+
+  Params params;
 
 private slots:
   void offroadTransition(bool offroad);
