@@ -32,7 +32,7 @@ class LateralPlanner:
     self.use_lanelines = self.params.get_bool('UseLanelines')
     self.last_params_update = 0
 
-    self.LP = LanePlanner()
+    self.LP = LanePlanner(wide_camera=wide_camera)
     self.DH = DesireHelper()
 
     # Vehicle model parameters used to calculate lateral movement of car
