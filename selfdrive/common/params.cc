@@ -192,6 +192,8 @@ std::unordered_map<std::string, uint32_t> keys = {
 
     {"ChevronInfo", PERSISTENT},
     {"BlindSpot", PERSISTENT},
+    {"DynamicLaneProfile", PERSISTENT},
+    {"DynamicLaneProfileToggle", PERSISTENT},
     {"IsLdwsCar", PERSISTENT},
     {"LaneChangeEnabled", PERSISTENT},
     {"AutoLaneChangeEnabled", PERSISTENT},
