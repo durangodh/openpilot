@@ -189,6 +189,7 @@ class LateralPlanner:
     lateralPlan.useLaneLines = self.use_lanelines
     lateralPlan.laneChangeState = self.DH.lane_change_state
     lateralPlan.laneChangeDirection = self.DH.lane_change_direction
+    lateralPlan.laneChangePrev = self.DH.prev_lane_change
 
     lateralPlan.autoLaneChangeEnabled = self.DH.auto_lane_change_enabled
     lateralPlan.autoLaneChangeTimer = int(AUTO_LCA_START_TIME) - int(self.DH.auto_lane_change_timer)
