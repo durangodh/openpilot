@@ -916,15 +916,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
 
   toggleLayout->addWidget(horizontal_line());
 
-  toggleLayout->addWidget(new ParamControl("BlindSpot",
-                                            "Show Blind Spot Warnings",
-                                            "Enabling this will display warnings when a vehicle is detected in your blind spot as long as your car has BSM supported.",
-                                            "../assets/offroad/icon_monitoring.png",
-                                            this));
-
-  // ── ChevronInfo 추가 ──────────────────────────────────────────
-  toggleLayout->addWidget(horizontal_line());
-
   auto *chevron_info = new ChevronInfoControl(
       "Display Metrics Below Chevron",
       "Display useful metrics below the chevron that tracks the lead car "
