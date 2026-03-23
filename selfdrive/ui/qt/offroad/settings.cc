@@ -183,7 +183,6 @@ void DynamicLaneProfileControl::refresh() {
 }
 
 TogglesPanel::TogglesPanel(SettingsWindow *parent) : ListWidget(parent) {
-  // param, title, desc, icon
   std::vector<std::tuple<QString, QString, QString, QString>> toggle_defs{
     {
       "OpenpilotEnabledToggle",
@@ -236,24 +235,20 @@ TogglesPanel::TogglesPanel(SettingsWindow *parent) : ListWidget(parent) {
       "../assets/offroad/icon_metric.png",
     },
 #endif
-
   };
 
   for (auto &[param, title, desc, icon] : toggle_defs) {
     auto toggle = new ParamControl(param, title, desc, icon, this);
-    
     bool locked = params.getBool((param + "Lock").toStdString());
     toggle->setEnabled(!locked);
-    
     addItem(toggle);
     toggles[param.toStdString()] = toggle;
   }
 
-  // Toggles with confirmation dialogs
   toggles["ExperimentalMode"]->setActiveIcon("../assets/img_experimental.svg");
   toggles["ExperimentalMode"]->setConfirmation(true, true);
   toggles["ExperimentalLongitudinalEnabled"]->setConfirmation(true, false);
-  
+
   connect(toggles["ExperimentalLongitudinalEnabled"], &ToggleControl::toggleFlipped, [=]() {
     updateToggles();
   });
@@ -297,12 +292,10 @@ void TogglesPanel::updateToggles() {
     } else {
       e2e_toggle->setEnabled(false);
       params.remove("ExperimentalMode");
-
       const QString no_long = "openpilot longitudinal control is not currently available for this car.";
       const QString exp_long = "Enable experimental longitudinal control to enable this.";
       e2e_toggle->setDescription("<b>" + (CP.getExperimentalLongitudinalAvailable() ? exp_long : no_long) + "</b><br><br>" + e2e_description);
     }
-
     e2e_toggle->refresh();
   } else {
     e2e_toggle->setDescription(e2e_description);
@@ -395,7 +388,7 @@ DevicePanel::DevicePanel(SettingsWindow *parent) : ListWidget(parent) {
         std::system("reboot");
     }
   });
-  
+
   QPushButton *reboot_btn = new QPushButton("Reboot");
   reboot_btn->setObjectName("reboot_btn");
   power_layout->addWidget(reboot_btn);
@@ -598,7 +591,6 @@ static QStringList get_list(const char* path)
             stringList.append(line);
       }
   }
-
   return stringList;
 }
 
@@ -789,7 +781,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   main_layout->addWidget(lateralControl);
 
   QHBoxLayout* layoutBtn = new QHBoxLayout(homeWidget);
-
   layoutBtn->addWidget(lateralControlBtn);
   layoutBtn->addSpacing(10);
   layoutBtn->addWidget(selectCarBtn);
@@ -825,37 +816,31 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "",
                                             "../assets/offroad/icon_openpilot.png",
                                             this));
-
   toggles.append(new ParamControl("UseClusterSpeed",
                                             "Use Cluster Speed",
                                             "Use cluster speed instead of wheel speed.",
                                             "../assets/offroad/icon_road.png",
                                             this));
-
   toggles.append(new ParamControl("AutoAscc",
                                             "Ascc auto set",
                                             "Ascc auto set 적용",
                                             "../assets/offroad/icon_road.png",
                                             this));
-
   toggles.append(new ParamControl("LongControlEnabled",
                                             "Enable HKG Long Control",
                                             "warnings: it is beta, be careful!! Openpilot will control the speed of your car",
                                             "../assets/offroad/icon_road.png",
                                             this));
-
   toggles.append(new ParamControl("IsLdwsCar",
                                             "LDWS",
                                             "If your car only supports LDWS, turn it on.",
                                             "../assets/offroad/icon_openpilot.png",
                                             this));
-
   toggles.append(new ParamControl("LaneChangeEnabled",
                                             "Enable Lane Change Assist",
                                             "Perform assisted lane changes with openpilot by checking your surroundings for safety, activating the turn signal and gently nudging the steering wheel towards your desired lane. openpilot is not capable of checking if a lane change is safe. You must continuously observe your surroundings to use this feature.",
                                             "../assets/offroad/icon_road.png",
                                             this));
-
   toggles.append(new ParamControl("AutoLaneChangeEnabled",
                                             "Enable Auto Lane Change(Nudgeless)",
                                             "warnings: it is beta, be careful!!",
@@ -869,84 +854,48 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     toggleLayout->addWidget(toggle);
   }
 
-  // ── AutoLaneChangeTimer ──────────────────────────────────────
   toggleLayout->addWidget(horizontal_line());
-
-  auto *lc_timer = new AutoLaneChangeTimerControl(
-      "Auto Lane Change Timer",
-      "차선변경 자동 시작까지의 대기 시간을 설정합니다.\n"
-      "즉시: 조건 충족 즉시 / 0.1s ~ 2.0s: 해당 시간 대기 후 자동 차선변경",
-      "../assets/offroad/icon_road.png",
-      this);
-  lc_timer->showDescription();
-  toggleLayout->addWidget(lc_timer);
-
-  toggleLayout->addWidget(horizontal_line());
-
   toggleLayout->addWidget(new ParamControl("SccSmootherSlowOnCurves",
                                             "Enable Slow On Curves",
                                             "",
                                             "../assets/offroad/icon_road.png",
                                             this));
-
   toggleLayout->addWidget(horizontal_line());
-
   toggleLayout->addWidget(new ParamControl("SccSmootherSyncGasPressed",
                                             "Sync set speed on gas pressed",
                                             "",
                                             "../assets/offroad/icon_road.png",
                                             this));
-
   toggleLayout->addWidget(horizontal_line());
-
   toggleLayout->addWidget(new ParamControl("StockNaviDecelEnabled",
                                             "Stock Navi based deceleration",
                                             "Use the stock navi based deceleration for longcontrol",
                                             "../assets/offroad/icon_road.png",
                                             this));
-
   toggleLayout->addWidget(horizontal_line());
-
   toggleLayout->addWidget(new ParamControl("KeepSteeringTurnSignals",
                                             "Keep steering while turn signals",
                                             "",
                                             "../assets/offroad/icon_openpilot.png",
                                             this));
-
   toggleLayout->addWidget(horizontal_line());
-
   toggleLayout->addWidget(new ParamControl("HapticFeedbackWhenSpeedCamera",
                                             "Haptic feedback (speed-cam alert)",
                                             "Haptic feedback when a speed camera is detected",
                                             "../assets/offroad/icon_openpilot.png",
                                             this));
-
   toggleLayout->addWidget(horizontal_line());
-
   toggleLayout->addWidget(new ParamControl("DisableOpFcw",
                                             "Disable Openpilot FCW",
                                             "",
                                             "../assets/offroad/icon_shell.png",
                                             this));
-
   toggleLayout->addWidget(horizontal_line());
-
   toggleLayout->addWidget(new ParamControl("ShowDebugUI",
                                             "Show Debug UI",
                                             "",
                                             "../assets/offroad/icon_shell.png",
                                             this));
-
-  toggleLayout->addWidget(horizontal_line());
-
-  auto *chevron_info = new ChevronInfoControl(
-      "Display Metrics Below Chevron",
-      "Display useful metrics below the chevron that tracks the lead car "
-      "(only applicable to cars with openpilot longitudinal control).",
-      "../assets/offroad/icon_road.png",
-      this);
-  chevron_info->showDescription();
-  toggleLayout->addWidget(chevron_info);
 }
 
 SelectCar::SelectCar(QWidget* parent): QWidget(parent) {
@@ -1038,6 +987,7 @@ LateralControl::LateralControl(QWidget* parent): QWidget(parent) {
 
   main_layout->addWidget(list);
 }
+
 /////////////////////////////////////////////////////////////////////////
 
 VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
@@ -1068,6 +1018,30 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       this);
   dlp_control->showDescription();
   list->addItem(dlp_control);
+
+  list->addItem(horizontal_line());
+
+  // ── AutoLaneChangeTimer ──────────────────────────────────────
+  auto *lc_timer = new AutoLaneChangeTimerControl(
+      "Auto Lane Change Timer",
+      "차선변경 자동 시작까지의 대기 시간을 설정합니다.\n"
+      "즉시: 조건 충족 즉시 / 0.1s ~ 2.0s: 해당 시간 대기 후 자동 차선변경",
+      "../assets/offroad/icon_road.png",
+      this);
+  lc_timer->showDescription();
+  list->addItem(lc_timer);
+
+  list->addItem(horizontal_line());
+
+  // ── ChevronInfo ──────────────────────────────────────────────
+  auto *chevron_info = new ChevronInfoControl(
+      "Display Metrics Below Chevron",
+      "Display useful metrics below the chevron that tracks the lead car "
+      "(only applicable to cars with openpilot longitudinal control).",
+      "../assets/offroad/icon_road.png",
+      this);
+  chevron_info->showDescription();
+  list->addItem(chevron_info);
 
   ScrollView *scroller = new ScrollView(list, this);
   scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
