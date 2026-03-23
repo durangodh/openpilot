@@ -146,19 +146,6 @@ void OnroadWindow::mouseReleaseEvent(QMouseEvent* e) {
     }
   }
 
-  // ── Dynamic Lane Profile 버튼 ──────────────────────────
-  {
-    UIState *s = uiState();
-    UIScene &scene = s->scene;
-    QRect dlp_btn_rect = QRect(bdr_s * 2 + 220, (rect().bottom() - footer_h / 2 - 75), 150, 150);
-    if (scene.dynamic_lane_profile_toggle && dlp_btn_rect.contains(endPos.x(), endPos.y())) {
-      scene.dynamic_lane_profile++;
-      scene.dynamic_lane_profile = scene.dynamic_lane_profile > 2 ? 0 : scene.dynamic_lane_profile;
-      params.put("DynamicLaneProfile", std::to_string(scene.dynamic_lane_profile));
-      return;
-    }
-  }
-
   if (map != nullptr) {
     bool sidebarVisible = geometry().x() > 0;
     map->setVisible(!sidebarVisible && !map->isVisible());
@@ -312,13 +299,6 @@ void NvgWindow::updateState(const UIState &s) {
     setProperty("experimentalMode", cs.getExperimentalMode());
   }
 
-  setProperty("dynamicLaneProfileToggle", s.scene.dynamic_lane_profile_toggle);
-  setProperty("dynamicLaneProfile", s.scene.dynamic_lane_profile);
-
-  // blind spot state sync
-  auto car_state = sm["carState"].getCarState();
-  setProperty("left_blindspot",  car_state.getLeftBlindspot());
-  setProperty("right_blindspot", car_state.getRightBlindspot());
 }
 
 void NvgWindow::updateFrameMat(int w, int h) {
@@ -360,21 +340,34 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
     painter.drawPolygon(scene.road_edge_vertices[i].v, scene.road_edge_vertices[i].cnt);
   }
 
-  painter.setPen(Qt::NoPen);
+  //Blind Spot Warnings
+  bool blindspot_enabled = Params().getBool("BlindSpot");
+  if (blindspot_enabled) {
+    auto car_state = sm["carState"].getCarState();
+    bool left_blindspot  = car_state.getLeftBlindspot();
+    bool right_blindspot = car_state.getRightBlindspot();
 
-  // 왼쪽 barrier: 감지=빨강(alpha 0.45), 평상시=흰색(alpha 0.10)
-  painter.setBrush(left_blindspot
-      ? QColor::fromRgbF(1.0, 0.0, 0.0, 0.45)
-      : QColor::fromRgbF(1.0, 1.0, 1.0, 0.10));
-  painter.drawPolygon(scene.lane_barrier_vertices[0].v, scene.lane_barrier_vertices[0].cnt);
+    if (left_blindspot && scene.lane_line_vertices[1].cnt > 0) {
+      // 왼쪽: 왼→오 방향 그라디언트 (오렌지→노랑)
+      QLinearGradient gradient(0, 0, width(), 0);
+      gradient.setColorAt(0.0, QColor(255, 165, 0, 102));
+      gradient.setColorAt(1.0, QColor(255, 255, 0, 102));
+      painter.setBrush(gradient);
+      painter.setPen(QPen(QColor(255, 165, 0, 250), 16, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+      painter.drawPolygon(scene.lane_line_vertices[1].v, scene.lane_line_vertices[1].cnt);
+    }
 
-  // 오른쪽 barrier: 감지=빨강(alpha 0.45), 평상시=흰색(alpha 0.10)
-  painter.setBrush(right_blindspot
-      ? QColor::fromRgbF(1.0, 0.0, 0.0, 0.45)
-      : QColor::fromRgbF(1.0, 1.0, 1.0, 0.10));
-  painter.drawPolygon(scene.lane_barrier_vertices[1].v, scene.lane_barrier_vertices[1].cnt);
-  // ─────────────────────────────────────────────────────────────────────
-
+    if (right_blindspot && scene.lane_line_vertices[2].cnt > 0) {
+      // 오른쪽: 오→왼 방향 그라디언트 (오렌지→노랑)
+      QLinearGradient gradient(width(), 0, 0, 0);
+      gradient.setColorAt(0.0, QColor(255, 165, 0, 102));
+      gradient.setColorAt(1.0, QColor(255, 255, 0, 102));
+      painter.setBrush(gradient);
+      painter.setPen(QPen(QColor(255, 165, 0, 250), 16, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+      painter.drawPolygon(scene.lane_line_vertices[2].v, scene.lane_line_vertices[2].cnt);
+    }
+  }
+	
   // paint path
   QLinearGradient bg(0, height(), 0, height() / 4);
   float start_hue, end_hue;
@@ -414,34 +407,6 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   painter.drawPolygon(scene.track_vertices.v, scene.track_vertices.cnt);
 
   painter.restore();
-}
-
-void NvgWindow::drawDlpButton(QPainter &p, int x, int y, int w, int h) {
-  int prev_dynamic_lane_profile = -1;
-  QString dlp_text = "";
-  QColor dlp_border = QColor(255, 255, 255, 255);
-
-  if (prev_dynamic_lane_profile != dynamicLaneProfile) {
-    prev_dynamic_lane_profile = dynamicLaneProfile;
-    if (dynamicLaneProfile == 0) {
-      dlp_text = tr("Lane\nonly");
-      dlp_border = QColor("#2020f8");
-    } else if (dynamicLaneProfile == 1) {
-      dlp_text = tr("Lane\nless");
-      dlp_border = QColor("#0df87a");
-    } else if (dynamicLaneProfile == 2) {
-      dlp_text = tr("Auto\nLane");
-      dlp_border = QColor("#0df8f8");
-    }
-  }
-
-  QRect dlpBtn(x, y, w, h);
-  p.setPen(QPen(dlp_border, 6));
-  p.setBrush(QColor(75, 75, 75, 75));
-  p.drawEllipse(dlpBtn);
-  p.setPen(QColor(Qt::white));
-  configFont(p, "Inter", 36, "SemiBold");
-  p.drawText(dlpBtn, Qt::AlignCenter, dlp_text);
 }
 
 void NvgWindow::drawLead(QPainter &painter, const cereal::ModelDataV2::LeadDataV3::Reader &lead_data, const QPointF &vd, bool is_radar) {
@@ -769,11 +734,6 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   p.setPen(QColor(0xff, 0xff, 0xff, 200));
   p.drawText(rect().left() + 20, rect().height() - 15, infoText);
   p.restore();
-
-  // Dynamic Lane Profile Button
-  if (dynamicLaneProfileToggle) {
-    drawDlpButton(p, bdr_s * 2 + 220, (rect().bottom() - footer_h / 2 - 75), 150, 150);
-  }
 
   drawBottomIcons(p);
 }
