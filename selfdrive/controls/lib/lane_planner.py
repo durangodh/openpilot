@@ -11,14 +11,9 @@ TRAJECTORY_SIZE = 33
 # camera offset is meters from center car to camera
 # model path is in the frame of the camera. Empirically 
 # the model knows the difference between TICI and EON
-# so a path offset is not needed
-
-if EON:
-  CAMERA_OFFSET = -0.06
-elif TICI:
-  CAMERA_OFFSET = 0.04
-else:
-  CAMERA_OFFSET = 0.0
+# so a path offset is not need
+PATH_OFFSET = 0.00
+CAMERA_OFFSET = -0.06
 
 ENABLE_ZORROBYTE = True
 ENABLE_INC_LANE_PROB = True
@@ -43,7 +38,8 @@ class LanePlanner:
     self.l_lane_change_prob = 0.
     self.r_lane_change_prob = 0.
 
-    self.camera_offset = -CAMERA_OFFSET
+    self.camera_offset = -CAMERA_OFFSET if wide_camera else CAMERA_OFFSET
+    self.path_offset = -PATH_OFFSET if wide_camera else PATH_OFFSET
 
     self.readings = []
     self.frame = 0
@@ -128,4 +124,6 @@ class LanePlanner:
     if safe_idxs[0]:
       lane_path_y_interp = np.interp(path_t, self.ll_t[safe_idxs], lane_path_y[safe_idxs])
       path_xyz[:,1] = self.d_prob * lane_path_y_interp + (1.0 - self.d_prob) * path_xyz[:,1]
+    else:
+      cloudlog.warning("Lateral mpc - NaNs in laneline times, ignoring")  
     return path_xyz
