@@ -30,6 +30,8 @@ class NvgWindow : public CameraViewWidget {
   Q_PROPERTY(float ang_str MEMBER ang_str NOTIFY valueChanged);
   Q_PROPERTY(bool dynamicLaneProfileToggle MEMBER dynamicLaneProfileToggle NOTIFY valueChanged);
   Q_PROPERTY(int dynamicLaneProfile MEMBER dynamicLaneProfile NOTIFY valueChanged);
+  Q_PROPERTY(bool left_blindspot MEMBER left_blindspot);   // blind spot
+  Q_PROPERTY(bool right_blindspot MEMBER right_blindspot); // blind spot
 
 public:
   explicit NvgWindow(VisionStreamType type, QWidget* parent = 0);
@@ -66,6 +68,9 @@ protected:
 
   bool dynamicLaneProfileToggle = false;
   int dynamicLaneProfile = 0;
+
+  bool left_blindspot  = false; // blind spot
+  bool right_blindspot = false; // blind spot
 
   // ChevronInfo: fade alpha for lead status overlay
   float lead_status_alpha = 0.0f;
