@@ -299,6 +299,11 @@ void NvgWindow::updateState(const UIState &s) {
     setProperty("experimentalMode", cs.getExperimentalMode());
   }
 
+  // blind spot state sync
+  auto car_state = sm["carState"].getCarState();
+  setProperty("left_blindspot",  car_state.getLeftBlindspot());
+  setProperty("right_blindspot", car_state.getRightBlindspot());
+
 }
 
 void NvgWindow::updateFrameMat(int w, int h) {
@@ -341,32 +346,19 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   }
 
   //Blind Spot Warnings
-  bool blindspot_enabled = Params().getBool("BlindSpot");
-  if (blindspot_enabled) {
-    auto car_state = sm["carState"].getCarState();
-    bool left_blindspot  = car_state.getLeftBlindspot();
-    bool right_blindspot = car_state.getRightBlindspot();
+  painter.setPen(Qt::NoPen);
 
-    if (left_blindspot && scene.lane_line_vertices[1].cnt > 0) {
-      // 왼쪽: 왼→오 방향 그라디언트 (오렌지→노랑)
-      QLinearGradient gradient(0, 0, width(), 0);
-      gradient.setColorAt(0.0, QColor(255, 165, 0, 102));
-      gradient.setColorAt(1.0, QColor(255, 255, 0, 102));
-      painter.setBrush(gradient);
-      painter.setPen(QPen(QColor(255, 165, 0, 250), 16, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-      painter.drawPolygon(scene.lane_line_vertices[1].v, scene.lane_line_vertices[1].cnt);
-    }
+  // 왼쪽 barrier: 감지=빨강(alpha 0.45), 평상시=흰색(alpha 0.10)
+  painter.setBrush(left_blindspot
+      ? QColor::fromRgbF(1.0, 0.0, 0.0, 0.45)
+      : QColor::fromRgbF(1.0, 1.0, 1.0, 0.10));
+  painter.drawPolygon(scene.lane_barrier_vertices[0].v, scene.lane_barrier_vertices[0].cnt);
 
-    if (right_blindspot && scene.lane_line_vertices[2].cnt > 0) {
-      // 오른쪽: 오→왼 방향 그라디언트 (오렌지→노랑)
-      QLinearGradient gradient(width(), 0, 0, 0);
-      gradient.setColorAt(0.0, QColor(255, 165, 0, 102));
-      gradient.setColorAt(1.0, QColor(255, 255, 0, 102));
-      painter.setBrush(gradient);
-      painter.setPen(QPen(QColor(255, 165, 0, 250), 16, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-      painter.drawPolygon(scene.lane_line_vertices[2].v, scene.lane_line_vertices[2].cnt);
-    }
-  }
+  // 오른쪽 barrier: 감지=빨강(alpha 0.45), 평상시=흰색(alpha 0.10)
+  painter.setBrush(right_blindspot
+      ? QColor::fromRgbF(1.0, 0.0, 0.0, 0.45)
+      : QColor::fromRgbF(1.0, 1.0, 1.0, 0.10));
+  painter.drawPolygon(scene.lane_barrier_vertices[1].v, scene.lane_barrier_vertices[1].cnt);
 	
   // paint path
   QLinearGradient bg(0, height(), 0, height() / 4);
