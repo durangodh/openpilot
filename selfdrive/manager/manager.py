@@ -63,6 +63,8 @@ def manager_init() -> None:
     ("DisableOpFcw", "0"),
     ("ShowDebugUI", "0"),
     ("NewRadarInterface", "0"),
+    ("WideCameraOnly", "0"),       # plannerd.py 크래시 수정
+    ("AutoLaneChangeTimer", "0"),  # controlsd.py 크래시 수정
   ]
   if not PC:
     default_params.append(("LastUpdateTime", datetime.datetime.utcnow().isoformat().encode('utf8')))
