@@ -53,7 +53,7 @@ class LateralPlanner:
 
     # Dynamic Lane Profile
     self.dynamic_lane_profile_enabled = self.params.get_bool("DynamicLaneProfileToggle")
-    self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8"))
+    self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
     self.dynamic_lane_profile_status = False
     self.dynamic_lane_profile_status_buffer = False
     self.second = 0.0
