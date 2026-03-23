@@ -16,17 +16,14 @@
 #define BACKLIGHT_TS 10.00
 #define BACKLIGHT_OFFROAD 50
 
-// Projects a point in car to space to the corresponding point in full frame
-// image space.
 static bool calib_frame_to_full_frame(const UIState *s, float in_x, float in_y, float in_z, QPointF *out) {
-  const float margin = 1000.0f;  // 500 -> 1000
+  const float margin = 1000.0f;
   const QRectF clip_region{-margin, -margin, s->fb_w + 2 * margin, s->fb_h + 2 * margin};
 
   const vec3 pt = (vec3){{in_x, in_y, in_z}};
   const vec3 Ep = matvecmul3(s->scene.view_from_calib, pt);
   const vec3 KEp = matvecmul3(s->wide_camera ? ecam_intrinsic_matrix : fcam_intrinsic_matrix, Ep);
 
-  // Project.
   QPointF point = s->car_space_transform.map(QPointF{KEp.v[0] / KEp.v[2], KEp.v[1] / KEp.v[2]});
   if (clip_region.contains(point)) {
     *out = point;
@@ -63,11 +60,11 @@ static void update_line_data(const UIState *s, const cereal::ModelDataV2::XYZTDa
   const auto line_x = line.getX(), line_y = line.getY(), line_z = line.getZ();
   QPointF *v = &pvd->v[0];
   for (int i = 0; i <= max_idx; i++) {
-    if (line_x[i] < 0) continue;  // 음수 x 좌표 스킵
+    if (line_x[i] < 0) continue;
     v += calib_frame_to_full_frame(s, line_x[i], line_y[i] - y_off, line_z[i] + z_off_left, v);
   }
   for (int i = max_idx; i >= 0; i--) {
-    if (line_x[i] < 0) continue;  // 음수 x 좌표 스킵
+    if (line_x[i] < 0) continue;
     v += calib_frame_to_full_frame(s, line_x[i], line_y[i] + y_off, line_z[i] + z_off_right, v);
   }
   pvd->cnt = v - pvd->v;
@@ -167,7 +164,7 @@ static void update_state(UIState *s) {
     for (auto sensor : sm["sensorEvents"].getSensorEvents()) {
       if (sensor.which() == cereal::SensorEventData::ACCELERATION) {
         auto accel = sensor.getAcceleration().getV();
-        if (accel.totalSize().wordCount) { // TODO: sometimes empty lists are received. Figure out why
+        if (accel.totalSize().wordCount) {
           scene.accel_sensor = accel[2];
         }
       } else if (sensor.which() == cereal::SensorEventData::GYRO_UNCALIBRATED) {
@@ -305,17 +302,14 @@ void Device::resetInteractiveTimout() {
 void Device::updateBrightness(const UIState &s) {
   float clipped_brightness = BACKLIGHT_OFFROAD;
   if (s.scene.started) {
-    // Scale to 0% to 100%
     clipped_brightness = 100.0 * s.scene.light_sensor;
 
-    // CIE 1931 - https://www.photonstophotos.net/GeneralTopics/Exposure/Psychometric_Lightness_and_Gamma.htm
     if (clipped_brightness <= 8) {
       clipped_brightness = (clipped_brightness / 903.3);
     } else {
       clipped_brightness = std::pow((clipped_brightness + 16.0) / 116.0, 3.0);
     }
 
-    // Scale back to 10% to 100%
     clipped_brightness = std::clamp(100.0f * clipped_brightness, 10.0f, 100.0f);
   }
 
