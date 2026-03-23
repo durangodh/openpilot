@@ -39,16 +39,18 @@ ChevronInfoControl::ChevronInfoControl(const QString &title,
                                        QWidget *parent)
     : AbstractControl(title, desc, icon, parent) {
 
-  QHBoxLayout *btn_layout = new QHBoxLayout();
-  btn_layout->setSpacing(10);
+  QWidget *btn_widget = new QWidget();
+  QVBoxLayout *btn_layout = new QVBoxLayout(btn_widget);
+  btn_layout->setContentsMargins(0, 8, 0, 8);
+  btn_layout->setSpacing(8);
 
   for (int i = 0; i < labels.size(); i++) {
     buttons[i] = new QPushButton(labels[i]);
-    buttons[i]->setFixedSize(160, 80);
+    buttons[i]->setFixedHeight(70);
     buttons[i]->setCheckable(true);
     buttons[i]->setStyleSheet(R"(
       QPushButton {
-        font-size: 36px;
+        font-size: 30px;
         border-radius: 10px;
         background-color: #393939;
         color: #aaaaaa;
@@ -70,7 +72,8 @@ ChevronInfoControl::ChevronInfoControl(const QString &title,
     btn_layout->addWidget(buttons[i]);
   }
 
-  hlayout->addLayout(btn_layout);
+  // AbstractControl의 메인 레이아웃(QVBoxLayout)에 버튼 행 추가
+  qobject_cast<QVBoxLayout*>(layout())->addWidget(btn_widget);
   refresh();
 }
 
@@ -89,16 +92,19 @@ AutoLaneChangeTimerControl::AutoLaneChangeTimerControl(const QString &title,
                                                        QWidget *parent)
     : AbstractControl(title, desc, icon, parent) {
 
-  QHBoxLayout *btn_layout = new QHBoxLayout();
-  btn_layout->setSpacing(10);
+  // 버튼을 제목 아래에 배치
+  QWidget *btn_widget = new QWidget();
+  QVBoxLayout *btn_layout = new QVBoxLayout(btn_widget);
+  btn_layout->setContentsMargins(0, 8, 0, 8);
+  btn_layout->setSpacing(8);
 
   for (int i = 0; i < labels.size(); i++) {
     buttons[i] = new QPushButton(labels[i]);
-    buttons[i]->setFixedSize(130, 80);
+    buttons[i]->setFixedHeight(70);
     buttons[i]->setCheckable(true);
     buttons[i]->setStyleSheet(R"(
       QPushButton {
-        font-size: 32px;
+        font-size: 30px;
         border-radius: 10px;
         background-color: #393939;
         color: #aaaaaa;
@@ -120,7 +126,7 @@ AutoLaneChangeTimerControl::AutoLaneChangeTimerControl(const QString &title,
     btn_layout->addWidget(buttons[i]);
   }
 
-  hlayout->addLayout(btn_layout);
+  qobject_cast<QVBoxLayout*>(layout())->addWidget(btn_widget);
   refresh();
 }
 
@@ -139,16 +145,19 @@ DynamicLaneProfileControl::DynamicLaneProfileControl(const QString &title,
                                                      QWidget *parent)
     : AbstractControl(title, desc, icon, parent) {
 
-  QHBoxLayout *btn_layout = new QHBoxLayout();
-  btn_layout->setSpacing(10);
+  // 버튼을 제목 아래에 배치
+  QWidget *btn_widget = new QWidget();
+  QVBoxLayout *btn_layout = new QVBoxLayout(btn_widget);
+  btn_layout->setContentsMargins(0, 8, 0, 8);
+  btn_layout->setSpacing(8);
 
   for (int i = 0; i < labels.size(); i++) {
     buttons[i] = new QPushButton(labels[i]);
-    buttons[i]->setFixedSize(200, 80);
+    buttons[i]->setFixedHeight(70);
     buttons[i]->setCheckable(true);
     buttons[i]->setStyleSheet(R"(
       QPushButton {
-        font-size: 32px;
+        font-size: 30px;
         border-radius: 10px;
         background-color: #393939;
         color: #aaaaaa;
@@ -170,7 +179,7 @@ DynamicLaneProfileControl::DynamicLaneProfileControl(const QString &title,
     btn_layout->addWidget(buttons[i]);
   }
 
-  hlayout->addLayout(btn_layout);
+  qobject_cast<QVBoxLayout*>(layout())->addWidget(btn_widget);
   refresh();
 }
 
