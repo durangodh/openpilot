@@ -169,9 +169,26 @@ static void update_state(UIState *s) {
       }
     }
   }
-  if (sm.updated("wideRoadCameraState")) {
-    float scale = (sm["wideRoadCameraState"].getWideRoadCameraState().getSensor() == cereal::FrameData::ImageSensor::AR0231) ? 6.0f : 1.0f;
-    scene.light_sensor = std::max(100.0f - scale * sm["wideRoadCameraState"].getWideRoadCameraState().getExposureValPercent(), 0.0f);
+  if (!Hardware::TICI() && sm.updated("roadCameraState")) {
+    auto camera_state = sm["roadCameraState"].getRoadCameraState();
+
+    float max_lines = Hardware::EON() ? 5408 : 1904;
+    float max_gain = Hardware::EON() ? 1.0: 10.0;
+    float max_ev = max_lines * max_gain;
+
+    float ev = camera_state.getGain() * float(camera_state.getIntegLines());
+
+    scene.light_sensor = std::clamp<float>(1.0 - (ev / max_ev), 0.0, 1.0);
+  } else if (Hardware::TICI() && sm.updated("wideRoadCameraState")) {
+    auto camera_state = sm["wideRoadCameraState"].getWideRoadCameraState();
+
+    float max_lines = 1618;
+    float max_gain = 10.0;
+    float max_ev = max_lines * max_gain / 6;
+
+    float ev = camera_state.getGain() * float(camera_state.getIntegLines());
+
+    scene.light_sensor = std::clamp<float>(1.0 - (ev / max_ev), 0.0, 1.0);
   }
   scene.started = sm["deviceState"].getDeviceState().getStarted() && scene.ignition;
 
