@@ -70,7 +70,7 @@ class LateralPlanner:
 
     self.second += DT_MDL
     if self.second > 1.0:
-      self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8"))
+      self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
       self.second = 0.0
 
     # clip speed , lateral planning is not possible at 0 speed
