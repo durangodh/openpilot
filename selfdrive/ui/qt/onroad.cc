@@ -360,11 +360,6 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
     painter.drawPolygon(scene.road_edge_vertices[i].v, scene.road_edge_vertices[i].cnt);
   }
 
-  // ── blind spot barriers: 항상 표시, 감지 시 빨간색으로 강조 ──────────
-  auto car_state = sm["carState"].getCarState();
-  bool left_blindspot  = car_state.getLeftBlindspot();
-  bool right_blindspot = car_state.getRightBlindspot();
-
   painter.setPen(Qt::NoPen);
 
   // 왼쪽 barrier: 감지=빨강(alpha 0.45), 평상시=흰색(alpha 0.10)
