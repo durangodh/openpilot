@@ -118,6 +118,12 @@ public:
   explicit CommunityPanel(QWidget *parent = nullptr);
 };
 
+class VIPPanel : public QWidget {
+  Q_OBJECT
+public:
+  explicit VIPPanel(QWidget* parent = nullptr);
+};
+
 class ChevronInfoControl : public AbstractControl {
   Q_OBJECT
 public:
@@ -142,4 +148,18 @@ private:
   Params params;
   // 인덱스 0~5 → 즉시 / 0.1s / 0.5s / 1.0s / 1.5s / 2.0s
   const QStringList labels = {"즉시", "0.1s", "0.5s", "1.0s", "1.5s", "2.0s"};
+};
+
+// ── DynamicLaneProfile Control ──────────────────────────────────
+class DynamicLaneProfileControl : public AbstractControl {
+  Q_OBJECT
+public:
+  DynamicLaneProfileControl(const QString &title, const QString &desc,
+                             const QString &icon, QWidget *parent = nullptr);
+  void refresh();
+private:
+  QPushButton *buttons[3];
+  Params params;
+  // 0: Lane only, 1: Lane less, 2: Auto
+  const QStringList labels = {"Lane only", "Lane less", "Auto"};
 };
