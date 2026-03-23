@@ -71,6 +71,7 @@ class LateralPlanner:
     self.second += DT_MDL
     if self.second > 1.0:
       self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
+      self.dynamic_lane_profile_enabled = self.params.get_bool("DynamicLaneProfileToggle")
       self.second = 0.0
 
     # clip speed , lateral planning is not possible at 0 speed
@@ -189,6 +190,7 @@ class LateralPlanner:
     lateralPlan.useLaneLines = self.use_lanelines
     lateralPlan.laneChangeState = self.DH.lane_change_state
     lateralPlan.laneChangeDirection = self.DH.lane_change_direction
+
     lateralPlan.laneChangePrev = self.DH.prev_lane_change
 
     lateralPlan.autoLaneChangeEnabled = self.DH.auto_lane_change_enabled
