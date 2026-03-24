@@ -65,6 +65,8 @@ def manager_init() -> None:
     ("NewRadarInterface", "0"),
     ("WideCameraOnly", "0"),       # plannerd.py 크래시 수정
     ("AutoLaneChangeTimer", "0"),  # controlsd.py 크래시 수정
+    ("CameraOffset", "-0.06"),    # 카메라 위치 보정 (레인모드 차선 좌표에 적용)
+    ("PathOffset", "0.0"),        # 주행 경로 좌우 보정 (전 모드 공통 적용)
   ]
   if not PC:
     default_params.append(("LastUpdateTime", datetime.datetime.utcnow().isoformat().encode('utf8')))
