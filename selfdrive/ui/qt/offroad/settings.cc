@@ -32,6 +32,141 @@
 #include <QListView>
 #include <QListWidget>
 
+// ── CameraOffset Control ─────────────────────────────────────────
+// step: 0.01m, range: -0.20 ~ 0.20
+CameraOffsetControl::CameraOffsetControl(const QString &title,
+                                         const QString &desc,
+                                         const QString &icon,
+                                         QWidget *parent)
+    : AbstractControl(title, desc, icon, parent) {
+
+  QWidget *btn_widget = new QWidget();
+  QHBoxLayout *btn_layout = new QHBoxLayout(btn_widget);
+  btn_layout->setContentsMargins(0, 8, 0, 8);
+  btn_layout->setSpacing(12);
+
+  const QString btn_style = R"(
+    QPushButton {
+      font-size: 40px;
+      font-weight: bold;
+      border-radius: 10px;
+      background-color: #393939;
+      color: #ffffff;
+      min-width: 80px;
+      max-width: 80px;
+      min-height: 70px;
+    }
+    QPushButton:pressed { background-color: #4a4a4a; }
+  )";
+
+  minus_btn = new QPushButton("−");
+  minus_btn->setStyleSheet(btn_style);
+  connect(minus_btn, &QPushButton::clicked, [=]() { changeValue(-1); });
+
+  value_label = new QLabel();
+  value_label->setAlignment(Qt::AlignCenter);
+  value_label->setStyleSheet("font-size: 40px; color: #ffffff; min-width: 140px;");
+
+  plus_btn = new QPushButton("+");
+  plus_btn->setStyleSheet(btn_style);
+  connect(plus_btn, &QPushButton::clicked, [=]() { changeValue(+1); });
+
+  btn_layout->addStretch();
+  btn_layout->addWidget(minus_btn);
+  btn_layout->addWidget(value_label);
+  btn_layout->addWidget(plus_btn);
+
+  qobject_cast<QVBoxLayout*>(layout())->addWidget(btn_widget);
+  refresh();
+}
+
+void CameraOffsetControl::changeValue(int delta) {
+  std::string raw = params.get("CameraOffset");
+  double val = raw.empty() ? -0.06 : std::stod(raw);
+  val += delta * 0.01;
+  val = std::round(val * 100.0) / 100.0;
+  val = std::max(-0.20, std::min(0.20, val));
+  params.put("CameraOffset", std::to_string(val));
+  refresh();
+}
+
+void CameraOffsetControl::refresh() {
+  std::string raw = params.get("CameraOffset");
+  double val = raw.empty() ? -0.06 : std::stod(raw);
+  val = std::round(val * 100.0) / 100.0;
+  value_label->setText(QString::number(val, 'f', 2) + " m");
+  minus_btn->setEnabled(val > -0.20);
+  plus_btn->setEnabled(val < 0.20);
+}
+
+// ── PathOffset Control ───────────────────────────────────────────
+// step: 0.01m, range: -1.00 ~ 1.00
+PathOffsetControl::PathOffsetControl(const QString &title,
+                                     const QString &desc,
+                                     const QString &icon,
+                                     QWidget *parent)
+    : AbstractControl(title, desc, icon, parent) {
+
+  QWidget *btn_widget = new QWidget();
+  QHBoxLayout *btn_layout = new QHBoxLayout(btn_widget);
+  btn_layout->setContentsMargins(0, 8, 0, 8);
+  btn_layout->setSpacing(12);
+
+  const QString btn_style = R"(
+    QPushButton {
+      font-size: 40px;
+      font-weight: bold;
+      border-radius: 10px;
+      background-color: #393939;
+      color: #ffffff;
+      min-width: 80px;
+      max-width: 80px;
+      min-height: 70px;
+    }
+    QPushButton:pressed { background-color: #4a4a4a; }
+  )";
+
+  minus_btn = new QPushButton("−");
+  minus_btn->setStyleSheet(btn_style);
+  connect(minus_btn, &QPushButton::clicked, [=]() { changeValue(-1); });
+
+  value_label = new QLabel();
+  value_label->setAlignment(Qt::AlignCenter);
+  value_label->setStyleSheet("font-size: 40px; color: #ffffff; min-width: 140px;");
+
+  plus_btn = new QPushButton("+");
+  plus_btn->setStyleSheet(btn_style);
+  connect(plus_btn, &QPushButton::clicked, [=]() { changeValue(+1); });
+
+  btn_layout->addStretch();
+  btn_layout->addWidget(minus_btn);
+  btn_layout->addWidget(value_label);
+  btn_layout->addWidget(plus_btn);
+
+  qobject_cast<QVBoxLayout*>(layout())->addWidget(btn_widget);
+  refresh();
+}
+
+void PathOffsetControl::changeValue(int delta) {
+  std::string raw = params.get("PathOffset");
+  double val = raw.empty() ? 0.0 : std::stod(raw);
+  val += delta * 0.01;
+  val = std::round(val * 100.0) / 100.0;
+  val = std::max(-1.00, std::min(1.00, val));
+  params.put("PathOffset", std::to_string(val));
+  refresh();
+}
+
+void PathOffsetControl::refresh() {
+  std::string raw = params.get("PathOffset");
+  double val = raw.empty() ? 0.0 : std::stod(raw);
+  val = std::round(val * 100.0) / 100.0;
+  value_label->setText(QString::number(val, 'f', 2) + " m");
+  minus_btn->setEnabled(val > -1.00);
+  plus_btn->setEnabled(val < 1.00);
+}
+
+// ── ChevronInfo Control ─────────────────────────────────────────
 // ── ChevronInfo Control ─────────────────────────────────────────
 ChevronInfoControl::ChevronInfoControl(const QString &title,
                                        const QString &desc,
@@ -1007,6 +1142,35 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   ListWidget* list = new ListWidget(this);
   list->setSpacing(0);
 
+    // ── Camera Offset ────────────────────────────────────────────
+  // 레인모드에서 차선 인식 좌표 보정. 0.01m 단위, -0.20 ~ +0.20m
+  auto *cam_offset = new CameraOffsetControl(
+      "Camera Offset",
+      "카메라 위치 보정값입니다. 레인모드에서 차선 인식 좌표에 적용됩니다.\n"
+      "왼쪽으로 이동: 음수(−) / 오른쪽으로 이동: 양수(+)\n"
+      "범위: −0.20 ~ +0.20m  /  기본값: −0.06m",
+      "../assets/offroad/icon_road.png",
+      this);
+  cam_offset->showDescription();
+  list->addItem(cam_offset);
+
+  list->addItem(horizontal_line());
+
+  // ── Path Offset ──────────────────────────────────────────────
+  // 레인모드 + 레인리스 모드 모두 적용. 0.01m 단위, -1.00 ~ +1.00m
+  auto *path_offset = new PathOffsetControl(
+      "Path Offset",
+      "주행 경로 좌우 보정값입니다. 레인모드·레인리스 모드 모두 적용됩니다.\n"
+      "왼쪽으로 이동: 음수(−) / 오른쪽으로 이동: 양수(+)\n"
+      "범위: −1.00 ~ +1.00m  /  기본값: 0.00m",
+      "../assets/offroad/icon_road.png",
+      this);
+  path_offset->showDescription();
+  list->addItem(path_offset);
+
+  list->addItem(horizontal_line());
+
+  // ── Dynamic Lane Profile Toggle ──────────────────────────────  ← 기존 코드 계속
   // ── Dynamic Lane Profile Toggle ──────────────────────────────
   list->addItem(new ParamControl("DynamicLaneProfileToggle",
                                   "Enable Dynamic Lane Profile",
