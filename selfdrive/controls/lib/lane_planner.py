@@ -5,15 +5,12 @@ from common.numpy_fast import interp, clip, mean
 from common.realtime import DT_MDL
 from selfdrive.hardware import EON, TICI
 from selfdrive.swaglog import cloudlog
-from selfdrive.ntune import ntune_common_get
 
 TRAJECTORY_SIZE = 33
-# camera offset is meters from center car to camera
-# model path is in the frame of the camera. Empirically 
-# the model knows the difference between TICI and EON
-# so a path offset is not need
-PATH_OFFSET = 0.00
-CAMERA_OFFSET = -0.06
+
+# CAMERA_OFFSET, PATH_OFFSET 하드코딩 제거
+# → lateral_planner.py에서 Params 기반으로 주입됨
+DEFAULT_CAMERA_OFFSET = -0.06
 
 ENABLE_ZORROBYTE = True
 ENABLE_INC_LANE_PROB = True
@@ -38,8 +35,12 @@ class LanePlanner:
     self.l_lane_change_prob = 0.
     self.r_lane_change_prob = 0.
 
-    self.camera_offset = -CAMERA_OFFSET if wide_camera else CAMERA_OFFSET
-    self.path_offset = -PATH_OFFSET if wide_camera else PATH_OFFSET
+    self.wide_camera = wide_camera
+
+    # camera_offset: lateral_planner가 Params에서 읽어서
+    # self.LP.camera_offset = ... 으로 실시간 갱신함
+    # 초기값은 DEFAULT_CAMERA_OFFSET 사용 (wide_camera 부호 반전은 lateral_planner에서 처리)
+    self.camera_offset = -DEFAULT_CAMERA_OFFSET if wide_camera else DEFAULT_CAMERA_OFFSET
 
     self.readings = []
     self.frame = 0
@@ -48,10 +49,9 @@ class LanePlanner:
     lane_lines = md.laneLines
     if len(lane_lines) == 4 and len(lane_lines[0].t) == TRAJECTORY_SIZE:
       self.ll_t = (np.array(lane_lines[1].t) + np.array(lane_lines[2].t))/2
-      # left and right ll x is the same
       self.ll_x = lane_lines[1].x
-      # only offset left and right lane lines; offsetting path does not make sense
 
+      # self.camera_offset은 lateral_planner가 매초 갱신
       self.lll_y = np.array(lane_lines[1].y) + self.camera_offset
       self.rll_y = np.array(lane_lines[2].y) + self.camera_offset
       self.lll_prob = md.laneLineProbs[1]
@@ -65,8 +65,6 @@ class LanePlanner:
       self.r_lane_change_prob = desire_state[log.LateralPlan.Desire.laneChangeRight]
 
   def get_d_path(self, v_ego, path_t, path_xyz):
-    # Reduce reliance on lanelines that are too far apart or
-    # will be in a few seconds
     l_prob, r_prob = self.lll_prob, self.rll_prob
     width_pts = self.rll_y - self.lll_y
     prob_mods = []
@@ -77,14 +75,12 @@ class LanePlanner:
     l_prob *= mod
     r_prob *= mod
 
-    # Reduce reliance on uncertain lanelines
     l_std_mod = interp(self.lll_std, [.15, .3], [1.0, 0.0])
     r_std_mod = interp(self.rll_std, [.15, .3], [1.0, 0.0])
     l_prob *= l_std_mod
     r_prob *= r_std_mod
 
     if ENABLE_ZORROBYTE:
-      # zorrobyte code
       if l_prob > 0.5 and r_prob > 0.5:
         self.frame += 1
         if self.frame > 20:
@@ -95,13 +91,10 @@ class LanePlanner:
           if len(self.readings) >= 30:
             self.readings.pop(0)
 
-      # zorrobyte
-      # Don't exit dive
       if abs(self.rll_y[0] - self.lll_y[0]) > self.lane_width:
         r_prob = r_prob / interp(l_prob, [0, 1], [1, 3])
 
     else:
-      # Find current lanewidth
       self.lane_width_certainty.update(l_prob * r_prob)
       current_lane_width = abs(self.rll_y[0] - self.lll_y[0])
       self.lane_width_estimate.update(current_lane_width)
@@ -115,7 +108,6 @@ class LanePlanner:
 
     self.d_prob = l_prob + r_prob - l_prob * r_prob
 
-    # neokii
     if ENABLE_INC_LANE_PROB and self.d_prob > 0.65:
       self.d_prob = min(self.d_prob * 1.3, 1.0)
 
@@ -125,5 +117,5 @@ class LanePlanner:
       lane_path_y_interp = np.interp(path_t, self.ll_t[safe_idxs], lane_path_y[safe_idxs])
       path_xyz[:,1] = self.d_prob * lane_path_y_interp + (1.0 - self.d_prob) * path_xyz[:,1]
     else:
-      cloudlog.warning("Lateral mpc - NaNs in laneline times, ignoring")  
+      cloudlog.warning("Lateral mpc - NaNs in laneline times, ignoring")
     return path_xyz
