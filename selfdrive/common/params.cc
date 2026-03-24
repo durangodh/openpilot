@@ -196,7 +196,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"IsLdwsCar", PERSISTENT},
     {"LaneChangeEnabled", PERSISTENT},
     {"AutoLaneChangeEnabled", PERSISTENT},
-
+    {"CameraOffset", PERSISTENT},   // 카메라 위치 보정 (기본값 -0.06m), 레인모드에 영향
+    {"PathOffset", PERSISTENT},     // 주행 경로 좌우 보정 (기본값 0.0m), 전 모드에 영향
     {"SccSmootherState", PERSISTENT},
     {"SccSmootherSlowOnCurves", PERSISTENT},
     {"SccSmootherSyncGasPressed", PERSISTENT},
