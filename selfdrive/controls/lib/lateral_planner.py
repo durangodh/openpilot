@@ -13,29 +13,35 @@ from cereal import log
 from common.params import Params
 
 TRAJECTORY_SIZE = 33
-CAMERA_OFFSET = -0.06
-
 
 PATH_COST = 1.0
 LATERAL_MOTION_COST = 0.11
 LATERAL_ACCEL_COST = 0.0
 LATERAL_JERK_COST = 0.04
-# Extreme steering rate is unpleasant, even
-# when it does not cause bad jerk.
-# TODO this cost should be lowered when low
-# speed lateral control is stable on all cars
 STEERING_RATE_COST = 700.0
+
+# 기본값 상수
+DEFAULT_CAMERA_OFFSET = -0.06
+DEFAULT_PATH_OFFSET = 0.0
+
 
 class LateralPlanner:
   def __init__(self, CP, use_lanelines=True, wide_camera=False):
     self.params = Params()
+    self.wide_camera = wide_camera
     self.use_lanelines = self.params.get_bool('UseLanelines')
     self.last_params_update = 0
 
+    # UI에서 실시간 조절되는 오프셋 초기화
+    self.camera_offset = self._read_camera_offset()
+    self.path_offset = self._read_path_offset()
+
     self.LP = LanePlanner(wide_camera=wide_camera)
+    # 초기 camera_offset 적용
+    self.LP.camera_offset = self.camera_offset
+
     self.DH = DesireHelper()
 
-    # Vehicle model parameters used to calculate lateral movement of car
     self.factor1 = CP.wheelbase - CP.centerToFront
     self.factor2 = (CP.centerToFront * CP.mass) / (CP.wheelbase * CP.tireStiffnessRear)
     self.last_cloudlog_t = 0
@@ -58,6 +64,29 @@ class LateralPlanner:
     self.dynamic_lane_profile_status_buffer = False
     self.second = 0.0
 
+  def _read_camera_offset(self):
+    """
+    Params에서 CameraOffset을 읽어 반환.
+    UI에서 저장 시 문자열(예: "-0.06")로 저장 가정.
+    wide_camera면 부호 반전.
+    """
+    try:
+      val = float(self.params.get("CameraOffset", encoding="utf8") or str(DEFAULT_CAMERA_OFFSET))
+    except (TypeError, ValueError):
+      val = DEFAULT_CAMERA_OFFSET
+    return -val if self.wide_camera else val
+
+  def _read_path_offset(self):
+    """
+    Params에서 PathOffset을 읽어 반환.
+    UI에서 저장 시 문자열(예: "0.0")로 저장 가정.
+    """
+    try:
+      val = float(self.params.get("PathOffset", encoding="utf8") or str(DEFAULT_PATH_OFFSET))
+    except (TypeError, ValueError):
+      val = DEFAULT_PATH_OFFSET
+    return val
+
   def reset_mpc(self, x0=np.zeros(4)):
     self.x0 = x0
     self.lat_mpc.reset(x0=self.x0)
@@ -66,6 +95,14 @@ class LateralPlanner:
     t = sec_since_boot()
     if t - self.last_params_update > 1.0:
       self.use_lanelines = self.params.get_bool('UseLanelines')
+
+      # CameraOffset, PathOffset 실시간 갱신
+      self.camera_offset = self._read_camera_offset()
+      self.path_offset = self._read_path_offset()
+
+      # LanePlanner에 camera_offset 즉시 반영
+      self.LP.camera_offset = self.camera_offset
+
       self.last_params_update = t
 
     self.second += DT_MDL
@@ -74,10 +111,8 @@ class LateralPlanner:
       self.dynamic_lane_profile_enabled = self.params.get_bool("DynamicLaneProfileToggle")
       self.second = 0.0
 
-    # clip speed , lateral planning is not possible at 0 speed
     measured_curvature = sm['controlsState'].curvature
 
-    # Parse model predictions
     md = sm['modelV2']
     self.LP.parse_model(md)
     if len(md.position.x) == TRAJECTORY_SIZE and len(md.orientation.x) == TRAJECTORY_SIZE:
@@ -90,17 +125,14 @@ class LateralPlanner:
       self.v_plan = np.clip(car_speed, MIN_SPEED, np.inf)
       self.v_ego = self.v_plan[0]
 
-    # Lane change logic
     lane_change_prob = self.LP.l_lane_change_prob + self.LP.r_lane_change_prob
     self.DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob)
 
     d_path_xyz = self.path_xyz
-    # Turn off lanes during lane change
     if self.DH.desire == log.LateralPlan.Desire.laneChangeRight or self.DH.desire == log.LateralPlan.Desire.laneChangeLeft:
       self.LP.lll_prob *= self.DH.lane_change_ll_prob
       self.LP.rll_prob *= self.DH.lane_change_ll_prob
 
-    # Calculate final driving path and set MPC costs
     if self.use_lanelines and not self.get_dynamic_lane_profile():
       d_path_xyz = self.LP.get_d_path(self.v_ego, self.t_idxs, self.path_xyz)
       self.dynamic_lane_profile_status = False
@@ -108,7 +140,8 @@ class LateralPlanner:
       d_path_xyz = self.path_xyz
       self.dynamic_lane_profile_status = True
 
-    d_path_xyz[:, 1] += ntune_common_get('pathOffset')
+    # ntune pathOffset 제거 → Params 기반 self.path_offset 사용
+    d_path_xyz[:, 1] += self.path_offset
 
     self.lat_mpc.set_weights(PATH_COST, LATERAL_MOTION_COST,
                              LATERAL_ACCEL_COST, LATERAL_JERK_COST,
@@ -129,10 +162,8 @@ class LateralPlanner:
                      y_pts,
                      heading_pts,
                      yaw_rate_pts)
-    # init state for next
     self.x0[3] = interp(DT_MDL, self.t_idxs[:LAT_MPC_N + 1], self.lat_mpc.x_sol[:, 3])
 
-    #  Check for infeasible MPC solution
     mpc_nans = np.isnan(self.lat_mpc.x_sol[:, 3]).any()
     t = sec_since_boot()
     if mpc_nans or self.lat_mpc.solution_status != 0:
@@ -155,14 +186,12 @@ class LateralPlanner:
     elif self.dynamic_lane_profile == 0:
       return False
     elif self.dynamic_lane_profile == 2:
-      # only while lane change is off
       if self.DH.lane_change_state == log.LateralPlan.LaneChangeState.off:
-        # laneline probability too low, we switch to laneless mode
         if (self.LP.lll_prob + self.LP.rll_prob) / 2 < 0.3:
           self.dynamic_lane_profile_status_buffer = True
         if (self.LP.lll_prob + self.LP.rll_prob) / 2 > 0.5:
           self.dynamic_lane_profile_status_buffer = False
-        if self.dynamic_lane_profile_status_buffer:  # in buffer mode, always laneless
+        if self.dynamic_lane_profile_status_buffer:
           return True
     return False
 
