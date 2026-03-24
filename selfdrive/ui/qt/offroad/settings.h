@@ -163,3 +163,29 @@ private:
   // 0: Lane only, 1: Lane less, 2: Auto
   const QStringList labels = {"Lane only", "Lane less", "Auto"};
 };
+
+class CameraOffsetControl : public AbstractControl {
+  Q_OBJECT
+public:
+  CameraOffsetControl(const QString &title, const QString &desc,
+                      const QString &icon, QWidget *parent = nullptr);
+  void refresh();
+private:
+  void changeValue(int delta);
+  QPushButton *minus_btn, *plus_btn;
+  QLabel *value_label;
+  Params params;
+};
+
+class PathOffsetControl : public AbstractControl {
+  Q_OBJECT
+public:
+  PathOffsetControl(const QString &title, const QString &desc,
+                    const QString &icon, QWidget *parent = nullptr);
+  void refresh();
+private:
+  void changeValue(int delta);
+  QPushButton *minus_btn, *plus_btn;
+  QLabel *value_label;
+  Params params;
+};
