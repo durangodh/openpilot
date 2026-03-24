@@ -10,6 +10,7 @@ TRAJECTORY_SIZE = 33
 
 # CAMERA_OFFSET, PATH_OFFSET 하드코딩 제거
 # → lateral_planner.py에서 Params 기반으로 주입됨
+CAMERA_OFFSET = -0.06          # ← 이 줄 추가 (controlsd.py import 호환용)
 DEFAULT_CAMERA_OFFSET = -0.06
 
 ENABLE_ZORROBYTE = True
