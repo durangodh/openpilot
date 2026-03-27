@@ -69,6 +69,7 @@ class LongitudinalPlanner:
   def read_param(self):
     e2e = self.params.get_bool('ExperimentalMode') and self.CP.openpilotLongitudinalControl
     self.mpc.mode = 'blended' if e2e else 'acc'
+    self.mpc.human_following = self.params.get_bool("HumanFollowing")
     
   def parse_model(self, model_msg):
     if (len(model_msg.position.x) == 33 and
