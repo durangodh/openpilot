@@ -212,23 +212,19 @@ class LongitudinalMpc:
   def __init__(self, mode='acc'):
     self.mode = mode
     self.applyLongDynamicCost = True
-    # planner에서 넘긴 값을 저장해두는 변수 (set_weights 이중 호출 충돌 방지)
     self.prev_accel_constraint = True
     self.a_desired = 0.
     self.solver = AcadosOcpSolverCython(MODEL_NAME, ACADOS_SOLVER_TYPE, N)
-    self.reset()
-    self.source = SOURCES[2]
 
-    # ── Human-Like Following ──────────────────────────────────────────────
-    self.human_following = False          # 외부(planner)에서 True로 설정
-    self.lead_tracking_prob = 0.0         # radarstate leadOne modelProb 저장용
-    # jerk 배율 (set_weights에서 곱해짐)
+    self.human_following = False
+    self.lead_tracking_prob = 0.0
     self._hf_j_multiplier = 1.0
     self._hf_a_change_multiplier = 1.0
     self._hf_danger_zone_multiplier = 1.0
-    # danger_factor 오프셋 (params[:,5]에 적용)
     self._hf_danger_factor = LEAD_DANGER_FACTOR
-    # ─────────────────────────────────────────────────────────────────────
+   
+    self.reset()
+    self.source = SOURCES[2]
  
   def reset(self):
     self.solver.reset()
