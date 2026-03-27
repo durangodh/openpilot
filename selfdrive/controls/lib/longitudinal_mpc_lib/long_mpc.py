@@ -54,8 +54,6 @@ AUTO_TR_CRUISE_GAP = 4
 DIFF_RADAR_VISION = 1.0
  
  
-# Fewer timestamps don't hurt performance and lead to
-# much better convergence of the MPC with low iterations
 N = 12
 MAX_T = 10.0
 T_IDXS_LST = [index_function(idx, max_val=MAX_T, max_idx=N) for idx in range(N+1)]
@@ -87,7 +85,7 @@ def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dis
  
 def get_safe_obstacle_distance(v_ego, t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE):
   return (v_ego**2) / (2 * COMFORT_BRAKE) + t_follow * v_ego + stop_dist
- 
+
 def desired_follow_distance(v_ego, v_lead):
   return get_safe_obstacle_distance(v_ego) - get_stopped_equivalence_factor(v_lead)
  
@@ -220,6 +218,17 @@ class LongitudinalMpc:
     self.solver = AcadosOcpSolverCython(MODEL_NAME, ACADOS_SOLVER_TYPE, N)
     self.reset()
     self.source = SOURCES[2]
+
+    # ── Human-Like Following ──────────────────────────────────────────────
+    self.human_following = False          # 외부(planner)에서 True로 설정
+    self.lead_tracking_prob = 0.0         # radarstate leadOne modelProb 저장용
+    # jerk 배율 (set_weights에서 곱해짐)
+    self._hf_j_multiplier = 1.0
+    self._hf_a_change_multiplier = 1.0
+    self._hf_danger_zone_multiplier = 1.0
+    # danger_factor 오프셋 (params[:,5]에 적용)
+    self._hf_danger_factor = LEAD_DANGER_FACTOR
+    # ─────────────────────────────────────────────────────────────────────
  
   def reset(self):
     self.solver.reset()
@@ -249,7 +258,60 @@ class LongitudinalMpc:
     self.time_integrator = 0.0
     self.x0 = np.zeros(X_DIM)
     self.set_weights()
- 
+
+  # ── Human-Like Following: 핵심 오프셋 계산 ──────────────────────────────
+  def _apply_human_following(self, lead_distance, v_ego, v_lead):
+    """
+    frogpilot_following.py 의 update_follow_values() 로직을
+    long_mpc 내부 변수(t_follow, params[:,5], cost 배율)에 직접 반영.
+
+    변수 매핑
+      acceleration_jerk / speed_jerk  →  _hf_j_multiplier (J_EGO_COST 배율)
+      danger_jerk(미사용)              →  _hf_danger_zone_multiplier
+      a_change                        →  _hf_a_change_multiplier (A_CHANGE_COST 배율)
+      danger_factor                   →  _hf_danger_factor → params[:,5]
+      t_follow                        →  self.t_follow
+    """
+    # 매 호출 전 초기화
+    j_mult       = 1.0
+    a_ch_mult    = 1.0
+    dz_mult      = 1.0
+    danger_factor = LEAD_DANGER_FACTOR
+
+    # ── 빠른 선행차: 자연스럽게 따라붙기 ──
+    if v_lead > v_ego:
+      distance_factor     = max(lead_distance - (v_ego * self.t_follow), 1)
+      accelerating_offset = float(np.clip(STOP_DISTANCE - v_ego, 1, distance_factor))
+
+      self.t_follow   /= accelerating_offset
+      j_mult          /= accelerating_offset
+      a_ch_mult       /= accelerating_offset
+      danger_factor   -= (v_lead - v_ego) / 100.0
+
+    # ── 느린 선행차: 자연스럽게 감속 ──
+    if v_lead < v_ego:
+      distance_factor  = max(lead_distance - (v_lead * self.t_follow), 1)
+      braking_offset   = float(np.clip(
+        min(v_ego - v_lead, v_lead) - COMFORT_BRAKE, 1, distance_factor))
+
+      if lead_distance >= 100:
+        far_lead_offset  = max(lead_distance - (v_ego * self.t_follow) - STOP_DISTANCE, 0)
+        braking_offset  += far_lead_offset
+
+      # 레이더 신뢰도가 높을 때만 적용
+      if self.lead_tracking_prob >= 0.9:
+        danger_factor    += (v_ego - v_lead) / 100.0
+        self.t_follow    /= braking_offset
+
+    # t_follow 는 안전 하한선 보장
+    self.t_follow = max(self.t_follow, 0.9)
+    # danger_factor 범위 제한 (0.5 ~ 1.1)
+    self._hf_danger_factor      = float(np.clip(danger_factor, 0.5, 1.1))
+    self._hf_j_multiplier       = float(np.clip(j_mult,    0.05, 2.0))
+    self._hf_a_change_multiplier = float(np.clip(a_ch_mult, 0.05, 2.0))
+    self._hf_danger_zone_multiplier = float(np.clip(dz_mult, 0.5, 2.0))
+  # ──────────────────────────────────────────────────────────────────────
+
   def set_cost_weights(self, cost_weights, constraint_cost_weights):
     W = np.asfortranarray(np.diag(cost_weights))
     for i in range(N):
@@ -267,11 +329,10 @@ class LongitudinalMpc:
     v_ego_bps = [0, 10]
     TFs = [1.2, 1.45, 1.8]
     # TF에 의한 a, j, d cost 변경
-    a_change_tf = interp(self.t_follow, TFs, [.8, 1., 1.1])  # 가까울수록 작게
-    j_ego_tf    = interp(self.t_follow, TFs, [.8, 1., 1.1])  # 가까울수록 작게
-    d_zone_tf   = interp(self.t_follow, TFs, [1.3, 1., 1.])  # 가까울수록 크게
+    a_change_tf = interp(self.t_follow, TFs, [.8, 1., 1.1])
+    j_ego_tf    = interp(self.t_follow, TFs, [.8, 1., 1.1])
+    d_zone_tf   = interp(self.t_follow, TFs, [1.3, 1., 1.])
  
-    # 선행차가 빠를 때(가속 국면) + 저속이면 배율 추가 감소
     j_ego_v_ego    = 1
     a_change_v_ego = 1
     if (v_lead0 - v_ego >= 0) and (v_lead1 - v_ego >= 0):
@@ -283,12 +344,9 @@ class LongitudinalMpc:
     return (a_change, j_ego, d_zone_tf)
  
   def set_weights(self, v_ego=0., a_desired=0., prev_accel_constraint=True, v_lead0=0, v_lead1=0):
-    # planner에서 넘긴 값 저장 (update() 내부 재호출 시 사용)
     self.prev_accel_constraint = prev_accel_constraint
     self.a_desired = a_desired
  
-    # Prevent sudden acceleration changes (jerk) after gas overriding.
-    # Proposed by ajouatom
     if not prev_accel_constraint:
       self.prev_a = np.full(N+1, a_desired)
  
@@ -296,15 +354,20 @@ class LongitudinalMpc:
       a_change_cost = A_CHANGE_COST if prev_accel_constraint else 0
  
       if self.applyLongDynamicCost:
-        # krkeegan: t_follow, v_lead 기반 동적 cost 배율 적용
         cost_multipliers = self.get_cost_multipliers(v_lead0, v_lead1)
+
+        # ── Human-Like Following: 기존 multiplier에 추가 배율 적용 ──
+        j_mult    = cost_multipliers[1] * self._hf_j_multiplier
+        a_ch_mult = cost_multipliers[0] * self._hf_a_change_multiplier
+        dz_mult   = cost_multipliers[2] * self._hf_danger_zone_multiplier
+
         cost_weights = [X_EGO_OBSTACLE_COST, X_EGO_COST, V_EGO_COST, A_EGO_COST,
-                        a_change_cost * cost_multipliers[0],
-                        J_EGO_COST * cost_multipliers[1]]
+                        a_change_cost * a_ch_mult,
+                        J_EGO_COST * j_mult]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST,
-                                   DANGER_ZONE_COST * cost_multipliers[2]]
+                                   DANGER_ZONE_COST * dz_mult]
+        # ────────────────────────────────────────────────────────────────
       else:
-        # 기본: v_ego 기반 보간 cost
         if v_ego < 0.1 or a_desired > 0.:
           x_cost = interp(v_ego, [1., 10.], [0.1, X_EGO_COST])
           v_cost = interp(v_ego, [1., 10.], [0.2, V_EGO_COST])
@@ -325,7 +388,7 @@ class LongitudinalMpc:
     v_prev = self.x0[1]
     self.x0[1] = v
     self.x0[2] = a
-    if abs(v_prev - v) > 2.: # probably only helps if v < v_prev
+    if abs(v_prev - v) > 2.:
       for i in range(0, N+1):
         self.solver.set(i, 'x', self.x0)
  
@@ -345,14 +408,11 @@ class LongitudinalMpc:
       a_lead = lead.aLeadK
       a_lead_tau = lead.aLeadTau
     else:
-      # Fake a fast lead car, so mpc can keep running in the same mode
       x_lead = 50.0
       v_lead = v_ego + 10.0
       a_lead = 0.0
       a_lead_tau = _LEAD_ACCEL_TAU
  
-    # MPC will not converge if immediate crash is expected
-    # Clip lead distance to what is still possible to brake for
     min_x_lead = ((v_ego + v_lead)/2) * (v_ego - v_lead) / (-MIN_ACCEL * 2)
     x_lead = clip(x_lead, min_x_lead, 1e8)
     v_lead = clip(v_lead, 0.0, 1e8)
@@ -380,15 +440,30 @@ class LongitudinalMpc:
  
     self.t_follow = tr
     self.stop_dist = STOP_DISTANCE if self.mode == 'acc' else STOP_DISTANCE_E2E
- 
-    # planner에서 저장된 값 + lead 속도 함께 전달 (set_weights 이중 호출 충돌 방지)
+
+    # ── Human-Like Following: lead 추종 중일 때 t_follow / danger_factor 보정 ──
+    # multiplier 초기화 (매 update마다 리셋)
+    self._hf_j_multiplier            = 1.0
+    self._hf_a_change_multiplier     = 1.0
+    self._hf_danger_zone_multiplier  = 1.0
+    self._hf_danger_factor           = LEAD_DANGER_FACTOR
+
+    if self.human_following and radarstate.leadOne.status:
+      self.lead_tracking_prob = radarstate.leadOne.modelProb
+      self._apply_human_following(
+        lead_distance = radarstate.leadOne.dRel,
+        v_ego         = v_ego,
+        v_lead        = radarstate.leadOne.vLead,
+      )
+    # ─────────────────────────────────────────────────────────────────────
+
+    # planner에서 저장된 값 + lead 속도 함께 전달
     self.set_weights(v_ego=v_ego,
                      a_desired=self.a_desired,
                      prev_accel_constraint=self.prev_accel_constraint,
                      v_lead0=lead_xv_0[0, 1],
                      v_lead1=lead_xv_1[0, 1])
  
-    # krkeegan: applyLongDynamicCost 플래그를 krkeegan 파라미터로 전달
     lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(
       lead_xv_0[:,1], self.x_sol[:,1], self.t_follow, self.stop_dist,
       krkeegan=self.applyLongDynamicCost)
@@ -399,10 +474,11 @@ class LongitudinalMpc:
     self.params[:,0] = MIN_ACCEL
     self.params[:,1] = self.max_a
  
-    # Update in ACC mode or ACC/e2e blend
     if self.mode == 'acc':
-      self.params[:,5] = LEAD_DANGER_FACTOR
- 
+      # ── Human-Like Following: danger_factor를 params에 반영 ──
+      self.params[:,5] = self._hf_danger_factor if self.human_following else LEAD_DANGER_FACTOR
+      # ────────────────────────────────────────────────────────
+
       v_lower = v_ego + (T_IDXS * self.cruise_min_a * 1.05)
       v_upper = v_ego + (T_IDXS * self.max_a * 1.05)
       v_cruise_clipped = np.clip(v_cruise * np.ones(N+1),
@@ -412,7 +488,6 @@ class LongitudinalMpc:
       x_obstacles = np.column_stack([lead_0_obstacle, lead_1_obstacle, cruise_obstacle])
       self.source = SOURCES[np.argmin(x_obstacles[0])]
  
-      # These are not used in ACC mode
       cruise_target = T_IDXS * np.clip(v_cruise, v_ego - 2.0, 1e3) + x[0]
       xforward = ((v[1:] + v[:-1]) / 2) * (T_IDXS[1:] - T_IDXS[:-1])
       x = np.cumsum(np.insert(xforward, 0, x[0]))
@@ -458,8 +533,6 @@ class LongitudinalMpc:
     else:
       self.crash_cnt = 0
  
-    # Check if it got within lead comfort range
-    # TODO This should be done cleaner
     if self.mode == 'blended':
       if any((lead_0_obstacle - get_safe_obstacle_distance(self.x_sol[:,1], self.t_follow, self.stop_dist)) - self.x_sol[:, 0] < 0.0):
         self.source = 'lead0'
