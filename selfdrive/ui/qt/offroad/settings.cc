@@ -1040,6 +1040,14 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "",
                                             "../assets/offroad/icon_shell.png",
                                             this));
+  toggleLayout->addWidget(horizontal_line());
+  toggleLayout->addWidget(new ParamControl("HumanFollowing",
+                                            "Human-Like Following",
+                                            "선행차 속도에 따라 자연스러운 가감속을 적용합니다.\n"
+                                            "빠른 선행차: 부드럽게 따라붙기 / 느린 선행차: 자연스럽게 감속.\n"
+                                            "(Long Control 활성화 시 동작)",
+                                            "../assets/offroad/icon_road.png",
+                                            this));
 }
 
 SelectCar::SelectCar(QWidget* parent): QWidget(parent) {
