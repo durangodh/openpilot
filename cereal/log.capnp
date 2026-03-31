@@ -877,12 +877,37 @@ struct LongitudinalPlan @0xe00b5b3eba12876c {
 
   solverExecutionTime @35 :Float32;
 
+  visionTurnControllerState @36 :VisionTurnControllerState;
+  visionTurnSpeed @37 :Float32;
+  
+  speedLimitControlState @38 :SpeedLimitControlState;
+  speedLimit @39 :Float32;
+  speedLimitOffset @40 :Float32;
+  distToSpeedLimit @41 :Float32;
+  isMapSpeedLimit @42 :Bool;
+
+  distToTurn @43 :Float32;
+  turnSpeed @44 :Float32;
+  turnSpeedControlState @45 :SpeedLimitControlState;
+  turnSign @46 :Int16;
+  stopLine @47 :List(Float64) = [0.];
+  stoplineProb @48 :Float32;
+  trafficState @49 : Int32;
+  e2eX @50 :List(Float64) = [0.];
+  lead0Obstacle @51 :List(Float64) = [0.];
+  lead1Obstacle @52 :List(Float64) = [0.];
+  cruiseTarget @53 :List(Float64) = [0.];
+  onStop @54 : Bool;
+
   enum LongitudinalPlanSource {
     cruise @0;
     lead0 @1;
     lead1 @2;
     lead2 @3;
     e2e @4;
+    turn @5;
+    limit @6;
+    turnlimit @7;
   }
 
   # deprecated
@@ -918,6 +943,20 @@ struct LongitudinalPlan @0xe00b5b3eba12876c {
     x @0 :List(Float32);
     y @1 :List(Float32);
   }
+
+  enum SpeedLimitControlState {
+    inactive @0; # No speed limit set or not enabled by parameter.
+    tempInactive @1; # User wants to ignore speed limit until it changes.
+    adapting @2; # Reducing speed to match new speed limit.
+    active @3; # Cruising at speed limit.
+  }
+
+  enum VisionTurnControllerState {
+    disabled @0; # No predicted substancial turn on vision range or feature disabled.
+    entering @1; # A subsantial turn is predicted ahead, adapting speed to turn confort levels.
+    turning @2; # Actively turning. Managing acceleration to provide a roll on turn feeling.
+    leaving @3; # Road ahead straightens. Start to allow positive acceleration.
+  }
 }
 
 struct LateralPlan @0xe1e9318e2ae8b51e {
@@ -927,6 +966,8 @@ struct LateralPlan @0xe1e9318e2ae8b51e {
   rProb @7 :Float32;
   dPathPoints @20 :List(Float32);
   dProb @21 :Float32;
+  dPathWLinesX @37 :List(Float32);
+  dPathWLinesY @38 :List(Float32);
 
   mpcSolutionValid @9 :Bool;
   desire @17 :Desire;
