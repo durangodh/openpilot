@@ -165,7 +165,7 @@ class ImmediateDisableAlert(Alert):
     super().__init__("TAKE CONTROL IMMEDIATELY", alert_text_2,
                      AlertStatus.critical, AlertSize.full,
                      Priority.HIGHEST, VisualAlert.steerRequired,
-                     AudibleAlert.warningImmediate, 4.),
+                     AudibleAlert.warningSoft, 2.),
 
 
 class EngagementAlert(Alert):
@@ -265,6 +265,16 @@ def joystick_alert(CP: car.CarParams, sm: messaging.SubMaster, metric: bool, sof
   vals = f"Gas: {round(gb * 100.)}%, Steer: {round(steer * 100.)}%"
   return NormalPermanentAlert("Joystick Mode", vals)
 
+def curve_speed_adjust_alert(CP: car.CarParams, sm: messaging.SubMaster, metric: bool, soft_disable_time: int) -> Alert:
+  speedLimit = sm['longitudinalPlan'].visionTurnSpeed
+  speed = round(speedLimit * (CV.MS_TO_KPH if metric else CV.MS_TO_MPH))
+  message = f'Adjusting to {speed} {"km/h" if metric else "mph"} curve speed'
+  return Alert(
+    message,
+    "",
+    AlertStatus.normal, AlertSize.small,
+    Priority.LOW, VisualAlert.none, AudibleAlert.none, 4.)    
+  
 def auto_lane_change_alert(CP: car.CarParams, sm: messaging.SubMaster, metric: bool, soft_disable_time: int) -> Alert:
   alc_timer = sm['lateralPlan'].autoLaneChangeTimer
   return Alert(
@@ -292,11 +302,11 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
   },
 
   EventName.startup: {
-    ET.PERMANENT: StartupAlert("Be ready to take over at any time")
+    ET.PERMANENT: StartupAlert
   },
 
   EventName.startupMaster: {
-    ET.PERMANENT: startup_master_alert,
+    ET.PERMANENT: startup_master_alert,("G  E  N  E  S  I  S")
   },
 
   # Car is recognized, but marked as dashcam only
@@ -520,6 +530,34 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
     # ET.PERMANENT: NormalPermanentAlert("Sensor Malfunction", "Hardware Malfunction"),
   },
 
+  EventName.visionEntering: {
+    ET.WARNING: Alert(
+      "Curve Entering",
+      "",
+      AlertStatus.normal, AlertSize.small,
+      Priority.LOW, VisualAlert.none, AudibleAlert.none, 2.),
+  },
+
+    EventName.visionTurning: {
+    ET.WARNING: Alert(
+      "Curve Turning",
+      "",
+      AlertStatus.normal, AlertSize.small,
+      Priority.LOW, VisualAlert.none, AudibleAlert.none, 2.),
+  },
+
+  EventName.visionleaving: {
+    ET.WARNING: Alert(
+      "Curve Leaving",
+      "",
+      AlertStatus.normal, AlertSize.small,
+      Priority.LOW, VisualAlert.none, AudibleAlert.none, 2.),
+  },
+
+  EventName.curvespeedValueChange: {
+    ET.WARNING: curve_speed_adjust_alert,
+  },
+  
   # ********** events that affect controls state transitions **********
 
   EventName.pcmEnable: {
