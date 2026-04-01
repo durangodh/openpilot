@@ -68,6 +68,7 @@ def manager_init() -> None:
     ("CameraOffset", "-0.06"),    # 카메라 위치 보정 (레인모드 차선 좌표에 적용)
     ("PathOffset", "0.0"),        # 주행 경로 좌우 보정 (전 모드 공통 적용)
     ("HumanFollowing", "0"),
+    ("TurnVisionControl", "0"),
   ]
   if not PC:
     default_params.append(("LastUpdateTime", datetime.datetime.utcnow().isoformat().encode('utf8')))
