@@ -107,7 +107,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"DoShutdown", CLEAR_ON_MANAGER_START},
     {"DoUninstall", CLEAR_ON_MANAGER_START},
     {"ExperimentalMode", PERSISTENT},
-    {"ExperimentalLongitudinalEnabled", PERSISTENT}, // WARNING: THIS MAY DISABLE AEB
     {"EnableWideCamera", CLEAR_ON_MANAGER_START},
     {"ForcePowerDown", CLEAR_ON_MANAGER_START},
     {"GitBranch", PERSISTENT},
@@ -208,7 +207,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"WideCameraOnly", PERSISTENT},
     {"AutoLaneChangeTimer", PERSISTENT},
     {"HumanFollowing", PERSISTENT},
-
+    {"VisionCurveLaneless", PERSISTENT},
     {"KeepSteeringTurnSignals", PERSISTENT},
     {"HapticFeedbackWhenSpeedCamera", PERSISTENT},
     {"TurnVisionControl", PERSISTENT},
