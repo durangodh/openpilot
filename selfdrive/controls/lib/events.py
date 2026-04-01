@@ -306,7 +306,7 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
   },
 
   EventName.startupMaster: {
-    ET.PERMANENT: startup_master_alert,("G  E  N  E  S  I  S")
+    ET.PERMANENT: StartupAlert("G  E  N  E  S  I  S")
   },
 
   # Car is recognized, but marked as dashcam only
