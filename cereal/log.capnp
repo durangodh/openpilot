@@ -990,6 +990,14 @@ struct LateralPlan @0xe1e9318e2ae8b51e {
   dynamicLaneProfileStatus @35 :Bool;
   laneChangePrev @36 :Bool;
 
+  solverCost @39 :Float32;
+  solverState @40 :SolverState;
+
+  struct SolverState {
+    x @0 :List(List(Float32));
+    u @1 :List(Float32);
+  }
+
   enum Desire {
     none @0;
     turnLeft @1;
