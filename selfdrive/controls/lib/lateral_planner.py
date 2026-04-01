@@ -132,7 +132,7 @@ class LateralPlanner:
       self.LP.lll_prob *= self.DH.lane_change_ll_prob
       self.LP.rll_prob *= self.DH.lane_change_ll_prob
 
-    low_speed = v_ego_car < 10 * CV.MPH_TO_MS
+    low_speed = self.v_ego < 10 * CV.MPH_TO_MS
     
     if self.use_lanelines and not self.get_dynamic_lane_profile(sm['longitudinalPlan']) and not low_speed:
       d_path_xyz = self.LP.get_d_path(self.v_ego, self.t_idxs, self.path_xyz)
