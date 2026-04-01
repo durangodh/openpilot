@@ -1009,7 +1009,14 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                            "비젼기반 커브감속",
                                            "Use vision path predictions to estimate the appropiate speed to drive through turns ahead.",
                                             "../assets/offroad/icon_road.png",
-                                            this));          
+                                            this));
+  toggleLayout->addWidget(horizontal_line());
+  toggleLayout->addWidget(new ParamControl("VisionCurveLaneless",
+                                           "커브 구간 레인리스 모드",
+                                           "비전 기반 커브 감속이 활성화된 경우, 커브 구간에서 자동으로 레인리스(e2e) 모드로 전환합니다.\n"
+                                           "(DynamicLaneProfile Auto 모드에서만 동작)",
+                                            "../assets/offroad/icon_road.png",
+                                            this));
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("SccSmootherSyncGasPressed",
                                             "Sync set speed on gas pressed",
