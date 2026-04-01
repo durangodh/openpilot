@@ -1,4 +1,5 @@
 import numpy as np
+from common.conversions import Conversions as CV
 from common.realtime import sec_since_boot, DT_MDL
 from common.numpy_fast import interp
 from selfdrive.controls.lib.lane_planner import LanePlanner
@@ -69,7 +70,7 @@ class LateralPlanner:
     self.param_s = Params()
     self.dynamic_lane_profile_enabled = self.params.get_bool("DynamicLaneProfileToggle")
     self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
-    self.dynamic_lane_profile_status = False
+    self.dynamic_lane_profile_status = True
     self.dynamic_lane_profile_status_buffer = False
 
     self.vision_curve_laneless = self.param_s.get_bool("VisionCurveLaneless")
@@ -78,16 +79,13 @@ class LateralPlanner:
     self.read_param()
 
   def read_param(self):
-    elf.dynamic_lane_profile_enabled = self.params.get_bool("DynamicLaneProfileToggle")
     self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
-    self.vision_curve_laneless = self.param_s.get_bool("VisionCurveLaneless")
+    if self.param_read_counter % 50 == 0:
+      self.dynamic_lane_profile_enabled = self.param_s.get_bool("DynamicLaneProfileToggle")
+      self.vision_curve_laneless = self.param_s.get_bool("VisionCurveLaneless")
+    self.param_read_counter += 1
   
   def _read_camera_offset(self):
-    """
-    Params에서 CameraOffset을 읽어 반환.
-    UI에서 저장 시 문자열(예: "-0.06")로 저장 가정.
-    wide_camera면 부호 반전.
-    """
     try:
       val = float(self.params.get("CameraOffset", encoding="utf8") or str(DEFAULT_CAMERA_OFFSET))
     except (TypeError, ValueError):
@@ -95,10 +93,6 @@ class LateralPlanner:
     return -val if self.wide_camera else val
 
   def _read_path_offset(self):
-    """
-    Params에서 PathOffset을 읽어 반환.
-    UI에서 저장 시 문자열(예: "0.0")로 저장 가정.
-    """
     try:
       val = float(self.params.get("PathOffset", encoding="utf8") or str(DEFAULT_PATH_OFFSET))
     except (TypeError, ValueError):
@@ -110,9 +104,7 @@ class LateralPlanner:
     self.lat_mpc.reset(x0=self.x0)
 
   def update(self, sm):
-    if self.param_read_counter % 50 == 0:
-      self.read_param()
-    self.param_read_counter += 1
+    self.read_param()
     self.use_lanelines = self.params.get_bool('UseLanelines')
     self.camera_offset = self._read_camera_offset()
     self.path_offset = self._read_path_offset()
@@ -140,7 +132,9 @@ class LateralPlanner:
       self.LP.lll_prob *= self.DH.lane_change_ll_prob
       self.LP.rll_prob *= self.DH.lane_change_ll_prob
 
-    if self.use_lanelines and not self.get_dynamic_lane_profile(sm['longitudinalPlan']):
+    low_speed = v_ego_car < 10 * CV.MPH_TO_MS
+    
+    if self.use_lanelines and not self.get_dynamic_lane_profile(sm['longitudinalPlan']) and not low_speed:
       d_path_xyz = self.LP.get_d_path(self.v_ego, self.t_idxs, self.path_xyz)
       self.dynamic_lane_profile_status = False
       self.lat_mpc.set_weights(PATH_COST, LATERAL_MOTION_COST,
