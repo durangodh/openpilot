@@ -66,15 +66,22 @@ class LateralPlanner:
     self.lat_mpc = LateralMpc()
     self.reset_mpc(np.zeros(4))
 
-    # Dynamic Lane Profile
+    self.param_s = Params()
     self.dynamic_lane_profile_enabled = self.params.get_bool("DynamicLaneProfileToggle")
     self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
     self.dynamic_lane_profile_status = False
     self.dynamic_lane_profile_status_buffer = False
-    self.second = 0.0
 
     self.vision_curve_laneless = self.param_s.get_bool("VisionCurveLaneless")
+    
+    self.param_read_counter = 0
+    self.read_param()
 
+  def read_param(self):
+    elf.dynamic_lane_profile_enabled = self.params.get_bool("DynamicLaneProfileToggle")
+    self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
+    self.vision_curve_laneless = self.param_s.get_bool("VisionCurveLaneless")
+  
   def _read_camera_offset(self):
     """
     Params에서 CameraOffset을 읽어 반환.
@@ -103,25 +110,13 @@ class LateralPlanner:
     self.lat_mpc.reset(x0=self.x0)
 
   def update(self, sm):
-    t = sec_since_boot()
-    if t - self.last_params_update > 1.0:
-      self.use_lanelines = self.params.get_bool('UseLanelines')
-
-      # CameraOffset, PathOffset 실시간 갱신
-      self.camera_offset = self._read_camera_offset()
-      self.path_offset = self._read_path_offset()
-
-      # LanePlanner에 camera_offset 즉시 반영
-      self.LP.camera_offset = self.camera_offset
-
-      self.last_params_update = t
-
-    self.second += DT_MDL
-    if self.second > 1.0:
-      self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
-      self.dynamic_lane_profile_enabled = self.params.get_bool("DynamicLaneProfileToggle")
-      self.vision_curve_laneless = self.param_s.get_bool("VisionCurveLaneless")
-      self.second = 0.0
+    if self.param_read_counter % 50 == 0:
+      self.read_param()
+    self.param_read_counter += 1
+    self.use_lanelines = self.params.get_bool('UseLanelines')
+    self.camera_offset = self._read_camera_offset()
+    self.path_offset = self._read_path_offset()
+    self.LP.camera_offset = self.camera_offset
 
     measured_curvature = sm['controlsState'].curvature
 
