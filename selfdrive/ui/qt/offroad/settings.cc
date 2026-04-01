@@ -1168,7 +1168,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   auto *cam_offset = new CameraOffsetControl(
       "Camera Offset",
       "카메라 위치 보정값입니다. 레인모드에서 차선 인식 좌표에 적용됩니다.\n"
-      "왼쪽으로 이동: 음수(−) / 오른쪽으로 이동: 양수(+)\n"
+      "왼쪽으로 이동: 양수(+) / 오른쪽으로 이동: 음수(−)\n"
       "범위: −0.20 ~ +0.20m  /  기본값: −0.06m",
       "../assets/offroad/icon_road.png",
       this);
@@ -1182,7 +1182,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   auto *path_offset = new PathOffsetControl(
       "Path Offset",
       "주행 경로 좌우 보정값입니다. 레인모드·레인리스 모드 모두 적용됩니다.\n"
-      "왼쪽으로 이동: 음수(−) / 오른쪽으로 이동: 양수(+)\n"
+      "왼쪽으로 이동: 양수(+) / 오른쪽으로 이동: 음수(−)\n"
       "범위: −1.00 ~ +1.00m  /  기본값: 0.00m",
       "../assets/offroad/icon_road.png",
       this);
@@ -1190,9 +1190,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(path_offset);
 
   list->addItem(horizontal_line());
-
-  // ── Dynamic Lane Profile Toggle ──────────────────────────────  ← 기존 코드 계속
-  // ── Dynamic Lane Profile Toggle ──────────────────────────────
   list->addItem(new ParamControl("DynamicLaneProfileToggle",
                                   "Enable Dynamic Lane Profile",
                                   "Dynamic Lane Profile 기능을 활성화합니다.\n"
@@ -1201,8 +1198,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
                                   this));
 
   list->addItem(horizontal_line());
-
-  // ── Dynamic Lane Profile Mode ────────────────────────────────
   auto *dlp_control = new DynamicLaneProfileControl(
       "Dynamic Lane Profile Mode",
       "Lane only: 항상 차선 기반\n"
