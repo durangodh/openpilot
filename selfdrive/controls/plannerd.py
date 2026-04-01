@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 from cereal import car
 from common.params import Params
 from common.realtime import Priority, config_realtime_process
@@ -17,12 +18,14 @@ def plannerd_thread(sm=None, pm=None):
   CP = car.CarParams.from_bytes(params.get("CarParams", block=True))
   cloudlog.info("plannerd got CarParams: %s", CP.carName)
 
+  debug_mode = bool(int(os.getenv("DEBUG", "0")))
+  
   use_lanelines = False
   wide_camera = params.get_bool('WideCameraOnly')
   cloudlog.event("e2e mode", on=use_lanelines)
 
   longitudinal_planner = LongitudinalPlanner(CP)
-  lateral_planner = LateralPlanner(CP, use_lanelines=use_lanelines, wide_camera=wide_camera)
+  lateral_planner = LateralPlanner(CP, use_lanelines=use_lanelines, wide_camera=wide_camera, debug=debug_mode)
 
   if sm is None:
     sm = messaging.SubMaster(['carControl', 'carState', 'controlsState', 'radarState', 'modelV2', 'longitudinalPlan', 'lateralPlan'],
