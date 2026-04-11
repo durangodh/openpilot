@@ -222,12 +222,8 @@ class CarController:
     # scc smoother
     self.scc_smoother.update(CC.enabled, can_sends, self.packer, CC, CS, self.frame, controls)
 
-    # [FIX] ExperimentalMode(openpilot 롱컨)에서 CS.cruiseState_enabled=False여도 SCC 명령 전송해야 함.
-    # 기존: CS.cruiseState_enabled 단독 조건
-    #   → ExperimentalMode에서 차량 SCC가 비활성이면 이 블록 통째로 스킵
-    #   → SCC12 가속 명령이 차량으로 전달 안됨 → self.accel=0 유지 → 가속 불가
-    # 수정: CC.longActive=True이면 cruiseState_enabled 무관하게 SCC 명령 전송
-    if self.longcontrol and (CS.cruiseState_enabled or CC.longActive) and (CS.scc_bus or not self.scc_live):
+    # send scc to car if longcontrol enabled and SCC not on bus 0 or ont live
+    if self.longcontrol and CS.cruiseState_enabled and (CS.scc_bus or not self.scc_live):
 
       if self.frame % 2 == 0:
 
