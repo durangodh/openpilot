@@ -9,7 +9,7 @@ from selfdrive.controls.lib.lateral_planner import TRAJECTORY_SIZE
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX
 
 
-_MIN_V = 5.6  # Do not operate under 20km/h
+_MIN_V = 12.5  # Do not operate under 20km/h
 
 _ENTERING_PRED_LAT_ACC_TH = 1.5  # Predicted Lat Acc threshold to trigger entering turn state. //default 1.3 #1.4
 _ABORT_ENTERING_PRED_LAT_ACC_TH = 1.1  # Predicted Lat Acc threshold to abort entering state if speed drops.
