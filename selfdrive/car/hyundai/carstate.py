@@ -49,12 +49,12 @@ class CarState(CarStateBase):
     self.standstill = False
     self.cruiseState_enabled = False
     self.cruiseState_speed = 0
+    # Auto-resume Cruise Set Speed by JangPoo
+    self.prev_cruiseState_speed = 0
+    self.obj_valid = 0
 
     self.use_cluster_speed = Params().get_bool('UseClusterSpeed')
     self.long_control_enabled = Params().get_bool('LongControlEnabled')
-
-    self.cruiseState_speed = 0.0
-    self.prev_cruiseState_speed = 0.0
 
   def update(self, cp, cp2, cp_cam):
     cp_mdps = cp2 if self.mdps_bus else cp
