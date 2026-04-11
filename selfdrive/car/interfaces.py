@@ -240,30 +240,12 @@ class CarInterfaceBase(ABC):
     if cs_out.steerFaultPermanent:
       events.add(EventName.steerUnavailable)
 
-    # 오토 인게이지 조건 사전 계산
-    auto_engage_condition = (
-      allow_enable and
-      cs_out.gearShifter == GearShifter.drive and
-      cs_out.vEgo > 5. * CV.KPH_TO_MS and
-      cs_out.cruiseState.enabledAcc
-    )
-
     # we engage when pcm is active (rising edge)
     if pcm_enable:
       if cs_out.cruiseState.enabled and not self.CS.out.cruiseState.enabled and allow_enable:
         events.add(EventName.pcmEnable)
       elif not cs_out.cruiseState.enabled:
-        if not auto_engage_condition and not self.CP.openpilotLongitudinalControl:
-          events.add(EventName.pcmDisable)
-
-    # 오토 인게이지 - enabledAcc 라이징 엣지 기준으로 변경
-    if (allow_enable and
-        cs_out.gearShifter == GearShifter.drive and
-        cs_out.vEgo > 5. * CV.KPH_TO_MS and
-        cs_out.cruiseState.enabledAcc and
-        cs_out.cruiseState.enabled and
-        not self.CS.out.cruiseState.enabledAcc):  # ← enabledAcc 기준 라이징 엣지
-      events.add(EventName.pcmEnable)
+        events.add(EventName.pcmDisable)
 
     return events
 
