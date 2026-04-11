@@ -234,12 +234,12 @@ class SccSmoother:
                     and CS.gas_pressed and CS.prev_cruiseState_speed and not CS.cruiseState_speed
 
     if not self.longcontrol:
-      if not ascc_enabled or CS.standstill or CS.cruise_buttons != Buttons.NONE:
+      if (not ascc_enabled or CS.standstill or CS.cruise_buttons != Buttons.NONE) and not ascc_auto_set:
         self.reset()
         self.wait_timer = max(ALIVE_COUNT) + max(WAIT_COUNT)
         return
 
-    if not ascc_enabled:
+    if not ascc_enabled and not ascc_auto_set:
       self.reset()
 
     self.cal_target_speed(CS, clu11_speed, controls)
@@ -257,7 +257,8 @@ class SccSmoother:
           if self.autoascc:
             self.btn = Buttons.SET_DECEL
         else:
-          self.btn = Buttons.RES_ACCEL
+          if self.autoascc:
+            self.btn = Buttons.RES_ACCEL
         self.alive_count = SccSmoother.get_alive_count()
 
       if self.btn != Buttons.NONE:
