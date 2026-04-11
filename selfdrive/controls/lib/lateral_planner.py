@@ -67,13 +67,12 @@ class LateralPlanner:
     self.lat_mpc = LateralMpc()
     self.reset_mpc(np.zeros(4))
 
-    self.param_s = Params()
     self.dynamic_lane_profile_enabled = self.params.get_bool("DynamicLaneProfileToggle")
     self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
     self.dynamic_lane_profile_status = True
     self.dynamic_lane_profile_status_buffer = False
 
-    self.vision_curve_laneless = self.param_s.get_bool("VisionCurveLaneless")
+    self.vision_curve_laneless = self.params.get_bool("VisionCurveLaneless")
     
     self.param_read_counter = 0
     self.read_param()
@@ -81,8 +80,8 @@ class LateralPlanner:
   def read_param(self):
     self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
     if self.param_read_counter % 50 == 0:
-      self.dynamic_lane_profile_enabled = self.param_s.get_bool("DynamicLaneProfileToggle")
-      self.vision_curve_laneless = self.param_s.get_bool("VisionCurveLaneless")
+      self.dynamic_lane_profile_enabled = self.params.get_bool("DynamicLaneProfileToggle")
+      self.vision_curve_laneless = self.params.get_bool("VisionCurveLaneless")
     self.param_read_counter += 1
   
   def _read_camera_offset(self):
@@ -125,23 +124,22 @@ class LateralPlanner:
       self.v_ego = self.v_plan[0]
 
     lane_change_prob = self.LP.l_lane_change_prob + self.LP.r_lane_change_prob
-    self.DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob)
+    self.DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob, md)
 
-    d_path_xyz = self.path_xyz
     if self.DH.desire == log.LateralPlan.Desire.laneChangeRight or self.DH.desire == log.LateralPlan.Desire.laneChangeLeft:
       self.LP.lll_prob *= self.DH.lane_change_ll_prob
       self.LP.rll_prob *= self.DH.lane_change_ll_prob
+    self.d_path_w_lines_xyz = self.LP.get_d_path(self.v_ego, self.t_idxs, self.path_xyz)   
 
     low_speed = self.v_ego < 10 * CV.MPH_TO_MS
     
     if self.use_lanelines and not self.get_dynamic_lane_profile(sm['longitudinalPlan']) and not low_speed:
-      d_path_xyz = self.LP.get_d_path(self.v_ego, self.t_idxs, self.path_xyz)
+      self.path_xyz = self.d_path_w_lines_xyz
       self.dynamic_lane_profile_status = False
       self.lat_mpc.set_weights(PATH_COST, LATERAL_MOTION_COST,
                              LATERAL_ACCEL_COST, LATERAL_JERK_COST,
                              STEERING_RATE_COST)
     else:
-      d_path_xyz = self.path_xyz
       self.dynamic_lane_profile_status = True
       lateral_motion_cost = interp(self.v_ego, [5.0, 10.0],
                                  [LATERAL_MOTION_COST * 1.5, LATERAL_MOTION_COST])
@@ -149,11 +147,11 @@ class LateralPlanner:
                                LATERAL_ACCEL_COST, LATERAL_JERK_COST,
                                STEERING_RATE_COST)
       
-    d_path_xyz[:, 1] += self.path_offset
+    self.d_path_xyz[:, 1] += self.path_offset
 
     y_pts = np.interp(self.v_ego * self.t_idxs[:LAT_MPC_N + 1],
-                  np.linalg.norm(d_path_xyz, axis=1),
-                  d_path_xyz[:, 1])
+                  np.linalg.norm(self.d_path_xyz, axis=1),
+                  self.d_path_xyz[:, 1])
     heading_pts = np.interp(self.v_ego * self.t_idxs[:LAT_MPC_N + 1],
                             np.linalg.norm(self.path_xyz, axis=1),
                             self.plan_yaw)
@@ -244,6 +242,7 @@ class LateralPlanner:
     plan_send.lateralPlan.dPathWLinesY = [float(y) for y in self.d_path_w_lines_xyz[:, 1]]
 
     lateralPlan.laneChangePrev = self.DH.prev_lane_change
+    lateralPlan.laneChangeEdgeBlock = (self.DH.lane_change_state == LaneChangeState.preLaneChange) and self.DH.road_edge
 
     lateralPlan.autoLaneChangeEnabled = self.DH.auto_lane_change_enabled
     lateralPlan.autoLaneChangeTimer = int(AUTO_LCA_START_TIME) - int(self.DH.auto_lane_change_timer)
