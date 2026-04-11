@@ -992,6 +992,7 @@ struct LateralPlan @0xe1e9318e2ae8b51e {
 
   solverCost @39 :Float32;
   solverState @40 :SolverState;
+  laneChangeEdgeBlock @41 :Bool;
 
   struct SolverState {
     x @0 :List(List(Float32));
