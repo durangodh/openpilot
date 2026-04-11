@@ -61,6 +61,7 @@ class LateralPlanner:
     self.l_lane_change_prob = 0.0
     self.r_lane_change_prob = 0.0
     self.d_path_w_lines_xyz = np.zeros((TRAJECTORY_SIZE, 3))
+    self.d_path_xyz = np.zeros((TRAJECTORY_SIZE, 3))  # 방어용 초기화
 
     self.debug_mode = debug
 
@@ -73,7 +74,7 @@ class LateralPlanner:
     self.dynamic_lane_profile_status_buffer = False
 
     self.vision_curve_laneless = self.params.get_bool("VisionCurveLaneless")
-    
+
     self.param_read_counter = 0
     self.read_param()
 
@@ -83,7 +84,7 @@ class LateralPlanner:
       self.dynamic_lane_profile_enabled = self.params.get_bool("DynamicLaneProfileToggle")
       self.vision_curve_laneless = self.params.get_bool("VisionCurveLaneless")
     self.param_read_counter += 1
-  
+
   def _read_camera_offset(self):
     try:
       val = float(self.params.get("CameraOffset", encoding="utf8") or str(DEFAULT_CAMERA_OFFSET))
@@ -129,33 +130,34 @@ class LateralPlanner:
     if self.DH.desire == log.LateralPlan.Desire.laneChangeRight or self.DH.desire == log.LateralPlan.Desire.laneChangeLeft:
       self.LP.lll_prob *= self.DH.lane_change_ll_prob
       self.LP.rll_prob *= self.DH.lane_change_ll_prob
-    self.d_path_w_lines_xyz = self.LP.get_d_path(self.v_ego, self.t_idxs, self.path_xyz)   
+    self.d_path_w_lines_xyz = self.LP.get_d_path(self.v_ego, self.t_idxs, self.path_xyz)
 
     low_speed = self.v_ego < 10 * CV.MPH_TO_MS
-    
+
     if self.use_lanelines and not self.get_dynamic_lane_profile(sm['longitudinalPlan']) and not low_speed:
       self.path_xyz = self.d_path_w_lines_xyz
       self.dynamic_lane_profile_status = False
       self.lat_mpc.set_weights(PATH_COST, LATERAL_MOTION_COST,
-                             LATERAL_ACCEL_COST, LATERAL_JERK_COST,
-                             STEERING_RATE_COST)
+                               LATERAL_ACCEL_COST, LATERAL_JERK_COST,
+                               STEERING_RATE_COST)
     else:
       self.dynamic_lane_profile_status = True
       lateral_motion_cost = interp(self.v_ego, [5.0, 10.0],
-                                 [LATERAL_MOTION_COST * 1.5, LATERAL_MOTION_COST])
+                                   [LATERAL_MOTION_COST * 1.5, LATERAL_MOTION_COST])
       self.lat_mpc.set_weights(PATH_COST, lateral_motion_cost,
                                LATERAL_ACCEL_COST, LATERAL_JERK_COST,
                                STEERING_RATE_COST)
-      
-    self.d_path_xyz[:, 1] += self.path_offset
+
+    # path_offset을 최종 결정된 path_xyz에 적용 (버그 수정: d_path_xyz -> path_xyz)
+    self.path_xyz[:, 1] += self.path_offset
 
     y_pts = np.interp(self.v_ego * self.t_idxs[:LAT_MPC_N + 1],
-                  np.linalg.norm(self.d_path_xyz, axis=1),
-                  self.d_path_xyz[:, 1])
+                      np.linalg.norm(self.path_xyz, axis=1),
+                      self.path_xyz[:, 1])
     heading_pts = np.interp(self.v_ego * self.t_idxs[:LAT_MPC_N + 1],
                             np.linalg.norm(self.path_xyz, axis=1),
                             self.plan_yaw)
-    yaw_rate_pts = self.plan_yaw_rate[:LAT_MPC_N+1]
+    yaw_rate_pts = self.plan_yaw_rate[:LAT_MPC_N + 1]
     self.y_pts = y_pts
 
     assert len(y_pts) == LAT_MPC_N + 1
@@ -198,11 +200,11 @@ class LateralPlanner:
       elif self.DH.lane_change_state == LaneChangeState.off:
         if (self.LP.lll_prob + self.LP.rll_prob) / 2 < 0.3 \
           or ((longitudinal_plan.visionCurrentLatAcc > 1.0 or longitudinal_plan.visionMaxPredLatAcc > 1.4)
-           and self.vision_curve_laneless):
+              and self.vision_curve_laneless):
           self.dynamic_lane_profile_status_buffer = True
         if (self.LP.lll_prob + self.LP.rll_prob) / 2 > 0.5 \
           and ((longitudinal_plan.visionCurrentLatAcc < 0.6 and longitudinal_plan.visionMaxPredLatAcc < 0.7)
-           or not self.vision_curve_laneless):
+               or not self.vision_curve_laneless):
           self.dynamic_lane_profile_status_buffer = False
         if self.dynamic_lane_profile_status_buffer:
           return True
@@ -218,8 +220,8 @@ class LateralPlanner:
     lateralPlan.laneWidth = float(self.LP.lane_width)
     lateralPlan.dPathPoints = self.y_pts.tolist()
     lateralPlan.psis = self.lat_mpc.x_sol[0:CONTROL_N, 2].tolist()
-    lateralPlan.curvatures = (self.lat_mpc.x_sol[0:CONTROL_N, 3]/self.v_ego).tolist()
-    lateralPlan.curvatureRates = [float(x/self.v_ego) for x in self.lat_mpc.u_sol[0:CONTROL_N - 1]] + [0.0]
+    lateralPlan.curvatures = (self.lat_mpc.x_sol[0:CONTROL_N, 3] / self.v_ego).tolist()
+    lateralPlan.curvatureRates = [float(x / self.v_ego) for x in self.lat_mpc.u_sol[0:CONTROL_N - 1]] + [0.0]
 
     lateralPlan.lProb = float(self.LP.lll_prob)
     lateralPlan.rProb = float(self.LP.rll_prob)
