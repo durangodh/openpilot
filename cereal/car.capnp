@@ -146,6 +146,7 @@ struct CarEvent @0x9b1657f34caf3ad3 {
     visionTurning @120;
     visionleaving @121;
     curvespeedValueChange @122;
+    laneChangeRoadEdge @123;
   }
 }
 
