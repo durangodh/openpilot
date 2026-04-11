@@ -416,15 +416,7 @@ class SccSmoother:
         v_cruise_kph = SccSmoother.update_v_cruise(controls.v_cruise_kph, CS.buttonEvents, controls.enabled,
                                                    controls.is_metric)
     else:
-      # [FIX] longcontrol(openpilot 롱컨 / ExperimentalMode) 시 크루즈 비활성화여도 기존 속도 유지
-      # 기존: v_cruise_kph = 0
-      #   → controls.v_cruise_kph = 0 → applyMaxSpeed = 0
-      #   → plannerd v_cruise = 0 → MPC 목표속도 0 → 가속 불가
-      # 수정: longcontrol이면 이전 값 유지, SCC 전용(비longcontrol)일 때만 0으로 리셋
-      if longcontrol:
-        v_cruise_kph = controls.v_cruise_kph  # 이전 값 유지
-      else:
-        v_cruise_kph = 0
+      v_cruise_kph = 0
 
     if controls.is_cruise_enabled != is_cruise_enabled:
       controls.is_cruise_enabled = is_cruise_enabled
@@ -434,13 +426,7 @@ class SccSmoother:
       else:
         v_cruise_kph = 0
 
-      # [FIX] longcontrol(ExperimentalMode) 시 크루즈 상태 변경으로 LoC 리셋 안 함
-      # 기존: controls.LoC.reset(v_pid=CS.vEgo) 무조건 호출
-      #   → longActive=True여도 long_control_state = off → plannerd reset_state=True
-      #   → MPC 궤적 초기화 → 가속 불가
-      # 수정: SCC 전용(비longcontrol) 모드일 때만 리셋
-      if not longcontrol:
-        controls.LoC.reset(v_pid=CS.vEgo)
+      controls.LoC.reset(v_pid=CS.vEgo)
 
     controls.v_cruise_kph = v_cruise_kph
 
