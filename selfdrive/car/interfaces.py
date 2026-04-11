@@ -253,14 +253,7 @@ class CarInterfaceBase(ABC):
       if cs_out.cruiseState.enabled and not self.CS.out.cruiseState.enabled and allow_enable:
         events.add(EventName.pcmEnable)
       elif not cs_out.cruiseState.enabled:
-        # [FIX] 이전 수정에서 openpilotLongitudinalControl이면 pcmDisable을 아예 막았는데,
-        # 이것이 크루즈 메인 OFF(available=False → enabled=False) 시에도 디스인게이지를
-        # 막아버리는 문제를 유발함.
-        # 원복: 원래 조건 그대로 사용.
-        # hyundai interface에서 enabled=available로 설정하므로,
-        # available=True(메인 ON)이면 enabled=True → 이 분기 자체가 실행 안 됨.
-        # available=False(메인 OFF)이면 enabled=False → pcmDisable 정상 발생 → 디스인게이지 OK.
-        if not auto_engage_condition:
+        if not auto_engage_condition and not self.CP.openpilotLongitudinalControl:
           events.add(EventName.pcmDisable)
 
     # 오토 인게이지 - enabledAcc 라이징 엣지 기준으로 변경
