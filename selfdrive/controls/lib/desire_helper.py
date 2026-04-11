@@ -1,3 +1,5 @@
+import time
+import numpy as np
 from cereal import log
 from common.realtime import DT_MDL
 from common.conversions import Conversions as CV
@@ -43,7 +45,7 @@ class DesireHelper:
     self.prev_one_blinker = False
     self.desire = log.LateralPlan.Desire.none
 
-    self.params = Params()                                                    # ← 인스턴스 재사용
+    self.params = Params()
     self.lane_change_enabled = self.params.get_bool('LaneChangeEnabled')
     self.auto_lane_change_enabled = self.params.get_bool('AutoLaneChangeEnabled')
     self.last_params_update = 0.0
@@ -54,9 +56,9 @@ class DesireHelper:
     # Lane Change Timer (AutoLaneChangeTimer) 관련
     self.lane_change_wait_timer = 0.0
     self.prev_lane_change = False
+    self.road_edge = False
 
-  def update(self, carstate, lateral_active, lane_change_prob):
-    import time
+  def update(self, carstate, lateral_active, lane_change_prob, model_data=None):
     t = time.monotonic()
     if t - self.last_params_update > 1.0:
       self.lane_change_enabled = self.params.get_bool('LaneChangeEnabled')
@@ -75,7 +77,26 @@ class DesireHelper:
     one_blinker = carstate.leftBlinker != carstate.rightBlinker
     below_lane_change_speed = v_ego < LANE_CHANGE_SPEED_MIN
 
-    if (not lateral_active) or (self.lane_change_timer > LANE_CHANGE_TIME_MAX) or (not one_blinker) or (not self.lane_change_enabled):
+    # Road edge detection (FrogAi method)
+    if one_blinker and model_data is not None:
+      min_lane_threshold = 3.0
+      blinker_index = 0 if carstate.leftBlinker else 1
+      desired_edge = model_data.roadEdges[blinker_index]
+      current_lane = model_data.laneLines[blinker_index + 1]
+      if all([desired_edge.x, desired_edge.y, current_lane.x, current_lane.y]) and \
+         len(desired_edge.x) == len(current_lane.x):
+        x = np.linspace(desired_edge.x[0], desired_edge.x[-1], num=len(desired_edge.x))
+        lane_y = np.interp(x, current_lane.x, current_lane.y)
+        desired_y = np.interp(x, desired_edge.x, desired_edge.y)
+        lane_width = np.abs(desired_y - lane_y)
+        self.road_edge = not (np.amax(lane_width) > min_lane_threshold)
+      else:
+        self.road_edge = True
+    else:
+      self.road_edge = False
+
+    if (not lateral_active) or (self.lane_change_timer > LANE_CHANGE_TIME_MAX) or \
+       (not one_blinker) or (not self.lane_change_enabled):
       self.lane_change_state = LaneChangeState.off
       self.lane_change_direction = LaneChangeDirection.none
       self.prev_lane_change = False
@@ -89,8 +110,6 @@ class DesireHelper:
       blindspot_detected = ((carstate.leftBlindspot and self.lane_change_direction == LaneChangeDirection.left) or
                             (carstate.rightBlindspot and self.lane_change_direction == LaneChangeDirection.right))
 
-      # State transitions
-      # off → preLaneChange: 브레이크 입력 중에는 진입 차단
       if self.lane_change_state == LaneChangeState.off and one_blinker and \
          not self.prev_one_blinker and not below_lane_change_speed and not carstate.brakePressed:
         if carstate.leftBlinker:
@@ -100,29 +119,27 @@ class DesireHelper:
 
         self.lane_change_state = LaneChangeState.preLaneChange
         self.lane_change_ll_prob = 1.0
-        self.lane_change_wait_timer = 0.0   # preLaneChange 진입 시 대기 타이머 초기화
+        self.lane_change_wait_timer = 0.0
+
+      # preLaneChange: road edge 감지 시 차단
+      elif self.lane_change_state == LaneChangeState.preLaneChange and self.road_edge:
+        self.lane_change_direction = LaneChangeDirection.none
 
       # LaneChangeState.preLaneChange
       elif self.lane_change_state == LaneChangeState.preLaneChange:
-        # 대기 타이머 증가
         self.lane_change_wait_timer += DT_MDL
 
         if not one_blinker or below_lane_change_speed:
           self.lane_change_state = LaneChangeState.off
           self.prev_lane_change = False
 
-        # torque_applied 이지만 사각지대 감지 → auto timer 리셋(blindspot 우선)
         elif torque_applied and blindspot_detected and self.auto_lane_change_timer != 10.0:
           self.auto_lane_change_timer = 10.0
           self.prev_lane_change = False
 
-        # torque 없이 auto_lane_change_timer 가 10.0 이면 prev_torque_applied 플래그 세팅
         elif not torque_applied and self.auto_lane_change_timer == 10.0 and not self.prev_torque_applied:
           self.prev_torque_applied = True
 
-        # 차선변경 시작 조건:
-        #   1) torque 입력 + (사각지대 없음 또는 이미 prev_torque_applied)
-        #   2) AutoLaneChangeTimer 대기 완료 + 아직 이번 사이클에서 시작하지 않은 경우 (prev_lane_change=False)
         elif (torque_applied and (not blindspot_detected or self.prev_torque_applied)) or \
              (lane_change_auto_timer and
               self.lane_change_wait_timer > lane_change_auto_timer and
@@ -133,7 +150,6 @@ class DesireHelper:
 
       # LaneChangeState.laneChangeStarting
       elif self.lane_change_state == LaneChangeState.laneChangeStarting:
-        # fade out over .5s
         self.lane_change_ll_prob = max(self.lane_change_ll_prob - 2 * DT_MDL, 0.0)
 
         # 98% certainty
@@ -150,7 +166,7 @@ class DesireHelper:
             self.lane_change_state = LaneChangeState.preLaneChange
           else:
             self.lane_change_state = LaneChangeState.off
-            self.prev_lane_change = False   # 차선변경 완전 종료 시 플래그 초기화
+            self.prev_lane_change = False
 
     if self.lane_change_state in (LaneChangeState.off, LaneChangeState.preLaneChange):
       self.lane_change_timer = 0.0
@@ -160,7 +176,7 @@ class DesireHelper:
     if self.lane_change_state == LaneChangeState.off:
       self.auto_lane_change_timer = 0.0
       self.prev_torque_applied = False
-    elif self.auto_lane_change_timer < (AUTO_LCA_START_TIME + 0.25):  # stop after 3 sec resume from 10 when torque applied
+    elif self.auto_lane_change_timer < (AUTO_LCA_START_TIME + 0.25):
       self.auto_lane_change_timer += DT_MDL
 
     self.prev_one_blinker = one_blinker
