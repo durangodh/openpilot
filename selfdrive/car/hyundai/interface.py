@@ -340,16 +340,6 @@ class CarInterface(CarInterfaceBase):
         be.type = ButtonType.decelCruise
       elif but == Buttons.GAP_DIST:
         be.type = ButtonType.gapAdjustCruise
-      elif but == Buttons.CANCEL:
-        # [FIX] scc_live=False(레이더 없는 차)일 때만 CANCEL을 user cancel로 처리.
-        # scc_live=True(레이더 있는 차)에서는 SCC 시스템이 정상 동작 중에도
-        # CANCEL 신호를 CAN에 전송하므로, ButtonType.cancel로 처리하면
-        # 오토인게이지 직후 SCC CANCEL 신호에 의해 즉시 디스인게이지되는 문제 발생.
-        # scc_live=True 차량의 디스인게이지는 크루즈 메인 버튼 OFF(available=False)로 처리.
-        if not self.CC.scc_live:
-          be.type = ButtonType.cancel
-        else:
-          be.type = ButtonType.unknown
       else:
         be.type = ButtonType.unknown
       buttonEvents.append(be)
@@ -375,28 +365,6 @@ class CarInterface(CarInterfaceBase):
       if b.type == ButtonType.cancel and b.pressed:
         events.add(EventName.buttonCancel)
 
-      if self.CC.longcontrol and not self.CC.scc_live:
-        # scc_live=False: 버튼으로 인게이지/디스인게이지
-        if b.type in [ButtonType.accelCruise, ButtonType.decelCruise] and not b.pressed:
-          events.add(EventName.buttonEnable)
-        if EventName.wrongCarMode in events.events:
-          events.events.remove(EventName.wrongCarMode)
-        if EventName.pcmDisable in events.events:
-          events.events.remove(EventName.pcmDisable)
-      elif not self.CC.longcontrol and ret.cruiseState.enabled:
-        # do enable on decel button only
-        if b.type == ButtonType.decelCruise and not b.pressed:
-          events.add(EventName.buttonEnable)
-
-    # longcontrol=True이면서 scc_live=True인 경우:
-    # cruiseState.available=True(메인 ON)일 때만 wrongCarMode/pcmDisable 제거
-    # available=False(메인 OFF) → 이벤트 유지 → 정상 디스인게이지
-    if self.CC.longcontrol and self.CC.scc_live:
-      if ret.cruiseState.available:
-        if EventName.wrongCarMode in events.events:
-          events.events.remove(EventName.wrongCarMode)
-        if EventName.pcmDisable in events.events:
-          events.events.remove(EventName.pcmDisable)
 
     # scc smoother
     if self.CC.scc_smoother is not None:
