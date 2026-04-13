@@ -24,7 +24,7 @@ def torque_tune(tune, lat_accel_factor=3.0, friction=0.01, kd=0.0, steering_angl
   tune.torque.latAccelOffset = 0.0
   tune.torque.friction = friction
   tune.torque.steeringAngleDeadzoneDeg = steering_angle_deadzone_deg
-  tune.torque.kd = kd
+  tune.torque.kd = 0.3
 
 class CarInterface(CarInterfaceBase):
   def __init__(self, CP, CarController, CarState):
