@@ -24,7 +24,7 @@ def torque_tune(tune, lat_accel_factor=3.0, friction=0.01, kd=0.0, steering_angl
   tune.torque.latAccelOffset = 0.0
   tune.torque.friction = friction
   tune.torque.steeringAngleDeadzoneDeg = steering_angle_deadzone_deg
-  tune.torque.kd = 0.3
+  tune.torque.kd = kd
 
 class CarInterface(CarInterfaceBase):
   def __init__(self, CP, CarController, CarState):
@@ -37,7 +37,7 @@ class CarInterface(CarInterfaceBase):
     v_current_kph = current_speed * CV.MS_TO_KPH
 
     gas_max_bp = [0., 10., 20., 50., 70., 130., 150.]
-    gas_max_v = [1.35, 1.33, 1.30, 0.65, 0.49, 0.16, 0.1]
+    gas_max_v = [1.33, 1.30, 1.25, 0.65, 0.49, 0.16, 0.1]
 
     return CarControllerParams.ACCEL_MIN, interp(v_current_kph, gas_max_bp, gas_max_v)
 
