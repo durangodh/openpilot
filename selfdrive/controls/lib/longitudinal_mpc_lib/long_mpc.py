@@ -79,7 +79,7 @@ def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dis
     v_diff_offset = ((v_lead - v_ego) * 1.)
     v_diff_offset = np.clip(v_diff_offset, 0, stop_dist / 2)
     v_diff_offset = np.maximum(v_diff_offset * ((10 - v_ego) / 10), 0)
-    low_speed_scale = float(np.clip(v_ego / 5.0, 0.0, 1.0))
+    low_speed_scale = np.clip(v_ego / 5.0, 0.0, 1.0)
     v_diff_offset *= low_speed_scale
    
   distance = (v_lead**2) / (2 * COMFORT_BRAKE) + v_diff_offset
