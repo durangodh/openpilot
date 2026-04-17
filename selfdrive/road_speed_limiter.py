@@ -343,7 +343,8 @@ class RoadSpeedLimiter:
         diff_speed = cluster_speed - (cam_limit_speed * camSpeedFactor)
         #cam_limit_speed_ms = cam_limit_speed * (CV.KPH_TO_MS if is_metric else CV.MPH_TO_MS)
 
-        starting_dist = v_ego * 25.
+        speed_factor = 15. if (cluster_speed > 80) else 12.
+        starting_dist = v_ego * speed_factor
 
         if cam_type == 22:
           safe_dist = v_ego * 3.
@@ -362,7 +363,7 @@ class RoadSpeedLimiter:
           d = cam_limit_speed_left_dist - safe_dist
 
           if d > 0. and td > 0. and diff_speed > 0. and (section_left_dist is None or section_left_dist < 10 or cam_type == 2):
-            pp = (d / td) ** 0.6
+            pp = (d / td) ** 0.8
           else:
             pp = 0
 
