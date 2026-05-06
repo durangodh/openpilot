@@ -19,7 +19,7 @@ def torque_tune(tune, lat_accel_factor=3.0, friction=0.01, kd=0.0, steering_angl
   tune.torque.useSteeringAngle = True
   tune.torque.kp = 1.0
   tune.torque.kf = 1.0
-  tune.torque.ki = 0.1
+  tune.torque.ki = 0.05
   tune.torque.latAccelFactor = lat_accel_factor
   tune.torque.latAccelOffset = 0.0
   tune.torque.friction = friction
