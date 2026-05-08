@@ -331,7 +331,7 @@ class LongitudinalMpc:
       # 레이더 신뢰도가 높을 때만 적용
       if self.lead_tracking_prob >= 0.9:
         danger_factor  += (v_ego - v_lead) / 150.0  # 원본 100 → 150
-        self.t_follow  *= braking_offset
+        self.t_follow  /= braking_offset
 
     # t_follow 는 안전 하한선 보장
     self.t_follow = max(self.t_follow, 0.9)
