@@ -4,6 +4,7 @@ import numpy as np
 from common.numpy_fast import clip, interp
 
 import cereal.messaging as messaging
+from cereal import car
 from common.conversions import Conversions as CV
 from common.filter_simple import FirstOrderFilter
 from common.params import Params
@@ -16,6 +17,10 @@ from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.vision_turn_controller import VisionTurnController
 from selfdrive.controls.lib.events import Events
+# ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──
+from selfdrive.controls.lib.carrot_learning import CarrotLearner, read_learned_accel_vals, read_learned_tfollow
+
+GearShifter = car.CarState.GearShifter
 
 LON_MPC_STEP = 0.2  # first step is 0.2s
 AWARENESS_DECEL = -0.2  # car smoothly decel at .2m/s^2 when user is distracted
@@ -54,6 +59,11 @@ class LongitudinalPlanner:
     self.param_read_counter = 0
 
     self.mpc = LongitudinalMpc()
+
+    # ── Auto-Tuner: 학습기 + 학습된 가속 테이블 ──
+    self.carrot_learner = CarrotLearner()
+    self.learned_accel_vals = list(A_CRUISE_MAX_VALS)
+
     self.read_param()
 
     self.fcw = False
@@ -75,7 +85,18 @@ class LongitudinalPlanner:
     e2e = self.params.get_bool('ExperimentalMode') and self.CP.openpilotLongitudinalControl
     self.mpc.mode = 'blended' if e2e else 'acc'
     self.mpc.human_following = self.params.get_bool("HumanFollowing")
-    
+
+    # ── Auto-Tuner: 학습된 파라미터를 planner/mpc에 반영 (5초 주기 갱신) ──
+    if self.params.get_bool("CarrotLearningActive"):
+      self.learned_accel_vals = read_learned_accel_vals(self.params)
+      self.mpc.tfollow_gaps = read_learned_tfollow(self.params)
+    else:
+      self.learned_accel_vals = list(A_CRUISE_MAX_VALS)
+      self.mpc.tfollow_gaps = None
+
+  def get_max_accel_learned(self, v_ego):
+    return interp(v_ego, A_CRUISE_MAX_BP, self.learned_accel_vals)
+
   def parse_model(self, model_msg):
     if (len(model_msg.position.x) == 33 and
        len(model_msg.velocity.x) == 33 and
@@ -119,12 +140,13 @@ class LongitudinalPlanner:
     prev_accel_constraint = not (reset_state or sm['carState'].standstill)
 
     if self.mpc.mode == 'acc':
-      accel_limits = [A_CRUISE_MIN, get_max_accel(v_ego)]
+      # ── Auto-Tuner: 학습된 속도대역별 최대가속 사용 ──
+      accel_limits = [A_CRUISE_MIN, self.get_max_accel_learned(v_ego)]
       accel_limits_turns = limit_accel_in_turns(v_ego, sm['carState'].steeringAngleDeg, accel_limits, self.CP)
     else:
       accel_limits = [MIN_ACCEL, MAX_ACCEL]
       accel_limits_turns = [MIN_ACCEL, MAX_ACCEL]
-    
+
     if reset_state:
       self.v_desired_filter.x = v_ego
       # Clip aEgo to cruise limits to prevent large accelerations when becoming active
@@ -138,7 +160,7 @@ class LongitudinalPlanner:
     # Get acceleration and active solutions for custom long mpc.
     self.cruise_source, a_min_sol, v_cruise_sol = self.cruise_solutions(not reset_state, self.v_desired_filter.x,
                                                                         self.a_desired, v_cruise, sm)
-    
+
     if force_slow_decel:
       # if required so, force a smooth deceleration
       accel_limits_turns[1] = min(accel_limits_turns[1], AWARENESS_DECEL)
@@ -165,6 +187,29 @@ class LongitudinalPlanner:
     a_prev = self.a_desired
     self.a_desired = float(interp(DT_MDL, T_IDXS[:CONTROL_N], self.a_desired_trajectory))
     self.v_desired_filter.x = self.v_desired_filter.x + DT_MDL * (self.a_desired + a_prev) / 2.0
+
+    # ── Auto-Tuner: 학습 데이터 수집 (commit 9dd5e2c carrot_functions 통합부 포팅) ──
+    cs = sm['carState']
+    lead = sm['radarState'].leadOne
+    gear_park = cs.gearShifter == GearShifter.park
+    engaged = sm['controlsState'].enabled
+    cruise_gap = int(clip(cs.cruiseGap, 1., 4.)) if cs.cruiseGap > 0 else 4
+    self.carrot_learner.set_current_gap(cruise_gap)
+    self.carrot_learner.update(
+      v_ego_kph=v_ego * CV.MS_TO_KPH,
+      gas_pressed=cs.gasPressed,
+      engaged=engaged,
+      gear_park=gear_park,
+      steer_deg=cs.steeringAngleDeg,
+      steer_pressed=cs.steeringPressed,
+      brake_pressed=cs.brakePressed,
+      lead_drel=lead.dRel if lead.status else 0.0,
+      lead_v_kph=lead.vLead * CV.MS_TO_KPH if lead.status else 0.0,
+      a_ego=cs.aEgo,
+      v_cruise_kph=v_cruise_kph,
+      gas_val=cs.gas,
+      blinker=(cs.leftBlinker or cs.rightBlinker),
+    )
 
   def publish(self, sm, pm):
     plan_send = messaging.new_message('longitudinalPlan')
