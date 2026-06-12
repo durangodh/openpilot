@@ -6,13 +6,39 @@
 #include <QStackedLayout>
 #include <QTimer>
 #include <QWidget>
+#include <QJsonObject>
+#include <QMap>
+#include <QCheckBox>
 
 #include "selfdrive/ui/qt/offroad/driverview.h"
 #include "selfdrive/ui/qt/body.h"
 #include "selfdrive/ui/qt/onroad.h"
 #include "selfdrive/ui/qt/sidebar.h"
+#include "selfdrive/ui/qt/widgets/input.h"
 #include "selfdrive/ui/qt/widgets/offroad_alerts.h"
 #include "selfdrive/ui/ui.h"
+
+// ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ─────────────────────────
+// 사용 안내 다이얼로그
+class AutoTunerGuideDialog : public DialogBase {
+  Q_OBJECT
+
+public:
+  explicit AutoTunerGuideDialog(const QString &html_content, QWidget *parent = nullptr);
+  void showEvent(QShowEvent *event) override;
+};
+
+// 추천값 선택 적용 다이얼로그
+class AutoTunerDialog : public DialogBase {
+  Q_OBJECT
+
+public:
+  QMap<QString, QCheckBox*> item_checkboxes;
+  QJsonObject recommendations;
+  explicit AutoTunerDialog(const QString &title_text, const QJsonObject &recs, QWidget *parent = nullptr);
+  QJsonObject getSelectedItems();
+};
+// ─────────────────────────────────────────────────────────────────────────
 
 class OffroadHome : public QFrame {
   Q_OBJECT
