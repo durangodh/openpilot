@@ -1,4 +1,5 @@
 #pragma once
+
 #include <QButtonGroup>
 #include <QFileSystemWatcher>
 #include <QFrame>
@@ -7,22 +8,32 @@
 #include <QStackedWidget>
 #include <QWidget>
 #include <QStackedLayout>
+#include <QJsonObject>
+#include <QMap>
+#include <QList>
+#include <QColor>
+
 #include "selfdrive/ui/qt/widgets/controls.h"
+#include "selfdrive/ui/qt/widgets/input.h"
 
 // ********** settings window + top-level panels **********
 class SettingsWindow : public QFrame {
   Q_OBJECT
+
 public:
   explicit SettingsWindow(QWidget *parent = 0);
   void setCurrentPanel(int index, const QString &param = "");
+
 protected:
   void hideEvent(QHideEvent *event) override;
   void showEvent(QShowEvent *event) override;
+
 signals:
   void closeSettings();
   void reviewTrainingGuide();
   void showDriverView();
   void expandToggleDescription(const QString &param);
+
 private:
   QPushButton *sidebar_alert_widget;
   QWidget *sidebar_widget;
@@ -38,10 +49,12 @@ signals:
   void reviewTrainingGuide();
   void showDriverView();
   void closeSettings();
+
 private slots:
   void poweroff();
   void reboot();
   void updateCalibDescription();
+
 private:
   Params params;
 };
@@ -51,11 +64,14 @@ class TogglesPanel : public ListWidget {
 public:
   explicit TogglesPanel(SettingsWindow *parent);
   void showEvent(QShowEvent *event) override;
+
 public slots:
   void expandToggleDescription(const QString &param);
+
 private:
   Params params;
   std::map<std::string, ParamControl*> toggles;
+
   void updateToggles();
 };
 
@@ -63,15 +79,18 @@ class SoftwarePanel : public ListWidget {
   Q_OBJECT
 public:
   explicit SoftwarePanel(QWidget* parent = nullptr);
+
 private:
   void showEvent(QShowEvent *event) override;
   void updateLabels();
+
   LabelControl *gitBranchLbl;
   LabelControl *gitCommitLbl;
   LabelControl *osVersionLbl;
   LabelControl *versionLbl;
   LabelControl *lastUpdateLbl;
   ButtonControl *updateBtn;
+
   Params params;
   QFileSystemWatcher *fs_watch;
 };
@@ -80,6 +99,7 @@ class C2NetworkPanel: public QWidget {
   Q_OBJECT
 public:
   explicit C2NetworkPanel(QWidget* parent = nullptr);
+
 private:
   void showEvent(QShowEvent *event) override;
   QString getIPAddress();
@@ -90,7 +110,9 @@ class SelectCar : public QWidget {
   Q_OBJECT
 public:
   explicit SelectCar(QWidget* parent = 0);
+
 private:
+
 signals:
   void backPress();
   void selectedCar();
@@ -100,7 +122,9 @@ class LateralControl : public QWidget {
   Q_OBJECT
 public:
   explicit LateralControl(QWidget* parent = 0);
+
 private:
+
 signals:
   void backPress();
   void selected();
@@ -108,12 +132,14 @@ signals:
 
 class CommunityPanel : public QWidget {
   Q_OBJECT
+
 private:
   QStackedLayout* main_layout = nullptr;
   QWidget* homeScreen = nullptr;
   SelectCar* selectCar = nullptr;
   LateralControl* lateralControl = nullptr;
   QWidget* homeWidget;
+
 public:
   explicit CommunityPanel(QWidget *parent = nullptr);
 };
@@ -188,4 +214,72 @@ private:
   QPushButton *minus_btn, *plus_btn;
   QLabel *value_label;
   Params params;
+};
+
+// ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ─────────────────────────
+
+// 파라미터 변화 추이 라인 그래프 위젯
+class AutoTunerGraphWidget : public QWidget {
+  Q_OBJECT
+public:
+  explicit AutoTunerGraphWidget(QWidget *parent = nullptr);
+  void setData(const QList<QString> &timestamps, const QMap<QString, QList<double>> &param_histories, const QMap<QString, QColor> &colors);
+  void setSelectedParam(const QString &param);
+
+protected:
+  void paintEvent(QPaintEvent *event) override;
+  void mousePressEvent(QMouseEvent *event) override;
+
+private:
+  QList<QString> timestamps;
+  QMap<QString, QList<double>> param_histories;
+  QMap<QString, QColor> colors;
+  QString selected_param;
+  int selected_index = -1;
+};
+
+// 이력 카드 리스트 다이얼로그 (Restore / Delete)
+class AutoTunerCardListDialog : public DialogBase {
+  Q_OBJECT
+public:
+  explicit AutoTunerCardListDialog(QWidget *parent = nullptr);
+
+private slots:
+  void refreshHistory();
+  void deleteItem(const QString& id);
+  void restoreItem(const QString& id);
+
+private:
+  QVBoxLayout *list_layout;
+};
+
+// 이력 패널 (그래프 + 파라미터 목록 + LAT/LONG 토글)
+class AutoTunerHistoryPanel : public QFrame {
+  Q_OBJECT
+public:
+  explicit AutoTunerHistoryPanel(QWidget* parent = nullptr);
+
+public slots:
+  void refreshHistory();
+  void updateLabelColors();
+
+private slots:
+  void clearAll();
+
+private:
+  AutoTunerGraphWidget *graph_widget;
+  QVBoxLayout *param_list_layout;
+  QMap<QString, QLabel*> param_labels;
+  QString selected_param;
+  QMap<QString, QColor> param_colors;
+
+protected:
+  void showEvent(QShowEvent *event) override;
+};
+
+// 이력 패널을 담는 다이얼로그
+class AutoTunerHistoryDialog : public DialogBase {
+  Q_OBJECT
+public:
+  explicit AutoTunerHistoryDialog(QWidget *parent = nullptr);
 };
