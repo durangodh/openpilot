@@ -232,6 +232,11 @@ class LongitudinalMpc:
     self._hf_danger_zone_multiplier = 1.0
     self._hf_danger_factor = LEAD_DANGER_FACTOR
 
+    # ── CarrotPilot Auto-Tuner: 학습된 GAP별 추종거리 (초 리스트, None=미사용) ──
+    # longitudinal_planner.read_param()에서 5초 주기로 갱신됨.
+    self.tfollow_gaps = None
+    # ────────────────────────────────────────────────────────────────────
+
     # ── Lead 인식 부드러운 전환 상태 변수 ──────────────────────────────────
     self._lead_detected   = False
     self._lead_detect_t   = 0.0       # 인식 후 경과 시간 (ramp 용)
@@ -282,12 +287,15 @@ class LongitudinalMpc:
     self.set_weights()
 
   # ── Human-Like Following: 핵심 오프셋 계산 ──────────────────────────────
-  def _apply_human_following(self, lead_distance, v_ego, v_lead, lead_ramp=1.0):
+  def _apply_human_following(self, lead_distance, v_ego, v_lead, lead_ramp=1.0, t_follow_base=T_FOLLOW):
     """
     frogpilot_following.py 의 update_follow_values() 로직을
     long_mpc 내부 변수(t_follow, params[:,5], cost 배율)에 직접 반영.
 
-    lead_ramp : 0(새 인식) → 1(안정 추종) — 효과 점진 적용
+    lead_ramp     : 0(새 인식) → 1(안정 추종) — 효과 점진 적용
+    t_follow_base : HF 적용 전 base 추종거리. ramp 보간의 기준점.
+                    (Auto-Tuner 학습 GAP값 사용 시에도 학습된 base로 수렴하도록
+                     상수 T_FOLLOW 대신 base를 기준으로 보간)
     offset 계산을 ** 0.6 거듭제곱으로 완만하게,
     danger/speed 반응도 /150 으로 줄여 부드럽게 처리.
 
@@ -337,9 +345,10 @@ class LongitudinalMpc:
     self.t_follow = max(self.t_follow, 0.9)
 
     # ── lead_ramp: 새 인식 직후 HF 효과를 서서히 적용 ────────────────────
-    # ramp < 1.0 구간에서는 기본값 방향으로 선형 보간
+    # ramp < 1.0 구간에서는 base 추종거리 방향으로 선형 보간
+    # (Auto-Tuner 학습 GAP 사용 시 상수 T_FOLLOW로 끌려가는 출렁임 방지)
     if lead_ramp < 1.0:
-      self.t_follow = T_FOLLOW + (self.t_follow - T_FOLLOW) * lead_ramp
+      self.t_follow = t_follow_base + (self.t_follow - t_follow_base) * lead_ramp
       danger_factor = LEAD_DANGER_FACTOR + (danger_factor - LEAD_DANGER_FACTOR) * lead_ramp
       j_mult        = 1.0 + (j_mult    - 1.0) * lead_ramp
       a_ch_mult     = 1.0 + (a_ch_mult - 1.0) * lead_ramp
@@ -505,12 +514,18 @@ class LongitudinalMpc:
 
     # neokii
     cruise_gap = int(clip(carstate.cruiseGap, 1., 4.)) if carstate.cruiseGap > 0 else AUTO_TR_CRUISE_GAP
-    if cruise_gap == AUTO_TR_CRUISE_GAP:
+    if self.tfollow_gaps is not None and self.mode == 'acc':
+      # ── CarrotPilot Auto-Tuner: 학습된 GAP별 추종거리 사용 ──────────────
+      # 학습 활성 시 GAP4(오토)도 학습값(TFollowGap4)으로 고정됩니다.
+      tr = interp(float(cruise_gap), CRUISE_GAP_BP, self.tfollow_gaps)
+      # ─────────────────────────────────────────────────────────────────
+    elif cruise_gap == AUTO_TR_CRUISE_GAP:
       tr = interp(carstate.vEgo, AUTO_TR_BP, AUTO_TR_V) if self.mode == 'acc' else T_FOLLOW
     else:
       tr = interp(float(cruise_gap), CRUISE_GAP_BP, CRUISE_GAP_V if self.mode == 'acc' else CRUISE_GAP_E2E_V)
 
     self.t_follow = tr
+    tr_base = tr  # HF lead_ramp 보간 기준점 (학습된 base 포함)
     self.stop_dist = STOP_DISTANCE if self.mode == 'acc' else STOP_DISTANCE_E2E
 
     # ── Human-Like Following: multiplier 초기화 (매 update마다 리셋) ────────
@@ -527,10 +542,12 @@ class LongitudinalMpc:
         v_ego         = v_ego,
         v_lead        = self._lead_v_filt,
         lead_ramp     = lead_ramp,
+        t_follow_base = tr_base,
       )
     # ─────────────────────────────────────────────────────────────────────
 
     # ── t_follow rate limiter: 급격한 변화 방지 ──────────────────────────
+    # (Auto-Tuner 학습값 적용/GAP 전환 시 점프도 이 limiter가 완만하게 처리)
     t_follow_delta = self.t_follow - self._t_follow_smooth
     max_delta      = T_FOLLOW_MAX_RATE * DT_UPDATE
     self._t_follow_smooth += float(np.clip(t_follow_delta, -max_delta, max_delta))
