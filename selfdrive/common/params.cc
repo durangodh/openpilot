@@ -212,6 +212,26 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"HapticFeedbackWhenSpeedCamera", PERSISTENT},
     {"TurnVisionControl", PERSISTENT},
     {"SoftRestartTriggered", CLEAR_ON_MANAGER_START},
+    // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──────────────────
+    {"CarrotLearningActive", PERSISTENT},      // 학습 활성화 (0=off, 1=on)
+    {"CarrotLearningAutoApply", PERSISTENT},   // P단 전환 시 추천 자동 적용 (0=off, 1=on)
+    {"CarrotTunerApplyLat", PERSISTENT},       // 조향(LAT) 추천 적용 여부 (기본 1)
+    {"CarrotTunerApplyLong", PERSISTENT},      // 가감속(LONG) 추천 적용 여부 (기본 1)
+    {"CarrotLearningData", PERSISTENT},        // 누적 학습 데이터 (JSON)
+    {"CarrotLearningRecommend", PERSISTENT},   // 추천값 (JSON)
+    {"CarrotLearningHistory", PERSISTENT},     // 적용 이력 (JSON, 최대 50)
+    {"CarrotLearningPopupReady", PERSISTENT},  // 추천 준비 신호
+    {"CarrotLearningPopupSource", PERSISTENT}, // 추천 발생 소스 ("parking")
+    {"CarrotLearningClear", PERSISTENT},       // 학습 데이터 초기화 신호
+    // 학습 대상 파라미터 (x100 정수 저장)
+    {"CruiseMaxVals0", PERSISTENT},            // 0~36 km/h 최대가속 (기본 180 = 1.80m/s^2)
+    {"CruiseMaxVals1", PERSISTENT},            // 36~90 km/h (기본 120)
+    {"CruiseMaxVals2", PERSISTENT},            // 90~144 km/h (기본 80)
+    {"CruiseMaxVals3", PERSISTENT},            // 144 km/h~ (기본 60)
+    {"TFollowGap1", PERSISTENT},               // GAP1 추종거리 (기본 100 = 1.00s)
+    {"TFollowGap2", PERSISTENT},               // GAP2 (기본 140)
+    {"TFollowGap3", PERSISTENT},               // GAP3 (기본 200)
+    {"TFollowGap4", PERSISTENT},               // GAP4/오토 (기본 200)
 };
 
 } // namespace
