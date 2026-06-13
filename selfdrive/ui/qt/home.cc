@@ -20,11 +20,11 @@
 // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ─────────────────────────
 
 // AutoTunerGuideDialog
-AutoTunerGuideDialog::AutoTunerGuideDialog(const QString &html_content, QWidget *parent) : DialogBase(parent) {
+AutoTunerGuideDialog::AutoTunerGuideDialog(const QString &html_content, QWidget *parent) : QDialogBase(parent) {
   setWindowFlags(Qt::Popup | Qt::FramelessWindowHint);
   setAttribute(Qt::WA_TranslucentBackground);
   setStyleSheet(R"(
-    DialogBase { background: transparent; }
+    QDialogBase { background: transparent; }
     #container { background-color: #1b1b1b; border-radius: 20px; }
     QLabel { color: #dddddd; font-size: 45px; margin: 20px; }
     QPushButton { padding: 20px; height: 100px; font-size: 45px; border-radius: 10px; color: white; background-color: #465BEA; }
@@ -66,11 +66,11 @@ void AutoTunerGuideDialog::showEvent(QShowEvent *event) {
 
 // AutoTunerDialog
 AutoTunerDialog::AutoTunerDialog(const QString &title_text, const QJsonObject &recs, QWidget *parent)
-    : DialogBase(parent), recommendations(recs) {
+    : QDialogBase(parent), recommendations(recs) {
   setWindowFlags(Qt::Popup | Qt::FramelessWindowHint);
   setAttribute(Qt::WA_TranslucentBackground);
   setStyleSheet(R"(
-    DialogBase { background: transparent; }
+    QDialogBase { background: transparent; }
     #container { background-color: #2b2b2b; border-radius: 30px; border: 2px solid #555555; }
     QLabel { color: white; }
     QCheckBox { font-size: 45px; color: white; spacing: 20px; }
