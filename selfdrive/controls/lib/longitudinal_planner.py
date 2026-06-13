@@ -209,6 +209,7 @@ class LongitudinalPlanner:
       v_cruise_kph=v_cruise_kph,
       gas_val=cs.gas,
       blinker=(cs.leftBlinker or cs.rightBlinker),
+      steer_torque=cs.steeringTorque,
     )
 
   def publish(self, sm, pm):
