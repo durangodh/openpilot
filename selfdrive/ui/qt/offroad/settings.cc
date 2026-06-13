@@ -895,7 +895,7 @@ void AutoTunerHistoryPanel::updateLabelColors() {
 }
 
 // AutoTunerHistoryDialog
-AutoTunerHistoryDialog::AutoTunerHistoryDialog(QWidget *parent) : DialogBase(parent) {
+AutoTunerHistoryDialog::AutoTunerHistoryDialog(QWidget *parent) : QDialogBase(parent) {
   QFrame *container = new QFrame(this);
   container->setStyleSheet("QFrame { background-color: #1B1B1B; border-radius: 20px; }");
 
@@ -911,8 +911,14 @@ AutoTunerHistoryDialog::AutoTunerHistoryDialog(QWidget *parent) : DialogBase(par
   outer_layout->addWidget(container);
 }
 
+void AutoTunerHistoryDialog::showEvent(QShowEvent *event) {
+  // 구형 QDialogBase는 신형 DialogBase와 달리 exec()에서 전체화면 처리를 하지 않음
+  setMainWindow(this);
+  QDialog::showEvent(event);
+}
+
 // AutoTunerCardListDialog
-AutoTunerCardListDialog::AutoTunerCardListDialog(QWidget *parent) : DialogBase(parent) {
+AutoTunerCardListDialog::AutoTunerCardListDialog(QWidget *parent) : QDialogBase(parent) {
   QFrame *container = new QFrame(this);
   container->setStyleSheet("QFrame { background-color: #1B1B1B; border-radius: 20px; }");
 
@@ -953,6 +959,12 @@ AutoTunerCardListDialog::AutoTunerCardListDialog(QWidget *parent) : DialogBase(p
   outer_layout->addWidget(container);
 
   refreshHistory();
+}
+
+void AutoTunerCardListDialog::showEvent(QShowEvent *event) {
+  // 구형 QDialogBase는 신형 DialogBase와 달리 exec()에서 전체화면 처리를 하지 않음
+  setMainWindow(this);
+  QDialog::showEvent(event);
 }
 
 void AutoTunerCardListDialog::refreshHistory() {
