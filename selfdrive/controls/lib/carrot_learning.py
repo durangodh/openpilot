@@ -13,6 +13,14 @@ CarrotPilot Auto-Tuner 포팅판 (원본 commit 9dd5e2c, selfdrive/carrot/carrot
   [Phase 4] TFollowGap1~4 : cruiseGap 단계별 추종거리 (long_mpc의 CRUISE_GAP_V 대체)
             트리거: 선행차 추종 중 gas(좁히기 의도) / brake(넓히기 의도) 개입
             발동:  gas 누적 >= 15초 / brake 누적 >= 10초
+  [Phase 5] latAccelFactor / friction : 토크 조향 파라미터 (nTune JSON 직접 수정)
+            이 포크의 latcontrol_torque는 Params가 아닌 /data/ntune/lat_torque*.json을
+            라이브 로딩하므로, 학습기가 JSON 파일을 직접 수정 → 재시작 없이 즉시 반영.
+            트리거: 커브(|조향각|>=5도, 40km/h 이상) 중 조향 개입.
+                    방향 판정 = steeringTorque × steeringAngleDeg 부호
+                    (같은 방향=조향력 부족→latAccelFactor 감소 / 반대=안쪽 쏠림→증가)
+                    직선 미세 개입 비율 높음 → friction 상향
+            발동:  커브 샘플 >= 600개(약 30초) / 직선 샘플 >= 400개
 
 저장: Params("CarrotLearningData") JSON
 추천: P단 전환 시 Params("CarrotLearningRecommend") 기록 + CarrotLearningPopupReady=1
@@ -26,6 +34,7 @@ CarrotPilot Auto-Tuner 포팅판 (원본 commit 9dd5e2c, selfdrive/carrot/carrot
   - 토크 조향 파라미터 학습 (LateralTorque* 파라미터가 이 포크에 없음)
   - 주행 중 타이머/정차 팝업 (UI 없음, parking 트리거만 유지)
 """
+import os
 import json
 import datetime
 import numpy as np
@@ -66,6 +75,49 @@ _TFOLLOW_MIN = 90                         # 0.90초 안전 하한
 _TFOLLOW_MAX = 220
 _TFOLLOW_NARROW_STEP = 5
 _TFOLLOW_WIDEN_STEP = 5
+
+# ── Phase 5: 토크 조향 (nTune) ──
+_NTUNE_DIR = "/data/ntune"
+_TQ_MIN_V_KPH = 40.0
+_TQ_CURVE_DEG = 5.0                        # |조향각| 이 이상이면 커브 구간
+_TQ_MIN_CURVE_SAMPLES = 600                # 0.05s * 600 = 약 30초 커브 주행
+_TQ_OVERRIDE_HI = 0.30                     # 개입 비율 이 이상이면 보정 추천
+_TQ_DIR_DOMINANCE = 1.5                    # 한 방향 개입이 반대의 1.5배 이상일 때만
+_LAF_STEP = 0.10                           # latAccelFactor 1회 변화량
+_LAF_MIN, _LAF_MAX = 1.0, 4.0
+_TQ_MIN_STR_SAMPLES = 400                  # 직선 약 20초
+_STR_OVERRIDE_HI = 0.35                    # friction 상향 기준
+_STR_OVERRIDE_LO = 0.05                    # friction 하향 수렴 기준
+_FRICTION_STEP = 0.01
+_FRICTION_MIN, _FRICTION_MAX = 0.0, 0.20
+
+
+def _find_torque_file():
+  """nTune 토크 파일 자동 탐색 (lat_torque*.json, 버전명 차이 대응)"""
+  try:
+    for fn in sorted(os.listdir(_NTUNE_DIR)):
+      if fn.startswith("lat_torque") and fn.endswith(".json"):
+        return os.path.join(_NTUNE_DIR, fn)
+  except OSError:
+    pass
+  return os.path.join(_NTUNE_DIR, "lat_torque_v4.json")
+
+
+def _ntune_read(path):
+  try:
+    with open(path) as f:
+      return json.load(f)
+  except Exception:
+    return {}
+
+
+def _ntune_write(path, data):
+  try:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w') as f:
+      json.dump(data, f, indent=2)
+  except Exception:
+    pass
 
 
 # ── Params 헬퍼 (이 포크 python Params에 get_int/put_int가 없으므로) ──────
@@ -137,6 +189,14 @@ class CarrotLearner:
     self._tfollow_brake_acc = [0.0] * 4
     self._tfollow_min_gap = [999.0] * 4
     self._current_gap = 4
+    # Phase 5 (토크 조향)
+    self._tq_curve_samples = 0
+    self._tq_curve_overrides = 0
+    self._tq_under = 0          # 더 꺾는 개입 (조향력 부족)
+    self._tq_inner = 0          # 풀어주는 개입 (안쪽 쏠림)
+    self._tq_str_samples = 0
+    self._tq_str_overrides = 0
+    self._tq_prev_pressed = False
     # 공통
     self._prev_brake = False
     self._prev_gear_park = True
@@ -155,7 +215,7 @@ class CarrotLearner:
   def update(self, v_ego_kph, gas_pressed, engaged, gear_park,
              steer_deg=0.0, steer_pressed=False, brake_pressed=False,
              lead_drel=0.0, lead_v_kph=0.0, a_ego=0.0, v_cruise_kph=0.0,
-             gas_val=0.0, blinker=False):
+             gas_val=0.0, blinker=False, steer_torque=0.0):
     if not self.is_active():
       if self._params.get_bool("CarrotLearningPopupReady"):
         self._params.put_bool("CarrotLearningPopupReady", False)
@@ -203,6 +263,25 @@ class CarrotLearner:
       elif brake_pressed and not blinker:
         self._tfollow_brake_acc[gi] += _DT
     self._prev_brake = brake_pressed
+
+    # ── Phase 5: 토크 조향 파라미터 (nTune) ──
+    if engaged and not blinker:
+      if v_ego_kph >= _TQ_MIN_V_KPH and abs(steer_deg) >= _TQ_CURVE_DEG:
+        # 커브 구간: 개입 비율 + 방향(운전자 토크 부호) 수집
+        self._tq_curve_samples += 1
+        if steer_pressed:
+          self._tq_curve_overrides += 1
+          if not self._tq_prev_pressed:  # 개입 이벤트당 1회만 방향 판정
+            if steer_torque * steer_deg > 0:
+              self._tq_under += 1        # 같은 방향으로 더 꺾음 → 조향력 부족
+            elif steer_torque * steer_deg < 0:
+              self._tq_inner += 1        # 반대 방향으로 풀어줌 → 안쪽 쏠림
+      elif v_ego_kph >= 30.0 and abs(steer_deg) < _TQ_CURVE_DEG:
+        # 완만/직선 구간: friction 학습용 미세 개입 비율
+        self._tq_str_samples += 1
+        if steer_pressed:
+          self._tq_str_overrides += 1
+    self._tq_prev_pressed = steer_pressed
 
     # 10초마다 주기 저장 (전원 차단 대비)
     self._frame += 1
@@ -298,6 +377,46 @@ class CarrotLearner:
             "is_float": True,
           }
 
+    # ── Phase 5: latAccelFactor / friction (nTune, 토크 제어 차량만) ──
+    if apply_lat and self._is_torque_control():
+      tq = _ntune_read(_find_torque_file())
+
+      # (a) latAccelFactor: 커브 개입 비율 + 방향
+      if self._tq_curve_samples >= _TQ_MIN_CURVE_SAMPLES and self._tq_curve_overrides > 0:
+        ratio = self._tq_curve_overrides / self._tq_curve_samples
+        cur_laf = float(tq.get("latAccelFactor", 2.5))
+        rec_laf, reason = cur_laf, ""
+        if ratio >= _TQ_OVERRIDE_HI:
+          if self._tq_under >= self._tq_inner * _TQ_DIR_DOMINANCE:
+            # 낮을수록 같은 횡가속에 더 큰 토크 → 조향 강화
+            rec_laf = max(_LAF_MIN, round(cur_laf - _LAF_STEP, 3))
+            reason = f"커브 조향력 부족 (개입 {ratio*100:.0f}%, 더꺾음 {self._tq_under}회)"
+          elif self._tq_inner >= self._tq_under * _TQ_DIR_DOMINANCE:
+            rec_laf = min(_LAF_MAX, round(cur_laf + _LAF_STEP, 3))
+            reason = f"커브 안쪽 쏠림 (개입 {ratio*100:.0f}%, 풀어줌 {self._tq_inner}회)"
+        if rec_laf != cur_laf:
+          result["조향 (Steering)"]["latAccelFactor"] = {
+            "current": round(cur_laf, 3), "recommended": rec_laf,
+            "band_kph": reason, "is_float": True, "ntune": "torque",
+          }
+
+      # (b) friction: 직선 미세 개입
+      if self._tq_str_samples >= _TQ_MIN_STR_SAMPLES:
+        r = self._tq_str_overrides / self._tq_str_samples
+        cur_fr = float(tq.get("friction", 0.1))
+        rec_fr, reason = cur_fr, ""
+        if r >= _STR_OVERRIDE_HI:
+          rec_fr = min(_FRICTION_MAX, round(cur_fr + _FRICTION_STEP, 3))
+          reason = f"직선 미세 불감대 해소 (개입 {r*100:.0f}%)"
+        elif r < _STR_OVERRIDE_LO and cur_fr > 0.02:
+          rec_fr = max(_FRICTION_MIN, round(cur_fr - 0.005, 3))
+          reason = "마찰보상 안정화 감쇄"
+        if rec_fr != cur_fr:
+          result["조향 (Steering)"]["friction"] = {
+            "current": round(cur_fr, 3), "recommended": rec_fr,
+            "band_kph": reason, "is_float": True, "ntune": "torque",
+          }
+
     # ── Phase 4: TFollowGap ──
     if apply_long:
       for i in range(4):
@@ -323,12 +442,23 @@ class CarrotLearner:
 
     return {k: v for k, v in result.items() if v}
 
+  def _is_torque_control(self):
+    """이 포크는 LateralControl 파라미터가 비어있거나 TORQUE일 때 토크 제어 (CommunityPanel 기본값)"""
+    raw = self._params.get("LateralControl", encoding='utf8')
+    return (not raw) or raw.strip().upper() == "TORQUE"
+
   def _apply(self, recs):
     applied = {}
     for group, items in recs.items():
       g = {}
       for key, info in items.items():
-        if info.get("is_float"):
+        if info.get("ntune") == "torque":
+          # nTune JSON 직접 수정 → latcontrol_torque가 라이브 리로드
+          path = _find_torque_file()
+          data = _ntune_read(path)
+          data[key] = float(info["recommended"])
+          _ntune_write(path, data)
+        elif info.get("is_float"):
           self._params.put(key, f"{float(info['recommended']):.3f}")
         else:
           self._params.put(key, str(int(info["recommended"])))
@@ -369,6 +499,13 @@ class CarrotLearner:
     self._tfollow_brake_acc = [0.0] * 4
     self._tfollow_min_gap = [999.0] * 4
     self._prev_brake = False
+    self._tq_curve_samples = 0
+    self._tq_curve_overrides = 0
+    self._tq_under = 0
+    self._tq_inner = 0
+    self._tq_str_samples = 0
+    self._tq_str_overrides = 0
+    self._tq_prev_pressed = False
 
   def _clear(self):
     self._reset_counters()
@@ -401,6 +538,13 @@ class CarrotLearner:
       tm = d.get("tfollow_min_gap", [])
       if len(tm) == 4:
         self._tfollow_min_gap = [float(x) for x in tm]
+      tq = d.get("tq", {})
+      self._tq_curve_samples = int(tq.get("curve_samples", 0))
+      self._tq_curve_overrides = int(tq.get("curve_overrides", 0))
+      self._tq_under = int(tq.get("under", 0))
+      self._tq_inner = int(tq.get("inner", 0))
+      self._tq_str_samples = int(tq.get("str_samples", 0))
+      self._tq_str_overrides = int(tq.get("str_overrides", 0))
     except Exception:
       pass  # 데이터 손상 시 기본값 유지
 
@@ -414,5 +558,13 @@ class CarrotLearner:
       "tfollow_gas_acc": self._tfollow_gas_acc,
       "tfollow_brake_acc": self._tfollow_brake_acc,
       "tfollow_min_gap": self._tfollow_min_gap,
+      "tq": {
+        "curve_samples": self._tq_curve_samples,
+        "curve_overrides": self._tq_curve_overrides,
+        "under": self._tq_under,
+        "inner": self._tq_inner,
+        "str_samples": self._tq_str_samples,
+        "str_overrides": self._tq_str_overrides,
+      },
     }
     self._params.put("CarrotLearningData", json.dumps(data))
