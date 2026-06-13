@@ -239,10 +239,13 @@ private:
 };
 
 // 이력 카드 리스트 다이얼로그 (Restore / Delete)
-class AutoTunerCardListDialog : public DialogBase {
+class AutoTunerCardListDialog : public QDialogBase {
   Q_OBJECT
 public:
   explicit AutoTunerCardListDialog(QWidget *parent = nullptr);
+
+protected:
+  void showEvent(QShowEvent *event) override;
 
 private slots:
   void refreshHistory();
@@ -278,8 +281,11 @@ protected:
 };
 
 // 이력 패널을 담는 다이얼로그
-class AutoTunerHistoryDialog : public DialogBase {
+class AutoTunerHistoryDialog : public QDialogBase {
   Q_OBJECT
 public:
   explicit AutoTunerHistoryDialog(QWidget *parent = nullptr);
+
+protected:
+  void showEvent(QShowEvent *event) override;
 };
