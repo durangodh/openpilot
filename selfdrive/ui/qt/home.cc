@@ -42,6 +42,10 @@ static void writeNtuneTorqueValue(const QString &key, double value) {
   if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
     f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
     f.close();
+    // nTune.write_config와 동일하게 0666 권한 유지
+    f.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                     QFileDevice::ReadGroup | QFileDevice::WriteGroup |
+                     QFileDevice::ReadOther | QFileDevice::WriteOther);
   }
 }
 
