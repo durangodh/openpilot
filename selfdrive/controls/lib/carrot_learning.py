@@ -116,6 +116,7 @@ def _ntune_write(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w') as f:
       json.dump(data, f, indent=2)
+    os.chmod(path, 0o666)  # nTune.write_config와 동일: 타 프로세스 쓰기 권한 유지
   except Exception:
     pass
 
@@ -384,7 +385,7 @@ class CarrotLearner:
       # (a) latAccelFactor: 커브 개입 비율 + 방향
       if self._tq_curve_samples >= _TQ_MIN_CURVE_SAMPLES and self._tq_curve_overrides > 0:
         ratio = self._tq_curve_overrides / self._tq_curve_samples
-        cur_laf = float(tq.get("latAccelFactor", 2.5))
+        cur_laf = float(tq.get("latAccelFactor", 2.7))
         rec_laf, reason = cur_laf, ""
         if ratio >= _TQ_OVERRIDE_HI:
           if self._tq_under >= self._tq_inner * _TQ_DIR_DOMINANCE:
@@ -403,7 +404,7 @@ class CarrotLearner:
       # (b) friction: 직선 미세 개입
       if self._tq_str_samples >= _TQ_MIN_STR_SAMPLES:
         r = self._tq_str_overrides / self._tq_str_samples
-        cur_fr = float(tq.get("friction", 0.1))
+        cur_fr = float(tq.get("friction", 0.08))
         rec_fr, reason = cur_fr, ""
         if r >= _STR_OVERRIDE_HI:
           rec_fr = min(_FRICTION_MAX, round(cur_fr + _FRICTION_STEP, 3))
