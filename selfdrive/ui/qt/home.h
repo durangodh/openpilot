@@ -20,7 +20,7 @@
 
 // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ─────────────────────────
 // 사용 안내 다이얼로그
-class AutoTunerGuideDialog : public DialogBase {
+class AutoTunerGuideDialog : public QDialogBase {
   Q_OBJECT
 
 public:
@@ -29,7 +29,7 @@ public:
 };
 
 // 추천값 선택 적용 다이얼로그
-class AutoTunerDialog : public DialogBase {
+class AutoTunerDialog : public QDialogBase {
   Q_OBJECT
 
 public:
