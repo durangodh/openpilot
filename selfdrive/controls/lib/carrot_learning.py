@@ -216,7 +216,7 @@ class CarrotLearner:
   def update(self, v_ego_kph, gas_pressed, engaged, gear_park,
              steer_deg=0.0, steer_pressed=False, brake_pressed=False,
              lead_drel=0.0, lead_v_kph=0.0, a_ego=0.0, v_cruise_kph=0.0,
-             gas_val=0.0, blinker=False, steer_torque=0.0):
+             gas_val=0.0, blinker=False, steer_torque=0.0, steer_deg_corr=None):
     if not self.is_active():
       if self._params.get_bool("CarrotLearningPopupReady"):
         self._params.put_bool("CarrotLearningPopupReady", False)
@@ -247,9 +247,12 @@ class CarrotLearner:
       self._gas_dec_acc[i] += _DT
 
     # ── Phase 2: 직진 편차 (PathOffset) ──
+    # 센서 영점 오프셋(angleOffsetDeg) 오학습 방지:
+    # controlsState.angleSteers(보정값)가 전달되면 그것을 누적, 없으면 raw 사용
     if engaged and v_ego_kph >= 20.0 and abs(steer_deg) < _STRAIGHT_DEG \
        and not steer_pressed and not blinker:
-      self._steer_acc += steer_deg
+      dev_deg = steer_deg_corr if steer_deg_corr is not None else steer_deg
+      self._steer_acc += dev_deg
       self._steer_count += 1
 
     # ── Phase 4: 선행차 추종 중 페달 개입 ──
