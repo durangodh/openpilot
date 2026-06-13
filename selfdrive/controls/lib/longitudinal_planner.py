@@ -210,6 +210,7 @@ class LongitudinalPlanner:
       gas_val=cs.gas,
       blinker=(cs.leftBlinker or cs.rightBlinker),
       steer_torque=cs.steeringTorque,
+      steer_deg_corr=sm['controlsState'].angleSteers,
     )
 
   def publish(self, sm, pm):
