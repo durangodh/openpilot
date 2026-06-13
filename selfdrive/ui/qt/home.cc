@@ -9,6 +9,8 @@
 #include <QJsonArray>
 #include <QScrollArea>
 #include <QScroller>
+#include <QFile>
+#include <QDir>
 
 #include "selfdrive/ui/qt/offroad/experimental_mode.h"
 #include "selfdrive/common/params.h"
@@ -16,6 +18,32 @@
 #include "selfdrive/ui/qt/qt_window.h"
 #include "selfdrive/ui/qt/widgets/drive_stats.h"
 #include "selfdrive/ui/qt/widgets/prime.h"
+
+// ── CarrotPilot Auto-Tuner: nTune 토크 파일 헬퍼 ─────────────────────────
+// latcontrol_torque가 /data/ntune/lat_torque*.json 을 라이브 리로드하므로
+// 토크 파라미터(latAccelFactor, friction)는 Params가 아닌 이 파일에 기록
+static QString findNtuneTorqueFile() {
+  QDir dir("/data/ntune");
+  const QStringList files = dir.entryList({"lat_torque*.json"}, QDir::Files, QDir::Name);
+  if (!files.isEmpty()) return dir.filePath(files.first());
+  return "/data/ntune/lat_torque_v4.json";
+}
+
+static void writeNtuneTorqueValue(const QString &key, double value) {
+  QString path = findNtuneTorqueFile();
+  QJsonObject obj;
+  QFile f(path);
+  if (f.open(QIODevice::ReadOnly)) {
+    obj = QJsonDocument::fromJson(f.readAll()).object();
+    f.close();
+  }
+  obj[key] = value;
+  QDir().mkpath("/data/ntune");
+  if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+    f.close();
+  }
+}
 
 // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ─────────────────────────
 
@@ -327,12 +355,15 @@ void HomeWindow::updateState(const UIState &s) {
             p.put("CarrotLearningHistory",
                   QJsonDocument(history_array).toJson(QJsonDocument::Compact).toStdString());
 
-            // 2) 선택된 파라미터 적용 (float/int 구분)
+            // 2) 선택된 파라미터 적용 (ntune / float / int 구분)
             for (const QString& group : selected.keys()) {
               QJsonObject group_items = selected[group].toObject();
               for (const QString& key : group_items.keys()) {
                 QJsonObject info = group_items[key].toObject();
-                if (info["is_float"].toBool(false)) {
+                if (info["ntune"].toString() == "torque") {
+                  // 토크 파라미터는 nTune JSON에 기록 (latcontrol이 라이브 리로드)
+                  writeNtuneTorqueValue(key, info["recommended"].toDouble());
+                } else if (info["is_float"].toBool(false)) {
                   double rec = info["recommended"].toDouble();
                   p.put(key.toStdString(), QString::number(rec, 'f', 3).toStdString());
                 } else {
