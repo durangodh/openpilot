@@ -40,6 +40,8 @@
 #include <QMouseEvent>
 #include <QDateTime>
 #include <QSet>
+#include <QFile>
+#include <QDir>
 
 // ── CameraOffset Control ─────────────────────────────────────────
 // step: 0.01m, range: -0.20 ~ 0.20
@@ -335,6 +337,31 @@ void DynamicLaneProfileControl::refresh() {
 }
 
 // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ─────────────────────────
+// nTune 토크 파일 헬퍼: latcontrol_torque가 /data/ntune/lat_torque*.json 을
+// 라이브 리로드하므로 토크 파라미터 복원은 이 파일에 기록
+static QString findNtuneTorqueFileS() {
+  QDir dir("/data/ntune");
+  const QStringList files = dir.entryList({"lat_torque*.json"}, QDir::Files, QDir::Name);
+  if (!files.isEmpty()) return dir.filePath(files.first());
+  return "/data/ntune/lat_torque_v4.json";
+}
+
+static void writeNtuneTorqueValueS(const QString &key, double value) {
+  QString path = findNtuneTorqueFileS();
+  QJsonObject obj;
+  QFile f(path);
+  if (f.open(QIODevice::ReadOnly)) {
+    obj = QJsonDocument::fromJson(f.readAll()).object();
+    f.close();
+  }
+  obj[key] = value;
+  QDir().mkpath("/data/ntune");
+  if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+    f.close();
+  }
+}
+
 // 포팅판 학습 대상 파라미터의 공장 기본값 (python carrot_learning.py 와 동일)
 static const std::map<std::string, std::string> kAutoTunerDefaults = {
   {"CruiseMaxVals0", "180"},
@@ -1078,8 +1105,10 @@ void AutoTunerCardListDialog::restoreItem(const QString& id) {
           QJsonObject g_items = changes[group].toObject();
           for (const QString& key : g_items.keys()) {
             QJsonObject info = g_items[key].toObject();
-            // 적용 전 'current' 값으로 원복 (float/int 구분)
-            if (info["is_float"].toBool(false)) {
+            // 적용 전 'current' 값으로 원복 (ntune / float / int 구분)
+            if (info["ntune"].toString() == "torque") {
+              writeNtuneTorqueValueS(key, info["current"].toDouble());
+            } else if (info["is_float"].toBool(false)) {
               double prev_val = info["current"].toDouble();
               Params().put(key.toStdString(), QString::number(prev_val, 'f', 3).toStdString());
             } else {
