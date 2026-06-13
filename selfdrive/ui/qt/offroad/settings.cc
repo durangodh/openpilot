@@ -561,9 +561,23 @@ void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
 
       if (is_highlighted && (selected_param == param || timestamps.size() <= 8 || i == 0 || i == values.size() - 1)) {
         painter.setPen(QColor(is_highlighted ? "#ffffff" : "#aaaaaa"));
-        painter.setFont(QFont("Arial", (selected_param == param) ? 30 : 22, QFont::Bold));
+        painter.setFont(QFont("Arial", (selected_param == param) ? 22 : 18, QFont::Bold));
         QString val_str = QString::number(val, 'g', 4);
-        painter.drawText(QRect(x - 80, y - 48, 160, 40), Qt::AlignCenter, val_str);
+
+        int lbl_w = 110;
+        int lbl_h = 34;
+
+        // 가로: 노드 중심 기준이되 그래프 영역 밖으로 안 나가게 클램핑
+        int lbl_x = x - lbl_w / 2;
+        lbl_x = std::max(graph_rect.left(), std::min(lbl_x, graph_rect.right() - lbl_w));
+
+        // 세로: 기본은 노드 위쪽. 상단에 가까우면 아래로 뒤집음
+        int lbl_y = y - lbl_h - 8;
+        if (lbl_y < graph_rect.top()) {
+          lbl_y = y + 8;
+        }
+
+        painter.drawText(QRect(lbl_x, lbl_y, lbl_w, lbl_h), Qt::AlignCenter, val_str);
       }
     }
   }
