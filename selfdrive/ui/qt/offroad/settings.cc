@@ -346,6 +346,26 @@ static QString findNtuneTorqueFileS() {
   return "/data/ntune/lat_torque_v4.json";
 }
 
+static void writeNtuneTorqueValueS(const QString &key, double value) {
+  QString path = findNtuneTorqueFileS();
+  QJsonObject obj;
+  QFile f(path);
+  if (f.open(QIODevice::ReadOnly)) {
+    obj = QJsonDocument::fromJson(f.readAll()).object();
+    f.close();
+  }
+  obj[key] = value;
+  QDir().mkpath("/data/ntune");
+  if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+    f.close();
+    // nTune.write_config와 동일하게 0666 권한 유지
+    f.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                     QFileDevice::ReadGroup | QFileDevice::WriteGroup |
+                     QFileDevice::ReadOther | QFileDevice::WriteOther);
+  }
+}
+
 static void writeNtuneCommonValueS(const QString &key, double value) {
   QString path = "/data/ntune/common.json";
   QJsonObject obj;
@@ -563,20 +583,32 @@ void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
         painter.setFont(QFont("Arial", (selected_param == param) ? 22 : 18, QFont::Bold));
         QString val_str = QString::number(val, 'g', 4);
 
+        // 라벨 박스 크기
         int lbl_w = 110;
         int lbl_h = 34;
 
-        // 가로: 노드 중심 기준이되 그래프 영역 밖으로 안 나가게 클램핑
-        int lbl_x = x - lbl_w / 2;
-        lbl_x = std::max(graph_rect.left(), std::min(lbl_x, graph_rect.right() - lbl_w));
+        // 가로: 기본은 노드 중앙 정렬. 단, 좌/우 끝 노드는 라벨을 안쪽으로 밀어
+        //       그래프 영역(및 좌측 파라미터 목록) 침범을 방지
+        int lbl_x;
+        Qt::Alignment h_align = Qt::AlignHCenter;
+        if (x - lbl_w / 2 < graph_rect.left()) {
+          lbl_x = x + 8;                       // 좌측 끝: 노드 오른쪽에 배치
+          h_align = Qt::AlignLeft;
+        } else if (x + lbl_w / 2 > graph_rect.right()) {
+          lbl_x = x - lbl_w - 8;               // 우측 끝: 노드 왼쪽에 배치
+          h_align = Qt::AlignRight;
+        } else {
+          lbl_x = x - lbl_w / 2;               // 중간: 중앙 정렬
+        }
 
-        // 세로: 기본은 노드 위쪽. 상단에 가까우면 아래로 뒤집음
+        // 세로: 기본은 노드 위쪽. 노드가 상단에 가까우면 아래쪽으로 뒤집어 영역 이탈 방지
         int lbl_y = y - lbl_h - 8;
         if (lbl_y < graph_rect.top()) {
           lbl_y = y + 8;
         }
 
-        painter.drawText(QRect(lbl_x, lbl_y, lbl_w, lbl_h), Qt::AlignCenter, val_str);
+        painter.drawText(QRect(lbl_x, lbl_y, lbl_w, lbl_h),
+                         h_align | Qt::AlignVCenter, val_str);
       }
     }
   }
@@ -755,6 +787,9 @@ AutoTunerHistoryPanel::AutoTunerHistoryPanel(QWidget* parent) : QFrame(parent) {
   param_colors["TFollowGap3"] = QColor("#ffffff");     // White
   param_colors["TFollowGap4"] = QColor("#a855f7");     // Purple
   param_colors["PathOffset"] = QColor("#e879f9");      // Light Magenta
+  param_colors["latAccelFactor"] = QColor("#f59e0b");  // Amber (토크)
+  param_colors["friction"] = QColor("#f43f5e");        // Rose (토크)
+  param_colors["steerActuatorDelay"] = QColor("#fb923c"); // Orange (조향 지연)
 
   refreshHistory();
 }
@@ -1125,7 +1160,7 @@ void AutoTunerCardListDialog::restoreItem(const QString& id) {
             // 적용 전 'current' 값으로 원복 (ntune / float / int 구분)
             if (info["ntune"].toString() == "torque") {
               writeNtuneTorqueValueS(key, info["current"].toDouble());
-            } else if (info["ntune"].toString() == "common") {   // ← 이 두 줄 추가
+            } else if (info["ntune"].toString() == "common") {
               writeNtuneCommonValueS(key, info["current"].toDouble());
             } else if (info["is_float"].toBool(false)) {
               double prev_val = info["current"].toDouble();
