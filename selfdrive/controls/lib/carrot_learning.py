@@ -91,6 +91,13 @@ _STR_OVERRIDE_LO = 0.05                    # friction 하향 수렴 기준
 _FRICTION_STEP = 0.01
 _FRICTION_MIN, _FRICTION_MAX = 0.0, 0.20
 
+# ── SteerActuatorDelay (nTune common.json) ──
+_NTUNE_COMMON_FILE = "/data/ntune/common.json"
+_SAD_STEP = 0.01                           # 1회 변화량 (초)
+_SAD_MIN, _SAD_MAX = 0.0, 0.8              # nTune checkValidCommon 범위와 동일
+_SAD_OVERRIDE_HI = 0.40                    # 커브 개입 비율 이 이상이면 딜레이 하향(반응 빠르게)
+_SAD_OVERRIDE_LO = 0.08                    # 개입 거의 없으면 소폭 상향 수렴(안정)
+
 
 def _find_torque_file():
   """nTune 토크 파일 자동 탐색 (lat_torque*.json, 버전명 차이 대응)"""
@@ -421,6 +428,25 @@ class CarrotLearner:
             "band_kph": reason, "is_float": True, "ntune": "torque",
           }
 
+      # (c) steerActuatorDelay (nTune common.json): 커브 개입 비율 기반
+      # 개입이 잦음 = 조향 타이밍이 안 맞음 → 딜레이 낮춰 더 빠르게 반응
+      if self._tq_curve_samples >= _TQ_MIN_CURVE_SAMPLES:
+        ratio = self._tq_curve_overrides / max(self._tq_curve_samples, 1)
+        common = _ntune_read(_NTUNE_COMMON_FILE)
+        cur_sad = float(common.get("steerActuatorDelay", 0.1))
+        rec_sad, reason = cur_sad, ""
+        if ratio >= _SAD_OVERRIDE_HI:
+          rec_sad = max(_SAD_MIN, round(cur_sad - _SAD_STEP, 3))
+          reason = f"커브 조향 지연 (개입 {ratio*100:.0f}% → 반응 빠르게)"
+        elif ratio < _SAD_OVERRIDE_LO:
+          rec_sad = min(_SAD_MAX, round(cur_sad + _SAD_STEP, 3))
+          reason = f"커브 안정 (개입 {ratio*100:.0f}% → 지연 소폭 상향)"
+        if rec_sad != cur_sad:
+          result["조향 (Steering)"]["steerActuatorDelay"] = {
+            "current": round(cur_sad, 3), "recommended": rec_sad,
+            "band_kph": reason, "is_float": True, "ntune": "common",
+          }
+
     # ── Phase 4: TFollowGap ──
     if apply_long:
       for i in range(4):
@@ -462,6 +488,11 @@ class CarrotLearner:
           data = _ntune_read(path)
           data[key] = float(info["recommended"])
           _ntune_write(path, data)
+        elif info.get("ntune") == "common":
+          # nTune common.json 직접 수정 → controlsd가 ntune_common_get으로 라이브 반영
+          data = _ntune_read(_NTUNE_COMMON_FILE)
+          data[key] = float(info["recommended"])
+          _ntune_write(_NTUNE_COMMON_FILE, data)
         elif info.get("is_float"):
           self._params.put(key, f"{float(info['recommended']):.3f}")
         else:
