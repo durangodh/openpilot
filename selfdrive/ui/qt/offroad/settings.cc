@@ -346,8 +346,8 @@ static QString findNtuneTorqueFileS() {
   return "/data/ntune/lat_torque_v4.json";
 }
 
-static void writeNtuneTorqueValueS(const QString &key, double value) {
-  QString path = findNtuneTorqueFileS();
+static void writeNtuneCommonValueS(const QString &key, double value) {
+  QString path = "/data/ntune/common.json";
   QJsonObject obj;
   QFile f(path);
   if (f.open(QIODevice::ReadOnly)) {
@@ -359,7 +359,6 @@ static void writeNtuneTorqueValueS(const QString &key, double value) {
   if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
     f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
     f.close();
-    // nTune.write_config와 동일하게 0666 권한 유지
     f.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner |
                      QFileDevice::ReadGroup | QFileDevice::WriteGroup |
                      QFileDevice::ReadOther | QFileDevice::WriteOther);
@@ -1126,6 +1125,8 @@ void AutoTunerCardListDialog::restoreItem(const QString& id) {
             // 적용 전 'current' 값으로 원복 (ntune / float / int 구분)
             if (info["ntune"].toString() == "torque") {
               writeNtuneTorqueValueS(key, info["current"].toDouble());
+            } else if (info["ntune"].toString() == "common") {   // ← 이 두 줄 추가
+              writeNtuneCommonValueS(key, info["current"].toDouble());
             } else if (info["is_float"].toBool(false)) {
               double prev_val = info["current"].toDouble();
               Params().put(key.toStdString(), QString::number(prev_val, 'f', 3).toStdString());
