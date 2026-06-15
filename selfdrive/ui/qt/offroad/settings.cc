@@ -456,7 +456,7 @@ void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
 
   if (timestamps.isEmpty() || param_histories.isEmpty()) {
     painter.setPen(QColor("#888888"));
-    painter.setFont(QFont("Arial", 40));
+    { QFont _f("Arial"); _f.setPixelSize(34); painter.setFont(_f); }
     painter.drawText(rect(), Qt::AlignCenter, "No historical data to display");
     return;
   }
@@ -570,6 +570,9 @@ void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
       if (diff < 1e-5) {
         y = graph_rect.top() + graph_rect.height() / 2;
       } else {
+        // 상하 12% 패딩: 최대/최소값 노드 라벨이 그래프 밖으로 잘리지 않도록
+        int pad = graph_rect.height() * 12 / 100;
+        int usable = graph_rect.height() - 2 * pad;
         y = graph_rect.bottom() - (val - min_val) / diff * graph_rect.height();
       }
 
@@ -580,7 +583,7 @@ void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
 
       if (is_highlighted && (selected_param == param || timestamps.size() <= 8 || i == 0 || i == values.size() - 1)) {
         painter.setPen(QColor(is_highlighted ? "#ffffff" : "#aaaaaa"));
-        painter.setFont(QFont("Arial", (selected_param == param) ? 22 : 18, QFont::Bold));
+        { QFont _f("Arial", -1, QFont::Bold); _f.setPixelSize((selected_param == param) ? 20 : 16); painter.setFont(_f); }
         QString val_str = QString::number(val, 'g', 4);
 
         // 라벨 박스 크기
@@ -623,7 +626,7 @@ void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
 
     // Tooltip Background & Text
     QString date_str = timestamps[selected_index];
-    painter.setFont(QFont("Arial", 28, QFont::Bold));
+    { QFont _f("Arial", -1, QFont::Bold); _f.setPixelSize(24); painter.setFont(_f); }
 
     QFontMetrics fm = painter.fontMetrics();
     int txt_w = fm.horizontalAdvance(date_str) + 30;
