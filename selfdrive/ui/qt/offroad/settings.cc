@@ -555,7 +555,10 @@ void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
       if (diff < 1e-5) {
         y = graph_rect.top() + graph_rect.height() / 2;
       } else {
-        y = graph_rect.bottom() - (val - min_val) / diff * graph_rect.height();
+        // 상하 12% 패딩: 최대/최소값 노드의 라벨이 그래프 밖으로 잘리지 않도록
+        int pad = graph_rect.height() * 12 / 100;
+        int usable = graph_rect.height() - 2 * pad;
+        y = graph_rect.bottom() - pad - (int)((val - min_val) / diff * usable);
       }
       if (i == 0) path.moveTo(x, y);
       else path.lineTo(x, y);
@@ -570,10 +573,9 @@ void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
       if (diff < 1e-5) {
         y = graph_rect.top() + graph_rect.height() / 2;
       } else {
-        // 상하 12% 패딩: 최대/최소값 노드 라벨이 그래프 밖으로 잘리지 않도록
         int pad = graph_rect.height() * 12 / 100;
         int usable = graph_rect.height() - 2 * pad;
-        y = graph_rect.bottom() - (val - min_val) / diff * graph_rect.height();
+        y = graph_rect.bottom() - pad - (int)((val - min_val) / diff * usable);
       }
 
       painter.setBrush(color);
@@ -629,9 +631,9 @@ void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
     { QFont _f("Arial", -1, QFont::Bold); _f.setPixelSize(24); painter.setFont(_f); }
 
     QFontMetrics fm = painter.fontMetrics();
-    int txt_w = fm.horizontalAdvance(date_str) + 30;
-    int txt_h = 50;
-    QRect tooltip_rect(x - txt_w / 2, margin_top - 65, txt_w, txt_h);
+    int txt_w = fm.horizontalAdvance(date_str) + 24;
+    int txt_h = 40;
+    QRect tooltip_rect(x - txt_w / 2, margin_top - txt_h - 8, txt_w, txt_h);
 
     // Boundary check
     if (tooltip_rect.left() < 10) tooltip_rect.moveLeft(10);
