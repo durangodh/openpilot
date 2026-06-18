@@ -98,6 +98,20 @@ _SAD_MIN, _SAD_MAX = 0.0, 0.8              # nTune checkValidCommon 범위와 �
 _SAD_OVERRIDE_HI = 0.40                    # 커브 개입 비율 이 이상이면 딜레이 하향(반응 빠르게)
 _SAD_OVERRIDE_LO = 0.08                    # 개입 거의 없으면 소폭 상향 수렴(안정)
 
+# ── 종방향 응답성 (longcontrol.py 라이브 반영, 경로 A 개입 기반) ──
+# longcontrol이 Params에서 1초마다 읽어 actuatorDelay/kf 를 라이브 반영.
+# 신호: Phase 4 추종 카운터 재활용 (브레이크 개입=반응 느림, 가속 개입=굼뜸)
+_LONG_ACT_DELAY_KEY = "CarrotLongActuatorDelay"
+_LONG_KF_KEY = "CarrotLongKf"
+_LONG_DELAY_DEFAULT = 0.4                   # interface.py longitudinalActuatorDelay 기본
+_LONG_KF_DEFAULT = 1.0                      # PID kf 기본 (실제 적용은 longcontrol clip 0.7~1.3)
+_LONG_DELAY_STEP = 0.02
+_LONG_KF_STEP = 0.03
+_LONG_DELAY_MIN, _LONG_DELAY_MAX = 0.20, 0.60   # 보수적 범위 (longcontrol은 0.1~1.0 clip)
+_LONG_KF_MIN, _LONG_KF_MAX = 0.70, 1.30
+_LONG_BRAKE_THRESHOLD_SEC = 12.0           # 추종 중 브레이크 누적 (반응 느림 판정)
+_LONG_GAS_THRESHOLD_SEC = 18.0             # 추종 중 가속 누적 (굼뜸 판정)
+
 
 def _find_torque_file():
   """nTune 토크 파일 자동 탐색 (lat_torque*.json, 버전명 차이 대응)"""
@@ -233,6 +247,12 @@ class CarrotLearner:
     if self._params.get_bool("CarrotLearningClear"):
       self._clear()
       self._params.put_bool("CarrotLearningClear", False)
+
+    # Factory Reset 신호 (commit e06a7dd): UI가 Params 기본값을 이미 기록했으므로
+    # 여기서는 onroad 인스턴스의 메모리상 누적 카운터만 재동기화 + 플래그 해제
+    if self._params.get_bool("CarrotTunerFactoryReset"):
+      self._clear()
+      self._params.put_bool("CarrotTunerFactoryReset", False)
 
     if engaged:
       self._has_driven = True
@@ -392,7 +412,12 @@ class CarrotLearner:
     if apply_lat and self._is_torque_control():
       tq = _ntune_read(_find_torque_file())
 
-      # (a) latAccelFactor: 커브 개입 비율 + 방향
+      # (a) latAccelFactor + friction 동시 조정 (commit e06a7dd Phase 0)
+      #     latAccelFactor는 분모이므로 값↓ = 토크↑.
+      #     언더스티어(조향력 부족) → factor↓ + friction↑ (응답 보강)
+      #     안쪽 쏠림            → factor↑ + friction↓ (응답 완화)
+      cur_fr_curve = float(tq.get("friction", 0.08))
+      fr_from_curve = None
       if self._tq_curve_samples >= _TQ_MIN_CURVE_SAMPLES and self._tq_curve_overrides > 0:
         ratio = self._tq_curve_overrides / self._tq_curve_samples
         cur_laf = float(tq.get("latAccelFactor", 2.7))
@@ -401,9 +426,11 @@ class CarrotLearner:
           if self._tq_under >= self._tq_inner * _TQ_DIR_DOMINANCE:
             # 낮을수록 같은 횡가속에 더 큰 토크 → 조향 강화
             rec_laf = max(_LAF_MIN, round(cur_laf - _LAF_STEP, 3))
+            fr_from_curve = min(_FRICTION_MAX, round(cur_fr_curve + _FRICTION_STEP, 3))
             reason = f"커브 조향력 부족 (개입 {ratio*100:.0f}%, 더꺾음 {self._tq_under}회)"
           elif self._tq_inner >= self._tq_under * _TQ_DIR_DOMINANCE:
             rec_laf = min(_LAF_MAX, round(cur_laf + _LAF_STEP, 3))
+            fr_from_curve = max(_FRICTION_MIN, round(cur_fr_curve - _FRICTION_STEP, 3))
             reason = f"커브 안쪽 쏠림 (개입 {ratio*100:.0f}%, 풀어줌 {self._tq_inner}회)"
         if rec_laf != cur_laf:
           result["조향 (Steering)"]["latAccelFactor"] = {
@@ -411,8 +438,14 @@ class CarrotLearner:
             "band_kph": reason, "is_float": True, "ntune": "torque",
           }
 
-      # (b) friction: 직선 미세 개입
-      if self._tq_str_samples >= _TQ_MIN_STR_SAMPLES:
+      # (b) friction: 커브 동조정이 있으면 우선, 없으면 직선 미세 개입으로 학습
+      if fr_from_curve is not None and fr_from_curve != cur_fr_curve:
+        result["조향 (Steering)"]["friction"] = {
+          "current": round(cur_fr_curve, 3), "recommended": fr_from_curve,
+          "band_kph": "커브 방향 보정 동조정 (latAccelFactor 연동)",
+          "is_float": True, "ntune": "torque",
+        }
+      elif fr_from_curve is None and self._tq_str_samples >= _TQ_MIN_STR_SAMPLES:
         r = self._tq_str_overrides / self._tq_str_samples
         cur_fr = float(tq.get("friction", 0.08))
         rec_fr, reason = cur_fr, ""
@@ -470,6 +503,37 @@ class CarrotLearner:
             "band_kph": f"GAP{i+1} >=40km/h ({reason})",
           }
 
+      # ── 종방향 응답성: longActuatorDelay / longKf (longcontrol 라이브 반영) ──
+      # 추종 중 브레이크 누적 많음 = 제동 반응 느림 → 딜레이↓(빠르게) + kf↑(응답 보강)
+      # 추종 중 가속   누적 많음 = 가속 굼뜸     → kf↑
+      brake_total = sum(self._tfollow_brake_acc)
+      gas_total = sum(self._tfollow_gas_acc)
+
+      cur_delay = _get_float(self._params, _LONG_ACT_DELAY_KEY, _LONG_DELAY_DEFAULT)
+      cur_kf = _get_float(self._params, _LONG_KF_KEY, _LONG_KF_DEFAULT)
+      rec_delay, rec_kf = cur_delay, cur_kf
+      delay_reason, kf_reason = "", ""
+
+      if brake_total >= _LONG_BRAKE_THRESHOLD_SEC:
+        rec_delay = round(max(_LONG_DELAY_MIN, cur_delay - _LONG_DELAY_STEP), 3)
+        rec_kf = round(min(_LONG_KF_MAX, cur_kf + _LONG_KF_STEP), 3)
+        delay_reason = f"제동 반응 느림 ({brake_total:.0f}s brake → 지연 단축)"
+        kf_reason = f"제동 응답 보강 ({brake_total:.0f}s brake)"
+      elif gas_total >= _LONG_GAS_THRESHOLD_SEC:
+        rec_kf = round(min(_LONG_KF_MAX, cur_kf + _LONG_KF_STEP), 3)
+        kf_reason = f"가속 응답 보강 ({gas_total:.0f}s gas)"
+
+      if rec_delay != cur_delay:
+        result["가속 (Acceleration)"][_LONG_ACT_DELAY_KEY] = {
+          "current": round(cur_delay, 3), "recommended": rec_delay,
+          "band_kph": delay_reason, "is_float": True, "long_param": True,
+        }
+      if rec_kf != cur_kf:
+        result["가속 (Acceleration)"][_LONG_KF_KEY] = {
+          "current": round(cur_kf, 3), "recommended": rec_kf,
+          "band_kph": kf_reason, "is_float": True, "long_param": True,
+        }
+
     return {k: v for k, v in result.items() if v}
 
   def _is_torque_control(self):
@@ -493,6 +557,9 @@ class CarrotLearner:
           data = _ntune_read(_NTUNE_COMMON_FILE)
           data[key] = float(info["recommended"])
           _ntune_write(_NTUNE_COMMON_FILE, data)
+        elif info.get("long_param"):
+          # 종방향 응답성: Params에 float 저장 → longcontrol.py가 1초마다 라이브 읽기
+          self._params.put(key, f"{float(info['recommended']):.3f}")
         elif info.get("is_float"):
           self._params.put(key, f"{float(info['recommended']):.3f}")
         else:
