@@ -396,6 +396,8 @@ static const std::map<std::string, std::string> kAutoTunerDefaults = {
   {"TFollowGap3", "200"},
   {"TFollowGap4", "200"},
   {"PathOffset", "0.0"},
+  {"CarrotLongActuatorDelay", "0.4"},   // _LONG_DELAY_DEFAULT (carrot_learning.py)
+  {"CarrotLongKf", "1.0"},              // _LONG_KF_DEFAULT (carrot_learning.py)
 };
 
 // AutoTunerGraphWidget
@@ -447,6 +449,13 @@ void AutoTunerGraphWidget::mousePressEvent(QMouseEvent *event) {
   update();
 }
 
+// Show-All(전체) 뷰에서 제외할 대규모 스케일 파라미터 판정 (commit e06a7dd 21f7994a)
+// 조향계열(PathOffset/latAccelFactor/friction/steerActuatorDelay)은 값이 작아 같이
+// 그리면 바닥에 깔리므로, 대규모(CruiseMaxVals/TFollowGap)는 개별 선택 시에만 표시
+static bool isLargeScaleParam(const QString &param) {
+  return param.startsWith("CruiseMaxVals") || param.startsWith("TFollowGap");
+}
+
 void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
   QPainter painter(this);
   painter.setRenderHint(QPainter::Antialiasing);
@@ -491,7 +500,9 @@ void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
   bool first_val = true;
 
   // 전체 파라미터 공통 글로벌 축 범위 계산 (일관된 스케일 유지)
+  // Show-All(미선택) 뷰에서는 대규모 스케일 파라미터를 축 계산에서 제외
   for (const QString &param : param_histories.keys()) {
+    if (selected_param.isEmpty() && isLargeScaleParam(param)) continue;
     QList<double> values = param_histories[param];
     if (values.size() != timestamps.size()) continue;
     for (double val : values) {
@@ -509,6 +520,7 @@ void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
   // Draw Line Paths
   painter.setBrush(Qt::NoBrush);
   for (const QString &param : param_histories.keys()) {
+    if (selected_param.isEmpty() && isLargeScaleParam(param)) continue;
     QList<double> values = param_histories[param];
     if (values.size() != timestamps.size()) continue;
 
@@ -518,103 +530,99 @@ void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
 
     bool is_highlighted = selected_param.isEmpty() || (selected_param == param);
     int opacity = 255;
-    int line_width = 4;
     QColor color;
 
     if (!selected_param.isEmpty()) {
       if (selected_param == param) {
         color = colors.value(param, QColor(Qt::white));
         opacity = 255;
-        line_width = 8;
       } else {
         color = QColor("#444444");  // 비선택 파라미터는 어두운 회색
         opacity = 80;
-        line_width = 2;
       }
     } else {
       color = colors.value(param, QColor(Qt::white));
       opacity = 255;
-      line_width = 4;
     }
 
     color.setAlpha(opacity);
-    QPen pen(color, line_width);
-    if (!selected_param.isEmpty() && selected_param != param) {
-      pen.setStyle(Qt::DotLine);
-    } else {
-      pen.setStyle(Qt::SolidLine);
-    }
-    painter.setPen(pen);
     painter.setBrush(Qt::NoBrush);
 
-    QPainterPath path;
-    for (int i = 0; i < values.size(); i++) {
-      double val = values[i];
-      int x = graph_rect.left() + i * graph_rect.width() / steps_x;
-      int y;
-      if (diff < 1e-5) {
-        y = graph_rect.top() + graph_rect.height() / 2;
-      } else {
-        // 상하 12% 패딩: 최대/최소값 노드의 라벨이 그래프 밖으로 잘리지 않도록
-        int pad = graph_rect.height() * 12 / 100;
-        int usable = graph_rect.height() - 2 * pad;
-        y = graph_rect.bottom() - pad - (int)((val - min_val) / diff * usable);
-      }
-      if (i == 0) path.moveTo(x, y);
-      else path.lineTo(x, y);
-    }
-    painter.drawPath(path);
+    // y 좌표 계산 (상하 12% 패딩 공통 적용)
+    auto calc_y = [&](double val) -> int {
+      if (diff < 1e-5) return graph_rect.top() + graph_rect.height() / 2;
+      int pad = graph_rect.height() * 12 / 100;
+      int usable = graph_rect.height() - 2 * pad;
+      return graph_rect.bottom() - pad - (int)((val - min_val) / diff * usable);
+    };
 
-    // Draw Nodes and Value Labels
-    for (int i = 0; i < values.size(); i++) {
-      double val = values[i];
-      int x = graph_rect.left() + i * graph_rect.width() / steps_x;
-      int y;
-      if (diff < 1e-5) {
-        y = graph_rect.top() + graph_rect.height() / 2;
+    bool is_selected = (selected_param == param);
+    // Show-All(미선택) 뷰: 실선 두껍게/점선 넓게, 상세 뷰: 기존 폭 유지 (commit e06a7dd)
+    int solid_w = is_selected ? 8 : (selected_param.isEmpty() ? 5 : 2);
+    int dot_w = std::max(1, solid_w / 2);   // 점선(미변경) 구간은 절반 폭
+
+    // ── 구간별 라인: 값이 바뀐 구간=실선, 그대로인 구간=점선 ──
+    for (int i = 0; i < values.size() - 1; i++) {
+      int x0 = graph_rect.left() + i * graph_rect.width() / steps_x;
+      int x1 = graph_rect.left() + (i + 1) * graph_rect.width() / steps_x;
+      int y0 = calc_y(values[i]);
+      int y1 = calc_y(values[i + 1]);
+      bool changed = std::abs(values[i + 1] - values[i]) > 1e-9;
+
+      QPen seg_pen(color, changed ? solid_w : dot_w);
+      if (!selected_param.isEmpty() && !is_selected) {
+        seg_pen.setStyle(Qt::DotLine);                // 비선택 파라미터는 전체 점선
+      } else if (changed) {
+        seg_pen.setStyle(Qt::SolidLine);
       } else {
-        int pad = graph_rect.height() * 12 / 100;
-        int usable = graph_rect.height() - 2 * pad;
-        y = graph_rect.bottom() - pad - (int)((val - min_val) / diff * usable);
+        // 미변경 구간: 넓은 간격 점선 (Show-All에서 1:4)
+        seg_pen.setStyle(Qt::CustomDashLine);
+        QVector<qreal> dashes; dashes << 1 << (selected_param.isEmpty() ? 4 : 3);
+        seg_pen.setDashPattern(dashes);
       }
+      painter.setPen(seg_pen);
+      painter.drawLine(x0, y0, x1, y1);
+    }
+
+    // ── 노드 + 값 라벨: 변경점(직전과 다른 값) + 첫 점에만 ──
+    for (int i = 0; i < values.size(); i++) {
+      bool changed = (i == 0) || (std::abs(values[i] - values[i - 1]) > 1e-9);
+      if (!changed) continue;                         // 변경점만 강조 (commit e06a7dd)
+      if (!is_highlighted) continue;
+
+      int x = graph_rect.left() + i * graph_rect.width() / steps_x;
+      int y = calc_y(values[i]);
 
       painter.setBrush(color);
       painter.setPen(Qt::NoPen);
-      int dot_size = (selected_param == param) ? 16 : 10;
+      int dot_size = is_selected ? 16 : 10;
       painter.drawEllipse(QPoint(x, y), dot_size / 2, dot_size / 2);
 
-      if (is_highlighted && (selected_param == param || timestamps.size() <= 8 || i == 0 || i == values.size() - 1)) {
-        painter.setPen(QColor(is_highlighted ? "#ffffff" : "#aaaaaa"));
-        { QFont _f("Arial", -1, QFont::Bold); _f.setPixelSize((selected_param == param) ? 20 : 16); painter.setFont(_f); }
-        QString val_str = QString::number(val, 'g', 4);
+      // 라벨 색 = 파라미터 자기 색 (가독성, commit e06a7dd)
+      painter.setPen(color);
+      { QFont _f("Arial", -1, QFont::Bold); _f.setPixelSize(is_selected ? 20 : 16); painter.setFont(_f); }
+      QString val_str = QString::number(values[i], 'g', 4);
 
-        // 라벨 박스 크기
-        int lbl_w = 110;
-        int lbl_h = 34;
+      int lbl_w = 110;
+      int lbl_h = 34;
 
-        // 가로: 기본은 노드 중앙 정렬. 단, 좌/우 끝 노드는 라벨을 안쪽으로 밀어
-        //       그래프 영역(및 좌측 파라미터 목록) 침범을 방지
-        int lbl_x;
-        Qt::Alignment h_align = Qt::AlignHCenter;
-        if (x - lbl_w / 2 < graph_rect.left()) {
-          lbl_x = x + 8;                       // 좌측 끝: 노드 오른쪽에 배치
-          h_align = Qt::AlignLeft;
-        } else if (x + lbl_w / 2 > graph_rect.right()) {
-          lbl_x = x - lbl_w - 8;               // 우측 끝: 노드 왼쪽에 배치
-          h_align = Qt::AlignRight;
-        } else {
-          lbl_x = x - lbl_w / 2;               // 중간: 중앙 정렬
-        }
-
-        // 세로: 기본은 노드 위쪽. 노드가 상단에 가까우면 아래쪽으로 뒤집어 영역 이탈 방지
-        int lbl_y = y - lbl_h - 8;
-        if (lbl_y < graph_rect.top()) {
-          lbl_y = y + 8;
-        }
-
-        painter.drawText(QRect(lbl_x, lbl_y, lbl_w, lbl_h),
-                         h_align | Qt::AlignVCenter, val_str);
+      // 가로: 좌/우 끝 노드는 안쪽으로 밀어 영역 침범 방지
+      int lbl_x;
+      Qt::Alignment h_align = Qt::AlignHCenter;
+      if (x - lbl_w / 2 < graph_rect.left()) {
+        lbl_x = x + 8; h_align = Qt::AlignLeft;
+      } else if (x + lbl_w / 2 > graph_rect.right()) {
+        lbl_x = x - lbl_w - 8; h_align = Qt::AlignRight;
+      } else {
+        lbl_x = x - lbl_w / 2;
       }
+
+      // 세로: 노드 위쪽, 상단 근접 시 아래로 뒤집기 (라벨 오프셋 상향)
+      int lbl_y = y - lbl_h - 12;
+      if (lbl_y < graph_rect.top()) lbl_y = y + 12;
+
+      painter.drawText(QRect(lbl_x, lbl_y, lbl_w, lbl_h),
+                       h_align | Qt::AlignVCenter, val_str);
     }
   }
 
@@ -824,7 +832,7 @@ void AutoTunerHistoryPanel::refreshHistory() {
   QJsonArray arr = QJsonDocument::fromJson(raw.toUtf8()).array();
 
   // 차트 가독성을 위해 최대 10개 시점만 사용 (과거 → 최신 순)
-  int chart_limit = 10;
+  int chart_limit = 30;
   int n_points = std::min((int)arr.size(), chart_limit);
   QList<QString> timestamps;
   QList<QJsonObject> entries;
@@ -2157,10 +2165,45 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   });
   list->addItem(viewHistoryBtn);
 
-  // 학습 비활성 시 이력 버튼 숨김 (원본 커밋의 동적 표시 로직)
-  viewHistoryBtn->setVisible(Params().getBool("CarrotLearningActive"));
+  // ── Factory Reset 버튼 (commit e06a7dd) ──
+  // Params 기반 학습 대상(CruiseMaxVals/TFollowGap/PathOffset)만 공장 기본값 복원 +
+  // 학습 데이터/이력 삭제. nTune 조향값(latAccelFactor/friction/steerActuatorDelay)은
+  // 차량별 기준값이라 의도적으로 제외 (사용자 nTune 세팅 보호).
+  QPushButton* factoryResetBtn = new QPushButton("Auto-Tuner: Factory Reset");
+  factoryResetBtn->setObjectName("factoryResetBtn");
+  factoryResetBtn->setStyleSheet(R"(
+    QPushButton {
+      margin-top: 10px; margin-bottom: 20px; padding: 10px; height: 120px; border-radius: 15px;
+      color: #FFFFFF; background-color: #8a1d1d;
+      font-size: 50px; font-weight: 400;
+    }
+    QPushButton:pressed {
+      background-color: #B02525;
+    }
+  )");
+  connect(factoryResetBtn, &QPushButton::clicked, [=]() {
+    if (ConfirmationDialog::confirm("학습 파라미터(가속/추종거리/직진보정)를 모두 공장 기본값으로 되돌리고 학습 데이터·이력을 삭제하시겠습니까?\n\n(조향 nTune 값은 변경되지 않습니다)", this)) {
+      Params p;
+      for (const auto& [key, val] : kAutoTunerDefaults) {
+        p.put(key, val);
+      }
+      p.remove("CarrotLearningHistory");
+      p.remove("CarrotLearningRecommend");
+      p.putBool("CarrotLearningPopupReady", false);
+      p.putBool("CarrotLearningClear", true);       // 누적 학습 데이터 삭제 (python 처리)
+      p.putBool("CarrotTunerFactoryReset", true);   // onroad 인스턴스 재동기화 신호
+      ConfirmationDialog::alert("공장 기본값으로 초기화되었습니다.", this);
+    }
+  });
+  list->addItem(factoryResetBtn);
+
+  // 학습 비활성 시 이력/초기화 버튼 숨김 (원본 커밋의 동적 표시 로직)
+  bool learn_on = Params().getBool("CarrotLearningActive");
+  viewHistoryBtn->setVisible(learn_on);
+  factoryResetBtn->setVisible(learn_on);
   connect(learnToggle, &ToggleControl::toggleFlipped, [=](bool state) {
     viewHistoryBtn->setVisible(state);
+    factoryResetBtn->setVisible(state);
   });
 
   ScrollView *scroller = new ScrollView(list, this);
