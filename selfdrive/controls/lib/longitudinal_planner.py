@@ -189,29 +189,34 @@ class LongitudinalPlanner:
     self.v_desired_filter.x = self.v_desired_filter.x + DT_MDL * (self.a_desired + a_prev) / 2.0
 
     # ── Auto-Tuner: 학습 데이터 수집 (commit 9dd5e2c carrot_functions 통합부 포팅) ──
-    cs = sm['carState']
-    lead = sm['radarState'].leadOne
-    gear_park = cs.gearShifter == GearShifter.park
-    engaged = sm['controlsState'].enabled
-    cruise_gap = int(clip(cs.cruiseGap, 1., 4.)) if cs.cruiseGap > 0 else 4
-    self.carrot_learner.set_current_gap(cruise_gap)
-    self.carrot_learner.update(
-      v_ego_kph=v_ego * CV.MS_TO_KPH,
-      gas_pressed=cs.gasPressed,
-      engaged=engaged,
-      gear_park=gear_park,
-      steer_deg=cs.steeringAngleDeg,
-      steer_pressed=cs.steeringPressed,
-      brake_pressed=cs.brakePressed,
-      lead_drel=lead.dRel if lead.status else 0.0,
-      lead_v_kph=lead.vLead * CV.MS_TO_KPH if lead.status else 0.0,
-      a_ego=cs.aEgo,
-      v_cruise_kph=v_cruise_kph,
-      gas_val=cs.gas,
-      blinker=(cs.leftBlinker or cs.rightBlinker),
-      steer_torque=cs.steeringTorque,
-      steer_deg_corr=sm['controlsState'].angleSteers,
-    )
+    # Auto-Tuner는 비핵심 학습 기능이므로, 여기서 예외가 나도 안전필수
+    # 종방향 플래너(plannerd)가 죽지 않도록 반드시 격리한다. (commit e06a7dd robustness)
+    try:
+      cs = sm['carState']
+      lead = sm['radarState'].leadOne
+      gear_park = cs.gearShifter == GearShifter.park
+      engaged = sm['controlsState'].enabled
+      cruise_gap = int(clip(cs.cruiseGap, 1., 4.)) if cs.cruiseGap > 0 else 4
+      self.carrot_learner.set_current_gap(cruise_gap)
+      self.carrot_learner.update(
+        v_ego_kph=v_ego * CV.MS_TO_KPH,
+        gas_pressed=cs.gasPressed,
+        engaged=engaged,
+        gear_park=gear_park,
+        steer_deg=cs.steeringAngleDeg,
+        steer_pressed=cs.steeringPressed,
+        brake_pressed=cs.brakePressed,
+        lead_drel=lead.dRel if lead.status else 0.0,
+        lead_v_kph=lead.vLead * CV.MS_TO_KPH if lead.status else 0.0,
+        a_ego=cs.aEgo,
+        v_cruise_kph=v_cruise_kph,
+        gas_val=cs.gas,
+        blinker=(cs.leftBlinker or cs.rightBlinker),
+        steer_torque=cs.steeringTorque,
+        steer_deg_corr=sm['controlsState'].angleSteers,
+      )
+    except Exception:
+      cloudlog.exception("CarrotLearner update failed")
 
   def publish(self, sm, pm):
     plan_send = messaging.new_message('longitudinalPlan')
