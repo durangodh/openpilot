@@ -72,6 +72,42 @@ class LongControl:
     self.v_pid = 0.0
     self.last_output_accel = 0.0
 
+    # ── Auto-Tuner 라이브 반영 (경로 A: 개입 기반 추천값을 Params에서 주기적으로 로드) ──
+    # CP는 부팅 시 고정이라, longcontrol이 매 프레임 읽는 값을 별도 멤버로 분리해
+    # carrot_learning이 기록한 추천값(있을 때만)으로 1초마다 갱신한다.
+    from common.params import Params
+    self._params = Params()
+    self._frame = 0
+    self._base_actuator_delay = CP.longitudinalActuatorDelay
+    self._base_kf = CP.longitudinalTuning.kf
+    self.long_actuator_delay = self._base_actuator_delay
+    self._reload_learned()
+
+  def _get_float(self, key, default):
+    try:
+      raw = self._params.get(key, encoding='utf8')
+      return float(raw) if raw else default
+    except (TypeError, ValueError):
+      return default
+
+  def _reload_learned(self):
+    # 학습 비활성 시에는 항상 기본값 사용 (안전)
+    active = False
+    try:
+      active = self._params.get_bool("CarrotLearningActive")
+    except Exception:
+      active = False
+    if not active:
+      self.long_actuator_delay = self._base_actuator_delay
+      self.pid.k_f = self._base_kf
+      return
+    # actuatorDelay: 보수적 clip 0.1~1.0초
+    d = self._get_float("CarrotLongActuatorDelay", self._base_actuator_delay)
+    self.long_actuator_delay = float(clip(d, 0.1, 1.0))
+    # kf(피드포워드): 기본값 대비 좁은 clip 0.7~1.3 (급가감속 방지)
+    kf = self._get_float("CarrotLongKf", self._base_kf)
+    self.pid.k_f = float(clip(kf, 0.7, 1.3))
+
   def reset(self, v_pid):
     """Reset PID controller and change setpoint"""
     self.pid.reset()
@@ -79,16 +115,24 @@ class LongControl:
 
   def update(self, active, CS, long_plan, accel_limits, t_since_plan, radar_state):
     """Update longitudinal control. This updates the state machine and runs a PID loop"""
+    # Auto-Tuner: 학습 추천값 1초마다 라이브 반영 (재시작 불필요)
+    self._frame += 1
+    if self._frame % 100 == 0:
+      try:
+        self._reload_learned()
+      except Exception:
+        pass
+
     # Interp control trajectory
     speeds = long_plan.speeds
     if len(speeds) == CONTROL_N:
       v_target_now = interp(t_since_plan, T_IDXS[:CONTROL_N], speeds)
       a_target_now = interp(t_since_plan, T_IDXS[:CONTROL_N], long_plan.accels)
 
-      v_target = interp(self.CP.longitudinalActuatorDelay + t_since_plan, T_IDXS[:CONTROL_N], speeds)
-      a_target = 2 * (v_target - v_target_now) / self.CP.longitudinalActuatorDelay - a_target_now
+      v_target = interp(self.long_actuator_delay + t_since_plan, T_IDXS[:CONTROL_N], speeds)
+      a_target = 2 * (v_target - v_target_now) / self.long_actuator_delay - a_target_now
 
-      v_target_1sec = interp(self.CP.longitudinalActuatorDelay + t_since_plan + 1.0, T_IDXS[:CONTROL_N], speeds)
+      v_target_1sec = interp(self.long_actuator_delay + t_since_plan + 1.0, T_IDXS[:CONTROL_N], speeds)
     else:
       v_target = 0.0
       v_target_now = 0.0
