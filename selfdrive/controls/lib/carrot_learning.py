@@ -35,6 +35,13 @@ CarrotPilot Auto-Tuner 포팅판 (원본 commit 9dd5e2c, selfdrive/carrot/carrot
        종방향 응답성(longKf) 으로 적응 반영 (아래 _LEAD_PROACTIVE_* 참고)
   - 토크 조향 파라미터 학습 (LateralTorque* 파라미터가 이 포크에 없음)
   - 주행 중 타이머/정차 팝업 (UI 없음, parking 트리거만 유지)
+
+추가 (원본 commit 10fa725):
+  [Phase 9] 수동주행 기준분포 로거 → LongCoastBand : 비인게이지(사람 직접 운전) 중
+            속도밴드별 자연 가감속/코스팅 감속/추종 차간시간을 '정답'으로 누적.
+            1차 적용은 무페달 코스팅 자연 감속 → LongCoastBand(코스팅 데드밴드) 추천.
+            (LongCoastBand 키를 포크 params 레지스트리에 PERSISTENT INT 기본 "0" 으로
+             등록해야 하며, longcontrol.py가 1초마다 라이브 반영)
 """
 import os
 import json
@@ -125,6 +132,17 @@ _LEAD_PROACTIVE_DECEL = 1.0                # 선제 제동이 '굼뜬 반응' �
 _LEAD_PROACTIVE_MIN_COUNT = 6             # 추천 발동 최소 선제 제동 이벤트 수 (반복성 요구)
 _LONG_KF_PROACTIVE_STEP = 0.02            # 선제 제동 시 약한 kf 증가 (강한 brake_total 경로 0.03보다 작게)
 
+# ── Phase 9 상수 (수동주행 기준분포 로거 → LongCoastBand 추천, 원본 commit 10fa725) ──
+# 인게이지 '개입 카운팅'과 달리, 사람이 직접 운전(비인게이지)하는 동안의 자연 주행을
+# '정답'으로 통째 누적한다. 1차 적용: 무페달(코스팅) 구간의 자연 감속(회생제동/엔진
+# 브레이크)을 측정해 종방향 코스팅 데드밴드(LongCoastBand)를 직접 보정 — 역문제 없음.
+# (LongCoastBand 는 longcontrol.py가 1초마다 라이브로 읽어 반영; 포크 params 키 등록 필요)
+_MANUAL_MIN_V_KPH = 20.0        # 수집 최소 속도 (정체 stop&go 잡음 배제)
+_MANUAL_COAST_MIN_N = 300       # LongCoastBand 추천 발동 최소 코스팅 감속 표본 수
+_MANUAL_COAST_MIN_SEC = 60.0    # LongCoastBand 추천 발동 최소 누적 코스팅 시간 (_DT 무관, 주 게이트)
+_MANUAL_COAST_GAIN = 0.25       # 측정 코스팅 감속 → 데드밴드 변환 계수 (차의 코스트 권한 일부만 사용)
+_LONG_COAST_BAND_MAX = 40       # LongCoastBand 안전 상한 (0.40 m/s², params_keys.h 범위와 동일)
+
 
 # 추천 키 → 소속 Phase. '적용'된 Phase의 누적치만 선택적으로 리셋하기 위한 매핑.
 # (과거 _reset_counters()는 적용 여부와 무관하게 전체 누적을 리셋 → 느리게 쌓이는
@@ -137,6 +155,7 @@ _KEY_RESET_PHASE = {
   **{k: 4 for k in _TFOLLOW_KEYS},
   _LONG_ACT_DELAY_KEY: 4, _LONG_KF_KEY: 4,
   "latAccelFactor": 5, "friction": 5, "steerActuatorDelay": 5,
+  "LongCoastBand": 9,
 }
 
 
@@ -247,6 +266,16 @@ class CarrotLearner:
     self._tq_str_samples = 0
     self._tq_str_overrides = 0
     self._tq_prev_pressed = False
+    # Phase 9 (수동주행 기준분포 로거 → LongCoastBand). 모두 밴드별 누적.
+    self._manual_coast_sec = [0.0] * _NUM_BANDS        # 무페달(코스팅) 누적 시간
+    self._manual_coast_decel_sum = [0.0] * _NUM_BANDS  # 코스팅 중 자연 감속 크기 합 (m/s², 양수)
+    self._manual_coast_decel_n = [0] * _NUM_BANDS      # 코스팅 중 감속 표본 수
+    self._manual_gas_accel_sum = [0.0] * _NUM_BANDS    # 가속페달 시 사람의 가속도 합 (m/s²)
+    self._manual_gas_n = [0] * _NUM_BANDS              # 가속페달 표본 수
+    self._manual_brake_decel_sum = [0.0] * _NUM_BANDS  # 브레이크 시 사람의 감속 크기 합 (m/s², 양수)
+    self._manual_brake_n = [0] * _NUM_BANDS            # 브레이크 표본 수
+    self._manual_gap_sum = 0.0       # 수동 추종 차간시간 합 (s)
+    self._manual_gap_n = 0           # 수동 추종 표본 수
     # 공통
     self._prev_brake = False
     self._prev_gear_park = True
@@ -357,6 +386,37 @@ class CarrotLearner:
           self._tq_str_overrides += 1
     self._tq_prev_pressed = steer_pressed
 
+    # ── Phase 9: 수동주행 기준분포 로거 (원본 commit 10fa725) ──────────
+    # 비인게이지(=사람이 직접 운전) 주행 중, 속도밴드별 사람의 가속/브레이크감속/무페달
+    # 코스팅 자연감속/추종 차간시간을 통째 누적한다. 핵심은 무페달 코스팅 구간의 자연
+    # 감속을 측정해 LongCoastBand(코스팅 데드밴드)를 직접 식별하는 것(역문제 없음).
+    # (학습기는 CarrotLearningActive=1 일 때만 동작하므로, planner가 비인게이지 중에도
+    #  매 프레임 update()를 호출해 주어야 한다.)
+    if (not engaged) and not gear_park and v_ego_kph >= _MANUAL_MIN_V_KPH:
+      band = _speed_band(v_ego_kph)
+      if gas_pressed:
+        # 사람이 선택한 가속 (과도 가속은 제외; gas_val 기반 exclude는 수동 가속을
+        #  통째로 날리므로 쓰지 않고 a_ego 임계만 사용)
+        if a_ego <= 2.2:
+          self._manual_gas_accel_sum[band] += a_ego
+          self._manual_gas_n[band] += 1
+      elif brake_pressed:
+        # 사람이 선택한 감속 크기 (양수로 저장)
+        self._manual_brake_decel_sum[band] += max(-a_ego, 0.0)
+        self._manual_brake_n[band] += 1
+      else:
+        # 무페달 = 코스팅(자연 회생제동/엔진브레이크). 이 구간의 감속률을 측정.
+        self._manual_coast_sec[band] += _DT
+        if a_ego < 0.0:
+          self._manual_coast_decel_sum[band] += -a_ego
+          self._manual_coast_decel_n[band] += 1
+      # 수동 추종 차간시간(time gap) 기준 분포 (선행차 존재 시)
+      if 0.0 < lead_drel < _TFOLLOW_MAX_LEAD_DREL and v_ego_kph >= _TFOLLOW_MIN_V_KPH:
+        v_ms = v_ego_kph / 3.6
+        if v_ms > 1.0:
+          self._manual_gap_sum += lead_drel / v_ms
+          self._manual_gap_n += 1
+
     # 10초마다 주기 저장 (전원 차단 대비)
     self._frame += 1
     if self._frame % 200 == 0:
@@ -406,6 +466,7 @@ class CarrotLearner:
       "가속 (Acceleration)": {},
       "조향 (Steering)": {},
       "거리 (Following Distance)": {},
+      "주행 (Driving)": {},
     }
 
     # ── Phase 1: CruiseMaxVals ──
@@ -586,6 +647,24 @@ class CarrotLearner:
           "band_kph": kf_reason, "is_float": True, "long_param": True,
         }
 
+      # ── Phase 9: 수동주행 코스팅 측정 → LongCoastBand 추천 (원본 commit 10fa725) ──
+      # 사람이 무페달로 코스팅할 때의 자연 감속(회생제동/엔진브레이크)을 측정하여,
+      # 종방향 코스팅 데드밴드를 차의 코스트 권한 일부 범위(0.15~0.40 m/s²) 내에서 보정.
+      coast_n = sum(self._manual_coast_decel_n)
+      coast_sec = sum(self._manual_coast_sec)
+      if coast_n >= _MANUAL_COAST_MIN_N and coast_sec >= _MANUAL_COAST_MIN_SEC:
+        mean_coast_decel = sum(self._manual_coast_decel_sum) / coast_n   # m/s² (양수)
+        # 데드밴드(m/s²) = 측정 코스팅 감속 × 게인, 안전범위 클램프 후 cm/s²(×100) 정수화
+        rec_band = int(np.clip(round(np.clip(mean_coast_decel * _MANUAL_COAST_GAIN, 0.15, 0.40) * 100),
+                               0, _LONG_COAST_BAND_MAX))
+        cur_band = _get_int(self._params, "LongCoastBand", 0)
+        # 5(=0.05 m/s²) 이상 차이날 때만 추천 (미세 변동 잡음 억제)
+        if abs(rec_band - cur_band) >= 5:
+          result["주행 (Driving)"]["LongCoastBand"] = {
+            "current": cur_band, "recommended": rec_band,
+            "band_kph": f"수동 코스팅 감속 {mean_coast_decel:.2f}m/s^2 측정 → 코스팅(회생제동) 데드밴드 보정",
+          }
+
     return {k: v for k, v in result.items() if v}
 
   def _is_torque_control(self):
@@ -651,6 +730,7 @@ class CarrotLearner:
     phase_reset = {
       1: self._reset_phase1, 2: self._reset_phase2,
       4: self._reset_phase4, 5: self._reset_phase5,
+      9: self._reset_phase9,
     }
     for ph in applied_phases:
       phase_reset[ph]()
@@ -691,11 +771,24 @@ class CarrotLearner:
     self._tq_str_overrides = 0
     self._tq_prev_pressed = False
 
+  def _reset_phase9(self):
+    """수동주행 기준분포 로거 (LongCoastBand)"""
+    self._manual_coast_sec = [0.0] * _NUM_BANDS
+    self._manual_coast_decel_sum = [0.0] * _NUM_BANDS
+    self._manual_coast_decel_n = [0] * _NUM_BANDS
+    self._manual_gas_accel_sum = [0.0] * _NUM_BANDS
+    self._manual_gas_n = [0] * _NUM_BANDS
+    self._manual_brake_decel_sum = [0.0] * _NUM_BANDS
+    self._manual_brake_n = [0] * _NUM_BANDS
+    self._manual_gap_sum = 0.0
+    self._manual_gap_n = 0
+
   def _reset_all_phases(self):
     self._reset_phase1()
     self._reset_phase2()
     self._reset_phase4()
     self._reset_phase5()
+    self._reset_phase9()
 
   def _clear(self):
     self._reset_all_phases()
@@ -729,6 +822,22 @@ class CarrotLearner:
       if len(tm) == 4:
         self._tfollow_min_gap = [float(x) for x in tm]
       self._lead_proactive_count = int(d.get("lead_proactive_count", 0))
+      # Phase 9 (밴드별 리스트는 길이 검증 후 복원)
+      p9 = d.get("phase9", {})
+      def _band_list(key, cast, default):
+        v = p9.get(key)
+        if isinstance(v, list) and len(v) == _NUM_BANDS:
+          return [cast(x) for x in v]
+        return [default] * _NUM_BANDS
+      self._manual_coast_sec = _band_list("manual_coast_sec", float, 0.0)
+      self._manual_coast_decel_sum = _band_list("manual_coast_decel_sum", float, 0.0)
+      self._manual_coast_decel_n = _band_list("manual_coast_decel_n", int, 0)
+      self._manual_gas_accel_sum = _band_list("manual_gas_accel_sum", float, 0.0)
+      self._manual_gas_n = _band_list("manual_gas_n", int, 0)
+      self._manual_brake_decel_sum = _band_list("manual_brake_decel_sum", float, 0.0)
+      self._manual_brake_n = _band_list("manual_brake_n", int, 0)
+      self._manual_gap_sum = float(p9.get("manual_gap_sum", 0.0))
+      self._manual_gap_n = int(p9.get("manual_gap_n", 0))
       tq = d.get("tq", {})
       self._tq_curve_samples = int(tq.get("curve_samples", 0))
       self._tq_curve_overrides = int(tq.get("curve_overrides", 0))
@@ -750,6 +859,17 @@ class CarrotLearner:
       "tfollow_brake_acc": self._tfollow_brake_acc,
       "tfollow_min_gap": self._tfollow_min_gap,
       "lead_proactive_count": self._lead_proactive_count,
+      "phase9": {
+        "manual_coast_sec": self._manual_coast_sec,
+        "manual_coast_decel_sum": self._manual_coast_decel_sum,
+        "manual_coast_decel_n": self._manual_coast_decel_n,
+        "manual_gas_accel_sum": self._manual_gas_accel_sum,
+        "manual_gas_n": self._manual_gas_n,
+        "manual_brake_decel_sum": self._manual_brake_decel_sum,
+        "manual_brake_n": self._manual_brake_n,
+        "manual_gap_sum": self._manual_gap_sum,
+        "manual_gap_n": self._manual_gap_n,
+      },
       "tq": {
         "curve_samples": self._tq_curve_samples,
         "curve_overrides": self._tq_curve_overrides,
