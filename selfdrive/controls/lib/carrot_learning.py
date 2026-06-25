@@ -113,6 +113,20 @@ _LONG_BRAKE_THRESHOLD_SEC = 12.0           # 추종 중 브레이크 누적 (반
 _LONG_GAS_THRESHOLD_SEC = 18.0             # 추종 중 가속 누적 (굼뜸 판정)
 
 
+# 추천 키 → 소속 Phase. '적용'된 Phase의 누적치만 선택적으로 리셋하기 위한 매핑.
+# (과거 _reset_counters()는 적용 여부와 무관하게 전체 누적을 리셋 → 느리게 쌓이는
+#  조향 학습(Phase2 PathOffset 약 20초, Phase5 토크 약 30초)이 무관한 longitudinal
+#  적용 때마다 초기화되어 문턱에 도달하지 못하던 버그가 있었다.)
+# longActuatorDelay/longKf 는 Phase 4 추종 카운터에서 파생되므로 Phase 4 에 귀속.
+_KEY_RESET_PHASE = {
+  **{k: 1 for k in _ACCEL_KEYS},
+  "PathOffset": 2,
+  **{k: 4 for k in _TFOLLOW_KEYS},
+  _LONG_ACT_DELAY_KEY: 4, _LONG_KF_KEY: 4,
+  "latAccelFactor": 5, "friction": 5, "steerActuatorDelay": 5,
+}
+
+
 def _find_torque_file():
   """nTune 토크 파일 자동 탐색 (lat_torque*.json, 버전명 차이 대응)"""
   try:
@@ -268,6 +282,8 @@ class CarrotLearner:
       self._gas_max_accel[i] = max(self._gas_max_accel[i], a_ego)
 
     # 가속 과다 방지: 선행차 없는데 브레이크를 밟는 패턴 (40km/h 이상에서만)
+    # (선행차 추종 제동(lead_drel 유효)은 여기서 제외 → 가속 한계 신호 오귀속 방지.
+    #  원본 commit fix3 의도가 이 수집 조건으로 이미 충족됨)
     if engaged and brake_pressed and v_ego_kph >= 40.0 \
        and (lead_drel == 0.0 or lead_drel > 120.0) and not blinker:
       i = _speed_band(v_ego_kph)
@@ -384,6 +400,7 @@ class CarrotLearner:
           rec = min(max_limit, int(cur * (1.0 + ratio)))
           reason = f"gas help ({sec:.0f}s, +{ratio*100:.0f}%)"
         elif self._gas_dec_acc[i] >= _GAS_REDUCE_THRESHOLD_SEC:
+          # 하향 신호는 '선행차 제외' gas_dec_acc 만 사용 (수집 단계에서 lead 제외됨)
           rec = int(np.clip(int(cur * (1.0 + _GAS_REDUCE_RATIO)), _ACCEL_MIN, max_limit))
           reason = f"too aggressive ({self._gas_dec_acc[i]:.0f}s brake)"
         if rec != cur:
@@ -587,20 +604,49 @@ class CarrotLearner:
       hist.insert(0, entry)
       self._params.put("CarrotLearningHistory", json.dumps(hist[:50], ensure_ascii=False))
 
-    # 적용 후 누적 데이터 초기화 (새 세션부터 재학습)
-    self._reset_counters()
-    _remove(self._params, "CarrotLearningData")
+    # ── 적용된 Phase의 누적치만 선택적으로 리셋 ─────────────────────────
+    # 적용되지 않은 Phase(특히 느리게 쌓이는 조향 Phase2/5)는 데이터를 보존해
+    # 무관한 longitudinal 적용 때문에 학습 진척이 초기화되지 않도록 한다.
+    applied_phases = set()
+    for group in applied:
+      for key in applied[group]:
+        ph = _KEY_RESET_PHASE.get(key)
+        if ph is not None:
+          applied_phases.add(ph)
+    phase_reset = {
+      1: self._reset_phase1, 2: self._reset_phase2,
+      4: self._reset_phase4, 5: self._reset_phase5,
+    }
+    for ph in applied_phases:
+      phase_reset[ph]()
 
-  def _reset_counters(self):
+    # 보존된 Phase 데이터가 재부팅에도 살아남도록 즉시 저장(remove 대신 _save).
+    self._save()
+
+  # ── Phase별 누적 데이터 리셋 헬퍼 (단일 출처) ──────────────────────────
+  # 모든 리셋 경로(_apply 선택적 리셋 / _clear 전체 리셋)를 아래 헬퍼로 일원화해,
+  # 분자(override/under/inner)만 남고 분모(samples)가 0이 되어 비율이 오염되는
+  # 류의 reset/attribution 어긋남(원본 commit 117e99c)을 구조적으로 방지한다.
+  def _reset_phase1(self):
+    """가속 (CruiseMaxVals0~3)"""
     self._gas_acc = [0.0] * _NUM_BANDS
     self._gas_dec_acc = [0.0] * _NUM_BANDS
     self._gas_max_accel = [0.0] * _NUM_BANDS
+
+  def _reset_phase2(self):
+    """직진 편차 (PathOffset)"""
     self._steer_acc = 0.0
     self._steer_count = 0
+
+  def _reset_phase4(self):
+    """추종거리 (TFollowGap) + 종방향 응답성(longActuatorDelay/longKf 파생 카운터)"""
     self._tfollow_gas_acc = [0.0] * 4
     self._tfollow_brake_acc = [0.0] * 4
     self._tfollow_min_gap = [999.0] * 4
     self._prev_brake = False
+
+  def _reset_phase5(self):
+    """토크 조향 (latAccelFactor/friction/steerActuatorDelay) — 방향 카운터 포함"""
     self._tq_curve_samples = 0
     self._tq_curve_overrides = 0
     self._tq_under = 0
@@ -609,8 +655,14 @@ class CarrotLearner:
     self._tq_str_overrides = 0
     self._tq_prev_pressed = False
 
+  def _reset_all_phases(self):
+    self._reset_phase1()
+    self._reset_phase2()
+    self._reset_phase4()
+    self._reset_phase5()
+
   def _clear(self):
-    self._reset_counters()
+    self._reset_all_phases()
     _remove(self._params, "CarrotLearningData")
     _remove(self._params, "CarrotLearningRecommend")
 
