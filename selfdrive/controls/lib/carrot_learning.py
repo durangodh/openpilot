@@ -31,6 +31,8 @@ CarrotPilot Auto-Tuner 포팅판 (원본 commit 9dd5e2c, selfdrive/carrot/carrot
 원본 대비 제외된 것 (이 포크에 대응 신호/파라미터 없음):
   - Phase 3 JLeadFactor3, Phase 5 DynamicTFollow/TFollowDecelBoost (jLead 신호 없음)
     -> 수동 브레이크 개입은 Phase 4의 '거리 넓히기' 신호로 흡수
+    -> 단, 원본 commit 00b70cd의 '선제(교육용) 제동' 학습 의도는 jLead 대신
+       종방향 응답성(longKf) 으로 적응 반영 (아래 _LEAD_PROACTIVE_* 참고)
   - 토크 조향 파라미터 학습 (LateralTorque* 파라미터가 이 포크에 없음)
   - 주행 중 타이머/정차 팝업 (UI 없음, parking 트리거만 유지)
 """
@@ -111,6 +113,17 @@ _LONG_DELAY_MIN, _LONG_DELAY_MAX = 0.20, 0.60   # 보수적 범위 (longcontrol�
 _LONG_KF_MIN, _LONG_KF_MAX = 0.70, 1.30
 _LONG_BRAKE_THRESHOLD_SEC = 12.0           # 추종 중 브레이크 누적 (반응 느림 판정)
 _LONG_GAS_THRESHOLD_SEC = 18.0             # 추종 중 가속 누적 (굼뜸 판정)
+
+# ── 선제(교육용) 선행차 제동 학습 (원본 commit 00b70cd 적응) ──
+# 원본은 Phase 3 JLeadFactor3 를 강화하지만 이 포크엔 jLead 파라미터가 없으므로,
+# '선행차에 더 일찍 반응하라'는 교육 신호를 종방향 응답성(longKf)으로 매핑한다.
+# 위험할 만큼 늦지 않은 TTC(3.5~6.0s)에 유의미한 감속(≥1.0m/s^2)으로 반복 선제 제동 →
+# longKf 를 약하게(+0.02) 상향. 정상 여유 제동의 과누적을 막기 위해 보수적 임계 + 작은 step.
+_LEAD_PROACTIVE_TTC_LO = 3.5                # 이 TTC 미만은 '위험한 늦은 제동'(별도 처리 대상)
+_LEAD_PROACTIVE_TTC_HI = 6.0               # 선제 교육 제동으로 인정할 TTC 상한
+_LEAD_PROACTIVE_DECEL = 1.0                # 선제 제동이 '굼뜬 반응' 신호로 인정될 최소 감속도 (m/s^2)
+_LEAD_PROACTIVE_MIN_COUNT = 6             # 추천 발동 최소 선제 제동 이벤트 수 (반복성 요구)
+_LONG_KF_PROACTIVE_STEP = 0.02            # 선제 제동 시 약한 kf 증가 (강한 brake_total 경로 0.03보다 작게)
 
 
 # 추천 키 → 소속 Phase. '적용'된 Phase의 누적치만 선택적으로 리셋하기 위한 매핑.
@@ -224,6 +237,7 @@ class CarrotLearner:
     self._tfollow_gas_acc = [0.0] * 4
     self._tfollow_brake_acc = [0.0] * 4
     self._tfollow_min_gap = [999.0] * 4
+    self._lead_proactive_count = 0   # 선제(교육용) 제동 이벤트 수 (commit 00b70cd 적응)
     self._current_gap = 4
     # Phase 5 (토크 조향)
     self._tq_curve_samples = 0
@@ -309,6 +323,19 @@ class CarrotLearner:
           self._tfollow_min_gap[gi] = min(self._tfollow_min_gap[gi], lead_drel / v_ms)
       elif brake_pressed and not blinker:
         self._tfollow_brake_acc[gi] += _DT
+        # ── 선제(교육용) 제동 이벤트 검출 (commit 00b70cd 적응) ──
+        # 제동 시작 엣지(rising) 1회당 1회만 카운트. 선행차에 접근(closing>0) 중,
+        # 위험할 만큼 늦지 않은 TTC(3.5~6.0s) + 유의미한 감속(≥1.0m/s^2) = '더 일찍
+        # 반응하라' 교육 신호. (vLead = lead_v_kph 가 planner에서 전달돼야 함; 미전달 시
+        # lead_v_kph=0 → 카운트 보류 = 보수적)
+        if not self._prev_brake and lead_v_kph > 0.0:
+          v_ms = v_ego_kph / 3.6
+          closing = v_ms - lead_v_kph / 3.6
+          if closing > 0.1:
+            ttc = lead_drel / closing
+            if _LEAD_PROACTIVE_TTC_LO <= ttc < _LEAD_PROACTIVE_TTC_HI \
+               and (-a_ego) >= _LEAD_PROACTIVE_DECEL:
+              self._lead_proactive_count += 1
     self._prev_brake = brake_pressed
 
     # ── Phase 5: 토크 조향 파라미터 (nTune) ──
@@ -523,6 +550,7 @@ class CarrotLearner:
       # ── 종방향 응답성: longActuatorDelay / longKf (longcontrol 라이브 반영) ──
       # 추종 중 브레이크 누적 많음 = 제동 반응 느림 → 딜레이↓(빠르게) + kf↑(응답 보강)
       # 추종 중 가속   누적 많음 = 가속 굼뜸     → kf↑
+      # 선제 교육 제동 반복      = '더 일찍 반응하라' → kf 약하게↑ (commit 00b70cd 적응)
       brake_total = sum(self._tfollow_brake_acc)
       gas_total = sum(self._tfollow_gas_acc)
 
@@ -539,6 +567,13 @@ class CarrotLearner:
       elif gas_total >= _LONG_GAS_THRESHOLD_SEC:
         rec_kf = round(min(_LONG_KF_MAX, cur_kf + _LONG_KF_STEP), 3)
         kf_reason = f"가속 응답 보강 ({gas_total:.0f}s gas)"
+      elif self._lead_proactive_count >= _LEAD_PROACTIVE_MIN_COUNT:
+        # 선제(교육용) 제동: 강한 늦은-제동 경로(brake_total)엔 못 미쳤지만 선행차에
+        # 반복적으로 미리 제동 = '더 일찍 반응하라' → kf 약하게 상향(작은 step).
+        # delay 는 보수적으로 유지(과도한 빠른 반응 방지). 별도·완화 경로로 분리해
+        # 정상 여유 제동의 과도 누적을 막는다(원본 commit의 +5 small-step 설계 대응).
+        rec_kf = round(min(_LONG_KF_MAX, cur_kf + _LONG_KF_PROACTIVE_STEP), 3)
+        kf_reason = f"선제 교육 제동 ({self._lead_proactive_count}회 → 응답 소폭 보강)"
 
       if rec_delay != cur_delay:
         result["가속 (Acceleration)"][_LONG_ACT_DELAY_KEY] = {
@@ -643,6 +678,7 @@ class CarrotLearner:
     self._tfollow_gas_acc = [0.0] * 4
     self._tfollow_brake_acc = [0.0] * 4
     self._tfollow_min_gap = [999.0] * 4
+    self._lead_proactive_count = 0   # 선제 제동 카운터도 함께 리셋 (longKf 파생)
     self._prev_brake = False
 
   def _reset_phase5(self):
@@ -692,6 +728,7 @@ class CarrotLearner:
       tm = d.get("tfollow_min_gap", [])
       if len(tm) == 4:
         self._tfollow_min_gap = [float(x) for x in tm]
+      self._lead_proactive_count = int(d.get("lead_proactive_count", 0))
       tq = d.get("tq", {})
       self._tq_curve_samples = int(tq.get("curve_samples", 0))
       self._tq_curve_overrides = int(tq.get("curve_overrides", 0))
@@ -712,6 +749,7 @@ class CarrotLearner:
       "tfollow_gas_acc": self._tfollow_gas_acc,
       "tfollow_brake_acc": self._tfollow_brake_acc,
       "tfollow_min_gap": self._tfollow_min_gap,
+      "lead_proactive_count": self._lead_proactive_count,
       "tq": {
         "curve_samples": self._tq_curve_samples,
         "curve_overrides": self._tq_curve_overrides,
