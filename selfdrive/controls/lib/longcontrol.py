@@ -81,6 +81,15 @@ class LongControl:
     self._base_actuator_delay = CP.longitudinalActuatorDelay
     self._base_kf = CP.longitudinalTuning.kf
     self.long_actuator_delay = self._base_actuator_delay
+
+    # ── Coasting deadband + hysteresis (원본 commit 10fa725) ──────────
+    # 사람 주행의 "발 떼고 코스팅(회생제동)" 구간을 흉내내, 계획 가속도가 0 근처에서
+    # 미세하게 +/- 진동(울렁거림)할 때 출력 가감속을 0으로 부드럽게 수렴시킨다.
+    # LongCoastBand: 코스팅 진입 임계 가속도(0.01 m/s² 단위, 0=비활성=기본/안전 opt-in).
+    # 진입 임계의 2배를 벗어나야 코스팅을 빠져나가는 히스테리시스로 채터링을 방지.
+    self.coast_band = 0.0       # m/s² (0=off)
+    self.coasting = False
+    self.COAST_EXIT_JERK = 1.2  # m/s³, 코스팅 진입 시 출력→0 수렴 속도
     self._reload_learned()
 
   def _get_float(self, key, default):
@@ -91,7 +100,11 @@ class LongControl:
       return default
 
   def _reload_learned(self):
-    # 학습 비활성 시에는 항상 기본값 사용 (안전)
+    # 코스팅 데드밴드는 opt-in(기본 0=off)이며 학습 활성과 무관하게 항상 반영
+    # (운전자가 LongCoastBand를 직접 켜둔 경우에도 동작하도록).
+    self.coast_band = self._get_float("LongCoastBand", 0.0) * 0.01
+
+    # 학습 비활성 시에는 응답성 파라미터(delay/kf)는 항상 기본값 사용 (안전)
     active = False
     try:
       active = self._params.get_bool("CarrotLearningActive")
@@ -112,6 +125,30 @@ class LongControl:
     """Reset PID controller and change setpoint"""
     self.pid.reset()
     self.v_pid = v_pid
+    self.coasting = False
+
+  def _update_coast_state(self, a_target):
+    """계획 가속도(a_target) 기준으로 코스팅 진입/이탈을 히스테리시스로 판정."""
+    if self.coast_band <= 0.0:
+      self.coasting = False
+      return
+    if self.coasting:
+      # 진입 임계의 2배(이탈 임계)를 넘어서는 분명한 가감속 요구가 있을 때만 이탈
+      if abs(a_target) > self.coast_band * 2.0:
+        self.coasting = False
+    else:
+      if abs(a_target) < self.coast_band:
+        self.coasting = True
+
+  def _coast_output(self):
+    """코스팅 중 출력 가감속을 0(무가감속=자연 회생제동)으로 부드럽게 램프."""
+    step = self.COAST_EXIT_JERK * DT_CTRL
+    oa = self.last_output_accel
+    if oa > step:
+      return oa - step
+    if oa < -step:
+      return oa + step
+    return 0.0
 
   def update(self, active, CS, long_plan, accel_limits, t_since_plan, radar_state):
     """Update longitudinal control. This updates the state machine and runs a PID loop"""
@@ -169,13 +206,20 @@ class LongControl:
       # TODO too complex, needs to be simplified and tested on toyotas
       prevent_overshoot = not self.CP.stoppingControl and CS.vEgo < 1.5 and v_target_1sec < 0.7 and v_target_1sec < self.v_pid
       deadzone = interp(CS.vEgo, self.CP.longitudinalTuning.deadzoneBP, self.CP.longitudinalTuning.deadzoneV)
-      freeze_integrator = prevent_overshoot
+
+      # 코스팅 판정은 '계획 가속도(a_target)'의 미세 진동을 기준으로 한다.
+      self._update_coast_state(a_target)
+      freeze_integrator = prevent_overshoot or self.coasting
 
       error = self.v_pid - CS.vEgo
       error_deadzone = apply_deadzone(error, deadzone)
       output_accel = self.pid.update(error_deadzone, speed=CS.vEgo,
                                      feedforward=a_target,
                                      freeze_integrator=freeze_integrator)
+      if self.coasting:
+        # 코스팅 중에는 출력을 0으로 부드럽게 수렴 → 자연 회생제동/엔진브레이크 활용.
+        # (coast_band 진입 임계가 작아 분명한 가감속 요구 시엔 히스테리시스로 즉시 이탈)
+        output_accel = self._coast_output()
 
     
     self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
