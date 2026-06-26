@@ -186,6 +186,17 @@ class LongitudinalPlanner:
     # Interpolate 0.05 seconds and save as starting point for next iteration
     a_prev = self.a_desired
     self.a_desired = float(interp(DT_MDL, T_IDXS[:CONTROL_N], self.a_desired_trajectory))
+    # ── 제동 진입(braking build-up) jerk 제한 (commit 1e95637) ──
+    # 선행차 감지 등으로 a_desired가 한 스텝에 급강하할 때 초기 제동을 부드럽게 하여
+    # '브레이크를 탁 밟는' 이질감을 완화한다. 단, 목표 감속이 깊을수록(긴급) 한도를
+    # 키워 안전 제동은 그대로 확보한다.
+    #   -1.2m/s^2(완만): 2.0m/s^3 → 0~-1.2까지 0.6s에 부드럽게
+    #   -2.5m/s^2(강함): 5.0m/s^3
+    #   -4.0m/s^2(긴급): 12.0m/s^3 → 사실상 무제한(0~-4까지 0.33s)
+    # (포크는 self.dt 대신 DT_MDL 사용. 양(+)jerk 블록이 없어 독립 if 로 처리.)
+    if self.a_desired < a_prev:
+      max_negative_jerk = float(np.interp(self.a_desired, [-4.0, -2.5, -1.2], [12.0, 5.0, 2.0]))
+      self.a_desired = max(self.a_desired, a_prev - max_negative_jerk * DT_MDL)
     self.v_desired_filter.x = self.v_desired_filter.x + DT_MDL * (self.a_desired + a_prev) / 2.0
 
     # ── Auto-Tuner: 학습 데이터 수집 (commit 9dd5e2c carrot_functions 통합부 포팅) ──
