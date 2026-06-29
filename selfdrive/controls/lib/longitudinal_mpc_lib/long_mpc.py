@@ -74,6 +74,15 @@ LEAD_SMOOTH_ALPHA  = 0.12  # lead 거리/속도 지수이동평균 계수
 T_FOLLOW_MAX_RATE  = 0.20  # t_follow 최대 변화속도 (s/s) — rate limiter
 # ────────────────────────────────────────────────────────────────────────────
 
+# ── Lever A (commit d897f06): 고속 + 선행차 접근 시 추종거리 선제 확대 ─────────
+# 고속 늦은 감지로 인한 충돌 우려 대응. t_follow를 미리 키워 제동 명령을 앞당긴다.
+# vRel<0(접근) & TTC<임계 & 고속(≥70km/h) 삼중 게이트라 정속 추종·저속에선 무동작.
+# (원본 Lever C=JLeadFactor3 속도연동 증폭은 이 포크에 jLead 신호가 없어 제외)
+HIGH_SPEED_BRAKE_KPH = 70.0          # 이 속도(km/h) 이상에서만 선제 확대 적용
+HIGH_SPEED_BRAKE_TTC = 7.0           # 접근 TTC(초)가 이 값 미만이면 활성
+HIGH_SPEED_TF_BOOST  = 0.45          # t_follow 최대 선제 확대량(초)
+# ────────────────────────────────────────────────────────────────────────────
+
 
 def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, krkeegan=False):
   if not krkeegan:
@@ -552,6 +561,19 @@ class LongitudinalMpc:
     max_delta      = T_FOLLOW_MAX_RATE * DT_UPDATE
     self._t_follow_smooth += float(np.clip(t_follow_delta, -max_delta, max_delta))
     self.t_follow = self._t_follow_smooth
+    # ─────────────────────────────────────────────────────────────────────
+
+    # ── Lever A (commit d897f06): 고속 + 선행차 접근 → 추종거리 선제 확대 ──────
+    # rate limiter '뒤'에 둬서 즉시 반영(고속 접근은 늦으면 안 됨). _t_follow_smooth
+    # 에는 누적하지 않아 매 프레임 TTC로 새로 계산되므로, 접근이 해소되면 자동으로 0.
+    # 삼중 게이트(고속·접근(vRel<0)·TTC<임계)라 정속 추종·저속에선 무동작 → 평상시 부드러움 유지.
+    _lead = radarstate.leadOne
+    if _lead.status and v_ego * CV.MS_TO_KPH >= HIGH_SPEED_BRAKE_KPH \
+       and _lead.dRel > 0.0 and _lead.vRel < 0.0:
+      _ttc = _lead.dRel / -_lead.vRel
+      _tf_boost = float(interp(_ttc, [3.0, HIGH_SPEED_BRAKE_TTC], [HIGH_SPEED_TF_BOOST, 0.0]))
+      _tf_boost *= float(interp(v_ego * CV.MS_TO_KPH, [HIGH_SPEED_BRAKE_KPH, 110.0], [0.5, 1.0]))
+      self.t_follow += _tf_boost
     # ─────────────────────────────────────────────────────────────────────
 
     # planner에서 저장된 값 + lead 속도 함께 전달
