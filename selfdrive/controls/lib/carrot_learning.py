@@ -13,7 +13,8 @@ CarrotPilot Auto-Tuner 포팅판 (원본 commit 9dd5e2c, selfdrive/carrot/carrot
   [Phase 4] TFollowGap1~4 : cruiseGap 단계별 추종거리 (long_mpc의 CRUISE_GAP_V 대체)
             트리거: 선행차 추종 중 gas(좁히기 의도) / brake(넓히기 의도) 개입
             발동:  gas 누적 >= 15초 / brake 누적 >= 10초
-  [Phase 5] latAccelFactor / friction : 토크 조향 파라미터 (nTune JSON 직접 수정)
+  [Phase 5] latAccelFactor / friction / steerActuatorDelay / steerRatio : 조향 파라미터
+            (nTune JSON 직접 수정)
             이 포크의 latcontrol_torque는 Params가 아닌 /data/ntune/lat_torque*.json을
             라이브 로딩하므로, 학습기가 JSON 파일을 직접 수정 → 재시작 없이 즉시 반영.
             트리거: 커브(|조향각|>=5도, 40km/h 이상) 중 조향 개입.
@@ -21,6 +22,8 @@ CarrotPilot Auto-Tuner 포팅판 (원본 commit 9dd5e2c, selfdrive/carrot/carrot
                     (같은 방향=조향력 부족→latAccelFactor 감소 / 반대=안쪽 쏠림→증가)
                     직선 미세 개입 비율 높음 → friction 상향
             발동:  커브 샘플 >= 600개(약 30초) / 직선 샘플 >= 400개
+            steerRatio : override 휴리스틱이 아니라 liveParameters(paramsd 칼만 추정)을
+            '정답'으로 누적해 nTune common.json steerRatio 를 보정. (아래 _SR_* 참고)
 
 저장: Params("CarrotLearningData") JSON
 추천: P단 전환 시 Params("CarrotLearningRecommend") 기록 + CarrotLearningPopupReady=1
@@ -114,6 +117,21 @@ _SAD_MIN, _SAD_MAX = 0.0, 0.8              # nTune checkValidCommon 범위와 �
 _SAD_OVERRIDE_HI = 0.40                    # 커브 개입 비율 이 이상이면 딜레이 하향(반응 빠르게)
 _SAD_OVERRIDE_LO = 0.08                    # 개입 거의 없으면 소폭 상향 수렴(안정)
 
+# ── steerRatio 학습 (nTune common.json, liveParameters 추정 기반) ─────────────
+# steerRatio는 openpilot paramsd가 칼만필터로 라이브 추정(liveParameters.steerRatio)한다.
+# 그 추정값을 qualifying 구간에서 '정답'으로 누적해 nTune common.json 의 steerRatio 를
+# 보정한다. override 방향 휴리스틱으로 유추하지 않는 이유: steerRatio와 latAccelFactor는
+# 효과가 겹쳐(degenerate) 같은 개입신호로 둘 다 학습하면 서로 밀어내며 진동한다. 전용
+# 추정기 출력을 쓰는 것이 정확하고 안정적이다.
+# (참고: common.json useLiveSteerRatio=1 이면 컨트롤러(controlsd)는 라이브 값을 직접 쓰므로
+#  이 고정값은 '동결 백업'(추후 useLiveSteerRatio를 끌 때 사용)으로 의미를 가진다.)
+_SR_MIN, _SR_MAX = 10.0, 20.0              # nTune checkValidCommon steerRatio 범위와 동일
+_SR_DEFAULT = 16.5
+_SR_MIN_V_KPH = 30.0                       # 추정 신뢰 구간 (저속 제외)
+_SR_MIN_SAMPLES = 600                      # 약 30초 qualifying 주행
+_SR_DEADBAND = 0.1                         # 이 이상 차이날 때만 추천 (미세 변동 억제)
+_SR_MAX_DELTA = 0.5                        # 세션당 변동 상한 (급변 방지)
+
 # ── 종방향 응답성 (longcontrol.py 라이브 반영, 경로 A 개입 기반) ──
 # longcontrol이 Params에서 1초마다 읽어 actuatorDelay/kf 를 라이브 반영.
 # 신호: Phase 4 추종 카운터 재활용 (브레이크 개입=반응 느림, 가속 개입=굼뜸)
@@ -164,12 +182,13 @@ _LONG_COAST_BAND_MAX = 40       # LongCoastBand 안전 상한 (0.40 m/s², param
 #  조향 학습(Phase2 PathOffset 약 20초, Phase5 토크 약 30초)이 무관한 longitudinal
 #  적용 때마다 초기화되어 문턱에 도달하지 못하던 버그가 있었다.)
 # longActuatorDelay/longKf 는 Phase 4 추종 카운터에서 파생되므로 Phase 4 에 귀속.
+# latAccelFactor/friction/steerActuatorDelay/steerRatio 는 모두 Phase 5(조향)에 귀속.
 _KEY_RESET_PHASE = {
   **{k: 1 for k in _ACCEL_KEYS},
   "PathOffset": 2,
   **{k: 4 for k in _TFOLLOW_KEYS},
   _LONG_ACT_DELAY_KEY: 4, _LONG_KF_KEY: 4,
-  "latAccelFactor": 5, "friction": 5, "steerActuatorDelay": 5,
+  "latAccelFactor": 5, "friction": 5, "steerActuatorDelay": 5, "steerRatio": 5,
   "LongCoastBand": 9,
 }
 
@@ -282,6 +301,9 @@ class CarrotLearner:
     self._tq_str_samples = 0
     self._tq_str_overrides = 0
     self._tq_prev_pressed = False
+    # steerRatio 학습 (liveParameters 추정 누적, Phase 5 조향 그룹)
+    self._sr_sum = 0.0
+    self._sr_n = 0
     # Phase 9 (수동주행 기준분포 로거 → LongCoastBand). 모두 밴드별 누적.
     self._manual_coast_sec = [0.0] * _NUM_BANDS        # 무페달(코스팅) 누적 시간
     self._manual_coast_decel_sum = [0.0] * _NUM_BANDS  # 코스팅 중 자연 감속 크기 합 (m/s², 양수)
@@ -310,7 +332,8 @@ class CarrotLearner:
   def update(self, v_ego_kph, gas_pressed, engaged, gear_park,
              steer_deg=0.0, steer_pressed=False, brake_pressed=False,
              lead_drel=0.0, lead_v_kph=0.0, a_ego=0.0, v_cruise_kph=0.0,
-             gas_val=0.0, blinker=False, steer_torque=0.0, steer_deg_corr=None):
+             gas_val=0.0, blinker=False, steer_torque=0.0, steer_deg_corr=None,
+             steer_ratio_live=0.0, steer_ratio_valid=False):
     if not self.is_active():
       if self._params.get_bool("CarrotLearningPopupReady"):
         self._params.put_bool("CarrotLearningPopupReady", False)
@@ -406,6 +429,15 @@ class CarrotLearner:
         if steer_pressed:
           self._tq_str_overrides += 1
     self._tq_prev_pressed = steer_pressed
+
+    # ── steerRatio 수집: liveParameters(paramsd 칼만 추정)을 qualifying 구간에서 누적 ──
+    # 전용 추정기 출력을 '정답'으로 모은다. (override 휴리스틱으로 유추하면 latAccelFactor와
+    #  효과가 겹쳐 서로 밀어내며 진동하므로 사용하지 않음). 인게이지·일정속도·유효추정·
+    #  비깜빡이 구간만 신뢰.
+    if engaged and not blinker and steer_ratio_valid \
+       and v_ego_kph >= _SR_MIN_V_KPH and _SR_MIN <= steer_ratio_live <= _SR_MAX:
+      self._sr_sum += steer_ratio_live
+      self._sr_n += 1
 
     # ── Phase 9: 수동주행 기준분포 로거 (원본 commit 10fa725) ──────────
     # 비인게이지(=사람이 직접 운전) 주행 중, 속도밴드별 사람의 가속/브레이크감속/무페달
@@ -606,6 +638,25 @@ class CarrotLearner:
             "band_kph": reason, "is_float": True, "ntune": "common",
           }
 
+    # ── steerRatio (nTune common.json): liveParameters 추정 평균으로 보정 ──
+    # common.json은 제어방식(torque/indi) 무관이라 torque 게이트 밖에서 처리한다.
+    # 전용 추정기(paramsd) 출력의 평균을 nTune 고정값으로 굳힌다. useLiveSteerRatio=1
+    # 이면 컨트롤러는 라이브 값을 쓰므로 이 고정값은 '동결 백업'으로 의미.
+    if apply_lat and self._sr_n >= _SR_MIN_SAMPLES:
+      mean_sr = self._sr_sum / self._sr_n
+      common = _ntune_read(_NTUNE_COMMON_FILE)
+      cur_sr = float(common.get("steerRatio", _SR_DEFAULT))
+      if abs(mean_sr - cur_sr) >= _SR_DEADBAND:
+        # 세션당 변동 상한으로 급변 방지 후 nTune 유효범위 클램프
+        rec_sr = cur_sr + float(np.clip(mean_sr - cur_sr, -_SR_MAX_DELTA, _SR_MAX_DELTA))
+        rec_sr = round(float(np.clip(rec_sr, _SR_MIN, _SR_MAX)), 2)
+        if abs(rec_sr - cur_sr) >= 0.01:
+          result["조향 (Steering)"]["steerRatio"] = {
+            "current": round(cur_sr, 2), "recommended": rec_sr,
+            "band_kph": f"라이브 추정 평균 {mean_sr:.2f} (n={self._sr_n}) → steerRatio 보정",
+            "is_float": True, "ntune": "common",
+          }
+
     # ── Phase 4: TFollowGap ──
     if apply_long:
       for i in range(4):
@@ -711,6 +762,7 @@ class CarrotLearner:
           _ntune_write(path, data)
         elif info.get("ntune") == "common":
           # nTune common.json 직접 수정 → controlsd가 ntune_common_get으로 라이브 반영
+          # (steerActuatorDelay / steerRatio 모두 이 경로)
           data = _ntune_read(_NTUNE_COMMON_FILE)
           data[key] = float(info["recommended"])
           _ntune_write(_NTUNE_COMMON_FILE, data)
@@ -789,7 +841,7 @@ class CarrotLearner:
     self._prev_brake = False
 
   def _reset_phase5(self):
-    """토크 조향 (latAccelFactor/friction/steerActuatorDelay) — 방향 카운터 포함"""
+    """조향 (latAccelFactor/friction/steerActuatorDelay/steerRatio) — 방향·추정 카운터 포함"""
     self._tq_curve_samples = 0
     self._tq_curve_overrides = 0
     self._tq_under = 0
@@ -797,6 +849,9 @@ class CarrotLearner:
     self._tq_str_samples = 0
     self._tq_str_overrides = 0
     self._tq_prev_pressed = False
+    # steerRatio 누적도 함께 리셋 (Phase 5 조향 그룹 귀속)
+    self._sr_sum = 0.0
+    self._sr_n = 0
 
   def _reset_phase9(self):
     """수동주행 기준분포 로거 (LongCoastBand)"""
@@ -875,6 +930,8 @@ class CarrotLearner:
       self._tq_inner = int(tq.get("inner", 0))
       self._tq_str_samples = int(tq.get("str_samples", 0))
       self._tq_str_overrides = int(tq.get("str_overrides", 0))
+      self._sr_sum = float(tq.get("sr_sum", 0.0))
+      self._sr_n = int(tq.get("sr_n", 0))
     except Exception:
       pass  # 데이터 손상 시 기본값 유지
 
@@ -908,6 +965,8 @@ class CarrotLearner:
         "inner": self._tq_inner,
         "str_samples": self._tq_str_samples,
         "str_overrides": self._tq_str_overrides,
+        "sr_sum": self._sr_sum,
+        "sr_n": self._sr_n,
       },
     }
     self._params.put("CarrotLearningData", json.dumps(data))
