@@ -22,12 +22,23 @@ from selfdrive.controls.lib.latcontrol_pid import ERROR_RATE_FRAME
 LOW_SPEED_X = [0, 10, 20, 30]
 LOW_SPEED_Y = [15, 13, 10, 5]
 
+# ── 긴 커브 안쪽 파고듦 대응 (적분 와인드업 억제) ────────────────────────────
+# 원인: steerRatio 과대 등으로 생긴 미세 +오차가 긴 커브 내내 적분에 쌓여 토크가
+#       서서히 증가 → 점점 안쪽으로 파고듦. 두 가지로 막는다.
+#  (1) 소오차 적분 동결: 추종이 거의 맞은 뒤(잔차 작을 때) 새 누적 정지.
+#  (2) 적분 누설(leak): 정상 추종 중에도 쌓인 적분을 시간상수로 흘려보냄(pid.py).
+# 둘은 보완적이라 함께 사용한다(freeze=더 안 쌓이게 / leak=쌓인 걸 빼게).
+ERR_FREEZE_DEADZONE = 0.05   # 토크 단위(0~1). 실측 보고 0.03~0.08 조정
+I_LEAK_FACTOR = 0.999        # 적분 누설 @100Hz → τ≈1.0s. 0.998(τ≈0.5s)~0.9995(τ≈2.0s)
+
+
 class LatControlTorque(LatControl):
   def __init__(self, CP, CI):
     super().__init__(CP, CI)
     self.torque_params = CP.lateralTuning.torque
     self.pid = PIDController(self.torque_params.kp, self.torque_params.ki,
-                             k_f=self.torque_params.kf, pos_limit=self.steer_max, neg_limit=-self.steer_max)
+                             k_f=self.torque_params.kf, pos_limit=self.steer_max, neg_limit=-self.steer_max,
+                             i_leak_factor=I_LEAK_FACTOR)
     self.torque_from_lateral_accel = CI.torque_from_lateral_accel()
     self.use_steering_angle = self.torque_params.useSteeringAngle
     self.steering_angle_deadzone_deg = self.torque_params.steeringAngleDeadzoneDeg
@@ -75,8 +86,13 @@ class LatControlTorque(LatControl):
       ff = self.torque_from_lateral_accel(gravity_adjusted_lateral_accel, self.torque_params,
                                           desired_lateral_accel - actual_lateral_accel,
                                           lateral_accel_deadzone, friction_compensation=True)
-      
-      freeze_integrator = steer_limited or CS.steeringPressed or CS.vEgo < 5
+
+      # 소오차 구간 적분 동결(anti-windup): 추종이 거의 맞은 뒤에도 미세 +오차가
+      # 긴 커브 내내 적분에 쌓여 서서히 안쪽으로 파고드는 현상을 차단한다.
+      # error 는 횡가속도 오차의 토크 환산값(pid_log.error). 작은 잔차는 새 누적 정지.
+      # (이미 쌓인 적분은 pid.py 의 i_leak_factor 로 계속 흘러나간다)
+      low_error = abs(pid_log.error) < ERR_FREEZE_DEADZONE
+      freeze_integrator = steer_limited or CS.steeringPressed or CS.vEgo < 5 or low_error
       output_torque = self.pid.update(pid_log.error,
                                       feedforward=ff,
                                       speed=CS.vEgo,
