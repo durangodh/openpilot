@@ -1,5 +1,6 @@
 #include "selfdrive/ui/qt/offroad/settings.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <string>
@@ -418,6 +419,11 @@ void AutoTunerGraphWidget::setSelectedParam(const QString &param) {
   update();
 }
 
+void AutoTunerGraphWidget::setHiddenParams(const QSet<QString> &params) {
+  hidden_params = params;
+  update();
+}
+
 void AutoTunerGraphWidget::mousePressEvent(QMouseEvent *event) {
   if (timestamps.isEmpty()) return;
 
@@ -500,8 +506,9 @@ void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
   bool first_val = true;
 
   // 전체 파라미터 공통 글로벌 축 범위 계산 (일관된 스케일 유지)
-  // Show-All(미선택) 뷰에서는 대규모 스케일 파라미터를 축 계산에서 제외
+  // 접힌 그룹(hidden_params)은 제외, Show-All(미선택) 뷰에서는 대규모 스케일도 제외
   for (const QString &param : param_histories.keys()) {
+    if (hidden_params.contains(param)) continue;                          // 접힌 그룹: 그래프에서 제외
     if (selected_param.isEmpty() && isLargeScaleParam(param)) continue;
     QList<double> values = param_histories[param];
     if (values.size() != timestamps.size()) continue;
@@ -520,6 +527,7 @@ void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
   // Draw Line Paths
   painter.setBrush(Qt::NoBrush);
   for (const QString &param : param_histories.keys()) {
+    if (hidden_params.contains(param)) continue;                          // 접힌 그룹: 그래프에서 제외
     if (selected_param.isEmpty() && isLargeScaleParam(param)) continue;
     QList<double> values = param_histories[param];
     if (values.size() != timestamps.size()) continue;
@@ -842,17 +850,39 @@ void AutoTunerHistoryPanel::refreshHistory() {
     entries.append(item);
   }
 
-  // 1. 타임라인에 등장하는 모든 파라미터 수집
+  // 1. 타임라인에 등장하는 모든 파라미터 수집 + 각 파라미터의 그룹 라벨 기억
+  //    (가속/조향/곡선/거리/주행 등으로 좌측 리스트를 묶기 위함)
   QSet<QString> param_set;
+  group_params.clear();
   for (const auto& entry : entries) {
     QJsonObject changes = entry["changes"].toObject();
     for (const QString& group : changes.keys()) {
       QJsonObject g_items = changes[group].toObject();
       for (const QString& key : g_items.keys()) {
         param_set.insert(key);
+        if (!group_params[group].contains(key)) {
+          group_params[group].append(key);
+        }
       }
     }
   }
+
+  // 그룹 표시 순서: 가속 → 조향 → 곡선 → 거리 → 주행 → (초기값 프로파일 등 기타)
+  auto groupRank = [](const QString &g) -> int {
+    if (g.contains("Acceleration") && !g.contains("Profile")) return 0;
+    if (g.contains("Steering")) return 1;
+    if (g.contains("Curve")) return 2;
+    if (g.contains("Following Distance") && !g.contains("Profile")) return 3;
+    if (g.contains("Driving")) return 4;
+    return 10;  // 초기값 프로파일 및 기타 그룹은 뒤에
+  };
+  group_order = group_params.keys();
+  std::stable_sort(group_order.begin(), group_order.end(),
+                   [&](const QString &a, const QString &b) {
+                     int ra = groupRank(a), rb = groupRank(b);
+                     if (ra != rb) return ra < rb;
+                     return a.compare(b, Qt::CaseInsensitive) < 0;
+                   });
 
   // 2. 파라미터별 타임라인 값 보간 (이전 값 유지, 미래에서 초기값 추출)
   QMap<QString, QList<double>> param_histories;
@@ -913,42 +943,18 @@ void AutoTunerHistoryPanel::refreshHistory() {
     }
   }
 
-  // 파라미터 목록 (알파벳 정렬)
-  QStringList sorted_params = param_set.toList();
-  sorted_params.sort(Qt::CaseInsensitive);
-
-  for (const QString &param : sorted_params) {
-    QColor color = param_colors[param];
-
-    QPushButton *btn = new QPushButton();
-    btn->setStyleSheet("text-align: left; padding: 0px 15px; border-radius: 10px; background-color: #252525; color: white; font-size: 28px;");
-    btn->setFixedHeight(55);
-
-    QHBoxLayout *btn_layout = new QHBoxLayout(btn);
-    btn_layout->setContentsMargins(10, 0, 10, 0);
-    btn_layout->setSpacing(15);
-
-    // Color indicator dot
-    QLabel *dot = new QLabel();
-    dot->setFixedSize(20, 20);
-    dot->setStyleSheet(QString("background-color: %1; border-radius: 10px;").arg(color.name()));
-    btn_layout->addWidget(dot);
-
-    // Parameter name
-    QLabel *lbl = new QLabel(param);
-    lbl->setStyleSheet("color: white; font-size: 28px; font-weight: bold; background: transparent;");
-    btn_layout->addWidget(lbl, 1);
-    param_labels[param] = lbl;
-
-    connect(btn, &QPushButton::clicked, this, [=]() {
-      if (graph_widget) graph_widget->setSelectedParam(param);
-      selected_param = param;
-      updateLabelColors();
-    });
-
-    param_list_layout->addWidget(btn);
+  // 각 그룹 내 파라미터는 알파벳순 정렬
+  for (const QString &group : group_order) {
+    group_params[group].sort(Qt::CaseInsensitive);
   }
-  param_list_layout->addStretch();
+
+  // 더 이상 존재하지 않는 그룹은 collapsed 상태에서 제거 (이력 변경 대응)
+  for (const QString &g : collapsed_groups.values()) {
+    if (!group_params.contains(g)) collapsed_groups.remove(g);
+  }
+
+  // 좌측 리스트를 그룹 단위로 렌더링
+  rebuildParamList();
 
   if (graph_widget) {
     graph_widget->setData(timestamps, param_histories, param_colors);
@@ -958,6 +964,124 @@ void AutoTunerHistoryPanel::refreshHistory() {
     selected_param = "";
     if (graph_widget) graph_widget->setSelectedParam("");
   }
+  applyHiddenParams();
+  updateLabelColors();
+}
+
+// 좌측 파라미터 리스트를 그룹 헤더 + (펼쳐진 경우) 소속 파라미터 버튼으로 다시 그린다.
+// 그룹 헤더를 누르면 toggleGroup()으로 접기/펴기 + 그래프 표시가 토글된다.
+void AutoTunerHistoryPanel::rebuildParamList() {
+  // 기존 항목 제거
+  QLayoutItem *child;
+  while ((child = param_list_layout->takeAt(0)) != nullptr) {
+    if (child->widget()) delete child->widget();
+    delete child;
+  }
+  param_labels.clear();
+
+  // 그룹 라벨에서 표시용 짧은 이름 추출: "거리 (Following Distance)" → "Following Distance"
+  // 단, 이력 데이터의 그룹 키(=정렬/매칭 기준)는 그대로 두고 표시명만 바꾼다.
+  auto groupShortName = [](const QString &group) -> QString {
+    QString name;
+    int open = group.indexOf('(');
+    int close = group.lastIndexOf(')');
+    if (open >= 0 && close > open) {
+      name = group.mid(open + 1, close - open - 1).trimmed();
+    } else {
+      name = group.trimmed();
+    }
+    // 표시명만 "Following Distance" → "Following Gap" 으로 치환
+    if (name == "Following Distance") name = "Following Gap";
+    return name;
+  };
+
+  for (const QString &group : group_order) {
+    bool collapsed = collapsed_groups.contains(group);
+
+    // ── 그룹 헤더 (클릭 시 접기/펴기) ──
+    QPushButton *header_btn = new QPushButton();
+    // 헤더 바는 파라미터 항목(#252525)과 확실히 구분되도록 더 밝은 회색으로
+    header_btn->setStyleSheet("text-align: left; padding: 0px 12px; border-radius: 10px; background-color: #5a5f6b; color: white; font-size: 26px;");
+    header_btn->setFixedHeight(60);
+
+    QHBoxLayout *header_layout = new QHBoxLayout(header_btn);
+    header_layout->setContentsMargins(12, 0, 12, 0);
+    header_layout->setSpacing(12);
+
+    // 접힘/펼침 표시 화살표
+    QLabel *arrow = new QLabel(collapsed ? "▸" : "▾");
+    arrow->setStyleSheet(QString("color: %1; font-size: 26px; font-weight: bold; background: transparent;")
+                             .arg(collapsed ? "#777777" : "#ffffff"));
+    header_layout->addWidget(arrow);
+
+    QLabel *header_lbl = new QLabel(groupShortName(group));
+    header_lbl->setStyleSheet(QString("color: %1; font-size: 26px; font-weight: bold; background: transparent;")
+                                  .arg(collapsed ? "#777777" : "#ffffff"));
+    header_layout->addWidget(header_lbl, 1);
+
+    connect(header_btn, &QPushButton::clicked, this, [=]() { toggleGroup(group); });
+    param_list_layout->addWidget(header_btn);
+
+    // ── 소속 파라미터들 (접혀있으면 그리지 않음) ──
+    if (collapsed) continue;
+    for (const QString &param : group_params[group]) {
+      QColor color = param_colors.value(param, QColor(Qt::white));
+
+      QPushButton *btn = new QPushButton();
+      btn->setStyleSheet("text-align: left; padding: 0px 15px; border-radius: 10px; background-color: #252525; color: white; font-size: 28px;");
+      btn->setFixedHeight(55);
+
+      QHBoxLayout *btn_layout = new QHBoxLayout(btn);
+      btn_layout->setContentsMargins(22, 0, 10, 0);  // 그룹 소속 표시를 위해 약간 들여쓰기
+      btn_layout->setSpacing(15);
+
+      QLabel *dot = new QLabel();
+      dot->setFixedSize(20, 20);
+      dot->setStyleSheet(QString("background-color: %1; border-radius: 10px;").arg(color.name()));
+      btn_layout->addWidget(dot);
+
+      QLabel *lbl = new QLabel(param);
+      lbl->setStyleSheet("color: white; font-size: 28px; font-weight: bold; background: transparent;");
+      btn_layout->addWidget(lbl, 1);
+      param_labels[param] = lbl;
+
+      connect(btn, &QPushButton::clicked, this, [=]() {
+        if (graph_widget) graph_widget->setSelectedParam(param);
+        selected_param = param;
+        updateLabelColors();
+      });
+
+      param_list_layout->addWidget(btn);
+    }
+  }
+  param_list_layout->addStretch();
+}
+
+// 접혀있는 그룹들의 소속 파라미터를 모아 그래프에서 숨긴다.
+void AutoTunerHistoryPanel::applyHiddenParams() {
+  QSet<QString> hidden;
+  for (const QString &group : collapsed_groups.values()) {
+    for (const QString &param : group_params.value(group)) {
+      hidden.insert(param);
+    }
+  }
+  if (graph_widget) graph_widget->setHiddenParams(hidden);
+}
+
+// 그룹 헤더 클릭 핸들러: 접기/펴기 상태를 토글하고 리스트·그래프를 갱신한다.
+void AutoTunerHistoryPanel::toggleGroup(const QString &group) {
+  if (collapsed_groups.contains(group)) {
+    collapsed_groups.remove(group);
+  } else {
+    collapsed_groups.insert(group);
+    // 접는 그룹에 현재 선택된 파라미터가 있으면 선택 해제 (숨겨지므로)
+    if (!selected_param.isEmpty() && group_params.value(group).contains(selected_param)) {
+      selected_param = "";
+      if (graph_widget) graph_widget->setSelectedParam("");
+    }
+  }
+  rebuildParamList();
+  applyHiddenParams();
   updateLabelColors();
 }
 
