@@ -8,31 +8,26 @@ from selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
 from selfdrive.controls.lib.lateral_planner import LateralPlanner
 from selfdrive.hardware import TICI
 import cereal.messaging as messaging
-
-
 def plannerd_thread(sm=None, pm=None):
   config_realtime_process(5 if TICI else 2, Priority.CTRL_LOW)
-
   cloudlog.info("plannerd is waiting for CarParams")
   params = Params()
   CP = car.CarParams.from_bytes(params.get("CarParams", block=True))
   cloudlog.info("plannerd got CarParams: %s", CP.carName)
-
   debug_mode = bool(int(os.getenv("DEBUG", "0")))
   
   use_lanelines = False
   wide_camera = params.get_bool('WideCameraOnly')
   cloudlog.event("e2e mode", on=use_lanelines)
-
   longitudinal_planner = LongitudinalPlanner(CP)
   lateral_planner = LateralPlanner(CP, use_lanelines=use_lanelines, wide_camera=wide_camera, debug=debug_mode)
-
   if sm is None:
-    sm = messaging.SubMaster(['carControl', 'carState', 'controlsState', 'radarState', 'modelV2', 'longitudinalPlan', 'lateralPlan'],
-                             poll=['radarState', 'modelV2'], ignore_avg_freq=['radarState'])
+    # 'liveParameters' 추가: Auto-Tuner의 steerRatio 학습 입력(paramsd 칼만 추정).
+    # poll/ignore에는 넣지 않아 modelV2 주기에 맞춰 최신값만 읽는다(저속 갱신이라 무해).
+    sm = messaging.SubMaster(['carControl', 'carState', 'controlsState', 'radarState', 'modelV2', 'longitudinalPlan', 'lateralPlan', 'liveParameters'],
+                             poll=['radarState', 'modelV2'], ignore_avg_freq=['radarState', 'liveParameters'])
   if pm is None:
     pm = messaging.PubMaster(['longitudinalPlan', 'lateralPlan'])
-
   while True:
     sm.update()
     if sm.updated['modelV2']:
@@ -40,11 +35,7 @@ def plannerd_thread(sm=None, pm=None):
       lateral_planner.publish(sm, pm)
       longitudinal_planner.update(sm)
       longitudinal_planner.publish(sm, pm)
-
-
 def main(sm=None, pm=None):
   plannerd_thread(sm, pm)
-
-
 if __name__ == "__main__":
   main()
