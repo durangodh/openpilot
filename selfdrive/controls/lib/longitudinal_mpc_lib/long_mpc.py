@@ -80,7 +80,7 @@ T_FOLLOW_MAX_RATE  = 0.20  # t_follow 최대 변화속도 (s/s) — rate limiter
 # (원본 Lever C=JLeadFactor3 속도연동 증폭은 이 포크에 jLead 신호가 없어 제외)
 HIGH_SPEED_BRAKE_KPH = 70.0          # 이 속도(km/h) 이상에서만 선제 확대 적용
 HIGH_SPEED_BRAKE_TTC = 7.0           # 접근 TTC(초)가 이 값 미만이면 활성
-HIGH_SPEED_TF_BOOST  = 0.45          # t_follow 최대 선제 확대량(초)
+HIGH_SPEED_TF_BOOST  = 0.3          # t_follow 최대 선제 확대량(초)
 # ────────────────────────────────────────────────────────────────────────────
 
 
