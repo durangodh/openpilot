@@ -32,7 +32,7 @@ A_CRUISE_MAX_BP = [0., 10., 25., 40.]
 # 일정 jerk 상한은 onset에서 jerk가 0→상한으로 '계단'처럼 튀어(=jounce 스파이크) 시작
 # jolt를 남긴다. 시작 직후 jerk를 점증시키면 가속도가 S자로 부드럽게 붙는다.
 JERK_EASE_TIME  = 0.4   # 새 maneuver 시작 후 jerk를 100%로 키우는 시간(s)
-JERK_EASE_FLOOR = 0.3   # 시작 시 jerk 비율 하한(너무 굼뜨지 않게)
+JERK_EASE_FLOOR = 0.4   # 시작 시 jerk 비율 하한(너무 굼뜨지 않게)
 # 고속 제동 안전 우회: 고속에서 선행차 접근 중이면 ease를 풀어(=즉응) 감지 초기부터
 # 충분한 제동이 미리 들어가게 한다(고속 늦은 감지로 인한 충돌 우려 대응).
 HIGH_SPEED_BRAKE_KPH = 70.0
