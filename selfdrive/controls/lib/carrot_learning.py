@@ -61,6 +61,22 @@ CarrotPilot Auto-Tuner 포팅판 (원본 commit 9dd5e2c, selfdrive/carrot/carrot
             읽어, 해당 카테고리의 누적 자체를 건너뛴다.
               - apply_lat  : Phase 2(PathOffset) / Phase 5(토크 조향) / steerRatio 게이트
               - apply_long : Phase 1(가속) / Phase 4(추종거리) / Phase 9(수동주행 로거) 게이트
+
+추가 (원본 commit ffec86e, LateralTorqueKpV/KiV 대상 → latAccelFactor/friction에 적응):
+  [Phase 5 진동-우선 판정] 원본은 커브 추종오차의 '부호 패턴'(반전=진동 / 유지=정상상태
+            lag)으로 KpV/KiV 방향을 정해, 진동으로 생긴 오차를 '게인 부족'으로 오인해
+            무한 상향시키던 발산 버그를 막는다. 이 포크엔 KpV/KiV(Params 기반 피드백
+            게인)도 steer_err(추종오차)도 없으므로, 이미 수집 중인 '개입 방향'
+            (tq_under=조향력부족 / tq_inner=안쪽쏠림)의 반전 패턴을 진동 신호로 대신
+            쓴다: 방향이 자주 뒤집히면 개입 비율(크기)만 보고 latAccelFactor를 계속
+            같은 쪽으로 밀어붙이지 않고 토크를 완화하는 쪽으로만 조정한다. 고속 직선
+            핑퐁(개입 없이 조향각 자체가 0 근처에서 반복 반전)도 원본과 동일 로직으로
+            별도 검출해 같은 완화 경로에 합류시킨다.
+            [정상상태 lag → Kp 보조 상향] 진동이 아니라 방향이 꾸준히 한쪽으로 유지되면
+            (정상상태 lag), 원본처럼 FF(이 포크에선 friction)가 이미 충분할 때만
+            latAccelFactor를 작은 스텝(_LAF_STEADY_STEP)으로 보조 조정한다. friction이
+            아직 부족하면 기존 비율(≥30%) 기반 언더/이너 분기가 friction부터 채우도록
+            우선순위를 양보한다.
 """
 import os
 import json
@@ -113,6 +129,24 @@ _TQ_OVERRIDE_HI = 0.30                     # 개입 비율 이 이상이면 보�
 _TQ_DIR_DOMINANCE = 1.5                    # 한 방향 개입이 반대의 1.5배 이상일 때만
 _LAF_STEP = 0.10                           # latAccelFactor 1회 변화량
 _LAF_MIN, _LAF_MAX = 1.0, 4.0
+
+# ── 진동-우선 판정 (commit ffec86e 적응, 원본은 LateralTorqueKpV/KiV 대상) ──────
+# 이 포크엔 KpV/KiV(Params 기반 피드백 게인)가 없어 latAccelFactor/friction(nTune)에
+# 대신 적용한다. 원본의 '추종오차 부호패턴'은 이 포크에 없으므로(steer_err 미보유),
+# 대신 이미 수집 중인 '개입 방향(tq_under=조향력부족 / tq_inner=안쪽쏠림)'의 반전
+# 패턴을 진동 신호로 쓴다: 방향이 자주 뒤집히면 = latAccelFactor가 실제로는 맞는데
+# 진동으로 잘못 개입되는 것 → 크기 신호(override_ratio)만 보고 계속 밀어붙이면
+# (구버전 KpV처럼) 발산한다. 고속 직선 핑퐁(개입 없이 조향각 자체가 흔들림)도
+# 원본과 동일 로직으로 별도 검출한다.
+_TQ_OSC_MIN = 6                # 커브 개입방향 반전(진동) 판정 최소 누적
+_TQ_STEADY_MIN = 15             # 커브 개입방향 유지(정상상태 편향) 판정 최소 누적
+_TQ_PINGPONG_MIN_KPH = 70.0     # 고속 직선 핑퐁 검출 최소 속도
+_TQ_PINGPONG_DEG = 0.4          # 핑퐁 반전 판정 조향각 데드밴드 (도)
+_TQ_PINGPONG_MIN_COUNT = 15     # 직선 핑퐁 판정 최소 반전 횟수
+_LAF_OSC_STEP = 0.10            # 진동 감지 시 latAccelFactor 완화(토크↓) 스텝
+_FRICTION_SUFFICIENT = 0.12     # friction 이 이 이상이면 'FF(마찰보정) 충분' 판정
+_LAF_STEADY_STEP = 0.05         # 정상상태 lag 보조 상향/완화 스텝 (기존 _LAF_STEP의 절반)
+# ────────────────────────────────────────────────────────────────────────
 _TQ_MIN_STR_SAMPLES = 400                  # 직선 약 20초
 _STR_OVERRIDE_HI = 0.35                    # friction 상향 기준
 _STR_OVERRIDE_LO = 0.05                    # friction 하향 수렴 기준
@@ -310,6 +344,12 @@ class CarrotLearner:
     self._tq_str_samples = 0
     self._tq_str_overrides = 0
     self._tq_prev_pressed = False
+    # 진동-우선 판정용 (commit ffec86e 적응)
+    self._tq_osc_count = 0          # 커브 개입방향 반전(진동) 누적
+    self._tq_steady_count = 0       # 커브 개입방향 유지(정상상태 편향) 누적
+    self._tq_straight_reversal = 0  # 고속 직선 조향각 반전(핑퐁) 누적
+    self._prev_tq_dir_sign = 0      # 직전 개입방향 부호 (+1 under / -1 inner)
+    self._prev_tq_straight_sign = 0 # 직전 직선 조향각 부호 (핑퐁 검출)
     # steerRatio 학습 (liveParameters 추정 누적, Phase 5 조향 그룹)
     self._sr_sum = 0.0
     self._sr_n = 0
@@ -439,15 +479,43 @@ class CarrotLearner:
         if steer_pressed:
           self._tq_curve_overrides += 1
           if not self._tq_prev_pressed:  # 개입 이벤트당 1회만 방향 판정
+            dir_sign = 0
             if steer_torque * steer_deg > 0:
               self._tq_under += 1        # 같은 방향으로 더 꺾음 → 조향력 부족
+              dir_sign = 1
             elif steer_torque * steer_deg < 0:
               self._tq_inner += 1        # 반대 방향으로 풀어줌 → 안쪽 쏠림
+              dir_sign = -1
+            # ── 진동-우선 판정 (commit ffec86e 적응) ──────────────────────
+            # 개입 방향의 '크기'가 아니라 '부호 반전 패턴'을 본다.
+            # 방향 반전(zero-crossing) = 진동(latAccelFactor가 실제로는
+            # 맞는데 진동으로 잘못 개입됨) / 방향 유지 = 정상상태 편향(실제 부족/과다).
+            # (구버전은 override_ratio(크기)만 보고 계속 밀어붙여 발산 위험)
+            if dir_sign != 0:
+              if self._prev_tq_dir_sign != 0:
+                if dir_sign != self._prev_tq_dir_sign:
+                  self._tq_osc_count += 1     # 방향 반전 → 진동
+                else:
+                  self._tq_steady_count += 1  # 방향 유지 → 정상상태 편향
+              self._prev_tq_dir_sign = dir_sign
       elif v_ego_kph >= 30.0 and abs(steer_deg) < _TQ_CURVE_DEG:
         # 완만/직선 구간: friction 학습용 미세 개입 비율
         self._tq_str_samples += 1
+        self._prev_tq_dir_sign = 0  # 커브 종료 → 진동 부호 추적 초기화(구간 간 오검출 방지)
         if steer_pressed:
           self._tq_str_overrides += 1
+        # 고속 직선 핑퐁(latAccelFactor 과다 개입) 검출: 운전자 개입 없이
+        # 조향각이 0 근처에서 반복 반전 → 순수 토크 과다 신호 (commit ffec86e).
+        elif v_ego_kph >= _TQ_PINGPONG_MIN_KPH:
+          s_sign = 0
+          if steer_deg > _TQ_PINGPONG_DEG:
+            s_sign = 1
+          elif steer_deg < -_TQ_PINGPONG_DEG:
+            s_sign = -1
+          if s_sign != 0:
+            if self._prev_tq_straight_sign != 0 and s_sign != self._prev_tq_straight_sign:
+              self._tq_straight_reversal += 1
+            self._prev_tq_straight_sign = s_sign
     self._tq_prev_pressed = steer_pressed
 
     # ── steerRatio 수집: liveParameters(paramsd 칼만 추정)을 qualifying 구간에서 누적 ──
@@ -594,9 +662,52 @@ class CarrotLearner:
       #     latAccelFactor는 분모이므로 값↓ = 토크↑.
       #     언더스티어(조향력 부족) → factor↓ + friction↑ (응답 보강)
       #     안쪽 쏠림            → factor↑ + friction↓ (응답 완화)
+      #
+      #     ── 진동-우선 판정 (commit ffec86e 적응) ──────────────────────
+      #     핵심 개선: 개입 '비율(크기)'만 보고 방향으로 계속 밀어붙이면, 진동이
+      #     만든 개입도 '방향성 편향'으로 오인해 latAccelFactor를 계속 같은
+      #     방향으로 밀어 발산할 수 있다(원본 KpV 무한상향 버그와 동일 패턴).
+      #     개입 방향의 부호가 자주 반전(진동)되거나 고속 직선에서 조향각 자체가
+      #     핑퐁이면, 방향성 판단(언더/이너) 대신 토크를 완화하는 쪽으로만 조정한다.
       cur_fr_curve = float(tq.get("friction", 0.08))
       fr_from_curve = None
-      if self._tq_curve_samples >= _TQ_MIN_CURVE_SAMPLES and self._tq_curve_overrides > 0:
+      curve_osc_dominant = (self._tq_osc_count >= _TQ_OSC_MIN
+                            and self._tq_osc_count > self._tq_steady_count)
+      straight_pingpong = self._tq_straight_reversal >= _TQ_PINGPONG_MIN_COUNT
+      if straight_pingpong or curve_osc_dominant:
+        cur_laf = float(tq.get("latAccelFactor", 2.7))
+        rec_laf = min(_LAF_MAX, round(cur_laf + _LAF_OSC_STEP, 3))
+        fr_from_curve = max(_FRICTION_MIN, round(cur_fr_curve - _FRICTION_STEP, 3))
+        reason = (f"고속 핑퐁/진동 감지 → 조향력 완화 "
+                 f"(방향반전 {self._tq_osc_count}회, 직선반전 {self._tq_straight_reversal}회)")
+        if rec_laf != cur_laf:
+          result["조향 (Steering)"]["latAccelFactor"] = {
+            "current": round(cur_laf, 3), "recommended": rec_laf,
+            "band_kph": reason, "is_float": True, "ntune": "torque",
+          }
+      elif (self._tq_steady_count >= _TQ_STEADY_MIN and self._tq_osc_count < _TQ_OSC_MIN
+            and self._tq_curve_samples >= _TQ_MIN_CURVE_SAMPLES
+            and (self._tq_curve_overrides / self._tq_curve_samples) < _TQ_OVERRIDE_HI):
+        # 정상상태 lag(방향 반전 없이 한쪽으로 꾸준히 개입): 원본은 이 경우 FF(Kf)
+        # 강화를 우선시하고, FF가 이미 충분할 때만 Kp를 보조로 소폭 상향한다.
+        # 이 포크의 FF 대응 파라미터는 friction 이므로, friction이 이미 '충분'
+        # (_FRICTION_SUFFICIENT 이상)할 때만 latAccelFactor를 작은 스텝으로 보조
+        # 조정한다. friction이 아직 부족하면 아래 비율 기반(≥30%) 분기가 언더/이너
+        # 판정으로 latAccelFactor+friction을 함께 채우도록 그대로 둔다(우선순위 양보).
+        if cur_fr_curve >= _FRICTION_SUFFICIENT and self._tq_under != self._tq_inner:
+          cur_laf = float(tq.get("latAccelFactor", 2.7))
+          if self._tq_under > self._tq_inner:
+            rec_laf = max(_LAF_MIN, round(cur_laf - _LAF_STEADY_STEP, 3))
+            reason = f"정상상태 조향력 부족 지속 (FF 충분, 보조 상향 {self._tq_under}회)"
+          else:
+            rec_laf = min(_LAF_MAX, round(cur_laf + _LAF_STEADY_STEP, 3))
+            reason = f"정상상태 안쪽쏠림 지속 (FF 충분, 보조 완화 {self._tq_inner}회)"
+          if rec_laf != cur_laf:
+            result["조향 (Steering)"]["latAccelFactor"] = {
+              "current": round(cur_laf, 3), "recommended": rec_laf,
+              "band_kph": reason, "is_float": True, "ntune": "torque",
+            }
+      elif self._tq_curve_samples >= _TQ_MIN_CURVE_SAMPLES and self._tq_curve_overrides > 0:
         ratio = self._tq_curve_overrides / self._tq_curve_samples
         cur_laf = float(tq.get("latAccelFactor", 2.7))
         rec_laf, reason = cur_laf, ""
@@ -869,6 +980,12 @@ class CarrotLearner:
     self._tq_str_samples = 0
     self._tq_str_overrides = 0
     self._tq_prev_pressed = False
+    # 진동/핑퐁 카운터도 함께 리셋 (commit ffec86e 적응)
+    self._tq_osc_count = 0
+    self._tq_steady_count = 0
+    self._tq_straight_reversal = 0
+    self._prev_tq_dir_sign = 0
+    self._prev_tq_straight_sign = 0
     # steerRatio 누적도 함께 리셋 (Phase 5 조향 그룹 귀속)
     self._sr_sum = 0.0
     self._sr_n = 0
@@ -950,6 +1067,9 @@ class CarrotLearner:
       self._tq_inner = int(tq.get("inner", 0))
       self._tq_str_samples = int(tq.get("str_samples", 0))
       self._tq_str_overrides = int(tq.get("str_overrides", 0))
+      self._tq_osc_count = int(tq.get("osc_count", 0))
+      self._tq_steady_count = int(tq.get("steady_count", 0))
+      self._tq_straight_reversal = int(tq.get("straight_reversal", 0))
       self._sr_sum = float(tq.get("sr_sum", 0.0))
       self._sr_n = int(tq.get("sr_n", 0))
     except Exception:
@@ -985,6 +1105,9 @@ class CarrotLearner:
         "inner": self._tq_inner,
         "str_samples": self._tq_str_samples,
         "str_overrides": self._tq_str_overrides,
+        "osc_count": self._tq_osc_count,
+        "steady_count": self._tq_steady_count,
+        "straight_reversal": self._tq_straight_reversal,
         "sr_sum": self._sr_sum,
         "sr_n": self._sr_n,
       },
