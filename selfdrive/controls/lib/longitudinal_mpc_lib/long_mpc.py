@@ -83,6 +83,19 @@ HIGH_SPEED_BRAKE_TTC = 7.0           # 접근 TTC(초)가 이 값 미만이면 �
 HIGH_SPEED_TF_BOOST  = 0.3          # t_follow 최대 선제 확대량(초)
 # ────────────────────────────────────────────────────────────────────────────
 
+# ── 속도-가변 차간거리 (commit dff7287 포팅, 원본 carrot_functions.py get_T_FOLLOW) ──
+# 고정 stop_distance가 저속 time-gap을 부풀려 'time-gap 역전'이 생긴다
+# (예: 5-15kph 3.4s vs 45kph+ 1.6s → 저속이 과도하게 넓고 중고속은 좁음). 속도가
+# 낮을수록 t_follow를 약간 줄여(≤30 좁게) 저속 간격을 당기고, 높을수록 늘려
+# (≥30 넓게) time-gap을 정상화한다 (저속 좁게 / 고속 넓게).
+# 원본은 GAP별 tr 산출 함수(get_T_FOLLOW) 내부 clip 이후에 적용해 clip 하한에
+# 막히지 않게 했다. 이 포크는 그 함수가 없으므로 update()에서 GAP별 tr(=tr_base)
+# 계산 직후, HF/rate-limiter 적용 전에 동일하게 적용한다.
+_SPDTF_BP    = [20.0, 32.0, 50.0, 80.0]   # 속도 보간점(km/h)
+_SPDTF_DELTA = [-0.20, 0.0, 0.18, 0.28]   # 위 속도에서 t_follow 가감(초)
+_SPDTF_MIN   = 0.55                        # 보정 후 t_follow 안전 하한(초)
+# ────────────────────────────────────────────────────────────────────────────
+
 
 def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, krkeegan=False):
   if not krkeegan:
@@ -533,8 +546,18 @@ class LongitudinalMpc:
     else:
       tr = interp(float(cruise_gap), CRUISE_GAP_BP, CRUISE_GAP_V if self.mode == 'acc' else CRUISE_GAP_E2E_V)
 
+    # ── 속도-가변 차간거리 (commit dff7287 포팅) ────────────────────────────
+    # 고정 stop_distance로 인한 저속 time-gap 역전 보정: 저속(≤30km/h)은 t_follow를
+    # 줄여 간격을 좁히고, 고속(≥30km/h)은 늘려 넓힌다. GAP/학습값 기반 tr(base) 위에
+    # 적용하며, 이후 HF·rate-limiter·Lever A가 이 조정된 base를 그대로 이어받는다.
+    # (acc 모드 전용; e2e는 별도 CRUISE_GAP_E2E_V 튜닝값을 쓰므로 대상에서 제외)
+    if self.mode == 'acc':
+      v_kph = v_ego * CV.MS_TO_KPH
+      tr = max(tr + float(interp(v_kph, _SPDTF_BP, _SPDTF_DELTA)), _SPDTF_MIN)
+    # ─────────────────────────────────────────────────────────────────────
+
     self.t_follow = tr
-    tr_base = tr  # HF lead_ramp 보간 기준점 (학습된 base 포함)
+    tr_base = tr  # HF lead_ramp 보간 기준점 (학습된 base + 속도-가변 보정 포함)
     self.stop_dist = STOP_DISTANCE if self.mode == 'acc' else STOP_DISTANCE_E2E
 
     # ── Human-Like Following: multiplier 초기화 (매 update마다 리셋) ────────
@@ -556,7 +579,7 @@ class LongitudinalMpc:
     # ─────────────────────────────────────────────────────────────────────
 
     # ── t_follow rate limiter: 급격한 변화 방지 ──────────────────────────
-    # (Auto-Tuner 학습값 적용/GAP 전환 시 점프도 이 limiter가 완만하게 처리)
+    # (Auto-Tuner 학습값 적용/GAP 전환/속도-가변 보정 점프도 이 limiter가 완만하게 처리)
     t_follow_delta = self.t_follow - self._t_follow_smooth
     max_delta      = T_FOLLOW_MAX_RATE * DT_UPDATE
     self._t_follow_smooth += float(np.clip(t_follow_delta, -max_delta, max_delta))
