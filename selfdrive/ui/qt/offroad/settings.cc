@@ -702,28 +702,24 @@ AutoTunerHistoryPanel::AutoTunerHistoryPanel(QWidget* parent) : QFrame(parent) {
     if (p.get("CarrotTunerApplyLong").empty()) p.putBool("CarrotTunerApplyLong", true);
   }
 
+  // (commit dff7287) 터치 면적을 키우기 위해 가로로 길던 버튼을 정사각형에 가깝게
+  // 바꾸고 두 개를 나란히(좌우) 배치한다. 글씨는 3줄로 표시.
   QPushButton *lat_toggle = new QPushButton(this);
-  lat_toggle->setFixedHeight(75);
+  lat_toggle->setFixedHeight(150);
   QPushButton *long_toggle = new QPushButton(this);
-  long_toggle->setFixedHeight(75);
+  long_toggle->setFixedHeight(150);
 
   auto updateToggles = [=]() {
     bool apply_lat = Params().getBool("CarrotTunerApplyLat");
     bool apply_long = Params().getBool("CarrotTunerApplyLong");
-    if (apply_lat) {
-      lat_toggle->setText("Apply LAT (Steering): ON");
-      lat_toggle->setStyleSheet("background-color: #bb3333; font-size: 26px; font-weight: bold; border-radius: 10px; color: white;");
-    } else {
-      lat_toggle->setText("Apply LAT (Steering): OFF");
-      lat_toggle->setStyleSheet("background-color: #4a5568; font-size: 26px; font-weight: bold; border-radius: 10px; color: white;");
-    }
-    if (apply_long) {
-      long_toggle->setText("Apply LONG (Accel): ON");
-      long_toggle->setStyleSheet("background-color: #bb3333; font-size: 26px; font-weight: bold; border-radius: 10px; color: white;");
-    } else {
-      long_toggle->setText("Apply LONG (Accel): OFF");
-      long_toggle->setStyleSheet("background-color: #4a5568; font-size: 26px; font-weight: bold; border-radius: 10px; color: white;");
-    }
+    // 활성(ON)/비활성(OFF) 색상은 포크 기존 배색(빨강/회색) 유지. 3줄 텍스트가
+    // 박스를 넘지 않도록 폰트 크기만 26px→22px로 축소 (commit dff7287).
+    QString on_style = "background-color: #bb3333; font-size: 22px; font-weight: bold; border-radius: 10px; color: white;";
+    QString off_style = "background-color: #4a5568; font-size: 22px; font-weight: bold; border-radius: 10px; color: white;";
+    lat_toggle->setText(tr("Apply LAT\n(Steering)\n%1").arg(apply_lat ? "ON" : "OFF"));
+    lat_toggle->setStyleSheet(apply_lat ? on_style : off_style);
+    long_toggle->setText(tr("Apply LONG\n(Accel/Brake)\n%1").arg(apply_long ? "ON" : "OFF"));
+    long_toggle->setStyleSheet(apply_long ? on_style : off_style);
   };
   updateToggles();
 
@@ -738,8 +734,12 @@ AutoTunerHistoryPanel::AutoTunerHistoryPanel(QWidget* parent) : QFrame(parent) {
     updateToggles();
   });
 
-  toggles_layout->addWidget(lat_toggle);
-  toggles_layout->addWidget(long_toggle);
+  // (commit dff7287) 두 토글을 좌우로 나란히 배치 (각각 정사각형에 가까운 형태)
+  QHBoxLayout *apply_row = new QHBoxLayout();
+  apply_row->setSpacing(10);
+  apply_row->addWidget(lat_toggle);
+  apply_row->addWidget(long_toggle);
+  toggles_layout->addLayout(apply_row);
   left_layout->addLayout(toggles_layout);
 
   // Right Column: Chart + Controls
