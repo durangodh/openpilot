@@ -52,6 +52,15 @@ CarrotPilot Auto-Tuner 포팅판 (원본 commit 9dd5e2c, selfdrive/carrot/carrot
             제동에서만 파생시켜, 플래너 onset jerk 완화로 생긴 '여유 감속'이 다시
             longKf를 끌어올려 제동을 날카롭게 만드는 악순환을 차단한다. 여유 감속은
             Phase 4 TFollowGap '넓히기'(_tfollow_brake_acc)로만 흡수된다.
+
+추가 (원본 commit dff7287):
+  [Apply LAT/LONG 토글 ↔ 학습 게이팅 연동] 기존에는 Apply LAT/LONG 토글이 추천 계산
+            (_calc_recommendations)에만 반영되어, 토글을 꺼둔 상태에서도 원시 데이터
+            누적(update)은 계속 진행됐다. 그 결과 꺼둔 동안 쌓인 데이터가 토글을 다시
+            켤 때 한꺼번에 반영되는 문제가 있었다. 이제 update() 진입 시점에 두 토글을
+            읽어, 해당 카테고리의 누적 자체를 건너뛴다.
+              - apply_lat  : Phase 2(PathOffset) / Phase 5(토크 조향) / steerRatio 게이트
+              - apply_long : Phase 1(가속) / Phase 4(추종거리) / Phase 9(수동주행 로거) 게이트
 """
 import os
 import json
@@ -353,11 +362,22 @@ class CarrotLearner:
     if engaged:
       self._has_driven = True
 
+    # Apply 토글(LAT/LONG)이 꺼져 있으면 해당 카테고리의 학습(데이터 누적)도 함께
+    # 멈춘다. (commit dff7287) 과거에는 토글이 추천 계산(_calc_recommendations)에만
+    # 반영되어, 꺼둔 동안에도 누적은 계속되다가 다시 켰을 때 한꺼번에 반영되는
+    # 문제가 있었다. 이제 update() 진입 시점에 읽어 누적 자체를 게이팅한다.
+    #   - apply_lat  : Phase 2(PathOffset) / Phase 5(토크 조향) / steerRatio 게이트
+    #   - apply_long : Phase 1(가속) / Phase 4(추종거리) / Phase 9(수동주행 로거) 게이트
+    raw_lat = self._params.get("CarrotTunerApplyLat", encoding='utf8')
+    raw_long = self._params.get("CarrotTunerApplyLong", encoding='utf8')
+    apply_lat = True if not raw_lat else raw_lat.strip() == "1"
+    apply_long = True if not raw_long else raw_long.strip() == "1"
+
     # 학습 제외 조건 (깜빡이 / 극단적 가속)
     exclude = blinker or (a_ego > 2.2) or (gas_val > 0.7)
 
     # ── Phase 1: 가속 개입 (설정속도 오버라이드 목적 가속은 제외) ──
-    if engaged and gas_pressed and v_ego_kph >= 1.0 \
+    if apply_long and engaged and gas_pressed and v_ego_kph >= 1.0 \
        and v_ego_kph < (v_cruise_kph - 3.0) and not exclude:
       i = _speed_band(v_ego_kph)
       self._gas_acc[i] += _DT
@@ -366,7 +386,7 @@ class CarrotLearner:
     # 가속 과다 방지: 선행차 없는데 브레이크를 밟는 패턴 (40km/h 이상에서만)
     # (선행차 추종 제동(lead_drel 유효)은 여기서 제외 → 가속 한계 신호 오귀속 방지.
     #  원본 commit fix3 의도가 이 수집 조건으로 이미 충족됨)
-    if engaged and brake_pressed and v_ego_kph >= 40.0 \
+    if apply_long and engaged and brake_pressed and v_ego_kph >= 40.0 \
        and (lead_drel == 0.0 or lead_drel > 120.0) and not blinker:
       i = _speed_band(v_ego_kph)
       self._gas_dec_acc[i] += _DT
@@ -374,14 +394,14 @@ class CarrotLearner:
     # ── Phase 2: 직진 편차 (PathOffset) ──
     # 센서 영점 오프셋(angleOffsetDeg) 오학습 방지:
     # controlsState.angleSteers(보정값)가 전달되면 그것을 누적, 없으면 raw 사용
-    if engaged and v_ego_kph >= 20.0 and abs(steer_deg) < _STRAIGHT_DEG \
+    if apply_lat and engaged and v_ego_kph >= 20.0 and abs(steer_deg) < _STRAIGHT_DEG \
        and not steer_pressed and not blinker:
       dev_deg = steer_deg_corr if steer_deg_corr is not None else steer_deg
       self._steer_acc += dev_deg
       self._steer_count += 1
 
     # ── Phase 4: 선행차 추종 중 페달 개입 ──
-    if engaged and v_ego_kph >= _TFOLLOW_MIN_V_KPH \
+    if apply_long and engaged and v_ego_kph >= _TFOLLOW_MIN_V_KPH \
        and 0.0 < lead_drel < _TFOLLOW_MAX_LEAD_DREL:
       gi = self._current_gap - 1
       if gas_pressed and not exclude:
@@ -412,7 +432,7 @@ class CarrotLearner:
     self._prev_brake = brake_pressed
 
     # ── Phase 5: 토크 조향 파라미터 (nTune) ──
-    if engaged and not blinker:
+    if apply_lat and engaged and not blinker:
       if v_ego_kph >= _TQ_MIN_V_KPH and abs(steer_deg) >= _TQ_CURVE_DEG:
         # 커브 구간: 개입 비율 + 방향(운전자 토크 부호) 수집
         self._tq_curve_samples += 1
@@ -434,7 +454,7 @@ class CarrotLearner:
     # 전용 추정기 출력을 '정답'으로 모은다. (override 휴리스틱으로 유추하면 latAccelFactor와
     #  효과가 겹쳐 서로 밀어내며 진동하므로 사용하지 않음). 인게이지·일정속도·유효추정·
     #  비깜빡이 구간만 신뢰.
-    if engaged and not blinker and steer_ratio_valid \
+    if apply_lat and engaged and not blinker and steer_ratio_valid \
        and v_ego_kph >= _SR_MIN_V_KPH and _SR_MIN <= steer_ratio_live <= _SR_MAX:
       self._sr_sum += steer_ratio_live
       self._sr_n += 1
@@ -445,7 +465,7 @@ class CarrotLearner:
     # 감속을 측정해 LongCoastBand(코스팅 데드밴드)를 직접 식별하는 것(역문제 없음).
     # (학습기는 CarrotLearningActive=1 일 때만 동작하므로, planner가 비인게이지 중에도
     #  매 프레임 update()를 호출해 주어야 한다.)
-    if (not engaged) and not gear_park and v_ego_kph >= _MANUAL_MIN_V_KPH:
+    if apply_long and (not engaged) and not gear_park and v_ego_kph >= _MANUAL_MIN_V_KPH:
       band = _speed_band(v_ego_kph)
       if gas_pressed:
         # 사람이 선택한 가속 (과도 가속은 제외; gas_val 기반 exclude는 수동 가속을
