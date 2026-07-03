@@ -466,9 +466,14 @@ void AutoTunerGraphWidget::mousePressEvent(QMouseEvent *event) {
 
 // Show-All(전체) 뷰에서 제외할 대규모 스케일 파라미터 판정 (commit e06a7dd 21f7994a)
 // 조향계열(PathOffset/latAccelFactor/friction/steerActuatorDelay)은 값이 작아 같이
-// 그리면 바닥에 깔리므로, 대규모(CruiseMaxVals/TFollowGap)는 개별 선택 시에만 표시
+// 그리면 바닥에 깔리므로, 대규모(CruiseMaxVals/TFollowGap/Turn*)는 개별 선택 시에만 표시.
+// Turn*(TurnEnteringDecel/TurnTurningAcc/TurnLeavingAcc)도 x100 정수 저장이라
+// CruiseMaxVals/TFollowGap과 동일한 스케일(-30~200) — 빠뜨리면 소규모 nTune
+// 파라미터들이 Show-All에서 바닥에 깔린다.
 static bool isLargeScaleParam(const QString &param) {
-  return param.startsWith("CruiseMaxVals") || param.startsWith("TFollowGap");
+  return param.startsWith("CruiseMaxVals") || param.startsWith("TFollowGap") ||
+         param.startsWith("TurnEnteringDecel") || param.startsWith("TurnTurningAcc") ||
+         param == "TurnLeavingAcc";
 }
 
 void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
@@ -846,6 +851,15 @@ AutoTunerHistoryPanel::AutoTunerHistoryPanel(QWidget* parent) : QFrame(parent) {
   param_colors["latAccelFactor"] = QColor("#f59e0b");  // Amber (토크)
   param_colors["friction"] = QColor("#f43f5e");        // Rose (토크)
   param_colors["steerActuatorDelay"] = QColor("#fb923c"); // Orange (조향 지연)
+  // 곡선(Curve) 그룹: Entering=Green 계열, Turning=Yellow 계열, Leaving=단독 Teal
+  param_colors["TurnEnteringDecel0"] = QColor("#22c55e"); // Green
+  param_colors["TurnEnteringDecel1"] = QColor("#16a34a"); // Dark Green
+  param_colors["TurnTurningAcc0"] = QColor("#eab308");    // Yellow
+  param_colors["TurnTurningAcc1"] = QColor("#facc15");    // Light Yellow
+  param_colors["TurnTurningAcc2"] = QColor("#fde047");    // Pale Yellow
+  param_colors["TurnTurningAcc3"] = QColor("#ca8a04");    // Dark Yellow
+  param_colors["TurnTurningAcc4"] = QColor("#a16207");    // Brown Yellow
+  param_colors["TurnLeavingAcc"] = QColor("#2dd4bf");     // Teal
 
   refreshHistory();
 }
