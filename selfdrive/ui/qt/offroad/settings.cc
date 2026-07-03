@@ -399,6 +399,15 @@ static const std::map<std::string, std::string> kAutoTunerDefaults = {
   {"PathOffset", "0.0"},
   {"CarrotLongActuatorDelay", "0.4"},   // _LONG_DELAY_DEFAULT (carrot_learning.py)
   {"CarrotLongKf", "1.0"},              // _LONG_KF_DEFAULT (carrot_learning.py)
+  // ── Auto-Tuner Phase 6: 비전 커브 감속 (carrot_learning.py _TURN_*_DEFAULTS와 동일) ──
+  {"TurnEnteringDecel0", "-10"},
+  {"TurnEnteringDecel1", "-30"},
+  {"TurnTurningAcc0", "120"},
+  {"TurnTurningAcc1", "94"},
+  {"TurnTurningAcc2", "90"},
+  {"TurnTurningAcc3", "80"},
+  {"TurnTurningAcc4", "-10"},
+  {"TurnLeavingAcc", "50"},
 };
 
 // AutoTunerGraphWidget
@@ -681,7 +690,33 @@ AutoTunerHistoryPanel::AutoTunerHistoryPanel(QWidget* parent) : QFrame(parent) {
   scroll->setWidgetResizable(true);
   scroll->setFrameShape(QFrame::NoFrame);
   scroll->setFixedWidth(340);
-  scroll->setStyleSheet("QScrollArea { background: transparent; } QWidget { background: transparent; }");
+  // 좁은 패널(340px)이라 카드 리스트만큼 굵게는 못 하지만, 기본 스크롤바보다는
+  // 충분히 두껍게(핸들 폭 30px)해 손가락으로 잡기 쉽게 함.
+  scroll->setStyleSheet(R"(
+    QScrollArea { background: transparent; }
+    QWidget { background: transparent; }
+    QScrollBar:vertical {
+      background: #2b2b2b;
+      width: 30px;
+      margin: 0px;
+      border-radius: 15px;
+    }
+    QScrollBar::handle:vertical {
+      background: #6b7280;
+      min-height: 60px;
+      border-radius: 13px;
+    }
+    QScrollBar::handle:vertical:pressed {
+      background: #9ca3af;
+    }
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+      height: 0px;
+      background: none;
+    }
+    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+      background: none;
+    }
+  )");
   QScroller::grabGesture(scroll->viewport(), QScroller::LeftMouseButtonGesture);
 
   QWidget *scroll_widget = new QWidget();
@@ -1160,7 +1195,33 @@ AutoTunerCardListDialog::AutoTunerCardListDialog(QWidget *parent) : QDialogBase(
   QScrollArea *scroll = new QScrollArea(this);
   scroll->setWidgetResizable(true);
   scroll->setFrameShape(QFrame::NoFrame);
-  scroll->setStyleSheet("QScrollArea { background: transparent; } QWidget { background: transparent; }");
+  // 터치로 잡기 쉽도록 스크롤바를 굵게(핸들 최소폭 90px) 키움 — 기본 Qt 스크롤바는
+  // 차량 터치스크린에서 손가락으로 집기엔 너무 얇았음 (사용자 피드백).
+  scroll->setStyleSheet(R"(
+    QScrollArea { background: transparent; }
+    QWidget { background: transparent; }
+    QScrollBar:vertical {
+      background: #2b2b2b;
+      width: 46px;
+      margin: 0px;
+      border-radius: 23px;
+    }
+    QScrollBar::handle:vertical {
+      background: #6b7280;
+      min-height: 90px;
+      border-radius: 20px;
+    }
+    QScrollBar::handle:vertical:pressed {
+      background: #9ca3af;
+    }
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+      height: 0px;
+      background: none;
+    }
+    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+      background: none;
+    }
+  )");
   QScroller::grabGesture(scroll->viewport(), QScroller::LeftMouseButtonGesture);
 
   QWidget *scroll_widget = new QWidget();
@@ -2255,7 +2316,8 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   auto *learnToggle = new ParamControl("CarrotLearningActive",
       "Auto-Tuner: 주행 기반 학습",
       "운전자 개입(가속/브레이크/조향)을 학습하여 주차(P단) 시 파라미터 조정을 추천합니다.\n"
-      "학습 대상: CruiseMaxVals0~3(가속) / TFollowGap1~4(추종거리) / PathOffset(직진 편차)\n"
+      "학습 대상: CruiseMaxVals0~3(가속) / TFollowGap1~4(추종거리) / PathOffset(직진 편차) /\n"
+      "TurnEnteringDecel·TurnTurningAcc·TurnLeavingAcc(비전 커브 감속)\n"
       "1회 적용 시 변동폭 ±15 제한, 추종거리 최소 0.90초 보장.",
       "../assets/offroad/icon_shell.png",
       this);
@@ -2290,7 +2352,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(viewHistoryBtn);
 
   // ── Factory Reset 버튼 (commit e06a7dd) ──
-  // Params 기반 학습 대상(CruiseMaxVals/TFollowGap/PathOffset)만 공장 기본값 복원 +
+  // Params 기반 학습 대상(CruiseMaxVals/TFollowGap/PathOffset/Turn*)만 공장 기본값 복원 +
   // 학습 데이터/이력 삭제. nTune 조향값(latAccelFactor/friction/steerActuatorDelay)은
   // 차량별 기준값이라 의도적으로 제외 (사용자 nTune 세팅 보호).
   QPushButton* factoryResetBtn = new QPushButton("Auto-Tuner: Factory Reset");
@@ -2306,7 +2368,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
     }
   )");
   connect(factoryResetBtn, &QPushButton::clicked, [=]() {
-    if (ConfirmationDialog::confirm("학습 파라미터(가속/추종거리/직진보정)를 모두 공장 기본값으로 되돌리고 학습 데이터·이력을 삭제하시겠습니까?\n\n(조향 nTune 값은 변경되지 않습니다)", this)) {
+    if (ConfirmationDialog::confirm("학습 파라미터(가속/추종거리/직진보정/커브감속)를 모두 공장 기본값으로 되돌리고 학습 데이터·이력을 삭제하시겠습니까?\n\n(조향 nTune 값은 변경되지 않습니다)", this)) {
       Params p;
       for (const auto& [key, val] : kAutoTunerDefaults) {
         p.put(key, val);
