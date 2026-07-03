@@ -7,6 +7,8 @@ from common.realtime import sec_since_boot
 from common.conversions import Conversions as CV
 from selfdrive.controls.lib.lateral_planner import TRAJECTORY_SIZE
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX
+# ── CarrotPilot Auto-Tuner (Phase 6): 학습된 커브 감속/가속 테이블 ──
+from selfdrive.controls.lib.carrot_learning import read_learned_turn_params
 
 
 _MIN_V = 12.5  # Do not operate under 20km/h
@@ -30,6 +32,9 @@ _NO_OVERSHOOT_TIME_HORIZON = 4.  # s. Time to use for velocity desired based on 
 
 # Lookup table for the minimum smooth deceleration during the ENTERING state
 # depending on the actual maximum absolute lateral acceleration predicted on the turn ahead.
+# (Auto-Tuner Phase 6): 아래 두 상수는 '공장 기본값/폴백'이며, 실제 사용값은 학습이
+# 활성화된 경우 VisionTurnController._entering_decel_v/_turning_acc_v/_leaving_acc 로
+# 대체된다 (5초 주기로 carrot_learning.read_learned_turn_params()에서 갱신).
 _ENTERING_SMOOTH_DECEL_V = [-0.1, -0.3]  # min decel value allowed on ENTERING state
 _ENTERING_SMOOTH_DECEL_BP = [1.3, 3.]  # absolute value of lat acc ahead
 
@@ -106,6 +111,12 @@ class VisionTurnController():
     self._v_overshoot = 0.
     self._state = VisionTurnControllerState.disabled
 
+    # ── Auto-Tuner Phase 6: 학습된 커브 감속/가속 테이블 (미학습 시 공장 기본값) ──
+    self._entering_decel_v = list(_ENTERING_SMOOTH_DECEL_V)
+    self._turning_acc_v = list(_TURNING_ACC_V)
+    self._leaving_acc = _LEAVING_ACC
+    # ────────────────────────────────────────────────────────────────────
+
     self._reset()
 
   @property
@@ -154,6 +165,16 @@ class VisionTurnController():
     time = sec_since_boot()
     if time > self._last_params_update + 5.0:
       self._is_enabled = self._params.get_bool("TurnVisionControl")
+      # ── Auto-Tuner Phase 6: 학습된 커브 감속/가속 테이블 반영 (5초 주기) ──
+      # longitudinal_planner.read_param()과 동일 패턴: 학습 비활성 시 공장 기본값으로.
+      if self._params.get_bool("CarrotLearningActive"):
+        self._entering_decel_v, self._turning_acc_v, self._leaving_acc = \
+          read_learned_turn_params(self._params)
+      else:
+        self._entering_decel_v = list(_ENTERING_SMOOTH_DECEL_V)
+        self._turning_acc_v = list(_TURNING_ACC_V)
+        self._leaving_acc = _LEAVING_ACC
+      # ─────────────────────────────────────────────────────────────────
       self._last_params_update = time
 
   def _update_calculations(self, sm):
@@ -268,7 +289,8 @@ class VisionTurnController():
     # ENTERING
     elif self.state == VisionTurnControllerState.entering:
       # when not overshooting, target a smooth deceleration in preparation for a sharp turn to come.
-      a_target = interp(self._max_pred_lat_acc, _ENTERING_SMOOTH_DECEL_BP, _ENTERING_SMOOTH_DECEL_V)
+      # (Auto-Tuner Phase 6): BP는 고정, V(감속값)만 학습된 self._entering_decel_v 사용.
+      a_target = interp(self._max_pred_lat_acc, _ENTERING_SMOOTH_DECEL_BP, self._entering_decel_v)
       if self._lat_acc_overshoot_ahead:
         # when overshooting, target the acceleration needed to achieve the overshoot speed at
         # the required distance
@@ -278,11 +300,13 @@ class VisionTurnController():
     # TURNING
     elif self.state == VisionTurnControllerState.turning:
       # When turning we provide a target acceleration that is confortable for the lateral accelearation felt.
-      a_target = interp(self._current_lat_acc, _TURNING_ACC_BP, _TURNING_ACC_V)
+      # (Auto-Tuner Phase 6): BP는 고정, V(가감속값)만 학습된 self._turning_acc_v 사용.
+      a_target = interp(self._current_lat_acc, _TURNING_ACC_BP, self._turning_acc_v)
     # LEAVING
     elif self.state == VisionTurnControllerState.leaving:
       # When leaving we provide a confortable acceleration to regain speed.
-      a_target = _LEAVING_ACC
+      # (Auto-Tuner Phase 6): 학습된 self._leaving_acc 사용.
+      a_target = self._leaving_acc
 
     # update solution values.
     self._a_target = a_target
