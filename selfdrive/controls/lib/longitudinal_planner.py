@@ -15,7 +15,7 @@ from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N
 from selfdrive.swaglog import cloudlog
-from selfdrive.controls.lib.vision_turn_controller import VisionTurnController
+from selfdrive.controls.lib.vision_turn_controller import VisionTurnController, VisionTurnControllerState
 from selfdrive.controls.lib.events import Events
 # ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──
 from selfdrive.controls.lib.carrot_learning import CarrotLearner, read_learned_accel_vals, read_learned_tfollow
@@ -309,6 +309,14 @@ class LongitudinalPlanner:
         sr_valid = bool(getattr(lp, 'valid', True)) and (10.0 <= sr_live <= 20.0)
       except Exception:
         pass
+      # ── Auto-Tuner Phase 6: 비전 커브 감속 학습 입력 (VisionTurnController 상태) ──
+      # cruise_solutions()에서 이미 매 프레임 vision_turn_controller.update()가
+      # 호출되었으므로 여기서는 그 결과 상태만 읽는다.
+      tvc = self.vision_turn_controller
+      tvc_entering = tvc.state == VisionTurnControllerState.entering
+      tvc_turning = tvc.state == VisionTurnControllerState.turning
+      tvc_leaving = tvc.state == VisionTurnControllerState.leaving
+      # ─────────────────────────────────────────────────────────────────────
       self.carrot_learner.update(
         v_ego_kph=v_ego * CV.MS_TO_KPH,
         gas_pressed=cs.gasPressed,
@@ -327,6 +335,11 @@ class LongitudinalPlanner:
         steer_deg_corr=sm['controlsState'].angleSteers,
         steer_ratio_live=sr_live,
         steer_ratio_valid=sr_valid,
+        tvc_entering=tvc_entering,
+        tvc_turning=tvc_turning,
+        tvc_leaving=tvc_leaving,
+        tvc_current_lat_acc=tvc.current_lat_acc,
+        tvc_max_pred_lat_acc=tvc.max_pred_lat_acc,
       )
     except Exception:
       cloudlog.exception("CarrotLearner update failed")
