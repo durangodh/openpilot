@@ -207,6 +207,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"AutoLaneChangeTimer", PERSISTENT},
     {"HumanFollowing", PERSISTENT},
     {"MyDrivingMode", PERSISTENT},             // 주행모드 1:ECO 2:SAFE 3:NORM 4:FAST
+    {"ShowGearAnimation", PERSISTENT},         // 기어 변경 팝업 애니메이션
     {"VisionCurveLaneless", PERSISTENT},
     {"KeepSteeringTurnSignals", PERSISTENT},
     {"HapticFeedbackWhenSpeedCamera", PERSISTENT},

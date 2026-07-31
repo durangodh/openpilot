@@ -2261,6 +2261,17 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(horizontal_line());
 
+  // ── 기어 변경 팝업 애니메이션 ─────────────────────────────────
+  list->addItem(horizontal_line());
+
+  auto *gearAnimToggle = new ParamControl("ShowGearAnimation",
+      "기어 팝업 애니메이션",
+      "변속단이 바뀔 때 화면 중앙에서 크게 나타났다가 기어 표시 자리로 "
+      "날아가는 효과를 켭니다. 주행 중 즉시 반영됩니다.",
+      "../assets/offroad/icon_road.png",
+      this);
+  list->addItem(gearAnimToggle);
+
   // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ─────────────
   list->addItem(horizontal_line());
 

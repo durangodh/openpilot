@@ -533,6 +533,8 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   // 하단 디버그 정보(TS/AO/SR/SAD/BUS/SCC) 표시 제거
 
   drawBottomIcons(p);
+
+  drawTextAnim(p);   // 팝업 애니메이션은 항상 맨 위
 }
 
 static const QColor get_tpms_color(float tpms) {
@@ -789,6 +791,39 @@ void NvgWindow::drawCarrotBottom(QPainter &p) {
 //  ※ 이 차량은 레이더 트랙(leadsLeft/Right/Center)을 지원하지 않아
 //    carrot 의 ShowRadarInfo 오버레이는 이식 대상에서 제외했다.
 // =====================================================================================
+// ── 팝업 애니메이션 (carrot ui_draw_text_a / ui_draw_text_a2 이식) ──
+//    화면 중앙 상단에서 큰 글씨로 나타나 원래 자리·크기로 축소되며 이동한다.
+//    anim_time 130 → 0, 프레임당 10 감소 (20Hz 기준 약 0.65초)
+void NvgWindow::ctTextAnimStart(int x, int y, const QString &text, int size, const QColor &color) {
+  if (!show_gear_animation) return;
+  anim_x = x;
+  anim_y = y;
+  anim_text = text;
+  anim_size = size;
+  anim_color = color;
+  anim_time = 130;
+}
+
+void NvgWindow::drawTextAnim(QPainter &p) {
+  if (anim_time <= 0) return;
+  anim_time -= 10;
+  if (anim_time <= 0) { anim_time = 0; return; }
+
+  int t = std::min(anim_time, 100);          // 보간 계수 100(시작) → 0(도착)
+  const int a_max = 100;
+  int x    = (width() / 2 * t + anim_x * (a_max - t)) / a_max;
+  int y    = ((height() - 400) * t + anim_y * (a_max - t)) / a_max;
+  int size = (350 * t + anim_size * (a_max - t)) / a_max;
+  if (size < 1) return;
+
+  p.save();
+  p.setRenderHint(QPainter::Antialiasing);
+  p.setRenderHint(QPainter::TextAntialiasing);
+  // 등장 직후에는 두꺼운 검정 외곽선을 덧대 강조
+  ctText(p, x, y, anim_text, size, anim_color, true, anim_time >= 100);
+  p.restore();
+}
+
 void NvgWindow::drawCarrotLead(QPainter &p) {
   p.save();
   p.setRenderHint(QPainter::Antialiasing);
@@ -887,6 +922,8 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     show_device_state = std::atoi(params.get("ShowDeviceState").c_str());
     std::string sdt = params.get("ShowDateTime");
     show_datetime = sdt.empty() ? 1 : std::atoi(sdt.c_str());   // 0:끔 1:시간+날짜 2:시간만 3:날짜만
+    std::string sga = params.get("ShowGearAnimation");
+    show_gear_animation = sga.empty() ? 1 : std::atoi(sga.c_str());
   }
 
   // ---- 기준 좌표 (carrot.cc 와 동일) ----
@@ -1019,6 +1056,12 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     QRect gear_box(dx - 35, dy - 70, 70, 80);
     ctRect(p, gear_box, CT_GREEN_A(210), 15, 3, CT_WHITE);
     ctTextIn(p, gear_box, gear_str, 70, CT_WHITE);
+
+    // 기어가 바뀌면 팝업 애니메이션 시작
+    if (!gear_str_last.isEmpty() && gear_str_last != gear_str) {
+      ctTextAnimStart(gear_box.center().x(), gear_box.bottom(), gear_str, 70, CT_WHITE);
+    }
+    gear_str_last = gear_str;
   }
 
   // ---- NDA / HDA (carrot 의 APN/APM 자리. roadLimitSpeed.active) ----

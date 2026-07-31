@@ -113,6 +113,16 @@ protected:
   int  my_driving_mode = 3;
   int  show_device_state = 0;
   int  show_datetime = 1;
+  int  show_gear_animation = 1;
+
+  // ── 팝업 애니메이션 (carrot ui_draw_text_a 이식) ──
+  void ctTextAnimStart(int x, int y, const QString &text, int size, const QColor &color);
+  void drawTextAnim(QPainter &p);
+  int     anim_time = 0;        // 0 이면 비활성
+  int     anim_x = 0, anim_y = 0, anim_size = 0;
+  QString anim_text;
+  QColor  anim_color = QColor(255, 255, 255, 255);
+  QString gear_str_last;
   // ============================================================================
   void drawSpeedLimit(QPainter &p);
   void drawSteer(QPainter &p);
