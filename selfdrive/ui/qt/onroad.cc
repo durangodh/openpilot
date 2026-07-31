@@ -755,32 +755,45 @@ void NvgWindow::drawCarrotInfo(QPainter &p) {
   p.setPen(QColor(0xff, 0xff, 0xff, 200));
   p.drawText(line, Qt::AlignRight | Qt::AlignVCenter, right_str);
 
-  // 좌상단은 SCC 숫자만 색이 달라서 조각내어 그린다
+  // 좌상단 : 차량명은 보통 굵기, SCC 부분은 전부 흰색 + 굵게
   {
-    QFontMetrics fm(p.font());
-    int cap = fm.capHeight();
-    if (cap <= 0) cap = (int)(fm.ascent() * 0.72f);
+    QFontMetrics fm_r(p.font());
+    int cap = fm_r.capHeight();
+    if (cap <= 0) cap = (int)(fm_r.ascent() * 0.72f);
     int base_y = line.center().y() + cap / 2;
     int tx = line.x();
 
     QString name_part = left_head;
     name_part.chop(4);                          // 뒤쪽 "SCC " 분리
+
     p.setPen(QColor(0xff, 0xff, 0xff, 200));
     p.drawText(tx, base_y, name_part);
-    tx += fm.horizontalAdvance(name_part);
+    tx += fm_r.horizontalAdvance(name_part);
 
-    p.setPen(QColor(190, 0, 0, 255));           // "SCC" 는 진한 빨강
+    // "SCC" 라벨 : 흰색 굵은 글씨
+    configFont(p, "Open Sans", 34, "Bold");
+    QFontMetrics fm_b(p.font());
+    p.setPen(QColor(255, 255, 255, 255));
     p.drawText(tx, base_y, "SCC ");
-    tx += fm.horizontalAdvance("SCC ");
+    tx += fm_b.horizontalAdvance("SCC ");
 
-    p.setPen(QColor(0xff, 0xff, 0xff, 200));    // 숫자는 흰색
-    p.drawText(tx, base_y, scc_num);
-    tx += fm.horizontalAdvance(scc_num);
+    // 번호 : 빨간 배지 + 흰 글씨
+    {
+      int num_w = fm_b.horizontalAdvance(scc_num);
+      QRect badge(tx, line.center().y() - 21, num_w + 22, 42);
+      ctRect(p, badge, QColor(190, 0, 0, 255), 8);
+      ctTextIn(p, badge, scc_num, 34, QColor(255, 255, 255, 255));
+      tx += badge.width() + 6;
+    }
 
+    // 부가표기(+13/+14) : 흰색 굵은 글씨
     if (!scc_tail.isEmpty()) {
-      p.setPen(QColor(0xff, 0xff, 0xff, 200));
+      configFont(p, "Open Sans", 34, "Bold");
+      p.setPen(QColor(255, 255, 255, 255));
       p.drawText(tx, base_y, scc_tail);
     }
+
+    configFont(p, "Open Sans", 34, "Regular");  // 이후 그리기용으로 원복
   }
 
   p.restore();
