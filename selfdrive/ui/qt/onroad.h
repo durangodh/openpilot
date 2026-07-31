@@ -116,6 +116,7 @@ protected:
   int  show_device_state = 0;
   int  show_datetime = 1;
   int  show_gear_animation = 1;
+  int  show_bsd_always = 0;
 
   // ── 팝업 애니메이션 (carrot ui_draw_text_a 이식) ──
   void ctTextAnimStart(int x, int y, const QString &text, int size, const QColor &color);

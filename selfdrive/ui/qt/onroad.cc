@@ -345,12 +345,13 @@ void NvgWindow::drawBlindSpot(QPainter &painter, const line_vertices_data &vd, c
   painter.setPen(Qt::NoPen);
   painter.setBrush(color);
 
-  for (int i = 0; i + 1 < n / 2 - 1; i += 2) {
+  // 앞쪽 진행 구간 v[i] 의 짝은 되돌아오는 구간 v[n-1-i] 이다.
+  for (int i = 0; i + 1 < n / 2; i += 2) {
     QPointF quad[4] = {
       vd.v[i],
       vd.v[i + 1],
-      vd.v[n - i - 3],
       vd.v[n - i - 2],
+      vd.v[n - i - 1],
     };
     painter.drawPolygon(quad, 4);
   }
@@ -377,9 +378,14 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
 
   // ── Blind Spot (carrot 방식) ──────────────────────────────────
   //   감지됐을 때만 노란 울타리를 세운다. 평상시에는 그리지 않는다.
+  //   ShowBlindSpotAlways = 1 이면 감지 여부와 무관하게 흐리게 상시 표시한다.
+  //   (BSD 신호가 안 들어오는지, 그리기가 안 되는지 구분할 때 유용)
   const QColor bsd_color(255, 215, 0, 150);
-  if (left_blindspot)  drawBlindSpot(painter, scene.lane_barrier_vertices[0], bsd_color);
-  if (right_blindspot) drawBlindSpot(painter, scene.lane_barrier_vertices[1], bsd_color);
+  const QColor bsd_idle(255, 255, 255, 40);
+  if (left_blindspot)        drawBlindSpot(painter, scene.lane_barrier_vertices[0], bsd_color);
+  else if (show_bsd_always)  drawBlindSpot(painter, scene.lane_barrier_vertices[0], bsd_idle);
+  if (right_blindspot)       drawBlindSpot(painter, scene.lane_barrier_vertices[1], bsd_color);
+  else if (show_bsd_always)  drawBlindSpot(painter, scene.lane_barrier_vertices[1], bsd_idle);
 	
   // paint path
   QLinearGradient bg(0, height(), 0, height() / 4);
@@ -968,6 +974,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     show_datetime = sdt.empty() ? 1 : std::atoi(sdt.c_str());   // 0:끔 1:시간+날짜 2:시간만 3:날짜만
     std::string sga = params.get("ShowGearAnimation");
     show_gear_animation = sga.empty() ? 1 : std::atoi(sga.c_str());
+    show_bsd_always = std::atoi(params.get("ShowBlindSpotAlways").c_str());
   }
 
   // ---- 기준 좌표 (carrot.cc 와 동일) ----
