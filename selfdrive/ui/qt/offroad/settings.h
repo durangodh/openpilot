@@ -152,18 +152,6 @@ public:
   explicit VIPPanel(QWidget* parent = nullptr);
 };
 
-class ChevronInfoControl : public AbstractControl {
-  Q_OBJECT
-public:
-  ChevronInfoControl(const QString &title, const QString &desc,
-                     const QString &icon, QWidget *parent = nullptr);
-  void refresh();
-private:
-  QPushButton *buttons[5];
-  Params params;
-  const QStringList labels = {"Off", "Distance", "Speed", "Time", "All"};
-};
-
 // ── AutoLaneChangeTimer Control ─────────────────────────────────
 class AutoLaneChangeTimerControl : public AbstractControl {
   Q_OBJECT

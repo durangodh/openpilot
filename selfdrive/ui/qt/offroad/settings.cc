@@ -178,59 +178,6 @@ void PathOffsetControl::refresh() {
   plus_btn->setEnabled(val < 1.00);
 }
 
-// ── ChevronInfo Control ─────────────────────────────────────────
-ChevronInfoControl::ChevronInfoControl(const QString &title,
-                                       const QString &desc,
-                                       const QString &icon,
-                                       QWidget *parent)
-    : AbstractControl(title, desc, icon, parent) {
-
-  QWidget *btn_widget = new QWidget();
-  QHBoxLayout *btn_layout = new QHBoxLayout(btn_widget);
-  btn_layout->setContentsMargins(0, 8, 0, 8);
-  btn_layout->setSpacing(8);
-
-  for (int i = 0; i < labels.size(); i++) {
-    buttons[i] = new QPushButton(labels[i]);
-    buttons[i]->setFixedHeight(70);
-    buttons[i]->setCheckable(true);
-    buttons[i]->setStyleSheet(R"(
-      QPushButton {
-        font-size: 30px;
-        border-radius: 10px;
-        background-color: #393939;
-        color: #aaaaaa;
-      }
-      QPushButton:checked {
-        background-color: #0064ff;
-        color: #ffffff;
-      }
-      QPushButton:pressed {
-        background-color: #4a4a4a;
-      }
-    )");
-
-    connect(buttons[i], &QPushButton::clicked, [=]() {
-      params.put("ChevronInfo", std::to_string(i));
-      refresh();
-    });
-
-    btn_layout->addWidget(buttons[i]);
-  }
-
-  // AbstractControl의 메인 레이아웃(QVBoxLayout)에 버튼 행 추가
-  qobject_cast<QVBoxLayout*>(layout())->addWidget(btn_widget);
-  refresh();
-}
-
-void ChevronInfoControl::refresh() {
-  int val = std::atoi(params.get("ChevronInfo").c_str());
-  val = std::clamp(val, 0, 4);
-  for (int i = 0; i < labels.size(); i++) {
-    buttons[i]->setChecked(i == val);
-  }
-}
-
 // ── AutoLaneChangeTimer Control ─────────────────────────────────
 AutoLaneChangeTimerControl::AutoLaneChangeTimerControl(const QString &title,
                                                        const QString &desc,
@@ -2313,16 +2260,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(lc_timer);
 
   list->addItem(horizontal_line());
-
-  // ── ChevronInfo ──────────────────────────────────────────────
-  auto *chevron_info = new ChevronInfoControl(
-      "Display Metrics Below Chevron",
-      "Display useful metrics below the chevron that tracks the lead car "
-      "(only applicable to cars with openpilot longitudinal control).",
-      "../assets/offroad/icon_road.png",
-      this);
-  chevron_info->showDescription();
-  list->addItem(chevron_info);
 
   // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ─────────────
   list->addItem(horizontal_line());
