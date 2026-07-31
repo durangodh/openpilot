@@ -498,7 +498,10 @@ class LongitudinalMpc:
     self.cruise_min_a = min_a
     self.max_a = max_a
 
-  def update(self, carstate, radarstate, v_cruise, x, v, a, j):
+  def update(self, carstate, radarstate, v_cruise, x, v, a, j, prev_accel_constraint=True):
+    # engage 직후에는 직전 가속도 유지 비용(A_CHANGE_COST)을 빼서
+    # 필요한 감속으로 곧바로 갈 수 있게 한다. (upstream 동작 복원)
+    self.prev_accel_constraint = prev_accel_constraint
     v_ego = self.x0[1]
     self.status = radarstate.leadOne.status or radarstate.leadTwo.status
 
