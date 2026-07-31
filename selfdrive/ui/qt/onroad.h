@@ -112,6 +112,8 @@ protected:
   // 박스 안에 상하좌우 정중앙으로 글자 배치
   void ctTextIn(QPainter &p, const QRect &box, const QString &text, int size,
                 const QColor &color, bool bold = true);
+  // 화면 최상단 좌/우 정보줄 (carrot 의 top_left / top_right 와 동일 위치)
+  void drawCarrotInfo(QPainter &p);
 
   QPixmap ic_speed_bg;
   int  blink_timer = 0;

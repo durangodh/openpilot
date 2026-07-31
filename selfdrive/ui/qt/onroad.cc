@@ -698,7 +698,8 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   //drawSteer(p);      // 조향각 표시 제거
   //drawThermal(p);    // CPU/AMBIENT 온도 표시 제거
   //drawTurnSignals(p);
-  drawGpsStatus(p);
+  //drawGpsStatus(p);   // GPS 위성 아이콘 표시 제거
+  drawCarrotInfo(p);
 
   if(s->show_debug && width() > 1200)
     drawDebugText(p);
@@ -770,7 +771,7 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
   // 현재 시간/날짜 표시 (carrot.cc :: drawDateTime 과 동일 위치/크기)
   if (show_datetime > 0) {
     const int dt_x = 170;
-    const int dt_y = 120;
+    const int dt_y = 185;   // 상단 정보줄과 겹치지 않도록 내림 (org: 120)
     QDateTime now = QDateTime::currentDateTime();
 
     p.setOpacity(1.0);
@@ -793,7 +794,7 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
     float steer_angle = sm["carState"].getCarState().getSteeringAngleDeg();
     QColor engageBgColor = bg_colors[uiState()->status];
     engageBgColor.setAlpha(166);
-    drawIcon(p, rect().right() - radius / 2 - bdr_s * 2, radius / 2 + int(bdr_s * 1.5),
+    drawIcon(p, rect().right() - radius / 2 - bdr_s * 2, radius / 2 + int(bdr_s * 1.5) + 45,
              experimentalMode ? experimental_img : engage_img,
              engageBgColor, 1.0,
              true,
@@ -866,6 +867,51 @@ void NvgWindow::ctTextIn(QPainter &p, const QRect &box, const QString &text, int
 
   p.setPen(color);
   p.drawText(box.x() + (box.width() - w) / 2, baseline, text);
+}
+
+// carrot.cc BorderDrawer 의 top_left / top_right 정보줄을 이 fork 로 옮긴 것.
+//  좌상단 : 차량명 + OP Long 여부 + SCC 버스 상태
+//  우상단 : 토크 학습값(LT) + 스티어레이시오(SR)
+void NvgWindow::drawCarrotInfo(QPainter &p) {
+  p.save();
+
+  const SubMaster &sm = *(uiState()->sm);
+  const auto car_params      = sm["carParams"].getCarParams();
+  const auto controls_state  = sm["controlsState"].getControlsState();
+  const auto live_params     = sm["liveParameters"].getLiveParameters();
+  const auto torque_state    = controls_state.getLateralControlState().getTorqueState();
+
+  // ---- 좌상단 : 차량명 / SCC ----
+  QString car_name = QString::fromUtf8(car_params.getCarFingerprint().cStr());
+  if (car_name.isEmpty()) car_name = "UNKNOWN";
+  if (car_params.getOpenpilotLongitudinalControl()) car_name += " - OP Long";
+
+  int scc_bus = (int)car_params.getSccBus();
+  QString scc_str;
+  if (scc_bus < 0) {
+    scc_str = "SCC none";
+  } else {
+    scc_str.sprintf("SCC bus%d%s%s", scc_bus,
+                    car_params.getHasScc13() ? "+13" : "",
+                    car_params.getHasScc14() ? "+14" : "");
+  }
+  QString left_str = car_name + "  |  " + scc_str;
+
+  // ---- 우상단 : 토크값 / SR ----
+  QString right_str;
+  right_str.sprintf("LT(%.2f/%.3f)  SR(%.2f/%.2f)",
+                    torque_state.getLatAccelFactor(),
+                    torque_state.getFriction(),
+                    controls_state.getSteerRatio(),
+                    live_params.getSteerRatio());
+
+  configFont(p, "Open Sans", 34, "Regular");
+  p.setPen(QColor(0xff, 0xff, 0xff, 200));
+  QRect line(20, 12, width() - 40, 48);   // 상태바(bdr_s=20) 안쪽
+  p.drawText(line, Qt::AlignLeft  | Qt::AlignVCenter, left_str);
+  p.drawText(line, Qt::AlignRight | Qt::AlignVCenter, right_str);
+
+  p.restore();
 }
 
 void NvgWindow::drawCarrotHud(QPainter &p) {
