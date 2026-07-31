@@ -334,6 +334,29 @@ void NvgWindow::updateFrameMat(int w, int h) {
       .translate(-intrinsic_matrix.v[2], -intrinsic_matrix.v[5]);
 }
 
+// carrot ui_draw_bsd 이식.
+// 벽 폴리곤(앞으로 진행 + 뒤로 복귀 순서)을 두 점씩 끊어 사각 조각으로 그린다.
+// 한 덩어리로 칠하지 않아 울타리 말뚝처럼 보인다.
+void NvgWindow::drawBlindSpot(QPainter &painter, const line_vertices_data &vd, const QColor &color) {
+  const int n = vd.cnt;
+  if (n < 6) return;
+
+  painter.save();
+  painter.setPen(Qt::NoPen);
+  painter.setBrush(color);
+
+  for (int i = 0; i + 1 < n / 2 - 1; i += 2) {
+    QPointF quad[4] = {
+      vd.v[i],
+      vd.v[i + 1],
+      vd.v[n - i - 3],
+      vd.v[n - i - 2],
+    };
+    painter.drawPolygon(quad, 4);
+  }
+  painter.restore();
+}
+
 void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   painter.save();
 	
@@ -352,20 +375,11 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
     painter.drawPolygon(scene.road_edge_vertices[i].v, scene.road_edge_vertices[i].cnt);
   }
 
-  //Blind Spot Warnings
-  painter.setPen(Qt::NoPen);
-
-  // 왼쪽 barrier: 감지=빨강(alpha 0.45), 평상시=흰색(alpha 0.10)
-  painter.setBrush(left_blindspot
-      ? QColor::fromRgbF(1.0, 0.0, 0.0, 0.45)
-      : QColor::fromRgbF(1.0, 1.0, 1.0, 0.10));
-  painter.drawPolygon(scene.lane_barrier_vertices[0].v, scene.lane_barrier_vertices[0].cnt);
-
-  // 오른쪽 barrier: 감지=빨강(alpha 0.45), 평상시=흰색(alpha 0.10)
-  painter.setBrush(right_blindspot
-      ? QColor::fromRgbF(1.0, 0.0, 0.0, 0.45)
-      : QColor::fromRgbF(1.0, 1.0, 1.0, 0.10));
-  painter.drawPolygon(scene.lane_barrier_vertices[1].v, scene.lane_barrier_vertices[1].cnt);
+  // ── Blind Spot (carrot 방식) ──────────────────────────────────
+  //   감지됐을 때만 노란 울타리를 세운다. 평상시에는 그리지 않는다.
+  const QColor bsd_color(255, 215, 0, 150);
+  if (left_blindspot)  drawBlindSpot(painter, scene.lane_barrier_vertices[0], bsd_color);
+  if (right_blindspot) drawBlindSpot(painter, scene.lane_barrier_vertices[1], bsd_color);
 	
   // paint path
   QLinearGradient bg(0, height(), 0, height() / 4);

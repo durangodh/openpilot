@@ -44,6 +44,8 @@ protected:
   void showEvent(QShowEvent *event) override;
   void updateFrameMat(int w, int h) override;
   void drawLaneLines(QPainter &painter, const UIState *s);
+  // carrot 방식 BSD : 벽을 조각내어 울타리처럼 그린다
+  void drawBlindSpot(QPainter &painter, const line_vertices_data &vd, const QColor &color);
   // carrot 스타일 리드 표시 (기존 쉐브론 / ChevronInfo 대체)
   void drawCarrotLead(QPainter &p);
 

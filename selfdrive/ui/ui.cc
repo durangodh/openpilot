@@ -83,16 +83,17 @@ static void update_tfollow_line(UIState *s, const cereal::ModelDataV2::XYZTData:
 
 // z_off -> z_off_left, z_off_right 분리 + allow_invert 파라미터 추가
 static void update_line_data(const UIState *s, const cereal::ModelDataV2::XYZTData::Reader &line,
-                             float y_off, float z_off_left, float z_off_right, line_vertices_data *pvd, int max_idx, bool allow_invert=true) {
+                             float y_off, float z_off_left, float z_off_right, line_vertices_data *pvd, int max_idx, bool allow_invert=true,
+                             float y_shift=0.0) {
   const auto line_x = line.getX(), line_y = line.getY(), line_z = line.getZ();
   QPointF *v = &pvd->v[0];
   for (int i = 0; i <= max_idx; i++) {
     if (line_x[i] < 0) continue;
-    v += calib_frame_to_full_frame(s, line_x[i], line_y[i] - y_off, line_z[i] + z_off_left, v);
+    v += calib_frame_to_full_frame(s, line_x[i], line_y[i] + y_shift - y_off, line_z[i] + z_off_left, v);
   }
   for (int i = max_idx; i >= 0; i--) {
     if (line_x[i] < 0) continue;
-    v += calib_frame_to_full_frame(s, line_x[i], line_y[i] + y_off, line_z[i] + z_off_right, v);
+    v += calib_frame_to_full_frame(s, line_x[i], line_y[i] + y_shift + y_off, line_z[i] + z_off_right, v);
   }
   pvd->cnt = v - pvd->v;
   assert(pvd->cnt <= std::size(pvd->v));
@@ -113,11 +114,13 @@ static void update_model(UIState *s, const cereal::ModelDataV2::Reader &model) {
     update_line_data(s, lane_lines[i], 0.025 * scene.lane_line_probs[i], 0, 0, &scene.lane_line_vertices[i], max_idx);
   }
 
-  // lane barriers for blind spot
+  // lane barriers for blind spot (carrot 방식)
+  //   차선이 아니라 주행 경로를 좌우 1.7m 평행이동시켜 벽을 세운다.
+  //   차선 인식이 끊겨도 항상 그려진다.
   int max_distance_barrier = 40;
-  int max_idx_barrier = std::min(max_idx, get_path_length_idx(lane_lines[0], max_distance_barrier));
-  update_line_data(s, lane_lines[1], 0, -0.05, -0.6, &scene.lane_barrier_vertices[0], max_idx_barrier, false);
-  update_line_data(s, lane_lines[2], 0, -0.05, -0.6, &scene.lane_barrier_vertices[1], max_idx_barrier, false);
+  int max_idx_barrier = get_path_length_idx(model_position, max_distance_barrier);
+  update_line_data(s, model_position, 0, -0.05, -0.6, &scene.lane_barrier_vertices[0], max_idx_barrier, false, -1.7);
+  update_line_data(s, model_position, 0, -0.05, -0.6, &scene.lane_barrier_vertices[1], max_idx_barrier, false, 1.7);
 
   // update road edges
   const auto road_edges = model.getRoadEdges();
