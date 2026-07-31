@@ -944,15 +944,39 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
                      : QString("--");
   ctText(p, bx + 170, by + 15, cruise_str, 60, CT_GREEN, true, true);
 
-  // ---- 적용 속도(감속 목표) : carrot 의 apply_speed / apply_source ----
+  // ---- 적용 속도(감속 목표) + 감속 사유 : carrot 의 apply_speed / apply_source ----
+  //      sccSmoother 계열(cam/sec/road/eco) 과 VisionTurnController(vturn) 중
+  //      더 낮은 목표속도를 표시한다.
+  float show_speed = 0.0f;      // kph
+  QString src = "";
+
   float apply_max = scc_smoother.getApplyMaxSpeed();
   if (is_cruise_set && apply_max > 0 && std::abs(apply_max - cruise_max) > 0.5f) {
-    QString src = "eco";
+    show_speed = apply_max;
     if (cam_limit > 0 && cam_dist > 0)       src = "cam";
     else if (sec_limit > 0 && sec_dist > 0)  src = "sec";
     else if (road_limit.getActive() > 0 && road_limit.getRoadLimitSpeed() > 0 &&
              apply_max <= road_limit.getRoadLimitSpeed() + 1)  src = "road";
-    ctText(p, bx + 250, by - 50,  QString::number((int)(apply_max * kph_to_disp + 0.5f)),
+    else                                     src = "eco";
+  }
+
+  // VisionTurnController 커브 감속
+  {
+    const auto long_plan = sm["longitudinalPlan"].getLongitudinalPlan();
+    auto vtc = long_plan.getVisionTurnControllerState();
+    bool vtc_active = (vtc == cereal::LongitudinalPlan::VisionTurnControllerState::ENTERING ||
+                       vtc == cereal::LongitudinalPlan::VisionTurnControllerState::TURNING);
+    if (vtc_active && s->engaged()) {
+      float v_turn = long_plan.getVisionTurnSpeed() * 3.6f;   // m/s -> kph
+      if (v_turn > 0 && (show_speed <= 0.0f || v_turn < show_speed)) {
+        show_speed = v_turn;
+        src = "vturn";
+      }
+    }
+  }
+
+  if (show_speed > 0.0f && !src.isEmpty()) {
+    ctText(p, bx + 250, by - 50,  QString::number((int)(show_speed * kph_to_disp + 0.5f)),
            50, CT_OCHRE, true, true);
     ctText(p, bx + 250, by - 100, src, 30, CT_OCHRE, true, true);
   }
