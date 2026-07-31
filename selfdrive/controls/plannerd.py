@@ -16,11 +16,9 @@ def plannerd_thread(sm=None, pm=None):
   cloudlog.info("plannerd got CarParams: %s", CP.carName)
   debug_mode = bool(int(os.getenv("DEBUG", "0")))
   
-  use_lanelines = False
   wide_camera = params.get_bool('WideCameraOnly')
-  cloudlog.event("e2e mode", on=use_lanelines)
   longitudinal_planner = LongitudinalPlanner(CP)
-  lateral_planner = LateralPlanner(CP, use_lanelines=use_lanelines, wide_camera=wide_camera, debug=debug_mode)
+  lateral_planner = LateralPlanner(CP, wide_camera=wide_camera, debug=debug_mode)
   if sm is None:
     # 'liveParameters' 추가: Auto-Tuner의 steerRatio 학습 입력(paramsd 칼만 추정).
     # poll/ignore에는 넣지 않아 modelV2 주기에 맞춰 최신값만 읽는다(저속 갱신이라 무해).

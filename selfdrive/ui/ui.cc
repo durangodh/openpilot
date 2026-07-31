@@ -244,7 +244,6 @@ void ui_update_params(UIState *s) {
   auto params = Params();
   s->scene.is_metric = params.getBool("IsMetric");
   s->scene.map_on_left = params.getBool("NavSettingLeftSide");
-  s->scene.dynamic_lane_profile_toggle = params.getBool("DynamicLaneProfileToggle");
   s->scene.experimental_mode = params.getBool("ExperimentalMode");
   s->show_debug = params.getBool("ShowDebugUI");
   s->lat_control = std::string(Params().get("LateralControl"));

@@ -1989,11 +1989,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   toggleLayout->addWidget(horizontal_line());
 
   QList<ParamControl*> toggles;
-  toggles.append(new ParamControl("UseLanelines",
-                                            "Use lane lines instead of e2e",
-                                            "",
-                                            "../assets/offroad/icon_openpilot.png",
-                                            this));
   toggles.append(new ParamControl("UseClusterSpeed",
                                             "Use Cluster Speed",
                                             "Use cluster speed instead of wheel speed.",
@@ -2224,13 +2219,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   lane_offset->showDescription();
   list->addItem(lane_offset);
 
-  list->addItem(horizontal_line());
-  list->addItem(new ParamControl("DynamicLaneProfileToggle",
-                                  "Enable Dynamic Lane Profile",
-                                  "Dynamic Lane Profile 기능을 활성화합니다.\n"
-                                  "활성화 시 아래 모드 선택이 적용됩니다.",
-                                  "../assets/offroad/icon_road.png",
-                                  this));
 
   list->addItem(horizontal_line());
   auto *dlp_control = new DynamicLaneProfileControl(

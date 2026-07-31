@@ -29,10 +29,9 @@ DEFAULT_OFFSET_TOTAL = 0.0
 
 
 class LateralPlanner:
-  def __init__(self, CP, use_lanelines=True, wide_camera=False, debug=False):
+  def __init__(self, CP, wide_camera=False, debug=False):
     self.params = Params()
     self.wide_camera = wide_camera
-    self.use_lanelines = self.params.get_bool('UseLanelines')
     self.last_params_update = 0
 
     # carrot 의 offset_total 로 통합.
@@ -68,7 +67,6 @@ class LateralPlanner:
     self.lat_mpc = LateralMpc()
     self.reset_mpc(np.zeros(4))
 
-    self.dynamic_lane_profile_enabled = self.params.get_bool("DynamicLaneProfileToggle")
     self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
     self.dynamic_lane_profile_status = True
     self.dynamic_lane_profile_status_buffer = False
@@ -81,7 +79,6 @@ class LateralPlanner:
   def read_param(self):
     self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
     if self.param_read_counter % 50 == 0:
-      self.dynamic_lane_profile_enabled = self.params.get_bool("DynamicLaneProfileToggle")
       self.vision_curve_laneless = self.params.get_bool("VisionCurveLaneless")
     self.param_read_counter += 1
 
@@ -98,7 +95,6 @@ class LateralPlanner:
 
   def update(self, sm):
     self.read_param()
-    self.use_lanelines = self.params.get_bool('UseLanelines')
     self.offset_total = self._read_offset_total()
 
     measured_curvature = sm['controlsState'].curvature
@@ -125,7 +121,7 @@ class LateralPlanner:
 
     low_speed = self.v_ego < 10 * CV.MPH_TO_MS
 
-    if self.use_lanelines and not self.get_dynamic_lane_profile(sm['longitudinalPlan']) and not low_speed:
+    if not self.get_dynamic_lane_profile(sm['longitudinalPlan']) and not low_speed:
       self.path_xyz = self.d_path_w_lines_xyz
       self.dynamic_lane_profile_status = False
       self.lat_mpc.set_weights(PATH_COST, LATERAL_MOTION_COST,
@@ -178,9 +174,10 @@ class LateralPlanner:
       self.solution_invalid_cnt = 0
 
   def get_dynamic_lane_profile(self, longitudinal_plan):
-    if not self.dynamic_lane_profile_enabled:
-      return True
-    elif self.dynamic_lane_profile == 1:
+    """True = 레인리스 경로 사용, False = 레인모드(차선) 경로 사용.
+    DynamicLaneProfile 하나로만 결정한다. (0=레인모드 1=레인리스 2=오토)
+    """
+    if self.dynamic_lane_profile == 1:
       return True
     elif self.dynamic_lane_profile == 0:
       return False
@@ -227,7 +224,7 @@ class LateralPlanner:
       lateralPlan.solverState.u = self.lat_mpc.u_sol.flatten().tolist()
 
     lateralPlan.desire = self.DH.desire
-    lateralPlan.useLaneLines = self.use_lanelines
+    lateralPlan.useLaneLines = not self.dynamic_lane_profile_status
     lateralPlan.laneChangeState = self.DH.lane_change_state
     lateralPlan.laneChangeDirection = self.DH.lane_change_direction
 
