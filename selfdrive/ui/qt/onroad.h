@@ -109,6 +109,9 @@ protected:
               int borderWidth = 0, const QColor &borderColor = QColor(255, 255, 255, 255));
   void ctText(QPainter &p, int x, int y, const QString &text, int size,
               const QColor &color, bool bold = true, bool shadow = false);
+  // 박스 안에 상하좌우 정중앙으로 글자 배치
+  void ctTextIn(QPainter &p, const QRect &box, const QString &text, int size,
+                const QColor &color, bool bold = true);
 
   QPixmap ic_speed_bg;
   int  blink_timer = 0;

@@ -676,6 +676,7 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   UIState *s = uiState();
 
   const SubMaster &sm = *(s->sm);
+  (void)sm;
 
   drawLaneLines(p, s);
 
@@ -694,44 +695,15 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   drawCarrotHud(p);
   // ----------------------------------------------
   drawSpeedLimit(p);
-  drawSteer(p);
-  drawThermal(p);
+  //drawSteer(p);      // 조향각 표시 제거
+  //drawThermal(p);    // CPU/AMBIENT 온도 표시 제거
   //drawTurnSignals(p);
   drawGpsStatus(p);
 
   if(s->show_debug && width() > 1200)
     drawDebugText(p);
 
-  const auto controls_state = sm["controlsState"].getControlsState();
-  const auto car_params = sm["carParams"].getCarParams();
-  const auto live_params = sm["liveParameters"].getLiveParameters();
-  const auto torque_state = controls_state.getLateralControlState().getTorqueState();
-
-  int mdps_bus = car_params.getMdpsBus();
-  int scc_bus = car_params.getSccBus();
-
-  QString infoText;
-  infoText.sprintf("%s TS(%.2f/%.2f) AO(%.2f/%.2f) SR(%.2f) SAD(%.2f) BUS(MDPS %d, SCC %d) SCC(%.2f/%.2f/%.2f)",
-                      s->lat_control.c_str(),
-	                  torque_state.getLatAccelFactor(),
-                      torque_state.getFriction(),
-                      live_params.getAngleOffsetDeg(),
-                      live_params.getAngleOffsetAverageDeg(),
-                      controls_state.getSteerRatio(),
-                      controls_state.getSteerActuatorDelay(),
-                      mdps_bus, scc_bus,
-                      controls_state.getSccGasFactor(),
-                      controls_state.getSccBrakeFactor(),
-                      controls_state.getSccCurvatureFactor()
-                      );
-
-  // info
-
-  p.save();	
-  configFont(p, "Open Sans", 34, "Regular");
-  p.setPen(QColor(0xff, 0xff, 0xff, 200));
-  p.drawText(rect().left() + 20, rect().height() - 15, infoText);
-  p.restore();
+  // 하단 디버그 정보(TS/AO/SR/SAD/BUS/SCC) 표시 제거
 
   drawBottomIcons(p);
 }
@@ -877,6 +849,25 @@ void NvgWindow::ctText(QPainter &p, int x, int y, const QString &text, int size,
   p.drawText(r, Qt::AlignHCenter | Qt::AlignBottom, text);
 }
 
+// 박스 사각형 안에 글자를 정중앙(대문자 기준 광학 중심)으로 배치한다.
+// Qt 의 AlignCenter 는 descent 공간까지 포함해 중앙을 잡기 때문에
+// 숫자/대문자만 있는 문자열은 살짝 위로 떠 보인다. capHeight 로 보정한다.
+void NvgWindow::ctTextIn(QPainter &p, const QRect &box, const QString &text, int size,
+                         const QColor &color, bool bold) {
+  if (text.isEmpty()) return;
+  configFont(p, "Open Sans", size, bold ? "Bold" : "Regular");
+  QFontMetrics fm(p.font());
+
+  int cap = fm.capHeight();
+  if (cap <= 0) cap = (int)(fm.ascent() * 0.72f);   // 폰트가 capHeight 를 못주면 근사
+
+  int w = fm.boundingRect(text).width();
+  int baseline = box.center().y() + cap / 2;
+
+  p.setPen(color);
+  p.drawText(box.x() + (box.width() - w) / 2, baseline, text);
+}
+
 void NvgWindow::drawCarrotHud(QPainter &p) {
   p.save();
   p.setRenderHint(QPainter::Antialiasing);
@@ -993,8 +984,9 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
   {
     int dx = bx - 50;
     int dy = by + 175;
-    ctRect(p, QRect(dx - 55, dy - 38, 110, 48), mode_color, 15, 2);
-    ctText(p, dx, dy - 2, mode_str, 32, CT_WHITE, true);
+    QRect mode_box(dx - 55, dy - 38, 110, 48);
+    ctRect(p, mode_box, mode_color, 15, 2);
+    ctTextIn(p, mode_box, mode_str, 32, CT_WHITE);
     if (gps.getFlags() > 0 && gps.getAccuracy() > 0.01f && gps.getAccuracy() < 20.f) {
       ctText(p, dx, dy - 45, "GPS", 30, CT_GREEN, true);
     }
@@ -1033,8 +1025,9 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     }
     int dx = bx + 305;
     int dy = by + 60;
-    ctRect(p, QRect(dx - 35, dy - 70, 70, 80), CT_GREEN_A(210), 15, 3, CT_WHITE);
-    ctText(p, dx, dy, gear_str, 70, CT_WHITE, true);
+    QRect gear_box(dx - 35, dy - 70, 70, 80);
+    ctRect(p, gear_box, CT_GREEN_A(210), 15, 3, CT_WHITE);
+    ctTextIn(p, gear_box, gear_str, 70, CT_WHITE);
   }
 
   // ---- NDA / HDA (carrot 의 APN/APM 자리. roadLimitSpeed.active) ----
@@ -1044,12 +1037,13 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     int active = road_limit.getActive();
     int dx = bx + 200;
     int dy = by + 175;
+    QRect nda_box(dx - 55, dy - 38, 110, 48);
     if (active >= 2) {
-      ctRect(p, QRect(dx - 55, dy - 38, 110, 48), CT_GREEN, 15, 2);
-      ctText(p, dx, dy, "HDA", 40, CT_WHITE, true);
+      ctRect(p, nda_box, CT_GREEN, 15, 2);
+      ctTextIn(p, nda_box, "HDA", 40, CT_WHITE);
     } else if (active >= 1) {
-      ctRect(p, QRect(dx - 55, dy - 38, 110, 48), CT_BLUE_A(210), 15, 2);
-      ctText(p, dx, dy, "NDA", 40, CT_WHITE, true);
+      ctRect(p, nda_box, CT_BLUE_A(210), 15, 2);
+      ctTextIn(p, nda_box, "NDA", 40, CT_WHITE);
     }
   }
 
@@ -1075,8 +1069,9 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
       if (!over) limit_text_color = CT_BLACK_A(230);
       ctText(p, dx, dy - 45, "LIMIT", 30, CT_WHITE, true);
     }
-    ctRect(p, QRect(dx - 55, dy - 38, 110, 48), limit_color, 15, 2);
-    ctText(p, dx, dy, QString::number(disp_speed), 40, limit_text_color, true);
+    QRect limit_box(dx - 55, dy - 38, 110, 48);
+    ctRect(p, limit_box, limit_color, 15, 2);
+    ctTextIn(p, limit_box, QString::number(disp_speed), 40, limit_text_color);
   }
 
   // ---- 디바이스 상태 (ShowDeviceState = 1 일 때만) ----
@@ -1096,24 +1091,25 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     QColor box = CT_GREEN_A(190);
     QString str;
 
-    ctRect(p, QRect(dx - 65, dy - 38, 130, 90),
-           (cpuTemp > 80 && blink_timer <= 8) ? CT_RED_A(255) : box, 15, 2);
-    ctText(p, dx, dy - 5, "CPU", 25, CT_WHITE, true);
+    QRect ds_box(dx - 65, dy - 38, 130, 90);
+    ctRect(p, ds_box, (cpuTemp > 80 && blink_timer <= 8) ? CT_RED_A(255) : box, 15, 2);
+    ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "CPU", 25, CT_WHITE);
     str.sprintf("%.0f\u00B0C", cpuTemp);
-    ctText(p, dx, dy + 40, str, 40, CT_WHITE, true);
+    ctTextIn(p, QRect(ds_box.x(), ds_box.y() + 34, ds_box.width(), 56), str, 40, CT_WHITE);
 
     dx += 150;
-    ctRect(p, QRect(dx - 65, dy - 38, 130, 90),
-           (memoryUsage > 85 && blink_timer <= 8) ? CT_RED_A(255) : box, 15, 2);
-    ctText(p, dx, dy - 5, "MEM", 25, CT_WHITE, true);
+    ds_box.moveLeft(dx - 65);
+    ctRect(p, ds_box, (memoryUsage > 85 && blink_timer <= 8) ? CT_RED_A(255) : box, 15, 2);
+    ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "MEM", 25, CT_WHITE);
     str.sprintf("%d%%", memoryUsage);
-    ctText(p, dx, dy + 40, str, 40, CT_WHITE, true);
+    ctTextIn(p, QRect(ds_box.x(), ds_box.y() + 34, ds_box.width(), 56), str, 40, CT_WHITE);
 
     dx += 150;
-    ctRect(p, QRect(dx - 65, dy - 38, 130, 90), box, 15, 2);
-    ctText(p, dx, dy - 5, "DISK", 25, CT_WHITE, true);
+    ds_box.moveLeft(dx - 65);
+    ctRect(p, ds_box, box, 15, 2);
+    ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "DISK", 25, CT_WHITE);
     str.sprintf("%.0f%%", 100 - freeSpace);
-    ctText(p, dx, dy + 40, str, 40, CT_WHITE, true);
+    ctTextIn(p, QRect(ds_box.x(), ds_box.y() + 34, ds_box.width(), 56), str, 40, CT_WHITE);
   }
 
   p.restore();
