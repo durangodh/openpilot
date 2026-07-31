@@ -886,6 +886,9 @@ struct LongitudinalPlan @0xe00b5b3eba12876c {
   distToSpeedLimit @41 :Float32;
   isMapSpeedLimit @42 :Bool;
 
+  tFollow @57 :Float32;          # UI 표시용 추종거리(초)
+  desiredDistance @58 :Float32;  # UI 표시용 목표 차간거리(m)
+
   distToTurn @43 :Float32;
   turnSpeed @44 :Float32;
   turnSpeedControlState @45 :SpeedLimitControlState;

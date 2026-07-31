@@ -266,6 +266,7 @@ class LongitudinalMpc:
     self._lead_v_filt     = 0.0       # 지수평균 필터링된 선행차 속도
     self._t_follow_smooth = T_FOLLOW  # rate-limited t_follow
     self.driving_mode_tf = 1.0        # MyDrivingMode 추종거리 배율 (planner 가 갱신)
+    self.desired_distance = 0.0       # UI 표시용 목표 차간거리(m)
     # ────────────────────────────────────────────────────────────────────
 
     self.reset()
@@ -562,6 +563,7 @@ class LongitudinalMpc:
     # ─────────────────────────────────────────────────────────────────────
 
     self.t_follow = tr
+    self.desired_distance = float(tr * v_ego + STOP_DISTANCE)   # UI 표시용
     tr_base = tr  # HF lead_ramp 보간 기준점 (학습된 base + 속도-가변 보정 포함)
     self.stop_dist = STOP_DISTANCE if self.mode == 'acc' else STOP_DISTANCE_E2E
 

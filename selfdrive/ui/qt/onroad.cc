@@ -150,21 +150,6 @@ void OnroadWindow::mouseReleaseEvent(QMouseEvent* e) {
     }
   }
 
-  // ── ChevronInfo 탭 토글 ──────────────────────────────
-  {
-    int tap_x = endPos.x();
-    int tap_y = endPos.y();
-    int center_x = width() / 2;
-    int bottom_y = height() * 2 / 3;
-
-    if (std::abs(tap_x - center_x) < 200 && tap_y > bottom_y) {
-      int cur = std::atoi(Params().get("ChevronInfo").c_str());
-      int next = (cur + 1) % 5;  // 0(Off)→1(Dist)→2(Spd)→3(TTC)→4(All)→0
-      Params().put("ChevronInfo", std::to_string(next));
-      return;
-    }
-  }
-
   if (map != nullptr) {
     bool sidebarVisible = geometry().x() > 0;
     map->setVisible(!sidebarVisible && !map->isVisible());
@@ -421,176 +406,6 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   painter.restore();
 }
 
-void NvgWindow::drawLead(QPainter &painter, const cereal::ModelDataV2::LeadDataV3::Reader &lead_data, const QPointF &vd, bool is_radar) {
-  painter.save();
-  const float speedBuff = 10.;
-  const float leadBuff = 40.;
-  const float d_rel = lead_data.getX()[0];
-  const float v_rel = lead_data.getV()[0];
-
-  float fillAlpha = 0;
-  if (d_rel < leadBuff) {
-    fillAlpha = 255 * (1.0 - (d_rel / leadBuff));
-    if (v_rel < 0) {
-      fillAlpha += 255 * (-1 * (v_rel / speedBuff));
-    }
-    fillAlpha = (int)(fmin(fillAlpha, 255));
-  }
-
-  float sz = std::clamp((25 * 30) / (d_rel / 3 + 30), 15.0f, 30.0f) * 2.35;
-  float x = std::clamp((float)vd.x(), 0.f, width() - sz / 2);
-  float y = std::fmin(height() - sz * .6, (float)vd.y());
-
-  float g_xo = sz / 5;
-  float g_yo = sz / 10;
-
-  QPointF glow[] = {{x + (sz * 1.35) + g_xo, y + sz + g_yo}, {x, y - g_yo}, {x - (sz * 1.35) - g_xo, y + sz + g_yo}};
-  painter.setBrush(is_radar ? QColor(86, 121, 216, 255) : QColor(218, 202, 37, 255));
-  painter.drawPolygon(glow, std::size(glow));
-
-  // chevron
-  QPointF chevron[] = {{x + (sz * 1.25), y + sz}, {x, y}, {x - (sz * 1.25), y + sz}};
-  painter.setBrush(redColor(fillAlpha));
-  painter.drawPolygon(chevron, std::size(chevron));
-
-  painter.restore();
-}
-
-void NvgWindow::drawLeadStatus(QPainter &p) {
-  UIState *s = uiState();
-  auto &sm = *(s->sm);
-
-  if (!sm.updated("radarState")) return;
-
-  const auto &radar_state = sm["radarState"].getRadarState();
-  const auto &lead_one    = radar_state.getLeadOne();
-  const auto &lead_two    = radar_state.getLeadTwo();
-
-  bool has_lead_one = lead_one.getStatus();
-  bool has_lead_two = lead_two.getStatus();
-
-  // 리드 없으면 서서히 페이드아웃
-  if (!has_lead_one && !has_lead_two) {
-    lead_status_alpha = std::max(0.0f, lead_status_alpha - 0.05f);
-    if (lead_status_alpha <= 0.0f) return;
-  } else {
-    lead_status_alpha = std::min(1.0f, lead_status_alpha + 0.1f);
-  }
-
-  // L1: 항상 시도 (has_lead_one 여부 무관하게 위치 유지)
-  if (true) {
-    drawLeadStatusAtPosition(p, lead_one, s->scene.lead_vertices[0], "L1");
-  }
-
-  // L2: 두 리드 거리 차이 3m 이상일 때만
-  if (has_lead_two &&
-      std::abs(lead_one.getDRel() - lead_two.getDRel()) > 3.0) {
-    drawLeadStatusAtPosition(p, lead_two, s->scene.lead_vertices[1], "L2");
-  }
-}
-
-void NvgWindow::drawLeadStatusAtPosition(QPainter &p,
-                                         const cereal::RadarState::LeadData::Reader &lead_data,
-                                         const QPointF &chevron_pos,
-                                         const QString &label) {
-  UIState *s = uiState();
-  auto &sm   = *(s->sm);
-
-  float d_rel = lead_data.getDRel();
-  float v_rel = lead_data.getVRel();
-  float v_ego = sm["carState"].getCarState().getVEgo();
-  bool is_metric = s->scene.is_metric;
-
-  // 파라미터에서 표시 모드 읽기 (0=Off, 1=Distance, 2=Speed, 3=Time, 4=All)
-  int chevron_data = std::atoi(Params().get("ChevronInfo").c_str());
-  if (chevron_data == 0) return;
-
-  // 쉐브론 크기 (drawLead 와 동일 로직)
-  float sz = std::clamp((25 * 30) / (d_rel / 3 + 30), 15.0f, 30.0f) * 2.35;
-
-  QFont content_font = p.font();
-  content_font.setPixelSize(45);
-  content_font.setBold(true);
-  p.setFont(content_font);
-
-  const int chevron_types = 3;
-  const int chevron_all   = chevron_types + 1; // value 4 = All
-
-  QStringList chevron_text[chevron_types];
-
-  // 1) Distance
-  if (chevron_data == 1 || chevron_data == chevron_all) {
-    float val = std::max(0.0f, d_rel);
-    QString unit = is_metric ? "m" : "ft";
-    if (!is_metric) val *= 3.28084f;
-    chevron_text[0].append(QString::number(val, 'f', 0) + " " + unit);
-  }
-
-  // 2) Absolute speed
-  if (chevron_data == 2 || chevron_data == chevron_all) {
-    int pos = (chevron_data == 2) ? 0 : 1;
-    float val = std::max(0.0f,
-        (v_rel + v_ego) * (is_metric ? static_cast<float>(MS_TO_KPH)
-                                     : static_cast<float>(MS_TO_MPH)));
-    chevron_text[pos].append(QString::number(val, 'f', 0) + " " +
-                             (is_metric ? "km/h" : "mph"));
-  }
-
-  // 3) Time-to-contact
-  if (chevron_data == 3 || chevron_data == chevron_all) {
-    int pos = (chevron_data == 3) ? 0 : 2;
-    float val = (d_rel > 0 && v_ego > 0)
-                    ? std::max(0.0f, d_rel / v_ego)
-                    : 0.0f;
-    QString ttc_str = (val > 0 && val < 200)
-                          ? QString::number(val, 'f', 1) + "s"
-                          : "---";
-    chevron_text[pos].append(ttc_str);
-  }
-
-  // 빈 항목 제거하여 최종 라인 목록 생성
-  QStringList text_lines;
-  for (int i = 0; i < chevron_types; ++i) {
-    if (!chevron_text[i].isEmpty())
-      text_lines.append(chevron_text[i]);
-  }
-  if (text_lines.isEmpty()) return;
-
-  // 텍스트 박스 위치 (쉐브론 아래 중앙)
-  const float str_w = 190.0f;
-  const float str_h = 58.0f;
-  float text_x = chevron_pos.x() - str_w / 2;
-  float text_y = chevron_pos.y() + sz + 15;
-
-  // 화면 경계 클램핑
-  text_x = std::clamp(text_x, 10.0f, (float)width() - str_w - 10);
-
-  QPoint shadow_offset(2, 2);
-
-  for (int i = 0; i < text_lines.size(); ++i) {
-    const QString &line = text_lines[i];
-    if (line.isEmpty()) continue;
-
-    QRect textRect((int)text_x,
-                   (int)(text_y + i * str_h),
-                   (int)str_w,
-                   (int)str_h);
-
-    // 그림자
-    p.setPen(QColor(0, 0, 0, (int)(200 * lead_status_alpha)));
-    p.drawText(textRect.translated(shadow_offset.x(), shadow_offset.y()),
-               Qt::AlignBottom | Qt::AlignHCenter, line);
-
-    // 본문 색상 결정
-    QColor text_color = QColor(255, 255, 255, (int)(255 * lead_status_alpha));
-
-    p.setPen(text_color);
-    p.drawText(textRect, Qt::AlignBottom | Qt::AlignHCenter, line);
-  }
-
-  p.setPen(Qt::NoPen);
-}
-
 void NvgWindow::paintGL() {
 }
 
@@ -694,18 +509,11 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
 
   const SubMaster &sm = *(s->sm);
   (void)sm;
+  (void)model;
 
   drawLaneLines(p, s);
 
-  auto leads =  model.getLeadsV3();
-  if (leads[0].getProb() > .5) {
-    drawLead(p, leads[0], s->scene.lead_vertices[0], s->scene.lead_radar[0]);
-  }
-  if (leads[1].getProb() > .5 && (std::abs(leads[1].getX()[0] - leads[0].getX()[0]) > 3.0)) {
-    drawLead(p, leads[1], s->scene.lead_vertices[1], s->scene.lead_radar[1]);
-  }
-
-  drawLeadStatus(p);
+  drawCarrotLead(p);
   // --- replaced by CarrotPilot style HUD panel ---
   //drawMaxSpeed(p);
   //drawSpeed(p);
@@ -969,6 +777,84 @@ void NvgWindow::drawCarrotBottom(QPainter &p) {
 
   QRect line(20, height() - 62, width() - 40 - 240, 48);
   p.drawText(line, Qt::AlignRight | Qt::AlignVCenter, ip);
+
+  p.restore();
+}
+
+// =====================================================================================
+//  carrot 스타일 리드 표시
+//   - 앞차 뒷면에 사각 프레임 (기존 삼각 쉐브론 대체)
+//   - 프레임 아래 좌: 레이더 거리 / 우: 비전 거리
+//   - 경로 위 목표 차간거리 지점에 흰 가로선 + "거리(t_follow)"
+//  ※ 이 차량은 레이더 트랙(leadsLeft/Right/Center)을 지원하지 않아
+//    carrot 의 ShowRadarInfo 오버레이는 이식 대상에서 제외했다.
+// =====================================================================================
+void NvgWindow::drawCarrotLead(QPainter &p) {
+  p.save();
+  p.setRenderHint(QPainter::Antialiasing);
+
+  UIState *s = uiState();
+  const UIScene &scene = s->scene;
+  const bool is_metric = scene.is_metric;
+  const float m_to_disp = is_metric ? 1.0f : (float)METER_TO_FOOT;
+
+  // ---- 리드2 프레임 (있을 때만, 뒤쪽에 먼저) ----
+  if (scene.lead_status[1]) {
+    float xl = scene.lead_left[1].x();
+    float xr = scene.lead_right[1].x();
+    float ly = scene.lead_left[1].y();
+    float w2 = std::max(60.0f, xr - xl);
+    QRect box2((int)(xl - 10), (int)(ly - w2 * 0.8f), (int)(w2 + 20), (int)(w2 * 0.8f));
+    p.setPen(QPen(QColor(218, 111, 37, 255), 3));      // 황토색
+    p.setBrush(QColor(0, 0, 0, 20));
+    p.drawRoundedRect(box2, 15, 15);
+  }
+
+  // ---- 리드1 프레임 ----
+  if (scene.lead_status[0]) {
+    float xl = scene.lead_left[0].x();
+    float xr = scene.lead_right[0].x();
+    float ly = scene.lead_left[0].y();
+    float w1 = std::clamp(xr - xl, 120.0f, 800.0f);
+    float cx = (xl + xr) / 2.0f;
+
+    // 레이더가 잡은 리드면 주황, 비전만이면 파랑
+    QColor stroke = scene.lead_radar[0] ? QColor(255, 175, 3, 255) : QColor(0, 0, 255, 255);
+    QRect box((int)(cx - w1 / 2 - 10), (int)(ly - w1 * 0.8f), (int)(w1 + 20), (int)(w1 * 0.8f));
+    p.setPen(QPen(stroke, 3));
+    p.setBrush(QColor(0, 0, 0, 20));
+    p.drawRoundedRect(box, 15, 15);
+
+    // ---- 거리 두 개 : 좌 레이더 / 우 비전 ----
+    int dy = (int)ly + 60;
+    QString str;
+
+    if (scene.lead_radar_dist > 0.0f) {
+      str.sprintf("%.1f", scene.lead_radar_dist * m_to_disp);
+      QRect tag((int)(cx - 80 - 45), dy - 35, 90, 42);
+      ctRect(p, tag, QColor(255, 175, 3, 255), 15);
+      ctTextIn(p, tag, str, 40, QColor(255, 255, 255, 255));
+    }
+    if (scene.lead_vision_dist > 0.0f) {
+      str.sprintf("%.1f", scene.lead_vision_dist * m_to_disp);
+      QRect tag((int)(cx + 80 - 45), dy - 35, 90, 42);
+      ctRect(p, tag, QColor(0, 0, 255, 255), 15);
+      ctTextIn(p, tag, str, 40, QColor(255, 255, 255, 255));
+    }
+  }
+
+  // ---- t_follow 목표선 ----
+  if (scene.tf_valid) {
+    p.setPen(QPen(QColor(255, 255, 255, 230), 3));
+    p.setBrush(Qt::NoBrush);
+    p.drawLine(scene.tf_left, scene.tf_right);
+
+    QString str;
+    str.sprintf("%.1f(%.2f)", scene.tf_distance * m_to_disp, scene.t_follow);
+    configFont(p, "Open Sans", 25, "Bold");
+    p.setPen(QColor(255, 255, 255, 230));
+    p.drawText((int)scene.tf_right.x() + 8, (int)scene.tf_right.y(), str);
+  }
 
   p.restore();
 }

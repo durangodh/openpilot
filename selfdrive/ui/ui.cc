@@ -48,9 +48,36 @@ static void update_leads(UIState *s, const cereal::RadarState::Reader &radar_sta
       float z = line.getZ()[get_path_length_idx(line, lead_data.getDRel())];
       calib_frame_to_full_frame(s, lead_data.getDRel(), -lead_data.getYRel(), z + 1.22, &s->scene.lead_vertices[i]);
       s->scene.lead_radar[i] = lead_data.getRadar();
+
+      // carrot 스타일: 리드 뒷면 좌/우 끝 (폭 2.4m 가정)
+      s->scene.lead_status[i] = true;
+      calib_frame_to_full_frame(s, lead_data.getDRel(), -lead_data.getYRel() - 1.2, z + 1.22, &s->scene.lead_left[i]);
+      calib_frame_to_full_frame(s, lead_data.getDRel(), -lead_data.getYRel() + 1.2, z + 1.22, &s->scene.lead_right[i]);
+      if (i == 0) s->scene.lead_radar_dist = lead_data.getRadar() ? lead_data.getDRel() : 0.0f;
     }
-    else
+    else {
       s->scene.lead_radar[i] = false;
+      s->scene.lead_status[i] = false;
+      if (i == 0) s->scene.lead_radar_dist = 0.0f;
+    }
+  }
+}
+
+// t_follow 목표선 : 경로 위 desiredDistance 지점을 가로지르는 선
+static void update_tfollow_line(UIState *s, const cereal::ModelDataV2::XYZTData::Reader &line) {
+  const auto plan = (*s->sm)["longitudinalPlan"].getLongitudinalPlan();
+  float d = plan.getDesiredDistance();
+  s->scene.tf_distance = d;
+  s->scene.t_follow = plan.getTFollow();
+  s->scene.tf_valid = false;
+  if (d <= 1.0f) return;
+
+  int idx = get_path_length_idx(line, d);
+  float y = line.getY()[idx];
+  float z = line.getZ()[idx];
+  if (calib_frame_to_full_frame(s, d, y - 1.0, z + 1.22, &s->scene.tf_left) &&
+      calib_frame_to_full_frame(s, d, y + 1.0, z + 1.22, &s->scene.tf_right)) {
+    s->scene.tf_valid = true;
   }
 }
 
@@ -140,6 +167,12 @@ static void update_state(UIState *s) {
     }
     if (sm.updated("radarState") && sm.rcv_frame("modelV2") > s->scene.started_frame) {
       update_leads(s, sm["radarState"].getRadarState(), sm["modelV2"].getModelV2().getPosition());
+    }
+    if (sm.updated("modelV2")) {
+      update_tfollow_line(s, sm["modelV2"].getModelV2().getPosition());
+      auto leads_v3 = sm["modelV2"].getModelV2().getLeadsV3();
+      s->scene.lead_vision_dist = (leads_v3.size() > 0 && leads_v3[0].getProb() > 0.5)
+                                ? leads_v3[0].getX()[0] : 0.0f;
     }
   }
   if (sm.updated("pandaStates")) {

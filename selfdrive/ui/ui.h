@@ -108,6 +108,17 @@ typedef struct UIScene {
   QPointF lead_vertices[2];
   bool lead_radar[2] = {false, false};
 
+  // ── carrot 스타일 리드 표시 ──
+  bool    lead_status[2] = {false, false};
+  QPointF lead_left[2], lead_right[2];   // 리드 뒷면 좌/우 화면좌표
+  float   lead_radar_dist = 0.0f;        // 레이더(SCC) 거리 (m), 0이면 없음
+  float   lead_vision_dist = 0.0f;       // 비전 추정 거리 (m), 0이면 없음
+  // t_follow 목표선
+  bool    tf_valid = false;
+  QPointF tf_left, tf_right;
+  float   tf_distance = 0.0f;
+  float   t_follow = 0.0f;
+
   float light_sensor, accel_sensor, gyro_sensor;
   bool started, ignition, is_metric, map_on_left, longitudinal_control, experimental_mode;
   uint64_t started_frame;
