@@ -193,6 +193,19 @@ private:
   Params params;
 };
 
+class AdjustLaneOffsetControl : public AbstractControl {
+  Q_OBJECT
+public:
+  AdjustLaneOffsetControl(const QString &title, const QString &desc,
+                          const QString &icon, QWidget *parent = nullptr);
+  void refresh();
+private:
+  void changeValue(int delta);
+  QPushButton *minus_btn, *plus_btn;
+  QLabel *value_label;
+  Params params;
+};
+
 // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ─────────────────────────
 
 // 파라미터 변화 추이 라인 그래프 위젯

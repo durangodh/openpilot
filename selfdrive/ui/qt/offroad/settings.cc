@@ -110,6 +110,69 @@ void OffsetTotalControl::refresh() {
   plus_btn->setEnabled(val < 1.00);
 }
 
+// ── AdjustLaneOffset Control ─────────────────────────────────────
+AdjustLaneOffsetControl::AdjustLaneOffsetControl(const QString &title,
+                                                 const QString &desc,
+                                                 const QString &icon,
+                                                 QWidget *parent)
+    : AbstractControl(title, desc, icon, parent) {
+
+  QWidget *btn_widget = new QWidget();
+  QHBoxLayout *btn_layout = new QHBoxLayout(btn_widget);
+  btn_layout->setContentsMargins(0, 8, 0, 8);
+  btn_layout->setSpacing(12);
+
+  const QString btn_style = R"(
+    QPushButton {
+      font-size: 40px;
+      font-weight: bold;
+      border-radius: 10px;
+      background-color: #393939;
+      color: #ffffff;
+      min-width: 80px;
+      max-width: 80px;
+      min-height: 70px;
+    }
+    QPushButton:pressed { background-color: #4a4a4a; }
+  )";
+
+  minus_btn = new QPushButton("−");
+  minus_btn->setStyleSheet(btn_style);
+  connect(minus_btn, &QPushButton::clicked, [=]() { changeValue(-1); });
+
+  value_label = new QLabel();
+  value_label->setAlignment(Qt::AlignCenter);
+  value_label->setStyleSheet("font-size: 40px; color: #ffffff; min-width: 140px;");
+
+  plus_btn = new QPushButton("+");
+  plus_btn->setStyleSheet(btn_style);
+  connect(plus_btn, &QPushButton::clicked, [=]() { changeValue(+1); });
+
+  btn_layout->addStretch();
+  btn_layout->addWidget(minus_btn);
+  btn_layout->addWidget(value_label);
+  btn_layout->addWidget(plus_btn);
+
+  qobject_cast<QVBoxLayout*>(layout())->addWidget(btn_widget);
+  refresh();
+}
+
+void AdjustLaneOffsetControl::changeValue(int delta) {
+  int val = std::atoi(params.get("AdjustLaneOffset").c_str());
+  val += delta * 5;                       // 5cm 단위
+  val = std::max(0, std::min(40, val));   // 0 ~ 40cm (내부 클리핑 0.4m)
+  params.put("AdjustLaneOffset", std::to_string(val));
+  refresh();
+}
+
+void AdjustLaneOffsetControl::refresh() {
+  int val = std::atoi(params.get("AdjustLaneOffset").c_str());
+  val = std::max(0, std::min(40, val));
+  value_label->setText(val == 0 ? "OFF" : QString::number(val) + " cm");
+  minus_btn->setEnabled(val > 0);
+  plus_btn->setEnabled(val < 40);
+}
+
 // ── AutoLaneChangeTimer Control ─────────────────────────────────
 AutoLaneChangeTimerControl::AutoLaneChangeTimerControl(const QString &title,
                                                        const QString &desc,
@@ -2146,6 +2209,20 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       this);
   path_offset->showDescription();
   list->addItem(path_offset);
+
+  list->addItem(horizontal_line());
+
+  // ── Adjust Lane Offset ───────────────────────────────────────
+  auto *lane_offset = new AdjustLaneOffsetControl(
+      "Adjust Lane Offset",
+      "좌우 여유공간이 비대칭일 때 여유 있는 쪽으로 경로를 옮깁니다.\n"
+      "좁은 도로에서 대형차 옆을 지날 때 효과가 있습니다.\n"
+      "양쪽 다 여유가 있거나 양쪽 다 좁으면 동작하지 않습니다.\n"
+      "범위: 0 ~ 40cm (5cm 단위)  /  기본값: OFF",
+      "../assets/offroad/icon_road.png",
+      this);
+  lane_offset->showDescription();
+  list->addItem(lane_offset);
 
   list->addItem(horizontal_line());
   list->addItem(new ParamControl("DynamicLaneProfileToggle",
