@@ -2404,17 +2404,24 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "범위: 0 ~ 80  /  기본값: 10 (=0.10초)",
       "../assets/offroad/icon_openpilot.png", 0, 80, 1, 0, 10, this));
 
+  list->addItem(new ParamValueControlF("LateralTorqueCustom",
+      "Torque Custom",
+      "켜면 아래 토크 값들이 차량 기본값 대신 사용됩니다.\n"
+      "Auto-Tuner 가 값을 쓰면 자동으로 켜집니다.",
+      "../assets/offroad/icon_openpilot.png", 0, 1, 1, 0, 0, this));
+  
   list->addItem(new NtuneValueControl("torque", "latAccelFactor",
       "Lat Accel Factor",
       "토크 제어 게인입니다. 크면 조향이 강해집니다.\n"
       "범위: 0.50 ~ 4.50  /  기본값: 2.70",
       "../assets/offroad/icon_openpilot.png", 0.5, 4.5, 0.05, 2, 2.7, this));
 
-  list->addItem(new ParamValueControlF("LateralTorqueCustom",
-      "Torque Custom",
-      "켜면 아래 토크 값들이 차량 기본값 대신 사용됩니다.\n"
-      "Auto-Tuner 가 값을 쓰면 자동으로 켜집니다.",
-      "../assets/offroad/icon_openpilot.png", 0, 1, 1, 0, 0, this));
+  list->addItem(new NtuneValueControl("torque", "friction",
+      "Friction",
+      "정지마찰 보상값입니다. 크면 중앙 부근 응답이 빨라지지만\n"
+      "너무 크면 직진에서 좌우로 흔들립니다.\n"
+      "범위: 0.000 ~ 0.200  /  기본값: 0.080",
+      "../assets/offroad/icon_openpilot.png", 0.0, 0.2, 0.005, 3, 0.08, this));
 
   list->addItem(new ParamValueControlF("LateralTorqueKpV",
       "Torque Kp", "비례 게인 (×0.01).  기본값: 10",
@@ -2442,13 +2449,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "예측 횡저크를 friction 입력에 반영하는 비율 (×0.01).\n"
       "커브 진입 초기 응답에 영향. 0 이면 사용 안함.  기본값: 40",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 40, this));
-
-  list->addItem(new NtuneValueControl("torque", "friction",
-      "Friction",
-      "정지마찰 보상값입니다. 크면 중앙 부근 응답이 빨라지지만\n"
-      "너무 크면 직진에서 좌우로 흔들립니다.\n"
-      "범위: 0.000 ~ 0.200  /  기본값: 0.080",
-      "../assets/offroad/icon_openpilot.png", 0.0, 0.2, 0.005, 3, 0.08, this));
 
   list->addItem(horizontal_line());
 
