@@ -141,7 +141,7 @@ void OnroadWindow::mouseReleaseEvent(QMouseEvent* e) {
     int tap_x = endPos.x();
     int tap_y = endPos.y();
     if (tap_x > 20 && tap_x < 200 &&
-        tap_y > height() - 195 && tap_y < height() - 95) {
+        tap_y > height() - 140 && tap_y < height() - 40) {
       int cur = std::atoi(Params().get("MyDrivingMode").c_str());
       if (cur < 1 || cur > 4) cur = 3;
       int next = cur % 4 + 1;   // 1→2→3→4→1
@@ -933,11 +933,17 @@ void NvgWindow::drawCarrotInfo(QPainter &p) {
     int base_y = line.center().y() + cap / 2;
     int tx = line.x();
 
+    QString name_part = left_head;
+    name_part.chop(4);                          // 뒤쪽 "SCC " 분리
     p.setPen(QColor(0xff, 0xff, 0xff, 200));
-    p.drawText(tx, base_y, left_head);
-    tx += fm.horizontalAdvance(left_head);
+    p.drawText(tx, base_y, name_part);
+    tx += fm.horizontalAdvance(name_part);
 
-    p.setPen(QColor(190, 0, 0, 255));          // 진한 빨강
+    p.setPen(QColor(190, 0, 0, 255));           // "SCC" 는 진한 빨강
+    p.drawText(tx, base_y, "SCC ");
+    tx += fm.horizontalAdvance("SCC ");
+
+    p.setPen(QColor(0xff, 0xff, 0xff, 200));    // 숫자는 흰색
     p.drawText(tx, base_y, scc_num);
     tx += fm.horizontalAdvance(scc_num);
 
@@ -950,8 +956,8 @@ void NvgWindow::drawCarrotInfo(QPainter &p) {
   p.restore();
 }
 
-// 화면 최하단 : 좌 git 브랜치 / 우 wifi IP
-// 우측은 녹화버튼(190px, 우하단 여백 35)과 겹치지 않게 폭을 줄여둔다.
+// 화면 우하단 : wifi IP
+// 녹화버튼(190px, 우하단 여백 35)과 겹치지 않게 폭을 줄여둔다.
 void NvgWindow::drawCarrotBottom(QPainter &p) {
   p.save();
 
@@ -962,7 +968,6 @@ void NvgWindow::drawCarrotBottom(QPainter &p) {
   p.setPen(QColor(0xff, 0xff, 0xff, 200));
 
   QRect line(20, height() - 62, width() - 40 - 240, 48);
-  p.drawText(line, Qt::AlignLeft  | Qt::AlignVCenter, git_branch);
   p.drawText(line, Qt::AlignRight | Qt::AlignVCenter, ip);
 
   p.restore();
@@ -996,12 +1001,11 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     show_device_state = std::atoi(params.get("ShowDeviceState").c_str());
     std::string sdt = params.get("ShowDateTime");
     show_datetime = sdt.empty() ? 1 : std::atoi(sdt.c_str());   // 0:끔 1:시간+날짜 2:시간만 3:날짜만
-    if (git_branch.isEmpty()) git_branch = QString::fromStdString(params.get("GitBranch"));
   }
 
   // ---- 기준 좌표 (carrot.cc 와 동일) ----
   const int x  = 140;
-  const int y  = height() - 555;   // 하단 정보줄과 겹치지 않게 위로 (org: -500)
+  const int y  = height() - 500;
   const int bx = x;
   const int by = y + 270;
 
@@ -1185,7 +1189,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
       cpuTemp /= (float)std::size(cpuTempC);
     }
     int memoryUsage = deviceState.getMemoryUsagePercent();
-    float freeSpace = deviceState.getFreeSpacePercent();
+    float ambientTemp = deviceState.getAmbientTempC();
 
     int dx = bx - 35;
     int dy = by - 200;
@@ -1207,9 +1211,9 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
 
     dx += 150;
     ds_box.moveLeft(dx - 65);
-    ctRect(p, ds_box, box, 15, 2);
-    ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "DISK", 25, CT_WHITE);
-    str.sprintf("%.0f%%", 100 - freeSpace);
+    ctRect(p, ds_box, (ambientTemp > 50 && blink_timer <= 8) ? CT_RED_A(255) : box, 15, 2);
+    ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "AMB", 25, CT_WHITE);
+    str.sprintf("%.0f\u00B0C", ambientTemp);
     ctTextIn(p, QRect(ds_box.x(), ds_box.y() + 34, ds_box.width(), 56), str, 40, CT_WHITE);
   }
 

@@ -114,9 +114,8 @@ protected:
                 const QColor &color, bool bold = true);
   // 화면 최상단 좌/우 정보줄 (carrot 의 top_left / top_right 와 동일 위치)
   void drawCarrotInfo(QPainter &p);
-  // 화면 최하단 좌/우 정보줄 (좌: git 브랜치, 우: wifi IP)
+  // 화면 우하단 정보줄 (wifi IP)
   void drawCarrotBottom(QPainter &p);
-  QString git_branch;
 
   QPixmap ic_speed_bg;
   int  blink_timer = 0;
