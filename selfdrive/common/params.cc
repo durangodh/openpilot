@@ -207,6 +207,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"WideCameraOnly", PERSISTENT},
     {"AutoLaneChangeTimer", PERSISTENT},
     {"HumanFollowing", PERSISTENT},
+    {"MyDrivingMode", PERSISTENT},             // 주행모드 1:ECO 2:SAFE 3:NORM 4:FAST
     {"VisionCurveLaneless", PERSISTENT},
     {"KeepSteeringTurnSignals", PERSISTENT},
     {"HapticFeedbackWhenSpeedCamera", PERSISTENT},

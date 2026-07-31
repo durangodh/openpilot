@@ -133,6 +133,23 @@ void OnroadWindow::mouseReleaseEvent(QMouseEvent* e) {
     return;
   }
 
+  // ── MyDrivingMode 탭 전환 (좌하단 모드 박스) ────────────
+  //    모드 박스는 NvgWindow 기준 x 35~145, y (h-93)~(h-45).
+  //    NvgWindow 가 bdr_s 만큼 안쪽에 있으므로 OnroadWindow 기준으로는
+  //    거의 같은 위치가 된다. 탭하기 쉽게 여유를 둔다.
+  {
+    int tap_x = endPos.x();
+    int tap_y = endPos.y();
+    if (tap_x > 20 && tap_x < 200 &&
+        tap_y > height() - 140 && tap_y < height() - 40) {
+      int cur = std::atoi(Params().get("MyDrivingMode").c_str());
+      if (cur < 1 || cur > 4) cur = 3;
+      int next = cur % 4 + 1;   // 1→2→3→4→1
+      Params().put("MyDrivingMode", std::to_string(next));
+      return;
+    }
+  }
+
   // ── ChevronInfo 탭 토글 ──────────────────────────────
   {
     int tap_x = endPos.x();

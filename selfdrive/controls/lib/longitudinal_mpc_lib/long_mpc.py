@@ -265,6 +265,7 @@ class LongitudinalMpc:
     self._lead_d_filt     = 50.0      # 지수평균 필터링된 선행차 거리
     self._lead_v_filt     = 0.0       # 지수평균 필터링된 선행차 속도
     self._t_follow_smooth = T_FOLLOW  # rate-limited t_follow
+    self.driving_mode_tf = 1.0        # MyDrivingMode 추종거리 배율 (planner 가 갱신)
     # ────────────────────────────────────────────────────────────────────
 
     self.reset()
@@ -545,6 +546,10 @@ class LongitudinalMpc:
       tr = interp(carstate.vEgo, AUTO_TR_BP, AUTO_TR_V) if self.mode == 'acc' else T_FOLLOW
     else:
       tr = interp(float(cruise_gap), CRUISE_GAP_BP, CRUISE_GAP_V if self.mode == 'acc' else CRUISE_GAP_E2E_V)
+
+    # ── MyDrivingMode: GAP(AUTO 포함)으로 정해진 base 추종거리에 모드 배율 적용 ──
+    tr *= self.driving_mode_tf
+    # ────────────────────────────────────────────────────────────────────
 
     # ── 속도-가변 차간거리 (commit dff7287 포팅) ────────────────────────────
     # 고정 stop_distance로 인한 저속 time-gap 역전 보정: 저속(≤30km/h)은 t_follow를

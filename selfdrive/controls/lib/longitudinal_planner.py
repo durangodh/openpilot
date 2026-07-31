@@ -28,6 +28,21 @@ A_CRUISE_MIN = -1.0
 A_CRUISE_MAX_VALS = [1.8, 1.2, 0.8, 0.6]
 A_CRUISE_MAX_BP = [0., 10., 25., 40.]
 
+# ── MyDrivingMode (1:ECO 2:SAFE 3:NORM 4:FAST) ────────────────────────────
+# UI 의 모드 박스를 탭하면 1→2→3→4→1 로 순환한다 (onroad.cc).
+# 갭버튼은 순정 SCC 갭 기능 그대로 두고, 모드는 그 위에 배율로만 얹는다.
+#   ACCEL : 최대가속 배율 (감속 한계는 안전상 건드리지 않음)
+#   TF    : 추종거리 배율 (GAP1~3 고정값 / GAP4 AUTO 곡선 모두에 동일 적용)
+#
+# GAP4(AUTO) 기준 t_follow — AUTO_TR_V=[1.1, 1.25, 1.35, 1.5] @ [0,30,70,110]km/h
+#   ECO  : 1.16 / 1.31 / 1.42 / 1.58
+#   SAFE : 1.43 / 1.63 / 1.76 / 1.95
+#   NORM : 1.10 / 1.25 / 1.35 / 1.50
+#   FAST : 0.97 / 1.10 / 1.19 / 1.32
+MY_DRIVING_MODE_ACCEL = {1: 0.75, 2: 0.90, 3: 1.00, 4: 1.25}
+MY_DRIVING_MODE_TF    = {1: 1.05, 2: 1.30, 3: 1.00, 4: 0.88}
+# ──────────────────────────────────────────────────────────────────────────
+
 # ── Jerk ease-in (commit d897f06): 가감속 onset에서 jerk를 점증시켜 S-curve로 만든다 ──
 # 일정 jerk 상한은 onset에서 jerk가 0→상한으로 '계단'처럼 튀어(=jounce 스파이크) 시작
 # jolt를 남긴다. 시작 직후 jerk를 점증시키면 가속도가 S자로 부드럽게 붙는다.
@@ -82,6 +97,10 @@ class LongitudinalPlanner:
     self.carrot_learner = CarrotLearner()
     self.learned_accel_vals = list(A_CRUISE_MAX_VALS)
 
+    # MyDrivingMode
+    self.my_driving_mode = 3
+    self.my_driving_mode_accel = 1.0
+
     self.read_param()
 
     self.fcw = False
@@ -106,6 +125,19 @@ class LongitudinalPlanner:
     e2e = self.params.get_bool('ExperimentalMode') and self.CP.openpilotLongitudinalControl
     self.mpc.mode = 'blended' if e2e else 'acc'
     self.mpc.human_following = self.params.get_bool("HumanFollowing")
+
+    # ── MyDrivingMode ──
+    mode = self.params.get("MyDrivingMode", encoding='utf8')
+    try:
+      mode = int(mode)
+    except (TypeError, ValueError):
+      mode = 3
+    if not 1 <= mode <= 4:
+      mode = 3
+    self.my_driving_mode = mode
+    self.my_driving_mode_accel = MY_DRIVING_MODE_ACCEL[mode]
+    self.mpc.driving_mode_tf = MY_DRIVING_MODE_TF[mode]
+    # ───────────────────
 
     # ── Auto-Tuner: 학습된 파라미터를 planner/mpc에 반영 (5초 주기 갱신) ──
     if self.params.get_bool("CarrotLearningActive"):
@@ -162,7 +194,7 @@ class LongitudinalPlanner:
 
     if self.mpc.mode == 'acc':
       # ── Auto-Tuner: 학습된 속도대역별 최대가속 사용 ──
-      accel_limits = [A_CRUISE_MIN, self.get_max_accel_learned(v_ego)]
+      accel_limits = [A_CRUISE_MIN, self.get_max_accel_learned(v_ego) * self.my_driving_mode_accel]
       accel_limits_turns = limit_accel_in_turns(v_ego, sm['carState'].steeringAngleDeg, accel_limits, self.CP)
     else:
       accel_limits = [MIN_ACCEL, MAX_ACCEL]
