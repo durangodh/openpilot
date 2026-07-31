@@ -12,6 +12,7 @@ from common.params import Params
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI, CONTROL_N
 from selfdrive.controls.lib.lateral_planner import TRAJECTORY_SIZE
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import AUTO_TR_CRUISE_GAP
+from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc
 
 from selfdrive.ntune import ntune_scc_get
 from selfdrive.road_speed_limiter import road_speed_limiter_get_max_speed, road_speed_limiter_get_active, \
@@ -99,6 +100,7 @@ class SccSmoother:
     self.auto_speed_up_ratio = 0.0
     self._pause_auto_speed_up = False
     self.auto_gas_resume_guard = True
+    self.carrot_atc = CarrotNaviAtc()
 
   def read_param(self):
     self.longcontrol = self.params.get_bool('LongControlEnabled')
@@ -113,6 +115,12 @@ class SccSmoother:
       self.auto_speed_up_ratio = float(self.params.get("AutoSpeedUptoRoadSpeedLimit", encoding="utf8") or "0") * 0.01
     except (TypeError, ValueError):
       self.auto_speed_up_ratio = 0.0
+    try:
+      self.carrot_atc_mode = int(self.params.get("CarrotAutoTurnControl", encoding="utf8") or "0")
+      self.carrot_atc_speed = float(self.params.get("CarrotAutoTurnSpeed", encoding="utf8") or "30")
+      self.carrot_atc_end_time = float(self.params.get("CarrotAutoTurnEndTime", encoding="utf8") or "6")
+    except (TypeError, ValueError):
+      self.carrot_atc_mode, self.carrot_atc_speed, self.carrot_atc_end_time = 0, 30.0, 6.0
 
   def reset(self):
 
@@ -204,6 +212,12 @@ class SccSmoother:
           self.limited_lead = True
     else:
       self.limited_lead = False
+
+    if self.carrot_atc_mode in (2, 3) and not CS.out.brakePressed:
+      atc_limit_kph = self.carrot_atc.speed_limit_kph(
+        self.carrot_atc.update(), self.carrot_atc_speed, self.carrot_atc_end_time)
+      if atc_limit_kph is not None:
+        max_speed_clu = min(max_speed_clu, self.kph_to_clu(atc_limit_kph))
 
     self.update_max_speed(int(max_speed_clu + 0.5),
                           curv_limit != 0 and curv_limit == int(max_speed_clu))

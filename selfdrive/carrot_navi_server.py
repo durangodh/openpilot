@@ -41,14 +41,18 @@ class NaviState(object):
   def __init__(self):
     self.lock = threading.Lock()
     self.values = {}
+    self.updated_at = {}
 
   def update(self, name, value):
     if name not in JSON_NAMES:
       return
     with self.lock:
       self.values[name] = value
+      now_ms = int(time.time() * 1000)
+      self.updated_at[name] = now_ms
       output = dict(self.values)
-      output["updated_at_ms"] = int(time.time() * 1000)
+      output["updated_at_ms"] = now_ms
+      output["stream_updated_at_ms"] = dict(self.updated_at)
     tmp = STATE_FILE + ".tmp"
     try:
       with open(tmp, "w") as f:

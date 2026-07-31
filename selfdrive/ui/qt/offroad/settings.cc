@@ -2505,6 +2505,26 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(horizontal_line());
 
+  auto *atc_mode = new ParamValueControlF(
+      "CarrotAutoTurnControl", "Carrot Navi ATC Mode",
+      "0: Off / 1: steering assist / 2: steering + turn speed / 3: turn speed only. "
+      "The driving model follows CarrotNavi turn guidance; navigation coordinates are never converted directly to steering.",
+      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 0, this);
+  atc_mode->showDescription();
+  list->addItem(atc_mode);
+
+  list->addItem(new ParamValueControlF(
+      "CarrotAutoTurnSpeed", "Carrot ATC Turn Speed",
+      "Target speed near turns (km/h). Stock SCC cannot command less than 30 km/h.",
+      "../assets/offroad/icon_speed_limit.png", 30, 60, 5, 0, 30, this));
+
+  list->addItem(new ParamValueControlF(
+      "CarrotAutoTurnEndTime", "Carrot ATC Speed Timing",
+      "Desired seconds at target speed before the junction.",
+      "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
+
+  list->addItem(horizontal_line());
+
   // ── 기어 변경 팝업 애니메이션 ─────────────────────────────────
   list->addItem(horizontal_line());
 

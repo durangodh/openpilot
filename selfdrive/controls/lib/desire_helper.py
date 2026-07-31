@@ -4,6 +4,7 @@ from cereal import log
 from common.realtime import DT_MDL
 from common.conversions import Conversions as CV
 from common.params import Params
+from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc
 
 AUTO_LCA_START_TIME = 1.0
 
@@ -57,12 +58,18 @@ class DesireHelper:
     self.lane_change_wait_timer = 0.0
     self.prev_lane_change = False
     self.road_edge = False
+    self.carrot_atc = CarrotNaviAtc()
+    self.carrot_atc_mode = 0
 
   def update(self, carstate, lateral_active, lane_change_prob, model_data=None):
     t = time.monotonic()
     if t - self.last_params_update > 1.0:
       self.lane_change_enabled = self.params.get_bool('LaneChangeEnabled')
       self.auto_lane_change_enabled = self.params.get_bool('AutoLaneChangeEnabled')
+      try:
+        self.carrot_atc_mode = int(self.params.get('CarrotAutoTurnControl', encoding='utf8') or '0')
+      except (TypeError, ValueError):
+        self.carrot_atc_mode = 0
       self.last_params_update = t
 
     # AutoLaneChangeTimer 파라미터 읽기 및 대기 시간 계산
@@ -74,13 +81,26 @@ class DesireHelper:
                              1.5 if lane_change_set_timer == 4 else 2.0
 
     v_ego = carstate.vEgo
-    one_blinker = carstate.leftBlinker != carstate.rightBlinker
+    atc_state = self.carrot_atc.update()
+    atc_steering = self.carrot_atc_mode in (1, 2) and lateral_active and not carstate.brakePressed
+    atc_direction = atc_state['direction'] if atc_steering else 0
+    opposite_torque = carstate.steeringPressed and ((atc_direction < 0 and carstate.steeringTorque < 0) or
+                                                    (atc_direction > 0 and carstate.steeringTorque > 0))
+    conflicting_blinker = (atc_direction < 0 and carstate.rightBlinker) or \
+                          (atc_direction > 0 and carstate.leftBlinker)
+    if opposite_torque or conflicting_blinker:
+      atc_direction = 0
+    atc_fork = atc_direction != 0 and atc_state['kind'] == 'fork' and \
+               20.0 <= atc_state['distance'] <= min(350.0, max(160.0, v_ego * 12.0))
+    left_blinker = carstate.leftBlinker or (atc_fork and atc_direction < 0)
+    right_blinker = carstate.rightBlinker or (atc_fork and atc_direction > 0)
+    one_blinker = left_blinker != right_blinker
     below_lane_change_speed = v_ego < LANE_CHANGE_SPEED_MIN
 
     # Road edge detection (FrogAi method)
     if one_blinker and model_data is not None:
       min_lane_threshold = 3.0
-      blinker_index = 0 if carstate.leftBlinker else 1
+      blinker_index = 0 if left_blinker else 1
       desired_edge = model_data.roadEdges[blinker_index]
       current_lane = model_data.laneLines[blinker_index + 1]
       if all([desired_edge.x, desired_edge.y, current_lane.x, current_lane.y]) and \
@@ -112,9 +132,9 @@ class DesireHelper:
 
       if self.lane_change_state == LaneChangeState.off and one_blinker and \
          not self.prev_one_blinker and not below_lane_change_speed and not carstate.brakePressed:
-        if carstate.leftBlinker:
+        if left_blinker:
           self.lane_change_direction = LaneChangeDirection.left
-        elif carstate.rightBlinker:
+        elif right_blinker:
           self.lane_change_direction = LaneChangeDirection.right
 
         self.lane_change_state = LaneChangeState.preLaneChange
@@ -182,6 +202,12 @@ class DesireHelper:
     self.prev_one_blinker = one_blinker
 
     self.desire = DESIRES[self.lane_change_direction][self.lane_change_state]
+
+    turn_direction = self.carrot_atc.steering_request(atc_state, v_ego) if atc_steering else 0
+    if opposite_torque or conflicting_blinker:
+      turn_direction = 0
+    if turn_direction and self.lane_change_state == LaneChangeState.off:
+      self.desire = log.LateralPlan.Desire.turnLeft if turn_direction < 0 else log.LateralPlan.Desire.turnRight
 
     # Send keep pulse once per second during LaneChangeStart.preLaneChange
     if self.lane_change_state in (LaneChangeState.off, LaneChangeState.laneChangeStarting):
