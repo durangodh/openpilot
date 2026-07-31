@@ -46,9 +46,9 @@ protected:
   void showEvent(QShowEvent *event) override;
   void updateFrameMat(int w, int h) override;
   void drawLaneLines(QPainter &painter, const UIState *s);
-  // carrot 諛⑹떇 BSD : 踰쎌쓣 議곌컖?댁뼱 ?명?由ъ쿂??洹몃┛??
+  // carrot 방식 BSD : 벽을 조각내어 울타리처럼 그린다
   void drawBlindSpot(QPainter &painter, const line_vertices_data &vd, const QColor &color);
-  // carrot ?ㅽ???由щ뱶 ?쒖떆 (湲곗〈 ?먮툕濡?/ ChevronInfo ?泥?
+  // carrot 스타일 리드 표시 (기존 쉐브론 / ChevronInfo 대체)
   void drawCarrotLead(QPainter &p);
 
   inline QColor redColor(int alpha = 255)   { return QColor(201, 34, 49, alpha); }
@@ -103,12 +103,12 @@ protected:
               int borderWidth = 0, const QColor &borderColor = QColor(255, 255, 255, 255));
   void ctText(QPainter &p, int x, int y, const QString &text, int size,
               const QColor &color, bool bold = true, bool shadow = false);
-  // 諛뺤뒪 ?덉뿉 ?곹븯醫뚯슦 ?뺤쨷?숈쑝濡?湲??諛곗튂
+  // 박스 안에 상하좌우 정중앙으로 글자 배치
   void ctTextIn(QPainter &p, const QRect &box, const QString &text, int size,
                 const QColor &color, bool bold = true);
-  // ?붾㈃ 理쒖긽??醫????뺣낫以?(carrot ??top_left / top_right ? ?숈씪 ?꾩튂)
+  // 화면 최상단 좌/우 정보줄 (carrot 의 top_left / top_right 와 동일 위치)
   void drawCarrotInfo(QPainter &p);
-  // ?붾㈃ ?고븯???뺣낫以?(wifi IP)
+  // 화면 우하단 정보줄 (wifi IP)
   void drawCarrotBottom(QPainter &p);
   void drawCarrotNavi(QPainter &p);
   void updateCarrotNavi();
@@ -131,12 +131,12 @@ protected:
   int carrot_navi_distance = -1;
   int carrot_navi_remain_distance = -1;
   int carrot_navi_remain_time = -1;
-  float lead_box_w = 0.0f, lead_box_x = 0.0f, lead_box_y = 0.0f;   // 由щ뱶諛뺤뒪 EMA
+  float lead_box_w = 0.0f, lead_box_x = 0.0f, lead_box_y = 0.0f;   // 리드박스 EMA
 
-  // ?? ?앹뾽 ?좊땲硫붿씠??(carrot ui_draw_text_a ?댁떇) ??
+  // ── 팝업 애니메이션 (carrot ui_draw_text_a 이식) ──
   void ctTextAnimStart(int x, int y, const QString &text, int size, const QColor &color);
   void drawTextAnim(QPainter &p);
-  int     anim_time = 0;        // 0 ?대㈃ 鍮꾪솢??
+  int     anim_time = 0;        // 0 이면 비활성
   int     anim_x = 0, anim_y = 0, anim_size = 0;
   QString anim_text;
   QColor  anim_color = QColor(255, 255, 255, 255);
@@ -181,4 +181,3 @@ private slots:
   void offroadTransition(bool offroad);
   void updateState(const UIState &s);
 };
-
