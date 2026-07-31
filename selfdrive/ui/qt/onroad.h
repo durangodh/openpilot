@@ -102,6 +102,21 @@ protected:
   void drawMaxSpeed(QPainter &p);
   void drawSpeed(QPainter &p);
   void drawBottomIcons(QPainter &p);
+
+  // ===== CarrotPilot style HUD (ported from ajouatom/openpilot c3-wip : carrot.cc drawHud) =====
+  void drawCarrotHud(QPainter &p);
+  void ctRect(QPainter &p, const QRect &r, const QColor &fill, int radius,
+              int borderWidth = 0, const QColor &borderColor = QColor(255, 255, 255, 255));
+  void ctText(QPainter &p, int x, int y, const QString &text, int size,
+              const QColor &color, bool bold = true, bool shadow = false);
+
+  QPixmap ic_speed_bg;
+  int  blink_timer = 0;
+  int  carrot_param_timer = 0;
+  int  my_driving_mode = 3;
+  int  show_device_state = 0;
+  int  show_datetime = 1;
+  // ============================================================================
   void drawSpeedLimit(QPainter &p);
   void drawSteer(QPainter &p);
   void drawThermal(QPainter &p);

@@ -198,6 +198,7 @@ struct CarState {
 
   # gear
   gearShifter @14 :GearShifter;
+  gearStep @47 :Int32;      # 현재 변속단수 (1~8), 0 = 알수없음/P/N
 
   # button presses
   buttonEvents @11 :List(ButtonEvent);

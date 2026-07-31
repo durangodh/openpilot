@@ -171,14 +171,23 @@ class CarState(CarStateBase):
     # TODO: refactor gear parsing in function
     # Gear Selection via Cluster - For those Kia/Hyundai which are not fully discovered, we can use the Cluster Indicator for Gear Selection,
     # as this seems to be standard over all cars, but is not the preferred method.
+    ret.gearStep = 0
     if self.CP.carFingerprint in FEATURES["use_cluster_gears"]:
       gear = cp.vl["CLU15"]["CF_Clu_Gear"]
+      ret.gearStep = int(cp.vl["LVR11"]["CF_Lvr_GearInf"])
     elif self.CP.carFingerprint in FEATURES["use_tcu_gears"]:
       gear = cp.vl["TCU12"]["CUR_GR"]
+      ret.gearStep = int(gear) if 1 <= int(gear) <= 8 else 0
     elif self.CP.carFingerprint in FEATURES["use_elect_gears"]:
       gear = cp.vl["ELECT_GEAR"]["Elect_Gear_Shifter"]
+      ret.gearStep = int(cp.vl["ELECT_GEAR"]["Elect_Gear_Step"])
     else:
       gear = cp.vl["LVR12"]["CF_Lvr_Gear"]
+      ret.gearStep = int(cp.vl["LVR11"]["CF_Lvr_GearInf"])
+
+    # 1~8 단만 유효, 그 외(0=P/N, 14=R)는 0 처리
+    if not 1 <= ret.gearStep <= 8:
+      ret.gearStep = 0
 
     ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(gear))
 
@@ -395,6 +404,7 @@ class CarState(CarStateBase):
     if CP.carFingerprint in FEATURES["use_cluster_gears"]:
       signals += [
         ("CF_Clu_Gear", "CLU15"),
+        ("CF_Lvr_GearInf", "LVR11"),        # 변속단수 (0 = N or P, 1-8 = Fwd, 14 = Rev)
       ]
     elif CP.carFingerprint in FEATURES["use_tcu_gears"]:
       signals += [
@@ -403,10 +413,12 @@ class CarState(CarStateBase):
     elif CP.carFingerprint in FEATURES["use_elect_gears"]:
       signals += [
         ("Elect_Gear_Shifter", "ELECT_GEAR"),
+        ("Elect_Gear_Step", "ELECT_GEAR"),  # 변속단수 (EV/HEV)
     ]
     else:
       signals += [
         ("CF_Lvr_Gear","LVR12"),
+        ("CF_Lvr_GearInf", "LVR11"),        # 변속단수 (0 = N or P, 1-8 = Fwd, 14 = Rev)
       ]
 
     if CP.carFingerprint in EV_HYBRID_CAR:
