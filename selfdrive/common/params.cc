@@ -194,7 +194,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"IsLdwsCar", PERSISTENT},
     {"LaneChangeEnabled", PERSISTENT},
     {"AutoLaneChangeEnabled", PERSISTENT},
-    {"OffsetTotal", PERSISTENT},     // 통합 오프셋(offset_total). 전 모드 공통, Auto-Tuner Phase2 학습 대상
+    {"OffsetTotal", PERSISTENT},
+    {"AdjustLaneOffset", PERSISTENT},          // 좌우 여유공간 비대칭 보정 (cm, 0=off)     // 통합 오프셋(offset_total). 전 모드 공통, Auto-Tuner Phase2 학습 대상
     {"SccSmootherState", PERSISTENT},
     {"SccSmootherSlowOnCurves", PERSISTENT},
     {"SccSmootherSyncGasPressed", PERSISTENT},

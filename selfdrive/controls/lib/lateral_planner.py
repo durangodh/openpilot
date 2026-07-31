@@ -253,6 +253,8 @@ class LateralPlanner:
     except Exception:
       turn_kph = 0.0
     tail = f'offset={offset_cm:.1f}cm'
+    if abs(self.LP.lane_offset) > 0.005:
+      tail += f' lane={self.LP.lane_offset * 100.0:+.0f}cm'
     if turn_kph > 0.5:
       tail += f' turn={min(turn_kph, 200.0):.0f}km/h'
     lateralPlan.latDebugText = (

@@ -65,6 +65,7 @@ def manager_init() -> None:
     ("WideCameraOnly", "0"),       # plannerd.py 크래시 수정
     ("ShowGearAnimation", "1"),
     ("AutoLaneChangeTimer", "0"),  # controlsd.py 크래시 수정
+    ("AdjustLaneOffset", "0"),    # 좌우 여유공간 비대칭 보정 (cm, 0=off)
     ("OffsetTotal", "0.0"),        # 통합 오프셋(offset_total), 전 모드 공통 적용
     ("HumanFollowing", "0"),
     ("TurnVisionControl", "0"),

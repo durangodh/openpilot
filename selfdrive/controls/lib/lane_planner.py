@@ -5,8 +5,10 @@ from common.numpy_fast import interp, clip, mean
 from common.realtime import DT_MDL
 from selfdrive.hardware import EON, TICI
 from selfdrive.swaglog import cloudlog
+from common.params import Params
 
 TRAJECTORY_SIZE = 33
+ADJUST_OFFSET_LIMIT = 0.4   # 여유공간 보정 최대치(m)
 
 # CAMERA_OFFSET, PATH_OFFSET 하드코딩 제거
 # → lateral_planner.py에서 Params 기반으로 주입됨
@@ -49,6 +51,23 @@ class LanePlanner:
     self.readings = []
     self.frame = 0
 
+    # ── carrot lane_planner_2 이식 : 좌/우 여유공간 필터 + 경로 오프셋 ──
+    #   lane_width_left/right : 차선 바깥쪽 여유폭(m). 캐롯은 모델의
+    #   meta.laneWidthLeft 를 쓰지만 이 포크 모델에는 없어서
+    #   도로경계(roadEdges) - 차선 거리로 근사한다.
+    self.le_y = np.zeros(TRAJECTORY_SIZE)
+    self.re_y = np.zeros(TRAJECTORY_SIZE)
+    self.lane_width_left = 0.0
+    self.lane_width_right = 0.0
+    self.lane_width_left_filtered = FirstOrderFilter(1.0, 1.0, DT_MDL)
+    self.lane_width_right_filtered = FirstOrderFilter(1.0, 1.0, DT_MDL)
+    self.lane_offset_filtered = FirstOrderFilter(0.0, 2.0, DT_MDL)
+    self.lane_offset = 0.0
+    self.d_prob_count = 0
+    self.params = Params()
+    self.adjust_lane_offset = 0.0
+    self.param_read_frame = 0
+
   def parse_model(self, md):
     lane_lines = md.laneLines
     if len(lane_lines) == 4 and len(lane_lines[0].t) == TRAJECTORY_SIZE:
@@ -65,6 +84,15 @@ class LanePlanner:
       # 좌/우 차선까지의 횡거리 (카메라 오프셋 반영된 값의 절대값)
       self.lane_width_left = float(abs(self.lll_y[0]))
       self.lane_width_right = float(abs(self.rll_y[0]))
+
+    # 도로경계까지의 거리 → 차선 바깥 여유폭
+    edges = md.roadEdges
+    if len(edges) >= 2 and len(edges[0].t) == TRAJECTORY_SIZE:
+      self.le_y = np.array(edges[0].y) + md.roadEdgeStds[0] * 0.4 + self.camera_offset
+      self.re_y = np.array(edges[1].y) - md.roadEdgeStds[1] * 0.4 + self.camera_offset
+      # 좌: 좌차선 ~ 좌측 도로경계 / 우: 우차선 ~ 우측 도로경계
+      self.lane_width_left = float(max(0.0, abs(self.le_y[0]) - abs(self.lll_y[0])))
+      self.lane_width_right = float(max(0.0, abs(self.re_y[0]) - abs(self.rll_y[0])))
 
     desire_state = md.meta.desireState
     if len(desire_state):
@@ -119,10 +147,60 @@ class LanePlanner:
       self.d_prob = min(self.d_prob * 1.3, 1.0)
 
     lane_path_y = (l_prob * path_from_left_lane + r_prob * path_from_right_lane) / (l_prob + r_prob + 0.0001)
+
+    # ── carrot 이식 1 : 좌/우 여유폭 필터링 (1초) ─────────────────────────
+    if self.lane_width_left > 0:
+      self.lane_width_left_filtered.update(self.lane_width_left)
+    if self.lane_width_right > 0:
+      self.lane_width_right_filtered.update(self.lane_width_right)
+
+    # ── carrot 이식 2 : 여유공간 비대칭 시 경로 오프셋 ────────────────────
+    #   AdjustLaneOffset (cm 단위 정수 파라미터). 0 이면 동작 안함.
+    #   양쪽 다 여유(>2.2m) 또는 양쪽 다 빡빡(<2.0m) 하면 보정하지 않고,
+    #   한쪽만 여유가 있을 때 그 반대쪽(좁은 쪽)에서 떨어지도록 민다.
+    self.param_read_frame += 1
+    if self.param_read_frame % 20 == 1:      # 1초 주기
+      try:
+        self.adjust_lane_offset = float(self.params.get("AdjustLaneOffset", encoding="utf8") or "0") * 0.01
+      except (TypeError, ValueError):
+        self.adjust_lane_offset = 0.0
+
+    lwl = self.lane_width_left_filtered.x
+    lwr = self.lane_width_right_filtered.x
+    offset_lane = 0.0
+    if self.adjust_lane_offset > 0.0:
+      if lwl > 2.2 and lwr > 2.2:
+        offset_lane = 0.0
+      elif lwl < 2.0 and lwr < 2.0:
+        offset_lane = 0.0
+      elif lwl > lwr:
+        # 좌측이 여유 → 좌로(+) 이동. 차로가 좁으면(2.5m 미만) 하지 않음
+        offset_lane = interp(self.lane_width, [2.5, 2.9], [0.0, self.adjust_lane_offset])
+      else:
+        offset_lane = interp(self.lane_width, [2.5, 2.9], [0.0, -self.adjust_lane_offset])
+    offset_lane = clip(offset_lane, -ADJUST_OFFSET_LIMIT, ADJUST_OFFSET_LIMIT)
+
+    # d_prob 가 낮으면 오프셋도 서서히 0 으로 (2초 필터)
+    self.lane_offset_filtered.update(interp(self.d_prob, [0.0, 0.3], [0.0, offset_lane]))
+    self.lane_offset = float(self.lane_offset_filtered.x)
+
+    # ── carrot 이식 3 : 차선 신뢰가 1초 이상 유지돼야 차선경로 사용 ────────
+    #   확률이 임계 부근에서 흔들릴 때 경로가 튀는 것을 막는다.
+    self.d_prob_count = self.d_prob_count + 1 if self.d_prob > 0.3 else 0
+    laneline_ready = self.d_prob_count > int(1.0 / DT_MDL)
+    d_prob_apply = self.d_prob if laneline_ready else 0.0
+
+    # 저속에서는 차선경로 비중을 줄인다 (5~10km/h 구간)
+    d_prob_apply *= interp(v_ego * 3.6, [5.0, 10.0], [0.0, 1.0])
+
     safe_idxs = np.isfinite(self.ll_t)
     if safe_idxs[0]:
       lane_path_y_interp = np.interp(path_t, self.ll_t[safe_idxs], lane_path_y[safe_idxs])
-      path_xyz[:,1] = self.d_prob * lane_path_y_interp + (1.0 - self.d_prob) * path_xyz[:,1]
+      path_xyz[:,1] = d_prob_apply * lane_path_y_interp + (1.0 - d_prob_apply) * path_xyz[:,1]
+      # 차선경로가 쓰이는 비중만큼만 여유공간 보정을 적용한다.
+      # (주의: 이 포크는 path_xyz 를 in-place 로 수정하므로 레인리스 경로에도
+      #  같은 배열이 쓰인다. d_prob_apply 로 곱해 누수를 막는다.)
+      path_xyz[:,1] += self.lane_offset * d_prob_apply
     else:
       cloudlog.warning("Lateral mpc - NaNs in laneline times, ignoring")
     return path_xyz
