@@ -850,14 +850,14 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
 #define CT_GREY_A(a)    QColor(191, 191, 191, a)
 #define CT_WHITE_A(a)   QColor(255, 255, 255, a)
 
-void NvgWindow::ctRect(QPainter &p, const QRect &r, const QColor &fill, int radius,
+void NvgWindow::ctRect(QPainter &p, const QRect &r, const QColor &fill, int corner,
                        int borderWidth, const QColor &borderColor) {
   p.save();
   p.setRenderHint(QPainter::Antialiasing);
   if (borderWidth > 0) p.setPen(QPen(borderColor, borderWidth));
   else                 p.setPen(Qt::NoPen);
   p.setBrush(QBrush(fill));
-  p.drawRoundedRect(r, radius, radius);
+  p.drawRoundedRect(r, corner, corner);
   p.restore();
 }
 
