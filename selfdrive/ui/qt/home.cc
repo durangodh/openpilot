@@ -163,7 +163,7 @@ AutoTunerDialog::AutoTunerDialog(const QString &title_text, const QJsonObject &r
     for (const QString& key : group_items.keys()) {
       QJsonObject info = group_items[key].toObject();
 
-      // float 파라미터(PathOffset, latAccelFactor, steerActuatorDelay 등)와
+      // float 파라미터(OffsetTotal, latAccelFactor, steerActuatorDelay 등)와
       // int 파라미터(CruiseMaxVals, TFollowGap)를 구분하여 표시
       bool is_float = info["is_float"].toBool(false);
       QString cur_str, rec_str;
@@ -247,8 +247,8 @@ AutoTunerDialog::AutoTunerDialog(const QString &title_text, const QJsonObject &r
     <b>🛣️ [거리] TFollowGap1~4</b><br>
     크루즈 GAP 단계별 추종 거리 시간(x0.01초). 추종 중 가속 페달을 자주 밟으면(거리가 넓다고 판단) 감소,
     브레이크를 자주 밟으면 증가 추천. 최소 0.90초 보장.<br><br>
-    <b>🔄 [조향] PathOffset / latAccelFactor / friction / steerActuatorDelay</b><br>
-    - <b>PathOffset</b>(m): 직진 평균 편차가 누적되면 경로 좌우 보정.<br>
+    <b>🔄 [조향] OffsetTotal / latAccelFactor / friction / steerActuatorDelay</b><br>
+    - <b>OffsetTotal</b>(m): 직진 평균 편차가 누적되면 경로 좌우 보정.<br>
     - <b>latAccelFactor</b>: 커브 조향 개입 방향에 따라 조향력 강도 조정 (nTune).<br>
     - <b>friction</b>: 직선 미세 개입이 잦으면 마찰보상 상향 (nTune).<br>
     - <b>steerActuatorDelay</b>: 커브 개입이 잦으면(반응 느림) 조향 지연을 낮춰 더 빠르게 (nTune common).<br>

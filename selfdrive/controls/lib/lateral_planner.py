@@ -25,7 +25,7 @@ STEERING_RATE_COST = 700.0
 
 # 기본값 상수
 DEFAULT_CAMERA_OFFSET = -0.06
-DEFAULT_PATH_OFFSET = 0.0
+DEFAULT_OFFSET_TOTAL = 0.0
 
 
 class LateralPlanner:
@@ -35,13 +35,13 @@ class LateralPlanner:
     self.use_lanelines = self.params.get_bool('UseLanelines')
     self.last_params_update = 0
 
-    # UI에서 실시간 조절되는 오프셋 초기화
-    self.camera_offset = self._read_camera_offset()
-    self.path_offset = self._read_path_offset()
+    # carrot 의 offset_total 로 통합.
+    #   카메라 오프셋은 하드웨어 기본값(DEFAULT_CAMERA_OFFSET)으로 고정하고,
+    #   사용자/학습 조정은 최종 경로에 적용되는 offset_total 하나로만 한다.
+    #   저장 키는 기존 OffsetTotal 을 그대로 쓴다 (Auto-Tuner Phase 2 학습 대상).
+    self.offset_total = self._read_offset_total()
 
     self.LP = LanePlanner(wide_camera=wide_camera)
-    # 초기 camera_offset 적용
-    self.LP.camera_offset = self.camera_offset
 
     self.DH = DesireHelper()
 
@@ -85,19 +85,12 @@ class LateralPlanner:
       self.vision_curve_laneless = self.params.get_bool("VisionCurveLaneless")
     self.param_read_counter += 1
 
-  def _read_camera_offset(self):
+  def _read_offset_total(self):
     try:
-      val = float(self.params.get("CameraOffset", encoding="utf8") or str(DEFAULT_CAMERA_OFFSET))
+      val = float(self.params.get("OffsetTotal", encoding="utf8") or str(DEFAULT_OFFSET_TOTAL))
     except (TypeError, ValueError):
-      val = DEFAULT_CAMERA_OFFSET
-    return -val if self.wide_camera else val
-
-  def _read_path_offset(self):
-    try:
-      val = float(self.params.get("PathOffset", encoding="utf8") or str(DEFAULT_PATH_OFFSET))
-    except (TypeError, ValueError):
-      val = DEFAULT_PATH_OFFSET
-    return val
+      val = DEFAULT_OFFSET_TOTAL
+    return max(-1.0, min(1.0, val))
 
   def reset_mpc(self, x0=np.zeros(4)):
     self.x0 = x0
@@ -106,9 +99,7 @@ class LateralPlanner:
   def update(self, sm):
     self.read_param()
     self.use_lanelines = self.params.get_bool('UseLanelines')
-    self.camera_offset = self._read_camera_offset()
-    self.path_offset = self._read_path_offset()
-    self.LP.camera_offset = self.camera_offset
+    self.offset_total = self._read_offset_total()
 
     measured_curvature = sm['controlsState'].curvature
 
@@ -148,8 +139,8 @@ class LateralPlanner:
                                LATERAL_ACCEL_COST, LATERAL_JERK_COST,
                                STEERING_RATE_COST)
 
-    # path_offset을 최종 결정된 path_xyz에 적용 (버그 수정: d_path_xyz -> path_xyz)
-    self.path_xyz[:, 1] += self.path_offset
+    # offset_total 을 최종 결정된 path_xyz 에 적용 (레인모드/레인리스 공통)
+    self.path_xyz[:, 1] += self.offset_total
 
     y_pts = np.interp(self.v_ego * self.t_idxs[:LAT_MPC_N + 1],
                       np.linalg.norm(self.path_xyz, axis=1),
@@ -250,6 +241,27 @@ class LateralPlanner:
     lateralPlan.autoLaneChangeTimer = int(AUTO_LCA_START_TIME) - int(self.DH.auto_lane_change_timer)
 
     lateralPlan.dynamicLaneProfile = int(self.dynamic_lane_profile)
+
+    # ── UI 하단 중앙 디버그 문자열 (carrot latDebugText 이식) ──
+    #   모드 | 좌차선거리 | 차로폭 | 우차선거리 | offset(cm) turn(km/h)
+    #   offset : offset_total (캐롯과 동일)
+    #   turn   : VisionTurnController 목표속도 (캐롯의 curve_speed 대체)
+    lane_mode = 'laneless' if self.dynamic_lane_profile_status else 'lanemode'
+    offset_cm = self.offset_total * 100.0
+    try:
+      turn_kph = sm['longitudinalPlan'].visionTurnSpeed * 3.6
+    except Exception:
+      turn_kph = 0.0
+    tail = f'offset={offset_cm:.1f}cm'
+    if turn_kph > 0.5:
+      tail += f' turn={min(turn_kph, 200.0):.0f}km/h'
+    lateralPlan.latDebugText = (
+      f"{lane_mode} | "
+      f"{self.LP.lane_width_left:.1f}m | "
+      f"{self.LP.lane_width:.1f}m | "
+      f"{self.LP.lane_width_right:.1f}m | "
+      f"{tail}"
+    )
     lateralPlan.dynamicLaneProfileStatus = bool(self.dynamic_lane_profile_status)
 
     pm.send('lateralPlan', plan_send)

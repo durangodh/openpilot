@@ -28,6 +28,10 @@ class LanePlanner:
 
     self.lll_prob = 0.
     self.rll_prob = 0.
+
+    # UI 디버그용 : 차량 중심에서 좌/우 차선까지의 거리(m)
+    self.lane_width_left = 0.
+    self.lane_width_right = 0.
     self.d_prob = 0.
 
     self.lll_std = 0.
@@ -38,8 +42,7 @@ class LanePlanner:
 
     self.wide_camera = wide_camera
 
-    # camera_offset: lateral_planner가 Params에서 읽어서
-    # self.LP.camera_offset = ... 으로 실시간 갱신함
+    # camera_offset: 하드웨어 기본값 고정 (사용자 조정은 offset_total 로 일원화)
     # 초기값은 DEFAULT_CAMERA_OFFSET 사용 (wide_camera 부호 반전은 lateral_planner에서 처리)
     self.camera_offset = -DEFAULT_CAMERA_OFFSET if wide_camera else DEFAULT_CAMERA_OFFSET
 
@@ -52,13 +55,16 @@ class LanePlanner:
       self.ll_t = (np.array(lane_lines[1].t) + np.array(lane_lines[2].t))/2
       self.ll_x = lane_lines[1].x
 
-      # self.camera_offset은 lateral_planner가 매초 갱신
       self.lll_y = np.array(lane_lines[1].y) + self.camera_offset
       self.rll_y = np.array(lane_lines[2].y) + self.camera_offset
       self.lll_prob = md.laneLineProbs[1]
       self.rll_prob = md.laneLineProbs[2]
       self.lll_std = md.laneLineStds[1]
       self.rll_std = md.laneLineStds[2]
+
+      # 좌/우 차선까지의 횡거리 (카메라 오프셋 반영된 값의 절대값)
+      self.lane_width_left = float(abs(self.lll_y[0]))
+      self.lane_width_right = float(abs(self.rll_y[0]))
 
     desire_state = md.meta.desireState
     if len(desire_state):

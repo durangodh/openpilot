@@ -965,6 +965,7 @@ struct LongitudinalPlan @0xe00b5b3eba12876c {
 }
 
 struct LateralPlan @0xe1e9318e2ae8b51e {
+  latDebugText @42 :Text;   # UI 하단 중앙 디버그 문자열
   modelMonoTime @31 :UInt64;
   laneWidth @0 :Float32;
   lProb @5 :Float32;

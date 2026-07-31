@@ -7,7 +7,7 @@ CarrotPilot Auto-Tuner 포팅판 (원본 commit 9dd5e2c, selfdrive/carrot/carrot
   [Phase 1] CruiseMaxVals0~3 : 속도대역별 최대가속 (planner의 A_CRUISE_MAX_VALS 대체)
             트리거: 인게이지 중 gasPressed (설정속도보다 3km/h 이상 낮을 때만)
             발동:  대역당 누적 >= 10초
-  [Phase 2] PathOffset : 직진 주행 편차 보정 (이 포크에 이미 존재하는 파라미터, 단위 m)
+  [Phase 2] OffsetTotal : 직진 주행 편차 보정 (이 포크에 이미 존재하는 파라미터, 단위 m)
             트리거: 직진(|조향각|<5도, 오버라이드 없음) 중 조향각 평균 편차
             발동:  샘플 >= 400개 (0.05s 주기 -> 약 20초)
   [Phase 4] TFollowGap1~4 : cruiseGap 단계별 추종거리 (long_mpc의 CRUISE_GAP_V 대체)
@@ -59,7 +59,7 @@ CarrotPilot Auto-Tuner 포팅판 (원본 commit 9dd5e2c, selfdrive/carrot/carrot
             누적(update)은 계속 진행됐다. 그 결과 꺼둔 동안 쌓인 데이터가 토글을 다시
             켤 때 한꺼번에 반영되는 문제가 있었다. 이제 update() 진입 시점에 두 토글을
             읽어, 해당 카테고리의 누적 자체를 건너뛴다.
-              - apply_lat  : Phase 2(PathOffset) / Phase 5(토크 조향) / steerRatio 게이트
+              - apply_lat  : Phase 2(OffsetTotal) / Phase 5(토크 조향) / steerRatio 게이트
               - apply_long : Phase 1(가속) / Phase 4(추종거리) / Phase 9(수동주행 로거) 게이트
 
 추가 (원본 commit ffec86e, LateralTorqueKpV/KiV 대상 → latAccelFactor/friction에 적응):
@@ -112,7 +112,7 @@ _GAS_REDUCE_RATIO = -0.07                 # 과가속 시 -7%
 _GAS_REDUCE_THRESHOLD_SEC = 5.0           # 브레이크 개입 누적 기준
 _MAX_DELTA = 15                           # 세션당 변동폭 제한 (원본 ±15)
 
-# ── Phase 2 상수: PathOffset (단위 m, float) ──
+# ── Phase 2 상수: OffsetTotal (단위 m, float) ──
 _STRAIGHT_DEG = 5.0
 _LATERAL_MIN_SAMPLES = 400                # 0.05s * 400 = 약 20초 직진
 _PATH_OFFSET_DEG_THRESHOLD = 1.5          # 평균 편차 이 이상이면 추천
@@ -262,13 +262,13 @@ _LONG_COAST_BAND_MAX = 40       # LongCoastBand 안전 상한 (0.40 m/s², param
 
 # 추천 키 → 소속 Phase. '적용'된 Phase의 누적치만 선택적으로 리셋하기 위한 매핑.
 # (과거 _reset_counters()는 적용 여부와 무관하게 전체 누적을 리셋 → 느리게 쌓이는
-#  조향 학습(Phase2 PathOffset 약 20초, Phase5 토크 약 30초)이 무관한 longitudinal
+#  조향 학습(Phase2 OffsetTotal 약 20초, Phase5 토크 약 30초)이 무관한 longitudinal
 #  적용 때마다 초기화되어 문턱에 도달하지 못하던 버그가 있었다.)
 # longActuatorDelay/longKf 는 Phase 4 추종 카운터에서 파생되므로 Phase 4 에 귀속.
 # latAccelFactor/friction/steerActuatorDelay/steerRatio 는 모두 Phase 5(조향)에 귀속.
 _KEY_RESET_PHASE = {
   **{k: 1 for k in _ACCEL_KEYS},
-  "PathOffset": 2,
+  "OffsetTotal": 2,
   **{k: 4 for k in _TFOLLOW_KEYS},
   _LONG_ACT_DELAY_KEY: 4, _LONG_KF_KEY: 4,
   "latAccelFactor": 5, "friction": 5, "steerActuatorDelay": 5, "steerRatio": 5,
@@ -483,7 +483,7 @@ class CarrotLearner:
     # 멈춘다. (commit dff7287) 과거에는 토글이 추천 계산(_calc_recommendations)에만
     # 반영되어, 꺼둔 동안에도 누적은 계속되다가 다시 켰을 때 한꺼번에 반영되는
     # 문제가 있었다. 이제 update() 진입 시점에 읽어 누적 자체를 게이팅한다.
-    #   - apply_lat  : Phase 2(PathOffset) / Phase 5(토크 조향) / steerRatio 게이트
+    #   - apply_lat  : Phase 2(OffsetTotal) / Phase 5(토크 조향) / steerRatio 게이트
     #   - apply_long : Phase 1(가속) / Phase 4(추종거리) / Phase 9(수동주행 로거) 게이트
     raw_lat = self._params.get("CarrotTunerApplyLat", encoding='utf8')
     raw_long = self._params.get("CarrotTunerApplyLong", encoding='utf8')
@@ -508,7 +508,7 @@ class CarrotLearner:
       i = _speed_band(v_ego_kph)
       self._gas_dec_acc[i] += _DT
 
-    # ── Phase 2: 직진 편차 (PathOffset) ──
+    # ── Phase 2: 직진 편차 (OffsetTotal) ──
     # 센서 영점 오프셋(angleOffsetDeg) 오학습 방지:
     # controlsState.angleSteers(보정값)가 전달되면 그것을 누적, 없으면 raw 사용
     if apply_lat and engaged and v_ego_kph >= 20.0 and abs(steer_deg) < _STRAIGHT_DEG \
@@ -741,15 +741,15 @@ class CarrotLearner:
             "band_kph": f"{_BP_KPH[i]:.0f}km/h~ ({reason})",
           }
 
-    # ── Phase 2: PathOffset ──
+    # ── Phase 2: OffsetTotal ──
     if apply_lat and self._steer_count >= _LATERAL_MIN_SAMPLES:
       avg_deg = self._steer_acc / self._steer_count
       if abs(avg_deg) >= _PATH_OFFSET_DEG_THRESHOLD:
-        cur = _get_float(self._params, "PathOffset", 0.0)
+        cur = _get_float(self._params, "OffsetTotal", 0.0)
         rec = float(np.clip(cur + avg_deg * _PATH_OFFSET_M_PER_DEG,
                             -_PATH_OFFSET_LIMIT, _PATH_OFFSET_LIMIT))
         if abs(rec - cur) >= 0.005:
-          result["조향 (Steering)"]["PathOffset"] = {
+          result["조향 (Steering)"]["OffsetTotal"] = {
             "current": round(cur, 3), "recommended": round(rec, 3),
             "band_kph": f"직진 편차 보정 (avg {avg_deg:.2f}deg)",
             "is_float": True,
@@ -1116,7 +1116,7 @@ class CarrotLearner:
     self._gas_max_accel = [0.0] * _NUM_BANDS
 
   def _reset_phase2(self):
-    """직진 편차 (PathOffset)"""
+    """직진 편차 (OffsetTotal)"""
     self._steer_acc = 0.0
     self._steer_count = 0
 

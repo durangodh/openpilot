@@ -65,8 +65,7 @@ def manager_init() -> None:
     ("WideCameraOnly", "0"),       # plannerd.py 크래시 수정
     ("ShowGearAnimation", "1"),
     ("AutoLaneChangeTimer", "0"),  # controlsd.py 크래시 수정
-    ("CameraOffset", "-0.06"),    # 카메라 위치 보정 (레인모드 차선 좌표에 적용)
-    ("PathOffset", "0.0"),        # 주행 경로 좌우 보정 (전 모드 공통 적용)
+    ("OffsetTotal", "0.0"),        # 통합 오프셋(offset_total), 전 모드 공통 적용
     ("HumanFollowing", "0"),
     ("TurnVisionControl", "0"),
     ("VisionCurveLaneless", "0"),
@@ -76,6 +75,16 @@ def manager_init() -> None:
 
   if params.get_bool("RecordFrontLock"):
     params.put_bool("RecordFront", True)
+
+  # PathOffset -> OffsetTotal 1회 이관 (기존 학습값 승계)
+  try:
+    if params.get("OffsetTotal") is None:
+      old_offset = open("/data/params/d/PathOffset").read().strip()
+      if old_offset:
+        params.put("OffsetTotal", old_offset)
+        cloudlog.warning(f"migrated PathOffset -> OffsetTotal: {old_offset}")
+  except Exception:
+    pass
 
   # set unset params
   for k, v in default_params:

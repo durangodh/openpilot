@@ -44,12 +44,11 @@
 #include <QFile>
 #include <QDir>
 
-// ── CameraOffset Control ─────────────────────────────────────────
-// step: 0.01m, range: -0.20 ~ 0.20
-CameraOffsetControl::CameraOffsetControl(const QString &title,
-                                         const QString &desc,
-                                         const QString &icon,
-                                         QWidget *parent)
+// ── Offset Total Control ─────────────────────────────────────────
+OffsetTotalControl::OffsetTotalControl(const QString &title,
+                                       const QString &desc,
+                                       const QString &icon,
+                                       QWidget *parent)
     : AbstractControl(title, desc, icon, parent) {
 
   QWidget *btn_widget = new QWidget();
@@ -92,85 +91,18 @@ CameraOffsetControl::CameraOffsetControl(const QString &title,
   refresh();
 }
 
-void CameraOffsetControl::changeValue(int delta) {
-  std::string raw = params.get("CameraOffset");
-  double val = raw.empty() ? -0.06 : std::stod(raw);
-  val += delta * 0.01;
-  val = std::round(val * 100.0) / 100.0;
-  val = std::max(-0.20, std::min(0.20, val));
-  params.put("CameraOffset", std::to_string(val));
-  refresh();
-}
-
-void CameraOffsetControl::refresh() {
-  std::string raw = params.get("CameraOffset");
-  double val = raw.empty() ? -0.06 : std::stod(raw);
-  val = std::round(val * 100.0) / 100.0;
-  value_label->setText(QString::number(val, 'f', 2) + " m");
-  minus_btn->setEnabled(val > -0.20);
-  plus_btn->setEnabled(val < 0.20);
-}
-
-// ── PathOffset Control ───────────────────────────────────────────
-// step: 0.01m, range: -1.00 ~ 1.00
-PathOffsetControl::PathOffsetControl(const QString &title,
-                                     const QString &desc,
-                                     const QString &icon,
-                                     QWidget *parent)
-    : AbstractControl(title, desc, icon, parent) {
-
-  QWidget *btn_widget = new QWidget();
-  QHBoxLayout *btn_layout = new QHBoxLayout(btn_widget);
-  btn_layout->setContentsMargins(0, 8, 0, 8);
-  btn_layout->setSpacing(12);
-
-  const QString btn_style = R"(
-    QPushButton {
-      font-size: 40px;
-      font-weight: bold;
-      border-radius: 10px;
-      background-color: #393939;
-      color: #ffffff;
-      min-width: 80px;
-      max-width: 80px;
-      min-height: 70px;
-    }
-    QPushButton:pressed { background-color: #4a4a4a; }
-  )";
-
-  minus_btn = new QPushButton("−");
-  minus_btn->setStyleSheet(btn_style);
-  connect(minus_btn, &QPushButton::clicked, [=]() { changeValue(-1); });
-
-  value_label = new QLabel();
-  value_label->setAlignment(Qt::AlignCenter);
-  value_label->setStyleSheet("font-size: 40px; color: #ffffff; min-width: 140px;");
-
-  plus_btn = new QPushButton("+");
-  plus_btn->setStyleSheet(btn_style);
-  connect(plus_btn, &QPushButton::clicked, [=]() { changeValue(+1); });
-
-  btn_layout->addStretch();
-  btn_layout->addWidget(minus_btn);
-  btn_layout->addWidget(value_label);
-  btn_layout->addWidget(plus_btn);
-
-  qobject_cast<QVBoxLayout*>(layout())->addWidget(btn_widget);
-  refresh();
-}
-
-void PathOffsetControl::changeValue(int delta) {
-  std::string raw = params.get("PathOffset");
+void OffsetTotalControl::changeValue(int delta) {
+  std::string raw = params.get("OffsetTotal");
   double val = raw.empty() ? 0.0 : std::stod(raw);
   val += delta * 0.01;
   val = std::round(val * 100.0) / 100.0;
   val = std::max(-1.00, std::min(1.00, val));
-  params.put("PathOffset", std::to_string(val));
+  params.put("OffsetTotal", std::to_string(val));
   refresh();
 }
 
-void PathOffsetControl::refresh() {
-  std::string raw = params.get("PathOffset");
+void OffsetTotalControl::refresh() {
+  std::string raw = params.get("OffsetTotal");
   double val = raw.empty() ? 0.0 : std::stod(raw);
   val = std::round(val * 100.0) / 100.0;
   value_label->setText(QString::number(val, 'f', 2) + " m");
@@ -343,7 +275,7 @@ static const std::map<std::string, std::string> kAutoTunerDefaults = {
   {"TFollowGap2", "140"},
   {"TFollowGap3", "200"},
   {"TFollowGap4", "200"},
-  {"PathOffset", "0.0"},
+  {"OffsetTotal", "0.0"},
   {"CarrotLongActuatorDelay", "0.4"},   // _LONG_DELAY_DEFAULT (carrot_learning.py)
   {"CarrotLongKf", "1.0"},              // _LONG_KF_DEFAULT (carrot_learning.py)
   // ── Auto-Tuner Phase 6: 비전 커브 감속 (carrot_learning.py _TURN_*_DEFAULTS와 동일) ──
@@ -412,7 +344,7 @@ void AutoTunerGraphWidget::mousePressEvent(QMouseEvent *event) {
 }
 
 // Show-All(전체) 뷰에서 제외할 대규모 스케일 파라미터 판정 (commit e06a7dd 21f7994a)
-// 조향계열(PathOffset/latAccelFactor/friction/steerActuatorDelay)은 값이 작아 같이
+// 조향계열(OffsetTotal/latAccelFactor/friction/steerActuatorDelay)은 값이 작아 같이
 // 그리면 바닥에 깔리므로, 대규모(CruiseMaxVals/TFollowGap/Turn*)는 개별 선택 시에만 표시.
 // Turn*(TurnEnteringDecel/TurnTurningAcc/TurnLeavingAcc)도 x100 정수 저장이라
 // CruiseMaxVals/TFollowGap과 동일한 스케일(-30~200) — 빠뜨리면 소규모 nTune
@@ -794,7 +726,7 @@ AutoTunerHistoryPanel::AutoTunerHistoryPanel(QWidget* parent) : QFrame(parent) {
   param_colors["TFollowGap2"] = QColor("#14b8a6");     // Teal
   param_colors["TFollowGap3"] = QColor("#ffffff");     // White
   param_colors["TFollowGap4"] = QColor("#a855f7");     // Purple
-  param_colors["PathOffset"] = QColor("#e879f9");      // Light Magenta
+  param_colors["OffsetTotal"] = QColor("#e879f9");      // Light Magenta
   param_colors["latAccelFactor"] = QColor("#f59e0b");  // Amber (토크)
   param_colors["friction"] = QColor("#f43f5e");        // Rose (토크)
   param_colors["steerActuatorDelay"] = QColor("#fb923c"); // Orange (조향 지연)
@@ -1245,7 +1177,7 @@ void AutoTunerCardListDialog::refreshHistory() {
       for (const QString& key : g_items.keys()) {
         QJsonObject info = g_items[key].toObject();
 
-        // float 파라미터(PathOffset 등) 표시 처리
+        // float 파라미터(OffsetTotal 등) 표시 처리
         bool is_float = info["is_float"].toBool(false);
         QString cur_str, rec_str;
         if (is_float) {
@@ -2202,25 +2134,12 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   ListWidget* list = new ListWidget(this);
   list->setSpacing(0);
 
-    // ── Camera Offset ────────────────────────────────────────────
-  // 레인모드에서 차선 인식 좌표 보정. 0.01m 단위, -0.20 ~ +0.20m
-  auto *cam_offset = new CameraOffsetControl(
-      "Camera Offset",
-      "카메라 위치 보정값입니다. 레인모드에서 차선 인식 좌표에 적용됩니다.\n"
-      "왼쪽으로 이동: 양수(+) / 오른쪽으로 이동: 음수(−)\n"
-      "범위: −0.20 ~ +0.20m  /  기본값: −0.06m",
-      "../assets/offroad/icon_road.png",
-      this);
-  cam_offset->showDescription();
-  list->addItem(cam_offset);
-
-  list->addItem(horizontal_line());
-
-  // ── Path Offset ──────────────────────────────────────────────
+  // ── Offset Total ─────────────────────────────────────────────
   // 레인모드 + 레인리스 모드 모두 적용. 0.01m 단위, -1.00 ~ +1.00m
-  auto *path_offset = new PathOffsetControl(
-      "Path Offset",
-      "주행 경로 좌우 보정값입니다. 레인모드·레인리스 모드 모두 적용됩니다.\n"
+  auto *path_offset = new OffsetTotalControl(
+      "Offset Total",
+      "주행 경로 좌우 통합 보정값입니다. 레인모드·레인리스 모두 적용됩니다.\n"
+      "카메라 오프셋은 하드웨어 기본값으로 고정되고 이 값 하나로 조정합니다.\n"
       "왼쪽으로 이동: 양수(+) / 오른쪽으로 이동: 음수(−)\n"
       "범위: −1.00 ~ +1.00m  /  기본값: 0.00m",
       "../assets/offroad/icon_road.png",
@@ -2278,7 +2197,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   auto *learnToggle = new ParamControl("CarrotLearningActive",
       "Auto-Tuner: 주행 기반 학습",
       "운전자 개입(가속/브레이크/조향)을 학습하여 주차(P단) 시 파라미터 조정을 추천합니다.\n"
-      "학습 대상: CruiseMaxVals0~3(가속) / TFollowGap1~4(추종거리) / PathOffset(직진 편차) /\n"
+      "학습 대상: CruiseMaxVals0~3(가속) / TFollowGap1~4(추종거리) / OffsetTotal(직진 편차) /\n"
       "TurnEnteringDecel·TurnTurningAcc·TurnLeavingAcc(비전 커브 감속)\n"
       "1회 적용 시 변동폭 ±15 제한, 추종거리 최소 0.90초 보장.",
       "../assets/offroad/icon_shell.png",
@@ -2314,7 +2233,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(viewHistoryBtn);
 
   // ── Factory Reset 버튼 (commit e06a7dd) ──
-  // Params 기반 학습 대상(CruiseMaxVals/TFollowGap/PathOffset/Turn*)만 공장 기본값 복원 +
+  // Params 기반 학습 대상(CruiseMaxVals/TFollowGap/OffsetTotal/Turn*)만 공장 기본값 복원 +
   // 학습 데이터/이력 삭제. nTune 조향값(latAccelFactor/friction/steerActuatorDelay)은
   // 차량별 기준값이라 의도적으로 제외 (사용자 nTune 세팅 보호).
   QPushButton* factoryResetBtn = new QPushButton("Auto-Tuner: Factory Reset");

@@ -780,6 +780,14 @@ void NvgWindow::drawCarrotBottom(QPainter &p) {
   QRect line(20, height() - 62, width() - 40 - 240, 48);
   p.drawText(line, Qt::AlignRight | Qt::AlignVCenter, ip);
 
+  // 하단 중앙 : 횡방향 플래너 디버그 문자열
+  QString lat_debug = QString::fromUtf8(
+      sm["lateralPlan"].getLateralPlan().getLatDebugText().cStr());
+  if (!lat_debug.isEmpty()) {
+    p.drawText(QRect(240, height() - 62, width() - 480, 48),
+               Qt::AlignHCenter | Qt::AlignVCenter, lat_debug);
+  }
+
   p.restore();
 }
 

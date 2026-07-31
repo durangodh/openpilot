@@ -180,24 +180,11 @@ private:
   const QStringList labels = {"Lane only", "Lane less", "Auto"};
 };
 
-class CameraOffsetControl : public AbstractControl {
+class OffsetTotalControl : public AbstractControl {
   Q_OBJECT
 public:
-  CameraOffsetControl(const QString &title, const QString &desc,
-                      const QString &icon, QWidget *parent = nullptr);
-  void refresh();
-private:
-  void changeValue(int delta);
-  QPushButton *minus_btn, *plus_btn;
-  QLabel *value_label;
-  Params params;
-};
-
-class PathOffsetControl : public AbstractControl {
-  Q_OBJECT
-public:
-  PathOffsetControl(const QString &title, const QString &desc,
-                    const QString &icon, QWidget *parent = nullptr);
+  OffsetTotalControl(const QString &title, const QString &desc,
+                     const QString &icon, QWidget *parent = nullptr);
   void refresh();
 private:
   void changeValue(int delta);
