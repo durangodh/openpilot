@@ -141,7 +141,7 @@ void OnroadWindow::mouseReleaseEvent(QMouseEvent* e) {
     int tap_x = endPos.x();
     int tap_y = endPos.y();
     if (tap_x > 20 && tap_x < 200 &&
-        tap_y > height() - 140 && tap_y < height() - 40) {
+        tap_y > height() - 195 && tap_y < height() - 95) {
       int cur = std::atoi(Params().get("MyDrivingMode").c_str());
       if (cur < 1 || cur > 4) cur = 3;
       int next = cur % 4 + 1;   // 1→2→3→4→1
@@ -717,6 +717,7 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   //drawTurnSignals(p);
   //drawGpsStatus(p);   // GPS 위성 아이콘 표시 제거
   drawCarrotInfo(p);
+  drawCarrotBottom(p);
 
   if(s->show_debug && width() > 1200)
     drawDebugText(p);
@@ -904,15 +905,10 @@ void NvgWindow::drawCarrotInfo(QPainter &p) {
   if (car_params.getOpenpilotLongitudinalControl()) car_name += " - OP Long";
 
   int scc_bus = (int)car_params.getSccBus();
-  QString scc_str;
-  if (scc_bus < 0) {
-    scc_str = "SCC none";
-  } else {
-    scc_str.sprintf("SCC bus%d%s%s", scc_bus,
-                    car_params.getHasScc13() ? "+13" : "",
-                    car_params.getHasScc14() ? "+14" : "");
-  }
-  QString left_str = car_name + "  |  " + scc_str;
+  QString scc_num  = (scc_bus < 0) ? QString("none") : QString::number(scc_bus);
+  QString scc_tail = QString(car_params.getHasScc13() ? "+13" : "") +
+                     QString(car_params.getHasScc14() ? "+14" : "");
+  QString left_head = car_name + "  |  SCC ";
 
   // ---- 우상단 : 토크값 / SR ----
   QString right_str;
@@ -923,10 +919,51 @@ void NvgWindow::drawCarrotInfo(QPainter &p) {
                     live_params.getSteerRatio());
 
   configFont(p, "Open Sans", 34, "Regular");
-  p.setPen(QColor(0xff, 0xff, 0xff, 200));
   QRect line(20, 12, width() - 40, 48);   // 상태바(bdr_s=20) 안쪽
-  p.drawText(line, Qt::AlignLeft  | Qt::AlignVCenter, left_str);
+
+  // 우상단은 한 덩어리
+  p.setPen(QColor(0xff, 0xff, 0xff, 200));
   p.drawText(line, Qt::AlignRight | Qt::AlignVCenter, right_str);
+
+  // 좌상단은 SCC 숫자만 색이 달라서 조각내어 그린다
+  {
+    QFontMetrics fm(p.font());
+    int cap = fm.capHeight();
+    if (cap <= 0) cap = (int)(fm.ascent() * 0.72f);
+    int base_y = line.center().y() + cap / 2;
+    int tx = line.x();
+
+    p.setPen(QColor(0xff, 0xff, 0xff, 200));
+    p.drawText(tx, base_y, left_head);
+    tx += fm.horizontalAdvance(left_head);
+
+    p.setPen(QColor(190, 0, 0, 255));          // 진한 빨강
+    p.drawText(tx, base_y, scc_num);
+    tx += fm.horizontalAdvance(scc_num);
+
+    if (!scc_tail.isEmpty()) {
+      p.setPen(QColor(0xff, 0xff, 0xff, 200));
+      p.drawText(tx, base_y, scc_tail);
+    }
+  }
+
+  p.restore();
+}
+
+// 화면 최하단 : 좌 git 브랜치 / 우 wifi IP
+// 우측은 녹화버튼(190px, 우하단 여백 35)과 겹치지 않게 폭을 줄여둔다.
+void NvgWindow::drawCarrotBottom(QPainter &p) {
+  p.save();
+
+  const SubMaster &sm = *(uiState()->sm);
+  QString ip = QString::fromUtf8(sm["deviceState"].getDeviceState().getWifiIpAddress().cStr());
+
+  configFont(p, "Open Sans", 34, "Regular");
+  p.setPen(QColor(0xff, 0xff, 0xff, 200));
+
+  QRect line(20, height() - 62, width() - 40 - 240, 48);
+  p.drawText(line, Qt::AlignLeft  | Qt::AlignVCenter, git_branch);
+  p.drawText(line, Qt::AlignRight | Qt::AlignVCenter, ip);
 
   p.restore();
 }
@@ -959,11 +996,12 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     show_device_state = std::atoi(params.get("ShowDeviceState").c_str());
     std::string sdt = params.get("ShowDateTime");
     show_datetime = sdt.empty() ? 1 : std::atoi(sdt.c_str());   // 0:끔 1:시간+날짜 2:시간만 3:날짜만
+    if (git_branch.isEmpty()) git_branch = QString::fromStdString(params.get("GitBranch"));
   }
 
   // ---- 기준 좌표 (carrot.cc 와 동일) ----
   const int x  = 140;
-  const int y  = height() - 500;
+  const int y  = height() - 555;   // 하단 정보줄과 겹치지 않게 위로 (org: -500)
   const int bx = x;
   const int by = y + 270;
 

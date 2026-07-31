@@ -82,11 +82,8 @@ void ScreenRecoder::paintEvent(QPaintEvent *event) {
     r -= QMargins(5, 5, 5, 5);
     QPainter p(this);
     p.setCompositionMode(QPainter::CompositionMode_SourceOver);
-    p.setPen(QPen(QColor::fromRgbF(1, 1, 1, 0.4), 10, Qt::SolidLine, Qt::FlatCap));
 
-    p.setBrush(QBrush(QColor::fromRgbF(0, 0, 0, 0)));
-    p.drawEllipse(r);
-
+    // 바깥 흰색 테두리 원은 표시하지 않음
     r -= QMargins(40, 40, 40, 40);
     p.setPen(Qt::NoPen);
 
