@@ -586,6 +586,13 @@ void NvgWindow::updateCarrotNavi() {
   carrot_navi_instruction = guide.value("main_text").toString();
   if (carrot_navi_instruction.isEmpty()) carrot_navi_instruction = guide.value("road_name").toString();
   carrot_navi_distance = guide.contains("distance_m") ? guide.value("distance_m").toInt() : -1;
+  carrot_navi_turn_type = guide.value("turn_type").toInt();
+
+  const QJsonObject next_guide = root.value("guidance_next").toObject();
+  carrot_navi_next_instruction = next_guide.value("main_text").toString();
+  if (carrot_navi_next_instruction.isEmpty()) carrot_navi_next_instruction = next_guide.value("road_name").toString();
+  carrot_navi_next_distance = next_guide.contains("distance_m") ? next_guide.value("distance_m").toInt() : -1;
+  carrot_navi_next_turn_type = next_guide.value("turn_type").toInt();
 
   const QJsonObject route = root.value("route").toObject();
   carrot_navi_remain_distance = route.contains("remain_distance_m") ? route.value("remain_distance_m").toInt() : -1;
@@ -612,6 +619,71 @@ static QString carrotDistanceText(int meters) {
   return QString("%1 km").arg(meters / 1000.0, 0, 'f', meters < 10000 ? 1 : 0);
 }
 
+enum class CarrotTurnDirection { STRAIGHT, LEFT, RIGHT, UTURN, SLIGHT_LEFT, SLIGHT_RIGHT, ARRIVE };
+
+static CarrotTurnDirection carrotTurnDirection(int type, const QString &text) {
+  const QString value = text.toLower();
+  if (value.contains(QString::fromUtf8("유턴")) || value.contains("u-turn") || type == 14) return CarrotTurnDirection::UTURN;
+  if (value.contains(QString::fromUtf8("목적지")) || value.contains(QString::fromUtf8("도착")) || type == 2) return CarrotTurnDirection::ARRIVE;
+  if (value.contains(QString::fromUtf8("왼쪽 방향")) || value.contains(QString::fromUtf8("좌측 방향")) ||
+      value.contains(QString::fromUtf8("비스듬히 왼쪽")) || type == 16 || type == 17) return CarrotTurnDirection::SLIGHT_LEFT;
+  if (value.contains(QString::fromUtf8("오른쪽 방향")) || value.contains(QString::fromUtf8("우측 방향")) ||
+      value.contains(QString::fromUtf8("비스듬히 오른쪽")) || type == 18 || type == 19) return CarrotTurnDirection::SLIGHT_RIGHT;
+  if (value.contains(QString::fromUtf8("좌회전")) || value.contains(QString::fromUtf8("왼쪽")) || type == 12) return CarrotTurnDirection::LEFT;
+  if (value.contains(QString::fromUtf8("우회전")) || value.contains(QString::fromUtf8("오른쪽")) || type == 13) return CarrotTurnDirection::RIGHT;
+  return CarrotTurnDirection::STRAIGHT;
+}
+
+static void drawCarrotTurnArrow(QPainter &p, const QRect &box, int type, const QString &text,
+                                const QColor &color, int width) {
+  const CarrotTurnDirection direction = carrotTurnDirection(type, text);
+  const QPointF c = box.center();
+  const qreal s = std::min(box.width(), box.height()) * 0.34;
+  QPainterPath path;
+  if (direction == CarrotTurnDirection::ARRIVE) {
+    p.setPen(QPen(color, width));
+    p.setBrush(color);
+    p.drawEllipse(c, s * 0.45, s * 0.45);
+    p.setBrush(Qt::NoBrush);
+    p.drawEllipse(c, s * 0.85, s * 0.85);
+    return;
+  } else if (direction == CarrotTurnDirection::UTURN) {
+    path.moveTo(c.x() + s * 0.55, c.y() + s);
+    path.lineTo(c.x() + s * 0.55, c.y() - s * 0.25);
+    path.cubicTo(c.x() + s * 0.55, c.y() - s, c.x() - s * 0.65, c.y() - s, c.x() - s * 0.65, c.y() - s * 0.2);
+    path.moveTo(c.x() - s, c.y() - s * 0.35);
+    path.lineTo(c.x() - s * 0.65, c.y() + s * 0.05);
+    path.lineTo(c.x() - s * 0.3, c.y() - s * 0.35);
+  } else {
+    qreal dx = 0.0;
+    if (direction == CarrotTurnDirection::LEFT) dx = -s;
+    else if (direction == CarrotTurnDirection::RIGHT) dx = s;
+    else if (direction == CarrotTurnDirection::SLIGHT_LEFT) dx = -s * 0.7;
+    else if (direction == CarrotTurnDirection::SLIGHT_RIGHT) dx = s * 0.7;
+    path.moveTo(c.x(), c.y() + s);
+    if (direction == CarrotTurnDirection::LEFT || direction == CarrotTurnDirection::RIGHT) {
+      path.lineTo(c.x(), c.y() - s * 0.2);
+      path.lineTo(c.x() + dx, c.y() - s * 0.2);
+    } else {
+      path.lineTo(c.x() + dx, c.y() - s);
+    }
+    const QPointF tip = path.currentPosition();
+    const qreal side = dx < 0 ? 1.0 : (dx > 0 ? -1.0 : 0.0);
+    if (dx == 0.0) {
+      path.moveTo(tip.x() - s * 0.35, tip.y() + s * 0.4);
+      path.lineTo(tip);
+      path.lineTo(tip.x() + s * 0.35, tip.y() + s * 0.4);
+    } else {
+      path.moveTo(tip.x() + side * s * 0.05, tip.y() + s * 0.45);
+      path.lineTo(tip);
+      path.lineTo(tip.x() + side * s * 0.45, tip.y() + s * 0.05);
+    }
+  }
+  p.setBrush(Qt::NoBrush);
+  p.setPen(QPen(color, width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  p.drawPath(path);
+}
+
 void NvgWindow::drawCarrotNavi(QPainter &p) {
   updateCarrotNavi();
   if (carrot_navi_route.size() < 2) return;
@@ -620,8 +692,8 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
 
   p.save();
   p.setRenderHint(QPainter::Antialiasing);
-  const QRect panel(width() - 475, 155, 440, 500);
-  const QRect map_rect = panel.adjusted(18, 112, -18, -18);
+  const QRect panel(width() - 475, 155, 440, 560);
+  const QRect map_rect = panel.adjusted(18, 125, -18, -76);
   p.setPen(QPen(QColor(255, 255, 255, 150), 2));
   p.setBrush(QColor(8, 12, 18, 205));
   p.drawRoundedRect(panel, 26, 26);
@@ -631,7 +703,10 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   if (title.isEmpty()) title = QString::fromUtf8("경로 안내");
   configFont(p, "Open Sans", 40, "Bold");
   p.setPen(QColor(255, 255, 255));
-  p.drawText(panel.adjusted(22, 10, -22, -48), Qt::AlignLeft | Qt::AlignVCenter, title);
+  const QRect current_icon(panel.x() + 18, panel.y() + 13, 88, 88);
+  drawCarrotTurnArrow(p, current_icon, carrot_navi_turn_type, title, QColor(80, 215, 255), 10);
+  p.drawText(QRect(panel.x() + 115, panel.y() + 9, panel.width() - 132, 58),
+             Qt::AlignLeft | Qt::AlignVCenter, title);
 
   QString detail = carrotDistanceText(carrot_navi_distance);
   const QString remain = carrotDistanceText(carrot_navi_remain_distance);
@@ -639,7 +714,8 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   if (carrot_navi_remain_time > 0) detail += QString("  /  %1 min").arg((carrot_navi_remain_time + 59) / 60);
   configFont(p, "Open Sans", 27, "Regular");
   p.setPen(QColor(135, 220, 255));
-  p.drawText(panel.adjusted(22, 58, -22, -8), Qt::AlignLeft | Qt::AlignTop, detail);
+  p.drawText(QRect(panel.x() + 115, panel.y() + 65, panel.width() - 132, 38),
+             Qt::AlignLeft | Qt::AlignVCenter, detail);
 
   double min_lon = carrot_navi_route[0].x(), max_lon = min_lon;
   double min_lat = carrot_navi_route[0].y(), max_lat = min_lat;
@@ -678,6 +754,23 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
     const QPointF car = project(carrot_navi_lon, carrot_navi_lat);
     p.setPen(QPen(QColor(255, 255, 255), 4)); p.setBrush(QColor(70, 230, 130));
     p.drawEllipse(car, 13, 13);
+  }
+
+  if (!carrot_navi_next_instruction.isEmpty() || carrot_navi_next_turn_type != 0) {
+    const QRect next_box(panel.x() + 18, panel.bottom() - 66, panel.width() - 36, 50);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(255, 255, 255, 28));
+    p.drawRoundedRect(next_box, 13, 13);
+    drawCarrotTurnArrow(p, QRect(next_box.x() + 5, next_box.y() + 4, 42, 42),
+                        carrot_navi_next_turn_type, carrot_navi_next_instruction,
+                        QColor(185, 225, 245), 5);
+    configFont(p, "Open Sans", 23, "Regular");
+    p.setPen(QColor(215, 235, 245));
+    QString next_text = carrot_navi_next_instruction;
+    const QString next_distance = carrotDistanceText(carrot_navi_next_distance);
+    if (!next_distance.isEmpty()) next_text += QString("  ·  ") + next_distance;
+    p.drawText(QRect(next_box.x() + 55, next_box.y(), next_box.width() - 65, next_box.height()),
+               Qt::AlignLeft | Qt::AlignVCenter, next_text);
   }
   p.restore();
 }

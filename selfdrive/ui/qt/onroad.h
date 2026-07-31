@@ -128,7 +128,11 @@ protected:
   double carrot_navi_lon = 0.0;
   QString carrot_navi_road;
   QString carrot_navi_instruction;
+  QString carrot_navi_next_instruction;
   int carrot_navi_distance = -1;
+  int carrot_navi_turn_type = 0;
+  int carrot_navi_next_distance = -1;
+  int carrot_navi_next_turn_type = 0;
   int carrot_navi_remain_distance = -1;
   int carrot_navi_remain_time = -1;
   float lead_box_w = 0.0f, lead_box_x = 0.0f, lead_box_y = 0.0f;   // 리드박스 EMA
