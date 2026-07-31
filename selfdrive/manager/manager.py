@@ -66,6 +66,18 @@ def manager_init() -> None:
     ("NewRadarInterface", "0"),
     ("WideCameraOnly", "0"),       # plannerd.py 크래시 수정
     ("ShowGearAnimation", "1"),
+    ("CustomSteerRatio", "1650"),
+    ("UseLiveSteerRatio", "1"),
+    ("SteerActuatorDelay", "10"),
+    ("LateralTorqueCustom", "0"),
+    ("LateralTorqueAccelFactor", "2700"),
+    ("LateralTorqueFriction", "80"),
+    ("LateralTorqueKpV", "10"),
+    ("LateralTorqueKiV", "10"),
+    ("LateralTorqueKf", "100"),
+    ("LateralTorqueKd", "0"),
+    ("LatAccelFrictionFactor", "70"),
+    ("LatJerkFrictionFactor", "40"),
     ("AutoLaneChangeTimer", "0"),  # controlsd.py 크래시 수정
     ("AdjustLaneOffset", "0"),    # 좌우 여유공간 비대칭 보정 (cm, 0=off)
     ("OffsetTotal", "0.0"),        # 통합 오프셋(offset_total), 전 모드 공통 적용

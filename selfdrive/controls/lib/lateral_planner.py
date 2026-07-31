@@ -3,7 +3,6 @@ from common.conversions import Conversions as CV
 from common.realtime import sec_since_boot, DT_MDL
 from common.numpy_fast import interp
 from selfdrive.controls.lib.lane_planner import LanePlanner
-from selfdrive.ntune import ntune_common_get
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import LateralMpc
 from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import N as LAT_MPC_N

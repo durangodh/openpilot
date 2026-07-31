@@ -208,6 +208,18 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"HumanFollowing", PERSISTENT},
     {"MyDrivingMode", PERSISTENT},             // 주행모드 1:ECO 2:SAFE 3:NORM 4:FAST
     {"ShowGearAnimation", PERSISTENT},
+    {"CustomSteerRatio", PERSISTENT},          // 고정 조향비 x100
+    {"UseLiveSteerRatio", PERSISTENT},         // 1=liveParameters 학습 조향비 사용
+    {"SteerActuatorDelay", PERSISTENT},        // 조향 지연 보상 x100 (초)
+    {"LateralTorqueCustom", PERSISTENT},       // 1=아래 토크값 사용, 0=차량 기본값
+    {"LateralTorqueAccelFactor", PERSISTENT},  // latAccelFactor x1000
+    {"LateralTorqueFriction", PERSISTENT},     // friction x1000
+    {"LateralTorqueKpV", PERSISTENT},          // kp x100
+    {"LateralTorqueKiV", PERSISTENT},          // ki x100
+    {"LateralTorqueKf", PERSISTENT},           // kf x100
+    {"LateralTorqueKd", PERSISTENT},           // kd x100
+    {"LatAccelFrictionFactor", PERSISTENT},    // friction 입력 횡가속 비율 x100
+    {"LatJerkFrictionFactor", PERSISTENT},     // friction 입력 횡저크 비율 x100
     {"ShowBlindSpotAlways", PERSISTENT},       // BSD 벽 상시표시 (진단용, 0=감지시만)         // 기어 변경 팝업 애니메이션
     {"VisionCurveLaneless", PERSISTENT},
     {"KeepSteeringTurnSignals", PERSISTENT},

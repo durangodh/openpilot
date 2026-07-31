@@ -328,6 +328,179 @@ static void writeNtuneCommonValueS(const QString &key, double value) {
   }
 }
 
+// 토크값(latAccelFactor/friction)은 nTune JSON 이 아니라 Params 에 있다.
+static const std::map<QString, std::pair<QString, double>> kTorqueParamKey = {
+  {"latAccelFactor", {"LateralTorqueAccelFactor", 1000.0}},
+  {"friction",       {"LateralTorqueFriction",    1000.0}},
+};
+
+static bool torqueParamOf(const QString &key, QString *pkey, double *scale) {
+  auto it = kTorqueParamKey.find(key);
+  if (it == kTorqueParamKey.end()) return false;
+  *pkey = it->second.first;
+  *scale = it->second.second;
+  return true;
+}
+
+static double readNtuneValueS(const QString &group, const QString &key, double def) {
+  QString pkey; double scale;
+  if (group == "torque" && torqueParamOf(key, &pkey, &scale)) {
+    std::string v = Params().get(pkey.toStdString());
+    return v.empty() ? def : std::atof(v.c_str()) / scale;
+  }
+  QString path = (group == "torque") ? findNtuneTorqueFileS() : "/data/ntune/common.json";
+  QFile f(path);
+  if (!f.open(QIODevice::ReadOnly)) return def;
+  QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
+  f.close();
+  return obj.contains(key) ? obj[key].toDouble(def) : def;
+}
+
+// ── Param Value Control (정수 Params) ────────────────────────────
+ParamValueControlF::ParamValueControlF(const QString &param, const QString &title, const QString &desc,
+                                       const QString &icon, int vmin, int vmax, int step, int decimals,
+                                       int vdefault, QWidget *parent)
+    : AbstractControl(title, desc, icon, parent),
+      param_(param), vmin_(vmin), vmax_(vmax), step_(step), decimals_(decimals), vdefault_(vdefault) {
+
+  QWidget *btn_widget = new QWidget();
+  QHBoxLayout *btn_layout = new QHBoxLayout(btn_widget);
+  btn_layout->setContentsMargins(0, 8, 0, 8);
+  btn_layout->setSpacing(12);
+
+  const QString btn_style = R"(
+    QPushButton {
+      font-size: 40px;
+      font-weight: bold;
+      border-radius: 10px;
+      background-color: #393939;
+      color: #ffffff;
+      min-width: 80px;
+      max-width: 80px;
+      min-height: 70px;
+    }
+    QPushButton:pressed { background-color: #4a4a4a; }
+  )";
+
+  minus_btn = new QPushButton("−");
+  minus_btn->setStyleSheet(btn_style);
+  connect(minus_btn, &QPushButton::clicked, [=]() { changeValue(-1); });
+
+  value_label = new QLabel();
+  value_label->setAlignment(Qt::AlignCenter);
+  value_label->setStyleSheet("font-size: 40px; color: #ffffff; min-width: 170px;");
+
+  plus_btn = new QPushButton("+");
+  plus_btn->setStyleSheet(btn_style);
+  connect(plus_btn, &QPushButton::clicked, [=]() { changeValue(+1); });
+
+  btn_layout->addStretch();
+  btn_layout->addWidget(minus_btn);
+  btn_layout->addWidget(value_label);
+  btn_layout->addWidget(plus_btn);
+
+  qobject_cast<QVBoxLayout*>(layout())->addWidget(btn_widget);
+  refresh();
+}
+
+void ParamValueControlF::changeValue(int delta) {
+  std::string cur = params.get(param_.toStdString());
+  int v = cur.empty() ? vdefault_ : std::atoi(cur.c_str());
+  v = std::max(vmin_, std::min(vmax_, v + delta * step_));
+  params.put(param_.toStdString(), std::to_string(v));
+  refresh();
+}
+
+void ParamValueControlF::refresh() {
+  std::string cur = params.get(param_.toStdString());
+  int v = cur.empty() ? vdefault_ : std::atoi(cur.c_str());
+  v = std::max(vmin_, std::min(vmax_, v));
+  if (vmin_ == 0 && vmax_ == 1) value_label->setText(v > 0 ? "ON" : "OFF");
+  else                          value_label->setText(QString::number(v));
+  minus_btn->setEnabled(v > vmin_);
+  plus_btn->setEnabled(v < vmax_);
+}
+
+// ── nTune Value Control ──────────────────────────────────────────
+NtuneValueControl::NtuneValueControl(const QString &group, const QString &key,
+                                     const QString &title, const QString &desc, const QString &icon,
+                                     double vmin, double vmax, double step, int decimals,
+                                     double vdefault, QWidget *parent)
+    : AbstractControl(title, desc, icon, parent),
+      group_(group), key_(key), vmin_(vmin), vmax_(vmax), step_(step),
+      vdefault_(vdefault), decimals_(decimals) {
+
+  QWidget *btn_widget = new QWidget();
+  QHBoxLayout *btn_layout = new QHBoxLayout(btn_widget);
+  btn_layout->setContentsMargins(0, 8, 0, 8);
+  btn_layout->setSpacing(12);
+
+  const QString btn_style = R"(
+    QPushButton {
+      font-size: 40px;
+      font-weight: bold;
+      border-radius: 10px;
+      background-color: #393939;
+      color: #ffffff;
+      min-width: 80px;
+      max-width: 80px;
+      min-height: 70px;
+    }
+    QPushButton:pressed { background-color: #4a4a4a; }
+  )";
+
+  minus_btn = new QPushButton("−");
+  minus_btn->setStyleSheet(btn_style);
+  connect(minus_btn, &QPushButton::clicked, [=]() { changeValue(-1); });
+
+  value_label = new QLabel();
+  value_label->setAlignment(Qt::AlignCenter);
+  value_label->setStyleSheet("font-size: 40px; color: #ffffff; min-width: 170px;");
+
+  plus_btn = new QPushButton("+");
+  plus_btn->setStyleSheet(btn_style);
+  connect(plus_btn, &QPushButton::clicked, [=]() { changeValue(+1); });
+
+  btn_layout->addStretch();
+  btn_layout->addWidget(minus_btn);
+  btn_layout->addWidget(value_label);
+  btn_layout->addWidget(plus_btn);
+
+  qobject_cast<QVBoxLayout*>(layout())->addWidget(btn_widget);
+  refresh();
+}
+
+void NtuneValueControl::changeValue(int delta) {
+  double v = readNtuneValueS(group_, key_, vdefault_);
+  v += delta * step_;
+  // 부동소수 오차 정리
+  double scale = std::pow(10.0, decimals_);
+  v = std::round(v * scale) / scale;
+  v = std::max(vmin_, std::min(vmax_, v));
+
+  QString pkey; double scale;
+  if (group_ == "torque" && torqueParamOf(key_, &pkey, &scale)) {
+    Params().put(pkey.toStdString(), std::to_string((int)std::llround(v * scale)));
+    Params().put("LateralTorqueCustom", "1");
+  } else if (group_ == "torque") {
+    writeNtuneTorqueValueS(key_, v);
+  } else {
+    writeNtuneCommonValueS(key_, v);
+  }
+  refresh();
+}
+
+void NtuneValueControl::refresh() {
+  double v = readNtuneValueS(group_, key_, vdefault_);
+  if (decimals_ == 0) {
+    value_label->setText(v > 0.5 ? "ON" : "OFF");
+  } else {
+    value_label->setText(QString::number(v, 'f', decimals_));
+  }
+  minus_btn->setEnabled(v > vmin_ + 1e-9);
+  plus_btn->setEnabled(v < vmax_ - 1e-9);
+}
+
 // 포팅판 학습 대상 파라미터의 공장 기본값 (python carrot_learning.py 와 동일)
 static const std::map<std::string, std::string> kAutoTunerDefaults = {
   {"CruiseMaxVals0", "180"},
@@ -1313,9 +1486,25 @@ void AutoTunerCardListDialog::restoreItem(const QString& id) {
             QJsonObject info = g_items[key].toObject();
             // 적용 전 'current' 값으로 원복 (ntune / float / int 구분)
             if (info["ntune"].toString() == "torque") {
-              writeNtuneTorqueValueS(key, info["current"].toDouble());
+              QString pkey; double scale;
+              if (torqueParamOf(key, &pkey, &scale)) {
+                Params().put(pkey.toStdString(),
+                             std::to_string((int)std::llround(info["current"].toDouble() * scale)));
+              } else {
+                writeNtuneTorqueValueS(key, info["current"].toDouble());
+              }
             } else if (info["ntune"].toString() == "common") {
-              writeNtuneCommonValueS(key, info["current"].toDouble());
+              static const std::map<QString, std::pair<QString, double>> kCommonKey = {
+                {"steerActuatorDelay", {"SteerActuatorDelay", 100.0}},
+                {"steerRatio",         {"CustomSteerRatio",   100.0}},
+              };
+              auto ck = kCommonKey.find(key);
+              if (ck != kCommonKey.end()) {
+                Params().put(ck->second.first.toStdString(),
+                             std::to_string((int)std::llround(info["current"].toDouble() * ck->second.second)));
+              } else {
+                writeNtuneCommonValueS(key, info["current"].toDouble());
+              }
             } else if (info["is_float"].toBool(false)) {
               double prev_val = info["current"].toDouble();
               Params().put(key.toStdString(), QString::number(prev_val, 'f', 3).toStdString());
@@ -2191,6 +2380,77 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
 
   ListWidget* list = new ListWidget(this);
   list->setSpacing(0);
+
+  // ── 조향 실시간 튜닝 (nTune 파일 직접 조절) ───────────────────
+  list->addItem(horizontal_line());
+
+  list->addItem(new ParamValueControlF("CustomSteerRatio",
+      "Steer Ratio",
+      "조향비 (×0.01). 크면 같은 곡률에 핸들을 더 많이 돌립니다.\n"
+      "Live Steer Ratio 가 켜져 있으면 이 값 대신 학습값이 쓰입니다.\n"
+      "범위: 1000 ~ 2000  /  기본값: 1650 (=16.50)",
+      "../assets/offroad/icon_openpilot.png", 1000, 2000, 10, 0, 1650, this));
+
+  list->addItem(new ParamValueControlF("UseLiveSteerRatio",
+      "Live Steer Ratio",
+      "liveParameters 가 학습한 조향비를 사용합니다.\n"
+      "끄면 위의 Steer Ratio 고정값을 씁니다.",
+      "../assets/offroad/icon_openpilot.png", 0, 1, 1, 0, 1, this));
+
+  list->addItem(new ParamValueControlF("SteerActuatorDelay",
+      "Steer Actuator Delay",
+      "조향 반응 지연 보상 (×0.01초). 크면 더 미리 조향합니다.\n"
+      "커브 인코스/아웃코스 치우침 조정에 씁니다.\n"
+      "범위: 0 ~ 80  /  기본값: 10 (=0.10초)",
+      "../assets/offroad/icon_openpilot.png", 0, 80, 1, 0, 10, this));
+
+  list->addItem(new NtuneValueControl("torque", "latAccelFactor",
+      "Lat Accel Factor",
+      "토크 제어 게인입니다. 크면 조향이 강해집니다.\n"
+      "범위: 0.50 ~ 4.50  /  기본값: 2.70",
+      "../assets/offroad/icon_openpilot.png", 0.5, 4.5, 0.05, 2, 2.7, this));
+
+  list->addItem(new ParamValueControlF("LateralTorqueCustom",
+      "Torque Custom",
+      "켜면 아래 토크 값들이 차량 기본값 대신 사용됩니다.\n"
+      "Auto-Tuner 가 값을 쓰면 자동으로 켜집니다.",
+      "../assets/offroad/icon_openpilot.png", 0, 1, 1, 0, 0, this));
+
+  list->addItem(new ParamValueControlF("LateralTorqueKpV",
+      "Torque Kp", "비례 게인 (×0.01).  기본값: 10",
+      "../assets/offroad/icon_openpilot.png", 0, 500, 5, 0, 10, this));
+
+  list->addItem(new ParamValueControlF("LateralTorqueKiV",
+      "Torque Ki", "적분 게인 (×0.01).  기본값: 10",
+      "../assets/offroad/icon_openpilot.png", 0, 200, 1, 0, 10, this));
+
+  list->addItem(new ParamValueControlF("LateralTorqueKf",
+      "Torque Kf", "피드포워드 게인 (×0.01).  기본값: 100",
+      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
+
+  list->addItem(new ParamValueControlF("LateralTorqueKd",
+      "Torque Kd", "미분 게인 (×0.01).  기본값: 0",
+      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 0, this));
+
+  list->addItem(new ParamValueControlF("LatAccelFrictionFactor",
+      "Friction: Accel Factor",
+      "횡가속도 오차를 friction 입력에 반영하는 비율 (×0.01).\n기본값: 70",
+      "../assets/offroad/icon_openpilot.png", 0, 300, 5, 0, 70, this));
+
+  list->addItem(new ParamValueControlF("LatJerkFrictionFactor",
+      "Friction: Jerk Factor",
+      "예측 횡저크를 friction 입력에 반영하는 비율 (×0.01).\n"
+      "커브 진입 초기 응답에 영향. 0 이면 사용 안함.  기본값: 40",
+      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 40, this));
+
+  list->addItem(new NtuneValueControl("torque", "friction",
+      "Friction",
+      "정지마찰 보상값입니다. 크면 중앙 부근 응답이 빨라지지만\n"
+      "너무 크면 직진에서 좌우로 흔들립니다.\n"
+      "범위: 0.000 ~ 0.200  /  기본값: 0.080",
+      "../assets/offroad/icon_openpilot.png", 0.0, 0.2, 0.005, 3, 0.08, this));
+
+  list->addItem(horizontal_line());
 
   // ── Offset Total ─────────────────────────────────────────────
   // 레인모드 + 레인리스 모드 모두 적용. 0.01m 단위, -1.00 ~ +1.00m

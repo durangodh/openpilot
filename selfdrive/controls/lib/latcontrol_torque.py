@@ -5,8 +5,11 @@ from common.numpy_fast import interp
 from selfdrive.controls.lib.latcontrol import LatControl, MIN_STEER_SPEED
 from selfdrive.controls.lib.pid import PIDController
 from selfdrive.controls.lib.vehicle_model import ACCELERATION_DUE_TO_GRAVITY
-from selfdrive.ntune import nTune
 from selfdrive.controls.lib.latcontrol_pid import ERROR_RATE_FRAME
+from selfdrive.modeld.constants import T_IDXS
+from common.params import Params
+
+import numpy as np
 
 # At higher speeds (25+mph) we can assume:
 # Lateral acceleration achieved by a specific car correlates to
@@ -21,6 +24,30 @@ from selfdrive.controls.lib.latcontrol_pid import ERROR_RATE_FRAME
 
 LOW_SPEED_X = [0, 10, 20, 30]
 LOW_SPEED_Y = [15, 13, 10, 5]
+
+# ── carrot 이식 : 예측 횡저크(lateral jerk) 를 friction 입력에 섞는다 ──────────
+# 모델의 acceleration.y 예측을 미분해 앞으로의 저크를 구하고, 부호가 유지되는
+# 구간에서 가장 작은 값을 골라 쓴다. 커브 진입 시 friction 을 미리 실어
+# 초기 응답을 살리되, S 자처럼 부호가 뒤집히는 구간에서는 개입하지 않는다.
+LAT_PLAN_MIN_IDX = 5
+
+
+def _sign(x):
+  return 1.0 if x > 0.0 else (-1.0 if x < 0.0 else 0.0)
+
+
+def get_predicted_lateral_jerk(lat_accels, t_diffs):
+  return (np.diff(lat_accels) / t_diffs).tolist()
+
+
+def get_lookahead_value(future_vals, current_val):
+  if len(future_vals) == 0:
+    return current_val
+  same_sign = [v for v in future_vals if _sign(v) == _sign(current_val)]
+  if len(same_sign) < len(future_vals):
+    return 0.0
+  return min(same_sign + [current_val], key=lambda x: abs(x))
+# ─────────────────────────────────────────────────────────────────────────────
 
 # ── 긴 커브 안쪽 파고듦 대응 (적분 와인드업 억제) ────────────────────────────
 # 원인: steerRatio 과대 등으로 생긴 미세 +오차가 긴 커브 내내 적분에 쌓여 토크가
@@ -42,15 +69,56 @@ class LatControlTorque(LatControl):
     self.torque_from_lateral_accel = CI.torque_from_lateral_accel()
     self.use_steering_angle = self.torque_params.useSteeringAngle
     self.steering_angle_deadzone_deg = self.torque_params.steeringAngleDeadzoneDeg
-    self.tune = nTune(CP, self)
-      
+
+    # ── 토크 튜닝을 Params 로 (carrot 방식). nTune 파일은 더 이상 쓰지 않는다 ──
+    self.params = Params()
+    self.frame = 0
+    self.lateral_torque_custom = 0
+    self.latAccelFactor_default = self.torque_params.latAccelFactor
+    self.friction_default = self.torque_params.friction
+
+    # friction 입력 계수 (carrot 기본값)
+    self.lat_accel_friction_factor = 0.7
+    self.lat_jerk_friction_factor = 0.4
+    self.desired_lat_jerk_time = 0.3
+    self.t_diffs = np.diff(T_IDXS)
+    self.read_torque_params(force=True)
+
+  def _pget(self, key, default):
+    try:
+      v = self.params.get(key, encoding="utf8")
+      return float(v) if v not in (None, "") else default
+    except (TypeError, ValueError):
+      return default
+
+  def read_torque_params(self, force=False):
+    custom = int(self._pget("LateralTorqueCustom", 0))
+    if custom > 0:
+      self.torque_params.latAccelFactor = self._pget("LateralTorqueAccelFactor", 2700) * 0.001
+      self.torque_params.friction = self._pget("LateralTorqueFriction", 80) * 0.001
+      self.pid._k_p = [[0], [self._pget("LateralTorqueKpV", 10) * 0.01]]
+      self.pid._k_i = [[0], [self._pget("LateralTorqueKiV", 10) * 0.01]]
+      self.pid.k_f = self._pget("LateralTorqueKf", 100) * 0.01
+      self.pid._k_d = [[0], [self._pget("LateralTorqueKd", 0) * 0.01]]
+    elif self.lateral_torque_custom > 0 or force:
+      # 커스텀을 끄면 차량 기본값으로 복귀
+      self.torque_params.latAccelFactor = self.latAccelFactor_default
+      self.torque_params.friction = self.friction_default
+    self.lateral_torque_custom = custom
+
+    self.lat_accel_friction_factor = self._pget("LatAccelFrictionFactor", 70) * 0.01
+    self.lat_jerk_friction_factor = self._pget("LatJerkFrictionFactor", 40) * 0.01
+    self.desired_lat_jerk_time = self._pget("SteerActuatorDelay", 10) * 0.01 + 0.3
+
   def update_live_torque_params(self, latAccelFactor, latAccelOffset, friction):
     self.torque_params.latAccelFactor = latAccelFactor
     self.torque_params.latAccelOffset = latAccelOffset
     self.torque_params.friction = friction
 
-  def update(self, active, CS, VM, params, last_actuators, steer_limited, desired_curvature, desired_curvature_rate, llk):
-    self.tune.updateTorque()
+  def update(self, active, CS, VM, params, last_actuators, steer_limited, desired_curvature, desired_curvature_rate, llk, model_data=None):
+    self.frame += 1
+    if self.frame % 10 == 0:      # 0.1초 주기 라이브 반영
+      self.read_torque_params()
     pid_log = log.ControlsState.LateralTorqueState.new_message()
 
     if CS.vEgo < MIN_STEER_SPEED or not active:
@@ -83,8 +151,29 @@ class LatControlTorque(LatControl):
       gravity_adjusted_lateral_accel = desired_lateral_accel - params.roll * ACCELERATION_DUE_TO_GRAVITY
       pid_log.error = self.torque_from_lateral_accel(error, self.torque_params, error,
                                                      lateral_accel_deadzone, friction_compensation=False)
+
+      # ── friction 입력 : 횡가속도 오차 + 앞으로의 횡저크 (carrot 이식) ──
+      accel_error = desired_lateral_accel - actual_lateral_accel
+      lookahead_lateral_jerk = 0.0
+      if model_data is not None and len(model_data.acceleration.y) >= len(T_IDXS):
+        try:
+          friction_upper_idx = next(i for i, t in enumerate(T_IDXS)
+                                    if t > max(self.desired_lat_jerk_time, 0.1))
+          predicted = get_predicted_lateral_jerk(model_data.acceleration.y, self.t_diffs)
+          desired_lateral_jerk = (float(interp(self.desired_lat_jerk_time, T_IDXS, model_data.acceleration.y))
+                                  - desired_lateral_accel) / self.desired_lat_jerk_time
+          lookahead_lateral_jerk = get_lookahead_value(
+              predicted[LAT_PLAN_MIN_IDX:friction_upper_idx], desired_lateral_jerk)
+          if self.use_steering_angle:
+            lookahead_lateral_jerk = 0.0
+        except (StopIteration, ValueError, ZeroDivisionError):
+          lookahead_lateral_jerk = 0.0
+
+      friction_input = (self.lat_accel_friction_factor * accel_error
+                        + self.lat_jerk_friction_factor * lookahead_lateral_jerk)
+
       ff = self.torque_from_lateral_accel(gravity_adjusted_lateral_accel, self.torque_params,
-                                          desired_lateral_accel - actual_lateral_accel,
+                                          friction_input,
                                           lateral_accel_deadzone, friction_compensation=True)
 
       # 소오차 구간 적분 동결(anti-windup): 추종이 거의 맞은 뒤에도 미세 +오차가

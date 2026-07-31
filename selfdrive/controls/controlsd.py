@@ -31,7 +31,8 @@ from selfdrive.locationd.calibrationd import Calibration
 from selfdrive.hardware import HARDWARE, TICI, EON
 from selfdrive.manager.process_config import managed_processes
 from selfdrive.car.hyundai.scc_smoother import SccSmoother
-from selfdrive.ntune import ntune_common_get, ntune_common_enabled, ntune_scc_get
+from selfdrive.ntune import ntune_scc_get
+from selfdrive.controls.lib import live_tune
 
 SOFT_DISABLE_TIME = 3  # seconds
 LDW_MIN_SPEED = 31 * CV.MPH_TO_MS
@@ -584,10 +585,10 @@ class Controls:
     x = max(params.stiffnessFactor, 0.1)
     #sr = max(params.steerRatio, 0.1)
 
-    if ntune_common_enabled('useLiveSteerRatio'):
+    if live_tune.use_live_steer_ratio():
       sr = max(params.steerRatio, 0.1)
     else:
-      sr = max(ntune_common_get('steerRatio'), 0.1)
+      sr = max(live_tune.custom_steer_ratio(), 0.1)
 
     self.VM.update_params(x, sr)
 
@@ -631,7 +632,8 @@ class Controls:
                                                                                        lat_plan.curvatureRates)
       actuators.steer, actuators.steeringAngleDeg, lac_log = self.LaC.update(CC.latActive, CS, self.VM, params,
                                                                              self.last_actuators, self.steer_limited, self.desired_curvature,
-                                                                             self.desired_curvature_rate, self.sm['liveLocationKalman'])
+                                                                             self.desired_curvature_rate, self.sm['liveLocationKalman'],
+                                                                             self.sm['modelV2'])
     else:
       lac_log = log.ControlsState.LateralDebugState.new_message()
       if self.sm.rcv_frame['testJoystick'] > 0:
@@ -824,7 +826,7 @@ class Controls:
     controlsState.sccStockCamStatus = self.sccStockCamStatus
 
     controlsState.steerRatio = self.VM.sR
-    controlsState.steerActuatorDelay = ntune_common_get('steerActuatorDelay')
+    controlsState.steerActuatorDelay = live_tune.steer_actuator_delay()
 
     controlsState.sccGasFactor = ntune_scc_get('sccGasFactor')
     controlsState.sccBrakeFactor = ntune_scc_get('sccBrakeFactor')

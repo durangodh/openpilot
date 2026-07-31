@@ -298,6 +298,65 @@ def _ntune_read(path):
     return {}
 
 
+# ── 토크값 저장소 : nTune JSON → Params (carrot 방식) ────────────────────────
+# latcontrol_torque 가 LateralTorqueAccelFactor / LateralTorqueFriction 를
+# 0.1초마다 다시 읽는다. 키 이름(latAccelFactor/friction)은 학습기 내부 식별자로
+# 그대로 두고, 저장/조회만 Params 로 바꾼다.
+_TORQUE_PARAM_KEY = {
+  "latAccelFactor": ("LateralTorqueAccelFactor", 1000.0, 2.7),
+  "friction":       ("LateralTorqueFriction",    1000.0, 0.08),
+}
+
+
+_COMMON_PARAM_KEY = {
+  "steerActuatorDelay": ("SteerActuatorDelay", 100.0, 0.10),
+  "steerRatio":         ("CustomSteerRatio",   100.0, 16.50),
+}
+
+
+def _common_read():
+  from common.params import Params as _P
+  out = {}
+  pr = _P()
+  for k, (pkey, scale, dflt) in _COMMON_PARAM_KEY.items():
+    try:
+      v = pr.get(pkey, encoding="utf8")
+      out[k] = float(v) / scale if v not in (None, "") else dflt
+    except (TypeError, ValueError):
+      out[k] = dflt
+  return out
+
+
+def _common_write(key, value):
+  from common.params import Params as _P
+  if key not in _COMMON_PARAM_KEY:
+    return
+  pkey, scale, _ = _COMMON_PARAM_KEY[key]
+  _P().put(pkey, str(int(round(float(value) * scale))))
+
+
+def _torque_read():
+  from common.params import Params as _P
+  out = {}
+  pr = _P()
+  for k, (pkey, scale, dflt) in _TORQUE_PARAM_KEY.items():
+    try:
+      v = pr.get(pkey, encoding="utf8")
+      out[k] = float(v) / scale if v not in (None, "") else dflt
+    except (TypeError, ValueError):
+      out[k] = dflt
+  return out
+
+
+def _torque_write(key, value):
+  from common.params import Params as _P
+  if key not in _TORQUE_PARAM_KEY:
+    return
+  pkey, scale, _ = _TORQUE_PARAM_KEY[key]
+  _P().put(pkey, str(int(round(float(value) * scale))))
+  _P().put("LateralTorqueCustom", "1")   # 학습값을 쓰려면 커스텀 모드여야 한다
+
+
 def _ntune_write(path, data):
   try:
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -757,7 +816,7 @@ class CarrotLearner:
 
     # ── Phase 5: latAccelFactor / friction (nTune, 토크 제어 차량만) ──
     if apply_lat and self._is_torque_control():
-      tq = _ntune_read(_find_torque_file())
+      tq = _torque_read()
 
       # (a) latAccelFactor + friction 동시 조정 (commit e06a7dd Phase 0)
       #     latAccelFactor는 분모이므로 값↓ = 토크↑.
@@ -855,7 +914,7 @@ class CarrotLearner:
       # 개입이 잦음 = 조향 타이밍이 안 맞음 → 딜레이 낮춰 더 빠르게 반응
       if self._tq_curve_samples >= _TQ_MIN_CURVE_SAMPLES:
         ratio = self._tq_curve_overrides / max(self._tq_curve_samples, 1)
-        common = _ntune_read(_NTUNE_COMMON_FILE)
+        common = _common_read()
         cur_sad = float(common.get("steerActuatorDelay", 0.1))
         rec_sad, reason = cur_sad, ""
         if ratio >= _SAD_OVERRIDE_HI:
@@ -876,7 +935,7 @@ class CarrotLearner:
     # 이면 컨트롤러는 라이브 값을 쓰므로 이 고정값은 '동결 백업'으로 의미.
     if apply_lat and self._sr_n >= _SR_MIN_SAMPLES:
       mean_sr = self._sr_sum / self._sr_n
-      common = _ntune_read(_NTUNE_COMMON_FILE)
+      common = _common_read()
       cur_sr = float(common.get("steerRatio", _SR_DEFAULT))
       if abs(mean_sr - cur_sr) >= _SR_DEADBAND:
         # 세션당 변동 상한으로 급변 방지 후 nTune 유효범위 클램프
@@ -1044,17 +1103,12 @@ class CarrotLearner:
       g = {}
       for key, info in items.items():
         if info.get("ntune") == "torque":
-          # nTune JSON 직접 수정 → latcontrol_torque가 라이브 리로드
-          path = _find_torque_file()
-          data = _ntune_read(path)
-          data[key] = float(info["recommended"])
-          _ntune_write(path, data)
+          # Params 직접 수정 → latcontrol_torque 가 0.1초마다 라이브 반영
+          _torque_write(key, float(info["recommended"]))
         elif info.get("ntune") == "common":
-          # nTune common.json 직접 수정 → controlsd가 ntune_common_get으로 라이브 반영
+          # Params 직접 수정 → live_tune 이 1초 주기로 라이브 반영
           # (steerActuatorDelay / steerRatio 모두 이 경로)
-          data = _ntune_read(_NTUNE_COMMON_FILE)
-          data[key] = float(info["recommended"])
-          _ntune_write(_NTUNE_COMMON_FILE, data)
+          _common_write(key, float(info["recommended"]))
         elif info.get("long_param"):
           # 종방향 응답성: Params에 float 저장 → longcontrol.py가 1초마다 라이브 읽기
           self._params.put(key, f"{float(info['recommended']):.3f}")

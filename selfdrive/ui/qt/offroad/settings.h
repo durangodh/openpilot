@@ -193,6 +193,42 @@ private:
   Params params;
 };
 
+// nTune JSON(/data/ntune/common.json, lat_torque_v4.json) 값을 화면에서 직접 조절한다.
+// nTune 이 dnotify 로 파일 변경을 감시하므로 저장 즉시 주행 중에도 반영된다.
+class NtuneValueControl : public AbstractControl {
+  Q_OBJECT
+public:
+  NtuneValueControl(const QString &group, const QString &key,
+                    const QString &title, const QString &desc, const QString &icon,
+                    double vmin, double vmax, double step, int decimals,
+                    double vdefault, QWidget *parent = nullptr);
+  void refresh();
+private:
+  void changeValue(int delta);
+  QString group_, key_;
+  double vmin_, vmax_, step_, vdefault_;
+  int decimals_;
+  QPushButton *minus_btn, *plus_btn;
+  QLabel *value_label;
+};
+
+// 정수 Params 값을 화면에서 조절 (carrot CValueControl 방식)
+class ParamValueControlF : public AbstractControl {
+  Q_OBJECT
+public:
+  ParamValueControlF(const QString &param, const QString &title, const QString &desc,
+                     const QString &icon, int vmin, int vmax, int step, int decimals,
+                     int vdefault, QWidget *parent = nullptr);
+  void refresh();
+private:
+  void changeValue(int delta);
+  QString param_;
+  int vmin_, vmax_, step_, decimals_, vdefault_;
+  QPushButton *minus_btn, *plus_btn;
+  QLabel *value_label;
+  Params params;
+};
+
 class AdjustLaneOffsetControl : public AbstractControl {
   Q_OBJECT
 public:
