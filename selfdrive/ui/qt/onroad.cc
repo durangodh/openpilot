@@ -1013,17 +1013,19 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     ctText(p, dx, dy, gear_str, 70, CT_WHITE, true);
   }
 
-  // ---- APN / APM (carrot 의 active_carrot -> 이 fork 의 roadLimitSpeed.active) ----
+  // ---- NDA / HDA (carrot 의 APN/APM 자리. roadLimitSpeed.active) ----
+  //      active == 1 : 일반도로 속도정보 수신(NDA)
+  //      active >= 2 : 고속도로/자동차전용도로(HDA)
   {
     int active = road_limit.getActive();
     int dx = bx + 200;
     int dy = by + 175;
     if (active >= 2) {
       ctRect(p, QRect(dx - 55, dy - 38, 110, 48), CT_GREEN, 15, 2);
-      ctText(p, dx, dy, "APN", 40, CT_WHITE, true);
+      ctText(p, dx, dy, "HDA", 40, CT_WHITE, true);
     } else if (active >= 1) {
       ctRect(p, QRect(dx - 55, dy - 38, 110, 48), CT_BLUE_A(210), 15, 2);
-      ctText(p, dx, dy, "APM", 40, CT_WHITE, true);
+      ctText(p, dx, dy, "NDA", 40, CT_WHITE, true);
     }
   }
 
@@ -1185,8 +1187,6 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
   const SubMaster &sm = *(uiState()->sm);
   auto roadLimitSpeed = sm["roadLimitSpeed"].getRoadLimitSpeed();
 
-  int activeNDA = roadLimitSpeed.getActive();
-
   int camLimitSpeed = roadLimitSpeed.getCamLimitSpeed();
   int camLimitSpeedLeftDist = roadLimitSpeed.getCamLimitSpeedLeftDist();
 
@@ -1205,16 +1205,7 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
     left_dist = sectionLeftDist;
   }
 
-  if(activeNDA > 0)
-  {
-      int w = 120;
-      int h = 54;
-      int x = (width() + (bdr_s*2))/2 - w/2 - bdr_s;
-      int y = 40 - bdr_s;
-
-      p.setOpacity(1.f);
-      p.drawPixmap(x, y, w, h, activeNDA == 1 ? ic_nda : ic_hda);
-  }
+  // NDA/HDA 아이콘 --- carrot hud panel 안의 NDA/HDA 텍스트로 대체되어 제거함
 
   if(limit_speed > 10 && limit_speed < 130)
   {
