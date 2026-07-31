@@ -46,6 +46,8 @@ def manager_init() -> None:
 
     # HKG
     ("AutoAscc", "1"),
+    ("AutoSpeedUptoRoadSpeedLimit", "0"),
+    ("AutoGasResumeGuard", "1"),            # 가속페달 재개 안전조건   # 도로제한속도 대비 자동증속 상한(%), 0=off
     ("LateralControl", "TORQUE"),
     ("UseClusterSpeed", "0"),
     ("LongControlEnabled", "0"),

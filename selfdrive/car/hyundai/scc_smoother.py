@@ -96,6 +96,10 @@ class SccSmoother:
     self.curve_speed_ms = 0.
     self.stock_weight = 0.
 
+    self.auto_speed_up_ratio = 0.0
+    self._pause_auto_speed_up = False
+    self.auto_gas_resume_guard = True
+
   def read_param(self):
     self.longcontrol = self.params.get_bool('LongControlEnabled')
     self.slow_on_curves = self.params.get_bool('SccSmootherSlowOnCurves')
@@ -103,6 +107,12 @@ class SccSmoother:
     self.is_metric = self.params.get_bool('IsMetric')
     self.e2e_long = self.params.get_bool('ExperimentalMode')
     self.autoascc = self.params.get_bool('AutoAscc')
+    self.auto_gas_resume_guard = self.params.get_bool('AutoGasResumeGuard')
+    # AutoSpeedUptoRoadSpeedLimit : 도로제한속도 대비 자동 증속 상한(%). 0 = 사용 안함
+    try:
+      self.auto_speed_up_ratio = float(self.params.get("AutoSpeedUptoRoadSpeedLimit", encoding="utf8") or "0") * 0.01
+    except (TypeError, ValueError):
+      self.auto_speed_up_ratio = 0.0
 
   def reset(self):
 
@@ -233,6 +243,16 @@ class SccSmoother:
     ascc_auto_set = enabled and (clu11_speed > 30 or (CS.obj_valid and dRel > 1)) \
                     and CS.gas_pressed and CS.prev_cruiseState_speed and not CS.cruiseState_speed
 
+    # ── carrot(_gas_pressed_count == -1) 이식 : 재개 안전조건 ────────────────
+    #   깜빡이를 켰거나 앞차가 지나치게 가까우면 자동 재개하지 않는다.
+    #   캐롯은 이 경우 크루즈를 끄지만, 이 포크는 순정 SCC 가 크루즈를 쥐고 있어
+    #   "재개하지 않음"까지만 한다.
+    if ascc_auto_set and self.auto_gas_resume_guard:
+      if CS.leftBlinker or CS.rightBlinker:
+        ascc_auto_set = False
+      elif 0 < dRel < CS.out.vEgo * 0.8:
+        ascc_auto_set = False
+
     if not self.longcontrol:
       if (not ascc_enabled or CS.standstill or CS.cruise_buttons != Buttons.NONE) and not ascc_auto_set:
         self.reset()
@@ -243,6 +263,7 @@ class SccSmoother:
       self.reset()
 
     self.cal_target_speed(CS, clu11_speed, controls)
+    self.auto_speed_up(CS, controls, road_limit_speed)
 
     CC.sccSmoother.logMessage = max_speed_log
 
@@ -291,6 +312,44 @@ class SccSmoother:
       return Buttons.NONE
 
     return Buttons.RES_ACCEL if error > 0 else Buttons.SET_DECEL
+
+  def auto_speed_up(self, CS, controls, road_limit_speed):
+    """caroot(_auto_speed_up) 이식.
+    앞차가 내 설정속도보다 빠르고 도로제한속도 아래이면 설정속도를 자동으로 올린다.
+    선행차가 없으면 아무것도 하지 않는다 (빈 도로에서 멋대로 올라가지 않게).
+    """
+    if self.auto_speed_up_ratio <= 0.0 or road_limit_speed <= 0:
+      return
+
+    # SET 을 누르면 자동증속 일시중단, RES 를 누르면 해제
+    if CS.cruise_buttons == Buttons.SET_DECEL:
+      self._pause_auto_speed_up = True
+    elif CS.cruise_buttons == Buttons.RES_ACCEL:
+      self._pause_auto_speed_up = False
+    if self._pause_auto_speed_up:
+      return
+
+    road_limit_kph = road_limit_speed * self.auto_speed_up_ratio
+    if road_limit_kph < 1.0:
+      return
+
+    lead = self.get_lead(controls.sm)
+    if lead is None:
+      return
+    v_lead_kph = lead.vLeadK * CV.MS_TO_KPH
+
+    # 롱컨에서는 controls.v_cruise_kph 가 매 프레임 순정 설정속도로 덮어써지므로
+    # (update_cruise_buttons) 직접 쓰지 않고 target_speed 를 올려
+    # get_button() 이 RES_ACCEL 을 내보내도록 한다. → AutoAscc 가 켜져 있어야 동작.
+    set_speed_kph = CS.cruiseState_speed * CV.MS_TO_KPH
+    if set_speed_kph <= 0:
+      return
+
+    if v_lead_kph + 5 > set_speed_kph \
+       and set_speed_kph < road_limit_kph \
+       and lead.dRel < 60:
+      new_kph = min(set_speed_kph + 5, road_limit_kph)
+      self.target_speed = max(self.target_speed, self.kph_to_clu(new_kph))
 
   def get_lead(self, sm):
 

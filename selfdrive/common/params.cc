@@ -88,6 +88,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"AthenadPid", PERSISTENT},
     {"AthenadUploadQueue", PERSISTENT},
     {"AutoAscc", PERSISTENT},
+    {"AutoSpeedUptoRoadSpeedLimit", PERSISTENT},
+    {"AutoGasResumeGuard", PERSISTENT},            // 가속페달 재개 안전조건 (깜빡이/근접 앞차)   // 도로제한속도 대비 자동증속 상한(%), 0=off
     {"CalibrationParams", PERSISTENT},
     {"CarBatteryCapacity", PERSISTENT},
     {"CarParams", CLEAR_ON_MANAGER_START | CLEAR_ON_IGNITION_ON},

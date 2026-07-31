@@ -788,18 +788,40 @@ void NvgWindow::drawCarrotBottom(QPainter &p) {
   const SubMaster &sm = *(uiState()->sm);
   QString ip = QString::fromUtf8(sm["deviceState"].getDeviceState().getWifiIpAddress().cStr());
 
+  const int line_y = height() - 62;
+  const int line_h = 48;
+
   configFont(p, "Open Sans", 34, "Regular");
   p.setPen(QColor(0xff, 0xff, 0xff, 200));
 
-  QRect line(20, height() - 62, width() - 40 - 240, 48);
-  p.drawText(line, Qt::AlignRight | Qt::AlignVCenter, ip);
+  // 우하단 : wifi IP
+  //   녹화버튼 위젯은 190px 이지만 실제로 그려지는 원은 안쪽 45px 여백을 뺀
+  //   100px 이고 height()-80 에서 끝난다. 이 줄(height()-62~-14)과 안 겹치므로
+  //   화면 오른쪽 끝까지 붙인다.
+  QRect ip_rect(20, line_y, width() - 40, line_h);
+  p.drawText(ip_rect, Qt::AlignRight | Qt::AlignVCenter, ip);
 
   // 하단 중앙 : 횡방향 플래너 디버그 문자열
+  //   IP 가 실제로 차지하는 폭을 재서 그만큼 비워두고, 그래도 넘치면
+  //   글자 크기를 줄여 맞춘다. (잘려서 정보가 사라지는 것보다 낫다)
   QString lat_debug = QString::fromUtf8(
       sm["lateralPlan"].getLateralPlan().getLatDebugText().cStr());
   if (!lat_debug.isEmpty()) {
-    p.drawText(QRect(240, height() - 62, width() - 480, 48),
-               Qt::AlignHCenter | Qt::AlignVCenter, lat_debug);
+    int ip_w = ip.isEmpty() ? 0 : QFontMetrics(p.font()).boundingRect(ip).width();
+    int right_limit = width() - 20 - ip_w - 30;
+    int left_limit = 240;
+    int avail = right_limit - left_limit;
+
+    if (avail > 100) {
+      int fs = 34;
+      for (; fs > 22; fs -= 2) {
+        configFont(p, "Open Sans", fs, "Regular");
+        if (QFontMetrics(p.font()).boundingRect(lat_debug).width() <= avail) break;
+      }
+      p.setPen(QColor(0xff, 0xff, 0xff, 200));
+      p.drawText(QRect(left_limit, line_y, avail, line_h),
+                 Qt::AlignHCenter | Qt::AlignVCenter, lat_debug);
+    }
   }
 
   p.restore();

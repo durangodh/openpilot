@@ -248,8 +248,16 @@ class LateralPlanner:
     #   turn   : VisionTurnController 목표속도 (캐롯의 curve_speed 대체)
     lane_mode = 'laneless' if self.dynamic_lane_profile_status else 'lanemode'
     offset_cm = self.offset_total * 100.0
+    #   turn 은 VisionTurnController 가 실제로 개입 중일 때만 표시한다.
+    #   (비활성 상태에서는 v_turn 이 내부 기본값을 그대로 뱉어 의미가 없다)
+    turn_kph = 0.0
     try:
-      turn_kph = sm['longitudinalPlan'].visionTurnSpeed * 3.6
+      lp = sm['longitudinalPlan']
+      # capnp enum 이 int 로도, 문자열로도 올 수 있어 둘 다 받는다
+      # (controlsd.py 는 int, longitudinal_planner.py 는 enum 으로 비교 중)
+      vtc_state = lp.visionTurnControllerState
+      if vtc_state in (1, 2) or str(vtc_state) in ('entering', 'turning'):
+        turn_kph = lp.visionTurnSpeed * 3.6
     except Exception:
       turn_kph = 0.0
     tail = f'offset={offset_cm:.1f}cm'
