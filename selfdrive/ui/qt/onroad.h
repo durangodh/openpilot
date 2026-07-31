@@ -117,6 +117,7 @@ protected:
   int  show_datetime = 1;
   int  show_gear_animation = 1;
   int  show_bsd_always = 0;
+  float lead_box_w = 0.0f, lead_box_x = 0.0f, lead_box_y = 0.0f;   // 리드박스 EMA
 
   // ── 팝업 애니메이션 (carrot ui_draw_text_a 이식) ──
   void ctTextAnimStart(int x, int y, const QString &text, int size, const QColor &color);

@@ -874,6 +874,10 @@ void NvgWindow::drawTextAnim(QPainter &p) {
   p.restore();
 }
 
+// 리드 박스 폭 제한 (앞차가 가까울 때 화면을 다 덮지 않도록)
+#define LEAD_BOX_MIN_W 120.0f
+#define LEAD_BOX_MAX_W 320.0f
+
 void NvgWindow::drawCarrotLead(QPainter &p) {
   p.save();
   p.setRenderHint(QPainter::Antialiasing);
@@ -888,7 +892,7 @@ void NvgWindow::drawCarrotLead(QPainter &p) {
     float xl = scene.lead_left[1].x();
     float xr = scene.lead_right[1].x();
     float ly = scene.lead_left[1].y();
-    float w2 = std::max(60.0f, xr - xl);
+    float w2 = std::clamp(xr - xl, 80.0f, LEAD_BOX_MAX_W * 0.8f);
     QRect box2((int)(xl - 10), (int)(ly - w2 * 0.8f), (int)(w2 + 20), (int)(w2 * 0.8f));
     p.setPen(QPen(QColor(218, 111, 37, 255), 3));      // 황토색
     p.setBrush(QColor(0, 0, 0, 20));
@@ -900,8 +904,20 @@ void NvgWindow::drawCarrotLead(QPainter &p) {
     float xl = scene.lead_left[0].x();
     float xr = scene.lead_right[0].x();
     float ly = scene.lead_left[0].y();
-    float w1 = std::clamp(xr - xl, 120.0f, 800.0f);
-    float cx = (xl + xr) / 2.0f;
+    // 앞차가 가까우면 투영 폭이 폭발하므로 상한을 두고, 프레임 간 EMA 로 눌러준다.
+    float w_raw = std::clamp(xr - xl, LEAD_BOX_MIN_W, LEAD_BOX_MAX_W);
+    float cx_raw = std::clamp((xl + xr) / 2.0f, 200.0f, (float)width() - 200.0f);
+    float cy_raw = std::clamp(ly, 150.0f, (float)height() - 120.0f);
+
+    const float a = 0.85f;   // 클수록 부드럽고 느리다
+    if (lead_box_w <= 0.0f) { lead_box_w = w_raw; lead_box_x = cx_raw; lead_box_y = cy_raw; }
+    lead_box_w = lead_box_w * a + w_raw * (1.0f - a);
+    lead_box_x = lead_box_x * a + cx_raw * (1.0f - a);
+    lead_box_y = lead_box_y * a + cy_raw * (1.0f - a);
+
+    float w1 = lead_box_w;
+    float cx = lead_box_x;
+    ly = lead_box_y;
 
     // 레이더가 잡은 리드면 주황, 비전만이면 파랑
     QColor stroke = scene.lead_radar[0] ? QColor(255, 175, 3, 255) : QColor(0, 0, 255, 255);
@@ -927,6 +943,8 @@ void NvgWindow::drawCarrotLead(QPainter &p) {
       ctTextIn(p, tag, str, 40, QColor(255, 255, 255, 255));
     }
   }
+
+  if (!scene.lead_status[0]) lead_box_w = 0.0f;   // 리드 사라지면 EMA 초기화
 
   // ---- t_follow 목표선 ----
   if (scene.tf_valid) {
