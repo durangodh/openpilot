@@ -23,6 +23,7 @@ procs = [
   NativeProcess("locationd", "selfdrive/locationd", ["./locationd"]),
   NativeProcess("boardd", "selfdrive/boardd", ["./boardd"], enabled=False),
   PythonProcess("calibrationd", "selfdrive.locationd.calibrationd"),
+  PythonProcess("carrotnavid", "selfdrive.carrot_navi_server", enabled=EON, persistent=True),
   PythonProcess("controlsd", "selfdrive.controls.controlsd"),
   PythonProcess("deleter", "selfdrive.loggerd.deleter", persistent=True),
   PythonProcess("dmonitoringd", "selfdrive.monitoring.dmonitoringd", enabled=(not PC or WEBCAM), driverview=True),
@@ -48,3 +49,4 @@ procs = [
 ]
 
 managed_processes = {p.name: p for p in procs}
+
