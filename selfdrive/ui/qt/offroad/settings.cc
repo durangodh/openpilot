@@ -474,13 +474,13 @@ void NtuneValueControl::changeValue(int delta) {
   double v = readNtuneValueS(group_, key_, vdefault_);
   v += delta * step_;
   // 부동소수 오차 정리
-  double scale = std::pow(10.0, decimals_);
-  v = std::round(v * scale) / scale;
+  double round_scale = std::pow(10.0, decimals_);
+  v = std::round(v * round_scale) / round_scale;
   v = std::max(vmin_, std::min(vmax_, v));
 
-  QString pkey; double scale;
-  if (group_ == "torque" && torqueParamOf(key_, &pkey, &scale)) {
-    Params().put(pkey.toStdString(), std::to_string((int)std::llround(v * scale)));
+  QString pkey; double param_scale;
+  if (group_ == "torque" && torqueParamOf(key_, &pkey, &param_scale)) {
+    Params().put(pkey.toStdString(), std::to_string((int)std::llround(v * param_scale)));
     Params().put("LateralTorqueCustom", "1");
   } else if (group_ == "torque") {
     writeNtuneTorqueValueS(key_, v);
