@@ -692,7 +692,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
 
   p.save();
   p.setRenderHint(QPainter::Antialiasing);
-  const QRect panel(width() - 475, 155, 440, 560);
+  const QRect panel(width() - 475, 285, 440, 560);
   const QRect map_rect = panel.adjusted(18, 125, -18, -76);
   p.setPen(QPen(QColor(255, 255, 255, 150), 2));
   p.setBrush(QColor(8, 12, 18, 205));
