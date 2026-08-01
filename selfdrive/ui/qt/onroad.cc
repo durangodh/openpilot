@@ -1364,15 +1364,25 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     gear_str_last = gear_str;
   }
 
-  // ---- NDA / HDA (carrot 의 APN/APM 자리. roadLimitSpeed.active) ----
-  //      active == 1 : 일반도로 속도정보 수신(NDA)
-  //      active >= 2 : 고속도로/자동차전용도로(HDA)
+  // ---- MAP / NDA / HDA (carrot 의 APN/APM 자리. roadLimitSpeed.active) ----
+  //      목적지 안내 중 : MAP
+  //      active == 1   : 일반도로 속도정보 수신(NDA)
+  //      active >= 2   : 고속도로/자동차전용도로(HDA)
   {
     int active = road_limit.getActive();
     int dx = bx + 200;
     int dy = by + 175;
     QRect nda_box(dx - 55, dy - 38, 110, 48);
-    if (active >= 2) {
+
+    const qint64 wall_now = QDateTime::currentMSecsSinceEpoch();
+    bool navi_active = carrot_navi_route.size() >= 2 &&
+                       carrot_navi_updated_at != 0 &&
+                       (wall_now - static_cast<qint64>(carrot_navi_updated_at)) <= 35000;
+
+    if (navi_active) {
+      ctRect(p, nda_box, CT_BLUE_A(210), 15, 2);
+      ctTextIn(p, nda_box, "MAP", 40, CT_WHITE);
+    } else if (active >= 2) {
       ctRect(p, nda_box, CT_GREEN, 15, 2);
       ctTextIn(p, nda_box, "HDA", 40, CT_WHITE);
     } else if (active >= 1) {
