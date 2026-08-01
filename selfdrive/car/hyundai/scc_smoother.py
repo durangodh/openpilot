@@ -14,7 +14,6 @@ from selfdrive.controls.lib.lateral_planner import TRAJECTORY_SIZE
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import AUTO_TR_CRUISE_GAP
 from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc
 
-from selfdrive.ntune import ntune_scc_get
 from selfdrive.road_speed_limiter import road_speed_limiter_get_max_speed, road_speed_limiter_get_active, \
   get_road_speed_limiter
 
@@ -407,7 +406,7 @@ class SccSmoother:
         curv = curv[start:min(start+10, TRAJECTORY_SIZE)]
         a_y_max = 2.975 - v_ego * 0.0375  # ~1.85 @ 75mph, ~2.6 @ 25mph
         v_curvature = np.sqrt(a_y_max / np.clip(np.abs(curv), 1e-4, None))
-        model_speed = np.mean(v_curvature) * 0.85 * ntune_scc_get("sccCurvatureFactor")
+        model_speed = np.mean(v_curvature) * 0.85
 
         if model_speed < v_ego:
           self.curve_speed_ms = float(max(model_speed, MIN_CURVE_SPEED))
@@ -449,20 +448,12 @@ class SccSmoother:
 
   def get_apply_accel(self, CS, sm, accel, stopping):
 
-    gas_factor = ntune_scc_get("sccGasFactor")
-    brake_factor = ntune_scc_get("sccBrakeFactor")
-
     boost_v = 0.2 if self.e2e_long else 0.5
 
     start_boost = interp(CS.out.vEgo, [CREEP_SPEED, 2 * CREEP_SPEED], [boost_v, 0.0])
     is_accelerating = interp(accel, [0.0, 0.2], [0.0, 1.0])
     boost = start_boost * is_accelerating
     accel += boost
-
-    if accel > 0:
-      accel *= gas_factor
-    else:
-      accel *= brake_factor
 
     # 정지 유지: stopping 상태에서 브레이크가 조금씩 풀려 밀리는 것을 막기 위해 하한 고정
     if stopping:

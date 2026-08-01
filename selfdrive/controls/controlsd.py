@@ -31,7 +31,6 @@ from selfdrive.locationd.calibrationd import Calibration
 from selfdrive.hardware import HARDWARE, TICI, EON
 from selfdrive.manager.process_config import managed_processes
 from selfdrive.car.hyundai.scc_smoother import SccSmoother
-from selfdrive.ntune import ntune_scc_get
 from selfdrive.controls.lib import live_tune
 
 SOFT_DISABLE_TIME = 3  # seconds
@@ -827,10 +826,6 @@ class Controls:
 
     controlsState.steerRatio = self.VM.sR
     controlsState.steerActuatorDelay = live_tune.steer_actuator_delay()
-
-    controlsState.sccGasFactor = ntune_scc_get('sccGasFactor')
-    controlsState.sccBrakeFactor = ntune_scc_get('sccBrakeFactor')
-    controlsState.sccCurvatureFactor = ntune_scc_get('sccCurvatureFactor')
 
     lat_tuning = self.CP.lateralTuning.which()
     if self.joystick_mode:
