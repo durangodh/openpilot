@@ -20,6 +20,7 @@ from selfdrive.road_speed_limiter import road_speed_limiter_get_max_speed, road_
 
 SYNC_MARGIN = 3.
 CREEP_SPEED = 2.3
+STOP_HOLD_ACCEL = -1.5  # 정지 유지시 브레이크 최소 하한 (풀림 방지 안전망)
 
 # do not modify
 MIN_SET_SPEED_KPH = V_CRUISE_MIN
@@ -462,6 +463,10 @@ class SccSmoother:
       accel *= gas_factor
     else:
       accel *= brake_factor
+
+    # 정지 유지: stopping 상태에서 브레이크가 조금씩 풀려 밀리는 것을 막기 위해 하한 고정
+    if stopping:
+      accel = min(accel, STOP_HOLD_ACCEL)
 
     return accel
 
