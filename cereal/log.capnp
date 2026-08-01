@@ -728,6 +728,9 @@ struct ControlsState @0x97ff69c53601abf1 {
   jerkFactorDEPRECATED @12 :Float32;
   steerOverrideDEPRECATED @20 :Bool;
   steeringAngleDesiredDegDEPRECATED @29 :Float32;
+  sccGasFactorDEPRECATED @71 :Float32;
+  sccBrakeFactorDEPRECATED @72 :Float32;
+  sccCurvatureFactorDEPRECATED @73 :Float32;
 }
 
 struct ModelDataV2 {
