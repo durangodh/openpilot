@@ -1274,8 +1274,7 @@ void NvgWindow::drawCarrotBottom(QPainter &p) {
     }
   }
   if (!lat_debug.isEmpty()) {
-    int ip_w = ip.isEmpty() ? 0 : QFontMetrics(p.font()).boundingRect(ip).width();
-    int right_limit = width() - 20 - ip_w - 30;
+    int right_limit = width() - 20;
     int left_limit = 240;
     int avail = right_limit - left_limit;
 
