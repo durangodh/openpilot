@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <initializer_list>
 #include <string>
 
 #include <QDebug>
@@ -564,6 +565,94 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   drawTextAnim(p);   // 팝업 애니메이션은 항상 맨 위
 }
 
+static QJsonValue carrotFirstJsonValue(const QJsonObject &object,
+                                       std::initializer_list<const char *> keys) {
+  for (const char *key : keys) {
+    if (object.contains(key)) return object.value(key);
+  }
+  return QJsonValue();
+}
+
+static bool carrotJsonBool(const QJsonObject &object,
+                           std::initializer_list<const char *> keys) {
+  const QJsonValue value = carrotFirstJsonValue(object, keys);
+  if (value.isBool()) return value.toBool();
+  if (value.isDouble()) return value.toInt() != 0;
+  const QString text = value.toString().toLower();
+  return text == "true" || text == "yes" || text == "active" || text == "recommended";
+}
+
+// The Tmap bridge has used both array and object lane payloads.  Normalize the
+// common spellings here so old and new APK builds can share the same UI.
+static void parseCarrotLanes(const QJsonValue &value, QVector<int> &types,
+                             QVector<int> &active) {
+  types.clear();
+  active.clear();
+  if (value.isNull() || value.isUndefined()) return;
+
+  QJsonArray lanes;
+  QJsonObject wrapper;
+  if (value.isArray()) {
+    lanes = value.toArray();
+  } else if (value.isObject()) {
+    wrapper = value.toObject();
+    const QJsonValue lane_value = carrotFirstJsonValue(
+      wrapper, {"lanes", "items", "lane_items", "laneItems", "data"});
+    if (lane_value.isArray()) lanes = lane_value.toArray();
+  }
+
+  if (!lanes.isEmpty()) {
+    const int count = std::min(8, lanes.size());
+    for (int i = 0; i < count; ++i) {
+      const QJsonValue lane = lanes.at(i);
+      int type = 0;
+      bool recommended = false;
+      if (lane.isObject()) {
+        const QJsonObject item = lane.toObject();
+        type = carrotFirstJsonValue(item, {"turn_type", "turnType", "lane_type",
+                                           "laneType", "direction", "type"}).toInt();
+        recommended = carrotJsonBool(item, {"recommended", "is_recommended",
+                                             "isRecommended", "active", "is_active",
+                                             "isActive", "selected", "usable"});
+      } else if (lane.isBool()) {
+        recommended = lane.toBool();
+      } else if (lane.isDouble()) {
+        type = lane.toInt();
+      }
+      types.push_back(type);
+      active.push_back(recommended ? 1 : 0);
+    }
+  } else if (!wrapper.isEmpty()) {
+    const QJsonArray direction_values = carrotFirstJsonValue(
+      wrapper, {"directions", "lane_types", "laneTypes", "lane_type"}).toArray();
+    int count = carrotFirstJsonValue(
+      wrapper, {"lane_count", "laneCount", "count", "total"}).toInt();
+    if (count <= 0) count = direction_values.size();
+    count = std::max(0, std::min(8, count));
+    for (int i = 0; i < count; ++i) {
+      types.push_back(i < direction_values.size() ? direction_values.at(i).toInt() : 0);
+      active.push_back(0);
+    }
+  }
+
+  if (types.isEmpty()) return;
+  const QJsonArray active_values = carrotFirstJsonValue(
+    wrapper, {"recommended_lanes", "recommendedLanes", "active_lanes", "activeLanes",
+              "lane_available", "laneAvailable", "available", "recommended"}).toArray();
+  if (active_values.size() == types.size()) {
+    for (int i = 0; i < active_values.size(); ++i) {
+      const QJsonValue flag = active_values.at(i);
+      active[i] = flag.isBool() ? flag.toBool() : flag.toInt() != 0;
+    }
+  } else {
+    for (const QJsonValue &index_value : active_values) {
+      int index = index_value.toInt(-1);
+      if (index >= 1 && index <= types.size()) --index;  // accept one-based indexes
+      if (index >= 0 && index < active.size()) active[index] = 1;
+    }
+  }
+}
+
 void NvgWindow::updateCarrotNavi() {
   const uint64_t now = millis_since_boot();
   if (now - carrot_navi_last_read < 500) return;
@@ -594,6 +683,13 @@ void NvgWindow::updateCarrotNavi() {
   carrot_navi_next_distance = next_guide.contains("distance_m") ? next_guide.value("distance_m").toInt() : -1;
   carrot_navi_next_turn_type = next_guide.value("turn_type").toInt();
 
+  QVector<int> current_types, current_active, ahead_types, ahead_active;
+  parseCarrotLanes(root.value("lane_current"), current_types, current_active);
+  parseCarrotLanes(root.value("lane_ahead"), ahead_types, ahead_active);
+  carrot_navi_lanes_ahead = current_types.isEmpty() && !ahead_types.isEmpty();
+  carrot_navi_lane_types = carrot_navi_lanes_ahead ? ahead_types : current_types;
+  carrot_navi_lane_active = carrot_navi_lanes_ahead ? ahead_active : current_active;
+
   const QJsonObject route = root.value("route").toObject();
   carrot_navi_remain_distance = route.contains("remain_distance_m") ? route.value("remain_distance_m").toInt() : -1;
   carrot_navi_remain_time = route.contains("remain_time_sec") ? route.value("remain_time_sec").toInt() : -1;
@@ -602,9 +698,17 @@ void NvgWindow::updateCarrotNavi() {
     carrot_navi_route.clear();
   } else if (!points.isEmpty()) {
     QVector<QPointF> next;
-    next.reserve(points.size());
-    for (const QJsonValue &value : points) {
+    const int stride = std::max(1, (points.size() + 179) / 180);
+    next.reserve(std::min(180, points.size()));
+    for (int i = 0; i < points.size(); i += stride) {
+      const QJsonValue value = points.at(i);
       const QJsonObject point = value.toObject();
+      const double lat = point.value("lat").toDouble();
+      const double lon = point.value("lon").toDouble();
+      if (std::abs(lat) > 0.000001 && std::abs(lon) > 0.000001) next.push_back(QPointF(lon, lat));
+    }
+    if (!points.isEmpty() && (points.size() - 1) % stride != 0) {
+      const QJsonObject point = points.last().toObject();
       const double lat = point.value("lat").toDouble();
       const double lon = point.value("lon").toDouble();
       if (std::abs(lat) > 0.000001 && std::abs(lon) > 0.000001) next.push_back(QPointF(lon, lat));
@@ -704,147 +808,232 @@ static void drawCarrotTurnArrow(QPainter &p, const QRect &box, int type, const Q
 
 void NvgWindow::drawCarrotNavi(QPainter &p) {
   updateCarrotNavi();
-  if (carrot_navi_route.size() < 2) return;
   const qint64 wall_now = QDateTime::currentMSecsSinceEpoch();
   if (carrot_navi_updated_at == 0 || wall_now - static_cast<qint64>(carrot_navi_updated_at) > 35000) return;
+  if (carrot_navi_route.size() < 2 && carrot_navi_instruction.isEmpty() && carrot_navi_road.isEmpty()) return;
 
   p.save();
   p.setRenderHint(QPainter::Antialiasing);
-  const QRect panel(width() - 475, 285, 440, 560);
-  const QRect map_rect = panel.adjusted(18, 125, -18, -76);
-  p.setPen(QPen(QColor(255, 255, 255, 150), 2));
-  p.setBrush(QColor(8, 12, 18, 205));
-  p.drawRoundedRect(panel, 26, 26);
+  p.setRenderHint(QPainter::TextAntialiasing);
+  const QRect panel(width() - 475, 210, 440, 650);
+  const QRect header(panel.x(), panel.y(), panel.width(), 132);
+  const QRect next_row(panel.x(), header.bottom() + 1, panel.width(), 58);
+  const QRect map_rect(panel.x() + 14, next_row.bottom() + 12, panel.width() - 28, 280);
+  const QRect lane_row(panel.x() + 14, map_rect.bottom() + 9, panel.width() - 28, 76);
+  const QRect footer(panel.x() + 14, lane_row.bottom() + 7, panel.width() - 28, 58);
+
+  p.setPen(QPen(QColor(255, 255, 255, 120), 2));
+  p.setBrush(QColor(8, 14, 18, 225));
+  p.drawRoundedRect(panel, 24, 24);
+
+  // Tmap-style primary guidance: green surface and high-contrast white content.
+  p.setPen(Qt::NoPen);
+  p.setBrush(QColor(20, 126, 78));
+  p.drawRoundedRect(header, 24, 24);
+  p.drawRect(QRect(header.left(), header.bottom() - 24, header.width(), 25));
 
   QString title = carrot_navi_instruction;
   if (title.isEmpty()) title = carrot_navi_road;
   if (title.isEmpty()) title = QString::fromUtf8("경로 안내");
-  configFont(p, "Open Sans", 44, "Bold");
-  p.setPen(QColor(255, 255, 255));
-  const QRect current_icon(panel.x() + 18, panel.y() + 13, 88, 88);
-  drawCarrotTurnArrow(p, current_icon, carrot_navi_turn_type, title, QColor(80, 215, 255), 10);
-  p.drawText(QRect(panel.x() + 115, panel.y() + 9, panel.width() - 132, 58),
-             Qt::AlignLeft | Qt::AlignVCenter, title);
+  const QRect current_icon(header.x() + 14, header.y() + 10, 94, 108);
+  drawCarrotTurnArrow(p, current_icon, carrot_navi_turn_type, title, Qt::white, 11);
+  const QString distance_text = carrotDistanceText(carrot_navi_distance);
+  configFont(p, "Open Sans", 53, "Bold");
+  p.setPen(Qt::white);
+  p.drawText(QRect(header.x() + 118, header.y() + 6, header.width() - 132, 66),
+             Qt::AlignLeft | Qt::AlignVCenter,
+             distance_text.isEmpty() ? QString::fromUtf8("안내 중") : distance_text);
+  configFont(p, "Open Sans", 31, "Bold");
+  const QString road_text = QFontMetrics(p.font()).elidedText(title, Qt::ElideRight, header.width() - 142);
+  p.drawText(QRect(header.x() + 118, header.y() + 70, header.width() - 132, 45),
+             Qt::AlignLeft | Qt::AlignVCenter, road_text);
 
-  QString detail = carrotDistanceText(carrot_navi_distance);
-  const QString remain = carrotDistanceText(carrot_navi_remain_distance);
-  if (!remain.isEmpty()) detail += (detail.isEmpty() ? QString() : QString("  /  ")) + remain;
-  if (carrot_navi_remain_time > 0) detail += QString("  /  %1 min").arg((carrot_navi_remain_time + 59) / 60);
-  configFont(p, "Open Sans", 31, "Regular");
-  p.setPen(QColor(135, 220, 255));
-  p.drawText(QRect(panel.x() + 115, panel.y() + 65, panel.width() - 132, 38),
-             Qt::AlignLeft | Qt::AlignVCenter, detail);
-
-  double min_lon = carrot_navi_route[0].x(), max_lon = min_lon;
-  double min_lat = carrot_navi_route[0].y(), max_lat = min_lat;
-  for (const QPointF &point : carrot_navi_route) {
-    min_lon = std::min(min_lon, point.x()); max_lon = std::max(max_lon, point.x());
-    min_lat = std::min(min_lat, point.y()); max_lat = std::max(max_lat, point.y());
+  // Secondary maneuver row uses a darker green and a smaller white arrow.
+  p.setPen(Qt::NoPen);
+  p.setBrush(QColor(10, 82, 50));
+  p.drawRect(next_row);
+  drawCarrotTurnArrow(p, QRect(next_row.x() + 14, next_row.y() + 7, 44, 44),
+                      carrot_navi_next_turn_type, carrot_navi_next_instruction,
+                      Qt::white, 5);
+  QString next_text = carrotDistanceText(carrot_navi_next_distance);
+  if (!carrot_navi_next_instruction.isEmpty()) {
+    next_text += (next_text.isEmpty() ? QString() : QString("  ·  ")) + carrot_navi_next_instruction;
   }
-  if (std::abs(carrot_navi_lat) > 0.000001 && std::abs(carrot_navi_lon) > 0.000001 &&
-      carrot_navi_lon > min_lon - 0.02 && carrot_navi_lon < max_lon + 0.02 &&
-      carrot_navi_lat > min_lat - 0.02 && carrot_navi_lat < max_lat + 0.02) {
-    min_lon = std::min(min_lon, carrot_navi_lon); max_lon = std::max(max_lon, carrot_navi_lon);
-    min_lat = std::min(min_lat, carrot_navi_lat); max_lat = std::max(max_lat, carrot_navi_lat);
-  }
-  const double lon_span = std::max(0.00001, max_lon - min_lon);
-  const double lat_span = std::max(0.00001, max_lat - min_lat);
-  const double scale = std::min(map_rect.width() / lon_span, map_rect.height() / lat_span);
-  const double left = map_rect.center().x() - lon_span * scale / 2.0;
-  const double top = map_rect.center().y() - lat_span * scale / 2.0;
-  const auto project = [&](double lon, double lat) {
-    return QPointF(left + (lon - min_lon) * scale, top + (max_lat - lat) * scale);
-  };
+  if (next_text.isEmpty()) next_text = QString::fromUtf8("다음 안내 대기 중");
+  configFont(p, "Open Sans", 27, "Bold");
+  p.setPen(Qt::white);
+  p.drawText(QRect(next_row.x() + 68, next_row.y(), next_row.width() - 80, next_row.height()),
+             Qt::AlignLeft | Qt::AlignVCenter,
+             QFontMetrics(p.font()).elidedText(next_text, Qt::ElideRight, next_row.width() - 88));
 
-  // ---- 지도 뷰포트: 프레임 + 은은한 격자 (clip 안에서만 그림) ----
+  // Lightweight schematic map background: a few fixed vector shapes only.
   QPainterPath map_clip;
   map_clip.addRoundedRect(map_rect, 14, 14);
   p.save();
   p.setClipPath(map_clip);
   p.setPen(Qt::NoPen);
-  p.setBrush(QColor(16, 24, 36, 170));
+  p.setBrush(QColor(34, 44, 51));
   p.drawRect(map_rect);
-  p.setPen(QPen(QColor(255, 255, 255, 20), 1));
-  const int grid = 44;
-  for (int gx = map_rect.left(); gx <= map_rect.right(); gx += grid) p.drawLine(gx, map_rect.top(), gx, map_rect.bottom());
-  for (int gy = map_rect.top(); gy <= map_rect.bottom(); gy += grid) p.drawLine(map_rect.left(), gy, map_rect.right(), gy);
+  p.setBrush(QColor(35, 72, 58));
+  p.drawRoundedRect(QRect(map_rect.x() + 20, map_rect.y() + 18, 105, 67), 12, 12);
+  p.drawRoundedRect(QRect(map_rect.right() - 115, map_rect.bottom() - 78, 96, 59), 12, 12);
+  QPainterPath water;
+  water.moveTo(map_rect.left() - 10, map_rect.y() + 205);
+  water.cubicTo(map_rect.x() + 100, map_rect.y() + 150, map_rect.x() + 250, map_rect.y() + 245,
+                map_rect.right() + 10, map_rect.y() + 185);
+  water.lineTo(map_rect.right() + 10, map_rect.bottom() + 20);
+  water.lineTo(map_rect.left() - 10, map_rect.bottom() + 20);
+  water.closeSubpath();
+  p.setBrush(QColor(38, 75, 96));
+  p.drawPath(water);
+  p.setBrush(QColor(55, 62, 68));
+  for (int i = 0; i < 6; ++i) {
+    const int bx = map_rect.x() + 24 + (i % 3) * 113;
+    const int by = map_rect.y() + 99 + (i / 3) * 58;
+    p.drawRoundedRect(QRect(bx, by, 66 + (i % 2) * 18, 30), 4, 4);
+  }
+  QPainterPath road_a, road_b, road_c;
+  road_a.moveTo(map_rect.left() - 10, map_rect.y() + 85);
+  road_a.cubicTo(map_rect.x() + 115, map_rect.y() + 135, map_rect.x() + 260, map_rect.y() + 30,
+                 map_rect.right() + 10, map_rect.y() + 74);
+  road_b.moveTo(map_rect.x() + 82, map_rect.top() - 10);
+  road_b.cubicTo(map_rect.x() + 105, map_rect.y() + 105, map_rect.x() + 42, map_rect.y() + 205,
+                 map_rect.x() + 142, map_rect.bottom() + 10);
+  road_c.moveTo(map_rect.x() + 274, map_rect.top() - 10);
+  road_c.cubicTo(map_rect.x() + 232, map_rect.y() + 78, map_rect.x() + 350, map_rect.y() + 155,
+                 map_rect.x() + 306, map_rect.bottom() + 10);
+  p.setBrush(Qt::NoBrush);
+  p.setPen(QPen(QColor(18, 23, 27, 130), 13, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  p.drawPath(road_a); p.drawPath(road_b); p.drawPath(road_c);
+  p.setPen(QPen(QColor(104, 110, 114), 7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  p.drawPath(road_a); p.drawPath(road_b); p.drawPath(road_c);
 
-  // ---- 차량 위치에 가장 가까운 경로 인덱스 (지나온/남은 분리) ----
-  const bool has_car = std::abs(carrot_navi_lat) > 0.000001 && std::abs(carrot_navi_lon) > 0.000001;
-  int car_idx = 0;
-  if (has_car) {
-    double best = 1e18;
-    for (int i = 0; i < carrot_navi_route.size(); ++i) {
-      const double dlon = carrot_navi_route[i].x() - carrot_navi_lon;
-      const double dlat = carrot_navi_route[i].y() - carrot_navi_lat;
-      const double d = dlon * dlon + dlat * dlat;
-      if (d < best) { best = d; car_idx = i; }
+  if (carrot_navi_route.size() >= 2) {
+    double min_lon = carrot_navi_route[0].x(), max_lon = min_lon;
+    double min_lat = carrot_navi_route[0].y(), max_lat = min_lat;
+    for (const QPointF &point : carrot_navi_route) {
+      min_lon = std::min(min_lon, point.x()); max_lon = std::max(max_lon, point.x());
+      min_lat = std::min(min_lat, point.y()); max_lat = std::max(max_lat, point.y());
+    }
+    const bool has_car = std::abs(carrot_navi_lat) > 0.000001 && std::abs(carrot_navi_lon) > 0.000001;
+    if (has_car && carrot_navi_lon > min_lon - 0.02 && carrot_navi_lon < max_lon + 0.02 &&
+        carrot_navi_lat > min_lat - 0.02 && carrot_navi_lat < max_lat + 0.02) {
+      min_lon = std::min(min_lon, carrot_navi_lon); max_lon = std::max(max_lon, carrot_navi_lon);
+      min_lat = std::min(min_lat, carrot_navi_lat); max_lat = std::max(max_lat, carrot_navi_lat);
+    }
+    const double lon_span = std::max(0.00001, max_lon - min_lon);
+    const double lat_span = std::max(0.00001, max_lat - min_lat);
+    const double scale = std::min((map_rect.width() - 28) / lon_span, (map_rect.height() - 28) / lat_span);
+    const double left = map_rect.center().x() - lon_span * scale / 2.0;
+    const double top = map_rect.center().y() - lat_span * scale / 2.0;
+    const auto project = [&](double lon, double lat) {
+      return QPointF(left + (lon - min_lon) * scale, top + (max_lat - lat) * scale);
+    };
+
+    int car_idx = 0;
+    if (has_car) {
+      double best = 1e18;
+      for (int i = 0; i < carrot_navi_route.size(); ++i) {
+        const double dlon = carrot_navi_route[i].x() - carrot_navi_lon;
+        const double dlat = carrot_navi_route[i].y() - carrot_navi_lat;
+        const double d = dlon * dlon + dlat * dlat;
+        if (d < best) { best = d; car_idx = i; }
+      }
+    }
+    const auto smooth_path = [&](int first, int last) {
+      QPainterPath path;
+      if (first < 0 || last < first || last >= carrot_navi_route.size()) return path;
+      path.moveTo(project(carrot_navi_route[first].x(), carrot_navi_route[first].y()));
+      for (int i = first + 1; i < last; ++i) {
+        const QPointF point = project(carrot_navi_route[i].x(), carrot_navi_route[i].y());
+        const QPointF next = project(carrot_navi_route[i + 1].x(), carrot_navi_route[i + 1].y());
+        path.quadTo(point, (point + next) / 2.0);
+      }
+      if (last > first) path.lineTo(project(carrot_navi_route[last].x(), carrot_navi_route[last].y()));
+      return path;
+    };
+
+    const QPainterPath full_path = smooth_path(0, carrot_navi_route.size() - 1);
+    const QPainterPath remain_path = smooth_path(car_idx, carrot_navi_route.size() - 1);
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(QColor(0, 0, 0, 185), 20, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawPath(full_path);
+    if (car_idx > 0) {
+      p.setPen(QPen(QColor(105, 112, 120), 10, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+      p.drawPath(smooth_path(0, car_idx));
+    }
+    p.setPen(QPen(QColor(14, 70, 128), 15, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawPath(remain_path);
+    p.setPen(QPen(QColor(27, 143, 255), 10, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawPath(remain_path);
+    p.setPen(QPen(QColor(112, 207, 255), 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawPath(remain_path);
+
+    const QPointF destination = project(carrot_navi_route.last().x(), carrot_navi_route.last().y());
+    p.setPen(QPen(Qt::white, 3)); p.setBrush(QColor(238, 74, 72));
+    p.drawEllipse(destination, 11, 11);
+    if (has_car) {
+      const QPointF car = project(carrot_navi_lon, carrot_navi_lat);
+      const int next_index = std::min(car_idx + 1, carrot_navi_route.size() - 1);
+      const QPointF ahead = project(carrot_navi_route[next_index].x(), carrot_navi_route[next_index].y());
+      p.save();
+      p.translate(car);
+      p.rotate(atan2(ahead.y() - car.y(), ahead.x() - car.x()) * 57.29577951);
+      QPainterPath car_arrow;
+      car_arrow.moveTo(17, 0); car_arrow.lineTo(-10, -12); car_arrow.lineTo(-4, 0);
+      car_arrow.lineTo(-10, 12); car_arrow.closeSubpath();
+      p.setPen(QPen(Qt::white, 2)); p.setBrush(QColor(26, 190, 104));
+      p.drawPath(car_arrow);
+      p.restore();
     }
   }
+  p.restore();
 
-  // 경로 케이싱(검정 외곽)
-  QPainterPath full;
-  full.moveTo(project(carrot_navi_route[0].x(), carrot_navi_route[0].y()));
-  for (int i = 1; i < carrot_navi_route.size(); ++i) full.lineTo(project(carrot_navi_route[i].x(), carrot_navi_route[i].y()));
-  p.setBrush(Qt::NoBrush);
-  p.setPen(QPen(QColor(0, 0, 0, 200), 16, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-  p.drawPath(full);
-
-  // 지나온 구간(흐린 회색)
-  if (car_idx > 0) {
-    QPainterPath passed;
-    passed.moveTo(project(carrot_navi_route[0].x(), carrot_navi_route[0].y()));
-    for (int i = 1; i <= car_idx; ++i) passed.lineTo(project(carrot_navi_route[i].x(), carrot_navi_route[i].y()));
-    p.setPen(QPen(QColor(120, 132, 145, 210), 9, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-    p.drawPath(passed);
+  // Lane guidance: recommended lanes are blue, all others remain neutral gray.
+  p.setPen(Qt::NoPen);
+  p.setBrush(QColor(18, 26, 32, 235));
+  p.drawRoundedRect(lane_row, 12, 12);
+  configFont(p, "Open Sans", 18, "Bold");
+  p.setPen(QColor(190, 202, 210));
+  p.drawText(QRect(lane_row.x() + 10, lane_row.y() + 2, 92, 22), Qt::AlignLeft | Qt::AlignVCenter,
+             carrot_navi_lanes_ahead ? QString::fromUtf8("다음 차선") : QString::fromUtf8("차선 안내"));
+  const int lane_count = std::min(8, carrot_navi_lane_types.size());
+  if (lane_count > 0) {
+    const int gap = 5;
+    const int area_x = lane_row.x() + 96;
+    const int area_w = lane_row.width() - 106;
+    const int lane_w = std::max(30, (area_w - gap * (lane_count - 1)) / lane_count);
+    for (int i = 0; i < lane_count; ++i) {
+      const bool active = i < carrot_navi_lane_active.size() && carrot_navi_lane_active[i] != 0;
+      const QRect lane_box(area_x + i * (lane_w + gap), lane_row.y() + 9, lane_w, 58);
+      p.setPen(Qt::NoPen);
+      p.setBrush(active ? QColor(30, 137, 255) : QColor(82, 91, 100));
+      p.drawRoundedRect(lane_box, 8, 8);
+      drawCarrotTurnArrow(p, lane_box.adjusted(4, 6, -4, -6), carrot_navi_lane_types[i],
+                          QString(), Qt::white, 4);
+    }
+  } else {
+    configFont(p, "Open Sans", 23, "Regular");
+    p.setPen(QColor(130, 144, 154));
+    p.drawText(QRect(lane_row.x() + 96, lane_row.y(), lane_row.width() - 108, lane_row.height()),
+               Qt::AlignCenter, QString::fromUtf8("차선 정보 대기 중"));
   }
-  // 남은 구간(밝은 파랑)
-  QPainterPath remain_path;
-  remain_path.moveTo(project(carrot_navi_route[car_idx].x(), carrot_navi_route[car_idx].y()));
-  for (int i = car_idx + 1; i < carrot_navi_route.size(); ++i) remain_path.lineTo(project(carrot_navi_route[i].x(), carrot_navi_route[i].y()));
-  p.setPen(QPen(QColor(45, 190, 255), 10, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-  p.drawPath(remain_path);
 
-  // ---- 목적지 핀 (점 + 링) ----
-  const QPointF destination = project(carrot_navi_route.last().x(), carrot_navi_route.last().y());
-  p.setPen(QPen(QColor(255, 75, 75, 120), 3)); p.setBrush(Qt::NoBrush);
-  p.drawEllipse(destination, 18, 18);
-  p.setPen(QPen(QColor(255, 255, 255), 3)); p.setBrush(QColor(255, 75, 75));
-  p.drawEllipse(destination, 11, 11);
-
-  // ---- 차량 진행방향 화살표 ----
-  if (has_car) {
-    const QPointF car = project(carrot_navi_lon, carrot_navi_lat);
-    const int nxt = std::min(car_idx + 1, (int)carrot_navi_route.size() - 1);
-    const QPointF ahead = project(carrot_navi_route[nxt].x(), carrot_navi_route[nxt].y());
-    const double ang = atan2(ahead.y() - car.y(), ahead.x() - car.x()) * 57.29577951;
-    p.save();
-    p.translate(car);
-    p.rotate(ang);
-    QPainterPath arrow;
-    arrow.moveTo(16, 0); arrow.lineTo(-11, -12); arrow.lineTo(-4, 0); arrow.lineTo(-11, 12); arrow.closeSubpath();
-    p.setPen(QPen(QColor(255, 255, 255), 2)); p.setBrush(QColor(70, 230, 130));
-    p.drawPath(arrow);
-    p.restore();
-  }
-  p.restore();  // map clip 해제
-
-  if (!carrot_navi_next_instruction.isEmpty() || carrot_navi_next_turn_type != 0) {
-    const QRect next_box(panel.x() + 18, panel.bottom() - 66, panel.width() - 36, 50);
-    p.setPen(Qt::NoPen);
-    p.setBrush(QColor(255, 255, 255, 28));
-    p.drawRoundedRect(next_box, 13, 13);
-    drawCarrotTurnArrow(p, QRect(next_box.x() + 5, next_box.y() + 4, 42, 42),
-                        carrot_navi_next_turn_type, carrot_navi_next_instruction,
-                        QColor(185, 225, 245), 5);
-    configFont(p, "Open Sans", 27, "Regular");
-    p.setPen(QColor(215, 235, 245));
-    QString next_text = carrot_navi_next_instruction;
-    const QString next_distance = carrotDistanceText(carrot_navi_next_distance);
-    if (!next_distance.isEmpty()) next_text += QString("  ·  ") + next_distance;
-    p.drawText(QRect(next_box.x() + 55, next_box.y(), next_box.width() - 65, next_box.height()),
-               Qt::AlignLeft | Qt::AlignVCenter, next_text);
-  }
+  // Remaining distance and ETA stay visible in a dedicated bottom row.
+  p.setPen(Qt::NoPen);
+  p.setBrush(QColor(13, 22, 27, 245));
+  p.drawRoundedRect(footer, 12, 12);
+  const QString remain_text = carrotDistanceText(carrot_navi_remain_distance);
+  const QString eta_text = carrot_navi_remain_time > 0
+    ? QDateTime::currentDateTime().addSecs(carrot_navi_remain_time).toString("HH:mm") : QString("--:--");
+  configFont(p, "Open Sans", 25, "Bold");
+  p.setPen(Qt::white);
+  p.drawText(QRect(footer.x() + 14, footer.y(), footer.width() / 2 - 14, footer.height()),
+             Qt::AlignLeft | Qt::AlignVCenter,
+             QString::fromUtf8("남은 거리 %1").arg(remain_text.isEmpty() ? QString("--") : remain_text));
+  p.setPen(QColor(108, 225, 166));
+  p.drawText(QRect(footer.center().x(), footer.y(), footer.width() / 2 - 14, footer.height()),
+             Qt::AlignRight | Qt::AlignVCenter, QString::fromUtf8("도착 %1").arg(eta_text));
   p.restore();
 }
 
