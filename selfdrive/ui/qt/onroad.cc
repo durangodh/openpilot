@@ -290,7 +290,6 @@ void NvgWindow::initializeGL() {
   ic_tire_pressure = QPixmap("../assets/images/img_tire_pressure.png");
   ic_turn_signal_l = QPixmap("../assets/images/turn_signal_l.png");
   ic_turn_signal_r = QPixmap("../assets/images/turn_signal_r.png");
-  ic_satellite = QPixmap("../assets/images/satellite.png");
 
   ic_speed_bg = QPixmap("../assets/images/speed_bg.png");
 }
@@ -545,7 +544,6 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   //drawSteer(p);      // 조향각 표시 제거
   //drawThermal(p);    // CPU/AMBIENT 온도 표시 제거
   //drawTurnSignals(p);
-  //drawGpsStatus(p);   // GPS 위성 아이콘 표시 제거
   drawCarrotInfo(p);
   drawCarrotBottom(p);
 
@@ -2252,37 +2250,6 @@ void NvgWindow::drawTurnSignals(QPainter &p) {
     }
   }
 
-  p.restore();
-}
-
-void NvgWindow::drawGpsStatus(QPainter &p) {
-  const SubMaster &sm = *(uiState()->sm);
-  auto gps = sm["gpsLocationExternal"].getGpsLocationExternal();
-  float accuracy = gps.getAccuracy();
-  if(accuracy < 0.01f || accuracy > 20.f)
-    return;
-
-  int w = 120;
-  int h = 100;
-  int x = width() - w - 30;
-  int y = 30;
-
-  p.save();
-
-  p.setOpacity(0.8);
-  p.drawPixmap(x, y, w, h, ic_satellite);
-
-  configFont(p, "Open Sans", 40, "Bold");
-  p.setPen(QColor(255, 255, 255, 200));
-  p.setRenderHint(QPainter::TextAntialiasing);
-
-  QRect rect = QRect(x, y + h + 10, w, 40);
-  rect.adjust(-30, 0, 30, 0);
-
-  QString str;
-  str.sprintf("%.1fm", accuracy);
-  p.drawText(rect, Qt::AlignHCenter, str);
-	
   p.restore();
 }
 
