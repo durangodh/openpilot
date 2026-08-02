@@ -799,11 +799,11 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
     p.drawPath(passed);
   }
   // 남은 구간(밝은 파랑)
-  QPainterPath remain;
-  remain.moveTo(project(carrot_navi_route[car_idx].x(), carrot_navi_route[car_idx].y()));
-  for (int i = car_idx + 1; i < carrot_navi_route.size(); ++i) remain.lineTo(project(carrot_navi_route[i].x(), carrot_navi_route[i].y()));
+  QPainterPath remain_path;
+  remain_path.moveTo(project(carrot_navi_route[car_idx].x(), carrot_navi_route[car_idx].y()));
+  for (int i = car_idx + 1; i < carrot_navi_route.size(); ++i) remain_path.lineTo(project(carrot_navi_route[i].x(), carrot_navi_route[i].y()));
   p.setPen(QPen(QColor(45, 190, 255), 10, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-  p.drawPath(remain);
+  p.drawPath(remain_path);
 
   // ---- 목적지 핀 (점 + 링) ----
   const QPointF destination = project(carrot_navi_route.last().x(), carrot_navi_route.last().y());
