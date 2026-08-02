@@ -547,7 +547,7 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   //drawTurnSignals(p);
   //drawGpsStatus(p);   // GPS 위성 아이콘 표시 제거
   drawCarrotInfo(p);
-  //drawCarrotBottom(p);
+  drawCarrotBottom(p);
 
   if(s->show_debug && width() > 1200)
     drawDebugText(p);
@@ -1263,20 +1263,9 @@ void NvgWindow::drawCarrotBottom(QPainter &p) {
   p.save();
 
   const SubMaster &sm = *(uiState()->sm);
-  QString ip = QString::fromUtf8(sm["deviceState"].getDeviceState().getWifiIpAddress().cStr());
-
-  const int line_y = height() - 62;
-  const int line_h = 48;
-
-  configFont(p, "Open Sans", 34, "Regular");
-  p.setPen(QColor(0xff, 0xff, 0xff, 200));
-
-  QRect ip_rect(20, line_y, width() - 40, line_h);
-  p.drawText(ip_rect, Qt::AlignRight | Qt::AlignVCenter, ip);
 
   QString lat_debug = QString::fromUtf8(
       sm["lateralPlan"].getLateralPlan().getLatDebugText().cStr());
-  // "offset..." 구간 제거 (요청)
   {
     int off = lat_debug.indexOf("offset", 0, Qt::CaseInsensitive);
     if (off >= 0) {
