@@ -803,7 +803,9 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   updateCarrotNavi();
   const qint64 wall_now = QDateTime::currentMSecsSinceEpoch();
   if (carrot_navi_updated_at == 0 || wall_now - static_cast<qint64>(carrot_navi_updated_at) > 35000) return;
-  if (carrot_navi_route.size() < 2 && carrot_navi_instruction.isEmpty() && carrot_navi_road.isEmpty()) return;
+  const bool route_active = carrot_navi_route.size() >= 2 &&
+                            (carrot_navi_remain_distance > 0 || carrot_navi_remain_time > 0);
+  if (!route_active) return;
 
   p.save();
   p.setRenderHint(QPainter::Antialiasing);
@@ -1624,7 +1626,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
 
   // ---- MAP / NDA / HDA (carrot 의 APN/APM 자리. roadLimitSpeed.active) ----
   //      목적지 안내 중 : MAP
-  //      active == 1   : 일반도로 속도정보 수신(NDA)
+  //      active < 2    : 일반도로(NDA)
   //      active >= 2   : 고속도로/자동차전용도로(HDA)
   {
     int active = road_limit.getActive();
@@ -1634,6 +1636,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
 
     const qint64 wall_now = QDateTime::currentMSecsSinceEpoch();
     bool navi_active = carrot_navi_route.size() >= 2 &&
+                       (carrot_navi_remain_distance > 0 || carrot_navi_remain_time > 0) &&
                        carrot_navi_updated_at != 0 &&
                        (wall_now - static_cast<qint64>(carrot_navi_updated_at)) <= 35000;
 
@@ -1643,7 +1646,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     } else if (active >= 2) {
       ctRect(p, nda_box, CT_GREEN, 15, 2);
       ctTextIn(p, nda_box, "HDA", 40, CT_WHITE);
-    } else if (active >= 1) {
+    } else {
       ctRect(p, nda_box, CT_BLUE_A(210), 15, 2);
       ctTextIn(p, nda_box, "NDA", 40, CT_WHITE);
     }
