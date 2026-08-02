@@ -1209,16 +1209,15 @@ void NvgWindow::drawCarrotInfo(QPainter &p) {
   const auto live_params     = sm["liveParameters"].getLiveParameters();
   const auto torque_state    = controls_state.getLateralControlState().getTorqueState();
 
-  // ---- 좌상단 : 차량명 / SCC ----
-  QString car_name = QString::fromUtf8(car_params.getCarFingerprint().cStr());
-  if (car_name.isEmpty()) car_name = "UNKNOWN";
-  if (car_params.getOpenpilotLongitudinalControl()) car_name += " - OP Long";
+  // ---- 좌상단 : wifi IP / SCC ----
+  QString ip_head = QString::fromUtf8(sm["deviceState"].getDeviceState().getWifiIpAddress().cStr());
+  if (ip_head.isEmpty()) ip_head = "--";
 
   int scc_bus = (int)car_params.getSccBus();
   QString scc_num  = (scc_bus < 0) ? QString("none") : QString::number(scc_bus);
   QString scc_tail = QString(car_params.getHasScc13() ? "+13" : "") +
                      QString(car_params.getHasScc14() ? "+14" : "");
-  QString left_head = car_name + "  |  SCC ";
+  QString left_head = ip_head + "   |   SCC ";
 
   // ---- 우상단 : 토크값 / SR ----
   QString right_str;
@@ -1305,6 +1304,14 @@ void NvgWindow::drawCarrotBottom(QPainter &p) {
   //   글자 크기를 줄여 맞춘다. (잘려서 정보가 사라지는 것보다 낫다)
   QString lat_debug = QString::fromUtf8(
       sm["lateralPlan"].getLateralPlan().getLatDebugText().cStr());
+  // "offset..." 구간 제거 (요청)
+  {
+    int off = lat_debug.indexOf("offset", 0, Qt::CaseInsensitive);
+    if (off >= 0) {
+      int sep = lat_debug.lastIndexOf('|', off);
+      lat_debug = (sep >= 0 ? lat_debug.left(sep) : lat_debug.left(off)).trimmed();
+    }
+  }
   if (!lat_debug.isEmpty()) {
     int ip_w = ip.isEmpty() ? 0 : QFontMetrics(p.font()).boundingRect(ip).width();
     int right_limit = width() - 20 - ip_w - 30;
