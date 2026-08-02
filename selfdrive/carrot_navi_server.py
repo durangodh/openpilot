@@ -33,7 +33,7 @@ IMAGE_NAMES = (
   "center_tbt_icon", "center_tbt_text", "center_tbt_fee",
 )
 RENDER_NAMES = ("map_main",)
-ENABLED = {"vehicle", "guidance_current", "guidance_next", "route", "navigation_status"}
+ENABLED = {"vehicle", "guidance_current", "guidance_next", "route", "navigation_status", "speed"}
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
