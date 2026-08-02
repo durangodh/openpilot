@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""Small CarrotNavi/Tmap V2 receiver for the g_navi EON branch.
-
-The modified Tmap APK discovers this process over UDP/7705 and opens RFC6455
-WebSockets on TCP/7714.  Received JSON is exposed to the Qt UI through a small
-atomic file in /dev/shm, avoiding cereal changes and Mapbox dependencies.
-"""
-
 import base64
 import errno
 import hashlib
@@ -33,7 +26,10 @@ IMAGE_NAMES = (
   "center_tbt_icon", "center_tbt_text", "center_tbt_fee",
 )
 RENDER_NAMES = ("map_main",)
-ENABLED = {"vehicle", "guidance_current", "guidance_next", "route", "navigation_status", "speed"}
+ENABLED = {
+  "vehicle", "guidance_current", "guidance_next", "lane_current", "lane_ahead",
+  "route", "navigation_status", "speed",
+}
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
