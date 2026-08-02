@@ -809,13 +809,65 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   p.save();
   p.setRenderHint(QPainter::Antialiasing);
   p.setRenderHint(QPainter::TextAntialiasing);
-  const QRect panel(width() - 475, 210, 440, 650);
-  const QRect header(panel.x(), panel.y(), panel.width(), 132);
-  const QRect next_row(panel.x(), header.bottom() + 1, panel.width(), 58);
-  const QRect map_rect(panel.x() + 14, next_row.bottom() + 12, panel.width() - 28, 280);
-  const QRect lane_row(panel.x() + 14, map_rect.bottom() + 9, panel.width() - 28, 76);
-  const QRect footer(panel.x() + 14, lane_row.bottom() + 7, panel.width() - 28, 58);
+  // 우측 내비 패널
+  const int panel_y = 285;                 // 휠 아이콘 아래로 이동
+  const int panel_bottom = height() - 80;  // 좌측 HUD 하단과 동일, 상태바 위
+  const int panel_h = panel_bottom - panel_y;
 
+  // 내부 레이아웃
+  const int header_h = 118;
+  const int next_h = 54;
+  const int lane_h = 70;
+  const int footer_h = 56;
+
+  const int gap1 = 10;
+  const int gap2 = 8;
+  const int gap3 = 7;
+  const int bottom_margin = 14;
+
+  // 남는 공간을 지도에 모두 사용
+  const int map_h =
+      panel_h
+      - header_h
+      - next_h
+      - lane_h
+      - footer_h
+      - gap1
+      - gap2
+      - gap3
+      - bottom_margin;
+
+  const QRect panel(width() - 475, panel_y, 440, panel_h);
+
+  const QRect header(
+      panel.x(),
+      panel.y(),
+      panel.width(),
+      header_h);
+
+  const QRect next_row(
+      panel.x(),
+      header.bottom() + 1,
+      panel.width(),
+      next_h);
+
+  const QRect map_rect(
+      panel.x() + 14,
+      next_row.bottom() + gap1,
+      panel.width() - 28,
+      map_h);
+
+  const QRect lane_row(
+      panel.x() + 14,
+      map_rect.bottom() + gap2,
+      panel.width() - 28,
+      lane_h);
+
+  const QRect footer(
+      panel.x() + 14,
+      lane_row.bottom() + gap3,
+      panel.width() - 28,
+      footer_h);
   p.setPen(QPen(QColor(255, 255, 255, 120), 2));
   p.setBrush(QColor(8, 14, 18, 225));
   p.drawRoundedRect(panel, 24, 24);
