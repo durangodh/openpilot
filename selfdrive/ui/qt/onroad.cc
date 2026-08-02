@@ -1368,7 +1368,7 @@ void NvgWindow::drawTextAnim(QPainter &p) {
 }
 
 // 리드 박스 폭 제한 (앞차가 가까울 때 화면을 다 덮지 않도록)
-#define LEAD_BOX_MIN_W 120.0f
+#define LEAD_BOX_MIN_W 180.0f
 #define LEAD_BOX_MAX_W 320.0f
 
 void NvgWindow::drawCarrotLead(QPainter &p) {
@@ -1438,19 +1438,6 @@ void NvgWindow::drawCarrotLead(QPainter &p) {
   }
 
   if (!scene.lead_status[0]) lead_box_w = 0.0f;   // 리드 사라지면 EMA 초기화
-
-  // ---- t_follow 목표선 ----
-  if (scene.tf_valid) {
-    p.setPen(QPen(QColor(255, 255, 255, 230), 3));
-    p.setBrush(Qt::NoBrush);
-    p.drawLine(scene.tf_left, scene.tf_right);
-
-    QString str;
-    str.sprintf("%.1f(%.2f)", scene.tf_distance * m_to_disp, scene.t_follow);
-    configFont(p, "Open Sans", 25, "Bold");
-    p.setPen(QColor(255, 255, 255, 230));
-    p.drawText((int)scene.tf_right.x() + 8, (int)scene.tf_right.y(), str);
-  }
 
   p.restore();
 }
