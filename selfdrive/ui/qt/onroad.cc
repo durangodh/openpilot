@@ -659,6 +659,10 @@ void NvgWindow::updateCarrotNavi() {
 
   const QJsonObject root = doc.object();
   carrot_navi_updated_at = root.value("updated_at_ms").toVariant().toULongLong();
+  const QJsonObject stream_times = root.value("stream_updated_at_ms").toObject();
+  carrot_navi_guidance_updated_at = stream_times.contains("guidance_current")
+    ? stream_times.value("guidance_current").toVariant().toULongLong()
+    : carrot_navi_updated_at;
   const QJsonObject vehicle = root.value("vehicle").toObject();
   carrot_navi_lat = vehicle.value("lat").toDouble();
   carrot_navi_lon = vehicle.value("lon").toDouble();
@@ -735,6 +739,54 @@ static QString carrotDistanceText(int meters) {
 }
 
 enum class CarrotTurnDirection { STRAIGHT, LEFT, RIGHT, UTURN, SLIGHT_LEFT, SLIGHT_RIGHT, ARRIVE };
+
+enum class CarrotAtcKind { NONE, TURN, FORK, UTURN, ROTARY };
+
+static bool carrotAtcTypeIn(int type, std::initializer_list<int> types) {
+  return std::find(types.begin(), types.end(), type) != types.end();
+}
+
+static CarrotAtcKind carrotAtcKind(int type, const QString &text, int *direction) {
+  *direction = 0;
+  if (carrotAtcTypeIn(type, {12, 16})) {
+    *direction = -1;
+    return CarrotAtcKind::TURN;
+  }
+  if (carrotAtcTypeIn(type, {13, 19})) {
+    *direction = 1;
+    return CarrotAtcKind::TURN;
+  }
+  if (carrotAtcTypeIn(type, {7, 17, 44, 75, 76, 102, 105, 112, 115, 118})) {
+    *direction = -1;
+    return CarrotAtcKind::FORK;
+  }
+  if (carrotAtcTypeIn(type, {6, 43, 73, 74, 101, 104, 111, 114, 117, 123, 124})) {
+    *direction = 1;
+    return CarrotAtcKind::FORK;
+  }
+  if (type == 14) {
+    *direction = -1;
+    return CarrotAtcKind::UTURN;
+  }
+  if (type >= 131 && type <= 142) return CarrotAtcKind::ROTARY;
+
+  const QString lower = text.toLower();
+  if (lower.contains(QString::fromUtf8("유턴")) || lower.contains("u-turn") || lower.contains("uturn")) {
+    *direction = -1;
+    return CarrotAtcKind::UTURN;
+  }
+  const bool fork = lower.contains(QString::fromUtf8("분기")) ||
+                    lower.contains(QString::fromUtf8("진출")) || lower.contains("fork");
+  if (lower.contains(QString::fromUtf8("좌회전")) || lower.contains(QString::fromUtf8("왼쪽")) || lower.contains("left")) {
+    *direction = -1;
+    return fork ? CarrotAtcKind::FORK : CarrotAtcKind::TURN;
+  }
+  if (lower.contains(QString::fromUtf8("우회전")) || lower.contains(QString::fromUtf8("오른쪽")) || lower.contains("right")) {
+    *direction = 1;
+    return fork ? CarrotAtcKind::FORK : CarrotAtcKind::TURN;
+  }
+  return CarrotAtcKind::NONE;
+}
 
 static CarrotTurnDirection carrotTurnDirection(int type, const QString &text) {
   const QString value = text.toLower();
@@ -1480,6 +1532,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     int m = std::atoi(params.get("MyDrivingMode").c_str());
     my_driving_mode = (m >= 1 && m <= 4) ? m : 3;
     show_device_state = std::atoi(params.get("ShowDeviceState").c_str());
+    carrot_atc_mode = std::atoi(params.get("CarrotAutoTurnControl").c_str());
     std::string sdt = params.get("ShowDateTime");
     show_datetime = sdt.empty() ? 1 : std::atoi(sdt.c_str());   // 0:끔 1:시간+날짜 2:시간만 3:날짜만
     std::string sga = params.get("ShowGearAnimation");
@@ -1692,7 +1745,6 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
       for (int i = 0; i < (int)std::size(cpuTempC); i++) cpuTemp += cpuTempC[i];
       cpuTemp /= (float)std::size(cpuTempC);
     }
-    int memoryUsage = deviceState.getMemoryUsagePercent();
     float ambientTemp = deviceState.getAmbientTempC();
 
     int dx = bx - 35;
@@ -1708,10 +1760,44 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
 
     dx += 150;
     ds_box.moveLeft(dx - 65);
-    ctRect(p, ds_box, (memoryUsage > 85 && blink_timer <= 8) ? CT_RED_A(255) : box, 15, 2);
-    ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "MEM", 25, CT_WHITE);
-    str.sprintf("%d%%", memoryUsage);
-    ctTextIn(p, QRect(ds_box.x(), ds_box.y() + 34, ds_box.width(), 56), str, 40, CT_WHITE);
+    const qint64 wall_now = QDateTime::currentMSecsSinceEpoch();
+    const qint64 guidance_age = wall_now - static_cast<qint64>(carrot_navi_guidance_updated_at);
+    const bool atc_enabled = carrot_atc_mode >= 1 && carrot_atc_mode <= 3;
+    const bool atc_fresh = carrot_navi_guidance_updated_at != 0 &&
+                           guidance_age >= -5000 && guidance_age <= 3000;
+    int atc_direction = 0;
+    const CarrotAtcKind atc_kind = carrotAtcKind(carrot_navi_turn_type,
+                                                 carrot_navi_instruction, &atc_direction);
+    const float v_ego = car_state.getVEgo();
+    const float trigger_distance = std::max(35.0f, std::min(70.0f, v_ego * 3.0f));
+    const bool opposite_torque = car_state.getSteeringPressed() &&
+      ((atc_direction < 0 && car_state.getSteeringTorque() < 0) ||
+       (atc_direction > 0 && car_state.getSteeringTorque() > 0));
+    const bool conflicting_blinker =
+      (atc_direction < 0 && car_state.getRightBlinker()) ||
+      (atc_direction > 0 && car_state.getLeftBlinker());
+    const bool steering_active = atc_fresh && (carrot_atc_mode == 1 || carrot_atc_mode == 2) &&
+      sm["carControl"].getCarControl().getLatActive() && !car_state.getBrakePressed() &&
+      !opposite_torque && !conflicting_blinker &&
+      (atc_kind == CarrotAtcKind::TURN || atc_kind == CarrotAtcKind::UTURN) &&
+      carrot_navi_distance >= 3 && carrot_navi_distance <= trigger_distance &&
+      v_ego <= 60.0f / 3.6f;
+    const bool speed_active = atc_fresh && (carrot_atc_mode == 2 || carrot_atc_mode == 3) &&
+      !car_state.getBrakePressed() &&
+      (atc_kind == CarrotAtcKind::TURN || atc_kind == CarrotAtcKind::UTURN ||
+       atc_kind == CarrotAtcKind::ROTARY) &&
+      carrot_navi_distance >= 0 && carrot_navi_distance <= 350;
+
+    QColor atc_color = CT_GREY_A(210);  // off / waiting
+    if (atc_enabled && !atc_fresh) atc_color = CT_RED_A(230);       // data lost
+    else if (steering_active)     atc_color = CT_BLUE_A(230);      // steering
+    else if (speed_active)        atc_color = CT_ORANGE_A(230);    // slowing
+
+    ctRect(p, ds_box, atc_color, 15, 2);
+    ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "ATC", 25, CT_WHITE);
+    const QString atc_distance = atc_fresh && carrot_navi_distance >= 0
+      ? QString("%1m").arg(carrot_navi_distance) : QString("--");
+    ctTextIn(p, QRect(ds_box.x(), ds_box.y() + 34, ds_box.width(), 56), atc_distance, 36, CT_WHITE);
 
     dx += 150;
     ds_box.moveLeft(dx - 65);

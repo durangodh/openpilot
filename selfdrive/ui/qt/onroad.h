@@ -118,11 +118,13 @@ protected:
   int  carrot_param_timer = 0;
   int  my_driving_mode = 3;
   int  show_device_state = 0;
+  int  carrot_atc_mode = 0;
   int  show_datetime = 1;
   int  show_gear_animation = 1;
   int  show_bsd_always = 0;
   uint64_t carrot_navi_last_read = 0;
   uint64_t carrot_navi_updated_at = 0;
+  uint64_t carrot_navi_guidance_updated_at = 0;
   QVector<QPointF> carrot_navi_route;
   double carrot_navi_lat = 0.0;
   double carrot_navi_lon = 0.0;
