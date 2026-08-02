@@ -11,6 +11,7 @@
 #include <QMouseEvent>
 #include <QDateTime>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -965,6 +966,37 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
              Qt::AlignLeft | Qt::AlignVCenter,
              QFontMetrics(p.font()).elidedText(next_text, Qt::ElideRight, next_row.width() - 88));
 
+  // Prefer the Tmap-rendered map stream while it is fresh. Polling is capped at
+  // 5 Hz; the existing vector map below remains the complete fallback.
+  static const QString map_main_path = "/dev/shm/carrot_navi_map.jpg";
+  static QPixmap map_main_pixmap;
+  static uint64_t map_main_checked_at = 0;
+  static qint64 map_main_modified_at = 0;
+  const uint64_t map_main_now = millis_since_boot();
+  if (map_main_checked_at == 0 || map_main_now - map_main_checked_at >= 200) {
+    map_main_checked_at = map_main_now;
+    const QFileInfo map_main_info(map_main_path);
+    if (!map_main_info.exists() || !map_main_info.isFile() || map_main_info.size() <= 0) {
+      map_main_pixmap = QPixmap();
+      map_main_modified_at = 0;
+    } else {
+      const qint64 modified_at = map_main_info.lastModified().toMSecsSinceEpoch();
+      if (map_main_pixmap.isNull() || modified_at != map_main_modified_at) {
+        QPixmap candidate;
+        if (candidate.load(map_main_path, "JPEG")) {
+          map_main_pixmap = candidate;
+          map_main_modified_at = modified_at;
+        } else {
+          map_main_pixmap = QPixmap();
+          map_main_modified_at = 0;
+        }
+      }
+    }
+  }
+  const qint64 map_main_age = wall_now - map_main_modified_at;
+  const bool map_main_fresh = !map_main_pixmap.isNull() &&
+                              map_main_age >= 0 && map_main_age <= 2500;
+
   // Lightweight schematic map background: a few fixed vector shapes only.
   QPainterPath map_clip;
   map_clip.addRoundedRect(map_rect, 14, 14);
@@ -1085,6 +1117,10 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
       p.drawPath(car_arrow);
       p.restore();
     }
+  }
+  if (map_main_fresh) {
+    p.setRenderHint(QPainter::SmoothPixmapTransform);
+    p.drawPixmap(map_rect, map_main_pixmap);
   }
   p.restore();
 
