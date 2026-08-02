@@ -1218,14 +1218,44 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
 
   // engage-ability icon
   {
-    float steer_angle = sm["carState"].getCarState().getSteeringAngleDeg();
+    const auto tpms = car_state.getTpms();
+    const float steer_angle = car_state.getSteeringAngleDeg();
+    const int wheel_x = rect().right() - radius / 2 - bdr_s * 2;
+    const int wheel_y = radius / 2 + int(bdr_s * 1.5) + 45;
+
     QColor engageBgColor = bg_colors[uiState()->status];
     engageBgColor.setAlpha(166);
-    drawIcon(p, rect().right() - radius / 2 - bdr_s * 2, radius / 2 + int(bdr_s * 1.5) + 45,
+    drawIcon(p, wheel_x, wheel_y,
              experimentalMode ? experimental_img : engage_img,
              engageBgColor, 1.0,
              true,
              steer_angle);
+
+    // 휠 아이콘 네 모서리에 FL/FR/RL/RR 공기압 숫자만 표시한다.
+    const auto pressure_text = [](float pressure) {
+      return pressure > 0.0f ? QString::number(qRound(pressure)) : QString("--");
+    };
+    const auto pressure_color = [](float pressure) {
+      return pressure > 0.0f && pressure < 30.0f
+        ? QColor(255, 80, 80, 255) : QColor(255, 255, 255, 235);
+    };
+
+    configFont(p, "Open Sans", 30, "SemiBold");
+    const int pressure_x = 79;
+    const int pressure_y = 66;
+    QColor fl_color = pressure_color(tpms.getFl());
+    QColor fr_color = pressure_color(tpms.getFr());
+    QColor rl_color = pressure_color(tpms.getRl());
+    QColor rr_color = pressure_color(tpms.getRr());
+
+    drawTextWithColor(p, wheel_x - pressure_x, wheel_y - pressure_y,
+                      pressure_text(tpms.getFl()), fl_color);
+    drawTextWithColor(p, wheel_x + pressure_x, wheel_y - pressure_y,
+                      pressure_text(tpms.getFr()), fr_color);
+    drawTextWithColor(p, wheel_x - pressure_x, wheel_y + pressure_y,
+                      pressure_text(tpms.getRl()), rl_color);
+    drawTextWithColor(p, wheel_x + pressure_x, wheel_y + pressure_y,
+                      pressure_text(tpms.getRr()), rr_color);
   }
 
   p.restore();
