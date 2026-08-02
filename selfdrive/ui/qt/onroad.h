@@ -91,7 +91,6 @@ protected:
   QPixmap ic_tire_pressure;
   QPixmap ic_turn_signal_l;
   QPixmap ic_turn_signal_r;
-  QPixmap ic_satellite;
 
   void drawMaxSpeed(QPainter &p);
   void drawSpeed(QPainter &p);
@@ -156,7 +155,6 @@ protected:
   void drawSteer(QPainter &p);
   void drawThermal(QPainter &p);
   void drawTurnSignals(QPainter &p);
-  void drawGpsStatus(QPainter &p);
   void drawDebugText(QPainter &p);
   void drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model);
 };
