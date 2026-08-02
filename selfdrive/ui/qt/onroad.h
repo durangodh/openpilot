@@ -136,6 +136,9 @@ protected:
   int carrot_navi_remain_distance = -1;
   int carrot_navi_remain_time = -1;
   int carrot_navi_speed_limit = 0;
+  QVector<int> carrot_navi_lane_types;
+  QVector<int> carrot_navi_lane_active;
+  bool carrot_navi_lanes_ahead = false;
   float lead_box_w = 0.0f, lead_box_x = 0.0f, lead_box_y = 0.0f;   // 리드박스 EMA
 
   // ── 팝업 애니메이션 (carrot ui_draw_text_a 이식) ──
