@@ -140,11 +140,6 @@ void OnroadWindow::mouseReleaseEvent(QMouseEvent* e) {
     return;
   }
 
-  // ── MyDrivingMode 탭 전환 (좌하단 모드 박스) ────────────
-  //    모드 박스는 NvgWindow 기준 x 35~145, y (h-93)~(h-45).
-  //    NvgWindow 가 bdr_s 만큼 안쪽에 있으므로 OnroadWindow 기준으로는
-  //    거의 같은 위치가 된다. 탭하기 쉽게 여유를 둔다.
-  {
     int tap_x = endPos.x();
     int tap_y = endPos.y();
     if (tap_x > 20 && tap_x < 200 &&
@@ -297,7 +292,6 @@ void NvgWindow::initializeGL() {
   ic_turn_signal_r = QPixmap("../assets/images/turn_signal_r.png");
   ic_satellite = QPixmap("../assets/images/satellite.png");
 
-  // carrot hud
   ic_speed_bg = QPixmap("../assets/images/speed_bg.png");
 }
 
@@ -553,7 +547,7 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   //drawTurnSignals(p);
   //drawGpsStatus(p);   // GPS 위성 아이콘 표시 제거
   drawCarrotInfo(p);
-  drawCarrotBottom(p);
+  //drawCarrotBottom(p);
 
   if(s->show_debug && width() > 1200)
     drawDebugText(p);
@@ -1132,13 +1126,6 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
   p.restore();
 }
 
-// =====================================================================================
-//  CarrotPilot style HUD panel
-//  ajouatom/openpilot (c3-wip) selfdrive/ui/carrot.cc :: drawHud() 을
-//  이 fork 의 QPainter 기반 UI 로 이식한 것.
-//  NanoVG(ui_draw_text / ui_fill_rect) -> QPainter(drawText / drawRoundedRect)
-// =====================================================================================
-
 #define CT_WHITE        QColor(255, 255, 255, 255)
 #define CT_BLACK_A(a)   QColor(0, 0, 0, a)
 #define CT_GREEN        QColor(0, 203, 0, 255)
@@ -1178,9 +1165,6 @@ void NvgWindow::ctText(QPainter &p, int x, int y, const QString &text, int size,
   p.drawText(r, Qt::AlignHCenter | Qt::AlignBottom, text);
 }
 
-// 박스 사각형 안에 글자를 정중앙(대문자 기준 광학 중심)으로 배치한다.
-// Qt 의 AlignCenter 는 descent 공간까지 포함해 중앙을 잡기 때문에
-// 숫자/대문자만 있는 문자열은 살짝 위로 떠 보인다. capHeight 로 보정한다.
 void NvgWindow::ctTextIn(QPainter &p, const QRect &box, const QString &text, int size,
                          const QColor &color, bool bold) {
   if (text.isEmpty()) return;
@@ -1197,9 +1181,6 @@ void NvgWindow::ctTextIn(QPainter &p, const QRect &box, const QString &text, int
   p.drawText(box.x() + (box.width() - w) / 2, baseline, text);
 }
 
-// carrot.cc BorderDrawer 의 top_left / top_right 정보줄을 이 fork 로 옮긴 것.
-//  좌상단 : 차량명 + OP Long 여부 + SCC 버스 상태
-//  우상단 : 토크 학습값(LT) + 스티어레이시오(SR)
 void NvgWindow::drawCarrotInfo(QPainter &p) {
   p.save();
 
@@ -1278,8 +1259,6 @@ void NvgWindow::drawCarrotInfo(QPainter &p) {
   p.restore();
 }
 
-// 화면 우하단 : wifi IP
-// 녹화버튼(190px, 우하단 여백 35)과 겹치지 않게 폭을 줄여둔다.
 void NvgWindow::drawCarrotBottom(QPainter &p) {
   p.save();
 
@@ -1292,16 +1271,9 @@ void NvgWindow::drawCarrotBottom(QPainter &p) {
   configFont(p, "Open Sans", 34, "Regular");
   p.setPen(QColor(0xff, 0xff, 0xff, 200));
 
-  // 우하단 : wifi IP
-  //   녹화버튼 위젯은 190px 이지만 실제로 그려지는 원은 안쪽 45px 여백을 뺀
-  //   100px 이고 height()-80 에서 끝난다. 이 줄(height()-62~-14)과 안 겹치므로
-  //   화면 오른쪽 끝까지 붙인다.
   QRect ip_rect(20, line_y, width() - 40, line_h);
   p.drawText(ip_rect, Qt::AlignRight | Qt::AlignVCenter, ip);
 
-  // 하단 중앙 : 횡방향 플래너 디버그 문자열
-  //   IP 가 실제로 차지하는 폭을 재서 그만큼 비워두고, 그래도 넘치면
-  //   글자 크기를 줄여 맞춘다. (잘려서 정보가 사라지는 것보다 낫다)
   QString lat_debug = QString::fromUtf8(
       sm["lateralPlan"].getLateralPlan().getLatDebugText().cStr());
   // "offset..." 구간 제거 (요청)
@@ -1333,17 +1305,6 @@ void NvgWindow::drawCarrotBottom(QPainter &p) {
   p.restore();
 }
 
-// =====================================================================================
-//  carrot 스타일 리드 표시
-//   - 앞차 뒷면에 사각 프레임 (기존 삼각 쉐브론 대체)
-//   - 프레임 아래 좌: 레이더 거리 / 우: 비전 거리
-//   - 경로 위 목표 차간거리 지점에 흰 가로선 + "거리(t_follow)"
-//  ※ 이 차량은 레이더 트랙(leadsLeft/Right/Center)을 지원하지 않아
-//    carrot 의 ShowRadarInfo 오버레이는 이식 대상에서 제외했다.
-// =====================================================================================
-// ── 팝업 애니메이션 (carrot ui_draw_text_a / ui_draw_text_a2 이식) ──
-//    화면 중앙 상단에서 큰 글씨로 나타나 원래 자리·크기로 축소되며 이동한다.
-//    anim_time 130 → 0, 프레임당 10 감소 (20Hz 기준 약 0.65초)
 void NvgWindow::ctTextAnimStart(int x, int y, const QString &text, int size, const QColor &color) {
   if (!show_gear_animation) return;
   anim_x = x;
