@@ -611,6 +611,24 @@ void NvgWindow::updateCarrotNavi() {
     }
     carrot_navi_route = next;
   }
+
+  // ---- speed 스트림: 도로 제한속도 (내비 중 LIMIT 폴백용) ----
+  carrot_navi_speed_limit = 0;
+  const QJsonObject speed = root.value("speed").toObject();
+  if (!speed.isEmpty()) {
+    // 서버 키 형식(snake/camel) 불확실 → 후보 키 순차 시도 (도로 제한속도 우선)
+    static const char *limit_keys[] = {
+      "road_limit_kph", "limit_speed", "roadLimitKph",
+      "section_speed_limit_kph", "sectionSpeedLimitKph",
+      "sdi_speed_limit_kph", "sdiSpeedLimitKph"
+    };
+    for (const char *k : limit_keys) {
+      if (speed.contains(k)) {
+        const int v = speed.value(k).toInt();
+        if (v > 0 && v <= 150) { carrot_navi_speed_limit = v; break; }
+      }
+    }
+  }
 }
 
 static QString carrotDistanceText(int meters) {
@@ -701,7 +719,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   QString title = carrot_navi_instruction;
   if (title.isEmpty()) title = carrot_navi_road;
   if (title.isEmpty()) title = QString::fromUtf8("경로 안내");
-  configFont(p, "Open Sans", 40, "Bold");
+  configFont(p, "Open Sans", 44, "Bold");
   p.setPen(QColor(255, 255, 255));
   const QRect current_icon(panel.x() + 18, panel.y() + 13, 88, 88);
   drawCarrotTurnArrow(p, current_icon, carrot_navi_turn_type, title, QColor(80, 215, 255), 10);
@@ -712,7 +730,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const QString remain = carrotDistanceText(carrot_navi_remain_distance);
   if (!remain.isEmpty()) detail += (detail.isEmpty() ? QString() : QString("  /  ")) + remain;
   if (carrot_navi_remain_time > 0) detail += QString("  /  %1 min").arg((carrot_navi_remain_time + 59) / 60);
-  configFont(p, "Open Sans", 27, "Regular");
+  configFont(p, "Open Sans", 31, "Regular");
   p.setPen(QColor(135, 220, 255));
   p.drawText(QRect(panel.x() + 115, panel.y() + 65, panel.width() - 132, 38),
              Qt::AlignLeft | Qt::AlignVCenter, detail);
@@ -738,23 +756,78 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
     return QPointF(left + (lon - min_lon) * scale, top + (max_lat - lat) * scale);
   };
 
-  QPainterPath path;
-  path.moveTo(project(carrot_navi_route[0].x(), carrot_navi_route[0].y()));
-  for (int i = 1; i < carrot_navi_route.size(); ++i) path.lineTo(project(carrot_navi_route[i].x(), carrot_navi_route[i].y()));
-  p.setBrush(Qt::NoBrush);
-  p.setPen(QPen(QColor(0, 0, 0, 190), 15, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-  p.drawPath(path);
-  p.setPen(QPen(QColor(40, 180, 255), 9, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-  p.drawPath(path);
+  // ---- 지도 뷰포트: 프레임 + 은은한 격자 (clip 안에서만 그림) ----
+  QPainterPath map_clip;
+  map_clip.addRoundedRect(map_rect, 14, 14);
+  p.save();
+  p.setClipPath(map_clip);
+  p.setPen(Qt::NoPen);
+  p.setBrush(QColor(16, 24, 36, 170));
+  p.drawRect(map_rect);
+  p.setPen(QPen(QColor(255, 255, 255, 20), 1));
+  const int grid = 44;
+  for (int gx = map_rect.left(); gx <= map_rect.right(); gx += grid) p.drawLine(gx, map_rect.top(), gx, map_rect.bottom());
+  for (int gy = map_rect.top(); gy <= map_rect.bottom(); gy += grid) p.drawLine(map_rect.left(), gy, map_rect.right(), gy);
 
+  // ---- 차량 위치에 가장 가까운 경로 인덱스 (지나온/남은 분리) ----
+  const bool has_car = std::abs(carrot_navi_lat) > 0.000001 && std::abs(carrot_navi_lon) > 0.000001;
+  int car_idx = 0;
+  if (has_car) {
+    double best = 1e18;
+    for (int i = 0; i < carrot_navi_route.size(); ++i) {
+      const double dlon = carrot_navi_route[i].x() - carrot_navi_lon;
+      const double dlat = carrot_navi_route[i].y() - carrot_navi_lat;
+      const double d = dlon * dlon + dlat * dlat;
+      if (d < best) { best = d; car_idx = i; }
+    }
+  }
+
+  // 경로 케이싱(검정 외곽)
+  QPainterPath full;
+  full.moveTo(project(carrot_navi_route[0].x(), carrot_navi_route[0].y()));
+  for (int i = 1; i < carrot_navi_route.size(); ++i) full.lineTo(project(carrot_navi_route[i].x(), carrot_navi_route[i].y()));
+  p.setBrush(Qt::NoBrush);
+  p.setPen(QPen(QColor(0, 0, 0, 200), 16, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  p.drawPath(full);
+
+  // 지나온 구간(흐린 회색)
+  if (car_idx > 0) {
+    QPainterPath passed;
+    passed.moveTo(project(carrot_navi_route[0].x(), carrot_navi_route[0].y()));
+    for (int i = 1; i <= car_idx; ++i) passed.lineTo(project(carrot_navi_route[i].x(), carrot_navi_route[i].y()));
+    p.setPen(QPen(QColor(120, 132, 145, 210), 9, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.drawPath(passed);
+  }
+  // 남은 구간(밝은 파랑)
+  QPainterPath remain;
+  remain.moveTo(project(carrot_navi_route[car_idx].x(), carrot_navi_route[car_idx].y()));
+  for (int i = car_idx + 1; i < carrot_navi_route.size(); ++i) remain.lineTo(project(carrot_navi_route[i].x(), carrot_navi_route[i].y()));
+  p.setPen(QPen(QColor(45, 190, 255), 10, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  p.drawPath(remain);
+
+  // ---- 목적지 핀 (점 + 링) ----
   const QPointF destination = project(carrot_navi_route.last().x(), carrot_navi_route.last().y());
+  p.setPen(QPen(QColor(255, 75, 75, 120), 3)); p.setBrush(Qt::NoBrush);
+  p.drawEllipse(destination, 18, 18);
   p.setPen(QPen(QColor(255, 255, 255), 3)); p.setBrush(QColor(255, 75, 75));
   p.drawEllipse(destination, 11, 11);
-  if (std::abs(carrot_navi_lat) > 0.000001 && std::abs(carrot_navi_lon) > 0.000001) {
+
+  // ---- 차량 진행방향 화살표 ----
+  if (has_car) {
     const QPointF car = project(carrot_navi_lon, carrot_navi_lat);
-    p.setPen(QPen(QColor(255, 255, 255), 4)); p.setBrush(QColor(70, 230, 130));
-    p.drawEllipse(car, 13, 13);
+    const int nxt = std::min(car_idx + 1, (int)carrot_navi_route.size() - 1);
+    const QPointF ahead = project(carrot_navi_route[nxt].x(), carrot_navi_route[nxt].y());
+    const double ang = atan2(ahead.y() - car.y(), ahead.x() - car.x()) * 57.29577951;
+    p.save();
+    p.translate(car);
+    p.rotate(ang);
+    QPainterPath arrow;
+    arrow.moveTo(16, 0); arrow.lineTo(-11, -12); arrow.lineTo(-4, 0); arrow.lineTo(-11, 12); arrow.closeSubpath();
+    p.setPen(QPen(QColor(255, 255, 255), 2)); p.setBrush(QColor(70, 230, 130));
+    p.drawPath(arrow);
+    p.restore();
   }
+  p.restore();  // map clip 해제
 
   if (!carrot_navi_next_instruction.isEmpty() || carrot_navi_next_turn_type != 0) {
     const QRect next_box(panel.x() + 18, panel.bottom() - 66, panel.width() - 36, 50);
@@ -764,7 +837,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
     drawCarrotTurnArrow(p, QRect(next_box.x() + 5, next_box.y() + 4, 42, 42),
                         carrot_navi_next_turn_type, carrot_navi_next_instruction,
                         QColor(185, 225, 245), 5);
-    configFont(p, "Open Sans", 23, "Regular");
+    configFont(p, "Open Sans", 27, "Regular");
     p.setPen(QColor(215, 235, 245));
     QString next_text = carrot_navi_next_instruction;
     const QString next_distance = carrotDistanceText(carrot_navi_next_distance);
@@ -1406,6 +1479,10 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
       ctText(p, dx, dy - 45, "CAM", 30, CT_WHITE, true);
     } else {
       int limit = road_limit.getRoadLimitSpeed();
+      if (limit <= 0 && carrot_navi_speed_limit > 0 && carrot_navi_updated_at != 0 &&
+          QDateTime::currentMSecsSinceEpoch() - (qint64)carrot_navi_updated_at <= 35000) {
+        limit = carrot_navi_speed_limit;   // 내비 중 carrot 제한속도 폴백
+      }
       disp_speed = (int)(limit * kph_to_disp + 0.5f);
       bool over = (car_state.getVEgoCluster() * 3.6f > limit + 2) && limit > 0;
       limit_color = over ? CT_RED_A(210) : CT_WHITE_A(210);
