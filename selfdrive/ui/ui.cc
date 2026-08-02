@@ -81,20 +81,34 @@ static void update_tfollow_line(UIState *s, const cereal::ModelDataV2::XYZTData:
   }
 }
 
-// z_off -> z_off_left, z_off_right 분리 + allow_invert 파라미터 추가
+// apilot(c3-master) update_line_data 방식으로 교체.
+//  - 위/아래(z_off_left/right) 두 점이 "둘 다" 투영 성공했을 때만 쌍으로 넣는다.
+//    기존 코드는 앞/뒤 패스를 따로 돌아서, 클리핑이 비대칭으로 일어나면
+//    v[i] <-> v[n-1-i] 짝이 어긋나 drawBlindSpot 울타리 사각형이 전부
+//    찌그러진 슬리버(면적 0)가 되어 화면에 안 보였다.
+//  - allow_invert=false 면 화면 y 가 역전되는(지평선 근처 뒤집힘) 점은 버린다.
+//    기존 코드는 이 파라미터를 받기만 하고 실제로는 무시했다.
 static void update_line_data(const UIState *s, const cereal::ModelDataV2::XYZTData::Reader &line,
                              float y_off, float z_off_left, float z_off_right, line_vertices_data *pvd, int max_idx, bool allow_invert=true,
                              float y_shift=0.0) {
   const auto line_x = line.getX(), line_y = line.getY(), line_z = line.getZ();
-  QPointF *v = &pvd->v[0];
+  QPointF left_points[TRAJECTORY_SIZE], right_points[TRAJECTORY_SIZE];
+  int cnt = 0;
   for (int i = 0; i <= max_idx; i++) {
     if (line_x[i] < 0) continue;
-    v += calib_frame_to_full_frame(s, line_x[i], line_y[i] + y_shift - y_off, line_z[i] + z_off_left, v);
+    QPointF left, right;
+    bool l = calib_frame_to_full_frame(s, line_x[i], line_y[i] + y_shift - y_off, line_z[i] + z_off_left, &left);
+    bool r = calib_frame_to_full_frame(s, line_x[i], line_y[i] + y_shift + y_off, line_z[i] + z_off_right, &right);
+    if (l && r) {
+      if (!allow_invert && cnt > 0 && left.y() > left_points[cnt - 1].y()) continue;
+      left_points[cnt] = left;
+      right_points[cnt] = right;
+      cnt++;
+    }
   }
-  for (int i = max_idx; i >= 0; i--) {
-    if (line_x[i] < 0) continue;
-    v += calib_frame_to_full_frame(s, line_x[i], line_y[i] + y_shift + y_off, line_z[i] + z_off_right, v);
-  }
+  QPointF *v = &pvd->v[0];
+  for (int i = 0; i < cnt; i++) *v++ = left_points[i];
+  for (int i = cnt - 1; i >= 0; i--) *v++ = right_points[i];
   pvd->cnt = v - pvd->v;
   assert(pvd->cnt <= std::size(pvd->v));
 }
