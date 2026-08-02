@@ -541,7 +541,6 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   drawCarrotHud(p);
   // ----------------------------------------------
   drawSpeedLimit(p);
-  //drawSteer(p);      // 조향각 표시 제거
   //drawThermal(p);    // CPU/AMBIENT 온도 표시 제거
   //drawTurnSignals(p);
   drawCarrotInfo(p);
@@ -1581,7 +1580,6 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
   const auto car_state    = sm["carState"].getCarState();
   const auto scc_smoother = sm["carControl"].getCarControl().getSccSmoother();
   const auto road_limit   = sm["roadLimitSpeed"].getRoadLimitSpeed();
-  const auto gps          = sm["gpsLocationExternal"].getGpsLocationExternal();
 
   const bool  is_metric   = s->scene.is_metric;
   const float ms_to_disp  = is_metric ? MS_TO_KPH : MS_TO_MPH;
@@ -1693,9 +1691,6 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     QRect mode_box(dx - 55, dy - 38, 110, 48);
     ctRect(p, mode_box, mode_color, 15, 2);
     ctTextIn(p, mode_box, mode_str, 32, CT_WHITE);
-    if (gps.getFlags() > 0 && gps.getAccuracy() > 0.01f && gps.getAccuracy() < 20.f) {
-      ctText(p, dx, dy - 45, "GPS", 30, CT_GREEN, true);
-    }
   }
 
   // ---- 차간거리(GAP) 막대 ----
@@ -2052,39 +2047,6 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
       p.drawText(rect, Qt::AlignCenter, "CAM");
     }
   }
-
-  p.restore();
-}
-
-void NvgWindow::drawSteer(QPainter &p) {
-  p.save();
-
-  int x = 30;
-  int y = 540;
-
-  const SubMaster &sm = *(uiState()->sm);
-  auto car_state = sm["carState"].getCarState();
-  auto car_control = sm["carControl"].getCarControl();
-
-  float steer_angle = car_state.getSteeringAngleDeg();
-  float desire_angle = car_control.getActuators().getSteeringAngleDeg();
-
-  configFont(p, "Open Sans", 50, "Bold");
-
-  QString str;
-  int width = 192;
-
-  str.sprintf("%.0f°", steer_angle);
-  QRect rect = QRect(x, y, width, width);
-
-  p.setPen(QColor(255, 255, 255, 200));
-  p.drawText(rect, Qt::AlignCenter, str);
-
-  str.sprintf("%.0f°", desire_angle);
-  rect.setRect(x, y + 80, width, width);
-
-  p.setPen(QColor(155, 255, 155, 200));
-  p.drawText(rect, Qt::AlignCenter, str);
 
   p.restore();
 }
