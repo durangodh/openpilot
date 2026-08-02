@@ -14,6 +14,7 @@ import uuid
 PORT = 7714
 DISCOVERY_PORT = 7705
 STATE_FILE = "/dev/shm/carrot_navi_route.json"
+MAP_FILE = "/dev/shm/carrot_navi_map.jpg"
 JSON_NAMES = (
   "vehicle", "guidance_current", "guidance_next", "lane_current", "lane_ahead",
   "speed", "traffic_signal", "crossroad", "route", "navigation_status",
@@ -31,6 +32,7 @@ ENABLED = {
   "route", "navigation_status", "speed",
 }
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+MAX_MAP_FRAME_BYTES = 2 * 1024 * 1024
 
 
 class NaviState(object):
@@ -56,6 +58,25 @@ class NaviState(object):
       os.rename(tmp, STATE_FILE)
     except IOError:
       pass
+
+  def update_map(self, payload):
+    if not payload or len(payload) > MAX_MAP_FRAME_BYTES:
+      return
+    start = payload.find(b"\xff\xd8")
+    end = payload.rfind(b"\xff\xd9")
+    if start < 0 or end < start:
+      return
+    image = payload[start:end + 2]
+    tmp = MAP_FILE + ".tmp"
+    try:
+      with open(tmp, "wb") as f:
+        f.write(image)
+      os.rename(tmp, MAP_FILE)
+    except IOError:
+      try:
+        os.unlink(tmp)
+      except OSError:
+        pass
 
 
 def local_ip():
@@ -114,7 +135,8 @@ def manifest():
   handle = 1
   for kind, names in (("json", JSON_NAMES), ("image", IMAGE_NAMES), ("render", RENDER_NAMES)):
     for name in names:
-      enabled = kind == "json" and name in ENABLED
+      enabled = ((kind == "json" and name in ENABLED) or
+                 (kind == "render" and name == "map_main"))
       params = {}
       if kind == "json":
         params = {"delivery_mode": "on_change_with_heartbeat", "interval_ms": 500,
@@ -122,8 +144,8 @@ def manifest():
       elif kind == "image":
         params = {"format": "png", "max_fps": 1}
       else:
-        params = {"width": 480, "height": 360, "dpi": 160, "fps": 1,
-                  "codec": "jpeg", "h264_bitrate_kbps": 500,
+        params = {"width": 480, "height": 540, "dpi": 160, "fps": 5,
+                  "codec": "jpeg", "jpeg_quality": 65,
                   "camera_mode": "app_sync", "map_theme": "dark"}
       streams.append({"kind": kind, "name": name, "schema_version": 1,
                       "stream_handle": handle, "enabled": enabled, "params": params})
@@ -170,6 +192,10 @@ def client_loop(conn, state):
     if opcode == 9:
       send_frame(conn, payload, 10)
       continue
+    if opcode == 2:
+      if not is_control and stream_name == "map_main":
+        state.update_map(payload)
+      continue
     if opcode != 1:
       continue
     try:
@@ -180,7 +206,18 @@ def client_loop(conn, state):
       send_frame(conn, json.dumps(manifest(), separators=(",", ":")))
     elif not is_control and message.get("type") == "item_update":
       name = message.get("name", stream_name)
-      state.update(name, message.get("value") if message.get("present", True) else None)
+      value = message.get("value") if message.get("present", True) else None
+      if name == "map_main":
+        encoded = value.get("data") if isinstance(value, dict) else value
+        if isinstance(encoded, str):
+          if "," in encoded and encoded.startswith("data:"):
+            encoded = encoded.split(",", 1)[1]
+          try:
+            state.update_map(base64.b64decode(encoded))
+          except (TypeError, ValueError):
+            pass
+      else:
+        state.update(name, value)
 
 
 def handle_client(conn, state):
