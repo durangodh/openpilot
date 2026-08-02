@@ -1569,9 +1569,8 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     }
   }
 
-  // ---- 차간거리(GAP) 숫자 + 막대 ----
+  // ---- 차간거리(GAP) 막대 ----
   int gap = car_state.getCruiseGap();
-  ctText(p, bx + 220, by + 77, gap > 0 ? QString::number(gap) : QString("-"), 40, CT_WHITE, true);
   {
     int   dx  = bx + 270;
     int   dy  = by + 185;
