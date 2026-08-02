@@ -150,7 +150,6 @@ void OnroadWindow::mouseReleaseEvent(QMouseEvent* e) {
       Params().put("MyDrivingMode", std::to_string(next));
       return;
     }
-  }
 
   if (map != nullptr) {
     bool sidebarVisible = geometry().x() > 0;
@@ -815,10 +814,10 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const int panel_h = panel_bottom - panel_y;
 
   // 내부 레이아웃
-  const int header_h = 118;
+  const int panel_header_h = 118;
   const int next_h = 54;
   const int lane_h = 70;
-  const int footer_h = 56;
+  const int panel_footer_h = 56;
 
   const int gap1 = 10;
   const int gap2 = 8;
@@ -828,10 +827,10 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   // 남는 공간을 지도에 모두 사용
   const int map_h =
       panel_h
-      - header_h
+      - panel_header_h
       - next_h
       - lane_h
-      - footer_h
+      - panel_footer_h
       - gap1
       - gap2
       - gap3
@@ -843,7 +842,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
       panel.x(),
       panel.y(),
       panel.width(),
-      header_h);
+      panel_header_h);
 
   const QRect next_row(
       panel.x(),
@@ -867,7 +866,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
       panel.x() + 14,
       lane_row.bottom() + gap3,
       panel.width() - 28,
-      footer_h);
+      panel_footer_h);
   p.setPen(QPen(QColor(255, 255, 255, 120), 2));
   p.setBrush(QColor(8, 14, 18, 225));
   p.drawRoundedRect(panel, 24, 24);
@@ -1315,6 +1314,9 @@ void NvgWindow::drawCarrotBottom(QPainter &p) {
   p.save();
 
   const SubMaster &sm = *(uiState()->sm);
+
+  const int line_y = height() - 62;
+  const int line_h = 48;
 
   QString lat_debug = QString::fromUtf8(
       sm["lateralPlan"].getLateralPlan().getLatDebugText().cStr());
