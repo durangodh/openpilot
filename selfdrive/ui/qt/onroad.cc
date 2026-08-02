@@ -1198,7 +1198,7 @@ void NvgWindow::drawCarrotInfo(QPainter &p) {
   QString scc_num  = (scc_bus < 0) ? QString("none") : QString::number(scc_bus);
   QString scc_tail = QString(car_params.getHasScc13() ? "+13" : "") +
                      QString(car_params.getHasScc14() ? "+14" : "");
-  QString left_head = ip_head + "   |   SCC ";
+  QString left_head = ip_head + "  SCC ";
 
   // ---- 우상단 : 토크값 / SR ----
   QString right_str;
@@ -1209,7 +1209,7 @@ void NvgWindow::drawCarrotInfo(QPainter &p) {
                     live_params.getSteerRatio());
 
   configFont(p, "Open Sans", 34, "Regular");
-  QRect line(20, 12, width() - 40, 48);   // 상태바(bdr_s=20) 안쪽
+  QRect line(35, 12, width() - 55, 48);   // 상태바(bdr_s=20) 안쪽
 
   // 우상단은 한 덩어리
   p.setPen(QColor(0xff, 0xff, 0xff, 200));
