@@ -2494,7 +2494,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(new ParamValueControlF("E2EAccMode",
       "Longitudinal Control Mode",
       "ACC: 항상 ACC / AUTO: 평소 ACC, 신호 정지 시 E2E / E2E: 항상 E2E",
-      "../assets/img_experimental_white.svg", 0, 2, 1, 0, 1, this));
+      "../assets/img_experimental_white.svg", 0, 2, 1, 0, 0, this));
 
   list->addItem(new ParamValueControlF("LongTuningKpV",
       "Longitudinal Kp", "속도 오차 비례 게인 (×0.01). 기본값: 100 (=1.00)",

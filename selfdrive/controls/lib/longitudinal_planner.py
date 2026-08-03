@@ -74,7 +74,7 @@ class LongitudinalPlanner:
     # branch can stop for signals without Carrot's separate stop-speed clamp.
     self.auto_e2e_enabled = False
     self.experimental_mode_enabled = False
-    self.e2e_acc_mode = 1
+    self.e2e_acc_mode = 0
     self.auto_e2e_stopping = False
     self.auto_e2e_prepare = False
 
@@ -111,9 +111,9 @@ class LongitudinalPlanner:
     self.auto_e2e_enabled = self.CP.openpilotLongitudinalControl
     mode_raw = self.params.get('E2EAccMode', encoding='utf8')
     try:
-      mode = int(mode_raw) if mode_raw is not None else (2 if self.params.get_bool('ExperimentalMode') else 1)
+      mode = int(mode_raw) if mode_raw is not None else (2 if self.params.get_bool('ExperimentalMode') else 0)
     except (TypeError, ValueError):
-      mode = 1
+      mode = 0
     self.e2e_acc_mode = max(0, min(2, mode))
     self.experimental_mode_enabled = self.e2e_acc_mode == 2 and self.auto_e2e_enabled
     if not self.auto_e2e_enabled:
@@ -181,9 +181,9 @@ class LongitudinalPlanner:
     if self.auto_e2e_stopping and (start_sign or car_state.gasPressed):
       self.auto_e2e_prepare = True
       self.auto_e2e_stopping = False
-    if self.auto_e2e_prepare and (v_ego_kph > 5.0 and model_x > 60.0):
+    if self.auto_e2e_prepare and not stop_sign and (v_ego_kph > 5.0 and model_x > 60.0):
       self.auto_e2e_prepare = False
-    if stop_sign:
+    elif stop_sign and not self.auto_e2e_prepare and not car_state.gasPressed:
       self.auto_e2e_stopping = True
 
     if self.experimental_mode_enabled:
