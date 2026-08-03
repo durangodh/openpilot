@@ -354,7 +354,6 @@ struct CarControl {
     applyMaxSpeed @1 :Float32;
     cruiseMaxSpeed @2 :Float32;
     logMessage @3 :Text;
-    autoTrGap @4 :UInt32;
   }
 
   struct Actuators {
