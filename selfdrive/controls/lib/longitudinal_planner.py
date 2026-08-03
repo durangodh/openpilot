@@ -69,16 +69,12 @@ class LongitudinalPlanner:
 
     self.mpc = LongitudinalMpc()
 
-    # ExperimentalMode enables automatic ACC/e2e selection.  Keep the mode in
-    # ACC for normal cruising and temporarily use the blended cost when the
-    # model is preparing to leave a model-predicted stop, when a distant stop
-    # first needs to be planned, or when a vision-only lead is consistently
-    # detected.  This mirrors apilot's TrafficStopMode switching without
-    # depending on its vehicle-specific xState state machine.
+    # Match Carrot's mode selection: ExperimentalMode keeps the MPC blended,
+    # while normal ACC only uses blended costs during e2ePrepare.
     self.auto_e2e_enabled = False
+    self.experimental_mode_enabled = False
     self.auto_e2e_stopping = False
     self.auto_e2e_prepare = False
-    self.auto_e2e_vision_lead_count = 0
 
     # ── Auto-Tuner: 학습기 + 학습된 가속 테이블 ──
     self.carrot_learner = CarrotLearner()
@@ -110,7 +106,8 @@ class LongitudinalPlanner:
     self.events = Events()
 
   def read_param(self):
-    self.auto_e2e_enabled = self.params.get_bool('ExperimentalMode') and self.CP.openpilotLongitudinalControl
+    self.auto_e2e_enabled = self.CP.openpilotLongitudinalControl
+    self.experimental_mode_enabled = self.params.get_bool('ExperimentalMode') and self.auto_e2e_enabled
     if not self.auto_e2e_enabled:
       self.mpc.mode = 'acc'
     self.mpc.human_following = self.params.get_bool("HumanFollowing")
@@ -145,11 +142,10 @@ class LongitudinalPlanner:
     else:
       self.learned_accel_vals = list(A_CRUISE_MAX_VALS)
 
-  def update_auto_e2e_mode(self, car_state, radar_state, model_msg):
+  def update_auto_e2e_mode(self, car_state, model_msg):
     if not self.auto_e2e_enabled:
       self.auto_e2e_stopping = False
       self.auto_e2e_prepare = False
-      self.auto_e2e_vision_lead_count = 0
       return 'acc'
 
     model_valid = (len(model_msg.position.x) == 33 and
@@ -158,8 +154,7 @@ class LongitudinalPlanner:
     if not model_valid:
       self.auto_e2e_stopping = False
       self.auto_e2e_prepare = False
-      self.auto_e2e_vision_lead_count = 0
-      return 'acc'
+      return 'blended' if self.experimental_mode_enabled else 'acc'
 
     model_x = model_msg.position.x[-1]
     model_y = model_msg.position.y[-1]
@@ -183,16 +178,12 @@ class LongitudinalPlanner:
     if stop_sign:
       self.auto_e2e_stopping = True
 
-    lead = radar_state.leadOne
-    vision_lead = lead.status and lead.dRel < 90.0 and not lead.radar
-    self.auto_e2e_vision_lead_count = self.auto_e2e_vision_lead_count + 1 if vision_lead else 0
-    vision_lead_confirmed = self.auto_e2e_vision_lead_count * DT_MDL >= 0.5
+    if self.experimental_mode_enabled:
+      return 'blended'
 
-    # apilot's default mode blends for a far model stop (>40 m) and while
-    # preparing to depart; its experimental mix additionally blends for a
-    # stable vision-only lead.
-    far_model_stop = stop_sign and model_x > 40.0
-    return 'blended' if self.auto_e2e_prepare or far_model_stop or vision_lead_confirmed else 'acc'
+    # Carrot keeps normal driving and e2eStop in ACC. Only the departure
+    # preparation state temporarily selects the blended MPC cost.
+    return 'blended' if self.auto_e2e_prepare else 'acc'
 
   def get_max_accel_learned(self, v_ego):
     return interp(v_ego, A_CRUISE_MAX_BP, self.learned_accel_vals)
@@ -219,7 +210,7 @@ class LongitudinalPlanner:
 
     v_ego = sm['carState'].vEgo
 
-    self.mpc.mode = self.update_auto_e2e_mode(sm['carState'], sm['radarState'], sm['modelV2'])
+    self.mpc.mode = self.update_auto_e2e_mode(sm['carState'], sm['modelV2'])
 
     v_cruise_kph = sm['controlsState'].vCruise
     v_cruise_kph = min(v_cruise_kph, V_CRUISE_MAX)
