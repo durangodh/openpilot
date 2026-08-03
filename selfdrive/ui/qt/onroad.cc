@@ -861,7 +861,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   p.setRenderHint(QPainter::Antialiasing);
   p.setRenderHint(QPainter::TextAntialiasing);
   // 우측 내비 패널
-  const int panel_y = 285;                 // 휠 아이콘 아래로 이동
+  const int panel_y = 307;                 // 휠 아이콘과 22px 추가 간격
   const int panel_bottom = height() - 5;  // 좌측 HUD 하단과 동일, 상태바 위
   const int panel_h = panel_bottom - panel_y;
 
