@@ -888,6 +888,7 @@ struct LongitudinalPlan @0xe00b5b3eba12876c {
 
   tFollow @57 :Float32;          # UI 표시용 추종거리(초)
   desiredDistance @58 :Float32;  # UI 표시용 목표 차간거리(m)
+  mpcMode @59 :UInt8;            # 0: ACC, 1: blended/e2e
 
   distToTurn @43 :Float32;
   turnSpeed @44 :Float32;
