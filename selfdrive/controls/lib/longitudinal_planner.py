@@ -69,8 +69,9 @@ class LongitudinalPlanner:
 
     self.mpc = LongitudinalMpc()
 
-    # Match Carrot's mode selection: ExperimentalMode keeps the MPC blended,
-    # while normal ACC only uses blended costs during e2ePrepare.
+    # ExperimentalMode keeps the MPC blended. In automatic mode, use blended
+    # costs from a model-predicted stop through departure preparation so this
+    # branch can stop for signals without Carrot's separate stop-speed clamp.
     self.auto_e2e_enabled = False
     self.experimental_mode_enabled = False
     self.auto_e2e_stopping = False
@@ -181,9 +182,10 @@ class LongitudinalPlanner:
     if self.experimental_mode_enabled:
       return 'blended'
 
-    # Carrot keeps normal driving and e2eStop in ACC. Only the departure
-    # preparation state temporarily selects the blended MPC cost.
-    return 'blended' if self.auto_e2e_prepare else 'acc'
+    # Keep E2E active throughout stop approach, standstill, and departure
+    # preparation. Returning to ACC during e2eStop would discard the model
+    # stop target because this branch has no separate Carrot stop-speed clamp.
+    return 'blended' if self.auto_e2e_stopping or self.auto_e2e_prepare else 'acc'
 
   def get_max_accel_learned(self, v_ego):
     return interp(v_ego, A_CRUISE_MAX_BP, self.learned_accel_vals)
