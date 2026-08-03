@@ -18,9 +18,6 @@ from selfdrive.road_speed_limiter import road_speed_limiter_get_max_speed, road_
   get_road_speed_limiter
 
 SYNC_MARGIN = 3.
-CREEP_SPEED = 2.3
-STOP_HOLD_ACCEL = -1.5  # 정지 유지시 브레이크 최소 하한 (풀림 방지 안전망)
-
 # do not modify
 MIN_SET_SPEED_KPH = V_CRUISE_MIN
 MAX_SET_SPEED_KPH = V_CRUISE_MAX
@@ -242,7 +239,7 @@ class SccSmoother:
     CC.sccSmoother.applyMaxSpeed = controls.applyMaxSpeed
     CC.sccSmoother.cruiseMaxSpeed = controls.v_cruise_kph
 
-    CC.sccSmoother.autoTrGap = AUTO_TR_CRUISE_GAP
+    CC.sccSmoother.autoTrGap = int(clip(CS.out.cruiseGap, 1, 4)) if CS.out.cruiseGap > 0 else AUTO_TR_CRUISE_GAP
 
     ascc_enabled = CS.acc_mode and enabled and CS.cruiseState_enabled \
                    and 1 < CS.cruiseState_speed < 255 and not CS.brake_pressed
@@ -374,21 +371,8 @@ class SccSmoother:
     return None
 
   def get_long_lead_speed(self, CS, clu11_speed, sm):
-
-    if self.longcontrol:
-      lead = self.get_lead(sm)
-      if lead is not None:
-        d = lead.dRel - 5.
-        if 0. < d < -lead.vRel * (9. + 3.) * 2. and lead.vRel < -1.:
-          t = d / lead.vRel
-          accel = -(lead.vRel / t) * self.speed_conv_to_clu
-          accel *= 1.2
-
-          if accel < 0.:
-            target_speed = clu11_speed + accel
-            target_speed = max(target_speed, self.min_set_speed_clu)
-            return target_speed
-
+    # Lead following belongs to LongitudinalMpc. Applying another lead-derived
+    # set-speed reduction here made the same lead deceleration happen twice.
     return 0
 
   def cal_curve_speed(self, sm, v_ego, frame):
@@ -447,18 +431,8 @@ class SccSmoother:
       self.max_speed_clu = self.max_speed_clu + error * kp
 
   def get_apply_accel(self, CS, sm, accel, stopping):
-
-    boost_v = 0.2 if self.e2e_long else 0.5
-
-    start_boost = interp(CS.out.vEgo, [CREEP_SPEED, 2 * CREEP_SPEED], [boost_v, 0.0])
-    is_accelerating = interp(accel, [0.0, 0.2], [0.0, 1.0])
-    boost = start_boost * is_accelerating
-    accel += boost
-
-    # 정지 유지: stopping 상태에서 브레이크가 조금씩 풀려 밀리는 것을 막기 위해 하한 고정
-    if stopping:
-      accel = min(accel, STOP_HOLD_ACCEL)
-
+    # Carrot planner/longcontrol already owns start, stop and delay
+    # compensation. Pass its command through unchanged to Hyundai SCC.
     return accel
 
   def get_stock_cam_accel(self, apply_accel, stock_accel, scc11):
