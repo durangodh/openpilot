@@ -226,7 +226,12 @@ class CarState(CarStateBase):
     # scc smoother
     driver_override = cp.vl["TCS13"]["DriverOverride"]
     self.acc_mode = cp_scc.vl["SCC12"]["ACCMode"] != 0
-    self.cruise_gap = cp_scc.vl["SCC11"]["TauGapSet"] if not self.no_radar else 1
+    # Ignore transient/invalid SCC gap values so gap-button automation and the
+    # longitudinal controller always see a real Hyundai gap step (1 through 4).
+    if not self.no_radar:
+      cruise_gap = int(cp_scc.vl["SCC11"]["TauGapSet"])
+      if 1 <= cruise_gap <= 4:
+        self.cruise_gap = cruise_gap
     self.gas_pressed = ret.gasPressed or driver_override == 1
     self.brake_pressed = ret.brakePressed or driver_override == 2
     self.standstill = ret.standstill or ret.cruiseState.standstill
@@ -653,4 +658,3 @@ class CarState(CarStateBase):
         checks += [("LFAHDA_MFC", 20)]
 
     return CANParser(DBC[CP.carFingerprint]["pt"], signals, checks, 2, enforce_checks=False)
-
