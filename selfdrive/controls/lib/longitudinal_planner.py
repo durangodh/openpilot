@@ -17,7 +17,7 @@ from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.vision_turn_controller import VisionTurnController, VisionTurnControllerState
 from selfdrive.controls.lib.events import Events
-# ?? CarrotPilot Auto-Tuner (commit 9dd5e2c port) ??
+# ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──
 from selfdrive.controls.lib.carrot_learning import CarrotLearner, read_learned_accel_vals, read_learned_tfollow, read_learned_auto_tr
 
 GearShifter = car.CarState.GearShifter
@@ -28,38 +28,38 @@ A_CRUISE_MIN = -1.0
 A_CRUISE_MAX_VALS = [1.8, 1.2, 0.8, 0.6]
 A_CRUISE_MAX_BP = [0., 10., 25., 40.]
 
-# ?? MyDrivingMode (1:ECO 2:SAFE 3:NORM 4:FAST) ????????????????????????????
-# UI ??紐⑤뱶 諛뺤뒪瑜???븯硫?1???????? 濡??쒗솚?쒕떎 (onroad.cc).
-# 媛?쾭?쇱? ?쒖젙 SCC 媛?湲곕뒫 洹몃?濡??먭퀬, 紐⑤뱶??洹??꾩뿉 諛곗쑉濡쒕쭔 ?밸뒗??
-#   ACCEL : 理쒕?媛??諛곗쑉 (媛먯냽 ?쒓퀎???덉쟾??嫄대뱶由ъ? ?딆쓬)
-#   TF    : 異붿쥌嫄곕━ 諛곗쑉 (GAP1~3 怨좎젙媛?/ GAP4 AUTO 怨≪꽑 紐⑤몢???숈씪 ?곸슜)
+# ── MyDrivingMode (1:ECO 2:SAFE 3:NORM 4:FAST) ────────────────────────────
+# UI 의 모드 박스를 탭하면 1→2→3→4→1 로 순환한다 (onroad.cc).
+# 갭버튼은 순정 SCC 갭 기능 그대로 두고, 모드는 그 위에 배율로만 얹는다.
+#   ACCEL : 최대가속 배율 (감속 한계는 안전상 건드리지 않음)
+#   TF    : 추종거리 배율 (GAP1~3 고정값 / GAP4 AUTO 곡선 모두에 동일 적용)
 #
-# GAP4(AUTO) 湲곗? t_follow ??AUTO_TR_V=[1.1, 1.25, 1.35, 1.5] @ [0,30,70,110]km/h
+# GAP4(AUTO) 기준 t_follow — AUTO_TR_V=[1.1, 1.25, 1.35, 1.5] @ [0,30,70,110]km/h
 #   ECO  : 1.16 / 1.31 / 1.42 / 1.58
 #   SAFE : 1.43 / 1.63 / 1.76 / 1.95
 #   NORM : 1.10 / 1.25 / 1.35 / 1.50
 #   FAST : 0.97 / 1.10 / 1.19 / 1.32
 MY_DRIVING_MODE_ACCEL = {1: 0.75, 2: 0.90, 3: 1.00, 4: 1.25}
 MY_DRIVING_MODE_TF    = {1: 1.05, 2: 1.30, 3: 1.00, 4: 0.88}
-# ??????????????????????????????????????????????????????????????????????????
+# ──────────────────────────────────────────────────────────────────────────
 
-# ?? Jerk ease-in (commit d897f06): 媛媛먯냽 onset?먯꽌 jerk瑜??먯쬆?쒖폒 S-curve濡?留뚮뱺????
-# ?쇱젙 jerk ?곹븳? onset?먯꽌 jerk媛 0?믪긽?쒖쑝濡?'怨꾨떒'泥섎읆 ???=jounce ?ㅽ뙆?댄겕) ?쒖옉
-# jolt瑜??④릿?? ?쒖옉 吏곹썑 jerk瑜??먯쬆?쒗궎硫?媛?띾룄媛 S?먮줈 遺?쒕읇寃?遺숇뒗??
-JERK_EASE_TIME  = 0.4   # ??maneuver ?쒖옉 ??jerk瑜?100%濡??ㅼ슦???쒓컙(s)
-JERK_EASE_FLOOR = 0.3   # ?쒖옉 ??jerk 鍮꾩쑉 ?섑븳(媛먯냽 onset ??
-# (commit dff7287) 媛?띿? ?좏뻾李?異붿쥌 ?ш???嫄곕━ 醫곹엳湲????먮━吏 ?딄쾶 ?쒖옉 jerk瑜?
-# ???믨쾶 ?붾떎. (媛먯냽蹂대떎 ?믪? floor ??珥덉쨷諛?媛?띾젰?? ??0?먯꽌 ?쒖옉?섎뒗 ease ?먯껜??
-# ?좎???湲됯??띻컧 諛⑹?)
+# ── Jerk ease-in (commit d897f06): 가감속 onset에서 jerk를 점증시켜 S-curve로 만든다 ──
+# 일정 jerk 상한은 onset에서 jerk가 0→상한으로 '계단'처럼 튀어(=jounce 스파이크) 시작
+# jolt를 남긴다. 시작 직후 jerk를 점증시키면 가속도가 S자로 부드럽게 붙는다.
+JERK_EASE_TIME  = 0.4   # 새 maneuver 시작 후 jerk를 100%로 키우는 시간(s)
+JERK_EASE_FLOOR = 0.3   # 시작 시 jerk 비율 하한(감속 onset 등)
+# (commit dff7287) 가속은 선행차 추종 재가속(거리 좁히기)이 느리지 않게 시작 jerk를
+# 더 높게 둔다. (감속보다 높은 floor → 초중반 가속력↑, 단 0에서 시작하는 ease 자체는
+# 유지해 급가속감 방지)
 JERK_EASE_FLOOR_ACCEL = 0.55
-# (commit dff7287) 媛??ease-out: 媛?띿쓣 留덈Т由ы븯硫??꾩옱 媛??以? ?묒쓽 媛?띿쓣 0
-# 洹쇱쿂濡?以꾩씠??援ш컙) 紐⑺몴 李④컙嫄곕━???대ŉ???꾨떖?섎룄濡?遺?쒕윭??jerk瑜??대떎
-# (?앸?遺꾩? ??遺?쒕읇寃????ㅼ젣 ?쒕룞???꾨땲誘濡?.
+# (commit dff7287) 가속 ease-out: 가속을 마무리하며(현재 가속 중, 양의 가속을 0
+# 근처로 줄이는 구간) 목표 차간거리에 살며시 도달하도록 부드러운 jerk를 쓴다
+# (끝부분은 더 부드럽게 — 실제 제동이 아니므로).
 ACCEL_EASEOUT_JERK = 1.2
-# 怨좎냽 ?쒕룞 ?덉쟾 ?고쉶: 怨좎냽?먯꽌 ?좏뻾李??묎렐 以묒씠硫?ease瑜????=利됱쓳) 媛먯? 珥덇린遺??
-# 異⑸텇???쒕룞??誘몃━ ?ㅼ뼱媛寃??쒕떎(怨좎냽 ??? 媛먯?濡??명븳 異⑸룎 ?곕젮 ???.
+# 고속 제동 안전 우회: 고속에서 선행차 접근 중이면 ease를 풀어(=즉응) 감지 초기부터
+# 충분한 제동이 미리 들어가게 한다(고속 늦은 감지로 인한 충돌 우려 대응).
 HIGH_SPEED_BRAKE_KPH = 70.0
-HIGH_SPEED_BRAKE_TTC = 8.0  # ??TTC(珥? ?대궡濡??묎렐 以묒씠硫??쒕룞 ease ?댁젣
+HIGH_SPEED_BRAKE_TTC = 8.0  # 이 TTC(초) 이내로 접근 중이면 제동 ease 해제
 
 # Lookup table for turns
 _A_TOTAL_MAX_V = [1.7, 3.2]
@@ -104,7 +104,7 @@ class LongitudinalPlanner:
     self.auto_e2e_prepare = False
     self.auto_e2e_vision_lead_count = 0
 
-    # ?? Auto-Tuner: ?숈뒿湲?+ ?숈뒿??媛???뚯씠釉???
+    # ── Auto-Tuner: 학습기 + 학습된 가속 테이블 ──
     self.carrot_learner = CarrotLearner()
     self.learned_accel_vals = list(A_CRUISE_MAX_VALS)
 
@@ -117,9 +117,9 @@ class LongitudinalPlanner:
     self.fcw = False
 
     self.a_desired = init_a
-    # ?? Jerk ease-in ?곹깭 (commit d897f06) ??
-    self._jerk_ramp_t = 0.0   # jerk ease-in 寃쎄낵?쒓컙(??媛媛먯냽 ?쒖옉遺??
-    self._jerk_dir = 0        # 吏곸쟾 媛媛먯냽 諛⑺뼢(+1 媛??/ -1 媛먯냽 / 0)
+    # ── Jerk ease-in 상태 (commit d897f06) ──
+    self._jerk_ramp_t = 0.0   # jerk ease-in 경과시간(새 가감속 시작부터)
+    self._jerk_dir = 0        # 직전 가감속 방향(+1 가속 / -1 감속 / 0)
     self.v_desired_filter = FirstOrderFilter(init_v, 2.0, DT_MDL)
 
     self.v_desired_trajectory = np.zeros(CONTROL_N)
@@ -138,7 +138,7 @@ class LongitudinalPlanner:
       self.mpc.mode = 'acc'
     self.mpc.human_following = self.params.get_bool("HumanFollowing")
 
-    # ?? MyDrivingMode ??
+    # ── MyDrivingMode ──
     mode = self.params.get("MyDrivingMode", encoding='utf8')
     try:
       mode = int(mode)
@@ -149,9 +149,9 @@ class LongitudinalPlanner:
     self.my_driving_mode = mode
     self.my_driving_mode_accel = MY_DRIVING_MODE_ACCEL[mode]
     self.mpc.driving_mode_tf = MY_DRIVING_MODE_TF[mode]
-    # ???????????????????
+    # ───────────────────
 
-    # ?? Auto-Tuner: ?숈뒿???뚮씪誘명꽣瑜?planner/mpc??諛섏쁺 (5珥?二쇨린 媛깆떊) ??
+    # ── Auto-Tuner: 학습된 파라미터를 planner/mpc에 반영 (5초 주기 갱신) ──
     if self.params.get_bool("CarrotLearningActive"):
       self.learned_accel_vals = read_learned_accel_vals(self.params)
       self.mpc.tfollow_gaps = read_learned_tfollow(self.params)
@@ -258,7 +258,7 @@ class LongitudinalPlanner:
     prev_accel_constraint = not (reset_state or sm['carState'].standstill)
 
     if self.mpc.mode == 'acc':
-      # ?? Auto-Tuner: ?숈뒿???띾룄???퀎 理쒕?媛???ъ슜 ??
+      # ── Auto-Tuner: 학습된 속도대역별 최대가속 사용 ──
       accel_limits = [A_CRUISE_MIN, self.get_max_accel_learned(v_ego) * self.my_driving_mode_accel]
       accel_limits_turns = limit_accel_in_turns(v_ego, sm['carState'].steeringAngleDeg, accel_limits, self.CP)
     else:
@@ -269,8 +269,8 @@ class LongitudinalPlanner:
       self.v_desired_filter.x = v_ego
       # Clip aEgo to cruise limits to prevent large accelerations when becoming active
       self.a_desired = clip(sm['carState'].aEgo, accel_limits[0], accel_limits[1])
-      self.mpc.prev_a = np.full(N+1, self.a_desired)  # pid off?뭥n ?꾪솚??constraint ???臾몄젣 諛⑹?
-      accel_limits_turns[0] = 0.0  # ?ы솢?깊솕 ??湲됯컧??諛⑹?
+      self.mpc.prev_a = np.full(N+1, self.a_desired)  # pid off→on 전환시 constraint 튀는 문제 방지
+      accel_limits_turns[0] = 0.0  # 재활성화 시 급감속 방지
 
     # Prevent divergence, smooth in current v_ego
     self.v_desired_filter.x = max(0.0, self.v_desired_filter.update(v_ego))
@@ -307,16 +307,16 @@ class LongitudinalPlanner:
     a_target = float(interp(DT_MDL, T_IDXS[:CONTROL_N], self.a_desired_trajectory))
     v_ego_kph = v_ego * CV.MS_TO_KPH
 
-    # ?? Jerk ease-in (commit d897f06): 媛媛먯냽 ?쒖옉 ??jerk瑜??먯쬆(S-curve)?쒖폒 onset jolt ?꾪솕 ??
-    # maneuver phase瑜?a_target '遺??濡??먯젙?섍퀬 ?곕뱶諛대뱶(짹0.15)濡?誘몄꽭 吏꾨룞??臾댁떆?쒕떎.
-    # 媛?띯넄媛먯냽 '?꾪솚'?먯꽌留?ramp瑜??ъ떆?묓븯誘濡? 吏??媛媛먯냽?먯꽌??jerk媛 100%源뚯? ?먮씪
-    # ?쏀빐吏吏 ?딅뒗??異붿쥌 媛???뺤? 媛먯냽???붾럩吏??臾몄젣 ?닿껐).
+    # ── Jerk ease-in (commit d897f06): 가감속 시작 시 jerk를 점증(S-curve)시켜 onset jolt 완화 ──
+    # maneuver phase를 a_target '부호'로 판정하고 데드밴드(±0.15)로 미세 진동을 무시한다.
+    # 가속↔감속 '전환'에서만 ramp를 재시작하므로, 지속 가감속에서는 jerk가 100%까지 자라
+    # 약해지지 않는다(추종 가속/정지 감속이 더뎌지던 문제 해결).
     if a_target > 0.15:
       phase = 1
     elif a_target < -0.15:
       phase = -1
     else:
-      phase = self._jerk_dir   # ?곕뱶諛대뱶: 吏곸쟾 phase ?좎?
+      phase = self._jerk_dir   # 데드밴드: 직전 phase 유지
     if phase != self._jerk_dir:
       self._jerk_ramp_t = 0.0
     self._jerk_dir = phase
@@ -325,14 +325,14 @@ class LongitudinalPlanner:
 
     if a_target > a_prev:
       if a_prev < 0.0:
-        # 媛먯냽 ?댁젣(brake release): ?좏뻾李④? ?ㅼ떆 硫?댁쭏 ??怨꾩냽 媛먯냽?섎떎 ?뺤? 吏곸쟾
-        # 湲됯??랁븯??臾몄젣瑜?留됯린 ?꾪빐, ?뚯닔 媛?띾룄瑜?0?쇰줈 ?몃뒗 援ш컙? jerk瑜??ш쾶 ?덉슜?쒕떎.
+        # 감속 해제(brake release): 선행차가 다시 멀어질 때 계속 감속하다 정지 직전
+        # 급가속하는 문제를 막기 위해, 음수 가속도를 0으로 푸는 구간은 jerk를 크게 허용한다.
         max_positive_jerk = 3.0
       else:
-        # (commit dff7287) 吏꾩쭨 媛??build-up. ?좏뻾李?異붿쥌 ?ш???嫄곕━ 醫곹엳湲????먮━吏
-        # ?딅룄濡????jerk瑜??щ━怨?0.6??.85) 媛???꾩슜 ease floor(0.55)濡?珥덉쨷諛?
-        # 媛?띾젰???믪씤??湲됯??띻컧? ease濡?諛⑹?). 媛먯냽??怨듭슜 ease媛 ?꾨땲??媛??
-        # ?꾩슜 ease_acc(?섑븳 JERK_EASE_FLOOR_ACCEL)瑜??ъ슜?쒕떎.
+        # (commit dff7287) 진짜 가속 build-up. 선행차 추종 재가속(거리 좁히기)이 느리지
+        # 않도록 저속 jerk를 올리고(0.6→0.85) 가속 전용 ease floor(0.55)로 초중반
+        # 가속력을 높인다(급가속감은 ease로 방지). 감속용 공용 ease가 아니라 가속
+        # 전용 ease_acc(하한 JERK_EASE_FLOOR_ACCEL)를 사용한다.
         jerk_speed = float(np.interp(v_ego_kph, [0.0, 30.0, 80.0], [0.85, 1.15, 1.4]))
         jerk_accel = float(np.interp(a_prev, [0.0, 1.0], [1.0, 0.7]))
         ease_acc = float(np.clip(self._jerk_ramp_t / JERK_EASE_TIME, JERK_EASE_FLOOR_ACCEL, 1.0))
@@ -340,29 +340,29 @@ class LongitudinalPlanner:
       a_target = min(a_target, a_prev + max_positive_jerk * DT_MDL)
     elif a_target < a_prev:
       if a_prev > 0.1 and a_target > -0.4:
-        # (commit dff7287) 媛??ease-out: 媛??以?紐⑺몴 李④컙嫄곕━??媛源뚯썙??媛?띿쓣
-        # 0 洹쇱쿂濡?嫄곕몢??援ш컙? ?ㅼ젣 ?쒕룞???꾨땲誘濡?遺?쒕윭??jerk濡??대ŉ??留덈Т由?
+        # (commit dff7287) 가속 ease-out: 가속 중 목표 차간거리에 가까워져 가속을
+        # 0 근처로 거두는 구간은 실제 제동이 아니므로 부드러운 jerk로 살며시 마무리.
         max_negative_jerk = ACCEL_EASEOUT_JERK
       else:
-        # ?? ?쒕룞 吏꾩엯(braking build-up) jerk ?쒗븳 (commit 1e95637, dff7287) ??
-        # ?좏뻾李?媛먯? ?깆쑝濡?a_target?????ㅽ뀦??湲됯컯?섑븷 ??珥덇린 ?쒕룞??遺?쒕읇寃??섏뿬
-        # '釉뚮젅?댄겕瑜???諛잙뒗' ?댁쭏媛먯쓣 ?꾪솕?쒕떎. ?? 紐⑺몴 媛먯냽??源딆쓣?섎줉(湲닿툒) ?쒕룄瑜?
-        # ?ㅼ썙 ?덉쟾 ?쒕룞? 洹몃?濡??뺣낫?쒕떎.
-        #   -1.2m/s^2(?꾨쭔): 2.0m/s^3 ??0~-1.2源뚯? 0.6s??遺?쒕읇寃?
-        #   -2.5m/s^2(媛뺥븿): 5.0m/s^3
-        #   -4.0m/s^2(湲닿툒): 12.0m/s^3 ???ъ떎??臾댁젣??0~-4源뚯? 0.33s)
+        # ── 제동 진입(braking build-up) jerk 제한 (commit 1e95637, dff7287) ──
+        # 선행차 감지 등으로 a_target이 한 스텝에 급강하할 때 초기 제동을 부드럽게 하여
+        # '브레이크를 탁 밟는' 이질감을 완화한다. 단, 목표 감속이 깊을수록(긴급) 한도를
+        # 키워 안전 제동은 그대로 확보한다.
+        #   -1.2m/s^2(완만): 2.0m/s^3 → 0~-1.2까지 0.6s에 부드럽게
+        #   -2.5m/s^2(강함): 5.0m/s^3
+        #   -4.0m/s^2(긴급): 12.0m/s^3 → 사실상 무제한(0~-4까지 0.33s)
         max_negative_jerk = float(np.interp(a_target, [-4.0, -2.5, -1.2], [12.0, 5.0, 2.0]))
-        # ?쒕룞 ease-in 鍮꾩쑉 (commit d897f06): 湲곕낯? 媛?띻낵 媛숈씠 ?먯쬆?섎릺, ?꾧툒?섎㈃ ???=1.0) 利됱쓳.
+        # 제동 ease-in 비율 (commit d897f06): 기본은 가속과 같이 점증하되, 위급하면 풀어(=1.0) 즉응.
         ease_dec = ease
-        # (commit dff7287) 源딆? 媛먯냽 ease ?댁젣 ????'怨좎냽?먯꽌留?(?띾룄寃뚯씠??25??0kph).
-        # ?????5km/h)? ?대룞?먮꼫吏媛 ??븘 源딆? 媛먯냽??遺?쒕읇寃?ease ?좎?)??
-        # 湲됰툕?덉씠?뱀쓣 ?꾪솕?쒕떎(30???⑥뼱吏???湲됱젣???꾪솕, ?ㅼ감 異붾룎 ?곕젮??.
-        # 怨좎냽 ?묎렐쨌?뺤? 利됱쓳 ?고쉶???꾨옒?먯꽌 洹몃?濡??좎?.
+        # (commit dff7287) 깊은 감속 ease 해제 — 단 '고속에서만'(속도게이트 25→50kph).
+        # 저속(≤25km/h)은 운동에너지가 낮아 깊은 감속도 부드럽게(ease 유지)해
+        # 급브레이킹을 완화한다(30↓ 떨어질 때 급제동 완화, 뒤차 추돌 우려↓).
+        # 고속 접근·정지 즉응 우회는 아래에서 그대로 유지.
         deep = float(np.interp(a_target, [-3.0, -1.5], [1.0, 0.0]))
         deep *= float(np.interp(v_ego_kph, [25.0, 50.0], [0.0, 1.0]))
         ease_dec = max(ease_dec, deep)
-        # (2) 怨좎냽 + ?좏뻾李??묎렐(TTC ??쓬): ??? 媛먯? ?鍮? 媛먯? 珥덇린遺??異⑸텇 ?쒕룞??
-        #     誘몃━ ?ㅼ뼱媛?꾨줉 ease瑜??꾩쟾???댁젣?쒕떎(怨좎냽 異⑸룎 ?곕젮 ???.
+        # (2) 고속 + 선행차 접근(TTC 낮음): 늦은 감지 대비, 감지 초기부터 충분 제동이
+        #     미리 들어가도록 ease를 완전히 해제한다(고속 충돌 우려 대응).
         if v_ego_kph >= HIGH_SPEED_BRAKE_KPH:
           try:
             lead = sm['radarState'].leadOne
@@ -372,11 +372,11 @@ class LongitudinalPlanner:
                 ease_dec = 1.0
           except Exception:
             pass
-        # (3) 紐⑤뜽 ?뺤? ?묎렐 ???쒕룞??ease ?놁씠 利됱쓳?쒖폒 ?뺤???珥덇낵瑜?留됰뒗??
-        #     (???ы겕??modelV2??action.shouldStop 媛 ?놁쑝硫?except濡?臾댁떆?섏뼱 臾대룞??
-        #      ?먮낯 而ㅻ컠??carrot.xState==3(e2eStop) 泥댄겕?????ы겕??carrot 媛앹껜媛
-        #      update()濡??꾨떖?섏? ?딆븘 ?????ぉ ?놁쓬 ???ы똿 ???꾩슂?섎㈃ update(sm, carrot)
-        #      濡??쒓렇?덉쿂 蹂寃???異붽? 媛??
+        # (3) 모델 정지 접근 시 제동을 ease 없이 즉응시켜 정지선 초과를 막는다.
+        #     (이 포크의 modelV2에 action.shouldStop 가 없으면 except로 무시되어 무동작.
+        #      원본 커밋의 carrot.xState==3(e2eStop) 체크는 이 포크에 carrot 객체가
+        #      update()로 전달되지 않아 대응 항목 없음 — 포팅 시 필요하면 update(sm, carrot)
+        #      로 시그니처 변경 후 추가 가능)
         try:
           if sm['modelV2'].action.shouldStop:
             ease_dec = 1.0
@@ -388,9 +388,9 @@ class LongitudinalPlanner:
     self.a_desired = a_target
     self.v_desired_filter.x = self.v_desired_filter.x + DT_MDL * (self.a_desired + a_prev) / 2.0
 
-    # ?? Auto-Tuner: ?숈뒿 ?곗씠???섏쭛 (commit 9dd5e2c carrot_functions ?듯빀遺 ?ы똿) ??
-    # Auto-Tuner??鍮꾪빑???숈뒿 湲곕뒫?대?濡? ?ш린???덉쇅媛 ?섎룄 ?덉쟾?꾩닔
-    # 醫낅갑???뚮옒??plannerd)媛 二쎌? ?딅룄濡?諛섎뱶??寃⑸━?쒕떎. (commit e06a7dd robustness)
+    # ── Auto-Tuner: 학습 데이터 수집 (commit 9dd5e2c carrot_functions 통합부 포팅) ──
+    # Auto-Tuner는 비핵심 학습 기능이므로, 여기서 예외가 나도 안전필수
+    # 종방향 플래너(plannerd)가 죽지 않도록 반드시 격리한다. (commit e06a7dd robustness)
     try:
       cs = sm['carState']
       lead = sm['radarState'].leadOne
@@ -398,8 +398,8 @@ class LongitudinalPlanner:
       engaged = sm['controlsState'].enabled
       cruise_gap = int(clip(cs.cruiseGap, 1., 4.)) if cs.cruiseGap > 0 else 4
       self.carrot_learner.set_current_gap(cruise_gap)
-      # liveParameters.steerRatio (paramsd 移쇰쭔 異붿젙) ??steerRatio ?숈뒿 ?낅젰.
-      # plannerd SubMaster??'liveParameters'媛 援щ룆???덉뼱???쒕떎(誘멸뎄??誘몄닔????臾댁떆).
+      # liveParameters.steerRatio (paramsd 칼만 추정) — steerRatio 학습 입력.
+      # plannerd SubMaster에 'liveParameters'가 구독돼 있어야 한다(미구독/미수신 시 무시).
       sr_live, sr_valid = 0.0, False
       try:
         lp = sm['liveParameters']
@@ -407,14 +407,14 @@ class LongitudinalPlanner:
         sr_valid = bool(getattr(lp, 'valid', True)) and (10.0 <= sr_live <= 20.0)
       except Exception:
         pass
-      # ?? Auto-Tuner Phase 6: 鍮꾩쟾 而ㅻ툕 媛먯냽 ?숈뒿 ?낅젰 (VisionTurnController ?곹깭) ??
-      # cruise_solutions()?먯꽌 ?대? 留??꾨젅??vision_turn_controller.update()媛
-      # ?몄텧?섏뿀?쇰?濡??ш린?쒕뒗 洹?寃곌낵 ?곹깭留??쎈뒗??
+      # ── Auto-Tuner Phase 6: 비전 커브 감속 학습 입력 (VisionTurnController 상태) ──
+      # cruise_solutions()에서 이미 매 프레임 vision_turn_controller.update()가
+      # 호출되었으므로 여기서는 그 결과 상태만 읽는다.
       tvc = self.vision_turn_controller
       tvc_entering = tvc.state == VisionTurnControllerState.entering
       tvc_turning = tvc.state == VisionTurnControllerState.turning
       tvc_leaving = tvc.state == VisionTurnControllerState.leaving
-      # ?????????????????????????????????????????????????????????????????????
+      # ─────────────────────────────────────────────────────────────────────
       self.carrot_learner.update(
         v_ego_kph=v_ego * CV.MS_TO_KPH,
         gas_pressed=cs.gasPressed,
@@ -460,7 +460,7 @@ class LongitudinalPlanner:
     longitudinalPlan.tFollow = float(self.mpc.t_follow)
     longitudinalPlan.desiredDistance = float(self.mpc.desired_distance)
     longitudinalPlan.visionTurnControllerState = self.vision_turn_controller.state
-    longitudinalPlan.visionTurnSpeed = float(self.vision_turn_controller.v_turn)   # m/s, UI vturn ?쒖떆??
+    longitudinalPlan.visionTurnSpeed = float(self.vision_turn_controller.v_turn)   # m/s, UI vturn 표시용
     longitudinalPlan.visionCurrentLatAcc = float(self.vision_turn_controller.current_lat_acc)
     longitudinalPlan.visionMaxPredLatAcc = float(self.vision_turn_controller.max_pred_lat_acc)
     longitudinalPlan.eventsDEPRECATED = self.events.to_msg()
