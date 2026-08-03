@@ -1531,7 +1531,7 @@ void NvgWindow::drawCarrotLead(QPainter &p) {
     float ly = scene.lead_left[1].y();
     float w2 = std::clamp(xr - xl, 80.0f, LEAD_BOX_MAX_W * 0.8f);
     QRect box2((int)(xl - 10), (int)(ly - w2 * 0.8f), (int)(w2 + 20), (int)(w2 * 0.8f));
-    p.setPen(QPen(QColor(218, 111, 37, 255), 5));      // 황토색
+    p.setPen(QPen(QColor(218, 111, 37, 255), 4));      // 황토색
     p.setBrush(QColor(0, 0, 0, 45));
     p.drawRoundedRect(box2, 15, 15);
   }
@@ -1559,7 +1559,7 @@ void NvgWindow::drawCarrotLead(QPainter &p) {
     // 레이더가 잡은 리드면 주황, 비전만이면 파랑
     QColor stroke = scene.lead_radar[0] ? QColor(255, 175, 3, 255) : QColor(0, 0, 255, 255);
     QRect box((int)(cx - w1 / 2 - 10), (int)(ly - w1 * 0.8f), (int)(w1 + 20), (int)(w1 * 0.8f));
-    p.setPen(QPen(stroke, 6));
+    p.setPen(QPen(stroke, 5));
     p.setBrush(QColor(0, 0, 0, 55));
     p.drawRoundedRect(box, 15, 15);
 
