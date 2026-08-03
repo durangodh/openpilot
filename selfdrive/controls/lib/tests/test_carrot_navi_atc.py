@@ -69,3 +69,10 @@ def test_single_frame_lane_open_noise_does_not_request():
   assert controller.update(fork_state(320), 30.0, right_lane_open=True) == 0
   assert controller.update(fork_state(319), 30.0, right_lane_open=False) == 0
 
+
+def test_does_not_arm_before_speed_based_action_range():
+  controller = AtcForkLaneChangeController()
+  # At 100 km/h (27.8 m/s), the action range is about 333 m.
+  confirm(controller, fork_state(400), 27.8, right_lane_open=False)
+  assert confirm(controller, fork_state(320), 27.8, right_lane_open=True) == 0
+
