@@ -54,6 +54,7 @@ class LongControl:
     self.params = Params()
     self.read_param_count = 0
     self.stopping_accel = 0.0
+    self.long_coast_band = 0.0
     self.v_pid = 0.0
     self.last_output_accel = 0.0
 
@@ -66,17 +67,19 @@ class LongControl:
     if self.read_param_count >= 100:
       self.read_param_count = 0
       self.stopping_accel = self.params.get_float("StoppingAccel") * 0.01
+      self.long_coast_band = clip(self.params.get_float("LongCoastBand") * 0.01, 0.0, 0.4)
     elif self.read_param_count == 10:
       if len(self.CP.longitudinalTuning.kpBP) == 1 and len(self.CP.longitudinalTuning.kiBP) == 1:
         kp = self.params.get_float("LongTuningKpV") * 0.01
         ki = self.params.get_float("LongTuningKiV") * 0.001
-        kf = self.params.get_float("LongTuningKf") * 0.01
+        learned_kf = self.params.get_float("CarrotLongKf") if self.params.get_bool("CarrotLearningActive") else 0.0
+        kf = learned_kf if learned_kf > 0.0 else self.params.get_float("LongTuningKf") * 0.01
         if kp > 0.0:
           self.pid._k_p = (self.CP.longitudinalTuning.kpBP, [kp])
         if ki > 0.0:
           self.pid._k_i = (self.CP.longitudinalTuning.kiBP, [ki])
         if kf > 0.0:
-          self.pid.k_f = kf
+          self.pid.k_f = clip(kf, 0.7, 1.3)
 
   def update(self, active, CS, long_plan, accel_limits, t_since_plan, radar_state):
     self._read_params()
@@ -120,6 +123,8 @@ class LongControl:
       self.v_pid = v_target_now
       error = self.v_pid - CS.vEgo
       output_accel = self.pid.update(error, speed=CS.vEgo, feedforward=a_target)
+      if -self.long_coast_band < output_accel < 0.0:
+        output_accel = 0.0
 
     self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
     return self.last_output_accel
