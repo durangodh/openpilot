@@ -1270,7 +1270,7 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
   {
     const auto tpms = car_state.getTpms();
     const float steer_angle = car_state.getSteeringAngleDeg();
-    const int wheel_x = rect().right() - radius / 2 - bdr_s * 2;
+    const int wheel_x = rect().right() - radius / 2 - bdr_s * 2 - 25;
     const int wheel_y = radius / 2 + int(bdr_s * 1.5) + 45;
 
     QColor engageBgColor = bg_colors[uiState()->status];
@@ -1282,16 +1282,19 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
              steer_angle);
 
     // 휠 아이콘 네 모서리에 FL/FR/RL/RR 공기압 숫자만 표시한다.
-    const auto pressure_text = [](float pressure) {
-      return pressure > 0.0f ? QString::number(qRound(pressure)) : QString("--");
+    const auto pressure_valid = [](float pressure) {
+      return std::isfinite(pressure) && pressure >= 5.0f && pressure <= 60.0f;
     };
-    const auto pressure_color = [](float pressure) {
-      return pressure > 0.0f && pressure < 30.0f
+    const auto pressure_text = [&pressure_valid](float pressure) {
+      return pressure_valid(pressure) ? QString::number(qRound(pressure)) : QString("--");
+    };
+    const auto pressure_color = [&pressure_valid](float pressure) {
+      return pressure_valid(pressure) && pressure < 30.0f
         ? QColor(255, 80, 80, 255) : QColor(255, 255, 255, 235);
     };
 
     configFont(p, "Open Sans", 30, "SemiBold");
-    const int pressure_x = 79;
+    const int pressure_x = 92;
     const int pressure_y = 66;
     QColor fl_color = pressure_color(tpms.getFl());
     QColor fr_color = pressure_color(tpms.getFr());
