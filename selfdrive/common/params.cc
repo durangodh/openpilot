@@ -109,6 +109,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"DoShutdown", CLEAR_ON_MANAGER_START},
     {"DoUninstall", CLEAR_ON_MANAGER_START},
     {"ExperimentalMode", PERSISTENT},
+    {"E2EAccMode", PERSISTENT},             // 0: ACC, 1: AUTO, 2: E2E
     {"EnableWideCamera", CLEAR_ON_MANAGER_START},
     {"ForcePowerDown", CLEAR_ON_MANAGER_START},
     {"GitBranch", PERSISTENT},

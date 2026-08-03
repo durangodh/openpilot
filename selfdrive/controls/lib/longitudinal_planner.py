@@ -74,6 +74,7 @@ class LongitudinalPlanner:
     # branch can stop for signals without Carrot's separate stop-speed clamp.
     self.auto_e2e_enabled = False
     self.experimental_mode_enabled = False
+    self.e2e_acc_mode = 1
     self.auto_e2e_stopping = False
     self.auto_e2e_prepare = False
 
@@ -108,7 +109,13 @@ class LongitudinalPlanner:
 
   def read_param(self):
     self.auto_e2e_enabled = self.CP.openpilotLongitudinalControl
-    self.experimental_mode_enabled = self.params.get_bool('ExperimentalMode') and self.auto_e2e_enabled
+    mode_raw = self.params.get('E2EAccMode', encoding='utf8')
+    try:
+      mode = int(mode_raw) if mode_raw is not None else (2 if self.params.get_bool('ExperimentalMode') else 1)
+    except (TypeError, ValueError):
+      mode = 1
+    self.e2e_acc_mode = max(0, min(2, mode))
+    self.experimental_mode_enabled = self.e2e_acc_mode == 2 and self.auto_e2e_enabled
     if not self.auto_e2e_enabled:
       self.mpc.mode = 'acc'
     self.mpc.human_following = self.params.get_bool("HumanFollowing")
@@ -144,7 +151,7 @@ class LongitudinalPlanner:
       self.learned_accel_vals = list(A_CRUISE_MAX_VALS)
 
   def update_auto_e2e_mode(self, car_state, model_msg):
-    if not self.auto_e2e_enabled:
+    if not self.auto_e2e_enabled or self.e2e_acc_mode == 0:
       self.auto_e2e_stopping = False
       self.auto_e2e_prepare = False
       return 'acc'

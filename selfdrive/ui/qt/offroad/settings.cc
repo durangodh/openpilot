@@ -41,6 +41,7 @@
 #include <QMouseEvent>
 #include <QDateTime>
 #include <QSet>
+#include <QStringList>
 #include <QFile>
 #include <QDir>
 
@@ -405,18 +406,27 @@ ParamValueControlF::ParamValueControlF(const QString &param, const QString &titl
 
 void ParamValueControlF::changeValue(int delta) {
   std::string cur = params.get(param_.toStdString());
-  int v = cur.empty() ? vdefault_ : std::atoi(cur.c_str());
+  int v = cur.empty() ? ((param_ == "E2EAccMode" && params.getBool("ExperimentalMode")) ? 2 : vdefault_) : std::atoi(cur.c_str());
   v = std::max(vmin_, std::min(vmax_, v + delta * step_));
   params.put(param_.toStdString(), std::to_string(v));
+  if (param_ == "E2EAccMode") {
+    params.putBool("ExperimentalMode", v == 2);
+  }
   refresh();
 }
 
 void ParamValueControlF::refresh() {
   std::string cur = params.get(param_.toStdString());
-  int v = cur.empty() ? vdefault_ : std::atoi(cur.c_str());
+  int v = cur.empty() ? ((param_ == "E2EAccMode" && params.getBool("ExperimentalMode")) ? 2 : vdefault_) : std::atoi(cur.c_str());
   v = std::max(vmin_, std::min(vmax_, v));
-  if (vmin_ == 0 && vmax_ == 1) value_label->setText(v > 0 ? "ON" : "OFF");
-  else                          value_label->setText(QString::number(v));
+  if (param_ == "E2EAccMode") {
+    static const QStringList modes = {"ACC", "AUTO", "E2E"};
+    value_label->setText(modes[v]);
+  } else if (vmin_ == 0 && vmax_ == 1) {
+    value_label->setText(v > 0 ? "ON" : "OFF");
+  } else {
+    value_label->setText(QString::number(v));
+  }
   minus_btn->setEnabled(v > vmin_);
   plus_btn->setEnabled(v < vmax_);
 }
@@ -1621,6 +1631,9 @@ TogglesPanel::TogglesPanel(SettingsWindow *parent) : ListWidget(parent) {
   connect(toggles["ExperimentalLongitudinalEnabled"], &ToggleControl::toggleFlipped, [=]() {
     updateToggles();
   });
+  connect(toggles["ExperimentalMode"], &ToggleControl::toggleFlipped, [=](bool state) {
+    params.put("E2EAccMode", state ? "2" : "1");
+  });
 }
 
 void TogglesPanel::expandToggleDescription(const QString &param) {
@@ -2477,6 +2490,11 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(new ParamValueControlF("InitialCruiseGap",
       "Initial Cruise Gap", "시동 후 처음 크루즈가 활성화될 때 GAP을 자동 조정합니다. 0: 차량 기본값, 1~4: 목표 GAP",
       "../assets/offroad/icon_openpilot.png", 0, 4, 1, 0, 0, this));
+
+  list->addItem(new ParamValueControlF("E2EAccMode",
+      "Longitudinal Control Mode",
+      "ACC: 항상 ACC / AUTO: 평소 ACC, 신호 정지 시 E2E / E2E: 항상 E2E",
+      "../assets/img_experimental_white.svg", 0, 2, 1, 0, 1, this));
 
   list->addItem(new ParamValueControlF("LongTuningKpV",
       "Longitudinal Kp", "속도 오차 비례 게인 (×0.01). 기본값: 100 (=1.00)",
