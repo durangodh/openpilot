@@ -72,6 +72,7 @@ STOP_DISTANCE_E2E = 6.0
 LEAD_DETECT_RAMP_T = 1.5   # lead 새 인식 후 영향력 서서히 증가 (초)
 LEAD_SMOOTH_ALPHA  = 0.12  # lead 거리/속도 지수이동평균 계수
 T_FOLLOW_MAX_RATE  = 0.20  # t_follow 최대 변화속도 (s/s) — rate limiter
+LEAD_RAMP_BYPASS_TTC = 5.0 # 이보다 급한 접근은 ramp 없이 즉시 원본 lead 반영
 # ────────────────────────────────────────────────────────────────────────────
 
 # ── Lever A (commit d897f06): 고속 + 선행차 접근 시 추종거리 선제 확대 ─────────
@@ -573,6 +574,28 @@ class LongitudinalMpc:
     tr_base = tr  # HF lead_ramp 보간 기준점 (학습된 base + 속도-가변 보정 포함)
     self.stop_dist = STOP_DISTANCE if self.mode == 'acc' else STOP_DISTANCE_E2E
 
+    # ── 새 lead의 MPC 입력 점진 반영 (HumanFollowing 설정과 무관) ────────────
+    # 기존 lead_ramp는 HumanFollowing에만 쓰여 OFF일 때 raw lead가 첫 프레임부터
+    # MPC에 들어갔다. 여유 있는 최초 인식은 가상의 비제약 lead에서 1.5초간 원본으로
+    # 보간해 순간 제동을 줄이고, 안전거리 안쪽/TTC<5초인 접근은 즉시 원본을 사용한다.
+    lead_urgent = False
+    lead_input_ramp = 1.0
+    _lead = radarstate.leadOne
+    if _lead.status and _lead.dRel > 0.0:
+      closing_speed = max(v_ego - _lead.vLead, 0.0)
+      lead_ttc = _lead.dRel / closing_speed if closing_speed > 0.1 else 1e3
+      safe_drel = (get_safe_obstacle_distance(v_ego, self.t_follow, self.stop_dist)
+                   - get_stopped_equivalence_factor(max(_lead.vLead, 0.0)))
+      lead_urgent = _lead.dRel <= max(safe_drel, 0.0) or lead_ttc < LEAD_RAMP_BYPASS_TTC
+      lead_input_ramp = 1.0 if lead_urgent else lead_ramp
+
+      if lead_input_ramp < 1.0:
+        virtual_x = max(float(_lead.dRel), float(safe_drel) + 10.0, 50.0)
+        virtual_v = max(float(_lead.vLead), v_ego + 10.0)
+        virtual_xv = self.extrapolate_lead(virtual_x, virtual_v, 0.0, _LEAD_ACCEL_TAU)
+        lead_xv_0 = virtual_xv * (1.0 - lead_input_ramp) + lead_xv_0 * lead_input_ramp
+    # ─────────────────────────────────────────────────────────────────────
+
     # ── Human-Like Following: multiplier 초기화 (매 update마다 리셋) ────────
     self._hf_j_multiplier            = 1.0
     self._hf_a_change_multiplier     = 1.0
@@ -603,12 +626,12 @@ class LongitudinalMpc:
     # rate limiter '뒤'에 둬서 즉시 반영(고속 접근은 늦으면 안 됨). _t_follow_smooth
     # 에는 누적하지 않아 매 프레임 TTC로 새로 계산되므로, 접근이 해소되면 자동으로 0.
     # 삼중 게이트(고속·접근(vRel<0)·TTC<임계)라 정속 추종·저속에선 무동작 → 평상시 부드러움 유지.
-    _lead = radarstate.leadOne
     if _lead.status and v_ego * CV.MS_TO_KPH >= HIGH_SPEED_BRAKE_KPH \
        and _lead.dRel > 0.0 and _lead.vRel < 0.0:
       _ttc = _lead.dRel / -_lead.vRel
       _tf_boost = float(interp(_ttc, [3.0, HIGH_SPEED_BRAKE_TTC], [HIGH_SPEED_TF_BOOST, 0.0]))
       _tf_boost *= float(interp(v_ego * CV.MS_TO_KPH, [HIGH_SPEED_BRAKE_KPH, 110.0], [0.5, 1.0]))
+      _tf_boost *= lead_input_ramp
       self.t_follow += _tf_boost
     # ─────────────────────────────────────────────────────────────────────
 
