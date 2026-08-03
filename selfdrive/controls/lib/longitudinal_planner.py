@@ -295,9 +295,10 @@ class LongitudinalPlanner:
     self.v_desired_filter.x = self.v_desired_filter.x + DT_MDL * (self.a_desired + a_prev) / 2.0
 
     actuator_delay = self.CP.longitudinalActuatorDelay
-    configured_delay = self.params.get_float("LongActuatorDelay") * 0.01
+    learned_delay = self.params.get_float("CarrotLongActuatorDelay") if self.params.get_bool("CarrotLearningActive") else 0.0
+    configured_delay = learned_delay if learned_delay > 0.0 else self.params.get_float("LongActuatorDelay") * 0.01
     if configured_delay > 0.0:
-      actuator_delay = configured_delay
+      actuator_delay = float(clip(configured_delay, 0.1, 1.0))
     action_t = max(DT_MDL, actuator_delay + DT_MDL)
     self.output_a_target, self.output_should_stop, self.output_v_target_now, _ = get_accel_from_plan(
       self.v_desired_trajectory, self.a_desired_trajectory, T_IDXS[:CONTROL_N],
