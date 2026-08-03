@@ -889,6 +889,10 @@ struct LongitudinalPlan @0xe00b5b3eba12876c {
   tFollow @57 :Float32;          # UI 표시용 추종거리(초)
   desiredDistance @58 :Float32;  # UI 표시용 목표 차간거리(m)
   mpcMode @59 :UInt8;            # 0: ACC, 1: blended/e2e
+  aTarget @60 :Float32;          # delay-compensated target acceleration
+  shouldStop @61 :Bool;          # planner-owned stopping decision
+  vTargetNow @62 :Float32;       # current velocity target for longitudinal PID
+  jTargetNow @63 :Float32;       # current jerk target for logging/controller output
 
   distToTurn @43 :Float32;
   turnSpeed @44 :Float32;
