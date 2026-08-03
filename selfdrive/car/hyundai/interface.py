@@ -88,7 +88,7 @@ class CarInterface(CarInterfaceBase):
     ret.longitudinalActuatorDelay = 0.4
 
     ret.stopAccel = -2.5           # 정지 유지 브레이크 세기 (풀림/밀림 방지, 기존 -1.7)
-    ret.stoppingDecelRate = 0.15   # brake_travel/s while trying to stop (정지 브레이크 더 빨리 물게, 기존 0.06)
+    ret.stoppingDecelRate = 0.08   # brake_travel/s while trying to stop (정지 직전 제동 압력 증가 완화)
     ret.vEgoStopping = 0.3
     ret.vEgoStarting = 0.3
 
