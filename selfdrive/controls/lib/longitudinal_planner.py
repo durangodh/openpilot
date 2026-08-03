@@ -11,7 +11,7 @@ from common.params import Params
 from common.realtime import DT_MDL
 from selfdrive.modeld.constants import T_IDXS
 from selfdrive.controls.lib.longcontrol import LongCtrlState
-from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, MIN_ACCEL, MAX_ACCEL, N
+from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, N
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_accel_from_plan
 from selfdrive.swaglog import cloudlog
@@ -241,13 +241,10 @@ class LongitudinalPlanner:
     # No change cost when user is controlling the speed, or when standstill
     prev_accel_constraint = not (reset_state or sm['carState'].standstill)
 
-    if self.mpc.mode == 'acc':
-      # ── Auto-Tuner: 학습된 속도대역별 최대가속 사용 ──
-      accel_limits = [A_CRUISE_MIN, self.get_max_accel_learned(v_ego) * self.my_driving_mode_accel]
-      accel_limits_turns = limit_accel_in_turns(v_ego, sm['carState'].steeringAngleDeg, accel_limits, self.CP)
-    else:
-      accel_limits = [MIN_ACCEL, MAX_ACCEL]
-      accel_limits_turns = [MIN_ACCEL, MAX_ACCEL]
+    # Use the same learned acceleration table and driving-mode factor in ACC
+    # and E2E. a_min_sol below can still request stronger safety deceleration.
+    accel_limits = [A_CRUISE_MIN, self.get_max_accel_learned(v_ego) * self.my_driving_mode_accel]
+    accel_limits_turns = limit_accel_in_turns(v_ego, sm['carState'].steeringAngleDeg, accel_limits, self.CP)
 
     if reset_state:
       self.v_desired_filter.x = v_ego
