@@ -10,7 +10,7 @@ CarrotPilot Auto-Tuner 포팅판 (원본 commit 9dd5e2c, selfdrive/carrot/carrot
   [Phase 2] OffsetTotal : 직진 주행 편차 보정 (이 포크에 이미 존재하는 파라미터, 단위 m)
             트리거: 직진(|조향각|<5도, 오버라이드 없음) 중 조향각 평균 편차
             발동:  샘플 >= 400개 (0.05s 주기 -> 약 20초)
-  [Phase 4] TFollowGap1~4 : cruiseGap 단계별 추종거리 (long_mpc의 CRUISE_GAP_V 대체)
+  [Phase 4] TFollowGap1~3 + GAP4 AUTO_TR : cruiseGap 단계별 추종거리
             트리거: 선행차 추종 중 gas(좁히기 의도) / brake(넓히기 의도) 개입
             발동:  gas 누적 >= 15초 / brake 누적 >= 10초
   [Phase 5] latAccelFactor / friction / steerActuatorDelay / steerRatio : 조향 파라미터
@@ -121,7 +121,7 @@ _PATH_OFFSET_LIMIT = 0.15                 # ±0.15m 제한
 
 # ── Phase 4 상수: CRUISE_GAP_V / GAP4 AUTO_TR_V x100 ──
 _TFOLLOW_KEYS = ["TFollowGap1", "TFollowGap2", "TFollowGap3", "TFollowGap4"]
-_TFOLLOW_DEFAULTS = [100, 140, 200, 200]  # CRUISE_GAP_V = [1.0, 1.4, 2.0, 2.0]
+_TFOLLOW_DEFAULTS = [110, 120, 140, 160]  # CRUISE_GAP_V = [1.1, 1.2, 1.4, 1.6]
 _AUTO_TR_KEYS = ["AutoTrValue0", "AutoTrValue1", "AutoTrValue2", "AutoTrValue3"]
 _AUTO_TR_DEFAULTS = [110, 125, 135, 150]  # AUTO_TR_V = [1.1, 1.25, 1.35, 1.5]
 _AUTO_TR_BP_KPH = [0.0, 30.0, 70.0, 110.0]
