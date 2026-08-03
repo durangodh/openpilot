@@ -260,6 +260,7 @@ class SccSmoother:
         self.initial_gap_applied = True
       elif frame >= self.initial_gap_next_frame and self.initial_gap_attempts < 4:
         can_sends.append(SccSmoother.create_clu11(packer, CS.scc_bus, CS.clu11, Buttons.GAP_DIST))
+        self.started_frame = frame
         self.initial_gap_attempts += 1
         self.initial_gap_next_frame = frame + int(0.4 / DT_CTRL)
         return
