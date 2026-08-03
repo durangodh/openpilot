@@ -11,7 +11,6 @@ from selfdrive.car.hyundai.values import Buttons
 from common.params import Params
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI, CONTROL_N
 from selfdrive.controls.lib.lateral_planner import TRAJECTORY_SIZE
-from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import AUTO_TR_CRUISE_GAP
 from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc
 
 from selfdrive.road_speed_limiter import road_speed_limiter_get_max_speed, road_speed_limiter_get_active, \
@@ -246,8 +245,6 @@ class SccSmoother:
     CC.sccSmoother.longControl = self.longcontrol
     CC.sccSmoother.applyMaxSpeed = controls.applyMaxSpeed
     CC.sccSmoother.cruiseMaxSpeed = controls.v_cruise_kph
-
-    CC.sccSmoother.autoTrGap = int(clip(CS.out.cruiseGap, 1, 4)) if CS.out.cruiseGap > 0 else AUTO_TR_CRUISE_GAP
 
     ascc_enabled = CS.acc_mode and enabled and CS.cruiseState_enabled \
                    and 1 < CS.cruiseState_speed < 255 and not CS.brake_pressed
