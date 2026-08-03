@@ -116,3 +116,64 @@ class CarrotNaviAtc:
     target_mps = target_kph / 3.6
     braking_distance = max(0.0, distance - target_mps * end_time)
     return min(250.0, math.sqrt(target_mps ** 2 + 2.0 * decel * braking_distance) * 3.6)
+
+
+class AtcForkLaneChangeController:
+  """One-shot, right-exit-only lane-change gate for CarrotNavi forks."""
+
+  PREPARE_DISTANCE = 500.0
+  MIN_DISTANCE = 20.0
+  CONFIRM_FRAMES = 10  # 0.5 s at model rate
+
+  def __init__(self):
+    self.reset()
+
+  def reset(self):
+    self.event_key = None
+    self.last_distance = -1.0
+    self.armed_at_last_lane = False
+    self.canceled = False
+    self.completed = False
+    self.lane_open_count = 0
+    self.lane_closed_count = 0
+
+  @staticmethod
+  def _event_key(state):
+    return state.get("turn_type", -1), state.get("direction", 0)
+
+  def update(self, state, v_ego, right_lane_open, driver_cancel=False,
+             lane_change_started=False, lane_change_finished=False):
+    is_right_fork = (state.get("fresh", False) and state.get("kind") == "fork" and
+                     state.get("direction") == 1)
+    distance = float(state.get("distance", -1.0))
+    if not is_right_fork or distance < self.MIN_DISTANCE:
+      self.reset()
+      return 0
+
+    event_key = self._event_key(state)
+    new_event = (event_key != self.event_key or
+                 (self.last_distance >= 0.0 and distance > self.last_distance + 50.0))
+    if new_event:
+      self.reset()
+      self.event_key = event_key
+
+    self.last_distance = distance
+    self.lane_open_count = self.lane_open_count + 1 if right_lane_open else 0
+    self.lane_closed_count = self.lane_closed_count + 1 if not right_lane_open else 0
+    if driver_cancel:
+      self.canceled = True
+    if lane_change_finished:
+      self.completed = True
+
+    # Observe the current last lane before allowing an exit lane that appears
+    # later to trigger an automatic lane change.
+    if (distance <= self.PREPARE_DISTANCE and self.lane_closed_count >= self.CONFIRM_FRAMES and
+        not lane_change_started):
+      self.armed_at_last_lane = True
+
+    action_distance = min(350.0, max(160.0, v_ego * 12.0))
+    if (self.canceled or self.completed or not self.armed_at_last_lane or
+        self.lane_open_count < self.CONFIRM_FRAMES or distance > action_distance):
+      return 0
+    return 1
+
