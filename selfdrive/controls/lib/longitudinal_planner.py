@@ -137,7 +137,8 @@ class LongitudinalPlanner:
       value = self.params.get_int(key)
       gap_values.append((value if value > 0 else default) * 0.01)
     self.mpc.tfollow_gaps = gap_values
-    self.mpc.enable_speed_tf = self.params.get_int("EnableSpeedTF")
+    speed_ratio = self.params.get_int("TFollowSpeedRatio")
+    self.mpc.t_follow_speed_ratio = (speed_ratio if speed_ratio >= 100 else 110) * 0.01
     decel_raw = self.params.get("TFollowDecelBoost", encoding='utf8')
     decel_boost = int(decel_raw) if decel_raw else 10
     self.mpc.t_follow_decel_boost = max(0, decel_boost) * 0.01

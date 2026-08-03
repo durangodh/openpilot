@@ -239,7 +239,7 @@ class LongitudinalMpc:
     # ── CarrotPilot Auto-Tuner: 학습된 GAP별 추종거리 (초 리스트, None=미사용) ──
     # longitudinal_planner.read_param()에서 5초 주기로 갱신됨.
     self.tfollow_gaps = None
-    self.enable_speed_tf = 0
+    self.t_follow_speed_ratio = 1.1
     self.t_follow_decel_boost = 0.1
     self._tf_applied = 0.0
     # ────────────────────────────────────────────────────────────────────
@@ -531,10 +531,8 @@ class LongitudinalMpc:
 
     # ── MyDrivingMode: GAP1~4 base 추종거리에 캐럿 모드 배율 적용 ──────────
     tr *= self.driving_mode_tf
-    if self.enable_speed_tf > 0:
-      reduce = self.enable_speed_tf * 0.01
-      speed_scale = (1.0 - reduce) + reduce * float(np.clip(v_ego * CV.MS_TO_KPH / 100.0, 0.0, 1.0))
-      tr *= speed_scale
+    speed_scale = interp(v_ego * CV.MS_TO_KPH, [0.0, 100.0], [1.0, self.t_follow_speed_ratio])
+    tr *= speed_scale
 
     # Carrot deceleration hold/boost and increase-only smoothing.
     gap_values = self.tfollow_gaps if self.tfollow_gaps is not None else CRUISE_GAP_V
@@ -544,7 +542,8 @@ class LongitudinalMpc:
       tr = self._tf_applied
     decel_boost = float(np.interp(carstate.aEgo, [-2.5, -1.0, -0.2, 0.0], [0.25, 0.12, 0.02, 0.0]))
     tr += decel_boost * self.t_follow_decel_boost
-    tr = float(np.clip(tr, max(0.3, min(gap_values)), max(gap_values)))
+    tr_max = max(gap_values) * self.driving_mode_tf * speed_scale
+    tr = float(np.clip(tr, max(0.6, min(gap_values)), tr_max))
     if tr > self._tf_applied:
       tr = min(tr, self._tf_applied + 0.1 * 0.05)
     self._tf_applied = float(tr)

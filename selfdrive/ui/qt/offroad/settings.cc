@@ -521,7 +521,7 @@ static const std::map<std::string, std::string> kAutoTunerDefaults = {
   {"TFollowGap2", "120"},
   {"TFollowGap3", "140"},
   {"TFollowGap4", "160"},
-  {"EnableSpeedTF", "0"},
+  {"TFollowSpeedRatio", "110"},
   {"TFollowDecelBoost", "10"},
   {"OffsetTotal", "0.0"},
   {"CarrotLongActuatorDelay", "0.4"},   // _LONG_DELAY_DEFAULT (carrot_learning.py)
@@ -2481,9 +2481,9 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(new ParamValueControlF("TFollowGap4",
       "TR Gap 4", "Carrot GAP4 추종시간 (×0.01초). 기본값: 160",
       "../assets/offroad/icon_openpilot.png", 70, 300, 5, 0, 160, this));
-  list->addItem(new ParamValueControlF("EnableSpeedTF",
-      "TR Speed Factor", "저속 TR 축소율(%). 0은 사용 안함, 고속으로 갈수록 원래 TR로 복귀합니다.",
-      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
+  list->addItem(new ParamValueControlF("TFollowSpeedRatio",
+      "TR Speed Ratio", "C2 방식 속도 연동 비율(%). 100km/h에서 적용되며 기본값 110은 TR을 10% 늘립니다.",
+      "../assets/offroad/icon_openpilot.png", 100, 300, 5, 0, 110, this));
   list->addItem(new ParamValueControlF("TFollowDecelBoost",
       "TR Decel Boost", "감속 중 TR 유지·추가 확보 비율 (×0.01). 기본값: 10",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 10, this));
