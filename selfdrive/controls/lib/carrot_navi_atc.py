@@ -121,7 +121,6 @@ class CarrotNaviAtc:
 class AtcForkLaneChangeController:
   """One-shot, right-exit-only lane-change gate for CarrotNavi forks."""
 
-  PREPARE_DISTANCE = 500.0
   MIN_DISTANCE = 20.0
   CONFIRM_FRAMES = 10  # 0.5 s at model rate
 
@@ -165,13 +164,13 @@ class AtcForkLaneChangeController:
     if lane_change_finished:
       self.completed = True
 
-    # Observe the current last lane before allowing an exit lane that appears
-    # later to trigger an automatic lane change.
-    if (distance <= self.PREPARE_DISTANCE and self.lane_closed_count >= self.CONFIRM_FRAMES and
+    action_distance = min(350.0, max(160.0, v_ego * 12.0))
+    # Observe the current last lane only inside the actual ATC action range,
+    # before allowing an exit lane that appears later to trigger a change.
+    if (distance <= action_distance and self.lane_closed_count >= self.CONFIRM_FRAMES and
         not lane_change_started):
       self.armed_at_last_lane = True
 
-    action_distance = min(350.0, max(160.0, v_ego * 12.0))
     if (self.canceled or self.completed or not self.armed_at_last_lane or
         self.lane_open_count < self.CONFIRM_FRAMES or distance > action_distance):
       return 0
