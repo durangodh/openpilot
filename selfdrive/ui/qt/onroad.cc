@@ -875,17 +875,18 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const int gap2 = 8;
   const int gap3 = 7;
   const int bottom_margin = 14;
+  const bool has_lane_guidance = !carrot_navi_lane_types.isEmpty();
 
-  // 남는 공간을 지도에 모두 사용
+  // Give the lane row space only while Tmap is actually publishing lane data.
+  // Otherwise the map grows into the vacated area and the footer stays fixed.
+  const int map_to_footer_h = has_lane_guidance ? gap2 + lane_h + gap3 : gap2;
   const int map_h =
       panel_h
       - panel_header_h
       - next_h
-      - lane_h
       - panel_footer_h
       - gap1
-      - gap2
-      - gap3
+      - map_to_footer_h
       - bottom_margin;
 
   const QRect panel(width() - 475, panel_y, 440, panel_h);
@@ -916,7 +917,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
 
   const QRect footer(
       panel.x() + 14,
-      lane_row.bottom() + gap3,
+      has_lane_guidance ? lane_row.bottom() + gap3 : map_rect.bottom() + gap2,
       panel.width() - 28,
       panel_footer_h);
   p.setPen(QPen(QColor(255, 255, 255, 120), 2));
@@ -1084,17 +1085,17 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
     const QPainterPath full_path = smooth_path(0, carrot_navi_route.size() - 1);
     const QPainterPath remain_path = smooth_path(car_idx, carrot_navi_route.size() - 1);
     p.setBrush(Qt::NoBrush);
-    p.setPen(QPen(QColor(0, 0, 0, 185), 20, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setPen(QPen(QColor(0, 0, 0, 185), 22, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.drawPath(full_path);
     if (car_idx > 0) {
       p.setPen(QPen(QColor(105, 112, 120), 10, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
       p.drawPath(smooth_path(0, car_idx));
     }
-    p.setPen(QPen(QColor(14, 70, 128), 15, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setPen(QPen(QColor(14, 70, 128), 17, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.drawPath(remain_path);
-    p.setPen(QPen(QColor(27, 143, 255), 10, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setPen(QPen(QColor(27, 143, 255), 12, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.drawPath(remain_path);
-    p.setPen(QPen(QColor(112, 207, 255), 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setPen(QPen(QColor(112, 207, 255), 4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.drawPath(remain_path);
 
     const QPointF destination = project(carrot_navi_route.last().x(), carrot_navi_route.last().y());
@@ -1117,20 +1118,41 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   }
   if (map_main_fresh) {
     p.setRenderHint(QPainter::SmoothPixmapTransform);
-    p.drawPixmap(map_rect, map_main_pixmap);
+    // map_main is rendered at 160 dpi. Crop the proportional Android/Tmap
+    // status bar, then use a centered 1.18x cover crop so the map keeps its
+    // aspect ratio instead of being stretched to the panel dimensions.
+    const qreal status_bar_h = std::min<qreal>(map_main_pixmap.height() / 8.0,
+                                               map_main_pixmap.width() * 0.05);
+    const QRectF map_content(0.0, status_bar_h, map_main_pixmap.width(),
+                             map_main_pixmap.height() - status_bar_h);
+    const qreal target_aspect = static_cast<qreal>(map_rect.width()) / map_rect.height();
+    qreal source_w = map_content.width();
+    qreal source_h = map_content.height();
+    if (source_w / source_h > target_aspect) {
+      source_w = source_h * target_aspect;
+    } else {
+      source_h = source_w / target_aspect;
+    }
+    constexpr qreal map_zoom = 1.18;
+    source_w /= map_zoom;
+    source_h /= map_zoom;
+    const QRectF map_source(map_content.center().x() - source_w / 2.0,
+                            map_content.center().y() - source_h / 2.0,
+                            source_w, source_h);
+    p.drawPixmap(QRectF(map_rect), map_main_pixmap, map_source);
   }
   p.restore();
 
   // Lane guidance: recommended lanes are blue, all others remain neutral gray.
-  p.setPen(Qt::NoPen);
-  p.setBrush(QColor(18, 26, 32, 235));
-  p.drawRoundedRect(lane_row, 12, 12);
-  configFont(p, "Open Sans", 18, "Bold");
-  p.setPen(QColor(190, 202, 210));
-  p.drawText(QRect(lane_row.x() + 10, lane_row.y() + 2, 92, 22), Qt::AlignLeft | Qt::AlignVCenter,
-             carrot_navi_lanes_ahead ? QString::fromUtf8("다음 차선") : QString::fromUtf8("차선 안내"));
-  const int lane_count = std::min(8, carrot_navi_lane_types.size());
-  if (lane_count > 0) {
+  if (has_lane_guidance) {
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(18, 26, 32, 235));
+    p.drawRoundedRect(lane_row, 12, 12);
+    configFont(p, "Open Sans", 18, "Bold");
+    p.setPen(QColor(190, 202, 210));
+    p.drawText(QRect(lane_row.x() + 10, lane_row.y() + 2, 92, 22), Qt::AlignLeft | Qt::AlignVCenter,
+               carrot_navi_lanes_ahead ? QString::fromUtf8("다음 차선") : QString::fromUtf8("차선 안내"));
+    const int lane_count = std::min(8, carrot_navi_lane_types.size());
     const int gap = 5;
     const int area_x = lane_row.x() + 96;
     const int area_w = lane_row.width() - 106;
@@ -1144,11 +1166,6 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
       drawCarrotTurnArrow(p, lane_box.adjusted(4, 6, -4, -6), carrot_navi_lane_types[i],
                           QString(), Qt::white, 4);
     }
-  } else {
-    configFont(p, "Open Sans", 23, "Regular");
-    p.setPen(QColor(130, 144, 154));
-    p.drawText(QRect(lane_row.x() + 96, lane_row.y(), lane_row.width() - 108, lane_row.height()),
-               Qt::AlignCenter, QString::fromUtf8("차선 정보 대기 중"));
   }
 
   // Remaining distance and ETA stay visible in a dedicated bottom row.
