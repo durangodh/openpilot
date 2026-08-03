@@ -81,16 +81,24 @@ class CarInterface(CarInterfaceBase):
     ret.steerLimitTimer = 3.0
 
     # longitudinal
-    ret.longitudinalTuning.kpBP = [0., 5.*CV.KPH_TO_MS, 10.*CV.KPH_TO_MS, 30.*CV.KPH_TO_MS, 130.*CV.KPH_TO_MS]
-    ret.longitudinalTuning.kpV = [0.8, 0.85, 0.90, 0.8, 0.5]
-    ret.longitudinalTuning.kiBP = [0., 130. * CV.KPH_TO_MS]
-    ret.longitudinalTuning.kiV = [0.06, 0.025]
-    ret.longitudinalActuatorDelay = 0.4
+    # Carrot longitudinal controller uses one live-adjustable PID gain instead
+    # of speed-banded gains. This also enables the settings-panel values to be
+    # reloaded by longcontrol.py while driving.
+    ret.longitudinalTuning.kpBP = [0.]
+    ret.longitudinalTuning.kpV = [1.0]
+    ret.longitudinalTuning.kiBP = [0.]
+    ret.longitudinalTuning.kiV = [0.0]
+    ret.longitudinalTuning.kf = 1.0
 
-    ret.stopAccel = -2.5           # 정지 유지 브레이크 세기 (풀림/밀림 방지, 기존 -1.7)
-    ret.stoppingDecelRate = 0.08   # brake_travel/s while trying to stop (정지 직전 제동 압력 증가 완화)
-    ret.vEgoStopping = 0.3
-    ret.vEgoStarting = 0.3
+    long_delay = Params().get_int("LongActuatorDelay")
+    ret.longitudinalActuatorDelay = (long_delay * 0.01) if long_delay > 0 else 0.2
+
+    ret.startingState = False
+    ret.startAccel = 1.0
+    ret.stopAccel = -2.0
+    ret.stoppingDecelRate = 0.8
+    ret.vEgoStopping = 0.5
+    ret.vEgoStarting = 0.1
 
     # genesis
     if candidate == CAR.GENESIS:
