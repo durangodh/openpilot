@@ -379,18 +379,29 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   else if (show_bsd_always)  drawBlindSpot(painter, scene.lane_barrier_vertices[1], bsd_idle);
 	
   // paint path
-  QLinearGradient bg(0, height(), 0, height() / 4);
+  // Keep both outer edges vivid and fade toward the center of the path.
+  float path_left = 0.0f;
+  float path_right = width();
+  if (scene.track_vertices.cnt > 0) {
+    path_left = scene.track_vertices.v[0].x();
+    path_right = path_left;
+    for (int i = 1; i < scene.track_vertices.cnt; ++i) {
+      path_left = std::min(path_left, (float)scene.track_vertices.v[i].x());
+      path_right = std::max(path_right, (float)scene.track_vertices.v[i].x());
+    }
+  }
+  QLinearGradient bg(path_left, 0, path_right, 0);
   const bool e2e_mode = sm["longitudinalPlan"].getLongitudinalPlan().getMpcMode() == 1;
   if (e2e_mode) {
     // Former laneless palette.
-    bg.setColorAt(0.0, QColor::fromHslF(148 / 360., 0.94, 0.51, 0.4));
-    bg.setColorAt(0.5, QColor::fromHslF(112 / 360., 1.0, 0.68, 0.35));
-    bg.setColorAt(1.0, QColor::fromHslF(112 / 360., 1.0, 0.68, 0.0));
+    bg.setColorAt(0.0, QColor::fromHslF(148 / 360., 0.94, 0.51, 0.65));
+    bg.setColorAt(0.5, QColor::fromHslF(112 / 360., 1.0, 0.68, 0.12));
+    bg.setColorAt(1.0, QColor::fromHslF(148 / 360., 0.94, 0.51, 0.65));
   } else {
     // Former lane-mode palette.
     bg.setColorAt(0.0, QColor::fromHslF(197 / 360., 1.0, 0.55, 0.7));
-    bg.setColorAt(0.5, QColor::fromHslF(200 / 360., 1.0, 0.70, 0.35));
-    bg.setColorAt(1.0, QColor::fromHslF(200 / 360., 1.0, 0.70, 0.0));
+    bg.setColorAt(0.5, QColor::fromHslF(200 / 360., 1.0, 0.70, 0.12));
+    bg.setColorAt(1.0, QColor::fromHslF(197 / 360., 1.0, 0.55, 0.7));
   }
   painter.setBrush(bg);
   painter.drawPolygon(scene.track_vertices.v, scene.track_vertices.cnt);
