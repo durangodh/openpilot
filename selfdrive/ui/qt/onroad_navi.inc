@@ -156,6 +156,31 @@ void NvgWindow::updateCarrotNavi() {
   if (error.error != QJsonParseError::NoError || !doc.isObject()) return;
 
   const QJsonObject root = doc.object();
+
+  // nMirror가 제공하는 실제 Tmap 하단 차선 안내 이미지를 2Hz로 갱신한다.
+  // JSON 방향값은 APK 버전마다 달라 이미지가 있으면 이를 우선 사용한다.
+  const QString lane_image_path = "/dev/shm/carrot_navi_lane_bottom.png";
+  const QFileInfo lane_image_info(lane_image_path);
+  const qint64 lane_now = QDateTime::currentMSecsSinceEpoch();
+  if (lane_image_info.exists()) {
+    const qint64 lane_mtime = lane_image_info.lastModified().toMSecsSinceEpoch();
+    if (lane_now - lane_mtime >= -5000 && lane_now - lane_mtime <= 5000) {
+      if (lane_mtime != carrot_navi_lane_image_mtime || carrot_navi_lane_image.isNull()) {
+        QPixmap next_lane_image;
+        if (next_lane_image.load(lane_image_path)) {
+          carrot_navi_lane_image = next_lane_image;
+          carrot_navi_lane_image_mtime = lane_mtime;
+        }
+      }
+    } else {
+      carrot_navi_lane_image = QPixmap();
+      carrot_navi_lane_image_mtime = 0;
+    }
+  } else {
+    carrot_navi_lane_image = QPixmap();
+    carrot_navi_lane_image_mtime = 0;
+  }
+
   carrot_navi_updated_at = root.value("updated_at_ms").toVariant().toULongLong();
   const QJsonObject stream_times = root.value("stream_updated_at_ms").toObject();
   carrot_navi_guidance_updated_at = stream_times.contains("guidance_current")
@@ -413,7 +438,10 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const int gap2 = 8;
   const int gap3 = 7;
   const int bottom_margin = 14;
-  const bool has_lane_guidance = !carrot_navi_lane_types.isEmpty();
+  const bool has_lane_image = !carrot_navi_lane_image.isNull() &&
+                              wall_now - carrot_navi_lane_image_mtime >= -5000 &&
+                              wall_now - carrot_navi_lane_image_mtime <= 5000;
+  const bool has_lane_guidance = has_lane_image || !carrot_navi_lane_types.isEmpty();
 
   // Give the lane row space only while Tmap is actually publishing lane data.
   // Otherwise the map grows into the vacated area and the footer stays fixed.
@@ -686,23 +714,45 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
     p.setPen(Qt::NoPen);
     p.setBrush(QColor(18, 26, 32, 235));
     p.drawRoundedRect(lane_row, 12, 12);
-    configFont(p, "Open Sans", 18, "Bold");
-    p.setPen(QColor(190, 202, 210));
-    p.drawText(QRect(lane_row.x() + 10, lane_row.y() + 2, 92, 22), Qt::AlignLeft | Qt::AlignVCenter,
-               carrot_navi_lanes_ahead ? QString::fromUtf8("다음 차선") : QString::fromUtf8("차선 안내"));
-    const int lane_count = std::min(8, carrot_navi_lane_types.size());
-    const int gap = 5;
-    const int area_x = lane_row.x() + 96;
-    const int area_w = lane_row.width() - 106;
-    const int lane_w = std::max(30, (area_w - gap * (lane_count - 1)) / lane_count);
-    for (int i = 0; i < lane_count; ++i) {
-      const bool active = i < carrot_navi_lane_active.size() && carrot_navi_lane_active[i] != 0;
-      const QRect lane_box(area_x + i * (lane_w + gap), lane_row.y() + 9, lane_w, 58);
-      p.setPen(Qt::NoPen);
-      p.setBrush(active ? QColor(30, 137, 255) : QColor(82, 91, 100));
-      p.drawRoundedRect(lane_box, 8, 8);
-      drawCarrotTurnArrow(p, lane_box.adjusted(4, 6, -4, -6), carrot_navi_lane_types[i],
-                          QString(), Qt::white, 4);
+
+    if (has_lane_image) {
+      // 실제 Tmap lane_bottom 캡처를 그대로 표시해 좌/우/직좌/직우/유턴을
+      // APK가 그린 모양 및 추천 차선 색상과 동일하게 유지한다.
+      QPainterPath lane_clip;
+      lane_clip.addRoundedRect(lane_row, 12, 12);
+      p.save();
+      p.setClipPath(lane_clip);
+      const QPixmap scaled_lane = carrot_navi_lane_image.scaled(
+          lane_row.size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+      const int source_x = std::max(0, (scaled_lane.width() - lane_row.width()) / 2);
+      const int source_y = std::max(0, (scaled_lane.height() - lane_row.height()) / 2);
+      p.drawPixmap(lane_row, scaled_lane,
+                   QRect(source_x, source_y, lane_row.width(), lane_row.height()));
+      p.restore();
+    } else {
+      // 이미지 스트림이 없는 구형 nMirror에서는 기존 JSON 화살표를 사용한다.
+      configFont(p, "Open Sans", 18, "Bold");
+      p.setPen(QColor(190, 202, 210));
+      p.drawText(QRect(lane_row.x() + 10, lane_row.y() + 2, 92, 22),
+                 Qt::AlignLeft | Qt::AlignVCenter,
+                 carrot_navi_lanes_ahead ? QString::fromUtf8("다음 차선")
+                                         : QString::fromUtf8("차선 안내"));
+      const int lane_count = std::min(8, carrot_navi_lane_types.size());
+      const int gap = 5;
+      const int area_x = lane_row.x() + 96;
+      const int area_w = lane_row.width() - 106;
+      const int lane_w = std::max(30, (area_w - gap * (lane_count - 1)) / lane_count);
+      for (int i = 0; i < lane_count; ++i) {
+        const bool active = i < carrot_navi_lane_active.size() &&
+                            carrot_navi_lane_active[i] != 0;
+        const QRect lane_box(area_x + i * (lane_w + gap), lane_row.y() + 9,
+                             lane_w, 58);
+        p.setPen(Qt::NoPen);
+        p.setBrush(active ? QColor(30, 137, 255) : QColor(82, 91, 100));
+        p.drawRoundedRect(lane_box, 8, 8);
+        drawCarrotTurnArrow(p, lane_box.adjusted(4, 6, -4, -6),
+                            carrot_navi_lane_types[i], QString(), Qt::white, 4);
+      }
     }
   }
 
