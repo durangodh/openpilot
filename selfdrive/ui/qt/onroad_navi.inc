@@ -169,15 +169,24 @@ void NvgWindow::updateCarrotNavi() {
         QPixmap next_lane_image;
         if (next_lane_image.load(lane_image_path)) {
           carrot_navi_lane_image = next_lane_image;
+          carrot_navi_lane_scaled_image = QPixmap();
+          carrot_navi_lane_scaled_width = 0;
+          carrot_navi_lane_scaled_height = 0;
           carrot_navi_lane_image_mtime = lane_mtime;
         }
       }
     } else {
       carrot_navi_lane_image = QPixmap();
+      carrot_navi_lane_scaled_image = QPixmap();
+      carrot_navi_lane_scaled_width = 0;
+      carrot_navi_lane_scaled_height = 0;
       carrot_navi_lane_image_mtime = 0;
     }
   } else {
     carrot_navi_lane_image = QPixmap();
+    carrot_navi_lane_scaled_image = QPixmap();
+    carrot_navi_lane_scaled_width = 0;
+    carrot_navi_lane_scaled_height = 0;
     carrot_navi_lane_image_mtime = 0;
   }
 
@@ -722,11 +731,19 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
       lane_clip.addRoundedRect(lane_row, 12, 12);
       p.save();
       p.setClipPath(lane_clip);
-      const QPixmap scaled_lane = carrot_navi_lane_image.scaled(
-          lane_row.size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
-      const int source_x = std::max(0, (scaled_lane.width() - lane_row.width()) / 2);
-      const int source_y = std::max(0, (scaled_lane.height() - lane_row.height()) / 2);
-      p.drawPixmap(lane_row, scaled_lane,
+      // Smooth scaling is expensive on EON. Rebuild the cache only for a new
+      // source image (cache cleared in updateCarrotNavi) or a new target size.
+      if (carrot_navi_lane_scaled_image.isNull() ||
+          carrot_navi_lane_scaled_width != lane_row.width() ||
+          carrot_navi_lane_scaled_height != lane_row.height()) {
+        carrot_navi_lane_scaled_image = carrot_navi_lane_image.scaled(
+            lane_row.size(), Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+        carrot_navi_lane_scaled_width = lane_row.width();
+        carrot_navi_lane_scaled_height = lane_row.height();
+      }
+      const int source_x = std::max(0, (carrot_navi_lane_scaled_image.width() - lane_row.width()) / 2);
+      const int source_y = std::max(0, (carrot_navi_lane_scaled_image.height() - lane_row.height()) / 2);
+      p.drawPixmap(lane_row, carrot_navi_lane_scaled_image,
                    QRect(source_x, source_y, lane_row.width(), lane_row.height()));
       p.restore();
     } else {
@@ -773,4 +790,3 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
              Qt::AlignRight | Qt::AlignVCenter, QString::fromUtf8("도착 %1").arg(eta_text));
   p.restore();
 }
-

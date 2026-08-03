@@ -142,6 +142,9 @@ protected:
   QVector<int> carrot_navi_lane_active;
   bool carrot_navi_lanes_ahead = false;
   QPixmap carrot_navi_lane_image;
+  QPixmap carrot_navi_lane_scaled_image;
+  int carrot_navi_lane_scaled_width = 0;
+  int carrot_navi_lane_scaled_height = 0;
   qint64 carrot_navi_lane_image_mtime = 0;
   float lead_box_w = 0.0f, lead_box_x = 0.0f, lead_box_y = 0.0f;   // 리드박스 EMA
 
