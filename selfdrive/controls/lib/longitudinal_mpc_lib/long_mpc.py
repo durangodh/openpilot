@@ -47,10 +47,6 @@ CRUISE_GAP_BP = [1., 2., 3., 4.]
 CRUISE_GAP_V = [1.1, 1.2, 1.4, 1.6]
 CRUISE_GAP_E2E_V = [1.3, 1.45, 1.6, 1.8]
 
-AUTO_TR_BP = [0., 30.*CV.KPH_TO_MS, 70.*CV.KPH_TO_MS, 110.*CV.KPH_TO_MS]
-AUTO_TR_V = [1.1, 1.25, 1.35, 1.5]
-
-AUTO_TR_CRUISE_GAP = 4
 DIFF_RADAR_VISION = 1.0
 
 
@@ -258,7 +254,6 @@ class LongitudinalMpc:
     # ── CarrotPilot Auto-Tuner: 학습된 GAP별 추종거리 (초 리스트, None=미사용) ──
     # longitudinal_planner.read_param()에서 5초 주기로 갱신됨.
     self.tfollow_gaps = None
-    self.auto_tr_values = None
     self.enable_speed_tf = 0
     self.t_follow_decel_boost = 0.1
     self._tf_applied = 0.0
@@ -540,15 +535,10 @@ class LongitudinalMpc:
     lead_xv_1 = self.process_lead(radarstate.leadTwo)
 
     # neokii
-    cruise_gap = int(clip(carstate.cruiseGap, 1., 4.)) if carstate.cruiseGap > 0 else AUTO_TR_CRUISE_GAP
-    if cruise_gap == AUTO_TR_CRUISE_GAP:
-      # GAP4 always uses the speed-based AUTO curve. When learning is active,
-      # AutoTrValue0~3 replace the default AUTO_TR_V curve.
-      auto_tr_v = self.auto_tr_values if self.auto_tr_values is not None else AUTO_TR_V
-      tr = interp(carstate.vEgo, AUTO_TR_BP, auto_tr_v) if self.mode == 'acc' else T_FOLLOW
-    elif self.tfollow_gaps is not None and self.mode == 'acc':
+    cruise_gap = int(clip(carstate.cruiseGap, 1., 4.)) if carstate.cruiseGap > 0 else 4
+    if self.tfollow_gaps is not None and self.mode == 'acc':
       # ── CarrotPilot Auto-Tuner: 학습된 GAP별 추종거리 사용 ──────────────
-      # GAP1~3에만 학습값을 적용하고 GAP4는 위 AUTO 분기에서 처리한다.
+      # GAP1~4 모두 단계별 TFollowGap 값을 적용한다.
       tr = interp(float(cruise_gap), CRUISE_GAP_BP, self.tfollow_gaps)
       # ─────────────────────────────────────────────────────────────────
     else:
@@ -562,10 +552,7 @@ class LongitudinalMpc:
       tr *= speed_scale
 
     # Carrot deceleration hold/boost and increase-only smoothing.
-    if cruise_gap == AUTO_TR_CRUISE_GAP and self.mode == 'acc':
-      gap_values = self.auto_tr_values if self.auto_tr_values is not None else AUTO_TR_V
-    else:
-      gap_values = self.tfollow_gaps if self.tfollow_gaps is not None else CRUISE_GAP_V
+    gap_values = self.tfollow_gaps if self.tfollow_gaps is not None else CRUISE_GAP_V
     if self._tf_applied <= 0.0:
       self._tf_applied = float(tr)
     if carstate.aEgo <= -0.2 and tr < self._tf_applied:
