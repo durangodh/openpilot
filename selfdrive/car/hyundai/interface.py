@@ -2,7 +2,6 @@
 from typing import List
 
 from cereal import car
-from common.numpy_fast import interp
 from common.conversions import Conversions as CV
 from selfdrive.car.hyundai.values import CAR, Buttons, CarControllerParams
 from selfdrive.car import STD_CARGO_KG, scale_rot_inertia, scale_tire_stiffness, gen_empty_fingerprint, get_safety_config
@@ -33,13 +32,7 @@ class CarInterface(CarInterfaceBase):
 
   @staticmethod
   def get_pid_accel_limits(CP, current_speed, cruise_speed):
-
-    v_current_kph = current_speed * CV.MS_TO_KPH
-
-    gas_max_bp = [0., 10., 20., 50., 70., 130., 150.]
-    gas_max_v = [1.3, 1.25, 1.18, 0.63, 0.48, 0.16, 0.1]
-
-    return CarControllerParams.ACCEL_MIN, interp(v_current_kph, gas_max_bp, gas_max_v)
+    return CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX
 
   @staticmethod
   def get_params(candidate, fingerprint=gen_empty_fingerprint(), car_fw=[], disable_radar=False):  # pylint: disable=dangerous-default-value
