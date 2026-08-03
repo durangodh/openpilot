@@ -258,10 +258,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"TFollowGap2", PERSISTENT},               // GAP2 (default 120 = 1.20s)
     {"TFollowGap3", PERSISTENT},               // GAP3 (default 140 = 1.40s)
     {"TFollowGap4", PERSISTENT},               // GAP4 (default 160 = 1.60s)
-    {"AutoTrValue0", PERSISTENT},              // GAP4 AUTO 0km/h 기준값 (기본 110 = 1.10s)
-    {"AutoTrValue1", PERSISTENT},              // GAP4 AUTO 30km/h 기준값 (기본 125 = 1.25s)
-    {"AutoTrValue2", PERSISTENT},              // GAP4 AUTO 70km/h 기준값 (기본 135 = 1.35s)
-    {"AutoTrValue3", PERSISTENT},              // GAP4 AUTO 110km/h 기준값 (기본 150 = 1.50s)
     {"EnableSpeedTF", PERSISTENT},
     {"TFollowDecelBoost", PERSISTENT},
     {"InitialCruiseGap", PERSISTENT},
