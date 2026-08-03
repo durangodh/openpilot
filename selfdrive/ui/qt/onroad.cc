@@ -382,7 +382,9 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   QLinearGradient bg(0, height(), 0, height() / 4);
   float start_hue, end_hue;
   const bool e2e_mode = sm["longitudinalPlan"].getLongitudinalPlan().getMpcMode() == 1;
-  const bool path_laneless = e2e_mode || scene.dynamic_lane_profile_status;
+  // Path color represents longitudinal mode only: ACC uses the former lane-mode
+  // palette, while blended/e2e uses the former laneless palette.
+  const bool path_laneless = e2e_mode;
   if (sm["controlsState"].getControlsState().getExperimentalMode()) {
     const auto &acceleration = sm["modelV2"].getModelV2().getAcceleration();
     float acceleration_future = 0;
