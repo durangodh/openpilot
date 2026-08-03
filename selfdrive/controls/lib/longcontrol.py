@@ -7,24 +7,14 @@ from selfdrive.modeld.constants import T_IDXS
 
 LongCtrlState = car.CarControl.Actuators.LongControlState
 
-STOPPING_EGO_SPEED = 1.0       # m/s; keep MPC/PID active until the final crawl
-STOPPING_LEAD_DISTANCE = 8.0   # m; avoid latching the hold brake far behind a stopped lead
-
-
 def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                              v_target_1sec, brake_pressed, cruise_standstill, radar_state):
   # Ignore cruise standstill if car has a gas interceptor
   cruise_standstill = cruise_standstill and not CP.enableGasInterceptor                             
   accelerating = v_target_1sec > v_target
-  lead = radar_state.leadOne if radar_state is not None else None
-  stopped_lead_far = (lead is not None and lead.status and
-                      lead.vLead <= CP.vEgoStarting and
-                      lead.dRel > STOPPING_LEAD_DISTANCE)
   planned_stop = (v_target < CP.vEgoStopping and
                   v_target_1sec < CP.vEgoStopping and
-                  not accelerating and
-                  v_ego < STOPPING_EGO_SPEED and
-                  not stopped_lead_far)
+                  not accelerating)
   stay_stopped = (v_ego < CP.vEgoStopping and
                (brake_pressed or cruise_standstill))
   stopping_condition = planned_stop or stay_stopped
@@ -36,8 +26,8 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
   started_condition = v_ego > CP.vEgoStarting
 
   # neokii
-  if lead is not None and lead.status:
-    starting_condition = starting_condition and lead.vLead > CP.vEgoStarting
+  if radar_state is not None and radar_state.leadOne is not None and radar_state.leadOne.status:
+    starting_condition = starting_condition and radar_state.leadOne.vLead > CP.vEgoStarting
 
   if not active:
     long_control_state = LongCtrlState.off
