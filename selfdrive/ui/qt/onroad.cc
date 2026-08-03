@@ -1005,7 +1005,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
   QString cruise_str = is_cruise_set
                      ? QString::number((int)(cruise_max * kph_to_disp + 0.5f))
                      : QString("--");
-  ctText(p, bx + 170, by + 15, cruise_str, 60, CT_GREEN, true, true);
+  ctText(p, bx + 170, by + 20, cruise_str, 60, CT_GREEN, true, true);
 
   // ---- 적용 속도(감속 목표) + 감속 사유 : carrot 의 apply_speed / apply_source ----
   //      sccSmoother 계열(cam/sec/road/eco) 과 VisionTurnController(vturn) 중
