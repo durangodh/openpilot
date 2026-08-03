@@ -244,6 +244,11 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"CarrotLongActuatorDelay", PERSISTENT},   // 종방향 응답 지연 학습값 (초, longcontrol 라이브 반영)
     {"CarrotLongKf", PERSISTENT},              // 종방향 PID 피드포워드 kf 학습값 (longcontrol 라이브 반영)
     {"LongCoastBand", PERSISTENT},             // 코스팅 데드밴드 (x100 정수, m/s², 기본 0=off; commit 10fa725 Phase9 추천·longcontrol 라이브 반영)
+    {"LongTuningKpV", PERSISTENT},
+    {"LongTuningKiV", PERSISTENT},
+    {"LongTuningKf", PERSISTENT},
+    {"LongActuatorDelay", PERSISTENT},
+    {"StoppingAccel", PERSISTENT},
     // 학습 대상 파라미터 (x100 정수 저장)
     {"CruiseMaxVals0", PERSISTENT},            // 0~36 km/h 최대가속 (기본 180 = 1.80m/s^2)
     {"CruiseMaxVals1", PERSISTENT},            // 36~90 km/h (기본 120)

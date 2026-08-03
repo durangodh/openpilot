@@ -2454,6 +2454,23 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
 
   // ── Offset Total ─────────────────────────────────────────────
   // 레인모드 + 레인리스 모드 모두 적용. 0.01m 단위, -1.00 ~ +1.00m
+  list->addItem(new ParamValueControlF("LongTuningKpV",
+      "Longitudinal Kp", "속도 오차 비례 게인 (×0.01). 기본값: 100 (=1.00)",
+      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
+  list->addItem(new ParamValueControlF("LongTuningKiV",
+      "Longitudinal Ki", "누적 속도 오차 적분 게인 (×0.001). 기본값: 0",
+      "../assets/offroad/icon_openpilot.png", 0, 2000, 5, 0, 0, this));
+  list->addItem(new ParamValueControlF("LongTuningKf",
+      "Longitudinal Feedforward", "플래너 목표가속도 피드포워드 게인 (×0.01). 기본값: 100",
+      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
+  list->addItem(new ParamValueControlF("LongActuatorDelay",
+      "Longitudinal Actuator Delay", "종방향 반응 지연 보상 (×0.01초). 크면 더 미리 가감속합니다. 기본값: 20",
+      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 20, this));
+  list->addItem(new ParamValueControlF("StoppingAccel",
+      "Stopping Start Accel", "정지 마무리 상태 전환 가속도 (×0.01m/s²). 0은 차량 기본값을 사용합니다.",
+      "../assets/offroad/icon_openpilot.png", -100, 0, 5, 0, 0, this));
+  list->addItem(horizontal_line());
+
   auto *path_offset = new OffsetTotalControl(
       "Offset Total",
       "주행 경로 좌우 통합 보정값입니다. 레인모드·레인리스 모두 적용됩니다.\n"

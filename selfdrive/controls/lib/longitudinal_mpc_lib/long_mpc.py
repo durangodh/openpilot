@@ -30,15 +30,15 @@ COST_E_DIM = 5
 COST_DIM = COST_E_DIM + 1
 CONSTR_DIM = 4
 
-X_EGO_OBSTACLE_COST = 3.
+X_EGO_OBSTACLE_COST = 5.
 X_EGO_COST = 0.
 V_EGO_COST = 0.
 A_EGO_COST = 0.
 J_EGO_COST = 5.0
-A_CHANGE_COST = 100.
+A_CHANGE_COST = 200.
 DANGER_ZONE_COST = 100.
 CRASH_DISTANCE = .25
-LEAD_DANGER_FACTOR = 0.75
+LEAD_DANGER_FACTOR = 0.8
 LIMIT_COST = 1e6
 ACADOS_SOLVER_TYPE = 'SQP_RTI'
 
@@ -64,14 +64,14 @@ T_DIFFS = np.diff(T_IDXS, prepend=[0.])
 MIN_ACCEL = -3.0
 MAX_ACCEL = 2.0
 T_FOLLOW = 1.45
-COMFORT_BRAKE = 2.6
-STOP_DISTANCE = 6.25
+COMFORT_BRAKE = 2.5
+STOP_DISTANCE = 6.0
 STOP_DISTANCE_E2E = 6.0
 
 # ── Lead 부드러운 전환 파라미터 ──────────────────────────────────────────────
-LEAD_DETECT_RAMP_T = 1.5   # lead 새 인식 후 영향력 서서히 증가 (초)
-LEAD_SMOOTH_ALPHA  = 0.12  # lead 거리/속도 지수이동평균 계수
-T_FOLLOW_MAX_RATE  = 0.20  # t_follow 최대 변화속도 (s/s) — rate limiter
+LEAD_DETECT_RAMP_T = 0.05  # c3-wip: no extra lead-input delay
+LEAD_SMOOTH_ALPHA  = 1.0   # radar state is already filtered
+T_FOLLOW_MAX_RATE  = 100.0 # apply the selected gap directly
 LEAD_RAMP_BYPASS_TTC = 5.0 # 이보다 급한 접근은 ramp 없이 즉시 원본 lead 반영
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -81,7 +81,7 @@ LEAD_RAMP_BYPASS_TTC = 5.0 # 이보다 급한 접근은 ramp 없이 즉시 원�
 # (원본 Lever C=JLeadFactor3 속도연동 증폭은 이 포크에 jLead 신호가 없어 제외)
 HIGH_SPEED_BRAKE_KPH = 70.0          # 이 속도(km/h) 이상에서만 선제 확대 적용
 HIGH_SPEED_BRAKE_TTC = 7.0           # 접근 TTC(초)가 이 값 미만이면 활성
-HIGH_SPEED_TF_BOOST  = 0.3          # t_follow 최대 선제 확대량(초)
+HIGH_SPEED_TF_BOOST  = 0.0          # disabled in the c3-wip cost model
 # ────────────────────────────────────────────────────────────────────────────
 
 # ── 속도-가변 차간거리 (commit dff7287 포팅, 원본 carrot_functions.py get_T_FOLLOW) ──
@@ -93,7 +93,7 @@ HIGH_SPEED_TF_BOOST  = 0.3          # t_follow 최대 선제 확대량(초)
 # 막히지 않게 했다. 이 포크는 그 함수가 없으므로 update()에서 GAP별 tr(=tr_base)
 # 계산 직후, HF/rate-limiter 적용 전에 동일하게 적용한다.
 _SPDTF_BP    = [20.0, 32.0, 50.0, 80.0]   # 속도 보간점(km/h)
-_SPDTF_DELTA = [-0.20, 0.0, 0.18, 0.28]   # 위 속도에서 t_follow 가감(초)
+_SPDTF_DELTA = [0.0, 0.0, 0.0, 0.0]
 _SPDTF_MIN   = 0.55                        # 보정 후 t_follow 안전 하한(초)
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -243,7 +243,7 @@ def gen_long_ocp():
 class LongitudinalMpc:
   def __init__(self, mode='acc'):
     self.mode = mode
-    self.applyLongDynamicCost = True
+    self.applyLongDynamicCost = False
     self.prev_accel_constraint = True
     self.a_desired = 0.
     self.solver = AcadosOcpSolverCython(MODEL_NAME, ACADOS_SOLVER_TYPE, N)
@@ -427,7 +427,7 @@ class LongitudinalMpc:
       self.prev_a = np.full(N+1, a_desired)
 
     if self.mode == 'acc':
-      a_change_cost = A_CHANGE_COST if prev_accel_constraint else 0
+      a_change_cost = A_CHANGE_COST if prev_accel_constraint else 10.0
 
       if self.applyLongDynamicCost:
         cost_multipliers = self.get_cost_multipliers(v_lead0, v_lead1)
@@ -444,18 +444,13 @@ class LongitudinalMpc:
                                    DANGER_ZONE_COST * dz_mult]
         # ────────────────────────────────────────────────────────────────
       else:
-        if v_ego < 0.1 or a_desired > 0.:
-          x_cost = interp(v_ego, [1., 10.], [0.1, X_EGO_COST])
-          v_cost = interp(v_ego, [1., 10.], [0.2, V_EGO_COST])
-          a_cost = interp(v_ego, [1., 10.], [5.0, A_EGO_COST])
-        else:
-          x_cost, v_cost, a_cost = 0., 0., 0.
-        cost_weights = [X_EGO_OBSTACLE_COST, x_cost, v_cost, a_cost, a_change_cost, J_EGO_COST]
+        cost_weights = [X_EGO_OBSTACLE_COST, X_EGO_COST, V_EGO_COST, A_EGO_COST, a_change_cost, J_EGO_COST]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, DANGER_ZONE_COST]
 
     elif self.mode == 'blended':
-      cost_weights = [0., 0.1, 0.2, 5.0, 0.0, 1.0]
-      constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, 50.0]
+      a_change_cost = 40.0 if prev_accel_constraint else 0.0
+      cost_weights = [0., 0.1, 0.2, 5.0, a_change_cost, 1.0]
+      constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, DANGER_ZONE_COST]
     else:
       raise NotImplementedError(f'Planner mode {self.mode} not recognized in planner cost set')
     self.set_cost_weights(cost_weights, constraint_cost_weights)
