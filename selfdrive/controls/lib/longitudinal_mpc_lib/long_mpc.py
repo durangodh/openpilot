@@ -541,13 +541,14 @@ class LongitudinalMpc:
 
     # neokii
     cruise_gap = int(clip(carstate.cruiseGap, 1., 4.)) if carstate.cruiseGap > 0 else AUTO_TR_CRUISE_GAP
-    if self.tfollow_gaps is not None and self.mode == 'acc':
+    if cruise_gap == AUTO_TR_CRUISE_GAP:
+      # GAP4는 Auto-Tuner 학습값보다 속도 기반 AUTO 값을 우선 적용한다.
+      tr = interp(carstate.vEgo, AUTO_TR_BP, AUTO_TR_V) if self.mode == 'acc' else T_FOLLOW
+    elif self.tfollow_gaps is not None and self.mode == 'acc':
       # ── CarrotPilot Auto-Tuner: 학습된 GAP별 추종거리 사용 ──────────────
-      # 학습 활성 시 GAP4(오토)도 학습값(TFollowGap4)으로 고정됩니다.
+      # GAP1~3에만 학습값을 적용하고 GAP4는 위 AUTO 분기에서 처리한다.
       tr = interp(float(cruise_gap), CRUISE_GAP_BP, self.tfollow_gaps)
       # ─────────────────────────────────────────────────────────────────
-    elif cruise_gap == AUTO_TR_CRUISE_GAP:
-      tr = interp(carstate.vEgo, AUTO_TR_BP, AUTO_TR_V) if self.mode == 'acc' else T_FOLLOW
     else:
       tr = interp(float(cruise_gap), CRUISE_GAP_BP, CRUISE_GAP_V if self.mode == 'acc' else CRUISE_GAP_E2E_V)
 
