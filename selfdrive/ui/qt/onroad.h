@@ -141,6 +141,8 @@ protected:
   QVector<int> carrot_navi_lane_types;
   QVector<int> carrot_navi_lane_active;
   bool carrot_navi_lanes_ahead = false;
+  QPixmap carrot_navi_lane_image;
+  qint64 carrot_navi_lane_image_mtime = 0;
   float lead_box_w = 0.0f, lead_box_x = 0.0f, lead_box_y = 0.0f;   // 리드박스 EMA
 
   // ── 팝업 애니메이션 (carrot ui_draw_text_a 이식) ──
