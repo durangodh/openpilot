@@ -460,6 +460,11 @@ class LongitudinalPlanner:
     longitudinalPlan.tFollow = float(self.mpc.t_follow)
     longitudinalPlan.desiredDistance = float(self.mpc.desired_distance)
     longitudinalPlan.mpcMode = 1 if self.mpc.mode == 'blended' else 0
+    # Expose the automatic E2E stop/depart state to the onroad UI.
+    # 0: inactive, 1: stopping/waiting, 2: preparing to depart.
+    e2e_state_active = self.auto_e2e_enabled and sm['controlsState'].enabled
+    longitudinalPlan.trafficState = (2 if self.auto_e2e_prepare else (1 if self.auto_e2e_stopping else 0)) if e2e_state_active else 0
+    longitudinalPlan.onStop = bool(e2e_state_active and self.auto_e2e_stopping)
     longitudinalPlan.visionTurnControllerState = self.vision_turn_controller.state
     longitudinalPlan.visionTurnSpeed = float(self.vision_turn_controller.v_turn)   # m/s, UI vturn 표시용
     longitudinalPlan.visionCurrentLatAcc = float(self.vision_turn_controller.current_lat_acc)
