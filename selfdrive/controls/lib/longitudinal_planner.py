@@ -18,7 +18,7 @@ from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.vision_turn_controller import VisionTurnController, VisionTurnControllerState
 from selfdrive.controls.lib.events import Events
 # ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──
-from selfdrive.controls.lib.carrot_learning import CarrotLearner, read_learned_accel_vals, read_learned_tfollow, read_learned_auto_tr
+from selfdrive.controls.lib.carrot_learning import CarrotLearner, read_learned_accel_vals, read_learned_tfollow
 
 GearShifter = car.CarState.GearShifter
 
@@ -32,13 +32,7 @@ A_CRUISE_MAX_BP = [0., 10., 25., 40.]
 # UI 의 모드 박스를 탭하면 1→2→3→4→1 로 순환한다 (onroad.cc).
 # 갭버튼은 순정 SCC 갭 기능 그대로 두고, 모드는 그 위에 배율로만 얹는다.
 #   ACCEL : 최대가속 배율 (감속 한계는 안전상 건드리지 않음)
-#   TF    : 추종거리 배율 (GAP1~3 고정값 / GAP4 AUTO 곡선 모두에 동일 적용)
-#
-# GAP4(AUTO) 기준 t_follow — AUTO_TR_V=[1.1, 1.25, 1.35, 1.5] @ [0,30,70,110]km/h
-#   ECO  : 1.16 / 1.31 / 1.42 / 1.58
-#   SAFE : 1.43 / 1.63 / 1.76 / 1.95
-#   NORM : 1.10 / 1.25 / 1.35 / 1.50
-#   FAST : 0.97 / 1.10 / 1.19 / 1.32
+#   TF    : GAP1~4 단계별 추종거리 위에 모드 배율 적용
 MY_DRIVING_MODE_ACCEL = {1: 0.75, 2: 0.90, 3: 1.00, 4: 1.25}
 MY_DRIVING_MODE_TF    = {1: 0.90, 2: 0.80, 3: 1.00, 4: 1.00}
 # ──────────────────────────────────────────────────────────────────────────
@@ -148,10 +142,8 @@ class LongitudinalPlanner:
     if self.params.get_bool("CarrotLearningActive"):
       self.learned_accel_vals = read_learned_accel_vals(self.params)
       self.mpc.tfollow_gaps = read_learned_tfollow(self.params)
-      self.mpc.auto_tr_values = read_learned_auto_tr(self.params)
     else:
       self.learned_accel_vals = list(A_CRUISE_MAX_VALS)
-      self.mpc.auto_tr_values = None
 
   def update_auto_e2e_mode(self, car_state, radar_state, model_msg):
     if not self.auto_e2e_enabled:
