@@ -74,6 +74,20 @@ cdef class Params:
       r = self.p.getBool(k)
     return r
 
+  def get_int(self, key, default=0):
+    value = self.get(key, encoding='utf8')
+    try:
+      return int(value) if value is not None else default
+    except (TypeError, ValueError):
+      return default
+
+  def get_float(self, key, default=0.0):
+    value = self.get(key, encoding='utf8')
+    try:
+      return float(value) if value is not None else default
+    except (TypeError, ValueError):
+      return default
+
   def put(self, key, dat):
     """
     Warning: This function blocks until the param is written to disk!
