@@ -573,6 +573,63 @@ static bool carrotJsonBool(const QJsonObject &object,
   return text == "true" || text == "yes" || text == "active" || text == "recommended";
 }
 
+// Normalize lane directions from nMirror/Tmap. Lane direction values can be
+// numbers, strings, or arrays depending on the APK version.
+static int carrotLaneTypeValue(const QJsonValue &value) {
+  if (value.isDouble()) return value.toInt();
+
+  if (value.isArray()) {
+    bool straight = false;
+    bool left = false;
+    bool right = false;
+    bool uturn = false;
+    int fallback = 0;
+    bool has_value = false;
+    for (const QJsonValue &item : value.toArray()) {
+      const int type = carrotLaneTypeValue(item);
+      has_value = true;
+      fallback = type;
+      straight |= type == 0 || type == 20 || type == 21;
+      left |= type == 12 || type == 16 || type == 20;
+      right |= type == 13 || type == 18 || type == 21;
+      uturn |= type == 14;
+    }
+    if (uturn) return 14;
+    if (straight && left) return 20;
+    if (straight && right) return 21;
+    if (left && right) return 22;
+    return has_value ? fallback : 0;
+  }
+
+  const QString text = value.toString().trimmed().toLower();
+  if (text.isEmpty()) return 0;
+
+  bool numeric = false;
+  const int numeric_type = text.toInt(&numeric);
+  if (numeric) return numeric_type;
+
+  const bool uturn = text.contains("uturn") || text.contains("u-turn") ||
+                     text.contains(QString::fromUtf8("유턴"));
+  const bool straight = text.contains("straight") || text.contains("through") ||
+                        text.contains("forward") || text.contains(QString::fromUtf8("직진")) ||
+                        text.contains(QString::fromUtf8("직좌")) ||
+                        text.contains(QString::fromUtf8("좌직")) ||
+                        text.contains(QString::fromUtf8("직우")) ||
+                        text.contains(QString::fromUtf8("우직"));
+  const bool left = text.contains("left") || text.contains(QString::fromUtf8("좌"));
+  const bool right = text.contains("right") || text.contains(QString::fromUtf8("우"));
+
+  if (uturn) return 14;
+  if (straight && left) return 20;   // straight + left
+  if (straight && right) return 21;  // straight + right
+  if (left && right) return 22;      // left + right
+  if (text.contains("slight_left") || text.contains("slight left")) return 16;
+  if (text.contains("slight_right") || text.contains("slight right")) return 18;
+  if (left) return 12;
+  if (right) return 13;
+  return 0;
+}
+
 // The Tmap bridge has used both array and object lane payloads.  Normalize the
 // common spellings here so old and new APK builds can share the same UI.
 static void parseCarrotLanes(const QJsonValue &value, QVector<int> &types,
@@ -588,7 +645,7 @@ static void parseCarrotLanes(const QJsonValue &value, QVector<int> &types,
   } else if (value.isObject()) {
     wrapper = value.toObject();
     const QJsonValue lane_value = carrotFirstJsonValue(
-      wrapper, {"lanes", "items", "lane_items", "laneItems", "data"});
+      wrapper, {"lanes", "lane_info", "laneInfo", "items", "lane_items", "laneItems", "data"});
     if (lane_value.isArray()) lanes = lane_value.toArray();
   }
 
@@ -600,15 +657,16 @@ static void parseCarrotLanes(const QJsonValue &value, QVector<int> &types,
       bool recommended = false;
       if (lane.isObject()) {
         const QJsonObject item = lane.toObject();
-        type = carrotFirstJsonValue(item, {"turn_type", "turnType", "lane_type",
-                                           "laneType", "direction", "type"}).toInt();
+        type = carrotLaneTypeValue(carrotFirstJsonValue(
+          item, {"turn_type", "turnType", "lane_type", "laneType",
+                 "direction", "directions", "type"}));
         recommended = carrotJsonBool(item, {"recommended", "is_recommended",
                                              "isRecommended", "active", "is_active",
                                              "isActive", "selected", "usable"});
       } else if (lane.isBool()) {
         recommended = lane.toBool();
-      } else if (lane.isDouble()) {
-        type = lane.toInt();
+      } else if (lane.isDouble() || lane.isString() || lane.isArray()) {
+        type = carrotLaneTypeValue(lane);
       }
       types.push_back(type);
       active.push_back(recommended ? 1 : 0);
@@ -621,7 +679,7 @@ static void parseCarrotLanes(const QJsonValue &value, QVector<int> &types,
     if (count <= 0) count = direction_values.size();
     count = std::max(0, std::min(8, count));
     for (int i = 0; i < count; ++i) {
-      types.push_back(i < direction_values.size() ? direction_values.at(i).toInt() : 0);
+      types.push_back(i < direction_values.size() ? carrotLaneTypeValue(direction_values.at(i)) : 0);
       active.push_back(0);
     }
   }
@@ -736,7 +794,10 @@ static QString carrotDistanceText(int meters) {
   return QString("%1 km").arg(meters / 1000.0, 0, 'f', meters < 10000 ? 1 : 0);
 }
 
-enum class CarrotTurnDirection { STRAIGHT, LEFT, RIGHT, UTURN, SLIGHT_LEFT, SLIGHT_RIGHT, ARRIVE };
+enum class CarrotTurnDirection {
+  STRAIGHT, LEFT, RIGHT, STRAIGHT_LEFT, STRAIGHT_RIGHT, LEFT_RIGHT,
+  UTURN, SLIGHT_LEFT, SLIGHT_RIGHT, ARRIVE
+};
 
 enum class CarrotAtcKind { NONE, TURN, FORK, UTURN, ROTARY };
 
@@ -788,6 +849,9 @@ static CarrotAtcKind carrotAtcKind(int type, const QString &text, int *direction
 
 static CarrotTurnDirection carrotTurnDirection(int type, const QString &text) {
   const QString value = text.toLower();
+  if (type == 20) return CarrotTurnDirection::STRAIGHT_LEFT;
+  if (type == 21) return CarrotTurnDirection::STRAIGHT_RIGHT;
+  if (type == 22) return CarrotTurnDirection::LEFT_RIGHT;
   if (value.contains(QString::fromUtf8("유턴")) || value.contains("u-turn") || type == 14) return CarrotTurnDirection::UTURN;
   if (value.contains(QString::fromUtf8("목적지")) || value.contains(QString::fromUtf8("도착")) || type == 2) return CarrotTurnDirection::ARRIVE;
   if (value.contains(QString::fromUtf8("왼쪽 방향")) || value.contains(QString::fromUtf8("좌측 방향")) ||
@@ -812,6 +876,38 @@ static void drawCarrotTurnArrow(QPainter &p, const QRect &box, int type, const Q
     p.setBrush(Qt::NoBrush);
     p.drawEllipse(c, s * 0.85, s * 0.85);
     return;
+  } else if (direction == CarrotTurnDirection::STRAIGHT_LEFT ||
+             direction == CarrotTurnDirection::STRAIGHT_RIGHT ||
+             direction == CarrotTurnDirection::LEFT_RIGHT) {
+    const bool draw_straight = direction != CarrotTurnDirection::LEFT_RIGHT;
+    const bool draw_left = direction == CarrotTurnDirection::STRAIGHT_LEFT ||
+                           direction == CarrotTurnDirection::LEFT_RIGHT;
+    const bool draw_right = direction == CarrotTurnDirection::STRAIGHT_RIGHT ||
+                            direction == CarrotTurnDirection::LEFT_RIGHT;
+
+    if (draw_straight) {
+      path.moveTo(c.x(), c.y() + s);
+      path.lineTo(c.x(), c.y() - s);
+      path.moveTo(c.x() - s * 0.35, c.y() - s * 0.6);
+      path.lineTo(c.x(), c.y() - s);
+      path.lineTo(c.x() + s * 0.35, c.y() - s * 0.6);
+    }
+    if (draw_left) {
+      path.moveTo(c.x(), c.y() + s * 0.25);
+      path.lineTo(c.x(), c.y() - s * 0.15);
+      path.lineTo(c.x() - s, c.y() - s * 0.15);
+      path.moveTo(c.x() - s * 0.55, c.y() - s * 0.5);
+      path.lineTo(c.x() - s, c.y() - s * 0.15);
+      path.lineTo(c.x() - s * 0.55, c.y() + s * 0.2);
+    }
+    if (draw_right) {
+      path.moveTo(c.x(), c.y() + s * 0.25);
+      path.lineTo(c.x(), c.y() - s * 0.15);
+      path.lineTo(c.x() + s, c.y() - s * 0.15);
+      path.moveTo(c.x() + s * 0.55, c.y() - s * 0.5);
+      path.lineTo(c.x() + s, c.y() - s * 0.15);
+      path.lineTo(c.x() + s * 0.55, c.y() + s * 0.2);
+    }
   } else if (direction == CarrotTurnDirection::UTURN) {
     path.moveTo(c.x() + s * 0.55, c.y() + s);
     path.lineTo(c.x() + s * 0.55, c.y() - s * 0.25);
