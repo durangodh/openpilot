@@ -393,10 +393,10 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   QLinearGradient bg(path_left, 0, path_right, 0);
   const bool e2e_mode = sm["longitudinalPlan"].getLongitudinalPlan().getMpcMode() == 1;
   if (e2e_mode) {
-    // Former laneless palette.
-    bg.setColorAt(0.0, QColor::fromHslF(148 / 360., 0.94, 0.51, 0.65));
-    bg.setColorAt(0.5, QColor::fromHslF(112 / 360., 1.0, 0.68, 0.12));
-    bg.setColorAt(1.0, QColor::fromHslF(148 / 360., 0.94, 0.51, 0.65));
+    // Yellow e2e palette.
+    bg.setColorAt(0.0, QColor::fromHslF(48 / 360., 0.95, 0.55, 0.65));
+    bg.setColorAt(0.5, QColor::fromHslF(55 / 360., 1.0, 0.68, 0.12));
+    bg.setColorAt(1.0, QColor::fromHslF(48 / 360., 0.95, 0.55, 0.65));
   } else {
     // Former lane-mode palette.
     bg.setColorAt(0.0, QColor::fromHslF(197 / 360., 1.0, 0.55, 0.7));
