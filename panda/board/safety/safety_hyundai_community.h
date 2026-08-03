@@ -7,6 +7,11 @@ int EMS11_op = 0;
 int MDPS_bus = -1;
 int SCC_bus = -1;
 
+// Keep panda's longitudinal envelope aligned with CarControllerParams.
+// SCC12 encodes acceleration in 1/100 m/s^2.
+const int HYUNDAI_COMMUNITY_MAX_ACCEL = 250;
+const int HYUNDAI_COMMUNITY_MIN_ACCEL = -400;
+
 const CanMsg HYUNDAI_COMMUNITY_TX_MSGS[] = {
   {593, 2, 8},                              // MDPS12, Bus 2
 //  {897, 0, 8},                              // MDPS11, Bus 0
@@ -169,8 +174,6 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
 }
 
 static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_allowed) {
-  UNUSED(longitudinal_allowed);
-
   int tx = 1;
   int addr = GET_ADDR(to_send);
   int bus = GET_BUS(to_send);
@@ -183,6 +186,38 @@ static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_all
   if (relay_malfunction) {
     tx = 0;
     puts("  CAN TX not allowed LKAS on bus0\n");
+  }
+
+  // FCA11: never allow openpilot to request AEB actuation.
+  if (addr == 909) {
+    int aeb_decel_cmd = GET_BYTE(to_send, 1);
+    int fca_cmd_act = (GET_BYTE(to_send, 2) >> 5) & 1U;
+    int aeb_decel_cmd_act = (GET_BYTE(to_send, 3) >> 7) & 1U;
+
+    if ((aeb_decel_cmd != 0) || (fca_cmd_act != 0) || (aeb_decel_cmd_act != 0)) {
+      tx = 0;
+    }
+  }
+
+  // SCC12: enforce the same -4.0 to +2.5 m/s^2 range used by controls.
+  // When longitudinal actuation is not allowed, both requests must be zero.
+  if (addr == 1057) {
+    int desired_accel_raw = (((GET_BYTE(to_send, 4) & 0x7U) << 8) | GET_BYTE(to_send, 3)) - 1023;
+    int desired_accel_val = ((GET_BYTE(to_send, 5) << 3) | (GET_BYTE(to_send, 4) >> 5)) - 1023;
+    int aeb_decel_cmd = GET_BYTE(to_send, 2);
+    int aeb_req = (GET_BYTE(to_send, 6) >> 6) & 1U;
+
+    bool violation = false;
+    if (!longitudinal_allowed) {
+      violation |= (desired_accel_raw != 0) || (desired_accel_val != 0);
+    }
+    violation |= max_limit_check(desired_accel_raw, HYUNDAI_COMMUNITY_MAX_ACCEL, HYUNDAI_COMMUNITY_MIN_ACCEL);
+    violation |= max_limit_check(desired_accel_val, HYUNDAI_COMMUNITY_MAX_ACCEL, HYUNDAI_COMMUNITY_MIN_ACCEL);
+    violation |= (aeb_decel_cmd != 0) || (aeb_req != 0);
+
+    if (violation) {
+      tx = 0;
+    }
   }
 
   // LKA STEER: safety check
