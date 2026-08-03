@@ -98,6 +98,9 @@ class SccSmoother:
     self._pause_auto_speed_up = False
     self.auto_gas_resume_guard = True
     self.carrot_atc = CarrotNaviAtc()
+    self.initial_gap_applied = False
+    self.initial_gap_next_frame = 0
+    self.initial_gap_attempts = 0
 
   def read_param(self):
     self.longcontrol = self.params.get_bool('LongControlEnabled')
@@ -107,6 +110,11 @@ class SccSmoother:
     self.e2e_long = self.params.get_bool('ExperimentalMode')
     self.autoascc = self.params.get_bool('AutoAscc')
     self.auto_gas_resume_guard = self.params.get_bool('AutoGasResumeGuard')
+    initial_gap = int(clip(self.params.get_int("InitialCruiseGap"), 0, 4))
+    if hasattr(self, "initial_cruise_gap") and initial_gap != self.initial_cruise_gap:
+      self.initial_gap_applied = False
+      self.initial_gap_attempts = 0
+    self.initial_cruise_gap = initial_gap
     # AutoSpeedUptoRoadSpeedLimit : 도로제한속도 대비 자동 증속 상한(%). 0 = 사용 안함
     try:
       self.auto_speed_up_ratio = float(self.params.get("AutoSpeedUptoRoadSpeedLimit", encoding="utf8") or "0") * 0.01
@@ -243,6 +251,21 @@ class SccSmoother:
 
     ascc_enabled = CS.acc_mode and enabled and CS.cruiseState_enabled \
                    and 1 < CS.cruiseState_speed < 255 and not CS.brake_pressed
+
+    # Hyundai SCC commonly starts at GAP4 after ignition. If requested, send
+    # isolated GAP button presses until the first active-cruise gap matches the
+    # configured value. Once matched, never force it again during this drive.
+    if self.initial_cruise_gap == 0:
+      self.initial_gap_applied = True
+    elif not self.initial_gap_applied and ascc_enabled:
+      current_gap = int(clip(CS.out.cruiseGap, 1, 4))
+      if current_gap == self.initial_cruise_gap:
+        self.initial_gap_applied = True
+      elif frame >= self.initial_gap_next_frame and self.initial_gap_attempts < 4:
+        can_sends.append(SccSmoother.create_clu11(packer, CS.scc_bus, CS.clu11, Buttons.GAP_DIST))
+        self.initial_gap_attempts += 1
+        self.initial_gap_next_frame = frame + int(0.4 / DT_CTRL)
+        return
 
     # Auto-resume Cruise Set Speed by JangPoo
     dRel = 0.

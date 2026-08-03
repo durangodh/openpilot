@@ -2474,6 +2474,9 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(new ParamValueControlF("TFollowDecelBoost",
       "TR Decel Boost", "감속 중 TR 유지·추가 확보 비율 (×0.01). 기본값: 10",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 10, this));
+  list->addItem(new ParamValueControlF("InitialCruiseGap",
+      "Initial Cruise Gap", "시동 후 처음 크루즈가 활성화될 때 GAP을 자동 조정합니다. 0: 차량 기본값, 1~4: 목표 GAP",
+      "../assets/offroad/icon_openpilot.png", 0, 4, 1, 0, 0, this));
 
   list->addItem(new ParamValueControlF("LongTuningKpV",
       "Longitudinal Kp", "속도 오차 비례 게인 (×0.01). 기본값: 100 (=1.00)",
