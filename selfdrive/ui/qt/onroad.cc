@@ -861,7 +861,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   p.setRenderHint(QPainter::Antialiasing);
   p.setRenderHint(QPainter::TextAntialiasing);
   // 우측 내비 패널
-  const int panel_y = 307;                 // 휠 아이콘과 22px 추가 간격
+  const int panel_y = 78;                  // 상단 정보줄 아래 18px 간격
   const int panel_bottom = height() - 5;  // 좌측 HUD 하단과 동일, 상태바 위
   const int panel_h = panel_bottom - panel_y;
 
@@ -1266,50 +1266,6 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
     }
   }
 
-  // engage-ability icon
-  {
-    const auto tpms = car_state.getTpms();
-    const float steer_angle = car_state.getSteeringAngleDeg();
-    const int wheel_x = rect().right() - radius / 2 - bdr_s * 2 - 25;
-    const int wheel_y = radius / 2 + int(bdr_s * 1.5) + 45;
-
-    QColor engageBgColor = bg_colors[uiState()->status];
-    engageBgColor.setAlpha(166);
-    drawIcon(p, wheel_x, wheel_y,
-             experimentalMode ? experimental_img : engage_img,
-             engageBgColor, 1.0,
-             true,
-             steer_angle);
-
-    // 휠 아이콘 네 모서리에 FL/FR/RL/RR 공기압 숫자만 표시한다.
-    const auto pressure_valid = [](float pressure) {
-      return std::isfinite(pressure) && pressure >= 5.0f && pressure <= 60.0f;
-    };
-    const auto pressure_text = [&pressure_valid](float pressure) {
-      return pressure_valid(pressure) ? QString::number(qRound(pressure)) : QString("--");
-    };
-    const auto pressure_color = [&pressure_valid](float pressure) {
-      return pressure_valid(pressure) && pressure < 30.0f
-        ? QColor(255, 80, 80, 255) : QColor(255, 255, 255, 235);
-    };
-
-    configFont(p, "Open Sans", 30, "SemiBold");
-    const int pressure_x = 92;
-    const int pressure_y = 66;
-    QColor fl_color = pressure_color(tpms.getFl());
-    QColor fr_color = pressure_color(tpms.getFr());
-    QColor rl_color = pressure_color(tpms.getRl());
-    QColor rr_color = pressure_color(tpms.getRr());
-
-    drawTextWithColor(p, wheel_x - pressure_x, wheel_y - pressure_y,
-                      pressure_text(tpms.getFl()), fl_color);
-    drawTextWithColor(p, wheel_x + pressure_x, wheel_y - pressure_y,
-                      pressure_text(tpms.getFr()), fr_color);
-    drawTextWithColor(p, wheel_x - pressure_x, wheel_y + pressure_y,
-                      pressure_text(tpms.getRl()), rl_color);
-    drawTextWithColor(p, wheel_x + pressure_x, wheel_y + pressure_y,
-                      pressure_text(tpms.getRr()), rr_color);
-  }
 
   p.restore();
 }
