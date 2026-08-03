@@ -45,7 +45,6 @@ ACADOS_SOLVER_TYPE = 'SQP_RTI'
 
 CRUISE_GAP_BP = [1., 2., 3., 4.]
 CRUISE_GAP_V = [1.1, 1.2, 1.4, 1.6]
-CRUISE_GAP_E2E_V = [1.3, 1.45, 1.6, 1.8]
 
 DIFF_RADAR_VISION = 1.0
 
@@ -60,7 +59,7 @@ T_DIFFS = np.diff(T_IDXS, prepend=[0.])
 MIN_ACCEL = -4.0
 MAX_ACCEL = 2.5
 T_FOLLOW = 1.45
-COMFORT_BRAKE = 2.5
+COMFORT_BRAKE = 2.4
 STOP_DISTANCE = 6.0
 STOP_DISTANCE_E2E = 6.0
 
@@ -79,20 +78,6 @@ HIGH_SPEED_BRAKE_KPH = 70.0          # 이 속도(km/h) 이상에서만 선제 �
 HIGH_SPEED_BRAKE_TTC = 7.0           # 접근 TTC(초)가 이 값 미만이면 활성
 HIGH_SPEED_TF_BOOST  = 0.0          # disabled in the c3-wip cost model
 # ────────────────────────────────────────────────────────────────────────────
-
-# ── 속도-가변 차간거리 (commit dff7287 포팅, 원본 carrot_functions.py get_T_FOLLOW) ──
-# 고정 stop_distance가 저속 time-gap을 부풀려 'time-gap 역전'이 생긴다
-# (예: 5-15kph 3.4s vs 45kph+ 1.6s → 저속이 과도하게 넓고 중고속은 좁음). 속도가
-# 낮을수록 t_follow를 약간 줄여(≤30 좁게) 저속 간격을 당기고, 높을수록 늘려
-# (≥30 넓게) time-gap을 정상화한다 (저속 좁게 / 고속 넓게).
-# 원본은 GAP별 tr 산출 함수(get_T_FOLLOW) 내부 clip 이후에 적용해 clip 하한에
-# 막히지 않게 했다. 이 포크는 그 함수가 없으므로 update()에서 GAP별 tr(=tr_base)
-# 계산 직후, HF/rate-limiter 적용 전에 동일하게 적용한다.
-_SPDTF_BP    = [20.0, 32.0, 50.0, 80.0]   # 속도 보간점(km/h)
-_SPDTF_DELTA = [0.0, 0.0, 0.0, 0.0]
-_SPDTF_MIN   = 0.55                        # 보정 후 t_follow 안전 하한(초)
-# ────────────────────────────────────────────────────────────────────────────
-
 
 def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, krkeegan=False):
   if not krkeegan:
@@ -536,15 +521,15 @@ class LongitudinalMpc:
 
     # neokii
     cruise_gap = int(clip(carstate.cruiseGap, 1., 4.)) if carstate.cruiseGap > 0 else 4
-    if self.tfollow_gaps is not None and self.mode == 'acc':
+    if self.tfollow_gaps is not None:
       # ── CarrotPilot Auto-Tuner: 학습된 GAP별 추종거리 사용 ──────────────
       # GAP1~4 모두 단계별 TFollowGap 값을 적용한다.
       tr = interp(float(cruise_gap), CRUISE_GAP_BP, self.tfollow_gaps)
       # ─────────────────────────────────────────────────────────────────
     else:
-      tr = interp(float(cruise_gap), CRUISE_GAP_BP, CRUISE_GAP_V if self.mode == 'acc' else CRUISE_GAP_E2E_V)
+      tr = interp(float(cruise_gap), CRUISE_GAP_BP, CRUISE_GAP_V)
 
-    # ── MyDrivingMode: GAP(AUTO 포함)으로 정해진 base 추종거리에 모드 배율 적용 ──
+    # ── MyDrivingMode: GAP1~4 base 추종거리에 캐럿 모드 배율 적용 ──────────
     tr *= self.driving_mode_tf
     if self.enable_speed_tf > 0:
       reduce = self.enable_speed_tf * 0.01
@@ -564,16 +549,6 @@ class LongitudinalMpc:
       tr = min(tr, self._tf_applied + 0.1 * 0.05)
     self._tf_applied = float(tr)
     # ────────────────────────────────────────────────────────────────────
-
-    # ── 속도-가변 차간거리 (commit dff7287 포팅) ────────────────────────────
-    # 고정 stop_distance로 인한 저속 time-gap 역전 보정: 저속(≤30km/h)은 t_follow를
-    # 줄여 간격을 좁히고, 고속(≥30km/h)은 늘려 넓힌다. GAP/학습값 기반 tr(base) 위에
-    # 적용하며, 이후 HF·rate-limiter·Lever A가 이 조정된 base를 그대로 이어받는다.
-    # (acc 모드 전용; e2e는 별도 CRUISE_GAP_E2E_V 튜닝값을 쓰므로 대상에서 제외)
-    if self.mode == 'acc':
-      v_kph = v_ego * CV.MS_TO_KPH
-      tr = max(tr + float(interp(v_kph, _SPDTF_BP, _SPDTF_DELTA)), _SPDTF_MIN)
-    # ─────────────────────────────────────────────────────────────────────
 
     self.t_follow = tr
     self.desired_distance = float(tr * v_ego + STOP_DISTANCE)   # UI 표시용
