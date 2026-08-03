@@ -4,7 +4,7 @@ from cereal import log
 from common.realtime import DT_MDL
 from common.conversions import Conversions as CV
 from common.params import Params
-from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc
+from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc, AtcForkLaneChangeController
 
 AUTO_LCA_START_TIME = 1.0
 
@@ -59,7 +59,23 @@ class DesireHelper:
     self.prev_lane_change = False
     self.road_edge = False
     self.carrot_atc = CarrotNaviAtc()
+    self.atc_fork_controller = AtcForkLaneChangeController()
     self.carrot_atc_mode = 0
+
+  @staticmethod
+  def _road_edge_detected(model_data, direction):
+    if model_data is None or direction not in (-1, 1):
+      return True
+    blinker_index = 0 if direction < 0 else 1
+    desired_edge = model_data.roadEdges[blinker_index]
+    current_lane = model_data.laneLines[blinker_index + 1]
+    if not all([desired_edge.x, desired_edge.y, current_lane.x, current_lane.y]) or \
+       len(desired_edge.x) != len(current_lane.x):
+      return True
+    x = np.linspace(desired_edge.x[0], desired_edge.x[-1], num=len(desired_edge.x))
+    lane_y = np.interp(x, current_lane.x, current_lane.y)
+    desired_y = np.interp(x, desired_edge.x, desired_edge.y)
+    return not (np.amax(np.abs(desired_y - lane_y)) > 3.0)
 
   def update(self, carstate, lateral_active, lane_change_prob, model_data=None):
     t = time.monotonic()
@@ -90,30 +106,29 @@ class DesireHelper:
                           (atc_direction > 0 and carstate.leftBlinker)
     if opposite_torque or conflicting_blinker:
       atc_direction = 0
-    atc_fork = atc_direction != 0 and atc_state['kind'] == 'fork' and \
-               20.0 <= atc_state['distance'] <= min(350.0, max(160.0, v_ego * 12.0))
-    left_blinker = carstate.leftBlinker or (atc_fork and atc_direction < 0)
-    right_blinker = carstate.rightBlinker or (atc_fork and atc_direction > 0)
+    # Latest carrot-style exit gating adapted to this fork's simpler model:
+    # right exits only, arm at the last lane, then request one change when the
+    # exit lane opens. Keep the request alive while BSD blocks it.
+    right_lane_open = not self._road_edge_detected(model_data, 1)
+    if atc_steering:
+      atc_fork_direction = self.atc_fork_controller.update(
+        atc_state, v_ego, right_lane_open,
+        driver_cancel=opposite_torque or conflicting_blinker,
+        lane_change_started=self.lane_change_state == LaneChangeState.laneChangeStarting,
+        lane_change_finished=self.lane_change_state == LaneChangeState.laneChangeFinishing,
+      )
+    else:
+      self.atc_fork_controller.reset()
+      atc_fork_direction = 0
+    left_blinker = carstate.leftBlinker
+    right_blinker = carstate.rightBlinker or atc_fork_direction > 0
     one_blinker = left_blinker != right_blinker
     below_lane_change_speed = v_ego < LANE_CHANGE_SPEED_MIN
 
-    # Road edge detection (FrogAi method)
-    if one_blinker and model_data is not None:
-      min_lane_threshold = 3.0
-      blinker_index = 0 if left_blinker else 1
-      desired_edge = model_data.roadEdges[blinker_index]
-      current_lane = model_data.laneLines[blinker_index + 1]
-      if all([desired_edge.x, desired_edge.y, current_lane.x, current_lane.y]) and \
-         len(desired_edge.x) == len(current_lane.x):
-        x = np.linspace(desired_edge.x[0], desired_edge.x[-1], num=len(desired_edge.x))
-        lane_y = np.interp(x, current_lane.x, current_lane.y)
-        desired_y = np.interp(x, desired_edge.x, desired_edge.y)
-        lane_width = np.abs(desired_y - lane_y)
-        self.road_edge = not (np.amax(lane_width) > min_lane_threshold)
-      else:
-        self.road_edge = True
-    else:
-      self.road_edge = False
+    # Driver lane changes retain the original road-edge gate. ATC only raises
+    # its virtual blinker after the controller has already observed an open lane.
+    direction = -1 if left_blinker else 1 if right_blinker else 0
+    self.road_edge = self._road_edge_detected(model_data, direction) if direction else False
 
     if (not lateral_active) or (self.lane_change_timer > LANE_CHANGE_TIME_MAX) or \
        (not one_blinker) or (not self.lane_change_enabled):
@@ -218,3 +233,4 @@ class DesireHelper:
         self.keep_pulse_timer = 0.0
       elif self.desire in (log.LateralPlan.Desire.keepLeft, log.LateralPlan.Desire.keepRight):
         self.desire = log.LateralPlan.Desire.none
+
