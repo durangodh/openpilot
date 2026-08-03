@@ -253,6 +253,10 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"TFollowGap2", PERSISTENT},               // GAP2 (기본 140)
     {"TFollowGap3", PERSISTENT},               // GAP3 (기본 200)
     {"TFollowGap4", PERSISTENT},               // GAP4/오토 (기본 200)
+    {"AutoTrValue0", PERSISTENT},              // GAP4 AUTO 0km/h 기준값 (기본 110 = 1.10s)
+    {"AutoTrValue1", PERSISTENT},              // GAP4 AUTO 30km/h 기준값 (기본 125 = 1.25s)
+    {"AutoTrValue2", PERSISTENT},              // GAP4 AUTO 70km/h 기준값 (기본 135 = 1.35s)
+    {"AutoTrValue3", PERSISTENT},              // GAP4 AUTO 110km/h 기준값 (기본 150 = 1.50s)
     // ── Auto-Tuner Phase 6: 비전 커브 감속 학습 (vision_turn_controller.py) ──
     // 모두 x100 정수 저장 (m/s^2), carrot_learning.py의 _TURN_*_DEFAULTS와 동일 기본값.
     {"TurnEnteringDecel0", PERSISTENT},        // ENTERING 예측lat 1.3~ (기본 -10 = -0.10m/s^2)

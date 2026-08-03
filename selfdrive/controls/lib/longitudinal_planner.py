@@ -18,7 +18,7 @@ from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.vision_turn_controller import VisionTurnController, VisionTurnControllerState
 from selfdrive.controls.lib.events import Events
 # ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──
-from selfdrive.controls.lib.carrot_learning import CarrotLearner, read_learned_accel_vals, read_learned_tfollow
+from selfdrive.controls.lib.carrot_learning import CarrotLearner, read_learned_accel_vals, read_learned_tfollow, read_learned_auto_tr
 
 GearShifter = car.CarState.GearShifter
 
@@ -143,9 +143,11 @@ class LongitudinalPlanner:
     if self.params.get_bool("CarrotLearningActive"):
       self.learned_accel_vals = read_learned_accel_vals(self.params)
       self.mpc.tfollow_gaps = read_learned_tfollow(self.params)
+      self.mpc.auto_tr_values = read_learned_auto_tr(self.params)
     else:
       self.learned_accel_vals = list(A_CRUISE_MAX_VALS)
       self.mpc.tfollow_gaps = None
+      self.mpc.auto_tr_values = None
 
   def get_max_accel_learned(self, v_ego):
     return interp(v_ego, A_CRUISE_MAX_BP, self.learned_accel_vals)

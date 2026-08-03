@@ -119,9 +119,13 @@ _PATH_OFFSET_DEG_THRESHOLD = 1.5          # 평균 편차 이 이상이면 추�
 _PATH_OFFSET_M_PER_DEG = 0.01             # 1도 편차 ≈ 0.01m 보정 (실험값)
 _PATH_OFFSET_LIMIT = 0.15                 # ±0.15m 제한
 
-# ── Phase 4 상수: CRUISE_GAP_V x100 ──
+# ── Phase 4 상수: CRUISE_GAP_V / GAP4 AUTO_TR_V x100 ──
 _TFOLLOW_KEYS = ["TFollowGap1", "TFollowGap2", "TFollowGap3", "TFollowGap4"]
 _TFOLLOW_DEFAULTS = [100, 140, 200, 200]  # CRUISE_GAP_V = [1.0, 1.4, 2.0, 2.0]
+_AUTO_TR_KEYS = ["AutoTrValue0", "AutoTrValue1", "AutoTrValue2", "AutoTrValue3"]
+_AUTO_TR_DEFAULTS = [110, 125, 135, 150]  # AUTO_TR_V = [1.1, 1.25, 1.35, 1.5]
+_AUTO_TR_BP_KPH = [0.0, 30.0, 70.0, 110.0]
+_AUTO_TR_LEARN_MIN_V_KPH = 5.0
 _TFOLLOW_GAS_THRESHOLD_SEC = 15.0
 _TFOLLOW_BRAKE_THRESHOLD_SEC = 10.0
 _TFOLLOW_MIN_V_KPH = 40.0
@@ -270,6 +274,7 @@ _KEY_RESET_PHASE = {
   **{k: 1 for k in _ACCEL_KEYS},
   "OffsetTotal": 2,
   **{k: 4 for k in _TFOLLOW_KEYS},
+  **{k: 4 for k in _AUTO_TR_KEYS},
   _LONG_ACT_DELAY_KEY: 4, _LONG_KF_KEY: 4,
   "latAccelFactor": 5, "friction": 5, "steerActuatorDelay": 5, "steerRatio": 5,
   **{k: 6 for k in _TURN_ENTERING_KEYS},
@@ -412,6 +417,14 @@ def read_learned_tfollow(params):
           for i in range(4)]
 
 
+def read_learned_auto_tr(params):
+  """GAP4 속도 기반 AUTO 추종거리 (초 리스트, 길이 4, 오름차순 보장)."""
+  vals = [float(np.clip(_get_int(params, _AUTO_TR_KEYS[i], _AUTO_TR_DEFAULTS[i]),
+                        _TFOLLOW_MIN, _TFOLLOW_MAX)) / 100.0
+          for i in range(4)]
+  return np.maximum.accumulate(vals).tolist()
+
+
 def _speed_band(v_ego_kph):
   for i in range(_NUM_BANDS - 1, -1, -1):
     if v_ego_kph >= _BP_KPH[i]:
@@ -461,6 +474,9 @@ class CarrotLearner:
     self._tfollow_brake_acc = [0.0] * 4
     self._tfollow_brake_late = [0.0] * 4   # 추종 중 '늦은(긴급)' 브레이크 누적 (longKf 보강 전용, commit 1e95637)
     self._tfollow_min_gap = [999.0] * 4
+    self._auto_tr_gas_acc = [0.0] * 4
+    self._auto_tr_brake_acc = [0.0] * 4
+    self._auto_tr_min_gap = [999.0] * 4
     self._lead_proactive_count = 0   # 선제(교육용) 제동 이벤트 수 (commit 00b70cd 적응)
     self._current_gap = 4
     # Phase 5 (토크 조향)
@@ -577,16 +593,22 @@ class CarrotLearner:
       self._steer_count += 1
 
     # ── Phase 4: 선행차 추종 중 페달 개입 ──
-    if apply_long and engaged and v_ego_kph >= _TFOLLOW_MIN_V_KPH \
+    auto_gap = self._current_gap == 4
+    learn_min_v = _AUTO_TR_LEARN_MIN_V_KPH if auto_gap else _TFOLLOW_MIN_V_KPH
+    if apply_long and engaged and v_ego_kph >= learn_min_v \
        and 0.0 < lead_drel < _TFOLLOW_MAX_LEAD_DREL:
       gi = self._current_gap - 1
+      learn_i = _band_index(v_ego_kph, _AUTO_TR_BP_KPH) if auto_gap else gi
+      gas_acc = self._auto_tr_gas_acc if auto_gap else self._tfollow_gas_acc
+      brake_acc = self._auto_tr_brake_acc if auto_gap else self._tfollow_brake_acc
+      min_gap = self._auto_tr_min_gap if auto_gap else self._tfollow_min_gap
       if gas_pressed and not exclude:
-        self._tfollow_gas_acc[gi] += _DT
+        gas_acc[learn_i] += _DT
         v_ms = v_ego_kph / 3.6
         if v_ms > 1.0:
-          self._tfollow_min_gap[gi] = min(self._tfollow_min_gap[gi], lead_drel / v_ms)
+          min_gap[learn_i] = min(min_gap[learn_i], lead_drel / v_ms)
       elif brake_pressed and not blinker:
-        self._tfollow_brake_acc[gi] += _DT
+        brake_acc[learn_i] += _DT
         # 접근(closing) TTC — '늦은(긴급) 제동' 분리 집계와 선제 제동 검출 공용
         v_ms = v_ego_kph / 3.6
         closing = v_ms - lead_v_kph / 3.6
@@ -950,7 +972,8 @@ class CarrotLearner:
 
     # ── Phase 4: TFollowGap ──
     if apply_long:
-      for i in range(4):
+      # GAP1~3은 단계별 고정값을 학습한다. GAP4는 아래 속도대별 AUTO 곡선에서 처리한다.
+      for i in range(3):
         key = _TFOLLOW_KEYS[i]
         cur = _get_int(self._params, key, _TFOLLOW_DEFAULTS[i])
         rec, reason = cur, ""
@@ -971,6 +994,34 @@ class CarrotLearner:
             "band_kph": f"GAP{i+1} >=40km/h ({reason})",
           }
 
+      # GAP4 AUTO: 0/30/70/110km/h 기준점 각각을 독립 학습한다.
+      auto_cur = [int(round(v * 100.0)) for v in read_learned_auto_tr(self._params)]
+      auto_rec = list(auto_cur)
+      auto_reason = [""] * 4
+      for i in range(4):
+        cur = auto_cur[i]
+        if self._auto_tr_gas_acc[i] >= _TFOLLOW_GAS_THRESHOLD_SEC:
+          target = int(self._auto_tr_min_gap[i] * 100)
+          diff = cur - target
+          step = int(np.clip(diff * 0.5, _TFOLLOW_NARROW_STEP, 25)) if diff > 10 else _TFOLLOW_NARROW_STEP
+          auto_rec[i] = max(_TFOLLOW_MIN, cur - step)
+          auto_reason[i] = f"too wide ({self._auto_tr_gas_acc[i]:.0f}s gas)"
+        elif self._auto_tr_brake_acc[i] >= _TFOLLOW_BRAKE_THRESHOLD_SEC:
+          auto_rec[i] = min(_TFOLLOW_MAX, cur + _TFOLLOW_WIDEN_STEP)
+          auto_reason[i] = f"too short ({self._auto_tr_brake_acc[i]:.0f}s brake)"
+        auto_rec[i] = cur + int(np.clip(auto_rec[i] - cur, -_MAX_DELTA, _MAX_DELTA))
+
+      # 속도가 높을수록 AUTO 추종시간이 짧아지는 역전을 방지한다.
+      auto_rec = [int(v) for v in np.maximum.accumulate(
+        np.clip(auto_rec, _TFOLLOW_MIN, _TFOLLOW_MAX))]
+      for i, key in enumerate(_AUTO_TR_KEYS):
+        if auto_rec[i] != auto_cur[i]:
+          reason = auto_reason[i] or "AUTO curve monotonic constraint"
+          result["거리 (Following Distance)"][key] = {
+            "current": auto_cur[i], "recommended": auto_rec[i],
+            "band_kph": f"GAP4 AUTO {_AUTO_TR_BP_KPH[i]:.0f}km/h+ ({reason})",
+          }
+
       # ── 종방향 응답성: longActuatorDelay / longKf (longcontrol 라이브 반영) ──
       # 추종 중 '늦은' 브레이크 누적 많음 = 제동 반응 느림 → 딜레이↓(빠르게) + kf↑(응답 보강)
       # 추종 중 가속 누적 많음           = 가속 굼뜸     → kf↑
@@ -981,7 +1032,7 @@ class CarrotLearner:
       # 이미 반영되며, 여기 보강 신호로는 쓰지 않아 onset jerk 완화로 생긴 정상 감속이
       # 다시 longKf를 끌어올려 제동을 날카롭게 만드는 악순환을 차단한다.
       brake_total = sum(self._tfollow_brake_late)
-      gas_total = sum(self._tfollow_gas_acc)
+      gas_total = sum(self._tfollow_gas_acc[:3]) + sum(self._auto_tr_gas_acc)
 
       cur_delay = _get_float(self._params, _LONG_ACT_DELAY_KEY, _LONG_DELAY_DEFAULT)
       cur_kf = _get_float(self._params, _LONG_KF_KEY, _LONG_KF_DEFAULT)
@@ -1180,6 +1231,9 @@ class CarrotLearner:
     self._tfollow_brake_acc = [0.0] * 4
     self._tfollow_brake_late = [0.0] * 4   # 늦은(긴급) 제동 누적도 함께 리셋 (longKf 파생, commit 1e95637)
     self._tfollow_min_gap = [999.0] * 4
+    self._auto_tr_gas_acc = [0.0] * 4
+    self._auto_tr_brake_acc = [0.0] * 4
+    self._auto_tr_min_gap = [999.0] * 4
     self._lead_proactive_count = 0   # 선제 제동 카운터도 함께 리셋 (longKf 파생)
     self._prev_brake = False
 
@@ -1265,6 +1319,15 @@ class CarrotLearner:
       tm = d.get("tfollow_min_gap", [])
       if len(tm) == 4:
         self._tfollow_min_gap = [float(x) for x in tm]
+      atg = d.get("auto_tr_gas_acc", [])
+      if len(atg) == 4:
+        self._auto_tr_gas_acc = [float(x) for x in atg]
+      atb = d.get("auto_tr_brake_acc", [])
+      if len(atb) == 4:
+        self._auto_tr_brake_acc = [float(x) for x in atb]
+      atm = d.get("auto_tr_min_gap", [])
+      if len(atm) == 4:
+        self._auto_tr_min_gap = [float(x) for x in atm]
       self._lead_proactive_count = int(d.get("lead_proactive_count", 0))
       # Phase 9 (밴드별 리스트는 길이 검증 후 복원)
       p9 = d.get("phase9", {})
@@ -1321,6 +1384,9 @@ class CarrotLearner:
       "tfollow_brake_acc": self._tfollow_brake_acc,
       "tfollow_brake_late": self._tfollow_brake_late,
       "tfollow_min_gap": self._tfollow_min_gap,
+      "auto_tr_gas_acc": self._auto_tr_gas_acc,
+      "auto_tr_brake_acc": self._auto_tr_brake_acc,
+      "auto_tr_min_gap": self._auto_tr_min_gap,
       "lead_proactive_count": self._lead_proactive_count,
       "phase6": {
         "turn_entering_gas_acc": self._turn_entering_gas_acc,

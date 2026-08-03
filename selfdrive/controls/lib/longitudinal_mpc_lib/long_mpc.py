@@ -257,6 +257,7 @@ class LongitudinalMpc:
     # ── CarrotPilot Auto-Tuner: 학습된 GAP별 추종거리 (초 리스트, None=미사용) ──
     # longitudinal_planner.read_param()에서 5초 주기로 갱신됨.
     self.tfollow_gaps = None
+    self.auto_tr_values = None
     # ────────────────────────────────────────────────────────────────────
 
     # ── Lead 인식 부드러운 전환 상태 변수 ──────────────────────────────────
@@ -543,7 +544,8 @@ class LongitudinalMpc:
     cruise_gap = int(clip(carstate.cruiseGap, 1., 4.)) if carstate.cruiseGap > 0 else AUTO_TR_CRUISE_GAP
     if cruise_gap == AUTO_TR_CRUISE_GAP:
       # GAP4는 Auto-Tuner 학습값보다 속도 기반 AUTO 값을 우선 적용한다.
-      tr = interp(carstate.vEgo, AUTO_TR_BP, AUTO_TR_V) if self.mode == 'acc' else T_FOLLOW
+      auto_tr_v = self.auto_tr_values if self.auto_tr_values is not None else AUTO_TR_V
+      tr = interp(carstate.vEgo, AUTO_TR_BP, auto_tr_v) if self.mode == 'acc' else T_FOLLOW
     elif self.tfollow_gaps is not None and self.mode == 'acc':
       # ── CarrotPilot Auto-Tuner: 학습된 GAP별 추종거리 사용 ──────────────
       # GAP1~3에만 학습값을 적용하고 GAP4는 위 AUTO 분기에서 처리한다.
