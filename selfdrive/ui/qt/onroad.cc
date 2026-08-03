@@ -1155,7 +1155,12 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
       for (int i = 0; i < (int)std::size(cpuTempC); i++) cpuTemp += cpuTempC[i];
       cpuTemp /= (float)std::size(cpuTempC);
     }
-    float ambientTemp = deviceState.getAmbientTempC();
+    float cpuUsage = 0.f;
+    const auto cpuUsagePercent = deviceState.getCpuUsagePercent();
+    if (std::size(cpuUsagePercent) > 0) {
+      for (int i = 0; i < (int)std::size(cpuUsagePercent); i++) cpuUsage += cpuUsagePercent[i];
+      cpuUsage /= (float)std::size(cpuUsagePercent);
+    }
 
     int dx = bx - 35;
     int dy = by - 200;
@@ -1211,9 +1216,9 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
 
     dx += 150;
     ds_box.moveLeft(dx - 65);
-    ctRect(p, ds_box, (ambientTemp > 50 && blink_timer <= 8) ? CT_RED_A(255) : box, 15, 2);
-    ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "AMB", 25, CT_WHITE);
-    str.sprintf("%.0f\u00B0C", ambientTemp);
+    ctRect(p, ds_box, (cpuUsage > 90 && blink_timer <= 8) ? CT_RED_A(255) : box, 15, 2);
+    ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "CPU", 25, CT_WHITE);
+    str.sprintf("%.0f%%", cpuUsage);
     ctTextIn(p, QRect(ds_box.x(), ds_box.y() + 34, ds_box.width(), 56), str, 40, CT_WHITE);
   }
 
