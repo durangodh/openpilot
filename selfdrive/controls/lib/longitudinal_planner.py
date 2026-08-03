@@ -40,7 +40,7 @@ A_CRUISE_MAX_BP = [0., 10., 25., 40.]
 #   NORM : 1.10 / 1.25 / 1.35 / 1.50
 #   FAST : 0.97 / 1.10 / 1.19 / 1.32
 MY_DRIVING_MODE_ACCEL = {1: 0.75, 2: 0.90, 3: 1.00, 4: 1.25}
-MY_DRIVING_MODE_TF    = {1: 1.05, 2: 1.30, 3: 1.00, 4: 0.88}
+MY_DRIVING_MODE_TF    = {1: 0.90, 2: 0.80, 3: 1.00, 4: 1.00}
 # ──────────────────────────────────────────────────────────────────────────
 
 # Lookup table for turns
@@ -132,6 +132,16 @@ class LongitudinalPlanner:
     self.my_driving_mode = mode
     self.my_driving_mode_accel = MY_DRIVING_MODE_ACCEL[mode]
     self.mpc.driving_mode_tf = MY_DRIVING_MODE_TF[mode]
+    gap_defaults = [110, 120, 140, 160]
+    gap_values = []
+    for key, default in zip(["TFollowGap1", "TFollowGap2", "TFollowGap3", "TFollowGap4"], gap_defaults):
+      value = self.params.get_int(key)
+      gap_values.append((value if value > 0 else default) * 0.01)
+    self.mpc.tfollow_gaps = gap_values
+    self.mpc.enable_speed_tf = self.params.get_int("EnableSpeedTF")
+    decel_raw = self.params.get("TFollowDecelBoost", encoding='utf8')
+    decel_boost = int(decel_raw) if decel_raw else 10
+    self.mpc.t_follow_decel_boost = max(0, decel_boost) * 0.01
     # ───────────────────
 
     # ── Auto-Tuner: 학습된 파라미터를 planner/mpc에 반영 (5초 주기 갱신) ──
@@ -141,7 +151,6 @@ class LongitudinalPlanner:
       self.mpc.auto_tr_values = read_learned_auto_tr(self.params)
     else:
       self.learned_accel_vals = list(A_CRUISE_MAX_VALS)
-      self.mpc.tfollow_gaps = None
       self.mpc.auto_tr_values = None
 
   def update_auto_e2e_mode(self, car_state, radar_state, model_msg):

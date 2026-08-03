@@ -507,10 +507,12 @@ static const std::map<std::string, std::string> kAutoTunerDefaults = {
   {"CruiseMaxVals1", "120"},
   {"CruiseMaxVals2", "80"},
   {"CruiseMaxVals3", "60"},
-  {"TFollowGap1", "100"},
-  {"TFollowGap2", "140"},
-  {"TFollowGap3", "200"},
-  {"TFollowGap4", "200"},
+  {"TFollowGap1", "110"},
+  {"TFollowGap2", "120"},
+  {"TFollowGap3", "140"},
+  {"TFollowGap4", "160"},
+  {"EnableSpeedTF", "0"},
+  {"TFollowDecelBoost", "10"},
   {"OffsetTotal", "0.0"},
   {"CarrotLongActuatorDelay", "0.4"},   // _LONG_DELAY_DEFAULT (carrot_learning.py)
   {"CarrotLongKf", "1.0"},              // _LONG_KF_DEFAULT (carrot_learning.py)
@@ -2454,6 +2456,25 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
 
   // ── Offset Total ─────────────────────────────────────────────
   // 레인모드 + 레인리스 모드 모두 적용. 0.01m 단위, -1.00 ~ +1.00m
+  list->addItem(new ParamValueControlF("TFollowGap1",
+      "TR Gap 1", "Carrot GAP1 추종시간 (×0.01초). 기본값: 110",
+      "../assets/offroad/icon_openpilot.png", 70, 300, 5, 0, 110, this));
+  list->addItem(new ParamValueControlF("TFollowGap2",
+      "TR Gap 2", "Carrot GAP2 추종시간 (×0.01초). 기본값: 120",
+      "../assets/offroad/icon_openpilot.png", 70, 300, 5, 0, 120, this));
+  list->addItem(new ParamValueControlF("TFollowGap3",
+      "TR Gap 3", "Carrot GAP3 추종시간 (×0.01초). 기본값: 140",
+      "../assets/offroad/icon_openpilot.png", 70, 300, 5, 0, 140, this));
+  list->addItem(new ParamValueControlF("TFollowGap4",
+      "TR Gap 4", "Carrot GAP4 추종시간 (×0.01초). 기본값: 160",
+      "../assets/offroad/icon_openpilot.png", 70, 300, 5, 0, 160, this));
+  list->addItem(new ParamValueControlF("EnableSpeedTF",
+      "TR Speed Factor", "저속 TR 축소율(%). 0은 사용 안함, 고속으로 갈수록 원래 TR로 복귀합니다.",
+      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
+  list->addItem(new ParamValueControlF("TFollowDecelBoost",
+      "TR Decel Boost", "감속 중 TR 유지·추가 확보 비율 (×0.01). 기본값: 10",
+      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 10, this));
+
   list->addItem(new ParamValueControlF("LongTuningKpV",
       "Longitudinal Kp", "속도 오차 비례 게인 (×0.01). 기본값: 100 (=1.00)",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));

@@ -44,7 +44,7 @@ ACADOS_SOLVER_TYPE = 'SQP_RTI'
 
 
 CRUISE_GAP_BP = [1., 2., 3., 4.]
-CRUISE_GAP_V = [1.0, 1.4, 2.0, 2.0]
+CRUISE_GAP_V = [1.1, 1.2, 1.4, 1.6]
 CRUISE_GAP_E2E_V = [1.3, 1.45, 1.6, 1.8]
 
 AUTO_TR_BP = [0., 30.*CV.KPH_TO_MS, 70.*CV.KPH_TO_MS, 110.*CV.KPH_TO_MS]
@@ -259,6 +259,9 @@ class LongitudinalMpc:
     # longitudinal_planner.read_param()에서 5초 주기로 갱신됨.
     self.tfollow_gaps = None
     self.auto_tr_values = None
+    self.enable_speed_tf = 0
+    self.t_follow_decel_boost = 0.1
+    self._tf_applied = 0.0
     # ────────────────────────────────────────────────────────────────────
 
     # ── Lead 인식 부드러운 전환 상태 변수 ──────────────────────────────────
@@ -538,7 +541,7 @@ class LongitudinalMpc:
 
     # neokii
     cruise_gap = int(clip(carstate.cruiseGap, 1., 4.)) if carstate.cruiseGap > 0 else AUTO_TR_CRUISE_GAP
-    if cruise_gap == AUTO_TR_CRUISE_GAP:
+    if cruise_gap == AUTO_TR_CRUISE_GAP and self.tfollow_gaps is None:
       # GAP4는 Auto-Tuner 학습값보다 속도 기반 AUTO 값을 우선 적용한다.
       auto_tr_v = self.auto_tr_values if self.auto_tr_values is not None else AUTO_TR_V
       tr = interp(carstate.vEgo, AUTO_TR_BP, auto_tr_v) if self.mode == 'acc' else T_FOLLOW
@@ -552,6 +555,23 @@ class LongitudinalMpc:
 
     # ── MyDrivingMode: GAP(AUTO 포함)으로 정해진 base 추종거리에 모드 배율 적용 ──
     tr *= self.driving_mode_tf
+    if self.enable_speed_tf > 0:
+      reduce = self.enable_speed_tf * 0.01
+      speed_scale = (1.0 - reduce) + reduce * float(np.clip(v_ego * CV.MS_TO_KPH / 100.0, 0.0, 1.0))
+      tr *= speed_scale
+
+    # Carrot deceleration hold/boost and increase-only smoothing.
+    gap_values = self.tfollow_gaps if self.tfollow_gaps is not None else CRUISE_GAP_V
+    if self._tf_applied <= 0.0:
+      self._tf_applied = float(tr)
+    if carstate.aEgo <= -0.2 and tr < self._tf_applied:
+      tr = self._tf_applied
+    decel_boost = float(np.interp(carstate.aEgo, [-2.5, -1.0, -0.2, 0.0], [0.25, 0.12, 0.02, 0.0]))
+    tr += decel_boost * self.t_follow_decel_boost
+    tr = float(np.clip(tr, max(0.3, min(gap_values)), max(gap_values)))
+    if tr > self._tf_applied:
+      tr = min(tr, self._tf_applied + 0.1 * 0.05)
+    self._tf_applied = float(tr)
     # ────────────────────────────────────────────────────────────────────
 
     # ── 속도-가변 차간거리 (commit dff7287 포팅) ────────────────────────────
