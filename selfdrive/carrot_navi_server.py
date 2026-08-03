@@ -15,6 +15,7 @@ PORT = 7714
 DISCOVERY_PORT = 7705
 STATE_FILE = "/dev/shm/carrot_navi_route.json"
 MAP_FILE = "/dev/shm/carrot_navi_map.jpg"
+LANE_FILE = "/dev/shm/carrot_navi_lane_bottom.png"
 JSON_NAMES = (
   "vehicle", "guidance_current", "guidance_next", "lane_current", "lane_ahead",
   "speed", "traffic_signal", "crossroad", "route", "navigation_status",
@@ -33,6 +34,7 @@ ENABLED = {
 }
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 MAX_MAP_FRAME_BYTES = 2 * 1024 * 1024
+MAX_LANE_FRAME_BYTES = 512 * 1024
 
 
 class NaviState(object):
@@ -77,6 +79,37 @@ class NaviState(object):
         os.unlink(tmp)
       except OSError:
         pass
+
+  def update_lane(self, payload):
+    if not payload or len(payload) > MAX_LANE_FRAME_BYTES:
+      return
+    png_start = payload.find(b"\x89PNG\r\n\x1a\n")
+    jpg_start = payload.find(b"\xff\xd8")
+    if png_start >= 0:
+      image = payload[png_start:]
+    elif jpg_start >= 0:
+      jpg_end = payload.rfind(b"\xff\xd9")
+      if jpg_end < jpg_start:
+        return
+      image = payload[jpg_start:jpg_end + 2]
+    else:
+      return
+    tmp = LANE_FILE + ".tmp"
+    try:
+      with open(tmp, "wb") as f:
+        f.write(image)
+      os.rename(tmp, LANE_FILE)
+    except IOError:
+      try:
+        os.unlink(tmp)
+      except OSError:
+        pass
+
+  def clear_lane(self):
+    try:
+      os.unlink(LANE_FILE)
+    except OSError:
+      pass
 
 
 def local_ip():
@@ -136,6 +169,7 @@ def manifest():
   for kind, names in (("json", JSON_NAMES), ("image", IMAGE_NAMES), ("render", RENDER_NAMES)):
     for name in names:
       enabled = ((kind == "json" and name in ENABLED) or
+                 (kind == "image" and name == "lane_bottom") or
                  (kind == "render" and name == "map_main"))
       params = {}
       if kind == "json":
@@ -195,6 +229,8 @@ def client_loop(conn, state):
     if opcode == 2:
       if not is_control and stream_name == "map_main":
         state.update_map(payload)
+      elif not is_control and stream_name == "lane_bottom":
+        state.update_lane(payload)
       continue
     if opcode != 1:
       continue
@@ -207,13 +243,21 @@ def client_loop(conn, state):
     elif not is_control and message.get("type") == "item_update":
       name = message.get("name", stream_name)
       value = message.get("value") if message.get("present", True) else None
-      if name == "map_main":
+      if name in ("map_main", "lane_bottom"):
+        if value is None:
+          if name == "lane_bottom":
+            state.clear_lane()
+          continue
         encoded = value.get("data") if isinstance(value, dict) else value
         if isinstance(encoded, str):
           if "," in encoded and encoded.startswith("data:"):
             encoded = encoded.split(",", 1)[1]
           try:
-            state.update_map(base64.b64decode(encoded))
+            image = base64.b64decode(encoded)
+            if name == "map_main":
+              state.update_map(image)
+            else:
+              state.update_lane(image)
           except (TypeError, ValueError):
             pass
       else:
