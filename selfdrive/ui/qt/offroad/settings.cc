@@ -2406,11 +2406,11 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "범위: 1000 ~ 2000  /  기본값: 1650 (=16.50)",
       "../assets/offroad/icon_openpilot.png", 1000, 2000, 10, 0, 1650, this));
 
-  list->addItem(new ParamValueControlF("UseLiveSteerRatio",
+  list->addItem(new ParamControl("UseLiveSteerRatio",
       "Live Steer Ratio",
       "liveParameters 가 학습한 조향비를 사용합니다.\n"
       "끄면 위의 Steer Ratio 고정값을 씁니다.",
-      "../assets/offroad/icon_openpilot.png", 0, 1, 1, 0, 1, this));
+      "../assets/offroad/icon_openpilot.png", this));
 
   list->addItem(new ParamValueControlF("SteerActuatorDelay",
       "Steer Actuator Delay",
@@ -2419,11 +2419,11 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "범위: 0 ~ 80  /  기본값: 10 (=0.10초)",
       "../assets/offroad/icon_openpilot.png", 0, 80, 1, 0, 10, this));
 
-  list->addItem(new ParamValueControlF("LateralTorqueCustom",
+  list->addItem(new ParamControl("LateralTorqueCustom",
       "Torque Custom",
       "켜면 아래 토크 값들이 차량 기본값 대신 사용됩니다.\n"
       "Auto-Tuner 가 값을 쓰면 자동으로 켜집니다.",
-      "../assets/offroad/icon_openpilot.png", 0, 1, 1, 0, 0, this));
+      "../assets/offroad/icon_openpilot.png", this));
   
   list->addItem(new NtuneValueControl("torque", "latAccelFactor",
       "Lat Accel Factor",
