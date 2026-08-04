@@ -503,6 +503,8 @@ struct CarParams {
 
   steerActuatorDelay @36 :Float32; # Steering wheel actuator delay in seconds
   longitudinalActuatorDelay @58 :Float32; # Gas/Brake actuator delay in seconds
+  longitudinalActuatorDelayLowerBound @61 :Float32; # Gas/Brake actuator delay lower bound in seconds
+  longitudinalActuatorDelayUpperBound @82 :Float32; # Gas/Brake actuator delay upper bound in seconds
   openpilotLongitudinalControl @37 :Bool; # is openpilot doing the longitudinal control?
   carVin @38 :Text; # VIN number queried during fingerprinting
   dashcamOnly @41: Bool;
@@ -698,5 +700,4 @@ struct CarParams {
   minSpeedCanDEPRECATED @51 :Float32;
   communityFeatureDEPRECATED @46: Bool;
   startingAccelRateDEPRECATED @53 :Float32;
-  longitudinalActuatorDelayLowerBoundDEPRECATEDDEPRECATED @61 :Float32;
 }

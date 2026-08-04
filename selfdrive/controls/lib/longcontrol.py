@@ -71,8 +71,11 @@ class LongControl:
     # apilot-c2 uses two actuator-delay predictions and selects the more
     # conservative target. Derive safe defaults around the configured delay.
     delay = float(clip(CP.longitudinalActuatorDelay, 0.1, 1.0))
-    self.actuator_delay_lower = max(0.1, delay - 0.1)
-    self.actuator_delay_upper = min(1.0, max(self.actuator_delay_lower + 0.05, delay + 0.1))
+    schema_lower = CP.longitudinalActuatorDelayLowerBound
+    schema_upper = CP.longitudinalActuatorDelayUpperBound
+    self.actuator_delay_lower = float(clip(schema_lower if schema_lower > 0.0 else delay - 0.1, 0.1, 0.99))
+    self.actuator_delay_upper = float(clip(schema_upper if schema_upper > 0.0 else delay + 0.1,
+                                           self.actuator_delay_lower + 0.01, 1.0))
     self._update_actuator_delays()
 
   def _update_start_accel(self):
