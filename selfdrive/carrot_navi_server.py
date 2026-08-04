@@ -180,7 +180,7 @@ def manifest():
       else:
         params = {"width": 480, "height": 540, "dpi": 160, "fps": 5,
                   "codec": "jpeg", "jpeg_quality": 65,
-                  "camera_mode": "app_sync", "map_theme": "dark"}
+                  "camera_mode": "app_sync", "map_theme": "day"}
       streams.append({"kind": kind, "name": name, "schema_version": 1,
                       "stream_handle": handle, "enabled": enabled, "params": params})
       handle += 1
