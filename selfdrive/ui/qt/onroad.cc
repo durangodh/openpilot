@@ -229,26 +229,13 @@ void OnroadAlerts::paintEvent(QPaintEvent *event) {
 
   QPainter p(this);
 
-  // draw background + gradient
-  p.setPen(Qt::NoPen);
-  p.setCompositionMode(QPainter::CompositionMode_SourceOver);
-
-  p.setBrush(QBrush(bg));
-  p.drawRect(r);
-
-  QLinearGradient g(0, r.y(), 0, r.bottom());
-  g.setColorAt(0, QColor::fromRgbF(0, 0, 0, 0.05));
-  g.setColorAt(1, QColor::fromRgbF(0, 0, 0, 0.35));
-
-  p.setCompositionMode(QPainter::CompositionMode_DestinationOver);
-  p.setBrush(QBrush(g));
-  p.fillRect(r, g);
-  p.setCompositionMode(QPainter::CompositionMode_SourceOver);
+  // 텍스트만 남기고 상태색(경고/주의 등)을 나타내던 하단 배경 박스와
+  // 그라디언트는 그리지 않는다. r 은 레이아웃 계산에는 계속 사용한다.
+  p.setRenderHint(QPainter::TextAntialiasing);
 
   // text
   const QPoint c = r.center();
   p.setPen(QColor(0xff, 0xff, 0xff));
-  p.setRenderHint(QPainter::TextAntialiasing);
   if (alert.size == cereal::ControlsState::AlertSize::SMALL) {
     configFont(p, "Open Sans", 74, "SemiBold");
     p.drawText(r, Qt::AlignCenter, alert.text1);
