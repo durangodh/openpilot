@@ -51,15 +51,15 @@ static int carrotLaneTypeValue(const QJsonValue &value) {
   if (numeric) return numeric_type;
 
   const bool uturn = text.contains("uturn") || text.contains("u-turn") ||
-                     text.contains(QString::fromUtf8("?좏꽩"));
+                     text.contains(QString::fromUtf8("유턴"));
   const bool straight = text.contains("straight") || text.contains("through") ||
-                        text.contains("forward") || text.contains(QString::fromUtf8("吏곸쭊")) ||
-                        text.contains(QString::fromUtf8("吏곸쥖")) ||
-                        text.contains(QString::fromUtf8("醫뚯쭅")) ||
-                        text.contains(QString::fromUtf8("吏곸슦")) ||
-                        text.contains(QString::fromUtf8("?곗쭅"));
-  const bool left = text.contains("left") || text.contains(QString::fromUtf8("醫?));
-  const bool right = text.contains("right") || text.contains(QString::fromUtf8("??));
+                        text.contains("forward") || text.contains(QString::fromUtf8("직진")) ||
+                        text.contains(QString::fromUtf8("직좌")) ||
+                        text.contains(QString::fromUtf8("좌직")) ||
+                        text.contains(QString::fromUtf8("직우")) ||
+                        text.contains(QString::fromUtf8("우직"));
+  const bool left = text.contains("left") || text.contains(QString::fromUtf8("좌"));
+  const bool right = text.contains("right") || text.contains(QString::fromUtf8("우"));
 
   if (uturn) return 14;
   if (straight && left) return 20;   // straight + left
@@ -157,8 +157,8 @@ void NvgWindow::updateCarrotNavi() {
 
   const QJsonObject root = doc.object();
 
-  // nMirror媛 ?쒓났?섎뒗 ?ㅼ젣 Tmap ?섎떒 李⑥꽑 ?덈궡 ?대?吏瑜?2Hz濡?媛깆떊?쒕떎.
-  // JSON 諛⑺뼢媛믪? APK 踰꾩쟾留덈떎 ?щ씪 ?대?吏媛 ?덉쑝硫??대? ?곗꽑 ?ъ슜?쒕떎.
+  // nMirror가 제공하는 실제 Tmap 하단 차선 안내 이미지를 2Hz로 갱신한다.
+  // JSON 방향값은 APK 버전마다 달라 이미지가 있으면 이를 우선 사용한다.
   const QString lane_image_path = "/dev/shm/carrot_navi_lane_bottom.png";
   const QFileInfo lane_image_info(lane_image_path);
   const qint64 lane_now = QDateTime::currentMSecsSinceEpoch();
@@ -245,11 +245,11 @@ void NvgWindow::updateCarrotNavi() {
     carrot_navi_route = next;
   }
 
-  // ---- speed ?ㅽ듃由? ?꾨줈 ?쒗븳?띾룄 (?대퉬 以?LIMIT ?대갚?? ----
+  // ---- speed 스트림: 도로 제한속도 (내비 중 LIMIT 폴백용) ----
   carrot_navi_speed_limit = 0;
   const QJsonObject speed = root.value("speed").toObject();
   if (!speed.isEmpty()) {
-    // ?쒕쾭 ???뺤떇(snake/camel) 遺덊솗?????꾨낫 ???쒖감 ?쒕룄 (?꾨줈 ?쒗븳?띾룄 ?곗꽑)
+    // 서버 키 형식(snake/camel) 불확실 → 후보 키 순차 시도 (도로 제한속도 우선)
     static const char *limit_keys[] = {
       "road_limit_kph", "limit_speed", "roadLimitKph",
       "section_speed_limit_kph", "sectionSpeedLimitKph",
@@ -306,17 +306,17 @@ static CarrotAtcKind carrotAtcKind(int type, const QString &text, int *direction
   if (type >= 131 && type <= 142) return CarrotAtcKind::ROTARY;
 
   const QString lower = text.toLower();
-  if (lower.contains(QString::fromUtf8("?좏꽩")) || lower.contains("u-turn") || lower.contains("uturn")) {
+  if (lower.contains(QString::fromUtf8("유턴")) || lower.contains("u-turn") || lower.contains("uturn")) {
     *direction = -1;
     return CarrotAtcKind::UTURN;
   }
-  const bool fork = lower.contains(QString::fromUtf8("遺꾧린")) ||
-                    lower.contains(QString::fromUtf8("吏꾩텧")) || lower.contains("fork");
-  if (lower.contains(QString::fromUtf8("醫뚰쉶??)) || lower.contains(QString::fromUtf8("?쇱そ")) || lower.contains("left")) {
+  const bool fork = lower.contains(QString::fromUtf8("분기")) ||
+                    lower.contains(QString::fromUtf8("진출")) || lower.contains("fork");
+  if (lower.contains(QString::fromUtf8("좌회전")) || lower.contains(QString::fromUtf8("왼쪽")) || lower.contains("left")) {
     *direction = -1;
     return fork ? CarrotAtcKind::FORK : CarrotAtcKind::TURN;
   }
-  if (lower.contains(QString::fromUtf8("?고쉶??)) || lower.contains(QString::fromUtf8("?ㅻⅨ履?)) || lower.contains("right")) {
+  if (lower.contains(QString::fromUtf8("우회전")) || lower.contains(QString::fromUtf8("오른쪽")) || lower.contains("right")) {
     *direction = 1;
     return fork ? CarrotAtcKind::FORK : CarrotAtcKind::TURN;
   }
@@ -328,14 +328,14 @@ static CarrotTurnDirection carrotTurnDirection(int type, const QString &text) {
   if (type == 20) return CarrotTurnDirection::STRAIGHT_LEFT;
   if (type == 21) return CarrotTurnDirection::STRAIGHT_RIGHT;
   if (type == 22) return CarrotTurnDirection::LEFT_RIGHT;
-  if (value.contains(QString::fromUtf8("?좏꽩")) || value.contains("u-turn") || type == 14) return CarrotTurnDirection::UTURN;
-  if (value.contains(QString::fromUtf8("紐⑹쟻吏")) || value.contains(QString::fromUtf8("?꾩갑")) || type == 2) return CarrotTurnDirection::ARRIVE;
-  if (value.contains(QString::fromUtf8("?쇱そ 諛⑺뼢")) || value.contains(QString::fromUtf8("醫뚯륫 諛⑺뼢")) ||
-      value.contains(QString::fromUtf8("鍮꾩뒪?ы엳 ?쇱そ")) || type == 16 || type == 17) return CarrotTurnDirection::SLIGHT_LEFT;
-  if (value.contains(QString::fromUtf8("?ㅻⅨ履?諛⑺뼢")) || value.contains(QString::fromUtf8("?곗륫 諛⑺뼢")) ||
-      value.contains(QString::fromUtf8("鍮꾩뒪?ы엳 ?ㅻⅨ履?)) || type == 18 || type == 19) return CarrotTurnDirection::SLIGHT_RIGHT;
-  if (value.contains(QString::fromUtf8("醫뚰쉶??)) || value.contains(QString::fromUtf8("?쇱そ")) || type == 12) return CarrotTurnDirection::LEFT;
-  if (value.contains(QString::fromUtf8("?고쉶??)) || value.contains(QString::fromUtf8("?ㅻⅨ履?)) || type == 13) return CarrotTurnDirection::RIGHT;
+  if (value.contains(QString::fromUtf8("유턴")) || value.contains("u-turn") || type == 14) return CarrotTurnDirection::UTURN;
+  if (value.contains(QString::fromUtf8("목적지")) || value.contains(QString::fromUtf8("도착")) || type == 2) return CarrotTurnDirection::ARRIVE;
+  if (value.contains(QString::fromUtf8("왼쪽 방향")) || value.contains(QString::fromUtf8("좌측 방향")) ||
+      value.contains(QString::fromUtf8("비스듬히 왼쪽")) || type == 16 || type == 17) return CarrotTurnDirection::SLIGHT_LEFT;
+  if (value.contains(QString::fromUtf8("오른쪽 방향")) || value.contains(QString::fromUtf8("우측 방향")) ||
+      value.contains(QString::fromUtf8("비스듬히 오른쪽")) || type == 18 || type == 19) return CarrotTurnDirection::SLIGHT_RIGHT;
+  if (value.contains(QString::fromUtf8("좌회전")) || value.contains(QString::fromUtf8("왼쪽")) || type == 12) return CarrotTurnDirection::LEFT;
+  if (value.contains(QString::fromUtf8("우회전")) || value.contains(QString::fromUtf8("오른쪽")) || type == 13) return CarrotTurnDirection::RIGHT;
   return CarrotTurnDirection::STRAIGHT;
 }
 
@@ -432,22 +432,23 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   p.save();
   p.setRenderHint(QPainter::Antialiasing);
   p.setRenderHint(QPainter::TextAntialiasing);
-  // ?곗륫 ?대퉬 ?⑤꼸
-  const int panel_y = 78;                  // ?곷떒 ?뺣낫以??꾨옒 18px 媛꾧꺽
-  const int panel_bottom = height() - 5;  // 醫뚯륫 HUD ?섎떒怨??숈씪, ?곹깭諛???  const int panel_h = panel_bottom - panel_y;
+  // 우측 내비 패널
+  const int panel_y = 78;                  // 상단 정보줄 아래 18px 간격
+  const int panel_bottom = height() - 5;  // 좌측 HUD 하단과 동일, 상태바 위
+  const int panel_h = panel_bottom - panel_y;
 
-  // ?대? ?덉씠?꾩썐
+  // 내부 레이아웃
   const int panel_header_h = 118;
   const int next_h = 54;
   const int lane_h = 70;
-  const int panel_footer_h = 64;  // ??諛곌꼍 ??湲???⑥?嫄곕━/?꾩갑)媛 ?ъ쑀?덇쾶 ?ㅼ뼱媛?꾨줉 ?뺤옣
+  const int panel_footer_h = 64;  // 흰 배경 큰 글씨(남은거리/도착)가 여유있게 들어가도록 확장
 
   const int gap1 = 10;
   const int gap2 = 8;
   const int gap3 = 7;
   const int bottom_margin = 14;
-  // 李⑥꽑?덈궡????긽 ?곕㏊???ㅼ젣濡?蹂대궦 lane_bottom ?대?吏媛 ?덉쓣 ?뚮쭔 ?쒖떆?쒕떎.
-  // (?덉쟾 turn_type 諛곗뿴濡?洹몃━???먯껜 踰≫꽣 ?꾩씠肄??대갚? ?꾩쟾???쒓굅)
+  // 차선안내는 항상 티맵이 실제로 보낸 lane_bottom 이미지가 있을 때만 표시한다.
+  // (예전 turn_type 배열로 그리던 자체 벡터 아이콘 폴백은 완전히 제거)
   const bool has_lane_image = !carrot_navi_lane_image.isNull() &&
                               wall_now - carrot_navi_lane_image_mtime >= -5000 &&
                               wall_now - carrot_navi_lane_image_mtime <= 5000;
@@ -508,7 +509,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
 
   QString title = carrot_navi_instruction;
   if (title.isEmpty()) title = carrot_navi_road;
-  if (title.isEmpty()) title = QString::fromUtf8("寃쎈줈 ?덈궡");
+  if (title.isEmpty()) title = QString::fromUtf8("경로 안내");
   const QRect current_icon(header.x() + 14, header.y() + 10, 94, 108);
   drawCarrotTurnArrow(p, current_icon, carrot_navi_turn_type, title, Qt::white, 11);
   const QString distance_text = carrotDistanceText(carrot_navi_distance);
@@ -516,7 +517,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   p.setPen(Qt::white);
   p.drawText(QRect(header.x() + 118, header.y() + 6, header.width() - 132, 66),
              Qt::AlignLeft | Qt::AlignVCenter,
-             distance_text.isEmpty() ? QString::fromUtf8("?덈궡 以?) : distance_text);
+             distance_text.isEmpty() ? QString::fromUtf8("안내 중") : distance_text);
   configFont(p, "Open Sans", 31, "Bold");
   const QString road_text = QFontMetrics(p.font()).elidedText(title, Qt::ElideRight, header.width() - 142);
   p.drawText(QRect(header.x() + 118, header.y() + 70, header.width() - 132, 45),
@@ -531,9 +532,9 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
                       Qt::white, 5);
   QString next_text = carrotDistanceText(carrot_navi_next_distance);
   if (!carrot_navi_next_instruction.isEmpty()) {
-    next_text += (next_text.isEmpty() ? QString() : QString("  쨌  ")) + carrot_navi_next_instruction;
+    next_text += (next_text.isEmpty() ? QString() : QString("  ·  ")) + carrot_navi_next_instruction;
   }
-  if (next_text.isEmpty()) next_text = QString::fromUtf8("?ㅼ쓬 ?덈궡 ?湲?以?);
+  if (next_text.isEmpty()) next_text = QString::fromUtf8("다음 안내 대기 중");
   configFont(p, "Open Sans", 27, "Bold");
   p.setPen(Qt::white);
   p.drawText(QRect(next_row.x() + 68, next_row.y(), next_row.width() - 80, next_row.height()),
@@ -720,7 +721,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   p.restore();
 
   // Lane guidance: draw Tmap's own lane_bottom capture as-is. There is no
-  // placeholder/vector fallback any more ??has_lane_guidance is exactly
+  // placeholder/vector fallback any more — has_lane_guidance is exactly
   // has_lane_image, so this whole block is skipped unless Tmap is actually
   // sending a fresh lane message right now.
   if (has_lane_guidance) {
@@ -749,7 +750,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
     p.restore();
   }
 
-  // Remaining distance and ETA: match Tmap's own bottom bar ??white surface,
+  // Remaining distance and ETA: match Tmap's own bottom bar — white surface,
   // black bold text, each side sized as large as it can be without the two
   // halves (or the divider) overlapping.
   p.setPen(Qt::NoPen);
@@ -759,8 +760,8 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const QString remain_text = carrotDistanceText(carrot_navi_remain_distance);
   const QString eta_text = carrot_navi_remain_time > 0
     ? QDateTime::currentDateTime().addSecs(carrot_navi_remain_time).toString("HH:mm") : QString("--:--");
-  const QString left_text = QString::fromUtf8("?⑥? 嫄곕━ %1").arg(remain_text.isEmpty() ? QString("--") : remain_text);
-  const QString right_text = QString::fromUtf8("?꾩갑 %1").arg(eta_text);
+  const QString left_text = QString::fromUtf8("남은 거리 %1").arg(remain_text.isEmpty() ? QString("--") : remain_text);
+  const QString right_text = QString::fromUtf8("도착 %1").arg(eta_text);
 
   const int pad = 16;
   const int half_w = footer.width() / 2 - pad - 6;
