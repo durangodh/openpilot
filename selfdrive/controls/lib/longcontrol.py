@@ -2,7 +2,7 @@ from cereal import car
 from common.numpy_fast import clip, interp
 from common.params import Params
 from common.realtime import DT_CTRL
-from selfdrive.controls.lib.drive_helpers import CONTROL_N
+from selfdrive.controls.lib.drive_helpers import CONTROL_N, apply_deadzone
 from selfdrive.controls.lib.pid import PIDController
 from selfdrive.modeld.constants import T_IDXS
 
@@ -34,9 +34,8 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, should_stop,
     if stopping_condition:
       lead = radar_state.leadOne
       close_lead = lead.status and lead.dRel < 4.0
-      # Hand over to the stopping ramp only after actual deceleration has
-      # relaxed near the configured hold value. This avoids a second brake
-      # step while the MPC is still commanding stronger lead deceleration.
+      # Keep the MPC/PID command while it is still applying stronger braking.
+      # Enter the stopping hold ramp only after actual deceleration relaxes.
       if a_ego > stop_accel or close_lead or long_control_state == LongCtrlState.starting:
         long_control_state = LongCtrlState.stopping
     elif started_condition:
@@ -59,6 +58,12 @@ class LongControl:
     self.v_pid = 0.0
     self.last_output_accel = 0.0
 
+    # apilot-c2 uses two actuator-delay predictions and selects the more
+    # conservative target. Derive safe defaults around the configured delay.
+    delay = float(clip(CP.longitudinalActuatorDelay, 0.1, 1.0))
+    self.actuator_delay_lower = max(0.1, delay - 0.1)
+    self.actuator_delay_upper = min(1.0, max(self.actuator_delay_lower + 0.05, delay + 0.1))
+
   def reset(self, v_pid=0.0):
     self.pid.reset()
     self.v_pid = v_pid
@@ -69,6 +74,17 @@ class LongControl:
       self.read_param_count = 0
       self.stopping_accel = self.params.get_float("StoppingAccel") * 0.01
       self.long_coast_band = clip(self.params.get_float("LongCoastBand") * 0.01, 0.0, 0.4)
+
+      # Keep compatibility with apilot-c2 parameter names when present.
+      lower = self.params.get_float("LongitudinalActuatorDelayLowerBound") * 0.01
+      upper = self.params.get_float("LongitudinalActuatorDelayUpperBound") * 0.01
+      if lower > 0.0:
+        self.actuator_delay_lower = float(clip(lower, 0.1, 1.0))
+      if upper > 0.0:
+        self.actuator_delay_upper = float(clip(upper, self.actuator_delay_lower + 0.01, 1.0))
+      elif self.actuator_delay_upper <= self.actuator_delay_lower:
+        self.actuator_delay_upper = min(1.0, self.actuator_delay_lower + 0.05)
+
     elif self.read_param_count == 10:
       if len(self.CP.longitudinalTuning.kpBP) == 1 and len(self.CP.longitudinalTuning.kiBP) == 1:
         kp = self.params.get_float("LongTuningKpV") * 0.01
@@ -86,14 +102,27 @@ class LongControl:
     self._read_params()
 
     if len(long_plan.speeds) == CONTROL_N:
-      # Delay compensation is already included in the planner's targets. Only
-      # advance velocity by the age of the received plan.
-      plan_accel_now = interp(t_since_plan, T_IDXS[:CONTROL_N], long_plan.accels)
-      v_target_now = long_plan.vTargetNow + plan_accel_now * t_since_plan
-      a_target = long_plan.aTarget
+      speeds = long_plan.speeds
+      accels = long_plan.accels
+      v_target_now = interp(t_since_plan, T_IDXS[:CONTROL_N], speeds)
+      a_target_now = interp(t_since_plan, T_IDXS[:CONTROL_N], accels)
+
+      # apilot-c2 dual-delay compensation. The lower and upper delay estimates
+      # absorb vehicle brake-response variation; use the more braking target.
+      v_target_lower = interp(self.actuator_delay_lower + t_since_plan,
+                              T_IDXS[:CONTROL_N], speeds)
+      v_target_upper = interp(self.actuator_delay_upper + t_since_plan,
+                              T_IDXS[:CONTROL_N], speeds)
+      a_target_lower = 2.0 * (v_target_lower - v_target_now) / self.actuator_delay_lower - a_target_now
+      a_target_upper = 2.0 * (v_target_upper - v_target_now) / self.actuator_delay_upper - a_target_now
+      a_target = min(a_target_lower, a_target_upper)
+
+      v_target_1sec = interp(self.actuator_delay_lower + t_since_plan + 1.0,
+                             T_IDXS[:CONTROL_N], speeds)
       should_stop = long_plan.shouldStop
     else:
       v_target_now = 0.0
+      v_target_1sec = 0.0
       a_target = 0.0
       should_stop = False
 
@@ -122,11 +151,21 @@ class LongControl:
 
     else:
       self.v_pid = v_target_now
-      error = self.v_pid - CS.vEgo
-      output_accel = self.pid.update(error, speed=CS.vEgo, feedforward=a_target)
-      # Coast band is useful during normal cruising, but suppressing small
-      # braking commands while following a lead creates coast/brake cycling.
-      # Preserve the MPC's continuous negative command during lead approaches.
+
+      # apilot-c2 low-speed overshoot prevention. Near a planned stop, freeze
+      # the integrator so it cannot build an acceleration correction while the
+      # car is settling into the final brake hold.
+      prevent_overshoot = (not self.CP.stoppingControl and CS.vEgo < 1.5 and
+                           v_target_1sec < 0.7 and v_target_1sec < self.v_pid)
+      deadzone = interp(CS.vEgo,
+                        self.CP.longitudinalTuning.deadzoneBP,
+                        self.CP.longitudinalTuning.deadzoneV)
+      error = apply_deadzone(self.v_pid - CS.vEgo, deadzone)
+      output_accel = self.pid.update(error, speed=CS.vEgo, feedforward=a_target,
+                                     freeze_integrator=prevent_overshoot)
+
+      # Coast band is useful during free cruising, but suppressing a small
+      # negative command with a lead causes coast/brake cycling.
       has_lead = radar_state.leadOne.status
       if not should_stop and not has_lead and -self.long_coast_band < output_accel < 0.0:
         output_accel = 0.0
