@@ -170,10 +170,7 @@ class LongitudinalPlanner:
       gap_values.append((value if value > 0 else default) * 0.01)
     self.mpc.tfollow_gaps = gap_values
     speed_ratio = self.params.get_int("TFollowSpeedRatio")
-    self.mpc.t_follow_speed_ratio = (speed_ratio if speed_ratio >= 100 else 110) * 0.01
-    decel_raw = self.params.get("TFollowDecelBoost", encoding='utf8')
-    decel_boost = int(decel_raw) if decel_raw else 10
-    self.mpc.t_follow_decel_boost = max(0, decel_boost) * 0.01
+    self.mpc.t_follow_speed_ratio = (speed_ratio if speed_ratio >= 100 else 120) * 0.01
     # ───────────────────
 
     # ── Auto-Tuner: 학습된 추종거리 파라미터를 MPC에 반영 (5초 주기 갱신) ──
