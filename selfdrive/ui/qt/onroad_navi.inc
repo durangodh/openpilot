@@ -440,12 +440,10 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   // 내부 레이아웃
   const int panel_header_h = 118;
   const int next_h = 54;
-  const int lane_h = 70;
   const int panel_footer_h = 64;  // 흰 배경 큰 글씨(남은거리/도착)가 여유있게 들어가도록 확장
 
   const int gap1 = 10;
   const int gap2 = 8;
-  const int gap3 = 7;
   const int bottom_margin = 14;
   // 차선안내는 항상 티맵이 실제로 보낸 lane_bottom 이미지가 있을 때만 표시한다.
   // (예전 turn_type 배열로 그리던 자체 벡터 아이콘 폴백은 완전히 제거)
@@ -454,9 +452,11 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
                               wall_now - carrot_navi_lane_image_mtime <= 5000;
   const bool has_lane_guidance = has_lane_image;
 
-  // Give the lane row space only while Tmap is actually publishing lane data.
-  // Otherwise the map grows into the vacated area and the footer stays fixed.
-  const int map_to_footer_h = has_lane_guidance ? gap2 + lane_h + gap3 : gap2;
+  // Lane guidance no longer reserves its own row — like the real Tmap, it's
+  // a small overlay box drawn on top of the map (see lane_row below), so the
+  // map always gets the full height down to the footer regardless of
+  // has_lane_guidance.
+  const int map_to_footer_h = gap2;
   const int map_h =
       panel_h
       - panel_header_h
@@ -486,15 +486,20 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
       panel.width() - 28,
       map_h);
 
+  // Small black box overlaid inside the map, bottom-anchored with a margin
+  // on all sides so it floats over the map surface the way Tmap's own lane
+  // guidance does — it never touches or reserves space from the footer.
+  const int lane_overlay_margin = 10;
+  const int lane_overlay_h = 56;
   const QRect lane_row(
-      panel.x() + 14,
-      map_rect.bottom() + gap2,
-      panel.width() - 28,
-      lane_h);
+      map_rect.x() + lane_overlay_margin,
+      map_rect.bottom() - lane_overlay_h - lane_overlay_margin,
+      map_rect.width() - lane_overlay_margin * 2,
+      lane_overlay_h);
 
   const QRect footer(
       panel.x() + 14,
-      has_lane_guidance ? lane_row.bottom() + gap3 : map_rect.bottom() + gap2,
+      map_rect.bottom() + gap2,
       panel.width() - 28,
       panel_footer_h);
   p.setPen(QPen(QColor(255, 255, 255, 120), 2));
@@ -756,7 +761,9 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   p.restore();
   }
 
-  // Lane guidance: draw Tmap's own lane_bottom capture as-is. There is no
+  // Lane guidance: draw Tmap's own lane_bottom capture as-is, as a small
+  // overlay box floating inside the map (lane_row is now inset from
+  // map_rect's bottom, not a separate row — see layout above). There is no
   // placeholder/vector fallback any more — has_lane_guidance is exactly
   // has_lane_image, so this whole block is skipped unless Tmap is actually
   // sending a fresh lane message right now.
