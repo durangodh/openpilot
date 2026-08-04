@@ -252,6 +252,8 @@ class LongitudinalMpc:
     self._t_follow_smooth = T_FOLLOW  # rate-limited t_follow
     self.driving_mode_tf = 1.0        # MyDrivingMode 추종거리 배율 (planner 가 갱신)
     self.desired_distance = 0.0       # UI 표시용 목표 차간거리(m)
+    self.traffic_stop_active = False
+    self.traffic_stop_distance = 0.0
     # ────────────────────────────────────────────────────────────────────
 
     self.reset()
@@ -556,7 +558,8 @@ class LongitudinalMpc:
     self.t_follow = tr
     self.desired_distance = float(tr * v_ego + STOP_DISTANCE)   # UI 표시용
     tr_base = tr  # HF lead_ramp 보간 기준점 (학습된 base + 속도-가변 보정 포함)
-    self.stop_dist = self.stop_dist_acc if self.mode == 'acc' else self.stop_dist_e2e
+    self.stop_dist = self.stop_dist_e2e if self.traffic_stop_active else \
+                     (self.stop_dist_acc if self.mode == 'acc' else self.stop_dist_e2e)
 
     # ── 새 lead의 MPC 입력 점진 반영 (HumanFollowing 설정과 무관) ────────────
     # 기존 lead_ramp는 HumanFollowing에만 쓰여 OFF일 때 raw lead가 첫 프레임부터
@@ -647,7 +650,10 @@ class LongitudinalMpc:
                                  v_lower,
                                  v_upper)
       cruise_obstacle = np.cumsum(T_DIFFS * v_cruise_clipped) + get_safe_obstacle_distance(v_cruise_clipped, self.t_follow, self.stop_dist)
-      x_obstacles = np.column_stack([lead_0_obstacle, lead_1_obstacle, cruise_obstacle])
+      obstacles = [lead_0_obstacle, lead_1_obstacle, cruise_obstacle]
+      if self.traffic_stop_active:
+        obstacles.append(np.full(N+1, max(0.0, self.traffic_stop_distance)))
+      x_obstacles = np.column_stack(obstacles)
       self.source = SOURCES[np.argmin(x_obstacles[0])]
 
       cruise_target = T_IDXS * np.clip(v_cruise, v_ego - 2.0, 1e3) + x[0]
@@ -661,8 +667,10 @@ class LongitudinalMpc:
 
       self.params[:,5] = 1.0
 
-      x_obstacles = np.column_stack([lead_0_obstacle,
-                                     lead_1_obstacle])
+      obstacles = [lead_0_obstacle, lead_1_obstacle]
+      if self.traffic_stop_active:
+        obstacles.append(np.full(N+1, max(0.0, self.traffic_stop_distance)))
+      x_obstacles = np.column_stack(obstacles)
       cruise_target = T_IDXS * np.clip(v_cruise, v_ego - 2.0, 1e3) + x[0]
       xforward = ((v[1:] + v[:-1]) / 2) * (T_IDXS[1:] - T_IDXS[:-1])
       x = np.cumsum(np.insert(xforward, 0, x[0]))

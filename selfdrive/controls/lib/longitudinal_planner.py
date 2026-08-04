@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from collections import deque
 import math
 import numpy as np
 from common.numpy_fast import clip, interp
@@ -83,6 +84,10 @@ class LongitudinalPlanner:
     # 0.1초(연속 프레임) 지속돼야 확정되게 하는 디바운스 카운터.
     self.e2e_stop_sign_count = 0
     self.e2e_start_sign_count = 0
+    self.e2e_model_v_history = deque(maxlen=10)
+    self.e2e_stop_x_median_history = deque(maxlen=3)
+    self.e2e_stop_x_history = deque(maxlen=15)
+    self.e2e_stop_distance = 0.0
 
     # ── Auto-Tuner ──
     self.carrot_learner = CarrotLearner()
@@ -175,61 +180,97 @@ class LongitudinalPlanner:
     if self.params.get_bool("CarrotLearningActive"):
       self.mpc.tfollow_gaps = read_learned_tfollow(self.params)
 
-  def update_auto_e2e_mode(self, car_state, model_msg):
-    if not self.auto_e2e_enabled or self.e2e_acc_mode == 0:
-      self.auto_e2e_stopping = False
-      self.auto_e2e_prepare = False
-      self.e2e_stop_sign_count = 0
-      self.e2e_start_sign_count = 0
+  def reset_auto_e2e(self):
+    self.auto_e2e_stopping = False
+    self.auto_e2e_prepare = False
+    self.e2e_stop_sign_count = 0
+    self.e2e_start_sign_count = 0
+    self.e2e_stop_distance = 0.0
+    self.e2e_model_v_history.clear()
+    self.e2e_stop_x_median_history.clear()
+    self.e2e_stop_x_history.clear()
+    self.mpc.traffic_stop_active = False
+    self.mpc.traffic_stop_distance = 0.0
+
+  def update_auto_e2e_mode(self, car_state, radar_state, model_msg, active):
+    if not active or not self.auto_e2e_enabled or self.e2e_acc_mode == 0:
+      self.reset_auto_e2e()
       return 'acc'
 
     model_valid = (len(model_msg.position.x) == 33 and
                    len(model_msg.position.y) == 33 and
                    len(model_msg.velocity.x) == 33)
     if not model_valid:
-      self.auto_e2e_stopping = False
-      self.auto_e2e_prepare = False
-      self.e2e_stop_sign_count = 0
-      self.e2e_start_sign_count = 0
+      self.reset_auto_e2e()
       return 'blended' if self.experimental_mode_enabled else 'acc'
 
-    model_x = model_msg.position.x[-1]
-    model_y = model_msg.position.y[-1]
-    model_v0 = model_msg.velocity.x[0]
-    model_v = model_msg.velocity.x[-1]
+    model_x = float(model_msg.position.x[-1])
+    model_y = float(model_msg.position.y[-1])
+    model_v0 = float(model_msg.velocity.x[0])
+    self.e2e_model_v_history.append(float(model_msg.velocity.x[-1]))
+    model_v = float(np.mean(self.e2e_model_v_history))
+
+    # apilot-c2 filters the stop target twice so a single model-frame jump
+    # cannot move the stored traffic-light stop point.
+    self.e2e_stop_x_median_history.append(model_x)
+    median_stop_x = float(np.median(self.e2e_stop_x_median_history))
+    self.e2e_stop_x_history.append(median_stop_x)
+    filtered_stop_x = max(0.0, float(np.mean(self.e2e_stop_x_history)))
     v_ego_kph = car_state.vEgo * CV.MS_TO_KPH
 
     if v_ego_kph < 1.0:
-      stop_sign = model_x < 20.0 and model_v < 10.0
+      raw_stop_sign = model_x < 20.0 and model_v < 10.0
     elif v_ego_kph < 80.0:
-      stop_sign = model_x < 120.0 and (model_v < 3.0 or model_v < model_v0 * 0.7) and abs(model_y) < 5.0
+      raw_stop_sign = (model_x < 120.0 and
+                       (model_v < 3.0 or model_v < model_v0 * 0.7) and
+                       abs(model_y) < 5.0)
     else:
-      stop_sign = False
-    start_sign = not stop_sign and (model_v > 5.0 or model_v > model_v0 + 2.0)
+      raw_stop_sign = False
+    raw_start_sign = not raw_stop_sign and (model_v > 5.0 or model_v > model_v0 + 2.0)
 
-    # apilot 참고: 우측 지시등이 켜져있으면(우회전 중) 모델의 감속을 정지신호로
-    # 오인하기 쉬워서 정지판정에서 제외한다. 출발신호는 최소 2프레임(~0.1초)
-    # 연속으로 잡혀야 확정해 단발성 노이즈로 흔들리지 않게 한다.
-    self.e2e_stop_sign_count = self.e2e_stop_sign_count + 1 if stop_sign else 0
-    self.e2e_start_sign_count = self.e2e_start_sign_count + 1 if start_sign else 0
+    self.e2e_stop_sign_count = self.e2e_stop_sign_count + 1 if raw_stop_sign else 0
+    self.e2e_start_sign_count = self.e2e_start_sign_count + 1 if raw_start_sign else 0
     stop_sign = self.e2e_stop_sign_count > 0 and not car_state.rightBlinker
     start_sign = self.e2e_start_sign_count * DT_MDL > 0.1
+    lead_present = radar_state.leadOne.status or radar_state.leadTwo.status
 
-    if self.auto_e2e_stopping and (start_sign or car_state.gasPressed):
-      self.auto_e2e_prepare = True
-      self.auto_e2e_stopping = False
-    if self.auto_e2e_prepare and not stop_sign and (v_ego_kph > 5.0 and model_x > 60.0):
-      self.auto_e2e_prepare = False
-    elif stop_sign and not self.auto_e2e_prepare and not car_state.gasPressed:
+    if self.auto_e2e_stopping:
+      if start_sign or car_state.gasPressed:
+        self.auto_e2e_stopping = False
+        self.auto_e2e_prepare = True
+        self.e2e_stop_distance = 0.0
+      elif car_state.vEgo < 0.1:
+        self.e2e_stop_distance = 0.0
+      elif stop_sign:
+        min_braking_distance = car_state.vEgo ** 2 / 4.0
+        self.e2e_stop_distance = max(filtered_stop_x, min_braking_distance)
+      else:
+        self.e2e_stop_distance = max(0.0, self.e2e_stop_distance - car_state.vEgo * DT_MDL)
+
+    elif self.auto_e2e_prepare:
+      # Return to the stored stop if a departure prediction disappears at
+      # low speed or the driver presses the brake.
+      if car_state.brakePressed or (v_ego_kph < 2.0 and not start_sign and not car_state.gasPressed):
+        self.auto_e2e_prepare = False
+        self.auto_e2e_stopping = True
+        self.e2e_stop_distance = 0.0 if car_state.vEgo < 0.1 else filtered_stop_x
+      elif v_ego_kph > 5.0 and model_x > 60.0:
+        self.auto_e2e_prepare = False
+
+    elif (stop_sign and not lead_present and
+          abs(car_state.steeringAngleDeg) <= 5.0 and not car_state.gasPressed):
       self.auto_e2e_stopping = True
+      min_braking_distance = car_state.vEgo ** 2 / 4.0
+      self.e2e_stop_distance = 0.0 if car_state.vEgo < 0.1 else max(filtered_stop_x, min_braking_distance)
 
-    if self.experimental_mode_enabled:
+    self.mpc.traffic_stop_active = self.auto_e2e_stopping
+    self.mpc.traffic_stop_distance = self.e2e_stop_distance
+
+    if self.experimental_mode_enabled or self.auto_e2e_prepare:
       return 'blended'
-
-    # Keep E2E active throughout stop approach, standstill, and departure
-    # preparation. Returning to ACC during e2eStop would discard the model
-    # stop target because this branch has no separate Carrot stop-speed clamp.
-    return 'blended' if self.auto_e2e_stopping or self.auto_e2e_prepare else 'acc'
+    # Use the model trajectory for a distant approach, then the persistent
+    # virtual stop obstacle in ACC for the final approach, as apilot-c2 does.
+    return 'blended' if self.auto_e2e_stopping and self.e2e_stop_distance > 40.0 else 'acc'
 
   def parse_model(self, model_msg):
     if (len(model_msg.position.x) == 33 and
@@ -253,7 +294,8 @@ class LongitudinalPlanner:
 
     v_ego = sm['carState'].vEgo
 
-    self.mpc.mode = self.update_auto_e2e_mode(sm['carState'], sm['modelV2'])
+    self.mpc.mode = self.update_auto_e2e_mode(sm['carState'], sm['radarState'], sm['modelV2'],
+                                              sm['controlsState'].enabled)
 
     v_cruise_kph = sm['controlsState'].vCruise
     v_cruise_kph = min(v_cruise_kph, V_CRUISE_MAX)
@@ -311,13 +353,6 @@ class LongitudinalPlanner:
     self.mpc.set_accel_limits(accel_limits_turns[0], accel_limits_turns[1])
     self.mpc.set_cur_state(self.v_desired_filter.x, self.a_desired)
     x, v, a, j = self.parse_model(sm['modelV2'])
-    if self.mpc.mode == 'blended':
-      # 앞차 없이 신호/정지선만 보고 서는 순수 E2E 상황: 모델이 예측한 정지
-      # 지점 자체를 E2EStopDistance 만큼 뒤로 당겨서(경로 전체를 균일하게
-      # 축소) 선다. 앞차가 있으면 이 값이 그대로 lead와의 정지거리(stop_dist)로
-      # 도 쓰여서 두 상황이 같은 값 하나로 일관되게 맞춰진다. ACC 모드는
-      # ACCStopDistance 가 별도로 stop_dist(lead 정지거리)만 조절한다.
-      x = np.maximum(x - self.mpc.stop_dist_e2e, 0.0)
     self.mpc.update(sm['carState'], sm['radarState'], v_cruise_sol, x, v, a, j,
                     prev_accel_constraint=prev_accel_constraint)
 
