@@ -98,7 +98,6 @@ class SccSmoother:
     self.auto_gas_resume_guard = True
     self.carrot_atc = CarrotNaviAtc()
     self.initial_gap_applied = False
-    self.initial_gap_sent = False
 
   def read_param(self):
     self.longcontrol = self.params.get_bool('LongControlEnabled')
@@ -111,7 +110,6 @@ class SccSmoother:
     initial_gap = int(clip(self.params.get_int("InitialCruiseGap"), 0, 4))
     if hasattr(self, "initial_cruise_gap") and initial_gap != self.initial_cruise_gap:
       self.initial_gap_applied = False
-      self.initial_gap_sent = False
     self.initial_cruise_gap = initial_gap
     # AutoSpeedUptoRoadSpeedLimit : 도로제한속도 대비 자동 증속 상한(%). 0 = 사용 안함
     try:
@@ -155,6 +153,32 @@ class SccSmoother:
       events.add(EventName.slowingDownSpeedSound)
     elif self.slowing_down_alert:
       events.add(EventName.slowingDownSpeed)
+
+  def get_initial_gap_button(self, ascc_enabled, CS):
+    if self.initial_cruise_gap == 0:
+      self.initial_gap_applied = True
+      return Buttons.NONE
+
+    if self.initial_gap_applied:
+      return Buttons.NONE
+
+    if CS.cruise_buttons == Buttons.GAP_DIST:
+      self.initial_gap_applied = True
+      if self.btn == Buttons.GAP_DIST:
+        self.btn = Buttons.NONE
+        self.alive_timer = 0
+        self.wait_timer = 0
+      return Buttons.NONE
+
+    if not ascc_enabled:
+      return Buttons.NONE
+
+    current_gap = int(clip(CS.out.cruiseGap, 1, 4))
+    if current_gap == self.initial_cruise_gap:
+      self.initial_gap_applied = True
+      return Buttons.NONE
+
+    return Buttons.GAP_DIST
 
   def cal_max_speed(self, frame, CC, CS, sm, clu11_speed, controls):
 
@@ -248,19 +272,11 @@ class SccSmoother:
     ascc_enabled = CS.acc_mode and enabled and CS.cruiseState_enabled \
                    and 1 < CS.cruiseState_speed < 255 and not CS.brake_pressed
 
-    # c3-wip style: write the configured initial gap directly into the SCC11
-    # frame until the vehicle reports the same TauGapSet value. Afterwards the
-    # stock feedback is passed through, so the driver's GAP button changes are
-    # preserved for the rest of this ignition cycle.
-    if self.initial_cruise_gap == 0:
-      self.initial_gap_applied = True
-    elif not self.initial_gap_applied and ascc_enabled:
-      current_gap = int(clip(CS.out.cruiseGap, 1, 4))
-      if self.initial_gap_sent and current_gap == self.initial_cruise_gap:
-        self.initial_gap_applied = True
-      else:
-        CS.scc11["TauGapSet"] = self.initial_cruise_gap
-        self.initial_gap_sent = True
+    # apilot-c2 style: request the configured initial gap with the real Hyundai
+    # GAP button message. Stop automating as soon as the target is reported;
+    # a physical GAP press always cancels the one-time adjustment so the
+    # driver's selection has priority.
+    initial_gap_button = self.get_initial_gap_button(ascc_enabled, CS)
 
     # Auto-resume Cruise Set Speed by JangPoo
     dRel = 0.
@@ -300,7 +316,9 @@ class SccSmoother:
       self.wait_timer -= 1
     elif (ascc_enabled and not CS.out.cruiseState.standstill) or ascc_auto_set:
       if self.alive_timer == 0:
-        if ascc_enabled:
+        if initial_gap_button != Buttons.NONE and CS.cruise_buttons == Buttons.NONE:
+          self.btn = initial_gap_button
+        elif ascc_enabled:
           if self.autoascc:
             self.btn = self.get_button(CS.cruiseState_speed * self.speed_conv_to_clu)
         elif ascc_auto_set and clu11_speed < 30:

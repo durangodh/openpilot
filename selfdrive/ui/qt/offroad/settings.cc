@@ -2540,9 +2540,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(new ParamValueControlF("LongTuningKf",
       "Longitudinal Feedforward", "플래너 목표가속도 피드포워드 게인 (×0.01). 기본값: 100",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
-  list->addItem(new ParamValueControlF("LongActuatorDelay",
-      "Longitudinal Actuator Delay", "종방향 반응 지연 보상 (×0.01초). 크면 더 미리 가감속합니다. 기본값: 20",
-      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 20, this));
   list->addItem(new ParamValueControlF("LongitudinalActuatorDelayLowerBound",
       "Actuator Delay Lower Bound", "듀얼 지연 보상의 짧은 지연값 (×0.01초). 0은 차량 기본 지연에서 자동 계산합니다.",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
