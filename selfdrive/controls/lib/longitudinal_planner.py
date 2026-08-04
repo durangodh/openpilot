@@ -18,15 +18,21 @@ from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.vision_turn_controller import VisionTurnController, VisionTurnControllerState
 from selfdrive.controls.lib.events import Events
 # ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──
-from selfdrive.controls.lib.carrot_learning import CarrotLearner, read_learned_accel_vals, read_learned_tfollow
+from selfdrive.controls.lib.carrot_learning import CarrotLearner, read_learned_tfollow
 
 GearShifter = car.CarState.GearShifter
 
 LON_MPC_STEP = 0.2  # first step is 0.2s
 AWARENESS_DECEL = -0.2  # car smoothly decel at .2m/s^2 when user is distracted
 A_CRUISE_MIN = -1.0
-A_CRUISE_MAX_VALS = [1.8, 1.2, 0.8, 0.6]
-A_CRUISE_MAX_BP = [0., 10., 25., 40.]
+
+# apilot-c2 style six-point cruise acceleration table. Stored Params use
+# 0.01 m/s^2 and are applied before the MPC solves its trajectory.
+CRUISE_MAX_ACCEL_BP = [0.0, 40.0 * CV.KPH_TO_MS, 60.0 * CV.KPH_TO_MS,
+                       80.0 * CV.KPH_TO_MS, 110.0 * CV.KPH_TO_MS, 140.0 * CV.KPH_TO_MS]
+CRUISE_MAX_ACCEL_PARAM_KEYS = ["CruiseMaxAccel0", "CruiseMaxAccel40", "CruiseMaxAccel60",
+                               "CruiseMaxAccel80", "CruiseMaxAccel110", "CruiseMaxAccel140"]
+CRUISE_MAX_ACCEL_DEFAULTS = [1.80, 1.17, 1.03, 0.89, 0.74, 0.61]
 
 # ── MyDrivingMode (1:ECO 2:SAFE 3:NORM 4:FAST) ────────────────────────────
 # UI 의 모드 박스를 탭하면 1→2→3→4→1 로 순환한다 (onroad.cc).
@@ -40,10 +46,6 @@ MY_DRIVING_MODE_TF    = {1: 1.10, 2: 1.20, 3: 1.00, 4: 1.00}
 # Lookup table for turns
 _A_TOTAL_MAX_V = [1.7, 3.2]
 _A_TOTAL_MAX_BP = [20., 40.]
-
-
-def get_max_accel(v_ego):
-  return interp(v_ego, A_CRUISE_MAX_BP, A_CRUISE_MAX_VALS)
 
 
 def limit_accel_in_turns(v_ego, angle_steers, a_target, CP):
@@ -82,13 +84,13 @@ class LongitudinalPlanner:
     self.e2e_stop_sign_count = 0
     self.e2e_start_sign_count = 0
 
-    # ── Auto-Tuner: 학습기 + 학습된 가속 테이블 ──
+    # ── Auto-Tuner ──
     self.carrot_learner = CarrotLearner()
-    self.learned_accel_vals = list(A_CRUISE_MAX_VALS)
 
     # MyDrivingMode
     self.my_driving_mode = 3
     self.my_driving_mode_accel = 1.0
+    self.cruise_max_accel_vals = list(CRUISE_MAX_ACCEL_DEFAULTS)
 
     self.read_param()
 
@@ -143,6 +145,18 @@ class LongitudinalPlanner:
       mode = 3
     self.my_driving_mode = mode
     self.my_driving_mode_accel = MY_DRIVING_MODE_ACCEL[mode]
+
+    accel_vals = []
+    for key, default in zip(CRUISE_MAX_ACCEL_PARAM_KEYS, CRUISE_MAX_ACCEL_DEFAULTS):
+      raw = self.params.get_int(key)
+      value = raw * 0.01 if raw > 0 else default
+      accel_vals.append(float(clip(value, 0.1, MAX_ACCEL)))
+    # Prevent malformed settings from increasing the limit at a higher-speed
+    # breakpoint, which could otherwise cause a surge as speed rises.
+    for index in range(1, len(accel_vals)):
+      accel_vals[index] = min(accel_vals[index], accel_vals[index - 1])
+    self.cruise_max_accel_vals = accel_vals
+
     self.mpc.driving_mode_tf = MY_DRIVING_MODE_TF[mode]
     gap_defaults = [110, 120, 140, 160]
     gap_values = []
@@ -157,12 +171,9 @@ class LongitudinalPlanner:
     self.mpc.t_follow_decel_boost = max(0, decel_boost) * 0.01
     # ───────────────────
 
-    # ── Auto-Tuner: 학습된 파라미터를 planner/mpc에 반영 (5초 주기 갱신) ──
+    # ── Auto-Tuner: 학습된 추종거리 파라미터를 MPC에 반영 (5초 주기 갱신) ──
     if self.params.get_bool("CarrotLearningActive"):
-      self.learned_accel_vals = read_learned_accel_vals(self.params)
       self.mpc.tfollow_gaps = read_learned_tfollow(self.params)
-    else:
-      self.learned_accel_vals = list(A_CRUISE_MAX_VALS)
 
   def update_auto_e2e_mode(self, car_state, model_msg):
     if not self.auto_e2e_enabled or self.e2e_acc_mode == 0:
@@ -220,9 +231,6 @@ class LongitudinalPlanner:
     # stop target because this branch has no separate Carrot stop-speed clamp.
     return 'blended' if self.auto_e2e_stopping or self.auto_e2e_prepare else 'acc'
 
-  def get_max_accel_learned(self, v_ego):
-    return interp(v_ego, A_CRUISE_MAX_BP, self.learned_accel_vals)
-
   def parse_model(self, model_msg):
     if (len(model_msg.position.x) == 33 and
        len(model_msg.velocity.x) == 33 and
@@ -267,14 +275,16 @@ class LongitudinalPlanner:
     # No change cost when user is controlling the speed, or when standstill
     prev_accel_constraint = not (reset_state or sm['carState'].standstill)
 
+    cruise_max_accel = float(clip(interp(v_ego, CRUISE_MAX_ACCEL_BP, self.cruise_max_accel_vals) *
+                                  self.my_driving_mode_accel, 0.0, MAX_ACCEL))
     if self.mpc.mode == 'acc':
-      # Carrot: learned cruise acceleration with the selected driving mode.
-      accel_limits = [A_CRUISE_MIN, self.get_max_accel_learned(v_ego) * self.my_driving_mode_accel]
+      accel_limits = [A_CRUISE_MIN, cruise_max_accel]
       accel_limits_turns = limit_accel_in_turns(v_ego, sm['carState'].steeringAngleDeg, accel_limits, self.CP)
     else:
-      # Carrot E2E: use the full longitudinal range without driving-mode scaling.
-      accel_limits = [MIN_ACCEL, MAX_ACCEL]
-      accel_limits_turns = [MIN_ACCEL, MAX_ACCEL]
+      # E2E keeps its wider braking range but shares the same cruise maximum
+      # acceleration table and driving-mode factor with ACC.
+      accel_limits = [MIN_ACCEL, cruise_max_accel]
+      accel_limits_turns = list(accel_limits)
 
     if reset_state:
       self.v_desired_filter.x = v_ego

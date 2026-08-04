@@ -1,5 +1,4 @@
 from cereal import car
-from common.conversions import Conversions as CV
 from common.numpy_fast import clip, interp
 from common.params import Params
 from common.realtime import DT_CTRL
@@ -8,19 +7,6 @@ from selfdrive.controls.lib.pid import PIDController
 from selfdrive.modeld.constants import T_IDXS
 
 LongCtrlState = car.CarControl.Actuators.LongControlState
-
-# apilot-c2 style six-point acceleration table. Stored Params use 0.01 m/s^2.
-ACCEL_BP = [0.0, 40.0 * CV.KPH_TO_MS, 60.0 * CV.KPH_TO_MS,
-            80.0 * CV.KPH_TO_MS, 110.0 * CV.KPH_TO_MS, 140.0 * CV.KPH_TO_MS]
-# Use dedicated fixed-control keys so the old CruiseMaxVals0~3 Auto-Tuner
-# values can never leak into the actual acceleration limit.
-ACCEL_PARAM_KEYS = ["CruiseMaxAccel0", "CruiseMaxAccel40", "CruiseMaxAccel60",
-                    "CruiseMaxAccel80", "CruiseMaxAccel110", "CruiseMaxAccel140"]
-# Safe fallbacks preserve this branch's previous acceleration feel while adding
-# the finer apilot-c2 speed breakpoints.
-ACCEL_DEFAULTS = [1.80, 1.17, 1.03, 0.89, 0.74, 0.61]
-DRIVING_MODE_ACCEL = {1: 0.80, 2: 0.64, 3: 1.00, 4: 1.00}
-
 
 def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                              v_target_1sec, brake_pressed, cruise_standstill,
@@ -85,9 +71,6 @@ class LongControl:
     self.start_accel = 0.50
     self.starting_state = True
 
-    self.accel_max_vals = list(ACCEL_DEFAULTS)
-    self.driving_mode = 3
-
     # apilot-c2 uses two actuator-delay predictions and selects the more
     # conservative target. Derive safe defaults around the configured delay.
     delay = float(clip(CP.longitudinalActuatorDelay, 0.1, 1.0))
@@ -119,20 +102,6 @@ class LongControl:
       self.start_accel_apply = float(clip(start_raw * 0.01, 0.0, 0.5))
       self.start_accel = float(clip(2.0 * self.start_accel_apply, 0.0, 1.0))
       self.starting_state = start_raw > 0
-
-      accel_vals = []
-      for key, default in zip(ACCEL_PARAM_KEYS, ACCEL_DEFAULTS):
-        raw = self.params.get_int(key)
-        value = raw * 0.01 if raw > 0 else default
-        accel_vals.append(float(clip(value, 0.1, 2.5)))
-      # Do not permit a higher-speed point to exceed the preceding point. This
-      # prevents malformed settings from causing a surge.
-      for index in range(1, len(accel_vals)):
-        accel_vals[index] = min(accel_vals[index], accel_vals[index - 1])
-      self.accel_max_vals = accel_vals
-
-      mode = self.params.get_int("MyDrivingMode")
-      self.driving_mode = mode if mode in DRIVING_MODE_ACCEL else 3
 
     elif self.read_param_count == 10:
       if len(self.CP.longitudinalTuning.kpBP) == 1 and len(self.CP.longitudinalTuning.kiBP) == 1:
@@ -176,14 +145,8 @@ class LongControl:
       v_target_1sec = 0.0
       a_target = 0.0
 
-    # Apply the apilot-c2 six-point acceleration table at the final controller
-    # output for both ACC and E2E. This keeps both modes consistent even when
-    # the blended MPC is allowed to solve over the full acceleration range.
-    mode_factor = DRIVING_MODE_ACCEL[self.driving_mode]
-    table_accel_max = interp(CS.vEgo, ACCEL_BP, self.accel_max_vals) * mode_factor
-    controller_pos_limit = min(accel_limits[1], table_accel_max)
     self.pid.neg_limit = accel_limits[0]
-    self.pid.pos_limit = controller_pos_limit
+    self.pid.pos_limit = accel_limits[1]
 
     stop_accel = self.stopping_accel if self.stopping_accel < 0.0 else self.CP.stopAccel
     self.long_control_state = long_control_state_trans(
@@ -202,7 +165,7 @@ class LongControl:
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:
-      output_accel = min(self.start_accel, controller_pos_limit)
+      output_accel = min(self.start_accel, accel_limits[1])
       self.reset(CS.vEgo)
 
     else:
@@ -223,5 +186,5 @@ class LongControl:
       if -self.long_coast_band < output_accel < 0.0:
         output_accel = 0.0
 
-    self.last_output_accel = clip(output_accel, accel_limits[0], controller_pos_limit)
+    self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
     return self.last_output_accel
