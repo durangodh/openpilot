@@ -102,14 +102,6 @@ _DT = DT_MDL  # longitudinal_planner.update() 호출 주기 (0.05s)
 # ── Phase 1 상수: A_CRUISE_MAX_BP [0,10,25,40] m/s 와 동일 대역 (kph 환산) ──
 _BP_KPH = [0., 36., 90., 144.]
 _NUM_BANDS = len(_BP_KPH)
-_ACCEL_KEYS = [f"CruiseMaxVals{i}" for i in range(_NUM_BANDS)]
-_ACCEL_DEFAULTS = [180, 120, 80, 60]      # A_CRUISE_MAX_VALS x100
-_ACCEL_MAX_LIMITS = [220, 150, 110, 80]   # 대역별 안전 상한 (원본 캡 준용)
-_ACCEL_MIN = 50
-_GAS_THRESHOLD_SEC = 10.0                 # 추천 발동: 누적 가속 개입 시간
-_GAS_RECOMMEND_RATIO = 0.10               # 기본 +10%
-_GAS_REDUCE_RATIO = -0.07                 # 과가속 시 -7%
-_GAS_REDUCE_THRESHOLD_SEC = 5.0           # 브레이크 개입 누적 기준
 _MAX_DELTA = 15                           # 세션당 변동폭 제한 (원본 ±15)
 
 # ── Phase 2 상수: OffsetTotal (단위 m, float) ──
@@ -267,7 +259,6 @@ _LONG_COAST_BAND_MAX = 40       # LongCoastBand 안전 상한 (0.40 m/s², param
 # longActuatorDelay/longKf 는 Phase 4 추종 카운터에서 파생되므로 Phase 4 에 귀속.
 # latAccelFactor/friction/steerActuatorDelay/steerRatio 는 모두 Phase 5(조향)에 귀속.
 _KEY_RESET_PHASE = {
-  **{k: 1 for k in _ACCEL_KEYS},
   "OffsetTotal": 2,
   **{k: 4 for k in _TFOLLOW_KEYS},
   _LONG_ACT_DELAY_KEY: 4, _LONG_KF_KEY: 4,
@@ -399,11 +390,7 @@ def _remove(params, key):
 
 # ── planner / long_mpc 에서 학습값을 읽어가는 공용 함수 ───────────────────
 def read_learned_accel_vals(params):
-  """longitudinal_planner의 최대가속 테이블 대체값 (m/s^2 리스트, 길이 4)"""
-  return [float(np.clip(_get_int(params, _ACCEL_KEYS[i], _ACCEL_DEFAULTS[i]),
-                        _ACCEL_MIN, _ACCEL_MAX_LIMITS[i])) / 100.0
-          for i in range(_NUM_BANDS)]
-
+  return [1.8, 1.2, 0.8, 0.6]
 
 def read_learned_tfollow(params):
   """long_mpc의 CRUISE_GAP_V 대체값 (초 리스트, 길이 4)"""
@@ -449,10 +436,6 @@ class CarrotLearner:
 
   def __init__(self):
     self._params = Params()
-    # Phase 1
-    self._gas_acc = [0.0] * _NUM_BANDS
-    self._gas_dec_acc = [0.0] * _NUM_BANDS
-    self._gas_max_accel = [0.0] * _NUM_BANDS
     # Phase 2
     self._steer_acc = 0.0
     self._steer_count = 0
@@ -551,21 +534,6 @@ class CarrotLearner:
 
     # 학습 제외 조건 (깜빡이 / 극단적 가속)
     exclude = blinker or (a_ego > 2.2) or (gas_val > 0.7)
-
-    # ── Phase 1: 가속 개입 (설정속도 오버라이드 목적 가속은 제외) ──
-    if apply_long and engaged and gas_pressed and v_ego_kph >= 1.0 \
-       and v_ego_kph < (v_cruise_kph - 3.0) and not exclude:
-      i = _speed_band(v_ego_kph)
-      self._gas_acc[i] += _DT
-      self._gas_max_accel[i] = max(self._gas_max_accel[i], a_ego)
-
-    # 가속 과다 방지: 선행차 없는데 브레이크를 밟는 패턴 (40km/h 이상에서만)
-    # (선행차 추종 제동(lead_drel 유효)은 여기서 제외 → 가속 한계 신호 오귀속 방지.
-    #  원본 commit fix3 의도가 이 수집 조건으로 이미 충족됨)
-    if apply_long and engaged and brake_pressed and v_ego_kph >= 40.0 \
-       and (lead_drel == 0.0 or lead_drel > 120.0) and not blinker:
-      i = _speed_band(v_ego_kph)
-      self._gas_dec_acc[i] += _DT
 
     # ── Phase 2: 직진 편차 (OffsetTotal) ──
     # 센서 영점 오프셋(angleOffsetDeg) 오학습 방지:
@@ -769,36 +737,6 @@ class CarrotLearner:
       "거리 (Following Distance)": {},
       "주행 (Driving)": {},
     }
-
-    # ── Phase 1: CruiseMaxVals ──
-    if apply_long:
-      for i, sec in enumerate(self._gas_acc):
-        key = _ACCEL_KEYS[i]
-        cur = _get_int(self._params, key, _ACCEL_DEFAULTS[i])
-        max_limit = _ACCEL_MAX_LIMITS[i]
-        rec, reason = cur, ""
-        if cur > max_limit:
-          rec, reason = max_limit, f"exceeds limit ({max_limit})"
-        elif sec >= _GAS_THRESHOLD_SEC:
-          cur_limit = cur / 100.0
-          deficit = self._gas_max_accel[i] - cur_limit
-          if deficit > 0.05:
-            ratio = float(np.clip(deficit / max(cur_limit, 0.1) * 0.8, 0.05, 0.25))
-          else:
-            ratio = _GAS_RECOMMEND_RATIO
-          rec = min(max_limit, int(cur * (1.0 + ratio)))
-          reason = f"gas help ({sec:.0f}s, +{ratio*100:.0f}%)"
-        elif self._gas_dec_acc[i] >= _GAS_REDUCE_THRESHOLD_SEC:
-          # 하향 신호는 '선행차 제외' gas_dec_acc 만 사용 (수집 단계에서 lead 제외됨)
-          rec = int(np.clip(int(cur * (1.0 + _GAS_REDUCE_RATIO)), _ACCEL_MIN, max_limit))
-          reason = f"too aggressive ({self._gas_dec_acc[i]:.0f}s brake)"
-        if rec != cur:
-          rec = cur + int(np.clip(rec - cur, -_MAX_DELTA, _MAX_DELTA))
-        if rec != cur:
-          result["가속 (Acceleration)"][key] = {
-            "current": cur, "recommended": rec,
-            "band_kph": f"{_BP_KPH[i]:.0f}km/h~ ({reason})",
-          }
 
     # ── Phase 2: OffsetTotal ──
     if apply_lat and self._steer_count >= _LATERAL_MIN_SAMPLES:
@@ -1150,25 +1088,17 @@ class CarrotLearner:
         if ph is not None:
           applied_phases.add(ph)
     phase_reset = {
-      1: self._reset_phase1, 2: self._reset_phase2,
-      4: self._reset_phase4, 5: self._reset_phase5,
-      6: self._reset_phase6, 9: self._reset_phase9,
+      2: self._reset_phase2,
+      4: self._reset_phase4,
+      5: self._reset_phase5,
+      6: self._reset_phase6,
+      9: self._reset_phase9,
     }
     for ph in applied_phases:
       phase_reset[ph]()
 
     # 보존된 Phase 데이터가 재부팅에도 살아남도록 즉시 저장(remove 대신 _save).
     self._save()
-
-  # ── Phase별 누적 데이터 리셋 헬퍼 (단일 출처) ──────────────────────────
-  # 모든 리셋 경로(_apply 선택적 리셋 / _clear 전체 리셋)를 아래 헬퍼로 일원화해,
-  # 분자(override/under/inner)만 남고 분모(samples)가 0이 되어 비율이 오염되는
-  # 류의 reset/attribution 어긋남(원본 commit 117e99c)을 구조적으로 방지한다.
-  def _reset_phase1(self):
-    """가속 (CruiseMaxVals0~3)"""
-    self._gas_acc = [0.0] * _NUM_BANDS
-    self._gas_dec_acc = [0.0] * _NUM_BANDS
-    self._gas_max_accel = [0.0] * _NUM_BANDS
 
   def _reset_phase2(self):
     """직진 편차 (OffsetTotal)"""
@@ -1225,7 +1155,6 @@ class CarrotLearner:
     self._manual_gap_n = 0
 
   def _reset_all_phases(self):
-    self._reset_phase1()
     self._reset_phase2()
     self._reset_phase4()
     self._reset_phase5()
@@ -1243,15 +1172,6 @@ class CarrotLearner:
       return
     try:
       d = json.loads(raw)
-      ga = d.get("gas_acc", [])
-      if len(ga) == _NUM_BANDS:
-        self._gas_acc = [float(x) for x in ga]
-      gd = d.get("gas_dec_acc", [])
-      if len(gd) == _NUM_BANDS:
-        self._gas_dec_acc = [float(x) for x in gd]
-      gm = d.get("gas_max_accel", [])
-      if len(gm) == _NUM_BANDS:
-        self._gas_max_accel = [float(x) for x in gm]
       self._steer_acc = float(d.get("steer_acc", 0.0))
       self._steer_count = int(d.get("steer_count", 0))
       tg = d.get("tfollow_gas_acc", [])
@@ -1313,9 +1233,6 @@ class CarrotLearner:
 
   def _save(self):
     data = {
-      "gas_acc": self._gas_acc,
-      "gas_dec_acc": self._gas_dec_acc,
-      "gas_max_accel": self._gas_max_accel,
       "steer_acc": self._steer_acc,
       "steer_count": self._steer_count,
       "tfollow_gas_acc": self._tfollow_gas_acc,
