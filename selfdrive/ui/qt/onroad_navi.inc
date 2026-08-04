@@ -572,6 +572,64 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const bool map_main_fresh = !map_main_pixmap.isNull() &&
                               map_main_age >= 0 && map_main_age <= 2500;
 
+  // CPU: pre-crop + pre-scale the JPEG once per source frame (≤5Hz) or once
+  // per map_rect resize, instead of re-running SmoothPixmapTransform on every
+  // UI paint (previously ~20Hz regardless of whether the source had changed).
+  static QPixmap map_main_scaled;
+  static qint64 map_main_scaled_src_modified_at = -1;
+  static int map_main_scaled_w = 0, map_main_scaled_h = 0;
+  if (map_main_fresh &&
+      (map_main_scaled_src_modified_at != map_main_modified_at ||
+       map_main_scaled_w != map_rect.width() || map_main_scaled_h != map_rect.height())) {
+    // map_main is rendered at 160 dpi. Crop the proportional Android/Tmap
+    // status bar, then use a centered 1.18x cover crop so the map keeps its
+    // aspect ratio instead of being stretched to the panel dimensions.
+    const qreal status_bar_h = std::min<qreal>(map_main_pixmap.height() / 8.0,
+                                               map_main_pixmap.width() * 0.05);
+    const QRectF map_content(0.0, status_bar_h, map_main_pixmap.width(),
+                             map_main_pixmap.height() - status_bar_h);
+    const qreal target_aspect = static_cast<qreal>(map_rect.width()) / map_rect.height();
+    qreal source_w = map_content.width();
+    qreal source_h = map_content.height();
+    if (source_w / source_h > target_aspect) {
+      source_w = source_h * target_aspect;
+    } else {
+      source_h = source_w / target_aspect;
+    }
+    constexpr qreal map_zoom = 1.18;
+    source_w /= map_zoom;
+    source_h /= map_zoom;
+    const QRectF map_source(map_content.center().x() - source_w / 2.0,
+                            map_content.center().y() - source_h / 2.0,
+                            source_w, source_h);
+    QPixmap cropped = map_main_pixmap.copy(map_source.toRect())
+                          .scaled(map_rect.size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    // Bake the rounded-corner mask in here, once per source frame, instead of
+    // clipping with a QPainterPath on every single UI paint. Use a QImage
+    // with an explicit alpha format — a bare QPixmap isn't guaranteed to
+    // carry an alpha channel, so the transparent corners could come out
+    // opaque/garbage on some backends.
+    QImage rounded(map_rect.size(), QImage::Format_ARGB32_Premultiplied);
+    rounded.fill(Qt::transparent);
+    QPainter rp(&rounded);
+    rp.setRenderHint(QPainter::Antialiasing);
+    QPainterPath mask;
+    mask.addRoundedRect(QRectF(QPointF(0, 0), map_rect.size()), 14, 14);
+    rp.setClipPath(mask);
+    rp.drawPixmap(0, 0, cropped);
+    rp.end();
+    map_main_scaled = QPixmap::fromImage(rounded);
+    map_main_scaled_src_modified_at = map_main_modified_at;
+    map_main_scaled_w = map_rect.width();
+    map_main_scaled_h = map_rect.height();
+  }
+
+  if (map_main_fresh) {
+    // The real Tmap frame fully covers map_rect — the vector fallback below
+    // would be entirely hidden, so skip drawing it and save the CPU. Corner
+    // rounding is already baked into map_main_scaled (see above).
+    p.drawPixmap(map_rect.topLeft(), map_main_scaled);
+  } else {
   // Lightweight schematic map background: a few fixed vector shapes only.
   QPainterPath map_clip;
   map_clip.addRoundedRect(map_rect, 14, 14);
@@ -695,32 +753,8 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
       p.restore();
     }
   }
-  if (map_main_fresh) {
-    p.setRenderHint(QPainter::SmoothPixmapTransform);
-    // map_main is rendered at 160 dpi. Crop the proportional Android/Tmap
-    // status bar, then use a centered 1.18x cover crop so the map keeps its
-    // aspect ratio instead of being stretched to the panel dimensions.
-    const qreal status_bar_h = std::min<qreal>(map_main_pixmap.height() / 8.0,
-                                               map_main_pixmap.width() * 0.05);
-    const QRectF map_content(0.0, status_bar_h, map_main_pixmap.width(),
-                             map_main_pixmap.height() - status_bar_h);
-    const qreal target_aspect = static_cast<qreal>(map_rect.width()) / map_rect.height();
-    qreal source_w = map_content.width();
-    qreal source_h = map_content.height();
-    if (source_w / source_h > target_aspect) {
-      source_w = source_h * target_aspect;
-    } else {
-      source_h = source_w / target_aspect;
-    }
-    constexpr qreal map_zoom = 1.18;
-    source_w /= map_zoom;
-    source_h /= map_zoom;
-    const QRectF map_source(map_content.center().x() - source_w / 2.0,
-                            map_content.center().y() - source_h / 2.0,
-                            source_w, source_h);
-    p.drawPixmap(QRectF(map_rect), map_main_pixmap, map_source);
-  }
   p.restore();
+  }
 
   // Lane guidance: draw Tmap's own lane_bottom capture as-is. There is no
   // placeholder/vector fallback any more — has_lane_guidance is exactly
