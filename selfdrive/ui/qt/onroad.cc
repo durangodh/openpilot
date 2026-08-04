@@ -1250,7 +1250,7 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
 
   if(limit_speed > 10 && limit_speed < 130)
   {
-    int radius_ = 192;
+    int radius_ = 154;  // 기존 192에서 20% 축소 (숫자와 함께 원 전체도 축소)
 
     int x = 30;
     int y = 270;
@@ -1262,7 +1262,7 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
 
     p.setBrush(QBrush(QColor(255, 255, 255, 255)));
 
-    const int tickness = 14;
+    const int tickness = 11;  // 기존 14에서 20% 축소
     rect.adjust(tickness, tickness, -tickness, -tickness);
     p.drawEllipse(rect);
 
@@ -1274,14 +1274,14 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
     else if(left_dist > 0)
       str_left_dist.sprintf("%dm", left_dist);
 
-    configFont(p, "Open Sans", 80, "Bold");
+    configFont(p, "Open Sans", 64, "Bold");  // 기존 80에서 20% 축소
     p.setPen(QColor(0, 0, 0, 230));
     p.drawText(rect, Qt::AlignCenter, str_limit_speed);
 
     if(str_left_dist.length() > 0) {
-      configFont(p, "Open Sans", 60, "Bold");
-      rect.translate(0, radius_/2 + 45);
-      rect.adjust(-30, 0, 30, 0);
+      configFont(p, "Open Sans", 48, "Bold");  // 기존 60에서 20% 축소
+      rect.translate(0, radius_/2 + 36);  // 기존 +45에서 20% 축소
+      rect.adjust(-24, 0, 24, 0);  // 기존 ±30에서 20% 축소
       p.setPen(QColor(255, 255, 255, 230));
       p.drawText(rect, Qt::AlignCenter, str_left_dist);
     }
@@ -1292,7 +1292,7 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
     int sccStockCamStatus = (int)controls_state.getSccStockCamStatus();
 
     if(sccStockCamAct == 2 && sccStockCamStatus == 2) {
-      int radius_ = 192;
+      int radius_ = 154;  // 기존 192에서 20% 축소
 
       int x = 30;
       int y = 270;
@@ -1305,11 +1305,11 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
 
       p.setBrush(QBrush(QColor(255, 255, 255, 255)));
 
-      const int tickness = 14;
+      const int tickness = 11;  // 기존 14에서 20% 축소
       rect.adjust(tickness, tickness, -tickness, -tickness);
       p.drawEllipse(rect);
 
-      configFont(p, "Open Sans", 70, "Bold");
+      configFont(p, "Open Sans", 56, "Bold");  // 기존 70에서 20% 축소 (원 크기와 비례 유지)
       p.setPen(QColor(0, 0, 0, 230));
       p.drawText(rect, Qt::AlignCenter, "CAM");
     }
