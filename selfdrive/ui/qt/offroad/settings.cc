@@ -513,10 +513,6 @@ void NtuneValueControl::refresh() {
 
 // 포팅판 학습 대상 파라미터의 공장 기본값 (python carrot_learning.py 와 동일)
 static const std::map<std::string, std::string> kAutoTunerDefaults = {
-  {"CruiseMaxVals0", "180"},
-  {"CruiseMaxVals1", "120"},
-  {"CruiseMaxVals2", "80"},
-  {"CruiseMaxVals3", "60"},
   {"TFollowGap1", "110"},
   {"TFollowGap2", "120"},
   {"TFollowGap3", "140"},
@@ -966,10 +962,6 @@ AutoTunerHistoryPanel::AutoTunerHistoryPanel(QWidget* parent) : QFrame(parent) {
 
   // 파라미터별 고정 색상 (포팅판 학습 대상에 맞춤)
   param_colors.clear();
-  param_colors["CruiseMaxVals0"] = QColor("#3b82f6");  // Blue
-  param_colors["CruiseMaxVals1"] = QColor("#60a5fa");  // Light Blue
-  param_colors["CruiseMaxVals2"] = QColor("#10b981");  // Mint
-  param_colors["CruiseMaxVals3"] = QColor("#84cc16");  // Lime
   param_colors["TFollowGap1"] = QColor("#06b6d4");     // Cyan
   param_colors["TFollowGap2"] = QColor("#14b8a6");     // Teal
   param_colors["TFollowGap3"] = QColor("#ffffff");     // White
