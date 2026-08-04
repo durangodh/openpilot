@@ -100,6 +100,7 @@ class SccSmoother:
     self.initial_gap_applied = False
     self.initial_gap_next_frame = 0
     self.initial_gap_attempts = 0
+    self.initial_gap_button_frames = 0
 
   def read_param(self):
     self.longcontrol = self.params.get_bool('LongControlEnabled')
@@ -113,6 +114,8 @@ class SccSmoother:
     if hasattr(self, "initial_cruise_gap") and initial_gap != self.initial_cruise_gap:
       self.initial_gap_applied = False
       self.initial_gap_attempts = 0
+      self.initial_gap_button_frames = 0
+      self.initial_gap_next_frame = 0
     self.initial_cruise_gap = initial_gap
     # AutoSpeedUptoRoadSpeedLimit : 도로제한속도 대비 자동 증속 상한(%). 0 = 사용 안함
     try:
@@ -249,20 +252,29 @@ class SccSmoother:
     ascc_enabled = CS.acc_mode and enabled and CS.cruiseState_enabled \
                    and 1 < CS.cruiseState_speed < 255 and not CS.brake_pressed
 
-    # Hyundai SCC commonly starts at GAP4 after ignition. If requested, send
-    # isolated GAP button presses until the first active-cruise gap matches the
-    # configured value. Once matched, never force it again during this drive.
+    # Hyundai SCC commonly starts at GAP4 after ignition. Send a normal-length
+    # GAP button pulse, then wait for TauGapSet feedback before requesting the
+    # next step. This makes GAP4 -> GAP2 apply reliably as 4 -> 3 -> 2.
     if self.initial_cruise_gap == 0:
       self.initial_gap_applied = True
+      self.initial_gap_button_frames = 0
     elif not self.initial_gap_applied and ascc_enabled:
       current_gap = int(clip(CS.out.cruiseGap, 1, 4))
       if current_gap == self.initial_cruise_gap:
         self.initial_gap_applied = True
-      elif frame >= self.initial_gap_next_frame and self.initial_gap_attempts < 4:
+        self.initial_gap_button_frames = 0
+      elif self.initial_gap_button_frames > 0:
         can_sends.append(SccSmoother.create_clu11(packer, CS.scc_bus, CS.clu11, Buttons.GAP_DIST))
         self.started_frame = frame
+        self.initial_gap_button_frames -= 1
+        return
+      elif frame >= self.initial_gap_next_frame and self.initial_gap_attempts < 8:
         self.initial_gap_attempts += 1
-        self.initial_gap_next_frame = frame + int(0.4 / DT_CTRL)
+        self.initial_gap_button_frames = 8
+        self.initial_gap_next_frame = frame + int(0.6 / DT_CTRL)
+        can_sends.append(SccSmoother.create_clu11(packer, CS.scc_bus, CS.clu11, Buttons.GAP_DIST))
+        self.started_frame = frame
+        self.initial_gap_button_frames -= 1
         return
 
     # Auto-resume Cruise Set Speed by JangPoo
