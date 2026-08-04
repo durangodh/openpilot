@@ -1,11 +1,3 @@
-static QJsonValue carrotFirstJsonValue(const QJsonObject &object,
-                                       std::initializer_list<const char *> keys) {
-  for (const char *key : keys) {
-    if (object.contains(key)) return object.value(key);
-  }
-  return QJsonValue();
-}
-
 static bool carrotJsonBool(const QJsonObject &object,
                            std::initializer_list<const char *> keys) {
   const QJsonValue value = carrotFirstJsonValue(object, keys);
@@ -665,12 +657,14 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
     p.setPen(QPen(QColor(0, 0, 0, 185), 22, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.drawPath(full_path);
     if (car_idx > 0) {
-      p.setPen(QPen(QColor(105, 112, 120), 10, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+      // Tmap day 테마의 unselected 경로 색(#8C9299)과 동일하게 지나온 구간 표시
+      p.setPen(QPen(QColor(0x8C, 0x92, 0x99), 10, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
       p.drawPath(smooth_path(0, car_idx));
     }
-    p.setPen(QPen(QColor(14, 70, 128), 17, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    // Tmap theme_navi_day.json 의 routeLine 색(strokeColor #254ea1 / fillColor #3673ee, width 17)과 동일하게 맞춤
+    p.setPen(QPen(QColor(0x25, 0x4e, 0xa1), 17, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.drawPath(remain_path);
-    p.setPen(QPen(QColor(27, 143, 255), 12, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setPen(QPen(QColor(0x36, 0x73, 0xee), 12, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.drawPath(remain_path);
     p.setPen(QPen(QColor(112, 207, 255), 4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.drawPath(remain_path);
