@@ -517,8 +517,7 @@ static const std::map<std::string, std::string> kAutoTunerDefaults = {
   {"TFollowGap2", "120"},
   {"TFollowGap3", "140"},
   {"TFollowGap4", "160"},
-  {"TFollowSpeedRatio", "110"},
-  {"TFollowDecelBoost", "10"},
+  {"TFollowSpeedRatio", "120"},
   {"OffsetTotal", "0.0"},
   {"CarrotLongActuatorDelay", "0.4"},   // _LONG_DELAY_DEFAULT (carrot_learning.py)
   {"CarrotLongKf", "1.0"},              // _LONG_KF_DEFAULT (carrot_learning.py)
@@ -2517,11 +2516,8 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "TR Gap 4", "Carrot GAP4 추종시간 (×0.01초). 기본값: 160",
       "../assets/offroad/icon_openpilot.png", 70, 300, 5, 0, 160, this));
   list->addItem(new ParamValueControlF("TFollowSpeedRatio",
-      "TR Speed Ratio", "C2 방식 속도 연동 비율(%). 100km/h에서 적용되며 기본값 110은 TR을 10% 늘립니다.",
-      "../assets/offroad/icon_openpilot.png", 100, 300, 5, 0, 110, this));
-  list->addItem(new ParamValueControlF("TFollowDecelBoost",
-      "TR Decel Boost", "감속 중 TR 유지·추가 확보 비율 (×0.01). 기본값: 10",
-      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 10, this));
+      "TR Speed Ratio", "C2 방식 속도 연동 비율(%). 100km/h에서 적용되며 기본값 120은 TR을 20% 늘립니다.",
+      "../assets/offroad/icon_openpilot.png", 100, 300, 5, 0, 120, this));
   list->addItem(new ParamValueControlF("InitialCruiseGap",
       "Initial Cruise Gap", "시동 후 처음 크루즈가 활성화될 때 GAP을 자동 조정합니다. 0: 차량 기본값, 1~4: 목표 GAP",
       "../assets/offroad/icon_openpilot.png", 0, 4, 1, 0, 0, this));
