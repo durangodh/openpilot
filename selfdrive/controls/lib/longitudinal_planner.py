@@ -77,6 +77,10 @@ class LongitudinalPlanner:
     self.e2e_acc_mode = 0
     self.auto_e2e_stopping = False
     self.auto_e2e_prepare = False
+    # apilot 참고: 정지신호는 1프레임 노이즈로도 흔들리지 않게, 출발신호는 최소
+    # 0.1초(연속 프레임) 지속돼야 확정되게 하는 디바운스 카운터.
+    self.e2e_stop_sign_count = 0
+    self.e2e_start_sign_count = 0
 
     # ── Auto-Tuner: 학습기 + 학습된 가속 테이블 ──
     self.carrot_learner = CarrotLearner()
@@ -155,6 +159,8 @@ class LongitudinalPlanner:
     if not self.auto_e2e_enabled or self.e2e_acc_mode == 0:
       self.auto_e2e_stopping = False
       self.auto_e2e_prepare = False
+      self.e2e_stop_sign_count = 0
+      self.e2e_start_sign_count = 0
       return 'acc'
 
     model_valid = (len(model_msg.position.x) == 33 and
@@ -163,6 +169,8 @@ class LongitudinalPlanner:
     if not model_valid:
       self.auto_e2e_stopping = False
       self.auto_e2e_prepare = False
+      self.e2e_stop_sign_count = 0
+      self.e2e_start_sign_count = 0
       return 'blended' if self.experimental_mode_enabled else 'acc'
 
     model_x = model_msg.position.x[-1]
@@ -178,6 +186,14 @@ class LongitudinalPlanner:
     else:
       stop_sign = False
     start_sign = not stop_sign and (model_v > 5.0 or model_v > model_v0 + 2.0)
+
+    # apilot 참고: 우측 지시등이 켜져있으면(우회전 중) 모델의 감속을 정지신호로
+    # 오인하기 쉬워서 정지판정에서 제외한다. 출발신호는 최소 2프레임(~0.1초)
+    # 연속으로 잡혀야 확정해 단발성 노이즈로 흔들리지 않게 한다.
+    self.e2e_stop_sign_count = self.e2e_stop_sign_count + 1 if stop_sign else 0
+    self.e2e_start_sign_count = self.e2e_start_sign_count + 1 if start_sign else 0
+    stop_sign = self.e2e_stop_sign_count > 0 and not car_state.rightBlinker
+    start_sign = self.e2e_start_sign_count * DT_MDL > 0.1
 
     if self.auto_e2e_stopping and (start_sign or car_state.gasPressed):
       self.auto_e2e_prepare = True
