@@ -272,6 +272,8 @@ class LongitudinalMpc:
     self.params = np.zeros((N+1, PARAM_DIM))
     self.t_follow = T_FOLLOW
     self.stop_dist = STOP_DISTANCE
+    # 신호정지 거리 조절용 (E2EStopDistance UI 파라미터, 기본 0=기존과 동일)
+    self.stop_dist_e2e_extra = 0.0
     for i in range(N+1):
       self.solver.set(i, 'x', np.zeros(X_DIM))
     self.last_cloudlog_t = 0
@@ -552,7 +554,7 @@ class LongitudinalMpc:
     self.t_follow = tr
     self.desired_distance = float(tr * v_ego + STOP_DISTANCE)   # UI 표시용
     tr_base = tr  # HF lead_ramp 보간 기준점 (학습된 base + 속도-가변 보정 포함)
-    self.stop_dist = STOP_DISTANCE if self.mode == 'acc' else STOP_DISTANCE_E2E
+    self.stop_dist = STOP_DISTANCE if self.mode == 'acc' else STOP_DISTANCE_E2E + self.stop_dist_e2e_extra
 
     # ── 새 lead의 MPC 입력 점진 반영 (HumanFollowing 설정과 무관) ────────────
     # 기존 lead_ramp는 HumanFollowing에만 쓰여 OFF일 때 raw lead가 첫 프레임부터

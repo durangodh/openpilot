@@ -123,6 +123,11 @@ class LongitudinalPlanner:
     if not self.auto_e2e_enabled:
       self.mpc.mode = 'acc'
     self.mpc.human_following = self.params.get_bool("HumanFollowing")
+    # 신호정지 거리 조절 (미터, 기본 0 = 기존 동작과 동일)
+    try:
+      self.mpc.stop_dist_e2e_extra = max(0.0, min(15.0, float(self.params.get('E2EStopDistance', encoding='utf8') or '0')))
+    except (TypeError, ValueError):
+      self.mpc.stop_dist_e2e_extra = 0.0
 
     # ── MyDrivingMode ──
     mode = self.params.get("MyDrivingMode", encoding='utf8')
@@ -292,6 +297,11 @@ class LongitudinalPlanner:
     self.mpc.set_accel_limits(accel_limits_turns[0], accel_limits_turns[1])
     self.mpc.set_cur_state(self.v_desired_filter.x, self.a_desired)
     x, v, a, j = self.parse_model(sm['modelV2'])
+    if self.mpc.mode == 'blended' and self.mpc.stop_dist_e2e_extra > 0.0:
+      # 앞차 없이 신호/정지선만 보고 서는 순수 E2E 상황: 모델이 예측한 정지
+      # 지점 자체를 뒤로 당겨서(경로 전체를 균일하게 축소) 더 여유있게 서게
+      # 한다. 앞차가 있으면 STOP_DISTANCE_E2E + 이 값이 안전거리에 반영됨.
+      x = np.maximum(x - self.mpc.stop_dist_e2e_extra, 0.0)
     self.mpc.update(sm['carState'], sm['radarState'], v_cruise_sol, x, v, a, j,
                     prev_accel_constraint=prev_accel_constraint)
 

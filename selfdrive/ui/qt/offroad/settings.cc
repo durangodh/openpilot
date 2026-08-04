@@ -2589,6 +2589,13 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "회전 몇 초 전에 목표속도까지 줄여놓을지를 정하는 타이밍값. 모드 2 or 3일때만 작동.",
       "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
 
+  // ── E2EStopDistance ────────────────────────────────────────────
+  list->addItem(new ParamValueControlF(
+      "E2EStopDistance", "E2E Stop Distance",
+      "신호/정지선에서 서는 지점을 얼마나 더 뒤로 뺄지(m). 0=기본(모델이 예측한 "
+      "그대로). 앞차가 있으면 앞차와의 정지거리에도 같이 더해집니다.",
+      "../assets/offroad/icon_road.png", 0, 15, 1, 0, 0, this));
+
   list->addItem(horizontal_line());
 
   // ── 기어 변경 팝업 애니메이션 ─────────────────────────────────
