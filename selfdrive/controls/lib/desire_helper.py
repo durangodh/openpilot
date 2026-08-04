@@ -55,6 +55,12 @@ class DesireHelper:
     self.auto_lane_change_timer = 0.0
     self.prev_torque_applied = False
 
+    # apilot 참고: ATC 회전신호가 순간적으로 끊겨도(steering_request 는 distance/
+    # kind 조건에서 벗어나는 즉시 0을 줌) 모델이 아직 회전 중이라고 보면(desireState
+    # 의 turnLeft/turnRight 확률) 방향을 래치해두고 부드럽게 페이드아웃한다.
+    self.turn_direction_latched = 0
+    self.turn_ll_prob = 1.0
+
     # Lane Change Timer (AutoLaneChangeTimer) 관련
     self.lane_change_wait_timer = 0.0
     self.prev_lane_change = False
@@ -112,6 +118,13 @@ class DesireHelper:
                           (atc_direction > 0 and carstate.leftBlinker)
     if opposite_torque or conflicting_blinker:
       atc_direction = 0
+    # AutoLaneChangeEnabled 의 자동타이머, 그리고 방향이 맞는 핸들토크 둘 다 —
+    # ATC가 이미 같은 방향의 실제 회전(교차로 turn/uturn, 분기가 아님)을 보고 있을
+    # 때는 차선변경(laneChangeStarting)으로 새치기하지 못하게 막기 위한 플래그.
+    # 반대방향 토크(opposite_torque)는 그대로 취소 신호로 살아있다.
+    atc_turn_matches_blinker = (atc_steering and atc_state.get('kind') in ('turn', 'uturn') and
+                               ((atc_direction < 0 and carstate.leftBlinker) or
+                                (atc_direction > 0 and carstate.rightBlinker)))
     # Latest carrot-style exit gating adapted to this fork's simpler model:
     # right exits only, arm at the last lane, then request one change when the
     # exit lane opens. Keep the request alive while BSD blocks it.
@@ -142,11 +155,16 @@ class DesireHelper:
       self.lane_change_direction = LaneChangeDirection.none
       self.prev_lane_change = False
     else:
-      torque_applied = carstate.steeringPressed and \
+      manual_or_auto_torque = (carstate.steeringPressed and
                        ((carstate.steeringTorque > 0 and self.lane_change_direction == LaneChangeDirection.left) or
-                        (carstate.steeringTorque < 0 and self.lane_change_direction == LaneChangeDirection.right)) or \
-                        self.auto_lane_change_enabled and \
-                       (AUTO_LCA_START_TIME + 0.25) > self.auto_lane_change_timer > AUTO_LCA_START_TIME
+                        (carstate.steeringTorque < 0 and self.lane_change_direction == LaneChangeDirection.right))) or \
+                        (self.auto_lane_change_enabled and
+                        (AUTO_LCA_START_TIME + 0.25) > self.auto_lane_change_timer > AUTO_LCA_START_TIME)
+      # ATC가 같은 방향의 실제 회전을 인식 중이면, 손을 얹어 생기는 미세한 동일방향
+      # 토크나 자동타이머 둘 다 "차선변경 시작 의사"로 오인하지 않는다. 반대방향
+      # 토크(opposite_torque, atc_direction 계산부에서 이미 처리됨)는 여전히 취소로
+      # 작동한다.
+      torque_applied = manual_or_auto_torque and not atc_turn_matches_blinker
 
       blindspot_detected = ((carstate.leftBlindspot and self.lane_change_direction == LaneChangeDirection.left) or
                             (carstate.rightBlindspot and self.lane_change_direction == LaneChangeDirection.right))
@@ -227,8 +245,44 @@ class DesireHelper:
     turn_direction = self.carrot_atc.steering_request(atc_state, v_ego) if atc_steering else 0
     if opposite_torque or conflicting_blinker:
       turn_direction = 0
-    if turn_direction and self.lane_change_state == LaneChangeState.off:
-      self.desire = log.LateralPlan.Desire.turnLeft if turn_direction < 0 else log.LateralPlan.Desire.turnRight
+
+    # apilot 방식의 부드러운 회전종료 페이드: steering_request 가 0으로 끊긴 뒤에도
+    # 모델이 아직 이 방향의 회전을 인지하고 있으면(desireState 확률 > 2%) 0.5초에
+    # 걸쳐 래치된 방향을 유지하다 서서히 끈다. 차선변경 종료(lane_change_ll_prob)와
+    # 동일한 감쇠 방식.
+    turn_model_prob = 0.0
+    if model_data is not None and turn_direction == 0 and self.turn_direction_latched != 0:
+      try:
+        latched_desire = (log.LateralPlan.Desire.turnLeft if self.turn_direction_latched < 0
+                          else log.LateralPlan.Desire.turnRight)
+        turn_model_prob = model_data.meta.desireState[latched_desire]
+      except (IndexError, AttributeError, TypeError):
+        turn_model_prob = 0.0
+
+    if turn_direction != 0:
+      self.turn_direction_latched = turn_direction
+      self.turn_ll_prob = 1.0
+    elif turn_model_prob > 0.02 and self.turn_ll_prob > 0.0:
+      self.turn_ll_prob = max(self.turn_ll_prob - 2 * DT_MDL, 0.0)
+    else:
+      self.turn_direction_latched = 0
+      self.turn_ll_prob = 1.0
+
+    effective_turn_direction = turn_direction if turn_direction != 0 else (
+      self.turn_direction_latched if self.turn_ll_prob > 0.0 else 0)
+    if opposite_torque or conflicting_blinker:
+      effective_turn_direction = 0
+      self.turn_direction_latched = 0
+      self.turn_ll_prob = 1.0
+
+    # preLaneChange 는 지시등을 켠 순간 곧바로 들어가는 대기 상태일 뿐 아직 실제
+    # 조향 개입은 없다(preLaneChange 의 desire 는 항상 none). 그런데 일반 도로
+    # 우회전에서 습관적으로 지시등을 켜면, 속도가 AutoLaneChangeSpeed 이상일 때
+    # 여기서 상태가 off→preLaneChange 로 바뀌어버려서 아래 조건이 막혀 ATC 회전
+    # 조향이 무시되는 문제가 있었다. 실제로 진행 중인 차선변경(laneChangeStarting/
+    # Finishing)만 보호하고, preLaneChange 는 회전조향이 덮어써도 되게 완화한다.
+    if effective_turn_direction and self.lane_change_state in (LaneChangeState.off, LaneChangeState.preLaneChange):
+      self.desire = log.LateralPlan.Desire.turnLeft if effective_turn_direction < 0 else log.LateralPlan.Desire.turnRight
 
     # Send keep pulse once per second during LaneChangeStart.preLaneChange
     if self.lane_change_state in (LaneChangeState.off, LaneChangeState.laneChangeStarting):
