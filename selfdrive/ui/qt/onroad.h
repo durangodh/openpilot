@@ -83,9 +83,6 @@ protected:
   QPixmap experimental_img;
 
   // neokii
-  QPixmap ic_brake;
-  QPixmap ic_autohold_warning;
-  QPixmap ic_autohold_active;
   QPixmap ic_nda;
   QPixmap ic_hda;
   QPixmap ic_tire_pressure;
