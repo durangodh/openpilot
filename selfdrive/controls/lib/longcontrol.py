@@ -9,31 +9,36 @@ from selfdrive.modeld.constants import T_IDXS
 LongCtrlState = car.CarControl.Actuators.LongControlState
 
 
-def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
-                             v_target_1sec, brake_pressed, cruise_standstill, a_target_now):
+def long_control_state_trans(CP, active, long_control_state, v_ego, should_stop,
+                             brake_pressed, cruise_standstill, a_ego, stop_accel,
+                             radar_state):
   cruise_standstill = cruise_standstill and not CP.enableGasInterceptor
-  accelerating = v_target_1sec > (v_target + 0.01)
-  planned_stop = v_target < CP.vEgoStopping and v_target_1sec < CP.vEgoStopping and not accelerating
-  stay_stopped = v_ego < CP.vEgoStopping and (brake_pressed or cruise_standstill)
-  stopping_condition = planned_stop or stay_stopped
-  starting_condition = v_target_1sec > CP.vEgoStarting and accelerating and not cruise_standstill and not brake_pressed
+  stopping_condition = should_stop or (v_ego < CP.vEgoStopping and (brake_pressed or cruise_standstill))
+  starting_condition = not should_stop and not cruise_standstill and not brake_pressed
   started_condition = v_ego > CP.vEgoStarting
 
   if not active:
     return LongCtrlState.off
 
-  if long_control_state in (LongCtrlState.off, LongCtrlState.pid):
-    long_control_state = LongCtrlState.pid
-    if stopping_condition and a_target_now > -1.0:
+  if long_control_state == LongCtrlState.off:
+    if stopping_condition:
       long_control_state = LongCtrlState.stopping
+    else:
+      long_control_state = LongCtrlState.starting if CP.startingState else LongCtrlState.pid
 
   elif long_control_state == LongCtrlState.stopping:
     if starting_condition:
       long_control_state = LongCtrlState.starting if CP.startingState else LongCtrlState.pid
 
-  elif long_control_state == LongCtrlState.starting:
+  elif long_control_state in (LongCtrlState.starting, LongCtrlState.pid):
     if stopping_condition:
-      long_control_state = LongCtrlState.stopping
+      lead = radar_state.leadOne
+      close_lead = lead.status and lead.dRel < 4.0
+      # Hand over to the stopping ramp only after actual deceleration has
+      # relaxed near the configured hold value. This avoids a second brake
+      # step while the MPC is still commanding stronger lead deceleration.
+      if a_ego > stop_accel or close_lead or long_control_state == LongCtrlState.starting:
+        long_control_state = LongCtrlState.stopping
     elif started_condition:
       long_control_state = LongCtrlState.pid
 
@@ -86,25 +91,19 @@ class LongControl:
       plan_accel_now = interp(t_since_plan, T_IDXS[:CONTROL_N], long_plan.accels)
       v_target_now = long_plan.vTargetNow + plan_accel_now * t_since_plan
       a_target = long_plan.aTarget
-      v_target = interp(self.CP.longitudinalActuatorDelay + t_since_plan,
-                        T_IDXS[:CONTROL_N], long_plan.speeds)
-      v_target_1sec = interp(self.CP.longitudinalActuatorDelay + t_since_plan + 1.0,
-                             T_IDXS[:CONTROL_N], long_plan.speeds)
-      a_target_now = plan_accel_now
+      should_stop = long_plan.shouldStop
     else:
       v_target_now = 0.0
       a_target = 0.0
-      v_target = 0.0
-      v_target_1sec = 0.0
-      a_target_now = 0.0
+      should_stop = False
 
     self.pid.neg_limit = accel_limits[0]
     self.pid.pos_limit = accel_limits[1]
 
     stop_accel = self.stopping_accel if self.stopping_accel < 0.0 else self.CP.stopAccel
     self.long_control_state = long_control_state_trans(
-      self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
-      CS.brakePressed, CS.cruiseState.standstill, a_target_now)
+      self.CP, active, self.long_control_state, CS.vEgo, should_stop,
+      CS.brakePressed, CS.cruiseState.standstill, CS.aEgo, stop_accel, radar_state)
 
     if self.long_control_state == LongCtrlState.off:
       self.reset(CS.vEgo)
@@ -125,7 +124,11 @@ class LongControl:
       self.v_pid = v_target_now
       error = self.v_pid - CS.vEgo
       output_accel = self.pid.update(error, speed=CS.vEgo, feedforward=a_target)
-      if -self.long_coast_band < output_accel < 0.0:
+      # Coast band is useful during normal cruising, but suppressing small
+      # braking commands while following a lead creates coast/brake cycling.
+      # Preserve the MPC's continuous negative command during lead approaches.
+      has_lead = radar_state.leadOne.status
+      if not should_stop and not has_lead and -self.long_coast_band < output_accel < 0.0:
         output_accel = 0.0
 
     self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
