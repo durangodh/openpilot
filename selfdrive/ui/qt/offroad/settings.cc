@@ -2549,9 +2549,9 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(new ParamValueControlF("LongitudinalActuatorDelayUpperBound",
       "Actuator Delay Upper Bound", "듀얼 지연 보상의 긴 지연값 (×0.01초). 0은 차량 기본 지연에서 자동 계산합니다.",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
-  list->addItem(new ParamValueControlF("StoppingAccel",
-      "Stopping Start Accel", "정지 마무리 상태 전환 가속도 (×0.01m/s²). 0은 차량 기본값을 사용합니다.",
-      "../assets/offroad/icon_openpilot.png", -100, 0, 5, 0, 0, this));
+  list->addItem(new ParamValueControlF("StopAccelApply",
+      "Stop Accel Apply", "정지 마무리 제동값입니다. 설정값 × -0.02m/s²로 적용되며, 30은 -0.60m/s²입니다. 0은 추가 정지 제동을 끕니다.",
+      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 30, this));
   list->addItem(horizontal_line());
 
   auto *path_offset = new OffsetTotalControl(

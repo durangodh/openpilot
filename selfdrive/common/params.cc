@@ -270,6 +270,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"TFollowDecelBoost", PERSISTENT},
     {"InitialCruiseGap", PERSISTENT},
     {"StartAccelApply", PERSISTENT},
+    {"StopAccelApply", PERSISTENT},
 
     {"CruiseMaxAccel0", PERSISTENT},
     {"CruiseMaxAccel40", PERSISTENT},

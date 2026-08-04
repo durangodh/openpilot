@@ -59,7 +59,7 @@ class LongControl:
                              k_f=CP.longitudinalTuning.kf, rate=1 / DT_CTRL)
     self.params = Params()
     self.read_param_count = 0
-    self.stopping_accel = 0.0
+    self.stop_accel = CP.stopAccel
     self.long_coast_band = 0.0
     self.v_pid = 0.0
     self.last_output_accel = 0.0
@@ -67,6 +67,7 @@ class LongControl:
     # Read launch control immediately so StartAccelApply=0 disables the
     # starting state from the first control cycle.
     self._update_start_accel()
+    self._update_stop_accel()
 
     # apilot-c2 uses two actuator-delay predictions and selects the more
     # conservative target. Derive safe defaults around the configured delay.
@@ -83,6 +84,20 @@ class LongControl:
     self.start_accel_apply = float(clip(start_raw * 0.01, 0.0, 0.5))
     self.start_accel = float(clip(2.0 * self.start_accel_apply, 0.0, 1.0))
     self.starting_state = start_raw > 0
+
+  def _update_stop_accel(self):
+    stop_raw = self.params.get("StopAccelApply", encoding="utf8")
+    if stop_raw is not None:
+      try:
+        stop_accel_apply = float(clip(int(stop_raw) * 0.01, 0.0, 1.0))
+      except (TypeError, ValueError):
+        stop_accel_apply = 0.3
+      self.stop_accel = -2.0 * stop_accel_apply
+    else:
+      # Preserve an existing StoppingAccel value until StopAccelApply is
+      # changed in the UI. With neither value set, use the car default.
+      legacy_stop_accel = self.params.get_float("StoppingAccel") * 0.01
+      self.stop_accel = legacy_stop_accel if legacy_stop_accel < 0.0 else self.CP.stopAccel
 
   def _update_actuator_delays(self):
     lower = self.params.get_float("LongitudinalActuatorDelayLowerBound") * 0.01
@@ -102,7 +117,7 @@ class LongControl:
     self.read_param_count += 1
     if self.read_param_count >= 100:
       self.read_param_count = 0
-      self.stopping_accel = self.params.get_float("StoppingAccel") * 0.01
+      self._update_stop_accel()
       self.long_coast_band = clip(self.params.get_float("LongCoastBand") * 0.01, 0.0, 0.4)
 
       self._update_actuator_delays()
@@ -154,7 +169,6 @@ class LongControl:
     self.pid.neg_limit = accel_limits[0]
     self.pid.pos_limit = accel_limits[1]
 
-    stop_accel = self.stopping_accel if self.stopping_accel < 0.0 else self.CP.stopAccel
     self.long_control_state = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
       CS.brakePressed, CS.cruiseState.standstill, a_target_now, self.starting_state)
@@ -165,7 +179,7 @@ class LongControl:
 
     elif self.long_control_state == LongCtrlState.stopping:
       output_accel = self.last_output_accel
-      if output_accel > stop_accel:
+      if output_accel > self.stop_accel:
         output_accel = min(output_accel, 0.0)
         output_accel -= self.CP.stoppingDecelRate * DT_CTRL
       self.reset(CS.vEgo)
