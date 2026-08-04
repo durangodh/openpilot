@@ -67,6 +67,7 @@ STOP_DISTANCE_E2E = 6.0
 LEAD_DETECT_RAMP_T = 0.05  # c3-wip: no extra lead-input delay
 LEAD_SMOOTH_ALPHA  = 1.0   # radar state is already filtered
 T_FOLLOW_MAX_RATE  = 100.0 # apply the selected gap directly
+T_FOLLOW_DECREASE_RATE = 0.30  # seconds of TR reduced per second
 LEAD_RAMP_BYPASS_TTC = 5.0 # 이보다 급한 접근은 ramp 없이 즉시 원본 lead 반영
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -239,9 +240,9 @@ class LongitudinalMpc:
     # ── CarrotPilot Auto-Tuner: 학습된 GAP별 추종거리 (초 리스트, None=미사용) ──
     # longitudinal_planner.read_param()에서 5초 주기로 갱신됨.
     self.tfollow_gaps = None
-    self.t_follow_speed_ratio = 1.1
-    self.t_follow_decel_boost = 0.1
+    self.t_follow_speed_ratio = 1.2
     self._tf_applied = 0.0
+    self._tf_v_ego_kph = 0.0
     # ────────────────────────────────────────────────────────────────────
 
     # ── Lead 인식 부드러운 전환 상태 변수 ──────────────────────────────────
@@ -297,6 +298,8 @@ class LongitudinalMpc:
     self._lead_d_filt     = 50.0
     self._lead_v_filt     = 0.0
     self._t_follow_smooth = T_FOLLOW
+    self._tf_applied = 0.0
+    self._tf_v_ego_kph = 0.0
     # ────────────────────────────────────────────────────────────────────
 
     self.set_weights()
@@ -540,19 +543,20 @@ class LongitudinalMpc:
     speed_scale = interp(v_ego * CV.MS_TO_KPH, [0.0, 100.0], [1.0, self.t_follow_speed_ratio])
     tr *= speed_scale
 
-    # Carrot deceleration hold/boost and increase-only smoothing.
+    # Apply safety-increasing changes immediately. Reductions are held while
+    # decelerating and otherwise eased in to prevent a sudden closing surge.
     gap_values = self.tfollow_gaps if self.tfollow_gaps is not None else CRUISE_GAP_V
-    if self._tf_applied <= 0.0:
-      self._tf_applied = float(tr)
-    if carstate.aEgo <= -0.2 and tr < self._tf_applied:
-      tr = self._tf_applied
-    decel_boost = float(np.interp(carstate.aEgo, [-2.5, -1.0, -0.2, 0.0], [0.25, 0.12, 0.02, 0.0]))
-    tr += decel_boost * self.t_follow_decel_boost
+    v_ego_kph = v_ego * CV.MS_TO_KPH
     tr_max = max(gap_values) * self.driving_mode_tf * speed_scale
-    tr = float(np.clip(tr, max(0.6, min(gap_values)), tr_max))
-    if tr > self._tf_applied:
-      tr = min(tr, self._tf_applied + 0.1 * 0.05)
+    tr_target = float(np.clip(tr, max(0.6, min(gap_values)), tr_max))
+    if self._tf_applied <= 0.0 or tr_target >= self._tf_applied:
+      tr = tr_target
+    elif v_ego_kph < self._tf_v_ego_kph:
+      tr = self._tf_applied
+    else:
+      tr = max(tr_target, self._tf_applied - T_FOLLOW_DECREASE_RATE * DT_UPDATE)
     self._tf_applied = float(tr)
+    self._tf_v_ego_kph = v_ego_kph
     # ────────────────────────────────────────────────────────────────────
 
     self.t_follow = tr
