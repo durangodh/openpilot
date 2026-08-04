@@ -123,11 +123,15 @@ class LongitudinalPlanner:
     if not self.auto_e2e_enabled:
       self.mpc.mode = 'acc'
     self.mpc.human_following = self.params.get_bool("HumanFollowing")
-    # 신호정지 거리 조절 (미터, 기본 0 = 기존 동작과 동일)
+    # ACC / E2E 정지거리 각각 독립 조절 (미터). 안 읽히면 기존 고정값(6.0)으로 폴백.
     try:
-      self.mpc.stop_dist_e2e_extra = max(0.0, min(15.0, float(self.params.get('E2EStopDistance', encoding='utf8') or '0')))
+      self.mpc.stop_dist_acc = max(1.0, min(10.0, float(self.params.get('ACCStopDistance', encoding='utf8') or '6')))
     except (TypeError, ValueError):
-      self.mpc.stop_dist_e2e_extra = 0.0
+      self.mpc.stop_dist_acc = 6.0
+    try:
+      self.mpc.stop_dist_e2e = max(1.0, min(15.0, float(self.params.get('E2EStopDistance', encoding='utf8') or '6')))
+    except (TypeError, ValueError):
+      self.mpc.stop_dist_e2e = 6.0
 
     # ── MyDrivingMode ──
     mode = self.params.get("MyDrivingMode", encoding='utf8')
@@ -297,11 +301,13 @@ class LongitudinalPlanner:
     self.mpc.set_accel_limits(accel_limits_turns[0], accel_limits_turns[1])
     self.mpc.set_cur_state(self.v_desired_filter.x, self.a_desired)
     x, v, a, j = self.parse_model(sm['modelV2'])
-    if self.mpc.mode == 'blended' and self.mpc.stop_dist_e2e_extra > 0.0:
+    if self.mpc.mode == 'blended':
       # 앞차 없이 신호/정지선만 보고 서는 순수 E2E 상황: 모델이 예측한 정지
-      # 지점 자체를 뒤로 당겨서(경로 전체를 균일하게 축소) 더 여유있게 서게
-      # 한다. 앞차가 있으면 STOP_DISTANCE_E2E + 이 값이 안전거리에 반영됨.
-      x = np.maximum(x - self.mpc.stop_dist_e2e_extra, 0.0)
+      # 지점 자체를 E2EStopDistance 만큼 뒤로 당겨서(경로 전체를 균일하게
+      # 축소) 선다. 앞차가 있으면 이 값이 그대로 lead와의 정지거리(stop_dist)로
+      # 도 쓰여서 두 상황이 같은 값 하나로 일관되게 맞춰진다. ACC 모드는
+      # ACCStopDistance 가 별도로 stop_dist(lead 정지거리)만 조절한다.
+      x = np.maximum(x - self.mpc.stop_dist_e2e, 0.0)
     self.mpc.update(sm['carState'], sm['radarState'], v_cruise_sol, x, v, a, j,
                     prev_accel_constraint=prev_accel_constraint)
 

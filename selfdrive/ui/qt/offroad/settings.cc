@@ -2589,12 +2589,18 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "회전 몇 초 전에 목표속도까지 줄여놓을지를 정하는 타이밍값. 모드 2 or 3일때만 작동.",
       "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
 
-  // ── E2EStopDistance ────────────────────────────────────────────
+  // ── ACCStopDistance / E2EStopDistance (독립 조절) ────────────────
+  list->addItem(new ParamValueControlF(
+      "ACCStopDistance", "ACC Stop Distance",
+      "일반 ACC 모드(앞차 추종)에서 앞차 뒤에 정지할 때 유지하는 거리(m).",
+      "../assets/offroad/icon_road.png", 1, 10, 1, 0, 6, this));
+
   list->addItem(new ParamValueControlF(
       "E2EStopDistance", "E2E Stop Distance",
-      "신호/정지선에서 서는 지점을 얼마나 더 뒤로 뺄지(m). 0=기본(모델이 예측한 "
-      "그대로). 앞차가 있으면 앞차와의 정지거리에도 같이 더해집니다.",
-      "../assets/offroad/icon_road.png", 0, 15, 1, 0, 0, this));
+      "E2E 모드(모델이 신호/정지선을 직접 인식)에서의 정지거리(m). 앞차가 "
+      "없으면 모델이 예측한 정지지점에서 이만큼 앞서 서고, 앞차가 있으면 "
+      "앞차와의 정지거리로도 그대로 쓰입니다.",
+      "../assets/offroad/icon_road.png", 1, 15, 1, 0, 6, this));
 
   list->addItem(horizontal_line());
 

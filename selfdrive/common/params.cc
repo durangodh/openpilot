@@ -210,7 +210,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"CarrotAutoTurnControl", PERSISTENT},
     {"CarrotAutoTurnSpeed", PERSISTENT},
     {"CarrotAutoTurnEndTime", PERSISTENT},
-    {"E2EStopDistance", PERSISTENT},            // 신호정지 거리 조절 (m), 기본 0
+    {"ACCStopDistance", PERSISTENT},             // ACC 모드 정지거리 (m), 기본 6
+    {"E2EStopDistance", PERSISTENT},             // E2E 모드 정지거리 (m), 기본 6
     {"HumanFollowing", PERSISTENT},
     {"MyDrivingMode", PERSISTENT},             // 주행모드 1:ECO 2:SAFE 3:NORM 4:FAST
     {"ShowGearAnimation", PERSISTENT},
