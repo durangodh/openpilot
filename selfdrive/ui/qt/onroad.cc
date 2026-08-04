@@ -291,8 +291,6 @@ void NvgWindow::initializeGL() {
   ic_nda = QPixmap("../assets/images/img_nda.png");
   ic_hda = QPixmap("../assets/images/img_hda.png");
   ic_tire_pressure = QPixmap("../assets/images/img_tire_pressure.png");
-  ic_turn_signal_l = QPixmap("../assets/images/turn_signal_l.png");
-  ic_turn_signal_r = QPixmap("../assets/images/turn_signal_r.png");
 
   ic_speed_bg = QPixmap("../assets/images/speed_bg.png");
 }
@@ -530,15 +528,9 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
 
   drawCarrotLead(p);
   drawCarrotNavi(p);
-  // --- replaced by CarrotPilot style HUD panel ---
-  //drawMaxSpeed(p);
-  //drawSpeed(p);
   drawCarrotHud(p);
   drawE2eTrafficState(p);
-  // ----------------------------------------------
   drawSpeedLimit(p);
-  //drawThermal(p);    // CPU/AMBIENT 온도 표시 제거
-  //drawTurnSignals(p);
   drawCarrotInfo(p);
   drawCarrotBottom(p);
 
@@ -1242,92 +1234,6 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
   p.restore();
 }
 
-void NvgWindow::drawMaxSpeed(QPainter &p) {
-  p.save();
-  UIState *s = uiState();
-  const SubMaster &sm = *(s->sm);
-  const auto scc_smoother = sm["carControl"].getCarControl().getSccSmoother();
-  bool is_metric = s->scene.is_metric;
-  bool long_control = scc_smoother.getLongControl();
-
-  // kph
-  float applyMaxSpeed = scc_smoother.getApplyMaxSpeed();
-  float cruiseMaxSpeed = scc_smoother.getCruiseMaxSpeed();
-  bool is_cruise_set = (cruiseMaxSpeed > 0 && cruiseMaxSpeed < 255);
-
-  QRect rc(30, 30, 184, 202);
-  p.setPen(QPen(QColor(0xff, 0xff, 0xff, 100), 10));
-  p.setBrush(QColor(0, 0, 0, 100));
-  p.drawRoundedRect(rc, 20, 20);
-  p.setPen(Qt::NoPen);
-
-  if (is_cruise_set) {
-    char str[256];
-    if (is_metric)
-        snprintf(str, sizeof(str), "%d", (int)(applyMaxSpeed + 0.5));
-    else
-        snprintf(str, sizeof(str), "%d", (int)(applyMaxSpeed*KM_TO_MILE + 0.5));
-
-    configFont(p, "Open Sans", 45, "Bold");
-    drawText(p, rc.center().x(), 100, str, 255);
-
-    if (is_metric)
-        snprintf(str, sizeof(str), "%d", (int)(cruiseMaxSpeed + 0.5));
-    else
-        snprintf(str, sizeof(str), "%d", (int)(cruiseMaxSpeed*KM_TO_MILE + 0.5));
-
-    configFont(p, "Open Sans", 76, "Bold");
-    drawText(p, rc.center().x(), 195, str, 255);
-  } else {
-    if(long_control) {
-      configFont(p, "Open Sans", 48, "sans-semibold");
-      drawText(p, rc.center().x(), 100, "OP", 100);
-    }
-    else {
-      configFont(p, "Open Sans", 48, "sans-semibold");
-      drawText(p, rc.center().x(), 100, "MAX", 100);
-    }
-
-    configFont(p, "Open Sans", 76, "sans-semibold");
-    drawText(p, rc.center().x(), 195, "N/A", 100);
-  }
-  p.restore();
-}
-
-void NvgWindow::drawSpeed(QPainter &p) {
-  p.save();
-  UIState *s = uiState();
-  const SubMaster &sm = *(s->sm);
-  float cur_speed = std::max(0.0, sm["carState"].getCarState().getVEgoCluster() * (s->scene.is_metric ? MS_TO_KPH : MS_TO_MPH));
-  auto car_state = sm["carState"].getCarState();
-  float accel = car_state.getAEgo();
-
-  QColor color = QColor(255, 255, 255, 230);
-
-  if(accel > 0) {
-    int a = (int)(255.f - (180.f * (accel/2.f)));
-    a = std::min(a, 255);
-    a = std::max(a, 80);
-    color = QColor(a, a, 255, 230);
-  }
-  else {
-    int a = (int)(255.f - (255.f * (-accel/3.f)));
-    a = std::min(a, 255);
-    a = std::max(a, 60);
-    color = QColor(255, a, a, 230);
-  }
-
-  QString speed;
-  speed.sprintf("%.0f", cur_speed);
-  configFont(p, "Open Sans", 176, "Bold");
-  drawTextWithColor(p, rect().center().x(), 230, speed, color);
-
-  configFont(p, "Open Sans", 66, "Regular");
-  drawText(p, rect().center().x(), 310, s->scene.is_metric ? "km/h" : "mph", 200);
-
-  p.restore();	
-}
-
 void NvgWindow::drawSpeedLimit(QPainter &p) {
   p.save();
 	
@@ -1418,170 +1324,6 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
       configFont(p, "Open Sans", 70, "Bold");
       p.setPen(QColor(0, 0, 0, 230));
       p.drawText(rect, Qt::AlignCenter, "CAM");
-    }
-  }
-
-  p.restore();
-}
-
-template <class T>
-float interp(float x, std::initializer_list<T> x_list, std::initializer_list<T> y_list, bool extrapolate)
-{
-  std::vector<T> xData(x_list);
-  std::vector<T> yData(y_list);
-  int size = xData.size();
-
-  int i = 0;
-  if(x >= xData[size - 2]) {
-    i = size - 2;
-  }
-  else {
-    while ( x > xData[i+1] ) i++;
-  }
-  T xL = xData[i], yL = yData[i], xR = xData[i+1], yR = yData[i+1];
-  if (!extrapolate) {
-    if ( x < xL ) yR = yL;
-    if ( x > xR ) yL = yR;
-  }
-
-  T dydx = ( yR - yL ) / ( xR - xL );
-  return yL + dydx * ( x - xL );
-}
-
-void NvgWindow::drawThermal(QPainter &p) {
-  p.save();
-
-  const SubMaster &sm = *(uiState()->sm);
-  auto deviceState = sm["deviceState"].getDeviceState();
-
-  const auto cpuTempC = deviceState.getCpuTempC();
-  //const auto gpuTempC = deviceState.getGpuTempC();
-  float ambientTemp = deviceState.getAmbientTempC();
-
-  float cpuTemp = 0.f;
-  //float gpuTemp = 0.f;
-
-  if(std::size(cpuTempC) > 0) {
-    for(int i = 0; i < std::size(cpuTempC); i++) {
-      cpuTemp += cpuTempC[i];
-    }
-    cpuTemp = cpuTemp / (float)std::size(cpuTempC);
-  }
-
-  int w = 192;
-  int x = width() - (30 + w);
-  int y = 450;
-
-  QString str;
-  QRect rect;
-
-  configFont(p, "Open Sans", 50, "Bold");
-  str.sprintf("%.0f°C", cpuTemp);
-  rect = QRect(x, y, w, w);
-
-  int r = interp<float>(cpuTemp, {50.f, 90.f}, {200.f, 255.f}, false);
-  int g = interp<float>(cpuTemp, {50.f, 90.f}, {255.f, 200.f}, false);
-  p.setPen(QColor(r, g, 200, 200));
-  p.drawText(rect, Qt::AlignCenter, str);
-
-  y += 55;
-  configFont(p, "Open Sans", 25, "Bold");
-  rect = QRect(x, y, w, w);
-  p.setPen(QColor(255, 255, 255, 200));
-  p.drawText(rect, Qt::AlignCenter, "CPU");
-
-  y += 80;
-  configFont(p, "Open Sans", 50, "Bold");
-  str.sprintf("%.0f°C", ambientTemp);
-  rect = QRect(x, y, w, w);
-  r = interp<float>(ambientTemp, {35.f, 60.f}, {200.f, 255.f}, false);
-  g = interp<float>(ambientTemp, {35.f, 60.f}, {255.f, 200.f}, false);
-  p.setPen(QColor(r, g, 200, 200));
-  p.drawText(rect, Qt::AlignCenter, str);
-
-  y += 55;
-  configFont(p, "Open Sans", 25, "Bold");
-  rect = QRect(x, y, w, w);
-  p.setPen(QColor(255, 255, 255, 200));
-  p.drawText(rect, Qt::AlignCenter, "AMBIENT");
-
-  p.restore();
-}
-
-void NvgWindow::drawTurnSignals(QPainter &p) {
-  p.save();
-	
-  static int blink_index = 0;
-  static int blink_wait = 0;
-  static double prev_ts = 0.0;
-
-  if(blink_wait > 0) {
-    blink_wait--;
-    blink_index = 0;
-  }
-  else {
-    const SubMaster &sm = *(uiState()->sm);
-    auto car_state = sm["carState"].getCarState();
-    bool left_on = car_state.getLeftBlinker();
-    bool right_on = car_state.getRightBlinker();
-
-    const float img_alpha = 0.8f;
-    const int fb_w = width() / 2 - 200;
-    const int center_x = width() / 2;
-    const int w = fb_w / 25;
-    const int h = 160;
-    const int gap = fb_w / 25;
-    const int margin = (int)(fb_w / 3.8f);
-    const int base_y = (height() - h) / 2;
-    const int draw_count = 8;
-
-    int x = center_x;
-    int y = base_y;
-
-    if(left_on) {
-      for(int i = 0; i < draw_count; i++) {
-        float alpha = img_alpha;
-        int d = std::abs(blink_index - i);
-        if(d > 0)
-          alpha /= d*2;
-
-        p.setOpacity(alpha);
-        float factor = (float)draw_count / (i + draw_count);
-        p.drawPixmap(x - w - margin, y + (h-h*factor)/2, w*factor, h*factor, ic_turn_signal_l);
-        x -= gap + w;
-      }
-    }
-
-    x = center_x;
-    if(right_on) {
-      for(int i = 0; i < draw_count; i++) {
-        float alpha = img_alpha;
-        int d = std::abs(blink_index - i);
-        if(d > 0)
-          alpha /= d*2;
-
-        float factor = (float)draw_count / (i + draw_count);
-        p.setOpacity(alpha);
-        p.drawPixmap(x + margin, y + (h-h*factor)/2, w*factor, h*factor, ic_turn_signal_r);
-        x += gap + w;
-      }
-    }
-
-    if(left_on || right_on) {
-
-      double now = millis_since_boot();
-      if(now - prev_ts > 900/UI_FREQ) {
-        prev_ts = now;
-        blink_index++;
-      }
-
-      if(blink_index >= draw_count) {
-        blink_index = draw_count - 1;
-        blink_wait = UI_FREQ/4;
-      }
-    }
-    else {
-      blink_index = 0;
     }
   }
 
