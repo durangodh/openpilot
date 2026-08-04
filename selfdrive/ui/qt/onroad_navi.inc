@@ -1,3 +1,11 @@
+static QJsonValue carrotFirstJsonValue(const QJsonObject &object,
+                                       std::initializer_list<const char *> keys) {
+  for (const char *key : keys) {
+    if (object.contains(key)) return object.value(key);
+  }
+  return QJsonValue();
+}
+
 static bool carrotJsonBool(const QJsonObject &object,
                            std::initializer_list<const char *> keys) {
   const QJsonValue value = carrotFirstJsonValue(object, keys);
