@@ -2438,6 +2438,49 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "범위: 0.000 ~ 0.200  /  기본값: 0.080",
       "../assets/offroad/icon_openpilot.png", 0.0, 0.2, 0.005, 3, 0.08, this));
 
+  list->addItem(new ParamValueControlF(
+      "StartAccelApply",
+      "Start Acceleration",
+      "정지 후 출발 가속도입니다. 실제 적용값은 표시값 × 0.02m/s²입니다. 기본값: 25 = 0.50m/s²",
+      "../assets/offroad/icon_openpilot.png",
+      0, 50, 1, 0, 25, this));
+
+  list->addItem(new ParamValueControlF(
+      "CruiseMaxAccel0", "Max Accel 0 km/h",
+      "0km/h 구간 최대가속 (×0.01m/s²). 기본값: 180",
+      "../assets/offroad/icon_openpilot.png",
+      10, 250, 5, 0, 180, this));
+
+  list->addItem(new ParamValueControlF(
+      "CruiseMaxAccel40", "Max Accel 40 km/h",
+      "40km/h 구간 최대가속 (×0.01m/s²). 기본값: 117",
+      "../assets/offroad/icon_openpilot.png",
+      10, 250, 5, 0, 117, this));
+
+  list->addItem(new ParamValueControlF(
+      "CruiseMaxAccel60", "Max Accel 60 km/h",
+      "60km/h 구간 최대가속 (×0.01m/s²). 기본값: 103",
+      "../assets/offroad/icon_openpilot.png",
+      10, 250, 5, 0, 103, this));
+
+  list->addItem(new ParamValueControlF(
+      "CruiseMaxAccel80", "Max Accel 80 km/h",
+      "80km/h 구간 최대가속 (×0.01m/s²). 기본값: 89",
+      "../assets/offroad/icon_openpilot.png",
+      10, 250, 5, 0, 89, this));
+
+  list->addItem(new ParamValueControlF(
+      "CruiseMaxAccel110", "Max Accel 110 km/h",
+      "110km/h 구간 최대가속 (×0.01m/s²). 기본값: 74",
+      "../assets/offroad/icon_openpilot.png",
+      10, 250, 5, 0, 74, this));
+
+  list->addItem(new ParamValueControlF(
+      "CruiseMaxAccel140", "Max Accel 140 km/h",
+      "140km/h 구간 최대가속 (×0.01m/s²). 기본값: 61",
+      "../assets/offroad/icon_openpilot.png",
+      10, 250, 5, 0, 61, this));
+  
   list->addItem(new ParamValueControlF("LateralTorqueKpV",
       "Torque Kp", "비례 게인 (×0.01).  기본값: 10",
       "../assets/offroad/icon_openpilot.png", 0, 500, 5, 0, 10, this));
