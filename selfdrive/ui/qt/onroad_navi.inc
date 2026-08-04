@@ -801,21 +801,33 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
 
   const int pad = 16;
   const int half_w = footer.width() / 2 - pad - 6;
-  const auto fitFontSize = [&](const QString &text, int max_w) {
-    int size = 34;
-    for (; size > 18; --size) {
-      configFont(p, "Open Sans", size, "Bold");
-      if (QFontMetrics(p.font()).horizontalAdvance(text) <= max_w) break;
+  // CPU: the text (and therefore the fitted size) only actually changes when
+  // updateCarrotNavi() refreshes (≤2Hz) or the ETA clock ticks over a minute —
+  // not on every ~20Hz UI paint. Cache per side so the shrink-to-fit loop only
+  // reruns when its own text or the box width actually changed.
+  static QString left_cache_text; static int left_cache_w = -1; static int left_cache_size = 34;
+  static QString right_cache_text; static int right_cache_w = -1; static int right_cache_size = 34;
+  const auto fitFontSize = [&](const QString &text, int max_w,
+                               QString &cache_text, int &cache_w, int &cache_size) {
+    if (cache_text != text || cache_w != max_w) {
+      int size = 34;
+      for (; size > 18; --size) {
+        configFont(p, "Open Sans", size, "Bold");
+        if (QFontMetrics(p.font()).horizontalAdvance(text) <= max_w) break;
+      }
+      cache_text = text;
+      cache_w = max_w;
+      cache_size = size;
     }
-    return size;
+    configFont(p, "Open Sans", cache_size, "Bold");
   };
 
   p.setPen(QColor(20, 20, 20));
-  fitFontSize(left_text, half_w);
+  fitFontSize(left_text, half_w, left_cache_text, left_cache_w, left_cache_size);
   p.drawText(QRect(footer.x() + pad, footer.y(), half_w, footer.height()),
              Qt::AlignLeft | Qt::AlignVCenter, left_text);
 
-  fitFontSize(right_text, half_w);
+  fitFontSize(right_text, half_w, right_cache_text, right_cache_w, right_cache_size);
   p.drawText(QRect(footer.center().x() + 6, footer.y(), half_w, footer.height()),
              Qt::AlignRight | Qt::AlignVCenter, right_text);
 
