@@ -12,6 +12,10 @@ LongCtrlState = car.CarControl.Actuators.LongControlState
 # apilot-c2 style six-point acceleration table. Stored Params use 0.01 m/s^2.
 ACCEL_BP = [0.0, 40.0 * CV.KPH_TO_MS, 60.0 * CV.KPH_TO_MS,
             80.0 * CV.KPH_TO_MS, 110.0 * CV.KPH_TO_MS, 140.0 * CV.KPH_TO_MS]
+# Use dedicated fixed-control keys so the old CruiseMaxVals0~3 Auto-Tuner
+# values can never leak into the actual acceleration limit.
+ACCEL_PARAM_KEYS = ["CruiseMaxAccel0", "CruiseMaxAccel40", "CruiseMaxAccel60",
+                    "CruiseMaxAccel80", "CruiseMaxAccel110", "CruiseMaxAccel140"]
 # Safe fallbacks preserve this branch's previous acceleration feel while adding
 # the finer apilot-c2 speed breakpoints.
 ACCEL_DEFAULTS = [1.80, 1.17, 1.03, 0.89, 0.74, 0.61]
@@ -117,12 +121,12 @@ class LongControl:
       self.starting_state = self.start_accel_apply > 0.0
 
       accel_vals = []
-      for index, default in enumerate(ACCEL_DEFAULTS, start=1):
-        raw = self.params.get_int("CruiseMaxVals%d" % index)
+      for key, default in zip(ACCEL_PARAM_KEYS, ACCEL_DEFAULTS):
+        raw = self.params.get_int(key)
         value = raw * 0.01 if raw > 0 else default
         accel_vals.append(float(clip(value, 0.1, 2.5)))
       # Do not permit a higher-speed point to exceed the preceding point. This
-      # prevents malformed settings or learned values from causing a surge.
+      # prevents malformed settings from causing a surge.
       for index in range(1, len(accel_vals)):
         accel_vals[index] = min(accel_vals[index], accel_vals[index - 1])
       self.accel_max_vals = accel_vals
