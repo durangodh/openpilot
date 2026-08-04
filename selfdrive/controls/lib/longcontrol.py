@@ -64,18 +64,21 @@ class LongControl:
     self.v_pid = 0.0
     self.last_output_accel = 0.0
 
-    # apilot-c2 launch control. A value of 25 means 0.50 m/s^2 because the
-    # original branch applies StartAccelApply * 2. Use this conservative value
-    # when no setting has been stored yet.
-    self.start_accel_apply = 0.25
-    self.start_accel = 0.50
-    self.starting_state = True
+    # Read launch control immediately so StartAccelApply=0 disables the
+    # starting state from the first control cycle.
+    self._update_start_accel()
 
     # apilot-c2 uses two actuator-delay predictions and selects the more
     # conservative target. Derive safe defaults around the configured delay.
     delay = float(clip(CP.longitudinalActuatorDelay, 0.1, 1.0))
     self.actuator_delay_lower = max(0.1, delay - 0.1)
     self.actuator_delay_upper = min(1.0, max(self.actuator_delay_lower + 0.05, delay + 0.1))
+
+  def _update_start_accel(self):
+    start_raw = self.params.get_int("StartAccelApply", 25)
+    self.start_accel_apply = float(clip(start_raw * 0.01, 0.0, 0.5))
+    self.start_accel = float(clip(2.0 * self.start_accel_apply, 0.0, 1.0))
+    self.starting_state = start_raw > 0
 
   def reset(self, v_pid=0.0):
     self.pid.reset()
@@ -98,10 +101,7 @@ class LongControl:
       elif self.actuator_delay_upper <= self.actuator_delay_lower:
         self.actuator_delay_upper = min(1.0, self.actuator_delay_lower + 0.05)
 
-      start_raw = self.params.get_int("StartAccelApply", 25)
-      self.start_accel_apply = float(clip(start_raw * 0.01, 0.0, 0.5))
-      self.start_accel = float(clip(2.0 * self.start_accel_apply, 0.0, 1.0))
-      self.starting_state = start_raw > 0
+      self._update_start_accel()
 
     elif self.read_param_count == 10:
       if len(self.CP.longitudinalTuning.kpBP) == 1 and len(self.CP.longitudinalTuning.kiBP) == 1:
