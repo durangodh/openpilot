@@ -115,10 +115,10 @@ class LongControl:
       elif self.actuator_delay_upper <= self.actuator_delay_lower:
         self.actuator_delay_upper = min(1.0, self.actuator_delay_lower + 0.05)
 
-      start_raw = self.params.get_int("StartAccelApply")
-      self.start_accel_apply = float(clip((start_raw if start_raw > 0 else 25) * 0.01, 0.0, 0.5))
+      start_raw = self.params.get_int("StartAccelApply", 25)
+      self.start_accel_apply = float(clip(start_raw * 0.01, 0.0, 0.5))
       self.start_accel = float(clip(2.0 * self.start_accel_apply, 0.0, 1.0))
-      self.starting_state = self.start_accel_apply > 0.0
+      self.starting_state = start_raw > 0
 
       accel_vals = []
       for key, default in zip(ACCEL_PARAM_KEYS, ACCEL_DEFAULTS):
