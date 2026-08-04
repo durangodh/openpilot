@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import time
 from typing import List
 
 from cereal import car
@@ -29,6 +30,10 @@ class CarInterface(CarInterfaceBase):
   def __init__(self, CP, CarController, CarState):
     super().__init__(CP, CarController, CarState)
     self.cp2 = self.CS.get_can2_parser(CP)
+    # AutoLaneChangeSpeed 실시간 반영용 (VIP 패널에서 10km/h 단위 조절)
+    self._lc_speed_params = Params()
+    self.lane_change_speed_min = LANE_CHANGE_SPEED_MIN
+    self._lc_speed_params_t = 0.0
 
   @staticmethod
   def get_pid_accel_limits(CP, current_speed, cruise_speed):
@@ -319,7 +324,15 @@ class CarInterface(CarInterfaceBase):
     ret.cruiseState.enabled = ret.cruiseState.available
 
     # turning indicator alert logic
-    if not self.CC.keep_steering_turn_signals and (ret.leftBlinker or ret.rightBlinker or self.CC.turning_signal_timer) and ret.vEgo < LANE_CHANGE_SPEED_MIN - 1.2:
+    t = time.monotonic()
+    if t - self._lc_speed_params_t > 1.0:
+      try:
+        auto_lc_speed_kph = int(self._lc_speed_params.get('AutoLaneChangeSpeed', encoding='utf8') or '50')
+      except (TypeError, ValueError):
+        auto_lc_speed_kph = 50
+      self.lane_change_speed_min = auto_lc_speed_kph * CV.KPH_TO_MS
+      self._lc_speed_params_t = t
+    if not self.CC.keep_steering_turn_signals and (ret.leftBlinker or ret.rightBlinker or self.CC.turning_signal_timer) and ret.vEgo < self.lane_change_speed_min - 1.2:
       self.CC.turning_indicator_alert = True
     else:
       self.CC.turning_indicator_alert = False
