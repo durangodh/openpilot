@@ -49,6 +49,7 @@ class DesireHelper:
     self.params = Params()
     self.lane_change_enabled = self.params.get_bool('LaneChangeEnabled')
     self.auto_lane_change_enabled = self.params.get_bool('AutoLaneChangeEnabled')
+    self.lane_change_speed_min = LANE_CHANGE_SPEED_MIN
     self.last_params_update = 0.0
 
     self.auto_lane_change_timer = 0.0
@@ -86,6 +87,11 @@ class DesireHelper:
         self.carrot_atc_mode = int(self.params.get('CarrotAutoTurnControl', encoding='utf8') or '0')
       except (TypeError, ValueError):
         self.carrot_atc_mode = 0
+      try:
+        auto_lc_speed_kph = int(self.params.get('AutoLaneChangeSpeed', encoding='utf8') or '50')
+      except (TypeError, ValueError):
+        auto_lc_speed_kph = 50
+      self.lane_change_speed_min = auto_lc_speed_kph * CV.KPH_TO_MS
       self.last_params_update = t
 
     # AutoLaneChangeTimer 파라미터 읽기 및 대기 시간 계산
@@ -123,7 +129,7 @@ class DesireHelper:
     left_blinker = carstate.leftBlinker
     right_blinker = carstate.rightBlinker or atc_fork_direction > 0
     one_blinker = left_blinker != right_blinker
-    below_lane_change_speed = v_ego < LANE_CHANGE_SPEED_MIN
+    below_lane_change_speed = v_ego < self.lane_change_speed_min
 
     # Driver lane changes retain the original road-edge gate. ATC only raises
     # its virtual blinker after the controller has already observed an open lane.

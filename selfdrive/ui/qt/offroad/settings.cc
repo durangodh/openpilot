@@ -2562,6 +2562,13 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   lc_timer->showDescription();
   list->addItem(lc_timer);
 
+  // ── AutoLaneChangeSpeed ────────────────────────────────────────
+  list->addItem(new ParamValueControlF("AutoLaneChangeSpeed",
+      "Auto Lane Change Speed",
+      "자동/방향지시등 차선변경이 허용되는 최저 속도입니다 (km/h).\n"
+      "이 속도보다 느리면 차선변경이 시작되지 않습니다.",
+      "../assets/offroad/icon_road.png", 0, 100, 10, 0, 50, this));
+
   list->addItem(horizontal_line());
 
   auto *atc_mode = new ParamValueControlF(

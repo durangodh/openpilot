@@ -80,6 +80,7 @@ def manager_init() -> None:
     ("LatAccelFrictionFactor", "70"),
     ("LatJerkFrictionFactor", "40"),
     ("AutoLaneChangeTimer", "0"),  # controlsd.py 크래시 수정
+    ("AutoLaneChangeSpeed", "50"),  # 자동/방향지시등 차선변경 허용 최저 속도 (km/h)
     ("AdjustLaneOffset", "0"),    # 좌우 여유공간 비대칭 보정 (cm, 0=off)
     ("OffsetTotal", "0.0"),        # 통합 오프셋(offset_total), 전 모드 공통 적용
     ("HumanFollowing", "0"),

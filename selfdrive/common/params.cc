@@ -206,6 +206,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"ShowDebugUI", PERSISTENT},
     {"WideCameraOnly", PERSISTENT},
     {"AutoLaneChangeTimer", PERSISTENT},
+    {"AutoLaneChangeSpeed", PERSISTENT},        // 자동/방향지시등 차선변경 허용 최저 속도 (km/h)
     {"CarrotAutoTurnControl", PERSISTENT},
     {"CarrotAutoTurnSpeed", PERSISTENT},
     {"CarrotAutoTurnEndTime", PERSISTENT},
