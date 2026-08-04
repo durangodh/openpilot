@@ -66,6 +66,7 @@ def manager_init() -> None:
     ("NewRadarInterface", "0"),
     ("WideCameraOnly", "0"),       # plannerd.py 크래시 수정
     ("ShowGearAnimation", "1"),
+    ("ShowCarrotHud", "1"),
     ("CustomSteerRatio", "1650"),
     ("UseLiveSteerRatio", "0"),
     ("SteerActuatorDelay", "50"),

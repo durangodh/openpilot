@@ -957,7 +957,11 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     std::string sga = params.get("ShowGearAnimation");
     show_gear_animation = sga.empty() ? 1 : std::atoi(sga.c_str());
     show_bsd_always = std::atoi(params.get("ShowBlindSpotAlways").c_str());
+    std::string sch = params.get("ShowCarrotHud");
+    show_carrot_hud = sch.empty() ? 1 : std::atoi(sch.c_str());
   }
+
+  if (!show_carrot_hud) { p.restore(); return; }
 
   // ---- 기준 좌표 (carrot.cc 와 동일) ----
   const int x  = 140;

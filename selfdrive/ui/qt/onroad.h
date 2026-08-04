@@ -115,6 +115,7 @@ protected:
   int  show_datetime = 1;
   int  show_gear_animation = 1;
   int  show_bsd_always = 0;
+  int  show_carrot_hud = 1;
   uint64_t carrot_navi_last_read = 0;
   uint64_t carrot_navi_updated_at = 0;
   uint64_t carrot_navi_guidance_updated_at = 0;

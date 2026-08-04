@@ -2595,6 +2595,15 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       this);
   list->addItem(gearAnimToggle);
 
+  // ── 좌측 HUD 박스 표시 ────────────────────────────────────────
+  auto *carrotHudToggle = new ParamControl("ShowCarrotHud",
+      "좌측 HUD 박스 표시",
+      "화면 좌측의 속도·크루즈·GAP·기어·NORM·LIMIT 등 carrot HUD 박스\n"
+      "전체를 보이거나 숨깁니다. 주행 중 즉시 반영됩니다.",
+      "../assets/offroad/icon_road.png",
+      this);
+  list->addItem(carrotHudToggle);
+
   // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ─────────────
   list->addItem(horizontal_line());
 
