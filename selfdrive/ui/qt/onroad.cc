@@ -1200,10 +1200,38 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
        atc_kind == CarrotAtcKind::ROTARY) &&
       carrot_navi_distance >= 0 && carrot_navi_distance <= 350;
 
+    // desire_helper.py 의 회전종료 페이드(turn_direction_latched/turn_ll_prob)와
+    // 표시를 맞춘다: steering_active 가 거리/속도 조건을 벗어나 순간적으로 꺼져도,
+    // 모델이 아직 이 방향 회전을 인지하고 있으면(modelV2 meta.desireState의
+    // turnLeft@1/turnRight@2, log.capnp LateralPlan.Desire 순번) 0.5초에 걸쳐
+    // 파란색 표시를 유지하다 서서히 회색으로 되돌아간다.
+    const uint64_t atc_ui_now_ms = millis_since_boot();
+    const float atc_ui_dt = (atc_ui_last_frame_ms == 0)
+      ? 0.0f : std::min(0.1f, (atc_ui_now_ms - atc_ui_last_frame_ms) / 1000.0f);
+    atc_ui_last_frame_ms = atc_ui_now_ms;
+
+    float atc_ui_turn_model_prob = 0.0f;
+    if (!steering_active && atc_ui_direction_latched != 0) {
+      const auto &desire_state = sm["modelV2"].getModelV2().getMeta().getDesireState();
+      const int idx = atc_ui_direction_latched < 0 ? 1 : 2;  // turnLeft@1 / turnRight@2
+      if (idx < static_cast<int>(desire_state.size())) atc_ui_turn_model_prob = desire_state[idx];
+    }
+    if (steering_active) {
+      atc_ui_direction_latched = atc_direction;
+      atc_ui_turn_ll_prob = 1.0f;
+    } else if (atc_ui_turn_model_prob > 0.02f && atc_ui_turn_ll_prob > 0.0f) {
+      atc_ui_turn_ll_prob = std::max(0.0f, atc_ui_turn_ll_prob - 2.0f * atc_ui_dt);
+    } else {
+      atc_ui_direction_latched = 0;
+      atc_ui_turn_ll_prob = 1.0f;
+    }
+    const bool steering_active_display = steering_active ||
+      (atc_ui_direction_latched != 0 && atc_ui_turn_ll_prob > 0.0f);
+
     QColor atc_color = CT_GREY_A(210);  // off / waiting
-    if (atc_enabled && !atc_fresh) atc_color = CT_RED_A(230);       // data lost
-    else if (steering_active)     atc_color = CT_BLUE_A(230);      // steering
-    else if (speed_active)        atc_color = CT_ORANGE_A(230);    // slowing
+    if (atc_enabled && !atc_fresh)      atc_color = CT_RED_A(230);       // data lost
+    else if (steering_active_display)   atc_color = CT_BLUE_A(230);      // steering
+    else if (speed_active)              atc_color = CT_ORANGE_A(230);    // slowing
 
     ctRect(p, ds_box, atc_color, 15, 2);
     ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "ATC", 25, CT_WHITE);

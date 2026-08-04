@@ -116,6 +116,10 @@ protected:
   int  show_gear_animation = 1;
   int  show_bsd_always = 0;
   int  show_carrot_hud = 1;
+  // ATC 상태박스(파랑=조향개입)를 desire_helper.py 의 페이드아웃과 맞추기 위한 값들.
+  int atc_ui_direction_latched = 0;
+  float atc_ui_turn_ll_prob = 1.0f;
+  uint64_t atc_ui_last_frame_ms = 0;
   uint64_t carrot_navi_last_read = 0;
   uint64_t carrot_navi_updated_at = 0;
   uint64_t carrot_navi_guidance_updated_at = 0;
