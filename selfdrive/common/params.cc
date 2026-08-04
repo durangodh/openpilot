@@ -254,6 +254,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LongTuningKiV", PERSISTENT},
     {"LongTuningKf", PERSISTENT},
     {"LongActuatorDelay", PERSISTENT},
+    {"LongitudinalActuatorDelayLowerBound", PERSISTENT},
+    {"LongitudinalActuatorDelayUpperBound", PERSISTENT},
     {"StoppingAccel", PERSISTENT},
     // 학습 대상 파라미터 (x100 정수 저장)
     {"CruiseMaxVals0", PERSISTENT},            // 0~36 km/h 최대가속 (기본 180 = 1.80m/s^2)

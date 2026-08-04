@@ -73,12 +73,23 @@ class LongControl:
     delay = float(clip(CP.longitudinalActuatorDelay, 0.1, 1.0))
     self.actuator_delay_lower = max(0.1, delay - 0.1)
     self.actuator_delay_upper = min(1.0, max(self.actuator_delay_lower + 0.05, delay + 0.1))
+    self._update_actuator_delays()
 
   def _update_start_accel(self):
     start_raw = self.params.get_int("StartAccelApply", 25)
     self.start_accel_apply = float(clip(start_raw * 0.01, 0.0, 0.5))
     self.start_accel = float(clip(2.0 * self.start_accel_apply, 0.0, 1.0))
     self.starting_state = start_raw > 0
+
+  def _update_actuator_delays(self):
+    lower = self.params.get_float("LongitudinalActuatorDelayLowerBound") * 0.01
+    upper = self.params.get_float("LongitudinalActuatorDelayUpperBound") * 0.01
+    if lower > 0.0:
+      self.actuator_delay_lower = float(clip(lower, 0.1, 0.99))
+    if upper > 0.0:
+      self.actuator_delay_upper = float(clip(upper, self.actuator_delay_lower + 0.01, 1.0))
+    elif self.actuator_delay_upper <= self.actuator_delay_lower:
+      self.actuator_delay_upper = min(1.0, self.actuator_delay_lower + 0.05)
 
   def reset(self, v_pid=0.0):
     self.pid.reset()
@@ -91,15 +102,7 @@ class LongControl:
       self.stopping_accel = self.params.get_float("StoppingAccel") * 0.01
       self.long_coast_band = clip(self.params.get_float("LongCoastBand") * 0.01, 0.0, 0.4)
 
-      # Keep compatibility with apilot-c2 parameter names when present.
-      lower = self.params.get_float("LongitudinalActuatorDelayLowerBound") * 0.01
-      upper = self.params.get_float("LongitudinalActuatorDelayUpperBound") * 0.01
-      if lower > 0.0:
-        self.actuator_delay_lower = float(clip(lower, 0.1, 1.0))
-      if upper > 0.0:
-        self.actuator_delay_upper = float(clip(upper, self.actuator_delay_lower + 0.01, 1.0))
-      elif self.actuator_delay_upper <= self.actuator_delay_lower:
-        self.actuator_delay_upper = min(1.0, self.actuator_delay_lower + 0.05)
+      self._update_actuator_delays()
 
       self._update_start_accel()
 
