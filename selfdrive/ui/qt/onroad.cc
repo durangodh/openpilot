@@ -276,6 +276,10 @@ void NvgWindow::initializeGL() {
   ic_nda = QPixmap("../assets/images/img_nda.png");
   ic_hda = QPixmap("../assets/images/img_hda.png");
   ic_tire_pressure = QPixmap("../assets/images/img_tire_pressure.png");
+  ic_turn_l = QPixmap("../assets/images/turn_l.png");
+  ic_turn_r = QPixmap("../assets/images/turn_r.png");
+  ic_lane_change_l = QPixmap("../assets/images/lane_change_l.png");
+  ic_lane_change_r = QPixmap("../assets/images/lane_change_r.png");
 
   ic_speed_bg = QPixmap("../assets/images/speed_bg.png");
 }
@@ -514,6 +518,7 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   drawCarrotLead(p);
   drawCarrotNavi(p);
   drawCarrotHud(p);
+  drawAtcManeuver(p);
   drawE2eTrafficState(p);
   drawSpeedLimit(p);
   drawCarrotInfo(p);
@@ -929,6 +934,49 @@ void NvgWindow::drawCarrotLead(QPainter &p) {
   p.restore();
 }
 
+void NvgWindow::drawAtcManeuver(QPainter &p) {
+  if (carrot_atc_mode < 1 || carrot_atc_mode > 3) return;
+
+  const qint64 guidance_age = QDateTime::currentMSecsSinceEpoch() -
+                              static_cast<qint64>(carrot_navi_guidance_updated_at);
+  const bool atc_fresh = carrot_navi_guidance_updated_at != 0 &&
+                         guidance_age >= -5000 && guidance_age <= 3000;
+  if (!atc_fresh || carrot_navi_distance < 0) return;
+
+  int direction = 0;
+  const CarrotAtcKind kind = carrotAtcKind(carrot_navi_turn_type,
+                                           carrot_navi_instruction, &direction);
+  if (kind == CarrotAtcKind::NONE) return;
+
+  const QPixmap *icon = nullptr;
+  if (kind == CarrotAtcKind::TURN) {
+    icon = direction < 0 ? &ic_turn_l : direction > 0 ? &ic_turn_r : nullptr;
+  } else if (kind == CarrotAtcKind::FORK) {
+    icon = direction < 0 ? &ic_lane_change_l : direction > 0 ? &ic_lane_change_r : nullptr;
+  }
+
+  const int icon_size = 180;
+  const QPoint center(width() / 2, height() / 2 - 20);
+  const QRect icon_rect(center.x() - icon_size / 2, center.y() - icon_size / 2,
+                        icon_size, icon_size);
+
+  p.save();
+  p.setRenderHint(QPainter::Antialiasing);
+  p.setRenderHint(QPainter::SmoothPixmapTransform);
+  if (icon != nullptr && !icon->isNull()) {
+    p.drawPixmap(icon_rect, *icon);
+  } else {
+    // aPilot also uses text for maneuvers without a dedicated image.
+    const QString maneuver = kind == CarrotAtcKind::UTURN ? QString::fromUtf8("U턴")
+                                                           : QString("ROTARY");
+    ctTextIn(p, icon_rect, maneuver, 48, CT_WHITE);
+  }
+
+  const QString distance = carrotDistanceText(carrot_navi_distance);
+  ctText(p, center.x(), icon_rect.bottom() + 58, distance, 42, CT_WHITE, true, true);
+  p.restore();
+}
+
 void NvgWindow::drawCarrotHud(QPainter &p) {
   p.save();
   p.setRenderHint(QPainter::Antialiasing);
@@ -1005,20 +1053,13 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
                      : QString("--");
   ctText(p, bx + 170, by + 20, cruise_str, 60, CT_GREEN, true, true);
 
-  // ---- 적용 속도(감속 목표) + 감속 사유 : carrot 의 apply_speed / apply_source ----
+  // ---- 실제 적용 속도 : aPilot처럼 설정속도와 다를 때만 작은 녹색 숫자로 표시 ----
   //      sccSmoother 계열(cam/sec/road/eco) 과 VisionTurnController(vturn) 중
   //      더 낮은 목표속도를 표시한다.
   float show_speed = 0.0f;      // kph
-  QString src = "";
-
   float apply_max = scc_smoother.getApplyMaxSpeed();
   if (is_cruise_set && apply_max > 0 && std::abs(apply_max - cruise_max) > 0.5f) {
     show_speed = apply_max;
-    if (cam_limit > 0 && cam_dist > 0)       src = "cam";
-    else if (sec_limit > 0 && sec_dist > 0)  src = "sec";
-    else if (road_limit.getActive() > 0 && road_limit.getRoadLimitSpeed() > 0 &&
-             apply_max <= road_limit.getRoadLimitSpeed() + 1)  src = "road";
-    else                                     src = "eco";
   }
 
   // VisionTurnController 커브 감속
@@ -1031,15 +1072,13 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
       float v_turn = long_plan.getVisionTurnSpeed() * 3.6f;   // m/s -> kph
       if (v_turn > 0 && (show_speed <= 0.0f || v_turn < show_speed)) {
         show_speed = v_turn;
-        src = "vturn";
       }
     }
   }
 
-  if (show_speed > 0.0f && !src.isEmpty()) {
+  if (show_speed > 0.0f) {
     ctText(p, bx + 250, by - 50,  QString::number((int)(show_speed * kph_to_disp + 0.5f)),
-           50, CT_OCHRE, true, true);
-    ctText(p, bx + 250, by - 100, src, 30, CT_OCHRE, true, true);
+           50, CT_GREEN, true, true);
   }
 
   // ---- 주행모드 (NORM / ECO / SAFE / FAST) ----
