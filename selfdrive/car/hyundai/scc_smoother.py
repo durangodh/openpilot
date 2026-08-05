@@ -513,6 +513,11 @@ class SccSmoother:
       controls.LoC.reset(v_pid=CS.vEgo)
 
     controls.v_cruise_kph = v_cruise_kph
+    if longcontrol:
+      # hudControl.setSpeed and the outgoing SCC11 VSetDis use this value.
+      # Keep it synchronized with the SCC set speed so SET/RES changes reach
+      # the vehicle cluster in the same control cycle as the openpilot UI.
+      controls.v_cruise_cluster_kph = v_cruise_kph
 
   @staticmethod
   def update_v_cruise(v_cruise_kph, buttonEvents, enabled, metric, min_set_speed_kph=MIN_SET_SPEED_KPH):
