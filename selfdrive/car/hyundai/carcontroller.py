@@ -242,12 +242,14 @@ class CarController:
     else:
       self.longitudinal_jerk.reset()
 
-    # Hyundai stock SCC rejects a leadless SET request below 30 km/h. When the
-    # driver explicitly presses SET/RES, briefly send the openpilot long SCC
-    # command path so ACCMode can become active without waiting for stock SCC.
+    # Hyundai stock SCC rejects a leadless SET request below 30 km/h. For a
+    # physical SET/RES press or a guarded aPilot-style auto-resume request,
+    # briefly send the openpilot long SCC command path so ACCMode can activate.
     # A leadless request is blocked below 2 km/h to prevent an unintended
-    # launch from standstill; gas-based automatic engagement remains unchanged.
-    request_pressed = CS.cruise_buttons in (Buttons.RES_ACCEL, Buttons.SET_DECEL)
+    # launch from standstill.
+    physical_request = CS.cruise_buttons in (Buttons.RES_ACCEL, Buttons.SET_DECEL)
+    auto_resume_request = self.scc_smoother.auto_resume_request
+    request_pressed = physical_request or auto_resume_request
     direct_long_available = (self.longcontrol and CC.enabled and CS.out.cruiseState.available and
                              (CS.scc_bus or not self.scc_live))
     low_speed_engage_request = self.low_speed_long_engage.update(
@@ -261,6 +263,8 @@ class CarController:
 
         set_speed = hud_control.setSpeed
         min_set_speed = self.scc_smoother.min_set_speed_kph * CV.KPH_TO_MS
+        if low_speed_engage_request and auto_resume_request:
+          set_speed = self.scc_smoother.auto_resume_set_speed_kph * CV.KPH_TO_MS
         if not (min_set_speed < set_speed < 255 * CV.KPH_TO_MS):
           set_speed = max(CS.out.vEgo, min_set_speed)
         set_speed *= CV.MS_TO_MPH if CS.is_set_speed_in_mph else CV.MS_TO_KPH
