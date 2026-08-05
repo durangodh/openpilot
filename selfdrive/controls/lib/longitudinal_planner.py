@@ -238,11 +238,12 @@ class LongitudinalPlanner:
     self.e2e_start_sign_count = self.e2e_start_sign_count + 1 if raw_start_sign else 0
     stop_sign = self.e2e_stop_sign_count > 0 and not car_state.rightBlinker
     start_sign = self.e2e_start_sign_count * DT_MDL >= E2E_START_CONFIRM_TIME
-    # Keep automatic resume, but only after the legacy EON model has predicted
-    # a clearly open road continuously. This rejects the short trajectory
-    # spikes that previously caused false starts at a red light.
-    model_resume_allowed = start_sign
     lead_present = radar_state.leadOne.status or radar_state.leadTwo.status
+    # A tracked lead remains constrained by the MPC, so release the E2E stop
+    # latch and let the lead trajectory control standstill and launch. Without
+    # this, lead-following stops wait indefinitely for the vision start signal.
+    # Leadless signal stops still require a confirmed model start prediction.
+    model_resume_allowed = start_sign or lead_present
 
     if self.auto_e2e_stopping:
       if model_resume_allowed or car_state.gasPressed:
