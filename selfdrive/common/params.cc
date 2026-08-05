@@ -198,7 +198,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"UseClusterSpeed", PERSISTENT},
     {"LongControlEnabled", PERSISTENT},
     {"CruiseSpeedMin", PERSISTENT},
-    {"CruiseSpeedUpAccelLimit", PERSISTENT},
     {"JerkStartLimit", PERSISTENT},
 
     {"DynamicLaneProfile", PERSISTENT},
