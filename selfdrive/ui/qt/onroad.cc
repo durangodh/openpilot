@@ -823,8 +823,8 @@ void NvgWindow::drawCarrotBottom(QPainter &p) {
   p.restore();
 }
 
-void NvgWindow::ctTextAnimStart(int x, int y, const QString &text, int size, const QColor &color) {
-  if (!show_gear_animation) return;
+void NvgWindow::ctTextAnimStart(int x, int y, const QString &text, int size, const QColor &color, bool enabled) {
+  if (!enabled) return;
   anim_x = x;
   anim_y = y;
   anim_text = text;
@@ -958,6 +958,8 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     show_datetime = sdt.empty() ? 1 : std::atoi(sdt.c_str());   // 0:끔 1:시간+날짜 2:시간만 3:날짜만
     std::string sga = params.get("ShowGearAnimation");
     show_gear_animation = sga.empty() ? 1 : std::atoi(sga.c_str());
+    std::string saa = params.get("ShowAtcAnimation");
+    show_atc_animation = saa.empty() ? 1 : std::atoi(saa.c_str());
     show_bsd_always = std::atoi(params.get("ShowBlindSpotAlways").c_str());
     std::string sch = params.get("ShowCarrotHud");
     show_carrot_hud = sch.empty() ? 1 : std::atoi(sch.c_str());
@@ -1094,7 +1096,8 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
 
     // 기어가 바뀌면 팝업 애니메이션 시작
     if (!gear_str_last.isEmpty() && gear_str_last != gear_str) {
-      ctTextAnimStart(gear_box.center().x(), gear_box.bottom(), gear_str, 70, CT_WHITE);
+      ctTextAnimStart(gear_box.center().x(), gear_box.bottom(), gear_str, 70, CT_WHITE,
+                      show_gear_animation != 0);
     }
     gear_str_last = gear_str;
   }
@@ -1247,6 +1250,16 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     if (atc_enabled && !atc_fresh)      atc_color = CT_RED_A(230);       // data lost
     else if (steering_active_display)   atc_color = CT_BLUE_A(230);      // steering
     else if (speed_active)              atc_color = CT_ORANGE_A(230);    // slowing
+
+    int atc_popup_state = 0;
+    if (atc_enabled && !atc_fresh)      atc_popup_state = 3;
+    else if (steering_active_display)   atc_popup_state = 2;
+    else if (speed_active)              atc_popup_state = 1;
+    if (atc_popup_state != 0 && atc_popup_state != atc_popup_state_last) {
+      ctTextAnimStart(ds_box.center().x(), ds_box.bottom(), "ATC", 56, atc_color,
+                      show_atc_animation != 0);
+    }
+    atc_popup_state_last = atc_popup_state;
 
     ctRect(p, ds_box, atc_color, 15, 2);
     ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "ATC", 25, CT_WHITE);

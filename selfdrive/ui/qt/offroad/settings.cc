@@ -2673,6 +2673,14 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       this);
   list->addItem(gearAnimToggle);
 
+  auto *atcAnimToggle = new ParamControl("ShowAtcAnimation",
+      "ATC Popup Animation",
+      "ATC 상태가 감속, 조향 개입 또는 데이터 끊김으로 전환될 때 화면 중앙에서 "
+      "HUD의 ATC 박스로 이동하는 팝업 애니메이션을 표시합니다.",
+      "../assets/offroad/icon_road.png",
+      this);
+  list->addItem(atcAnimToggle);
+
   // ── 좌측 HUD 박스 표시 ────────────────────────────────────────
   auto *carrotHudToggle = new ParamControl("ShowCarrotHud",
       "좌측 HUD 박스 표시",

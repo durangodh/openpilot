@@ -114,6 +114,7 @@ protected:
   int  carrot_atc_mode = 0;
   int  show_datetime = 1;
   int  show_gear_animation = 1;
+  int  show_atc_animation = 1;
   int  show_bsd_always = 0;
   int  show_carrot_hud = 1;
   // ATC 상태박스(파랑=조향개입)를 desire_helper.py 의 페이드아웃과 맞추기 위한 값들.
@@ -147,13 +148,14 @@ protected:
   float lead_box_w = 0.0f, lead_box_x = 0.0f, lead_box_y = 0.0f;   // 리드박스 EMA
 
   // ── 팝업 애니메이션 (carrot ui_draw_text_a 이식) ──
-  void ctTextAnimStart(int x, int y, const QString &text, int size, const QColor &color);
+  void ctTextAnimStart(int x, int y, const QString &text, int size, const QColor &color, bool enabled);
   void drawTextAnim(QPainter &p);
   int     anim_time = 0;        // 0 이면 비활성
   int     anim_x = 0, anim_y = 0, anim_size = 0;
   QString anim_text;
   QColor  anim_color = QColor(255, 255, 255, 255);
   QString gear_str_last;
+  int atc_popup_state_last = 0;
   // ============================================================================
   void drawSpeedLimit(QPainter &p);
   void drawDebugText(QPainter &p);
