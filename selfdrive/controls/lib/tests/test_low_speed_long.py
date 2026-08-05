@@ -1,4 +1,5 @@
-from selfdrive.controls.lib.low_speed_long import LOW_SPEED_LONG_REQUEST_TIME, LowSpeedLongEngage, read_cruise_speed_min
+from selfdrive.controls.lib.low_speed_long import LOW_SPEED_LONG_REQUEST_TIME, LowSpeedLongEngage, \
+  read_cruise_speed_min, suppress_low_speed_scc_alerts
 
 
 DT_CTRL = 0.01
@@ -24,6 +25,18 @@ def test_cruise_speed_min_accepts_configured_value():
 def test_cruise_speed_min_is_safely_clamped():
   assert read_cruise_speed_min(FakeParams("1")) == 5
   assert read_cruise_speed_min(FakeParams("50")) == 30
+
+
+def test_forced_low_speed_request_clears_transient_cluster_prompts():
+  values = {"SCCInfoDisplay": 3, "DriverAlertDisplay": 2, "ACCFailInfo": 1}
+  suppress_low_speed_scc_alerts(values, True)
+  assert values == {"SCCInfoDisplay": 0, "DriverAlertDisplay": 0, "ACCFailInfo": 1}
+
+
+def test_normal_scc_status_is_preserved_outside_request_window():
+  values = {"SCCInfoDisplay": 4, "DriverAlertDisplay": 1}
+  suppress_low_speed_scc_alerts(values, False)
+  assert values == {"SCCInfoDisplay": 4, "DriverAlertDisplay": 1}
 
 
 def test_driver_set_allows_leadless_low_speed_request():

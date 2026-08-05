@@ -15,6 +15,14 @@ def read_cruise_speed_min(params):
   return max(CRUISE_SPEED_MIN_LOWER, min(CRUISE_SPEED_MIN_UPPER, value))
 
 
+def suppress_low_speed_scc_alerts(values, force_long):
+  """Clear transient stock SCC cluster prompts only during explicit engagement."""
+  if force_long:
+    values["SCCInfoDisplay"] = 0
+    values["DriverAlertDisplay"] = 0
+  return values
+
+
 class LowSpeedLongEngage:
   """Temporarily allow SCC commands after an explicit low-speed SET/RES press."""
 
