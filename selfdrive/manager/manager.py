@@ -48,6 +48,12 @@ def manager_init() -> None:
     ("AutoAscc", "1"),
     ("AutoSpeedUptoRoadSpeedLimit", "0"),
     ("AutoGasResumeGuard", "1"),            # 가속페달 재개 안전조건   # 도로제한속도 대비 자동증속 상한(%), 0=off
+    ("AutoResumeFromGas", "1"),              # 0=off, 1=hold, 2=hold+quick release
+    ("AutoResumeFromGasSpeed", "30"),
+    ("AutoResumeFromGasSpeedMode", "0"),     # 0=current, 1=previous, 2=previous with lead
+    ("AutoResumeFromBrakeRelease", "0"),     # opt-in for safety
+    ("AutoResumeFromBrakeCarSpeed", "30"),
+    ("AutoResumeFromBrakeReleaseDist", "10"),
     ("LateralControl", "TORQUE"),
     ("UseClusterSpeed", "0"),
     ("LongControlEnabled", "0"),
