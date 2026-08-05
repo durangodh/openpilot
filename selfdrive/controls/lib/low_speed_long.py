@@ -10,10 +10,6 @@ AUTO_RESUME_MAX_STEERING_ANGLE_DEG = 20.0
 AUTO_RESUME_STRONG_GAS = 0.6
 AUTO_RESUME_QUICK_GAS_TIME = 0.6
 AUTO_RESUME_MAX_SPEED_KPH = 161.0
-CRUISE_SPEED_UP_ACCEL_DEFAULT = 0.8
-CRUISE_SPEED_UP_ACCEL_MIN = 0.3
-CRUISE_SPEED_UP_ACCEL_MAX = 1.5
-CRUISE_SPEED_UP_ACCEL_GAP_KPH = 5.0
 
 
 def read_cruise_speed_min(params):
@@ -23,22 +19,6 @@ def read_cruise_speed_min(params):
   except (TypeError, ValueError):
     value = CRUISE_SPEED_MIN_DEFAULT
   return max(CRUISE_SPEED_MIN_LOWER, min(CRUISE_SPEED_MIN_UPPER, value))
-
-
-def read_cruise_speed_up_accel_limit(params):
-  raw = params.get("CruiseSpeedUpAccelLimit", encoding="utf8")
-  try:
-    value = int(raw) * 0.01 if raw else CRUISE_SPEED_UP_ACCEL_DEFAULT
-  except (TypeError, ValueError):
-    value = CRUISE_SPEED_UP_ACCEL_DEFAULT
-  return max(CRUISE_SPEED_UP_ACCEL_MIN, min(CRUISE_SPEED_UP_ACCEL_MAX, value))
-
-
-def limit_cruise_speed_up_accel(v_ego, v_cruise, max_accel, accel_limit):
-  """Limit acceleration for a large cruise-speed increase without changing the displayed set speed."""
-  if v_cruise - v_ego > CRUISE_SPEED_UP_ACCEL_GAP_KPH / 3.6:
-    return min(max_accel, accel_limit)
-  return max_accel
 
 
 def suppress_low_speed_scc_alerts(values, force_long):
