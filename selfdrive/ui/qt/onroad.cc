@@ -1,6 +1,7 @@
 #include "selfdrive/ui/qt/onroad.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <initializer_list>
@@ -1190,82 +1191,35 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
 
     dx += 150;
     ds_box.moveLeft(dx - 65);
-    const qint64 wall_now = QDateTime::currentMSecsSinceEpoch();
-    const qint64 guidance_age = wall_now - static_cast<qint64>(carrot_navi_guidance_updated_at);
-    const bool atc_enabled = carrot_atc_mode >= 1 && carrot_atc_mode <= 3;
-    const bool atc_fresh = carrot_navi_guidance_updated_at != 0 &&
-                           guidance_age >= -5000 && guidance_age <= 3000;
-    int atc_direction = 0;
-    const CarrotAtcKind atc_kind = carrotAtcKind(carrot_navi_turn_type,
-                                                 carrot_navi_instruction, &atc_direction);
-    const float v_ego = car_state.getVEgo();
-    const float trigger_distance = std::max(35.0f, std::min(70.0f, v_ego * 3.0f));
-    const bool opposite_torque = car_state.getSteeringPressed() &&
-      ((atc_direction < 0 && car_state.getSteeringTorque() < 0) ||
-       (atc_direction > 0 && car_state.getSteeringTorque() > 0));
-    const bool conflicting_blinker =
-      (atc_direction < 0 && car_state.getRightBlinker()) ||
-      (atc_direction > 0 && car_state.getLeftBlinker());
-    const bool steering_active = atc_fresh && (carrot_atc_mode == 1 || carrot_atc_mode == 2) &&
-      sm["carControl"].getCarControl().getLatActive() && !car_state.getBrakePressed() &&
-      !opposite_torque && !conflicting_blinker &&
-      (atc_kind == CarrotAtcKind::TURN || atc_kind == CarrotAtcKind::UTURN) &&
-      carrot_navi_distance >= 3 && carrot_navi_distance <= trigger_distance &&
-      v_ego <= 60.0f / 3.6f;
-    const bool speed_active = atc_fresh && (carrot_atc_mode == 2 || carrot_atc_mode == 3) &&
-      !car_state.getBrakePressed() &&
-      (atc_kind == CarrotAtcKind::TURN || atc_kind == CarrotAtcKind::UTURN ||
-       atc_kind == CarrotAtcKind::ROTARY) &&
-      carrot_navi_distance >= 0 && carrot_navi_distance <= 350;
+    const auto tpms = car_state.getTpms();
+    const std::array<float, 4> pressures = {
+      tpms.getFl(), tpms.getFr(), tpms.getRl(), tpms.getRr()
+    };
+    ctRect(p, ds_box, CT_BLACK_A(110), 15, 2, CT_WHITE_A(170));
 
-    // desire_helper.py 의 회전종료 페이드(turn_direction_latched/turn_ll_prob)와
-    // 표시를 맞춘다: steering_active 가 거리/속도 조건을 벗어나 순간적으로 꺼져도,
-    // 모델이 아직 이 방향 회전을 인지하고 있으면(modelV2 meta.desireState의
-    // turnLeft@1/turnRight@2, log.capnp LateralPlan.Desire 순번) 0.5초에 걸쳐
-    // 파란색 표시를 유지하다 서서히 회색으로 되돌아간다.
-    const uint64_t atc_ui_now_ms = millis_since_boot();
-    const float atc_ui_dt = (atc_ui_last_frame_ms == 0)
-      ? 0.0f : std::min(0.1f, (atc_ui_now_ms - atc_ui_last_frame_ms) / 1000.0f);
-    atc_ui_last_frame_ms = atc_ui_now_ms;
+    // Front-left / front-right on top, rear-left / rear-right on bottom.
+    p.save();
+    p.setPen(QPen(CT_WHITE_A(120), 1));
+    p.drawLine(ds_box.center().x(), ds_box.top() + 3,
+               ds_box.center().x(), ds_box.bottom() - 3);
+    p.drawLine(ds_box.left() + 3, ds_box.center().y(),
+               ds_box.right() - 3, ds_box.center().y());
+    p.restore();
 
-    float atc_ui_turn_model_prob = 0.0f;
-    if (!steering_active && atc_ui_direction_latched != 0) {
-      const auto &desire_state = sm["modelV2"].getModelV2().getMeta().getDesireState();
-      const int idx = atc_ui_direction_latched < 0 ? 1 : 2;  // turnLeft@1 / turnRight@2
-      if (idx < static_cast<int>(desire_state.size())) atc_ui_turn_model_prob = desire_state[idx];
+    const int cell_w = ds_box.width() / 2;
+    const int cell_h = ds_box.height() / 2;
+    const std::array<QRect, 4> cells = {
+      QRect(ds_box.left(), ds_box.top(), cell_w, cell_h),
+      QRect(ds_box.left() + cell_w, ds_box.top(), ds_box.width() - cell_w, cell_h),
+      QRect(ds_box.left(), ds_box.top() + cell_h, cell_w, ds_box.height() - cell_h),
+      QRect(ds_box.left() + cell_w, ds_box.top() + cell_h,
+            ds_box.width() - cell_w, ds_box.height() - cell_h)
+    };
+    for (int i = 0; i < 4; ++i) {
+      QString pressure = get_tpms_text(pressures[i]);
+      if (pressure.isEmpty()) pressure = "--";
+      ctTextIn(p, cells[i], pressure, 25, get_tpms_color(pressures[i]));
     }
-    if (steering_active) {
-      atc_ui_direction_latched = atc_direction;
-      atc_ui_turn_ll_prob = 1.0f;
-    } else if (atc_ui_turn_model_prob > 0.02f && atc_ui_turn_ll_prob > 0.0f) {
-      atc_ui_turn_ll_prob = std::max(0.0f, atc_ui_turn_ll_prob - 2.0f * atc_ui_dt);
-    } else {
-      atc_ui_direction_latched = 0;
-      atc_ui_turn_ll_prob = 1.0f;
-    }
-    const bool steering_active_display = steering_active ||
-      (atc_ui_direction_latched != 0 && atc_ui_turn_ll_prob > 0.0f);
-
-    QColor atc_color = CT_GREY_A(210);  // off / waiting
-    if (atc_enabled && !atc_fresh)      atc_color = CT_RED_A(230);       // data lost
-    else if (steering_active_display)   atc_color = CT_BLUE_A(230);      // steering
-    else if (speed_active)              atc_color = CT_ORANGE_A(230);    // slowing
-
-    int atc_popup_state = 0;
-    if (atc_enabled && !atc_fresh)      atc_popup_state = 3;
-    else if (steering_active_display)   atc_popup_state = 2;
-    else if (speed_active)              atc_popup_state = 1;
-    if (atc_popup_state != 0 && atc_popup_state != atc_popup_state_last) {
-      ctTextAnimStart(ds_box.center().x(), ds_box.bottom(), "ATC", 56, atc_color,
-                      show_atc_animation != 0);
-    }
-    atc_popup_state_last = atc_popup_state;
-
-    ctRect(p, ds_box, atc_color, 15, 2);
-    ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "ATC", 25, CT_WHITE);
-    const QString atc_distance = atc_fresh && carrot_navi_distance >= 0
-      ? QString("%1m").arg(carrot_navi_distance) : QString("--");
-    ctTextIn(p, QRect(ds_box.x(), ds_box.y() + 34, ds_box.width(), 56), atc_distance, 36, CT_WHITE);
 
     dx += 150;
     ds_box.moveLeft(dx - 65);
