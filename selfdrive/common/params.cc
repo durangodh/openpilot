@@ -261,10 +261,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LongitudinalActuatorDelayUpperBound", PERSISTENT},
     {"StoppingAccel", PERSISTENT},
     // 학습 대상 파라미터 (x100 정수 저장)
-    {"CruiseMaxVals0", PERSISTENT},            // 0~36 km/h 최대가속 (기본 180 = 1.80m/s^2)
-    {"CruiseMaxVals1", PERSISTENT},            // 36~90 km/h (기본 120)
-    {"CruiseMaxVals2", PERSISTENT},            // 90~144 km/h (기본 80)
-    {"CruiseMaxVals3", PERSISTENT},            // 144 km/h~ (기본 60)
     {"TFollowGap1", PERSISTENT},               // GAP1 (default 110 = 1.10s)
     {"TFollowGap2", PERSISTENT},               // GAP2 (default 120 = 1.20s)
     {"TFollowGap3", PERSISTENT},               // GAP3 (default 140 = 1.40s)

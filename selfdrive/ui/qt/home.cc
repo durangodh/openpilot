@@ -164,7 +164,7 @@ AutoTunerDialog::AutoTunerDialog(const QString &title_text, const QJsonObject &r
       QJsonObject info = group_items[key].toObject();
 
       // float 파라미터(OffsetTotal, latAccelFactor, steerActuatorDelay 등)와
-      // int 파라미터(CruiseMaxVals, TFollowGap)를 구분하여 표시
+      // int 파라미터(TFollowGap, Turn*)를 구분하여 표시
       bool is_float = info["is_float"].toBool(false);
       QString cur_str, rec_str;
       if (is_float) {
@@ -241,9 +241,6 @@ AutoTunerDialog::AutoTunerDialog(const QString &title_text, const QJsonObject &r
     <li><b>추천 및 적용</b>: 주차(P단) 시 팝업으로 추천값을 안내하며, <b>[선택 적용]</b>을 누르면 즉시 반영됩니다.</li>
     </ul><hr>
     <div style='font-size: 50px; font-weight: bold; margin-top: 20px; margin-bottom: 10px;'>⚙️ 그룹별 튜닝 항목</div>
-    <b>🚀 [가속] CruiseMaxVals0~3</b><br>
-    속도 대역별(0~36 / 36~90 / 90~144 / 144~ km/h) 크루즈 최대가속 한계.
-    가속이 답답해 페달을 밟는 시간이 누적되면 상향, 선행차 없는데 브레이크를 자주 밟으면 하향 추천.<br><br>
     <b>🛣️ [거리] TFollowGap1~4</b><br>
     크루즈 GAP 단계별 추종 거리 시간(x0.01초). 추종 중 가속 페달을 자주 밟으면(거리가 넓다고 판단) 감소,
     브레이크를 자주 밟으면 증가 추천. 최소 0.90초 보장.<br><br>

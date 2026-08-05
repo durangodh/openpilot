@@ -594,12 +594,12 @@ void AutoTunerGraphWidget::mousePressEvent(QMouseEvent *event) {
 
 // Show-All(전체) 뷰에서 제외할 대규모 스케일 파라미터 판정 (commit e06a7dd 21f7994a)
 // 조향계열(OffsetTotal/latAccelFactor/friction/steerActuatorDelay)은 값이 작아 같이
-// 그리면 바닥에 깔리므로, 대규모(CruiseMaxVals/TFollowGap/Turn*)는 개별 선택 시에만 표시.
+// 그리면 바닥에 깔리므로, 대규모(TFollowGap/Turn*)는 개별 선택 시에만 표시.
 // Turn*(TurnEnteringDecel/TurnTurningAcc/TurnLeavingAcc)도 x100 정수 저장이라
-// CruiseMaxVals/TFollowGap과 동일한 스케일(-30~200) — 빠뜨리면 소규모 nTune
+// TFollowGap과 동일한 스케일(-30~200) — 빠뜨리면 소규모 nTune
 // 파라미터들이 Show-All에서 바닥에 깔린다.
 static bool isLargeScaleParam(const QString &param) {
-  return param.startsWith("CruiseMaxVals") || param.startsWith("TFollowGap") ||
+  return param.startsWith("TFollowGap") ||
          param.startsWith("TurnEnteringDecel") || param.startsWith("TurnTurningAcc") ||
          param == "TurnLeavingAcc";
 }
@@ -2696,7 +2696,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   auto *learnToggle = new ParamControl("CarrotLearningActive",
       "Auto-Tuner: 주행 기반 학습",
       "운전자 개입(가속/브레이크/조향)을 학습하여 주차(P단) 시 파라미터 조정을 추천합니다.\n"
-      "학습 대상: CruiseMaxVals0~3(가속) / TFollowGap1~4(추종거리) / OffsetTotal(직진 편차) /\n"
+      "학습 대상: TFollowGap1~4(추종거리) / OffsetTotal(직진 편차) /\n"
       "TurnEnteringDecel·TurnTurningAcc·TurnLeavingAcc(비전 커브 감속)\n"
       "1회 적용 시 변동폭 ±15 제한, 추종거리 최소 0.90초 보장.",
       "../assets/offroad/icon_shell.png",
@@ -2732,7 +2732,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(viewHistoryBtn);
 
   // ── Factory Reset 버튼 (commit e06a7dd) ──
-  // Params 기반 학습 대상(CruiseMaxVals/TFollowGap/OffsetTotal/Turn*)만 공장 기본값 복원 +
+  // Params 기반 학습 대상(TFollowGap/OffsetTotal/Turn*)만 공장 기본값 복원 +
   // 학습 데이터/이력 삭제. nTune 조향값(latAccelFactor/friction/steerActuatorDelay)은
   // 차량별 기준값이라 의도적으로 제외 (사용자 nTune 세팅 보호).
   QPushButton* factoryResetBtn = new QPushButton("Auto-Tuner: Factory Reset");
