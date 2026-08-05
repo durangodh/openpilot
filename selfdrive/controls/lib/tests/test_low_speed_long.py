@@ -1,5 +1,6 @@
 from selfdrive.controls.lib.low_speed_long import AUTO_RESUME_REQUEST_TIME, LOW_SPEED_LONG_REQUEST_TIME, \
-  AutoResumeController, LowSpeedLongEngage, read_cruise_speed_min, suppress_low_speed_scc_alerts
+  AutoResumeController, LowSpeedLongEngage, limit_cruise_speed_up_accel, read_cruise_speed_min, \
+  read_cruise_speed_up_accel_limit, suppress_low_speed_scc_alerts
 
 
 DT_CTRL = 0.01
@@ -39,7 +40,7 @@ class FakeParams:
     self.value = value
 
   def get(self, key, encoding=None):
-    assert key == "CruiseSpeedMin"
+    assert key in ("CruiseSpeedMin", "CruiseSpeedUpAccelLimit")
     return self.value
 
 
@@ -54,6 +55,20 @@ def test_cruise_speed_min_accepts_configured_value():
 def test_cruise_speed_min_is_safely_clamped():
   assert read_cruise_speed_min(FakeParams("1")) == 5
   assert read_cruise_speed_min(FakeParams("50")) == 30
+
+
+def test_cruise_speed_up_accel_limit_default_and_clamp():
+  assert read_cruise_speed_up_accel_limit(FakeParams(None)) == 0.8
+  assert read_cruise_speed_up_accel_limit(FakeParams("10")) == 0.3
+  assert read_cruise_speed_up_accel_limit(FakeParams("200")) == 1.5
+
+
+def test_large_cruise_speed_increase_is_acceleration_limited():
+  assert limit_cruise_speed_up_accel(30 / 3.6, 60 / 3.6, 1.3, 0.8) == 0.8
+
+
+def test_small_cruise_speed_change_keeps_normal_acceleration_limit():
+  assert limit_cruise_speed_up_accel(30 / 3.6, 34 / 3.6, 1.3, 0.8) == 1.3
 
 
 def test_forced_low_speed_request_clears_transient_cluster_prompts():
