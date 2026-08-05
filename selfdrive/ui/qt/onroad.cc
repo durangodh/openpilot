@@ -981,7 +981,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
   const bool cam_detected = (cam_limit > 0 && cam_dist > 0) || (sec_limit > 0 && sec_dist > 0);
 
   // ---- 패널 배경 ----
-  QColor bg_color = (cam_detected && blink_timer > 8) ? CT_RED_A(180) : CT_BLACK_A(90);
+  QColor bg_color = CT_BLACK_A(90);
   if (show_device_state > 0) {
     ctRect(p, QRect(bx - 120, by - 270, 475, 495), bg_color, 30, 2, CT_WHITE);
   } else {
