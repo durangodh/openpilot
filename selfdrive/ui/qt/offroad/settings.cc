@@ -524,9 +524,10 @@ static const std::map<std::string, std::string> kAutoTunerDefaults = {
   {"TFollowGap3", "140"},
   {"TFollowGap4", "160"},
   {"TFollowSpeedRatio", "120"},
-  {"OffsetT…20789 tokens truncated…mBrakeReleaseDist", "브레이크 해제 앞차거리 (m)",
-      "앞차가 있을 때 이 거리 이상에서만 브레이크 해제 오토리줌을 허용합니다.",
-      "../assets/offroad/icon_road.png", 2, 50, 1, 0, 10, this));
+  {"OffsetT…20925 tokens truncated…ew ParamValueControlF(
+      "E2EAccMode", "Longitudinal Control Mode",
+      "ACC: 항상 ACC / AUTO: 평소 ACC, 신호 정지 시 E2E / E2E: 항상 E2E",
+      "../assets/img_experimental_white.svg", 0, 2, 1, 0, 0, this));
 
   list->addItem(new ParamValueControlF(
       "JerkStartLimit", "출발 저크 제한 (×0.1 m/s³)",
