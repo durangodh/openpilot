@@ -18,7 +18,6 @@ from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_ac
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.vision_turn_controller import VisionTurnController, VisionTurnControllerState
 from selfdrive.controls.lib.events import Events
-from selfdrive.controls.lib.low_speed_long import limit_cruise_speed_up_accel, read_cruise_speed_up_accel_limit
 # ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──
 from selfdrive.controls.lib.carrot_learning import CarrotLearner, read_learned_tfollow
 
@@ -103,7 +102,6 @@ class LongitudinalPlanner:
     self.my_driving_mode = 3
     self.my_driving_mode_accel = 1.0
     self.cruise_max_accel_vals = list(CRUISE_MAX_ACCEL_DEFAULTS)
-    self.cruise_speed_up_accel_limit = 0.8
 
     self.read_param()
 
@@ -169,7 +167,6 @@ class LongitudinalPlanner:
     for index in range(1, len(accel_vals)):
       accel_vals[index] = min(accel_vals[index], accel_vals[index - 1])
     self.cruise_max_accel_vals = accel_vals
-    self.cruise_speed_up_accel_limit = read_cruise_speed_up_accel_limit(self.params)
 
     self.mpc.driving_mode_tf = MY_DRIVING_MODE_TF[mode]
     gap_defaults = [110, 120, 140, 160]
@@ -332,8 +329,6 @@ class LongitudinalPlanner:
 
     cruise_max_accel = float(clip(interp(v_ego, CRUISE_MAX_ACCEL_BP, self.cruise_max_accel_vals) *
                                   self.my_driving_mode_accel, 0.0, MAX_ACCEL))
-    cruise_max_accel = limit_cruise_speed_up_accel(
-      v_ego, v_cruise, cruise_max_accel, self.cruise_speed_up_accel_limit)
     if self.mpc.mode == 'acc':
       accel_limits = [A_CRUISE_MIN, cruise_max_accel]
       accel_limits_turns = limit_accel_in_turns(v_ego, sm['carState'].steeringAngleDeg, accel_limits, self.CP)
