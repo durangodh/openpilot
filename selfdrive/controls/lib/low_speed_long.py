@@ -1,6 +1,18 @@
 LOW_SPEED_LONG_MIN_SPEED = 2.0 / 3.6   # 2 km/h
 LOW_SPEED_LONG_MAX_SPEED = 30.0 / 3.6  # stock leadless threshold
 LOW_SPEED_LONG_REQUEST_TIME = 1.0
+CRUISE_SPEED_MIN_DEFAULT = 30
+CRUISE_SPEED_MIN_LOWER = 5
+CRUISE_SPEED_MIN_UPPER = 30
+
+
+def read_cruise_speed_min(params):
+  raw = params.get("CruiseSpeedMin", encoding="utf8")
+  try:
+    value = int(raw) if raw else CRUISE_SPEED_MIN_DEFAULT
+  except (TypeError, ValueError):
+    value = CRUISE_SPEED_MIN_DEFAULT
+  return max(CRUISE_SPEED_MIN_LOWER, min(CRUISE_SPEED_MIN_UPPER, value))
 
 
 class LowSpeedLongEngage:

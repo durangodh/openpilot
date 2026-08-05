@@ -17,7 +17,6 @@ from selfdrive.controls.lib.longcontrol import LongCtrlState
 from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 
 VisualAlert = car.CarControl.HUDControl.VisualAlert
-min_set_speed = 30 * CV.KPH_TO_MS
 
 def process_hud_alert(enabled, fingerprint, hud_control):
 
@@ -242,8 +241,9 @@ class CarController:
       if self.frame % 2 == 0:
 
         set_speed = hud_control.setSpeed
+        min_set_speed = self.scc_smoother.min_set_speed_kph * CV.KPH_TO_MS
         if not (min_set_speed < set_speed < 255 * CV.KPH_TO_MS):
-          set_speed = min_set_speed
+          set_speed = max(CS.out.vEgo, min_set_speed)
         set_speed *= CV.MS_TO_MPH if CS.is_set_speed_in_mph else CV.MS_TO_KPH
 
         stopping = controls.LoC.long_control_state == LongCtrlState.stopping

@@ -1,7 +1,29 @@
-from selfdrive.controls.lib.low_speed_long import LOW_SPEED_LONG_REQUEST_TIME, LowSpeedLongEngage
+from selfdrive.controls.lib.low_speed_long import LOW_SPEED_LONG_REQUEST_TIME, LowSpeedLongEngage, read_cruise_speed_min
 
 
 DT_CTRL = 0.01
+
+
+class FakeParams:
+  def __init__(self, value):
+    self.value = value
+
+  def get(self, key, encoding=None):
+    assert key == "CruiseSpeedMin"
+    return self.value
+
+
+def test_cruise_speed_min_defaults_to_30_kph():
+  assert read_cruise_speed_min(FakeParams(None)) == 30
+
+
+def test_cruise_speed_min_accepts_configured_value():
+  assert read_cruise_speed_min(FakeParams("12")) == 12
+
+
+def test_cruise_speed_min_is_safely_clamped():
+  assert read_cruise_speed_min(FakeParams("1")) == 5
+  assert read_cruise_speed_min(FakeParams("50")) == 30
 
 
 def test_driver_set_allows_leadless_low_speed_request():

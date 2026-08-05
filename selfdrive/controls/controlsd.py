@@ -26,6 +26,7 @@ from selfdrive.controls.lib.latcontrol_indi import LatControlINDI
 from selfdrive.controls.lib.latcontrol_angle import LatControlAngle
 from selfdrive.controls.lib.events import Events, ET
 from selfdrive.controls.lib.soft_hold import SoftHoldController
+from selfdrive.controls.lib.low_speed_long import read_cruise_speed_min
 from selfdrive.controls.lib.alertmanager import AlertManager, set_offroad_alert
 from selfdrive.controls.lib.vehicle_model import VehicleModel
 from selfdrive.locationd.calibrationd import Calibration
@@ -115,6 +116,7 @@ class Controls:
 
     # read params
     self.is_metric = params.get_bool("IsMetric")
+    self.cruise_speed_min = read_cruise_speed_min(params)
     self.is_ldw_enabled = params.get_bool("IsLdwEnabled")
     openpilot_enabled_toggle = params.get_bool("OpenpilotEnabledToggle")
     passive = params.get_bool("Passive") or not openpilot_enabled_toggle
@@ -480,6 +482,9 @@ class Controls:
 
     self.v_cruise_kph_last = self.v_cruise_kph
 
+    if self.sm.frame % 100 == 0:
+      self.cruise_speed_min = read_cruise_speed_min(self.params)
+
     self.CP.pcmCruise = self.CI.CP.pcmCruise
 
     SccSmoother.update_cruise_buttons(self, CS, self.CP.openpilotLongitudinalControl)
@@ -570,7 +575,8 @@ class Controls:
             self.state = State.enabled
           self.current_alert_types.append(ET.ENABLE)
           if not self.CP.pcmCruise:
-            self.v_cruise_kph = initialize_v_cruise(CS.vEgo, CS.buttonEvents, self.v_cruise_kph_last)
+            self.v_cruise_kph = initialize_v_cruise(CS.vEgo, CS.buttonEvents, self.v_cruise_kph_last,
+                                                     self.cruise_speed_min)
             self.v_cruise_cluster_kph = self.v_cruise_kph
 
     # Check if openpilot is engaged and actuators are enabled
