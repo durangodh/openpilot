@@ -2401,6 +2401,11 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 5, 30, 1, 0, 30, this));
 
   list->addItem(new ParamValueControlF(
+      "CruiseSpeedUpAccelLimit", "설정속도 증속 가속 제한 (×0.01 m/s²)",
+      "현재속도보다 설정속도가 5km/h 이상 높을 때 적용되는 최대 가속도입니다. 값이 작을수록 부드럽게 증속합니다.",
+      "../assets/offroad/icon_road.png", 30, 150, 5, 0, 80, this));
+
+  list->addItem(new ParamValueControlF(
       "AutoResumeFromGas", "가속페달 오토리줌 모드",
       "0: 끔 / 1: 조건 충족 중 재개 / 2: 조건 충족 및 0.6초 미만 짧은 가속 후 재개",
       "../assets/offroad/icon_road.png", 0, 2, 1, 0, 1, this));
