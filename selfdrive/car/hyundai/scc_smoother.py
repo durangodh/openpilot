@@ -10,7 +10,8 @@ from common.conversions import Conversions as CV
 from selfdrive.car.hyundai.values import Buttons
 from common.params import Params
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI, CONTROL_N
-from selfdrive.controls.lib.low_speed_long import read_cruise_speed_min
+from selfdrive.controls.lib.low_speed_long import AutoResumeController, STOCK_SCC_LEADLESS_MIN_SPEED_KPH, \
+  read_cruise_speed_min
 from selfdrive.controls.lib.lateral_planner import TRAJECTORY_SIZE
 from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc
 
@@ -97,6 +98,9 @@ class SccSmoother:
     self.auto_speed_up_ratio = 0.0
     self._pause_auto_speed_up = False
     self.auto_gas_resume_guard = True
+    self.auto_resume = AutoResumeController()
+    self.auto_resume_request = False
+    self.auto_resume_set_speed_kph = 0.0
     self.carrot_atc = CarrotNaviAtc()
     self.initial_gap_applied = False
 
@@ -108,6 +112,12 @@ class SccSmoother:
     self.e2e_long = self.params.get_bool('ExperimentalMode')
     self.autoascc = self.params.get_bool('AutoAscc')
     self.auto_gas_resume_guard = self.params.get_bool('AutoGasResumeGuard')
+    self.auto_resume_from_gas = int(clip(self.params.get_int('AutoResumeFromGas'), 0, 2))
+    self.auto_resume_from_gas_speed = float(clip(self.params.get_int('AutoResumeFromGasSpeed'), 5, 60))
+    self.auto_resume_from_gas_speed_mode = int(clip(self.params.get_int('AutoResumeFromGasSpeedMode'), 0, 2))
+    self.auto_resume_from_brake_release = self.params.get_bool('AutoResumeFromBrakeRelease')
+    self.auto_resume_from_brake_speed = float(clip(self.params.get_int('AutoResumeFromBrakeCarSpeed'), 5, 60))
+    self.auto_resume_from_brake_distance = float(clip(self.params.get_int('AutoResumeFromBrakeReleaseDist'), 2, 50))
     self.min_set_speed_kph = read_cruise_speed_min(self.params)
     if hasattr(self, "speed_conv_to_clu"):
       self.min_set_speed_clu = self.kph_to_clu(self.min_set_speed_kph)
@@ -282,25 +292,43 @@ class SccSmoother:
     # driver's selection has priority.
     initial_gap_button = self.get_initial_gap_button(ascc_enabled, CS)
 
-    # Auto-resume Cruise Set Speed by JangPoo
+    # aPilot-style auto resume inputs.
     dRel = 0.
     lead = self.get_lead(controls.sm)
     if lead is not None:
       dRel = lead.dRel
 
-    # Auto-resume Cruise Set Speed by JangPoo
-    ascc_auto_set = enabled and (clu11_speed > 30 or (CS.obj_valid and dRel > 1)) \
-                    and CS.gas_pressed and CS.prev_cruiseState_speed and not CS.cruiseState_speed
+    traffic_state = controls.sm['longitudinalPlan'].trafficState
+    self.auto_resume_request, self.auto_resume_set_speed_kph = self.auto_resume.update(
+      available=enabled and self.autoascc,
+      cruise_enabled=CS.cruiseState_enabled,
+      gas_mode=self.auto_resume_from_gas,
+      gas_resume_speed_kph=self.auto_resume_from_gas_speed,
+      speed_mode=self.auto_resume_from_gas_speed_mode,
+      brake_release_enabled=self.auto_resume_from_brake_release,
+      brake_resume_speed_kph=self.auto_resume_from_brake_speed,
+      brake_lead_distance=self.auto_resume_from_brake_distance,
+      cruise_speed_min=self.min_set_speed_kph,
+      gas_pressed=CS.out.gasPressed,
+      gas=CS.out.gas,
+      brake_pressed=CS.out.brakePressed,
+      v_ego=CS.out.vEgo,
+      steering_angle_deg=CS.out.steeringAngleDeg,
+      left_blinker=CS.out.leftBlinker,
+      right_blinker=CS.out.rightBlinker,
+      traffic_state=traffic_state,
+      has_lead=lead is not None,
+      lead_distance=dRel,
+      previous_speed_kph=CS.prev_cruiseState_speed * CV.MS_TO_KPH,
+      safety_guard=self.auto_gas_resume_guard,
+      dt=DT_CTRL)
 
-    # ── carrot(_gas_pressed_count == -1) 이식 : 재개 안전조건 ────────────────
-    #   깜빡이를 켰거나 앞차가 지나치게 가까우면 자동 재개하지 않는다.
-    #   캐롯은 이 경우 크루즈를 끄지만, 이 포크는 순정 SCC 가 크루즈를 쥐고 있어
-    #   "재개하지 않음"까지만 한다.
-    if ascc_auto_set and self.auto_gas_resume_guard:
-      if CS.leftBlinker or CS.rightBlinker:
-        ascc_auto_set = False
-      elif 0 < dRel < CS.out.vEgo * 0.8:
-        ascc_auto_set = False
+    # Above the stock threshold, or without openpilot longitudinal control,
+    # keep using real CLU11 buttons. Low-speed long control is handled by the
+    # direct SCC request path in CarController.
+    stock_resume_available = (clu11_speed >= STOCK_SCC_LEADLESS_MIN_SPEED_KPH or
+                              (not self.longcontrol and CS.obj_valid and dRel > 1))
+    ascc_auto_set = self.auto_resume_request and stock_resume_available
 
     if not self.longcontrol:
       if (not ascc_enabled or CS.standstill or CS.cruise_buttons != Buttons.NONE) and not ascc_auto_set:
@@ -325,7 +353,7 @@ class SccSmoother:
         elif ascc_enabled:
           if self.autoascc:
             self.btn = self.get_button(CS.cruiseState_speed * self.speed_conv_to_clu)
-        elif ascc_auto_set and clu11_speed < 30:
+        elif ascc_auto_set and clu11_speed < STOCK_SCC_LEADLESS_MIN_SPEED_KPH:
           if self.autoascc:
             self.btn = Buttons.SET_DECEL
         else:
