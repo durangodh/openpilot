@@ -2497,7 +2497,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   for (const auto& [key, title, default_value] : gap_controls) {
     list->addItem(new ParamValueControlF(
         key, title, "해당 크루즈 GAP의 추종시간입니다 (×0.01초).",
-        "../assets/offroad/icon_openpilot.png", 70, 300, 5, 0, default_value, this));
+        "../assets/offroad/icon_openpilot.png", 70, 300, 1, 0, default_value, this));
   }
 
   list->addItem(new ParamValueControlF(
