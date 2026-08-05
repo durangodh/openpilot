@@ -486,18 +486,17 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
       panel.width() - 28,
       map_h);
 
-  // Small black box overlaid inside the map, bottom-anchored with a margin
-  // on all sides so it floats over the map surface the way Tmap's own lane
-  // guidance does — it never touches or reserves space from the footer.
+  // Large, centered lane overlay. Keep it bottom-anchored like Tmap while
+  // making the lane arrows readable at a glance.
   const int lane_overlay_margin = 10;
-  const int lane_overlay_h = 70;
-  const int lane_inner_h = lane_overlay_h - 8;
+  const int lane_overlay_h = 110;
+  const int lane_inner_h = lane_overlay_h - 12;
   const qreal lane_aspect = has_lane_image && carrot_navi_lane_image.height() > 0
       ? static_cast<qreal>(carrot_navi_lane_image.width()) / carrot_navi_lane_image.height()
       : 4.0;
   const int lane_overlay_w = std::min(
       map_rect.width() - lane_overlay_margin * 2,
-      std::max(lane_overlay_h, qRound(lane_inner_h * lane_aspect) + 12));
+      std::max(lane_overlay_h, qRound(lane_inner_h * lane_aspect) + 16));
   const QRect lane_row(
       map_rect.center().x() - lane_overlay_w / 2,
       map_rect.bottom() - lane_overlay_h - lane_overlay_margin,
@@ -777,16 +776,16 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   if (has_lane_guidance) {
     p.setPen(Qt::NoPen);
     p.setBrush(QColor(18, 26, 32, 235));
-    p.drawRoundedRect(lane_row, 12, 12);
+    p.drawRoundedRect(lane_row, 16, 16);
 
     QPainterPath lane_clip;
-    lane_clip.addRoundedRect(lane_row, 12, 12);
+    lane_clip.addRoundedRect(lane_row, 16, 16);
     p.save();
     p.setClipPath(lane_clip);
     // Keep a small inset and fit the complete Tmap capture inside the box.
     // KeepAspectRatioByExpanding cropped the outer direction arrows whenever
     // the capture and overlay aspect ratios differed.
-    const QRect lane_image_rect = lane_row.adjusted(6, 4, -6, -4);
+    const QRect lane_image_rect = lane_row.adjusted(8, 6, -8, -6);
 
     // Smooth scaling is expensive on EON. Rebuild the cache only for a new
     // source image (cache cleared in updateCarrotNavi) or a new target size.
@@ -798,10 +797,9 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
       carrot_navi_lane_scaled_width = lane_image_rect.width();
       carrot_navi_lane_scaled_height = lane_image_rect.height();
     }
-    const QPoint lane_image_pos(
-        lane_image_rect.x() + (lane_image_rect.width() - carrot_navi_lane_scaled_image.width()) / 2,
-        lane_image_rect.y() + (lane_image_rect.height() - carrot_navi_lane_scaled_image.height()) / 2);
-    p.drawPixmap(lane_image_pos, carrot_navi_lane_scaled_image);
+    QRect lane_target_rect(QPoint(0, 0), carrot_navi_lane_scaled_image.size());
+    lane_target_rect.moveCenter(lane_image_rect.center());
+    p.drawPixmap(lane_target_rect.topLeft(), carrot_navi_lane_scaled_image);
     p.restore();
   }
 
