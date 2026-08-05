@@ -8,6 +8,7 @@ from selfdrive.car.hyundai.hyundaican import create_lkas11, create_clu11, \
   create_scc11, create_scc12, create_scc13, create_scc14, \
   create_mdps12, create_lfahda_mfc, create_hda_mfc
 from selfdrive.car.hyundai.scc_smoother import SccSmoother
+from selfdrive.controls.lib.low_speed_long import LowSpeedLongEngage
 from selfdrive.car.hyundai.values import Buttons, CAR, FEATURES, CarControllerParams
 from opendbc.can.packer import CANPacker
 from common.conversions import Conversions as CV
@@ -72,6 +73,7 @@ class CarController:
     self.haptic_feedback_speed_camera = param.get_bool('HapticFeedbackWhenSpeedCamera')
 
     self.scc_smoother = SccSmoother()
+    self.low_speed_long_engage = LowSpeedLongEngage()
     self.last_blinker_frame = 0
     self.prev_active_cam = False
     self.active_cam_timer = 0
@@ -222,8 +224,20 @@ class CarController:
     # scc smoother
     self.scc_smoother.update(CC.enabled, can_sends, self.packer, CC, CS, self.frame, controls)
 
+    # Hyundai stock SCC rejects a leadless SET request below 30 km/h. When the
+    # driver explicitly presses SET/RES, briefly send the openpilot long SCC
+    # command path so ACCMode can become active without waiting for stock SCC.
+    # A leadless request is blocked below 2 km/h to prevent an unintended
+    # launch from standstill; gas-based automatic engagement remains unchanged.
+    request_pressed = CS.cruise_buttons in (Buttons.RES_ACCEL, Buttons.SET_DECEL)
+    direct_long_available = (self.longcontrol and CC.enabled and CS.out.cruiseState.available and
+                             (CS.scc_bus or not self.scc_live))
+    low_speed_engage_request = self.low_speed_long_engage.update(
+      direct_long_available, request_pressed, CS.out.brakePressed, CS.out.vEgo,
+      hud_control.leadVisible, DT_CTRL)
+
     # send scc to car if longcontrol enabled and SCC not on bus 0 or ont live
-    if self.longcontrol and CS.cruiseState_enabled and (CS.scc_bus or not self.scc_live):
+    if self.longcontrol and (CS.cruiseState_enabled or low_speed_engage_request) and (CS.scc_bus or not self.scc_live):
 
       if self.frame % 2 == 0:
 
@@ -266,10 +280,10 @@ class CarController:
 
         can_sends.append(create_scc12(self.packer, apply_accel, CC.enabled, self.scc12_cnt, self.scc_live, CS.scc12,
                                       CS.out.gasPressed, CS.out.brakePressed, CS.out.cruiseState.standstill,
-                                      self.car_fingerprint))
+                                      self.car_fingerprint, force_long=low_speed_engage_request))
 
         can_sends.append(create_scc11(self.packer, self.frame, CC.enabled, set_speed, hud_control.leadVisible, self.scc_live, CS.scc11,
-                       self.scc_smoother.active_cam, stock_cam))
+                       self.scc_smoother.active_cam, stock_cam, force_long=low_speed_engage_request))
 
         if self.frame % 20 == 0 and CS.has_scc13:
           can_sends.append(create_scc13(self.packer, CS.scc13))
