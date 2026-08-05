@@ -2483,7 +2483,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   for (const auto& [key, title, default_value] : accel_controls) {
     list->addItem(new ParamValueControlF(
         key, title, "해당 속도 구간의 최대 크루즈 가속도입니다 (×0.01m/s²).",
-        "../assets/offroad/icon_openpilot.png", 10, 250, 5, 0, default_value, this));
+        "../assets/offroad/icon_openpilot.png", 10, 250, 1, 0, default_value, this));
   }
 
   list->addItem(horizontal_line());
