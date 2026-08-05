@@ -277,7 +277,12 @@ class SccSmoother:
     road_limit_speed, left_dist, max_speed_log = self.cal_max_speed(frame, CC, CS, controls.sm, clu11_speed, controls)
 
     # kph
-    controls.applyMaxSpeed = float(clip(CS.cruiseState_speed * CV.MS_TO_KPH, self.min_set_speed_kph,
+    # With openpilot longitudinal control, v_cruise_kph is the authoritative
+    # SET/RES target. The SCC11 value can arrive several cycles later, which
+    # otherwise makes the UI lag behind the button target or jump back to the
+    # previous value while the cluster catches up.
+    cruise_set_speed_kph = controls.v_cruise_kph if self.longcontrol else CS.cruiseState_speed * CV.MS_TO_KPH
+    controls.applyMaxSpeed = float(clip(cruise_set_speed_kph, self.min_set_speed_kph,
                                                 self.max_speed_clu * self.speed_conv_to_ms * CV.MS_TO_KPH))
     CC.sccSmoother.longControl = self.longcontrol
     CC.sccSmoother.applyMaxSpeed = controls.applyMaxSpeed
@@ -523,7 +528,11 @@ class SccSmoother:
 
     if is_cruise_enabled:
       if longcontrol:
-        v_cruise_kph = CS.cruiseState.speed * CV.MS_TO_KPH
+        # Once cruise is active, own the set speed in openpilot and apply the
+        # physical RES/+ and SET/- events directly. Do not overwrite it every
+        # cycle with the delayed SCC11 VSetDis feedback.
+        v_cruise_kph = SccSmoother.update_v_cruise(controls.v_cruise_kph, CS.buttonEvents, controls.enabled,
+                                                   controls.is_metric, controls.cruise_speed_min)
       else:
         v_cruise_kph = SccSmoother.update_v_cruise(controls.v_cruise_kph, CS.buttonEvents, controls.enabled,
                                                    controls.is_metric, controls.cruise_speed_min)
