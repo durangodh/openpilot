@@ -158,6 +158,12 @@ public:
   explicit LongitudinalPanel(QWidget* parent = nullptr);
 };
 
+class CruisePanel : public QWidget {
+  Q_OBJECT
+public:
+  explicit CruisePanel(QWidget* parent = nullptr);
+};
+
 // ── AutoLaneChangeTimer Control ─────────────────────────────────
 class AutoLaneChangeTimerControl : public AbstractControl {
   Q_OBJECT
