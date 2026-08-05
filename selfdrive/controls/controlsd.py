@@ -25,6 +25,7 @@ from selfdrive.controls.lib.latcontrol_pid import LatControlPID
 from selfdrive.controls.lib.latcontrol_indi import LatControlINDI
 from selfdrive.controls.lib.latcontrol_angle import LatControlAngle
 from selfdrive.controls.lib.events import Events, ET
+from selfdrive.controls.lib.soft_hold import SoftHoldController
 from selfdrive.controls.lib.alertmanager import AlertManager, set_offroad_alert
 from selfdrive.controls.lib.vehicle_model import VehicleModel
 from selfdrive.locationd.calibrationd import Calibration
@@ -207,6 +208,8 @@ class Controls:
 
     # AutoLaneChangeTimer 파라미터 접근용
     self.params = Params()
+    self.soft_hold = SoftHoldController()
+    self.soft_hold_enabled = self.params.get_bool("SoftHoldMode")
 
     # TODO: no longer necessary, aside from process replay
     self.sm['liveParameters'].valid = True
@@ -594,6 +597,15 @@ class Controls:
     lat_plan = self.sm['lateralPlan']
     long_plan = self.sm['longitudinalPlan']
 
+    if self.sm.frame % 100 == 0:
+      self.soft_hold_enabled = self.params.get_bool("SoftHoldMode")
+    resume_pressed = any(b.pressed and b.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
+                         for b in CS.buttonEvents)
+    soft_hold_available = (self.soft_hold_enabled and self.CP.openpilotLongitudinalControl and
+                           self.active and (CS.cruiseState.enabledAcc or self.soft_hold.active))
+    soft_hold_active = self.soft_hold.update(soft_hold_available, CS.brakePressed, CS.gasPressed,
+                                             CS.vEgo, resume_pressed, DT_CTRL)
+
     CC = car.CarControl.new_message()
     CC.enabled = self.enabled
     # Check which actuators can be enabled
@@ -614,15 +626,16 @@ class Controls:
     if not CC.longActive:
       self.LoC.reset(v_pid=CS.vEgo)
 
-    if not CS.cruiseState.enabledAcc:
+    if not CS.cruiseState.enabledAcc and not soft_hold_active:
       self.LoC.reset(v_pid=CS.vEgo)
 
     if not self.joystick_mode:
       # accel PID loop
       pid_accel_limits = self.CI.get_pid_accel_limits(self.CP, CS.vEgo, self.v_cruise_kph * CV.KPH_TO_MS)
       t_since_plan = (self.sm.frame - self.sm.rcv_frame['longitudinalPlan']) * DT_CTRL
-      actuators.accel = self.LoC.update(CC.longActive and CS.cruiseState.enabledAcc, CS, long_plan, pid_accel_limits, t_since_plan,
-                                        self.sm['radarState'])
+      actuators.accel = self.LoC.update(CC.longActive and (CS.cruiseState.enabledAcc or soft_hold_active),
+                                        CS, long_plan, pid_accel_limits, t_since_plan,
+                                        self.sm['radarState'], soft_hold_active)
 
       # Steering PID loop and lateral MPC
       self.desired_curvature, self.desired_curvature_rate = get_lag_adjusted_curvature(self.CP, CS.vEgo,
@@ -713,9 +726,11 @@ class Controls:
 
     speeds = self.sm['longitudinalPlan'].speeds
     if len(speeds):
-      CC.cruiseControl.resume = self.enabled and CS.cruiseState.standstill and speeds[-1] > 0.1
+      CC.cruiseControl.resume = (self.enabled and not self.soft_hold.active and
+                                 CS.cruiseState.standstill and speeds[-1] > 0.1)
 
     hudControl = CC.hudControl
+    hudControl.softHold = self.soft_hold.active
     hudControl.setSpeed = float(self.v_cruise_cluster_kph * CV.KPH_TO_MS)
     hudControl.speedVisible = self.enabled
     hudControl.lanesVisible = self.enabled

@@ -2395,6 +2395,11 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "ACC: 항상 ACC / AUTO: 평소 ACC, 신호 정지 시 E2E / E2E: 항상 E2E",
       "../assets/img_experimental_white.svg", 0, 2, 1, 0, 0, this));
 
+  list->addItem(new ParamControl(
+      "SoftHoldMode", "소프트홀드",
+      "브레이크를 밟고 완전히 정지하면 정차 제동을 유지합니다. 앞차나 녹색 신호만으로는 출발하지 않으며 RES/+ 또는 가속페달로 해제합니다.",
+      "../assets/offroad/icon_road.png", this));
+
   list->addItem(new ParamValueControlF(
       "StartAccelApply", "Start Acceleration",
       "정지 후 출발 가속도입니다. 표시값에 0.02m/s²를 곱해 적용합니다.",

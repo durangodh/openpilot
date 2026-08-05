@@ -86,6 +86,8 @@ def manager_init() -> None:
     ("HumanFollowing", "0"),
     ("TurnVisionControl", "0"),
     ("VisionCurveLaneless", "0"),
+    ("StopAccelApply", "30"),
+    ("SoftHoldMode", "1"),
   ]
   if not PC:
     default_params.append(("LastUpdateTime", datetime.datetime.utcnow().isoformat().encode('utf8')))
