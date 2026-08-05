@@ -373,14 +373,15 @@ ParamValueControlF::ParamValueControlF(const QString &param, const QString &titl
 
   const QString btn_style = R"(
     QPushButton {
-      font-size: 40px;
+      font-size: 48px;
       font-weight: bold;
-      border-radius: 10px;
+      border-radius: 14px;
       background-color: #393939;
       color: #ffffff;
-      min-width: 80px;
-      max-width: 80px;
-      min-height: 70px;
+      min-width: 150px;
+      max-width: 150px;
+      min-height: 100px;
+      max-height: 100px;
     }
     QPushButton:pressed { background-color: #4a4a4a; }
   )";
@@ -449,14 +450,15 @@ NtuneValueControl::NtuneValueControl(const QString &group, const QString &key,
 
   const QString btn_style = R"(
     QPushButton {
-      font-size: 40px;
+      font-size: 48px;
       font-weight: bold;
-      border-radius: 10px;
+      border-radius: 14px;
       background-color: #393939;
       color: #ffffff;
-      min-width: 80px;
-      max-width: 80px;
-      min-height: 70px;
+      min-width: 150px;
+      max-width: 150px;
+      min-height: 100px;
+      max-height: 100px;
     }
     QPushButton:pressed { background-color: #4a4a4a; }
   )";
