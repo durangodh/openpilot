@@ -281,7 +281,7 @@ static bool carrotAtcTypeIn(int type, std::initializer_list<int> types) {
   return std::find(types.begin(), types.end(), type) != types.end();
 }
 
-static CarrotAtcKind carrotAtcKind(int type, const QString &text, int *direction) {
+[[maybe_unused]] static CarrotAtcKind carrotAtcKind(int type, const QString &text, int *direction) {
   *direction = 0;
   if (carrotAtcTypeIn(type, {12, 16})) {
     *direction = -1;
