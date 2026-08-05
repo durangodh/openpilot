@@ -1234,7 +1234,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     const std::array<float, 4> pressures = {
       tpms.getFl(), tpms.getFr(), tpms.getRl(), tpms.getRr()
     };
-    ctRect(p, ds_box, CT_BLACK_A(110), 15, 2, CT_WHITE_A(170));
+    ctRect(p, ds_box, CT_BLACK_A(220), 15, 2, CT_WHITE_A(170));
 
     // Front-left / front-right on top, rear-left / rear-right on bottom.
     p.save();
