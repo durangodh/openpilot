@@ -117,6 +117,8 @@ protected:
   int  my_driving_mode = 3;
   int  show_device_state = 0;
   int  carrot_atc_mode = 0;
+  int  carrot_atc_speed = 30;
+  int  carrot_atc_end_time = 6;
   int  show_datetime = 1;
   int  show_gear_animation = 1;
   int  show_atc_animation = 1;
@@ -197,4 +199,3 @@ private slots:
   void offroadTransition(bool offroad);
   void updateState(const UIState &s);
 };
-
