@@ -224,7 +224,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"HumanFollowing", PERSISTENT},
     {"MyDrivingMode", PERSISTENT},             // 주행모드 1:ECO 2:SAFE 3:NORM 4:FAST
     {"ShowGearAnimation", PERSISTENT},
-    {"ShowAtcAnimation", PERSISTENT},
     {"ShowCarrotHud", PERSISTENT},              // 1=좌측 carrot HUD 박스 표시, 0=숨김
     {"CustomSteerRatio", PERSISTENT},          // 고정 조향비 x100
     {"UseLiveSteerRatio", PERSISTENT},         // 1=liveParameters 학습 조향비 사용
