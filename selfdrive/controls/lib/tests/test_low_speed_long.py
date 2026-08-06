@@ -11,6 +11,7 @@ def update_auto_resume(controller, **overrides):
     cruise_enabled=False,
     gas_mode=1,
     gas_resume_speed_kph=30,
+    gas_cancel_speed_kph=30,
     speed_mode=0,
     brake_release_enabled=False,
     brake_resume_speed_kph=30,
@@ -190,4 +191,23 @@ def test_auto_resume_request_expires():
   assert requested
   for _ in range(int(AUTO_RESUME_REQUEST_TIME / DT_CTRL)):
     requested, _ = update_auto_resume(resume, gas_mode=0)
+  assert not requested
+
+
+def test_quick_gas_release_uses_carrot_point_four_second_window():
+  resume = AutoResumeController()
+  for _ in range(39):
+    update_auto_resume(resume, gas_mode=2, gas_pressed=True, gas=0.2,
+                       v_ego=35 / 3.6)
+  requested, _ = update_auto_resume(resume, gas_mode=2, gas_pressed=False,
+                                    v_ego=35 / 3.6)
+  assert requested
+
+
+def test_quick_gas_release_below_cancel_speed_is_blocked():
+  resume = AutoResumeController()
+  update_auto_resume(resume, gas_mode=2, gas_pressed=True, gas=0.2,
+                     gas_cancel_speed_kph=30, v_ego=20 / 3.6)
+  requested, _ = update_auto_resume(resume, gas_mode=2, gas_pressed=False,
+                                    gas_cancel_speed_kph=30, v_ego=20 / 3.6)
   assert not requested
