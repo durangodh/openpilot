@@ -8,7 +8,8 @@ CRUISE_SPEED_MIN_UPPER = 30
 AUTO_RESUME_REQUEST_TIME = 1.0
 AUTO_RESUME_MAX_STEERING_ANGLE_DEG = 20.0
 AUTO_RESUME_STRONG_GAS = 0.6
-AUTO_RESUME_QUICK_GAS_TIME = 0.6
+# carrot-wip uses a 0.4 second gas-tap window in cruise.py.
+AUTO_RESUME_QUICK_GAS_TIME = 0.4
 AUTO_RESUME_MAX_SPEED_KPH = 161.0
 
 
@@ -77,6 +78,7 @@ class AutoResumeController:
     return current
 
   def update(self, available, cruise_enabled, gas_mode, gas_resume_speed_kph,
+             gas_cancel_speed_kph,
              speed_mode, brake_release_enabled, brake_resume_speed_kph,
              brake_lead_distance, cruise_speed_min, gas_pressed, gas,
              brake_pressed, v_ego, steering_angle_deg, left_blinker,
@@ -104,7 +106,8 @@ class AutoResumeController:
     if can_resume and gas_mode > 0:
       gas_trigger = gas_pressed and (v_ego_kph >= gas_resume_speed_kph or strong_gas)
       quick_release = (gas_mode > 1 and gas_released and previous_max_gas > 0.03 and
-                       previous_gas_time < AUTO_RESUME_QUICK_GAS_TIME)
+                       previous_gas_time < AUTO_RESUME_QUICK_GAS_TIME and
+                       v_ego_kph >= gas_cancel_speed_kph)
       gas_trigger = gas_trigger or quick_release
 
     brake_trigger = False
