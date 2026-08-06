@@ -134,6 +134,7 @@ protected:
   int carrot_navi_remain_distance = -1;
   int carrot_navi_remain_time = -1;
   int carrot_navi_speed_limit = 0;
+  QString carrot_navi_safety_description;
   QVector<int> carrot_navi_lane_types;
   QVector<int> carrot_navi_lane_active;
   bool carrot_navi_lanes_ahead = false;

@@ -245,11 +245,12 @@ void NvgWindow::updateCarrotNavi() {
     carrot_navi_route = next;
   }
 
-  // ---- speed 스트림: 도로 제한속도 (내비 중 LIMIT 폴백용) ----
+  // ---- speed 스트림: 기준 브랜치의 제한속도와 SDI 안전안내 ----
   carrot_navi_speed_limit = 0;
+  carrot_navi_safety_description.clear();
   const QJsonObject speed = root.value("speed").toObject();
   if (!speed.isEmpty()) {
-    // 서버 키 형식(snake/camel) 불확실 → 후보 키 순차 시도 (도로 제한속도 우선)
+    // nMirror/Tmap 버전별 snake_case/camelCase 키를 모두 허용한다.
     static const char *limit_keys[] = {
       "road_limit_kph", "limit_speed", "roadLimitKph",
       "section_speed_limit_kph", "sectionSpeedLimitKph",
@@ -259,6 +260,17 @@ void NvgWindow::updateCarrotNavi() {
       if (speed.contains(k)) {
         const int v = speed.value(k).toInt();
         if (v > 0 && v <= 150) { carrot_navi_speed_limit = v; break; }
+      }
+    }
+    static const char *description_keys[] = {
+      "sdi_description", "sdiDescription", "sdi_descr", "sdiDescr",
+      "safety_description", "safetyDescription",
+      "camera_description", "cameraDescription", "description"
+    };
+    for (const char *k : description_keys) {
+      if (speed.contains(k)) {
+        const QString value = speed.value(k).toString().trimmed();
+        if (!value.isEmpty()) { carrot_navi_safety_description = value; break; }
       }
     }
   }
@@ -430,7 +442,19 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
                           wall_now - static_cast<qint64>(carrot_navi_updated_at) <= 35000;
   const bool route_active = carrot_navi_remain_distance > 0 &&
                             carrot_navi_remain_time > 0;
-  if (!navi_fresh || !route_active) return;
+
+  // c3-wip DISPLAY state equivalent for EON. The target branch has no
+  // carrotMan DISPLAY message, so preserve the same 0.2 s MAP entry and
+  // 5 s ROAD return timing with the available ATC guidance state.
+  static bool carrot_map_mode = false;
+  static qint64 carrot_map_enter_since = 0;
+  static qint64 carrot_map_exit_since = 0;
+  if (!navi_fresh || !route_active) {
+    carrot_map_mode = false;
+    carrot_map_enter_since = 0;
+    carrot_map_exit_since = 0;
+    return;
+  }
 
   p.save();
   p.setRenderHint(QPainter::Antialiasing);
@@ -459,11 +483,39 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
                              atc_fresh && carrot_navi_distance >= 0 &&
                              atc_kind != CarrotAtcKind::NONE;
 
+  // Match c3-wip's AutoTurnMapChange thresholds. Normal turns and forks use
+  // a road-speed-dependent 160-350 m start distance; U-turn uses 1000 m.
+  const qreal map_speed = std::clamp<qreal>(
+      carrot_navi_speed_limit > 0 ? carrot_navi_speed_limit : 50, 30.0, 100.0);
+  qreal atc_map_start_distance = map_speed <= 50.0
+      ? 160.0 + (map_speed - 30.0) * 2.0
+      : 200.0 + (map_speed - 50.0) * 3.0;
+  if (atc_kind == CarrotAtcKind::UTURN) atc_map_start_distance = 1000.0;
+
+  const bool atc_map_request = atc_available &&
+                               carrot_navi_distance <= atc_map_start_distance;
+  if (atc_map_request) {
+    carrot_map_exit_since = 0;
+    if (carrot_map_enter_since == 0) carrot_map_enter_since = wall_now;
+    if (wall_now - carrot_map_enter_since >= 200) carrot_map_mode = true;
+  } else {
+    carrot_map_enter_since = 0;
+    if (carrot_map_mode) {
+      if (carrot_map_exit_since == 0) carrot_map_exit_since = wall_now;
+      if (wall_now - carrot_map_exit_since >= 5000) {
+        carrot_map_mode = false;
+        carrot_map_exit_since = 0;
+      }
+    } else {
+      carrot_map_exit_since = 0;
+    }
+  }
+
   // Do not draw a separate navigation/ATC lane arrow in the road center.
   // Guidance remains contained in the bottom-right information box.
 
-  // The compact information box is always drawn first. A fresh map frame is
-  // drawn over it later, matching c3-wip's persistent-box/map-overlay order.
+  // The compact c3-wip information box remains visible for the whole route.
+  // MAP mode only adds the equally wide map panel above this box.
   p.setPen(QPen(QColor(255, 255, 255, 220), std::max(1, qRound(2 * ui_scale))));
   p.setBrush(QColor(0, 0, 0, 150));
   p.drawRoundedRect(compact_box, qRound(30 * ui_scale), qRound(30 * ui_scale));
@@ -553,19 +605,32 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
              Qt::AlignLeft | Qt::AlignVCenter,
              remain_text.isEmpty() ? QString("--") : remain_text);
 
-  QString road_text = carrot_navi_road;
+  QString road_text = carrot_navi_safety_description;
+  const bool has_safety_description = !road_text.isEmpty();
+  if (road_text.isEmpty()) road_text = carrot_navi_road;
   if (road_text.isEmpty()) road_text = carrot_navi_next_instruction;
   configFont(p, "Open Sans", std::max(18, qRound(34 * ui_scale)), "Bold");
+  const QRect road_box(info_x, compact_box.y() + qRound(194 * ui_scale),
+                       info_w, qRound(55 * ui_scale));
+  const QString visible_road_text =
+      QFontMetrics(p.font()).elidedText(road_text, Qt::ElideRight, info_w - qRound(16 * ui_scale));
+  if (has_safety_description && !visible_road_text.isEmpty()) {
+    const int pill_w = std::min(
+        info_w, QFontMetrics(p.font()).horizontalAdvance(visible_road_text) +
+                    qRound(20 * ui_scale));
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0, 120, 55, 230));
+    p.drawRoundedRect(QRect(road_box.x(), road_box.y() + qRound(4 * ui_scale),
+                            pill_w, road_box.height() - qRound(8 * ui_scale)),
+                      qRound(10 * ui_scale), qRound(10 * ui_scale));
+  }
   p.setPen(Qt::white);
-  p.drawText(QRect(info_x, compact_box.y() + qRound(194 * ui_scale),
-                   info_w, qRound(55 * ui_scale)),
-             Qt::AlignLeft | Qt::AlignVCenter,
-             QFontMetrics(p.font()).elidedText(road_text, Qt::ElideRight, info_w));
+  p.drawText(road_box.adjusted(qRound(8 * ui_scale), 0, 0, 0),
+             Qt::AlignLeft | Qt::AlignVCenter, visible_road_text);
 
-  // g_autoturn does not receive c3-wip's DISPLAY MAP state. The Tmap JPEG is
-  // therefore the authoritative equivalent: poll at 5 Hz, show immediately
-  // when a new frame arrives, and uncover the compact box 2.5 s after updates
-  // stop. No header, footer, ETA strip, or lane-image layer is drawn here.
+  // Poll the EON Tmap JPEG at 5 Hz. DISPLAY timing is controlled above by the
+  // c3-wip-compatible ATC MAP/ROAD state; image freshness only verifies that
+  // a usable map frame exists. No header, footer, or lane-image layer is drawn.
   static const QString map_path = "/dev/shm/carrot_navi_map.jpg";
   static QPixmap map_pixmap;
   static uint64_t map_checked_at = 0;
@@ -594,7 +659,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
 
   const qint64 map_age = wall_now - map_modified_at;
   const bool map_fresh = !map_pixmap.isNull() && map_age >= 0 && map_age <= 2500;
-  if (map_fresh) {
+  if (carrot_map_mode && map_fresh) {
     const int map_top = qRound(5 * ui_scale);
     const int map_gap = qRound(10 * ui_scale);
     const int map_h = compact_box.top() - map_gap - map_top;
