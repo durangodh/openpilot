@@ -276,11 +276,6 @@ void NvgWindow::initializeGL() {
   ic_nda = QPixmap("../assets/images/img_nda.png");
   ic_hda = QPixmap("../assets/images/img_hda.png");
   ic_tire_pressure = QPixmap("../assets/images/img_tire_pressure.png");
-  ic_turn_l = QPixmap("../assets/images/turn_l.png");
-  ic_turn_r = QPixmap("../assets/images/turn_r.png");
-  ic_lane_change_l = QPixmap("../assets/images/lane_change_l.png");
-  ic_lane_change_r = QPixmap("../assets/images/lane_change_r.png");
-
   ic_speed_bg = QPixmap("../assets/images/speed_bg.png");
 }
 
