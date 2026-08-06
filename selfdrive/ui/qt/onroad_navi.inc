@@ -465,7 +465,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const qreal ui_scale = std::min(width() / 1920.0, height() / 1080.0);
   const int right_margin = qRound(10 * ui_scale);
   const int bottom_margin = qRound(5 * ui_scale);
-  const int panel_w = qRound(620 * ui_scale);
+  const int panel_w = qRound(500 * ui_scale);
   const int compact_h = qRound(320 * ui_scale);
   const QRect compact_box(width() - right_margin - panel_w,
                           height() - bottom_margin - compact_h,
@@ -523,32 +523,32 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   QString title = carrot_navi_instruction;
   if (title.isEmpty()) title = carrot_navi_road;
   if (title.isEmpty()) title = QString::fromUtf8("경로 안내");
-  configFont(p, "Open Sans", std::max(20, qRound(36 * ui_scale)), "Bold");
+  configFont(p, "Open Sans", std::max(18, qRound(30 * ui_scale)), "Bold");
   p.setPen(Qt::white);
-  p.drawText(QRect(compact_box.x() + qRound(18 * ui_scale),
+  p.drawText(QRect(compact_box.x() + qRound(14 * ui_scale),
                    compact_box.y() + qRound(4 * ui_scale),
-                   compact_box.width() - qRound(36 * ui_scale),
+                   compact_box.width() - qRound(28 * ui_scale),
                    qRound(52 * ui_scale)),
              Qt::AlignLeft | Qt::AlignVCenter,
              QFontMetrics(p.font()).elidedText(
-                 title, Qt::ElideRight, compact_box.width() - qRound(36 * ui_scale)));
+                 title, Qt::ElideRight, compact_box.width() - qRound(28 * ui_scale)));
 
-  const int turn_center_x = compact_box.x() + qRound(88 * ui_scale);
+  const int turn_center_x = compact_box.x() + qRound(70 * ui_scale);
   const int turn_center_y = compact_box.y() + qRound(166 * ui_scale);
-  const QRect turn_card(turn_center_x - qRound(70 * ui_scale),
+  const QRect turn_card(turn_center_x - qRound(56 * ui_scale),
                         turn_center_y - qRound(102 * ui_scale),
-                        qRound(140 * ui_scale), qRound(245 * ui_scale));
+                        qRound(112 * ui_scale), qRound(245 * ui_scale));
   const bool atc_prepare = atc_available && carrot_navi_distance > 350;
   const QColor turn_fill = atc_available
       ? (atc_prepare ? QColor(0, 170, 80, 115) : QColor(0, 170, 80, 235))
       : QColor(20, 95, 60, 150);
   p.setPen(QPen(QColor(0, 0, 0, 220), std::max(1, qRound(ui_scale))));
   p.setBrush(turn_fill);
-  p.drawRoundedRect(turn_card, qRound(15 * ui_scale), qRound(15 * ui_scale));
+  p.drawRoundedRect(turn_card, qRound(12 * ui_scale), qRound(12 * ui_scale));
 
-  const int turn_icon_size = qRound(132 * ui_scale);
+  const int turn_icon_size = qRound(106 * ui_scale);
   const QRect turn_icon(turn_center_x - turn_icon_size / 2,
-                        turn_center_y - qRound(86 * ui_scale),
+                        turn_center_y - qRound(73 * ui_scale),
                         turn_icon_size, turn_icon_size);
   // Match c3-wip: use its original 256x256 PNG artwork for turns,
   // forks/lane changes, and U-turns. Keep vector rendering only as a fallback
@@ -582,29 +582,29 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
     p.drawText(turn_icon, Qt::AlignCenter, QString::fromUtf8("안내"));
   }
 
-  configFont(p, "Open Sans", std::max(19, qRound(36 * ui_scale)), "Bold");
+  configFont(p, "Open Sans", std::max(18, qRound(30 * ui_scale)), "Bold");
   p.setPen(Qt::white);
   const QString turn_distance = carrotDistanceText(carrot_navi_distance);
   p.drawText(QRect(turn_card.x(), turn_card.bottom() - qRound(52 * ui_scale),
                    turn_card.width(), qRound(46 * ui_scale)),
              Qt::AlignCenter, turn_distance.isEmpty() ? QString("--") : turn_distance);
 
-  const int info_x = compact_box.x() + qRound(170 * ui_scale);
-  const int info_w = compact_box.right() - info_x - qRound(18 * ui_scale);
+  const int info_x = compact_box.x() + qRound(136 * ui_scale);
+  const int info_w = compact_box.right() - info_x - qRound(14 * ui_scale);
   const QDateTime eta = QDateTime::currentDateTime().addSecs(carrot_navi_remain_time);
   const QString eta_text = QString("ETA: %1MIN(%2)")
       .arg(carrot_navi_remain_time / 60.0, 0, 'f', 1)
       .arg(eta.toString("HH:mm"));
-  configFont(p, "Open Sans", std::max(22, qRound(42 * ui_scale)), "Bold");
+  configFont(p, "Open Sans", std::max(20, qRound(34 * ui_scale)), "Bold");
   p.setPen(Qt::white);
   p.drawText(QRect(info_x, compact_box.y() + qRound(82 * ui_scale),
                    info_w, qRound(55 * ui_scale)),
              Qt::AlignLeft | Qt::AlignVCenter, eta_text);
 
   const QString remain_text = carrotDistanceText(carrot_navi_remain_distance);
-  p.drawText(QRect(info_x + qRound(100 * ui_scale),
+  p.drawText(QRect(info_x + qRound(80 * ui_scale),
                    compact_box.y() + qRound(145 * ui_scale),
-                   info_w - qRound(100 * ui_scale), qRound(55 * ui_scale)),
+                   info_w - qRound(80 * ui_scale), qRound(55 * ui_scale)),
              Qt::AlignLeft | Qt::AlignVCenter,
              remain_text.isEmpty() ? QString("--") : remain_text);
 
@@ -612,15 +612,15 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const bool has_safety_description = !road_text.isEmpty();
   if (road_text.isEmpty()) road_text = carrot_navi_road;
   if (road_text.isEmpty()) road_text = carrot_navi_next_instruction;
-  configFont(p, "Open Sans", std::max(18, qRound(34 * ui_scale)), "Bold");
+  configFont(p, "Open Sans", std::max(17, qRound(28 * ui_scale)), "Bold");
   const QRect road_box(info_x, compact_box.y() + qRound(230 * ui_scale),
                        info_w, qRound(55 * ui_scale));
   const QString visible_road_text =
-      QFontMetrics(p.font()).elidedText(road_text, Qt::ElideRight, info_w - qRound(16 * ui_scale));
+      QFontMetrics(p.font()).elidedText(road_text, Qt::ElideRight, info_w - qRound(13 * ui_scale));
   if (has_safety_description && !visible_road_text.isEmpty()) {
     const int pill_w = std::min(
         info_w, QFontMetrics(p.font()).horizontalAdvance(visible_road_text) +
-                    qRound(20 * ui_scale));
+                    qRound(16 * ui_scale));
     p.setPen(Qt::NoPen);
     p.setBrush(QColor(0, 120, 55, 230));
     p.drawRoundedRect(QRect(road_box.x(), road_box.y() + qRound(4 * ui_scale),
@@ -628,7 +628,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
                       qRound(10 * ui_scale), qRound(10 * ui_scale));
   }
   p.setPen(Qt::white);
-  p.drawText(road_box.adjusted(qRound(8 * ui_scale), 0, 0, 0),
+  p.drawText(road_box.adjusted(qRound(6 * ui_scale), 0, 0, 0),
              Qt::AlignLeft | Qt::AlignVCenter, visible_road_text);
 
   // Poll and decode the EON Tmap JPEG at 5 Hz only while MAP mode is visible.
