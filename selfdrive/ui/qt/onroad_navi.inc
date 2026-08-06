@@ -460,12 +460,12 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   p.setRenderHint(QPainter::Antialiasing);
   p.setRenderHint(QPainter::TextAntialiasing);
 
-  // Use the former right-side map width for both panels. Keep the compact
-  // guidance box above the bottom lane-width/debug strip.
+  // Keep the guidance box tight to the bottom-right edge and narrow enough
+  // to leave the centered lane-width/debug strip unobstructed.
   const qreal ui_scale = std::min(width() / 1920.0, height() / 1080.0);
   const int right_margin = qRound(10 * ui_scale);
-  const int bottom_margin = qRound(70 * ui_scale);
-  const int panel_w = qRound(700 * ui_scale);
+  const int bottom_margin = qRound(5 * ui_scale);
+  const int panel_w = qRound(620 * ui_scale);
   const int compact_h = qRound(280 * ui_scale);
   const QRect compact_box(width() - right_margin - panel_w,
                           height() - bottom_margin - compact_h,
@@ -664,7 +664,9 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const qint64 map_age = wall_now - map_modified_at;
   const bool map_fresh = !map_pixmap.isNull() && map_age >= 0 && map_age <= 2500;
   if (carrot_map_mode && map_fresh) {
-    const int map_top = qRound(5 * ui_scale);
+    // The top status line occupies y=12..60. Start the map below it with a
+    // visible gap so it never covers the live torque/steer-ratio values.
+    const int map_top = qRound(80 * ui_scale);
     const int map_gap = qRound(10 * ui_scale);
     const int map_h = compact_box.top() - map_gap - map_top;
     const QRect map_panel(compact_box.x(), map_top, compact_box.width(),
