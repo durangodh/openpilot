@@ -88,7 +88,7 @@ class LongControl:
     schema_upper = CP.longitudinalActuatorDelayUpperBound
     self.actuator_delay_lower = float(clip(schema_lower if schema_lower > 0.0 else delay - 0.1, 0.1, 0.99))
     self.actuator_delay_upper = float(clip(schema_upper if schema_upper > 0.0 else delay + 0.1,
-                                           self.actuator_delay_lower + 0.01, 1.0))
+                                           self.actuator_delay_lower, 1.0))
     self._update_actuator_delays()
 
   def _update_start_accel(self):
@@ -117,9 +117,9 @@ class LongControl:
     if lower > 0.0:
       self.actuator_delay_lower = float(clip(lower, 0.1, 0.99))
     if upper > 0.0:
-      self.actuator_delay_upper = float(clip(upper, self.actuator_delay_lower + 0.01, 1.0))
-    elif self.actuator_delay_upper <= self.actuator_delay_lower:
-      self.actuator_delay_upper = min(1.0, self.actuator_delay_lower + 0.05)
+      self.actuator_delay_upper = float(clip(upper, self.actuator_delay_lower, 1.0))
+    elif self.actuator_delay_upper < self.actuator_delay_lower:
+      self.actuator_delay_upper = self.actuator_delay_lower
 
   def reset(self, v_pid=0.0):
     self.pid.reset()
