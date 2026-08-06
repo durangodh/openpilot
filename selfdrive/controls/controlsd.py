@@ -56,6 +56,7 @@ LaneChangeDirection = log.LateralPlan.LaneChangeDirection
 EventName = car.CarEvent.EventName
 ButtonEvent = car.CarState.ButtonEvent
 ButtonType = car.CarState.ButtonEvent.Type
+GearShifter = car.CarState.GearShifter
 SafetyModel = car.CarParams.SafetyModel
 
 IGNORED_SAFETY_MODES = (SafetyModel.silent, SafetyModel.noOutput)
@@ -336,615 +337,128 @@ class Controls:
       # All pandas must match the list of safetyConfigs, and if outside this list, must be silent or noOutput
       if i < len(self.CP.safetyConfigs):
         safety_mismatch = pandaState.safetyModel != self.CP.safetyConfigs[i].safetyModel or \
-                          pandaState.safetyParam != self.CP.safetyConfigs[i].safetyParam or \
-                          pandaState.alternativeExperience != self.CP.alternativeExperience
-      else:
-        safety_mismatch = pandaState.safetyModel not in IGNORED_SAFETY_MODES
-
-      if safety_mismatch or self.mismatch_counter >= 200:
-        self.events.add(EventName.controlsMismatch)
-
-      if log.PandaState.FaultType.relayMalfunction in pandaState.faults:
-        self.events.add(EventName.relayMalfunction)
-
-    # Check for HW or system issues
-    if len(self.sm['radarState'].radarErrors):
-      self.events.add(EventName.radarFault)
-    elif not self.sm.valid["pandaStates"]:
-      self.events.add(EventName.usbError)
-    elif not self.sm.all_checks() or self.can_rcv_error:
-
-      if not self.sm.all_alive():
-        self.events.add(EventName.commIssue)
-      elif not self.sm.all_freq_ok():
-        self.events.add(EventName.commIssueAvgFreq)
-      else:  # invalid or can_rcv_error.
-        self.events.add(EventName.commIssue)
-
-      if not self.logged_comm_issue:
-        invalid = [s for s, valid in self.sm.valid.items() if not valid]
-        not_alive = [s for s, alive in self.sm.alive.items() if not alive]
-        not_freq_ok = [s for s, freq_ok in self.sm.freq_ok.items() if not freq_ok]
-        cloudlog.event("commIssue", invalid=invalid, not_alive=not_alive, not_freq_ok=not_freq_ok, can_error=self.can_rcv_error, error=True)
-        self.logged_comm_issue = True
-    else:
-      self.logged_comm_issue = False
-
-    if not self.sm['liveParameters'].valid:
-      self.events.add(EventName.vehicleModelInvalid)
-    if not self.sm['lateralPlan'].mpcSolutionValid and not (EventName.turningIndicatorOn in self.events.names):
-      self.events.add(EventName.plannerError)
-    if not (self.sm['liveParameters'].sensorValid or self.sm['liveLocationKalman'].sensorsOK) and not NOSENSOR:
-      if self.sm.frame > 5 / DT_CTRL:  # Give locationd some time to receive all the inputs
-        self.events.add(EventName.sensorDataInvalid)
-    if not self.sm['liveLocationKalman'].posenetOK:
-      self.events.add(EventName.posenetInvalid)
-    if not self.sm['liveLocationKalman'].deviceStable:
-      self.events.add(EventName.deviceFalling)
-
-    if not REPLAY:
-      # Check for mismatch between openpilot and car's PCM
-      cruise_mismatch = CS.cruiseState.enabledAcc and (not self.enabled or not self.CP.pcmCruise)
-      self.cruise_mismatch_counter = self.cruise_mismatch_counter + 1 if cruise_mismatch else 0
-      if self.cruise_mismatch_counter > int(3. / DT_CTRL):
-        self.events.add(EventName.cruiseMismatch)
-
-    # Check for FCW
-    stock_long_is_braking = self.enabled and not self.CP.openpilotLongitudinalControl and CS.aEgo < -1.25
-    model_fcw = self.sm['modelV2'].meta.hardBrakePredicted and not CS.brakePressed and not stock_long_is_braking
-    planner_fcw = self.sm['longitudinalPlan'].fcw and self.enabled
-    if not self.disable_op_fcw and (planner_fcw or model_fcw):
-      self.events.add(EventName.fcw)
-
-    if TICI:
-      for m in messaging.drain_sock(self.log_sock, wait_for_one=False):
-        try:
-          msg = m.androidLog.message
-          if any(err in msg for err in ("ERROR_CRC", "ERROR_ECC", "ERROR_STREAM_UNDERFLOW", "APPLY FAILED")):
-            csid = msg.split("CSID:")[-1].split(" ")[0]
-            evt = CSID_MAP.get(csid, None)
-            if evt is not None:
-              self.events.add(evt)
-        except UnicodeDecodeError:
-          pass
-
-    # TODO: fix simulator
-    if not SIMULATION:
-      #if not NOSENSOR:
-      #  if not self.sm['liveLocationKalman'].gpsOK and (self.distance_traveled > 1000):
-      #    # Not show in first 1 km to allow for driving out of garage. This event shows after 5 minutes
-      #    self.events.add(EventName.noGps)
-      if not self.sm.all_alive(self.camera_packets):
-        self.events.add(EventName.cameraMalfunction)
-      elif not self.sm.all_freq_ok(self.camera_packets):
-        self.events.add(EventName.cameraFrameRate)
-
-      if self.sm['modelV2'].frameDropPerc > 20:
-        self.events.add(EventName.modeldLagging)
-      if self.sm['liveLocationKalman'].excessiveResets:
-        self.events.add(EventName.localizerMalfunction)
-
-      # Check if all manager processes are running
-      not_running = {p.name for p in self.sm['managerState'].processes if not p.running}
-      if self.sm.rcv_frame['managerState'] and (not_running - IGNORE_PROCESSES):
-        self.events.add(EventName.processNotRunning)
-
-    # Only allow engagement with brake pressed when stopped behind another stopped car
-    speeds = self.sm['longitudinalPlan'].speeds
-    if len(speeds) > 1:
-      v_future = speeds[-1]
-    else:
-      v_future = 100.0
-    #if CS.brakePressed and v_future >= self.CP.vEgoStarting \
-    #  and self.CP.openpilotLongitudinalControl and CS.vEgo < 0.3:
-    #  self.events.add(EventName.noTarget)
-
-  def data_sample(self):
-    """Receive data from sockets and update carState"""
-
-    # Update carState from CAN
-    can_strs = messaging.drain_sock_raw(self.can_sock, wait_for_one=True)
-    CS = self.CI.update(self.CC, can_strs)
-
-    self.sm.update(0)
-
-    if not self.initialized:
-      all_valid = CS.canValid and self.sm.all_checks()
-      if all_valid or self.sm.frame * DT_CTRL > 3.5 or SIMULATION:
-        if not self.read_only:
-          self.CI.init(self.CP, self.can_sock, self.pm.sock['sendcan'])
-        self.initialized = True
-
-        if REPLAY and self.sm['pandaStates'][0].controlsAllowed:
-          self.state = State.enabled
-
-        Params().put_bool("ControlsReady", True)
-
-    # Check for CAN timeout
-    if not can_strs:
-      self.can_rcv_error_counter += 1
-      self.can_rcv_error = True
-    else:
-      self.can_rcv_error = False
-
-    # When the panda and controlsd do not agree on controls_allowed
-    # we want to disengage openpilot. However the status from the panda goes through
-    # another socket other than the CAN messages and one can arrive earlier than the other.
-    # Therefore we allow a mismatch for two samples, then we trigger the disengagement.
-    if not self.enabled:
-      self.mismatch_counter = 0
-
-    # All pandas not in silent mode must have controlsAllowed when openpilot is enabled
-    if self.enabled and any(not ps.controlsAllowed for ps in self.sm['pandaStates']
-           if ps.safetyModel not in IGNORED_SAFETY_MODES):
-      self.mismatch_counter += 1
-
-    self.distance_traveled += CS.vEgo * DT_CTRL
-
-    return CS
-
-  def state_transition(self, CS):
-    """Compute conditional state transitions and execute actions on state transitions"""
-
-    self.v_cruise_kph_last = self.v_cruise_kph
-
-    if self.sm.frame % 100 == 0:
-      self.cruise_speed_min = read_cruise_speed_min(self.params)
-      self.cruise_button_mode = int(clip(self.params.get_int("CruiseButtonMode"), 0, 3))
-      self.cruise_speed_unit = int(clip(self.params.get_int("CruiseSpeedUnit"), 1, 20))
-      self.cruise_speed_unit_basic = int(clip(self.params.get_int("CruiseSpeedUnitBasic"), 1, 10))
-      self.cruise_button_long_delay = int(clip(self.params.get_int("CruiseButtonLongDelay"), 30, 150))
-      table = [self.params.get_int(f"CruiseSpeed{i}") for i in range(1, 6)]
-      self.cruise_speed_table = sorted(clip(v, self.cruise_speed_min, V_CRUISE_MAX) for v in table)
-      self.speed_from_pcm = int(clip(self.params.get_int("SpeedFromPCM"), 0, 3))
-
-    self.CP.pcmCruise = self.CI.CP.pcmCruise
-
-    SccSmoother.update_cruise_buttons(self, CS, self.CP.openpilotLongitudinalControl)
-
-    #visionTurnControl	
-    vtcState = self.sm['longitudinalPlan'].visionTurnControllerState
-    if vtcState == 1:	
-      self.events.add(EventName.visionEntering)	
-    elif vtcState == 2:	
-      self.events.add(EventName.visionTurning)	
-    elif vtcState == 3:	
-      self.events.add(EventName.visionleaving)	
-      
-    # decrement the soft disable timer at every step, as it's reset on
-    # entrance in SOFT_DISABLING state
-    self.soft_disable_timer = max(0, self.soft_disable_timer - 1)
-
-    self.current_alert_types = [ET.PERMANENT]
-
-    # ENABLED, SOFT DISABLING, PRE ENABLING, OVERRIDING
-    if self.state != State.disabled:
-      # user and immediate disable always have priority in a non-disabled state
-      if self.events.any(ET.USER_DISABLE):
-        self.state = State.disabled
-        self.current_alert_types.append(ET.USER_DISABLE)
-
-      elif self.events.any(ET.IMMEDIATE_DISABLE):
-        self.state = State.disabled
-        self.current_alert_types.append(ET.IMMEDIATE_DISABLE)
-
-      else:
-        # ENABLED
-        if self.state == State.enabled:
-          if self.events.any(ET.SOFT_DISABLE):
-            self.state = State.softDisabling
-            self.soft_disable_timer = int(0.5 / DT_CTRL)
-            self.current_alert_types.append(ET.SOFT_DISABLE)
-
-          elif self.events.any(ET.OVERRIDE):
-            self.state = State.overriding
-            self.current_alert_types.append(ET.OVERRIDE)
-
-        # SOFT DISABLING
-        elif self.state == State.softDisabling:
-          if not self.events.any(ET.SOFT_DISABLE):
-            # no more soft disabling condition, so go back to ENABLED
-            self.state = State.enabled
-
-          elif self.soft_disable_timer > 0:
-            self.current_alert_types.append(ET.SOFT_DISABLE)
-
-          elif self.soft_disable_timer <= 0:
-            self.state = State.disabled
-
-        # PRE ENABLING
-        elif self.state == State.preEnabled:
-          if self.events.any(ET.NO_ENTRY):
-            self.state = State.disabled
-            self.current_alert_types.append(ET.NO_ENTRY)
-          elif not self.events.any(ET.PRE_ENABLE):
-            self.state = State.enabled
-          else:
-            self.current_alert_types.append(ET.PRE_ENABLE)
-
-        # OVERRIDING
-        elif self.state == State.overriding:
-          if self.events.any(ET.SOFT_DISABLE):
-            self.state = State.softDisabling
-            self.soft_disable_timer = int(SOFT_DISABLE_TIME / DT_CTRL)
-            self.current_alert_types.append(ET.SOFT_DISABLE)
-          elif not self.events.any(ET.OVERRIDE):
-            self.state = State.enabled
-          else:
-            self.current_alert_types.append(ET.OVERRIDE)
-
-    # DISABLED
-    elif self.state == State.disabled:
-      if self.events.any(ET.ENABLE):
-        if self.events.any(ET.NO_ENTRY):
-          self.current_alert_types.append(ET.NO_ENTRY)
-
-        else:
-          if self.events.any(ET.PRE_ENABLE):
-            self.state = State.preEnabled
-          elif self.events.any(ET.OVERRIDE):
-            self.state = State.overriding
-          else:
-            self.state = State.enabled
-          self.current_alert_types.append(ET.ENABLE)
-          if not self.CP.pcmCruise:
-            self.v_cruise_kph = initialize_v_cruise(CS.vEgo, CS.buttonEvents, self.v_cruise_kph_last,
-                                                     self.cruise_speed_min)
-            self.v_cruise_cluster_kph = self.v_cruise_kph
-
-    # Check if openpilot is engaged and actuators are enabled
-    self.enabled = self.state in ENABLED_STATES
-    self.active = self.state in ACTIVE_STATES
-    if self.active:
-      self.current_alert_types.append(ET.WARNING)
-
-  def state_control(self, CS):
-    """Given the state, this function returns a CarControl packet"""
-
-    # Update VehicleModel
-    params = self.sm['liveParameters']
-    x = max(params.stiffnessFactor, 0.1)
-    #sr = max(params.steerRatio, 0.1)
-
-    if live_tune.use_live_steer_ratio():
-      sr = max(params.steerRatio, 0.1)
-    else:
-      sr = max(live_tune.custom_steer_ratio(), 0.1)
-
-    self.VM.update_params(x, sr)
-
-    lat_plan = self.sm['lateralPlan']
-    long_plan = self.sm['longitudinalPlan']
-
-    if self.sm.frame % 100 == 0:
-      self.soft_hold_enabled = self.params.get_bool("SoftHoldMode")
-    resume_pressed = any(b.pressed and b.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
-                         for b in CS.buttonEvents)
-    soft_hold_available = (self.soft_hold_enabled and self.CP.openpilotLongitudinalControl and
-                           self.active and (CS.cruiseState.enabledAcc or self.soft_hold.active))
-    soft_hold_active = self.soft_hold.update(soft_hold_available, CS.brakePressed, CS.gasPressed,
-                                             CS.vEgo, resume_pressed, DT_CTRL)
-
-    CC = car.CarControl.new_message()
-    CC.enabled = self.enabled
-    # Check which actuators can be enabled
-    CC.latActive = self.active and not CS.steerFaultTemporary and not CS.steerFaultPermanent and \
-                     CS.vEgo > self.CP.minSteerSpeed and not CS.standstill \
-                   and abs(CS.steeringAngleDeg) < self.CP.maxSteeringAngleDeg
-    CC.longActive = self.active and not self.events.any(ET.OVERRIDE) and self.CP.openpilotLongitudinalControl
-
-    actuators = CC.actuators
-    actuators.longControlState = self.LoC.long_control_state
-
-    if CS.leftBlinker or CS.rightBlinker:
-      self.last_blinker_frame = self.sm.frame
-
-    # State specific actions
-    if not CC.latActive:
-      self.LaC.reset()
-    if not CC.longActive:
-      self.LoC.reset(v_pid=CS.vEgo)
-
-    if not CS.cruiseState.enabledAcc and not soft_hold_active:
-      self.LoC.reset(v_pid=CS.vEgo)
-
-    if not self.joystick_mode:
-      # accel PID loop
-      pid_accel_limits = self.CI.get_pid_accel_limits(self.CP, CS.vEgo, self.v_cruise_kph * CV.KPH_TO_MS)
-      t_since_plan = (self.sm.frame - self.sm.rcv_frame['longitudinalPlan']) * DT_CTRL
-      actuators.accel = self.LoC.update(CC.longActive and (CS.cruiseState.enabledAcc or soft_hold_active),
-                                        CS, long_plan, pid_accel_limits, t_since_plan,
-                                        self.sm['radarState'], soft_hold_active)
-
-      # Steering PID loop and lateral MPC
-      self.desired_curvature, self.desired_curvature_rate = get_lag_adjusted_curvature(self.CP, CS.vEgo,
-                                                                                       lat_plan.psis,
-                                                                                       lat_plan.curvatures,
-                                                                                       lat_plan.curvatureRates)
-      actuators.steer, actuators.steeringAngleDeg, lac_log = self.LaC.update(CC.latActive, CS, self.VM, params,
-                                                                             self.last_actuators, self.steer_limited, self.desired_curvature,
-                                                                             self.desired_curvature_rate, self.sm['liveLocationKalman'],
-                                                                             self.sm['modelV2'])
-    else:
-      lac_log = log.ControlsState.LateralDebugState.new_message()
-      if self.sm.rcv_frame['testJoystick'] > 0:
-        if CC.longActive:
-          actuators.accel = 4.0*clip(self.sm['testJoystick'].axes[0], -1, 1)
-
-        if CC.latActive:
-          steer = clip(self.sm['testJoystick'].axes[1], -1, 1)
-          # max angle is 45 for angle-based cars
-          actuators.steer, actuators.steeringAngleDeg = steer, steer * 45.
-
-        lac_log.active = self.active
-        lac_log.steeringAngleDeg = CS.steeringAngleDeg
-        lac_log.output = actuators.steer
-        lac_log.saturated = abs(actuators.steer) >= 0.9
-
-    # Send a "steering required alert" if saturation count has reached the limit
-    if lac_log.active and not CS.steeringPressed and self.CP.lateralTuning.which() == 'torque' and not self.joystick_mode:
-      undershooting = abs(lac_log.desiredLateralAccel) / abs(1e-3 + lac_log.actualLateralAccel) > 1.3
-      turning = abs(lac_log.desiredLateralAccel) > 1.0
-      good_speed = CS.vEgo > 5
-      max_torque = abs(self.last_actuators.steer) > 0.99
-      if undershooting and turning and good_speed and max_torque:
-        self.events.add(EventName.steerSaturated)
-    elif lac_log.active and not CS.steeringPressed and lac_log.saturated:
-      dpath_points = lat_plan.dPathPoints
-      if len(dpath_points):
-        # Check if we deviated from the path
-        # TODO use desired vs actual curvature
-        if self.CP.steerControlType == car.CarParams.SteerControlType.angle:
-          steering_value = actuators.steeringAngleDeg
-        else:
-          steering_value = actuators.steer
-
-        left_deviation = steering_value > 0 and dpath_points[0] < -0.20
-        right_deviation = steering_value < 0 and dpath_points[0] > 0.20
-
-        if left_deviation or right_deviation:
-          self.events.add(EventName.steerSaturated)
-
-    # Ensure no NaNs/Infs
-    for p in ACTUATOR_FIELDS:
-      attr = getattr(actuators, p)
-      if not isinstance(attr, Number):
-        continue
-
-      if not math.isfinite(attr):
-        cloudlog.error(f"actuators.{p} not finite {actuators.to_dict()}")
-        setattr(actuators, p, 0.0)
-
-    return CC, lac_log
-
-  def update_button_timers(self, buttonEvents):
-    # increment timer for buttons still pressed
-    for k in self.button_timers:
-      if self.button_timers[k] > 0:
-        self.button_timers[k] += 1
-
-    for b in buttonEvents:
-      if b.type.raw in self.button_timers:
-        self.button_timers[b.type.raw] = 1 if b.pressed else 0
-
-  def publish_logs(self, CS, start_time, CC, lac_log):
-    """Send actuators and hud commands to the car, send controlsstate and MPC logging"""
-
-    # Orientation and angle rates can be useful for carcontroller
-    # Only calibrated (car) frame is relevant for the carcontroller
-    orientation_value = list(self.sm['liveLocationKalman'].calibratedOrientationNED.value)
-    if len(orientation_value) > 2:
-      CC.orientationNED = orientation_value
-    angular_rate_value = list(self.sm['liveLocationKalman'].angularVelocityCalibrated.value)
-    if len(angular_rate_value) > 2:
-      CC.angularVelocity = angular_rate_value
-
-    CC.cruiseControl.cancel = self.CP.pcmCruise and not self.enabled and CS.cruiseState.enabled
-    if self.joystick_mode and self.sm.rcv_frame['testJoystick'] > 0 and self.sm['testJoystick'].buttons[0]:
-      CC.cruiseControl.cancel = True
-
-    speeds = self.sm['longitudinalPlan'].speeds
-    if len(speeds):
-      CC.cruiseControl.resume = (self.enabled and not self.soft_hold.active and
-                                 CS.cruiseState.standstill and speeds[-1] > 0.1)
-
-    hudControl = CC.hudControl
-    hudControl.softHold = self.soft_hold.active
-    hudControl.setSpeed = float(self.v_cruise_cluster_kph * CV.KPH_TO_MS)
-    hudControl.speedVisible = self.enabled
-    hudControl.lanesVisible = self.enabled
-    hudControl.leadVisible = self.sm['longitudinalPlan'].hasLead
-
-    right_lane_visible = self.sm['lateralPlan'].rProb > 0.5
-    left_lane_visible = self.sm['lateralPlan'].lProb > 0.5
-
-    if self.sm.frame % 100 == 0:
-      self.right_lane_visible = right_lane_visible
-      self.left_lane_visible = left_lane_visible
-
-    hudControl.rightLaneVisible = self.right_lane_visible
-    hudControl.leftLaneVisible = self.left_lane_visible
-
-    recent_blinker = (self.sm.frame - self.last_blinker_frame) * DT_CTRL < 5.0  # 5s blinker cooldown
-    ldw_allowed = self.is_ldw_enabled and CS.vEgo > LDW_MIN_SPEED and not recent_blinker \
-                    and not CC.latActive and self.sm['liveCalibration'].calStatus == Calibration.CALIBRATED
-
-    model_v2 = self.sm['modelV2']
-    desire_prediction = model_v2.meta.desirePrediction
-    if len(desire_prediction) and ldw_allowed:
-      right_lane_visible = model_v2.laneLineProbs[2] > 0.5
-      left_lane_visible = model_v2.laneLineProbs[1] > 0.5
-      l_lane_change_prob = desire_prediction[Desire.laneChangeLeft - 1]
-      r_lane_change_prob = desire_prediction[Desire.laneChangeRight - 1]
-
-      lane_lines = model_v2.laneLines
-      l_lane_close = left_lane_visible and (lane_lines[1].y[0] > -(1.08 + CAMERA_OFFSET))
-      r_lane_close = right_lane_visible and (lane_lines[2].y[0] < (1.08 - CAMERA_OFFSET))
-
-      hudControl.leftLaneDepart = bool(l_lane_change_prob > LANE_DEPARTURE_THRESHOLD and l_lane_close)
-      hudControl.rightLaneDepart = bool(r_lane_change_prob > LANE_DEPARTURE_THRESHOLD and r_lane_close)
-
-    if hudControl.rightLaneDepart or hudControl.leftLaneDepart:
-      self.events.add(EventName.ldw)
-
-    clear_event_types = set()
-    if ET.WARNING not in self.current_alert_types:
-      clear_event_types.add(ET.WARNING)
-    if self.enabled:
-      clear_event_types.add(ET.NO_ENTRY)
-
-    alerts = self.events.create_alerts(self.current_alert_types, [self.CP, self.sm, self.is_metric, self.soft_disable_timer])
-    self.AM.add_many(self.sm.frame, alerts)
-    current_alert = self.AM.process_alerts(self.sm.frame, clear_event_types)
-    if current_alert:
-      hudControl.visualAlert = current_alert.visual_alert
-
-    if not self.read_only and self.initialized:
-      # send car controls over can
-      self.last_actuators, can_sends = self.CI.apply(CC, self)
-      self.pm.send('sendcan', can_list_to_can_capnp(can_sends, msgtype='sendcan', valid=CS.canValid))
-      CC.actuatorsOutput = self.last_actuators
-      self.steer_limited = abs(CC.actuators.steer - CC.actuatorsOutput.steer) > 1e-2
-
-    force_decel = (self.sm['driverMonitoringState'].awarenessStatus < 0.) or \
-                  (self.state == State.softDisabling)
-
-    # Curvature & Steering angle
-    params = self.sm['liveParameters']
-
-    steer_angle_without_offset = math.radians(CS.steeringAngleDeg - params.angleOffsetDeg)
-    curvature = -self.VM.calc_curvature(steer_angle_without_offset, CS.vEgo, params.roll)
-
-    # controlsState
-    dat = messaging.new_message('controlsState')
-    dat.valid = CS.canValid
-    controlsState = dat.controlsState
-    if current_alert:
-      controlsState.alertText1 = current_alert.alert_text_1
-      controlsState.alertText2 = current_alert.alert_text_2
-      controlsState.alertSize = current_alert.alert_size
-      controlsState.alertStatus = current_alert.alert_status
-      controlsState.alertBlinkingRate = current_alert.alert_rate
-      controlsState.alertType = current_alert.alert_type
-      controlsState.alertSound = current_alert.audible_alert
-
-    controlsState.canMonoTimes = list(CS.canMonoTimes)
-    controlsState.longitudinalPlanMonoTime = self.sm.logMonoTime['longitudinalPlan']
-    controlsState.lateralPlanMonoTime = self.sm.logMonoTime['lateralPlan']
-    controlsState.enabled = self.enabled
-    controlsState.active = self.active
-    controlsState.curvature = curvature
-    controlsState.desiredCurvature = self.desired_curvature
-    controlsState.desiredCurvatureRate = self.desired_curvature_rate
-    controlsState.state = self.state
-    controlsState.engageable = not self.events.any(ET.NO_ENTRY)
-    controlsState.longControlState = self.LoC.long_control_state
-    controlsState.vPid = float(self.LoC.v_pid)
-    controlsState.vCruise = float(self.applyMaxSpeed if self.CP.openpilotLongitudinalControl else self.v_cruise_kph)
-    controlsState.vCruiseCluster = float(self.v_cruise_cluster_kph)
-    controlsState.upAccelCmd = float(self.LoC.pid.p)
-    controlsState.uiAccelCmd = float(self.LoC.pid.i)
-    controlsState.ufAccelCmd = float(self.LoC.pid.f)
-    controlsState.cumLagMs = -self.rk.remaining * 1000.
-    controlsState.startMonoTime = int(start_time * 1e9)
-    controlsState.forceDecel = bool(force_decel)
-    controlsState.canErrorCounter = self.can_rcv_error_counter
-
-    controlsState.angleSteers = steer_angle_without_offset * CV.RAD_TO_DEG
-    controlsState.applyAccel = self.apply_accel
-    controlsState.aReqValue = self.aReqValue
-    controlsState.aReqValueMin = self.aReqValueMin
-    controlsState.aReqValueMax = self.aReqValueMax
-    controlsState.sccStockCamAct = self.sccStockCamAct
-    controlsState.sccStockCamStatus = self.sccStockCamStatus
-
-    controlsState.steerRatio = self.VM.sR
-    controlsState.steerActuatorDelay = live_tune.steer_actuator_delay()
-
-    lat_tuning = self.CP.lateralTuning.which()
-    if self.joystick_mode:
-      controlsState.lateralControlState.debugState = lac_log
-    elif self.CP.steerControlType == car.CarParams.SteerControlType.angle:
-      controlsState.lateralControlState.angleState = lac_log
-    elif lat_tuning == 'pid':
-      controlsState.lateralControlState.pidState = lac_log
-    elif lat_tuning == 'indi':
-      controlsState.lateralControlState.indiState = lac_log
-    elif lat_tuning == 'torque':
-      controlsState.lateralControlState.torqueState = lac_log
-
-    self.pm.send('controlsState', dat)
-
-    # carState
-    car_events = self.events.to_msg()
-    cs_send = messaging.new_message('carState')
-    cs_send.valid = CS.canValid
-    cs_send.carState = CS
-    cs_send.carState.events = car_events
-    self.pm.send('carState', cs_send)
-
-    # carEvents - logged every second or on change
-    if (self.sm.frame % int(1. / DT_CTRL) == 0) or (self.events.names != self.events_prev):
-      ce_send = messaging.new_message('carEvents', len(self.events))
-      ce_send.carEvents = car_events
-      self.pm.send('carEvents', ce_send)
-    self.events_prev = self.events.names.copy()
-
-    # carParams - logged every 50 seconds (> 1 per segment)
-    if (self.sm.frame % int(50. / DT_CTRL) == 0):
-      cp_send = messaging.new_message('carParams')
-      cp_send.carParams = self.CP
-      self.pm.send('carParams', cp_send)
-
-    # carControl
-    cc_send = messaging.new_message('carControl')
-    cc_send.valid = CS.canValid
-    cc_send.carControl = CC
-    self.pm.send('carControl', cc_send)
-
-    # copy CarControl to pass to CarInterface on the next iteration
-    self.CC = CC
-
-  def step(self):
-    start_time = sec_since_boot()
-    self.prof.checkpoint("Ratekeeper", ignore=True)
-
-    # Sample data from sockets and get a carState
-    CS = self.data_sample()
-    cloudlog.timestamp("Data sampled")
-    self.prof.checkpoint("Sample")
-
-    self.update_events(CS)
-    cloudlog.timestamp("Events updated")
-
-    if not self.read_only and self.initialized:
-      # Update control state
-      self.state_transition(CS)
-      self.prof.checkpoint("State transition")
-
-    # Compute actuators (runs PID loops and lateral MPC)
-    CC, lac_log = self.state_control(CS)
-
-    self.prof.checkpoint("State Control")
-
-    # Publish data
-    self.publish_logs(CS, start_time, CC, lac_log)
-    self.prof.checkpoint("Sent")
-
-    self.update_button_timers(CS.buttonEvents)
-    self.CS_prev = CS
-
-  def controlsd_thread(self):
-    while True:
-      self.step()
-      self.rk.monitor_time()
-      self.prof.display()
-
-
-def main(sm=None, pm=None, logcan=None):
-  controls = Controls(sm, pm, logcan)
-  controls.controlsd_thread()
-
-
-if __name__ == "__main__":
-  main()
+                          pandaState.safetyParam != self.CP.sгN=¶‰ћЛkєwµзPФЛќ]Ы‘]™[ќКCB€ЫЩќЪЫШ]Z[X›HH
+Щ[‹њЫЩќЪЫЩ[X›Y[™Щ[‹ђФ›Ь[њ[ЭЫ™Ъ]Y[[ЫЫќ›Ы[™B€Щ[‹XЭ]™H[™
+ФЛЬќZ\ЩTЭ]K™[X›YXШИЬ€Щ[‹њЫЩќЪЫXЭ]™JJCB€ЫЩќЪЫШXЭ]™HHЩ[‹њЫЩќЪЫќ\]JЫЩќЪЫШ]Z[X›KФЛњZЩT™\ЬЩYФЛ™Ш\Ф™\ЬЩY€ФЛќ‘YЫЛ™\Э[YWЬ™\ЬЩYФЛ™ЩX\”ЪYќ\€OHЩX\”ЪYќ\‹™љ]™KРХ“
+BѓB€РИHШ\‹ђШ\ђЫЫќ›Ы›™]ЧЫY\ЬШYЩJ
+CB€РЛ™[X›YHЩ[‹™[X›YB€ИЪXЪИЪXЪXЭX]ЬњИШ[€™H[X›YB€РЛ›]XЭ]™HHЩ[‹XЭ]™H[™›ЭФЛњЭY\‘][[\Ь\ћH[™›ЭФЛњЭY\‘][\›X[™[ќ[™B€ФЛќ‘YЫИ€Щ[‹ђФ›Z[”ЭY\”ЬYY[™›ЭФЛњЭ[™Э[B€[™XњКФЛњЭY\љ[™Р[™ЫQYКHЩ[‹ђФ›X^ЭY\љ[™Р[™ЫQYГB€РЛ›Ы™РXЭ]™HHЩ[‹XЭ]™H[™›ЭЩ[‹™]™[ќЛ[ћJU“Х‘T”’QJH[™Щ[‹ђФ›Ь[њ[ЭЫ™Ъ]Y[[ЫЫќ›ЫBѓB€XЭX]ЬњИHРЛXЭX]ЬњГB€XЭX]ЬњЛ›Ы™РЫЫќ›ЫЭ]HHЩ[‹“РЛ›Ы™ЧШЫЫќ›ЫЬЭ]CBѓB€Y€ФЛ›Yќ›[љЩ\€Ь€ФЛњљYЪ›[љЩ\ЋѓB€Щ[‹›\ЭШ›[љЩ\—Щњ[YHHЩ[‹њЫK™њ[YCBѓB€ИЭ]HЬXЪYљXИXЭ[ЫњГB€Y€›ЭРЛ›]XЭ]™NѓB€Щ[‹“PЛњ™\Щ]
+
+CB€Y€›ЭРЛ›Ы™РXЭ]™NѓB€Щ[‹“РЛњ™\Щ]
+—ЬYPФЛќ‘YЫКCBѓB€Y€›ЭФЛЬќZ\ЩTЭ]K™[X›YXШИ[™›ЭЫЩќЪЫШXЭ]™NѓB€Щ[‹“РЛњ™\Щ]
+—ЬYPФЛќ‘YЫКCBѓB€Y€›ЭЩ[‹љ›Ю\ЭXЪЧЫ[ЩNѓB€ИXШЩ[QЫЬB€YШXШЩ[Ы[Z]ИHЩ[‹ђТK™Щ]ЬYШXШЩ[Ы[Z]КЩ[‹ђФФЛќ‘YЫЛЩ[‹ќ—ШЬќZ\ЩWЪЬ
+€Х‹’ФХЧУTКCB€ЬЪ[ЩWЬ[€H
+Щ[‹њЫK™њ[YHHЩ[‹њЫKњЭ—Щњ[YVЙЫЫ™Ъ]Y[[[‰ЧJH
+€РХ“B€XЭX]ЬњЛXШЩ[HЩ[‹“РЛќ\]JРЛ›Ы™РXЭ]™H[™
+ФЛЬќZ\ЩTЭ]K™[X›YXШИЬ€ЫЩќЪЫШXЭ]™JKB€ФЛЫ™ЧЬ[‹YШXШЩ[Ы[Z]ЛЬЪ[ЩWЬ[‹€Щ[‹њЫVЙЬY\”Э]IЧKЫЩќЪЫШXЭ]™KЩ[‹њЫЩќЪЫњ™[X\ЩY
+BѓB€ИЭY\љ[™ИQЫЬ[™]\[TГB€Щ[‹™\Ъ\™YШЭ\ќ]\™KЩ[‹™\Ъ\™YШЭ\ќ]\™WЬ]HHЩ]ЫYЧШYќ\ЭYШЭ\ќ]\™JЩ[‹ђФФЛќ‘YЫЛB€]Ь[‹њЪ\ЛB€]Ь[‹Э\ќ]\™\ЛB€]Ь[‹Э\ќ]\™T]\КCB€XЭX]ЬњЛњЭY\‹XЭX]ЬњЛњЭY\љ[™Р[™ЫQYЛXЧЫЩИHЩ[‹“PЛќ\]JРЛ›]XЭ]™KФЛЩ[‹•“K\[\ЛB€Щ[‹›\ЭШXЭX]ЬњЛЩ[‹њЭY\—Ы[Z]YЩ[‹™\Ъ\™YШЭ\ќ]\™KB€Щ[‹™\Ъ\™YШЭ\ќ]\™WЬ]KЩ[‹њЫVЙЫ]™SШШ][Ы’Ш[X[‰ЧKB€Щ[‹њЫVЙЫ[Щ[Њ‰ЧJCB€[ЩNѓB€XЧЫЩИHЩЛђЫЫќ›ЫФЭ]K“]\[XќYФЭ]K›™]ЧЫY\ЬШYЩJ
+CB€Y€Щ[‹њЫKњЭ—Щњ[YVЙЭ\Э›Ю\ЭXЪЙЧH€ѓB€Y€РЛ›Ы™РXЭ]™NѓB€XЭX]ЬњЛXШЩ[HЊ
+Ы\
+Щ[‹њЫVЙЭ\Э›Ю\ЭXЪЙЧK^\ЦМKLKJCBѓB€Y€РЛ›]XЭ]™NѓB€ЭY\€HЫ\
+Щ[‹њЫVЙЭ\Э›Ю\ЭXЪЙЧK^\ЦМWKLKJCB€ИX^[™ЫH\ИH›Ь€[™ЫKX\ЩYШ\њГB€XЭX]ЬњЛњЭY\‹XЭX]ЬњЛњЭY\љ[™Р[™ЫQYИHЭY\‹ЭY\€
+€KѓBѓB€XЧЫЩЛXЭ]™HHЩ[‹XЭ]™CB€XЧЫЩЛњЭY\љ[™Р[™ЫQYИHФЛњЭY\љ[™Р[™ЫQYГB€XЧЫЩЛ›Э]]HXЭX]ЬњЛњЭY\ѓB€XЧЫЩЛњШ]\]YHXњКXЭX]ЬњЛњЭY\ЉHЏHЋCBѓB€ИЩ[™HњЭY\љ[™И™\]Z\™Y[\ќ€Y€Ш]\][Ы€ЫЭ[ќ\И™XXЪYH[Z]B€Y€XЧЫЩЛXЭ]™H[™›ЭФЛњЭY\љ[™Ф™\ЬЩY[™Щ[‹ђФ›]\[[љ[™ЛќЪXЪ
+
+HOH	ЭЬњ]YIИ[™›ЭЩ[‹љ›Ю\ЭXЪЧЫ[ЩNѓB€[™\њЪЫЭ[™ИHXњКXЧЫЩЛ™\Ъ\™Y]\[XШЩ[
+HИXњКYKLИ
+ИXЧЫЩЛXЭX[]\[XШЩ[
+H€KЊГB€\›љ[™ИHXњКXЧЫЩЛ™\Ъ\™Y]\[XШЩ[
+H€KЊB€ЫЫЩЬЬYYHФЛќ‘YЫИ€CB€X^ЭЬњ]YHHXњКЩ[‹›\ЭШXЭX]ЬњЛњЭY\ЉH€ЋNCB€Y€[™\њЪЫЭ[™И[™\›љ[™И[™ЫЫЩЬЬYY[™X^ЭЬњ]YNѓB€Щ[‹™]™[ќЛY
+]™[ќ[YKњЭY\”Ш]\]Y
+CB€[Y€XЧЫЩЛXЭ]™H[™›ЭФЛњЭY\љ[™Ф™\ЬЩY[™XЧЫЩЛњШ]\]YѓB€]ЬЪ[ќИH]Ь[‹™]Ъ[ќГB€Y€[Љ]ЬЪ[ќКNѓB€ИЪXЪИY€ЩH]љX]Yњ›ЫHH]B€ИСИ\ЩH\Ъ\™YњИXЭX[Э\ќ]\™CB€Y€Щ[‹ђФњЭY\ђЫЫќ›Ы\HOHШ\‹ђШ\”\[\Л”ЭY\ђЫЫќ›Ы\K[™ЫNѓB€ЭY\љ[™ЧЭ[YHHXЭX]ЬњЛњЭY\љ[™Р[™ЫQYГB€[ЩNѓB€ЭY\љ[™ЧЭ[YHHXЭX]ЬњЛњЭY\ѓBѓB€YќЩ]љX][Ы€HЭY\љ[™ЧЭ[YH€[™]ЬЪ[ќЦМHLЊЊB€љYЪЩ]љX][Ы€HЭY\љ[™ЧЭ[YH[™]ЬЪ[ќЦМH€ЊЊBѓB€Y€YќЩ]љX][Ы€Ь€љYЪЩ]љX][ЫЋѓB€Щ[‹™]™[ќЛY
+]™[ќ[YKњЭY\”Ш]\]Y
+CBѓB€И[њЭ\™H›ИSњЛТ[™њГB€›Ь€[€PХPUФ—С’QSОѓB€]€HЩ]]ЉXЭX]ЬњЛ
+CB€Y€›Э\Ъ[њЭ[ЩJ]‹ќ[X™\ЉNѓB€ЫЫќ[ќYCBѓB€Y€›ЭX]љ\Щљ[љ]J]ЉNѓB€ЫЭYЩЛ™\њ›ЬЉ€XЭX]ЬњЛћЬH›Эљ[љ]HШXЭX]ЬњЛќЧЩXЭ
+
+_HЉCB€Щ]]ЉXЭX]ЬњЛЊ
+CBѓB€™]\›€РЛXЧЫЩГBѓB€Y€\]WШќ]Ы—Э[Y\њКЩ[‹ќ]Ы‘]™[ќКNѓB€И[Ь™[Y[ќ[Y\€›Ь€ќ]ЫњИЭ[™\ЬЩYB€›Ь€И[€Щ[‹ќ]Ы—Э[Y\њОѓB€Y€Щ[‹ќ]Ы—Э[Y\њЦЪЧH€ѓB€Щ[‹ќ]Ы—Э[Y\њЦЪЧH
+ПHCBѓB€›Ь€€[€ќ]Ы‘]™[ќОѓB€Y€‹ќ\Kњ]И[€Щ[‹ќ]Ы—Э[Y\њОѓB€Щ[‹ќ]Ы—Э[Y\њЦШ‹ќ\Kњ]ЧHHHY€‹њ™\ЬЩY[ЩHBѓB€Y€X›\ЪЫЩЬКЩ[‹ФЛЭ\ќЭ[YKРЛXЧЫЩКNѓB€€€”Щ[™XЭX]ЬњИ[™YЫЫ[X[™ИИHШ\‹Щ[™ЫЫќ›ЫЬЭ]H[™TИЩЩЪ[™И€€ѓBѓB€ИЬљY[ќ][Ы€[™[™ЫH]\ИШ[€™H\ЩYќ[›Ь€Ш\ЫЫќ›Ы\ѓB€ИЫ›HШ[Xњ]Y
+Ш\ЉHњ[YH\И™[][ќ›Ь€HШ\ЫЫќ›Ы\ѓB€ЬљY[ќ][Ы—Э[YHH\Э
+Щ[‹њЫVЙЫ]™SШШ][Ы’Ш[X[‰ЧKШ[Xњ]YЬљY[ќ][Ы“‘Qќ[YJCB€Y€[ЉЬљY[ќ][Ы—Э[YJH€ЋѓB€РЛ›ЬљY[ќ][Ы“‘QHЬљY[ќ][Ы—Э[YCB€[™Э[\—Ь]WЭ[YHH\Э
+Щ[‹њЫVЙЫ]™SШШ][Ы’Ш[X[‰ЧK[™Э[\•™[ШЪ]PШ[Xњ]Yќ[YJCB€Y€[Љ[™Э[\—Ь]WЭ[YJH€ЋѓB€РЛ[™Э[\•™[ШЪ]HH[™Э[\—Ь]WЭ[YCBѓB€РЛЬќZ\ЩPЫЫќ›ЫШ[Щ[HЩ[‹ђФњЫPЬќZ\ЩH[™›ЭЩ[‹™[X›Y[™ФЛЬќZ\ЩTЭ]K™[X›YB€Y€Щ[‹љ›Ю\ЭXЪЧЫ[ЩH[™Щ[‹њЫKњЭ—Щњ[YVЙЭ\Э›Ю\ЭXЪЙЧH€[™Щ[‹њЫVЙЭ\Э›Ю\ЭXЪЙЧKќ]ЫњЦМNѓB€РЛЬќZ\ЩPЫЫќ›ЫШ[Щ[HќYCBѓB€ЬYYИHЩ[‹њЫVЙЫЫ™Ъ]Y[[[‰ЧKњЬYYГB€Y€[ЉЬYYКNѓB€РЛЬќZ\ЩPЫЫќ›Ыњ™\Э[YHH
+Щ[‹™[X›Y[™›ЭЩ[‹њЫЩќЪЫXЭ]™H[™B€ФЛЬќZ\ЩTЭ]KњЭ[™Э[[™ЬYYЦЛLWH€ЊJCBѓB€YЫЫќ›ЫHРЛљYЫЫќ›ЫB€YЫЫќ›ЫњЫЩќЫHЩ[‹њЫЩќЪЫXЭ]™CB€YЫЫќ›ЫњЩ]ЬYYH›Ш]
+Щ[‹ќ—ШЬќZ\ЩWШЫ\Э\—ЪЬ
+€Х‹’ФХЧУTКCB€YЫЫќ›ЫњЬYYљ\ЪX›HHЩ[‹™[X›YB€YЫЫќ›Ы›[™\Хљ\ЪX›HHЩ[‹™[X›YB€YЫЫќ›Ы›XYљ\ЪX›HHЩ[‹њЫVЙЫЫ™Ъ]Y[[[‰ЧKљ\УXYBѓB€љYЪЫ[™WЭљ\ЪX›HHЩ[‹њЫVЙЫ]\[[‰ЧKњ”›Ш€€ЌCB€YќЫ[™WЭљ\ЪX›HHЩ[‹њЫVЙЫ]\[[‰ЧK››Ш€€ЌCBѓB€Y€Щ[‹њЫK™њ[YH	HLOHѓB€Щ[‹њљYЪЫ[™WЭљ\ЪX›HHљYЪЫ[™WЭљ\ЪX›CB€Щ[‹›YќЫ[™WЭљ\ЪX›HHYќЫ[™WЭљ\ЪX›CBѓB€YЫЫќ›ЫњљYЪ[™Uљ\ЪX›HHЩ[‹њљYЪЫ[™WЭљ\ЪX›CB€YЫЫќ›Ы›Yќ[™Uљ\ЪX›HHЩ[‹›YќЫ[™WЭљ\ЪX›CBѓB€™XЩ[ќШ›[љЩ\€H
+Щ[‹њЫK™њ[YHHЩ[‹›\ЭШ›[љЩ\—Щњ[YJH
+€РХ“KЊИ\И›[љЩ\€ЫЫЫЭЫѓB€ЧШ[ЭЩYHЩ[‹љ\ЧЫЧЩ[X›Y[™ФЛќ‘YЫИ€ЧУRS—ФФQQ[™›Э™XЩ[ќШ›[љЩ\€B€[™›ЭРЛ›]XЭ]™H[™Щ[‹њЫVЙЫ]™PШ[Xњ][Ы‰ЧKШ[Э]\ИOHШ[Xњ][Ы‹ђРSP”ђUQBѓB€[Щ[ЭЊ€HЩ[‹њЫVЙЫ[Щ[Њ‰ЧCB€\Ъ\™WЬ™YXЭ[Ы€H[Щ[ЭЊ‹›Y]K™\Ъ\™T™YXЭ[ЫѓB€Y€[Љ\Ъ\™WЬ™YXЭ[ЫЉH[™ЧШ[ЭЩYѓB€љYЪЫ[™WЭљ\ЪX›HH[Щ[ЭЊ‹›[™S[™T›ШњЦМ—H€ЌCB€YќЫ[™WЭљ\ЪX›HH[Щ[ЭЊ‹›[™S[™T›ШњЦМWH€ЌCB€Ы[™WШЪ[™ЩWЬ›Ш€H\Ъ\™WЬ™YXЭ[Ы–С\Ъ\™K›[™PЪ[™ЩSYќHWCB€—Ы[™WШЪ[™ЩWЬ›Ш€H\Ъ\™WЬ™YXЭ[Ы–С\Ъ\™K›[™PЪ[™ЩTљYЪHWCBѓB€[™WЫ[™\ИH[Щ[ЭЊ‹›[™S[™\ГB€Ы[™WШЫЬЩHHYќЫ[™WЭљ\ЪX›H[™
+[™WЫ[™\ЦМWKћVМH€JKЊ
+ИРSQTђWУС‘”СU
+JCB€—Ы[™WШЫЬЩHHљYЪЫ[™WЭљ\ЪX›H[™
+[™WЫ[™\ЦМ—KћVМH
+KЊHРSQTђWУС‘”СU
+JCBѓB€YЫЫќ›Ы›Yќ[™Q\\ќH›ЫЫ
+Ы[™WШЪ[™ЩWЬ›Ш€€S‘WСTT•T‘WХ‘TТУ[™Ы[™WШЫЬЩJCB€YЫЫќ›ЫњљYЪ[™Q\\ќH›ЫЫ
+—Ы[™WШЪ[™ЩWЬ›Ш€€S‘WСTT•T‘WХ‘TТУ[™—Ы[™WШЫЬЩJCBѓB€Y€YЫЫќ›ЫњљYЪ[™Q\\ќЬ€YЫЫќ›Ы›Yќ[™Q\\ќѓB€Щ[‹™]™[ќЛY
+]™[ќ[YK›КCBѓB€ЫX\—Щ]™[ќЭ\\ИHЩ]
+
+CB€Y€U•РT“’S‘И›Э[€Щ[‹Э\њ™[ќШ[\ќЭ\\ОѓB€ЫX\—Щ]™[ќЭ\\ЛY
+U•РT“’S‘КCB€Y€Щ[‹™[X›YѓB€ЫX\—Щ]™[ќЭ\\ЛY
+U““ЧСS•–JCBѓB€[\ќИHЩ[‹™]™[ќЛЬ™X]WШ[\ќКЩ[‹Э\њ™[ќШ[\ќЭ\\ЛЬЩ[‹ђФЩ[‹њЫKЩ[‹љ\ЧЫY]љXЛЩ[‹њЫЩќЩ\ШX›WЭ[Y\—JCB€Щ[‹ђSKYЫX[ћJЩ[‹њЫK™њ[YK[\ќКCB€Э\њ™[ќШ[\ќHЩ[‹ђSKњ›ШЩ\ЬЧШ[\ќКЩ[‹њЫK™њ[YKЫX\—Щ]™[ќЭ\\КCB€Y€Э\њ™[ќШ[\ќѓB€YЫЫќ›Ыќљ\ЭX[[\ќHЭ\њ™[ќШ[\ќќљ\ЭX[Ш[\ќBѓB€Y€›ЭЩ[‹њ™XYЫЫ›H[™Щ[‹љ[љ]X[^™YѓB€ИЩ[™Ш\€ЫЫќ›ЫИЭ™\€Ш[ѓB€Щ[‹›\ЭШXЭX]ЬњЛШ[—ЬЩ[™ИHЩ[‹ђТK\JРЛЩ[ЉCB€Щ[‹њKњЩ[™
+	ЬЩ[™Ш[‰ЛШ[—Ы\ЭЭЧШШ[—ШШ\њ
+Ш[—ЬЩ[™Л\ЩЭ\OIЬЩ[™Ш[‰Л[YPФЛШ[•[Y
+JCB€РЛXЭX]ЬњУЭ]]HЩ[‹›\ЭШXЭX]ЬњГB€Щ[‹њЭY\—Ы[Z]YHXњКРЛXЭX]ЬњЛњЭY\€HРЛXЭX]ЬњУЭ]]њЭY\ЉH€YKLѓBѓB€›ЬЩWЩXЩ[H
+Щ[‹њЫVЙЩљ]™\“[Ыљ]Ьљ[™ФЭ]IЧK]Ш\™[™\ЬФЭ]\ИЉHЬ€B€
+Щ[‹њЭ]HOHЭ]KњЫЩќ\ШX›[™КCBѓB€ИЭ\ќ]\™H	€ЭY\љ[™И[™ЫCB€\[\ИHЩ[‹њЫVЙЫ]™T\[Y]\њЙЧCBѓB€ЭY\—Ш[™ЫWЭЪ]Э]ЫЩ™њЩ]HX]њYX[њКФЛњЭY\љ[™Р[™ЫQYИH\[\Л[™ЫSЩ™њЩ]YКCB€Э\ќ]\™HH\Щ[‹•“KШ[ЧШЭ\ќ]\™JЭY\—Ш[™ЫWЭЪ]Э]ЫЩ™њЩ]ФЛќ‘YЫЛ\[\Лњ›Ы
+CBѓB€ИЫЫќ›ЫФЭ]CB€]HY\ЬШYЪ[™Л›™]ЧЫY\ЬШYЩJ	ШЫЫќ›ЫФЭ]IКCB€]ќ[YHФЛШ[•[YB€ЫЫќ›ЫФЭ]HH]ЫЫќ›ЫФЭ]CB€Y€Э\њ™[ќШ[\ќѓB€ЫЫќ›ЫФЭ]K[\ќ^HHЭ\њ™[ќШ[\ќ[\ќЭ^МCB€ЫЫќ›ЫФЭ]K[\ќ^€HЭ\њ™[ќШ[\ќ[\ќЭ^МѓB€ЫЫќ›ЫФЭ]K[\ќЪ^™HHЭ\њ™[ќШ[\ќ[\ќЬЪ^™CB€ЫЫќ›ЫФЭ]K[\ќЭ]\ИHЭ\њ™[ќШ[\ќ[\ќЬЭ]\ГB€ЫЫќ›ЫФЭ]K[\ќ›[љЪ[™Ф]HHЭ\њ™[ќШ[\ќ[\ќЬ]CB€ЫЫќ›ЫФЭ]K[\ќ\HHЭ\њ™[ќШ[\ќ[\ќЭ\CB€ЫЫќ›ЫФЭ]K[\ќЫЭ[™HЭ\њ™[ќШ[\ќ]YX›WШ[\ќBѓB€ЫЫќ›ЫФЭ]KШ[“[Ы›Х[Y\ИH\Э
+ФЛШ[“[Ы›Х[Y\КCB€ЫЫќ›ЫФЭ]K›Ы™Ъ]Y[[[“[Ы›Х[YHHЩ[‹њЫK›ЩУ[Ы›Х[YVЙЫЫ™Ъ]Y[[[‰ЧCB€ЫЫќ›ЫФЭ]K›]\[[“[Ы›Х[YHHЩ[‹њЫK›ЩУ[Ы›Х[YVЙЫ]\[[‰ЧCB€ЫЫќ›ЫФЭ]K™[X›YHЩ[‹™[X›YB€ЫЫќ›ЫФЭ]KXЭ]™HHЩ[‹XЭ]™CB€ЫЫќ›ЫФЭ]KЭ\ќ]\™HHЭ\ќ]\™CB€ЫЫќ›ЫФЭ]K™\Ъ\™YЭ\ќ]\™HHЩ[‹™\Ъ\™YШЭ\ќ]\™CB€ЫЫќ›ЫФЭ]K™\Ъ\™YЭ\ќ]\™T]HHЩ[‹™\Ъ\™YШЭ\ќ]\™WЬ]CB€ЫЫќ›ЫФЭ]KњЭ]HHЩ[‹њЭ]CB€ЫЫќ›ЫФЭ]K™[™ШYЩXX›HH›ЭЩ[‹™]™[ќЛ[ћJU““ЧСS•–JCB€ЫЫќ›ЫФЭ]K›Ы™РЫЫќ›ЫЭ]HHЩ[‹“РЛ›Ы™ЧШЫЫќ›ЫЬЭ]CB€ЫЫќ›ЫФЭ]Kќ”YH›Ш]
+Щ[‹“РЛќ—ЬY
+CB€ЫЫќ›ЫФЭ]KќђЬќZ\ЩHH›Ш]
+Щ[‹\SX^ЬYYY€Щ[‹ђФ›Ь[њ[ЭЫ™Ъ]Y[[ЫЫќ›Ы[ЩHЩ[‹ќ—ШЬќZ\ЩWЪЬ
+CB€ЫЫќ›ЫФЭ]KќђЬќZ\ЩPЫ\Э\€H›Ш]
+Щ[‹ќ—ШЬќZ\ЩWШЫ\Э\—ЪЬ
+CB€ЫЫќ›ЫФЭ]Kќ\XШЩ[ЫYH›Ш]
+Щ[‹“РЛњYњ
+CB€ЫЫќ›ЫФЭ]KќZPXШЩ[ЫYH›Ш]
+Щ[‹“РЛњYљJCB€ЫЫќ›ЫФЭ]KќYђXШЩ[ЫYH›Ш]
+Щ[‹“РЛњY™ЉCB€ЫЫќ›ЫФЭ]KЭ[SYУ\ИH\Щ[‹њљЛњ™[XZ[љ[™И
+€LѓB€ЫЫќ›ЫФЭ]KњЭ\ќ[Ы›Х[YHH[ќ
+Э\ќЭ[YH
+€YNJCB€ЫЫќ›ЫФЭ]K™›ЬЩQXЩ[H›ЫЫ
+›ЬЩWЩXЩ[
+CB€ЫЫќ›ЫФЭ]KШ[‘\њ›ЬђЫЭ[ќ\€HЩ[‹Ш[—ЬЭ—Щ\њ›Ь—ШЫЭ[ќ\ѓBѓB€ЫЫќ›ЫФЭ]K[™ЫTЭY\њИHЭY\—Ш[™ЫWЭЪ]Э]ЫЩ™њЩ]
+€Х‹”ђQХЧСQГB€ЫЫќ›ЫФЭ]K\PXШЩ[HЩ[‹\WШXШЩ[B€ЫЫќ›ЫФЭ]KT™\U[YHHЩ[‹T™\U[YCB€ЫЫќ›ЫФЭ]KT™\U[YSZ[€HЩ[‹T™\U[YSZ[ѓB€ЫЫќ›ЫФЭ]KT™\U[YSX^HЩ[‹T™\U[YSX^B€ЫЫќ›ЫФЭ]KњШШФЭШЪРШ[PXЭHЩ[‹њШШФЭШЪРШ[PXЭB€ЫЫќ›ЫФЭ]KњШШФЭШЪРШ[TЭ]\ИHЩ[‹њШШФЭШЪРШ[TЭ]\ГBѓB€ЫЫќ›ЫФЭ]KњЭY\”][ИHЩ[‹•“KњФѓB€ЫЫќ›ЫФЭ]KњЭY\ђXЭX]Ь‘[^HH]™WЭ[™KњЭY\—ШXЭX]Ь—Щ[^J
+CBѓB€]Э[љ[™ИHЩ[‹ђФ›]\[[љ[™ЛќЪXЪ
+
+CB€Y€Щ[‹љ›Ю\ЭXЪЧЫ[ЩNѓB€ЫЫќ›ЫФЭ]K›]\[ЫЫќ›ЫЭ]K™XќYФЭ]HHXЧЫЩГB€[Y€Щ[‹ђФњЭY\ђЫЫќ›Ы\HOHШ\‹ђШ\”\[\Л”ЭY\ђЫЫќ›Ы\K[™ЫNѓB€ЫЫќ›ЫФЭ]K›]\[ЫЫќ›ЫЭ]K[™ЫTЭ]HHXЧЫЩГB€[Y€]Э[љ[™ИOH	ЬY	ОѓB€ЫЫќ›ЫФЭ]K›]\[ЫЫќ›ЫЭ]KњYЭ]HHXЧЫЩГB€[Y€]Э[љ[™ИOH	Ъ[™IОѓB€ЫЫќ›ЫФЭ]K›]\[ЫЫќ›ЫЭ]Kљ[™TЭ]HHXЧЫЩГB€[Y€]Э[љ[™ИOH	ЭЬњ]YIОѓB€ЫЫќ›ЫФЭ]K›]\[ЫЫќ›ЫЭ]KќЬњ]YTЭ]HHXЧЫЩГBѓB€Щ[‹њKњЩ[™
+	ШЫЫќ›ЫФЭ]IЛ]
+CBѓB€ИШ\”Э]CB€Ш\—Щ]™[ќИHЩ[‹™]™[ќЛќЧЫ\ЩК
+CB€ЬЧЬЩ[™HY\ЬШYЪ[™Л›™]ЧЫY\ЬШYЩJ	ШШ\”Э]IКCB€ЬЧЬЩ[™ќ[YHФЛШ[•[YB€ЬЧЬЩ[™Ш\”Э]HHФГB€ЬЧЬЩ[™Ш\”Э]K™]™[ќИHШ\—Щ]™[ќГB€Щ[‹њKњЩ[™
+	ШШ\”Э]IЛЬЧЬЩ[™
+CBѓB€ИШ\‘]™[ќИHЩЩЩY]™\ћHЩXЫЫ™Ь€Ы€Ъ[™ЩCB€Y€
+Щ[‹њЫK™њ[YH	H[ќ
+K€ИРХ“
+HOH
+HЬ€
+Щ[‹™]™[ќЛ›[Y\ИOHЩ[‹™]™[ќЧЬ™]ЉNѓB€ЩWЬЩ[™HY\ЬШYЪ[™Л›™]ЧЫY\ЬШYЩJ	ШШ\‘]™[ќЙЛ[ЉЩ[‹™]™[ќКJCB€ЩWЬЩ[™Ш\‘]™[ќИHШ\—Щ]™[ќГB€Щ[‹њKњЩ[™
+	ШШ\‘]™[ќЙЛЩWЬЩ[™
+CB€Щ[‹™]™[ќЧЬ™]€HЩ[‹™]™[ќЛ›[Y\ЛЫЬJ
+CBѓB€ИШ\”\[\ИHЩЩЩY]™\ћHLЩXЫЫ™И
+€H\€ЩYЫY[ќ
+CB€Y€
+Щ[‹њЫK™њ[YH	H[ќ
+L€ИРХ“
+HOH
+NѓB€ЬЬЩ[™HY\ЬШYЪ[™Л›™]ЧЫY\ЬШYЩJ	ШШ\”\[\ЙКCB€ЬЬЩ[™Ш\”\[\ИHЩ[‹ђФB€Щ[‹њKњЩ[™
+	ШШ\”\[\ЙЛЬЬЩ[™
+CBѓB€ИШ\ђЫЫќ›ЫB€ШЧЬЩ[™HY\ЬШYЪ[™Л›™]ЧЫY\ЬШYЩJ	ШШ\ђЫЫќ›Ы	КCB€ШЧЬЩ[™ќ[YHФЛШ[•[YB€ШЧЬЩ[™Ш\ђЫЫќ›ЫHРГB€Щ[‹њKњЩ[™
+	ШШ\ђЫЫќ›Ы	ЛШЧЬЩ[™
+CBѓB€ИЫЬHШ\ђЫЫќ›ЫИ\ЬИИШ\’[ќ\™XЩHЫ€H™^]\][ЫѓB€Щ[‹ђРИHРГBѓB€Y€Э\
+Щ[ЉNѓB€Э\ќЭ[YHHЩXЧЬЪ[ЩWШ›ЫЭ
+
+CB€Щ[‹њ›Щ‹ЪXЪЬЪ[ќ
+”]ZЩY\\€‹YЫ›Ь™OUќYJCBѓB€ИШ[\H]Hњ›ЫHЫШЪЩ]И[™Щ]HШ\”Э]CB€ФИHЩ[‹™]WЬШ[\J
+CB€ЫЭYЩЛќ[Y\Э[\
+‘]HШ[\YЉCB€Щ[‹њ›Щ‹ЪXЪЬЪ[ќ
+”Ш[\HЉCBѓB€Щ[‹ќ\]WЩ]™[ќКФКCB€ЫЭYЩЛќ[Y\Э[\
+‘]™[ќИ\]YЉCBѓB€Y€›ЭЩ[‹њ™XYЫЫ›H[™Щ[‹љ[љ]X[^™YѓB€И\]HЫЫќ›ЫЭ]CB€Щ[‹њЭ]WЭ[њЪ][ЫЉФКCB€Щ[‹њ›Щ‹ЪXЪЬЪ[ќ
+”Э]H[њЪ][Ы€ЉCBѓB€ИЫЫ\]HXЭX]ЬњИ
+ќ[њИQЫЬИ[™]\[TКCB€РЛXЧЫЩИHЩ[‹њЭ]WШЫЫќ›Ы
+ФКCBѓB€Щ[‹њ›Щ‹ЪXЪЬЪ[ќ
+”Э]HЫЫќ›ЫЉCBѓB€ИX›\Ъ]CB€Щ[‹њX›\ЪЫЩЬКФЛЭ\ќЭ[YKРЛXЧЫЩКCB€Щ[‹њ›Щ‹ЪXЪЬЪ[ќ
+”Щ[ќЉCBѓB€Щ[‹ќ\]WШќ]Ы—Э[Y\њКФЛќ]Ы‘]™[ќКCB€Щ[‹ђФЧЬ™]€HФГBѓB€Y€ЫЫќ›ЫЩЭ™XY
+Щ[ЉNѓB€Ъ[HќYNѓB€Щ[‹њЭ\
+
+CB€Щ[‹њљЛ›[Ыљ]Ь—Э[YJ
+CB€Щ[‹њ›Щ‹™\Ь^J
+CBѓBѓB™Y€XZ[ЉЫOS›Ы™KOS›Ы™KЩШШ[ЏS›Ы™JNѓB€ЫЫќ›ЫИHЫЫќ›ЫКЫKKЩШШ[ЉCB€ЫЫќ›ЫЛЫЫќ›ЫЩЭ™XY
+
+CBѓBѓBљY€ЧЫ[YWЧИOH—ЧЫXZ[—ЧИЋѓB€XZ[Љ
+CB

@@ -303,7 +303,7 @@ class CarController:
         self.scc12_cnt %= 0xF
 
         can_sends.append(create_scc12(self.packer, apply_accel, CC.enabled, self.scc12_cnt, self.scc_live, CS.scc12,
-                                      CS.out.gasPressed, CS.out.brakePressed, CS.out.cruiseState.standstill,
+                                      CS.out.gasPressed, CS.out.brakePressed, stopping and CS.out.vEgo < 2.,
                                       self.car_fingerprint, force_long=low_speed_engage_request))
 
         can_sends.append(create_scc11(self.packer, self.frame, CC.enabled, set_speed, hud_control.leadVisible, self.scc_live, CS.scc11,
