@@ -466,7 +466,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const int right_margin = qRound(10 * ui_scale);
   const int bottom_margin = qRound(5 * ui_scale);
   const int panel_w = qRound(620 * ui_scale);
-  const int compact_h = qRound(280 * ui_scale);
+  const int compact_h = qRound(320 * ui_scale);
   const QRect compact_box(width() - right_margin - panel_w,
                           height() - bottom_margin - compact_h,
                           panel_w, compact_h);
@@ -534,10 +534,10 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
                  title, Qt::ElideRight, compact_box.width() - qRound(36 * ui_scale)));
 
   const int turn_center_x = compact_box.x() + qRound(88 * ui_scale);
-  const int turn_center_y = compact_box.y() + qRound(146 * ui_scale);
+  const int turn_center_y = compact_box.y() + qRound(166 * ui_scale);
   const QRect turn_card(turn_center_x - qRound(70 * ui_scale),
-                        turn_center_y - qRound(82 * ui_scale),
-                        qRound(140 * ui_scale), qRound(205 * ui_scale));
+                        turn_center_y - qRound(102 * ui_scale),
+                        qRound(140 * ui_scale), qRound(245 * ui_scale));
   const bool atc_prepare = atc_available && carrot_navi_distance > 350;
   const QColor turn_fill = atc_available
       ? (atc_prepare ? QColor(0, 170, 80, 115) : QColor(0, 170, 80, 235))
@@ -548,7 +548,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
 
   const int turn_icon_size = qRound(112 * ui_scale);
   const QRect turn_icon(turn_center_x - turn_icon_size / 2,
-                        turn_center_y - qRound(64 * ui_scale),
+                        turn_center_y - qRound(72 * ui_scale),
                         turn_icon_size, turn_icon_size);
   // Match c3-wip: use its original 256x256 PNG artwork for turns,
   // forks/lane changes, and U-turns. Keep vector rendering only as a fallback
@@ -594,13 +594,13 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
       .arg(eta.toString("HH:mm"));
   configFont(p, "Open Sans", std::max(22, qRound(42 * ui_scale)), "Bold");
   p.setPen(Qt::white);
-  p.drawText(QRect(info_x, compact_box.y() + qRound(72 * ui_scale),
+  p.drawText(QRect(info_x, compact_box.y() + qRound(82 * ui_scale),
                    info_w, qRound(55 * ui_scale)),
              Qt::AlignLeft | Qt::AlignVCenter, eta_text);
 
   const QString remain_text = carrotDistanceText(carrot_navi_remain_distance);
   p.drawText(QRect(info_x + qRound(100 * ui_scale),
-                   compact_box.y() + qRound(124 * ui_scale),
+                   compact_box.y() + qRound(145 * ui_scale),
                    info_w - qRound(100 * ui_scale), qRound(55 * ui_scale)),
              Qt::AlignLeft | Qt::AlignVCenter,
              remain_text.isEmpty() ? QString("--") : remain_text);
@@ -610,7 +610,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   if (road_text.isEmpty()) road_text = carrot_navi_road;
   if (road_text.isEmpty()) road_text = carrot_navi_next_instruction;
   configFont(p, "Open Sans", std::max(18, qRound(34 * ui_scale)), "Bold");
-  const QRect road_box(info_x, compact_box.y() + qRound(194 * ui_scale),
+  const QRect road_box(info_x, compact_box.y() + qRound(230 * ui_scale),
                        info_w, qRound(55 * ui_scale));
   const QString visible_road_text =
       QFontMetrics(p.font()).elidedText(road_text, Qt::ElideRight, info_w - qRound(16 * ui_scale));
