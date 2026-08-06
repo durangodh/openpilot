@@ -804,7 +804,7 @@ void NvgWindow::drawCarrotBottom(QPainter &p) {
     }
   }
   if (!lat_debug.isEmpty()) {
-    int right_limit = width() - 20;
+    int right_limit = width() - 180;
     int left_limit = 240;
     int avail = right_limit - left_limit;
 
