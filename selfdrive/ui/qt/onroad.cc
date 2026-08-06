@@ -1257,7 +1257,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     for (int i = 0; i < 4; ++i) {
       QString pressure = get_tpms_text(pressures[i]);
       if (pressure.isEmpty()) pressure = "--";
-      ctTextIn(p, cells[i], pressure, 25, get_tpms_color(pressures[i]));
+      ctTextIn(p, cells[i], pressure, 40, get_tpms_color(pressures[i]), true);
     }
 
     dx += 150;
