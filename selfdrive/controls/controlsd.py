@@ -212,6 +212,12 @@ class Controls:
     self.params = Params()
     self.soft_hold = SoftHoldController()
     self.soft_hold_enabled = self.params.get_bool("SoftHoldMode")
+    self.cruise_button_mode = 0
+    self.cruise_speed_unit = 10
+    self.cruise_speed_unit_basic = 1
+    self.cruise_button_long_delay = 70
+    self.cruise_speed_table = [30, 50, 70, 90, 110]
+    self.speed_from_pcm = 2
 
     # TODO: no longer necessary, aside from process replay
     self.sm['liveParameters'].valid = True
@@ -484,6 +490,13 @@ class Controls:
 
     if self.sm.frame % 100 == 0:
       self.cruise_speed_min = read_cruise_speed_min(self.params)
+      self.cruise_button_mode = int(clip(self.params.get_int("CruiseButtonMode"), 0, 3))
+      self.cruise_speed_unit = int(clip(self.params.get_int("CruiseSpeedUnit"), 1, 20))
+      self.cruise_speed_unit_basic = int(clip(self.params.get_int("CruiseSpeedUnitBasic"), 1, 10))
+      self.cruise_button_long_delay = int(clip(self.params.get_int("CruiseButtonLongDelay"), 30, 150))
+      table = [self.params.get_int(f"CruiseSpeed{i}") for i in range(1, 6)]
+      self.cruise_speed_table = sorted(clip(v, self.cruise_speed_min, V_CRUISE_MAX) for v in table)
+      self.speed_from_pcm = int(clip(self.params.get_int("SpeedFromPCM"), 0, 3))
 
     self.CP.pcmCruise = self.CI.CP.pcmCruise
 
