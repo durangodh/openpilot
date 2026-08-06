@@ -1055,8 +1055,6 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     show_datetime = sdt.empty() ? 1 : std::atoi(sdt.c_str());   // 0:끔 1:시간+날짜 2:시간만 3:날짜만
     std::string sga = params.get("ShowGearAnimation");
     show_gear_animation = sga.empty() ? 1 : std::atoi(sga.c_str());
-    std::string saa = params.get("ShowAtcAnimation");
-    show_atc_animation = saa.empty() ? 1 : std::atoi(saa.c_str());
     show_bsd_always = std::atoi(params.get("ShowBlindSpotAlways").c_str());
     std::string sch = params.get("ShowCarrotHud");
     show_carrot_hud = sch.empty() ? 1 : std::atoi(sch.c_str());
