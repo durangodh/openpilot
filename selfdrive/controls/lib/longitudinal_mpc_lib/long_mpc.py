@@ -66,8 +66,8 @@ STOP_DISTANCE_E2E = 6.0
 # ── Lead 부드러운 전환 파라미터 ──────────────────────────────────────────────
 LEAD_DETECT_RAMP_T = 0.05  # c3-wip: no extra lead-input delay
 LEAD_SMOOTH_ALPHA  = 1.0   # radar state is already filtered
-T_FOLLOW_MAX_RATE  = 100.0 # apply the selected gap directly
-T_FOLLOW_DECREASE_RATE = 0.30  # seconds of TR reduced per second
+T_FOLLOW_RISE_RATE = 0.30
+T_FOLLOW_DECEL_RISE_RATE = 0.60
 LEAD_RAMP_BYPASS_TTC = 5.0 # 이보다 급한 접근은 ramp 없이 즉시 원본 lead 반영
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -241,6 +241,7 @@ class LongitudinalMpc:
     # longitudinal_planner.read_param()에서 5초 주기로 갱신됨.
     self.tfollow_gaps = None
     self.t_follow_speed_ratio = 1.2
+    self.t_follow_decel_boost = 0.5
     self._tf_applied = 0.0
     self._tf_v_ego_kph = 0.0
     # ────────────────────────────────────────────────────────────────────
@@ -543,20 +544,25 @@ class LongitudinalMpc:
     speed_scale = interp(v_ego * CV.MS_TO_KPH, [0.0, 100.0], [1.0, self.t_follow_speed_ratio])
     tr *= speed_scale
 
-    # Apply safety-increasing changes immediately. Reductions are held while
-    # decelerating and otherwise eased in to prevent a sudden closing surge.
+    # carrot-wip parity: prevent a gap reduction while decelerating, add a
+    # configurable deceleration boost, ramp increases progressively, and
+    # apply reductions immediately.
     gap_values = self.tfollow_gaps if self.tfollow_gaps is not None else CRUISE_GAP_V
-    v_ego_kph = v_ego * CV.MS_TO_KPH
     tr_max = max(gap_values) * self.driving_mode_tf * speed_scale
-    tr_target = float(np.clip(tr, max(0.6, min(gap_values)), tr_max))
-    if self._tf_applied <= 0.0 or tr_target >= self._tf_applied:
+    decel_extra = float(interp(carstate.aEgo, [-2.5, -1.0, -0.3, 0.0],
+                               [0.50, 0.25, 0.06, 0.0])) * self.t_follow_decel_boost
+    tr_target = float(np.clip(tr + decel_extra, max(0.6, min(gap_values)), min(2.0, tr_max + decel_extra)))
+    if self._tf_applied <= 0.0:
       tr = tr_target
-    elif v_ego_kph < self._tf_v_ego_kph:
-      tr = self._tf_applied
     else:
-      tr = max(tr_target, self._tf_applied - T_FOLLOW_DECREASE_RATE * DT_UPDATE)
+      if carstate.aEgo <= -0.2 and tr_target < self._tf_applied:
+        tr_target = self._tf_applied
+      if tr_target > self._tf_applied:
+        rise_rate = T_FOLLOW_DECEL_RISE_RATE if decel_extra > 0.02 else T_FOLLOW_RISE_RATE
+        tr = min(tr_target, self._tf_applied + rise_rate * DT_UPDATE)
+      else:
+        tr = tr_target
     self._tf_applied = float(tr)
-    self._tf_v_ego_kph = v_ego_kph
     # ────────────────────────────────────────────────────────────────────
 
     self.t_follow = tr
@@ -605,13 +611,7 @@ class LongitudinalMpc:
       )
     # ─────────────────────────────────────────────────────────────────────
 
-    # ── t_follow rate limiter: 급격한 변화 방지 ──────────────────────────
-    # (Auto-Tuner 학습값 적용/GAP 전환/속도-가변 보정 점프도 이 limiter가 완만하게 처리)
-    t_follow_delta = self.t_follow - self._t_follow_smooth
-    max_delta      = T_FOLLOW_MAX_RATE * DT_UPDATE
-    self._t_follow_smooth += float(np.clip(t_follow_delta, -max_delta, max_delta))
-    self.t_follow = self._t_follow_smooth
-    # ─────────────────────────────────────────────────────────────────────
+    self._t_follow_smooth = self.t_follow
 
     # ── Lever A (commit d897f06): 고속 + 선행차 접근 → 추종거리 선제 확대 ──────
     # rate limiter '뒤'에 둬서 즉시 반영(고속 접근은 늦으면 안 됨). _t_follow_smooth
