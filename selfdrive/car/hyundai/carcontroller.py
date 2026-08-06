@@ -315,6 +315,14 @@ class CarController:
         if CS.has_scc14:
           acc_standstill = stopping if CS.out.vEgo < 2. else False
 
+          # apilot-c2 comfort bands: keep the SCC brake-to-accel handoff in
+          # the normal control range instead of switching from 0 to 50.
+          if stopping:
+            cb_upper = cb_lower = 0.0
+          else:
+            cb_upper = clip(0.9 + apply_accel * 0.2, 0.0, 1.2)
+            cb_lower = clip(0.8 + apply_accel * 0.2, 0.0, 1.2)
+
           lead = self.scc_smoother.get_lead(controls.sm)
 
           if lead is not None:
@@ -325,6 +333,6 @@ class CarController:
 
           can_sends.append(
             create_scc14(self.packer, CC.enabled, CS.out.vEgo, acc_standstill, apply_accel, CS.out.gasPressed,
-                         obj_gap, CS.scc14, jerk_upper, jerk_lower))
+                         obj_gap, CS.scc14, jerk_upper, jerk_lower, cb_upper, cb_lower))
     else:
       self.scc12_cnt = -1
