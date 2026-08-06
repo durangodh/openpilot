@@ -436,13 +436,13 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   p.setRenderHint(QPainter::Antialiasing);
   p.setRenderHint(QPainter::TextAntialiasing);
 
-  // c3-wip uses 1920x1080 coordinates. Scale uniformly so the compact
-  // bottom-right guidance box keeps the original 790:300 aspect ratio.
+  // Use the former right-side map width for both panels. Keep the compact
+  // guidance box above the bottom lane-width/debug strip.
   const qreal ui_scale = std::min(width() / 1920.0, height() / 1080.0);
   const int right_margin = qRound(10 * ui_scale);
-  const int bottom_margin = qRound(10 * ui_scale);
-  const int panel_w = qRound(790 * ui_scale);
-  const int compact_h = qRound(300 * ui_scale);
+  const int bottom_margin = qRound(70 * ui_scale);
+  const int panel_w = qRound(700 * ui_scale);
+  const int compact_h = qRound(280 * ui_scale);
   const QRect compact_box(width() - right_margin - panel_w,
                           height() - bottom_margin - compact_h,
                           panel_w, compact_h);
@@ -459,19 +459,8 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
                              atc_fresh && carrot_navi_distance >= 0 &&
                              atc_kind != CarrotAtcKind::NONE;
 
-  // Keep c3-wip's road-position guidance while using vector artwork instead
-  // of the removed PNG assets.
-  if (atc_available && carrot_navi_distance < 1500) {
-    const qreal distance_ratio = std::clamp(carrot_navi_distance / 1500.0, 0.0, 1.0);
-    const int arrow_size = qRound(150 * ui_scale);
-    const int arrow_center_y = qRound((520 - distance_ratio * 210.0) * ui_scale);
-    const QRect road_arrow(width() / 2 - arrow_size / 2,
-                           arrow_center_y - arrow_size / 2,
-                           arrow_size, arrow_size);
-    drawCarrotTurnArrow(p, road_arrow, carrot_navi_turn_type,
-                        carrot_navi_instruction, QColor(255, 255, 255, 235),
-                        std::max(7, qRound(16 * ui_scale)));
-  }
+  // Do not draw a separate navigation/ATC lane arrow in the road center.
+  // Guidance remains contained in the bottom-right information box.
 
   // The compact information box is always drawn first. A fresh map frame is
   // drawn over it later, matching c3-wip's persistent-box/map-overlay order.
@@ -482,21 +471,21 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   QString title = carrot_navi_instruction;
   if (title.isEmpty()) title = carrot_navi_road;
   if (title.isEmpty()) title = QString::fromUtf8("경로 안내");
-  configFont(p, "Open Sans", std::max(20, qRound(40 * ui_scale)), "Bold");
+  configFont(p, "Open Sans", std::max(20, qRound(36 * ui_scale)), "Bold");
   p.setPen(Qt::white);
-  p.drawText(QRect(compact_box.x() + qRound(20 * ui_scale),
-                   compact_box.y() + qRound(5 * ui_scale),
-                   compact_box.width() - qRound(40 * ui_scale),
-                   qRound(58 * ui_scale)),
+  p.drawText(QRect(compact_box.x() + qRound(18 * ui_scale),
+                   compact_box.y() + qRound(4 * ui_scale),
+                   compact_box.width() - qRound(36 * ui_scale),
+                   qRound(52 * ui_scale)),
              Qt::AlignLeft | Qt::AlignVCenter,
              QFontMetrics(p.font()).elidedText(
-                 title, Qt::ElideRight, compact_box.width() - qRound(40 * ui_scale)));
+                 title, Qt::ElideRight, compact_box.width() - qRound(36 * ui_scale)));
 
-  const int turn_center_x = compact_box.x() + qRound(100 * ui_scale);
-  const int turn_center_y = compact_box.y() + qRound(155 * ui_scale);
-  const QRect turn_card(turn_center_x - qRound(80 * ui_scale),
-                        turn_center_y - qRound(90 * ui_scale),
-                        qRound(160 * ui_scale), qRound(230 * ui_scale));
+  const int turn_center_x = compact_box.x() + qRound(88 * ui_scale);
+  const int turn_center_y = compact_box.y() + qRound(146 * ui_scale);
+  const QRect turn_card(turn_center_x - qRound(70 * ui_scale),
+                        turn_center_y - qRound(82 * ui_scale),
+                        qRound(140 * ui_scale), qRound(205 * ui_scale));
   const bool atc_prepare = atc_available && carrot_navi_distance > 350;
   const QColor turn_fill = atc_available
       ? (atc_prepare ? QColor(0, 170, 80, 115) : QColor(0, 170, 80, 235))
@@ -505,9 +494,9 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   p.setBrush(turn_fill);
   p.drawRoundedRect(turn_card, qRound(15 * ui_scale), qRound(15 * ui_scale));
 
-  const int turn_icon_size = qRound(130 * ui_scale);
+  const int turn_icon_size = qRound(112 * ui_scale);
   const QRect turn_icon(turn_center_x - turn_icon_size / 2,
-                        turn_center_y - qRound(70 * ui_scale),
+                        turn_center_y - qRound(64 * ui_scale),
                         turn_icon_size, turn_icon_size);
   if (atc_kind != CarrotAtcKind::NONE) {
     drawCarrotTurnArrow(p, turn_icon, carrot_navi_turn_type,
@@ -519,38 +508,38 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
     p.drawText(turn_icon, Qt::AlignCenter, QString::fromUtf8("안내"));
   }
 
-  configFont(p, "Open Sans", std::max(19, qRound(40 * ui_scale)), "Bold");
+  configFont(p, "Open Sans", std::max(19, qRound(36 * ui_scale)), "Bold");
   p.setPen(Qt::white);
   const QString turn_distance = carrotDistanceText(carrot_navi_distance);
-  p.drawText(QRect(turn_card.x(), turn_card.bottom() - qRound(58 * ui_scale),
-                   turn_card.width(), qRound(52 * ui_scale)),
+  p.drawText(QRect(turn_card.x(), turn_card.bottom() - qRound(52 * ui_scale),
+                   turn_card.width(), qRound(46 * ui_scale)),
              Qt::AlignCenter, turn_distance.isEmpty() ? QString("--") : turn_distance);
 
-  const int info_x = compact_box.x() + qRound(190 * ui_scale);
-  const int info_w = compact_box.right() - info_x - qRound(20 * ui_scale);
+  const int info_x = compact_box.x() + qRound(170 * ui_scale);
+  const int info_w = compact_box.right() - info_x - qRound(18 * ui_scale);
   const QDateTime eta = QDateTime::currentDateTime().addSecs(carrot_navi_remain_time);
   const QString eta_text = QString("ETA: %1MIN(%2)")
       .arg(carrot_navi_remain_time / 60.0, 0, 'f', 1)
       .arg(eta.toString("HH:mm"));
-  configFont(p, "Open Sans", std::max(22, qRound(50 * ui_scale)), "Bold");
+  configFont(p, "Open Sans", std::max(22, qRound(42 * ui_scale)), "Bold");
   p.setPen(Qt::white);
-  p.drawText(QRect(info_x, compact_box.y() + qRound(80 * ui_scale),
-                   info_w, qRound(62 * ui_scale)),
+  p.drawText(QRect(info_x, compact_box.y() + qRound(72 * ui_scale),
+                   info_w, qRound(55 * ui_scale)),
              Qt::AlignLeft | Qt::AlignVCenter, eta_text);
 
   const QString remain_text = carrotDistanceText(carrot_navi_remain_distance);
-  p.drawText(QRect(info_x + qRound(120 * ui_scale),
-                   compact_box.y() + qRound(132 * ui_scale),
-                   info_w - qRound(120 * ui_scale), qRound(62 * ui_scale)),
+  p.drawText(QRect(info_x + qRound(100 * ui_scale),
+                   compact_box.y() + qRound(124 * ui_scale),
+                   info_w - qRound(100 * ui_scale), qRound(55 * ui_scale)),
              Qt::AlignLeft | Qt::AlignVCenter,
              remain_text.isEmpty() ? QString("--") : remain_text);
 
   QString road_text = carrot_navi_road;
   if (road_text.isEmpty()) road_text = carrot_navi_next_instruction;
-  configFont(p, "Open Sans", std::max(18, qRound(40 * ui_scale)), "Bold");
+  configFont(p, "Open Sans", std::max(18, qRound(34 * ui_scale)), "Bold");
   p.setPen(Qt::white);
-  p.drawText(QRect(info_x, compact_box.y() + qRound(205 * ui_scale),
-                   info_w, qRound(62 * ui_scale)),
+  p.drawText(QRect(info_x, compact_box.y() + qRound(194 * ui_scale),
+                   info_w, qRound(55 * ui_scale)),
              Qt::AlignLeft | Qt::AlignVCenter,
              QFontMetrics(p.font()).elidedText(road_text, Qt::ElideRight, info_w));
 
@@ -587,8 +576,11 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const qint64 map_age = wall_now - map_modified_at;
   const bool map_fresh = !map_pixmap.isNull() && map_age >= 0 && map_age <= 2500;
   if (map_fresh) {
-    const QRect map_panel(compact_box.x(), qRound(5 * ui_scale), compact_box.width(),
-                          height() - qRound(20 * ui_scale));
+    const int map_top = qRound(5 * ui_scale);
+    const int map_gap = qRound(10 * ui_scale);
+    const int map_h = compact_box.top() - map_gap - map_top;
+    const QRect map_panel(compact_box.x(), map_top, compact_box.width(),
+                          std::max(1, map_h));
 
     // Rebuild the crop only for a new Tmap frame or a geometry change. This
     // keeps map-only mode inexpensive on EON/C3 while paintEvent runs at UI Hz.
