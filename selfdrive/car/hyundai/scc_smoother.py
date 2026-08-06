@@ -265,10 +265,11 @@ class SccSmoother:
       self.limited_lead = False
 
     if self.carrot_atc_mode in (2, 3) and not CS.out.brakePressed:
-      atc_limit_kph = self.carrot_atc.speed_limit_kph(
+      atc_limits_kph = self.carrot_atc.speed_limits_kph(
         self.carrot_atc.update(), self.carrot_atc_speed, self.carrot_atc_end_time)
-      if atc_limit_kph is not None:
-        max_speed_clu = min(max_speed_clu, self.kph_to_clu(atc_limit_kph))
+      valid_atc_limits = [limit for limit in atc_limits_kph if limit is not None]
+      if valid_atc_limits:
+        max_speed_clu = min(max_speed_clu, self.kph_to_clu(min(valid_atc_limits)))
 
     self.update_max_speed(int(max_speed_clu + 0.5),
                           curv_limit != 0 and curv_limit == int(max_speed_clu))

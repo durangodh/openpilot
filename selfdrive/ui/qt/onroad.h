@@ -95,7 +95,6 @@ protected:
 
   // ===== CarrotPilot style HUD (ported from ajouatom/openpilot c3-wip : carrot.cc drawHud) =====
   void drawCarrotHud(QPainter &p);
-  void drawAtcManeuver(QPainter &p);
   void drawE2eTrafficState(QPainter &p);
   void ctRect(QPainter &p, const QRect &r, const QColor &fill, int corner,
               int borderWidth = 0, const QColor &borderColor = QColor(255, 255, 255, 255));
