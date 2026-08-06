@@ -109,6 +109,8 @@ def manager_init() -> None:
     ("TurnVisionControl", "0"),
     ("VisionCurveLaneless", "0"),
     ("StopAccelApply", "30"),
+    ("LongitudinalActuatorDelayLowerBound", "50"),
+    ("LongitudinalActuatorDelayUpperBound", "50"),
     ("SoftHoldMode", "1"),
   ]
   if not PC:
