@@ -121,7 +121,6 @@ protected:
   int  carrot_atc_end_time = 6;
   int  show_datetime = 1;
   int  show_gear_animation = 1;
-  int  show_atc_animation = 1;
   int  show_bsd_always = 0;
   int  show_carrot_hud = 1;
   // ATC 상태박스(파랑=조향개입)를 desire_helper.py 의 페이드아웃과 맞추기 위한 값들.
