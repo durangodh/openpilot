@@ -261,7 +261,8 @@ class LongitudinalPlanner:
     elif self.auto_e2e_prepare:
       # Return to the stored stop if a departure prediction disappears at
       # low speed or the driver presses the brake.
-      if car_state.brakePressed or (v_ego_kph < 2.0 and not start_sign and not car_state.gasPressed):
+      if car_state.brakePressed or (v_ego_kph < 2.0 and not start_sign and
+                                    not lead_present and not car_state.gasPressed):
         self.auto_e2e_prepare = False
         self.auto_e2e_stopping = True
         self.e2e_stop_distance = 0.0 if car_state.vEgo < 0.1 else filtered_stop_x
@@ -502,4 +503,3 @@ class LongitudinalPlanner:
     source = min(v_solutions, key=v_solutions.get)
 
     return source, a_solutions[source], v_solutions[source]
-
