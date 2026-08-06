@@ -948,6 +948,39 @@ void NvgWindow::drawAtcManeuver(QPainter &p) {
                                            carrot_navi_instruction, &direction);
   if (kind == CarrotAtcKind::NONE) return;
 
+  const UIState *s = uiState();
+  const auto car_state = (*s->sm)["carState"].getCarState();
+  const auto car_control = (*s->sm)["carControl"].getCarControl();
+  const auto lateral_plan = (*s->sm)["lateralPlan"].getLateralPlan();
+  const auto smoother = car_control.getSccSmoother();
+  const auto desire = lateral_plan.getDesire();
+
+  const bool turn_desire =
+      (direction < 0 && desire == cereal::LateralPlan::Desire::TURN_LEFT) ||
+      (direction > 0 && desire == cereal::LateralPlan::Desire::TURN_RIGHT);
+  const bool lane_change_desire =
+      (direction < 0 && desire == cereal::LateralPlan::Desire::LANE_CHANGE_LEFT) ||
+      (direction > 0 && desire == cereal::LateralPlan::Desire::LANE_CHANGE_RIGHT);
+  const bool steering_active = carrot_atc_mode <= 2 && car_control.getLatActive() &&
+                               !car_state.getBrakePressed() &&
+                               ((kind == CarrotAtcKind::TURN || kind == CarrotAtcKind::UTURN)
+                                  ? turn_desire : (kind == CarrotAtcKind::FORK && lane_change_desire));
+
+  bool decel_active = false;
+  if (carrot_atc_mode >= 2 && !car_state.getBrakePressed() &&
+      (kind == CarrotAtcKind::TURN || kind == CarrotAtcKind::UTURN ||
+       kind == CarrotAtcKind::ROTARY) && carrot_navi_distance <= 350) {
+    const float target_mps = std::max(30, std::min(60, carrot_atc_speed)) / 3.6f;
+    const float end_time = std::max(2, std::min(12, carrot_atc_end_time));
+    const float braking_distance = std::max(0.0f, carrot_navi_distance - target_mps * end_time);
+    const float atc_limit_kph = std::sqrt(target_mps * target_mps + 2.0f * 1.2f * braking_distance) * 3.6f;
+    decel_active = smoother.getCruiseMaxSpeed() > 0.0f &&
+                   atc_limit_kph < smoother.getCruiseMaxSpeed() - 0.5f;
+  }
+  const QColor active_color = steering_active && decel_active ? QColor(255, 210, 40, 245) :
+                              steering_active ? QColor(30, 130, 255, 245) :
+                              decel_active ? QColor(245, 55, 55, 245) : CT_WHITE;
+
   const QPixmap *icon = nullptr;
   if (kind == CarrotAtcKind::TURN) {
     icon = direction < 0 ? &ic_turn_l : direction > 0 ? &ic_turn_r : nullptr;
@@ -955,8 +988,8 @@ void NvgWindow::drawAtcManeuver(QPainter &p) {
     icon = direction < 0 ? &ic_lane_change_l : direction > 0 ? &ic_lane_change_r : nullptr;
   }
 
-  const int icon_size = 180;
-  const QPoint center(width() / 2, height() / 2 - 20);
+  const int icon_size = 360;
+  const QPoint center(width() / 2, 250 + icon_size / 2);
   const QRect icon_rect(center.x() - icon_size / 2, center.y() - icon_size / 2,
                         icon_size, icon_size);
 
@@ -964,16 +997,27 @@ void NvgWindow::drawAtcManeuver(QPainter &p) {
   p.setRenderHint(QPainter::Antialiasing);
   p.setRenderHint(QPainter::SmoothPixmapTransform);
   if (icon != nullptr && !icon->isNull()) {
-    p.drawPixmap(icon_rect, *icon);
+    if (steering_active || decel_active) {
+      QPixmap tinted = icon->scaled(icon_rect.size(), Qt::KeepAspectRatio,
+                                   Qt::SmoothTransformation);
+      QPainter tint_painter(&tinted);
+      tint_painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+      tint_painter.fillRect(tinted.rect(), active_color);
+      tint_painter.end();
+      p.drawPixmap(icon_rect, tinted);
+    } else {
+      p.drawPixmap(icon_rect, *icon);
+    }
   } else {
     // aPilot also uses text for maneuvers without a dedicated image.
     const QString maneuver = kind == CarrotAtcKind::UTURN ? QString::fromUtf8("U턴")
                                                            : QString("ROTARY");
-    ctTextIn(p, icon_rect, maneuver, 48, CT_WHITE);
+    ctTextIn(p, icon_rect, maneuver, 84, active_color);
   }
 
   const QString distance = carrotDistanceText(carrot_navi_distance);
-  ctText(p, center.x(), icon_rect.bottom() + 58, distance, 42, CT_WHITE, true, true);
+  ctText(p, center.x(), icon_rect.bottom() + 88, distance, 72,
+         active_color, true, true);
   p.restore();
 }
 
@@ -1003,6 +1047,10 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     my_driving_mode = (m >= 1 && m <= 4) ? m : 3;
     show_device_state = std::atoi(params.get("ShowDeviceState").c_str());
     carrot_atc_mode = std::atoi(params.get("CarrotAutoTurnControl").c_str());
+    carrot_atc_speed = std::atoi(params.get("CarrotAutoTurnSpeed").c_str());
+    carrot_atc_end_time = std::atoi(params.get("CarrotAutoTurnEndTime").c_str());
+    if (carrot_atc_speed < 30 || carrot_atc_speed > 60) carrot_atc_speed = 30;
+    if (carrot_atc_end_time < 2 || carrot_atc_end_time > 12) carrot_atc_end_time = 6;
     std::string sdt = params.get("ShowDateTime");
     show_datetime = sdt.empty() ? 1 : std::atoi(sdt.c_str());   // 0:끔 1:시간+날짜 2:시간만 3:날짜만
     std::string sga = params.get("ShowGearAnimation");
