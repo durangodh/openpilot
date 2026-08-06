@@ -2401,6 +2401,61 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 5, 30, 1, 0, 30, this));
 
   list->addItem(new ParamValueControlF(
+      "AutoCruiseControl", "C3 자동 크루즈",
+      "0: 자동 활성화 끔 / 1 이상: 안전조건을 만족한 가속페달·브레이크 해제 자동재개 사용",
+      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 1, this));
+
+  list->addItem(new ParamValueControlF(
+      "SpeedFromPCM", "크루즈 설정속도 기준",
+      "1: 순정 SCC 설정속도 사용 / 2: 오픈파일럿 설정속도와 C3 버튼 모드 사용",
+      "../assets/offroad/icon_road.png", 1, 2, 1, 0, 2, this));
+
+  list->addItem(new ParamValueControlF(
+      "AutoGasTokSpeed", "가속페달 자동재개 속도 (km/h)",
+      "이 속도 이상에서 가속페달 자동재개를 허용합니다.",
+      "../assets/offroad/icon_road.png", 5, 60, 1, 0, 30, this));
+
+  list->addItem(new ParamValueControlF(
+      "AutoGasCancelSpeed", "가속페달 해제 취소속도 (km/h)",
+      "짧은 가속페달 조작 후 이 속도보다 낮으면 자동재개하지 않습니다.",
+      "../assets/offroad/icon_road.png", 0, 60, 1, 0, 30, this));
+
+  list->addItem(new ParamValueControlF(
+      "CruiseButtonMode", "크루즈 버튼 모드",
+      "0: 일반 1km/h 증감 / 1: RES 사용자단위, SET 사용자단위 / 2: SET 현재속도 동기화 / 3: RES 지정속도 순환",
+      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 0, this));
+
+  list->addItem(new ParamValueControlF(
+      "CruiseSpeedUnit", "크루즈 사용자 증감단위 (km/h)",
+      "크루즈 버튼 모드 1~3에서 사용하는 속도 단위입니다.",
+      "../assets/offroad/icon_road.png", 1, 20, 1, 0, 10, this));
+
+  list->addItem(new ParamValueControlF(
+      "CruiseButtonLongDelay", "크루즈 버튼 길게누름 시간",
+      "RES/SET 길게누름 판정시간입니다. 제어주기 0.01초 단위이며 기본 70은 약 0.7초입니다.",
+      "../assets/offroad/icon_road.png", 30, 150, 5, 0, 70, this));
+
+  list->addItem(new ParamValueControlF(
+      "AutoSpeedUptoRoadSpeedLimit", "앞차 자동증속 도로속도 비율 (%)",
+      "0은 끔입니다. 앞차가 더 빠르고 60m 이내일 때 일반 도로 제한속도의 지정 비율까지만 설정속도를 올립니다.",
+      "../assets/offroad/icon_road.png", 0, 120, 5, 0, 0, this));
+
+  list->addItem(new ParamValueControlF(
+      "AutoRoadSpeedAdjust", "도로 제한속도 변경 반영률 (%)",
+      "0: 설정속도 유지 / 1~100: 제한속도가 내려갈 때 혼합 적용 / -100: 새 제한속도로 즉시 변경",
+      "../assets/offroad/icon_road.png", -100, 100, 10, 0, 0, this));
+
+  list->addItem(new ParamValueControlF(
+      "AutoRoadSpeedLimitOffset", "도로 제한속도 오프셋 (km/h)",
+      "도로 제한속도 자동변경 모드에서 더하거나 뺄 값입니다.",
+      "../assets/offroad/icon_road.png", -30, 30, 1, 0, 0, this));
+
+  list->addItem(new ParamValueControlF(
+      "TFollowDecelBoost", "감속 중 차간시간 추가 (%)",
+      "C3 방식으로 감속 중 차간시간 감소를 막고 감속량에 따라 여유 간격을 추가합니다.",
+      "../assets/offroad/icon_road.png", 0, 100, 5, 0, 50, this));
+
+  list->addItem(new ParamValueControlF(
       "AutoResumeFromGas", "가속페달 오토리줌 모드",
       "0: 끔 / 1: 조건 충족 중 재개 / 2: 조건 충족 및 0.6초 미만 짧은 가속 후 재개",
       "../assets/offroad/icon_road.png", 0, 2, 1, 0, 1, this));
