@@ -56,7 +56,6 @@ class CarController:
     self.scc12_cnt = -1
 
     self.resume_cnt = 0
-    self.last_lead_distance = 0
     self.resume_wait_timer = 0
 
     self.turning_signal_timer = 0
@@ -177,10 +176,11 @@ class CarController:
     if CS.mdps_bus or self.car_fingerprint in FEATURES["send_mdps12"]:  # send mdps12 to LKAS to prevent LKAS error
       can_sends.append(create_mdps12(self.packer, self.frame, CS.mdps12))
 
-    # Openpilot longitudinal launches with direct SCC acceleration. Sending
-    # the legacy RES spam at the same time can duplicate the launch request.
-    if not self.longcontrol:
-      self.update_auto_resume(CC, CS, clu11_speed, can_sends)
+    # The DH stock SCC keeps a standstill latch even with openpilot
+    # longitudinal control. controlsd only requests resume after the planner
+    # trajectory has detected a real departure, so clear that latch with a
+    # bounded RES pulse sequence in both stock-ACC and openpilot-long modes.
+    self.update_auto_resume(CC, CS, clu11_speed, can_sends)
     self.update_scc(CC, CS, actuators, controls, hud_control, can_sends)
 
     # 20 Hz LFA MFA message
@@ -200,20 +200,18 @@ class CarController:
     return new_actuators, can_sends
 
   def update_auto_resume(self, CC, CS, clu11_speed, can_sends):
-    # fix auto resume - by neokii
+    # CC.cruiseControl.resume is already gated by enabled, standstill,
+    # soft-hold and the planner's departure trajectory. Do not gate it again
+    # on SCC11 ACC_ObjDist: some SCC firmwares update that value late (or not
+    # at all while latched), which prevents the RES command from ever firing.
     if CC.cruiseControl.resume and not CS.out.gasPressed:
-      if self.last_lead_distance == 0:
-        self.last_lead_distance = CS.lead_distance
-        self.resume_cnt = 0
-        self.resume_wait_timer = 0
-
-      elif self.scc_smoother.is_active(self.frame):
+      if self.scc_smoother.is_active(self.frame):
         pass
 
       elif self.resume_wait_timer > 0:
         self.resume_wait_timer -= 1
 
-      elif abs(CS.lead_distance - self.last_lead_distance) > 0.1:
+      else:
         can_sends.append(create_clu11(self.packer, CS.scc_bus, CS.clu11, Buttons.RES_ACCEL, clu11_speed))
         self.resume_cnt += 1
 
@@ -221,8 +219,9 @@ class CarController:
           self.resume_cnt = 0
           self.resume_wait_timer = int(randint(20, 25) * 2)
 
-    elif self.last_lead_distance != 0:
-      self.last_lead_distance = 0
+    else:
+      self.resume_cnt = 0
+      self.resume_wait_timer = 0
 
   def update_scc(self, CC, CS, actuators, controls, hud_control, can_sends):
 
