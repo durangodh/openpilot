@@ -546,9 +546,9 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   p.setBrush(turn_fill);
   p.drawRoundedRect(turn_card, qRound(15 * ui_scale), qRound(15 * ui_scale));
 
-  const int turn_icon_size = qRound(112 * ui_scale);
+  const int turn_icon_size = qRound(132 * ui_scale);
   const QRect turn_icon(turn_center_x - turn_icon_size / 2,
-                        turn_center_y - qRound(72 * ui_scale),
+                        turn_center_y - qRound(86 * ui_scale),
                         turn_icon_size, turn_icon_size);
   // Match c3-wip: use its original 256x256 PNG artwork for turns,
   // forks/lane changes, and U-turns. Keep vector rendering only as a fallback
@@ -568,7 +568,10 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   }
 
   if (turn_pixmap != nullptr && !turn_pixmap->isNull()) {
-    p.drawPixmap(turn_icon, *turn_pixmap, turn_pixmap->rect());
+    // The 256x256 assets contain generous transparent padding. Crop their
+    // shared center artwork region so the arrow fills the direction card.
+    const QRect turn_source(48, 48, 160, 160);
+    p.drawPixmap(turn_icon, *turn_pixmap, turn_source);
   } else if (atc_kind != CarrotAtcKind::NONE) {
     drawCarrotTurnArrow(p, turn_icon, carrot_navi_turn_type,
                         carrot_navi_instruction, Qt::white,
