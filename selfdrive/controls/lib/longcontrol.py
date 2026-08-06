@@ -13,7 +13,13 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                              a_target_now, starting_state, soft_hold=False):
   # apilot-c2 stopping transition: keep PID braking while the planned
   # acceleration is still strong, then hand over to the stopping ramp.
-  cruise_standstill = cruise_standstill and not CP.enableGasInterceptor
+  # With openpilot longitudinal control the stock SCC standstill flag can
+  # remain latched until an acceleration command is sent. Using it here would
+  # create a deadlock: starting is blocked while the flag is set, but the flag
+  # cannot clear until starting begins. Let the MPC trajectory decide stop and
+  # launch for openpilot long; retain the stock flag for PCM cruise control.
+  cruise_standstill = (cruise_standstill and not CP.enableGasInterceptor and
+                       not CP.openpilotLongitudinalControl)
   accelerating = v_target_1sec > (v_target + 0.01)
   planned_stop = (v_target < CP.vEgoStopping and
                   v_target_1sec < CP.vEgoStopping and
