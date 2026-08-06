@@ -498,7 +498,26 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const QRect turn_icon(turn_center_x - turn_icon_size / 2,
                         turn_center_y - qRound(64 * ui_scale),
                         turn_icon_size, turn_icon_size);
-  if (atc_kind != CarrotAtcKind::NONE) {
+  // Match c3-wip: use its original 256x256 PNG artwork for turns,
+  // forks/lane changes, and U-turns. Keep vector rendering only as a fallback
+  // if an asset cannot be loaded on the device.
+  static const QPixmap turn_left_pixmap("../assets/images/turn_l.png");
+  static const QPixmap turn_right_pixmap("../assets/images/turn_r.png");
+  static const QPixmap turn_uturn_pixmap("../assets/images/turn_u.png");
+  static const QPixmap fork_left_pixmap("../assets/images/lane_change_l.png");
+  static const QPixmap fork_right_pixmap("../assets/images/lane_change_r.png");
+  const QPixmap *turn_pixmap = nullptr;
+  if (atc_kind == CarrotAtcKind::TURN) {
+    turn_pixmap = atc_direction < 0 ? &turn_left_pixmap : &turn_right_pixmap;
+  } else if (atc_kind == CarrotAtcKind::FORK) {
+    turn_pixmap = atc_direction < 0 ? &fork_left_pixmap : &fork_right_pixmap;
+  } else if (atc_kind == CarrotAtcKind::UTURN) {
+    turn_pixmap = &turn_uturn_pixmap;
+  }
+
+  if (turn_pixmap != nullptr && !turn_pixmap->isNull()) {
+    p.drawPixmap(turn_icon, *turn_pixmap, turn_pixmap->rect());
+  } else if (atc_kind != CarrotAtcKind::NONE) {
     drawCarrotTurnArrow(p, turn_icon, carrot_navi_turn_type,
                         carrot_navi_instruction, Qt::white,
                         std::max(6, qRound(13 * ui_scale)));
