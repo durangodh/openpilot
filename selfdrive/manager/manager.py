@@ -45,7 +45,6 @@ def manager_init() -> None:
     ("IsMetric", "1"),
 
     # HKG
-    ("AutoAscc", "1"),
     ("AutoCruiseControl", "1"),
     ("AutoGasTokSpeed", "30"),
     ("AutoGasCancelSpeed", "30"),
@@ -65,7 +64,6 @@ def manager_init() -> None:
     ("CruiseSpeed5", "110"),
     ("AutoGasResumeGuard", "1"),            # 가속페달 재개 안전조건   # 도로제한속도 대비 자동증속 상한(%), 0=off
     ("AutoResumeFromGas", "1"),              # 0=off, 1=hold, 2=hold+quick release
-    ("AutoResumeFromGasSpeed", "30"),
     ("AutoResumeFromGasSpeedMode", "0"),     # 0=current, 1=previous, 2=previous with lead
     ("AutoResumeFromBrakeRelease", "0"),     # opt-in for safety
     ("AutoResumeFromBrakeCarSpeed", "30"),
@@ -107,7 +105,6 @@ def manager_init() -> None:
     ("AutoLaneChangeSpeed", "50"),  # 자동/방향지시등 차선변경 허용 최저 속도 (km/h)
     ("AdjustLaneOffset", "0"),    # 좌우 여유공간 비대칭 보정 (cm, 0=off)
     ("OffsetTotal", "0.0"),        # 통합 오프셋(offset_total), 전 모드 공통 적용
-    ("HumanFollowing", "0"),
     ("TFollowDecelBoost", "50"),
     ("TurnVisionControl", "0"),
     ("VisionCurveLaneless", "0"),

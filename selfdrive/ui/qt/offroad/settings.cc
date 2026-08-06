@@ -2197,11 +2197,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "Use cluster speed instead of wheel speed.",
                                             "../assets/offroad/icon_road.png",
                                             this));
-  toggles.append(new ParamControl("AutoAscc",
-                                            "Ascc auto set",
-                                            "Ascc auto set 적용",
-                                            "../assets/offroad/icon_road.png",
-                                            this));
   toggles.append(new ParamControl("LongControlEnabled",
                                             "Enable HKG Long Control",
                                             "warnings: it is beta, be careful!! Openpilot will control the speed of your car",
@@ -2284,14 +2279,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "Show Debug UI",
                                             "",
                                             "../assets/offroad/icon_shell.png",
-                                            this));
-  toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new ParamControl("HumanFollowing",
-                                            "Human-Like Following",
-                                            "선행차 속도에 따라 자연스러운 가감속을 적용합니다.\n"
-                                            "빠른 선행차: 부드럽게 따라붙기 / 느린 선행차: 자연스럽게 감속.\n"
-                                            "(Long Control 활성화 시 동작)",
-                                            "../assets/offroad/icon_road.png",
                                             this));
 }
 
@@ -2457,13 +2444,8 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamValueControlF(
       "AutoResumeFromGas", "가속페달 오토리줌 모드",
-      "0: 끔 / 1: 조건 충족 중 재개 / 2: 조건 충족 및 0.6초 미만 짧은 가속 후 재개",
+      "0: 끔 / 1: 조건 충족 중 재개 / 2: 조건 충족 및 0.4초 미만 짧은 가속 후 재개",
       "../assets/offroad/icon_road.png", 0, 2, 1, 0, 1, this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoResumeFromGasSpeed", "가속페달 오토리줌 속도 (km/h)",
-      "이 속도 이상이거나 가속페달을 60% 이상 밟으면 오토리줌을 요청합니다.",
-      "../assets/offroad/icon_road.png", 5, 60, 1, 0, 30, this));
 
   list->addItem(new ParamValueControlF(
       "AutoResumeFromGasSpeedMode", "오토리줌 설정속도 모드",

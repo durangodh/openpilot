@@ -135,7 +135,6 @@ class LongitudinalPlanner:
     self.experimental_mode_enabled = self.e2e_acc_mode == 2 and self.auto_e2e_enabled
     if not self.auto_e2e_enabled:
       self.mpc.mode = 'acc'
-    self.mpc.human_following = self.params.get_bool("HumanFollowing")
     # ACC / E2E 정지거리 각각 독립 조절 (미터). 안 읽히면 기존 고정값(6.0)으로 폴백.
     try:
       self.mpc.stop_dist_acc = max(1.0, min(10.0, float(self.params.get('ACCStopDistance', encoding='utf8') or '6')))

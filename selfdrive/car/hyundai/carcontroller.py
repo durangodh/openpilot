@@ -177,7 +177,10 @@ class CarController:
     if CS.mdps_bus or self.car_fingerprint in FEATURES["send_mdps12"]:  # send mdps12 to LKAS to prevent LKAS error
       can_sends.append(create_mdps12(self.packer, self.frame, CS.mdps12))
 
-    self.update_auto_resume(CC, CS, clu11_speed, can_sends)
+    # Openpilot longitudinal launches with direct SCC acceleration. Sending
+    # the legacy RES spam at the same time can duplicate the launch request.
+    if not self.longcontrol:
+      self.update_auto_resume(CC, CS, clu11_speed, can_sends)
     self.update_scc(CC, CS, actuators, controls, hud_control, can_sends)
 
     # 20 Hz LFA MFA message

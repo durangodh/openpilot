@@ -87,7 +87,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"AccessToken", CLEAR_ON_MANAGER_START | DONT_LOG},
     {"AthenadPid", PERSISTENT},
     {"AthenadUploadQueue", PERSISTENT},
-    {"AutoAscc", PERSISTENT},
     {"AutoCruiseControl", PERSISTENT},
     {"AutoGasTokSpeed", PERSISTENT},
     {"AutoGasCancelSpeed", PERSISTENT},
@@ -107,7 +106,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"CruiseSpeed5", PERSISTENT},
     {"AutoGasResumeGuard", PERSISTENT},            // 가속페달 재개 안전조건 (깜빡이/근접 앞차)   // 도로제한속도 대비 자동증속 상한(%), 0=off
     {"AutoResumeFromGas", PERSISTENT},
-    {"AutoResumeFromGasSpeed", PERSISTENT},
     {"AutoResumeFromGasSpeedMode", PERSISTENT},
     {"AutoResumeFromBrakeRelease", PERSISTENT},
     {"AutoResumeFromBrakeCarSpeed", PERSISTENT},
@@ -237,7 +235,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"CarrotAutoTurnEndTime", PERSISTENT},
     {"ACCStopDistance", PERSISTENT},             // ACC 모드 정지거리 (m), 기본 6
     {"E2EStopDistance", PERSISTENT},             // E2E 모드 정지거리 (m), 기본 6
-    {"HumanFollowing", PERSISTENT},
     {"MyDrivingMode", PERSISTENT},             // 주행모드 1:ECO 2:SAFE 3:NORM 4:FAST
     {"ShowGearAnimation", PERSISTENT},
     {"ShowCarrotHud", PERSISTENT},              // 1=좌측 carrot HUD 박스 표시, 0=숨김
