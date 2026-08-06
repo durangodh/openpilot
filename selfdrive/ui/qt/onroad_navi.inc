@@ -438,9 +438,8 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const int panel_h = panel_bottom - panel_y;
 
   // 내부 레이아웃
-  const int atc_h = 122;
-  const int panel_header_h = 104;
-  const int next_h = 48;
+  const int panel_header_h = 118;
+  const int next_h = 54;
   const int panel_footer_h = 64;  // 흰 배경 큰 글씨(남은거리/도착)가 여유있게 들어가도록 확장
 
   const int gap1 = 10;
@@ -460,7 +459,6 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const int map_to_footer_h = gap2;
   const int map_h =
       panel_h
-      - atc_h
       - panel_header_h
       - next_h
       - panel_footer_h
@@ -470,15 +468,9 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
 
   const QRect panel(width() - 475, panel_y, 440, panel_h);
 
-  const QRect atc_box(
-      panel.x(),
-      panel.y(),
-      panel.width(),
-      atc_h);
-
   const QRect header(
       panel.x(),
-      atc_box.bottom() + 1,
+      panel.y(),
       panel.width(),
       panel_header_h);
 
@@ -520,9 +512,8 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   p.setBrush(QColor(8, 14, 18, 225));
   p.drawRoundedRect(panel, 24, 24);
 
-  // ATC is the active vehicle-control layer, so it has the highest priority
-  // in the navigation column. The former 360 px center-screen maneuver popup
-  // is intentionally replaced by this compact card to keep the road view clear.
+  // Match c3-wip: show ATC guidance directly over the road without PNG
+  // maneuver assets or a separate navigation-panel card.
   int atc_direction = 0;
   const CarrotAtcKind atc_kind = carrotAtcKind(carrot_navi_turn_type,
                                                carrot_navi_instruction,
@@ -532,114 +523,61 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
                          guidance_age >= -5000 && guidance_age <= 3000;
   const bool atc_available = carrot_atc_mode >= 1 && carrot_atc_mode <= 3 &&
                              atc_fresh && carrot_navi_distance >= 0 &&
+                             carrot_navi_distance < 1500 &&
                              atc_kind != CarrotAtcKind::NONE;
 
-  const UIState *s = uiState();
-  const auto car_state = (*s->sm)["carState"].getCarState();
-  const auto car_control = (*s->sm)["carControl"].getCarControl();
-  const auto lateral_plan = (*s->sm)["lateralPlan"].getLateralPlan();
-  const auto smoother = car_control.getSccSmoother();
-  const auto desire = lateral_plan.getDesire();
-  const bool turn_desire =
-      (atc_direction < 0 && desire == cereal::LateralPlan::Desire::TURN_LEFT) ||
-      (atc_direction > 0 && desire == cereal::LateralPlan::Desire::TURN_RIGHT);
-  const bool lane_change_desire =
-      (atc_direction < 0 && desire == cereal::LateralPlan::Desire::LANE_CHANGE_LEFT) ||
-      (atc_direction > 0 && desire == cereal::LateralPlan::Desire::LANE_CHANGE_RIGHT);
-  const bool conflicting_blinker =
-      (atc_direction < 0 && car_state.getRightBlinker()) ||
-      (atc_direction > 0 && car_state.getLeftBlinker());
-  const bool blindspot_blocked = atc_kind == CarrotAtcKind::FORK &&
-      ((atc_direction < 0 && car_state.getLeftBlindspot()) ||
-       (atc_direction > 0 && car_state.getRightBlindspot()));
-  const bool steering_active = atc_available && carrot_atc_mode <= 2 &&
-                               car_control.getLatActive() && !car_state.getBrakePressed() &&
-                               ((atc_kind == CarrotAtcKind::TURN || atc_kind == CarrotAtcKind::UTURN)
-                                  ? turn_desire
-                                  : (atc_kind == CarrotAtcKind::FORK && lane_change_desire));
-
-  bool decel_active = false;
-  if (atc_available && carrot_atc_mode >= 2 && !car_state.getBrakePressed() &&
-      (atc_kind == CarrotAtcKind::TURN || atc_kind == CarrotAtcKind::UTURN ||
-       atc_kind == CarrotAtcKind::ROTARY) && carrot_navi_distance <= 350) {
-    const float target_mps = std::max(30, std::min(60, carrot_atc_speed)) / 3.6f;
-    const float end_time = std::max(2, std::min(12, carrot_atc_end_time));
-    const float braking_distance = std::max(0.0f, carrot_navi_distance - target_mps * end_time);
-    const float atc_limit_kph = std::sqrt(target_mps * target_mps +
-                                          2.0f * 1.2f * braking_distance) * 3.6f;
-    decel_active = smoother.getCruiseMaxSpeed() > 0.0f &&
-                   atc_limit_kph < smoother.getCruiseMaxSpeed() - 0.5f;
-  }
-
-  const QColor atc_color = conflicting_blinker ? QColor(150, 155, 160) :
-                           blindspot_blocked ? QColor(255, 150, 35) :
-                           steering_active && decel_active ? QColor(255, 210, 40) :
-                           steering_active ? QColor(30, 130, 255) :
-                           decel_active ? QColor(255, 150, 35) : QColor(120, 175, 190);
-  p.setPen(QPen(atc_available ? atc_color : QColor(110, 120, 125, 150), 3));
-  p.setBrush(QColor(10, 18, 24, 245));
-  p.drawRoundedRect(atc_box.adjusted(2, 2, -2, -2), 24, 24);
-
   if (atc_available) {
-    const QRect icon_rect(atc_box.x() + 17, atc_box.y() + 10, 102, 102);
-    const QPixmap *icon = nullptr;
-    if (atc_kind == CarrotAtcKind::TURN) {
-      icon = atc_direction < 0 ? &ic_turn_l : atc_direction > 0 ? &ic_turn_r : nullptr;
-    } else if (atc_kind == CarrotAtcKind::FORK) {
-      icon = atc_direction < 0 ? &ic_lane_change_l : atc_direction > 0 ? &ic_lane_change_r : nullptr;
+    const UIState *s = uiState();
+    const auto car_state = (*s->sm)["carState"].getCarState();
+    const auto car_control = (*s->sm)["carControl"].getCarControl();
+    const auto lateral_plan = (*s->sm)["lateralPlan"].getLateralPlan();
+    const auto smoother = car_control.getSccSmoother();
+    const auto desire = lateral_plan.getDesire();
+    const bool turn_desire =
+        (atc_direction < 0 && desire == cereal::LateralPlan::Desire::TURN_LEFT) ||
+        (atc_direction > 0 && desire == cereal::LateralPlan::Desire::TURN_RIGHT);
+    const bool lane_change_desire =
+        (atc_direction < 0 && desire == cereal::LateralPlan::Desire::LANE_CHANGE_LEFT) ||
+        (atc_direction > 0 && desire == cereal::LateralPlan::Desire::LANE_CHANGE_RIGHT);
+    const bool steering_active = carrot_atc_mode <= 2 && car_control.getLatActive() &&
+                                 !car_state.getBrakePressed() &&
+                                 ((atc_kind == CarrotAtcKind::TURN || atc_kind == CarrotAtcKind::UTURN)
+                                    ? turn_desire
+                                    : (atc_kind == CarrotAtcKind::FORK && lane_change_desire));
+
+    bool decel_active = false;
+    if (carrot_atc_mode >= 2 && !car_state.getBrakePressed() &&
+        (atc_kind == CarrotAtcKind::TURN || atc_kind == CarrotAtcKind::UTURN ||
+         atc_kind == CarrotAtcKind::ROTARY) && carrot_navi_distance <= 350) {
+      const float target_mps = std::max(30, std::min(60, carrot_atc_speed)) / 3.6f;
+      const float end_time = std::max(2, std::min(12, carrot_atc_end_time));
+      const float braking_distance = std::max(0.0f, carrot_navi_distance - target_mps * end_time);
+      const float atc_limit_kph = std::sqrt(target_mps * target_mps +
+                                            2.0f * 1.2f * braking_distance) * 3.6f;
+      decel_active = smoother.getCruiseMaxSpeed() > 0.0f &&
+                     atc_limit_kph < smoother.getCruiseMaxSpeed() - 0.5f;
     }
 
-    if (icon != nullptr && !icon->isNull()) {
-      QPixmap tinted = icon->scaled(icon_rect.size(), Qt::KeepAspectRatio,
-                                   Qt::SmoothTransformation);
-      QPainter tint_painter(&tinted);
-      tint_painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-      tint_painter.fillRect(tinted.rect(), atc_color);
-      tint_painter.end();
-      QRect target(QPoint(0, 0), tinted.size());
-      target.moveCenter(icon_rect.center());
-      p.drawPixmap(target.topLeft(), tinted);
-    } else {
-      const QString maneuver = atc_kind == CarrotAtcKind::UTURN
-          ? QString::fromUtf8("U턴") : QString::fromUtf8("회전교차로");
-      configFont(p, "Open Sans", atc_kind == CarrotAtcKind::UTURN ? 40 : 25, "Bold");
-      p.setPen(atc_color);
-      p.drawText(icon_rect, Qt::AlignCenter, maneuver);
-    }
+    const QColor atc_color = steering_active && decel_active ? QColor(255, 210, 40, 245) :
+                             steering_active ? QColor(35, 205, 85, 245) :
+                             decel_active ? QColor(255, 150, 35, 245) : QColor(255, 255, 255, 235);
+    const qreal distance_ratio = std::clamp(carrot_navi_distance / 1500.0, 0.0, 1.0);
+    const int arrow_size = 150;
+    const int arrow_center_y = 520 - qRound(distance_ratio * 210.0);
+    const QRect arrow_box(width() / 2 - arrow_size / 2,
+                          arrow_center_y - arrow_size / 2,
+                          arrow_size, arrow_size);
+    drawCarrotTurnArrow(p, arrow_box, carrot_navi_turn_type,
+                        carrot_navi_instruction, atc_color, 16);
 
-    QString atc_status;
-    if (conflicting_blinker) atc_status = QString::fromUtf8("운전자 개입 · ATC 취소");
-    else if (blindspot_blocked) atc_status = QString::fromUtf8("후측방 차량 · ATC 대기");
-    else if (steering_active && decel_active) atc_status = QString::fromUtf8("ATC 조향 + 감속");
-    else if (steering_active) atc_status = QString::fromUtf8("ATC 조향");
-    else if (decel_active) atc_status = QString::fromUtf8("ATC 감속");
-    else {
-      const float action_distance = (atc_kind == CarrotAtcKind::TURN || atc_kind == CarrotAtcKind::UTURN)
-          ? std::max(35.0f, std::min(70.0f, car_state.getVEgo() * 3.0f))
-          : std::min(350.0f, std::max(160.0f, car_state.getVEgo() * 12.0f));
-      atc_status = carrot_navi_distance > action_distance
-          ? QString::fromUtf8("ATC 준비") : QString::fromUtf8("ATC 접근");
-    }
-
+    QString atc_status = steering_active && decel_active ? QString::fromUtf8("ATC 조향 + 감속") :
+                         steering_active ? QString::fromUtf8("ATC 조향") :
+                         decel_active ? QString::fromUtf8("ATC 감속") : QString::fromUtf8("ATC 준비");
+    atc_status += QString("  ·  ") + carrotDistanceText(carrot_navi_distance);
     configFont(p, "Open Sans", 31, "Bold");
     p.setPen(atc_color);
-    p.drawText(QRect(atc_box.x() + 130, atc_box.y() + 15,
-                     atc_box.width() - 146, 45),
-               Qt::AlignLeft | Qt::AlignVCenter, atc_status);
-
-    QString detail = carrotDistanceText(carrot_navi_distance);
-    if (decel_active) detail += QString::fromUtf8("  ·  목표 %1").arg(carrot_atc_speed);
-    configFont(p, "Open Sans", 28, "Bold");
-    p.setPen(Qt::white);
-    p.drawText(QRect(atc_box.x() + 130, atc_box.y() + 65,
-                     atc_box.width() - 146, 40),
-               Qt::AlignLeft | Qt::AlignVCenter,
-               QFontMetrics(p.font()).elidedText(detail, Qt::ElideRight,
-                                                  atc_box.width() - 150));
-  } else {
-    configFont(p, "Open Sans", 26, "Bold");
-    p.setPen(QColor(180, 190, 195));
-    p.drawText(atc_box, Qt::AlignCenter, QString::fromUtf8("ATC 안내 대기 중"));
+    p.drawText(QRect(width() / 2 - 220, arrow_box.bottom() + 6, 440, 48),
+               Qt::AlignCenter, atc_status);
   }
 
   // Tmap-style primary guidance: green surface and high-contrast white content.
