@@ -628,15 +628,19 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   p.drawText(road_box.adjusted(qRound(8 * ui_scale), 0, 0, 0),
              Qt::AlignLeft | Qt::AlignVCenter, visible_road_text);
 
-  // Poll the EON Tmap JPEG at 5 Hz. DISPLAY timing is controlled above by the
-  // c3-wip-compatible ATC MAP/ROAD state; image freshness only verifies that
-  // a usable map frame exists. No header, footer, or lane-image layer is drawn.
+  // Poll and decode the EON Tmap JPEG at 5 Hz only while MAP mode is visible.
+  // The phone stream and /dev/shm file updates continue while hidden, but the
+  // EON skips QFileInfo/QPixmap JPEG work. Resetting the poll timestamp while
+  // hidden forces an immediate decode of the newest frame on MAP entry.
+  // No header, footer, or lane-image layer is drawn.
   static const QString map_path = "/dev/shm/carrot_navi_map.jpg";
   static QPixmap map_pixmap;
   static uint64_t map_checked_at = 0;
   static qint64 map_modified_at = 0;
   const uint64_t map_now = millis_since_boot();
-  if (map_checked_at == 0 || map_now - map_checked_at >= 200) {
+  if (!carrot_map_mode) map_checked_at = 0;
+  if (carrot_map_mode &&
+      (map_checked_at == 0 || map_now - map_checked_at >= 200)) {
     map_checked_at = map_now;
     const QFileInfo map_info(map_path);
     if (!map_info.exists() || !map_info.isFile() || map_info.size() <= 0) {
