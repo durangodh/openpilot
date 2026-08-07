@@ -135,6 +135,10 @@ static void update_model(UIState *s, const cereal::ModelDataV2::Reader &model) {
   //   차선 인식이 끊겨도 항상 그려진다.
   //   z 는 경로(model_position) 기준이라 노면까지 1.22 를 더해야 한다.
   //   (차선 기준이던 이전 코드의 -0.05 / -0.6 을 그대로 쓰면 1.22m 아래에 그려진다)
+  int max_distance_barrier = 40;
+  int max_idx_barrier = get_path_length_idx(model_position, max_distance_barrier);
+  update_line_data(s, model_position, 0, 1.22 - 0.05, 1.22 - 0.6, &scene.lane_barrier_vertices[0], max_idx_barrier, false, -1.7);
+  update_line_data(s, model_position, 0, 1.22 - 0.05, 1.22 - 0.6, &scene.lane_barrier_vertices[1], max_idx_barrier, false, 1.7);
 
   // update road edges
   const auto road_edges = model.getRoadEdges();
