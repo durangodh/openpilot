@@ -89,7 +89,6 @@ def manager_init() -> None:
     ("WideCameraOnly", "0"),       # plannerd.py 크래시 수정
     ("ShowGearAnimation", "1"),
     ("ShowCarrotHud", "1"),
-    ("ShowDeviceState", "0"),
     ("ShowDateTime", "1"),
     ("ShowBlindSpotAlways", "0"),
     ("ShowPathWidth", "90"),

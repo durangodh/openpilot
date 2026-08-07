@@ -972,7 +972,6 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     Params params;
     int m = std::atoi(params.get("MyDrivingMode").c_str());
     my_driving_mode = (m >= 1 && m <= 4) ? m : 3;
-    show_device_state = std::atoi(params.get("ShowDeviceState").c_str());
     carrot_atc_mode = std::atoi(params.get("CarrotAutoTurnControl").c_str());
     carrot_atc_speed = std::atoi(params.get("CarrotAutoTurnSpeed").c_str());
     carrot_atc_end_time = std::atoi(params.get("CarrotAutoTurnEndTime").c_str());
@@ -1008,11 +1007,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
 
   // ---- 패널 배경 ----
   QColor bg_color = CT_BLACK_A(90);
-  if (show_device_state > 0) {
-    ctRect(p, QRect(bx - 120, by - 270, 475, 495), bg_color, 30, 2, CT_WHITE);
-  } else {
-    ctRect(p, QRect(bx - 120, by - 130, 475, 355), bg_color, 30, 2, CT_WHITE);
-  }
+  ctRect(p, QRect(bx - 120, by - 270, 475, 495), bg_color, 30, 2, CT_WHITE);
 
   // ---- 현재 속도 ----
   float v_ego_disp = std::max(0.0f, (float)car_state.getVEgoCluster()) * ms_to_disp;
@@ -1178,8 +1173,8 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     ctTextIn(p, limit_box, QString::number(disp_speed), 40, limit_text_color);
   }
 
-  // ---- 디바이스 상태 (ShowDeviceState = 1 일 때만) ----
-  if (show_device_state > 0) {
+  // ---- CPU 온도 / 타이어 공기압 / CPU 사용률 (항상 표시) ----
+  {
     const auto deviceState = sm["deviceState"].getDeviceState();
     float cpuTemp = 0.f;
     const auto cpuTempC = deviceState.getCpuTempC();

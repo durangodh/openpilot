@@ -238,7 +238,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"MyDrivingMode", PERSISTENT},             // 주행모드 1:ECO 2:SAFE 3:NORM 4:FAST
     {"ShowGearAnimation", PERSISTENT},
     {"ShowCarrotHud", PERSISTENT},              // 1=좌측 carrot HUD 박스 표시, 0=숨김
-    {"ShowDeviceState", PERSISTENT},            // CPU/MEM/DISK/VOLT 상태 표시
     {"ShowDateTime", PERSISTENT},               // 0=끔, 1=시간+날짜, 2=시간, 3=날짜
     {"ShowPathWidth", PERSISTENT},               // 경로 반폭 cm (90=0.90m)
     {"ShowPathStatusColor", PERSISTENT},         // 가감속 상태에 따른 경로 색상
