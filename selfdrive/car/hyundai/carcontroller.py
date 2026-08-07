@@ -200,8 +200,8 @@ class CarController:
     return new_actuators, can_sends
 
   def update_auto_resume(self, CC, CS, clu11_speed, can_sends):
-    # CC.cruiseControl.resume is already gated by enabled, standstill,
-    # soft-hold and the planner's departure trajectory. Do not gate it again
+    # CC.cruiseControl.resume is already gated by enabled, standstill and
+    # the planner's departure trajectory. Do not gate it again
     # on SCC11 ACC_ObjDist: some SCC firmwares update that value late (or not
     # at all while latched), which prevents the RES command from ever firing.
     if CC.cruiseControl.resume and not CS.out.gasPressed:
@@ -240,7 +240,7 @@ class CarController:
         planned_jerk = long_plan_jerks[0]
 
       jerk_upper, jerk_lower = self.longitudinal_jerk.update(
-        CC.longActive, stopping, hud_control.softHold, planned_jerk, DT_CTRL)
+        CC.longActive, stopping, planned_jerk, DT_CTRL)
     else:
       self.longitudinal_jerk.reset()
 
