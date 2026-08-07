@@ -573,14 +573,24 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
     // shared center artwork region so the arrow fills the direction card.
     const QRect turn_source(48, 48, 160, 160);
     p.drawPixmap(turn_icon, *turn_pixmap, turn_source);
-  } else if (atc_kind != CarrotAtcKind::NONE) {
+  } else if (atc_kind == CarrotAtcKind::TURN ||
+             atc_kind == CarrotAtcKind::FORK ||
+             atc_kind == CarrotAtcKind::UTURN) {
     drawCarrotTurnArrow(p, turn_icon, carrot_navi_turn_type,
                         carrot_navi_instruction, Qt::white,
                         std::max(6, qRound(13 * ui_scale)));
   } else {
     configFont(p, "Open Sans", std::max(18, qRound(32 * ui_scale)), "Bold");
     p.setPen(Qt::white);
-    p.drawText(turn_icon, Qt::AlignCenter, QString::fromUtf8("안내"));
+    QString fallback_text = QString::fromUtf8("안내");
+    if (atc_kind == CarrotAtcKind::ROTARY) {
+      // c3-wip maps rotary guidance to xTurnInfo 5; its default HUD case shows "감속:5".
+      fallback_text = QString::fromUtf8("감속:5");
+    } else if (carrot_navi_turn_type > 0) {
+      // Match c3-wip's default switch case for positive, icon-less turn information.
+      fallback_text = QString::fromUtf8("감속:%1").arg(carrot_navi_turn_type);
+    }
+    p.drawText(turn_icon, Qt::AlignCenter, fallback_text);
   }
 
   configFont(p, "Open Sans", std::max(18, qRound(30 * ui_scale)), "Bold");
