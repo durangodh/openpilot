@@ -2495,12 +2495,12 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(horizontal_line());
 
   const std::array<std::tuple<const char*, const char*, int>, 6> accel_controls = {{
-    {"CruiseMaxAccel0", "Max Accel 0 km/h", 180},
-    {"CruiseMaxAccel40", "Max Accel 40 km/h", 117},
-    {"CruiseMaxAccel60", "Max Accel 60 km/h", 103},
-    {"CruiseMaxAccel80", "Max Accel 80 km/h", 89},
-    {"CruiseMaxAccel110", "Max Accel 110 km/h", 74},
-    {"CruiseMaxAccel140", "Max Accel 140 km/h", 61},
+    {"CruiseMaxAccel0", "Max Accel 0 km/h", 160},
+    {"CruiseMaxAccel40", "Max Accel 40 km/h", 120},
+    {"CruiseMaxAccel60", "Max Accel 60 km/h", 100},
+    {"CruiseMaxAccel80", "Max Accel 80 km/h", 80},
+    {"CruiseMaxAccel110", "Max Accel 110 km/h", 70},
+    {"CruiseMaxAccel140", "Max Accel 140 km/h", 60},
   }};
   for (const auto& [key, title, default_value] : accel_controls) {
     list->addItem(new ParamValueControlF(

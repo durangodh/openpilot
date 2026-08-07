@@ -99,6 +99,12 @@ def manager_init() -> None:
     ("InitMyDrivingMode", "3"),
     ("MyEcoModeFactor", "80"),
     ("MySafeModeFactor", "80"),
+    ("CruiseMaxAccel0", "160"),
+    ("CruiseMaxAccel40", "120"),
+    ("CruiseMaxAccel60", "100"),
+    ("CruiseMaxAccel80", "80"),
+    ("CruiseMaxAccel110", "70"),
+    ("CruiseMaxAccel140", "60"),
     ("CustomSteerRatio", "1650"),
     ("UseLiveSteerRatio", "0"),
     ("SteerActuatorDelay", "50"),
@@ -135,6 +141,20 @@ def manager_init() -> None:
       if old_offset:
         params.put("OffsetTotal", old_offset)
         cloudlog.warning(f"migrated PathOffset -> OffsetTotal: {old_offset}")
+  except Exception:
+    pass
+
+  # 기존 g_lowspeed 기본 가속표를 사용 중인 경우에만 C2 기본값으로 1회 이관한다.
+  # 사용자가 직접 조정한 값은 보존한다.
+  accel_keys = ["CruiseMaxAccel0", "CruiseMaxAccel40", "CruiseMaxAccel60",
+                "CruiseMaxAccel80", "CruiseMaxAccel110", "CruiseMaxAccel140"]
+  legacy_accel = ["180", "117", "103", "89", "74", "61"]
+  c2_accel = ["160", "120", "100", "80", "70", "60"]
+  try:
+    current_accel = [(params.get(k, encoding='utf8') or "") for k in accel_keys]
+    if current_accel == legacy_accel:
+      for k, v in zip(accel_keys, c2_accel):
+        params.put(k, v)
   except Exception:
     pass
 

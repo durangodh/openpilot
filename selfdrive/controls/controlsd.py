@@ -120,9 +120,9 @@ class Controls:
     self.my_driving_mode = 3 if self.init_driving_mode == 5 else self.init_driving_mode
     self.last_mode_param = params.get_int("MyDrivingMode")
     self.driving_mode_index = 0.0
-    safe_factor = float(clip(params.get_int("MySafeModeFactor") * 0.01, 0.5, 1.0))
-    self.my_safe_mode_factor = safe_factor if self.my_driving_mode == 2 else \
-                               (1.0 + safe_factor) / 2.0 if self.my_driving_mode == 1 else 1.0
+    self.safe_mode_base_factor = float(clip(params.get_int("MySafeModeFactor") * 0.01, 0.5, 1.0))
+    self.my_safe_mode_factor = self.safe_mode_base_factor if self.my_driving_mode == 2 else \
+                               (1.0 + self.safe_mode_base_factor) / 2.0 if self.my_driving_mode == 1 else 1.0
     self.cruise_speed_min = read_cruise_speed_min(params)
     self.is_ldw_enabled = params.get_bool("IsLdwEnabled")
     openpilot_enabled_toggle = params.get_bool("OpenpilotEnabledToggle")
@@ -515,6 +515,8 @@ class Controls:
         self.my_driving_mode = 3
       elif self.driving_mode_index > 80.0:
         self.my_driving_mode = 1
+    self.my_safe_mode_factor = self.safe_mode_base_factor if self.my_driving_mode == 2 else \
+                               (1.0 + self.safe_mode_base_factor) / 2.0 if self.my_driving_mode == 1 else 1.0
 
     if self.sm.frame % 100 == 0:
       self.cruise_speed_min = read_cruise_speed_min(self.params)
@@ -875,9 +877,9 @@ class Controls:
         self.my_driving_mode = mode
         self.last_mode_param = mode
         self.driving_mode_index = -100.0
-      safe_factor = float(clip(Params().get_int("MySafeModeFactor") * 0.01, 0.5, 1.0))
-      self.my_safe_mode_factor = safe_factor if self.my_driving_mode == 2 else \
-                                 (1.0 + safe_factor) / 2.0 if self.my_driving_mode == 1 else 1.0
+      self.safe_mode_base_factor = float(clip(Params().get_int("MySafeModeFactor") * 0.01, 0.5, 1.0))
+      self.my_safe_mode_factor = self.safe_mode_base_factor if self.my_driving_mode == 2 else \
+                                 (1.0 + self.safe_mode_base_factor) / 2.0 if self.my_driving_mode == 1 else 1.0
     controlsState.longCruiseGap = self.long_cruise_gap
     controlsState.myDrivingMode = self.my_driving_mode
     controlsState.mySafeModeFactor = self.my_safe_mode_factor
