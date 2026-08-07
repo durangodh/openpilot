@@ -2487,11 +2487,6 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "롱컨 활성 직후 가속·감속 변화 속도를 제한합니다. 값이 작으면 부드럽고, 크면 반응이 빨라집니다.",
       "../assets/offroad/icon_road.png", 5, 30, 1, 0, 10, this));
 
-  list->addItem(new ParamControl(
-      "SoftHoldMode", "소프트홀드",
-      "브레이크를 밟고 완전히 정지하면 정차 제동을 유지합니다. 앞차나 녹색 신호만으로는 출발하지 않으며 RES/+ 또는 가속페달로 해제합니다.",
-      "../assets/offroad/icon_road.png", this));
-
   list->addItem(new ParamValueControlF(
       "StartAccelApply", "Start Acceleration",
       "정지 후 출발 가속도입니다. 표시값에 0.02m/s²를 곱해 적용합니다.",
