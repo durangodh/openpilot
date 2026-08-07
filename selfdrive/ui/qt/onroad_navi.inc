@@ -593,21 +593,39 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const int info_x = compact_box.x() + qRound(136 * ui_scale);
   const int info_w = compact_box.right() - info_x - qRound(14 * ui_scale);
   const QDateTime eta = QDateTime::currentDateTime().addSecs(carrot_navi_remain_time);
-  const QString eta_text = QString("ETA: %1MIN(%2)")
-      .arg(carrot_navi_remain_time / 60.0, 0, 'f', 1)
-      .arg(eta.toString("HH:mm"));
-  configFont(p, "Open Sans", std::max(20, qRound(34 * ui_scale)), "Bold");
-  p.setPen(Qt::white);
-  p.drawText(QRect(info_x, compact_box.y() + qRound(82 * ui_scale),
-                   info_w, qRound(55 * ui_scale)),
-             Qt::AlignLeft | Qt::AlignVCenter, eta_text);
+  const int eta_hour = eta.time().hour();
+  const QString ampm_text = eta_hour < 12 ? QString::fromUtf8("오전") : QString::fromUtf8("오후");
+  const QString time_text = QString("%1:%2")
+      .arg(eta_hour % 12 == 0 ? 12 : eta_hour % 12)
+      .arg(eta.time().minute(), 2, 10, QChar('0'));
+  const bool distance_in_km = carrot_navi_remain_distance >= 1000;
+  const QString distance_text = carrot_navi_remain_distance < 0
+      ? QString("--")
+      : (distance_in_km
+          ? QString::number(carrot_navi_remain_distance / 1000.0, 'f', 1)
+          : QString::number(carrot_navi_remain_distance));
+  const QString distance_unit = carrot_navi_remain_distance < 0
+      ? QString()
+      : (distance_in_km ? QString("km") : QString("m"));
 
-  const QString remain_text = carrotDistanceText(carrot_navi_remain_distance);
-  p.drawText(QRect(info_x + qRound(80 * ui_scale),
-                   compact_box.y() + qRound(145 * ui_scale),
-                   info_w - qRound(80 * ui_scale), qRound(55 * ui_scale)),
-             Qt::AlignLeft | Qt::AlignVCenter,
-             remain_text.isEmpty() ? QString("--") : remain_text);
+  // Draw the ETA and remaining distance on one baseline with c3-style
+  // emphasis: time/distance are full size, while their labels and unit are smaller.
+  const int full_size = std::max(20, qRound(34 * ui_scale));
+  const int half_size = std::max(10, full_size / 2);
+  const int quarter_size = std::max(8, half_size / 2);
+  const int eta_baseline = compact_box.y() + qRound(126 * ui_scale);
+  int eta_x = info_x;
+  const auto draw_eta_part = [&](const QString &text, int font_size, int gap) {
+    configFont(p, "Open Sans", font_size, "Bold");
+    p.setPen(Qt::white);
+    p.drawText(eta_x, eta_baseline, text);
+    eta_x += QFontMetrics(p.font()).horizontalAdvance(text) + gap;
+  };
+  draw_eta_part(ampm_text, half_size, qRound(5 * ui_scale));
+  draw_eta_part(time_text, full_size, qRound(4 * ui_scale));
+  draw_eta_part(QString::fromUtf8("예정"), quarter_size, qRound(15 * ui_scale));
+  draw_eta_part(distance_text, full_size, qRound(3 * ui_scale));
+  draw_eta_part(distance_unit, half_size, 0);
 
   QString road_text = carrot_navi_safety_description;
   const bool has_safety_description = !road_text.isEmpty();
