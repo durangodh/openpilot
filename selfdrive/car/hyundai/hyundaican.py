@@ -133,9 +133,12 @@ def create_scc11(packer, frame, enabled, set_speed, lead_visible, scc_live, scc1
     values["Navi_SCC_Camera_Act"] = 2 if active_cam else 0
     values["Navi_SCC_Camera_Status"] = 2 if active_cam else 0
 
+  # Keep the cluster SCC set speed synchronized with openpilot, including
+  # vehicles where the stock SCC remains live on another bus.
+  values["VSetDis"] = set_speed
+
   if not scc_live or force_long:
     values["MainMode_ACC"] = 1
-    values["VSetDis"] = set_speed
     # Preserve the legacy no-radar behavior, but never fabricate a lead for a
     # forced low-speed request when the road is actually clear.
     values["ObjValid"] = 1 if enabled and (lead_visible or not force_long) else 0
