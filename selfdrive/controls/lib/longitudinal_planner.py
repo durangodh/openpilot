@@ -125,6 +125,7 @@ class LongitudinalPlanner:
     self.events = Events()
 
   def read_param(self):
+    self.mpc.applyLongDynamicCost = self.params.get_bool("ApplyLongDynamicCost")
     self.auto_e2e_enabled = self.CP.openpilotLongitudinalControl
     mode_raw = self.params.get('E2EAccMode', encoding='utf8')
     try:
