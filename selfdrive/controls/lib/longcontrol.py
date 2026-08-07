@@ -3,7 +3,6 @@ from common.numpy_fast import clip, interp
 from common.params import Params
 from common.realtime import DT_CTRL
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, apply_deadzone
-from selfdrive.controls.lib.longitudinal_jerk import read_jerk_start_limit
 from selfdrive.controls.lib.pid import PIDController
 from selfdrive.modeld.constants import T_IDXS
 
@@ -11,7 +10,7 @@ LongCtrlState = car.CarControl.Actuators.LongControlState
 
 def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                              v_target_1sec, brake_pressed, cruise_standstill,
-                             a_target_now, starting_state, soft_hold=False):
+                             a_target_now, starting_state):
   # apilot-c2 stopping transition: keep PID braking while the planned
   # acceleration is still strong, then hand over to the stopping ramp.
   # With openpilot longitudinal control the stock SCC standstill flag can
@@ -54,9 +53,6 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
       elif started_condition:
         long_control_state = LongCtrlState.pid
 
-    if soft_hold:
-      long_control_state = LongCtrlState.stopping
-
   return long_control_state
 
 
@@ -73,8 +69,6 @@ class LongControl:
     self.long_coast_band = 0.0
     self.v_pid = 0.0
     self.last_output_accel = 0.0
-    self.soft_hold_release_smoothing = False
-    self.soft_hold_release_jerk = read_jerk_start_limit(self.params)
 
     # Read launch control immediately so StartAccelApply=0 disables the
     # starting state from the first control cycle.
@@ -131,8 +125,6 @@ class LongControl:
       self.read_param_count = 0
       self._update_stop_accel()
       self.long_coast_band = clip(self.params.get_float("LongCoastBand") * 0.01, 0.0, 0.4)
-      self.soft_hold_release_jerk = read_jerk_start_limit(self.params)
-
       self._update_actuator_delays()
 
       self._update_start_accel()
@@ -150,14 +142,8 @@ class LongControl:
         if kf > 0.0:
           self.pid.k_f = clip(kf, 0.7, 1.3)
 
-  def update(self, active, CS, long_plan, accel_limits, t_since_plan, radar_state,
-             soft_hold=False, soft_hold_released=False):
+  def update(self, active, CS, long_plan, accel_limits, t_since_plan, radar_state):
     self._read_params()
-
-    if soft_hold or not active:
-      self.soft_hold_release_smoothing = False
-    elif soft_hold_released:
-      self.soft_hold_release_smoothing = True
 
     if len(long_plan.speeds) == CONTROL_N:
       speeds = long_plan.speeds
@@ -190,7 +176,7 @@ class LongControl:
 
     self.long_control_state = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
-      CS.brakePressed, CS.cruiseState.standstill, a_target_now, self.starting_state, soft_hold)
+      CS.brakePressed, CS.cruiseState.standstill, a_target_now, self.starting_state)
 
     if self.long_control_state == LongCtrlState.off:
       self.reset(CS.vEgo)
@@ -198,11 +184,7 @@ class LongControl:
 
     elif self.long_control_state == LongCtrlState.stopping:
       output_accel = self.last_output_accel
-      if soft_hold:
-        # Never reduce an already stronger stopping command when the hold
-        # latches; otherwise command the configured hold acceleration now.
-        output_accel = min(output_accel, self.stop_accel)
-      elif output_accel > self.stop_accel:
+      if output_accel > self.stop_accel:
         output_accel = min(output_accel, 0.0)
         output_accel -= self.CP.stoppingDecelRate * DT_CTRL
       self.reset(CS.vEgo)
@@ -228,13 +210,6 @@ class LongControl:
 
       if -self.long_coast_band < output_accel < 0.0:
         output_accel = 0.0
-
-    if self.soft_hold_release_smoothing:
-      # Avoid jumping directly from the hold brake command to launch torque.
-      # Only limit the upward crossover; a new braking request remains immediate.
-      requested_accel = output_accel
-      output_accel = min(requested_accel, self.last_output_accel + self.soft_hold_release_jerk * DT_CTRL)
-      self.soft_hold_release_smoothing = output_accel + 1e-6 < requested_accel
 
     self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
     return self.last_output_accel
