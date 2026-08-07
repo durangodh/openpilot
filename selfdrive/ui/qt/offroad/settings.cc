@@ -2413,9 +2413,27 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 1, 20, 1, 0, 10, this));
 
   list->addItem(new ParamValueControlF(
+      "CruiseSpeedUnitBasic", "크루즈 기본 증감단위 (km/h)",
+      "크루즈 버튼 모드 0에서 RES/SET 짧게 누르기에 사용하는 속도 단위입니다.",
+      "../assets/offroad/icon_road.png", 1, 10, 1, 0, 1, this));
+
+  list->addItem(new ParamValueControlF(
       "CruiseButtonLongDelay", "크루즈 버튼 길게누름 시간",
       "RES/SET 길게누름 판정시간입니다. 제어주기 0.01초 단위이며 기본 70은 약 0.7초입니다.",
       "../assets/offroad/icon_road.png", 30, 150, 5, 0, 70, this));
+
+  const std::array<std::tuple<const char*, const char*, int>, 5> cruise_speed_table = {{
+    {"CruiseSpeed1", "크루즈 속도표 1단계 (km/h)", 30},
+    {"CruiseSpeed2", "크루즈 속도표 2단계 (km/h)", 50},
+    {"CruiseSpeed3", "크루즈 속도표 3단계 (km/h)", 70},
+    {"CruiseSpeed4", "크루즈 속도표 4단계 (km/h)", 90},
+    {"CruiseSpeed5", "크루즈 속도표 5단계 (km/h)", 110},
+  }};
+  for (const auto& [key, title, default_value] : cruise_speed_table) {
+    list->addItem(new ParamValueControlF(
+        key, title, "크루즈 버튼 모드 3에서 RES/SET으로 순환하는 설정속도 단계입니다.",
+        "../assets/offroad/icon_road.png", 5, 160, 5, 0, default_value, this));
+  }
 
   list->addItem(new ParamValueControlF(
       "AutoSpeedUptoRoadSpeedLimit", "앞차 자동증속 도로속도 비율 (%)",
@@ -2431,6 +2449,16 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "AutoRoadSpeedLimitOffset", "도로 제한속도 오프셋 (km/h)",
       "도로 제한속도 자동변경 모드에서 더하거나 뺄 값입니다.",
       "../assets/offroad/icon_road.png", -30, 30, 1, 0, 0, this));
+
+  list->addItem(new ParamValueControlF(
+      "AutoNaviSpeedSafetyFactor", "내비 감속 안전비율 (%)",
+      "카메라와 구간단속 목표속도에 적용하는 보정 비율입니다. 100은 보정 없이 적용합니다.",
+      "../assets/offroad/icon_road.png", 80, 120, 1, 0, 100, this));
+
+  list->addItem(new ParamControl(
+      "AutoGasResumeGuard", "가속페달 자동재개 안전조건",
+      "가속페달 해제 자동재개 시 크루즈 가능 상태와 주행 안전조건을 확인합니다.",
+      "../assets/offroad/icon_road.png", this));
 
   list->addItem(new ParamValueControlF(
       "AutoResumeFromGas", "가속페달 오토리줌 모드",
