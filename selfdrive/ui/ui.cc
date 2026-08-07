@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstdlib>
 
 #include <QtConcurrent>
 
@@ -156,7 +157,9 @@ static void update_model(UIState *s, const cereal::ModelDataV2::Reader &model) {
   static float path_width = 0.9f;
   if (++path_param_frame >= UI_FREQ) {
     path_param_frame = 0;
-    const int configured_width = path_params.getInt("ShowPathWidth");
+    const std::string configured_width_value = path_params.get("ShowPathWidth");
+    const int configured_width = configured_width_value.empty()
+        ? 90 : std::atoi(configured_width_value.c_str());
     path_width = std::clamp(configured_width > 0 ? configured_width / 100.0f : 0.9f,
                             0.3f, 1.5f);
   }
