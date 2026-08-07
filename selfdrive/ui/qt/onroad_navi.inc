@@ -546,10 +546,11 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   p.setBrush(turn_fill);
   p.drawRoundedRect(turn_card, qRound(12 * ui_scale), qRound(12 * ui_scale));
 
-  const int turn_icon_size = qRound(106 * ui_scale);
-  const QRect turn_icon(turn_center_x - turn_icon_size / 2,
-                        turn_center_y - qRound(73 * ui_scale),
-                        turn_icon_size, turn_icon_size);
+  const int turn_icon_w = qRound(106 * ui_scale);
+  const int turn_icon_h = qRound(158 * ui_scale);
+  const QRect turn_icon(turn_center_x - turn_icon_w / 2,
+                        turn_center_y - qRound(84 * ui_scale),
+                        turn_icon_w, turn_icon_h);
   // Match c3-wip: use its original 256x256 PNG artwork for turns,
   // forks/lane changes, and U-turns. Keep vector rendering only as a fallback
   // if an asset cannot be loaded on the device.
