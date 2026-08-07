@@ -83,7 +83,40 @@ void OnroadWindow::updateState(const UIState &s) {
   // Keep NvgWindow state in sync with carState (including blind-spot signals).
   nvg->updateState(s);
 
-  QColor bgColor = bg_colors[s.status];
+  const SubMaster &sm = *(s.sm);
+  const auto car_state = sm["carState"].getCarState();
+  const auto car_control = sm["carControl"].getCarControl();
+  const auto controls_state = sm["controlsState"].getControlsState();
+
+  // The upper border represents lateral-control state.
+  QColor bgColor;
+  if (car_state.getSteeringPressed()) {
+    bgColor = bg_colors[STATUS_OVERRIDE];
+  } else if (car_control.getLatActive()) {
+    bgColor = bg_colors[STATUS_ENGAGED];
+  } else {
+    bgColor = bg_colors[STATUS_DISENGAGED];
+  }
+
+  // The lower border represents longitudinal-control state.
+  QColor bgLongColor;
+  if (car_state.getGasPressed()) {
+    bgLongColor = bg_colors[STATUS_OVERRIDE];
+  } else if (controls_state.getEnabled()) {
+    bgLongColor = bg_colors[STATUS_ENGAGED];
+  } else if (car_state.getCruiseState().getAvailable()) {
+    bgLongColor = bg_colors[STATUS_WARNING];
+  } else {
+    bgLongColor = bg_colors[STATUS_DISENGAGED];
+  }
+
+  left_blinker = car_state.getLeftBlinker();
+  right_blinker = car_state.getRightBlinker();
+  accel_bar_width = accel_bar_width * 0.5f +
+                    width() * std::min(std::abs(car_state.getAEgo()) / 4.0f, 1.0f) * 0.5f;
+  steering_bar_pos = steering_bar_pos * 0.5f +
+                     (width() / 2.0f - width() / 2.0f *
+                      car_state.getSteeringAngleDeg() / 90.0f) * 0.5f;
   Alert alert = Alert::get(*(s.sm), s.scene.started_frame);
   if (s.sm->updated("controlsState") || !alert.equal({})) {
     if (alert.type == "controlsUnresponsive") {
@@ -100,11 +133,12 @@ void OnroadWindow::updateState(const UIState &s) {
     split->setDirection(QBoxLayout::RightToLeft);
   }
 
-  if (bg != bgColor) {
+  if (bg != bgColor || bg_long != bgLongColor) {
     // repaint border
     bg = bgColor;
-    update();
+    bg_long = bgLongColor;
   }
+  update();
 }
 
 void OnroadWindow::mouseReleaseEvent(QMouseEvent* e) {
@@ -202,7 +236,27 @@ void OnroadWindow::offroadTransition(bool offroad) {
 
 void OnroadWindow::paintEvent(QPaintEvent *event) {
   QPainter p(this);
-  p.fillRect(rect(), QColor(bg.red(), bg.green(), bg.blue(), 255));
+  const QColor lateral(bg.red(), bg.green(), bg.blue(), 255);
+  const QColor longitudinal(bg_long.red(), bg_long.green(), bg_long.blue(), 255);
+
+  p.fillRect(QRect(0, 0, width(), height() / 2), lateral);
+  p.fillRect(QRect(0, height() / 2, width(), height() - height() / 2), longitudinal);
+
+  // Middle side bars: turn-signal state.
+  const QColor signal(255, 165, 0);
+  p.fillRect(QRect(0, height() / 2 - 95, bdr_s, 190), left_blinker ? signal : Qt::black);
+  p.fillRect(QRect(width() - bdr_s, height() / 2 - 95, bdr_s, 190), right_blinker ? signal : Qt::black);
+
+  // Bottom bar: acceleration (yellow) / deceleration (red), centered.
+  const auto car_state = (*uiState()->sm)["carState"].getCarState();
+  const int accel_w = std::clamp((int)accel_bar_width, 0, width());
+  p.fillRect(QRect((width() - accel_w) / 2, height() - bdr_s, accel_w, bdr_s),
+             car_state.getAEgo() >= 0.0f ? QColor(255, 255, 0) : QColor(255, 0, 0));
+
+  // Top bar: steering angle mapped from +90 deg (left) to -90 deg (right).
+  const int steer_w = 100;
+  const int steer_x = std::clamp((int)steering_bar_pos - steer_w / 2, 0, width() - steer_w);
+  p.fillRect(QRect(steer_x, 0, steer_w, bdr_s), signal);
 }
 
 // ***** onroad widgets *****

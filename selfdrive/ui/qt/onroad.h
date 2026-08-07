@@ -176,6 +176,11 @@ private:
   OnroadAlerts *alerts;
   NvgWindow *nvg;
   QColor bg = bg_colors[STATUS_DISENGAGED];
+  QColor bg_long = bg_colors[STATUS_DISENGAGED];
+  float accel_bar_width = 0.0f;
+  float steering_bar_pos = 0.0f;
+  bool left_blinker = false;
+  bool right_blinker = false;
   QWidget *map = nullptr;
   QHBoxLayout *split;
 
