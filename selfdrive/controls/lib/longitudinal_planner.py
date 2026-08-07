@@ -337,10 +337,8 @@ class LongitudinalPlanner:
       accel_limits = [A_CRUISE_MIN, cruise_max_accel]
       accel_limits_turns = limit_accel_in_turns(v_ego, sm['carState'].steeringAngleDeg, accel_limits, self.CP)
     else:
-      # E2E keeps its wider braking range but shares the same cruise maximum
-      # acceleration table and driving-mode factor with ACC.
-      accel_limits = [MIN_ACCEL, cruise_max_accel]
-      accel_limits_turns = list(accel_limits)
+      accel_limits = [MIN_ACCEL, MAX_ACCEL]
+      accel_limits_turns = [MIN_ACCEL, MAX_ACCEL]
 
     if reset_state:
       self.v_desired_filter.x = v_ego
