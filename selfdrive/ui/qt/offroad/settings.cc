@@ -2600,6 +2600,10 @@ UISettingsPanel::UISettingsPanel(QWidget* parent) : QWidget(parent) {
       "0: 끔 / 1: 시간+날짜 / 2: 시간 / 3: 날짜",
       "../assets/offroad/icon_road.png", 0, 3, 1, 0, 1, this));
   list->addItem(new ParamControl(
+      "ShowDeviceState", "장치 상태 표시",
+      "CPU·메모리·디스크·전압 상태를 좌측 HUD에 표시합니다.",
+      "../assets/offroad/icon_shell.png", this));
+  list->addItem(new ParamControl(
       "ShowDebugUI", "디버그 UI 표시",
       "주행 화면의 개발자 디버그 정보를 표시합니다.",
       "../assets/offroad/icon_shell.png", this));

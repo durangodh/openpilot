@@ -972,6 +972,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     Params params;
     int m = std::atoi(params.get("MyDrivingMode").c_str());
     my_driving_mode = (m >= 1 && m <= 4) ? m : 3;
+    show_device_state = std::atoi(params.get("ShowDeviceState").c_str());
     carrot_atc_mode = std::atoi(params.get("CarrotAutoTurnControl").c_str());
     carrot_atc_speed = std::atoi(params.get("CarrotAutoTurnSpeed").c_str());
     carrot_atc_end_time = std::atoi(params.get("CarrotAutoTurnEndTime").c_str());
@@ -1007,7 +1008,11 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
 
   // ---- 패널 배경 ----
   QColor bg_color = CT_BLACK_A(90);
-  ctRect(p, QRect(bx - 120, by - 130, 475, 355), bg_color, 30, 2, CT_WHITE);
+  if (show_device_state > 0) {
+    ctRect(p, QRect(bx - 120, by - 270, 475, 495), bg_color, 30, 2, CT_WHITE);
+  } else {
+    ctRect(p, QRect(bx - 120, by - 130, 475, 355), bg_color, 30, 2, CT_WHITE);
+  }
 
   // ---- 현재 속도 ----
   float v_ego_disp = std::max(0.0f, (float)car_state.getVEgoCluster()) * ms_to_disp;
@@ -1171,6 +1176,73 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     QRect limit_box(dx - 55, dy - 38, 110, 48);
     ctRect(p, limit_box, limit_color, 15, 2);
     ctTextIn(p, limit_box, QString::number(disp_speed), 40, limit_text_color);
+  }
+
+  // ---- 디바이스 상태 (ShowDeviceState = 1 일 때만) ----
+  if (show_device_state > 0) {
+    const auto deviceState = sm["deviceState"].getDeviceState();
+    float cpuTemp = 0.f;
+    const auto cpuTempC = deviceState.getCpuTempC();
+    if (std::size(cpuTempC) > 0) {
+      for (int i = 0; i < (int)std::size(cpuTempC); i++) cpuTemp += cpuTempC[i];
+      cpuTemp /= (float)std::size(cpuTempC);
+    }
+    float cpuUsage = 0.f;
+    const auto cpuUsagePercent = deviceState.getCpuUsagePercent();
+    if (std::size(cpuUsagePercent) > 0) {
+      for (int i = 0; i < (int)std::size(cpuUsagePercent); i++) cpuUsage += cpuUsagePercent[i];
+      cpuUsage /= (float)std::size(cpuUsagePercent);
+    }
+
+    int dx = bx - 35;
+    int dy = by - 200;
+    QColor box = CT_GREEN_A(190);
+    QString str;
+
+    QRect ds_box(dx - 65, dy - 38, 130, 90);
+    ctRect(p, ds_box, (cpuTemp > 80 && blink_timer <= 8) ? CT_RED_A(255) : box, 15, 2);
+    ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "CPU", 25, CT_WHITE);
+    str.sprintf("%.0f\u00B0C", cpuTemp);
+    ctTextIn(p, QRect(ds_box.x(), ds_box.y() + 34, ds_box.width(), 56), str, 40, CT_WHITE);
+
+    dx += 150;
+    ds_box.moveLeft(dx - 65);
+    const auto tpms = car_state.getTpms();
+    const std::array<float, 4> pressures = {
+      tpms.getFl(), tpms.getFr(), tpms.getRl(), tpms.getRr()
+    };
+    ctRect(p, ds_box, CT_BLACK_A(220), 15, 2, CT_WHITE_A(170));
+
+    // Front-left / front-right on top, rear-left / rear-right on bottom.
+    p.save();
+    p.setPen(QPen(CT_WHITE_A(120), 1));
+    p.drawLine(ds_box.center().x(), ds_box.top() + 3,
+               ds_box.center().x(), ds_box.bottom() - 3);
+    p.drawLine(ds_box.left() + 3, ds_box.center().y(),
+               ds_box.right() - 3, ds_box.center().y());
+    p.restore();
+
+    const int cell_w = ds_box.width() / 2;
+    const int cell_h = ds_box.height() / 2;
+    const std::array<QRect, 4> cells = {
+      QRect(ds_box.left(), ds_box.top(), cell_w, cell_h),
+      QRect(ds_box.left() + cell_w, ds_box.top(), ds_box.width() - cell_w, cell_h),
+      QRect(ds_box.left(), ds_box.top() + cell_h, cell_w, ds_box.height() - cell_h),
+      QRect(ds_box.left() + cell_w, ds_box.top() + cell_h,
+            ds_box.width() - cell_w, ds_box.height() - cell_h)
+    };
+    for (int i = 0; i < 4; ++i) {
+      QString pressure = get_tpms_text(pressures[i]);
+      if (pressure.isEmpty()) pressure = "--";
+      ctTextIn(p, cells[i], pressure, 40, get_tpms_color(pressures[i]), true);
+    }
+
+    dx += 150;
+    ds_box.moveLeft(dx - 65);
+    ctRect(p, ds_box, (cpuUsage > 90 && blink_timer <= 8) ? CT_RED_A(255) : box, 15, 2);
+    ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "CPU", 25, CT_WHITE);
+    str.sprintf("%.0f%%", cpuUsage);
+    ctTextIn(p, QRect(ds_box.x(), ds_box.y() + 34, ds_box.width(), 56), str, 40, CT_WHITE);
   }
 
   p.restore();
