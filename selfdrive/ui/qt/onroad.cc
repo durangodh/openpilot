@@ -385,7 +385,6 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
     }
   }
   QLinearGradient bg(path_left, 0, path_right, 0);
-  const bool e2e_mode = sm["longitudinalPlan"].getLongitudinalPlan().getMpcMode() == 1;
   if (show_path_status_color) {
     QColor path_color(0, 205, 80, 180);  // engaged, no lead
     if (!s->engaged()) {
@@ -405,13 +404,8 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
     bg.setColorAt(0.0, path_color);
     bg.setColorAt(0.5, center_color);
     bg.setColorAt(1.0, path_color);
-  } else if (e2e_mode) {
-    // Yellow e2e palette.
-    bg.setColorAt(0.0, QColor::fromHslF(48 / 360., 0.95, 0.55, 0.65));
-    bg.setColorAt(0.5, QColor::fromHslF(55 / 360., 1.0, 0.68, 0.12));
-    bg.setColorAt(1.0, QColor::fromHslF(48 / 360., 0.95, 0.55, 0.65));
   } else {
-    // Former lane-mode palette.
+    // Single fallback palette; ACC/E2E no longer changes the path color.
     bg.setColorAt(0.0, QColor::fromHslF(197 / 360., 1.0, 0.55, 0.7));
     bg.setColorAt(0.5, QColor::fromHslF(200 / 360., 1.0, 0.70, 0.12));
     bg.setColorAt(1.0, QColor::fromHslF(197 / 360., 1.0, 0.55, 0.7));
