@@ -115,9 +115,9 @@ class CarController:
     sys_warning, sys_state, left_lane_warning, right_lane_warning = process_hud_alert(CC.enabled, self.car_fingerprint, hud_control)
 
     if self.haptic_feedback_speed_camera:
-      if self.prev_active_cam != self.scc_smoother.active_cam:
-        self.prev_active_cam = self.scc_smoother.active_cam
-        if self.scc_smoother.active_cam:
+      if self.prev_active_cam != controls.cruise_helper.active_cam:
+        self.prev_active_cam = controls.cruise_helper.active_cam
+        if controls.cruise_helper.active_cam:
           if (self.frame - self.last_active_cam_frame) * DT_CTRL > 10.0:
             self.active_cam_timer = int(1.5 / DT_CTRL)
             self.last_active_cam_frame = self.frame
@@ -250,7 +250,7 @@ class CarController:
     # A leadless request is blocked below 2 km/h to prevent an unintended
     # launch from standstill.
     physical_request = CS.cruise_buttons in (Buttons.RES_ACCEL, Buttons.SET_DECEL)
-    auto_resume_request = self.scc_smoother.auto_resume_request
+    auto_resume_request = controls.cruise_helper.auto_resume_request
     request_pressed = physical_request or auto_resume_request
     direct_long_available = (self.longcontrol and CC.enabled and CS.out.cruiseState.available and
                              (CS.scc_bus or not self.scc_live))
@@ -264,14 +264,14 @@ class CarController:
       if self.frame % 2 == 0:
 
         set_speed = hud_control.setSpeed
-        min_set_speed = self.scc_smoother.min_set_speed_kph * CV.KPH_TO_MS
+        min_set_speed = controls.cruise_helper.cruise_speed_min * CV.KPH_TO_MS
         if low_speed_engage_request and auto_resume_request:
-          set_speed = self.scc_smoother.auto_resume_set_speed_kph * CV.KPH_TO_MS
+          set_speed = controls.cruise_helper.auto_resume_set_speed_kph * CV.KPH_TO_MS
         if not (min_set_speed < set_speed < 255 * CV.KPH_TO_MS):
           set_speed = max(CS.out.vEgo, min_set_speed)
         set_speed *= CV.MS_TO_MPH if CS.is_set_speed_in_mph else CV.MS_TO_KPH
 
-        apply_accel = self.scc_smoother.get_apply_accel(CS, controls.sm, actuators.accel, stopping)
+        apply_accel = controls.cruise_helper.get_apply_accel(CS, controls.sm, actuators.accel, stopping)
         apply_accel = clip(apply_accel if CC.longActive else 0,
                            CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX)
 
@@ -290,7 +290,7 @@ class CarController:
         if self.stock_navi_decel_enabled:
           controls.sccStockCamAct = CS.scc11["Navi_SCC_Camera_Act"]
           controls.sccStockCamStatus = CS.scc11["Navi_SCC_Camera_Status"]
-          apply_accel, stock_cam = self.scc_smoother.get_stock_cam_accel(apply_accel, aReqValue, CS.scc11)
+          apply_accel, stock_cam = controls.cruise_helper.get_stock_cam_accel(apply_accel, aReqValue, CS.scc11)
         else:
           controls.sccStockCamAct = 0
           controls.sccStockCamStatus = 0
@@ -307,7 +307,7 @@ class CarController:
                                       self.car_fingerprint, force_long=low_speed_engage_request))
 
         can_sends.append(create_scc11(self.packer, self.frame, CC.enabled, set_speed, hud_control.leadVisible, self.scc_live, CS.scc11,
-                       self.scc_smoother.active_cam, stock_cam, force_long=low_speed_engage_request))
+                       controls.cruise_helper.active_cam, stock_cam, force_long=low_speed_engage_request))
 
         if self.frame % 20 == 0 and CS.has_scc13:
           can_sends.append(create_scc13(self.packer, CS.scc13))
@@ -323,7 +323,7 @@ class CarController:
             cb_upper = clip(0.9 + apply_accel * 0.2, 0.0, 1.2)
             cb_lower = clip(0.8 + apply_accel * 0.2, 0.0, 1.2)
 
-          lead = self.scc_smoother.get_lead(controls.sm)
+          lead = controls.cruise_helper.get_lead(controls.sm)
 
           if lead is not None:
             d = lead.dRel

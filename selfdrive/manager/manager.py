@@ -53,6 +53,9 @@ def manager_init() -> None:
     ("AutoRoadSpeedAdjust", "0"),          # -100=limit immediately, 0=retain, 1..100=blend on limit drop
     ("AutoRoadSpeedLimitOffset", "0"),
     ("AutoNaviSpeedSafetyFactor", "100"),
+    ("CarrotAutoTurnControl", "0"),
+    ("CarrotAutoTurnSpeed", "30"),
+    ("CarrotAutoTurnEndTime", "6"),
     ("CruiseButtonMode", "0"),              # 0=normal, 1/2=custom, 3=speed table
     ("CruiseSpeedUnit", "10"),
     ("CruiseSpeedUnitBasic", "1"),

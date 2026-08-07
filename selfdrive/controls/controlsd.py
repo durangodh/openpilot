@@ -4,7 +4,7 @@ import math
 from numbers import Number
 
 from cereal import car, log
-from common.numpy_fast import clip, interp
+from common.numpy_fast import clip
 from common.realtime import sec_since_boot, config_realtime_process, Priority, Ratekeeper, DT_CTRL
 from common.profiler import Profiler
 from common.params import Params, put_nonblocking
@@ -17,7 +17,7 @@ from selfdrive.version import is_tested_branch
 from selfdrive.boardd.boardd import can_list_to_can_capnp
 from selfdrive.car.car_helpers import get_car, get_startup_event, get_one_can
 from selfdrive.controls.lib.lane_planner import CAMERA_OFFSET
-from selfdrive.controls.lib.drive_helpers import V_CRUISE_INITIAL, V_CRUISE_MAX, update_v_cruise, initialize_v_cruise
+from selfdrive.controls.lib.drive_helpers import V_CRUISE_INITIAL, initialize_v_cruise
 from selfdrive.controls.lib.drive_helpers import get_lag_adjusted_curvature
 from selfdrive.controls.lib.latcontrol import LatControl
 from selfdrive.controls.lib.longcontrol import LongControl
@@ -25,13 +25,12 @@ from selfdrive.controls.lib.latcontrol_pid import LatControlPID
 from selfdrive.controls.lib.latcontrol_indi import LatControlINDI
 from selfdrive.controls.lib.latcontrol_angle import LatControlAngle
 from selfdrive.controls.lib.events import Events, ET
-from selfdrive.controls.lib.low_speed_long import read_cruise_speed_min
+from selfdrive.controls.lib.cruise_helper import CruiseHelper
 from selfdrive.controls.lib.alertmanager import AlertManager, set_offroad_alert
 from selfdrive.controls.lib.vehicle_model import VehicleModel
 from selfdrive.locationd.calibrationd import Calibration
 from selfdrive.hardware import HARDWARE, TICI, EON
 from selfdrive.manager.process_config import managed_processes
-from selfdrive.car.hyundai.scc_smoother import SccSmoother
 from selfdrive.controls.lib import live_tune
 
 SOFT_DISABLE_TIME = 3  # seconds
@@ -115,15 +114,7 @@ class Controls:
 
     # read params
     self.is_metric = params.get_bool("IsMetric")
-    self.long_cruise_gap = int(clip(params.get_int("PrevCruiseGap"), 1, 4))
-    self.init_driving_mode = int(clip(params.get_int("InitMyDrivingMode"), 1, 5))
-    self.my_driving_mode = 3 if self.init_driving_mode == 5 else self.init_driving_mode
-    self.last_mode_param = params.get_int("MyDrivingMode")
-    self.driving_mode_index = 0.0
-    self.safe_mode_base_factor = float(clip(params.get_int("MySafeModeFactor") * 0.01, 0.5, 1.0))
-    self.my_safe_mode_factor = self.safe_mode_base_factor if self.my_driving_mode == 2 else \
-                               (1.0 + self.safe_mode_base_factor) / 2.0 if self.my_driving_mode == 1 else 1.0
-    self.cruise_speed_min = read_cruise_speed_min(params)
+    self.cruise_helper = CruiseHelper(params)
     self.is_ldw_enabled = params.get_bool("IsLdwEnabled")
     openpilot_enabled_toggle = params.get_bool("OpenpilotEnabledToggle")
     passive = params.get_bool("Passive") or not openpilot_enabled_toggle
@@ -198,8 +189,7 @@ class Controls:
     self.desired_curvature = 0.0
     self.desired_curvature_rate = 0.0
 
-    # scc smoother
-    self.is_cruise_enabled = False
+    # CruiseHelper outputs shared with Hyundai SCC transport and UI
     self.applyMaxSpeed = 0
     self.apply_accel = 0.
     self.fused_accel = 0.
@@ -218,13 +208,6 @@ class Controls:
 
     # AutoLaneChangeTimer 파라미터 접근용
     self.params = Params()
-    self.cruise_button_mode = 0
-    self.cruise_speed_unit = 10
-    self.cruise_speed_unit_basic = 1
-    self.cruise_button_long_delay = 70
-    self.cruise_speed_table = [30, 50, 70, 90, 110]
-    self.speed_from_pcm = 2
-
     # TODO: no longer necessary, aside from process replay
     self.sm['liveParameters'].valid = True
 
@@ -494,43 +477,8 @@ class Controls:
 
     self.v_cruise_kph_last = self.v_cruise_kph
 
-    # apilot-c2 방식: 차량의 현재 갭 표시값을 직접 따라가지 않고,
-    # 갭 버튼을 짧게 눌렀다 놓을 때 소프트웨어 갭을 1→2→3→4로 순환한다.
-    for b in CS.buttonEvents:
-      if b.type == ButtonType.gapAdjustCruise and not b.pressed:
-        gap_timer = self.button_timers.get(ButtonEvent.Type.gapAdjustCruise, 0)
-        if gap_timer <= 40:
-          self.long_cruise_gap = self.long_cruise_gap + 1 if self.long_cruise_gap < 4 else 1
-          put_nonblocking("PrevCruiseGap", str(self.long_cruise_gap))
-
-    # C2 AUTO(InitMyDrivingMode=5): 가까운 선행차 추종 중 가감속/저속 빈도로
-    # NORMAL과 ECO를 자동 선택한다. SAFE/HIGH 수동 선택은 자동으로 덮지 않는다.
-    lead = self.sm['radarState'].leadOne
-    accel_index = interp(CS.aEgo, [-3.0, -1.0, 0.0, 1.0, 3.0], [100.0, 0.0, 0.0, 0.0, 100.0])
-    velocity_index = interp(CS.vEgo * CV.MS_TO_KPH, [0.0, 5.0, 50.0], [100.0, 80.0, 0.0])
-    total_index = accel_index * 3.0 + velocity_index if lead.status and 0.0 < lead.dRel < 50.0 else 0.0
-    self.driving_mode_index = self.driving_mode_index * 0.999 + total_index * 0.001
-    if self.init_driving_mode == 5 and self.driving_mode_index > 0.0 and self.my_driving_mode not in (2, 4):
-      if self.driving_mode_index < 20.0:
-        self.my_driving_mode = 3
-      elif self.driving_mode_index > 80.0:
-        self.my_driving_mode = 1
-    self.my_safe_mode_factor = self.safe_mode_base_factor if self.my_driving_mode == 2 else \
-                               (1.0 + self.safe_mode_base_factor) / 2.0 if self.my_driving_mode == 1 else 1.0
-
-    if self.sm.frame % 100 == 0:
-      self.cruise_speed_min = read_cruise_speed_min(self.params)
-      self.cruise_button_mode = int(clip(self.params.get_int("CruiseButtonMode"), 0, 3))
-      self.cruise_speed_unit = int(clip(self.params.get_int("CruiseSpeedUnit"), 1, 20))
-      self.cruise_speed_unit_basic = int(clip(self.params.get_int("CruiseSpeedUnitBasic"), 1, 10))
-      self.cruise_button_long_delay = int(clip(self.params.get_int("CruiseButtonLongDelay"), 30, 150))
-      table = [self.params.get_int(f"CruiseSpeed{i}") for i in range(1, 6)]
-      self.cruise_speed_table = sorted(clip(v, self.cruise_speed_min, V_CRUISE_MAX) for v in table)
-      self.speed_from_pcm = int(clip(self.params.get_int("SpeedFromPCM"), 0, 3))
-
     self.CP.pcmCruise = self.CI.CP.pcmCruise
-
-    SccSmoother.update_cruise_buttons(self, CS, self.CP.openpilotLongitudinalControl)
+    self.cruise_helper.update_controls(self, CS, self.CP.openpilotLongitudinalControl)
 
     #visionTurnControl	
     vtcState = self.sm['longitudinalPlan'].visionTurnControllerState
@@ -619,7 +567,7 @@ class Controls:
           self.current_alert_types.append(ET.ENABLE)
           if not self.CP.pcmCruise:
             self.v_cruise_kph = initialize_v_cruise(CS.vEgo, CS.buttonEvents, self.v_cruise_kph_last,
-                                                     self.cruise_speed_min)
+                                                     self.cruise_helper.cruise_speed_min)
             self.v_cruise_cluster_kph = self.v_cruise_kph
 
     # Check if openpilot is engaged and actuators are enabled
@@ -870,19 +818,9 @@ class Controls:
     controlsState.forceDecel = bool(force_decel)
     controlsState.canErrorCounter = self.can_rcv_error_counter
 
-    # apilot-c2 방식의 종방향 갭/안전모드 입력을 controlsState로 전달한다.
-    if self.sm.frame % 100 == 0:
-      mode = Params().get_int("MyDrivingMode")
-      if mode != self.last_mode_param and 1 <= mode <= 4:
-        self.my_driving_mode = mode
-        self.last_mode_param = mode
-        self.driving_mode_index = -100.0
-      self.safe_mode_base_factor = float(clip(Params().get_int("MySafeModeFactor") * 0.01, 0.5, 1.0))
-      self.my_safe_mode_factor = self.safe_mode_base_factor if self.my_driving_mode == 2 else \
-                                 (1.0 + self.safe_mode_base_factor) / 2.0 if self.my_driving_mode == 1 else 1.0
-    controlsState.longCruiseGap = self.long_cruise_gap
-    controlsState.myDrivingMode = self.my_driving_mode
-    controlsState.mySafeModeFactor = self.my_safe_mode_factor
+    controlsState.longCruiseGap = self.cruise_helper.long_cruise_gap
+    controlsState.myDrivingMode = self.cruise_helper.my_driving_mode
+    controlsState.mySafeModeFactor = self.cruise_helper.my_safe_mode_factor
 
     controlsState.angleSteers = steer_angle_without_offset * CV.RAD_TO_DEG
     controlsState.applyAccel = self.apply_accel
