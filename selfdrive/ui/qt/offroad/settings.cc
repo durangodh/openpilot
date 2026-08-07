@@ -2433,11 +2433,6 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", -30, 30, 1, 0, 0, this));
 
   list->addItem(new ParamValueControlF(
-      "TFollowDecelBoost", "감속 중 차간시간 추가 (%)",
-      "C3 방식으로 감속 중 차간시간 감소를 막고 감속량에 따라 여유 간격을 추가합니다.",
-      "../assets/offroad/icon_road.png", 0, 100, 5, 0, 50, this));
-
-  list->addItem(new ParamValueControlF(
       "AutoResumeFromGas", "가속페달 오토리줌 모드",
       "0: 끔 / 1: 조건 충족 중 재개 / 2: 조건 충족 및 0.4초 미만 짧은 가속 후 재개",
       "../assets/offroad/icon_road.png", 0, 2, 1, 0, 1, this));

@@ -290,8 +290,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"TFollowGap3", PERSISTENT},               // GAP3 (default 140 = 1.40s)
     {"TFollowGap4", PERSISTENT},               // GAP4 (default 160 = 1.60s)
     {"EnableSpeedTF", PERSISTENT},
-    {"TFollowDecelBoost", PERSISTENT},
-    {"InitialCruiseGap", PERSISTENT},
     {"StartAccelApply", PERSISTENT},
     {"StopAccelApply", PERSISTENT},
     {"SoftHoldMode", PERSISTENT},

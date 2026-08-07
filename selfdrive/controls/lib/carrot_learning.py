@@ -29,7 +29,7 @@ CarrotPilot Auto-Tuner 포팅판 (원본 commit 9dd5e2c, selfdrive/carrot/carrot
 초기화: CarrotLearningClear=1 -> 누적 학습 데이터 삭제
 
 원본 대비 제외된 것 (이 포크에 대응 신호/파라미터 없음):
-  - Phase 3 JLeadFactor3, Phase 5 DynamicTFollow/TFollowDecelBoost (jLead 신호 없음)
+  - Phase 3 JLeadFactor3, Phase 5 DynamicTFollow (jLead 신호 없음)
     -> 수동 브레이크 개입은 Phase 4의 '거리 넓히기' 신호로 흡수
     -> 단, 원본 commit 00b70cd의 '선제(교육용) 제동' 학습 의도는 jLead 대신
        종방향 응답성(longKf) 으로 적응 반영 (아래 _LEAD_PROACTIVE_* 참고)

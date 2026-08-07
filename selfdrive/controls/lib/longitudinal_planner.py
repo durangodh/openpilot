@@ -174,8 +174,6 @@ class LongitudinalPlanner:
     self.mpc.tfollow_gaps = gap_values
     speed_ratio = self.params.get_int("TFollowSpeedRatio")
     self.mpc.t_follow_speed_ratio = (speed_ratio if speed_ratio >= 100 else 120) * 0.01
-    decel_boost = self.params.get_int("TFollowDecelBoost")
-    self.mpc.t_follow_decel_boost = float(clip(decel_boost if decel_boost > 0 else 50, 0, 100)) * 0.01
     # ───────────────────
 
     # ── Auto-Tuner: 학습된 추종거리 파라미터를 MPC에 반영 (5초 주기 갱신) ──
@@ -400,7 +398,7 @@ class LongitudinalPlanner:
       lead = sm['radarState'].leadOne
       gear_park = cs.gearShifter == GearShifter.park
       engaged = sm['controlsState'].enabled
-      cruise_gap = int(clip(cs.cruiseGap, 1., 4.)) if cs.cruiseGap > 0 else 4
+      cruise_gap = int(clip(sm['controlsState'].longCruiseGap, 1., 4.))
       self.carrot_learner.set_current_gap(cruise_gap)
       # liveParameters.steerRatio (paramsd 칼만 추정) — steerRatio 학습 입력.
       # plannerd SubMaster에 'liveParameters'가 구독돼 있어야 한다(미구독/미수신 시 무시).

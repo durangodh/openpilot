@@ -928,6 +928,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
   UIState *s = uiState();
   const SubMaster &sm = *(s->sm);
   const auto car_state    = sm["carState"].getCarState();
+  const auto controls_state = sm["controlsState"].getControlsState();
   const auto scc_smoother = sm["carControl"].getCarControl().getSccSmoother();
   const auto road_limit   = sm["roadLimitSpeed"].getRoadLimitSpeed();
 
@@ -1041,7 +1042,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
   }
 
   // ---- 차간거리(GAP) 막대 ----
-  int gap = car_state.getCruiseGap();
+  int gap = controls_state.getLongCruiseGap();
   {
     int   dx  = bx + 270;
     int   dy  = by + 185;

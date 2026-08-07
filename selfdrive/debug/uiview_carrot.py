@@ -3,7 +3,7 @@
 #  기본 uiview.py 에 더해, 아래 요소가 화면에 보이도록 가짜 데이터를 함께 publish/기록한다.
 #   - 지도 경로 패널(drawCarrotNavi)   : /dev/shm/carrot_navi_route.json 을 매초 갱신
 #   - 좌상단 wifi IP                    : deviceState.wifiIpAddress
-#   - 차간거리(GAP) 막대                : carState.cruiseGap
+#   - 차간거리(GAP) 막대                : controlsState.longCruiseGap
 #   - NDA + LIMIT                       : roadLimitSpeed(active/roadLimitSpeed)
 #   - 하단 중앙 디버그(offset 제거 확인) : lateralPlan.latDebugText
 #  ※ 리드박스(앞차)는 모델/레이더 리드가 필요해 벤치 uiview 로는 안 뜬다(실차 onroad 필요).
@@ -86,6 +86,7 @@ if __name__ == "__main__":
       msgs['carState'] = messaging.new_message('carState')
       msgs['carState'].carState.vEgoCluster = speed
       msgs['carState'].carState.cruiseGap = 2          # GAP 막대 2칸
+      msgs['controlsState'].controlsState.longCruiseGap = 2
 
       speed += 0.02
       if speed > 40.0:
