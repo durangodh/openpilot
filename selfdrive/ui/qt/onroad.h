@@ -30,6 +30,8 @@ class NvgWindow : public CameraViewWidget {
   Q_PROPERTY(bool experimentalMode MEMBER experimentalMode NOTIFY valueChanged);
   Q_PROPERTY(int status MEMBER status NOTIFY valueChanged);
   Q_PROPERTY(float ang_str MEMBER ang_str NOTIFY valueChanged);
+  Q_PROPERTY(bool left_blindspot MEMBER left_blindspot);   // blind spot
+  Q_PROPERTY(bool right_blindspot MEMBER right_blindspot); // blind spot
 
 public:
   explicit NvgWindow(VisionStreamType type, QWidget* parent = 0);
@@ -45,8 +47,6 @@ protected:
   void updateFrameMat(int w, int h) override;
   void drawLaneLines(QPainter &painter, const UIState *s);
   void drawBlindSpot(QPainter &painter, const line_vertices_data &vd, const QColor &color);
-  // carrot 방식 BSD : 벽을 조각내어 울타리처럼 그린다
-  // carrot 스타일 리드 표시 (기존 쉐브론 / ChevronInfo 대체)
   void drawCarrotLead(QPainter &p);
 
   inline QColor redColor(int alpha = 255)   { return QColor(201, 34, 49, alpha); }
@@ -59,7 +59,9 @@ protected:
   int status = STATUS_DISENGAGED;
   float ang_str = 0;
 
-
+  bool left_blindspot  = false; // blind spot
+  bool right_blindspot = false; // blind spot
+  
   FirstOrderFilter fps_filter;
   FirstOrderFilter accel_filter;
 
@@ -111,6 +113,7 @@ protected:
   int  carrot_atc_end_time = 6;
   int  show_datetime = 1;
   int  show_gear_animation = 1;
+  int  show_bsd_always = 0;
   int  show_carrot_hud = 1;
   int  show_path_status_color = 1;
   int  show_path_brake_border = 1;
@@ -174,9 +177,8 @@ private:
   QColor bg_long = bg_colors[STATUS_DISENGAGED];
   float accel_bar_width = 0.0f;
   float steering_bar_pos = 0.0f;
-  bool left_blindspot = false;
-  bool right_blindspot = false;
-  int bsd_blink_frame = 0;
+  bool left_blinker = false;
+  bool right_blinker = false;
   QWidget *map = nullptr;
   QHBoxLayout *split;
 
