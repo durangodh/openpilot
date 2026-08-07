@@ -188,7 +188,8 @@ class Controls:
     self.events_prev = []
     self.current_alert_types = [ET.PERMANENT]
     self.logged_comm_issue = False
-    self.button_timers = {ButtonEvent.Type.decelCruise: 0, ButtonEvent.Type.accelCruise: 0}
+    self.button_timers = {ButtonEvent.Type.decelCruise: 0, ButtonEvent.Type.accelCruise: 0,
+                          ButtonEvent.Type.gapAdjustCruise: 0}
     self.last_actuators = car.CarControl.Actuators.new_message()
     self.steer_limited = False
     self.desired_curvature = 0.0
@@ -489,6 +490,14 @@ class Controls:
     """Compute conditional state transitions and execute actions on state transitions"""
 
     self.v_cruise_kph_last = self.v_cruise_kph
+
+    # apilot-c2 방식: 차량의 현재 갭 표시값을 직접 따라가지 않고,
+    # 갭 버튼을 짧게 눌렀다 놓을 때 소프트웨어 갭을 1→2→3→4로 순환한다.
+    for b in CS.buttonEvents:
+      if b.type == ButtonType.gapAdjustCruise and not b.pressed and \
+         self.button_timers.get(ButtonEvent.Type.gapAdjustCruise, 0) <= 40:
+        self.long_cruise_gap = self.long_cruise_gap + 1 if self.long_cruise_gap < 4 else 1
+        put_nonblocking("PrevCruiseGap", str(self.long_cruise_gap))
 
     if self.sm.frame % 100 == 0:
       self.cruise_speed_min = read_cruise_speed_min(self.params)
@@ -843,8 +852,6 @@ class Controls:
     controlsState.canErrorCounter = self.can_rcv_error_counter
 
     # apilot-c2 방식의 종방향 갭/안전모드 입력을 controlsState로 전달한다.
-    if CS.cruiseGap > 0:
-      self.long_cruise_gap = int(clip(CS.cruiseGap, 1, 4))
     if self.sm.frame % 100 == 0:
       mode = Params().get_int("MyDrivingMode")
       self.my_driving_mode = int(clip(mode if mode > 0 else 3, 1, 4))

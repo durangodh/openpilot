@@ -2532,9 +2532,13 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "속도에 따라 추종시간을 늘리는 비율입니다 (%).",
       "../assets/offroad/icon_openpilot.png", 100, 300, 5, 0, 120, this));
   list->addItem(new ParamValueControlF(
-      "InitialCruiseGap", "Initial Cruise Gap",
-      "크루즈가 처음 활성화될 때 선택할 GAP입니다. 0은 차량 기본값을 유지합니다.",
-      "../assets/offroad/icon_openpilot.png", 0, 4, 1, 0, 0, this));
+      "PrevCruiseGap", "Cruise Gap",
+      "마지막 선택 GAP을 저장하고 다음 주행에서도 복원합니다.",
+      "../assets/offroad/icon_openpilot.png", 1, 4, 1, 0, 4, this));
+  list->addItem(new ParamValueControlF(
+      "MySafeModeFactor", "SAFE TR Factor",
+      "ECO/SAFE 모드의 C2 추종거리 보정 기준입니다 (%).",
+      "../assets/offroad/icon_openpilot.png", 50, 100, 5, 0, 80, this));
 
   list->addItem(horizontal_line());
 

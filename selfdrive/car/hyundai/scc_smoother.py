@@ -126,7 +126,8 @@ class SccSmoother:
     self.min_set_speed_kph = read_cruise_speed_min(self.params)
     if hasattr(self, "speed_conv_to_clu"):
       self.min_set_speed_clu = self.kph_to_clu(self.min_set_speed_kph)
-    initial_gap = int(clip(self.params.get_int("InitialCruiseGap"), 0, 4))
+    # C2 소프트웨어 갭과 계기판 초기 갭의 기준을 PrevCruiseGap 하나로 통일한다.
+    initial_gap = int(clip(self.params.get_int("PrevCruiseGap"), 1, 4))
     if hasattr(self, "initial_cruise_gap") and initial_gap != self.initial_cruise_gap:
       self.initial_gap_applied = False
     self.initial_cruise_gap = initial_gap

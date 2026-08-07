@@ -236,6 +236,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"ACCStopDistance", PERSISTENT},             // ACC 모드 정지거리 (m), 기본 6
     {"E2EStopDistance", PERSISTENT},             // E2E 모드 정지거리 (m), 기본 6
     {"MyDrivingMode", PERSISTENT},             // 주행모드 1:ECO 2:SAFE 3:NORM 4:FAST
+    {"MySafeModeFactor", PERSISTENT},           // SAFE 모드 TR 비율 (x100)
+    {"PrevCruiseGap", PERSISTENT},              // 마지막 소프트웨어 크루즈 갭 1~4
     {"ShowGearAnimation", PERSISTENT},
     {"ShowCarrotHud", PERSISTENT},              // 1=좌측 carrot HUD 박스 표시, 0=숨김
     {"ShowDateTime", PERSISTENT},               // 0=끔, 1=시간+날짜, 2=시간, 3=날짜
