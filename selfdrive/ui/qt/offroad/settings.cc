@@ -411,21 +411,18 @@ ParamValueControlF::ParamValueControlF(const QString &param, const QString &titl
 
 void ParamValueControlF::changeValue(int delta) {
   std::string cur = params.get(param_.toStdString());
-  int v = cur.empty() ? ((param_ == "E2EAccMode" && params.getBool("ExperimentalMode")) ? 2 : vdefault_) : std::atoi(cur.c_str());
+  int v = cur.empty() ? vdefault_ : std::atoi(cur.c_str());
   v = std::max(vmin_, std::min(vmax_, v + delta * step_));
   params.put(param_.toStdString(), std::to_string(v));
-  if (param_ == "E2EAccMode") {
-    params.putBool("ExperimentalMode", v == 2);
-  }
   refresh();
 }
 
 void ParamValueControlF::refresh() {
   std::string cur = params.get(param_.toStdString());
-  int v = cur.empty() ? ((param_ == "E2EAccMode" && params.getBool("ExperimentalMode")) ? 2 : vdefault_) : std::atoi(cur.c_str());
+  int v = cur.empty() ? vdefault_ : std::atoi(cur.c_str());
   v = std::max(vmin_, std::min(vmax_, v));
-  if (param_ == "E2EAccMode") {
-    static const QStringList modes = {"ACC", "AUTO", "E2E"};
+  if (param_ == "TrafficStopMode") {
+    static const QStringList modes = {"ACC", "AUTO", "APILOT"};
     value_label->setText(modes[v]);
   } else if (vmin_ == 0 && vmax_ == 1) {
     value_label->setText(v > 0 ? "ON" : "OFF");
@@ -1628,9 +1625,6 @@ TogglesPanel::TogglesPanel(SettingsWindow *parent) : ListWidget(parent) {
   connect(toggles["ExperimentalLongitudinalEnabled"], &ToggleControl::toggleFlipped, [=]() {
     updateToggles();
   });
-  connect(toggles["ExperimentalMode"], &ToggleControl::toggleFlipped, [=](bool state) {
-    params.put("E2EAccMode", state ? "2" : "1");
-  });
 }
 
 void TogglesPanel::expandToggleDescription(const QString &param) {
@@ -2501,9 +2495,9 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   list->setSpacing(0);
 
   list->addItem(new ParamValueControlF(
-      "E2EAccMode", "Longitudinal Control Mode",
-      "ACC: 항상 ACC / AUTO: 평소 ACC, 신호 정지 시 E2E / E2E: 항상 E2E",
-      "../assets/img_experimental_white.svg", 0, 2, 1, 0, 0, this));
+      "TrafficStopMode", "E2E/ACC 조건부 선택",
+      "ACC: 신호정지 미사용 / AUTO: 원거리 신호정지·출발준비에서 E2E / APILOT: AUTO 조건과 비전 앞차까지 E2E. 항상 E2E는 Experimental mode 토글을 사용합니다.",
+      "../assets/img_experimental_white.svg", 0, 2, 1, 0, 2, this));
 
   list->addItem(new ParamValueControlF(
       "JerkStartLimit", "출발 저크 제한 (×0.1 m/s³)",

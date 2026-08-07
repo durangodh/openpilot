@@ -80,6 +80,7 @@ def manager_init() -> None:
     ("LaneChangeEnabled", "0"),
     ("AutoLaneChangeEnabled", "0"),
     ("ExperimentalMode", "0"),
+    ("TrafficStopMode", "2"),
 
     ("SccSmootherSlowOnCurves", "0"),
     ("SccSmootherSyncGasPressed", "0"),
@@ -160,6 +161,18 @@ def manager_init() -> None:
       for k, v in zip(accel_keys, c2_accel):
         params.put(k, v)
   except Exception:
+    pass
+
+  # 기존 단일 ACC/AUTO/E2E 선택값을 aPilot 방식의 ExperimentalMode +
+  # TrafficStopMode 조합으로 1회 이관한다.
+  try:
+    if params.get("TrafficStopMode") is None:
+      legacy_e2e_mode = params.get("E2EAccMode", encoding='utf8')
+      if legacy_e2e_mode is not None:
+        legacy_e2e_mode = max(0, min(2, int(legacy_e2e_mode)))
+        params.put("TrafficStopMode", "0" if legacy_e2e_mode == 0 else "2")
+        params.put_bool("ExperimentalMode", legacy_e2e_mode == 2)
+  except (TypeError, ValueError):
     pass
 
   # set unset params

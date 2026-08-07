@@ -296,6 +296,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"StartAccelApply", PERSISTENT},
     {"StopAccelApply", PERSISTENT},
     {"SoftHoldMode", PERSISTENT},
+    {"TrafficStopMode", PERSISTENT},         // 0: off/ACC, 1: conditional, 2: aPilot conditional
 
     {"CruiseMaxAccel0", PERSISTENT},
     {"CruiseMaxAccel40", PERSISTENT},
