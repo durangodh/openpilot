@@ -115,6 +115,11 @@ class Controls:
 
     # read params
     self.is_metric = params.get_bool("IsMetric")
+    self.long_cruise_gap = int(clip(params.get_int("PrevCruiseGap"), 1, 4))
+    self.my_driving_mode = int(clip(params.get_int("MyDrivingMode"), 1, 4))
+    safe_factor = float(clip(params.get_int("MySafeModeFactor") * 0.01, 0.5, 1.0))
+    self.my_safe_mode_factor = safe_factor if self.my_driving_mode == 2 else \
+                               (1.0 + safe_factor) / 2.0 if self.my_driving_mode == 1 else 1.0
     self.cruise_speed_min = read_cruise_speed_min(params)
     self.is_ldw_enabled = params.get_bool("IsLdwEnabled")
     openpilot_enabled_toggle = params.get_bool("OpenpilotEnabledToggle")
@@ -836,6 +841,19 @@ class Controls:
     controlsState.startMonoTime = int(start_time * 1e9)
     controlsState.forceDecel = bool(force_decel)
     controlsState.canErrorCounter = self.can_rcv_error_counter
+
+    # apilot-c2 방식의 종방향 갭/안전모드 입력을 controlsState로 전달한다.
+    if CS.cruiseGap > 0:
+      self.long_cruise_gap = int(clip(CS.cruiseGap, 1, 4))
+    if self.sm.frame % 100 == 0:
+      mode = Params().get_int("MyDrivingMode")
+      self.my_driving_mode = int(clip(mode if mode > 0 else 3, 1, 4))
+      safe_factor = float(clip(Params().get_int("MySafeModeFactor") * 0.01, 0.5, 1.0))
+      self.my_safe_mode_factor = safe_factor if self.my_driving_mode == 2 else \
+                                 (1.0 + safe_factor) / 2.0 if self.my_driving_mode == 1 else 1.0
+    controlsState.longCruiseGap = self.long_cruise_gap
+    controlsState.myDrivingMode = self.my_driving_mode
+    controlsState.mySafeModeFactor = self.my_safe_mode_factor
 
     controlsState.angleSteers = steer_angle_without_offset * CV.RAD_TO_DEG
     controlsState.applyAccel = self.apply_accel

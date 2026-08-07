@@ -603,6 +603,10 @@ struct ControlsState @0x97ff69c53601abf1 {
   steerRatio @69 :Float32;
   steerActuatorDelay @70 :Float32;
 
+  longCruiseGap @71 :Int8;
+  myDrivingMode @72 :Int32;
+  mySafeModeFactor @73 :Float32;
+
   sccStockCamAct @74 :Float32;
   sccStockCamStatus @75 :Float32;
 

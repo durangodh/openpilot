@@ -227,7 +227,6 @@ class LongitudinalMpc:
     # ── Lead 인식 부드러운 전환 상태 변수 ──────────────────────────────────
     self._lead_detected   = False
     self._lead_detect_t   = 0.0       # 인식 후 경과 시간 (ramp 용)
-    self.driving_mode_tf = 1.0        # MyDrivingMode 추종거리 배율 (planner 가 갱신)
     self.desired_distance = 0.0       # UI 표시용 목표 차간거리(m)
     self.traffic_stop_active = False
     self.traffic_stop_distance = 0.0
@@ -378,7 +377,7 @@ class LongitudinalMpc:
     self.cruise_min_a = min_a
     self.max_a = max_a
 
-  def update(self, carstate, radarstate, v_cruise, x, v, a, j, prev_accel_constraint=True):
+  def update(self, carstate, radarstate, controls, v_cruise, x, v, a, j, prev_accel_constraint=True):
     # engage 직후에는 직전 가속도 유지 비용(A_CHANGE_COST)을 빼서
     # 필요한 감속으로 곧바로 갈 수 있게 한다. (upstream 동작 복원)
     self.prev_accel_constraint = prev_accel_constraint
@@ -408,13 +407,14 @@ class LongitudinalMpc:
 
     # apilot-c2 방식: 가속/정속 중에만 갭별 TR과 속도 보정을 갱신하고,
     # 감속 중에는 직전 TR을 유지한다.
-    cruise_gap = int(clip(carstate.cruiseGap, 1., 4.)) if carstate.cruiseGap > 0 else 4
+    cruise_gap = int(clip(controls.longCruiseGap, 1., 4.))
+    safe_mode_factor = float(clip(controls.mySafeModeFactor, 0.5, 1.0))
     gap_values = self.tfollow_gaps if self.tfollow_gaps is not None else CRUISE_GAP_V
     v_ego_kph = v_ego * CV.MS_TO_KPH
     if self._tf_applied <= 0.0 or v_ego_kph >= self._tf_v_ego_kph:
       tr = interp(float(cruise_gap), CRUISE_GAP_BP, gap_values)
       speed_scale = interp(v_ego_kph, [0.0, 100.0], [1.0, self.t_follow_speed_ratio])
-      self._tf_applied = max(0.6, float(tr * self.driving_mode_tf * speed_scale))
+      self._tf_applied = max(0.6, float(tr * speed_scale * (2.0 - safe_mode_factor)))
     self._tf_v_ego_kph = v_ego_kph
 
     self.t_follow = self._tf_applied
