@@ -2534,6 +2534,14 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "MySafeModeFactor", "SAFE TR Factor",
       "ECO/SAFE 모드의 C2 추종거리 보정 기준입니다 (%).",
       "../assets/offroad/icon_openpilot.png", 50, 100, 5, 0, 80, this));
+  list->addItem(new ParamValueControlF(
+      "MyEcoModeFactor", "ECO Accel Factor",
+      "ECO 모드 최대가속 비율이며 SAFE는 이 값과 SAFE 비율을 함께 적용합니다 (%).",
+      "../assets/offroad/icon_openpilot.png", 10, 95, 5, 0, 80, this));
+  list->addItem(new ParamValueControlF(
+      "InitMyDrivingMode", "Initial Driving Mode",
+      "부팅 모드입니다. 1:ECO, 2:SAFE, 3:NORMAL, 4:HIGH, 5:AUTO.",
+      "../assets/offroad/icon_openpilot.png", 1, 5, 1, 0, 3, this));
 
   list->addItem(horizontal_line());
 

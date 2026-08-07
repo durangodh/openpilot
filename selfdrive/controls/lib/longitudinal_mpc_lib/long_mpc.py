@@ -418,9 +418,10 @@ class LongitudinalMpc:
     self._tf_v_ego_kph = v_ego_kph
 
     self.t_follow = self._tf_applied
-    self.desired_distance = float(self.t_follow * v_ego + STOP_DISTANCE)   # UI 표시용
-    self.stop_dist = self.stop_dist_e2e if self.traffic_stop_active else \
+    base_stop_dist = self.stop_dist_e2e if self.traffic_stop_active else \
                      (self.stop_dist_acc if self.mode == 'acc' else self.stop_dist_e2e)
+    self.stop_dist = base_stop_dist * (2.0 - safe_mode_factor)
+    self.desired_distance = float(self.t_follow * v_ego + self.stop_dist)   # UI 표시용
 
     # ── 새 lead의 MPC 입력 점진 반영 ──────────────────────────────────────
     # 여유 있는 최초 인식은 가상의 비제약 lead에서 원본으로

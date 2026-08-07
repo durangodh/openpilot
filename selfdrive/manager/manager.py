@@ -96,6 +96,8 @@ def manager_init() -> None:
     ("ShowPathBrakeBorder", "1"),
     ("PrevCruiseGap", "4"),
     ("MyDrivingMode", "3"),
+    ("InitMyDrivingMode", "3"),
+    ("MyEcoModeFactor", "80"),
     ("MySafeModeFactor", "80"),
     ("CustomSteerRatio", "1650"),
     ("UseLiveSteerRatio", "0"),

@@ -155,7 +155,7 @@ void OnroadWindow::mouseReleaseEvent(QMouseEvent* e) {
     int tap_y = endPos.y();
     if (tap_x > 20 && tap_x < 200 &&
         tap_y > height() - 140 && tap_y < height() - 40) {
-      int cur = std::atoi(Params().get("MyDrivingMode").c_str());
+      int cur = (*(uiState()->sm))["controlsState"].getControlsState().getMyDrivingMode();
       if (cur < 1 || cur > 4) cur = 3;
       int next = cur % 4 + 1;   // 1→2→3→4→1
       Params().put("MyDrivingMode", std::to_string(next));
@@ -942,7 +942,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
   if (++carrot_param_timer >= UI_FREQ) {
     carrot_param_timer = 0;
     Params params;
-    int m = std::atoi(params.get("MyDrivingMode").c_str());
+    int m = controls_state.getMyDrivingMode();
     my_driving_mode = (m >= 1 && m <= 4) ? m : 3;
     carrot_atc_mode = std::atoi(params.get("CarrotAutoTurnControl").c_str());
     carrot_atc_speed = std::atoi(params.get("CarrotAutoTurnSpeed").c_str());

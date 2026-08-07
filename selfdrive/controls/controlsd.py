@@ -116,7 +116,10 @@ class Controls:
     # read params
     self.is_metric = params.get_bool("IsMetric")
     self.long_cruise_gap = int(clip(params.get_int("PrevCruiseGap"), 1, 4))
-    self.my_driving_mode = int(clip(params.get_int("MyDrivingMode"), 1, 4))
+    self.init_driving_mode = int(clip(params.get_int("InitMyDrivingMode"), 1, 5))
+    self.my_driving_mode = 3 if self.init_driving_mode == 5 else self.init_driving_mode
+    self.last_mode_param = params.get_int("MyDrivingMode")
+    self.driving_mode_index = 0.0
     safe_factor = float(clip(params.get_int("MySafeModeFactor") * 0.01, 0.5, 1.0))
     self.my_safe_mode_factor = safe_factor if self.my_driving_mode == 2 else \
                                (1.0 + safe_factor) / 2.0 if self.my_driving_mode == 1 else 1.0
@@ -494,10 +497,24 @@ class Controls:
     # apilot-c2 방식: 차량의 현재 갭 표시값을 직접 따라가지 않고,
     # 갭 버튼을 짧게 눌렀다 놓을 때 소프트웨어 갭을 1→2→3→4로 순환한다.
     for b in CS.buttonEvents:
-      if b.type == ButtonType.gapAdjustCruise and not b.pressed and \
-         self.button_timers.get(ButtonEvent.Type.gapAdjustCruise, 0) <= 40:
-        self.long_cruise_gap = self.long_cruise_gap + 1 if self.long_cruise_gap < 4 else 1
-        put_nonblocking("PrevCruiseGap", str(self.long_cruise_gap))
+      if b.type == ButtonType.gapAdjustCruise and not b.pressed:
+        gap_timer = self.button_timers.get(ButtonEvent.Type.gapAdjustCruise, 0)
+        if gap_timer <= 40:
+          self.long_cruise_gap = self.long_cruise_gap + 1 if self.long_cruise_gap < 4 else 1
+          put_nonblocking("PrevCruiseGap", str(self.long_cruise_gap))
+
+    # C2 AUTO(InitMyDrivingMode=5): 가까운 선행차 추종 중 가감속/저속 빈도로
+    # NORMAL과 ECO를 자동 선택한다. SAFE/HIGH 수동 선택은 자동으로 덮지 않는다.
+    lead = self.sm['radarState'].leadOne
+    accel_index = interp(CS.aEgo, [-3.0, -1.0, 0.0, 1.0, 3.0], [100.0, 0.0, 0.0, 0.0, 100.0])
+    velocity_index = interp(CS.vEgo * CV.MS_TO_KPH, [0.0, 5.0, 50.0], [100.0, 80.0, 0.0])
+    total_index = accel_index * 3.0 + velocity_index if lead.status and 0.0 < lead.dRel < 50.0 else 0.0
+    self.driving_mode_index = self.driving_mode_index * 0.999 + total_index * 0.001
+    if self.init_driving_mode == 5 and self.driving_mode_index > 0.0 and self.my_driving_mode not in (2, 4):
+      if self.driving_mode_index < 20.0:
+        self.my_driving_mode = 3
+      elif self.driving_mode_index > 80.0:
+        self.my_driving_mode = 1
 
     if self.sm.frame % 100 == 0:
       self.cruise_speed_min = read_cruise_speed_min(self.params)
@@ -854,7 +871,10 @@ class Controls:
     # apilot-c2 방식의 종방향 갭/안전모드 입력을 controlsState로 전달한다.
     if self.sm.frame % 100 == 0:
       mode = Params().get_int("MyDrivingMode")
-      self.my_driving_mode = int(clip(mode if mode > 0 else 3, 1, 4))
+      if mode != self.last_mode_param and 1 <= mode <= 4:
+        self.my_driving_mode = mode
+        self.last_mode_param = mode
+        self.driving_mode_index = -100.0
       safe_factor = float(clip(Params().get_int("MySafeModeFactor") * 0.01, 0.5, 1.0))
       self.my_safe_mode_factor = safe_factor if self.my_driving_mode == 2 else \
                                  (1.0 + safe_factor) / 2.0 if self.my_driving_mode == 1 else 1.0

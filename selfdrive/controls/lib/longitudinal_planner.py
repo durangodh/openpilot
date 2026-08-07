@@ -39,13 +39,12 @@ CRUISE_MAX_ACCEL_BP = [0.0, 40.0 * CV.KPH_TO_MS, 60.0 * CV.KPH_TO_MS,
                        80.0 * CV.KPH_TO_MS, 110.0 * CV.KPH_TO_MS, 140.0 * CV.KPH_TO_MS]
 CRUISE_MAX_ACCEL_PARAM_KEYS = ["CruiseMaxAccel0", "CruiseMaxAccel40", "CruiseMaxAccel60",
                                "CruiseMaxAccel80", "CruiseMaxAccel110", "CruiseMaxAccel140"]
-CRUISE_MAX_ACCEL_DEFAULTS = [1.80, 1.17, 1.03, 0.89, 0.74, 0.61]
+CRUISE_MAX_ACCEL_DEFAULTS = [1.60, 1.20, 1.00, 0.80, 0.70, 0.60]
 
 # ── MyDrivingMode (1:ECO 2:SAFE 3:NORM 4:FAST) ────────────────────────────
 # UI 의 모드 박스를 탭하면 1→2→3→4→1 로 순환한다 (onroad.cc).
 # 갭버튼은 순정 SCC 갭 기능 그대로 두고, 모드는 그 위에 배율로만 얹는다.
-#   ACCEL : 최대가속 배율 (감속 한계는 안전상 건드리지 않음)
-MY_DRIVING_MODE_ACCEL = {1: 0.80, 2: 0.64, 3: 1.00, 4: 1.00}
+#   ACCEL : MyEcoModeFactor와 MySafeModeFactor로 계산 (감속 한계는 유지)
 # ──────────────────────────────────────────────────────────────────────────
 
 # Lookup table for turns
@@ -99,6 +98,7 @@ class LongitudinalPlanner:
     # MyDrivingMode
     self.my_driving_mode = 3
     self.my_driving_mode_accel = 1.0
+    self.my_eco_mode_factor = 0.8
     self.cruise_max_accel_vals = list(CRUISE_MAX_ACCEL_DEFAULTS)
 
     self.read_param()
@@ -153,7 +153,8 @@ class LongitudinalPlanner:
     if not 1 <= mode <= 4:
       mode = 3
     self.my_driving_mode = mode
-    self.my_driving_mode_accel = MY_DRIVING_MODE_ACCEL[mode]
+    eco_factor = self.params.get_int("MyEcoModeFactor")
+    self.my_eco_mode_factor = float(clip((eco_factor if eco_factor > 0 else 80) * 0.01, 0.1, 0.95))
 
     accel_vals = []
     for key, default in zip(CRUISE_MAX_ACCEL_PARAM_KEYS, CRUISE_MAX_ACCEL_DEFAULTS):
@@ -192,7 +193,11 @@ class LongitudinalPlanner:
     self.mpc.traffic_stop_active = False
     self.mpc.traffic_stop_distance = 0.0
 
-  def update_auto_e2e_mode(self, car_state, radar_state, model_msg, active):
+  def update_auto_e2e_mode(self, car_state, radar_state, model_msg, active, driving_mode):
+    # C2 HIGH/FAST 모드는 모델 신호정지를 사용하지 않고 ACC로 유지한다.
+    if driving_mode == 4:
+      self.reset_auto_e2e()
+      return 'blended' if self.experimental_mode_enabled else 'acc'
     if not active or not self.auto_e2e_enabled or self.e2e_acc_mode == 0:
       self.reset_auto_e2e()
       return 'acc'
@@ -303,8 +308,16 @@ class LongitudinalPlanner:
 
     v_ego = sm['carState'].vEgo
 
+    driving_mode = int(clip(sm['controlsState'].myDrivingMode, 1, 4))
+    self.my_driving_mode = driving_mode
+    if driving_mode == 1:
+      self.my_driving_mode_accel = self.my_eco_mode_factor
+    elif driving_mode == 2:
+      self.my_driving_mode_accel = self.my_eco_mode_factor * float(clip(sm['controlsState'].mySafeModeFactor, 0.5, 1.0))
+    else:
+      self.my_driving_mode_accel = 1.0
     self.mpc.mode = self.update_auto_e2e_mode(sm['carState'], sm['radarState'], sm['modelV2'],
-                                              sm['controlsState'].enabled)
+                                              sm['controlsState'].enabled, driving_mode)
 
     v_cruise_kph = sm['controlsState'].vCruise
     v_cruise_kph = min(v_cruise_kph, V_CRUISE_MAX)

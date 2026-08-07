@@ -236,6 +236,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"ACCStopDistance", PERSISTENT},             // ACC 모드 정지거리 (m), 기본 6
     {"E2EStopDistance", PERSISTENT},             // E2E 모드 정지거리 (m), 기본 6
     {"MyDrivingMode", PERSISTENT},             // 주행모드 1:ECO 2:SAFE 3:NORM 4:FAST
+    {"InitMyDrivingMode", PERSISTENT},         // 부팅모드 1~4, 5=AUTO
+    {"MyEcoModeFactor", PERSISTENT},           // ECO 최대가속 비율 (x100)
     {"MySafeModeFactor", PERSISTENT},           // SAFE 모드 TR 비율 (x100)
     {"PrevCruiseGap", PERSISTENT},              // 마지막 소프트웨어 크루즈 갭 1~4
     {"ShowGearAnimation", PERSISTENT},
