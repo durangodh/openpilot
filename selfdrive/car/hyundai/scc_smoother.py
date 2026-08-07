@@ -530,6 +530,11 @@ class SccSmoother:
       if CS.gas_pressed and self.sync_set_speed_while_gas_pressed and CS.cruise_buttons == Buttons.NONE:
         if clu11_speed + SYNC_MARGIN > self.kph_to_clu(controls.v_cruise_kph):
           set_speed = clip(clu11_speed + SYNC_MARGIN, self.min_set_speed_clu, self.max_set_speed_clu)
+          set_speed_kph = float(set_speed * self.speed_conv_to_ms * CV.MS_TO_KPH)
+          # Openpilot longitudinal control owns the set speed. Updating only
+          # target_speed has no effect on the planner, UI, or outgoing SCC11.
+          controls.v_cruise_kph = set_speed_kph
+          controls.v_cruise_cluster_kph = set_speed_kph
           self.target_speed = set_speed
 
   def update_max_speed(self, max_speed, limited_curv):
@@ -565,13 +570,13 @@ class SccSmoother:
     is_cruise_enabled = car_set_speed != 0 and car_set_speed != 255 and CS.cruiseState.enabled and controls.CP.pcmCruise
 
     if is_cruise_enabled:
-      if longcontrol and controls.speed_from_pcm == 1:
-        v_cruise_kph = car_set_speed
-      elif longcontrol:
+      if longcontrol:
         # Once cruise is active, own the set speed in openpilot and apply the
-        # physical RES/+ and SET/- events directly. Do not overwrite it every
-        # cycle with the delayed SCC11 VSetDis feedback.
-        v_cruise_kph = SccSmoother.update_v_cruise(controls.v_cruise_kph, CS.buttonEvents, controls.enabled,
+        # physical RES/+ and SET/- events directly. SpeedFromPCM may supply
+        # the initial target, but must not overwrite an active button target
+        # every cycle with delayed SCC11 VSetDis feedback.
+        base_speed_kph = car_set_speed if controls.speed_from_pcm == 1 and not controls.enabled else controls.v_cruise_kph
+        v_cruise_kph = SccSmoother.update_v_cruise(base_speed_kph, CS.buttonEvents, controls.enabled,
                                                    controls.is_metric, controls.cruise_speed_min, CS.vEgo,
                                                    controls.cruise_button_mode, controls.cruise_speed_unit,
                                                    controls.cruise_speed_unit_basic, controls.cruise_button_long_delay,
