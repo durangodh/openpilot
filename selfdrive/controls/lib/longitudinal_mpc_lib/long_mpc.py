@@ -65,18 +65,7 @@ STOP_DISTANCE_E2E = 6.0
 
 # ── Lead 부드러운 전환 파라미터 ──────────────────────────────────────────────
 LEAD_DETECT_RAMP_T = 0.05  # c3-wip: no extra lead-input delay
-T_FOLLOW_RISE_RATE = 0.30
-T_FOLLOW_DECEL_RISE_RATE = 0.60
 LEAD_RAMP_BYPASS_TTC = 5.0 # 이보다 급한 접근은 ramp 없이 즉시 원본 lead 반영
-# ────────────────────────────────────────────────────────────────────────────
-
-# ── Lever A (commit d897f06): 고속 + 선행차 접근 시 추종거리 선제 확대 ─────────
-# 고속 늦은 감지로 인한 충돌 우려 대응. t_follow를 미리 키워 제동 명령을 앞당긴다.
-# vRel<0(접근) & TTC<임계 & 고속(≥70km/h) 삼중 게이트라 정속 추종·저속에선 무동작.
-# (원본 Lever C=JLeadFactor3 속도연동 증폭은 이 포크에 jLead 신호가 없어 제외)
-HIGH_SPEED_BRAKE_KPH = 70.0          # 이 속도(km/h) 이상에서만 선제 확대 적용
-HIGH_SPEED_BRAKE_TTC = 7.0           # 접근 TTC(초)가 이 값 미만이면 활성
-HIGH_SPEED_TF_BOOST  = 0.0          # disabled in the c3-wip cost model
 # ────────────────────────────────────────────────────────────────────────────
 
 def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, krkeegan=False):
@@ -231,7 +220,6 @@ class LongitudinalMpc:
     # longitudinal_planner.read_param()에서 5초 주기로 갱신됨.
     self.tfollow_gaps = None
     self.t_follow_speed_ratio = 1.2
-    self.t_follow_decel_boost = 0.5
     self._tf_applied = 0.0
     self._tf_v_ego_kph = 0.0
     # ────────────────────────────────────────────────────────────────────
@@ -418,44 +406,19 @@ class LongitudinalMpc:
     lead_xv_0 = self.process_lead(radarstate.leadOne)
     lead_xv_1 = self.process_lead(radarstate.leadTwo)
 
-    # neokii
+    # apilot-c2 방식: 가속/정속 중에만 갭별 TR과 속도 보정을 갱신하고,
+    # 감속 중에는 직전 TR을 유지한다.
     cruise_gap = int(clip(carstate.cruiseGap, 1., 4.)) if carstate.cruiseGap > 0 else 4
-    if self.tfollow_gaps is not None:
-      # ── CarrotPilot Auto-Tuner: 학습된 GAP별 추종거리 사용 ──────────────
-      # GAP1~4 모두 단계별 TFollowGap 값을 적용한다.
-      tr = interp(float(cruise_gap), CRUISE_GAP_BP, self.tfollow_gaps)
-      # ─────────────────────────────────────────────────────────────────
-    else:
-      tr = interp(float(cruise_gap), CRUISE_GAP_BP, CRUISE_GAP_V)
-
-    # ── MyDrivingMode: GAP1~4 base 추종거리에 캐럿 모드 배율 적용 ──────────
-    tr *= self.driving_mode_tf
-    speed_scale = interp(v_ego * CV.MS_TO_KPH, [0.0, 100.0], [1.0, self.t_follow_speed_ratio])
-    tr *= speed_scale
-
-    # carrot-wip parity: prevent a gap reduction while decelerating, add a
-    # configurable deceleration boost, ramp increases progressively, and
-    # apply reductions immediately.
     gap_values = self.tfollow_gaps if self.tfollow_gaps is not None else CRUISE_GAP_V
-    tr_max = max(gap_values) * self.driving_mode_tf * speed_scale
-    decel_extra = float(interp(carstate.aEgo, [-2.5, -1.0, -0.3, 0.0],
-                               [0.50, 0.25, 0.06, 0.0])) * self.t_follow_decel_boost
-    tr_target = float(np.clip(tr + decel_extra, max(0.6, min(gap_values)), min(2.0, tr_max + decel_extra)))
-    if self._tf_applied <= 0.0:
-      tr = tr_target
-    else:
-      if carstate.aEgo <= -0.2 and tr_target < self._tf_applied:
-        tr_target = self._tf_applied
-      if tr_target > self._tf_applied:
-        rise_rate = T_FOLLOW_DECEL_RISE_RATE if decel_extra > 0.02 else T_FOLLOW_RISE_RATE
-        tr = min(tr_target, self._tf_applied + rise_rate * DT_UPDATE)
-      else:
-        tr = tr_target
-    self._tf_applied = float(tr)
-    # ────────────────────────────────────────────────────────────────────
+    v_ego_kph = v_ego * CV.MS_TO_KPH
+    if self._tf_applied <= 0.0 or v_ego_kph >= self._tf_v_ego_kph:
+      tr = interp(float(cruise_gap), CRUISE_GAP_BP, gap_values)
+      speed_scale = interp(v_ego_kph, [0.0, 100.0], [1.0, self.t_follow_speed_ratio])
+      self._tf_applied = max(0.6, float(tr * self.driving_mode_tf * speed_scale))
+    self._tf_v_ego_kph = v_ego_kph
 
-    self.t_follow = tr
-    self.desired_distance = float(tr * v_ego + STOP_DISTANCE)   # UI 표시용
+    self.t_follow = self._tf_applied
+    self.desired_distance = float(self.t_follow * v_ego + STOP_DISTANCE)   # UI 표시용
     self.stop_dist = self.stop_dist_e2e if self.traffic_stop_active else \
                      (self.stop_dist_acc if self.mode == 'acc' else self.stop_dist_e2e)
 
@@ -478,18 +441,6 @@ class LongitudinalMpc:
         virtual_v = max(float(_lead.vLead), v_ego + 10.0)
         virtual_xv = self.extrapolate_lead(virtual_x, virtual_v, 0.0, _LEAD_ACCEL_TAU)
         lead_xv_0 = virtual_xv * (1.0 - lead_input_ramp) + lead_xv_0 * lead_input_ramp
-    # ─────────────────────────────────────────────────────────────────────
-
-    # ── Lever A (commit d897f06): 고속 + 선행차 접근 → 추종거리 선제 확대 ──────
-    # TTC로 매 프레임 새로 계산되므로 접근이 해소되면 자동으로 0.
-    # 삼중 게이트(고속·접근(vRel<0)·TTC<임계)라 정속 추종·저속에선 무동작 → 평상시 부드러움 유지.
-    if _lead.status and v_ego * CV.MS_TO_KPH >= HIGH_SPEED_BRAKE_KPH \
-       and _lead.dRel > 0.0 and _lead.vRel < 0.0:
-      _ttc = _lead.dRel / -_lead.vRel
-      _tf_boost = float(interp(_ttc, [3.0, HIGH_SPEED_BRAKE_TTC], [HIGH_SPEED_TF_BOOST, 0.0]))
-      _tf_boost *= float(interp(v_ego * CV.MS_TO_KPH, [HIGH_SPEED_BRAKE_KPH, 110.0], [0.5, 1.0]))
-      _tf_boost *= lead_input_ramp
-      self.t_follow += _tf_boost
     # ─────────────────────────────────────────────────────────────────────
 
     # planner에서 저장된 값 + lead 속도 함께 전달
