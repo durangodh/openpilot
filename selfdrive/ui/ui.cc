@@ -83,13 +83,6 @@ static void update_tfollow_line(UIState *s, const cereal::ModelDataV2::XYZTData:
   }
 }
 
-// apilot(c3-master) update_line_data 방식으로 교체.
-//  - 위/아래(z_off_left/right) 두 점이 "둘 다" 투영 성공했을 때만 쌍으로 넣는다.
-//    기존 코드는 앞/뒤 패스를 따로 돌아서, 클리핑이 비대칭으로 일어나면
-//    v[i] <-> v[n-1-i] 짝이 어긋나 drawBlindSpot 울타리 사각형이 전부
-//    찌그러진 슬리버(면적 0)가 되어 화면에 안 보였다.
-//  - allow_invert=false 면 화면 y 가 역전되는(지평선 근처 뒤집힘) 점은 버린다.
-//    기존 코드는 이 파라미터를 받기만 하고 실제로는 무시했다.
 static void update_line_data(const UIState *s, const cereal::ModelDataV2::XYZTData::Reader &line,
                              float y_off, float z_off_left, float z_off_right, line_vertices_data *pvd, int max_idx, bool allow_invert=true,
                              float y_shift=0.0) {
@@ -129,16 +122,6 @@ static void update_model(UIState *s, const cereal::ModelDataV2::Reader &model) {
     scene.lane_line_probs[i] = lane_line_probs[i];
     update_line_data(s, lane_lines[i], 0.025 * scene.lane_line_probs[i], 0, 0, &scene.lane_line_vertices[i], max_idx);
   }
-
-  // lane barriers for blind spot (carrot 방식)
-  //   차선이 아니라 주행 경로를 좌우 1.7m 평행이동시켜 벽을 세운다.
-  //   차선 인식이 끊겨도 항상 그려진다.
-  //   z 는 경로(model_position) 기준이라 노면까지 1.22 를 더해야 한다.
-  //   (차선 기준이던 이전 코드의 -0.05 / -0.6 을 그대로 쓰면 1.22m 아래에 그려진다)
-  int max_distance_barrier = 40;
-  int max_idx_barrier = get_path_length_idx(model_position, max_distance_barrier);
-  update_line_data(s, model_position, 0, 1.22 - 0.05, 1.22 - 0.6, &scene.lane_barrier_vertices[0], max_idx_barrier, false, -1.7);
-  update_line_data(s, model_position, 0, 1.22 - 0.05, 1.22 - 0.6, &scene.lane_barrier_vertices[1], max_idx_barrier, false, 1.7);
 
   // update road edges
   const auto road_edges = model.getRoadEdges();
