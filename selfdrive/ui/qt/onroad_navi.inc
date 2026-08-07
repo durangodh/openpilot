@@ -621,9 +621,9 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
 
   // Draw the ETA and remaining distance on one baseline with c3-style
   // emphasis: time/distance are full size, while their labels and unit are smaller.
-  const int full_size = std::max(20, qRound(34 * ui_scale));
-  const int half_size = std::max(10, full_size / 2);
-  const int quarter_size = std::max(8, half_size / 2);
+  const int full_size = std::max(24, qRound(38 * ui_scale));
+  const int half_size = std::max(22, qRound(22 * ui_scale));
+  const int quarter_size = std::max(16, qRound(16 * ui_scale));
   const int eta_baseline = compact_box.y() + qRound(126 * ui_scale);
   int eta_x = info_x;
   const auto draw_eta_part = [&](const QString &text, int font_size, int gap) {
@@ -642,7 +642,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const bool has_safety_description = !road_text.isEmpty();
   if (road_text.isEmpty()) road_text = carrot_navi_road;
   if (road_text.isEmpty()) road_text = carrot_navi_next_instruction;
-  configFont(p, "Open Sans", std::max(17, qRound(28 * ui_scale)), "Bold");
+  configFont(p, "Open Sans", std::max(22, qRound(34 * ui_scale)), "Bold");
   const QRect road_box(info_x, compact_box.y() + qRound(230 * ui_scale),
                        info_w, qRound(55 * ui_scale));
   const QString visible_road_text =
