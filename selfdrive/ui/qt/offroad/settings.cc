@@ -2032,6 +2032,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
     {"Toggles", toggles},
     {"Software", new SoftwarePanel(this)},
     {"Community", new CommunityPanel(this)},
+    {"UI 설정", new UISettingsPanel(this)},
     {"조향", new VIPPanel(this)},
     {"Cruise", new CruisePanel(this)},
     {"롱컨", new LongitudinalPanel(this)},
@@ -2271,12 +2272,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("DisableOpFcw",
                                             "Disable Openpilot FCW",
-                                            "",
-                                            "../assets/offroad/icon_shell.png",
-                                            this));
-  toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new ParamControl("ShowDebugUI",
-                                            "Show Debug UI",
                                             "",
                                             "../assets/offroad/icon_shell.png",
                                             this));
@@ -2584,6 +2579,62 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
 /////////////////////////////////////////////////////////////////////////
 
+UISettingsPanel::UISettingsPanel(QWidget* parent) : QWidget(parent) {
+  QVBoxLayout* layout = new QVBoxLayout(this);
+  layout->setContentsMargins(50, 20, 50, 20);
+  layout->setSpacing(0);
+
+  ListWidget* list = new ListWidget(this);
+  list->setSpacing(0);
+
+  list->addItem(new ParamControl(
+      "ShowCarrotHud", "좌측 HUD 박스 표시",
+      "속도·크루즈·GAP·기어·주행모드·제한속도 HUD를 표시합니다.",
+      "../assets/offroad/icon_road.png", this));
+  list->addItem(new ParamControl(
+      "ShowGearAnimation", "기어 팝업 애니메이션",
+      "변속단이 바뀔 때 중앙 팝업 애니메이션을 표시합니다.",
+      "../assets/offroad/icon_road.png", this));
+  list->addItem(new ParamValueControlF(
+      "ShowDateTime", "날짜·시간 표시",
+      "0: 끔 / 1: 시간+날짜 / 2: 시간 / 3: 날짜",
+      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 1, this));
+  list->addItem(new ParamControl(
+      "ShowDeviceState", "장치 상태 표시",
+      "CPU·메모리·디스크·전압 상태를 좌측 HUD에 표시합니다.",
+      "../assets/offroad/icon_shell.png", this));
+  list->addItem(new ParamControl(
+      "ShowDebugUI", "디버그 UI 표시",
+      "주행 화면의 개발자 디버그 정보를 표시합니다.",
+      "../assets/offroad/icon_shell.png", this));
+  list->addItem(new ParamControl(
+      "ShowBlindSpotAlways", "BSD 영역 상시 표시",
+      "BSD 감지가 없을 때도 좌우 사각지대 영역을 흐리게 표시합니다.",
+      "../assets/offroad/icon_road.png", this));
+
+  list->addItem(horizontal_line());
+  auto *status_color = new ParamControl(
+      "ShowPathStatusColor", "주행 경로 상태색",
+      "활성=녹색, 정속=노란색, 가속=주황색, 감속=빨간색, 비활성=검은색으로 표시합니다.",
+      "../assets/offroad/icon_road.png", this);
+  status_color->showDescription();
+  list->addItem(status_color);
+  list->addItem(new ParamControl(
+      "ShowPathBrakeBorder", "브레이크 경로 테두리",
+      "브레이크등이 켜지면 주행 경로 외곽을 빨간색으로 표시합니다.",
+      "../assets/offroad/icon_road.png", this));
+  list->addItem(new ParamValueControlF(
+      "ShowPathWidth", "주행 경로 폭 (cm)",
+      "차량 중심에서 경로 한쪽 끝까지의 폭입니다. 90은 좌우 각각 0.90m입니다.",
+      "../assets/offroad/icon_road.png", 30, 150, 10, 0, 90, this));
+
+  ScrollView *scroller = new ScrollView(list, this);
+  scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  layout->addWidget(scroller);
+}
+
+/////////////////////////////////////////////////////////////////////////
+
 VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   QVBoxLayout* layout = new QVBoxLayout(this);
   layout->setContentsMargins(50, 20, 50, 20);
@@ -2744,26 +2795,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
 
   list->addItem(horizontal_line());
-
-  // ── 기어 변경 팝업 애니메이션 ─────────────────────────────────
-  list->addItem(horizontal_line());
-
-  auto *gearAnimToggle = new ParamControl("ShowGearAnimation",
-      "기어 팝업 애니메이션",
-      "변속단이 바뀔 때 화면 중앙에서 크게 나타났다가 기어 표시 자리로 "
-      "날아가는 효과를 켭니다. 주행 중 즉시 반영됩니다.",
-      "../assets/offroad/icon_road.png",
-      this);
-  list->addItem(gearAnimToggle);
-
-  // ── 좌측 HUD 박스 표시 ────────────────────────────────────────
-  auto *carrotHudToggle = new ParamControl("ShowCarrotHud",
-      "좌측 HUD 박스 표시",
-      "화면 좌측의 속도·크루즈·GAP·기어·NORM·LIMIT 등 carrot HUD 박스\n"
-      "전체를 보이거나 숨깁니다. 주행 중 즉시 반영됩니다.",
-      "../assets/offroad/icon_road.png",
-      this);
-  list->addItem(carrotHudToggle);
 
   // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ─────────────
   list->addItem(horizontal_line());

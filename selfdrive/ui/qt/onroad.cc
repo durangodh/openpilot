@@ -386,7 +386,26 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   }
   QLinearGradient bg(path_left, 0, path_right, 0);
   const bool e2e_mode = sm["longitudinalPlan"].getLongitudinalPlan().getMpcMode() == 1;
-  if (e2e_mode) {
+  if (show_path_status_color) {
+    QColor path_color(0, 205, 80, 180);  // engaged, no lead
+    if (!s->engaged()) {
+      path_color = QColor(35, 35, 35, 150);
+    } else {
+      const auto lead = sm["radarState"].getRadarState().getLeadOne();
+      const auto accels = sm["longitudinalPlan"].getLongitudinalPlan().getAccels();
+      const float accel = accels.size() > 0 ? accels[0] : 0.0f;
+      if (lead.getStatus()) {
+        if (std::abs(accel) < 0.5f) path_color = QColor(235, 215, 35, 180);       // steady
+        else if (accel >= 0.5f)     path_color = QColor(255, 153, 0, 190);        // accelerating
+        else                        path_color = QColor(220, 35, 45, 190);        // decelerating
+      }
+    }
+    QColor center_color = path_color;
+    center_color.setAlpha(30);
+    bg.setColorAt(0.0, path_color);
+    bg.setColorAt(0.5, center_color);
+    bg.setColorAt(1.0, path_color);
+  } else if (e2e_mode) {
     // Yellow e2e palette.
     bg.setColorAt(0.0, QColor::fromHslF(48 / 360., 0.95, 0.55, 0.65));
     bg.setColorAt(0.5, QColor::fromHslF(55 / 360., 1.0, 0.68, 0.12));
@@ -399,6 +418,13 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   }
   painter.setBrush(bg);
   painter.drawPolygon(scene.track_vertices.v, scene.track_vertices.cnt);
+
+  if (show_path_brake_border &&
+      sm["carState"].getCarState().getBrakeLights()) {
+    painter.setBrush(Qt::NoBrush);
+    painter.setPen(QPen(QColor(235, 35, 45, 245), 3));
+    painter.drawPolygon(scene.track_vertices.v, scene.track_vertices.cnt);
+  }
 
   painter.restore();
 }
@@ -965,6 +991,10 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     show_bsd_always = std::atoi(params.get("ShowBlindSpotAlways").c_str());
     std::string sch = params.get("ShowCarrotHud");
     show_carrot_hud = sch.empty() ? 1 : std::atoi(sch.c_str());
+    std::string spsc = params.get("ShowPathStatusColor");
+    show_path_status_color = spsc.empty() ? 1 : std::atoi(spsc.c_str());
+    std::string spbb = params.get("ShowPathBrakeBorder");
+    show_path_brake_border = spbb.empty() ? 1 : std::atoi(spbb.c_str());
   }
 
   if (!show_carrot_hud) { p.restore(); return; }
