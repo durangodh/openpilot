@@ -89,8 +89,6 @@ def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dis
     v_diff_offset = ((v_lead - v_ego) * 1.)
     v_diff_offset = np.clip(v_diff_offset, 0, stop_dist / 2)
     v_diff_offset = np.maximum(v_diff_offset * ((10 - v_ego) / 10), 0)
-    low_speed_scale = np.clip(v_ego / 5.0, 0.0, 1.0)
-    v_diff_offset *= low_speed_scale
 
   distance = (v_lead**2) / (2 * COMFORT_BRAKE) + v_diff_offset
   return distance
@@ -315,9 +313,9 @@ class LongitudinalMpc:
     j_ego_v_ego    = 1
     a_change_v_ego = 1
     if (v_lead0 - v_ego >= 0) and (v_lead1 - v_ego >= 0):
-      v_ego_bps = [0, 3, 10]
-      j_ego_v_ego    = interp(v_ego, v_ego_bps, [0.15, 0.45, 1.0])
-      a_change_v_ego = interp(v_ego, v_ego_bps, [0.15, 0.45, 1.0])
+      v_ego_bps = [0, 10]
+      j_ego_v_ego    = interp(v_ego, v_ego_bps, [0.05, 1.0])
+      a_change_v_ego = interp(v_ego, v_ego_bps, [0.05, 1.0])
 
     j_ego    = min(j_ego_tf, j_ego_v_ego)
     a_change = min(a_change_tf, a_change_v_ego)
