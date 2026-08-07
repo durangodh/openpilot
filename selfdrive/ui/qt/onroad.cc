@@ -110,8 +110,9 @@ void OnroadWindow::updateState(const UIState &s) {
     bgLongColor = bg_colors[STATUS_DISENGAGED];
   }
 
-  left_blinker = car_state.getLeftBlinker();
-  right_blinker = car_state.getRightBlinker();
+  left_blindspot = car_state.getLeftBlindspot();
+  right_blindspot = car_state.getRightBlindspot();
+  bsd_blink_frame = (bsd_blink_frame + 1) % std::max(UI_FREQ / 2, 2);
   accel_bar_width = accel_bar_width * 0.5f +
                     width() * std::min(std::abs(car_state.getAEgo()) / 4.0f, 1.0f) * 0.5f;
   steering_bar_pos = steering_bar_pos * 0.5f +
@@ -242,10 +243,13 @@ void OnroadWindow::paintEvent(QPaintEvent *event) {
   p.fillRect(QRect(0, 0, width(), height() / 2), lateral);
   p.fillRect(QRect(0, height() / 2, width(), height() - height() / 2), longitudinal);
 
-  // Middle side bars: turn-signal state.
+  // Middle side bars: blind-spot detection state.
   const QColor signal(255, 165, 0);
-  p.fillRect(QRect(0, height() / 2 - 95, bdr_s, 190), left_blinker ? signal : Qt::black);
-  p.fillRect(QRect(width() - bdr_s, height() / 2 - 95, bdr_s, 190), right_blinker ? signal : Qt::black);
+  const bool bsd_blink_on = bsd_blink_frame < std::max(UI_FREQ / 4, 1);
+  p.fillRect(QRect(0, height() / 2 - 95, bdr_s, 190),
+             left_blindspot && bsd_blink_on ? signal : Qt::black);
+  p.fillRect(QRect(width() - bdr_s, height() / 2 - 95, bdr_s, 190),
+             right_blindspot && bsd_blink_on ? signal : Qt::black);
 
   // Bottom bar: acceleration (yellow) / deceleration (red), centered.
   const auto car_state = (*uiState()->sm)["carState"].getCarState();
@@ -345,11 +349,6 @@ void NvgWindow::updateState(const UIState &s) {
     setProperty("experimentalMode", cs.getExperimentalMode());
   }
 
-  // blind spot state sync
-  auto car_state = sm["carState"].getCarState();
-  setProperty("left_blindspot",  car_state.getLeftBlindspot());
-  setProperty("right_blindspot", car_state.getRightBlindspot());
-
 }
 
 void NvgWindow::updateFrameMat(int w, int h) {
@@ -419,12 +418,6 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   //   감지됐을 때만 노란 울타리를 세운다. 평상시에는 그리지 않는다.
   //   ShowBlindSpotAlways = 1 이면 감지 여부와 무관하게 흐리게 상시 표시한다.
   //   (BSD 신호가 안 들어오는지, 그리기가 안 되는지 구분할 때 유용)
-  const QColor bsd_color(255, 215, 0, 150);
-  const QColor bsd_idle(255, 255, 255, 40);
-  if (left_blindspot)        drawBlindSpot(painter, scene.lane_barrier_vertices[0], bsd_color);
-  else if (show_bsd_always)  drawBlindSpot(painter, scene.lane_barrier_vertices[0], bsd_idle);
-  if (right_blindspot)       drawBlindSpot(painter, scene.lane_barrier_vertices[1], bsd_color);
-  else if (show_bsd_always)  drawBlindSpot(painter, scene.lane_barrier_vertices[1], bsd_idle);
 	
   // paint path
   // Keep both outer edges vivid and fade toward the center of the path.
@@ -1035,7 +1028,6 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     show_datetime = sdt.empty() ? 1 : std::atoi(sdt.c_str());   // 0:끔 1:시간+날짜 2:시간만 3:날짜만
     std::string sga = params.get("ShowGearAnimation");
     show_gear_animation = sga.empty() ? 1 : std::atoi(sga.c_str());
-    show_bsd_always = std::atoi(params.get("ShowBlindSpotAlways").c_str());
     std::string sch = params.get("ShowCarrotHud");
     show_carrot_hud = sch.empty() ? 1 : std::atoi(sch.c_str());
     std::string spsc = params.get("ShowPathStatusColor");
