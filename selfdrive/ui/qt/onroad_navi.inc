@@ -540,8 +540,9 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
                         qRound(112 * ui_scale), qRound(245 * ui_scale));
   const bool atc_prepare = atc_available && carrot_navi_distance > 350;
   const QColor turn_fill = atc_available
-      ? (atc_prepare ? QColor(0, 170, 80, 115) : QColor(0, 170, 80, 235))
-      : QColor(20, 95, 60, 150);
+      ? (atc_prepare ? QColor(255, 170, 0, 210)   // orange: ATC preparation
+                     : QColor(0, 200, 70, 240))   // green: ATC active range
+      : QColor(55, 55, 55, 170);                  // gray: ATC inactive/waiting
   p.setPen(QPen(QColor(0, 0, 0, 220), std::max(1, qRound(ui_scale))));
   p.setBrush(turn_fill);
   p.drawRoundedRect(turn_card, qRound(12 * ui_scale), qRound(12 * ui_scale));
