@@ -329,7 +329,7 @@ class LongitudinalMpc:
       self.prev_a = np.full(N+1, a_desired)
 
     if self.mode == 'acc':
-      a_change_cost = A_CHANGE_COST if prev_accel_constraint else 10.0
+      a_change_cost = A_CHANGE_COST if prev_accel_constraint else 0.0
 
       if self.applyLongDynamicCost:
         cost_multipliers = self.get_cost_multipliers(v_lead0, v_lead1)
