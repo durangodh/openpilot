@@ -89,12 +89,12 @@ class CarInterface(CarInterfaceBase):
     ret.longitudinalTuning.kf = 1.0
 
     long_delay = Params().get_int("LongActuatorDelay")
-    ret.longitudinalActuatorDelay = (long_delay * 0.01) if long_delay > 0 else 0.2
-    ret.longitudinalActuatorDelayLowerBound = max(0.1, ret.longitudinalActuatorDelay - 0.1)
-    ret.longitudinalActuatorDelayUpperBound = min(1.0, ret.longitudinalActuatorDelay + 0.1)
+    ret.longitudinalActuatorDelay = (long_delay * 0.01) if long_delay > 0 else 0.5
+    ret.longitudinalActuatorDelayLowerBound = 0.5
+    ret.longitudinalActuatorDelayUpperBound = 0.5
 
     ret.startingState = False
-    ret.startAccel = 1.0
+    ret.startAccel = 2.0
     ret.stopAccel = -0.6
     ret.stoppingDecelRate = 1.2
     ret.vEgoStopping = 0.3
@@ -301,8 +301,11 @@ class CarInterface(CarInterfaceBase):
     ret.radarOffCan = ret.sccBus == -1
     ret.pcmCruise = not ret.radarOffCan
 
-    if ret.radarOffCan or ret.mdpsBus == 1 or ret.openpilotLongitudinalControl or ret.sccBus == 1 or Params().get_bool('MadModeEnabled'):
-      ret.safetyConfigs = [get_safety_config(car.CarParams.SafetyModel.hyundaiCommunity, 0)]
+    # C2-style lateral engagement is always available from the cruise MAIN
+    # switch, independently of the stock SCC active state. Keep community
+    # safety active so Panda follows the same engagement model without a
+    # separate MAD-mode toggle.
+    ret.safetyConfigs = [get_safety_config(car.CarParams.SafetyModel.hyundaiCommunity, 0)]
     return ret
 
   def _update(self, c: car.CarControl) -> car.CarState:
@@ -322,7 +325,8 @@ class CarInterface(CarInterfaceBase):
     elif self.CC.scc_live and not self.CP.pcmCruise:
       self.CP.pcmCruise = True
 
-    # most HKG cars has no long control, it is safer and easier to engage by main on
+    # C2-style engagement: cruise MAIN controls lateral availability. Stock
+    # SCC enabled/disabled is handled separately by the longitudinal state.
     ret.cruiseState.enabled = ret.cruiseState.available
 
     # turning indicator alert logic
@@ -356,6 +360,8 @@ class CarInterface(CarInterfaceBase):
         be.type = ButtonType.decelCruise
       elif but == Buttons.GAP_DIST:
         be.type = ButtonType.gapAdjustCruise
+      elif but == Buttons.CANCEL:
+        be.type = ButtonType.cancel
       else:
         be.type = ButtonType.unknown
       buttonEvents.append(be)
@@ -377,9 +383,9 @@ class CarInterface(CarInterfaceBase):
 
     # handle button presses
     for b in ret.buttonEvents:
-      # do disable on button down (scc_live=False 차량에서만 실제로 cancel 이벤트 발생)
-      if b.type == ButtonType.cancel and b.pressed:
-        events.add(EventName.buttonCancel)
+      # CANCEL stops ACC and blocks automatic resume in CruiseHelper, but keeps
+      # lateral control engaged. Cruise MAIN off still fully disengages through
+      # the existing pcmDisable event generated from cruiseState.available.
 
       if self.CC.longcontrol and not self.CC.scc_live:
         # do enable on both accel and decel buttons
