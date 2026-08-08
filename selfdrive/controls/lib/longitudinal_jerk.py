@@ -6,8 +6,11 @@ JERK_START_MIN_RAW = 1
 JERK_START_MAX_RAW = 50
 JERK_START_SCALE = 0.1
 JERK_LIMIT = 5.0
-JERK_HOLD_TIME = 1.5
-JERK_RAMP_END_TIME = 2.5
+# Holding the low start limit for 1.5 seconds lets the brake release before
+# useful drive torque arrives on some Hyundai SCCs. Start the linear release
+# earlier while retaining a full second of ramping to avoid a launch step.
+JERK_HOLD_TIME = 0.5
+JERK_RAMP_END_TIME = 1.5
 
 
 def read_jerk_start_limit(params):

@@ -2501,7 +2501,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamValueControlF(
       "JerkStartLimit", "출발 저크 제한 (×0.1 m/s³)",
-      "롱컨 활성 직후 가속·감속 변화 속도를 제한합니다. 값이 작으면 부드럽고, 크면 반응이 빨라집니다.",
+      "정지 후 출발할 때 처음 0.5초간 적용하고 1.5초까지 정상 제한으로 부드럽게 전환합니다. 값이 작으면 부드럽고, 크면 반응이 빨라집니다.",
       "../assets/offroad/icon_road.png", 1, 50, 1, 0, 10, this));
 
   list->addItem(new ParamValueControlF(

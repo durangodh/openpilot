@@ -21,7 +21,7 @@ def test_jerk_start_limit_default_and_clamp():
   assert read_jerk_start_limit(FakeParams("50")) == 5.0
 
 
-def test_start_limit_is_held_for_first_1_5_seconds():
+def test_start_limit_is_held_for_first_half_second():
   controller = LongitudinalJerkController(1.0)
   for _ in range(int(JERK_HOLD_TIME / DT_CTRL)):
     upper, lower = controller.update(True, False, False, 3.0, DT_CTRL)
@@ -29,7 +29,15 @@ def test_start_limit_is_held_for_first_1_5_seconds():
   assert lower == 1.0
 
 
-def test_limit_ramps_to_five_after_2_5_seconds():
+def test_limit_ramps_linearly_after_half_second():
+  controller = LongitudinalJerkController(1.0)
+  for _ in range(int(1.0 / DT_CTRL)):
+    upper, lower = controller.update(True, False, False, 3.0, DT_CTRL)
+  assert abs(upper - 3.0) < 1e-6
+  assert lower == 1.0
+
+
+def test_limit_ramps_to_five_after_1_5_seconds():
   controller = LongitudinalJerkController(1.0)
   for _ in range(int(JERK_RAMP_END_TIME / DT_CTRL) + 1):
     upper, lower = controller.update(True, False, False, 3.0, DT_CTRL)
