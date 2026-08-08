@@ -322,8 +322,9 @@ class CarInterface(CarInterfaceBase):
     elif self.CC.scc_live and not self.CP.pcmCruise:
       self.CP.pcmCruise = True
 
-    # most HKG cars has no long control, it is safer and easier to engage by main on
-    ret.cruiseState.enabled = ret.cruiseState.available
+    # MAD mode engages openpilot lateral control with the cruise MAIN switch.
+    if self.CC.mad_mode_enabled:
+      ret.cruiseState.enabled = ret.cruiseState.available
 
     # turning indicator alert logic
     t = time.monotonic()
