@@ -2502,17 +2502,17 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(new ParamValueControlF(
       "JerkStartLimit", "출발 저크 제한 (×0.1 m/s³)",
       "롱컨 활성 직후 가속·감속 변화 속도를 제한합니다. 값이 작으면 부드럽고, 크면 반응이 빨라집니다.",
-      "../assets/offroad/icon_road.png", 5, 30, 1, 0, 10, this));
+      "../assets/offroad/icon_road.png", 1, 50, 1, 0, 10, this));
 
   list->addItem(new ParamValueControlF(
       "StartAccelApply", "Start Acceleration",
       "정지 후 출발 가속도입니다. 표시값에 0.02m/s²를 곱해 적용합니다.",
-      "../assets/offroad/icon_openpilot.png", 0, 50, 1, 0, 25, this));
+      "../assets/offroad/icon_openpilot.png", 0, 100, 10, 0, 0, this));
 
   list->addItem(new ParamValueControlF(
       "StopAccelApply", "Stop Accel Apply",
       "정지 마무리 제동값입니다. 표시값에 -0.02m/s²를 곱해 적용하며 0은 추가 제동을 끕니다.",
-      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 30, this));
+      "../assets/offroad/icon_openpilot.png", 0, 100, 10, 0, 30, this));
 
   list->addItem(new ParamValueControlF(
       "SoftHoldMode", "Soft Hold Mode",
@@ -2582,7 +2582,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
   list->addItem(new ParamValueControlF(
       "LongTuningKiV", "Longitudinal Ki", "누적 속도 오차 적분 게인입니다 (×0.001).",
-      "../assets/offroad/icon_openpilot.png", 0, 2000, 5, 0, 0, this));
+      "../assets/offroad/icon_openpilot.png", 0, 2000, 5, 0, 200, this));
   list->addItem(new ParamValueControlF(
       "LongTuningKf", "Longitudinal Feedforward", "목표 가속도 피드포워드 게인입니다 (×0.01).",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));

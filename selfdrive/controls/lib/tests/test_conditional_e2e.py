@@ -8,9 +8,10 @@ def test_traffic_stop_decel_adjusts_virtual_obstacle():
   stop_distance = 100.0
   v_ego = 20.0
 
+  expected_default = stop_distance - (v_ego ** 2 / (2.0 * 2.0) - v_ego ** 2 / (2.0 * 2.5))
+  assert adjust_stop_distance_for_decel(stop_distance, v_ego, 0.8) == expected_default
   assert adjust_stop_distance_for_decel(stop_distance, v_ego, 1.0) == stop_distance
-  assert adjust_stop_distance_for_decel(stop_distance, v_ego, 0.8) < stop_distance
-  assert adjust_stop_distance_for_decel(stop_distance, v_ego, 1.2) > stop_distance
+  assert adjust_stop_distance_for_decel(stop_distance, v_ego, 1.2) > adjust_stop_distance_for_decel(stop_distance, v_ego, 1.0)
   assert adjust_stop_distance_for_decel(5.0, v_ego, 0.1) == 0.0
 
 

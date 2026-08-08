@@ -606,6 +606,7 @@ struct ControlsState @0x97ff69c53601abf1 {
   longCruiseGap @77 :Int8;
   myDrivingMode @78 :Int32;
   mySafeModeFactor @79 :Float32;
+  softHold @80 :Bool;
 
   sccStockCamAct @74 :Float32;
   sccStockCamStatus @75 :Float32;

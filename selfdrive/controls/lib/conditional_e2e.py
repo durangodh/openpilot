@@ -8,7 +8,8 @@ E2E_START_MIN_DISTANCE = 60.0
 E2E_FAR_STOP_DISTANCE = 40.0
 E2E_VISION_LEAD_DISTANCE = 90.0
 E2E_VISION_LEAD_CONFIRM_TIME = 0.5
-TRAFFIC_STOP_BASE_COMFORT_BRAKE = 2.4
+TRAFFIC_STOP_SOLVER_COMFORT_BRAKE = 2.5
+TRAFFIC_STOP_APILOT_COMFORT_BRAKE = 2.5
 
 
 def adjust_stop_distance_for_decel(stop_distance, v_ego, decel_factor):
@@ -22,8 +23,8 @@ def adjust_stop_distance_for_decel(stop_distance, v_ego, decel_factor):
   """
   factor = max(0.1, min(1.2, float(decel_factor)))
   speed = max(0.0, float(v_ego))
-  base_distance = speed ** 2 / (2.0 * TRAFFIC_STOP_BASE_COMFORT_BRAKE)
-  adjusted_distance = speed ** 2 / (2.0 * TRAFFIC_STOP_BASE_COMFORT_BRAKE * factor)
+  base_distance = speed ** 2 / (2.0 * TRAFFIC_STOP_SOLVER_COMFORT_BRAKE)
+  adjusted_distance = speed ** 2 / (2.0 * TRAFFIC_STOP_APILOT_COMFORT_BRAKE * factor)
   return max(0.0, float(stop_distance) - (adjusted_distance - base_distance))
 
 

@@ -2,12 +2,12 @@ import math
 
 
 JERK_START_DEFAULT_RAW = 10
-JERK_START_MIN_RAW = 5
-JERK_START_MAX_RAW = 30
+JERK_START_MIN_RAW = 1
+JERK_START_MAX_RAW = 50
 JERK_START_SCALE = 0.1
 JERK_LIMIT = 5.0
-JERK_HOLD_TIME = 0.5
-JERK_RAMP_END_TIME = 1.5
+JERK_HOLD_TIME = 1.5
+JERK_RAMP_END_TIME = 2.5
 
 
 def read_jerk_start_limit(params):
@@ -52,8 +52,7 @@ class LongitudinalJerkController:
 
     if stopping or soft_hold:
       self.reset()
-      # Preserve the branch's proven stopping behavior.
-      return 0.5, 10.0
+      return 0.5, JERK_LIMIT
 
     elapsed_step = dt if math.isfinite(dt) else 0.0
     self.elapsed += max(0.0, elapsed_step)

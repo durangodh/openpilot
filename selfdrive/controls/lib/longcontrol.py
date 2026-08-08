@@ -91,9 +91,9 @@ class LongControl:
     self._update_actuator_delays()
 
   def _update_start_accel(self):
-    start_raw = self.params.get_int("StartAccelApply", 25)
-    self.start_accel_apply = float(clip(start_raw * 0.01, 0.0, 0.5))
-    self.start_accel = float(clip(2.0 * self.start_accel_apply, 0.0, 1.0))
+    start_raw = self.params.get_int("StartAccelApply", 0)
+    self.start_accel_apply = float(clip(start_raw * 0.01, 0.0, 1.0))
+    self.start_accel = float(clip(2.0 * self.start_accel_apply, 0.0, 2.0))
     self.starting_state = start_raw > 0
 
   def _update_stop_accel(self):

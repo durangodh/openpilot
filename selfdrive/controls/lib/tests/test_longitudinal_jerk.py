@@ -16,9 +16,9 @@ class FakeParams:
 
 def test_jerk_start_limit_default_and_clamp():
   assert read_jerk_start_limit(FakeParams(None)) == 1.0
-  assert read_jerk_start_limit(FakeParams("1")) == 0.5
+  assert read_jerk_start_limit(FakeParams("1")) == 0.1
   assert read_jerk_start_limit(FakeParams("20")) == 2.0
-  assert read_jerk_start_limit(FakeParams("50")) == 3.0
+  assert read_jerk_start_limit(FakeParams("50")) == 5.0
 
 
 def test_start_limit_is_held_for_first_1_5_seconds():
@@ -48,9 +48,9 @@ def test_negative_planner_jerk_controls_deceleration_limit():
 def test_stop_and_soft_hold_preserve_braking_limits_and_reset_ramp():
   controller = LongitudinalJerkController(1.0)
   controller.update(True, False, False, 3.0, 2.0)
-  assert controller.update(True, True, False, -3.0, DT_CTRL) == (0.5, 10.0)
+  assert controller.update(True, True, False, -3.0, DT_CTRL) == (0.5, 5.0)
   assert controller.update(True, False, False, 3.0, DT_CTRL) == (1.0, 1.0)
-  assert controller.update(True, False, True, -3.0, DT_CTRL) == (0.5, 10.0)
+  assert controller.update(True, False, True, -3.0, DT_CTRL) == (0.5, 5.0)
 
 
 def test_inactive_and_non_finite_values_are_safe():

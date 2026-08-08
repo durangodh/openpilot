@@ -835,6 +835,7 @@ class Controls:
     controlsState.longCruiseGap = self.cruise_helper.long_cruise_gap
     controlsState.myDrivingMode = self.cruise_helper.my_driving_mode
     controlsState.mySafeModeFactor = self.cruise_helper.my_safe_mode_factor
+    controlsState.softHold = CC.hudControl.softHold
 
     controlsState.angleSteers = steer_angle_without_offset * CV.RAD_TO_DEG
     controlsState.applyAccel = self.apply_accel
