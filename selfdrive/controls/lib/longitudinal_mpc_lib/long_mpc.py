@@ -2,6 +2,7 @@
 import os
 import numpy as np
 
+from cereal import car, log
 from common.realtime import sec_since_boot
 from common.numpy_fast import clip, interp
 from selfdrive.swaglog import cloudlog
@@ -22,6 +23,9 @@ EXPORT_DIR = os.path.join(LONG_MPC_DIR, "c_generated_code")
 JSON_FILE = os.path.join(LONG_MPC_DIR, "acados_ocp_long.json")
 
 SOURCES = ['lead0', 'lead1', 'cruise', 'e2e']
+
+XState = log.LongitudinalPlan.XState
+ButtonType = car.CarState.ButtonEvent.Type
 
 X_DIM = 3
 U_DIM = 1
@@ -207,6 +211,9 @@ class LongitudinalMpc:
   def __init__(self, mode='acc'):
     self.mode = mode
     self.applyLongDynamicCost = False
+    self.softHoldMode = 1
+    self.softHoldTimer = 0
+    self.xState = XState.cruise
     self.prev_accel_constraint = True
     self.a_desired = 0.
     self.solver = AcadosOcpSolverCython(MODEL_NAME, ACADOS_SOLVER_TYPE, N)
@@ -249,6 +256,8 @@ class LongitudinalMpc:
     self.status = False
     self.crash_cnt = 0.0
     self.solution_status = 0
+    self.softHoldTimer = 0
+    self.xState = XState.cruise
     # timers
     self.solve_time = 0.0
     self.time_qp_solution = 0.0
@@ -369,6 +378,26 @@ class LongitudinalMpc:
     self.prev_accel_constraint = prev_accel_constraint
     v_ego = self.x0[1]
     self.status = radarstate.leadOne.status or radarstate.leadTwo.status
+
+    # aPilot C2 soft hold state is owned by the longitudinal MPC.
+    soft_hold_available = controls.enabled and self.softHoldMode > 0
+    resume_pressed = any(event.pressed and event.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
+                         for event in carstate.buttonEvents)
+    if not soft_hold_available:
+      self.softHoldTimer = 0
+      if self.xState == XState.softHold:
+        self.xState = XState.cruise
+    elif self.xState == XState.softHold:
+      self.softHoldTimer = 0
+      if carstate.gasPressed or resume_pressed:
+        self.xState = XState.cruise
+    elif carstate.brakePressed and v_ego < 0.1:
+      self.softHoldTimer += 1
+      if self.softHoldTimer * 0.05 >= 0.7:
+        self.xState = XState.softHold
+    else:
+      self.softHoldTimer = 0
+      self.xState = XState.lead if self.status else XState.cruise
 
     lead_xv_0 = self.process_lead(radarstate.leadOne)
     lead_xv_1 = self.process_lead(radarstate.leadTwo)
