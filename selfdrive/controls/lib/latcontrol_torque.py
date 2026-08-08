@@ -80,12 +80,13 @@ class LatControlTorque(LatControl):
     self.ki_default = self.torque_params.ki
     self.kf_default = self.torque_params.kf
 
-    # 학습값은 차량 기본 토크 특성에서 크게 벗어나지 못하게 제한한다.
-    # latAccelFactor가 작아질수록 같은 횡가속도에 더 큰 조향 토크가 출력된다.
-    self.latAccelFactor_min = max(0.5, self.latAccelFactor_default * 0.90)
+    # 학습값이 차량 기본 조향 토크보다 강해지지 않게 제한한다.
+    # latAccelFactor가 작거나 friction이 클수록 같은 상황에서 더 큰 토크가 출력된다.
+    # 학습은 기본값보다 부드럽게 만드는 방향만 허용해 MDPS 과토크/거부를 예방한다.
+    self.latAccelFactor_min = self.latAccelFactor_default
     self.latAccelFactor_max = min(4.5, self.latAccelFactor_default * 1.25)
     self.friction_min = max(0.0, self.friction_default - 0.04)
-    self.friction_max = min(0.20, self.friction_default + 0.04)
+    self.friction_max = self.friction_default
 
     # friction 입력 계수 (carrot 기본값)
     self.lat_accel_friction_factor = 0.7
