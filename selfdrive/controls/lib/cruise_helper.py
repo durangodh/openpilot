@@ -8,8 +8,6 @@ from common.realtime import DT_CTRL
 from selfdrive.car.hyundai.values import Buttons
 from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
-from selfdrive.controls.lib.low_speed_long import AutoResumeController, STOCK_SCC_LEADLESS_MIN_SPEED_KPH, \
-  read_cruise_speed_min
 from selfdrive.controls.lib.lateral_planner import TRAJECTORY_SIZE
 from selfdrive.road_speed_limiter import get_road_speed_limiter
 
@@ -57,9 +55,6 @@ class CruiseHelper:
     self.limited_lead = False
     self.stock_weight = 0.0
 
-    self.auto_resume = AutoResumeController()
-    self.auto_resume_request = False
-    self.auto_resume_set_speed_kph = 0.0
     self.carrot_atc = CarrotNaviAtc()
     self.last_road_limit_speed = 0.0
     self.pause_auto_speed_up = False
@@ -71,7 +66,7 @@ class CruiseHelper:
     self.speed_conv_to_ms = CV.KPH_TO_MS if self.is_metric else CV.MPH_TO_MS
     self.speed_conv_to_clu = CV.MS_TO_KPH if self.is_metric else CV.MS_TO_MPH
 
-    self.cruise_speed_min = read_cruise_speed_min(self.params)
+    self.cruise_speed_min = MIN_SET_SPEED_KPH
     self.min_set_speed_clu = self.kph_to_clu(self.cruise_speed_min)
     self.max_set_speed_clu = self.kph_to_clu(MAX_SET_SPEED_KPH)
     self.speed_from_pcm = int(clip(self.params.get_int("SpeedFromPCM"), 1, 2))
@@ -84,14 +79,6 @@ class CruiseHelper:
 
     self.slow_on_curves = self.params.get_bool("SccSmootherSlowOnCurves")
     self.sync_set_speed_while_gas_pressed = self.params.get_bool("SccSmootherSyncGasPressed")
-    self.auto_gas_resume_guard = self.params.get_bool("AutoGasResumeGuard")
-    self.auto_resume_from_gas = int(clip(self.params.get_int("AutoResumeFromGas"), 0, 2))
-    self.auto_resume_from_gas_speed = float(clip(self.params.get_int("AutoGasTokSpeed"), 5, 60))
-    self.auto_gas_cancel_speed = float(clip(self.params.get_int("AutoGasCancelSpeed"), 0, 60))
-    self.auto_resume_from_gas_speed_mode = int(clip(self.params.get_int("AutoResumeFromGasSpeedMode"), 0, 2))
-    self.auto_resume_from_brake_release = self.params.get_bool("AutoResumeFromBrakeRelease")
-    self.auto_resume_from_brake_speed = float(clip(self.params.get_int("AutoResumeFromBrakeCarSpeed"), 5, 60))
-    self.auto_resume_from_brake_distance = float(clip(self.params.get_int("AutoResumeFromBrakeReleaseDist"), 2, 50))
 
     self.auto_speed_up_ratio = float(self.params.get_int("AutoSpeedUptoRoadSpeedLimit")) * 0.01
     self.auto_road_speed_adjust = float(clip(self.params.get_int("AutoRoadSpeedAdjust"), -100, 100)) * 0.01
@@ -407,43 +394,12 @@ class CruiseHelper:
     CC.sccSmoother.cruiseMaxSpeed = controls.v_cruise_kph
     CC.sccSmoother.logMessage = ""
 
-    lead = self.get_lead(controls.sm)
-    lead_distance = lead.dRel if lead is not None else 0.0
-    traffic_state = controls.sm['longitudinalPlan'].trafficState
-    self.auto_resume_request, self.auto_resume_set_speed_kph = self.auto_resume.update(
-      available=CC.enabled and self.auto_cruise_control,
-      cruise_enabled=CS.cruiseState_enabled,
-      gas_mode=self.auto_resume_from_gas,
-      gas_resume_speed_kph=self.auto_resume_from_gas_speed,
-      gas_cancel_speed_kph=self.auto_gas_cancel_speed,
-      speed_mode=self.auto_resume_from_gas_speed_mode,
-      brake_release_enabled=self.auto_resume_from_brake_release,
-      brake_resume_speed_kph=self.auto_resume_from_brake_speed,
-      brake_lead_distance=self.auto_resume_from_brake_distance,
-      cruise_speed_min=self.cruise_speed_min,
-      gas_pressed=CS.out.gasPressed,
-      gas=CS.out.gas,
-      brake_pressed=CS.out.brakePressed,
-      v_ego=CS.out.vEgo,
-      steering_angle_deg=CS.out.steeringAngleDeg,
-      left_blinker=CS.out.leftBlinker,
-      right_blinker=CS.out.rightBlinker,
-      traffic_state=traffic_state,
-      has_lead=lead is not None,
-      lead_distance=lead_distance,
-      previous_speed_kph=CS.prev_cruiseState_speed * CV.MS_TO_KPH,
-      safety_guard=self.auto_gas_resume_guard,
-      dt=DT_CTRL)
-
     self.update_target_speed(CS, clu11_speed, controls, longcontrol)
     self.auto_speed_up(CS, controls, road_limit_speed, longcontrol)
 
     ascc_enabled = CS.acc_mode and CC.enabled and CS.cruiseState_enabled and \
                    1 < CS.cruiseState_speed < 255 and not CS.brake_pressed
-    stock_resume_available = clu11_speed >= STOCK_SCC_LEADLESS_MIN_SPEED_KPH or \
-                             (not longcontrol and CS.obj_valid and lead_distance > 1)
-    ascc_auto_set = self.auto_resume_request and stock_resume_available
-    return clu11_speed, ascc_enabled, ascc_auto_set
+    return clu11_speed, ascc_enabled
 
   def reset_scc_target(self):
     self.target_speed = 0.0
