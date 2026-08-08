@@ -65,7 +65,7 @@ class SccSmoother:
       self.alive_timer = 0
       self.wait_timer = 0
     longcontrol = controls.CP.openpilotLongitudinalControl
-    clu11_speed, ascc_enabled, ascc_auto_set, initial_gap_button = \
+    clu11_speed, ascc_enabled, ascc_auto_set = \
       self.cruise_helper.update_scc(CC, CS, frame, controls, longcontrol)
 
     if not longcontrol and \
@@ -87,9 +87,7 @@ class SccSmoother:
       return
 
     if self.alive_timer == 0:
-      if initial_gap_button != Buttons.NONE and CS.cruise_buttons == Buttons.NONE:
-        self.btn = initial_gap_button
-      elif ascc_enabled and self.cruise_helper.auto_cruise_control:
+      if ascc_enabled and self.cruise_helper.auto_cruise_control:
         current_set_speed = CS.cruiseState_speed * self.cruise_helper.speed_conv_to_clu
         self.btn = self.cruise_helper.get_button(current_set_speed)
       elif ascc_auto_set and clu11_speed < STOCK_SCC_LEADLESS_MIN_SPEED_KPH and \
