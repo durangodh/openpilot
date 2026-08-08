@@ -47,24 +47,35 @@ CRUISE_MAX_VAL_DEFAULTS = [1.60, 1.20, 1.00, 0.80, 0.70, 0.60]
 #   ACCEL : MyEcoModeFactor와 MySafeModeFactor로 계산 (감속 한계는 유지)
 # ──────────────────────────────────────────────────────────────────────────
 
-# Lookup table for turns
-_A_TOTAL_MAX_V = [1.7, 3.2]
-_A_TOTAL_MAX_BP = [20., 40.]
+# carrot-wip future-curvature acceleration limiter
+TURN_CURVATURE_LOOKAHEAD = 1.0
+TURN_CURVATURE_MIN_SPEED = 3.0
 
 
-def limit_accel_in_turns(v_ego, angle_steers, a_target, CP):
-  """
-  This function returns a limited long acceleration allowed, depending on the existing lateral acceleration
-  this should avoid accelerating when losing the target in turns
-  """
+def get_future_curvature(model_msg, fallback_curvature, lookahead=TURN_CURVATURE_LOOKAHEAD):
+  if (len(model_msg.orientationRate.z) != len(T_IDXS) or
+      len(model_msg.velocity.x) != len(T_IDXS)):
+    return fallback_curvature
 
-  # FIXME: This function to calculate lateral accel is incorrect and should use the VehicleModel
-  # The lookup table for turns should also be updated if we do this
-  a_total_max = interp(v_ego, _A_TOTAL_MAX_BP, _A_TOTAL_MAX_V)
-  a_y = v_ego ** 2 * angle_steers * CV.DEG_TO_RAD / (CP.steerRatio * CP.wheelbase)
-  a_x_allowed = math.sqrt(max(a_total_max ** 2 - a_y ** 2, 0.))
+  yaw_rate_future = float(np.interp(lookahead, T_IDXS, model_msg.orientationRate.z))
+  velocity_future = float(np.interp(lookahead, T_IDXS, model_msg.velocity.x))
+  if not (np.isfinite(yaw_rate_future) and np.isfinite(velocity_future)):
+    return fallback_curvature
+  return yaw_rate_future / max(abs(velocity_future), TURN_CURVATURE_MIN_SPEED)
 
-  return [a_target[0], min(a_target[1], a_x_allowed)]
+
+def limit_accel_in_turns(v_ego, curvature, a_target, a_lat_max,
+                         safety_ratio=0.70, min_v=0.1):
+  if v_ego < min_v or a_lat_max <= 0.0:
+    return a_target
+
+  a_lat_effective = abs(a_lat_max) * float(safety_ratio)
+  lateral_accel = abs((v_ego ** 2) * curvature)
+  if lateral_accel >= a_lat_effective:
+    accel_allowed = 0.0
+  else:
+    accel_allowed = math.sqrt(a_lat_effective ** 2 - lateral_accel ** 2)
+  return [a_target[0], min(a_target[1], accel_allowed)]
 
 
 class LongitudinalPlanner:
@@ -301,7 +312,8 @@ class LongitudinalPlanner:
                                   0.0, MAX_ACCEL))
     if self.mpc.mode == 'acc':
       accel_limits = [A_CRUISE_MIN, cruise_max_accel]
-      accel_limits_turns = limit_accel_in_turns(v_ego, sm['carState'].steeringAngleDeg, accel_limits, self.CP)
+      curvature_future = get_future_curvature(sm['modelV2'], sm['controlsState'].desiredCurvature)
+      accel_limits_turns = limit_accel_in_turns(v_ego, curvature_future, accel_limits, 3.0)
 
       if self.brake_resume_accel_time > 0.0:
         progress = float(clip(1.0 - self.brake_resume_accel_time / BRAKE_RESUME_ACCEL_TIME, 0.0, 1.0))
