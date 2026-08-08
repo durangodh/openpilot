@@ -514,25 +514,9 @@ void NtuneValueControl::refresh() {
   plus_btn->setEnabled(v < vmax_ - 1e-9);
 }
 
-// 포팅판 학습 대상 파라미터의 공장 기본값 (python carrot_learning.py 와 동일)
+// Steering-only Auto-Tuner Params default. nTune steering values are preserved.
 static const std::map<std::string, std::string> kAutoTunerDefaults = {
-  {"TFollowGap1", "110"},
-  {"TFollowGap2", "120"},
-  {"TFollowGap3", "140"},
-  {"TFollowGap4", "160"},
-  {"TFollowSpeedRatio", "120"},
   {"OffsetTotal", "0.0"},
-  {"CarrotLongActuatorDelay", "0.4"},   // _LONG_DELAY_DEFAULT (carrot_learning.py)
-  {"CarrotLongKf", "1.0"},              // _LONG_KF_DEFAULT (carrot_learning.py)
-  // ── Auto-Tuner Phase 6: 비전 커브 감속 (carrot_learning.py _TURN_*_DEFAULTS와 동일) ──
-  {"TurnEnteringDecel0", "-10"},
-  {"TurnEnteringDecel1", "-30"},
-  {"TurnTurningAcc0", "120"},
-  {"TurnTurningAcc1", "94"},
-  {"TurnTurningAcc2", "90"},
-  {"TurnTurningAcc3", "80"},
-  {"TurnTurningAcc4", "-10"},
-  {"TurnLeavingAcc", "50"},
 };
 
 // AutoTunerGraphWidget
@@ -856,7 +840,7 @@ AutoTunerHistoryPanel::AutoTunerHistoryPanel(QWidget* parent) : QFrame(parent) {
   scroll->setWidget(scroll_widget);
   left_layout->addWidget(scroll, 1);
 
-  // Apply LAT / LONG 토글 (미설정 시 기본 ON으로 시드 — python 기본값과 일치)
+  // Steering-learning apply toggle.
   QVBoxLayout *toggles_layout = new QVBoxLayout();
   toggles_layout->setSpacing(10);
   toggles_layout->setContentsMargins(0, 10, 0, 0);
@@ -864,27 +848,17 @@ AutoTunerHistoryPanel::AutoTunerHistoryPanel(QWidget* parent) : QFrame(parent) {
   {
     Params p;
     if (p.get("CarrotTunerApplyLat").empty()) p.putBool("CarrotTunerApplyLat", true);
-    if (p.get("CarrotTunerApplyLong").empty()) p.putBool("CarrotTunerApplyLong", true);
   }
 
-  // (commit dff7287) 터치 면적을 키우기 위해 가로로 길던 버튼을 정사각형에 가깝게
-  // 바꾸고 두 개를 나란히(좌우) 배치한다. 글씨는 3줄로 표시.
   QPushButton *lat_toggle = new QPushButton(this);
   lat_toggle->setFixedHeight(150);
-  QPushButton *long_toggle = new QPushButton(this);
-  long_toggle->setFixedHeight(150);
 
   auto updateToggles = [=]() {
     bool apply_lat = Params().getBool("CarrotTunerApplyLat");
-    bool apply_long = Params().getBool("CarrotTunerApplyLong");
-    // 활성(ON)/비활성(OFF) 색상은 포크 기존 배색(빨강/회색) 유지. 3줄 텍스트가
-    // 박스를 넘지 않도록 폰트 크기만 26px→22px로 축소 (commit dff7287).
     QString on_style = "background-color: #bb3333; font-size: 22px; font-weight: bold; border-radius: 10px; color: white;";
     QString off_style = "background-color: #4a5568; font-size: 22px; font-weight: bold; border-radius: 10px; color: white;";
-    lat_toggle->setText(tr("Apply LAT\n(Steering)\n%1").arg(apply_lat ? "ON" : "OFF"));
+    lat_toggle->setText(tr("Apply Steering Learning\n%1").arg(apply_lat ? "ON" : "OFF"));
     lat_toggle->setStyleSheet(apply_lat ? on_style : off_style);
-    long_toggle->setText(tr("Apply LONG\n(Accel/Brake)\n%1").arg(apply_long ? "ON" : "OFF"));
-    long_toggle->setStyleSheet(apply_long ? on_style : off_style);
   };
   updateToggles();
 
@@ -893,18 +867,8 @@ AutoTunerHistoryPanel::AutoTunerHistoryPanel(QWidget* parent) : QFrame(parent) {
     Params().putBool("CarrotTunerApplyLat", !current);
     updateToggles();
   });
-  connect(long_toggle, &QPushButton::clicked, this, [=]() {
-    bool current = Params().getBool("CarrotTunerApplyLong");
-    Params().putBool("CarrotTunerApplyLong", !current);
-    updateToggles();
-  });
 
-  // (commit dff7287) 두 토글을 좌우로 나란히 배치 (각각 정사각형에 가까운 형태)
-  QHBoxLayout *apply_row = new QHBoxLayout();
-  apply_row->setSpacing(10);
-  apply_row->addWidget(lat_toggle);
-  apply_row->addWidget(long_toggle);
-  toggles_layout->addLayout(apply_row);
+  toggles_layout->addWidget(lat_toggle);
   left_layout->addLayout(toggles_layout);
 
   // Right Column: Chart + Controls
@@ -2823,10 +2787,8 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
 
   auto *learnToggle = new ParamControl("CarrotLearningActive",
       "Auto-Tuner: 주행 기반 학습",
-      "운전자 개입(가속/브레이크/조향)을 학습하여 주차(P단) 시 파라미터 조정을 추천합니다.\n"
-      "학습 대상: TFollowGap1~4(추종거리) / OffsetTotal(직진 편차) /\n"
-      "TurnEnteringDecel·TurnTurningAcc·TurnLeavingAcc(비전 커브 감속)\n"
-      "1회 적용 시 변동폭 ±15 제한, 추종거리 최소 0.90초 보장.",
+      "조향 개입과 라이브 조향비를 학습하여 주차(P단) 시 조향값 조정을 추천합니다.\n"
+      "학습 대상: OffsetTotal / latAccelFactor / friction / steerActuatorDelay / steerRatio.",
       "../assets/offroad/icon_shell.png",
       this);
   list->addItem(learnToggle);
@@ -2859,10 +2821,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   });
   list->addItem(viewHistoryBtn);
 
-  // ── Factory Reset 버튼 (commit e06a7dd) ──
-  // Params 기반 학습 대상(TFollowGap/OffsetTotal/Turn*)만 공장 기본값 복원 +
-  // 학습 데이터/이력 삭제. nTune 조향값(latAccelFactor/friction/steerActuatorDelay)은
-  // 차량별 기준값이라 의도적으로 제외 (사용자 nTune 세팅 보호).
+  // Steering learner reset. nTune steering values are preserved.
   QPushButton* factoryResetBtn = new QPushButton("Auto-Tuner: Factory Reset");
   factoryResetBtn->setObjectName("factoryResetBtn");
   factoryResetBtn->setStyleSheet(R"(
@@ -2876,7 +2835,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
     }
   )");
   connect(factoryResetBtn, &QPushButton::clicked, [=]() {
-    if (ConfirmationDialog::confirm("학습 파라미터(가속/추종거리/직진보정/커브감속)를 모두 공장 기본값으로 되돌리고 학습 데이터·이력을 삭제하시겠습니까?\n\n(조향 nTune 값은 변경되지 않습니다)", this)) {
+    if (ConfirmationDialog::confirm("조향 학습 데이터와 이력을 삭제하고 직진 보정값을 초기화하시겠습니까?\n\n(조향 nTune 값은 변경되지 않습니다)", this)) {
       Params p;
       for (const auto& [key, val] : kAutoTunerDefaults) {
         p.put(key, val);
