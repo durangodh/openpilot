@@ -26,7 +26,6 @@ from selfdrive.controls.lib.latcontrol_indi import LatControlINDI
 from selfdrive.controls.lib.latcontrol_angle import LatControlAngle
 from selfdrive.controls.lib.events import Events, ET
 from selfdrive.controls.lib.cruise_helper import CruiseHelper
-from selfdrive.controls.lib.soft_hold import SoftHoldController
 from selfdrive.controls.lib.alertmanager import AlertManager, set_offroad_alert
 from selfdrive.controls.lib.vehicle_model import VehicleModel
 from selfdrive.locationd.calibrationd import Calibration
@@ -52,6 +51,7 @@ PandaType = log.PandaState.PandaType
 Desire = log.LateralPlan.Desire
 LaneChangeState = log.LateralPlan.LaneChangeState
 LaneChangeDirection = log.LateralPlan.LaneChangeDirection
+XState = log.LongitudinalPlan.XState
 EventName = car.CarEvent.EventName
 ButtonEvent = car.CarState.ButtonEvent
 ButtonType = car.CarState.ButtonEvent.Type
@@ -117,8 +117,6 @@ class Controls:
     # read params
     self.is_metric = params.get_bool("IsMetric")
     self.cruise_helper = CruiseHelper(params)
-    self.soft_hold = SoftHoldController()
-    self.soft_hold_mode = int(clip(params.get_int("SoftHoldMode"), 0, 2))
     self.is_ldw_enabled = params.get_bool("IsLdwEnabled")
     openpilot_enabled_toggle = params.get_bool("OpenpilotEnabledToggle")
     passive = params.get_bool("Passive") or not openpilot_enabled_toggle
@@ -606,15 +604,9 @@ class Controls:
                    and abs(CS.steeringAngleDeg) < self.CP.maxSteeringAngleDeg
     CC.longActive = self.active and not self.events.any(ET.OVERRIDE) and self.CP.openpilotLongitudinalControl
 
-    if self.sm.frame % 100 == 0:
-      self.soft_hold_mode = int(clip(self.params.get_int("SoftHoldMode"), 0, 2))
-    resume_pressed = any(be.pressed and be.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
-                         for be in CS.buttonEvents)
     drive_gear = CS.gearShifter in (GearShifter.drive, GearShifter.eco, GearShifter.sport,
                                     GearShifter.low, GearShifter.manumatic)
-    CC.hudControl.softHold = self.soft_hold.update(
-      self.CP.openpilotLongitudinalControl and self.enabled and self.soft_hold_mode > 0,
-      CS.brakePressed, CS.gasPressed, CS.vEgo, resume_pressed, drive_gear, DT_CTRL)
+    CC.hudControl.softHold = long_plan.xState == XState.softHold and self.enabled and drive_gear
 
     actuators = CC.actuators
     actuators.longControlState = self.LoC.long_control_state
@@ -835,7 +827,6 @@ class Controls:
     controlsState.longCruiseGap = self.cruise_helper.long_cruise_gap
     controlsState.myDrivingMode = self.cruise_helper.my_driving_mode
     controlsState.mySafeModeFactor = self.cruise_helper.my_safe_mode_factor
-    controlsState.softHold = CC.hudControl.softHold
 
     controlsState.angleSteers = steer_angle_without_offset * CV.RAD_TO_DEG
     controlsState.applyAccel = self.apply_accel
