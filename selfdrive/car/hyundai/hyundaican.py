@@ -124,7 +124,7 @@ def create_mdps12(packer, frame, mdps12):
   return packer.make_can_msg("MDPS12", 2, values)
 
 def create_scc11(packer, frame, enabled, set_speed, lead_visible, scc_live, scc11, active_cam, stock_cam,
-                 soft_hold=False, force_long=False):
+                 soft_hold=False):
   values = copy.copy(scc11)
   values["AliveCounterACC"] = frame // 2 % 0x10
 
@@ -138,17 +138,15 @@ def create_scc11(packer, frame, enabled, set_speed, lead_visible, scc_live, scc1
   if soft_hold and enabled:
     values["SCCInfoDisplay"] = 4
 
-  if not scc_live or force_long:
+  if not scc_live:
     values["MainMode_ACC"] = 1
-    # Preserve the legacy no-radar behavior, but never fabricate a lead for a
-    # forced low-speed request when the road is actually clear.
-    values["ObjValid"] = 1 if enabled and (lead_visible or not force_long) else 0
+    values["ObjValid"] = 1 if enabled else 0
 #  values["ACC_ObjStatus"] = lead_visible
 
   return packer.make_can_msg("SCC11", 0, values)
 
 def create_scc12(packer, apply_accel, enabled, cnt, scc_live, scc12, gaspressed, brakepressed,
-                 standstill, car_fingerprint, force_long=False):
+                 standstill, car_fingerprint):
   values = copy.copy(scc12)
 
   if car_fingerprint in EV_HYBRID_CAR:
@@ -172,7 +170,7 @@ def create_scc12(packer, apply_accel, enabled, cnt, scc_live, scc12, gaspressed,
     values["aReqValue"] = apply_accel if enabled else 0  # aReqMin
     values["StopReq"] = 1 if standstill and enabled else 0
     values["CR_VSM_Alive"] = cnt
-    if not scc_live or force_long:
+    if not scc_live:
       values["ACCMode"] = 1 if enabled else 0  # 2 if gas padel pressed
 
   values["CR_VSM_ChkSum"] = 0
