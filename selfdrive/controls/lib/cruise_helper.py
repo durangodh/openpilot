@@ -2,7 +2,6 @@ import numpy as np
 
 from cereal import car, log
 from common.conversions import Conversions as CV
-from common.filter_simple import StreamingMovingAverage
 from common.numpy_fast import clip, interp
 from common.params import Params, put_nonblocking
 from common.realtime import DT_CTRL
@@ -15,14 +14,6 @@ from selfdrive.road_speed_limiter import get_road_speed_limiter
 SYNC_MARGIN = 3.0
 MIN_SET_SPEED_KPH = V_CRUISE_MIN
 MAX_SET_SPEED_KPH = V_CRUISE_MAX
-MIN_CURVE_SPEED = 20.0 * CV.KPH_TO_MS
-
-# aPilot C2 road-design curve-speed table.
-V_CURVE_LOOKUP_BP = [0.0, 1./800., 1./670., 1./560., 1./440., 1./360., 1./265.,
-                     1./190., 1./135., 1./85., 1./55., 1./30., 1./15.]
-V_CURVE_LOOKUP_VALS = [300., 150., 120., 110., 100., 90., 80.,
-                       70., 60., 50., 45., 35., 30.]
-
 ButtonType = car.CarState.ButtonEvent.Type
 EventName = car.CarEvent.EventName
 XState = log.LongitudinalPlan.XState
@@ -68,9 +59,8 @@ class CruiseHelper:
 
     self.target_speed = 0.0
     self.max_speed_clu = 0.0
-    self.curve_speed_ms = 255.0 * CV.KPH_TO_MS
-    self.turn_speed_prev_kph = 300.0
-    self.curvature_filter = StreamingMovingAverage(20)
+    self.curve_speed_ms = 250.0 * CV.KPH_TO_MS
+    self.map_curve_speed_kph = 250.0
     self.active_cam = False
     self.over_speed_limit = False
     self.slowing_down = False
@@ -103,6 +93,14 @@ class CruiseHelper:
     self.cruise_speed_table = sorted(float(clip(v, self.cruise_speed_min, MAX_SET_SPEED_KPH)) for v in table)
 
     self.turn_vision_control = self.params.get_bool("TurnVisionControl")
+    curve_factor = self.params.get_int("AutoCurveSpeedFactor")
+    curve_lower = self.params.get_int("AutoCurveSpeedLowerLimit")
+    map_factor = self.params.get_int("MapTurnSpeedFactor")
+    navi_decel = self.params.get_int("AutoNaviSpeedDecelRate")
+    self.auto_curve_speed_factor = float(clip(curve_factor if curve_factor > 0 else 120, 50, 300)) * 0.01
+    self.auto_curve_speed_lower_limit = float(clip(curve_lower if curve_lower > 0 else 30, 5, 80))
+    self.map_turn_speed_factor = float(clip(map_factor if map_factor > 0 else 90, 50, 150)) * 0.01
+    self.auto_navi_speed_decel_rate = float(clip(navi_decel if navi_decel > 0 else 120, 10, 300)) * 0.01
     self.sync_set_speed_while_gas_pressed = self.params.get_bool("SccSmootherSyncGasPressed")
 
     # C2 pedal-resume settings. Existing branch keys are used so no unregistered
@@ -433,29 +431,31 @@ class CruiseHelper:
       events.add(EventName.slowingDownSpeed)
 
   def cal_curve_speed(self, sm, v_ego, frame):
-    if frame % 20 != 0:
+    """carrot-wip vision curve speed using predicted lateral acceleration."""
+    orientation_rates = np.asarray(sm['modelV2'].orientationRate.z, dtype=np.float64)
+    velocities = np.asarray(sm['modelV2'].velocity.x, dtype=np.float64)
+    if len(orientation_rates) == 0 or len(orientation_rates) != len(velocities):
+      self.curve_speed_ms = 250.0 * CV.KPH_TO_MS
       return
 
-    orientation_rates = np.asarray(sm['modelV2'].orientationRate.z, dtype=np.float32)
-    if len(orientation_rates) < 20:
-      self.curvature_filter.set(0.0)
-      self.curve_speed_ms = 255.0 * CV.KPH_TO_MS
+    orientation_rates *= self.auto_curve_speed_factor
+    valid = np.isfinite(orientation_rates) & np.isfinite(velocities)
+    if not np.any(valid):
+      self.curve_speed_ms = 250.0 * CV.KPH_TO_MS
       return
 
-    speed = min(self.turn_speed_prev_kph / 3.6, float(clip(v_ego, 0.5, 100.0)))
-    curvature = float(np.max(np.abs(orientation_rates[12:20]))) / speed
-    curvature = self.curvature_filter.process(curvature)
-
-    if abs(curvature) > 0.0001:
-      turn_speed_kph = float(clip(interp(curvature, V_CURVE_LOOKUP_BP, V_CURVE_LOOKUP_VALS),
-                                  MIN_CURVE_SPEED * CV.MS_TO_KPH, 255.0))
+    max_pred_lat_acc = float(np.max(np.abs(orientation_rates[valid]) * velocities[valid]))
+    v_ego = max(float(v_ego), 0.1)
+    max_curve = max_pred_lat_acc / (v_ego ** 2)
+    if max_curve <= 1e-6:
+      turn_speed_kph = 250.0
     else:
-      turn_speed_kph = 300.0
+      turn_speed_kph = float(clip(
+        np.sqrt(1.9 / max_curve) * CV.MS_TO_KPH,
+        self.auto_curve_speed_lower_limit, 250.0))
+    self.curve_speed_ms = turn_speed_kph * CV.KPH_TO_MS
 
-    self.turn_speed_prev_kph = turn_speed_kph
-    self.curve_speed_ms = min(turn_speed_kph, 255.0) * CV.KPH_TO_MS
-
-  def update_max_speed(self, max_speed, limited_curve, longcontrol):
+  def update_max_speed(self, max_speed, longcontrol):
     if not longcontrol or self.max_speed_clu <= 0:
       self.max_speed_clu = max_speed
     else:
@@ -465,16 +465,23 @@ class CruiseHelper:
     limiter = get_road_speed_limiter()
     apply_limit_speed, road_limit_speed, left_dist, first_started, _ = limiter.get_max_speed(clu11_speed, self.is_metric)
     self.cal_curve_speed(sm, CS.out.vEgo, frame)
+    navi_state = self.carrot_atc.update()
 
-    curve_limited = False
     cruise_speed_ms = controls.v_cruise_kph * CV.KPH_TO_MS
-    # aPilot C2 vision-curve speed limiting. The old SCC-specific curve
-    # limiter has been removed; TurnVisionControl is the single enable switch.
-    if self.turn_vision_control and MIN_CURVE_SPEED <= self.curve_speed_ms < cruise_speed_ms:
+    if self.turn_vision_control and self.curve_speed_ms < cruise_speed_ms:
       max_speed_clu = self.curve_speed_ms * self.speed_conv_to_clu
-      curve_limited = True
     else:
       max_speed_clu = self.kph_to_clu(controls.v_cruise_kph)
+
+    self.map_curve_speed_kph = 250.0
+    if self.turn_vision_control:
+      map_speed = self.carrot_atc.map_curve_speed_kph(
+        navi_state, CS.out.vEgo * CV.MS_TO_KPH,
+        self.map_turn_speed_factor, self.auto_curve_speed_lower_limit,
+        self.auto_navi_speed_decel_rate)
+      if map_speed is not None:
+        self.map_curve_speed_kph = map_speed
+        max_speed_clu = min(max_speed_clu, self.kph_to_clu(map_speed))
 
     self.active_cam = road_limit_speed > 0 and left_dist > 0
     normal_road_limit_speed = 0.0
@@ -502,13 +509,13 @@ class CruiseHelper:
       self.slowing_down = False
 
     if self.carrot_atc_mode in (2, 3) and not CS.out.brakePressed:
-      limits = self.carrot_atc.speed_limits_kph(self.carrot_atc.update(), self.carrot_atc_speed,
+      limits = self.carrot_atc.speed_limits_kph(navi_state, self.carrot_atc_speed,
                                                 self.carrot_atc_end_time)
       limits = [value for value in limits if value is not None]
       if limits:
         max_speed_clu = min(max_speed_clu, self.kph_to_clu(min(limits)))
 
-    self.update_max_speed(int(max_speed_clu + 0.5), curve_limited, controls.CP.openpilotLongitudinalControl)
+    self.update_max_speed(int(max_speed_clu + 0.5), controls.CP.openpilotLongitudinalControl)
     return normal_road_limit_speed
 
   def sync_gas_speed(self, CS, clu11_speed, controls, longcontrol):
