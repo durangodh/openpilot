@@ -170,13 +170,13 @@ void logger_rotate(LoggerdState *s) {
 }
 
 void rotate_if_needed(LoggerdState *s) {
-  if (s->ready_to_rotate == s->max_waiting) {
+  if (s->max_waiting > 0 && s->ready_to_rotate == s->max_waiting) {
     logger_rotate(s);
   }
 
   double tms = millis_since_boot();
   if ((tms - s->last_rotate_tms) > SEGMENT_LENGTH * 1000 &&
-      (tms - s->last_camera_seen_tms) > NO_CAMERA_PATIENCE &&
+      (s->max_waiting == 0 || (tms - s->last_camera_seen_tms) > NO_CAMERA_PATIENCE) &&
       !LOGGERD_TEST) {
     LOGW("no camera packet seen. auto rotating");
     logger_rotate(s);
