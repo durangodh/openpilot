@@ -267,7 +267,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"CarrotLearningActive", PERSISTENT},      // 학습 활성화 (0=off, 1=on)
     {"CarrotLearningAutoApply", PERSISTENT},   // P단 전환 시 추천 자동 적용 (0=off, 1=on)
     {"CarrotTunerApplyLat", PERSISTENT},       // 조향(LAT) 추천 적용 여부 (기본 1)
-    {"CarrotTunerApplyLong", PERSISTENT},      // 가감속(LONG) 추천 적용 여부 (기본 1)
     {"CarrotLearningData", PERSISTENT},        // 누적 학습 데이터 (JSON)
     {"CarrotLearningRecommend", PERSISTENT},   // 추천값 (JSON)
     {"CarrotLearningHistory", PERSISTENT},     // 적용 이력 (JSON, 최대 50)
@@ -275,8 +274,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"CarrotLearningPopupSource", PERSISTENT}, // 추천 발생 소스 ("parking")
     {"CarrotLearningClear", PERSISTENT},       // 학습 데이터 초기화 신호
     {"CarrotTunerFactoryReset", PERSISTENT},   // 공장초기화 신호 (commit e06a7dd): UI→onroad 학습기 재동기화
-    {"CarrotLongActuatorDelay", PERSISTENT},   // 종방향 응답 지연 학습값 (초, longcontrol 라이브 반영)
-    {"CarrotLongKf", PERSISTENT},              // 종방향 PID 피드포워드 kf 학습값 (longcontrol 라이브 반영)
     {"LongCoastBand", PERSISTENT},             // 코스팅 데드밴드 (x100 정수, m/s², 기본 0=off; commit 10fa725 Phase9 추천·longcontrol 라이브 반영)
     {"LongTuningKpV", PERSISTENT},
     {"LongTuningKiV", PERSISTENT},
