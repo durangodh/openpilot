@@ -2654,23 +2654,23 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_openpilot.png", 0, 80, 1, 0, 10, this));
 
   list->addItem(new ParamControl("LateralTorqueCustom",
-      "Torque Learning Values",
-      "켜면 학습된 Lat Accel Factor와 Friction만 적용합니다.\n"
-      "차량 기본 PID 게인은 항상 유지되며 Auto-Tuner가 값을 쓰면 자동으로 켜집니다.",
+      "Torque Custom",
+      "켜면 아래 Lat Accel Factor와 Friction을 적용합니다.\n"
+      "차량 기본 PID 게인은 유지되며 Auto-Tuner가 값을 쓰면 자동으로 켜집니다.",
       "../assets/offroad/icon_openpilot.png", this));
   
   list->addItem(new NtuneValueControl("torque", "latAccelFactor",
       "Lat Accel Factor",
       "횡가속도 대비 토크 계수입니다. 작을수록 조향 토크가 강해집니다.\n"
-      "Genesis DH comma 기본값: 2.747 / 안전 범위: 2.747 ~ 3.433",
-      "../assets/offroad/icon_openpilot.png", 2.747, 3.433, 0.05, 3, 2.747, this));
+      "범위: 0.50 ~ 4.50  /  기본값: 2.70",
+      "../assets/offroad/icon_openpilot.png", 0.5, 4.5, 0.05, 2, 2.7, this));
 
   list->addItem(new NtuneValueControl("torque", "friction",
       "Friction",
       "정지마찰 보상값입니다. 크면 중앙 부근 응답이 빨라지지만\n"
       "너무 크면 직진에서 좌우로 흔들립니다.\n"
-      "Genesis DH comma 기본값: 0.098 / 안전 범위: 0.058 ~ 0.098",
-      "../assets/offroad/icon_openpilot.png", 0.058, 0.098, 0.005, 3, 0.098, this));
+      "범위: 0.000 ~ 0.200  /  기본값: 0.080",
+      "../assets/offroad/icon_openpilot.png", 0.0, 0.2, 0.005, 3, 0.08, this));
 
   list->addItem(new ParamValueControlF("LatAccelFrictionFactor",
       "Friction: Accel Factor",
