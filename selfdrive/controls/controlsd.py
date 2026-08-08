@@ -633,7 +633,7 @@ class Controls:
       t_since_plan = (self.sm.frame - self.sm.rcv_frame['longitudinalPlan']) * DT_CTRL
       # This C2 CarControl.Actuators schema has no jerk field. LongControl
       # still returns its internal jerk target, but Hyundai control uses accel only.
-      actuators.accel, _ = self.LoC.update(
+      actuators.accel, actuators.jerk = self.LoC.update(
         CC.longActive,
         CS, long_plan, pid_accel_limits, t_since_plan, CC.hudControl.softHold)
 
