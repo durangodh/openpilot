@@ -233,8 +233,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"CarrotAutoTurnControl", PERSISTENT},
     {"CarrotAutoTurnSpeed", PERSISTENT},
     {"CarrotAutoTurnEndTime", PERSISTENT},
-    {"ACCStopDistance", PERSISTENT},             // ACC 모드 정지거리 (m), 기본 6
-    {"E2EStopDistance", PERSISTENT},             // E2E 모드 정지거리 (m), 기본 6
+    {"StopDistance", PERSISTENT},                // shared ACC/E2E standstill distance (cm), default 600
     {"ApplyLongDynamicCost", PERSISTENT},        // 동적 longitudinal MPC cost 적용
     {"MyDrivingMode", PERSISTENT},             // 주행모드 1:ECO 2:SAFE 3:NORM 4:FAST
     {"InitMyDrivingMode", PERSISTENT},         // 부팅모드 1~4, 5=AUTO

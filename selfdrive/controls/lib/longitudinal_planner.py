@@ -131,15 +131,10 @@ class LongitudinalPlanner:
                                                 0.1, 1.2))
     if not self.auto_e2e_enabled:
       self.mpc.mode = 'acc'
-    # ACC / E2E 정지거리 각각 독립 조절 (미터). 안 읽히면 기존 고정값(6.0)으로 폴백.
-    try:
-      self.mpc.stop_dist_acc = max(1.0, min(10.0, float(self.params.get('ACCStopDistance', encoding='utf8') or '6')))
-    except (TypeError, ValueError):
-      self.mpc.stop_dist_acc = 6.0
-    try:
-      self.mpc.stop_dist_e2e = max(1.0, min(15.0, float(self.params.get('E2EStopDistance', encoding='utf8') or '6')))
-    except (TypeError, ValueError):
-      self.mpc.stop_dist_e2e = 6.0
+    # aPilot uses one standstill distance for ACC and E2E. Params are stored
+    # in centimetres to match its StopDistance setting (default 600 cm).
+    stop_distance = self.params.get_int('StopDistance')
+    self.mpc.stop_distance = float(clip((stop_distance if stop_distance > 0 else 600) * 0.01, 2.0, 10.0))
 
     # ── MyDrivingMode ──
     mode = self.params.get("MyDrivingMode", encoding='utf8')

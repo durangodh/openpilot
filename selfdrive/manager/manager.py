@@ -131,6 +131,7 @@ def manager_init() -> None:
     ("StartAccelApply", "0"),
     ("StopAccelApply", "30"),
     ("TrafficStopAccel", "80"),
+    ("StopDistance", "600"),
     ("LongTuningKpV", "100"),
     ("LongTuningKiV", "200"),
     ("LongTuningKf", "100"),

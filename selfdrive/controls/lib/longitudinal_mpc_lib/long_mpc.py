@@ -61,7 +61,6 @@ MAX_ACCEL = 2.5
 T_FOLLOW = 1.45
 COMFORT_BRAKE = 2.5
 STOP_DISTANCE = 6.0
-STOP_DISTANCE_E2E = 6.0
 
 # ── Lead 부드러운 전환 파라미터 ──────────────────────────────────────────────
 LEAD_DETECT_RAMP_T = 0.05  # c3-wip: no extra lead-input delay
@@ -230,6 +229,7 @@ class LongitudinalMpc:
     self.desired_distance = 0.0       # UI 표시용 목표 차간거리(m)
     self.traffic_stop_active = False
     self.traffic_stop_distance = 0.0
+    self.stop_distance = STOP_DISTANCE
     # ────────────────────────────────────────────────────────────────────
 
     self.reset()
@@ -249,11 +249,7 @@ class LongitudinalMpc:
     self.u_sol = np.zeros((N,1))
     self.params = np.zeros((N+1, PARAM_DIM))
     self.t_follow = T_FOLLOW
-    self.stop_dist = STOP_DISTANCE
-    # ACC/E2E 각각 독립적으로 조절되는 정지거리(m). UI 파라미터 ACCStopDistance /
-    # E2EStopDistance 로 실시간 갱신됨. 기본값은 각 모드의 기존 고정값과 동일.
-    self.stop_dist_acc = STOP_DISTANCE
-    self.stop_dist_e2e = STOP_DISTANCE_E2E
+    self.stop_dist = self.stop_distance
     for i in range(N+1):
       self.solver.set(i, 'x', np.zeros(X_DIM))
     self.last_cloudlog_t = 0
@@ -418,9 +414,7 @@ class LongitudinalMpc:
     self._tf_v_ego_kph = v_ego_kph
 
     self.t_follow = self._tf_applied
-    base_stop_dist = self.stop_dist_e2e if self.traffic_stop_active else \
-                     (self.stop_dist_acc if self.mode == 'acc' else self.stop_dist_e2e)
-    self.stop_dist = base_stop_dist * (2.0 - safe_mode_factor)
+    self.stop_dist = self.stop_distance * (2.0 - safe_mode_factor)
     self.desired_distance = float(self.t_follow * v_ego + self.stop_dist)   # UI 표시용
 
     # ── 새 lead의 MPC 입력 점진 반영 ──────────────────────────────────────

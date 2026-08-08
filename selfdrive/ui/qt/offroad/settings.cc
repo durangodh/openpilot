@@ -2598,13 +2598,9 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(horizontal_line());
 
   list->addItem(new ParamValueControlF(
-      "ACCStopDistance", "ACC Stop Distance",
-      "ACC 모드에서 앞차 뒤에 정지할 때 유지할 거리입니다 (m).",
-      "../assets/offroad/icon_road.png", 1, 10, 1, 0, 6, this));
-  list->addItem(new ParamValueControlF(
-      "E2EStopDistance", "E2E Stop Distance",
-      "모델이 예측한 신호 또는 정지선 앞에서 유지할 거리입니다 (m).",
-      "../assets/offroad/icon_road.png", 1, 15, 1, 0, 6, this));
+      "StopDistance", "Stop Distance (cm)",
+      "ACC와 E2E에 공통으로 적용되는 정지 유지거리입니다. aPilot 기본값은 600cm입니다.",
+      "../assets/offroad/icon_road.png", 200, 1000, 50, 0, 600, this));
 
   ScrollView *scroller = new ScrollView(list, this);
   scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
