@@ -70,15 +70,11 @@ class LateralPlanner:
     self.dynamic_lane_profile_status = True
     self.dynamic_lane_profile_status_buffer = False
 
-    self.vision_curve_laneless = self.params.get_bool("VisionCurveLaneless")
-
     self.param_read_counter = 0
     self.read_param()
 
   def read_param(self):
     self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
-    if self.param_read_counter % 50 == 0:
-      self.vision_curve_laneless = self.params.get_bool("VisionCurveLaneless")
     self.param_read_counter += 1
 
   def _read_offset_total(self):
@@ -185,13 +181,9 @@ class LateralPlanner:
       if self.DH.lane_change_state in (LaneChangeState.laneChangeStarting, LaneChangeState.laneChangeFinishing):
         return True
       elif self.DH.lane_change_state == LaneChangeState.off:
-        if (self.LP.lll_prob + self.LP.rll_prob) / 2 < 0.3 \
-          or ((longitudinal_plan.visionCurrentLatAcc > 1.0 or longitudinal_plan.visionMaxPredLatAcc > 1.4)
-              and self.vision_curve_laneless):
+        if (self.LP.lll_prob + self.LP.rll_prob) / 2 < 0.3:
           self.dynamic_lane_profile_status_buffer = True
-        if (self.LP.lll_prob + self.LP.rll_prob) / 2 > 0.5 \
-          and ((longitudinal_plan.visionCurrentLatAcc < 0.6 and longitudinal_plan.visionMaxPredLatAcc < 0.7)
-               or not self.vision_curve_laneless):
+        if (self.LP.lll_prob + self.LP.rll_prob) / 2 > 0.5:
           self.dynamic_lane_profile_status_buffer = False
         if self.dynamic_lane_profile_status_buffer:
           return True
