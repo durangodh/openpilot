@@ -80,6 +80,7 @@ def manager_init() -> None:
     ("AutoLaneChangeEnabled", "0"),
     ("ExperimentalMode", "0"),
     ("TrafficStopMode", "2"),
+    ("MixRadarInfo", "0"),
 
     ("SccSmootherSlowOnCurves", "0"),
     ("SccSmootherSyncGasPressed", "0"),

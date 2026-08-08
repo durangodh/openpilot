@@ -2499,6 +2499,11 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "ACC: 신호정지 미사용 / AUTO: 원거리 신호정지·출발준비에서 E2E / APILOT: AUTO 조건과 비전 앞차까지 E2E. 항상 E2E는 Experimental mode 토글을 사용합니다.",
       "../assets/img_experimental_white.svg", 0, 2, 1, 0, 2, this));
 
+  list->addItem(new ParamControl(
+      "MixRadarInfo", "레이더·비전 가속도 혼합",
+      "레이더 앞차가 매칭되었을 때 비전 모델의 가속도 변화가 더 크면 이를 혼합해 출발·감속 반응을 보완합니다.",
+      "../assets/offroad/icon_road.png"));
+
   list->addItem(new ParamValueControlF(
       "JerkStartLimit", "출발 저크 제한 (×0.1 m/s³)",
       "정지 후 출발할 때 처음 0.5초간 적용하고 1.5초까지 정상 제한으로 부드럽게 전환합니다. 값이 작으면 부드럽고, 크면 반응이 빨라집니다.",

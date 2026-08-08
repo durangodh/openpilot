@@ -65,7 +65,7 @@ def match_vision_to_cluster(v_ego, lead, clusters):
     return None
 
 
-def get_lead(v_ego, ready, clusters, lead_msg, low_speed_override=True):
+def get_lead(v_ego, ready, clusters, lead_msg, model_v_ego, low_speed_override=True, mix_radar_info=False):
   # Determine leads, this is where the essential logic happens
   if len(clusters) > 0 and ready and lead_msg.prob > .5:
     cluster = match_vision_to_cluster(v_ego, lead_msg, clusters)
@@ -74,9 +74,9 @@ def get_lead(v_ego, ready, clusters, lead_msg, low_speed_override=True):
 
   lead_dict = {'status': False}
   if cluster is not None:
-    lead_dict = cluster.get_RadarState(lead_msg.prob)
+    lead_dict = cluster.get_RadarState2(lead_msg.prob, lead_msg, mix_radar_info)
   elif (cluster is None) and ready and (lead_msg.prob > .5):
-    lead_dict = Cluster().get_RadarState_from_vision(lead_msg, v_ego)
+    lead_dict = Cluster().get_RadarState_from_vision(lead_msg, v_ego, model_v_ego)
 
   if low_speed_override:
     low_speed_clusters = [c for c in clusters if c.potential_low_speed_lead(v_ego)]
@@ -85,7 +85,7 @@ def get_lead(v_ego, ready, clusters, lead_msg, low_speed_override=True):
 
       # Only choose new cluster if it is actually closer than the previous one
       if (not lead_dict['status']) or (closest_cluster.dRel < lead_dict['dRel']):
-        lead_dict = closest_cluster.get_RadarState()
+        lead_dict = closest_cluster.get_RadarState2(lead_msg.prob, lead_msg, mix_radar_info)
 
   return lead_dict
 
@@ -102,8 +102,10 @@ class RadarD():
     self.v_ego_hist = deque([0], maxlen=delay+1)
 
     self.ready = False
+    self.mix_radar_info = False
 
   def update(self, sm, rr):
+    self.mix_radar_info = Params().get_bool("MixRadarInfo")
     self.current_time = 1e-9*max(sm.logMonoTime.values())
 
     if sm.updated['carState']:
@@ -172,8 +174,11 @@ class RadarD():
 
     leads_v3 = sm['modelV2'].leadsV3
     if len(leads_v3) > 1:
-      radarState.leadOne = get_lead(self.v_ego, self.ready, clusters, leads_v3[0], low_speed_override=True)
-      radarState.leadTwo = get_lead(self.v_ego, self.ready, clusters, leads_v3[1], low_speed_override=False)
+      model_v_ego = sm['modelV2'].velocity.x[0] if len(sm['modelV2'].velocity.x) else self.v_ego
+      radarState.leadOne = get_lead(self.v_ego, self.ready, clusters, leads_v3[0], model_v_ego,
+                                    low_speed_override=True, mix_radar_info=self.mix_radar_info)
+      radarState.leadTwo = get_lead(self.v_ego, self.ready, clusters, leads_v3[1], model_v_ego,
+                                    low_speed_override=False, mix_radar_info=self.mix_radar_info)
     return dat
 
 

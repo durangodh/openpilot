@@ -1,5 +1,6 @@
 from common.numpy_fast import mean
 from common.kalman.simple_kalman import KF1D
+from common.filter_simple import StreamingMovingAverage
 
 
 # the longer lead decels, the more likely it will keep decelerating
@@ -23,8 +24,14 @@ class Track():
     self.K_C = kalman_params.C
     self.K_K = kalman_params.K
     self.kf = KF1D([[v_lead], [0.0]], self.K_A, self.K_C, self.K_K)
+    self.vLead = v_lead
 
   def update(self, d_rel, y_rel, v_rel, v_lead, measured):
+    # Reset stale acceleration state when SCC reuses a track for a new target.
+    if abs(self.vLead - v_lead) > 0.5:
+      self.cnt = 0
+      self.kf = KF1D([[v_lead], [0.0]], self.K_A, self.K_C, self.K_K)
+
     # relative values, copy
     self.dRel = d_rel   # LONG_DIST
     self.yRel = y_rel   # -LAT_DIST
@@ -60,6 +67,7 @@ class Track():
 class Cluster():
   def __init__(self):
     self.tracks = set()
+    self.aLeadKFilter = StreamingMovingAverage(5)
 
   def add(self, t):
     # add the first track
@@ -131,15 +139,34 @@ class Cluster():
       "aLeadTau": float(self.aLeadTau)
     }
 
-  def get_RadarState_from_vision(self, lead_msg, v_ego):
+  def get_RadarState2(self, model_prob, lead_msg, mix_radar_info):
+    use_vision_mix = (mix_radar_info and float(lead_msg.prob) > 0.5 and
+                      abs(float(self.aLeadK)) < abs(float(lead_msg.a[0])))
+    a_lead_k = self.aLeadKFilter.process(float(lead_msg.a[0]) if use_vision_mix else float(self.aLeadK))
+    return {
+      "dRel": float(self.dRel),
+      "yRel": float(self.yRel) if not mix_radar_info or self.yRel != 0 else float(-lead_msg.y[0]),
+      "vRel": float(self.vRel),
+      "vLead": float(self.vLead),
+      "vLeadK": float(self.vLeadK),
+      "aLeadK": a_lead_k,
+      "status": True,
+      "fcw": self.is_potential_fcw(model_prob),
+      "modelProb": model_prob,
+      "radar": True,
+      "aLeadTau": 0.3 if use_vision_mix else float(self.aLeadTau)
+    }
+
+  def get_RadarState_from_vision(self, lead_msg, v_ego, model_v_ego):
+    lead_v_rel_pred = lead_msg.v[0] - model_v_ego
     return {
       "dRel": float(lead_msg.x[0] - RADAR_TO_CAMERA),
       "yRel": float(-lead_msg.y[0]),
-      "vRel": float(lead_msg.v[0] - v_ego),
-      "vLead": float(lead_msg.v[0]),
-      "vLeadK": float(lead_msg.v[0]),
-      "aLeadK": float(0),
-      "aLeadTau": _LEAD_ACCEL_TAU,
+      "vRel": float(lead_v_rel_pred),
+      "vLead": float(v_ego + lead_v_rel_pred),
+      "vLeadK": float(v_ego + lead_v_rel_pred),
+      "aLeadK": float(lead_msg.a[0]),
+      "aLeadTau": 0.3,
       "fcw": False,
       "modelProb": float(lead_msg.prob),
       "radar": False,
@@ -152,7 +179,8 @@ class Cluster():
 
   def potential_low_speed_lead(self, v_ego):
     # stop for stuff in front of you and low speed, even without model confirmation
-    return abs(self.yRel) < 1.0 and (v_ego < v_ego_stationary) and self.dRel < 25
+    # Radar points closer than 0.75 m are usually glitches.
+    return abs(self.yRel) < 1.0 and (v_ego < v_ego_stationary) and (0.75 < self.dRel < 25)
 
   def is_potential_fcw(self, model_prob):
     return model_prob > .9
