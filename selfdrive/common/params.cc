@@ -300,16 +300,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"CruiseMaxVals4", PERSISTENT},
     {"CruiseMaxVals5", PERSISTENT},
     {"CruiseMaxVals6", PERSISTENT},
-    // ── Auto-Tuner Phase 6: 비전 커브 감속 학습 (vision_turn_controller.py) ──
-    // 모두 x100 정수 저장 (m/s^2), carrot_learning.py의 _TURN_*_DEFAULTS와 동일 기본값.
-    {"TurnEnteringDecel0", PERSISTENT},        // ENTERING 예측lat 1.3~ (기본 -10 = -0.10m/s^2)
-    {"TurnEnteringDecel1", PERSISTENT},        // ENTERING 예측lat 3.0~ (기본 -30 = -0.30m/s^2)
-    {"TurnTurningAcc0", PERSISTENT},           // TURNING 현재lat 1.5~  (기본 120 = 1.20m/s^2)
-    {"TurnTurningAcc1", PERSISTENT},           // TURNING 현재lat 10~   (기본 94  = 0.94m/s^2)
-    {"TurnTurningAcc2", PERSISTENT},           // TURNING 현재lat 12~   (기본 90  = 0.90m/s^2)
-    {"TurnTurningAcc3", PERSISTENT},           // TURNING 현재lat 14~   (기본 80  = 0.80m/s^2)
-    {"TurnTurningAcc4", PERSISTENT},           // TURNING 현재lat 16~   (기본 -10 = -0.10m/s^2)
-    {"TurnLeavingAcc", PERSISTENT},            // LEAVING 탈출가속 (기본 50 = 0.50m/s^2)
 };
 
 } // namespace
