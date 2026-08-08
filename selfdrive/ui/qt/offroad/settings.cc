@@ -2149,6 +2149,11 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "warnings: it is beta, be careful!! Openpilot will control the speed of your car",
                                             "../assets/offroad/icon_road.png",
                                             this));
+  toggles.append(new ParamControl("MadModeEnabled",
+                                            "Enable HKG MAD mode",
+                                            "Openpilot will engage when turn cruise control on",
+                                            "../assets/offroad/icon_openpilot.png",
+                                            this));
   toggles.append(new ParamControl("IsLdwsCar",
                                             "LDWS",
                                             "If your car only supports LDWS, turn it on.",
