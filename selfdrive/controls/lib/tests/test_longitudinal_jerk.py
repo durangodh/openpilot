@@ -15,8 +15,9 @@ class FakeParams:
 
 
 def test_jerk_start_limit_default_and_clamp():
-  assert read_jerk_start_limit(FakeParams(None)) == 1.0
+  assert read_jerk_start_limit(FakeParams(None)) == 2.0
   assert read_jerk_start_limit(FakeParams("1")) == 0.1
+  assert read_jerk_start_limit(FakeParams("10")) == 1.0
   assert read_jerk_start_limit(FakeParams("20")) == 2.0
   assert read_jerk_start_limit(FakeParams("50")) == 5.0
 
