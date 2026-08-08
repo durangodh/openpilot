@@ -64,6 +64,7 @@ class CarController:
 
     param = Params()
 
+    self.mad_mode_enabled = param.get_bool('MadModeEnabled')
     self.ldws_opt = param.get_bool('IsLdwsCar')
     self.stock_navi_decel_enabled = param.get_bool('StockNaviDecelEnabled')
     self.keep_steering_turn_signals = param.get_bool('KeepSteeringTurnSignals')
