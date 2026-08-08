@@ -352,8 +352,6 @@ class LongitudinalPlanner:
         gear_park=gear_park,
         steer_deg=cs.steeringAngleDeg,
         steer_pressed=cs.steeringPressed,
-        a_ego=cs.aEgo,
-        gas_val=cs.gas,
         blinker=(cs.leftBlinker or cs.rightBlinker),
         steer_torque=cs.steeringTorque,
         steer_deg_corr=sm['controlsState'].angleSteers,
