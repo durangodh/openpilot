@@ -17,7 +17,6 @@ _PATH_OFFSET_M_PER_DEG = 0.01             # 1도 편차 ≈ 0.01m 보정 (실험
 _PATH_OFFSET_LIMIT = 0.15                 # ±0.15m 제한
 
 # ── Phase 5: 토크 조향 (nTune) ──
-_NTUNE_DIR = "/data/ntune"
 _TQ_MIN_V_KPH = 40.0
 _TQ_CURVE_DEG = 5.0                        # |조향각| 이 이상이면 커브 구간
 _TQ_MIN_CURVE_SAMPLES = 600                # 0.05s * 600 = 약 30초 커브 주행
@@ -50,7 +49,6 @@ _FRICTION_STEP = 0.01
 _FRICTION_MIN, _FRICTION_MAX = 0.0, 0.20
 
 # ── SteerActuatorDelay (nTune common.json) ──
-_NTUNE_COMMON_FILE = "/data/ntune/common.json"
 _SAD_STEP = 0.01                           # 1회 변화량 (초)
 _SAD_MIN, _SAD_MAX = 0.0, 0.8              # nTune checkValidCommon 범위와 동일
 _SAD_OVERRIDE_HI = 0.40                    # 커브 개입 비율 이 이상이면 딜레이 하향(반응 빠르게)
@@ -141,14 +139,6 @@ def _torque_write(key, value):
 
 
 # ── Params 헬퍼 (이 포크 python Params에 get_int/put_int가 없으므로) ──────
-def _get_int(params, key, default):
-  raw = params.get(key, encoding='utf8')
-  try:
-    return int(raw) if raw else default
-  except (TypeError, ValueError):
-    return default
-
-
 def _get_float(params, key, default):
   raw = params.get(key, encoding='utf8')
   try:
@@ -196,7 +186,6 @@ class CarrotLearner:
     self._sr_sum = 0.0
     self._sr_n = 0
     # 공통
-    self._prev_brake = False
     self._prev_gear_park = True
     self._has_driven = False
     self._frame = 0
@@ -208,8 +197,8 @@ class CarrotLearner:
     return self._params.get_bool("CarrotLearningActive")
 
   def update(self, v_ego_kph, engaged, gear_park,
-             steer_deg=0.0, steer_pressed=False, a_ego=0.0,
-             gas_val=0.0, blinker=False, steer_torque=0.0,
+             steer_deg=0.0, steer_pressed=False, blinker=False,
+             steer_torque=0.0,
              steer_deg_corr=None, steer_ratio_live=0.0,
              steer_ratio_valid=False):
     if not self.is_active():
@@ -233,9 +222,6 @@ class CarrotLearner:
 
     raw_lat = self._params.get("CarrotTunerApplyLat", encoding='utf8')
     apply_lat = True if not raw_lat else raw_lat.strip() == "1"
-
-    # 학습 제외 조건 (깜빡이 / 극단적 가속)
-    exclude = blinker or (a_ego > 2.2) or (gas_val > 0.7)
 
     # ── Phase 2: 직진 편차 (OffsetTotal) ──
     # 센서 영점 오프셋(angleOffsetDeg) 오학습 방지:
