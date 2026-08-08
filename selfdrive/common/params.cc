@@ -258,10 +258,13 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LatAccelFrictionFactor", PERSISTENT},    // friction 입력 횡가속 비율 x100
     {"LatJerkFrictionFactor", PERSISTENT},     // friction 입력 횡저크 비율 x100
     {"ShowBlindSpotAlways", PERSISTENT},       // BSD 벽 상시표시 (진단용, 0=감지시만)         // 기어 변경 팝업 애니메이션
-    {"VisionCurveLaneless", PERSISTENT},
     {"KeepSteeringTurnSignals", PERSISTENT},
     {"HapticFeedbackWhenSpeedCamera", PERSISTENT},
     {"TurnVisionControl", PERSISTENT},
+    {"AutoCurveSpeedFactor", PERSISTENT},       // vision curvature multiplier, x100
+    {"AutoCurveSpeedLowerLimit", PERSISTENT},   // minimum vision/map curve speed, km/h
+    {"MapTurnSpeedFactor", PERSISTENT},         // Tmap route curve speed multiplier, x100
+    {"AutoNaviSpeedDecelRate", PERSISTENT},     // map curve deceleration, x100 m/s^2
     {"SoftRestartTriggered", CLEAR_ON_MANAGER_START},
     // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──────────────────
     {"CarrotLearningActive", PERSISTENT},      // 학습 활성화 (0=off, 1=on)
