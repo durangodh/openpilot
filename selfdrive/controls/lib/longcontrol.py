@@ -136,8 +136,7 @@ class LongControl:
       if len(self.CP.longitudinalTuning.kpBP) == 1 and len(self.CP.longitudinalTuning.kiBP) == 1:
         kp = self.params.get_float("LongTuningKpV") * 0.01
         ki = self.params.get_float("LongTuningKiV") * 0.001
-        learned_kf = self.params.get_float("CarrotLongKf") if self.params.get_bool("CarrotLearningActive") else 0.0
-        kf = learned_kf if learned_kf > 0.0 else self.params.get_float("LongTuningKf") * 0.01
+        kf = self.params.get_float("LongTuningKf") * 0.01
         if kp > 0.0:
           self.pid._k_p = (self.CP.longitudinalTuning.kpBP, [kp])
         if ki > 0.0:
