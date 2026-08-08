@@ -379,9 +379,9 @@ class CarInterface(CarInterfaceBase):
 
     # handle button presses
     for b in ret.buttonEvents:
-      # do disable on button down (scc_live=False 차량에서만 실제로 cancel 이벤트 발생)
-      if b.type == ButtonType.cancel and b.pressed:
-        events.add(EventName.buttonCancel)
+      # CANCEL stops ACC and blocks automatic resume in CruiseHelper, but keeps
+      # lateral control engaged. Cruise MAIN off still fully disengages through
+      # the existing pcmDisable event generated from cruiseState.available.
 
       if self.CC.longcontrol and not self.CC.scc_live:
         # do enable on both accel and decel buttons
