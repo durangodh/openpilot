@@ -79,6 +79,7 @@ class LatControlTorque(LatControl):
     self.kp_default = self.torque_params.kp
     self.ki_default = self.torque_params.ki
     self.kf_default = self.torque_params.kf
+    self.kd_default = self.torque_params.kd
 
     # friction 입력 계수 (carrot 기본값)
     self.lat_accel_friction_factor = 0.7
@@ -97,21 +98,23 @@ class LatControlTorque(LatControl):
   def read_torque_params(self, force=False):
     custom = int(self._pget("LateralTorqueCustom", 0))
 
-    # Torque Custom/학습은 factor와 friction만 조정한다. 저장돼 있던 수동
-    # Kp/Ki/Kf/Kd가 함께 활성화되어 토크가 급증하지 않도록 차량 기본 PID를 유지한다.
-    self.pid._k_p = [[0], [self.kp_default]]
-    self.pid._k_i = [[0], [self.ki_default]]
-    self.pid.k_f = self.kf_default
-    self.pid._k_d = [[0], [0.0]]
-
     if custom > 0:
-      # g_e2eacc 방식: UI/Auto-Tuner가 저장한 factor/friction을 그대로 적용한다.
+      # PID gains are manual-only. Auto-Tuner writes factor/friction but never
+      # changes Kp/Ki/Kf/Kd.
       self.torque_params.latAccelFactor = self._pget("LateralTorqueAccelFactor", 2700) * 0.001
       self.torque_params.friction = self._pget("LateralTorqueFriction", 80) * 0.001
+      self.pid._k_p = [[0], [self._pget("LateralTorqueKpV", 10) * 0.01]]
+      self.pid._k_i = [[0], [self._pget("LateralTorqueKiV", 10) * 0.01]]
+      self.pid.k_f = self._pget("LateralTorqueKf", 100) * 0.01
+      self.pid._k_d = [[0], [self._pget("LateralTorqueKd", 0) * 0.01]]
     elif self.lateral_torque_custom > 0 or force:
       # 커스텀을 끄면 차량 기본값으로 복귀
       self.torque_params.latAccelFactor = self.latAccelFactor_default
       self.torque_params.friction = self.friction_default
+      self.pid._k_p = [[0], [self.kp_default]]
+      self.pid._k_i = [[0], [self.ki_default]]
+      self.pid.k_f = self.kf_default
+      self.pid._k_d = [[0], [self.kd_default]]
     self.lateral_torque_custom = custom
 
     self.lat_accel_friction_factor = self._pget("LatAccelFrictionFactor", 70) * 0.01
