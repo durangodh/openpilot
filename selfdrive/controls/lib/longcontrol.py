@@ -53,10 +53,8 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
       elif started_condition:
         long_control_state = LongCtrlState.pid
 
-  # aPilot soft hold has priority even while the brake override temporarily
-  # makes longitudinal control inactive. It remains latched until gas/RES/+.
-  if soft_hold:
-    long_control_state = LongCtrlState.stopping
+    if soft_hold:
+      long_control_state = LongCtrlState.stopping
 
   return long_control_state, planned_stop
 
@@ -191,11 +189,11 @@ class LongControl:
 
     elif self.long_control_state == LongCtrlState.stopping:
       output_accel = self.last_output_accel
-      if soft_hold:
-        output_accel = self.stop_accel
-      elif output_accel > self.stop_accel:
+      if output_accel > self.stop_accel:
         output_accel = min(output_accel, 0.0)
         output_accel -= self.CP.stoppingDecelRate * DT_CTRL
+        if soft_hold:
+          output_accel = self.stop_accel
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:
