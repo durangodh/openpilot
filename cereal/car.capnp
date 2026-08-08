@@ -366,6 +366,7 @@ struct CarControl {
 
     speed @6: Float32; # m/s
     accel @4: Float32; # m/s^2
+    jerk @9: Float32; # apilot-c2 planned jerk for SCC14 limits
     longControlState @5: LongControlState;
 
     enum LongControlState @0xe40f3a917d908282{
