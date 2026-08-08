@@ -7,9 +7,6 @@ from common.realtime import sec_since_boot
 from common.conversions import Conversions as CV
 from selfdrive.controls.lib.lateral_planner import TRAJECTORY_SIZE
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX
-# ── CarrotPilot Auto-Tuner (Phase 6): 학습된 커브 감속/가속 테이블 ──
-from selfdrive.controls.lib.carrot_learning import read_learned_turn_params
-
 
 _MIN_V = 12.5  # Do not operate under 20km/h
 
@@ -111,7 +108,7 @@ class VisionTurnController():
     self._v_overshoot = 0.
     self._state = VisionTurnControllerState.disabled
 
-    # ── Auto-Tuner Phase 6: 학습된 커브 감속/가속 테이블 (미학습 시 공장 기본값) ──
+    # Fixed vision-turn longitudinal table.
     self._entering_decel_v = list(_ENTERING_SMOOTH_DECEL_V)
     self._turning_acc_v = list(_TURNING_ACC_V)
     self._leaving_acc = _LEAVING_ACC
@@ -165,16 +162,6 @@ class VisionTurnController():
     time = sec_since_boot()
     if time > self._last_params_update + 5.0:
       self._is_enabled = self._params.get_bool("TurnVisionControl")
-      # ── Auto-Tuner Phase 6: 학습된 커브 감속/가속 테이블 반영 (5초 주기) ──
-      # longitudinal_planner.read_param()과 동일 패턴: 학습 비활성 시 공장 기본값으로.
-      if self._params.get_bool("CarrotLearningActive"):
-        self._entering_decel_v, self._turning_acc_v, self._leaving_acc = \
-          read_learned_turn_params(self._params)
-      else:
-        self._entering_decel_v = list(_ENTERING_SMOOTH_DECEL_V)
-        self._turning_acc_v = list(_TURNING_ACC_V)
-        self._leaving_acc = _LEAVING_ACC
-      # ─────────────────────────────────────────────────────────────────
       self._last_params_update = time
 
   def _update_calculations(self, sm):
