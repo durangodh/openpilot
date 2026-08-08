@@ -28,10 +28,7 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                   (brake_pressed or cruise_standstill))
   stopping_condition = planned_stop or stay_stopped
 
-  # Leave stopping as soon as the MPC begins a real departure trajectory.
-  # Waiting for vEgoStarting (0.2 m/s) held the brake until the target had
-  # already grown, producing a pause followed by an abrupt PID launch.
-  starting_condition = (v_target_1sec > 0.05 and
+  starting_condition = (v_target_1sec > CP.vEgoStarting and
                         accelerating and
                         not cruise_standstill and
                         not brake_pressed)
@@ -61,7 +58,7 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
   if soft_hold:
     long_control_state = LongCtrlState.stopping
 
-  return long_control_state
+  return long_control_state, planned_stop
 
 
 class LongControl:
@@ -158,6 +155,7 @@ class LongControl:
       accels = long_plan.accels
       v_target_now = interp(t_since_plan, T_IDXS[:CONTROL_N], speeds)
       a_target_now = interp(t_since_plan, T_IDXS[:CONTROL_N], accels)
+      j_target = long_plan.jerks[0] if len(long_plan.jerks) else 0.0
 
       # apilot-c2 dual-delay compensation. The lower and upper delay estimates
       # absorb vehicle brake-response variation; use the more braking target.
@@ -178,11 +176,12 @@ class LongControl:
       v_target = 0.0
       v_target_1sec = 0.0
       a_target = 0.0
+      j_target = 0.0
 
     self.pid.neg_limit = accel_limits[0]
     self.pid.pos_limit = accel_limits[1]
 
-    self.long_control_state = long_control_state_trans(
+    self.long_control_state, planned_stop = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
       CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now, self.starting_state)
 
@@ -222,4 +221,4 @@ class LongControl:
         output_accel = 0.0
 
     self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
-    return self.last_output_accel
+    return self.last_output_accel, -0.5 if planned_stop else j_target
