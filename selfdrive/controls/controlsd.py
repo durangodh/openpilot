@@ -36,6 +36,9 @@ from selfdrive.controls.lib import live_tune
 SOFT_DISABLE_TIME = 3  # seconds
 LDW_MIN_SPEED = 31 * CV.MPH_TO_MS
 LANE_DEPARTURE_THRESHOLD = 0.1
+REVERSE_REENGAGE_DELAY_FRAMES = int(1.0 / DT_CTRL)
+REVERSE_REENGAGE_TIMEOUT_FRAMES = int(30.0 / DT_CTRL)
+REVERSE_REENGAGE_MAX_SPEED = 1.0 * CV.KPH_TO_MS
 
 REPLAY = "REPLAY" in os.environ
 SIMULATION = "SIMULATION" in os.environ
@@ -190,6 +193,9 @@ class Controls:
     self.steer_limited = False
     self.desired_curvature = 0.0
     self.desired_curvature_rate = 0.0
+    self.reverse_reengage_pending = False
+    self.reverse_reengage_drive_frames = 0
+    self.reverse_reengage_timeout = 0
 
     # CruiseHelper outputs shared with Hyundai SCC transport and UI
     self.applyMaxSpeed = 0
@@ -429,6 +435,57 @@ class Controls:
     #if CS.brakePressed and v_future >= self.CP.vEgoStarting \
     #  and self.CP.openpilotLongitudinalControl and CS.vEgo < 0.3:
     #  self.events.add(EventName.noTarget)
+
+    self.update_reverse_reengage(CS)
+
+  def update_reverse_reengage(self, CS):
+    """Re-engage lateral control once after an engaged R -> D maneuver."""
+    cancel_pressed = any(be.type == ButtonType.cancel for be in CS.buttonEvents)
+    if cancel_pressed or not CS.cruiseState.available:
+      self.reverse_reengage_pending = False
+      self.reverse_reengage_drive_frames = 0
+      self.reverse_reengage_timeout = 0
+      return
+
+    if CS.gearShifter == GearShifter.reverse:
+      if not self.reverse_reengage_pending and self.state in (State.enabled, State.overriding):
+        self.reverse_reengage_pending = True
+        self.reverse_reengage_timeout = REVERSE_REENGAGE_TIMEOUT_FRAMES
+        # Reverse must never leave longitudinal control armed for the automatic
+        # lateral re-engagement below.
+        self.cruise_helper._pause_longitudinal(self, user_cancel=True)
+      self.reverse_reengage_drive_frames = 0
+
+    if not self.reverse_reengage_pending:
+      return
+
+    self.reverse_reengage_timeout -= 1
+    if self.reverse_reengage_timeout <= 0 or CS.gearShifter == GearShifter.park:
+      self.reverse_reengage_pending = False
+      self.reverse_reengage_drive_frames = 0
+      return
+
+    if CS.gearShifter != GearShifter.drive:
+      self.reverse_reengage_drive_frames = 0
+      return
+
+    # A short reverse maneuver can recover from soft-disabling without ever
+    # becoming disabled. In that case no synthetic enable event is required.
+    if self.state in (State.enabled, State.overriding):
+      self.reverse_reengage_pending = False
+      self.reverse_reengage_drive_frames = 0
+      return
+
+    ready = self.state == State.disabled and CS.brakePressed and \
+            CS.vEgo < REVERSE_REENGAGE_MAX_SPEED and not self.events.any(ET.NO_ENTRY)
+    self.reverse_reengage_drive_frames = self.reverse_reengage_drive_frames + 1 if ready else 0
+
+    if self.reverse_reengage_drive_frames >= REVERSE_REENGAGE_DELAY_FRAMES:
+      self.cruise_helper._pause_longitudinal(self, user_cancel=True)
+      self.events.add(EventName.buttonEnable)
+      self.reverse_reengage_pending = False
+      self.reverse_reengage_drive_frames = 0
+      self.reverse_reengage_timeout = 0
 
   def data_sample(self):
     """Receive data from sockets and update carState"""
