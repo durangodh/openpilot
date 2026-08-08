@@ -14,7 +14,6 @@ from opendbc.can.packer import CANPacker
 from common.conversions import Conversions as CV
 from common.params import Params
 from selfdrive.controls.lib.longcontrol import LongCtrlState
-from selfdrive.controls.lib.longitudinal_jerk import LongitudinalJerkController, read_jerk_start_limit
 from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 
 VisualAlert = car.CarControl.HUDControl.VisualAlert
@@ -74,7 +73,6 @@ class CarController:
 
     self.scc_smoother = SccSmoother()
     self.low_speed_long_engage = LowSpeedLongEngage()
-    self.longitudinal_jerk = LongitudinalJerkController(read_jerk_start_limit(param))
     self.soft_hold_mode = int(clip(param.get_int("SoftHoldMode"), 0, 2))
     self.last_blinker_frame = 0
     self.prev_active_cam = False
@@ -236,19 +234,6 @@ class CarController:
     long_stopping = controls.LoC.long_control_state == LongCtrlState.stopping
     stopping = long_stopping or soft_hold
     jerk_upper = jerk_lower = 5.0
-    if CS.has_scc14:
-      if self.frame % 100 == 0:
-        self.longitudinal_jerk.set_start_limit(read_jerk_start_limit(self.op_params))
-
-      planned_jerk = 0.0
-      long_plan_jerks = controls.sm['longitudinalPlan'].jerks
-      if len(long_plan_jerks):
-        planned_jerk = long_plan_jerks[0]
-
-      jerk_upper, jerk_lower = self.longitudinal_jerk.update(
-        CC.longActive or soft_hold_scc, long_stopping, soft_hold, planned_jerk, DT_CTRL)
-    else:
-      self.longitudinal_jerk.reset()
 
     # Hyundai stock SCC rejects a leadless SET request below 30 km/h. For a
     # physical SET/RES press or a guarded aPilot-style auto-resume request,
