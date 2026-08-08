@@ -103,6 +103,7 @@ class CruiseHelper:
     self.cruise_speed_table = sorted(float(clip(v, self.cruise_speed_min, MAX_SET_SPEED_KPH)) for v in table)
 
     self.slow_on_curves = self.params.get_bool("SccSmootherSlowOnCurves")
+    self.turn_vision_control = self.params.get_bool("TurnVisionControl")
     self.sync_set_speed_while_gas_pressed = self.params.get_bool("SccSmootherSyncGasPressed")
 
     # C2 pedal-resume settings. Existing branch keys are used so no unregistered
@@ -468,7 +469,12 @@ class CruiseHelper:
 
     curve_limited = False
     cruise_speed_ms = controls.v_cruise_kph * CV.KPH_TO_MS
-    if self.slow_on_curves and MIN_CURVE_SPEED <= self.curve_speed_ms < cruise_speed_ms:
+    # Keep stock SCC curve limiting separate. With openpilot longitudinal,
+    # TurnVisionControl uses the aPilot C2 vision-curve speed table instead of
+    # VisionTurnController directly modifying the MPC solution.
+    curve_control_enabled = self.turn_vision_control if controls.CP.openpilotLongitudinalControl \
+                            else self.slow_on_curves
+    if curve_control_enabled and MIN_CURVE_SPEED <= self.curve_speed_ms < cruise_speed_ms:
       max_speed_clu = self.curve_speed_ms * self.speed_conv_to_clu
       curve_limited = True
     else:
