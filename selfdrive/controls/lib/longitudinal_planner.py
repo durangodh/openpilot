@@ -28,13 +28,11 @@ LON_MPC_STEP = 0.2  # first step is 0.2s
 AWARENESS_DECEL = -0.2  # car smoothly decel at .2m/s^2 when user is distracted
 A_CRUISE_MIN = -1.2
 
-# apilot-c2 style six-point cruise acceleration table. Stored Params use
-# 0.01 m/s^2 and are applied before the MPC solves its trajectory.
-CRUISE_MAX_ACCEL_BP = [0.0, 40.0 * CV.KPH_TO_MS, 60.0 * CV.KPH_TO_MS,
-                       80.0 * CV.KPH_TO_MS, 110.0 * CV.KPH_TO_MS, 140.0 * CV.KPH_TO_MS]
-CRUISE_MAX_ACCEL_PARAM_KEYS = ["CruiseMaxAccel0", "CruiseMaxAccel40", "CruiseMaxAccel60",
-                               "CruiseMaxAccel80", "CruiseMaxAccel110", "CruiseMaxAccel140"]
-CRUISE_MAX_ACCEL_DEFAULTS = [1.60, 1.20, 1.00, 0.80, 0.70, 0.60]
+A_CRUISE_MAX_BP = [0.0, 40.0 * CV.KPH_TO_MS, 60.0 * CV.KPH_TO_MS,
+                   80.0 * CV.KPH_TO_MS, 110.0 * CV.KPH_TO_MS, 140.0 * CV.KPH_TO_MS]
+CRUISE_MAX_VAL_KEYS = ["CruiseMaxVals1", "CruiseMaxVals2", "CruiseMaxVals3",
+                       "CruiseMaxVals4", "CruiseMaxVals5", "CruiseMaxVals6"]
+CRUISE_MAX_VAL_DEFAULTS = [1.60, 1.20, 1.00, 0.80, 0.70, 0.60]
 
 # ── MyDrivingMode (1:ECO 2:SAFE 3:NORM 4:FAST) ────────────────────────────
 # UI 의 모드 박스를 탭하면 1→2→3→4→1 로 순환한다 (onroad.cc).
@@ -88,7 +86,7 @@ class LongitudinalPlanner:
     self.my_driving_mode = 3
     self.my_driving_mode_accel = 1.0
     self.my_eco_mode_factor = 0.8
-    self.cruise_max_accel_vals = list(CRUISE_MAX_ACCEL_DEFAULTS)
+    self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
 
     self.read_param()
 
@@ -149,16 +147,10 @@ class LongitudinalPlanner:
     eco_factor = self.params.get_int("MyEcoModeFactor")
     self.my_eco_mode_factor = float(clip((eco_factor if eco_factor > 0 else 80) * 0.01, 0.1, 0.95))
 
-    accel_vals = []
-    for key, default in zip(CRUISE_MAX_ACCEL_PARAM_KEYS, CRUISE_MAX_ACCEL_DEFAULTS):
+    self.cruise_max_vals = []
+    for key, default in zip(CRUISE_MAX_VAL_KEYS, CRUISE_MAX_VAL_DEFAULTS):
       raw = self.params.get_int(key)
-      value = raw * 0.01 if raw > 0 else default
-      accel_vals.append(float(clip(value, 0.1, MAX_ACCEL)))
-    # Prevent malformed settings from increasing the limit at a higher-speed
-    # breakpoint, which could otherwise cause a surge as speed rises.
-    for index in range(1, len(accel_vals)):
-      accel_vals[index] = min(accel_vals[index], accel_vals[index - 1])
-    self.cruise_max_accel_vals = accel_vals
+      self.cruise_max_vals.append(float(raw * 0.01 if raw > 0 else default))
 
     gap_defaults = [110, 120, 140, 160]
     gap_values = []
@@ -173,6 +165,9 @@ class LongitudinalPlanner:
     # ── Auto-Tuner: 학습된 추종거리 파라미터를 MPC에 반영 (5초 주기 갱신) ──
     if self.params.get_bool("CarrotLearningActive"):
       self.mpc.tfollow_gaps = read_learned_tfollow(self.params)
+
+  def get_max_accel(self, v_ego):
+    return interp(v_ego, A_CRUISE_MAX_BP, self.cruise_max_vals)
 
   def reset_auto_e2e(self):
     self.conditional_e2e.reset()
@@ -276,8 +271,8 @@ class LongitudinalPlanner:
     # No change cost when user is controlling the speed, or when standstill
     prev_accel_constraint = not (reset_state or sm['carState'].standstill)
 
-    cruise_max_accel = float(clip(interp(v_ego, CRUISE_MAX_ACCEL_BP, self.cruise_max_accel_vals) *
-                                  self.my_driving_mode_accel, 0.0, MAX_ACCEL))
+    cruise_max_accel = float(clip(self.get_max_accel(v_ego) * self.my_driving_mode_accel,
+                                  0.0, MAX_ACCEL))
     if self.mpc.mode == 'acc':
       accel_limits = [A_CRUISE_MIN, cruise_max_accel]
       accel_limits_turns = limit_accel_in_turns(v_ego, sm['carState'].steeringAngleDeg, accel_limits, self.CP)
