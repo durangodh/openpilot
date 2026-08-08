@@ -62,10 +62,6 @@ T_FOLLOW = 1.45
 COMFORT_BRAKE = 2.5
 STOP_DISTANCE = 6.0
 
-# ── Lead 부드러운 전환 파라미터 ──────────────────────────────────────────────
-LEAD_DETECT_RAMP_T = 0.05  # c3-wip: no extra lead-input delay
-LEAD_RAMP_BYPASS_TTC = 5.0 # 이보다 급한 접근은 ramp 없이 즉시 원본 lead 반영
-# ────────────────────────────────────────────────────────────────────────────
 
 def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, krkeegan=False):
   if not krkeegan:
@@ -223,9 +219,6 @@ class LongitudinalMpc:
     self._tf_v_ego_kph = 0.0
     # ────────────────────────────────────────────────────────────────────
 
-    # ── Lead 인식 부드러운 전환 상태 변수 ──────────────────────────────────
-    self._lead_detected   = False
-    self._lead_detect_t   = 0.0       # 인식 후 경과 시간 (ramp 용)
     self.desired_distance = 0.0       # UI 표시용 목표 차간거리(m)
     self.traffic_stop_active = False
     self.traffic_stop_distance = 0.0
@@ -263,9 +256,6 @@ class LongitudinalMpc:
     self.time_integrator = 0.0
     self.x0 = np.zeros(X_DIM)
 
-    # ── Lead 필터 상태 리셋 ────────────────────────────────────────────────
-    self._lead_detected   = False
-    self._lead_detect_t   = 0.0
     self._tf_applied = 0.0
     self._tf_v_ego_kph = 0.0
     # ────────────────────────────────────────────────────────────────────
@@ -380,24 +370,6 @@ class LongitudinalMpc:
     v_ego = self.x0[1]
     self.status = radarstate.leadOne.status or radarstate.leadTwo.status
 
-    # ── Lead 인식 전환 ramp ──────────────────────────────────────────────
-    DT_UPDATE   = 0.05  # update 주기 50 ms
-    lead_status = radarstate.leadOne.status
-
-    if lead_status:
-      if not self._lead_detected:
-        self._lead_detect_t = 0.0
-        self._lead_detected = True
-      self._lead_detect_t = min(self._lead_detect_t + DT_UPDATE, LEAD_DETECT_RAMP_T)
-    else:
-      if self._lead_detected:
-        self._lead_detected = False
-        self._lead_detect_t = 0.0
-
-    # 0.0(새 인식) → 1.0(안정 추종)
-    lead_ramp = self._lead_detect_t / LEAD_DETECT_RAMP_T
-    # ─────────────────────────────────────────────────────────────────────
-
     lead_xv_0 = self.process_lead(radarstate.leadOne)
     lead_xv_1 = self.process_lead(radarstate.leadTwo)
 
@@ -416,27 +388,6 @@ class LongitudinalMpc:
     self.t_follow = self._tf_applied
     self.stop_dist = self.stop_distance * (2.0 - safe_mode_factor)
     self.desired_distance = float(self.t_follow * v_ego + self.stop_dist)   # UI 표시용
-
-    # ── 새 lead의 MPC 입력 점진 반영 ──────────────────────────────────────
-    # 여유 있는 최초 인식은 가상의 비제약 lead에서 원본으로
-    # 보간해 순간 제동을 줄이고, 안전거리 안쪽/TTC<5초인 접근은 즉시 원본을 사용한다.
-    lead_urgent = False
-    lead_input_ramp = 1.0
-    _lead = radarstate.leadOne
-    if _lead.status and _lead.dRel > 0.0:
-      closing_speed = max(v_ego - _lead.vLead, 0.0)
-      lead_ttc = _lead.dRel / closing_speed if closing_speed > 0.1 else 1e3
-      safe_drel = (get_safe_obstacle_distance(v_ego, self.t_follow, self.stop_dist)
-                   - get_stopped_equivalence_factor(max(_lead.vLead, 0.0)))
-      lead_urgent = _lead.dRel <= max(safe_drel, 0.0) or lead_ttc < LEAD_RAMP_BYPASS_TTC
-      lead_input_ramp = 1.0 if lead_urgent else lead_ramp
-
-      if lead_input_ramp < 1.0:
-        virtual_x = max(float(_lead.dRel), float(safe_drel) + 10.0, 50.0)
-        virtual_v = max(float(_lead.vLead), v_ego + 10.0)
-        virtual_xv = self.extrapolate_lead(virtual_x, virtual_v, 0.0, _LEAD_ACCEL_TAU)
-        lead_xv_0 = virtual_xv * (1.0 - lead_input_ramp) + lead_xv_0 * lead_input_ramp
-    # ─────────────────────────────────────────────────────────────────────
 
     # planner에서 저장된 값 + lead 속도 함께 전달
     self.set_weights(v_ego=v_ego,
