@@ -28,7 +28,10 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                   (brake_pressed or cruise_standstill))
   stopping_condition = planned_stop or stay_stopped
 
-  starting_condition = (v_target_1sec > CP.vEgoStarting and
+  # Leave stopping as soon as the MPC begins a real departure trajectory.
+  # Waiting for vEgoStarting (0.2 m/s) held the brake until the target had
+  # already grown, producing a pause followed by an abrupt PID launch.
+  starting_condition = (v_target_1sec > 0.05 and
                         accelerating and
                         not cruise_standstill and
                         not brake_pressed)
