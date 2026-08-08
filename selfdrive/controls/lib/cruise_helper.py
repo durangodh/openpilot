@@ -255,12 +255,6 @@ class CruiseHelper:
     elif self.slowing_down_alert:
       events.add(EventName.slowingDownSpeed)
 
-  @staticmethod
-  def get_initial_gap_button(ascc_enabled, CS):
-    # The physical GAP button and the stock SCC gap are the only gap input.
-    # Never synthesize GAP presses to chase a stored software value.
-    return Buttons.NONE
-
   def cal_curve_speed(self, sm, v_ego, frame):
     if frame % 20 != 0:
       return
@@ -449,8 +443,7 @@ class CruiseHelper:
     stock_resume_available = clu11_speed >= STOCK_SCC_LEADLESS_MIN_SPEED_KPH or \
                              (not longcontrol and CS.obj_valid and lead_distance > 1)
     ascc_auto_set = self.auto_resume_request and stock_resume_available
-    initial_gap_button = self.get_initial_gap_button(ascc_enabled, CS)
-    return clu11_speed, ascc_enabled, ascc_auto_set, initial_gap_button
+    return clu11_speed, ascc_enabled, ascc_auto_set
 
   def reset_scc_target(self):
     self.target_speed = 0.0
