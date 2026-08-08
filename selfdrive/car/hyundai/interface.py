@@ -386,7 +386,7 @@ class CarInterface(CarInterfaceBase):
       if b.type == ButtonType.altButton3 and b.pressed and ret.cruiseState.available:
         events.add(EventName.buttonEnable)
 
-      if self.CC.longcontrol and not self.CC.scc_live:
+      if self.CC.longcontrol:
         # do enable on both accel and decel buttons
         if b.type in [ButtonType.accelCruise, ButtonType.decelCruise] and not b.pressed:
           events.add(EventName.buttonEnable)
