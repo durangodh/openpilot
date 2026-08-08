@@ -602,7 +602,8 @@ class Controls:
     CC.latActive = self.active and not CS.steerFaultTemporary and not CS.steerFaultPermanent and \
                      CS.vEgo > self.CP.minSteerSpeed and not CS.standstill \
                    and abs(CS.steeringAngleDeg) < self.CP.maxSteeringAngleDeg
-    CC.longActive = self.active and not self.events.any(ET.OVERRIDE) and self.CP.openpilotLongitudinalControl
+    CC.longActive = self.active and not self.events.any(ET.OVERRIDE) and self.CP.openpilotLongitudinalControl and \
+                    self.cruise_helper.long_active_user > 0
 
     drive_gear = CS.gearShifter in (GearShifter.drive, GearShifter.eco, GearShifter.sport,
                                     GearShifter.low, GearShifter.manumatic)
@@ -620,15 +621,12 @@ class Controls:
     if not CC.longActive:
       self.LoC.reset(v_pid=CS.vEgo)
 
-    if not CS.cruiseState.enabledAcc:
-      self.LoC.reset(v_pid=CS.vEgo)
-
     if not self.joystick_mode:
       # accel PID loop
       pid_accel_limits = self.CI.get_pid_accel_limits(self.CP, CS.vEgo, self.v_cruise_kph * CV.KPH_TO_MS)
       t_since_plan = (self.sm.frame - self.sm.rcv_frame['longitudinalPlan']) * DT_CTRL
       actuators.accel, actuators.jerk = self.LoC.update(
-        CC.longActive and CS.cruiseState.enabledAcc,
+        CC.longActive,
         CS, long_plan, pid_accel_limits, t_since_plan, CC.hudControl.softHold)
 
       # Steering PID loop and lateral MPC
