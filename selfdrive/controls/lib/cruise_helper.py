@@ -204,7 +204,7 @@ class CruiseHelper:
       self._resume_longitudinal(controls, CS, 3)
       return
 
-    if not self.auto_resume_from_brake_release or not self._resume_guard_ok(CS):
+    if not self.auto_resume_from_brake_release or abs(CS.steeringAngleDeg) >= 20.0:
       return
 
     gas_time = (self.param_read_counter - self.gas_pressed_frame) * DT_CTRL
