@@ -638,6 +638,7 @@ class Controls:
       actuators.accel = self.LoC.update(CC.longActive and CS.cruiseState.enabledAcc,
                                         CS, long_plan, pid_accel_limits, t_since_plan,
                                         CC.hudControl.softHold)
+      actuators.jerk = float(long_plan.jerks[0]) if len(long_plan.jerks) else 0.0
 
       # Steering PID loop and lateral MPC
       self.desired_curvature, self.desired_curvature_rate = get_lag_adjusted_curvature(self.CP, CS.vEgo,
