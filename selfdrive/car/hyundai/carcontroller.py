@@ -233,7 +233,18 @@ class CarController:
     soft_hold_scc = soft_hold and self.soft_hold_mode == 2
     long_stopping = controls.LoC.long_control_state == LongCtrlState.stopping
     stopping = long_stopping or soft_hold
-    jerk_upper = jerk_lower = 5.0
+
+    # aPilot C2 SCC jerk bounds. Fixed 5.0 bounds let acceleration and
+    # braking requests change too abruptly, especially at low speed.
+    planned_jerk = float(actuators.jerk)
+    if actuators.longControlState == LongCtrlState.off:
+      jerk_upper = jerk_lower = 5.0
+    elif stopping:
+      jerk_upper = 0.5
+      jerk_lower = 5.0
+    else:
+      jerk_upper = float(clip(planned_jerk * 2.0, 0.5, 5.0))
+      jerk_lower = float(clip(-planned_jerk * 2.0, 1.0, 5.0))
 
     # Hyundai stock SCC rejects a leadless SET request below 30 km/h. For a
     # physical SET/RES press or a guarded aPilot-style auto-resume request,
