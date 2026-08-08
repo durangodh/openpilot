@@ -20,7 +20,7 @@ from selfdrive.controls.lib.events import Events
 from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_VISION_LEAD_DISTANCE,
                                                     adjust_stop_distance_for_decel)
 # ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──
-from selfdrive.controls.lib.carrot_learning import CarrotLearner, read_learned_tfollow
+from selfdrive.controls.lib.carrot_learning import CarrotLearner
 
 GearShifter = car.CarState.GearShifter
 
@@ -161,10 +161,6 @@ class LongitudinalPlanner:
     speed_ratio = self.params.get_int("TFollowSpeedRatio")
     self.mpc.t_follow_speed_ratio = (speed_ratio if speed_ratio >= 100 else 120) * 0.01
     # ───────────────────
-
-    # ── Auto-Tuner: 학습된 추종거리 파라미터를 MPC에 반영 (5초 주기 갱신) ──
-    if self.params.get_bool("CarrotLearningActive"):
-      self.mpc.tfollow_gaps = read_learned_tfollow(self.params)
 
   def get_max_accel(self, v_ego):
     return interp(v_ego, A_CRUISE_MAX_BP, self.cruise_max_vals)
@@ -325,8 +321,7 @@ class LongitudinalPlanner:
     self.v_desired_filter.x = self.v_desired_filter.x + DT_MDL * (self.a_desired + a_prev) / 2.0
 
     actuator_delay = self.CP.longitudinalActuatorDelay
-    learned_delay = self.params.get_float("CarrotLongActuatorDelay") if self.params.get_bool("CarrotLearningActive") else 0.0
-    configured_delay = learned_delay if learned_delay > 0.0 else self.params.get_float("LongActuatorDelay") * 0.01
+    configured_delay = self.params.get_float("LongActuatorDelay") * 0.01
     if configured_delay > 0.0:
       actuator_delay = float(clip(configured_delay, 0.1, 1.0))
     action_t = max(DT_MDL, actuator_delay + DT_MDL)
@@ -343,8 +338,6 @@ class LongitudinalPlanner:
       lead = sm['radarState'].leadOne
       gear_park = cs.gearShifter == GearShifter.park
       engaged = sm['controlsState'].enabled
-      cruise_gap = int(clip(sm['controlsState'].longCruiseGap, 1., 4.))
-      self.carrot_learner.set_current_gap(cruise_gap)
       # liveParameters.steerRatio (paramsd 칼만 추정) — steerRatio 학습 입력.
       # plannerd SubMaster에 'liveParameters'가 구독돼 있어야 한다(미구독/미수신 시 무시).
       sr_live, sr_valid = 0.0, False
@@ -364,27 +357,17 @@ class LongitudinalPlanner:
       # ─────────────────────────────────────────────────────────────────────
       self.carrot_learner.update(
         v_ego_kph=v_ego * CV.MS_TO_KPH,
-        gas_pressed=cs.gasPressed,
         engaged=engaged,
         gear_park=gear_park,
         steer_deg=cs.steeringAngleDeg,
         steer_pressed=cs.steeringPressed,
-        brake_pressed=cs.brakePressed,
-        lead_drel=lead.dRel if lead.status else 0.0,
-        lead_v_kph=lead.vLead * CV.MS_TO_KPH if lead.status else 0.0,
         a_ego=cs.aEgo,
-        v_cruise_kph=v_cruise_kph,
         gas_val=cs.gas,
         blinker=(cs.leftBlinker or cs.rightBlinker),
         steer_torque=cs.steeringTorque,
         steer_deg_corr=sm['controlsState'].angleSteers,
         steer_ratio_live=sr_live,
         steer_ratio_valid=sr_valid,
-        tvc_entering=tvc_entering,
-        tvc_turning=tvc_turning,
-        tvc_leaving=tvc_leaving,
-        tvc_current_lat_acc=tvc.current_lat_acc,
-        tvc_max_pred_lat_acc=tvc.max_pred_lat_acc,
       )
     except Exception:
       cloudlog.exception("CarrotLearner update failed")
