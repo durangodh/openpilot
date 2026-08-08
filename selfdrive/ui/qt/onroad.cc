@@ -386,7 +386,7 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   }
   QLinearGradient bg(path_left, 0, path_right, 0);
   if (show_path_status_color) {
-    QColor path_color(0, 205, 80, 180);  // engaged, no lead
+    QColor path_color = bg_colors[STATUS_ENGAGED];  // engaged, no lead
     if (!s->engaged()) {
       path_color = QColor(35, 35, 35, 150);
     } else {
@@ -394,7 +394,7 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
       const auto accels = sm["longitudinalPlan"].getLongitudinalPlan().getAccels();
       const float accel = accels.size() > 0 ? accels[0] : 0.0f;
       if (lead.getStatus()) {
-        if (std::abs(accel) < 0.5f) path_color = QColor(235, 215, 35, 180);       // steady
+        if (std::abs(accel) < 0.5f) path_color = QColor(0, 205, 80, 180);         // steady
         else if (accel >= 0.5f)     path_color = QColor(255, 153, 0, 190);        // accelerating
         else                        path_color = QColor(220, 35, 45, 190);        // decelerating
       }
