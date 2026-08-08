@@ -539,10 +539,12 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
                         turn_center_y - qRound(102 * ui_scale),
                         qRound(112 * ui_scale), qRound(245 * ui_scale));
   const bool atc_prepare = atc_available && carrot_navi_distance > 350;
-  const QColor turn_fill = atc_available
-      ? (atc_prepare ? QColor(255, 170, 0, 210)   // orange: ATC preparation
-                     : QColor(0, 200, 70, 240))   // green: ATC active range
-      : QColor(55, 55, 55, 170);                  // gray: ATC inactive/waiting
+  const bool atc_apply = atc_available && !atc_prepare;
+  const bool atc_blink_on = !atc_apply || blink_timer <= 8;
+  const QColor turn_fill(55, 55, 55, 170);
+  const QColor turn_icon_color = atc_available
+      ? QColor(0, 220, 80, atc_blink_on ? 255 : 70)
+      : QColor(255, 255, 255, 255);
   p.setPen(QPen(QColor(0, 0, 0, 220), std::max(1, qRound(ui_scale))));
   p.setBrush(turn_fill);
   p.drawRoundedRect(turn_card, qRound(12 * ui_scale), qRound(12 * ui_scale));
@@ -573,12 +575,21 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
     // The 256x256 assets contain generous transparent padding. Crop their
     // shared center artwork region so the arrow fills the direction card.
     const QRect turn_source(48, 48, 160, 160);
-    p.drawPixmap(turn_icon, *turn_pixmap, turn_source);
+    if (atc_available) {
+      QPixmap tinted_turn = turn_pixmap->copy(turn_source);
+      QPainter tint_painter(&tinted_turn);
+      tint_painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+      tint_painter.fillRect(tinted_turn.rect(), turn_icon_color);
+      tint_painter.end();
+      p.drawPixmap(turn_icon, tinted_turn, tinted_turn.rect());
+    } else {
+      p.drawPixmap(turn_icon, *turn_pixmap, turn_source);
+    }
   } else if (atc_kind == CarrotAtcKind::TURN ||
              atc_kind == CarrotAtcKind::FORK ||
              atc_kind == CarrotAtcKind::UTURN) {
     drawCarrotTurnArrow(p, turn_icon, carrot_navi_turn_type,
-                        carrot_navi_instruction, Qt::white,
+                        carrot_navi_instruction, turn_icon_color,
                         std::max(6, qRound(13 * ui_scale)));
   } else {
     configFont(p, "Open Sans", std::max(18, qRound(32 * ui_scale)), "Bold");
