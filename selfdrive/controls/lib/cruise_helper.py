@@ -91,7 +91,8 @@ class CruiseHelper:
     self.speed_conv_to_ms = CV.KPH_TO_MS if self.is_metric else CV.MPH_TO_MS
     self.speed_conv_to_clu = CV.MS_TO_KPH if self.is_metric else CV.MS_TO_MPH
 
-    self.cruise_speed_min = MIN_SET_SPEED_KPH
+    self.cruise_speed_min = int(clip(self.params.get_int("CruiseSpeedMin"),
+                                     MIN_SET_SPEED_KPH, MAX_SET_SPEED_KPH))
     self.min_set_speed_clu = self.kph_to_clu(self.cruise_speed_min)
     self.max_set_speed_clu = self.kph_to_clu(MAX_SET_SPEED_KPH)
     self.speed_from_pcm = int(clip(self.params.get_int("SpeedFromPCM"), 1, 2))
@@ -369,8 +370,8 @@ class CruiseHelper:
       if not self.is_cruise_enabled:
         self.is_cruise_enabled = True
         self.auto_cruise_control = True
-        if controls.enabled:
-          self._resume_longitudinal(controls, CS, 1)
+      if controls.enabled and self.long_active_user == 0 and self.auto_cruise_control and not self.user_cruise_paused:
+        self._resume_longitudinal(controls, CS, 1)
     elif self.is_cruise_enabled:
       self.is_cruise_enabled = False
       if self.cruise_speed_min <= controls.v_cruise_kph <= MAX_SET_SPEED_KPH:
