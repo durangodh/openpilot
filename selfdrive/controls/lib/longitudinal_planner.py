@@ -15,7 +15,6 @@ from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_accel_from_plan
 from selfdrive.swaglog import cloudlog
-from selfdrive.controls.lib.vision_turn_controller import VisionTurnController
 from selfdrive.controls.lib.events import Events
 from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_VISION_LEAD_DISTANCE,
                                                     adjust_stop_distance_for_decel)
@@ -120,7 +119,6 @@ class LongitudinalPlanner:
 
     self.use_cluster_speed = Params().get_bool('UseClusterSpeed')
     self.cruise_source = 'cruise'
-    self.vision_turn_controller = VisionTurnController(CP)
     self.events = Events()
 
   def read_param(self):
@@ -433,10 +431,12 @@ class LongitudinalPlanner:
     e2e_state_active = self.auto_e2e_enabled and sm['controlsState'].enabled
     longitudinalPlan.trafficState = (2 if self.auto_e2e_prepare else (1 if self.auto_e2e_stopping else 0)) if e2e_state_active else 0
     longitudinalPlan.onStop = bool(e2e_state_active and self.auto_e2e_stopping)
-    longitudinalPlan.visionTurnControllerState = self.vision_turn_controller.state
-    longitudinalPlan.visionTurnSpeed = float(self.vision_turn_controller.v_turn)   # m/s, UI vturn 표시용
-    longitudinalPlan.visionCurrentLatAcc = float(self.vision_turn_controller.current_lat_acc)
-    longitudinalPlan.visionMaxPredLatAcc = float(self.vision_turn_controller.max_pred_lat_acc)
+    # aPilot C2-style vision turn control is applied as a cruise-speed limit
+    # in CruiseHelper. Keep legacy telemetry fields neutral for UI/schema compatibility.
+    longitudinalPlan.visionTurnControllerState = log.LongitudinalPlan.VisionTurnControllerState.disabled
+    longitudinalPlan.visionTurnSpeed = 0.0
+    longitudinalPlan.visionCurrentLatAcc = 0.0
+    longitudinalPlan.visionMaxPredLatAcc = 0.0
     longitudinalPlan.eventsDEPRECATED = self.events.to_msg()
     longitudinalPlan.fcw = self.fcw
 
@@ -445,18 +445,7 @@ class LongitudinalPlanner:
     pm.send('longitudinalPlan', plan_send)
 
   def cruise_solutions(self, enabled, v_ego, a_ego, v_cruise, sm):
-    # Update controllers
-    self.vision_turn_controller.update(enabled, v_ego, a_ego, v_cruise, sm)
+    # Vision curve speed is already folded into controlsState.vCruise by
+    # CruiseHelper using the aPilot C2 curvature-to-speed table.
     self.events = Events()
-
-    # Pick solution with lowest velocity target.
-    a_solutions = {'cruise': float("inf")}
-    v_solutions = {'cruise': v_cruise}
-
-    if self.vision_turn_controller.is_active:
-      a_solutions['turn'] = self.vision_turn_controller.a_target
-      v_solutions['turn'] = self.vision_turn_controller.v_turn
-
-    source = min(v_solutions, key=v_solutions.get)
-
-    return source, a_solutions[source], v_solutions[source]
+    return 'cruise', float("inf"), v_cruise
