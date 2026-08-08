@@ -301,11 +301,8 @@ class CarInterface(CarInterfaceBase):
     ret.radarOffCan = ret.sccBus == -1
     ret.pcmCruise = not ret.radarOffCan
 
-    # C2-style lateral engagement is always available from the cruise MAIN
-    # switch, independently of the stock SCC active state. Keep community
-    # safety active so Panda follows the same engagement model without a
-    # separate MAD-mode toggle.
-    ret.safetyConfigs = [get_safety_config(car.CarParams.SafetyModel.hyundaiCommunity, 0)]
+    if ret.radarOffCan or ret.mdpsBus == 1 or ret.openpilotLongitudinalControl or ret.sccBus == 1 or Params().get_bool('MadModeEnabled'):
+      ret.safetyConfigs = [get_safety_config(car.CarParams.SafetyModel.hyundaiCommunity, 0)]
     return ret
 
   def _update(self, c: car.CarControl) -> car.CarState:
@@ -325,9 +322,9 @@ class CarInterface(CarInterfaceBase):
     elif self.CC.scc_live and not self.CP.pcmCruise:
       self.CP.pcmCruise = True
 
-    # C2-style engagement: cruise MAIN controls lateral availability. Stock
-    # SCC enabled/disabled is handled separately by the longitudinal state.
-    ret.cruiseState.enabled = ret.cruiseState.available
+    # MAD mode engages openpilot lateral control with the cruise MAIN switch.
+    if self.CC.mad_mode_enabled:
+      ret.cruiseState.enabled = ret.cruiseState.available
 
     # turning indicator alert logic
     t = time.monotonic()
