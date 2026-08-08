@@ -1,5 +1,4 @@
 import numpy as np
-from common.conversions import Conversions as CV
 from common.realtime import sec_since_boot, DT_MDL
 from common.numpy_fast import interp
 from selfdrive.controls.lib.lane_planner import LanePlanner
@@ -114,9 +113,7 @@ class LateralPlanner:
       self.LP.rll_prob *= self.DH.lane_change_ll_prob
     self.d_path_w_lines_xyz = self.LP.get_d_path(self.v_ego, self.t_idxs, self.path_xyz)
 
-    low_speed = self.v_ego < 10 * CV.MPH_TO_MS
-
-    if not self.get_dynamic_lane_profile(sm['longitudinalPlan']) and not low_speed:
+    if not self.get_dynamic_lane_profile(sm['longitudinalPlan']):
       self.path_xyz = self.d_path_w_lines_xyz
       self.dynamic_lane_profile_status = False
       self.lat_mpc.set_weights(PATH_COST, LATERAL_MOTION_COST,
