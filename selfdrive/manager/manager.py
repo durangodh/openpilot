@@ -45,7 +45,6 @@ def manager_init() -> None:
     ("IsMetric", "1"),
 
     # HKG
-    ("AutoCruiseControl", "1"),
     ("AutoGasTokSpeed", "30"),
     ("AutoGasCancelSpeed", "30"),
     ("SpeedFromPCM", "2"),

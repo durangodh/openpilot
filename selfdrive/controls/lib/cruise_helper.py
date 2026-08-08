@@ -35,6 +35,9 @@ class CruiseHelper:
     self.button_prev = ButtonType.unknown
 
     self.is_cruise_enabled = False
+    # aPilot keeps this as runtime state: CANCEL blocks automatic re-engagement
+    # until the driver explicitly enables cruise again.
+    self.auto_cruise_control = True
     self.long_cruise_gap = 4
     self.init_driving_mode = 3
     self.my_driving_mode = 3
@@ -82,7 +85,6 @@ class CruiseHelper:
 
     self.slow_on_curves = self.params.get_bool("SccSmootherSlowOnCurves")
     self.sync_set_speed_while_gas_pressed = self.params.get_bool("SccSmootherSyncGasPressed")
-    self.auto_cruise_control = int(clip(self.params.get_int("AutoCruiseControl"), 0, 2))
     self.auto_gas_resume_guard = self.params.get_bool("AutoGasResumeGuard")
     self.auto_resume_from_gas = int(clip(self.params.get_int("AutoResumeFromGas"), 0, 2))
     self.auto_resume_from_gas_speed = float(clip(self.params.get_int("AutoGasTokSpeed"), 5, 60))
@@ -144,6 +146,14 @@ class CruiseHelper:
 
   def update_button_events(self, controls, CS, longcontrol):
     self.update_cruise_speed(controls, CS, longcontrol)
+
+    # Match aPilot's user-cancel latch. Process this before the cruise-enabled
+    # guard since SCC may already be disabled by the time the release arrives.
+    if any(event.type == ButtonType.cancel and not event.pressed for event in CS.buttonEvents):
+      self.auto_cruise_control = False
+      self.button_count = 0
+      self.button_long_pressed = False
+
     if not self.is_cruise_enabled or not controls.enabled:
       self.button_count = 0
       self.button_long_pressed = False
@@ -200,6 +210,8 @@ class CruiseHelper:
 
     if self.is_cruise_enabled != cruise_enabled:
       self.is_cruise_enabled = cruise_enabled
+      if cruise_enabled:
+        self.auto_cruise_control = True
       controls.v_cruise_kph = car_set_speed if cruise_enabled else 0
       controls.LoC.reset(v_pid=CS.vEgo)
 
@@ -423,7 +435,7 @@ class CruiseHelper:
     lead_distance = lead.dRel if lead is not None else 0.0
     traffic_state = controls.sm['longitudinalPlan'].trafficState
     self.auto_resume_request, self.auto_resume_set_speed_kph = self.auto_resume.update(
-      available=CC.enabled and self.auto_cruise_control > 0,
+      available=CC.enabled and self.auto_cruise_control,
       cruise_enabled=CS.cruiseState_enabled,
       gas_mode=self.auto_resume_from_gas,
       gas_resume_speed_kph=self.auto_resume_from_gas_speed,

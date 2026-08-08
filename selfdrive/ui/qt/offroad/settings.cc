@@ -2377,11 +2377,6 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 5, 30, 1, 0, 30, this));
 
   list->addItem(new ParamValueControlF(
-      "AutoCruiseControl", "C3 자동 크루즈",
-      "0: 자동 활성화 끔 / 1 이상: 안전조건을 만족한 가속페달·브레이크 해제 자동재개 사용",
-      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 1, this));
-
-  list->addItem(new ParamValueControlF(
       "SpeedFromPCM", "크루즈 설정속도 기준",
       "1: 순정 SCC 설정속도 사용 / 2: 오픈파일럿 설정속도와 C3 버튼 모드 사용",
       "../assets/offroad/icon_road.png", 1, 2, 1, 0, 2, this));

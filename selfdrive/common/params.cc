@@ -87,7 +87,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"AccessToken", CLEAR_ON_MANAGER_START | DONT_LOG},
     {"AthenadPid", PERSISTENT},
     {"AthenadUploadQueue", PERSISTENT},
-    {"AutoCruiseControl", PERSISTENT},
     {"AutoGasTokSpeed", PERSISTENT},
     {"AutoGasCancelSpeed", PERSISTENT},
     {"SpeedFromPCM", PERSISTENT},

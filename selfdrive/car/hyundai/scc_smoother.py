@@ -89,13 +89,13 @@ class SccSmoother:
     if self.alive_timer == 0:
       if initial_gap_button != Buttons.NONE and CS.cruise_buttons == Buttons.NONE:
         self.btn = initial_gap_button
-      elif ascc_enabled and self.cruise_helper.auto_cruise_control > 0:
+      elif ascc_enabled and self.cruise_helper.auto_cruise_control:
         current_set_speed = CS.cruiseState_speed * self.cruise_helper.speed_conv_to_clu
         self.btn = self.cruise_helper.get_button(current_set_speed)
       elif ascc_auto_set and clu11_speed < STOCK_SCC_LEADLESS_MIN_SPEED_KPH and \
-           self.cruise_helper.auto_cruise_control > 0:
+           self.cruise_helper.auto_cruise_control:
         self.btn = Buttons.SET_DECEL
-      elif self.cruise_helper.auto_cruise_control > 0:
+      elif self.cruise_helper.auto_cruise_control:
         self.btn = Buttons.RES_ACCEL
       self.alive_count = SccSmoother.get_alive_count()
 
