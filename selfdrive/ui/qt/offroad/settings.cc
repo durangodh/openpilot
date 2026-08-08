@@ -2376,6 +2376,11 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "롱컨을 처음 켤 때 적용되는 최저 설정속도입니다 (km/h). 주행 중 변경하면 약 1초 안에 반영됩니다.",
       "../assets/offroad/icon_road.png", 5, 30, 1, 0, 30, this));
 
+  list->addItem(new ParamControl(
+      "ApplyLongDynamicCost", "동적 차간거리 가감속",
+      "KRKeegan 방식으로 저속에서 앞차가 멀어질 때 가속 응답을 빠르게 하고, 설정된 차간거리별 MPC 비용을 동적으로 조정합니다.",
+      "../assets/offroad/icon_road.png", this));
+
   list->addItem(new ParamValueControlF(
       "SpeedFromPCM", "크루즈 설정속도 기준",
       "1: 순정 SCC 설정속도 사용 / 2: 오픈파일럿 설정속도와 C3 버튼 모드 사용",

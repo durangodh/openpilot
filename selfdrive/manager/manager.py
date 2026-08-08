@@ -98,7 +98,7 @@ def manager_init() -> None:
     ("ShowPathStatusColor", "1"),
     ("ShowPathBrakeBorder", "1"),
     ("PrevCruiseGap", "4"),
-    ("ApplyLongDynamicCost", "1"),
+    ("ApplyLongDynamicCost", "0"),
     ("MyDrivingMode", "3"),
     ("InitMyDrivingMode", "3"),
     ("MyEcoModeFactor", "80"),
