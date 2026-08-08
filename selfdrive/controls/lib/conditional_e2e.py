@@ -8,6 +8,23 @@ E2E_START_MIN_DISTANCE = 60.0
 E2E_FAR_STOP_DISTANCE = 40.0
 E2E_VISION_LEAD_DISTANCE = 90.0
 E2E_VISION_LEAD_CONFIRM_TIME = 0.5
+TRAFFIC_STOP_BASE_COMFORT_BRAKE = 2.4
+
+
+def adjust_stop_distance_for_decel(stop_distance, v_ego, decel_factor):
+  """Emulate a variable MPC comfort-brake value with a fixed-parameter solver.
+
+  aPilot changes the comfort-brake MPC parameter while stopping for a traffic
+  signal. This branch uses a pre-generated solver with that value compiled in,
+  so shifting the virtual stop obstacle by the equivalent braking-distance
+  delta provides the same earlier/later braking request without regenerating
+  the acados solver.
+  """
+  factor = max(0.1, min(1.2, float(decel_factor)))
+  speed = max(0.0, float(v_ego))
+  base_distance = speed ** 2 / (2.0 * TRAFFIC_STOP_BASE_COMFORT_BRAKE)
+  adjusted_distance = speed ** 2 / (2.0 * TRAFFIC_STOP_BASE_COMFORT_BRAKE * factor)
+  return max(0.0, float(stop_distance) - (adjusted_distance - base_distance))
 
 
 class ConditionalE2EController:

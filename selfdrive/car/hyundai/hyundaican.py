@@ -125,7 +125,7 @@ def create_mdps12(packer, frame, mdps12):
   return packer.make_can_msg("MDPS12", 2, values)
 
 def create_scc11(packer, frame, enabled, set_speed, lead_visible, scc_live, scc11, active_cam, stock_cam,
-                 force_long=False):
+                 soft_hold=False, force_long=False):
   values = copy.copy(scc11)
   values["AliveCounterACC"] = frame // 2 % 0x10
 
@@ -136,6 +136,8 @@ def create_scc11(packer, frame, enabled, set_speed, lead_visible, scc_live, scc1
   # Keep the cluster SCC set speed synchronized with openpilot, including
   # vehicles where the stock SCC remains live on another bus.
   values["VSetDis"] = set_speed
+  if soft_hold and enabled:
+    values["SCCInfoDisplay"] = 4
 
   if not scc_live or force_long:
     values["MainMode_ACC"] = 1

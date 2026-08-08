@@ -1,7 +1,17 @@
-from selfdrive.controls.lib.conditional_e2e import ConditionalE2EController
+from selfdrive.controls.lib.conditional_e2e import ConditionalE2EController, adjust_stop_distance_for_decel
 
 
 DT_MDL = 0.05
+
+
+def test_traffic_stop_decel_adjusts_virtual_obstacle():
+  stop_distance = 100.0
+  v_ego = 20.0
+
+  assert adjust_stop_distance_for_decel(stop_distance, v_ego, 1.0) == stop_distance
+  assert adjust_stop_distance_for_decel(stop_distance, v_ego, 0.8) < stop_distance
+  assert adjust_stop_distance_for_decel(stop_distance, v_ego, 1.2) > stop_distance
+  assert adjust_stop_distance_for_decel(5.0, v_ego, 0.1) == 0.0
 
 
 def update(controller, **overrides):

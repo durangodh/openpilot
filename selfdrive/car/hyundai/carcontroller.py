@@ -75,6 +75,7 @@ class CarController:
     self.scc_smoother = SccSmoother()
     self.low_speed_long_engage = LowSpeedLongEngage()
     self.longitudinal_jerk = LongitudinalJerkController(read_jerk_start_limit(param))
+    self.soft_hold_mode = int(clip(param.get_int("SoftHoldMode"), 0, 2))
     self.last_blinker_frame = 0
     self.prev_active_cam = False
     self.active_cam_timer = 0
@@ -228,7 +229,12 @@ class CarController:
     # scc smoother
     self.scc_smoother.update(CC.enabled, can_sends, self.packer, CC, CS, self.frame, controls)
 
-    stopping = controls.LoC.long_control_state == LongCtrlState.stopping
+    if self.frame % 100 == 0:
+      self.soft_hold_mode = int(clip(self.op_params.get_int("SoftHoldMode"), 0, 2))
+    soft_hold = bool(hud_control.softHold)
+    soft_hold_scc = soft_hold and self.soft_hold_mode == 2
+    long_stopping = controls.LoC.long_control_state == LongCtrlState.stopping
+    stopping = long_stopping or soft_hold
     jerk_upper = jerk_lower = 5.0
     if CS.has_scc14:
       if self.frame % 100 == 0:
@@ -240,7 +246,7 @@ class CarController:
         planned_jerk = long_plan_jerks[0]
 
       jerk_upper, jerk_lower = self.longitudinal_jerk.update(
-        CC.longActive, stopping, planned_jerk, DT_CTRL)
+        CC.longActive or soft_hold_scc, long_stopping, soft_hold, planned_jerk, DT_CTRL)
     else:
       self.longitudinal_jerk.reset()
 
@@ -259,7 +265,8 @@ class CarController:
       hud_control.leadVisible, DT_CTRL)
 
     # send scc to car if longcontrol enabled and SCC not on bus 0 or ont live
-    if self.longcontrol and (CS.cruiseState_enabled or low_speed_engage_request) and (CS.scc_bus or not self.scc_live):
+    soft_hold_command = soft_hold and CC.enabled and (not CS.out.brakePressed or soft_hold_scc)
+    if self.longcontrol and (CS.cruiseState_enabled or low_speed_engage_request or soft_hold_command) and (CS.scc_bus or not self.scc_live):
 
       if self.frame % 2 == 0:
 
@@ -272,7 +279,7 @@ class CarController:
         set_speed *= CV.MS_TO_MPH if CS.is_set_speed_in_mph else CV.MS_TO_KPH
 
         apply_accel = controls.cruise_helper.get_apply_accel(CS, controls.sm, actuators.accel, stopping)
-        apply_accel = clip(apply_accel if CC.longActive else 0,
+        apply_accel = clip(apply_accel if (CC.longActive or soft_hold_scc) else 0,
                            CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX)
 
         self.accel = apply_accel
@@ -303,11 +310,13 @@ class CarController:
         self.scc12_cnt %= 0xF
 
         can_sends.append(create_scc12(self.packer, apply_accel, CC.enabled, self.scc12_cnt, self.scc_live, CS.scc12,
-                                      CS.out.gasPressed, CS.out.brakePressed, stopping and CS.out.vEgo < 2.,
+                                      CS.out.gasPressed, CS.out.brakePressed and not soft_hold_scc,
+                                      stopping and CS.out.vEgo < 2.,
                                       self.car_fingerprint, force_long=low_speed_engage_request))
 
         can_sends.append(create_scc11(self.packer, self.frame, CC.enabled, set_speed, hud_control.leadVisible, self.scc_live, CS.scc11,
-                       controls.cruise_helper.active_cam, stock_cam, force_long=low_speed_engage_request))
+                       controls.cruise_helper.active_cam, stock_cam, soft_hold=soft_hold,
+                       force_long=low_speed_engage_request))
 
         if self.frame % 20 == 0 and CS.has_scc13:
           can_sends.append(create_scc13(self.packer, CS.scc13))

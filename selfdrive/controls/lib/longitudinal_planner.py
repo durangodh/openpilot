@@ -17,7 +17,8 @@ from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_ac
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.vision_turn_controller import VisionTurnController, VisionTurnControllerState
 from selfdrive.controls.lib.events import Events
-from selfdrive.controls.lib.conditional_e2e import ConditionalE2EController, E2E_VISION_LEAD_DISTANCE
+from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_VISION_LEAD_DISTANCE,
+                                                    adjust_stop_distance_for_decel)
 # ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──
 from selfdrive.controls.lib.carrot_learning import CarrotLearner, read_learned_tfollow
 
@@ -25,7 +26,7 @@ GearShifter = car.CarState.GearShifter
 
 LON_MPC_STEP = 0.2  # first step is 0.2s
 AWARENESS_DECEL = -0.2  # car smoothly decel at .2m/s^2 when user is distracted
-A_CRUISE_MIN = -1.0
+A_CRUISE_MIN = -1.2
 
 # apilot-c2 style six-point cruise acceleration table. Stored Params use
 # 0.01 m/s^2 and are applied before the MPC solves its trajectory.
@@ -78,6 +79,7 @@ class LongitudinalPlanner:
     self.auto_e2e_stopping = False
     self.auto_e2e_prepare = False
     self.e2e_stop_distance = 0.0
+    self.traffic_stop_accel_factor = 0.8
 
     # ── Auto-Tuner ──
     self.carrot_learner = CarrotLearner()
@@ -124,6 +126,9 @@ class LongitudinalPlanner:
     except (TypeError, ValueError):
       self.traffic_stop_mode = 2
     self.traffic_stop_mode = int(clip(self.traffic_stop_mode, 0, 2))
+    traffic_stop_accel = self.params.get_int('TrafficStopAccel')
+    self.traffic_stop_accel_factor = float(clip((traffic_stop_accel if traffic_stop_accel > 0 else 80) * 0.01,
+                                                0.1, 1.2))
     if not self.auto_e2e_enabled:
       self.mpc.mode = 'acc'
     # ACC / E2E 정지거리 각각 독립 조절 (미터). 안 읽히면 기존 고정값(6.0)으로 폴백.
@@ -181,7 +186,7 @@ class LongitudinalPlanner:
     self.mpc.traffic_stop_active = False
     self.mpc.traffic_stop_distance = 0.0
 
-  def update_auto_e2e_mode(self, car_state, radar_state, model_msg, active, driving_mode):
+  def update_auto_e2e_mode(self, car_state, radar_state, model_msg, active, driving_mode, safe_mode_factor):
     model_valid = (len(model_msg.position.x) == 33 and
                    len(model_msg.position.y) == 33 and
                    len(model_msg.velocity.x) == 33)
@@ -213,7 +218,12 @@ class LongitudinalPlanner:
     self.auto_e2e_prepare = self.conditional_e2e.prepare
     self.e2e_stop_distance = self.conditional_e2e.stop_distance
     self.mpc.traffic_stop_active = self.auto_e2e_stopping
-    self.mpc.traffic_stop_distance = self.e2e_stop_distance
+    # Match aPilot's TrafficStopAccel * MySafeModeFactor behavior. The target
+    # MPC solver has comfort braking compiled in, so use the equivalent virtual
+    # obstacle distance instead of changing the generated solver parameter set.
+    stop_decel_factor = self.traffic_stop_accel_factor * float(clip(safe_mode_factor, 0.5, 1.0))
+    self.mpc.traffic_stop_distance = adjust_stop_distance_for_decel(
+      self.e2e_stop_distance, car_state.vEgo, stop_decel_factor)
     return mode
 
   def parse_model(self, model_msg):
@@ -247,7 +257,8 @@ class LongitudinalPlanner:
     else:
       self.my_driving_mode_accel = 1.0
     self.mpc.mode = self.update_auto_e2e_mode(sm['carState'], sm['radarState'], sm['modelV2'],
-                                              sm['controlsState'].enabled, driving_mode)
+                                              sm['controlsState'].enabled, driving_mode,
+                                              sm['controlsState'].mySafeModeFactor)
 
     v_cruise_kph = sm['controlsState'].vCruise
     v_cruise_kph = min(v_cruise_kph, V_CRUISE_MAX)

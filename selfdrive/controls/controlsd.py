@@ -26,6 +26,7 @@ from selfdrive.controls.lib.latcontrol_indi import LatControlINDI
 from selfdrive.controls.lib.latcontrol_angle import LatControlAngle
 from selfdrive.controls.lib.events import Events, ET
 from selfdrive.controls.lib.cruise_helper import CruiseHelper
+from selfdrive.controls.lib.soft_hold import SoftHoldController
 from selfdrive.controls.lib.alertmanager import AlertManager, set_offroad_alert
 from selfdrive.controls.lib.vehicle_model import VehicleModel
 from selfdrive.locationd.calibrationd import Calibration
@@ -55,6 +56,7 @@ EventName = car.CarEvent.EventName
 ButtonEvent = car.CarState.ButtonEvent
 ButtonType = car.CarState.ButtonEvent.Type
 SafetyModel = car.CarParams.SafetyModel
+GearShifter = car.CarState.GearShifter
 
 IGNORED_SAFETY_MODES = (SafetyModel.silent, SafetyModel.noOutput)
 CSID_MAP = {"1": EventName.roadCameraError, "2": EventName.wideRoadCameraError, "0": EventName.driverCameraError}
@@ -115,6 +117,8 @@ class Controls:
     # read params
     self.is_metric = params.get_bool("IsMetric")
     self.cruise_helper = CruiseHelper(params)
+    self.soft_hold = SoftHoldController()
+    self.soft_hold_mode = int(clip(params.get_int("SoftHoldMode"), 0, 2))
     self.is_ldw_enabled = params.get_bool("IsLdwEnabled")
     openpilot_enabled_toggle = params.get_bool("OpenpilotEnabledToggle")
     passive = params.get_bool("Passive") or not openpilot_enabled_toggle
@@ -602,6 +606,16 @@ class Controls:
                    and abs(CS.steeringAngleDeg) < self.CP.maxSteeringAngleDeg
     CC.longActive = self.active and not self.events.any(ET.OVERRIDE) and self.CP.openpilotLongitudinalControl
 
+    if self.sm.frame % 100 == 0:
+      self.soft_hold_mode = int(clip(self.params.get_int("SoftHoldMode"), 0, 2))
+    resume_pressed = any(be.pressed and be.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
+                         for be in CS.buttonEvents)
+    drive_gear = CS.gearShifter in (GearShifter.drive, GearShifter.eco, GearShifter.sport,
+                                    GearShifter.low, GearShifter.manumatic)
+    CC.hudControl.softHold = self.soft_hold.update(
+      self.CP.openpilotLongitudinalControl and self.enabled and self.soft_hold_mode > 0,
+      CS.brakePressed, CS.gasPressed, CS.vEgo, resume_pressed, drive_gear, DT_CTRL)
+
     actuators = CC.actuators
     actuators.longControlState = self.LoC.long_control_state
 
@@ -623,7 +637,7 @@ class Controls:
       t_since_plan = (self.sm.frame - self.sm.rcv_frame['longitudinalPlan']) * DT_CTRL
       actuators.accel = self.LoC.update(CC.longActive and CS.cruiseState.enabledAcc,
                                         CS, long_plan, pid_accel_limits, t_since_plan,
-                                        self.sm['radarState'])
+                                        CC.hudControl.softHold)
 
       # Steering PID loop and lateral MPC
       self.desired_curvature, self.desired_curvature_rate = get_lag_adjusted_curvature(self.CP, CS.vEgo,
@@ -715,7 +729,7 @@ class Controls:
     speeds = self.sm['longitudinalPlan'].speeds
     if len(speeds):
       CC.cruiseControl.resume = (self.enabled and CS.cruiseState.standstill and
-                                 speeds[-1] > 0.1)
+                                 speeds[-1] > 0.1 and not CC.hudControl.softHold)
 
     hudControl = CC.hudControl
     hudControl.setSpeed = float(self.v_cruise_cluster_kph * CV.KPH_TO_MS)

@@ -45,12 +45,12 @@ class LongitudinalJerkController:
     ratio = (self.elapsed - JERK_HOLD_TIME) / (JERK_RAMP_END_TIME - JERK_HOLD_TIME)
     return self.start_limit + ratio * (JERK_LIMIT - self.start_limit)
 
-  def update(self, active, stopping, planned_jerk, dt):
+  def update(self, active, stopping, soft_hold, planned_jerk, dt):
     if not active:
       self.reset()
       return JERK_LIMIT, JERK_LIMIT
 
-    if stopping:
+    if stopping or soft_hold:
       self.reset()
       # Preserve the branch's proven stopping behavior.
       return 0.5, 10.0

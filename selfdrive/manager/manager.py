@@ -128,7 +128,9 @@ def manager_init() -> None:
     ("OffsetTotal", "0.0"),        # 통합 오프셋(offset_total), 전 모드 공통 적용
     ("TurnVisionControl", "0"),
     ("VisionCurveLaneless", "0"),
+    ("StartAccelApply", "25"),
     ("StopAccelApply", "30"),
+    ("TrafficStopAccel", "80"),
     ("LongitudinalActuatorDelayLowerBound", "50"),
     ("LongitudinalActuatorDelayUpperBound", "50"),
     ("SoftHoldMode", "1"),

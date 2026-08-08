@@ -2514,6 +2514,16 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "정지 마무리 제동값입니다. 표시값에 -0.02m/s²를 곱해 적용하며 0은 추가 제동을 끕니다.",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 30, this));
 
+  list->addItem(new ParamValueControlF(
+      "SoftHoldMode", "Soft Hold Mode",
+      "0: 끔, 1: 브레이크를 놓은 뒤 정지 유지, 2: aPilot SCC 호환 모드(일부 차량은 오토홀드/EPB가 작동할 수 있음). 가속페달 또는 RES/+로 해제합니다.",
+      "../assets/offroad/icon_openpilot.png", 0, 2, 1, 0, 1, this));
+
+  list->addItem(new ParamValueControlF(
+      "TrafficStopAccel", "Traffic Stop Deceleration",
+      "신호정지 감속 강도입니다. 낮추면 더 일찍 부드럽게 감속하고, 높이면 더 늦고 강하게 감속합니다. aPilot 기본값은 80%입니다.",
+      "../assets/offroad/icon_road.png", 10, 120, 10, 0, 80, this));
+
   list->addItem(horizontal_line());
 
   const std::array<std::tuple<const char*, const char*, int>, 6> accel_controls = {{
