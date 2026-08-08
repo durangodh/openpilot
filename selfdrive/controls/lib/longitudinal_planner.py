@@ -433,7 +433,7 @@ class LongitudinalPlanner:
     longitudinalPlan.onStop = bool(e2e_state_active and self.auto_e2e_stopping)
     # aPilot C2-style vision turn control is applied as a cruise-speed limit
     # in CruiseHelper. Keep legacy telemetry fields neutral for UI/schema compatibility.
-    longitudinalPlan.visionTurnControllerState = log.LongitudinalPlan.VisionTurnControllerState.disabled
+    longitudinalPlan.visionTurnControllerState = 0
     longitudinalPlan.visionTurnSpeed = 0.0
     longitudinalPlan.visionCurrentLatAcc = 0.0
     longitudinalPlan.visionMaxPredLatAcc = 0.0
