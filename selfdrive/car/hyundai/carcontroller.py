@@ -294,8 +294,7 @@ class CarController:
                                       self.car_fingerprint))
 
         can_sends.append(create_scc11(self.packer, self.frame, CC.enabled, set_speed, hud_control.leadVisible, self.scc_live, CS.scc11,
-                       controls.cruise_helper.active_cam, stock_cam, soft_hold=soft_hold,
-                       force_long=False))
+                       controls.cruise_helper.active_cam, stock_cam, soft_hold=soft_hold))
 
         if self.frame % 20 == 0 and CS.has_scc13:
           can_sends.append(create_scc13(self.packer, CS.scc13))
