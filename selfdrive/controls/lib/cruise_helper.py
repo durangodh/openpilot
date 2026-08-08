@@ -9,7 +9,6 @@ from common.realtime import DT_CTRL
 from selfdrive.car.hyundai.values import Buttons
 from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
-from selfdrive.controls.lib.lateral_planner import TRAJECTORY_SIZE
 from selfdrive.road_speed_limiter import get_road_speed_limiter
 
 
