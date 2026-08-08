@@ -32,6 +32,14 @@ A_CRUISE_MAX_BP = [0.0, 40.0 * CV.KPH_TO_MS, 60.0 * CV.KPH_TO_MS,
                    80.0 * CV.KPH_TO_MS, 110.0 * CV.KPH_TO_MS, 140.0 * CV.KPH_TO_MS]
 CRUISE_MAX_VAL_KEYS = ["CruiseMaxVals1", "CruiseMaxVals2", "CruiseMaxVals3",
                        "CruiseMaxVals4", "CruiseMaxVals5", "CruiseMaxVals6"]
+
+# Limit only ACC re-acceleration after a brake release. Standstill/low-speed
+# launches and E2E operation keep their existing acceleration behavior.
+BRAKE_RESUME_ACCEL_TIME = 3.0
+BRAKE_RESUME_MIN_SPEED_KPH = 20.0
+BRAKE_RESUME_MIN_SPEED_GAP_KPH = 5.0
+BRAKE_RESUME_ACCEL_BP = [20.0, 40.0, 60.0]
+BRAKE_RESUME_ACCEL_V = [1.20, 1.00, 0.80]
 CRUISE_MAX_VAL_DEFAULTS = [1.60, 1.20, 1.00, 0.80, 0.70, 0.60]
 
 # ── MyDrivingMode (1:ECO 2:SAFE 3:NORM 4:FAST) ────────────────────────────
@@ -87,6 +95,12 @@ class LongitudinalPlanner:
     self.my_driving_mode_accel = 1.0
     self.my_eco_mode_factor = 0.8
     self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
+
+    # ACC-only brake-release acceleration ramp.
+    self.brake_resume_pending = False
+    self.brake_resume_accel_time = 0.0
+    self.brake_resume_accel_start = 0.0
+    self.prev_reset_state = True
 
     self.read_param()
 
@@ -264,6 +278,24 @@ class LongitudinalPlanner:
     # Reset current state when not engaged, or user is controlling the speed
     reset_state = long_control_off if self.CP.openpilotLongitudinalControl else not sm['controlsState'].enabled
 
+    current_speed_kph = sm['carState'].vEgoCluster * CV.MS_TO_KPH
+    if sm['carState'].brakePressed:
+      self.brake_resume_pending = True
+      self.brake_resume_accel_time = 0.0
+
+    long_reactivated = self.prev_reset_state and not reset_state
+    speed_gap_kph = v_cruise_kph - current_speed_kph
+    if long_reactivated and self.brake_resume_pending:
+      if (self.mpc.mode == 'acc' and
+          current_speed_kph >= BRAKE_RESUME_MIN_SPEED_KPH and
+          speed_gap_kph >= BRAKE_RESUME_MIN_SPEED_GAP_KPH):
+        self.brake_resume_accel_start = float(interp(current_speed_kph,
+                                                     BRAKE_RESUME_ACCEL_BP,
+                                                     BRAKE_RESUME_ACCEL_V))
+        self.brake_resume_accel_time = BRAKE_RESUME_ACCEL_TIME
+      self.brake_resume_pending = False
+    self.prev_reset_state = reset_state
+
     # No change cost when user is controlling the speed, or when standstill
     prev_accel_constraint = not (reset_state or sm['carState'].standstill)
 
@@ -272,9 +304,21 @@ class LongitudinalPlanner:
     if self.mpc.mode == 'acc':
       accel_limits = [A_CRUISE_MIN, cruise_max_accel]
       accel_limits_turns = limit_accel_in_turns(v_ego, sm['carState'].steeringAngleDeg, accel_limits, self.CP)
+
+      if self.brake_resume_accel_time > 0.0:
+        progress = float(clip(1.0 - self.brake_resume_accel_time / BRAKE_RESUME_ACCEL_TIME, 0.0, 1.0))
+        resume_accel_limit = self.brake_resume_accel_start + \
+                             (accel_limits_turns[1] - self.brake_resume_accel_start) * progress
+        accel_limits_turns[1] = min(accel_limits_turns[1], resume_accel_limit)
+        self.brake_resume_accel_time = max(0.0, self.brake_resume_accel_time - DT_MDL)
     else:
       accel_limits = [MIN_ACCEL, MAX_ACCEL]
       accel_limits_turns = [MIN_ACCEL, MAX_ACCEL]
+      self.brake_resume_accel_time = 0.0
+
+    # Driver pedal input always takes priority over the automatic ramp.
+    if sm['carState'].gasPressed or sm['carState'].brakePressed:
+      self.brake_resume_accel_time = 0.0
 
     if reset_state:
       self.v_desired_filter.x = v_ego
