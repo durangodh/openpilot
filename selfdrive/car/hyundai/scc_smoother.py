@@ -60,10 +60,6 @@ class SccSmoother:
 
   def update(self, _enabled, can_sends, packer, CC, CS, frame, controls):
     self.cruise_helper = controls.cruise_helper
-    if CS.cruise_buttons == Buttons.GAP_DIST and self.btn == Buttons.GAP_DIST:
-      self.btn = Buttons.NONE
-      self.alive_timer = 0
-      self.wait_timer = 0
     longcontrol = controls.CP.openpilotLongitudinalControl
     clu11_speed, ascc_enabled, ascc_auto_set = \
       self.cruise_helper.update_scc(CC, CS, frame, controls, longcontrol)
