@@ -317,11 +317,6 @@ class CarInterface(CarInterfaceBase):
     ret.canValid = self.cp.can_valid and self.cp2.can_valid and self.cp_cam.can_valid
     ret.canTimeout = any(cp.bus_timeout for cp in self.can_parsers if cp is not None)
 
-    if self.CP.pcmCruise and not self.CC.scc_live:
-      self.CP.pcmCruise = False
-    elif self.CC.scc_live and not self.CP.pcmCruise:
-      self.CP.pcmCruise = True
-
     # turning indicator alert logic
     t = time.monotonic()
     if t - self._lc_speed_params_t > 1.0:
