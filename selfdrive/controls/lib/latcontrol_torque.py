@@ -1,7 +1,7 @@
 import math
 
 from cereal import log
-from common.numpy_fast import interp
+from common.numpy_fast import clip, interp
 from selfdrive.controls.lib.latcontrol import LatControl, MIN_STEER_SPEED
 from selfdrive.controls.lib.pid import PIDController
 from selfdrive.controls.lib.vehicle_model import ACCELERATION_DUE_TO_GRAVITY
@@ -76,6 +76,16 @@ class LatControlTorque(LatControl):
     self.lateral_torque_custom = 0
     self.latAccelFactor_default = self.torque_params.latAccelFactor
     self.friction_default = self.torque_params.friction
+    self.kp_default = self.torque_params.kp
+    self.ki_default = self.torque_params.ki
+    self.kf_default = self.torque_params.kf
+
+    # 학습값은 차량 기본 토크 특성에서 크게 벗어나지 못하게 제한한다.
+    # latAccelFactor가 작아질수록 같은 횡가속도에 더 큰 조향 토크가 출력된다.
+    self.latAccelFactor_min = max(0.5, self.latAccelFactor_default * 0.90)
+    self.latAccelFactor_max = min(4.5, self.latAccelFactor_default * 1.25)
+    self.friction_min = max(0.0, self.friction_default - 0.04)
+    self.friction_max = min(0.20, self.friction_default + 0.04)
 
     # friction 입력 계수 (carrot 기본값)
     self.lat_accel_friction_factor = 0.7
@@ -93,13 +103,27 @@ class LatControlTorque(LatControl):
 
   def read_torque_params(self, force=False):
     custom = int(self._pget("LateralTorqueCustom", 0))
+
+    # Torque Custom/학습은 factor와 friction만 조정한다. 저장돼 있던 수동
+    # Kp/Ki/Kf/Kd가 함께 활성화되어 토크가 급증하지 않도록 차량 기본 PID를 유지한다.
+    self.pid._k_p = [[0], [self.kp_default]]
+    self.pid._k_i = [[0], [self.ki_default]]
+    self.pid.k_f = self.kf_default
+    self.pid._k_d = [[0], [0.0]]
+
     if custom > 0:
-      self.torque_params.latAccelFactor = self._pget("LateralTorqueAccelFactor", 2700) * 0.001
-      self.torque_params.friction = self._pget("LateralTorqueFriction", 80) * 0.001
-      self.pid._k_p = [[0], [self._pget("LateralTorqueKpV", 10) * 0.01]]
-      self.pid._k_i = [[0], [self._pget("LateralTorqueKiV", 10) * 0.01]]
-      self.pid.k_f = self._pget("LateralTorqueKf", 100) * 0.01
-      self.pid._k_d = [[0], [self._pget("LateralTorqueKd", 0) * 0.01]]
+      raw_factor = self._pget("LateralTorqueAccelFactor", self.latAccelFactor_default * 1000) * 0.001
+      raw_friction = self._pget("LateralTorqueFriction", self.friction_default * 1000) * 0.001
+      safe_factor = float(clip(raw_factor, self.latAccelFactor_min, self.latAccelFactor_max))
+      safe_friction = float(clip(raw_friction, self.friction_min, self.friction_max))
+      self.torque_params.latAccelFactor = safe_factor
+      self.torque_params.friction = safe_friction
+
+      # 이전 학습에서 범위를 벗어난 값은 한 번 보정해 UI와 다음 부팅에도 반영한다.
+      if abs(raw_factor - safe_factor) > 1e-6:
+        self.params.put("LateralTorqueAccelFactor", str(int(round(safe_factor * 1000))))
+      if abs(raw_friction - safe_friction) > 1e-6:
+        self.params.put("LateralTorqueFriction", str(int(round(safe_friction * 1000))))
     elif self.lateral_torque_custom > 0 or force:
       # 커스텀을 끄면 차량 기본값으로 복귀
       self.torque_params.latAccelFactor = self.latAccelFactor_default
