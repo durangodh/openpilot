@@ -1,7 +1,8 @@
 import numpy as np
 
-from cereal import car
+from cereal import car, log
 from common.conversions import Conversions as CV
+from common.filter_simple import StreamingMovingAverage
 from common.numpy_fast import clip, interp
 from common.params import Params, put_nonblocking
 from common.realtime import DT_CTRL
@@ -15,10 +16,17 @@ from selfdrive.road_speed_limiter import get_road_speed_limiter
 SYNC_MARGIN = 3.0
 MIN_SET_SPEED_KPH = V_CRUISE_MIN
 MAX_SET_SPEED_KPH = V_CRUISE_MAX
-MIN_CURVE_SPEED = 32.0 * CV.KPH_TO_MS
+MIN_CURVE_SPEED = 20.0 * CV.KPH_TO_MS
+
+# aPilot C2 road-design curve-speed table.
+V_CURVE_LOOKUP_BP = [0.0, 1./800., 1./670., 1./560., 1./440., 1./360., 1./265.,
+                     1./190., 1./135., 1./85., 1./55., 1./30., 1./15.]
+V_CURVE_LOOKUP_VALS = [300., 150., 120., 110., 100., 90., 80.,
+                       70., 60., 50., 45., 35., 30.]
 
 ButtonType = car.CarState.ButtonEvent.Type
 EventName = car.CarEvent.EventName
+XState = log.LongitudinalPlan.XState
 
 
 class CruiseHelper:
@@ -33,9 +41,24 @@ class CruiseHelper:
     self.button_prev = ButtonType.unknown
 
     self.is_cruise_enabled = False
-    # aPilot keeps this as runtime state: CANCEL blocks automatic re-engagement
-    # until the driver explicitly enables cruise again.
+    # aPilot C2 separates lateral engagement from longitudinal readiness.
+    # CANCEL/brake can pause longitudinal control while steering remains enabled.
     self.auto_cruise_control = True
+    self.long_active_user = 0
+    self.long_active_user_ready = 0
+    self.user_cruise_paused = False
+    self.v_cruise_kph_backup = float(MIN_SET_SPEED_KPH)
+    self.prev_brake_pressed = False
+    self.gas_pressed_count = 0
+    self.pre_gas_pressed_max = 0.0
+    self.gas_pressed_frame = 0
+    self.slow_speed_frame_count = 0
+    self.x_state = XState.cruise
+    self.x_stop = 0.0
+    self.traffic_state = 0
+    self.d_rel = 0.0
+    self.v_rel = 0.0
+    self.lead_car_speed_kph = 0.0
     self.long_cruise_gap = 4
     self.init_driving_mode = 3
     self.my_driving_mode = 3
@@ -46,7 +69,9 @@ class CruiseHelper:
 
     self.target_speed = 0.0
     self.max_speed_clu = 0.0
-    self.curve_speed_ms = 255.0
+    self.curve_speed_ms = 255.0 * CV.KPH_TO_MS
+    self.turn_speed_prev_kph = 300.0
+    self.curvature_filter = StreamingMovingAverage(20)
     self.active_cam = False
     self.over_speed_limit = False
     self.slowing_down = False
@@ -79,6 +104,17 @@ class CruiseHelper:
 
     self.slow_on_curves = self.params.get_bool("SccSmootherSlowOnCurves")
     self.sync_set_speed_while_gas_pressed = self.params.get_bool("SccSmootherSyncGasPressed")
+
+    # C2 pedal-resume settings. Existing branch keys are used so no unregistered
+    # Params access can crash controlsd.
+    self.auto_resume_from_gas_speed = float(clip(self.params.get_int("AutoGasTokSpeed"), 5, 160))
+    self.auto_gas_cancel_speed = float(clip(self.params.get_int("AutoGasCancelSpeed"), 0, 160))
+    self.auto_gas_resume_guard = self.params.get_bool("AutoGasResumeGuard")
+    self.auto_resume_from_gas = int(clip(self.params.get_int("AutoResumeFromGas"), 0, 2))
+    self.auto_resume_from_gas_speed_mode = int(clip(self.params.get_int("AutoResumeFromGasSpeedMode"), 0, 3))
+    self.auto_resume_from_brake_release = self.params.get_bool("AutoResumeFromBrakeRelease")
+    self.auto_resume_from_brake_car_speed = float(clip(self.params.get_int("AutoResumeFromBrakeCarSpeed"), 0, 160))
+    self.auto_resume_from_brake_release_dist = float(clip(self.params.get_int("AutoResumeFromBrakeReleaseDist"), 0, 100))
 
     self.auto_speed_up_ratio = float(self.params.get_int("AutoSpeedUptoRoadSpeedLimit")) * 0.01
     self.auto_road_speed_adjust = float(clip(self.params.get_int("AutoRoadSpeedAdjust"), -100, 100)) * 0.01
@@ -113,6 +149,139 @@ class CruiseHelper:
     else:
       self.my_safe_mode_factor = 1.0
 
+  def _resume_longitudinal(self, controls, CS, active_mode=1):
+    if self.long_active_user <= 0:
+      controls.LoC.reset(v_pid=CS.vEgo)
+    self.long_active_user = active_mode
+    self.long_active_user_ready = active_mode
+    self.user_cruise_paused = False
+    self.auto_cruise_control = True
+
+  def _pause_longitudinal(self, controls, user_cancel=False):
+    if self.long_active_user > 0 and self.cruise_speed_min <= controls.v_cruise_kph <= MAX_SET_SPEED_KPH:
+      self.v_cruise_kph_backup = controls.v_cruise_kph
+    self.long_active_user = 0 if user_cancel else -2
+    self.long_active_user_ready = 0
+    if user_cancel:
+      self.user_cruise_paused = True
+      self.auto_cruise_control = False
+
+  def _resume_guard_ok(self, CS):
+    if abs(CS.steeringAngleDeg) >= 20.0:
+      return False
+    if self.auto_gas_resume_guard:
+      if CS.leftBlinker or CS.rightBlinker:
+        return False
+      danger_dist = max(5.0, CS.vEgo * 0.8)
+      if 0.0 < self.d_rel < danger_dist:
+        return False
+    return True
+
+  def _select_resume_speed(self, controls, CS):
+    current_kph = float(clip(CS.vEgoCluster * CV.MS_TO_KPH,
+                             self.cruise_speed_min, MAX_SET_SPEED_KPH))
+    backup_kph = self.v_cruise_kph_backup
+    if not self.cruise_speed_min <= backup_kph <= MAX_SET_SPEED_KPH:
+      backup_kph = current_kph
+
+    if self.auto_resume_from_gas_speed_mode == 1:
+      selected = backup_kph
+    elif self.auto_resume_from_gas_speed_mode == 2:
+      selected = backup_kph if 0.0 < self.d_rel < 60.0 and self.lead_car_speed_kph >= current_kph else current_kph
+    elif self.auto_resume_from_gas_speed_mode == 3:
+      selected = backup_kph if self.x_stop > 60.0 and self.gas_pressed_count * DT_CTRL > 1.0 else current_kph
+    else:
+      selected = current_kph
+    controls.v_cruise_kph = float(clip(selected, self.cruise_speed_min, MAX_SET_SPEED_KPH))
+
+  def _brake_release_resume(self, controls, CS):
+    if not self.auto_cruise_control:
+      return
+    v_ego_kph = CS.vEgoCluster * CV.MS_TO_KPH
+
+    # C2 soft-hold release path.
+    if v_ego_kph < 5.0 and self.x_state == XState.softHold:
+      self._resume_longitudinal(controls, CS, 3)
+      return
+
+    if not self.auto_resume_from_brake_release or not self._resume_guard_ok(CS):
+      return
+
+    gas_time = (self.param_read_counter - self.gas_pressed_frame) * DT_CTRL
+    if v_ego_kph < 20.0:
+      gas_wait = 5.0 if self.slow_speed_frame_count * DT_CTRL > 10.0 else 0.0
+      if gas_time < gas_wait:
+        return
+      if 0.0 < self.d_rel < 20.0 and (CS.leftBlinker or CS.rightBlinker):
+        return
+      if 0.0 < self.d_rel <= max(10.0, self.auto_resume_from_brake_release_dist):
+        self._resume_longitudinal(controls, CS, 3)
+      elif self.d_rel <= 0.0 and self.traffic_state == 1 and not (CS.leftBlinker or CS.rightBlinker):
+        self._resume_longitudinal(controls, CS, 3)
+    elif self.d_rel > self.auto_resume_from_brake_release_dist > 0.0:
+      controls.v_cruise_kph = float(clip(v_ego_kph, self.cruise_speed_min, MAX_SET_SPEED_KPH))
+      self._resume_longitudinal(controls, CS, 3)
+    elif self.d_rel <= 0.0 and v_ego_kph >= self.auto_resume_from_brake_car_speed > 0.0:
+      controls.v_cruise_kph = float(clip(v_ego_kph, self.cruise_speed_min, MAX_SET_SPEED_KPH))
+      self._resume_longitudinal(controls, CS, 3)
+
+  def _update_pedal_cruise(self, controls, CS):
+    try:
+      plan = controls.sm['longitudinalPlan']
+      self.x_state = plan.xState
+      self.x_stop = float(getattr(plan, 'xStop', 0.0))
+      self.traffic_state = int(getattr(plan, 'trafficState', 0)) % 100
+    except Exception:
+      self.x_state = XState.cruise
+      self.x_stop = 0.0
+      self.traffic_state = 0
+
+    lead = self.get_lead(controls.sm)
+    self.d_rel = lead.dRel if lead is not None else 0.0
+    self.v_rel = lead.vRel if lead is not None else 0.0
+    v_ego_kph = CS.vEgoCluster * CV.MS_TO_KPH
+    self.lead_car_speed_kph = v_ego_kph + self.v_rel * CV.MS_TO_KPH
+
+    brake_pressed = CS.brakePressed or bool(getattr(CS, 'regenBraking', False))
+    if not controls.enabled:
+      self.long_active_user = 0
+      self.long_active_user_ready = 0
+    elif brake_pressed:
+      if not self.prev_brake_pressed:
+        self._pause_longitudinal(controls)
+    elif self.prev_brake_pressed:
+      self._brake_release_resume(controls, CS)
+
+    if controls.enabled and CS.gasPressed:
+      self.gas_pressed_count += 1
+      self.gas_pressed_frame = self.param_read_counter
+      self.pre_gas_pressed_max = max(self.pre_gas_pressed_max, float(CS.gas))
+
+      if self.long_active_user <= 0 and self.auto_resume_from_gas > 0 and self.auto_cruise_control and \
+         self.traffic_state != 1 and self._resume_guard_ok(CS) and \
+         (v_ego_kph >= self.auto_resume_from_gas_speed or CS.gas >= 0.6):
+        self._select_resume_speed(controls, CS)
+        self._resume_longitudinal(controls, CS, 3)
+      elif self.long_active_user > 0 and 0.0 < self.auto_gas_cancel_speed and v_ego_kph < self.auto_gas_cancel_speed:
+        self._pause_longitudinal(controls)
+
+      if self.auto_resume_from_gas_speed < v_ego_kph and v_ego_kph > controls.v_cruise_kph:
+        controls.v_cruise_kph = float(clip(v_ego_kph, self.cruise_speed_min, MAX_SET_SPEED_KPH))
+    elif self.gas_pressed_count > 0:
+      quick_release = self.gas_pressed_count * DT_CTRL < 0.6 and self.pre_gas_pressed_max > 0.03
+      if quick_release and self.auto_resume_from_gas > 1 and self.long_active_user <= 0 and \
+         self.auto_cruise_control and v_ego_kph >= self.auto_resume_from_gas_speed and self._resume_guard_ok(CS):
+        self._select_resume_speed(controls, CS)
+        self._resume_longitudinal(controls, CS, 3)
+      self.gas_pressed_count = 0
+      self.pre_gas_pressed_max = 0.0
+
+    self.prev_brake_pressed = brake_pressed
+    if v_ego_kph < 20.0:
+      self.slow_speed_frame_count += 1
+    else:
+      self.slow_speed_frame_count = 0
+
   def update_driving_mode(self, CS, sm):
     lead = self.get_lead(sm)
     accel_index = interp(CS.aEgo, [-3.0, -1.0, 0.0, 1.0, 3.0], [100.0, 0.0, 0.0, 0.0, 100.0])
@@ -131,14 +300,17 @@ class CruiseHelper:
     self.update_cruise_speed(controls, CS, longcontrol)
     self.sync_physical_gap(CS)
 
-    # Match aPilot's user-cancel latch. Process this before the cruise-enabled
-    # guard since SCC may already be disabled by the time the release arrives.
+    # C2 CANCEL latch: pause longitudinal only and require an explicit RES/SET
+    # before automatic SCC resume is allowed again.
     if any(event.type == ButtonType.cancel and not event.pressed for event in CS.buttonEvents):
-      self.auto_cruise_control = False
+      self._pause_longitudinal(controls, user_cancel=True)
       self.button_count = 0
       self.button_long_pressed = False
+      return
 
-    if not self.is_cruise_enabled or not controls.enabled:
+    # C2 processes RES/SET while controlsd is enabled even when stock ACC is
+    # temporarily inactive (brake/cancel/standstill).
+    if not controls.enabled:
       self.button_count = 0
       self.button_long_pressed = False
       return
@@ -152,8 +324,18 @@ class CruiseHelper:
         self.button_count = 1
         self.button_prev = event.type
       elif not event.pressed and self.button_count > 0:
-        if event.type in (ButtonType.accelCruise, ButtonType.decelCruise) and not self.button_long_pressed:
-          controls.v_cruise_kph = self.apply_button_speed(controls.v_cruise_kph, event.type, False, CS.vEgo)
+        if event.type in (ButtonType.accelCruise, ButtonType.decelCruise):
+          if self.long_active_user <= 0:
+            current_kph = float(clip(CS.vEgoCluster * CV.MS_TO_KPH,
+                                     self.cruise_speed_min, MAX_SET_SPEED_KPH))
+            if event.type == ButtonType.accelCruise:
+              controls.v_cruise_kph = max(current_kph, self.v_cruise_kph_backup,
+                                          controls.v_cruise_kph if controls.v_cruise_kph <= MAX_SET_SPEED_KPH else 0.0)
+            else:
+              controls.v_cruise_kph = current_kph
+            self._resume_longitudinal(controls, CS, 1)
+          elif not self.button_long_pressed:
+            controls.v_cruise_kph = self.apply_button_speed(controls.v_cruise_kph, event.type, False, CS.vEgo)
         self.button_count = 0
         self.button_long_pressed = False
 
@@ -161,6 +343,7 @@ class CruiseHelper:
       self.button_long_pressed = True
       if self.button_prev in (ButtonType.accelCruise, ButtonType.decelCruise):
         controls.v_cruise_kph = self.apply_button_speed(controls.v_cruise_kph, self.button_prev, True, CS.vEgo)
+        self._resume_longitudinal(controls, CS, 1)
         self.button_count %= self.cruise_button_long_delay
 
     if longcontrol:
@@ -174,23 +357,29 @@ class CruiseHelper:
 
   def update_cruise_speed(self, controls, CS, longcontrol):
     car_set_speed = CS.cruiseState.speed * CV.MS_TO_KPH
-    # Button handling follows the actual SCC ACC state. openpilot longitudinal
-    # control deliberately has pcmCruise=False, so gating on pcmCruise made
-    # physical RES/SET releases disappear even while ACC was active.
-    cruise_enabled = car_set_speed not in (0, 255) and CS.cruiseState.enabled
+    acc_enabled = bool(getattr(CS.cruiseState, 'enabledAcc', False)) and car_set_speed not in (0, 255)
+    cruise_available = CS.cruiseState.available
 
-    if cruise_enabled:
-      base_speed = car_set_speed if longcontrol and self.speed_from_pcm == 1 and not controls.enabled else controls.v_cruise_kph
-      controls.v_cruise_kph = base_speed
-    else:
-      controls.v_cruise_kph = 0
+    if acc_enabled:
+      if longcontrol and self.speed_from_pcm == 1 and (not controls.enabled or not self.is_cruise_enabled):
+        controls.v_cruise_kph = car_set_speed
+      elif controls.v_cruise_kph <= 0 or controls.v_cruise_kph > MAX_SET_SPEED_KPH:
+        controls.v_cruise_kph = car_set_speed
 
-    if self.is_cruise_enabled != cruise_enabled:
-      self.is_cruise_enabled = cruise_enabled
-      if cruise_enabled:
+      if not self.is_cruise_enabled:
+        self.is_cruise_enabled = True
         self.auto_cruise_control = True
-      controls.v_cruise_kph = car_set_speed if cruise_enabled else 0
-      controls.LoC.reset(v_pid=CS.vEgo)
+        if controls.enabled:
+          self._resume_longitudinal(controls, CS, 1)
+    elif self.is_cruise_enabled:
+      self.is_cruise_enabled = False
+      if self.cruise_speed_min <= controls.v_cruise_kph <= MAX_SET_SPEED_KPH:
+        self.v_cruise_kph_backup = controls.v_cruise_kph
+
+    if not cruise_available:
+      self.long_active_user = 0
+      self.long_active_user_ready = 0
+      controls.v_cruise_kph = 0
 
     if longcontrol:
       controls.v_cruise_cluster_kph = controls.v_cruise_kph
@@ -234,6 +423,7 @@ class CruiseHelper:
       self.update_safe_mode_factor()
 
     self.update_button_events(controls, CS, longcontrol)
+    self._update_pedal_cruise(controls, CS)
 
   def inject_events(self, events):
     if self.slowing_down_sound_alert:
@@ -245,23 +435,25 @@ class CruiseHelper:
   def cal_curve_speed(self, sm, v_ego, frame):
     if frame % 20 != 0:
       return
-    model = sm['modelV2']
-    if len(model.position.x) != TRAJECTORY_SIZE or len(model.position.y) != TRAJECTORY_SIZE:
-      self.curve_speed_ms = 255.0
+
+    orientation_rates = np.asarray(sm['modelV2'].orientationRate.z, dtype=np.float32)
+    if len(orientation_rates) < 20:
+      self.curvature_filter.set(0.0)
+      self.curve_speed_ms = 255.0 * CV.KPH_TO_MS
       return
-    x = model.position.x
-    y = model.position.y
-    dy = np.gradient(y, x)
-    d2y = np.gradient(dy, x)
-    curvature = d2y / (1 + dy ** 2) ** 1.5
-    start = int(interp(v_ego, [10.0, 27.0], [10, TRAJECTORY_SIZE - 10]))
-    curve_segment = curvature[start:min(start + 10, TRAJECTORY_SIZE)]
-    a_y_max = 2.975 - v_ego * 0.0375
-    curve_speed = np.sqrt(a_y_max / np.clip(np.abs(curve_segment), 1e-4, None))
-    model_speed = np.mean(curve_speed) * 0.85
-    self.curve_speed_ms = float(max(model_speed, MIN_CURVE_SPEED)) if model_speed < v_ego else 255.0
-    if np.isnan(self.curve_speed_ms):
-      self.curve_speed_ms = 255.0
+
+    speed = min(self.turn_speed_prev_kph / 3.6, float(clip(v_ego, 0.5, 100.0)))
+    curvature = float(np.max(np.abs(orientation_rates[12:20]))) / speed
+    curvature = self.curvature_filter.process(curvature)
+
+    if abs(curvature) > 0.0001:
+      turn_speed_kph = float(clip(interp(curvature, V_CURVE_LOOKUP_BP, V_CURVE_LOOKUP_VALS),
+                                  MIN_CURVE_SPEED * CV.MS_TO_KPH, 255.0))
+    else:
+      turn_speed_kph = 300.0
+
+    self.turn_speed_prev_kph = turn_speed_kph
+    self.curve_speed_ms = min(turn_speed_kph, 255.0) * CV.KPH_TO_MS
 
   def update_max_speed(self, max_speed, limited_curve, longcontrol):
     if not longcontrol or self.max_speed_clu <= 0:
@@ -275,8 +467,9 @@ class CruiseHelper:
     self.cal_curve_speed(sm, CS.out.vEgo, frame)
 
     curve_limited = False
-    if self.slow_on_curves and self.curve_speed_ms >= MIN_CURVE_SPEED:
-      max_speed_clu = min(controls.v_cruise_kph * CV.KPH_TO_MS, self.curve_speed_ms) * self.speed_conv_to_clu
+    cruise_speed_ms = controls.v_cruise_kph * CV.KPH_TO_MS
+    if self.slow_on_curves and MIN_CURVE_SPEED <= self.curve_speed_ms < cruise_speed_ms:
+      max_speed_clu = self.curve_speed_ms * self.speed_conv_to_clu
       curve_limited = True
     else:
       max_speed_clu = self.kph_to_clu(controls.v_cruise_kph)
@@ -334,8 +527,9 @@ class CruiseHelper:
       self.target_speed = self.kph_to_clu(controls.v_cruise_kph)
       if self.max_speed_clu > self.min_set_speed_clu:
         self.target_speed = clip(self.target_speed, self.min_set_speed_clu, self.max_speed_clu)
-    elif CS.cruiseState_enabled:
+    elif CS.cruiseState_enabled or self.long_active_user > 0:
       self.sync_gas_speed(CS, clu11_speed, controls, True)
+      self.target_speed = self.kph_to_clu(controls.v_cruise_kph)
 
   def auto_speed_up(self, CS, controls, road_limit_speed, longcontrol):
     if road_limit_speed <= 0:
@@ -397,8 +591,9 @@ class CruiseHelper:
     self.update_target_speed(CS, clu11_speed, controls, longcontrol)
     self.auto_speed_up(CS, controls, road_limit_speed, longcontrol)
 
-    ascc_enabled = CS.acc_mode and CC.enabled and CS.cruiseState_enabled and \
-                   1 < CS.cruiseState_speed < 255 and not CS.brake_pressed
+    stock_ascc_enabled = CS.acc_mode and CS.cruiseState_enabled and 1 < CS.cruiseState_speed < 255
+    ascc_enabled = CC.enabled and not CS.brake_pressed and \
+                   (stock_ascc_enabled or (longcontrol and self.long_active_user > 0))
     return clu11_speed, ascc_enabled
 
   def reset_scc_target(self):
