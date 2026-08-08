@@ -2662,15 +2662,15 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(new NtuneValueControl("torque", "latAccelFactor",
       "Lat Accel Factor",
       "횡가속도 대비 토크 계수입니다. 작을수록 조향 토크가 강해집니다.\n"
-      "실제 적용값은 차량 기본값 기준 안전 범위로 자동 제한됩니다.",
-      "../assets/offroad/icon_openpilot.png", 0.5, 4.5, 0.05, 2, 2.7, this));
+      "Genesis DH comma 기본값: 2.747 / 안전 범위: 2.747 ~ 3.433",
+      "../assets/offroad/icon_openpilot.png", 2.747, 3.433, 0.05, 3, 2.747, this));
 
   list->addItem(new NtuneValueControl("torque", "friction",
       "Friction",
       "정지마찰 보상값입니다. 크면 중앙 부근 응답이 빨라지지만\n"
       "너무 크면 직진에서 좌우로 흔들립니다.\n"
-      "범위: 0.000 ~ 0.200  /  기본값: 0.080",
-      "../assets/offroad/icon_openpilot.png", 0.0, 0.2, 0.005, 3, 0.08, this));
+      "Genesis DH comma 기본값: 0.098 / 안전 범위: 0.058 ~ 0.098",
+      "../assets/offroad/icon_openpilot.png", 0.058, 0.098, 0.005, 3, 0.098, this));
 
   list->addItem(new ParamValueControlF("LatAccelFrictionFactor",
       "Friction: Accel Factor",
