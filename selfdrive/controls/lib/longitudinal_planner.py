@@ -113,6 +113,7 @@ class LongitudinalPlanner:
 
   def read_param(self):
     self.mpc.applyLongDynamicCost = self.params.get_bool("ApplyLongDynamicCost")
+    self.mpc.softHoldMode = int(clip(self.params.get_int("SoftHoldMode"), 0, 2))
     self.auto_e2e_enabled = self.CP.openpilotLongitudinalControl
     self.experimental_mode_enabled = self.params.get_bool('ExperimentalMode')
     traffic_mode_raw = self.params.get('TrafficStopMode', encoding='utf8')
@@ -415,6 +416,7 @@ class LongitudinalPlanner:
     longitudinalPlan.shouldStop = bool(self.output_should_stop)
     longitudinalPlan.vTargetNow = float(self.output_v_target_now)
     longitudinalPlan.jTargetNow = float(self.output_j_target_now)
+    longitudinalPlan.xState = self.mpc.xState
     # Expose the automatic E2E stop/depart state to the onroad UI.
     # 0: inactive, 1: stopping/waiting, 2: preparing to depart.
     e2e_state_active = self.auto_e2e_enabled and sm['controlsState'].enabled
