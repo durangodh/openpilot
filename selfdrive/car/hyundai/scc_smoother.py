@@ -4,8 +4,9 @@ import random
 from selfdrive.car.hyundai.values import Buttons
 
 
-ALIVE_COUNT = [8, 10]
-WAIT_COUNT = [12, 14, 16, 18]
+# aPilot C2 physical-button cadence.
+ALIVE_COUNT = [6, 8]
+WAIT_COUNT = [12, 13, 14, 15, 16]
 AliveIndex = 0
 WaitIndex = 0
 
