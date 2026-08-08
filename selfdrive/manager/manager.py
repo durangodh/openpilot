@@ -82,7 +82,6 @@ def manager_init() -> None:
     ("TrafficStopMode", "2"),
     ("MixRadarInfo", "0"),
 
-    ("SccSmootherSlowOnCurves", "0"),
     ("SccSmootherSyncGasPressed", "0"),
     ("StockNaviDecelEnabled", "0"),
     ("KeepSteeringTurnSignals", "0"),
@@ -126,7 +125,10 @@ def manager_init() -> None:
     ("AdjustLaneOffset", "0"),    # 좌우 여유공간 비대칭 보정 (cm, 0=off)
     ("OffsetTotal", "0.0"),        # 통합 오프셋(offset_total), 전 모드 공통 적용
     ("TurnVisionControl", "0"),
-    ("VisionCurveLaneless", "0"),
+    ("AutoCurveSpeedFactor", "120"),
+    ("AutoCurveSpeedLowerLimit", "30"),
+    ("MapTurnSpeedFactor", "90"),
+    ("AutoNaviSpeedDecelRate", "120"),
     ("StartAccelApply", "0"),
     ("StopAccelApply", "30"),
     ("TrafficStopAccel", "80"),
