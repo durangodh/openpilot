@@ -2505,11 +2505,6 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png"));
 
   list->addItem(new ParamValueControlF(
-      "JerkStartLimit", "출발 저크 제한 (×0.1 m/s³)",
-      "정지 후 출발할 때 처음 0.5초간 적용하고 1.5초까지 정상 제한으로 부드럽게 전환합니다. 값이 작으면 부드럽고, 크면 반응이 빨라집니다.",
-      "../assets/offroad/icon_road.png", 1, 50, 1, 0, 20, this));
-
-  list->addItem(new ParamValueControlF(
       "StartAccelApply", "Start Acceleration",
       "정지 후 출발 가속도입니다. 표시값에 0.02m/s²를 곱해 적용합니다.",
       "../assets/offroad/icon_openpilot.png", 0, 100, 10, 0, 0, this));
