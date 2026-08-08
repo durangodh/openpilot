@@ -89,12 +89,12 @@ class CarInterface(CarInterfaceBase):
     ret.longitudinalTuning.kf = 1.0
 
     long_delay = Params().get_int("LongActuatorDelay")
-    ret.longitudinalActuatorDelay = (long_delay * 0.01) if long_delay > 0 else 0.5
-    ret.longitudinalActuatorDelayLowerBound = 0.5
-    ret.longitudinalActuatorDelayUpperBound = 0.5
+    ret.longitudinalActuatorDelay = (long_delay * 0.01) if long_delay > 0 else 0.2
+    ret.longitudinalActuatorDelayLowerBound = max(0.1, ret.longitudinalActuatorDelay - 0.1)
+    ret.longitudinalActuatorDelayUpperBound = min(1.0, ret.longitudinalActuatorDelay + 0.1)
 
     ret.startingState = False
-    ret.startAccel = 2.0
+    ret.startAccel = 1.0
     ret.stopAccel = -0.6
     ret.stoppingDecelRate = 1.2
     ret.vEgoStopping = 0.3
@@ -322,8 +322,7 @@ class CarInterface(CarInterfaceBase):
     elif self.CC.scc_live and not self.CP.pcmCruise:
       self.CP.pcmCruise = True
 
-    # MAD mode: cruise MAIN engages lateral control independently of stock ACC.
-    # The real ACC state remains available in cruiseState.enabledAcc.
+    # most HKG cars has no long control, it is safer and easier to engage by main on
     ret.cruiseState.enabled = ret.cruiseState.available
 
     # turning indicator alert logic
@@ -357,8 +356,6 @@ class CarInterface(CarInterfaceBase):
         be.type = ButtonType.decelCruise
       elif but == Buttons.GAP_DIST:
         be.type = ButtonType.gapAdjustCruise
-      elif but == Buttons.CANCEL:
-        be.type = ButtonType.cancel
       else:
         be.type = ButtonType.unknown
       buttonEvents.append(be)
@@ -380,13 +377,11 @@ class CarInterface(CarInterfaceBase):
 
     # handle button presses
     for b in ret.buttonEvents:
-      # Explicitly engage lateral control when cruise MAIN is switched on.
-      # This also covers startup with SCC already live, where the PCM rising
-      # edge can be consumed before controlsd starts.
-      if b.type == ButtonType.altButton3 and b.pressed and ret.cruiseState.available:
-        events.add(EventName.buttonEnable)
+      # do disable on button down (scc_live=False 차량에서만 실제로 cancel 이벤트 발생)
+      if b.type == ButtonType.cancel and b.pressed:
+        events.add(EventName.buttonCancel)
 
-      if self.CC.longcontrol:
+      if self.CC.longcontrol and not self.CC.scc_live:
         # do enable on both accel and decel buttons
         if b.type in [ButtonType.accelCruise, ButtonType.decelCruise] and not b.pressed:
           events.add(EventName.buttonEnable)
