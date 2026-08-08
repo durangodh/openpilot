@@ -299,9 +299,9 @@ class CarInterface(CarInterfaceBase):
     ret.hasLfaHda = 1157 in fingerprint[0]
 
     ret.radarOffCan = ret.sccBus == -1
-    ret.pcmCruise = not ret.openpilotLongitudinalControl
+    ret.pcmCruise = not ret.radarOffCan
 
-    if ret.radarOffCan or ret.mdpsBus == 1 or ret.openpilotLongitudinalControl or ret.sccBus == 1:
+    if ret.radarOffCan or ret.mdpsBus == 1 or ret.openpilotLongitudinalControl or ret.sccBus == 1 or Params().get_bool('MadModeEnabled'):
       ret.safetyConfigs = [get_safety_config(car.CarParams.SafetyModel.hyundaiCommunity, 0)]
     return ret
 
@@ -316,6 +316,15 @@ class CarInterface(CarInterfaceBase):
     ret = self.CS.update(self.cp, self.cp2, self.cp_cam)
     ret.canValid = self.cp.can_valid and self.cp2.can_valid and self.cp_cam.can_valid
     ret.canTimeout = any(cp.bus_timeout for cp in self.can_parsers if cp is not None)
+
+    if self.CP.pcmCruise and not self.CC.scc_live:
+      self.CP.pcmCruise = False
+    elif self.CC.scc_live and not self.CP.pcmCruise:
+      self.CP.pcmCruise = True
+
+    # MAD mode: cruise MAIN engages lateral control independently of stock ACC.
+    # The real ACC state remains available in cruiseState.enabledAcc.
+    ret.cruiseState.enabled = ret.cruiseState.available
 
     # turning indicator alert logic
     t = time.monotonic()
@@ -360,11 +369,7 @@ class CarInterface(CarInterfaceBase):
       buttonEvents.append(be)
     ret.buttonEvents = buttonEvents
 
-    # C2 engagement model: keep the real PCM state and only accept engagement
-    # when the driver operates RES/SET/CANCEL or the cruise MAIN switch.
-    allow_enable = self.CS.cruise_buttons in (Buttons.RES_ACCEL, Buttons.SET_DECEL, Buttons.CANCEL) or \
-                   bool(self.CS.cruise_main_button)
-    events = self.create_common_events(ret, pcm_enable=self.CS.CP.pcmCruise, allow_enable=allow_enable)
+    events = self.create_common_events(ret)
 
     if self.CC.longcontrol and self.CS.cruise_unavail:
       events.add(EventName.brakeUnavailable)
@@ -375,12 +380,14 @@ class CarInterface(CarInterfaceBase):
 
     # handle button presses
     for b in ret.buttonEvents:
-      if self.CC.longcontrol:
+      if self.CC.longcontrol and not self.CC.scc_live:
         # do enable on both accel and decel buttons
         if b.type in [ButtonType.accelCruise, ButtonType.decelCruise] and not b.pressed:
           events.add(EventName.buttonEnable)
         if EventName.wrongCarMode in events.events:
           events.events.remove(EventName.wrongCarMode)
+        if EventName.pcmDisable in events.events:
+          events.events.remove(EventName.pcmDisable)
       elif not self.CC.longcontrol and ret.cruiseState.enabled:
         # do enable on decel button only
         if b.type == ButtonType.decelCruise and not b.pressed:
