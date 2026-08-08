@@ -187,7 +187,10 @@ class CruiseHelper:
 
   def update_cruise_speed(self, controls, CS, longcontrol):
     car_set_speed = CS.cruiseState.speed * CV.MS_TO_KPH
-    cruise_enabled = car_set_speed not in (0, 255) and CS.cruiseState.enabled and controls.CP.pcmCruise
+    # Button handling follows the actual SCC ACC state. openpilot longitudinal
+    # control deliberately has pcmCruise=False, so gating on pcmCruise made
+    # physical RES/SET releases disappear even while ACC was active.
+    cruise_enabled = car_set_speed not in (0, 255) and CS.cruiseState.enabled
 
     if cruise_enabled:
       base_speed = car_set_speed if longcontrol and self.speed_from_pcm == 1 and not controls.enabled else controls.v_cruise_kph
