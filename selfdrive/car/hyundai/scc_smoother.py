@@ -2,7 +2,6 @@ import copy
 import random
 
 from selfdrive.car.hyundai.values import Buttons
-from selfdrive.controls.lib.low_speed_long import STOCK_SCC_LEADLESS_MIN_SPEED_KPH
 
 
 ALIVE_COUNT = [8, 10]
@@ -61,23 +60,22 @@ class SccSmoother:
   def update(self, _enabled, can_sends, packer, CC, CS, frame, controls):
     self.cruise_helper = controls.cruise_helper
     longcontrol = controls.CP.openpilotLongitudinalControl
-    clu11_speed, ascc_enabled, ascc_auto_set = \
-      self.cruise_helper.update_scc(CC, CS, frame, controls, longcontrol)
+    clu11_speed, ascc_enabled = self.cruise_helper.update_scc(CC, CS, frame, controls, longcontrol)
 
     if not longcontrol and \
-       (not ascc_enabled or CS.standstill or CS.cruise_buttons != Buttons.NONE) and not ascc_auto_set:
+       (not ascc_enabled or CS.standstill or CS.cruise_buttons != Buttons.NONE):
       self.reset()
       self.wait_timer = max(ALIVE_COUNT) + max(WAIT_COUNT)
       return
 
-    if not ascc_enabled and not ascc_auto_set:
+    if not ascc_enabled:
       self.reset()
 
     if self.wait_timer > 0:
       self.wait_timer -= 1
       return
 
-    if not ((ascc_enabled and not CS.out.cruiseState.standstill) or ascc_auto_set):
+    if not (ascc_enabled and not CS.out.cruiseState.standstill):
       if longcontrol:
         self.cruise_helper.reset_scc_target()
       return
@@ -86,11 +84,6 @@ class SccSmoother:
       if ascc_enabled and self.cruise_helper.auto_cruise_control:
         current_set_speed = CS.cruiseState_speed * self.cruise_helper.speed_conv_to_clu
         self.btn = self.cruise_helper.get_button(current_set_speed)
-      elif ascc_auto_set and clu11_speed < STOCK_SCC_LEADLESS_MIN_SPEED_KPH and \
-           self.cruise_helper.auto_cruise_control:
-        self.btn = Buttons.SET_DECEL
-      elif self.cruise_helper.auto_cruise_control:
-        self.btn = Buttons.RES_ACCEL
       self.alive_count = SccSmoother.get_alive_count()
 
     if self.btn == Buttons.NONE:
