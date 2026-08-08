@@ -413,13 +413,6 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
   painter.setBrush(bg);
   painter.drawPolygon(scene.track_vertices.v, scene.track_vertices.cnt);
 
-  if (show_path_brake_border &&
-      sm["carState"].getCarState().getBrakeLights()) {
-    painter.setBrush(Qt::NoBrush);
-    painter.setPen(QPen(QColor(235, 35, 45, 245), 3));
-    painter.drawPolygon(scene.track_vertices.v, scene.track_vertices.cnt);
-  }
-
   painter.restore();
 }
 
@@ -971,8 +964,6 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     show_carrot_hud = sch.empty() ? 1 : std::atoi(sch.c_str());
     std::string spsc = params.get("ShowPathStatusColor");
     show_path_status_color = spsc.empty() ? 1 : std::atoi(spsc.c_str());
-    std::string spbb = params.get("ShowPathBrakeBorder");
-    show_path_brake_border = spbb.empty() ? 1 : std::atoi(spbb.c_str());
   }
 
   if (!show_carrot_hud) { p.restore(); return; }

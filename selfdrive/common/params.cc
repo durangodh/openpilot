@@ -245,7 +245,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"ShowDateTime", PERSISTENT},               // 0=끔, 1=시간+날짜, 2=시간, 3=날짜
     {"ShowPathWidth", PERSISTENT},               // 경로 반폭 cm (90=0.90m)
     {"ShowPathStatusColor", PERSISTENT},         // 가감속 상태에 따른 경로 색상
-    {"ShowPathBrakeBorder", PERSISTENT},         // 브레이크등 점등 시 빨간 경로 테두리
     {"CustomSteerRatio", PERSISTENT},          // 고정 조향비 x100
     {"UseLiveSteerRatio", PERSISTENT},         // 1=liveParameters 학습 조향비 사용
     {"SteerActuatorDelay", PERSISTENT},        // 조향 지연 보상 x100 (초)

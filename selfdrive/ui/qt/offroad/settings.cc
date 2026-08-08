@@ -2650,10 +2650,6 @@ UISettingsPanel::UISettingsPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", this);
   status_color->showDescription();
   list->addItem(status_color);
-  list->addItem(new ParamControl(
-      "ShowPathBrakeBorder", "브레이크 경로 테두리",
-      "브레이크등이 켜지면 주행 경로 외곽을 빨간색으로 표시합니다.",
-      "../assets/offroad/icon_road.png", this));
   list->addItem(new ParamValueControlF(
       "ShowPathWidth", "주행 경로 폭 (cm)",
       "차량 중심에서 경로 한쪽 끝까지의 폭입니다. 90은 좌우 각각 0.90m입니다.",
