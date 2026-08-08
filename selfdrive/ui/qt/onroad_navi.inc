@@ -594,7 +594,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
     p.drawText(turn_icon, Qt::AlignCenter, fallback_text);
   }
 
-  configFont(p, "Open Sans", std::max(20, qRound(34 * ui_scale)), "Bold");
+  configFont(p, "Open Sans", std::max(18, qRound(30 * ui_scale)), "Bold");
   p.setPen(Qt::white);
   const QString turn_distance = carrotDistanceText(carrot_navi_distance);
   p.drawText(QRect(turn_card.x(), turn_card.bottom() - qRound(52 * ui_scale),
