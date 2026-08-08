@@ -505,6 +505,8 @@ class CarrotLearner:
     for group, items in recs.items():
       g = {}
       for key, info in items.items():
+        if key not in _KEY_RESET_PHASE:
+          continue
         if info.get("ntune") == "torque":
           # Params 직접 수정 → latcontrol_torque 가 0.1초마다 라이브 반영
           _torque_write(key, float(info["recommended"]))
