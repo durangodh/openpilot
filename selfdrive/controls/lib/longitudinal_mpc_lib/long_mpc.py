@@ -3,7 +3,7 @@ import os
 import numpy as np
 
 from cereal import car, log
-from common.realtime import sec_since_boot
+from common.realtime import sec_since_boot, DT_MDL
 from common.numpy_fast import clip, interp
 from selfdrive.swaglog import cloudlog
 from selfdrive.modeld.constants import index_function
@@ -393,7 +393,7 @@ class LongitudinalMpc:
         self.xState = XState.cruise
     elif carstate.brakePressed and v_ego < 0.1:
       self.softHoldTimer += 1
-      if self.softHoldTimer * 0.05 >= 0.7:
+      if self.softHoldTimer * DT_MDL >= 0.7:
         self.xState = XState.softHold
     else:
       self.softHoldTimer = 0
