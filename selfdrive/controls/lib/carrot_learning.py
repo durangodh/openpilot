@@ -201,6 +201,7 @@ class CarrotLearner:
     self._has_driven = False
     self._frame = 0
     self._load()
+    self._sanitize_stored_learning()
 
   # ── 공개 API ─────────────────────────────────────────────────────────
   def is_active(self):
@@ -587,6 +588,56 @@ class CarrotLearner:
   def _reset_all_phases(self):
     self._reset_phase2()
     self._reset_phase5()
+
+  @staticmethod
+  def _steering_only(recs):
+    if not isinstance(recs, dict):
+      return {}
+    filtered = {}
+    for group, items in recs.items():
+      if not isinstance(items, dict):
+        continue
+      steering_items = {key: info for key, info in items.items() if key in _KEY_RESET_PHASE}
+      if steering_items:
+        filtered[group] = steering_items
+    return filtered
+
+  def _sanitize_stored_learning(self):
+    raw = self._params.get("CarrotLearningRecommend", encoding='utf8')
+    if raw:
+      try:
+        recs = self._steering_only(json.loads(raw))
+        if recs:
+          self._params.put("CarrotLearningRecommend", json.dumps(recs, ensure_ascii=False))
+        else:
+          _remove(self._params, "CarrotLearningRecommend")
+          self._params.put_bool("CarrotLearningPopupReady", False)
+      except Exception:
+        _remove(self._params, "CarrotLearningRecommend")
+        self._params.put_bool("CarrotLearningPopupReady", False)
+
+    raw = self._params.get("CarrotLearningHistory", encoding='utf8')
+    if raw:
+      try:
+        history = json.loads(raw)
+        filtered_history = []
+        for entry in history if isinstance(history, list) else []:
+          if not isinstance(entry, dict):
+            continue
+          changes = self._steering_only(entry.get("changes", {}))
+          if changes:
+            clean_entry = dict(entry)
+            clean_entry["changes"] = changes
+            filtered_history.append(clean_entry)
+        if filtered_history:
+          self._params.put("CarrotLearningHistory", json.dumps(filtered_history[:50], ensure_ascii=False))
+        else:
+          _remove(self._params, "CarrotLearningHistory")
+      except Exception:
+        _remove(self._params, "CarrotLearningHistory")
+
+    # Rewrite accumulated data immediately, dropping legacy longitudinal sections.
+    self._save()
 
   def _clear(self):
     self._reset_all_phases()
