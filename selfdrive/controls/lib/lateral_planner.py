@@ -230,29 +230,12 @@ class LateralPlanner:
 
     lateralPlan.dynamicLaneProfile = int(self.dynamic_lane_profile)
 
-    # ── UI 하단 중앙 디버그 문자열 (carrot latDebugText 이식) ──
-    #   모드 | 좌차선거리 | 차로폭 | 우차선거리 | offset(cm) turn(km/h)
-    #   offset : offset_total (캐롯과 동일)
-    #   turn   : VisionTurnController 목표속도 (캐롯의 curve_speed 대체)
+    # ── UI 하단 중앙 차선/오프셋 디버그 문자열 ──
     lane_mode = 'laneless' if self.dynamic_lane_profile_status else 'lanemode'
     offset_cm = self.offset_total * 100.0
-    #   turn 은 VisionTurnController 가 실제로 개입 중일 때만 표시한다.
-    #   (비활성 상태에서는 v_turn 이 내부 기본값을 그대로 뱉어 의미가 없다)
-    turn_kph = 0.0
-    try:
-      lp = sm['longitudinalPlan']
-      # capnp enum 이 int 로도, 문자열로도 올 수 있어 둘 다 받는다
-      # (controlsd.py 는 int, longitudinal_planner.py 는 enum 으로 비교 중)
-      vtc_state = lp.visionTurnControllerState
-      if vtc_state in (1, 2) or str(vtc_state) in ('entering', 'turning'):
-        turn_kph = lp.visionTurnSpeed * 3.6
-    except Exception:
-      turn_kph = 0.0
     tail = f'offset={offset_cm:.1f}cm'
     if abs(self.LP.lane_offset) > 0.005:
       tail += f' lane={self.LP.lane_offset * 100.0:+.0f}cm'
-    if turn_kph > 0.5:
-      tail += f' turn={min(turn_kph, 200.0):.0f}km/h'
     lateralPlan.latDebugText = (
       f"{lane_mode} | "
       f"{self.LP.lane_width_left:.1f}m | "
