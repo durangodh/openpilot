@@ -2179,17 +2179,26 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
 
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("TurnVisionControl",
-                                           "비젼기반 커브감속",
-                                           "Use vision path predictions to estimate the appropiate speed to drive through turns ahead.",
+                                           "최신 비전·지도 커브감속",
+                                           "모델 예측 횡가속과 티맵 전방 경로 곡률을 함께 계산해 낮은 목표속도를 적용합니다.",
                                             "../assets/offroad/icon_road.png",
                                             this));
-  toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new ParamControl("VisionCurveLaneless",
-                                           "커브 구간 레인리스 모드",
-                                           "비전 기반 커브 감속이 활성화된 경우, 커브 구간에서 자동으로 레인리스(e2e) 모드로 전환합니다.\n"
-                                           "(DynamicLaneProfile Auto 모드에서만 동작)",
-                                            "../assets/offroad/icon_road.png",
-                                            this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoCurveSpeedFactor", "비전 커브 감속비율",
+      "값이 높을수록 모델 커브를 크게 판단해 더 감속합니다.",
+      "../assets/offroad/icon_road.png", 50, 300, 5, 0, 120, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoCurveSpeedLowerLimit", "커브 최저속도",
+      "비전 및 티맵 일반도로 커브 목표속도의 최저값(km/h).",
+      "../assets/offroad/icon_speed_limit.png", 5, 80, 5, 0, 30, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "MapTurnSpeedFactor", "티맵 지도 커브속도 비율",
+      "티맵 전방 경로에서 계산한 일반도로 커브속도 반영비율.",
+      "../assets/offroad/icon_road.png", 50, 150, 5, 0, 90, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoNaviSpeedDecelRate", "지도 커브 감속도",
+      "티맵 일반도로 커브 진입 감속도(x100 m/s²).",
+      "../assets/offroad/icon_road.png", 10, 300, 10, 0, 120, this));
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("SccSmootherSyncGasPressed",
                                             "Sync set speed on gas pressed",
