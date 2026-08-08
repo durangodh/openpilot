@@ -61,7 +61,6 @@ class CruiseHelper:
     self.auto_resume_request = False
     self.auto_resume_set_speed_kph = 0.0
     self.carrot_atc = CarrotNaviAtc()
-    self.initial_gap_applied = False
     self.last_road_limit_speed = 0.0
     self.pause_auto_speed_up = False
 
@@ -102,10 +101,7 @@ class CruiseHelper:
     self.carrot_atc_speed = float(clip(self.params.get_int("CarrotAutoTurnSpeed"), 5, 80))
     self.carrot_atc_end_time = float(clip(self.params.get_int("CarrotAutoTurnEndTime"), 1, 20))
 
-    initial_gap = int(clip(self.params.get_int("PrevCruiseGap"), 1, 4))
-    if initial_gap != self.long_cruise_gap:
-      self.initial_gap_applied = False
-    self.long_cruise_gap = initial_gap
+    self.long_cruise_gap = int(clip(self.params.get_int("PrevCruiseGap"), 1, 4))
 
     self.init_driving_mode = int(clip(self.params.get_int("InitMyDrivingMode"), 1, 5))
     if self.param_read_counter == 0:
@@ -146,6 +142,7 @@ class CruiseHelper:
 
   def update_button_events(self, controls, CS, longcontrol):
     self.update_cruise_speed(controls, CS, longcontrol)
+    self.sync_physical_gap(CS)
 
     # Match aPilot's user-cancel latch. Process this before the cruise-enabled
     # guard since SCC may already be disabled by the time the release arrives.
@@ -164,21 +161,11 @@ class CruiseHelper:
 
     for event in CS.buttonEvents:
       if event.pressed and self.button_count == 0 and event.type in (ButtonType.accelCruise,
-                                                                     ButtonType.decelCruise,
-                                                                     ButtonType.gapAdjustCruise):
+                                                                     ButtonType.decelCruise):
         self.button_count = 1
         self.button_prev = event.type
       elif not event.pressed and self.button_count > 0:
-        if event.type == ButtonType.gapAdjustCruise:
-          if self.button_long_pressed:
-            self.my_driving_mode = self.my_driving_mode + 1 if self.my_driving_mode < 4 else 1
-            self.driving_mode_index = -100.0
-            put_nonblocking("MyDrivingMode", str(self.my_driving_mode))
-            self.update_safe_mode_factor()
-          else:
-            self.long_cruise_gap = self.long_cruise_gap + 1 if self.long_cruise_gap < 4 else 1
-            put_nonblocking("PrevCruiseGap", str(self.long_cruise_gap))
-        elif event.type in (ButtonType.accelCruise, ButtonType.decelCruise) and not self.button_long_pressed:
+        if event.type in (ButtonType.accelCruise, ButtonType.decelCruise) and not self.button_long_pressed:
           controls.v_cruise_kph = self.apply_button_speed(controls.v_cruise_kph, event.type, False, CS.vEgo)
         self.button_count = 0
         self.button_long_pressed = False
@@ -188,15 +175,15 @@ class CruiseHelper:
       if self.button_prev in (ButtonType.accelCruise, ButtonType.decelCruise):
         controls.v_cruise_kph = self.apply_button_speed(controls.v_cruise_kph, self.button_prev, True, CS.vEgo)
         self.button_count %= self.cruise_button_long_delay
-      elif self.button_prev == ButtonType.gapAdjustCruise:
-        self.my_driving_mode = self.my_driving_mode + 1 if self.my_driving_mode < 4 else 1
-        self.driving_mode_index = -100.0
-        put_nonblocking("MyDrivingMode", str(self.my_driving_mode))
-        self.update_safe_mode_factor()
-        self.button_count = 0
 
     if longcontrol:
       controls.v_cruise_cluster_kph = controls.v_cruise_kph
+
+  def sync_physical_gap(self, CS):
+    gap = int(CS.cruiseGap)
+    if 1 <= gap <= 4 and gap != self.long_cruise_gap:
+      self.long_cruise_gap = gap
+      put_nonblocking("PrevCruiseGap", str(gap))
 
   def update_cruise_speed(self, controls, CS, longcontrol):
     car_set_speed = CS.cruiseState.speed * CV.MS_TO_KPH
@@ -265,19 +252,11 @@ class CruiseHelper:
     elif self.slowing_down_alert:
       events.add(EventName.slowingDownSpeed)
 
-  def get_initial_gap_button(self, ascc_enabled, CS):
-    if self.initial_gap_applied:
-      return Buttons.NONE
-    if CS.cruise_buttons == Buttons.GAP_DIST:
-      self.initial_gap_applied = True
-      return Buttons.NONE
-    if not ascc_enabled:
-      return Buttons.NONE
-    current_gap = int(clip(CS.out.cruiseGap, 1, 4))
-    if current_gap == self.long_cruise_gap:
-      self.initial_gap_applied = True
-      return Buttons.NONE
-    return Buttons.GAP_DIST
+  @staticmethod
+  def get_initial_gap_button(ascc_enabled, CS):
+    # The physical GAP button and the stock SCC gap are the only gap input.
+    # Never synthesize GAP presses to chase a stored software value.
+    return Buttons.NONE
 
   def cal_curve_speed(self, sm, v_ego, frame):
     if frame % 20 != 0:
