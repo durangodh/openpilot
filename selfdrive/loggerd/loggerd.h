@@ -40,6 +40,7 @@ const int DCAM_BITRATE = Hardware::TICI() ? MAIN_BITRATE : 2500000;
 
 const bool LOGGERD_TEST = getenv("LOGGERD_TEST");
 const int SEGMENT_LENGTH = LOGGERD_TEST ? atoi(getenv("LOGGERD_SEGMENT_LENGTH")) : 60;
+const bool LIGHTWEIGHT_LOGGING = Hardware::EON();
 
 struct LogCameraInfo {
   CameraType type;
@@ -67,7 +68,7 @@ const LogCameraInfo cameras_logged[] = {
     .downscale = false,
     .has_qcamera = true,
     .trigger_rotate = true,
-    .enable = true,
+    .enable = !LIGHTWEIGHT_LOGGING,
     .record = true,
   },
   {
@@ -80,7 +81,7 @@ const LogCameraInfo cameras_logged[] = {
     .downscale = false,
     .has_qcamera = false,
     .trigger_rotate = Hardware::TICI(),
-    .enable = true,
+    .enable = !LIGHTWEIGHT_LOGGING,
     .record = Params().getBool("RecordFront"),
   },
   {
