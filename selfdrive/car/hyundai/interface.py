@@ -34,9 +34,6 @@ class CarInterface(CarInterfaceBase):
     self._lc_speed_params = Params()
     self.lane_change_speed_min = LANE_CHANGE_SPEED_MIN
     self._lc_speed_params_t = 0.0
-    # MAD mode keeps lateral control engaged independently of stock ACC.
-    # Read once at startup, matching other safety/engagement parameters.
-    self.mad_mode_enabled = Params().get_bool('MadModeEnabled')
 
   @staticmethod
   def get_pid_accel_limits(CP, current_speed, cruise_speed):
@@ -304,10 +301,7 @@ class CarInterface(CarInterfaceBase):
     ret.radarOffCan = ret.sccBus == -1
     ret.pcmCruise = not ret.radarOffCan
 
-    # Community safety is required only by the existing bus/longitudinal
-    # conditions or when MAD mode is explicitly enabled.
-    if ret.radarOffCan or ret.mdpsBus == 1 or ret.openpilotLongitudinalControl or \
-       ret.sccBus == 1 or Params().get_bool('MadModeEnabled'):
+    if ret.radarOffCan or ret.mdpsBus == 1 or ret.openpilotLongitudinalControl or ret.sccBus == 1:
       ret.safetyConfigs = [get_safety_config(car.CarParams.SafetyModel.hyundaiCommunity, 0)]
     return ret
 
@@ -328,8 +322,6 @@ class CarInterface(CarInterfaceBase):
     elif self.CC.scc_live and not self.CP.pcmCruise:
       self.CP.pcmCruise = True
 
-    # Keep the real stock ACC state. MAD mode is implemented through event
-    # handling below instead of overwriting cruiseState.enabled.
     # turning indicator alert logic
     t = time.monotonic()
     if t - self._lc_speed_params_t > 1.0:
@@ -373,11 +365,11 @@ class CarInterface(CarInterfaceBase):
       buttonEvents.append(be)
     ret.buttonEvents = buttonEvents
 
-    # In MAD mode, stock ACC off/cancel must not emit pcmDisable. MAIN off
-    # still disengages through wrongCarMode (cruiseState.available == False).
-    events = self.create_common_events(
-      ret, pcm_enable=self.CP.pcmCruise and not self.mad_mode_enabled,
-      allow_enable=ret.cruiseState.available)
+    # C2 engagement model: keep the real PCM state and only accept engagement
+    # when the driver operates RES/SET/CANCEL or the cruise MAIN switch.
+    allow_enable = self.CS.cruise_buttons in (Buttons.RES_ACCEL, Buttons.SET_DECEL, Buttons.CANCEL) or \
+                   bool(self.CS.cruise_main_button)
+    events = self.create_common_events(ret, pcm_enable=self.CS.CP.pcmCruise, allow_enable=allow_enable)
 
     if self.CC.longcontrol and self.CS.cruise_unavail:
       events.add(EventName.brakeUnavailable)
@@ -388,12 +380,7 @@ class CarInterface(CarInterfaceBase):
 
     # handle button presses
     for b in ret.buttonEvents:
-      # CANCEL stops ACC and blocks automatic resume in CruiseHelper, while
-      # MAD mode keeps lateral control engaged. RES/SET explicitly engages.
-      if self.mad_mode_enabled:
-        if b.type in [ButtonType.accelCruise, ButtonType.decelCruise] and not b.pressed and ret.cruiseState.available:
-          events.add(EventName.buttonEnable)
-      elif self.CC.longcontrol and not self.CC.scc_live:
+      if self.CC.longcontrol and not self.CC.scc_live:
         # do enable on both accel and decel buttons
         if b.type in [ButtonType.accelCruise, ButtonType.decelCruise] and not b.pressed:
           events.add(EventName.buttonEnable)
