@@ -13,6 +13,14 @@ FORK_RIGHT = {6, 43, 73, 74, 101, 104, 111, 114, 117, 123, 124}
 ROTARY = set(range(131, 143))
 UTURN = {14}
 
+# carrot-wip route-curvature table. Sharp curves are finally clamped by
+# AutoCurveSpeedLowerLimit before being applied.
+MAP_CURVE_BP = [0.0, 1./800., 1./670., 1./560., 1./440., 1./360., 1./265.,
+                1./190., 1./135., 1./85., 1./55., 1./30., 1./25.]
+MAP_CURVE_SPEED_KPH = [300.0, 150.0, 120.0, 110.0, 100.0, 90.0, 80.0,
+                       70.0, 60.0, 50.0, 40.0, 15.0, 5.0]
+EARTH_RADIUS_M = 6371000.0
+
 
 def _number(value, default=-1.0):
   try:
@@ -41,7 +49,9 @@ class CarrotNaviAtc:
   @staticmethod
   def empty_state():
     return {"fresh": False, "kind": "none", "direction": 0,
-            "distance": -1.0, "turn_type": -1, "text": "", "next": None}
+            "distance": -1.0, "turn_type": -1, "text": "", "next": None,
+            "route_fresh": False, "route": None, "vehicle": None,
+            "road_limit_kph": 0.0}
 
   @classmethod
   def guidance_state(cls, guidance, fresh):
@@ -71,6 +81,18 @@ class CarrotNaviAtc:
         self.state = self.empty_state()
         return self.state
       self.state = self.guidance_state(root.get("guidance_current") or {}, True)
+      route_updated_at = stream_times.get("route", guidance_updated_at)
+      vehicle_updated_at = stream_times.get("vehicle", guidance_updated_at)
+      route_age = time.time() - _number(route_updated_at, 0.0) / 1000.0
+      vehicle_age = time.time() - _number(vehicle_updated_at, 0.0) / 1000.0
+      self.state["route_fresh"] = (-5.0 <= route_age <= STALE_TIMEOUT and
+                                   -5.0 <= vehicle_age <= STALE_TIMEOUT)
+      self.state["route"] = root.get("route")
+      self.state["vehicle"] = root.get("vehicle")
+      speed_state = root.get("speed") or {}
+      self.state["road_limit_kph"] = _number(_first(
+        speed_state, ("road_limit_kph", "limit_speed", "roadLimitKph",
+                      "section_speed_limit_kph", "sectionSpeedLimitKph")), 0.0)
 
       # c3-style look-ahead: longitudinal control may prepare for the maneuver
       # after the current one, but steering continues to use current guidance only.
@@ -105,6 +127,121 @@ class CarrotNaviAtc:
     if any(word in lower for word in ("우회전", "오른쪽", "right")):
       return ("fork" if any(word in lower for word in ("분기", "진출", "fork")) else "turn"), 1
     return "none", 0
+
+  @staticmethod
+  def _lat_lon(point):
+    if not isinstance(point, dict):
+      return None
+    lat = _number(_first(point, ("lat", "latitude", "y")), 0.0)
+    lon = _number(_first(point, ("lon", "lng", "longitude", "x")), 0.0)
+    if abs(lat) < 1e-6 or abs(lon) < 1e-6:
+      return None
+    return lat, lon
+
+  @staticmethod
+  def _interp(value, breakpoints, values):
+    if value <= breakpoints[0]:
+      return values[0]
+    for i in range(1, len(breakpoints)):
+      if value <= breakpoints[i]:
+        span = breakpoints[i] - breakpoints[i - 1]
+        ratio = (value - breakpoints[i - 1]) / span if span > 0.0 else 0.0
+        return values[i - 1] + ratio * (values[i] - values[i - 1])
+    return values[-1]
+
+  @classmethod
+  def map_curve_speed_kph(cls, state, v_ego_kph, speed_factor=0.9,
+                          lower_limit_kph=30.0, decel=1.2):
+    """Calculate carrot-wip-style general-road curve speed from Tmap polyline."""
+    if not isinstance(state, dict) or not state.get("route_fresh", False):
+      return None
+    route = state.get("route")
+    vehicle = cls._lat_lon(state.get("vehicle"))
+    if not isinstance(route, dict) or vehicle is None:
+      return None
+    raw_points = route.get("polyline")
+    if not isinstance(raw_points, list) or len(raw_points) < 9:
+      return None
+
+    lat0, lon0 = vehicle
+    cos_lat = max(0.1, math.cos(math.radians(lat0)))
+    points = []
+    for raw in raw_points:
+      point = cls._lat_lon(raw)
+      if point is not None:
+        lat, lon = point
+        x = math.radians(lon - lon0) * EARTH_RADIUS_M * cos_lat
+        y = math.radians(lat - lat0) * EARTH_RADIUS_M
+        points.append((x, y))
+    if len(points) < 9:
+      return None
+
+    nearest = min(range(len(points)), key=lambda i: points[i][0] ** 2 + points[i][1] ** 2)
+    points = points[nearest:]
+    if len(points) < 9:
+      return None
+
+    cumulative = [0.0]
+    for i in range(1, len(points)):
+      cumulative.append(cumulative[-1] + math.hypot(points[i][0] - points[i - 1][0],
+                                                    points[i][1] - points[i - 1][1]))
+      if cumulative[-1] >= 350.0:
+        points = points[:i + 1]
+        cumulative = cumulative[:i + 1]
+        break
+    if cumulative[-1] < 80.0:
+      return None
+
+    samples = []
+    segment = 1
+    distance = 0.0
+    while distance <= min(cumulative[-1], 300.0):
+      while segment < len(cumulative) and cumulative[segment] < distance:
+        segment += 1
+      if segment >= len(cumulative):
+        break
+      d0, d1 = cumulative[segment - 1], cumulative[segment]
+      ratio = (distance - d0) / (d1 - d0) if d1 > d0 else 0.0
+      p0, p1 = points[segment - 1], points[segment]
+      samples.append((p0[0] + ratio * (p1[0] - p0[0]),
+                      p0[1] + ratio * (p1[1] - p0[1])))
+      distance += 10.0
+    if len(samples) < 9:
+      return None
+
+    speeds = []
+    sample_gap = 4
+    road_limit = max(0.0, float(state.get("road_limit_kph", 0.0)))
+    for i in range(len(samples) - sample_gap * 2):
+      p1, p2, p3 = samples[i], samples[i + sample_gap], samples[i + sample_gap * 2]
+      v1 = (p2[0] - p1[0], p2[1] - p1[1])
+      v2 = (p3[0] - p2[0], p3[1] - p2[1])
+      len1, len2 = math.hypot(*v1), math.hypot(*v2)
+      curvature = 0.0 if len1 * len2 == 0.0 else \
+                  (v1[0] * v2[1] - v1[1] * v2[0]) / (len1 * len2 * len1)
+      speed = cls._interp(abs(curvature), MAP_CURVE_BP, MAP_CURVE_SPEED_KPH)
+      if abs(curvature) < 0.02 and road_limit > 0.0:
+        speed = max(speed, road_limit)
+      speeds.append(speed)
+    if not speeds:
+      return None
+
+    decel = max(0.1, min(3.0, float(decel)))
+    accel_kph = decel * 3.6
+    output = [0.0] * len(speeds)
+    output[-1] = speeds[-1]
+    wait_time = 0.0
+    for i in range(len(speeds) - 2, -1, -1):
+      target = speeds[i]
+      next_speed = output[i + 1]
+      if target < next_speed:
+        wait_time = -(max(0.0, float(v_ego_kph) - target) / accel_kph)
+      interval = 10.0 / (next_speed / 3.6) if next_speed > 0.0 else 0.0
+      apply_time = min(interval, max(0.0, interval + wait_time))
+      output[i] = min(target, next_speed + accel_kph * apply_time)
+      wait_time += min(2.0, interval)
+
+    return max(float(lower_limit_kph), output[0] * float(speed_factor))
 
   @staticmethod
   def steering_request(state, v_ego):
