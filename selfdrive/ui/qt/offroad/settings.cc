@@ -2411,6 +2411,11 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "가속페달 해제 자동재개 시 크루즈 가능 상태와 주행 안전조건을 확인합니다.",
       "../assets/offroad/icon_road.png", this));
 
+  list->addItem(new ParamControl(
+      "SccSmootherSyncGasPressed", "가속페달 설정속도 동기화",
+      "가속페달로 설정속도보다 빠르게 주행하면 현재 차량속도에 맞춰 크루즈 설정속도를 올립니다.",
+      "../assets/offroad/icon_road.png", this));
+
   list->addItem(new ParamValueControlF(
       "AutoResumeFromGas", "가속페달 오토리줌 모드",
       "0: 끔 / 1: 조건 충족 중 재개 / 2: 조건 충족 및 0.4초 미만 짧은 가속 후 재개",
