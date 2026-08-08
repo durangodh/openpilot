@@ -2,7 +2,6 @@ import copy
 
 import crcmod
 from selfdrive.car.hyundai.values import CAR, CHECKSUM, FEATURES, EV_HYBRID_CAR
-from selfdrive.controls.lib.low_speed_long import suppress_low_speed_scc_alerts
 
 hyundai_checksum = crcmod.mkCrcFun(0x11D, initCrc=0xFD, rev=False, xorOut=0xdf)
 
@@ -145,11 +144,6 @@ def create_scc11(packer, frame, enabled, set_speed, lead_visible, scc_live, scc1
     # forced low-speed request when the road is actually clear.
     values["ObjValid"] = 1 if enabled and (lead_visible or not force_long) else 0
 #  values["ACC_ObjStatus"] = lead_visible
-
-  # Match apilot C2's cluster behavior for the brief explicit low-speed
-  # engagement request. Normal SCC status and all fault/AEB fields remain
-  # untouched before and after this request window.
-  suppress_low_speed_scc_alerts(values, force_long)
 
   return packer.make_can_msg("SCC11", 0, values)
 
