@@ -545,7 +545,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const QColor turn_icon_color = atc_available
       ? QColor(0, 220, 80, atc_blink_on ? 255 : 70)
       : QColor(255, 255, 255, 255);
-  p.setPen(QPen(QColor(0, 0, 0, 220), std::max(1, qRound(ui_scale))));
+  p.setPen(QPen(QColor(255, 255, 255, 230), std::max(2, qRound(2 * ui_scale))));
   p.setBrush(turn_fill);
   p.drawRoundedRect(turn_card, qRound(12 * ui_scale), qRound(12 * ui_scale));
 
