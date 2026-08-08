@@ -298,16 +298,16 @@ class CruiseHelper:
     self.update_cruise_speed(controls, CS, longcontrol)
     self.sync_physical_gap(CS)
 
-    # C2 CANCEL latch: pause longitudinal only and require an explicit RES/SET
-    # before automatic SCC resume is allowed again.
+    # MAD mode CANCEL latch: pause longitudinal only and require an explicit
+    # RES/SET before automatic SCC resume is allowed again.
     if any(event.type == ButtonType.cancel and not event.pressed for event in CS.buttonEvents):
       self._pause_longitudinal(controls, user_cancel=True)
       self.button_count = 0
       self.button_long_pressed = False
       return
 
-    # C2 processes RES/SET while controlsd is enabled even when stock ACC is
-    # temporarily inactive (brake/cancel/standstill).
+    # RES/SET controls longitudinal activation while lateral control remains
+    # engaged, including after brake/cancel/standstill.
     if not controls.enabled:
       self.button_count = 0
       self.button_long_pressed = False
