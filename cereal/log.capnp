@@ -898,6 +898,7 @@ struct LongitudinalPlan @0xe00b5b3eba12876c {
   shouldStop @61 :Bool;          # planner-owned stopping decision
   vTargetNow @62 :Float32;       # current velocity target for longitudinal PID
   jTargetNow @63 :Float32;       # current jerk target for logging/controller output
+  xState @64 :XState;
 
   distToTurn @43 :Float32;
   turnSpeed @44 :Float32;
@@ -913,6 +914,15 @@ struct LongitudinalPlan @0xe00b5b3eba12876c {
   onStop @54 : Bool;
   visionCurrentLatAcc @55 :Float32;
   visionMaxPredLatAcc @56 :Float32;
+
+  enum XState {
+    lead @0;
+    cruise @1;
+    e2eCruise @2;
+    e2eStop @3;
+    softHold @4;
+    e2eCruisePrepare @5;
+  }
 
   enum LongitudinalPlanSource {
     cruise @0;
