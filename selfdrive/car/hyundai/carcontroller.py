@@ -229,15 +229,16 @@ class CarController:
       self.soft_hold_mode = int(clip(self.op_params.get_int("SoftHoldMode"), 0, 2))
     soft_hold = bool(hud_control.softHold)
     soft_hold_scc = soft_hold and self.soft_hold_mode == 2
-    long_stopping = controls.LoC.long_control_state == LongCtrlState.stopping
-    stopping = long_stopping or soft_hold
+    stopping = controls.LoC.long_control_state == LongCtrlState.stopping
+    jerk_stopping = stopping or soft_hold
+    scc_standstill = stopping or soft_hold_scc
 
     # aPilot C2 SCC jerk bounds. Fixed 5.0 bounds let acceleration and
     # braking requests change too abruptly, especially at low speed.
     planned_jerk = float(actuators.jerk)
     if actuators.longControlState == LongCtrlState.off:
       jerk_upper = jerk_lower = 5.0
-    elif stopping:
+    elif jerk_stopping:
       jerk_upper = 0.5
       jerk_lower = 5.0
     else:
@@ -290,21 +291,21 @@ class CarController:
 
         can_sends.append(create_scc12(self.packer, apply_accel, CC.enabled, self.scc12_cnt, self.scc_live, CS.scc12,
                                       CS.out.gasPressed, CS.out.brakePressed and not soft_hold_scc,
-                                      stopping and CS.out.vEgo < 2.,
+                                      scc_standstill and CS.out.vEgo < 2.,
                                       self.car_fingerprint))
 
         can_sends.append(create_scc11(self.packer, self.frame, CC.enabled, set_speed, hud_control.leadVisible, self.scc_live, CS.scc11,
-                       controls.cruise_helper.active_cam, stock_cam, soft_hold=soft_hold))
+                       controls.cruise_helper.active_cam, stock_cam, soft_hold=soft_hold and CC.longActive))
 
         if self.frame % 20 == 0 and CS.has_scc13:
           can_sends.append(create_scc13(self.packer, CS.scc13))
 
         if CS.has_scc14:
-          acc_standstill = stopping if CS.out.vEgo < 2. else False
+          acc_standstill = scc_standstill if CS.out.vEgo < 2. else False
 
           # apilot-c2 comfort bands: keep the SCC brake-to-accel handoff in
           # the normal control range instead of switching from 0 to 50.
-          if stopping:
+          if jerk_stopping:
             cb_upper = cb_lower = 0.0
           else:
             cb_upper = clip(0.9 + apply_accel * 0.2, 0.0, 1.2)
