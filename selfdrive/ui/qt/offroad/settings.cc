@@ -2178,12 +2178,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   }
 
   toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new ParamControl("SccSmootherSlowOnCurves",
-                                            "SCC기반 커브감속",
-                                            "",
-                                            "../assets/offroad/icon_road.png",
-                                            this));
-  toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("TurnVisionControl",
                                            "비젼기반 커브감속",
                                            "Use vision path predictions to estimate the appropiate speed to drive through turns ahead.",
