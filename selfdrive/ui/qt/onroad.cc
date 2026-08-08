@@ -223,12 +223,26 @@ void OnroadWindow::paintEvent(QPaintEvent *event) {
     p.fillRect(QRect(width() - bdr_s, 0, bdr_s, height()), bsd_color);
   }
 
-  constexpr int steer_marker_width = 120;
+  constexpr int steer_axis_width = 8;
   const float steer = std::clamp(steering_angle_deg, -90.0f, 90.0f);
   const float center_x = width() / 2.0f;
-  const int steer_x = std::clamp((int)(center_x - center_x * steer / 90.0f) - steer_marker_width / 2,
-                                 0, width() - steer_marker_width);
-  p.fillRect(QRect(steer_x, 0, steer_marker_width, bdr_s), QColor(0, 220, 80));
+  const float steer_end_x = std::clamp(center_x - center_x * steer / 90.0f, 0.0f, (float)width());
+  const QColor steer_orange(255, 145, 40);
+
+  if (std::abs(steer) > 0.1f) {
+    QColor faded_orange = steer_orange;
+    faded_orange.setAlpha(20);
+
+    // Keep the center vivid and fade toward the steering direction.
+    QLinearGradient steer_gradient(center_x, 0.0f, steer_end_x, 0.0f);
+    steer_gradient.setColorAt(0.0, steer_orange);
+    steer_gradient.setColorAt(1.0, faded_orange);
+    p.fillRect(QRectF(std::min(center_x, steer_end_x), 0.0f,
+                      std::abs(steer_end_x - center_x), bdr_s), steer_gradient);
+  }
+
+  // Fixed center axis makes the neutral point visible at every steering angle.
+  p.fillRect(QRectF(center_x - steer_axis_width / 2.0f, 0.0f, steer_axis_width, bdr_s), steer_orange);
 }
 
 // ***** onroad widgets *****
