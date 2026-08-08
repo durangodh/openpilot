@@ -120,9 +120,10 @@ class LatControlTorque(LatControl):
       self.torque_params.friction = safe_friction
 
       # 이전 학습에서 범위를 벗어난 값은 한 번 보정해 UI와 다음 부팅에도 반영한다.
-      if abs(raw_factor - safe_factor) > 1e-6:
+      # Params는 0.001 단위 정수이므로 반 단위 이내의 반올림 차이는 다시 쓰지 않는다.
+      if abs(raw_factor - safe_factor) > 0.00051:
         self.params.put("LateralTorqueAccelFactor", str(int(round(safe_factor * 1000))))
-      if abs(raw_friction - safe_friction) > 1e-6:
+      if abs(raw_friction - safe_friction) > 0.00051:
         self.params.put("LateralTorqueFriction", str(int(round(safe_friction * 1000))))
     elif self.lateral_torque_custom > 0 or force:
       # 커스텀을 끄면 차량 기본값으로 복귀
