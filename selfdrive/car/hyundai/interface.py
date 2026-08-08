@@ -380,6 +380,12 @@ class CarInterface(CarInterfaceBase):
 
     # handle button presses
     for b in ret.buttonEvents:
+      # Explicitly engage lateral control when cruise MAIN is switched on.
+      # This also covers startup with SCC already live, where the PCM rising
+      # edge can be consumed before controlsd starts.
+      if b.type == ButtonType.altButton3 and b.pressed and ret.cruiseState.available:
+        events.add(EventName.buttonEnable)
+
       if self.CC.longcontrol and not self.CC.scc_live:
         # do enable on both accel and decel buttons
         if b.type in [ButtonType.accelCruise, ButtonType.decelCruise] and not b.pressed:
