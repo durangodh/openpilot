@@ -8,7 +8,6 @@ from selfdrive.car.hyundai.hyundaican import create_lkas11, create_clu11, \
   create_scc11, create_scc12, create_scc13, create_scc14, \
   create_mdps12, create_lfahda_mfc, create_hda_mfc
 from selfdrive.car.hyundai.scc_smoother import SccSmoother
-from selfdrive.controls.lib.low_speed_long import LowSpeedLongEngage
 from selfdrive.car.hyundai.values import Buttons, CAR, FEATURES, CarControllerParams
 from opendbc.can.packer import CANPacker
 from common.conversions import Conversions as CV
@@ -72,7 +71,6 @@ class CarController:
     self.op_params = param
 
     self.scc_smoother = SccSmoother()
-    self.low_speed_long_engage = LowSpeedLongEngage()
     self.soft_hold_mode = int(clip(param.get_int("SoftHoldMode"), 0, 2))
     self.last_blinker_frame = 0
     self.prev_active_cam = False
@@ -246,30 +244,15 @@ class CarController:
       jerk_upper = float(clip(planned_jerk * 2.0, 0.5, 5.0))
       jerk_lower = float(clip(-planned_jerk * 2.0, 1.0, 5.0))
 
-    # Hyundai stock SCC rejects a leadless SET request below 30 km/h. For a
-    # physical SET/RES press or a guarded aPilot-style auto-resume request,
-    # briefly send the openpilot long SCC command path so ACCMode can activate.
-    # A leadless request is blocked below 2 km/h to prevent an unintended
-    # launch from standstill.
-    physical_request = CS.cruise_buttons in (Buttons.RES_ACCEL, Buttons.SET_DECEL)
-    auto_resume_request = controls.cruise_helper.auto_resume_request
-    request_pressed = physical_request or auto_resume_request
-    direct_long_available = (self.longcontrol and CC.enabled and CS.out.cruiseState.available and
-                             (CS.scc_bus or not self.scc_live))
-    low_speed_engage_request = self.low_speed_long_engage.update(
-      direct_long_available, request_pressed, CS.out.brakePressed, CS.out.vEgo,
-      hud_control.leadVisible, DT_CTRL)
-
-    # send scc to car if longcontrol enabled and SCC not on bus 0 or ont live
-    soft_hold_command = soft_hold and CC.enabled and (not CS.out.brakePressed or soft_hold_scc)
-    if self.longcontrol and (CS.cruiseState_enabled or low_speed_engage_request or soft_hold_command) and (CS.scc_bus or not self.scc_live):
+    # aPilot C2 sends the longitudinal SCC messages continuously while
+    # openpilot longitudinal control is configured; CC.enabled/longActive
+    # determine whether the payload requests actuation.
+    if self.longcontrol and (CS.scc_bus or not self.scc_live):
 
       if self.frame % 2 == 0:
 
         set_speed = hud_control.setSpeed
         min_set_speed = controls.cruise_helper.cruise_speed_min * CV.KPH_TO_MS
-        if low_speed_engage_request and auto_resume_request:
-          set_speed = controls.cruise_helper.auto_resume_set_speed_kph * CV.KPH_TO_MS
         if not (min_set_speed < set_speed < 255 * CV.KPH_TO_MS):
           set_speed = max(CS.out.vEgo, min_set_speed)
         set_speed *= CV.MS_TO_MPH if CS.is_set_speed_in_mph else CV.MS_TO_KPH
@@ -308,11 +291,11 @@ class CarController:
         can_sends.append(create_scc12(self.packer, apply_accel, CC.enabled, self.scc12_cnt, self.scc_live, CS.scc12,
                                       CS.out.gasPressed, CS.out.brakePressed and not soft_hold_scc,
                                       stopping and CS.out.vEgo < 2.,
-                                      self.car_fingerprint, force_long=low_speed_engage_request))
+                                      self.car_fingerprint))
 
         can_sends.append(create_scc11(self.packer, self.frame, CC.enabled, set_speed, hud_control.leadVisible, self.scc_live, CS.scc11,
                        controls.cruise_helper.active_cam, stock_cam, soft_hold=soft_hold,
-                       force_long=low_speed_engage_request))
+                       force_long=False))
 
         if self.frame % 20 == 0 and CS.has_scc13:
           can_sends.append(create_scc13(self.packer, CS.scc13))
