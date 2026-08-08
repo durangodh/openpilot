@@ -573,16 +573,14 @@ void AutoTunerGraphWidget::mousePressEvent(QMouseEvent *event) {
   update();
 }
 
-// Show-All(전체) 뷰에서 제외할 대규모 스케일 파라미터 판정 (commit e06a7dd 21f7994a)
-// 조향계열(OffsetTotal/latAccelFactor/friction/steerActuatorDelay)은 값이 작아 같이
-// 그리면 바닥에 깔리므로, 대규모(TFollowGap/Turn*)는 개별 선택 시에만 표시.
-// Turn*(TurnEnteringDecel/TurnTurningAcc/TurnLeavingAcc)도 x100 정수 저장이라
-// TFollowGap과 동일한 스케일(-30~200) — 빠뜨리면 소규모 nTune
-// 파라미터들이 Show-All에서 바닥에 깔린다.
-static bool isLargeScaleParam(const QString &param) {
-  return param.startsWith("TFollowGap") ||
-         param.startsWith("TurnEnteringDecel") || param.startsWith("TurnTurningAcc") ||
-         param == "TurnLeavingAcc";
+static bool isSteeringLearningParam(const QString &param) {
+  return param == "OffsetTotal" || param == "latAccelFactor" ||
+         param == "friction" || param == "steerActuatorDelay" ||
+         param == "steerRatio";
+}
+
+static bool isLargeScaleParam(const QString &) {
+  return false;
 }
 
 void AutoTunerGraphWidget::paintEvent(QPaintEvent *event) {
@@ -926,25 +924,13 @@ AutoTunerHistoryPanel::AutoTunerHistoryPanel(QWidget* parent) : QFrame(parent) {
   main_layout->addLayout(left_layout);
   main_layout->addLayout(right_layout, 1);
 
-  // 파라미터별 고정 색상 (포팅판 학습 대상에 맞춤)
+  // Steering-learning parameter colors.
   param_colors.clear();
-  param_colors["TFollowGap1"] = QColor("#06b6d4");     // Cyan
-  param_colors["TFollowGap2"] = QColor("#14b8a6");     // Teal
-  param_colors["TFollowGap3"] = QColor("#ffffff");     // White
-  param_colors["TFollowGap4"] = QColor("#a855f7");     // Purple
-  param_colors["OffsetTotal"] = QColor("#e879f9");      // Light Magenta
-  param_colors["latAccelFactor"] = QColor("#f59e0b");  // Amber (토크)
-  param_colors["friction"] = QColor("#f43f5e");        // Rose (토크)
-  param_colors["steerActuatorDelay"] = QColor("#fb923c"); // Orange (조향 지연)
-  // 곡선(Curve) 그룹: Entering=Green 계열, Turning=Yellow 계열, Leaving=단독 Teal
-  param_colors["TurnEnteringDecel0"] = QColor("#22c55e"); // Green
-  param_colors["TurnEnteringDecel1"] = QColor("#16a34a"); // Dark Green
-  param_colors["TurnTurningAcc0"] = QColor("#eab308");    // Yellow
-  param_colors["TurnTurningAcc1"] = QColor("#facc15");    // Light Yellow
-  param_colors["TurnTurningAcc2"] = QColor("#fde047");    // Pale Yellow
-  param_colors["TurnTurningAcc3"] = QColor("#ca8a04");    // Dark Yellow
-  param_colors["TurnTurningAcc4"] = QColor("#a16207");    // Brown Yellow
-  param_colors["TurnLeavingAcc"] = QColor("#2dd4bf");     // Teal
+  param_colors["OffsetTotal"] = QColor("#e879f9");
+  param_colors["latAccelFactor"] = QColor("#f59e0b");
+  param_colors["friction"] = QColor("#f43f5e");
+  param_colors["steerActuatorDelay"] = QColor("#fb923c");
+  param_colors["steerRatio"] = QColor("#60a5fa");
 
   refreshHistory();
 }
@@ -993,6 +979,7 @@ void AutoTunerHistoryPanel::refreshHistory() {
     for (const QString& group : changes.keys()) {
       QJsonObject g_items = changes[group].toObject();
       for (const QString& key : g_items.keys()) {
+        if (!isSteeringLearningParam(key)) continue;
         param_set.insert(key);
         if (!group_params[group].contains(key)) {
           group_params[group].append(key);
@@ -1453,6 +1440,7 @@ void AutoTunerCardListDialog::restoreItem(const QString& id) {
         for (const QString& group : changes.keys()) {
           QJsonObject g_items = changes[group].toObject();
           for (const QString& key : g_items.keys()) {
+            if (!isSteeringLearningParam(key)) continue;
             QJsonObject info = g_items[key].toObject();
             // 적용 전 'current' 값으로 원복 (ntune / float / int 구분)
             if (info["ntune"].toString() == "torque") {
