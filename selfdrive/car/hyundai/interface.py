@@ -299,7 +299,7 @@ class CarInterface(CarInterfaceBase):
     ret.hasLfaHda = 1157 in fingerprint[0]
 
     ret.radarOffCan = ret.sccBus == -1
-    ret.pcmCruise = not ret.radarOffCan
+    ret.pcmCruise = not ret.openpilotLongitudinalControl
 
     if ret.radarOffCan or ret.mdpsBus == 1 or ret.openpilotLongitudinalControl or ret.sccBus == 1:
       ret.safetyConfigs = [get_safety_config(car.CarParams.SafetyModel.hyundaiCommunity, 0)]
@@ -375,7 +375,7 @@ class CarInterface(CarInterfaceBase):
 
     # handle button presses
     for b in ret.buttonEvents:
-      if self.CC.longcontrol and not self.CC.scc_live:
+      if self.CC.longcontrol:
         # do enable on both accel and decel buttons
         if b.type in [ButtonType.accelCruise, ButtonType.decelCruise] and not b.pressed:
           events.add(EventName.buttonEnable)
