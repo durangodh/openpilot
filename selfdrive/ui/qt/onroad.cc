@@ -83,6 +83,17 @@ void OnroadWindow::updateState(const UIState &s) {
   // Keep NvgWindow state in sync with carState (including blind-spot signals).
   nvg->updateState(s);
 
+#ifdef ENABLE_MAPS
+  if (!mapbox_param_initialized || s.sm->frame % UI_FREQ == 0) {
+    const bool enabled = params.getBool("ShowMapboxMap");
+    if (!mapbox_param_initialized || enabled != mapbox_enabled) {
+      mapbox_enabled = enabled;
+      mapbox_param_initialized = true;
+      if (map != nullptr) static_cast<MapWindow *>(map)->setMapEnabled(mapbox_enabled);
+    }
+  }
+#endif
+
   const auto car_state = (*s.sm)["carState"].getCarState();
   brake_lights = car_state.getBrakeLights();
   left_blindspot = car_state.getLeftBlindspot();
@@ -162,7 +173,7 @@ void OnroadWindow::mouseReleaseEvent(QMouseEvent* e) {
       return;
     }
 
-  if (map != nullptr) {
+  if (map != nullptr && mapbox_enabled) {
     bool sidebarVisible = geometry().x() > 0;
     map->setVisible(!sidebarVisible && !map->isVisible());
   }
@@ -190,6 +201,9 @@ void OnroadWindow::offroadTransition(bool offroad) {
 
       // Make map visible after adding to split
       m->offroadTransition(offroad);
+      mapbox_enabled = params.getBool("ShowMapboxMap");
+      mapbox_param_initialized = true;
+      m->setMapEnabled(mapbox_enabled);
     }
   }
 #endif

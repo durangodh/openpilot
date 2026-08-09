@@ -242,6 +242,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"PrevCruiseGap", PERSISTENT},              // 마지막 소프트웨어 크루즈 갭 1~4
     {"ShowGearAnimation", PERSISTENT},
     {"ShowCarrotHud", PERSISTENT},              // 1=좌측 carrot HUD 박스 표시, 0=숨김
+    {"ShowMapboxMap", PERSISTENT},              // 1=우측 Mapbox 지도 표시, 0=렌더링 정지 및 숨김
     {"ShowDateTime", PERSISTENT},               // 0=끔, 1=시간+날짜, 2=시간, 3=날짜
     {"ShowPathWidth", PERSISTENT},               // 경로 반폭 cm (90=0.90m)
     {"ShowPathStatusColor", PERSISTENT},         // 가감속 상태에 따른 경로 색상

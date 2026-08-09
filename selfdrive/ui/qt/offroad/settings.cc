@@ -1587,6 +1587,10 @@ UISettingsPanel::UISettingsPanel(QWidget* parent) : QWidget(parent) {
       "켜짐: 속도·크루즈·GAP·기어·주행모드·제한속도 HUD를 표시합니다.",
       "../assets/offroad/icon_road.png", this));
   list->addItem(new ParamControl(
+      "ShowMapboxMap", "우측 Mapbox 지도 표시",
+      "켜짐: 우측 Mapbox 지도를 표시합니다. / 꺼짐: 지도를 즉시 숨기고 렌더링을 중단합니다. 티맵 방향·거리·카메라 감속 기능은 유지됩니다.",
+      "../assets/offroad/icon_road.png", this));
+  list->addItem(new ParamControl(
       "ShowGearAnimation", "기어 팝업 애니메이션",
       "켜짐: 변속단이 바뀔 때 중앙 팝업 애니메이션을 표시합니다.",
       "../assets/offroad/icon_road.png", this));

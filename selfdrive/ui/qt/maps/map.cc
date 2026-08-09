@@ -63,6 +63,23 @@ MapWindow::~MapWindow() {
   makeCurrent();
 }
 
+void MapWindow::setMapEnabled(bool enabled) {
+  if (map_enabled == enabled) return;
+
+  map_enabled = enabled;
+  if (enabled) {
+    setUpdatesEnabled(true);
+    if (!timer->isActive()) timer->start(50);
+    setVisible(visible_before_disable);
+    if (visible_before_disable) update();
+  } else {
+    visible_before_disable = isVisible();
+    timer->stop();
+    setVisible(false);
+    setUpdatesEnabled(false);
+  }
+}
+
 void MapWindow::initLayers() {
   // This doesn't work from initializeGL
   if (!m_map->layerExists("modelPathLayer")) {
@@ -327,7 +344,8 @@ void MapWindow::offroadTransition(bool offroad) {
     clearRoute();
   } else {
     auto dest = coordinate_from_param("NavDestination");
-    setVisible(dest.has_value());
+    visible_before_disable = dest.has_value();
+    setVisible(map_enabled && visible_before_disable);
   }
   last_bearing = {};
 }

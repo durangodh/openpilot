@@ -71,6 +71,7 @@ class MapWindow : public QOpenGLWidget {
 public:
   MapWindow(const QMapboxGLSettings &);
   ~MapWindow();
+  void setMapEnabled(bool enabled);
 
 private:
   void initializeGL() final;
@@ -96,6 +97,8 @@ private:
 
   bool loaded_once = false;
   bool allow_open = true;
+  bool map_enabled = true;
+  bool visible_before_disable = false;
 
   // Panning
   QPointF m_lastPos;
@@ -125,4 +128,3 @@ signals:
   void instructionsChanged(cereal::NavInstruction::Reader instruction);
   void ETAChanged(float seconds, float seconds_typical, float distance);
 };
-

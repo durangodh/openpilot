@@ -171,6 +171,8 @@ private:
   float steering_angle_deg = 0.0f;
   QWidget *map = nullptr;
   QHBoxLayout *split;
+  bool mapbox_enabled = true;
+  bool mapbox_param_initialized = false;
 
   // neokii
   ScreenRecoder *recorder;
