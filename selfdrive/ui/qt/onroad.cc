@@ -1117,8 +1117,11 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     } else if (active >= 2) {
       ctRect(p, nda_box, CT_GREEN, 15, 2);
       ctTextIn(p, nda_box, "HDA", 40, CT_WHITE);
+    } else if (active > 0) {
+      ctRect(p, nda_box, CT_GREEN, 15, 2);
+      ctTextIn(p, nda_box, "NDA", 40, CT_WHITE);
     } else {
-      ctRect(p, nda_box, CT_BLUE_A(210), 15, 2);
+      ctRect(p, nda_box, CT_RED_A(210), 15, 2);
       ctTextIn(p, nda_box, "NDA", 40, CT_WHITE);
     }
   }
