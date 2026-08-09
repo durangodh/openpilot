@@ -119,6 +119,7 @@ class Controls:
 
     # read params
     self.is_metric = params.get_bool("IsMetric")
+    self.mad_mode_enabled = params.get_bool("MadModeEnabled")
     self.cruise_helper = CruiseHelper(params)
     self.is_ldw_enabled = params.get_bool("IsLdwEnabled")
     openpilot_enabled_toggle = params.get_bool("OpenpilotEnabledToggle")
@@ -258,6 +259,11 @@ class Controls:
     resume_pressed = any(be.type in (ButtonType.accelCruise, ButtonType.resumeCruise) for be in CS.buttonEvents)
     if not self.CP.pcmCruise and self.v_cruise_kph == V_CRUISE_INITIAL and resume_pressed:
       self.events.add(EventName.resumeBlocked)
+
+    if not self.mad_mode_enabled:
+      if (CS.gasPressed and not self.CS_prev.gasPressed and self.disengage_on_accelerator) or \
+         (CS.brakePressed and (not self.CS_prev.brakePressed or not CS.standstill)):
+        self.events.add(EventName.pedalPressed)
 
     if CS.gasPressed:
       self.events.add(EventName.pedalPressedPreEnable if self.disengage_on_accelerator else
