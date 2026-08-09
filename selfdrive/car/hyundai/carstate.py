@@ -127,13 +127,6 @@ class CarState(CarStateBase):
 
     ret.steerFaultTemporary = self.mdps_error_cnt > 50
 
-    # Match aPilot C2 behavior for the Genesis DH. Its MDPS can keep
-    # CF_Mdps_ToiUnavail asserted after the high-angle protection pulse,
-    # which otherwise leaves lateral control disabled until an ignition cycle.
-    # Keep the existing fault handling on every other Hyundai platform.
-    if self.CP.carFingerprint == CAR.GENESIS:
-      ret.steerFaultTemporary = False
-
     if self.CP.enableAutoHold:
       ret.autoHold = cp.vl["ESP11"]["AVH_STAT"]
 
