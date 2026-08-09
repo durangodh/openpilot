@@ -384,14 +384,16 @@ class CarInterface(CarInterfaceBase):
       # lateral control engaged. Cruise MAIN off still fully disengages through
       # the existing pcmDisable event generated from cruiseState.available.
 
-      if self.CC.longcontrol and not self.CC.scc_live:
-        # do enable on both accel and decel buttons
-        if b.type in [ButtonType.accelCruise, ButtonType.decelCruise] and not b.pressed:
+      if self.CC.longcontrol:
+        # MAD mode must allow RES/SET to engage controls while stock SCC is live.
+        if (not self.CC.scc_live or self.CC.mad_mode_enabled) and \
+           b.type in [ButtonType.accelCruise, ButtonType.decelCruise] and not b.pressed:
           events.add(EventName.buttonEnable)
-        if EventName.wrongCarMode in events.events:
-          events.events.remove(EventName.wrongCarMode)
-        if EventName.pcmDisable in events.events:
-          events.events.remove(EventName.pcmDisable)
+        if not self.CC.scc_live:
+          if EventName.wrongCarMode in events.events:
+            events.events.remove(EventName.wrongCarMode)
+          if EventName.pcmDisable in events.events:
+            events.events.remove(EventName.pcmDisable)
       elif not self.CC.longcontrol and ret.cruiseState.enabled:
         # do enable on decel button only
         if b.type == ButtonType.decelCruise and not b.pressed:
