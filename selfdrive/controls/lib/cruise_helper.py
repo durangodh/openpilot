@@ -475,7 +475,7 @@ class CruiseHelper:
 
     self.map_curve_speed_kph = 250.0
     if self.turn_vision_control:
-      map_speed = self.carrot_atc.map_curve_speed_kph(
+      map_speed = self.carrot_atc.cached_map_curve_speed_kph(
         navi_state, CS.out.vEgo * CV.MS_TO_KPH,
         self.map_turn_speed_factor, self.auto_curve_speed_lower_limit,
         self.auto_navi_speed_decel_rate)

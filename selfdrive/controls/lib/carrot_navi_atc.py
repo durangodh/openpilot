@@ -5,6 +5,7 @@ import time
 
 STATE_FILE = "/dev/shm/carrot_navi_route.json"
 STALE_TIMEOUT = 3.0
+MAP_CURVE_UPDATE_INTERVAL = 0.20
 
 TURN_LEFT = {12, 16}
 TURN_RIGHT = {13, 19}
@@ -45,6 +46,8 @@ class CarrotNaviAtc:
     self.state_file = state_file
     self.last_read = 0.0
     self.state = self.empty_state()
+    self.last_map_curve_calc = -MAP_CURVE_UPDATE_INTERVAL
+    self.map_curve_speed_cache = None
 
   @staticmethod
   def empty_state():
@@ -243,6 +246,18 @@ class CarrotNaviAtc:
 
     return max(float(lower_limit_kph), output[0] * float(speed_factor))
 
+  def cached_map_curve_speed_kph(self, state, v_ego_kph, speed_factor=0.9,
+                                 lower_limit_kph=30.0, decel=1.2, now=None):
+    """Run the route-polyline calculation at most 5 Hz and reuse its result."""
+    now = time.monotonic() if now is None else float(now)
+    if now - self.last_map_curve_calc < MAP_CURVE_UPDATE_INTERVAL:
+      return self.map_curve_speed_cache
+
+    self.last_map_curve_calc = now
+    self.map_curve_speed_cache = self.map_curve_speed_kph(
+      state, v_ego_kph, speed_factor, lower_limit_kph, decel)
+    return self.map_curve_speed_cache
+
   @staticmethod
   def steering_request(state, v_ego):
     if not state["fresh"] or state["kind"] not in ("turn", "uturn"):
@@ -332,4 +347,3 @@ class AtcForkLaneChangeController:
         self.lane_open_count < self.CONFIRM_FRAMES or distance > action_distance):
       return 0
     return 1
-

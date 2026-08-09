@@ -22,6 +22,26 @@ def test_stale_next_maneuver_has_no_speed_limit():
   assert next_limit is None
 
 
+def test_map_curve_speed_calculation_is_cached_at_5hz():
+  class CountingNavi(CarrotNaviAtc):
+    def __init__(self):
+      super().__init__()
+      self.calls = 0
+
+    def map_curve_speed_kph(self, *_args, **_kwargs):
+      self.calls += 1
+      return 40.0 + self.calls
+
+  navi = CountingNavi()
+
+  assert navi.cached_map_curve_speed_kph({}, 60.0, now=0.0) == 41.0
+  assert navi.cached_map_curve_speed_kph({}, 60.0, now=0.10) == 41.0
+  assert navi.calls == 1
+
+  assert navi.cached_map_curve_speed_kph({}, 60.0, now=0.21) == 42.0
+  assert navi.calls == 2
+
+
 def fork_state(distance=300.0, direction=1, turn_type=6, text="right exit"):
   return {"fresh": True, "kind": "fork", "direction": direction,
           "distance": distance, "turn_type": turn_type, "text": text}
