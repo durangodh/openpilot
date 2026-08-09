@@ -301,8 +301,9 @@ class CarInterface(CarInterfaceBase):
     ret.radarOffCan = ret.sccBus == -1
     ret.pcmCruise = not ret.radarOffCan
 
-    if ret.radarOffCan or ret.mdpsBus == 1 or ret.openpilotLongitudinalControl or ret.sccBus == 1 or Params().get_bool('MadModeEnabled'):
-      ret.safetyConfigs = [get_safety_config(car.CarParams.SafetyModel.hyundaiCommunity, 0)]
+    # apilot-c2 engagement: lateral control is always available from the cruise
+    # MAIN switch, so community safety must always be active for this model.
+    ret.safetyConfigs = [get_safety_config(car.CarParams.SafetyModel.hyundaiCommunity, 0)]
     return ret
 
   def _update(self, c: car.CarControl) -> car.CarState:
@@ -322,10 +323,9 @@ class CarInterface(CarInterfaceBase):
     elif self.CC.scc_live and not self.CP.pcmCruise:
       self.CP.pcmCruise = True
 
-    # NOTE: do not force ret.cruiseState.enabled = ret.cruiseState.available here.
-    # Forcing it removes the pcmEnable rising edge, so once controlsd disengages
-    # it can never re-engage (rlog 2026-08-09: RES/SET x29 ignored, no alerts).
-    # MAD engagement is handled through buttonEnable events below instead.
+    # apilot-c2 engagement model: do NOT touch ret.cruiseState.enabled here.
+    # It stays the raw stock SCC state; engagement is driven by the MAIN switch
+    # edge override applied after create_common_events() below.
 
     # turning indicator alert logic
     t = time.monotonic()
@@ -372,6 +372,20 @@ class CarInterface(CarInterfaceBase):
 
     events = self.create_common_events(ret)
 
+    # ---- apilot-c2 engagement model (ajouatom/openpilot apilot-c2) ----
+    # Engage on the cruise MAIN switch rising edge; disengage only when MAIN
+    # turns off. Stock SCC enable/disable (brake, cancel, RES/SET) only moves
+    # the longitudinal state in CruiseHelper and never drops lateral control.
+    # This replaces the enabled-edge pcmEnable/pcmDisable from common events.
+    if EventName.pcmEnable in events.events:
+      events.events.remove(EventName.pcmEnable)
+    if EventName.pcmDisable in events.events:
+      events.events.remove(EventName.pcmDisable)
+    if ret.cruiseState.available and not self.CS.out.cruiseState.available:
+      events.add(EventName.pcmEnable)
+    elif not ret.cruiseState.available:
+      events.add(EventName.pcmDisable)
+
     if self.CC.longcontrol and self.CS.cruise_unavail:
       events.add(EventName.brakeUnavailable)
     if self.low_speed_alert and not self.CS.mdps_bus:
@@ -382,13 +396,14 @@ class CarInterface(CarInterfaceBase):
     # handle button presses
     for b in ret.buttonEvents:
       # CANCEL stops ACC and blocks automatic resume in CruiseHelper, but keeps
-      # lateral control engaged. Cruise MAIN off still fully disengages through
-      # the existing pcmDisable event generated from cruiseState.available.
+      # lateral control engaged. Cruise MAIN off fully disengages through the
+      # pcmDisable event generated from cruiseState.available above.
 
       if self.CC.longcontrol:
-        # MAD mode must allow RES/SET to engage controls while stock SCC is live.
-        if (not self.CC.scc_live or self.CC.mad_mode_enabled) and \
-           b.type in [ButtonType.accelCruise, ButtonType.decelCruise] and not b.pressed:
+        # RES/SET can re-engage controls even while stock SCC is live. MAIN
+        # stays on after an immediate disable (e.g. commIssue), so no new
+        # pcmEnable edge exists - this is the recovery path.
+        if b.type in [ButtonType.accelCruise, ButtonType.decelCruise] and not b.pressed:
           events.add(EventName.buttonEnable)
         if not self.CC.scc_live:
           if EventName.wrongCarMode in events.events:
