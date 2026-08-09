@@ -134,7 +134,12 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
     if (addr == 1056 && !SCC12_op) {
       // 2 bits: 13-14
       int cruise_engaged = GET_BYTES_04(to_push) & 0x1; // ACC main_on signal
-      if (cruise_engaged && !cruise_engaged_prev) {
+      // Level-based instead of edge-based: after openpilot longitudinal stops
+      // sending SCC12 (SCC12_op decays), main_on stays high with no new rising
+      // edge, which previously left controls_allowed latched at 0 and silently
+      // blocked LKAS11 (rlog 2026-08-09: controlsAllowed=false for the whole
+      // drive while cruise main was on).
+      if (cruise_engaged && !controls_allowed) {
         controls_allowed = 1;
         puts("  SCC w/o long control: controls allowed\n");
       }
