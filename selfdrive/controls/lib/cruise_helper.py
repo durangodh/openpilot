@@ -47,6 +47,7 @@ class CruiseHelper:
     self.x_state = XState.cruise
     self.x_stop = 0.0
     self.traffic_state = 0
+    self.traffic_state_prev = 0
     self.d_rel = 0.0
     self.v_rel = 0.0
     self.lead_car_speed_kph = 0.0
@@ -231,6 +232,7 @@ class CruiseHelper:
       self._resume_longitudinal(controls, CS, 3)
 
   def _update_pedal_cruise(self, controls, CS):
+    self.traffic_state_prev = self.traffic_state
     try:
       plan = controls.sm['longitudinalPlan']
       self.x_state = plan.xState
@@ -240,6 +242,16 @@ class CruiseHelper:
       self.x_state = XState.cruise
       self.x_stop = 0.0
       self.traffic_state = 0
+
+    # C2-style traffic events: publish only on a state edge so there is no
+    # per-frame UI work. A pedal-assisted departure is a driver action, not a
+    # detected green signal, and must not show the automatic-depart message.
+    if controls.enabled and self.long_active_user > 0:
+      if self.traffic_state == 1 and self.traffic_state_prev != 1:
+        controls.events.add(EventName.trafficStopping)
+      elif self.traffic_state_prev == 1 and self.traffic_state == 2 and \
+           not CS.gasPressed and not CS.brakePressed:
+        controls.events.add(EventName.trafficSignGreen)
 
     lead = self.get_lead(controls.sm)
     self.d_rel = lead.dRel if lead is not None else 0.0

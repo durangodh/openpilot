@@ -898,4 +898,14 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
       Priority.HIGH, VisualAlert.none, AudibleAlert.none, 2.),
   },
 
+  EventName.trafficStopping: {
+    ET.WARNING: Alert("신호 감속정지중입니다.", "", AlertStatus.normal, AlertSize.small,
+      Priority.LOW, VisualAlert.none, AudibleAlert.none, 3.),
+  },
+
+  EventName.trafficSignGreen: {
+    ET.WARNING: Alert("출발합니다.", "", AlertStatus.normal, AlertSize.small,
+      Priority.LOW, VisualAlert.none, AudibleAlert.none, 3.),
+  },
+
 }

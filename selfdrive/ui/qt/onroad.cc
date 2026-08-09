@@ -278,18 +278,18 @@ void OnroadAlerts::paintEvent(QPaintEvent *event) {
   const QPoint c = r.center();
   p.setPen(QColor(0xff, 0xff, 0xff));
   if (alert.size == cereal::ControlsState::AlertSize::SMALL) {
-    configFont(p, "Open Sans", 74, "SemiBold");
+    configFont(p, "Open Sans", 59, "Bold");
     p.drawText(r, Qt::AlignCenter, alert.text1);
   } else if (alert.size == cereal::ControlsState::AlertSize::MID) {
-    configFont(p, "Open Sans", 88, "Bold");
+    configFont(p, "Open Sans", 70, "Bold");
     p.drawText(QRect(0, c.y() - 125, width(), 150), Qt::AlignHCenter | Qt::AlignTop, alert.text1);
-    configFont(p, "Open Sans", 66, "Regular");
+    configFont(p, "Open Sans", 53, "SemiBold");
     p.drawText(QRect(0, c.y() + 21, width(), 90), Qt::AlignHCenter, alert.text2);
   } else if (alert.size == cereal::ControlsState::AlertSize::FULL) {
     bool l = alert.text1.length() > 15;
-    configFont(p, "Open Sans", l ? 132 : 177, "Bold");
+    configFont(p, "Open Sans", l ? 106 : 142, "Bold");
     p.drawText(QRect(0, r.y() + (l ? 240 : 270), width(), 600), Qt::AlignHCenter | Qt::TextWordWrap, alert.text1);
-    configFont(p, "Open Sans", 88, "Regular");
+    configFont(p, "Open Sans", 70, "SemiBold");
     p.drawText(QRect(0, r.height() - (l ? 361 : 420), width(), 300), Qt::AlignHCenter | Qt::TextWordWrap, alert.text2);
   }
 }
