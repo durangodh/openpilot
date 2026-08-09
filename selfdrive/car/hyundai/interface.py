@@ -322,9 +322,10 @@ class CarInterface(CarInterfaceBase):
     elif self.CC.scc_live and not self.CP.pcmCruise:
       self.CP.pcmCruise = True
 
-    # MAD mode engages openpilot lateral control with the cruise MAIN switch.
-    if self.CC.mad_mode_enabled:
-      ret.cruiseState.enabled = ret.cruiseState.available
+    # NOTE: do not force ret.cruiseState.enabled = ret.cruiseState.available here.
+    # Forcing it removes the pcmEnable rising edge, so once controlsd disengages
+    # it can never re-engage (rlog 2026-08-09: RES/SET x29 ignored, no alerts).
+    # MAD engagement is handled through buttonEnable events below instead.
 
     # turning indicator alert logic
     t = time.monotonic()
