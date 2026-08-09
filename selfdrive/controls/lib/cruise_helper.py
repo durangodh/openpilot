@@ -8,7 +8,7 @@ from common.realtime import DT_CTRL
 from selfdrive.car.hyundai.values import Buttons
 from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
-from selfdrive.controls.lib.gap_sync import select_physical_gap
+from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software_gap
 from selfdrive.road_speed_limiter import get_road_speed_limiter
 
 
@@ -51,6 +51,7 @@ class CruiseHelper:
     self.v_rel = 0.0
     self.lead_car_speed_kph = 0.0
     self.long_cruise_gap = 4
+    self.gap_param_initialized = False
     self.init_driving_mode = 3
     self.my_driving_mode = 3
     self.last_mode_param = 3
@@ -123,7 +124,12 @@ class CruiseHelper:
     self.carrot_atc_speed = float(clip(self.params.get_int("CarrotAutoTurnSpeed"), 5, 80))
     self.carrot_atc_end_time = float(clip(self.params.get_int("CarrotAutoTurnEndTime"), 1, 20))
 
-    self.long_cruise_gap = int(clip(self.params.get_int("PrevCruiseGap"), 1, 4))
+    # PrevCruiseGap is the source of truth for openpilot longitudinal control.
+    # Load it once so a delayed nonblocking write cannot bounce the live value.
+    if not self.gap_param_initialized:
+      saved_gap = self.params.get_int("PrevCruiseGap")
+      self.long_cruise_gap = int(saved_gap) if 1 <= saved_gap <= 4 else 4
+      self.gap_param_initialized = True
 
     self.init_driving_mode = int(clip(self.params.get_int("InitMyDrivingMode"), 1, 5))
     if self.param_read_counter == 0:
@@ -297,7 +303,7 @@ class CruiseHelper:
 
   def update_button_events(self, controls, CS, longcontrol):
     self.update_cruise_speed(controls, CS, longcontrol)
-    self.sync_physical_gap(controls, CS)
+    self.sync_physical_gap(controls, CS, longcontrol)
 
     # apilot-c2 CANCEL latch: pause longitudinal only and require an explicit
     # RES/SET before automatic SCC resume is allowed again. Lateral control is
@@ -349,13 +355,20 @@ class CruiseHelper:
     if longcontrol:
       controls.v_cruise_cluster_kph = controls.v_cruise_kph
 
-  def sync_physical_gap(self, controls, CS):
+  def sync_physical_gap(self, controls, CS, longcontrol):
     # Hyundai SCC falls back to gap 4 as cruise disengages. Do not treat that
     # passive fallback as a driver choice or persist it over PrevCruiseGap.
     # Still accept an explicit physical gap-button event while disengaged.
-    gap_button_event = any(event.type == ButtonType.gapAdjustCruise for event in CS.buttonEvents)
-    gap, changed = select_physical_gap(self.long_cruise_gap, CS.cruiseGap,
-                                       controls.enabled, gap_button_event)
+    gap_button_events = [event for event in CS.buttonEvents if event.type == ButtonType.gapAdjustCruise]
+    if longcontrol:
+      # The stock SCC can restart at gap 4 even when PrevCruiseGap is 2. Cycle
+      # from the persisted value on a real button press and ignore passive SCC
+      # fallback values, keeping planner and cluster behavior deterministic.
+      gap_button_pressed = any(event.pressed for event in gap_button_events)
+      gap, changed = select_software_gap(self.long_cruise_gap, gap_button_pressed)
+    else:
+      gap, changed = select_physical_gap(self.long_cruise_gap, CS.cruiseGap,
+                                         controls.enabled, bool(gap_button_events))
     if changed:
       self.long_cruise_gap = gap
       put_nonblocking("PrevCruiseGap", str(gap))
