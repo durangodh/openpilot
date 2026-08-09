@@ -174,11 +174,12 @@ class CarController:
     if CS.mdps_bus or self.car_fingerprint in FEATURES["send_mdps12"]:  # send mdps12 to LKAS to prevent LKAS error
       can_sends.append(create_mdps12(self.packer, self.frame, CS.mdps12))
 
-    # The DH stock SCC keeps a standstill latch even with openpilot
-    # longitudinal control. controlsd only requests resume after the planner
-    # trajectory has detected a real departure, so clear that latch with a
-    # bounded RES pulse sequence in both stock-ACC and openpilot-long modes.
-    self.update_auto_resume(CC, CS, clu11_speed, can_sends)
+    # Match aPilot C2: legacy standstill RES pulses are only for stock ACC.
+    # Openpilot longitudinal control already commands the SCC messages needed
+    # to launch, and an extra RES pulse makes the cluster report an invalid
+    # cruise-setting condition during an otherwise normal departure.
+    if not self.longcontrol:
+      self.update_auto_resume(CC, CS, clu11_speed, can_sends)
     self.update_scc(CC, CS, actuators, controls, hud_control, can_sends)
 
     # 20 Hz LFA MFA message
