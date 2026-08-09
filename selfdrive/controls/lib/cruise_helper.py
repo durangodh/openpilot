@@ -513,14 +513,15 @@ class CruiseHelper:
 
   def cal_max_speed(self, frame, CS, sm, clu11_speed, controls):
     limiter = get_road_speed_limiter()
-    # Receive the legacy roadLimitSpeed packet, then calculate its target with
-    # the C3 carrot_serv rules instead of the legacy camSpeedFactor ramp.
-    _, road_limit_speed, left_dist, _, _ = limiter.get_max_speed(clu11_speed, self.is_metric)
+    # Read only the raw roadLimitSpeed packet. The legacy limiter calculation
+    # is intentionally bypassed so the C3 target is calculated exactly once.
+    road_data = limiter.get_road_limit_speed()
+    road_limit_speed = 0.0
+    left_dist = 0.0
     apply_limit_speed = 0.0
     navi_source = ""
     navi_target_kph = 0.0
-    if limiter.roadLimitSpeed is not None:
-      road_data = limiter.roadLimitSpeed
+    if road_data is not None:
       cam_type = int(road_data.camType)
       cam_dist = float(road_data.camLimitSpeedLeftDist)
       cam_limit = float(road_data.camLimitSpeed)
@@ -574,9 +575,9 @@ class CruiseHelper:
 
     self.active_cam = road_limit_speed > 0 and left_dist > 0
     normal_road_limit_speed = 0.0
-    if limiter.roadLimitSpeed is not None:
-      normal_road_limit_speed = float(limiter.roadLimitSpeed.roadLimitSpeed)
-      self.over_speed_limit = limiter.roadLimitSpeed.camLimitSpeedLeftDist > 0 and \
+    if road_data is not None:
+      normal_road_limit_speed = float(road_data.roadLimitSpeed)
+      self.over_speed_limit = road_data.camLimitSpeedLeftDist > 0 and \
                               0 < navi_target_kph < clu11_speed + 2
     else:
       self.over_speed_limit = False

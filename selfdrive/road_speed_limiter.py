@@ -297,6 +297,11 @@ class RoadSpeedLimiter:
       return self.roadLimitSpeed.active
     return 0
 
+  def get_road_limit_speed(self):
+    """Return the latest raw navigation data without running legacy speed control."""
+    self.recv()
+    return self.roadLimitSpeed
+
   def get_max_speed(self, cluster_speed, is_metric):
 
     log = ""
@@ -411,6 +416,8 @@ def road_speed_limiter_get_active():
 
 
 def road_speed_limiter_get_max_speed(cluster_speed, is_metric):
+  # Legacy compatibility API. The active CruiseHelper control path reads the
+  # raw message with get_road_limit_speed() and applies the C3 calculation.
   global road_speed_limiter
   if road_speed_limiter is None:
     road_speed_limiter = RoadSpeedLimiter()
