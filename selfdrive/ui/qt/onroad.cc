@@ -387,45 +387,28 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
     painter.drawPolygon(scene.road_edge_vertices[i].v, scene.road_edge_vertices[i].cnt);
   }
 	
-  // paint path
-  // Keep both outer edges vivid and fade toward the center of the path.
-  float path_left = 0.0f;
-  float path_right = width();
-  if (scene.track_vertices.cnt > 0) {
-    path_left = scene.track_vertices.v[0].x();
-    path_right = path_left;
-    for (int i = 1; i < scene.track_vertices.cnt; ++i) {
-      path_left = std::min(path_left, (float)scene.track_vertices.v[i].x());
-      path_right = std::max(path_right, (float)scene.track_vertices.v[i].x());
-    }
-  }
-  QLinearGradient bg(path_left, 0, path_right, 0);
+  // C3 path: draw one solid projected vehicle corridor with a status color.
+  QColor path_color;
   if (show_path_status_color) {
-    QColor path_color = bg_colors[STATUS_ENGAGED];  // engaged, no lead
+    path_color = QColor(0, 153, 0, 120);  // engaged, no lead
     if (!s->engaged()) {
-      path_color = QColor(35, 35, 35, 150);
+      path_color = QColor(0, 0, 0, 120);
     } else {
       const auto lead = sm["radarState"].getRadarState().getLeadOne();
       const auto accels = sm["longitudinalPlan"].getLongitudinalPlan().getAccels();
       const float accel = accels.size() > 0 ? accels[0] : 0.0f;
       if (lead.getStatus()) {
-        if (std::abs(accel) < 0.5f) path_color = QColor(0, 205, 80, 180);         // steady
-        else if (accel >= 0.5f)     path_color = QColor(255, 153, 0, 190);        // accelerating
-        else                        path_color = QColor(220, 35, 45, 190);        // decelerating
+        if (std::abs(accel) < 0.5f) path_color = QColor(255, 255, 0, 120);  // steady
+        else if (accel >= 0.5f)     path_color = QColor(255, 153, 0, 120);  // accelerating
+        else                        path_color = QColor(255, 0, 0, 120);    // decelerating
       }
     }
-    QColor center_color = path_color;
-    center_color.setAlpha(30);
-    bg.setColorAt(0.0, path_color);
-    bg.setColorAt(0.5, center_color);
-    bg.setColorAt(1.0, path_color);
   } else {
-    // Single fallback palette; ACC/E2E no longer changes the path color.
-    bg.setColorAt(0.0, QColor::fromHslF(197 / 360., 1.0, 0.55, 0.7));
-    bg.setColorAt(0.5, QColor::fromHslF(200 / 360., 1.0, 0.70, 0.12));
-    bg.setColorAt(1.0, QColor::fromHslF(197 / 360., 1.0, 0.55, 0.7));
+    path_color = QColor::fromHslF(197 / 360., 1.0, 0.55, 0.7);
   }
-  painter.setBrush(bg);
+
+  painter.setPen(Qt::NoPen);
+  painter.setBrush(path_color);
   painter.drawPolygon(scene.track_vertices.v, scene.track_vertices.cnt);
 
   painter.restore();
