@@ -218,8 +218,8 @@ class LongitudinalMpc:
     self.a_desired = 0.
     self.solver = AcadosOcpSolverCython(MODEL_NAME, ACADOS_SOLVER_TYPE, N)
 
-    # ── CarrotPilot Auto-Tuner: 학습된 GAP별 추종거리 (초 리스트, None=미사용) ──
-    # longitudinal_planner.read_param()에서 5초 주기로 갱신됨.
+    # User-configured following time for each cruise-gap level.
+    # longitudinal_planner.read_param() refreshes these values periodically.
     self.tfollow_gaps = None
     self.t_follow_speed_ratio = 1.2
     self._tf_applied = 0.0

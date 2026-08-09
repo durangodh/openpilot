@@ -120,7 +120,15 @@ class CarState(CarStateBase):
     ret.steeringTorqueEps = cp_mdps.vl["MDPS12"]["CR_Mdps_OutTq"] / 10.  # scale to Nm
     ret.steeringPressed = abs(ret.steeringTorque) > self.params.STEER_THRESHOLD
 
-    if not ret.standstill and cp_mdps.vl["MDPS12"]["CF_Mdps_ToiUnavail"] != 0:
+    # MDPS12 exposes three independent LKAS fault indicators. Some Hyundai
+    # MDPS units latch ToiFlt/FailStat while leaving ToiUnavail clear; treating
+    # only ToiUnavail as a fault keeps LKAS torque requests active after the
+    # power steering controller has already rejected them. Keep the existing
+    # debounce so the intentional two-frame high-angle reset pulse is ignored.
+    mdps_fault = (cp_mdps.vl["MDPS12"]["CF_Mdps_ToiUnavail"] != 0 or
+                  cp_mdps.vl["MDPS12"]["CF_Mdps_ToiFlt"] != 0 or
+                  cp_mdps.vl["MDPS12"]["CF_Mdps_FailStat"] != 0)
+    if not ret.standstill and mdps_fault:
       self.mdps_error_cnt += 1
     else:
       self.mdps_error_cnt = 0

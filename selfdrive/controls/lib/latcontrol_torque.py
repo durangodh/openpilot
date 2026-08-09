@@ -99,8 +99,7 @@ class LatControlTorque(LatControl):
     custom = int(self._pget("LateralTorqueCustom", 0))
 
     if custom > 0:
-      # PID gains are manual-only. Auto-Tuner writes factor/friction but never
-      # changes Kp/Ki/Kf/Kd.
+      # Apply the manually configured torque parameters.
       self.torque_params.latAccelFactor = self._pget("LateralTorqueAccelFactor", 2700) * 0.001
       self.torque_params.friction = self._pget("LateralTorqueFriction", 80) * 0.001
       self.pid._k_p = [[0], [self._pget("LateralTorqueKpV", 10) * 0.01]]

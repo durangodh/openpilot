@@ -20,10 +20,8 @@ def plannerd_thread(sm=None, pm=None):
   longitudinal_planner = LongitudinalPlanner(CP)
   lateral_planner = LateralPlanner(CP, wide_camera=wide_camera, debug=debug_mode)
   if sm is None:
-    # 'liveParameters' 추가: Auto-Tuner의 steerRatio 학습 입력(paramsd 칼만 추정).
-    # poll/ignore에는 넣지 않아 modelV2 주기에 맞춰 최신값만 읽는다(저속 갱신이라 무해).
-    sm = messaging.SubMaster(['carControl', 'carState', 'controlsState', 'radarState', 'modelV2', 'longitudinalPlan', 'lateralPlan', 'liveParameters'],
-                             poll=['radarState', 'modelV2'], ignore_avg_freq=['radarState', 'liveParameters'])
+    sm = messaging.SubMaster(['carControl', 'carState', 'controlsState', 'radarState', 'modelV2', 'longitudinalPlan', 'lateralPlan'],
+                             poll=['radarState', 'modelV2'], ignore_avg_freq=['radarState'])
   if pm is None:
     pm = messaging.PubMaster(['longitudinalPlan', 'lateralPlan'])
   while True:

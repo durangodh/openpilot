@@ -33,10 +33,8 @@ class LateralPlanner:
     self.wide_camera = wide_camera
     self.last_params_update = 0
 
-    # carrot 의 offset_total 로 통합.
-    #   카메라 오프셋은 하드웨어 기본값(DEFAULT_CAMERA_OFFSET)으로 고정하고,
-    #   사용자/학습 조정은 최종 경로에 적용되는 offset_total 하나로만 한다.
-    #   저장 키는 기존 OffsetTotal 을 그대로 쓴다 (Auto-Tuner Phase 2 학습 대상).
+    # Keep the hardware camera offset fixed and apply the user-configured
+    # OffsetTotal once to the final path.
     self.offset_total = self._read_offset_total()
 
     self.LP = LanePlanner(wide_camera=wide_camera)

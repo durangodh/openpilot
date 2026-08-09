@@ -4,7 +4,6 @@ import numpy as np
 from common.numpy_fast import clip, interp
 
 import cereal.messaging as messaging
-from cereal import car
 from common.conversions import Conversions as CV
 from common.filter_simple import FirstOrderFilter
 from common.params import Params
@@ -18,10 +17,6 @@ from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.events import Events
 from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_VISION_LEAD_DISTANCE,
                                                     adjust_stop_distance_for_decel)
-# ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──
-from selfdrive.controls.lib.carrot_learning import CarrotLearner
-
-GearShifter = car.CarState.GearShifter
 
 LON_MPC_STEP = 0.2  # first step is 0.2s
 AWARENESS_DECEL = -0.2  # car smoothly decel at .2m/s^2 when user is distracted
@@ -96,9 +91,6 @@ class LongitudinalPlanner:
     self.auto_e2e_prepare = False
     self.e2e_stop_distance = 0.0
     self.traffic_stop_accel_factor = 0.8
-
-    # ── Auto-Tuner ──
-    self.carrot_learner = CarrotLearner()
 
     # MyDrivingMode
     self.my_driving_mode = 3
@@ -383,37 +375,6 @@ class LongitudinalPlanner:
       self.v_desired_trajectory, self.a_desired_trajectory, T_IDXS[:CONTROL_N],
       action_t=action_t, v_ego_stopping=self.CP.vEgoStopping)
     self.output_j_target_now = float(self.j_desired_trajectory[0])
-
-    # Steering-only Auto-Tuner data collection.
-    # Auto-Tuner는 비핵심 학습 기능이므로, 여기서 예외가 나도 안전필수
-    # 종방향 플래너(plannerd)가 죽지 않도록 반드시 격리한다. (commit e06a7dd robustness)
-    try:
-      cs = sm['carState']
-      gear_park = cs.gearShifter == GearShifter.park
-      engaged = sm['controlsState'].enabled
-      # liveParameters.steerRatio (paramsd 칼만 추정) — steerRatio 학습 입력.
-      # plannerd SubMaster에 'liveParameters'가 구독돼 있어야 한다(미구독/미수신 시 무시).
-      sr_live, sr_valid = 0.0, False
-      try:
-        lp = sm['liveParameters']
-        sr_live = float(lp.steerRatio)
-        sr_valid = bool(getattr(lp, 'valid', True)) and (10.0 <= sr_live <= 20.0)
-      except Exception:
-        pass
-      self.carrot_learner.update(
-        v_ego_kph=v_ego * CV.MS_TO_KPH,
-        engaged=engaged,
-        gear_park=gear_park,
-        steer_deg=cs.steeringAngleDeg,
-        steer_pressed=cs.steeringPressed,
-        blinker=(cs.leftBlinker or cs.rightBlinker),
-        steer_torque=cs.steeringTorque,
-        steer_deg_corr=sm['controlsState'].angleSteers,
-        steer_ratio_live=sr_live,
-        steer_ratio_valid=sr_valid,
-      )
-    except Exception:
-      cloudlog.exception("CarrotLearner update failed")
 
   def publish(self, sm, pm):
     plan_send = messaging.new_message('longitudinalPlan')
