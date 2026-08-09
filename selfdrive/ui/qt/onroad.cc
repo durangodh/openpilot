@@ -526,7 +526,6 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   drawCarrotLead(p);
   drawCarrotNavi(p);
   drawCarrotHud(p);
-  drawE2eTrafficState(p);
   drawSpeedLimit(p);
   drawCarrotInfo(p);
   drawCarrotBottom(p);
@@ -539,30 +538,6 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   drawBottomIcons(p);
 
   drawTextAnim(p);   // 팝업 애니메이션은 항상 맨 위
-}
-
-void NvgWindow::drawE2eTrafficState(QPainter &p) {
-  const UIState *s = uiState();
-  const auto plan = (*s->sm)["longitudinalPlan"].getLongitudinalPlan();
-  const int traffic_state = plan.getTrafficState();
-  if (traffic_state != 1 && traffic_state != 2) return;
-
-  // Keep the indicator independent of c3-wip image assets so it fits this
-  // branch's Qt painter UI and cannot fail because an icon is missing.
-  const bool waiting = traffic_state == 1;
-  const int diameter = 92;
-  const int cx = width() / 2;
-  const int cy = 150;
-  const QRect lamp(cx - diameter / 2, cy - diameter / 2, diameter, diameter);
-
-  p.save();
-  p.setRenderHint(QPainter::Antialiasing);
-  p.setPen(QPen(QColor(255, 255, 255, 210), 5));
-  p.setBrush(waiting ? QColor(235, 45, 55, 235) : QColor(25, 210, 70, 235));
-  p.drawEllipse(lamp);
-  ctText(p, cx, cy + diameter, waiting ? "STOP" : "GO", 34,
-         waiting ? QColor(255, 90, 90) : QColor(80, 255, 120), true, true);
-  p.restore();
 }
 
 #include "selfdrive/ui/qt/onroad_navi.inc"
