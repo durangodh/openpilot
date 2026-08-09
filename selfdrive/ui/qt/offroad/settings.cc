@@ -512,52 +512,52 @@ TogglesPanel::TogglesPanel(SettingsWindow *parent) : ListWidget(parent) {
   std::vector<std::tuple<QString, QString, QString, QString>> toggle_defs{
     {
       "OpenpilotEnabledToggle",
-      "Enable openpilot",
-      "Use the openpilot system for adaptive cruise control and lane keep driver assistance. Your attention is required at all times to use this feature. Changing this setting takes effect when the car is powered off.",
+      "오픈파일럿 사용",
+      "켜짐: 차간거리·속도 및 차선유지 보조를 사용합니다. 항상 전방을 주시해야 하며 설정은 차량 전원이 꺼진 뒤 적용됩니다.",
       "../assets/offroad/icon_openpilot.png",
     },
     {
       "IsLdwEnabled",
-      "Enable Lane Departure Warnings",
-      "Receive alerts to steer back into the lane when your vehicle drifts over a detected lane line without a turn signal activated while driving over 31 mph (50 km/h).",
+      "차선이탈 경고 사용",
+      "켜짐: 50km/h 이상에서 방향지시등 없이 차선을 벗어나면 경고합니다.",
       "../assets/offroad/icon_warning.png",
     },
     {
       "IsRHD",
-      "Enable Right-Hand Drive",
-      "Allow openpilot to obey left-hand traffic conventions and perform driver monitoring on right driver seat.",
+      "우핸들 차량 모드",
+      "켜짐: 좌측통행 규칙과 우측 운전석 기준 운전자 모니터링을 사용합니다. 국내 좌핸들 차량은 끕니다.",
       "../assets/offroad/icon_openpilot_mirrored.png",
     },
     {
       "IsMetric",
-      "Use Metric System",
-      "Display speed in km/h instead of mph.",
+      "미터법 사용",
+      "켜짐: 속도를 km/h로 표시 / 꺼짐: mph로 표시합니다.",
       "../assets/offroad/icon_metric.png",
     },
     {
       "RecordFront",
-      "Record and Upload Driver Camera",
-      "Upload data from the driver facing camera and help improve the driver monitoring algorithm.",
+      "운전자 카메라 녹화·업로드",
+      "켜짐: 운전자 모니터링 개선을 위해 실내 카메라 영상을 녹화하고 업로드합니다.",
       "../assets/offroad/icon_monitoring.png",
     },
     {
       "ExperimentalMode",
-      "Experimental mode",
-      "알파 수준 기능을 활성화합니다. (실험 기능/안전 경고를 확인하세요)",
+      "실험모드",
+      "켜짐: E2E 종방향 제어 등 알파 수준 기능을 사용합니다. 시험 기능이므로 안전 경고를 확인하십시오.",
       "../assets/img_experimental_white.svg",
     },
     {
       "ExperimentalLongitudinalEnabled",
-      "Experimental openpilot longitudinal control",
-      "<b>WARNING: openpilot longitudinal control is experimental for this car and will disable AEB.</b><br>\
-          openpilot defaults to the car's built-in ACC instead of openpilot's longitudinal control on this car. Enable this to switch to openpilot longitudinal control.",
+      "오픈파일럿 실험 종방향 제어",
+      "<b>주의: 이 차량의 종방향 제어는 시험 기능이며 순정 AEB가 비활성화될 수 있습니다.</b><br>\
+          켜짐: 순정 ACC 대신 오픈파일럿이 가속과 제동을 제어합니다.",
       "../assets/offroad/icon_speed_limit.png",
     },
 #ifdef ENABLE_MAPS
     {
       "NavSettingTime24h",
-      "Show ETA in 24h format",
-      "Use 24h format instead of am/pm",
+      "24시간 형식 사용",
+      "켜짐: 도착예정시간을 24시간제로 표시 / 꺼짐: 오전·오후 형식으로 표시합니다.",
       "../assets/offroad/icon_metric.png",
     },
 #endif
@@ -592,12 +592,12 @@ void TogglesPanel::updateToggles() {
   auto e2e_toggle = toggles["ExperimentalMode"];
   auto op_long_toggle = toggles["ExperimentalLongitudinalEnabled"];
   const QString e2e_description = tr("\
-    openpilot defaults to driving in <b>chill mode</b>.\
-    Experimental mode enables <b>alpha-level features</b> that aren't ready for chill mode. \
-    Experimental features are listed below:\
+    오픈파일럿은 기본적으로 안정적인 <b>일반모드</b>로 주행합니다.\
+    실험모드는 아직 일반모드에 포함되지 않은 <b>알파 수준 기능</b>을 활성화합니다.\
+    주요 실험 기능:\
     <br> \
-    <h4>🌮 End-to-End Longitudinal Control 🌮</h4> \
-    Let the driving model control the gas and brakes. openpilot will drive as it thinks a human would, including stopping for red lights and stop signs.");
+    <h4>🌮 E2E 종방향 제어 🌮</h4> \
+    주행 모델이 가속과 제동을 제어하며 적색 신호와 정지표지판 정지를 포함한 사람과 유사한 주행을 시도합니다.");
 
   auto cp_bytes = params.get("CarParamsPersistent");
   if (!cp_bytes.empty()) {
@@ -618,8 +618,8 @@ void TogglesPanel::updateToggles() {
     } else {
       e2e_toggle->setEnabled(false);
       params.remove("ExperimentalMode");
-      const QString no_long = "openpilot longitudinal control is not currently available for this car.";
-      const QString exp_long = "Enable experimental longitudinal control to enable this.";
+      const QString no_long = "현재 차량에서는 오픈파일럿 종방향 제어를 사용할 수 없습니다.";
+      const QString exp_long = "먼저 오픈파일럿 실험 종방향 제어를 켜십시오.";
       e2e_toggle->setDescription("<b>" + (CP.getExperimentalLongitudinalAvailable() ? exp_long : no_long) + "</b><br><br>" + e2e_description);
     }
     e2e_toggle->refresh();
@@ -1141,28 +1141,28 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
 
   QList<ParamControl*> toggles;
   toggles.append(new ParamControl("UseClusterSpeed",
-                                            "Use Cluster Speed",
-                                            "Use cluster speed instead of wheel speed.",
+                                            "계기판 속도 사용",
+                                            "켜짐: 차량 계기판 속도를 사용합니다. / 꺼짐: 휠 속도를 사용합니다.",
                                             "../assets/offroad/icon_road.png",
                                             this));
   toggles.append(new ParamControl("LongControlEnabled",
-                                            "Enable HKG Long Control",
-                                            "warnings: it is beta, be careful!! Openpilot will control the speed of your car",
+                                            "현대·기아 종방향 제어",
+                                            "켜짐: 오픈파일럿이 가속과 제동을 제어합니다. 시험 기능이므로 주행 중 항상 전방을 확인하십시오.",
                                             "../assets/offroad/icon_road.png",
                                             this));
   toggles.append(new ParamControl("IsLdwsCar",
                                             "LDWS",
-                                            "If your car only supports LDWS, turn it on.",
+                                            "차량이 차선이탈 경고(LDWS)만 지원할 때 켭니다. LKAS 차량은 끕니다.",
                                             "../assets/offroad/icon_openpilot.png",
                                             this));
   toggles.append(new ParamControl("LaneChangeEnabled",
-                                            "Enable Lane Change Assist",
-                                            "Perform assisted lane changes with openpilot by checking your surroundings for safety, activating the turn signal and gently nudging the steering wheel towards your desired lane. openpilot is not capable of checking if a lane change is safe. You must continuously observe your surroundings to use this feature.",
+                                            "차선변경 보조",
+                                            "켜짐: 방향지시등과 운전자 조향 입력으로 차선변경을 보조합니다. 주변 차량의 안전 여부는 운전자가 직접 확인해야 합니다.",
                                             "../assets/offroad/icon_road.png",
                                             this));
   toggles.append(new ParamControl("AutoLaneChangeEnabled",
-                                            "Enable Auto Lane Change(Nudgeless)",
-                                            "warnings: it is beta, be careful!!",
+                                            "자동 차선변경(조향 입력 없음)",
+                                            "켜짐: 방향지시등 작동 후 별도의 핸들 입력 없이 차선변경을 시작합니다. 시험 기능이므로 주변을 직접 확인하십시오.",
                                             "../assets/offroad/icon_road.png",
                                             this));
 
@@ -1176,53 +1176,53 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("TurnVisionControl",
                                            "최신 비전·지도 커브감속",
-                                           "모델 예측 횡가속과 티맵 전방 경로 곡률을 함께 계산해 낮은 목표속도를 적용합니다.",
+                                           "켜짐: 비전 모델과 티맵 경로 중 더 낮은 커브 목표속도를 적용합니다. / 꺼짐: 커브 자동감속을 사용하지 않습니다.",
                                             "../assets/offroad/icon_road.png",
                                             this));
   toggleLayout->addWidget(new ParamValueControlF(
       "AutoCurveSpeedFactor", "비전 커브 감속비율",
-      "값이 높을수록 모델 커브를 크게 판단해 더 감속합니다.",
+      "비전 모델의 커브 판단 강도입니다. 값 증가(+): 커브에서 더 많이 감속 / 값 감소(-): 감속을 줄임.",
       "../assets/offroad/icon_road.png", 50, 300, 5, 0, 120, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "AutoCurveSpeedLowerLimit", "커브 최저속도",
-      "비전 및 티맵 일반도로 커브 목표속도의 최저값(km/h).",
+      "비전·티맵 커브 목표속도의 하한입니다. 값 증가(+): 커브 속도가 빨라짐 / 값 감소(-): 더 낮은 속도까지 감속.",
       "../assets/offroad/icon_speed_limit.png", 5, 80, 5, 0, 30, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "MapTurnSpeedFactor", "티맵 지도 커브속도 비율",
-      "티맵 전방 경로에서 계산한 일반도로 커브속도 반영비율.",
+      "티맵 경로의 커브 목표속도 비율입니다. 값 증가(+): 커브 속도가 빨라지고 감속이 줄어듦 / 값 감소(-): 더 느리게 통과.",
       "../assets/offroad/icon_road.png", 50, 150, 5, 0, 90, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "AutoNaviSpeedDecelRate", "지도 커브 감속도",
-      "티맵 일반도로 커브 진입 감속도(x100 m/s²).",
+      "티맵 커브 진입 감속 강도(×0.01m/s²)입니다. 값 증가(+): 늦고 강하게 감속 / 값 감소(-): 일찍 부드럽게 감속.",
       "../assets/offroad/icon_road.png", 10, 300, 10, 0, 120, this));
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("SccSmootherSyncGasPressed",
-                                            "Sync set speed on gas pressed",
-                                            "",
+                                            "가속페달 설정속도 동기화",
+                                            "켜짐: 가속페달로 설정속도보다 빨라지면 현재 차량속도로 설정속도를 올립니다.",
                                             "../assets/offroad/icon_road.png",
                                             this));
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("StockNaviDecelEnabled",
-                                            "Stock Navi based deceleration",
-                                            "Use the stock navi based deceleration for longcontrol",
+                                            "순정 내비 기반 감속",
+                                            "켜짐: 순정 내비게이션의 제한속도·카메라 정보를 종방향 감속에 사용합니다.",
                                             "../assets/offroad/icon_road.png",
                                             this));
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("KeepSteeringTurnSignals",
-                                            "Keep steering while turn signals",
-                                            "",
+                                            "방향지시등 중 조향 유지",
+                                            "켜짐: 방향지시등 작동 중에도 조향 제어를 유지합니다. / 꺼짐: 차량 조건에 따라 조향이 제한될 수 있습니다.",
                                             "../assets/offroad/icon_openpilot.png",
                                             this));
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("HapticFeedbackWhenSpeedCamera",
-                                            "Haptic feedback (speed-cam alert)",
-                                            "Haptic feedback when a speed camera is detected",
+                                            "과속카메라 햅틱 알림",
+                                            "켜짐: 과속카메라가 감지되면 핸들 진동으로 알립니다.",
                                             "../assets/offroad/icon_openpilot.png",
                                             this));
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("DisableOpFcw",
-                                            "Disable Openpilot FCW",
-                                            "",
+                                            "오픈파일럿 전방충돌경고 끄기",
+                                            "켜짐: 오픈파일럿 FCW 경고를 사용하지 않습니다. 차량 순정 경고 기능과는 별개입니다.",
                                             "../assets/offroad/icon_shell.png",
                                             this));
 }
@@ -1329,47 +1329,47 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamValueControlF(
       "CruiseSpeedMin", "최저 설정속도 (km/h)",
-      "롱컨을 처음 켤 때 적용되는 최저 설정속도입니다 (km/h). 주행 중 변경하면 약 1초 안에 반영됩니다.",
+      "롱컨의 최저 설정속도입니다. 값 증가(+): 처음 설정되는 속도가 높아짐 / 값 감소(-): 더 낮은 속도로 설정 가능.",
       "../assets/offroad/icon_road.png", 5, 30, 1, 0, 30, this));
 
   list->addItem(new ParamControl(
       "ApplyLongDynamicCost", "동적 차간거리 가감속",
-      "KRKeegan 방식으로 저속에서 앞차가 멀어질 때 가속 응답을 빠르게 하고, 설정된 차간거리별 MPC 비용을 동적으로 조정합니다.",
+      "켜짐: 앞차 속도와 차간거리에 따라 가감속 반응을 동적으로 조정합니다. 저속에서 앞차가 멀어지면 가속 반응이 빨라질 수 있습니다.",
       "../assets/offroad/icon_road.png", this));
 
   list->addItem(new ParamValueControlF(
       "SpeedFromPCM", "크루즈 설정속도 기준",
-      "1: 순정 SCC 설정속도 사용 / 2: 오픈파일럿 설정속도와 C3 버튼 모드 사용",
+      "1: 순정 SCC 설정속도 사용 / 2: 오픈파일럿 설정속도와 사용자 크루즈 버튼 설정 사용.",
       "../assets/offroad/icon_road.png", 1, 2, 1, 0, 2, this));
 
   list->addItem(new ParamValueControlF(
       "AutoGasTokSpeed", "가속페달 자동재개 속도 (km/h)",
-      "이 속도 이상에서 가속페달 자동재개를 허용합니다.",
+      "가속페달 해제 후 자동재개가 가능한 최저속도입니다. 값 증가(+): 더 높은 속도에서만 재개 / 값 감소(-): 저속에서도 재개.",
       "../assets/offroad/icon_road.png", 5, 60, 1, 0, 30, this));
 
   list->addItem(new ParamValueControlF(
       "AutoGasCancelSpeed", "가속페달 해제 취소속도 (km/h)",
-      "짧은 가속페달 조작 후 이 속도보다 낮으면 자동재개하지 않습니다.",
+      "이 속도 미만에서는 가속페달 해제 자동재개를 취소합니다. 값 증가(+): 자동재개 조건이 엄격해짐 / 값 감소(-): 저속 재개가 쉬워짐.",
       "../assets/offroad/icon_road.png", 0, 60, 1, 0, 30, this));
 
   list->addItem(new ParamValueControlF(
       "CruiseButtonMode", "크루즈 버튼 모드",
-      "0: 일반 1km/h 증감 / 1: RES 사용자단위, SET 사용자단위 / 2: SET 현재속도 동기화 / 3: RES 지정속도 순환",
+      "0: 기본 증감 / 1: RES·SET 사용자 단위 / 2: SET으로 현재속도 동기화 / 3: RES로 지정속도표 순환.",
       "../assets/offroad/icon_road.png", 0, 3, 1, 0, 0, this));
 
   list->addItem(new ParamValueControlF(
       "CruiseSpeedUnit", "크루즈 사용자 증감단위 (km/h)",
-      "크루즈 버튼 모드 1~3에서 사용하는 속도 단위입니다.",
+      "버튼 모드 1~3의 속도 증감 단위입니다. 값 증가(+): 한 번에 속도가 크게 변함 / 값 감소(-): 세밀하게 변함.",
       "../assets/offroad/icon_road.png", 1, 20, 1, 0, 10, this));
 
   list->addItem(new ParamValueControlF(
       "CruiseSpeedUnitBasic", "크루즈 기본 증감단위 (km/h)",
-      "크루즈 버튼 모드 0에서 RES/SET 짧게 누르기에 사용하는 속도 단위입니다.",
+      "버튼 모드 0에서 짧게 누를 때의 증감 단위입니다. 값 증가(+): 큰 폭으로 변경 / 값 감소(-): 작은 폭으로 변경.",
       "../assets/offroad/icon_road.png", 1, 10, 1, 0, 1, this));
 
   list->addItem(new ParamValueControlF(
       "CruiseButtonLongDelay", "크루즈 버튼 길게누름 시간",
-      "RES/SET 길게누름 판정시간입니다. 제어주기 0.01초 단위이며 기본 70은 약 0.7초입니다.",
+      "RES/SET 길게누름 판정시간(×0.01초)입니다. 값 증가(+): 더 오래 눌러야 작동 / 값 감소(-): 빠르게 길게누름으로 판정.",
       "../assets/offroad/icon_road.png", 30, 150, 5, 0, 70, this));
 
   const std::array<std::tuple<const char*, const char*, int>, 5> cruise_speed_table = {{
@@ -1381,63 +1381,63 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
   }};
   for (const auto& [key, title, default_value] : cruise_speed_table) {
     list->addItem(new ParamValueControlF(
-        key, title, "크루즈 버튼 모드 3에서 RES/SET으로 순환하는 설정속도 단계입니다.",
+        key, title, "버튼 모드 3의 순환 설정속도입니다. 값 증가(+): 해당 단계 속도가 높아짐 / 값 감소(-): 해당 단계 속도가 낮아짐.",
         "../assets/offroad/icon_road.png", 5, 160, 5, 0, default_value, this));
   }
 
   list->addItem(new ParamValueControlF(
       "AutoSpeedUptoRoadSpeedLimit", "앞차 자동증속 도로속도 비율 (%)",
-      "0은 끔입니다. 앞차가 더 빠르고 60m 이내일 때 일반 도로 제한속도의 지정 비율까지만 설정속도를 올립니다.",
+      "앞차를 따라 설정속도를 올릴 수 있는 도로 제한속도 비율입니다. 값 증가(+): 더 높은 속도까지 증속 / 값 감소(-): 증속 상한이 낮아짐 / 0: 끔.",
       "../assets/offroad/icon_road.png", 0, 120, 5, 0, 0, this));
 
   list->addItem(new ParamValueControlF(
       "AutoRoadSpeedAdjust", "도로 제한속도 변경 반영률 (%)",
-      "0: 설정속도 유지 / 1~100: 제한속도가 내려갈 때 혼합 적용 / -100: 새 제한속도로 즉시 변경",
+      "0: 설정속도 유지 / +값 증가: 제한속도 하락을 더 많이 반영 / +값 감소: 천천히 반영 / 음수: 새 제한속도로 즉시 변경.",
       "../assets/offroad/icon_road.png", -100, 100, 10, 0, 0, this));
 
   list->addItem(new ParamValueControlF(
       "AutoRoadSpeedLimitOffset", "도로 제한속도 오프셋 (km/h)",
-      "도로 제한속도 자동변경 모드에서 더하거나 뺄 값입니다.",
+      "도로 제한속도에 더하는 값입니다. 양수(+): 제한속도보다 높게 설정 / 음수(-): 제한속도보다 낮게 설정.",
       "../assets/offroad/icon_road.png", -30, 30, 1, 0, 0, this));
 
   list->addItem(new ParamValueControlF(
       "AutoNaviSpeedSafetyFactor", "내비 감속 안전비율 (%)",
-      "카메라와 구간단속 목표속도에 적용하는 보정 비율입니다. 100은 보정 없이 적용합니다.",
+      "카메라·구간단속 목표속도 비율입니다. 값 증가(+): 목표속도가 높아져 감속이 줄어듦 / 값 감소(-): 더 낮게 감속 / 100: 원래 속도.",
       "../assets/offroad/icon_road.png", 80, 120, 1, 0, 100, this));
 
   list->addItem(new ParamControl(
       "AutoGasResumeGuard", "가속페달 자동재개 안전조건",
-      "가속페달 해제 자동재개 시 크루즈 가능 상태와 주행 안전조건을 확인합니다.",
+      "켜짐: 가속페달 해제 자동재개 전에 크루즈 가능 상태와 안전조건을 확인합니다.",
       "../assets/offroad/icon_road.png", this));
 
   list->addItem(new ParamControl(
       "SccSmootherSyncGasPressed", "가속페달 설정속도 동기화",
-      "가속페달로 설정속도보다 빠르게 주행하면 현재 차량속도에 맞춰 크루즈 설정속도를 올립니다.",
+      "켜짐: 가속페달로 설정속도보다 빨라지면 현재 차량속도에 맞춰 설정속도를 올립니다.",
       "../assets/offroad/icon_road.png", this));
 
   list->addItem(new ParamValueControlF(
       "AutoResumeFromGas", "가속페달 오토리줌 모드",
-      "0: 끔 / 1: 조건 충족 중 재개 / 2: 조건 충족 및 0.4초 미만 짧은 가속 후 재개",
+      "0: 끔 / 1: 조건 충족 시 재개 / 2: 조건 충족 또는 0.4초 미만의 짧은 가속 후 재개.",
       "../assets/offroad/icon_road.png", 0, 2, 1, 0, 1, this));
 
   list->addItem(new ParamValueControlF(
       "AutoResumeFromGasSpeedMode", "오토리줌 설정속도 모드",
-      "0: 현재속도 / 1: 이전 설정속도 / 2: 앞차가 있으면 이전 설정속도",
+      "0: 현재 차량속도로 재개 / 1: 이전 설정속도로 재개 / 2: 앞차가 있을 때만 이전 설정속도로 재개.",
       "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
 
   list->addItem(new ParamControl(
       "AutoResumeFromBrakeRelease", "브레이크 해제 오토리줌",
-      "브레이크를 놓을 때 조향·신호·앞차 거리 또는 속도 안전조건을 만족하면 롱컨을 재개합니다.",
+      "켜짐: 브레이크를 놓을 때 조향·신호·앞차 거리 또는 속도 안전조건을 만족하면 롱컨을 재개합니다.",
       "../assets/offroad/icon_road.png", this));
 
   list->addItem(new ParamValueControlF(
       "AutoResumeFromBrakeCarSpeed", "브레이크 해제 재개속도 (km/h)",
-      "앞차가 없을 때 이 속도 이상에서만 브레이크 해제 오토리줌을 허용합니다.",
+      "앞차가 없을 때 필요한 최저 재개속도입니다. 값 증가(+): 더 높은 속도에서만 재개 / 값 감소(-): 저속에서도 재개.",
       "../assets/offroad/icon_road.png", 5, 60, 1, 0, 30, this));
 
   list->addItem(new ParamValueControlF(
       "AutoResumeFromBrakeReleaseDist", "브레이크 해제 앞차거리 (m)",
-      "앞차가 있을 때 이 거리 이상에서만 브레이크 해제 오토리줌을 허용합니다.",
+      "브레이크 해제 재개에 필요한 앞차 거리입니다. 값 증가(+): 앞차가 더 멀어야 재개 / 값 감소(-): 가까워도 재개.",
       "../assets/offroad/icon_road.png", 2, 50, 1, 0, 10, this));
 
   ScrollView *scroller = new ScrollView(list, this);
@@ -1456,110 +1456,115 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamValueControlF(
       "TrafficStopMode", "E2E/ACC 조건부 선택",
-      "ACC: 신호정지 미사용 / AUTO: 원거리 신호정지·출발준비에서 E2E / APILOT: AUTO 조건과 비전 앞차까지 E2E. 항상 E2E는 Experimental mode 토글을 사용합니다.",
+      "0 ACC: 신호정지 끔 / 1 AUTO: 원거리 신호정지·출발준비에서 E2E / 2 APILOT: AUTO 조건과 비전 앞차까지 E2E.",
       "../assets/img_experimental_white.svg", 0, 2, 1, 0, 2, this));
 
   list->addItem(new ParamControl(
       "MixRadarInfo", "레이더·비전 가속도 혼합",
-      "레이더 앞차가 매칭되었을 때 비전 모델의 가속도 변화가 더 크면 이를 혼합해 출발·감속 반응을 보완합니다.",
+      "켜짐: 레이더 앞차와 비전 모델의 가속도 변화를 혼합해 출발·감속 반응을 보완합니다. / 꺼짐: 레이더 정보를 우선합니다.",
       "../assets/offroad/icon_road.png"));
 
   list->addItem(new ParamValueControlF(
-      "StartAccelApply", "Start Acceleration",
-      "정지 후 출발 가속도입니다. 표시값에 0.02m/s²를 곱해 적용합니다.",
-      "../assets/offroad/icon_openpilot.png", 0, 100, 10, 0, 0, this));
+      "StartAccelApply", "출발 가속 적용값",
+      "정지 후 출발 가속도(×0.02m/s²)입니다. 값 증가(+): 더 빠르고 강하게 출발 / 값 감소(-): 천천히 출발 / 0: 추가 출발가속 끔.",
+      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
 
   list->addItem(new ParamValueControlF(
-      "StopAccelApply", "Stop Accel Apply",
-      "정지 마무리 제동값입니다. 표시값에 -0.02m/s²를 곱해 적용하며 0은 추가 제동을 끕니다.",
-      "../assets/offroad/icon_openpilot.png", 0, 100, 10, 0, 30, this));
+      "StopAccelApply", "정지 제동 적용값",
+      "정지 마무리 제동값(×-0.02m/s²)입니다. 값 증가(+): 정지 직전 제동이 강해짐 / 값 감소(-): 부드러워짐 / 0: 추가 제동 끔.",
+      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 30, this));
 
   list->addItem(new ParamValueControlF(
-      "SoftHoldMode", "Soft Hold Mode",
+      "SoftHoldMode", "소프트홀드 모드",
       "0: 끔, 1: 브레이크를 놓은 뒤 정지 유지, 2: aPilot SCC 호환 모드(일부 차량은 오토홀드/EPB가 작동할 수 있음). 가속페달 또는 RES/+로 해제합니다.",
       "../assets/offroad/icon_openpilot.png", 0, 2, 1, 0, 1, this));
 
   list->addItem(new ParamValueControlF(
-      "TrafficStopAccel", "Traffic Stop Deceleration",
-      "신호정지 감속 강도입니다. 낮추면 더 일찍 부드럽게 감속하고, 높이면 더 늦고 강하게 감속합니다. aPilot 기본값은 80%입니다.",
+      "TrafficStopAccel", "신호정지 감속 강도",
+      "신호정지 감속 비율입니다. 값 증가(+): 늦고 강하게 감속 / 값 감소(-): 일찍 부드럽게 감속. aPilot 기본값: 80%.",
       "../assets/offroad/icon_road.png", 10, 120, 10, 0, 80, this));
+
+  list->addItem(new ParamValueControlF(
+      "TrafficStopDistanceAdjust", "신호 정지선 거리보정 (cm)",
+      "신호정지에만 적용됩니다. 양수(+): 정지선에 더 가까이 정차 / 음수(-): 정지선에서 더 멀리 정차. aPilot 기본값: +400cm.",
+      "../assets/offroad/icon_road.png", -1000, 1000, 10, 0, 400, this));
 
   list->addItem(horizontal_line());
 
   const std::array<std::tuple<const char*, const char*, int>, 6> accel_controls = {{
-    {"CruiseMaxVals1", "Max Accel 0 km/h", 160},
-    {"CruiseMaxVals2", "Max Accel 40 km/h", 120},
-    {"CruiseMaxVals3", "Max Accel 60 km/h", 100},
-    {"CruiseMaxVals4", "Max Accel 80 km/h", 80},
-    {"CruiseMaxVals5", "Max Accel 110 km/h", 70},
-    {"CruiseMaxVals6", "Max Accel 140 km/h", 60},
+    {"CruiseMaxVals1", "최대가속 0 km/h", 160},
+    {"CruiseMaxVals2", "최대가속 40 km/h", 120},
+    {"CruiseMaxVals3", "최대가속 60 km/h", 100},
+    {"CruiseMaxVals4", "최대가속 80 km/h", 80},
+    {"CruiseMaxVals5", "최대가속 110 km/h", 70},
+    {"CruiseMaxVals6", "최대가속 140 km/h", 60},
   }};
   for (const auto& [key, title, default_value] : accel_controls) {
     list->addItem(new ParamValueControlF(
-        key, title, "해당 속도 구간의 최대 크루즈 가속도입니다 (×0.01m/s²).",
+        key, title, "해당 속도 구간의 최대가속도(×0.01m/s²)입니다. 값 증가(+): 가속이 빠르고 강해짐 / 값 감소(-): 가속이 느리고 부드러워짐.",
         "../assets/offroad/icon_openpilot.png", 10, 250, 1, 0, default_value, this));
   }
 
   list->addItem(horizontal_line());
 
   const std::array<std::tuple<const char*, const char*, int>, 4> gap_controls = {{
-    {"TFollowGap1", "TR Gap 1", 110},
-    {"TFollowGap2", "TR Gap 2", 120},
-    {"TFollowGap3", "TR Gap 3", 140},
-    {"TFollowGap4", "TR Gap 4", 160},
+    {"TFollowGap1", "차간시간 GAP 1", 110},
+    {"TFollowGap2", "차간시간 GAP 2", 120},
+    {"TFollowGap3", "차간시간 GAP 3", 140},
+    {"TFollowGap4", "차간시간 GAP 4", 160},
   }};
   for (const auto& [key, title, default_value] : gap_controls) {
     list->addItem(new ParamValueControlF(
-        key, title, "해당 크루즈 GAP의 추종시간입니다 (×0.01초).",
+        key, title, "해당 GAP의 추종시간(×0.01초)입니다. 값 증가(+): 앞차와 멀어짐 / 값 감소(-): 앞차와 가까워짐.",
         "../assets/offroad/icon_openpilot.png", 70, 300, 1, 0, default_value, this));
   }
 
   list->addItem(new ParamValueControlF(
-      "TFollowSpeedRatio", "TR Speed Ratio",
-      "속도에 따라 추종시간을 늘리는 비율입니다 (%).",
+      "TFollowSpeedRatio", "고속 차간시간 비율 (%)",
+      "속도가 높아질 때 차간시간을 늘리는 비율입니다. 값 증가(+): 고속에서 차간거리 증가 / 값 감소(-): 고속 차간거리 감소.",
       "../assets/offroad/icon_openpilot.png", 100, 300, 5, 0, 120, this));
   list->addItem(new ParamValueControlF(
-      "PrevCruiseGap", "Cruise Gap",
-      "마지막 선택 GAP을 저장하고 다음 주행에서도 복원합니다.",
+      "PrevCruiseGap", "기억할 크루즈 GAP",
+      "마지막 GAP을 저장·복원합니다. 값 증가(+): 더 먼 GAP / 값 감소(-): 더 가까운 GAP.",
       "../assets/offroad/icon_openpilot.png", 1, 4, 1, 0, 4, this));
   list->addItem(new ParamValueControlF(
-      "MySafeModeFactor", "SAFE TR Factor",
-      "ECO/SAFE 모드의 C2 추종거리 보정 기준입니다 (%).",
+      "MySafeModeFactor", "SAFE 차간거리 비율 (%)",
+      "ECO·SAFE 모드의 차간거리 보정값입니다. 값 증가(+): 차간거리가 짧아짐 / 값 감소(-): 차간거리가 길어짐.",
       "../assets/offroad/icon_openpilot.png", 50, 100, 5, 0, 80, this));
   list->addItem(new ParamValueControlF(
-      "MyEcoModeFactor", "ECO Accel Factor",
-      "ECO 모드 최대가속 비율이며 SAFE는 이 값과 SAFE 비율을 함께 적용합니다 (%).",
+      "MyEcoModeFactor", "ECO 가속 비율 (%)",
+      "ECO 최대가속 비율이며 SAFE에도 함께 적용됩니다. 값 증가(+): 가속이 빨라짐 / 값 감소(-): 가속이 느려짐.",
       "../assets/offroad/icon_openpilot.png", 10, 95, 5, 0, 80, this));
   list->addItem(new ParamValueControlF(
-      "InitMyDrivingMode", "Initial Driving Mode",
-      "부팅 모드입니다. 1:ECO, 2:SAFE, 3:NORMAL, 4:HIGH, 5:AUTO.",
+      "InitMyDrivingMode", "시작 주행모드",
+      "시동 후 시작 모드입니다. 1: ECO / 2: SAFE / 3: NORMAL / 4: HIGH / 5: AUTO.",
       "../assets/offroad/icon_openpilot.png", 1, 5, 1, 0, 3, this));
 
   list->addItem(horizontal_line());
 
   list->addItem(new ParamValueControlF(
-      "LongTuningKpV", "Longitudinal Kp", "속도 오차 비례 게인입니다 (×0.01).",
+      "LongTuningKpV", "종방향 비례게인 Kp", "현재 속도오차 반응값(×0.01)입니다. 값 증가(+): 가감속 반응이 빠르고 강해짐 / 값 감소(-): 반응이 부드럽고 느려짐.",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
   list->addItem(new ParamValueControlF(
-      "LongTuningKiV", "Longitudinal Ki", "누적 속도 오차 적분 게인입니다 (×0.001).",
+      "LongTuningKiV", "종방향 적분게인 Ki", "누적 속도오차 보정값(×0.001)입니다. 값 증가(+): 지속 오차를 빨리 보정 / 값 감소(-): 천천히 보정. 과도하면 출렁일 수 있습니다.",
       "../assets/offroad/icon_openpilot.png", 0, 2000, 5, 0, 200, this));
   list->addItem(new ParamValueControlF(
-      "LongTuningKf", "Longitudinal Feedforward", "목표 가속도 피드포워드 게인입니다 (×0.01).",
+      "LongTuningKf", "종방향 피드포워드 Kf", "목표 가속도 반영값(×0.01)입니다. 값 증가(+): 가감속 명령이 강해짐 / 값 감소(-): 명령이 약해짐.",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
   list->addItem(new ParamValueControlF(
-      "LongitudinalActuatorDelayLowerBound", "Actuator Delay Lower Bound",
-      "종방향 액추에이터의 짧은 지연값입니다 (×0.01초). 0은 차량 기본값을 사용합니다.",
+      "LongitudinalActuatorDelayLowerBound", "종방향 최소 반응지연",
+      "가속·제동의 짧은 지연 보정값(×0.01초)입니다. 값 증가(+): 더 미리 반응 / 값 감소(-): 반응 시점을 늦춤 / 0: 차량 기본값.",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
   list->addItem(new ParamValueControlF(
-      "LongitudinalActuatorDelayUpperBound", "Actuator Delay Upper Bound",
-      "종방향 액추에이터의 긴 지연값입니다 (×0.01초). 0은 차량 기본값을 사용합니다.",
+      "LongitudinalActuatorDelayUpperBound", "종방향 최대 반응지연",
+      "가속·제동의 긴 지연 보정값(×0.01초)입니다. 값 증가(+): 더 먼 미래를 보고 일찍 반응 / 값 감소(-): 반응이 늦어짐 / 0: 차량 기본값.",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
 
   list->addItem(horizontal_line());
 
   list->addItem(new ParamValueControlF(
-      "StopDistance", "Stop Distance (cm)",
-      "ACC와 E2E에 공통으로 적용되는 정지 유지거리입니다. aPilot 기본값은 600cm입니다.",
+      "StopDistance", "정지 유지거리 (cm)",
+      "앞차 정지와 신호정지의 기본 여유거리입니다. 값 증가(+): 더 멀리 정차 / 값 감소(-): 더 가까이 정차. aPilot 기본값: 600cm.",
       "../assets/offroad/icon_road.png", 200, 1000, 50, 0, 600, this));
 
   ScrollView *scroller = new ScrollView(list, this);
@@ -1579,35 +1584,35 @@ UISettingsPanel::UISettingsPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamControl(
       "ShowCarrotHud", "좌측 HUD 박스 표시",
-      "속도·크루즈·GAP·기어·주행모드·제한속도 HUD를 표시합니다.",
+      "켜짐: 속도·크루즈·GAP·기어·주행모드·제한속도 HUD를 표시합니다.",
       "../assets/offroad/icon_road.png", this));
   list->addItem(new ParamControl(
       "ShowGearAnimation", "기어 팝업 애니메이션",
-      "변속단이 바뀔 때 중앙 팝업 애니메이션을 표시합니다.",
+      "켜짐: 변속단이 바뀔 때 중앙 팝업 애니메이션을 표시합니다.",
       "../assets/offroad/icon_road.png", this));
   list->addItem(new ParamValueControlF(
       "ShowDateTime", "날짜·시간 표시",
-      "0: 끔 / 1: 시간+날짜 / 2: 시간 / 3: 날짜",
+      "0: 끔 / 1: 시간+날짜 / 2: 시간만 / 3: 날짜만 표시.",
       "../assets/offroad/icon_road.png", 0, 3, 1, 0, 1, this));
   list->addItem(new ParamControl(
       "ShowDebugUI", "디버그 UI 표시",
-      "주행 화면의 개발자 디버그 정보를 표시합니다.",
+      "켜짐: 주행 화면에 개발자용 제어 상태와 디버그 정보를 표시합니다.",
       "../assets/offroad/icon_shell.png", this));
   list->addItem(new ParamControl(
       "ShowBlindSpotAlways", "BSD 영역 상시 표시",
-      "BSD 감지가 없을 때도 좌우 사각지대 영역을 흐리게 표시합니다.",
+      "켜짐: BSD 감지가 없을 때도 좌우 사각지대 영역을 흐리게 표시합니다.",
       "../assets/offroad/icon_road.png", this));
 
   list->addItem(horizontal_line());
   auto *status_color = new ParamControl(
       "ShowPathStatusColor", "주행 경로 상태색",
-      "활성=녹색, 정속=노란색, 가속=주황색, 감속=빨간색, 비활성=검은색으로 표시합니다.",
+      "켜짐: 활성=녹색, 정속=노란색, 가속=주황색, 감속=빨간색, 비활성=검은색으로 표시합니다.",
       "../assets/offroad/icon_road.png", this);
   status_color->showDescription();
   list->addItem(status_color);
   list->addItem(new ParamValueControlF(
       "ShowPathWidth", "주행 경로 폭 (cm)",
-      "차량 중심에서 경로 한쪽 끝까지의 폭입니다. 90은 좌우 각각 0.90m입니다.",
+      "차량 중심에서 경로 한쪽 끝까지의 표시 폭입니다. 값 증가(+): 경로가 넓게 표시 / 값 감소(-): 좁게 표시. 제어 경로에는 영향이 없습니다.",
       "../assets/offroad/icon_road.png", 30, 150, 10, 0, 90, this));
 
   ScrollView *scroller = new ScrollView(list, this);
@@ -1629,68 +1634,66 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(horizontal_line());
 
   list->addItem(new ParamValueControlF("CustomSteerRatio",
-      "Steer Ratio",
-      "조향비 (×0.01). 크면 같은 곡률에 핸들을 더 많이 돌립니다.\n"
-      "Live Steer Ratio 가 켜져 있으면 이 값 대신 학습값이 쓰입니다.\n"
+      "고정 조향비",
+      "조향비(×0.01)입니다. 값 증가(+): 같은 커브에서 조향량이 커짐 / 값 감소(-): 조향량이 작아짐.\n"
+      "실시간 조향비 사용이 켜져 있으면 이 값 대신 학습값을 사용합니다.\n"
       "범위: 1000 ~ 2000  /  기본값: 1650 (=16.50)",
       "../assets/offroad/icon_openpilot.png", 1000, 2000, 10, 0, 1650, this));
 
   list->addItem(new ParamControl("UseLiveSteerRatio",
-      "Live Steer Ratio",
-      "liveParameters 가 학습한 조향비를 사용합니다.\n"
-      "끄면 위의 Steer Ratio 고정값을 씁니다.",
+      "실시간 학습 조향비 사용",
+      "켜짐: liveParameters가 학습한 조향비 사용 / 꺼짐: 위의 고정 조향비 사용.",
       "../assets/offroad/icon_openpilot.png", this));
 
   list->addItem(new ParamValueControlF("SteerActuatorDelay",
-      "Steer Actuator Delay",
-      "조향 반응 지연 보상 (×0.01초). 크면 더 미리 조향합니다.\n"
-      "커브 인코스/아웃코스 치우침 조정에 씁니다.\n"
+      "조향 반응지연",
+      "조향 지연 보정값(×0.01초)입니다. 값 증가(+): 더 미리 조향 / 값 감소(-): 조향 시작이 늦어짐.\n"
+      "너무 높으면 커브 안쪽으로 치우치고 너무 낮으면 바깥쪽으로 밀릴 수 있습니다.\n"
       "범위: 0 ~ 80  /  기본값: 10 (=0.10초)",
       "../assets/offroad/icon_openpilot.png", 0, 80, 1, 0, 10, this));
 
   list->addItem(new ParamControl("LateralTorqueCustom",
-      "Torque Custom",
-      "켜면 아래 토크 수동값을 적용합니다.",
+      "토크 수동설정 사용",
+      "켜짐: 아래 토크 수동값 적용 / 꺼짐: 차량 기본 또는 자동 설정값 사용.",
       "../assets/offroad/icon_openpilot.png", this));
   
   list->addItem(new NtuneValueControl("torque", "latAccelFactor",
-      "Lat Accel Factor",
-      "횡가속도 대비 토크 계수입니다. 작을수록 조향 토크가 강해집니다.\n"
+      "횡가속 토크계수",
+      "횡가속도 대비 토크 계수입니다. 값 증가(+): 조향이 약해짐 / 값 감소(-): 조향이 강해짐.\n"
       "범위: 0.50 ~ 4.50  /  기본값: 2.70",
       "../assets/offroad/icon_openpilot.png", 0.5, 4.5, 0.05, 2, 2.7, this));
 
   list->addItem(new NtuneValueControl("torque", "friction",
-      "Friction",
-      "정지마찰 보상값입니다. 크면 중앙 부근 응답이 빨라지지만\n"
+      "조향 마찰보상",
+      "정지마찰 보상값입니다. 값 증가(+): 중앙 부근 조향 반응이 빨라짐 / 값 감소(-): 반응이 부드럽고 느려짐.\n"
       "너무 크면 직진에서 좌우로 흔들립니다.\n"
       "범위: 0.000 ~ 0.200  /  기본값: 0.080",
       "../assets/offroad/icon_openpilot.png", 0.0, 0.2, 0.005, 3, 0.08, this));
 
   list->addItem(new ParamValueControlF("LateralTorqueKpV",
-      "Torque Kp", "수동 비례 게인 (×0.01). 기본값: 10 (=0.10)",
+      "토크 비례게인 Kp", "현재 조향오차 반응값(×0.01)입니다. 값 증가(+): 조향 반응이 강하고 빠름 / 값 감소(-): 부드럽고 느림. 기본값: 10.",
       "../assets/offroad/icon_openpilot.png", 0, 500, 5, 0, 10, this));
 
   list->addItem(new ParamValueControlF("LateralTorqueKiV",
-      "Torque Ki", "수동 적분 게인 (×0.01). 기본값: 10 (=0.10)",
+      "토크 적분게인 Ki", "누적 조향오차 보정값(×0.01)입니다. 값 증가(+): 지속 오차를 빨리 보정 / 값 감소(-): 천천히 보정. 기본값: 10.",
       "../assets/offroad/icon_openpilot.png", 0, 200, 1, 0, 10, this));
 
   list->addItem(new ParamValueControlF("LateralTorqueKf",
-      "Torque Kf", "수동 피드포워드 게인 (×0.01). 기본값: 100 (=1.00)",
+      "토크 피드포워드 Kf", "목표 조향토크 반영값(×0.01)입니다. 값 증가(+): 전체 조향 명령이 강해짐 / 값 감소(-): 약해짐. 기본값: 100.",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
 
   list->addItem(new ParamValueControlF("LateralTorqueKd",
-      "Torque Kd", "수동 미분 게인 (×0.01). 기본값: 0",
+      "토크 미분게인 Kd", "급격한 조향변화 억제값(×0.01)입니다. 값 증가(+): 변화가 억제되어 안정적이나 둔해짐 / 값 감소(-): 반응이 빨라짐. 기본값: 0.",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 0, this));
 
   list->addItem(new ParamValueControlF("LatAccelFrictionFactor",
-      "Friction: Accel Factor",
-      "횡가속도 오차를 friction 입력에 반영하는 비율 (×0.01).\n기본값: 70",
+      "마찰보상 횡가속 비율",
+      "횡가속도 오차를 마찰보상에 반영하는 비율(×0.01)입니다. 값 증가(+): 커브 조향 반응이 강해짐 / 값 감소(-): 부드러워짐. 기본값: 70.",
       "../assets/offroad/icon_openpilot.png", 0, 300, 5, 0, 70, this));
 
   list->addItem(new ParamValueControlF("LatJerkFrictionFactor",
-      "Friction: Jerk Factor",
-      "예측 횡저크를 friction 입력에 반영하는 비율 (×0.01).\n"
-      "커브 진입 초기 응답에 영향. 0 이면 사용 안함.  기본값: 40",
+      "마찰보상 횡저크 비율",
+      "예측 횡저크 반영비율(×0.01)입니다. 값 증가(+): 커브 진입 조향이 빨라짐 / 값 감소(-): 진입 반응이 느려짐 / 0: 사용 안 함. 기본값: 40.",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 40, this));
 
   list->addItem(horizontal_line());
@@ -1700,7 +1703,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(horizontal_line());
 
   auto *path_offset = new OffsetTotalControl(
-      "Offset Total",
+      "통합 경로 좌우보정",
       "주행 경로 좌우 통합 보정값입니다. 레인모드·레인리스 모두 적용됩니다.\n"
       "카메라 오프셋은 하드웨어 기본값으로 고정되고 이 값 하나로 조정합니다.\n"
       "왼쪽으로 이동: 양수(+) / 오른쪽으로 이동: 음수(−)\n"
@@ -1714,10 +1717,11 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
 
   // ── Adjust Lane Offset ───────────────────────────────────────
   auto *lane_offset = new AdjustLaneOffsetControl(
-      "Adjust Lane Offset",
+      "차선 여유공간 자동보정",
       "좌우 여유공간이 비대칭일 때 여유 있는 쪽으로 경로를 옮깁니다.\n"
       "좁은 도로에서 대형차 옆을 지날 때 효과가 있습니다.\n"
       "양쪽 다 여유가 있거나 양쪽 다 좁으면 동작하지 않습니다.\n"
+      "값 증가(+): 여유 있는 쪽으로 더 많이 이동 / 값 감소(-): 이동량이 줄어듭니다.\n"
       "범위: 0 ~ 40cm (5cm 단위)  /  기본값: OFF",
       "../assets/offroad/icon_road.png",
       this);
@@ -1727,10 +1731,8 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(horizontal_line());
   auto *dlp_control = new DynamicLaneProfileControl(
-      "Dynamic Lane Profile Mode",
-      "Lane only: 항상 차선 기반\n"
-      "Lane less: 항상 차선 미사용(e2e)\n"
-      "Auto: 차선 인식률에 따라 자동 전환",
+      "동적 차선모드",
+      "차선 사용: 항상 차선 기반 / 차선 미사용: 항상 E2E 경로 / 자동: 차선 인식률에 따라 자동 전환.",
       "../assets/offroad/icon_road.png",
       this);
   dlp_control->showDescription();
@@ -1740,9 +1742,9 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
 
   // ── AutoLaneChangeTimer ──────────────────────────────────────
   auto *lc_timer = new AutoLaneChangeTimerControl(
-      "Auto Lane Change Timer",
+      "자동 차선변경 대기시간",
       "차선변경 자동 시작까지의 대기 시간을 설정합니다.\n"
-      "즉시: 조건 충족 즉시 / 0.1s ~ 2.0s: 해당 시간 대기 후 자동 차선변경",
+      "값 증가(+): 방향지시등 후 더 오래 기다림 / 값 감소(-): 더 빨리 차선변경 / 즉시: 조건 충족 즉시 시작.",
       "../assets/offroad/icon_road.png",
       this);
   lc_timer->showDescription();
@@ -1750,29 +1752,27 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
 
   // ── AutoLaneChangeSpeed ────────────────────────────────────────
   list->addItem(new ParamValueControlF("AutoLaneChangeSpeed",
-      "Auto Lane Change Speed",
-      "자동/방향지시등 차선변경이 허용되는 최저 속도입니다 (km/h).\n"
-      "이 속도보다 느리면 차선변경이 시작되지 않습니다.",
+      "자동 차선변경 최저속도",
+      "자동·방향지시등 차선변경 허용 최저속도(km/h)입니다. 값 증가(+): 더 높은 속도에서만 작동 / 값 감소(-): 저속에서도 작동.",
       "../assets/offroad/icon_road.png", 0, 100, 10, 0, 50, this));
 
   list->addItem(horizontal_line());
 
   auto *atc_mode = new ParamValueControlF(
-      "CarrotAutoTurnControl", "Carrot Navi ATC Mode",
-      "0: Off / 1: steering assist / 2: steering + turn speed / 3: turn speed only. "
-      "ATC 모드 선택.",
+      "CarrotAutoTurnControl", "캐럿 내비 ATC 모드",
+      "0: 끔 / 1: 회전 조향보조 / 2: 조향보조+회전감속 / 3: 회전감속만 사용.",
       "../assets/offroad/icon_road.png", 0, 3, 1, 0, 0, this);
   atc_mode->showDescription();
   list->addItem(atc_mode);
 
   list->addItem(new ParamValueControlF(
-      "CarrotAutoTurnSpeed", "Carrot ATC Turn Speed",
-      "회전 구간 근처에서의 목표 속도(km/h). 모드2 또는3일때만 작동",
+      "CarrotAutoTurnSpeed", "캐럿 ATC 회전속도",
+      "회전 구간 목표속도(km/h)이며 모드 2·3에서 적용됩니다. 값 증가(+): 더 빠르게 회전 / 값 감소(-): 더 많이 감속.",
       "../assets/offroad/icon_speed_limit.png", 30, 60, 5, 0, 30, this));
 
   list->addItem(new ParamValueControlF(
-      "CarrotAutoTurnEndTime", "Carrot ATC Speed Timing",
-      "회전 몇 초 전에 목표속도까지 줄여놓을지를 정하는 타이밍값. 모드 2 or 3일때만 작동.",
+      "CarrotAutoTurnEndTime", "캐럿 ATC 감속시점",
+      "회전감속 준비시간(초)이며 모드 2·3에서 적용됩니다. 값 증가(+): 더 일찍 감속 시작 / 값 감소(-): 회전에 가까워져 감속.",
       "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
 
   list->addItem(horizontal_line());

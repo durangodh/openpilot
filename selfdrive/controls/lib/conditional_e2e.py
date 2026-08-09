@@ -12,7 +12,7 @@ TRAFFIC_STOP_SOLVER_COMFORT_BRAKE = 2.5
 TRAFFIC_STOP_APILOT_COMFORT_BRAKE = 2.5
 
 
-def adjust_stop_distance_for_decel(stop_distance, v_ego, decel_factor):
+def adjust_stop_distance_for_decel(stop_distance, v_ego, decel_factor, distance_adjust=0.0):
   """Emulate a variable MPC comfort-brake value with a fixed-parameter solver.
 
   aPilot changes the comfort-brake MPC parameter while stopping for a traffic
@@ -25,7 +25,8 @@ def adjust_stop_distance_for_decel(stop_distance, v_ego, decel_factor):
   speed = max(0.0, float(v_ego))
   base_distance = speed ** 2 / (2.0 * TRAFFIC_STOP_SOLVER_COMFORT_BRAKE)
   adjusted_distance = speed ** 2 / (2.0 * TRAFFIC_STOP_APILOT_COMFORT_BRAKE * factor)
-  return max(0.0, float(stop_distance) - (adjusted_distance - base_distance))
+  return max(0.0, float(stop_distance) + float(distance_adjust) -
+             (adjusted_distance - base_distance))
 
 
 class ConditionalE2EController:

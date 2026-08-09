@@ -15,6 +15,11 @@ def test_traffic_stop_decel_adjusts_virtual_obstacle():
   assert adjust_stop_distance_for_decel(5.0, v_ego, 0.1) == 0.0
 
 
+def test_traffic_stop_distance_adjust_moves_virtual_obstacle_only():
+  assert adjust_stop_distance_for_decel(20.0, 0.0, 1.0, 4.0) == 24.0
+  assert adjust_stop_distance_for_decel(2.0, 0.0, 1.0, -4.0) == 0.0
+
+
 def update(controller, **overrides):
   args = dict(
     available=True,
