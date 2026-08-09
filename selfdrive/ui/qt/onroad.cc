@@ -995,10 +995,9 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
                      : QString("--");
   ctText(p, bx + 170, by + 20, cruise_str, 60, CT_GREEN, true, true);
 
-  // ---- 실제 적용 속도 : aPilot처럼 설정속도와 다를 때만 작은 녹색 숫자로 표시 ----
-  //      sccSmoother 계열(cam/sec/road/eco) 과 VisionTurnController(vturn) 중
-  //      더 낮은 목표속도를 표시한다.
+  // ---- 실제 적용 속도/원인 : c3-wip carrot.cc 의 desiredSpeed/desiredSource 표시 ----
   float show_speed = 0.0f;      // kph
+  QString apply_source = QString::fromUtf8(scc_smoother.getApplySource().cStr());
   float apply_max = scc_smoother.getApplyMaxSpeed();
   if (is_cruise_set && apply_max > 0 && std::abs(apply_max - cruise_max) > 0.5f) {
     show_speed = apply_max;
@@ -1014,13 +1013,18 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
       float v_turn = long_plan.getVisionTurnSpeed() * 3.6f;   // m/s -> kph
       if (v_turn > 0 && (show_speed <= 0.0f || v_turn < show_speed)) {
         show_speed = v_turn;
+        apply_source = "vturn";
       }
     }
   }
 
   if (show_speed > 0.0f) {
+    const QColor apply_color = CT_OCHRE;
     ctText(p, bx + 250, by - 50,  QString::number((int)(show_speed * kph_to_disp + 0.5f)),
-           50, CT_GREEN, true, true);
+           50, apply_color, true, true);
+    if (!apply_source.isEmpty()) {
+      ctText(p, bx + 250, by - 100, apply_source, 30, apply_color, true, true);
+    }
   }
 
   // ---- 주행모드 (NORM / ECO / SAFE / FAST) ----

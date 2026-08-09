@@ -64,6 +64,7 @@ class CruiseHelper:
     self.max_speed_clu = 0.0
     self.curve_speed_ms = 250.0 * CV.KPH_TO_MS
     self.map_curve_speed_kph = 250.0
+    self.apply_source = ""
     self.active_cam = False
     self.over_speed_limit = False
     self.slowing_down = False
@@ -500,8 +501,10 @@ class CruiseHelper:
     navi_state = self.carrot_atc.update()
 
     cruise_speed_ms = controls.v_cruise_kph * CV.KPH_TO_MS
+    self.apply_source = ""
     if self.turn_vision_control and self.curve_speed_ms < cruise_speed_ms:
       max_speed_clu = self.curve_speed_ms * self.speed_conv_to_clu
+      self.apply_source = "vturn"
     else:
       max_speed_clu = self.kph_to_clu(controls.v_cruise_kph)
 
@@ -513,7 +516,10 @@ class CruiseHelper:
         self.auto_navi_speed_decel_rate)
       if map_speed is not None:
         self.map_curve_speed_kph = map_speed
-        max_speed_clu = min(max_speed_clu, self.kph_to_clu(map_speed))
+        map_speed_clu = self.kph_to_clu(map_speed)
+        if map_speed_clu < max_speed_clu:
+          max_speed_clu = map_speed_clu
+          self.apply_source = "route"
 
     self.active_cam = road_limit_speed > 0 and left_dist > 0
     normal_road_limit_speed = 0.0
@@ -528,7 +534,17 @@ class CruiseHelper:
     if apply_limit_speed >= self.kph_to_clu(10):
       if first_started:
         self.max_speed_clu = clu11_speed
-      max_speed_clu = min(max_speed_clu, apply_limit_speed)
+      if apply_limit_speed < max_speed_clu:
+        max_speed_clu = apply_limit_speed
+        cam_type = int(limiter.roadLimitSpeed.camType) if limiter.roadLimitSpeed is not None else -1
+        cam_dist = int(limiter.roadLimitSpeed.camLimitSpeedLeftDist) if limiter.roadLimitSpeed is not None else 0
+        section_dist = int(limiter.roadLimitSpeed.sectionLeftDist) if limiter.roadLimitSpeed is not None else 0
+        if cam_type == 22:
+          self.apply_source = "bump"
+        elif cam_dist > 0:
+          self.apply_source = "cam"
+        elif section_dist > 0:
+          self.apply_source = "section"
       if clu11_speed > apply_limit_speed:
         if not self.slowing_down_alert and not self.slowing_down:
           self.slowing_down_sound_alert = True
@@ -545,7 +561,10 @@ class CruiseHelper:
                                                 self.carrot_atc_end_time)
       limits = [value for value in limits if value is not None]
       if limits:
-        max_speed_clu = min(max_speed_clu, self.kph_to_clu(min(limits)))
+        atc_speed_clu = self.kph_to_clu(min(limits))
+        if atc_speed_clu < max_speed_clu:
+          max_speed_clu = atc_speed_clu
+          self.apply_source = "atc"
 
     self.update_max_speed(int(max_speed_clu + 0.5), controls.CP.openpilotLongitudinalControl)
     return normal_road_limit_speed
@@ -627,6 +646,7 @@ class CruiseHelper:
     CC.sccSmoother.longControl = longcontrol
     CC.sccSmoother.applyMaxSpeed = controls.applyMaxSpeed
     CC.sccSmoother.cruiseMaxSpeed = controls.v_cruise_kph
+    CC.sccSmoother.applySource = self.apply_source
     CC.sccSmoother.logMessage = ""
 
     self.update_target_speed(CS, clu11_speed, controls, longcontrol)
