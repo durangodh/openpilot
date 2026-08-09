@@ -298,8 +298,9 @@ class CruiseHelper:
     self.update_cruise_speed(controls, CS, longcontrol)
     self.sync_physical_gap(CS)
 
-    # MAD mode CANCEL latch: pause longitudinal only and require an explicit
-    # RES/SET before automatic SCC resume is allowed again.
+    # apilot-c2 CANCEL latch: pause longitudinal only and require an explicit
+    # RES/SET before automatic SCC resume is allowed again. Lateral control is
+    # untouched - controlsd stays engaged until cruise MAIN turns off.
     if any(event.type == ButtonType.cancel and not event.pressed for event in CS.buttonEvents):
       self._pause_longitudinal(controls, user_cancel=True)
       self.button_count = 0
