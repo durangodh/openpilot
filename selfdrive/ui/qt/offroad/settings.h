@@ -8,11 +8,6 @@
 #include <QStackedWidget>
 #include <QWidget>
 #include <QStackedLayout>
-#include <QJsonObject>
-#include <QMap>
-#include <QList>
-#include <QColor>
-#include <QSet>
 #include <QStringList>
 
 #include "selfdrive/ui/qt/widgets/controls.h"
@@ -210,7 +205,6 @@ private:
   QLabel *value_label;
   Params params;
 };
-
 // nTune JSON(/data/ntune/common.json, lat_torque_v4.json) 값을 화면에서 직접 조절한다.
 // nTune 이 dnotify 로 파일 변경을 감시하므로 저장 즉시 주행 중에도 반영된다.
 class NtuneValueControl : public AbstractControl {
@@ -230,7 +224,7 @@ private:
   QLabel *value_label;
 };
 
-// 정수 Params 값을 화면에서 조절 (carrot CValueControl 방식)
+// 정수 Params 값을 화면에서 조절
 class ParamValueControlF : public AbstractControl {
   Q_OBJECT
 public:
@@ -258,88 +252,4 @@ private:
   QPushButton *minus_btn, *plus_btn;
   QLabel *value_label;
   Params params;
-};
-
-// ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ─────────────────────────
-
-// 파라미터 변화 추이 라인 그래프 위젯
-class AutoTunerGraphWidget : public QWidget {
-  Q_OBJECT
-public:
-  explicit AutoTunerGraphWidget(QWidget *parent = nullptr);
-  void setData(const QList<QString> &timestamps, const QMap<QString, QList<double>> &param_histories, const QMap<QString, QColor> &colors);
-  void setSelectedParam(const QString &param);
-  void setHiddenParams(const QSet<QString> &params);
-
-protected:
-  void paintEvent(QPaintEvent *event) override;
-  void mousePressEvent(QMouseEvent *event) override;
-
-private:
-  QList<QString> timestamps;
-  QMap<QString, QList<double>> param_histories;
-  QMap<QString, QColor> colors;
-  QString selected_param;
-  QSet<QString> hidden_params;
-  int selected_index = -1;
-};
-
-// 이력 카드 리스트 다이얼로그 (Restore / Delete)
-class AutoTunerCardListDialog : public QDialogBase {
-  Q_OBJECT
-public:
-  explicit AutoTunerCardListDialog(QWidget *parent = nullptr);
-
-protected:
-  void showEvent(QShowEvent *event) override;
-
-private slots:
-  void refreshHistory();
-  void deleteItem(const QString& id);
-  void restoreItem(const QString& id);
-
-private:
-  QVBoxLayout *list_layout;
-};
-
-// 이력 패널 (그래프 + 파라미터 목록 + LAT/LONG 토글)
-class AutoTunerHistoryPanel : public QFrame {
-  Q_OBJECT
-public:
-  explicit AutoTunerHistoryPanel(QWidget* parent = nullptr);
-
-public slots:
-  void refreshHistory();
-  void updateLabelColors();
-
-private slots:
-  void clearAll();
-
-private:
-  void rebuildParamList();
-  void toggleGroup(const QString &group);
-  void applyHiddenParams();
-  AutoTunerGraphWidget *graph_widget;
-  QVBoxLayout *param_list_layout;
-  QMap<QString, QLabel*> param_labels;
-  QString selected_param;
-  QMap<QString, QColor> param_colors;
-  // 좌측 파라미터 리스트를 그룹(가속/조향/곡선/거리/주행 등)으로 묶어
-  // 그룹 헤더 클릭 시 접기/펴기 + 그래프 표시 토글을 지원하기 위한 상태
-  QStringList group_order;                  // 표시 순서대로 정렬된 그룹 라벨
-  QMap<QString, QStringList> group_params;  // 그룹 라벨 → 소속 파라미터들
-  QSet<QString> collapsed_groups;           // 접혀있는(그래프 숨김) 그룹 라벨
-
-protected:
-  void showEvent(QShowEvent *event) override;
-};
-
-// 이력 패널을 담는 다이얼로그
-class AutoTunerHistoryDialog : public QDialogBase {
-  Q_OBJECT
-public:
-  explicit AutoTunerHistoryDialog(QWidget *parent = nullptr);
-
-protected:
-  void showEvent(QShowEvent *event) override;
 };
