@@ -3,6 +3,7 @@ from common.numpy_fast import clip, interp
 from common.params import Params
 from common.realtime import DT_CTRL
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, apply_deadzone
+from selfdrive.controls.lib.lead_departure import LeadDepartureController
 from selfdrive.controls.lib.pid import PIDController
 from selfdrive.modeld.constants import T_IDXS
 
@@ -10,7 +11,7 @@ LongCtrlState = car.CarControl.Actuators.LongControlState
 
 def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                              v_target_1sec, brake_pressed, cruise_standstill,
-                             soft_hold, a_target_now, starting_state):
+                             soft_hold, a_target_now, starting_state, lead_departing=False):
   # apilot-c2 stopping transition: keep PID braking while the planned
   # acceleration is still strong, then hand over to the stopping ramp.
   # With openpilot longitudinal control the stock SCC standstill flag can
@@ -28,10 +29,11 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                   (brake_pressed or cruise_standstill))
   stopping_condition = planned_stop or stay_stopped
 
-  starting_condition = (v_target_1sec > CP.vEgoStarting and
-                        accelerating and
-                        not cruise_standstill and
-                        not brake_pressed)
+  planned_start = (v_target_1sec > CP.vEgoStarting and
+                   accelerating and
+                   not cruise_standstill and
+                   not brake_pressed)
+  starting_condition = planned_start or (lead_departing and not brake_pressed)
   started_condition = v_ego > CP.vEgoStarting
 
   if not active:
@@ -48,7 +50,9 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
         long_control_state = LongCtrlState.starting if starting_state else LongCtrlState.pid
 
     elif long_control_state == LongCtrlState.starting:
-      if stopping_condition:
+      if lead_departing:
+        pass
+      elif stopping_condition:
         long_control_state = LongCtrlState.stopping
       elif started_condition:
         long_control_state = LongCtrlState.pid
@@ -56,7 +60,7 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
     if soft_hold:
       long_control_state = LongCtrlState.stopping
 
-  return long_control_state, planned_stop
+  return long_control_state, planned_stop and not lead_departing
 
 
 class LongControl:
@@ -72,6 +76,7 @@ class LongControl:
     self.long_coast_band = 0.0
     self.v_pid = 0.0
     self.last_output_accel = 0.0
+    self.lead_departure = LeadDepartureController()
 
     # Read launch control immediately so StartAccelApply=0 disables the
     # starting state from the first control cycle.
@@ -144,7 +149,7 @@ class LongControl:
         if kf > 0.0:
           self.pid.k_f = clip(kf, 0.7, 1.3)
 
-  def update(self, active, CS, long_plan, accel_limits, t_since_plan, soft_hold=False):
+  def update(self, active, CS, long_plan, accel_limits, t_since_plan, soft_hold=False, radar_state=None):
     self._read_params()
 
     if len(long_plan.speeds) == CONTROL_N:
@@ -178,9 +183,25 @@ class LongControl:
     self.pid.neg_limit = accel_limits[0]
     self.pid.pos_limit = accel_limits[1]
 
+    lead = radar_state.leadOne if radar_state is not None else None
+    plan_released = (v_target_1sec > self.CP.vEgoStarting and
+                     v_target_1sec > v_target + 0.01)
+    lead_departing = self.lead_departure.update(
+      active=active,
+      standstill=CS.standstill,
+      plan_released=plan_released,
+      brake_pressed=CS.brakePressed,
+      gas_pressed=CS.gasPressed,
+      lead_status=bool(lead is not None and lead.status),
+      lead_distance=float(lead.dRel) if lead is not None else 0.0,
+      lead_speed=float(max(lead.vRel, lead.vLeadK)) if lead is not None else 0.0,
+      dt=DT_CTRL,
+    )
+
     self.long_control_state, planned_stop = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
-      CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now, self.starting_state)
+      CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now,
+      self.starting_state, lead_departing)
 
     if self.long_control_state == LongCtrlState.off:
       self.reset(CS.vEgo)
