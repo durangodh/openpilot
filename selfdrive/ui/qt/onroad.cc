@@ -331,6 +331,7 @@ void NvgWindow::initializeGL() {
   ic_hda = QPixmap("../assets/images/img_hda.png");
   ic_tire_pressure = QPixmap("../assets/images/img_tire_pressure.png");
   ic_speed_bg = QPixmap("../assets/images/speed_bg.png");
+  ic_navi_point = QPixmap("../assets/images/navi_point.png");
 }
 
 void NvgWindow::updateState(const UIState &s) {	
@@ -537,6 +538,7 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
 
   drawLaneLines(p, s);
 
+  drawCarrotTurnPoint(p, model);
   drawCarrotLead(p);
   drawCarrotNavi(p);
   drawCarrotHud(p);

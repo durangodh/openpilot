@@ -433,6 +433,74 @@ static void drawCarrotTurnArrow(QPainter &p, const QRect &box, int type, const Q
   p.drawPath(path);
 }
 
+void NvgWindow::drawCarrotTurnPoint(QPainter &p, const cereal::ModelDataV2::Reader &model) {
+  updateCarrotNavi();
+
+  const qint64 wall_now = QDateTime::currentMSecsSinceEpoch();
+  const qint64 guidance_age = wall_now - static_cast<qint64>(carrot_navi_guidance_updated_at);
+  const bool guidance_fresh = carrot_navi_guidance_updated_at != 0 &&
+                              guidance_age >= -5000 && guidance_age <= 3000;
+
+  int direction = 0;
+  const CarrotAtcKind kind = carrotAtcKind(carrot_navi_turn_type,
+                                           carrot_navi_instruction,
+                                           &direction);
+  if (!guidance_fresh || carrot_navi_distance <= 0 || carrot_navi_distance >= 1500 ||
+      kind == CarrotAtcKind::NONE || ic_navi_point.isNull()) {
+    carrot_navi_point_reset = true;
+    return;
+  }
+
+  const auto road_edges = model.getRoadEdges();
+  if (road_edges.size() < 2) {
+    carrot_navi_point_reset = true;
+    return;
+  }
+
+  const int model_idx = get_path_length_idx(road_edges[0], carrot_navi_distance);
+  const UIScene &scene = uiState()->scene;
+  QPointF raw_points[2];
+  for (int side = 0; side < 2; ++side) {
+    const line_vertices_data &vertices = scene.road_edge_vertices[side];
+    const int half = vertices.cnt / 2;
+    if (half <= 0) {
+      carrot_navi_point_reset = true;
+      return;
+    }
+    const int idx = std::clamp(model_idx, 0, half - 1);
+    const QPointF &left = vertices.v[idx];
+    const QPointF &right = vertices.v[vertices.cnt - 1 - idx];
+    raw_points[side] = QPointF((left.x() + right.x()) * 0.5,
+                               (left.y() + right.y()) * 0.5);
+  }
+
+  const qreal alpha = carrot_navi_point_reset ? 1.0 : 0.1;
+  for (int side = 0; side < 2; ++side) {
+    carrot_navi_point_smooth[side] =
+        carrot_navi_point_smooth[side] * (1.0 - alpha) + raw_points[side] * alpha;
+  }
+  carrot_navi_point_reset = false;
+
+  qreal scale = 0.1;
+  if (carrot_navi_distance < 200) {
+    scale = (1.0 - 0.8 * carrot_navi_distance / 200.0) * 0.5;
+  }
+  const int icon_w = std::max(1, qRound(348 * scale));
+  const int icon_h = std::max(1, qRound(540 * scale));
+
+  // C3 uses the left road edge for left/U-turn/rotary and the right edge for right turns.
+  const int side = direction > 0 ? 1 : 0;
+  const QPointF &point = carrot_navi_point_smooth[side];
+  const QRect target(qRound(point.x()) - icon_w / 2,
+                     qRound(point.y()) - icon_h,
+                     icon_w, icon_h);
+
+  p.save();
+  p.setOpacity(1.0);
+  p.drawPixmap(target, ic_navi_point, ic_navi_point.rect());
+  p.restore();
+}
+
 void NvgWindow::drawCarrotNavi(QPainter &p) {
   updateCarrotNavi();
 
