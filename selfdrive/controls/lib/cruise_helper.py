@@ -121,7 +121,14 @@ class CruiseHelper:
     self.auto_speed_up_ratio = float(self.params.get_int("AutoSpeedUptoRoadSpeedLimit")) * 0.01
     self.auto_road_speed_adjust = float(clip(self.params.get_int("AutoRoadSpeedAdjust"), -100, 100)) * 0.01
     self.auto_road_speed_limit_offset = float(clip(self.params.get_int("AutoRoadSpeedLimitOffset"), -30, 30))
-    self.auto_navi_speed_safety_factor = float(clip(self.params.get_int("AutoNaviSpeedSafetyFactor"), 80, 120)) * 0.01
+    ctrl_end = self.params.get_int("AutoNaviSpeedCtrlEnd")
+    bump_time = self.params.get_int("AutoNaviSpeedBumpTime")
+    bump_speed = self.params.get_int("AutoNaviSpeedBumpSpeed")
+    safety_factor = self.params.get_int("AutoNaviSpeedSafetyFactor")
+    self.auto_navi_speed_ctrl_end = float(clip(ctrl_end if ctrl_end > 0 else 7, 3, 20))
+    self.auto_navi_speed_bump_time = float(clip(bump_time if bump_time > 0 else 1, 1, 50))
+    self.auto_navi_speed_bump_speed = float(clip(bump_speed if bump_speed > 0 else 35, 10, 100))
+    self.auto_navi_speed_safety_factor = float(clip(safety_factor if safety_factor > 0 else 105, 80, 120)) * 0.01
     self.carrot_atc_mode = int(clip(self.params.get_int("CarrotAutoTurnControl"), 0, 3))
     self.carrot_atc_speed = float(clip(self.params.get_int("CarrotAutoTurnSpeed"), 5, 80))
     self.carrot_atc_end_time = float(clip(self.params.get_int("CarrotAutoTurnEndTime"), 1, 20))
@@ -494,9 +501,53 @@ class CruiseHelper:
     else:
       self.max_speed_clu += (max_speed - self.max_speed_clu) * 0.01
 
+  @staticmethod
+  def calculate_navi_speed(left_dist, safe_speed_kph, safe_time, decel):
+    """C3 carrot_serv.calculate_current_speed navigation deceleration."""
+    safe_speed = safe_speed_kph * CV.KPH_TO_MS
+    decel_dist = left_dist - safe_speed * safe_time
+    if decel_dist <= 0.0:
+      return safe_speed_kph
+    return max(safe_speed_kph, min(250.0,
+               np.sqrt(max(0.0, safe_speed ** 2 + 2.0 * decel * decel_dist)) * CV.MS_TO_KPH))
+
   def cal_max_speed(self, frame, CS, sm, clu11_speed, controls):
     limiter = get_road_speed_limiter()
-    apply_limit_speed, road_limit_speed, left_dist, first_started, _ = limiter.get_max_speed(clu11_speed, self.is_metric)
+    # Receive the legacy roadLimitSpeed packet, then calculate its target with
+    # the C3 carrot_serv rules instead of the legacy camSpeedFactor ramp.
+    _, road_limit_speed, left_dist, _, _ = limiter.get_max_speed(clu11_speed, self.is_metric)
+    apply_limit_speed = 0.0
+    navi_source = ""
+    navi_target_kph = 0.0
+    if limiter.roadLimitSpeed is not None:
+      road_data = limiter.roadLimitSpeed
+      cam_type = int(road_data.camType)
+      cam_dist = float(road_data.camLimitSpeedLeftDist)
+      cam_limit = float(road_data.camLimitSpeed)
+      section_dist = float(road_data.sectionLeftDist)
+      section_limit = float(road_data.sectionLimitSpeed)
+
+      if cam_dist > 0.0 and cam_limit > 0.0:
+        left_dist = cam_dist
+        road_limit_speed = cam_limit
+        if cam_type == 22:
+          navi_source = "bump"
+          navi_target_kph = self.auto_navi_speed_bump_speed
+          safe_time = self.auto_navi_speed_bump_time
+        else:
+          navi_source = "cam"
+          navi_target_kph = cam_limit * self.auto_navi_speed_safety_factor
+          safe_time = self.auto_navi_speed_ctrl_end
+        apply_kph = self.calculate_navi_speed(left_dist, navi_target_kph, safe_time,
+                                              self.auto_navi_speed_decel_rate)
+        apply_limit_speed = self.kph_to_clu(apply_kph)
+      elif section_dist > 0.0 and section_limit > 0.0:
+        left_dist = section_dist
+        road_limit_speed = section_limit
+        navi_source = "section"
+        navi_target_kph = section_limit * self.auto_navi_speed_safety_factor
+        # C3 holds the section target directly while inside the section.
+        apply_limit_speed = self.kph_to_clu(navi_target_kph)
     self.cal_curve_speed(sm, CS.out.vEgo, frame)
     navi_state = self.carrot_atc.update()
 
@@ -525,26 +576,15 @@ class CruiseHelper:
     normal_road_limit_speed = 0.0
     if limiter.roadLimitSpeed is not None:
       normal_road_limit_speed = float(limiter.roadLimitSpeed.roadLimitSpeed)
-      camera_factor = clip(limiter.roadLimitSpeed.camSpeedFactor, 1.0, 1.1)
       self.over_speed_limit = limiter.roadLimitSpeed.camLimitSpeedLeftDist > 0 and \
-                              0 < road_limit_speed * camera_factor < clu11_speed + 2
+                              0 < navi_target_kph < clu11_speed + 2
     else:
       self.over_speed_limit = False
 
     if apply_limit_speed >= self.kph_to_clu(10):
-      if first_started:
-        self.max_speed_clu = clu11_speed
       if apply_limit_speed < max_speed_clu:
         max_speed_clu = apply_limit_speed
-        cam_type = int(limiter.roadLimitSpeed.camType) if limiter.roadLimitSpeed is not None else -1
-        cam_dist = int(limiter.roadLimitSpeed.camLimitSpeedLeftDist) if limiter.roadLimitSpeed is not None else 0
-        section_dist = int(limiter.roadLimitSpeed.sectionLeftDist) if limiter.roadLimitSpeed is not None else 0
-        if cam_type == 22:
-          self.apply_source = "bump"
-        elif cam_dist > 0:
-          self.apply_source = "cam"
-        elif section_dist > 0:
-          self.apply_source = "section"
+        self.apply_source = navi_source
       if clu11_speed > apply_limit_speed:
         if not self.slowing_down_alert and not self.slowing_down:
           self.slowing_down_sound_alert = True
