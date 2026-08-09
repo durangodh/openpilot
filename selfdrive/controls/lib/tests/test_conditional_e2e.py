@@ -126,9 +126,14 @@ def test_fast_mode_disables_auto_signal_control_but_not_fixed_e2e():
 def test_confirmed_start_and_gas_enter_departure_prepare():
   controller = ConditionalE2EController(DT_MDL)
   enter_stop(controller, distance=10.0, v_ego=1.0)
-  for _ in range(40):
+  # The model-velocity moving average must first clear the preceding stop
+  # prediction; after that, the C3-style 0.2 s confirmation is four frames.
+  for _ in range(8):
     mode = update(controller, model_x=100.0, model_v0=10.0,
                   model_v_end=8.0, v_ego=1.0)
+    assert not controller.prepare
+  mode = update(controller, model_x=100.0, model_v0=10.0,
+                model_v_end=8.0, v_ego=1.0)
   assert mode == 'blended'
   assert controller.prepare
 

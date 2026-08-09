@@ -3,7 +3,10 @@ from collections import deque
 from statistics import fmean, median
 
 
-E2E_START_CONFIRM_TIME = 1.5
+# Match C3's confirmed green/start response. The old-model branch still uses
+# the filtered model trajectory and distance guard below to reject a single
+# noisy far-path frame.
+E2E_START_CONFIRM_TIME = 0.2
 E2E_START_MIN_DISTANCE = 60.0
 E2E_FAR_STOP_DISTANCE = 40.0
 E2E_VISION_LEAD_DISTANCE = 90.0

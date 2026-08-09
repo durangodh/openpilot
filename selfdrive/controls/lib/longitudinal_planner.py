@@ -22,7 +22,7 @@ LON_MPC_STEP = 0.2  # first step is 0.2s
 AWARENESS_DECEL = -0.2  # car smoothly decel at .2m/s^2 when user is distracted
 A_CRUISE_MIN = -1.2
 
-A_CRUISE_MAX_BP = [0.0, 40.0 * CV.KPH_TO_MS, 60.0 * CV.KPH_TO_MS,
+A_CRUISE_MAX_BP = [0.0, 10.0 * CV.KPH_TO_MS, 40.0 * CV.KPH_TO_MS, 60.0 * CV.KPH_TO_MS,
                    80.0 * CV.KPH_TO_MS, 110.0 * CV.KPH_TO_MS, 140.0 * CV.KPH_TO_MS]
 CRUISE_MAX_VAL_KEYS = ["CruiseMaxVals1", "CruiseMaxVals2", "CruiseMaxVals3",
                        "CruiseMaxVals4", "CruiseMaxVals5", "CruiseMaxVals6"]
@@ -181,7 +181,9 @@ class LongitudinalPlanner:
     # ───────────────────
 
   def get_max_accel(self, v_ego):
-    return interp(v_ego, A_CRUISE_MAX_BP, self.cruise_max_vals)
+    # C3 keeps the first configured acceleration flat through 10 km/h. Reuse
+    # the existing six settings so no parameter/schema migration is needed.
+    return interp(v_ego, A_CRUISE_MAX_BP, [self.cruise_max_vals[0]] + self.cruise_max_vals)
 
   def reset_auto_e2e(self):
     self.conditional_e2e.reset()
