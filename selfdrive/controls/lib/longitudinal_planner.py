@@ -105,7 +105,10 @@ class LongitudinalPlanner:
     self.brake_resume_accel_start = 0.0
     self.prev_reset_state = True
 
+    self.long_actuator_delay = self.CP.longitudinalActuatorDelay
     self.read_param()
+    self.read_actuator_delay()
+    self.param_read_counter = 1
 
     self.fcw = False
 
@@ -180,6 +183,12 @@ class LongitudinalPlanner:
     self.mpc.t_follow_speed_ratio = (speed_ratio if speed_ratio >= 100 else 120) * 0.01
     # ───────────────────
 
+  def read_actuator_delay(self):
+    configured_delay = self.params.get_float("LongActuatorDelay") * 0.01
+    self.long_actuator_delay = self.CP.longitudinalActuatorDelay
+    if configured_delay > 0.0:
+      self.long_actuator_delay = float(clip(configured_delay, 0.1, 1.0))
+
   def get_max_accel(self, v_ego):
     # C3 keeps the first configured acceleration flat through 10 km/h. Reuse
     # the existing six settings so no parameter/schema migration is needed.
@@ -250,8 +259,11 @@ class LongitudinalPlanner:
     return x, v, a, j
 
   def update(self, sm, read=True):
-    if self.param_read_counter % 100 == 0 and read:
-      self.read_param()
+    if read:
+      if self.param_read_counter % 20 == 0:
+        self.read_actuator_delay()
+      if self.param_read_counter % 100 == 0:
+        self.read_param()
     self.param_read_counter += 1
 
     v_ego = sm['carState'].vEgo
@@ -372,11 +384,7 @@ class LongitudinalPlanner:
     self.a_desired = float(interp(DT_MDL, T_IDXS[:CONTROL_N], self.a_desired_trajectory))
     self.v_desired_filter.x = self.v_desired_filter.x + DT_MDL * (self.a_desired + a_prev) / 2.0
 
-    actuator_delay = self.CP.longitudinalActuatorDelay
-    configured_delay = self.params.get_float("LongActuatorDelay") * 0.01
-    if configured_delay > 0.0:
-      actuator_delay = float(clip(configured_delay, 0.1, 1.0))
-    action_t = max(DT_MDL, actuator_delay + DT_MDL)
+    action_t = max(DT_MDL, self.long_actuator_delay + DT_MDL)
     self.output_a_target, self.output_should_stop, self.output_v_target_now, _ = get_accel_from_plan(
       self.v_desired_trajectory, self.a_desired_trajectory, T_IDXS[:CONTROL_N],
       action_t=action_t, v_ego_stopping=self.CP.vEgoStopping)
