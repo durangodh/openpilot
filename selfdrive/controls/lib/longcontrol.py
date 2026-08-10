@@ -3,8 +3,7 @@ from common.numpy_fast import clip, interp
 from common.params import Params
 from common.realtime import DT_CTRL
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, apply_deadzone
-from selfdrive.controls.lib.longitudinal_transition import (ACCEL_LAUNCH_TRANSITION_TIME,
-                                                           ACCEL_MODE_TRANSITION_TIME,
+from selfdrive.controls.lib.longitudinal_transition import (ACCEL_MODE_TRANSITION_TIME,
                                                            limit_accel_increase)
 from selfdrive.controls.lib.lead_departure import LeadDepartureController
 from selfdrive.controls.lib.pid import PIDController
@@ -211,14 +210,9 @@ class LongControl:
 
     mpc_mode = int(getattr(long_plan, "mpcMode", 0))
     mpc_mode_changed = self.prev_mpc_mode is not None and mpc_mode != self.prev_mpc_mode
-    leaving_stopping = (previous_long_control_state == LongCtrlState.stopping and
-                        self.long_control_state in (LongCtrlState.starting, LongCtrlState.pid))
     if mpc_mode_changed:
       self.accel_transition_time = max(self.accel_transition_time,
                                        ACCEL_MODE_TRANSITION_TIME)
-    if leaving_stopping:
-      self.accel_transition_time = max(self.accel_transition_time,
-                                       ACCEL_LAUNCH_TRANSITION_TIME)
     self.prev_mpc_mode = mpc_mode
 
     if self.long_control_state == LongCtrlState.off:
