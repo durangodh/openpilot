@@ -141,9 +141,14 @@ class CruiseHelper:
       self.gap_param_initialized = True
 
     self.init_driving_mode = int(clip(self.params.get_int("InitMyDrivingMode"), 1, 5))
+    mode = self.params.get_int("MyDrivingMode")
     if self.param_read_counter == 0:
       self.my_driving_mode = 3 if self.init_driving_mode == 5 else self.init_driving_mode
-      self.last_mode_param = self.params.get_int("MyDrivingMode")
+      self.last_mode_param = mode
+    elif mode != self.last_mode_param and 1 <= mode <= 4:
+      self.my_driving_mode = mode
+      self.last_mode_param = mode
+      self.driving_mode_index = -100.0
     self.safe_mode_base_factor = float(clip(self.params.get_int("MySafeModeFactor") * 0.01, 0.5, 1.0))
     self.update_safe_mode_factor()
 
@@ -453,12 +458,6 @@ class CruiseHelper:
     self.param_read_counter += 1
 
     self.update_driving_mode(CS, controls.sm)
-    mode = self.params.get_int("MyDrivingMode")
-    if mode != self.last_mode_param and 1 <= mode <= 4:
-      self.my_driving_mode = mode
-      self.last_mode_param = mode
-      self.driving_mode_index = -100.0
-      self.update_safe_mode_factor()
 
     self.update_button_events(controls, CS, longcontrol)
     self._update_pedal_cruise(controls, CS)
