@@ -547,7 +547,6 @@ class Controls:
     self.v_cruise_kph_last = self.v_cruise_kph
 
     self.CP.pcmCruise = self.CI.CP.pcmCruise
-    self.cruise_helper.update_controls(self, CS, self.CP.openpilotLongitudinalControl)
 
     #visionTurnControl	
     vtcState = self.sm['longitudinalPlan'].visionTurnControllerState
@@ -642,6 +641,13 @@ class Controls:
     # Check if openpilot is engaged and actuators are enabled
     self.enabled = self.state in ENABLED_STATES
     self.active = self.state in ACTIVE_STATES
+
+    # Process cruise policy after the state transition so a RES/SET release
+    # that enables controlsd can also arm longitudinal control in this frame.
+    # If engagement is rejected by a NO_ENTRY event, CruiseHelper still sees
+    # controls disabled and leaves longitudinal control disarmed.
+    self.cruise_helper.update_controls(self, CS, self.CP.openpilotLongitudinalControl)
+
     if self.active:
       self.current_alert_types.append(ET.WARNING)
 

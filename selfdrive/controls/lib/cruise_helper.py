@@ -471,6 +471,11 @@ class CruiseHelper:
 
   def cal_curve_speed(self, sm, v_ego, frame):
     """carrot-wip vision curve speed using predicted lateral acceleration."""
+    # modelV2 changes much slower than controlsd's 100 Hz loop. Keep the C2
+    # cadence to avoid repeating the same NumPy work on every control frame.
+    if frame % 20 != 0:
+      return
+
     orientation_rates = np.asarray(sm['modelV2'].orientationRate.z, dtype=np.float64)
     velocities = np.asarray(sm['modelV2'].velocity.x, dtype=np.float64)
     if len(orientation_rates) == 0 or len(orientation_rates) != len(velocities):
@@ -675,8 +680,6 @@ class CruiseHelper:
         self.target_speed = max(self.target_speed, self.kph_to_clu(new_speed))
 
   def update_scc(self, CC, CS, frame, controls, longcontrol):
-    if self.param_read_counter % 100 == 0:
-      self.read_params()
     clu11_speed = CS.clu11["CF_Clu_Vanz"]
     road_limit_speed = self.cal_max_speed(frame, CS, controls.sm, clu11_speed, controls)
 

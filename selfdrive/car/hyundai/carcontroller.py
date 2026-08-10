@@ -247,9 +247,10 @@ class CarController:
       jerk_upper = float(clip(planned_jerk * 2.0, 0.5, 5.0))
       jerk_lower = float(clip(-planned_jerk * 2.0, 1.0, 5.0))
 
-    # This legacy community safety must observe stock SCC engagement before
-    # openpilot starts replacing SCC messages, otherwise controlsAllowed stays false.
-    if self.longcontrol and CS.cruiseState_enabled and (CS.scc_bus or not self.scc_live):
+    # Community safety now follows the physical SCC MAIN state independently
+    # of stock ACC engagement. Start replacing SCC messages as soon as
+    # openpilot longitudinal control is configured, matching apilot-c2.
+    if self.longcontrol and (CS.scc_bus or not self.scc_live):
 
       if self.frame % 2 == 0:
 
