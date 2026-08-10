@@ -1,4 +1,7 @@
-from selfdrive.controls.lib.conditional_e2e import ConditionalE2EController, adjust_stop_distance_for_decel
+from selfdrive.controls.lib.conditional_e2e import (E2E_MODE_RELEASE_HOLD_TIME,
+                                                    E2E_VISION_LEAD_CONFIRM_TIME,
+                                                    ConditionalE2EController,
+                                                    adjust_stop_distance_for_decel)
 
 
 DT_MDL = 0.05
@@ -81,6 +84,19 @@ def test_confirmed_vision_lead_selects_e2e():
   assert mode == 'acc'
 
 
+def test_confirmed_vision_lead_release_is_hysteretic():
+  controller = ConditionalE2EController(DT_MDL)
+  confirm_frames = round(E2E_VISION_LEAD_CONFIRM_TIME / DT_MDL)
+  for _ in range(confirm_frames):
+    mode = update(controller, lead_present=True, vision_lead_present=True)
+  assert mode == 'blended'
+
+  for _ in range(confirm_frames - 1):
+    mode = update(controller, lead_present=False, vision_lead_present=False)
+    assert mode == 'blended'
+  assert update(controller, lead_present=False, vision_lead_present=False) == 'acc'
+
+
 def test_radar_lead_stays_acc_and_suppresses_new_signal_stop():
   controller = ConditionalE2EController(DT_MDL)
   mode = enter_stop(controller, distance=80.0)
@@ -154,6 +170,26 @@ def test_brake_cancels_departure_prepare():
          model_v_end=1.0, brake_pressed=True)
   assert controller.stopping
   assert not controller.prepare
+
+
+def test_departure_prepare_stops_immediately_but_holds_blended_mode():
+  controller = ConditionalE2EController(DT_MDL)
+  controller.prepare = True
+  hold_frames = round(E2E_MODE_RELEASE_HOLD_TIME / DT_MDL)
+
+  mode = update(controller, model_x=10.0, model_v0=1.0,
+                model_v_end=0.0, v_ego=0.1)
+  assert mode == 'blended'
+  assert controller.stopping
+  assert not controller.prepare
+
+  for _ in range(hold_frames - 1):
+    mode = update(controller, model_x=10.0, model_v0=1.0,
+                  model_v_end=0.0, v_ego=0.1)
+    assert mode == 'blended'
+
+  assert update(controller, model_x=10.0, model_v0=1.0,
+                model_v_end=0.0, v_ego=0.1) == 'acc'
 
 
 def test_invalid_model_falls_back_safely():

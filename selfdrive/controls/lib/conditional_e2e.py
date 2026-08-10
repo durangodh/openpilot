@@ -11,6 +11,7 @@ E2E_START_MIN_DISTANCE = 60.0
 E2E_FAR_STOP_DISTANCE = 40.0
 E2E_VISION_LEAD_DISTANCE = 90.0
 E2E_VISION_LEAD_CONFIRM_TIME = 0.5
+E2E_MODE_RELEASE_HOLD_TIME = 0.5
 TRAFFIC_STOP_SOLVER_COMFORT_BRAKE = 2.5
 TRAFFIC_STOP_APILOT_COMFORT_BRAKE = 2.5
 
@@ -37,6 +38,8 @@ class ConditionalE2EController:
 
   def __init__(self, dt):
     self.dt = dt
+    self.vision_lead_confirm_frames = max(1, round(E2E_VISION_LEAD_CONFIRM_TIME / dt))
+    self.mode_release_hold_frames = max(1, round(E2E_MODE_RELEASE_HOLD_TIME / dt))
     self.reset()
 
   def reset(self):
@@ -46,6 +49,8 @@ class ConditionalE2EController:
     self.stop_sign_count = 0
     self.start_sign_count = 0
     self.vision_lead_count = 0
+    self.vision_lead_latched = False
+    self.mode_release_hold_count = 0
     self.model_v_history = deque(maxlen=10)
     self.stop_x_median_history = deque(maxlen=3)
     self.stop_x_history = deque(maxlen=15)
@@ -56,7 +61,7 @@ class ConditionalE2EController:
 
   @property
   def vision_lead_confirmed(self):
-    return self.vision_lead_count * self.dt >= E2E_VISION_LEAD_CONFIRM_TIME
+    return self.vision_lead_latched
 
   def select_mode(self, experimental_mode, traffic_stop_mode):
     if experimental_mode:
@@ -65,7 +70,8 @@ class ConditionalE2EController:
       return 'acc'
     far_stop = self.stopping and self.stop_distance > E2E_FAR_STOP_DISTANCE
     apilot_vision_lead = traffic_stop_mode == 2 and self.vision_lead_confirmed
-    return 'blended' if self.prepare or far_stop or apilot_vision_lead else 'acc'
+    hold_blended = self.mode_release_hold_count > 0
+    return 'blended' if self.prepare or far_stop or apilot_vision_lead or hold_blended else 'acc'
 
   def update(self, *, available, experimental_mode, traffic_stop_mode, driving_mode, model_valid,
              model_x, model_y, model_v0, model_v_end, v_ego,
@@ -90,6 +96,9 @@ class ConditionalE2EController:
     if not model_valid:
       self.reset()
       return 'blended' if experimental_mode else 'acc'
+
+    if self.mode_release_hold_count > 0:
+      self.mode_release_hold_count -= 1
 
     self.model_v_history.append(float(model_v_end))
     model_v = fmean(self.model_v_history)
@@ -116,7 +125,19 @@ class ConditionalE2EController:
     stop_sign = self.stop_sign_count > 0 and not right_blinker
     start_sign = self.start_sign_count * self.dt >= E2E_START_CONFIRM_TIME
 
-    self.vision_lead_count = self.vision_lead_count + 1 if vision_lead_present else 0
+    # Confirm both acquisition and release. Radar/vision classification can
+    # flicker for a frame near standstill; dropping E2E immediately creates a
+    # sharp ACC/E2E acceleration discontinuity exactly when brake hold is
+    # handing off to launch control.
+    if vision_lead_present:
+      self.vision_lead_count = min(self.vision_lead_confirm_frames,
+                                   self.vision_lead_count + 1)
+      if self.vision_lead_count >= self.vision_lead_confirm_frames:
+        self.vision_lead_latched = True
+    else:
+      self.vision_lead_count = max(0, self.vision_lead_count - 1)
+      if self.vision_lead_count == 0:
+        self.vision_lead_latched = False
     radar_lead_before_stop = (radar_lead_present and radar_lead_distance > 0.0 and
                               radar_lead_distance - filtered_stop_x < 2.0)
 
@@ -124,6 +145,7 @@ class ConditionalE2EController:
       if start_sign or gas_pressed:
         self.stopping = False
         self.prepare = True
+        self.mode_release_hold_count = 0
         self.stop_distance = 0.0
       elif radar_lead_before_stop:
         # The real lead is closer than the model stop line; let ACC follow it.
@@ -138,13 +160,16 @@ class ConditionalE2EController:
         self.stop_distance = max(0.0, self.stop_distance - v_ego * self.dt)
 
     elif self.prepare:
-      if brake_pressed or (v_ego_kph < 2.0 and not start_sign and
-                           not lead_present and not gas_pressed):
+      prepare_abort = (v_ego_kph < 2.0 and not start_sign and
+                       not lead_present and not gas_pressed)
+      if brake_pressed or prepare_abort:
         self.prepare = False
         self.stopping = True
+        self.mode_release_hold_count = self.mode_release_hold_frames
         self.stop_distance = 0.0 if v_ego < 0.1 else filtered_stop_x
       elif v_ego_kph > 5.0 and model_x > E2E_START_MIN_DISTANCE:
         self.prepare = False
+        self.mode_release_hold_count = self.mode_release_hold_frames
 
     elif (stop_sign and not lead_present and
           abs(steering_angle_deg) <= 5.0 and not gas_pressed):

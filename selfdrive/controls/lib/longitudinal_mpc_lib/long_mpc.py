@@ -325,9 +325,9 @@ class LongitudinalMpc:
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, DANGER_ZONE_COST]
 
     elif self.mode == 'blended':
-      # C3 releases the previous-acceleration cost while starting/re-engaging,
-      # then restores the normal blended cost once motion is established.
-      a_change_cost = 40.0 if prev_accel_constraint else 0.0
+      # Keep a finite previous-acceleration cost through standstill and restart,
+      # matching apilot-c2 and avoiding a target-acceleration step at re-engagement.
+      a_change_cost = 40.0
       cost_weights = [0., 0.1, 0.2, 5.0, a_change_cost, 1.0]
       constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, 50.0]
     else:

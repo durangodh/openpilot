@@ -3,6 +3,9 @@ from common.numpy_fast import clip, interp
 from common.params import Params
 from common.realtime import DT_CTRL
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, apply_deadzone
+from selfdrive.controls.lib.longitudinal_transition import (ACCEL_LAUNCH_TRANSITION_TIME,
+                                                           ACCEL_MODE_TRANSITION_TIME,
+                                                           limit_accel_increase)
 from selfdrive.controls.lib.lead_departure import LeadDepartureController
 from selfdrive.controls.lib.pid import PIDController
 from selfdrive.modeld.constants import T_IDXS
@@ -76,6 +79,8 @@ class LongControl:
     self.long_coast_band = 0.0
     self.v_pid = 0.0
     self.last_output_accel = 0.0
+    self.accel_transition_time = 0.0
+    self.prev_mpc_mode = None
     self.lead_departure = LeadDepartureController()
 
     # Read launch control immediately so StartAccelApply=0 disables the
@@ -198,10 +203,23 @@ class LongControl:
       dt=DT_CTRL,
     )
 
+    previous_long_control_state = self.long_control_state
     self.long_control_state, planned_stop = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
       CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now,
       self.starting_state, lead_departing)
+
+    mpc_mode = int(getattr(long_plan, "mpcMode", 0))
+    mpc_mode_changed = self.prev_mpc_mode is not None and mpc_mode != self.prev_mpc_mode
+    leaving_stopping = (previous_long_control_state == LongCtrlState.stopping and
+                        self.long_control_state in (LongCtrlState.starting, LongCtrlState.pid))
+    if mpc_mode_changed:
+      self.accel_transition_time = max(self.accel_transition_time,
+                                       ACCEL_MODE_TRANSITION_TIME)
+    if leaving_stopping:
+      self.accel_transition_time = max(self.accel_transition_time,
+                                       ACCEL_LAUNCH_TRANSITION_TIME)
+    self.prev_mpc_mode = mpc_mode
 
     if self.long_control_state == LongCtrlState.off:
       self.reset(CS.vEgo)
@@ -237,6 +255,12 @@ class LongControl:
 
       if -self.long_coast_band < output_accel < 0.0:
         output_accel = 0.0
+
+    if not active or CS.gasPressed:
+      self.accel_transition_time = 0.0
+    else:
+      output_accel, self.accel_transition_time = limit_accel_increase(
+        output_accel, self.last_output_accel, self.accel_transition_time, DT_CTRL)
 
     self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
     return self.last_output_accel, -0.5 if planned_stop else j_target
