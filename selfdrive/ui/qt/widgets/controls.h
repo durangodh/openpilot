@@ -128,6 +128,14 @@ class ParamControl : public ToggleControl {
 public:
   ParamControl(const QString &param, const QString &title, const QString &desc, const QString &icon, QWidget *parent = nullptr) : ToggleControl(title, desc, icon, false, parent) {
     key = param.toStdString();
+
+    // BSD indication is always driven directly by the vehicle blind-spot
+    // signals. The old diagnostic "always display BSD area" option is no
+    // longer user-configurable, so keep that legacy control out of settings.
+    if (key == "ShowBlindSpotAlways") {
+      setVisible(false);
+    }
+
     QObject::connect(this, &ParamControl::toggleFlipped, [=](bool state) {
       // confirm=false인 경우 dialog를 아예 생성하지 않음 (블랙스크린 방지)
       if (!confirm || (!state) || (store_confirm && params.getBool(key + "Confirmed"))) {
@@ -224,7 +232,7 @@ class LayoutWidget : public QWidget {
 public:
   LayoutWidget(QLayout *l, QWidget *parent = nullptr) : QWidget(parent) {
     setLayout(l);
-  };
+  }
 };
 
 class ClickableWidget : public QWidget {
