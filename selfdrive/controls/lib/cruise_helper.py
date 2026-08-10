@@ -195,9 +195,9 @@ class CruiseHelper:
     return lead if lead.status else None
 
   def update_safe_mode_factor(self):
-    if self.my_driving_mode == 2:
+    if self.my_driving_mode == 1:
       self.my_safe_mode_factor = self.safe_mode_base_factor
-    elif self.my_driving_mode == 1:
+    elif self.my_driving_mode == 2:
       self.my_safe_mode_factor = (1.0 + self.safe_mode_base_factor) / 2.0
     else:
       self.my_safe_mode_factor = 1.0
@@ -354,11 +354,11 @@ class CruiseHelper:
     self.driving_mode_index = self.driving_mode_index * 0.999 + total_index * 0.001
 
     auto_mode = self.my_driving_mode
-    if self.init_driving_mode == 5 and self.driving_mode_index > 0.0 and self.my_driving_mode not in (2, 4):
+    if self.init_driving_mode == 5 and self.driving_mode_index > 0.0 and self.my_driving_mode not in (1, 4):
       if self.driving_mode_index < 20.0:
         auto_mode = 3
       elif self.driving_mode_index > 80.0:
-        auto_mode = 1
+        auto_mode = 2
     if auto_mode != self.my_driving_mode:
       self.my_driving_mode = auto_mode
       # Keep the persisted mode synchronized with AUTO. Otherwise a UI tap

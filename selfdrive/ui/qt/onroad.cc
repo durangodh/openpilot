@@ -168,7 +168,7 @@ void OnroadWindow::mouseReleaseEvent(QMouseEvent* e) {
         tap_y > height() - 140 && tap_y < height() - 40) {
       int cur = (*(uiState()->sm))["controlsState"].getControlsState().getMyDrivingMode();
       if (cur < 1 || cur > 4) cur = 3;
-      int next = cur % 4 + 1;   // 1→2→3→4→1
+      int next = cur % 4 + 1;   // SAFE→ECO→NORM→FAST→SAFE
       Params().put("MyDrivingMode", std::to_string(next));
       return;
     }
@@ -1189,12 +1189,12 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     }
   }
 
-  // ---- 주행모드 (NORM / ECO / SAFE / FAST) ----
+  // ---- 주행모드 (SAFE / ECO / NORM / FAST) ----
   QString mode_str = "NORM";
   QColor  mode_color = CT_GREY_A(210);
   switch (my_driving_mode) {
-    case 1: mode_str = "ECO";  mode_color = CT_GREEN_A(210);  break;
-    case 2: mode_str = "SAFE"; mode_color = CT_ORANGE_A(210); break;
+    case 1: mode_str = "SAFE"; mode_color = CT_ORANGE_A(210); break;
+    case 2: mode_str = "ECO";  mode_color = CT_GREEN_A(210);  break;
     case 3: mode_str = "NORM"; mode_color = CT_GREY_A(210);   break;
     case 4: mode_str = "FAST"; mode_color = CT_RED_A(210);    break;
   }

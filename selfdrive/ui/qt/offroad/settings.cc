@@ -418,6 +418,9 @@ void ParamValueControlF::refresh() {
   if (param_ == "TrafficStopMode") {
     static const QStringList modes = {"ACC", "AUTO", "APILOT"};
     value_label->setText(modes[v]);
+  } else if (param_ == "InitMyDrivingMode") {
+    static const QStringList modes = {"SAFE", "ECO", "NORMAL", "FAST", "AUTO"};
+    value_label->setText(modes[v - 1]);
   } else if (vmin_ == 0 && vmax_ == 1) {
     value_label->setText(v > 0 ? "ON" : "OFF");
   } else {
@@ -1562,7 +1565,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_openpilot.png", 10, 95, 5, 0, 80, this));
   list->addItem(new ParamValueControlF(
       "InitMyDrivingMode", "시작 주행모드",
-      "시동 후 시작 모드입니다. 1: ECO / 2: SAFE / 3: NORMAL / 4: HIGH / 5: AUTO.",
+      "시동 후 시작 모드입니다. 1: SAFE / 2: ECO / 3: NORMAL / 4: FAST / 5: AUTO.",
       "../assets/offroad/icon_openpilot.png", 1, 5, 1, 0, 3, this));
 
   list->addItem(horizontal_line());

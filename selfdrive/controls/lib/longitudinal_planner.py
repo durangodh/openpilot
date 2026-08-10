@@ -28,7 +28,7 @@ CRUISE_MAX_VAL_KEYS = ["CruiseMaxVals1", "CruiseMaxVals2", "CruiseMaxVals3",
 
 CRUISE_MAX_VAL_DEFAULTS = [1.60, 1.20, 1.00, 0.80, 0.70, 0.60]
 
-# ── MyDrivingMode (1:ECO 2:SAFE 3:NORM 4:FAST) ────────────────────────────
+# ── MyDrivingMode (1:SAFE 2:ECO 3:NORM 4:FAST) ────────────────────────────
 # UI 의 모드 박스를 탭하면 1→2→3→4→1 로 순환한다 (onroad.cc).
 # 갭버튼은 순정 SCC 갭 기능 그대로 두고, 모드는 그 위에 배율로만 얹는다.
 #   ACCEL : MyEcoModeFactor와 MySafeModeFactor로 계산 (감속 한계는 유지)
@@ -226,9 +226,9 @@ class LongitudinalPlanner:
     driving_mode = int(clip(sm['controlsState'].myDrivingMode, 1, 4))
     self.my_driving_mode = driving_mode
     if driving_mode == 1:
-      self.my_driving_mode_accel = self.my_eco_mode_factor
-    elif driving_mode == 2:
       self.my_driving_mode_accel = self.my_eco_mode_factor * float(clip(sm['controlsState'].mySafeModeFactor, 0.5, 1.0))
+    elif driving_mode == 2:
+      self.my_driving_mode_accel = self.my_eco_mode_factor
     else:
       self.my_driving_mode_accel = 1.0
     self.mpc.mode = self.update_auto_e2e_mode(sm['carState'], sm['radarState'], sm['modelV2'],
