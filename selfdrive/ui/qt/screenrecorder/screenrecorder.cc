@@ -156,6 +156,7 @@ void ScreenRecoder::start(bool sound) {
   update();
 
   started = milliseconds();
+  emit recordingChanged(true);
 
   if(sound)
       soundStart.play();
@@ -186,6 +187,7 @@ void ScreenRecoder::stop(bool sound) {
 
   if(recording) {
     recording = false;
+    emit recordingChanged(false);
     update();
 
 #ifdef QCOM2
