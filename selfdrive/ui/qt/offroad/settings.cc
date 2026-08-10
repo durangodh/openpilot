@@ -1622,10 +1622,6 @@ UISettingsPanel::UISettingsPanel(QWidget* parent) : QWidget(parent) {
       "ShowDebugUI", "디버그 UI 표시",
       "켜짐: 주행 화면에 개발자용 제어 상태와 디버그 정보를 표시합니다.",
       "../assets/offroad/icon_shell.png", this));
-  list->addItem(new ParamControl(
-      "ShowBlindSpotAlways", "BSD 영역 상시 표시",
-      "켜짐: BSD 감지가 없을 때도 좌우 사각지대 영역을 흐리게 표시합니다.",
-      "../assets/offroad/icon_road.png", this));
 
   list->addItem(horizontal_line());
   auto *status_color = new ParamControl(
