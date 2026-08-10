@@ -434,7 +434,6 @@ static void drawCarrotTurnArrow(QPainter &p, const QRect &box, int type, const Q
 }
 
 void NvgWindow::drawCarrotTurnPoint(QPainter &p, const cereal::ModelDataV2::Reader &model) {
-  updateCarrotNavi();
 
   const qint64 wall_now = QDateTime::currentMSecsSinceEpoch();
   const qint64 guidance_age = wall_now - static_cast<qint64>(carrot_navi_guidance_updated_at);
@@ -509,7 +508,6 @@ void NvgWindow::drawCarrotTurnPoint(QPainter &p, const cereal::ModelDataV2::Read
 }
 
 void NvgWindow::drawCarrotNavi(QPainter &p) {
-  updateCarrotNavi();
 
   const qint64 wall_now = QDateTime::currentMSecsSinceEpoch();
   const bool navi_fresh = carrot_navi_updated_at != 0 &&
@@ -567,9 +565,13 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
       : 200.0 + (map_speed - 50.0) * 3.0;
   if (atc_kind == CarrotAtcKind::UTURN) atc_map_start_distance = 1000.0;
 
-  const bool atc_map_request = atc_available &&
+  const bool atc_map_request = show_map_image && atc_available &&
                                carrot_navi_distance <= atc_map_start_distance;
-  if (atc_map_request) {
+  if (!show_map_image) {
+    carrot_map_mode = false;
+    carrot_map_enter_since = 0;
+    carrot_map_exit_since = 0;
+  } else if (atc_map_request) {
     carrot_map_exit_since = 0;
     if (carrot_map_enter_since == 0) carrot_map_enter_since = wall_now;
     if (wall_now - carrot_map_enter_since >= 200) carrot_map_mode = true;
@@ -617,11 +619,6 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const bool atc_apply = atc_available && !atc_prepare;
   const bool atc_blink_on = !atc_apply || blink_timer <= 8;
   const QColor turn_fill(55, 55, 55, 170);
-  const QColor turn_icon_color = !atc_available
-      ? QColor(255, 255, 255, 255)
-      : (atc_prepare
-          ? QColor(120, 255, 165, 255)
-          : QColor(0, 155, 55, atc_blink_on ? 255 : 70));
   p.setPen(QPen(QColor(255, 255, 255, 230), std::max(2, qRound(2 * ui_scale))));
   p.setBrush(turn_fill);
   p.drawRoundedRect(turn_card, qRound(12 * ui_scale), qRound(12 * ui_scale));
@@ -649,25 +646,19 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   }
 
   if (turn_pixmap != nullptr && !turn_pixmap->isNull()) {
-    // The 256x256 assets contain generous transparent padding. Crop their
-    // shared center artwork region so the arrow fills the direction card.
+    // Keep the original asset colors in inactive and prepare states. During
+    // actual ATC application, blink the unmodified image without per-frame
+    // QPixmap copies or tint painting.
     const QRect turn_source(48, 48, 160, 160);
-    if (atc_available) {
-      QPixmap tinted_turn = turn_pixmap->copy(turn_source);
-      QPainter tint_painter(&tinted_turn);
-      tint_painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-      tint_painter.fillRect(tinted_turn.rect(), turn_icon_color);
-      tint_painter.end();
-      p.drawPixmap(turn_icon, tinted_turn, tinted_turn.rect());
-    } else {
-      p.drawPixmap(turn_icon, *turn_pixmap, turn_source);
-    }
+    if (atc_blink_on) p.drawPixmap(turn_icon, *turn_pixmap, turn_source);
   } else if (atc_kind == CarrotAtcKind::TURN ||
              atc_kind == CarrotAtcKind::FORK ||
              atc_kind == CarrotAtcKind::UTURN) {
-    drawCarrotTurnArrow(p, turn_icon, carrot_navi_turn_type,
-                        carrot_navi_instruction, turn_icon_color,
-                        std::max(6, qRound(13 * ui_scale)));
+    if (atc_blink_on) {
+      drawCarrotTurnArrow(p, turn_icon, carrot_navi_turn_type,
+                          carrot_navi_instruction, Qt::white,
+                          std::max(6, qRound(13 * ui_scale)));
+    }
   } else {
     configFont(p, "Open Sans", std::max(18, qRound(32 * ui_scale)), "Bold");
     p.setPen(Qt::white);
