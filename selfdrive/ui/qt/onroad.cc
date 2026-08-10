@@ -408,7 +408,8 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
     path_color = QColor::fromHslF(197 / 360., 1.0, 0.55, 0.7);
   }
 
-  painter.setPen(brake_lights ? QPen(QColor(255, 0, 0), 3.0) : QPen(Qt::NoPen));
+  const bool path_brake_lights = sm["carState"].getCarState().getBrakeLights();
+  painter.setPen(path_brake_lights ? QPen(QColor(255, 0, 0), 3.0) : QPen(Qt::NoPen));
   painter.setBrush(path_color);
   const int track_count = scene.track_vertices.cnt;
   const int half = track_count / 2;
