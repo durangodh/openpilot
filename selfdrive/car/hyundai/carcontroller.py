@@ -73,6 +73,9 @@ class CarController:
 
     self.scc_smoother = SccSmoother()
     self.soft_hold_mode = int(clip(param.get_int("SoftHoldMode"), 0, 2))
+    jerk_start_raw = param.get_int("JerkStartLimit")
+    self.jerk_start_limit = float(clip(jerk_start_raw * 0.1 if jerk_start_raw > 0 else 1.0, 0.5, 5.0))
+    self.jerk_count = 0.0
     self.last_blinker_frame = 0
     self.prev_active_cam = False
     self.active_cam_timer = 0
@@ -229,23 +232,31 @@ class CarController:
 
     if self.frame % 100 == 0:
       self.soft_hold_mode = int(clip(self.op_params.get_int("SoftHoldMode"), 0, 2))
+      jerk_start_raw = self.op_params.get_int("JerkStartLimit")
+      self.jerk_start_limit = float(clip(jerk_start_raw * 0.1 if jerk_start_raw > 0 else 1.0, 0.5, 5.0))
     soft_hold = bool(hud_control.softHold)
     soft_hold_scc = soft_hold and self.soft_hold_mode == 2
     stopping = controls.LoC.long_control_state == LongCtrlState.stopping
     jerk_stopping = stopping or soft_hold
     scc_standstill = stopping or soft_hold_scc
 
-    # aPilot C2 SCC jerk bounds. Fixed 5.0 bounds let acceleration and
-    # braking requests change too abruptly, especially at low speed.
+    # aPilot C2 gradually expands the SCC jerk allowance after a stop. This
+    # keeps the brake release and launch acceleration in one continuous step.
     planned_jerk = float(actuators.jerk)
+    jerk_limit = 5.0
+    self.jerk_count += DT_CTRL
+    jerk_max = interp(self.jerk_count, [0.0, 1.5, 2.5],
+                      [self.jerk_start_limit, self.jerk_start_limit, jerk_limit])
     if actuators.longControlState == LongCtrlState.off:
-      jerk_upper = jerk_lower = 5.0
+      jerk_upper = jerk_lower = jerk_limit
+      self.jerk_count = 0.0
     elif jerk_stopping:
       jerk_upper = 0.5
-      jerk_lower = 5.0
+      jerk_lower = jerk_limit
+      self.jerk_count = 0.0
     else:
-      jerk_upper = float(clip(planned_jerk * 2.0, 0.5, 5.0))
-      jerk_lower = float(clip(-planned_jerk * 2.0, 1.0, 5.0))
+      jerk_upper = min(float(clip(planned_jerk * 2.0, 0.5, jerk_limit)), jerk_max)
+      jerk_lower = min(float(clip(-planned_jerk * 2.0, 1.0, jerk_limit)), jerk_max)
 
     # Community safety now follows the physical SCC MAIN state independently
     # of stock ACC engagement. Start replacing SCC messages as soon as

@@ -135,6 +135,7 @@ def manager_init() -> None:
     ("AutoCurveSpeedLowerLimit", "30"),
     ("MapTurnSpeedFactor", "90"),
     ("AutoNaviSpeedDecelRate", "120"),
+    ("JerkStartLimit", "10"),
     ("StartAccelApply", "0"),
     ("StopAccelApply", "30"),
     ("TrafficStopAccel", "80"),
