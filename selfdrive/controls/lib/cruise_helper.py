@@ -74,6 +74,14 @@ class CruiseHelper:
     self.limited_lead = False
     self.stock_weight = 0.0
 
+    # c3-wip style camera distance tracking. Navigation distance can update
+    # slowly, so count it down with vehicle travel and release at the camera.
+    self.cam_dist_est = 0.0
+    self.cam_raw_dist = 0.0
+    self.cam_limit_est = 0.0
+    self.cam_type_est = -1
+    self.cam_passed = False
+
     self.carrot_atc = CarrotNaviAtc()
     self.empty_navi_state = self.carrot_atc.empty_state()
     self.last_road_limit_speed = 0.0
@@ -535,10 +543,9 @@ class CruiseHelper:
     self.curve_speed_ms = turn_speed_kph * CV.KPH_TO_MS
 
   def update_max_speed(self, max_speed, longcontrol):
-    if not longcontrol or self.max_speed_clu <= 0:
-      self.max_speed_clu = max_speed
-    else:
-      self.max_speed_clu += (max_speed - self.max_speed_clu) * 0.01
+    # c3-wip applies the selected navigation target directly. The old 0.01
+    # filter delayed both camera deceleration and speed recovery after passing.
+    self.max_speed_clu = max_speed
 
   @staticmethod
   def calculate_navi_speed(left_dist, safe_speed_kph, safe_time, decel):
@@ -566,6 +573,34 @@ class CruiseHelper:
       cam_limit = float(road_data.camLimitSpeed)
       section_dist = float(road_data.sectionLeftDist)
       section_limit = float(road_data.sectionLimitSpeed)
+
+      # c3-wip counts camera distance down with actual vehicle travel instead
+      # of waiting only for the next navigation packet. Never increase the
+      # estimate for the same camera, and release it immediately at 0 m.
+      if self.cam_dist_est > 0.0 and not self.cam_passed:
+        self.cam_dist_est = max(0.0, self.cam_dist_est - max(float(CS.out.vEgo), 0.0) * DT_CTRL)
+        if self.cam_dist_est <= 0.0:
+          self.cam_passed = True
+
+      if cam_dist > 0.0 and cam_limit > 0.0:
+        new_cam = self.cam_type_est < 0 or cam_type != self.cam_type_est or \
+                  abs(cam_limit - self.cam_limit_est) > 0.1 or cam_dist > self.cam_raw_dist + 100.0
+        if new_cam:
+          self.cam_dist_est = cam_dist
+          self.cam_passed = False
+        elif not self.cam_passed:
+          self.cam_dist_est = cam_dist if self.cam_dist_est <= 0.0 else min(self.cam_dist_est, cam_dist)
+
+        self.cam_raw_dist = cam_dist
+        self.cam_limit_est = cam_limit
+        self.cam_type_est = cam_type
+        cam_dist = 0.0 if self.cam_passed else self.cam_dist_est
+      else:
+        self.cam_dist_est = 0.0
+        self.cam_raw_dist = 0.0
+        self.cam_limit_est = 0.0
+        self.cam_type_est = -1
+        self.cam_passed = False
 
       if cam_dist > 0.0 and cam_limit > 0.0:
         left_dist = cam_dist
@@ -620,8 +655,7 @@ class CruiseHelper:
     normal_road_limit_speed = 0.0
     if road_data is not None:
       normal_road_limit_speed = float(road_data.roadLimitSpeed)
-      self.over_speed_limit = road_data.camLimitSpeedLeftDist > 0 and \
-                              0 < navi_target_kph < clu11_speed + 2
+      self.over_speed_limit = self.active_cam and 0 < navi_target_kph < clu11_speed + 2
     else:
       self.over_speed_limit = False
 
