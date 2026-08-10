@@ -36,6 +36,7 @@ class NvgWindow : public CameraViewWidget {
 public:
   explicit NvgWindow(VisionStreamType type, QWidget* parent = 0);
   void updateState(const UIState &s);
+  void setMapImageEnabled(bool enabled) { show_map_image = enabled; }
 
 signals:
   void valueChanged();
@@ -53,6 +54,7 @@ protected:
   inline QColor blackColor(int alpha = 255) { return QColor(0, 0, 0, alpha); }
 
   double prev_draw_t = 0;
+  double last_slow_fps_log_t = 0;
   bool engageable = false;
   bool experimentalMode = false;
   int status = STATUS_DISENGAGED;
@@ -113,6 +115,7 @@ protected:
   int  show_gear_animation = 1;
   int  show_carrot_hud = 1;
   int  show_path_status_color = 1;
+  bool show_map_image = true;
   uint64_t carrot_navi_last_read = 0;
   uint64_t carrot_navi_updated_at = 0;
   uint64_t carrot_navi_guidance_updated_at = 0;
@@ -167,6 +170,9 @@ protected:
   QString anim_text;
   QColor  anim_color = QColor(255, 255, 255, 255);
   QString gear_str_last;
+  QString lat_debug_font_text;
+  int lat_debug_font_width = 0;
+  int lat_debug_font_size = 34;
   // ============================================================================
   void drawSpeedLimit(QPainter &p);
   void drawDebugText(QPainter &p);
