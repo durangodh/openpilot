@@ -100,6 +100,7 @@ def manager_init() -> None:
     ("ShowBlindSpotAlways", "0"),
     ("ShowPathWidth", "90"),
     ("ShowPathStatusColor", "1"),
+    ("ShowPlotMode", "0"),
     ("PrevCruiseGap", "4"),
     ("ApplyLongDynamicCost", "0"),
     ("MyDrivingMode", "3"),

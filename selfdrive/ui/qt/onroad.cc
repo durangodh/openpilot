@@ -520,6 +520,8 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   (void)model;
 
   drawLaneLines(p, s);
+  // Keep all existing driving/navigation indicators above the analysis plot.
+  drawCarrotPlot(p);
 
   drawCarrotTurnPoint(p, model);
   drawCarrotLead(p);
@@ -540,6 +542,7 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
 }
 
 #include "selfdrive/ui/qt/onroad_navi.inc"
+#include "selfdrive/ui/qt/onroad_plot.inc"
 
 static const QColor get_tpms_color(float tpms) {
     if(tpms < 5 || tpms > 60) // N/A

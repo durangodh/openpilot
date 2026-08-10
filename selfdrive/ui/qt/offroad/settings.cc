@@ -1206,597 +1206,28 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "ìˆœì • ë‚´ë¹„ ê¸°ë°˜ ê°ì†",
                                             "ì¼œì§: ìˆœì • ë‚´ë¹„ê²Œì´ì…˜ì˜ ì œí•œì†ë„Â·ì¹´ë©”ë¼ ì •ë³´ë¥¼ ì¢…ë°©í–¥ ê°ì†ì— ì‚¬ìš©í•©ë‹ˆë‹¤.",
                                             "../assets/offroad/icon_road.png",
-                                            this));
-  toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new ParamControl("KeepSteeringTurnSignals",
-                                            "ë°©í–¥ì§€ì‹œë“± ì¤‘ ì¡°í–¥ ìœ ì§€",
-                                            "ì¼œì§: ë°©í–¥ì§€ì‹œë“± ì‘ë™ ì¤‘ì—ë„ ì¡°í–¥ ì œì–´ë¥¼ ìœ ì§€í•©ë‹ˆë‹¤. / êº¼ì§: ì°¨ëŸ‰ ì¡°ê±´ì— ë”°ë¼ ì¡°í–¥ì´ ì œí•œë  ìˆ˜ ìˆìŠµë‹ˆë‹¤.",
-                                            "../assets/offroad/icon_openpilot.png",
-                                            this));
-  toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new ParamControl("HapticFeedbackWhenSpeedCamera",
-                                            "ê³¼ì†ì¹´ë©”ë¼ í–…í‹± ì•Œë¦¼",
-                                            "ì¼œì§: ê³¼ì†ì¹´ë©”ë¼ê°€ ê°ì§€ë˜ë©´ í•¸ë“¤ ì§„ë™ìœ¼ë¡œ ì•Œë¦½ë‹ˆë‹¤.",
-                                            "../assets/offroad/icon_openpilot.png",
-                                            this));
-  toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new ParamControl("DisableOpFcw",
-                                            "ì˜¤í”ˆíŒŒì¼ëŸ¿ ì „ë°©ì¶©ëŒê²½ê³  ë„ê¸°",
-                                            "ì¼œì§: ì˜¤í”ˆíŒŒì¼ëŸ¿ FCW ê²½ê³ ë¥¼ ì‚¬ìš©í•˜ì§€ ì•ŠìŠµë‹ˆë‹¤. ì°¨ëŸ‰ ìˆœì • ê²½ê³  ê¸°ëŠ¥ê³¼ëŠ” ë³„ê°œì…ë‹ˆë‹¤.",
-                                            "../assets/offroad/icon_shell.png",
-                                            this));
-}
-
-SelectCar::SelectCar(QWidget* parent): QWidget(parent) {
-
-  QVBoxLayout* main_layout = new QVBoxLayout(this);
-  main_layout->setMargin(20);
-  main_layout->setSpacing(20);
-
-  QPushButton* back = new QPushButton("Back");
-  back->setObjectName("back_btn");
-  back->setFixedSize(500, 100);
-  connect(back, &QPushButton::clicked, [=]() { emit backPress(); });
-  main_layout->addWidget(back, 0, Qt::AlignLeft);
-
-  QListWidget* list = new QListWidget(this);
-  list->setStyleSheet("QListView {padding: 40px; background-color: #393939; border-radius: 15px; height: 140px;} QListView::item{height: 100px}");
-  QScroller::grabGesture(list->viewport(), QScroller::LeftMouseButtonGesture);
-  list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-
-  list->addItem("[ Not selected ]");
-
-  QStringList items = get_list("/data/params/d/SupportedCars");
-  list->addItems(items);
-  list->setCurrentRow(0);
-
-  QString selected = QString::fromStdString(Params().get("SelectedCar"));
-
-  int index = 0;
-  for(QString item : items) {
-    if(selected == item) {
-        list->setCurrentRow(index + 1);
-        break;
-    }
-    index++;
-  }
-
-  QObject::connect(list, QOverload<QListWidgetItem*>::of(&QListWidget::itemClicked),
-    [=](QListWidgetItem* item){
-    if(list->currentRow() == 0)
-        Params().remove("SelectedCar");
-    else
-        Params().put("SelectedCar", list->currentItem()->text().toStdString());
-    emit selectedCar();
-    });
-
-  main_layout->addWidget(list);
-}
-
-LateralControl::LateralControl(QWidget* parent): QWidget(parent) {
-
-  QVBoxLayout* main_layout = new QVBoxLayout(this);
-  main_layout->setMargin(20);
-  main_layout->setSpacing(20);
-
-  QPushButton* back = new QPushButton("Back");
-  back->setObjectName("back_btn");
-  back->setFixedSize(500, 100);
-  connect(back, &QPushButton::clicked, [=]() { emit backPress(); });
-  main_layout->addWidget(back, 0, Qt::AlignLeft);
-
-  QListWidget* list = new QListWidget(this);
-  list->setStyleSheet("QListView {padding: 40px; background-color: #393939; border-radius: 15px; height: 140px;} QListView::item{height: 100px}");
-  QScroller::grabGesture(list->viewport(), QScroller::LeftMouseButtonGesture);
-  list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-
-  QStringList items = {"TORQUE", "LQR", "INDI"};
-  list->addItems(items);
-  list->setCurrentRow(0);
-
-  QString selectedControl = QString::fromStdString(Params().get("LateralControl"));
-
-  int index = 0;
-  for(QString item : items) {
-    if(selectedControl == item) {
-        list->setCurrentRow(index);
-        break;
-    }
-    index++;
-  }
-
-  QObject::connect(list, QOverload<QListWidgetItem*>::of(&QListWidget::itemClicked),
-    [=](QListWidgetItem* item){
-    Params().put("LateralControl", list->currentItem()->text().toStdString());
-    emit selected();
-    QTimer::singleShot(1000, []() {
-        Params().putBool("SoftRestartTriggered", true);
-      });
-    });
-
-  main_layout->addWidget(list);
-}
-
-/////////////////////////////////////////////////////////////////////////
-
-CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
-  QVBoxLayout* layout = new QVBoxLayout(this);
-  layout->setContentsMargins(50, 20, 50, 20);
-  layout->setSpacing(0);
-
-  ListWidget* list = new ListWidget(this);
-  list->setSpacing(0);
-
-  list->addItem(new ParamValueControlF(
-      "CruiseSpeedMin", "ìµœì € ì„¤ì •ì†ë„ (km/h)",
-      "ë¡±ì»¨ì˜ ìµœì € ì„¤ì •ì†ë„ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ì²˜ìŒ ì„¤ì •ë˜ëŠ” ì†ë„ê°€ ë†’ì•„ì§ / ê°’ ê°ì†Œ(-): ë” ë‚®ì€ ì†ë„ë¡œ ì„¤ì • ê°€ëŠ¥.",
-      "../assets/offroad/icon_road.png", 5, 30, 1, 0, 30, this));
-
-  list->addItem(new ParamControl(
-      "ApplyLongDynamicCost", "ë™ì  ì°¨ê°„ê±°ë¦¬ ê°€ê°ì†",
-      "ì¼œì§: ì•ì°¨ ì†ë„ì™€ ì°¨ê°„ê±°ë¦¬ì— ë”°ë¼ ê°€ê°ì† ë°˜ì‘ì„ ë™ì ìœ¼ë¡œ ì¡°ì •í•©ë‹ˆë‹¤. ì €ì†ì—ì„œ ì•ì°¨ê°€ ë©€ì–´ì§€ë©´ ê°€ì† ë°˜ì‘ì´ ë¹¨ë¼ì§ˆ ìˆ˜ ìˆìŠµë‹ˆë‹¤.",
-      "../assets/offroad/icon_road.png", this));
-
-  list->addItem(new ParamValueControlF(
-      "SpeedFromPCM", "í¬ë£¨ì¦ˆ ì„¤ì •ì†ë„ ê¸°ì¤€",
-      "1: ìˆœì • SCC ì„¤ì •ì†ë„ ì‚¬ìš© / 2: ì˜¤í”ˆíŒŒì¼ëŸ¿ ì„¤ì •ì†ë„ì™€ ì‚¬ìš©ì í¬ë£¨ì¦ˆ ë²„íŠ¼ ì„¤ì • ì‚¬ìš©.",
-      "../assets/offroad/icon_road.png", 1, 2, 1, 0, 2, this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoGasTokSpeed", "ê°€ì†í˜ë‹¬ ìë™ì¬ê°œ ì†ë„ (km/h)",
-      "ê°€ì†í˜ë‹¬ í•´ì œ í›„ ìë™ì¬ê°œê°€ ê°€ëŠ¥í•œ ìµœì €ì†ë„ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ë” ë†’ì€ ì†ë„ì—ì„œë§Œ ì¬ê°œ / ê°’ ê°ì†Œ(-): ì €ì†ì—ì„œë„ ì¬ê°œ.",
-      "../assets/offroad/icon_road.png", 5, 60, 1, 0, 30, this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoGasCancelSpeed", "ê°€ì†í˜ë‹¬ í•´ì œ ì·¨ì†Œì†ë„ (km/h)",
-      "ì´ ì†ë„ ë¯¸ë§Œì—ì„œëŠ” ê°€ì†í˜ë‹¬ í•´ì œ ìë™ì¬ê°œë¥¼ ì·¨ì†Œí•©ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ìë™ì¬ê°œ ì¡°ê±´ì´ ì—„ê²©í•´ì§ / ê°’ ê°ì†Œ(-): ì €ì† ì¬ê°œê°€ ì‰¬ì›Œì§.",
-      "../assets/offroad/icon_road.png", 0, 60, 1, 0, 30, this));
-
-  list->addItem(new ParamValueControlF(
-      "CruiseButtonMode", "í¬ë£¨ì¦ˆ ë²„íŠ¼ ëª¨ë“œ",
-      "0: ê¸°ë³¸ ì¦ê° / 1: RESÂ·SET ì‚¬ìš©ì ë‹¨ìœ„ / 2: SETìœ¼ë¡œ í˜„ì¬ì†ë„ ë™ê¸°í™” / 3: RESë¡œ ì§€ì •ì†ë„í‘œ ìˆœí™˜.",
-      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 0, this));
-
-  list->addItem(new ParamValueControlF(
-      "CruiseSpeedUnit", "í¬ë£¨ì¦ˆ ì‚¬ìš©ì ì¦ê°ë‹¨ìœ„ (km/h)",
-      "ë²„íŠ¼ ëª¨ë“œ 1~3ì˜ ì†ë„ ì¦ê° ë‹¨ìœ„ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): í•œ ë²ˆì— ì†ë„ê°€ í¬ê²Œ ë³€í•¨ / ê°’ ê°ì†Œ(-): ì„¸ë°€í•˜ê²Œ ë³€í•¨.",
-      "../assets/offroad/icon_road.png", 1, 20, 1, 0, 10, this));
-
-  list->addItem(new ParamValueControlF(
-      "CruiseSpeedUnitBasic", "í¬ë£¨ì¦ˆ ê¸°ë³¸ ì¦ê°ë‹¨ìœ„ (km/h)",
-      "ë²„íŠ¼ ëª¨ë“œ 0ì—ì„œ ì§§ê²Œ ëˆ„ë¥¼ ë•Œì˜ ì¦ê° ë‹¨ìœ„ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): í° í­ìœ¼ë¡œ ë³€ê²½ / ê°’ ê°ì†Œ(-): ì‘ì€ í­ìœ¼ë¡œ ë³€ê²½.",
-      "../assets/offroad/icon_road.png", 1, 10, 1, 0, 1, this));
-
-  list->addItem(new ParamValueControlF(
-      "CruiseButtonLongDelay", "í¬ë£¨ì¦ˆ ë²„íŠ¼ ê¸¸ê²Œëˆ„ë¦„ ì‹œê°„",
-      "RES/SET ê¸¸ê²Œëˆ„ë¦„ íŒì •ì‹œê°„(Ã—0.01ì´ˆ)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ë” ì˜¤ë˜ ëˆŒëŸ¬ì•¼ ì‘ë™ / ê°’ ê°ì†Œ(-): ë¹ ë¥´ê²Œ ê¸¸ê²Œëˆ„ë¦„ìœ¼ë¡œ íŒì •.",
-      "../assets/offroad/icon_road.png", 30, 150, 5, 0, 70, this));
-
-  const std::array<std::tuple<const char*, const char*, int>, 5> cruise_speed_table = {{
-    {"CruiseSpeed1", "í¬ë£¨ì¦ˆ ì†ë„í‘œ 1ë‹¨ê³„ (km/h)", 30},
-    {"CruiseSpeed2", "í¬ë£¨ì¦ˆ ì†ë„í‘œ 2ë‹¨ê³„ (km/h)", 50},
-    {"CruiseSpeed3", "í¬ë£¨ì¦ˆ ì†ë„í‘œ 3ë‹¨ê³„ (km/h)", 70},
-    {"CruiseSpeed4", "í¬ë£¨ì¦ˆ ì†ë„í‘œ 4ë‹¨ê³„ (km/h)", 90},
-    {"CruiseSpeed5", "í¬ë£¨ì¦ˆ ì†ë„í‘œ 5ë‹¨ê³„ (km/h)", 110},
-  }};
-  for (const auto& [key, title, default_value] : cruise_speed_table) {
-    list->addItem(new ParamValueControlF(
-        key, title, "ë²„íŠ¼ ëª¨ë“œ 3ì˜ ìˆœí™˜ ì„¤ì •ì†ë„ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): í•´ë‹¹ ë‹¨ê³„ ì†ë„ê°€ ë†’ì•„ì§ / ê°’ ê°ì†Œ(-): í•´ë‹¹ ë‹¨ê³„ ì†ë„ê°€ ë‚®ì•„ì§.",
-        "../assets/offroad/icon_road.png", 5, 160, 5, 0, default_value, this));
-  }
-
-  list->addItem(new ParamValueControlF(
-      "AutoSpeedUptoRoadSpeedLimit", "ì•ì°¨ ìë™ì¦ì† ë„ë¡œì†ë„ ë¹„ìœ¨ (%)",
-      "ì•ì°¨ë¥¼ ë”°ë¼ ì„¤ì •ì†ë„ë¥¼ ì˜¬ë¦´ ìˆ˜ ìˆëŠ” ë„ë¡œ ì œí•œì†ë„ ë¹„ìœ¨ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ë” ë†’ì€ ì†ë„ê¹Œì§€ ì¦ì† / ê°’ ê°ì†Œ(-): ì¦ì† ìƒí•œì´ ë‚®ì•„ì§ / 0: ë”.",
-      "../assets/offroad/icon_road.png", 0, 120, 5, 0, 0, this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoRoadSpeedAdjust", "ë„ë¡œ ì œí•œì†ë„ ë³€ê²½ ë°˜ì˜ë¥  (%)",
-      "0: ì„¤ì •ì†ë„ ìœ ì§€ / +ê°’ ì¦ê°€: ì œí•œì†ë„ í•˜ë½ì„ ë” ë§ì´ ë°˜ì˜ / +ê°’ ê°ì†Œ: ì²œì²œíˆ ë°˜ì˜ / ìŒìˆ˜: ìƒˆ ì œí•œì†ë„ë¡œ ì¦‰ì‹œ ë³€ê²½.",
-      "../assets/offroad/icon_road.png", -100, 100, 10, 0, 0, this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoRoadSpeedLimitOffset", "ë„ë¡œ ì œí•œì†ë„ ì˜¤í”„ì…‹ (km/h)",
-      "ë„ë¡œ ì œí•œì†ë„ì— ë”í•˜ëŠ” ê°’ì…ë‹ˆë‹¤. ì–‘ìˆ˜(+): ì œí•œì†ë„ë³´ë‹¤ ë†’ê²Œ ì„¤ì • / ìŒìˆ˜(-): ì œí•œì†ë„ë³´ë‹¤ ë‚®ê²Œ ì„¤ì •.",
-      "../assets/offroad/icon_road.png", -30, 30, 1, 0, 0, this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoNaviSpeedSafetyFactor", "ë‚´ë¹„ ê°ì† ì•ˆì „ë¹„ìœ¨ (%)",
-      "ì¹´ë©”ë¼Â·êµ¬ê°„ë‹¨ì† ëª©í‘œì†ë„ ë¹„ìœ¨ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ëª©í‘œì†ë„ê°€ ë†’ì•„ì ¸ ê°ì†ì´ ì¤„ì–´ë“¦ / ê°’ ê°ì†Œ(-): ë” ë‚®ê²Œ ê°ì† / 100: ì›ë˜ ì†ë„.",
-      "../assets/offroad/icon_road.png", 80, 120, 1, 0, 105, this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoNaviSpeedCtrlEnd", "ì¹´ë©”ë¼ ê°ì†ì™„ë£Œ ì‹œê°„ (ì´ˆ)",
-      "C3 ë°©ì‹ì˜ ì¹´ë©”ë¼ ê°ì† ì™„ë£Œì§€ì ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ì¹´ë©”ë¼ì—ì„œ ë” ë¨¼ ì§€ì ê¹Œì§€ ê°ì†ì„ ì™„ë£Œí•©ë‹ˆë‹¤.",
-      "../assets/offroad/icon_speed_limit.png", 3, 20, 1, 0, 7, this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoNaviSpeedBumpTime", "ë°©ì§€í„± ê°ì†ì™„ë£Œ ì‹œê°„ (ì´ˆ)",
-      "C3 ë°©ì‹ì˜ ë°©ì§€í„± ê°ì† ì™„ë£Œì§€ì ì…ë‹ˆë‹¤. ëª©í‘œì†ë„ë¡œ ì´ ì‹œê°„ë§Œí¼ ì£¼í–‰í•  ê±°ë¦¬ ì „ì— ê°ì†ì„ ì™„ë£Œí•©ë‹ˆë‹¤.",
-      "../assets/offroad/icon_speed_limit.png", 1, 50, 1, 0, 1, this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoNaviSpeedBumpSpeed", "ë°©ì§€í„± ëª©í‘œì†ë„ (km/h)",
-      "C3 ë°©ì‹ì˜ ê³ ì • ë°©ì§€í„± í†µê³¼ ëª©í‘œì†ë„ì…ë‹ˆë‹¤. ì¹´ë©”ë¼ ì•ˆì „ë¹„ìœ¨ì€ ì ìš©í•˜ì§€ ì•ŠìŠµë‹ˆë‹¤.",
-      "../assets/offroad/icon_speed_limit.png", 10, 100, 5, 0, 35, this));
-
-  list->addItem(new ParamControl(
-      "AutoGasResumeGuard", "ê°€ì†í˜ë‹¬ ìë™ì¬ê°œ ì•ˆì „ì¡°ê±´",
-      "ì¼œì§: ê°€ì†í˜ë‹¬ í•´ì œ ìë™ì¬ê°œ ì „ì— í¬ë£¨ì¦ˆ ê°€ëŠ¥ ìƒíƒœì™€ ì•ˆì „ì¡°ê±´ì„ í™•ì¸í•©ë‹ˆë‹¤.",
-      "../assets/offroad/icon_road.png", this));
-
-  list->addItem(new ParamControl(
-      "SccSmootherSyncGasPressed", "ê°€ì†í˜ë‹¬ ì„¤ì •ì†ë„ ë™ê¸°í™”",
-      "ì¼œì§: ê°€ì†í˜ë‹¬ë¡œ ì„¤ì •ì†ë„ë³´ë‹¤ ë¹¨ë¼ì§€ë©´ í˜„ì¬ ì°¨ëŸ‰ì†ë„ì— ë§ì¶° ì„¤ì •ì†ë„ë¥¼ ì˜¬ë¦½ë‹ˆë‹¤.",
-      "../assets/offroad/icon_road.png", this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoResumeFromGas", "ê°€ì†í˜ë‹¬ ì˜¤í† ë¦¬ì¤Œ ëª¨ë“œ",
-      "0: ë” / 1: ì¡°ê±´ ì¶©ì¡± ì‹œ ì¬ê°œ / 2: ì¡°ê±´ ì¶©ì¡± ë˜ëŠ” 0.4ì´ˆ ë¯¸ë§Œì˜ ì§§ì€ ê°€ì† í›„ ì¬ê°œ.",
-      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 1, this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoResumeFromGasSpeedMode", "ì˜¤í† ë¦¬ì¤Œ ì„¤ì •ì†ë„ ëª¨ë“œ",
-      "0: í˜„ì¬ ì°¨ëŸ‰ì†ë„ë¡œ ì¬ê°œ / 1: ì´ì „ ì„¤ì •ì†ë„ë¡œ ì¬ê°œ / 2: ì•ì°¨ê°€ ìˆì„ ë•Œë§Œ ì´ì „ ì„¤ì •ì†ë„ë¡œ ì¬ê°œ.",
-      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
-
-  list->addItem(new ParamControl(
-      "AutoResumeFromBrakeRelease", "ë¸Œë ˆì´í¬ í•´ì œ ì˜¤í† ë¦¬ì¤Œ",
-      "ì¼œì§: ë¸Œë ˆì´í¬ë¥¼ ë†“ì„ ë•Œ ì¡°í–¥Â·ì‹ í˜¸Â·ì•ì°¨ ê±°ë¦¬ ë˜ëŠ” ì†ë„ ì•ˆì „ì¡°ê±´ì„ ë§Œì¡±í•˜ë©´ ë¡±ì»¨ì„ ì¬ê°œí•©ë‹ˆë‹¤.",
-      "../assets/offroad/icon_road.png", this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoResumeFromBrakeCarSpeed", "ë¸Œë ˆì´í¬ í•´ì œ ì¬ê°œì†ë„ (km/h)",
-      "ì•ì°¨ê°€ ì—†ì„ ë•Œ í•„ìš”í•œ ìµœì € ì¬ê°œì†ë„ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ë” ë†’ì€ ì†ë„ì—ì„œë§Œ ì¬ê°œ / ê°’ ê°ì†Œ(-): ì €ì†ì—ì„œë„ ì¬ê°œ.",
-      "../assets/offroad/icon_road.png", 5, 60, 1, 0, 30, this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoResumeFromBrakeReleaseDist", "ë¸Œë ˆì´í¬ í•´ì œ ì•ì°¨ê±°ë¦¬ (m)",
-      "ë¸Œë ˆì´í¬ í•´ì œ ì¬ê°œì— í•„ìš”í•œ ì•ì°¨ ê±°ë¦¬ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ì•ì°¨ê°€ ë” ë©€ì–´ì•¼ ì¬ê°œ / ê°’ ê°ì†Œ(-): ê°€ê¹Œì›Œë„ ì¬ê°œ.",
-      "../assets/offroad/icon_road.png", 2, 50, 1, 0, 10, this));
-
-  ScrollView *scroller = new ScrollView(list, this);
-  scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  layout->addWidget(scroller);
-}
-/////////////////////////////////////////////////////////////////////////
-
-LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
-  QVBoxLayout* layout = new QVBoxLayout(this);
-  layout->setContentsMargins(50, 20, 50, 20);
-  layout->setSpacing(0);
-
-  ListWidget* list = new ListWidget(this);
-  list->setSpacing(0);
-
-  list->addItem(new ParamValueControlF(
-      "TrafficStopMode", "E2E/ACC ì¡°ê±´ë¶€ ì„ íƒ",
-      "0 ACC: ì‹ í˜¸ì •ì§€ ë” / 1 AUTO: ì›ê±°ë¦¬ ì‹ í˜¸ì •ì§€Â·ì¶œë°œì¤€ë¹„ì—ì„œ E2E / 2 APILOT: AUTO ì¡°ê±´ê³¼ ë¹„ì „ ì•ì°¨ê¹Œì§€ E2E.",
-      "../assets/img_experimental_white.svg", 0, 2, 1, 0, 2, this));
-
-  list->addItem(new ParamControl(
-      "MixRadarInfo", "ë ˆì´ë”Â·ë¹„ì „ ê°€ì†ë„ í˜¼í•©",
-      "ì¼œì§: ë ˆì´ë” ì•ì°¨ì™€ ë¹„ì „ ëª¨ë¸ì˜ ê°€ì†ë„ ë³€í™”ë¥¼ í˜¼í•©í•´ ì¶œë°œÂ·ê°ì† ë°˜ì‘ì„ ë³´ì™„í•©ë‹ˆë‹¤. / êº¼ì§: ë ˆì´ë” ì •ë³´ë¥¼ ìš°ì„ í•©ë‹ˆë‹¤.",
-      "../assets/offroad/icon_road.png"));
-
-  list->addItem(new ParamValueControlF(
-      "StartAccelApply", "ì¶œë°œ ê°€ì† ì ìš©ê°’",
-      "ì •ì§€ í›„ ì¶œë°œ ê°€ì†ë„(Ã—0.02m/sÂ²)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ë” ë¹ ë¥´ê³  ê°•í•˜ê²Œ ì¶œë°œ / ê°’ ê°ì†Œ(-): ì²œì²œíˆ ì¶œë°œ / 0: ì¶”ê°€ ì¶œë°œê°€ì† ë”.",
-      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
-
-  list->addItem(new ParamValueControlF(
-      "StopAccelApply", "ì •ì§€ ì œë™ ì ìš©ê°’",
-      "ì •ì§€ ë§ˆë¬´ë¦¬ ì œë™ê°’(Ã—-0.02m/sÂ²)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ì •ì§€ ì§ì „ ì œë™ì´ ê°•í•´ì§ / ê°’ ê°ì†Œ(-): ë¶€ë“œëŸ¬ì›Œì§ / 0: ì¶”ê°€ ì œë™ ë”.",
-      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 30, this));
-
-  list->addItem(new ParamValueControlF(
-      "SoftHoldMode", "ì†Œí”„íŠ¸í™€ë“œ ëª¨ë“œ",
-      "0: ë”, 1: ë¸Œë ˆì´í¬ë¥¼ ë†“ì€ ë’¤ ì •ì§€ ìœ ì§€, 2: aPilot SCC í˜¸í™˜ ëª¨ë“œ(ì¼ë¶€ ì°¨ëŸ‰ì€ ì˜¤í† í™€ë“œ/EPBê°€ ì‘ë™í•  ìˆ˜ ìˆìŒ). ê°€ì†í˜ë‹¬ ë˜ëŠ” RES/+ë¡œ í•´ì œí•©ë‹ˆë‹¤.",
-      "../assets/offroad/icon_openpilot.png", 0, 2, 1, 0, 1, this));
-
-  list->addItem(new ParamValueControlF(
-      "TrafficStopAccel", "ì‹ í˜¸ì •ì§€ ê°ì† ê°•ë„",
-      "ì‹ í˜¸ì •ì§€ ê°ì† ë¹„ìœ¨ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ëŠ¦ê³  ê°•í•˜ê²Œ ê°ì† / ê°’ ê°ì†Œ(-): ì¼ì° ë¶€ë“œëŸ½ê²Œ ê°ì†. aPilot ê¸°ë³¸ê°’: 80%.",
-      "../assets/offroad/icon_road.png", 10, 120, 10, 0, 80, this));
-
-  list->addItem(new ParamValueControlF(
-      "TrafficStopDistanceAdjust", "ì‹ í˜¸ ì •ì§€ì„  ê±°ë¦¬ë³´ì • (cm)",
-      "ì‹ í˜¸ì •ì§€ì—ë§Œ ì ìš©ë©ë‹ˆë‹¤. ì–‘ìˆ˜(+): ì •ì§€ì„ ì— ë” ê°€ê¹Œì´ ì •ì°¨ / ìŒìˆ˜(-): ì •ì§€ì„ ì—ì„œ ë” ë©€ë¦¬ ì •ì°¨. aPilot ê¸°ë³¸ê°’: +400cm.",
-      "../assets/offroad/icon_road.png", -1000, 1000, 10, 0, 400, this));
-
-  list->addItem(horizontal_line());
-
-  const std::array<std::tuple<const char*, const char*, int>, 6> accel_controls = {{
-    {"CruiseMaxVals1", "ìµœëŒ€ê°€ì† 0 km/h", 160},
-    {"CruiseMaxVals2", "ìµœëŒ€ê°€ì† 40 km/h", 120},
-    {"CruiseMaxVals3", "ìµœëŒ€ê°€ì† 60 km/h", 100},
-    {"CruiseMaxVals4", "ìµœëŒ€ê°€ì† 80 km/h", 80},
-    {"CruiseMaxVals5", "ìµœëŒ€ê°€ì† 110 km/h", 70},
-    {"CruiseMaxVals6", "ìµœëŒ€ê°€ì† 140 km/h", 60},
-  }};
-  for (const auto& [key, title, default_value] : accel_controls) {
-    list->addItem(new ParamValueControlF(
-        key, title, "í•´ë‹¹ ì†ë„ êµ¬ê°„ì˜ ìµœëŒ€ê°€ì†ë„(Ã—0.01m/sÂ²)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ê°€ì†ì´ ë¹ ë¥´ê³  ê°•í•´ì§ / ê°’ ê°ì†Œ(-): ê°€ì†ì´ ëŠë¦¬ê³  ë¶€ë“œëŸ¬ì›Œì§.",
-        "../assets/offroad/icon_openpilot.png", 10, 250, 1, 0, default_value, this));
-  }
-
-  list->addItem(horizontal_line());
-
-  const std::array<std::tuple<const char*, const char*, int>, 4> gap_controls = {{
-    {"TFollowGap1", "ì°¨ê°„ì‹œê°„ GAP 1", 110},
-    {"TFollowGap2", "ì°¨ê°„ì‹œê°„ GAP 2", 120},
-    {"TFollowGap3", "ì°¨ê°„ì‹œê°„ GAP 3", 140},
-    {"TFollowGap4", "ì°¨ê°„ì‹œê°„ GAP 4", 160},
-  }};
-  for (const auto& [key, title, default_value] : gap_controls) {
-    list->addItem(new ParamValueControlF(
-        key, title, "í•´ë‹¹ GAPì˜ ì¶”ì¢…ì‹œê°„(Ã—0.01ì´ˆ)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ì•ì°¨ì™€ ë©€ì–´ì§ / ê°’ ê°ì†Œ(-): ì•ì°¨ì™€ ê°€ê¹Œì›Œì§.",
-        "../assets/offroad/icon_openpilot.png", 70, 300, 1, 0, default_value, this));
-  }
-
-  list->addItem(new ParamValueControlF(
-      "TFollowSpeedRatio", "ê³ ì† ì°¨ê°„ì‹œê°„ ë¹„ìœ¨ (%)",
-      "ì†ë„ê°€ ë†’ì•„ì§ˆ ë•Œ ì°¨ê°„ì‹œê°„ì„ ëŠ˜ë¦¬ëŠ” ë¹„ìœ¨ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ê³ ì†ì—ì„œ ì°¨ê°„ê±°ë¦¬ ì¦ê°€ / ê°’ ê°ì†Œ(-): ê³ ì† ì°¨ê°„ê±°ë¦¬ ê°ì†Œ.",
-      "../assets/offroad/icon_openpilot.png", 100, 300, 5, 0, 120, this));
-  list->addItem(new ParamValueControlF(
-      "PrevCruiseGap", "ê¸°ì–µí•  í¬ë£¨ì¦ˆ GAP",
-      "ë§ˆì§€ë§‰ GAPì„ ì €ì¥Â·ë³µì›í•©ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ë” ë¨¼ GAP / ê°’ ê°ì†Œ(-): ë” ê°€ê¹Œìš´ GAP.",
-      "../assets/offroad/icon_openpilot.png", 1, 4, 1, 0, 4, this));
-  list->addItem(new ParamValueControlF(
-      "MySafeModeFactor", "SAFE ì°¨ê°„ê±°ë¦¬ ë¹„ìœ¨ (%)",
-      "ECOÂ·SAFE ëª¨ë“œì˜ ì°¨ê°„ê±°ë¦¬ ë³´ì •ê°’ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ì°¨ê°„ê±°ë¦¬ê°€ ì§§ì•„ì§ / ê°’ ê°ì†Œ(-): ì°¨ê°„ê±°ë¦¬ê°€ ê¸¸ì–´ì§.",
-      "../assets/offroad/icon_openpilot.png", 50, 100, 5, 0, 80, this));
-  list->addItem(new ParamValueControlF(
-      "MyEcoModeFactor", "ECO ê°€ì† ë¹„ìœ¨ (%)",
-      "ECO ìµœëŒ€ê°€ì† ë¹„ìœ¨ì´ë©° SAFEì—ë„ í•¨ê»˜ ì ìš©ë©ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ê°€ì†ì´ ë¹¨ë¼ì§ / ê°’ ê°ì†Œ(-): ê°€ì†ì´ ëŠë ¤ì§.",
-      "../assets/offroad/icon_openpilot.png", 10, 95, 5, 0, 80, this));
-  list->addItem(new ParamValueControlF(
-      "InitMyDrivingMode", "ì‹œì‘ ì£¼í–‰ëª¨ë“œ",
-      "ì‹œë™ í›„ ì‹œì‘ ëª¨ë“œì…ë‹ˆë‹¤. 1: ECO / 2: SAFE / 3: NORMAL / 4: HIGH / 5: AUTO.",
-      "../assets/offroad/icon_openpilot.png", 1, 5, 1, 0, 3, this));
-
-  list->addItem(horizontal_line());
-
-  list->addItem(new ParamValueControlF(
-      "LongTuningKpV", "ì¢…ë°©í–¥ ë¹„ë¡€ê²Œì¸ Kp", "í˜„ì¬ ì†ë„ì˜¤ì°¨ ë°˜ì‘ê°’(Ã—0.01)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ê°€ê°ì† ë°˜ì‘ì´ ë¹ ë¥´ê³  ê°•í•´ì§ / ê°’ ê°ì†Œ(-): ë°˜ì‘ì´ ë¶€ë“œëŸ½ê³  ëŠë ¤ì§.",
-      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
-  list->addItem(new ParamValueControlF(
-      "LongTuningKiV", "ì¢…ë°©í–¥ ì ë¶„ê²Œì¸ Ki", "ëˆ„ì  ì†ë„ì˜¤ì°¨ ë³´ì •ê°’(Ã—0.001)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ì§€ì† ì˜¤ì°¨ë¥¼ ë¹¨ë¦¬ ë³´ì • / ê°’ ê°ì†Œ(-): ì²œì²œíˆ ë³´ì •. ê³¼ë„í•˜ë©´ ì¶œë ì¼ ìˆ˜ ìˆìŠµë‹ˆë‹¤.",
-      "../assets/offroad/icon_openpilot.png", 0, 2000, 5, 0, 200, this));
-  list->addItem(new ParamValueControlF(
-      "LongTuningKf", "ì¢…ë°©í–¥ í”¼ë“œí¬ì›Œë“œ Kf", "ëª©í‘œ ê°€ì†ë„ ë°˜ì˜ê°’(Ã—0.01)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ê°€ê°ì† ëª…ë ¹ì´ ê°•í•´ì§ / ê°’ ê°ì†Œ(-): ëª…ë ¹ì´ ì•½í•´ì§.",
-      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
-  list->addItem(new ParamValueControlF(
-      "LongitudinalActuatorDelayLowerBound", "ì¢…ë°©í–¥ ìµœì†Œ ë°˜ì‘ì§€ì—°",
-      "ê°€ì†Â·ì œë™ì˜ ì§§ì€ ì§€ì—° ë³´ì •ê°’(Ã—0.01ì´ˆ)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ë” ë¯¸ë¦¬ ë°˜ì‘ / ê°’ ê°ì†Œ(-): ë°˜ì‘ ì‹œì ì„ ëŠ¦ì¶¤ / 0: ì°¨ëŸ‰ ê¸°ë³¸ê°’.",
-      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
-  list->addItem(new ParamValueControlF(
-      "LongitudinalActuatorDelayUpperBound", "ì¢…ë°©í–¥ ìµœëŒ€ ë°˜ì‘ì§€ì—°",
-      "ê°€ì†Â·ì œë™ì˜ ê¸´ ì§€ì—° ë³´ì •ê°’(Ã—0.01ì´ˆ)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ë” ë¨¼ ë¯¸ë˜ë¥¼ ë³´ê³  ì¼ì° ë°˜ì‘ / ê°’ ê°ì†Œ(-): ë°˜ì‘ì´ ëŠ¦ì–´ì§ / 0: ì°¨ëŸ‰ ê¸°ë³¸ê°’.",
-      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
-
-  list->addItem(horizontal_line());
-
-  list->addItem(new ParamValueControlF(
-      "StopDistance", "ì •ì§€ ìœ ì§€ê±°ë¦¬ (cm)",
-      "ì•ì°¨ ì •ì§€ì™€ ì‹ í˜¸ì •ì§€ì˜ ê¸°ë³¸ ì—¬ìœ ê±°ë¦¬ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ë” ë©€ë¦¬ ì •ì°¨ / ê°’ ê°ì†Œ(-): ë” ê°€ê¹Œì´ ì •ì°¨. aPilot ê¸°ë³¸ê°’: 600cm.",
-      "../assets/offroad/icon_road.png", 200, 1000, 50, 0, 600, this));
-
-  ScrollView *scroller = new ScrollView(list, this);
-  scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  layout->addWidget(scroller);
-}
-
-/////////////////////////////////////////////////////////////////////////
-
-UISettingsPanel::UISettingsPanel(QWidget* parent) : QWidget(parent) {
-  QVBoxLayout* layout = new QVBoxLayout(this);
-  layout->setContentsMargins(50, 20, 50, 20);
-  layout->setSpacing(0);
-
-  ListWidget* list = new ListWidget(this);
-  list->setSpacing(0);
-
-  list->addItem(new ParamControl(
-      "ShowCarrotHud", "ì¢Œì¸¡ HUD ë°•ìŠ¤ í‘œì‹œ",
-      "ì¼œì§: ì†ë„Â·í¬ë£¨ì¦ˆÂ·GAPÂ·ê¸°ì–´Â·ì£¼í–‰ëª¨ë“œÂ·ì œí•œì†ë„ HUDë¥¼ í‘œì‹œí•©ë‹ˆë‹¤.",
-      "../assets/offroad/icon_road.png", this));
-  list->addItem(new ParamControl(
-      "ShowMapboxMap", "ìš°ì¸¡ Mapbox ì§€ë„ í‘œì‹œ",
-      "ì¼œì§: ìš°ì¸¡ Mapbox ì§€ë„ë¥¼ í‘œì‹œí•©ë‹ˆë‹¤. / êº¼ì§: ì§€ë„ë¥¼ ì¦‰ì‹œ ìˆ¨ê¸°ê³  ë Œë”ë§ì„ ì¤‘ë‹¨í•©ë‹ˆë‹¤. í‹°ë§µ ë°©í–¥Â·ê±°ë¦¬Â·ì¹´ë©”ë¼ ê°ì† ê¸°ëŠ¥ì€ ìœ ì§€ë©ë‹ˆë‹¤.",
-      "../assets/offroad/icon_road.png", this));
-  list->addItem(new ParamControl(
-      "ShowGearAnimation", "ê¸°ì–´ íŒì—… ì• ë‹ˆë©”ì´ì…˜",
-      "ì¼œì§: ë³€ì†ë‹¨ì´ ë°”ë€” ë•Œ ì¤‘ì•™ íŒì—… ì• ë‹ˆë©”ì´ì…˜ì„ í‘œì‹œí•©ë‹ˆë‹¤.",
-      "../assets/offroad/icon_road.png", this));
-  list->addItem(new ParamValueControlF(
-      "ShowDateTime", "ë‚ ì§œÂ·ì‹œê°„ í‘œì‹œ",
-      "0: ë” / 1: ì‹œê°„+ë‚ ì§œ / 2: ì‹œê°„ë§Œ / 3: ë‚ ì§œë§Œ í‘œì‹œ.",
-      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 1, this));
-  list->addItem(new ParamControl(
-      "ShowDebugUI", "ë””ë²„ê·¸ UI í‘œì‹œ",
-      "ì¼œì§: ì£¼í–‰ í™”ë©´ì— ê°œë°œììš© ì œì–´ ìƒíƒœì™€ ë””ë²„ê·¸ ì •ë³´ë¥¼ í‘œì‹œí•©ë‹ˆë‹¤.",
-      "../assets/offroad/icon_shell.png", this));
-  list->addItem(new ParamControl(
-      "ShowBlindSpotAlways", "BSD ì˜ì—­ ìƒì‹œ í‘œì‹œ",
-      "ì¼œì§: BSD ê°ì§€ê°€ ì—†ì„ ë•Œë„ ì¢Œìš° ì‚¬ê°ì§€ëŒ€ ì˜ì—­ì„ íë¦¬ê²Œ í‘œì‹œí•©ë‹ˆë‹¤.",
-      "../assets/offroad/icon_road.png", this));
-
-  list->addItem(horizontal_line());
-  auto *status_color = new ParamControl(
-      "ShowPathStatusColor", "ì£¼í–‰ ê²½ë¡œ ìƒíƒœìƒ‰",
-      "ì¼œì§: í™œì„±=ë…¹ìƒ‰, ì •ì†=ë…¸ë€ìƒ‰, ê°€ì†=ì£¼í™©ìƒ‰, ê°ì†=ë¹¨ê°„ìƒ‰, ë¹„í™œì„±=ê²€ì€ìƒ‰ìœ¼ë¡œ í‘œì‹œí•©ë‹ˆë‹¤.",
-      "../assets/offroad/icon_road.png", this);
-  status_color->showDescription();
-  list->addItem(status_color);
-  list->addItem(new ParamValueControlF(
-      "ShowPathWidth", "ì£¼í–‰ ê²½ë¡œ í­ (cm)",
-      "ì°¨ëŸ‰ ì¤‘ì‹¬ì—ì„œ ê²½ë¡œ í•œìª½ ëê¹Œì§€ì˜ í‘œì‹œ í­ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ê²½ë¡œê°€ ë„“ê²Œ í‘œì‹œ / ê°’ ê°ì†Œ(-): ì¢ê²Œ í‘œì‹œ. ì œì–´ ê²½ë¡œì—ëŠ” ì˜í–¥ì´ ì—†ìŠµë‹ˆë‹¤.",
-      "../assets/offroad/icon_road.png", 30, 150, 10, 0, 90, this));
-
-  ScrollView *scroller = new ScrollView(list, this);
-  scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  layout->addWidget(scroller);
-}
-
-/////////////////////////////////////////////////////////////////////////
-
-VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
-  QVBoxLayout* layout = new QVBoxLayout(this);
-  layout->setContentsMargins(50, 20, 50, 20);
-  layout->setSpacing(0);
-
-  ListWidget* list = new ListWidget(this);
-  list->setSpacing(0);
-
-  // â”€â”€ ì¡°í–¥ ì‹¤ì‹œê°„ íŠœë‹ (nTune íŒŒì¼ ì§ì ‘ ì¡°ì ˆ) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  list->addItem(horizontal_line());
-
-  list->addItem(new ParamValueControlF("CustomSteerRatio",
-      "ê³ ì • ì¡°í–¥ë¹„",
-      "ì¡°í–¥ë¹„(Ã—0.01)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ê°™ì€ ì»¤ë¸Œì—ì„œ ì¡°í–¥ëŸ‰ì´ ì»¤ì§ / ê°’ ê°ì†Œ(-): ì¡°í–¥ëŸ‰ì´ ì‘ì•„ì§.\n"
-      "ì‹¤ì‹œê°„ ì¡°í–¥ë¹„ ì‚¬ìš©ì´ ì¼œì ¸ ìˆìœ¼ë©´ ì´ ê°’ ëŒ€ì‹  í•™ìŠµê°’ì„ ì‚¬ìš©í•©ë‹ˆë‹¤.\n"
-      "ë²”ìœ„: 1000 ~ 2000  /  ê¸°ë³¸ê°’: 1650 (=16.50)",
-      "../assets/offroad/icon_openpilot.png", 1000, 2000, 10, 0, 1650, this));
-
-  list->addItem(new ParamControl("UseLiveSteerRatio",
-      "ì‹¤ì‹œê°„ í•™ìŠµ ì¡°í–¥ë¹„ ì‚¬ìš©",
-      "ì¼œì§: liveParametersê°€ í•™ìŠµí•œ ì¡°í–¥ë¹„ ì‚¬ìš© / êº¼ì§: ìœ„ì˜ ê³ ì • ì¡°í–¥ë¹„ ì‚¬ìš©.",
-      "../assets/offroad/icon_openpilot.png", this));
-
-  list->addItem(new ParamValueControlF("SteerActuatorDelay",
-      "ì¡°í–¥ ë°˜ì‘ì§€ì—°",
-      "ì¡°í–¥ ì§€ì—° ë³´ì •ê°’(Ã—0.01ì´ˆ)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ë” ë¯¸ë¦¬ ì¡°í–¥ / ê°’ ê°ì†Œ(-): ì¡°í–¥ ì‹œì‘ì´ ëŠ¦ì–´ì§.\n"
-      "ë„ˆë¬´ ë†’ìœ¼ë©´ ì»¤ë¸Œ ì•ˆìª½ìœ¼ë¡œ ì¹˜ìš°ì¹˜ê³  ë„ˆë¬´ ë‚®ìœ¼ë©´ ë°”ê¹¥ìª½ìœ¼ë¡œ ë°€ë¦´ ìˆ˜ ìˆìŠµë‹ˆë‹¤.\n"
-      "ë²”ìœ„: 0 ~ 80  /  ê¸°ë³¸ê°’: 10 (=0.10ì´ˆ)",
-      "../assets/offroad/icon_openpilot.png", 0, 80, 1, 0, 10, this));
-
-  list->addItem(new ParamControl("LateralTorqueCustom",
-      "í† í¬ ìˆ˜ë™ì„¤ì • ì‚¬ìš©",
-      "ì¼œì§: ì•„ë˜ í† í¬ ìˆ˜ë™ê°’ ì ìš© / êº¼ì§: ì°¨ëŸ‰ ê¸°ë³¸ ë˜ëŠ” ìë™ ì„¤ì •ê°’ ì‚¬ìš©.",
-      "../assets/offroad/icon_openpilot.png", this));
-  
-  list->addItem(new NtuneValueControl("torque", "latAccelFactor",
-      "íš¡ê°€ì† í† í¬ê³„ìˆ˜",
-      "íš¡ê°€ì†ë„ ëŒ€ë¹„ í† í¬ ê³„ìˆ˜ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ì¡°í–¥ì´ ì•½í•´ì§ / ê°’ ê°ì†Œ(-): ì¡°í–¥ì´ ê°•í•´ì§.\n"
-      "ë²”ìœ„: 0.50 ~ 4.50  /  ê¸°ë³¸ê°’: 2.70",
-      "../assets/offroad/icon_openpilot.png", 0.5, 4.5, 0.05, 2, 2.7, this));
-
-  list->addItem(new NtuneValueControl("torque", "friction",
-      "ì¡°í–¥ ë§ˆì°°ë³´ìƒ",
-      "ì •ì§€ë§ˆì°° ë³´ìƒê°’ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ì¤‘ì•™ ë¶€ê·¼ ì¡°í–¥ ë°˜ì‘ì´ ë¹¨ë¼ì§ / ê°’ ê°ì†Œ(-): ë°˜ì‘ì´ ë¶€ë“œëŸ½ê³  ëŠë ¤ì§.\n"
-      "ë„ˆë¬´ í¬ë©´ ì§ì§„ì—ì„œ ì¢Œìš°ë¡œ í”ë“¤ë¦½ë‹ˆë‹¤.\n"
-      "ë²”ìœ„: 0.000 ~ 0.200  /  ê¸°ë³¸ê°’: 0.080",
-      "../assets/offroad/icon_openpilot.png", 0.0, 0.2, 0.005, 3, 0.08, this));
-
-  list->addItem(new ParamValueControlF("LateralTorqueKpV",
-      "í† í¬ ë¹„ë¡€ê²Œì¸ Kp", "í˜„ì¬ ì¡°í–¥ì˜¤ì°¨ ë°˜ì‘ê°’(Ã—0.01)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ì¡°í–¥ ë°˜ì‘ì´ ê°•í•˜ê³  ë¹ ë¦„ / ê°’ ê°ì†Œ(-): ë¶€ë“œëŸ½ê³  ëŠë¦¼. ê¸°ë³¸ê°’: 10.",
-      "../assets/offroad/icon_openpilot.png", 0, 500, 5, 0, 10, this));
-
-  list->addItem(new ParamValueControlF("LateralTorqueKiV",
-      "í† í¬ ì ë¶„ê²Œì¸ Ki", "ëˆ„ì  ì¡°í–¥ì˜¤ì°¨ ë³´ì •ê°’(Ã—0.01)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ì§€ì† ì˜¤ì°¨ë¥¼ ë¹¨ë¦¬ ë³´ì • / ê°’ ê°ì†Œ(-): ì²œì²œíˆ ë³´ì •. ê¸°ë³¸ê°’: 10.",
-      "../assets/offroad/icon_openpilot.png", 0, 200, 1, 0, 10, this));
-
-  list->addItem(new ParamValueControlF("LateralTorqueKf",
-      "í† í¬ í”¼ë“œí¬ì›Œë“œ Kf", "ëª©í‘œ ì¡°í–¥í† í¬ ë°˜ì˜ê°’(Ã—0.01)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ì „ì²´ ì¡°í–¥ ëª…ë ¹ì´ ê°•í•´ì§ / ê°’ ê°ì†Œ(-): ì•½í•´ì§. ê¸°ë³¸ê°’: 100.",
-      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
-
-  list->addItem(new ParamValueControlF("LateralTorqueKd",
-      "í† í¬ ë¯¸ë¶„ê²Œì¸ Kd", "ê¸‰ê²©í•œ ì¡°í–¥ë³€í™” ì–µì œê°’(Ã—0.01)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ë³€í™”ê°€ ì–µì œë˜ì–´ ì•ˆì •ì ì´ë‚˜ ë‘”í•´ì§ / ê°’ ê°ì†Œ(-): ë°˜ì‘ì´ ë¹¨ë¼ì§. ê¸°ë³¸ê°’: 0.",
-      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 0, this));
-
-  list->addItem(new ParamValueControlF("LatAccelFrictionFactor",
-      "ë§ˆì°°ë³´ìƒ íš¡ê°€ì† ë¹„ìœ¨",
-      "íš¡ê°€ì†ë„ ì˜¤ì°¨ë¥¼ ë§ˆì°°ë³´ìƒì— ë°˜ì˜í•˜ëŠ” ë¹„ìœ¨(Ã—0.01)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ì»¤ë¸Œ ì¡°í–¥ ë°˜ì‘ì´ ê°•í•´ì§ / ê°’ ê°ì†Œ(-): ë¶€ë“œëŸ¬ì›Œì§. ê¸°ë³¸ê°’: 70.",
-      "../assets/offroad/icon_openpilot.png", 0, 300, 5, 0, 70, this));
-
-  list->addItem(new ParamValueControlF("LatJerkFrictionFactor",
-      "ë§ˆì°°ë³´ìƒ íš¡ì €í¬ ë¹„ìœ¨",
-      "ì˜ˆì¸¡ íš¡ì €í¬ ë°˜ì˜ë¹„ìœ¨(Ã—0.01)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ì»¤ë¸Œ ì§„ì… ì¡°í–¥ì´ ë¹¨ë¼ì§ / ê°’ ê°ì†Œ(-): ì§„ì… ë°˜ì‘ì´ ëŠë ¤ì§ / 0: ì‚¬ìš© ì•ˆ í•¨. ê¸°ë³¸ê°’: 40.",
-      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 40, this));
-
-  list->addItem(horizontal_line());
-
-  // â”€â”€ Offset Total â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // ë ˆì¸ëª¨ë“œ + ë ˆì¸ë¦¬ìŠ¤ ëª¨ë“œ ëª¨ë‘ ì ìš©. 0.01m ë‹¨ìœ„, -1.00 ~ +1.00m
-  list->addItem(horizontal_line());
-
-  auto *path_offset = new OffsetTotalControl(
-      "í†µí•© ê²½ë¡œ ì¢Œìš°ë³´ì •",
-      "ì£¼í–‰ ê²½ë¡œ ì¢Œìš° í†µí•© ë³´ì •ê°’ì…ë‹ˆë‹¤. ë ˆì¸ëª¨ë“œÂ·ë ˆì¸ë¦¬ìŠ¤ ëª¨ë‘ ì ìš©ë©ë‹ˆë‹¤.\n"
-      "ì¹´ë©”ë¼ ì˜¤í”„ì…‹ì€ í•˜ë“œì›¨ì–´ ê¸°ë³¸ê°’ìœ¼ë¡œ ê³ ì •ë˜ê³  ì´ ê°’ í•˜ë‚˜ë¡œ ì¡°ì •í•©ë‹ˆë‹¤.\n"
-      "ì™¼ìª½ìœ¼ë¡œ ì´ë™: ì–‘ìˆ˜(+) / ì˜¤ë¥¸ìª½ìœ¼ë¡œ ì´ë™: ìŒìˆ˜(âˆ’)\n"
-      "ë²”ìœ„: âˆ’1.00 ~ +1.00m  /  ê¸°ë³¸ê°’: 0.00m",
-      "../assets/offroad/icon_road.png",
-      this);
-  path_offset->showDescription();
-  list->addItem(path_offset);
-
-  list->addItem(horizontal_line());
-
-  // â”€â”€ Adjust Lane Offset â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  auto *lane_offset = new AdjustLaneOffsetControl(
-      "ì°¨ì„  ì—¬ìœ ê³µê°„ ìë™ë³´ì •",
-      "ì¢Œìš° ì—¬ìœ ê³µê°„ì´ ë¹„ëŒ€ì¹­ì¼ ë•Œ ì—¬ìœ  ìˆëŠ” ìª½ìœ¼ë¡œ ê²½ë¡œë¥¼ ì˜®ê¹ë‹ˆë‹¤.\n"
-      "ì¢ì€ ë„ë¡œì—ì„œ ëŒ€í˜•ì°¨ ì˜†ì„ ì§€ë‚  ë•Œ íš¨ê³¼ê°€ ìˆìŠµë‹ˆë‹¤.\n"
-      "ì–‘ìª½ ë‹¤ ì—¬ìœ ê°€ ìˆê±°ë‚˜ ì–‘ìª½ ë‹¤ ì¢ìœ¼ë©´ ë™ì‘í•˜ì§€ ì•ŠìŠµë‹ˆë‹¤.\n"
-      "ê°’ ì¦ê°€(+): ì—¬ìœ  ìˆëŠ” ìª½ìœ¼ë¡œ ë” ë§ì´ ì´ë™ / ê°’ ê°ì†Œ(-): ì´ë™ëŸ‰ì´ ì¤„ì–´ë“­ë‹ˆë‹¤.\n"
-      "ë²”ìœ„: 0 ~ 40cm (5cm ë‹¨ìœ„)  /  ê¸°ë³¸ê°’: OFF",
-      "../assets/offroad/icon_road.png",
-      this);
-  lane_offset->showDescription();
-  list->addItem(lane_offset);
-
-
-  list->addItem(horizontal_line());
-  auto *dlp_control = new DynamicLaneProfileControl(
-      "ë™ì  ì°¨ì„ ëª¨ë“œ",
-      "ì°¨ì„  ì‚¬ìš©: í•­ìƒ ì°¨ì„  ê¸°ë°˜ / ì°¨ì„  ë¯¸ì‚¬ìš©: í•­ìƒ E2E ê²½ë¡œ / ìë™: ì°¨ì„  ì¸ì‹ë¥ ì— ë”°ë¼ ìë™ ì „í™˜.",
-      "../assets/offroad/icon_road.png",
-      this);
-  dlp_control->showDescription();
-  list->addItem(dlp_control);
-
-  list->addItem(horizontal_line());
-
-  // â”€â”€ AutoLaneChangeTimer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  auto *lc_timer = new AutoLaneChangeTimerControl(
-      "ìë™ ì°¨ì„ ë³€ê²½ ëŒ€ê¸°ì‹œê°„",
-      "ì°¨ì„ ë³€ê²½ ìë™ ì‹œì‘ê¹Œì§€ì˜ ëŒ€ê¸° ì‹œê°„ì„ ì„¤ì •í•©ë‹ˆë‹¤.\n"
-      "ê°’ ì¦ê°€(+): ë°©í–¥ì§€ì‹œë“± í›„ ë” ì˜¤ë˜ ê¸°ë‹¤ë¦¼ / ê°’ ê°ì†Œ(-): ë” ë¹¨ë¦¬ ì°¨ì„ ë³€ê²½ / ì¦‰ì‹œ: ì¡°ê±´ ì¶©ì¡± ì¦‰ì‹œ ì‹œì‘.",
-      "../assets/offroad/icon_road.png",
-      this);
-  lc_timer->showDescription();
-  list->addItem(lc_timer);
-
-  // â”€â”€ AutoLaneChangeSpeed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  list->addItem(new ParamValueControlF("AutoLaneChangeSpeed",
-      "ìë™ ì°¨ì„ ë³€ê²½ ìµœì €ì†ë„",
-      "ìë™Â·ë°©í–¥ì§€ì‹œë“± ì°¨ì„ ë³€ê²½ í—ˆìš© ìµœì €ì†ë„(km/h)ì…ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ë” ë†’ì€ ì†ë„ì—ì„œë§Œ ì‘ë™ / ê°’ ê°ì†Œ(-): ì €ì†ì—ì„œë„ ì‘ë™.",
-      "../assets/offroad/icon_road.png", 0, 100, 10, 0, 50, this));
-
-  list->addItem(horizontal_line());
-
-  auto *atc_mode = new ParamValueControlF(
-      "CarrotAutoTurnControl", "ìºëŸ¿ ë‚´ë¹„ ATC ëª¨ë“œ",
-      "0: ë” / 1: íšŒì „ ì¡°í–¥ë³´ì¡° / 2: ì¡°í–¥ë³´ì¡°+íšŒì „ê°ì† / 3: íšŒì „ê°ì†ë§Œ ì‚¬ìš©.",
-      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 0, this);
-  atc_mode->showDescription();
-  list->addItem(atc_mode);
-
-  list->addItem(new ParamValueControlF(
-      "CarrotAutoTurnSpeed", "ìºëŸ¿ ATC íšŒì „ì†ë„",
-      "íšŒì „ êµ¬ê°„ ëª©í‘œì†ë„(km/h)ì´ë©° ëª¨ë“œ 2Â·3ì—ì„œ ì ìš©ë©ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ë” ë¹ ë¥´ê²Œ íšŒì „ / ê°’ ê°ì†Œ(-): ë” ë§ì´ ê°ì†.",
-      "../assets/offroad/icon_speed_limit.png", 30, 60, 5, 0, 30, this));
-
-  list->addItem(new ParamValueControlF(
-      "CarrotAutoTurnEndTime", "ìºëŸ¿ ATC ê°ì†ì‹œì ",
-      "íšŒì „ê°ì† ì¤€ë¹„ì‹œê°„(ì´ˆ)ì´ë©° ëª¨ë“œ 2Â·3ì—ì„œ ì ìš©ë©ë‹ˆë‹¤. ê°’ ì¦ê°€(+): ë” ì¼ì° ê°ì† ì‹œì‘ / ê°’ ê°ì†Œ(-): íšŒì „ì— ê°€ê¹Œì›Œì ¸ ê°ì†.",
-      "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
-
-  list->addItem(horizontal_line());
-
-  ScrollView *scroller = new ScrollView(list, this);
-  scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  layout->addWidget(scroller);
-}
+         /9÷‹h‘éì¶»§q«^w&Ô6öçG&öÂ‚$ÆFW&ÅF÷'VT7W7FöÒ"À¢.ØjØÂÈ‰¸ùÈJNÊ	RÈ*ÎÉª’"À¢.ËÉÎÊy¢ÉXN¹é‚ØjØÂÈ‰¸ù«	"ÊÉª’ò««ÎÊy¢Ë
+¹ø’«‹»;‚¹‰¸©BÉé¸ù’ÈJNÊ	^«	"È*ÎÉª’â"À¢"ââö76WG2ööfg&öBö–6öåö÷Vç–Æ÷Bçær"ÂF†—2’“°¢ ¢Æ—7BÓæFD—FVÒ†æWrçGVæUfÇVT6öçG&öÂ‚'F÷'VR"Â&ÆD66VÄf7F÷""À¢.Ùª«ÈhÒØjØÎ«8NÈ‰‚"À¢.Ùª«ÈhŞ¸øB¸È»˜BØjØÂ«8NÈ‰Éè^¸¸¸ºBâ«	"ÊiŞ«‚²“¢ÊÙj^ÉÛBÉ[ŞÙ[NÊyò«	"«	ÈhÂ‚Ò“¢ÊÙj^ÉÛB«	^Ù[NÊyåÆâ ¢.»)NÉÈC¢ãSâBãSò«‹»;«	#¢"ãs"À¢"ââö76WG2ööfg&öBö–6öåö÷Vç–Æ÷Bçær"ÂãRÂBãRÂãRÂ"Â"ãrÂF†—2’“° ¢Æ—7BÓæFD—FVÒ†æWrçGVæUfÇVT6öçG&öÂ‚'F÷'VR"Â&g&–7F–öâ"À¢.ÊÙjRºxË»;NÈ8"À¢.Ê	^ÊxºxË»;NÈ8«	.Éè^¸¸¸ºBâ«	"ÊiŞ«‚²“¢ÊIÉY’»h«{ÂÊÙjR»	ÉÙÉÛB»š¹ÛÎÊyò«	"«	ÈhÂ‚Ò“¢»	ÉÙÉÛB»h¹9Î¹ûŞ«:¸©º
+NÊyåÆâ ¢.¸HºËBØÎº›BÊxÊxNÉyÈIÂÊ(ÎÉ«ºÂÙÙN¹:NºkŞ¸¸¸ºBåÆâ ¢.»)NÉÈC¢ãâã#ò«‹»;«	#¢ãƒ"À¢"ââö76WG2ööfg&öBö–6öåö÷Vç–Æ÷Bçær"ÂãÂã"ÂãRÂ2Âã‚ÂF†—2’“° ¢Æ—7BÓæFD—FVÒ†æWr&ÕfÇVT6öçG&öÄb‚$ÆFW&ÅF÷'VT·b"À¢.ØjØÂ»˜Nº«(ÎÉÛ‚·"Â.ÙˆNÉêÂÊÙj^ÉŠNË
+‚»	ÉÙ«	"Œ9sãÉè^¸¸¸ºBâ«	"ÊiŞ«‚²“¢ÊÙjR»	ÉÙÉÛB«	^ÙY«:»šºhBò«	"«	ÈhÂ‚Ò“¢»h¹9Î¹ûŞ«:¸©ºkÂâ«‹»;«	#¢â"À¢"ââö76WG2ööfg&öBö–6öåö÷Vç–Æ÷Bçær"ÂÂSÂRÂÂÂF†—2’“° ¢Æ—7BÓæFD—FVÒ†æWr&ÕfÇVT6öçG&öÄb‚$ÆFW&ÅF÷'VT¶•b"À¢.ØjØÂÊ»hN«(ÎÉÛ‚¶’"Â.¸ˆNÊÊÙj^ÉŠNË
+‚»;NÊ	^«	"Œ9sãÉè^¸¸¸ºBâ«	"ÊiŞ«‚²“¢ÊxÈhÒÉŠNË
+º[Â»šºjÂ»;NÊ	Rò«	"«	ÈhÂ‚Ò“¢Ë)ÎË)ÎÙè‚»;NÊ	Râ«‹»;«	#¢â"À¢"ââö76WG2ööfg&öBö–6öåö÷Vç–Æ÷Bçær"ÂÂ#ÂÂÂÂF†—2’“° ¢Æ—7BÓæFD—FVÒ†æWr&ÕfÇVT6öçG&öÄb‚$ÆFW&ÅF÷'VT¶b"À¢.ØjØÂÙKÎ¹9ÎØúÎÉ¸Î¹9Â¶b"Â.ºªÙÂÊÙj^ØjØÂ»	Éˆ«	"Œ9sãÉè^¸¸¸ºBâ«	"ÊiŞ«‚²“¢ÊNË+BÊÙjRº¨^ºÉÛB«	^Ù[NÊyò«	"«	ÈhÂ‚Ò“¢É[ŞÙ[NÊyâ«‹»;«	#¢â"À¢"ââö76WG2ööfg&öBö–6öåö÷Vç–Æ÷Bçær"ÂÂ#ÂRÂÂÂF†—2’“° ¢Æ—7BÓæFD—FVÒ†æWr&ÕfÇVT6öçG&öÄb‚$ÆFW&ÅF÷'VT¶B"À¢.ØjØÂºû»hN«(ÎÉÛ‚¶B"Â.«ˆ«*ÙYÂÊÙj^»8Ù™BÉk^Ê	Î«	"Œ9sãÉè^¸¸¸ºBâ«	"ÊiŞ«‚²“¢»8Ù™N«Ék^Ê	Î¹	ÉkBÉXÊ	^ÊÉÛN¸)‚¹NÙ[NÊyò«	"«	ÈhÂ‚Ò“¢»	ÉÙÉÛB»š¹ÛÎÊyâ«‹»;«	#¢â"À¢"ââö76WG2ööfg&öBö–6öåö÷Vç–Æ÷Bçær"ÂÂ#ÂRÂÂÂF†—2’“° ¢Æ—7BÓæFD—FVÒ†æWr&ÕfÇVT6öçG&öÄb‚$ÆD66VÄg&–7F–öäf7F÷""À¢.ºxË»;NÈ8Ùª«ÈhÒ»˜NÉÊ‚"À¢.Ùª«ÈhŞ¸øBÉŠNË
+º[ÂºxË»;NÈ8Éy»	ÉˆÙY¸©B»˜NÉÊ‚Œ9sãÉè^¸¸¸ºBâ«	"ÊiŞ«‚²“¢ËºN»ˆÂÊÙjR»	ÉÙÉÛB«	^Ù[NÊyò«	"«	ÈhÂ‚Ò“¢»h¹9Î¹úÎÉ¸ÎÊyâ«‹»;«	#¢sâ"À¢"ââö76WG2ööfg&öBö–6öåö÷Vç–Æ÷Bçær"ÂÂ3ÂRÂÂsÂF†—2’“° ¢Æ—7BÓæFD—FVÒ†æWr&ÕfÇVT6öçG&öÄb‚$ÆD¦W&´g&–7F–öäf7F÷""À¢.ºxË»;NÈ8ÙªÊØÂ»˜NÉÊ‚"À¢.ÉˆËŠÙªÊØÂ»	Éˆ»˜NÉÊ‚Œ9sãÉè^¸¸¸ºBâ«	"ÊiŞ«‚²“¢ËºN»ˆÂÊxNÉèRÊÙj^ÉÛB»š¹ÛÎÊyò«	"«	ÈhÂ‚Ò“¢ÊxNÉèR»	ÉÙÉÛB¸©º
+NÊyò¢È*ÎÉª’ÉX‚ÙZ‚â«‹»;«	#¢Câ"À¢"ââö76WG2ööfg&öBö–6öåö÷Vç–Æ÷Bçær"ÂÂ#ÂRÂÂCÂF†—2’“° ¢Æ—7BÓæFD—FVÒ††÷&—¦öçFÅöÆ–æR‚’“° ¢òò)H)Höfg6WBF÷FÂ)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H ¢òòºÉÛºª¹9Â²ºÉÛºjÎÈªBºª¹9Âºª¹ÊÉª’âãÒ¸ºÉÈBÂÓãâ³ãĞ¢Æ—7BÓæFD—FVÒ††÷&—¦öçFÅöÆ–æR‚’“° ¢WFò§F…ööfg6WBÒæWröfg6WEF÷FÄ6öçG&öÂ€¢.Øk^ÙZ’«+ŞºÂÊ(ÎÉ«»;NÊ	R"À¢.Ê;ÎÙh’«+ŞºÂÊ(ÎÉ«Øk^ÙZ’»;NÊ	^«	.Éè^¸¸¸ºBâºÉÛºª¹9Ì+~ºÉÛºjÎÈªBºª¹ÊÉª¹
+¸¸¸ºBåÆâ ¢.Ë›Nº™N¹ÛÂÉŠNÙHNÈX¾ÉØÙY¹9ÎÉºÉkB«‹»;«	.ÉËÎºÂ«:Ê	^¹	«:ÉÛB«	"ÙY¸)ºÂÊÊ	^ÙZ¸¸¸ºBåÆâ ¢.É›ÎÊ«ŞÉËÎºÂÉÛN¸ù“¢ÉiÈ‰‚‚²’òÉŠNº[Ê«ŞÉËÎºÂÉÛN¸ù“¢ÉØÎÈ‰‚(‰"•Æâ ¢.»)NÉÈC¢(‰#ãâ³ãÒò«‹»;«	#¢ãÒ"À¢"ââö76WG2ööfg&öBö–6öå÷&öBçær"À¢F†—2“°¢F…ööfg6WBÓç6†÷tFW67&—F–öâ‚“°¢Æ—7BÓæFD—FVÒ‡F…ööfg6WB“° ¢Æ—7BÓæFD—FVÒ††÷&—¦öçFÅöÆ–æR‚’“° ¢òò)H)HF§W7BÆæRöfg6WB)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H ¢WFò¦ÆæUööfg6WBÒæWrF§W7DÆæTöfg6WD6öçG&öÂ€¢.Ë
+ÈJÉzÎÉÊ«;^«BÉé¸ù»;NÊ	R"À¢.Ê(ÎÉ«ÉzÎÉÊ«;^«NÉÛB»˜N¸ÈËšŞÉÛÂ¹XÂÉzÎÉÊÉè¸©BÊ«ŞÉËÎºÂ«+ŞºÎº[ÂÉŠî«˜¸¸¸ºBåÆâ ¢.Ê(ÉØ¸øNºÎÉyÈIÂ¸ÈÙ‰^Ë
+‚ÉˆnÉØBÊx¸*¹XÂÙª«;Î«ÉèÈ«^¸¸¸ºBåÆâ ¢.ÉiÊ«Ò¸ºBÉzÎÉÊ«Éè«¸)‚ÉiÊ«Ò¸ºBÊ(ÉËÎº›B¸ùÉéÙYÊxÉX®È«^¸¸¸ºBåÆâ ¢.«	"ÊiŞ«‚²“¢ÉzÎÉÊÉè¸©BÊ«ŞÉËÎºÂ¸ÙBºxîÉÛBÉÛN¸ù’ò«	"«	ÈhÂ‚Ò“¢ÉÛN¸ù¹øÉÛBÊHNÉkN¹:Ş¸¸¸ºBåÆâ ¢.»)NÉÈC¢âC6ÒƒV6Ò¸ºÉÈB’ò«‹»;«	#¢ôdb"À¢"ââö76WG2ööfg&öBö–6öå÷&öBçær"À¢F†—2“°¢ÆæUööfg6WBÓç6†÷tFW67&—F–öâ‚“°¢Æ—7BÓæFD—FVÒ†ÆæUööfg6WB“°  ¢Æ—7BÓæFD—FVÒ††÷&—¦öçFÅöÆ–æR‚’“°¢WFò¦FÇö6öçG&öÂÒæWrG–æÖ–4ÆæU&öf–ÆT6öçG&öÂ€¢.¸ùÊË
+ÈJºª¹9Â"À¢.Ë
+ÈJÈ*ÎÉª“¢ÙZŞÈ8Ë
+ÈJ«‹»	‚òË
+ÈJºûÈ*ÎÉª“¢ÙZŞÈ8S$R«+ŞºÂòÉé¸ù“¢Ë
+ÈJÉÛÈ¹ŞºZÉy¹K¹ÛÂÉé¸ù’ÊNÙ™‚â"À¢"ââö76WG2ööfg&öBö–6öå÷&öBçær"À¢F†—2“°¢FÇö6öçG&öÂÓç6†÷tFW67&—F–öâ‚“°¢Æ—7BÓæFD—FVÒ†FÇö6öçG&öÂ“° ¢Æ—7BÓæFD—FVÒ††÷&—¦öçFÅöÆ–æR‚’“° ¢òò)H)HWFôÆæT6†ævUF–ÖW")H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H ¢WFò¦Æ5÷F–ÖW"ÒæWrWFôÆæT6†ævUF–ÖW$6öçG&öÂ€¢.Éé¸ù’Ë
+ÈJ»8«+Ò¸È«‹È¹Î«B"À¢.Ë
+ÈJ»8«+ÒÉé¸ù’È¹ÎÉé«˜ÎÊxÉÙ‚¸È«‹È¹Î«NÉØBÈJNÊ	^ÙZ¸¸¸ºBåÆâ ¢.«	"ÊiŞ«‚²“¢»
+Ùj^ÊxÈ¹Î¹;Ù¸B¸ÙBÉŠN¹é‚«‹¸ºNºkÂò«	"«	ÈhÂ‚Ò“¢¸ÙB»šºjÂË
+ÈJ»8«+ÒòÊhÈ¹Ã¢Ê«BËjÊÊhÈ¹ÂÈ¹ÎÉéâ"À¢"ââö76WG2ööfg&öBö–6öå÷&öBçær"À¢F†—2“°¢Æ5÷F–ÖW"Óç6†÷tFW67&—F–öâ‚“°¢Æ—7BÓæFD—FVÒ†Æ5÷F–ÖW"“° ¢òò)H)HWFôÆæT6†ævU7VVB)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H)H ¢Æ—7BÓæFD—FVÒ†æWr&ÕfÇVT6öçG&öÄb‚$WFôÆæT6†ævU7VVB"À¢.Éé¸ù’Ë
+ÈJ»8«+ÒËYÎÊÈhŞ¸øB"À¢.Éé¸ùœ+~»
+Ùj^ÊxÈ¹Î¹;Ë
+ÈJ»8«+ÒÙxÉª’ËYÎÊÈhŞ¸øB†¶Òö‚Éè^¸¸¸ºBâ«	"ÊiŞ«‚²“¢¸ÙB¸i.ÉØÈhŞ¸øNÉyÈIÎºxÂÉé¸ù’ò«	"«	ÈhÂ‚Ò“¢ÊÈhŞÉyÈIÎ¸øBÉé¸ù’â"À¢"ââö76WG2ööfg&öBö–6öå÷&öBçær"ÂÂÂÂÂSÂF†—2’“° ¢Æ—7BÓæFD—FVÒ††÷&—¦öçFÅöÆ–æR‚’“° ¢WFò¦F5öÖöFRÒæWr&ÕfÇVT6öçG&öÄb€¢$6'&÷DWFõGW&ä6öçG&öÂ"Â.Ë©¹ûò¸+N»˜BD2ºª¹9Â"À¢#¢¸Bò¢Ù¨ÎÊBÊÙj^»;NÊò#¢ÊÙj^»;NÊ¾Ù¨ÎÊN«	ÈhÒò3¢Ù¨ÎÊN«	ÈhŞºxÂÈ*ÎÉª’â"À¢"ââö76WG2ööfg&öBö–6öå÷&öBçær"ÂÂ2ÂÂÂÂF†—2“°¢F5öÖöFRÓç6†÷tFW67&—F–öâ‚“°¢Æ—7BÓæFD—FVÒ†F5öÖöFR“° ¢Æ—7BÓæFD—FVÒ†æWr&ÕfÇVT6öçG&öÄb€¢$6'&÷DWFõGW&å7VVB"Â.Ë©¹ûòD2Ù¨ÎÊNÈhŞ¸øB"À¢.Ù¨ÎÊB«ZÎ«BºªÙÎÈhŞ¸øB†¶Òö‚ÉÛNº›ºª¹9Â,+s>ÉyÈIÂÊÉª¹
+¸¸¸ºBâ«	"ÊiŞ«‚²“¢¸ÙB»šº[N«(ÂÙ¨ÎÊBò«	"«	ÈhÂ‚Ò“¢¸ÙBºxîÉÛB«	ÈhÒâ"À¢"ââö76WG2ööfg&öBö–6öå÷7VVEöÆ–Ö—Bçær"Â3ÂcÂRÂÂ3ÂF†—2’“° ¢Æ—7BÓæFD—FVÒ†æWr&ÕfÇVT6öçG&öÄb€¢$6'&÷DWFõGW&äVæEF–ÖR"Â.Ë©¹ûòD2«	ÈhŞÈ¹ÎÊ	"À¢.Ù¨ÎÊN«	ÈhÒÊH»˜NÈ¹Î«BËH‚ÉÛNº›ºª¹9Â,+s>ÉyÈIÂÊÉª¹
+¸¸¸ºBâ«	"ÊiŞ«‚²“¢¸ÙBÉÛÎËÒ«	ÈhÒÈ¹ÎÉéò«	"«	ÈhÂ‚Ò“¢Ù¨ÎÊNÉy««˜ÎÉ¸ÎÊ‚«	ÈhÒâ"À¢"ââö76WG2ööfg&öBö–6öå÷&öBçær"Â"Â"ÂÂÂbÂF†—2’“° ¢Æ—7BÓæFD—FVÒ††÷&—¦öçFÅöÆ–æR‚’“° ¢67&öÆÅf–Wr§67&öÆÆW"ÒæWr67&öÆÅf–Wr†Æ—7BÂF†—2“°¢67&öÆÆW"Óç6WEfW'F–6Å67&öÆÄ&%öÆ–7’…C£¥67&öÆÄ&$4æVVFVB“°¢Æ–÷WBÓæFEv–FvWB‡67&öÆÆW"“°§Ğ
