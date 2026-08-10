@@ -61,10 +61,18 @@ class SccSmoother:
   def update(self, _enabled, can_sends, packer, CC, CS, frame, controls):
     self.cruise_helper = controls.cruise_helper
     longcontrol = controls.CP.openpilotLongitudinalControl
-    clu11_speed, ascc_enabled = self.cruise_helper.update_scc(CC, CS, frame, controls, longcontrol)
+    _, ascc_enabled = self.cruise_helper.update_scc(CC, CS, frame, controls, longcontrol)
 
-    if not longcontrol and \
-       (not ascc_enabled or CS.standstill or CS.cruise_buttons != Buttons.NONE):
+    # apilot-c2 drives SCC11/12 directly during openpilot longitudinal
+    # control. Sending an additional physical RES/SET pulse here can make the
+    # cluster report that cruise conditions are not met during lead departure.
+    # Keep CruiseHelper's speed/HUD calculations above, but reserve CLU11
+    # button transport below for stock ACC only.
+    if longcontrol:
+      self.reset()
+      return
+
+    if not ascc_enabled or CS.standstill or CS.cruise_buttons != Buttons.NONE:
       self.reset()
       self.wait_timer = max(ALIVE_COUNT) + max(WAIT_COUNT)
       return
@@ -77,8 +85,6 @@ class SccSmoother:
       return
 
     if not (ascc_enabled and not CS.out.cruiseState.standstill):
-      if longcontrol:
-        self.cruise_helper.reset_scc_target()
       return
 
     if self.alive_timer == 0:
@@ -88,8 +94,6 @@ class SccSmoother:
       self.alive_count = SccSmoother.get_alive_count()
 
     if self.btn == Buttons.NONE:
-      if longcontrol and self.cruise_helper.target_speed >= self.cruise_helper.min_set_speed_clu:
-        self.cruise_helper.reset_scc_target()
       return
 
     can_sends.append(SccSmoother.create_clu11(packer, CS.scc_bus, CS.clu11, self.btn))
