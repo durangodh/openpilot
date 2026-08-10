@@ -23,6 +23,9 @@ public slots:
     void btnReleased(void);
     void btnPressed(void);
 
+signals:
+    void recordingChanged(bool recording);
+
 protected:
   void paintEvent(QPaintEvent*) override;
 
