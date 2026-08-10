@@ -59,17 +59,16 @@ OnroadWindow::OnroadWindow(QWidget *parent) : QWidget(parent) {
   // screen recoder - neokii
 
   record_timer = std::make_shared<QTimer>();
-	QObject::connect(record_timer.get(), &QTimer::timeout, [=]() {
-    if(recorder) {
-      recorder->update_screen();
-    }
-  });
-	record_timer->start(1000/UI_FREQ);
 
   QWidget* recorder_widget = new QWidget(this);
   QVBoxLayout * recorder_layout = new QVBoxLayout (recorder_widget);
   recorder_layout->setMargin(35);
   recorder = new ScreenRecoder(this);
+  QObject::connect(record_timer.get(), &QTimer::timeout, recorder, &ScreenRecoder::update_screen);
+  QObject::connect(recorder, &ScreenRecoder::recordingChanged, [=](bool recording) {
+    if (recording) record_timer->start(1000 / UI_FREQ);
+    else record_timer->stop();
+  });
   recorder_layout->addWidget(recorder);
   recorder_layout->setAlignment(recorder, Qt::AlignRight | Qt::AlignBottom);
 
@@ -83,16 +82,17 @@ void OnroadWindow::updateState(const UIState &s) {
   // Keep NvgWindow state in sync with carState (including blind-spot signals).
   nvg->updateState(s);
 
-#ifdef ENABLE_MAPS
   if (!mapbox_param_initialized || s.sm->frame % UI_FREQ == 0) {
     const bool enabled = params.getBool("ShowMapboxMap");
     if (!mapbox_param_initialized || enabled != mapbox_enabled) {
       mapbox_enabled = enabled;
       mapbox_param_initialized = true;
+      nvg->setMapImageEnabled(mapbox_enabled);
+#ifdef ENABLE_MAPS
       if (map != nullptr) static_cast<MapWindow *>(map)->setMapEnabled(mapbox_enabled);
+#endif
     }
   }
-#endif
 
   const auto car_state = (*s.sm)["carState"].getCarState();
   brake_lights = car_state.getBrakeLights();
@@ -464,8 +464,9 @@ void NvgWindow::paintEvent(QPaintEvent *event) {
   double cur_draw_t = millis_since_boot();
   double dt = cur_draw_t - prev_draw_t;
   double fps = fps_filter.update(1. / dt * 1000);
-  if (fps < 15) {
+  if (fps < 15 && cur_draw_t - last_slow_fps_log_t >= 5000) {
     LOGW("slow frame rate: %.2f fps", fps);
+    last_slow_fps_log_t = cur_draw_t;
   }
   prev_draw_t = cur_draw_t;
 }
@@ -552,6 +553,7 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   // Keep all existing driving/navigation indicators above the analysis plot.
   drawCarrotPlot(p);
 
+  updateCarrotNavi();
   drawCarrotTurnPoint(p, model);
   drawCarrotLead(p);
   drawCarrotNavi(p);
@@ -813,10 +815,16 @@ void NvgWindow::drawCarrotBottom(QPainter &p) {
     int avail = right_limit - left_limit;
 
     if (avail > 100) {
-      int fs = 34;
-      for (; fs > 22; fs -= 2) {
-        configFont(p, "Open Sans", fs, "Regular");
-        if (QFontMetrics(p.font()).boundingRect(lat_debug).width() <= avail) break;
+      if (lat_debug != lat_debug_font_text || avail != lat_debug_font_width) {
+        lat_debug_font_text = lat_debug;
+        lat_debug_font_width = avail;
+        lat_debug_font_size = 34;
+        for (; lat_debug_font_size > 22; lat_debug_font_size -= 2) {
+          configFont(p, "Open Sans", lat_debug_font_size, "Regular");
+          if (QFontMetrics(p.font()).boundingRect(lat_debug).width() <= avail) break;
+        }
+      } else {
+        configFont(p, "Open Sans", lat_debug_font_size, "Regular");
       }
       p.setPen(QColor(0xff, 0xff, 0xff, 200));
       p.drawText(QRect(left_limit, line_y, avail, line_h),
