@@ -97,8 +97,11 @@ protected:
                 const QColor &color, bool bold = true);
   // 화면 최상단 좌/우 정보줄 (carrot 의 top_left / top_right 와 동일 위치)
   void drawCarrotInfo(QPainter &p);
+  void drawCarrotInfoContent(QPainter &p);
   // 화면 우하단 정보줄 (wifi IP)
   void drawCarrotBottom(QPainter &p);
+  void drawCarrotBottomContent(QPainter &p);
+  void drawCarrotDeviceState(QPainter &p);
   void drawCarrotNavi(QPainter &p);
   void drawCarrotTurnPoint(QPainter &p, const cereal::ModelDataV2::Reader &model);
   void drawCarrotPlot(QPainter &p);
@@ -119,6 +122,7 @@ protected:
   uint64_t carrot_navi_last_read = 0;
   uint64_t carrot_navi_updated_at = 0;
   uint64_t carrot_navi_guidance_updated_at = 0;
+  uint64_t carrot_navi_route_updated_at = 0;
   QVector<QPointF> carrot_navi_route;
   double carrot_navi_lat = 0.0;
   double carrot_navi_lon = 0.0;
@@ -161,6 +165,17 @@ protected:
   QString carrot_plot_title;
   QImage carrot_plot_cache;
   QSize carrot_plot_cache_size;
+
+  // Low-frequency text/status layers. Driving-critical overlays stay at UI_FREQ.
+  QImage carrot_info_cache;
+  QImage carrot_bottom_cache;
+  QImage carrot_device_state_cache;
+  QSize carrot_info_cache_size;
+  QSize carrot_bottom_cache_size;
+  QSize carrot_device_state_cache_size;
+  uint64_t carrot_info_last_render = 0;
+  uint64_t carrot_bottom_last_render = 0;
+  uint64_t carrot_device_state_last_render = 0;
 
   // ── 팝업 애니메이션 (carrot ui_draw_text_a 이식) ──
   void ctTextAnimStart(int x, int y, const QString &text, int size, const QColor &color, bool enabled);

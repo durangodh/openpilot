@@ -195,6 +195,14 @@ void NvgWindow::updateCarrotNavi() {
   carrot_navi_guidance_updated_at = stream_times.contains("guidance_current")
     ? stream_times.value("guidance_current").toVariant().toULongLong()
     : carrot_navi_updated_at;
+  uint64_t route_updated_at = carrot_navi_updated_at;
+  static const char *route_time_keys[] = {"route", "route_geometry", "polyline"};
+  for (const char *key : route_time_keys) {
+    if (stream_times.contains(key)) {
+      route_updated_at = stream_times.value(key).toVariant().toULongLong();
+      break;
+    }
+  }
   const QJsonObject vehicle = root.value("vehicle").toObject();
   carrot_navi_lat = vehicle.value("lat").toDouble();
   carrot_navi_lon = vehicle.value("lon").toDouble();
@@ -222,27 +230,30 @@ void NvgWindow::updateCarrotNavi() {
   const QJsonObject route = root.value("route").toObject();
   carrot_navi_remain_distance = route.contains("remain_distance_m") ? route.value("remain_distance_m").toInt() : -1;
   carrot_navi_remain_time = route.contains("remain_time_sec") ? route.value("remain_time_sec").toInt() : -1;
-  const QJsonArray points = route.value("polyline").toArray();
-  if (root.contains("route") && points.isEmpty()) {
-    carrot_navi_route.clear();
-  } else if (!points.isEmpty()) {
-    QVector<QPointF> next;
-    const int stride = std::max(1, (points.size() + 179) / 180);
-    next.reserve(std::min(180, points.size()));
-    for (int i = 0; i < points.size(); i += stride) {
-      const QJsonValue value = points.at(i);
-      const QJsonObject point = value.toObject();
-      const double lat = point.value("lat").toDouble();
-      const double lon = point.value("lon").toDouble();
-      if (std::abs(lat) > 0.000001 && std::abs(lon) > 0.000001) next.push_back(QPointF(lon, lat));
+  if (route_updated_at == 0 || route_updated_at != carrot_navi_route_updated_at) {
+    const QJsonArray points = route.value("polyline").toArray();
+    if (root.contains("route") && points.isEmpty()) {
+      carrot_navi_route.clear();
+    } else if (!points.isEmpty()) {
+      QVector<QPointF> next;
+      const int stride = std::max(1, (points.size() + 179) / 180);
+      next.reserve(std::min(180, points.size()));
+      for (int i = 0; i < points.size(); i += stride) {
+        const QJsonValue value = points.at(i);
+        const QJsonObject point = value.toObject();
+        const double lat = point.value("lat").toDouble();
+        const double lon = point.value("lon").toDouble();
+        if (std::abs(lat) > 0.000001 && std::abs(lon) > 0.000001) next.push_back(QPointF(lon, lat));
+      }
+      if ((points.size() - 1) % stride != 0) {
+        const QJsonObject point = points.last().toObject();
+        const double lat = point.value("lat").toDouble();
+        const double lon = point.value("lon").toDouble();
+        if (std::abs(lat) > 0.000001 && std::abs(lon) > 0.000001) next.push_back(QPointF(lon, lat));
+      }
+      carrot_navi_route = next;
     }
-    if (!points.isEmpty() && (points.size() - 1) % stride != 0) {
-      const QJsonObject point = points.last().toObject();
-      const double lat = point.value("lat").toDouble();
-      const double lon = point.value("lon").toDouble();
-      if (std::abs(lat) > 0.000001 && std::abs(lon) > 0.000001) next.push_back(QPointF(lon, lat));
-    }
-    carrot_navi_route = next;
+    carrot_navi_route_updated_at = route_updated_at;
   }
 
   // ---- speed 스트림: 기준 브랜치의 제한속도와 SDI 안전안내 ----

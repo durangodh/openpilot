@@ -715,6 +715,26 @@ void NvgWindow::ctTextIn(QPainter &p, const QRect &box, const QString &text, int
 }
 
 void NvgWindow::drawCarrotInfo(QPainter &p) {
+  const uint64_t now = millis_since_boot();
+  const QSize cache_size(width(), 72);
+  const bool cache_invalid = carrot_info_cache.isNull() || carrot_info_cache_size != cache_size;
+  if (cache_invalid) {
+    carrot_info_cache = QImage(cache_size, QImage::Format_ARGB32_Premultiplied);
+    carrot_info_cache_size = cache_size;
+  }
+  if (cache_invalid || now - carrot_info_last_render >= 200) {
+    carrot_info_cache.fill(Qt::transparent);
+    QPainter cache_painter(&carrot_info_cache);
+    cache_painter.setRenderHint(QPainter::Antialiasing);
+    cache_painter.setRenderHint(QPainter::TextAntialiasing);
+    drawCarrotInfoContent(cache_painter);
+    cache_painter.end();
+    carrot_info_last_render = now;
+  }
+  p.drawImage(QPoint(0, 0), carrot_info_cache);
+}
+
+void NvgWindow::drawCarrotInfoContent(QPainter &p) {
   p.save();
 
   const SubMaster &sm = *(uiState()->sm);
@@ -793,6 +813,28 @@ void NvgWindow::drawCarrotInfo(QPainter &p) {
 }
 
 void NvgWindow::drawCarrotBottom(QPainter &p) {
+  const uint64_t now = millis_since_boot();
+  const int cache_y = std::max(0, height() - 72);
+  const QSize cache_size(width(), height() - cache_y);
+  const bool cache_invalid = carrot_bottom_cache.isNull() || carrot_bottom_cache_size != cache_size;
+  if (cache_invalid) {
+    carrot_bottom_cache = QImage(cache_size, QImage::Format_ARGB32_Premultiplied);
+    carrot_bottom_cache_size = cache_size;
+  }
+  if (cache_invalid || now - carrot_bottom_last_render >= 200) {
+    carrot_bottom_cache.fill(Qt::transparent);
+    QPainter cache_painter(&carrot_bottom_cache);
+    cache_painter.setRenderHint(QPainter::Antialiasing);
+    cache_painter.setRenderHint(QPainter::TextAntialiasing);
+    cache_painter.translate(0, -cache_y);
+    drawCarrotBottomContent(cache_painter);
+    cache_painter.end();
+    carrot_bottom_last_render = now;
+  }
+  p.drawImage(QPoint(0, cache_y), carrot_bottom_cache);
+}
+
+void NvgWindow::drawCarrotBottomContent(QPainter &p) {
   p.save();
 
   const SubMaster &sm = *(uiState()->sm);
@@ -938,6 +980,97 @@ void NvgWindow::drawCarrotLead(QPainter &p) {
   if (!scene.lead_status[0]) lead_box_w = 0.0f;   // 리드 사라지면 EMA 초기화
 
   p.restore();
+}
+
+void NvgWindow::drawCarrotDeviceState(QPainter &p) {
+  const int bx = 140;
+  const int by = height() - 230;
+  const QRect cache_rect(20, by - 245, 470, 110);
+  const QSize cache_size = cache_rect.size();
+  const uint64_t now = millis_since_boot();
+
+  const bool cache_invalid = carrot_device_state_cache.isNull() || carrot_device_state_cache_size != cache_size;
+  if (cache_invalid) {
+    carrot_device_state_cache = QImage(cache_size, QImage::Format_ARGB32_Premultiplied);
+    carrot_device_state_cache_size = cache_size;
+  }
+  if (cache_invalid || now - carrot_device_state_last_render >= 200) {
+    carrot_device_state_cache.fill(Qt::transparent);
+    QPainter panel(&carrot_device_state_cache);
+    panel.setRenderHint(QPainter::Antialiasing);
+    panel.setRenderHint(QPainter::TextAntialiasing);
+    panel.translate(-cache_rect.x(), -cache_rect.y());
+
+    const SubMaster &sm = *(uiState()->sm);
+    const auto device_state = sm["deviceState"].getDeviceState();
+    const auto car_state = sm["carState"].getCarState();
+    float cpu_temp = 0.f;
+    const auto cpu_temp_c = device_state.getCpuTempC();
+    if (std::size(cpu_temp_c) > 0) {
+      for (int i = 0; i < (int)std::size(cpu_temp_c); ++i) cpu_temp += cpu_temp_c[i];
+      cpu_temp /= (float)std::size(cpu_temp_c);
+    }
+    float cpu_usage = 0.f;
+    const auto cpu_usage_percent = device_state.getCpuUsagePercent();
+    if (std::size(cpu_usage_percent) > 0) {
+      for (int i = 0; i < (int)std::size(cpu_usage_percent); ++i) cpu_usage += cpu_usage_percent[i];
+      cpu_usage /= (float)std::size(cpu_usage_percent);
+    }
+
+    int dx = bx - 35;
+    const int dy = by - 200;
+    const QColor box = CT_GREEN_A(190);
+    QString str;
+
+    QRect ds_box(dx - 65, dy - 38, 130, 90);
+    ctRect(panel, ds_box, (cpu_temp > 80 && blink_timer <= 8) ? CT_RED_A(255) : box, 15, 2);
+    ctTextIn(panel, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "CPU", 25, CT_WHITE);
+    str.sprintf("%.0f\u00B0C", cpu_temp);
+    ctTextIn(panel, QRect(ds_box.x(), ds_box.y() + 34, ds_box.width(), 56), str, 40, CT_WHITE);
+
+    dx += 150;
+    ds_box.moveLeft(dx - 65);
+    const auto tpms = car_state.getTpms();
+    const std::array<float, 4> pressures = {
+      tpms.getFl(), tpms.getFr(), tpms.getRl(), tpms.getRr()
+    };
+    ctRect(panel, ds_box, CT_BLACK_A(220), 15, 2, CT_WHITE_A(170));
+
+    panel.save();
+    panel.setPen(QPen(CT_WHITE_A(120), 1));
+    panel.drawLine(ds_box.center().x(), ds_box.top() + 3,
+                   ds_box.center().x(), ds_box.bottom() - 3);
+    panel.drawLine(ds_box.left() + 3, ds_box.center().y(),
+                   ds_box.right() - 3, ds_box.center().y());
+    panel.restore();
+
+    const int cell_w = ds_box.width() / 2;
+    const int cell_h = ds_box.height() / 2;
+    const std::array<QRect, 4> cells = {
+      QRect(ds_box.left(), ds_box.top(), cell_w, cell_h),
+      QRect(ds_box.left() + cell_w, ds_box.top(), ds_box.width() - cell_w, cell_h),
+      QRect(ds_box.left(), ds_box.top() + cell_h, cell_w, ds_box.height() - cell_h),
+      QRect(ds_box.left() + cell_w, ds_box.top() + cell_h,
+            ds_box.width() - cell_w, ds_box.height() - cell_h)
+    };
+    for (int i = 0; i < 4; ++i) {
+      QString pressure = get_tpms_text(pressures[i]);
+      if (pressure.isEmpty()) pressure = "--";
+      ctTextIn(panel, cells[i], pressure, 40, get_tpms_color(pressures[i]), true);
+    }
+
+    dx += 150;
+    ds_box.moveLeft(dx - 65);
+    ctRect(panel, ds_box, (cpu_usage > 90 && blink_timer <= 8) ? CT_RED_A(255) : box, 15, 2);
+    ctTextIn(panel, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "CPU", 25, CT_WHITE);
+    str.sprintf("%.0f%%", cpu_usage);
+    ctTextIn(panel, QRect(ds_box.x(), ds_box.y() + 34, ds_box.width(), 56), str, 40, CT_WHITE);
+    panel.end();
+
+    carrot_device_state_last_render = now;
+  }
+
+  p.drawImage(cache_rect.topLeft(), carrot_device_state_cache);
 }
 
 void NvgWindow::drawCarrotHud(QPainter &p) {
@@ -1176,71 +1309,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
   }
 
   // ---- CPU 온도 / 타이어 공기압 / CPU 사용률 (항상 표시) ----
-  {
-    const auto deviceState = sm["deviceState"].getDeviceState();
-    float cpuTemp = 0.f;
-    const auto cpuTempC = deviceState.getCpuTempC();
-    if (std::size(cpuTempC) > 0) {
-      for (int i = 0; i < (int)std::size(cpuTempC); i++) cpuTemp += cpuTempC[i];
-      cpuTemp /= (float)std::size(cpuTempC);
-    }
-    float cpuUsage = 0.f;
-    const auto cpuUsagePercent = deviceState.getCpuUsagePercent();
-    if (std::size(cpuUsagePercent) > 0) {
-      for (int i = 0; i < (int)std::size(cpuUsagePercent); i++) cpuUsage += cpuUsagePercent[i];
-      cpuUsage /= (float)std::size(cpuUsagePercent);
-    }
-
-    int dx = bx - 35;
-    int dy = by - 200;
-    QColor box = CT_GREEN_A(190);
-    QString str;
-
-    QRect ds_box(dx - 65, dy - 38, 130, 90);
-    ctRect(p, ds_box, (cpuTemp > 80 && blink_timer <= 8) ? CT_RED_A(255) : box, 15, 2);
-    ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "CPU", 25, CT_WHITE);
-    str.sprintf("%.0f\u00B0C", cpuTemp);
-    ctTextIn(p, QRect(ds_box.x(), ds_box.y() + 34, ds_box.width(), 56), str, 40, CT_WHITE);
-
-    dx += 150;
-    ds_box.moveLeft(dx - 65);
-    const auto tpms = car_state.getTpms();
-    const std::array<float, 4> pressures = {
-      tpms.getFl(), tpms.getFr(), tpms.getRl(), tpms.getRr()
-    };
-    ctRect(p, ds_box, CT_BLACK_A(220), 15, 2, CT_WHITE_A(170));
-
-    // Front-left / front-right on top, rear-left / rear-right on bottom.
-    p.save();
-    p.setPen(QPen(CT_WHITE_A(120), 1));
-    p.drawLine(ds_box.center().x(), ds_box.top() + 3,
-               ds_box.center().x(), ds_box.bottom() - 3);
-    p.drawLine(ds_box.left() + 3, ds_box.center().y(),
-               ds_box.right() - 3, ds_box.center().y());
-    p.restore();
-
-    const int cell_w = ds_box.width() / 2;
-    const int cell_h = ds_box.height() / 2;
-    const std::array<QRect, 4> cells = {
-      QRect(ds_box.left(), ds_box.top(), cell_w, cell_h),
-      QRect(ds_box.left() + cell_w, ds_box.top(), ds_box.width() - cell_w, cell_h),
-      QRect(ds_box.left(), ds_box.top() + cell_h, cell_w, ds_box.height() - cell_h),
-      QRect(ds_box.left() + cell_w, ds_box.top() + cell_h,
-            ds_box.width() - cell_w, ds_box.height() - cell_h)
-    };
-    for (int i = 0; i < 4; ++i) {
-      QString pressure = get_tpms_text(pressures[i]);
-      if (pressure.isEmpty()) pressure = "--";
-      ctTextIn(p, cells[i], pressure, 40, get_tpms_color(pressures[i]), true);
-    }
-
-    dx += 150;
-    ds_box.moveLeft(dx - 65);
-    ctRect(p, ds_box, (cpuUsage > 90 && blink_timer <= 8) ? CT_RED_A(255) : box, 15, 2);
-    ctTextIn(p, QRect(ds_box.x(), ds_box.y(), ds_box.width(), 34), "CPU", 25, CT_WHITE);
-    str.sprintf("%.0f%%", cpuUsage);
-    ctTextIn(p, QRect(ds_box.x(), ds_box.y() + 34, ds_box.width(), 56), str, 40, CT_WHITE);
-  }
+  drawCarrotDeviceState(p);
 
   p.restore();
 }
