@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import math
 import numpy as np
 from common.numpy_fast import clip, interp
 
@@ -27,13 +26,6 @@ A_CRUISE_MAX_BP = [0.0, 10.0 * CV.KPH_TO_MS, 40.0 * CV.KPH_TO_MS, 60.0 * CV.KPH_
 CRUISE_MAX_VAL_KEYS = ["CruiseMaxVals1", "CruiseMaxVals2", "CruiseMaxVals3",
                        "CruiseMaxVals4", "CruiseMaxVals5", "CruiseMaxVals6"]
 
-# Limit only ACC re-acceleration after a brake release. Standstill/low-speed
-# launches and E2E operation keep their existing acceleration behavior.
-BRAKE_RESUME_ACCEL_TIME = 3.0
-BRAKE_RESUME_MIN_SPEED_KPH = 20.0
-BRAKE_RESUME_MIN_SPEED_GAP_KPH = 5.0
-BRAKE_RESUME_ACCEL_BP = [20.0, 40.0, 60.0]
-BRAKE_RESUME_ACCEL_V = [1.20, 1.00, 0.80]
 CRUISE_MAX_VAL_DEFAULTS = [1.60, 1.20, 1.00, 0.80, 0.70, 0.60]
 
 # ── MyDrivingMode (1:ECO 2:SAFE 3:NORM 4:FAST) ────────────────────────────
@@ -41,37 +33,6 @@ CRUISE_MAX_VAL_DEFAULTS = [1.60, 1.20, 1.00, 0.80, 0.70, 0.60]
 # 갭버튼은 순정 SCC 갭 기능 그대로 두고, 모드는 그 위에 배율로만 얹는다.
 #   ACCEL : MyEcoModeFactor와 MySafeModeFactor로 계산 (감속 한계는 유지)
 # ──────────────────────────────────────────────────────────────────────────
-
-# carrot-wip future-curvature acceleration limiter
-TURN_CURVATURE_LOOKAHEAD = 1.0
-TURN_CURVATURE_MIN_SPEED = 3.0
-
-
-def get_future_curvature(model_msg, fallback_curvature, lookahead=TURN_CURVATURE_LOOKAHEAD):
-  if (len(model_msg.orientationRate.z) != len(T_IDXS) or
-      len(model_msg.velocity.x) != len(T_IDXS)):
-    return fallback_curvature
-
-  yaw_rate_future = float(np.interp(lookahead, T_IDXS, model_msg.orientationRate.z))
-  velocity_future = float(np.interp(lookahead, T_IDXS, model_msg.velocity.x))
-  if not (np.isfinite(yaw_rate_future) and np.isfinite(velocity_future)):
-    return fallback_curvature
-  return yaw_rate_future / max(abs(velocity_future), TURN_CURVATURE_MIN_SPEED)
-
-
-def limit_accel_in_turns(v_ego, curvature, a_target, a_lat_max,
-                         safety_ratio=0.70, min_v=0.1):
-  if v_ego < min_v or a_lat_max <= 0.0:
-    return a_target
-
-  a_lat_effective = abs(a_lat_max) * float(safety_ratio)
-  lateral_accel = abs((v_ego ** 2) * curvature)
-  if lateral_accel >= a_lat_effective:
-    accel_allowed = 0.0
-  else:
-    accel_allowed = math.sqrt(a_lat_effective ** 2 - lateral_accel ** 2)
-  return [a_target[0], min(a_target[1], accel_allowed)]
-
 
 class LongitudinalPlanner:
   def __init__(self, CP, init_v=0.0, init_a=0.0):
@@ -98,12 +59,6 @@ class LongitudinalPlanner:
     self.my_driving_mode_accel = 1.0
     self.my_eco_mode_factor = 0.8
     self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
-
-    # ACC-only brake-release acceleration ramp.
-    self.brake_resume_pending = False
-    self.brake_resume_accel_time = 0.0
-    self.brake_resume_accel_start = 0.0
-    self.prev_reset_state = True
 
     self.long_actuator_delay = self.CP.longitudinalActuatorDelay
     self.read_param()
@@ -297,24 +252,6 @@ class LongitudinalPlanner:
     # Reset current state when not engaged, or user is controlling the speed
     reset_state = long_control_off if self.CP.openpilotLongitudinalControl else not sm['controlsState'].enabled
 
-    current_speed_kph = sm['carState'].vEgoCluster * CV.MS_TO_KPH
-    if sm['carState'].brakePressed:
-      self.brake_resume_pending = True
-      self.brake_resume_accel_time = 0.0
-
-    long_reactivated = self.prev_reset_state and not reset_state
-    speed_gap_kph = v_cruise_kph - current_speed_kph
-    if long_reactivated and self.brake_resume_pending:
-      if (self.mpc.mode == 'acc' and
-          current_speed_kph >= BRAKE_RESUME_MIN_SPEED_KPH and
-          speed_gap_kph >= BRAKE_RESUME_MIN_SPEED_GAP_KPH):
-        self.brake_resume_accel_start = float(interp(current_speed_kph,
-                                                     BRAKE_RESUME_ACCEL_BP,
-                                                     BRAKE_RESUME_ACCEL_V))
-        self.brake_resume_accel_time = BRAKE_RESUME_ACCEL_TIME
-      self.brake_resume_pending = False
-    self.prev_reset_state = reset_state
-
     # No change cost when user is controlling the speed, or when standstill
     prev_accel_constraint = not (reset_state or sm['carState'].standstill)
 
@@ -322,30 +259,15 @@ class LongitudinalPlanner:
                                   0.0, MAX_ACCEL))
     if self.mpc.mode == 'acc':
       accel_limits = [A_CRUISE_MIN, cruise_max_accel]
-      curvature_future = get_future_curvature(sm['modelV2'], sm['controlsState'].desiredCurvature)
-      accel_limits_turns = limit_accel_in_turns(v_ego, curvature_future, accel_limits, 3.0)
-
-      if self.brake_resume_accel_time > 0.0:
-        progress = float(clip(1.0 - self.brake_resume_accel_time / BRAKE_RESUME_ACCEL_TIME, 0.0, 1.0))
-        resume_accel_limit = self.brake_resume_accel_start + \
-                             (accel_limits_turns[1] - self.brake_resume_accel_start) * progress
-        accel_limits_turns[1] = min(accel_limits_turns[1], resume_accel_limit)
-        self.brake_resume_accel_time = max(0.0, self.brake_resume_accel_time - DT_MDL)
     else:
       accel_limits = [MIN_ACCEL, MAX_ACCEL]
-      accel_limits_turns = [MIN_ACCEL, MAX_ACCEL]
-      self.brake_resume_accel_time = 0.0
-
-    # Driver pedal input always takes priority over the automatic ramp.
-    if sm['carState'].gasPressed or sm['carState'].brakePressed:
-      self.brake_resume_accel_time = 0.0
 
     if reset_state:
       self.v_desired_filter.x = v_ego
       # Clip aEgo to cruise limits to prevent large accelerations when becoming active
       self.a_desired = clip(sm['carState'].aEgo, accel_limits[0], accel_limits[1])
       self.mpc.prev_a = np.full(N+1, self.a_desired)  # pid off→on 전환시 constraint 튀는 문제 방지
-      accel_limits_turns[0] = 0.0  # 재활성화 시 급감속 방지
+      accel_limits[0] = 0.0  # 재활성화 시 급감속 방지
 
     # Prevent divergence, smooth in current v_ego
     self.v_desired_filter.x = max(0.0, self.v_desired_filter.update(v_ego))
@@ -356,13 +278,13 @@ class LongitudinalPlanner:
 
     if force_slow_decel:
       # if required so, force a smooth deceleration
-      accel_limits_turns[1] = min(accel_limits_turns[1], AWARENESS_DECEL)
-      accel_limits_turns[0] = min(accel_limits_turns[0], accel_limits_turns[1])
+      accel_limits[1] = min(accel_limits[1], AWARENESS_DECEL)
+      accel_limits[0] = min(accel_limits[0], accel_limits[1])
     # clip limits, cannot init MPC outside of bounds
-    accel_limits_turns[0] = min(accel_limits_turns[0], self.a_desired + 0.05, a_min_sol)
-    accel_limits_turns[1] = max(accel_limits_turns[1], self.a_desired - 0.05)
+    accel_limits[0] = min(accel_limits[0], self.a_desired + 0.05, a_min_sol)
+    accel_limits[1] = max(accel_limits[1], self.a_desired - 0.05)
 
-    self.mpc.set_accel_limits(accel_limits_turns[0], accel_limits_turns[1])
+    self.mpc.set_accel_limits(accel_limits[0], accel_limits[1])
     self.mpc.set_cur_state(self.v_desired_filter.x, self.a_desired)
     x, v, a, j = self.parse_model(sm['modelV2'])
     self.mpc.update(sm['carState'], sm['radarState'], sm['controlsState'], v_cruise_sol, x, v, a, j,
