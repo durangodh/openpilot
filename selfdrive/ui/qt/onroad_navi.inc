@@ -457,7 +457,14 @@ void NvgWindow::drawCarrotTurnPoint(QPainter &p, const cereal::ModelDataV2::Read
     return;
   }
 
-  const int model_idx = get_path_length_idx(road_edges[0], carrot_navi_distance);
+  // ui.cc keeps get_path_length_idx() file-local, so calculate the matching
+  // road-edge index here instead of calling an unavailable helper.
+  const auto road_edge_x = road_edges[0].getX();
+  const int road_edge_count = std::min(static_cast<int>(road_edge_x.size()), TRAJECTORY_SIZE);
+  int model_idx = 0;
+  for (int i = 1; i < road_edge_count && road_edge_x[i] <= carrot_navi_distance; ++i) {
+    model_idx = i;
+  }
   const UIScene &scene = uiState()->scene;
   QPointF raw_points[2];
   for (int side = 0; side < 2; ++side) {
