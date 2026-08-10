@@ -15,6 +15,7 @@ from common.realtime import sec_since_boot
 from common.conversions import Conversions as CV
 
 CAMERA_SPEED_FACTOR = 1.05
+ROAD_LIMIT_RECV_INTERVAL = 0.05
 
 
 class Port:
@@ -282,8 +283,16 @@ class RoadSpeedLimiter:
 
     self.sock = messaging.sub_sock("roadLimitSpeed")
     self.roadLimitSpeed = None
+    self.last_recv_time = -ROAD_LIMIT_RECV_INTERVAL
 
   def recv(self):
+    # CruiseHelper can query this from a 100 Hz control loop, while navigation
+    # data arrives much more slowly. Poll at 20 Hz and reuse the latest packet
+    # between polls to avoid needless messaging/Cap'n Proto work.
+    now = time.monotonic()
+    if now - self.last_recv_time < ROAD_LIMIT_RECV_INTERVAL:
+      return
+    self.last_recv_time = now
     try:
       dat = messaging.recv_sock(self.sock, wait=False)
       if dat is not None:

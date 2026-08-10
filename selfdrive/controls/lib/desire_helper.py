@@ -53,6 +53,7 @@ class DesireHelper:
     self.last_params_update = 0.0
 
     self.auto_lane_change_timer = 0.0
+    self.auto_lane_change_timer_setting = 0
     self.prev_torque_applied = False
 
     # apilot 참고: ATC 회전신호가 순간적으로 끊겨도(steering_request 는 distance/
@@ -67,6 +68,7 @@ class DesireHelper:
     self.prev_lane_change = False
     self.road_edge = False
     self.carrot_atc = CarrotNaviAtc()
+    self.empty_atc_state = self.carrot_atc.empty_state()
     self.atc_fork_controller = AtcForkLaneChangeController()
     self.carrot_atc_mode = 0
 
@@ -115,10 +117,15 @@ class DesireHelper:
       except (TypeError, ValueError):
         auto_lc_speed_kph = 50
       self.lane_change_speed_min = auto_lc_speed_kph * CV.KPH_TO_MS
+      try:
+        self.auto_lane_change_timer_setting = int(
+          self.params.get("AutoLaneChangeTimer", encoding="utf8") or "0")
+      except (TypeError, ValueError):
+        self.auto_lane_change_timer_setting = 0
       self.last_params_update = t
 
     # AutoLaneChangeTimer 파라미터 읽기 및 대기 시간 계산
-    lane_change_set_timer = int(self.params.get("AutoLaneChangeTimer", encoding="utf8"))
+    lane_change_set_timer = self.auto_lane_change_timer_setting
     lane_change_auto_timer = 0.0 if lane_change_set_timer == 0 else \
                              0.1 if lane_change_set_timer == 1 else \
                              0.5 if lane_change_set_timer == 2 else \
@@ -126,8 +133,10 @@ class DesireHelper:
                              1.5 if lane_change_set_timer == 4 else 2.0
 
     v_ego = carstate.vEgo
-    atc_state = self.carrot_atc.update()
     atc_steering = self.carrot_atc_mode in (1, 2) and lateral_active and not carstate.brakePressed
+    # Avoid parsing the shared navigation JSON in lateral planning when ATC
+    # steering is disabled. Longitudinal navigation uses its own reader.
+    atc_state = self.carrot_atc.update() if atc_steering else self.empty_atc_state
     atc_direction = atc_state['direction'] if atc_steering else 0
     opposite_torque = carstate.steeringPressed and ((atc_direction < 0 and carstate.steeringTorque < 0) or
                                                     (atc_direction > 0 and carstate.steeringTorque > 0))
@@ -145,8 +154,9 @@ class DesireHelper:
     # Latest carrot-style exit gating adapted to this fork's simpler model:
     # right exits only, arm at the last lane, then request one change when the
     # exit lane opens. Keep the request alive while BSD blocks it.
-    right_lane_open = not self._road_edge_detected(model_data, 1)
+    right_lane_open = False
     if atc_steering:
+      right_lane_open = not self._road_edge_detected(model_data, 1)
       atc_fork_direction = self.atc_fork_controller.update(
         atc_state, v_ego, right_lane_open,
         driver_cancel=opposite_torque or conflicting_blinker,
@@ -164,7 +174,10 @@ class DesireHelper:
     # Driver lane changes retain the original road-edge gate. ATC only raises
     # its virtual blinker after the controller has already observed an open lane.
     direction = -1 if left_blinker else 1 if right_blinker else 0
-    self.road_edge = self._road_edge_detected(model_data, direction) if direction else False
+    if direction == 1 and atc_steering:
+      self.road_edge = not right_lane_open
+    else:
+      self.road_edge = self._road_edge_detected(model_data, direction) if direction else False
 
     if (not lateral_active) or (self.lane_change_timer > LANE_CHANGE_TIME_MAX) or \
        (not one_blinker) or (not self.lane_change_enabled):

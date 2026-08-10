@@ -86,6 +86,9 @@ class LatControlTorque(LatControl):
     self.lat_jerk_friction_factor = 0.4
     self.desired_lat_jerk_time = 0.3
     self.t_diffs = np.diff(T_IDXS)
+    self.friction_upper_idx = len(T_IDXS)
+    self.predicted_lateral_jerk = []
+    self.predicted_lateral_jerk_frame_id = -1
     self.read_torque_params(force=True)
 
   def _pget(self, key, default):
@@ -118,7 +121,11 @@ class LatControlTorque(LatControl):
 
     self.lat_accel_friction_factor = self._pget("LatAccelFrictionFactor", 70) * 0.01
     self.lat_jerk_friction_factor = self._pget("LatJerkFrictionFactor", 40) * 0.01
-    self.desired_lat_jerk_time = self._pget("SteerActuatorDelay", 10) * 0.01 + 0.3
+    self.desired_lat_jerk_time = max(
+      0.1, self._pget("SteerActuatorDelay", 10) * 0.01 + 0.3)
+    self.friction_upper_idx = next(
+      (i for i, t in enumerate(T_IDXS) if t > max(self.desired_lat_jerk_time, 0.1)),
+      len(T_IDXS))
 
   def update_live_torque_params(self, latAccelFactor, latAccelOffset, friction):
     self.torque_params.latAccelFactor = latAccelFactor
@@ -165,18 +172,24 @@ class LatControlTorque(LatControl):
       # ── friction 입력 : 횡가속도 오차 + 앞으로의 횡저크 (carrot 이식) ──
       accel_error = desired_lateral_accel - actual_lateral_accel
       lookahead_lateral_jerk = 0.0
-      if model_data is not None and len(model_data.acceleration.y) >= len(T_IDXS):
+      # modelV2 updates at 20 Hz while lateral control runs at 100 Hz. Skip the
+      # calculation entirely when steering-angle control will discard it, and
+      # otherwise reuse one prediction for each model period.
+      if not self.use_steering_angle and model_data is not None and \
+         len(model_data.acceleration.y) >= len(T_IDXS):
         try:
-          friction_upper_idx = next(i for i, t in enumerate(T_IDXS)
-                                    if t > max(self.desired_lat_jerk_time, 0.1))
-          predicted = get_predicted_lateral_jerk(model_data.acceleration.y, self.t_diffs)
+          model_frame_id = int(model_data.frameId)
+          if model_frame_id != self.predicted_lateral_jerk_frame_id or \
+             len(self.predicted_lateral_jerk) != len(self.t_diffs):
+            self.predicted_lateral_jerk = get_predicted_lateral_jerk(
+              model_data.acceleration.y, self.t_diffs)
+            self.predicted_lateral_jerk_frame_id = model_frame_id
           desired_lateral_jerk = (float(interp(self.desired_lat_jerk_time, T_IDXS, model_data.acceleration.y))
                                   - desired_lateral_accel) / self.desired_lat_jerk_time
           lookahead_lateral_jerk = get_lookahead_value(
-              predicted[LAT_PLAN_MIN_IDX:friction_upper_idx], desired_lateral_jerk)
-          if self.use_steering_angle:
-            lookahead_lateral_jerk = 0.0
-        except (StopIteration, ValueError, ZeroDivisionError):
+              self.predicted_lateral_jerk[LAT_PLAN_MIN_IDX:self.friction_upper_idx],
+              desired_lateral_jerk)
+        except (ValueError, ZeroDivisionError):
           lookahead_lateral_jerk = 0.0
 
       friction_input = (self.lat_accel_friction_factor * accel_error

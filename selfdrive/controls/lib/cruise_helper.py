@@ -26,6 +26,7 @@ class CruiseHelper:
   def __init__(self, params=None):
     self.params = params or Params()
     self.param_read_counter = 0
+    self.param_read_group = 0
 
     self.button_count = 0
     self.button_long_pressed = False
@@ -74,12 +75,13 @@ class CruiseHelper:
     self.stock_weight = 0.0
 
     self.carrot_atc = CarrotNaviAtc()
+    self.empty_navi_state = self.carrot_atc.empty_state()
     self.last_road_limit_speed = 0.0
     self.pause_auto_speed_up = False
 
     self.read_params()
 
-  def read_params(self):
+  def read_cruise_params(self):
     self.is_metric = self.params.get_bool("IsMetric")
     self.speed_conv_to_ms = CV.KPH_TO_MS if self.is_metric else CV.MPH_TO_MS
     self.speed_conv_to_clu = CV.MS_TO_KPH if self.is_metric else CV.MS_TO_MPH
@@ -95,7 +97,9 @@ class CruiseHelper:
     self.cruise_button_long_delay = int(clip(self.params.get_int("CruiseButtonLongDelay"), 30, 150))
     table = [self.params.get_int(f"CruiseSpeed{i}") for i in range(1, 6)]
     self.cruise_speed_table = sorted(float(clip(v, self.cruise_speed_min, MAX_SET_SPEED_KPH)) for v in table)
+    self.sync_set_speed_while_gas_pressed = self.params.get_bool("SccSmootherSyncGasPressed")
 
+  def read_curve_params(self):
     self.turn_vision_control = self.params.get_bool("TurnVisionControl")
     curve_factor = self.params.get_int("AutoCurveSpeedFactor")
     curve_lower = self.params.get_int("AutoCurveSpeedLowerLimit")
@@ -105,8 +109,8 @@ class CruiseHelper:
     self.auto_curve_speed_lower_limit = float(clip(curve_lower if curve_lower > 0 else 30, 5, 80))
     self.map_turn_speed_factor = float(clip(map_factor if map_factor > 0 else 90, 50, 150)) * 0.01
     self.auto_navi_speed_decel_rate = float(clip(navi_decel if navi_decel > 0 else 120, 10, 300)) * 0.01
-    self.sync_set_speed_while_gas_pressed = self.params.get_bool("SccSmootherSyncGasPressed")
 
+  def read_pedal_params(self):
     # C2 pedal-resume settings. Existing branch keys are used so no unregistered
     # Params access can crash controlsd.
     self.auto_resume_from_gas_speed = float(clip(self.params.get_int("AutoGasTokSpeed"), 5, 160))
@@ -118,6 +122,7 @@ class CruiseHelper:
     self.auto_resume_from_brake_car_speed = float(clip(self.params.get_int("AutoResumeFromBrakeCarSpeed"), 0, 160))
     self.auto_resume_from_brake_release_dist = float(clip(self.params.get_int("AutoResumeFromBrakeReleaseDist"), 0, 100))
 
+  def read_navigation_params(self):
     self.auto_speed_up_ratio = float(self.params.get_int("AutoSpeedUptoRoadSpeedLimit")) * 0.01
     self.auto_road_speed_adjust = float(clip(self.params.get_int("AutoRoadSpeedAdjust"), -100, 100)) * 0.01
     self.auto_road_speed_limit_offset = float(clip(self.params.get_int("AutoRoadSpeedLimitOffset"), -30, 30))
@@ -133,16 +138,10 @@ class CruiseHelper:
     self.carrot_atc_speed = float(clip(self.params.get_int("CarrotAutoTurnSpeed"), 5, 80))
     self.carrot_atc_end_time = float(clip(self.params.get_int("CarrotAutoTurnEndTime"), 1, 20))
 
-    # PrevCruiseGap is the source of truth for openpilot longitudinal control.
-    # Load it once so a delayed nonblocking write cannot bounce the live value.
-    if not self.gap_param_initialized:
-      saved_gap = self.params.get_int("PrevCruiseGap")
-      self.long_cruise_gap = int(saved_gap) if 1 <= saved_gap <= 4 else 4
-      self.gap_param_initialized = True
-
+  def read_driving_mode_params(self, initialize=False):
     self.init_driving_mode = int(clip(self.params.get_int("InitMyDrivingMode"), 1, 5))
     mode = self.params.get_int("MyDrivingMode")
-    if self.param_read_counter == 0:
+    if initialize:
       self.my_driving_mode = 3 if self.init_driving_mode == 5 else self.init_driving_mode
       self.last_mode_param = mode
     elif mode != self.last_mode_param and 1 <= mode <= 4:
@@ -151,6 +150,24 @@ class CruiseHelper:
       self.driving_mode_index = -100.0
     self.safe_mode_base_factor = float(clip(self.params.get_int("MySafeModeFactor") * 0.01, 0.5, 1.0))
     self.update_safe_mode_factor()
+
+  def read_params(self):
+    # Read every group at construction. Runtime refreshes are staggered below
+    # so controlsd never performs dozens of Params file reads in one 100 Hz
+    # control iteration.
+    self.read_cruise_params()
+    self.read_curve_params()
+    self.read_pedal_params()
+    self.read_navigation_params()
+
+    # PrevCruiseGap is the source of truth for openpilot longitudinal control.
+    # Load it once so a delayed nonblocking write cannot bounce the live value.
+    if not self.gap_param_initialized:
+      saved_gap = self.params.get_int("PrevCruiseGap")
+      self.long_cruise_gap = int(saved_gap) if 1 <= saved_gap <= 4 else 4
+      self.gap_param_initialized = True
+
+    self.read_driving_mode_params(initialize=True)
 
   def kph_to_clu(self, kph):
     return int(kph * CV.KPH_TO_MS * self.speed_conv_to_clu)
@@ -319,11 +336,21 @@ class CruiseHelper:
     total_index = accel_index * 3.0 + velocity_index if lead is not None and 0.0 < lead.dRel < 50.0 else 0.0
     self.driving_mode_index = self.driving_mode_index * 0.999 + total_index * 0.001
 
+    auto_mode = self.my_driving_mode
     if self.init_driving_mode == 5 and self.driving_mode_index > 0.0 and self.my_driving_mode not in (2, 4):
       if self.driving_mode_index < 20.0:
-        self.my_driving_mode = 3
+        auto_mode = 3
       elif self.driving_mode_index > 80.0:
-        self.my_driving_mode = 1
+        auto_mode = 1
+    if auto_mode != self.my_driving_mode:
+      self.my_driving_mode = auto_mode
+      # Keep the persisted mode synchronized with AUTO. Otherwise a UI tap
+      # can write the same stale value already stored in Params and the change
+      # is invisible to the change detector in read_driving_mode_params().
+      self.last_mode_param = auto_mode
+      # AUTO transitions are rare; a synchronous write prevents a delayed
+      # background write from overwriting a nearly simultaneous UI selection.
+      self.params.put("MyDrivingMode", str(auto_mode))
     self.update_safe_mode_factor()
 
   def update_button_events(self, controls, CS, longcontrol):
@@ -453,9 +480,17 @@ class CruiseHelper:
     return float(clip(round(speed_kph, 1), self.cruise_speed_min, MAX_SET_SPEED_KPH))
 
   def update_controls(self, controls, CS, longcontrol):
-    if self.param_read_counter % 100 == 0:
-      self.read_params()
     self.param_read_counter += 1
+    if self.param_read_counter % 100 == 0:
+      # The onroad driving-mode button should react within one second.
+      self.read_driving_mode_params()
+
+      # Refresh one larger group per second. All non-mode settings still apply
+      # live within four seconds, without a large synchronous I/O burst.
+      readers = (self.read_cruise_params, self.read_curve_params,
+                 self.read_pedal_params, self.read_navigation_params)
+      readers[self.param_read_group]()
+      self.param_read_group = (self.param_read_group + 1) % len(readers)
 
     self.update_driving_mode(CS, controls.sm)
 
@@ -553,8 +588,12 @@ class CruiseHelper:
         navi_target_kph = section_limit * self.auto_navi_speed_safety_factor
         # C3 holds the section target directly while inside the section.
         apply_limit_speed = self.kph_to_clu(navi_target_kph)
-    self.cal_curve_speed(sm, CS.out.vEgo, frame)
-    navi_state = self.carrot_atc.update()
+    if self.turn_vision_control:
+      self.cal_curve_speed(sm, CS.out.vEgo, frame)
+    else:
+      self.curve_speed_ms = 250.0 * CV.KPH_TO_MS
+    navi_enabled = self.turn_vision_control or self.carrot_atc_mode in (2, 3)
+    navi_state = self.carrot_atc.update() if navi_enabled else self.empty_navi_state
 
     cruise_speed_ms = controls.v_cruise_kph * CV.KPH_TO_MS
     self.apply_source = ""

@@ -137,12 +137,13 @@ class LateralPlanner:
     # offset_total 을 최종 결정된 path_xyz 에 적용 (레인모드/레인리스 공통)
     self.path_xyz[:, 1] += self.offset_total
 
+    # Reuse the path-distance vector for both interpolations. The trajectory is
+    # unchanged between them, so a second NumPy norm only wastes planner CPU.
+    path_distance = np.linalg.norm(self.path_xyz, axis=1)
     y_pts = np.interp(self.v_ego * self.t_idxs[:LAT_MPC_N + 1],
-                      np.linalg.norm(self.path_xyz, axis=1),
-                      self.path_xyz[:, 1])
+                      path_distance, self.path_xyz[:, 1])
     heading_pts = np.interp(self.v_ego * self.t_idxs[:LAT_MPC_N + 1],
-                            np.linalg.norm(self.path_xyz, axis=1),
-                            self.plan_yaw)
+                            path_distance, self.plan_yaw)
     yaw_rate_pts = self.plan_yaw_rate[:LAT_MPC_N + 1]
     self.y_pts = y_pts
 
