@@ -331,6 +331,7 @@ void NvgWindow::initializeGL() {
   ic_hda = QPixmap("../assets/images/img_hda.png");
   ic_tire_pressure = QPixmap("../assets/images/img_tire_pressure.png");
   ic_speed_bg = QPixmap("../assets/images/speed_bg.png");
+  ic_speed_bump = QPixmap("../assets/images/speed_bump.png");
 }
 
 void NvgWindow::updateState(const UIState &s) {	
@@ -1099,8 +1100,10 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     carrot_atc_mode = std::atoi(params.get("CarrotAutoTurnControl").c_str());
     carrot_atc_speed = std::atoi(params.get("CarrotAutoTurnSpeed").c_str());
     carrot_atc_end_time = std::atoi(params.get("CarrotAutoTurnEndTime").c_str());
+    carrot_bump_speed = std::atoi(params.get("AutoNaviSpeedBumpSpeed").c_str());
     if (carrot_atc_speed < 30 || carrot_atc_speed > 60) carrot_atc_speed = 30;
     if (carrot_atc_end_time < 2 || carrot_atc_end_time > 12) carrot_atc_end_time = 6;
+    if (carrot_bump_speed < 10 || carrot_bump_speed > 100) carrot_bump_speed = 35;
     std::string sdt = params.get("ShowDateTime");
     show_datetime = sdt.empty() ? 1 : std::atoi(sdt.c_str());   // 0:끔 1:시간+날짜 2:시간만 3:날짜만
     std::string sga = params.get("ShowGearAnimation");
@@ -1122,9 +1125,12 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
   // ---- 단속 카메라 감지 ----
   const int cam_limit = road_limit.getCamLimitSpeed();
   const int cam_dist  = road_limit.getCamLimitSpeedLeftDist();
+  const int cam_type  = road_limit.getCamType();
   const int sec_limit = road_limit.getSectionLimitSpeed();
   const int sec_dist  = road_limit.getSectionLeftDist();
-  const bool cam_detected = (cam_limit > 0 && cam_dist > 0) || (sec_limit > 0 && sec_dist > 0);
+  const bool bump_detected = cam_type == 22 && cam_dist > 0;
+  const bool cam_detected = (!bump_detected && cam_limit > 0 && cam_dist > 0) ||
+                            (sec_limit > 0 && sec_dist > 0);
 
   // ---- 패널 배경 ----
   QColor bg_color = CT_BLACK_A(90);
@@ -1283,7 +1289,12 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     QColor limit_color;
     QColor limit_text_color = CT_WHITE;
 
-    if (cam_detected) {
+    if (bump_detected) {
+      disp_speed = (int)(carrot_bump_speed * kph_to_disp + 0.5f);
+      limit_color = CT_YELLOW_A(210);
+      limit_text_color = CT_BLACK_A(230);
+      ctText(p, dx, dy - 45, "BUMP", 30, CT_WHITE, true);
+    } else if (cam_detected) {
       int limit = (cam_dist > 0) ? cam_limit : sec_limit;
       disp_speed = (int)(limit * kph_to_disp + 0.5f);
       limit_color = (blink_timer <= 8) ? CT_RED_A(210) : CT_YELLOW_A(210);
@@ -1320,14 +1331,19 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
 
   int camLimitSpeed = roadLimitSpeed.getCamLimitSpeed();
   int camLimitSpeedLeftDist = roadLimitSpeed.getCamLimitSpeedLeftDist();
+  int camType = roadLimitSpeed.getCamType();
 
   int sectionLimitSpeed = roadLimitSpeed.getSectionLimitSpeed();
   int sectionLeftDist = roadLimitSpeed.getSectionLeftDist();
 
   int limit_speed = 0;
   int left_dist = 0;
+  const bool bump_detected = camType == 22 && camLimitSpeedLeftDist > 0;
 
-  if(camLimitSpeed > 0 && camLimitSpeedLeftDist > 0) {
+  if(bump_detected) {
+    left_dist = camLimitSpeedLeftDist;
+  }
+  else if(camLimitSpeed > 0 && camLimitSpeedLeftDist > 0) {
     limit_speed = camLimitSpeed;
     left_dist = camLimitSpeedLeftDist;
   }
@@ -1338,7 +1354,36 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
 
   // NDA/HDA 아이콘 --- carrot hud panel 안의 NDA/HDA 텍스트로 대체되어 제거함
 
-  if(limit_speed > 10 && limit_speed < 130)
+  if(bump_detected)
+  {
+    const int icon_size = 154;
+    const int x = 30;
+    const int y = 270;
+    const int icon_width = 123;
+    const QRect icon_rect(x + (icon_size - icon_width) / 2, y, icon_width, icon_size);
+
+    if (!ic_speed_bump.isNull()) {
+      p.drawPixmap(icon_rect, ic_speed_bump, ic_speed_bump.rect());
+    } else {
+      configFont(p, "Open Sans", 38, "Bold");
+      p.setPen(QColor(255, 210, 0, 255));
+      p.drawText(QRect(x, y, icon_size, icon_size), Qt::AlignCenter, "BUMP");
+    }
+
+    QString str_left_dist;
+    if(left_dist >= 1000)
+      str_left_dist.sprintf("%.1fkm", left_dist / 1000.f);
+    else if(left_dist > 0)
+      str_left_dist.sprintf("%dm", left_dist);
+
+    if(!str_left_dist.isEmpty()) {
+      configFont(p, "Open Sans", 48, "Bold");
+      p.setPen(QColor(255, 255, 255, 230));
+      p.drawText(QRect(x - 24, y + icon_size + 2, icon_size + 48, 60),
+                 Qt::AlignCenter, str_left_dist);
+    }
+  }
+  else if(limit_speed > 10 && limit_speed < 130)
   {
     int radius_ = 154;  // 기존 192에서 20% 축소 (숫자와 함께 원 전체도 축소)
 

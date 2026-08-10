@@ -588,6 +588,12 @@ class CruiseHelper:
       section_dist = float(road_data.sectionLeftDist)
       section_limit = float(road_data.sectionLimitSpeed)
 
+    # c3-wip treats SDI type 22 as a speed bump and always replaces the
+    # incoming camera limit with the configured bump target speed. This also
+    # keeps bump control active when the navigation packet reports no limit.
+    if cam_type == 22 and cam_dist > 0.0:
+      cam_limit = self.auto_navi_speed_bump_speed
+
     # Match c3-wip's traveled-distance countdown using the actual elapsed
     # control time. Clamp long gaps so restarting controlsd cannot skip a
     # camera or section endpoint in one update.
