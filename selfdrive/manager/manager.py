@@ -79,6 +79,7 @@ def manager_init() -> None:
     ("MadModeEnabled", "1"),
     ("CruiseSpeedMin", "30"),
     ("IsLdwsCar", "0"),
+    ("DynamicLaneProfile", "0"),       # 0=Lane only, 1=Lane less, 2=Auto
     ("LaneChangeEnabled", "0"),
     ("AutoLaneChangeEnabled", "0"),
     ("ExperimentalMode", "0"),
