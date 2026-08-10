@@ -127,7 +127,7 @@ class LatControlTorque(LatControl):
 
   def update(self, active, CS, VM, params, last_actuators, steer_limited, desired_curvature, desired_curvature_rate, llk, model_data=None):
     self.frame += 1
-    if self.frame % 10 == 0:      # 0.1초 주기 라이브 반영
+    if self.frame % 100 == 0:     # 1초 주기 라이브 반영
       self.read_torque_params()
     pid_log = log.ControlsState.LateralTorqueState.new_message()
 
