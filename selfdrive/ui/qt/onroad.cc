@@ -387,7 +387,8 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
     painter.drawPolygon(scene.road_edge_vertices[i].v, scene.road_edge_vertices[i].cnt);
   }
 	
-  // C3 path: draw one solid projected vehicle corridor with a status color.
+  // C3 path mode 14: split the projected vehicle corridor into left/right
+  // bands, leaving a narrow 10% gap through the center.
   QColor path_color;
   if (show_path_status_color) {
     path_color = QColor(0, 153, 0, 120);  // engaged, no lead
@@ -407,9 +408,36 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
     path_color = QColor::fromHslF(197 / 360., 1.0, 0.55, 0.7);
   }
 
-  painter.setPen(Qt::NoPen);
+  painter.setPen(brake_lights ? QPen(QColor(255, 0, 0), 3.0) : QPen(Qt::NoPen));
   painter.setBrush(path_color);
-  painter.drawPolygon(scene.track_vertices.v, scene.track_vertices.cnt);
+  const int track_count = scene.track_vertices.cnt;
+  const int half = track_count / 2;
+  if (half >= 2 && track_count % 2 == 0 && track_count <= TRAJECTORY_SIZE * 2) {
+    // Fixed-size stack buffers avoid per-frame heap allocation on EON.
+    std::array<QPointF, TRAJECTORY_SIZE * 2> left_path;
+    std::array<QPointF, TRAJECTORY_SIZE * 2> right_path;
+
+    // track_vertices contains one path edge followed by the opposite edge
+    // in reverse order. Pair both sides and reproduce C3 mode 14 (45/10/45).
+    for (int i = 0; i < half; ++i) {
+      const QPointF &left = scene.track_vertices.v[i];
+      const QPointF &right = scene.track_vertices.v[track_count - 1 - i];
+      left_path[i] = left;
+      right_path[i] = left + (right - left) * 0.55;
+    }
+    for (int i = half - 1; i >= 0; --i) {
+      const QPointF &left = scene.track_vertices.v[i];
+      const QPointF &right = scene.track_vertices.v[track_count - 1 - i];
+      const int reverse_idx = track_count - 1 - i;
+      left_path[reverse_idx] = left + (right - left) * 0.45;
+      right_path[reverse_idx] = right;
+    }
+
+    painter.drawPolygon(left_path.data(), track_count);
+    painter.drawPolygon(right_path.data(), track_count);
+  } else {
+    painter.drawPolygon(scene.track_vertices.v, track_count);
+  }
 
   painter.restore();
 }
