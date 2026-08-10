@@ -4,7 +4,7 @@ from cereal import car, log
 from common.conversions import Conversions as CV
 from common.numpy_fast import clip, interp
 from common.params import Params, put_nonblocking
-from common.realtime import DT_CTRL
+from common.realtime import DT_CTRL, sec_since_boot
 from selfdrive.car.hyundai.values import Buttons
 from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
@@ -13,6 +13,8 @@ from selfdrive.road_speed_limiter import get_road_speed_limiter
 
 
 SYNC_MARGIN = 3.0
+NAVI_DISTANCE_HOLD_TIME = 1.0
+NAVI_DISTANCE_MAX_DT = 0.2
 MIN_SET_SPEED_KPH = V_CRUISE_MIN
 MAX_SET_SPEED_KPH = V_CRUISE_MAX
 ButtonType = car.CarState.ButtonEvent.Type
@@ -74,13 +76,20 @@ class CruiseHelper:
     self.limited_lead = False
     self.stock_weight = 0.0
 
-    # c3-wip style camera distance tracking. Navigation distance can update
-    # slowly, so count it down with vehicle travel and release at the camera.
+    # c3-wip style navigation distance tracking. This branch has no
+    # selfdriveState.distanceTraveled, so integrate actual loop time and vEgo.
+    self.navi_distance_time = sec_since_boot()
     self.cam_dist_est = 0.0
     self.cam_raw_dist = 0.0
     self.cam_limit_est = 0.0
     self.cam_type_est = -1
+    self.cam_last_valid_time = 0.0
     self.cam_passed = False
+    self.section_dist_est = 0.0
+    self.section_raw_dist = 0.0
+    self.section_limit_est = 0.0
+    self.section_last_valid_time = 0.0
+    self.section_passed = False
 
     self.carrot_atc = CarrotNaviAtc()
     self.empty_navi_state = self.carrot_atc.empty_state()
@@ -567,6 +576,11 @@ class CruiseHelper:
     apply_limit_speed = 0.0
     navi_source = ""
     navi_target_kph = 0.0
+    cam_type = 0
+    cam_dist = 0.0
+    cam_limit = 0.0
+    section_dist = 0.0
+    section_limit = 0.0
     if road_data is not None:
       cam_type = int(road_data.camType)
       cam_dist = float(road_data.camLimitSpeedLeftDist)
@@ -574,55 +588,103 @@ class CruiseHelper:
       section_dist = float(road_data.sectionLeftDist)
       section_limit = float(road_data.sectionLimitSpeed)
 
-      # c3-wip counts camera distance down with actual vehicle travel instead
-      # of waiting only for the next navigation packet. Never increase the
-      # estimate for the same camera, and release it immediately at 0 m.
-      if self.cam_dist_est > 0.0 and not self.cam_passed:
-        self.cam_dist_est = max(0.0, self.cam_dist_est - max(float(CS.out.vEgo), 0.0) * DT_CTRL)
-        if self.cam_dist_est <= 0.0:
-          self.cam_passed = True
+    # Match c3-wip's traveled-distance countdown using the actual elapsed
+    # control time. Clamp long gaps so restarting controlsd cannot skip a
+    # camera or section endpoint in one update.
+    now = sec_since_boot()
+    navi_dt = float(clip(now - self.navi_distance_time, 0.0, NAVI_DISTANCE_MAX_DT))
+    self.navi_distance_time = now
+    traveled = max(float(CS.out.vEgo), 0.0) * navi_dt
 
-      if cam_dist > 0.0 and cam_limit > 0.0:
-        new_cam = self.cam_type_est < 0 or cam_type != self.cam_type_est or \
-                  abs(cam_limit - self.cam_limit_est) > 0.1 or cam_dist > self.cam_raw_dist + 100.0
-        if new_cam:
-          self.cam_dist_est = cam_dist
-          self.cam_passed = False
-        elif not self.cam_passed:
-          self.cam_dist_est = cam_dist if self.cam_dist_est <= 0.0 else min(self.cam_dist_est, cam_dist)
+    if self.cam_dist_est > 0.0 and not self.cam_passed:
+      self.cam_dist_est = max(0.0, self.cam_dist_est - traveled)
+      if self.cam_dist_est <= 0.0:
+        self.cam_passed = True
 
-        self.cam_raw_dist = cam_dist
-        self.cam_limit_est = cam_limit
-        self.cam_type_est = cam_type
-        cam_dist = 0.0 if self.cam_passed else self.cam_dist_est
-      else:
-        self.cam_dist_est = 0.0
-        self.cam_raw_dist = 0.0
-        self.cam_limit_est = 0.0
-        self.cam_type_est = -1
+    if cam_dist > 0.0 and cam_limit > 0.0:
+      new_cam = self.cam_type_est < 0 or cam_type != self.cam_type_est or \
+                abs(cam_limit - self.cam_limit_est) > 0.1 or cam_dist > self.cam_raw_dist + 100.0
+      if new_cam:
+        self.cam_dist_est = cam_dist
         self.cam_passed = False
+      elif not self.cam_passed:
+        self.cam_dist_est = cam_dist if self.cam_dist_est <= 0.0 else min(self.cam_dist_est, cam_dist)
+      self.cam_raw_dist = cam_dist
+      self.cam_limit_est = cam_limit
+      self.cam_type_est = cam_type
+      self.cam_last_valid_time = now
+      cam_dist = 0.0 if self.cam_passed else self.cam_dist_est
+    elif self.cam_limit_est > 0.0 and \
+         now - self.cam_last_valid_time <= NAVI_DISTANCE_HOLD_TIME:
+      # Preserve both an active countdown and a just-passed marker through a
+      # brief zero packet. The latter prevents the same stale camera packet
+      # from being acquired again immediately after passing it.
+      cam_dist = 0.0 if self.cam_passed else self.cam_dist_est
+      cam_limit = self.cam_limit_est
+      cam_type = self.cam_type_est
+    else:
+      self.cam_dist_est = 0.0
+      self.cam_raw_dist = 0.0
+      self.cam_limit_est = 0.0
+      self.cam_type_est = -1
+      self.cam_last_valid_time = 0.0
+      self.cam_passed = False
+      cam_dist = 0.0
+      cam_limit = 0.0
 
-      if cam_dist > 0.0 and cam_limit > 0.0:
-        left_dist = cam_dist
-        road_limit_speed = cam_limit
-        if cam_type == 22:
-          navi_source = "bump"
-          navi_target_kph = self.auto_navi_speed_bump_speed
-          safe_time = self.auto_navi_speed_bump_time
-        else:
-          navi_source = "cam"
-          navi_target_kph = cam_limit * self.auto_navi_speed_safety_factor
-          safe_time = self.auto_navi_speed_ctrl_end
-        apply_kph = self.calculate_navi_speed(left_dist, navi_target_kph, safe_time,
-                                              self.auto_navi_speed_decel_rate)
-        apply_limit_speed = self.kph_to_clu(apply_kph)
-      elif section_dist > 0.0 and section_limit > 0.0:
-        left_dist = section_dist
-        road_limit_speed = section_limit
-        navi_source = "section"
-        navi_target_kph = section_limit * self.auto_navi_speed_safety_factor
-        # C3 holds the section target directly while inside the section.
-        apply_limit_speed = self.kph_to_clu(navi_target_kph)
+    if self.section_dist_est > 0.0 and not self.section_passed:
+      self.section_dist_est = max(0.0, self.section_dist_est - traveled)
+      if self.section_dist_est <= 0.0:
+        self.section_passed = True
+
+    if section_dist > 0.0 and section_limit > 0.0:
+      new_section = self.section_limit_est <= 0.0 or \
+                    abs(section_limit - self.section_limit_est) > 0.1 or \
+                    section_dist > self.section_raw_dist + 100.0
+      if new_section:
+        self.section_dist_est = section_dist
+        self.section_passed = False
+      elif not self.section_passed:
+        self.section_dist_est = section_dist if self.section_dist_est <= 0.0 else \
+                                min(self.section_dist_est, section_dist)
+      self.section_raw_dist = section_dist
+      self.section_limit_est = section_limit
+      self.section_last_valid_time = now
+      section_dist = 0.0 if self.section_passed else self.section_dist_est
+    elif self.section_limit_est > 0.0 and \
+         now - self.section_last_valid_time <= NAVI_DISTANCE_HOLD_TIME:
+      section_dist = 0.0 if self.section_passed else self.section_dist_est
+      section_limit = self.section_limit_est
+    else:
+      self.section_dist_est = 0.0
+      self.section_raw_dist = 0.0
+      self.section_limit_est = 0.0
+      self.section_last_valid_time = 0.0
+      self.section_passed = False
+      section_dist = 0.0
+      section_limit = 0.0
+
+    if cam_dist > 0.0 and cam_limit > 0.0:
+      left_dist = cam_dist
+      road_limit_speed = cam_limit
+      if cam_type == 22:
+        navi_source = "bump"
+        navi_target_kph = self.auto_navi_speed_bump_speed
+        safe_time = self.auto_navi_speed_bump_time
+      else:
+        navi_source = "cam"
+        navi_target_kph = cam_limit * self.auto_navi_speed_safety_factor
+        safe_time = self.auto_navi_speed_ctrl_end
+      apply_kph = self.calculate_navi_speed(left_dist, navi_target_kph, safe_time,
+                                            self.auto_navi_speed_decel_rate)
+      apply_limit_speed = self.kph_to_clu(apply_kph)
+    elif section_dist > 0.0 and section_limit > 0.0:
+      left_dist = section_dist
+      road_limit_speed = section_limit
+      navi_source = "section"
+      navi_target_kph = section_limit * self.auto_navi_speed_safety_factor
+      # C3 holds the section target directly while inside the section.
+      apply_limit_speed = self.kph_to_clu(navi_target_kph)
     if self.turn_vision_control:
       self.cal_curve_speed(sm, CS.out.vEgo, frame)
     else:
