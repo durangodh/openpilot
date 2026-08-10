@@ -214,8 +214,12 @@ class Controls:
     self.wide_camera = TICI and params.get_bool('EnableWideCamera')
     self.disable_op_fcw = params.get_bool('DisableOpFcw')
 
-    # AutoLaneChangeTimer 파라미터 접근용
-    self.params = Params()
+    # Params 파일 접근은 100 Hz 제어 루프에서 수행하지 않도록 캐시한다.
+    self.params = params
+    try:
+      self.auto_lane_change_timer = int(self.params.get("AutoLaneChangeTimer", encoding="utf8") or 0)
+    except (TypeError, ValueError):
+      self.auto_lane_change_timer = 0
     # TODO: no longer necessary, aside from process replay
     self.sm['liveParameters'].valid = True
 
@@ -303,8 +307,14 @@ class Controls:
       else:
         self.events.add(EventName.calibrationInvalid)
 
-    # Handle lane change
-    lane_change_set_timer = int(self.params.get("AutoLaneChangeTimer", encoding="utf8"))
+    # Handle lane change. Settings changes may wait up to one second, while
+    # avoiding a Params file read on every 100 Hz control iteration.
+    if self.sm.frame % 100 == 0:
+      try:
+        self.auto_lane_change_timer = int(self.params.get("AutoLaneChangeTimer", encoding="utf8") or 0)
+      except (TypeError, ValueError):
+        pass
+    lane_change_set_timer = self.auto_lane_change_timer
     if self.sm['lateralPlan'].laneChangeEdgeBlock:
       self.events.add(EventName.laneChangeRoadEdge)
     elif self.sm['lateralPlan'].laneChangeState == LaneChangeState.preLaneChange:
