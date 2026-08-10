@@ -52,7 +52,8 @@ class CarInterface(CarInterfaceBase):
     ret.maxSteeringAngleDeg = 1000.
 
     ret.steerFaultMaxAngle = 85
-    ret.steerFaultMaxFrames = 90
+    # Match apilot-c2: 89 valid requests followed by at most two reset frames.
+    ret.steerFaultMaxFrames = 89
 
     ret.disableLateralLiveTuning = False
 

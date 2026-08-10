@@ -130,29 +130,26 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
       update_sample(&torque_driver, torque_driver_new);
     }
 
-    // for cars without long control ( SCC11 )
-    if (addr == 1056 && !SCC12_op) {
+    // The physical SCC MAIN state is authoritative for lateral control. Do
+    // not stop tracking it while openpilot SCC12 replacement is active: the
+    // old SCC12_op gate could leave controls_allowed stale indefinitely.
+    if (addr == 1056) {
       // 2 bits: 13-14
       int cruise_engaged = GET_BYTES_04(to_push) & 0x1; // ACC main_on signal
-      // Level-based instead of edge-based: after openpilot longitudinal stops
-      // sending SCC12 (SCC12_op decays), main_on stays high with no new rising
-      // edge, which previously left controls_allowed latched at 0 and silently
-      // blocked LKAS11 (rlog 2026-08-09: controlsAllowed=false for the whole
-      // drive while cruise main was on).
       if (cruise_engaged && !controls_allowed) {
         controls_allowed = 1;
-        puts("  SCC w/o long control: controls allowed\n");
+        puts("  SCC main on: controls allowed\n");
       }
       if (!cruise_engaged) {
         if (controls_allowed) {
-          puts("  SCC w/o long control: controls not allowed\n");}
+          puts("  SCC main off: controls not allowed\n");}
         controls_allowed = 0;
       }
       cruise_engaged_prev = cruise_engaged;
     }
 
     // cruise control for car without SCC ( EMS16 )
-    if (addr == 608 && bus == 0 && SCC_bus == -1 && !SCC12_op) {
+    if (addr == 608 && bus == 0 && SCC_bus == -1) {
       // bit 25
       int cruise_engaged = (GET_BYTES_04(to_push) >> 25 & 0x1); // ACC main_on signal
       if (cruise_engaged && !cruise_engaged_prev) {
@@ -227,7 +224,6 @@ static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_all
 
   // LKA STEER: safety check
   if (addr == 832) {
-    LKAS11_op = 20;
     int desired_torque = ((GET_BYTES_04(to_send) >> 16) & 0x7ff) - 1024;
     uint32_t ts = microsecond_timer_get();
     bool violation = 0;
@@ -270,8 +266,9 @@ static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_all
       puts("  LKAS torque not allowed: controls not allowed!\n");
     }
 
-    // reset to 0 if either controls is not allowed or there's a violation
-    if (!controls_allowed) { // a reset worsen the issue of Panda blocking some valid LKAS messages
+    // Reset the rate state after a rejected command. The controller must ramp
+    // again from zero, and stock LKAS forwarding is restored below.
+    if (violation || !controls_allowed) {
       desired_torque_last = 0;
       rt_torque_last = 0;
       ts_last = ts;
@@ -292,10 +289,17 @@ static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_all
     }
   }
 
-  if (addr == 593) { MDPS12_op = 20; }
-  if (addr == 1265 && bus == 1) { CLU11_op = 20; } // only count mesage created for MDPS
-  if (addr == 1057) { SCC12_op = 20; if (SCC12_car > 0) { SCC12_car -= 1; }}
-  if (addr == 790) { EMS11_op = 20; }
+  // Only a message accepted by every safety check may suppress its stock
+  // counterpart. Previously a rejected LKAS11 still refreshed LKAS11_op,
+  // black-holing both openpilot and stock LKAS traffic on the MDPS bus.
+  if (addr == 832) { LKAS11_op = tx ? 20 : 0; }
+  if (addr == 593) { MDPS12_op = tx ? 20 : 0; }
+  if (addr == 1265 && bus == 1) { CLU11_op = tx ? 20 : 0; } // only count messages created for MDPS
+  if (addr == 1057) {
+    SCC12_op = tx ? 20 : 0;
+    if (tx && SCC12_car > 0) { SCC12_car -= 1; }
+  }
+  if (addr == 790) { EMS11_op = tx ? 20 : 0; }
 
   // 1 allows the message through
   return tx;

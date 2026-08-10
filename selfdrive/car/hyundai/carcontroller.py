@@ -137,7 +137,7 @@ class CarController:
     cut_steer_temp = False
 
     if self.steer_fault_max_angle > 0:
-      if lkas_active and abs(CS.out.steeringAngleDeg) > self.steer_fault_max_angle:
+      if lkas_active and abs(CS.out.steeringAngleDeg) >= self.steer_fault_max_angle:
         self.angle_limit_counter += 1
       else:
         self.angle_limit_counter = 0
