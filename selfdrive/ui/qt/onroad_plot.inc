@@ -160,7 +160,7 @@ void NvgWindow::drawCarrotPlot(QPainter &p) {
     graph.setRenderHint(QPainter::Antialiasing);
     graph.setRenderHint(QPainter::TextAntialiasing);
     graph.setPen(QPen(QColor(255, 255, 255, 100), std::max(1, qRound(1 * ui_scale))));
-    graph.setBrush(QColor(0, 0, 0, 75));
+    graph.setBrush(Qt::NoBrush);
     graph.drawRoundedRect(carrot_plot_cache.rect().adjusted(1, 1, -2, -2),
                           qRound(16 * ui_scale), qRound(16 * ui_scale));
 
