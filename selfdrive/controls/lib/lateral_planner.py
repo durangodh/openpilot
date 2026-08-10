@@ -31,11 +31,10 @@ class LateralPlanner:
   def __init__(self, CP, wide_camera=False, debug=False):
     self.params = Params()
     self.wide_camera = wide_camera
-    self.last_params_update = 0
 
-    # Keep the hardware camera offset fixed and apply the user-configured
+    # Keep the hardware camera offset fixed and apply the cached user
     # OffsetTotal once to the final path.
-    self.offset_total = self._read_offset_total()
+    self.offset_total = DEFAULT_OFFSET_TOTAL
 
     self.LP = LanePlanner(wide_camera=wide_camera)
 
@@ -64,15 +63,23 @@ class LateralPlanner:
     self.lat_mpc = LateralMpc()
     self.reset_mpc(np.zeros(4))
 
-    self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
+    self.dynamic_lane_profile = 0
     self.dynamic_lane_profile_status = True
     self.dynamic_lane_profile_status_buffer = False
 
     self.param_read_counter = 0
-    self.read_param()
+    self.read_param(force=True)
 
-  def read_param(self):
-    self.dynamic_lane_profile = int(self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
+  def read_param(self, force=False):
+    # modelV2 drives this planner at 20 Hz. Params storage only needs a 1 Hz
+    # refresh; cached values are used for every MPC update in between.
+    if force or self.param_read_counter % 20 == 0:
+      try:
+        self.dynamic_lane_profile = int(
+          self.params.get("DynamicLaneProfile", encoding="utf8") or "0")
+      except (TypeError, ValueError):
+        self.dynamic_lane_profile = 0
+      self.offset_total = self._read_offset_total()
     self.param_read_counter += 1
 
   def _read_offset_total(self):
@@ -88,7 +95,6 @@ class LateralPlanner:
 
   def update(self, sm):
     self.read_param()
-    self.offset_total = self._read_offset_total()
 
     measured_curvature = sm['controlsState'].curvature
 
