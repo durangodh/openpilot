@@ -82,7 +82,6 @@ protected:
   QPixmap ic_nda;
   QPixmap ic_hda;
   QPixmap ic_tire_pressure;
-  QPixmap ic_navi_point;
 
   void drawBottomIcons(QPainter &p);
 
@@ -103,7 +102,6 @@ protected:
   void drawCarrotBottomContent(QPainter &p);
   void drawCarrotDeviceState(QPainter &p);
   void drawCarrotNavi(QPainter &p);
-  void drawCarrotTurnPoint(QPainter &p, const cereal::ModelDataV2::Reader &model);
   void drawCarrotPlot(QPainter &p);
   void updateCarrotNavi();
 
@@ -133,8 +131,6 @@ protected:
   int carrot_navi_turn_type = 0;
   int carrot_navi_next_distance = -1;
   int carrot_navi_next_turn_type = 0;
-  QPointF carrot_navi_point_smooth[2];
-  bool carrot_navi_point_reset = true;
   int carrot_navi_remain_distance = -1;
   int carrot_navi_remain_time = -1;
   int carrot_navi_speed_limit = 0;
