@@ -561,6 +561,18 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   drawCarrotInfo(p);
   drawCarrotBottom(p);
 
+  if (sm["carControl"].getCarControl().getHudControl().getSoftHold()) {
+    p.save();
+    // The bottom lane-status row starts at height() - 62; leave a 30 px gap.
+    const QRect soft_hold_rect(0, height() - 172, width(), 80);
+    configFont(p, "Open Sans", 59, "Bold");
+    p.setPen(QColor(0, 0, 0, 220));
+    p.drawText(soft_hold_rect.translated(3, 4), Qt::AlignHCenter | Qt::AlignBottom, "SOFTHOLD");
+    p.setPen(QColor(255, 255, 255));
+    p.drawText(soft_hold_rect, Qt::AlignHCenter | Qt::AlignBottom, "SOFTHOLD");
+    p.restore();
+  }
+
   if(s->show_debug && width() > 1200)
     drawDebugText(p);
 
