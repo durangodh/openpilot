@@ -1,7 +1,7 @@
 import copy
 
 import crcmod
-from selfdrive.car.hyundai.values import CAR, CHECKSUM, FEATURES, EV_HYBRID_CAR
+from selfdrive.car.hyundai.values import CAR, CHECKSUM, FEATURES
 
 hyundai_checksum = crcmod.mkCrcFun(0x11D, initCrc=0xFD, rev=False, xorOut=0xdf)
 
@@ -194,10 +194,12 @@ def create_scc14(packer, enabled, e_vgo, standstill, accel, gaspressed, objgap, 
   # 0=inactive. ACC and E2E share the same jerk/comfort handoff.
   if not enabled:
     acc_mode = 0
+  elif soft_hold_active:
+    acc_mode = 1
   elif brakepressed or gaspressed:
     acc_mode = 4
   else:
-    acc_mode = 1 if (long_active or soft_hold_active) else 0
+    acc_mode = 1 if long_active else 0
 
   values["ACCMode"] = acc_mode
   values["ObjGap"] = objgap if enabled else 0
