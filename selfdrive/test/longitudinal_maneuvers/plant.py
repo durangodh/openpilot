@@ -1,27 +1,18 @@
 #!/usr/bin/env python3
-import time
 import numpy as np
 
 from cereal import log
 import cereal.messaging as messaging
 from common.realtime import Ratekeeper, DT_MDL
 from selfdrive.controls.lib.longcontrol import LongCtrlState
-from selfdrive.controls.lib.longitudinal_planner import Planner
+from selfdrive.controls.lib.longitudinal_planner import LongitudinalPlanner
+from selfdrive.modeld.constants import T_IDXS
 
 
 class Plant():
-  messaging_initialized = False
-
   def __init__(self, lead_relevancy=False, speed=0.0, distance_lead=2.0,
                only_lead2=False, only_radar=False):
     self.rate = 1. / DT_MDL
-
-    if not Plant.messaging_initialized:
-      Plant.radar = messaging.pub_sock('radarState')
-      Plant.controls_state = messaging.pub_sock('controlsState')
-      Plant.car_state = messaging.pub_sock('carState')
-      Plant.plan = messaging.sub_sock('longitudinalPlan')
-      Plant.messaging_initialized = True
 
     self.v_lead_prev = 0.0
 
@@ -37,12 +28,12 @@ class Plant():
 
     self.rk = Ratekeeper(self.rate, print_delay_threshold=100.0)
     self.ts = 1. / self.rate
-    time.sleep(1)
-    self.sm = messaging.SubMaster(['longitudinalPlan'])
 
     from selfdrive.car.hyundai.values import CAR
     from selfdrive.car.hyundai.interface import CarInterface
-    self.planner = Planner(CarInterface.get_params(CAR.GRANDEUR_IG), init_v=self.speed)
+    CP = CarInterface.get_params(CAR.GRANDEUR_IG)
+    CP.openpilotLongitudinalControl = True
+    self.planner = LongitudinalPlanner(CP, init_v=self.speed)
 
   def current_time(self):
     return float(self.rk.frame) / self.rate
@@ -53,6 +44,7 @@ class Plant():
     radar = messaging.new_message('radarState')
     control = messaging.new_message('controlsState')
     car_state = messaging.new_message('carState')
+    model = messaging.new_message('modelV2')
     a_lead = (v_lead - self.v_lead_prev)/self.ts
     self.v_lead_prev = v_lead
 
@@ -89,14 +81,30 @@ class Plant():
 
     control.controlsState.longControlState = LongCtrlState.pid
     control.controlsState.vCruise = float(v_cruise * 3.6)
+    control.controlsState.enabled = True
+    control.controlsState.forceDecel = False
+    control.controlsState.myDrivingMode = 3
+    control.controlsState.mySafeModeFactor = 1.0
     car_state.carState.vEgo = float(self.speed)
+    car_state.carState.aEgo = float(self.acceleration)
+    car_state.carState.vCluRatio = 1.0
     car_state.carState.standstill = self.speed < 0.01
+
+    # Straight, speed-aligned model trajectory. ACC maneuvers use radar leads,
+    # but the current planner still requires a complete modelV2 message.
+    model.modelV2.position.x = (np.asarray(T_IDXS) * self.speed).tolist()
+    model.modelV2.position.y = np.zeros(len(T_IDXS)).tolist()
+    model.modelV2.position.z = np.zeros(len(T_IDXS)).tolist()
+    model.modelV2.velocity.x = np.full(len(T_IDXS), self.speed).tolist()
+    model.modelV2.acceleration.x = np.full(len(T_IDXS), self.acceleration).tolist()
+    model.modelV2.temporalPose.trans = [self.speed, 0.0, 0.0]
 
     # ******** get controlsState messages for plotting ***
     sm = {'radarState': radar.radarState,
           'carState': car_state.carState,
-          'controlsState': control.controlsState}
-    self.planner.update(sm)
+          'controlsState': control.controlsState,
+          'modelV2': model.modelV2}
+    self.planner.update(sm, read=False)
     self.speed = self.planner.v_desired_filter.x
     self.acceleration = self.planner.a_desired
     fcw = self.planner.fcw

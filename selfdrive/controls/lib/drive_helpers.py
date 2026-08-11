@@ -6,11 +6,12 @@ from common.numpy_fast import clip, interp
 from common.realtime import DT_MDL
 from selfdrive.modeld.constants import T_IDXS
 from selfdrive.controls.lib import live_tune
+from selfdrive.controls.lib.longitudinal_limits import MAX_SET_SPEED_KPH
 
 # WARNING: this value was determined based on the model's training distribution,
 #          model predictions above this speed can be unpredictable
 # kph
-V_CRUISE_MAX = 145
+V_CRUISE_MAX = MAX_SET_SPEED_KPH
 V_CRUISE_MIN = 30
 V_CRUISE_DELTA_MI = 5 * CV.MPH_TO_KPH
 V_CRUISE_DELTA_KM = 10
@@ -57,30 +58,6 @@ def apply_deadzone(error, deadzone):
 
 def rate_limit(new_value, last_value, dw_step, up_step):
   return clip(new_value, last_value + dw_step, last_value + up_step)
-
-
-def get_accel_from_plan(speeds, accels, t_idxs, action_t=DT_MDL, v_ego_stopping=0.05):
-  """Convert the planned trajectory into the actuator-time acceleration target.
-
-  This mirrors c3-wip's longitudinal output path: the planner, rather than the
-  100 Hz controller, owns the delay compensation and stop decision.
-  """
-  if len(speeds) == len(t_idxs) and len(accels) == len(t_idxs) and action_t > 0.0:
-    v_now = speeds[0]
-    a_now = accels[0]
-    v_target = interp(action_t, t_idxs, speeds)
-    a_target = 2.0 * (v_target - v_now) / action_t - a_now
-    v_target_1sec = interp(action_t + 1.0, t_idxs, speeds)
-    v_max = max(speeds)
-  else:
-    v_now = 0.0
-    v_target = 0.0
-    v_target_1sec = 0.0
-    a_target = 0.0
-    v_max = 0.0
-
-  should_stop = v_target < v_ego_stopping and v_target_1sec < v_ego_stopping
-  return a_target, should_stop, v_now, v_max
 
 
 def update_v_cruise(v_cruise_kph, v_ego, gas_pressed, buttonEvents, button_timers, enabled, metric):

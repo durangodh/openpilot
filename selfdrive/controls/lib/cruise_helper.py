@@ -9,6 +9,11 @@ from selfdrive.car.hyundai.values import Buttons
 from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
 from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software_gap
+from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
+                                                        CRUISE_MAX_VAL_KEYS,
+                                                        get_auto_speed_up_target,
+                                                        get_cruise_max_accel,
+                                                        select_auto_driving_mode)
 from selfdrive.road_speed_limiter import get_road_speed_limiter
 
 
@@ -62,6 +67,8 @@ class CruiseHelper:
     self.driving_mode_index = 0.0
     self.safe_mode_base_factor = 0.8
     self.my_safe_mode_factor = 1.0
+    self.my_eco_mode_factor = 0.8
+    self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
 
     self.target_speed = 0.0
     self.max_speed_clu = 0.0
@@ -115,6 +122,10 @@ class CruiseHelper:
     table = [self.params.get_int(f"CruiseSpeed{i}") for i in range(1, 6)]
     self.cruise_speed_table = sorted(float(clip(v, self.cruise_speed_min, MAX_SET_SPEED_KPH)) for v in table)
     self.sync_set_speed_while_gas_pressed = self.params.get_bool("SccSmootherSyncGasPressed")
+    self.cruise_max_vals = []
+    for key, default in zip(CRUISE_MAX_VAL_KEYS, CRUISE_MAX_VAL_DEFAULTS):
+      raw = self.params.get_int(key)
+      self.cruise_max_vals.append(float(raw * 0.01 if raw > 0 else default))
 
   def read_curve_params(self):
     self.turn_vision_control = self.params.get_bool("TurnVisionControl")
@@ -166,6 +177,8 @@ class CruiseHelper:
       self.last_mode_param = mode
       self.driving_mode_index = -100.0
     self.safe_mode_base_factor = float(clip(self.params.get_int("MySafeModeFactor") * 0.01, 0.5, 1.0))
+    eco_factor = self.params.get_int("MyEcoModeFactor")
+    self.my_eco_mode_factor = float(clip((eco_factor if eco_factor > 0 else 80) * 0.01, 0.1, 0.95))
     self.update_safe_mode_factor()
 
   def read_params(self):
@@ -201,6 +214,10 @@ class CruiseHelper:
       self.my_safe_mode_factor = (1.0 + self.safe_mode_base_factor) / 2.0
     else:
       self.my_safe_mode_factor = 1.0
+
+  def get_cruise_max_accel(self, v_ego):
+    return get_cruise_max_accel(v_ego, self.cruise_max_vals, self.my_driving_mode,
+                                self.my_eco_mode_factor, self.my_safe_mode_factor)
 
   def _resume_longitudinal(self, controls, CS, active_mode=1):
     if self.long_active_user <= 0:
@@ -353,12 +370,8 @@ class CruiseHelper:
     total_index = accel_index * 3.0 + velocity_index if lead is not None and 0.0 < lead.dRel < 50.0 else 0.0
     self.driving_mode_index = self.driving_mode_index * 0.999 + total_index * 0.001
 
-    auto_mode = self.my_driving_mode
-    if self.init_driving_mode == 5 and self.driving_mode_index > 0.0 and self.my_driving_mode not in (1, 4):
-      if self.driving_mode_index < 20.0:
-        auto_mode = 3
-      elif self.driving_mode_index > 80.0:
-        auto_mode = 2
+    auto_mode = select_auto_driving_mode(self.init_driving_mode, self.my_driving_mode,
+                                         self.driving_mode_index)
     if auto_mode != self.my_driving_mode:
       self.my_driving_mode = auto_mode
       # Keep the persisted mode synchronized with AUTO. Otherwise a UI tap
@@ -807,14 +820,15 @@ class CruiseHelper:
         self.target_speed = self.kph_to_clu(set_speed_kph)
 
     self.last_road_limit_speed = road_limit_speed
-    road_limit_kph = road_limit_speed * self.auto_speed_up_ratio
+    road_limit_kph = float(clip(road_limit_speed * self.auto_speed_up_ratio,
+                                0.0, MAX_SET_SPEED_KPH))
     if self.pause_auto_speed_up or road_limit_kph < 1.0:
       return
     lead = self.get_lead(controls.sm)
     if lead is None:
       return
     if lead.vLeadK * CV.MS_TO_KPH + 5 > set_speed_kph and set_speed_kph < road_limit_kph and lead.dRel < 60:
-      new_speed = min(set_speed_kph + 5, road_limit_kph)
+      new_speed = get_auto_speed_up_target(set_speed_kph, road_limit_kph)
       if longcontrol:
         controls.v_cruise_kph = new_speed
         controls.v_cruise_cluster_kph = new_speed

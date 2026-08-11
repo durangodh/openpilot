@@ -11,7 +11,10 @@ from selfdrive.modeld.constants import T_IDXS
 from selfdrive.controls.lib.longcontrol import LongCtrlState
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, MIN_ACCEL, MAX_ACCEL, N
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
-from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_accel_from_plan, get_speed_error
+from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_speed_error
+from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
+                                                        CRUISE_MAX_VAL_KEYS,
+                                                        get_cruise_max_accel)
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.events import Events
 from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_VISION_LEAD_DISTANCE,
@@ -20,14 +23,6 @@ from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2
 LON_MPC_STEP = 0.2  # first step is 0.2s
 AWARENESS_DECEL = -0.2  # car smoothly decel at .2m/s^2 when user is distracted
 A_CRUISE_MIN = -1.2
-
-# Keep the CruiseMax breakpoints identical to the aPilot C2 UI labels.
-A_CRUISE_MAX_BP = [0.0, 40.0 * CV.KPH_TO_MS, 60.0 * CV.KPH_TO_MS,
-                   80.0 * CV.KPH_TO_MS, 110.0 * CV.KPH_TO_MS, 140.0 * CV.KPH_TO_MS]
-CRUISE_MAX_VAL_KEYS = ["CruiseMaxVals1", "CruiseMaxVals2", "CruiseMaxVals3",
-                       "CruiseMaxVals4", "CruiseMaxVals5", "CruiseMaxVals6"]
-
-CRUISE_MAX_VAL_DEFAULTS = [1.60, 1.20, 1.00, 0.80, 0.70, 0.60]
 
 # ── MyDrivingMode (1:SAFE 2:ECO 3:NORM 4:FAST) ────────────────────────────
 # UI 의 모드 박스를 탭하면 1→2→3→4→1 로 순환한다 (onroad.cc).
@@ -57,13 +52,10 @@ class LongitudinalPlanner:
 
     # MyDrivingMode
     self.my_driving_mode = 3
-    self.my_driving_mode_accel = 1.0
     self.my_eco_mode_factor = 0.8
     self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
 
-    self.long_actuator_delay = self.CP.longitudinalActuatorDelay
     self.read_param()
-    self.read_actuator_delay()
     self.param_read_counter = 1
 
     self.fcw = False
@@ -75,10 +67,6 @@ class LongitudinalPlanner:
     self.v_desired_trajectory = np.zeros(CONTROL_N)
     self.a_desired_trajectory = np.zeros(CONTROL_N)
     self.j_desired_trajectory = np.zeros(CONTROL_N)
-    self.output_a_target = 0.0
-    self.output_v_target_now = 0.0
-    self.output_j_target_now = 0.0
-    self.output_should_stop = False
     self.solverExecutionTime = 0.0
 
     self.use_cluster_speed = Params().get_bool('UseClusterSpeed')
@@ -139,17 +127,6 @@ class LongitudinalPlanner:
     speed_ratio = self.params.get_int("TFollowSpeedRatio")
     self.mpc.t_follow_speed_ratio = (speed_ratio if speed_ratio >= 100 else 120) * 0.01
     # ───────────────────
-
-  def read_actuator_delay(self):
-    configured_delay = self.params.get_float("LongActuatorDelay") * 0.01
-    self.long_actuator_delay = self.CP.longitudinalActuatorDelay
-    if configured_delay > 0.0:
-      self.long_actuator_delay = float(clip(configured_delay, 0.1, 1.0))
-
-  def get_max_accel(self, v_ego):
-    # aPilot C2 maps the six CruiseMax values directly to
-    # 0/40/60/80/110/140 km/h.
-    return interp(v_ego, A_CRUISE_MAX_BP, self.cruise_max_vals)
 
   def reset_auto_e2e(self):
     self.conditional_e2e.reset()
@@ -220,8 +197,6 @@ class LongitudinalPlanner:
 
   def update(self, sm, read=True):
     if read:
-      if self.param_read_counter % 20 == 0:
-        self.read_actuator_delay()
       if self.param_read_counter % 100 == 0:
         self.read_param()
     self.param_read_counter += 1
@@ -230,12 +205,6 @@ class LongitudinalPlanner:
 
     driving_mode = int(clip(sm['controlsState'].myDrivingMode, 1, 4))
     self.my_driving_mode = driving_mode
-    if driving_mode == 1:
-      self.my_driving_mode_accel = self.my_eco_mode_factor * float(clip(sm['controlsState'].mySafeModeFactor, 0.5, 1.0))
-    elif driving_mode == 2:
-      self.my_driving_mode_accel = self.my_eco_mode_factor
-    else:
-      self.my_driving_mode_accel = 1.0
     self.mpc.mode = self.update_auto_e2e_mode(sm['carState'], sm['radarState'], sm['modelV2'],
                                               sm['controlsState'].enabled, driving_mode,
                                               sm['controlsState'].mySafeModeFactor)
@@ -260,14 +229,19 @@ class LongitudinalPlanner:
     # No change cost when user is controlling the speed, or when standstill
     prev_accel_constraint = not (reset_state or sm['carState'].standstill)
 
-    cruise_max_accel = float(clip(self.get_max_accel(v_ego) * self.my_driving_mode_accel,
-                                  0.0, MAX_ACCEL))
+    cruise_max_accel = float(clip(get_cruise_max_accel(
+      v_ego, self.cruise_max_vals, driving_mode, self.my_eco_mode_factor,
+      float(clip(sm['controlsState'].mySafeModeFactor, 0.5, 1.0))), 0.0, MAX_ACCEL))
     if self.mpc.mode == 'acc':
       accel_limits = [A_CRUISE_MIN, cruise_max_accel]
     else:
-      # aPilot C2 applies CruiseMax to ACC. Blended/E2E follows the model MPC
-      # limits and relies on its corrected trajectory and jerk costs.
-      accel_limits = [MIN_ACCEL, MAX_ACCEL]
+      # Keep E2E/blended on the same user-selected upper bound as ACC. Its
+      # braking authority remains MIN_ACCEL and is not weakened by CruiseMax.
+      accel_limits = [MIN_ACCEL, cruise_max_accel]
+
+    # CruiseMax is a hard positive-acceleration limit. If the setting or mode
+    # is lowered while engaged, do not carry a higher planner state forward.
+    self.a_desired = min(self.a_desired, cruise_max_accel)
 
     if reset_state:
       self.v_desired_filter.x = v_ego
@@ -290,7 +264,7 @@ class LongitudinalPlanner:
       accel_limits[0] = min(accel_limits[0], accel_limits[1])
     # clip limits, cannot init MPC outside of bounds
     accel_limits[0] = min(accel_limits[0], self.a_desired + 0.05, a_min_sol)
-    accel_limits[1] = max(accel_limits[1], self.a_desired - 0.05)
+    accel_limits[1] = min(cruise_max_accel, max(accel_limits[1], self.a_desired - 0.05))
 
     self.mpc.set_accel_limits(accel_limits[0], accel_limits[1])
     self.mpc.set_cur_state(self.v_desired_filter.x, self.a_desired)
@@ -314,12 +288,6 @@ class LongitudinalPlanner:
     self.a_desired = float(interp(DT_MDL, T_IDXS[:CONTROL_N], self.a_desired_trajectory))
     self.v_desired_filter.x = self.v_desired_filter.x + DT_MDL * (self.a_desired + a_prev) / 2.0
 
-    action_t = max(DT_MDL, self.long_actuator_delay + DT_MDL)
-    self.output_a_target, self.output_should_stop, self.output_v_target_now, _ = get_accel_from_plan(
-      self.v_desired_trajectory, self.a_desired_trajectory, T_IDXS[:CONTROL_N],
-      action_t=action_t, v_ego_stopping=self.CP.vEgoStopping)
-    self.output_j_target_now = float(self.j_desired_trajectory[0])
-
   def publish(self, sm, pm):
     plan_send = messaging.new_message('longitudinalPlan')
 
@@ -338,10 +306,6 @@ class LongitudinalPlanner:
     longitudinalPlan.tFollow = float(self.mpc.t_follow)
     longitudinalPlan.desiredDistance = float(self.mpc.desired_distance)
     longitudinalPlan.mpcMode = 1 if self.mpc.mode == 'blended' else 0
-    longitudinalPlan.aTarget = float(self.output_a_target)
-    longitudinalPlan.shouldStop = bool(self.output_should_stop)
-    longitudinalPlan.vTargetNow = float(self.output_v_target_now)
-    longitudinalPlan.jTargetNow = float(self.output_j_target_now)
     longitudinalPlan.xState = self.mpc.xState
     # Expose the automatic E2E stop/depart state to the onroad UI.
     # 0: inactive, 1: stopping/waiting, 2: preparing to depart.

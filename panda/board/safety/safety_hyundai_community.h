@@ -36,7 +36,7 @@ AddrCheckStruct hyundai_community_addr_checks[] = {
   {.msg = {{608, 0, 8, .check_checksum = true, .max_counter = 3U, .expected_timestep = 10000U},     // EMS16
            {881, 0, 8, .expected_timestep = 10000U}, { 0 }}},                                       // E_EMS11
   {.msg = {{902, 0, 8, .expected_timestep = 20000U}, { 0 }, { 0 }}},                                // WHL_SPD11
-//  {.msg = {{916, 0, 8, .expected_timestep = 20000U}}},                                              // TCS13
+  {.msg = {{916, 0, 8, .expected_timestep = 20000U}, { 0 }, { 0 }}},                                // TCS13
 //  {.msg = {{1057, 0, 8, .check_checksum = true, .max_counter = 15U, .expected_timestep = 20000U}, { 0 }, { 0 }}},  // SCC12
 };
 
@@ -136,7 +136,7 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
     if (addr == 1056) {
       // 2 bits: 13-14
       int cruise_engaged = GET_BYTES_04(to_push) & 0x1; // ACC main_on signal
-      if (cruise_engaged && !controls_allowed) {
+      if (cruise_engaged && !controls_allowed && !brake_pressed) {
         controls_allowed = 1;
         puts("  SCC main on: controls allowed\n");
       }
@@ -169,6 +169,26 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
       int hyundai_speed = (GET_BYTES_04(to_push) & 0x3FFFU) + ((GET_BYTES_48(to_push) >> 16) & 0x3FFFU);  // FL + RR
       hyundai_speed /= 2;
       vehicle_moving = hyundai_speed > HYUNDAI_STANDSTILL_THRSLD;
+    }
+
+    // Keep Panda's pedal interlock independent from controlsd. EMS16 carries
+    // the ICE accelerator and E_EMS11 carries the EV/HEV accelerator. Accept
+    // either E_EMS11 layout since community safety spans both powertrains.
+    if (addr == 608) {
+      gas_pressed = (GET_BYTE(to_push, 7) >> 6) != 0U;
+    } else if (addr == 881) {
+      bool ev_gas = ((((GET_BYTE(to_push, 4) & 0x7FU) << 1) |
+                      (GET_BYTE(to_push, 3) >> 7)) != 0U);
+      bool hev_gas = GET_BYTE(to_push, 7) != 0U;
+      gas_pressed = ev_gas || hev_gas;
+    } else {
+    }
+
+    // TCS13 is the common brake source. DriverOverride=2 is retained as a
+    // redundant brake indication for platforms with a delayed brake bit.
+    if (addr == 916) {
+      int driver_override = (GET_BYTE(to_push, 5) >> 5) & 0x3U;
+      brake_pressed = ((GET_BYTE(to_push, 6) >> 7) != 0U) || (driver_override == 2);
     }
     generic_rx_checks((addr == 832 && bus == 0)); // LKAS11
   }
@@ -210,7 +230,7 @@ static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_all
     int aeb_req = (GET_BYTE(to_send, 6) >> 6) & 1U;
 
     bool violation = false;
-    if (!longitudinal_allowed) {
+    if (!longitudinal_allowed || brake_pressed_prev) {
       violation |= (desired_accel_raw != 0) || (desired_accel_val != 0);
     }
     violation |= max_limit_check(desired_accel_raw, HYUNDAI_COMMUNITY_MAX_ACCEL, HYUNDAI_COMMUNITY_MIN_ACCEL);
