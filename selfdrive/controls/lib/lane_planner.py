@@ -6,7 +6,6 @@ from common.realtime import DT_MDL
 from selfdrive.hardware import EON, TICI
 from selfdrive.swaglog import cloudlog
 from common.params import Params
-from selfdrive.controls.lib.dynamic_lane import lane_lines_ready
 
 TRAJECTORY_SIZE = 33
 ADJUST_OFFSET_LIMIT = 0.4   # 여유공간 보정 최대치(m)
@@ -185,11 +184,10 @@ class LanePlanner:
     self.lane_offset_filtered.update(interp(self.d_prob, [0.0, 0.3], [0.0, offset_lane]))
     self.lane_offset = float(self.lane_offset_filtered.x)
 
-    # Require 0.5 s of stable confidence before restoring lane guidance. This
-    # keeps threshold noise filtered without delaying curve-exit recentering
-    # for the full second used previously.
+    # ── carrot 이식 3 : 차선 신뢰가 1초 이상 유지돼야 차선경로 사용 ────────
+    #   확률이 임계 부근에서 흔들릴 때 경로가 튀는 것을 막는다.
     self.d_prob_count = self.d_prob_count + 1 if self.d_prob > 0.3 else 0
-    laneline_ready = lane_lines_ready(self.d_prob_count, DT_MDL)
+    laneline_ready = self.d_prob_count > int(1.0 / DT_MDL)
     d_prob_apply = self.d_prob if laneline_ready else 0.0
 
     # 저속에서는 차선경로 비중을 줄인다 (5~10km/h 구간)
