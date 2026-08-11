@@ -11,7 +11,7 @@ from selfdrive.modeld.constants import T_IDXS
 from selfdrive.controls.lib.longcontrol import LongCtrlState
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, MIN_ACCEL, MAX_ACCEL, N
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
-from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_accel_from_plan
+from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_accel_from_plan, get_speed_error
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.events import Events
 from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_VISION_LEAD_DISTANCE,
@@ -70,6 +70,7 @@ class LongitudinalPlanner:
 
     self.a_desired = init_a
     self.v_desired_filter = FirstOrderFilter(init_v, 2.0, DT_MDL)
+    self.v_model_error = 0.0
 
     self.v_desired_trajectory = np.zeros(CONTROL_N)
     self.a_desired_trajectory = np.zeros(CONTROL_N)
@@ -199,12 +200,15 @@ class LongitudinalPlanner:
       self.traffic_stop_distance_adjust)
     return mode
 
-  def parse_model(self, model_msg):
+  def parse_model(self, model_msg, model_error):
     if (len(model_msg.position.x) == 33 and
        len(model_msg.velocity.x) == 33 and
        len(model_msg.acceleration.x) == 33):
-      x = np.interp(T_IDXS_MPC, T_IDXS, model_msg.position.x)
-      v = np.interp(T_IDXS_MPC, T_IDXS, model_msg.velocity.x)
+      # aPilot C2 aligns the model trajectory with measured ego speed before
+      # blended/E2E uses it as a reference. Without this correction, a positive
+      # model speed bias can request an abrupt acceleration.
+      x = np.interp(T_IDXS_MPC, T_IDXS, model_msg.position.x) - model_error * T_IDXS_MPC
+      v = np.interp(T_IDXS_MPC, T_IDXS, model_msg.velocity.x) - model_error
       a = np.interp(T_IDXS_MPC, T_IDXS, model_msg.acceleration.x)
       j = np.zeros(len(T_IDXS_MPC))
     else:
@@ -261,9 +265,9 @@ class LongitudinalPlanner:
     if self.mpc.mode == 'acc':
       accel_limits = [A_CRUISE_MIN, cruise_max_accel]
     else:
-      # CruiseMax is a driver-selected physical acceleration ceiling. Keep it
-      # active in blended/E2E as well; only the deceleration range differs.
-      accel_limits = [MIN_ACCEL, cruise_max_accel]
+      # aPilot C2 applies CruiseMax to ACC. Blended/E2E follows the model MPC
+      # limits and relies on its corrected trajectory and jerk costs.
+      accel_limits = [MIN_ACCEL, MAX_ACCEL]
 
     if reset_state:
       self.v_desired_filter.x = v_ego
@@ -274,6 +278,7 @@ class LongitudinalPlanner:
 
     # Prevent divergence, smooth in current v_ego
     self.v_desired_filter.x = max(0.0, self.v_desired_filter.update(v_ego))
+    self.v_model_error = get_speed_error(sm['modelV2'], v_ego)
 
     # Get acceleration and active solutions for custom long mpc.
     self.cruise_source, a_min_sol, v_cruise_sol = self.cruise_solutions(not reset_state, self.v_desired_filter.x,
@@ -289,7 +294,7 @@ class LongitudinalPlanner:
 
     self.mpc.set_accel_limits(accel_limits[0], accel_limits[1])
     self.mpc.set_cur_state(self.v_desired_filter.x, self.a_desired)
-    x, v, a, j = self.parse_model(sm['modelV2'])
+    x, v, a, j = self.parse_model(sm['modelV2'], self.v_model_error)
     self.mpc.update(sm['carState'], sm['radarState'], sm['controlsState'], v_cruise_sol, x, v, a, j,
                     prev_accel_constraint=prev_accel_constraint)
 
