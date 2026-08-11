@@ -307,9 +307,6 @@ class LongitudinalMpc:
     self.prev_accel_constraint = prev_accel_constraint
     self.a_desired = a_desired
 
-    if not prev_accel_constraint:
-      self.prev_a = np.full(N+1, a_desired)
-
     if self.mode == 'acc':
       a_change_cost = A_CHANGE_COST if prev_accel_constraint else 40
 
