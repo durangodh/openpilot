@@ -1505,7 +1505,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(new ParamValueControlF(
       "StoppingDecelRate", "정지 제동 증가율",
       "정지 마무리 제동이 증가하는 속도(×0.01m/s³)입니다. 값 증가(+): 제동이 빠르게 강해짐 / 값 감소(-): 정지 직전 제동이 부드러워짐. 기본값: 120.",
-      "../assets/offroad/icon_openpilot.png", 20, 200, 5, 0, 120, this));
+      "../assets/offroad/icon_openpilot.png", 20, 200, 1, 0, 120, this));
 
   list->addItem(new ParamValueControlF(
       "SoftHoldMode", "소프트홀드 모드",
