@@ -235,7 +235,7 @@ class CarController:
       jerk_start_raw = self.op_params.get_int("JerkStartLimit")
       self.jerk_start_limit = float(clip(jerk_start_raw * 0.1 if jerk_start_raw > 0 else 1.0, 0.5, 5.0))
     soft_hold = bool(hud_control.softHold)
-    soft_hold_scc = soft_hold and self.soft_hold_mode == 2
+    soft_hold_scc = soft_hold and self.soft_hold_mode == 2 and CS.out.brakePressed
     stopping = controls.LoC.long_control_state == LongCtrlState.stopping
     jerk_stopping = stopping or soft_hold
     scc_standstill = stopping or soft_hold_scc

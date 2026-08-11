@@ -668,7 +668,8 @@ class Controls:
 
     drive_gear = CS.gearShifter in (GearShifter.drive, GearShifter.eco, GearShifter.sport,
                                     GearShifter.low, GearShifter.manumatic)
-    CC.hudControl.softHold = long_plan.xState == XState.softHold and self.enabled and drive_gear
+    CC.hudControl.softHold = long_plan.xState == XState.softHold and self.enabled and drive_gear and \
+                             self.cruise_helper.auto_cruise_control
 
     actuators = CC.actuators
     actuators.longControlState = self.LoC.long_control_state
