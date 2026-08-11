@@ -112,7 +112,7 @@ class CarState(CarStateBase):
     ret.vCluRatio = (vEgoWheel / vEgoClu) if (vEgoClu > 3. and vEgoWheel > 3.) else 1.0
     ret.aBasis = cp.vl["TCS13"]["aBasis"]
 
-    ret.standstill = ret.vEgoRaw < 0.01
+    ret.standstill = ret.vEgoRaw < 0.1
 
     ret.steeringAngleDeg = cp_sas.vl["SAS11"]["SAS_Angle"]
     ret.steeringRateDeg = cp_sas.vl["SAS11"]["SAS_Speed"]
