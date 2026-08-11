@@ -8,7 +8,6 @@ from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import LateralMpc
 from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import N as LAT_MPC_N
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, MIN_SPEED
 from selfdrive.controls.lib.desire_helper import DesireHelper, AUTO_LCA_START_TIME
-from selfdrive.controls.lib.dynamic_lane import select_lateral_path, update_dynamic_lane_profile
 import cereal.messaging as messaging
 from cereal import log
 from common.params import Params
@@ -66,7 +65,7 @@ class LateralPlanner:
 
     self.dynamic_lane_profile = 0
     self.dynamic_lane_profile_status = True
-    self.dynamic_lane_profile_status_buffer = True
+    self.dynamic_lane_profile_status_buffer = False
 
     self.param_read_counter = 0
     self.read_param(force=True)
@@ -117,35 +116,26 @@ class LateralPlanner:
     if self.DH.desire == log.LateralPlan.Desire.laneChangeRight or self.DH.desire == log.LateralPlan.Desire.laneChangeLeft:
       self.LP.lll_prob *= self.DH.lane_change_ll_prob
       self.LP.rll_prob *= self.DH.lane_change_ll_prob
-
-    # LanePlanner blends lane lines into its input array in place. Preserve an
-    # untouched model/E2E path so Lane less and Auto-laneless are genuinely
-    # independent from the explicit lane-line path.
-    model_path_xyz = self.path_xyz.copy()
-    self.d_path_w_lines_xyz = self.LP.get_d_path(
-      self.v_ego, self.t_idxs, model_path_xyz.copy())
+    self.d_path_w_lines_xyz = self.LP.get_d_path(self.v_ego, self.t_idxs, self.path_xyz)
 
     low_speed = self.v_ego < 10 * CV.MPH_TO_MS
-    use_laneless = self.get_dynamic_lane_profile(low_speed)
 
-    # OffsetTotal applies equally to both candidate paths. Keep the candidates
-    # independent so selecting one cannot mutate the other or its telemetry.
-    model_path_xyz[:, 1] += self.offset_total
-    self.d_path_w_lines_xyz[:, 1] += self.offset_total
-    self.path_xyz = select_lateral_path(
-      model_path_xyz, self.d_path_w_lines_xyz, use_laneless)
-    self.dynamic_lane_profile_status = use_laneless
-
-    if not use_laneless:
+    if not self.get_dynamic_lane_profile(sm['longitudinalPlan']) and not low_speed:
+      self.path_xyz = self.d_path_w_lines_xyz
+      self.dynamic_lane_profile_status = False
       self.lat_mpc.set_weights(PATH_COST, LATERAL_MOTION_COST,
                                LATERAL_ACCEL_COST, LATERAL_JERK_COST,
                                STEERING_RATE_COST)
     else:
+      self.dynamic_lane_profile_status = True
       lateral_motion_cost = interp(self.v_ego, [5.0, 10.0],
                                    [LATERAL_MOTION_COST * 1.5, LATERAL_MOTION_COST])
       self.lat_mpc.set_weights(PATH_COST, lateral_motion_cost,
                                LATERAL_ACCEL_COST, LATERAL_JERK_COST,
                                STEERING_RATE_COST)
+
+    # offset_total 을 최종 결정된 path_xyz 에 적용 (레인모드/레인리스 공통)
+    self.path_xyz[:, 1] += self.offset_total
 
     # Reuse the path-distance vector for both interpolations. The trajectory is
     # unchanged between them, so a second NumPy norm only wastes planner CPU.
@@ -183,19 +173,26 @@ class LateralPlanner:
     else:
       self.solution_invalid_cnt = 0
 
-  def get_dynamic_lane_profile(self, low_speed):
+  def get_dynamic_lane_profile(self, longitudinal_plan):
     """True = 레인리스 경로 사용, False = 레인모드(차선) 경로 사용.
-    DynamicLaneProfile(0=레인모드, 1=레인리스, 2=오토)을 따르되,
-    약 16 km/h 미만에서는 모든 프로필을 레인리스로 운용한다.
+    DynamicLaneProfile 하나로만 결정한다. (0=레인모드 1=레인리스 2=오토)
     """
-    lane_change_active = self.DH.lane_change_state in (
-      LaneChangeState.laneChangeStarting, LaneChangeState.laneChangeFinishing)
-    lane_change_off = self.DH.lane_change_state == LaneChangeState.off
-    use_laneless, self.dynamic_lane_profile_status_buffer = update_dynamic_lane_profile(
-      self.dynamic_lane_profile, self.LP.lll_prob, self.LP.rll_prob,
-      lane_change_active, lane_change_off, low_speed,
-      self.dynamic_lane_profile_status_buffer)
-    return use_laneless
+    if self.dynamic_lane_profile == 1:
+      return True
+    elif self.dynamic_lane_profile == 0:
+      return False
+    elif self.dynamic_lane_profile == 2:
+      # laneless while lane change in progress
+      if self.DH.lane_change_state in (LaneChangeState.laneChangeStarting, LaneChangeState.laneChangeFinishing):
+        return True
+      elif self.DH.lane_change_state == LaneChangeState.off:
+        if (self.LP.lll_prob + self.LP.rll_prob) / 2 < 0.3:
+          self.dynamic_lane_profile_status_buffer = True
+        if (self.LP.lll_prob + self.LP.rll_prob) / 2 > 0.5:
+          self.dynamic_lane_profile_status_buffer = False
+        if self.dynamic_lane_profile_status_buffer:
+          return True
+    return False
 
   def publish(self, sm, pm):
     plan_solution_valid = self.solution_invalid_cnt < 2

@@ -1765,7 +1765,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(horizontal_line());
   auto *dlp_control = new DynamicLaneProfileControl(
       "동적 차선모드",
-      "차선 사용: 약 16km/h 이상에서 차선 기반 / 차선 미사용: 항상 E2E 경로 / 자동: 양쪽 차선 신뢰도에 따라 자동 전환. 약 16km/h 미만은 모든 모드에서 E2E 경로를 사용합니다.",
+      "차선 사용: 항상 차선 기반 / 차선 미사용: 항상 E2E 경로 / 자동: 차선 인식률에 따라 자동 전환.",
       "../assets/offroad/icon_road.png",
       this);
   dlp_control->showDescription();
