@@ -138,6 +138,7 @@ def manager_init() -> None:
     ("JerkStartLimit", "10"),
     ("StartAccelApply", "0"),
     ("StopAccelApply", "30"),
+    ("StoppingDecelRate", "120"),
     ("TrafficStopAccel", "80"),
     ("TrafficStopDistanceAdjust", "400"),
     ("StopDistance", "600"),

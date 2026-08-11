@@ -73,6 +73,7 @@ class LongControl:
     # starting state from the first control cycle.
     self._update_start_accel()
     self._update_stop_accel()
+    self._update_stopping_decel_rate()
 
     # apilot-c2 uses two actuator-delay predictions and selects the more
     # conservative target. Derive safe defaults around the configured delay.
@@ -104,6 +105,11 @@ class LongControl:
       legacy_stop_accel = self.params.get_float("StoppingAccel") * 0.01
       self.stop_accel = legacy_stop_accel if legacy_stop_accel < 0.0 else self.CP.stopAccel
 
+  def _update_stopping_decel_rate(self):
+    rate_raw = self.params.get_int("StoppingDecelRate")
+    rate = rate_raw * 0.01 if rate_raw > 0 else self.CP.stoppingDecelRate
+    self.stopping_decel_rate = float(clip(rate, 0.2, 2.0))
+
   def _update_actuator_delays(self):
     lower = self.params.get_float("LongitudinalActuatorDelayLowerBound") * 0.01
     upper = self.params.get_float("LongitudinalActuatorDelayUpperBound") * 0.01
@@ -123,6 +129,7 @@ class LongControl:
     if self.read_param_count >= 100:
       self.read_param_count = 0
       self._update_stop_accel()
+      self._update_stopping_decel_rate()
       self.long_coast_band = clip(self.params.get_float("LongCoastBand") * 0.01, 0.0, 0.4)
       self._update_actuator_delays()
 
@@ -187,7 +194,7 @@ class LongControl:
       output_accel = self.last_output_accel
       if output_accel > self.stop_accel:
         output_accel = min(output_accel, 0.0)
-        output_accel -= self.CP.stoppingDecelRate * DT_CTRL
+        output_accel -= self.stopping_decel_rate * DT_CTRL
         if soft_hold:
           output_accel = self.stop_accel
       self.reset(CS.vEgo)
