@@ -296,6 +296,10 @@ class CarController:
           controls.sccStockCamStatus = 0
           stock_cam = False
 
+        lead = controls.cruise_helper.get_lead(controls.sm)
+        lead_distance = float(lead.dRel) if lead is not None else 0.0
+        lead_relative_speed = float(lead.vRel) if lead is not None else 0.0
+
         if self.scc12_cnt < 0:
           self.scc12_cnt = CS.scc12["CR_VSM_Alive"] if not CS.no_radar else 0
 
@@ -305,11 +309,13 @@ class CarController:
         can_sends.append(create_scc12(self.packer, apply_accel, CC.enabled, self.scc12_cnt, self.scc_live, CS.scc12,
                                       CS.out.gasPressed, CS.out.brakePressed and not soft_hold_scc,
                                       scc_standstill and CS.out.vEgo < 2.,
-                                      self.car_fingerprint))
+                                      self.car_fingerprint, long_active=CC.longActive,
+                                      soft_hold_active=soft_hold_scc))
 
         can_sends.append(create_scc11(self.packer, self.frame, CC.enabled, set_speed, hud_control.leadVisible, self.scc_live, CS.scc11,
                        controls.cruise_helper.active_cam, stock_cam, soft_hold=soft_hold and CC.longActive,
-                       cruise_gap=controls.cruise_helper.long_cruise_gap))
+                       cruise_gap=controls.cruise_helper.long_cruise_gap,
+                       lead_distance=lead_distance, lead_relative_speed=lead_relative_speed))
 
         if self.frame % 20 == 0 and CS.has_scc13:
           can_sends.append(create_scc13(self.packer, CS.scc13))
@@ -325,16 +331,17 @@ class CarController:
             cb_upper = clip(0.9 + apply_accel * 0.2, 0.0, 1.2)
             cb_lower = clip(0.8 + apply_accel * 0.2, 0.0, 1.2)
 
-          lead = controls.cruise_helper.get_lead(controls.sm)
-
           if lead is not None:
             d = lead.dRel
-            obj_gap = 1 if d < 25 else 2 if d < 40 else 3 if d < 60 else 4 if d < 80 else 5
+            # aPilot C2 ObjGap scale. ObjGap2 intentionally remains untouched.
+            obj_gap = 2 if d < 25 else 3 if d < 40 else 4 if d < 70 else 5
           else:
             obj_gap = 0
 
           can_sends.append(
             create_scc14(self.packer, CC.enabled, CS.out.vEgo, acc_standstill, apply_accel, CS.out.gasPressed,
-                         obj_gap, CS.scc14, jerk_upper, jerk_lower, cb_upper, cb_lower))
+                         obj_gap, CS.scc14, jerk_upper, jerk_lower, cb_upper, cb_lower,
+                         long_active=CC.longActive, brakepressed=CS.out.brakePressed,
+                         soft_hold_active=soft_hold_scc))
     else:
       self.scc12_cnt = -1
