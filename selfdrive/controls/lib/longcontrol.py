@@ -8,12 +8,6 @@ from selfdrive.modeld.constants import T_IDXS
 
 LongCtrlState = car.CarControl.Actuators.LongControlState
 
-# Match the aPilot C2 CruiseMax UI breakpoints.
-CRUISE_MAX_BP = [0.0, 40.0 / 3.6, 60.0 / 3.6, 80.0 / 3.6, 110.0 / 3.6, 140.0 / 3.6]
-CRUISE_MAX_KEYS = ["CruiseMaxVals1", "CruiseMaxVals2", "CruiseMaxVals3",
-                   "CruiseMaxVals4", "CruiseMaxVals5", "CruiseMaxVals6"]
-CRUISE_MAX_DEFAULTS = [1.60, 1.20, 1.00, 0.80, 0.70, 0.60]
-
 def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                              v_target_1sec, brake_pressed, cruise_standstill,
                              soft_hold, a_target_now, starting_state):
@@ -83,7 +77,6 @@ class LongControl:
     # Read launch control immediately so StartAccelApply=0 disables the
     # starting state from the first control cycle.
     self._update_start_accel()
-    self._update_cruise_max()
     self._update_stop_accel()
     self._update_stopping_decel_rate()
 
@@ -102,12 +95,6 @@ class LongControl:
     self.start_accel_apply = float(clip(start_raw * 0.01, 0.0, 1.0))
     self.start_accel = float(clip(2.0 * self.start_accel_apply, 0.0, 2.0))
     self.starting_state = start_raw > 0
-
-  def _update_cruise_max(self):
-    self.cruise_max_vals = []
-    for key, default in zip(CRUISE_MAX_KEYS, CRUISE_MAX_DEFAULTS):
-      raw = self.params.get_int(key)
-      self.cruise_max_vals.append(float(raw * 0.01 if raw > 0 else default))
 
   def _update_stop_accel(self):
     stop_raw = self.params.get("StopAccelApply", encoding="utf8")
@@ -152,7 +139,6 @@ class LongControl:
       self._update_actuator_delays()
 
       self._update_start_accel()
-      self._update_cruise_max()
 
     elif self.read_param_count == 10:
       if len(self.CP.longitudinalTuning.kpBP) == 1 and len(self.CP.longitudinalTuning.kiBP) == 1:
@@ -168,12 +154,6 @@ class LongControl:
 
   def update(self, active, CS, long_plan, accel_limits, t_since_plan, soft_hold=False, radar_state=None):
     self._read_params()
-
-    # Enforce CruiseMax at the final longitudinal controller too. The starting
-    # state otherwise bypasses the MPC ceiling and uses StartAccelApply alone.
-    cruise_max_accel = float(clip(interp(CS.vEgo, CRUISE_MAX_BP, self.cruise_max_vals),
-                                  0.0, accel_limits[1]))
-    accel_limits = [accel_limits[0], min(accel_limits[1], cruise_max_accel)]
 
     if len(long_plan.speeds) == CONTROL_N:
       speeds = long_plan.speeds
