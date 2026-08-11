@@ -4,9 +4,16 @@ LANE_PROFILE_AUTO = 2
 
 LANE_PROB_ENTER = 0.5
 LANE_PROB_EXIT = 0.3
+LANE_PROB_CONFIRM_TIME = 0.5
 
 LOW_SPEED_LANELESS_ENTER = 14.0 / 3.6
 LOW_SPEED_LANELESS_EXIT = 18.0 / 3.6
+
+
+def lane_lines_ready(d_prob_count, dt):
+  """Require stable lane confidence for 0.5 s before applying lane guidance."""
+  confirm_frames = max(1, round(LANE_PROB_CONFIRM_TIME / dt))
+  return d_prob_count >= confirm_frames
 
 
 def update_low_speed_laneless(v_ego, low_speed_laneless):

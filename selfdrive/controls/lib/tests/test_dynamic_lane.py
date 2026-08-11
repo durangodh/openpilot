@@ -5,6 +5,7 @@ import numpy as np
 from selfdrive.controls.lib.dynamic_lane import (LANE_PROFILE_AUTO,
                                                  LANE_PROFILE_LESS,
                                                  LANE_PROFILE_ONLY,
+                                                 lane_lines_ready,
                                                  select_lateral_path,
                                                  update_dynamic_lane_profile,
                                                  update_low_speed_laneless)
@@ -69,6 +70,10 @@ class TestDynamicLane(unittest.TestCase):
     self.assertFalse(update_low_speed_laneless(18.0 / 3.6, True))
     self.assertFalse(update_low_speed_laneless(14.0 / 3.6, False))
     self.assertTrue(update_low_speed_laneless(13.9 / 3.6, False))
+
+  def test_lane_lines_ready_after_half_second(self):
+    self.assertFalse(lane_lines_ready(9, 0.05))
+    self.assertTrue(lane_lines_ready(10, 0.05))
 
   def test_selected_path_does_not_alias_either_candidate(self):
     model_path = np.array([[0.0, 1.0], [1.0, 2.0]])
