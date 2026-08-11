@@ -124,7 +124,7 @@ def create_mdps12(packer, frame, mdps12):
   return packer.make_can_msg("MDPS12", 2, values)
 
 def create_scc11(packer, frame, enabled, set_speed, lead_visible, scc_live, scc11, active_cam, stock_cam,
-                 soft_hold=False, cruise_gap=None):
+                 soft_hold=False, cruise_gap=None, lead_distance=0.0, lead_relative_speed=0.0):
   values = copy.copy(scc11)
   values["AliveCounterACC"] = frame // 2 % 0x10
 
@@ -132,50 +132,46 @@ def create_scc11(packer, frame, enabled, set_speed, lead_visible, scc_live, scc1
     values["Navi_SCC_Camera_Act"] = 2 if active_cam else 0
     values["Navi_SCC_Camera_Status"] = 2 if active_cam else 0
 
-  # Keep the cluster SCC set speed synchronized with openpilot, including
-  # vehicles where the stock SCC remains live on another bus.
-  values["VSetDis"] = set_speed
+  # Match aPilot C2 SCC11 ownership for both ACC and E2E. Do not leave the
+  # stock radar's standstill/object state latched on Genesis DH SCC bus 2.
+  values["MainMode_ACC"] = 1 if enabled else 0
+  values["VSetDis"] = set_speed if enabled else 0
   if cruise_gap is not None and 1 <= int(cruise_gap) <= 4:
     values["TauGapSet"] = int(cruise_gap)
-  # aPilot C2 explicitly clears the standstill/departure display when soft
-  # hold is released. Copying the stock SCC11 value leaves 4 latched and can
-  # prevent Genesis DH from transitioning to starting after the lead departs.
   values["SCCInfoDisplay"] = 4 if soft_hold and enabled else 0
-
-  if not scc_live:
-    values["MainMode_ACC"] = 1
-    values["ObjValid"] = 1 if enabled else 0
-#  values["ACC_ObjStatus"] = lead_visible
+  values["ObjValid"] = 1 if lead_visible else 0
+  values["ACC_ObjStatus"] = 1 if lead_visible else 0
+  values["ACC_ObjDist"] = max(0.0, float(lead_distance)) if lead_visible else 0.0
+  values["ACC_ObjRelSpd"] = float(lead_relative_speed) if lead_visible else 0.0
+  values["DriverAlertDisplay"] = 0
 
   return packer.make_can_msg("SCC11", 0, values)
 
+
 def create_scc12(packer, apply_accel, enabled, cnt, scc_live, scc12, gaspressed, brakepressed,
-                 standstill, car_fingerprint):
+                 standstill, car_fingerprint, long_active=False, soft_hold_active=False):
   values = copy.copy(scc12)
 
-  if car_fingerprint in EV_HYBRID_CAR:
-    # from xps-genesis
-    if enabled and not brakepressed:
-      values["ACCMode"] = 2 if gaspressed and (apply_accel > -0.2) else 1
-      if apply_accel < 0.0 and standstill:
-        values["StopReq"] = 1
-      values["aReqRaw"] = apply_accel
-      values["aReqValue"] = apply_accel
-    else:
-      values["ACCMode"] = 0
-      values["aReqRaw"] = 0
-      values["aReqValue"] = 0
-
-    if not scc_live:
-      values["CR_VSM_Alive"] = cnt
-
+  # Match aPilot C2: openpilot owns ACCMode whenever it owns SCC acceleration.
+  # Copying stock ACCMode on radar-equipped cars makes ACC/E2E transitions
+  # depend on the stale stock state and can cause a harsh handoff.
+  command_active = enabled and (long_active or soft_hold_active)
+  if not enabled:
+    acc_mode = 0
+  elif soft_hold_active:
+    acc_mode = 1
+  elif gaspressed and apply_accel > -0.2:
+    acc_mode = 2
+  elif brakepressed:
+    acc_mode = 0
   else:
-    values["aReqRaw"] = apply_accel if enabled else 0  # aReqMax
-    values["aReqValue"] = apply_accel if enabled else 0  # aReqMin
-    values["StopReq"] = 1 if standstill and enabled else 0
-    values["CR_VSM_Alive"] = cnt
-    if not scc_live:
-      values["ACCMode"] = 1 if enabled else 0  # 2 if gas padel pressed
+    acc_mode = 1 if long_active else 0
+
+  values["ACCMode"] = acc_mode
+  values["StopReq"] = 1 if standstill and command_active else 0
+  values["aReqRaw"] = apply_accel if command_active else 0.0
+  values["aReqValue"] = apply_accel if command_active else 0.0
+  values["CR_VSM_Alive"] = cnt
 
   values["CR_VSM_ChkSum"] = 0
   dat = packer.make_can_msg("SCC12", 0, values)[2]
@@ -183,21 +179,31 @@ def create_scc12(packer, apply_accel, enabled, cnt, scc_live, scc12, gaspressed,
 
   return packer.make_can_msg("SCC12", 0, values)
 
+
 def create_scc13(packer, scc13):
   values = copy.copy(scc13)
   return packer.make_can_msg("SCC13", 0, values)
 
+
 def create_scc14(packer, enabled, e_vgo, standstill, accel, gaspressed, objgap, scc14,
-                 jerk_upper=5.0, jerk_lower=5.0, cb_upper=0.0, cb_lower=0.0):
+                 jerk_upper=5.0, jerk_lower=5.0, cb_upper=0.0, cb_lower=0.0,
+                 long_active=False, brakepressed=False, soft_hold_active=False):
   values = copy.copy(scc14)
 
-  # from xps-genesis
-  if enabled:
-    values["ACCMode"] = 2 if gaspressed and (accel > -0.2) else 1
-    values["ObjGap"] = objgap
-    values["JerkUpperLimit"] = max(0.0, min(12.7, jerk_upper))
-    values["JerkLowerLimit"] = max(0.0, min(12.7, jerk_lower))
-    values["ComfortBandUpper"] = cb_upper
-    values["ComfortBandLower"] = cb_lower
+  # aPilot C2 SCC14 state: 1=active control, 4=driver/brake override,
+  # 0=inactive. ACC and E2E share the same jerk/comfort handoff.
+  if not enabled:
+    acc_mode = 0
+  elif brakepressed or gaspressed:
+    acc_mode = 4
+  else:
+    acc_mode = 1 if (long_active or soft_hold_active) else 0
+
+  values["ACCMode"] = acc_mode
+  values["ObjGap"] = objgap if enabled else 0
+  values["JerkUpperLimit"] = max(0.0, min(12.7, jerk_upper))
+  values["JerkLowerLimit"] = max(0.0, min(12.7, jerk_lower))
+  values["ComfortBandUpper"] = cb_upper if enabled else 0.0
+  values["ComfortBandLower"] = cb_lower if enabled else 0.0
 
   return packer.make_can_msg("SCC14", 0, values)
