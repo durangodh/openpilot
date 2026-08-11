@@ -1385,7 +1385,7 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
   for (const auto& [key, title, default_value] : cruise_speed_table) {
     list->addItem(new ParamValueControlF(
         key, title, "버튼 모드 3의 순환 설정속도입니다. 값 증가(+): 해당 단계 속도가 높아짐 / 값 감소(-): 해당 단계 속도가 낮아짐.",
-        "../assets/offroad/icon_road.png", 5, 160, 5, 0, default_value, this));
+        "../assets/offroad/icon_road.png", 30, 145, 5, 0, default_value, this));
   }
 
   list->addItem(new ParamValueControlF(

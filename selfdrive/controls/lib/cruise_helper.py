@@ -501,11 +501,12 @@ class CruiseHelper:
     if self.param_read_counter % 100 == 0:
       # The onroad driving-mode button should react within one second.
       self.read_driving_mode_params()
+      self.read_cruise_params()
 
-      # Refresh one larger group per second. All non-mode settings still apply
-      # live within four seconds, without a large synchronous I/O burst.
-      readers = (self.read_cruise_params, self.read_curve_params,
-                 self.read_pedal_params, self.read_navigation_params)
+      # Refresh one larger group per second. Cruise button settings are read
+      # above every second; the remaining settings apply within three seconds.
+      readers = (self.read_curve_params, self.read_pedal_params,
+                  self.read_navigation_params)
       readers[self.param_read_group]()
       self.param_read_group = (self.param_read_group + 1) % len(readers)
 
