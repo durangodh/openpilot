@@ -124,7 +124,15 @@ class LateralPlanner:
     elif self.v_ego < lane_mode_speed - 2 * CV.KPH_TO_MS:
       self.use_lane_line_mode = False
 
-    use_laneless = not self.use_lane_line_mode or self.get_dynamic_lane_profile()
+    # Fixed selections must match the setting at every speed. The low-speed
+    # lane-line fallback belongs only to Auto mode.
+    if self.dynamic_lane_profile == 0:
+      use_laneless = False
+    elif self.dynamic_lane_profile == 1:
+      use_laneless = True
+    else:
+      use_laneless = not self.use_lane_line_mode or self.get_dynamic_lane_profile()
+
     self.dynamic_lane_profile_status = use_laneless
     self.d_path_w_lines_xyz = self.LP.get_d_path(
       self.v_ego, self.t_idxs, self.path_xyz, not use_laneless)
