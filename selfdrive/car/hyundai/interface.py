@@ -5,6 +5,7 @@ from typing import List
 from cereal import car
 from common.conversions import Conversions as CV
 from selfdrive.car.hyundai.values import CAR, Buttons, CarControllerParams
+from selfdrive.car.hyundai.cruise_buttons import button_transitions, main_button_transitions
 from selfdrive.car import STD_CARGO_KG, scale_rot_inertia, scale_tire_stiffness, gen_empty_fingerprint, get_safety_config
 from selfdrive.car.interfaces import CarInterfaceBase
 from common.params import Params
@@ -13,6 +14,12 @@ from selfdrive.controls.lib.desire_helper import LANE_CHANGE_SPEED_MIN
 GearShifter = car.CarState.GearShifter
 EventName = car.CarEvent.EventName
 ButtonType = car.CarState.ButtonEvent.Type
+BUTTONS_DICT = {
+  Buttons.RES_ACCEL: ButtonType.accelCruise,
+  Buttons.SET_DECEL: ButtonType.decelCruise,
+  Buttons.GAP_DIST: ButtonType.gapAdjustCruise,
+  Buttons.CANCEL: ButtonType.cancel,
+}
 
 def torque_tune(tune, lat_accel_factor=3.0, friction=0.01, kd=0.0, steering_angle_deadzone_deg=0.0):
   tune.init('torque')
@@ -349,25 +356,18 @@ class CarInterface(CarInterfaceBase):
       self.low_speed_alert = False
 
     buttonEvents = []
-    if self.CS.cruise_buttons != self.CS.prev_cruise_buttons:
+    button_samples = getattr(self.CS, 'cruise_button_samples', [self.CS.cruise_buttons])
+    for button, pressed in button_transitions(self.CS.prev_cruise_buttons, button_samples):
       be = car.CarState.ButtonEvent.new_message()
-      be.pressed = self.CS.cruise_buttons != 0
-      but = self.CS.cruise_buttons if be.pressed else self.CS.prev_cruise_buttons
-      if but == Buttons.RES_ACCEL:
-        be.type = ButtonType.accelCruise
-      elif but == Buttons.SET_DECEL:
-        be.type = ButtonType.decelCruise
-      elif but == Buttons.GAP_DIST:
-        be.type = ButtonType.gapAdjustCruise
-      elif but == Buttons.CANCEL:
-        be.type = ButtonType.cancel
-      else:
-        be.type = ButtonType.unknown
+      be.pressed = pressed
+      be.type = BUTTONS_DICT.get(button, ButtonType.unknown)
       buttonEvents.append(be)
-    if self.CS.cruise_main_button != self.CS.prev_cruise_main_button:
+
+    main_samples = getattr(self.CS, 'cruise_main_button_samples', [self.CS.cruise_main_button])
+    for pressed in main_button_transitions(self.CS.prev_cruise_main_button, main_samples):
       be = car.CarState.ButtonEvent.new_message()
       be.type = ButtonType.altButton3
-      be.pressed = bool(self.CS.cruise_main_button)
+      be.pressed = pressed
       buttonEvents.append(be)
     ret.buttonEvents = buttonEvents
 

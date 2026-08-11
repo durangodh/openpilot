@@ -2,6 +2,7 @@ import copy
 import random
 
 from selfdrive.car.hyundai.values import Buttons
+from selfdrive.car.hyundai.cruise_buttons import button_pressed_in_samples
 
 
 # aPilot C2 physical-button cadence.
@@ -72,7 +73,9 @@ class SccSmoother:
       self.reset()
       return
 
-    if not ascc_enabled or CS.standstill or CS.cruise_buttons != Buttons.NONE:
+    physical_button_pressed = button_pressed_in_samples(
+      CS.cruise_buttons, getattr(CS, 'cruise_button_samples', ()))
+    if not ascc_enabled or CS.standstill or physical_button_pressed:
       self.reset()
       self.wait_timer = max(ALIVE_COUNT) + max(WAIT_COUNT)
       return

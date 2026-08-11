@@ -387,13 +387,14 @@ class CruiseHelper:
     self.update_cruise_speed(controls, CS, longcontrol)
     self.sync_physical_gap(controls, CS, longcontrol)
 
-    # apilot-c2 CANCEL latch: pause longitudinal only and require an explicit
-    # RES/SET before automatic SCC resume is allowed again. Lateral control is
-    # untouched - controlsd stays engaged until cruise MAIN turns off.
-    if any(event.type == ButtonType.cancel and not event.pressed for event in CS.buttonEvents):
+    # Pause on the CANCEL press, not its release. A held button must never
+    # leave longitudinal control active while waiting for the release frame.
+    # Lateral control remains engaged until cruise MAIN turns off.
+    if any(event.type == ButtonType.cancel and event.pressed for event in CS.buttonEvents):
       self._pause_longitudinal(controls, user_cancel=True)
       self.button_count = 0
       self.button_long_pressed = False
+      self.button_prev = ButtonType.unknown
       return
 
     # RES/SET controls longitudinal activation while lateral control remains
@@ -401,31 +402,46 @@ class CruiseHelper:
     if not controls.enabled:
       self.button_count = 0
       self.button_long_pressed = False
+      self.button_prev = ButtonType.unknown
       return
 
     if self.button_count > 0:
       self.button_count += 1
 
     for event in CS.buttonEvents:
-      if event.pressed and self.button_count == 0 and event.type in (ButtonType.accelCruise,
-                                                                     ButtonType.decelCruise):
-        self.button_count = 1
-        self.button_prev = event.type
-      elif not event.pressed and self.button_count > 0:
-        if event.type in (ButtonType.accelCruise, ButtonType.decelCruise):
-          if self.long_active_user <= 0:
-            current_kph = float(clip(CS.vEgoCluster * CV.MS_TO_KPH,
-                                     self.cruise_speed_min, MAX_SET_SPEED_KPH))
-            if event.type == ButtonType.accelCruise:
-              controls.v_cruise_kph = max(current_kph, self.v_cruise_kph_backup,
-                                          controls.v_cruise_kph if controls.v_cruise_kph <= MAX_SET_SPEED_KPH else 0.0)
-            else:
-              controls.v_cruise_kph = current_kph
-            self._resume_longitudinal(controls, CS, 1)
-          elif not self.button_long_pressed:
-            controls.v_cruise_kph = self.apply_button_speed(controls.v_cruise_kph, event.type, False, CS.vEgo)
+      if event.type not in (ButtonType.accelCruise, ButtonType.decelCruise):
+        continue
+
+      if event.pressed:
+        # Recover deterministically if a malformed/missing release left a
+        # different button active. Normal direct transitions are emitted as
+        # release-old then press-new by Hyundai CarInterface.
+        if self.button_count == 0 or event.type != self.button_prev:
+          self.button_count = 1
+          self.button_long_pressed = False
+          self.button_prev = event.type
+      elif self.button_count > 0:
+        if event.type != self.button_prev:
+          # Never keep repeating the old direction after an unmatched release.
+          self.button_count = 0
+          self.button_long_pressed = False
+          self.button_prev = ButtonType.unknown
+          continue
+
+        if self.long_active_user <= 0:
+          current_kph = float(clip(CS.vEgoCluster * CV.MS_TO_KPH,
+                                   self.cruise_speed_min, MAX_SET_SPEED_KPH))
+          if event.type == ButtonType.accelCruise:
+            controls.v_cruise_kph = max(current_kph, self.v_cruise_kph_backup,
+                                        controls.v_cruise_kph if controls.v_cruise_kph <= MAX_SET_SPEED_KPH else 0.0)
+          else:
+            controls.v_cruise_kph = current_kph
+          self._resume_longitudinal(controls, CS, 1)
+        elif not self.button_long_pressed:
+          controls.v_cruise_kph = self.apply_button_speed(controls.v_cruise_kph, event.type, False, CS.vEgo)
         self.button_count = 0
         self.button_long_pressed = False
+        self.button_prev = ButtonType.unknown
 
     if self.button_count > self.cruise_button_long_delay:
       self.button_long_pressed = True

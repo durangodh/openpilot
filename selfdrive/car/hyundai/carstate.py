@@ -1,11 +1,12 @@
 from cereal import car
 from common.numpy_fast import interp
-from selfdrive.car.hyundai.values import DBC, FEATURES, CAR, HYBRID_CAR, EV_HYBRID_CAR, CarControllerParams
+from selfdrive.car.hyundai.values import DBC, FEATURES, CAR, HYBRID_CAR, EV_HYBRID_CAR, Buttons, CarControllerParams
 from selfdrive.car.interfaces import CarStateBase
 from opendbc.can.parser import CANParser
 from opendbc.can.can_define import CANDefine
 from common.conversions import Conversions as CV
 from common.params import Params
+from selfdrive.car.hyundai.cruise_buttons import collect_button_samples
 
 GearShifter = car.CarState.GearShifter
 
@@ -34,6 +35,8 @@ class CarState(CarStateBase):
     self.leftBlinker = False
     self.rightBlinker = False
     self.cruise_main_button = 0
+    self.cruise_button_samples = []
+    self.cruise_main_button_samples = []
     self.mdps_error_cnt = 0
     self.cruise_unavail_cnt = 0
 
@@ -150,8 +153,20 @@ class CarState(CarStateBase):
                                          cp.vl["LVR12"]["CF_Lvr_CruiseSet"] * self.speed_conv_to_ms
     else:
       ret.cruiseState.speed = 0
-    self.cruise_main_button = cp.vl["CLU11"]["CF_Clu_CruiseSwMain"]
-    self.cruise_buttons = cp.vl["CLU11"]["CF_Clu_CruiseSwState"]
+    self.cruise_main_button_samples = collect_button_samples(
+      self.prev_cruise_main_button,
+      cp.vl["CLU11"]["CF_Clu_CruiseSwMain"],
+      cp.vl_all["CLU11"]["CF_Clu_CruiseSwMain"],
+    )
+    self.cruise_button_samples = collect_button_samples(
+      self.prev_cruise_buttons,
+      cp.vl["CLU11"]["CF_Clu_CruiseSwState"],
+      cp.vl_all["CLU11"]["CF_Clu_CruiseSwState"],
+    )
+    if self.cruise_main_button_samples:
+      self.cruise_main_button = self.cruise_main_button_samples[-1]
+    if self.cruise_button_samples:
+      self.cruise_buttons = self.cruise_button_samples[-1]
 
     # TODO: Find brake pressure
     ret.brake = 0
@@ -254,7 +269,7 @@ class CarState(CarStateBase):
     # Auto-resume Cruise Set Speed by JangPoo
     self.prev_cruiseState_speed = self.cruiseState_speed if self.cruiseState_speed else self.prev_cruiseState_speed
     self.obj_valid = cp_scc.vl["SCC11"]["ObjValid"]
-    if self.prev_cruise_buttons == 4:
+    if self.prev_cruise_buttons == Buttons.CANCEL:
       self.prev_cruiseState_speed = 0
 
     return ret

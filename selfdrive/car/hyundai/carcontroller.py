@@ -9,6 +9,7 @@ from selfdrive.car.hyundai.hyundaican import create_lkas11, create_clu11, \
   create_mdps12, create_lfahda_mfc, create_hda_mfc
 from selfdrive.car.hyundai.scc_smoother import SccSmoother
 from selfdrive.car.hyundai.values import Buttons, CAR, FEATURES, CarControllerParams
+from selfdrive.car.hyundai.cruise_buttons import button_pressed_in_samples
 from opendbc.can.packer import CANPacker
 from common.conversions import Conversions as CV
 from common.params import Params
@@ -206,7 +207,9 @@ class CarController:
     # the planner's departure trajectory. Do not gate it again
     # on SCC11 ACC_ObjDist: some SCC firmwares update that value late (or not
     # at all while latched), which prevents the RES command from ever firing.
-    if CC.cruiseControl.resume and not CS.out.gasPressed:
+    physical_button_pressed = button_pressed_in_samples(
+      CS.cruise_buttons, getattr(CS, 'cruise_button_samples', ()))
+    if CC.cruiseControl.resume and not CS.out.gasPressed and not physical_button_pressed:
       if self.scc_smoother.is_active(self.frame):
         pass
 

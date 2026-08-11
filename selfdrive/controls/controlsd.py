@@ -255,7 +255,8 @@ class Controls:
       return
 
     # Block resume if cruise never previously enabled
-    resume_pressed = any(be.type in (ButtonType.accelCruise, ButtonType.resumeCruise) for be in CS.buttonEvents)
+    resume_pressed = any(be.pressed and be.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
+                         for be in CS.buttonEvents)
     if not self.CP.pcmCruise and self.v_cruise_kph == V_CRUISE_INITIAL and resume_pressed:
       self.events.add(EventName.resumeBlocked)
 
@@ -446,7 +447,8 @@ class Controls:
 
   def update_reverse_reengage(self, CS):
     """Re-engage lateral control once after an engaged R -> D maneuver."""
-    manual_cancel = any(be.type in (ButtonType.cancel, ButtonType.altButton3) for be in CS.buttonEvents)
+    manual_cancel = any((be.type == ButtonType.cancel and be.pressed) or be.type == ButtonType.altButton3
+                        for be in CS.buttonEvents)
     if manual_cancel or CS.gearShifter == GearShifter.park:
       self.reverse_reengage_pending = False
       return
