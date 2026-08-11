@@ -27,7 +27,7 @@ def test_openpilot_long_ignores_stock_startup_fallback():
 
 def test_openpilot_long_cycles_from_saved_gap():
   gap = 2
-  expected = [1, 4, 3, 2]
+  expected = [3, 4, 1, 2]
   for target in expected:
     gap, changed = select_software_gap(gap, gap_button_pressed=True)
     assert gap == target

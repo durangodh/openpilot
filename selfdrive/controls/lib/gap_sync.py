@@ -10,10 +10,10 @@ def select_physical_gap(current_gap, physical_gap, controls_enabled, gap_button_
 
 
 def select_software_gap(current_gap, gap_button_pressed):
-  """Cycle Hyundai gap 4→3→2→1→4 from the persisted software value."""
+  """Cycle Hyundai gap 1→2→3→4→1 like aPilot C2."""
   gap = int(current_gap)
   if not 1 <= gap <= 4:
     gap = 4
   if not gap_button_pressed:
     return gap, False
-  return (gap - 1 if gap > 1 else 4), True
+  return (gap + 1 if gap < 4 else 1), True

@@ -1373,7 +1373,7 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
   list->addItem(new ParamValueControlF(
       "CruiseButtonLongDelay", "크루즈 버튼 길게누름 시간",
       "RES/SET 길게누름 판정시간(×0.01초)입니다. 값 증가(+): 더 오래 눌러야 작동 / 값 감소(-): 빠르게 길게누름으로 판정.",
-      "../assets/offroad/icon_road.png", 30, 150, 5, 0, 70, this));
+      "../assets/offroad/icon_road.png", 30, 150, 5, 0, 40, this));
 
   const std::array<std::tuple<const char*, const char*, int>, 5> cruise_speed_table = {{
     {"CruiseSpeed1", "크루즈 속도표 1단계 (km/h)", 30},

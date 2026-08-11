@@ -61,7 +61,7 @@ def manager_init() -> None:
     ("CruiseButtonMode", "0"),              # 0=normal, 1/2=custom, 3=speed table
     ("CruiseSpeedUnit", "10"),
     ("CruiseSpeedUnitBasic", "1"),
-    ("CruiseButtonLongDelay", "70"),
+    ("CruiseButtonLongDelay", "40"),       # C2 long-press threshold: 0.40 s
     ("CruiseSpeed1", "30"),
     ("CruiseSpeed2", "50"),
     ("CruiseSpeed3", "70"),
@@ -175,6 +175,13 @@ def manager_init() -> None:
         params.put_bool("ExperimentalMode", legacy_e2e_mode == 2)
   except (TypeError, ValueError):
     pass
+
+  # Move devices still using the old 0.70 s default to the C2 0.40 s value
+  # once. Preserve any value the driver already changed from the old default.
+  if params.get("CruiseButtonLongDelayC2Migrated") is None:
+    if params.get("CruiseButtonLongDelay", encoding='utf8') == "70":
+      params.put("CruiseButtonLongDelay", "40")
+    params.put_bool("CruiseButtonLongDelayC2Migrated", True)
 
   # set unset params
   for k, v in default_params:

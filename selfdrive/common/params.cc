@@ -101,6 +101,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"CruiseSpeedUnit", PERSISTENT},
     {"CruiseSpeedUnitBasic", PERSISTENT},
     {"CruiseButtonLongDelay", PERSISTENT},
+    {"CruiseButtonLongDelayC2Migrated", PERSISTENT},
     {"CruiseSpeed1", PERSISTENT},
     {"CruiseSpeed2", PERSISTENT},
     {"CruiseSpeed3", PERSISTENT},
