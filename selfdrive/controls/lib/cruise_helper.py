@@ -327,13 +327,16 @@ class CruiseHelper:
     if not controls.enabled:
       self.long_active_user = 0
       self.long_active_user_ready = 0
+      self.gas_pressed_count = 0
+      self.pre_gas_pressed_max = 0.0
     elif brake_pressed:
+      # Match aPilot C2 pedal priority: brake input owns this control cycle.
       if not self.prev_brake_pressed:
         self._pause_longitudinal(controls)
-    elif self.prev_brake_pressed:
-      self._brake_release_resume(controls, CS)
-
-    if controls.enabled and CS.gasPressed:
+    elif CS.gasPressed:
+      # Gas input is evaluated before either pedal-release path. This prevents
+      # brake release from resuming longitudinal control and the gas path from
+      # immediately pausing it again in the same low-speed control cycle.
       self.gas_pressed_count += 1
       self.gas_pressed_frame = self.param_read_counter
       self.pre_gas_pressed_max = max(self.pre_gas_pressed_max, float(CS.gas))
@@ -349,6 +352,7 @@ class CruiseHelper:
       if self.auto_resume_from_gas_speed < v_ego_kph and v_ego_kph > controls.v_cruise_kph:
         controls.v_cruise_kph = float(clip(v_ego_kph, self.cruise_speed_min, MAX_SET_SPEED_KPH))
     elif self.gas_pressed_count > 0:
+      # Match aPilot C2: process gas release before brake release.
       quick_release = self.gas_pressed_count * DT_CTRL < 0.6 and self.pre_gas_pressed_max > 0.03
       if quick_release and self.auto_resume_from_gas > 1 and self.long_active_user <= 0 and \
          self.auto_cruise_control and v_ego_kph >= self.auto_resume_from_gas_speed and self._resume_guard_ok(CS):
@@ -356,6 +360,10 @@ class CruiseHelper:
         self._resume_longitudinal(controls, CS, 3)
       self.gas_pressed_count = 0
       self.pre_gas_pressed_max = 0.0
+    elif self.prev_brake_pressed:
+      # Brake-release resume runs only when neither gas press nor gas release
+      # was handled, matching aPilot C2's mutually exclusive elif chain.
+      self._brake_release_resume(controls, CS)
 
     self.prev_brake_pressed = brake_pressed
     if v_ego_kph < 20.0:
