@@ -21,7 +21,8 @@ LON_MPC_STEP = 0.2  # first step is 0.2s
 AWARENESS_DECEL = -0.2  # car smoothly decel at .2m/s^2 when user is distracted
 A_CRUISE_MIN = -1.2
 
-A_CRUISE_MAX_BP = [0.0, 10.0 * CV.KPH_TO_MS, 40.0 * CV.KPH_TO_MS, 60.0 * CV.KPH_TO_MS,
+# Keep the CruiseMax breakpoints identical to the aPilot C2 UI labels.
+A_CRUISE_MAX_BP = [0.0, 40.0 * CV.KPH_TO_MS, 60.0 * CV.KPH_TO_MS,
                    80.0 * CV.KPH_TO_MS, 110.0 * CV.KPH_TO_MS, 140.0 * CV.KPH_TO_MS]
 CRUISE_MAX_VAL_KEYS = ["CruiseMaxVals1", "CruiseMaxVals2", "CruiseMaxVals3",
                        "CruiseMaxVals4", "CruiseMaxVals5", "CruiseMaxVals6"]
@@ -145,9 +146,9 @@ class LongitudinalPlanner:
       self.long_actuator_delay = float(clip(configured_delay, 0.1, 1.0))
 
   def get_max_accel(self, v_ego):
-    # C3 keeps the first configured acceleration flat through 10 km/h. Reuse
-    # the existing six settings so no parameter/schema migration is needed.
-    return interp(v_ego, A_CRUISE_MAX_BP, [self.cruise_max_vals[0]] + self.cruise_max_vals)
+    # aPilot C2 maps the six CruiseMax values directly to
+    # 0/40/60/80/110/140 km/h.
+    return interp(v_ego, A_CRUISE_MAX_BP, self.cruise_max_vals)
 
   def reset_auto_e2e(self):
     self.conditional_e2e.reset()
@@ -260,7 +261,9 @@ class LongitudinalPlanner:
     if self.mpc.mode == 'acc':
       accel_limits = [A_CRUISE_MIN, cruise_max_accel]
     else:
-      accel_limits = [MIN_ACCEL, MAX_ACCEL]
+      # CruiseMax is a driver-selected physical acceleration ceiling. Keep it
+      # active in blended/E2E as well; only the deceleration range differs.
+      accel_limits = [MIN_ACCEL, cruise_max_accel]
 
     if reset_state:
       self.v_desired_filter.x = v_ego
