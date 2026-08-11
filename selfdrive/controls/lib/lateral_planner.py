@@ -1,4 +1,5 @@
 import numpy as np
+from common.conversions import Conversions as CV
 from common.realtime import sec_since_boot, DT_MDL
 from common.numpy_fast import interp
 from selfdrive.controls.lib.lane_planner import LanePlanner
@@ -7,9 +8,7 @@ from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import LateralMpc
 from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import N as LAT_MPC_N
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, MIN_SPEED
 from selfdrive.controls.lib.desire_helper import DesireHelper, AUTO_LCA_START_TIME
-from selfdrive.controls.lib.dynamic_lane import (select_lateral_path,
-                                                 update_dynamic_lane_profile,
-                                                 update_low_speed_laneless)
+from selfdrive.controls.lib.dynamic_lane import select_lateral_path, update_dynamic_lane_profile
 import cereal.messaging as messaging
 from cereal import log
 from common.params import Params
@@ -68,7 +67,6 @@ class LateralPlanner:
     self.dynamic_lane_profile = 0
     self.dynamic_lane_profile_status = True
     self.dynamic_lane_profile_status_buffer = True
-    self.low_speed_laneless = True
 
     self.param_read_counter = 0
     self.read_param(force=True)
@@ -100,7 +98,6 @@ class LateralPlanner:
     self.read_param()
 
     measured_curvature = sm['controlsState'].curvature
-    v_ego_car = sm['carState'].vEgo
 
     md = sm['modelV2']
     self.LP.parse_model(md)
@@ -126,23 +123,17 @@ class LateralPlanner:
     # independent from the explicit lane-line path.
     model_path_xyz = self.path_xyz.copy()
     self.d_path_w_lines_xyz = self.LP.get_d_path(
-      v_ego_car, self.t_idxs, model_path_xyz.copy())
+      self.v_ego, self.t_idxs, model_path_xyz.copy())
 
-    self.low_speed_laneless = update_low_speed_laneless(
-      v_ego_car, self.low_speed_laneless)
-    use_laneless, profile_laneless = self.get_dynamic_lane_profile(
-      self.low_speed_laneless)
+    low_speed = self.v_ego < 10 * CV.MPH_TO_MS
+    use_laneless = self.get_dynamic_lane_profile(low_speed)
 
     # OffsetTotal applies equally to both candidate paths. Keep the candidates
     # independent so selecting one cannot mutate the other or its telemetry.
     model_path_xyz[:, 1] += self.offset_total
     self.d_path_w_lines_xyz[:, 1] += self.offset_total
-    # Keep explicit Lane-less and Auto-laneless on the untouched model path.
-    # Lane-only and confident Auto use LanePlanner's own low-speed blend: pure
-    # model below 5 km/h, progressively more lane guidance up to 10 km/h. The
-    # published state still reports the legacy low-speed laneless mode.
     self.path_xyz = select_lateral_path(
-      model_path_xyz, self.d_path_w_lines_xyz, profile_laneless)
+      model_path_xyz, self.d_path_w_lines_xyz, use_laneless)
     self.dynamic_lane_profile_status = use_laneless
 
     if not use_laneless:
@@ -150,7 +141,7 @@ class LateralPlanner:
                                LATERAL_ACCEL_COST, LATERAL_JERK_COST,
                                STEERING_RATE_COST)
     else:
-      lateral_motion_cost = interp(v_ego_car, [5.0, 10.0],
+      lateral_motion_cost = interp(self.v_ego, [5.0, 10.0],
                                    [LATERAL_MOTION_COST * 1.5, LATERAL_MOTION_COST])
       self.lat_mpc.set_weights(PATH_COST, lateral_motion_cost,
                                LATERAL_ACCEL_COST, LATERAL_JERK_COST,
@@ -200,12 +191,11 @@ class LateralPlanner:
     lane_change_active = self.DH.lane_change_state in (
       LaneChangeState.laneChangeStarting, LaneChangeState.laneChangeFinishing)
     lane_change_off = self.DH.lane_change_state == LaneChangeState.off
-    use_laneless, profile_laneless, laneless_buffer = update_dynamic_lane_profile(
+    use_laneless, self.dynamic_lane_profile_status_buffer = update_dynamic_lane_profile(
       self.dynamic_lane_profile, self.LP.lll_prob, self.LP.rll_prob,
       lane_change_active, lane_change_off, low_speed,
       self.dynamic_lane_profile_status_buffer)
-    self.dynamic_lane_profile_status_buffer = laneless_buffer
-    return use_laneless, profile_laneless
+    return use_laneless
 
   def publish(self, sm, pm):
     plan_solution_valid = self.solution_invalid_cnt < 2
