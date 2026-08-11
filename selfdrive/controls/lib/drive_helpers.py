@@ -1,6 +1,6 @@
 import math
 
-from cereal import car
+from cereal import car, log
 from common.conversions import Conversions as CV
 from common.numpy_fast import clip, interp
 from common.realtime import DT_MDL
@@ -23,6 +23,7 @@ CAR_ROTATION_RADIUS = 0.0
 
 # EU guidelines
 MAX_LATERAL_JERK = 10.0
+MAX_VEL_ERR = 5.0
 
 ButtonType = car.CarState.ButtonEvent.Type
 CRUISE_LONG_PRESS = 50
@@ -34,6 +35,14 @@ CRUISE_INTERVAL_SIGN = {
   ButtonType.accelCruise: +1,
   ButtonType.decelCruise: -1,
 }
+
+
+def get_speed_error(modelV2: log.ModelDataV2, v_ego: float) -> float:
+  # Match aPilot C2: align model temporal velocity with measured ego speed.
+  if len(modelV2.temporalPose.trans):
+    vel_err = clip(modelV2.temporalPose.trans[0] - v_ego, -MAX_VEL_ERR, MAX_VEL_ERR)
+    return float(vel_err)
+  return 0.0
 
 
 def apply_deadzone(error, deadzone):
