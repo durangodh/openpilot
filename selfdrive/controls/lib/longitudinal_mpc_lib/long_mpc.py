@@ -34,7 +34,7 @@ COST_E_DIM = 5
 COST_DIM = COST_E_DIM + 1
 CONSTR_DIM = 4
 
-X_EGO_OBSTACLE_COST = 5.
+X_EGO_OBSTACLE_COST = 6.0
 X_EGO_COST = 0.
 V_EGO_COST = 0.
 A_EGO_COST = 0.
@@ -452,12 +452,9 @@ class LongitudinalMpc:
       x_obstacles = np.column_stack(obstacles)
       self.source = SOURCES[np.argmin(x_obstacles[0])]
 
-      cruise_target = T_IDXS * np.clip(v_cruise, v_ego - 2.0, 1e3) + x[0]
-      xforward = ((v[1:] + v[:-1]) / 2) * (T_IDXS[1:] - T_IDXS[:-1])
-      x = np.cumsum(np.insert(xforward, 0, x[0]))
-
-      x_and_cruise = np.column_stack([x, cruise_target])
-      x = np.min(x_and_cruise, axis=1)
+      # aPilot C2 ACC is obstacle-based. Do not feed the model's E2E
+      # position/velocity/acceleration references into the ACC solve.
+      x[:], v[:], a[:], j[:] = 0.0, 0.0, 0.0, 0.0
 
     elif self.mode == 'blended':
 
