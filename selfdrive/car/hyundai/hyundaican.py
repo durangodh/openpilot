@@ -137,8 +137,10 @@ def create_scc11(packer, frame, enabled, set_speed, lead_visible, scc_live, scc1
   values["VSetDis"] = set_speed
   if cruise_gap is not None and 1 <= int(cruise_gap) <= 4:
     values["TauGapSet"] = int(cruise_gap)
-  if soft_hold and enabled:
-    values["SCCInfoDisplay"] = 4
+  # aPilot C2 explicitly clears the standstill/departure display when soft
+  # hold is released. Copying the stock SCC11 value leaves 4 latched and can
+  # prevent Genesis DH from transitioning to starting after the lead departs.
+  values["SCCInfoDisplay"] = 4 if soft_hold and enabled else 0
 
   if not scc_live:
     values["MainMode_ACC"] = 1
