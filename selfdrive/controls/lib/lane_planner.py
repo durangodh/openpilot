@@ -63,7 +63,6 @@ class LanePlanner:
     self.lane_width_right_filtered = FirstOrderFilter(1.0, 1.0, DT_MDL)
     self.lane_offset_filtered = FirstOrderFilter(0.0, 2.0, DT_MDL)
     self.lane_offset = 0.0
-    self.d_prob_count = 0
     self.params = Params()
     self.adjust_lane_offset = 0.0
     self.param_read_frame = 0
@@ -99,7 +98,7 @@ class LanePlanner:
       self.l_lane_change_prob = desire_state[log.LateralPlan.Desire.laneChangeLeft]
       self.r_lane_change_prob = desire_state[log.LateralPlan.Desire.laneChangeRight]
 
-  def get_d_path(self, v_ego, path_t, path_xyz):
+  def get_d_path(self, v_ego, path_t, path_xyz, lanelines_active):
     l_prob, r_prob = self.lll_prob, self.rll_prob
     width_pts = self.rll_y - self.lll_y
     prob_mods = []
@@ -184,23 +183,12 @@ class LanePlanner:
     self.lane_offset_filtered.update(interp(self.d_prob, [0.0, 0.3], [0.0, offset_lane]))
     self.lane_offset = float(self.lane_offset_filtered.x)
 
-    # ── carrot 이식 3 : 차선 신뢰가 1초 이상 유지돼야 차선경로 사용 ────────
-    #   확률이 임계 부근에서 흔들릴 때 경로가 튀는 것을 막는다.
-    self.d_prob_count = self.d_prob_count + 1 if self.d_prob > 0.3 else 0
-    laneline_ready = self.d_prob_count > int(1.0 / DT_MDL)
-    d_prob_apply = self.d_prob if laneline_ready else 0.0
-
-    # 저속에서는 차선경로 비중을 줄인다 (5~10km/h 구간)
-    d_prob_apply *= interp(v_ego * 3.6, [5.0, 10.0], [0.0, 1.0])
-
     safe_idxs = np.isfinite(self.ll_t)
-    if safe_idxs[0]:
+    if safe_idxs[0] and lanelines_active:
       lane_path_y_interp = np.interp(path_t, self.ll_t[safe_idxs], lane_path_y[safe_idxs])
-      path_xyz[:,1] = d_prob_apply * lane_path_y_interp + (1.0 - d_prob_apply) * path_xyz[:,1]
+      path_xyz[:,1] = self.d_prob * lane_path_y_interp + (1.0 - self.d_prob) * path_xyz[:,1]
       # 차선경로가 쓰이는 비중만큼만 여유공간 보정을 적용한다.
-      # (주의: 이 포크는 path_xyz 를 in-place 로 수정하므로 레인리스 경로에도
-      #  같은 배열이 쓰인다. d_prob_apply 로 곱해 누수를 막는다.)
-      path_xyz[:,1] += self.lane_offset * d_prob_apply
-    else:
+      path_xyz[:,1] += self.lane_offset * self.d_prob
+    elif not safe_idxs[0]:
       cloudlog.warning("Lateral mpc - NaNs in laneline times, ignoring")
     return path_xyz

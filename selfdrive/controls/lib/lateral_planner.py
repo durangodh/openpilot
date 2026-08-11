@@ -65,7 +65,8 @@ class LateralPlanner:
 
     self.dynamic_lane_profile = 0
     self.dynamic_lane_profile_status = True
-    self.dynamic_lane_profile_status_buffer = False
+    self.dynamic_lane_profile_status_buffer = True
+    self.use_lane_line_mode = False
 
     self.param_read_counter = 0
     self.read_param(force=True)
@@ -116,23 +117,21 @@ class LateralPlanner:
     if self.DH.desire == log.LateralPlan.Desire.laneChangeRight or self.DH.desire == log.LateralPlan.Desire.laneChangeLeft:
       self.LP.lll_prob *= self.DH.lane_change_ll_prob
       self.LP.rll_prob *= self.DH.lane_change_ll_prob
-    self.d_path_w_lines_xyz = self.LP.get_d_path(self.v_ego, self.t_idxs, self.path_xyz)
 
-    low_speed = self.v_ego < 10 * CV.MPH_TO_MS
+    lane_mode_speed = 10 * CV.MPH_TO_MS
+    if self.v_ego >= lane_mode_speed + 2 * CV.KPH_TO_MS:
+      self.use_lane_line_mode = True
+    elif self.v_ego < lane_mode_speed - 2 * CV.KPH_TO_MS:
+      self.use_lane_line_mode = False
 
-    if not self.get_dynamic_lane_profile(sm['longitudinalPlan']) and not low_speed:
-      self.path_xyz = self.d_path_w_lines_xyz
-      self.dynamic_lane_profile_status = False
-      self.lat_mpc.set_weights(PATH_COST, LATERAL_MOTION_COST,
-                               LATERAL_ACCEL_COST, LATERAL_JERK_COST,
-                               STEERING_RATE_COST)
-    else:
-      self.dynamic_lane_profile_status = True
-      lateral_motion_cost = interp(self.v_ego, [5.0, 10.0],
-                                   [LATERAL_MOTION_COST * 1.5, LATERAL_MOTION_COST])
-      self.lat_mpc.set_weights(PATH_COST, lateral_motion_cost,
-                               LATERAL_ACCEL_COST, LATERAL_JERK_COST,
-                               STEERING_RATE_COST)
+    use_laneless = not self.use_lane_line_mode or self.get_dynamic_lane_profile()
+    self.dynamic_lane_profile_status = use_laneless
+    self.d_path_w_lines_xyz = self.LP.get_d_path(
+      self.v_ego, self.t_idxs, self.path_xyz, not use_laneless)
+
+    self.lat_mpc.set_weights(PATH_COST, LATERAL_MOTION_COST,
+                             LATERAL_ACCEL_COST, LATERAL_JERK_COST,
+                             STEERING_RATE_COST)
 
     # offset_total 을 최종 결정된 path_xyz 에 적용 (레인모드/레인리스 공통)
     self.path_xyz[:, 1] += self.offset_total
@@ -173,7 +172,7 @@ class LateralPlanner:
     else:
       self.solution_invalid_cnt = 0
 
-  def get_dynamic_lane_profile(self, longitudinal_plan):
+  def get_dynamic_lane_profile(self):
     """True = 레인리스 경로 사용, False = 레인모드(차선) 경로 사용.
     DynamicLaneProfile 하나로만 결정한다. (0=레인모드 1=레인리스 2=오토)
     """
@@ -186,9 +185,9 @@ class LateralPlanner:
       if self.DH.lane_change_state in (LaneChangeState.laneChangeStarting, LaneChangeState.laneChangeFinishing):
         return True
       elif self.DH.lane_change_state == LaneChangeState.off:
-        if (self.LP.lll_prob + self.LP.rll_prob) / 2 < 0.3:
+        if self.LP.lll_prob < 0.3 and self.LP.rll_prob < 0.3:
           self.dynamic_lane_profile_status_buffer = True
-        if (self.LP.lll_prob + self.LP.rll_prob) / 2 > 0.5:
+        elif self.LP.lll_prob > 0.5 and self.LP.rll_prob > 0.5:
           self.dynamic_lane_profile_status_buffer = False
         if self.dynamic_lane_profile_status_buffer:
           return True
