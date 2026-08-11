@@ -688,11 +688,6 @@ class Controls:
     if not self.joystick_mode:
       # accel PID loop
       pid_accel_limits = self.CI.get_pid_accel_limits(self.CP, CS.vEgo, self.v_cruise_kph * CV.KPH_TO_MS)
-      # CruiseMax is the final positive-acceleration ceiling for ACC, E2E,
-      # PID feedback and the optional starting state. Braking authority is
-      # deliberately left at the vehicle interface limit.
-      pid_accel_limits = (pid_accel_limits[0],
-                          min(pid_accel_limits[1], self.cruise_helper.get_cruise_max_accel(CS.vEgo)))
       t_since_plan = (self.sm.frame - self.sm.rcv_frame['longitudinalPlan']) * DT_CTRL
       actuators.accel, actuators.jerk = self.LoC.update(
         CC.longActive,
