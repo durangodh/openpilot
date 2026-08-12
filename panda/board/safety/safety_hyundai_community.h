@@ -131,10 +131,10 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
       update_sample(&torque_driver, torque_driver_new);
     }
 
-    // The physical SCC MAIN state is authoritative for lateral control. Do
-    // not stop tracking it while openpilot SCC12 replacement is active: the
-    // old SCC12_op gate could leave controls_allowed stale indefinitely.
-    if (addr == 1056) {
+    // Match apilot-c2 ownership: while openpilot is replacing SCC12, stock
+    // SCC11 display changes (including the brake-time MAIN drop) must not
+    // revoke lateral authority.
+    if (addr == 1056 && !SCC12_op) {
       // 2 bits: 13-14
       int cruise_engaged = GET_BYTES_04(to_push) & 0x1; // ACC main_on signal
       hyundai_community_main_on = cruise_engaged != 0;
@@ -151,7 +151,7 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
     }
 
     // cruise control for car without SCC ( EMS16 )
-    if (addr == 608 && bus == 0 && SCC_bus == -1) {
+    if (addr == 608 && bus == 0 && SCC_bus == -1 && !SCC12_op) {
       // bit 25
       int cruise_engaged = (GET_BYTES_04(to_push) >> 25 & 0x1); // ACC main_on signal
       hyundai_community_main_on = cruise_engaged != 0;
@@ -187,19 +187,16 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
     } else {
     }
 
-    // Use only the physical driver-brake bit. DriverOverride can also report
-    // SCC braking on legacy Hyundai platforms and must not revoke controls.
+    // Preserve the pre-brake lateral state only while openpilot owns SCC12.
+    // generic_rx_checks still records the physical brake and applies the
+    // standard pedal interlock; SCC12 tx safety independently requires zero
+    // acceleration while brake_pressed_prev is true.
+    bool controls_allowed_before_pedal_check = controls_allowed;
     if (addr == 916) {
       brake_pressed = (GET_BYTE(to_push, 6) >> 7) != 0U;
     }
     generic_rx_checks((addr == 832 && bus == 0)); // LKAS11
-
-    // generic_rx_checks clears controls_allowed on every moving brake sample.
-    // Community mode intentionally keeps lateral active while physical SCC
-    // MAIN remains on. Restore that authorization immediately so releasing
-    // the brake cannot create a one-frame LKAS rejection/torque discontinuity.
-    // SCC12 remains independently limited to zero acceleration while braking.
-    if (hyundai_community_main_on && brake_pressed) {
+    if (SCC12_op && brake_pressed && controls_allowed_before_pedal_check) {
       controls_allowed = 1;
     }
   }
