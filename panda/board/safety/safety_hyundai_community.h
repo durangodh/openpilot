@@ -6,7 +6,18 @@ int SCC12_car = 0;
 int EMS11_op = 0;
 int MDPS_bus = -1;
 int SCC_bus = -1;
+
+// Raw physical SCC MAIN state, plus a debounced lateral authorization latch.
+// Lateral authority must NOT follow controls_allowed: generic_rx_checks drops
+// controls_allowed on every moving brake sample, and some platforms blink the
+// stock SCC11 MAIN bit during a brake/override transition. Either one would
+// make the LKAS11 tx gate flap, which in turn lets the stock camera LKAS11
+// interleave with openpilot's on the MDPS bus and latches an MDPS fault.
 bool hyundai_community_main_on = false;
+bool hyundai_community_lat_allowed = false;
+int hyundai_community_main_off_cnt = 0;
+// SCC11/EMS16 arrive at 50 Hz, so this is ~0.5 s of sustained MAIN off.
+#define HYUNDAI_COMMUNITY_MAIN_OFF_FRAMES 25
 
 // Keep panda's longitudinal envelope aligned with CarControllerParams.
 // SCC12 encodes acceleration in 1/100 m/s^2.
@@ -44,6 +55,30 @@ AddrCheckStruct hyundai_community_addr_checks[] = {
 #define HYUNDAI_COMMUNITY_ADDR_CHECK_LEN (sizeof(hyundai_community_addr_checks) / sizeof(hyundai_community_addr_checks[0]))
 
 addr_checks hyundai_community_rx_checks = {hyundai_community_addr_checks, HYUNDAI_COMMUNITY_ADDR_CHECK_LEN};
+
+// Track the physical MAIN switch. controls_allowed keeps the standard pedal
+// interlock (longitudinal), while hyundai_community_lat_allowed only drops
+// after MAIN has been off continuously, so a transient bit drop during a
+// brake/override transition cannot revoke steering.
+static void hyundai_community_update_main(int cruise_engaged) {
+  hyundai_community_main_on = cruise_engaged != 0;
+
+  if (cruise_engaged) {
+    hyundai_community_main_off_cnt = 0;
+    if (!hyundai_community_lat_allowed) {
+      hyundai_community_lat_allowed = true;
+      puts("  SCC main on: lateral allowed\n");
+    }
+  } else {
+    if (hyundai_community_main_off_cnt < HYUNDAI_COMMUNITY_MAIN_OFF_FRAMES) {
+      hyundai_community_main_off_cnt++;
+    } else if (hyundai_community_lat_allowed) {
+      hyundai_community_lat_allowed = false;
+      puts("  SCC main off: lateral not allowed\n");
+    } else {
+    }
+  }
+}
 
 static int hyundai_community_rx_hook(CANPacket_t *to_push) {
   int addr = GET_ADDR(to_push);
@@ -131,18 +166,19 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
       update_sample(&torque_driver, torque_driver_new);
     }
 
-    // Match apilot-c2 ownership: while openpilot is replacing SCC12, stock
-    // SCC11 display changes (including the brake-time MAIN drop) must not
-    // revoke lateral authority.
-    if (addr == 1056 && !SCC12_op) {
+    // The physical SCC MAIN state is authoritative. Never gate this on
+    // SCC12_op: openpilot replaces SCC12 from boot when longitudinal control
+    // is configured, so an SCC12_op gate freezes this handler forever and
+    // controls_allowed can never be set.
+    if (addr == 1056) {
       // 2 bits: 13-14
       int cruise_engaged = GET_BYTES_04(to_push) & 0x1; // ACC main_on signal
-      hyundai_community_main_on = cruise_engaged != 0;
+      hyundai_community_update_main(cruise_engaged);
       if (cruise_engaged && !controls_allowed && !brake_pressed) {
         controls_allowed = 1;
         puts("  SCC main on: controls allowed\n");
       }
-      if (!cruise_engaged) {
+      if (!cruise_engaged && !hyundai_community_lat_allowed) {
         if (controls_allowed) {
           puts("  SCC main off: controls not allowed\n");}
         controls_allowed = 0;
@@ -151,15 +187,15 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
     }
 
     // cruise control for car without SCC ( EMS16 )
-    if (addr == 608 && bus == 0 && SCC_bus == -1 && !SCC12_op) {
+    if (addr == 608 && bus == 0 && SCC_bus == -1) {
       // bit 25
       int cruise_engaged = (GET_BYTES_04(to_push) >> 25 & 0x1); // ACC main_on signal
-      hyundai_community_main_on = cruise_engaged != 0;
-      if (cruise_engaged && !cruise_engaged_prev) {
+      hyundai_community_update_main(cruise_engaged);
+      if (cruise_engaged && !controls_allowed && !brake_pressed) {
         controls_allowed = 1;
         puts("  non-SCC w/ long control: controls allowed\n");
       }
-      if (!cruise_engaged) {
+      if (!cruise_engaged && !hyundai_community_lat_allowed) {
         if (controls_allowed) {
           puts("  non-SCC w/ long control: controls not allowed\n");}
         controls_allowed = 0;
@@ -187,18 +223,14 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
     } else {
     }
 
-    // Preserve the pre-brake lateral state only while openpilot owns SCC12.
-    // generic_rx_checks still records the physical brake and applies the
-    // standard pedal interlock; SCC12 tx safety independently requires zero
-    // acceleration while brake_pressed_prev is true.
-    bool controls_allowed_before_pedal_check = controls_allowed;
+    // Use only the physical driver-brake bit, matching carstate DriverBraking.
+    // generic_rx_checks applies the standard pedal interlock to
+    // controls_allowed (longitudinal). Lateral authority is tracked separately
+    // by hyundai_community_lat_allowed and is intentionally not touched here.
     if (addr == 916) {
       brake_pressed = (GET_BYTE(to_push, 6) >> 7) != 0U;
     }
     generic_rx_checks((addr == 832 && bus == 0)); // LKAS11
-    if (SCC12_op && brake_pressed && controls_allowed_before_pedal_check) {
-      controls_allowed = 1;
-    }
   }
   return valid;
 }
@@ -231,6 +263,9 @@ static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_all
 
   // SCC12: enforce the same -4.0 to +2.5 m/s^2 range used by controls.
   // When longitudinal actuation is not allowed, both requests must be zero.
+  // carcontroller must already zero the request while the driver brake is
+  // applied, otherwise this rejection hands the SCC12 stream back to the
+  // stock ECU for a frame and the cluster reports it as a fault.
   if (addr == 1057) {
     int desired_accel_raw = (((GET_BYTE(to_send, 4) & 0x7U) << 8) | GET_BYTE(to_send, 3)) - 1023;
     int desired_accel_val = ((GET_BYTE(to_send, 5) << 3) | (GET_BYTE(to_send, 4) >> 5)) - 1023;
@@ -250,14 +285,14 @@ static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_all
     }
   }
 
-  // LKA STEER: keep lateral authority while the driver brakes with
-  // physical SCC MAIN still on. Longitudinal remains blocked independently
-  // by controls_allowed/brake_pressed_prev in the SCC12 safety check above.
+  // LKA STEER: gated on the debounced physical MAIN latch, not on
+  // controls_allowed. Longitudinal actuation stays independently blocked by
+  // controls_allowed/brake_pressed_prev in the SCC12 check above.
   if (addr == 832) {
     int desired_torque = ((GET_BYTES_04(to_send) >> 16) & 0x7ff) - 1024;
     uint32_t ts = microsecond_timer_get();
     bool violation = 0;
-    bool lateral_allowed = controls_allowed || (hyundai_community_main_on && brake_pressed_prev);
+    bool lateral_allowed = hyundai_community_lat_allowed;
 
     if (lateral_allowed) {
       // *** global torque limit check ***
@@ -291,15 +326,13 @@ static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_all
       }
     }
 
-    // No torque unless either normal controls or the brake-only
-    // lateral latch is allowed.
+    // no torque if lateral is not allowed
     if (!lateral_allowed && (desired_torque != 0)) {
       violation = 1;
       puts("  LKAS torque not allowed: lateral not allowed!\n");
     }
 
-    // Reset the rate state after a rejected command. The controller must ramp
-    // again from zero, and stock LKAS forwarding is restored below.
+    // reset to 0 if either controls is not allowed or there's a violation
     if (violation || !lateral_allowed) {
       desired_torque_last = 0;
       rt_torque_last = 0;
@@ -321,17 +354,18 @@ static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_all
     }
   }
 
-  // Only a message accepted by every safety check may suppress its stock
-  // counterpart. Previously a rejected LKAS11 still refreshed LKAS11_op,
-  // black-holing both openpilot and stock LKAS traffic on the MDPS bus.
-  if (addr == 832) { LKAS11_op = tx ? 20 : 0; }
-  if (addr == 593) { MDPS12_op = tx ? 20 : 0; }
-  if (addr == 1265 && bus == 1) { CLU11_op = tx ? 20 : 0; } // only count messages created for MDPS
+  // Keep suppressing the stock counterpart even when a frame is rejected.
+  // Making these conditional on tx lets the stock camera LKAS11 (or the stock
+  // SCC12) interleave with openpilot's stream for a single frame, which the
+  // MDPS sees as an AliveCounter/checksum break and latches as a fault.
+  if (addr == 832) { LKAS11_op = 20; }
+  if (addr == 593) { MDPS12_op = 20; }
+  if (addr == 1265 && bus == 1) { CLU11_op = 20; } // only count messages created for MDPS
   if (addr == 1057) {
-    SCC12_op = tx ? 20 : 0;
-    if (tx && SCC12_car > 0) { SCC12_car -= 1; }
+    SCC12_op = 20;
+    if (SCC12_car > 0) { SCC12_car -= 1; }
   }
-  if (addr == 790) { EMS11_op = tx ? 20 : 0; }
+  if (addr == 790) { EMS11_op = 20; }
 
   // 1 allows the message through
   return tx;
@@ -406,6 +440,8 @@ static const addr_checks* hyundai_community_init(int16_t param) {
   UNUSED(param);
   controls_allowed = false;
   hyundai_community_main_on = false;
+  hyundai_community_lat_allowed = false;
+  hyundai_community_main_off_cnt = 0;
   relay_malfunction_reset();
 
   if (current_board->has_obd && Fwd_obd) {
