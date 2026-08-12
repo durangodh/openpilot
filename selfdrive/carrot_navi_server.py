@@ -35,6 +35,9 @@ ENABLED = {
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 MAX_MAP_FRAME_BYTES = 2 * 1024 * 1024
 MAX_LANE_FRAME_BYTES = 512 * 1024
+MAP_RENDER_WIDTH = 640
+MAP_RENDER_HEIGHT = 384
+MAP_RENDER_FPS = 5
 
 
 class NaviState(object):
@@ -178,7 +181,10 @@ def manifest():
       elif kind == "image":
         params = {"format": "png", "max_fps": 1}
       else:
-        params = {"width": 480, "height": 540, "dpi": 160, "fps": 5,
+        # Match the 768x462 EON information panel aspect ratio without asking
+        # the EON to decode more pixels than the old portrait 480x540 stream.
+        params = {"width": MAP_RENDER_WIDTH, "height": MAP_RENDER_HEIGHT, "dpi": 160,
+                  "fps": MAP_RENDER_FPS,
                   "codec": "jpeg", "jpeg_quality": 65,
                   "camera_mode": "app_sync", "map_theme": "light"}
       streams.append({"kind": kind, "name": name, "schema_version": 1,

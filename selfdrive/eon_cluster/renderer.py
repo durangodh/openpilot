@@ -271,7 +271,9 @@ def _safe_image(path):
     if cached is not None and cached[0] == signature:
       return cached[1]
     with Image.open(path) as source:
-      image = source.convert("RGB")
+      # Keep TMap overlay transparency. Converting lane PNGs to RGB turned
+      # their transparent canvas into a large black strip over the map.
+      image = source.convert("RGBA" if "A" in source.getbands() else "RGB")
     _IMAGE_CACHE[path] = (signature, image)
     return image
   except (IOError, OSError, ValueError):
@@ -823,11 +825,11 @@ class HudRenderer(object):
   def _draw_navi_panel(self, image, draw, box, navi, language="ko", is_metric=True):
     left, top, right, bottom = box
     panel_w = right - left
-    # Preserve the complete TMap frame. Cover-cropping removed the source
-    # frame's right and bottom edges when its aspect ratio differed from the
-    # 40-percent cluster panel.
+    # Preserve the complete TMap frame. The receiver requests the same wide
+    # aspect ratio as this panel, so this remains edge-to-edge without crop bars.
     map_image = _safe_full_image(NAVI_MAP, (panel_w, bottom - top))
-    if map_image is not None and navi:
+    map_live = map_image is not None and bool(navi)
+    if map_live:
       image.paste(map_image, (left, top))
     else:
       draw.rectangle(box, fill=(10, 17, 24))
@@ -837,34 +839,26 @@ class HudRenderer(object):
     if not navi:
       return
     guide = navi.get("guidance_current") or {}
-    route = navi.get("route") or {}
     instruction = guide.get("main_text") or guide.get("road_name") or ("안내 없음" if language == "ko" else "No guidance")
     distance = int(guide.get("distance_m", -1) or -1)
-    card = (left + 18, top + 18, right - 18, top + int(self.height * 0.31))
-    draw.rounded_rectangle(card, radius=18, fill=(12, 18, 25), outline=(52, 151, 108), width=3)
+    card = (left + 18, top + 18, right - 18, top + int(self.height * 0.27))
+    # TMap-style guidance header instead of the former opaque black top bar.
+    draw.rounded_rectangle(card, radius=18, fill=(20, 157, 118), outline=(99, 232, 189), width=3)
     if len(instruction) > 17:
       instruction = instruction[:16] + "…"
     _draw_text(draw, (card[0] + 20, card[1] + 18), instruction, max(24, self.height // 12), True,
                fill=(240, 242, 244), anchor="la")
     if distance >= 0:
       distance_text = _distance_text(distance, is_metric, language)
-      _draw_text(draw, (card[0] + 20, card[3] - 18), distance_text,
-                 max(23, self.height // 11), True, fill=(64, 181, 255), anchor="ls")
+      _draw_text(draw, (card[0] + 20, card[3] - 16), distance_text,
+                 max(23, self.height // 11), True, fill=(245, 251, 248), anchor="ls")
 
     lane_w, lane_h = int(panel_w * 0.58), int(self.height * 0.18)
     lane = _safe_fitted_image(NAVI_LANE, (lane_w, lane_h))
     if lane is not None:
       lane_x = right - lane_w - 18
       lane_y = bottom - lane_h - 18
-      image.paste(lane, (lane_x, lane_y))
-
-    remain_distance = int(route.get("remain_distance_m", -1) or -1)
-    if remain_distance >= 0:
-      remain = _distance_text(remain_distance, is_metric, language, prefix=True)
-      draw.rounded_rectangle((left + 18, bottom - 62, left + min(panel_w - 18, 330), bottom - 18),
-                             radius=12, fill=(12, 18, 25))
-      _draw_text(draw, (left + 32, bottom - 39), remain, max(16, self.height // 20), True,
-                 fill=(205, 215, 222), anchor="lm")
+      image.paste(lane, (lane_x, lane_y), lane if lane.mode == "RGBA" else None)
 
   def _theme_colors(self, theme):
     # carrot-wip compatible mapping: 0 auto by local time, 1 dark, 2 light.

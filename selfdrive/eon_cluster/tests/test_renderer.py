@@ -3,6 +3,7 @@ import time
 
 import selfdrive.eon_cluster.renderer as renderer_module
 from selfdrive.eon_cluster.renderer import HudRenderer, read_navi_state
+from selfdrive.carrot_navi_server import MAP_RENDER_FPS, MAP_RENDER_HEIGHT, MAP_RENDER_WIDTH, manifest
 
 
 def test_stale_navi_state_is_rejected(tmp_path):
@@ -163,6 +164,39 @@ def test_carrot_3d_scene_has_vehicle_and_control_gauges_without_path_ribbon():
   assert any(red > 240 and green < 100 and blue < 100 for red, green, blue in colors)
   # The legacy status path color is not painted by the driving panel.
   assert HudRenderer._path_color(True, scene) not in colors
+
+
+def test_tmap_fills_panel_and_transparent_lane_does_not_make_black_bar(tmp_path, monkeypatch):
+  from PIL import Image
+  map_path = tmp_path / "map.jpg"
+  lane_path = tmp_path / "lane.png"
+  map_color = (41, 112, 173)
+  Image.new("RGB", (640, 384), map_color).save(str(map_path), quality=95)
+  lane = Image.new("RGBA", (320, 80), (0, 0, 0, 0))
+  lane.putpixel((160, 40), (255, 255, 255, 255))
+  lane.save(str(lane_path))
+  monkeypatch.setattr(renderer_module, "NAVI_MAP", str(map_path))
+  monkeypatch.setattr(renderer_module, "NAVI_LANE", str(lane_path))
+
+  renderer = HudRenderer(1920, 462, 50)
+  navi = {"guidance_current": {"main_text": "TURN", "distance_m": 120}}
+  frame = renderer.render(55.0, 88.0, True, navi, {"lanes": [], "edges": [], "leads": []})
+  # Uncovered corners retain the map frame at both the top and bottom.
+  for point in ((1908, 6), (1908, 453)):
+    red, green, blue = frame.getpixel(point)
+    assert blue > green > red
+  # Transparent pixels in the lane overlay must leave the map visible.
+  red, green, blue = frame.getpixel((1880, 410))
+  assert blue > green > red
+
+
+def test_tmap_stream_is_wide_and_does_not_increase_pixel_load():
+  render_stream = next(stream for stream in manifest()["streams"] if stream["name"] == "map_main")
+  params = render_stream["params"]
+  assert (params["width"], params["height"], params["fps"]) == (
+    MAP_RENDER_WIDTH, MAP_RENDER_HEIGHT, MAP_RENDER_FPS)
+  assert MAP_RENDER_WIDTH * MAP_RENDER_HEIGHT <= 480 * 540
+  assert abs(float(MAP_RENDER_WIDTH) / MAP_RENDER_HEIGHT - 768.0 / 462.0) < 0.01
 
 
 def test_cluster_overlays_and_swapped_layout_render():
