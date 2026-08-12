@@ -184,11 +184,10 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
     } else {
     }
 
-    // TCS13 is the common brake source. DriverOverride=2 is retained as a
-    // redundant brake indication for platforms with a delayed brake bit.
+    // Use only the physical driver-brake bit. DriverOverride can also report
+    // SCC braking on legacy Hyundai platforms and must not revoke controls.
     if (addr == 916) {
-      int driver_override = (GET_BYTE(to_push, 5) >> 5) & 0x3U;
-      brake_pressed = ((GET_BYTE(to_push, 6) >> 7) != 0U) || (driver_override == 2);
+      brake_pressed = (GET_BYTE(to_push, 6) >> 7) != 0U;
     }
     generic_rx_checks((addr == 832 && bus == 0)); // LKAS11
   }
