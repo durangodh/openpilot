@@ -156,7 +156,7 @@ def create_scc12(packer, apply_accel, enabled, cnt, scc_live, scc12, gaspressed,
   # Copying stock ACCMode on radar-equipped cars makes ACC/E2E transitions
   # depend on the stale stock state and can cause a harsh handoff.
   command_active = enabled and (long_active or soft_hold_active)
-  if not enabled:
+  if not command_active:
     acc_mode = 0
   elif soft_hold_active:
     acc_mode = 1
@@ -165,7 +165,7 @@ def create_scc12(packer, apply_accel, enabled, cnt, scc_live, scc12, gaspressed,
   elif brakepressed:
     acc_mode = 0
   else:
-    acc_mode = 1 if long_active else 0
+    acc_mode = 1
 
   values["ACCMode"] = acc_mode
   values["StopReq"] = 1 if standstill and command_active else 0
@@ -191,15 +191,16 @@ def create_scc14(packer, enabled, e_vgo, standstill, accel, gaspressed, objgap, 
   values = copy.copy(scc14)
 
   # aPilot C2 SCC14 state: 1=active control, 4=driver/brake override,
-  # 0=inactive. ACC and E2E share the same jerk/comfort handoff.
-  if not enabled:
+  # 0=inactive. Never advertise an override without longitudinal ownership.
+  command_active = enabled and (long_active or soft_hold_active)
+  if not command_active:
     acc_mode = 0
   elif soft_hold_active:
     acc_mode = 1
   elif brakepressed or gaspressed:
     acc_mode = 4
   else:
-    acc_mode = 1 if long_active else 0
+    acc_mode = 1
 
   values["ACCMode"] = acc_mode
   values["ObjGap"] = objgap if enabled else 0
