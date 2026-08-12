@@ -6,6 +6,7 @@ int SCC12_car = 0;
 int EMS11_op = 0;
 int MDPS_bus = -1;
 int SCC_bus = -1;
+bool hyundai_community_main_on = false;
 
 // Keep panda's longitudinal envelope aligned with CarControllerParams.
 // SCC12 encodes acceleration in 1/100 m/s^2.
@@ -136,6 +137,7 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
     if (addr == 1056) {
       // 2 bits: 13-14
       int cruise_engaged = GET_BYTES_04(to_push) & 0x1; // ACC main_on signal
+      hyundai_community_main_on = cruise_engaged != 0;
       if (cruise_engaged && !controls_allowed && !brake_pressed) {
         controls_allowed = 1;
         puts("  SCC main on: controls allowed\n");
@@ -152,6 +154,7 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
     if (addr == 608 && bus == 0 && SCC_bus == -1) {
       // bit 25
       int cruise_engaged = (GET_BYTES_04(to_push) >> 25 & 0x1); // ACC main_on signal
+      hyundai_community_main_on = cruise_engaged != 0;
       if (cruise_engaged && !cruise_engaged_prev) {
         controls_allowed = 1;
         puts("  non-SCC w/ long control: controls allowed\n");
@@ -241,13 +244,16 @@ static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_all
     }
   }
 
-  // LKA STEER: safety check
+  // LKA STEER: keep lateral authority while the driver brakes with
+  // physical SCC MAIN still on. Longitudinal remains blocked independently
+  // by controls_allowed/brake_pressed_prev in the SCC12 safety check above.
   if (addr == 832) {
     int desired_torque = ((GET_BYTES_04(to_send) >> 16) & 0x7ff) - 1024;
     uint32_t ts = microsecond_timer_get();
     bool violation = 0;
+    bool lateral_allowed = controls_allowed || (hyundai_community_main_on && brake_pressed_prev);
 
-    if (controls_allowed) {
+    if (lateral_allowed) {
       // *** global torque limit check ***
       bool torque_check = 0;
       violation |= torque_check = max_limit_check(desired_torque, HYUNDAI_MAX_STEER, -HYUNDAI_MAX_STEER);
@@ -279,15 +285,16 @@ static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_all
       }
     }
 
-    // no torque if controls is not allowed
-    if (!controls_allowed && (desired_torque != 0)) {
+    // No torque unless either normal controls or the brake-only
+    // lateral latch is allowed.
+    if (!lateral_allowed && (desired_torque != 0)) {
       violation = 1;
-      puts("  LKAS torque not allowed: controls not allowed!\n");
+      puts("  LKAS torque not allowed: lateral not allowed!\n");
     }
 
     // Reset the rate state after a rejected command. The controller must ramp
     // again from zero, and stock LKAS forwarding is restored below.
-    if (violation || !controls_allowed) {
+    if (violation || !lateral_allowed) {
       desired_torque_last = 0;
       rt_torque_last = 0;
       ts_last = ts;
@@ -392,6 +399,7 @@ static int hyundai_community_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
 static const addr_checks* hyundai_community_init(int16_t param) {
   UNUSED(param);
   controls_allowed = false;
+  hyundai_community_main_on = false;
   relay_malfunction_reset();
 
   if (current_board->has_obd && Fwd_obd) {
