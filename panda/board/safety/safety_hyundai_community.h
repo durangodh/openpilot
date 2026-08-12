@@ -193,6 +193,15 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
       brake_pressed = (GET_BYTE(to_push, 6) >> 7) != 0U;
     }
     generic_rx_checks((addr == 832 && bus == 0)); // LKAS11
+
+    // generic_rx_checks clears controls_allowed on every moving brake sample.
+    // Community mode intentionally keeps lateral active while physical SCC
+    // MAIN remains on. Restore that authorization immediately so releasing
+    // the brake cannot create a one-frame LKAS rejection/torque discontinuity.
+    // SCC12 remains independently limited to zero acceleration while braking.
+    if (hyundai_community_main_on && brake_pressed) {
+      controls_allowed = 1;
+    }
   }
   return valid;
 }
