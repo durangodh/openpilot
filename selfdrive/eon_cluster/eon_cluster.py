@@ -94,7 +94,7 @@ def main():
 
   signal.signal(signal.SIGINT, stop)
   signal.signal(signal.SIGTERM, stop)
-  sm = messaging.SubMaster(["carState", "carParams", "controlsState", "deviceState", "modelV2",
+  sm = messaging.SubMaster(["carState", "carParams", "carControl", "controlsState", "deviceState", "modelV2",
                             "radarState", "liveTracks", "longitudinalPlan", "wideRoadCameraState"])
   display = None
   renderer = None
@@ -213,6 +213,11 @@ def main():
           scene["radar_points"] = extract_radar_points(sm["liveTracks"])
         scene["show_path_status_color"] = _param_int(params, "ShowPathStatusColor", 1, 0, 1) == 1
         scene["accel"] = accel
+        actuators = _field(sm["carControl"], "actuatorsOutput", _field(sm["carControl"], "actuators"))
+        steer_output = float(_field(actuators, "steer", 0.0) or 0.0)
+        if abs(steer_output) < 1e-4:
+          steer_output = max(-1.0, min(1.0, float(_field(car_state, "steeringAngleDeg", 0.0) or 0.0) / 90.0))
+        scene["steer"] = max(-1.0, min(1.0, steer_output))
         cpu_values = list(_field(device_state, "cpuUsagePercent", []) or [])
         temp_values = list(_field(device_state, "cpuTempC", []) or [])
         free_space = float(_field(device_state, "freeSpacePercent", 0.0) or 0.0)

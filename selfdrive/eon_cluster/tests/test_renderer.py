@@ -128,7 +128,7 @@ def test_mirror_is_applied_before_portrait_encoding():
     assert sum(image.getpixel((x, 0))[0] for x in range(2)) > sum(image.getpixel((x, 3))[0] for x in range(2))
 
 
-def test_lightweight_scene_uses_camera_free_vector_path():
+def test_lightweight_scene_uses_camera_free_vector_world():
   renderer = HudRenderer(1920, 462, 50)
   scene = {
     "path": [(0.0, 0.0), (20.0, 0.1), (50.0, 0.3), (100.0, 0.8)],
@@ -141,7 +141,28 @@ def test_lightweight_scene_uses_camera_free_vector_path():
   }
   frame = renderer.render(82.0, 90.0, True, {"speed": {"road_limit_kph": 80}}, scene)
   assert frame.size == (1920, 462)
-  assert (255, 255, 0) in set(frame.getdata())
+  colors = set(frame.getdata())
+  assert any(blue > 180 and red < 130 for red, green, blue in colors)
+  assert (255, 255, 0) not in colors
+
+
+def test_carrot_3d_scene_has_vehicle_and_control_gauges_without_path_ribbon():
+  renderer = HudRenderer(1920, 462, 50)
+  scene = {
+    "path": [(0.0, 0.0), (20.0, 0.0), (60.0, 0.0), (100.0, 0.0)],
+    "lanes": renderer._fallback_lanes(),
+    "edges": [],
+    "leads": [{"distance": 28.0, "lateral": 0.0, "relative_speed": -1.0}],
+    "accel": -0.6,
+    "steer": 0.25,
+  }
+  frame = renderer.render(55.0, 88.0, True, {}, scene)
+  colors = set(frame.getdata())
+  assert (255, 78, 75) in colors
+  assert (37, 211, 255) in colors
+  assert any(red > 240 and green < 100 and blue < 100 for red, green, blue in colors)
+  # The legacy status path color is not painted by the driving panel.
+  assert HudRenderer._path_color(True, scene) not in colors
 
 
 def test_cluster_overlays_and_swapped_layout_render():

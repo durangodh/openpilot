@@ -400,45 +400,54 @@ class HudRenderer(object):
       draw.line(projected, fill=fill, width=max(1, int(width)), joint="curve")
 
   def _draw_road_surface(self, image, panel):
-    """Layered perspective road inspired by the full carrot raylib scene."""
+    """Cached, high-contrast perspective road for the camera-free EON HUD."""
     left, top, right, bottom = panel
     size = (max(1, right - left), max(1, bottom - top))
     background = self._road_backgrounds.get(size)
     if background is None:
       width, height = size
-      background = Image.new("RGB", size, (4, 8, 15))
+      background = Image.new("RGB", size, (3, 7, 13))
       road = ImageDraw.Draw(background)
       horizon = int(height * 0.105)
-      for band in range(12):
-        y0 = int(horizon * band / 12.0)
-        y1 = int(horizon * (band + 1) / 12.0) + 1
-        mix = band / 11.0
+      for band in range(16):
+        y0 = int(horizon * band / 16.0)
+        y1 = int(horizon * (band + 1) / 16.0) + 1
+        mix = band / 15.0
         road.rectangle((0, y0, width, y1),
-                       fill=(int(5 + 5 * mix), int(10 + 10 * mix), int(20 + 18 * mix)))
+                       fill=(int(3 + 6 * mix), int(7 + 13 * mix), int(15 + 27 * mix)))
       center = width * 0.5
-      far_half = max(8, width * 0.058)
-      near_half = width * 0.44
+      far_half = max(9, width * 0.052)
+      near_half = width * 0.48
+      # A thin horizon glow gives the flat Pillow projection considerably more depth.
+      for glow in range(6, 0, -1):
+        glow_color = (8 + glow * 3, 22 + glow * 4, 37 + glow * 7)
+        road.line((int(center - far_half * (2.2 + glow * 0.13)), horizon + glow,
+                   int(center + far_half * (2.2 + glow * 0.13)), horizon + glow),
+                  fill=glow_color, width=1)
       road.polygon(((center - far_half, horizon), (center + far_half, horizon),
                     (center + near_half, height), (center - near_half, height)),
-                   fill=(13, 20, 30))
-      for band in range(9):
-        near_t = band / 9.0
-        far_t = (band + 1) / 9.0
+                   fill=(11, 19, 29))
+      for band in range(14):
+        near_t = math.pow(band / 14.0, 1.22)
+        far_t = math.pow((band + 1) / 14.0, 1.22)
         y0 = int(horizon + (height - horizon) * near_t)
         y1 = int(horizon + (height - horizon) * far_t) + 1
         half0 = far_half + (near_half - far_half) * near_t
         half1 = far_half + (near_half - far_half) * far_t
-        shade = 16 + (band % 2) * 3 + int(band * 0.7)
+        shade = 13 + (band % 2) * 2 + int(band * 0.55)
         road.polygon(((center - half0, y0), (center + half0, y0),
                       (center + half1, y1), (center - half1, y1)),
-                     fill=(shade, shade + 7, shade + 15))
-      shoulder = (42, 55, 70)
-      road.line(((center - far_half, horizon), (center - near_half, height)),
-                fill=shoulder, width=max(2, height // 95))
-      road.line(((center + far_half, horizon), (center + near_half, height)),
-                fill=shoulder, width=max(2, height // 95))
-      road.line((int(center - far_half * 1.8), horizon, int(center + far_half * 1.8), horizon),
-                fill=(46, 67, 91), width=max(1, height // 150))
+                     fill=(shade, shade + 6, shade + 14))
+      # Perspective cross bars and shoulders are intentionally dim: lane/model data stays dominant.
+      for step in (0.20, 0.36, 0.53, 0.70, 0.86):
+        y = int(horizon + (height - horizon) * step)
+        half = far_half + (near_half - far_half) * step
+        road.line((int(center - half), y, int(center + half), y), fill=(22, 36, 50), width=1)
+      for glow_width, shoulder in ((10, (10, 25, 39)), (5, (28, 60, 83)), (2, (91, 149, 183))):
+        road.line(((center - far_half, horizon), (center - near_half, height)),
+                  fill=shoulder, width=max(glow_width, height // 120))
+        road.line(((center + far_half, horizon), (center + near_half, height)),
+                  fill=shoulder, width=max(glow_width, height // 120))
       self._road_backgrounds[size] = background
     image.paste(background, (left, top))
 
@@ -451,9 +460,11 @@ class HudRenderer(object):
       distance = max(0.0, (world_a[0] + world_b[0]) * 0.5)
       perspective = math.pow(max(0.0, 1.0 - distance / self.MAX_DISTANCE_M), 1.1)
       core_width = max(1, int(1 + (3 + 4 * probability) * perspective))
-      glow_width = core_width + max(2, self.height // 90)
-      glow = tuple(max(0, int(channel * 0.30)) for channel in color)
+      glow_width = core_width + max(4, self.height // 66)
+      glow = tuple(max(0, int(channel * 0.22)) for channel in color)
       draw.line((screen_a, screen_b), fill=glow, width=glow_width)
+      draw.line((screen_a, screen_b), fill=tuple(int(channel * 0.52) for channel in color),
+                width=max(core_width + 2, 3))
       draw.line((screen_a, screen_b), fill=color, width=core_width)
 
   @staticmethod
@@ -504,6 +515,57 @@ class HudRenderer(object):
       center_color = tuple(min(255, int(channel * 0.55 + 105)) for channel in color)
       draw.line(center_line, fill=center_color, width=max(1, edge_width // 2), joint="curve")
 
+  def _draw_vehicle_shape(self, draw, cx, cy, car_w, car_h, accent, braking=False, marker=False):
+    """Draw a lightweight pseudo-3D rear/top vehicle, matching carrot-wip's scene language."""
+    car_w = max(18, int(car_w))
+    car_h = max(15, int(car_h))
+    cx, cy = int(cx), int(cy)
+    alpha_scale = 0.72 if marker else 1.0
+    accent = tuple(int(channel * alpha_scale) for channel in accent)
+    shadow_w = int(car_w * 1.28)
+    draw.ellipse((cx - shadow_w // 2, cy - max(2, car_h // 9),
+                  cx + shadow_w // 2, cy + max(5, car_h // 7)), fill=(1, 3, 6))
+
+    wheel_w = max(3, car_w // 11)
+    wheel_h = max(6, car_h // 4)
+    for wheel_x in (cx - car_w // 2 - wheel_w // 2, cx + car_w // 2 - wheel_w // 2):
+      draw.rounded_rectangle((wheel_x, cy - int(car_h * 0.70), wheel_x + wheel_w,
+                              cy - int(car_h * 0.70) + wheel_h), radius=2, fill=(3, 5, 8))
+      draw.rounded_rectangle((wheel_x, cy - int(car_h * 0.23), wheel_x + wheel_w,
+                              cy - int(car_h * 0.23) + wheel_h), radius=2, fill=(3, 5, 8))
+
+    rear_half = car_w * 0.50
+    front_half = car_w * 0.37
+    body = ((cx - rear_half, cy - car_h * 0.10),
+            (cx - car_w * 0.45, cy - car_h * 0.72),
+            (cx - front_half, cy - car_h),
+            (cx + front_half, cy - car_h),
+            (cx + car_w * 0.45, cy - car_h * 0.72),
+            (cx + rear_half, cy - car_h * 0.10))
+    draw.polygon(body, fill=(104, 118, 132) if marker else (198, 207, 215))
+    draw.line(body + (body[0],), fill=accent, width=max(2, car_w // 20), joint="curve")
+    draw.polygon(((cx - rear_half, cy - car_h * 0.10), (cx - car_w * 0.45, cy - car_h * 0.72),
+                  (cx - car_w * 0.25, cy - car_h * 0.64), (cx - car_w * 0.30, cy - car_h * 0.16)),
+                 fill=(45, 59, 72))
+    draw.polygon(((cx + rear_half, cy - car_h * 0.10), (cx + car_w * 0.45, cy - car_h * 0.72),
+                  (cx + car_w * 0.25, cy - car_h * 0.64), (cx + car_w * 0.30, cy - car_h * 0.16)),
+                 fill=(45, 59, 72))
+    draw.polygon(((cx - car_w * 0.28, cy - car_h * 0.70), (cx - car_w * 0.23, cy - car_h * 0.92),
+                  (cx + car_w * 0.23, cy - car_h * 0.92), (cx + car_w * 0.28, cy - car_h * 0.70)),
+                 fill=(29, 49, 65))
+    draw.polygon(((cx - car_w * 0.29, cy - car_h * 0.58), (cx - car_w * 0.30, cy - car_h * 0.25),
+                  (cx + car_w * 0.30, cy - car_h * 0.25), (cx + car_w * 0.29, cy - car_h * 0.58)),
+                 fill=(61, 78, 91))
+    highlight = (236, 244, 249) if not marker else (156, 174, 189)
+    draw.line((cx - car_w * 0.22, cy - car_h * 0.82, cx + car_w * 0.22, cy - car_h * 0.82),
+              fill=highlight, width=max(1, car_h // 24))
+    lamp = (255, 40, 42) if braking else (255, 83, 72)
+    lamp_y = int(cy - car_h * 0.18)
+    draw.line((int(cx - car_w * 0.33), lamp_y, int(cx + car_w * 0.33), lamp_y),
+              fill=(93, 16, 20), width=max(3, car_h // 10))
+    draw.line((int(cx - car_w * 0.30), lamp_y, int(cx + car_w * 0.30), lamp_y),
+              fill=lamp, width=max(2, car_h // 18))
+
   def _draw_lead(self, draw, panel, lead, primary, radar_info=2, is_metric=True):
     distance = float(lead.get("distance", 0.0) or 0.0)
     lateral = float(lead.get("lateral", 0.0) or 0.0)
@@ -513,26 +575,9 @@ class HudRenderer(object):
     scale = math.pow(max(0.10, 1.0 - distance / self.MAX_DISTANCE_M), 1.10)
     car_w = int(28 + 112 * scale)
     car_h = int(18 + 66 * scale)
-    color = (255, 174, 58) if primary else (89, 177, 255)
-    outline_width = max(2, self.height // 120)
-    shadow_w = int(car_w * 1.18)
-    draw.ellipse((cx - shadow_w // 2, cy - max(3, car_h // 9),
-                  cx + shadow_w // 2, cy + max(4, car_h // 8)), fill=(2, 4, 7))
-    body = (cx - car_w // 2, cy - car_h, cx + car_w // 2, cy)
-    draw.rounded_rectangle(body, radius=max(5, car_w // 9), fill=(24, 31, 42),
-                           outline=color, width=outline_width)
-    roof = (cx - int(car_w * 0.31), cy - int(car_h * 0.91),
-            cx + int(car_w * 0.31), cy - int(car_h * 0.48))
-    draw.rounded_rectangle(roof, radius=max(3, car_w // 14),
-                           fill=(50, 68, 83), outline=(111, 139, 157), width=1)
-    bumper_y = cy - max(4, car_h // 8)
-    draw.line((cx - int(car_w * 0.38), bumper_y, cx + int(car_w * 0.38), bumper_y),
-              fill=(112, 124, 135), width=max(1, outline_width // 2))
-    lamp_r = max(2, car_w // 18)
-    lamp_color = (255, 65, 55) if float(lead.get("relative_speed", 0.0) or 0.0) < -0.5 else (255, 193, 74)
-    for lamp_x in (cx - int(car_w * 0.31), cx + int(car_w * 0.31)):
-      draw.ellipse((lamp_x - lamp_r, cy - int(car_h * 0.28) - lamp_r,
-                    lamp_x + lamp_r, cy - int(car_h * 0.28) + lamp_r), fill=lamp_color)
+    color = (255, 178, 45) if primary else (72, 184, 255)
+    self._draw_vehicle_shape(draw, cx, cy, car_w, car_h, color,
+                             float(lead.get("relative_speed", 0.0) or 0.0) < -0.5)
     if radar_info > 0:
       relative_speed = _speed_value(float(lead.get("relative_speed", 0.0) or 0.0) * 3.6, is_metric)
       speed_unit = "km/h" if is_metric else "mph"
@@ -551,8 +596,15 @@ class HudRenderer(object):
     stationary = bool(point.get("stationary", False))
     color = (255, 169, 45) if stationary else (97, 190, 255)
     radius = max(4, int(13 * (1.0 - distance / self.MAX_DISTANCE_M)) + 3)
-    draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius),
-                 fill=(18, 26, 34), outline=color, width=max(1, radius // 3))
+    if stationary:
+      top = cy - radius * 2
+      draw.polygon(((cx - radius, cy), (cx + radius, cy), (cx + radius, top), (cx - radius, top)),
+                   fill=(112, 66, 20), outline=color)
+      draw.polygon(((cx - radius, top), (cx, top - radius), (cx + radius, top), (cx, top + radius // 2)),
+                   fill=(255, 190, 54))
+    else:
+      self._draw_vehicle_shape(draw, cx, cy, radius * 3.1, radius * 2.2, color,
+                               float(point.get("relative_speed", 0.0) or 0.0) < -0.5, marker=True)
     if radar_info <= 0 or (radar_info in (1, 2) and stationary):
       return
     relative_speed = _speed_value(float(point.get("relative_speed", 0.0) or 0.0) * 3.6, is_metric)
@@ -562,6 +614,64 @@ class HudRenderer(object):
       label = "%+.0f" % relative_speed
     _draw_text(draw, (cx, cy - radius - 5), label, max(11, self.height // 34), True,
                fill=color, anchor="ms")
+
+  def _draw_ego_vehicle(self, draw, panel, enabled):
+    cx, cy = self._project(panel, 2.4, 0.0)
+    panel_w = panel[2] - panel[0]
+    car_w = max(74, int(panel_w * 0.092))
+    car_h = max(55, int((panel[3] - panel[1]) * 0.20))
+    accent = (35, 222, 255) if enabled else (118, 132, 143)
+    self._draw_vehicle_shape(draw, cx, cy + 3, car_w, car_h, accent)
+    if enabled:
+      glow_w = max(18, car_w // 4)
+      draw.ellipse((cx - glow_w // 2, cy - 2, cx + glow_w // 2, cy + 8), fill=(19, 112, 166))
+
+  def _draw_bipolar_gauge(self, draw, center_x, top, bottom, value, color, label, value_text):
+    value = _clamp(float(value), -1.0, 1.0)
+    width = max(43, self.height // 9)
+    left = int(center_x - width * 0.5)
+    right = int(center_x + width * 0.5)
+    draw.rounded_rectangle((left, top, right, bottom), radius=max(8, width // 4),
+                           fill=(5, 10, 16), outline=(138, 161, 179), width=2)
+    center_y = (top + bottom) // 2
+    draw.line((left + 3, center_y, right - 3, center_y), fill=(86, 102, 115), width=2)
+    available = max(1, (bottom - top) // 2 - 7)
+    fill_h = max(2, int(abs(value) * available)) if abs(value) > 0.01 else 0
+    if fill_h:
+      y0, y1 = ((center_y - fill_h, center_y) if value > 0 else (center_y, center_y + fill_h))
+      draw.rounded_rectangle((left + 7, y0, right - 7, y1), radius=max(3, width // 8), fill=color)
+    _draw_text(draw, (center_x, top - 8), value_text, max(12, self.height // 32), True,
+               fill=color, anchor="ms")
+    _draw_text(draw, (center_x, bottom + 7), label, max(12, self.height // 31), True,
+               fill=(224, 232, 238), anchor="ma")
+
+  def _draw_control_gauges(self, draw, box, scene):
+    left, top, right, _ = box
+    panel_w = right - left
+    gauge_top = top + max(48, self.height // 9)
+    gauge_bottom = gauge_top + max(86, int(self.height * 0.22))
+    spacing = max(58, int(panel_w * 0.058))
+    steer_x = right - max(39, int(panel_w * 0.038))
+    accel_x = steer_x - spacing
+    accel = float(scene.get("accel", 0.0) or 0.0)
+    steer = float(scene.get("steer", 0.0) or 0.0)
+    accel_normalized = _clamp(accel / 3.0, -1.0, 1.0)
+    accel_color = (37, 211, 255) if accel >= 0.0 else (255, 78, 75)
+    steer_color = (37, 211, 255) if steer >= 0.0 else (255, 177, 45)
+    self._draw_bipolar_gauge(draw, accel_x, gauge_top, gauge_bottom, accel_normalized,
+                             accel_color, "accel", "%+.2f" % accel)
+    self._draw_bipolar_gauge(draw, steer_x, gauge_top, gauge_bottom, steer,
+                             steer_color, "steer", "%+.0f%%" % (steer * 100.0))
+
+  def _draw_clock(self, draw, box):
+    left, top, _, _ = box
+    x = left + 28
+    y = top + 25
+    draw.ellipse((x, y - 6, x + 12, y + 6), fill=(39, 219, 139))
+    draw.arc((x + 16, y - 11, x + 39, y + 12), 205, 335, fill=(83, 194, 255), width=3)
+    draw.arc((x + 21, y - 6, x + 34, y + 7), 205, 335, fill=(83, 194, 255), width=3)
+    _draw_text(draw, (x + 46, y), time.strftime("%H:%M:%S"), max(18, self.height // 20), True,
+               fill=(226, 237, 247), anchor="lm")
 
   def _draw_speed_limit(self, draw, x, y, limit):
     if limit <= 0:
@@ -672,11 +782,13 @@ class HudRenderer(object):
 
     is_metric = bool(scene.get("is_metric", True))
     radar_info = int(scene.get("radar_info", 2) or 0)
-    self._draw_path(image, draw, box, scene.get("path", []), enabled, scene)
-    for point in scene.get("radar_points", []):
+    # Deliberately omit the planned-path ribbon. The cluster view should show
+    # road geometry and measured objects, not a synthetic block carpet.
+    for point in reversed(scene.get("radar_points", [])[:10]):
       self._draw_radar_point(draw, box, point, radar_info, is_metric)
-    for index, lead in enumerate(scene.get("leads", [])[:2]):
+    for index, lead in reversed(list(enumerate(scene.get("leads", [])[:2]))):
       self._draw_lead(draw, box, lead, index == 0, radar_info, is_metric)
+    self._draw_ego_vehicle(draw, box, enabled)
 
     status_color = (40, 210, 125) if enabled else (115, 125, 135)
     speed_y = bottom - int((bottom - top) * 0.08)
@@ -684,18 +796,29 @@ class HudRenderer(object):
     display_cruise = _speed_value(cruise_kph, is_metric)
     display_limit = _speed_value(limit, is_metric)
     _draw_text(draw, (left + 34, speed_y), str(max(0, int(round(display_speed)))),
-               max(58, int(self.height * 0.25)), True, fill=(245, 248, 250), anchor="ls")
-    _draw_text(draw, (left + int((right - left) * 0.24), speed_y - 4), "km/h" if is_metric else "mph",
-               max(17, self.height // 22), fill=(145, 158, 168), anchor="ls")
+               max(52, int(self.height * 0.21)), True, fill=(245, 248, 250), anchor="ls")
+    _draw_text(draw, (left + int((right - left) * 0.19), speed_y - 4), "km/h" if is_metric else "mph",
+               max(15, self.height // 24), fill=(145, 158, 168), anchor="ls")
     cruise = "--" if cruise_kph <= 0 or cruise_kph >= 255 else str(int(round(display_cruise)))
-    _draw_text(draw, (left + int((right - left) * 0.24), speed_y - max(34, self.height // 9)), "SET " + cruise,
-               max(22, self.height // 13), True, fill=status_color, anchor="ls")
-    self._draw_speed_limit(draw, left + 70, top + 72, int(round(display_limit)))
-    self._draw_driving_mode(draw, box, int(scene.get("driving_mode", 0) or 0))
-    self._draw_energy_mode(draw, box, scene.get("energy_mode"))
+    _draw_text(draw, (left + int((right - left) * 0.19), speed_y - max(32, self.height // 10)), cruise,
+               max(29, self.height // 10), True, fill=status_color, anchor="ls")
+    _draw_text(draw, (left + int((right - left) * 0.19), speed_y - max(62, self.height // 6)), "SET",
+               max(13, self.height // 29), True, fill=(157, 171, 181), anchor="ls")
+    self._draw_speed_limit(draw, left + 66, top + 91, int(round(display_limit)))
+    mode = int(scene.get("driving_mode", 0) or 0)
+    mode_text = {1: "ECO", 2: "SAFE", 3: "NORM", 4: "FAST"}.get(mode, "")
+    if mode_text:
+      _draw_text(draw, (left + 35, bottom - 15), mode_text, max(12, self.height // 31), True,
+                 fill=status_color, anchor="ls")
+    energy_mode = str(scene.get("energy_mode", "") or "").upper()
+    if energy_mode:
+      _draw_text(draw, (left + int((right - left) * 0.15), bottom - 15), energy_mode,
+                 max(12, self.height // 31), True, fill=(75, 220, 145), anchor="ls")
     self._draw_tpms(draw, box, scene.get("tpms"))
-    _draw_text(draw, (right - 22, top + 24), "CARROT HUD", max(13, self.height // 30),
-               fill=(96, 116, 132), anchor="ra")
+    self._draw_clock(draw, box)
+    self._draw_control_gauges(draw, box, scene)
+    _draw_text(draw, (left + int((right - left) * 0.22), bottom - 15), "CARROT 3D", max(11, self.height // 35),
+               fill=(82, 111, 130), anchor="ls")
 
   def _draw_navi_panel(self, image, draw, box, navi, language="ko", is_metric=True):
     left, top, right, bottom = box
