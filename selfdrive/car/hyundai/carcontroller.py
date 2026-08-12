@@ -278,6 +278,14 @@ class CarController:
         apply_accel = clip(apply_accel if (CC.longActive or soft_hold_scc) else 0,
                            CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX)
 
+        # Panda rejects any nonzero SCC12 request while the driver brake is
+        # applied (brake_pressed_prev). A rejected frame breaks openpilot's
+        # ownership of the SCC12 stream for one cycle and lets the stock SCC12
+        # back onto the bus, which the cluster reports as a fault chime. Zero
+        # the request here so the frame is always accepted.
+        if CS.out.brakePressed and not soft_hold_scc:
+          apply_accel = 0.0
+
         self.accel = apply_accel
 
         controls.apply_accel = apply_accel
