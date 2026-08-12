@@ -449,6 +449,11 @@ selfdrive/assets/*.png
 selfdrive/assets/*.svg
 selfdrive/assets/body/*
 selfdrive/assets/fonts/*.ttf
+selfdrive/assets/fonts/Pretendard-LICENSE.txt
+selfdrive/assets/fonts/Pretendard-Hangul.fnt
+selfdrive/assets/fonts/Pretendard-Hangul.png
+selfdrive/assets/fonts/Pretendard-SemiBold.fnt
+selfdrive/assets/fonts/Pretendard-SemiBold.png
 selfdrive/assets/icons/*
 selfdrive/assets/images/*
 selfdrive/assets/offroad/*

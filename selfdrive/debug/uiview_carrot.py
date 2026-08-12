@@ -63,6 +63,8 @@ if __name__ == "__main__":
   msgs['deviceState'].deviceState.started = True
   msgs['deviceState'].deviceState.wifiIpAddress = "192.168.0.77"     # 좌상단에 표시될 IP
   msgs['carParams'].carParams.openpilotLongitudinalControl = True
+  # Bench preview represents an engaged drive so path status color is green.
+  msgs['controlsState'].controlsState.enabled = True
 
   msgs['pandaStates'] = messaging.new_message('pandaStates', 1)
   msgs['pandaStates'].pandaStates[0].ignitionLine = True
@@ -81,7 +83,9 @@ if __name__ == "__main__":
   last_route = 0.0
   try:
     while True:
-      time.sleep(1 / 100)  # 계속 send, rate 는 상관없음
+      # 20 Hz is enough for a bench preview and avoids evicting slower EON
+      # subscribers while modeld and the external HUD are both active.
+      time.sleep(1 / 20)
 
       msgs['carState'] = messaging.new_message('carState')
       msgs['carState'].carState.vEgoCluster = speed
@@ -99,6 +103,10 @@ if __name__ == "__main__":
 
       for s in msgs:
         pm.send(s, msgs[s])
+        # Reused capnp builders otherwise retain their serialized write flag,
+        # emit warnings, and leak memory throughout a long bench session.
+        if hasattr(msgs[s], "clear_write_flag"):
+          msgs[s].clear_write_flag()
   except KeyboardInterrupt:
     for p in procs:
       managed_processes[p].stop()
