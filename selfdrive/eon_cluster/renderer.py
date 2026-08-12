@@ -628,6 +628,31 @@ class HudRenderer(object):
       glow_w = max(18, car_w // 4)
       draw.ellipse((cx - glow_w // 2, cy - 2, cx + glow_w // 2, cy + 8), fill=(19, 112, 166))
 
+  def _draw_blindspot_vehicle(self, draw, panel, side):
+    """Draw a cheap fixed-position rear-quarter car for boolean BSD signals."""
+    left, top, right, bottom = panel
+    panel_w = right - left
+    panel_h = bottom - top
+    ego_x, ego_y = self._project(panel, 2.4, 0.0)
+    direction = -1 if side == "left" else 1
+    car_w = max(48, int(panel_w * 0.052))
+    car_h = max(39, int(panel_h * 0.125))
+    cx = ego_x + direction * max(86, int(panel_w * 0.085))
+    cy = min(bottom - 4, ego_y + max(5, panel_h // 55))
+    warning = (255, 169, 45)
+
+    # A small glow remains readable without animation and costs only two
+    # primitive draws. The ego is painted after this vehicle so it appears
+    # slightly behind the driver's car rather than beside a front target.
+    glow_w = int(car_w * 1.55)
+    glow_h = max(8, car_h // 4)
+    draw.ellipse((cx - glow_w // 2, cy - glow_h,
+                  cx + glow_w // 2, cy + glow_h // 2), fill=(74, 43, 10))
+    self._draw_vehicle_shape(draw, cx, cy, car_w, car_h, warning, marker=True)
+    marker_x = cx + direction * int(car_w * 0.62)
+    draw.line((marker_x, cy - int(car_h * 0.78), marker_x, cy - int(car_h * 0.18)),
+              fill=warning, width=max(3, car_w // 14))
+
   def _draw_bipolar_gauge(self, draw, center_x, top, bottom, value, color, label, value_text):
     value = _clamp(float(value), -1.0, 1.0)
     width = max(43, self.height // 9)
@@ -790,6 +815,10 @@ class HudRenderer(object):
       self._draw_radar_point(draw, box, point, radar_info, is_metric)
     for index, lead in reversed(list(enumerate(scene.get("leads", [])[:2]))):
       self._draw_lead(draw, box, lead, index == 0, radar_info, is_metric)
+    if scene.get("left_blindspot", False):
+      self._draw_blindspot_vehicle(draw, box, "left")
+    if scene.get("right_blindspot", False):
+      self._draw_blindspot_vehicle(draw, box, "right")
     self._draw_ego_vehicle(draw, box, enabled)
 
     status_color = (40, 210, 125) if enabled else (115, 125, 135)

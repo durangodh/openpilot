@@ -201,6 +201,11 @@ def main():
         trip.update(bool(_field(device_state, "started", False)), speed_kph, now, enabled, accel)
         tpms = _field(car_state, "tpms")
         scene["tpms"] = {key: _field(tpms, key, None) for key in ("fl", "fr", "rl", "rr")}
+        # Genesis DH LCA11 (0x58B) exposes blind-spot presence, not target
+        # distance. Pass the two stable booleans through to the vector HUD and
+        # let the renderer place warning vehicles at fixed rear-quarter spots.
+        scene["left_blindspot"] = bool(_field(car_state, "leftBlindspot", False))
+        scene["right_blindspot"] = bool(_field(car_state, "rightBlindspot", False))
         scene["driving_mode"] = _param_int(params, "MyDrivingMode", 3, 1, 4)
         scene["panel_layout"] = _param_int(params, "EonClusterHudPanelLayout", 0, 0, 1)
         scene["screen_mode"] = _param_int(params, PARAM_SCREEN_MODE, 0, 0, 5)

@@ -166,6 +166,20 @@ def test_carrot_3d_scene_has_vehicle_and_control_gauges_without_path_ribbon():
   assert HudRenderer._path_color(True, scene) not in colors
 
 
+def test_blindspot_flags_draw_rear_quarter_vehicles():
+  renderer = HudRenderer(1920, 462, 50)
+  scene = {"lanes": [], "edges": [], "leads": []}
+  base = renderer.render(55.0, 88.0, True, {}, scene)
+  left = renderer.render(55.0, 88.0, True, {}, dict(scene, left_blindspot=True))
+  right = renderer.render(55.0, 88.0, True, {}, dict(scene, right_blindspot=True))
+
+  assert left.tobytes() != base.tobytes()
+  assert right.tobytes() != base.tobytes()
+  assert left.tobytes() != right.tobytes()
+  assert (255, 169, 45) in set(left.getdata())
+  assert (255, 169, 45) in set(right.getdata())
+
+
 def test_tmap_fills_panel_and_transparent_lane_does_not_make_black_bar(tmp_path, monkeypatch):
   from PIL import Image
   map_path = tmp_path / "map.jpg"
