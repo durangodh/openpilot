@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from selfdrive.eon_cluster.scene import extract_driving_scene
+from selfdrive.eon_cluster.scene import extract_driving_scene, extract_radar_points
 
 
 def polyline(xs, ys):
@@ -38,3 +38,14 @@ def test_invalid_or_far_leads_are_ignored():
   scene = extract_driving_scene(empty_model, radar)
   assert scene["path"] == []
   assert scene["leads"] == []
+
+
+def test_radar_points_are_filtered_sorted_and_bounded():
+  tracks = [SimpleNamespace(trackId=index, dRel=40.0 - index, yRel=0.2, vRel=-1.0,
+                            stationary=index % 2 == 0) for index in range(24)]
+  tracks.extend([SimpleNamespace(trackId=99, dRel=200.0, yRel=0.0, vRel=0.0, stationary=False),
+                 SimpleNamespace(trackId=100, dRel=20.0, yRel=20.0, vRel=0.0, stationary=False)])
+  points = extract_radar_points(tracks)
+  assert len(points) == 16
+  assert [point["distance"] for point in points] == sorted(point["distance"] for point in points)
+  assert points[0]["track_id"] == 23

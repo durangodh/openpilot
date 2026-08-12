@@ -1,4 +1,7 @@
 import errno
+import os
+import select
+import socket
 import struct
 import time
 
@@ -12,6 +15,7 @@ PRODUCT_SIZES = {
   0x0123: (1920, 720),
 }
 CMD_SYNC = 10
+CMD_ORIENTATION = 13
 CMD_BRIGHTNESS = 14
 CMD_FRAME_RATE = 15
 CMD_UPLOAD_JPEG = 101
@@ -31,6 +35,69 @@ USB_DISCONNECT_TEXT = (
   "entity not found",
   "device has been disconnected",
 )
+
+
+class UsbEventMonitor(object):
+  """Non-blocking Linux USB hotplug monitor with polling fallback."""
+
+  def __init__(self, expected_product_id=None):
+    self.expected_product_id = expected_product_id
+    self.socket = None
+    if not hasattr(socket, "AF_NETLINK"):
+      return
+    for port_id in (0, os.getpid()):
+      candidate = None
+      try:
+        candidate = socket.socket(socket.AF_NETLINK, socket.SOCK_DGRAM, 15)
+        candidate.bind((port_id, 1))
+        candidate.setblocking(False)
+        self.socket = candidate
+        break
+      except OSError:
+        if candidate is not None:
+          candidate.close()
+
+  def _matches(self, payload):
+    fields = {}
+    for part in payload.decode("utf-8", errors="replace").split("\0"):
+      if "=" in part:
+        key, value = part.split("=", 1)
+        fields[key] = value
+      elif "@" in part:
+        fields.setdefault("ACTION", part.split("@", 1)[0])
+    if fields.get("SUBSYSTEM") != "usb" or fields.get("ACTION") not in ("add", "bind", "change", "move"):
+      return False
+    product = fields.get("PRODUCT", "").split("/")
+    if len(product) >= 2:
+      try:
+        vendor_id, product_id = int(product[0], 16), int(product[1], 16)
+      except ValueError:
+        return False
+      return vendor_id == VENDOR_ID and (
+        self.expected_product_id is None or product_id == self.expected_product_id
+      )
+    return fields.get("DEVTYPE") == "usb_device"
+
+  def poll(self):
+    if self.socket is None:
+      return False
+    matched = False
+    try:
+      readable, _, _ = select.select([self.socket], [], [], 0.0)
+      while readable:
+        matched = self._matches(self.socket.recv(8192)) or matched
+        readable, _, _ = select.select([self.socket], [], [], 0.0)
+    except (OSError, ValueError):
+      self.close()
+    return matched
+
+  def close(self):
+    if self.socket is not None:
+      try:
+        self.socket.close()
+      except OSError:
+        pass
+    self.socket = None
 
 
 def _command_packet(command_id, fields=None):
@@ -61,9 +128,10 @@ class TurzxDisplay(object):
   replies as a disconnect and repeatedly reinitializing the panel.
   """
 
-  def __init__(self, brightness=65, frame_rate=10, expected_product_id=None):
+  def __init__(self, brightness=65, frame_rate=10, orientation=0, expected_product_id=None):
     self.brightness = max(0, min(100, int(brightness)))
     self.frame_rate = max(1, min(30, int(frame_rate)))
+    self.orientation = int(orientation) if int(orientation) in (0, 2) else 0
     self.expected_product_id = expected_product_id
     self.context = None
     self.handle = None
@@ -104,6 +172,7 @@ class TurzxDisplay(object):
     # carrot-wip keeps SYNC as the only initialization command requiring ACK.
     self._send_command(CMD_SYNC)
     time.sleep(0.2)
+    self._send_optional_command(CMD_ORIENTATION, {8: self.orientation}, gap_s=0.03, drain_attempts=0)
     self._send_optional_command(CMD_FRAME_RATE, {8: self.frame_rate}, gap_s=0.05, drain_attempts=1)
     self._send_optional_command(CMD_BRIGHTNESS, {8: int(self.brightness * 102 / 100)}, drain_attempts=0)
 
@@ -121,6 +190,16 @@ class TurzxDisplay(object):
       return False
     self._send_optional_command(CMD_BRIGHTNESS, {8: int(brightness * 102 / 100)}, drain_attempts=0)
     self.brightness = brightness
+    return True
+
+  def set_orientation(self, orientation):
+    orientation = int(orientation)
+    if orientation not in (0, 2):
+      orientation = 0
+    if orientation == self.orientation:
+      return False
+    self._send_optional_command(CMD_ORIENTATION, {8: orientation}, gap_s=0.03, drain_attempts=0)
+    self.orientation = orientation
     return True
 
   def _find_endpoints(self, device):

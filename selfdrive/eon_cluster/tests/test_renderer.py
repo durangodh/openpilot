@@ -115,6 +115,19 @@ def test_portrait_jpeg_geometry():
     assert image.size == (462, 1920)
 
 
+def test_mirror_is_applied_before_portrait_encoding():
+  from PIL import Image
+  import io
+  renderer = HudRenderer(4, 2, 95)
+  frame = Image.new("RGB", (4, 2), (0, 0, 0))
+  frame.putpixel((0, 0), (255, 255, 255))
+  renderer.set_mirror(True)
+  with Image.open(io.BytesIO(renderer.encode_portrait_jpeg(frame))) as image:
+    image = image.convert("RGB")
+    assert image.size == (2, 4)
+    assert sum(image.getpixel((x, 0))[0] for x in range(2)) > sum(image.getpixel((x, 3))[0] for x in range(2))
+
+
 def test_lightweight_scene_uses_camera_free_vector_path():
   renderer = HudRenderer(1920, 462, 50)
   scene = {
@@ -168,6 +181,24 @@ def test_all_cluster_screen_modes_render_distinct_views():
     scene["screen_mode"] = mode
     frames.append(renderer.render(82.0, 90.0, True, navi, scene).tobytes())
   assert len(set(frames)) == 6
+
+
+def test_imperial_radar_and_extended_trip_report_render():
+  renderer = HudRenderer(1920, 462, 50)
+  scene = {
+    "is_metric": False,
+    "language": "en",
+    "radar_info": 2,
+    "radar_points": [{"distance": 30.0, "lateral": 1.0, "relative_speed": -2.0, "stationary": False}],
+    "energy_mode": "EV",
+    "screen_mode": 5,
+    "trip_report": {"duration_s": 3600, "distance_m": 1609.344, "average_speed_kph": 96.56,
+                    "max_speed_kph": 120.0, "engaged_time_s": 1800,
+                    "max_accel": 2.1, "max_decel": -2.8},
+  }
+  frame = renderer.render(96.56, 112.65, True, {}, scene)
+  assert frame.size == (1920, 462)
+  assert (75, 220, 145) in set(frame.getdata())
 
 
 def test_jpeg_quality_accepts_full_carrot_range():

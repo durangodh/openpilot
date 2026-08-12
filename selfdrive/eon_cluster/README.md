@@ -5,10 +5,14 @@ driving scene from `modelV2` and `radarState`, reuses the existing TMap receiver
 outputs in `/dev/shm`, and sends the combined JPEG dashboard to a supported
 TURZX USB display.
 
-Supported devices:
+USB transport geometries:
 
 - `1cbe:0092` (9.2 inch, 1920x462)
 - `1cbe:0123` (12.3 inch, 1920x720)
+
+The managed EON process intentionally pins automatic connection to
+`1cbe:0092`. The 12.3-inch geometry remains available to direct transport
+callers but is not selected by the settings toggle.
 
 The process is disabled by default. Enable and tune it with Params:
 
@@ -23,8 +27,23 @@ p.put("EonClusterHudBrightness", "65")
 p.put("EonClusterHudJpegQuality", "58")
 p.put("EonClusterHudPanelLayout", "0")
 p.put("EonClusterHudScreenMode", "0")
+p.put("EonClusterHudOrientation", "0")
+p.put("EonClusterHudMirror", "0")
+p.put("EonClusterHudRadarInfo", "4")
+p.put("EonClusterHudRadarDisplay", "0")
 PY
 ```
+
+Brightness `0` follows the device screen brightness. Orientation accepts `0`
+or `2` (180 degrees), mirror accepts `0` or `1`, and language accepts `0`
+(Korean) or `1` (English). `IsMetric` controls km/h versus mph. Radar info
+modes are `0` off, `1/2` moving-vehicle speed or speed+distance, and `3/4`
+all-object speed or speed+distance. Radar display mode `1` adds up to 16
+read-only `liveTracks` points; it never publishes CAN or control messages.
+While the panel is connected, the EON screen keeps essential speed, limit,
+status, and alert overlays but skips its duplicate camera, model, lead, plot,
+and TMap draws. Normal on-device rendering resumes within 500 ms after the
+external HUD disconnects.
 
 The left 60% of the display is a lightweight synthetic driving scene with
 model lanes, the planned path, radar leads, current speed, cruise speed, and
@@ -32,8 +51,10 @@ road speed limit. The right 40% keeps the TMap map, turn guidance, lane image,
 and remaining distance. No road-camera pixels are copied or encoded.
 
 The lightweight HUD also mirrors active openpilot alerts, shows Hyundai/Kia
-TPMS values and the current ECO/SAFE/NORM/FAST driving mode, and replaces the
-navigation panel with a trip summary while the vehicle is in Park. Set
+TPMS values, EV/HEV status when available, and the current
+ECO/SAFE/NORM/FAST driving mode. It replaces the navigation panel with an
+expanded trip summary including engaged ratio and peak acceleration/deceleration
+while the vehicle is in Park. Set
 `EonClusterHudPanelLayout` to `1` to move the driving view to the right and the
 information panel to the left.
 
@@ -60,4 +81,5 @@ capture, and software H.264 are intentionally excluded. The display is dimmed
 when the process is disabled or stopped.
 
 `EonClusterHudConnected` reports the live USB connection state. The process
-waits without rendering while the display is absent and retries every 5 seconds.
+waits without rendering while the display is absent, wakes immediately for a
+Linux USB hotplug event, and retains a 5-second scan fallback.

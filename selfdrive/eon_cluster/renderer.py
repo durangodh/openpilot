@@ -322,6 +322,22 @@ def _clamp(value, low, high):
   return max(low, min(high, value))
 
 
+def _speed_value(speed_kph, is_metric):
+  return float(speed_kph) if is_metric else float(speed_kph) * 0.621371
+
+
+def _distance_text(distance_m, is_metric, language="ko", prefix=False):
+  distance_m = max(0.0, float(distance_m))
+  if is_metric:
+    value = ("%.1f km" % (distance_m / 1000.0)) if distance_m >= 1000.0 else ("%d m" % int(round(distance_m)))
+  else:
+    distance_miles = distance_m / 1609.344
+    value = ("%.1f mi" % distance_miles) if distance_miles >= 0.1 else ("%d ft" % int(round(distance_m * 3.28084)))
+  if not prefix:
+    return value
+  return (("남은 거리 " if language == "ko" else "Remaining ") + value)
+
+
 class HudRenderer(object):
   DRIVE_RATIO = 0.60
   MAX_DISTANCE_M = 120.0
@@ -331,6 +347,7 @@ class HudRenderer(object):
     self.height = int(height)
     self.jpeg_quality = 58
     self.set_jpeg_quality(jpeg_quality)
+    self.mirror = False
     self.graph_speed = deque(maxlen=180)
     self.graph_cpu = deque(maxlen=180)
     self.graph_temp = deque(maxlen=180)
@@ -341,6 +358,12 @@ class HudRenderer(object):
     jpeg_quality = max(1, min(95, int(jpeg_quality)))
     changed = jpeg_quality != self.jpeg_quality
     self.jpeg_quality = jpeg_quality
+    return changed
+
+  def set_mirror(self, mirror):
+    mirror = bool(mirror)
+    changed = mirror != self.mirror
+    self.mirror = mirror
     return changed
 
   def _project(self, panel, longitudinal, lateral):
@@ -481,7 +504,7 @@ class HudRenderer(object):
       center_color = tuple(min(255, int(channel * 0.55 + 105)) for channel in color)
       draw.line(center_line, fill=center_color, width=max(1, edge_width // 2), joint="curve")
 
-  def _draw_lead(self, draw, panel, lead, primary):
+  def _draw_lead(self, draw, panel, lead, primary, radar_info=2, is_metric=True):
     distance = float(lead.get("distance", 0.0) or 0.0)
     lateral = float(lead.get("lateral", 0.0) or 0.0)
     if distance <= 0.0 or distance > self.MAX_DISTANCE_M:
@@ -510,10 +533,35 @@ class HudRenderer(object):
     for lamp_x in (cx - int(car_w * 0.31), cx + int(car_w * 0.31)):
       draw.ellipse((lamp_x - lamp_r, cy - int(car_h * 0.28) - lamp_r,
                     lamp_x + lamp_r, cy - int(car_h * 0.28) + lamp_r), fill=lamp_color)
-    relative_kph = float(lead.get("relative_speed", 0.0) or 0.0) * 3.6
-    label = "%dm  %+.0f" % (int(round(distance)), relative_kph)
-    _draw_text(draw, (cx, cy - car_h - max(8, self.height // 55)), label,
-               max(14, self.height // 25), True, fill=color, anchor="ms")
+    if radar_info > 0:
+      relative_speed = _speed_value(float(lead.get("relative_speed", 0.0) or 0.0) * 3.6, is_metric)
+      speed_unit = "km/h" if is_metric else "mph"
+      if radar_info in (2, 4):
+        label = "%s  %+.0f %s" % (_distance_text(distance, is_metric), relative_speed, speed_unit)
+      else:
+        label = "%+.0f %s" % (relative_speed, speed_unit)
+      _draw_text(draw, (cx, cy - car_h - max(8, self.height // 55)), label,
+                 max(14, self.height // 25), True, fill=color, anchor="ms")
+
+  def _draw_radar_point(self, draw, panel, point, radar_info=2, is_metric=True):
+    distance = float(point.get("distance", 0.0) or 0.0)
+    if distance <= 0.0 or distance > self.MAX_DISTANCE_M:
+      return
+    cx, cy = self._project(panel, distance, float(point.get("lateral", 0.0) or 0.0))
+    stationary = bool(point.get("stationary", False))
+    color = (255, 169, 45) if stationary else (97, 190, 255)
+    radius = max(4, int(13 * (1.0 - distance / self.MAX_DISTANCE_M)) + 3)
+    draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius),
+                 fill=(18, 26, 34), outline=color, width=max(1, radius // 3))
+    if radar_info <= 0 or (radar_info in (1, 2) and stationary):
+      return
+    relative_speed = _speed_value(float(point.get("relative_speed", 0.0) or 0.0) * 3.6, is_metric)
+    if radar_info in (2, 4):
+      label = "%s %+.0f" % (_distance_text(distance, is_metric), relative_speed)
+    else:
+      label = "%+.0f" % relative_speed
+    _draw_text(draw, (cx, cy - radius - 5), label, max(11, self.height // 34), True,
+               fill=color, anchor="ms")
 
   def _draw_speed_limit(self, draw, x, y, limit):
     if limit <= 0:
@@ -538,6 +586,18 @@ class HudRenderer(object):
     draw.rounded_rectangle((x - 58, top + 15, x + 58, top + 58), radius=12,
                            fill=(18, 25, 33), outline=color, width=2)
     _draw_text(draw, (x, top + 36), label, max(17, self.height // 23), True,
+               fill=color, anchor="mm")
+
+  def _draw_energy_mode(self, draw, box, energy_mode):
+    energy_mode = str(energy_mode or "").upper()
+    if energy_mode not in ("EV", "HEV", "PHEV"):
+      return
+    left, top, right, _ = box
+    x = (left + right) // 2 + 92
+    color = (75, 220, 145) if energy_mode == "EV" else (74, 183, 255)
+    draw.rounded_rectangle((x - 42, top + 15, x + 42, top + 58), radius=12,
+                           fill=(18, 25, 33), outline=color, width=2)
+    _draw_text(draw, (x, top + 36), energy_mode, max(15, self.height // 27), True,
                fill=color, anchor="mm")
 
   def _draw_tpms(self, draw, box, tpms):
@@ -610,26 +670,34 @@ class HudRenderer(object):
         color = (intensity, intensity, min(255, intensity + 12))
       self._draw_lane_marking(draw, box, lane.get("points", []), color, probability)
 
+    is_metric = bool(scene.get("is_metric", True))
+    radar_info = int(scene.get("radar_info", 2) or 0)
     self._draw_path(image, draw, box, scene.get("path", []), enabled, scene)
+    for point in scene.get("radar_points", []):
+      self._draw_radar_point(draw, box, point, radar_info, is_metric)
     for index, lead in enumerate(scene.get("leads", [])[:2]):
-      self._draw_lead(draw, box, lead, index == 0)
+      self._draw_lead(draw, box, lead, index == 0, radar_info, is_metric)
 
     status_color = (40, 210, 125) if enabled else (115, 125, 135)
     speed_y = bottom - int((bottom - top) * 0.08)
-    _draw_text(draw, (left + 34, speed_y), str(max(0, int(round(speed_kph)))),
+    display_speed = _speed_value(speed_kph, is_metric)
+    display_cruise = _speed_value(cruise_kph, is_metric)
+    display_limit = _speed_value(limit, is_metric)
+    _draw_text(draw, (left + 34, speed_y), str(max(0, int(round(display_speed)))),
                max(58, int(self.height * 0.25)), True, fill=(245, 248, 250), anchor="ls")
-    _draw_text(draw, (left + int((right - left) * 0.24), speed_y - 4), "km/h",
+    _draw_text(draw, (left + int((right - left) * 0.24), speed_y - 4), "km/h" if is_metric else "mph",
                max(17, self.height // 22), fill=(145, 158, 168), anchor="ls")
-    cruise = "--" if cruise_kph <= 0 or cruise_kph >= 255 else str(int(round(cruise_kph)))
+    cruise = "--" if cruise_kph <= 0 or cruise_kph >= 255 else str(int(round(display_cruise)))
     _draw_text(draw, (left + int((right - left) * 0.24), speed_y - max(34, self.height // 9)), "SET " + cruise,
                max(22, self.height // 13), True, fill=status_color, anchor="ls")
-    self._draw_speed_limit(draw, left + 70, top + 72, limit)
+    self._draw_speed_limit(draw, left + 70, top + 72, int(round(display_limit)))
     self._draw_driving_mode(draw, box, int(scene.get("driving_mode", 0) or 0))
+    self._draw_energy_mode(draw, box, scene.get("energy_mode"))
     self._draw_tpms(draw, box, scene.get("tpms"))
     _draw_text(draw, (right - 22, top + 24), "CARROT HUD", max(13, self.height // 30),
                fill=(96, 116, 132), anchor="ra")
 
-  def _draw_navi_panel(self, image, draw, box, navi):
+  def _draw_navi_panel(self, image, draw, box, navi, language="ko", is_metric=True):
     left, top, right, bottom = box
     panel_w = right - left
     # Preserve the complete TMap frame. Cover-cropping removed the source
@@ -647,7 +715,7 @@ class HudRenderer(object):
       return
     guide = navi.get("guidance_current") or {}
     route = navi.get("route") or {}
-    instruction = guide.get("main_text") or guide.get("road_name") or "안내 없음"
+    instruction = guide.get("main_text") or guide.get("road_name") or ("안내 없음" if language == "ko" else "No guidance")
     distance = int(guide.get("distance_m", -1) or -1)
     card = (left + 18, top + 18, right - 18, top + int(self.height * 0.31))
     draw.rounded_rectangle(card, radius=18, fill=(12, 18, 25), outline=(52, 151, 108), width=3)
@@ -656,7 +724,7 @@ class HudRenderer(object):
     _draw_text(draw, (card[0] + 20, card[1] + 18), instruction, max(24, self.height // 12), True,
                fill=(240, 242, 244), anchor="la")
     if distance >= 0:
-      distance_text = ("%.1f km" % (distance / 1000.0)) if distance >= 1000 else ("%d m" % distance)
+      distance_text = _distance_text(distance, is_metric, language)
       _draw_text(draw, (card[0] + 20, card[3] - 18), distance_text,
                  max(23, self.height // 11), True, fill=(64, 181, 255), anchor="ls")
 
@@ -669,15 +737,17 @@ class HudRenderer(object):
 
     remain_distance = int(route.get("remain_distance_m", -1) or -1)
     if remain_distance >= 0:
-      remain = ("남은 거리 %.1f km" % (remain_distance / 1000.0)) if remain_distance >= 1000 else ("남은 거리 %d m" % remain_distance)
+      remain = _distance_text(remain_distance, is_metric, language, prefix=True)
       draw.rounded_rectangle((left + 18, bottom - 62, left + min(panel_w - 18, 330), bottom - 18),
                              radius=12, fill=(12, 18, 25))
       _draw_text(draw, (left + 32, bottom - 39), remain, max(16, self.height // 20), True,
                  fill=(205, 215, 222), anchor="lm")
 
   def _theme_colors(self, theme):
-    # carrot-wip compatible simple theme mapping: 0 auto(default dark), 1 dark, 2 light.
-    if int(theme or 0) == 2:
+    # carrot-wip compatible mapping: 0 auto by local time, 1 dark, 2 light.
+    theme = int(theme or 0)
+    light = theme == 2 or (theme == 0 and 6 <= time.localtime().tm_hour < 18)
+    if light:
       return {"bg": (235, 239, 243), "card": (250, 251, 252), "line": (180, 188, 196),
               "primary": (25, 31, 38), "secondary": (90, 102, 114), "accent": (32, 123, 214)}
     return {"bg": (7, 12, 18), "card": (16, 23, 32), "line": (55, 68, 80),
@@ -719,9 +789,13 @@ class HudRenderer(object):
     _draw_text(draw, ((left + right) // 2, top + 38), "LIVE DEBUG", max(24, self.height // 12), True,
                fill=colors["primary"], anchor="mm")
     lead_count = len(scene.get("leads", []))
+    is_metric = bool(scene.get("is_metric", True))
+    speed_unit = "km/h" if is_metric else "mph"
+    display_speed = _speed_value(speed_kph, is_metric)
+    display_cruise = _speed_value(cruise_kph, is_metric)
     rows = (
-      ("SPEED", "%.0f km/h" % speed_kph),
-      ("CRUISE", "--" if cruise_kph <= 0 or cruise_kph >= 255 else "%.0f km/h" % cruise_kph),
+      ("SPEED", "%.0f %s" % (display_speed, speed_unit)),
+      ("CRUISE", "--" if cruise_kph <= 0 or cruise_kph >= 255 else "%.0f %s" % (display_cruise, speed_unit)),
       ("MODEL", "%d lanes / %d edges" % (len(scene.get("lanes", [])), len(scene.get("edges", [])))),
       ("RADAR", "%d lead%s" % (lead_count, "" if lead_count == 1 else "s")),
       ("NAVI", "LIVE" if scene.get("navi_live") else "WAIT"),
@@ -767,21 +841,40 @@ class HudRenderer(object):
       _draw_text(draw, (left + 22 + series_index * 90, top + 25), label,
                  max(12, self.height // 32), True, fill=color, anchor="lm")
 
-  def _draw_trip_report(self, draw, box, report, theme=0):
+  def _draw_trip_report(self, draw, box, report, theme=0, language="ko", is_metric=True):
     colors = self._theme_colors(theme)
     left, top, right, bottom = box
     draw.rectangle(box, fill=colors["bg"])
     title_size = max(24, self.height // 12)
     body_size = max(19, self.height // 18)
-    _draw_text(draw, ((left + right) // 2, top + 42), "DRIVING REPORT", title_size, True,
+    title = "주행 리포트" if language == "ko" else "DRIVING REPORT"
+    _draw_text(draw, ((left + right) // 2, top + 42), title, title_size, True,
                fill=colors["primary"], anchor="mm")
     duration_s = max(0.0, float(report.get("duration_s", 0.0) or 0.0))
-    distance_km = max(0.0, float(report.get("distance_m", 0.0) or 0.0)) / 1000.0
+    distance_m = max(0.0, float(report.get("distance_m", 0.0) or 0.0))
+    average_speed = _speed_value(float(report.get("average_speed_kph", 0.0) or 0.0), is_metric)
+    max_speed = _speed_value(float(report.get("max_speed_kph", 0.0) or 0.0), is_metric)
+    speed_unit = "km/h" if is_metric else "mph"
+    engaged_time_s = max(0.0, float(report.get("engaged_time_s", 0.0) or 0.0))
+    engaged_ratio = 100.0 * engaged_time_s / duration_s if duration_s > 0.0 else 0.0
+    labels = {
+      "time": "시간" if language == "ko" else "TIME",
+      "distance": "거리" if language == "ko" else "DIST",
+      "average": "평균" if language == "ko" else "AVG",
+      "maximum": "최고" if language == "ko" else "MAX",
+      "engaged": "OP 사용" if language == "ko" else "OP TIME",
+      "accel": "가감속" if language == "ko" else "ACC/DEC",
+    }
     rows = (
-      ("TIME", "%02d:%02d" % (int(duration_s) // 3600, (int(duration_s) // 60) % 60)),
-      ("DIST", "%.1f km" % distance_km),
-      ("AVG", "%.0f km/h" % float(report.get("average_speed_kph", 0.0) or 0.0)),
-      ("MAX", "%.0f km/h" % float(report.get("max_speed_kph", 0.0) or 0.0)),
+      (labels["time"], "%02d:%02d" % (int(duration_s) // 3600, (int(duration_s) // 60) % 60)),
+      (labels["distance"], _distance_text(distance_m, is_metric, language)),
+      (labels["average"], "%.0f %s" % (average_speed, speed_unit)),
+      (labels["maximum"], "%.0f %s" % (max_speed, speed_unit)),
+      (labels["engaged"], "%.0f%%" % engaged_ratio),
+      (labels["accel"], "%+.1f/%.1f  H%d/%d" % (float(report.get("max_accel", 0.0) or 0.0),
+                                                  float(report.get("max_decel", 0.0) or 0.0),
+                                                  int(report.get("hard_accel_count", 0) or 0),
+                                                  int(report.get("hard_brake_count", 0) or 0))),
     )
     card_left, card_right = left + 24, right - 24
     row_h = max(58, (bottom - top - 92) // len(rows))
@@ -801,6 +894,8 @@ class HudRenderer(object):
     draw = ImageDraw.Draw(image)
     screen_mode = int(scene.get("screen_mode", 0) or 0)
     theme = int(scene.get("theme", 0) or 0)
+    language = "en" if str(scene.get("language", "ko")).lower() == "en" else "ko"
+    is_metric = bool(scene.get("is_metric", True))
     self._update_graph_history(speed_kph, scene.get("system") or {})
     if screen_mode == 3:
       self._draw_graph_panel(draw, (0, 0, self.width, self.height), theme, "FULL LIVE GRAPH")
@@ -830,16 +925,19 @@ class HudRenderer(object):
     elif screen_mode == 4:
       self._draw_graph_panel(draw, info_box, theme)
     elif screen_mode == 5:
-      self._draw_trip_report(draw, info_box, scene.get("trip_report") or {}, theme)
+      self._draw_trip_report(draw, info_box, scene.get("trip_report") or {}, theme, language, is_metric)
     elif not navi and scene.get("trip_report"):
       # carrot-wip mode 0 behavior: live navigation when available, otherwise driving report.
-      self._draw_trip_report(draw, info_box, scene["trip_report"], theme)
+      self._draw_trip_report(draw, info_box, scene["trip_report"], theme, language, is_metric)
     else:
-      self._draw_navi_panel(image, draw, info_box, navi)
+      self._draw_navi_panel(image, draw, info_box, navi, language, is_metric)
     self._draw_alert(draw, scene.get("alert"))
     return image
 
   def encode_portrait_jpeg(self, image):
+    if self.mirror:
+      transpose = getattr(Image, "Transpose", Image)
+      image = image.transpose(transpose.FLIP_LEFT_RIGHT)
     portrait = image.transpose(Image.ROTATE_90)
     output = io.BytesIO()
     portrait.save(output, format="JPEG", quality=self.jpeg_quality, optimize=False,

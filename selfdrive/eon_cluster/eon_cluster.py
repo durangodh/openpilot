@@ -1,3 +1,4 @@
+import math
 import signal
 import time
 
@@ -5,7 +6,7 @@ import cereal.messaging as messaging
 from common.params import Params
 
 from selfdrive.eon_cluster.renderer import HudRenderer, read_navi_state
-from selfdrive.eon_cluster.scene import extract_driving_scene
+from selfdrive.eon_cluster.scene import extract_driving_scene, extract_radar_points
 from selfdrive.eon_cluster.trip import TripTracker
 PARAM_ENABLED = "EonClusterHud"
 PARAM_CONNECTED = "EonClusterHudConnected"
@@ -14,6 +15,11 @@ PARAM_FPS = "EonClusterHudFps"
 PARAM_JPEG_QUALITY = "EonClusterHudJpegQuality"
 PARAM_SCREEN_MODE = "EonClusterHudScreenMode"
 PARAM_THEME = "EonClusterHudTheme"
+PARAM_ORIENTATION = "EonClusterHudOrientation"
+PARAM_MIRROR = "EonClusterHudMirror"
+PARAM_LANGUAGE = "EonClusterHudLanguage"
+PARAM_RADAR_INFO = "EonClusterHudRadarInfo"
+PARAM_RADAR_DISPLAY = "EonClusterHudRadarDisplay"
 TURZX_92_PRODUCT_ID = 0x0092
 RECONNECT_INTERVAL_S = 5.0
 SETTINGS_POLL_INTERVAL_S = 0.25
@@ -35,6 +41,49 @@ def _field(message, name, default=0.0):
     return default
 
 
+def _param_bool(params, key, default=False):
+  try:
+    raw = params.get(key)
+    if raw is None:
+      return bool(default)
+    return raw not in (b"0", "0", b"", "", False)
+  except Exception:
+    return bool(default)
+
+
+def _orientation(params):
+  return 2 if _param_int(params, PARAM_ORIENTATION, 0, 0, 2) == 2 else 0
+
+
+def _resolved_brightness(params, device_state, camera_state=None, camera_valid=False):
+  setting = _param_int(params, PARAM_BRIGHTNESS, 65, 0, 100)
+  if setting > 0:
+    return setting
+  exposure = float(_field(camera_state, "exposureValPercent", float("nan")))
+  if camera_valid and math.isfinite(exposure):
+    lightness = max(0.0, min(100.0, 100.0 - exposure))
+    normalized = lightness / 903.3 if lightness <= 8.0 else math.pow((lightness + 16.0) / 116.0, 3.0)
+    return max(30, min(100, int(round(30.0 + max(0.0, min(1.0, normalized)) * 70.0))))
+  screen_brightness = float(_field(device_state, "screenBrightnessPercent", 0.0) or 0.0)
+  return max(10, min(100, int(round(screen_brightness)))) if screen_brightness > 0.0 else 65
+
+
+def _energy_mode(car_params):
+  fingerprint = str(_field(car_params, "carFingerprint", "") or "").upper()
+  if any(token in fingerprint for token in ("PHEV", "HYBRID", " HEV")):
+    return "HEV"
+  if "ELECTRIC" in fingerprint or " EV" in fingerprint:
+    return "EV"
+  return ""
+
+
+def _service_healthy(sm, service):
+  try:
+    return bool(sm.alive.get(service, False) and sm.valid.get(service, False))
+  except Exception:
+    return False
+
+
 def main():
   params = Params()
   params.put_bool(PARAM_CONNECTED, False)
@@ -45,10 +94,11 @@ def main():
 
   signal.signal(signal.SIGINT, stop)
   signal.signal(signal.SIGTERM, stop)
-  sm = messaging.SubMaster(["carState", "controlsState", "deviceState", "modelV2", "radarState",
-                            "longitudinalPlan"])
+  sm = messaging.SubMaster(["carState", "carParams", "controlsState", "deviceState", "modelV2",
+                            "radarState", "liveTracks", "longitudinalPlan", "wideRoadCameraState"])
   display = None
   renderer = None
+  usb_monitor = None
   next_connect = 0.0
   next_frame = 0.0
   next_settings_read = 0.0
@@ -64,16 +114,25 @@ def main():
           display = None
           renderer = None
           params.put_bool(PARAM_CONNECTED, False)
+        if usb_monitor is not None:
+          usb_monitor.close()
+          usb_monitor = None
         time.sleep(1.0)
         continue
 
       now = time.monotonic()
       if display is None:
+        if usb_monitor is None:
+          from selfdrive.eon_cluster.usb_display import UsbEventMonitor
+          usb_monitor = UsbEventMonitor(TURZX_92_PRODUCT_ID)
+        if usb_monitor.poll():
+          next_connect = 0.0
         if now < next_connect:
           time.sleep(min(0.2, next_connect - now))
           continue
         fps = _param_int(params, PARAM_FPS, 10, 5, 15)
-        brightness = _param_int(params, PARAM_BRIGHTNESS, 65, 10, 100)
+        brightness = _resolved_brightness(params, sm["deviceState"], sm["wideRoadCameraState"],
+                                          _service_healthy(sm, "wideRoadCameraState"))
         quality = _param_int(params, PARAM_JPEG_QUALITY, 58, 1, 95)
         try:
           # Keep the default-disabled process harmless even on images missing
@@ -81,10 +140,11 @@ def main():
           # 9.2-inch TURZX PID like carrot-wip HUD mode 1 does, so another
           # supported TURZX panel cannot be selected accidentally.
           from selfdrive.eon_cluster.usb_display import TurzxDisplay
-          display = TurzxDisplay(brightness=brightness, frame_rate=fps,
+          display = TurzxDisplay(brightness=brightness, frame_rate=fps, orientation=_orientation(params),
                                  expected_product_id=TURZX_92_PRODUCT_ID)
           display.open()
           renderer = HudRenderer(display.landscape_size[0], display.landscape_size[1], quality)
+          renderer.set_mirror(_param_bool(params, PARAM_MIRROR))
           params.put_bool(PARAM_CONNECTED, True)
           next_frame = now
           next_settings_read = now + SETTINGS_POLL_INTERVAL_S
@@ -105,8 +165,11 @@ def main():
         try:
           next_fps = _param_int(params, PARAM_FPS, 10, 5, 15)
           display.set_frame_rate(next_fps)
-          display.set_brightness(_param_int(params, PARAM_BRIGHTNESS, 65, 10, 100))
+          display.set_brightness(_resolved_brightness(params, sm["deviceState"], sm["wideRoadCameraState"],
+                                                      _service_healthy(sm, "wideRoadCameraState")))
+          display.set_orientation(_orientation(params))
           renderer.set_jpeg_quality(_param_int(params, PARAM_JPEG_QUALITY, 58, 1, 95))
+          renderer.set_mirror(_param_bool(params, PARAM_MIRROR))
           active_fps = next_fps
           next_settings_read = now + SETTINGS_POLL_INTERVAL_S
         except Exception as exc:
@@ -133,16 +196,23 @@ def main():
       try:
         scene = extract_driving_scene(sm["modelV2"], sm["radarState"])
         speed_kph = speed_mps * 3.6
-        trip.update(bool(_field(device_state, "started", False)), speed_kph, now)
+        accels = _field(sm["longitudinalPlan"], "accels", [])
+        accel = float(accels[0]) if accels is not None and len(accels) else 0.0
+        trip.update(bool(_field(device_state, "started", False)), speed_kph, now, enabled, accel)
         tpms = _field(car_state, "tpms")
         scene["tpms"] = {key: _field(tpms, key, None) for key in ("fl", "fr", "rl", "rr")}
         scene["driving_mode"] = _param_int(params, "MyDrivingMode", 3, 1, 4)
         scene["panel_layout"] = _param_int(params, "EonClusterHudPanelLayout", 0, 0, 1)
         scene["screen_mode"] = _param_int(params, PARAM_SCREEN_MODE, 0, 0, 5)
         scene["theme"] = _param_int(params, PARAM_THEME, 0, 0, 2)
+        scene["language"] = "en" if _param_int(params, PARAM_LANGUAGE, 0, 0, 1) == 1 else "ko"
+        scene["is_metric"] = _param_bool(params, "IsMetric", True)
+        scene["energy_mode"] = _energy_mode(sm["carParams"])
+        scene["radar_info"] = _param_int(params, PARAM_RADAR_INFO, 4, 0, 4)
+        if _param_int(params, PARAM_RADAR_DISPLAY, 0, 0, 1) == 1:
+          scene["radar_points"] = extract_radar_points(sm["liveTracks"])
         scene["show_path_status_color"] = _param_int(params, "ShowPathStatusColor", 1, 0, 1) == 1
-        accels = _field(sm["longitudinalPlan"], "accels", [])
-        scene["accel"] = float(accels[0]) if accels is not None and len(accels) else 0.0
+        scene["accel"] = accel
         cpu_values = list(_field(device_state, "cpuUsagePercent", []) or [])
         temp_values = list(_field(device_state, "cpuTempC", []) or [])
         free_space = float(_field(device_state, "freeSpacePercent", 0.0) or 0.0)
@@ -188,6 +258,8 @@ def main():
   finally:
     if display is not None:
       display.close()
+    if usb_monitor is not None:
+      usb_monitor.close()
     params.put_bool(PARAM_CONNECTED, False)
 
 

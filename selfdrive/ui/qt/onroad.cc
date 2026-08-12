@@ -454,9 +454,21 @@ void NvgWindow::paintEvent(QPaintEvent *event) {
 
   QPainter p(this);
 
-  p.beginNativePainting();
-  CameraViewWidget::paintGL();
-  p.endNativePainting();
+  const uint64_t eon_hud_now = millis_since_boot();
+  if (eon_hud_now - eon_cluster_hud_last_read >= 500) {
+    eon_cluster_hud_last_read = eon_hud_now;
+    eon_cluster_hud_connected = Params().getBool("EonClusterHudConnected");
+  }
+
+  if (!eon_cluster_hud_connected) {
+    p.beginNativePainting();
+    CameraViewWidget::paintGL();
+    p.endNativePainting();
+  } else {
+    // The external HUD already renders the driving scene. Keep the EON UI
+    // readable while avoiding a duplicate camera texture draw.
+    p.fillRect(rect(), Qt::black);
+  }
 
   if (s->worldObjectsVisible())
     drawHud(p, model);
@@ -549,17 +561,13 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   (void)sm;
   (void)model;
 
-  drawLaneLines(p, s);
-  // Keep all existing driving/navigation indicators above the analysis plot.
-  drawCarrotPlot(p);
-
-  const uint64_t eon_hud_now = millis_since_boot();
-  if (eon_hud_now - eon_cluster_hud_last_read >= 500) {
-    eon_cluster_hud_last_read = eon_hud_now;
-    eon_cluster_hud_connected = Params().getBool("EonClusterHudConnected");
+  if (!eon_cluster_hud_connected) {
+    drawLaneLines(p, s);
+    // Keep all existing driving/navigation indicators above the analysis plot.
+    drawCarrotPlot(p);
+    drawCarrotLead(p);
   }
   updateCarrotNavi(!eon_cluster_hud_connected);
-  drawCarrotLead(p);
   if (!eon_cluster_hud_connected) drawCarrotNavi(p);
   drawCarrotHud(p);
   drawSpeedLimit(p);
