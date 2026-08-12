@@ -1162,7 +1162,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
   // Mad mode can keep openpilot engaged while the stock ACC is not active.
   // In that state cruiseMaxSpeed is not a valid cluster set speed, so never
   // render a transient value (for example, "1") as the cruise setting.
-  bool is_cruise_set = cruise_state.getEnabled() &&
+  bool is_cruise_set = controls_state.getEnabled() &&
                        cruise_max >= 10.0f && cruise_max < 255.0f;
   QString cruise_str = is_cruise_set
                      ? QString::number((int)(cruise_max * kph_to_disp + 0.5f))
