@@ -1158,10 +1158,8 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
 
   // ---- 크루즈 설정 속도 ----
   float cruise_max = scc_smoother.getCruiseMaxSpeed();
-  const auto cruise_state = car_state.getCruiseState();
-  // Mad mode can keep openpilot engaged while the stock ACC is not active.
-  // In that state cruiseMaxSpeed is not a valid cluster set speed, so never
-  // render a transient value (for example, "1") as the cruise setting.
+  // Match the cluster's stable openpilot engagement state. SCC12.ACCMode can
+  // briefly become zero during brake/override transitions while control stays engaged.
   bool is_cruise_set = controls_state.getEnabled() &&
                        cruise_max >= 10.0f && cruise_max < 255.0f;
   QString cruise_str = is_cruise_set
