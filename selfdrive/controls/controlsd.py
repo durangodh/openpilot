@@ -519,12 +519,15 @@ class Controls:
     # we want to disengage openpilot. However the status from the panda goes through
     # another socket other than the CAN messages and one can arrive earlier than the other.
     # Therefore we allow a mismatch for two samples, then we trigger the disengagement.
-    if not self.enabled:
+    # A physical brake press can pause longitudinal control while lateral
+    # engagement remains armed. Panda intentionally revokes controlsAllowed
+    # during the press, so do not turn that expected state into a mismatch.
+    panda_controls_mismatch = self.enabled and any(
+      not ps.controlsAllowed for ps in self.sm['pandaStates']
+      if ps.safetyModel not in IGNORED_SAFETY_MODES)
+    if not panda_controls_mismatch or CS.brakePressed:
       self.mismatch_counter = 0
-
-    # All pandas not in silent mode must have controlsAllowed when openpilot is enabled
-    if self.enabled and any(not ps.controlsAllowed for ps in self.sm['pandaStates']
-           if ps.safetyModel not in IGNORED_SAFETY_MODES):
+    else:
       self.mismatch_counter += 1
 
     self.distance_traveled += CS.vEgo * DT_CTRL
