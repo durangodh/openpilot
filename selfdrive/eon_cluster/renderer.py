@@ -343,7 +343,6 @@ def _distance_text(distance_m, is_metric, language="ko", prefix=False):
 class HudRenderer(object):
   DRIVE_RATIO = 0.60
   MAX_DISTANCE_M = 120.0
-  ROAD_BACKGROUND_CACHE_LIMIT = 6
 
   def __init__(self, width, height, jpeg_quality=58):
     self.width = int(width)
@@ -354,9 +353,8 @@ class HudRenderer(object):
     self.graph_speed = deque(maxlen=180)
     self.graph_cpu = deque(maxlen=180)
     self.graph_temp = deque(maxlen=180)
-    # Cache quantized carrot-style road surfaces. Nine curve levels are
-    # available, but LRU limiting prevents old EONs retaining every bitmap.
-    self._road_backgrounds = OrderedDict()
+    # Cache the static carrot-style road surface per panel size.
+    self._road_backgrounds = {}
 
   def set_jpeg_quality(self, jpeg_quality):
     jpeg_quality = max(1, min(95, int(jpeg_quality)))
@@ -403,30 +401,11 @@ class HudRenderer(object):
     if len(projected) >= 2:
       draw.line(projected, fill=fill, width=max(1, int(width)), joint="curve")
 
-  @staticmethod
-  def _road_curve_bucket(scene):
-    """Quantize the model path into four left/right road-background levels."""
-    points = scene.get("path", []) if scene else []
-    candidates = []
-    for point in points:
-      try:
-        longitudinal, lateral = float(point[0]), float(point[1])
-      except (IndexError, TypeError, ValueError):
-        continue
-      if math.isfinite(longitudinal) and math.isfinite(lateral) and 35.0 <= longitudinal <= 85.0:
-        candidates.append((abs(longitudinal - 60.0), lateral))
-    if not candidates:
-      return 0
-    lateral = min(candidates, key=lambda item: item[0])[1]
-    return int(round(_clamp(lateral / 0.90, -4.0, 4.0)))
-
-  def _draw_road_surface(self, image, panel, curve_bucket=0):
-    """Cached, curved perspective road for the camera-free EON HUD."""
+  def _draw_road_surface(self, image, panel):
+    """Cached, high-contrast perspective road for the camera-free EON HUD."""
     left, top, right, bottom = panel
     size = (max(1, right - left), max(1, bottom - top))
-    curve_bucket = int(_clamp(int(curve_bucket), -4, 4))
-    cache_key = (size, curve_bucket)
-    background = self._road_backgrounds.get(cache_key)
+    background = self._road_backgrounds.get(size)
     if background is None:
       width, height = size
       background = Image.new("RGB", size, (3, 7, 13))
@@ -441,18 +420,15 @@ class HudRenderer(object):
       center = width * 0.5
       far_half = max(9, width * 0.052)
       near_half = width * 0.48
-      curve_px = -curve_bucket * width * 0.018
-
-      def road_center(depth):
-        return center + curve_px * math.pow(max(0.0, 1.0 - depth), 1.55)
-
       # A thin horizon glow gives the flat Pillow projection considerably more depth.
-      far_center = road_center(0.0)
       for glow in range(6, 0, -1):
         glow_color = (8 + glow * 3, 22 + glow * 4, 37 + glow * 7)
-        road.line((int(far_center - far_half * (2.2 + glow * 0.13)), horizon + glow,
-                   int(far_center + far_half * (2.2 + glow * 0.13)), horizon + glow),
+        road.line((int(center - far_half * (2.2 + glow * 0.13)), horizon + glow,
+                   int(center + far_half * (2.2 + glow * 0.13)), horizon + glow),
                   fill=glow_color, width=1)
+      road.polygon(((center - far_half, horizon), (center + far_half, horizon),
+                    (center + near_half, height), (center - near_half, height)),
+                   fill=(11, 19, 29))
       for band in range(14):
         near_t = math.pow(band / 14.0, 1.22)
         far_t = math.pow((band + 1) / 14.0, 1.22)
@@ -460,34 +436,21 @@ class HudRenderer(object):
         y1 = int(horizon + (height - horizon) * far_t) + 1
         half0 = far_half + (near_half - far_half) * near_t
         half1 = far_half + (near_half - far_half) * far_t
-        center0 = road_center(near_t)
-        center1 = road_center(far_t)
         shade = 13 + (band % 2) * 2 + int(band * 0.55)
-        road.polygon(((center0 - half0, y0), (center0 + half0, y0),
-                      (center1 + half1, y1), (center1 - half1, y1)),
+        road.polygon(((center - half0, y0), (center + half0, y0),
+                      (center + half1, y1), (center - half1, y1)),
                      fill=(shade, shade + 6, shade + 14))
       # Perspective cross bars and shoulders are intentionally dim: lane/model data stays dominant.
       for step in (0.20, 0.36, 0.53, 0.70, 0.86):
         y = int(horizon + (height - horizon) * step)
         half = far_half + (near_half - far_half) * step
-        band_center = road_center(step)
-        road.line((int(band_center - half), y, int(band_center + half), y), fill=(22, 36, 50), width=1)
-      left_shoulder, right_shoulder = [], []
-      for index in range(25):
-        depth = index / 24.0
-        y = int(horizon + (height - horizon) * depth)
-        half = far_half + (near_half - far_half) * depth
-        band_center = road_center(depth)
-        left_shoulder.append((int(band_center - half), y))
-        right_shoulder.append((int(band_center + half), y))
+        road.line((int(center - half), y, int(center + half), y), fill=(22, 36, 50), width=1)
       for glow_width, shoulder in ((10, (10, 25, 39)), (5, (28, 60, 83)), (2, (91, 149, 183))):
-        road.line(left_shoulder, fill=shoulder, width=max(glow_width, height // 120), joint="curve")
-        road.line(right_shoulder, fill=shoulder, width=max(glow_width, height // 120), joint="curve")
-      self._road_backgrounds[cache_key] = background
-      while len(self._road_backgrounds) > self.ROAD_BACKGROUND_CACHE_LIMIT:
-        self._road_backgrounds.popitem(last=False)
-    else:
-      self._road_backgrounds.move_to_end(cache_key)
+        road.line(((center - far_half, horizon), (center - near_half, height)),
+                  fill=shoulder, width=max(glow_width, height // 120))
+        road.line(((center + far_half, horizon), (center + near_half, height)),
+                  fill=shoulder, width=max(glow_width, height // 120))
+      self._road_backgrounds[size] = background
     image.paste(background, (left, top))
 
   def _draw_lane_marking(self, draw, panel, points, color, probability):
@@ -793,9 +756,10 @@ class HudRenderer(object):
 
   def _draw_driving_panel(self, image, draw, box, speed_kph, cruise_kph, enabled, limit, scene):
     left, top, right, bottom = box
-    scene = scene or {}
-    self._draw_road_surface(image, box, self._road_curve_bucket(scene))
+    self._draw_road_surface(image, box)
     horizon = top + int((bottom - top) * 0.10)
+
+    scene = scene or {}
     for edge in scene.get("edges", []):
       probability = float(edge.get("probability", 0.5) or 0.5)
       color = (int(112 + 115 * probability), int(48 + 28 * probability),
@@ -874,21 +838,6 @@ class HudRenderer(object):
 
     if not navi:
       return
-    guide = navi.get("guidance_current") or {}
-    instruction = guide.get("main_text") or guide.get("road_name") or ("안내 없음" if language == "ko" else "No guidance")
-    distance = int(guide.get("distance_m", -1) or -1)
-    card = (left + 18, top + 18, right - 18, top + int(self.height * 0.27))
-    # TMap-style guidance header instead of the former opaque black top bar.
-    draw.rounded_rectangle(card, radius=18, fill=(20, 157, 118), outline=(99, 232, 189), width=3)
-    if len(instruction) > 17:
-      instruction = instruction[:16] + "…"
-    _draw_text(draw, (card[0] + 20, card[1] + 18), instruction, max(24, self.height // 12), True,
-               fill=(240, 242, 244), anchor="la")
-    if distance >= 0:
-      distance_text = _distance_text(distance, is_metric, language)
-      _draw_text(draw, (card[0] + 20, card[3] - 16), distance_text,
-                 max(23, self.height // 11), True, fill=(245, 251, 248), anchor="ls")
-
     lane_w, lane_h = int(panel_w * 0.58), int(self.height * 0.18)
     lane = _safe_fitted_image(NAVI_LANE, (lane_w, lane_h))
     if lane is not None:

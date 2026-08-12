@@ -181,8 +181,8 @@ def test_tmap_fills_panel_and_transparent_lane_does_not_make_black_bar(tmp_path,
   renderer = HudRenderer(1920, 462, 50)
   navi = {"guidance_current": {"main_text": "TURN", "distance_m": 120}}
   frame = renderer.render(55.0, 88.0, True, navi, {"lanes": [], "edges": [], "leads": []})
-  # Uncovered corners retain the map frame at both the top and bottom.
-  for point in ((1908, 6), (1908, 453)):
+  # The whole panel, including the old green-card area, retains the raw map.
+  for point in ((1908, 6), (1200, 40), (1908, 453)):
     red, green, blue = frame.getpixel(point)
     assert blue > green > red
   # Transparent pixels in the lane overlay must leave the map visible.
@@ -197,24 +197,6 @@ def test_tmap_stream_is_wide_and_does_not_increase_pixel_load():
     MAP_RENDER_WIDTH, MAP_RENDER_HEIGHT, MAP_RENDER_FPS)
   assert MAP_RENDER_WIDTH * MAP_RENDER_HEIGHT <= 480 * 540
   assert abs(float(MAP_RENDER_WIDTH) / MAP_RENDER_HEIGHT - 768.0 / 462.0) < 0.01
-
-
-def test_curved_road_background_uses_bounded_quantized_cache():
-  from PIL import Image
-  renderer = HudRenderer(1920, 462, 50)
-  assert renderer._road_curve_bucket({"path": [(0.0, 0.0), (60.0, 3.5)]}) == 4
-  assert renderer._road_curve_bucket({"path": [(0.0, 0.0), (60.0, -3.5)]}) == -4
-  assert renderer._road_curve_bucket({"path": []}) == 0
-
-  panel = (0, 0, 1150, 462)
-  straight = Image.new("RGB", (1150, 462))
-  curved = Image.new("RGB", (1150, 462))
-  renderer._draw_road_surface(straight, panel, 0)
-  renderer._draw_road_surface(curved, panel, 4)
-  assert straight.tobytes() != curved.tobytes()
-  for bucket in range(-4, 5):
-    renderer._draw_road_surface(Image.new("RGB", (1150, 462)), panel, bucket)
-  assert len(renderer._road_backgrounds) == renderer.ROAD_BACKGROUND_CACHE_LIMIT
 
 
 def test_cluster_overlays_and_swapped_layout_render():
