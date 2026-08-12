@@ -89,7 +89,7 @@ def test_path_tapers_without_bottom_edge_bar():
   from PIL import Image, ImageDraw
   renderer = HudRenderer(1920, 462, 50)
   image = Image.new("RGB", (1150, 462), (0, 0, 0))
-  renderer._draw_path(ImageDraw.Draw(image), (0, 0, 1150, 462),
+  renderer._draw_path(image, ImageDraw.Draw(image), (0, 0, 1150, 462),
                       [(0.0, 0.0), (10.0, 0.0), (30.0, 0.0), (80.0, 0.0)],
                       True, {"show_path_status_color": False})
   assert sum(image.getpixel((x, 461)) == (26, 190, 255) for x in range(450, 700)) < 10
