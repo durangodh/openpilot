@@ -74,6 +74,7 @@ class LongControl:
     self.long_coast_band = 0.0
     self.v_pid = 0.0
     self.last_output_accel = 0.0
+    self._update_pid_gains()
     # Read launch control immediately so StartAccelApply=0 disables the
     # starting state from the first control cycle.
     self._update_start_accel()
@@ -125,6 +126,33 @@ class LongControl:
     elif self.actuator_delay_upper < self.actuator_delay_lower:
       self.actuator_delay_upper = self.actuator_delay_lower
 
+  def _update_pid_gains(self):
+    if len(self.CP.longitudinalTuning.kpBP) != 1 or len(self.CP.longitudinalTuning.kiBP) != 1:
+      return
+
+    kp_raw = self.params.get("LongTuningKpV", encoding="utf8")
+    ki_raw = self.params.get("LongTuningKiV", encoding="utf8")
+    kf_raw = self.params.get("LongTuningKf", encoding="utf8")
+    try:
+      if kp_raw is not None:
+        kp = float(clip(float(kp_raw) * 0.01, 0.0, 2.0))
+        self.pid._k_p = (self.CP.longitudinalTuning.kpBP, [kp])
+      if ki_raw is not None:
+        old_ki = self.pid.k_i
+        ki = float(clip(float(ki_raw) * 0.001, 0.0, 2.0))
+        self.pid._k_i = (self.CP.longitudinalTuning.kiBP, [ki])
+        # The integral is already gain-scaled.  Clear it for Ki=0 and scale it
+        # down with a reduced live gain so an old correction cannot keep the
+        # accelerator pinned after the setting changes.
+        if ki == 0.0:
+          self.pid.i = 0.0
+        elif old_ki > 0.0 and ki < old_ki:
+          self.pid.i *= ki / old_ki
+      if kf_raw is not None:
+        self.pid.k_f = float(clip(float(kf_raw) * 0.01, 0.0, 2.0))
+    except (TypeError, ValueError):
+      pass
+
   def reset(self, v_pid=0.0):
     self.pid.reset()
     self.v_pid = v_pid
@@ -141,16 +169,7 @@ class LongControl:
       self._update_start_accel()
 
     elif self.read_param_count == 10:
-      if len(self.CP.longitudinalTuning.kpBP) == 1 and len(self.CP.longitudinalTuning.kiBP) == 1:
-        kp = self.params.get_float("LongTuningKpV") * 0.01
-        ki = self.params.get_float("LongTuningKiV") * 0.001
-        kf = self.params.get_float("LongTuningKf") * 0.01
-        if kp > 0.0:
-          self.pid._k_p = (self.CP.longitudinalTuning.kpBP, [kp])
-        if ki > 0.0:
-          self.pid._k_i = (self.CP.longitudinalTuning.kiBP, [ki])
-        if kf > 0.0:
-          self.pid.k_f = clip(kf, 0.7, 1.3)
+      self._update_pid_gains()
 
   def update(self, active, CS, long_plan, accel_limits, t_since_plan, soft_hold=False, radar_state=None):
     self._read_params()
@@ -222,6 +241,16 @@ class LongControl:
       error = apply_deadzone(self.v_pid - CS.vEgo, deadzone)
       output_accel = self.pid.update(error, speed=CS.vEgo, feedforward=a_target,
                                      freeze_integrator=prevent_overshoot)
+
+      # Back-calculate only a positive saturated integral.  PIDController's
+      # regular anti-windup prevents new accumulation, while this removes a
+      # correction retained from a previously higher CruiseMax setting.
+      raw_control = self.pid.p + self.pid.i + self.pid.d + self.pid.f
+      if self.pid.i > 0.0 and raw_control > self.pid.pos_limit:
+        self.pid.i = max(0.0, self.pid.pos_limit - self.pid.p - self.pid.d - self.pid.f)
+        output_accel = clip(self.pid.p + self.pid.i + self.pid.d + self.pid.f,
+                            self.pid.neg_limit, self.pid.pos_limit)
+        self.pid.control = output_accel
 
       if -self.long_coast_band < output_accel < 0.0:
         output_accel = 0.0

@@ -691,6 +691,12 @@ class Controls:
     if not self.joystick_mode:
       # accel PID loop
       pid_accel_limits = self.CI.get_pid_accel_limits(self.CP, CS.vEgo, self.v_cruise_kph * CV.KPH_TO_MS)
+      # Use the same live CruiseMax ceiling inside LongControl that the planner
+      # and final SCC12 transport use.  Keeping the PID's own pos_limit at the
+      # vehicle maximum lets its integral wind up behind the final SCC clip,
+      # which holds acceleration at the selected ceiling for too long.
+      cruise_max_accel = self.cruise_helper.get_cruise_max_accel(CS.vEgo)
+      pid_accel_limits = (pid_accel_limits[0], min(pid_accel_limits[1], cruise_max_accel))
       t_since_plan = (self.sm.frame - self.sm.rcv_frame['longitudinalPlan']) * DT_CTRL
       actuators.accel, actuators.jerk = self.LoC.update(
         CC.longActive,
