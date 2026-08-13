@@ -81,6 +81,7 @@ class CruiseHelper:
     self.slowing_down = False
     self.slowing_down_alert = False
     self.slowing_down_sound_alert = False
+    self.slowing_down_for_bump = False
     self.limited_lead = False
     self.stock_weight = 0.0
 
@@ -556,9 +557,9 @@ class CruiseHelper:
   def inject_events(self, events):
     if self.slowing_down_sound_alert:
       self.slowing_down_sound_alert = False
-      events.add(EventName.slowingDownSpeedSound)
+      events.add(EventName.speedBumpSound if self.slowing_down_for_bump else EventName.slowingDownSpeedSound)
     elif self.slowing_down_alert:
-      events.add(EventName.slowingDownSpeed)
+      events.add(EventName.speedBump if self.slowing_down_for_bump else EventName.slowingDownSpeed)
 
   def cal_curve_speed(self, sm, v_ego, frame):
     """carrot-wip vision curve speed using predicted lateral acceleration."""
@@ -771,6 +772,7 @@ class CruiseHelper:
         max_speed_clu = apply_limit_speed
         self.apply_source = navi_source
       if clu11_speed > apply_limit_speed:
+        self.slowing_down_for_bump = cam_type == 22 and cam_dist > 0.0
         if not self.slowing_down_alert and not self.slowing_down:
           self.slowing_down_sound_alert = True
           self.slowing_down = True
