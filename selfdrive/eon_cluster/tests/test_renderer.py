@@ -101,14 +101,20 @@ def test_bitmap_atlas_fallback_scales_without_freetype(monkeypatch):
   renderer_module._BITMAP_TEXT_CACHE.clear()
 
 
-def test_path_tapers_without_bottom_edge_bar():
+def test_path_is_narrow_solid_blue_and_tapers_before_ego():
   from PIL import Image, ImageDraw
   renderer = HudRenderer(1920, 462, 50)
+  panel = (0, 0, 1150, 462)
   image = Image.new("RGB", (1150, 462), (0, 0, 0))
-  renderer._draw_path(image, ImageDraw.Draw(image), (0, 0, 1150, 462),
+  renderer._draw_path(image, ImageDraw.Draw(image), panel,
                       [(0.0, 0.0), (10.0, 0.0), (30.0, 0.0), (80.0, 0.0)],
                       True, {"show_path_status_color": False})
-  assert sum(image.getpixel((x, 461)) == (26, 190, 255) for x in range(450, 700)) < 10
+  blue = (24, 126, 224)
+  assert blue in set(image.getdata())
+  assert sum(image.getpixel((x, 461)) == blue for x in range(450, 700)) < 10
+  _, near_y = renderer._project(panel, 10.0, 0.0)
+  near_width = sum(image.getpixel((x, near_y)) == blue for x in range(450, 700))
+  assert 8 <= near_width <= 50
 
 
 def test_path_status_colors_match_eon_ui():
@@ -159,8 +165,8 @@ def test_lightweight_scene_uses_camera_free_vector_world():
   assert frame.size == (1920, 462)
   colors = set(frame.getdata())
   assert any(blue > 180 and red < 130 for red, green, blue in colors)
-  # Following a lead at steady accel paints the carrot-wip yellow path ribbon.
-  assert (255, 255, 0) in colors
+  # The production-cluster style planned route stays a fixed narrow blue.
+  assert (24, 126, 224) in colors
 
 
 def test_carrot_3d_scene_has_vehicle_control_gauges_and_path_ribbon():
@@ -178,8 +184,8 @@ def test_carrot_3d_scene_has_vehicle_control_gauges_and_path_ribbon():
   assert (255, 78, 75) in colors
   assert (37, 211, 255) in colors
   assert any(red > 240 and green < 100 and blue < 100 for red, green, blue in colors)
-  # The legacy status path color is not painted by the driving panel.
-  assert HudRenderer._path_color(True, scene) in colors
+  # Path color no longer changes with acceleration or engagement state.
+  assert (24, 126, 224) in colors
 
 
 def test_curve_geometry_is_temporally_stabilized_for_external_hud():
