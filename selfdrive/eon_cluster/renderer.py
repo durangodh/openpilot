@@ -11,6 +11,8 @@ from PIL import Image, ImageDraw, ImageFont
 NAVI_STATE = "/dev/shm/carrot_navi_route.json"
 NAVI_MAP = "/dev/shm/carrot_navi_map.jpg"
 NAVI_LANE = "/dev/shm/carrot_navi_lane_bottom.png"
+NAVI_TBT_CURRENT = "/dev/shm/carrot_navi_tbt_current.png"
+NAVI_TBT_NEXT = "/dev/shm/carrot_navi_tbt_next.png"
 NAVI_MAX_AGE_MS = 35000
 BITMAP_FONT_DATA = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "Pretendard-SemiBold.fnt")
 BITMAP_FONT_IMAGE = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "Pretendard-SemiBold.png")
@@ -300,6 +302,24 @@ def _safe_fitted_image(path, size):
   if cached is not None:
     return cached
   fitted = _fit_cover(image, size)
+  _FIT_CACHE[key] = fitted
+  return fitted
+
+
+def _safe_contained_image(path, size):
+  """Scale an overlay inside the target box without cropping or distortion."""
+  image = _safe_image(path)
+  if image is None:
+    return None
+  signature = _IMAGE_CACHE[path][0]
+  key = (path, signature, int(size[0]), int(size[1]), "contain")
+  cached = _FIT_CACHE.get(key)
+  if cached is not None:
+    return cached
+  scale = min(float(size[0]) / image.width, float(size[1]) / image.height)
+  resampling = getattr(Image, "Resampling", Image)
+  fitted = image.resize((max(1, int(round(image.width * scale))),
+                         max(1, int(round(image.height * scale)))), resampling.BILINEAR)
   _FIT_CACHE[key] = fitted
   return fitted
 
@@ -865,6 +885,33 @@ class HudRenderer(object):
       draw.rectangle(box, fill=(10, 17, 24))
       _draw_text(draw, ((left + right) // 2, (top + bottom) // 2), "TMAP WAIT",
                  max(20, self.height // 15), True, fill=(120, 135, 145), anchor="mm")
+
+    # Use nMirror's native TMap artwork so the guidance hierarchy and lane
+    # colors match the phone: large current turn, smaller next turn below it,
+    # and the lane strip centered at the bottom.
+    margin = max(8, self.height // 46)
+    current = _safe_contained_image(
+      NAVI_TBT_CURRENT, (int(panel_w * 0.55), int((bottom - top) * 0.42)))
+    current_bottom = top + margin
+    if current is not None:
+      current_x = left + margin
+      current_y = top + margin
+      image.paste(current, (current_x, current_y), current if current.mode == "RGBA" else None)
+      current_bottom = current_y + current.height
+
+    next_turn = _safe_contained_image(
+      NAVI_TBT_NEXT, (int(panel_w * 0.35), int((bottom - top) * 0.18)))
+    if next_turn is not None:
+      next_x = left + margin
+      next_y = current_bottom + max(3, margin // 2)
+      image.paste(next_turn, (next_x, next_y), next_turn if next_turn.mode == "RGBA" else None)
+
+    lane = _safe_contained_image(
+      NAVI_LANE, (int(panel_w * 0.55), int((bottom - top) * 0.18)))
+    if lane is not None:
+      lane_x = left + (panel_w - lane.width) // 2
+      lane_y = bottom - lane.height - margin
+      image.paste(lane, (lane_x, lane_y), lane if lane.mode == "RGBA" else None)
 
   def _theme_colors(self, theme):
     # carrot-wip compatible mapping: 0 auto by local time, 1 dark, 2 light.
