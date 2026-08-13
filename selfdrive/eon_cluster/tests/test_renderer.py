@@ -221,13 +221,21 @@ def test_curve_geometry_is_temporally_stabilized_for_external_hud():
   assert later_curve["path"][-1][1] > path_far
 
 
-def test_vehicle_and_radar_shapes_omit_shadow_and_gloss_effects():
+def test_vehicle_sprites_are_cached_realistic_and_shadow_free():
   from PIL import Image, ImageDraw
   renderer = HudRenderer(1920, 462, 60)
 
-  vehicle = Image.new("RGB", (260, 180), (0, 0, 0))
-  renderer._draw_vehicle_shape(ImageDraw.Draw(vehicle), 130, 160, 100, 80, (35, 222, 255))
+  ego_sprite = renderer._vehicle_sprite("ego", 100, 120)
+  assert ego_sprite is renderer._vehicle_sprite("ego", 101, 121)
+  traffic_sprite = renderer._vehicle_sprite("traffic", 100, 120, marker=True)
+  assert ego_sprite.mode == "RGBA"
+  assert ego_sprite.tobytes() != traffic_sprite.tobytes()
+  assert len(renderer._vehicle_sprite_cache) == 2
+
+  vehicle = Image.new("RGB", (260, 200), (0, 0, 0))
+  renderer._draw_vehicle_shape(vehicle, 130, 190, 100, 120, "ego")
   vehicle_colors = set(vehicle.getdata())
+  assert vehicle.getbbox() is not None
   assert (1, 3, 6) not in vehicle_colors
   assert (137, 168, 187) not in vehicle_colors
 
@@ -236,6 +244,13 @@ def test_vehicle_and_radar_shapes_omit_shadow_and_gloss_effects():
   block_colors = set(block.getdata())
   assert (2, 5, 7) not in block_colors
   assert (109, 255, 176) not in block_colors
+
+
+def test_vehicle_sprite_cache_stays_bounded():
+  renderer = HudRenderer(1920, 462, 60)
+  for width in range(20, 300, 4):
+    renderer._vehicle_sprite("traffic", width, width, marker=True)
+  assert len(renderer._vehicle_sprite_cache) == 48
 
 
 def test_stationary_radar_uses_green_3d_world_block():
