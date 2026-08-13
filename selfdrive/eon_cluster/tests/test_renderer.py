@@ -225,7 +225,11 @@ def test_vehicle_sprites_are_cached_realistic_and_shadow_free():
   renderer = HudRenderer(1920, 462, 60)
 
   base_sprite = renderer._build_vehicle_base_sprite("ego")
+  lead_base = renderer._build_vehicle_base_sprite("lead")
   assert base_sprite.size == (240, 190)
+  assert (58, 64, 69, 255) in set(base_sprite.getdata())
+  assert (152, 157, 161, 255) in set(lead_base.getdata())
+  assert sum((58, 64, 69)) < sum((152, 157, 161))
   ego_sprite = renderer._vehicle_sprite("ego", 104, 96)
   assert ego_sprite is renderer._vehicle_sprite("ego", 105, 97)
   traffic_sprite = renderer._vehicle_sprite("traffic", 104, 96, marker=True)
