@@ -680,8 +680,8 @@ class HudRenderer(object):
     """Build a wide rear-perspective sedan matching the reference cluster."""
     alpha = 220 if marker else 255
     palettes = {
-      "ego": ((24, 29, 35), (11, 15, 19), (45, 51, 57)),
-      "lead": ((55, 61, 66), (27, 31, 35), (81, 86, 90)),
+      "ego": ((58, 64, 69), (25, 29, 33), (82, 88, 93)),
+      "lead": ((152, 157, 161), (78, 83, 87), (181, 185, 188)),
       "traffic": ((124, 130, 134), (65, 70, 74), (153, 157, 160)),
     }
     body, dark, raised = palettes.get(style, palettes["traffic"])
