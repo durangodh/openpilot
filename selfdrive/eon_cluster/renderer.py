@@ -14,6 +14,8 @@ NAVI_LANE = "/dev/shm/carrot_navi_lane_bottom.png"
 NAVI_TBT_CURRENT = "/dev/shm/carrot_navi_tbt_current.png"
 NAVI_TBT_NEXT = "/dev/shm/carrot_navi_tbt_next.png"
 NAVI_MAX_AGE_MS = 35000
+NAVI_ROUTE_MAX_AGE_MS = 5000
+NAVI_ROUTE_GRACE_S = 2.0
 BITMAP_FONT_DATA = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "Pretendard-SemiBold.fnt")
 BITMAP_FONT_IMAGE = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "Pretendard-SemiBold.png")
 HANGUL_BITMAP_FONT_DATA = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "Pretendard-Hangul.fnt")
@@ -265,6 +267,36 @@ def read_navi_state(path=NAVI_STATE):
   return state
 
 
+def _navi_route_active(navi, now_ms=None):
+  route = navi.get("route") or {}
+  if not isinstance(route, dict):
+    return False
+
+  status = navi.get("navigation_status")
+  if isinstance(status, dict):
+    for key in ("active", "is_active", "isActive", "navigating", "is_navigating", "isNavigating",
+                "route_active", "routeActive"):
+      if key in status and not bool(status.get(key)):
+        return False
+    state = str(status.get("state", status.get("status", "")) or "").strip().lower()
+    if state in ("idle", "inactive", "off", "stopped", "ended", "none"):
+      return False
+
+  stream_times = navi.get("stream_updated_at_ms") or {}
+  route_updated_at = int(stream_times.get("route", 0) or 0) if isinstance(stream_times, dict) else 0
+  if route_updated_at > 0:
+    wall_now = int(time.time() * 1000) if now_ms is None else int(now_ms)
+    route_age = wall_now - route_updated_at
+    if route_age < -5000 or route_age > NAVI_ROUTE_MAX_AGE_MS:
+      return False
+
+  try:
+    remain_distance = float(route.get("remain_distance_m", 0.0) or 0.0)
+  except (TypeError, ValueError):
+    remain_distance = 0.0
+  return remain_distance > 0.0
+
+
 def _safe_image(path):
   try:
     stat = os.stat(path)
@@ -373,6 +405,7 @@ class HudRenderer(object):
     self.graph_speed = deque(maxlen=180)
     self.graph_cpu = deque(maxlen=180)
     self.graph_temp = deque(maxlen=180)
+    self._route_visible_until = 0.0
     # Cache the static carrot-style road surface per panel size.
     self._road_backgrounds = {}
 
@@ -1067,6 +1100,10 @@ class HudRenderer(object):
     language = "en" if str(scene.get("language", "ko")).lower() == "en" else "ko"
     is_metric = bool(scene.get("is_metric", True))
     self._update_graph_history(speed_kph, scene.get("system") or {})
+    monotonic_now = time.monotonic()
+    if _navi_route_active(navi):
+      self._route_visible_until = monotonic_now + NAVI_ROUTE_GRACE_S
+    route_visible = monotonic_now < self._route_visible_until
     if screen_mode == 3:
       self._draw_graph_panel(draw, (0, 0, self.width, self.height), theme, "FULL LIVE GRAPH")
       self._draw_alert(draw, scene.get("alert"))
@@ -1096,10 +1133,13 @@ class HudRenderer(object):
       self._draw_graph_panel(draw, info_box, theme)
     elif screen_mode == 5:
       self._draw_trip_report(draw, info_box, scene.get("trip_report") or {}, theme, language, is_metric)
-    else:
-      # Auto mode keeps the TMap panel fixed. The trip report remains available
-      # only through explicit screen mode 5.
+    elif route_visible:
       self._draw_navi_panel(image, draw, info_box, navi, language, is_metric)
+    else:
+      # Auto mode shows navigation only for a live destination. A two-second
+      # grace period above absorbs atomic JSON replacement without map/report flicker.
+      self._draw_trip_report(draw, info_box, scene.get("trip_report") or {},
+                             theme, language, is_metric)
     self._draw_alert(draw, scene.get("alert"))
     return image
 
