@@ -1534,8 +1534,8 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   }};
   for (const auto& [key, title, default_value] : accel_controls) {
     list->addItem(new ParamValueControlF(
-        key, title, "해당 속도 구간의 최대가속도(×0.01m/s²)입니다. 값 증가(+): 가속이 빠르고 강해짐 / 값 감소(-): 가속이 느리고 부드러워짐.",
-        "../assets/offroad/icon_openpilot.png", 10, 250, 1, 0, default_value, this));
+        key, title, "해당 속도 구간의 최대가속도(×0.01m/s²)입니다. 값 증가(+): 가속이 빠르고 강해짐 / 값 감소(-): 가속이 느리고 부드러워짐. 주행 중 약 1초 내에 반영됩니다.",
+        "../assets/offroad/icon_openpilot.png", 10, 250, 5, 0, default_value, this));
   }
 
   list->addItem(horizontal_line());

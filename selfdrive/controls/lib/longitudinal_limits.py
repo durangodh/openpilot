@@ -30,6 +30,21 @@ def get_cruise_max_accel(v_ego, cruise_max_vals, driving_mode,
   return float(max(0.0, interp(v_ego, CRUISE_MAX_ACCEL_BP, values) * mode_factor))
 
 
+def apply_cruise_max_limit(accel, stopping, cruise_max_accel):
+  """Clamp the final SCC acceleration request to the CruiseMax policy.
+
+  CruiseMax used to bound the planner trajectory only. LongControl runs its PID
+  against CarControllerParams.ACCEL_MIN/MAX, so the error term could add
+  acceleration on top of the already-capped planned feedforward, and the
+  LongCtrlState.starting launch accel bypassed the cap entirely. Applying the
+  same policy to the last value before SCC12 makes the UI setting the real
+  upper bound. Braking and stopping requests are passed through untouched.
+  """
+  if stopping or accel <= 0.0:
+    return float(accel)
+  return float(min(accel, cruise_max_accel))
+
+
 def select_auto_driving_mode(initial_mode, current_mode, driving_index):
   """Map AUTO to SAFE/NORMAL while preserving manually selected ECO/FAST."""
   if initial_mode != 5 or driving_index <= 0.0 or current_mode in (2, 4):

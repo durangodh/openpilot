@@ -12,6 +12,7 @@ from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software
 from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_auto_speed_up_target,
+                                                        apply_cruise_max_limit,
                                                         get_cruise_max_accel,
                                                         select_auto_driving_mode)
 from selfdrive.road_speed_limiter import get_road_speed_limiter
@@ -883,9 +884,12 @@ class CruiseHelper:
   def reset_scc_target(self):
     self.target_speed = 0.0
 
-  @staticmethod
-  def get_apply_accel(CS, sm, accel, stopping):
-    return accel
+  def get_apply_accel(self, CS, sm, accel, stopping):
+    # Make the UI CruiseMax table the real upper bound on what reaches SCC12.
+    # cruise_max_vals is refreshed by read_cruise_params() once a second, so the
+    # slider takes effect while driving. longitudinalTuning.kiV is 0, so there
+    # is no integrator to wind up against this clip.
+    return apply_cruise_max_limit(accel, stopping, self.get_cruise_max_accel(CS.out.vEgo))
 
   def get_stock_cam_accel(self, apply_accel, stock_accel, scc11):
     stock_cam = scc11["Navi_SCC_Camera_Act"] == 2 and scc11["Navi_SCC_Camera_Status"] == 2
