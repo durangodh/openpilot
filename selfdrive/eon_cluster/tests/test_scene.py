@@ -57,6 +57,35 @@ def test_lane_geometry_is_smoothed_and_low_confidence_is_hidden():
   assert max(second_differences) - min(second_differences) < 1e-6
 
 
+def test_road_edges_are_smoothed_and_low_confidence_is_hidden():
+  xs = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
+  noisy_edge = [-4.2, -3.7, -4.1, -3.5, -3.9, -3.2, -3.6]
+  model = SimpleNamespace(
+    position=polyline(xs, [0.0] * len(xs)),
+    laneLines=[],
+    laneLineProbs=[],
+    roadEdges=[
+      polyline(xs, noisy_edge),
+      polyline(xs, [4.2, 5.0, 3.7, 5.2, 3.6, 5.3, 3.5]),
+    ],
+    roadEdgeStds=[0.2, 0.75],
+  )
+  radar = SimpleNamespace(
+    leadOne=SimpleNamespace(status=False, dRel=0.0, yRel=0.0, vRel=0.0),
+    leadTwo=SimpleNamespace(status=False, dRel=0.0, yRel=0.0, vRel=0.0),
+  )
+  scene = extract_driving_scene(model, radar)
+  assert len(scene["edges"]) == 1
+  assert scene["edges"][0]["probability"] == 0.8
+  smoothed = [point[1] for point in scene["edges"][0]["points"]]
+  assert smoothed != noisy_edge
+  second_differences = [
+    smoothed[index + 1] - 2.0 * smoothed[index] + smoothed[index - 1]
+    for index in range(1, len(smoothed) - 1)
+  ]
+  assert max(second_differences) - min(second_differences) < 1e-6
+
+
 def test_invalid_or_far_leads_are_ignored():
   empty_model = SimpleNamespace(position=None, laneLines=[], laneLineProbs=[], roadEdges=[], roadEdgeStds=[])
   radar = SimpleNamespace(
