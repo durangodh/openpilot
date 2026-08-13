@@ -180,16 +180,23 @@ def test_blindspot_flags_draw_rear_quarter_vehicles():
   assert (255, 169, 45) in set(right.getdata())
 
 
-def test_tmap_stays_fixed_without_direction_overlay(tmp_path, monkeypatch):
+def test_tmap_guidance_layout_stays_fixed_when_json_briefly_drops(tmp_path, monkeypatch):
   from PIL import Image
   map_path = tmp_path / "map.jpg"
+  current_path = tmp_path / "current.png"
+  next_path = tmp_path / "next.png"
   lane_path = tmp_path / "lane.png"
   map_color = (41, 112, 173)
+  current_color = (12, 220, 80, 255)
+  next_color = (20, 140, 60, 255)
+  lane_color = (240, 130, 20, 255)
   Image.new("RGB", (640, 384), map_color).save(str(map_path), quality=95)
-  lane = Image.new("RGBA", (320, 80), (0, 0, 0, 0))
-  lane.putpixel((160, 40), (255, 255, 255, 255))
-  lane.save(str(lane_path))
+  Image.new("RGBA", (400, 160), current_color).save(str(current_path))
+  Image.new("RGBA", (240, 60), next_color).save(str(next_path))
+  Image.new("RGBA", (320, 80), lane_color).save(str(lane_path))
   monkeypatch.setattr(renderer_module, "NAVI_MAP", str(map_path))
+  monkeypatch.setattr(renderer_module, "NAVI_TBT_CURRENT", str(current_path))
+  monkeypatch.setattr(renderer_module, "NAVI_TBT_NEXT", str(next_path))
   monkeypatch.setattr(renderer_module, "NAVI_LANE", str(lane_path))
 
   renderer = HudRenderer(1920, 462, 50)
@@ -201,19 +208,23 @@ def test_tmap_stays_fixed_without_direction_overlay(tmp_path, monkeypatch):
   live_frame = renderer.render(55.0, 88.0, True, navi, scene)
   dropped_json_frame = renderer.render(55.0, 88.0, True, {}, scene)
 
-  # A transient navigation JSON read failure must not switch auto mode to the
-  # trip report or alter the last complete TMap frame.
+  # A transient JSON read failure must not switch to the trip report or blink
+  # any of the last complete native TMap overlays.
   assert live_frame.tobytes() == dropped_json_frame.tobytes()
 
-  # The whole right panel remains the raw map. The lane/direction image had an
-  # opaque white test pixel at this former overlay location.
-  for point in ((1908, 6), (1200, 40), (1908, 453), (1679, 402)):
-    red, green, blue = live_frame.getpixel(point)
-    assert blue > green > red
+  # Native current/next guidance is stacked at the map's upper-left.
+  assert live_frame.getpixel((1375, 94)) == current_color[:3]
+  assert live_frame.getpixel((1298, 216)) == next_color[:3]
+  # Native lane guidance is centered along the map's bottom edge.
+  assert live_frame.getpixel((1537, 410)) == lane_color[:3]
 
 
 def test_tmap_stream_is_wide_and_does_not_increase_pixel_load():
-  render_stream = next(stream for stream in manifest()["streams"] if stream["name"] == "map_main")
+  streams = manifest()["streams"]
+  enabled_images = {stream["name"] for stream in streams
+                    if stream["kind"] == "image" and stream["enabled"]}
+  assert enabled_images == {"tbt_current_full", "tbt_next", "lane_bottom"}
+  render_stream = next(stream for stream in streams if stream["name"] == "map_main")
   params = render_stream["params"]
   assert (params["width"], params["height"], params["fps"]) == (
     MAP_RENDER_WIDTH, MAP_RENDER_HEIGHT, MAP_RENDER_FPS)
