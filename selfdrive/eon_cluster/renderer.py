@@ -723,14 +723,9 @@ class HudRenderer(object):
     car.polygon(((62, 135), (178, 135), (166, 158), (74, 158)), fill=glass)
     car.polygon(((49, 158), (191, 158), (184, 179), (56, 179)), fill=rgba(raised))
 
-    lamp = (255, 36, 40) if braking else (202, 45, 48)
-    lamp_alpha = 255 if not marker else alpha
-    car.rounded_rectangle((43, 159, 78, 173), radius=4, fill=rgba(lamp, lamp_alpha))
-    car.rounded_rectangle((162, 159, 197, 173), radius=4, fill=rgba(lamp, lamp_alpha))
-    car.line((78, 179, 162, 179), fill=rgba((13, 17, 20)), width=5)
-    if braking:
-      car.rounded_rectangle((106, 142, 134, 149), radius=3,
-                            fill=rgba((255, 44, 46), lamp_alpha))
+    # The reference uses an unlit neutral vehicle model. Keep only the dark
+    # rear bumper; no tail-lamp or braking-light primitives are drawn.
+    car.line((66, 179, 174, 179), fill=rgba((13, 17, 20)), width=5)
     return sprite
 
   def _vehicle_sprite(self, style, car_w, car_h, braking=False, marker=False):
