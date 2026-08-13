@@ -408,6 +408,7 @@ class HudRenderer(object):
     # Display-only temporal history. Model coordinates remain untouched; only
     # the external HUD receives this low-pass filter.
     self._geometry_history = {"lanes": {}, "edges": {}, "path": {}}
+    self._lane_hold_frames = {}
     # Antialiased vehicle images are built once, then reused in 4 px size
     # buckets so liveTracks do not redraw complex car geometry every frame.
     self._vehicle_base_sprites = {}
@@ -443,12 +444,14 @@ class HudRenderer(object):
   def _stabilize_polylines(self, items, channel):
     history = self._geometry_history[channel]
     stabilized, next_history = [], {}
+    seen_keys = set()
     for position, item in enumerate(items or []):
       points = [(float(x), float(y)) for x, y in item.get("points", [])
                 if math.isfinite(float(x)) and math.isfinite(float(y))]
       if not points:
         continue
       key = item.get("index", position)
+      seen_keys.add(key)
       previous = history.get(key)
       filtered = []
       if previous:
@@ -475,14 +478,36 @@ class HudRenderer(object):
       copied["points"] = filtered
       stabilized.append(copied)
       next_history[key] = filtered
+      if channel == "lanes":
+        self._lane_hold_frames[key] = 0
+
+    if channel == "lanes":
+      next_hold_frames = {}
+      for key in seen_keys:
+        next_hold_frames[key] = 0
+      # Hold a missing model line for at most three display frames. This
+      # prevents a one-frame probability drop from blinking, without inventing
+      # the permanent two-line fallback used by the old cluster.
+      for key, previous in history.items():
+        if key in next_history:
+          continue
+        missed = self._lane_hold_frames.get(key, 0) + 1
+        if missed <= 3:
+          stabilized.append({"index": key, "points": previous,
+                             "probability": max(0.45, 0.62 - missed * 0.05)})
+          next_history[key] = previous
+          next_hold_frames[key] = missed
+      self._lane_hold_frames = next_hold_frames
+
     self._geometry_history[channel] = next_history
     return stabilized
 
   def _stabilize_scene_geometry(self, scene):
-    """Suppress frame-to-frame lane sweep on bends for this display only."""
+    """Stabilize detected lanes and path; road edges are intentionally hidden."""
     stabilized = dict(scene)
     stabilized["lanes"] = self._stabilize_polylines(scene.get("lanes", []), "lanes")
-    stabilized["edges"] = self._stabilize_polylines(scene.get("edges", []), "edges")
+    stabilized["edges"] = []
+    self._geometry_history["edges"] = {}
     path = [{"index": 0, "points": scene.get("path", [])}]
     filtered_path = self._stabilize_polylines(path, "path")
     stabilized["path"] = filtered_path[0]["points"] if filtered_path else []
@@ -543,33 +568,28 @@ class HudRenderer(object):
       draw.line(projected, fill=fill, width=max(1, int(width)), joint="curve")
 
   def _draw_road_surface(self, image, panel):
-    """Cached, high-contrast perspective road for the camera-free EON HUD."""
+    """Cached light-gray production-cluster road with no artificial edges."""
     left, top, right, bottom = panel
     size = (max(1, right - left), max(1, bottom - top))
     background = self._road_backgrounds.get(size)
     if background is None:
       width, height = size
-      background = Image.new("RGB", size, (6, 12, 20))
+      background = Image.new("RGB", size, (233, 236, 238))
       road = ImageDraw.Draw(background)
       horizon = int(height * 0.105)
-      for band in range(16):
-        y0 = int(horizon * band / 16.0)
-        y1 = int(horizon * (band + 1) / 16.0) + 1
-        mix = band / 15.0
-        road.rectangle((0, y0, width, y1),
-                       fill=(int(6 + 11 * mix), int(12 + 22 * mix), int(22 + 42 * mix)))
+      for band in range(12):
+        y0 = int(horizon * band / 12.0)
+        y1 = int(horizon * (band + 1) / 12.0) + 1
+        mix = band / 11.0
+        shade = int(244 - 10 * mix)
+        road.rectangle((0, y0, width, y1), fill=(shade, shade + 1, shade + 2))
+
       center = width * 0.5
       far_half = max(9, width * 0.052)
       near_half = width * 0.48
-      # A thin horizon glow gives the flat Pillow projection considerably more depth.
-      for glow in range(6, 0, -1):
-        glow_color = (14 + glow * 5, 34 + glow * 6, 56 + glow * 9)
-        road.line((int(center - far_half * (2.2 + glow * 0.13)), horizon + glow,
-                   int(center + far_half * (2.2 + glow * 0.13)), horizon + glow),
-                  fill=glow_color, width=1)
       road.polygon(((center - far_half, horizon), (center + far_half, horizon),
                     (center + near_half, height), (center - near_half, height)),
-                   fill=(30, 40, 52))
+                   fill=(220, 224, 226))
       for band in range(14):
         near_t = math.pow(band / 14.0, 1.22)
         far_t = math.pow((band + 1) / 14.0, 1.22)
@@ -577,22 +597,15 @@ class HudRenderer(object):
         y1 = int(horizon + (height - horizon) * far_t) + 1
         half0 = far_half + (near_half - far_half) * near_t
         half1 = far_half + (near_half - far_half) * far_t
-        shade = 32 + (band % 2) * 4 + int(band * 1.05)
+        shade = 222 - int(band * 0.55) - (band % 2)
         road.polygon(((center - half0, y0), (center + half0, y0),
                       (center + half1, y1), (center - half1, y1)),
-                     fill=(shade, shade + 7, shade + 16))
-      # Perspective cross bars and shoulders are intentionally dim: lane/model data stays dominant.
+                     fill=(shade, shade + 2, shade + 3))
       for step in (0.20, 0.36, 0.53, 0.70, 0.86):
         y = int(horizon + (height - horizon) * step)
         half = far_half + (near_half - far_half) * step
-        road.line((int(center - half), y, int(center + half), y), fill=(52, 70, 88), width=1)
-      # Keep the asphalt shoulder muted: brightening it to match the road made
-      # it read as a fifth lane line next to the red road edges.
-      for glow_width, shoulder in ((10, (18, 34, 50)), (5, (34, 58, 78)), (2, (66, 94, 116))):
-        road.line(((center - far_half, horizon), (center - near_half, height)),
-                  fill=shoulder, width=max(glow_width, height // 120))
-        road.line(((center + far_half, horizon), (center + near_half, height)),
-                  fill=shoulder, width=max(glow_width, height // 120))
+        road.line((int(center - half), y, int(center + half), y),
+                  fill=(198, 203, 206), width=1)
       self._road_backgrounds[size] = background
     image.paste(background, (left, top))
 
@@ -614,30 +627,19 @@ class HudRenderer(object):
     )
 
   def _draw_lane_marking(self, draw, panel, points, color, probability):
-    """Draw model lanes as tapered ground strips instead of flat screen lines."""
+    """Draw only model-detected lanes as thin pale-gray ground strips."""
     probability = _clamp(float(probability), 0.0, 1.0)
     filtered = [(point, self._project(panel, point[0], point[1]))
                 for point in points if 0.0 <= point[0] <= self.MAX_DISTANCE_M]
-    if len(filtered) < 2:
-      return
-    glow = tuple(max(5, int(channel * 0.18)) for channel in color)
-    body = tuple(max(12, int(channel * 0.62)) for channel in color)
     for index in range(len(filtered) - 1):
       (world_a, screen_a), (world_b, screen_b) = filtered[index:index + 2]
       depth_a = math.pow(max(0.0, 1.0 - world_a[0] / self.MAX_DISTANCE_M), 1.18)
       depth_b = math.pow(max(0.0, 1.0 - world_b[0] / self.MAX_DISTANCE_M), 1.18)
-      width_a = max(1.0, 1.0 + (6.0 + 4.0 * probability) * depth_a)
-      width_b = max(1.0, 1.0 + (6.0 + 4.0 * probability) * depth_b)
-      quad = self._segment_quad(screen_a, screen_b, width_a + 7.0, width_b + 7.0)
-      if quad:
-        draw.polygon(quad, fill=glow)
+      width_a = max(1.0, 1.0 + (3.0 + 2.0 * probability) * depth_a)
+      width_b = max(1.0, 1.0 + (3.0 + 2.0 * probability) * depth_b)
       quad = self._segment_quad(screen_a, screen_b, width_a, width_b)
       if quad:
-        draw.polygon(quad, fill=body)
-      # A thin highlight on the strip gives the low-resolution HUD a raised,
-      # raylib-like edge while preserving the actual model curvature.
-      draw.line((screen_a, screen_b), fill=color,
-                width=max(1, int(1 + 2.0 * min(depth_a, depth_b))), joint="curve")
+        draw.polygon(quad, fill=color)
 
   @staticmethod
   def _path_color(enabled, scene):
@@ -883,7 +885,7 @@ class HudRenderer(object):
     _draw_text(draw, (center_x, top - 8), value_text, max(12, self.height // 32), True,
                fill=color, anchor="ms")
     _draw_text(draw, (center_x, bottom + 7), label, max(12, self.height // 31), True,
-               fill=(224, 232, 238), anchor="ma")
+               fill=(58, 66, 72), anchor="ma")
 
   def _draw_control_gauges(self, draw, box, scene):
     left, top, right, _ = box
@@ -911,7 +913,7 @@ class HudRenderer(object):
     draw.arc((x + 16, y - 11, x + 39, y + 12), 205, 335, fill=(83, 194, 255), width=3)
     draw.arc((x + 21, y - 6, x + 34, y + 7), 205, 335, fill=(83, 194, 255), width=3)
     _draw_text(draw, (x + 46, y), time.strftime("%H:%M:%S"), max(18, self.height // 20), True,
-               fill=(226, 237, 247), anchor="lm")
+               fill=(42, 49, 55), anchor="lm")
 
   def _draw_speed_limit(self, draw, x, y, limit):
     if limit <= 0:
@@ -969,7 +971,7 @@ class HudRenderer(object):
     for value, (dx, dy) in zip(values, offsets):
       is_valid = value is not None and 5.0 <= float(value) <= 60.0
       text = str(int(round(float(value)))) if is_valid else "--"
-      color = (235, 70, 70) if is_valid and float(value) < 31.0 else (220, 228, 234)
+      color = (235, 70, 70) if is_valid and float(value) < 31.0 else (58, 66, 72)
       _draw_text(draw, (center_x + dx, center_y + dy), text, max(16, self.height // 24), True,
                  fill=color, anchor="mm")
 
@@ -998,28 +1000,13 @@ class HudRenderer(object):
     horizon = top + int((bottom - top) * 0.10)
 
     scene = scene or {}
-    for edge in scene.get("edges", []):
-      probability = float(edge.get("probability", 0.5) or 0.5)
-      color = (int(112 + 115 * probability), int(48 + 28 * probability),
-               int(58 + 32 * probability))
-      self._draw_polyline(draw, box, edge.get("points", []),
-                          tuple(max(18, int(channel * 0.35)) for channel in color),
-                          max(6, self.height // 55))
-      self._draw_polyline(draw, box, edge.get("points", []), color,
-                          max(2, self.height // 105))
-
-    lanes = scene.get("lanes", []) or self._fallback_lanes()
-    ego_lanes = self._ego_lane_indices(lanes)
-    for index, lane in enumerate(lanes):
+    # Display only model-confirmed laneLines. roadEdges and the old two-line
+    # fallback are deliberately omitted to match the reference cluster.
+    lanes = scene.get("lanes", [])
+    for lane in lanes:
       probability = float(lane.get("probability", 0.5) or 0.5)
-      # Korean road colours as carrot-wip paints them: the two lines bounding
-      # the driving lane are yellow, any outer line white, road edges red.
-      scale = 0.62 + 0.38 * _clamp(probability, 0.0, 1.0)
-      if index in ego_lanes:
-        color = (int(255 * scale), int(206 * scale), int(48 * scale))
-      else:
-        intensity = int(150 + 105 * _clamp(probability, 0.0, 1.0))
-        color = (intensity, intensity, min(255, intensity + 6))
+      intensity = int(128 + 24 * _clamp(probability, 0.0, 1.0))
+      color = (intensity, intensity + 2, intensity + 3)
       self._draw_lane_marking(draw, box, lane.get("points", []), color, probability)
 
     is_metric = bool(scene.get("is_metric", True))
@@ -1042,19 +1029,19 @@ class HudRenderer(object):
     display_cruise = _speed_value(cruise_kph, is_metric)
     display_limit = _speed_value(limit, is_metric)
     _draw_text(draw, (left + 34, speed_y), str(max(0, int(round(display_speed)))),
-               max(52, int(self.height * 0.21)), True, fill=(245, 248, 250), anchor="ls")
+               max(52, int(self.height * 0.21)), True, fill=(28, 34, 39), anchor="ls")
     _draw_text(draw, (left + int((right - left) * 0.19), speed_y - 4), "km/h" if is_metric else "mph",
-               max(15, self.height // 24), fill=(145, 158, 168), anchor="ls")
+               max(15, self.height // 24), fill=(76, 84, 90), anchor="ls")
     cruise = "--" if cruise_kph <= 0 or cruise_kph >= 255 else str(int(round(display_cruise)))
     _draw_text(draw, (left + int((right - left) * 0.19), speed_y - max(32, self.height // 10)), cruise,
                max(29, self.height // 10), True, fill=status_color, anchor="ls")
     _draw_text(draw, (left + int((right - left) * 0.19), speed_y - max(62, self.height // 6)), "SET",
-               max(13, self.height // 29), True, fill=(157, 171, 181), anchor="ls")
+               max(13, self.height // 29), True, fill=(83, 91, 97), anchor="ls")
     self._draw_speed_limit(draw, left + 66, top + 91, int(round(display_limit)))
     gear = int(scene.get("gear", 0) or 0)
     if gear > 0:
       _draw_text(draw, (left + int((right - left) * 0.255), speed_y), str(gear),
-                 max(24, int(self.height * 0.10)), True, fill=(214, 228, 238), anchor="ls")
+                 max(24, int(self.height * 0.10)), True, fill=(45, 52, 58), anchor="ls")
     self._draw_turn_signals(draw, box, scene.get("blinkers"))
     mode = int(scene.get("driving_mode", 0) or 0)
     mode_text = {1: "ECO", 2: "SAFE", 3: "NORM", 4: "FAST"}.get(mode, "")
