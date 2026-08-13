@@ -16,6 +16,8 @@ DISCOVERY_PORT = 7705
 STATE_FILE = "/dev/shm/carrot_navi_route.json"
 MAP_FILE = "/dev/shm/carrot_navi_map.jpg"
 LANE_FILE = "/dev/shm/carrot_navi_lane_bottom.png"
+TBT_CURRENT_FILE = "/dev/shm/carrot_navi_tbt_current.png"
+TBT_NEXT_FILE = "/dev/shm/carrot_navi_tbt_next.png"
 JSON_NAMES = (
   "vehicle", "guidance_current", "guidance_next", "lane_current", "lane_ahead",
   "speed", "traffic_signal", "crossroad", "route", "navigation_status",
@@ -35,6 +37,11 @@ ENABLED = {
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 MAX_MAP_FRAME_BYTES = 2 * 1024 * 1024
 MAX_LANE_FRAME_BYTES = 512 * 1024
+OVERLAY_FILES = {
+  "lane_bottom": LANE_FILE,
+  "tbt_current_full": TBT_CURRENT_FILE,
+  "tbt_next": TBT_NEXT_FILE,
+}
 MAP_RENDER_WIDTH = 640
 MAP_RENDER_HEIGHT = 384
 MAP_RENDER_FPS = 5
@@ -83,8 +90,9 @@ class NaviState(object):
       except OSError:
         pass
 
-  def update_lane(self, payload):
-    if not payload or len(payload) > MAX_LANE_FRAME_BYTES:
+  def update_overlay(self, name, payload):
+    target = OVERLAY_FILES.get(name)
+    if target is None or not payload or len(payload) > MAX_LANE_FRAME_BYTES:
       return
     png_start = payload.find(b"\x89PNG\r\n\x1a\n")
     jpg_start = payload.find(b"\xff\xd8")
@@ -97,22 +105,31 @@ class NaviState(object):
       image = payload[jpg_start:jpg_end + 2]
     else:
       return
-    tmp = LANE_FILE + ".tmp"
+    tmp = target + ".tmp"
     try:
       with open(tmp, "wb") as f:
         f.write(image)
-      os.rename(tmp, LANE_FILE)
+      os.rename(tmp, target)
     except IOError:
       try:
         os.unlink(tmp)
       except OSError:
         pass
 
-  def clear_lane(self):
+  def clear_overlay(self, name):
+    target = OVERLAY_FILES.get(name)
+    if target is None:
+      return
     try:
-      os.unlink(LANE_FILE)
+      os.unlink(target)
     except OSError:
       pass
+
+  def update_lane(self, payload):
+    self.update_overlay("lane_bottom", payload)
+
+  def clear_lane(self):
+    self.clear_overlay("lane_bottom")
 
 
 def local_ip():
@@ -172,7 +189,7 @@ def manifest():
   for kind, names in (("json", JSON_NAMES), ("image", IMAGE_NAMES), ("render", RENDER_NAMES)):
     for name in names:
       enabled = ((kind == "json" and name in ENABLED) or
-                 (kind == "image" and name == "lane_bottom") or
+                 (kind == "image" and name in OVERLAY_FILES) or
                  (kind == "render" and name == "map_main"))
       params = {}
       if kind == "json":
@@ -235,8 +252,8 @@ def client_loop(conn, state):
     if opcode == 2:
       if not is_control and stream_name == "map_main":
         state.update_map(payload)
-      elif not is_control and stream_name == "lane_bottom":
-        state.update_lane(payload)
+      elif not is_control and stream_name in OVERLAY_FILES:
+        state.update_overlay(stream_name, payload)
       continue
     if opcode != 1:
       continue
@@ -249,10 +266,10 @@ def client_loop(conn, state):
     elif not is_control and message.get("type") == "item_update":
       name = message.get("name", stream_name)
       value = message.get("value") if message.get("present", True) else None
-      if name in ("map_main", "lane_bottom"):
+      if name == "map_main" or name in OVERLAY_FILES:
         if value is None:
-          if name == "lane_bottom":
-            state.clear_lane()
+          if name in OVERLAY_FILES:
+            state.clear_overlay(name)
           continue
         encoded = value.get("data") if isinstance(value, dict) else value
         if isinstance(encoded, str):
@@ -263,7 +280,7 @@ def client_loop(conn, state):
             if name == "map_main":
               state.update_map(image)
             else:
-              state.update_lane(image)
+              state.update_overlay(name, image)
           except (TypeError, ValueError):
             pass
       else:
