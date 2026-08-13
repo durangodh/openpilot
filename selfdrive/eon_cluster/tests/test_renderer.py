@@ -263,6 +263,34 @@ def test_vehicle_sprite_cache_stays_bounded():
   assert len(renderer._vehicle_sprite_cache) == 48
 
 
+def test_tesla_style_vehicle_scale_keeps_ego_prominent_and_leads_smooth():
+  renderer = HudRenderer(1920, 462, 60)
+  panel = (0, 0, 1150, 462)
+  panel_w = panel[2] - panel[0]
+  panel_h = panel[3] - panel[1]
+  ego_w = max(112, int(panel_w * 0.115))
+  ego_h = max(104, int(panel_h * 0.265))
+
+  from PIL import Image, ImageDraw
+  frame = Image.new("RGB", (1920, 462), (239, 241, 242))
+  draw = ImageDraw.Draw(frame)
+  renderer._draw_lead(frame, draw, panel,
+                      {"distance": 35.0, "lateral": 0.0, "relative_speed": 0.0},
+                      True, 0, True)
+  first_w, first_h, _ = renderer._lead_size_history["primary"]
+  assert first_w < ego_w * 0.65
+  assert first_h < ego_h * 0.65
+
+  renderer._draw_lead(frame, draw, panel,
+                      {"distance": 34.0, "lateral": 0.0, "relative_speed": 0.0},
+                      True, 0, True)
+  second_w, second_h, _ = renderer._lead_size_history["primary"]
+  # A one-metre model change must move gradually instead of snapping to a
+  # different cached sprite bucket.
+  assert 0.0 < second_w - first_w < 1.0
+  assert 0.0 < second_h - first_h < 1.0
+
+
 def test_stationary_radar_uses_green_3d_world_block():
   renderer = HudRenderer(1920, 462, 60)
   scene = {
