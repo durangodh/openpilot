@@ -857,22 +857,14 @@ class HudRenderer(object):
     # Preserve the complete TMap frame. The receiver requests the same wide
     # aspect ratio as this panel, so this remains edge-to-edge without crop bars.
     map_image = _safe_full_image(NAVI_MAP, (panel_w, bottom - top))
-    map_live = map_image is not None and bool(navi)
-    if map_live:
+    if map_image is not None:
+      # Keep the last complete TMap frame visible even if the navigation JSON
+      # is briefly unavailable while its producer replaces the file.
       image.paste(map_image, (left, top))
     else:
       draw.rectangle(box, fill=(10, 17, 24))
       _draw_text(draw, ((left + right) // 2, (top + bottom) // 2), "TMAP WAIT",
                  max(20, self.height // 15), True, fill=(120, 135, 145), anchor="mm")
-
-    if not navi:
-      return
-    lane_w, lane_h = int(panel_w * 0.58), int(self.height * 0.18)
-    lane = _safe_fitted_image(NAVI_LANE, (lane_w, lane_h))
-    if lane is not None:
-      lane_x = right - lane_w - 18
-      lane_y = bottom - lane_h - 18
-      image.paste(lane, (lane_x, lane_y), lane if lane.mode == "RGBA" else None)
 
   def _theme_colors(self, theme):
     # carrot-wip compatible mapping: 0 auto by local time, 1 dark, 2 light.
@@ -1057,10 +1049,9 @@ class HudRenderer(object):
       self._draw_graph_panel(draw, info_box, theme)
     elif screen_mode == 5:
       self._draw_trip_report(draw, info_box, scene.get("trip_report") or {}, theme, language, is_metric)
-    elif not navi and scene.get("trip_report"):
-      # carrot-wip mode 0 behavior: live navigation when available, otherwise driving report.
-      self._draw_trip_report(draw, info_box, scene["trip_report"], theme, language, is_metric)
     else:
+      # Auto mode keeps the TMap panel fixed. The trip report remains available
+      # only through explicit screen mode 5.
       self._draw_navi_panel(image, draw, info_box, navi, language, is_metric)
     self._draw_alert(draw, scene.get("alert"))
     return image
