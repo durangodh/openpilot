@@ -677,54 +677,59 @@ class HudRenderer(object):
       draw.polygon(polygon, fill=(24, 126, 224))
 
   def _build_vehicle_base_sprite(self, style, braking=False, marker=False):
-    """Build one shadow-free top/rear-view car at antialias source size."""
+    """Build a wide rear-perspective sedan matching the reference cluster."""
     alpha = 220 if marker else 255
     palettes = {
-      "ego": ((24, 29, 35), (11, 15, 19), (44, 51, 58)),
-      "lead": ((55, 61, 66), (27, 31, 35), (79, 85, 90)),
-      "traffic": ((124, 130, 134), (65, 70, 74), (151, 156, 159)),
+      "ego": ((24, 29, 35), (11, 15, 19), (45, 51, 57)),
+      "lead": ((55, 61, 66), (27, 31, 35), (81, 86, 90)),
+      "traffic": ((124, 130, 134), (65, 70, 74), (153, 157, 160)),
     }
     body, dark, raised = palettes.get(style, palettes["traffic"])
     rgba = lambda color, opacity=alpha: (color[0], color[1], color[2], opacity)
-    sprite = Image.new("RGBA", (192, 228), (0, 0, 0, 0))
+    sprite = Image.new("RGBA", (240, 190), (0, 0, 0, 0))
     car = ImageDraw.Draw(sprite)
 
-    # Wheels stay within the silhouette and do not need a road shadow.
     wheel = rgba((7, 9, 11))
-    for wheel_box in ((24, 55, 39, 112), (153, 55, 168, 112),
-                      (22, 145, 39, 198), (153, 145, 170, 198)):
+    for wheel_box in ((22, 58, 42, 116), (198, 58, 218, 116),
+                      (18, 126, 42, 174), (198, 126, 222, 174)):
       car.rounded_rectangle(wheel_box, radius=6, fill=wheel)
 
-    outline = ((58, 64), (39, 45), (28, 79), (24, 132), (33, 190),
-               (50, 216), (142, 216), (159, 190), (168, 132), (164, 79),
-               (153, 45), (134, 18))
-    body_shape = outline + ((58, 18),)
+    # The near rear bumper is wider than the roof, producing the short, broad
+    # sedan shape seen in the reference instead of a long top-down vehicle.
+    body_shape = ((76, 15), (164, 15), (188, 31), (207, 62),
+                  (219, 116), (211, 162), (193, 181), (47, 181),
+                  (29, 162), (21, 116), (33, 62), (52, 31))
     car.polygon(body_shape, fill=rgba(body))
     car.line(body_shape + (body_shape[0],), fill=rgba(dark), width=5, joint="curve")
 
-    # Flat side shading supplies depth without gloss or a highlight pass.
-    car.polygon(((58, 21), (38, 48), (29, 112), (38, 188), (55, 207),
-                 (62, 177), (57, 107), (69, 49)), fill=rgba(dark))
-    car.polygon(((134, 21), (154, 48), (163, 112), (154, 188), (137, 207),
-                 (130, 177), (135, 107), (123, 49)), fill=rgba((max(0, dark[0] + 9),
-                                                               max(0, dark[1] + 9),
-                                                               max(0, dark[2] + 9))))
+    if style == "ego":
+      # Side mirrors are only worthwhile on the large ego sprite.
+      car.polygon(((34, 75), (8, 70), (2, 83), (29, 94)), fill=rgba(dark))
+      car.polygon(((206, 75), (232, 70), (238, 83), (211, 94)), fill=rgba(dark))
+
+    # Flat side faces retain depth but add no highlight or road shadow.
+    car.polygon(((74, 19), (48, 37), (30, 73), (25, 119), (34, 158),
+                 (53, 176), (64, 148), (57, 93), (74, 45)), fill=rgba(dark))
+    side_right = (max(0, dark[0] + 9), max(0, dark[1] + 9), max(0, dark[2] + 9))
+    car.polygon(((166, 19), (192, 37), (210, 73), (215, 119), (206, 158),
+                 (187, 176), (176, 148), (183, 93), (166, 45)), fill=rgba(side_right))
 
     glass = rgba((21, 34, 43))
     glass_side = rgba((29, 43, 52))
-    car.polygon(((70, 39), (122, 39), (133, 86), (59, 86)), fill=glass)
-    car.polygon(((61, 94), (78, 91), (76, 148), (57, 158)), fill=glass_side)
-    car.polygon(((131, 94), (114, 91), (116, 148), (135, 158)), fill=glass_side)
-    car.rounded_rectangle((76, 87, 116, 157), radius=10, fill=rgba(raised))
-    car.polygon(((62, 164), (130, 164), (122, 190), (70, 190)), fill=glass)
+    car.polygon(((72, 39), (168, 39), (185, 91), (55, 91)), fill=glass)
+    car.polygon(((57, 96), (78, 91), (76, 132), (55, 143)), fill=glass_side)
+    car.polygon(((183, 96), (162, 91), (164, 132), (185, 143)), fill=glass_side)
+    car.polygon(((78, 88), (162, 88), (166, 132), (74, 132)), fill=rgba(raised))
+    car.polygon(((62, 135), (178, 135), (166, 158), (74, 158)), fill=glass)
+    car.polygon(((49, 158), (191, 158), (184, 179), (56, 179)), fill=rgba(raised))
 
-    lamp = (255, 36, 40) if braking else (210, 48, 50)
+    lamp = (255, 36, 40) if braking else (202, 45, 48)
     lamp_alpha = 255 if not marker else alpha
-    car.rounded_rectangle((47, 193, 76, 204), radius=4, fill=rgba(lamp, lamp_alpha))
-    car.rounded_rectangle((116, 193, 145, 204), radius=4, fill=rgba(lamp, lamp_alpha))
-    car.line((67, 211, 125, 211), fill=rgba((13, 17, 20)), width=5)
+    car.rounded_rectangle((43, 159, 78, 173), radius=4, fill=rgba(lamp, lamp_alpha))
+    car.rounded_rectangle((162, 159, 197, 173), radius=4, fill=rgba(lamp, lamp_alpha))
+    car.line((78, 179, 162, 179), fill=rgba((13, 17, 20)), width=5)
     if braking:
-      car.rounded_rectangle((84, 172, 108, 179), radius=3,
+      car.rounded_rectangle((106, 142, 134, 149), radius=3,
                             fill=rgba((255, 44, 46), lamp_alpha))
     return sprite
 
@@ -778,8 +783,8 @@ class HudRenderer(object):
       return
     cx, cy = self._project(panel, distance, lateral)
     scale = math.pow(max(0.10, 1.0 - distance / self.MAX_DISTANCE_M), 1.10)
-    car_w = int(24 + 92 * scale)
-    car_h = int(24 + 92 * scale)
+    car_w = int(26 + 96 * scale)
+    car_h = int(22 + 76 * scale)
     color = (255, 178, 45) if primary else (72, 184, 255)
     self._draw_vehicle_shape(image, cx, cy, car_w, car_h,
                              "lead" if primary else "traffic",
@@ -807,7 +812,7 @@ class HudRenderer(object):
       # carrot-wip renders raw radar returns as low cubes on the road plane.
       self._draw_world_block(draw, cx, cy, radius * 2.2, radius * 1.8, color)
     else:
-      self._draw_vehicle_shape(image, cx, cy, radius * 3.0, radius * 3.2,
+      self._draw_vehicle_shape(image, cx, cy, radius * 3.4, radius * 2.8,
                                "traffic",
                                float(point.get("relative_speed", 0.0) or 0.0) < -0.5,
                                marker=True)
@@ -845,8 +850,8 @@ class HudRenderer(object):
   def _draw_ego_vehicle(self, image, panel, enabled):
     cx, cy = self._project(panel, 2.4, 0.0)
     panel_w = panel[2] - panel[0]
-    car_w = max(72, int(panel_w * 0.078))
-    car_h = max(88, int((panel[3] - panel[1]) * 0.245))
+    car_w = max(92, int(panel_w * 0.090))
+    car_h = max(82, int((panel[3] - panel[1]) * 0.205))
     self._draw_vehicle_shape(image, cx, cy + 3, car_w, car_h, "ego")
 
   def _draw_blindspot_vehicle(self, image, draw, panel, side):
@@ -856,8 +861,8 @@ class HudRenderer(object):
     panel_h = bottom - top
     ego_x, ego_y = self._project(panel, 2.4, 0.0)
     direction = -1 if side == "left" else 1
-    car_w = max(46, int(panel_w * 0.048))
-    car_h = max(56, int(panel_h * 0.145))
+    car_w = max(52, int(panel_w * 0.054))
+    car_h = max(44, int(panel_h * 0.120))
     cx = ego_x + direction * max(86, int(panel_w * 0.085))
     cy = min(bottom - 4, ego_y + max(5, panel_h // 55))
     warning = (255, 169, 45)
