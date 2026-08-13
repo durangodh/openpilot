@@ -226,7 +226,11 @@ def test_vehicle_sprites_are_cached_realistic_and_shadow_free():
 
   base_sprite = renderer._build_vehicle_base_sprite("ego")
   lead_base = renderer._build_vehicle_base_sprite("lead")
+  braking_base = renderer._build_vehicle_base_sprite("lead", braking=True)
   assert base_sprite.size == (240, 190)
+  for sprite in (base_sprite, lead_base, braking_base):
+    assert not any(red > green + 50 and red > blue + 50 and alpha > 0
+                   for red, green, blue, alpha in sprite.getdata())
   assert (58, 64, 69, 255) in set(base_sprite.getdata())
   assert (152, 157, 161, 255) in set(lead_base.getdata())
   assert sum((58, 64, 69)) < sum((152, 157, 161))
