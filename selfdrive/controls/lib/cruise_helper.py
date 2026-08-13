@@ -42,7 +42,7 @@ class CruiseHelper:
     self.is_cruise_enabled = False
     # aPilot C2 separates lateral engagement from longitudinal readiness.
     # CANCEL/brake can pause longitudinal control while steering remains enabled.
-    self.auto_cruise_control = True
+    self.auto_cruise_control = False
     self.long_active_user = 0
     self.long_active_user_ready = 0
     self.user_cruise_paused = False
