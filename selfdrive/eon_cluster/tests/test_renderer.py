@@ -207,10 +207,9 @@ def test_curve_geometry_is_temporally_stabilized_for_external_hud():
   renderer._stabilize_scene_geometry(straight)
   first_curve = renderer._stabilize_scene_geometry(curve)
   lane_far = first_curve["lanes"][0]["points"][-1][1]
-  edge_far = first_curve["edges"][0]["points"][-1][1]
+  assert first_curve["edges"] == []
   path_far = first_curve["path"][-1][1]
   assert -1.8 < lane_far < 0.0
-  assert -4.0 < edge_far < -2.0
   assert 0.0 < path_far < 1.0
 
   # Repeated frames converge toward the real bend instead of freezing it.
@@ -225,15 +224,18 @@ def test_vehicle_sprites_are_cached_realistic_and_shadow_free():
   from PIL import Image, ImageDraw
   renderer = HudRenderer(1920, 462, 60)
 
-  ego_sprite = renderer._vehicle_sprite("ego", 100, 120)
-  assert ego_sprite is renderer._vehicle_sprite("ego", 101, 121)
-  traffic_sprite = renderer._vehicle_sprite("traffic", 100, 120, marker=True)
+  base_sprite = renderer._build_vehicle_base_sprite("ego")
+  assert base_sprite.size == (240, 190)
+  ego_sprite = renderer._vehicle_sprite("ego", 104, 96)
+  assert ego_sprite is renderer._vehicle_sprite("ego", 105, 97)
+  traffic_sprite = renderer._vehicle_sprite("traffic", 104, 96, marker=True)
   assert ego_sprite.mode == "RGBA"
+  assert ego_sprite.width > ego_sprite.height
   assert ego_sprite.tobytes() != traffic_sprite.tobytes()
   assert len(renderer._vehicle_sprite_cache) == 2
 
   vehicle = Image.new("RGB", (260, 200), (0, 0, 0))
-  renderer._draw_vehicle_shape(vehicle, 130, 190, 100, 120, "ego")
+  renderer._draw_vehicle_shape(vehicle, 130, 190, 104, 96, "ego")
   vehicle_colors = set(vehicle.getdata())
   assert vehicle.getbbox() is not None
   assert (1, 3, 6) not in vehicle_colors
