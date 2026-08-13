@@ -492,7 +492,7 @@ class CruiseHelper:
 
       if not self.is_cruise_enabled:
         self.is_cruise_enabled = True
-        self.auto_cruise_control = True
+        self.auto_cruise_control = False 
       if controls.enabled and self.long_active_user == 0 and self.auto_cruise_control and not self.user_cruise_paused:
         self._resume_longitudinal(controls, CS, 1)
     elif self.is_cruise_enabled:
