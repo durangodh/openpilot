@@ -869,7 +869,10 @@ class CruiseHelper:
                                        self.max_speed_clu * self.speed_conv_to_ms * CV.MS_TO_KPH))
     CC.sccSmoother.longControl = longcontrol
     CC.sccSmoother.applyMaxSpeed = controls.applyMaxSpeed
-    CC.sccSmoother.cruiseMaxSpeed = controls.v_cruise_kph
+    # In C2 mode MAIN engages lateral control before SET/RES activates
+    # longitudinal control. Publish no set speed until longitudinal is active
+    # so the on-road HUD matches the cluster before SET/RES and after CANCEL.
+    CC.sccSmoother.cruiseMaxSpeed = controls.v_cruise_kph if (not longcontrol or self.long_active_user > 0) else 0.0
     CC.sccSmoother.applySource = self.apply_source
     CC.sccSmoother.logMessage = ""
 
