@@ -44,47 +44,27 @@ def _point_series(polyline):
 
 
 def _smooth_polyline(points):
-  """Fit a stable quadratic lateral curve for display-only lane rendering."""
-  if len(points) < 4:
+  """Locally smooth display geometry without a global-curve overshoot."""
+  if len(points) < 3:
     return points
 
-  max_x = max(point[0] for point in points)
-  if max_x <= 1.0:
-    return points
-
-  # Weighted least squares for y = a + b*u + c*u^2. Near-field points have
-  # slightly more weight because their projection occupies most HUD pixels.
-  matrix = [[0.0] * 4 for _ in range(3)]
-  for x, y in points:
-    u = max(0.0, min(1.0, float(x) / max_x))
-    basis = (1.0, u, u * u)
-    weight = 1.0 / (1.0 + 0.75 * u)
-    for row in range(3):
-      for col in range(3):
-        matrix[row][col] += weight * basis[row] * basis[col]
-      matrix[row][3] += weight * basis[row] * float(y)
-
-  for diagonal in range(3):
-    matrix[diagonal][diagonal] += 1e-7
-
-  # Small pivoted Gaussian elimination avoids adding NumPy load to EON.
-  for pivot in range(3):
-    best = max(range(pivot, 3), key=lambda row: abs(matrix[row][pivot]))
-    if abs(matrix[best][pivot]) < 1e-9:
-      return points
-    if best != pivot:
-      matrix[pivot], matrix[best] = matrix[best], matrix[pivot]
-    divisor = matrix[pivot][pivot]
-    matrix[pivot] = [value / divisor for value in matrix[pivot]]
-    for row in range(3):
-      if row == pivot:
-        continue
-      factor = matrix[row][pivot]
-      matrix[row] = [matrix[row][col] - factor * matrix[pivot][col] for col in range(4)]
-
-  a, b, c = (matrix[index][3] for index in range(3))
-  return [(x, a + b * (float(x) / max_x) + c * math.pow(float(x) / max_x, 2.0))
-          for x, _ in points]
+  ordered = sorted(points, key=lambda point: point[0])
+  smoothed = []
+  for index, (x, y) in enumerate(ordered):
+    start = max(0, index - 2)
+    end = min(len(ordered), index + 3)
+    weighted_sum = 0.0
+    weight_total = 0.0
+    for neighbor in range(start, end):
+      distance = abs(neighbor - index)
+      weight = (3.0, 2.0, 1.0)[min(2, distance)]
+      weighted_sum += float(ordered[neighbor][1]) * weight
+      weight_total += weight
+    local_y = weighted_sum / max(1.0, weight_total)
+    # A convex local average cannot swing outside the nearby model points,
+    # unlike the previous whole-line quadratic fit on long road curves.
+    smoothed.append((float(x), local_y * 0.78 + float(y) * 0.22))
+  return smoothed
 
 
 def _probability(values, index, default=1.0):
@@ -156,7 +136,8 @@ def extract_driving_scene(model, radar_state):
       # Road edges need the same display-only spatial smoothing as lane lines.
       # Otherwise noisy model points become exaggerated bends after the
       # perspective projection on the shallow 9.2-inch HUD.
-      edges.append({"points": _smooth_polyline(points), "probability": probability})
+      edges.append({"points": _smooth_polyline(points), "probability": probability,
+                    "index": index})
 
   leads = []
   for name in ("leadOne", "leadTwo"):
