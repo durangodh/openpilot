@@ -324,52 +324,47 @@ def _fit_cover(image, size):
   return resized.crop((left, top, left + target_w, top + target_h))
 
 
-def _safe_fitted_image(path, size):
+def _fit_cached(path, size, mode, build):
+  """Cache one scaled result per (path, size, mode).
+
+  The file signature is stored as the cache *value*, never as part of the key.
+  Keying on the signature made every new TMap frame allocate a fresh entry that
+  was never released, which grew by roughly a megabyte per received frame.
+  """
+  key = (path, int(size[0]), int(size[1]), mode)
   image = _safe_image(path)
   if image is None:
+    _FIT_CACHE.pop(key, None)
     return None
   signature = _IMAGE_CACHE[path][0]
-  key = (path, signature, int(size[0]), int(size[1]), "cover")
   cached = _FIT_CACHE.get(key)
-  if cached is not None:
-    return cached
-  fitted = _fit_cover(image, size)
-  _FIT_CACHE[key] = fitted
+  if cached is not None and cached[0] == signature:
+    return cached[1]
+  fitted = build(image)
+  _FIT_CACHE[key] = (signature, fitted)
   return fitted
+
+
+def _safe_fitted_image(path, size):
+  return _fit_cached(path, size, "cover", lambda image: _fit_cover(image, size))
 
 
 def _safe_contained_image(path, size):
   """Scale an overlay inside the target box without cropping or distortion."""
-  image = _safe_image(path)
-  if image is None:
-    return None
-  signature = _IMAGE_CACHE[path][0]
-  key = (path, signature, int(size[0]), int(size[1]), "contain")
-  cached = _FIT_CACHE.get(key)
-  if cached is not None:
-    return cached
-  scale = min(float(size[0]) / image.width, float(size[1]) / image.height)
-  resampling = getattr(Image, "Resampling", Image)
-  fitted = image.resize((max(1, int(round(image.width * scale))),
+  def build(image):
+    scale = min(float(size[0]) / image.width, float(size[1]) / image.height)
+    resampling = getattr(Image, "Resampling", Image)
+    return image.resize((max(1, int(round(image.width * scale))),
                          max(1, int(round(image.height * scale)))), resampling.BILINEAR)
-  _FIT_CACHE[key] = fitted
-  return fitted
+  return _fit_cached(path, size, "contain", build)
 
 
 def _safe_full_image(path, size):
   """Resize the complete source frame without cropping any map edge."""
-  image = _safe_image(path)
-  if image is None:
-    return None
-  signature = _IMAGE_CACHE[path][0]
-  key = (path, signature, int(size[0]), int(size[1]), "full")
-  cached = _FIT_CACHE.get(key)
-  if cached is not None:
-    return cached
-  resampling = getattr(Image, "Resampling", Image)
-  fitted = image.resize((max(1, int(size[0])), max(1, int(size[1]))), resampling.BILINEAR)
-  _FIT_CACHE[key] = fitted
-  return fitted
+  def build(image):
+    resampling = getattr(Image, "Resampling", Image)
+    return image.resize((max(1, int(size[0])), max(1, int(size[1]))), resampling.BILINEAR)
+  return _fit_cached(path, size, "full", build)
 
 
 def _clamp(value, low, high):

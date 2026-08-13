@@ -456,8 +456,11 @@ void NvgWindow::paintEvent(QPaintEvent *event) {
 
   const uint64_t eon_hud_now = millis_since_boot();
   if (eon_hud_now - eon_cluster_hud_last_read >= 500) {
+    // Reuse one Params instance: constructing it inside paintEvent hits the
+    // filesystem twice a second for no reason.
+    static Params eon_hud_params;
     eon_cluster_hud_last_read = eon_hud_now;
-    eon_cluster_hud_connected = Params().getBool("EonClusterHudConnected");
+    eon_cluster_hud_connected = eon_hud_params.getBool("EonClusterHudConnected");
   }
 
   // Keep the EON road camera visible when the external HUD is connected.

@@ -1,4 +1,5 @@
 import json
+import os
 import time
 
 import selfdrive.eon_cluster.renderer as renderer_module
@@ -325,3 +326,22 @@ def test_jpeg_quality_accepts_full_carrot_range():
   assert renderer.jpeg_quality == 95
   renderer.set_jpeg_quality(100)
   assert renderer.jpeg_quality == 95
+
+
+def test_scaled_image_cache_stays_bounded(tmp_path):
+  from PIL import Image
+
+  renderer_module._IMAGE_CACHE.clear()
+  renderer_module._FIT_CACHE.clear()
+  path = str(tmp_path / "map.jpg")
+  for index in range(12):
+    Image.new("RGB", (640, 384), (index * 7 % 255, 40, 60)).save(path, format="JPEG")
+    # Force a distinct signature the way a live TMap stream does.
+    os.utime(path, (1000 + index, 1000 + index))
+    fitted = renderer_module._safe_full_image(path, (768, 462))
+    assert fitted is not None and fitted.size == (768, 462)
+
+  assert len(renderer_module._FIT_CACHE) == 1
+  os.unlink(path)
+  assert renderer_module._safe_full_image(path, (768, 462)) is None
+  assert len(renderer_module._FIT_CACHE) == 0

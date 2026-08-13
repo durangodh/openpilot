@@ -454,6 +454,7 @@ selfdrive/assets/fonts/Pretendard-Hangul.fnt
 selfdrive/assets/fonts/Pretendard-Hangul.png
 selfdrive/assets/fonts/Pretendard-SemiBold.fnt
 selfdrive/assets/fonts/Pretendard-SemiBold.png
+selfdrive/eon_cluster/*.py
 selfdrive/assets/icons/*
 selfdrive/assets/images/*
 selfdrive/assets/offroad/*

@@ -6,7 +6,7 @@ UI_DIR = Path(__file__).parents[2] / "ui" / "qt"
 
 def test_external_hud_keeps_json_updates_but_skips_tmap_draw():
   onroad = (UI_DIR / "onroad.cc").read_text(encoding="utf-8")
-  assert 'Params().getBool("EonClusterHudConnected")' in onroad
+  assert 'eon_hud_params.getBool("EonClusterHudConnected")' in onroad
   assert "CameraViewWidget::paintGL();" in onroad
   assert "p.fillRect(rect(), Qt::black);" not in onroad
   suppressed_scene = onroad.split("if (!eon_cluster_hud_connected) {", 1)[1].split("}", 1)[0]
