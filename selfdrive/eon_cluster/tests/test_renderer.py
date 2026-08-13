@@ -180,7 +180,7 @@ def test_blindspot_flags_draw_rear_quarter_vehicles():
   assert (255, 169, 45) in set(right.getdata())
 
 
-def test_tmap_fills_panel_and_transparent_lane_does_not_make_black_bar(tmp_path, monkeypatch):
+def test_tmap_stays_fixed_without_direction_overlay(tmp_path, monkeypatch):
   from PIL import Image
   map_path = tmp_path / "map.jpg"
   lane_path = tmp_path / "lane.png"
@@ -193,15 +193,23 @@ def test_tmap_fills_panel_and_transparent_lane_does_not_make_black_bar(tmp_path,
   monkeypatch.setattr(renderer_module, "NAVI_LANE", str(lane_path))
 
   renderer = HudRenderer(1920, 462, 50)
+  scene = {
+    "lanes": [], "edges": [], "leads": [],
+    "trip_report": {"duration_s": 5, "distance_m": 0},
+  }
   navi = {"guidance_current": {"main_text": "TURN", "distance_m": 120}}
-  frame = renderer.render(55.0, 88.0, True, navi, {"lanes": [], "edges": [], "leads": []})
-  # The whole panel, including the old green-card area, retains the raw map.
-  for point in ((1908, 6), (1200, 40), (1908, 453)):
-    red, green, blue = frame.getpixel(point)
+  live_frame = renderer.render(55.0, 88.0, True, navi, scene)
+  dropped_json_frame = renderer.render(55.0, 88.0, True, {}, scene)
+
+  # A transient navigation JSON read failure must not switch auto mode to the
+  # trip report or alter the last complete TMap frame.
+  assert live_frame.tobytes() == dropped_json_frame.tobytes()
+
+  # The whole right panel remains the raw map. The lane/direction image had an
+  # opaque white test pixel at this former overlay location.
+  for point in ((1908, 6), (1200, 40), (1908, 453), (1679, 402)):
+    red, green, blue = live_frame.getpixel(point)
     assert blue > green > red
-  # Transparent pixels in the lane overlay must leave the map visible.
-  red, green, blue = frame.getpixel((1880, 410))
-  assert blue > green > red
 
 
 def test_tmap_stream_is_wide_and_does_not_increase_pixel_load():
