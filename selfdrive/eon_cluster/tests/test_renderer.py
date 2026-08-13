@@ -446,7 +446,8 @@ def test_footer_renders_address_and_frame_rate():
   assert (232, 168, 62) in set(renderer.render(34.0, 88.0, True, {}, slow).getdata())
 
 
-def test_ego_lane_markings_are_yellow_and_outer_lines_white():
+def test_only_detected_lanes_use_pale_gray_on_light_road():
+  from PIL import Image, ImageDraw
   renderer = HudRenderer(1920, 462, 60)
 
   def lane(offset, index, probability=0.95):
@@ -455,19 +456,42 @@ def test_ego_lane_markings_are_yellow_and_outer_lines_white():
 
   scene = {
     "lanes": [lane(-5.5, 0, 0.7), lane(-1.85, 1), lane(1.85, 2), lane(5.5, 3, 0.7)],
-    "edges": [], "leads": [],
+    "edges": [{"points": [(0.0, -7.0), (120.0, -7.0)], "probability": 1.0}],
+    "leads": [],
   }
-  assert renderer._ego_lane_indices(scene["lanes"]) == {1, 2}
   colors = set(renderer.render(60.0, 60.0, True, {}, scene).getdata())
-  assert any(red > 230 and 170 < green < 225 and blue < 90 for red, green, blue in colors)
+  assert (150, 152, 153) in colors
+  assert not any(red > 230 and 170 < green < 225 and blue < 90
+                 for red, green, blue in colors)
 
-  # A dropped weak line must not shift the yellow onto an outer marking.
-  dropped = {"lanes": [lane(-1.85, 1), lane(1.85, 2), lane(5.5, 3, 0.7)], "edges": [], "leads": []}
-  assert renderer._ego_lane_indices(dropped["lanes"]) == {0, 1}
+  background = Image.new("RGB", (1150, 462), (0, 0, 0))
+  renderer._draw_road_surface(background, (0, 0, 1150, 462))
+  assert min(background.getpixel((10, 10))) > 225
+  assert min(background.getpixel((575, 450))) > 200
 
-  # Without model indices, the two markings nearest the car are the ego lane.
-  bare = [{"points": [(0.0, offset)], "probability": 0.8} for offset in (-5.5, -1.85, 1.85, 5.5)]
-  assert renderer._ego_lane_indices(bare) == {1, 2}
+  # Empty model output draws no invented fallback and roadEdges make no draw call.
+  renderer._fallback_lanes = lambda: (_ for _ in ()).throw(AssertionError("fallback used"))
+  edge_calls = []
+  renderer._draw_polyline = lambda *_args, **_kwargs: edge_calls.append(True)
+  frame = Image.new("RGB", (1920, 462), (0, 0, 0))
+  renderer._draw_driving_panel(frame, ImageDraw.Draw(frame), (0, 0, 1150, 462),
+                               0.0, 0.0, False, 0,
+                               {"lanes": [], "edges": scene["edges"], "leads": []})
+  assert edge_calls == []
+
+
+def test_detected_lane_is_held_for_three_frames_only():
+  renderer = HudRenderer(1920, 462, 60)
+  lane = {"index": 1, "probability": 0.9,
+          "points": [(0.0, -1.8), (40.0, -1.7), (100.0, -1.4)]}
+  scene = {"lanes": [lane], "edges": [], "path": []}
+  assert len(renderer._stabilize_scene_geometry(scene)["lanes"]) == 1
+  empty = {"lanes": [], "edges": [], "path": []}
+  for _ in range(3):
+    held = renderer._stabilize_scene_geometry(empty)
+    assert len(held["lanes"]) == 1
+    assert held["edges"] == []
+  assert renderer._stabilize_scene_geometry(empty)["lanes"] == []
 
 
 def test_live_guidance_text_survives_a_json_drop():
