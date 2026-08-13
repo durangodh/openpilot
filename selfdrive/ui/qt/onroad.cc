@@ -460,15 +460,11 @@ void NvgWindow::paintEvent(QPaintEvent *event) {
     eon_cluster_hud_connected = Params().getBool("EonClusterHudConnected");
   }
 
-  if (!eon_cluster_hud_connected) {
-    p.beginNativePainting();
-    CameraViewWidget::paintGL();
-    p.endNativePainting();
-  } else {
-    // The external HUD already renders the driving scene. Keep the EON UI
-    // readable while avoiding a duplicate camera texture draw.
-    p.fillRect(rect(), Qt::black);
-  }
+  // Keep the EON road camera visible when the external HUD is connected.
+  // Only duplicate model/TMap overlays are suppressed below.
+  p.beginNativePainting();
+  CameraViewWidget::paintGL();
+  p.endNativePainting();
 
   if (s->worldObjectsVisible())
     drawHud(p, model);
