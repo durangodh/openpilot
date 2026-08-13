@@ -182,6 +182,51 @@ def test_carrot_3d_scene_has_vehicle_control_gauges_and_path_ribbon():
   assert HudRenderer._path_color(True, scene) in colors
 
 
+def test_curve_geometry_is_temporally_stabilized_for_external_hud():
+  renderer = HudRenderer(1920, 462, 60)
+  straight = {
+    "path": [(0.0, 0.0), (40.0, 0.0), (100.0, 0.0)],
+    "lanes": [{"index": 1, "probability": 0.9,
+               "points": [(0.0, -1.8), (40.0, -1.8), (100.0, -1.8)]}],
+    "edges": [{"index": 0, "probability": 0.8,
+               "points": [(0.0, -4.0), (40.0, -4.0), (100.0, -4.0)]}],
+  }
+  curve = {
+    "path": [(0.0, 0.0), (40.0, 3.0), (100.0, 9.0)],
+    "lanes": [{"index": 1, "probability": 0.9,
+               "points": [(0.0, -1.8), (40.0, 1.2), (100.0, 7.2)]}],
+    "edges": [{"index": 0, "probability": 0.8,
+               "points": [(0.0, -4.0), (40.0, -1.0), (100.0, 5.0)]}],
+  }
+  renderer._stabilize_scene_geometry(straight)
+  first_curve = renderer._stabilize_scene_geometry(curve)
+  lane_far = first_curve["lanes"][0]["points"][-1][1]
+  edge_far = first_curve["edges"][0]["points"][-1][1]
+  path_far = first_curve["path"][-1][1]
+  assert -1.8 < lane_far < 0.0
+  assert -4.0 < edge_far < -2.0
+  assert 0.0 < path_far < 1.0
+
+  # Repeated frames converge toward the real bend instead of freezing it.
+  later_curve = first_curve
+  for _ in range(12):
+    later_curve = renderer._stabilize_scene_geometry(curve)
+  assert later_curve["lanes"][0]["points"][-1][1] > lane_far
+  assert later_curve["path"][-1][1] > path_far
+
+
+def test_stationary_radar_uses_green_3d_world_block():
+  renderer = HudRenderer(1920, 462, 60)
+  scene = {
+    "lanes": [], "edges": [], "leads": [],
+    "radar_info": 4,
+    "radar_points": [{"distance": 24.0, "lateral": 2.0,
+                      "relative_speed": 0.0, "stationary": True}],
+  }
+  colors = set(renderer.render(45.0, 70.0, True, {}, scene).getdata())
+  assert (54, 207, 121) in colors
+
+
 def test_blindspot_flags_draw_rear_quarter_vehicles():
   renderer = HudRenderer(1920, 462, 50)
   scene = {"lanes": [], "edges": [], "leads": []}
