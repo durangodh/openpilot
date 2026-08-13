@@ -150,9 +150,13 @@ def extract_driving_scene(model, radar_state):
   raw_edges = _field(model, "roadEdges", [])
   for index, edge in enumerate(list(raw_edges) if raw_edges is not None else []):
     points = _point_series(edge)
-    if len(points) >= 2:
-      std = max(0.0, _finite_float(edge_stds[index], 0.0)) if index < len(edge_stds) else 0.0
-      edges.append({"points": points, "probability": max(0.2, min(1.0, 1.0 - std))})
+    std = max(0.0, _finite_float(edge_stds[index], 0.0)) if index < len(edge_stds) else 0.0
+    probability = max(0.0, min(1.0, 1.0 - std))
+    if len(points) >= 2 and probability >= 0.40:
+      # Road edges need the same display-only spatial smoothing as lane lines.
+      # Otherwise noisy model points become exaggerated bends after the
+      # perspective projection on the shallow 9.2-inch HUD.
+      edges.append({"points": _smooth_polyline(points), "probability": probability})
 
   leads = []
   for name in ("leadOne", "leadTwo"):
