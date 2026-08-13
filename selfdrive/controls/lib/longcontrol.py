@@ -16,12 +16,7 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
   # Match aPilot C2: keep the stock SCC standstill latch active while stopped.
   # This prevents small planner fluctuations from repeatedly releasing and
   # reapplying the brakes on a slope.
-  # With openpilot longitudinal control, SCC11 from the stock radar can keep
-  # SCCInfoDisplay=4 latched after the lead departs (notably Genesis DH SCC
-  # bus 2). The MPC departure trajectory owns the stop/restart decision, so
-  # do not let that stock latch deadlock the starting transition.
-  cruise_standstill = (cruise_standstill and not CP.enableGasInterceptor and
-                       not CP.openpilotLongitudinalControl)
+  cruise_standstill = cruise_standstill and not CP.enableGasInterceptor
   accelerating = v_target_1sec > (v_target + 0.01)
   planned_stop = (v_target < CP.vEgoStopping and
                   v_target_1sec < CP.vEgoStopping and
