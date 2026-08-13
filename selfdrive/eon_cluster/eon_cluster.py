@@ -278,7 +278,7 @@ def main():
         scene["is_metric"] = _param_bool(params, "IsMetric", True)
         scene["energy_mode"] = _energy_mode(sm["carParams"])
         scene["radar_info"] = _param_int(params, PARAM_RADAR_INFO, 4, 0, 4)
-        if _param_int(params, PARAM_RADAR_DISPLAY, 0, 0, 1) == 1:
+        if _param_int(params, PARAM_RADAR_DISPLAY, 1, 0, 1) == 1:
           scene["radar_points"] = extract_radar_points(sm["liveTracks"])
         scene["show_path_status_color"] = _param_int(params, "ShowPathStatusColor", 1, 0, 1) == 1
         scene["accel"] = accel
@@ -298,8 +298,10 @@ def main():
           "disk": max(0.0, min(100.0, 100.0 - free_space)) if free_space > 0.0 else 0.0,
           "cores": [float(v) for v in cpu_values[:8]],
         }
-        gear = str(_field(car_state, "gearShifter", "")).lower()
-        scene["parked"] = gear in ("p", "park") or gear.endswith(".park")
+        # gearShifter was only used for a "parked" flag the renderer never read.
+        scene["gear"] = int(_field(car_state, "gearStep", 0) or 0)
+        scene["blinkers"] = {"left": bool(_field(car_state, "leftBlinker", False)),
+                             "right": bool(_field(car_state, "rightBlinker", False))}
         scene["trip_report"] = trip.snapshot()
         alert_text1 = str(_field(controls_state, "alertText1", "") or "")
         if alert_text1:

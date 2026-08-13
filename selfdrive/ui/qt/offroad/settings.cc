@@ -1830,7 +1830,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 0, 4, 1, 0, 4, this));
   list->addItem(new ParamValueControlF("EonClusterHudRadarDisplay",
       "클러스터 레이더 표시", "0: 선행차만 / 1: 주변 레이더 포인트(최대 16개)",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
 
   list->addItem(horizontal_line());
 

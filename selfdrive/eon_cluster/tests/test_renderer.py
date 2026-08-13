@@ -385,3 +385,38 @@ def test_ego_lane_markings_are_yellow_and_outer_lines_white():
   # Without model indices, the two markings nearest the car are the ego lane.
   bare = [{"points": [(0.0, offset)], "probability": 0.8} for offset in (-5.5, -1.85, 1.85, 5.5)]
   assert renderer._ego_lane_indices(bare) == {1, 2}
+
+
+def test_live_guidance_text_survives_a_json_drop():
+  renderer = HudRenderer(1920, 462, 60)
+  navi = {
+    "guidance_current": {"main_text": "광주경찰청", "distance_m": 254},
+    "guidance_next": {"distance_m": 513},
+    "route": {"remain_distance_m": 4700, "remain_time_sec": 540},
+  }
+  assert renderer._guidance_line(navi["guidance_current"], True, "ko").startswith("254")
+  assert "광주경찰청" in renderer._guidance_line(navi["guidance_current"], True, "ko")
+  # road_name is the fallback when the stream carries no main_text.
+  assert renderer._guidance_line({"road_name": "외곽순환"}, True, "ko") == "외곽순환"
+  assert renderer._guidance_line({}, True, "ko") == ""
+  assert renderer._guidance_line(None, True, "ko") == ""
+
+  from PIL import ImageDraw, Image
+  frame = Image.new("RGB", (1920, 462))
+  draw = ImageDraw.Draw(frame)
+  box = (1152, 0, 1920, 462)
+  renderer._draw_navi_text(draw, box, navi, "ko", True)
+  assert renderer._navi_text_cache["current"].startswith("254")
+  # An empty read must reuse the cached strings rather than blank the panel.
+  renderer._draw_navi_text(draw, box, {}, "ko", True)
+  assert renderer._navi_text_cache["current"].startswith("254")
+
+
+def test_gear_and_turn_signals_are_optional():
+  renderer = HudRenderer(1920, 462, 60)
+  bare = {"lanes": [], "edges": [], "leads": []}
+  assert renderer.render(30.0, 0.0, False, {}, bare).size == (1920, 462)
+  wired = dict(bare, gear=3, blinkers={"left": True, "right": True})
+  assert renderer.render(30.0, 0.0, False, {}, wired).size == (1920, 462)
+  # No blinker data must not raise or draw.
+  assert renderer.render(30.0, 0.0, False, {}, dict(bare, blinkers=None)).size == (1920, 462)

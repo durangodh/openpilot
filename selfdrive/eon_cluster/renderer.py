@@ -401,6 +401,8 @@ class HudRenderer(object):
     self.graph_cpu = deque(maxlen=180)
     self.graph_temp = deque(maxlen=180)
     self._route_visible_until = 0.0
+    # Last complete guidance strings, reused while the JSON file is replaced.
+    self._navi_text_cache = {}
     # Cache the static carrot-style road surface per panel size.
     self._road_backgrounds = {}
 
@@ -573,11 +575,21 @@ class HudRenderer(object):
       return
     color = self._path_color(enabled, scene)
     left, top, right, bottom = panel
-    overlay = Image.new("RGBA", (right - left, bottom - top), (0, 0, 0, 0))
-    overlay_draw = ImageDraw.Draw(overlay)
-    overlay_draw.polygon([(x - left, y - top) for x, y in polygon],
-                         fill=(color[0], color[1], color[2], 92 if enabled else 65))
-    image.paste(overlay, (left, top), overlay)
+    # Allocating and compositing a panel-sized RGBA layer cost ~2.4 ms/frame on
+    # a ribbon that only ever covers the ego lane. Build the layer over the
+    # polygon's bounding box instead; the translucency is unchanged.
+    xs = [point[0] for point in polygon]
+    ys = [point[1] for point in polygon]
+    box_left = max(left, min(xs) - 2)
+    box_top = max(top, min(ys) - 2)
+    box_right = min(right, max(xs) + 2)
+    box_bottom = min(bottom, max(ys) + 2)
+    if box_right > box_left and box_bottom > box_top:
+      overlay = Image.new("RGBA", (box_right - box_left, box_bottom - box_top), (0, 0, 0, 0))
+      overlay_draw = ImageDraw.Draw(overlay)
+      overlay_draw.polygon([(x - box_left, y - box_top) for x, y in polygon],
+                           fill=(color[0], color[1], color[2], 92 if enabled else 65))
+      image.paste(overlay, (box_left, box_top), overlay)
     edge_glow = tuple(max(25, int(channel * 0.38)) for channel in color)
     edge_width = max(2, self.height // 92)
     for edge in (left_edge, right_edge):
@@ -687,6 +699,27 @@ class HudRenderer(object):
       label = "%+.0f" % relative_speed
     _draw_text(draw, (cx, cy - radius - 5), label, max(11, self.height // 34), True,
                fill=color, anchor="ms")
+
+  def _draw_turn_signals(self, draw, panel, blinkers):
+    """Two flashing arrows beside the ego car. Polygons only, no text cost."""
+    if not blinkers:
+      return
+    left, top, right, bottom = panel
+    if not (blinkers.get("left") or blinkers.get("right")):
+      return
+    if int(time.time() * 2) % 2:
+      return
+    cx = (left + right) // 2
+    cy = bottom - int((bottom - top) * 0.20)
+    size = max(14, (right - left) // 46)
+    gap = max(60, (right - left) // 7)
+    color = (72, 226, 118)
+    if blinkers.get("left"):
+      tip = cx - gap - size
+      draw.polygon(((tip, cy), (tip + size, cy - size), (tip + size, cy + size)), fill=color)
+    if blinkers.get("right"):
+      tip = cx + gap + size
+      draw.polygon(((tip, cy), (tip - size, cy - size), (tip - size, cy + size)), fill=color)
 
   def _draw_ego_vehicle(self, draw, panel, enabled):
     cx, cy = self._project(panel, 2.4, 0.0)
@@ -909,6 +942,11 @@ class HudRenderer(object):
     _draw_text(draw, (left + int((right - left) * 0.19), speed_y - max(62, self.height // 6)), "SET",
                max(13, self.height // 29), True, fill=(157, 171, 181), anchor="ls")
     self._draw_speed_limit(draw, left + 66, top + 91, int(round(display_limit)))
+    gear = int(scene.get("gear", 0) or 0)
+    if gear > 0:
+      _draw_text(draw, (left + int((right - left) * 0.255), speed_y), str(gear),
+                 max(24, int(self.height * 0.10)), True, fill=(214, 228, 238), anchor="ls")
+    self._draw_turn_signals(draw, box, scene.get("blinkers"))
     mode = int(scene.get("driving_mode", 0) or 0)
     mode_text = {1: "ECO", 2: "SAFE", 3: "NORM", 4: "FAST"}.get(mode, "")
     if mode_text:
@@ -983,6 +1021,80 @@ class HudRenderer(object):
       lane_x = left + (panel_w - lane.width) // 2
       lane_y = bottom - lane.height - margin
       image.paste(lane, (lane_x, lane_y), lane if lane.mode == "RGBA" else None)
+
+    self._draw_navi_text(draw, box, navi, language, is_metric)
+
+  @staticmethod
+  def _guidance_line(guide, is_metric, language):
+    """One compact "<distance> <name>" line from a guidance_* stream."""
+    if not isinstance(guide, dict):
+      return ""
+    distance = guide.get("distance_m")
+    name = str(guide.get("main_text") or guide.get("road_name") or "")
+    parts = []
+    if distance is not None and float(distance) > 0:
+      parts.append(_distance_text(float(distance), is_metric, language))
+    if name:
+      parts.append(name)
+    return "  ".join(parts)
+
+  def _draw_navi_text(self, draw, box, navi, language, is_metric):
+    """Live guidance text straight from the JSON streams.
+
+    The TMap PNG overlays carry their own distance, but the phone only sends
+    them at 1 fps. These lines come from the JSON streams, so they stay current
+    at the HUD frame rate. Three text draws total, roughly 0.7 ms.
+    """
+    left, top, right, bottom = box
+    size = max(16, self.height // 22)
+    small = max(13, self.height // 30)
+    pad = max(6, self.height // 70)
+    margin = max(8, self.height // 46)
+
+    def plate(x, y, text, text_size, fill):
+      width = int(len(text) * text_size * 0.62) + pad * 2
+      draw.rounded_rectangle((x, y - pad, x + width, y + text_size + pad), radius=8,
+                             fill=(8, 14, 20))
+      _draw_text(draw, (x + pad, y), text, text_size, True, fill=fill, anchor="la")
+
+    route = navi.get("route") or {}
+    remain_m = route.get("remain_distance_m")
+    remain_s = route.get("remain_time_sec")
+    summary = []
+    if remain_m is not None and float(remain_m) > 0:
+      summary.append(_distance_text(float(remain_m), is_metric, language))
+    if remain_s is not None and float(remain_s) > 0:
+      remain_s = int(remain_s)
+      summary.append(time.strftime("%H:%M", time.localtime(time.time() + remain_s)))
+      minutes = max(1, remain_s // 60)
+      summary.append("%d분" % minutes if language == "ko" else "%d min" % minutes)
+    if summary:
+      self._navi_text_cache["summary"] = summary
+    else:
+      summary = self._navi_text_cache.get("summary") or []
+    if summary:
+      text = "  ·  ".join(summary)
+      width = int(len(text) * small * 0.62) + pad * 2
+      plate(right - width - margin, top + margin, text, small, (196, 220, 236))
+
+    current = self._guidance_line(navi.get("guidance_current"), is_metric, language)
+    next_line = self._guidance_line(navi.get("guidance_next"), is_metric, language)
+    # An atomic JSON replacement must not blink the guidance lines, exactly as
+    # the native TMap overlays hold their last complete frame.
+    if navi.get("guidance_current") is not None or navi.get("route") is not None:
+      self._navi_text_cache["current"] = current
+      self._navi_text_cache["next"] = next_line
+    else:
+      current = self._navi_text_cache.get("current", "")
+      next_line = self._navi_text_cache.get("next", "")
+    y = bottom - margin - size - pad
+    if next_line:
+      y -= small + pad * 3
+    if current:
+      plate(left + margin, y, current, size, (255, 214, 78))
+      y += size + pad * 3
+    if next_line:
+      plate(left + margin, y, next_line, small, (176, 196, 210))
 
   def _theme_colors(self, theme):
     # carrot-wip compatible mapping: 0 auto by local time, 1 dark, 2 light.
