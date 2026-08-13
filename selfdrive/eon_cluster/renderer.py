@@ -405,6 +405,9 @@ class HudRenderer(object):
     self._navi_text_cache = {}
     # Cache the static carrot-style road surface per panel size.
     self._road_backgrounds = {}
+    # Display-only temporal history. Model coordinates remain untouched; only
+    # the external HUD receives this low-pass filter.
+    self._geometry_history = {"lanes": {}, "edges": {}, "path": {}}
 
   def set_jpeg_quality(self, jpeg_quality):
     jpeg_quality = max(1, min(95, int(jpeg_quality)))
@@ -417,6 +420,69 @@ class HudRenderer(object):
     changed = mirror != self.mirror
     self.mirror = mirror
     return changed
+
+  @staticmethod
+  def _interpolate_lateral(points, longitudinal):
+    if not points:
+      return None
+    if longitudinal <= points[0][0]:
+      return float(points[0][1])
+    for index in range(1, len(points)):
+      x0, y0 = points[index - 1]
+      x1, y1 = points[index]
+      if longitudinal <= x1:
+        span = max(1e-3, float(x1) - float(x0))
+        mix = _clamp((float(longitudinal) - float(x0)) / span, 0.0, 1.0)
+        return float(y0) + (float(y1) - float(y0)) * mix
+    return float(points[-1][1])
+
+  def _stabilize_polylines(self, items, channel):
+    history = self._geometry_history[channel]
+    stabilized, next_history = [], {}
+    for position, item in enumerate(items or []):
+      points = [(float(x), float(y)) for x, y in item.get("points", [])
+                if math.isfinite(float(x)) and math.isfinite(float(y))]
+      if not points:
+        continue
+      key = item.get("index", position)
+      previous = history.get(key)
+      filtered = []
+      if previous:
+        near_now = self._interpolate_lateral(points, min(8.0, points[-1][0]))
+        near_previous = self._interpolate_lateral(previous, min(8.0, points[-1][0]))
+        # A line association change should snap once, not drag a wrong line
+        # across the panel for several frames.
+        if near_now is not None and near_previous is not None and abs(near_now - near_previous) > 2.4:
+          previous = None
+      for x, y in points:
+        old_y = self._interpolate_lateral(previous, x) if previous else None
+        if old_y is None:
+          filtered_y = y
+        else:
+          # Far model points create the biggest screen sweep in a bend, so
+          # limit their per-frame travel more strongly while keeping the near
+          # lane responsive to the car's actual turn.
+          max_step = 0.22 + 0.010 * min(self.MAX_DISTANCE_M, max(0.0, x))
+          limited_y = old_y + _clamp(y - old_y, -max_step, max_step)
+          current_weight = 0.42 - 0.16 * min(1.0, max(0.0, x) / self.MAX_DISTANCE_M)
+          filtered_y = old_y + (limited_y - old_y) * current_weight
+        filtered.append((x, filtered_y))
+      copied = dict(item)
+      copied["points"] = filtered
+      stabilized.append(copied)
+      next_history[key] = filtered
+    self._geometry_history[channel] = next_history
+    return stabilized
+
+  def _stabilize_scene_geometry(self, scene):
+    """Suppress frame-to-frame lane sweep on bends for this display only."""
+    stabilized = dict(scene)
+    stabilized["lanes"] = self._stabilize_polylines(scene.get("lanes", []), "lanes")
+    stabilized["edges"] = self._stabilize_polylines(scene.get("edges", []), "edges")
+    path = [{"index": 0, "points": scene.get("path", [])}]
+    filtered_path = self._stabilize_polylines(path, "path")
+    stabilized["path"] = filtered_path[0]["points"] if filtered_path else []
+    return stabilized
 
   def _project(self, panel, longitudinal, lateral):
     left, top, right, bottom = panel
@@ -526,21 +592,48 @@ class HudRenderer(object):
       self._road_backgrounds[size] = background
     image.paste(background, (left, top))
 
+  @staticmethod
+  def _segment_quad(screen_a, screen_b, width_a, width_b):
+    """Return a perspective-width quad around one projected world segment."""
+    dx = float(screen_b[0] - screen_a[0])
+    dy = float(screen_b[1] - screen_a[1])
+    length = math.hypot(dx, dy)
+    if length < 0.5:
+      return None
+    nx, ny = -dy / length, dx / length
+    half_a, half_b = width_a * 0.5, width_b * 0.5
+    return (
+      (screen_a[0] + nx * half_a, screen_a[1] + ny * half_a),
+      (screen_b[0] + nx * half_b, screen_b[1] + ny * half_b),
+      (screen_b[0] - nx * half_b, screen_b[1] - ny * half_b),
+      (screen_a[0] - nx * half_a, screen_a[1] - ny * half_a),
+    )
+
   def _draw_lane_marking(self, draw, panel, points, color, probability):
+    """Draw model lanes as tapered ground strips instead of flat screen lines."""
     probability = _clamp(float(probability), 0.0, 1.0)
     filtered = [(point, self._project(panel, point[0], point[1]))
                 for point in points if 0.0 <= point[0] <= self.MAX_DISTANCE_M]
+    if len(filtered) < 2:
+      return
+    glow = tuple(max(5, int(channel * 0.18)) for channel in color)
+    body = tuple(max(12, int(channel * 0.62)) for channel in color)
     for index in range(len(filtered) - 1):
       (world_a, screen_a), (world_b, screen_b) = filtered[index:index + 2]
-      distance = max(0.0, (world_a[0] + world_b[0]) * 0.5)
-      perspective = math.pow(max(0.0, 1.0 - distance / self.MAX_DISTANCE_M), 1.1)
-      core_width = max(1, int(1 + (3 + 4 * probability) * perspective))
-      glow_width = core_width + max(4, self.height // 66)
-      glow = tuple(max(0, int(channel * 0.22)) for channel in color)
-      draw.line((screen_a, screen_b), fill=glow, width=glow_width)
-      draw.line((screen_a, screen_b), fill=tuple(int(channel * 0.52) for channel in color),
-                width=max(core_width + 2, 3))
-      draw.line((screen_a, screen_b), fill=color, width=core_width)
+      depth_a = math.pow(max(0.0, 1.0 - world_a[0] / self.MAX_DISTANCE_M), 1.18)
+      depth_b = math.pow(max(0.0, 1.0 - world_b[0] / self.MAX_DISTANCE_M), 1.18)
+      width_a = max(1.0, 1.0 + (6.0 + 4.0 * probability) * depth_a)
+      width_b = max(1.0, 1.0 + (6.0 + 4.0 * probability) * depth_b)
+      quad = self._segment_quad(screen_a, screen_b, width_a + 7.0, width_b + 7.0)
+      if quad:
+        draw.polygon(quad, fill=glow)
+      quad = self._segment_quad(screen_a, screen_b, width_a, width_b)
+      if quad:
+        draw.polygon(quad, fill=body)
+      # A thin highlight on the strip gives the low-resolution HUD a raised,
+      # raylib-like edge while preserving the actual model curvature.
+      draw.line((screen_a, screen_b), fill=color,
+                width=max(1, int(1 + 2.0 * min(depth_a, depth_b))), joint="curve")
 
   @staticmethod
   def _path_color(enabled, scene):
@@ -601,15 +694,16 @@ class HudRenderer(object):
       draw.line(center_line, fill=center_color, width=max(1, edge_width // 2), joint="curve")
 
   def _draw_vehicle_shape(self, draw, cx, cy, car_w, car_h, accent, braking=False, marker=False):
-    """Draw a lightweight pseudo-3D rear/top vehicle, matching carrot-wip's scene language."""
+    """Draw a shaded pseudo-3D car using only inexpensive Pillow primitives."""
     car_w = max(18, int(car_w))
     car_h = max(15, int(car_h))
     cx, cy = int(cx), int(cy)
     alpha_scale = 0.72 if marker else 1.0
     accent = tuple(int(channel * alpha_scale) for channel in accent)
-    shadow_w = int(car_w * 1.28)
-    draw.ellipse((cx - shadow_w // 2, cy - max(2, car_h // 9),
-                  cx + shadow_w // 2, cy + max(5, car_h // 7)), fill=(1, 3, 6))
+    shadow_w = int(car_w * 1.34)
+    shadow_h = max(5, car_h // 6)
+    draw.ellipse((cx - shadow_w // 2, cy - shadow_h,
+                  cx + shadow_w // 2, cy + shadow_h // 2), fill=(1, 3, 6))
 
     wheel_w = max(3, car_w // 11)
     wheel_h = max(6, car_h // 4)
@@ -620,36 +714,72 @@ class HudRenderer(object):
                               cy - int(car_h * 0.23) + wheel_h), radius=2, fill=(3, 5, 8))
 
     rear_half = car_w * 0.50
-    front_half = car_w * 0.37
-    body = ((cx - rear_half, cy - car_h * 0.10),
-            (cx - car_w * 0.45, cy - car_h * 0.72),
+    front_half = car_w * 0.34
+    body = ((cx - rear_half, cy - car_h * 0.08),
+            (cx - car_w * 0.46, cy - car_h * 0.70),
             (cx - front_half, cy - car_h),
             (cx + front_half, cy - car_h),
-            (cx + car_w * 0.45, cy - car_h * 0.72),
-            (cx + rear_half, cy - car_h * 0.10))
-    draw.polygon(body, fill=(104, 118, 132) if marker else (198, 207, 215))
+            (cx + car_w * 0.46, cy - car_h * 0.70),
+            (cx + rear_half, cy - car_h * 0.08))
+    body_fill = (112, 126, 139) if marker else (207, 215, 222)
+    draw.polygon(body, fill=body_fill)
     draw.line(body + (body[0],), fill=accent, width=max(2, car_w // 20), joint="curve")
-    draw.polygon(((cx - rear_half, cy - car_h * 0.10), (cx - car_w * 0.45, cy - car_h * 0.72),
-                  (cx - car_w * 0.25, cy - car_h * 0.64), (cx - car_w * 0.30, cy - car_h * 0.16)),
-                 fill=(45, 59, 72))
-    draw.polygon(((cx + rear_half, cy - car_h * 0.10), (cx + car_w * 0.45, cy - car_h * 0.72),
-                  (cx + car_w * 0.25, cy - car_h * 0.64), (cx + car_w * 0.30, cy - car_h * 0.16)),
-                 fill=(45, 59, 72))
-    draw.polygon(((cx - car_w * 0.28, cy - car_h * 0.70), (cx - car_w * 0.23, cy - car_h * 0.92),
-                  (cx + car_w * 0.23, cy - car_h * 0.92), (cx + car_w * 0.28, cy - car_h * 0.70)),
-                 fill=(29, 49, 65))
-    draw.polygon(((cx - car_w * 0.29, cy - car_h * 0.58), (cx - car_w * 0.30, cy - car_h * 0.25),
-                  (cx + car_w * 0.30, cy - car_h * 0.25), (cx + car_w * 0.29, cy - car_h * 0.58)),
-                 fill=(61, 78, 91))
-    highlight = (236, 244, 249) if not marker else (156, 174, 189)
-    draw.line((cx - car_w * 0.22, cy - car_h * 0.82, cx + car_w * 0.22, cy - car_h * 0.82),
-              fill=highlight, width=max(1, car_h // 24))
-    lamp = (255, 40, 42) if braking else (255, 83, 72)
+
+    # Dark side faces and a raised roof make the target read as a vehicle
+    # instead of the flat marker used by the old EON cluster.
+    draw.polygon(((cx - rear_half, cy - car_h * 0.08), (cx - car_w * 0.46, cy - car_h * 0.70),
+                  (cx - car_w * 0.25, cy - car_h * 0.62), (cx - car_w * 0.31, cy - car_h * 0.14)),
+                 fill=(38, 51, 63))
+    draw.polygon(((cx + rear_half, cy - car_h * 0.08), (cx + car_w * 0.46, cy - car_h * 0.70),
+                  (cx + car_w * 0.25, cy - car_h * 0.62), (cx + car_w * 0.31, cy - car_h * 0.14)),
+                 fill=(47, 61, 73))
+    roof = ((cx - car_w * 0.27, cy - car_h * 0.68),
+            (cx - car_w * 0.21, cy - car_h * 0.93),
+            (cx + car_w * 0.21, cy - car_h * 0.93),
+            (cx + car_w * 0.27, cy - car_h * 0.68))
+    draw.polygon(roof, fill=(33, 54, 69))
+    draw.line((roof[0], roof[1], roof[2], roof[3]), fill=(137, 168, 187),
+              width=max(1, car_h // 30), joint="curve")
+    draw.polygon(((cx - car_w * 0.29, cy - car_h * 0.56), (cx - car_w * 0.31, cy - car_h * 0.25),
+                  (cx + car_w * 0.31, cy - car_h * 0.25), (cx + car_w * 0.29, cy - car_h * 0.56)),
+                 fill=(67, 82, 94))
+
+    # Separate lamps, bumper and centre brake lamp look far more natural than
+    # one red bar, yet remain cheap enough for the EON frame budget.
+    lamp = (255, 34, 37) if braking else (255, 83, 72)
     lamp_y = int(cy - car_h * 0.18)
-    draw.line((int(cx - car_w * 0.33), lamp_y, int(cx + car_w * 0.33), lamp_y),
-              fill=(93, 16, 20), width=max(3, car_h // 10))
-    draw.line((int(cx - car_w * 0.30), lamp_y, int(cx + car_w * 0.30), lamp_y),
-              fill=lamp, width=max(2, car_h // 18))
+    lamp_w = max(4, int(car_w * 0.18))
+    lamp_h = max(2, car_h // 13)
+    for lamp_cx in (int(cx - car_w * 0.28), int(cx + car_w * 0.28)):
+      draw.rounded_rectangle((lamp_cx - lamp_w // 2, lamp_y - lamp_h // 2,
+                              lamp_cx + lamp_w // 2, lamp_y + lamp_h // 2),
+                             radius=max(1, lamp_h // 2), fill=(92, 12, 17))
+      draw.line((lamp_cx - lamp_w // 3, lamp_y, lamp_cx + lamp_w // 3, lamp_y),
+                fill=lamp, width=max(1, lamp_h // 2))
+    if braking:
+      draw.line((cx - max(2, car_w // 12), int(cy - car_h * 0.60),
+                 cx + max(2, car_w // 12), int(cy - car_h * 0.60)),
+                fill=(255, 48, 48), width=max(1, car_h // 24))
+    draw.line((int(cx - car_w * 0.31), int(cy - car_h * 0.08),
+               int(cx + car_w * 0.31), int(cy - car_h * 0.08)),
+              fill=(21, 30, 37), width=max(2, car_h // 18))
+
+  def _draw_world_block(self, draw, cx, cy, width, height, color):
+    """Low 3D cuboid used for stationary liveTracks, as in carrot-wip."""
+    width, height = max(8, int(width)), max(6, int(height))
+    lift = max(3, height // 3)
+    skew = max(2, width // 7)
+    left, right = cx - width // 2, cx + width // 2
+    top, bottom = cy - height, cy
+    draw.ellipse((left - 3, bottom - 3, right + 5, bottom + max(3, height // 4)), fill=(2, 5, 7))
+    front = ((left, top + lift), (right, top + lift), (right, bottom), (left, bottom))
+    side = ((right, top + lift), (right + skew, top), (right + skew, bottom - lift), (right, bottom))
+    cap = ((left, top + lift), (left + skew, top), (right + skew, top), (right, top + lift))
+    draw.polygon(front, fill=tuple(max(8, int(channel * 0.56)) for channel in color))
+    draw.polygon(side, fill=tuple(max(6, int(channel * 0.38)) for channel in color))
+    draw.polygon(cap, fill=color)
+    draw.line(cap + (cap[0],), fill=tuple(min(255, channel + 55) for channel in color),
+              width=max(1, width // 18))
 
   def _draw_lead(self, draw, panel, lead, primary, radar_info=2, is_metric=True):
     distance = float(lead.get("distance", 0.0) or 0.0)
@@ -679,16 +809,14 @@ class HudRenderer(object):
       return
     cx, cy = self._project(panel, distance, float(point.get("lateral", 0.0) or 0.0))
     stationary = bool(point.get("stationary", False))
-    color = (255, 169, 45) if stationary else (97, 190, 255)
-    radius = max(4, int(13 * (1.0 - distance / self.MAX_DISTANCE_M)) + 3)
+    color = (54, 207, 121) if stationary else (75, 177, 244)
+    scale = math.pow(max(0.08, 1.0 - distance / self.MAX_DISTANCE_M), 1.08)
+    radius = max(4, int(4 + 14 * scale))
     if stationary:
-      top = cy - radius * 2
-      draw.polygon(((cx - radius, cy), (cx + radius, cy), (cx + radius, top), (cx - radius, top)),
-                   fill=(112, 66, 20), outline=color)
-      draw.polygon(((cx - radius, top), (cx, top - radius), (cx + radius, top), (cx, top + radius // 2)),
-                   fill=(255, 190, 54))
+      # carrot-wip renders raw radar returns as low cubes on the road plane.
+      self._draw_world_block(draw, cx, cy, radius * 2.2, radius * 1.8, color)
     else:
-      self._draw_vehicle_shape(draw, cx, cy, radius * 3.1, radius * 2.2, color,
+      self._draw_vehicle_shape(draw, cx, cy, radius * 3.3, radius * 2.45, color,
                                float(point.get("relative_speed", 0.0) or 0.0) < -0.5, marker=True)
     if radar_info <= 0 or (radar_info in (1, 2) and stationary):
       return
@@ -697,7 +825,7 @@ class HudRenderer(object):
       label = "%s %+.0f" % (_distance_text(distance, is_metric), relative_speed)
     else:
       label = "%+.0f" % relative_speed
-    _draw_text(draw, (cx, cy - radius - 5), label, max(11, self.height // 34), True,
+    _draw_text(draw, (cx, cy - radius * 2 - 5), label, max(11, self.height // 34), True,
                fill=color, anchor="ms")
 
   def _draw_turn_signals(self, draw, panel, blinkers):
@@ -1242,7 +1370,7 @@ class HudRenderer(object):
 
   def render(self, speed_kph, cruise_kph, enabled, navi=None, scene=None):
     navi = navi or {}
-    scene = scene or {}
+    scene = self._stabilize_scene_geometry(scene or {})
     image = Image.new("RGB", (self.width, self.height), (5, 8, 12))
     draw = ImageDraw.Draw(image)
     screen_mode = int(scene.get("screen_mode", 0) or 0)
