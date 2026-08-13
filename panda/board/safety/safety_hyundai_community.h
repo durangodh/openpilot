@@ -178,7 +178,11 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
         controls_allowed = 1;
         puts("  SCC main on: controls allowed\n");
       }
-      if (!cruise_engaged && !hyundai_community_lat_allowed) {
+      // Longitudinal authority follows the physical MAIN bit with no delay.
+      // Only the lateral latch (hyundai_community_lat_allowed) is debounced,
+      // so a transient bit drop cannot revoke steering while MAIN off still
+      // stops acceleration requests immediately.
+      if (!cruise_engaged) {
         if (controls_allowed) {
           puts("  SCC main off: controls not allowed\n");}
         controls_allowed = 0;
@@ -195,7 +199,7 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
         controls_allowed = 1;
         puts("  non-SCC w/ long control: controls allowed\n");
       }
-      if (!cruise_engaged && !hyundai_community_lat_allowed) {
+      if (!cruise_engaged) {
         if (controls_allowed) {
           puts("  non-SCC w/ long control: controls not allowed\n");}
         controls_allowed = 0;
