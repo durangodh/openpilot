@@ -1,5 +1,8 @@
+import fcntl
 import math
 import signal
+import socket
+import struct
 import time
 
 import cereal.messaging as messaging
@@ -23,6 +26,27 @@ PARAM_RADAR_DISPLAY = "EonClusterHudRadarDisplay"
 TURZX_92_PRODUCT_ID = 0x0092
 RECONNECT_INTERVAL_S = 5.0
 SETTINGS_POLL_INTERVAL_S = 0.25
+FOOTER_REFRESH_S = 10.0
+SIOCGIFADDR = 0x8915
+
+
+def _interface_address(name):
+  sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+  try:
+    packed = fcntl.ioctl(sock.fileno(), SIOCGIFADDR,
+                         struct.pack("256s", name.encode()[:15]))
+    return socket.inet_ntoa(packed[20:24])
+  finally:
+    sock.close()
+
+
+def _local_address():
+  for name in ("wlan0", "eth0", "usb0", "rndis0"):
+    try:
+      return _interface_address(name)
+    except Exception:
+      continue
+  return ""
 
 
 def _param_int(params, key, default, minimum, maximum):
@@ -103,6 +127,9 @@ def main():
   next_frame = 0.0
   next_settings_read = 0.0
   active_fps = 10
+  footer = {"ip": "", "fps": 0.0}
+  next_footer = 0.0
+  last_frame_at = 0.0
   last_render_error_log = 0.0
   trip = TripTracker()
 
@@ -186,6 +213,15 @@ def main():
         time.sleep(min(0.02, next_frame - now))
         continue
       next_frame = max(next_frame + interval, now)
+      # Measured delivery rate, not the configured target: the whole point of
+      # showing it is to see when the EON cannot keep up.
+      if last_frame_at > 0.0 and now > last_frame_at:
+        measured = 1.0 / (now - last_frame_at)
+        footer["fps"] = measured if footer["fps"] <= 0.0 else footer["fps"] * 0.8 + measured * 0.2
+      last_frame_at = now
+      if now >= next_footer:
+        next_footer = now + FOOTER_REFRESH_S
+        footer["ip"] = _local_address()
       sm.update(0)
       car_state = sm["carState"]
       controls_state = sm["controlsState"]
@@ -218,6 +254,7 @@ def main():
           scene["radar_points"] = extract_radar_points(sm["liveTracks"])
         scene["show_path_status_color"] = _param_int(params, "ShowPathStatusColor", 1, 0, 1) == 1
         scene["accel"] = accel
+        scene["footer"] = footer
         actuators = _field(sm["carControl"], "actuatorsOutput", _field(sm["carControl"], "actuators"))
         steer_output = float(_field(actuators, "steer", 0.0) or 0.0)
         if abs(steer_output) < 1e-4:

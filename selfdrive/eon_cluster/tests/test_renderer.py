@@ -159,10 +159,11 @@ def test_lightweight_scene_uses_camera_free_vector_world():
   assert frame.size == (1920, 462)
   colors = set(frame.getdata())
   assert any(blue > 180 and red < 130 for red, green, blue in colors)
-  assert (255, 255, 0) not in colors
+  # Following a lead at steady accel paints the carrot-wip yellow path ribbon.
+  assert (255, 255, 0) in colors
 
 
-def test_carrot_3d_scene_has_vehicle_and_control_gauges_without_path_ribbon():
+def test_carrot_3d_scene_has_vehicle_control_gauges_and_path_ribbon():
   renderer = HudRenderer(1920, 462, 50)
   scene = {
     "path": [(0.0, 0.0), (20.0, 0.0), (60.0, 0.0), (100.0, 0.0)],
@@ -178,7 +179,7 @@ def test_carrot_3d_scene_has_vehicle_and_control_gauges_without_path_ribbon():
   assert (37, 211, 255) in colors
   assert any(red > 240 and green < 100 and blue < 100 for red, green, blue in colors)
   # The legacy status path color is not painted by the driving panel.
-  assert HudRenderer._path_color(True, scene) not in colors
+  assert HudRenderer._path_color(True, scene) in colors
 
 
 def test_blindspot_flags_draw_rear_quarter_vehicles():
@@ -345,3 +346,42 @@ def test_scaled_image_cache_stays_bounded(tmp_path):
   os.unlink(path)
   assert renderer_module._safe_full_image(path, (768, 462)) is None
   assert len(renderer_module._FIT_CACHE) == 0
+
+
+def test_footer_renders_address_and_frame_rate():
+  renderer = HudRenderer(1920, 462, 60)
+  scene = {
+    "lanes": [], "edges": [], "leads": [],
+    "footer": {"ip": "10.73.140.85", "fps": 11.4},
+  }
+  frame = renderer.render(34.0, 88.0, True, {}, scene)
+  colors = set(frame.getdata())
+  assert (39, 219, 139) in colors   # healthy frame-rate dot
+  assert (232, 168, 62) not in colors
+
+  slow = dict(scene, footer={"ip": "10.73.140.85", "fps": 2.0})
+  assert (232, 168, 62) in set(renderer.render(34.0, 88.0, True, {}, slow).getdata())
+
+
+def test_ego_lane_markings_are_yellow_and_outer_lines_white():
+  renderer = HudRenderer(1920, 462, 60)
+
+  def lane(offset, index, probability=0.95):
+    return {"points": [(d, offset) for d in (0.0, 20.0, 60.0, 120.0)],
+            "probability": probability, "index": index}
+
+  scene = {
+    "lanes": [lane(-5.5, 0, 0.7), lane(-1.85, 1), lane(1.85, 2), lane(5.5, 3, 0.7)],
+    "edges": [], "leads": [],
+  }
+  assert renderer._ego_lane_indices(scene["lanes"]) == {1, 2}
+  colors = set(renderer.render(60.0, 60.0, True, {}, scene).getdata())
+  assert any(red > 230 and 170 < green < 225 and blue < 90 for red, green, blue in colors)
+
+  # A dropped weak line must not shift the yellow onto an outer marking.
+  dropped = {"lanes": [lane(-1.85, 1), lane(1.85, 2), lane(5.5, 3, 0.7)], "edges": [], "leads": []}
+  assert renderer._ego_lane_indices(dropped["lanes"]) == {0, 1}
+
+  # Without model indices, the two markings nearest the car are the ego lane.
+  bare = [{"points": [(0.0, offset)], "probability": 0.8} for offset in (-5.5, -1.85, 1.85, 5.5)]
+  assert renderer._ego_lane_indices(bare) == {1, 2}

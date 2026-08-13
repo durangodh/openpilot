@@ -437,6 +437,27 @@ class HudRenderer(object):
           projected.append(point)
     return projected
 
+  @staticmethod
+  def _ego_lane_indices(lanes):
+    """Positions in `lanes` of the two markings that bound the driving lane."""
+    if not lanes:
+      return set()
+    indexed = [position for position, lane in enumerate(lanes)
+               if lane.get("index") in (1, 2)]
+    if indexed:
+      return set(indexed)
+    # No model index available (fallback lanes, replays): fall back to the two
+    # markings closest to the car laterally at the near end of the polyline.
+    offsets = []
+    for position, lane in enumerate(lanes):
+      points = lane.get("points", [])
+      if not points:
+        continue
+      nearest = min(points, key=lambda point: point[0])
+      offsets.append((abs(float(nearest[1])), position))
+    offsets.sort()
+    return {position for _, position in offsets[:2]}
+
   def _fallback_lanes(self):
     distances = (0.0, 8.0, 18.0, 32.0, 52.0, 78.0, 110.0)
     return [
@@ -456,7 +477,7 @@ class HudRenderer(object):
     background = self._road_backgrounds.get(size)
     if background is None:
       width, height = size
-      background = Image.new("RGB", size, (3, 7, 13))
+      background = Image.new("RGB", size, (6, 12, 20))
       road = ImageDraw.Draw(background)
       horizon = int(height * 0.105)
       for band in range(16):
@@ -464,19 +485,19 @@ class HudRenderer(object):
         y1 = int(horizon * (band + 1) / 16.0) + 1
         mix = band / 15.0
         road.rectangle((0, y0, width, y1),
-                       fill=(int(3 + 6 * mix), int(7 + 13 * mix), int(15 + 27 * mix)))
+                       fill=(int(6 + 11 * mix), int(12 + 22 * mix), int(22 + 42 * mix)))
       center = width * 0.5
       far_half = max(9, width * 0.052)
       near_half = width * 0.48
       # A thin horizon glow gives the flat Pillow projection considerably more depth.
       for glow in range(6, 0, -1):
-        glow_color = (8 + glow * 3, 22 + glow * 4, 37 + glow * 7)
+        glow_color = (14 + glow * 5, 34 + glow * 6, 56 + glow * 9)
         road.line((int(center - far_half * (2.2 + glow * 0.13)), horizon + glow,
                    int(center + far_half * (2.2 + glow * 0.13)), horizon + glow),
                   fill=glow_color, width=1)
       road.polygon(((center - far_half, horizon), (center + far_half, horizon),
                     (center + near_half, height), (center - near_half, height)),
-                   fill=(11, 19, 29))
+                   fill=(30, 40, 52))
       for band in range(14):
         near_t = math.pow(band / 14.0, 1.22)
         far_t = math.pow((band + 1) / 14.0, 1.22)
@@ -484,16 +505,18 @@ class HudRenderer(object):
         y1 = int(horizon + (height - horizon) * far_t) + 1
         half0 = far_half + (near_half - far_half) * near_t
         half1 = far_half + (near_half - far_half) * far_t
-        shade = 13 + (band % 2) * 2 + int(band * 0.55)
+        shade = 32 + (band % 2) * 4 + int(band * 1.05)
         road.polygon(((center - half0, y0), (center + half0, y0),
                       (center + half1, y1), (center - half1, y1)),
-                     fill=(shade, shade + 6, shade + 14))
+                     fill=(shade, shade + 7, shade + 16))
       # Perspective cross bars and shoulders are intentionally dim: lane/model data stays dominant.
       for step in (0.20, 0.36, 0.53, 0.70, 0.86):
         y = int(horizon + (height - horizon) * step)
         half = far_half + (near_half - far_half) * step
-        road.line((int(center - half), y, int(center + half), y), fill=(22, 36, 50), width=1)
-      for glow_width, shoulder in ((10, (10, 25, 39)), (5, (28, 60, 83)), (2, (91, 149, 183))):
+        road.line((int(center - half), y, int(center + half), y), fill=(52, 70, 88), width=1)
+      # Keep the asphalt shoulder muted: brightening it to match the road made
+      # it read as a fifth lane line next to the red road edges.
+      for glow_width, shoulder in ((10, (18, 34, 50)), (5, (34, 58, 78)), (2, (66, 94, 116))):
         road.line(((center - far_half, horizon), (center - near_half, height)),
                   fill=shoulder, width=max(glow_width, height // 120))
         road.line(((center + far_half, horizon), (center + near_half, height)),
@@ -844,21 +867,22 @@ class HudRenderer(object):
                           max(2, self.height // 105))
 
     lanes = scene.get("lanes", []) or self._fallback_lanes()
+    ego_lanes = self._ego_lane_indices(lanes)
     for index, lane in enumerate(lanes):
       probability = float(lane.get("probability", 0.5) or 0.5)
-      intensity = int(120 + 135 * _clamp(probability, 0.0, 1.0))
-      if index == 0:
-        color = (173, 198, 255)
-      elif index == len(lanes) - 1:
-        color = (255, 154, 194)
+      # Korean road colours as carrot-wip paints them: the two lines bounding
+      # the driving lane are yellow, any outer line white, road edges red.
+      scale = 0.62 + 0.38 * _clamp(probability, 0.0, 1.0)
+      if index in ego_lanes:
+        color = (int(255 * scale), int(206 * scale), int(48 * scale))
       else:
-        color = (intensity, intensity, min(255, intensity + 12))
+        intensity = int(150 + 105 * _clamp(probability, 0.0, 1.0))
+        color = (intensity, intensity, min(255, intensity + 6))
       self._draw_lane_marking(draw, box, lane.get("points", []), color, probability)
 
     is_metric = bool(scene.get("is_metric", True))
     radar_info = int(scene.get("radar_info", 2) or 0)
-    # Deliberately omit the planned-path ribbon. The cluster view should show
-    # road geometry and measured objects, not a synthetic block carpet.
+    self._draw_path(image, draw, box, scene.get("path", []), enabled, scene)
     for point in reversed(scene.get("radar_points", [])[:10]):
       self._draw_radar_point(draw, box, point, radar_info, is_metric)
     for index, lead in reversed(list(enumerate(scene.get("leads", [])[:2]))):
@@ -870,7 +894,8 @@ class HudRenderer(object):
     self._draw_ego_vehicle(draw, box, enabled)
 
     status_color = (40, 210, 125) if enabled else (115, 125, 135)
-    speed_y = bottom - int((bottom - top) * 0.08)
+    # Lift the speed block so the footer line below it never collides.
+    speed_y = bottom - int((bottom - top) * 0.115)
     display_speed = _speed_value(speed_kph, is_metric)
     display_cruise = _speed_value(cruise_kph, is_metric)
     display_limit = _speed_value(limit, is_metric)
@@ -887,17 +912,35 @@ class HudRenderer(object):
     mode = int(scene.get("driving_mode", 0) or 0)
     mode_text = {1: "ECO", 2: "SAFE", 3: "NORM", 4: "FAST"}.get(mode, "")
     if mode_text:
-      _draw_text(draw, (left + 35, bottom - 15), mode_text, max(12, self.height // 31), True,
-                 fill=status_color, anchor="ls")
+      _draw_text(draw, (left + int((right - left) * 0.19) + max(38, self.height // 11),
+                        speed_y - max(62, self.height // 6)), mode_text,
+                 max(12, self.height // 31), True, fill=status_color, anchor="ls")
     energy_mode = str(scene.get("energy_mode", "") or "").upper()
     if energy_mode:
-      _draw_text(draw, (left + int((right - left) * 0.15), bottom - 15), energy_mode,
-                 max(12, self.height // 31), True, fill=(75, 220, 145), anchor="ls")
+      _draw_text(draw, (left + int((right - left) * 0.143), speed_y - max(32, self.height // 10)),
+                 energy_mode, max(14, self.height // 27), True, fill=(75, 220, 145), anchor="ls")
     self._draw_tpms(draw, box, scene.get("tpms"))
     self._draw_clock(draw, box)
     self._draw_control_gauges(draw, box, scene)
-    _draw_text(draw, (left + int((right - left) * 0.22), bottom - 15), "CARROT 3D", max(11, self.height // 35),
-               fill=(82, 111, 130), anchor="ls")
+    self._draw_footer(draw, box, scene.get("footer"))
+
+  def _draw_footer(self, draw, box, footer):
+    """carrot-wip style status line: address and delivered frame rate."""
+    left, _, right, bottom = box
+    footer = footer or {}
+    size = max(11, self.height // 35)
+    address = str(footer.get("ip", "") or "")
+    if address:
+      _draw_text(draw, (left + 34, bottom - 16), address, size, fill=(150, 168, 182), anchor="ls")
+    fps = float(footer.get("fps", 0.0) or 0.0)
+    if fps > 0.0:
+      dot_x = left + int((right - left) * 0.115)
+      dot_y = bottom - 20
+      radius = max(3, size // 3)
+      draw.ellipse((dot_x - radius, dot_y - radius, dot_x + radius, dot_y + radius),
+                   fill=(39, 219, 139) if fps >= 4.0 else (232, 168, 62))
+      _draw_text(draw, (dot_x + radius + 7, bottom - 16), "FPS %.1f Hz" % fps, size,
+                 fill=(150, 168, 182), anchor="ls")
 
   def _draw_navi_panel(self, image, draw, box, navi, language="ko", is_metric=True):
     left, top, right, bottom = box

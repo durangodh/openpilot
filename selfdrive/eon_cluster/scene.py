@@ -139,7 +139,10 @@ def extract_driving_scene(model, radar_state):
     probability = _probability(lane_probabilities, index)
     points = _point_series(lane)
     if len(points) >= 2 and probability >= 0.45:
-      lanes.append({"points": _smooth_polyline(points), "probability": probability})
+      # Keep the modelV2 index: laneLines[1] and [2] bound the ego lane, and
+      # that mapping is lost once a weak line is filtered out of the list.
+      lanes.append({"points": _smooth_polyline(points), "probability": probability,
+                    "index": index})
 
   edges = []
   raw_edge_stds = _field(model, "roadEdgeStds", [])
