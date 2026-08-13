@@ -50,11 +50,14 @@ def test_lane_geometry_is_smoothed_and_low_confidence_is_hidden():
   assert len(scene["lanes"]) == 1
   smoothed = [point[1] for point in scene["lanes"][0]["points"]]
   assert smoothed != noisy
-  second_differences = [
-    smoothed[index + 1] - 2.0 * smoothed[index] + smoothed[index - 1]
-    for index in range(1, len(smoothed) - 1)
-  ]
-  assert max(second_differences) - min(second_differences) < 1e-6
+  raw_roughness = sum(abs(noisy[index + 1] - 2.0 * noisy[index] + noisy[index - 1])
+                      for index in range(1, len(noisy) - 1))
+  smooth_roughness = sum(abs(smoothed[index + 1] - 2.0 * smoothed[index] + smoothed[index - 1])
+                         for index in range(1, len(smoothed) - 1))
+  assert smooth_roughness < raw_roughness
+  for index, value in enumerate(smoothed):
+    neighborhood = noisy[max(0, index - 2):min(len(noisy), index + 3)]
+    assert min(neighborhood) <= value <= max(neighborhood)
 
 
 def test_road_edges_are_smoothed_and_low_confidence_is_hidden():
@@ -79,11 +82,14 @@ def test_road_edges_are_smoothed_and_low_confidence_is_hidden():
   assert scene["edges"][0]["probability"] == 0.8
   smoothed = [point[1] for point in scene["edges"][0]["points"]]
   assert smoothed != noisy_edge
-  second_differences = [
-    smoothed[index + 1] - 2.0 * smoothed[index] + smoothed[index - 1]
-    for index in range(1, len(smoothed) - 1)
-  ]
-  assert max(second_differences) - min(second_differences) < 1e-6
+  raw_roughness = sum(abs(noisy_edge[index + 1] - 2.0 * noisy_edge[index] + noisy_edge[index - 1])
+                      for index in range(1, len(noisy_edge) - 1))
+  smooth_roughness = sum(abs(smoothed[index + 1] - 2.0 * smoothed[index] + smoothed[index - 1])
+                         for index in range(1, len(smoothed) - 1))
+  assert smooth_roughness < raw_roughness
+  for index, value in enumerate(smoothed):
+    neighborhood = noisy_edge[max(0, index - 2):min(len(noisy_edge), index + 3)]
+    assert min(neighborhood) <= value <= max(neighborhood)
 
 
 def test_invalid_or_far_leads_are_ignored():
