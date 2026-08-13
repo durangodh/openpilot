@@ -652,46 +652,23 @@ class HudRenderer(object):
     return (0, 153, 0)
 
   def _draw_path(self, image, draw, panel, points, enabled=False, scene=None):
-    scene = scene or {}
+    """Draw a narrow solid-blue planned route like a production cluster."""
     if len(points) < 2:
       points = [(0.0, 0.0), (12.0, 0.0), (30.0, 0.0), (60.0, 0.0), (100.0, 0.0)]
-    left_edge, right_edge, center_line = [], [], []
+    left_edge, right_edge = [], []
     for longitudinal, lateral in points:
       if 0.0 <= longitudinal <= self.MAX_DISTANCE_M:
-        near_taper = _clamp(longitudinal / 4.0, 0.0, 1.0)
-        half_width = (0.82 + 0.22 * min(1.0, longitudinal / 60.0)) * near_taper
+        # Pinch the ribbon behind the ego car, then keep a roughly 0.5 m
+        # ground width. Perspective projection narrows it naturally at range.
+        near_taper = _clamp((longitudinal - 1.8) / 3.2, 0.0, 1.0)
+        half_width = (0.24 + 0.04 * max(0.0, 1.0 - longitudinal / self.MAX_DISTANCE_M)) * near_taper
         left_edge.append(self._project(panel, longitudinal, lateral + half_width))
         right_edge.append(self._project(panel, longitudinal, lateral - half_width))
-        center_line.append(self._project(panel, longitudinal, lateral))
     polygon = left_edge + list(reversed(right_edge))
-    if len(polygon) < 4:
-      return
-    color = self._path_color(enabled, scene)
-    left, top, right, bottom = panel
-    # Allocating and compositing a panel-sized RGBA layer cost ~2.4 ms/frame on
-    # a ribbon that only ever covers the ego lane. Build the layer over the
-    # polygon's bounding box instead; the translucency is unchanged.
-    xs = [point[0] for point in polygon]
-    ys = [point[1] for point in polygon]
-    box_left = max(left, min(xs) - 2)
-    box_top = max(top, min(ys) - 2)
-    box_right = min(right, max(xs) + 2)
-    box_bottom = min(bottom, max(ys) + 2)
-    if box_right > box_left and box_bottom > box_top:
-      overlay = Image.new("RGBA", (box_right - box_left, box_bottom - box_top), (0, 0, 0, 0))
-      overlay_draw = ImageDraw.Draw(overlay)
-      overlay_draw.polygon([(x - box_left, y - box_top) for x, y in polygon],
-                           fill=(color[0], color[1], color[2], 92 if enabled else 65))
-      image.paste(overlay, (box_left, box_top), overlay)
-    edge_glow = tuple(max(25, int(channel * 0.38)) for channel in color)
-    edge_width = max(2, self.height // 92)
-    for edge in (left_edge, right_edge):
-      if len(edge) >= 2:
-        draw.line(edge, fill=edge_glow, width=edge_width + 3, joint="curve")
-        draw.line(edge, fill=color, width=edge_width, joint="curve")
-    if len(center_line) >= 2:
-      center_color = tuple(min(255, int(channel * 0.55 + 105)) for channel in color)
-      draw.line(center_line, fill=center_color, width=max(1, edge_width // 2), joint="curve")
+    if len(polygon) >= 4:
+      # One direct RGB polygon replaces the former RGBA layer, glow edges and
+      # centre highlight. It is both closer to the reference and cheaper.
+      draw.polygon(polygon, fill=(24, 126, 224))
 
   def _draw_vehicle_shape(self, draw, cx, cy, car_w, car_h, accent, braking=False, marker=False):
     """Draw a low-cost pseudo-3D car without shadow or gloss effects."""
