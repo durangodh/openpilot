@@ -694,17 +694,12 @@ class HudRenderer(object):
       draw.line(center_line, fill=center_color, width=max(1, edge_width // 2), joint="curve")
 
   def _draw_vehicle_shape(self, draw, cx, cy, car_w, car_h, accent, braking=False, marker=False):
-    """Draw a shaded pseudo-3D car using only inexpensive Pillow primitives."""
+    """Draw a low-cost pseudo-3D car without shadow or gloss effects."""
     car_w = max(18, int(car_w))
     car_h = max(15, int(car_h))
     cx, cy = int(cx), int(cy)
     alpha_scale = 0.72 if marker else 1.0
     accent = tuple(int(channel * alpha_scale) for channel in accent)
-    shadow_w = int(car_w * 1.34)
-    shadow_h = max(5, car_h // 6)
-    draw.ellipse((cx - shadow_w // 2, cy - shadow_h,
-                  cx + shadow_w // 2, cy + shadow_h // 2), fill=(1, 3, 6))
-
     wheel_w = max(3, car_w // 11)
     wheel_h = max(6, car_h // 4)
     for wheel_x in (cx - car_w // 2 - wheel_w // 2, cx + car_w // 2 - wheel_w // 2):
@@ -738,8 +733,6 @@ class HudRenderer(object):
             (cx + car_w * 0.21, cy - car_h * 0.93),
             (cx + car_w * 0.27, cy - car_h * 0.68))
     draw.polygon(roof, fill=(33, 54, 69))
-    draw.line((roof[0], roof[1], roof[2], roof[3]), fill=(137, 168, 187),
-              width=max(1, car_h // 30), joint="curve")
     draw.polygon(((cx - car_w * 0.29, cy - car_h * 0.56), (cx - car_w * 0.31, cy - car_h * 0.25),
                   (cx + car_w * 0.31, cy - car_h * 0.25), (cx + car_w * 0.29, cy - car_h * 0.56)),
                  fill=(67, 82, 94))
@@ -771,15 +764,12 @@ class HudRenderer(object):
     skew = max(2, width // 7)
     left, right = cx - width // 2, cx + width // 2
     top, bottom = cy - height, cy
-    draw.ellipse((left - 3, bottom - 3, right + 5, bottom + max(3, height // 4)), fill=(2, 5, 7))
     front = ((left, top + lift), (right, top + lift), (right, bottom), (left, bottom))
     side = ((right, top + lift), (right + skew, top), (right + skew, bottom - lift), (right, bottom))
     cap = ((left, top + lift), (left + skew, top), (right + skew, top), (right, top + lift))
     draw.polygon(front, fill=tuple(max(8, int(channel * 0.56)) for channel in color))
     draw.polygon(side, fill=tuple(max(6, int(channel * 0.38)) for channel in color))
     draw.polygon(cap, fill=color)
-    draw.line(cap + (cap[0],), fill=tuple(min(255, channel + 55) for channel in color),
-              width=max(1, width // 18))
 
   def _draw_lead(self, draw, panel, lead, primary, radar_info=2, is_metric=True):
     distance = float(lead.get("distance", 0.0) or 0.0)
@@ -856,9 +846,6 @@ class HudRenderer(object):
     car_h = max(55, int((panel[3] - panel[1]) * 0.20))
     accent = (35, 222, 255) if enabled else (118, 132, 143)
     self._draw_vehicle_shape(draw, cx, cy + 3, car_w, car_h, accent)
-    if enabled:
-      glow_w = max(18, car_w // 4)
-      draw.ellipse((cx - glow_w // 2, cy - 2, cx + glow_w // 2, cy + 8), fill=(19, 112, 166))
 
   def _draw_blindspot_vehicle(self, draw, panel, side):
     """Draw a cheap fixed-position rear-quarter car for boolean BSD signals."""
@@ -873,13 +860,7 @@ class HudRenderer(object):
     cy = min(bottom - 4, ego_y + max(5, panel_h // 55))
     warning = (255, 169, 45)
 
-    # A small glow remains readable without animation and costs only two
-    # primitive draws. The ego is painted after this vehicle so it appears
-    # slightly behind the driver's car rather than beside a front target.
-    glow_w = int(car_w * 1.55)
-    glow_h = max(8, car_h // 4)
-    draw.ellipse((cx - glow_w // 2, cy - glow_h,
-                  cx + glow_w // 2, cy + glow_h // 2), fill=(74, 43, 10))
+    # The ego is painted after this vehicle so it remains visually behind.
     self._draw_vehicle_shape(draw, cx, cy, car_w, car_h, warning, marker=True)
     marker_x = cx + direction * int(car_w * 0.62)
     draw.line((marker_x, cy - int(car_h * 0.78), marker_x, cy - int(car_h * 0.18)),
