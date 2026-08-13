@@ -215,6 +215,23 @@ def test_curve_geometry_is_temporally_stabilized_for_external_hud():
   assert later_curve["path"][-1][1] > path_far
 
 
+def test_vehicle_and_radar_shapes_omit_shadow_and_gloss_effects():
+  from PIL import Image, ImageDraw
+  renderer = HudRenderer(1920, 462, 60)
+
+  vehicle = Image.new("RGB", (260, 180), (0, 0, 0))
+  renderer._draw_vehicle_shape(ImageDraw.Draw(vehicle), 130, 160, 100, 80, (35, 222, 255))
+  vehicle_colors = set(vehicle.getdata())
+  assert (1, 3, 6) not in vehicle_colors
+  assert (137, 168, 187) not in vehicle_colors
+
+  block = Image.new("RGB", (180, 120), (0, 0, 0))
+  renderer._draw_world_block(ImageDraw.Draw(block), 90, 100, 50, 32, (54, 207, 121))
+  block_colors = set(block.getdata())
+  assert (2, 5, 7) not in block_colors
+  assert (109, 255, 176) not in block_colors
+
+
 def test_stationary_radar_uses_green_3d_world_block():
   renderer = HudRenderer(1920, 462, 60)
   scene = {
