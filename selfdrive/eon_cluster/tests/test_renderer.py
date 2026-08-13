@@ -18,6 +18,20 @@ def test_fresh_navi_state_is_loaded(tmp_path):
   assert read_navi_state(str(path))["route"]["remain_distance_m"] == 1000
 
 
+def test_route_activity_rejects_stale_or_ended_destination():
+  now_ms = int(time.time() * 1000)
+  active = {
+    "route": {"remain_distance_m": 1200},
+    "stream_updated_at_ms": {"route": now_ms},
+  }
+  assert renderer_module._navi_route_active(active, now_ms)
+  assert not renderer_module._navi_route_active(
+    dict(active, stream_updated_at_ms={"route": now_ms - 6000}), now_ms)
+  assert not renderer_module._navi_route_active(
+    dict(active, navigation_status={"active": False}), now_ms)
+  assert not renderer_module._navi_route_active({"route": {"remain_distance_m": 0}}, now_ms)
+
+
 def test_missing_imagingft_uses_default_font(monkeypatch):
   renderer_module._FONT_CACHE.clear()
   fallback_font = object()
@@ -204,13 +218,25 @@ def test_tmap_guidance_layout_stays_fixed_when_json_briefly_drops(tmp_path, monk
     "lanes": [], "edges": [], "leads": [],
     "trip_report": {"duration_s": 5, "distance_m": 0},
   }
-  navi = {"guidance_current": {"main_text": "TURN", "distance_m": 120}}
+  clock = [100.0]
+  monkeypatch.setattr(renderer_module.time, "monotonic", lambda: clock[0])
+  navi = {
+    "guidance_current": {"main_text": "TURN", "distance_m": 120},
+    "route": {"remain_distance_m": 1200, "remain_time_sec": 180},
+  }
   live_frame = renderer.render(55.0, 88.0, True, navi, scene)
+  clock[0] = 101.0
   dropped_json_frame = renderer.render(55.0, 88.0, True, {}, scene)
 
   # A transient JSON read failure must not switch to the trip report or blink
   # any of the last complete native TMap overlays.
   assert live_frame.tobytes() == dropped_json_frame.tobytes()
+
+  # Once the grace period expires without an active destination, auto mode
+  # leaves the stale map and shows the trip report.
+  clock[0] = 103.1
+  ended_route_frame = renderer.render(55.0, 88.0, True, {}, scene)
+  assert ended_route_frame.tobytes() != live_frame.tobytes()
 
   # Native current/next guidance is stacked at the map's upper-left.
   assert live_frame.getpixel((1375, 94)) == current_color[:3]
@@ -262,7 +288,10 @@ def test_all_cluster_screen_modes_render_distinct_views():
     "navi_live": True,
     "lanes": [], "edges": [], "leads": [],
   }
-  navi = {"guidance_current": {"main_text": "좌회전", "distance_m": 120}}
+  navi = {
+    "guidance_current": {"main_text": "좌회전", "distance_m": 120},
+    "route": {"remain_distance_m": 1200, "remain_time_sec": 180},
+  }
   frames = []
   for mode in range(6):
     scene = dict(base_scene)
