@@ -456,6 +456,15 @@ def test_footer_renders_address_and_frame_rate():
   assert (232, 168, 62) in set(renderer.render(34.0, 88.0, True, {}, slow).getdata())
 
 
+def test_lane_markings_are_split_into_world_distance_dashes():
+  fragments = HudRenderer._lane_dash_fragments([(0.0, 0.0), (30.0, 3.0)])
+  ranges = [(round(start[0], 1), round(end[0], 1)) for start, end in fragments]
+  assert ranges == [(0.0, 4.0), (9.0, 13.0), (18.0, 22.0), (27.0, 30.0)]
+  # Lateral interpolation keeps each dash on the detected curve.
+  assert abs(fragments[1][0][1] - 0.9) < 1e-9
+  assert abs(fragments[1][1][1] - 1.3) < 1e-9
+
+
 def test_only_detected_lanes_use_pale_gray_on_light_road():
   from PIL import Image, ImageDraw
   renderer = HudRenderer(1920, 462, 60)
