@@ -626,13 +626,38 @@ class HudRenderer(object):
       (screen_a[0] - nx * half_a, screen_a[1] - ny * half_a),
     )
 
+  @staticmethod
+  def _lane_dash_fragments(points, dash_m=4.0, gap_m=5.0):
+    """Split a model curve into fixed world-distance dash fragments."""
+    period = max(0.2, float(dash_m) + float(gap_m))
+    ordered = sorted(((float(x), float(y)) for x, y in points), key=lambda point: point[0])
+    fragments = []
+    for index in range(len(ordered) - 1):
+      x0, y0 = ordered[index]
+      x1, y1 = ordered[index + 1]
+      if x1 <= x0:
+        continue
+      cursor = math.floor(x0 / period) * period
+      while cursor < x1:
+        start_x = max(x0, cursor)
+        end_x = min(x1, cursor + dash_m)
+        if end_x > start_x + 1e-3:
+          span = x1 - x0
+          start_mix = (start_x - x0) / span
+          end_mix = (end_x - x0) / span
+          start_y = y0 + (y1 - y0) * start_mix
+          end_y = y0 + (y1 - y0) * end_mix
+          fragments.append(((start_x, start_y), (end_x, end_y)))
+        cursor += period
+    return fragments
+
   def _draw_lane_marking(self, draw, panel, points, color, probability):
-    """Draw only model-detected lanes as thin pale-gray ground strips."""
+    """Draw model-detected lanes as pale perspective dash segments."""
     probability = _clamp(float(probability), 0.0, 1.0)
-    filtered = [(point, self._project(panel, point[0], point[1]))
-                for point in points if 0.0 <= point[0] <= self.MAX_DISTANCE_M]
-    for index in range(len(filtered) - 1):
-      (world_a, screen_a), (world_b, screen_b) = filtered[index:index + 2]
+    visible = [(x, y) for x, y in points if 0.0 <= x <= self.MAX_DISTANCE_M]
+    for world_a, world_b in self._lane_dash_fragments(visible):
+      screen_a = self._project(panel, world_a[0], world_a[1])
+      screen_b = self._project(panel, world_b[0], world_b[1])
       depth_a = math.pow(max(0.0, 1.0 - world_a[0] / self.MAX_DISTANCE_M), 1.18)
       depth_b = math.pow(max(0.0, 1.0 - world_b[0] / self.MAX_DISTANCE_M), 1.18)
       width_a = max(1.0, 1.0 + (3.0 + 2.0 * probability) * depth_a)
