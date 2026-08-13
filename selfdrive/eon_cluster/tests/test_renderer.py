@@ -26,7 +26,7 @@ def test_route_activity_rejects_stale_or_ended_destination():
   }
   assert renderer_module._navi_route_active(active, now_ms)
   assert not renderer_module._navi_route_active(
-    dict(active, stream_updated_at_ms={"route": now_ms - 6000}), now_ms)
+    dict(active, stream_updated_at_ms={"route": now_ms - 4000}), now_ms)
   assert not renderer_module._navi_route_active(
     dict(active, navigation_status={"active": False}), now_ms)
   assert not renderer_module._navi_route_active({"route": {"remain_distance_m": 0}}, now_ms)
