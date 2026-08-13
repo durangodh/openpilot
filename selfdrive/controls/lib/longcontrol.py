@@ -13,11 +13,18 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                              soft_hold, a_target_now, starting_state):
   # apilot-c2 stopping transition: keep PID braking while the planned
   # acceleration is still strong, then hand over to the stopping ramp.
-  # Match aPilot C2: keep the stock SCC standstill latch active while stopped.
-  # This prevents small planner fluctuations from repeatedly releasing and
-  # reapplying the brakes on a slope.
-  cruise_standstill = cruise_standstill and not CP.enableGasInterceptor
   accelerating = v_target_1sec > (v_target + 0.01)
+  planner_starting = (v_target_1sec > CP.vEgoStarting and
+                      accelerating and
+                      not brake_pressed)
+  # aPilot C2 reports cruise standstill as false during openpilot longitudinal
+  # control. Keep the stock SCC latch here to hold a stopped car through small
+  # planner fluctuations, but release a stale latch once the planner has a
+  # definite launch trajectory. Otherwise some SCC firmwares deadlock launch:
+  # SCCInfoDisplay remains 4 until acceleration starts, while starting waits
+  # for SCCInfoDisplay to clear.
+  cruise_standstill = (cruise_standstill and not CP.enableGasInterceptor and
+                       not (CP.openpilotLongitudinalControl and planner_starting))
   planned_stop = (v_target < CP.vEgoStopping and
                   v_target_1sec < CP.vEgoStopping and
                   not accelerating)
@@ -25,10 +32,7 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                   (brake_pressed or cruise_standstill))
   stopping_condition = planned_stop or stay_stopped
 
-  starting_condition = (v_target_1sec > CP.vEgoStarting and
-                        accelerating and
-                        not cruise_standstill and
-                        not brake_pressed)
+  starting_condition = planner_starting and not cruise_standstill
   started_condition = v_ego > CP.vEgoStarting
 
   if not active:
