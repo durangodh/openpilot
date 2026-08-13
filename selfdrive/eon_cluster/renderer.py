@@ -413,6 +413,9 @@ class HudRenderer(object):
     # buckets so liveTracks do not redraw complex car geometry every frame.
     self._vehicle_base_sprites = {}
     self._vehicle_sprite_cache = OrderedDict()
+    # Display-only lead size history.  Model/radar distances stay untouched;
+    # this only prevents the cached car sprite jumping between size buckets.
+    self._lead_size_history = {}
 
   def set_jpeg_quality(self, jpeg_quality):
     jpeg_quality = max(1, min(95, int(jpeg_quality)))
@@ -802,9 +805,23 @@ class HudRenderer(object):
     if distance <= 0.0 or distance > self.MAX_DISTANCE_M:
       return
     cx, cy = self._project(panel, distance, lateral)
-    scale = math.pow(max(0.10, 1.0 - distance / self.MAX_DISTANCE_M), 1.10)
-    car_w = int(26 + 96 * scale)
-    car_h = int(22 + 76 * scale)
+    # Keep traffic clearly smaller than the large fixed ego car, as in the
+    # Tesla-style reference.  Perspective still comes only from real distance.
+    scale = math.pow(max(0.0, 1.0 - distance / self.MAX_DISTANCE_M), 1.22)
+    target_w = 20.0 + 82.0 * scale
+    target_h = 17.0 + 67.0 * scale
+    history_key = "primary" if primary else "secondary"
+    previous = self._lead_size_history.get(history_key)
+    if previous is None or abs(distance - previous[2]) > 18.0:
+      car_w, car_h = target_w, target_h
+    else:
+      # Roughly 0.3 s settling at the default 10 fps.  This is two scalar
+      # operations; sprite resize work remains covered by the existing cache.
+      weight = 0.28
+      car_w = previous[0] + (target_w - previous[0]) * weight
+      car_h = previous[1] + (target_h - previous[1]) * weight
+    self._lead_size_history[history_key] = (car_w, car_h, distance)
+    car_w, car_h = int(round(car_w)), int(round(car_h))
     color = (255, 178, 45) if primary else (72, 184, 255)
     self._draw_vehicle_shape(image, cx, cy, car_w, car_h,
                              "lead" if primary else "traffic",
@@ -870,8 +887,10 @@ class HudRenderer(object):
   def _draw_ego_vehicle(self, image, panel, enabled):
     cx, cy = self._project(panel, 2.4, 0.0)
     panel_w = panel[2] - panel[0]
-    car_w = max(92, int(panel_w * 0.090))
-    car_h = max(82, int((panel[3] - panel[1]) * 0.205))
+    # A broad, prominent ego car anchors the scene like the reference UI.
+    # Ratios keep the same visual weight if the driving/map split is swapped.
+    car_w = max(112, int(panel_w * 0.115))
+    car_h = max(104, int((panel[3] - panel[1]) * 0.265))
     self._draw_vehicle_shape(image, cx, cy + 3, car_w, car_h, "ego")
 
   def _draw_blindspot_vehicle(self, image, draw, panel, side):
