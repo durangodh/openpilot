@@ -31,7 +31,7 @@ def test_external_hud_params_are_exposed_in_settings():
   settings = (UI_DIR / "offroad" / "settings.cc").read_text(encoding="utf-8")
   assert 'ParamControl("EonClusterHud"' in settings
   assert 'ParamValueControlF("EonClusterHudFps"' in settings
-  assert '"../assets/offroad/icon_road.png", 5, 15, 1, 0, 10' in settings
+  assert '"../assets/offroad/icon_road.png", 0, 15, 1, 0, 10' in settings
   assert 'ParamValueControlF("EonClusterHudBrightness"' in settings
   assert '"../assets/offroad/icon_road.png", 0, 100, 5, 0, 65' in settings
   assert 'ParamValueControlF("EonClusterHudJpegQuality"' in settings
@@ -45,3 +45,15 @@ def test_external_hud_params_are_exposed_in_settings():
   assert 'ParamValueControlF("EonClusterHudLanguage"' in settings
   assert 'ParamValueControlF("EonClusterHudRadarInfo"' in settings
   assert 'ParamValueControlF("EonClusterHudRadarDisplay"' in settings
+
+
+def test_hud_frame_rate_setting_starts_at_zero():
+  from pathlib import Path as _Path
+  cluster = (_Path(__file__).parents[1] / "eon_cluster.py").read_text(encoding="utf-8")
+  assert "MIN_FPS = 0" in cluster
+  # Both the connect path and the live-settings poll must share the range.
+  assert cluster.count("_param_int(params, PARAM_FPS, 10, MIN_FPS, MAX_FPS)") == 2
+  # 1/0 would raise, so the pause branch has to come before the interval maths.
+  assert cluster.index("if active_fps <= 0:") < cluster.index("interval = 1.0 / active_fps")
+  # The panel itself never receives a zero refresh rate.
+  assert "display.set_frame_rate(max(1, next_fps))" in cluster

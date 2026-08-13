@@ -1799,8 +1799,8 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(eonClusterHudToggle);
 
   list->addItem(new ParamValueControlF("EonClusterHudFps",
-      "클러스터 HUD 프레임", "기본값 10",
-      "../assets/offroad/icon_road.png", 5, 15, 1, 0, 10, this));
+      "클러스터 HUD 프레임", "0: 정지(화면 꺼짐) / 1~15 fps, 기본값 10",
+      "../assets/offroad/icon_road.png", 0, 15, 1, 0, 10, this));
   list->addItem(new ParamValueControlF("EonClusterHudBrightness",
       "클러스터 HUD 밝기", "0: 본체 화면 밝기 연동(자동) / 1~100: 고정 밝기",
       "../assets/offroad/icon_road.png", 0, 100, 5, 0, 65, this));

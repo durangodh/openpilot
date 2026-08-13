@@ -5,6 +5,8 @@ import socket
 import struct
 import time
 
+from PIL import Image
+
 import cereal.messaging as messaging
 from common.params import Params
 
@@ -27,6 +29,9 @@ TURZX_92_PRODUCT_ID = 0x0092
 RECONNECT_INTERVAL_S = 5.0
 SETTINGS_POLL_INTERVAL_S = 0.25
 FOOTER_REFRESH_S = 10.0
+# 0 pauses the HUD without dropping the USB connection.
+MIN_FPS = 0
+MAX_FPS = 15
 SIOCGIFADDR = 0x8915
 
 
@@ -128,6 +133,7 @@ def main():
   next_settings_read = 0.0
   active_fps = 10
   footer = {"ip": "", "fps": 0.0}
+  paused = False
   next_footer = 0.0
   last_frame_at = 0.0
   last_render_error_log = 0.0
@@ -157,7 +163,7 @@ def main():
         if now < next_connect:
           time.sleep(min(0.2, next_connect - now))
           continue
-        fps = _param_int(params, PARAM_FPS, 10, 5, 15)
+        fps = _param_int(params, PARAM_FPS, 10, MIN_FPS, MAX_FPS)
         brightness = _resolved_brightness(params, sm["deviceState"], sm["wideRoadCameraState"],
                                           _service_healthy(sm, "wideRoadCameraState"))
         quality = _param_int(params, PARAM_JPEG_QUALITY, 58, 1, 95)
@@ -176,6 +182,7 @@ def main():
           next_frame = now
           next_settings_read = now + SETTINGS_POLL_INTERVAL_S
           active_fps = fps
+          paused = False
           print("EON cluster connected: pid=0x%04x, %dx%d, %d fps" %
                 (display.product_id, display.landscape_size[0], display.landscape_size[1], fps), flush=True)
         except Exception as exc:
@@ -190,8 +197,8 @@ def main():
 
       if now >= next_settings_read:
         try:
-          next_fps = _param_int(params, PARAM_FPS, 10, 5, 15)
-          display.set_frame_rate(next_fps)
+          next_fps = _param_int(params, PARAM_FPS, 10, MIN_FPS, MAX_FPS)
+          display.set_frame_rate(max(1, next_fps))
           display.set_brightness(_resolved_brightness(params, sm["deviceState"], sm["wideRoadCameraState"],
                                                       _service_healthy(sm, "wideRoadCameraState")))
           display.set_orientation(_orientation(params))
@@ -207,6 +214,27 @@ def main():
           params.put_bool(PARAM_CONNECTED, False)
           next_connect = time.monotonic() + RECONNECT_INTERVAL_S
           continue
+
+      if active_fps <= 0:
+        # Paused. Blank the panel once so it cannot keep showing a stale scene,
+        # hand the overlays back to the EON screen, and hold the USB link open
+        # so raising the setting resumes immediately.
+        if not paused:
+          paused = True
+          footer["fps"] = 0.0
+          last_frame_at = 0.0
+          try:
+            display.send_jpeg(renderer.encode_portrait_jpeg(
+              Image.new("RGB", (renderer.width, renderer.height), (0, 0, 0))))
+          except Exception as exc:
+            print("EON cluster blank frame failed: %s" % exc, flush=True)
+          params.put_bool(PARAM_CONNECTED, False)
+        time.sleep(0.05)
+        continue
+      if paused:
+        paused = False
+        params.put_bool(PARAM_CONNECTED, True)
+        next_frame = now
 
       interval = 1.0 / active_fps
       if now < next_frame:
