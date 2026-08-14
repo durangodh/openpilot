@@ -881,8 +881,8 @@ class HudRenderer(object):
   def _ego_vehicle_size(panel):
     panel_w = panel[2] - panel[0]
     panel_h = panel[3] - panel[1]
-    # About 30 percent smaller than the previous 112x104 minimum.
-    return max(78, int(panel_w * 0.080)), max(73, int(panel_h * 0.30))
+    # A further subtle reduction keeps the ego clear of its BSD indicators.
+    return max(70, int(panel_w * 0.072)), max(65, int(panel_h * 0.265))
 
   def _draw_ego_vehicle(self, image, panel, enabled):
     cx, cy = self._project(panel, 2.4, 0.0)
@@ -896,15 +896,11 @@ class HudRenderer(object):
     ego_x, projected_y = self._project(panel, 2.4, 0.0)
     ego_w, _ = self._ego_vehicle_size(panel)
     ego_bottom = projected_y - 30
-    inner_x = ego_x + direction * (ego_w // 2 + 5)
-    outer_x = ego_x + direction * (ego_w // 2 + 22)
+    arc_x = ego_x + direction * (ego_w // 2 + 12)
     color = (67, 73, 78)
-    points = ((inner_x, ego_bottom - 14),
-              (outer_x, ego_bottom - 8),
-              (outer_x + direction * 5, ego_bottom + 3),
-              (outer_x, ego_bottom + 14),
-              (inner_x, ego_bottom + 19))
-    draw.line(points, fill=color, width=max(4, self.height // 115), joint="curve")
+    bounds = (arc_x - 16, ego_bottom - 18, arc_x + 16, ego_bottom + 22)
+    angles = (90, 270) if side == "left" else (270, 450)
+    draw.arc(bounds, angles[0], angles[1], fill=color, width=max(4, self.height // 115))
 
   def _draw_bipolar_gauge(self, draw, center_x, top, bottom, value, color, label, value_text):
     value = _clamp(float(value), -1.0, 1.0)
