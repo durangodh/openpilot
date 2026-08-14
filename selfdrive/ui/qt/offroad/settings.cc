@@ -1602,26 +1602,26 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(horizontal_line());
 
   list->addItem(new ParamValueControlF("CustomSteerRatio",
-      "고정 조향비",
+      "SR",
       "조향비(×0.01)입니다. 값 증가(+): 같은 커브에서 조향량이 커짐 / 값 감소(-): 조향량이 작아짐.\n"
       "실시간 조향비 사용이 켜져 있으면 이 값 대신 학습값을 사용합니다.\n"
       "범위: 1000 ~ 2000  /  기본값: 1650 (=16.50)",
       "../assets/offroad/icon_openpilot.png", 1000, 2000, 10, 0, 1650, this));
 
   list->addItem(new ParamControl("UseLiveSteerRatio",
-      "실시간 학습 조향비 사용",
+      "실시간 학습SR사용",
       "켜짐: liveParameters가 학습한 조향비 사용 / 꺼짐: 위의 고정 조향비 사용.",
       "../assets/offroad/icon_openpilot.png", this));
 
   list->addItem(new ParamValueControlF("SteerActuatorDelay",
-      "조향 반응지연",
+      "SAD",
       "조향 지연 보정값(×0.01초)입니다. 값 증가(+): 더 미리 조향 / 값 감소(-): 조향 시작이 늦어짐.\n"
       "너무 높으면 커브 안쪽으로 치우치고 너무 낮으면 바깥쪽으로 밀릴 수 있습니다.\n"
       "범위: 0 ~ 80  /  기본값: 10 (=0.10초)",
       "../assets/offroad/icon_openpilot.png", 0, 80, 1, 0, 10, this));
 
   list->addItem(new ParamControl("LateralTorqueCustom",
-      "토크 수동설정 사용",
+      "토크custom사용",
       "켜짐: 아래 토크 수동값 적용 / 꺼짐: 차량 기본 또는 자동 설정값 사용.",
       "../assets/offroad/icon_openpilot.png", this));
   
