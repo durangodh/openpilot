@@ -131,6 +131,25 @@ def _service_healthy(sm, service):
     return False
 
 
+def _hud_cruise_kph(sm, controls_state, car_control):
+  """Use the exact set-speed source drawn by the EON on-road UI."""
+  fallback = float(_field(controls_state, "vCruiseCluster",
+                          _field(controls_state, "vCruise", 0.0)) or 0.0)
+  if not _service_healthy(sm, "carControl"):
+    return fallback
+
+  scc_smoother = _field(car_control, "sccSmoother", None)
+  cruise_max_speed = _field(scc_smoother, "cruiseMaxSpeed", None)
+  if cruise_max_speed is None:
+    return fallback
+  try:
+    # Zero is intentional: it makes both displays show "--" while C2 MAIN is
+    # on but longitudinal control has not been activated by SET/RES.
+    return float(cruise_max_speed)
+  except (TypeError, ValueError):
+    return fallback
+
+
 def main():
   params = Params()
   params.put_bool(PARAM_CONNECTED, False)
@@ -275,9 +294,10 @@ def main():
       sm.update(0)
       car_state = sm["carState"]
       controls_state = sm["controlsState"]
+      car_control = sm["carControl"]
       device_state = sm["deviceState"]
       speed_mps = float(_field(car_state, "vEgoCluster", _field(car_state, "vEgo", 0.0)))
-      cruise_kph = float(_field(controls_state, "vCruiseCluster", _field(controls_state, "vCruise", 0.0)))
+      cruise_kph = _hud_cruise_kph(sm, controls_state, car_control)
       enabled = bool(_field(controls_state, "enabled", False))
       try:
         scene = extract_driving_scene(sm["modelV2"], sm["radarState"])
