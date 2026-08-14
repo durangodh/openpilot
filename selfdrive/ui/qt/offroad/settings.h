@@ -115,18 +115,6 @@ signals:
   void selectedCar();
 };
 
-class LateralControl : public QWidget {
-  Q_OBJECT
-public:
-  explicit LateralControl(QWidget* parent = 0);
-
-private:
-
-signals:
-  void backPress();
-  void selected();
-};
-
 class CommunityPanel : public QWidget {
   Q_OBJECT
 
@@ -134,7 +122,6 @@ private:
   QStackedLayout* main_layout = nullptr;
   QWidget* homeScreen = nullptr;
   SelectCar* selectCar = nullptr;
-  LateralControl* lateralControl = nullptr;
   QWidget* homeWidget;
 
 public:

@@ -1093,28 +1093,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   });
   main_layout->addWidget(selectCar);
 
-  QString lateral_control = QString::fromStdString(Params().get("LateralControl"));
-  if(lateral_control.length() == 0)
-    lateral_control = "TORQUE";
-
-  QPushButton* lateralControlBtn = new QPushButton(lateral_control);
-  lateralControlBtn->setObjectName("lateralControlBtn");
-  connect(lateralControlBtn, &QPushButton::clicked, [=]() { main_layout->setCurrentWidget(lateralControl); });
-
-  lateralControl = new LateralControl(this);
-  connect(lateralControl, &LateralControl::backPress, [=]() { main_layout->setCurrentWidget(homeScreen); });
-  connect(lateralControl, &LateralControl::selected, [=]() {
-     QString lateral_control = QString::fromStdString(Params().get("LateralControl"));
-     if(lateral_control.length() == 0)
-       lateral_control = "TORQUE";
-     lateralControlBtn->setText(lateral_control);
-     main_layout->setCurrentWidget(homeScreen);
-  });
-  main_layout->addWidget(lateralControl);
-
   QHBoxLayout* layoutBtn = new QHBoxLayout(homeWidget);
-  layoutBtn->addWidget(lateralControlBtn);
-  layoutBtn->addSpacing(10);
   layoutBtn->addWidget(selectCarBtn);
 
   vlayout->addSpacing(10);
@@ -1128,7 +1107,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   setPalette(pal);
 
   setStyleSheet(R"(
-    #back_btn, #selectCarBtn, #lateralControlBtn {
+    #back_btn, #selectCarBtn {
       font-size: 50px;
       margin: 0px;
       padding: 20px;
@@ -1255,52 +1234,6 @@ SelectCar::SelectCar(QWidget* parent): QWidget(parent) {
 
   main_layout->addWidget(list);
 }
-
-LateralControl::LateralControl(QWidget* parent): QWidget(parent) {
-
-  QVBoxLayout* main_layout = new QVBoxLayout(this);
-  main_layout->setMargin(20);
-  main_layout->setSpacing(20);
-
-  QPushButton* back = new QPushButton("Back");
-  back->setObjectName("back_btn");
-  back->setFixedSize(500, 100);
-  connect(back, &QPushButton::clicked, [=]() { emit backPress(); });
-  main_layout->addWidget(back, 0, Qt::AlignLeft);
-
-  QListWidget* list = new QListWidget(this);
-  list->setStyleSheet("QListView {padding: 40px; background-color: #393939; border-radius: 15px; height: 140px;} QListView::item{height: 100px}");
-  QScroller::grabGesture(list->viewport(), QScroller::LeftMouseButtonGesture);
-  list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-
-  QStringList items = {"TORQUE", "LQR", "INDI"};
-  list->addItems(items);
-  list->setCurrentRow(0);
-
-  QString selectedControl = QString::fromStdString(Params().get("LateralControl"));
-
-  int index = 0;
-  for(QString item : items) {
-    if(selectedControl == item) {
-        list->setCurrentRow(index);
-        break;
-    }
-    index++;
-  }
-
-  QObject::connect(list, QOverload<QListWidgetItem*>::of(&QListWidget::itemClicked),
-    [=](QListWidgetItem* item){
-    Params().put("LateralControl", list->currentItem()->text().toStdString());
-    emit selected();
-    QTimer::singleShot(1000, []() {
-        Params().putBool("SoftRestartTriggered", true);
-      });
-    });
-
-  main_layout->addWidget(list);
-}
-
-/////////////////////////////////////////////////////////////////////////
 
 CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
   QVBoxLayout* layout = new QVBoxLayout(this);

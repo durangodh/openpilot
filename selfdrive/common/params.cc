@@ -212,7 +212,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"OPKRTimeZone", PERSISTENT},
 
     {"SelectedCar", PERSISTENT},
-    {"LateralControl", PERSISTENT},
     {"UseClusterSpeed", PERSISTENT},
     {"LongControlEnabled", PERSISTENT},
     {"MadModeEnabled", PERSISTENT},

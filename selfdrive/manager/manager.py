@@ -73,7 +73,6 @@ def manager_init() -> None:
     ("AutoResumeFromBrakeRelease", "0"),     # opt-in for safety
     ("AutoResumeFromBrakeCarSpeed", "30"),
     ("AutoResumeFromBrakeReleaseDist", "10"),
-    ("LateralControl", "TORQUE"),
     ("UseClusterSpeed", "0"),
     ("LongControlEnabled", "0"),
     ("MadModeEnabled", "1"),

@@ -260,7 +260,6 @@ void ui_update_params(UIState *s) {
   s->scene.map_on_left = params.getBool("NavSettingLeftSide");
   s->scene.experimental_mode = params.getBool("ExperimentalMode");
   s->show_debug = params.getBool("ShowDebugUI");
-  s->lat_control = std::string(Params().get("LateralControl"));
 }
 
 void UIState::updateStatus() {

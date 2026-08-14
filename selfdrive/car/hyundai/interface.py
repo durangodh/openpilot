@@ -64,23 +64,11 @@ class CarInterface(CarInterfaceBase):
 
     ret.disableLateralLiveTuning = False
 
-    # lateral
-    lateral_control = Params().get("LateralControl", encoding='utf-8')
-    if lateral_control == 'INDI':
-      ret.lateralTuning.init('indi')
-      ret.lateralTuning.indi.innerLoopGainBP = [0.]
-      ret.lateralTuning.indi.innerLoopGainV = [3.3]
-      ret.lateralTuning.indi.outerLoopGainBP = [0.]
-      ret.lateralTuning.indi.outerLoopGainV = [2.8]
-      ret.lateralTuning.indi.timeConstantBP = [0.]
-      ret.lateralTuning.indi.timeConstantV = [1.4]
-      ret.lateralTuning.indi.actuatorEffectivenessBP = [0.]
-      ret.lateralTuning.indi.actuatorEffectivenessV = [1.8]
-    else:
-      try:
-        CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
-      except:
-        torque_tune(ret.lateralTuning, 2.5, 0.01)
+    # Hyundai/Kia always uses the torque lateral controller.
+    try:
+      CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
+    except:
+      torque_tune(ret.lateralTuning, 2.5, 0.01)
 
     ret.steerRatio = 16.5
     ret.steerActuatorDelay = 0.25
