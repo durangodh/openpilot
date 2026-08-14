@@ -1019,8 +1019,8 @@ class HudRenderer(object):
 
     mode = int(scene.get("driving_mode", 0) or 0)
     mode_label, mode_color = {
-      1: ("ECO", (20, 160, 92)),
-      2: ("SAFE", (226, 144, 38)),
+      1: ("SAFE", (226, 144, 38)),
+      2: ("ECO", (20, 160, 92)),
       3: ("NORM", (68, 76, 82)),
       4: ("FAST", (222, 67, 70)),
     }.get(mode, ("--", (104, 111, 116)))
@@ -1048,8 +1048,8 @@ class HudRenderer(object):
 
   def _draw_driving_mode(self, draw, box, mode):
     modes = {
-      1: ("ECO", (40, 210, 125)),
-      2: ("SAFE", (255, 169, 45)),
+      1: ("SAFE", (255, 169, 45)),
+      2: ("ECO", (40, 210, 125)),
       3: ("NORM", (235, 240, 245)),
       4: ("FAST", (235, 70, 70)),
     }

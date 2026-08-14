@@ -178,7 +178,7 @@ def test_requested_header_has_wheel_mode_cruise_camera_and_split_path():
   frame = renderer.render(55.0, 88.0, True, {}, scene)
   colors = set(frame.getdata())
   assert (18, 95, 225) in colors
-  assert (226, 144, 38) in colors
+  assert (20, 160, 92) in colors
   assert (220, 45, 45) in colors
   assert (24, 126, 224) in colors
 
@@ -390,7 +390,7 @@ def test_cluster_overlays_and_swapped_layout_render():
   frame = renderer.render(82.0, 90.0, True, {}, scene)
   colors = set(frame.getdata())
   assert frame.size == (1920, 462)
-  assert (20, 160, 92) in colors
+  assert (226, 144, 38) in colors
   assert (220, 45, 45) in colors
 
   scene["alert"] = {"text1": "TAKE CONTROL", "text2": "System Unresponsive", "status": "critical"}

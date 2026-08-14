@@ -173,7 +173,12 @@ class CruiseHelper:
     mode = self.params.get_int("MyDrivingMode")
     if initialize:
       self.my_driving_mode = 3 if self.init_driving_mode == 5 else self.init_driving_mode
-      self.last_mode_param = mode
+      # Keep the persisted value aligned with the effective mode. The onroad
+      # button advances from controlsState; a stale Params value can otherwise
+      # make the first tap rewrite the same value and appear unresponsive.
+      self.last_mode_param = self.my_driving_mode
+      if mode != self.my_driving_mode:
+        self.params.put("MyDrivingMode", str(self.my_driving_mode))
     elif mode != self.last_mode_param and 1 <= mode <= 4:
       self.my_driving_mode = mode
       self.last_mode_param = mode

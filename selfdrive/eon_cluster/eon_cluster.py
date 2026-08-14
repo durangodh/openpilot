@@ -300,7 +300,8 @@ def main():
           scene["camera_limit_speed"] = section_limit
         else:
           scene["camera_limit_speed"] = 0
-        scene["driving_mode"] = _param_int(params, "MyDrivingMode", 3, 1, 4)
+        driving_mode = int(_field(controls_state, "myDrivingMode", 3) or 3)
+        scene["driving_mode"] = driving_mode if 1 <= driving_mode <= 4 else 3
         scene["panel_layout"] = _param_int(params, "EonClusterHudPanelLayout", 0, 0, 1)
         scene["screen_mode"] = _param_int(params, PARAM_SCREEN_MODE, 0, 0, 5)
         scene["theme"] = _param_int(params, PARAM_THEME, 0, 0, 2)
