@@ -7,18 +7,15 @@ from enum import Enum
 
 class LatType(Enum):
   NONE = 0
-  INDI = 1
-  TORQUE = 2
+  TORQUE = 1
 
 class GroupType:
   NONE = "none"
-  INDI = "lat_indi"
   TORQUE = "lat_torque_v4"
   COMMON = "common"
   SCC = "scc"
 
 CONF_PATH = '/data/ntune/'
-CONF_LAT_INDI_FILE = '/data/ntune/'+GroupType.INDI+'.json'
 CONF_LAT_TORQUE_FILE = '/data/ntune/'+GroupType.TORQUE+'.json'
 
 ntunes = {}
@@ -54,9 +51,6 @@ class nTune():
     if "LatControlTorque" in str(type(ctrl)):
       self.type = LatType.TORQUE
       self.file = CONF_LAT_TORQUE_FILE
-    elif "LatControlINDI" in str(type(ctrl)):
-      self.type = LatType.INDI
-      self.file = CONF_LAT_INDI_FILE
     else:
       self.file = CONF_PATH + group + ".json"
 
@@ -139,9 +133,7 @@ class nTune():
 
   def checkValid(self):
 
-    if self.type == LatType.INDI or self.group == GroupType.INDI:
-      return self.checkValidIndi()
-    elif self.type == LatType.TORQUE or self.group == GroupType.TORQUE:
+    if self.type == LatType.TORQUE or self.group == GroupType.TORQUE:
       return self.checkValidTorque()
     elif self.group == GroupType.COMMON:
       return self.checkValidCommon()
@@ -155,9 +147,7 @@ class nTune():
     if self.disable_lateral_live_tuning:
       return
       
-    if self.type == LatType.INDI:
-      self.updateIndi()
-    elif self.type == LatType.TORQUE:
+    if self.type == LatType.TORQUE:
       self.updateTorque()
 
   def checkValidCommon(self):
@@ -173,23 +163,6 @@ class nTune():
       updated = True
 
     if self.checkValue("pathOffset", -1.0, 1.0, 0.0):
-      updated = True
-
-    return updated
-
-  def checkValidLQR(self):
-    updated = False
-
-    if self.checkValue("scale", 500.0, 5000.0, 1600.0):
-      updated = True
-
-    if self.checkValue("ki", 0.0, 0.2, 0.01):
-      updated = True
-
-    if self.checkValue("dcGain", 0.002, 0.004, 0.0025):
-      updated = True
-
-    if self.checkValue("steerLimitTimer", 0.5, 3.0, 2.5):
       updated = True
 
     return updated
@@ -213,16 +186,6 @@ class nTune():
 
     return updated
 
-  def updateIndi(self):
-    indi = self.get_ctrl()
-    if indi is not None:
-      indi._RC = ([0.], [float(self.config["timeConstant"])])
-      indi._G = ([0.], [float(self.config["actuatorEffectiveness"])])
-      indi._outer_loop_gain = ([0.], [float(self.config["outerLoopGain"])])
-      indi._inner_loop_gain = ([0.], [float(self.config["innerLoopGain"])])
-      indi.steer_filter.update_alpha(indi.RC)
-      indi.reset()
-
   def updateTorque(self):
     torque = self.get_ctrl()
     if torque is not None:
@@ -236,9 +199,7 @@ class nTune():
     try:
       if self.CP is not None:
 
-        if self.type == LatType.INDI:
-          pass
-        elif self.type == LatType.TORQUE:
+        if self.type == LatType.TORQUE:
           self.config["useSteeringAngle"] = 1. if self.CP.lateralTuning.torque.useSteeringAngle else 0.
           self.config["latAccelFactor"] = self.CP.lateralTuning.torque.latAccelFactor
           self.config["friction"] = round(self.CP.lateralTuning.torque.friction, 3)

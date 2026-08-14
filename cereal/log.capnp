@@ -586,9 +586,9 @@ struct ControlsState @0x97ff69c53601abf1 {
   canErrorCounter @57 :UInt32;
 
   lateralControlState :union {
-    indiState @52 :LateralINDIState;
+    reserved52 @52 :Void;
     pidState @53 :LateralPIDState;
-    lqrState @55 :LateralLQRState;
+    reserved55 @55 :Void;
     angleState @58 :LateralAngleState;
     debugState @59 :LateralDebugState;
     torqueState @60 :LateralTorqueState;
@@ -632,22 +632,6 @@ struct ControlsState @0x97ff69c53601abf1 {
     full @3;    # full screen
   }
 
-  struct LateralINDIState {
-    active @0 :Bool;
-    steeringAngleDeg @1 :Float32;
-    steeringRateDeg @2 :Float32;
-    steeringAccelDeg @3 :Float32;
-    rateSetPoint @4 :Float32;
-    accelSetPoint @5 :Float32;
-    accelError @6 :Float32;
-    delayedOutput @7 :Float32;
-    delta @8 :Float32;
-    output @9 :Float32;
-    saturated @10 :Bool;
-    steeringAngleDesiredDeg @11 :Float32;
-    steeringRateDesiredDeg @12 :Float32;
-  }
-
   struct LateralPIDState {
     active @0 :Bool;
     steeringAngleDeg @1 :Float32;
@@ -677,16 +661,6 @@ struct ControlsState @0x97ff69c53601abf1 {
     latAccelOffset @12 :Float32;
     friction @13 :Float32;
    }
-
-  struct LateralLQRState {
-    active @0 :Bool;
-    steeringAngleDeg @1 :Float32;
-    i @2 :Float32;
-    output @3 :Float32;
-    lqrOutput @4 :Float32;
-    saturated @5 :Bool;
-    steeringAngleDesiredDeg @6 :Float32;
-  }
 
   struct LateralAngleState {
     active @0 :Bool;

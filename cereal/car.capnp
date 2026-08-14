@@ -489,8 +489,8 @@ struct CarParams {
   lateralParams @48 :LateralParams;
   lateralTuning :union {
     pid @26 :LateralPIDTuning;
-    indi @27 :LateralINDITuning;
-    lqr @40 :LateralLQRTuning;
+    reserved27 @27 :Void;
+    reserved40 @40 :Void;
     torque @67 :LateralTorqueTuning;
   }
 
@@ -577,36 +577,6 @@ struct CarParams {
     kf @6 :Float32;
     deadzoneBP @4 :List(Float32);
     deadzoneV @5 :List(Float32);
-  }
-
-  struct LateralINDITuning {
-    outerLoopGainBP @4 :List(Float32);
-    outerLoopGainV @5 :List(Float32);
-    innerLoopGainBP @6 :List(Float32);
-    innerLoopGainV @7 :List(Float32);
-    timeConstantBP @8 :List(Float32);
-    timeConstantV @9 :List(Float32);
-    actuatorEffectivenessBP @10 :List(Float32);
-    actuatorEffectivenessV @11 :List(Float32);
-
-    outerLoopGainDEPRECATED @0 :Float32;
-    innerLoopGainDEPRECATED @1 :Float32;
-    timeConstantDEPRECATED @2 :Float32;
-    actuatorEffectivenessDEPRECATED @3 :Float32;
-  }
-
-  struct LateralLQRTuning {
-    scale @0 :Float32;
-    ki @1 :Float32;
-    dcGain @2 :Float32;
-
-    # State space system
-    a @3 :List(Float32);
-    b @4 :List(Float32);
-    c @5 :List(Float32);
-
-    k @6 :List(Float32);  # LQR gain
-    l @7 :List(Float32);  # Kalman gain
   }
 
   enum SafetyModel {
