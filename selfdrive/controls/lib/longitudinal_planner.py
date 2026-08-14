@@ -3,7 +3,6 @@ import numpy as np
 from common.numpy_fast import clip, interp
 
 import cereal.messaging as messaging
-from cereal import car
 from common.conversions import Conversions as CV
 from common.filter_simple import FirstOrderFilter
 from common.params import Params
@@ -24,8 +23,6 @@ from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2
 LON_MPC_STEP = 0.2  # first step is 0.2s
 AWARENESS_DECEL = -0.2  # car smoothly decel at .2m/s^2 when user is distracted
 A_CRUISE_MIN = -1.2
-
-ButtonType = car.CarState.ButtonEvent.Type
 
 # ── MyDrivingMode (1:SAFE 2:ECO 3:NORM 4:FAST) ────────────────────────────
 # UI 의 모드 박스를 탭하면 1→2→3→4→1 로 순환한다 (onroad.cc).
@@ -148,10 +145,6 @@ class LongitudinalPlanner:
     radar_lead_present = lead_one.status and lead_one.radar
     vision_lead_present = (lead_one.status and lead_one.dRel < E2E_VISION_LEAD_DISTANCE and
                            not lead_one.radar)
-    resume_pressed = any(event.pressed and event.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
-                         for event in car_state.buttonEvents)
-    manual_hold_pressed = any(event.pressed and event.type in (ButtonType.decelCruise, ButtonType.setCruise)
-                              for event in car_state.buttonEvents)
     mode = self.conditional_e2e.update(
       available=active and self.auto_e2e_enabled,
       experimental_mode=self.experimental_mode_enabled,
@@ -170,9 +163,7 @@ class LongitudinalPlanner:
       lead_present=lead_present,
       radar_lead_present=radar_lead_present,
       radar_lead_distance=float(lead_one.dRel) if lead_one.status else 0.0,
-      vision_lead_present=vision_lead_present,
-      resume_pressed=resume_pressed,
-      manual_hold_pressed=manual_hold_pressed)
+      vision_lead_present=vision_lead_present)
     self.auto_e2e_stopping = self.conditional_e2e.stopping
     self.auto_e2e_prepare = self.conditional_e2e.prepare
     self.e2e_stop_distance = self.conditional_e2e.stop_distance
@@ -319,7 +310,7 @@ class LongitudinalPlanner:
     # Expose the automatic E2E stop/depart state to the onroad UI.
     # 0: inactive, 1: stopping/waiting, 2: preparing to depart.
     e2e_state_active = self.auto_e2e_enabled and sm['controlsState'].enabled
-    longitudinalPlan.trafficState = self.conditional_e2e.traffic_state if e2e_state_active else 0
+    longitudinalPlan.trafficState = (2 if self.auto_e2e_prepare else (1 if self.auto_e2e_stopping else 0)) if e2e_state_active else 0
     longitudinalPlan.onStop = bool(e2e_state_active and self.auto_e2e_stopping)
     longitudinalPlan.eventsDEPRECATED = self.events.to_msg()
     longitudinalPlan.fcw = self.fcw

@@ -57,7 +57,6 @@ class CruiseHelper:
     self.x_stop = 0.0
     self.traffic_state = 0
     self.traffic_state_prev = 0
-    self.traffic_error = False
     self.d_rel = 0.0
     self.v_rel = 0.0
     self.lead_car_speed_kph = 0.0
@@ -304,14 +303,11 @@ class CruiseHelper:
       plan = controls.sm['longitudinalPlan']
       self.x_state = plan.xState
       self.x_stop = float(getattr(plan, 'xStop', 0.0))
-      raw_traffic_state = int(getattr(plan, 'trafficState', 0))
-      self.traffic_state = raw_traffic_state % 100
-      self.traffic_error = raw_traffic_state >= 1000
+      self.traffic_state = int(getattr(plan, 'trafficState', 0)) % 100
     except Exception:
       self.x_state = XState.cruise
       self.x_stop = 0.0
       self.traffic_state = 0
-      self.traffic_error = False
 
     # C2-style traffic events: publish only on a state edge so there is no
     # per-frame UI work. A pedal-assisted departure is a driver action, not a
@@ -320,7 +316,7 @@ class CruiseHelper:
       if self.traffic_state == 1 and self.traffic_state_prev != 1:
         controls.events.add(EventName.trafficStopping)
       elif self.traffic_state_prev == 1 and self.traffic_state == 2 and \
-           not self.traffic_error and not CS.gasPressed and not CS.brakePressed:
+           not CS.gasPressed and not CS.brakePressed:
         controls.events.add(EventName.trafficSignGreen)
 
     lead = self.get_lead(controls.sm)
