@@ -360,6 +360,49 @@ def test_tmap_stream_is_wide_and_does_not_increase_pixel_load():
   assert abs(float(MAP_RENDER_WIDTH) / MAP_RENDER_HEIGHT - 768.0 / 462.0) < 0.01
 
 
+def test_external_atc_box_matches_eon_gate_and_tpms_width(monkeypatch):
+  now_ms = 1_900_000_000_000
+  active = {
+    "updated_at_ms": now_ms,
+    "stream_updated_at_ms": {"guidance_current": now_ms},
+    "guidance_current": {"main_text": "좌회전", "turn_type": 12, "distance_m": 240},
+    "route": {"remain_distance_m": 4700, "remain_time_sec": 540},
+  }
+  assert renderer_module._eon_atc_box_active(active, now_ms)
+  assert not renderer_module._eon_atc_box_active(dict(active, updated_at_ms=now_ms - 35001), now_ms)
+  assert not renderer_module._eon_atc_box_active(
+    dict(active, route={"remain_distance_m": 4700, "remain_time_sec": 0}), now_ms)
+
+  renderer = HudRenderer(1920, 462, 50)
+  driving_box = (0, 0, int(1920 * renderer.DRIVE_RATIO) - 3, 462)
+  world_top = int(462 * 0.47)
+  tpms_box = renderer._bottom_card_box((0, world_top, driving_box[2], 462), "right")
+  atc_box = renderer._atc_card_box(driving_box)
+  assert atc_box[2] - atc_box[0] == tpms_box[2] - tpms_box[0]
+
+  # When the route gate is active the compact ATC card replaces only the
+  # circled GAP/camera group; the inactive state restores those indicators.
+  calls = []
+  monkeypatch.setattr(renderer_module.time, "time", lambda: now_ms / 1000.0)
+  monkeypatch.setattr(renderer, "_draw_atc_box", lambda *_args: calls.append("atc"))
+  monkeypatch.setattr(renderer, "_draw_gap_bars", lambda *_args: calls.append("gap"))
+  monkeypatch.setattr(renderer, "_draw_speed_limit", lambda *_args: calls.append("camera"))
+  monkeypatch.setattr(renderer, "_draw_road_limit_badge", lambda *_args: calls.append("limit"))
+  from PIL import Image, ImageDraw
+  frame = Image.new("RGB", (1920, 462))
+  renderer._draw_requested_status_header(
+    frame, ImageDraw.Draw(frame), driving_box, 82.0, 90.0, True,
+    {"is_metric": True, "atc_mode": 2}, active)
+  assert calls == ["atc"]
+
+  calls[:] = []
+  inactive = dict(active, route={"remain_distance_m": 0, "remain_time_sec": 0})
+  renderer._draw_requested_status_header(
+    frame, ImageDraw.Draw(frame), driving_box, 82.0, 90.0, True,
+    {"is_metric": True, "atc_mode": 2}, inactive)
+  assert calls == ["limit", "gap", "camera"]
+
+
 def test_cluster_overlays_render_in_fixed_424_layout():
   renderer = HudRenderer(1920, 462, 50)
   scene = {

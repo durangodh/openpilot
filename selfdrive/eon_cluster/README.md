@@ -57,6 +57,11 @@ temperature, while the right 40% displays only the original edge-to-edge TMap
 frame without separate turn, lane, distance, or route-summary overlays. No
 road-camera pixels are copied or encoded.
 
+While the same fresh-route gate used by the EON ATC box is active, a compact
+ATC card temporarily replaces the driving panel's upper-right GAP/camera group.
+Its width exactly matches the TPMS card; the normal indicators return when the
+route ends. This external card does not change the native EON ATC geometry.
+
 The lightweight HUD also mirrors active openpilot alerts as outlined text
 without covering the driving or navigation background. It replaces the
 navigation panel with an expanded trip summary including engaged ratio and

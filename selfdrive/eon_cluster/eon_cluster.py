@@ -25,6 +25,7 @@ PARAM_MIRROR = "EonClusterHudMirror"
 PARAM_LANGUAGE = "EonClusterHudLanguage"
 PARAM_RADAR_INFO = "EonClusterHudRadarInfo"
 PARAM_RADAR_DISPLAY = "EonClusterHudRadarDisplay"
+PARAM_ATC_MODE = "CarrotAutoTurnControl"
 TURZX_92_PRODUCT_ID = 0x0092
 RECONNECT_INTERVAL_S = 5.0
 SETTINGS_POLL_INTERVAL_S = 0.25
@@ -150,6 +151,7 @@ def main():
   next_frame = 0.0
   next_settings_read = 0.0
   active_fps = 10
+  active_atc_mode = 0
   footer = {"ip": "", "fps": 0.0}
   paused = False
   next_footer = 0.0
@@ -200,6 +202,7 @@ def main():
           next_frame = now
           next_settings_read = now + SETTINGS_POLL_INTERVAL_S
           active_fps = fps
+          active_atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
           paused = False
           print("EON cluster connected: pid=0x%04x, %dx%d, %d fps" %
                 (display.product_id, display.landscape_size[0], display.landscape_size[1], fps), flush=True)
@@ -223,6 +226,7 @@ def main():
           renderer.set_jpeg_quality(_param_int(params, PARAM_JPEG_QUALITY, 58, 1, 95))
           renderer.set_mirror(_param_bool(params, PARAM_MIRROR))
           active_fps = next_fps
+          active_atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
           next_settings_read = now + SETTINGS_POLL_INTERVAL_S
         except Exception as exc:
           print("EON cluster live setting failed: %s" % exc, flush=True)
@@ -317,6 +321,7 @@ def main():
         scene["is_metric"] = _param_bool(params, "IsMetric", True)
         scene["energy_mode"] = _energy_mode(sm["carParams"])
         scene["radar_info"] = _param_int(params, PARAM_RADAR_INFO, 4, 0, 4)
+        scene["atc_mode"] = active_atc_mode
         if _param_int(params, PARAM_RADAR_DISPLAY, 1, 0, 1) == 1:
           scene["radar_points"] = extract_radar_points(sm["liveTracks"])
         scene["accel"] = accel

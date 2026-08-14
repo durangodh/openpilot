@@ -13,6 +13,14 @@ NAVI_MAP = "/dev/shm/carrot_navi_map.jpg"
 NAVI_MAX_AGE_MS = 35000
 NAVI_ROUTE_MAX_AGE_MS = 3000
 NAVI_ROUTE_GRACE_S = 2.0
+ATC_ASSET_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "images")
+ATC_IMAGE_FILES = {
+  ("turn", -1): os.path.join(ATC_ASSET_DIR, "turn_l.png"),
+  ("turn", 1): os.path.join(ATC_ASSET_DIR, "turn_r.png"),
+  ("fork", -1): os.path.join(ATC_ASSET_DIR, "lane_change_l.png"),
+  ("fork", 1): os.path.join(ATC_ASSET_DIR, "lane_change_r.png"),
+  ("uturn", -1): os.path.join(ATC_ASSET_DIR, "turn_u.png"),
+}
 BITMAP_FONT_DATA = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "Pretendard-SemiBold.fnt")
 BITMAP_FONT_IMAGE = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "Pretendard-SemiBold.png")
 HANGUL_BITMAP_FONT_DATA = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "Pretendard-Hangul.fnt")
@@ -319,6 +327,54 @@ def _navi_route_active(navi, now_ms=None):
   return remain_distance > 0.0
 
 
+def _eon_atc_box_active(navi, now_ms=None):
+  """Match drawCarrotNavi's box visibility gate on the EON screen."""
+  if not isinstance(navi, dict):
+    return False
+  wall_now = int(time.time() * 1000) if now_ms is None else int(now_ms)
+  updated_at = int(navi.get("updated_at_ms", 0) or 0)
+  age = wall_now - updated_at
+  if updated_at <= 0 or age < -5000 or age > NAVI_MAX_AGE_MS:
+    return False
+  route = navi.get("route") or {}
+  try:
+    remain_distance = float(route.get("remain_distance_m", 0.0) or 0.0)
+    remain_time = float(route.get("remain_time_sec", 0.0) or 0.0)
+  except (AttributeError, TypeError, ValueError):
+    return False
+  return remain_distance > 0.0 and remain_time > 0.0
+
+
+def _atc_kind(turn_type, instruction):
+  """Python equivalent of the EON carrotAtcKind turn classification."""
+  try:
+    turn_type = int(turn_type or 0)
+  except (TypeError, ValueError):
+    turn_type = 0
+  if turn_type in (12, 16):
+    return "turn", -1
+  if turn_type in (13, 19):
+    return "turn", 1
+  if turn_type in (7, 17, 44, 75, 76, 102, 105, 112, 115, 118):
+    return "fork", -1
+  if turn_type in (6, 43, 73, 74, 101, 104, 111, 114, 117, 123, 124):
+    return "fork", 1
+  if turn_type == 14:
+    return "uturn", -1
+  if 131 <= turn_type <= 142:
+    return "rotary", 0
+
+  text = str(instruction or "").lower()
+  if "유턴" in text or "u-turn" in text or "uturn" in text:
+    return "uturn", -1
+  fork = "분기" in text or "진출" in text or "fork" in text
+  if "좌회전" in text or "왼쪽" in text or "left" in text:
+    return ("fork" if fork else "turn"), -1
+  if "우회전" in text or "오른쪽" in text or "right" in text:
+    return ("fork" if fork else "turn"), 1
+  return "none", 0
+
+
 def _safe_image(path):
   try:
     stat = os.stat(path)
@@ -431,6 +487,7 @@ class HudRenderer(object):
     # buckets so liveTracks do not redraw complex car geometry every frame.
     self._vehicle_base_sprites = {}
     self._vehicle_sprite_cache = OrderedDict()
+    self._atc_icon_cache = {}
 
   def set_jpeg_quality(self, jpeg_quality):
     jpeg_quality = max(1, min(95, int(jpeg_quality)))
@@ -1008,7 +1065,123 @@ class HudRenderer(object):
     _draw_text(draw, (center_x, center_y), text, max(17, self.height // 22), True,
                fill=(54, 61, 66), anchor="mm")
 
-  def _draw_requested_status_header(self, image, draw, box, speed_kph, cruise_kph, enabled, scene):
+  def _atc_card_box(self, box):
+    left, top, right, bottom = box
+    world_top = top + int((bottom - top) * 0.47)
+    tpms_card = self._bottom_card_box((left, world_top, right, bottom), "right")
+    card_width = tpms_card[2] - tpms_card[0]
+    margin = 8
+    return right - margin - card_width, top + 6, right - margin, world_top - 6
+
+  def _atc_icon(self, kind, direction, size):
+    key = (kind, direction, int(size))
+    cached = self._atc_icon_cache.get(key)
+    if cached is not None:
+      return cached
+    source = _safe_image(ATC_IMAGE_FILES.get((kind, direction), ""))
+    if source is None:
+      return None
+    # Match the source rectangle used by the EON QPainter implementation.
+    source = source.crop((48, 48, 208, 208))
+    resampling = getattr(Image, "Resampling", Image)
+    icon = source.resize((int(size), int(size)), resampling.LANCZOS)
+    self._atc_icon_cache[key] = icon
+    return icon
+
+  @staticmethod
+  def _draw_atc_fallback(draw, center_x, center_y, size, kind, direction, turn_type):
+    color = (245, 247, 248)
+    width = max(4, size // 12)
+    if kind in ("turn", "fork") and direction != 0:
+      side = -1 if direction < 0 else 1
+      stem_y = center_y + size // 3
+      turn_y = center_y - size // 8
+      tip_x = center_x + side * size // 3
+      draw.line((center_x, stem_y, center_x, turn_y, tip_x, turn_y),
+                fill=color, width=width, joint="curve")
+      draw.line((tip_x, turn_y, tip_x - side * size // 6, turn_y - size // 7),
+                fill=color, width=width)
+      draw.line((tip_x, turn_y, tip_x - side * size // 6, turn_y + size // 7),
+                fill=color, width=width)
+    elif kind == "uturn":
+      radius = size // 4
+      bounds = (center_x - radius, center_y - radius, center_x + radius, center_y + radius)
+      draw.arc(bounds, 180, 500, fill=color, width=width)
+      draw.line((center_x - radius, center_y, center_x - radius - size // 9, center_y - size // 8),
+                fill=color, width=width)
+      draw.line((center_x - radius, center_y, center_x - radius + size // 10, center_y - size // 9),
+                fill=color, width=width)
+    else:
+      label = "감속:5" if kind == "rotary" else ("감속:%d" % turn_type if turn_type > 0 else "안내")
+      _draw_text(draw, (center_x, center_y), label, max(12, size // 4), True,
+                 fill=color, anchor="mm")
+
+  def _draw_atc_box(self, image, draw, box, navi, scene):
+    card = self._atc_card_box(box)
+    left, top, right, bottom = card
+    width = right - left
+    height = bottom - top
+    guide = navi.get("guidance_current") or {}
+    route = navi.get("route") or {}
+    vehicle = navi.get("vehicle") or {}
+    title = str(guide.get("main_text") or guide.get("road_name") or
+                vehicle.get("road_name") or "경로 안내")
+    try:
+      turn_type = int(guide.get("turn_type", 0) or 0)
+      turn_distance = float(guide.get("distance_m", -1) or 0)
+    except (TypeError, ValueError):
+      turn_type, turn_distance = 0, -1.0
+    kind, direction = _atc_kind(turn_type, title)
+
+    draw.rounded_rectangle(card, radius=10, fill=(31, 35, 38),
+                           outline=(238, 241, 243), width=2)
+    title_size = max(12, self.height // 31)
+    while title_size > 10 and _text_width(title, title_size, True) > width - 14:
+      title_size -= 1
+    if _text_width(title, title_size, True) > width - 14:
+      while len(title) > 2 and _text_width(title + "…", title_size, True) > width - 14:
+        title = title[:-1]
+      title += "…"
+    _draw_text(draw, ((left + right) // 2, top + 8), title, title_size, True,
+               fill=(248, 249, 250), anchor="ma")
+
+    stream_times = navi.get("stream_updated_at_ms") or {}
+    guidance_updated_at = int(stream_times.get("guidance_current", navi.get("updated_at_ms", 0)) or 0)
+    guidance_age = int(time.time() * 1000) - guidance_updated_at
+    atc_available = (1 <= int(scene.get("atc_mode", 0) or 0) <= 3 and
+                     -5000 <= guidance_age <= 3000 and turn_distance >= 0 and kind != "none")
+    blink_on = not (atc_available and turn_distance <= 350.0) or int(time.monotonic() * 2.0) % 2 == 0
+
+    icon_size = max(50, min(width - 30, int(height * 0.34)))
+    icon_x = (left + right) // 2
+    icon_y = top + int(height * 0.34)
+    icon = self._atc_icon(kind, direction, icon_size)
+    if blink_on:
+      if icon is not None:
+        image.paste(icon, (icon_x - icon_size // 2, icon_y - icon_size // 2),
+                    icon if icon.mode == "RGBA" else None)
+      else:
+        self._draw_atc_fallback(draw, icon_x, icon_y, icon_size, kind, direction, turn_type)
+
+    is_metric = bool(scene.get("is_metric", True))
+    language = "en" if str(scene.get("language", "ko")).lower() == "en" else "ko"
+    turn_text = _distance_text(turn_distance, is_metric, language) if turn_distance >= 0 else "--"
+    _draw_text(draw, (icon_x, top + int(height * 0.62)), turn_text,
+               max(16, self.height // 24), True, fill=(248, 249, 250), anchor="mm")
+    divider_y = top + int(height * 0.72)
+    draw.line((left + 8, divider_y, right - 8, divider_y), fill=(118, 126, 132), width=1)
+
+    remain_distance = float(route.get("remain_distance_m", 0.0) or 0.0)
+    remain_time = int(route.get("remain_time_sec", 0) or 0)
+    remain_text = _distance_text(remain_distance, is_metric, language)
+    eta = time.localtime(time.time() + remain_time)
+    eta_text = ("도착 " if language == "ko" else "ETA ") + time.strftime("%H:%M", eta)
+    _draw_text(draw, (icon_x, divider_y + max(7, height // 24)), remain_text,
+               max(12, self.height // 32), True, fill=(211, 218, 222), anchor="ma")
+    _draw_text(draw, (icon_x, bottom - 8), eta_text,
+               max(11, self.height // 36), True, fill=(168, 178, 184), anchor="ms")
+
+  def _draw_requested_status_header(self, image, draw, box, speed_kph, cruise_kph, enabled, scene, navi=None):
     left, top, right, _ = box
     panel_w = right - left
     center_x = (left + right) // 2
@@ -1039,9 +1212,11 @@ class HudRenderer(object):
                max(13, self.height // 31), True, fill=(104, 111, 116), anchor="mm")
 
     separator_y = top + max(124, int(self.height * 0.28))
-    road_limit = _speed_value(float(scene.get("road_limit_speed", 0) or 0), is_metric)
-    self._draw_road_limit_badge(draw, right - max(132, int(panel_w * 0.17)), separator_y, road_limit)
-    self._draw_gap_bars(draw, right - 18, separator_y, scene.get("cruise_gap", 0))
+    atc_box_active = _eon_atc_box_active(navi)
+    if not atc_box_active:
+      road_limit = _speed_value(float(scene.get("road_limit_speed", 0) or 0), is_metric)
+      self._draw_road_limit_badge(draw, right - max(132, int(panel_w * 0.17)), separator_y, road_limit)
+      self._draw_gap_bars(draw, right - 18, separator_y, scene.get("cruise_gap", 0))
     draw.line((left + 18, separator_y, right - 18, separator_y),
               fill=(202, 207, 210), width=1)
 
@@ -1062,15 +1237,18 @@ class HudRenderer(object):
                fill=(47, 54, 59), anchor="mm")
     _draw_text(draw, (center_x, second_row_y + cruise_radius + 9), "SET",
                max(11, self.height // 35), True, fill=cruise_color, anchor="ma")
-    camera_limit = _speed_value(float(scene.get("camera_limit_speed", 0) or 0), is_metric)
-    self._draw_speed_limit(draw, right_x, second_row_y, int(round(camera_limit)))
-    camera_distance = float(scene.get("camera_distance", 0) or 0)
-    if camera_distance > 0:
-      distance_text = _distance_text(camera_distance, is_metric, language)
-      if bool(scene.get("camera_is_section", False)):
-        distance_text = (("구간 " if language == "ko" else "SEC ") + distance_text)
-      _draw_text(draw, (right_x, second_row_y + max(39, self.height // 11)), distance_text,
-                 max(10, self.height // 38), True, fill=(104, 111, 116), anchor="ma")
+    if not atc_box_active:
+      camera_limit = _speed_value(float(scene.get("camera_limit_speed", 0) or 0), is_metric)
+      self._draw_speed_limit(draw, right_x, second_row_y, int(round(camera_limit)))
+      camera_distance = float(scene.get("camera_distance", 0) or 0)
+      if camera_distance > 0:
+        distance_text = _distance_text(camera_distance, is_metric, language)
+        if bool(scene.get("camera_is_section", False)):
+          distance_text = (("구간 " if language == "ko" else "SEC ") + distance_text)
+        _draw_text(draw, (right_x, second_row_y + max(39, self.height // 11)), distance_text,
+                   max(10, self.height // 38), True, fill=(104, 111, 116), anchor="ma")
+    else:
+      self._draw_atc_box(image, draw, box, navi, scene)
 
   def _draw_driving_mode(self, draw, box, mode):
     modes = {
@@ -1211,7 +1389,7 @@ class HudRenderer(object):
       _draw_stroked_text(draw, (center_x, center_y), text1, title_size, True,
                          title_color, (0, 0, 0), stroke_width, "mm")
 
-  def _draw_driving_panel(self, image, draw, box, speed_kph, cruise_kph, enabled, scene):
+  def _draw_driving_panel(self, image, draw, box, speed_kph, cruise_kph, enabled, scene, navi=None):
     left, top, right, bottom = box
     world_top = top + int((bottom - top) * 0.47)
     world_box = (left, world_top, right, bottom)
@@ -1235,7 +1413,7 @@ class HudRenderer(object):
     self._draw_lead_info(draw, world_box, scene.get("leads", []), is_metric, language)
     self._draw_tpms(draw, world_box, scene.get("tpms"))
 
-    self._draw_requested_status_header(image, draw, box, speed_kph, cruise_kph, enabled, scene)
+    self._draw_requested_status_header(image, draw, box, speed_kph, cruise_kph, enabled, scene, navi)
     self._draw_turn_signals(draw, world_box, scene.get("blinkers"))
 
   def _draw_footer(self, draw, box, footer):
@@ -1430,7 +1608,7 @@ class HudRenderer(object):
     right_box = (system_split + 3, 0, self.width, self.height)
 
     self._draw_driving_panel(image, draw, driving_box,
-                             speed_kph, cruise_kph, enabled, scene)
+                             speed_kph, cruise_kph, enabled, scene, navi)
     self._draw_system_panel(draw, system_box, scene.get("system") or {}, theme)
     draw.rectangle((drive_split - 3, 0, drive_split + 3, self.height), fill=(34, 42, 50))
     draw.rectangle((system_split - 3, 0, system_split + 3, self.height), fill=(34, 42, 50))
