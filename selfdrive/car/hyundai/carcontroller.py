@@ -66,7 +66,6 @@ class CarController:
     param = Params()
 
     self.mad_mode_enabled = param.get_bool('MadModeEnabled')
-    self.ldws_opt = param.get_bool('IsLdwsCar')
     self.stock_navi_decel_enabled = param.get_bool('StockNaviDecelEnabled')
     self.keep_steering_turn_signals = param.get_bool('KeepSteeringTurnSignals')
     self.haptic_feedback_speed_camera = param.get_bool('HapticFeedbackWhenSpeedCamera')
@@ -162,12 +161,12 @@ class CarController:
     can_sends = []
     can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, apply_steer, lkas_active,
                                    CS.lkas11, sys_warning, sys_state, CC.enabled, hud_control.leftLaneVisible, hud_control.rightLaneVisible,
-                                   left_lane_warning, right_lane_warning, 0, self.ldws_opt, cut_steer_temp))
+                                   left_lane_warning, right_lane_warning, 0, False, cut_steer_temp))
 
     if CS.mdps_bus or CS.scc_bus == 1:  # send lkas11 bus 1 if mdps or scc is on bus 1
       can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, apply_steer, lkas_active,
                                      CS.lkas11, sys_warning, sys_state, CC.enabled, hud_control.leftLaneVisible, hud_control.rightLaneVisible,
-                                     left_lane_warning, right_lane_warning, 1, self.ldws_opt, cut_steer_temp))
+                                     left_lane_warning, right_lane_warning, 1, False, cut_steer_temp))
 
     if self.frame % 2 and CS.mdps_bus:  # send clu11 to mdps if it is not on bus 0
       can_sends.append(create_clu11(self.packer, CS.mdps_bus, CS.clu11, Buttons.NONE, enabled_speed))

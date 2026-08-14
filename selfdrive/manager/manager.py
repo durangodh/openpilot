@@ -78,7 +78,6 @@ def manager_init() -> None:
     ("LongControlEnabled", "0"),
     ("MadModeEnabled", "1"),
     ("CruiseSpeedMin", "30"),
-    ("IsLdwsCar", "0"),
     ("LaneChangeEnabled", "0"),
     ("AutoLaneChangeEnabled", "0"),
     ("ExperimentalMode", "0"),
@@ -89,7 +88,6 @@ def manager_init() -> None:
     ("StockNaviDecelEnabled", "0"),
     ("KeepSteeringTurnSignals", "0"),
     ("HapticFeedbackWhenSpeedCamera", "0"),
-    ("DisableOpFcw", "0"),
     ("ShowDebugUI", "0"),
     ("NewRadarInterface", "0"),
     ("WideCameraOnly", "0"),       # plannerd.py 크래시 수정

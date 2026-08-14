@@ -208,7 +208,7 @@ class Controls:
     self.right_lane_visible = False
 
     self.wide_camera = TICI and params.get_bool('EnableWideCamera')
-    self.disable_op_fcw = params.get_bool('DisableOpFcw')
+    self.disable_op_fcw = False
 
     # Params 파일 접근은 100 Hz 제어 루프에서 수행하지 않도록 캐시한다.
     self.params = params

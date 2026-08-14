@@ -1153,11 +1153,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "켜짐: 오픈파일럿이 가속과 제동을 제어합니다. 시험 기능이므로 주행 중 항상 전방을 확인하십시오.",
                                             "../assets/offroad/icon_road.png",
                                             this));
-  toggles.append(new ParamControl("IsLdwsCar",
-                                            "LDWS",
-                                            "차량이 차선이탈 경고(LDWS)만 지원할 때 켭니다. LKAS 차량은 끕니다.",
-                                            "../assets/offroad/icon_openpilot.png",
-                                            this));
   toggles.append(new ParamControl("LaneChangeEnabled",
                                             "차선변경 보조",
                                             "켜짐: 방향지시등과 운전자 조향 입력으로 차선변경을 보조합니다. 주변 차량의 안전 여부는 운전자가 직접 확인해야 합니다.",
@@ -1215,12 +1210,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "과속카메라 햅틱 알림",
                                             "켜짐: 과속카메라가 감지되면 핸들 진동으로 알립니다.",
                                             "../assets/offroad/icon_openpilot.png",
-                                            this));
-  toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new ParamControl("DisableOpFcw",
-                                            "오픈파일럿 전방충돌경고 끄기",
-                                            "켜짐: 오픈파일럿 FCW 경고를 사용하지 않습니다. 차량 순정 경고 기능과는 별개입니다.",
-                                            "../assets/offroad/icon_shell.png",
                                             this));
 }
 

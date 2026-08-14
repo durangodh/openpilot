@@ -221,7 +221,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"StoppingDecelRate", PERSISTENT},
 
     {"DynamicLaneProfile", PERSISTENT},
-    {"IsLdwsCar", PERSISTENT},
     {"LaneChangeEnabled", PERSISTENT},
     {"AutoLaneChangeEnabled", PERSISTENT},
     {"OffsetTotal", PERSISTENT},
@@ -230,7 +229,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"SccSmootherSyncGasPressed", PERSISTENT},
     {"StockNaviDecelEnabled", PERSISTENT},
     {"NewRadarInterface", PERSISTENT},
-    {"DisableOpFcw", PERSISTENT},
     {"ShowDebugUI", PERSISTENT},
     {"WideCameraOnly", PERSISTENT},
     {"AutoLaneChangeTimer", PERSISTENT},
