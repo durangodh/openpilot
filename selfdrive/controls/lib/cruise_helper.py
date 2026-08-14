@@ -626,12 +626,27 @@ class CruiseHelper:
     cam_limit = 0.0
     section_dist = 0.0
     section_limit = 0.0
+    # Keep the lightweight shared-file bridge, but read it independently of
+    # ATC/curve toggles so 7714 SDI and section data can feed the existing C3
+    # navigation limiter. Existing roadLimitSpeed packets retain priority.
+    navi_state = self.carrot_atc.update()
     if road_data is not None:
       cam_type = int(road_data.camType)
       cam_dist = float(road_data.camLimitSpeedLeftDist)
       cam_limit = float(road_data.camLimitSpeed)
       section_dist = float(road_data.sectionLeftDist)
       section_limit = float(road_data.sectionLimitSpeed)
+
+    navi_events = self.carrot_atc.speed_events(navi_state)
+    navi_camera = navi_events["camera"]
+    navi_section = navi_events["section"]
+    if cam_dist <= 0.0 and navi_camera is not None:
+      cam_type = int(navi_camera["type"])
+      cam_dist = float(navi_camera["distance"])
+      cam_limit = float(navi_camera["limit"])
+    if section_dist <= 0.0 and navi_section is not None:
+      section_dist = float(navi_section["distance"])
+      section_limit = float(navi_section["limit"])
 
     # c3-wip treats SDI type 22 as a speed bump and always replaces the
     # incoming camera limit with the configured bump target speed. This also
@@ -740,9 +755,6 @@ class CruiseHelper:
       self.cal_curve_speed(sm, CS.out.vEgo, frame)
     else:
       self.curve_speed_ms = 250.0 * CV.KPH_TO_MS
-    navi_enabled = self.turn_vision_control or self.carrot_atc_mode in (2, 3)
-    navi_state = self.carrot_atc.update() if navi_enabled else self.empty_navi_state
-
     cruise_speed_ms = controls.v_cruise_kph * CV.KPH_TO_MS
     self.apply_source = ""
     if self.turn_vision_control and self.curve_speed_ms < cruise_speed_ms:

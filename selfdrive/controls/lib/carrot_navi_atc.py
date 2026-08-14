@@ -54,6 +54,7 @@ class CarrotNaviAtc:
     return {"fresh": False, "kind": "none", "direction": 0,
             "distance": -1.0, "turn_type": -1, "text": "", "next": None,
             "route_fresh": False, "route": None, "vehicle": None,
+            "speed_fresh": False, "speed": None, "off_route": False,
             "road_limit_kph": 0.0}
 
   @classmethod
@@ -80,19 +81,32 @@ class CarrotNaviAtc:
       stream_times = root.get("stream_updated_at_ms") or {}
       guidance_updated_at = stream_times.get("guidance_current", root.get("updated_at_ms"))
       age = time.time() - _number(guidance_updated_at, 0.0) / 1000.0
-      if age < -5.0 or age > STALE_TIMEOUT:
-        self.state = self.empty_state()
-        return self.state
-      self.state = self.guidance_state(root.get("guidance_current") or {}, True)
+      guidance_fresh = -5.0 <= age <= STALE_TIMEOUT
+
+      status = root.get("navigation_status") or {}
+      off_route = bool(_first(status, ("off_route", "offRoute"), False))
+      guidance_active = _first(status, ("guidance_active", "guidanceActive"), None)
+      navigation_blocked = off_route or guidance_active is False
+
+      self.state = self.guidance_state(
+        root.get("guidance_current") or {}, guidance_fresh and not navigation_blocked)
+      self.state["off_route"] = navigation_blocked
       route_updated_at = stream_times.get("route", guidance_updated_at)
       vehicle_updated_at = stream_times.get("vehicle", guidance_updated_at)
       route_age = time.time() - _number(route_updated_at, 0.0) / 1000.0
       vehicle_age = time.time() - _number(vehicle_updated_at, 0.0) / 1000.0
       self.state["route_fresh"] = (-5.0 <= route_age <= STALE_TIMEOUT and
-                                   -5.0 <= vehicle_age <= STALE_TIMEOUT)
+                                   -5.0 <= vehicle_age <= STALE_TIMEOUT and
+                                   not navigation_blocked)
       self.state["route"] = root.get("route")
       self.state["vehicle"] = root.get("vehicle")
       speed_state = root.get("speed") or {}
+      speed_updated_at = stream_times.get("speed", root.get("updated_at_ms"))
+      speed_age = time.time() - _number(speed_updated_at, 0.0) / 1000.0
+      self.state["speed_fresh"] = (-5.0 <= speed_age <= STALE_TIMEOUT and
+                                   isinstance(speed_state, dict) and
+                                   not navigation_blocked)
+      self.state["speed"] = speed_state if self.state["speed_fresh"] else None
       self.state["road_limit_kph"] = _number(_first(
         speed_state, ("road_limit_kph", "limit_speed", "roadLimitKph",
                       "section_speed_limit_kph", "sectionSpeedLimitKph")), 0.0)
@@ -101,12 +115,67 @@ class CarrotNaviAtc:
       # after the current one, but steering continues to use current guidance only.
       next_updated_at = stream_times.get("guidance_next", guidance_updated_at)
       next_age = time.time() - _number(next_updated_at, 0.0) / 1000.0
-      next_fresh = -5.0 <= next_age <= STALE_TIMEOUT
+      next_fresh = -5.0 <= next_age <= STALE_TIMEOUT and not navigation_blocked
       next_state = self.guidance_state(root.get("guidance_next") or {}, next_fresh)
       self.state["next"] = next_state if next_state["fresh"] else None
     except (IOError, OSError, ValueError, TypeError):
       self.state = self.empty_state()
     return self.state
+
+  @staticmethod
+  def speed_events(state):
+    """Return fresh 7714 camera/bump and section inputs for CruiseHelper."""
+    result = {"camera": None, "section": None}
+    if not isinstance(state, dict) or not state.get("speed_fresh", False) or state.get("off_route", False):
+      return result
+
+    speed = state.get("speed")
+    if not isinstance(speed, dict):
+      return result
+
+    section = speed.get("section")
+    if isinstance(section, dict):
+      section_active = bool(_first(section, ("active", "section_active", "sectionActive"), False))
+      section_suspended = bool(_first(section, ("suspended", "section_suspended", "sectionSuspended"), False))
+      section_off_route = bool(_first(section, ("off_route", "offRoute"), False))
+      section_limit = _number(_first(section, (
+        "speed_limit_kph", "limit_kph", "section_speed_limit_kph", "sectionSpeedLimitKph")), 0.0)
+      section_distance = _number(_first(section, (
+        "remaining_distance_m", "distance_m", "section_remaining_distance_m", "sectionRemainingDistanceM")), -1.0)
+      if section_active and not section_suspended and not section_off_route and section_limit > 0.0 and section_distance > 0.0:
+        result["section"] = {"distance": section_distance, "limit": section_limit}
+
+    primary = speed.get("sdi")
+    if not isinstance(primary, dict):
+      primary = speed
+    sdi_type = int(_number(_first(primary, ("type", "sdi_type", "sdiType")), -1))
+    sdi_distance = _number(_first(primary, ("distance_m", "sdi_distance_m", "sdiDistanceM")), -1.0)
+    sdi_limit = _number(_first(primary, ("speed_limit_kph", "limit_kph", "sdi_speed_limit_kph", "sdiSpeedLimitKph")), 0.0)
+    block_type = int(_number(_first(primary, ("block_type", "sdi_block_type", "sdiBlockType")), -1))
+    block_distance = _number(_first(primary, ("block_distance_m", "sdi_block_distance_m", "sdiBlockDistanceM")), -1.0)
+    block_limit = _number(_first(primary, ("block_speed_kph", "sdi_block_speed_kph", "sdiBlockSpeedKph")), 0.0)
+
+    if result["section"] is None and block_type in (2, 3) and block_distance > 0.0:
+      limit = block_limit if block_limit > 0.0 else sdi_limit
+      if limit > 0.0:
+        result["section"] = {"distance": block_distance, "limit": limit}
+
+    # An explicit/legacy block section owns the speed event, matching
+    # carrot-wip's section-first projection instead of applying it twice as a
+    # camera and a section.
+    if result["section"] is None and sdi_type >= 0 and sdi_distance > 0.0 and \
+       (sdi_limit > 0.0 or sdi_type == 22):
+      result["camera"] = {"type": sdi_type, "distance": sdi_distance, "limit": sdi_limit}
+    elif result["section"] is None:
+      secondary = speed.get("sdi_secondary")
+      if isinstance(secondary, dict):
+        secondary_type = int(_number(_first(secondary, ("type", "sdi_type", "sdiType")), -1))
+        secondary_distance = _number(_first(secondary, ("distance_m", "sdi_distance_m", "sdiDistanceM")), -1.0)
+        secondary_limit = _number(_first(secondary, ("speed_limit_kph", "limit_kph", "sdi_speed_limit_kph", "sdiSpeedLimitKph")), 0.0)
+        if secondary_type == 22 and secondary_distance > 0.0:
+          result["camera"] = {"type": secondary_type, "distance": secondary_distance,
+                              "limit": secondary_limit}
+    return result
 
   @staticmethod
   def classify(turn_type, text=""):

@@ -1,4 +1,80 @@
+import json
+import tempfile
+import time
+
 from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc, AtcForkLaneChangeController
+
+
+def state_with_speed(speed, off_route=False):
+  return {"speed_fresh": True, "speed": speed, "off_route": off_route}
+
+
+def test_7714_primary_camera_and_bump_are_projected():
+  camera = CarrotNaviAtc.speed_events(state_with_speed({
+    "sdi": {"type": 1, "distance_m": 420, "speed_limit_kph": 60},
+  }))
+  assert camera["camera"] == {"type": 1, "distance": 420.0, "limit": 60.0}
+
+  bump = CarrotNaviAtc.speed_events(state_with_speed({
+    "sdi": {"type": 22, "distance_m": 93},
+  }))
+  assert bump["camera"] == {"type": 22, "distance": 93.0, "limit": 0.0}
+
+
+def test_7714_explicit_and_block_sections_are_projected():
+  explicit = CarrotNaviAtc.speed_events(state_with_speed({
+    "section": {"active": True, "speed_limit_kph": 80, "remaining_distance_m": 2345},
+  }))
+  assert explicit["section"] == {"distance": 2345.0, "limit": 80.0}
+
+  block = CarrotNaviAtc.speed_events(state_with_speed({
+    "sdi": {"type": 1, "speed_limit_kph": 60, "block_type": 2,
+            "block_speed_kph": 50, "block_distance_m": 390},
+  }))
+  assert block["section"] == {"distance": 390.0, "limit": 50.0}
+  assert block["camera"] is None
+
+
+def test_7714_secondary_bump_is_used_only_without_primary_camera():
+  secondary = CarrotNaviAtc.speed_events(state_with_speed({
+    "sdi_secondary": {"type": 22, "distance_m": 80},
+  }))
+  assert secondary["camera"] == {"type": 22, "distance": 80.0, "limit": 0.0}
+
+
+def test_off_route_suppresses_all_7714_speed_events():
+  blocked = CarrotNaviAtc.speed_events(state_with_speed({
+    "sdi": {"type": 1, "distance_m": 100, "speed_limit_kph": 30},
+    "section": {"active": True, "speed_limit_kph": 80, "remaining_distance_m": 1000},
+  }, off_route=True))
+  assert blocked == {"camera": None, "section": None}
+
+
+def test_update_off_route_blocks_turn_route_and_speed_control():
+  now_ms = int(time.time() * 1000)
+  root = {
+    "stream_updated_at_ms": {
+      "guidance_current": now_ms, "guidance_next": now_ms,
+      "route": now_ms, "vehicle": now_ms, "speed": now_ms,
+      "navigation_status": now_ms,
+    },
+    "guidance_current": {"turn_type": 12, "distance_m": 80},
+    "guidance_next": {"turn_type": 13, "distance_m": 400},
+    "route": {"polyline": []},
+    "vehicle": {"lat": 37.5, "lon": 127.1},
+    "speed": {"sdi": {"type": 1, "distance_m": 100, "speed_limit_kph": 30}},
+    "navigation_status": {"guidance_active": True, "off_route": True},
+  }
+  with tempfile.NamedTemporaryFile(mode="w+") as state_file:
+    json.dump(root, state_file)
+    state_file.flush()
+    state = CarrotNaviAtc(state_file.name).update()
+
+  assert state["off_route"]
+  assert not state["fresh"]
+  assert state["next"] is None
+  assert not state["route_fresh"]
+  assert not state["speed_fresh"]
 
 
 def test_next_maneuver_speed_limit_is_independent_from_steering():
