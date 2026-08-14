@@ -558,6 +558,10 @@ def test_header_uses_gap_bars_and_cached_real_steering_wheel():
   second = renderer._steering_wheel_sprite(44, 12.0)
   assert first is not None
   assert first is second
+  for angle in range(-750, 751, 5):
+    renderer._steering_wheel_sprite(44, angle)
+  assert len(renderer._steering_wheel_scaled) == 1
+  assert len(renderer._steering_wheel_cache) == 208
 
   scene = {
     "lanes": [], "edges": [], "leads": [],

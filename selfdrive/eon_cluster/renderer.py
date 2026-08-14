@@ -440,6 +440,7 @@ class HudRenderer(object):
     # The real Genesis wheel is resized once and rotation is bucketed so a
     # moving steering angle does not add a full PNG transform every frame.
     self._steering_wheel_base = None
+    self._steering_wheel_scaled = {}
     self._steering_wheel_cache = OrderedDict()
 
   def set_jpeg_quality(self, jpeg_quality):
@@ -979,10 +980,14 @@ class HudRenderer(object):
         return None
       self._steering_wheel_base = source.convert("RGBA")
     resampling = getattr(Image, "Resampling", Image)
-    sprite = self._steering_wheel_base.resize((diameter, diameter), resampling.LANCZOS)
-    sprite = sprite.rotate(-bucket, resample=resampling.BICUBIC, expand=False)
+    scaled = self._steering_wheel_scaled.get(diameter)
+    if scaled is None:
+      scaled = self._steering_wheel_base.resize((diameter, diameter), resampling.LANCZOS)
+      self._steering_wheel_scaled[diameter] = scaled
+    sprite = scaled.rotate(-bucket, resample=resampling.BICUBIC, expand=False)
     self._steering_wheel_cache[key] = sprite
-    while len(self._steering_wheel_cache) > 72:
+    # 201 five-degree buckets cover the full -500..500 degree steering range.
+    while len(self._steering_wheel_cache) > 208:
       self._steering_wheel_cache.popitem(last=False)
     return sprite
 
