@@ -563,6 +563,12 @@ TogglesPanel::TogglesPanel(SettingsWindow *parent) : QWidget(parent) {
       "../assets/offroad/icon_metric.png",
     },
     {
+      "UseClusterSpeed",
+      "제어속도에 계기판 속도 사용",
+      "켜짐: 제어용 차량속도를 계기판 속도로 사용합니다. / 꺼짐(권장): 휠 속도를 사용합니다. 변경 후 다음 주행부터 적용됩니다.",
+      "../assets/offroad/icon_road.png",
+    },
+    {
       "RecordFront",
       "운전자 카메라 녹화·업로드",
       "켜짐: 운전자 모니터링 개선을 위해 실내 카메라 영상을 녹화하고 업로드합니다.",
@@ -1114,11 +1120,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   setPalette(pal);
 
   QList<ParamControl*> toggles;
-  toggles.append(new ParamControl("UseClusterSpeed",
-                                            "제어속도에 계기판 속도 사용",
-                                            "켜짐: 제어용 차량속도를 계기판 속도로 사용합니다. / 꺼짐(권장): 휠 속도를 사용합니다. 변경 후 다음 주행부터 적용됩니다.",
-                                            "../assets/offroad/icon_road.png",
-                                            this));
   toggles.append(new ParamControl("LaneChangeEnabled",
                                             "차선변경 보조",
                                             "켜짐: 방향지시등과 운전자 조향 입력으로 차선변경을 보조합니다. 주변 차량의 안전 여부는 운전자가 직접 확인해야 합니다.",
