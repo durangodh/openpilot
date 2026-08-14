@@ -945,16 +945,27 @@ class HudRenderer(object):
     self._draw_vehicle_shape(image, cx, cy - 30, car_w, car_h, "ego")
 
   def _draw_blindspot_indicator(self, draw, panel, side):
-    """Draw one dark-gray BSD curve below each ego rear quarter."""
+    """Draw two outward-swept BSD marks beside each ego rear quarter."""
     direction = -1 if side == "left" else 1
     ego_x, projected_y = self._project(panel, 2.4, 0.0)
-    ego_w, _ = self._ego_vehicle_size(panel)
+    ego_w, ego_h = self._ego_vehicle_size(panel)
     ego_bottom = projected_y - 30
-    arc_x = ego_x + direction * (ego_w // 2 + 12)
+    rear_y = ego_bottom - max(8, ego_h // 8)
+    side_x = ego_x + direction * (ego_w // 2 + 7)
     color = (67, 73, 78)
-    bounds = (arc_x - 16, ego_bottom - 18, arc_x + 16, ego_bottom + 22)
-    angles = (90, 270) if side == "left" else (270, 450)
-    draw.arc(bounds, angles[0], angles[1], fill=color, width=max(4, self.height // 115))
+    stroke_width = max(4, self.height // 115)
+
+    # The former half-ellipse was centered below the car and looked like a pair
+    # of U shapes. These mirrored, nested strokes start beside the rear corners
+    # and sweep outward, matching a conventional blind-spot/radar symbol.
+    for outward in (0, max(10, ego_w // 7)):
+      points = [
+        (side_x + direction * outward, rear_y - 18),
+        (side_x + direction * (outward + 2), rear_y - 8),
+        (side_x + direction * (outward + 7), rear_y + 2),
+        (side_x + direction * (outward + 16), rear_y + 10),
+      ]
+      draw.line(points, fill=color, width=stroke_width, joint="curve")
 
   def _draw_bipolar_gauge(self, draw, center_x, top, bottom, value, color, label, value_text):
     value = _clamp(float(value), -1.0, 1.0)
