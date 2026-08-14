@@ -144,7 +144,10 @@ class CarState(CarStateBase):
                                       cp.vl["LVR12"]["CF_Lvr_CruiseSet"] != 0
     ret.cruiseState.available = (cp_scc.vl["SCC11"]["MainMode_ACC"] != 0) if not self.no_radar else \
                                       cp.vl["EMS16"]["CRUISE_LAMP_M"] != 0
-    ret.cruiseState.standstill = cp_scc.vl["SCC11"]["SCCInfoDisplay"] == 4. if not self.no_radar else False
+    # Match aPilot C2: openpilot longitudinal owns stop/start state, so do not
+    # feed the stock SCC standstill latch back into LongControl.
+    ret.cruiseState.standstill = (not self.CP.openpilotLongitudinalControl and not self.no_radar and
+                                  cp_scc.vl["SCC11"]["SCCInfoDisplay"] == 4.)
 
     ret.cruiseState.enabledAcc = ret.cruiseState.enabled
 
