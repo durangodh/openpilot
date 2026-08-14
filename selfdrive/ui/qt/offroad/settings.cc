@@ -1571,10 +1571,6 @@ UISettingsPanel::UISettingsPanel(QWidget* parent) : QWidget(parent) {
       "ShowGearAnimation", "기어 팝업 애니메이션",
       "켜짐: 변속단이 바뀔 때 중앙 팝업 애니메이션을 표시합니다.",
       "../assets/offroad/icon_road.png", this));
-  list->addItem(new ParamValueControlF(
-      "ShowDateTime", "날짜·시간 표시",
-      "0: 끔 / 1: 시간+날짜 / 2: 시간만 / 3: 날짜만 표시.",
-      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 1, this));
   list->addItem(new ParamControl(
       "ShowDebugUI", "디버그 UI 표시",
       "켜짐: 주행 화면에 개발자용 제어 상태와 디버그 정보를 표시합니다.",

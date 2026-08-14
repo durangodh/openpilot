@@ -105,7 +105,6 @@ def manager_init() -> None:
     ("EonClusterHudRadarInfo", "4"),
     ("EonClusterHudRadarDisplay", "0"),
     ("ShowMapboxMap", "1"),
-    ("ShowDateTime", "1"),
     ("ShowBlindSpotAlways", "0"),
     ("ShowPathWidth", "90"),
     ("ShowPathStatusColor", "1"),

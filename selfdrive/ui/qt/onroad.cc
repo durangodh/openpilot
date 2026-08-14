@@ -657,26 +657,20 @@ void NvgWindow::drawBottomIcons(QPainter &p) {
   (void)scc_smoother;
   (void)car_state;
 
-  // 현재 시간/날짜 표시 (carrot.cc :: drawDateTime 과 동일 위치/크기)
-  if (show_datetime > 0) {
-    const int dt_x = 170;
-    const int dt_y = 185;   // 상단 정보줄과 겹치지 않도록 내림 (org: 120)
-    QDateTime now = QDateTime::currentDateTime();
+  // 현재 시간과 날짜를 항상 표시 (carrot.cc :: drawDateTime 과 동일 위치/크기)
+  const int dt_x = 170;
+  const int dt_y = 185;   // 상단 정보줄과 겹치지 않도록 내림 (org: 120)
+  QDateTime now = QDateTime::currentDateTime();
 
-    p.setOpacity(1.0);
+  p.setOpacity(1.0);
+  ctText(p, dt_x, dt_y, now.toString("HH:mm"), 100, QColor(255, 255, 255, 255), true, true);
 
-    if (show_datetime == 1 || show_datetime == 2) {
-      ctText(p, dt_x, dt_y, now.toString("HH:mm"), 100, QColor(255, 255, 255, 255), true, true);
-    }
-    if (show_datetime == 1 || show_datetime == 3) {
-      // tm_wday 순서와 맞추기 위해 일요일부터
-      static const char *weekdays_ko[] = {"일", "월", "화", "수", "목", "금", "토"};
-      int wday = now.date().dayOfWeek() % 7;   // Qt: 1=월 ... 7=일  ->  0=일 ... 6=토
-      QString date_str = now.toString("MM-dd") + "(" +
-                         QString::fromUtf8(weekdays_ko[wday]) + ")";
-      ctText(p, dt_x, dt_y + 70, date_str, 60, QColor(255, 255, 255, 255), true, true);
-    }
-  }
+  // tm_wday 순서와 맞추기 위해 일요일부터
+  static const char *weekdays_ko[] = {"일", "월", "화", "수", "목", "금", "토"};
+  int wday = now.date().dayOfWeek() % 7;   // Qt: 1=월 ... 7=일  ->  0=일 ... 6=토
+  QString date_str = now.toString("MM-dd") + "(" +
+                     QString::fromUtf8(weekdays_ko[wday]) + ")";
+  ctText(p, dt_x, dt_y + 70, date_str, 60, QColor(255, 255, 255, 255), true, true);
 
 
   p.restore();
@@ -1128,8 +1122,6 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     if (carrot_atc_speed < 30 || carrot_atc_speed > 60) carrot_atc_speed = 30;
     if (carrot_atc_end_time < 2 || carrot_atc_end_time > 12) carrot_atc_end_time = 6;
     if (carrot_bump_speed < 10 || carrot_bump_speed > 100) carrot_bump_speed = 35;
-    std::string sdt = params.get("ShowDateTime");
-    show_datetime = sdt.empty() ? 1 : std::atoi(sdt.c_str());   // 0:끔 1:시간+날짜 2:시간만 3:날짜만
     std::string sga = params.get("ShowGearAnimation");
     show_gear_animation = sga.empty() ? 1 : std::atoi(sga.c_str());
     std::string sch = params.get("ShowCarrotHud");

@@ -114,7 +114,6 @@ protected:
   int  carrot_atc_speed = 30;
   int  carrot_atc_end_time = 6;
   int  carrot_bump_speed = 35;
-  int  show_datetime = 1;
   int  show_gear_animation = 1;
   int  show_carrot_hud = 1;
   int  show_path_status_color = 1;
