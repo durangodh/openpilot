@@ -1,8 +1,5 @@
 #pragma once
 
-#include <QPushButton>
-#include <QComboBox>
-
 #include "selfdrive/hardware/hw.h"
 #include "selfdrive/ui/qt/widgets/controls.h"
 
@@ -32,19 +29,4 @@ private:
 
   void refresh();
   void getUserKeys(const QString &username);
-};
-
-class TimeZoneSelectCombo : public AbstractControl 
-{
-  Q_OBJECT
-
-public:
-  TimeZoneSelectCombo();
-
-private:
-  QPushButton btn;
-  QComboBox combobox;
-  Params params;
-
-  void refresh();
 };

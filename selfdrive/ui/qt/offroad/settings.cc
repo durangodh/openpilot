@@ -1139,9 +1139,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     }
   )");
 
-  toggleLayout->addWidget(new TimeZoneSelectCombo());
-  toggleLayout->addWidget(horizontal_line());
-
   QList<ParamControl*> toggles;
   toggles.append(new ParamControl("UseClusterSpeed",
                                             "제어속도에 계기판 속도 사용",
