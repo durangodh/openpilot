@@ -333,7 +333,7 @@ class CarrotNaviAtc:
   def steering_request(state, v_ego):
     if not state["fresh"] or state["kind"] not in ("turn", "uturn"):
       return 0
-    trigger_distance = max(35.0, min(70.0, v_ego * 3.0))
+    trigger_distance = max(45.0, min(60.0, v_ego * 4.0))
     if 3.0 <= state["distance"] <= trigger_distance and v_ego <= 60.0 / 3.6:
       return state["direction"]
     return 0

@@ -141,9 +141,12 @@ def test_extended_carrot_turn_types_are_classified():
 
 
 def test_turn_steering_request_keeps_speed_distance_and_freshness_gates():
-  active = {"fresh": True, "kind": "turn", "direction": 1, "distance": 35.0}
+  active = {"fresh": True, "kind": "turn", "direction": 1, "distance": 45.0}
   assert CarrotNaviAtc.steering_request(active, 30.0 / 3.6) == 1
-  assert CarrotNaviAtc.steering_request(dict(active, distance=80.0), 30.0 / 3.6) == 0
+  assert CarrotNaviAtc.steering_request(dict(active, distance=45.1), 30.0 / 3.6) == 0
+  assert CarrotNaviAtc.steering_request(dict(active, distance=55.0), 50.0 / 3.6) == 1
+  assert CarrotNaviAtc.steering_request(dict(active, distance=60.0), 60.0 / 3.6) == 1
+  assert CarrotNaviAtc.steering_request(dict(active, distance=60.1), 60.0 / 3.6) == 0
   assert CarrotNaviAtc.steering_request(dict(active, distance=2.0), 30.0 / 3.6) == 0
   assert CarrotNaviAtc.steering_request(active, 61.0 / 3.6) == 0
   assert CarrotNaviAtc.steering_request(dict(active, fresh=False), 30.0 / 3.6) == 0
