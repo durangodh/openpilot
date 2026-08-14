@@ -1571,11 +1571,6 @@ UISettingsPanel::UISettingsPanel(QWidget* parent) : QWidget(parent) {
       "ShowGearAnimation", "기어 팝업 애니메이션",
       "켜짐: 변속단이 바뀔 때 중앙 팝업 애니메이션을 표시합니다.",
       "../assets/offroad/icon_road.png", this));
-  list->addItem(new ParamControl(
-      "ShowDebugUI", "디버그 UI 표시",
-      "켜짐: 주행 화면에 개발자용 제어 상태와 디버그 정보를 표시합니다.",
-      "../assets/offroad/icon_shell.png", this));
-
   list->addItem(horizontal_line());
   auto *status_color = new ParamControl(
       "ShowPathStatusColor", "주행 경로 상태색",

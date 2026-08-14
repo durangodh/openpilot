@@ -585,11 +585,6 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
     p.restore();
   }
 
-  if(s->show_debug && width() > 1200)
-    drawDebugText(p);
-
-  // 하단 디버그 정보(TS/AO/SR/SAD/BUS/SCC) 표시 제거
-
   drawBottomIcons(p);
 
   drawTextAnim(p);   // 팝업 애니메이션은 항상 맨 위
@@ -1463,93 +1458,6 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
       p.drawText(rect, Qt::AlignCenter, "CAM");
     }
   }
-
-  p.restore();
-}
-
-void NvgWindow::drawDebugText(QPainter &p) {
-  p.save();
-  const SubMaster &sm = *(uiState()->sm);
-  QString str, temp;
-
-  int y = 80;
-  const int height = 60;
-
-  const int text_x = width()/2 + 250;
-
-  auto controls_state = sm["controlsState"].getControlsState();
-  auto car_control = sm["carControl"].getCarControl();
-  auto car_state = sm["carState"].getCarState();
-
-  float applyAccel = controls_state.getApplyAccel();
-
-  float aReqValue = controls_state.getAReqValue();
-  float aReqValueMin = controls_state.getAReqValueMin();
-  float aReqValueMax = controls_state.getAReqValueMax();
-
-  float vEgo = car_state.getVEgo();
-  float vEgoRaw = car_state.getVEgoRaw();
-  int longControlState = (int)controls_state.getLongControlState();
-  float vPid = controls_state.getVPid();
-  float upAccelCmd = controls_state.getUpAccelCmd();
-  float uiAccelCmd = controls_state.getUiAccelCmd();
-  float ufAccelCmd = controls_state.getUfAccelCmd();
-  float accel = car_control.getActuators().getAccel();
-
-  const char* long_state[] = {"off", "pid", "stopping", "starting"};
-
-  configFont(p, "Open Sans", 35, "Regular");
-  p.setPen(QColor(255, 255, 255, 200));
-  p.setRenderHint(QPainter::TextAntialiasing);
-
-  str.sprintf("State: %s\n", long_state[longControlState]);
-  p.drawText(text_x, y, str);
-
-  y += height;
-  str.sprintf("vEgo: %.2f/%.2f\n", vEgo*3.6f, vEgoRaw*3.6f);
-  p.drawText(text_x, y, str);
-
-  y += height;
-  str.sprintf("vPid: %.2f/%.2f\n", vPid, vPid*3.6f);
-  p.drawText(text_x, y, str);
-
-  y += height;
-  str.sprintf("P: %.3f\n", upAccelCmd);
-  p.drawText(text_x, y, str);
-
-  y += height;
-  str.sprintf("I: %.3f\n", uiAccelCmd);
-  p.drawText(text_x, y, str);
-
-  y += height;
-  str.sprintf("F: %.3f\n", ufAccelCmd);
-  p.drawText(text_x, y, str);
-
-  y += height;
-  str.sprintf("Accel: %.3f\n", accel);
-  p.drawText(text_x, y, str);
-
-  y += height;
-  str.sprintf("Apply: %.3f, Stock: %.3f\n", applyAccel, aReqValue);
-  p.drawText(text_x, y, str);
-
-  y += height;
-  str.sprintf("%.3f (%.3f/%.3f)\n", aReqValue, aReqValueMin, aReqValueMax);
-  p.drawText(text_x, y, str);
-
-  y += height;
-  str.sprintf("aEgo: %.3f, %.3f\n", car_state.getAEgo(), car_state.getABasis());
-  p.drawText(text_x, y, str);
-
-  auto lead_radar = sm["radarState"].getRadarState().getLeadOne();
-  auto lead_one = sm["modelV2"].getModelV2().getLeadsV3()[0];
-
-  float radar_dist = lead_radar.getStatus() && lead_radar.getRadar() ? lead_radar.getDRel() : 0;
-  float vision_dist = lead_one.getProb() > .5 ? (lead_one.getX()[0] - 1.5) : 0;
-
-  y += height;
-  str.sprintf("Lead: %.1f/%.1f/%.1f\n", radar_dist, vision_dist, (radar_dist - vision_dist));
-  p.drawText(text_x, y, str);
 
   p.restore();
 }

@@ -189,7 +189,6 @@ protected:
   int lat_debug_font_size = 34;
   // ============================================================================
   void drawSpeedLimit(QPainter &p);
-  void drawDebugText(QPainter &p);
   void drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model);
 };
 

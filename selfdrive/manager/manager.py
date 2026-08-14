@@ -87,7 +87,6 @@ def manager_init() -> None:
     ("StockNaviDecelEnabled", "0"),
     ("KeepSteeringTurnSignals", "0"),
     ("HapticFeedbackWhenSpeedCamera", "0"),
-    ("ShowDebugUI", "0"),
     ("NewRadarInterface", "0"),
     ("WideCameraOnly", "0"),       # plannerd.py 크래시 수정
     ("ShowGearAnimation", "1"),
