@@ -779,7 +779,14 @@ class HudRenderer(object):
       "blindspot": ((235, 238, 240), (132, 140, 146), (255, 255, 255)),
     }
     body, dark, raised = palettes.get(style, palettes["traffic"])
-    rgba = lambda color, opacity=alpha: (color[0], color[1], color[2], opacity)
+    lighten = 0.30 if style in ("ego", "lead") else 0.0
+
+    def rgba(color, opacity=alpha):
+      # Make the ego and detected lead 30% lighter without changing geometry
+      # or compositing cost.
+      adjusted = tuple(int(round(channel + (255 - channel) * lighten)) for channel in color)
+      return adjusted + (opacity,)
+
     sprite = Image.new("RGBA", (240, 190), (0, 0, 0, 0))
     car = ImageDraw.Draw(sprite)
 
@@ -871,9 +878,16 @@ class HudRenderer(object):
     if distance <= 0.0 or distance > self.MAX_DISTANCE_M:
       return
     cx, cy = self._project(panel, distance, lateral)
+    panel_h = panel[3] - panel[1]
     # Preserve a clear visual gap after lifting the ego/BSD group upward.
-    cy -= max(16, int((panel[3] - panel[1]) * 0.075))
+    cy -= max(16, int(panel_h * 0.075))
     ego_w, ego_h = self._ego_vehicle_size(panel)
+    _, ego_projected_y = self._project(panel, 2.4, 0.0)
+    ego_bottom = ego_projected_y - 30
+    min_visual_gap = max(10, int(panel_h * 0.03))
+    # Keep a near lead's bottom above the ego's roof. Radar/model distance is
+    # untouched; this clamp affects only the external-HUD drawing position.
+    cy = min(cy, ego_bottom - ego_h - min_visual_gap)
     # The primary lead is intentionally half the ego size. Secondary tracks
     # remain slightly smaller so the visual hierarchy stays unambiguous.
     ratio = 0.50 if primary else 0.42
