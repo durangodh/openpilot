@@ -1093,11 +1093,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   });
   main_layout->addWidget(selectCar);
 
-  QHBoxLayout* layoutBtn = new QHBoxLayout(homeWidget);
-  layoutBtn->addWidget(selectCarBtn);
-
-  vlayout->addSpacing(10);
-  vlayout->addLayout(layoutBtn, 0);
   vlayout->addSpacing(10);
   vlayout->addWidget(scroller, 1);
 
@@ -1117,6 +1112,8 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       background-color: #444444;
     }
   )");
+
+  toggleLayout->addWidget(selectCarBtn);
 
   QList<ParamControl*> toggles;
   toggles.append(new ParamControl("UseClusterSpeed",
@@ -1141,7 +1138,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             this));
 
   for(ParamControl *toggle : toggles) {
-    if(main_layout->count() != 0) {
+    if(toggleLayout->count() != 0) {
       toggleLayout->addWidget(horizontal_line());
     }
     toggleLayout->addWidget(toggle);
