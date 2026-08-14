@@ -761,7 +761,9 @@ class HudRenderer(object):
         half_width = 1.75
         left_edge.append(self._project(panel, longitudinal, lateral + half_width))
         right_edge.append(self._project(panel, longitudinal, lateral - half_width))
-    width = max(3, self.height // 110)
+    # Slightly heavier boundaries remain cheap to draw and read more clearly
+    # after JPEG scaling on the external HUD.
+    width = max(4, int(round(max(3, self.height // 110) * 1.25)))
     if len(left_edge) >= 2:
       draw.line(left_edge, fill=(24, 126, 224), width=width, joint="curve")
     if len(right_edge) >= 2:
@@ -1041,7 +1043,7 @@ class HudRenderer(object):
     # the bottom keeps a small visual gap from the TPMS card.
     second_row_y = top + max(164, int(self.height * 0.37))
     camera_distance_y = second_row_y + max(39, self.height // 11)
-    camera_distance_size = max(10, self.height // 38)
+    camera_distance_size = max(12, int(round(max(10, self.height // 38) * 1.20)))
     card_top = camera_distance_y + camera_distance_size + 8
     card_bottom = tpms_card[1] - 8
     return tpms_card[0], card_top, tpms_card[2], card_bottom
@@ -1165,12 +1167,22 @@ class HudRenderer(object):
 
     speed_y = top + max(39, int(self.height * 0.095))
     _draw_text(draw, (center_x, speed_y), str(max(0, int(round(display_speed)))),
-               max(64, int(self.height * 0.18)), False, fill=(28, 34, 39), anchor="mm")
+               max(64, int(self.height * 0.18)), True, fill=(18, 18, 18), anchor="mm")
 
     info_y = top + max(92, int(self.height * 0.215))
     gear = str(scene.get("gear", "--") or "--").upper()
-    _draw_text(draw, (left + 28, info_y), gear, max(26, self.height // 16), True,
-               fill=(55, 62, 67), anchor="lm")
+    # Keep the complete PRND scale visible. Only the selected position is
+    # rendered solid black; the remaining positions stay deliberately faint.
+    active_gear = gear if gear in ("P", "R", "N", "D") else (
+      "D" if gear not in ("", "--") else "")
+    gear_size = max(24, self.height // 17)
+    gear_x = left + 28
+    gear_gap = max(8, panel_w // 90)
+    for gear_label in "PRND":
+      _draw_text(draw, (gear_x, info_y), gear_label, gear_size, True,
+                 fill=(18, 18, 18) if gear_label == active_gear else (174, 179, 182),
+                 anchor="lm")
+      gear_x += _text_width(gear_label, gear_size, True) + gear_gap
 
     mode = int(scene.get("driving_mode", 0) or 0)
     mode_label, mode_color = {
@@ -1179,8 +1191,9 @@ class HudRenderer(object):
       3: ("NORM", (68, 76, 82)),
       4: ("FAST", (222, 67, 70)),
     }.get(mode, ("--", (104, 111, 116)))
-    _draw_text(draw, (left + max(70, int(panel_w * 0.09)), info_y), mode_label,
-               max(22, self.height // 19), True, fill=mode_color, anchor="lm")
+    # Reuse the now-empty former cruise-gap position at the upper right.
+    _draw_text(draw, (right - 28, info_y), mode_label,
+               max(22, self.height // 19), True, fill=mode_color, anchor="rm")
     _draw_text(draw, (center_x, info_y), "KM" if is_metric else "MPH",
                max(13, self.height // 31), True, fill=(104, 111, 116), anchor="mm")
 
@@ -1197,13 +1210,14 @@ class HudRenderer(object):
 
     cruise_valid = enabled and 0.0 < cruise_kph < 255.0
     cruise_color = (18, 149, 224) if cruise_valid else (139, 147, 152)
-    cruise_radius = max(28, self.height // 16)
+    cruise_radius = max(34, int(round(max(28, self.height // 16) * 1.20)))
     draw.ellipse((center_x - cruise_radius, second_row_y - cruise_radius,
                   center_x + cruise_radius, second_row_y + cruise_radius),
                  fill=(246, 247, 247), outline=cruise_color, width=max(4, cruise_radius // 7))
     cruise_text = str(int(round(display_cruise))) if cruise_valid else "--"
-    _draw_text(draw, (center_x, second_row_y - 2), cruise_text, max(22, self.height // 17), True,
-               fill=(47, 54, 59), anchor="mm")
+    cruise_text_size = max(27, int(round(max(22, self.height // 17) * 1.20)))
+    _draw_text(draw, (center_x, second_row_y - 2), cruise_text, cruise_text_size, True,
+               fill=(18, 18, 18), anchor="mm")
     _draw_text(draw, (center_x, second_row_y + cruise_radius + 9), "SET",
                max(11, self.height // 35), True, fill=cruise_color, anchor="ma")
     camera_limit = _speed_value(float(scene.get("camera_limit_speed", 0) or 0), is_metric)
@@ -1213,8 +1227,9 @@ class HudRenderer(object):
       distance_text = _distance_text(camera_distance, is_metric, language)
       if bool(scene.get("camera_is_section", False)):
         distance_text = (("구간 " if language == "ko" else "SEC ") + distance_text)
+      camera_distance_size = max(12, int(round(max(10, self.height // 38) * 1.20)))
       _draw_text(draw, (right_x, second_row_y + max(39, self.height // 11)), distance_text,
-                 max(10, self.height // 38), True, fill=(104, 111, 116), anchor="ma")
+                 camera_distance_size, True, fill=(18, 18, 18), anchor="ma")
     if atc_box_active:
       self._draw_atc_box(image, draw, box, navi, scene)
 
@@ -1282,9 +1297,9 @@ class HudRenderer(object):
     for value, (dx, dy) in zip(values, offsets):
       valid = self._valid_tpms(value)
       text = str(int(round(float(value)))) if valid else "--"
-      color = (211, 55, 61) if valid and float(value) < 31.0 else (59, 66, 71)
+      tpms_value_size = max(16, int(round(max(13, self.height // 32) * 1.20)))
       _draw_text(draw, (center_x + dx, center_y + dy), text,
-                 max(13, self.height // 32), True, fill=color, anchor="mm")
+                 tpms_value_size, True, fill=(18, 18, 18), anchor="mm")
 
   def _draw_lead_info(self, draw, box, leads, is_metric, language):
     card = self._bottom_card_box(box, "left")
@@ -1305,20 +1320,22 @@ class HudRenderer(object):
       distance_text = "--"
       relative_text = "--"
     label_color = (103, 111, 116)
-    value_color = (54, 61, 66)
+    value_color = (18, 18, 18)
     row1_y = top + int((bottom - top) * 0.31)
     row2_y = top + int((bottom - top) * 0.72)
     lead_label = "앞차" if language == "ko" else "LEAD"
     relative_label = "상대" if language == "ko" else "REL"
     _draw_text(draw, (left + 8, row1_y), lead_label, max(11, self.height // 38), True,
                fill=label_color, anchor="lm")
-    _draw_text(draw, (right - 8, row1_y), distance_text, max(14, self.height // 28), True,
+    lead_distance_size = max(17, int(round(max(14, self.height // 28) * 1.20)))
+    _draw_text(draw, (right - 8, row1_y), distance_text, lead_distance_size, True,
                fill=value_color, anchor="rm")
     draw.line((left + 7, (top + bottom) // 2, right - 7, (top + bottom) // 2),
               fill=(195, 201, 204), width=1)
     _draw_text(draw, (left + 8, row2_y), relative_label, max(11, self.height // 38), True,
                fill=label_color, anchor="lm")
-    _draw_text(draw, (right - 8, row2_y), relative_text, max(12, self.height // 33), True,
+    lead_relative_size = max(15, int(round(max(12, self.height // 33) * 1.20)))
+    _draw_text(draw, (right - 8, row2_y), relative_text, lead_relative_size, True,
                fill=value_color, anchor="rm")
 
   def _draw_alert(self, draw, alert, box=None):
