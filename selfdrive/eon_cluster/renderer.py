@@ -958,14 +958,16 @@ class HudRenderer(object):
     # The former half-ellipse was centered below the car and looked like a pair
     # of U shapes. These mirrored, nested strokes start beside the rear corners
     # and sweep outward, matching a conventional blind-spot/radar symbol.
-    for outward in (0, max(10, ego_w // 7)):
+    for index, outward in enumerate((0, max(10, ego_w // 7))):
       points = [
         (side_x + direction * outward, rear_y - 18),
         (side_x + direction * (outward + 2), rear_y - 8),
         (side_x + direction * (outward + 7), rear_y + 2),
         (side_x + direction * (outward + 16), rear_y + 10),
       ]
-      draw.line(points, fill=color, width=stroke_width, joint="curve")
+      # Emphasize the outer radar wave while retaining a finer inner mark.
+      line_width = stroke_width if index == 0 else max(stroke_width + 2, int(round(stroke_width * 1.5)))
+      draw.line(points, fill=color, width=line_width, joint="curve")
 
   def _draw_bipolar_gauge(self, draw, center_x, top, bottom, value, color, label, value_text):
     value = _clamp(float(value), -1.0, 1.0)
