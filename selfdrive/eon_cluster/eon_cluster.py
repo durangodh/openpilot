@@ -312,7 +312,13 @@ def main():
           scene["camera_limit_speed"] = 0
           scene["camera_distance"] = 0
           scene["camera_is_section"] = False
-        scene["cruise_gap"] = int(_field(car_state, "cruiseGap", 0) or 0)
+        # Match the EON GAP display: longCruiseGap is the live software gap
+        # used by openpilot longitudinal control. Fall back to the stock SCC
+        # gap only while controlsState has not published a valid step yet.
+        cruise_gap = int(_field(controls_state, "longCruiseGap", 0) or 0)
+        if not 1 <= cruise_gap <= 4:
+          cruise_gap = int(_field(car_state, "cruiseGap", 0) or 0)
+        scene["cruise_gap"] = cruise_gap if 1 <= cruise_gap <= 4 else 0
         driving_mode = int(_field(controls_state, "myDrivingMode", 3) or 3)
         scene["driving_mode"] = driving_mode if 1 <= driving_mode <= 4 else 3
         scene["screen_mode"] = _param_int(params, PARAM_SCREEN_MODE, 1, 1, 3)
