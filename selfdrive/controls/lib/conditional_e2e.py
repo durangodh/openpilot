@@ -45,6 +45,8 @@ class ConditionalE2EController:
   def reset(self):
     self.stopping = False
     self.prepare = False
+    self.traffic_error = False
+    self.green_detected = False
     self.stop_distance = 0.0
     self.stop_sign_count = 0
     self.start_sign_count = 0
@@ -57,7 +59,12 @@ class ConditionalE2EController:
 
   @property
   def traffic_state(self):
-    return 2 if self.prepare else (1 if self.stopping else 0)
+    state = 2 if self.prepare else (1 if self.stopping else 0)
+    if self.traffic_error and self.stopping:
+      # Keep C3's +1000 compatibility while retaining the detected signal:
+      # 1001 = manual-confirm hold, 1002 = green detected, RES/+ required.
+      return 1002 if self.green_detected else 1001
+    return state
 
   @property
   def vision_lead_confirmed(self):
@@ -77,7 +84,7 @@ class ConditionalE2EController:
              model_x, model_y, model_v0, model_v_end, v_ego,
              steering_angle_deg, gas_pressed, brake_pressed, right_blinker,
              lead_present, radar_lead_present, radar_lead_distance,
-             vision_lead_present):
+             vision_lead_present, resume_pressed=False, manual_hold_pressed=False):
     if not available:
       self.reset()
       return 'acc'
@@ -124,6 +131,14 @@ class ConditionalE2EController:
     self.start_sign_count = self.start_sign_count + 1 if raw_start_sign else 0
     stop_sign = self.stop_sign_count > 0 and not right_blinker
     start_sign = self.start_sign_count * self.dt >= E2E_START_CONFIRM_TIME
+    self.green_detected = bool(start_sign)
+
+    # C3-compatible manual confirmation for the current signal stop. SET/-
+    # holds the car even after a green prediction; RES/+ clears the hold.
+    if self.stopping and v_ego < 0.1 and manual_hold_pressed:
+      self.traffic_error = True
+    if self.stopping and resume_pressed:
+      self.traffic_error = False
 
     # Confirm both acquisition and release. Radar/vision classification can
     # flicker for a frame near standstill; dropping E2E immediately creates a
@@ -142,15 +157,17 @@ class ConditionalE2EController:
                               radar_lead_distance - filtered_stop_x < 2.0)
 
     if self.stopping:
-      if start_sign or gas_pressed:
+      if gas_pressed or (start_sign and not self.traffic_error):
         self.stopping = False
         self.prepare = True
+        self.traffic_error = False
         self.mode_release_hold_count = 0
         self.stop_distance = 0.0
       elif radar_lead_before_stop:
         # The real lead is closer than the model stop line; let ACC follow it.
         self.stopping = False
         self.prepare = False
+        self.traffic_error = False
         self.stop_distance = 0.0
       elif v_ego < 0.1:
         self.stop_distance = 0.0
@@ -165,15 +182,19 @@ class ConditionalE2EController:
       if brake_pressed or prepare_abort:
         self.prepare = False
         self.stopping = True
+        if brake_pressed:
+          self.traffic_error = True
         self.mode_release_hold_count = self.mode_release_hold_frames
         self.stop_distance = 0.0 if v_ego < 0.1 else filtered_stop_x
       elif v_ego_kph > 5.0 and model_x > E2E_START_MIN_DISTANCE:
         self.prepare = False
+        self.traffic_error = False
         self.mode_release_hold_count = self.mode_release_hold_frames
 
     elif (stop_sign and not lead_present and
           abs(steering_angle_deg) <= 5.0 and not gas_pressed):
       self.stopping = True
+      self.traffic_error = False
       self.stop_distance = 0.0 if v_ego < 0.1 else max(filtered_stop_x, v_ego ** 2 / 4.0)
 
     return self.select_mode(experimental_mode, traffic_stop_mode)

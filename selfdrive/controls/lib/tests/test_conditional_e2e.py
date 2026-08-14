@@ -170,6 +170,50 @@ def test_brake_cancels_departure_prepare():
          model_v_end=1.0, brake_pressed=True)
   assert controller.stopping
   assert not controller.prepare
+  assert controller.traffic_error
+
+
+def test_manual_signal_confirmation_requires_resume():
+  controller = ConditionalE2EController(DT_MDL)
+  enter_stop(controller, distance=30.0, v_ego=1.0)
+  update(controller, model_x=10.0, model_v0=10.0,
+         model_v_end=1.0, v_ego=0.05, manual_hold_pressed=True)
+  assert controller.traffic_state == 1001
+
+  # A confirmed green prediction changes the detailed state, but the manual
+  # hold keeps the virtual stop active until the driver confirms departure.
+  for _ in range(20):
+    update(controller, model_x=100.0, model_v0=10.0,
+           model_v_end=8.0, v_ego=1.0)
+    assert controller.stopping
+    assert not controller.prepare
+  assert controller.traffic_state == 1002
+
+  mode = update(controller, model_x=100.0, model_v0=10.0,
+                model_v_end=8.0, v_ego=1.0, resume_pressed=True)
+  assert mode == 'blended'
+  assert not controller.stopping
+  assert controller.prepare
+  assert not controller.traffic_error
+  assert controller.traffic_state == 2
+
+
+def test_manual_signal_confirmation_allows_gas_and_resets_when_disabled():
+  controller = ConditionalE2EController(DT_MDL)
+  enter_stop(controller, distance=30.0, v_ego=1.0)
+  update(controller, model_x=10.0, model_v0=10.0,
+         model_v_end=1.0, v_ego=0.05, manual_hold_pressed=True)
+  assert controller.traffic_error
+
+  update(controller, model_x=30.0, model_v0=10.0,
+         model_v_end=1.0, gas_pressed=True)
+  assert controller.prepare
+  assert not controller.traffic_error
+
+  controller.traffic_error = True
+  update(controller, available=False)
+  assert controller.traffic_state == 0
+  assert not controller.traffic_error
 
 
 def test_departure_prepare_stops_immediately_but_holds_blended_mode():

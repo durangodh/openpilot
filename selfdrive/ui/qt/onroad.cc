@@ -572,6 +572,7 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   drawSpeedLimit(p);
   drawCarrotInfo(p);
   drawCarrotBottom(p);
+  drawTrafficSignalStatus(p);
 
   if (sm["carControl"].getCarControl().getHudControl().getSoftHold()) {
     p.save();
@@ -724,6 +725,44 @@ void NvgWindow::ctTextIn(QPainter &p, const QRect &box, const QString &text, int
 
   p.setPen(color);
   p.drawText(box.x() + (box.width() - w) / 2, baseline, text);
+}
+
+void NvgWindow::drawTrafficSignalStatus(QPainter &p) {
+  const SubMaster &sm = *(uiState()->sm);
+  const auto controls_state = sm["controlsState"].getControlsState();
+  if (!controls_state.getEnabled()) return;
+
+  const int raw_state = sm["longitudinalPlan"].getLongitudinalPlan().getTrafficState();
+  const int state = raw_state % 100;
+  if (state != 1 && state != 2) return;
+
+  const bool manual_confirmation = raw_state >= 1000;
+  QString title;
+  QString detail;
+  QColor fill;
+
+  if (manual_confirmation) {
+    title = state == 2 ? QString::fromUtf8("출발 확인 필요") : QString::fromUtf8("수동 확인 대기");
+    detail = state == 2 ? QString::fromUtf8("RES/+ 또는 가속페달로 출발")
+                        : QString::fromUtf8("SET/- 수동확인 모드 · 정지 유지");
+    fill = CT_ORANGE_A(235);
+  } else if (state == 2) {
+    title = QString::fromUtf8("출발 신호");
+    detail = QString::fromUtf8("자동 출발 준비");
+    fill = CT_GREEN_A(230);
+  } else {
+    title = QString::fromUtf8("신호 정지 중");
+    detail = QString::fromUtf8("모델 정지 신호 감지");
+    fill = CT_RED_A(230);
+  }
+
+  p.save();
+  const int panel_w = 620;
+  const QRect panel((width() - panel_w) / 2, height() - 310, panel_w, 106);
+  ctRect(p, panel, fill, 22, 3, CT_WHITE_A(210));
+  ctTextIn(p, QRect(panel.x(), panel.y() + 4, panel.width(), 55), title, 40, CT_WHITE, true);
+  ctTextIn(p, QRect(panel.x(), panel.y() + 55, panel.width(), 43), detail, 25, CT_WHITE, false);
+  p.restore();
 }
 
 void NvgWindow::drawCarrotInfo(QPainter &p) {
