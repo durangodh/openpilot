@@ -304,11 +304,13 @@ def main():
                              "right": bool(_field(car_state, "rightBlinker", False))}
         scene["trip_report"] = trip.snapshot()
         alert_text1 = str(_field(controls_state, "alertText1", "") or "")
-        if alert_text1:
+        alert_text2 = str(_field(controls_state, "alertText2", "") or "")
+        if alert_text1 or alert_text2:
           scene["alert"] = {
             "text1": alert_text1,
-            "text2": str(_field(controls_state, "alertText2", "") or ""),
+            "text2": alert_text2,
             "status": str(_field(controls_state, "alertStatus", "")),
+            "size": str(_field(controls_state, "alertSize", "")),
           }
         navi_state = read_navi_state()
         scene["navi_live"] = bool(navi_state)

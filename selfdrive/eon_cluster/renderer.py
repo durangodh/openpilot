@@ -255,6 +255,31 @@ def _draw_text(draw, xy, text, size, bold=False, fill=(255, 255, 255), anchor="l
   draw.bitmap((x, y), mask, fill=fill)
 
 
+def _text_width(text, size, bold=False):
+  key = (int(size), bool(bold))
+  font = _font(size, bold)
+  if key in _BITMAP_FONT_KEYS:
+    return _bitmap_text_mask(text, size, bold, font).width
+  try:
+    return int(math.ceil(font.getlength(str(text))))
+  except (AttributeError, TypeError, ValueError):
+    bbox = font.getbbox(str(text))
+    return max(0, int(bbox[2] - bbox[0]))
+
+
+def _draw_stroked_text(draw, xy, text, size, bold=False, fill=(255, 255, 255),
+                       stroke_fill=(0, 0, 0), stroke_width=3, anchor="la"):
+  stroke_width = max(0, int(stroke_width))
+  if stroke_width:
+    x, y = xy
+    offsets = ((-stroke_width, 0), (stroke_width, 0), (0, -stroke_width), (0, stroke_width),
+               (-stroke_width, -stroke_width), (-stroke_width, stroke_width),
+               (stroke_width, -stroke_width), (stroke_width, stroke_width))
+    for dx, dy in offsets:
+      _draw_text(draw, (x + dx, y + dy), text, size, bold, stroke_fill, anchor)
+  _draw_text(draw, xy, text, size, bold, fill, anchor)
+
+
 def read_navi_state(path=NAVI_STATE):
   try:
     with open(path, "r") as f:
@@ -1019,24 +1044,41 @@ class HudRenderer(object):
       _draw_text(draw, (center_x + dx, center_y + dy), text, max(16, self.height // 24), True,
                  fill=color, anchor="mm")
 
-  def _draw_alert(self, draw, alert):
-    if not alert or not alert.get("text1"):
+  def _draw_alert(self, draw, alert, box=None):
+    if not alert or not (alert.get("text1") or alert.get("text2")):
       return
+    left, top, right, bottom = box or (0, 0, self.width, self.height)
+    text1 = " ".join(str(alert.get("text1", "") or "").split())
+    text2 = " ".join(str(alert.get("text2", "") or "").split())
+    if not text1:
+      text1, text2 = text2, ""
+
     status = str(alert.get("status", "")).lower()
     critical = status in ("critical", "2") or "critical" in status
-    color = (225, 55, 55) if critical else (255, 169, 45)
-    height = max(105, int(self.height * 0.31))
-    top = (self.height - height) // 2
-    margin = max(34, self.width // 32)
-    draw.rounded_rectangle((margin, top, self.width - margin, top + height), radius=22,
-                           fill=(10, 14, 19), outline=color, width=max(4, self.height // 80))
-    text1 = str(alert.get("text1", ""))
-    text2 = str(alert.get("text2", ""))
-    _draw_text(draw, (self.width // 2, top + int(height * 0.38)), text1,
-               max(30, self.height // 10), True, fill=(250, 250, 250), anchor="mm")
+    prompt = status in ("userprompt", "warning", "1") or "prompt" in status or "warning" in status
+    title_color = (255, 82, 96) if critical else (255, 174, 82) if prompt else (255, 255, 255)
+    alert_size = str(alert.get("size", "")).lower()
+    preferred_title_size = max(34, self.height // (8 if "full" in alert_size else 10))
+    preferred_detail_size = max(20, self.height // 16)
+    max_text_width = max(120, right - left - max(100, (right - left) // 8))
+    title_size = preferred_title_size
+    while title_size > 28 and _text_width(text1, title_size, True) > max_text_width:
+      title_size -= 2
+    detail_size = preferred_detail_size
+    while text2 and detail_size > 18 and _text_width(text2, detail_size) > max_text_width:
+      detail_size -= 2
+
+    center_x = (left + right) // 2
+    center_y = (top + bottom) // 2
+    stroke_width = max(2, self.height // 154)
     if text2:
-      _draw_text(draw, (self.width // 2, top + int(height * 0.73)), text2,
-                 max(20, self.height // 16), True, fill=(205, 215, 222), anchor="mm")
+      _draw_stroked_text(draw, (center_x, center_y - max(18, self.height // 18)), text1,
+                         title_size, True, title_color, (0, 0, 0), stroke_width, "mm")
+      _draw_stroked_text(draw, (center_x, center_y + max(25, self.height // 13)), text2,
+                         detail_size, False, (255, 255, 255), (0, 0, 0), stroke_width, "mm")
+    else:
+      _draw_stroked_text(draw, (center_x, center_y), text1, title_size, True,
+                         title_color, (0, 0, 0), stroke_width, "mm")
 
   def _draw_driving_panel(self, image, draw, box, speed_kph, cruise_kph, enabled, limit, scene):
     left, top, right, bottom = box
@@ -1396,7 +1438,7 @@ class HudRenderer(object):
     route_visible = monotonic_now < self._route_visible_until
     if screen_mode == 3:
       self._draw_graph_panel(draw, (0, 0, self.width, self.height), theme, "FULL LIVE GRAPH")
-      self._draw_alert(draw, scene.get("alert"))
+      self._draw_alert(draw, scene.get("alert"), (0, 0, self.width, self.height))
       return image
     divider = int(self.width * self.DRIVE_RATIO)
     speed_state = navi.get("speed") or {}
@@ -1430,7 +1472,7 @@ class HudRenderer(object):
       # grace period above absorbs atomic JSON replacement without map/report flicker.
       self._draw_trip_report(draw, info_box, scene.get("trip_report") or {},
                              theme, language, is_metric)
-    self._draw_alert(draw, scene.get("alert"))
+    self._draw_alert(draw, scene.get("alert"), driving_box)
     return image
 
   def encode_portrait_jpeg(self, image):

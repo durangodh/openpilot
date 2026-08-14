@@ -50,7 +50,8 @@ model lanes, the planned path, radar leads, current speed, cruise speed, and
 road speed limit. The right 40% keeps the TMap map, turn guidance, lane image,
 and remaining distance. No road-camera pixels are copied or encoded.
 
-The lightweight HUD also mirrors active openpilot alerts, shows Hyundai/Kia
+The lightweight HUD also mirrors active openpilot alerts as outlined text
+without covering the driving or navigation background, shows Hyundai/Kia
 TPMS values, EV/HEV status when available, and the current
 ECO/SAFE/NORM/FAST driving mode. It replaces the navigation panel with an
 expanded trip summary including engaged ratio and peak acceleration/deceleration

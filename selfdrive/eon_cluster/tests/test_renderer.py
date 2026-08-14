@@ -399,7 +399,45 @@ def test_cluster_overlays_and_swapped_layout_render():
   scene["alert"] = {"text1": "TAKE CONTROL", "text2": "System Unresponsive", "status": "critical"}
   alert_frame = renderer.render(82.0, 90.0, True, {}, scene)
   colors = set(alert_frame.getdata())
-  assert (225, 55, 55) in colors
+  assert (255, 82, 96) in colors
+
+
+def test_cluster_alert_is_background_free_and_stays_in_driving_panel():
+  from PIL import Image, ImageDraw, ImageChops
+  renderer = HudRenderer(1920, 462, 50)
+  background = (31, 67, 101)
+  base = Image.new("RGB", (1920, 462), background)
+  frame = base.copy()
+  driving_box = (0, 0, 1149, 462)
+  renderer._draw_alert(ImageDraw.Draw(frame), {
+    "text1": "TAKE CONTROL",
+    "text2": "System Unresponsive",
+    "status": "critical",
+    "size": "full",
+  }, driving_box)
+
+  changed = ImageChops.difference(base, frame).getbbox()
+  assert changed is not None
+  assert changed[0] >= driving_box[0]
+  assert changed[2] <= driving_box[2]
+  assert frame.getpixel((20, 20)) == background
+  assert frame.getpixel((1500, 231)) == background
+  assert (255, 82, 96) in set(frame.getdata())
+
+
+def test_cluster_alert_promotes_detail_when_title_is_empty():
+  from PIL import Image, ImageDraw, ImageChops
+  renderer = HudRenderer(1920, 462, 50)
+  base = Image.new("RGB", (1920, 462), (7, 12, 18))
+  frame = base.copy()
+  renderer._draw_alert(ImageDraw.Draw(frame), {
+    "text1": "",
+    "text2": "System Unresponsive",
+    "status": "warning",
+    "size": "mid",
+  }, (0, 0, 1149, 462))
+  assert ImageChops.difference(base, frame).getbbox() is not None
+  assert (255, 174, 82) in set(frame.getdata())
 
 
 def test_all_cluster_screen_modes_render_distinct_views():
