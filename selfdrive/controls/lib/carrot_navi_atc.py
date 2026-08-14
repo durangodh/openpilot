@@ -86,18 +86,18 @@ class CarrotNaviAtc:
       status = root.get("navigation_status") or {}
       off_route = bool(_first(status, ("off_route", "offRoute"), False))
       guidance_active = _first(status, ("guidance_active", "guidanceActive"), None)
-      navigation_blocked = off_route or guidance_active is False
+      guidance_blocked = off_route or guidance_active is False
 
       self.state = self.guidance_state(
-        root.get("guidance_current") or {}, guidance_fresh and not navigation_blocked)
-      self.state["off_route"] = navigation_blocked
+        root.get("guidance_current") or {}, guidance_fresh and not guidance_blocked)
+      self.state["off_route"] = off_route
       route_updated_at = stream_times.get("route", guidance_updated_at)
       vehicle_updated_at = stream_times.get("vehicle", guidance_updated_at)
       route_age = time.time() - _number(route_updated_at, 0.0) / 1000.0
       vehicle_age = time.time() - _number(vehicle_updated_at, 0.0) / 1000.0
       self.state["route_fresh"] = (-5.0 <= route_age <= STALE_TIMEOUT and
                                    -5.0 <= vehicle_age <= STALE_TIMEOUT and
-                                   not navigation_blocked)
+                                   not guidance_blocked)
       self.state["route"] = root.get("route")
       self.state["vehicle"] = root.get("vehicle")
       speed_state = root.get("speed") or {}
@@ -105,7 +105,7 @@ class CarrotNaviAtc:
       speed_age = time.time() - _number(speed_updated_at, 0.0) / 1000.0
       self.state["speed_fresh"] = (-5.0 <= speed_age <= STALE_TIMEOUT and
                                    isinstance(speed_state, dict) and
-                                   not navigation_blocked)
+                                   not off_route)
       self.state["speed"] = speed_state if self.state["speed_fresh"] else None
       self.state["road_limit_kph"] = _number(_first(
         speed_state, ("road_limit_kph", "limit_speed", "roadLimitKph",
@@ -115,7 +115,7 @@ class CarrotNaviAtc:
       # after the current one, but steering continues to use current guidance only.
       next_updated_at = stream_times.get("guidance_next", guidance_updated_at)
       next_age = time.time() - _number(next_updated_at, 0.0) / 1000.0
-      next_fresh = -5.0 <= next_age <= STALE_TIMEOUT and not navigation_blocked
+      next_fresh = -5.0 <= next_age <= STALE_TIMEOUT and not guidance_blocked
       next_state = self.guidance_state(root.get("guidance_next") or {}, next_fresh)
       self.state["next"] = next_state if next_state["fresh"] else None
     except (IOError, OSError, ValueError, TypeError):
