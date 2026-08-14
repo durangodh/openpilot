@@ -1119,11 +1119,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "켜짐: 제어용 차량속도를 계기판 속도로 사용합니다. / 꺼짐(권장): 휠 속도를 사용합니다. 변경 후 다음 주행부터 적용됩니다.",
                                             "../assets/offroad/icon_road.png",
                                             this));
-  toggles.append(new ParamControl("LongControlEnabled",
-                                            "현대·기아 종방향 제어",
-                                            "켜짐: 오픈파일럿이 가속과 제동을 제어합니다. 시험 기능이므로 주행 중 항상 전방을 확인하십시오.",
-                                            "../assets/offroad/icon_road.png",
-                                            this));
   toggles.append(new ParamControl("LaneChangeEnabled",
                                             "차선변경 보조",
                                             "켜짐: 방향지시등과 운전자 조향 입력으로 차선변경을 보조합니다. 주변 차량의 안전 여부는 운전자가 직접 확인해야 합니다.",
@@ -1379,6 +1374,12 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
   ListWidget* list = new ListWidget(this);
   list->setSpacing(0);
+
+  list->addItem(new ParamControl(
+      "LongControlEnabled", "롱컨트롤 사용(배선개조)",
+      "켜짐: 배선 개조가 완료된 현대·기아 차량에서 오픈파일럿이 가속과 제동을 제어합니다. 배선 개조가 안 된 차량에서는 켜지 마십시오.",
+      "../assets/offroad/icon_road.png", this));
+  list->addItem(horizontal_line());
 
   list->addItem(new ParamValueControlF(
       "TrafficStopMode", "E2E/ACC 조건부 선택",
