@@ -1014,11 +1014,11 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
     {"Network", network_panel(this)},
     {"Toggles", toggles},
     {"Software", new SoftwarePanel(this)},
-    {"네비MAP", new CommunityPanel(this)},
     {"UI 설정", new UISettingsPanel(this)},
     {"조향", new VIPPanel(this)},
     {"Cruise", new CruisePanel(this)},
     {"롱컨", new LongitudinalPanel(this)},
+    {"네비MAP", new CommunityPanel(this)},
   };
 
 #ifdef ENABLE_MAPS
@@ -1118,6 +1118,25 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   pal.setColor(QPalette::Background, QColor(0x29, 0x29, 0x29));
   setAutoFillBackground(true);
   setPalette(pal);
+
+  auto *atc_mode = new ParamValueControlF(
+      "CarrotAutoTurnControl", "내비 ATC 모드",
+      "0: 끔 / 1: 회전 조향보조 / 2: 조향보조+회전감속 / 3: 회전감속만 사용.",
+      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 0, this);
+  atc_mode->showDescription();
+  toggleLayout->addWidget(atc_mode);
+
+  toggleLayout->addWidget(new ParamValueControlF(
+      "CarrotAutoTurnSpeed", "ATC 회전속도",
+      "회전 구간 목표속도(km/h)이며 모드 2·3에서 적용됩니다. 값 증가(+): 더 빠르게 회전 / 값 감소(-): 더 많이 감속.",
+      "../assets/offroad/icon_speed_limit.png", 30, 60, 5, 0, 30, this));
+
+  toggleLayout->addWidget(new ParamValueControlF(
+      "CarrotAutoTurnEndTime", "ATC 감속시점",
+      "회전감속 준비시간(초)이며 모드 2·3에서 적용됩니다. 값 증가(+): 더 일찍 감속 시작 / 값 감소(-): 회전에 가까워져 감속.",
+      "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
+
+  toggleLayout->addWidget(horizontal_line());
 
   toggleLayout->addWidget(new ParamControl("TurnVisionControl",
                                            "최신 비전·지도 커브감속",
@@ -1713,25 +1732,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "자동 차선변경 최저속도",
       "자동·방향지시등 차선변경 허용 최저속도(km/h)입니다. 값 증가(+): 더 높은 속도에서만 작동 / 값 감소(-): 저속에서도 작동.",
       "../assets/offroad/icon_road.png", 0, 100, 10, 0, 50, this));
-
-  list->addItem(horizontal_line());
-
-  auto *atc_mode = new ParamValueControlF(
-      "CarrotAutoTurnControl", "캐럿 내비 ATC 모드",
-      "0: 끔 / 1: 회전 조향보조 / 2: 조향보조+회전감속 / 3: 회전감속만 사용.",
-      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 0, this);
-  atc_mode->showDescription();
-  list->addItem(atc_mode);
-
-  list->addItem(new ParamValueControlF(
-      "CarrotAutoTurnSpeed", "캐럿 ATC 회전속도",
-      "회전 구간 목표속도(km/h)이며 모드 2·3에서 적용됩니다. 값 증가(+): 더 빠르게 회전 / 값 감소(-): 더 많이 감속.",
-      "../assets/offroad/icon_speed_limit.png", 30, 60, 5, 0, 30, this));
-
-  list->addItem(new ParamValueControlF(
-      "CarrotAutoTurnEndTime", "캐럿 ATC 감속시점",
-      "회전감속 준비시간(초)이며 모드 2·3에서 적용됩니다. 값 증가(+): 더 일찍 감속 시작 / 값 감소(-): 회전에 가까워져 감속.",
-      "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
 
   list->addItem(horizontal_line());
 
