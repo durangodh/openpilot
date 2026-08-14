@@ -1144,8 +1144,8 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
 
   QList<ParamControl*> toggles;
   toggles.append(new ParamControl("UseClusterSpeed",
-                                            "계기판 속도 사용",
-                                            "켜짐: 차량 계기판 속도를 사용합니다. / 꺼짐: 휠 속도를 사용합니다.",
+                                            "제어속도에 계기판 속도 사용",
+                                            "켜짐: 제어용 차량속도를 계기판 속도로 사용합니다. / 꺼짐(권장): 휠 속도를 사용합니다. 변경 후 다음 주행부터 적용됩니다.",
                                             "../assets/offroad/icon_road.png",
                                             this));
   toggles.append(new ParamControl("LongControlEnabled",
