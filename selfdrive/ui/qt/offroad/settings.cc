@@ -1159,6 +1159,18 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "AutoNaviSpeedDecelRate", "지도 커브 감속도",
       "티맵 커브 진입 감속 강도(×0.01m/s²)입니다. 값 증가(+): 늦고 강하게 감속 / 값 감소(-): 일찍 부드럽게 감속.",
       "../assets/offroad/icon_road.png", 10, 300, 10, 0, 120, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoNaviSpeedCtrlEnd", "카메라 감속완료 시간 (초)",
+      "C3 방식의 카메라 감속 완료지점입니다. 값 증가(+): 카메라에서 더 먼 지점까지 감속을 완료합니다.",
+      "../assets/offroad/icon_speed_limit.png", 3, 20, 1, 0, 7, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoNaviSpeedBumpTime", "방지턱 감속완료 시간 (초)",
+      "C3 방식의 방지턱 감속 완료지점입니다. 목표속도로 이 시간만큼 주행할 거리 전에 감속을 완료합니다.",
+      "../assets/offroad/icon_speed_limit.png", 1, 50, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoNaviSpeedBumpSpeed", "방지턱 목표속도 (km/h)",
+      "C3 방식의 고정 방지턱 통과 목표속도입니다. 카메라 안전비율은 적용하지 않습니다.",
+      "../assets/offroad/icon_speed_limit.png", 10, 100, 5, 0, 35, this));
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("StockNaviDecelEnabled",
                                             "순정 내비 기반 감속",
@@ -1345,21 +1357,6 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "AutoNaviSpeedSafetyFactor", "내비 감속 안전비율 (%)",
       "카메라·구간단속 목표속도 비율입니다. 값 증가(+): 목표속도가 높아져 감속이 줄어듦 / 값 감소(-): 더 낮게 감속 / 100: 원래 속도.",
       "../assets/offroad/icon_road.png", 80, 120, 1, 0, 105, this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoNaviSpeedCtrlEnd", "카메라 감속완료 시간 (초)",
-      "C3 방식의 카메라 감속 완료지점입니다. 값 증가(+): 카메라에서 더 먼 지점까지 감속을 완료합니다.",
-      "../assets/offroad/icon_speed_limit.png", 3, 20, 1, 0, 7, this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoNaviSpeedBumpTime", "방지턱 감속완료 시간 (초)",
-      "C3 방식의 방지턱 감속 완료지점입니다. 목표속도로 이 시간만큼 주행할 거리 전에 감속을 완료합니다.",
-      "../assets/offroad/icon_speed_limit.png", 1, 50, 1, 0, 1, this));
-
-  list->addItem(new ParamValueControlF(
-      "AutoNaviSpeedBumpSpeed", "방지턱 목표속도 (km/h)",
-      "C3 방식의 고정 방지턱 통과 목표속도입니다. 카메라 안전비율은 적용하지 않습니다.",
-      "../assets/offroad/icon_speed_limit.png", 10, 100, 5, 0, 35, this));
 
   list->addItem(new ParamControl(
       "AutoGasResumeGuard", "가속페달 자동재개 안전조건",
