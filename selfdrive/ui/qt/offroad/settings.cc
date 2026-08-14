@@ -1199,12 +1199,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "티맵 커브 진입 감속 강도(×0.01m/s²)입니다. 값 증가(+): 늦고 강하게 감속 / 값 감소(-): 일찍 부드럽게 감속.",
       "../assets/offroad/icon_road.png", 10, 300, 10, 0, 120, this));
   toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new ParamControl("SccSmootherSyncGasPressed",
-                                            "가속페달 설정속도 동기화",
-                                            "켜짐: 가속페달로 설정속도보다 빨라지면 현재 차량속도로 설정속도를 올립니다.",
-                                            "../assets/offroad/icon_road.png",
-                                            this));
-  toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("StockNaviDecelEnabled",
                                             "순정 내비 기반 감속",
                                             "켜짐: 순정 내비게이션의 제한속도·카메라 정보를 종방향 감속에 사용합니다.",
