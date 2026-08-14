@@ -226,9 +226,9 @@ def test_vehicle_sprites_are_cached_realistic_and_shadow_free():
   for sprite in (base_sprite, lead_base, braking_base):
     assert not any(red > green + 50 and red > blue + 50 and alpha > 0
                    for red, green, blue, alpha in sprite.getdata())
-  assert (58, 64, 69, 255) in set(base_sprite.getdata())
-  assert (152, 157, 161, 255) in set(lead_base.getdata())
-  assert sum((58, 64, 69)) < sum((152, 157, 161))
+  assert (86, 91, 95, 255) in set(base_sprite.getdata())
+  assert (178, 182, 185, 255) in set(lead_base.getdata())
+  assert sum((86, 91, 95)) < sum((178, 182, 185))
   ego_sprite = renderer._vehicle_sprite("ego", 104, 96)
   assert ego_sprite is renderer._vehicle_sprite("ego", 105, 97)
   traffic_sprite = renderer._vehicle_sprite("traffic", 104, 96, marker=True)
@@ -258,13 +258,13 @@ def test_vehicle_sprite_cache_stays_bounded():
   assert len(renderer._vehicle_sprite_cache) == 48
 
 
-def test_tesla_style_vehicle_scale_keeps_ego_prominent_and_leads_smooth():
+def test_requested_vehicle_scale_keeps_lead_half_of_smaller_ego(monkeypatch):
   renderer = HudRenderer(1920, 462, 60)
-  panel = (0, 0, 1150, 462)
-  panel_w = panel[2] - panel[0]
-  panel_h = panel[3] - panel[1]
-  ego_w = max(112, int(panel_w * 0.115))
-  ego_h = max(104, int(panel_h * 0.265))
+  panel = (0, 217, 765, 462)
+  ego_w, ego_h = renderer._ego_vehicle_size(panel)
+  calls = []
+  monkeypatch.setattr(renderer, "_draw_vehicle_shape",
+                      lambda *_args, **_kwargs: calls.append(_args))
 
   from PIL import Image, ImageDraw
   frame = Image.new("RGB", (1920, 462), (239, 241, 242))
@@ -272,18 +272,12 @@ def test_tesla_style_vehicle_scale_keeps_ego_prominent_and_leads_smooth():
   renderer._draw_lead(frame, draw, panel,
                       {"distance": 35.0, "lateral": 0.0, "relative_speed": 0.0},
                       True, 0, True)
-  first_w, first_h, _ = renderer._lead_size_history["primary"]
-  assert first_w < ego_w * 0.65
-  assert first_h < ego_h * 0.65
-
-  renderer._draw_lead(frame, draw, panel,
-                      {"distance": 34.0, "lateral": 0.0, "relative_speed": 0.0},
-                      True, 0, True)
-  second_w, second_h, _ = renderer._lead_size_history["primary"]
-  # A one-metre model change must move gradually instead of snapping to a
-  # different cached sprite bucket.
-  assert 0.0 < second_w - first_w < 1.0
-  assert 0.0 < second_h - first_h < 1.0
+  assert calls
+  _, _, _, lead_w, lead_h, style = calls[-1][:6]
+  assert (lead_w, lead_h) == (max(24, int(round(ego_w * 0.5))),
+                              max(24, int(round(ego_h * 0.5))))
+  assert style == "lead"
+  assert ego_w <= 78 and ego_h <= 73
 
 
 def test_stationary_radar_uses_green_3d_world_block():
@@ -298,7 +292,7 @@ def test_stationary_radar_uses_green_3d_world_block():
   assert (54, 207, 121) in colors
 
 
-def test_blindspot_flags_draw_rear_quarter_vehicles():
+def test_blindspot_flags_draw_dark_gray_brackets():
   renderer = HudRenderer(1920, 462, 50)
   scene = {"lanes": [], "edges": [], "leads": []}
   base = renderer.render(55.0, 88.0, True, {}, scene)
@@ -308,8 +302,8 @@ def test_blindspot_flags_draw_rear_quarter_vehicles():
   assert left.tobytes() != base.tobytes()
   assert right.tobytes() != base.tobytes()
   assert left.tobytes() != right.tobytes()
-  blindspot_sprite = renderer._build_vehicle_base_sprite("blindspot", marker=True)
-  assert (235, 238, 240, 220) in set(blindspot_sprite.getdata())
+  assert (67, 73, 78) in set(left.getdata())
+  assert (67, 73, 78) in set(right.getdata())
 
 
 def test_tmap_guidance_layout_stays_fixed_when_json_briefly_drops(tmp_path, monkeypatch):
@@ -530,7 +524,7 @@ def test_lane_markings_are_split_into_world_distance_dashes():
   assert abs(fragments[1][1][1] - 1.3) < 1e-9
 
 
-def test_only_detected_lanes_use_pale_gray_on_light_road():
+def test_requested_driving_panel_omits_dotted_lanes_and_edges(monkeypatch):
   from PIL import Image, ImageDraw
   renderer = HudRenderer(1920, 462, 60)
 
@@ -543,25 +537,38 @@ def test_only_detected_lanes_use_pale_gray_on_light_road():
     "edges": [{"points": [(0.0, -7.0), (120.0, -7.0)], "probability": 1.0}],
     "leads": [],
   }
-  colors = set(renderer.render(60.0, 60.0, True, {}, scene).getdata())
-  assert (150, 152, 153) in colors
-  assert not any(red > 230 and 170 < green < 225 and blue < 90
-                 for red, green, blue in colors)
-
   background = Image.new("RGB", (1150, 462), (0, 0, 0))
   renderer._draw_road_surface(background, (0, 0, 1150, 462))
   assert min(background.getpixel((10, 10))) > 225
   assert min(background.getpixel((575, 450))) > 200
 
-  # Empty model output draws no invented fallback and roadEdges make no draw call.
-  renderer._fallback_lanes = lambda: (_ for _ in ()).throw(AssertionError("fallback used"))
-  edge_calls = []
-  renderer._draw_polyline = lambda *_args, **_kwargs: edge_calls.append(True)
+  # Model laneLines and roadEdges remain available to stabilization, but the
+  # redesigned panel must not paint either as gray dotted lines.
+  monkeypatch.setattr(renderer, "_draw_lane_marking",
+                      lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("lane drawn")))
   frame = Image.new("RGB", (1920, 462), (0, 0, 0))
   renderer._draw_driving_panel(frame, ImageDraw.Draw(frame), (0, 0, 1150, 462),
-                               0.0, 0.0, False,
-                               {"lanes": [], "edges": scene["edges"], "leads": []})
-  assert edge_calls == []
+                               60.0, 70.0, True, scene)
+  assert (24, 126, 224) in set(frame.getdata())
+
+
+def test_header_uses_gap_bars_and_cached_real_steering_wheel():
+  renderer = HudRenderer(1920, 462, 50)
+  first = renderer._steering_wheel_sprite(44, 11.0)
+  second = renderer._steering_wheel_sprite(44, 12.0)
+  assert first is not None
+  assert first is second
+
+  scene = {
+    "lanes": [], "edges": [], "leads": [],
+    "gear": "D", "driving_mode": 3, "road_limit_speed": 80,
+    "cruise_gap": 3, "camera_limit_speed": 60,
+    "camera_distance": 350, "camera_is_section": False,
+  }
+  frame = renderer.render(82.0, 90.0, True, {}, scene)
+  # Three GAP bars are green; the fourth remains inactive gray.
+  assert (31, 168, 101) in set(frame.getdata())
+  assert (204, 209, 212) in set(frame.getdata())
 
 
 def test_detected_lane_is_held_for_three_frames_only():

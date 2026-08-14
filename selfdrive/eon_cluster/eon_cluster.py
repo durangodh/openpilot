@@ -294,12 +294,21 @@ def main():
         cam_distance = int(_field(road_limit, "camLimitSpeedLeftDist", 0) or 0)
         section_limit = int(_field(road_limit, "sectionLimitSpeed", 0) or 0)
         section_distance = int(_field(road_limit, "sectionLeftDist", 0) or 0)
+        road_speed = int(_field(road_limit, "roadLimitSpeed", 0) or 0)
+        scene["road_limit_speed"] = road_speed if road_speed > 0 else 0
         if cam_type != 22 and cam_limit > 0 and cam_distance > 0:
           scene["camera_limit_speed"] = cam_limit
+          scene["camera_distance"] = cam_distance
+          scene["camera_is_section"] = False
         elif section_limit > 0 and section_distance > 0:
           scene["camera_limit_speed"] = section_limit
+          scene["camera_distance"] = section_distance
+          scene["camera_is_section"] = True
         else:
           scene["camera_limit_speed"] = 0
+          scene["camera_distance"] = 0
+          scene["camera_is_section"] = False
+        scene["cruise_gap"] = int(_field(car_state, "cruiseGap", 0) or 0)
         driving_mode = int(_field(controls_state, "myDrivingMode", 3) or 3)
         scene["driving_mode"] = driving_mode if 1 <= driving_mode <= 4 else 3
         scene["screen_mode"] = _param_int(params, PARAM_SCREEN_MODE, 1, 1, 3)

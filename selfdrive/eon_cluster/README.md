@@ -44,14 +44,17 @@ status, and alert overlays but skips its duplicate camera, model, lead, plot,
 and TMap draws. Normal on-device rendering resumes within 500 ms after the
 external HUD disconnects.
 
-The display uses a fixed 4:2:4 layout. The left 40% is a lightweight synthetic driving scene with a
-Tesla-style two-row header: current speed, gear, unit, driving mode, a live
-steering-wheel indicator, cruise set speed, and active speed-camera limit.
-The planned path is shown as two blue boundaries beside the ego vehicle, and
-BSD detections appear as white vehicles at its rear quarters. The middle 20%
-always shows system load and temperature, while the right 40% keeps the TMap
-map, turn guidance, lane image, and remaining distance. No road-camera pixels
-are copied or encoded.
+The display uses a fixed 4:2:4 layout. The left 40% is a lightweight synthetic driving scene. Its
+upper row keeps gear and driving mode at the left, the speed unit centered,
+and the live road-limit box plus physical SCC GAP bars at the right. Below it
+are the rotating Genesis steering-wheel image, cruise SET speed, active camera
+limit, and camera/section remaining distance. The road view omits dotted model
+lanes and shows only two blue lane-width path boundaries. The ego vehicle is
+gray, the primary lead is half its size in light gray, and BSD detections use
+dark-gray brackets instead of extra cars. Matching bottom cards show lead
+distance/relative speed and TPMS. The middle 20% always shows system load and
+temperature, while the right 40% keeps the TMap map, turn guidance, lane image,
+and remaining distance. No road-camera pixels are copied or encoded.
 
 The lightweight HUD also mirrors active openpilot alerts as outlined text
 without covering the driving or navigation background. It replaces the
