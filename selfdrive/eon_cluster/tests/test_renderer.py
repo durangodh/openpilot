@@ -378,13 +378,15 @@ def test_external_atc_box_matches_eon_gate_and_tpms_width(monkeypatch):
   world_top = int(462 * 0.47)
   tpms_box = renderer._bottom_card_box((0, world_top, driving_box[2], 462), "right")
   atc_box = renderer._atc_card_box(driving_box)
-  assert atc_box[2] - atc_box[0] == tpms_box[2] - tpms_box[0]
-  # The card ends before the existing road-limit badge begins.
-  road_limit_center = driving_box[2] - max(132, int((driving_box[2] - driving_box[0]) * 0.17))
-  road_limit_left = road_limit_center - max(58, int(renderer.width * 0.034)) // 2
-  assert atc_box[2] < road_limit_left
+  assert atc_box[0] == tpms_box[0]
+  assert atc_box[2] == tpms_box[2]
+  assert atc_box[3] == tpms_box[1] - 8
+  camera_distance_y = max(164, int(renderer.height * 0.37)) + max(39, renderer.height // 11)
+  camera_distance_size = max(10, renderer.height // 38)
+  assert atc_box[1] >= camera_distance_y + camera_distance_size + 8
+  assert atc_box[1] < atc_box[3]
 
-  # ATC occupies the empty column and never removes LIMIT, GAP, or camera.
+  # ATC stacks above TPMS and never removes LIMIT, GAP, or camera.
   calls = []
   monkeypatch.setattr(renderer_module.time, "time", lambda: now_ms / 1000.0)
   monkeypatch.setattr(renderer, "_draw_atc_box", lambda *_args: calls.append("atc"))

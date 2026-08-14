@@ -1067,16 +1067,17 @@ class HudRenderer(object):
 
   def _atc_card_box(self, box):
     left, top, right, bottom = box
-    panel_w = right - left
     world_top = top + int((bottom - top) * 0.47)
     tpms_card = self._bottom_card_box((left, world_top, right, bottom), "right")
-    card_width = tpms_card[2] - tpms_card[0]
-    # Keep the existing LIMIT/GAP/camera column intact. The ATC card occupies
-    # the unused column immediately to its left while retaining TPMS width.
-    road_limit_center = right - max(132, int(panel_w * 0.17))
-    road_limit_width = max(58, int(self.width * 0.034))
-    card_right = road_limit_center - road_limit_width // 2 - 9
-    return card_right - card_width, top + 6, card_right, world_top - 6
+    # Stack ATC directly above TPMS with exactly the same horizontal bounds.
+    # Its top stays below the camera/section remaining-distance label, while
+    # the bottom keeps a small visual gap from the TPMS card.
+    second_row_y = top + max(164, int(self.height * 0.37))
+    camera_distance_y = second_row_y + max(39, self.height // 11)
+    camera_distance_size = max(10, self.height // 38)
+    card_top = camera_distance_y + camera_distance_size + 8
+    card_bottom = tpms_card[1] - 8
+    return tpms_card[0], card_top, tpms_card[2], card_bottom
 
   def _atc_icon(self, kind, direction, size):
     key = (kind, direction, int(size))
