@@ -45,24 +45,23 @@ status, and alert overlays but skips its duplicate camera, model, lead, plot,
 and TMap draws. Normal on-device rendering resumes within 500 ms after the
 external HUD disconnects.
 
-The left 60% of the display is a lightweight synthetic driving scene with
-model lanes, the planned path, radar leads, current speed, cruise speed, and
-road speed limit. The right 40% keeps the TMap map, turn guidance, lane image,
-and remaining distance. No road-camera pixels are copied or encoded.
+The left 60% of the display is a lightweight synthetic driving scene with a
+Tesla-style two-row header: current speed, gear, unit, driving mode, a live
+steering-wheel indicator, cruise set speed, and active speed-camera limit.
+The planned path is shown as two blue boundaries beside the ego vehicle, and
+BSD detections appear as white vehicles at its rear quarters. The right 40%
+keeps the TMap map, turn guidance, lane image, and remaining distance. No
+road-camera pixels are copied or encoded.
 
 The lightweight HUD also mirrors active openpilot alerts as outlined text
-without covering the driving or navigation background, shows Hyundai/Kia
-TPMS values, EV/HEV status when available, and the current
-ECO/SAFE/NORM/FAST driving mode. It replaces the navigation panel with an
-expanded trip summary including engaged ratio and peak acceleration/deceleration
-while the vehicle is in Park. Set
+without covering the driving or navigation background. It replaces the
+navigation panel with an expanded trip summary including engaged ratio and
+peak acceleration/deceleration while the vehicle is in Park. Set
 `EonClusterHudPanelLayout` to `1` to move the driving view to the right and the
 information panel to the left.
 
-The planned path follows the EON `ShowPathStatusColor` setting: black while
-disengaged, green while engaged without a lead, yellow for steady lead
-following, orange while accelerating, red while decelerating, and blue when
-status coloring is disabled.
+The cluster planned path is always blue and remains split into left and right
+boundaries so the road and vehicle stay visible between them.
 
 Screen modes follow carrot-wip: `0` auto, `1` live debug, `2` system status,
 `3` full live graph, `4` right-side live graph, and `5` fixed trip report.

@@ -106,6 +106,23 @@ def _energy_mode(car_params):
   return ""
 
 
+def _gear_label(car_state):
+  gear = str(_field(car_state, "gearShifter", "") or "").split(".")[-1].lower()
+  label = {
+    "park": "P",
+    "reverse": "R",
+    "neutral": "N",
+    "drive": "D",
+    "sport": "S",
+    "low": "L",
+    "brake": "B",
+  }.get(gear)
+  if label:
+    return label
+  gear_step = int(_field(car_state, "gearStep", 0) or 0)
+  return str(gear_step) if gear_step > 0 else "--"
+
+
 def _service_healthy(sm, service):
   try:
     return bool(sm.alive.get(service, False) and sm.valid.get(service, False))
@@ -124,7 +141,8 @@ def main():
   signal.signal(signal.SIGINT, stop)
   signal.signal(signal.SIGTERM, stop)
   sm = messaging.SubMaster(["carState", "carParams", "carControl", "controlsState", "deviceState", "modelV2",
-                            "radarState", "liveTracks", "longitudinalPlan", "wideRoadCameraState"])
+                            "radarState", "liveTracks", "longitudinalPlan", "roadLimitSpeed",
+                            "wideRoadCameraState"])
   display = None
   renderer = None
   usb_monitor = None
@@ -270,6 +288,18 @@ def main():
         # let the renderer place warning vehicles at fixed rear-quarter spots.
         scene["left_blindspot"] = bool(_field(car_state, "leftBlindspot", False))
         scene["right_blindspot"] = bool(_field(car_state, "rightBlindspot", False))
+        road_limit = sm["roadLimitSpeed"]
+        cam_type = int(_field(road_limit, "camType", 0) or 0)
+        cam_limit = int(_field(road_limit, "camLimitSpeed", 0) or 0)
+        cam_distance = int(_field(road_limit, "camLimitSpeedLeftDist", 0) or 0)
+        section_limit = int(_field(road_limit, "sectionLimitSpeed", 0) or 0)
+        section_distance = int(_field(road_limit, "sectionLeftDist", 0) or 0)
+        if cam_type != 22 and cam_limit > 0 and cam_distance > 0:
+          scene["camera_limit_speed"] = cam_limit
+        elif section_limit > 0 and section_distance > 0:
+          scene["camera_limit_speed"] = section_limit
+        else:
+          scene["camera_limit_speed"] = 0
         scene["driving_mode"] = _param_int(params, "MyDrivingMode", 3, 1, 4)
         scene["panel_layout"] = _param_int(params, "EonClusterHudPanelLayout", 0, 0, 1)
         scene["screen_mode"] = _param_int(params, PARAM_SCREEN_MODE, 0, 0, 5)
@@ -280,7 +310,6 @@ def main():
         scene["radar_info"] = _param_int(params, PARAM_RADAR_INFO, 4, 0, 4)
         if _param_int(params, PARAM_RADAR_DISPLAY, 1, 0, 1) == 1:
           scene["radar_points"] = extract_radar_points(sm["liveTracks"])
-        scene["show_path_status_color"] = _param_int(params, "ShowPathStatusColor", 1, 0, 1) == 1
         scene["accel"] = accel
         scene["footer"] = footer
         actuators = _field(sm["carControl"], "actuatorsOutput", _field(sm["carControl"], "actuators"))
@@ -298,8 +327,8 @@ def main():
           "disk": max(0.0, min(100.0, 100.0 - free_space)) if free_space > 0.0 else 0.0,
           "cores": [float(v) for v in cpu_values[:8]],
         }
-        # gearShifter was only used for a "parked" flag the renderer never read.
-        scene["gear"] = int(_field(car_state, "gearStep", 0) or 0)
+        scene["gear"] = _gear_label(car_state)
+        scene["steering_angle_deg"] = float(_field(car_state, "steeringAngleDeg", 0.0) or 0.0)
         scene["blinkers"] = {"left": bool(_field(car_state, "leftBlinker", False)),
                              "right": bool(_field(car_state, "rightBlinker", False))}
         scene["trip_report"] = trip.snapshot()

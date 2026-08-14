@@ -101,7 +101,7 @@ def test_bitmap_atlas_fallback_scales_without_freetype(monkeypatch):
   renderer_module._BITMAP_TEXT_CACHE.clear()
 
 
-def test_path_is_narrow_solid_blue_and_tapers_before_ego():
+def test_path_is_two_blue_boundaries_beside_the_ego_car():
   from PIL import Image, ImageDraw
   renderer = HudRenderer(1920, 462, 50)
   panel = (0, 0, 1150, 462)
@@ -113,18 +113,10 @@ def test_path_is_narrow_solid_blue_and_tapers_before_ego():
   assert blue in set(image.getdata())
   assert sum(image.getpixel((x, 461)) == blue for x in range(450, 700)) < 10
   _, near_y = renderer._project(panel, 10.0, 0.0)
-  near_width = sum(image.getpixel((x, near_y)) == blue for x in range(450, 700))
-  assert 8 <= near_width <= 50
-
-
-def test_path_status_colors_match_eon_ui():
-  color = HudRenderer._path_color
-  assert color(False, {"show_path_status_color": True}) == (0, 0, 0)
-  assert color(True, {"show_path_status_color": True, "leads": []}) == (0, 153, 0)
-  assert color(True, {"show_path_status_color": True, "leads": [{}], "accel": 0.0}) == (255, 255, 0)
-  assert color(True, {"show_path_status_color": True, "leads": [{}], "accel": 0.5}) == (255, 153, 0)
-  assert color(True, {"show_path_status_color": True, "leads": [{}], "accel": -0.5}) == (255, 0, 0)
-  assert color(True, {"show_path_status_color": False}) == (26, 190, 255)
+  blue_x = [x for x in range(400, 750) if image.getpixel((x, near_y)) == blue]
+  runs = sum(index == 0 or blue_x[index] > blue_x[index - 1] + 1 for index in range(len(blue_x)))
+  assert runs == 2
+  assert image.getpixel((575, near_y)) != blue
 
 
 def test_portrait_jpeg_geometry():
@@ -169,7 +161,7 @@ def test_lightweight_scene_uses_camera_free_vector_world():
   assert (24, 126, 224) in colors
 
 
-def test_carrot_3d_scene_has_vehicle_control_gauges_and_path_ribbon():
+def test_requested_header_has_wheel_mode_cruise_camera_and_split_path():
   renderer = HudRenderer(1920, 462, 50)
   scene = {
     "path": [(0.0, 0.0), (20.0, 0.0), (60.0, 0.0), (100.0, 0.0)],
@@ -178,13 +170,16 @@ def test_carrot_3d_scene_has_vehicle_control_gauges_and_path_ribbon():
     "leads": [{"distance": 28.0, "lateral": 0.0, "relative_speed": -1.0}],
     "accel": -0.6,
     "steer": 0.25,
+    "steering_angle_deg": 32.0,
+    "gear": "D",
+    "driving_mode": 2,
+    "camera_limit_speed": 80,
   }
   frame = renderer.render(55.0, 88.0, True, {}, scene)
   colors = set(frame.getdata())
-  assert (255, 78, 75) in colors
-  assert (37, 211, 255) in colors
-  assert any(red > 240 and green < 100 and blue < 100 for red, green, blue in colors)
-  # Path color no longer changes with acceleration or engagement state.
+  assert (18, 95, 225) in colors
+  assert (226, 144, 38) in colors
+  assert (220, 45, 45) in colors
   assert (24, 126, 224) in colors
 
 
@@ -313,8 +308,8 @@ def test_blindspot_flags_draw_rear_quarter_vehicles():
   assert left.tobytes() != base.tobytes()
   assert right.tobytes() != base.tobytes()
   assert left.tobytes() != right.tobytes()
-  assert (255, 169, 45) in set(left.getdata())
-  assert (255, 169, 45) in set(right.getdata())
+  blindspot_sprite = renderer._build_vehicle_base_sprite("blindspot", marker=True)
+  assert (235, 238, 240, 220) in set(blindspot_sprite.getdata())
 
 
 def test_tmap_guidance_layout_stays_fixed_when_json_briefly_drops(tmp_path, monkeypatch):
@@ -385,7 +380,9 @@ def test_cluster_overlays_and_swapped_layout_render():
   renderer = HudRenderer(1920, 462, 50)
   scene = {
     "driving_mode": 1,
-    "tpms": {"fl": 30.0, "fr": 35.0, "rl": 36.0, "rr": 37.0},
+    "camera_limit_speed": 80,
+    "gear": "D",
+    "steering_angle_deg": -18.0,
     "panel_layout": 1,
     "parked": True,
     "trip_report": {"duration_s": 3600, "distance_m": 42000, "average_speed_kph": 42, "max_speed_kph": 101},
@@ -393,8 +390,8 @@ def test_cluster_overlays_and_swapped_layout_render():
   frame = renderer.render(82.0, 90.0, True, {}, scene)
   colors = set(frame.getdata())
   assert frame.size == (1920, 462)
-  assert (40, 210, 125) in colors
-  assert any(red > 200 and green < 80 and blue < 80 for red, green, blue in colors)
+  assert (20, 160, 92) in colors
+  assert (220, 45, 45) in colors
 
   scene["alert"] = {"text1": "TAKE CONTROL", "text2": "System Unresponsive", "status": "critical"}
   alert_frame = renderer.render(82.0, 90.0, True, {}, scene)
@@ -468,7 +465,7 @@ def test_imperial_radar_and_extended_trip_report_render():
     "language": "en",
     "radar_info": 2,
     "radar_points": [{"distance": 30.0, "lateral": 1.0, "relative_speed": -2.0, "stationary": False}],
-    "energy_mode": "EV",
+    "camera_limit_speed": 80,
     "screen_mode": 5,
     "trip_report": {"duration_s": 3600, "distance_m": 1609.344, "average_speed_kph": 96.56,
                     "max_speed_kph": 120.0, "engaged_time_s": 1800,
@@ -476,7 +473,8 @@ def test_imperial_radar_and_extended_trip_report_render():
   }
   frame = renderer.render(96.56, 112.65, True, {}, scene)
   assert frame.size == (1920, 462)
-  assert (75, 220, 145) in set(frame.getdata())
+  without_radar = renderer.render(96.56, 112.65, True, {}, dict(scene, radar_points=[]))
+  assert frame.tobytes() != without_radar.tobytes()
 
 
 def test_jpeg_quality_accepts_full_carrot_range():
@@ -507,7 +505,7 @@ def test_scaled_image_cache_stays_bounded(tmp_path):
   assert len(renderer_module._FIT_CACHE) == 0
 
 
-def test_footer_renders_address_and_frame_rate():
+def test_requested_clean_header_omits_footer_status_dots():
   renderer = HudRenderer(1920, 462, 60)
   scene = {
     "lanes": [], "edges": [], "leads": [],
@@ -515,11 +513,11 @@ def test_footer_renders_address_and_frame_rate():
   }
   frame = renderer.render(34.0, 88.0, True, {}, scene)
   colors = set(frame.getdata())
-  assert (39, 219, 139) in colors   # healthy frame-rate dot
+  assert (39, 219, 139) not in colors
   assert (232, 168, 62) not in colors
 
   slow = dict(scene, footer={"ip": "10.73.140.85", "fps": 2.0})
-  assert (232, 168, 62) in set(renderer.render(34.0, 88.0, True, {}, slow).getdata())
+  assert (232, 168, 62) not in set(renderer.render(34.0, 88.0, True, {}, slow).getdata())
 
 
 def test_lane_markings_are_split_into_world_distance_dashes():
@@ -560,7 +558,7 @@ def test_only_detected_lanes_use_pale_gray_on_light_road():
   renderer._draw_polyline = lambda *_args, **_kwargs: edge_calls.append(True)
   frame = Image.new("RGB", (1920, 462), (0, 0, 0))
   renderer._draw_driving_panel(frame, ImageDraw.Draw(frame), (0, 0, 1150, 462),
-                               0.0, 0.0, False, 0,
+                               0.0, 0.0, False,
                                {"lanes": [], "edges": scene["edges"], "leads": []})
   assert edge_calls == []
 
