@@ -1014,7 +1014,7 @@ SettingsWindow::SettingsWindow(QWidget *parent) : QFrame(parent) {
     {"Network", network_panel(this)},
     {"Toggles", toggles},
     {"Software", new SoftwarePanel(this)},
-    {"Community", new CommunityPanel(this)},
+    {"네비MAP", new CommunityPanel(this)},
     {"UI 설정", new UISettingsPanel(this)},
     {"조향", new VIPPanel(this)},
     {"Cruise", new CruisePanel(this)},
@@ -1152,6 +1152,47 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "켜짐: 과속카메라가 감지되면 핸들 진동으로 알립니다.",
                                             "../assets/offroad/icon_openpilot.png",
                                             this));
+
+  toggleLayout->addWidget(horizontal_line());
+
+  // ── 외부 EON 클러스터 HUD ─────────────────────────────────
+  toggleLayout->addWidget(new ParamControl(
+      "EonClusterHud", "외부 클러스터 HUD 사용",
+      "EON에 연결된 TURZX USB 클러스터 화면을 사용합니다.",
+      "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudFps", "클러스터 HUD 프레임", "0: 정지(화면 꺼짐) / 1~15 fps, 기본값 10",
+      "../assets/offroad/icon_road.png", 0, 15, 1, 0, 10, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudBrightness", "클러스터 HUD 밝기", "0: 본체 화면 밝기 연동(자동) / 1~100: 고정 밝기",
+      "../assets/offroad/icon_road.png", 0, 100, 5, 0, 65, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudJpegQuality", "클러스터 HUD 화질", "JPEG 품질",
+      "../assets/offroad/icon_road.png", 1, 95, 1, 0, 58, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudPanelLayout", "클러스터 HUD 패널 배치", "0: 주행 왼쪽 / 1: 주행 오른쪽",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudScreenMode", "클러스터 HUD 화면 모드", "0: 자동 / 1: 실시간 디버그 / 2: 시스템 / 3: 전체 그래프 / 4: 우측 그래프 / 5: 주행리포트",
+      "../assets/offroad/icon_road.png", 0, 5, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudTheme", "클러스터 HUD 테마", "0: 자동 / 1: 다크 / 2: 라이트. 정보·그래프 패널에 실시간 적용됩니다.",
+      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudOrientation", "클러스터 HUD 화면 회전", "0: 기본 / 2: 180도 회전",
+      "../assets/offroad/icon_road.png", 0, 2, 2, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudMirror", "클러스터 HUD 좌우 반전", "0: 기본 / 1: 좌우 미러",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudLanguage", "클러스터 HUD 언어", "0: 한국어 / 1: English",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudRadarInfo", "클러스터 레이더 정보", "0: 숨김 / 1: 이동차량 속도 / 2: 이동차량 속도+거리 / 3: 전체 속도 / 4: 전체 속도+거리",
+      "../assets/offroad/icon_road.png", 0, 4, 1, 0, 4, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudRadarDisplay", "클러스터 레이더 표시", "0: 선행차만 / 1: 주변 레이더 포인트(최대 16개)",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
 }
 
 SelectCar::SelectCar(QWidget* parent): QWidget(parent) {
@@ -1672,49 +1713,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "자동 차선변경 최저속도",
       "자동·방향지시등 차선변경 허용 최저속도(km/h)입니다. 값 증가(+): 더 높은 속도에서만 작동 / 값 감소(-): 저속에서도 작동.",
       "../assets/offroad/icon_road.png", 0, 100, 10, 0, 50, this));
-
-  list->addItem(horizontal_line());
-
-  // ── 외부 EON 클러스터 HUD ─────────────────────────────────
-  auto *eonClusterHudToggle = new ParamControl("EonClusterHud",
-      "외부 클러스터 HUD 사용",
-      "EON에 연결된 TURZX USB 클러스터 화면을 사용합니다.",
-      "../assets/offroad/icon_road.png", this);
-  list->addItem(eonClusterHudToggle);
-
-  list->addItem(new ParamValueControlF("EonClusterHudFps",
-      "클러스터 HUD 프레임", "0: 정지(화면 꺼짐) / 1~15 fps, 기본값 10",
-      "../assets/offroad/icon_road.png", 0, 15, 1, 0, 10, this));
-  list->addItem(new ParamValueControlF("EonClusterHudBrightness",
-      "클러스터 HUD 밝기", "0: 본체 화면 밝기 연동(자동) / 1~100: 고정 밝기",
-      "../assets/offroad/icon_road.png", 0, 100, 5, 0, 65, this));
-  list->addItem(new ParamValueControlF("EonClusterHudJpegQuality",
-      "클러스터 HUD 화질", "JPEG 품질",
-      "../assets/offroad/icon_road.png", 1, 95, 1, 0, 58, this));
-  list->addItem(new ParamValueControlF("EonClusterHudPanelLayout",
-      "클러스터 HUD 패널 배치", "0: 주행 왼쪽 / 1: 주행 오른쪽",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
-  list->addItem(new ParamValueControlF("EonClusterHudScreenMode",
-      "클러스터 HUD 화면 모드", "0: 자동 / 1: 실시간 디버그 / 2: 시스템 / 3: 전체 그래프 / 4: 우측 그래프 / 5: 주행리포트",
-      "../assets/offroad/icon_road.png", 0, 5, 1, 0, 0, this));
-  list->addItem(new ParamValueControlF("EonClusterHudTheme",
-      "클러스터 HUD 테마", "0: 자동 / 1: 다크 / 2: 라이트. 정보·그래프 패널에 실시간 적용됩니다.",
-      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
-  list->addItem(new ParamValueControlF("EonClusterHudOrientation",
-      "클러스터 HUD 화면 회전", "0: 기본 / 2: 180도 회전",
-      "../assets/offroad/icon_road.png", 0, 2, 2, 0, 0, this));
-  list->addItem(new ParamValueControlF("EonClusterHudMirror",
-      "클러스터 HUD 좌우 반전", "0: 기본 / 1: 좌우 미러",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
-  list->addItem(new ParamValueControlF("EonClusterHudLanguage",
-      "클러스터 HUD 언어", "0: 한국어 / 1: English",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
-  list->addItem(new ParamValueControlF("EonClusterHudRadarInfo",
-      "클러스터 레이더 정보", "0: 숨김 / 1: 이동차량 속도 / 2: 이동차량 속도+거리 / 3: 전체 속도 / 4: 전체 속도+거리",
-      "../assets/offroad/icon_road.png", 0, 4, 1, 0, 4, this));
-  list->addItem(new ParamValueControlF("EonClusterHudRadarDisplay",
-      "클러스터 레이더 표시", "0: 선행차만 / 1: 주변 레이더 포인트(최대 16개)",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
 
   list->addItem(horizontal_line());
 
