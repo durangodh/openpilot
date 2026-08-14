@@ -1469,16 +1469,16 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(horizontal_line());
 
   const std::array<std::tuple<const char*, const char*, int>, 6> accel_controls = {{
-    {"CruiseMaxVals1", "최대가속 0 km/h", 160},
-    {"CruiseMaxVals2", "최대가속 40 km/h", 120},
-    {"CruiseMaxVals3", "최대가속 60 km/h", 100},
-    {"CruiseMaxVals4", "최대가속 80 km/h", 80},
-    {"CruiseMaxVals5", "최대가속 110 km/h", 70},
-    {"CruiseMaxVals6", "최대가속 140 km/h", 60},
+    {"CruiseMaxVals1", "최대 가속 상한값 0 km/h", 160},
+    {"CruiseMaxVals2", "최대 가속 상한값 40 km/h", 120},
+    {"CruiseMaxVals3", "최대 가속 상한값 60 km/h", 100},
+    {"CruiseMaxVals4", "최대 가속 상한값 80 km/h", 80},
+    {"CruiseMaxVals5", "최대 가속 상한값 110 km/h", 70},
+    {"CruiseMaxVals6", "최대 가속 상한값 140 km/h", 60},
   }};
   for (const auto& [key, title, default_value] : accel_controls) {
     list->addItem(new ParamValueControlF(
-        key, title, "해당 속도 구간의 최대가속도(×0.01m/s²)입니다. 값 증가(+): 가속이 빠르고 강해짐 / 값 감소(-): 가속이 느리고 부드러워짐. 주행 중 약 1초 내에 반영됩니다.",
+        key, title, "해당 속도 기준점의 최대 가속 상한값(×0.01m/s²)입니다. 중간 속도는 인접한 두 기준점 값을 보간합니다. 값 증가(+): 허용 가속이 크고 강해짐 / 값 감소(-): 허용 가속이 작고 부드러워짐. 주행 중 약 1초 내에 반영됩니다.",
         "../assets/offroad/icon_openpilot.png", 10, 250, 5, 0, default_value, this));
   }
 
