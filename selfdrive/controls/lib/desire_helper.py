@@ -76,16 +76,65 @@ class DesireHelper:
   def _road_edge_detected(model_data, direction):
     if model_data is None or direction not in (-1, 1):
       return True
-    blinker_index = 0 if direction < 0 else 1
-    desired_edge = model_data.roadEdges[blinker_index]
-    current_lane = model_data.laneLines[blinker_index + 1]
-    if not all([desired_edge.x, desired_edge.y, current_lane.x, current_lane.y]) or \
-       len(desired_edge.x) != len(current_lane.x):
+
+    edge_index = 0 if direction < 0 else 1
+    current_lane_index = 1 if direction < 0 else 2
+    outer_lane_index = 0 if direction < 0 else 3
+
+    try:
+      desired_edge = model_data.roadEdges[edge_index]
+      current_lane = model_data.laneLines[current_lane_index]
+      left_lane = model_data.laneLines[1]
+      right_lane = model_data.laneLines[2]
+      lines = (desired_edge, current_lane, left_lane, right_lane)
+      if any(len(line.x) < 2 or len(line.y) < 2 or len(line.x) != len(line.y) for line in lines):
+        return True
+    except (AttributeError, IndexError, TypeError):
       return True
-    x = np.linspace(desired_edge.x[0], desired_edge.x[-1], num=len(desired_edge.x))
-    lane_y = np.interp(x, current_lane.x, current_lane.y)
-    desired_y = np.interp(x, desired_edge.x, desired_edge.y)
-    return not (np.amax(np.abs(desired_y - lane_y)) > 3.0)
+
+    def near_median_gap(line_a, line_b):
+      start_x = max(float(line_a.x[0]), float(line_b.x[0]), 0.0)
+      end_x = min(float(line_a.x[-1]), float(line_b.x[-1]), 30.0)
+      if not np.isfinite(start_x) or not np.isfinite(end_x) or end_x <= start_x:
+        return None
+      sample_x = np.linspace(start_x, end_x, num=8)
+      a_y = np.interp(sample_x, line_a.x, line_a.y)
+      b_y = np.interp(sample_x, line_b.x, line_b.y)
+      gap = np.abs(a_y - b_y)
+      return float(np.median(gap)) if np.all(np.isfinite(gap)) else None
+
+    edge_gap = near_median_gap(desired_edge, current_lane)
+    measured_lane_width = near_median_gap(left_lane, right_lane)
+    if edge_gap is None or measured_lane_width is None:
+      return True
+    lane_width = float(np.clip(measured_lane_width, 2.5, 4.5))
+
+    try:
+      current_lane_prob = float(model_data.laneLineProbs[current_lane_index])
+      outer_lane_prob = float(model_data.laneLineProbs[outer_lane_index])
+    except (AttributeError, IndexError, TypeError, ValueError):
+      current_lane_prob = 1.0
+      outer_lane_prob = 1.0
+
+    try:
+      edge_confidence = float(np.clip(1.0 - model_data.roadEdgeStds[edge_index], 0.0, 1.0))
+    except (AttributeError, IndexError, TypeError, ValueError):
+      edge_confidence = 1.0
+
+    # C2's active detector compares the edge gap with the measured lane width,
+    # instead of allowing a change when any single far-path point exceeds 3 m.
+    close_physical_edge = edge_gap < lane_width * 0.7
+    no_outer_lane = current_lane_prob > 0.2 and outer_lane_prob <= 0.2
+    c2_single_lane_edge = no_outer_lane and edge_gap * 1.2 < lane_width
+
+    # On right-driving roads the left boundary can be the centre line even
+    # when the model places the physical road edge beyond the oncoming lane.
+    # Use a strict probability fallback only on the left to avoid crossing it.
+    left_centre_line = (direction < 0 and current_lane_prob > 0.5 and
+                        outer_lane_prob < 0.1)
+    uncertain_single_lane_edge = edge_confidence < 0.35 and no_outer_lane
+
+    return close_physical_edge or c2_single_lane_edge or left_centre_line or uncertain_single_lane_edge
 
   def _update_atc_turn_completion(self, model_data, carstate, turn_active):
     """Stop re-requesting a turn after the vehicle passes the turn apex."""
