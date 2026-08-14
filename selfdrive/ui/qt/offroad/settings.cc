@@ -1626,13 +1626,13 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_openpilot.png", this));
   
   list->addItem(new NtuneValueControl("torque", "latAccelFactor",
-      "횡가속 토크계수",
+      "LAT ACCEL FACTOR",
       "횡가속도 대비 토크 계수입니다. 값 증가(+): 조향이 약해짐 / 값 감소(-): 조향이 강해짐.\n"
       "범위: 0.50 ~ 4.50  /  기본값: 2.70",
       "../assets/offroad/icon_openpilot.png", 0.5, 4.5, 0.05, 2, 2.7, this));
 
   list->addItem(new NtuneValueControl("torque", "friction",
-      "조향 마찰보상",
+      "FRICTION",
       "정지마찰 보상값입니다. 값 증가(+): 중앙 부근 조향 반응이 빨라짐 / 값 감소(-): 반응이 부드럽고 느려짐.\n"
       "너무 크면 직진에서 좌우로 흔들립니다.\n"
       "범위: 0.000 ~ 0.200  /  기본값: 0.080",
