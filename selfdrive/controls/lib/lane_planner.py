@@ -99,6 +99,7 @@ class LanePlanner:
       self.r_lane_change_prob = desire_state[log.LateralPlan.Desire.laneChangeRight]
 
   def get_d_path(self, v_ego, path_t, path_xyz, lanelines_active):
+    lane_line_blend = float(clip(float(lanelines_active), 0.0, 1.0))
     l_prob, r_prob = self.lll_prob, self.rll_prob
     width_pts = self.rll_y - self.lll_y
     prob_mods = []
@@ -184,11 +185,12 @@ class LanePlanner:
     self.lane_offset = float(self.lane_offset_filtered.x)
 
     safe_idxs = np.isfinite(self.ll_t)
-    if safe_idxs[0] and lanelines_active:
+    if safe_idxs[0] and lane_line_blend > 0.0:
       lane_path_y_interp = np.interp(path_t, self.ll_t[safe_idxs], lane_path_y[safe_idxs])
-      path_xyz[:,1] = self.d_prob * lane_path_y_interp + (1.0 - self.d_prob) * path_xyz[:,1]
+      effective_d_prob = self.d_prob * lane_line_blend
+      path_xyz[:,1] = effective_d_prob * lane_path_y_interp + (1.0 - effective_d_prob) * path_xyz[:,1]
       # 차선경로가 쓰이는 비중만큼만 여유공간 보정을 적용한다.
-      path_xyz[:,1] += self.lane_offset * self.d_prob
+      path_xyz[:,1] += self.lane_offset * effective_d_prob
     elif not safe_idxs[0]:
       cloudlog.warning("Lateral mpc - NaNs in laneline times, ignoring")
     return path_xyz

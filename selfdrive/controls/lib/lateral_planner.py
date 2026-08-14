@@ -21,6 +21,7 @@ LATERAL_MOTION_COST = 0.11
 LATERAL_ACCEL_COST = 0.0
 LATERAL_JERK_COST = 0.04
 STEERING_RATE_COST = 700.0
+LANE_MODE_BLEND_TIME = 0.6
 
 # 기본값 상수
 DEFAULT_CAMERA_OFFSET = -0.06
@@ -68,6 +69,7 @@ class LateralPlanner:
     self.dynamic_lane_profile_status = True
     self.dynamic_lane_profile_status_buffer = True
     self.use_lane_line_mode = False
+    self.lane_line_blend = None
 
     self.param_read_counter = 0
     self.read_param(force=True)
@@ -135,8 +137,17 @@ class LateralPlanner:
       use_laneless = not self.use_lane_line_mode or self.get_dynamic_lane_profile()
 
     self.dynamic_lane_profile_status = use_laneless
+    lane_line_blend_target = 0.0 if use_laneless else 1.0
+    if self.lane_line_blend is None:
+      self.lane_line_blend = lane_line_blend_target
+    else:
+      # Avoid a lateral target jump when Auto mode changes between the
+      # lane-line and model paths. At 20 Hz this completes in about 0.6 s.
+      max_blend_step = DT_MDL / LANE_MODE_BLEND_TIME
+      self.lane_line_blend += np.clip(lane_line_blend_target - self.lane_line_blend,
+                                      -max_blend_step, max_blend_step)
     self.d_path_w_lines_xyz = self.LP.get_d_path(
-      self.v_ego, self.t_idxs, self.path_xyz, not use_laneless)
+      self.v_ego, self.t_idxs, self.path_xyz, self.lane_line_blend)
 
     self.lat_mpc.set_weights(PATH_COST, LATERAL_MOTION_COST,
                              LATERAL_ACCEL_COST, LATERAL_JERK_COST,
