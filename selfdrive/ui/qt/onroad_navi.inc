@@ -510,13 +510,15 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
       : 200.0 + (map_speed - 50.0) * 3.0;
   if (atc_kind == CarrotAtcKind::UTURN) atc_map_start_distance = 1000.0;
 
-  const bool atc_map_request = show_map_image && atc_available &&
+  const bool atc_map_request = atc_available &&
                                carrot_navi_distance <= atc_map_start_distance;
+  const bool map_request = show_map_image &&
+                           (show_route_map_always || atc_map_request);
   if (!show_map_image) {
     carrot_map_mode = false;
     carrot_map_enter_since = 0;
     carrot_map_exit_since = 0;
-  } else if (atc_map_request) {
+  } else if (map_request) {
     carrot_map_exit_since = 0;
     if (carrot_map_enter_since == 0) carrot_map_enter_since = wall_now;
     if (wall_now - carrot_map_enter_since >= 200) carrot_map_mode = true;

@@ -1123,6 +1123,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     show_carrot_hud = sch.empty() ? 1 : std::atoi(sch.c_str());
     std::string spsc = params.get("ShowPathStatusColor");
     show_path_status_color = spsc.empty() ? 1 : std::atoi(spsc.c_str());
+    show_route_map_always = params.getBool("ShowRouteMapAlways");
   }
 
   if (!show_carrot_hud) { p.restore(); return; }

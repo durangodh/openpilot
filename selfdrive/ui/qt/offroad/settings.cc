@@ -1565,6 +1565,10 @@ UISettingsPanel::UISettingsPanel(QWidget* parent) : QWidget(parent) {
       "켜짐: 우측 Mapbox 지도와 ATC 구간의 티맵 지도 이미지를 표시합니다. / 꺼짐: 지도 이미지를 즉시 숨깁니다. 티맵 방향·거리·카메라 감속 기능은 유지됩니다.",
       "../assets/offroad/icon_road.png", this));
   list->addItem(new ParamControl(
+      "ShowRouteMapAlways", "목적지 설정 시 지도 상시표시",
+      "켜짐: 목적지 경로가 활성화된 동안 ATC 구간이 아니어도 우측 티맵 지도 이미지를 계속 표시합니다. / 꺼짐: ATC 진입 구간에서만 표시합니다. '우측 지도 이미지 표시'가 켜져 있어야 적용됩니다.",
+      "../assets/offroad/icon_road.png", this));
+  list->addItem(new ParamControl(
       "ShowGearAnimation", "기어 팝업 애니메이션",
       "켜짐: 변속단이 바뀔 때 중앙 팝업 애니메이션을 표시합니다.",
       "../assets/offroad/icon_road.png", this));

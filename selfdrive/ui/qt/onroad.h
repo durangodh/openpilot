@@ -118,6 +118,7 @@ protected:
   int  show_carrot_hud = 1;
   int  show_path_status_color = 1;
   bool show_map_image = true;
+  bool show_route_map_always = false;
   uint64_t carrot_navi_last_read = 0;
   uint64_t eon_cluster_hud_last_read = 0;
   bool eon_cluster_hud_connected = false;
