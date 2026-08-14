@@ -386,25 +386,24 @@ def test_external_atc_box_matches_eon_gate_and_tpms_width(monkeypatch):
   assert atc_box[1] >= camera_distance_y + camera_distance_size + 8
   assert atc_box[1] < atc_box[3]
 
-  # ATC stacks above TPMS and never removes LIMIT or camera.
+  # ATC stacks above TPMS and never removes the camera indicator.
   calls = []
   monkeypatch.setattr(renderer_module.time, "time", lambda: now_ms / 1000.0)
   monkeypatch.setattr(renderer, "_draw_atc_box", lambda *_args: calls.append("atc"))
   monkeypatch.setattr(renderer, "_draw_speed_limit", lambda *_args: calls.append("camera"))
-  monkeypatch.setattr(renderer, "_draw_road_limit_badge", lambda *_args: calls.append("limit"))
   from PIL import Image, ImageDraw
   frame = Image.new("RGB", (1920, 462))
   renderer._draw_requested_status_header(
     frame, ImageDraw.Draw(frame), driving_box, 82.0, 90.0, True,
     {"is_metric": True, "atc_mode": 2}, active)
-  assert calls == ["limit", "camera", "atc"]
+  assert calls == ["camera", "atc"]
 
   calls[:] = []
   inactive = dict(active, route={"remain_distance_m": 0, "remain_time_sec": 0})
   renderer._draw_requested_status_header(
     frame, ImageDraw.Draw(frame), driving_box, 82.0, 90.0, True,
     {"is_metric": True, "atc_mode": 2}, inactive)
-  assert calls == ["limit", "camera"]
+  assert calls == ["camera"]
 
 
 def test_cluster_overlays_render_in_fixed_424_layout():
@@ -589,7 +588,7 @@ def test_requested_driving_panel_omits_dotted_lanes_and_edges(monkeypatch):
   assert (24, 126, 224) in set(frame.getdata())
 
 
-def test_header_uses_simple_rotating_wheel_and_ignores_gap_value():
+def test_header_uses_simple_rotating_wheel_and_ignores_gap_and_road_limit_values():
   from PIL import Image, ImageDraw
   renderer = HudRenderer(1920, 462, 50)
   straight = Image.new("RGB", (120, 120), (239, 241, 242))
@@ -600,13 +599,15 @@ def test_header_uses_simple_rotating_wheel_and_ignores_gap_value():
 
   scene = {
     "lanes": [], "edges": [], "leads": [],
-    "gear": "D", "driving_mode": 3, "road_limit_speed": 80,
+    "gear": "D", "driving_mode": 3,
     "camera_limit_speed": 60, "camera_distance": 350,
     "camera_is_section": False,
   }
-  gap_one = renderer.render(82.0, 90.0, True, {}, dict(scene, cruise_gap=1))
-  gap_four = renderer.render(82.0, 90.0, True, {}, dict(scene, cruise_gap=4))
-  assert gap_one.tobytes() == gap_four.tobytes()
+  hidden_zero = renderer.render(
+    82.0, 90.0, True, {}, dict(scene, cruise_gap=1, road_limit_speed=0))
+  hidden_values = renderer.render(
+    82.0, 90.0, True, {}, dict(scene, cruise_gap=4, road_limit_speed=80))
+  assert hidden_zero.tobytes() == hidden_values.tobytes()
 
 
 def test_detected_lane_is_held_for_three_frames_only():
