@@ -511,7 +511,38 @@ void NtuneValueControl::refresh() {
   plus_btn->setEnabled(v < vmax_ - 1e-9);
 }
 
-TogglesPanel::TogglesPanel(SettingsWindow *parent) : ListWidget(parent) {
+TogglesPanel::TogglesPanel(SettingsWindow *parent) : QWidget(parent) {
+  main_layout = new QStackedLayout(this);
+  home = new ListWidget(this);
+  main_layout->addWidget(home);
+
+  QString selected = QString::fromStdString(params.get("SelectedCar"));
+  select_car_btn = new QPushButton(selected.length() ? selected : "Select your car");
+  select_car_btn->setObjectName("selectCarBtn");
+  home->addItem(select_car_btn);
+
+  auto select_car = new SelectCar(this);
+  connect(select_car_btn, &QPushButton::clicked, [=]() { main_layout->setCurrentWidget(select_car); });
+  connect(select_car, &SelectCar::backPress, [=]() { main_layout->setCurrentWidget(home); });
+  connect(select_car, &SelectCar::selectedCar, [=]() {
+    QString selected = QString::fromStdString(params.get("SelectedCar"));
+    select_car_btn->setText(selected.length() ? selected : "Select your car");
+    main_layout->setCurrentWidget(home);
+  });
+  main_layout->addWidget(select_car);
+
+  setStyleSheet(R"(
+    #back_btn, #selectCarBtn {
+      font-size: 50px;
+      margin: 0px;
+      padding: 20px;
+      border-width: 0;
+      border-radius: 30px;
+      color: #dddddd;
+      background-color: #444444;
+    }
+  )");
+
   std::vector<std::tuple<QString, QString, QString, QString>> toggle_defs{
     {
       "OpenpilotEnabledToggle",
@@ -567,10 +598,10 @@ TogglesPanel::TogglesPanel(SettingsWindow *parent) : ListWidget(parent) {
   };
 
   for (auto &[param, title, desc, icon] : toggle_defs) {
-    auto toggle = new ParamControl(param, title, desc, icon, this);
+    auto toggle = new ParamControl(param, title, desc, icon, home);
     bool locked = params.getBool((param + "Lock").toStdString());
     toggle->setEnabled(!locked);
-    addItem(toggle);
+    home->addItem(toggle);
     toggles[param.toStdString()] = toggle;
   }
 
@@ -584,10 +615,12 @@ TogglesPanel::TogglesPanel(SettingsWindow *parent) : ListWidget(parent) {
 }
 
 void TogglesPanel::expandToggleDescription(const QString &param) {
+  main_layout->setCurrentWidget(home);
   toggles[param.toStdString()]->showDescription();
 }
 
 void TogglesPanel::showEvent(QShowEvent *event) {
+  main_layout->setCurrentWidget(home);
   updateToggles();
 }
 
@@ -1069,12 +1102,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   QVBoxLayout* vlayout = new QVBoxLayout(homeScreen);
   vlayout->setContentsMargins(0, 20, 0, 20);
 
-  QString selected = QString::fromStdString(Params().get("SelectedCar"));
-
-  QPushButton* selectCarBtn = new QPushButton(selected.length() ? selected : "Select your car");
-  selectCarBtn->setObjectName("selectCarBtn");
-  connect(selectCarBtn, &QPushButton::clicked, [=]() { main_layout->setCurrentWidget(selectCar); });
-
   homeWidget = new QWidget(this);
   QVBoxLayout* toggleLayout = new QVBoxLayout(homeWidget);
   homeWidget->setObjectName("homeWidget");
@@ -1084,15 +1111,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
 
   main_layout->addWidget(homeScreen);
 
-  selectCar = new SelectCar(this);
-  connect(selectCar, &SelectCar::backPress, [=]() { main_layout->setCurrentWidget(homeScreen); });
-  connect(selectCar, &SelectCar::selectedCar, [=]() {
-     QString selected = QString::fromStdString(Params().get("SelectedCar"));
-     selectCarBtn->setText(selected.length() ? selected : "Select your car");
-     main_layout->setCurrentWidget(homeScreen);
-  });
-  main_layout->addWidget(selectCar);
-
   vlayout->addSpacing(10);
   vlayout->addWidget(scroller, 1);
 
@@ -1100,20 +1118,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   pal.setColor(QPalette::Background, QColor(0x29, 0x29, 0x29));
   setAutoFillBackground(true);
   setPalette(pal);
-
-  setStyleSheet(R"(
-    #back_btn, #selectCarBtn {
-      font-size: 50px;
-      margin: 0px;
-      padding: 20px;
-      border-width: 0;
-      border-radius: 30px;
-      color: #dddddd;
-      background-color: #444444;
-    }
-  )");
-
-  toggleLayout->addWidget(selectCarBtn);
 
   QList<ParamControl*> toggles;
   toggles.append(new ParamControl("UseClusterSpeed",

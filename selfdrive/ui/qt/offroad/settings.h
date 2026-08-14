@@ -56,7 +56,7 @@ private:
   Params params;
 };
 
-class TogglesPanel : public ListWidget {
+class TogglesPanel : public QWidget {
   Q_OBJECT
 public:
   explicit TogglesPanel(SettingsWindow *parent);
@@ -68,6 +68,9 @@ public slots:
 private:
   Params params;
   std::map<std::string, ParamControl*> toggles;
+  QStackedLayout *main_layout = nullptr;
+  ListWidget *home = nullptr;
+  QPushButton *select_car_btn = nullptr;
 
   void updateToggles();
 };
@@ -121,7 +124,6 @@ class CommunityPanel : public QWidget {
 private:
   QStackedLayout* main_layout = nullptr;
   QWidget* homeScreen = nullptr;
-  SelectCar* selectCar = nullptr;
   QWidget* homeWidget;
 
 public:
