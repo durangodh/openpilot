@@ -891,24 +891,20 @@ class HudRenderer(object):
     self._draw_vehicle_shape(image, cx, cy - 30, car_w, car_h, "ego")
 
   def _draw_blindspot_indicator(self, draw, panel, side):
-    """Draw the requested dark-gray BSD bracket instead of another car."""
-    left, top, right, bottom = panel
-    panel_w = right - left
-    panel_h = bottom - top
-    cx = (left + right) // 2
-    x = cx - int(panel_w * 0.155) if side == "left" else cx + int(panel_w * 0.155)
-    y = bottom - max(52, int(panel_h * 0.22))
-    direction = 1 if side == "left" else -1
+    """Draw one dark-gray BSD curve below each ego rear quarter."""
+    direction = -1 if side == "left" else 1
+    ego_x, projected_y = self._project(panel, 2.4, 0.0)
+    ego_w, _ = self._ego_vehicle_size(panel)
+    ego_bottom = projected_y - 30
+    inner_x = ego_x + direction * (ego_w // 2 + 5)
+    outer_x = ego_x + direction * (ego_w // 2 + 22)
     color = (67, 73, 78)
-    height = max(44, int(panel_h * 0.20))
-    width = max(16, int(panel_w * 0.025))
-    for offset in (0, direction * 10):
-      points = ((x + offset + direction * width, y - height // 2),
-                (x + offset + direction * 5, y - height // 4),
-                (x + offset, y),
-                (x + offset + direction * 5, y + height // 4),
-                (x + offset + direction * width, y + height // 2))
-      draw.line(points, fill=color, width=max(3, self.height // 150), joint="curve")
+    points = ((inner_x, ego_bottom - 14),
+              (outer_x, ego_bottom - 8),
+              (outer_x + direction * 5, ego_bottom + 3),
+              (outer_x, ego_bottom + 14),
+              (inner_x, ego_bottom + 19))
+    draw.line(points, fill=color, width=max(4, self.height // 115), joint="curve")
 
   def _draw_bipolar_gauge(self, draw, center_x, top, bottom, value, color, label, value_text):
     value = _clamp(float(value), -1.0, 1.0)
@@ -971,8 +967,8 @@ class HudRenderer(object):
     color = (18, 95, 225) if enabled else (118, 126, 132)
     width = max(4, radius // 6)
     draw.ellipse((x - radius, y - radius, x + radius, y + radius),
-                 fill=(238, 241, 243), outline=color, width=width)
-    wheel_color = (55, 62, 67)
+                 fill=color, outline=color, width=width)
+    wheel_color = (246, 248, 249)
     inner_radius = radius - width - 4
     draw.ellipse((x - inner_radius, y - inner_radius, x + inner_radius, y + inner_radius),
                  outline=wheel_color, width=max(3, width - 1))
@@ -1006,10 +1002,11 @@ class HudRenderer(object):
       draw.rounded_rectangle((right_x - bar_w, y0, right_x, y1),
                              radius=max(2, bar_h // 2), fill=fill, outline=outline, width=1)
 
-  def _draw_road_limit_badge(self, draw, center_x, center_y, limit):
+  def _draw_road_limit_badge(self, draw, center_x, bottom_y, limit):
     """Compact road-limit box used on the upper information row."""
     badge_w = max(58, int(self.width * 0.034))
     badge_h = max(32, int(self.height * 0.072))
+    center_y = bottom_y - badge_h // 2
     _draw_text(draw, (center_x, center_y - badge_h // 2 - 3), "LIMIT",
                max(10, self.height // 39), True, fill=(85, 94, 100), anchor="ms")
     draw.rounded_rectangle((center_x - badge_w // 2, center_y - badge_h // 2,
@@ -1050,10 +1047,9 @@ class HudRenderer(object):
     _draw_text(draw, (center_x, info_y), "KM" if is_metric else "MPH",
                max(13, self.height // 31), True, fill=(104, 111, 116), anchor="mm")
 
-    road_limit = _speed_value(float(scene.get("road_limit_speed", 0) or 0), is_metric)
-    self._draw_road_limit_badge(draw, right - max(132, int(panel_w * 0.17)), info_y, road_limit)
-
     separator_y = top + max(124, int(self.height * 0.28))
+    road_limit = _speed_value(float(scene.get("road_limit_speed", 0) or 0), is_metric)
+    self._draw_road_limit_badge(draw, right - max(132, int(panel_w * 0.17)), separator_y, road_limit)
     self._draw_gap_bars(draw, right - 18, separator_y, scene.get("cruise_gap", 0))
     draw.line((left + 18, separator_y, right - 18, separator_y),
               fill=(202, 207, 210), width=1)
@@ -1135,7 +1131,7 @@ class HudRenderer(object):
     left, top, right, bottom = card
     draw.rounded_rectangle(card, radius=9, fill=(232, 235, 237),
                            outline=(158, 166, 171), width=2)
-    _draw_text(draw, ((left + right) // 2, top + 5), "TPMS", max(9, self.height // 45), True,
+    _draw_text(draw, ((left + right) // 2, top + 4), "TPMS", max(11, self.height // 38), True,
                fill=(86, 94, 100), anchor="ma")
     values = [(tpms or {}).get(key) for key in ("fl", "fr", "rl", "rr")]
     center_x = (left + right) // 2
@@ -1151,7 +1147,7 @@ class HudRenderer(object):
       text = str(int(round(float(value)))) if valid else "--"
       color = (211, 55, 61) if valid and float(value) < 31.0 else (59, 66, 71)
       _draw_text(draw, (center_x + dx, center_y + dy), text,
-                 max(10, self.height // 38), True, fill=color, anchor="mm")
+                 max(13, self.height // 32), True, fill=color, anchor="mm")
 
   def _draw_lead_info(self, draw, box, leads, is_metric, language):
     card = self._bottom_card_box(box, "left")
@@ -1177,15 +1173,15 @@ class HudRenderer(object):
     row2_y = top + int((bottom - top) * 0.72)
     lead_label = "앞차" if language == "ko" else "LEAD"
     relative_label = "상대" if language == "ko" else "REL"
-    _draw_text(draw, (left + 8, row1_y), lead_label, max(9, self.height // 46), True,
+    _draw_text(draw, (left + 8, row1_y), lead_label, max(11, self.height // 38), True,
                fill=label_color, anchor="lm")
-    _draw_text(draw, (right - 8, row1_y), distance_text, max(11, self.height // 34), True,
+    _draw_text(draw, (right - 8, row1_y), distance_text, max(14, self.height // 28), True,
                fill=value_color, anchor="rm")
     draw.line((left + 7, (top + bottom) // 2, right - 7, (top + bottom) // 2),
               fill=(195, 201, 204), width=1)
-    _draw_text(draw, (left + 8, row2_y), relative_label, max(9, self.height // 46), True,
+    _draw_text(draw, (left + 8, row2_y), relative_label, max(11, self.height // 38), True,
                fill=label_color, anchor="lm")
-    _draw_text(draw, (right - 8, row2_y), relative_text, max(10, self.height // 39), True,
+    _draw_text(draw, (right - 8, row2_y), relative_text, max(12, self.height // 33), True,
                fill=value_color, anchor="rm")
 
   def _draw_alert(self, draw, alert, box=None):
