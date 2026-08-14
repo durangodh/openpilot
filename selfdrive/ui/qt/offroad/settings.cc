@@ -557,12 +557,6 @@ TogglesPanel::TogglesPanel(SettingsWindow *parent) : QWidget(parent) {
       "../assets/offroad/icon_warning.png",
     },
     {
-      "IsRHD",
-      "우핸들 차량 모드",
-      "켜짐: 좌측통행 규칙과 우측 운전석 기준 운전자 모니터링을 사용합니다. 국내 좌핸들 차량은 끕니다.",
-      "../assets/offroad/icon_openpilot_mirrored.png",
-    },
-    {
       "IsMetric",
       "미터법 사용",
       "켜짐: 속도를 km/h로 표시 / 꺼짐: mph로 표시합니다.",

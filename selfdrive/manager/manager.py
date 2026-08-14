@@ -197,6 +197,9 @@ def manager_init() -> None:
     if params.get(k) is None:
       params.put(k, v)
 
+  # This EON build targets Korean left-hand-drive vehicles only.
+  params.put_bool("IsRHD", False)
+
   # is this dashcam?
   if os.getenv("PASSIVE") is not None:
     params.put_bool("Passive", bool(int(os.getenv("PASSIVE", "0"))))
