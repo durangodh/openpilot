@@ -91,6 +91,12 @@ class LatControlTorque(LatControl):
     self.predicted_lateral_jerk_frame_id = -1
     self.read_torque_params(force=True)
 
+  def reset(self):
+    super().reset()
+    # Do not carry steering learned before a stop into the next launch.
+    # Hyundai's command-side torque limiter will ramp the fresh output from 0.
+    self.pid.reset()
+
   def _pget(self, key, default):
     try:
       v = self.params.get(key, encoding="utf8")

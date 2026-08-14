@@ -1,7 +1,6 @@
 import numpy as np
-from common.conversions import Conversions as CV
 from common.realtime import sec_since_boot, DT_MDL
-from common.numpy_fast import interp
+from common.numpy_fast import clip, interp
 from selfdrive.controls.lib.lane_planner import LanePlanner
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import LateralMpc
@@ -26,6 +25,9 @@ STEERING_RATE_COST = 700.0
 DEFAULT_CAMERA_OFFSET = -0.06
 DEFAULT_OFFSET_TOTAL = 0.0
 
+LANE_MODE_BLEND_TIME = 0.7
+LANE_CONFIDENCE_UPDATE_MIN_SPEED = 3.0
+
 
 class LateralPlanner:
   def __init__(self, CP, wide_camera=False, debug=False):
@@ -46,6 +48,7 @@ class LateralPlanner:
     self.solution_invalid_cnt = 0
 
     self.path_xyz = np.zeros((TRAJECTORY_SIZE, 3))
+    self.model_path_xyz = np.zeros((TRAJECTORY_SIZE, 3))
     self.velocity_xyz = np.zeros((TRAJECTORY_SIZE, 3))
     self.plan_yaw = np.zeros((TRAJECTORY_SIZE,))
     self.plan_yaw_rate = np.zeros((TRAJECTORY_SIZE,))
@@ -66,10 +69,11 @@ class LateralPlanner:
     self.dynamic_lane_profile = 0
     self.dynamic_lane_profile_status = True
     self.dynamic_lane_profile_status_buffer = True
-    self.use_lane_line_mode = False
+    self.lane_mode_blend = 1.0
 
     self.param_read_counter = 0
     self.read_param(force=True)
+    self.lane_mode_blend = 0.0 if self.dynamic_lane_profile == 1 else 1.0
 
   def read_param(self, force=False):
     # modelV2 drives this planner at 20 Hz. Params storage only needs a 1 Hz
@@ -102,7 +106,7 @@ class LateralPlanner:
     md = sm['modelV2']
     self.LP.parse_model(md)
     if len(md.position.x) == TRAJECTORY_SIZE and len(md.orientation.x) == TRAJECTORY_SIZE:
-      self.path_xyz = np.column_stack([md.position.x, md.position.y, md.position.z])
+      self.model_path_xyz = np.column_stack([md.position.x, md.position.y, md.position.z])
       self.t_idxs = np.array(md.position.t)
       self.plan_yaw = np.array(md.orientation.z)
       self.plan_yaw_rate = np.array(md.orientationRate.z)
@@ -118,24 +122,40 @@ class LateralPlanner:
       self.LP.lll_prob *= self.DH.lane_change_ll_prob
       self.LP.rll_prob *= self.DH.lane_change_ll_prob
 
-    lane_mode_speed = 10 * CV.MPH_TO_MS
-    if self.v_ego >= lane_mode_speed + 2 * CV.KPH_TO_MS:
-      self.use_lane_line_mode = True
-    elif self.v_ego < lane_mode_speed - 2 * CV.KPH_TO_MS:
-      self.use_lane_line_mode = False
-
-    # Fixed selections must match the setting at every speed. The low-speed
-    # lane-line fallback belongs only to Auto mode.
+    # Fixed selections match the setting at every speed. Auto follows lane
+    # confidence at low speed too, avoiding a forced laneless path at launch.
     if self.dynamic_lane_profile == 0:
       use_laneless = False
     elif self.dynamic_lane_profile == 1:
       use_laneless = True
     else:
-      use_laneless = not self.use_lane_line_mode or self.get_dynamic_lane_profile()
+      use_laneless = self.get_dynamic_lane_profile(sm['carState'].vEgo)
 
     self.dynamic_lane_profile_status = use_laneless
-    self.d_path_w_lines_xyz = self.LP.get_d_path(
-      self.v_ego, self.t_idxs, self.path_xyz, not use_laneless)
+
+    # Keep independent model and lane-line paths, then crossfade only their
+    # lateral component. This prevents an Auto mode change from stepping the
+    # requested curvature while preserving immediate laneless lane changes.
+    model_path_xyz = self.model_path_xyz.copy()
+    lane_path_xyz = self.LP.get_d_path(
+      self.v_ego, self.t_idxs, self.model_path_xyz.copy(), True)
+
+    lane_change_active = self.DH.lane_change_state in (
+      LaneChangeState.laneChangeStarting, LaneChangeState.laneChangeFinishing)
+    target_blend = 0.0 if use_laneless else 1.0
+    if lane_change_active and use_laneless:
+      self.lane_mode_blend = 0.0
+    else:
+      blend_step = DT_MDL / max(LANE_MODE_BLEND_TIME, DT_MDL)
+      self.lane_mode_blend = clip(
+        self.lane_mode_blend + clip(target_blend - self.lane_mode_blend,
+                                    -blend_step, blend_step),
+        0.0, 1.0)
+
+    self.path_xyz = model_path_xyz
+    self.path_xyz[:, 1] = (self.lane_mode_blend * lane_path_xyz[:, 1] +
+                           (1.0 - self.lane_mode_blend) * model_path_xyz[:, 1])
+    self.d_path_w_lines_xyz = lane_path_xyz
 
     self.lat_mpc.set_weights(PATH_COST, LATERAL_MOTION_COST,
                              LATERAL_ACCEL_COST, LATERAL_JERK_COST,
@@ -143,6 +163,7 @@ class LateralPlanner:
 
     # offset_total 을 최종 결정된 path_xyz 에 적용 (레인모드/레인리스 공통)
     self.path_xyz[:, 1] += self.offset_total
+    self.d_path_w_lines_xyz[:, 1] += self.offset_total
 
     # Reuse the path-distance vector for both interpolations. The trajectory is
     # unchanged between them, so a second NumPy norm only wastes planner CPU.
@@ -180,7 +201,7 @@ class LateralPlanner:
     else:
       self.solution_invalid_cnt = 0
 
-  def get_dynamic_lane_profile(self):
+  def get_dynamic_lane_profile(self, v_ego):
     """True = 레인리스 경로 사용, False = 레인모드(차선) 경로 사용.
     DynamicLaneProfile 하나로만 결정한다. (0=레인모드 1=레인리스 2=오토)
     """
@@ -193,10 +214,15 @@ class LateralPlanner:
       if self.DH.lane_change_state in (LaneChangeState.laneChangeStarting, LaneChangeState.laneChangeFinishing):
         return True
       elif self.DH.lane_change_state == LaneChangeState.off:
-        if self.LP.lll_prob < 0.3 and self.LP.rll_prob < 0.3:
-          self.dynamic_lane_profile_status_buffer = True
-        elif self.LP.lll_prob > 0.5 and self.LP.rll_prob > 0.5:
+        # Strong lane evidence may acquire lane mode even at a stop. Weak
+        # evidence may release it only while moving, so a stopped car keeps
+        # the lane state it approached with instead of reacting to camera
+        # probability noise before launch.
+        if self.LP.lll_prob > 0.5 and self.LP.rll_prob > 0.5:
           self.dynamic_lane_profile_status_buffer = False
+        elif v_ego > LANE_CONFIDENCE_UPDATE_MIN_SPEED and \
+             self.LP.lll_prob < 0.3 and self.LP.rll_prob < 0.3:
+          self.dynamic_lane_profile_status_buffer = True
         if self.dynamic_lane_profile_status_buffer:
           return True
     return False
