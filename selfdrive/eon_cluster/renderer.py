@@ -1032,21 +1032,6 @@ class HudRenderer(object):
                  y + math.sin(spoke) * inner_radius * 0.88),
                 fill=wheel_color, width=max(3, width - 1))
 
-  def _draw_road_limit_badge(self, draw, center_x, bottom_y, limit):
-    """Compact road-limit box used on the upper information row."""
-    badge_w = max(58, int(self.width * 0.034))
-    badge_h = max(32, int(self.height * 0.072))
-    center_y = bottom_y - badge_h // 2
-    _draw_text(draw, (center_x, center_y - badge_h // 2 - 3), "LIMIT",
-               max(10, self.height // 39), True, fill=(85, 94, 100), anchor="ms")
-    draw.rounded_rectangle((center_x - badge_w // 2, center_y - badge_h // 2,
-                            center_x + badge_w // 2, center_y + badge_h // 2),
-                           radius=max(7, badge_h // 4), fill=(246, 247, 247),
-                           outline=(114, 122, 128), width=2)
-    text = str(int(round(limit))) if limit > 0 else "--"
-    _draw_text(draw, (center_x, center_y), text, max(17, self.height // 22), True,
-               fill=(54, 61, 66), anchor="mm")
-
   def _atc_card_box(self, box):
     left, top, right, bottom = box
     world_top = top + int((bottom - top) * 0.47)
@@ -1201,8 +1186,6 @@ class HudRenderer(object):
 
     separator_y = top + max(124, int(self.height * 0.28))
     atc_box_active = _eon_atc_box_active(navi)
-    road_limit = _speed_value(float(scene.get("road_limit_speed", 0) or 0), is_metric)
-    self._draw_road_limit_badge(draw, right - max(132, int(panel_w * 0.17)), separator_y, road_limit)
     draw.line((left + 18, separator_y, right - 18, separator_y),
               fill=(202, 207, 210), width=1)
 
