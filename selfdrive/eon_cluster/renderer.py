@@ -997,8 +997,8 @@ class HudRenderer(object):
     _draw_text(draw, (right_x, separator_y - 66), "GAP", max(10, self.height // 39), True,
                fill=(85, 94, 100), anchor="ms")
     for index in range(4):
-      # GAP 1 is the bottom bar and sits directly on the information-row line.
-      y1 = separator_y - 2 - index * (bar_h + spacing)
+      # GAP 1 is the bottom bar; its lower edge exactly matches the row line.
+      y1 = separator_y - index * (bar_h + spacing)
       y0 = y1 - bar_h
       active = index < gap
       fill = (31, 168, 101) if active else (204, 209, 212)

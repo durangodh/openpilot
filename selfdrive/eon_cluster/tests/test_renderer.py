@@ -564,6 +564,10 @@ def test_header_uses_aligned_gap_bars_and_simple_rotating_wheel():
   renderer._draw_steering_wheel(ImageDraw.Draw(straight), 60, 60, 0.0, True)
   renderer._draw_steering_wheel(ImageDraw.Draw(turned), 60, 60, 35.0, True)
   assert straight.tobytes() != turned.tobytes()
+  gap = Image.new("RGB", (140, 120), (0, 0, 0))
+  renderer._draw_gap_bars(ImageDraw.Draw(gap), 120, 90, 1)
+  assert gap.getpixel((95, 90)) != (0, 0, 0)
+  assert gap.getpixel((95, 91)) == (0, 0, 0)
 
   scene = {
     "lanes": [], "edges": [], "leads": [],
