@@ -1119,26 +1119,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   setAutoFillBackground(true);
   setPalette(pal);
 
-  QList<ParamControl*> toggles;
-  toggles.append(new ParamControl("LaneChangeEnabled",
-                                            "차선변경 보조",
-                                            "켜짐: 방향지시등과 운전자 조향 입력으로 차선변경을 보조합니다. 주변 차량의 안전 여부는 운전자가 직접 확인해야 합니다.",
-                                            "../assets/offroad/icon_road.png",
-                                            this));
-  toggles.append(new ParamControl("AutoLaneChangeEnabled",
-                                            "자동 차선변경(조향 입력 없음)",
-                                            "켜짐: 방향지시등 작동 후 별도의 핸들 입력 없이 차선변경을 시작합니다. 시험 기능이므로 주변을 직접 확인하십시오.",
-                                            "../assets/offroad/icon_road.png",
-                                            this));
-
-  for(ParamControl *toggle : toggles) {
-    if(toggleLayout->count() != 0) {
-      toggleLayout->addWidget(horizontal_line());
-    }
-    toggleLayout->addWidget(toggle);
-  }
-
-  toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("TurnVisionControl",
                                            "최신 비전·지도 커브감속",
                                            "켜짐: 비전 모델과 티맵 경로 중 더 낮은 커브 목표속도를 적용합니다. / 꺼짐: 커브 자동감속을 사용하지 않습니다.",
@@ -1165,12 +1145,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             "순정 내비 기반 감속",
                                             "켜짐: 순정 내비게이션의 제한속도·카메라 정보를 종방향 감속에 사용합니다.",
                                             "../assets/offroad/icon_road.png",
-                                            this));
-  toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new ParamControl("KeepSteeringTurnSignals",
-                                            "방향지시등 중 조향 유지",
-                                            "켜짐: 방향지시등 작동 중에도 조향 제어를 유지합니다. / 꺼짐: 차량 조건에 따라 조향이 제한될 수 있습니다.",
-                                            "../assets/offroad/icon_openpilot.png",
                                             this));
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("HapticFeedbackWhenSpeedCamera",
@@ -1762,6 +1736,19 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
 
   list->addItem(horizontal_line());
+
+  list->addItem(new ParamControl(
+      "LaneChangeEnabled", "차선변경 보조",
+      "켜짐: 방향지시등과 운전자 조향 입력으로 차선변경을 보조합니다. 주변 차량의 안전 여부는 운전자가 직접 확인해야 합니다.",
+      "../assets/offroad/icon_road.png", this));
+  list->addItem(new ParamControl(
+      "AutoLaneChangeEnabled", "자동 차선변경(조향 입력 없음)",
+      "켜짐: 방향지시등 작동 후 별도의 핸들 입력 없이 차선변경을 시작합니다. 시험 기능이므로 주변을 직접 확인하십시오.",
+      "../assets/offroad/icon_road.png", this));
+  list->addItem(new ParamControl(
+      "KeepSteeringTurnSignals", "방향지시등 중 조향 유지",
+      "켜짐: 방향지시등 작동 중에도 조향 제어를 유지합니다. / 꺼짐: 차량 조건에 따라 조향이 제한될 수 있습니다.",
+      "../assets/offroad/icon_openpilot.png", this));
 
   ScrollView *scroller = new ScrollView(list, this);
   scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
