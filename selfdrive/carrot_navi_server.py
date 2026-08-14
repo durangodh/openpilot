@@ -15,9 +15,6 @@ PORT = 7714
 DISCOVERY_PORT = 7705
 STATE_FILE = "/dev/shm/carrot_navi_route.json"
 MAP_FILE = "/dev/shm/carrot_navi_map.jpg"
-LANE_FILE = "/dev/shm/carrot_navi_lane_bottom.png"
-TBT_CURRENT_FILE = "/dev/shm/carrot_navi_tbt_current.png"
-TBT_NEXT_FILE = "/dev/shm/carrot_navi_tbt_next.png"
 JSON_NAMES = (
   "vehicle", "guidance_current", "guidance_next", "lane_current", "lane_ahead",
   "speed", "traffic_signal", "crossroad", "route", "navigation_status",
@@ -37,11 +34,10 @@ ENABLED = {
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 MAX_MAP_FRAME_BYTES = 2 * 1024 * 1024
 MAX_LANE_FRAME_BYTES = 512 * 1024
-OVERLAY_FILES = {
-  "lane_bottom": LANE_FILE,
-  "tbt_current_full": TBT_CURRENT_FILE,
-  "tbt_next": TBT_NEXT_FILE,
-}
+# The external HUD displays the original map_main frame. Keep the phone from
+# producing redundant turn/lane image streams that would be drawn a second
+# time over the TMap image.
+OVERLAY_FILES = {}
 MAP_RENDER_WIDTH = 640
 MAP_RENDER_HEIGHT = 384
 MAP_RENDER_FPS = 5

@@ -53,8 +53,9 @@ lanes and shows only two blue lane-width path boundaries. The ego vehicle is
 gray, the primary lead is half its size in light gray, and BSD detections use
 dark-gray brackets instead of extra cars. Matching bottom cards show lead
 distance/relative speed and TPMS. The middle 20% always shows system load and
-temperature, while the right 40% keeps the TMap map, turn guidance, lane image,
-and remaining distance. No road-camera pixels are copied or encoded.
+temperature, while the right 40% displays only the original edge-to-edge TMap
+frame without separate turn, lane, distance, or route-summary overlays. No
+road-camera pixels are copied or encoded.
 
 The lightweight HUD also mirrors active openpilot alerts as outlined text
 without covering the driving or navigation background. It replaces the

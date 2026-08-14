@@ -10,9 +10,6 @@ from PIL import Image, ImageDraw, ImageFont
 
 NAVI_STATE = "/dev/shm/carrot_navi_route.json"
 NAVI_MAP = "/dev/shm/carrot_navi_map.jpg"
-NAVI_LANE = "/dev/shm/carrot_navi_lane_bottom.png"
-NAVI_TBT_CURRENT = "/dev/shm/carrot_navi_tbt_current.png"
-NAVI_TBT_NEXT = "/dev/shm/carrot_navi_tbt_next.png"
 NAVI_MAX_AGE_MS = 35000
 NAVI_ROUTE_MAX_AGE_MS = 3000
 NAVI_ROUTE_GRACE_S = 2.0
@@ -424,8 +421,6 @@ class HudRenderer(object):
     self.set_jpeg_quality(jpeg_quality)
     self.mirror = False
     self._route_visible_until = 0.0
-    # Last complete guidance strings, reused while the JSON file is replaced.
-    self._navi_text_cache = {}
     # Cache the static carrot-style road surface per panel size.
     self._road_backgrounds = {}
     # Display-only temporal history. Model coordinates remain untouched; only
@@ -1264,8 +1259,10 @@ class HudRenderer(object):
   def _draw_navi_panel(self, image, draw, box, navi, language="ko", is_metric=True):
     left, top, right, bottom = box
     panel_w = right - left
-    # Preserve the complete TMap frame. The receiver requests the same wide
-    # aspect ratio as this panel, so this remains edge-to-edge without crop bars.
+    # Preserve the complete original TMap frame without placing separate turn,
+    # lane, distance, or route-summary artwork over the phone-rendered image.
+    # The receiver requests the same wide aspect ratio as this panel, so the
+    # frame remains edge-to-edge without crop bars.
     map_image = _safe_full_image(NAVI_MAP, (panel_w, bottom - top))
     if map_image is not None:
       # Keep the last complete TMap frame visible even if the navigation JSON
@@ -1275,107 +1272,6 @@ class HudRenderer(object):
       draw.rectangle(box, fill=(10, 17, 24))
       _draw_text(draw, ((left + right) // 2, (top + bottom) // 2), "TMAP WAIT",
                  max(20, self.height // 15), True, fill=(120, 135, 145), anchor="mm")
-
-    # Use nMirror's native TMap artwork so the guidance hierarchy and lane
-    # colors match the phone: large current turn, smaller next turn below it,
-    # and the lane strip centered at the bottom.
-    margin = max(8, self.height // 46)
-    current = _safe_contained_image(
-      NAVI_TBT_CURRENT, (int(panel_w * 0.55), int((bottom - top) * 0.42)))
-    current_bottom = top + margin
-    if current is not None:
-      current_x = left + margin
-      current_y = top + margin
-      image.paste(current, (current_x, current_y), current if current.mode == "RGBA" else None)
-      current_bottom = current_y + current.height
-
-    next_turn = _safe_contained_image(
-      NAVI_TBT_NEXT, (int(panel_w * 0.35), int((bottom - top) * 0.18)))
-    if next_turn is not None:
-      next_x = left + margin
-      next_y = current_bottom + max(3, margin // 2)
-      image.paste(next_turn, (next_x, next_y), next_turn if next_turn.mode == "RGBA" else None)
-
-    lane = _safe_contained_image(
-      NAVI_LANE, (int(panel_w * 0.55), int((bottom - top) * 0.18)))
-    if lane is not None:
-      lane_x = left + (panel_w - lane.width) // 2
-      lane_y = bottom - lane.height - margin
-      image.paste(lane, (lane_x, lane_y), lane if lane.mode == "RGBA" else None)
-
-    self._draw_navi_text(draw, box, navi, language, is_metric)
-
-  @staticmethod
-  def _guidance_line(guide, is_metric, language):
-    """One compact "<distance> <name>" line from a guidance_* stream."""
-    if not isinstance(guide, dict):
-      return ""
-    distance = guide.get("distance_m")
-    name = str(guide.get("main_text") or guide.get("road_name") or "")
-    parts = []
-    if distance is not None and float(distance) > 0:
-      parts.append(_distance_text(float(distance), is_metric, language))
-    if name:
-      parts.append(name)
-    return "  ".join(parts)
-
-  def _draw_navi_text(self, draw, box, navi, language, is_metric):
-    """Live guidance text straight from the JSON streams.
-
-    The TMap PNG overlays carry their own distance, but the phone only sends
-    them at 1 fps. These lines come from the JSON streams, so they stay current
-    at the HUD frame rate. Three text draws total, roughly 0.7 ms.
-    """
-    left, top, right, bottom = box
-    size = max(16, self.height // 22)
-    small = max(13, self.height // 30)
-    pad = max(6, self.height // 70)
-    margin = max(8, self.height // 46)
-
-    def plate(x, y, text, text_size, fill):
-      width = int(len(text) * text_size * 0.62) + pad * 2
-      draw.rounded_rectangle((x, y - pad, x + width, y + text_size + pad), radius=8,
-                             fill=(8, 14, 20))
-      _draw_text(draw, (x + pad, y), text, text_size, True, fill=fill, anchor="la")
-
-    route = navi.get("route") or {}
-    remain_m = route.get("remain_distance_m")
-    remain_s = route.get("remain_time_sec")
-    summary = []
-    if remain_m is not None and float(remain_m) > 0:
-      summary.append(_distance_text(float(remain_m), is_metric, language))
-    if remain_s is not None and float(remain_s) > 0:
-      remain_s = int(remain_s)
-      summary.append(time.strftime("%H:%M", time.localtime(time.time() + remain_s)))
-      minutes = max(1, remain_s // 60)
-      summary.append("%d분" % minutes if language == "ko" else "%d min" % minutes)
-    if summary:
-      self._navi_text_cache["summary"] = summary
-    else:
-      summary = self._navi_text_cache.get("summary") or []
-    if summary:
-      text = "  ·  ".join(summary)
-      width = int(len(text) * small * 0.62) + pad * 2
-      plate(right - width - margin, top + margin, text, small, (196, 220, 236))
-
-    current = self._guidance_line(navi.get("guidance_current"), is_metric, language)
-    next_line = self._guidance_line(navi.get("guidance_next"), is_metric, language)
-    # An atomic JSON replacement must not blink the guidance lines, exactly as
-    # the native TMap overlays hold their last complete frame.
-    if navi.get("guidance_current") is not None or navi.get("route") is not None:
-      self._navi_text_cache["current"] = current
-      self._navi_text_cache["next"] = next_line
-    else:
-      current = self._navi_text_cache.get("current", "")
-      next_line = self._navi_text_cache.get("next", "")
-    y = bottom - margin - size - pad
-    if next_line:
-      y -= small + pad * 3
-    if current:
-      plate(left + margin, y, current, size, (255, 214, 78))
-      y += size + pad * 3
-    if next_line:
-      plate(left + margin, y, next_line, small, (176, 196, 210))
 
   def _theme_colors(self, theme):
     # carrot-wip compatible mapping: 0 auto by local time, 1 dark, 2 light.

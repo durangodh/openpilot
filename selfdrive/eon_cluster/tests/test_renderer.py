@@ -310,24 +310,12 @@ def test_blindspot_flags_draw_dark_gray_brackets():
   assert (67, 73, 78) in set(right.getdata())
 
 
-def test_tmap_guidance_layout_stays_fixed_when_json_briefly_drops(tmp_path, monkeypatch):
+def test_tmap_panel_keeps_only_original_map_when_json_briefly_drops(tmp_path, monkeypatch):
   from PIL import Image
   map_path = tmp_path / "map.jpg"
-  current_path = tmp_path / "current.png"
-  next_path = tmp_path / "next.png"
-  lane_path = tmp_path / "lane.png"
   map_color = (41, 112, 173)
-  current_color = (12, 220, 80, 255)
-  next_color = (20, 140, 60, 255)
-  lane_color = (240, 130, 20, 255)
   Image.new("RGB", (640, 384), map_color).save(str(map_path), quality=95)
-  Image.new("RGBA", (400, 160), current_color).save(str(current_path))
-  Image.new("RGBA", (240, 60), next_color).save(str(next_path))
-  Image.new("RGBA", (320, 80), lane_color).save(str(lane_path))
   monkeypatch.setattr(renderer_module, "NAVI_MAP", str(map_path))
-  monkeypatch.setattr(renderer_module, "NAVI_TBT_CURRENT", str(current_path))
-  monkeypatch.setattr(renderer_module, "NAVI_TBT_NEXT", str(next_path))
-  monkeypatch.setattr(renderer_module, "NAVI_LANE", str(lane_path))
 
   renderer = HudRenderer(1920, 462, 50)
   scene = {
@@ -345,7 +333,7 @@ def test_tmap_guidance_layout_stays_fixed_when_json_briefly_drops(tmp_path, monk
   dropped_json_frame = renderer.render(55.0, 88.0, True, {}, scene)
 
   # A transient JSON read failure must not switch to the trip report or blink
-  # any of the last complete native TMap overlays.
+  # the original TMap frame.
   assert live_frame.tobytes() == dropped_json_frame.tobytes()
 
   # Once the grace period expires without an active destination, auto mode
@@ -354,18 +342,16 @@ def test_tmap_guidance_layout_stays_fixed_when_json_briefly_drops(tmp_path, monk
   ended_route_frame = renderer.render(55.0, 88.0, True, {}, scene)
   assert ended_route_frame.tobytes() != live_frame.tobytes()
 
-  # Native current/next guidance is stacked at the map's upper-left.
-  assert live_frame.getpixel((1375, 94)) == current_color[:3]
-  assert live_frame.getpixel((1298, 216)) == next_color[:3]
-  # Native lane guidance is centered along the map's bottom edge.
-  assert live_frame.getpixel((1537, 410)) == lane_color[:3]
+  # JSON guidance must not add text/plates over the original TMap image.
+  right_panel = live_frame.crop((1155, 0, 1920, 462))
+  assert len(set(right_panel.getdata())) == 1
 
 
 def test_tmap_stream_is_wide_and_does_not_increase_pixel_load():
   streams = manifest()["streams"]
   enabled_images = {stream["name"] for stream in streams
                     if stream["kind"] == "image" and stream["enabled"]}
-  assert enabled_images == {"tbt_current_full", "tbt_next", "lane_bottom"}
+  assert enabled_images == set()
   render_stream = next(stream for stream in streams if stream["name"] == "map_main")
   params = render_stream["params"]
   assert (params["width"], params["height"], params["fps"]) == (
@@ -593,31 +579,6 @@ def test_detected_lane_is_held_for_three_frames_only():
     assert len(held["lanes"]) == 1
     assert held["edges"] == []
   assert renderer._stabilize_scene_geometry(empty)["lanes"] == []
-
-
-def test_live_guidance_text_survives_a_json_drop():
-  renderer = HudRenderer(1920, 462, 60)
-  navi = {
-    "guidance_current": {"main_text": "광주경찰청", "distance_m": 254},
-    "guidance_next": {"distance_m": 513},
-    "route": {"remain_distance_m": 4700, "remain_time_sec": 540},
-  }
-  assert renderer._guidance_line(navi["guidance_current"], True, "ko").startswith("254")
-  assert "광주경찰청" in renderer._guidance_line(navi["guidance_current"], True, "ko")
-  # road_name is the fallback when the stream carries no main_text.
-  assert renderer._guidance_line({"road_name": "외곽순환"}, True, "ko") == "외곽순환"
-  assert renderer._guidance_line({}, True, "ko") == ""
-  assert renderer._guidance_line(None, True, "ko") == ""
-
-  from PIL import ImageDraw, Image
-  frame = Image.new("RGB", (1920, 462))
-  draw = ImageDraw.Draw(frame)
-  box = (1152, 0, 1920, 462)
-  renderer._draw_navi_text(draw, box, navi, "ko", True)
-  assert renderer._navi_text_cache["current"].startswith("254")
-  # An empty read must reuse the cached strings rather than blank the panel.
-  renderer._draw_navi_text(draw, box, {}, "ko", True)
-  assert renderer._navi_text_cache["current"].startswith("254")
 
 
 def test_gear_and_turn_signals_are_optional():
