@@ -20,7 +20,6 @@ BITMAP_FONT_DATA = os.path.join(os.path.dirname(__file__), "..", "assets", "font
 BITMAP_FONT_IMAGE = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "Pretendard-SemiBold.png")
 HANGUL_BITMAP_FONT_DATA = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "Pretendard-Hangul.fnt")
 HANGUL_BITMAP_FONT_IMAGE = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "Pretendard-Hangul.png")
-STEERING_WHEEL_IMAGE = os.path.join(os.path.dirname(__file__), "..", "assets", "img_chffr_wheel.png")
 _FONT_CACHE = {}
 _BITMAP_FONT_KEYS = set()
 _BITMAP_TEXT_CACHE = OrderedDict()
@@ -437,11 +436,6 @@ class HudRenderer(object):
     # buckets so liveTracks do not redraw complex car geometry every frame.
     self._vehicle_base_sprites = {}
     self._vehicle_sprite_cache = OrderedDict()
-    # The real Genesis wheel is resized once and rotation is bucketed so a
-    # moving steering angle does not add a full PNG transform every frame.
-    self._steering_wheel_base = None
-    self._steering_wheel_scaled = {}
-    self._steering_wheel_cache = OrderedDict()
 
   def set_jpeg_quality(self, jpeg_quality):
     jpeg_quality = max(1, min(95, int(jpeg_quality)))
@@ -697,6 +691,8 @@ class HudRenderer(object):
 
   def _draw_path(self, image, draw, panel, points, enabled=False, scene=None):
     """Draw two blue lane-width boundaries with no center trajectory fill."""
+    if not enabled:
+      return
     if len(points) < 2:
       points = [(0.0, 0.0), (12.0, 0.0), (30.0, 0.0), (60.0, 0.0), (100.0, 0.0)]
     ordered = sorted((float(longitudinal), float(lateral)) for longitudinal, lateral in points)
@@ -821,6 +817,8 @@ class HudRenderer(object):
     if distance <= 0.0 or distance > self.MAX_DISTANCE_M:
       return
     cx, cy = self._project(panel, distance, lateral)
+    # Preserve a clear visual gap after lifting the ego/BSD group upward.
+    cy -= max(16, int((panel[3] - panel[1]) * 0.075))
     ego_w, ego_h = self._ego_vehicle_size(panel)
     # The primary lead is intentionally half the ego size. Secondary tracks
     # remain slightly smaller so the visual hierarchy stays unambiguous.
@@ -889,7 +887,8 @@ class HudRenderer(object):
   def _draw_ego_vehicle(self, image, panel, enabled):
     cx, cy = self._project(panel, 2.4, 0.0)
     car_w, car_h = self._ego_vehicle_size(panel)
-    self._draw_vehicle_shape(image, cx, cy - 9, car_w, car_h, "ego")
+    # Lift the ego so the BSD brackets sit naturally at its rear quarters.
+    self._draw_vehicle_shape(image, cx, cy - 30, car_w, car_h, "ego")
 
   def _draw_blindspot_indicator(self, draw, panel, side):
     """Draw the requested dark-gray BSD bracket instead of another car."""
@@ -966,51 +965,40 @@ class HudRenderer(object):
                  outline=(220, 45, 45), width=max(6, radius // 6))
     _draw_text(draw, (x, y), str(limit), max(24, radius), True, fill=(20, 20, 20), anchor="mm")
 
-  def _steering_wheel_sprite(self, diameter, angle_deg):
-    diameter = max(20, int(diameter))
-    bucket = int(round(float(angle_deg) / 5.0) * 5)
-    key = (diameter, bucket)
-    sprite = self._steering_wheel_cache.get(key)
-    if sprite is not None:
-      self._steering_wheel_cache.move_to_end(key)
-      return sprite
-    if self._steering_wheel_base is None:
-      source = _safe_image(STEERING_WHEEL_IMAGE)
-      if source is None:
-        return None
-      self._steering_wheel_base = source.convert("RGBA")
-    resampling = getattr(Image, "Resampling", Image)
-    scaled = self._steering_wheel_scaled.get(diameter)
-    if scaled is None:
-      scaled = self._steering_wheel_base.resize((diameter, diameter), resampling.LANCZOS)
-      self._steering_wheel_scaled[diameter] = scaled
-    sprite = scaled.rotate(-bucket, resample=resampling.BICUBIC, expand=False)
-    self._steering_wheel_cache[key] = sprite
-    # 201 five-degree buckets cover the full -500..500 degree steering range.
-    while len(self._steering_wheel_cache) > 208:
-      self._steering_wheel_cache.popitem(last=False)
-    return sprite
-
-  def _draw_steering_wheel(self, image, draw, x, y, angle_deg, enabled):
+  def _draw_steering_wheel(self, draw, x, y, angle_deg, enabled):
+    """Lightweight generic rotating wheel without a vehicle-brand mark."""
     radius = max(25, self.height // 17)
     color = (18, 95, 225) if enabled else (118, 126, 132)
     width = max(4, radius // 6)
     draw.ellipse((x - radius, y - radius, x + radius, y + radius),
                  fill=(238, 241, 243), outline=color, width=width)
-    sprite = self._steering_wheel_sprite(radius * 2 - width * 2 - 5, angle_deg)
-    if sprite is not None:
-      image.paste(sprite, (int(x - sprite.width / 2), int(y - sprite.height / 2)), sprite)
+    wheel_color = (55, 62, 67)
+    inner_radius = radius - width - 4
+    draw.ellipse((x - inner_radius, y - inner_radius, x + inner_radius, y + inner_radius),
+                 outline=wheel_color, width=max(3, width - 1))
+    radians = math.radians(-float(angle_deg))
+    hub_radius = max(4, radius // 7)
+    draw.ellipse((x - hub_radius, y - hub_radius, x + hub_radius, y + hub_radius),
+                 fill=wheel_color)
+    for offset in (-90.0, 30.0, 150.0):
+      spoke = radians + math.radians(offset)
+      draw.line((x + math.cos(spoke) * hub_radius * 0.8,
+                 y + math.sin(spoke) * hub_radius * 0.8,
+                 x + math.cos(spoke) * inner_radius * 0.88,
+                 y + math.sin(spoke) * inner_radius * 0.88),
+                fill=wheel_color, width=max(3, width - 1))
 
-  def _draw_gap_bars(self, draw, right_x, center_y, gap):
+  def _draw_gap_bars(self, draw, right_x, separator_y, gap):
     """Draw the physical SCC GAP button state as one to four stacked bars."""
     gap = max(0, min(4, int(gap or 0)))
     bar_w = max(42, int(self.width * 0.024))
     bar_h = max(6, self.height // 60)
     spacing = max(3, bar_h // 2)
-    _draw_text(draw, (right_x, center_y - 30), "GAP", max(10, self.height // 39), True,
+    _draw_text(draw, (right_x, separator_y - 66), "GAP", max(10, self.height // 39), True,
                fill=(85, 94, 100), anchor="ms")
     for index in range(4):
-      y1 = center_y + 26 - index * (bar_h + spacing)
+      # GAP 1 is the bottom bar and sits directly on the information-row line.
+      y1 = separator_y - 2 - index * (bar_h + spacing)
       y0 = y1 - bar_h
       active = index < gap
       fill = (31, 168, 101) if active else (204, 209, 212)
@@ -1047,7 +1035,7 @@ class HudRenderer(object):
 
     info_y = top + max(92, int(self.height * 0.215))
     gear = str(scene.get("gear", "--") or "--").upper()
-    _draw_text(draw, (left + 28, info_y), gear, max(22, self.height // 19), True,
+    _draw_text(draw, (left + 28, info_y), gear, max(26, self.height // 16), True,
                fill=(55, 62, 67), anchor="lm")
 
     mode = int(scene.get("driving_mode", 0) or 0)
@@ -1058,22 +1046,22 @@ class HudRenderer(object):
       4: ("FAST", (222, 67, 70)),
     }.get(mode, ("--", (104, 111, 116)))
     _draw_text(draw, (left + max(70, int(panel_w * 0.09)), info_y), mode_label,
-               max(17, self.height // 23), True, fill=mode_color, anchor="lm")
+               max(22, self.height // 19), True, fill=mode_color, anchor="lm")
     _draw_text(draw, (center_x, info_y), "KM" if is_metric else "MPH",
                max(13, self.height // 31), True, fill=(104, 111, 116), anchor="mm")
 
     road_limit = _speed_value(float(scene.get("road_limit_speed", 0) or 0), is_metric)
     self._draw_road_limit_badge(draw, right - max(132, int(panel_w * 0.17)), info_y, road_limit)
-    self._draw_gap_bars(draw, right - 18, info_y, scene.get("cruise_gap", 0))
 
     separator_y = top + max(124, int(self.height * 0.28))
+    self._draw_gap_bars(draw, right - 18, separator_y, scene.get("cruise_gap", 0))
     draw.line((left + 18, separator_y, right - 18, separator_y),
               fill=(202, 207, 210), width=1)
 
     second_row_y = top + max(164, int(self.height * 0.37))
-    left_x = left + max(92, int(panel_w * 0.14))
-    right_x = right - max(92, int(panel_w * 0.14))
-    self._draw_steering_wheel(image, draw, left_x, second_row_y,
+    left_x = left + max(58, int(panel_w * 0.075))
+    right_x = right - max(58, int(panel_w * 0.075))
+    self._draw_steering_wheel(draw, left_x, second_row_y,
                               float(scene.get("steering_angle_deg", 0.0) or 0.0), enabled)
 
     cruise_valid = enabled and 0.0 < cruise_kph < 255.0

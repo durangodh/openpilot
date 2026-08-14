@@ -47,7 +47,7 @@ external HUD disconnects.
 The display uses a fixed 4:2:4 layout. The left 40% is a lightweight synthetic driving scene. Its
 upper row keeps gear and driving mode at the left, the speed unit centered,
 and the live road-limit box plus physical SCC GAP bars at the right. Below it
-are the rotating Genesis steering-wheel image, cruise SET speed, active camera
+are a lightweight rotating steering-wheel icon, cruise SET speed, active camera
 limit, and camera/section remaining distance. The road view omits dotted model
 lanes and shows only two blue lane-width path boundaries. The ego vehicle is
 gray, the primary lead is half its size in light gray, and BSD detections use

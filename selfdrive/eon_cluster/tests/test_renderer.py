@@ -117,6 +117,10 @@ def test_path_is_two_blue_boundaries_beside_the_ego_car():
   runs = sum(index == 0 or blue_x[index] > blue_x[index - 1] + 1 for index in range(len(blue_x)))
   assert runs == 2
   assert image.getpixel((575, near_y)) != blue
+  disabled = Image.new("RGB", (1150, 462), (0, 0, 0))
+  renderer._draw_path(disabled, ImageDraw.Draw(disabled), panel,
+                      [(0.0, 0.0), (30.0, 0.0), (80.0, 0.0)], False, {})
+  assert blue not in set(disabled.getdata())
 
 
 def test_portrait_jpeg_geometry():
@@ -552,16 +556,14 @@ def test_requested_driving_panel_omits_dotted_lanes_and_edges(monkeypatch):
   assert (24, 126, 224) in set(frame.getdata())
 
 
-def test_header_uses_gap_bars_and_cached_real_steering_wheel():
+def test_header_uses_aligned_gap_bars_and_simple_rotating_wheel():
+  from PIL import Image, ImageDraw
   renderer = HudRenderer(1920, 462, 50)
-  first = renderer._steering_wheel_sprite(44, 11.0)
-  second = renderer._steering_wheel_sprite(44, 12.0)
-  assert first is not None
-  assert first is second
-  for angle in range(-750, 751, 5):
-    renderer._steering_wheel_sprite(44, angle)
-  assert len(renderer._steering_wheel_scaled) == 1
-  assert len(renderer._steering_wheel_cache) == 208
+  straight = Image.new("RGB", (120, 120), (239, 241, 242))
+  turned = straight.copy()
+  renderer._draw_steering_wheel(ImageDraw.Draw(straight), 60, 60, 0.0, True)
+  renderer._draw_steering_wheel(ImageDraw.Draw(turned), 60, 60, 35.0, True)
+  assert straight.tobytes() != turned.tobytes()
 
   scene = {
     "lanes": [], "edges": [], "leads": [],
