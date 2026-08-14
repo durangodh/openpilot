@@ -77,7 +77,7 @@ def test_update_off_route_blocks_turn_route_and_speed_control():
   assert not state["speed_fresh"]
 
 
-def test_guidance_inactive_blocks_atc_but_keeps_free_drive_speed_events():
+def test_guidance_inactive_does_not_block_present_guidance_or_speed_events():
   now_ms = int(time.time() * 1000)
   root = {
     "stream_updated_at_ms": {
@@ -98,13 +98,55 @@ def test_guidance_inactive_blocks_atc_but_keeps_free_drive_speed_events():
     state = CarrotNaviAtc(state_file.name).update()
 
   assert not state["off_route"]
-  assert not state["fresh"]
-  assert state["next"] is None
-  assert not state["route_fresh"]
+  assert state["fresh"]
+  assert state["next"] is not None
+  assert state["route_fresh"]
   assert state["speed_fresh"]
   assert CarrotNaviAtc.speed_events(state)["camera"] == {
     "type": 1, "distance": 100.0, "limit": 30.0,
   }
+
+
+def test_active_route_ignores_transient_guidance_inactive_status():
+  now_ms = int(time.time() * 1000)
+  root = {
+    "stream_updated_at_ms": {
+      "guidance_current": now_ms, "guidance_next": now_ms,
+      "route": now_ms, "vehicle": now_ms,
+    },
+    "guidance_current": {"turn_type": 12, "distance_m": 35},
+    "guidance_next": {"turn_type": 13, "distance_m": 300},
+    "route": {"remain_distance_m": 1200, "remain_time_sec": 180, "polyline": []},
+    "vehicle": {"lat": 37.5, "lon": 127.1},
+    "navigation_status": {"guidance_active": False, "off_route": False},
+  }
+  with tempfile.NamedTemporaryFile(mode="w+") as state_file:
+    json.dump(root, state_file)
+    state_file.flush()
+    state = CarrotNaviAtc(state_file.name).update()
+
+  assert state["fresh"]
+  assert state["next"] is not None
+  assert state["route_fresh"]
+  assert CarrotNaviAtc.steering_request(state, 30.0 / 3.6) == -1
+
+
+def test_extended_carrot_turn_types_are_classified():
+  assert CarrotNaviAtc.classify(1000) == ("turn", -1)
+  assert CarrotNaviAtc.classify(1001) == ("turn", 1)
+  assert CarrotNaviAtc.classify(1002) == ("fork", -1)
+  assert CarrotNaviAtc.classify(1003) == ("fork", 1)
+  assert CarrotNaviAtc.classify(1006) == ("fork", -1)
+  assert CarrotNaviAtc.classify(1007) == ("fork", 1)
+
+
+def test_turn_steering_request_keeps_speed_distance_and_freshness_gates():
+  active = {"fresh": True, "kind": "turn", "direction": 1, "distance": 35.0}
+  assert CarrotNaviAtc.steering_request(active, 30.0 / 3.6) == 1
+  assert CarrotNaviAtc.steering_request(dict(active, distance=80.0), 30.0 / 3.6) == 0
+  assert CarrotNaviAtc.steering_request(dict(active, distance=2.0), 30.0 / 3.6) == 0
+  assert CarrotNaviAtc.steering_request(active, 61.0 / 3.6) == 0
+  assert CarrotNaviAtc.steering_request(dict(active, fresh=False), 30.0 / 3.6) == 0
 
 
 def test_next_maneuver_speed_limit_is_independent_from_steering():

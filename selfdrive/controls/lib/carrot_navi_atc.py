@@ -7,10 +7,10 @@ STATE_FILE = "/dev/shm/carrot_navi_route.json"
 STALE_TIMEOUT = 3.0
 MAP_CURVE_UPDATE_INTERVAL = 0.20
 
-TURN_LEFT = {12, 16}
-TURN_RIGHT = {13, 19}
-FORK_LEFT = {7, 17, 44, 75, 76, 102, 105, 112, 115, 118}
-FORK_RIGHT = {6, 43, 73, 74, 101, 104, 111, 114, 117, 123, 124}
+TURN_LEFT = {12, 16, 1000}
+TURN_RIGHT = {13, 19, 1001}
+FORK_LEFT = {7, 17, 44, 75, 76, 102, 105, 112, 115, 118, 1002, 1006}
+FORK_RIGHT = {6, 43, 73, 74, 101, 104, 111, 114, 117, 123, 124, 1003, 1007}
 ROTARY = set(range(131, 143))
 UTURN = {14}
 
@@ -85,8 +85,10 @@ class CarrotNaviAtc:
 
       status = root.get("navigation_status") or {}
       off_route = bool(_first(status, ("off_route", "offRoute"), False))
-      guidance_active = _first(status, ("guidance_active", "guidanceActive"), None)
-      guidance_blocked = off_route or guidance_active is False
+      # Match carrot-wip control semantics: guidance_active is informational.
+      # A present guidance item remains usable unless navigation reports that
+      # the vehicle is actually off route.
+      guidance_blocked = off_route
 
       self.state = self.guidance_state(
         root.get("guidance_current") or {}, guidance_fresh and not guidance_blocked)
