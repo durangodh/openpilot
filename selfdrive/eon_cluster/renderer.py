@@ -964,21 +964,28 @@ class HudRenderer(object):
     ego_x, projected_y = self._project(panel, 2.4, 0.0)
     ego_w, ego_h = self._ego_vehicle_size(panel)
     ego_bottom = projected_y - 30
-    rear_y = ego_bottom - max(8, ego_h // 8)
     side_x = ego_x + direction * (ego_w // 2 + 7)
     color = (67, 73, 78)
     stroke_width = max(4, self.height // 115)
 
-    # The former half-ellipse was centered below the car and looked like a pair
-    # of U shapes. These mirrored, nested strokes start beside the rear corners
-    # and sweep outward, matching a conventional blind-spot/radar symbol.
-    for index, outward in enumerate((0, max(10, ego_w // 7))):
-      points = [
-        (side_x + direction * outward, rear_y - 18),
-        (side_x + direction * (outward + 2), rear_y - 8),
-        (side_x + direction * (outward + 7), rear_y + 2),
-        (side_x + direction * (outward + 16), rear_y + 10),
-      ]
+    # Start beside the rear corners, bend downward first, then sweep outward.
+    # This reproduces the user's radar-wave direction instead of a U shape.
+    outer_offset = max(11, ego_w // 6)
+    for index, outward in enumerate((0, outer_offset)):
+      start_x = side_x + direction * outward
+      start_y = ego_bottom - (4 if index == 0 else 8)
+      control_x = start_x + direction * (3 if index == 0 else 4)
+      control_y = ego_bottom + (17 if index == 0 else 20)
+      end_x = start_x + direction * (28 if index == 0 else 35)
+      end_y = ego_bottom + (22 if index == 0 else 28)
+      points = []
+      for step in range(9):
+        mix = step / 8.0
+        inverse = 1.0 - mix
+        points.append((
+          int(round(inverse * inverse * start_x + 2.0 * inverse * mix * control_x + mix * mix * end_x)),
+          int(round(inverse * inverse * start_y + 2.0 * inverse * mix * control_y + mix * mix * end_y)),
+        ))
       # Emphasize the outer radar wave while retaining a finer inner mark.
       line_width = stroke_width if index == 0 else max(stroke_width + 2, int(round(stroke_width * 1.5)))
       draw.line(points, fill=color, width=line_width, joint="curve")
@@ -1238,10 +1245,11 @@ class HudRenderer(object):
 
     cruise_valid = enabled and 0.0 < cruise_kph < 255.0
     cruise_color = (18, 149, 224) if cruise_valid else (139, 147, 152)
-    cruise_radius = max(34, int(round(max(28, self.height // 16) * 1.20)))
+    base_cruise_radius = max(34, int(round(max(28, self.height // 16) * 1.20)))
+    cruise_radius = base_cruise_radius * 2
     draw.ellipse((center_x - cruise_radius, second_row_y - cruise_radius,
                   center_x + cruise_radius, second_row_y + cruise_radius),
-                 fill=(246, 247, 247), outline=cruise_color, width=max(4, cruise_radius // 7))
+                 fill=(246, 247, 247), outline=cruise_color, width=max(4, base_cruise_radius // 7))
     cruise_text = str(int(round(display_cruise))) if cruise_valid else "--"
     cruise_text_size = max(27, int(round(max(22, self.height // 17) * 1.20)))
     _draw_text(draw, (center_x, second_row_y - 2), cruise_text, cruise_text_size, True,
