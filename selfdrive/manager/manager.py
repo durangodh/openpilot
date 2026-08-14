@@ -171,18 +171,20 @@ def manager_init() -> None:
   except Exception:
     pass
 
-  # AutoTurnControl -> CarrotAutoTurnControl one-time compatibility.
-  # Only migrate when the new setting does not exist, so a driver's explicit
-  # CarrotAutoTurnControl choice (including OFF) is never overwritten.
-  try:
-    if params.get("CarrotAutoTurnControl") is None:
+  # AutoTurnControl -> CarrotAutoTurnControl one-time compatibility. The new
+  # default may already have created a 0 on an earlier g_abcd boot, so inherit
+  # a nonzero legacy mode once, then never override the driver's new choice.
+  if params.get("CarrotAutoTurnControlMigrated") is None:
+    try:
       old_atc_mode = open("/data/params/d/AutoTurnControl").read().strip()
-      if old_atc_mode:
-        old_atc_mode = str(max(0, min(3, int(old_atc_mode))))
+      new_atc_mode = params.get("CarrotAutoTurnControl", encoding='utf8')
+      old_atc_mode = str(max(0, min(3, int(old_atc_mode))))
+      if old_atc_mode != "0" and new_atc_mode in (None, "0"):
         params.put("CarrotAutoTurnControl", old_atc_mode)
         cloudlog.warning(f"migrated AutoTurnControl -> CarrotAutoTurnControl: {old_atc_mode}")
-  except (IOError, OSError, TypeError, ValueError):
-    pass
+    except (IOError, OSError, TypeError, ValueError):
+      pass
+    params.put_bool("CarrotAutoTurnControlMigrated", True)
 
   # 기존 단일 ACC/AUTO/E2E 선택값을 aPilot 방식의 ExperimentalMode +
   # TrafficStopMode 조합으로 1회 이관한다.
