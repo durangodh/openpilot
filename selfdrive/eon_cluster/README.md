@@ -25,8 +25,7 @@ p.put_bool("EonClusterHud", True)
 p.put("EonClusterHudFps", "10")
 p.put("EonClusterHudBrightness", "65")
 p.put("EonClusterHudJpegQuality", "58")
-p.put("EonClusterHudPanelLayout", "0")
-p.put("EonClusterHudScreenMode", "0")
+p.put("EonClusterHudScreenMode", "1")
 p.put("EonClusterHudOrientation", "0")
 p.put("EonClusterHudMirror", "0")
 p.put("EonClusterHudRadarInfo", "4")
@@ -45,27 +44,26 @@ status, and alert overlays but skips its duplicate camera, model, lead, plot,
 and TMap draws. Normal on-device rendering resumes within 500 ms after the
 external HUD disconnects.
 
-The left 60% of the display is a lightweight synthetic driving scene with a
+The display uses a fixed 4:2:4 layout. The left 40% is a lightweight synthetic driving scene with a
 Tesla-style two-row header: current speed, gear, unit, driving mode, a live
 steering-wheel indicator, cruise set speed, and active speed-camera limit.
 The planned path is shown as two blue boundaries beside the ego vehicle, and
-BSD detections appear as white vehicles at its rear quarters. The right 40%
-keeps the TMap map, turn guidance, lane image, and remaining distance. No
-road-camera pixels are copied or encoded.
+BSD detections appear as white vehicles at its rear quarters. The middle 20%
+always shows system load and temperature, while the right 40% keeps the TMap
+map, turn guidance, lane image, and remaining distance. No road-camera pixels
+are copied or encoded.
 
 The lightweight HUD also mirrors active openpilot alerts as outlined text
 without covering the driving or navigation background. It replaces the
 navigation panel with an expanded trip summary including engaged ratio and
-peak acceleration/deceleration while the vehicle is in Park. Set
-`EonClusterHudPanelLayout` to `1` to move the driving view to the right and the
-information panel to the left.
+peak acceleration/deceleration when navigation is inactive.
 
 The cluster planned path is always blue and remains split into left and right
 boundaries so the road and vehicle stay visible between them.
 
-Screen modes follow carrot-wip: `0` auto, `1` live debug, `2` system status,
-`3` full live graph, `4` right-side live graph, and `5` fixed trip report.
-FPS, brightness, JPEG quality, layout, screen mode, and theme changes are
+Right-panel modes are `1` auto navigation/report, `2` live debug, and `3`
+fixed trip report.
+FPS, brightness, JPEG quality, screen mode, and theme changes are
 applied while the USB display remains connected. JPEG quality accepts 1-95.
 
 HUD text normally uses Android or system TrueType fonts. Minimal EON Pillow

@@ -302,8 +302,7 @@ def main():
           scene["camera_limit_speed"] = 0
         driving_mode = int(_field(controls_state, "myDrivingMode", 3) or 3)
         scene["driving_mode"] = driving_mode if 1 <= driving_mode <= 4 else 3
-        scene["panel_layout"] = _param_int(params, "EonClusterHudPanelLayout", 0, 0, 1)
-        scene["screen_mode"] = _param_int(params, PARAM_SCREEN_MODE, 0, 0, 5)
+        scene["screen_mode"] = _param_int(params, PARAM_SCREEN_MODE, 1, 1, 3)
         scene["theme"] = _param_int(params, PARAM_THEME, 0, 0, 2)
         scene["language"] = "en" if _param_int(params, PARAM_LANGUAGE, 0, 0, 1) == 1 else "ko"
         scene["is_metric"] = _param_bool(params, "IsMetric", True)

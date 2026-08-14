@@ -3,7 +3,7 @@ import json
 import math
 import os
 import time
-from collections import OrderedDict, deque
+from collections import OrderedDict
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -413,7 +413,8 @@ def _distance_text(distance_m, is_metric, language="ko", prefix=False):
 
 
 class HudRenderer(object):
-  DRIVE_RATIO = 0.60
+  DRIVE_RATIO = 0.40
+  SYSTEM_RATIO = 0.20
   MAX_DISTANCE_M = 120.0
 
   def __init__(self, width, height, jpeg_quality=58):
@@ -422,9 +423,6 @@ class HudRenderer(object):
     self.jpeg_quality = 58
     self.set_jpeg_quality(jpeg_quality)
     self.mirror = False
-    self.graph_speed = deque(maxlen=180)
-    self.graph_cpu = deque(maxlen=180)
-    self.graph_temp = deque(maxlen=180)
     self._route_visible_until = 0.0
     # Last complete guidance strings, reused while the JSON file is replaced.
     self._navi_text_cache = {}
@@ -1314,37 +1312,55 @@ class HudRenderer(object):
   def _draw_system_panel(self, draw, box, system, theme=0):
     colors = self._theme_colors(theme)
     left, top, right, bottom = box
+    panel_w = max(1, right - left)
+    panel_h = max(1, bottom - top)
     draw.rectangle(box, fill=colors["bg"])
-    _draw_text(draw, ((left + right) // 2, top + 38), "SYSTEM", max(24, self.height // 12), True,
+    title_size = max(20, min(self.height // 15, panel_w // 8))
+    _draw_text(draw, ((left + right) // 2, top + 28), "SYSTEM", title_size, True,
                fill=colors["primary"], anchor="mm")
     metrics = (("CPU", float(system.get("cpu", 0.0) or 0.0), "%"),
                ("TEMP", float(system.get("temp", 0.0) or 0.0), " C"),
                ("MEM", float(system.get("memory", 0.0) or 0.0), "%"),
                ("DISK", float(system.get("disk", 0.0) or 0.0), "%"))
-    card_w = max(1, (right - left - 66) // 2)
-    card_h = max(62, (bottom - top - 150) // 2)
-    for i, (label, value, unit) in enumerate(metrics):
-      col, row = i % 2, i // 2
-      x0 = left + 22 + col * (card_w + 22)
-      y0 = top + 72 + row * (card_h + 18)
-      x1, y1 = x0 + card_w, min(bottom - 18, y0 + card_h)
-      draw.rounded_rectangle((x0, y0, x1, y1), radius=14, fill=colors["card"], outline=colors["line"], width=2)
-      _draw_text(draw, (x0 + 14, y0 + 16), label, max(16, self.height // 24), True,
-                 fill=colors["secondary"], anchor="la")
-      text = ("%.0f" % value) + unit
-      _draw_text(draw, ((x0 + x1) // 2, (y0 + y1) // 2 + 10), text,
-                 max(26, self.height // 10), True, fill=colors["primary"], anchor="mm")
     cores = system.get("cores") or []
+    margin = max(10, panel_w // 32)
+    gap = max(5, panel_h // 70)
+    footer_h = max(24, panel_h // 16) if cores else margin
+    cards_top = top + max(52, panel_h // 8)
+    cards_bottom = bottom - footer_h
+    card_h = max(50, (cards_bottom - cards_top - gap * (len(metrics) - 1)) // len(metrics))
+    label_size = max(14, min(self.height // 27, panel_w // 18))
+    preferred_value_size = max(22, min(self.height // 14, panel_w // 9))
+    for i, (label, value, unit) in enumerate(metrics):
+      x0, x1 = left + margin, right - margin
+      y0 = cards_top + i * (card_h + gap)
+      y1 = min(cards_bottom, y0 + card_h)
+      draw.rounded_rectangle((x0, y0, x1, y1), radius=max(8, card_h // 8),
+                             fill=colors["card"], outline=colors["line"], width=2)
+      _draw_text(draw, (x0 + 12, (y0 + y1) // 2), label, label_size, True,
+                 fill=colors["secondary"], anchor="lm")
+      text = ("%.0f" % value) + unit
+      value_size = preferred_value_size
+      value_width = max(60, (x1 - x0) * 3 // 5)
+      while value_size > 16 and _text_width(text, value_size, True) > value_width:
+        value_size -= 2
+      _draw_text(draw, (x1 - 12, (y0 + y1) // 2), text,
+                 value_size, True, fill=colors["primary"], anchor="rm")
     if cores:
       core_text = "  ".join("C%d %.0f%%" % (i, float(v)) for i, v in enumerate(cores))
+      core_size = max(10, min(self.height // 30, panel_w // 24))
+      while core_size > 9 and _text_width(core_text, core_size) > panel_w - margin * 2:
+        core_size -= 1
       _draw_text(draw, ((left + right) // 2, bottom - 24), core_text,
-                 max(12, self.height // 30), fill=colors["secondary"], anchor="ms")
+                 core_size, fill=colors["secondary"], anchor="ms")
 
   def _draw_debug_panel(self, draw, box, speed_kph, cruise_kph, scene, theme=0):
     colors = self._theme_colors(theme)
     left, top, right, bottom = box
+    panel_w = max(1, right - left)
     draw.rectangle(box, fill=colors["bg"])
-    _draw_text(draw, ((left + right) // 2, top + 38), "LIVE DEBUG", max(24, self.height // 12), True,
+    title_size = max(22, min(self.height // 12, panel_w // 12))
+    _draw_text(draw, ((left + right) // 2, top + 38), "LIVE DEBUG", title_size, True,
                fill=colors["primary"], anchor="mm")
     lead_count = len(scene.get("leads", []))
     is_metric = bool(scene.get("is_metric", True))
@@ -1359,45 +1375,18 @@ class HudRenderer(object):
       ("NAVI", "LIVE" if scene.get("navi_live") else "WAIT"),
     )
     row_h = max(48, (bottom - top - 82) // len(rows))
+    label_size = max(14, min(self.height // 26, panel_w // 28))
+    preferred_value_size = max(16, min(self.height // 22, panel_w // 22))
     for index, (label, value) in enumerate(rows):
       y = top + 68 + index * row_h
       draw.line((left + 22, y + row_h - 2, right - 22, y + row_h - 2), fill=colors["line"], width=1)
-      _draw_text(draw, (left + 24, y + row_h // 2), label, max(15, self.height // 26), True,
+      _draw_text(draw, (left + 24, y + row_h // 2), label, label_size, True,
                  fill=colors["secondary"], anchor="lm")
-      _draw_text(draw, (right - 24, y + row_h // 2), value, max(17, self.height // 22), True,
+      value_size = preferred_value_size
+      while value_size > 14 and _text_width(value, value_size, True) > panel_w * 3 // 5:
+        value_size -= 1
+      _draw_text(draw, (right - 24, y + row_h // 2), value, value_size, True,
                  fill=colors["primary"], anchor="rm")
-
-  def _update_graph_history(self, speed_kph, system):
-    self.graph_speed.append(max(0.0, min(200.0, float(speed_kph))))
-    self.graph_cpu.append(max(0.0, min(100.0, float(system.get("cpu", 0.0) or 0.0))))
-    self.graph_temp.append(max(0.0, min(100.0, float(system.get("temp", 0.0) or 0.0))))
-
-  def _draw_graph_panel(self, draw, box, theme=0, title="LIVE GRAPH"):
-    colors = self._theme_colors(theme)
-    left, top, right, bottom = box
-    draw.rectangle(box, fill=colors["bg"])
-    _draw_text(draw, ((left + right) // 2, top + 34), title, max(22, self.height // 13), True,
-               fill=colors["primary"], anchor="mm")
-    graph = (left + 26, top + 68, right - 26, bottom - 34)
-    draw.rounded_rectangle(graph, radius=12, fill=colors["card"], outline=colors["line"], width=2)
-    for fraction in (0.25, 0.5, 0.75):
-      y = int(graph[1] + (graph[3] - graph[1]) * fraction)
-      draw.line((graph[0], y, graph[2], y), fill=colors["line"], width=1)
-    series = (
-      (self.graph_speed, 200.0, (64, 181, 255), "SPD"),
-      (self.graph_cpu, 100.0, (40, 210, 125), "CPU"),
-      (self.graph_temp, 100.0, (255, 169, 45), "TMP"),
-    )
-    for series_index, (values, maximum, color, label) in enumerate(series):
-      values = list(values)
-      if len(values) >= 2:
-        step = float(graph[2] - graph[0]) / max(1, len(values) - 1)
-        points = [(int(graph[0] + index * step),
-                   int(graph[3] - (graph[3] - graph[1]) * value / maximum))
-                  for index, value in enumerate(values)]
-        draw.line(points, fill=color, width=max(2, self.height // 150))
-      _draw_text(draw, (left + 22 + series_index * 90, top + 25), label,
-                 max(12, self.height // 32), True, fill=color, anchor="lm")
 
   def _draw_trip_report(self, draw, box, report, theme=0, language="ko", is_metric=True):
     colors = self._theme_colors(theme)
@@ -1450,49 +1439,37 @@ class HudRenderer(object):
     scene = self._stabilize_scene_geometry(scene or {})
     image = Image.new("RGB", (self.width, self.height), (5, 8, 12))
     draw = ImageDraw.Draw(image)
-    screen_mode = int(scene.get("screen_mode", 0) or 0)
+    # Fixed 4:2:4 layout. Right panel: 1 auto, 2 live debug, 3 trip report.
+    screen_mode = int(scene.get("screen_mode", 1) or 1)
     theme = int(scene.get("theme", 0) or 0)
     language = "en" if str(scene.get("language", "ko")).lower() == "en" else "ko"
     is_metric = bool(scene.get("is_metric", True))
-    self._update_graph_history(speed_kph, scene.get("system") or {})
     monotonic_now = time.monotonic()
     if _navi_route_active(navi):
       self._route_visible_until = monotonic_now + NAVI_ROUTE_GRACE_S
     route_visible = monotonic_now < self._route_visible_until
-    if screen_mode == 3:
-      self._draw_graph_panel(draw, (0, 0, self.width, self.height), theme, "FULL LIVE GRAPH")
-      self._draw_alert(draw, scene.get("alert"), (0, 0, self.width, self.height))
-      return image
-    divider = int(self.width * self.DRIVE_RATIO)
-    panel_layout = int(scene.get("panel_layout", 0) or 0)
-    driving_box = (0, 0, divider - 3, self.height)
-    info_box = (divider + 3, 0, self.width, self.height)
-    if panel_layout == 1:
-      info_width = self.width - divider
-      info_box = (0, 0, info_width - 3, self.height)
-      driving_box = (info_width + 3, 0, self.width, self.height)
+
+    drive_split = int(self.width * self.DRIVE_RATIO)
+    system_split = int(self.width * (self.DRIVE_RATIO + self.SYSTEM_RATIO))
+    driving_box = (0, 0, drive_split - 3, self.height)
+    system_box = (drive_split + 3, 0, system_split - 3, self.height)
+    right_box = (system_split + 3, 0, self.width, self.height)
+
     self._draw_driving_panel(image, draw, driving_box,
                              speed_kph, cruise_kph, enabled, scene)
-    if panel_layout == 1:
-      split = self.width - divider
-      draw.rectangle((split - 3, 0, split + 3, self.height), fill=(34, 42, 50))
-    else:
-      draw.rectangle((divider - 3, 0, divider + 3, self.height), fill=(34, 42, 50))
-    if screen_mode == 1:
-      self._draw_debug_panel(draw, info_box, speed_kph, cruise_kph, scene, theme)
-    elif screen_mode == 2:
-      self._draw_system_panel(draw, info_box, scene.get("system") or {}, theme)
-    elif screen_mode == 4:
-      self._draw_graph_panel(draw, info_box, theme)
-    elif screen_mode == 5:
-      self._draw_trip_report(draw, info_box, scene.get("trip_report") or {}, theme, language, is_metric)
-    elif route_visible:
-      self._draw_navi_panel(image, draw, info_box, navi, language, is_metric)
-    else:
+    self._draw_system_panel(draw, system_box, scene.get("system") or {}, theme)
+    draw.rectangle((drive_split - 3, 0, drive_split + 3, self.height), fill=(34, 42, 50))
+    draw.rectangle((system_split - 3, 0, system_split + 3, self.height), fill=(34, 42, 50))
+
+    if screen_mode == 2:
+      self._draw_debug_panel(draw, right_box, speed_kph, cruise_kph, scene, theme)
+    elif screen_mode == 3 or not route_visible:
       # Auto mode shows navigation only for a live destination. A two-second
       # grace period above absorbs atomic JSON replacement without map/report flicker.
-      self._draw_trip_report(draw, info_box, scene.get("trip_report") or {},
+      self._draw_trip_report(draw, right_box, scene.get("trip_report") or {},
                              theme, language, is_metric)
+    else:
+      self._draw_navi_panel(image, draw, right_box, navi, language, is_metric)
     self._draw_alert(draw, scene.get("alert"), driving_box)
     return image
 

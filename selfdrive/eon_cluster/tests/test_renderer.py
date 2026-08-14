@@ -376,14 +376,15 @@ def test_tmap_stream_is_wide_and_does_not_increase_pixel_load():
   assert abs(float(MAP_RENDER_WIDTH) / MAP_RENDER_HEIGHT - 768.0 / 462.0) < 0.01
 
 
-def test_cluster_overlays_and_swapped_layout_render():
+def test_cluster_overlays_render_in_fixed_424_layout():
   renderer = HudRenderer(1920, 462, 50)
   scene = {
     "driving_mode": 1,
     "camera_limit_speed": 80,
     "gear": "D",
     "steering_angle_deg": -18.0,
-    "panel_layout": 1,
+    "screen_mode": 3,
+    "system": {"cpu": 62, "temp": 57, "memory": 26, "disk": 11},
     "parked": True,
     "trip_report": {"duration_s": 3600, "distance_m": 42000, "average_speed_kph": 42, "max_speed_kph": 101},
   }
@@ -437,7 +438,7 @@ def test_cluster_alert_promotes_detail_when_title_is_empty():
   assert (255, 174, 82) in set(frame.getdata())
 
 
-def test_all_cluster_screen_modes_render_distinct_views():
+def test_cluster_right_panel_modes_render_distinct_views():
   renderer = HudRenderer(1920, 462, 50)
   base_scene = {
     "system": {"cpu": 62, "temp": 57, "memory": 26, "disk": 11},
@@ -451,11 +452,11 @@ def test_all_cluster_screen_modes_render_distinct_views():
     "route": {"remain_distance_m": 1200, "remain_time_sec": 180},
   }
   frames = []
-  for mode in range(6):
+  for mode in (1, 2, 3):
     scene = dict(base_scene)
     scene["screen_mode"] = mode
     frames.append(renderer.render(82.0, 90.0, True, navi, scene).tobytes())
-  assert len(set(frames)) == 6
+  assert len(set(frames)) == 3
 
 
 def test_imperial_radar_and_extended_trip_report_render():
@@ -466,7 +467,7 @@ def test_imperial_radar_and_extended_trip_report_render():
     "radar_info": 2,
     "radar_points": [{"distance": 30.0, "lateral": 1.0, "relative_speed": -2.0, "stationary": False}],
     "camera_limit_speed": 80,
-    "screen_mode": 5,
+    "screen_mode": 3,
     "trip_report": {"duration_s": 3600, "distance_m": 1609.344, "average_speed_kph": 96.56,
                     "max_speed_kph": 120.0, "engaged_time_s": 1800,
                     "max_accel": 2.1, "max_decel": -2.8},

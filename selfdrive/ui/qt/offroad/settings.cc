@@ -1201,13 +1201,10 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "EonClusterHudJpegQuality", "클러스터 HUD 화질", "JPEG 품질",
       "../assets/offroad/icon_road.png", 1, 95, 1, 0, 58, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudPanelLayout", "클러스터 HUD 패널 배치", "0: 주행 왼쪽 / 1: 주행 오른쪽",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
+      "EonClusterHudScreenMode", "클러스터 HUD 우측 화면", "1: 자동(길안내/주행리포트) / 2: 실시간 디버그 / 3: 주행리포트 고정",
+      "../assets/offroad/icon_road.png", 1, 3, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudScreenMode", "클러스터 HUD 화면 모드", "0: 자동 / 1: 실시간 디버그 / 2: 시스템 / 3: 전체 그래프 / 4: 우측 그래프 / 5: 주행리포트",
-      "../assets/offroad/icon_road.png", 0, 5, 1, 0, 0, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudTheme", "클러스터 HUD 테마", "0: 자동 / 1: 다크 / 2: 라이트. 정보·그래프 패널에 실시간 적용됩니다.",
+      "EonClusterHudTheme", "클러스터 HUD 테마", "0: 자동 / 1: 다크 / 2: 라이트. 시스템·우측 정보 패널에 실시간 적용됩니다.",
       "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudOrientation", "클러스터 HUD 화면 회전", "0: 기본 / 2: 180도 회전",

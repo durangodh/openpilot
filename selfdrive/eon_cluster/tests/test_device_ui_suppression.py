@@ -29,22 +29,22 @@ def test_image_loading_is_gated_separately_from_json_state():
 
 def test_external_hud_params_are_exposed_in_settings():
   settings = (UI_DIR / "offroad" / "settings.cc").read_text(encoding="utf-8")
-  assert 'ParamControl("EonClusterHud"' in settings
-  assert 'ParamValueControlF("EonClusterHudFps"' in settings
+  assert '"EonClusterHud", "외부 클러스터 HUD 사용"' in settings
+  assert '"EonClusterHudFps", "클러스터 HUD 프레임"' in settings
   assert '"../assets/offroad/icon_road.png", 0, 15, 1, 0, 10' in settings
-  assert 'ParamValueControlF("EonClusterHudBrightness"' in settings
+  assert '"EonClusterHudBrightness", "클러스터 HUD 밝기"' in settings
   assert '"../assets/offroad/icon_road.png", 0, 100, 5, 0, 65' in settings
-  assert 'ParamValueControlF("EonClusterHudJpegQuality"' in settings
+  assert '"EonClusterHudJpegQuality", "클러스터 HUD 화질"' in settings
   assert '"../assets/offroad/icon_road.png", 1, 95, 1, 0, 58' in settings
-  assert 'ParamValueControlF("EonClusterHudPanelLayout"' in settings
-  assert '"../assets/offroad/icon_road.png", 0, 1, 1, 0, 0' in settings
-  assert 'ParamValueControlF("EonClusterHudScreenMode"' in settings
-  assert '0: 자동 / 1: 실시간 디버그 / 2: 시스템 / 3: 전체 그래프 / 4: 우측 그래프 / 5: 주행리포트' in settings
-  assert 'ParamValueControlF("EonClusterHudOrientation"' in settings
-  assert 'ParamValueControlF("EonClusterHudMirror"' in settings
-  assert 'ParamValueControlF("EonClusterHudLanguage"' in settings
-  assert 'ParamValueControlF("EonClusterHudRadarInfo"' in settings
-  assert 'ParamValueControlF("EonClusterHudRadarDisplay"' in settings
+  assert 'EonClusterHudPanelLayout' not in settings
+  assert '"EonClusterHudScreenMode", "클러스터 HUD 우측 화면"' in settings
+  assert '1: 자동(길안내/주행리포트) / 2: 실시간 디버그 / 3: 주행리포트 고정' in settings
+  assert '"../assets/offroad/icon_road.png", 1, 3, 1, 0, 1' in settings
+  assert '"EonClusterHudOrientation", "클러스터 HUD 화면 회전"' in settings
+  assert '"EonClusterHudMirror", "클러스터 HUD 좌우 반전"' in settings
+  assert '"EonClusterHudLanguage", "클러스터 HUD 언어"' in settings
+  assert '"EonClusterHudRadarInfo", "클러스터 레이더 정보"' in settings
+  assert '"EonClusterHudRadarDisplay", "클러스터 레이더 표시"' in settings
 
 
 def test_hud_frame_rate_setting_starts_at_zero():
