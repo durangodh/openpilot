@@ -382,7 +382,7 @@ def test_external_atc_box_matches_eon_gate_and_tpms_width(monkeypatch):
   assert atc_box[2] == tpms_box[2]
   assert atc_box[3] == tpms_box[1] - 8
   camera_distance_y = max(164, int(renderer.height * 0.37)) + max(39, renderer.height // 11)
-  camera_distance_size = max(10, renderer.height // 38)
+  camera_distance_size = max(12, int(round(max(10, renderer.height // 38) * 1.20)))
   assert atc_box[1] >= camera_distance_y + camera_distance_size + 8
   assert atc_box[1] < atc_box[3]
 
