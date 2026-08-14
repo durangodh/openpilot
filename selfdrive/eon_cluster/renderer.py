@@ -1067,11 +1067,16 @@ class HudRenderer(object):
 
   def _atc_card_box(self, box):
     left, top, right, bottom = box
+    panel_w = right - left
     world_top = top + int((bottom - top) * 0.47)
     tpms_card = self._bottom_card_box((left, world_top, right, bottom), "right")
     card_width = tpms_card[2] - tpms_card[0]
-    margin = 8
-    return right - margin - card_width, top + 6, right - margin, world_top - 6
+    # Keep the existing LIMIT/GAP/camera column intact. The ATC card occupies
+    # the unused column immediately to its left while retaining TPMS width.
+    road_limit_center = right - max(132, int(panel_w * 0.17))
+    road_limit_width = max(58, int(self.width * 0.034))
+    card_right = road_limit_center - road_limit_width // 2 - 9
+    return card_right - card_width, top + 6, card_right, world_top - 6
 
   def _atc_icon(self, kind, direction, size):
     key = (kind, direction, int(size))
@@ -1213,10 +1218,9 @@ class HudRenderer(object):
 
     separator_y = top + max(124, int(self.height * 0.28))
     atc_box_active = _eon_atc_box_active(navi)
-    if not atc_box_active:
-      road_limit = _speed_value(float(scene.get("road_limit_speed", 0) or 0), is_metric)
-      self._draw_road_limit_badge(draw, right - max(132, int(panel_w * 0.17)), separator_y, road_limit)
-      self._draw_gap_bars(draw, right - 18, separator_y, scene.get("cruise_gap", 0))
+    road_limit = _speed_value(float(scene.get("road_limit_speed", 0) or 0), is_metric)
+    self._draw_road_limit_badge(draw, right - max(132, int(panel_w * 0.17)), separator_y, road_limit)
+    self._draw_gap_bars(draw, right - 18, separator_y, scene.get("cruise_gap", 0))
     draw.line((left + 18, separator_y, right - 18, separator_y),
               fill=(202, 207, 210), width=1)
 
@@ -1237,17 +1241,16 @@ class HudRenderer(object):
                fill=(47, 54, 59), anchor="mm")
     _draw_text(draw, (center_x, second_row_y + cruise_radius + 9), "SET",
                max(11, self.height // 35), True, fill=cruise_color, anchor="ma")
-    if not atc_box_active:
-      camera_limit = _speed_value(float(scene.get("camera_limit_speed", 0) or 0), is_metric)
-      self._draw_speed_limit(draw, right_x, second_row_y, int(round(camera_limit)))
-      camera_distance = float(scene.get("camera_distance", 0) or 0)
-      if camera_distance > 0:
-        distance_text = _distance_text(camera_distance, is_metric, language)
-        if bool(scene.get("camera_is_section", False)):
-          distance_text = (("구간 " if language == "ko" else "SEC ") + distance_text)
-        _draw_text(draw, (right_x, second_row_y + max(39, self.height // 11)), distance_text,
-                   max(10, self.height // 38), True, fill=(104, 111, 116), anchor="ma")
-    else:
+    camera_limit = _speed_value(float(scene.get("camera_limit_speed", 0) or 0), is_metric)
+    self._draw_speed_limit(draw, right_x, second_row_y, int(round(camera_limit)))
+    camera_distance = float(scene.get("camera_distance", 0) or 0)
+    if camera_distance > 0:
+      distance_text = _distance_text(camera_distance, is_metric, language)
+      if bool(scene.get("camera_is_section", False)):
+        distance_text = (("구간 " if language == "ko" else "SEC ") + distance_text)
+      _draw_text(draw, (right_x, second_row_y + max(39, self.height // 11)), distance_text,
+                 max(10, self.height // 38), True, fill=(104, 111, 116), anchor="ma")
+    if atc_box_active:
       self._draw_atc_box(image, draw, box, navi, scene)
 
   def _draw_driving_mode(self, draw, box, mode):

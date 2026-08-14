@@ -379,9 +379,12 @@ def test_external_atc_box_matches_eon_gate_and_tpms_width(monkeypatch):
   tpms_box = renderer._bottom_card_box((0, world_top, driving_box[2], 462), "right")
   atc_box = renderer._atc_card_box(driving_box)
   assert atc_box[2] - atc_box[0] == tpms_box[2] - tpms_box[0]
+  # The card ends before the existing road-limit badge begins.
+  road_limit_center = driving_box[2] - max(132, int((driving_box[2] - driving_box[0]) * 0.17))
+  road_limit_left = road_limit_center - max(58, int(renderer.width * 0.034)) // 2
+  assert atc_box[2] < road_limit_left
 
-  # When the route gate is active the compact ATC card replaces only the
-  # circled GAP/camera group; the inactive state restores those indicators.
+  # ATC occupies the empty column and never removes LIMIT, GAP, or camera.
   calls = []
   monkeypatch.setattr(renderer_module.time, "time", lambda: now_ms / 1000.0)
   monkeypatch.setattr(renderer, "_draw_atc_box", lambda *_args: calls.append("atc"))
@@ -393,7 +396,7 @@ def test_external_atc_box_matches_eon_gate_and_tpms_width(monkeypatch):
   renderer._draw_requested_status_header(
     frame, ImageDraw.Draw(frame), driving_box, 82.0, 90.0, True,
     {"is_metric": True, "atc_mode": 2}, active)
-  assert calls == ["atc"]
+  assert calls == ["limit", "gap", "camera", "atc"]
 
   calls[:] = []
   inactive = dict(active, route={"remain_distance_m": 0, "remain_time_sec": 0})
