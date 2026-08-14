@@ -230,9 +230,9 @@ def test_vehicle_sprites_are_cached_realistic_and_shadow_free():
   for sprite in (base_sprite, lead_base, braking_base):
     assert not any(red > green + 50 and red > blue + 50 and alpha > 0
                    for red, green, blue, alpha in sprite.getdata())
-  assert (86, 91, 95, 255) in set(base_sprite.getdata())
-  assert (178, 182, 185, 255) in set(lead_base.getdata())
-  assert sum((86, 91, 95)) < sum((178, 182, 185))
+  assert (137, 140, 143, 255) in set(base_sprite.getdata())
+  assert (201, 204, 206, 255) in set(lead_base.getdata())
+  assert sum((137, 140, 143)) < sum((201, 204, 206))
   ego_sprite = renderer._vehicle_sprite("ego", 104, 96)
   assert ego_sprite is renderer._vehicle_sprite("ego", 105, 97)
   traffic_sprite = renderer._vehicle_sprite("traffic", 104, 96, marker=True)
@@ -282,6 +282,15 @@ def test_requested_vehicle_scale_keeps_lead_half_of_smaller_ego(monkeypatch):
                               max(24, int(round(ego_h * 0.5))))
   assert style == "lead"
   assert ego_w <= 78 and ego_h <= 73
+
+  calls[:] = []
+  renderer._draw_lead(frame, draw, panel,
+                      {"distance": 3.0, "lateral": 0.0, "relative_speed": 0.0},
+                      True, 0, True)
+  lead_bottom = calls[-1][2]
+  _, ego_projected_y = renderer._project(panel, 2.4, 0.0)
+  ego_top = ego_projected_y - 30 - ego_h
+  assert lead_bottom <= ego_top - max(10, int((panel[3] - panel[1]) * 0.03))
 
 
 def test_stationary_radar_uses_green_3d_world_block():
