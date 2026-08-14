@@ -1175,7 +1175,7 @@ class HudRenderer(object):
     # rendered solid black; the remaining positions stay deliberately faint.
     active_gear = gear if gear in ("P", "R", "N", "D") else (
       "D" if gear not in ("", "--") else "")
-    gear_size = max(24, self.height // 17)
+    gear_size = max(31, int(round(max(26, self.height // 16) * 1.20)))
     gear_x = left + 28
     gear_gap = max(8, panel_w // 90)
     for gear_label in "PRND":
@@ -1192,8 +1192,9 @@ class HudRenderer(object):
       4: ("FAST", (222, 67, 70)),
     }.get(mode, ("--", (104, 111, 116)))
     # Reuse the now-empty former cruise-gap position at the upper right.
+    mode_size = max(27, int(round(max(22, self.height // 19) * 1.20)))
     _draw_text(draw, (right - 28, info_y), mode_label,
-               max(22, self.height // 19), True, fill=mode_color, anchor="rm")
+               mode_size, True, fill=mode_color, anchor="rm")
     _draw_text(draw, (center_x, info_y), "KM" if is_metric else "MPH",
                max(13, self.height // 31), True, fill=(104, 111, 116), anchor="mm")
 
