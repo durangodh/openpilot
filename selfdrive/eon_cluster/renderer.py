@@ -1032,24 +1032,6 @@ class HudRenderer(object):
                  y + math.sin(spoke) * inner_radius * 0.88),
                 fill=wheel_color, width=max(3, width - 1))
 
-  def _draw_gap_bars(self, draw, right_x, separator_y, gap):
-    """Draw the physical SCC GAP button state as one to four stacked bars."""
-    gap = max(0, min(4, int(gap or 0)))
-    bar_w = max(42, int(self.width * 0.024))
-    bar_h = max(6, self.height // 60)
-    spacing = max(3, bar_h // 2)
-    _draw_text(draw, (right_x, separator_y - 66), "GAP", max(10, self.height // 39), True,
-               fill=(85, 94, 100), anchor="ms")
-    for index in range(4):
-      # GAP 1 is the bottom bar; its lower edge exactly matches the row line.
-      y1 = separator_y - index * (bar_h + spacing)
-      y0 = y1 - bar_h
-      active = index < gap
-      fill = (31, 168, 101) if active else (204, 209, 212)
-      outline = (76, 126, 102) if active else (167, 174, 178)
-      draw.rounded_rectangle((right_x - bar_w, y0, right_x, y1),
-                             radius=max(2, bar_h // 2), fill=fill, outline=outline, width=1)
-
   def _draw_road_limit_badge(self, draw, center_x, bottom_y, limit):
     """Compact road-limit box used on the upper information row."""
     badge_w = max(58, int(self.width * 0.034))
@@ -1221,7 +1203,6 @@ class HudRenderer(object):
     atc_box_active = _eon_atc_box_active(navi)
     road_limit = _speed_value(float(scene.get("road_limit_speed", 0) or 0), is_metric)
     self._draw_road_limit_badge(draw, right - max(132, int(panel_w * 0.17)), separator_y, road_limit)
-    self._draw_gap_bars(draw, right - 18, separator_y, scene.get("cruise_gap", 0))
     draw.line((left + 18, separator_y, right - 18, separator_y),
               fill=(202, 207, 210), width=1)
 
