@@ -31,8 +31,8 @@ def test_auto_speed_up_is_rate_limited_and_bounded():
 
 
 def test_cruise_max_limit_clips_pid_overshoot():
-  # LongControl runs its PID against CarControllerParams.ACCEL_MAX (2.5), so it
-  # can hand up a value well above the CruiseMax table.
+  # Keep the SCC12 transport guard even though LongControl normally uses the
+  # same CruiseMax value as its PID positive limit.
   cap = get_cruise_max_accel(40.0 * CV.KPH_TO_MS, CRUISE_MAX_VAL_DEFAULTS, 3)
   assert apply_cruise_max_limit(2.5, False, cap) == pytest.approx(1.20)
   assert apply_cruise_max_limit(0.4, False, cap) == pytest.approx(0.4)

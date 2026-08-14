@@ -890,10 +890,9 @@ class CruiseHelper:
     self.target_speed = 0.0
 
   def get_apply_accel(self, CS, sm, accel, stopping):
-    # Make the UI CruiseMax table the real upper bound on what reaches SCC12.
-    # cruise_max_vals is refreshed by read_cruise_params() once a second, so the
-    # slider takes effect while driving. longitudinalTuning.kiV is 0, so there
-    # is no integrator to wind up against this clip.
+    # Keep a final CruiseMax guard at the SCC12 transport. controlsd applies the
+    # same live ceiling to LongControl's PID pos_limit, preventing windup before
+    # this clip. cruise_max_vals is refreshed once a second while driving.
     return apply_cruise_max_limit(accel, stopping, self.get_cruise_max_accel(CS.out.vEgo))
 
   def get_stock_cam_accel(self, apply_accel, stock_accel, scc11):
