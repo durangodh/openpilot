@@ -26,7 +26,10 @@ procs = [
   NativeProcess("boardd", "selfdrive/boardd", ["./boardd"], enabled=False),
   PythonProcess("calibrationd", "selfdrive.locationd.calibrationd"),
   PythonProcess("carrotnavid", "selfdrive.carrot_navi_server", enabled=EON, persistent=True),
-  PythonProcess("eon_cluster", "selfdrive.eon_cluster.eon_cluster", enabled=EON, persistent=True),
+  # Remote HUD is rendered and sent to the TURZX USB display by the Android S9.
+  # Keep the legacy EON-side JPEG/USB renderer disabled so it does not search
+  # for PID 0x0092 or consume EON CPU in parallel with remote_hud.
+  PythonProcess("eon_cluster", "selfdrive.eon_cluster.eon_cluster", enabled=False, persistent=True),
   PythonProcess("remote_hud", "selfdrive.eon_cluster.remote_hud", enabled=EON, persistent=True),
   PythonProcess("controlsd", "selfdrive.controls.controlsd"),
   PythonProcess("deleter", "selfdrive.loggerd.deleter", persistent=True),
