@@ -23,6 +23,7 @@ from common.params import Params
 p = Params()
 p.put_bool("EonClusterHud", True)
 p.put("EonClusterHudFps", "10")
+p.put("EonClusterHudMapFps", "5")
 p.put("EonClusterHudBrightness", "65")
 p.put("EonClusterHudJpegQuality", "58")
 p.put("EonClusterHudScreenMode", "1")
@@ -72,7 +73,9 @@ The cluster planned path is always blue and remains split into left and right
 boundaries so the road and vehicle stay visible between them.
 
 Right-panel modes are `1` auto navigation/report, `2` live debug, and `3`
-fixed trip report.
+fixed trip report. Map FPS accepts 2-5 FPS (default 5); lowering it throttles
+map-frame writes immediately and changes the requested TMap stream rate on the
+next navigation connection.
 FPS, brightness, JPEG quality, screen mode, and theme changes are
 applied while the USB display remains connected. JPEG quality accepts 1-95.
 

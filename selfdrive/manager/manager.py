@@ -93,6 +93,7 @@ def manager_init() -> None:
     ("ShowCarrotHud", "1"),
     ("EonClusterHud", "0"),
     ("EonClusterHudFps", "10"),
+    ("EonClusterHudMapFps", "5"),
     ("EonClusterHudBrightness", "65"),
     ("EonClusterHudJpegQuality", "58"),
     ("EonClusterHudScreenMode", "1"),

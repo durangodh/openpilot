@@ -10,6 +10,8 @@ import threading
 import time
 import uuid
 
+from common.params import Params
+
 
 PORT = 7714
 DISCOVERY_PORT = 7705
@@ -42,18 +44,32 @@ OVERLAY_FILES = {
 }
 MAP_RENDER_WIDTH = 640
 MAP_RENDER_HEIGHT = 384
-MAP_RENDER_FPS = 5
+PARAM_MAP_FPS = "EonClusterHudMapFps"
+MAP_RENDER_FPS_DEFAULT = 5
+MAP_RENDER_FPS_MIN = 2
+MAP_RENDER_FPS_MAX = 5
 STATE_WRITE_INTERVAL_S = 0.05
+
+
+def map_render_fps(params):
+  try:
+    raw = params.get(PARAM_MAP_FPS)
+    value = int(raw) if raw is not None else MAP_RENDER_FPS_DEFAULT
+  except (TypeError, ValueError):
+    value = MAP_RENDER_FPS_DEFAULT
+  return max(MAP_RENDER_FPS_MIN, min(MAP_RENDER_FPS_MAX, value))
 
 
 class NaviState(object):
   def __init__(self):
+    self.params = Params()
     self.lock = threading.Lock()
     self.condition = threading.Condition(self.lock)
     self.values = {}
     self.updated_at = {}
     self.dirty = False
     self.last_write = 0.0
+    self.last_map_write = 0.0
     threading.Thread(target=self._writer_loop, name="carrot-navi-state", daemon=True).start()
 
   @staticmethod
@@ -95,6 +111,9 @@ class NaviState(object):
   def update_map(self, payload):
     if not payload or len(payload) > MAX_MAP_FRAME_BYTES:
       return
+    now = time.monotonic()
+    if now < self.last_map_write + 1.0 / map_render_fps(self.params):
+      return
     start = payload.find(b"\xff\xd8")
     end = payload.rfind(b"\xff\xd9")
     if start < 0 or end < start:
@@ -105,6 +124,7 @@ class NaviState(object):
       with open(tmp, "wb") as f:
         f.write(image)
       os.rename(tmp, MAP_FILE)
+      self.last_map_write = now
     except IOError:
       try:
         os.unlink(tmp)
@@ -204,7 +224,8 @@ def send_frame(sock, payload, opcode=1):
   sock.sendall(header + payload)
 
 
-def manifest():
+def manifest(params):
+  map_fps = map_render_fps(params)
   streams = []
   handle = 1
   for kind, names in (("json", JSON_NAMES), ("image", IMAGE_NAMES), ("render", RENDER_NAMES)):
@@ -224,7 +245,7 @@ def manifest():
         # Match the 768x462 EON information panel aspect ratio without asking
         # the EON to decode more pixels than the old portrait 480x540 stream.
         params = {"width": MAP_RENDER_WIDTH, "height": MAP_RENDER_HEIGHT, "dpi": 160,
-                  "fps": MAP_RENDER_FPS,
+                  "fps": map_fps,
                   "codec": "jpeg", "jpeg_quality": 65,
                   "camera_mode": "app_sync", "map_theme": "light"}
       streams.append({"kind": kind, "name": name, "schema_version": 1,
@@ -285,7 +306,7 @@ def client_loop(conn, state):
     except (ValueError, UnicodeDecodeError):
       continue
     if is_control and message.get("type") == "requirements_query":
-      send_frame(conn, json.dumps(manifest(), separators=(",", ":")))
+      send_frame(conn, json.dumps(manifest(state.params), separators=(",", ":")))
     elif not is_control and message.get("type") == "item_update":
       name = message.get("name", stream_name)
       value = message.get("value") if message.get("present", True) else None
