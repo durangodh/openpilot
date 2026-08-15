@@ -3,570 +3,1047 @@ package ai.comma.remotehud;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
+import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
+import android.graphics.Typeface;
+import android.hardware.usb.UsbDevice;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
-
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.lang.reflect.Array;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public final class HudService extends Service {
-  private static final String CHANNEL = "remote_hud";
-  private static final int WIDTH = 1920;
-  private static final int HEIGHT = 462;
-  private final AtomicBoolean running = new AtomicBoolean(false);
-  private final AtomicReference<JSONObject> state = new AtomicReference<>(new JSONObject());
-  private final AtomicReference<Bitmap> mapFrame = new AtomicReference<>();
-  private final AtomicReference<InetAddress> eonAddress = new AtomicReference<>();
-  private final GeometryStabilizer geometry = new GeometryStabilizer();
-  private TurzxDisplay display;
-  private Thread receiverThread;
-  private Thread mapThread;
-  private Thread renderThread;
-  private Bitmap egoCar;
-  private Bitmap otherCar;
+    static final String ACTION_RESCAN_USB = "ai.comma.remotehud.RESCAN_USB";
+    private static final String CHANNEL = "remote_hud";
+    private static final int HEIGHT = 462;
+    private static final int WIDTH = 1920;
+    private static volatile long lastEonRxElapsed;
+    private static volatile int lastJpegBytes;
+    private static volatile long lastJpegSentElapsed;
+    private static volatile boolean mapConnected;
+    private static volatile float measuredFps;
+    private static volatile boolean serviceRunning;
+    private static volatile boolean usbConnected;
+    private static volatile boolean usbError;
+    private TurzxDisplay display;
+    private Bitmap egoCar;
+    private Thread mapThread;
+    private Bitmap otherCar;
+    private Thread receiverThread;
+    private Thread renderThread;
+    private boolean usbReceiverRegistered;
 
-  @Override public void onCreate() {
-    super.onCreate();
-    egoCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_ego_car);
-    otherCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_other_car);
-    NotificationManager nm = (NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE);
-    if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(new NotificationChannel(CHANNEL, "EON Remote HUD", NotificationManager.IMPORTANCE_LOW));
-    Notification notification = new Notification.Builder(this, CHANNEL).setContentTitle("EON Remote HUD")
-        .setContentText("TMAP 화면과 EON 데이터를 외부 HUD로 전송 중").setSmallIcon(android.R.drawable.ic_menu_directions).build();
-    startForeground(72, notification);
-  }
+    // --- v0.13 ---
+    static final String EXTRA_FROM_BOOT = "ai.comma.remotehud.FROM_BOOT";
+    private static final long BOOT_START_DELAY_MS = 30000L;
 
-  @Override public int onStartCommand(Intent intent, int flags, int startId) {
-    if (running.get()) return START_NOT_STICKY;
-    running.set(true);
-    display = new TurzxDisplay(this);
-    receiverThread = new Thread(this::receiveLoop, "hud-telemetry");
-    mapThread = new Thread(this::mapLoop, "hud-tmap");
-    renderThread = new Thread(this::renderLoop, "hud-render");
-    receiverThread.start();
-    mapThread.start();
-    renderThread.start();
-    return START_NOT_STICKY;
-  }
+    private final Handler starter = new Handler(Looper.getMainLooper());
+    private PowerManager.WakeLock wakeLock;
+    private volatile boolean workersStarted;
 
-  private void receiveLoop() {
-    try (DatagramSocket socket = new DatagramSocket(7210)) {
-      socket.setBroadcast(true);
-      socket.setSoTimeout(1000);
-      byte[] buffer = new byte[8192];
-      while (running.get()) {
+    private static volatile String lastEonAddress = "--";
+    private static volatile String usbStatus = "미연결 · 1CBE:0092";
+    private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicReference<JSONObject> state = new AtomicReference<>(new JSONObject());
+    private final AtomicReference<Bitmap> mapFrame = new AtomicReference<>();
+    private final AtomicReference<InetAddress> eonAddress = new AtomicReference<>();
+    private final GeometryStabilizer geometry = new GeometryStabilizer(null);
+    private final BroadcastReceiver usbReceiver = new BroadcastReceiver() { // from class: ai.comma.remotehud.HudService.1
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if (TurzxDisplay.isTarget((UsbDevice) intent.getParcelableExtra("device"))) {
+                if ("android.hardware.usb.action.USB_DEVICE_DETACHED".equals(action)) {
+                    if (HudService.this.display != null) {
+                        HudService.this.display.reset();
+                    }
+                    HudService.usbStatus = "분리됨 · 재연결 대기";
+                    HudService.usbConnected = false;
+                    HudService.usbError = false;
+                    return;
+                }
+                if ("ai.comma.remotehud.USB_PERMISSION".equals(action)) {
+                    boolean booleanExtra = intent.getBooleanExtra("permission", false);
+                    if (HudService.this.display != null) {
+                        HudService.this.display.reset();
+                    }
+                    HudService.usbStatus = booleanExtra ? "USB 권한 허용 · 연결 중" : "USB 권한 거부됨 · 재검색 필요";
+                    HudService.usbConnected = false;
+                    HudService.usbError = !booleanExtra;
+                    return;
+                }
+                if (!"android.hardware.usb.action.USB_DEVICE_ATTACHED".equals(action)) {
+                    return;
+                }
+                HudService.this.requestUsbRescan();
+            }
+        }
+    };
+
+    public static final class StatusSnapshot {
+        final String eonAddress;
+        final boolean eonConnected;
+        final float fps;
+        final int lastJpegBytes;
+        final boolean mapConnected;
+        final boolean running;
+        final boolean usbConnected;
+        final boolean usbError;
+        final String usbStatus;
+
+        StatusSnapshot(boolean z, boolean z2, String str, boolean z3, String str2, boolean z4, boolean z5, float f, int i) {
+            this.running = z;
+            this.eonConnected = z2;
+            this.eonAddress = str;
+            this.mapConnected = z3;
+            this.usbStatus = str2;
+            this.usbConnected = z4;
+            this.usbError = z5;
+            this.fps = f;
+            this.lastJpegBytes = i;
+        }
+    }
+
+    public static StatusSnapshot getStatusSnapshot() {
+        long elapsedRealtime = SystemClock.elapsedRealtime();
+        boolean z = serviceRunning && lastEonRxElapsed > 0 && elapsedRealtime - lastEonRxElapsed < 2000;
+        boolean z2 = serviceRunning && lastJpegSentElapsed > 0 && elapsedRealtime - lastJpegSentElapsed < 2000;
+        return new StatusSnapshot(serviceRunning, z, lastEonAddress, serviceRunning && mapConnected, usbStatus, serviceRunning && usbConnected, usbError, z2 ? measuredFps : 0.0f, z2 ? lastJpegBytes : 0);
+    }
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        this.egoCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_ego_car);
+        this.otherCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_other_car);
+        ((NotificationManager) getSystemService("notification")).createNotificationChannel(new NotificationChannel(CHANNEL, "EON Remote HUD", 2));
+        startForeground(72, new Notification.Builder(this, CHANNEL).setContentTitle("EON Remote HUD").setContentText("상태 화면을 열려면 누르세요").setSmallIcon(android.R.drawable.ic_menu_directions).setContentIntent(PendingIntent.getActivity(this, 0, new Intent(this, (Class<?>) MainActivity.class), 201326592)).setOngoing(true).build());
+        IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction("android.hardware.usb.action.USB_DEVICE_ATTACHED");
+        intentFilter.addAction("android.hardware.usb.action.USB_DEVICE_DETACHED");
+        intentFilter.addAction("ai.comma.remotehud.USB_PERMISSION");
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(this.usbReceiver, intentFilter, 4);
+        } else {
+            registerReceiver(this.usbReceiver, intentFilter);
+        }
+        this.usbReceiverRegistered = true;
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && ACTION_RESCAN_USB.equals(intent.getAction()) && this.running.get()) {
+            requestUsbRescan();
+            return START_STICKY;
+        }
+        if (this.running.get()) {
+            return START_STICKY;
+        }
+
+        this.running.set(true);
+        serviceRunning = true;
+        mapConnected = false;
+        usbConnected = false;
+        usbError = false;
+        measuredFps = 0.0f;
+        lastJpegBytes = 0;
+
+        acquireWakeLock();
+
+        boolean fromBoot = intent != null && intent.getBooleanExtra(EXTRA_FROM_BOOT, false);
+        if (fromBoot) {
+            usbStatus = "부팅 대기 " + (BOOT_START_DELAY_MS / 1000L) + "초";
+            this.starter.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    startWorkers();
+                }
+            }, BOOT_START_DELAY_MS);
+        } else {
+            startWorkers();
+        }
+
+        return START_STICKY;
+    }
+
+    private void startWorkers() {
+        if (!this.running.get() || this.workersStarted) {
+            return;
+        }
+        this.workersStarted = true;
+        usbStatus = "외부 HUD 검색 중";
+
+        this.display = new TurzxDisplay(this);
+
+        this.receiverThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                receiveLoop();
+            }
+        }, "hud-telemetry");
+        this.mapThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                mapLoop();
+            }
+        }, "hud-tmap");
+        this.renderThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                renderLoop();
+            }
+        }, "hud-render");
+
+        this.receiverThread.start();
+        this.mapThread.start();
+        this.renderThread.start();
+    }
+
+    private void acquireWakeLock() {
         try {
-          DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-          socket.receive(packet);
-          state.set(new JSONObject(new String(packet.getData(), packet.getOffset(), packet.getLength(), "UTF-8")));
-          eonAddress.set(packet.getAddress());
-          byte[] ack = "HUD1".getBytes("US-ASCII");
-          socket.send(new DatagramPacket(ack, ack.length, packet.getAddress(), packet.getPort()));
-        } catch (java.net.SocketTimeoutException ignored) { }
-      }
-    } catch (Exception ignored) { }
-  }
-
-  private void mapLoop() {
-    while (running.get()) {
-      InetAddress address = eonAddress.get();
-      if (address == null) { SystemClock.sleep(500); continue; }
-      try (Socket socket = new Socket()) {
-        socket.connect(new InetSocketAddress(address, 7211), 2000);
-        socket.setSoTimeout(4000);
-        DataInputStream input = new DataInputStream(socket.getInputStream());
-        byte[] magic = new byte[4];
-        while (running.get() && address.equals(eonAddress.get())) {
-          input.readFully(magic);
-          if (magic[0] != 'M' || magic[1] != 'A' || magic[2] != 'P' || magic[3] != '1') throw new Exception("bad map frame");
-          int length = input.readInt();
-          if (length <= 4 || length > 2 * 1024 * 1024) throw new Exception("bad map size");
-          byte[] jpeg = new byte[length];
-          input.readFully(jpeg);
-          Bitmap frame = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length);
-          if (frame != null) {
-            synchronized (mapFrame) {
-              Bitmap old = mapFrame.getAndSet(frame);
-              if (old != null && old != frame) old.recycle();
+            if (this.wakeLock == null) {
+                PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                this.wakeLock = pm.newWakeLock(
+                        PowerManager.PARTIAL_WAKE_LOCK, "RemoteHUD::render");
+                this.wakeLock.setReferenceCounted(false);
             }
-          }
-        }
-      } catch (Exception ignored) { SystemClock.sleep(500); }
-    }
-  }
-
-  private void renderLoop() {
-    long next = 0;
-    while (running.get()) {
-      long now = SystemClock.elapsedRealtime();
-      if (now < next) { SystemClock.sleep(Math.min(20, next - now)); continue; }
-      next = now + 125;
-      try {
-        if (!display.openOrRequestPermission()) { SystemClock.sleep(500); continue; }
-        Bitmap frame;
-        synchronized (mapFrame) { frame = render(state.get(), mapFrame.get()); }
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream(180000);
-        frame.compress(Bitmap.CompressFormat.JPEG, 55, bytes);
-        frame.recycle();
-        display.sendJpeg(bytes.toByteArray());
-      } catch (Exception e) {
-        display.close();
-        SystemClock.sleep(500);
-      }
-    }
-  }
-
-  private Bitmap render(JSONObject s, Bitmap map) {
-    Bitmap out = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.RGB_565);
-    Canvas c = new Canvas(out);
-    Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-    c.drawColor(Color.rgb(5, 8, 12));
-    drawDriving(c, p, s);
-    drawSystem(c, p, s);
-    drawMap(c, p, map);
-    return out;
-  }
-
-  private void drawDriving(Canvas c, Paint p, JSONObject s) {
-    final int panelW = 768;
-    boolean enabled = s.optBoolean("enabled", false);
-    int save = c.save();
-    c.clipRect(8, 8, panelW - 8, HEIGHT - 8);
-    drawWorld(c, p, s, enabled, panelW);
-    c.restoreToCount(save);
-
-    p.setShader(null); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(2); p.setColor(Color.rgb(48, 60, 72));
-    c.drawRoundRect(new RectF(8, 8, panelW - 8, HEIGHT - 8), 22, 22, p);
-    text(c, p, s.optString("gear", "--"), 38, 48, 37, Color.WHITE, Paint.Align.LEFT);
-    text(c, p, "KM/H", panelW / 2f, 46, 26, Color.LTGRAY, Paint.Align.CENTER);
-    int speed = s.optInt("speed", 0);
-    text(c, p, Integer.toString(speed), panelW / 2f, 132, 82, Color.WHITE, Paint.Align.CENTER);
-    int set = s.optInt("set", 0);
-    text(c, p, "SET  " + (set > 0 ? set : "--"), panelW / 2f, 171, 29, enabled ? Color.rgb(0, 230, 135) : Color.LTGRAY, Paint.Align.CENTER);
-    int limit = s.optInt("limit", 0);
-    text(c, p, "LIMIT " + (limit > 0 ? limit : "--"), panelW - 32, 48, 28, Color.WHITE, Paint.Align.RIGHT);
-    int camera = s.optInt("camera", 0);
-    int cameraDist = s.optInt("cameraDist", 0);
-    if (camera > 0) {
-      p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(5); p.setColor(Color.rgb(235, 74, 74));
-      c.drawCircle(panelW - 76, 127, 42, p);
-      text(c, p, Integer.toString(camera), panelW - 76, 139, 35, Color.WHITE, Paint.Align.CENTER);
-      text(c, p, cameraDist + " m", panelW - 76, 190, 25, Color.rgb(255, 205, 80), Paint.Align.CENTER);
-    }
-    int gap = s.optInt("gap", 0);
-    text(c, p, "GAP " + (gap > 0 ? gap : "--"), 34, HEIGHT - 22, 26, Color.LTGRAY, Paint.Align.LEFT);
-  }
-
-  private static final class StableScene {
-    final JSONArray path;
-    final JSONArray lanes;
-    final JSONArray edges;
-
-    StableScene(JSONArray path, JSONArray lanes, JSONArray edges) {
-      this.path = path;
-      this.lanes = lanes;
-      this.edges = edges;
-    }
-  }
-
-  private static final class GeometryStabilizer {
-    private static final float[] SAMPLE_X = {0f, 3f, 6f, 10f, 15f, 22f, 30f, 42f, 58f, 78f, 105f};
-    private static final float EMA_ALPHA = 0.28f;
-    private static final long HOLD_MS = 500;
-    private static final float LANE_CONFIDENCE = 0.25f;
-    private static final float EDGE_CONFIDENCE = 0.25f;
-    private static final float MIN_ROAD_WIDTH_M = 4.5f;
-    private static final float MAX_ROAD_WIDTH_M = 18.0f;
-    private final float[][] lanes = new float[4][SAMPLE_X.length];
-    private final float[][] edges = new float[2][SAMPLE_X.length];
-    private final float[] path = new float[SAMPLE_X.length];
-    private final boolean[] laneActive = new boolean[4];
-    private final boolean[] edgeActive = new boolean[2];
-    private final long[] laneLastValid = new long[4];
-    private final long[] edgeLastValid = new long[2];
-    private boolean pathActive = false;
-    private long pathLastValid = 0;
-
-    StableScene update(JSONObject state, long now) {
-      updatePath(state.optJSONArray("path"), now);
-      updateLines(state.optJSONArray("lanes"), lanes, laneActive, laneLastValid, LANE_CONFIDENCE, now);
-      updateLines(state.optJSONArray("edges"), edges, edgeActive, edgeLastValid, EDGE_CONFIDENCE, now);
-      constrainRoadAndLanes();
-      return new StableScene(toPath(), toLines(lanes, laneActive), toLines(edges, edgeActive));
-    }
-
-    private void updatePath(JSONArray points, long now) {
-      float[] sampled = sample(points);
-      if (sampled != null) {
-        blend(path, sampled, pathActive);
-        pathActive = true;
-        pathLastValid = now;
-      } else if (now - pathLastValid > HOLD_MS) {
-        pathActive = false;
-      }
-    }
-
-    private void updateLines(JSONArray source, float[][] destination, boolean[] active, long[] lastValid,
-                             float minimumConfidence, long now) {
-      for (int index = 0; index < destination.length; index++) {
-        JSONObject line = source == null ? null : source.optJSONObject(index);
-        float confidence = line == null ? 0f : (float)line.optDouble("c", 0);
-        float[] sampled = line == null || confidence < minimumConfidence ? null : sample(line.optJSONArray("p"));
-        if (sampled != null) {
-          blend(destination[index], sampled, active[index]);
-          active[index] = true;
-          lastValid[index] = now;
-        } else if (now - lastValid[index] > HOLD_MS) {
-          active[index] = false;
-        }
-      }
-    }
-
-    private static void blend(float[] stable, float[] incoming, boolean initialized) {
-      if (!initialized) {
-        System.arraycopy(incoming, 0, stable, 0, stable.length);
-        return;
-      }
-      for (int i = 0; i < stable.length; i++) stable[i] += (incoming[i] - stable[i]) * EMA_ALPHA;
-    }
-
-    private static float[] sample(JSONArray points) {
-      if (points == null || points.length() < 2) return null;
-      float[] result = new float[SAMPLE_X.length];
-      for (int sampleIndex = 0; sampleIndex < SAMPLE_X.length; sampleIndex++) {
-        float target = SAMPLE_X[sampleIndex];
-        JSONArray first = points.optJSONArray(0);
-        JSONArray last = points.optJSONArray(points.length() - 1);
-        if (first == null || last == null) return null;
-        float y = (float)first.optDouble(1, Double.NaN);
-        boolean found = target <= first.optDouble(0, 0);
-        for (int pointIndex = 0; !found && pointIndex + 1 < points.length(); pointIndex++) {
-          JSONArray a = points.optJSONArray(pointIndex), b = points.optJSONArray(pointIndex + 1);
-          if (a == null || b == null) continue;
-          float x0 = (float)a.optDouble(0), x1 = (float)b.optDouble(0);
-          if (target <= x1 || pointIndex + 2 == points.length()) {
-            float denominator = x1 - x0;
-            float ratio = Math.abs(denominator) < 0.001f ? 0f : Math.max(0f, Math.min(1f, (target - x0) / denominator));
-            y = (float)(a.optDouble(1) + (b.optDouble(1) - a.optDouble(1)) * ratio);
-            found = true;
-          }
-        }
-        if (!Float.isFinite(y)) return null;
-        result[sampleIndex] = y;
-      }
-      return result;
-    }
-
-    private void constrainRoadAndLanes() {
-      if (edgeActive[0] && edgeActive[1]) {
-        float previousWidth = 0f;
-        for (int sampleIndex = 0; sampleIndex < SAMPLE_X.length; sampleIndex++) {
-          float low = Math.min(edges[0][sampleIndex], edges[1][sampleIndex]);
-          float high = Math.max(edges[0][sampleIndex], edges[1][sampleIndex]);
-          float center = (low + high) * 0.5f;
-          float width = Math.max(MIN_ROAD_WIDTH_M, Math.min(MAX_ROAD_WIDTH_M, high - low));
-          if (sampleIndex > 0) width = Math.max(previousWidth - 2f, Math.min(previousWidth + 2f, width));
-          previousWidth = width;
-          edges[0][sampleIndex] = center - width * 0.5f;
-          edges[1][sampleIndex] = center + width * 0.5f;
-
-          int[] ids = new int[4]; float[] values = new float[4]; int count = 0;
-          for (int laneIndex = 0; laneIndex < lanes.length; laneIndex++) {
-            if (!laneActive[laneIndex]) continue;
-            ids[count] = laneIndex;
-            values[count] = Math.max(edges[0][sampleIndex] + 0.20f,
-                Math.min(edges[1][sampleIndex] - 0.20f, lanes[laneIndex][sampleIndex]));
-            count++;
-          }
-          for (int left = 0; left < count; left++) {
-            for (int right = left + 1; right < count; right++) {
-              if (values[right] < values[left]) {
-                float value = values[left]; values[left] = values[right]; values[right] = value;
-              }
+            if (!this.wakeLock.isHeld()) {
+                this.wakeLock.acquire();
             }
-          }
-          for (int i = 1; i < count; i++) values[i] = Math.max(values[i], values[i - 1] + 0.30f);
-          if (count > 0 && values[count - 1] > edges[1][sampleIndex] - 0.20f) {
-            float shift = values[count - 1] - (edges[1][sampleIndex] - 0.20f);
-            for (int i = 0; i < count; i++) values[i] -= shift;
-          }
-          for (int i = 0; i < count; i++) lanes[ids[i]][sampleIndex] = values[i];
-          if (pathActive) path[sampleIndex] = Math.max(edges[0][sampleIndex] + 0.45f,
-              Math.min(edges[1][sampleIndex] - 0.45f, path[sampleIndex]));
+        } catch (Exception ignored) {
         }
-      }
     }
 
-    private JSONArray toPath() {
-      JSONArray result = new JSONArray();
-      if (!pathActive) return result;
-      for (int i = 0; i < SAMPLE_X.length; i++) result.put(new JSONArray(Arrays.asList(SAMPLE_X[i], path[i])));
-      return result;
+    private void releaseWakeLock() {
+        try {
+            if (this.wakeLock != null && this.wakeLock.isHeld()) {
+                this.wakeLock.release();
+            }
+        } catch (Exception ignored) {
+        }
+        this.wakeLock = null;
     }
 
-    private static JSONArray toLines(float[][] values, boolean[] active) {
-      JSONArray result = new JSONArray();
-      for (int lineIndex = 0; lineIndex < values.length; lineIndex++) {
-        if (!active[lineIndex]) continue;
-        JSONArray points = new JSONArray();
-        for (int sampleIndex = 0; sampleIndex < SAMPLE_X.length; sampleIndex++) {
-          points.put(new JSONArray(Arrays.asList(SAMPLE_X[sampleIndex], values[lineIndex][sampleIndex])));
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        if (AppPrefs.isAutoStart(this)) {
+            try {
+                startForegroundService(new Intent(getApplicationContext(), HudService.class));
+            } catch (Exception ignored) {
+            }
         }
-        JSONObject line = new JSONObject();
-        try { line.put("c", 1.0); line.put("p", points); } catch (Exception ignored) { continue; }
-        result.put(line);
-      }
-      return result;
+        super.onTaskRemoved(rootIntent);
     }
-  }
 
-  private void drawWorld(Canvas c, Paint p, JSONObject s, boolean enabled, int panelW) {
-    final float center = panelW * 0.5f, horizon = 188f, bottom = 456f;
-    StableScene stable = geometry.update(s, SystemClock.elapsedRealtime());
-    p.setStyle(Paint.Style.FILL);
-    p.setShader(new LinearGradient(0, 8, 0, horizon, Color.rgb(7, 17, 29), Color.rgb(26, 39, 51), Shader.TileMode.CLAMP));
-    c.drawRect(8, 8, panelW - 8, horizon, p);
-    p.setShader(new LinearGradient(0, horizon, 0, bottom, Color.rgb(39, 45, 51), Color.rgb(10, 13, 17), Shader.TileMode.CLAMP));
-    Path road = roadSurface(stable.edges, center, horizon, bottom, panelW);
-    c.drawPath(road, p); p.setShader(null);
-
-    drawModelLines(c, p, stable.edges, center, horizon, bottom, Color.rgb(255, 78, 62), false);
-    drawModelLines(c, p, stable.lanes, center, horizon, bottom, Color.WHITE, true);
-    drawPathSurface(c, p, stable.path, enabled, center, horizon, bottom);
-
-    JSONArray modelPath = stable.path;
-    JSONObject lead2 = s.optJSONObject("lead2");
-    if (lead2 != null) drawLead(c, p, lead2, modelPath, center, horizon, bottom, false);
-    JSONObject lead = s.optJSONObject("lead");
-    if (lead != null) drawLead(c, p, lead, modelPath, center, horizon, bottom, true);
-
-    drawVehicleSprite(c, p, egoCar, center, 407, 108, pathYaw(modelPath, 5f, center, horizon, bottom), 255);
-    // The former dot/triangle BSD markers are intentionally gone.  A detected
-    // rear-quarter vehicle is represented by the vehicle sprite itself.
-    if (s.optBoolean("leftBsd", false)) drawBsdVehicle(c, p, center - 102, 414, true);
-    if (s.optBoolean("rightBsd", false)) drawBsdVehicle(c, p, center + 102, 414, false);
-    if (s.optBoolean("leftBlinker", false)) drawTurnArrow(c, p, 60, 250, true);
-    if (s.optBoolean("rightBlinker", false)) drawTurnArrow(c, p, panelW - 60, 250, false);
-  }
-
-  private float[] project(float longitudinal, float lateral, float center, float horizon, float bottom) {
-    float x = Math.max(0f, longitudinal);
-    float py = bottom - (bottom - horizon) * x / (x + 13f);
-    float lateralScale = 105f / (1f + x / 17f);
-    return new float[] {center - lateral * lateralScale, py};
-  }
-
-  private Path roadSurface(JSONArray edges, float center, float horizon, float bottom, int panelW) {
-    if (edges != null && edges.length() >= 2) {
-      JSONObject first = edges.optJSONObject(0), second = edges.optJSONObject(1);
-      JSONArray a = first == null ? null : first.optJSONArray("p");
-      JSONArray b = second == null ? null : second.optJSONArray("p");
-      if (a != null && b != null && a.length() >= 2 && b.length() >= 2) {
-        Path path = new Path(); boolean started = false;
-        for (int i = 0; i < a.length(); i++) {
-          JSONArray point = a.optJSONArray(i); if (point == null) continue;
-          float[] screen = project((float)point.optDouble(0), (float)point.optDouble(1), center, horizon, bottom);
-          if (!started) { path.moveTo(screen[0], screen[1]); started = true; } else path.lineTo(screen[0], screen[1]);
+    public void requestUsbRescan() {
+        if (this.display != null) {
+            this.display.reset();
         }
-        for (int i = b.length() - 1; i >= 0; i--) {
-          JSONArray point = b.optJSONArray(i); if (point == null) continue;
-          float[] screen = project((float)point.optDouble(0), (float)point.optDouble(1), center, horizon, bottom);
-          path.lineTo(screen[0], screen[1]);
+        usbStatus = "외부 HUD 재검색 중";
+        usbConnected = false;
+        usbError = false;
+        measuredFps = 0.0f;
+        lastJpegBytes = 0;
+    }
+
+    public void receiveLoop() {
+        while (this.running.get()) {
+            try (DatagramSocket datagramSocket = new DatagramSocket(7210)) {
+                datagramSocket.setBroadcast(true);
+                datagramSocket.setSoTimeout(1000);
+                byte[] bArr = new byte[8192];
+                while (this.running.get()) {
+                    try {
+                        DatagramPacket datagramPacket = new DatagramPacket(bArr, 8192);
+                        datagramSocket.receive(datagramPacket);
+                        this.state.set(new JSONObject(new String(datagramPacket.getData(), datagramPacket.getOffset(), datagramPacket.getLength(), "UTF-8")));
+                        this.eonAddress.set(datagramPacket.getAddress());
+                        lastEonRxElapsed = SystemClock.elapsedRealtime();
+                        lastEonAddress = datagramPacket.getAddress().getHostAddress();
+                        byte[] bytes = "HUD1".getBytes("US-ASCII");
+                        datagramSocket.send(new DatagramPacket(bytes, bytes.length, datagramPacket.getAddress(), datagramPacket.getPort()));
+                    } catch (SocketTimeoutException e) {
+                    }
+                }
+            } catch (Exception e) {
+                // 소켓 생성/수신 실패: 잠시 쉬었다가 다시 연다 (스레드를 죽이지 않는다)
+                SystemClock.sleep(1000L);
+            }
+        }
+    }
+
+    public void mapLoop() {
+        while (this.running.get()) {
+            InetAddress inetAddress = this.eonAddress.get();
+            if (inetAddress == null) {
+                SystemClock.sleep(500L);
+                continue;
+            }
+            try (Socket socket = new Socket()) {
+                socket.connect(new InetSocketAddress(inetAddress, 7211), 2000);
+                mapConnected = true;
+                socket.setSoTimeout(4000);
+                DataInputStream dataInputStream = new DataInputStream(socket.getInputStream());
+                byte[] bArr = new byte[4];
+                while (this.running.get() && inetAddress.equals(this.eonAddress.get())) {
+                    dataInputStream.readFully(bArr);
+                    if (bArr[0] != 77 || bArr[1] != 65 || bArr[2] != 80 || bArr[3] != 49) {
+                        throw new Exception("bad map frame");
+                    }
+                    int readInt = dataInputStream.readInt();
+                    if (readInt <= 4 || readInt > 2097152) {
+                        throw new Exception("bad map size");
+                    }
+                    byte[] bArr2 = new byte[readInt];
+                    dataInputStream.readFully(bArr2);
+                    Bitmap decodeByteArray = BitmapFactory.decodeByteArray(bArr2, 0, readInt);
+                    if (decodeByteArray != null) {
+                        synchronized (this.mapFrame) {
+                            Bitmap andSet = this.mapFrame.getAndSet(decodeByteArray);
+                            if (andSet != null && andSet != decodeByteArray) {
+                                andSet.recycle();
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                mapConnected = false;
+                SystemClock.sleep(500L);
+            }
+        }
+        mapConnected = false;
+    }
+
+    public void renderLoop() {
+        Bitmap render;
+        long elapsedRealtime = SystemClock.elapsedRealtime();
+        long j = 0;
+        int i = 0;
+        while (this.running.get()) {
+            long elapsedRealtime2 = SystemClock.elapsedRealtime();
+            if (elapsedRealtime2 < j) {
+                SystemClock.sleep(Math.min(20L, j - elapsedRealtime2));
+            } else {
+                j = 125 + elapsedRealtime2;
+                try {
+                    if (!this.display.openOrRequestPermission()) {
+                        usbStatus = this.display.describeStatus();
+                        usbConnected = false;
+                        usbError = false;
+                        SystemClock.sleep(500L);
+                    } else {
+                        usbStatus = "연결됨 · USB 권한 허용";
+                        usbConnected = true;
+                        usbError = false;
+                        synchronized (this.mapFrame) {
+                            render = render(this.state.get(), this.mapFrame.get());
+                        }
+                        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream(180000);
+                        Matrix matrix = new Matrix();
+                        matrix.setRotate(-90.0f);
+                        Bitmap createBitmap = Bitmap.createBitmap(render, 0, 0, render.getWidth(), render.getHeight(), matrix, true);
+                        render.recycle();
+                        createBitmap.compress(Bitmap.CompressFormat.JPEG, 55, byteArrayOutputStream);
+                        createBitmap.recycle();
+                        byte[] byteArray = byteArrayOutputStream.toByteArray();
+                        this.display.sendJpeg(byteArray);
+                        lastJpegBytes = byteArray.length;
+                        lastJpegSentElapsed = SystemClock.elapsedRealtime();
+                        i++;
+                        long j2 = lastJpegSentElapsed - elapsedRealtime;
+                        if (j2 >= 1000) {
+                            measuredFps = (i * 1000.0f) / ((float) j2);
+                            elapsedRealtime = lastJpegSentElapsed;
+                            i = 0;
+                        }
+                    }
+                } catch (Exception e) {
+                    i = 0;
+                    usbStatus = "USB 오류 · " + e.getMessage();
+                    usbConnected = false;
+                    usbError = true;
+                    this.display.close();
+                    SystemClock.sleep(500L);
+                }
+            }
+        }
+    }
+
+    private Bitmap render(JSONObject jSONObject, Bitmap bitmap) {
+        Bitmap createBitmap = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.RGB_565);
+        Canvas canvas = new Canvas(createBitmap);
+        Paint paint = new Paint(1);
+        canvas.drawColor(Color.rgb(5, 8, 12));
+        drawDriving(canvas, paint, jSONObject);
+        drawSystem(canvas, paint, jSONObject);
+        drawMap(canvas, paint, bitmap);
+        return createBitmap;
+    }
+
+    private void drawDriving(Canvas canvas, Paint paint, JSONObject jSONObject) {
+        boolean optBoolean = jSONObject.optBoolean("enabled", false);
+        int save = canvas.save();
+        canvas.clipRect(8, 8, 760, 454);
+        drawWorld(canvas, paint, jSONObject, optBoolean, 768);
+        canvas.restoreToCount(save);
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2.0f);
+        paint.setColor(Color.rgb(48, 60, 72));
+        canvas.drawRoundRect(new RectF(8.0f, 8.0f, 760.0f, 454.0f), 22.0f, 22.0f, paint);
+        text(canvas, paint, jSONObject.optString("gear", "--"), 38.0f, 48.0f, 37.0f, -1, Paint.Align.LEFT);
+        text(canvas, paint, "KM/H", 384.0f, 46.0f, 26.0f, -3355444, Paint.Align.CENTER);
+        text(canvas, paint, Integer.toString(jSONObject.optInt("speed", 0)), 384.0f, 132.0f, 82.0f, -1, Paint.Align.CENTER);
+        int optInt = jSONObject.optInt("set", 0);
+        text(canvas, paint, "SET  " + (optInt > 0 ? Integer.valueOf(optInt) : "--"), 384.0f, 171.0f, 29.0f, optBoolean ? Color.rgb(0, 230, 135) : -3355444, Paint.Align.CENTER);
+        int optInt2 = jSONObject.optInt("limit", 0);
+        text(canvas, paint, "LIMIT " + (optInt2 > 0 ? Integer.valueOf(optInt2) : "--"), 736.0f, 48.0f, 28.0f, -1, Paint.Align.RIGHT);
+        int optInt3 = jSONObject.optInt("camera", 0);
+        int optInt4 = jSONObject.optInt("cameraDist", 0);
+        if (optInt3 > 0) {
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(5.0f);
+            paint.setColor(Color.rgb(235, 74, 74));
+            canvas.drawCircle(692.0f, 127.0f, 42.0f, paint);
+            text(canvas, paint, Integer.toString(optInt3), 692.0f, 139.0f, 35.0f, -1, Paint.Align.CENTER);
+            text(canvas, paint, String.valueOf(optInt4) + " m", 692.0f, 190.0f, 25.0f, Color.rgb(255, 205, 80), Paint.Align.CENTER);
+        }
+        int optInt5 = jSONObject.optInt("gap", 0);
+        text(canvas, paint, "GAP " + (optInt5 > 0 ? Integer.valueOf(optInt5) : "--"), 34.0f, 440.0f, 26.0f, -3355444, Paint.Align.LEFT);
+    }
+
+    public static final class StableScene {
+        final JSONArray edges;
+        final JSONArray lanes;
+        final JSONArray path;
+
+        StableScene(JSONArray jSONArray, JSONArray jSONArray2, JSONArray jSONArray3) {
+            this.path = jSONArray;
+            this.lanes = jSONArray2;
+            this.edges = jSONArray3;
+        }
+    }
+
+    public static final class GeometryStabilizer {
+        private static final float EDGE_CONFIDENCE = 0.25f;
+        private static final float EMA_ALPHA = 0.28f;
+        private static final long HOLD_MS = 500;
+        private static final float LANE_CONFIDENCE = 0.25f;
+        private static final float MAX_ROAD_WIDTH_M = 18.0f;
+        private static final float MIN_ROAD_WIDTH_M = 4.5f;
+        private static final float[] SAMPLE_X = {0.0f, 3.0f, 6.0f, 10.0f, 15.0f, 22.0f, 30.0f, 42.0f, 58.0f, 78.0f, 105.0f};
+        private final boolean[] edgeActive;
+        private final long[] edgeLastValid;
+        private final float[][] edges;
+        private final boolean[] laneActive;
+        private final long[] laneLastValid;
+        private final float[][] lanes;
+        private final float[] path;
+        private boolean pathActive;
+        private long pathLastValid;
+
+        private GeometryStabilizer() {
+            this.lanes = (float[][]) Array.newInstance((Class<?>) Float.TYPE, 4, SAMPLE_X.length);
+            this.edges = (float[][]) Array.newInstance((Class<?>) Float.TYPE, 2, SAMPLE_X.length);
+            this.path = new float[SAMPLE_X.length];
+            this.laneActive = new boolean[4];
+            this.edgeActive = new boolean[2];
+            this.laneLastValid = new long[4];
+            this.edgeLastValid = new long[2];
+            this.pathActive = false;
+            this.pathLastValid = 0L;
+        }
+
+        /* synthetic */ GeometryStabilizer(GeometryStabilizer geometryStabilizer) {
+            this();
+        }
+
+        StableScene update(JSONObject jSONObject, long j) {
+            updatePath(jSONObject.optJSONArray("path"), j);
+            updateLines(jSONObject.optJSONArray("lanes"), this.lanes, this.laneActive, this.laneLastValid, 0.25f, j);
+            updateLines(jSONObject.optJSONArray("edges"), this.edges, this.edgeActive, this.edgeLastValid, 0.25f, j);
+            constrainRoadAndLanes();
+            return new StableScene(toPath(), toLines(this.lanes, this.laneActive), toLines(this.edges, this.edgeActive));
+        }
+
+        private void updatePath(JSONArray jSONArray, long j) {
+            float[] sample = sample(jSONArray);
+            if (sample != null) {
+                blend(this.path, sample, this.pathActive);
+                this.pathActive = true;
+                this.pathLastValid = j;
+            } else if (j - this.pathLastValid > HOLD_MS) {
+                this.pathActive = false;
+            }
+        }
+
+        private void updateLines(JSONArray jSONArray, float[][] fArr, boolean[] zArr, long[] jArr, float f, long j) {
+            for (int i = 0; i < fArr.length; i++) {
+                float[] fArr2 = null;
+                JSONObject optJSONObject = jSONArray == null ? null : jSONArray.optJSONObject(i);
+                float optDouble = optJSONObject == null ? 0.0f : (float) optJSONObject.optDouble("c", 0.0d);
+                if (optJSONObject != null && optDouble >= f) {
+                    fArr2 = sample(optJSONObject.optJSONArray("p"));
+                }
+                if (fArr2 != null) {
+                    blend(fArr[i], fArr2, zArr[i]);
+                    zArr[i] = true;
+                    jArr[i] = j;
+                } else if (j - jArr[i] > HOLD_MS) {
+                    zArr[i] = false;
+                }
+            }
+        }
+
+        private static void blend(float[] fArr, float[] fArr2, boolean z) {
+            if (!z) {
+                System.arraycopy(fArr2, 0, fArr, 0, fArr.length);
+                return;
+            }
+            for (int i = 0; i < fArr.length; i++) {
+                fArr[i] = fArr[i] + ((fArr2[i] - fArr[i]) * EMA_ALPHA);
+            }
+        }
+
+        private static float[] sample(JSONArray jSONArray) {
+            if (jSONArray == null || jSONArray.length() < 2) {
+                return null;
+            }
+            float[] fArr = new float[SAMPLE_X.length];
+            for (int i = 0; i < SAMPLE_X.length; i++) {
+                float f = SAMPLE_X[i];
+                JSONArray optJSONArray = jSONArray.optJSONArray(0);
+                JSONArray optJSONArray2 = jSONArray.optJSONArray(jSONArray.length() - 1);
+                if (optJSONArray == null || optJSONArray2 == null) {
+                    return null;
+                }
+                float optDouble = (float) optJSONArray.optDouble(1, Double.NaN);
+                boolean z = ((double) f) <= optJSONArray.optDouble(0, 0.0d);
+                int i2 = 0;
+                while (!z) {
+                    int i3 = i2 + 1;
+                    if (i3 >= jSONArray.length()) {
+                        break;
+                    }
+                    JSONArray optJSONArray3 = jSONArray.optJSONArray(i2);
+                    JSONArray optJSONArray4 = jSONArray.optJSONArray(i3);
+                    if (optJSONArray3 != null && optJSONArray4 != null) {
+                        float optDouble2 = (float) optJSONArray3.optDouble(0);
+                        float optDouble3 = (float) optJSONArray4.optDouble(0);
+                        if (f <= optDouble3 || i2 + 2 == jSONArray.length()) {
+                            optDouble = (float) (optJSONArray3.optDouble(1) + ((optJSONArray4.optDouble(1) - optJSONArray3.optDouble(1)) * (Math.abs(optDouble3 - optDouble2) >= 0.001f ? Math.max(0.0f, Math.min(1.0f, (f - optDouble2) / (optDouble3 - optDouble2))) : 0.0f)));
+                            z = true;
+                        }
+                    }
+                    i2 = i3;
+                }
+                if (!Float.isFinite(optDouble)) {
+                    return null;
+                }
+                fArr[i] = optDouble;
+            }
+            return fArr;
+        }
+
+        private void constrainRoadAndLanes() {
+            if (this.edgeActive[0] && this.edgeActive[1]) {
+                float f = 0.0f;
+                int i = 0;
+                while (i < SAMPLE_X.length) {
+                    float min = Math.min(this.edges[0][i], this.edges[1][i]);
+                    float max = Math.max(this.edges[0][i], this.edges[1][i]);
+                    float f2 = (min + max) * 0.5f;
+                    float max2 = Math.max(MIN_ROAD_WIDTH_M, Math.min(MAX_ROAD_WIDTH_M, max - min));
+                    f = i > 0 ? Math.max(f - 2.0f, Math.min(f + 2.0f, max2)) : max2;
+                    float f3 = 0.5f * f;
+                    this.edges[0][i] = f2 - f3;
+                    this.edges[1][i] = f2 + f3;
+                    int[] iArr = new int[4];
+                    float[] fArr = new float[4];
+                    int i2 = 0;
+                    for (int i3 = 0; i3 < this.lanes.length; i3++) {
+                        if (this.laneActive[i3]) {
+                            iArr[i2] = i3;
+                            fArr[i2] = Math.max(this.edges[0][i] + 0.2f, Math.min(this.edges[1][i] - 0.2f, this.lanes[i3][i]));
+                            i2++;
+                        }
+                    }
+                    int i4 = 0;
+                    while (i4 < i2) {
+                        int i5 = i4 + 1;
+                        for (int i6 = i5; i6 < i2; i6++) {
+                            if (fArr[i6] < fArr[i4]) {
+                                float f4 = fArr[i4];
+                                fArr[i4] = fArr[i6];
+                                fArr[i6] = f4;
+                            }
+                        }
+                        i4 = i5;
+                    }
+                    for (int i7 = 1; i7 < i2; i7++) {
+                        fArr[i7] = Math.max(fArr[i7], fArr[i7 - 1] + 0.3f);
+                    }
+                    if (i2 > 0) {
+                        int i8 = i2 - 1;
+                        if (fArr[i8] > this.edges[1][i] - 0.2f) {
+                            float f5 = fArr[i8] - (this.edges[1][i] - 0.2f);
+                            for (int i9 = 0; i9 < i2; i9++) {
+                                fArr[i9] = fArr[i9] - f5;
+                            }
+                        }
+                    }
+                    for (int i10 = 0; i10 < i2; i10++) {
+                        this.lanes[iArr[i10]][i] = fArr[i10];
+                    }
+                    if (this.pathActive) {
+                        this.path[i] = Math.max(this.edges[0][i] + 0.45f, Math.min(this.edges[1][i] - 0.45f, this.path[i]));
+                    }
+                    i++;
+                }
+            }
+        }
+
+        private JSONArray toPath() {
+            JSONArray jSONArray = new JSONArray();
+            if (!this.pathActive) {
+                return jSONArray;
+            }
+            for (int i = 0; i < SAMPLE_X.length; i++) {
+                jSONArray.put(new JSONArray((Collection) Arrays.asList(Float.valueOf(SAMPLE_X[i]), Float.valueOf(this.path[i]))));
+            }
+            return jSONArray;
+        }
+
+        private static JSONArray toLines(float[][] fArr, boolean[] zArr) {
+            JSONArray jSONArray = new JSONArray();
+            for (int i = 0; i < fArr.length; i++) {
+                if (zArr[i]) {
+                    JSONArray jSONArray2 = new JSONArray();
+                    for (int i2 = 0; i2 < SAMPLE_X.length; i2++) {
+                        jSONArray2.put(new JSONArray((Collection) Arrays.asList(Float.valueOf(SAMPLE_X[i2]), Float.valueOf(fArr[i][i2]))));
+                    }
+                    JSONObject jSONObject = new JSONObject();
+                    try {
+                        jSONObject.put("c", 1.0d);
+                        jSONObject.put("p", jSONArray2);
+                        jSONArray.put(jSONObject);
+                    } catch (Exception e) {
+                    }
+                }
+            }
+            return jSONArray;
+        }
+    }
+
+    private void drawWorld(Canvas canvas, Paint paint, JSONObject jSONObject, boolean z, int i) {
+        float f = i * 0.5f;
+        StableScene update = this.geometry.update(jSONObject, SystemClock.elapsedRealtime());
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(new LinearGradient(0.0f, 8.0f, 0.0f, 188.0f, Color.rgb(7, 17, 29), Color.rgb(26, 39, 51), Shader.TileMode.CLAMP));
+        canvas.drawRect(8.0f, 8.0f, i - 8, 188.0f, paint);
+        paint.setShader(new LinearGradient(0.0f, 188.0f, 0.0f, 456.0f, Color.rgb(39, 45, 51), Color.rgb(10, 13, 17), Shader.TileMode.CLAMP));
+        canvas.drawPath(roadSurface(update.edges, f, 188.0f, 456.0f, i), paint);
+        paint.setShader(null);
+        drawModelLines(canvas, paint, update.edges, f, 188.0f, 456.0f, Color.rgb(255, 78, 62), false);
+        drawModelLines(canvas, paint, update.lanes, f, 188.0f, 456.0f, -1, true);
+        drawPathSurface(canvas, paint, update.path, z, f, 188.0f, 456.0f);
+        JSONArray jSONArray = update.path;
+        JSONObject optJSONObject = jSONObject.optJSONObject("lead2");
+        if (optJSONObject != null) {
+            drawLead(canvas, paint, optJSONObject, jSONArray, f, 188.0f, 456.0f, false);
+        }
+        JSONObject optJSONObject2 = jSONObject.optJSONObject("lead");
+        if (optJSONObject2 != null) {
+            drawLead(canvas, paint, optJSONObject2, jSONArray, f, 188.0f, 456.0f, true);
+        }
+        drawVehicleSprite(canvas, paint, this.egoCar, f, 407.0f, 108.0f, pathYaw(jSONArray, 5.0f, f, 188.0f, 456.0f), 255);
+        if (jSONObject.optBoolean("leftBsd", false)) {
+            drawBsdVehicle(canvas, paint, f - 102.0f, 414.0f, true);
+        }
+        if (jSONObject.optBoolean("rightBsd", false)) {
+            drawBsdVehicle(canvas, paint, f + 102.0f, 414.0f, false);
+        }
+        if (jSONObject.optBoolean("leftBlinker", false)) {
+            drawTurnArrow(canvas, paint, 60.0f, 250.0f, true);
+        }
+        if (jSONObject.optBoolean("rightBlinker", false)) {
+            drawTurnArrow(canvas, paint, i - 60, 250.0f, false);
+        }
+    }
+
+    private float[] project(float f, float f2, float f3, float f4, float f5) {
+        float max = Math.max(0.0f, f);
+        return new float[]{f3 - (f2 * (105.0f / ((max / 17.0f) + 1.0f))), f5 - (((f5 - f4) * max) / (13.0f + max))};
+    }
+
+    private Path roadSurface(JSONArray jSONArray, float f, float f2, float f3, int i) {
+        if (jSONArray != null && jSONArray.length() >= 2) {
+            JSONObject optJSONObject = jSONArray.optJSONObject(0);
+            JSONObject optJSONObject2 = jSONArray.optJSONObject(1);
+            JSONArray optJSONArray = optJSONObject == null ? null : optJSONObject.optJSONArray("p");
+            JSONArray optJSONArray2 = optJSONObject2 != null ? optJSONObject2.optJSONArray("p") : null;
+            if (optJSONArray != null && optJSONArray2 != null && optJSONArray.length() >= 2 && optJSONArray2.length() >= 2) {
+                Path path = new Path();
+                boolean z = false;
+                for (int i2 = 0; i2 < optJSONArray.length(); i2++) {
+                    JSONArray optJSONArray3 = optJSONArray.optJSONArray(i2);
+                    if (optJSONArray3 != null) {
+                        float[] project = project((float) optJSONArray3.optDouble(0), (float) optJSONArray3.optDouble(1), f, f2, f3);
+                        if (!z) {
+                            path.moveTo(project[0], project[1]);
+                            z = true;
+                        } else {
+                            path.lineTo(project[0], project[1]);
+                        }
+                    }
+                }
+                for (int length = optJSONArray2.length() - 1; length >= 0; length--) {
+                    JSONArray optJSONArray4 = optJSONArray2.optJSONArray(length);
+                    if (optJSONArray4 != null) {
+                        float[] project2 = project((float) optJSONArray4.optDouble(0), (float) optJSONArray4.optDouble(1), f, f2, f3);
+                        path.lineTo(project2[0], project2[1]);
+                    }
+                }
+                path.close();
+                return path;
+            }
+        }
+        Path path2 = new Path();
+        path2.moveTo(f - 92.0f, f2);
+        path2.lineTo(f + 92.0f, f2);
+        path2.lineTo(i - 26, f3);
+        path2.lineTo(26.0f, f3);
+        path2.close();
+        return path2;
+    }
+
+    private void drawModelLines(Canvas canvas, Paint paint, JSONArray jSONArray, float f, float f2, float f3, int i, boolean z) {
+        JSONArray optJSONArray;
+        if (jSONArray == null) {
+            return;
+        }
+        for (int i2 = 0; i2 < jSONArray.length(); i2++) {
+            JSONObject optJSONObject = jSONArray.optJSONObject(i2);
+            if (optJSONObject != null) {
+                float optDouble = (float) optJSONObject.optDouble("c", 0.0d);
+                if (optDouble >= 0.12f && (optJSONArray = optJSONObject.optJSONArray("p")) != null && optJSONArray.length() >= 2) {
+                    drawPerspectiveLine(canvas, paint, optJSONArray, optDouble, f, f2, f3, i, z);
+                }
+            }
+        }
+    }
+
+    private void drawPerspectiveLine(Canvas canvas, Paint paint, JSONArray jSONArray, float f, float f2, float f3, float f4, int i, boolean z) {
+        int i2;
+        int i3;
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setColor((((int) ((185.0f * f) + 70.0f)) << 24) | (i & 16777215));
+        int i4 = 0;
+        int i5 = 0;
+        while (true) {
+            int i6 = i5 + 1;
+            if (i6 < jSONArray.length()) {
+                JSONArray optJSONArray = jSONArray.optJSONArray(i5);
+                JSONArray optJSONArray2 = jSONArray.optJSONArray(i6);
+                if (optJSONArray != null && optJSONArray2 != null) {
+                    float optDouble = (float) optJSONArray.optDouble(i4);
+                    float optDouble2 = (float) optJSONArray.optDouble(1);
+                    float optDouble3 = (float) optJSONArray2.optDouble(i4);
+                    float optDouble4 = (float) optJSONArray2.optDouble(1);
+                    float f5 = optDouble3 - optDouble;
+                    int max = Math.max(1, (int) Math.ceil(Math.abs(f5)));
+                    int i7 = i4;
+                    while (i7 < max) {
+                        float f6 = max;
+                        float f7 = i7 / f6;
+                        int i8 = i7 + 1;
+                        float f8 = i8 / f6;
+                        float f9 = (f5 * f7) + optDouble;
+                        float f10 = (f5 * f8) + optDouble;
+                        if (z) {
+                            i2 = i8;
+                            if ((((int) Math.floor(((f9 + f10) * 0.5f) / 4.5f)) & 1) != 0) {
+                                i3 = i2;
+                                i4 = 0;
+                                i7 = i3;
+                            }
+                        } else {
+                            i2 = i8;
+                        }
+                        float f11 = optDouble4 - optDouble2;
+                        float[] project = project(f9, optDouble2 + (f7 * f11), f2, f3, f4);
+                        float[] project2 = project(f10, optDouble2 + (f11 * f8), f2, f3, f4);
+                        paint.setStrokeWidth((z ? 1.6f : 1.2f) + ((z ? 5.2f : 3.6f) / ((Math.max(0.0f, (f9 + f10) * 0.5f) / 16.0f) + 1.0f)));
+                        i4 = 0;
+                        i3 = i2;
+                        canvas.drawLine(project[0], project[1], project2[0], project2[1], paint);
+                        i7 = i3;
+                    }
+                }
+                i5 = i6;
+            } else {
+                return;
+            }
+        }
+    }
+
+    private void drawPathSurface(Canvas canvas, Paint paint, JSONArray jSONArray, boolean z, float f, float f2, float f3) {
+        if (jSONArray == null || jSONArray.length() < 2) {
+            return;
+        }
+        int length = jSONArray.length();
+        float[][] fArr = new float[length][];
+        float[][] fArr2 = new float[length][];
+        int i = 0;
+        for (int i2 = 0; i2 < length; i2++) {
+            JSONArray optJSONArray = jSONArray.optJSONArray(i2);
+            if (optJSONArray != null) {
+                float optDouble = (float) optJSONArray.optDouble(0);
+                float optDouble2 = (float) optJSONArray.optDouble(1);
+                fArr[i] = project(optDouble, optDouble2 + 0.72f, f, f2, f3);
+                fArr2[i] = project(optDouble, optDouble2 - 0.72f, f, f2, f3);
+                i++;
+            }
+        }
+        if (i < 2) {
+            return;
+        }
+        Path path = new Path();
+        path.moveTo(fArr[0][0], fArr[0][1]);
+        for (int i3 = 1; i3 < i; i3++) {
+            path.lineTo(fArr[i3][0], fArr[i3][1]);
+        }
+        for (int i4 = i - 1; i4 >= 0; i4--) {
+            path.lineTo(fArr2[i4][0], fArr2[i4][1]);
         }
         path.close();
-        return path;
-      }
+        int argb = z ? Color.argb(205, 0, 183, 255) : Color.argb(135, 90, 102, 112);
+        int argb2 = z ? Color.argb(35, 0, 220, 150) : Color.argb(20, 70, 80, 90);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(new LinearGradient(0.0f, f3, 0.0f, f2, argb, argb2, Shader.TileMode.CLAMP));
+        canvas.drawPath(path, paint);
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2.0f);
+        paint.setColor(z ? Color.rgb(94, 225, 255) : Color.rgb(100, 110, 120));
+        canvas.drawPath(path, paint);
     }
-    Path fallback = new Path();
-    fallback.moveTo(center - 92, horizon); fallback.lineTo(center + 92, horizon);
-    fallback.lineTo(panelW - 26, bottom); fallback.lineTo(26, bottom); fallback.close();
-    return fallback;
-  }
 
-  private void drawModelLines(Canvas c, Paint p, JSONArray lines, float center, float horizon, float bottom, int color, boolean dashed) {
-    if (lines == null) return;
-    for (int lineIndex = 0; lineIndex < lines.length(); lineIndex++) {
-      JSONObject line = lines.optJSONObject(lineIndex); if (line == null) continue;
-      float confidence = (float)line.optDouble("c", 0);
-      if (confidence < 0.12f) continue;
-      JSONArray points = line.optJSONArray("p"); if (points == null || points.length() < 2) continue;
-      drawPerspectiveLine(c, p, points, confidence, center, horizon, bottom, color, dashed);
+    private void drawLead(Canvas canvas, Paint paint, JSONObject jSONObject, JSONArray jSONArray, float f, float f2, float f3, boolean z) {
+        float optDouble = (float) jSONObject.optDouble("d", 0.0d);
+        float optDouble2 = (float) jSONObject.optDouble("y", 0.0d);
+        if (optDouble > 0.0f && optDouble <= 150.0f) {
+            float[] project = project(optDouble, optDouble2, f, f2, f3);
+            float max = Math.max(0.22f, 1.0f / ((optDouble / 24.0f) + 1.0f));
+            float max2 = Math.max(22.0f, 94.0f * max);
+            drawVehicleSprite(canvas, paint, this.otherCar, project[0], project[1] - (0.18f * max2), max2, pathYaw(jSONArray, optDouble, f, f2, f3), z ? 255 : 215);
+            if (z) {
+                text(canvas, paint, String.format(Locale.US, "%.0fm", Float.valueOf(optDouble)), project[0], project[1] - (max2 * 0.92f), Math.max(17.0f, max * 23.0f), -1, Paint.Align.CENTER);
+            }
+        }
     }
-  }
 
-  private void drawPerspectiveLine(Canvas c, Paint p, JSONArray points, float confidence, float center, float horizon,
-                                   float bottom, int color, boolean dashed) {
-    int alpha = (int)(70 + confidence * 185);
-    p.setShader(null); p.setStyle(Paint.Style.STROKE); p.setStrokeCap(Paint.Cap.ROUND);
-    p.setColor((color & 0x00ffffff) | (alpha << 24));
-    for (int i = 0; i + 1 < points.length(); i++) {
-      JSONArray from = points.optJSONArray(i), to = points.optJSONArray(i + 1);
-      if (from == null || to == null) continue;
-      float x0 = (float)from.optDouble(0), y0 = (float)from.optDouble(1);
-      float x1 = (float)to.optDouble(0), y1 = (float)to.optDouble(1);
-      int steps = Math.max(1, (int)Math.ceil(Math.abs(x1 - x0)));
-      for (int step = 0; step < steps; step++) {
-        float t0 = step / (float)steps, t1 = (step + 1) / (float)steps;
-        float xa = x0 + (x1 - x0) * t0, xb = x0 + (x1 - x0) * t1;
-        if (dashed && (((int)Math.floor((xa + xb) * 0.5f / 4.5f)) & 1) != 0) continue;
-        float ya = y0 + (y1 - y0) * t0, yb = y0 + (y1 - y0) * t1;
-        float[] a = project(xa, ya, center, horizon, bottom), b = project(xb, yb, center, horizon, bottom);
-        float depth = Math.max(0, (xa + xb) * 0.5f);
-        p.setStrokeWidth((dashed ? 1.6f : 1.2f) + (dashed ? 5.2f : 3.6f) / (1f + depth / 16f));
-        c.drawLine(a[0], a[1], b[0], b[1], p);
-      }
+    private void drawVehicleSprite(Canvas canvas, Paint paint, Bitmap bitmap, float f, float f2, float f3, float f4, int i) {
+        if (bitmap == null || bitmap.isRecycled()) {
+            return;
+        }
+        float height = (bitmap.getHeight() * f3) / bitmap.getWidth();
+        int save = canvas.save();
+        canvas.translate(f, f2);
+        canvas.rotate(f4);
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setAlpha(i);
+        paint.setFilterBitmap(true);
+        canvas.drawBitmap(bitmap, (Rect) null, new RectF((-f3) * 0.5f, (-height) * 0.5f, f3 * 0.5f, height * 0.5f), paint);
+        paint.setAlpha(255);
+        canvas.restoreToCount(save);
     }
-  }
 
-  private void drawPathSurface(Canvas c, Paint p, JSONArray points, boolean enabled, float center, float horizon, float bottom) {
-    if (points == null || points.length() < 2) return;
-    int count = points.length(); float[][] left = new float[count][], right = new float[count][]; int valid = 0;
-    for (int i = 0; i < count; i++) {
-      JSONArray point = points.optJSONArray(i); if (point == null) continue;
-      float x = (float)point.optDouble(0), y = (float)point.optDouble(1);
-      left[valid] = project(x, y + 0.72f, center, horizon, bottom);
-      right[valid] = project(x, y - 0.72f, center, horizon, bottom); valid++;
+    private void drawBsdVehicle(Canvas canvas, Paint paint, float f, float f2, boolean z) {
+        drawVehicleSprite(canvas, paint, this.otherCar, f, f2, 58.0f, z ? -16.0f : 16.0f, 245);
     }
-    if (valid < 2) return;
-    Path surface = new Path(); surface.moveTo(left[0][0], left[0][1]);
-    for (int i = 1; i < valid; i++) surface.lineTo(left[i][0], left[i][1]);
-    for (int i = valid - 1; i >= 0; i--) surface.lineTo(right[i][0], right[i][1]);
-    surface.close();
-    int near = enabled ? Color.argb(205, 0, 183, 255) : Color.argb(135, 90, 102, 112);
-    int far = enabled ? Color.argb(35, 0, 220, 150) : Color.argb(20, 70, 80, 90);
-    p.setStyle(Paint.Style.FILL); p.setShader(new LinearGradient(0, bottom, 0, horizon, near, far, Shader.TileMode.CLAMP));
-    c.drawPath(surface, p); p.setShader(null);
-    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(2); p.setColor(enabled ? Color.rgb(94, 225, 255) : Color.rgb(100, 110, 120));
-    c.drawPath(surface, p);
-  }
 
-  private void drawLead(Canvas c, Paint p, JSONObject lead, JSONArray modelPath, float center, float horizon, float bottom, boolean primary) {
-    float distance = (float)lead.optDouble("d", 0), lateral = (float)lead.optDouble("y", 0);
-    if (distance <= 0 || distance > 150) return;
-    float[] pos = project(distance, lateral, center, horizon, bottom);
-    float scale = Math.max(0.22f, 1f / (1f + distance / 24f));
-    float width = Math.max(22f, 94f * scale);
-    drawVehicleSprite(c, p, otherCar, pos[0], pos[1] - width * 0.18f, width,
-        pathYaw(modelPath, distance, center, horizon, bottom), primary ? 255 : 215);
-    if (primary) text(c, p, String.format(Locale.US, "%.0fm", distance), pos[0], pos[1] - width * 0.92f,
-        Math.max(17, 23 * scale), Color.WHITE, Paint.Align.CENTER);
-  }
-
-  private void drawVehicleSprite(Canvas c, Paint p, Bitmap car, float cx, float cy, float width, float angle, int alpha) {
-    if (car == null || car.isRecycled()) return;
-    float height = width * car.getHeight() / (float)car.getWidth();
-    int save = c.save(); c.translate(cx, cy); c.rotate(angle);
-    p.setShader(null); p.setStyle(Paint.Style.FILL); p.setAlpha(alpha); p.setFilterBitmap(true);
-    c.drawBitmap(car, null, new RectF(-width * 0.5f, -height * 0.5f, width * 0.5f, height * 0.5f), p);
-    p.setAlpha(255); c.restoreToCount(save);
-  }
-
-  private void drawBsdVehicle(Canvas c, Paint p, float x, float y, boolean left) {
-    drawVehicleSprite(c, p, otherCar, x, y, 58, left ? -16f : 16f, 245);
-  }
-
-  private float pathYaw(JSONArray points, float distance, float center, float horizon, float bottom) {
-    if (points == null || points.length() < 2) return 0f;
-    JSONArray before = null, after = null;
-    for (int i = 0; i < points.length(); i++) {
-      JSONArray point = points.optJSONArray(i); if (point == null) continue;
-      float x = (float)point.optDouble(0);
-      if (x <= distance) before = point;
-      if (x >= distance) { after = point; break; }
+    private float pathYaw(JSONArray jSONArray, float f, float f2, float f3, float f4) {
+        if (jSONArray == null || jSONArray.length() < 2) {
+            return 0.0f;
+        }
+        JSONArray jSONArray2 = null;
+        JSONArray jSONArray3 = null;
+        int i = 0;
+        while (true) {
+            if (i >= jSONArray.length()) {
+                break;
+            }
+            JSONArray optJSONArray = jSONArray.optJSONArray(i);
+            if (optJSONArray != null) {
+                float optDouble = (float) optJSONArray.optDouble(0);
+                if (optDouble <= f) {
+                    jSONArray3 = optJSONArray;
+                }
+                if (optDouble >= f) {
+                    jSONArray2 = optJSONArray;
+                    break;
+                }
+            }
+            i++;
+        }
+        if (jSONArray3 == null) {
+            jSONArray3 = jSONArray.optJSONArray(0);
+        }
+        if (jSONArray2 == null) {
+            jSONArray2 = jSONArray.optJSONArray(jSONArray.length() - 1);
+        }
+        if (jSONArray3 == null || jSONArray2 == null || jSONArray3 == jSONArray2) {
+            return 0.0f;
+        }
+        float[] project = project((float) jSONArray3.optDouble(0), (float) jSONArray3.optDouble(1), f2, f3, f4);
+        float[] project2 = project((float) jSONArray2.optDouble(0), (float) jSONArray2.optDouble(1), f2, f3, f4);
+        return Math.max(-22.0f, Math.min(22.0f, (float) Math.toDegrees(Math.atan2(project2[0] - project[0], project[1] - project2[1]))));
     }
-    if (before == null) before = points.optJSONArray(0);
-    if (after == null) after = points.optJSONArray(points.length() - 1);
-    if (before == null || after == null || before == after) return 0f;
-    float[] a = project((float)before.optDouble(0), (float)before.optDouble(1), center, horizon, bottom);
-    float[] b = project((float)after.optDouble(0), (float)after.optDouble(1), center, horizon, bottom);
-    float angle = (float)Math.toDegrees(Math.atan2(b[0] - a[0], a[1] - b[1]));
-    return Math.max(-22f, Math.min(22f, angle));
-  }
 
-  private void drawTurnArrow(Canvas c, Paint p, float x, float y, boolean left) {
-    Path arrow = new Path(); float sign = left ? -1f : 1f;
-    arrow.moveTo(x + 28 * sign, y - 26); arrow.lineTo(x - 24 * sign, y); arrow.lineTo(x + 28 * sign, y + 26);
-    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(9); p.setStrokeCap(Paint.Cap.ROUND); p.setStrokeJoin(Paint.Join.ROUND);
-    p.setColor(Color.rgb(0, 235, 135)); c.drawPath(arrow, p);
-  }
-
-  private void drawSystem(Canvas c, Paint p, JSONObject s) {
-    int left = 768, right = 1152;
-    p.setStyle(Paint.Style.FILL); p.setColor(Color.rgb(16, 21, 28));
-    c.drawRoundRect(new RectF(left + 8, 8, right - 8, HEIGHT - 8), 22, 22, p);
-    text(c, p, "SYSTEM", (left + right) / 2f, 55, 30, Color.LTGRAY, Paint.Align.CENTER);
-    text(c, p, "CPU", left + 42, 122, 27, Color.GRAY, Paint.Align.LEFT);
-    text(c, p, s.optInt("cpu", 0) + "%", right - 42, 122, 44, Color.WHITE, Paint.Align.RIGHT);
-    text(c, p, "TEMP", left + 42, 202, 27, Color.GRAY, Paint.Align.LEFT);
-    text(c, p, String.format(Locale.US, "%.0f°C", s.optDouble("temp", 0)), right - 42, 202, 44, Color.WHITE, Paint.Align.RIGHT);
-    text(c, p, "ACCEL", left + 42, 282, 27, Color.GRAY, Paint.Align.LEFT);
-    text(c, p, String.format(Locale.US, "%+.2f", s.optDouble("accel", 0)), right - 42, 282, 39, Color.WHITE, Paint.Align.RIGHT);
-    long age = Math.max(0, System.currentTimeMillis() - s.optLong("t", 0));
-    text(c, p, age < 1500 ? "EON CONNECTED" : "WAITING FOR EON", (left + right) / 2f, 406, 25,
-        age < 1500 ? Color.rgb(0, 220, 120) : Color.rgb(235, 74, 74), Paint.Align.CENTER);
-  }
-
-  private void drawMap(Canvas c, Paint p, Bitmap map) {
-    Rect dst = new Rect(1152, 0, WIDTH, HEIGHT);
-    if (map == null || map.isRecycled()) {
-      p.setStyle(Paint.Style.FILL); p.setColor(Color.BLACK); c.drawRect(dst, p);
-      text(c, p, "TMAP 화면 대기", 1536, 240, 34, Color.GRAY, Paint.Align.CENTER);
-      return;
+    private void drawTurnArrow(Canvas canvas, Paint paint, float f, float f2, boolean z) {
+        Path path = new Path();
+        float f3 = z ? -1.0f : 1.0f;
+        float f4 = (28.0f * f3) + f;
+        path.moveTo(f4, f2 - 26.0f);
+        path.lineTo(f - (f3 * 24.0f), f2);
+        path.lineTo(f4, f2 + 26.0f);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(9.0f);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setColor(Color.rgb(0, 235, 135));
+        canvas.drawPath(path, paint);
     }
-    float targetRatio = dst.width() / (float)dst.height();
-    float sourceRatio = map.getWidth() / (float)map.getHeight();
-    Rect src;
-    if (sourceRatio > targetRatio) {
-      int w = Math.round(map.getHeight() * targetRatio), x = (map.getWidth() - w) / 2;
-      src = new Rect(x, 0, x + w, map.getHeight());
-    } else {
-      int h = Math.round(map.getWidth() / targetRatio), y = (map.getHeight() - h) / 2;
-      src = new Rect(0, y, map.getWidth(), y + h);
+
+    private void drawSystem(Canvas canvas, Paint paint, JSONObject jSONObject) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.rgb(16, 21, 28));
+        canvas.drawRoundRect(new RectF(776, 8.0f, 1144, 454.0f), 22.0f, 22.0f, paint);
+        float f = WIDTH / 2.0f;
+        text(canvas, paint, "SYSTEM", f, 55.0f, 30.0f, -3355444, Paint.Align.CENTER);
+        float f2 = 810;
+        text(canvas, paint, "CPU", f2, 122.0f, 27.0f, -7829368, Paint.Align.LEFT);
+        float f3 = 1110;
+        text(canvas, paint, String.valueOf(jSONObject.optInt("cpu", 0)) + "%", f3, 122.0f, 44.0f, -1, Paint.Align.RIGHT);
+        text(canvas, paint, "TEMP", f2, 202.0f, 27.0f, -7829368, Paint.Align.LEFT);
+        text(canvas, paint, String.format(Locale.US, "%.0f°C", Double.valueOf(jSONObject.optDouble("temp", 0.0d))), f3, 202.0f, 44.0f, -1, Paint.Align.RIGHT);
+        text(canvas, paint, "ACCEL", f2, 282.0f, 27.0f, -7829368, Paint.Align.LEFT);
+        text(canvas, paint, String.format(Locale.US, "%+.2f", Double.valueOf(jSONObject.optDouble("accel", 0.0d))), f3, 282.0f, 39.0f, -1, Paint.Align.RIGHT);
+        long max = Math.max(0L, System.currentTimeMillis() - jSONObject.optLong("t", 0L));
+        text(canvas, paint, max < 1500 ? "EON CONNECTED" : "WAITING FOR EON", f, 406.0f, 25.0f, max < 1500 ? Color.rgb(0, 220, 120) : Color.rgb(235, 74, 74), Paint.Align.CENTER);
     }
-    c.drawBitmap(map, src, dst, p);
-  }
 
-  private static void text(Canvas c, Paint p, String value, float x, float y, float size, int color, Paint.Align align) {
-    p.setStyle(Paint.Style.FILL); p.setTypeface(android.graphics.Typeface.create("sans", android.graphics.Typeface.BOLD));
-    p.setTextSize(size); p.setTextAlign(align); p.setColor(color); c.drawText(value, x, y, p);
-  }
-
-  @Override public void onDestroy() {
-    running.set(false);
-    if (display != null) display.close();
-    if (egoCar != null) { egoCar.recycle(); egoCar = null; }
-    if (otherCar != null) { otherCar.recycle(); otherCar = null; }
-    synchronized (mapFrame) {
-      Bitmap map = mapFrame.getAndSet(null); if (map != null) map.recycle();
+    private void drawMap(Canvas canvas, Paint paint, Bitmap bitmap) {
+        Rect rect;
+        Rect rect2 = new Rect(1152, 0, WIDTH, HEIGHT);
+        if (bitmap == null || bitmap.isRecycled()) {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(-16777216);
+            canvas.drawRect(rect2, paint);
+            text(canvas, paint, "TMAP 화면 대기", 1536.0f, 240.0f, 34.0f, -7829368, Paint.Align.CENTER);
+            return;
+        }
+        float width = rect2.width() / rect2.height();
+        if (bitmap.getWidth() / bitmap.getHeight() > width) {
+            int round = Math.round(bitmap.getHeight() * width);
+            int width2 = (bitmap.getWidth() - round) / 2;
+            rect = new Rect(width2, 0, round + width2, bitmap.getHeight());
+        } else {
+            int round2 = Math.round(bitmap.getWidth() / width);
+            int height = (bitmap.getHeight() - round2) / 2;
+            rect = new Rect(0, height, bitmap.getWidth(), round2 + height);
+        }
+        canvas.drawBitmap(bitmap, rect, rect2, paint);
     }
-    super.onDestroy();
-  }
 
-  @Override public IBinder onBind(Intent intent) { return null; }
+    private static void text(Canvas canvas, Paint paint, String str, float f, float f2, float f3, int i, Paint.Align align) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setTypeface(Typeface.create("sans", 1));
+        paint.setTextSize(f3);
+        paint.setTextAlign(align);
+        paint.setColor(i);
+        canvas.drawText(str, f, f2, paint);
+    }
+
+    @Override
+    public void onDestroy() {
+        this.running.set(false);
+        this.starter.removeCallbacksAndMessages(null);
+        this.workersStarted = false;
+        serviceRunning = false;
+        mapConnected = false;
+        usbConnected = false;
+        usbError = false;
+        usbStatus = "서비스 중지됨";
+        measuredFps = 0.0f;
+        lastJpegBytes = 0;
+        if (this.display != null) {
+            this.display.close();
+        }
+        if (this.egoCar != null) {
+            this.egoCar.recycle();
+            this.egoCar = null;
+        }
+        if (this.otherCar != null) {
+            this.otherCar.recycle();
+            this.otherCar = null;
+        }
+        synchronized (this.mapFrame) {
+            Bitmap andSet = this.mapFrame.getAndSet(null);
+            if (andSet != null) {
+                andSet.recycle();
+            }
+        }
+        if (this.usbReceiverRegistered) {
+            try {
+                unregisterReceiver(this.usbReceiver);
+            } catch (Exception e) {
+            }
+            this.usbReceiverRegistered = false;
+        }
+        releaseWakeLock();
+        super.onDestroy();
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
 }
