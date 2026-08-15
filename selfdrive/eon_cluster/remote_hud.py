@@ -1,8 +1,8 @@
 """Low-overhead HUD telemetry publisher for a separate Android renderer.
 
-The process is idle unless EonClusterHudRemote is enabled.  It deliberately
-sends only compact scene data: no framebuffer copies, map frames, JPEG work,
-or USB traffic happens on the EON.
+This process is the remote-HUD path for EON. It deliberately sends only
+compact scene data: no framebuffer copies, map decoding, JPEG rendering, or
+USB display traffic happens on the EON.
 """
 
 import json
@@ -14,11 +14,8 @@ import struct
 import time
 
 import cereal.messaging as messaging
-from common.params import Params
 
 
-PARAM_ENABLED = "EonClusterHudRemote"
-PARAM_CONNECTED = "EonClusterHudRemoteConnected"
 PORT = 7210
 MAP_PORT = 7211
 MAP_FILE = "/dev/shm/carrot_navi_map.jpg"
@@ -185,8 +182,6 @@ def _packet(sm):
 
 
 def main():
-  params = Params()
-  params.put_bool(PARAM_CONNECTED, False)
   running = [True]
   signal.signal(signal.SIGINT, lambda *_: running.__setitem__(0, False))
   signal.signal(signal.SIGTERM, lambda *_: running.__setitem__(0, False))
@@ -199,12 +194,6 @@ def main():
   connected = False
   map_server = MapFrameServer()
   while running[0]:
-    if not params.get_bool(PARAM_ENABLED):
-      if connected:
-        connected = False
-        params.put_bool(PARAM_CONNECTED, False)
-      time.sleep(1.0)
-      continue
     started = time.monotonic()
     sm.update(0)
     try:
@@ -217,18 +206,12 @@ def main():
             last_ack = time.monotonic()
       except (BlockingIOError, socket.error):
         pass
-      next_connected = time.monotonic() - last_ack < 2.0
-      if next_connected != connected:
-        connected = next_connected
-        params.put_bool(PARAM_CONNECTED, connected)
+      connected = time.monotonic() - last_ack < 2.0
       map_server.poll()
     except Exception as exc:
-      if connected:
-        connected = False
-        params.put_bool(PARAM_CONNECTED, False)
+      connected = False
       print("remote HUD send failed: %s" % exc, flush=True)
     time.sleep(max(0.0, 1.0 / FPS - (time.monotonic() - started)))
-  params.put_bool(PARAM_CONNECTED, False)
   map_server.close()
   sock.close()
 
