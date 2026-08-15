@@ -10,10 +10,12 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.SystemClock;
@@ -148,14 +150,19 @@ public final class HudService extends Service {
   private void drawDriving(Canvas c, Paint p, JSONObject s) {
     final int panelW = 768;
     boolean enabled = s.optBoolean("enabled", false);
-    p.setStyle(Paint.Style.FILL); p.setColor(Color.rgb(12, 17, 24));
+    int save = c.save();
+    c.clipRect(8, 8, panelW - 8, HEIGHT - 8);
+    drawWorld(c, p, s, enabled, panelW);
+    c.restoreToCount(save);
+
+    p.setShader(null); p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(2); p.setColor(Color.rgb(48, 60, 72));
     c.drawRoundRect(new RectF(8, 8, panelW - 8, HEIGHT - 8), 22, 22, p);
     text(c, p, s.optString("gear", "--"), 38, 48, 37, Color.WHITE, Paint.Align.LEFT);
     text(c, p, "KM/H", panelW / 2f, 46, 26, Color.LTGRAY, Paint.Align.CENTER);
     int speed = s.optInt("speed", 0);
-    text(c, p, Integer.toString(speed), panelW / 2f, 142, 92, Color.WHITE, Paint.Align.CENTER);
+    text(c, p, Integer.toString(speed), panelW / 2f, 132, 82, Color.WHITE, Paint.Align.CENTER);
     int set = s.optInt("set", 0);
-    text(c, p, "SET  " + (set > 0 ? set : "--"), panelW / 2f, 187, 31, enabled ? Color.rgb(0, 220, 120) : Color.LTGRAY, Paint.Align.CENTER);
+    text(c, p, "SET  " + (set > 0 ? set : "--"), panelW / 2f, 171, 29, enabled ? Color.rgb(0, 230, 135) : Color.LTGRAY, Paint.Align.CENTER);
     int limit = s.optInt("limit", 0);
     text(c, p, "LIMIT " + (limit > 0 ? limit : "--"), panelW - 32, 48, 28, Color.WHITE, Paint.Align.RIGHT);
     int camera = s.optInt("camera", 0);
@@ -166,38 +173,130 @@ public final class HudService extends Service {
       text(c, p, Integer.toString(camera), panelW - 76, 139, 35, Color.WHITE, Paint.Align.CENTER);
       text(c, p, cameraDist + " m", panelW - 76, 190, 25, Color.rgb(255, 205, 80), Paint.Align.CENTER);
     }
-    drawPath(c, p, s.optJSONArray("path"), enabled);
-    float carX = panelW / 2f, carY = 374;
-    p.setStyle(Paint.Style.FILL); p.setColor(Color.rgb(160, 166, 174));
-    c.drawRoundRect(new RectF(carX - 25, carY - 38, carX + 25, carY + 38), 12, 12, p);
-    if (s.optBoolean("leftBsd", false)) { p.setColor(Color.RED); c.drawCircle(carX - 66, carY + 7, 12, p); }
-    if (s.optBoolean("rightBsd", false)) { p.setColor(Color.RED); c.drawCircle(carX + 66, carY + 7, 12, p); }
-    JSONObject lead = s.optJSONObject("lead");
-    if (lead != null) {
-      p.setColor(Color.LTGRAY); c.drawRoundRect(new RectF(carX - 14, 250, carX + 14, 286), 8, 8, p);
-      text(c, p, String.format(Locale.US, "%.1fm", lead.optDouble("d", 0)), carX, 238, 23, Color.WHITE, Paint.Align.CENTER);
-    }
     int gap = s.optInt("gap", 0);
     text(c, p, "GAP " + (gap > 0 ? gap : "--"), 34, HEIGHT - 22, 26, Color.LTGRAY, Paint.Align.LEFT);
   }
 
-  private void drawPath(Canvas c, Paint p, JSONArray points, boolean enabled) {
-    if (points == null || points.length() < 2) return;
-    Path left = new Path(), right = new Path();
-    float center = 384, bottom = 340;
-    for (int i = 0; i < points.length(); i++) {
-      JSONArray pt = points.optJSONArray(i); if (pt == null) continue;
-      float x = (float)pt.optDouble(0, 0), y = (float)pt.optDouble(1, 0);
-      float depth = Math.min(1f, x / 55f);
-      float py = bottom - depth * 145;
-      float px = center - y * (7f - depth * 4f);
-      float half = 38f - depth * 25f;
-      if (i == 0) { left.moveTo(px - half, py); right.moveTo(px + half, py); }
-      else { left.lineTo(px - half, py); right.lineTo(px + half, py); }
+  private void drawWorld(Canvas c, Paint p, JSONObject s, boolean enabled, int panelW) {
+    final float center = panelW * 0.5f, horizon = 188f, bottom = 456f;
+    p.setStyle(Paint.Style.FILL);
+    p.setShader(new LinearGradient(0, 8, 0, horizon, Color.rgb(7, 17, 29), Color.rgb(26, 39, 51), Shader.TileMode.CLAMP));
+    c.drawRect(8, 8, panelW - 8, horizon, p);
+    p.setShader(new LinearGradient(0, horizon, 0, bottom, Color.rgb(39, 45, 51), Color.rgb(10, 13, 17), Shader.TileMode.CLAMP));
+    Path road = new Path();
+    road.moveTo(center - 92, horizon); road.lineTo(center + 92, horizon);
+    road.lineTo(panelW - 26, bottom); road.lineTo(26, bottom); road.close();
+    c.drawPath(road, p); p.setShader(null);
+
+    drawModelLines(c, p, s.optJSONArray("edges"), center, horizon, bottom, Color.rgb(255, 78, 62), 4f);
+    drawModelLines(c, p, s.optJSONArray("lanes"), center, horizon, bottom, Color.WHITE, 5f);
+    drawPathSurface(c, p, s.optJSONArray("path"), enabled, center, horizon, bottom);
+
+    JSONObject lead2 = s.optJSONObject("lead2");
+    if (lead2 != null) drawLead(c, p, lead2, center, horizon, bottom, Color.rgb(255, 190, 64), false);
+    JSONObject lead = s.optJSONObject("lead");
+    if (lead != null) drawLead(c, p, lead, center, horizon, bottom, Color.rgb(255, 76, 66), true);
+
+    drawVehicle3d(c, p, center, 405, 88, 82, Color.rgb(175, 185, 197), true);
+    if (s.optBoolean("leftBsd", false)) drawBsd(c, p, center - 82, 405, true);
+    if (s.optBoolean("rightBsd", false)) drawBsd(c, p, center + 82, 405, false);
+    if (s.optBoolean("leftBlinker", false)) drawTurnArrow(c, p, 60, 250, true);
+    if (s.optBoolean("rightBlinker", false)) drawTurnArrow(c, p, panelW - 60, 250, false);
+  }
+
+  private float[] project(float longitudinal, float lateral, float center, float horizon, float bottom) {
+    float x = Math.max(0f, longitudinal);
+    float py = bottom - (bottom - horizon) * x / (x + 13f);
+    float lateralScale = 105f / (1f + x / 17f);
+    return new float[] {center - lateral * lateralScale, py};
+  }
+
+  private void drawModelLines(Canvas c, Paint p, JSONArray lines, float center, float horizon, float bottom, int color, float width) {
+    if (lines == null) return;
+    for (int lineIndex = 0; lineIndex < lines.length(); lineIndex++) {
+      JSONObject line = lines.optJSONObject(lineIndex); if (line == null) continue;
+      float confidence = (float)line.optDouble("c", 0);
+      if (confidence < 0.12f) continue;
+      JSONArray points = line.optJSONArray("p"); if (points == null || points.length() < 2) continue;
+      Path path = new Path(); boolean started = false;
+      for (int i = 0; i < points.length(); i++) {
+        JSONArray point = points.optJSONArray(i); if (point == null) continue;
+        float[] screen = project((float)point.optDouble(0), (float)point.optDouble(1), center, horizon, bottom);
+        if (!started) { path.moveTo(screen[0], screen[1]); started = true; } else path.lineTo(screen[0], screen[1]);
+      }
+      p.setShader(null); p.setStyle(Paint.Style.STROKE); p.setStrokeCap(Paint.Cap.ROUND);
+      p.setStrokeWidth(width); p.setColor((color & 0x00ffffff) | (((int)(70 + confidence * 185)) << 24));
+      c.drawPath(path, p);
     }
-    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(7); p.setStrokeCap(Paint.Cap.ROUND);
-    p.setColor(enabled ? Color.rgb(0, 150, 255) : Color.rgb(70, 80, 90));
-    c.drawPath(left, p); c.drawPath(right, p);
+  }
+
+  private void drawPathSurface(Canvas c, Paint p, JSONArray points, boolean enabled, float center, float horizon, float bottom) {
+    if (points == null || points.length() < 2) return;
+    int count = points.length(); float[][] left = new float[count][], right = new float[count][]; int valid = 0;
+    for (int i = 0; i < count; i++) {
+      JSONArray point = points.optJSONArray(i); if (point == null) continue;
+      float x = (float)point.optDouble(0), y = (float)point.optDouble(1);
+      left[valid] = project(x, y + 0.72f, center, horizon, bottom);
+      right[valid] = project(x, y - 0.72f, center, horizon, bottom); valid++;
+    }
+    if (valid < 2) return;
+    Path surface = new Path(); surface.moveTo(left[0][0], left[0][1]);
+    for (int i = 1; i < valid; i++) surface.lineTo(left[i][0], left[i][1]);
+    for (int i = valid - 1; i >= 0; i--) surface.lineTo(right[i][0], right[i][1]);
+    surface.close();
+    int near = enabled ? Color.argb(205, 0, 183, 255) : Color.argb(135, 90, 102, 112);
+    int far = enabled ? Color.argb(35, 0, 220, 150) : Color.argb(20, 70, 80, 90);
+    p.setStyle(Paint.Style.FILL); p.setShader(new LinearGradient(0, bottom, 0, horizon, near, far, Shader.TileMode.CLAMP));
+    c.drawPath(surface, p); p.setShader(null);
+    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(2); p.setColor(enabled ? Color.rgb(94, 225, 255) : Color.rgb(100, 110, 120));
+    c.drawPath(surface, p);
+  }
+
+  private void drawLead(Canvas c, Paint p, JSONObject lead, float center, float horizon, float bottom, int tint, boolean primary) {
+    float distance = (float)lead.optDouble("d", 0), lateral = (float)lead.optDouble("y", 0);
+    if (distance <= 0 || distance > 150) return;
+    float[] pos = project(distance, lateral, center, horizon, bottom);
+    float scale = Math.max(0.24f, 1f / (1f + distance / 18f));
+    float w = 76f * scale, h = 82f * scale;
+    drawVehicle3d(c, p, pos[0], pos[1] - h * 0.25f, w, h, tint, false);
+    if (primary) text(c, p, String.format(Locale.US, "%.0fm", distance), pos[0], pos[1] - h - 8, Math.max(17, 23 * scale), Color.WHITE, Paint.Align.CENTER);
+  }
+
+  private void drawVehicle3d(Canvas c, Paint p, float cx, float cy, float w, float h, int tint, boolean ego) {
+    float left = cx - w * 0.5f, right = cx + w * 0.5f, top = cy - h * 0.58f, bottom = cy + h * 0.42f;
+    Path body = new Path(); body.moveTo(cx - w * 0.34f, top); body.lineTo(cx + w * 0.34f, top);
+    body.lineTo(right, bottom - h * 0.12f); body.lineTo(cx + w * 0.42f, bottom);
+    body.lineTo(cx - w * 0.42f, bottom); body.lineTo(left, bottom - h * 0.12f); body.close();
+    p.setShader(new LinearGradient(left, top, right, bottom, lighten(tint, 45), darken(tint, 55), Shader.TileMode.CLAMP));
+    p.setStyle(Paint.Style.FILL); c.drawPath(body, p); p.setShader(null);
+    Path glass = new Path(); glass.moveTo(cx - w * 0.25f, top + h * 0.13f); glass.lineTo(cx + w * 0.25f, top + h * 0.13f);
+    glass.lineTo(cx + w * 0.34f, cy - h * 0.02f); glass.lineTo(cx - w * 0.34f, cy - h * 0.02f); glass.close();
+    p.setColor(Color.rgb(24, 43, 60)); c.drawPath(glass, p);
+    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(1.5f, w * 0.025f)); p.setColor(lighten(tint, 65)); c.drawPath(body, p);
+    p.setStyle(Paint.Style.FILL); p.setColor(ego ? Color.rgb(255, 72, 65) : Color.rgb(255, 220, 120));
+    c.drawOval(new RectF(left + w * 0.12f, bottom - h * 0.16f, left + w * 0.28f, bottom - h * 0.08f), p);
+    c.drawOval(new RectF(right - w * 0.28f, bottom - h * 0.16f, right - w * 0.12f, bottom - h * 0.08f), p);
+  }
+
+  private void drawBsd(Canvas c, Paint p, float x, float y, boolean left) {
+    p.setStyle(Paint.Style.FILL); p.setColor(Color.argb(70, 255, 30, 30)); c.drawCircle(x, y, 27, p);
+    p.setColor(Color.RED); c.drawCircle(x, y, 10, p);
+    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(3); c.drawCircle(x, y, 20, p);
+  }
+
+  private void drawTurnArrow(Canvas c, Paint p, float x, float y, boolean left) {
+    Path arrow = new Path(); float sign = left ? -1f : 1f;
+    arrow.moveTo(x + 28 * sign, y - 26); arrow.lineTo(x - 24 * sign, y); arrow.lineTo(x + 28 * sign, y + 26);
+    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(9); p.setStrokeCap(Paint.Cap.ROUND); p.setStrokeJoin(Paint.Join.ROUND);
+    p.setColor(Color.rgb(0, 235, 135)); c.drawPath(arrow, p);
+  }
+
+  private static int lighten(int color, int amount) {
+    return Color.rgb(Math.min(255, Color.red(color) + amount), Math.min(255, Color.green(color) + amount), Math.min(255, Color.blue(color) + amount));
+  }
+
+  private static int darken(int color, int amount) {
+    return Color.rgb(Math.max(0, Color.red(color) - amount), Math.max(0, Color.green(color) - amount), Math.max(0, Color.blue(color) - amount));
   }
 
   private void drawSystem(Canvas c, Paint p, JSONObject s) {

@@ -32,8 +32,12 @@ Connect the TURZX panel through a powered USB-C OTG adapter. Select **EON Remote
 HUD** in E-Mirror's auto-launch list. The app starts its foreground service and
 closes its activity immediately; it never requests screen-capture permission.
 It receives the original TMAP JPEG back from EON, draws the driving and system
-panels, encodes JPEG quality 55 at 8 FPS, and uploads it to the panel. JPEG
-writes are split into 16 KiB USB chunks for older Galaxy S9 Android builds.
+panels, encodes JPEG quality 55 at 8 FPS, and uploads it to the panel. Version
+0.2 renders the perspective road, model path surface, lane lines, road edges,
+two radar leads, a shaded 3D-style ego/lead vehicle, turn signals and BSD on the
+Galaxy S9. The EON only publishes compact scene coordinates and does no HUD
+rendering. JPEG writes are split into 16 KiB USB chunks for older Galaxy S9
+Android builds.
 
 USB access may require one approval after initial installation. Selecting the
 app as the default handler for `1cbe:0092` lets Android grant access and launch

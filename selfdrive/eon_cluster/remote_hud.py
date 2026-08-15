@@ -89,8 +89,7 @@ def _finite(value, default=0.0):
     return default
 
 
-def _points(model, limit=24):
-  position = _field(model, "position", None)
+def _line_points(position, limit=33):
   xs = list(_field(position, "x", []) or [])
   ys = list(_field(position, "y", []) or [])
   count = min(len(xs), len(ys), limit)
@@ -100,12 +99,28 @@ def _points(model, limit=24):
   return [[round(_finite(xs[i]), 2), round(_finite(ys[i]), 2)] for i in range(0, count, step)]
 
 
-def _lead(radar_state):
-  lead = _field(radar_state, "leadOne", None)
+def _model_lines(model, name, confidence_name, confidence_default, invert_confidence=False):
+  lines = list(_field(model, name, []) or [])
+  confidences = list(_field(model, confidence_name, []) or [])
+  result = []
+  for index, line in enumerate(lines[:4]):
+    points = _line_points(line)
+    if len(points) < 2:
+      continue
+    confidence = confidences[index] if index < len(confidences) else confidence_default
+    if invert_confidence:
+      confidence = 1.0 - _finite(confidence, 1.0)
+    result.append({"p": points, "c": round(max(0.0, min(1.0, _finite(confidence, confidence_default))), 2)})
+  return result
+
+
+def _lead(radar_state, name):
+  lead = _field(radar_state, name, None)
   if not bool(_field(lead, "status", False)):
     return None
   return {
     "d": round(max(0.0, _finite(_field(lead, "dRel", 0.0))), 1),
+    "y": round(_finite(_field(lead, "yRel", 0.0)), 2),
     "v": round(_finite(_field(lead, "vRel", 0.0)) * 3.6, 1),
   }
 
@@ -159,8 +174,13 @@ def _packet(sm):
     "accel": round(_finite(accels[0] if accels else 0.0), 2),
     "cpu": int(round(sum(cpu) / len(cpu))) if cpu else 0,
     "temp": round(max(temps), 1) if temps else 0,
-    "path": _points(sm["modelV2"]),
-    "lead": _lead(sm["radarState"]),
+    "leftBlinker": bool(_field(car, "leftBlinker", False)),
+    "rightBlinker": bool(_field(car, "rightBlinker", False)),
+    "path": _line_points(_field(sm["modelV2"], "position", None)),
+    "lanes": _model_lines(sm["modelV2"], "laneLines", "laneLineProbs", 0.0),
+    "edges": _model_lines(sm["modelV2"], "roadEdges", "roadEdgeStds", 1.0, True),
+    "lead": _lead(sm["radarState"], "leadOne"),
+    "lead2": _lead(sm["radarState"], "leadTwo"),
   }
 
 
