@@ -36,8 +36,11 @@ panels, encodes JPEG quality 55 at 8 FPS, and uploads it to the panel. Version
 0.2 renders the perspective road, model path surface, lane lines, road edges,
 two radar leads, a shaded 3D-style ego/lead vehicle, turn signals and BSD on the
 Galaxy S9. The EON only publishes compact scene coordinates and does no HUD
-rendering. JPEG writes are split into 16 KiB USB chunks for older Galaxy S9
-Android builds.
+rendering. Version 0.3 keeps the existing road-surface colors while bending the
+road to the model edges, draws perspective-scaled dashed lane markings, rotates
+PNG vehicle sprites with the path, and replaces the old BSD dot/triangle with a
+rear-quarter vehicle sprite. JPEG writes are split into 16 KiB USB chunks for
+older Galaxy S9 Android builds.
 
 USB access may require one approval after initial installation. Selecting the
 app as the default handler for `1cbe:0092` lets Android grant access and launch

@@ -46,9 +46,13 @@ public final class HudService extends Service {
   private Thread receiverThread;
   private Thread mapThread;
   private Thread renderThread;
+  private Bitmap egoCar;
+  private Bitmap otherCar;
 
   @Override public void onCreate() {
     super.onCreate();
+    egoCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_ego_car);
+    otherCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_other_car);
     NotificationManager nm = (NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE);
     if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(new NotificationChannel(CHANNEL, "EON Remote HUD", NotificationManager.IMPORTANCE_LOW));
     Notification notification = new Notification.Builder(this, CHANNEL).setContentTitle("EON Remote HUD")
@@ -183,23 +187,24 @@ public final class HudService extends Service {
     p.setShader(new LinearGradient(0, 8, 0, horizon, Color.rgb(7, 17, 29), Color.rgb(26, 39, 51), Shader.TileMode.CLAMP));
     c.drawRect(8, 8, panelW - 8, horizon, p);
     p.setShader(new LinearGradient(0, horizon, 0, bottom, Color.rgb(39, 45, 51), Color.rgb(10, 13, 17), Shader.TileMode.CLAMP));
-    Path road = new Path();
-    road.moveTo(center - 92, horizon); road.lineTo(center + 92, horizon);
-    road.lineTo(panelW - 26, bottom); road.lineTo(26, bottom); road.close();
+    Path road = roadSurface(s.optJSONArray("edges"), center, horizon, bottom, panelW);
     c.drawPath(road, p); p.setShader(null);
 
-    drawModelLines(c, p, s.optJSONArray("edges"), center, horizon, bottom, Color.rgb(255, 78, 62), 4f);
-    drawModelLines(c, p, s.optJSONArray("lanes"), center, horizon, bottom, Color.WHITE, 5f);
+    drawModelLines(c, p, s.optJSONArray("edges"), center, horizon, bottom, Color.rgb(255, 78, 62), false);
+    drawModelLines(c, p, s.optJSONArray("lanes"), center, horizon, bottom, Color.WHITE, true);
     drawPathSurface(c, p, s.optJSONArray("path"), enabled, center, horizon, bottom);
 
+    JSONArray modelPath = s.optJSONArray("path");
     JSONObject lead2 = s.optJSONObject("lead2");
-    if (lead2 != null) drawLead(c, p, lead2, center, horizon, bottom, Color.rgb(255, 190, 64), false);
+    if (lead2 != null) drawLead(c, p, lead2, modelPath, center, horizon, bottom, false);
     JSONObject lead = s.optJSONObject("lead");
-    if (lead != null) drawLead(c, p, lead, center, horizon, bottom, Color.rgb(255, 76, 66), true);
+    if (lead != null) drawLead(c, p, lead, modelPath, center, horizon, bottom, true);
 
-    drawVehicle3d(c, p, center, 405, 88, 82, Color.rgb(175, 185, 197), true);
-    if (s.optBoolean("leftBsd", false)) drawBsd(c, p, center - 82, 405, true);
-    if (s.optBoolean("rightBsd", false)) drawBsd(c, p, center + 82, 405, false);
+    drawVehicleSprite(c, p, egoCar, center, 407, 108, pathYaw(modelPath, 5f, center, horizon, bottom), 255);
+    // The former dot/triangle BSD markers are intentionally gone.  A detected
+    // rear-quarter vehicle is represented by the vehicle sprite itself.
+    if (s.optBoolean("leftBsd", false)) drawBsdVehicle(c, p, center - 102, 414, true);
+    if (s.optBoolean("rightBsd", false)) drawBsdVehicle(c, p, center + 102, 414, false);
     if (s.optBoolean("leftBlinker", false)) drawTurnArrow(c, p, 60, 250, true);
     if (s.optBoolean("rightBlinker", false)) drawTurnArrow(c, p, panelW - 60, 250, false);
   }
@@ -211,22 +216,65 @@ public final class HudService extends Service {
     return new float[] {center - lateral * lateralScale, py};
   }
 
-  private void drawModelLines(Canvas c, Paint p, JSONArray lines, float center, float horizon, float bottom, int color, float width) {
+  private Path roadSurface(JSONArray edges, float center, float horizon, float bottom, int panelW) {
+    if (edges != null && edges.length() >= 2) {
+      JSONObject first = edges.optJSONObject(0), second = edges.optJSONObject(1);
+      JSONArray a = first == null ? null : first.optJSONArray("p");
+      JSONArray b = second == null ? null : second.optJSONArray("p");
+      if (a != null && b != null && a.length() >= 2 && b.length() >= 2) {
+        Path path = new Path(); boolean started = false;
+        for (int i = 0; i < a.length(); i++) {
+          JSONArray point = a.optJSONArray(i); if (point == null) continue;
+          float[] screen = project((float)point.optDouble(0), (float)point.optDouble(1), center, horizon, bottom);
+          if (!started) { path.moveTo(screen[0], screen[1]); started = true; } else path.lineTo(screen[0], screen[1]);
+        }
+        for (int i = b.length() - 1; i >= 0; i--) {
+          JSONArray point = b.optJSONArray(i); if (point == null) continue;
+          float[] screen = project((float)point.optDouble(0), (float)point.optDouble(1), center, horizon, bottom);
+          path.lineTo(screen[0], screen[1]);
+        }
+        path.close();
+        return path;
+      }
+    }
+    Path fallback = new Path();
+    fallback.moveTo(center - 92, horizon); fallback.lineTo(center + 92, horizon);
+    fallback.lineTo(panelW - 26, bottom); fallback.lineTo(26, bottom); fallback.close();
+    return fallback;
+  }
+
+  private void drawModelLines(Canvas c, Paint p, JSONArray lines, float center, float horizon, float bottom, int color, boolean dashed) {
     if (lines == null) return;
     for (int lineIndex = 0; lineIndex < lines.length(); lineIndex++) {
       JSONObject line = lines.optJSONObject(lineIndex); if (line == null) continue;
       float confidence = (float)line.optDouble("c", 0);
       if (confidence < 0.12f) continue;
       JSONArray points = line.optJSONArray("p"); if (points == null || points.length() < 2) continue;
-      Path path = new Path(); boolean started = false;
-      for (int i = 0; i < points.length(); i++) {
-        JSONArray point = points.optJSONArray(i); if (point == null) continue;
-        float[] screen = project((float)point.optDouble(0), (float)point.optDouble(1), center, horizon, bottom);
-        if (!started) { path.moveTo(screen[0], screen[1]); started = true; } else path.lineTo(screen[0], screen[1]);
+      drawPerspectiveLine(c, p, points, confidence, center, horizon, bottom, color, dashed);
+    }
+  }
+
+  private void drawPerspectiveLine(Canvas c, Paint p, JSONArray points, float confidence, float center, float horizon,
+                                   float bottom, int color, boolean dashed) {
+    int alpha = (int)(70 + confidence * 185);
+    p.setShader(null); p.setStyle(Paint.Style.STROKE); p.setStrokeCap(Paint.Cap.ROUND);
+    p.setColor((color & 0x00ffffff) | (alpha << 24));
+    for (int i = 0; i + 1 < points.length(); i++) {
+      JSONArray from = points.optJSONArray(i), to = points.optJSONArray(i + 1);
+      if (from == null || to == null) continue;
+      float x0 = (float)from.optDouble(0), y0 = (float)from.optDouble(1);
+      float x1 = (float)to.optDouble(0), y1 = (float)to.optDouble(1);
+      int steps = Math.max(1, (int)Math.ceil(Math.abs(x1 - x0)));
+      for (int step = 0; step < steps; step++) {
+        float t0 = step / (float)steps, t1 = (step + 1) / (float)steps;
+        float xa = x0 + (x1 - x0) * t0, xb = x0 + (x1 - x0) * t1;
+        if (dashed && (((int)Math.floor((xa + xb) * 0.5f / 4.5f)) & 1) != 0) continue;
+        float ya = y0 + (y1 - y0) * t0, yb = y0 + (y1 - y0) * t1;
+        float[] a = project(xa, ya, center, horizon, bottom), b = project(xb, yb, center, horizon, bottom);
+        float depth = Math.max(0, (xa + xb) * 0.5f);
+        p.setStrokeWidth((dashed ? 1.6f : 1.2f) + (dashed ? 5.2f : 3.6f) / (1f + depth / 16f));
+        c.drawLine(a[0], a[1], b[0], b[1], p);
       }
-      p.setShader(null); p.setStyle(Paint.Style.STROKE); p.setStrokeCap(Paint.Cap.ROUND);
-      p.setStrokeWidth(width); p.setColor((color & 0x00ffffff) | (((int)(70 + confidence * 185)) << 24));
-      c.drawPath(path, p);
     }
   }
 
@@ -252,36 +300,47 @@ public final class HudService extends Service {
     c.drawPath(surface, p);
   }
 
-  private void drawLead(Canvas c, Paint p, JSONObject lead, float center, float horizon, float bottom, int tint, boolean primary) {
+  private void drawLead(Canvas c, Paint p, JSONObject lead, JSONArray modelPath, float center, float horizon, float bottom, boolean primary) {
     float distance = (float)lead.optDouble("d", 0), lateral = (float)lead.optDouble("y", 0);
     if (distance <= 0 || distance > 150) return;
     float[] pos = project(distance, lateral, center, horizon, bottom);
-    float scale = Math.max(0.24f, 1f / (1f + distance / 18f));
-    float w = 76f * scale, h = 82f * scale;
-    drawVehicle3d(c, p, pos[0], pos[1] - h * 0.25f, w, h, tint, false);
-    if (primary) text(c, p, String.format(Locale.US, "%.0fm", distance), pos[0], pos[1] - h - 8, Math.max(17, 23 * scale), Color.WHITE, Paint.Align.CENTER);
+    float scale = Math.max(0.22f, 1f / (1f + distance / 24f));
+    float width = Math.max(22f, 94f * scale);
+    drawVehicleSprite(c, p, otherCar, pos[0], pos[1] - width * 0.18f, width,
+        pathYaw(modelPath, distance, center, horizon, bottom), primary ? 255 : 215);
+    if (primary) text(c, p, String.format(Locale.US, "%.0fm", distance), pos[0], pos[1] - width * 0.92f,
+        Math.max(17, 23 * scale), Color.WHITE, Paint.Align.CENTER);
   }
 
-  private void drawVehicle3d(Canvas c, Paint p, float cx, float cy, float w, float h, int tint, boolean ego) {
-    float left = cx - w * 0.5f, right = cx + w * 0.5f, top = cy - h * 0.58f, bottom = cy + h * 0.42f;
-    Path body = new Path(); body.moveTo(cx - w * 0.34f, top); body.lineTo(cx + w * 0.34f, top);
-    body.lineTo(right, bottom - h * 0.12f); body.lineTo(cx + w * 0.42f, bottom);
-    body.lineTo(cx - w * 0.42f, bottom); body.lineTo(left, bottom - h * 0.12f); body.close();
-    p.setShader(new LinearGradient(left, top, right, bottom, lighten(tint, 45), darken(tint, 55), Shader.TileMode.CLAMP));
-    p.setStyle(Paint.Style.FILL); c.drawPath(body, p); p.setShader(null);
-    Path glass = new Path(); glass.moveTo(cx - w * 0.25f, top + h * 0.13f); glass.lineTo(cx + w * 0.25f, top + h * 0.13f);
-    glass.lineTo(cx + w * 0.34f, cy - h * 0.02f); glass.lineTo(cx - w * 0.34f, cy - h * 0.02f); glass.close();
-    p.setColor(Color.rgb(24, 43, 60)); c.drawPath(glass, p);
-    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(1.5f, w * 0.025f)); p.setColor(lighten(tint, 65)); c.drawPath(body, p);
-    p.setStyle(Paint.Style.FILL); p.setColor(ego ? Color.rgb(255, 72, 65) : Color.rgb(255, 220, 120));
-    c.drawOval(new RectF(left + w * 0.12f, bottom - h * 0.16f, left + w * 0.28f, bottom - h * 0.08f), p);
-    c.drawOval(new RectF(right - w * 0.28f, bottom - h * 0.16f, right - w * 0.12f, bottom - h * 0.08f), p);
+  private void drawVehicleSprite(Canvas c, Paint p, Bitmap car, float cx, float cy, float width, float angle, int alpha) {
+    if (car == null || car.isRecycled()) return;
+    float height = width * car.getHeight() / (float)car.getWidth();
+    int save = c.save(); c.translate(cx, cy); c.rotate(angle);
+    p.setShader(null); p.setStyle(Paint.Style.FILL); p.setAlpha(alpha); p.setFilterBitmap(true);
+    c.drawBitmap(car, null, new RectF(-width * 0.5f, -height * 0.5f, width * 0.5f, height * 0.5f), p);
+    p.setAlpha(255); c.restoreToCount(save);
   }
 
-  private void drawBsd(Canvas c, Paint p, float x, float y, boolean left) {
-    p.setStyle(Paint.Style.FILL); p.setColor(Color.argb(70, 255, 30, 30)); c.drawCircle(x, y, 27, p);
-    p.setColor(Color.RED); c.drawCircle(x, y, 10, p);
-    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(3); c.drawCircle(x, y, 20, p);
+  private void drawBsdVehicle(Canvas c, Paint p, float x, float y, boolean left) {
+    drawVehicleSprite(c, p, otherCar, x, y, 58, left ? -16f : 16f, 245);
+  }
+
+  private float pathYaw(JSONArray points, float distance, float center, float horizon, float bottom) {
+    if (points == null || points.length() < 2) return 0f;
+    JSONArray before = null, after = null;
+    for (int i = 0; i < points.length(); i++) {
+      JSONArray point = points.optJSONArray(i); if (point == null) continue;
+      float x = (float)point.optDouble(0);
+      if (x <= distance) before = point;
+      if (x >= distance) { after = point; break; }
+    }
+    if (before == null) before = points.optJSONArray(0);
+    if (after == null) after = points.optJSONArray(points.length() - 1);
+    if (before == null || after == null || before == after) return 0f;
+    float[] a = project((float)before.optDouble(0), (float)before.optDouble(1), center, horizon, bottom);
+    float[] b = project((float)after.optDouble(0), (float)after.optDouble(1), center, horizon, bottom);
+    float angle = (float)Math.toDegrees(Math.atan2(b[0] - a[0], a[1] - b[1]));
+    return Math.max(-22f, Math.min(22f, angle));
   }
 
   private void drawTurnArrow(Canvas c, Paint p, float x, float y, boolean left) {
@@ -289,14 +348,6 @@ public final class HudService extends Service {
     arrow.moveTo(x + 28 * sign, y - 26); arrow.lineTo(x - 24 * sign, y); arrow.lineTo(x + 28 * sign, y + 26);
     p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(9); p.setStrokeCap(Paint.Cap.ROUND); p.setStrokeJoin(Paint.Join.ROUND);
     p.setColor(Color.rgb(0, 235, 135)); c.drawPath(arrow, p);
-  }
-
-  private static int lighten(int color, int amount) {
-    return Color.rgb(Math.min(255, Color.red(color) + amount), Math.min(255, Color.green(color) + amount), Math.min(255, Color.blue(color) + amount));
-  }
-
-  private static int darken(int color, int amount) {
-    return Color.rgb(Math.max(0, Color.red(color) - amount), Math.max(0, Color.green(color) - amount), Math.max(0, Color.blue(color) - amount));
   }
 
   private void drawSystem(Canvas c, Paint p, JSONObject s) {
@@ -343,6 +394,8 @@ public final class HudService extends Service {
   @Override public void onDestroy() {
     running.set(false);
     if (display != null) display.close();
+    if (egoCar != null) { egoCar.recycle(); egoCar = null; }
+    if (otherCar != null) { otherCar.recycle(); otherCar = null; }
     synchronized (mapFrame) {
       Bitmap map = mapFrame.getAndSet(null); if (map != null) map.recycle();
     }

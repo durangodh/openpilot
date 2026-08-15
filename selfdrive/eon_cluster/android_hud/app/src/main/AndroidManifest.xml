@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ai.comma.remotehud"
-    android:versionCode="2"
-    android:versionName="0.2-3d">
+    android:versionCode="3"
+    android:versionName="0.3-3d-lanes">
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
