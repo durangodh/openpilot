@@ -421,6 +421,9 @@ void ParamValueControlF::refresh() {
   } else if (param_ == "InitMyDrivingMode") {
     static const QStringList modes = {"SAFE", "ECO", "NORMAL", "FAST", "AUTO"};
     value_label->setText(modes[v - 1]);
+  } else if (param_ == "EonClusterHudOutputMode") {
+    static const QStringList modes = {"EON 직접", "S9 원격"};
+    value_label->setText(modes[v]);
   } else if (vmin_ == 0 && vmax_ == 1) {
     value_label->setText(v > 0 ? "ON" : "OFF");
   } else {
@@ -1189,19 +1192,23 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   // ── 외부 EON 클러스터 HUD ─────────────────────────────────
   toggleLayout->addWidget(new ParamControl(
       "EonClusterHud", "외부 클러스터 HUD 사용",
-      "EON에 연결된 TURZX USB 클러스터 화면을 사용합니다.",
+      "TURZX USB 클러스터 화면 출력을 켜거나 끕니다.",
       "../assets/offroad/icon_road.png", this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudFps", "클러스터 HUD 프레임", "0: 정지(화면 꺼짐) / 1~15 fps, 기본값 10",
+      "EonClusterHudOutputMode", "클러스터 HUD 출력 장치",
+      "EON 직접: EON이 렌더링·JPEG·USB 전송 / S9 원격: EON은 주행 데이터만 보내고 S9이 처리",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudFps", "EON 직접 HUD 프레임", "EON 직접 모드: 0 정지 / 1~15 fps, 기본값 10",
       "../assets/offroad/icon_road.png", 0, 15, 1, 0, 10, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudMapFps", "클러스터 HUD 지도 프레임", "티맵 지도 갱신 속도: 2~5 fps, 기본값 5",
       "../assets/offroad/icon_road.png", 2, 5, 1, 0, 5, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudBrightness", "클러스터 HUD 밝기", "0: 본체 화면 밝기 연동(자동) / 1~100: 고정 밝기",
+      "EonClusterHudBrightness", "EON 직접 HUD 밝기", "EON 직접 모드: 0 자동 / 1~100 고정 밝기",
       "../assets/offroad/icon_road.png", 0, 100, 5, 0, 65, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudJpegQuality", "클러스터 HUD 화질", "JPEG 품질",
+      "EonClusterHudJpegQuality", "EON 직접 HUD 화질", "EON 직접 모드의 JPEG 품질",
       "../assets/offroad/icon_road.png", 1, 95, 1, 0, 58, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudScreenMode", "클러스터 HUD 우측 화면", "1: 자동(길안내/주행리포트) / 2: 실시간 디버그 / 3: 주행리포트 고정",

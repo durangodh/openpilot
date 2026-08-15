@@ -30,11 +30,14 @@ def test_image_loading_is_gated_separately_from_json_state():
 def test_external_hud_params_are_exposed_in_settings():
   settings = (UI_DIR / "offroad" / "settings.cc").read_text(encoding="utf-8")
   assert '"EonClusterHud", "외부 클러스터 HUD 사용"' in settings
-  assert '"EonClusterHudFps", "클러스터 HUD 프레임"' in settings
+  assert '"EonClusterHudOutputMode", "클러스터 HUD 출력 장치"' in settings
+  assert 'static const QStringList modes = {"EON 직접", "S9 원격"}' in settings
+  assert '"../assets/offroad/icon_road.png", 0, 1, 1, 0, 1' in settings
+  assert '"EonClusterHudFps", "EON 직접 HUD 프레임"' in settings
   assert '"../assets/offroad/icon_road.png", 0, 15, 1, 0, 10' in settings
-  assert '"EonClusterHudBrightness", "클러스터 HUD 밝기"' in settings
+  assert '"EonClusterHudBrightness", "EON 직접 HUD 밝기"' in settings
   assert '"../assets/offroad/icon_road.png", 0, 100, 5, 0, 65' in settings
-  assert '"EonClusterHudJpegQuality", "클러스터 HUD 화질"' in settings
+  assert '"EonClusterHudJpegQuality", "EON 직접 HUD 화질"' in settings
   assert '"../assets/offroad/icon_road.png", 1, 95, 1, 0, 58' in settings
   assert 'EonClusterHudPanelLayout' not in settings
   assert '"EonClusterHudScreenMode", "클러스터 HUD 우측 화면"' in settings
@@ -57,3 +60,21 @@ def test_hud_frame_rate_setting_starts_at_zero():
   assert cluster.index("if active_fps <= 0:") < cluster.index("interval = 1.0 / active_fps")
   # The panel itself never receives a zero refresh rate.
   assert "display.set_frame_rate(max(1, next_fps))" in cluster
+
+
+def test_eon_and_s9_hud_outputs_are_mutually_selected():
+  root = Path(__file__).parents[3]
+  cluster = (root / "selfdrive" / "eon_cluster" / "eon_cluster.py").read_text(encoding="utf-8")
+  remote = (root / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(encoding="utf-8")
+  processes = (root / "selfdrive" / "manager" / "process_config.py").read_text(encoding="utf-8")
+  manager = (root / "selfdrive" / "manager" / "manager.py").read_text(encoding="utf-8")
+  params = (root / "selfdrive" / "common" / "params.cc").read_text(encoding="utf-8")
+
+  assert '_param_int(params, PARAM_OUTPUT_MODE, 1, 0, 1) == 0' in cluster
+  assert "if not _direct_output_enabled(params):" in cluster
+  assert "if not _remote_output_enabled(params):" in remote
+  assert "return int(raw) != 0 if raw is not None else True" in remote
+  assert 'PythonProcess("eon_cluster", "selfdrive.eon_cluster.eon_cluster", enabled=EON' in processes
+  assert 'PythonProcess("remote_hud", "selfdrive.eon_cluster.remote_hud", enabled=EON' in processes
+  assert '("EonClusterHudOutputMode", "1")' in manager
+  assert '{"EonClusterHudOutputMode", PERSISTENT}' in params

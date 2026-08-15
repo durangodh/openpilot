@@ -14,6 +14,7 @@ from selfdrive.eon_cluster.renderer import HudRenderer, read_navi_state
 from selfdrive.eon_cluster.scene import extract_hud_scene
 from selfdrive.eon_cluster.trip import TripTracker
 PARAM_ENABLED = "EonClusterHud"
+PARAM_OUTPUT_MODE = "EonClusterHudOutputMode"
 PARAM_CONNECTED = "EonClusterHudConnected"
 PARAM_BRIGHTNESS = "EonClusterHudBrightness"
 PARAM_FPS = "EonClusterHudFps"
@@ -78,6 +79,10 @@ def _param_bool(params, key, default=False):
     return raw not in (b"0", "0", b"", "", False)
   except Exception:
     return bool(default)
+
+
+def _direct_output_enabled(params):
+  return params.get_bool(PARAM_ENABLED) and _param_int(params, PARAM_OUTPUT_MODE, 1, 0, 1) == 0
 
 
 def _scene_settings(params):
@@ -196,7 +201,7 @@ def main():
 
   try:
     while running[0]:
-      if not params.get_bool(PARAM_ENABLED):
+      if not _direct_output_enabled(params):
         if display is not None:
           display.close()
           display = None

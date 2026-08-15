@@ -14,14 +14,15 @@ The manager starts `remote_hud` persistently, but it sleeps unless enabled:
 python - <<'PY'
 from common.params import Params
 p = Params()
-p.put_bool("EonClusterHud", False)
-p.put_bool("EonClusterHudRemote", True)
+p.put_bool("EonClusterHud", True)
+p.put("EonClusterHudOutputMode", "1")  # 0=EON direct, 1=S9 remote
 PY
 ```
 
 Keep both devices on the same hotspot/Wi-Fi network. UDP port 7210 and TCP port
-7211 must be reachable. To return instantly to the existing direct EON HUD, set
-`EonClusterHudRemote` false and `EonClusterHud` true.
+7211 must be reachable. To return instantly to the direct EON HUD, keep
+`EonClusterHud` true and set `EonClusterHudOutputMode` to `0`. The same choices
+are exposed as **EON 직접** and **S9 원격** in the EON settings UI.
 
 ## Rooted Galaxy S9 TMAP sender
 
@@ -54,6 +55,4 @@ USB access may require one approval after initial installation. Selecting the
 app as the default handler for `1cbe:0092` lets Android grant access and launch
 it automatically on later USB attachments/reboots.
 
-The first version intentionally keeps the original EON USB HUD unchanged and
-does not enable remote mode automatically. Vehicle control and CAN messages
-are never accepted from the phone.
+Vehicle control and CAN messages are never accepted from the phone.
