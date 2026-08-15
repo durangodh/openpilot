@@ -204,6 +204,11 @@ struct CarState {
   gearShifter @14 :GearShifter;
   gearStep @47 :Int32;      # 현재 변속단수 (1~8), 0 = 알수없음/P/N
 
+  # exterior lighting status
+  lowBeam @48 :Bool;
+  highBeam @49 :Bool;
+  frontFogLight @50 :Bool;
+
   # button presses
   buttonEvents @11 :List(ButtonEvent);
   leftBlinker @20 :Bool;

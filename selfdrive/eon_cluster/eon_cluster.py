@@ -388,6 +388,11 @@ def main():
         scene["steering_angle_deg"] = float(_field(car_state, "steeringAngleDeg", 0.0) or 0.0)
         scene["blinkers"] = {"left": bool(_field(car_state, "leftBlinker", False)),
                              "right": bool(_field(car_state, "rightBlinker", False))}
+        scene["lights"] = {
+          "low_beam": bool(_field(car_state, "lowBeam", False)),
+          "high_beam": bool(_field(car_state, "highBeam", False)),
+          "front_fog": bool(_field(car_state, "frontFogLight", False)),
+        }
         scene["trip_report"] = trip.snapshot()
         alert_text1 = str(_field(controls_state, "alertText1", "") or "")
         alert_text2 = str(_field(controls_state, "alertText2", "") or "")

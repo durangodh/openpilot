@@ -1288,6 +1288,68 @@ class HudRenderer(object):
     _draw_text(draw, (icon_x, bottom - 9), remain_text,
                max(16, self.height // 27), True, fill=(211, 218, 222), anchor="ms")
 
+  def _draw_light_telltales(self, draw, left, top, panel_w, lights):
+    """Draw active OEM-style light indicators above the PRND row."""
+    active = []
+    if bool((lights or {}).get("low_beam", False)):
+      active.append(("low", (34, 176, 76)))
+    if bool((lights or {}).get("high_beam", False)):
+      active.append(("high", (28, 112, 226)))
+    if bool((lights or {}).get("front_fog", False)):
+      active.append(("fog", (34, 176, 76)))
+    if not active:
+      return
+
+    icon_h = max(20, min(38, self.height // 14))
+    stroke = max(2, icon_h // 9)
+    beam_w = icon_h
+    housing_w = max(13, int(round(icon_h * 0.72)))
+    icon_w = beam_w + housing_w + 2
+    gap = max(7, icon_h // 4)
+    group_w = len(active) * icon_w + (len(active) - 1) * gap
+    group_center_x = left + max(95, int(panel_w * 0.11))
+    x = int(round(group_center_x - group_w / 2.0))
+    center_y = top + max(icon_h // 2 + 5, int(self.height * 0.060))
+
+    for kind, color in active:
+      housing_x = x + beam_w + 1
+      half_h = icon_h // 2
+      # Headlamp housing: flat left edge plus the rounded outer lens.
+      draw.line((housing_x, center_y - half_h, housing_x, center_y + half_h),
+                fill=color, width=stroke)
+      draw.arc((housing_x - housing_w // 3, center_y - half_h,
+                housing_x + housing_w, center_y + half_h),
+               start=270, end=90, fill=color, width=stroke)
+
+      ray_right = housing_x - max(2, stroke)
+      ray_left = x
+      offsets = (-icon_h // 3, 0, icon_h // 3)
+      if kind == "high":
+        for offset in offsets:
+          draw.line((ray_left, center_y + offset, ray_right, center_y + offset),
+                    fill=color, width=stroke)
+      else:
+        fall = max(5, icon_h // 5)
+        for offset in offsets:
+          draw.line((ray_left, center_y + offset + fall,
+                     ray_right, center_y + offset),
+                    fill=color, width=stroke)
+
+      if kind == "fog":
+        wave_x = x + int(round(beam_w * 0.58))
+        wave_amp = max(2, icon_h // 10)
+        wave_top = center_y - half_h
+        wave_bottom = center_y + half_h
+        points = []
+        segments = 8
+        for index in range(segments + 1):
+          py = wave_top + int(round((wave_bottom - wave_top) * index / float(segments)))
+          px = wave_x + (wave_amp if index % 4 in (1, 2) else -wave_amp)
+          points.append((px, py))
+        draw.line(points, fill=color, width=stroke)
+
+      x += icon_w + gap
+
   def _draw_requested_status_header(self, image, draw, box, speed_kph, cruise_kph, enabled, scene, navi=None):
     left, top, right, _ = box
     panel_w = right - left
@@ -1300,6 +1362,7 @@ class HudRenderer(object):
     speed_y = top + max(39, int(self.height * 0.095))
     _draw_text(draw, (center_x, speed_y), str(max(0, int(round(display_speed)))),
                max(64, int(self.height * 0.18)), True, fill=(18, 18, 18), anchor="mm")
+    self._draw_light_telltales(draw, left, top, panel_w, scene.get("lights") or {})
 
     info_y = top + max(92, int(self.height * 0.215))
     gear = str(scene.get("gear", "--") or "--").upper()

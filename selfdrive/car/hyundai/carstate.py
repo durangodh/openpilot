@@ -119,6 +119,9 @@ class CarState(CarStateBase):
     ret.yawRate = cp.vl["ESP12"]["YAW_RATE"]
     ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_lamp(50, cp.vl["CGW1"]["CF_Gway_TurnSigLh"],
                                                             cp.vl["CGW1"]["CF_Gway_TurnSigRh"])
+    ret.lowBeam = bool(cp.vl["CGW1"]["CF_Gway_HeadLampLow"])
+    ret.highBeam = bool(cp.vl["CGW1"]["CF_Gway_HeadLampHigh"])
+    ret.frontFogLight = bool(cp.vl["CGW1"]["CF_Gway_Frt_Fog_Act"])
     ret.steeringTorque = cp_mdps.vl["MDPS12"]["CR_Mdps_StrColTq"]
     ret.steeringTorqueEps = cp_mdps.vl["MDPS12"]["CR_Mdps_OutTq"] / 10.  # scale to Nm
     ret.steeringPressed = abs(ret.steeringTorque) > self.params.STEER_THRESHOLD
@@ -298,6 +301,9 @@ class CarState(CarStateBase):
       ("CF_Gway_RRDrSw", "CGW2"),        # Rear right door
       ("CF_Gway_TurnSigLh", "CGW1"),
       ("CF_Gway_TurnSigRh", "CGW1"),
+      ("CF_Gway_HeadLampLow", "CGW1"),
+      ("CF_Gway_HeadLampHigh", "CGW1"),
+      ("CF_Gway_Frt_Fog_Act", "CGW1"),
       ("CF_Gway_ParkBrakeSw", "CGW1"),   # Parking Brake
 
       ("CYL_PRES", "ESP12"),
