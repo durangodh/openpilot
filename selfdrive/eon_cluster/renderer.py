@@ -503,7 +503,7 @@ class HudRenderer(object):
     self._geometry_history = {"lanes": {}, "edges": {}, "path": {}}
     self._lane_hold_frames = {}
     # Antialiased vehicle images are built once, then reused in 4 px size
-    # buckets so liveTracks do not redraw complex car geometry every frame.
+    # buckets so validated leads do not redraw complex car geometry every frame.
     self._vehicle_base_sprites = {}
     self._vehicle_sprite_cache = OrderedDict()
     self._atc_icon_cache = {}
@@ -952,21 +952,7 @@ class HudRenderer(object):
     y = int(round(cy - sprite.height))
     image.paste(sprite, (x, y), sprite)
 
-  def _draw_world_block(self, draw, cx, cy, width, height, color):
-    """Low 3D cuboid used for stationary liveTracks, as in carrot-wip."""
-    width, height = max(8, int(width)), max(6, int(height))
-    lift = max(3, height // 3)
-    skew = max(2, width // 7)
-    left, right = cx - width // 2, cx + width // 2
-    top, bottom = cy - height, cy
-    front = ((left, top + lift), (right, top + lift), (right, bottom), (left, bottom))
-    side = ((right, top + lift), (right + skew, top), (right + skew, bottom - lift), (right, bottom))
-    cap = ((left, top + lift), (left + skew, top), (right + skew, top), (right, top + lift))
-    draw.polygon(front, fill=tuple(max(8, int(channel * 0.56)) for channel in color))
-    draw.polygon(side, fill=tuple(max(6, int(channel * 0.38)) for channel in color))
-    draw.polygon(cap, fill=color)
-
-  def _draw_lead(self, image, draw, panel, lead, primary, radar_info=2, is_metric=True):
+  def _draw_lead(self, image, draw, panel, lead, primary):
     distance = float(lead.get("distance", 0.0) or 0.0)
     lateral = float(lead.get("lateral", 0.0) or 0.0)
     if distance <= 0.0 or distance > self.MAX_DISTANCE_M:
@@ -982,7 +968,7 @@ class HudRenderer(object):
     # Keep a near lead's bottom above the ego's roof. Radar/model distance is
     # untouched; this clamp affects only the external-HUD drawing position.
     cy = min(cy, ego_bottom - ego_h - min_visual_gap)
-    # The primary lead is intentionally half the ego size. Secondary tracks
+    # The primary lead is intentionally half the ego size. The secondary lead
     # remain slightly smaller so the visual hierarchy stays unambiguous.
     ratio = 0.50 if primary else 0.42
     car_w = max(24, int(round(ego_w * ratio)))
@@ -990,33 +976,6 @@ class HudRenderer(object):
     self._draw_vehicle_shape(image, cx, cy, car_w, car_h,
                              "lead" if primary else "traffic",
                              float(lead.get("relative_speed", 0.0) or 0.0) < -0.5)
-
-  def _draw_radar_point(self, image, draw, panel, point, radar_info=2, is_metric=True):
-    distance = float(point.get("distance", 0.0) or 0.0)
-    if distance <= 0.0 or distance > self.MAX_DISTANCE_M:
-      return
-    cx, cy = self._project(panel, distance, float(point.get("lateral", 0.0) or 0.0))
-    stationary = bool(point.get("stationary", False))
-    color = (54, 207, 121) if stationary else (75, 177, 244)
-    scale = math.pow(max(0.08, 1.0 - distance / self.MAX_DISTANCE_M), 1.08)
-    radius = max(4, int(4 + 14 * scale))
-    if stationary:
-      # carrot-wip renders raw radar returns as low cubes on the road plane.
-      self._draw_world_block(draw, cx, cy, radius * 2.2, radius * 1.8, color)
-    else:
-      self._draw_vehicle_shape(image, cx, cy, radius * 3.4, radius * 2.8,
-                               "traffic",
-                               float(point.get("relative_speed", 0.0) or 0.0) < -0.5,
-                               marker=True)
-    if radar_info <= 0 or (radar_info in (1, 2) and stationary):
-      return
-    relative_speed = _speed_value(float(point.get("relative_speed", 0.0) or 0.0) * 3.6, is_metric)
-    if radar_info in (2, 4):
-      label = "%s %+.0f" % (_distance_text(distance, is_metric), relative_speed)
-    else:
-      label = "%+.0f" % relative_speed
-    _draw_text(draw, (cx, cy - radius * 2 - 5), label, max(11, self.height // 34), True,
-               fill=color, anchor="ms")
 
   def _draw_turn_signals(self, draw, panel, blinkers):
     """Two flashing arrows beside the ego car. Polygons only, no text cost."""
@@ -1600,7 +1559,11 @@ class HudRenderer(object):
     y = bottom - margin - lane_image.height
     image.paste(lane_image, (x, y), lane_image if lane_image.mode == "RGBA" else None)
 
-  def _draw_lead_info(self, draw, box, leads, is_metric, language):
+  def _draw_lead_info(self, draw, box, leads, is_metric, language, radar_info=2):
+    radar_info = int(radar_info or 0)
+    if radar_info <= 0:
+      return
+    show_distance = radar_info in (2, 4)
     card = self._bottom_card_box(box, "left")
     left, top, right, bottom = card
     draw.rounded_rectangle(card, radius=9, fill=(232, 235, 237),
@@ -1620,21 +1583,24 @@ class HudRenderer(object):
       relative_text = "--"
     label_color = (103, 111, 116)
     value_color = (18, 18, 18)
-    row1_y = top + int((bottom - top) * 0.31)
-    row2_y = top + int((bottom - top) * 0.72)
-    lead_label = "앞차" if language == "ko" else "LEAD"
     relative_label = "상대" if language == "ko" else "REL"
-    _draw_text(draw, (left + 8, row1_y), lead_label, max(11, self.height // 38), True,
-               fill=label_color, anchor="lm")
-    current_lead_distance_size = max(17, int(round(max(14, self.height // 28) * 1.20)))
-    lead_distance_size = max(19, int(round(current_lead_distance_size * 1.10)))
-    _draw_text(draw, (right - 8, row1_y), distance_text, lead_distance_size, True,
-               fill=value_color, anchor="rm")
-    draw.line((left + 7, (top + bottom) // 2, right - 7, (top + bottom) // 2),
-              fill=(195, 201, 204), width=1)
+    lead_relative_size = max(15, int(round(max(12, self.height // 33) * 1.20)))
+    if show_distance:
+      row1_y = top + int((bottom - top) * 0.31)
+      row2_y = top + int((bottom - top) * 0.72)
+      lead_label = "앞차" if language == "ko" else "LEAD"
+      _draw_text(draw, (left + 8, row1_y), lead_label, max(11, self.height // 38), True,
+                 fill=label_color, anchor="lm")
+      current_lead_distance_size = max(17, int(round(max(14, self.height // 28) * 1.20)))
+      lead_distance_size = max(19, int(round(current_lead_distance_size * 1.10)))
+      _draw_text(draw, (right - 8, row1_y), distance_text, lead_distance_size, True,
+                 fill=value_color, anchor="rm")
+      draw.line((left + 7, (top + bottom) // 2, right - 7, (top + bottom) // 2),
+                fill=(195, 201, 204), width=1)
+    else:
+      row2_y = (top + bottom) // 2
     _draw_text(draw, (left + 8, row2_y), relative_label, max(11, self.height // 38), True,
                fill=label_color, anchor="lm")
-    lead_relative_size = max(15, int(round(max(12, self.height // 33) * 1.20)))
     _draw_text(draw, (right - 8, row2_y), relative_text, lead_relative_size, True,
                fill=value_color, anchor="rm")
 
@@ -1686,16 +1652,14 @@ class HudRenderer(object):
     language = "en" if str(scene.get("language", "ko")).lower() == "en" else "ko"
     radar_info = int(scene.get("radar_info", 2) or 0)
     self._draw_path(image, draw, world_box, scene.get("path", []), enabled, scene)
-    for point in reversed(scene.get("radar_points", [])[:10]):
-      self._draw_radar_point(image, draw, world_box, point, radar_info, is_metric)
     for index, lead in reversed(list(enumerate(scene.get("leads", [])[:2]))):
-      self._draw_lead(image, draw, world_box, lead, index == 0, radar_info, is_metric)
+      self._draw_lead(image, draw, world_box, lead, index == 0)
     self._draw_ego_vehicle(image, world_box, enabled)
     if scene.get("left_blindspot", False):
       self._draw_blindspot_indicator(draw, world_box, "left")
     if scene.get("right_blindspot", False):
       self._draw_blindspot_indicator(draw, world_box, "right")
-    self._draw_lead_info(draw, world_box, scene.get("leads", []), is_metric, language)
+    self._draw_lead_info(draw, world_box, scene.get("leads", []), is_metric, language, radar_info)
     self._draw_tpms(draw, world_box, scene.get("tpms"))
     self._draw_tmap_lane_guidance(image, world_box)
 

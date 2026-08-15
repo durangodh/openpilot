@@ -30,16 +30,15 @@ p.put("EonClusterHudScreenMode", "1")
 p.put("EonClusterHudOrientation", "0")
 p.put("EonClusterHudMirror", "0")
 p.put("EonClusterHudRadarInfo", "4")
-p.put("EonClusterHudRadarDisplay", "0")
 PY
 ```
 
 Brightness `0` follows the device screen brightness. Orientation accepts `0`
 or `2` (180 degrees), mirror accepts `0` or `1`, and language accepts `0`
 (Korean) or `1` (English). `IsMetric` controls km/h versus mph. Radar info
-modes are `0` off, `1/2` moving-vehicle speed or speed+distance, and `3/4`
-all-object speed or speed+distance. Radar display mode `1` adds up to 16
-read-only `liveTracks` points; it never publishes CAN or control messages.
+modes are `0` off, `1/3` relative speed, and `2/4` distance plus relative
+speed for the two validated `radarState` leads.
+Raw `liveTracks` points are intentionally not subscribed to or rendered.
 While the panel is connected, the EON screen keeps essential speed, limit,
 status, and alert overlays but skips its duplicate camera, model, lead, plot,
 and TMap draws. Normal on-device rendering resumes within 500 ms after the

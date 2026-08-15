@@ -44,7 +44,7 @@ def test_external_hud_params_are_exposed_in_settings():
   assert '"EonClusterHudMirror", "클러스터 HUD 좌우 반전"' in settings
   assert '"EonClusterHudLanguage", "클러스터 HUD 언어"' in settings
   assert '"EonClusterHudRadarInfo", "클러스터 레이더 정보"' in settings
-  assert '"EonClusterHudRadarDisplay", "클러스터 레이더 표시"' in settings
+  assert '"EonClusterHudRadarDisplay", "클러스터 레이더 표시"' not in settings
 
 
 def test_hud_frame_rate_setting_starts_at_zero():

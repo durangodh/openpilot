@@ -1219,11 +1219,8 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "EonClusterHudLanguage", "클러스터 HUD 언어", "0: 한국어 / 1: English",
       "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudRadarInfo", "클러스터 레이더 정보", "0: 숨김 / 1: 이동차량 속도 / 2: 이동차량 속도+거리 / 3: 전체 속도 / 4: 전체 속도+거리",
+      "EonClusterHudRadarInfo", "클러스터 레이더 정보", "0: 숨김 / 1,3: 앞차 상대속도 / 2,4: 앞차 거리+상대속도",
       "../assets/offroad/icon_road.png", 0, 4, 1, 0, 4, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudRadarDisplay", "클러스터 레이더 표시", "0: 선행차만 / 1: 주변 레이더 포인트(최대 16개)",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
 }
 
 SelectCar::SelectCar(QWidget* parent): QWidget(parent) {

@@ -11,7 +11,7 @@ import cereal.messaging as messaging
 from common.params import Params
 
 from selfdrive.eon_cluster.renderer import HudRenderer, read_navi_state
-from selfdrive.eon_cluster.scene import extract_hud_scene, extract_radar_points
+from selfdrive.eon_cluster.scene import extract_hud_scene
 from selfdrive.eon_cluster.trip import TripTracker
 PARAM_ENABLED = "EonClusterHud"
 PARAM_CONNECTED = "EonClusterHudConnected"
@@ -24,7 +24,6 @@ PARAM_ORIENTATION = "EonClusterHudOrientation"
 PARAM_MIRROR = "EonClusterHudMirror"
 PARAM_LANGUAGE = "EonClusterHudLanguage"
 PARAM_RADAR_INFO = "EonClusterHudRadarInfo"
-PARAM_RADAR_DISPLAY = "EonClusterHudRadarDisplay"
 PARAM_ATC_MODE = "CarrotAutoTurnControl"
 TURZX_92_PRODUCT_ID = 0x0092
 RECONNECT_INTERVAL_S = 5.0
@@ -82,13 +81,13 @@ def _param_bool(params, key, default=False):
 
 
 def _scene_settings(params):
-  return ({
+  return {
     "screen_mode": _param_int(params, PARAM_SCREEN_MODE, 1, 1, 3),
     "theme": _param_int(params, PARAM_THEME, 0, 0, 2),
     "language": "en" if _param_int(params, PARAM_LANGUAGE, 0, 0, 1) == 1 else "ko",
     "is_metric": _param_bool(params, "IsMetric", True),
     "radar_info": _param_int(params, PARAM_RADAR_INFO, 4, 0, 4),
-  }, _param_int(params, PARAM_RADAR_DISPLAY, 1, 0, 1) == 1)
+  }
 
 
 def _orientation(params):
@@ -171,7 +170,7 @@ def main():
   signal.signal(signal.SIGINT, stop)
   signal.signal(signal.SIGTERM, stop)
   sm = messaging.SubMaster(["carState", "carParams", "carControl", "controlsState", "deviceState", "modelV2",
-                            "radarState", "liveTracks", "longitudinalPlan", "roadLimitSpeed",
+                            "radarState", "longitudinalPlan", "roadLimitSpeed",
                             "wideRoadCameraState"])
   display = None
   renderer = None
@@ -188,7 +187,6 @@ def main():
     "is_metric": True,
     "radar_info": 4,
   }
-  active_radar_display = True
   footer = {"ip": "", "fps": 0.0}
   paused = False
   next_footer = 0.0
@@ -240,7 +238,7 @@ def main():
           next_settings_read = now + SETTINGS_POLL_INTERVAL_S
           active_fps = fps
           active_atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
-          active_scene_settings, active_radar_display = _scene_settings(params)
+          active_scene_settings = _scene_settings(params)
           paused = False
           print("EON cluster connected: pid=0x%04x, %dx%d, %d fps" %
                 (display.product_id, display.landscape_size[0], display.landscape_size[1], fps), flush=True)
@@ -265,7 +263,7 @@ def main():
           renderer.set_mirror(_param_bool(params, PARAM_MIRROR))
           active_fps = next_fps
           active_atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
-          active_scene_settings, active_radar_display = _scene_settings(params)
+          active_scene_settings = _scene_settings(params)
           next_settings_read = now + SETTINGS_POLL_INTERVAL_S
         except Exception as exc:
           print("EON cluster live setting failed: %s" % exc, flush=True)
@@ -365,8 +363,6 @@ def main():
         scene.update(active_scene_settings)
         scene["energy_mode"] = _energy_mode(sm["carParams"])
         scene["atc_mode"] = active_atc_mode
-        if active_radar_display:
-          scene["radar_points"] = extract_radar_points(sm["liveTracks"])
         scene["accel"] = accel
         scene["footer"] = footer
         actuators = _field(sm["carControl"], "actuatorsOutput", _field(sm["carControl"], "actuators"))

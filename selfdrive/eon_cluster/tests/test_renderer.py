@@ -300,12 +300,6 @@ def test_vehicle_sprites_are_cached_realistic_and_shadow_free():
   assert (1, 3, 6) not in vehicle_colors
   assert (137, 168, 187) not in vehicle_colors
 
-  block = Image.new("RGB", (180, 120), (0, 0, 0))
-  renderer._draw_world_block(ImageDraw.Draw(block), 90, 100, 50, 32, (54, 207, 121))
-  block_colors = set(block.getdata())
-  assert (2, 5, 7) not in block_colors
-  assert (109, 255, 176) not in block_colors
-
 
 def test_vehicle_sprite_cache_stays_bounded():
   renderer = HudRenderer(1920, 462, 60)
@@ -327,7 +321,7 @@ def test_requested_vehicle_scale_keeps_lead_half_of_smaller_ego(monkeypatch):
   draw = ImageDraw.Draw(frame)
   renderer._draw_lead(frame, draw, panel,
                       {"distance": 35.0, "lateral": 0.0, "relative_speed": 0.0},
-                      True, 0, True)
+                      True)
   assert calls
   _, _, _, lead_w, lead_h, style = calls[-1][:6]
   assert (lead_w, lead_h) == (max(24, int(round(ego_w * 0.5))),
@@ -338,23 +332,11 @@ def test_requested_vehicle_scale_keeps_lead_half_of_smaller_ego(monkeypatch):
   calls[:] = []
   renderer._draw_lead(frame, draw, panel,
                       {"distance": 3.0, "lateral": 0.0, "relative_speed": 0.0},
-                      True, 0, True)
+                      True)
   lead_bottom = calls[-1][2]
   _, ego_projected_y = renderer._project(panel, 2.4, 0.0)
   ego_top = ego_projected_y - renderer._ego_vehicle_lift(panel) - ego_h
   assert lead_bottom <= ego_top - max(20, int((panel[3] - panel[1]) * 0.075))
-
-
-def test_stationary_radar_uses_green_3d_world_block():
-  renderer = HudRenderer(1920, 462, 60)
-  scene = {
-    "lanes": [], "edges": [], "leads": [],
-    "radar_info": 4,
-    "radar_points": [{"distance": 24.0, "lateral": 2.0,
-                      "relative_speed": 0.0, "stationary": True}],
-  }
-  colors = set(renderer.render(45.0, 70.0, True, {}, scene).getdata())
-  assert (54, 207, 121) in colors
 
 
 def test_blindspot_flags_draw_hollow_red_rear_triangles():
@@ -596,13 +578,13 @@ def test_cluster_right_panel_modes_render_distinct_views():
   assert len(set(frames)) == 3
 
 
-def test_imperial_radar_and_extended_trip_report_render():
+def test_imperial_lead_info_and_extended_trip_report_render():
   renderer = HudRenderer(1920, 462, 50)
   scene = {
     "is_metric": False,
     "language": "en",
     "radar_info": 2,
-    "radar_points": [{"distance": 30.0, "lateral": 1.0, "relative_speed": -2.0, "stationary": False}],
+    "leads": [{"distance": 30.0, "lateral": 1.0, "relative_speed": -2.0}],
     "camera_limit_speed": 80,
     "screen_mode": 3,
     "trip_report": {"duration_s": 3600, "distance_m": 1609.344, "average_speed_kph": 96.56,
@@ -611,8 +593,8 @@ def test_imperial_radar_and_extended_trip_report_render():
   }
   frame = renderer.render(96.56, 112.65, True, {}, scene)
   assert frame.size == (1920, 462)
-  without_radar = renderer.render(96.56, 112.65, True, {}, dict(scene, radar_points=[]))
-  assert frame.tobytes() != without_radar.tobytes()
+  without_info = renderer.render(96.56, 112.65, True, {}, dict(scene, radar_info=0))
+  assert frame.tobytes() != without_info.tobytes()
 
 
 def test_jpeg_quality_accepts_full_carrot_range():

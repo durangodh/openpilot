@@ -2,8 +2,6 @@ import math
 
 
 MAX_POLYLINE_POINTS = 24
-MAX_RADAR_POINTS = 16
-
 
 def _field(message, name, default=None):
   try:
@@ -86,28 +84,6 @@ def _lead(radar_state, name):
     "lateral": _finite_float(_field(lead, "yRel", 0.0)),
     "relative_speed": _finite_float(_field(lead, "vRel", 0.0)),
   }
-
-
-def extract_radar_points(live_tracks):
-  points = []
-  try:
-    tracks = list(live_tracks or [])
-  except TypeError:
-    tracks = []
-  for track in tracks:
-    distance = _finite_float(_field(track, "dRel", -1.0), -1.0)
-    lateral = _finite_float(_field(track, "yRel", 0.0))
-    if distance <= 0.0 or distance > 160.0 or abs(lateral) > 12.0:
-      continue
-    points.append({
-      "distance": distance,
-      "lateral": lateral,
-      "relative_speed": _finite_float(_field(track, "vRel", 0.0)),
-      "stationary": bool(_field(track, "stationary", False)),
-      "track_id": int(_finite_float(_field(track, "trackId", -1), -1)),
-    })
-  points.sort(key=lambda point: point["distance"])
-  return points[:MAX_RADAR_POINTS]
 
 
 def extract_hud_scene(model, radar_state, include_debug_counts=False):

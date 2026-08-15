@@ -256,7 +256,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudMirror", PERSISTENT},
     {"EonClusterHudLanguage", PERSISTENT},
     {"EonClusterHudRadarInfo", PERSISTENT},
-    {"EonClusterHudRadarDisplay", PERSISTENT},
     {"ShowMapboxMap", PERSISTENT},              // 1=Mapbox/ATC Tmap 지도 이미지 표시, 0=모든 지도 이미지 숨김
     {"ShowRouteMapAlways", PERSISTENT},         // 1=목적지 경로 동안 Tmap 지도 이미지 상시 표시
     {"ShowPathWidth", PERSISTENT},               // 경로 반폭 cm (90=0.90m)
