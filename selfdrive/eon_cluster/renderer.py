@@ -782,7 +782,8 @@ class HudRenderer(object):
       "blindspot": ((235, 238, 240), (132, 140, 146), (255, 255, 255)),
     }
     body, dark, raised = palettes.get(style, palettes["traffic"])
-    lighten = 0.30 if style in ("ego", "lead") else 0.0
+    # Keep the lead lightly washed out and make the ego another step softer.
+    lighten = 0.45 if style == "ego" else 0.30 if style == "lead" else 0.0
 
     def rgba(color, opacity=alpha):
       # Make the ego and detected lead 30% lighter without changing geometry
@@ -882,12 +883,12 @@ class HudRenderer(object):
       return
     cx, cy = self._project(panel, distance, lateral)
     panel_h = panel[3] - panel[1]
-    # Preserve a clear visual gap after lifting the ego/BSD group upward.
-    cy -= max(16, int(panel_h * 0.075))
+    # Push detected leads farther up the road for clearer separation.
+    cy -= max(24, int(panel_h * 0.12))
     ego_w, ego_h = self._ego_vehicle_size(panel)
     _, ego_projected_y = self._project(panel, 2.4, 0.0)
-    ego_bottom = ego_projected_y - 30
-    min_visual_gap = max(10, int(panel_h * 0.03))
+    ego_bottom = ego_projected_y - self._ego_vehicle_lift(panel)
+    min_visual_gap = max(20, int(panel_h * 0.075))
     # Keep a near lead's bottom above the ego's roof. Radar/model distance is
     # untouched; this clamp affects only the external-HUD drawing position.
     cy = min(cy, ego_bottom - ego_h - min_visual_gap)
@@ -952,29 +953,40 @@ class HudRenderer(object):
   def _ego_vehicle_size(panel):
     panel_w = panel[2] - panel[0]
     panel_h = panel[3] - panel[1]
-    # A further subtle reduction keeps the ego clear of its BSD indicators.
-    return max(70, int(panel_w * 0.072)), max(65, int(panel_h * 0.265))
+    # Roughly 10% smaller than the previous ego sprite.
+    return max(62, int(panel_w * 0.065)), max(58, int(panel_h * 0.238))
+
+  @staticmethod
+  def _ego_vehicle_lift(panel):
+    return max(42, int((panel[3] - panel[1]) * 0.17))
 
   def _draw_ego_vehicle(self, image, panel, enabled):
     cx, cy = self._project(panel, 2.4, 0.0)
     car_w, car_h = self._ego_vehicle_size(panel)
-    # Lift the ego so the BSD brackets sit naturally at its rear quarters.
-    self._draw_vehicle_shape(image, cx, cy - 30, car_w, car_h, "ego")
+    # Lift the smaller ego to keep the rear-quarter area unobstructed.
+    self._draw_vehicle_shape(image, cx, cy - self._ego_vehicle_lift(panel),
+                             car_w, car_h, "ego")
 
   def _draw_blindspot_indicator(self, draw, panel, side):
-    """Draw one red BSD dot beside the detected ego rear quarter."""
+    """Draw a small hollow warning triangle behind and beside the ego."""
     direction = -1 if side == "left" else 1
     ego_x, projected_y = self._project(panel, 2.4, 0.0)
-    ego_w, ego_h = self._ego_vehicle_size(panel)
-    ego_bottom = projected_y - 30
+    ego_w, _ = self._ego_vehicle_size(panel)
+    ego_bottom = projected_y - self._ego_vehicle_lift(panel)
     wheel_radius = max(25, self.height // 17)
-    dot_radius = max(9, int(round(wheel_radius * 0.45)))
-    dot_x = ego_x + direction * (ego_w // 2 + dot_radius + 5)
-    lower_offset = max(6, self.height // 58)
-    dot_y = ego_bottom - max(dot_radius, int(round(ego_h * 0.22))) + lower_offset
-    draw.ellipse((dot_x - dot_radius, dot_y - dot_radius,
-                  dot_x + dot_radius, dot_y + dot_radius),
-                 fill=(230, 45, 55))
+    triangle_size = max(7, int(round(wheel_radius * 0.32)))
+    side_gap = max(15, self.height // 30)
+    triangle_x = ego_x + direction * (ego_w // 2 + triangle_size + side_gap)
+    triangle_y = ego_bottom + max(5, triangle_size // 2)
+    points = (
+      (triangle_x, triangle_y + triangle_size),
+      (triangle_x - triangle_size, triangle_y - triangle_size),
+      (triangle_x + triangle_size, triangle_y - triangle_size),
+      (triangle_x, triangle_y + triangle_size),
+    )
+    # No fill: the road background remains visible inside the triangle.
+    draw.line(points, fill=(230, 45, 55),
+              width=max(4, triangle_size // 2), joint="curve")
 
   def _draw_bipolar_gauge(self, draw, center_x, top, bottom, value, color, label, value_text):
     value = _clamp(float(value), -1.0, 1.0)
