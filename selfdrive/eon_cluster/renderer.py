@@ -975,14 +975,15 @@ class HudRenderer(object):
     ego_bottom = projected_y - self._ego_vehicle_lift(panel)
     wheel_radius = max(25, self.height // 17)
     triangle_size = max(7, int(round(wheel_radius * 0.32)))
-    side_gap = max(15, self.height // 30)
+    side_gap = max(25, self.height // 22)
     triangle_x = ego_x + direction * (ego_w // 2 + triangle_size + side_gap)
-    triangle_y = ego_bottom + max(5, triangle_size // 2)
+    triangle_y = ego_bottom + max(13, triangle_size)
+    # Upright warning triangle: one apex above, horizontal base below.
     points = (
-      (triangle_x, triangle_y + triangle_size),
-      (triangle_x - triangle_size, triangle_y - triangle_size),
-      (triangle_x + triangle_size, triangle_y - triangle_size),
-      (triangle_x, triangle_y + triangle_size),
+      (triangle_x, triangle_y - triangle_size),
+      (triangle_x - triangle_size, triangle_y + triangle_size),
+      (triangle_x + triangle_size, triangle_y + triangle_size),
+      (triangle_x, triangle_y - triangle_size),
     )
     # No fill: the road background remains visible inside the triangle.
     draw.line(points, fill=(230, 45, 55),
@@ -1256,10 +1257,16 @@ class HudRenderer(object):
       route = atc_navi.get("route") or {}
       remain_time = int(route.get("remain_time_sec", 0) or 0)
       eta = time.localtime(time.time() + remain_time)
-      eta_text = ("도착 " if language == "ko" else "ETA ") + time.strftime("%H:%M", eta)
+      eta_time_text = time.strftime("%H:%M", eta)
+      eta_label = "도착" if language == "ko" else "ETA"
+      eta_label_size = max(12, int(round(mode_size * 0.50)))
       mode_width = _text_width(mode_label, mode_size, True)
       eta_right = right - 28 - mode_width - max(16, panel_w // 45)
-      _draw_text(draw, (eta_right, info_y), eta_text, mode_size, True,
+      _draw_text(draw, (eta_right, info_y), eta_time_text, mode_size, True,
+                 fill=(68, 76, 82), anchor="rm")
+      eta_time_width = _text_width(eta_time_text, mode_size, True)
+      eta_label_right = eta_right - eta_time_width - max(7, panel_w // 100)
+      _draw_text(draw, (eta_label_right, info_y), eta_label, eta_label_size, True,
                  fill=(68, 76, 82), anchor="rm")
     draw.line((left + 18, separator_y, right - 18, separator_y),
               fill=(202, 207, 210), width=1)
