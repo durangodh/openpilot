@@ -1035,17 +1035,26 @@ class HudRenderer(object):
     _draw_text(draw, (x + 46, y), time.strftime("%H:%M:%S"), max(18, self.height // 20), True,
                fill=(42, 49, 55), anchor="lm")
 
-  def _draw_speed_limit(self, draw, x, y, limit):
+  def _status_icon_radius(self):
+    # Steering, SET speed and camera limit share one visual diameter.
+    wheel_radius = max(25, self.height // 17)
+    return int(round(wheel_radius * 1.30))
+
+  def _camera_distance_text_size(self):
+    current_size = max(12, int(round(max(10, self.height // 38) * 1.20)))
+    return max(16, int(round(current_size * 1.30)))
+
+  def _draw_speed_limit(self, draw, x, y, limit, radius=None):
     if limit <= 0:
       return
-    radius = max(28, self.height // 15)
+    radius = self._status_icon_radius() if radius is None else int(radius)
     draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=(250, 250, 250),
                  outline=(220, 45, 45), width=max(6, radius // 6))
     _draw_text(draw, (x, y), str(limit), max(24, radius), True, fill=(20, 20, 20), anchor="mm")
 
-  def _draw_steering_wheel(self, draw, x, y, angle_deg, enabled):
+  def _draw_steering_wheel(self, draw, x, y, angle_deg, enabled, radius=None):
     """Lightweight generic rotating wheel without a vehicle-brand mark."""
-    radius = max(25, self.height // 17)
+    radius = self._status_icon_radius() if radius is None else int(radius)
     color = (18, 95, 225) if enabled else (118, 126, 132)
     width = max(4, radius // 6)
     draw.ellipse((x - radius, y - radius, x + radius, y + radius),
@@ -1075,8 +1084,10 @@ class HudRenderer(object):
     # the bottom keeps a small visual gap from the TPMS card.
     second_row_y = top + max(164, int(self.height * 0.37))
     camera_distance_y = second_row_y + max(39, self.height // 11)
-    camera_distance_size = max(12, int(round(max(10, self.height // 38) * 1.20)))
-    card_top = camera_distance_y + camera_distance_size + 8
+    camera_distance_size = self._camera_distance_text_size()
+    # Move the card down slightly so the enlarged camera distance keeps a
+    # visible breathing gap above it; this also trims the card height.
+    card_top = camera_distance_y + camera_distance_size + 14
     card_bottom = tpms_card[1] - 8
     return tpms_card[0], card_top, tpms_card[2], card_bottom
 
@@ -1173,20 +1184,18 @@ class HudRenderer(object):
     is_metric = bool(scene.get("is_metric", True))
     language = "en" if str(scene.get("language", "ko")).lower() == "en" else "ko"
     turn_text = _distance_text(turn_distance, is_metric, language) if turn_distance >= 0 else "--"
-    _draw_text(draw, (icon_x, top + int(height * 0.62)), turn_text,
-               max(16, self.height // 24), True, fill=(248, 249, 250), anchor="mm")
-    divider_y = top + int(height * 0.72)
+    next_distance_size = max(22, self.height // 18)
+    _draw_text(draw, (icon_x, top + int(height * 0.64)), turn_text,
+               next_distance_size, True, fill=(248, 249, 250), anchor="mm")
+    divider_y = top + int(height * 0.79)
     draw.line((left + 8, divider_y, right - 8, divider_y), fill=(118, 126, 132), width=1)
 
+    # ETA moved to the top status row. Use the freed bottom slot to enlarge
+    # the remaining route distance while keeping the next-turn distance dominant.
     remain_distance = float(route.get("remain_distance_m", 0.0) or 0.0)
-    remain_time = int(route.get("remain_time_sec", 0) or 0)
     remain_text = _distance_text(remain_distance, is_metric, language)
-    eta = time.localtime(time.time() + remain_time)
-    eta_text = ("도착 " if language == "ko" else "ETA ") + time.strftime("%H:%M", eta)
-    _draw_text(draw, (icon_x, divider_y + max(7, height // 24)), remain_text,
-               max(12, self.height // 32), True, fill=(211, 218, 222), anchor="ma")
-    _draw_text(draw, (icon_x, bottom - 8), eta_text,
-               max(11, self.height // 36), True, fill=(168, 178, 184), anchor="ms")
+    _draw_text(draw, (icon_x, bottom - 9), remain_text,
+               max(16, self.height // 27), True, fill=(211, 218, 222), anchor="ms")
 
   def _draw_requested_status_header(self, image, draw, box, speed_kph, cruise_kph, enabled, scene, navi=None):
     left, top, right, _ = box
@@ -1243,21 +1252,29 @@ class HudRenderer(object):
     elif monotonic_now < self._atc_visible_until and self._atc_navi_cache:
       atc_box_active = True
       atc_navi = self._atc_navi_cache
+    if atc_box_active:
+      route = atc_navi.get("route") or {}
+      remain_time = int(route.get("remain_time_sec", 0) or 0)
+      eta = time.localtime(time.time() + remain_time)
+      eta_text = ("도착 " if language == "ko" else "ETA ") + time.strftime("%H:%M", eta)
+      mode_width = _text_width(mode_label, mode_size, True)
+      eta_right = right - 28 - mode_width - max(16, panel_w // 45)
+      _draw_text(draw, (eta_right, info_y), eta_text, mode_size, True,
+                 fill=(68, 76, 82), anchor="rm")
     draw.line((left + 18, separator_y, right - 18, separator_y),
               fill=(202, 207, 210), width=1)
 
     second_row_y = top + max(164, int(self.height * 0.37))
     left_x = left + max(58, int(panel_w * 0.075))
     right_x = right - max(58, int(panel_w * 0.075))
+    status_icon_radius = self._status_icon_radius()
     self._draw_steering_wheel(draw, left_x, second_row_y,
-                              float(scene.get("steering_angle_deg", 0.0) or 0.0), enabled)
+                              float(scene.get("steering_angle_deg", 0.0) or 0.0), enabled,
+                              status_icon_radius)
 
     cruise_valid = enabled and 0.0 < cruise_kph < 255.0
     cruise_color = (18, 149, 224) if cruise_valid else (139, 147, 152)
-    # Keep the SET-speed ring only 30% larger than the steering wheel.  The
-    # previous extra x2 scale made it dominate the compact external-HUD row.
-    wheel_radius = max(25, self.height // 17)
-    cruise_radius = int(round(wheel_radius * 1.30))
+    cruise_radius = status_icon_radius
     cruise_outline_width = max(5, int(round(cruise_radius * 0.17)))
     draw.ellipse((center_x - cruise_radius, second_row_y - cruise_radius,
                   center_x + cruise_radius, second_row_y + cruise_radius),
@@ -1269,13 +1286,14 @@ class HudRenderer(object):
     _draw_text(draw, (center_x, second_row_y + cruise_radius + 9), "SET",
                max(11, self.height // 35), True, fill=cruise_color, anchor="ma")
     camera_limit = _speed_value(float(scene.get("camera_limit_speed", 0) or 0), is_metric)
-    self._draw_speed_limit(draw, right_x, second_row_y, int(round(camera_limit)))
+    self._draw_speed_limit(draw, right_x, second_row_y, int(round(camera_limit)),
+                           status_icon_radius)
     camera_distance = float(scene.get("camera_distance", 0) or 0)
     if camera_distance > 0:
       distance_text = _distance_text(camera_distance, is_metric, language)
       if bool(scene.get("camera_is_section", False)):
         distance_text = (("구간 " if language == "ko" else "SEC ") + distance_text)
-      camera_distance_size = max(12, int(round(max(10, self.height // 38) * 1.20)))
+      camera_distance_size = self._camera_distance_text_size()
       _draw_text(draw, (right_x, second_row_y + max(39, self.height // 11)), distance_text,
                  camera_distance_size, True, fill=(18, 18, 18), anchor="ma")
     if atc_box_active:
@@ -1375,7 +1393,8 @@ class HudRenderer(object):
     relative_label = "상대" if language == "ko" else "REL"
     _draw_text(draw, (left + 8, row1_y), lead_label, max(11, self.height // 38), True,
                fill=label_color, anchor="lm")
-    lead_distance_size = max(17, int(round(max(14, self.height // 28) * 1.20)))
+    current_lead_distance_size = max(17, int(round(max(14, self.height // 28) * 1.20)))
+    lead_distance_size = max(19, int(round(current_lead_distance_size * 1.10)))
     _draw_text(draw, (right - 8, row1_y), distance_text, lead_distance_size, True,
                fill=value_color, anchor="rm")
     draw.line((left + 7, (top + bottom) // 2, right - 7, (top + bottom) // 2),
