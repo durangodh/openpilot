@@ -5,6 +5,7 @@ compact scene data: no framebuffer copies, map decoding, JPEG rendering, or
 USB display traffic happens on the EON.
 """
 
+import base64
 import json
 import math
 import os
@@ -20,6 +21,12 @@ PORT = 7210
 MAP_PORT = 7211
 MAP_FILE = "/dev/shm/carrot_navi_map.jpg"
 MAP_MAX_BYTES = 2 * 1024 * 1024
+MAP_KEEPALIVE_S = 1.0
+# Tiny valid 2x2 black JPEG. v0.6 treats a silent 7211 socket as a dead video
+# connection and reconnects repeatedly, so send this only while no TMAP frame
+# exists. This is decoded once at process start and costs ~631 bytes/second.
+MAP_IDLE_JPEG = base64.b64decode(
+  "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDz+iiigD//2Q==")
 FPS = 10
 
 
@@ -34,6 +41,8 @@ class MapFrameServer(object):
     self.listener.setblocking(False)
     self.client = None
     self.signature = None
+    self.cached_jpeg = MAP_IDLE_JPEG
+    self.last_send = 0.0
 
   def _drop_client(self):
     if self.client is not None:
@@ -42,46 +51,70 @@ class MapFrameServer(object):
       except Exception:
         pass
     self.client = None
-    self.signature = None
+    self.last_send = 0.0
 
-  def poll(self):
-    if self.client is None:
-      try:
-        self.client, _ = self.listener.accept()
-        # A map frame may be much larger than the telemetry packet. 50 ms was
-        # too aggressive on busy EON/S9 Wi-Fi links and caused needless TCP
-        # reconnects even though the client was healthy.
-        self.client.settimeout(0.5)
-        self.signature = None
-      except BlockingIOError:
-        return
+  def _refresh_frame(self):
+    """Refresh cached JPEG if TMAP produced a new complete frame.
 
-    # The TMAP file is optional and can disappear briefly while carrot-navi
-    # replaces it. Missing/in-progress JPEG data is not a TCP failure: keep the
-    # S9 connection open and simply wait for the next poll.
+    File absence or an in-progress replacement is not a TCP error. If TMAP
+    removes the file, switch back to the tiny idle JPEG instead of leaving a
+    stale navigation image on the S9.
+    """
     try:
       stat = os.stat(MAP_FILE)
     except (IOError, OSError):
-      return
+      if self.signature is not None:
+        self.signature = None
+        self.cached_jpeg = MAP_IDLE_JPEG
+        return True
+      return False
 
     signature = (getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9)), stat.st_size)
-    if signature == self.signature or stat.st_size <= 4 or stat.st_size > MAP_MAX_BYTES:
-      return
+    if signature == self.signature:
+      return False
+    if stat.st_size <= 4 or stat.st_size > MAP_MAX_BYTES:
+      return False
 
     try:
       with open(MAP_FILE, "rb") as image_file:
         jpeg = image_file.read()
     except (IOError, OSError):
-      return
+      return False
 
-    # A producer can be in the middle of replacing the file when we read it.
-    # Ignore that frame without dropping TCP; the next poll will retry it.
+    # carrot-navi can be in the middle of replacing the file when we read it.
+    # Ignore the partial frame and retry on the next poll without touching TCP.
     if not (jpeg.startswith(b"\xff\xd8") and jpeg.endswith(b"\xff\xd9")):
+      return False
+
+    self.signature = signature
+    self.cached_jpeg = jpeg
+    return True
+
+  def poll(self):
+    if self.client is None:
+      try:
+        self.client, _ = self.listener.accept()
+        # Map frames can be much larger than telemetry. Keep a relaxed write
+        # timeout for busy EON/S9 Wi-Fi links.
+        self.client.settimeout(0.5)
+        self.last_send = 0.0
+      except BlockingIOError:
+        return
+
+    now = time.monotonic()
+    changed = self._refresh_frame()
+
+    # v0.6 reconnects when 7211 stays silent. Send the newest frame immediately
+    # when it changes and resend the cached frame once per second as a protocol
+    # keepalive. With no map this is only a 631-byte JPEG, so EON/network load is
+    # negligible and no JPEG encoding is done on EON.
+    if not changed and now - self.last_send < MAP_KEEPALIVE_S:
       return
 
     try:
+      jpeg = self.cached_jpeg
       self.client.sendall(b"MAP1" + struct.pack(">I", len(jpeg)) + jpeg)
-      self.signature = signature
+      self.last_send = now
     except socket.error:
       self._drop_client()
 
