@@ -967,7 +967,8 @@ class HudRenderer(object):
     wheel_radius = max(25, self.height // 17)
     dot_radius = max(10, int(round(wheel_radius * 0.50)))
     dot_x = ego_x + direction * (ego_w // 2 + dot_radius + 5)
-    dot_y = ego_bottom - max(dot_radius, int(round(ego_h * 0.22)))
+    lower_offset = max(6, self.height // 58)
+    dot_y = ego_bottom - max(dot_radius, int(round(ego_h * 0.22))) + lower_offset
     draw.ellipse((dot_x - dot_radius, dot_y - dot_radius,
                   dot_x + dot_radius, dot_y + dot_radius),
                  fill=(230, 45, 55))
