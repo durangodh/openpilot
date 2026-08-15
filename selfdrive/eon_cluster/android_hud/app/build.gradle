@@ -7,7 +7,7 @@ android {
     applicationId "ai.comma.remotehud"
     minSdk 26
     targetSdk 35
-    versionCode 3
-    versionName "0.3-3d-lanes"
+    versionCode 4
+    versionName "0.4-geometry-stable"
   }
 }

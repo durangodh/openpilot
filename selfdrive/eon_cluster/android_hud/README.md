@@ -42,6 +42,14 @@ PNG vehicle sprites with the path, and replaces the old BSD dot/triangle with a
 rear-quarter vehicle sprite. JPEG writes are split into 16 KiB USB chunks for
 older Galaxy S9 Android builds.
 
+Version 0.4 resamples path, lane, and road-edge geometry at fixed forward
+distances and applies five-frame-class EMA smoothing. Low-confidence geometry
+is rejected while the last valid shape is held for 500 ms. Road edges are kept
+ordered, total road width is clamped to 4.5-18.0 m, lane crossings are removed,
+and lanes/path are constrained inside the stabilized road surface. These guards
+prevent short model dropouts and sharp curves from lifting lane marks off the
+road or collapsing the road polygon.
+
 USB access may require one approval after initial installation. Selecting the
 app as the default handler for `1cbe:0092` lets Android grant access and launch
 it automatically on later USB attachments/reboots.

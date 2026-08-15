@@ -30,6 +30,7 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -42,6 +43,7 @@ public final class HudService extends Service {
   private final AtomicReference<JSONObject> state = new AtomicReference<>(new JSONObject());
   private final AtomicReference<Bitmap> mapFrame = new AtomicReference<>();
   private final AtomicReference<InetAddress> eonAddress = new AtomicReference<>();
+  private final GeometryStabilizer geometry = new GeometryStabilizer();
   private TurzxDisplay display;
   private Thread receiverThread;
   private Thread mapThread;
@@ -181,20 +183,184 @@ public final class HudService extends Service {
     text(c, p, "GAP " + (gap > 0 ? gap : "--"), 34, HEIGHT - 22, 26, Color.LTGRAY, Paint.Align.LEFT);
   }
 
+  private static final class StableScene {
+    final JSONArray path;
+    final JSONArray lanes;
+    final JSONArray edges;
+
+    StableScene(JSONArray path, JSONArray lanes, JSONArray edges) {
+      this.path = path;
+      this.lanes = lanes;
+      this.edges = edges;
+    }
+  }
+
+  private static final class GeometryStabilizer {
+    private static final float[] SAMPLE_X = {0f, 3f, 6f, 10f, 15f, 22f, 30f, 42f, 58f, 78f, 105f};
+    private static final float EMA_ALPHA = 0.28f;
+    private static final long HOLD_MS = 500;
+    private static final float LANE_CONFIDENCE = 0.25f;
+    private static final float EDGE_CONFIDENCE = 0.25f;
+    private static final float MIN_ROAD_WIDTH_M = 4.5f;
+    private static final float MAX_ROAD_WIDTH_M = 18.0f;
+    private final float[][] lanes = new float[4][SAMPLE_X.length];
+    private final float[][] edges = new float[2][SAMPLE_X.length];
+    private final float[] path = new float[SAMPLE_X.length];
+    private final boolean[] laneActive = new boolean[4];
+    private final boolean[] edgeActive = new boolean[2];
+    private final long[] laneLastValid = new long[4];
+    private final long[] edgeLastValid = new long[2];
+    private boolean pathActive = false;
+    private long pathLastValid = 0;
+
+    StableScene update(JSONObject state, long now) {
+      updatePath(state.optJSONArray("path"), now);
+      updateLines(state.optJSONArray("lanes"), lanes, laneActive, laneLastValid, LANE_CONFIDENCE, now);
+      updateLines(state.optJSONArray("edges"), edges, edgeActive, edgeLastValid, EDGE_CONFIDENCE, now);
+      constrainRoadAndLanes();
+      return new StableScene(toPath(), toLines(lanes, laneActive), toLines(edges, edgeActive));
+    }
+
+    private void updatePath(JSONArray points, long now) {
+      float[] sampled = sample(points);
+      if (sampled != null) {
+        blend(path, sampled, pathActive);
+        pathActive = true;
+        pathLastValid = now;
+      } else if (now - pathLastValid > HOLD_MS) {
+        pathActive = false;
+      }
+    }
+
+    private void updateLines(JSONArray source, float[][] destination, boolean[] active, long[] lastValid,
+                             float minimumConfidence, long now) {
+      for (int index = 0; index < destination.length; index++) {
+        JSONObject line = source == null ? null : source.optJSONObject(index);
+        float confidence = line == null ? 0f : (float)line.optDouble("c", 0);
+        float[] sampled = line == null || confidence < minimumConfidence ? null : sample(line.optJSONArray("p"));
+        if (sampled != null) {
+          blend(destination[index], sampled, active[index]);
+          active[index] = true;
+          lastValid[index] = now;
+        } else if (now - lastValid[index] > HOLD_MS) {
+          active[index] = false;
+        }
+      }
+    }
+
+    private static void blend(float[] stable, float[] incoming, boolean initialized) {
+      if (!initialized) {
+        System.arraycopy(incoming, 0, stable, 0, stable.length);
+        return;
+      }
+      for (int i = 0; i < stable.length; i++) stable[i] += (incoming[i] - stable[i]) * EMA_ALPHA;
+    }
+
+    private static float[] sample(JSONArray points) {
+      if (points == null || points.length() < 2) return null;
+      float[] result = new float[SAMPLE_X.length];
+      for (int sampleIndex = 0; sampleIndex < SAMPLE_X.length; sampleIndex++) {
+        float target = SAMPLE_X[sampleIndex];
+        JSONArray first = points.optJSONArray(0);
+        JSONArray last = points.optJSONArray(points.length() - 1);
+        if (first == null || last == null) return null;
+        float y = (float)first.optDouble(1, Double.NaN);
+        boolean found = target <= first.optDouble(0, 0);
+        for (int pointIndex = 0; !found && pointIndex + 1 < points.length(); pointIndex++) {
+          JSONArray a = points.optJSONArray(pointIndex), b = points.optJSONArray(pointIndex + 1);
+          if (a == null || b == null) continue;
+          float x0 = (float)a.optDouble(0), x1 = (float)b.optDouble(0);
+          if (target <= x1 || pointIndex + 2 == points.length()) {
+            float denominator = x1 - x0;
+            float ratio = Math.abs(denominator) < 0.001f ? 0f : Math.max(0f, Math.min(1f, (target - x0) / denominator));
+            y = (float)(a.optDouble(1) + (b.optDouble(1) - a.optDouble(1)) * ratio);
+            found = true;
+          }
+        }
+        if (!Float.isFinite(y)) return null;
+        result[sampleIndex] = y;
+      }
+      return result;
+    }
+
+    private void constrainRoadAndLanes() {
+      if (edgeActive[0] && edgeActive[1]) {
+        float previousWidth = 0f;
+        for (int sampleIndex = 0; sampleIndex < SAMPLE_X.length; sampleIndex++) {
+          float low = Math.min(edges[0][sampleIndex], edges[1][sampleIndex]);
+          float high = Math.max(edges[0][sampleIndex], edges[1][sampleIndex]);
+          float center = (low + high) * 0.5f;
+          float width = Math.max(MIN_ROAD_WIDTH_M, Math.min(MAX_ROAD_WIDTH_M, high - low));
+          if (sampleIndex > 0) width = Math.max(previousWidth - 2f, Math.min(previousWidth + 2f, width));
+          previousWidth = width;
+          edges[0][sampleIndex] = center - width * 0.5f;
+          edges[1][sampleIndex] = center + width * 0.5f;
+
+          int[] ids = new int[4]; float[] values = new float[4]; int count = 0;
+          for (int laneIndex = 0; laneIndex < lanes.length; laneIndex++) {
+            if (!laneActive[laneIndex]) continue;
+            ids[count] = laneIndex;
+            values[count] = Math.max(edges[0][sampleIndex] + 0.20f,
+                Math.min(edges[1][sampleIndex] - 0.20f, lanes[laneIndex][sampleIndex]));
+            count++;
+          }
+          for (int left = 0; left < count; left++) {
+            for (int right = left + 1; right < count; right++) {
+              if (values[right] < values[left]) {
+                float value = values[left]; values[left] = values[right]; values[right] = value;
+              }
+            }
+          }
+          for (int i = 1; i < count; i++) values[i] = Math.max(values[i], values[i - 1] + 0.30f);
+          if (count > 0 && values[count - 1] > edges[1][sampleIndex] - 0.20f) {
+            float shift = values[count - 1] - (edges[1][sampleIndex] - 0.20f);
+            for (int i = 0; i < count; i++) values[i] -= shift;
+          }
+          for (int i = 0; i < count; i++) lanes[ids[i]][sampleIndex] = values[i];
+          if (pathActive) path[sampleIndex] = Math.max(edges[0][sampleIndex] + 0.45f,
+              Math.min(edges[1][sampleIndex] - 0.45f, path[sampleIndex]));
+        }
+      }
+    }
+
+    private JSONArray toPath() {
+      JSONArray result = new JSONArray();
+      if (!pathActive) return result;
+      for (int i = 0; i < SAMPLE_X.length; i++) result.put(new JSONArray(Arrays.asList(SAMPLE_X[i], path[i])));
+      return result;
+    }
+
+    private static JSONArray toLines(float[][] values, boolean[] active) {
+      JSONArray result = new JSONArray();
+      for (int lineIndex = 0; lineIndex < values.length; lineIndex++) {
+        if (!active[lineIndex]) continue;
+        JSONArray points = new JSONArray();
+        for (int sampleIndex = 0; sampleIndex < SAMPLE_X.length; sampleIndex++) {
+          points.put(new JSONArray(Arrays.asList(SAMPLE_X[sampleIndex], values[lineIndex][sampleIndex])));
+        }
+        JSONObject line = new JSONObject();
+        try { line.put("c", 1.0); line.put("p", points); } catch (Exception ignored) { continue; }
+        result.put(line);
+      }
+      return result;
+    }
+  }
+
   private void drawWorld(Canvas c, Paint p, JSONObject s, boolean enabled, int panelW) {
     final float center = panelW * 0.5f, horizon = 188f, bottom = 456f;
+    StableScene stable = geometry.update(s, SystemClock.elapsedRealtime());
     p.setStyle(Paint.Style.FILL);
     p.setShader(new LinearGradient(0, 8, 0, horizon, Color.rgb(7, 17, 29), Color.rgb(26, 39, 51), Shader.TileMode.CLAMP));
     c.drawRect(8, 8, panelW - 8, horizon, p);
     p.setShader(new LinearGradient(0, horizon, 0, bottom, Color.rgb(39, 45, 51), Color.rgb(10, 13, 17), Shader.TileMode.CLAMP));
-    Path road = roadSurface(s.optJSONArray("edges"), center, horizon, bottom, panelW);
+    Path road = roadSurface(stable.edges, center, horizon, bottom, panelW);
     c.drawPath(road, p); p.setShader(null);
 
-    drawModelLines(c, p, s.optJSONArray("edges"), center, horizon, bottom, Color.rgb(255, 78, 62), false);
-    drawModelLines(c, p, s.optJSONArray("lanes"), center, horizon, bottom, Color.WHITE, true);
-    drawPathSurface(c, p, s.optJSONArray("path"), enabled, center, horizon, bottom);
+    drawModelLines(c, p, stable.edges, center, horizon, bottom, Color.rgb(255, 78, 62), false);
+    drawModelLines(c, p, stable.lanes, center, horizon, bottom, Color.WHITE, true);
+    drawPathSurface(c, p, stable.path, enabled, center, horizon, bottom);
 
-    JSONArray modelPath = s.optJSONArray("path");
+    JSONArray modelPath = stable.path;
     JSONObject lead2 = s.optJSONObject("lead2");
     if (lead2 != null) drawLead(c, p, lead2, modelPath, center, horizon, bottom, false);
     JSONObject lead = s.optJSONObject("lead");
