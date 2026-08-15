@@ -39,6 +39,8 @@ class CarState(CarStateBase):
     self.cruise_main_button_samples = []
     self.mdps_error_cnt = 0
     self.cruise_unavail_cnt = 0
+    self.engine_oil_temp_seen = False
+    self.engine_coolant_temp_seen = False
 
     self.apply_steer = 0.
     
@@ -194,6 +196,12 @@ class CarState(CarStateBase):
     if self.CP.hasEms:
       ret.gas = cp.vl["EMS12"]["PV_AV_CAN"] / 100.
       ret.gasPressed = bool(cp.vl["EMS16"]["CF_Ems_AclAct"])
+      if cp.vl_all["EMS12"]["TEMP_ENG"]:
+        self.engine_coolant_temp_seen = True
+      if cp.vl_all["EMS19"]["CR_Ems_EngOilTemp"]:
+        self.engine_oil_temp_seen = True
+      ret.engineCoolantTempC = cp.vl["EMS12"]["TEMP_ENG"] if self.engine_coolant_temp_seen else -1000.
+      ret.engineOilTempC = cp.vl["EMS19"]["CR_Ems_EngOilTemp"] if self.engine_oil_temp_seen else -1000.
 
     # TODO: refactor gear parsing in function
     # Gear Selection via Cluster - For those Kia/Hyundai which are not fully discovered, we can use the Cluster Indicator for Gear Selection,
@@ -472,7 +480,9 @@ class CarState(CarStateBase):
     else:
       signals += [
         ("PV_AV_CAN", "EMS12"),
+        ("TEMP_ENG", "EMS12"),
         ("CF_Ems_AclAct", "EMS16"),
+        ("CR_Ems_EngOilTemp", "EMS19"),
       ]
       checks += [
         ("EMS12", 100),

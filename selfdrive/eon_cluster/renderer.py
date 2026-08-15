@@ -1707,8 +1707,8 @@ class HudRenderer(object):
                fill=colors["primary"], anchor="mm")
     metrics = (("CPU", float(system.get("cpu", 0.0) or 0.0), "%"),
                ("TEMP", float(system.get("temp", 0.0) or 0.0), " C"),
-               ("MEM", float(system.get("memory", 0.0) or 0.0), "%"),
-               ("DISK", float(system.get("disk", 0.0) or 0.0), "%"))
+               ("ENGINE", system.get("engine_temp"), " C"),
+               ("COOLANT", system.get("coolant_temp"), " C"))
     cores = system.get("cores") or []
     margin = max(10, panel_w // 32)
     gap = max(5, panel_h // 70)
@@ -1726,7 +1726,10 @@ class HudRenderer(object):
                              fill=colors["card"], outline=colors["line"], width=2)
       _draw_text(draw, (x0 + 12, (y0 + y1) // 2), label, label_size, True,
                  fill=colors["secondary"], anchor="lm")
-      text = ("%.0f" % value) + unit
+      try:
+        text = ("%.0f" % float(value)) + unit if value is not None else "--"
+      except (TypeError, ValueError):
+        text = "--"
       value_size = preferred_value_size
       value_width = max(60, (x1 - x0) * 3 // 5)
       while value_size > 16 and _text_width(text, value_size, True) > value_width:

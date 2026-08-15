@@ -376,12 +376,13 @@ def main():
         scene["steer"] = max(-1.0, min(1.0, steer_output))
         cpu_values = list(_field(device_state, "cpuUsagePercent", []) or [])
         temp_values = list(_field(device_state, "cpuTempC", []) or [])
-        free_space = float(_field(device_state, "freeSpacePercent", 0.0) or 0.0)
+        engine_temp = float(_field(car_state, "engineOilTempC", -1000.0) or 0.0)
+        coolant_temp = float(_field(car_state, "engineCoolantTempC", -1000.0) or 0.0)
         scene["system"] = {
           "cpu": (sum(float(v) for v in cpu_values) / len(cpu_values)) if cpu_values else 0.0,
           "temp": (sum(float(v) for v in temp_values) / len(temp_values)) if temp_values else 0.0,
-          "memory": float(_field(device_state, "memoryUsagePercent", 0.0) or 0.0),
-          "disk": max(0.0, min(100.0, 100.0 - free_space)) if free_space > 0.0 else 0.0,
+          "engine_temp": engine_temp if -50.0 <= engine_temp <= 200.0 else None,
+          "coolant_temp": coolant_temp if -50.0 <= coolant_temp <= 200.0 else None,
           "cores": [float(v) for v in cpu_values[:8]],
         }
         scene["gear"] = _gear_label(car_state)

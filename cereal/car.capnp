@@ -209,6 +209,10 @@ struct CarState {
   highBeam @49 :Bool;
   frontFogLight @50 :Bool;
 
+  # powertrain temperatures in degrees Celsius
+  engineOilTempC @51 :Float32;
+  engineCoolantTempC @52 :Float32;
+
   # button presses
   buttonEvents @11 :List(ButtonEvent);
   leftBlinker @20 :Bool;
