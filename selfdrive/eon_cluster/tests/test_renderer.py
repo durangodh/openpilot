@@ -230,9 +230,9 @@ def test_vehicle_sprites_are_cached_realistic_and_shadow_free():
   for sprite in (base_sprite, lead_base, braking_base):
     assert not any(red > green + 50 and red > blue + 50 and alpha > 0
                    for red, green, blue, alpha in sprite.getdata())
-  assert (137, 140, 143, 255) in set(base_sprite.getdata())
+  assert (162, 165, 167, 255) in set(base_sprite.getdata())
   assert (201, 204, 206, 255) in set(lead_base.getdata())
-  assert sum((137, 140, 143)) < sum((201, 204, 206))
+  assert sum((162, 165, 167)) < sum((201, 204, 206))
   ego_sprite = renderer._vehicle_sprite("ego", 104, 96)
   assert ego_sprite is renderer._vehicle_sprite("ego", 105, 97)
   traffic_sprite = renderer._vehicle_sprite("traffic", 104, 96, marker=True)
@@ -281,7 +281,7 @@ def test_requested_vehicle_scale_keeps_lead_half_of_smaller_ego(monkeypatch):
   assert (lead_w, lead_h) == (max(24, int(round(ego_w * 0.5))),
                               max(24, int(round(ego_h * 0.5))))
   assert style == "lead"
-  assert ego_w <= 78 and ego_h <= 73
+  assert ego_w <= 70 and ego_h <= 65
 
   calls[:] = []
   renderer._draw_lead(frame, draw, panel,
@@ -289,8 +289,8 @@ def test_requested_vehicle_scale_keeps_lead_half_of_smaller_ego(monkeypatch):
                       True, 0, True)
   lead_bottom = calls[-1][2]
   _, ego_projected_y = renderer._project(panel, 2.4, 0.0)
-  ego_top = ego_projected_y - 30 - ego_h
-  assert lead_bottom <= ego_top - max(10, int((panel[3] - panel[1]) * 0.03))
+  ego_top = ego_projected_y - renderer._ego_vehicle_lift(panel) - ego_h
+  assert lead_bottom <= ego_top - max(20, int((panel[3] - panel[1]) * 0.075))
 
 
 def test_stationary_radar_uses_green_3d_world_block():
@@ -305,7 +305,7 @@ def test_stationary_radar_uses_green_3d_world_block():
   assert (54, 207, 121) in colors
 
 
-def test_blindspot_flags_draw_red_rear_quarter_dots():
+def test_blindspot_flags_draw_hollow_red_rear_triangles():
   renderer = HudRenderer(1920, 462, 50)
   scene = {"lanes": [], "edges": [], "leads": []}
   base = renderer.render(55.0, 88.0, True, {}, scene)
@@ -317,6 +317,16 @@ def test_blindspot_flags_draw_red_rear_quarter_dots():
   assert left.tobytes() != right.tobytes()
   assert (230, 45, 55) in set(left.getdata())
   assert (230, 45, 55) in set(right.getdata())
+
+  driving_right = int(1920 * renderer.DRIVE_RATIO) - 3
+  panel = (0, int(462 * 0.47), driving_right, 462)
+  ego_x, projected_y = renderer._project(panel, 2.4, 0.0)
+  ego_w, _ = renderer._ego_vehicle_size(panel)
+  triangle_size = max(7, int(round(max(25, renderer.height // 17) * 0.32)))
+  triangle_x = ego_x - (ego_w // 2 + triangle_size + max(15, renderer.height // 30))
+  triangle_y = projected_y - renderer._ego_vehicle_lift(panel) + max(5, triangle_size // 2)
+  # The center remains the original road color because only the border is drawn.
+  assert left.getpixel((triangle_x, triangle_y)) == base.getpixel((triangle_x, triangle_y))
 
 
 def test_tmap_panel_keeps_only_original_map_when_json_briefly_drops(tmp_path, monkeypatch):
