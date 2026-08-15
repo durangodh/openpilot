@@ -34,10 +34,12 @@ ENABLED = {
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 MAX_MAP_FRAME_BYTES = 2 * 1024 * 1024
 MAX_LANE_FRAME_BYTES = 512 * 1024
-# The external HUD displays the original map_main frame. Keep the phone from
-# producing redundant turn/lane image streams that would be drawn a second
-# time over the TMap image.
-OVERLAY_FILES = {}
+# Keep the right map panel clean, but receive TMap's native current-lane strip
+# for the driving panel. All turn, distance, next-guide and safety overlays
+# remain disabled.
+OVERLAY_FILES = {
+  "lane_bottom": "/dev/shm/carrot_navi_lane_bottom.png",
+}
 MAP_RENDER_WIDTH = 640
 MAP_RENDER_HEIGHT = 384
 MAP_RENDER_FPS = 5
@@ -192,7 +194,9 @@ def manifest():
         params = {"delivery_mode": "on_change_with_heartbeat", "interval_ms": 500,
                   "stale_timeout_ms": 30000}
       elif kind == "image":
-        params = {"format": "png", "max_fps": 1}
+        # TMap Activity-backed UI capture is coalesced to roughly 2 FPS. Do
+        # not request a higher rate; it only adds phone/EON work.
+        params = {"format": "png", "max_fps": 2}
       else:
         # Match the 768x462 EON information panel aspect ratio without asking
         # the EON to decode more pixels than the old portrait 480x540 stream.

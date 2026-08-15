@@ -10,6 +10,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 NAVI_STATE = "/dev/shm/carrot_navi_route.json"
 NAVI_MAP = "/dev/shm/carrot_navi_map.jpg"
+NAVI_LANE_BOTTOM = "/dev/shm/carrot_navi_lane_bottom.png"
 NAVI_MAX_AGE_MS = 35000
 NAVI_ROUTE_MAX_AGE_MS = 3000
 NAVI_ROUTE_GRACE_S = 2.0
@@ -1448,6 +1449,28 @@ class HudRenderer(object):
       _draw_text(draw, (center_x + dx, center_y + dy), text,
                  tpms_value_size, True, fill=(18, 18, 18), anchor="mm")
 
+  def _draw_tmap_lane_guidance(self, image, box):
+    """Place TMap's native current-lane PNG between the bottom cards."""
+    left, top, right, bottom = box
+    lead_card = self._bottom_card_box(box, "left")
+    tpms_card = self._bottom_card_box(box, "right")
+    margin = 8
+    gap_left = lead_card[2] + margin
+    gap_right = tpms_card[0] - margin
+    available_width = gap_right - gap_left
+    if available_width <= 0:
+      return
+
+    # A slim strip stays below the ego vehicle and never covers either card.
+    max_height = max(32, min(52, int((bottom - top) * 0.18)))
+    lane_image = _safe_contained_image(NAVI_LANE_BOTTOM,
+                                       (available_width, max_height))
+    if lane_image is None:
+      return
+    x = gap_left + (available_width - lane_image.width) // 2
+    y = bottom - margin - lane_image.height
+    image.paste(lane_image, (x, y), lane_image if lane_image.mode == "RGBA" else None)
+
   def _draw_lead_info(self, draw, box, leads, is_metric, language):
     card = self._bottom_card_box(box, "left")
     left, top, right, bottom = card
@@ -1545,6 +1568,7 @@ class HudRenderer(object):
       self._draw_blindspot_indicator(draw, world_box, "right")
     self._draw_lead_info(draw, world_box, scene.get("leads", []), is_metric, language)
     self._draw_tpms(draw, world_box, scene.get("tpms"))
+    self._draw_tmap_lane_guidance(image, world_box)
 
     self._draw_requested_status_header(image, draw, box, speed_kph, cruise_kph, enabled, scene, navi)
     self._draw_turn_signals(draw, world_box, scene.get("blinkers"))

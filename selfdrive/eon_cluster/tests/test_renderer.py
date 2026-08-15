@@ -370,13 +370,38 @@ def test_tmap_stream_is_wide_and_does_not_increase_pixel_load():
   streams = manifest()["streams"]
   enabled_images = {stream["name"] for stream in streams
                     if stream["kind"] == "image" and stream["enabled"]}
-  assert enabled_images == set()
+  assert enabled_images == {"lane_bottom"}
+  lane_stream = next(stream for stream in streams if stream["name"] == "lane_bottom")
+  assert lane_stream["params"]["max_fps"] == 2
   render_stream = next(stream for stream in streams if stream["name"] == "map_main")
   params = render_stream["params"]
   assert (params["width"], params["height"], params["fps"]) == (
     MAP_RENDER_WIDTH, MAP_RENDER_HEIGHT, MAP_RENDER_FPS)
   assert MAP_RENDER_WIDTH * MAP_RENDER_HEIGHT <= 480 * 540
   assert abs(float(MAP_RENDER_WIDTH) / MAP_RENDER_HEIGHT - 768.0 / 462.0) < 0.01
+
+
+def test_native_tmap_lane_strip_stays_between_bottom_cards(tmp_path, monkeypatch):
+  from PIL import Image, ImageChops
+  lane_path = tmp_path / "lane_bottom.png"
+  lane_color = (24, 126, 224, 255)
+  Image.new("RGBA", (560, 72), lane_color).save(str(lane_path))
+  monkeypatch.setattr(renderer_module, "NAVI_LANE_BOTTOM", str(lane_path))
+
+  renderer = HudRenderer(1920, 462, 50)
+  world_box = (0, int(462 * 0.47), int(1920 * renderer.DRIVE_RATIO) - 3, 462)
+  frame = Image.new("RGB", (1920, 462), (239, 241, 242))
+  base = frame.copy()
+  renderer._draw_tmap_lane_guidance(frame, world_box)
+  changed = ImageChops.difference(base, frame).getbbox()
+  assert changed is not None
+
+  lead_card = renderer._bottom_card_box(world_box, "left")
+  tpms_card = renderer._bottom_card_box(world_box, "right")
+  assert changed[0] >= lead_card[2] + 8
+  assert changed[2] <= tpms_card[0] - 8
+  assert changed[3] <= world_box[3] - 8
+  assert changed[3] - changed[1] <= 52
 
 
 def test_external_atc_box_matches_eon_gate_and_tpms_width(monkeypatch):
