@@ -7,19 +7,13 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.RectF;
-import android.hardware.display.DisplayManager;
-import android.hardware.display.VirtualDisplay;
-import android.media.Image;
-import android.media.ImageReader;
-import android.media.projection.MediaProjection;
-import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.SystemClock;
@@ -28,28 +22,27 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 public final class HudService extends Service {
-  static final String EXTRA_RESULT_CODE = "resultCode";
-  static final String EXTRA_RESULT_DATA = "resultData";
   private static final String CHANNEL = "remote_hud";
   private static final int WIDTH = 1920;
   private static final int HEIGHT = 462;
-  private static final int CAPTURE_W = 960;
-  private static final int CAPTURE_H = 540;
   private final AtomicBoolean running = new AtomicBoolean(false);
   private final AtomicReference<JSONObject> state = new AtomicReference<>(new JSONObject());
   private final AtomicReference<Bitmap> mapFrame = new AtomicReference<>();
-  private MediaProjection projection;
-  private VirtualDisplay virtualDisplay;
-  private ImageReader imageReader;
+  private final AtomicReference<InetAddress> eonAddress = new AtomicReference<>();
   private TurzxDisplay display;
   private Thread receiverThread;
+  private Thread mapThread;
   private Thread renderThread;
 
   @Override public void onCreate() {
@@ -63,45 +56,15 @@ public final class HudService extends Service {
 
   @Override public int onStartCommand(Intent intent, int flags, int startId) {
     if (running.get()) return START_NOT_STICKY;
-    if (intent == null) { stopSelf(); return START_NOT_STICKY; }
-    int code = intent.getIntExtra(EXTRA_RESULT_CODE, 0);
-    Intent data = intent.getParcelableExtra(EXTRA_RESULT_DATA);
-    if (code == 0 || data == null) { stopSelf(); return START_NOT_STICKY; }
     running.set(true);
-    MediaProjectionManager manager = (MediaProjectionManager)getSystemService(Context.MEDIA_PROJECTION_SERVICE);
-    projection = manager.getMediaProjection(code, data);
-    projection.registerCallback(new MediaProjection.Callback() {
-      @Override public void onStop() { stopSelf(); }
-    }, null);
-    startCapture();
     display = new TurzxDisplay(this);
     receiverThread = new Thread(this::receiveLoop, "hud-telemetry");
+    mapThread = new Thread(this::mapLoop, "hud-tmap");
     renderThread = new Thread(this::renderLoop, "hud-render");
     receiverThread.start();
+    mapThread.start();
     renderThread.start();
     return START_NOT_STICKY;
-  }
-
-  private void startCapture() {
-    imageReader = ImageReader.newInstance(CAPTURE_W, CAPTURE_H, PixelFormat.RGBA_8888, 2);
-    imageReader.setOnImageAvailableListener(reader -> {
-      Image image = reader.acquireLatestImage();
-      if (image == null) return;
-      try {
-        Image.Plane plane = image.getPlanes()[0];
-        int pixelStride = plane.getPixelStride();
-        int rowStride = plane.getRowStride();
-        int paddedWidth = CAPTURE_W + (rowStride - pixelStride * CAPTURE_W) / pixelStride;
-        Bitmap padded = Bitmap.createBitmap(paddedWidth, CAPTURE_H, Bitmap.Config.ARGB_8888);
-        padded.copyPixelsFromBuffer(plane.getBuffer());
-        Bitmap frame = Bitmap.createBitmap(padded, 0, 0, CAPTURE_W, CAPTURE_H);
-        padded.recycle();
-        Bitmap old = mapFrame.getAndSet(frame);
-        if (old != null && old != frame) old.recycle();
-      } finally { image.close(); }
-    }, null);
-    virtualDisplay = projection.createVirtualDisplay("EON-HUD-TMAP", CAPTURE_W, CAPTURE_H, getResources().getDisplayMetrics().densityDpi,
-        DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, imageReader.getSurface(), null, null);
   }
 
   private void receiveLoop() {
@@ -114,11 +77,40 @@ public final class HudService extends Service {
           DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
           socket.receive(packet);
           state.set(new JSONObject(new String(packet.getData(), packet.getOffset(), packet.getLength(), "UTF-8")));
+          eonAddress.set(packet.getAddress());
           byte[] ack = "HUD1".getBytes("US-ASCII");
           socket.send(new DatagramPacket(ack, ack.length, packet.getAddress(), packet.getPort()));
         } catch (java.net.SocketTimeoutException ignored) { }
       }
     } catch (Exception ignored) { }
+  }
+
+  private void mapLoop() {
+    while (running.get()) {
+      InetAddress address = eonAddress.get();
+      if (address == null) { SystemClock.sleep(500); continue; }
+      try (Socket socket = new Socket()) {
+        socket.connect(new InetSocketAddress(address, 7211), 2000);
+        socket.setSoTimeout(4000);
+        DataInputStream input = new DataInputStream(socket.getInputStream());
+        byte[] magic = new byte[4];
+        while (running.get() && address.equals(eonAddress.get())) {
+          input.readFully(magic);
+          if (magic[0] != 'M' || magic[1] != 'A' || magic[2] != 'P' || magic[3] != '1') throw new Exception("bad map frame");
+          int length = input.readInt();
+          if (length <= 4 || length > 2 * 1024 * 1024) throw new Exception("bad map size");
+          byte[] jpeg = new byte[length];
+          input.readFully(jpeg);
+          Bitmap frame = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length);
+          if (frame != null) {
+            synchronized (mapFrame) {
+              Bitmap old = mapFrame.getAndSet(frame);
+              if (old != null && old != frame) old.recycle();
+            }
+          }
+        }
+      } catch (Exception ignored) { SystemClock.sleep(500); }
+    }
   }
 
   private void renderLoop() {
@@ -129,7 +121,8 @@ public final class HudService extends Service {
       next = now + 125;
       try {
         if (!display.openOrRequestPermission()) { SystemClock.sleep(500); continue; }
-        Bitmap frame = render(state.get(), mapFrame.get());
+        Bitmap frame;
+        synchronized (mapFrame) { frame = render(state.get(), mapFrame.get()); }
         ByteArrayOutputStream bytes = new ByteArrayOutputStream(180000);
         frame.compress(Bitmap.CompressFormat.JPEG, 55, bytes);
         frame.recycle();
@@ -251,10 +244,9 @@ public final class HudService extends Service {
   @Override public void onDestroy() {
     running.set(false);
     if (display != null) display.close();
-    if (virtualDisplay != null) virtualDisplay.release();
-    if (imageReader != null) imageReader.close();
-    if (projection != null) projection.stop();
-    Bitmap map = mapFrame.getAndSet(null); if (map != null) map.recycle();
+    synchronized (mapFrame) {
+      Bitmap map = mapFrame.getAndSet(null); if (map != null) map.recycle();
+    }
     super.onDestroy();
   }
 

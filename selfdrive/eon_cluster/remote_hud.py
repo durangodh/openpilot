@@ -7,8 +7,10 @@ or USB traffic happens on the EON.
 
 import json
 import math
+import os
 import signal
 import socket
+import struct
 import time
 
 import cereal.messaging as messaging
@@ -18,7 +20,58 @@ from common.params import Params
 PARAM_ENABLED = "EonClusterHudRemote"
 PARAM_CONNECTED = "EonClusterHudRemoteConnected"
 PORT = 7210
+MAP_PORT = 7211
+MAP_FILE = "/dev/shm/carrot_navi_map.jpg"
+MAP_MAX_BYTES = 2 * 1024 * 1024
 FPS = 10
+
+
+class MapFrameServer(object):
+  """Forward the already-compressed TMAP JPEG without decoding it on EON."""
+
+  def __init__(self):
+    self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    self.listener.bind(("0.0.0.0", MAP_PORT))
+    self.listener.listen(1)
+    self.listener.setblocking(False)
+    self.client = None
+    self.signature = None
+
+  def poll(self):
+    if self.client is None:
+      try:
+        self.client, _ = self.listener.accept()
+        self.client.settimeout(0.05)
+        self.signature = None
+      except BlockingIOError:
+        return
+    try:
+      stat = os.stat(MAP_FILE)
+      signature = (getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9)), stat.st_size)
+      if signature == self.signature or stat.st_size <= 4 or stat.st_size > MAP_MAX_BYTES:
+        return
+      with open(MAP_FILE, "rb") as image_file:
+        jpeg = image_file.read()
+      if not (jpeg.startswith(b"\xff\xd8") and jpeg.endswith(b"\xff\xd9")):
+        return
+      self.client.sendall(b"MAP1" + struct.pack(">I", len(jpeg)) + jpeg)
+      self.signature = signature
+    except (IOError, OSError, socket.error):
+      try:
+        self.client.close()
+      except Exception:
+        pass
+      self.client = None
+      self.signature = None
+
+  def close(self):
+    if self.client is not None:
+      try:
+        self.client.close()
+      except Exception:
+        pass
+    self.listener.close()
 
 
 def _field(obj, name, default=0):
@@ -124,6 +177,7 @@ def main():
   sock.setblocking(False)
   last_ack = 0.0
   connected = False
+  map_server = MapFrameServer()
   while running[0]:
     if not params.get_bool(PARAM_ENABLED):
       if connected:
@@ -147,6 +201,7 @@ def main():
       if next_connected != connected:
         connected = next_connected
         params.put_bool(PARAM_CONNECTED, connected)
+      map_server.poll()
     except Exception as exc:
       if connected:
         connected = False
@@ -154,6 +209,7 @@ def main():
       print("remote HUD send failed: %s" % exc, flush=True)
     time.sleep(max(0.0, 1.0 / FPS - (time.monotonic() - started)))
   params.put_bool(PARAM_CONNECTED, False)
+  map_server.close()
   sock.close()
 
 
