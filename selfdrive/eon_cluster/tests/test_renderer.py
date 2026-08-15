@@ -323,8 +323,8 @@ def test_blindspot_flags_draw_hollow_red_rear_triangles():
   ego_x, projected_y = renderer._project(panel, 2.4, 0.0)
   ego_w, _ = renderer._ego_vehicle_size(panel)
   triangle_size = max(7, int(round(max(25, renderer.height // 17) * 0.32)))
-  triangle_x = ego_x - (ego_w // 2 + triangle_size + max(15, renderer.height // 30))
-  triangle_y = projected_y - renderer._ego_vehicle_lift(panel) + max(5, triangle_size // 2)
+  triangle_x = ego_x - (ego_w // 2 + triangle_size + max(25, renderer.height // 22))
+  triangle_y = projected_y - renderer._ego_vehicle_lift(panel) + max(13, triangle_size)
   # The center remains the original road color because only the border is drawn.
   assert left.getpixel((triangle_x, triangle_y)) == base.getpixel((triangle_x, triangle_y))
 
