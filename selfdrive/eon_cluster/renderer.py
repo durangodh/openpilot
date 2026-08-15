@@ -13,6 +13,7 @@ NAVI_MAP = "/dev/shm/carrot_navi_map.jpg"
 NAVI_MAX_AGE_MS = 35000
 NAVI_ROUTE_MAX_AGE_MS = 3000
 NAVI_ROUTE_GRACE_S = 2.0
+ATC_CARD_GRACE_S = 3.0
 ATC_ASSET_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "images")
 ATC_IMAGE_FILES = {
   ("turn", -1): os.path.join(ATC_ASSET_DIR, "turn_l.png"),
@@ -477,6 +478,8 @@ class HudRenderer(object):
     self.set_jpeg_quality(jpeg_quality)
     self.mirror = False
     self._route_visible_until = 0.0
+    self._atc_visible_until = 0.0
+    self._atc_navi_cache = {}
     # Cache the static carrot-style road surface per panel size.
     self._road_backgrounds = {}
     # Display-only temporal history. Model coordinates remain untouched; only
@@ -965,7 +968,7 @@ class HudRenderer(object):
     ego_w, ego_h = self._ego_vehicle_size(panel)
     ego_bottom = projected_y - 30
     wheel_radius = max(25, self.height // 17)
-    dot_radius = max(10, int(round(wheel_radius * 0.50)))
+    dot_radius = max(9, int(round(wheel_radius * 0.45)))
     dot_x = ego_x + direction * (ego_w // 2 + dot_radius + 5)
     lower_offset = max(6, self.height // 58)
     dot_y = ego_bottom - max(dot_radius, int(round(ego_h * 0.22))) + lower_offset
@@ -1217,6 +1220,17 @@ class HudRenderer(object):
 
     separator_y = top + max(124, int(self.height * 0.28))
     atc_box_active = _eon_atc_box_active(navi)
+    atc_navi = navi
+    monotonic_now = time.monotonic()
+    if atc_box_active:
+      # Hold the last complete ATC payload across atomic JSON replacement.
+      # Only the direction icon below is allowed to blink; the card and text
+      # must not disappear on a transient empty/stale navigation frame.
+      self._atc_visible_until = monotonic_now + ATC_CARD_GRACE_S
+      self._atc_navi_cache = navi
+    elif monotonic_now < self._atc_visible_until and self._atc_navi_cache:
+      atc_box_active = True
+      atc_navi = self._atc_navi_cache
     draw.line((left + 18, separator_y, right - 18, separator_y),
               fill=(202, 207, 210), width=1)
 
@@ -1253,7 +1267,7 @@ class HudRenderer(object):
       _draw_text(draw, (right_x, second_row_y + max(39, self.height // 11)), distance_text,
                  camera_distance_size, True, fill=(18, 18, 18), anchor="ma")
     if atc_box_active:
-      self._draw_atc_box(image, draw, box, navi, scene)
+      self._draw_atc_box(image, draw, box, atc_navi, scene)
 
   def _draw_driving_mode(self, draw, box, mode):
     modes = {

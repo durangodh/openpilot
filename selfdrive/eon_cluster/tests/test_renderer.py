@@ -397,7 +397,9 @@ def test_external_atc_box_matches_eon_gate_and_tpms_width(monkeypatch):
 
   # ATC stacks above TPMS and never removes the camera indicator.
   calls = []
+  monotonic_clock = [100.0]
   monkeypatch.setattr(renderer_module.time, "time", lambda: now_ms / 1000.0)
+  monkeypatch.setattr(renderer_module.time, "monotonic", lambda: monotonic_clock[0])
   monkeypatch.setattr(renderer, "_draw_atc_box", lambda *_args: calls.append("atc"))
   monkeypatch.setattr(renderer, "_draw_speed_limit", lambda *_args: calls.append("camera"))
   from PIL import Image, ImageDraw
@@ -409,6 +411,13 @@ def test_external_atc_box_matches_eon_gate_and_tpms_width(monkeypatch):
 
   calls[:] = []
   inactive = dict(active, route={"remain_distance_m": 0, "remain_time_sec": 0})
+  renderer._draw_requested_status_header(
+    frame, ImageDraw.Draw(frame), driving_box, 82.0, 90.0, True,
+    {"is_metric": True, "atc_mode": 2}, inactive)
+  assert calls == ["camera", "atc"]
+
+  calls[:] = []
+  monotonic_clock[0] += renderer_module.ATC_CARD_GRACE_S + 0.1
   renderer._draw_requested_status_header(
     frame, ImageDraw.Draw(frame), driving_box, 82.0, 90.0, True,
     {"is_metric": True, "atc_mode": 2}, inactive)
