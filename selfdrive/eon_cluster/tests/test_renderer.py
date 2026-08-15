@@ -1,10 +1,12 @@
 import json
 import os
 import time
+from types import SimpleNamespace
 
 import selfdrive.eon_cluster.renderer as renderer_module
 from selfdrive.eon_cluster.renderer import HudRenderer, read_navi_state
-from selfdrive.carrot_navi_server import MAP_RENDER_FPS, MAP_RENDER_HEIGHT, MAP_RENDER_WIDTH, manifest
+from selfdrive.eon_cluster.scene import extract_hud_scene
+from selfdrive.carrot_navi_server import MAP_RENDER_FPS, MAP_RENDER_HEIGHT, MAP_RENDER_WIDTH, NaviState, manifest
 
 
 def test_stale_navi_state_is_rejected(tmp_path):
@@ -17,6 +19,56 @@ def test_fresh_navi_state_is_loaded(tmp_path):
   path = tmp_path / "state.json"
   path.write_text(json.dumps({"updated_at_ms": int(time.time() * 1000), "route": {"remain_distance_m": 1000}}))
   assert read_navi_state(str(path))["route"]["remain_distance_m"] == 1000
+
+
+def test_unchanged_navi_state_uses_cached_json(tmp_path, monkeypatch):
+  path = tmp_path / "state.json"
+  path.write_text(json.dumps({"updated_at_ms": int(time.time() * 1000), "route": {"remain_distance_m": 900}}))
+  renderer_module._NAVI_STATE_CACHE.clear()
+  real_open = open
+  reads = []
+
+  def counting_open(*args, **kwargs):
+    if str(args[0]) == str(path):
+      reads.append(str(args[0]))
+    return real_open(*args, **kwargs)
+
+  monkeypatch.setattr(renderer_module, "open", counting_open, raising=False)
+  assert read_navi_state(str(path))["route"]["remain_distance_m"] == 900
+  assert read_navi_state(str(path))["route"]["remain_distance_m"] == 900
+  assert len(reads) == 1
+
+
+def test_hud_scene_does_not_read_hidden_lane_geometry():
+  class HudModel(object):
+    position = SimpleNamespace(x=[0.0, 10.0, 20.0], y=[0.0, 0.1, 0.3])
+
+    @property
+    def laneLines(self):
+      raise AssertionError("external HUD must not extract hidden lane lines")
+
+    @property
+    def roadEdges(self):
+      raise AssertionError("external HUD must not extract hidden road edges")
+
+  lead = SimpleNamespace(status=True, dRel=42.0, yRel=0.2, vRel=-1.0)
+  scene = extract_hud_scene(HudModel(), SimpleNamespace(leadOne=lead, leadTwo=SimpleNamespace(status=False)))
+  assert scene["path"] == [(0.0, 0.0), (10.0, 0.1), (20.0, 0.3)]
+  assert scene["lanes"] == [] and scene["edges"] == []
+  assert scene["leads"][0]["distance"] == 42.0
+
+
+def test_navi_state_coalesces_burst_writes(monkeypatch):
+  writes = []
+  monkeypatch.setattr(NaviState, "_write_state", staticmethod(lambda output: writes.append(output)))
+  state = NaviState()
+  for speed in range(20):
+    state.update("speed", {"value": speed})
+  deadline = time.monotonic() + 0.3
+  while (not writes or writes[-1].get("speed", {}).get("value") != 19) and time.monotonic() < deadline:
+    time.sleep(0.01)
+  assert writes[-1]["speed"]["value"] == 19
+  assert len(writes) <= 2
 
 
 def test_route_activity_rejects_stale_or_ended_destination():

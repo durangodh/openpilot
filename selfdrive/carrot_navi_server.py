@@ -43,13 +43,44 @@ OVERLAY_FILES = {
 MAP_RENDER_WIDTH = 640
 MAP_RENDER_HEIGHT = 384
 MAP_RENDER_FPS = 5
+STATE_WRITE_INTERVAL_S = 0.05
 
 
 class NaviState(object):
   def __init__(self):
     self.lock = threading.Lock()
+    self.condition = threading.Condition(self.lock)
     self.values = {}
     self.updated_at = {}
+    self.dirty = False
+    self.last_write = 0.0
+    threading.Thread(target=self._writer_loop, name="carrot-navi-state", daemon=True).start()
+
+  @staticmethod
+  def _write_state(output):
+    tmp = STATE_FILE + ".tmp"
+    try:
+      with open(tmp, "w") as f:
+        json.dump(output, f, ensure_ascii=False, separators=(",", ":"))
+      os.rename(tmp, STATE_FILE)
+    except IOError:
+      pass
+
+  def _writer_loop(self):
+    while True:
+      with self.condition:
+        while not self.dirty:
+          self.condition.wait()
+        delay = self.last_write + STATE_WRITE_INTERVAL_S - time.monotonic()
+        if delay > 0.0:
+          self.condition.wait(delay)
+          continue
+        output = dict(self.values)
+        output["updated_at_ms"] = max(self.updated_at.values()) if self.updated_at else 0
+        output["stream_updated_at_ms"] = dict(self.updated_at)
+        self.dirty = False
+        self.last_write = time.monotonic()
+      self._write_state(output)
 
   def update(self, name, value):
     if name not in JSON_NAMES:
@@ -58,16 +89,8 @@ class NaviState(object):
       self.values[name] = value
       now_ms = int(time.time() * 1000)
       self.updated_at[name] = now_ms
-      output = dict(self.values)
-      output["updated_at_ms"] = now_ms
-      output["stream_updated_at_ms"] = dict(self.updated_at)
-    tmp = STATE_FILE + ".tmp"
-    try:
-      with open(tmp, "w") as f:
-        json.dump(output, f, ensure_ascii=False, separators=(",", ":"))
-      os.rename(tmp, STATE_FILE)
-    except IOError:
-      pass
+      self.dirty = True
+      self.condition.notify()
 
   def update_map(self, payload):
     if not payload or len(payload) > MAX_MAP_FRAME_BYTES:

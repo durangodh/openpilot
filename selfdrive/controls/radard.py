@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib
 import math
+import time
 from collections import defaultdict, deque
 
 import cereal.messaging as messaging
@@ -103,9 +104,14 @@ class RadarD():
 
     self.ready = False
     self.mix_radar_info = False
+    self.params = Params()
+    self.next_mix_radar_info_read = 0.0
 
   def update(self, sm, rr):
-    self.mix_radar_info = Params().get_bool("MixRadarInfo")
+    now = time.monotonic()
+    if now >= self.next_mix_radar_info_read:
+      self.mix_radar_info = self.params.get_bool("MixRadarInfo")
+      self.next_mix_radar_info_read = now + 1.0
     self.current_time = 1e-9*max(sm.logMonoTime.values())
 
     if sm.updated['carState']:

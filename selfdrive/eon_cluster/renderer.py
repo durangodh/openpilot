@@ -37,6 +37,7 @@ _HANGUL_BITMAP_ATLAS = None
 _HANGUL_BITMAP_ATLAS_LOAD_ATTEMPTED = False
 _IMAGE_CACHE = {}
 _FIT_CACHE = {}
+_NAVI_STATE_CACHE = {}
 
 
 def _font(size, bold=False):
@@ -289,10 +290,24 @@ def _draw_stroked_text(draw, xy, text, size, bold=False, fill=(255, 255, 255),
 
 def read_navi_state(path=NAVI_STATE):
   try:
-    with open(path, "r") as f:
-      state = json.load(f)
-  except (IOError, ValueError):
+    stat = os.stat(path)
+    signature = (getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9)), stat.st_size)
+  except OSError:
+    _NAVI_STATE_CACHE.pop(path, None)
     return {}
+
+  cached = _NAVI_STATE_CACHE.get(path)
+  if cached is not None and cached[0] == signature:
+    state = cached[1]
+  else:
+    try:
+      with open(path, "r") as f:
+        state = json.load(f)
+    except (IOError, ValueError):
+      _NAVI_STATE_CACHE.pop(path, None)
+      return {}
+    _NAVI_STATE_CACHE[path] = (signature, state)
+
   updated_at = int(state.get("updated_at_ms", 0) or 0)
   if updated_at <= 0 or abs(int(time.time() * 1000) - updated_at) > NAVI_MAX_AGE_MS:
     return {}
@@ -1679,7 +1694,8 @@ class HudRenderer(object):
     rows = (
       ("SPEED", "%.0f %s" % (display_speed, speed_unit)),
       ("CRUISE", "--" if cruise_kph <= 0 or cruise_kph >= 255 else "%.0f %s" % (display_cruise, speed_unit)),
-      ("MODEL", "%d lanes / %d edges" % (len(scene.get("lanes", [])), len(scene.get("edges", [])))),
+      ("MODEL", "%d lanes / %d edges" % (int(scene.get("lane_count", len(scene.get("lanes", []))) or 0),
+                                           int(scene.get("edge_count", len(scene.get("edges", []))) or 0))),
       ("RADAR", "%d lead%s" % (lead_count, "" if lead_count == 1 else "s")),
       ("NAVI", "LIVE" if scene.get("navi_live") else "WAIT"),
     )

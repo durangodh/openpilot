@@ -11,7 +11,7 @@ import cereal.messaging as messaging
 from common.params import Params
 
 from selfdrive.eon_cluster.renderer import HudRenderer, read_navi_state
-from selfdrive.eon_cluster.scene import extract_driving_scene, extract_radar_points
+from selfdrive.eon_cluster.scene import extract_hud_scene, extract_radar_points
 from selfdrive.eon_cluster.trip import TripTracker
 PARAM_ENABLED = "EonClusterHud"
 PARAM_CONNECTED = "EonClusterHudConnected"
@@ -79,6 +79,16 @@ def _param_bool(params, key, default=False):
     return raw not in (b"0", "0", b"", "", False)
   except Exception:
     return bool(default)
+
+
+def _scene_settings(params):
+  return ({
+    "screen_mode": _param_int(params, PARAM_SCREEN_MODE, 1, 1, 3),
+    "theme": _param_int(params, PARAM_THEME, 0, 0, 2),
+    "language": "en" if _param_int(params, PARAM_LANGUAGE, 0, 0, 1) == 1 else "ko",
+    "is_metric": _param_bool(params, "IsMetric", True),
+    "radar_info": _param_int(params, PARAM_RADAR_INFO, 4, 0, 4),
+  }, _param_int(params, PARAM_RADAR_DISPLAY, 1, 0, 1) == 1)
 
 
 def _orientation(params):
@@ -171,6 +181,14 @@ def main():
   next_settings_read = 0.0
   active_fps = 10
   active_atc_mode = 0
+  active_scene_settings = {
+    "screen_mode": 1,
+    "theme": 0,
+    "language": "ko",
+    "is_metric": True,
+    "radar_info": 4,
+  }
+  active_radar_display = True
   footer = {"ip": "", "fps": 0.0}
   paused = False
   next_footer = 0.0
@@ -222,6 +240,7 @@ def main():
           next_settings_read = now + SETTINGS_POLL_INTERVAL_S
           active_fps = fps
           active_atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
+          active_scene_settings, active_radar_display = _scene_settings(params)
           paused = False
           print("EON cluster connected: pid=0x%04x, %dx%d, %d fps" %
                 (display.product_id, display.landscape_size[0], display.landscape_size[1], fps), flush=True)
@@ -246,6 +265,7 @@ def main():
           renderer.set_mirror(_param_bool(params, PARAM_MIRROR))
           active_fps = next_fps
           active_atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
+          active_scene_settings, active_radar_display = _scene_settings(params)
           next_settings_read = now + SETTINGS_POLL_INTERVAL_S
         except Exception as exc:
           print("EON cluster live setting failed: %s" % exc, flush=True)
@@ -300,7 +320,8 @@ def main():
       cruise_kph = _hud_cruise_kph(sm, controls_state, car_control)
       enabled = bool(_field(controls_state, "enabled", False))
       try:
-        scene = extract_driving_scene(sm["modelV2"], sm["radarState"])
+        scene = extract_hud_scene(sm["modelV2"], sm["radarState"],
+                                  active_scene_settings["screen_mode"] == 2)
         speed_kph = speed_mps * 3.6
         accels = _field(sm["longitudinalPlan"], "accels", [])
         accel = float(accels[0]) if accels is not None and len(accels) else 0.0
@@ -341,14 +362,10 @@ def main():
         scene["cruise_gap"] = cruise_gap if 1 <= cruise_gap <= 4 else 0
         driving_mode = int(_field(controls_state, "myDrivingMode", 3) or 3)
         scene["driving_mode"] = driving_mode if 1 <= driving_mode <= 4 else 3
-        scene["screen_mode"] = _param_int(params, PARAM_SCREEN_MODE, 1, 1, 3)
-        scene["theme"] = _param_int(params, PARAM_THEME, 0, 0, 2)
-        scene["language"] = "en" if _param_int(params, PARAM_LANGUAGE, 0, 0, 1) == 1 else "ko"
-        scene["is_metric"] = _param_bool(params, "IsMetric", True)
+        scene.update(active_scene_settings)
         scene["energy_mode"] = _energy_mode(sm["carParams"])
-        scene["radar_info"] = _param_int(params, PARAM_RADAR_INFO, 4, 0, 4)
         scene["atc_mode"] = active_atc_mode
-        if _param_int(params, PARAM_RADAR_DISPLAY, 1, 0, 1) == 1:
+        if active_radar_display:
           scene["radar_points"] = extract_radar_points(sm["liveTracks"])
         scene["accel"] = accel
         scene["footer"] = footer

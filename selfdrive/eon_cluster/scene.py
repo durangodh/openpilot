@@ -110,6 +110,32 @@ def extract_radar_points(live_tracks):
   return points[:MAX_RADAR_POINTS]
 
 
+def extract_hud_scene(model, radar_state, include_debug_counts=False):
+  """Extract only geometry that the external HUD actually paints."""
+  leads = []
+  for name in ("leadOne", "leadTwo"):
+    lead = _lead(radar_state, name)
+    if lead is not None:
+      leads.append(lead)
+
+  scene = {
+    "path": _point_series(_field(model, "position")),
+    "lanes": [],
+    "edges": [],
+    "leads": leads,
+  }
+  if include_debug_counts:
+    try:
+      scene["lane_count"] = len(_field(model, "laneLines", []) or [])
+    except TypeError:
+      scene["lane_count"] = 0
+    try:
+      scene["edge_count"] = len(_field(model, "roadEdges", []) or [])
+    except TypeError:
+      scene["edge_count"] = 0
+  return scene
+
+
 def extract_driving_scene(model, radar_state):
   raw_lane_probabilities = _field(model, "laneLineProbs", [])
   lane_probabilities = list(raw_lane_probabilities) if raw_lane_probabilities is not None else []
