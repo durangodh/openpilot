@@ -76,5 +76,11 @@ def test_eon_and_s9_hud_outputs_are_mutually_selected():
   assert "return int(raw) != 0 if raw is not None else True" in remote
   assert 'PythonProcess("eon_cluster", "selfdrive.eon_cluster.eon_cluster", enabled=EON' in processes
   assert 'PythonProcess("remote_hud", "selfdrive.eon_cluster.remote_hud", enabled=EON' in processes
-  assert '("EonClusterHudOutputMode", "1")' in manager
+  # Keep manager.py unchanged from older EON installs so git pull does not
+  # collide with common local default-value edits. remote_hud performs the
+  # one-time migration instead.
+  assert '("EonClusterHudOutputMode", "1")' not in manager
+  assert "_migrate_legacy_remote_mode(params)" in remote
+  assert 'params.put(PARAM_OUTPUT_MODE, "1")' in remote
+  assert "params.put_bool(PARAM_ENABLED, True)" in remote
   assert '{"EonClusterHudOutputMode", PERSISTENT}' in params

@@ -157,6 +157,13 @@ def _remote_output_enabled(params):
     return True
 
 
+def _migrate_legacy_remote_mode(params):
+  """Preserve the always-on S9 behavior used before output modes existed."""
+  if params.get(PARAM_OUTPUT_MODE) is None:
+    params.put(PARAM_OUTPUT_MODE, "1")
+    params.put_bool(PARAM_ENABLED, True)
+
+
 def _line_points(position, limit=33):
   xs = list(_field(position, "x", []) or [])
   ys = list(_field(position, "y", []) or [])
@@ -254,6 +261,7 @@ def _packet(sm):
 
 def main():
   params = Params()
+  _migrate_legacy_remote_mode(params)
   running = [True]
   signal.signal(signal.SIGINT, lambda *_: running.__setitem__(0, False))
   signal.signal(signal.SIGTERM, lambda *_: running.__setitem__(0, False))

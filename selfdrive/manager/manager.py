@@ -92,7 +92,6 @@ def manager_init() -> None:
     ("ShowGearAnimation", "1"),
     ("ShowCarrotHud", "1"),
     ("EonClusterHud", "0"),
-    ("EonClusterHudOutputMode", "1"),
     ("EonClusterHudFps", "10"),
     ("EonClusterHudMapFps", "5"),
     ("EonClusterHudBrightness", "65"),
