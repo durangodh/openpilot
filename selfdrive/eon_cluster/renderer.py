@@ -744,33 +744,107 @@ class HudRenderer(object):
       if quad:
         draw.polygon(quad, fill=color)
 
+  def _smooth_path_samples(self, points, near_start=2.2, step_m=2.0):
+    """Resample and spatially soften model points without adding time lag."""
+    ordered = []
+    for longitudinal, lateral in sorted(points, key=lambda point: float(point[0])):
+      longitudinal, lateral = float(longitudinal), float(lateral)
+      if not (math.isfinite(longitudinal) and math.isfinite(lateral)):
+        continue
+      if longitudinal < 0.0 or longitudinal > self.MAX_DISTANCE_M:
+        continue
+      if ordered and abs(longitudinal - ordered[-1][0]) < 1e-3:
+        ordered[-1] = (longitudinal, lateral)
+      else:
+        ordered.append((longitudinal, lateral))
+    if len(ordered) < 2:
+      return []
+
+    start = max(float(near_start), ordered[0][0])
+    end = min(self.MAX_DISTANCE_M, ordered[-1][0])
+    if end <= start:
+      return []
+
+    # The model curve is relatively sparse in screen space. Two-metre samples
+    # remove visible straight joins while adding only about 60 cheap points.
+    samples = []
+    longitudinal = start
+    while longitudinal < end:
+      samples.append((longitudinal, self._interpolate_lateral(ordered, longitudinal)))
+      longitudinal += max(0.5, float(step_m))
+    samples.append((end, self._interpolate_lateral(ordered, end)))
+
+    if len(samples) < 5:
+      return samples
+
+    # A single symmetric 1-4-6-4-1 spatial pass rounds interpolation corners.
+    # It does not use older frames, so steering response is not delayed.
+    laterals = [sample[1] for sample in samples]
+    softened = []
+    for index, (longitudinal, lateral) in enumerate(samples):
+      if index < 2 or index >= len(samples) - 2:
+        softened.append((longitudinal, lateral))
+      else:
+        filtered = (laterals[index - 2] + 4.0 * laterals[index - 1] +
+                    6.0 * laterals[index] + 4.0 * laterals[index + 1] +
+                    laterals[index + 2]) / 16.0
+        softened.append((longitudinal, filtered))
+    return softened
+
+  @staticmethod
+  def _parallel_path_edges(samples, half_width=1.75):
+    """Offset a center curve along its normal so bends keep a stable width."""
+    left_edge, right_edge = [], []
+    for index, (longitudinal, lateral) in enumerate(samples):
+      previous = samples[max(0, index - 1)]
+      following = samples[min(len(samples) - 1, index + 1)]
+      tangent_x = max(1e-3, following[0] - previous[0])
+      tangent_y = following[1] - previous[1]
+      normal_length = math.hypot(tangent_x, tangent_y)
+      normal_x = -tangent_y / normal_length
+      normal_y = tangent_x / normal_length
+      left_edge.append((longitudinal + normal_x * half_width,
+                        lateral + normal_y * half_width))
+      right_edge.append((longitudinal - normal_x * half_width,
+                         lateral - normal_y * half_width))
+    return left_edge, right_edge
+
+  def _draw_perspective_path_edge(self, draw, panel, points, color):
+    """Draw one smooth boundary, thick nearby and thin near the horizon."""
+    if len(points) < 2:
+      return
+    projected = [self._project(panel, longitudinal, lateral)
+                 for longitudinal, lateral in points]
+    widths = []
+    for longitudinal, _ in points:
+      depth = _clamp(longitudinal / self.MAX_DISTANCE_M, 0.0, 1.0)
+      widths.append(1.5 + 3.8 * math.pow(1.0 - depth, 1.15))
+
+    for index in range(len(projected) - 1):
+      quad = self._segment_quad(projected[index], projected[index + 1],
+                                widths[index], widths[index + 1])
+      if quad:
+        draw.polygon(quad, fill=color)
+    # Small round joins hide segment seams without full-frame supersampling.
+    for point, width in zip(projected[1:-1], widths[1:-1]):
+      radius = max(1.0, width * 0.5)
+      draw.ellipse((point[0] - radius, point[1] - radius,
+                    point[0] + radius, point[1] + radius), fill=color)
+
   def _draw_path(self, image, draw, panel, points, enabled=False, scene=None):
-    """Draw two blue lane-width boundaries with no center trajectory fill."""
+    """Draw a smooth openpilot-style pair of blue trajectory boundaries."""
     if not enabled:
       return
     if len(points) < 2:
       points = [(0.0, 0.0), (12.0, 0.0), (30.0, 0.0), (60.0, 0.0), (100.0, 0.0)]
-    ordered = sorted((float(longitudinal), float(lateral)) for longitudinal, lateral in points)
-    near_start = 2.2
-    samples = []
-    if ordered and ordered[-1][0] >= near_start:
-      samples.append((near_start, self._interpolate_lateral(ordered, near_start)))
-    samples.extend((longitudinal, lateral) for longitudinal, lateral in ordered if longitudinal > near_start)
-    left_edge, right_edge = [], []
-    for longitudinal, lateral in samples:
-      if 0.0 <= longitudinal <= self.MAX_DISTANCE_M:
-        # Keep the model path as the centerline, but place the visible lines at
-        # the approximate lane boundaries requested by the cluster sketch.
-        half_width = 1.75
-        left_edge.append(self._project(panel, longitudinal, lateral + half_width))
-        right_edge.append(self._project(panel, longitudinal, lateral - half_width))
-    # Slightly heavier boundaries remain cheap to draw and read more clearly
-    # after JPEG scaling on the external HUD.
-    width = max(4, int(round(max(3, self.height // 110) * 1.25)))
-    if len(left_edge) >= 2:
-      draw.line(left_edge, fill=(24, 126, 224), width=width, joint="curve")
-    if len(right_edge) >= 2:
-      draw.line(right_edge, fill=(24, 126, 224), width=width, joint="curve")
+    samples = self._smooth_path_samples(points)
+    if len(samples) < 2:
+      return
+
+    left_edge, right_edge = self._parallel_path_edges(samples)
+    color = (24, 126, 224)
+    self._draw_perspective_path_edge(draw, panel, left_edge, color)
+    self._draw_perspective_path_edge(draw, panel, right_edge, color)
 
   def _build_vehicle_base_sprite(self, style, braking=False, marker=False):
     """Build a wide rear-perspective sedan matching the reference cluster."""
