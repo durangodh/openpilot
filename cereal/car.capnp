@@ -213,6 +213,9 @@ struct CarState {
   engineOilTempC @51 :Float32;
   engineCoolantTempC @52 :Float32;
 
+  # cluster distance-to-empty estimate in kilometres
+  distanceToEmptyKm @53 :Float32;
+
   # button presses
   buttonEvents @11 :List(ButtonEvent);
   leftBlinker @20 :Bool;

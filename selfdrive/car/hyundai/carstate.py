@@ -41,6 +41,7 @@ class CarState(CarStateBase):
     self.cruise_unavail_cnt = 0
     self.engine_oil_temp_seen = False
     self.engine_coolant_temp_seen = False
+    self.distance_to_empty_seen = False
 
     self.apply_steer = 0.
     
@@ -77,6 +78,10 @@ class CarState(CarStateBase):
                         cp.vl["CGW2"]["CF_Gway_RLDrSw"], cp.vl["CGW2"]["CF_Gway_RRDrSw"]])
 
     ret.seatbeltUnlatched = cp.vl["CGW1"]["CF_Gway_DrvSeatBeltSw"] == 0
+
+    if cp.vl_all["CLU13"]["CF_Clu_DTE"]:
+      self.distance_to_empty_seen = True
+    ret.distanceToEmptyKm = cp.vl["CLU13"]["CF_Clu_DTE"] if self.distance_to_empty_seen else -1.
 
     self.is_set_speed_in_mph = bool(cp.vl["CLU11"]["CF_Clu_SPEED_UNIT"])
     self.speed_conv_to_ms = CV.MPH_TO_MS if self.is_set_speed_in_mph else CV.KPH_TO_MS
@@ -328,6 +333,8 @@ class CarState(CarStateBase):
       ("CF_Clu_CluInfo", "CLU11"),
       ("CF_Clu_AmpInfo", "CLU11"),
       ("CF_Clu_AliveCnt1", "CLU11"),
+
+      ("CF_Clu_DTE", "CLU13"),
 
       ("ACCEnable", "TCS13"),
       ("BrakeLight", "TCS13"),

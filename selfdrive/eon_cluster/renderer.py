@@ -1350,6 +1350,56 @@ class HudRenderer(object):
 
       x += icon_w + gap
 
+  def _draw_range_indicator(self, draw, right, top, panel_w, distance_km):
+    """Draw cluster distance-to-empty above the drive-mode label."""
+    try:
+      value = float(distance_km)
+      range_text = str(int(round(value))) if 0.0 <= value <= 2000.0 else "--"
+    except (TypeError, ValueError):
+      range_text = "--"
+
+    icon_h = max(20, min(38, self.height // 14))
+    stroke = max(2, icon_h // 9)
+    value_size = max(19, min(34, self.height // 18))
+    unit_size = max(10, int(round(value_size * 0.48)))
+    gap = max(5, icon_h // 5)
+    unit_gap = max(3, unit_size // 4)
+    pump_w = max(15, int(round(icon_h * 0.72)))
+    value_w = _text_width(range_text, value_size, True)
+    unit_w = _text_width("km", unit_size, True)
+    group_w = pump_w + gap + value_w + unit_gap + unit_w
+    group_center_x = right - max(95, int(panel_w * 0.11))
+    x = int(round(group_center_x - group_w / 2.0))
+    center_y = top + max(icon_h // 2 + 5, int(self.height * 0.060))
+    color = (68, 76, 82)
+    accent = (18, 149, 224)
+
+    # Compact fuel-pump outline, rendered directly to avoid image decoding.
+    pump_top = center_y - icon_h // 2
+    pump_bottom = center_y + icon_h // 2
+    body_right = x + int(round(pump_w * 0.70))
+    draw.rounded_rectangle((x, pump_top, body_right, pump_bottom),
+                           radius=max(2, stroke), outline=color, width=stroke)
+    window_margin = max(3, stroke + 1)
+    window_bottom = pump_top + max(window_margin + 3, icon_h // 2)
+    draw.rectangle((x + window_margin, pump_top + window_margin,
+                    body_right - window_margin, window_bottom),
+                   outline=color, width=max(1, stroke - 1))
+    hose_x = body_right + max(2, stroke)
+    draw.line((body_right, pump_top + stroke, hose_x + max(2, stroke), pump_top + icon_h // 3,
+               hose_x + max(2, stroke), pump_bottom - max(2, stroke),
+               body_right, pump_bottom - max(2, stroke)),
+              fill=color, width=stroke)
+    draw.line((x - max(2, stroke), pump_bottom,
+               body_right + max(2, stroke), pump_bottom),
+              fill=color, width=stroke)
+
+    text_x = x + pump_w + gap
+    _draw_text(draw, (text_x, center_y), range_text, value_size, True,
+               fill=color, anchor="lm")
+    _draw_text(draw, (text_x + value_w + unit_gap, center_y + max(1, value_size // 8)),
+               "km", unit_size, True, fill=accent, anchor="lm")
+
   def _draw_requested_status_header(self, image, draw, box, speed_kph, cruise_kph, enabled, scene, navi=None):
     left, top, right, _ = box
     panel_w = right - left
@@ -1363,6 +1413,7 @@ class HudRenderer(object):
     _draw_text(draw, (center_x, speed_y), str(max(0, int(round(display_speed)))),
                max(64, int(self.height * 0.18)), True, fill=(18, 18, 18), anchor="mm")
     self._draw_light_telltales(draw, left, top, panel_w, scene.get("lights") or {})
+    self._draw_range_indicator(draw, right, top, panel_w, scene.get("distance_to_empty_km"))
 
     info_y = top + max(92, int(self.height * 0.215))
     gear = str(scene.get("gear", "--") or "--").upper()

@@ -386,6 +386,7 @@ def main():
           "cores": [float(v) for v in cpu_values[:8]],
         }
         scene["gear"] = _gear_label(car_state)
+        scene["distance_to_empty_km"] = float(_field(car_state, "distanceToEmptyKm", -1.0))
         scene["steering_angle_deg"] = float(_field(car_state, "steeringAngleDeg", 0.0) or 0.0)
         scene["blinkers"] = {"left": bool(_field(car_state, "leftBlinker", False)),
                              "right": bool(_field(car_state, "rightBlinker", False))}
