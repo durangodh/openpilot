@@ -401,9 +401,11 @@ def test_external_atc_box_matches_eon_gate_and_tpms_width(monkeypatch):
   assert atc_box[2] == tpms_box[2]
   assert atc_box[3] == tpms_box[1] - 8
   camera_distance_y = max(164, int(renderer.height * 0.37)) + max(39, renderer.height // 11)
-  camera_distance_size = max(12, int(round(max(10, renderer.height // 38) * 1.20)))
-  assert atc_box[1] >= camera_distance_y + camera_distance_size + 8
+  camera_distance_size = renderer._camera_distance_text_size()
+  assert atc_box[1] >= camera_distance_y + camera_distance_size + 14
   assert atc_box[1] < atc_box[3]
+  # Wheel, SET ring and camera-limit ring use the same radius.
+  assert renderer._status_icon_radius() == int(round(max(25, renderer.height // 17) * 1.30))
 
   # ATC stacks above TPMS and never removes the camera indicator.
   calls = []
