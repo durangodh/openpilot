@@ -1245,13 +1245,16 @@ class HudRenderer(object):
 
     cruise_valid = enabled and 0.0 < cruise_kph < 255.0
     cruise_color = (18, 149, 224) if cruise_valid else (139, 147, 152)
-    base_cruise_radius = max(34, int(round(max(28, self.height // 16) * 1.20)))
-    cruise_radius = base_cruise_radius * 2
+    # Keep the SET-speed ring only 30% larger than the steering wheel.  The
+    # previous extra x2 scale made it dominate the compact external-HUD row.
+    wheel_radius = max(25, self.height // 17)
+    cruise_radius = int(round(wheel_radius * 1.30))
+    cruise_outline_width = max(5, int(round(cruise_radius * 0.17)))
     draw.ellipse((center_x - cruise_radius, second_row_y - cruise_radius,
                   center_x + cruise_radius, second_row_y + cruise_radius),
-                 fill=(246, 247, 247), outline=cruise_color, width=max(4, base_cruise_radius // 7))
+                 fill=(246, 247, 247), outline=cruise_color, width=cruise_outline_width)
     cruise_text = str(int(round(display_cruise))) if cruise_valid else "--"
-    cruise_text_size = max(27, int(round(max(22, self.height // 17) * 1.20)))
+    cruise_text_size = max(24, int(round(cruise_radius * 0.78)))
     _draw_text(draw, (center_x, second_row_y - 2), cruise_text, cruise_text_size, True,
                fill=(18, 18, 18), anchor="mm")
     _draw_text(draw, (center_x, second_row_y + cruise_radius + 9), "SET",
