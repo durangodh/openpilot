@@ -959,36 +959,18 @@ class HudRenderer(object):
     self._draw_vehicle_shape(image, cx, cy - 30, car_w, car_h, "ego")
 
   def _draw_blindspot_indicator(self, draw, panel, side):
-    """Draw two outward-swept BSD marks beside each ego rear quarter."""
+    """Draw one red BSD dot beside the detected ego rear quarter."""
     direction = -1 if side == "left" else 1
     ego_x, projected_y = self._project(panel, 2.4, 0.0)
     ego_w, ego_h = self._ego_vehicle_size(panel)
     ego_bottom = projected_y - 30
-    side_x = ego_x + direction * (ego_w // 2 + 7)
-    color = (67, 73, 78)
-    stroke_width = max(4, self.height // 115)
-
-    # Start beside the rear corners, bend downward first, then sweep outward.
-    # This reproduces the user's radar-wave direction instead of a U shape.
-    outer_offset = max(11, ego_w // 6)
-    for index, outward in enumerate((0, outer_offset)):
-      start_x = side_x + direction * outward
-      start_y = ego_bottom - (4 if index == 0 else 8)
-      control_x = start_x + direction * (3 if index == 0 else 4)
-      control_y = ego_bottom + (17 if index == 0 else 20)
-      end_x = start_x + direction * (28 if index == 0 else 35)
-      end_y = ego_bottom + (22 if index == 0 else 28)
-      points = []
-      for step in range(9):
-        mix = step / 8.0
-        inverse = 1.0 - mix
-        points.append((
-          int(round(inverse * inverse * start_x + 2.0 * inverse * mix * control_x + mix * mix * end_x)),
-          int(round(inverse * inverse * start_y + 2.0 * inverse * mix * control_y + mix * mix * end_y)),
-        ))
-      # Emphasize the outer radar wave while retaining a finer inner mark.
-      line_width = stroke_width if index == 0 else max(stroke_width + 2, int(round(stroke_width * 1.5)))
-      draw.line(points, fill=color, width=line_width, joint="curve")
+    wheel_radius = max(25, self.height // 17)
+    dot_radius = max(10, int(round(wheel_radius * 0.50)))
+    dot_x = ego_x + direction * (ego_w // 2 + dot_radius + 5)
+    dot_y = ego_bottom - max(dot_radius, int(round(ego_h * 0.22)))
+    draw.ellipse((dot_x - dot_radius, dot_y - dot_radius,
+                  dot_x + dot_radius, dot_y + dot_radius),
+                 fill=(230, 45, 55))
 
   def _draw_bipolar_gauge(self, draw, center_x, top, bottom, value, color, label, value_text):
     value = _clamp(float(value), -1.0, 1.0)
@@ -1429,11 +1411,11 @@ class HudRenderer(object):
       self._draw_radar_point(image, draw, world_box, point, radar_info, is_metric)
     for index, lead in reversed(list(enumerate(scene.get("leads", [])[:2]))):
       self._draw_lead(image, draw, world_box, lead, index == 0, radar_info, is_metric)
+    self._draw_ego_vehicle(image, world_box, enabled)
     if scene.get("left_blindspot", False):
       self._draw_blindspot_indicator(draw, world_box, "left")
     if scene.get("right_blindspot", False):
       self._draw_blindspot_indicator(draw, world_box, "right")
-    self._draw_ego_vehicle(image, world_box, enabled)
     self._draw_lead_info(draw, world_box, scene.get("leads", []), is_metric, language)
     self._draw_tpms(draw, world_box, scene.get("tpms"))
 

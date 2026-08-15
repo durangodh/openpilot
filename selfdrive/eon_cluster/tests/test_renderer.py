@@ -305,7 +305,7 @@ def test_stationary_radar_uses_green_3d_world_block():
   assert (54, 207, 121) in colors
 
 
-def test_blindspot_flags_draw_dark_gray_brackets():
+def test_blindspot_flags_draw_red_rear_quarter_dots():
   renderer = HudRenderer(1920, 462, 50)
   scene = {"lanes": [], "edges": [], "leads": []}
   base = renderer.render(55.0, 88.0, True, {}, scene)
@@ -315,8 +315,8 @@ def test_blindspot_flags_draw_dark_gray_brackets():
   assert left.tobytes() != base.tobytes()
   assert right.tobytes() != base.tobytes()
   assert left.tobytes() != right.tobytes()
-  assert (67, 73, 78) in set(left.getdata())
-  assert (67, 73, 78) in set(right.getdata())
+  assert (230, 45, 55) in set(left.getdata())
+  assert (230, 45, 55) in set(right.getdata())
 
 
 def test_tmap_panel_keeps_only_original_map_when_json_briefly_drops(tmp_path, monkeypatch):
