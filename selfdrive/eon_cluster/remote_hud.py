@@ -35,39 +35,58 @@ class MapFrameServer(object):
     self.client = None
     self.signature = None
 
-  def poll(self):
-    if self.client is None:
-      try:
-        self.client, _ = self.listener.accept()
-        self.client.settimeout(0.05)
-        self.signature = None
-      except BlockingIOError:
-        return
-    try:
-      stat = os.stat(MAP_FILE)
-      signature = (getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9)), stat.st_size)
-      if signature == self.signature or stat.st_size <= 4 or stat.st_size > MAP_MAX_BYTES:
-        return
-      with open(MAP_FILE, "rb") as image_file:
-        jpeg = image_file.read()
-      if not (jpeg.startswith(b"\xff\xd8") and jpeg.endswith(b"\xff\xd9")):
-        return
-      self.client.sendall(b"MAP1" + struct.pack(">I", len(jpeg)) + jpeg)
-      self.signature = signature
-    except (IOError, OSError, socket.error):
-      try:
-        self.client.close()
-      except Exception:
-        pass
-      self.client = None
-      self.signature = None
-
-  def close(self):
+  def _drop_client(self):
     if self.client is not None:
       try:
         self.client.close()
       except Exception:
         pass
+    self.client = None
+    self.signature = None
+
+  def poll(self):
+    if self.client is None:
+      try:
+        self.client, _ = self.listener.accept()
+        # A map frame may be much larger than the telemetry packet. 50 ms was
+        # too aggressive on busy EON/S9 Wi-Fi links and caused needless TCP
+        # reconnects even though the client was healthy.
+        self.client.settimeout(0.5)
+        self.signature = None
+      except BlockingIOError:
+        return
+
+    # The TMAP file is optional and can disappear briefly while carrot-navi
+    # replaces it. Missing/in-progress JPEG data is not a TCP failure: keep the
+    # S9 connection open and simply wait for the next poll.
+    try:
+      stat = os.stat(MAP_FILE)
+    except (IOError, OSError):
+      return
+
+    signature = (getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9)), stat.st_size)
+    if signature == self.signature or stat.st_size <= 4 or stat.st_size > MAP_MAX_BYTES:
+      return
+
+    try:
+      with open(MAP_FILE, "rb") as image_file:
+        jpeg = image_file.read()
+    except (IOError, OSError):
+      return
+
+    # A producer can be in the middle of replacing the file when we read it.
+    # Ignore that frame without dropping TCP; the next poll will retry it.
+    if not (jpeg.startswith(b"\xff\xd8") and jpeg.endswith(b"\xff\xd9")):
+      return
+
+    try:
+      self.client.sendall(b"MAP1" + struct.pack(">I", len(jpeg)) + jpeg)
+      self.signature = signature
+    except socket.error:
+      self._drop_client()
+
+  def close(self):
+    self._drop_client()
     self.listener.close()
 
 
