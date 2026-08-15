@@ -91,3 +91,17 @@ def test_uiview_starts_selected_external_hud_output():
   for script_name in ("uiview.py", "uiview_carrot.py"):
     script = (debug_dir / script_name).read_text(encoding="utf-8")
     assert "'eon_cluster', 'remote_hud'" in script
+
+
+def test_remote_mode_publishes_connected_flag_for_ui_suppression():
+  """S9 원격 모드에서도 EON 화면의 중복 오버레이가 꺼져야 한다."""
+  remote = (Path(__file__).parents[1] / "remote_hud.py").read_text(encoding="utf-8")
+  assert 'PARAM_CONNECTED = "EonClusterHudConnected"' in remote
+  assert "def _publish_connected(params, state, value):" in remote
+  # 10 Hz 루프에서 매번 쓰지 않고 값이 바뀔 때만 기록해야 한다.
+  assert "if state[0] is value:" in remote
+  assert "params.put_bool(PARAM_CONNECTED, value)" in remote
+  # ACK 여부가 그대로 플래그가 된다.
+  assert "_publish_connected(params, published, connected)" in remote
+  # EON 직접 모드로 바꾸거나 프로세스가 끝나면 반드시 해제한다.
+  assert remote.count("_publish_connected(params, published, False)") >= 3
