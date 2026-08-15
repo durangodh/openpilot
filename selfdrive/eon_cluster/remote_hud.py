@@ -21,8 +21,11 @@ from common.params import Params
 PORT = 7210
 MAP_PORT = 7211
 MAP_FILE = "/dev/shm/carrot_navi_map.jpg"
+NAVI_STATE = "/dev/shm/carrot_navi_route.json"
 MAP_MAX_BYTES = 2 * 1024 * 1024
 MAP_KEEPALIVE_S = 1.0
+NAVI_MAX_AGE_MS = 35000
+NAVI_GUIDANCE_MAX_AGE_MS = 3000
 # Tiny valid 2x2 black JPEG. v0.6 treats a silent 7211 socket as a dead video
 # connection and reconnects repeatedly, so send this only while no TMAP frame
 # exists. This is decoded once at process start and costs ~631 bytes/second.
@@ -31,10 +34,9 @@ MAP_IDLE_JPEG = base64.b64decode(
 FPS = 10
 PARAM_ENABLED = "EonClusterHud"
 PARAM_OUTPUT_MODE = "EonClusterHudOutputMode"
-# Shared with eon_cluster.py and onroad.cc. While the S9 is acknowledging
-# telemetry it renders the model/TMap overlays itself, so the EON screen must
-# stop drawing the same things a second time.
 PARAM_CONNECTED = "EonClusterHudConnected"
+PARAM_ATC_MODE = "CarrotAutoTurnControl"
+_NAVI_CACHE = {"signature": None, "state": {}}
 
 
 class MapFrameServer(object):
@@ -61,12 +63,6 @@ class MapFrameServer(object):
     self.last_send = 0.0
 
   def _refresh_frame(self):
-    """Refresh cached JPEG if TMAP produced a new complete frame.
-
-    File absence or an in-progress replacement is not a TCP error. If TMAP
-    removes the file, switch back to the tiny idle JPEG instead of leaving a
-    stale navigation image on the S9.
-    """
     try:
       stat = os.stat(MAP_FILE)
     except (IOError, OSError):
@@ -87,9 +83,6 @@ class MapFrameServer(object):
         jpeg = image_file.read()
     except (IOError, OSError):
       return False
-
-    # carrot-navi can be in the middle of replacing the file when we read it.
-    # Ignore the partial frame and retry on the next poll without touching TCP.
     if not (jpeg.startswith(b"\xff\xd8") and jpeg.endswith(b"\xff\xd9")):
       return False
 
@@ -101,8 +94,6 @@ class MapFrameServer(object):
     if self.client is None:
       try:
         self.client, _ = self.listener.accept()
-        # Map frames can be much larger than telemetry. Keep a relaxed write
-        # timeout for busy EON/S9 Wi-Fi links.
         self.client.settimeout(0.5)
         self.last_send = 0.0
       except BlockingIOError:
@@ -110,11 +101,6 @@ class MapFrameServer(object):
 
     now = time.monotonic()
     changed = self._refresh_frame()
-
-    # v0.6 reconnects when 7211 stays silent. Send the newest frame immediately
-    # when it changes and resend the cached frame once per second as a protocol
-    # keepalive. With no map this is only a 631-byte JPEG, so EON/network load is
-    # negligible and no JPEG encoding is done on EON.
     if not changed and now - self.last_send < MAP_KEEPALIVE_S:
       return
 
@@ -130,7 +116,6 @@ class MapFrameServer(object):
     self.listener.close()
 
   def set_inactive(self):
-    """Disconnect S9 immediately when the EON-direct output is selected."""
     self._drop_client()
 
 
@@ -149,31 +134,32 @@ def _finite(value, default=0.0):
     return default
 
 
+def _param_int(params, key, default=0, minimum=0, maximum=999):
+  try:
+    raw = params.get(key)
+    value = int(raw) if raw is not None else default
+  except (TypeError, ValueError):
+    value = default
+  return max(minimum, min(maximum, value))
+
+
 def _remote_output_enabled(params):
   if not params.get_bool(PARAM_ENABLED):
     return False
   try:
     raw = params.get(PARAM_OUTPUT_MODE)
-    # Missing values migrate to S9 remote mode to preserve the current branch
-    # behavior after an over-the-air update.
     return int(raw) != 0 if raw is not None else True
   except (TypeError, ValueError):
     return True
 
 
 def _migrate_legacy_remote_mode(params):
-  """Preserve the always-on S9 behavior used before output modes existed."""
   if params.get(PARAM_OUTPUT_MODE) is None:
     params.put(PARAM_OUTPUT_MODE, "1")
     params.put_bool(PARAM_ENABLED, True)
 
 
 def _publish_connected(params, state, value):
-  """Write EonClusterHudConnected only on change.
-
-  put_bool touches the filesystem, so writing it at the 10 Hz telemetry rate
-  would add pointless I/O for a flag that changes seconds apart.
-  """
   if state[0] is value:
     return
   try:
@@ -221,8 +207,12 @@ def _lead(radar_state, name):
 
 def _gear(car_state):
   value = str(_field(car_state, "gearShifter", "") or "").split(".")[-1].lower()
-  return {"park": "P", "reverse": "R", "neutral": "N", "drive": "D",
-          "sport": "S", "low": "L", "brake": "B"}.get(value, "--")
+  label = {"park": "P", "reverse": "R", "neutral": "N", "drive": "D",
+           "sport": "S", "low": "L", "brake": "B"}.get(value)
+  if label:
+    return label
+  step = int(_finite(_field(car_state, "gearStep", 0)))
+  return str(step) if step > 0 else "--"
 
 
 def _set_speed(controls_state, car_control):
@@ -233,7 +223,74 @@ def _set_speed(controls_state, car_control):
   return max(0, int(round(_finite(value))))
 
 
-def _packet(sm):
+def _read_navi_summary():
+  try:
+    stat = os.stat(NAVI_STATE)
+    signature = (getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9)), stat.st_size)
+  except (IOError, OSError):
+    _NAVI_CACHE["signature"] = None
+    _NAVI_CACHE["state"] = {}
+    return {}
+
+  if signature != _NAVI_CACHE["signature"]:
+    try:
+      with open(NAVI_STATE, "r") as state_file:
+        state = json.load(state_file)
+    except (IOError, ValueError):
+      return _NAVI_CACHE["state"]
+    _NAVI_CACHE["signature"] = signature
+    _NAVI_CACHE["state"] = state
+  else:
+    state = _NAVI_CACHE["state"]
+
+  now_ms = int(time.time() * 1000)
+  updated_at = int(state.get("updated_at_ms", 0) or 0)
+  if updated_at <= 0 or abs(now_ms - updated_at) > NAVI_MAX_AGE_MS:
+    return {}
+
+  route = state.get("route") or {}
+  guide = state.get("guidance_current") or {}
+  vehicle = state.get("vehicle") or {}
+  stream_times = state.get("stream_updated_at_ms") or {}
+  guidance_at = int(stream_times.get("guidance_current", updated_at) or 0)
+  guidance_live = -5000 <= now_ms - guidance_at <= NAVI_GUIDANCE_MAX_AGE_MS
+  status = state.get("navigation_status") or {}
+  active = True
+  if isinstance(status, dict):
+    for key in ("active", "is_active", "isActive", "navigating", "is_navigating", "isNavigating",
+                "route_active", "routeActive"):
+      if key in status and not bool(status.get(key)):
+        active = False
+    status_text = str(status.get("state", status.get("status", "")) or "").lower()
+    if status_text in ("idle", "inactive", "off", "stopped", "ended", "none"):
+      active = False
+  try:
+    remain_distance = float(route.get("remain_distance_m", 0) or 0)
+  except (TypeError, ValueError):
+    remain_distance = 0.0
+  active = active and (remain_distance > 0 or bool(guide))
+  if not active:
+    return {"active": False}
+
+  try:
+    turn_type = int(guide.get("turn_type", 0) or 0)
+    turn_distance = max(0, int(round(float(guide.get("distance_m", 0) or 0))))
+    remain_time = max(0, int(route.get("remain_time_sec", 0) or 0))
+  except (TypeError, ValueError):
+    turn_type, turn_distance, remain_time = 0, 0, 0
+  title = str(guide.get("main_text") or guide.get("road_name") or vehicle.get("road_name") or "")
+  return {
+    "active": True,
+    "guidanceLive": bool(guidance_live),
+    "turnType": turn_type,
+    "turnDist": turn_distance,
+    "remainTime": remain_time,
+    "remainDist": max(0, int(round(remain_distance))),
+    "title": title[:48],
+  }
+
+
+def _packet(sm, atc_mode):
   car = sm["carState"]
   controls = sm["controlsState"]
   road = sm["roadLimitSpeed"]
@@ -243,25 +300,34 @@ def _packet(sm):
   cam_type = int(_finite(_field(road, "camType", 0)))
   cam_speed = int(_finite(_field(road, "camLimitSpeed", 0)))
   cam_dist = int(_finite(_field(road, "camLimitSpeedLeftDist", 0)))
+  camera_section = False
   if cam_type == 22 or cam_speed <= 0 or cam_dist <= 0:
     cam_speed = int(_finite(_field(road, "sectionLimitSpeed", 0)))
     cam_dist = int(_finite(_field(road, "sectionLeftDist", 0)))
+    camera_section = cam_speed > 0 and cam_dist > 0
   cpu = list(_field(device, "cpuUsagePercent", []) or [])
   temps = list(_field(device, "cpuTempC", []) or [])
   gap = int(_finite(_field(controls, "longCruiseGap", 0)))
   if not 1 <= gap <= 4:
     gap = int(_finite(_field(car, "cruiseGap", 0)))
+  mode = int(_finite(_field(controls, "myDrivingMode", 3), 3))
+  if not 1 <= mode <= 4:
+    mode = 3
+  tpms = _field(car, "tpms", None)
+  navi = _read_navi_summary()
   return {
-    "v": 1,
+    "v": 2,
     "t": int(time.time() * 1000),
     "speed": int(round(_finite(_field(car, "vEgoCluster", _field(car, "vEgo", 0.0))) * 3.6)),
     "set": _set_speed(controls, sm["carControl"]),
     "enabled": bool(_field(controls, "enabled", False)),
     "gear": _gear(car),
     "gap": gap if 1 <= gap <= 4 else 0,
+    "drivingMode": mode,
     "limit": max(0, int(_finite(_field(road, "roadLimitSpeed", 0)))),
     "camera": max(0, cam_speed),
     "cameraDist": max(0, cam_dist),
+    "cameraSection": bool(camera_section),
     "leftBsd": bool(_field(car, "leftBlindspot", False)),
     "rightBsd": bool(_field(car, "rightBlindspot", False)),
     "steer": round(_finite(_field(car, "steeringAngleDeg", 0.0)), 1),
@@ -270,6 +336,18 @@ def _packet(sm):
     "temp": round(max(temps), 1) if temps else 0,
     "leftBlinker": bool(_field(car, "leftBlinker", False)),
     "rightBlinker": bool(_field(car, "rightBlinker", False)),
+    "lowBeam": bool(_field(car, "lowBeam", False)),
+    "highBeam": bool(_field(car, "highBeam", False)),
+    "frontFog": bool(_field(car, "frontFogLight", False)),
+    "distanceToEmpty": round(_finite(_field(car, "distanceToEmptyKm", -1.0)), 1),
+    "tpms": {
+      "fl": _finite(_field(tpms, "fl", -1.0), -1.0),
+      "fr": _finite(_field(tpms, "fr", -1.0), -1.0),
+      "rl": _finite(_field(tpms, "rl", -1.0), -1.0),
+      "rr": _finite(_field(tpms, "rr", -1.0), -1.0),
+    },
+    "atcMode": int(atc_mode),
+    "navi": navi,
     "path": _line_points(_field(sm["modelV2"], "position", None)),
     "lanes": _model_lines(sm["modelV2"], "laneLines", "laneLineProbs", 0.0),
     "edges": _model_lines(sm["modelV2"], "roadEdges", "roadEdgeStds", 1.0, True),
@@ -293,19 +371,23 @@ def main():
   connected = False
   published = [None]
   map_server = MapFrameServer()
+  atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
+  next_param_read = 0.0
   while running[0]:
     started = time.monotonic()
     if not _remote_output_enabled(params):
-      # EON-direct mode owns the flag in eon_cluster.py; release it here.
       connected = False
       last_ack = 0.0
       _publish_connected(params, published, False)
       map_server.set_inactive()
       time.sleep(0.25)
       continue
+    if started >= next_param_read:
+      atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
+      next_param_read = started + 1.0
     sm.update(0)
     try:
-      sock.sendto(json.dumps(_packet(sm), separators=(",", ":")).encode("utf-8"),
+      sock.sendto(json.dumps(_packet(sm, atc_mode), separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
                   ("255.255.255.255", PORT))
       try:
         while True:
@@ -322,7 +404,6 @@ def main():
       _publish_connected(params, published, False)
       print("remote HUD send failed: %s" % exc, flush=True)
     time.sleep(max(0.0, 1.0 / FPS - (time.monotonic() - started)))
-  # Leave the EON screen fully drawn when this process stops.
   _publish_connected(params, published, False)
   map_server.close()
   sock.close()
