@@ -51,7 +51,9 @@ if __name__ == "__main__":
   CP = car.CarParams(notCar=True)
   Params().put("CarParams", CP.to_bytes())
 
-  procs = ['camerad', 'ui', 'modeld', 'calibrationd']
+  # Include the external HUD in bench preview. Both workers may be started,
+  # but EonClusterHudOutputMode allows only the selected path to do work.
+  procs = ['camerad', 'ui', 'modeld', 'calibrationd', 'eon_cluster', 'remote_hud']
   HARDWARE.set_power_save(False)
   for p in procs:
     managed_processes[p].start()

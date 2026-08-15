@@ -9,7 +9,9 @@ if __name__ == "__main__":
   CP = car.CarParams(notCar=True)
   Params().put("CarParams", CP.to_bytes())
 
-  procs = ['camerad', 'ui', 'modeld', 'calibrationd']
+  # Start both HUD workers for bench preview. Their shared output-mode param
+  # keeps them mutually exclusive, so only EON direct or S9 remote is active.
+  procs = ['camerad', 'ui', 'modeld', 'calibrationd', 'eon_cluster', 'remote_hud']
 
   HARDWARE.set_power_save(False)
 
@@ -29,7 +31,9 @@ if __name__ == "__main__":
   speed = 0.
   try:
     while True:
-      time.sleep(1 / 100)  # continually send, rate doesn't matter
+      # 20 Hz is enough for UI/HUD preview and avoids evicting slower EON
+      # subscribers while modeld and the selected external HUD are active.
+      time.sleep(1 / 20)
       
       msgs['carState'] = messaging.new_message('carState')
       msgs['carState'].carState.vEgoCluster = speed
@@ -40,6 +44,8 @@ if __name__ == "__main__":
       
       for s in msgs:
         pm.send(s, msgs[s])
+        if hasattr(msgs[s], "clear_write_flag"):
+          msgs[s].clear_write_flag()
   except KeyboardInterrupt:
     for p in procs:
       managed_processes[p].stop()

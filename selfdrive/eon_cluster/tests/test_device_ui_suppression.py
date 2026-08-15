@@ -84,3 +84,10 @@ def test_eon_and_s9_hud_outputs_are_mutually_selected():
   assert 'params.put(PARAM_OUTPUT_MODE, "1")' in remote
   assert "params.put_bool(PARAM_ENABLED, True)" in remote
   assert '{"EonClusterHudOutputMode", PERSISTENT}' in params
+
+
+def test_uiview_starts_selected_external_hud_output():
+  debug_dir = Path(__file__).parents[2] / "debug"
+  for script_name in ("uiview.py", "uiview_carrot.py"):
+    script = (debug_dir / script_name).read_text(encoding="utf-8")
+    assert "'eon_cluster', 'remote_hud'" in script
