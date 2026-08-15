@@ -31,6 +31,10 @@ MAP_IDLE_JPEG = base64.b64decode(
 FPS = 10
 PARAM_ENABLED = "EonClusterHud"
 PARAM_OUTPUT_MODE = "EonClusterHudOutputMode"
+# Shared with eon_cluster.py and onroad.cc. While the S9 is acknowledging
+# telemetry it renders the model/TMap overlays itself, so the EON screen must
+# stop drawing the same things a second time.
+PARAM_CONNECTED = "EonClusterHudConnected"
 
 
 class MapFrameServer(object):
@@ -164,6 +168,21 @@ def _migrate_legacy_remote_mode(params):
     params.put_bool(PARAM_ENABLED, True)
 
 
+def _publish_connected(params, state, value):
+  """Write EonClusterHudConnected only on change.
+
+  put_bool touches the filesystem, so writing it at the 10 Hz telemetry rate
+  would add pointless I/O for a flag that changes seconds apart.
+  """
+  if state[0] is value:
+    return
+  try:
+    params.put_bool(PARAM_CONNECTED, value)
+    state[0] = value
+  except Exception as exc:
+    print("remote HUD connected flag failed: %s" % exc, flush=True)
+
+
 def _line_points(position, limit=33):
   xs = list(_field(position, "x", []) or [])
   ys = list(_field(position, "y", []) or [])
@@ -272,12 +291,15 @@ def main():
   sock.setblocking(False)
   last_ack = 0.0
   connected = False
+  published = [None]
   map_server = MapFrameServer()
   while running[0]:
     started = time.monotonic()
     if not _remote_output_enabled(params):
+      # EON-direct mode owns the flag in eon_cluster.py; release it here.
       connected = False
       last_ack = 0.0
+      _publish_connected(params, published, False)
       map_server.set_inactive()
       time.sleep(0.25)
       continue
@@ -293,11 +315,15 @@ def main():
       except (BlockingIOError, socket.error):
         pass
       connected = time.monotonic() - last_ack < 2.0
+      _publish_connected(params, published, connected)
       map_server.poll()
     except Exception as exc:
       connected = False
+      _publish_connected(params, published, False)
       print("remote HUD send failed: %s" % exc, flush=True)
     time.sleep(max(0.0, 1.0 / FPS - (time.monotonic() - started)))
+  # Leave the EON screen fully drawn when this process stops.
+  _publish_connected(params, published, False)
   map_server.close()
   sock.close()
 
