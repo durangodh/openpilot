@@ -34,6 +34,8 @@ ENABLED = {
   "route", "navigation_status", "speed",
 }
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+PROTOCOL_VERSION = 2
+BINARY_HEADER = struct.Struct(">4sBBBBIIQQIHH")
 MAX_MAP_FRAME_BYTES = 2 * 1024 * 1024
 MAX_LANE_FRAME_BYTES = 512 * 1024
 # Keep the native TMAP map as the base and also capture TMAP's own guidance
@@ -51,6 +53,14 @@ MAP_RENDER_FPS_DEFAULT = 5
 MAP_RENDER_FPS_MIN = 2
 MAP_RENDER_FPS_MAX = 5
 STATE_WRITE_INTERVAL_S = 0.05
+
+# TMAP's v2 render worker normally delivers map_main continuously.  When TMAP
+# rebuilds its route/camera after a destination change, the worker can remain
+# connected but stop producing frames for a while.  Ask the app to resync
+# instead of leaving the HUD frozen on the last route for tens of seconds.
+MAP_STALE_S = 3.0
+MAP_RESYNC_INTERVAL_S = 2.0
+MAP_STALE_CLEAR_S = 5.0
 
 
 def map_render_fps(params):
@@ -72,7 +82,22 @@ class NaviState(object):
     self.dirty = False
     self.last_write = 0.0
     self.last_map_write = 0.0
+    self.last_map_rx = 0.0
+    self.last_map_sequence = -1
+    self.last_map_digest = None
+    self.map_seen = False
+    self.map_stale_cleared = False
+    self.last_resync_request = 0.0
+    self.route_signature = None
+    self.route_change_pending = False
+    self.route_change_started = 0.0
+    self.route_change_baseline_digest = None
+    self.control_conn = None
+    self.control_send_lock = threading.Lock()
+    self.session_id = uuid.uuid4().hex
+    self.manifest_revision = 1
     threading.Thread(target=self._writer_loop, name="carrot-navi-state", daemon=True).start()
+    threading.Thread(target=self._map_watchdog_loop, name="carrot-navi-map-watchdog", daemon=True).start()
 
   @staticmethod
   def _write_state(output):
@@ -100,27 +125,134 @@ class NaviState(object):
         self.last_write = time.monotonic()
       self._write_state(output)
 
+  @staticmethod
+  def _route_signature(value):
+    if not isinstance(value, dict):
+      return None
+    polyline = value.get("polyline")
+    destination = None
+    if isinstance(polyline, list) and polyline:
+      point = polyline[-1]
+      if isinstance(point, dict):
+        try:
+          destination = (round(float(point.get("lat")), 5),
+                         round(float(point.get("lon")), 5))
+        except (TypeError, ValueError):
+          destination = None
+    try:
+      total_distance = float(value.get("total_distance_m", 0.0) or 0.0)
+    except (TypeError, ValueError):
+      total_distance = 0.0
+    distance_bucket = int(round(total_distance / 100.0)) if total_distance > 0.0 else 0
+    if destination is None and distance_bucket <= 0:
+      return None
+    return destination, distance_bucket
+
   def update(self, name, value):
     if name not in JSON_NAMES:
       return
+
+    route_changed = False
     with self.lock:
+      if name == "route":
+        signature = self._route_signature(value)
+        if signature is not None:
+          if self.route_signature is not None and signature != self.route_signature:
+            route_changed = True
+            self.route_change_pending = True
+            self.route_change_started = time.monotonic()
+            self.route_change_baseline_digest = self.last_map_digest
+          self.route_signature = signature
+
       self.values[name] = value
       now_ms = int(time.time() * 1000)
       self.updated_at[name] = now_ms
       self.dirty = True
       self.condition.notify()
 
+    # A new route/destination should not wait for TMAP's long autonomous
+    # recovery path.  Request map_main resync immediately; the watchdog retries
+    # until a genuinely new map image arrives.
+    if route_changed:
+      self.request_map_resync()
+
+  @staticmethod
+  def _binary_payload(packet):
+    """Return (message_type, format_or_reason, sequence, image_payload).
+
+    Current TMAP v2 binary messages carry a fixed 40-byte CNV2 header.  Keep a
+    tolerant fallback for the older raw-image form so this receiver does not
+    regress if an older patched TMAP is used.
+    """
+    if len(packet) >= BINARY_HEADER.size and packet[:4] == b"CNV2":
+      try:
+        (magic, protocol_version, message_type, format_or_reason, _flags,
+         _stream_handle, _revision, sequence, _source_timestamp_ms,
+         payload_length, width, height) = BINARY_HEADER.unpack_from(packet)
+      except struct.error:
+        return None
+      body = packet[BINARY_HEADER.size:]
+      if magic != b"CNV2" or protocol_version != PROTOCOL_VERSION:
+        return None
+      if payload_length != len(body):
+        return None
+      if message_type == 4:
+        if body or width != 0 or height != 0:
+          return None
+        return message_type, format_or_reason, sequence, b""
+      if message_type != 1:
+        return None
+      return message_type, format_or_reason, sequence, body
+    return 1, 0, -1, packet
+
   def update_map(self, payload):
     if not payload or len(payload) > MAX_MAP_FRAME_BYTES:
       return
+
+    parsed = self._binary_payload(payload)
+    if parsed is None:
+      return
+    message_type, format_or_reason, sequence, image_payload = parsed
+
     now = time.monotonic()
+    # Count a valid map packet as activity even when the HUD-side FPS limiter
+    # intentionally skips writing this particular frame.
+    with self.lock:
+      self.last_map_rx = now
+      self.map_seen = True
+      self.map_stale_cleared = False
+      if sequence >= 0:
+        self.last_map_sequence = sequence
+
+    if message_type == 4:
+      self.clear_map()
+      return
+
+    # map_main in this branch explicitly requests JPEG.  For CNV2, format 2 is
+    # JPEG; legacy/raw packets use format 0 and are validated by signatures.
+    if format_or_reason not in (0, 2):
+      return
+
     if now < self.last_map_write + 1.0 / map_render_fps(self.params):
       return
-    start = payload.find(b"\xff\xd8")
-    end = payload.rfind(b"\xff\xd9")
+
+    start = image_payload.find(b"\xff\xd8")
+    end = image_payload.rfind(b"\xff\xd9")
     if start < 0 or end < start:
       return
-    image = payload[start:end + 2]
+    image = image_payload[start:end + 2]
+    image_digest = hashlib.sha1(image).digest()
+    with self.lock:
+      self.last_map_digest = image_digest
+      if self.route_change_pending:
+        baseline = self.route_change_baseline_digest
+        # The first route has no baseline.  For a destination/re-route change,
+        # require different map pixels before considering the HUD refreshed.
+        if baseline is None or image_digest != baseline:
+          self.route_change_pending = False
+          self.route_change_started = 0.0
+          self.route_change_baseline_digest = None
+
     tmp = MAP_FILE + ".tmp"
     try:
       with open(tmp, "wb") as f:
@@ -133,19 +265,35 @@ class NaviState(object):
       except OSError:
         pass
 
+  @staticmethod
+  def clear_map():
+    try:
+      os.unlink(MAP_FILE)
+    except OSError:
+      pass
+
   def update_overlay(self, name, payload):
     target = OVERLAY_FILES.get(name)
     if target is None or not payload or len(payload) > MAX_LANE_FRAME_BYTES:
       return
-    png_start = payload.find(b"\x89PNG\r\n\x1a\n")
-    jpg_start = payload.find(b"\xff\xd8")
+
+    parsed = self._binary_payload(payload)
+    if parsed is None:
+      return
+    message_type, _format_or_reason, _sequence, image_payload = parsed
+    if message_type == 4:
+      self.clear_overlay(name)
+      return
+
+    png_start = image_payload.find(b"\x89PNG\r\n\x1a\n")
+    jpg_start = image_payload.find(b"\xff\xd8")
     if png_start >= 0:
-      image = payload[png_start:]
+      image = image_payload[png_start:]
     elif jpg_start >= 0:
-      jpg_end = payload.rfind(b"\xff\xd9")
+      jpg_end = image_payload.rfind(b"\xff\xd9")
       if jpg_end < jpg_start:
         return
-      image = payload[jpg_start:jpg_end + 2]
+      image = image_payload[jpg_start:jpg_end + 2]
     else:
       return
     tmp = target + ".tmp"
@@ -173,6 +321,97 @@ class NaviState(object):
 
   def clear_lane(self):
     self.clear_overlay("lane_bottom")
+
+  def control_connected(self, conn):
+    with self.lock:
+      self.control_conn = conn
+      # A new control socket represents a new negotiation lifetime.  Reuse one
+      # session id for repeated requirements_query messages on this socket so
+      # TMAP does not see a different session every second.
+      self.session_id = uuid.uuid4().hex
+      self.manifest_revision = 1
+      self.last_resync_request = 0.0
+
+  def control_disconnected(self, conn):
+    with self.lock:
+      if self.control_conn is conn:
+        self.control_conn = None
+
+  def get_manifest(self):
+    with self.lock:
+      session_id = self.session_id
+      revision = self.manifest_revision
+    return manifest(self.params, session_id, revision)
+
+  def send_control(self, message):
+    with self.lock:
+      conn = self.control_conn
+    if conn is None:
+      return False
+    payload = json.dumps(message, separators=(",", ":"))
+    try:
+      with self.control_send_lock:
+        send_frame(conn, payload)
+      return True
+    except (IOError, OSError, socket.error):
+      return False
+
+  def request_map_resync(self):
+    now = time.monotonic()
+    with self.lock:
+      if self.control_conn is None or now < self.last_resync_request + MAP_RESYNC_INTERVAL_S:
+        return False
+      self.last_resync_request = now
+    request = {
+      "type": "resync_request",
+      "protocol_version": PROTOCOL_VERSION,
+      "timestamp_ms": int(time.time() * 1000),
+      "request_id": uuid.uuid4().hex,
+      "name": "map_main",
+    }
+    return self.send_control(request)
+
+  def _map_watchdog_loop(self):
+    while True:
+      time.sleep(0.5)
+      now = time.monotonic()
+      with self.lock:
+        map_seen = self.map_seen
+        last_map_rx = self.last_map_rx
+        control_present = self.control_conn is not None
+        already_cleared = self.map_stale_cleared
+        route_change_pending = self.route_change_pending
+        route_change_started = self.route_change_started
+
+      if not control_present:
+        continue
+
+      # A route/destination change can leave map_main sending the exact same
+      # old JPEG repeatedly.  Packet timestamps alone would look healthy, so
+      # keep asking for resync until the actual map pixels change.
+      if route_change_pending:
+        self.request_map_resync()
+        route_age = now - route_change_started if route_change_started > 0.0 else 0.0
+        if route_age >= MAP_STALE_CLEAR_S and not already_cleared:
+          self.clear_map()
+          with self.lock:
+            self.map_stale_cleared = True
+        continue
+
+      if not map_seen or last_map_rx <= 0.0:
+        continue
+
+      age = now - last_map_rx
+      if age >= MAP_STALE_S:
+        self.request_map_resync()
+
+      # Do not keep a visibly wrong/old route on the HUD indefinitely while
+      # waiting for TMAP to rebuild its render worker.  The next valid frame
+      # recreates the file immediately.
+      if age >= MAP_STALE_CLEAR_S and not already_cleared:
+        self.clear_map()
+        with self.lock:
+          self.map_stale_cleared = True
 
 
 def local_ip():
@@ -226,7 +465,7 @@ def send_frame(sock, payload, opcode=1):
   sock.sendall(header + payload)
 
 
-def manifest(params):
+def manifest(params, session_id, revision):
   map_fps = map_render_fps(params)
   streams = []
   handle = 1
@@ -244,14 +483,16 @@ def manifest(params):
         # faithful without creating meaningful work on the EON.
         stream_params = {"format": "png", "max_fps": 2}
       else:
-        stream_params = {"width": MAP_RENDER_WIDTH, "height": MAP_RENDER_HEIGHT, "dpi": 160,
+        stream_params = {"composition": "map_route_vehicle",
+                         "width": MAP_RENDER_WIDTH, "height": MAP_RENDER_HEIGHT, "dpi": 160,
                          "fps": map_fps, "codec": "jpeg", "jpeg_quality": 65,
-                         "camera_mode": "app_sync", "map_theme": "light"}
+                         "camera_mode": "app_sync", "map_theme": "light",
+                         "stale_timeout_ms": int(MAP_STALE_S * 1000)}
       streams.append({"kind": kind, "name": name, "schema_version": 1,
                       "stream_handle": handle, "enabled": enabled, "params": stream_params})
       handle += 1
-  return {"type": "subscription_manifest", "protocol_version": 2,
-          "session_id": uuid.uuid4().hex, "revision": 1,
+  return {"type": "subscription_manifest", "protocol_version": PROTOCOL_VERSION,
+          "session_id": session_id, "revision": revision,
           "metrics_enabled": False, "streams": streams}
 
 
@@ -284,50 +525,70 @@ def client_loop(conn, state):
   path = websocket_handshake(conn)
   is_control = "/control/" in path
   stream_name = path.rstrip("/").split("/")[-1] if not is_control else None
-  while True:
-    opcode, payload = recv_frame(conn)
-    if opcode == 8:
-      send_frame(conn, b"", 8)
-      return
-    if opcode == 9:
-      send_frame(conn, payload, 10)
-      continue
-    if opcode == 2:
-      if not is_control and stream_name == "map_main":
-        state.update_map(payload)
-      elif not is_control and stream_name in OVERLAY_FILES:
-        state.update_overlay(stream_name, payload)
-      continue
-    if opcode != 1:
-      continue
-    try:
-      message = json.loads(payload.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError):
-      continue
-    if is_control and message.get("type") == "requirements_query":
-      send_frame(conn, json.dumps(manifest(state.params), separators=(",", ":")))
-    elif not is_control and message.get("type") == "item_update":
-      name = message.get("name", stream_name)
-      value = message.get("value") if message.get("present", True) else None
-      if name == "map_main" or name in OVERLAY_FILES:
-        if value is None:
-          if name in OVERLAY_FILES:
-            state.clear_overlay(name)
-          continue
-        encoded = value.get("data") if isinstance(value, dict) else value
-        if isinstance(encoded, str):
-          if "," in encoded and encoded.startswith("data:"):
-            encoded = encoded.split(",", 1)[1]
-          try:
-            image = base64.b64decode(encoded)
+  if is_control:
+    state.control_connected(conn)
+  try:
+    while True:
+      opcode, payload = recv_frame(conn)
+      if opcode == 8:
+        if is_control:
+          with state.control_send_lock:
+            send_frame(conn, b"", 8)
+        else:
+          send_frame(conn, b"", 8)
+        return
+      if opcode == 9:
+        if is_control:
+          with state.control_send_lock:
+            send_frame(conn, payload, 10)
+        else:
+          send_frame(conn, payload, 10)
+        continue
+      if opcode == 2:
+        if not is_control and stream_name == "map_main":
+          state.update_map(payload)
+        elif not is_control and stream_name in OVERLAY_FILES:
+          state.update_overlay(stream_name, payload)
+        continue
+      if opcode != 1:
+        continue
+      try:
+        message = json.loads(payload.decode("utf-8"))
+      except (ValueError, UnicodeDecodeError):
+        continue
+      if is_control and message.get("type") == "requirements_query":
+        state.send_control(state.get_manifest())
+      elif is_control and message.get("type") == "catalog_query":
+        # The app normally sends catalog_query only as a recovery path; reply
+        # with the same stable manifest rather than creating a new session.
+        state.send_control(state.get_manifest())
+      elif not is_control and message.get("type") == "item_update":
+        name = message.get("name", stream_name)
+        value = message.get("value") if message.get("present", True) else None
+        if name == "map_main" or name in OVERLAY_FILES:
+          if value is None:
             if name == "map_main":
-              state.update_map(image)
+              state.clear_map()
             else:
-              state.update_overlay(name, image)
-          except (TypeError, ValueError):
-            pass
-      else:
-        state.update(name, value)
+              state.clear_overlay(name)
+            continue
+          encoded = value.get("data") if isinstance(value, dict) else value
+          if isinstance(encoded, str):
+            if "," in encoded and encoded.startswith("data:"):
+              encoded = encoded.split(",", 1)[1]
+            try:
+              image = base64.b64decode(encoded)
+              if name == "map_main":
+                state.update_map(image)
+              else:
+                state.update_overlay(name, image)
+            except (TypeError, ValueError):
+              pass
+        else:
+          state.update(name, value)
+  finally:
+    if is_control:
+      state.control_disconnected(conn)
 
 
 def handle_client(conn, state):
@@ -337,6 +598,7 @@ def handle_client(conn, state):
   except (EOFError, IOError, ValueError, socket.error):
     pass
   finally:
+    state.control_disconnected(conn)
     try:
       conn.close()
     except socket.error:
