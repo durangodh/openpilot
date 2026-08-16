@@ -41,6 +41,10 @@ jobs:
               -keysize 2048 \
               -validity 10000
           fi
+      - name: Fix displayed version label only
+        shell: bash
+        run: |
+          sed -i 's/v0\.13  ·  부팅 지연·자동복구 \/ 1CBE:0092/v0.16  ·  부팅 지연·자동복구 \/ 1CBE:0092/' selfdrive/eon_cluster/android_hud/app/src/main/java/ai/comma/remotehud/MainActivity.java
       - name: Build debug APK
         working-directory: selfdrive/eon_cluster/android_hud
         run: gradle :app:assembleDebug --stacktrace
