@@ -454,17 +454,8 @@ void NvgWindow::paintEvent(QPaintEvent *event) {
 
   QPainter p(this);
 
-  const uint64_t eon_hud_now = millis_since_boot();
-  if (eon_hud_now - eon_cluster_hud_last_read >= 500) {
-    // Reuse one Params instance: constructing it inside paintEvent hits the
-    // filesystem twice a second for no reason.
-    static Params eon_hud_params;
-    eon_cluster_hud_last_read = eon_hud_now;
-    eon_cluster_hud_connected = eon_hud_params.getBool("EonClusterHudConnected");
-  }
-
-  // Keep the EON road camera visible when the external HUD is connected.
-  // Only duplicate model/TMap overlays are suppressed below.
+  // Keep the complete EON driving UI independent from the S9/USB HUD state.
+  // A live S9 UDP acknowledgement does not prove that TURZX USB output works.
   p.beginNativePainting();
   CameraViewWidget::paintGL();
   p.endNativePainting();
@@ -560,14 +551,13 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   (void)sm;
   (void)model;
 
-  if (!eon_cluster_hud_connected) {
-    drawLaneLines(p, s);
-    // Keep all existing driving/navigation indicators above the analysis plot.
-    drawCarrotPlot(p);
-    drawCarrotLead(p);
-  }
-  updateCarrotNavi(!eon_cluster_hud_connected);
-  if (!eon_cluster_hud_connected) drawCarrotNavi(p);
+  drawLaneLines(p, s);
+  // Keep all existing driving/navigation indicators on the EON regardless of
+  // the separate S9 HUD connection.
+  drawCarrotPlot(p);
+  drawCarrotLead(p);
+  updateCarrotNavi(true);
+  drawCarrotNavi(p);
   drawCarrotHud(p);
   drawSpeedLimit(p);
   drawCarrotInfo(p);
