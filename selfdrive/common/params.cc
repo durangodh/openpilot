@@ -245,7 +245,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"ShowGearAnimation", PERSISTENT},
     {"ShowCarrotHud", PERSISTENT},              // 1=좌측 carrot HUD 박스 표시, 0=숨김
     {"EonClusterHud", PERSISTENT},
-    {"EonClusterHudOutputMode", PERSISTENT},   // 0=EON direct USB, 1=S9 remote renderer
     {"EonClusterHudBrightness", PERSISTENT},
     {"EonClusterHudConnected", CLEAR_ON_MANAGER_START},
     {"EonClusterHudFps", PERSISTENT},
