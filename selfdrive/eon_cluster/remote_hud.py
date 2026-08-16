@@ -31,13 +31,39 @@ MAP_KEEPALIVE_S = 1.0
 NAVI_MAX_AGE_MS = 35000
 NAVI_GUIDANCE_MAX_AGE_MS = 3000
 MAP_IDLE_JPEG = base64.b64decode(
-  "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDz+iiigD//2Q==")
+  "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDz+iiigD//2Q==")
 FPS = 10
 PARAM_ENABLED = "EonClusterHud"
 PARAM_OUTPUT_MODE = "EonClusterHudOutputMode"
 PARAM_CONNECTED = "EonClusterHudConnected"
 PARAM_ATC_MODE = "CarrotAutoTurnControl"
 _NAVI_CACHE = {"signature": None, "state": {}}
+
+# One-time S9 APK support for runtime layout tuning.  After the compatible APK
+# is installed, ordinary HUD position/size/color tweaks only require changing
+# this dictionary on EON; the values ride along with the existing 10 Hz JSON.
+# Per-element positioning uses <name>Dx / <name>Dy / <name>Scale.
+REMOTE_LAYOUT = {
+  "driveBg": 0xEFF1F2,
+  "roadTop": 0xE2E5E7,
+  "roadBottom": 0xD8DCDF,
+  "pathColor": 0x187EE0,
+  "lightsDx": 0, "lightsDy": 0, "lightsScale": 1.0,
+  "prndDx": 0, "prndDy": 0, "prndScale": 1.0,
+  "speedDx": 0, "speedDy": 0, "speedScale": 1.0,
+  "wheelDx": 0, "wheelDy": 0, "wheelScale": 1.0,
+  "setDx": 0, "setDy": 0, "setScale": 1.0,
+  "cameraDx": 0, "cameraDy": 0, "cameraScale": 1.0,
+  "leadDx": 0, "leadDy": 0, "leadScale": 1.0,
+  "tpmsDx": 0, "tpmsDy": 0, "tpmsScale": 1.0,
+  "atcDx": 0, "atcDy": 0, "atcScale": 1.0,
+  "systemDx": 0, "systemDy": 0, "systemScale": 1.0,
+  "modeX": 742, "modeY": 116, "modeSize": 29,
+  "etaRight": 620, "etaY": 116, "etaTimeSize": 27, "etaLabelSize": 14, "etaGap": 8,
+  "tbt1Dx": 0, "tbt1Dy": 0, "tbt1Scale": 1.0,
+  "tbt2Dx": 0, "tbt2Dy": 0, "tbt2Scale": 1.0,
+  "laneDx": 0, "laneDy": 0, "laneScale": 1.0,
+}
 
 
 class MapFrameServer(object):
@@ -349,8 +375,9 @@ def _packet(sm, atc_mode):
   tpms = _field(car, "tpms", None)
   navi = _read_navi_summary()
   return {
-    "v": 3,
+    "v": 4,
     "t": int(time.time() * 1000),
+    "layout": REMOTE_LAYOUT,
     "speed": int(round(_finite(_field(car, "vEgoCluster", _field(car, "vEgo", 0.0))) * 3.6)),
     "set": _set_speed(controls, sm["carControl"]),
     "enabled": bool(_field(controls, "enabled", False)),
