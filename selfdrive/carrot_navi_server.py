@@ -215,16 +215,15 @@ class NaviState(object):
     message_type, format_or_reason, sequence, image_payload = parsed
 
     now = time.monotonic()
-    # Count a valid map packet as activity even when the HUD-side FPS limiter
-    # intentionally skips writing this particular frame.
-    with self.lock:
-      self.last_map_rx = now
-      self.map_seen = True
-      self.map_stale_cleared = False
-      if sequence >= 0:
-        self.last_map_sequence = sequence
-
     if message_type == 4:
+      # A valid stream-clear packet is activity and must immediately remove the
+      # old route from both EON storage and the S9 map server.
+      with self.lock:
+        self.last_map_rx = now
+        self.map_seen = True
+        self.map_stale_cleared = True
+        if sequence >= 0:
+          self.last_map_sequence = sequence
       self.clear_map()
       return
 
@@ -233,14 +232,24 @@ class NaviState(object):
     if format_or_reason not in (0, 2):
       return
 
-    if now < self.last_map_write + 1.0 / map_render_fps(self.params):
-      return
-
     start = image_payload.find(b"\xff\xd8")
     end = image_payload.rfind(b"\xff\xd9")
     if start < 0 or end < start:
       return
     image = image_payload[start:end + 2]
+
+    # Only a validated JPEG counts as map activity. Otherwise malformed packets
+    # could keep an old destination alive forever by refreshing last_map_rx.
+    with self.lock:
+      self.last_map_rx = now
+      self.map_seen = True
+      self.map_stale_cleared = False
+      if sequence >= 0:
+        self.last_map_sequence = sequence
+
+    # A valid rate-limited frame still refreshed last_map_rx above.
+    if now < self.last_map_write + 1.0 / map_render_fps(self.params):
+      return
     image_digest = hashlib.sha1(image).digest()
     with self.lock:
       self.last_map_digest = image_digest
@@ -383,14 +392,13 @@ class NaviState(object):
         route_change_pending = self.route_change_pending
         route_change_started = self.route_change_started
 
-      if not control_present:
-        continue
-
       # A route/destination change can leave map_main sending the exact same
-      # old JPEG repeatedly.  Packet timestamps alone would look healthy, so
-      # keep asking for resync until the actual map pixels change.
+      # old JPEG repeatedly. Packet timestamps alone would look healthy, so
+      # keep asking for resync until the actual map pixels change. If the
+      # control socket is gone, clearing still proceeds after the same timeout.
       if route_change_pending:
-        self.request_map_resync()
+        if control_present:
+          self.request_map_resync()
         route_age = now - route_change_started if route_change_started > 0.0 else 0.0
         if route_age >= MAP_STALE_CLEAR_S and not already_cleared:
           self.clear_map()
@@ -402,12 +410,11 @@ class NaviState(object):
         continue
 
       age = now - last_map_rx
-      if age >= MAP_STALE_S:
+      if age >= MAP_STALE_S and control_present:
         self.request_map_resync()
 
-      # Do not keep a visibly wrong/old route on the HUD indefinitely while
-      # waiting for TMAP to rebuild its render worker.  The next valid frame
-      # recreates the file immediately.
+      # Clear stale pixels even when TMAP's control socket disconnected. The
+      # next valid frame recreates the file and MapFrameServer forwards it.
       if age >= MAP_STALE_CLEAR_S and not already_cleared:
         self.clear_map()
         with self.lock:
