@@ -120,8 +120,6 @@ protected:
   bool show_map_image = true;
   bool show_route_map_always = false;
   uint64_t carrot_navi_last_read = 0;
-  uint64_t eon_cluster_hud_last_read = 0;
-  bool eon_cluster_hud_connected = false;
   uint64_t carrot_navi_updated_at = 0;
   uint64_t carrot_navi_guidance_updated_at = 0;
   uint64_t carrot_navi_route_updated_at = 0;
