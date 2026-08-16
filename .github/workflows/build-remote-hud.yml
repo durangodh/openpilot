@@ -47,6 +47,10 @@ jobs:
           sed -i 's/v0\.13  ·  부팅 지연·자동복구 \/ 1CBE:0092/v0.16  ·  부팅 지연·자동복구 \/ 1CBE:0092/' selfdrive/eon_cluster/android_hud/app/src/main/java/ai/comma/remotehud/MainActivity.java
       - name: Apply live S9 render tuning
         run: python3 selfdrive/eon_cluster/android_hud/apply_runtime_tuning.py
+      - name: Preserve runtime 3D helpers
+        shell: bash
+        run: |
+          sed -i "s/'    private float\[\] project('/'    private float pathCenterAt('/" selfdrive/eon_cluster/android_hud/apply_s9_3d_patch.py
       - name: Apply full S9 perspective 3D renderer
         run: python3 selfdrive/eon_cluster/android_hud/apply_s9_3d_patch.py
       - name: Build debug APK
