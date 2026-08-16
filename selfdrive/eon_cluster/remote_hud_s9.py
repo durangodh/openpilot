@@ -26,9 +26,10 @@ def _packet(sm, atc_mode):
   packet = _original_packet(sm, atc_mode)
 
   # Existing EON HUD settings are now S9 runtime settings.
-  packet["hudFps"] = _bounded_int("EonClusterHudFps", 8, 1, 15)
+  # Preserve 0 for FPS (pause) and brightness (auto), matching the old UI.
+  packet["hudFps"] = _bounded_int("EonClusterHudFps", 8, 0, 15)
   packet["hudMapFps"] = _bounded_int("EonClusterHudMapFps", 5, 2, 5)
-  packet["hudBrightness"] = _bounded_int("EonClusterHudBrightness", 65, 1, 100)
+  packet["hudBrightness"] = _bounded_int("EonClusterHudBrightness", 65, 0, 100)
   packet["hudJpegQuality"] = _bounded_int("EonClusterHudJpegQuality", 55, 20, 95)
   packet["hudScreenMode"] = _bounded_int("EonClusterHudScreenMode", 1, 1, 3)
   packet["hudTheme"] = _bounded_int("EonClusterHudTheme", 0, 0, 2)
