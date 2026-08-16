@@ -7,8 +7,8 @@ android {
     applicationId "ai.comma.remotehud"
     minSdk 26
     targetSdk 35
-    versionCode 15
-    versionName "0.15-eon-system-sync"
+    versionCode 16
+    versionName "0.16-runtime-layout"
   }
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_11
