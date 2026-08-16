@@ -226,7 +226,7 @@ public final class HudService extends Service {
 
     private void drawModeAndEta(Canvas c,Paint p,JSONObject s){
         int mode=s.optInt("drivingMode",3);String label="NORM";int color=Color.rgb(68,76,82);if(mode==1){label="SAFE";color=Color.rgb(226,144,38);}else if(mode==2){label="ECO";color=Color.rgb(20,160,92);}else if(mode==4){label="FAST";color=Color.rgb(222,67,70);}text(c,p,label,DRIVE_RIGHT-26,116,29,color,Paint.Align.RIGHT);
-        JSONObject navi=s.optJSONObject("navi");if(navi!=null&&navi.optBoolean("active",false)){int remain=navi.optInt("remainTime",0);if(remain>0){long etaMs=System.currentTimeMillis()+remain*1000L;String eta=new SimpleDateFormat("HH:mm",Locale.KOREA).format(new Date(etaMs));text(c,p,"도착",DRIVE_RIGHT-196,115,14,Color.rgb(68,76,82),Paint.Align.RIGHT);text(c,p,eta,DRIVE_RIGHT-82,116,27,Color.rgb(68,76,82),Paint.Align.RIGHT);}}
+        JSONObject navi=s.optJSONObject("navi");if(navi!=null&&navi.optBoolean("active",false)){int remain=navi.optInt("remainTime",0);if(remain>0){long etaMs=System.currentTimeMillis()+remain*1000L;String eta=new SimpleDateFormat("HH:mm",Locale.KOREA).format(new Date(etaMs));float etaLabelRight=DRIVE_RIGHT-228;float etaTimeRight=DRIVE_RIGHT-148;text(c,p,"도착",etaLabelRight,115,14,Color.rgb(68,76,82),Paint.Align.RIGHT);text(c,p,eta,etaTimeRight,116,27,Color.rgb(68,76,82),Paint.Align.RIGHT);}}
     }
 
     private void drawLights(Canvas c,Paint p,JSONObject s){float x=21;if(s.optBoolean("lowBeam",false)){drawLamp(c,p,x,28,0);x+=45;}if(s.optBoolean("highBeam",false)){drawLamp(c,p,x,28,1);x+=45;}if(s.optBoolean("frontFog",false))drawLamp(c,p,x,28,2);}
