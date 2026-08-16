@@ -334,6 +334,12 @@ def _packet(sm, atc_mode):
     camera_section = cam_speed > 0 and cam_dist > 0
   cpu = list(_field(device, "cpuUsagePercent", []) or [])
   temps = list(_field(device, "cpuTempC", []) or [])
+  cpu_avg = (sum(float(v) for v in cpu) / len(cpu)) if cpu else 0.0
+  temp_avg = (sum(float(v) for v in temps) / len(temps)) if temps else 0.0
+  engine_temp = _finite(_field(car, "engineOilTempC", -1000.0), -1000.0)
+  coolant_temp = _finite(_field(car, "engineCoolantTempC", -1000.0), -1000.0)
+  engine_temp = engine_temp if -50.0 <= engine_temp <= 200.0 else None
+  coolant_temp = coolant_temp if -50.0 <= coolant_temp <= 200.0 else None
   gap = int(_finite(_field(controls, "longCruiseGap", 0)))
   if not 1 <= gap <= 4:
     gap = int(_finite(_field(car, "cruiseGap", 0)))
@@ -343,7 +349,7 @@ def _packet(sm, atc_mode):
   tpms = _field(car, "tpms", None)
   navi = _read_navi_summary()
   return {
-    "v": 2,
+    "v": 3,
     "t": int(time.time() * 1000),
     "speed": int(round(_finite(_field(car, "vEgoCluster", _field(car, "vEgo", 0.0))) * 3.6)),
     "set": _set_speed(controls, sm["carControl"]),
@@ -359,8 +365,15 @@ def _packet(sm, atc_mode):
     "rightBsd": bool(_field(car, "rightBlindspot", False)),
     "steer": round(_finite(_field(car, "steeringAngleDeg", 0.0)), 1),
     "accel": round(_finite(accels[0] if accels else 0.0), 2),
-    "cpu": int(round(sum(cpu) / len(cpu))) if cpu else 0,
-    "temp": round(max(temps), 1) if temps else 0,
+    "cpu": int(round(cpu_avg)),
+    "temp": round(temp_avg, 1),
+    "system": {
+      "cpu": round(cpu_avg, 1),
+      "temp": round(temp_avg, 1),
+      "engineTemp": engine_temp,
+      "coolantTemp": coolant_temp,
+      "cores": [round(float(v), 1) for v in cpu[:8]],
+    },
     "leftBlinker": bool(_field(car, "leftBlinker", False)),
     "rightBlinker": bool(_field(car, "rightBlinker", False)),
     "lowBeam": bool(_field(car, "lowBeam", False)),
