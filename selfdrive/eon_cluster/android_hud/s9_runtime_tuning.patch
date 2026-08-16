@@ -1,0 +1,45 @@
+diff --git a/selfdrive/eon_cluster/android_hud/app/src/main/java/ai/comma/remotehud/HudService.java b/selfdrive/eon_cluster/android_hud/app/src/main/java/ai/comma/remotehud/HudService.java
+--- a/selfdrive/eon_cluster/android_hud/app/src/main/java/ai/comma/remotehud/HudService.java
++++ b/selfdrive/eon_cluster/android_hud/app/src/main/java/ai/comma/remotehud/HudService.java
+@@ -84,6 +84,9 @@ public final class HudService extends Service {
+     private static final int USB_SLOWDOWN_AFTER_ERRORS = 5;
+     private int usbErrorStreak;
+     private long frameIntervalMs = 125L;
++    private int configuredFps = 8;
++    private int jpegQuality = 55;
++    private int appliedBrightness = -1;
+ 
+ 
+     private final Handler starter = new Handler(Looper.getMainLooper());
+@@ -196,8 +199,21 @@ public final class HudService extends Service {
+             try{
+                 if(!display.openOrRequestPermission()){usbStatus=display.describeStatus();usbConnected=false;usbError=false;SystemClock.sleep(500L);continue;}
+                 usbStatus="연결됨 · USB 권한 허용";usbConnected=true;usbError=false;usbErrorStreak=0;Bitmap frame;
+-                synchronized(assetLock){frame=render(state.get(),mapFrame.get(),tbtCurrentFrame.get(),tbtNextFrame.get(),laneFrame.get());}
++                JSONObject currentState=state.get();
++                int requestedFps=Math.max(1,Math.min(15,currentState.optInt("hudFps",8)));
++                if(requestedFps!=configuredFps){
++                    configuredFps=requestedFps;
++                    frameIntervalMs=Math.max(67L,1000L/configuredFps);
++                }
++                jpegQuality=Math.max(20,Math.min(95,currentState.optInt("hudJpegQuality",55)));
++                int requestedBrightness=Math.max(1,Math.min(100,currentState.optInt("hudBrightness",65)));
++                if(requestedBrightness!=appliedBrightness){
++                    display.setBrightness(requestedBrightness);
++                    appliedBrightness=requestedBrightness;
++                }
++                synchronized(assetLock){frame=render(currentState,mapFrame.get(),tbtCurrentFrame.get(),tbtNextFrame.get(),laneFrame.get());}
+                 ByteArrayOutputStream output=new ByteArrayOutputStream(180000);Matrix matrix=new Matrix();matrix.setRotate(-90.0f);Bitmap portrait=Bitmap.createBitmap(frame,0,0,frame.getWidth(),frame.getHeight(),matrix,true);frame.recycle();portrait.compress(Bitmap.CompressFormat.JPEG,55,output);portrait.recycle();byte[] jpeg=output.toByteArray();display.sendJpeg(jpeg);lastJpegBytes=jpeg.length;lastJpegSentElapsed=SystemClock.elapsedRealtime();frames++;long span=lastJpegSentElapsed-fpsStart;if(span>=1000L){measuredFps=frames*1000.0f/span;fpsStart=lastJpegSentElapsed;frames=0;}
+             }catch(Exception e){
+@@ -205,7 +221,7 @@ public final class HudService extends Service {
+                 display.clearHalt();
+                 display.close();
++                appliedBrightness=-1;
+                 if(usbErrorStreak>=USB_RESET_AFTER_ERRORS){
+@@ -218,6 +234,7 @@ public final class HudService extends Service {
+                     frameIntervalMs=250L;  // 8fps -> 4fps. 처리량을 낮춰 고착을 피한다.
+                 }
+             }
+         }
+     }
+*** End Patch
