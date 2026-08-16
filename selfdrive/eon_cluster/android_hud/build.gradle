@@ -1,3 +1,17 @@
-plugins {
-  id "com.android.application" version "8.7.3" apply false
+plugins { id "com.android.application" }
+
+android {
+  namespace "ai.comma.remotehud"
+  compileSdk 35
+  defaultConfig {
+    applicationId "ai.comma.remotehud"
+    minSdk 26
+    targetSdk 35
+    versionCode 17
+    versionName "0.17-usb-recovery"
+  }
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_11
+    targetCompatibility JavaVersion.VERSION_11
+  }
 }
