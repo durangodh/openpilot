@@ -60,8 +60,8 @@ REMOTE_LAYOUT = {
   "systemDx": 0, "systemDy": 0, "systemScale": 1.0,
   "modeX": 742, "modeY": 116, "modeSize": 29,
   "etaRight": 620, "etaY": 116, "etaTimeSize": 27, "etaLabelSize": 14, "etaGap": 8,
-  "tbt1Dx": 0, "tbt1Dy": 0, "tbt1Scale": 1.0,
-  "tbt2Dx": 0, "tbt2Dy": 0, "tbt2Scale": 1.0,
+  "tbt1Dx": -54, "tbt1Dy": 0, "tbt1Scale": 0.72,
+  "tbt2Dx": -39, "tbt2Dy": 0, "tbt2Scale": 0.72,
   "laneDx": 0, "laneDy": 0, "laneScale": 1.0,
 }
 
