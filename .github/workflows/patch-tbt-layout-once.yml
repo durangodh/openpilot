@@ -1,0 +1,43 @@
+name: Patch remote HUD TMAP overlay sizing once
+
+on:
+  push:
+    branches: [g_abcd]
+    paths:
+      - ".github/workflows/patch-tbt-layout-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: g_abcd
+      - name: Resize only TMAP current/next guidance overlays
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('selfdrive/eon_cluster/remote_hud.py')
+          s = p.read_text()
+          old1 = '  "tbt1Dx": 0, "tbt1Dy": 0, "tbt1Scale": 1.0,'
+          new1 = '  "tbt1Dx": -54, "tbt1Dy": 0, "tbt1Scale": 0.72,'
+          old2 = '  "tbt2Dx": 0, "tbt2Dy": 0, "tbt2Scale": 1.0,'
+          new2 = '  "tbt2Dx": -39, "tbt2Dy": 0, "tbt2Scale": 0.72,'
+          if old1 not in s or old2 not in s:
+              raise SystemExit('expected runtime layout lines not found')
+          s = s.replace(old1, new1, 1).replace(old2, new2, 1)
+          p.write_text(s)
+          PY
+          rm -f .github/workflows/patch-tbt-layout-once.yml
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add selfdrive/eon_cluster/remote_hud.py .github/workflows/patch-tbt-layout-once.yml
+          git commit -m "remote hud: resize TMAP current and next guidance overlays"
+          git push origin HEAD:g_abcd
