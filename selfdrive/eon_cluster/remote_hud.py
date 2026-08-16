@@ -1,8 +1,8 @@
 """Low-overhead HUD telemetry publisher for a separate Android renderer.
 
 This process is the remote-HUD path for EON. It deliberately sends only
-compact scene data: no framebuffer copies, map decoding, JPEG rendering, or
-USB display traffic happens on the EON.
+compact scene data and already-compressed TMAP assets: no framebuffer copies,
+map decoding, JPEG rendering, or USB display traffic happens on the EON.
 """
 
 import base64
@@ -21,16 +21,17 @@ from common.params import Params
 PORT = 7210
 MAP_PORT = 7211
 MAP_FILE = "/dev/shm/carrot_navi_map.jpg"
+TBT_CURRENT_FILE = "/dev/shm/carrot_navi_tbt_current_full.png"
+TBT_NEXT_FILE = "/dev/shm/carrot_navi_tbt_next.png"
+LANE_BOTTOM_FILE = "/dev/shm/carrot_navi_lane_bottom.png"
 NAVI_STATE = "/dev/shm/carrot_navi_route.json"
 MAP_MAX_BYTES = 2 * 1024 * 1024
+OVERLAY_MAX_BYTES = 512 * 1024
 MAP_KEEPALIVE_S = 1.0
 NAVI_MAX_AGE_MS = 35000
 NAVI_GUIDANCE_MAX_AGE_MS = 3000
-# Tiny valid 2x2 black JPEG. v0.6 treats a silent 7211 socket as a dead video
-# connection and reconnects repeatedly, so send this only while no TMAP frame
-# exists. This is decoded once at process start and costs ~631 bytes/second.
 MAP_IDLE_JPEG = base64.b64decode(
-  "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDz+iiigD//2Q==")
+  "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDz+iiigD//2Q==")
 FPS = 10
 PARAM_ENABLED = "EonClusterHud"
 PARAM_OUTPUT_MODE = "EonClusterHudOutputMode"
@@ -40,7 +41,14 @@ _NAVI_CACHE = {"signature": None, "state": {}}
 
 
 class MapFrameServer(object):
-  """Forward the already-compressed TMAP JPEG without decoding it on EON."""
+  """Forward native compressed TMAP map/guidance assets without decoding."""
+
+  ASSETS = (
+    (b"MAP1", MAP_FILE, MAP_MAX_BYTES, MAP_IDLE_JPEG),
+    (b"TBT1", TBT_CURRENT_FILE, OVERLAY_MAX_BYTES, b""),
+    (b"TBT2", TBT_NEXT_FILE, OVERLAY_MAX_BYTES, b""),
+    (b"LANE", LANE_BOTTOM_FILE, OVERLAY_MAX_BYTES, b""),
+  )
 
   def __init__(self):
     self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -49,8 +57,9 @@ class MapFrameServer(object):
     self.listener.listen(1)
     self.listener.setblocking(False)
     self.client = None
-    self.signature = None
-    self.cached_jpeg = MAP_IDLE_JPEG
+    self.signatures = {}
+    self.cached = {tag: fallback for tag, _, _, fallback in self.ASSETS}
+    self.pending = set(tag for tag, _, _, _ in self.ASSETS)
     self.last_send = 0.0
 
   def _drop_client(self):
@@ -61,34 +70,45 @@ class MapFrameServer(object):
         pass
     self.client = None
     self.last_send = 0.0
+    self.pending = set(tag for tag, _, _, _ in self.ASSETS)
 
-  def _refresh_frame(self):
+  @staticmethod
+  def _valid_image(data):
+    if not data:
+      return False
+    if data.startswith(b"\xff\xd8"):
+      return data.endswith(b"\xff\xd9")
+    return data.startswith(b"\x89PNG\r\n\x1a\n")
+
+  def _refresh_asset(self, tag, path, maximum, fallback):
     try:
-      stat = os.stat(MAP_FILE)
+      stat = os.stat(path)
+      signature = (getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9)), stat.st_size)
     except (IOError, OSError):
-      if self.signature is not None:
-        self.signature = None
-        self.cached_jpeg = MAP_IDLE_JPEG
-        return True
-      return False
+      if self.signatures.get(tag) is not None or self.cached.get(tag, fallback) != fallback:
+        self.signatures[tag] = None
+        self.cached[tag] = fallback
+        self.pending.add(tag)
+      return
 
-    signature = (getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9)), stat.st_size)
-    if signature == self.signature:
-      return False
-    if stat.st_size <= 4 or stat.st_size > MAP_MAX_BYTES:
-      return False
-
+    if signature == self.signatures.get(tag):
+      return
+    if stat.st_size <= 4 or stat.st_size > maximum:
+      return
     try:
-      with open(MAP_FILE, "rb") as image_file:
-        jpeg = image_file.read()
+      with open(path, "rb") as image_file:
+        data = image_file.read()
     except (IOError, OSError):
-      return False
-    if not (jpeg.startswith(b"\xff\xd8") and jpeg.endswith(b"\xff\xd9")):
-      return False
+      return
+    if not self._valid_image(data):
+      return
+    self.signatures[tag] = signature
+    self.cached[tag] = data
+    self.pending.add(tag)
 
-    self.signature = signature
-    self.cached_jpeg = jpeg
-    return True
+  def _send_asset(self, tag):
+    payload = self.cached.get(tag, b"")
+    self.client.sendall(tag + struct.pack(">I", len(payload)) + payload)
 
   def poll(self):
     if self.client is None:
@@ -96,17 +116,24 @@ class MapFrameServer(object):
         self.client, _ = self.listener.accept()
         self.client.settimeout(0.5)
         self.last_send = 0.0
+        self.pending = set(tag for tag, _, _, _ in self.ASSETS)
       except BlockingIOError:
         return
 
-    now = time.monotonic()
-    changed = self._refresh_frame()
-    if not changed and now - self.last_send < MAP_KEEPALIVE_S:
-      return
+    for asset in self.ASSETS:
+      self._refresh_asset(*asset)
 
+    now = time.monotonic()
+    if now - self.last_send >= MAP_KEEPALIVE_S:
+      self.pending.add(b"MAP1")
+
+    if not self.pending:
+      return
     try:
-      jpeg = self.cached_jpeg
-      self.client.sendall(b"MAP1" + struct.pack(">I", len(jpeg)) + jpeg)
+      for tag, _, _, _ in self.ASSETS:
+        if tag in self.pending:
+          self._send_asset(tag)
+      self.pending.clear()
       self.last_send = now
     except socket.error:
       self._drop_client()
