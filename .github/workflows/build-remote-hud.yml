@@ -41,18 +41,10 @@ jobs:
               -keysize 2048 \
               -validity 10000
           fi
-      - name: Fix displayed version label only
-        shell: bash
-        run: |
-          sed -i 's/v0\.13  ·  부팅 지연·자동복구 \/ 1CBE:0092/v0.16  ·  부팅 지연·자동복구 \/ 1CBE:0092/' selfdrive/eon_cluster/android_hud/app/src/main/java/ai/comma/remotehud/MainActivity.java
-      - name: Apply live S9 render tuning
-        run: python3 selfdrive/eon_cluster/android_hud/apply_runtime_tuning.py
-      - name: Preserve runtime 3D helpers
-        shell: bash
-        run: |
-          sed -i "s/'    private float\[\] project('/'    private float pathCenterAt('/" selfdrive/eon_cluster/android_hud/apply_s9_3d_patch.py
-      - name: Apply full S9 perspective 3D renderer
-        run: python3 selfdrive/eon_cluster/android_hud/apply_s9_3d_patch.py
+      # v0.19+ builds the checked-in tree as-is.
+      # The old sed / apply_runtime_tuning.py / apply_s9_3d_patch.py steps are gone:
+      # they rewrote v0.17 sources into v0.18 at build time, which is why the
+      # installed APK always ran ahead of the repository.
       - name: Build debug APK
         working-directory: selfdrive/eon_cluster/android_hud
         run: gradle :app:assembleDebug --stacktrace
