@@ -1,8 +1,7 @@
 """S9-only remote HUD wrapper.
 
-Keeps the existing low-overhead remote_hud transport, but exposes all existing
-EON HUD Params to the Android renderer so the legacy HUD controls now tune the
-S9 renderer live. The old direct-EON output selector is intentionally ignored.
+Keeps the existing low-overhead remote_hud transport and exposes the S9 HUD
+Params to the Android renderer for live tuning.
 """
 
 from common.params import Params
@@ -25,8 +24,7 @@ def _bounded_int(key, default, minimum, maximum):
 def _packet(sm, atc_mode):
   packet = _original_packet(sm, atc_mode)
 
-  # Existing EON HUD settings are now S9 runtime settings.
-  # Preserve 0 for FPS (pause) and brightness (auto), matching the old UI.
+  # Preserve 0 for FPS (pause) and brightness (auto), matching the UI.
   packet["hudFps"] = _bounded_int("EonClusterHudFps", 8, 0, 15)
   packet["hudMapFps"] = _bounded_int("EonClusterHudMapFps", 5, 2, 5)
   packet["hudBrightness"] = _bounded_int("EonClusterHudBrightness", 65, 0, 100)
@@ -40,13 +38,7 @@ def _packet(sm, atc_mode):
   return packet
 
 
-def _remote_output_enabled(params):
-  # External HUD is S9-only now; the legacy direct-EON output mode is ignored.
-  return params.get_bool(base.PARAM_ENABLED)
-
-
 base._packet = _packet
-base._remote_output_enabled = _remote_output_enabled
 
 
 if __name__ == "__main__":
