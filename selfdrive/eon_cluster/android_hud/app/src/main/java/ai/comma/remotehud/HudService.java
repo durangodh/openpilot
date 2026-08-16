@@ -81,6 +81,14 @@ public final class HudService extends Service {
     private volatile boolean workersStarted;
     private PowerManager.WakeLock wakeLock;
 
+    // --- v0.17: 단계적 USB 복구 ---
+    // 1~2회: halt 해제 후 재연결 / 3회 이상: 루트 포트 재바인딩 / 5회 이상: 목표 FPS 하향
+    private static final int USB_RESET_AFTER_ERRORS = 3;
+    private static final int USB_SLOWDOWN_AFTER_ERRORS = 5;
+    private int usbErrorStreak;
+    private long frameIntervalMs = 125L;
+
+
     private final Handler starter = new Handler(Looper.getMainLooper());
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicReference<JSONObject> state = new AtomicReference<>(new JSONObject());
@@ -205,13 +213,31 @@ public final class HudService extends Service {
     private void renderLoop(){
         long fpsStart=SystemClock.elapsedRealtime(),nextFrame=0L;int frames=0;
         while(running.get()){
-            long now=SystemClock.elapsedRealtime();if(now<nextFrame){SystemClock.sleep(Math.min(20L,nextFrame-now));continue;}nextFrame=now+125L;
+            long now=SystemClock.elapsedRealtime();if(now<nextFrame){SystemClock.sleep(Math.min(20L,nextFrame-now));continue;}nextFrame=now+frameIntervalMs;
             try{
                 if(!display.openOrRequestPermission()){usbStatus=display.describeStatus();usbConnected=false;usbError=false;SystemClock.sleep(500L);continue;}
-                usbStatus="연결됨 · USB 권한 허용";usbConnected=true;usbError=false;Bitmap frame;
+                usbStatus="연결됨 · USB 권한 허용";usbConnected=true;usbError=false;usbErrorStreak=0;Bitmap frame;
                 synchronized(assetLock){frame=render(state.get(),mapFrame.get(),tbtCurrentFrame.get(),tbtNextFrame.get(),laneFrame.get());}
                 ByteArrayOutputStream output=new ByteArrayOutputStream(180000);Matrix matrix=new Matrix();matrix.setRotate(-90.0f);Bitmap portrait=Bitmap.createBitmap(frame,0,0,frame.getWidth(),frame.getHeight(),matrix,true);frame.recycle();portrait.compress(Bitmap.CompressFormat.JPEG,55,output);portrait.recycle();byte[] jpeg=output.toByteArray();display.sendJpeg(jpeg);lastJpegBytes=jpeg.length;lastJpegSentElapsed=SystemClock.elapsedRealtime();frames++;long span=lastJpegSentElapsed-fpsStart;if(span>=1000L){measuredFps=frames*1000.0f/span;fpsStart=lastJpegSentElapsed;frames=0;}
-            }catch(Exception e){frames=0;usbStatus="USB 오류 · "+e.getMessage();usbConnected=false;usbError=true;display.close();SystemClock.sleep(500L);}
+            }catch(Exception e){
+                frames=0;usbConnected=false;usbError=true;
+                usbErrorStreak++;
+                display.clearHalt();
+                display.close();
+                if(usbErrorStreak>=USB_RESET_AFTER_ERRORS){
+                    usbStatus="USB 복구 중 · 포트 재연결";
+                    boolean reset=UsbPortReset.resetPort(display.deviceNameOrNull());
+                    display.reset();
+                    if(!reset){usbStatus="USB 오류 · "+e.getMessage()+" (루트 불가)";}
+                    SystemClock.sleep(2500L);
+                }else{
+                    usbStatus="USB 오류 · "+e.getMessage();
+                    SystemClock.sleep(500L);
+                }
+                if(usbErrorStreak>=USB_SLOWDOWN_AFTER_ERRORS&&frameIntervalMs<250L){
+                    frameIntervalMs=250L;  // 8fps -> 4fps. 처리량을 낮춰 고착을 피한다.
+                }
+            }
         }
     }
 
