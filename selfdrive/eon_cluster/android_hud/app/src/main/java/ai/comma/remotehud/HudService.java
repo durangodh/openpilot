@@ -46,12 +46,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/**
- * S9-only remote HUD renderer.
- *
- * EON sends compact vehicle/navigation state plus the already-compressed TMAP
- * frame.  All vector drawing and final JPEG compression happen on the S9.
- */
+/** S9-only remote HUD renderer. EON only forwards compact state/native TMAP assets. */
 public final class HudService extends Service {
     static final String ACTION_RESCAN_USB = "ai.comma.remotehud.RESCAN_USB";
     static final String EXTRA_FROM_BOOT = "ai.comma.remotehud.FROM_BOOT";
@@ -90,7 +85,11 @@ public final class HudService extends Service {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicReference<JSONObject> state = new AtomicReference<>(new JSONObject());
     private final AtomicReference<Bitmap> mapFrame = new AtomicReference<>();
+    private final AtomicReference<Bitmap> tbtCurrentFrame = new AtomicReference<>();
+    private final AtomicReference<Bitmap> tbtNextFrame = new AtomicReference<>();
+    private final AtomicReference<Bitmap> laneFrame = new AtomicReference<>();
     private final AtomicReference<InetAddress> eonAddress = new AtomicReference<>();
+    private final Object assetLock = new Object();
 
     private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
         @Override
@@ -193,7 +192,6 @@ public final class HudService extends Service {
         measuredFps = 0.0f;
         lastJpegBytes = 0;
         acquireWakeLock();
-
         boolean fromBoot = intent != null && intent.getBooleanExtra(EXTRA_FROM_BOOT, false);
         if (fromBoot) {
             usbStatus = "부팅 대기 " + (BOOT_START_DELAY_MS / 1000L) + "초";
@@ -229,9 +227,8 @@ public final class HudService extends Service {
     }
 
     private void releaseWakeLock() {
-        try {
-            if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
-        } catch (Exception ignored) { }
+        try { if (wakeLock != null && wakeLock.isHeld()) wakeLock.release(); }
+        catch (Exception ignored) { }
         wakeLock = null;
     }
 
@@ -263,8 +260,7 @@ public final class HudService extends Service {
                     try {
                         DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                         socket.receive(packet);
-                        JSONObject next = new JSONObject(new String(packet.getData(), packet.getOffset(), packet.getLength(), "UTF-8"));
-                        state.set(next);
+                        state.set(new JSONObject(new String(packet.getData(), packet.getOffset(), packet.getLength(), "UTF-8")));
                         eonAddress.set(packet.getAddress());
                         lastEonRxElapsed = SystemClock.elapsedRealtime();
                         lastEonAddress = packet.getAddress().getHostAddress();
@@ -276,6 +272,18 @@ public final class HudService extends Service {
                 SystemClock.sleep(1000L);
             }
         }
+    }
+
+    private static boolean tagEquals(byte[] h, String tag) {
+        return h.length == 4 && h[0] == tag.charAt(0) && h[1] == tag.charAt(1)
+                && h[2] == tag.charAt(2) && h[3] == tag.charAt(3);
+    }
+
+    private void replaceAsset(AtomicReference<Bitmap> target, byte[] data) {
+        Bitmap decoded = data.length == 0 ? null : BitmapFactory.decodeByteArray(data, 0, data.length);
+        if (data.length > 0 && decoded == null) return;
+        Bitmap old = target.getAndSet(decoded);
+        if (old != null && old != decoded) old.recycle();
     }
 
     private void mapLoop() {
@@ -293,17 +301,16 @@ public final class HudService extends Service {
                 byte[] header = new byte[4];
                 while (running.get() && address.equals(eonAddress.get())) {
                     in.readFully(header);
-                    if (header[0] != 'M' || header[1] != 'A' || header[2] != 'P' || header[3] != '1') throw new Exception("bad map frame");
                     int length = in.readInt();
-                    if (length <= 4 || length > 2097152) throw new Exception("bad map size");
+                    if (length < 0 || length > 2097152) throw new Exception("bad asset size");
                     byte[] data = new byte[length];
-                    in.readFully(data);
-                    Bitmap decoded = BitmapFactory.decodeByteArray(data, 0, length);
-                    if (decoded != null) {
-                        synchronized (mapFrame) {
-                            Bitmap old = mapFrame.getAndSet(decoded);
-                            if (old != null && old != decoded) old.recycle();
-                        }
+                    if (length > 0) in.readFully(data);
+                    synchronized (assetLock) {
+                        if (tagEquals(header, "MAP1")) replaceAsset(mapFrame, data);
+                        else if (tagEquals(header, "TBT1")) replaceAsset(tbtCurrentFrame, data);
+                        else if (tagEquals(header, "TBT2")) replaceAsset(tbtNextFrame, data);
+                        else if (tagEquals(header, "LANE")) replaceAsset(laneFrame, data);
+                        else throw new Exception("bad asset tag");
                     }
                 }
             } catch (Exception ignored) {
@@ -324,7 +331,7 @@ public final class HudService extends Service {
                 SystemClock.sleep(Math.min(20L, nextFrame - now));
                 continue;
             }
-            nextFrame = now + 125L; // 8 fps: smooth enough for HUD and lighter on S9.
+            nextFrame = now + 125L;
             try {
                 if (!display.openOrRequestPermission()) {
                     usbStatus = display.describeStatus();
@@ -337,8 +344,8 @@ public final class HudService extends Service {
                 usbConnected = true;
                 usbError = false;
                 Bitmap frame;
-                synchronized (mapFrame) {
-                    frame = render(state.get(), mapFrame.get());
+                synchronized (assetLock) {
+                    frame = render(state.get(), mapFrame.get(), tbtCurrentFrame.get(), tbtNextFrame.get(), laneFrame.get());
                 }
                 ByteArrayOutputStream output = new ByteArrayOutputStream(180000);
                 Matrix matrix = new Matrix();
@@ -369,14 +376,14 @@ public final class HudService extends Service {
         }
     }
 
-    private Bitmap render(JSONObject s, Bitmap map) {
+    private Bitmap render(JSONObject s, Bitmap map, Bitmap tbtCurrent, Bitmap tbtNext, Bitmap lane) {
         Bitmap frame = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.RGB_565);
         Canvas canvas = new Canvas(frame);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         canvas.drawColor(Color.rgb(5, 8, 12));
         drawDriving(canvas, paint, s);
         drawSystem(canvas, paint, s);
-        drawMap(canvas, paint, map);
+        drawMap(canvas, paint, map, tbtCurrent, tbtNext, lane);
         return frame;
     }
 
@@ -384,29 +391,24 @@ public final class HudService extends Service {
         boolean enabled = s.optBoolean("enabled", false);
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.rgb(239, 241, 242));
-        canvas.drawRect(0, 0, DRIVE_RIGHT - 3, 216, paint);
+        canvas.drawRect(0, 0, DRIVE_RIGHT - 3, HEIGHT, paint);
         drawWorld(canvas, paint, s, enabled);
-
         drawLights(canvas, paint, s);
         drawPrnd(canvas, paint, s.optString("gear", "--"));
         drawSpeed(canvas, paint, s.optInt("speed", 0));
         drawModeAndEta(canvas, paint, s);
-
         paint.setColor(Color.rgb(202, 207, 210));
         paint.setStrokeWidth(1.0f);
         canvas.drawLine(18, 129, DRIVE_RIGHT - 21, 129, paint);
-
         drawSteeringWheel(canvas, paint, 70, 171, (float) s.optDouble("steer", 0.0), enabled);
         drawSetSpeed(canvas, paint, 384, 171, s.optInt("set", 0), enabled);
         drawCamera(canvas, paint, 698, 171, s.optInt("camera", 0), s.optInt("cameraDist", 0), s.optBoolean("cameraSection", false));
-
         drawLeadCard(canvas, paint, s.optJSONObject("lead"));
         drawTpms(canvas, paint, s.optJSONObject("tpms"));
         drawAtc(canvas, paint, s);
-
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(2.0f);
-        paint.setColor(Color.rgb(48, 60, 72));
+        paint.setColor(Color.rgb(188, 194, 198));
         canvas.drawRoundRect(new RectF(2, 2, DRIVE_RIGHT - 5, HEIGHT - 4), 18, 18, paint);
     }
 
@@ -432,7 +434,6 @@ public final class HudService extends Service {
         else if (mode == 2) { label = "ECO"; color = Color.rgb(20, 160, 92); }
         else if (mode == 4) { label = "FAST"; color = Color.rgb(222, 67, 70); }
         text(c, p, label, DRIVE_RIGHT - 26, 116, 29, color, Paint.Align.RIGHT);
-
         JSONObject navi = s.optJSONObject("navi");
         if (navi != null && navi.optBoolean("active", false)) {
             int remain = navi.optInt("remainTime", 0);
@@ -454,9 +455,7 @@ public final class HudService extends Service {
 
     private void drawLamp(Canvas c, Paint p, float x, float y, int kind) {
         int color = kind == 1 ? Color.rgb(44, 128, 238) : Color.rgb(39, 177, 89);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(3.0f);
-        p.setColor(color);
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(3.0f); p.setColor(color);
         RectF housing = new RectF(x + 22, y - 10, x + 36, y + 10);
         c.drawArc(housing, 90, 180, false, p);
         for (int i = -1; i <= 1; i++) {
@@ -474,7 +473,7 @@ public final class HudService extends Service {
 
     private void drawSteeringWheel(Canvas c, Paint p, float cx, float cy, float angle, boolean enabled) {
         float r = 36;
-        int bg = enabled ? Color.rgb(18, 95, 225) : Color.rgb(118, 126, 132);
+        int bg = enabled ? Color.rgb(18, 95, 225) : Color.rgb(92, 101, 107);
         p.setStyle(Paint.Style.FILL); p.setColor(bg); c.drawCircle(cx, cy, r, p);
         p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(4); p.setColor(Color.rgb(246, 248, 249)); c.drawCircle(cx, cy, r - 8, p);
         double rad = Math.toRadians(-angle);
@@ -482,7 +481,7 @@ public final class HudService extends Service {
         for (double deg : new double[]{-90, 30, 150}) {
             double a = rad + Math.toRadians(deg);
             c.drawLine(cx + (float)Math.cos(a) * 7, cy + (float)Math.sin(a) * 7,
-                       cx + (float)Math.cos(a) * 24, cy + (float)Math.sin(a) * 24, p);
+                    cx + (float)Math.cos(a) * 24, cy + (float)Math.sin(a) * 24, p);
         }
         p.setStyle(Paint.Style.FILL); c.drawCircle(cx, cy, 6, p);
     }
@@ -528,14 +527,8 @@ public final class HudService extends Service {
         text(c,p,tpmsText(rr),703,443,16,Color.rgb(18,18,18),Paint.Align.LEFT);
     }
 
-    private float tpmsValue(JSONObject t, String key) {
-        if (t == null) return -1;
-        return (float)t.optDouble(key, -1);
-    }
-
-    private String tpmsText(float v) {
-        return v >= 5 && v <= 60 ? Integer.toString(Math.round(v)) : "--";
-    }
+    private float tpmsValue(JSONObject t, String key) { return t == null ? -1 : (float)t.optDouble(key, -1); }
+    private String tpmsText(float v) { return v >= 5 && v <= 60 ? Integer.toString(Math.round(v)) : "--"; }
 
     private void drawAtc(Canvas c, Paint p, JSONObject s) {
         JSONObject navi = s.optJSONObject("navi");
@@ -590,23 +583,38 @@ public final class HudService extends Service {
         final float top = 217;
         final float bottom = 454;
         final float cx = DRIVE_RIGHT / 2.0f;
+        // Match the EON light cluster: the entire scene behind the road is the
+        // same pale gray as the header, never black/navy.
+        paint.setShader(null);
         paint.setStyle(Paint.Style.FILL);
-        paint.setShader(new LinearGradient(0, top, 0, bottom, Color.rgb(233,236,238), Color.rgb(214,219,222), Shader.TileMode.CLAMP));
-        Path road = new Path(); road.moveTo(cx-40, top); road.lineTo(cx+40,top); road.lineTo(DRIVE_RIGHT-20,bottom); road.lineTo(20,bottom); road.close();
-        canvas.drawPath(road,paint); paint.setShader(null);
+        paint.setColor(Color.rgb(239, 241, 242));
+        canvas.drawRect(0, top, DRIVE_RIGHT - 3, bottom, paint);
+
+        paint.setShader(new LinearGradient(0, top, 0, bottom,
+                Color.rgb(226,229,231), Color.rgb(216,220,223), Shader.TileMode.CLAMP));
+        Path road = new Path();
+        road.moveTo(cx-40, top); road.lineTo(cx+40,top);
+        road.lineTo(DRIVE_RIGHT-20,bottom); road.lineTo(20,bottom); road.close();
+        canvas.drawPath(road,paint);
+        paint.setShader(null);
+        // Subtle perspective cross-lines like the EON renderer.
+        paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(1); paint.setColor(Color.rgb(198,203,206));
+        for (int i=1;i<=5;i++) {
+            float t=i/6.0f; float y=top+(bottom-top)*t;
+            float half=40+(DRIVE_RIGHT/2.0f-60)*t;
+            canvas.drawLine(cx-half,y,cx+half,y,paint);
+        }
 
         JSONArray lanes = s.optJSONArray("lanes");
         if (lanes != null) {
             for (int i=0;i<lanes.length();i++) {
                 JSONObject lane = lanes.optJSONObject(i); if (lane == null) continue;
                 JSONArray pts = lane.optJSONArray("p"); if (pts == null) continue;
-                drawWorldLine(canvas,paint,pts,cx,top,bottom,Color.rgb(250,250,250),3,true);
+                drawWorldLine(canvas,paint,pts,cx,top,bottom,Color.rgb(248,249,249),2.5f,true);
             }
         }
         JSONArray path = s.optJSONArray("path");
-        if (enabled && path != null && path.length() > 1) {
-            drawPath(canvas,paint,path,cx,top,bottom);
-        }
+        if (enabled && path != null && path.length() > 1) drawPath(canvas,paint,path,cx,top,bottom);
         JSONObject lead2=s.optJSONObject("lead2"); if(lead2!=null) drawLeadVehicle(canvas,paint,lead2,cx,top,bottom,false);
         JSONObject lead=s.optJSONObject("lead"); if(lead!=null) drawLeadVehicle(canvas,paint,lead,cx,top,bottom,true);
         drawVehicle(canvas,paint,egoCar,cx,414,78,0,255);
@@ -631,19 +639,31 @@ public final class HudService extends Service {
 
     private void drawPath(Canvas c, Paint p, JSONArray pts, float cx, float top, float bottom) {
         Path left=new Path(), right=new Path(); boolean first=true;
-        for(int i=0;i<pts.length();i++) { JSONArray a=pts.optJSONArray(i); if(a==null)continue; float x=(float)a.optDouble(0),y=(float)a.optDouble(1); float[] l=project(x,y+0.75f,cx,top,bottom),r=project(x,y-0.75f,cx,top,bottom); if(first){left.moveTo(l[0],l[1]);right.moveTo(r[0],r[1]);first=false;}else{left.lineTo(l[0],l[1]);right.lineTo(r[0],r[1]);} }
+        for(int i=0;i<pts.length();i++) {
+            JSONArray a=pts.optJSONArray(i); if(a==null)continue;
+            float x=(float)a.optDouble(0),y=(float)a.optDouble(1);
+            float[] l=project(x,y+0.75f,cx,top,bottom),r=project(x,y-0.75f,cx,top,bottom);
+            if(first){left.moveTo(l[0],l[1]);right.moveTo(r[0],r[1]);first=false;}else{left.lineTo(l[0],l[1]);right.lineTo(r[0],r[1]);}
+        }
         p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(4); p.setStrokeCap(Paint.Cap.ROUND); p.setColor(Color.rgb(24,126,224)); c.drawPath(left,p); c.drawPath(right,p);
     }
 
     private void drawLeadVehicle(Canvas c, Paint p, JSONObject lead, float cx, float top, float bottom, boolean primary) {
-        float d=(float)lead.optDouble("d",0),y=(float)lead.optDouble("y",0); if(d<=0||d>120)return; float[] pt=project(d,y,cx,top,bottom); float size=Math.max(25,primary?52-d*0.20f:44-d*0.16f); drawVehicle(c,p,otherCar,pt[0],pt[1]-10,size,0,primary?245:205);
+        float d=(float)lead.optDouble("d",0),y=(float)lead.optDouble("y",0); if(d<=0||d>120)return;
+        float[] pt=project(d,y,cx,top,bottom); float size=Math.max(25,primary?52-d*0.20f:44-d*0.16f);
+        drawVehicle(c,p,otherCar,pt[0],pt[1]-10,size,0,primary?245:205);
     }
 
     private void drawVehicle(Canvas c, Paint p, Bitmap b, float cx, float cy, float width, float angle, int alpha) {
-        if(b==null||b.isRecycled())return; float h=b.getHeight()*width/b.getWidth(); int save=c.save(); c.translate(cx,cy); c.rotate(angle); p.setAlpha(alpha); p.setFilterBitmap(true); c.drawBitmap(b,null,new RectF(-width/2,-h,width/2,0),p); p.setAlpha(255); c.restoreToCount(save);
+        if(b==null||b.isRecycled())return;
+        float h=b.getHeight()*width/b.getWidth(); int save=c.save(); c.translate(cx,cy); c.rotate(angle);
+        p.setAlpha(alpha); p.setFilterBitmap(true); c.drawBitmap(b,null,new RectF(-width/2,-h,width/2,0),p); p.setAlpha(255); c.restoreToCount(save);
     }
 
-    private void drawBlinker(Canvas c,Paint p,float x,float y,boolean left){ p.setStyle(Paint.Style.FILL);p.setColor(Color.rgb(72,226,118));Path q=new Path();if(left){q.moveTo(x-16,y);q.lineTo(x+10,y-13);q.lineTo(x+10,y+13);}else{q.moveTo(x+16,y);q.lineTo(x-10,y-13);q.lineTo(x-10,y+13);}q.close();c.drawPath(q,p); }
+    private void drawBlinker(Canvas c,Paint p,float x,float y,boolean left){
+        p.setStyle(Paint.Style.FILL);p.setColor(Color.rgb(72,226,118));Path q=new Path();
+        if(left){q.moveTo(x-16,y);q.lineTo(x+10,y-13);q.lineTo(x+10,y+13);}else{q.moveTo(x+16,y);q.lineTo(x-10,y-13);q.lineTo(x-10,y+13);}q.close();c.drawPath(q,p);
+    }
 
     private void drawSystem(Canvas c, Paint p, JSONObject s) {
         p.setStyle(Paint.Style.FILL); p.setColor(Color.rgb(16,21,28)); c.drawRoundRect(new RectF(SYSTEM_LEFT,8,SYSTEM_RIGHT,454),22,22,p);
@@ -651,20 +671,47 @@ public final class HudService extends Service {
         text(c,p,"CPU",810,122,27,Color.GRAY,Paint.Align.LEFT); text(c,p,s.optInt("cpu",0)+"%",1110,122,44,Color.WHITE,Paint.Align.RIGHT);
         text(c,p,"TEMP",810,202,27,Color.GRAY,Paint.Align.LEFT); text(c,p,String.format(Locale.US,"%.0f°C",s.optDouble("temp",0)),1110,202,44,Color.WHITE,Paint.Align.RIGHT);
         text(c,p,"ACCEL",810,282,27,Color.GRAY,Paint.Align.LEFT); text(c,p,String.format(Locale.US,"%+.2f",s.optDouble("accel",0)),1110,282,39,Color.WHITE,Paint.Align.RIGHT);
-        long age=Math.max(0,System.currentTimeMillis()-s.optLong("t",0)); text(c,p,age<1500?"EON CONNECTED":"WAITING FOR EON",960,406,25,age<1500?Color.rgb(0,220,120):Color.rgb(235,74,74),Paint.Align.CENTER);
+        long age=Math.max(0,System.currentTimeMillis()-s.optLong("t",0));
+        text(c,p,age<1500?"EON CONNECTED":"WAITING FOR EON",960,406,25,age<1500?Color.rgb(0,220,120):Color.rgb(235,74,74),Paint.Align.CENTER);
     }
 
-    private void drawMap(Canvas c, Paint p, Bitmap map) {
+    private void drawMap(Canvas c, Paint p, Bitmap map, Bitmap tbtCurrent, Bitmap tbtNext, Bitmap lane) {
         Rect dst=new Rect(MAP_LEFT,0,WIDTH,HEIGHT);
-        if(map==null||map.isRecycled()) { p.setStyle(Paint.Style.FILL);p.setColor(Color.BLACK);c.drawRect(dst,p);text(c,p,"TMAP 화면 대기",1536,240,34,Color.GRAY,Paint.Align.CENTER);return; }
-        // No OpenPilot overlay and no separate lane PNG. Preserve the complete
-        // TMAP frame, including TMAP's own lane/remaining-distance graphics.
+        if(map==null||map.isRecycled()) {
+            p.setStyle(Paint.Style.FILL);p.setColor(Color.BLACK);c.drawRect(dst,p);
+            text(c,p,"TMAP 화면 대기",1536,240,34,Color.GRAY,Paint.Align.CENTER);
+            return;
+        }
         p.setFilterBitmap(true);
         c.drawBitmap(map,null,dst,p);
+        // These are not recreated OpenPilot graphics. They are TMAP's native
+        // captured UI images, forwarded untouched by EON and scaled on S9.
+        drawNativeOverlay(c,p,tbtCurrent,new RectF(MAP_LEFT+8,8,MAP_LEFT+390,96),Paint.Align.LEFT);
+        drawNativeOverlay(c,p,tbtNext,new RectF(MAP_LEFT+8,98,MAP_LEFT+285,156),Paint.Align.LEFT);
+        drawNativeOverlay(c,p,lane,new RectF(MAP_LEFT+185,HEIGHT-104,WIDTH-90,HEIGHT-20),Paint.Align.CENTER);
+    }
+
+    private void drawNativeOverlay(Canvas c, Paint p, Bitmap bitmap, RectF bounds, Paint.Align align) {
+        if (bitmap == null || bitmap.isRecycled() || bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0) return;
+        float scale = Math.min(bounds.width() / bitmap.getWidth(), bounds.height() / bitmap.getHeight());
+        float w = bitmap.getWidth() * scale;
+        float h = bitmap.getHeight() * scale;
+        float x;
+        if (align == Paint.Align.RIGHT) x = bounds.right - w;
+        else if (align == Paint.Align.CENTER) x = bounds.centerX() - w / 2.0f;
+        else x = bounds.left;
+        float y = bounds.top + (bounds.height() - h) / 2.0f;
+        p.setAlpha(255); p.setFilterBitmap(true);
+        c.drawBitmap(bitmap,null,new RectF(x,y,x+w,y+h),p);
     }
 
     private static void text(Canvas c, Paint p, String value, float x, float y, float size, int color, Paint.Align align) {
         p.setStyle(Paint.Style.FILL); p.setTypeface(Typeface.create("sans",Typeface.BOLD)); p.setTextSize(size); p.setTextAlign(align); p.setColor(color); c.drawText(value,x,y,p);
+    }
+
+    private void recycleRef(AtomicReference<Bitmap> ref) {
+        Bitmap old = ref.getAndSet(null);
+        if (old != null) old.recycle();
     }
 
     @Override
@@ -674,7 +721,7 @@ public final class HudService extends Service {
         workersStarted=false; serviceRunning=false; mapConnected=false; usbConnected=false; usbError=false; usbStatus="서비스 중지됨"; measuredFps=0; lastJpegBytes=0;
         if(display!=null)display.close();
         if(egoCar!=null){egoCar.recycle();egoCar=null;} if(otherCar!=null){otherCar.recycle();otherCar=null;}
-        synchronized(mapFrame){Bitmap old=mapFrame.getAndSet(null);if(old!=null)old.recycle();}
+        synchronized(assetLock){recycleRef(mapFrame);recycleRef(tbtCurrentFrame);recycleRef(tbtNextFrame);recycleRef(laneFrame);}
         if(usbReceiverRegistered){try{unregisterReceiver(usbReceiver);}catch(Exception ignored){}usbReceiverRegistered=false;}
         releaseWakeLock();
         super.onDestroy();
