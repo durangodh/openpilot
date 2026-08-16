@@ -26,11 +26,8 @@ procs = [
   NativeProcess("boardd", "selfdrive/boardd", ["./boardd"], enabled=False),
   PythonProcess("calibrationd", "selfdrive.locationd.calibrationd"),
   PythonProcess("carrotnavid", "selfdrive.carrot_navi_server", enabled=EON, persistent=True),
-  # EonClusterHudOutputMode selects exactly one output path at runtime:
-  # 0 renders/JPEG-encodes/sends USB on EON, 1 publishes data to the Android S9.
-  # Both persistent processes stay idle unless their own mode is selected, so
-  # the setting can be changed without rebooting or running both paths together.
-  PythonProcess("eon_cluster", "selfdrive.eon_cluster.eon_cluster", enabled=EON, persistent=True),
+  # External HUD output is S9-only. EON publishes compact telemetry/native
+  # TMAP assets; the Android S9 renders/JPEG-encodes and drives the USB HUD.
   PythonProcess("remote_hud", "selfdrive.eon_cluster.remote_hud", enabled=EON, persistent=True),
   PythonProcess("controlsd", "selfdrive.controls.controlsd"),
   PythonProcess("deleter", "selfdrive.loggerd.deleter", persistent=True),
