@@ -27,8 +27,8 @@ procs = [
   PythonProcess("calibrationd", "selfdrive.locationd.calibrationd"),
   PythonProcess("carrotnavid", "selfdrive.carrot_navi_server", enabled=EON, persistent=True),
   # External HUD output is S9-only. EON publishes compact telemetry/native
-  # TMAP assets; the Android S9 renders/JPEG-encodes and drives the USB HUD.
-  PythonProcess("remote_hud", "selfdrive.eon_cluster.remote_hud", enabled=EON, persistent=True),
+  # TMAP assets plus live S9 render tuning; Android renders/JPEG-encodes/USB.
+  PythonProcess("remote_hud", "selfdrive.eon_cluster.remote_hud_s9", enabled=EON, persistent=True),
   PythonProcess("controlsd", "selfdrive.controls.controlsd"),
   PythonProcess("deleter", "selfdrive.loggerd.deleter", persistent=True),
   PythonProcess("dmonitoringd", "selfdrive.monitoring.dmonitoringd", enabled=(not PC or WEBCAM), driverview=True),
