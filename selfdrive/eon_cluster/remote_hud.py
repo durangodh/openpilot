@@ -34,7 +34,6 @@ MAP_IDLE_JPEG = base64.b64decode(
   "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDz+iiigD//2Q==")
 FPS = 10
 PARAM_ENABLED = "EonClusterHud"
-PARAM_OUTPUT_MODE = "EonClusterHudOutputMode"
 PARAM_CONNECTED = "EonClusterHudConnected"
 PARAM_ATC_MODE = "CarrotAutoTurnControl"
 _NAVI_CACHE = {"signature": None, "state": {}}
@@ -197,19 +196,7 @@ def _param_int(params, key, default=0, minimum=0, maximum=999):
 
 
 def _remote_output_enabled(params):
-  if not params.get_bool(PARAM_ENABLED):
-    return False
-  try:
-    raw = params.get(PARAM_OUTPUT_MODE)
-    return int(raw) != 0 if raw is not None else True
-  except (TypeError, ValueError):
-    return True
-
-
-def _migrate_legacy_remote_mode(params):
-  if params.get(PARAM_OUTPUT_MODE) is None:
-    params.put(PARAM_OUTPUT_MODE, "1")
-    params.put_bool(PARAM_ENABLED, True)
+  return params.get_bool(PARAM_ENABLED)
 
 
 def _publish_connected(params, state, value):
@@ -425,7 +412,6 @@ def _packet(sm, atc_mode):
 
 def main():
   params = Params()
-  _migrate_legacy_remote_mode(params)
   running = [True]
   signal.signal(signal.SIGINT, lambda *_: running.__setitem__(0, False))
   signal.signal(signal.SIGTERM, lambda *_: running.__setitem__(0, False))
