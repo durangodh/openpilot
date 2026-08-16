@@ -36,10 +36,12 @@ ENABLED = {
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 MAX_MAP_FRAME_BYTES = 2 * 1024 * 1024
 MAX_LANE_FRAME_BYTES = 512 * 1024
-# Keep the right map panel clean, but receive TMap's native current-lane strip
-# for the driving panel. All turn, distance, next-guide and safety overlays
-# remain disabled.
+# Keep the native TMAP map as the base and also capture TMAP's own guidance
+# widgets.  The EON never redraws these; remote_hud.py forwards the original
+# compressed assets to the S9, which places them over the map at HUD scale.
 OVERLAY_FILES = {
+  "tbt_current_full": "/dev/shm/carrot_navi_tbt_current_full.png",
+  "tbt_next": "/dev/shm/carrot_navi_tbt_next.png",
   "lane_bottom": "/dev/shm/carrot_navi_lane_bottom.png",
 }
 MAP_RENDER_WIDTH = 640
@@ -233,23 +235,20 @@ def manifest(params):
       enabled = ((kind == "json" and name in ENABLED) or
                  (kind == "image" and name in OVERLAY_FILES) or
                  (kind == "render" and name == "map_main"))
-      params = {}
+      stream_params = {}
       if kind == "json":
-        params = {"delivery_mode": "on_change_with_heartbeat", "interval_ms": 500,
-                  "stale_timeout_ms": 30000}
+        stream_params = {"delivery_mode": "on_change_with_heartbeat", "interval_ms": 500,
+                         "stale_timeout_ms": 30000}
       elif kind == "image":
-        # TMap Activity-backed UI capture is coalesced to roughly 2 FPS. Do
-        # not request a higher rate; it only adds phone/EON work.
-        params = {"format": "png", "max_fps": 2}
+        # Native guidance bitmaps change slowly; 2 FPS keeps the S9 display
+        # faithful without creating meaningful work on the EON.
+        stream_params = {"format": "png", "max_fps": 2}
       else:
-        # Match the 768x462 EON information panel aspect ratio without asking
-        # the EON to decode more pixels than the old portrait 480x540 stream.
-        params = {"width": MAP_RENDER_WIDTH, "height": MAP_RENDER_HEIGHT, "dpi": 160,
-                  "fps": map_fps,
-                  "codec": "jpeg", "jpeg_quality": 65,
-                  "camera_mode": "app_sync", "map_theme": "light"}
+        stream_params = {"width": MAP_RENDER_WIDTH, "height": MAP_RENDER_HEIGHT, "dpi": 160,
+                         "fps": map_fps, "codec": "jpeg", "jpeg_quality": 65,
+                         "camera_mode": "app_sync", "map_theme": "light"}
       streams.append({"kind": kind, "name": name, "schema_version": 1,
-                      "stream_handle": handle, "enabled": enabled, "params": params})
+                      "stream_handle": handle, "enabled": enabled, "params": stream_params})
       handle += 1
   return {"type": "subscription_manifest", "protocol_version": 2,
           "session_id": uuid.uuid4().hex, "revision": 1,
