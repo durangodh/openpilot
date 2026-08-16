@@ -83,6 +83,67 @@ text = text.replace('String title=navi.optString("title","경로 안내");',
 text = text.replace('text(c,p,"남은 "+distanceText(remain),678,363,11,Color.rgb(180,188,194),Paint.Align.CENTER);',
                     'text(c,p,lang("남은 ","LEFT ")+distanceText(remain),678,363,11,Color.rgb(180,188,194),Paint.Align.CENTER);', 1)
 
+# Lightweight virtual 3D roadside buildings and previously unused telemetry.
+# This stays on Canvas/RGB565: no OpenGL context, map download, or extra bitmap
+# allocation is added to the render loop.
+old = """        drawModeAndEta(c,p,s);
+"""
+new = """        drawModeAndEta(c,p,s);
+        drawRange(c,p,s);
+"""
+if old not in text:
+    raise SystemExit("HudService range call anchor not found")
+text = text.replace(old, new, 1)
+
+anchor = """    private void drawLights(Canvas c,Paint p,JSONObject s){"""
+insert = """    private void drawRange(Canvas c,Paint p,JSONObject s){
+        double km=s.optDouble("distanceToEmpty",-1.0);if(!Double.isFinite(km)||km<0.0)return;
+        text(c,p,lang("주행","RANGE"),DRIVE_RIGHT-24,28,12,Color.rgb(104,111,116),Paint.Align.RIGHT);
+        text(c,p,String.format(Locale.US,"%.0f km",km),DRIVE_RIGHT-24,51,20,Color.rgb(36,42,46),Paint.Align.RIGHT);
+    }
+
+    private void drawLights(Canvas c,Paint p,JSONObject s){"""
+if anchor not in text:
+    raise SystemExit("HudService range method anchor not found")
+text = text.replace(anchor, insert, 1)
+
+old = """c.drawLine(cx-half,y,cx+half,y,p);}JSONArray lanes=s.optJSONArray("lanes");"""
+new = """c.drawLine(cx-half,y,cx+half,y,p);}drawBuildings(c,p,s,cx,top,bottom);JSONArray edges=s.optJSONArray("edges");if(edges!=null)for(int i=0;i<edges.length();i++){JSONObject edge=edges.optJSONObject(i);if(edge==null||edge.optDouble("c",0)<0.18)continue;JSONArray pts=edge.optJSONArray("p");if(pts!=null)drawWorldLine(c,p,pts,cx,top,bottom,Color.rgb(154,163,168),3.0f,false);}JSONArray lanes=s.optJSONArray("lanes");"""
+if old not in text:
+    raise SystemExit("HudService world insertion anchor not found")
+text = text.replace(old, new, 1)
+
+anchor = """    private float[] project(float x,float y,float cx,float top,float bottom){"""
+insert = """    private float pathCenterAt(JSONArray path,float distance){
+        if(path==null)return 0.0f;float best=0.0f,error=Float.MAX_VALUE;
+        for(int i=0;i<path.length();i++){JSONArray pt=path.optJSONArray(i);if(pt==null)continue;float x=(float)pt.optDouble(0),e=Math.abs(x-distance);if(e<error){error=e;best=(float)pt.optDouble(1);}}
+        return best;
+    }
+    private void drawBuildings(Canvas c,Paint p,JSONObject s,float cx,float top,float bottom){
+        JSONArray path=s.optJSONArray("path");float[] distances={96,80,66,53,42,32,24,17,12};
+        for(int i=0;i<distances.length;i++){float d=distances[i],center=pathCenterAt(path,d);drawBuilding(c,p,d,center+6.1f+(i%3)*0.55f,cx,top,bottom,i,true);drawBuilding(c,p,d,center-6.1f-((i+1)%3)*0.55f,cx,top,bottom,i+3,false);}
+    }
+    private void drawBuilding(Canvas c,Paint p,float distance,float lateral,float cx,float top,float bottom,int variant,boolean left){
+        float[] base=project(distance,lateral,cx,top,bottom);float perspective=66.0f/(1.0f+Math.max(0.0f,distance)/17.0f);
+        float w=Math.max(8.0f,perspective*(0.78f+(variant%3)*0.08f));float h=w*(1.35f+(variant%4)*0.22f);float depth=Math.max(3.0f,w*0.27f);float dir=left?-1.0f:1.0f;
+        int tone=205-(variant%4)*9;int front=Color.rgb(tone,tone+4,Math.min(238,tone+10));int side=Color.rgb(Math.max(145,tone-28),Math.max(150,tone-23),Math.max(158,tone-16));int roof=Color.rgb(Math.min(238,tone+12),Math.min(241,tone+15),Math.min(245,tone+19));
+        p.setShader(null);p.setStyle(Paint.Style.FILL);p.setColor(front);RectF face=new RectF(base[0]-w/2.0f,base[1]-h,base[0]+w/2.0f,base[1]);c.drawRect(face,p);
+        Path sideFace=new Path();sideFace.moveTo(base[0]+dir*w/2.0f,base[1]);sideFace.lineTo(base[0]+dir*(w/2.0f+depth),base[1]-depth*0.45f);sideFace.lineTo(base[0]+dir*(w/2.0f+depth),base[1]-h-depth*0.45f);sideFace.lineTo(base[0]+dir*w/2.0f,base[1]-h);sideFace.close();p.setColor(side);c.drawPath(sideFace,p);
+        Path roofFace=new Path();roofFace.moveTo(base[0]-w/2.0f,base[1]-h);roofFace.lineTo(base[0]+w/2.0f,base[1]-h);roofFace.lineTo(base[0]+w/2.0f+dir*depth,base[1]-h-depth*0.45f);roofFace.lineTo(base[0]-w/2.0f+dir*depth,base[1]-h-depth*0.45f);roofFace.close();p.setColor(roof);c.drawPath(roofFace,p);
+        if(w>=15.0f){p.setColor(Color.rgb(126,158,178));float ww=Math.max(2.0f,w*0.14f),wh=Math.max(2.0f,h*0.10f);c.drawRect(base[0]-w*0.26f-ww/2.0f,base[1]-h*0.62f,base[0]-w*0.26f+ww/2.0f,base[1]-h*0.62f+wh,p);c.drawRect(base[0]+w*0.26f-ww/2.0f,base[1]-h*0.62f,base[0]+w*0.26f+ww/2.0f,base[1]-h*0.62f+wh,p);}
+    }
+
+    private float[] project(float x,float y,float cx,float top,float bottom){"""
+if anchor not in text:
+    raise SystemExit("HudService building methods anchor not found")
+text = text.replace(anchor, insert, 1)
+
+old = """JSONArray cores=system.optJSONArray("cores");"""
+new = """double accel=s.optDouble("accel",Double.NaN);if(Double.isFinite(accel))text(c,p,String.format(Locale.US,"ACCEL %+.2f m/s²",accel),960,397,17,Color.rgb(173,184,192),Paint.Align.CENTER);JSONArray cores=system.optJSONArray("cores");"""
+if old not in text:
+    raise SystemExit("HudService accel anchor not found")
+text = text.replace(old, new, 1)
+
 hud.write_text(text, encoding="utf-8")
 
 # S9 controls the physical panel brightness over its existing USB connection.
@@ -93,3 +154,25 @@ if anchor not in text:
     raise SystemExit("TurzxDisplay brightness anchor not found")
 text = text.replace(anchor, insert, 1)
 display.write_text(text, encoding="utf-8")
+
+# Build and status labels are advanced together so the generated artifact can
+# update the fixed-signature v0.17 installation in place.
+gradle_file = root / "app/build.gradle"
+gradle_text = gradle_file.read_text(encoding="utf-8")
+if 'versionCode 17' not in gradle_text or 'versionName "0.17-usb-recovery"' not in gradle_text:
+    raise SystemExit("Android version anchor not found")
+gradle_text = gradle_text.replace("versionCode 17", "versionCode 18", 1)
+gradle_text = gradle_text.replace('versionName "0.17-usb-recovery"', 'versionName "0.18-lite-3d-buildings"', 1)
+gradle_file.write_text(gradle_text, encoding="utf-8")
+
+activity_file = root / "app/src/main/java/ai/comma/remotehud/MainActivity.java"
+activity_text = activity_file.read_text(encoding="utf-8")
+activity_text = activity_text.replace("v0.13  ·  부팅 지연·자동복구 / 1CBE:0092",
+                                     "v0.18  ·  경량 3D 건물·USB 자동복구 / 1CBE:0092")
+activity_text = activity_text.replace("v0.16  ·  부팅 지연·자동복구 / 1CBE:0092",
+                                     "v0.18  ·  경량 3D 건물·USB 자동복구 / 1CBE:0092")
+if "v0.18  ·  경량 3D 건물·USB 자동복구 / 1CBE:0092" not in activity_text:
+    raise SystemExit("MainActivity version label anchor not found")
+activity_file.write_text(activity_text, encoding="utf-8")
+print("Applied S9 lightweight 3D buildings, road edges, range and acceleration")
+
