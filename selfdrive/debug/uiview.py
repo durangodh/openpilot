@@ -9,9 +9,8 @@ if __name__ == "__main__":
   CP = car.CarParams(notCar=True)
   Params().put("CarParams", CP.to_bytes())
 
-  # Start both HUD workers for bench preview. Their shared output-mode param
-  # keeps them mutually exclusive, so only EON direct or S9 remote is active.
-  procs = ['camerad', 'ui', 'modeld', 'calibrationd', 'eon_cluster', 'remote_hud']
+  # The external HUD path is S9-only.
+  procs = ['camerad', 'ui', 'modeld', 'calibrationd', 'remote_hud']
 
   HARDWARE.set_power_save(False)
 
