@@ -35,6 +35,8 @@ MAP_IDLE_JPEG = base64.b64decode(
 FPS = 10
 PARAM_ENABLED = "EonClusterHud"
 PARAM_CONNECTED = "EonClusterHudConnected"
+PARAM_HEARTBEAT = "EonClusterHudHeartbeat"
+HEARTBEAT_PERIOD_S = 2.0
 PARAM_ATC_MODE = "CarrotAutoTurnControl"
 _NAVI_CACHE = {"signature": None, "state": {}}
 
@@ -43,10 +45,9 @@ _NAVI_CACHE = {"signature": None, "state": {}}
 # this dictionary on EON; the values ride along with the existing 10 Hz JSON.
 # Per-element positioning uses <name>Dx / <name>Dy / <name>Scale.
 REMOTE_LAYOUT = {
-  "driveBg": 0xEFF1F2,
-  "roadTop": 0xE2E5E7,
-  "roadBottom": 0xD8DCDF,
-  "pathColor": 0x187EE0,
+  # 색은 여기서 강제하지 않는다. 넣으면 앱의 다크/라이트 테마를 덮어써서
+  # hudTheme 설정이 주행씬에 반영되지 않는다. 특정 색을 고정하고 싶을 때만
+  # driveBg / roadTop / roadBottom / pathColor 를 다시 넣을 것.
   "lightsDx": 0, "lightsDy": 0, "lightsScale": 1.0,
   "prndDx": 0, "prndDy": 0, "prndScale": 1.0,
   "speedDx": 0, "speedDy": 0, "speedScale": 1.0,
@@ -199,18 +200,48 @@ def _param_int(params, key, default=0, minimum=0, maximum=999):
   return max(minimum, min(maximum, value))
 
 
+def _alert(controls_state):
+  """controlsState 의 openpilot 이벤트 알림. EON 직접모드 renderer 와 동일한 필드."""
+  text1 = str(_field(controls_state, "alertText1", "") or "")
+  text2 = str(_field(controls_state, "alertText2", "") or "")
+  if not (text1 or text2):
+    return None
+  size = str(_field(controls_state, "alertSize", ""))
+  if "none" in size.lower():
+    return None
+  return {
+    "text1": text1[:64],
+    "text2": text2[:64],
+    "status": str(_field(controls_state, "alertStatus", "")),
+    "size": size,
+  }
+
+
 def _remote_output_enabled(params):
   return params.get_bool(PARAM_ENABLED)
 
 
 def _publish_connected(params, state, value):
-  if state[0] is value:
+  if state[0] is not value:
+    try:
+      params.put_bool(PARAM_CONNECTED, value)
+      state[0] = value
+    except Exception as exc:
+      print("remote HUD connected flag failed: %s" % exc, flush=True)
+
+  # 하트비트. 이 프로세스가 True 를 남긴 채 죽으면 EON UI 가 내비 패널을
+  # 영영 안 그리게 되므로, 살아 있는 동안 2초마다 시각을 남긴다.
+  # UI 는 10초 이상 멈추면 죽은 것으로 보고 다시 그린다.
+  if not value:
+    return
+  now = time.time()
+  if now - state[1] < HEARTBEAT_PERIOD_S:
     return
   try:
-    params.put_bool(PARAM_CONNECTED, value)
-    state[0] = value
+    params.put(PARAM_HEARTBEAT, str(int(now)))
+    state[1] = now
   except Exception as exc:
-    print("remote HUD connected flag failed: %s" % exc, flush=True)
+    print("remote HUD heartbeat failed: %s" % exc, flush=True)
 
 
 def _line_points(position, limit=33):
@@ -428,6 +459,7 @@ def _packet(sm, atc_mode):
       "rr": _finite(_field(tpms, "rr", -1.0), -1.0),
     },
     "atcMode": int(atc_mode),
+    "alert": _alert(controls),
     "navi": navi,
     "path": _line_points(_field(sm["modelV2"], "position", None)),
     "lanes": _model_lines(sm["modelV2"], "laneLines", "laneLineProbs", 0.0),
@@ -449,7 +481,7 @@ def main():
   sock.setblocking(False)
   last_ack = 0.0
   connected = False
-  published = [None]
+  published = [None, 0.0]
   map_server = MapFrameServer()
   atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
   next_param_read = 0.0

@@ -1208,6 +1208,14 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "1: 주행 / 지도 / 시스템   2: 실시간 디버그   3: S9 리모트(폰 상태·USB 진단)",
       "../assets/offroad/icon_road.png", 1, 3, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudCarStyle", "S9 HUD 차량 모양",
+      "1: 사진 / 2: 3D 박스. 자차와 앞차에 적용됩니다.",
+      "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudBsdStyle", "S9 HUD 사각지대 표시",
+      "1: 경계막대만 / 2: 옅은 띠 / 3: 진한 띠. 옆차 앞뒤 위치는 알 수 없어 차선 전체를 표시합니다.",
+      "../assets/offroad/icon_road.png", 1, 3, 1, 0, 2, this));
+  toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudBuildings", "S9 HUD 도로변 건물",
       "0: 끔 / 1: 켬. 건물은 실제 지형이 아니라 속도감용 장식입니다.",
       "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));

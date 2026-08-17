@@ -116,6 +116,12 @@ public final class HudService extends Service {
     private int configuredScreenMode = 1;
     /** 도로변 건물 표시 여부 (장식이므로 끌 수 있다) */
     private boolean configuredBuildings = true;
+    /** BSD 표시 방식 1: 막대만 / 2: 옅은 면 / 3: 진한 면 */
+    private int configuredBsdStyle = 2;
+    /** 차량 표현 1: 사진 스프라이트 / 2: 3D 박스 */
+    private int configuredCarStyle = 1;
+    /** 이번 프레임의 테마 (매 프레임 render() 에서 갱신) */
+    private boolean frameDark = false;
     /** 1: 주행·지도·시스템 / 2: 실시간 디버그 / 3: S9 리모트 */
     private int configuredOutputMode = 1;
 
@@ -555,6 +561,8 @@ public final class HudService extends Service {
                 configuredOrientation = currentState.optInt("hudOrientation", 0) == 2 ? 2 : 0;
                 configuredMirror = currentState.optInt("hudMirror", 0) != 0;
                 configuredBuildings = currentState.optInt("hudBuildings", 1) != 0;
+                configuredBsdStyle = Math.max(1, Math.min(3, currentState.optInt("hudBsdStyle", 2)));
+                configuredCarStyle = currentState.optInt("hudCarStyle", 1) == 2 ? 2 : 1;
                 configuredOutputMode = Math.max(1, Math.min(3, currentState.optInt("hudOutputMode", 1)));
 
                 int requestedBrightness = Math.max(0, Math.min(100, currentState.optInt("hudBrightness", 65)));
@@ -664,6 +672,7 @@ public final class HudService extends Service {
         Paint p = paint;
         p.reset();
         p.setAntiAlias(true);
+        frameDark = darkTheme();
         c.drawColor(Color.rgb(5, 8, 12));
 
         drawDriving(c, p, s);
@@ -702,15 +711,17 @@ public final class HudService extends Service {
 
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(lc(l, "driveBg", Color.rgb(239, 241, 242)));
+        int driveBg = lc(l, "driveBg", frameDark ? Color.rgb(15, 19, 25) : Color.rgb(239, 241, 242));
+        p.setColor(driveBg);
         c.drawRect(0f, 0f, DRIVE_RIGHT, 462f, p);
 
         world.draw(c, p, stale ? null : s, enabled, egoCar, otherCar, worldOdoM,
-                lc(l, "driveBg", Color.rgb(239, 241, 242)),
-                lc(l, "roadTop", Color.rgb(226, 229, 231)),
-                lc(l, "roadBottom", Color.rgb(216, 220, 223)),
-                lc(l, "pathColor", Color.rgb(24, 126, 224)),
-                configuredRadarInfo, configuredBuildings);
+                driveBg,
+                lc(l, "roadTop", frameDark ? Color.rgb(42, 49, 58) : Color.rgb(226, 229, 231)),
+                lc(l, "roadBottom", frameDark ? Color.rgb(53, 61, 71) : Color.rgb(216, 220, 223)),
+                lc(l, "pathColor", frameDark ? Color.rgb(40, 150, 255) : Color.rgb(24, 126, 224)),
+                configuredRadarInfo, configuredBuildings, frameDark, configuredBsdStyle,
+                configuredCarStyle);
 
         drawBlinkers(c, p, s, stale);
 
@@ -730,7 +741,7 @@ public final class HudService extends Service {
         drawRange(c, p, s);
 
         p.setStyle(Paint.Style.STROKE);
-        p.setColor(Color.rgb(202, 207, 210));
+        p.setColor(hairline());
         p.setStrokeWidth(1f);
         c.drawLine(18f, 129f, 934f, 129f, p);
 
@@ -755,6 +766,8 @@ public final class HudService extends Service {
         drawTpms(c, p, s.optJSONObject("tpms"));
         c.restoreToCount(save8);
 
+        drawAlert(c, p, stale ? null : s.optJSONObject("alert"));
+
         if (stale) {
             p.setShader(null);
             p.setStyle(Paint.Style.FILL);
@@ -768,9 +781,88 @@ public final class HudService extends Service {
 
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(2f);
-        p.setColor(Color.rgb(188, 194, 198));
+        p.setColor(cardEdge());
         scratchRect.set(2f, 2f, DRIVE_RIGHT - 2f, 458f);
         c.drawRoundRect(scratchRect, 18f, 18f, p);
+    }
+
+    /**
+     * openpilot 이벤트 알림. EON 직접모드 renderer.py `_draw_alert` 와 같은
+     * 소스(controlsState alertText1/2 · alertStatus · alertSize)를 쓴다.
+     * 다만 이쪽 주행패널은 배경이 밝아서 흰 글씨가 안 읽히므로,
+     * 어두운 반투명 박스를 깔고 그 위에 얹는다.
+     */
+    private void drawAlert(Canvas c, Paint p, JSONObject alert) {
+        if (alert == null) {
+            return;
+        }
+        String text1 = collapse(alert.optString("text1", ""));
+        String text2 = collapse(alert.optString("text2", ""));
+        if (text1.length() == 0) {
+            text1 = text2;
+            text2 = "";
+        }
+        if (text1.length() == 0) {
+            return;
+        }
+
+        String status = alert.optString("status", "").toLowerCase(Locale.US);
+        boolean critical = status.contains("critical");
+        boolean prompt = status.contains("prompt") || status.contains("warning");
+        int titleColor = critical ? Color.rgb(255, 82, 96)
+                : prompt ? Color.rgb(255, 174, 82) : Color.WHITE;
+
+        boolean full = alert.optString("size", "").toLowerCase(Locale.US).contains("full");
+        float maxWidth = 860f;
+        float titleSize = full ? 38f : 30f;
+        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        p.setTextSize(titleSize);
+        while (titleSize > 20f && p.measureText(text1) > maxWidth) {
+            titleSize -= 2f;
+            p.setTextSize(titleSize);
+        }
+        float titleWidth = p.measureText(text1);
+        float detailSize = 20f;
+        float detailWidth = 0f;
+        if (text2.length() > 0) {
+            p.setTextSize(detailSize);
+            while (detailSize > 14f && p.measureText(text2) > maxWidth) {
+                detailSize -= 2f;
+                p.setTextSize(detailSize);
+            }
+            detailWidth = p.measureText(text2);
+        }
+
+        float boxWidth = Math.min(920f, Math.max(titleWidth, detailWidth) + 56f);
+        float boxHeight = text2.length() > 0 ? titleSize + detailSize + 44f : titleSize + 34f;
+        float cx = DRIVE_CX;
+        float cy = 336f;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(226, 20, 24, 28));
+        scratchRect.set(cx - boxWidth / 2f, cy - boxHeight / 2f,
+                cx + boxWidth / 2f, cy + boxHeight / 2f);
+        c.drawRoundRect(scratchRect, 12f, 12f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2f);
+        p.setColor(titleColor);
+        c.drawRoundRect(scratchRect, 12f, 12f, p);
+
+        if (text2.length() > 0) {
+            text(c, p, text1, cx, cy - 4f, titleSize, titleColor, Paint.Align.CENTER);
+            text(c, p, text2, cx, cy + detailSize + 12f, detailSize,
+                    Color.rgb(228, 233, 237), Paint.Align.CENTER);
+        } else {
+            text(c, p, text1, cx, cy + titleSize * 0.36f, titleSize, titleColor, Paint.Align.CENTER);
+        }
+    }
+
+    /** 연속 공백을 한 칸으로 (renderer.py 의 " ".join(split()) 과 동일) */
+    private static String collapse(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim().replaceAll("\\s+", " ");
     }
 
     private void drawBlinkers(Canvas c, Paint p, JSONObject s, boolean stale) {
@@ -803,10 +895,34 @@ public final class HudService extends Service {
         c.drawPath(scratchPath, p);
     }
 
+    private int ink() {
+        return frameDark ? Color.rgb(238, 242, 246) : Color.rgb(18, 18, 18);
+    }
+
+    private int dim() {
+        return frameDark ? Color.rgb(140, 152, 163) : Color.rgb(104, 111, 116);
+    }
+
+    private int muted() {
+        return frameDark ? Color.rgb(88, 98, 108) : Color.rgb(174, 179, 182);
+    }
+
+    private int cardBg() {
+        return frameDark ? Color.rgb(24, 30, 38) : Color.rgb(232, 235, 237);
+    }
+
+    private int cardEdge() {
+        return frameDark ? Color.rgb(60, 70, 82) : Color.rgb(158, 166, 171);
+    }
+
+    private int hairline() {
+        return frameDark ? Color.rgb(58, 66, 76) : Color.rgb(202, 207, 210);
+    }
+
     private void drawSpeed(Canvas c, Paint p, int speed) {
         String value = speed < 0 ? "--" : Integer.toString(speed);
-        text(c, p, value, DRIVE_CX, 74f, 68f, Color.rgb(18, 18, 18), Paint.Align.CENTER);
-        text(c, p, "KM", DRIVE_CX, 117f, 16f, Color.rgb(104, 111, 116), Paint.Align.CENTER);
+        text(c, p, value, DRIVE_CX, 74f, 68f, ink(), Paint.Align.CENTER);
+        text(c, p, "KM", DRIVE_CX, 117f, 16f, dim(), Paint.Align.CENTER);
     }
 
     private void drawPrnd(Canvas c, Paint p, String gear) {
@@ -814,7 +930,7 @@ public final class HudService extends Service {
         String[] items = {"P", "R", "N", "D"};
         for (String g : items) {
             text(c, p, g, x, 116f, 30f,
-                    g.equals(gear) ? Color.rgb(18, 18, 18) : Color.rgb(174, 179, 182), Paint.Align.LEFT);
+                    g.equals(gear) ? ink() : muted(), Paint.Align.LEFT);
             x += 42f;
         }
     }
@@ -823,7 +939,7 @@ public final class HudService extends Service {
         JSONObject l = layout(s);
         int mode = s.optInt("drivingMode", 3);
         String label = "NORM";
-        int color = Color.rgb(68, 76, 82);
+        int color = frameDark ? Color.rgb(196, 206, 214) : Color.rgb(68, 76, 82);
         if (mode == 1) {
             label = "SAFE";
             color = Color.rgb(226, 144, 38);
@@ -855,9 +971,9 @@ public final class HudService extends Service {
         p.setTypeface(Typeface.create("sans", Typeface.BOLD));
         p.setTextSize(etaTimeSize);
         float etaWidth = p.measureText(eta);
-        text(c, p, eta, etaRight, etaY, etaTimeSize, Color.rgb(68, 76, 82), Paint.Align.RIGHT);
+        text(c, p, eta, etaRight, etaY, etaTimeSize, ink(), Paint.Align.RIGHT);
         text(c, p, lang("도착", "ETA"), etaRight - etaWidth - gap, etaY - 1f, etaLabelSize,
-                Color.rgb(68, 76, 82), Paint.Align.RIGHT);
+                dim(), Paint.Align.RIGHT);
     }
 
     private void drawRange(Canvas c, Paint p, JSONObject s) {
@@ -865,9 +981,9 @@ public final class HudService extends Service {
         if (!Double.isFinite(km) || km < 0d) {
             return;
         }
-        text(c, p, lang("주행", "RANGE"), 932f, 28f, 12f, Color.rgb(104, 111, 116), Paint.Align.RIGHT);
+        text(c, p, lang("주행", "RANGE"), 932f, 28f, 12f, dim(), Paint.Align.RIGHT);
         text(c, p, String.format(Locale.US, "%.0f km", km), 932f, 51f, 20f,
-                Color.rgb(36, 42, 46), Paint.Align.RIGHT);
+                ink(), Paint.Align.RIGHT);
     }
 
     private void drawLights(Canvas c, Paint p, JSONObject s) {
@@ -937,14 +1053,14 @@ public final class HudService extends Service {
         int accent = valid ? Color.rgb(18, 149, 224) : Color.rgb(139, 147, 152);
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.rgb(246, 247, 247));
+        p.setColor(frameDark ? Color.rgb(26, 32, 40) : Color.rgb(246, 247, 247));
         c.drawCircle(cx, cy, 36f, p);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(6f);
         p.setColor(accent);
         c.drawCircle(cx, cy, 36f, p);
         text(c, p, valid ? Integer.toString(set) : "--", cx, cy + 9f, 29f,
-                Color.rgb(18, 18, 18), Paint.Align.CENTER);
+                ink(), Paint.Align.CENTER);
         text(c, p, "SET", cx, cy + 55f, 14f, accent, Paint.Align.CENTER);
     }
 
@@ -976,31 +1092,31 @@ public final class HudService extends Service {
         double d = lead == null ? 0d : lead.optDouble("d", 0d);
         double v = lead == null ? 0d : lead.optDouble("v", 0d);
         boolean showDistance = configuredRadarInfo == 2 || configuredRadarInfo == 4;
-        text(c, p, lang("앞차", "LEAD"), 18f, 400f, 13f, Color.rgb(103, 111, 116), Paint.Align.LEFT);
+        text(c, p, lang("앞차", "LEAD"), 18f, 400f, 13f, dim(), Paint.Align.LEFT);
         text(c, p, (!showDistance || d <= 0d) ? "--" : String.format(Locale.US, "%.0f m", d),
-                145f, 400f, 19f, Color.rgb(18, 18, 18), Paint.Align.RIGHT);
+                145f, 400f, 19f, ink(), Paint.Align.RIGHT);
         p.setStyle(Paint.Style.STROKE);
-        p.setColor(Color.rgb(195, 201, 204));
+        p.setColor(hairline());
         p.setStrokeWidth(1f);
         c.drawLine(16f, 414f, 148f, 414f, p);
-        text(c, p, lang("상대", "REL"), 18f, 440f, 13f, Color.rgb(103, 111, 116), Paint.Align.LEFT);
+        text(c, p, lang("상대", "REL"), 18f, 440f, 13f, dim(), Paint.Align.LEFT);
         text(c, p, d > 0d ? String.format(Locale.US, "%+.0f km/h", v) : "--",
-                145f, 440f, 17f, Color.rgb(18, 18, 18), Paint.Align.RIGHT);
+                145f, 440f, 17f, ink(), Paint.Align.RIGHT);
     }
 
     private void drawTpms(Canvas c, Paint p, JSONObject tpms) {
         scratchRect.set(791f, 376f, 939f, 454f);
         drawCard(c, p, scratchRect);
-        text(c, p, "TPMS", 865f, 394f, 12f, Color.rgb(86, 94, 100), Paint.Align.CENTER);
+        text(c, p, "TPMS", 865f, 394f, 12f, dim(), Paint.Align.CENTER);
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(Color.rgb(95, 102, 107));
         scratchRect.set(852f, 404f, 878f, 446f);
         c.drawRoundRect(scratchRect, 4f, 4f, p);
-        text(c, p, tpmsText(tpmsValue(tpms, "fl")), 840f, 417f, 16f, Color.rgb(18, 18, 18), Paint.Align.RIGHT);
-        text(c, p, tpmsText(tpmsValue(tpms, "fr")), 890f, 417f, 16f, Color.rgb(18, 18, 18), Paint.Align.LEFT);
-        text(c, p, tpmsText(tpmsValue(tpms, "rl")), 840f, 443f, 16f, Color.rgb(18, 18, 18), Paint.Align.RIGHT);
-        text(c, p, tpmsText(tpmsValue(tpms, "rr")), 890f, 443f, 16f, Color.rgb(18, 18, 18), Paint.Align.LEFT);
+        text(c, p, tpmsText(tpmsValue(tpms, "fl")), 840f, 417f, 16f, ink(), Paint.Align.RIGHT);
+        text(c, p, tpmsText(tpmsValue(tpms, "fr")), 890f, 417f, 16f, ink(), Paint.Align.LEFT);
+        text(c, p, tpmsText(tpmsValue(tpms, "rl")), 840f, 443f, 16f, ink(), Paint.Align.RIGHT);
+        text(c, p, tpmsText(tpmsValue(tpms, "rr")), 890f, 443f, 16f, ink(), Paint.Align.LEFT);
     }
 
     private String tpmsText(float v) {
@@ -1194,11 +1310,11 @@ public final class HudService extends Service {
     private void drawCard(Canvas c, Paint p, RectF box) {
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.rgb(232, 235, 237));
+        p.setColor(cardBg());
         c.drawRoundRect(box, 9f, 9f, p);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(2f);
-        p.setColor(Color.rgb(158, 166, 171));
+        p.setColor(cardEdge());
         c.drawRoundRect(box, 9f, 9f, p);
     }
 

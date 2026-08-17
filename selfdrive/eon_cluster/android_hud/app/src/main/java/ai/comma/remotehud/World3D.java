@@ -13,24 +13,24 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * v0.19 — 실제 원근투영(핀홀 카메라)으로 그리는 3D 주행씬.
- *
- * v0.18 까지의 project() 는 세로는 d/(13+d), 가로는 66/(1+d/17) 이라는
- * 서로 다른 근사식을 써서, 거리에 따른 도로 폭 / 차선 간격 / 차량 크기의
- * 비율이 물리적으로 맞지 않았다. 여기서는 하나의 카메라 모델만 쓴다.
+ * v0.20 — 실제 원근투영(핀홀 카메라) 3D 주행씬.
  *
  *   depth = X + CAM_BACK                (X: 차 기준 전방 m)
  *   u     = CX     - FOCAL * Y / depth  (Y: 좌측이 +)
  *   v     = HORIZON + FOCAL * (CAM_H - Z) / depth
  *
- * 즉 노면(Z=0)은 depth 가 커질수록 HORIZON 으로 수렴하고, 높이 Z 를 가진
- * 점은 같은 depth 에서 정확히 그만큼 위로 올라간다. 건물·차량·차선·노면이
- * 전부 같은 변환을 통과하므로 원근이 서로 어긋나지 않는다.
- *
- * 카메라는 차 뒤 CAM_BACK m, 노면 위 CAM_H m 에서 수평으로 본다.
- * 주행 패널이 765x237 로 납작하기 때문에 지평선 위 여유가 32px 뿐이고,
- * 높은 건물은 위가 잘린다. 잘린 자국이 보이지 않도록 상단에 헤이즈
- * 그라디언트를 덮는다.
+ * v0.19 대비 바뀐 것
+ *  - 카메라를 뒤/위로 물림 (9.5→13.0m, 3.4→4.6m). 자차가 화면을 덜 먹고
+ *    앞이 더 보인다.
+ *  - 경로 보간을 Catmull-Rom 으로. 17점 폴리라인의 각진 곡선이 사라진다.
+ *  - **정차 중 좌우 흔들림 수정.** 모델 유효구간 밖 외삽 기울기 상한을
+ *    0.12→0.06 으로 낮추고, 20m에 걸쳐 0으로 감쇠시킨다. 정차하면
+ *    modelV2 position 이 0 근처에만 몰려서 먼 쪽이 ±8m씩 흔들렸다.
+ *  - 노면 폭을 고정 ±4.45m 가 아니라 인식된 roadEdges 로 만든다.
+ *  - 도로 경계를 연석 높이로 세운다.
+ *  - 다크 / 라이트 팔레트 (hudTheme 연동).
+ *  - BSD 를 차량 그림 대신 옆차선 경고 띠로. openpilot 은 옆차 유무만 알고
+ *    앞뒤 위치는 모르므로, 특정 지점에 차를 그리면 없는 정보를 주장하게 된다.
  */
 final class World3D {
 
@@ -43,34 +43,58 @@ final class World3D {
 
     /** 카메라 */
     static final float FOCAL = 520f;
-    static final float CAM_H = 3.4f;
-    static final float CAM_BACK = 9.5f;
+    static final float CAM_H = 4.6f;
+    static final float CAM_BACK = 13.0f;
     static final float HORIZON = 249f;
-    static final float NEAR_DEPTH = 8.2f;
-    static final float FAR_DEPTH = 185f;
+    static final float NEAR_DEPTH = 11.4f;
+    static final float FAR_DEPTH = 190f;
 
     /** 도로 */
     static final float ROAD_HALF = 4.45f;
     static final float SHOULDER = 0.65f;
+    static final float CURB_HEIGHT = 0.13f;
     static final float LANE_PAINT_W = 0.16f;
-    static final float EDGE_PAINT_W = 0.22f;
+    static final float EDGE_PAINT_W = 0.20f;
     static final float DASH_PERIOD = 8.0f;
     static final float DASH_ON = 3.0f;
+
+    /** 차량 표현 방식 */
+    static final int CAR_SPRITE = 1;   // 사진 스프라이트 (기본)
+    static final int CAR_BOX = 2;      // 단색 3D 박스 + 음영
+    private static final float CAR_W = 1.86f;
+    private static final float CAR_H = 1.46f;
+    private static final float CAR_LEN = 4.6f;
+
+    /** BSD 표시 방식 */
+    static final int BSD_BAR = 1;      // 막대만
+    static final int BSD_SOFT = 2;     // 옅은 면 + 막대 (기본)
+    static final int BSD_SOLID = 3;    // 진한 면 + 막대
+    private static final float BSD_NEAR = -6f;
+    private static final float BSD_FAR = 16f;
+    private static final float BSD_INNER = 2.0f;
+    private static final float BSD_OUTER = 5.2f;
 
     /** 건물 */
     private static final float BLOCK = 24f;
     private static final int BLOCK_COUNT = 13;
-    private static final float BUILD_NEAR = 12f;
-    private static final float BUILD_FAR = 165f;
+    private static final float BUILD_NEAR = 14f;
+    private static final float BUILD_FAR = 170f;
     private static final float HAZE_START = 95f;
 
-    private static final int SLICES = 26;
-    private static final int MAX_PATH = 80;
+    private static final int SLICES = 30;
+    private static final int MAX_PTS = 80;
 
     // ── 프레임당 재할당을 피하기 위한 버퍼 ────────────────────────────────
-    private final float[] pathX = new float[MAX_PATH];
-    private final float[] pathY = new float[MAX_PATH];
+    private final float[] pathX = new float[MAX_PTS];
+    private final float[] pathY = new float[MAX_PTS];
     private int pathCount;
+
+    private final float[] edgeLX = new float[MAX_PTS];
+    private final float[] edgeLY = new float[MAX_PTS];
+    private int edgeLCount;
+    private final float[] edgeRX = new float[MAX_PTS];
+    private final float[] edgeRY = new float[MAX_PTS];
+    private int edgeRCount;
 
     private final float[] pa = new float[2];
     private final float[] pb = new float[2];
@@ -81,10 +105,6 @@ final class World3D {
     private final float[] ly = new float[SLICES];
     private final float[] rx = new float[SLICES];
     private final float[] ry = new float[SLICES];
-    private final float[] olx = new float[SLICES];
-    private final float[] oly = new float[SLICES];
-    private final float[] orx = new float[SLICES];
-    private final float[] ory = new float[SLICES];
 
     private final Path poly = new Path();
     private final Path poly2 = new Path();
@@ -98,9 +118,14 @@ final class World3D {
     private LinearGradient ribbonShader;
     private int ribbonShaderColor;
 
+    private boolean dark;
+    private int carStyle = CAR_SPRITE;
+
+    private final float[] boxX = new float[8];
+    private final float[] boxY = new float[8];
+
     // ── 투영 ──────────────────────────────────────────────────────────────
 
-    /** 차 기준 (X 전방, Y 좌측, Z 상방) 한 점을 화면 좌표로. 너무 가까우면 false. */
     boolean project(float x, float y, float z, float[] out) {
         float depth = x + CAM_BACK;
         if (depth < NEAR_DEPTH) {
@@ -112,30 +137,54 @@ final class World3D {
         return true;
     }
 
-    /** 해당 depth 에서 1m 가 화면상 몇 px 인지 */
     static float pxPerMeter(float depth) {
         return FOCAL / Math.max(NEAR_DEPTH, depth);
     }
 
-    // ── 모델 경로 ─────────────────────────────────────────────────────────
+    // ── 씬 디코딩 ─────────────────────────────────────────────────────────
 
-    /**
-     * v0.18 의 pathCenterAt() 은 호출마다 JSON 배열 전체를 훑으면서 최근접
-     * 표본 하나를 골랐다. 프레임당 100회 가까이 불리므로 JSON 접근만
-     * 수천 번이었고, 최근접 표본이라 값이 계단처럼 튀었다.
-     * 여기서는 프레임당 한 번만 배열로 풀고, 이후에는 선형보간한다.
-     */
     void setScene(JSONObject s) {
         pathCount = 0;
+        edgeLCount = 0;
+        edgeRCount = 0;
         if (s == null) {
             return;
         }
-        JSONArray a = s.optJSONArray("path");
-        if (a == null) {
+        pathCount = decode(s.optJSONArray("path"), pathX, pathY);
+
+        JSONArray edges = s.optJSONArray("edges");
+        if (edges == null) {
             return;
         }
-        int n = Math.min(a.length(), MAX_PATH);
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < edges.length(); i++) {
+            JSONObject e = edges.optJSONObject(i);
+            if (e == null || e.optDouble("c", 0d) < 0.18d) {
+                continue;
+            }
+            JSONArray pts = e.optJSONArray("p");
+            if (pts == null || pts.length() < 2) {
+                continue;
+            }
+            JSONArray first = pts.optJSONArray(0);
+            if (first == null) {
+                continue;
+            }
+            boolean leftSide = first.optDouble(1, 0d) > 0d;
+            if (leftSide && edgeLCount == 0) {
+                edgeLCount = decode(pts, edgeLX, edgeLY);
+            } else if (!leftSide && edgeRCount == 0) {
+                edgeRCount = decode(pts, edgeRX, edgeRY);
+            }
+        }
+    }
+
+    private static int decode(JSONArray a, float[] xs, float[] ys) {
+        if (a == null) {
+            return 0;
+        }
+        int n = 0;
+        int limit = Math.min(a.length(), xs.length);
+        for (int i = 0; i < limit; i++) {
             JSONArray q = a.optJSONArray(i);
             if (q == null) {
                 continue;
@@ -146,69 +195,92 @@ final class World3D {
                 continue;
             }
             float x = (float) dx;
-            float y = (float) dy;
-            if (pathCount > 0 && x <= pathX[pathCount - 1]) {
+            if (n > 0 && x <= xs[n - 1]) {
                 continue;
             }
-            pathX[pathCount] = x;
-            pathY[pathCount] = y;
-            pathCount++;
+            xs[n] = x;
+            ys[n] = (float) dy;
+            n++;
         }
+        return n;
     }
 
-    /** 전방 x(m) 에서의 주행 경로 중심 y(m). 모델 끝 너머는 기울기를 제한해 연장. */
-    float centerAt(float x) {
-        if (pathCount == 0) {
+    /**
+     * Catmull-Rom 보간. 모델 유효구간 밖에서는 기울기를 20m에 걸쳐 0으로
+     * 감쇠시킨다 — 정차 중 먼 쪽이 좌우로 쓸리는 것을 막는 핵심.
+     */
+    private static float sample(float[] xs, float[] ys, int n, float x) {
+        if (n == 0) {
             return 0f;
         }
-        if (x <= pathX[0]) {
-            return pathY[0];
+        if (n == 1 || x <= xs[0]) {
+            return ys[0];
         }
-        int last = pathCount - 1;
-        if (x >= pathX[last]) {
-            if (pathCount >= 2) {
-                float dx = pathX[last] - pathX[last - 1];
-                if (dx > 0.01f) {
-                    float slope = (pathY[last] - pathY[last - 1]) / dx;
-                    slope = Math.max(-0.12f, Math.min(0.12f, slope));
-                    return pathY[last] + slope * Math.min(70f, x - pathX[last]);
-                }
-            }
-            return pathY[last];
+        int last = n - 1;
+        if (x >= xs[last]) {
+            float dx = xs[last] - xs[last - 1];
+            float slope = dx > 0.01f ? (ys[last] - ys[last - 1]) / dx : 0f;
+            slope = Math.max(-0.06f, Math.min(0.06f, slope));
+            float over = x - xs[last];
+            float decay = Math.max(0f, 1f - over / 20f);
+            return ys[last] + slope * over * decay;
         }
-        int lo = 0;
+        int i = 0;
         int hi = last;
-        while (hi - lo > 1) {
-            int mid = (lo + hi) >>> 1;
-            if (pathX[mid] <= x) {
-                lo = mid;
+        while (hi - i > 1) {
+            int mid = (i + hi) >>> 1;
+            if (xs[mid] <= x) {
+                i = mid;
             } else {
                 hi = mid;
             }
         }
-        float span = pathX[hi] - pathX[lo];
-        float t = span > 0.001f ? (x - pathX[lo]) / span : 0f;
-        return pathY[lo] + (pathY[hi] - pathY[lo]) * t;
+        float y0 = ys[Math.max(0, i - 1)];
+        float y1 = ys[i];
+        float y2 = ys[i + 1];
+        float y3 = ys[Math.min(last, i + 2)];
+        float span = xs[i + 1] - xs[i];
+        float t = span > 0.001f ? (x - xs[i]) / span : 0f;
+        float t2 = t * t;
+        float t3 = t2 * t;
+        return 0.5f * ((2f * y1)
+                + (-y0 + y2) * t
+                + (2f * y0 - 5f * y1 + 4f * y2 - y3) * t2
+                + (-y0 + 3f * y1 - 3f * y2 + y3) * t3);
+    }
+
+    float centerAt(float x) {
+        return sample(pathX, pathY, pathCount, x);
+    }
+
+    /** 인식된 도로경계가 있으면 그것으로, 없으면 고정 폭으로. */
+    private float roadEdgeAt(float x, boolean leftSide) {
+        if (leftSide && edgeLCount >= 2) {
+            return sample(edgeLX, edgeLY, edgeLCount, x);
+        }
+        if (!leftSide && edgeRCount >= 2) {
+            return sample(edgeRX, edgeRY, edgeRCount, x);
+        }
+        float half = ROAD_HALF + SHOULDER;
+        return centerAt(x) + (leftSide ? half : -half);
     }
 
     // ── 씬 전체 ───────────────────────────────────────────────────────────
 
-    /**
-     * @param buildings 도로변 건물을 그릴지. 건물은 실제 주변 지형이 아니라
-     *                  24m 격자에 해시로 찍어내는 장식이므로, 헷갈리면 끈다.
-     *                  EON 패킷의 hudBuildings 로 제어된다 (0 = 끔, 기본 1).
-     */
     void draw(Canvas c, Paint p, JSONObject s, boolean enabled,
               Bitmap egoCar, Bitmap otherCar, float odoM,
               int bgColor, int roadTop, int roadBottom, int pathColor,
-              int radarInfo, boolean buildings) {
+              int radarInfo, boolean buildings, boolean darkTheme, int bsdStyle,
+              int carStyleMode) {
+        this.dark = darkTheme;
+        this.carStyle = carStyleMode == CAR_BOX ? CAR_BOX : CAR_SPRITE;
         setScene(s);
 
         int save = c.save();
         c.clipRect(LEFT, TOP, RIGHT, BOTTOM);
 
-        int sky = blend(bgColor, Color.WHITE, 0.35f);
-        int ground = blend(bgColor, Color.BLACK, 0.10f);
+        int sky = dark ? blend(bgColor, Color.BLACK, 0.35f) : blend(bgColor, Color.WHITE, 0.35f);
+        int ground = dark ? blend(bgColor, Color.BLACK, 0.15f) : blend(bgColor, Color.BLACK, 0.10f);
 
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
@@ -218,6 +290,8 @@ final class World3D {
         c.drawRect(LEFT, HORIZON, RIGHT, BOTTOM, p);
 
         drawRoad(c, p, roadTop, roadBottom);
+        drawCurb(c, p, true, roadTop);
+        drawCurb(c, p, false, roadTop);
         drawMarkings(c, p, s);
         if (enabled) {
             drawPathRibbon(c, p, pathColor);
@@ -225,6 +299,7 @@ final class World3D {
         if (buildings) {
             drawBuildings(c, p, odoM, sky);
         }
+        drawBsd(c, p, s, bsdStyle);
         drawVehicles(c, p, s, egoCar, otherCar, radarInfo);
         drawHaze(c, p, sky);
 
@@ -241,27 +316,20 @@ final class World3D {
             float t = i / (SLICES - 1f);
             float depth = 1f / (invNear + (invFar - invNear) * t);
             float x = depth - CAM_BACK;
-            float cen = centerAt(x);
             float inv = FOCAL / depth;
             float vy = HORIZON + CAM_H * inv;
-            lx[i] = CX - (cen + ROAD_HALF) * inv;
+            lx[i] = CX - roadEdgeAt(x, true) * inv;
             ly[i] = vy;
-            rx[i] = CX - (cen - ROAD_HALF) * inv;
+            rx[i] = CX - roadEdgeAt(x, false) * inv;
             ry[i] = vy;
-            olx[i] = CX - (cen + ROAD_HALF + SHOULDER) * inv;
-            oly[i] = vy;
-            orx[i] = CX - (cen - ROAD_HALF - SHOULDER) * inv;
-            ory[i] = vy;
         }
 
         if (roadShader == null || roadShaderTop != topColor || roadShaderBottom != bottomColor) {
-            roadShader = new LinearGradient(0f, HORIZON, 0f, BOTTOM, topColor, bottomColor, Shader.TileMode.CLAMP);
+            roadShader = new LinearGradient(0f, HORIZON, 0f, BOTTOM, topColor, bottomColor,
+                    Shader.TileMode.CLAMP);
             roadShaderTop = topColor;
             roadShaderBottom = bottomColor;
         }
-
-        ribbon(c, p, olx, oly, lx, ly, blend(topColor, Color.BLACK, 0.16f));
-        ribbon(c, p, rx, ry, orx, ory, blend(topColor, Color.BLACK, 0.16f));
 
         poly.rewind();
         poly.moveTo(lx[0], ly[0]);
@@ -278,20 +346,45 @@ final class World3D {
         p.setShader(null);
     }
 
-    private void ribbon(Canvas c, Paint p, float[] ax, float[] ay, float[] bx, float[] by, int color) {
-        poly2.rewind();
-        poly2.moveTo(ax[0], ay[0]);
-        for (int i = 1; i < SLICES; i++) {
-            poly2.lineTo(ax[i], ay[i]);
-        }
-        for (int i = SLICES - 1; i >= 0; i--) {
-            poly2.lineTo(bx[i], by[i]);
-        }
-        poly2.close();
+    /** 도로 경계를 연석 높이로 세워 평면감을 없앤다. */
+    private void drawCurb(Canvas c, Paint p, boolean leftSide, int roadColor) {
+        int face = dark ? blend(roadColor, Color.BLACK, 0.35f) : blend(roadColor, Color.BLACK, 0.22f);
+        int lip = dark ? blend(roadColor, Color.WHITE, 0.22f) : blend(roadColor, Color.WHITE, 0.45f);
+        float invNear = 1f / NEAR_DEPTH;
+        float invFar = 1f / (FAR_DEPTH * 0.55f);
+        boolean have = false;
+        float prevBaseX = 0f, prevBaseY = 0f, prevTopX = 0f, prevTopY = 0f;
+
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(color);
-        c.drawPath(poly2, p);
+        for (int i = 0; i < SLICES; i++) {
+            float t = i / (SLICES - 1f);
+            float depth = 1f / (invNear + (invFar - invNear) * t);
+            float x = depth - CAM_BACK;
+            float y = roadEdgeAt(x, leftSide);
+            if (!project(x, y, 0f, pa) || !project(x, y, CURB_HEIGHT, pb)) {
+                have = false;
+                continue;
+            }
+            if (have) {
+                poly2.rewind();
+                poly2.moveTo(prevBaseX, prevBaseY);
+                poly2.lineTo(pa[0], pa[1]);
+                poly2.lineTo(pb[0], pb[1]);
+                poly2.lineTo(prevTopX, prevTopY);
+                poly2.close();
+                p.setColor(face);
+                c.drawPath(poly2, p);
+                p.setColor(lip);
+                c.drawRect(Math.min(prevTopX, pb[0]), Math.min(prevTopY, pb[1]) - 1.4f,
+                        Math.max(prevTopX, pb[0]), Math.min(prevTopY, pb[1]), p);
+            }
+            prevBaseX = pa[0];
+            prevBaseY = pa[1];
+            prevTopX = pb[0];
+            prevTopY = pb[1];
+            have = true;
+        }
     }
 
     // ── 차선 / 도로 경계 ──────────────────────────────────────────────────
@@ -300,6 +393,7 @@ final class World3D {
         if (s == null) {
             return;
         }
+        int edgeColor = dark ? Color.rgb(120, 132, 146) : Color.rgb(148, 157, 163);
         JSONArray edges = s.optJSONArray("edges");
         if (edges != null) {
             for (int i = 0; i < edges.length(); i++) {
@@ -307,33 +401,29 @@ final class World3D {
                 if (e == null || e.optDouble("c", 0d) < 0.18d) {
                     continue;
                 }
-                polyline(c, p, e.optJSONArray("p"), Color.rgb(148, 157, 163), EDGE_PAINT_W, false, 255);
+                polyline(c, p, e.optJSONArray("p"), edgeColor, EDGE_PAINT_W, false, 255);
             }
         }
         JSONArray lanes = s.optJSONArray("lanes");
-        if (lanes != null) {
-            int egoLeft = -1;
-            int egoRight = -1;
-            // laneLines 는 모델 순서상 index 1 이 좌측 주행차선, 2 가 우측이다.
-            if (lanes.length() >= 3) {
-                egoLeft = 1;
-                egoRight = 2;
+        if (lanes == null) {
+            return;
+        }
+        int plain = dark ? Color.rgb(214, 222, 230) : Color.rgb(248, 250, 250);
+        int ego = dark ? Color.rgb(246, 206, 92) : Color.rgb(238, 196, 70);
+        for (int i = 0; i < lanes.length(); i++) {
+            JSONObject lane = lanes.optJSONObject(i);
+            if (lane == null) {
+                continue;
             }
-            for (int i = 0; i < lanes.length(); i++) {
-                JSONObject lane = lanes.optJSONObject(i);
-                if (lane == null) {
-                    continue;
-                }
-                double conf = lane.optDouble("c", 1d);
-                int alpha = (int) Math.max(70d, Math.min(255d, 90d + conf * 170d));
-                boolean ego = (i == egoLeft || i == egoRight);
-                int color = ego ? Color.rgb(246, 208, 84) : Color.rgb(248, 250, 250);
-                polyline(c, p, lane.optJSONArray("p"), color, LANE_PAINT_W, true, alpha);
-            }
+            double conf = lane.optDouble("c", 1d);
+            int alpha = (int) Math.max(70d, Math.min(255d, 90d + conf * 170d));
+            boolean isEgo = (lanes.length() >= 3) && (i == 1 || i == 2);
+            polyline(c, p, lane.optJSONArray("p"), isEgo ? ego : plain, LANE_PAINT_W, true, alpha);
         }
     }
 
-    private void polyline(Canvas c, Paint p, JSONArray pts, int color, float widthM, boolean dashed, int alpha) {
+    private void polyline(Canvas c, Paint p, JSONArray pts, int color, float widthM,
+                          boolean dashed, int alpha) {
         if (pts == null || pts.length() < 2) {
             return;
         }
@@ -364,14 +454,13 @@ final class World3D {
             if (!project(x1, y1, 0f, pa) || !project(x2, y2, 0f, pb)) {
                 continue;
             }
-            float wa = Math.max(1.1f, widthM * pxPerMeter(x1 + CAM_BACK));
-            float wb = Math.max(1.0f, widthM * pxPerMeter(x2 + CAM_BACK));
-            quad(c, p, pa, pb, wa, wb);
+            quad(c, p, pa, pb,
+                    Math.max(1.1f, widthM * pxPerMeter(x1 + CAM_BACK)),
+                    Math.max(1.0f, widthM * pxPerMeter(x2 + CAM_BACK)));
         }
         p.setAlpha(255);
     }
 
-    /** 두 점을 잇는, 양 끝 두께가 다른 사다리꼴. 원근에 맞게 선이 가늘어진다. */
     private void quad(Canvas c, Paint p, float[] a, float[] b, float wa, float wb) {
         float dx = b[0] - a[0];
         float dy = b[1] - a[1];
@@ -398,16 +487,15 @@ final class World3D {
         if (pathCount < 2) {
             return;
         }
-        final float half = 0.85f;
+        final float half = 0.9f;
+        final int steps = 44;
+        float reach = Math.min(FAR_DEPTH * 0.62f, pathX[pathCount - 1] + 10f);
         poly.rewind();
         boolean started = false;
         int used = 0;
-        for (int i = 0; i < pathCount; i++) {
-            float x = pathX[i];
-            if (x + CAM_BACK < NEAR_DEPTH || x > FAR_DEPTH) {
-                continue;
-            }
-            if (!project(x, pathY[i] + half, 0f, pa)) {
+        for (int i = 0; i < steps; i++) {
+            float x = reach * i / (steps - 1f);
+            if (!project(x, centerAt(x) + half, 0f, pa)) {
                 continue;
             }
             if (started) {
@@ -421,12 +509,9 @@ final class World3D {
         if (used < 2) {
             return;
         }
-        for (int i = pathCount - 1; i >= 0; i--) {
-            float x = pathX[i];
-            if (x + CAM_BACK < NEAR_DEPTH || x > FAR_DEPTH) {
-                continue;
-            }
-            if (project(x, pathY[i] - half, 0f, pa)) {
+        for (int i = steps - 1; i >= 0; i--) {
+            float x = reach * i / (steps - 1f);
+            if (project(x, centerAt(x) - half, 0f, pa)) {
                 poly.lineTo(pa[0], pa[1]);
             }
         }
@@ -435,7 +520,7 @@ final class World3D {
         if (ribbonShader == null || ribbonShaderColor != color) {
             ribbonShader = new LinearGradient(0f, HORIZON, 0f, BOTTOM,
                     Color.argb(40, Color.red(color), Color.green(color), Color.blue(color)),
-                    Color.argb(180, Color.red(color), Color.green(color), Color.blue(color)),
+                    Color.argb(190, Color.red(color), Color.green(color), Color.blue(color)),
                     Shader.TileMode.CLAMP);
             ribbonShaderColor = color;
         }
@@ -445,23 +530,93 @@ final class World3D {
         p.setShader(null);
 
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(2.6f);
+        p.setStrokeWidth(2.8f);
         p.setStrokeJoin(Paint.Join.ROUND);
-        p.setColor(Color.rgb(Math.min(255, Color.red(color) + 30),
-                Math.min(255, Color.green(color) + 34),
-                Math.min(255, Color.blue(color) + 30)));
+        p.setColor(Color.rgb(Math.min(255, Color.red(color) + 60),
+                Math.min(255, Color.green(color) + 50),
+                Math.min(255, Color.blue(color) + 20)));
         c.drawPath(poly, p);
         p.setStyle(Paint.Style.FILL);
     }
 
-    // ── 건물 ──────────────────────────────────────────────────────────────
+    // ── BSD 경고 띠 ───────────────────────────────────────────────────────
+
+    private void drawBsd(Canvas c, Paint p, JSONObject s, int style) {
+        if (s == null) {
+            return;
+        }
+        if (s.optBoolean("leftBsd", false)) {
+            bsdBand(c, p, 1, style);
+        }
+        if (s.optBoolean("rightBsd", false)) {
+            bsdBand(c, p, -1, style);
+        }
+    }
 
     /**
-     * 건물은 도로변 24m 격자에 고정돼 있고, 주행거리(odoM)만큼 뒤로 흘러간다.
-     * v0.18 은 거리 배열이 {96,80,66,...} 로 고정이라 아무리 달려도 건물이
-     * 제자리에 붙어 있었다. 여기서는 블록 인덱스를 절대 주행거리로 잡아
-     * 실제로 다가왔다가 지나간다.
+     * 옆차선 전체를 띠로 칠한다. 특정 지점에 차를 그리지 않는 이유는
+     * openpilot 이 옆차의 앞뒤 위치를 알려주지 않기 때문이다.
      */
+    private void bsdBand(Canvas c, Paint p, int side, int style) {
+        final int steps = 16;
+        int fillAlpha = style == BSD_SOLID ? 96 : style == BSD_SOFT ? 48 : 0;
+
+        if (fillAlpha > 0) {
+            poly.rewind();
+            boolean started = false;
+            for (int i = 0; i < steps; i++) {
+                float x = BSD_NEAR + (BSD_FAR - BSD_NEAR) * i / (steps - 1f);
+                float base = centerAt(Math.max(0f, x));
+                if (!project(x, base + side * BSD_INNER, 0f, pa)) {
+                    continue;
+                }
+                if (started) {
+                    poly.lineTo(pa[0], pa[1]);
+                } else {
+                    poly.moveTo(pa[0], pa[1]);
+                    started = true;
+                }
+            }
+            if (!started) {
+                return;
+            }
+            for (int i = steps - 1; i >= 0; i--) {
+                float x = BSD_NEAR + (BSD_FAR - BSD_NEAR) * i / (steps - 1f);
+                float base = centerAt(Math.max(0f, x));
+                if (project(x, base + side * BSD_OUTER, 0f, pa)) {
+                    poly.lineTo(pa[0], pa[1]);
+                }
+            }
+            poly.close();
+            p.setShader(null);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.argb(fillAlpha, 255, 168, 40));
+            c.drawPath(poly, p);
+        }
+
+        // 안쪽 경계 막대는 어느 방식에서나 그린다.
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(238, 255, 190, 70));
+        boolean have = false;
+        for (int i = 0; i < steps; i++) {
+            float x = BSD_NEAR + (BSD_FAR - BSD_NEAR) * i / (steps - 1f);
+            float base = centerAt(Math.max(0f, x));
+            if (!project(x, base + side * BSD_INNER, 0f, pb)) {
+                have = false;
+                continue;
+            }
+            if (have) {
+                quad(c, p, pa, pb, 7f, 6f);
+            }
+            pa[0] = pb[0];
+            pa[1] = pb[1];
+            have = true;
+        }
+    }
+
+    // ── 건물 ──────────────────────────────────────────────────────────────
+
     private void drawBuildings(Canvas c, Paint p, float odoM, int fogColor) {
         int base = (int) Math.floor(odoM / BLOCK);
         for (int i = BLOCK_COUNT - 1; i >= 0; i--) {
@@ -473,13 +628,14 @@ final class World3D {
             for (int side = -1; side <= 1; side += 2) {
                 int salt = side > 0 ? 0x51ED : 0x2F19;
                 if (rnd(k, salt) < 0.26f) {
-                    continue;   // 빈 필지
+                    continue;
                 }
                 float gap = 1.6f + rnd(k, salt + 1) * 3.2f;
                 float width = 7f + rnd(k, salt + 2) * 9f;
                 float depth = 8f + rnd(k, salt + 3) * 10f;
                 float height = 4f + rnd(k, salt + 4) * 7f;
-                int tone = 196 - (int) (rnd(k, salt + 5) * 34f);
+                int tone = dark ? 78 - (int) (rnd(k, salt + 5) * 22f)
+                        : 196 - (int) (rnd(k, salt + 5) * 34f);
                 building(c, p, d, d + depth, side, gap, width, height, tone, fogColor);
             }
         }
@@ -487,23 +643,13 @@ final class World3D {
 
     private void building(Canvas c, Paint p, float d0, float d1, int side,
                           float gap, float width, float height, int tone, int fogColor) {
-        float inner = centerAt(d0) + side * (ROAD_HALF + SHOULDER + gap);
+        float inner = roadEdgeAt(d0, side > 0) + side * gap;
         float outer = inner + side * width;
 
-        // 앞면(가까운 쪽 X=d0) 네 모서리
-        if (!project(d0, inner, 0f, pa)) {
+        if (!project(d0, inner, 0f, pa) || !project(d0, outer, 0f, pb)
+                || !project(d0, outer, height, pc) || !project(d0, inner, height, pd)) {
             return;
         }
-        if (!project(d0, outer, 0f, pb)) {
-            return;
-        }
-        if (!project(d0, outer, height, pc)) {
-            return;
-        }
-        if (!project(d0, inner, height, pd)) {
-            return;
-        }
-        // 화면 밖이면 통째로 버림
         float minX = Math.min(Math.min(pa[0], pb[0]), Math.min(pc[0], pd[0]));
         float maxX = Math.max(Math.max(pa[0], pb[0]), Math.max(pc[0], pd[0]));
         if (maxX < LEFT - 40f || minX > RIGHT + 40f) {
@@ -512,12 +658,11 @@ final class World3D {
 
         float fog = d0 <= HAZE_START ? 0f
                 : Math.min(0.82f, (d0 - HAZE_START) / (BUILD_FAR - HAZE_START) * 0.95f);
-
-        int front = blend(Color.rgb(tone, Math.min(255, tone + 4), Math.min(255, tone + 11)), fogColor, fog);
-        int flank = blend(Color.rgb(Math.max(120, tone - 34), Math.max(126, tone - 29), Math.max(134, tone - 21)),
+        int front = blend(Color.rgb(tone, Math.min(255, tone + 4), Math.min(255, tone + 11)),
                 fogColor, fog);
+        int flank = blend(Color.rgb(Math.max(24, tone - 34), Math.max(28, tone - 29),
+                Math.max(34, tone - 21)), fogColor, fog);
 
-        // 측면(안쪽 벽, Y=inner 평면). 카메라가 도로 중앙에 있으므로 이 면이 보인다.
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         poly2.rewind();
@@ -531,7 +676,6 @@ final class World3D {
             c.drawPath(poly2, p);
         }
 
-        // 앞면
         if (!project(d0, outer, height, pc) || !project(d0, inner, height, pd)) {
             return;
         }
@@ -544,7 +688,6 @@ final class World3D {
         p.setColor(front);
         c.drawPath(poly2, p);
 
-        // 창문 (앞면이 충분히 클 때만)
         float faceW = Math.abs(pb[0] - pa[0]);
         float faceH = Math.abs(pa[1] - pd[1]);
         if (faceW < 20f || faceH < 26f || fog > 0.55f) {
@@ -552,17 +695,13 @@ final class World3D {
         }
         int cols = Math.max(2, Math.min(4, (int) (faceW / 14f)));
         int rows = Math.max(2, Math.min(5, (int) (faceH / 16f)));
-        p.setColor(blend(Color.rgb(122, 152, 176), fogColor, fog));
+        p.setColor(blend(dark ? Color.rgb(150, 176, 110) : Color.rgb(122, 152, 176), fogColor, fog));
         for (int r = 0; r < rows; r++) {
             for (int q = 0; q < cols; q++) {
-                float u0 = (q + 0.30f) / cols;
-                float u1 = (q + 0.70f) / cols;
-                float v0 = (r + 0.28f) / rows;
-                float v1 = (r + 0.66f) / rows;
-                float xa = lerp(pa[0], pb[0], u0);
-                float xb = lerp(pa[0], pb[0], u1);
-                float ya = lerp(pa[1], pd[1], v0);
-                float yb = lerp(pa[1], pd[1], v1);
+                float xa = lerp(pa[0], pb[0], (q + 0.30f) / cols);
+                float xb = lerp(pa[0], pb[0], (q + 0.70f) / cols);
+                float ya = lerp(pa[1], pd[1], (r + 0.28f) / rows);
+                float yb = lerp(pa[1], pd[1], (r + 0.66f) / rows);
                 rect.set(Math.min(xa, xb), Math.min(ya, yb), Math.max(xa, xb), Math.max(ya, yb));
                 c.drawRect(rect, p);
             }
@@ -571,7 +710,8 @@ final class World3D {
 
     // ── 차량 ──────────────────────────────────────────────────────────────
 
-    private void drawVehicles(Canvas c, Paint p, JSONObject s, Bitmap egoCar, Bitmap otherCar, int radarInfo) {
+    private void drawVehicles(Canvas c, Paint p, JSONObject s, Bitmap egoCar, Bitmap otherCar,
+                              int radarInfo) {
         if (s == null) {
             return;
         }
@@ -580,7 +720,6 @@ final class World3D {
         float d1 = lead == null ? -1f : (float) lead.optDouble("d", -1d);
         float d2 = lead2 == null ? -1f : (float) lead2.optDouble("d", -1d);
 
-        // 먼 것부터 (painter's algorithm)
         if (d2 > d1) {
             car(c, p, otherCar, lead2, 205);
             car(c, p, otherCar, lead, 245);
@@ -588,16 +727,11 @@ final class World3D {
             car(c, p, otherCar, lead, 245);
             car(c, p, otherCar, lead2, 205);
         }
-
-        boolean leftBsd = s.optBoolean("leftBsd", false);
-        boolean rightBsd = s.optBoolean("rightBsd", false);
-        if (leftBsd) {
-            billboard(c, p, otherCar, -0.6f, 3.5f, 1.9f, -7f, 235);
+        if (carStyle == CAR_BOX) {
+            boxCar(c, p, 0f, 0f, dark ? Color.rgb(74, 130, 214) : Color.rgb(86, 132, 200), true, 255);
+        } else {
+            billboard(c, p, egoCar, 0f, 0f, 1.95f, egoRoll(), 255);
         }
-        if (rightBsd) {
-            billboard(c, p, otherCar, -0.6f, -3.5f, 1.9f, 7f, 235);
-        }
-        billboard(c, p, egoCar, 0f, 0f, 1.95f, egoRoll(), 255);
 
         if (radarInfo == 3 || radarInfo == 4) {
             markLead(c, p, lead);
@@ -613,10 +747,92 @@ final class World3D {
         if (d <= 0f || d > FAR_DEPTH) {
             return;
         }
-        billboard(c, p, bmp, d, y, 1.9f, 0f, alpha);
+        if (carStyle == CAR_BOX) {
+            boxCar(c, p, d, y, dark ? Color.rgb(126, 134, 146) : Color.rgb(112, 122, 136),
+                    false, alpha);
+        } else {
+            billboard(c, p, bmp, d, y, 1.9f, 0f, alpha);
+        }
     }
 
-    /** 리드 차량 발밑에 거리 표시용 얇은 가로선 (radarInfo 3/4 일 때만) */
+    /**
+     * 단색 3D 박스 차량. 뒷면 / 윗면 / 보이는 옆면 세 면에 명암을 준다.
+     * 카메라가 차 지붕보다 위(4.6m)에 있으므로 윗면이 보이는 게 맞다.
+     */
+    private void boxCar(Canvas c, Paint p, float x, float y, int body, boolean ego, int alpha) {
+        float rear = Math.max(x - CAR_LEN / 2f, NEAR_DEPTH - CAM_BACK + 0.2f);
+        float front = Math.max(x + CAR_LEN / 2f, rear + 0.8f);
+        float yl = y + CAR_W / 2f;
+        float yr = y - CAR_W / 2f;
+
+        // 0 rl 1 rr 2 rrTop 3 rlTop 4 fl 5 fr 6 frTop 7 flTop
+        float[][] src = {
+                {rear, yl, 0f}, {rear, yr, 0f}, {rear, yr, CAR_H}, {rear, yl, CAR_H},
+                {front, yl, 0f}, {front, yr, 0f}, {front, yr, CAR_H}, {front, yl, CAR_H},
+        };
+        for (int i = 0; i < 8; i++) {
+            if (!project(src[i][0], src[i][1], src[i][2], pa)) {
+                return;
+            }
+            boxX[i] = pa[0];
+            boxY[i] = pa[1];
+        }
+
+        float depth = x + CAM_BACK;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+
+        // 접지 그림자
+        if (project(x, y, 0f, pa)) {
+            float rx0 = CAR_W * 0.62f * FOCAL / depth;
+            float ry0 = Math.max(1.2f, rx0 * CAM_H / depth);
+            p.setColor(Color.argb(Math.min(120, alpha / 2), 6, 10, 14));
+            rect.set(pa[0] - rx0, pa[1] - ry0, pa[0] + rx0, pa[1] + ry0);
+            c.drawOval(rect, p);
+        }
+
+        p.setAlpha(alpha);
+        // 보이는 옆면. 카메라가 Y=0 에 있으므로 차가 왼쪽(y>0)이면 왼쪽 면,
+        // 오른쪽이면 오른쪽 면이 보인다.
+        p.setColor(blend(body, Color.BLACK, 0.45f));
+        if (y > 0f) {
+            face(c, p, 0, 4, 7, 3);   // rl - fl - flTop - rlTop
+        } else {
+            face(c, p, 1, 5, 6, 2);   // rr - fr - frTop - rrTop
+        }
+
+        // 윗면
+        p.setColor(blend(body, Color.WHITE, 0.18f));
+        face(c, p, 3, 2, 6, 7);
+
+        // 뒷면
+        p.setColor(body);
+        face(c, p, 0, 1, 2, 3);
+
+        // 후미등 (자차는 생략)
+        if (!ego) {
+            p.setColor(Color.rgb(232, 62, 58));
+            float lampR = Math.max(1.2f, CAR_W * 0.13f * FOCAL / depth);
+            for (float f : new float[]{0.24f, 0.76f}) {
+                float lxp = lerp(boxX[0], boxX[1], f);
+                float lyp = lerp(boxY[0], boxY[3], 0.62f);
+                rect.set(lxp - lampR, lyp - lampR * 0.55f, lxp + lampR, lyp + lampR * 0.55f);
+                c.drawOval(rect, p);
+            }
+        }
+        p.setAlpha(255);
+    }
+
+    private void face(Canvas c, Paint p, int a, int b, int d0, int e) {
+        poly2.rewind();
+        poly2.moveTo(boxX[a], boxY[a]);
+        poly2.lineTo(boxX[b], boxY[b]);
+        poly2.lineTo(boxX[d0], boxY[d0]);
+        poly2.lineTo(boxX[e], boxY[e]);
+        poly2.close();
+        c.drawPath(poly2, p);
+    }
+
     private void markLead(Canvas c, Paint p, JSONObject lead) {
         if (lead == null) {
             return;
@@ -635,33 +851,21 @@ final class World3D {
         quad(c, p, pa, pb, 2.4f, 2.4f);
     }
 
-    /** 경로 접선 기울기로 자차 스프라이트를 살짝 기울인다 (곡선 주행감) */
     private float egoRoll() {
         if (pathCount < 2) {
             return 0f;
         }
-        float y0 = centerAt(2f);
-        float y1 = centerAt(14f);
-        float roll = (float) Math.toDegrees(Math.atan2(y0 - y1, 12f)) * 0.45f;
+        float roll = (float) Math.toDegrees(Math.atan2(centerAt(2f) - centerAt(14f), 12f)) * 0.45f;
         return Math.max(-16f, Math.min(16f, roll));
     }
 
-    /**
-     * 지면에 세운 빌보드. 스프라이트가 후면뷰이므로 depth 에 따른 크기만
-     * 정확히 맞추면 원근이 성립한다. 폭 widthM(m) 이 화면에서 몇 px 인지는
-     * FOCAL/depth 로 결정된다.
-     */
     private void billboard(Canvas c, Paint p, Bitmap b, float x, float y,
                            float widthM, float rollDeg, int alpha) {
-        if (b == null || b.isRecycled()) {
-            return;
-        }
-        if (!project(x, y, 0f, pa)) {
+        if (b == null || b.isRecycled() || !project(x, y, 0f, pa)) {
             return;
         }
         float depth = x + CAM_BACK;
-        float scale = FOCAL / depth;
-        float w = widthM * scale;
+        float w = widthM * FOCAL / depth;
         if (w < 6f) {
             return;
         }
@@ -672,13 +876,11 @@ final class World3D {
         if (rollDeg != 0f) {
             c.rotate(rollDeg);
         }
-
-        // 접지 그림자: 지면 위의 원은 depth 에 따라 세로로 눌린 타원이 된다.
         float rx0 = w * 0.52f;
         float ry0 = Math.max(1.5f, rx0 * CAM_H / depth);
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(Math.min(96, alpha / 2), 16, 20, 24));
+        p.setColor(Color.argb(Math.min(110, alpha / 2), 8, 12, 16));
         rect.set(-rx0, -ry0, rx0, ry0);
         c.drawOval(rect, p);
 

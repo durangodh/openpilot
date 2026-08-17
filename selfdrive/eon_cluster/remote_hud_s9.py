@@ -37,6 +37,8 @@ def _packet(sm, atc_mode):
   packet["hudRadarInfo"] = _bounded_int("EonClusterHudRadarInfo", 4, 0, 4)
   packet["hudBuildings"] = _bounded_int("EonClusterHudBuildings", 1, 0, 1)
   packet["hudOutputMode"] = _bounded_int("EonClusterHudOutputMode", 1, 1, 3)
+  packet["hudBsdStyle"] = _bounded_int("EonClusterHudBsdStyle", 2, 1, 3)
+  packet["hudCarStyle"] = _bounded_int("EonClusterHudCarStyle", 1, 1, 2)
   return packet
 
 
