@@ -121,14 +121,12 @@ public final class HudService extends Service {
 
     // S9 자체 상태 (출력모드 3)
     private long lastReconnectElapsed = 0L;
-    private long cpuSampledAt = 0L;
     private long cpuLastTotal = 0L;
     private long cpuLastIdle = 0L;
-    private float s9CpuPercent = -1f;
-    private long thermalSampledAt = 0L;
-    private float s9TempC = -1f;
-    private String thermalPath = null;
-    private boolean thermalSearched = false;
+    private volatile float s9CpuPercent = -1f;
+    private volatile float s9TempC = -1f;
+    private volatile boolean suUnavailable = false;
+    private Thread statsThread;
     private int configuredOrientation = 0;
     private boolean configuredMirror = false;
 
@@ -317,9 +315,16 @@ public final class HudService extends Service {
                 renderLoop();
             }
         }, "hud-render");
+        statsThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                statsLoop();
+            }
+        }, "hud-stats");
         receiverThread.start();
         mapThread.start();
         renderThread.start();
+        statsThread.start();
     }
 
     private void acquireWakeLock() {
@@ -829,7 +834,7 @@ public final class HudService extends Service {
             label = "FAST";
             color = Color.rgb(222, 67, 70);
         }
-        text(c, p, label, lv(l, "modeX", 930f), lv(l, "modeY", 116f), lv(l, "modeSize", 29f),
+        text(c, p, label, lv(l, "modeX", 938f), lv(l, "modeY", 116f), lv(l, "modeSize", 29f),
                 color, Paint.Align.RIGHT);
 
         JSONObject navi = s.optJSONObject("navi");
@@ -842,7 +847,7 @@ public final class HudService extends Service {
         }
         long etaMs = System.currentTimeMillis() + remain * 1000L;
         String eta = new SimpleDateFormat("HH:mm", Locale.KOREA).format(new Date(etaMs));
-        float etaRight = lv(l, "etaRight", 800f);
+        float etaRight = lv(l, "etaRight", 832f);
         float etaY = lv(l, "etaY", 116f);
         float etaTimeSize = lv(l, "etaTimeSize", 27f);
         float etaLabelSize = lv(l, "etaLabelSize", 14f);
@@ -1309,8 +1314,8 @@ public final class HudService extends Service {
         long usedMb = (rt.totalMemory() - rt.freeMemory()) / 1048576L;
 
         String[][] rows = {
-                {"SoC", s9Temperature() < 0f ? "--" : String.format(Locale.US, "%.0f°C", s9Temperature())},
-                {"CPU", s9Cpu() < 0f ? "--" : String.format(Locale.US, "%.0f%%", s9Cpu())},
+                {"SoC", s9TempC < 0f ? "--" : String.format(Locale.US, "%.0f°C", s9TempC)},
+                {"CPU", s9CpuPercent < 0f ? "--" : String.format(Locale.US, "%.0f%%", s9CpuPercent)},
                 {"MEM", usedMb + "M"},
                 {"USB ERR", Integer.toString(usbErrorStreak)},
                 {"PANEL", silence < 0L ? "--" : String.format(Locale.US, "%.0fs", silence / 1000f)},
@@ -1343,70 +1348,118 @@ public final class HudService extends Service {
         return (sec / 3600L) + "h";
     }
 
-    /** /sys/class/thermal 에서 CPU 존을 한 번만 찾아 두고 2초마다 읽는다. */
-    private float s9Temperature() {
-        long now = SystemClock.elapsedRealtime();
-        if (now - thermalSampledAt < 2000L) {
-            return s9TempC;
+    // ── S9 자체 상태 샘플러 ───────────────────────────────────────────
+    //
+    // 안드로이드 12+ 는 일반 앱의 /proc/stat, /sys/class/thermal 접근을
+    // 막는다(hidepid + SELinux). 직접 읽기를 먼저 시도하고, 막히면 su 로
+    // 넘어간다. 폰이 루팅돼 있지 않으면 그대로 "--" 로 남는다.
+    //
+    // 프로세스를 띄우는 일이라 렌더 스레드가 아니라 전용 스레드에서
+    // 3초마다 돌린다.
+
+    private static final long STATS_PERIOD_MS = 3000L;
+
+    private void statsLoop() {
+        while (running.get()) {
+            try {
+                sampleS9Stats();
+            } catch (Exception ignored) {
+            }
+            SystemClock.sleep(STATS_PERIOD_MS);
         }
-        thermalSampledAt = now;
-        if (!thermalSearched) {
-            thermalSearched = true;
-            java.io.File base = new java.io.File("/sys/class/thermal");
-            java.io.File[] zones = base.listFiles();
-            if (zones != null) {
-                for (java.io.File zone : zones) {
-                    String name = zone.getName();
-                    if (!name.startsWith("thermal_zone")) {
-                        continue;
+    }
+
+    private void sampleS9Stats() {
+        String thermal = readThermalDump();
+        String stat = readProcStat();
+        if ((thermal == null || stat == null) && !suUnavailable) {
+            String dump = shellRead(
+                    "for z in /sys/class/thermal/thermal_zone*; do "
+                            + "echo \"T:$(cat $z/type 2>/dev/null):$(cat $z/temp 2>/dev/null)\"; done; "
+                            + "echo \"S:$(head -1 /proc/stat)\"");
+            if (dump == null) {
+                suUnavailable = true;
+            } else {
+                StringBuilder zones = new StringBuilder();
+                for (String line : dump.split("\n")) {
+                    if (line.startsWith("T:")) {
+                        zones.append(line.substring(2)).append('\n');
+                    } else if (line.startsWith("S:")) {
+                        stat = line.substring(2);
                     }
-                    String type = readFirstLine(new java.io.File(zone, "type"));
-                    if (type == null) {
-                        continue;
-                    }
-                    String lower = type.toLowerCase(Locale.US);
-                    if (lower.contains("cpu") || lower.contains("big") || lower.contains("soc")) {
-                        thermalPath = new java.io.File(zone, "temp").getAbsolutePath();
-                        break;
-                    }
-                    if (thermalPath == null) {
-                        thermalPath = new java.io.File(zone, "temp").getAbsolutePath();
-                    }
+                }
+                if (thermal == null && zones.length() > 0) {
+                    thermal = zones.toString();
                 }
             }
         }
-        if (thermalPath == null) {
-            s9TempC = -1f;
-            return s9TempC;
-        }
-        String raw = readFirstLine(new java.io.File(thermalPath));
-        if (raw == null) {
-            s9TempC = -1f;
-            return s9TempC;
-        }
-        try {
-            float v = Float.parseFloat(raw.trim());
-            if (v > 1000f) {
-                v /= 1000f;
-            }
-            s9TempC = (v > 0f && v < 150f) ? v : -1f;
-        } catch (NumberFormatException e) {
-            s9TempC = -1f;
-        }
-        return s9TempC;
+        applyThermal(thermal);
+        applyCpu(stat);
     }
 
-    /** /proc/stat 첫 줄의 차분으로 전체 CPU 사용률을 낸다. */
-    private float s9Cpu() {
-        long now = SystemClock.elapsedRealtime();
-        if (now - cpuSampledAt < 1000L) {
-            return s9CpuPercent;
+    /** 권한이 있으면 직접 읽는다. "type:temp" 줄들을 돌려준다. */
+    private String readThermalDump() {
+        java.io.File base = new java.io.File("/sys/class/thermal");
+        java.io.File[] zones = base.listFiles();
+        if (zones == null) {
+            return null;
         }
-        cpuSampledAt = now;
+        StringBuilder sb = new StringBuilder();
+        for (java.io.File zone : zones) {
+            if (!zone.getName().startsWith("thermal_zone")) {
+                continue;
+            }
+            String type = readFirstLine(new java.io.File(zone, "type"));
+            String temp = readFirstLine(new java.io.File(zone, "temp"));
+            if (temp != null) {
+                sb.append(type == null ? "" : type).append(':').append(temp).append('\n');
+            }
+        }
+        return sb.length() > 0 ? sb.toString() : null;
+    }
+
+    private String readProcStat() {
         String line = readFirstLine(new java.io.File("/proc/stat"));
-        if (line == null || !line.startsWith("cpu ")) {
-            s9CpuPercent = -1f;
-            return s9CpuPercent;
+        return (line != null && line.startsWith("cpu ")) ? line : null;
+    }
+
+    /** cpu/big/soc 존을 우선하고, 없으면 가장 높은 온도를 쓴다. */
+    private void applyThermal(String dump) {
+        if (dump == null) {
+            return;
+        }
+        float best = -1f;
+        float hottest = -1f;
+        for (String line : dump.split("\n")) {
+            int sep = line.lastIndexOf(':');
+            if (sep < 0) {
+                continue;
+            }
+            float value;
+            try {
+                value = Float.parseFloat(line.substring(sep + 1).trim());
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            if (value > 1000f) {
+                value /= 1000f;
+            }
+            if (value <= 0f || value >= 150f) {
+                continue;
+            }
+            String type = line.substring(0, sep).toLowerCase(Locale.US);
+            if (type.contains("cpu") || type.contains("big") || type.contains("soc")
+                    || type.contains("apollo") || type.contains("atlas")) {
+                best = Math.max(best, value);
+            }
+            hottest = Math.max(hottest, value);
+        }
+        s9TempC = best > 0f ? best : hottest;
+    }
+
+    private void applyCpu(String line) {
+        if (line == null) {
+            return;
         }
         String[] parts = line.trim().split("\\s+");
         long total = 0L;
@@ -1420,8 +1473,7 @@ public final class HudService extends Service {
                 }
             }
         } catch (NumberFormatException e) {
-            s9CpuPercent = -1f;
-            return s9CpuPercent;
+            return;
         }
         if (cpuLastTotal > 0L && total > cpuLastTotal) {
             long dt = total - cpuLastTotal;
@@ -1430,7 +1482,28 @@ public final class HudService extends Service {
         }
         cpuLastTotal = total;
         cpuLastIdle = idle;
-        return s9CpuPercent;
+    }
+
+    private static String shellRead(String command) {
+        Process proc = null;
+        try {
+            proc = Runtime.getRuntime().exec(new String[]{"su", "-c", command});
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(proc.getInputStream()), 2048);
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append('\n');
+            }
+            reader.close();
+            return sb.length() > 0 ? sb.toString() : null;
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (proc != null) {
+                proc.destroy();
+            }
+        }
     }
 
     private static String readFirstLine(java.io.File file) {
@@ -1570,10 +1643,10 @@ public final class HudService extends Service {
 
         JSONObject l = layout(s);
         int save = beginElement(c, l, "tbt1", 1139f, 71f);
-        float tbtBottom = drawTbtBanner(c, p, s.optJSONObject("navi"), 968f, 8f);
+        float tbtBottom = drawTbtBanner(c, p, s.optJSONObject("navi"), 962f, 8f);
         c.restoreToCount(save);
         int save2 = beginElement(c, l, "tbt2", 1144f, 190f);
-        drawTbtNext(c, p, s.optJSONObject("navi"), 968f, tbtBottom + 2f);
+        drawTbtNext(c, p, s.optJSONObject("navi"), 962f, tbtBottom + 2f);
         c.restoreToCount(save2);
         int save3 = beginElement(c, l, "lane", 1395f, 408f);
         drawNativeOverlay(c, p, lane, 1130f, 366f, 1660f, 450f, Paint.Align.CENTER);
