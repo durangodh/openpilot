@@ -70,6 +70,8 @@ class LongControl:
     self.last_output_accel = 0.0
     self.starting_accel = 0.0
     self.starting_ramp_rate = 2.0
+    self.standstill_hold_accel = -1.0
+    self.standstill_hold_rate = 0.5
     self._update_pid_gains()
     # Read launch control immediately so StartAccelApply=0 disables the
     # starting state from the first control cycle.
@@ -226,6 +228,14 @@ class LongControl:
         output_accel -= self.stopping_decel_rate * DT_CTRL
         if soft_hold:
           output_accel = self.stop_accel
+
+      # Once the car is fully stationary, add a little more brake hold without
+      # changing the approach-to-stop feel. This prevents the SCC from slowly
+      # releasing and re-applying the brakes on a mild downhill or long stop.
+      if CS.vEgo < 0.05 and not CS.brakePressed:
+        hold_target = min(self.stop_accel, self.standstill_hold_accel)
+        if output_accel > hold_target:
+          output_accel = max(hold_target, output_accel - self.standstill_hold_rate * DT_CTRL)
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:
