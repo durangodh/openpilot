@@ -50,7 +50,6 @@ services = {
   "ubloxRaw": (True, 20.),
   "liveLocationKalman": (True, 20., 5),
   "liveParameters": (True, 20., 5),
-  "liveTorqueParameters": (True, 4., 1),
   "cameraOdometry": (True, 20., 5),
   "lateralPlan": (True, 20., 5),
   "thumbnail": (True, 0.2, 1),
@@ -76,6 +75,10 @@ services = {
   "roadEncodeData": (False, 20.),
   "driverEncodeData": (False, DCAM_FREQ),
   "wideRoadEncodeData": (False, 20.),
+
+  # 주의: 포트가 dict 순서(index) 기반이라 중간 삽입은 기존 서비스 포트를 전부 밀어버린다.
+  #       새 서비스는 반드시 맨 끝에 추가할 것.
+  "liveTorqueParameters": (True, 4., 1),
 }
 service_list = {name: Service(new_port(idx), *vals) for  # type: ignore
                 idx, (name, vals) in enumerate(services.items())}

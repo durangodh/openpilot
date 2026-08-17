@@ -39,6 +39,13 @@ _DELAY_AUTO_BASELINE = 20
 _SR_RATE_STEP = 3
 _SR_RATE_MIN, _SR_RATE_MAX = 90, 150
 
+# LateralTorqueCustom(수동 토크튠)이 켜져 있으면 아래 키들은 사용자 값이므로
+# 학습이 건드리지 않는다. 추천 생성·자동적용 양쪽에서 제외된다.
+_MANUAL_TORQUE_KEYS = (
+  "LateralTorqueAccelFactor", "LateralTorqueKf", "LateralTorqueFriction",
+  "LateralTorqueKpV", "LateralTorqueKiV",
+)
+
 _FACTOR_MIN, _FACTOR_MAX = 1000, 6000
 _KF_MIN, _KF_MAX = 0, 200
 _FRICTION_MIN, _FRICTION_MAX = 10, 300
@@ -64,6 +71,7 @@ _DEFAULTS = {
   "LateralTorqueFriction": 10,
   "LateralTorqueKpV": 70,
   "LateralTorqueKiV": 20,
+  "LateralTorqueCustom": 0,
 }
 
 _BOUNDS = {
@@ -97,6 +105,7 @@ class CarrotLatLearner:
     self._was_park = True
     self._active_cached = False
     self._apply_lat_cached = True
+    self._manual_torque_cached = False
     self._recommend = {}
     self._reset_phase2()
 
@@ -120,12 +129,15 @@ class CarrotLatLearner:
     self._active_cached = self._params.get_bool("CarrotLearningActive")
     raw = self._params.get("CarrotTunerApplyLat")
     self._apply_lat_cached = True if raw is None else self._params.get_bool("CarrotTunerApplyLat")
+    self._manual_torque_cached = self._get_int("LateralTorqueCustom") > 0
 
   def _get_int(self, key):
     return self._params.get_int(key, _DEFAULTS.get(key, 0))
 
   def _add_recommendation(self, key, current, recommended, reason, **extra):
     if recommended == current:
+      return False
+    if self._manual_torque_cached and key in _MANUAL_TORQUE_KEYS:
       return False
     lo, hi = _BOUNDS[key]
     rec = {
@@ -374,8 +386,11 @@ class CarrotLatLearner:
       self.apply_recommendations()
 
   def apply_recommendations(self):
+    manual_torque = self._get_int("LateralTorqueCustom") > 0
     for key, rec in list(self._recommend.items()):
       if key not in _BOUNDS:
+        continue
+      if manual_torque and key in _MANUAL_TORQUE_KEYS:
         continue
       lo, hi = _BOUNDS[key]
       value = _clip(rec.get("recommend", self._get_int(key)), lo, hi)

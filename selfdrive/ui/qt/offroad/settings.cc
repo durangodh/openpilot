@@ -1630,6 +1630,21 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "꺼짐: 정차 시 팝업으로 물어보고 수락한 경우에만 적용. 처음에는 꺼두고 몇 번 추천을 확인해본 뒤 켜는 것을 권장합니다.",
       "../assets/offroad/icon_openpilot.png", this));
 
+  list->addItem(new ParamValueControlF("PathOffset",
+      "학습 경로보정 (PathOffset)",
+      "조향 학습이 스스로 채우는 차선중심 보정값(cm)입니다. 통합 경로 좌우보정에 더해서 적용됩니다.\n"
+      "학습이 이상하게 틀어졌을 때 여기서 0으로 되돌리세요.\n"
+      "왼쪽 이동: 양수(+) / 오른쪽 이동: 음수(−)\n"
+      "범위: -30 ~ 30cm  /  기본값: 0",
+      "../assets/offroad/icon_openpilot.png", -30, 30, 1, 0, 0, this));
+
+  list->addItem(new ParamValueControlF("SteerRatioRate",
+      "학습 조향비 배율 (SteerRatioRate)",
+      "조향 학습이 스스로 채우는 조향비 배율(%)입니다. SR(고정/실시간 학습값)에 곱해집니다.\n"
+      "학습이 이상하게 틀어졌을 때 여기서 100으로 되돌리세요.\n"
+      "범위: 90 ~ 150  /  기본값: 100 (=변화 없음)",
+      "../assets/offroad/icon_openpilot.png", 90, 150, 1, 0, 100, this));
+
 
   // ── 조향 실시간 튜닝 (nTune 파일 직접 조절) ───────────────────
   list->addItem(horizontal_line());

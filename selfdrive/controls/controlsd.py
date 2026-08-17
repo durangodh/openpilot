@@ -103,7 +103,11 @@ class Controls:
 
     self.sm = sm
     if self.sm is None:
-      ignore = ['driverCameraState', 'managerState'] if SIMULATION else None
+      # torqued 가 죽어도 commIssue(SOFT_DISABLE/NO_ENTRY)로 차가 해제되면 안 된다.
+      # liveTorqueParameters 는 보조 학습값이므로 alive 검사에서 제외한다.
+      ignore = ['liveTorqueParameters']
+      if SIMULATION:
+        ignore += ['driverCameraState', 'managerState']
       self.sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState', 'modelV2', 'liveCalibration',
                                      'driverMonitoringState', 'longitudinalPlan', 'lateralPlan', 'liveLocationKalman',
                                      'managerState', 'liveParameters', 'radarState', 'liveTorqueParameters'] + self.camera_packets + joystick_packet,

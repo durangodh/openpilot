@@ -279,7 +279,10 @@ class TorqueEstimator:
 
 
 def main():
-  config_realtime_process([0, 1, 2, 3], 5)
+  # 이 포크의 set_core_affinity 는 int 하나만 받는다(os.sched_setaffinity(0, [core,])).
+  # 상위 브랜치처럼 리스트를 넘기면 EON 에서 TypeError 로 즉사한다.
+  # controlsd=3, plannerd/radard=2 를 피해 1 번 코어 사용.
+  config_realtime_process(1, 5)
 
   DEBUG = bool(int(os.getenv("DEBUG", "0")))
 
