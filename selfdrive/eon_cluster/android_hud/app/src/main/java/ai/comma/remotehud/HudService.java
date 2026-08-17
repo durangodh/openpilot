@@ -116,8 +116,19 @@ public final class HudService extends Service {
     private int configuredScreenMode = 1;
     /** 도로변 건물 표시 여부 (장식이므로 끌 수 있다) */
     private boolean configuredBuildings = true;
-    /** 1: 주행·지도·시스템 / 2: 시스템 자리에 실시간 디버그 */
+    /** 1: 주행·지도·시스템 / 2: 실시간 디버그 / 3: S9 리모트 */
     private int configuredOutputMode = 1;
+
+    // S9 자체 상태 (출력모드 3)
+    private long lastReconnectElapsed = 0L;
+    private long cpuSampledAt = 0L;
+    private long cpuLastTotal = 0L;
+    private long cpuLastIdle = 0L;
+    private float s9CpuPercent = -1f;
+    private long thermalSampledAt = 0L;
+    private float s9TempC = -1f;
+    private String thermalPath = null;
+    private boolean thermalSearched = false;
     private int configuredOrientation = 0;
     private boolean configuredMirror = false;
 
@@ -484,6 +495,7 @@ public final class HudService extends Service {
             }
             long due = now + frameIntervalMs;
 
+            boolean wasOpen = display.isOpen();
             try {
                 if (!display.openOrRequestPermission()) {
                     usbStatus = display.describeStatus();
@@ -494,6 +506,9 @@ public final class HudService extends Service {
                     continue;
                 }
 
+                if (!wasOpen) {
+                    lastReconnectElapsed = SystemClock.elapsedRealtime();
+                }
                 usbStatus = "연결됨 · USB 권한 허용";
                 usbConnected = true;
                 usbError = false;
@@ -535,7 +550,7 @@ public final class HudService extends Service {
                 configuredOrientation = currentState.optInt("hudOrientation", 0) == 2 ? 2 : 0;
                 configuredMirror = currentState.optInt("hudMirror", 0) != 0;
                 configuredBuildings = currentState.optInt("hudBuildings", 1) != 0;
-                configuredOutputMode = currentState.optInt("hudOutputMode", 1) == 2 ? 2 : 1;
+                configuredOutputMode = Math.max(1, Math.min(3, currentState.optInt("hudOutputMode", 1)));
 
                 int requestedBrightness = Math.max(0, Math.min(100, currentState.optInt("hudBrightness", 65)));
                 if (requestedBrightness == 0) {
@@ -650,7 +665,9 @@ public final class HudService extends Service {
 
         JSONObject l = layout(s);
         int save = beginElement(c, l, "system", 1824f, 231f);
-        if (configuredOutputMode == 2) {
+        if (configuredOutputMode == 3) {
+            drawS9Remote(c, p);
+        } else if (configuredOutputMode == 2) {
             drawSystemDebug(c, p, s);
         } else {
             drawSystem(c, p, s);
@@ -1112,10 +1129,11 @@ public final class HudService extends Service {
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(TBT_GREEN);
-        scratchRect.set(left, top, left + 352f, top + 58f);
-        c.drawRoundRect(scratchRect, 8f, 8f, p);
-        drawScaledArrow(c, p, left + 34f, top + 29f, next.optInt("turnType", 0), 0.80f);
-        text(c, p, distanceText(nextDist), left + 70f, top + 41f, 30f, Color.WHITE, Paint.Align.LEFT);
+        // 폭 352 -> 176 (절반). 안쪽 화살표/글자도 같이 줄인다.
+        scratchRect.set(left, top, left + 176f, top + 52f);
+        c.drawRoundRect(scratchRect, 7f, 7f, p);
+        drawScaledArrow(c, p, left + 28f, top + 26f, next.optInt("turnType", 0), 0.62f);
+        text(c, p, distanceText(nextDist), left + 52f, top + 36f, 24f, Color.WHITE, Paint.Align.LEFT);
     }
 
     private void drawScaledArrow(Canvas c, Paint p, float cx, float cy, int type, float scale) {
@@ -1272,6 +1290,163 @@ public final class HudService extends Service {
             text(c, p, row[0], 1744f, top + 27f, 14f, Color.rgb(140, 152, 162), Paint.Align.LEFT);
             text(c, p, row[1], 1904f, top + 28f, 19f, Color.rgb(235, 240, 245), Paint.Align.RIGHT);
             top += 45f;
+        }
+    }
+
+    /** 출력모드 3 — S9(폰) 자신의 상태와 USB 경로 진단. */
+    private void drawS9Remote(Canvas c, Paint p) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(7, 12, 18));
+        c.drawRect(SYSTEM_LEFT, 0f, SYSTEM_RIGHT, HEIGHT, p);
+        text(c, p, lang("S9 리모트", "S9 REMOTE"), 1824f, 26f, 17f,
+                Color.rgb(140, 210, 255), Paint.Align.CENTER);
+
+        long now = SystemClock.elapsedRealtime();
+        long silence = display == null ? -1L : display.silenceMs();
+        long linkAge = lastReconnectElapsed == 0L ? -1L : now - lastReconnectElapsed;
+        Runtime rt = Runtime.getRuntime();
+        long usedMb = (rt.totalMemory() - rt.freeMemory()) / 1048576L;
+
+        String[][] rows = {
+                {"SoC", s9Temperature() < 0f ? "--" : String.format(Locale.US, "%.0f°C", s9Temperature())},
+                {"CPU", s9Cpu() < 0f ? "--" : String.format(Locale.US, "%.0f%%", s9Cpu())},
+                {"MEM", usedMb + "M"},
+                {"USB ERR", Integer.toString(usbErrorStreak)},
+                {"PANEL", silence < 0L ? "--" : String.format(Locale.US, "%.0fs", silence / 1000f)},
+                {"LINK", linkAge < 0L ? "--" : durationText(linkAge)},
+        };
+        float top = 46f;
+        for (String[] row : rows) {
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.rgb(16, 23, 32));
+            scratchRect.set(1734f, top, 1914f, top + 54f);
+            c.drawRoundRect(scratchRect, 8f, 8f, p);
+            text(c, p, row[0], 1824f, top + 20f, 13f, Color.rgb(140, 152, 162), Paint.Align.CENTER);
+            text(c, p, row[1], 1824f, top + 45f, 24f, Color.rgb(235, 240, 245), Paint.Align.CENTER);
+            top += 60f;
+        }
+        text(c, p, lang("USB 오류 누적 / 패널 무응답", "USB ERRORS / PANEL SILENCE"),
+                1824f, 424f, 10f, Color.rgb(110, 122, 132), Paint.Align.CENTER);
+        text(c, p, lang("LINK = 마지막 재연결 경과", "LINK = SINCE RECONNECT"),
+                1824f, 442f, 10f, Color.rgb(110, 122, 132), Paint.Align.CENTER);
+    }
+
+    private String durationText(long ms) {
+        long sec = ms / 1000L;
+        if (sec < 100L) {
+            return sec + "s";
+        }
+        if (sec < 6000L) {
+            return (sec / 60L) + "m";
+        }
+        return (sec / 3600L) + "h";
+    }
+
+    /** /sys/class/thermal 에서 CPU 존을 한 번만 찾아 두고 2초마다 읽는다. */
+    private float s9Temperature() {
+        long now = SystemClock.elapsedRealtime();
+        if (now - thermalSampledAt < 2000L) {
+            return s9TempC;
+        }
+        thermalSampledAt = now;
+        if (!thermalSearched) {
+            thermalSearched = true;
+            java.io.File base = new java.io.File("/sys/class/thermal");
+            java.io.File[] zones = base.listFiles();
+            if (zones != null) {
+                for (java.io.File zone : zones) {
+                    String name = zone.getName();
+                    if (!name.startsWith("thermal_zone")) {
+                        continue;
+                    }
+                    String type = readFirstLine(new java.io.File(zone, "type"));
+                    if (type == null) {
+                        continue;
+                    }
+                    String lower = type.toLowerCase(Locale.US);
+                    if (lower.contains("cpu") || lower.contains("big") || lower.contains("soc")) {
+                        thermalPath = new java.io.File(zone, "temp").getAbsolutePath();
+                        break;
+                    }
+                    if (thermalPath == null) {
+                        thermalPath = new java.io.File(zone, "temp").getAbsolutePath();
+                    }
+                }
+            }
+        }
+        if (thermalPath == null) {
+            s9TempC = -1f;
+            return s9TempC;
+        }
+        String raw = readFirstLine(new java.io.File(thermalPath));
+        if (raw == null) {
+            s9TempC = -1f;
+            return s9TempC;
+        }
+        try {
+            float v = Float.parseFloat(raw.trim());
+            if (v > 1000f) {
+                v /= 1000f;
+            }
+            s9TempC = (v > 0f && v < 150f) ? v : -1f;
+        } catch (NumberFormatException e) {
+            s9TempC = -1f;
+        }
+        return s9TempC;
+    }
+
+    /** /proc/stat 첫 줄의 차분으로 전체 CPU 사용률을 낸다. */
+    private float s9Cpu() {
+        long now = SystemClock.elapsedRealtime();
+        if (now - cpuSampledAt < 1000L) {
+            return s9CpuPercent;
+        }
+        cpuSampledAt = now;
+        String line = readFirstLine(new java.io.File("/proc/stat"));
+        if (line == null || !line.startsWith("cpu ")) {
+            s9CpuPercent = -1f;
+            return s9CpuPercent;
+        }
+        String[] parts = line.trim().split("\\s+");
+        long total = 0L;
+        long idle = 0L;
+        try {
+            for (int i = 1; i < parts.length && i <= 8; i++) {
+                long v = Long.parseLong(parts[i]);
+                total += v;
+                if (i == 4 || i == 5) {
+                    idle += v;
+                }
+            }
+        } catch (NumberFormatException e) {
+            s9CpuPercent = -1f;
+            return s9CpuPercent;
+        }
+        if (cpuLastTotal > 0L && total > cpuLastTotal) {
+            long dt = total - cpuLastTotal;
+            long di = idle - cpuLastIdle;
+            s9CpuPercent = Math.max(0f, Math.min(100f, (dt - di) * 100f / dt));
+        }
+        cpuLastTotal = total;
+        cpuLastIdle = idle;
+        return s9CpuPercent;
+    }
+
+    private static String readFirstLine(java.io.File file) {
+        java.io.BufferedReader reader = null;
+        try {
+            reader = new java.io.BufferedReader(new java.io.FileReader(file), 256);
+            return reader.readLine();
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (Exception ignored) {
+                }
+            }
         }
     }
 

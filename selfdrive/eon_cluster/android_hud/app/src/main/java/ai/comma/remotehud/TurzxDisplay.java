@@ -103,6 +103,17 @@ public final class TurzxDisplay {
     }
 
     /**
+     * 패널이 마지막으로 응답한 뒤 경과 시간(ms). 한 번도 응답을 본 적이
+     * 없으면 -1 (그 패널은 원래 조용한 것이므로 감시 대상이 아니다).
+     */
+    public synchronized long silenceMs() {
+        if (!isOpen() || !sawInbound) {
+            return -1L;
+        }
+        return SystemClock.elapsedRealtime() - lastInboundElapsed;
+    }
+
+    /**
      * 패널이 응답을 끊었는지. 스트리밍 중 IN 엔드포인트에서 한 번이라도
      * 응답을 본 적이 있어야만 참이 될 수 있다.
      */

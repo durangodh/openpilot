@@ -193,3 +193,30 @@ PY
 
 **트레이드오프** — 직접 그리면 티맵의 정교한 회전 아이콘(고가차도, 복잡분기)
 대신 앱의 단순 화살표가 나온다. 좌/우/유턴/직진은 문제없다.
+
+## v0.19.5 (S9 리모트 패널)
+
+`EonClusterHudOutputMode` 에 **3 = S9 리모트** 를 추가했다. SYSTEM 자리(192px)에
+폰 자신의 상태와 USB 경로 진단 6줄이 들어간다.
+
+| 줄 | 뜻 | 출처 |
+|---|---|---|
+| SoC | 폰 SoC 온도 | `/sys/class/thermal/thermal_zone*` 중 cpu/big/soc 존 |
+| CPU | 폰 전체 CPU 사용률 | `/proc/stat` 첫 줄 차분 |
+| MEM | 앱이 쓰는 힙 | `Runtime.totalMemory - freeMemory` |
+| USB ERR | USB 오류 누적 | `usbErrorStreak` |
+| PANEL | 패널이 마지막 응답 후 경과 | `TurzxDisplay.silenceMs()`, 응답 본 적 없으면 `--` |
+| LINK | 마지막 USB 재연결 후 경과 | 열림 상태 전이 시각 |
+
+화면이 굳는 순간 이 셋만 보면 원인이 갈린다.
+
+* USB ERR 이 오르면 → 전송 자체가 실패 (허브 전원 / 호스트)
+* PANEL 만 커지면 → 앱은 보내는데 패널이 응답을 끊음
+* LINK 가 자꾸 0 으로 돌아가면 → 재연결을 반복하는 중
+
+읽기 실패는 전부 `--` 로 떨어지므로 루팅 여부나 SELinux 정책에 상관없이 안전하다.
+
+### 엔진·냉각수 온도
+
+차량 CAN 이 안 붙으면 `carState` 가 0.0 을 올려 실제 0°C 와 구분되지 않았다.
+`sm.alive["carState"]` 로 걸러 `--` 가 나오게 했다.
