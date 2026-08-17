@@ -21,8 +21,11 @@ def _bounded_int(key, default, minimum, maximum):
   return max(minimum, min(maximum, value))
 
 
-def _packet(sm, atc_mode):
-  packet = _original_packet(sm, atc_mode)
+def _packet(sm, *args, **kwargs):
+  # base._packet 의 인자가 늘어나도(atc_mode → +path_offset 등) 그대로
+  # 흘려보낸다. 고정 인자로 받으면 base 쪽 시그니처가 바뀔 때마다
+  # TypeError 로 패킷이 아예 안 나가고 폰에는 "EON 연결 끊김" 만 뜬다.
+  packet = _original_packet(sm, *args, **kwargs)
 
   # Preserve 0 for FPS (pause) and brightness (auto), matching the UI.
   packet["hudFps"] = _bounded_int("EonClusterHudFps", 8, 0, 15)
