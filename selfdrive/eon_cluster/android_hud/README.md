@@ -275,3 +275,30 @@ MEM 만 나온 건 그것이 Java API(`Runtime`) 라서다.
   윗면이 보이는 게 맞다. 자차는 후미등을 생략하고 파란 계열.
 
 BSD 는 이 설정과 무관하게 항상 경고 띠다 (옆차 앞뒤 위치를 모르므로).
+
+### v0.20.2 — 경로 정합 + 33점 전송
+
+**1. 모델 점 33개 전부 전송** (`remote_hud.py` `_line_points`)
+
+기존 `step = max(1, count // 12)` 는 33점을 17점으로 솎았다. 급커브에서
+Catmull-Rom 보간이 실제 곡률을 못 따라간다. 이제 전부 보낸다.
+기하 데이터 1.6KB -> 3.2KB, EON 부하(1~3%)는 그대로. **앱 변경 없음.**
+
+**2. `OffsetTotal` 반영** (패킷 `pathOffset`)
+
+`lateral_planner.py:157` 이 `path_xyz[:, 1] += self.offset_total` 로 최종
+경로에만 오프셋을 더한다. 모델의 laneLines / roadEdges 에는 안 들어간다.
+그래서 앱도 **경로 리본에만** 더한다. 차선·경계는 원본 그대로.
+
+**3. `liveCalibration` pitch 반영** (패킷 `calibPitch`)
+
+`rpyCalib[1]` (rad, ±0.15 클램프) 을 받아 수평선을 `FOCAL * tan(pitch)`
+만큼(±46px) 옮긴다. HORIZON 은 상수지만 실제 EON 카메라는 캘리브에 따라
+다르므로, 이 보정으로 세로 구도가 이온 화면에 가까워진다.
+
+`liveCalibration` 을 SubMaster 구독 목록에 추가했다.
+
+**한계** — 이온 화면과 완전히 같아지지는 않는다. EON 은 실제 카메라 영상 위에
+카메라 intrinsics 로 투영하고, 앱은 가상 노면 위에 합성 카메라로 그린다.
+오프셋과 pitch 를 맞추면 "치우쳐 보이는" 문제는 사라지지만 곡선 형상은
+여전히 조금 다르다.

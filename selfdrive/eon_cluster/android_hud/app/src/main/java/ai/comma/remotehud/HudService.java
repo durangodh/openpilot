@@ -721,7 +721,9 @@ public final class HudService extends Service {
                 lc(l, "roadBottom", frameDark ? Color.rgb(53, 61, 71) : Color.rgb(216, 220, 223)),
                 lc(l, "pathColor", frameDark ? Color.rgb(40, 150, 255) : Color.rgb(24, 126, 224)),
                 configuredRadarInfo, configuredBuildings, frameDark, configuredBsdStyle,
-                configuredCarStyle);
+                configuredCarStyle,
+                (float) s.optDouble("pathOffset", 0d),
+                (float) s.optDouble("calibPitch", 0d));
 
         drawBlinkers(c, p, s, stale);
 

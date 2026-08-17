@@ -121,6 +121,19 @@ final class World3D {
     private boolean dark;
     private int carStyle = CAR_SPRITE;
 
+    /**
+     * lateral_planner 가 최종 경로에 더하는 OffsetTotal (m). 경로 리본에만
+     * 적용한다 — 차선·도로경계는 모델 원본이고 오프셋이 안 들어가 있다.
+     */
+    private float pathOffset = 0f;
+
+    /**
+     * liveCalibration pitch (rad). 카메라가 실제로 얼마나 아래를 보는지에
+     * 맞춰 수평선을 옮긴다. HORIZON 은 상수지만 실제 EON 카메라는 캘리브에
+     * 따라 다르므로, 이 값만큼 보정하면 이온 화면과 세로 구도가 가까워진다.
+     */
+    private float horizonShift = 0f;
+
     private final float[] boxX = new float[8];
     private final float[] boxY = new float[8];
 
@@ -133,7 +146,7 @@ final class World3D {
         }
         float inv = FOCAL / depth;
         out[0] = CX - y * inv;
-        out[1] = HORIZON + (CAM_H - z) * inv;
+        out[1] = HORIZON + horizonShift + (CAM_H - z) * inv;
         return true;
     }
 
@@ -271,9 +284,13 @@ final class World3D {
               Bitmap egoCar, Bitmap otherCar, float odoM,
               int bgColor, int roadTop, int roadBottom, int pathColor,
               int radarInfo, boolean buildings, boolean darkTheme, int bsdStyle,
-              int carStyleMode) {
+              int carStyleMode, float offsetTotal, float calibPitch) {
         this.dark = darkTheme;
         this.carStyle = carStyleMode == CAR_BOX ? CAR_BOX : CAR_SPRITE;
+        this.pathOffset = Math.max(-1f, Math.min(1f, offsetTotal));
+        // pitch 가 아래를 볼수록(양수) 수평선이 화면 아래로 내려간다.
+        this.horizonShift = Math.max(-46f, Math.min(46f,
+                FOCAL * (float) Math.tan(Math.max(-0.15f, Math.min(0.15f, calibPitch)))));
         setScene(s);
 
         int save = c.save();
@@ -317,7 +334,7 @@ final class World3D {
             float depth = 1f / (invNear + (invFar - invNear) * t);
             float x = depth - CAM_BACK;
             float inv = FOCAL / depth;
-            float vy = HORIZON + CAM_H * inv;
+            float vy = HORIZON + horizonShift + CAM_H * inv;
             lx[i] = CX - roadEdgeAt(x, true) * inv;
             ly[i] = vy;
             rx[i] = CX - roadEdgeAt(x, false) * inv;
@@ -495,7 +512,7 @@ final class World3D {
         int used = 0;
         for (int i = 0; i < steps; i++) {
             float x = reach * i / (steps - 1f);
-            if (!project(x, centerAt(x) + half, 0f, pa)) {
+            if (!project(x, centerAt(x) + pathOffset + half, 0f, pa)) {
                 continue;
             }
             if (started) {
@@ -511,7 +528,7 @@ final class World3D {
         }
         for (int i = steps - 1; i >= 0; i--) {
             float x = reach * i / (steps - 1f);
-            if (project(x, centerAt(x) - half, 0f, pa)) {
+            if (project(x, centerAt(x) + pathOffset - half, 0f, pa)) {
                 poly.lineTo(pa[0], pa[1]);
             }
         }
