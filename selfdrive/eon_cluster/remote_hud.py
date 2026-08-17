@@ -217,6 +217,25 @@ def _alert(controls_state):
   }
 
 
+def _path_offset(params):
+  """lateral_planner 가 최종 path_xyz[:,1] 에 더하는 OffsetTotal (m).
+  앱도 같은 값을 경로에 더해야 실제 주행선과 화면이 맞는다."""
+  try:
+    value = float(params.get("OffsetTotal", encoding="utf8") or 0.0)
+  except (TypeError, ValueError):
+    return 0.0
+  return round(max(-1.0, min(1.0, value)), 3)
+
+
+def _calib_pitch(live_calibration):
+  """liveCalibration.rpyCalib 의 pitch(rad). 앱 카메라 수평선 보정에 쓴다."""
+  rpy = list(_field(live_calibration, "rpyCalib", []) or [])
+  if len(rpy) < 2:
+    return 0.0
+  pitch = _finite(rpy[1], 0.0)
+  return round(max(-0.15, min(0.15, pitch)), 4)
+
+
 def _remote_output_enabled(params):
   return params.get_bool(PARAM_ENABLED)
 
@@ -250,8 +269,10 @@ def _line_points(position, limit=33):
   count = min(len(xs), len(ys), limit)
   if count < 2:
     return []
-  step = max(1, count // 12)
-  return [[round(_finite(xs[i]), 2), round(_finite(ys[i]), 2)] for i in range(0, count, step)]
+  # 예전에는 count // 12 로 솎아 17점만 보냈다. 급커브에서 보간이 실제
+  # 곡률을 못 따라가므로 33점을 전부 보낸다. 경로+차선4+경계2 가 두 배가 돼도
+  # 패킷은 1.9KB → 3~4KB 수준이고 EON 부하(1~3%)는 그대로다.
+  return [[round(_finite(xs[i]), 2), round(_finite(ys[i]), 2)] for i in range(count)]
 
 
 def _model_lines(model, name, confidence_name, confidence_default, invert_confidence=False):
@@ -384,7 +405,7 @@ def _read_navi_summary():
   return summary
 
 
-def _packet(sm, atc_mode):
+def _packet(sm, atc_mode, path_offset=0.0):
   car = sm["carState"]
   controls = sm["controlsState"]
   road = sm["roadLimitSpeed"]
@@ -459,6 +480,8 @@ def _packet(sm, atc_mode):
       "rr": _finite(_field(tpms, "rr", -1.0), -1.0),
     },
     "atcMode": int(atc_mode),
+    "pathOffset": float(path_offset),
+    "calibPitch": _calib_pitch(sm["liveCalibration"]),
     "alert": _alert(controls),
     "navi": navi,
     "path": _line_points(_field(sm["modelV2"], "position", None)),
@@ -475,7 +498,8 @@ def main():
   signal.signal(signal.SIGINT, lambda *_: running.__setitem__(0, False))
   signal.signal(signal.SIGTERM, lambda *_: running.__setitem__(0, False))
   sm = messaging.SubMaster(["carState", "carControl", "controlsState", "deviceState",
-                            "modelV2", "radarState", "longitudinalPlan", "roadLimitSpeed"])
+                            "modelV2", "radarState", "longitudinalPlan", "roadLimitSpeed",
+                            "liveCalibration"])
   sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
   sock.setblocking(False)
@@ -484,6 +508,7 @@ def main():
   published = [None, 0.0]
   map_server = MapFrameServer()
   atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
+  path_offset = _path_offset(params)
   next_param_read = 0.0
   while running[0]:
     started = time.monotonic()
@@ -496,10 +521,11 @@ def main():
       continue
     if started >= next_param_read:
       atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
+      path_offset = _path_offset(params)
       next_param_read = started + 1.0
     sm.update(0)
     try:
-      sock.sendto(json.dumps(_packet(sm, atc_mode), separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
+      sock.sendto(json.dumps(_packet(sm, atc_mode, path_offset), separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
                   ("255.255.255.255", PORT))
       try:
         while True:
