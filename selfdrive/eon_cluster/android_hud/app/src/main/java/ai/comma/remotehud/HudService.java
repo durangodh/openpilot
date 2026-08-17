@@ -116,6 +116,8 @@ public final class HudService extends Service {
     private int configuredScreenMode = 1;
     /** 도로변 건물 표시 여부 (장식이므로 끌 수 있다) */
     private boolean configuredBuildings = true;
+    /** 1: 주행·지도·시스템 / 2: 시스템 자리에 실시간 디버그 */
+    private int configuredOutputMode = 1;
     private int configuredOrientation = 0;
     private boolean configuredMirror = false;
 
@@ -533,6 +535,7 @@ public final class HudService extends Service {
                 configuredOrientation = currentState.optInt("hudOrientation", 0) == 2 ? 2 : 0;
                 configuredMirror = currentState.optInt("hudMirror", 0) != 0;
                 configuredBuildings = currentState.optInt("hudBuildings", 1) != 0;
+                configuredOutputMode = currentState.optInt("hudOutputMode", 1) == 2 ? 2 : 1;
 
                 int requestedBrightness = Math.max(0, Math.min(100, currentState.optInt("hudBrightness", 65)));
                 if (requestedBrightness == 0) {
@@ -647,7 +650,11 @@ public final class HudService extends Service {
 
         JSONObject l = layout(s);
         int save = beginElement(c, l, "system", 1824f, 231f);
-        drawSystem(c, p, s);
+        if (configuredOutputMode == 2) {
+            drawSystemDebug(c, p, s);
+        } else {
+            drawSystem(c, p, s);
+        }
         c.restoreToCount(save);
 
         if (configuredScreenMode == 2) {
@@ -1034,7 +1041,62 @@ public final class HudService extends Service {
      * 살아 있어야 하기 때문. 2행(다음 회전)만 1행과 같은 녹색으로 직접 그려
      * 폭을 줄인다. 패킷의 navi.next 가 없으면 그리지 않는다.
      */
-    private void drawTbtNext(Canvas c, Paint p, JSONObject navi) {
+    /**
+     * TBT 1행 — 폰 티맵 화면의 초록 배너와 같은 형태로 직접 그린다.
+     * 티맵이 보내주는 tbt_current_full.png 는 "157m 교차로" 가 한 줄로 붙은
+     * 가로형이라, 거리 아래에 도로명을 넣는 폰 화면 모양이 나오지 않는다.
+     * 패킷에 turnType / turnDist / title 이 있으므로 직접 그린다.
+     * 그린 아래쪽 y 를 돌려주어 2행을 바로 밑에 붙인다.
+     */
+    private float drawTbtBanner(Canvas c, Paint p, JSONObject navi, float left, float top) {
+        if (navi == null || !navi.optBoolean("active", false)
+                || navi.optInt("remainDist", 0) <= 0) {
+            return top;
+        }
+        int dist = navi.optInt("turnDist", -1);
+        if (dist < 0) {
+            return top;
+        }
+        final float w = 342f;
+        final float h = 126f;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(TBT_GREEN);
+        scratchRect.set(left, top, left + w, top + h);
+        c.drawRoundRect(scratchRect, 8f, 8f, p);
+        drawScaledArrow(c, p, left + 46f, top + 50f, navi.optInt("turnType", 0), 1.25f);
+        text(c, p, distanceText(dist), left + 94f, top + 70f, 46f, Color.WHITE, Paint.Align.LEFT);
+        String title = navi.optString("title", "");
+        if (title.length() > 7) {
+            title = title.substring(0, 7);
+        }
+        if (title.length() > 0) {
+            text(c, p, title, left + 96f, top + 110f, 26f, Color.rgb(224, 240, 231), Paint.Align.LEFT);
+        }
+        return top + h;
+    }
+
+    /**
+     * (미사용 · 필요하면 되돌리기용) TBT 1행을 티맵 PNG 로 그린다. drawNativeOverlay 처럼
+     * 박스 안에서 세로 가운데 정렬을 하면 2행을 바로 밑에 붙일 수 없어서
+     * 실제로 그린 높이(아래쪽 y)를 돌려준다.
+     */
+    private float drawTbtImage(Canvas c, Paint p, Bitmap b, float left, float top,
+                               float maxWidth, float maxHeight) {
+        if (b == null || b.isRecycled() || b.getWidth() <= 0 || b.getHeight() <= 0) {
+            return top;
+        }
+        float scale = Math.min(maxWidth / b.getWidth(), maxHeight / b.getHeight());
+        float w = b.getWidth() * scale;
+        float h = b.getHeight() * scale;
+        p.setAlpha(255);
+        p.setFilterBitmap(true);
+        scratchRect.set(left, top, left + w, top + h);
+        c.drawBitmap(b, null, scratchRect, p);
+        return top + h;
+    }
+
+    private void drawTbtNext(Canvas c, Paint p, JSONObject navi, float left, float top) {
         if (navi == null || !navi.optBoolean("active", false)
                 || navi.optInt("remainDist", 0) <= 0) {
             return;
@@ -1047,12 +1109,13 @@ public final class HudService extends Service {
         if (nextDist < 0) {
             return;
         }
+        p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(TBT_GREEN);
-        scratchRect.set(968f, 134f, 1200f, 190f);
+        scratchRect.set(left, top, left + 352f, top + 58f);
         c.drawRoundRect(scratchRect, 8f, 8f, p);
-        drawScaledArrow(c, p, 1000f, 162f, next.optInt("turnType", 0), 0.78f);
-        text(c, p, distanceText(nextDist), 1034f, 174f, 29f, Color.WHITE, Paint.Align.LEFT);
+        drawScaledArrow(c, p, left + 34f, top + 29f, next.optInt("turnType", 0), 0.80f);
+        text(c, p, distanceText(nextDist), left + 70f, top + 41f, 30f, Color.WHITE, Paint.Align.LEFT);
     }
 
     private void drawScaledArrow(Canvas c, Paint p, float cx, float cy, int type, float scale) {
@@ -1170,6 +1233,45 @@ public final class HudService extends Service {
             text(c, p, "ACCEL", 1824f, 424f, 13f, Color.rgb(120, 132, 142), Paint.Align.CENTER);
             text(c, p, String.format(Locale.US, "%+.2f", accel), 1824f, 448f, 20f,
                     Color.rgb(173, 184, 192), Paint.Align.CENTER);
+        }
+    }
+
+    /** 출력모드 2 — 폭 192px 자리에 들어가는 실시간 디버그. */
+    private void drawSystemDebug(Canvas c, Paint p, JSONObject s) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(7, 12, 18));
+        c.drawRect(SYSTEM_LEFT, 0f, SYSTEM_RIGHT, HEIGHT, p);
+        text(c, p, "DEBUG", 1824f, 26f, 17f, Color.rgb(255, 190, 120), Paint.Align.CENTER);
+
+        JSONObject sys = s.optJSONObject("system");
+        if (sys == null) {
+            sys = s;
+        }
+        JSONObject lead = s.optJSONObject("lead");
+        String leadText = lead == null ? "--" : String.format(Locale.US, "%.0fm", lead.optDouble("d", 0d));
+        String relText = lead == null ? "--" : String.format(Locale.US, "%+.0f", lead.optDouble("v", 0d));
+
+        String[][] rows = {
+                {"CPU", String.format(Locale.US, "%.0f%%", sys.optDouble("cpu", 0d))},
+                {"TEMP", String.format(Locale.US, "%.0f°C", sys.optDouble("temp", 0d))},
+                {"SPEED", Integer.toString(s.optInt("speed", 0))},
+                {"SET", Integer.toString(s.optInt("set", 0))},
+                {"GAP", Integer.toString(s.optInt("gap", 0))},
+                {"LEAD", leadText},
+                {"REL", relText},
+                {"FPS", String.format(Locale.US, "%.1f", measuredFps)},
+                {"JPEG", String.format(Locale.US, "%.0fK", lastJpegBytes / 1024.0f)},
+        };
+        float top = 42f;
+        for (String[] row : rows) {
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.rgb(16, 23, 32));
+            scratchRect.set(1734f, top, 1914f, top + 40f);
+            c.drawRoundRect(scratchRect, 6f, 6f, p);
+            text(c, p, row[0], 1744f, top + 27f, 14f, Color.rgb(140, 152, 162), Paint.Align.LEFT);
+            text(c, p, row[1], 1904f, top + 28f, 19f, Color.rgb(235, 240, 245), Paint.Align.RIGHT);
+            top += 45f;
         }
     }
 
@@ -1292,11 +1394,11 @@ public final class HudService extends Service {
         c.drawBitmap(map, null, scratchIRect, p);
 
         JSONObject l = layout(s);
-        int save = beginElement(c, l, "tbt1", 1168f, 64f);
-        drawNativeOverlay(c, p, tbtCurrent, 968f, 8f, 1368f, 120f, Paint.Align.LEFT);
+        int save = beginElement(c, l, "tbt1", 1139f, 71f);
+        float tbtBottom = drawTbtBanner(c, p, s.optJSONObject("navi"), 968f, 8f);
         c.restoreToCount(save);
-        int save2 = beginElement(c, l, "tbt2", 1084f, 156f);
-        drawTbtNext(c, p, s.optJSONObject("navi"));
+        int save2 = beginElement(c, l, "tbt2", 1144f, 190f);
+        drawTbtNext(c, p, s.optJSONObject("navi"), 968f, tbtBottom + 2f);
         c.restoreToCount(save2);
         int save3 = beginElement(c, l, "lane", 1395f, 408f);
         drawNativeOverlay(c, p, lane, 1130f, 366f, 1660f, 450f, Paint.Align.CENTER);

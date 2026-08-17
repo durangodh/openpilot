@@ -1204,6 +1204,14 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "EonClusterHudJpegQuality", "S9 HUD 화질", "S9에서 생성하는 HUD JPEG 품질: 20~95",
       "../assets/offroad/icon_road.png", 20, 95, 1, 0, 58, this));
   toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudOutputMode", "S9 HUD 출력 모드",
+      "1: 주행 / 지도 / 시스템   2: 시스템 자리에 실시간 디버그",
+      "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudBuildings", "S9 HUD 도로변 건물",
+      "0: 끔 / 1: 켬. 건물은 실제 지형이 아니라 속도감용 장식입니다.",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudScreenMode", "S9 HUD 우측 화면", "1: 자동(길안내/주행리포트) / 2: 실시간 디버그 / 3: 주행리포트 고정",
       "../assets/offroad/icon_road.png", 1, 3, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
