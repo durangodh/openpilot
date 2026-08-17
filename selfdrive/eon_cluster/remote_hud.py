@@ -372,6 +372,10 @@ def _packet(sm, atc_mode):
   coolant_temp = _finite(_field(car, "engineCoolantTempC", -1000.0), -1000.0)
   engine_temp = engine_temp if -50.0 <= engine_temp <= 200.0 else None
   coolant_temp = coolant_temp if -50.0 <= coolant_temp <= 200.0 else None
+  # 차량 CAN 이 안 붙어 있으면 0.0 이 그대로 올라와 실제 0도와 구분되지 않는다.
+  if not sm.alive.get("carState", False):
+    engine_temp = None
+    coolant_temp = None
   gap = int(_finite(_field(controls, "longCruiseGap", 0)))
   if not 1 <= gap <= 4:
     gap = int(_finite(_field(car, "cruiseGap", 0)))
