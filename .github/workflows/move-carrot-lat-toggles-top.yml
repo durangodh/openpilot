@@ -1,0 +1,71 @@
+name: Move Carrot LAT toggles to top
+
+on:
+  push:
+    branches: [g_abcd]
+    paths: ['.github/workflows/move-carrot-lat-toggles-top.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: g_abcd
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Move toggles
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('selfdrive/ui/qt/offroad/settings.cc')
+          s = p.read_text()
+
+          comment = '  // ── CarrotLatLearner (운전 패턴 기반 조향 추천, selfdrive/carrot/carrot_lat_learning.py) ──'
+          start = s.index(comment)
+          auto = s.index('  list->addItem(new ParamControl("CarrotLearningAutoApply",', start)
+          close_marker = '      "../assets/offroad/icon_openpilot.png", this));'
+          end = s.index(close_marker, auto) + len(close_marker)
+          block = s[start:end]
+
+          # Remove the old copy, but keep its surrounding separator line.
+          s = s[:start] + s[end:]
+
+          # Insert as the very first controls in this steering list, before SR.
+          sr_marker = '  // ── 조향 실시간 튜닝 (nTune 파일 직접 조절) ───────────────────'
+          sr = s.index(sr_marker)
+          spacing = s.rfind('  list->setSpacing(0);', 0, sr)
+          if spacing < 0:
+            raise RuntimeError('steering list spacing anchor not found')
+          insert_at = spacing + len('  list->setSpacing(0);')
+          s = s[:insert_at] + '\n\n' + block + '\n' + s[insert_at:]
+
+          if s.count('ParamControl("CarrotLearningActive"') != 1:
+            raise RuntimeError('CarrotLearningActive duplicate/missing')
+          if s.count('ParamControl("CarrotTunerApplyLat"') != 1:
+            raise RuntimeError('CarrotTunerApplyLat duplicate/missing')
+          if s.count('ParamControl("CarrotLearningAutoApply"') != 1:
+            raise RuntimeError('CarrotLearningAutoApply duplicate/missing')
+          if s.index('ParamControl("CarrotLearningActive"') > s.index('ParamValueControlF("CustomSteerRatio"'):
+            raise RuntimeError('toggles were not moved above SR')
+
+          p.write_text(s)
+          PY
+
+      - name: Commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/move-carrot-lat-toggles-top.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add selfdrive/ui/qt/offroad/settings.cc .github/workflows/move-carrot-lat-toggles-top.yml
+          git commit -m 'move Carrot autotuner toggles to top of steering settings'
+          git push origin HEAD:g_abcd
