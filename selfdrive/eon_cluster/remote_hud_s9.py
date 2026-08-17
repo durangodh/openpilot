@@ -35,10 +35,16 @@ def _packet(sm, atc_mode):
   packet["hudMirror"] = _bounded_int("EonClusterHudMirror", 0, 0, 1)
   packet["hudLanguage"] = _bounded_int("EonClusterHudLanguage", 0, 0, 1)
   packet["hudRadarInfo"] = _bounded_int("EonClusterHudRadarInfo", 4, 0, 4)
+  packet["hudBuildings"] = _bounded_int("EonClusterHudBuildings", 1, 0, 1)
   return packet
 
 
 base._packet = _packet
+
+# manager(selfdrive/manager/process.py) 는 importlib 로 모듈을 불러
+# mod.main() 을 호출한다. __name__ 이 "__main__" 이 아니므로 아래
+# 블록만으로는 절대 실행되지 않는다.
+main = base.main
 
 
 if __name__ == "__main__":

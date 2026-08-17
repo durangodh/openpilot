@@ -246,6 +246,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"ShowCarrotHud", PERSISTENT},              // 1=좌측 carrot HUD 박스 표시, 0=숨김
     {"EonClusterHud", PERSISTENT},
     {"EonClusterHudBrightness", PERSISTENT},
+    {"EonClusterHudBuildings", PERSISTENT},
     {"EonClusterHudConnected", CLEAR_ON_MANAGER_START},
     {"EonClusterHudFps", PERSISTENT},
     {"EonClusterHudMapFps", PERSISTENT},

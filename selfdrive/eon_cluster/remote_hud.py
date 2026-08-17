@@ -319,7 +319,23 @@ def _read_navi_summary():
   except (TypeError, ValueError):
     turn_type, turn_distance, remain_time = 0, 0, 0
   title = str(guide.get("main_text") or guide.get("road_name") or vehicle.get("road_name") or "")
-  return {
+
+  # 다음 회전 (폰 HUD TBT 2행). 없으면 키 자체를 넣지 않는다.
+  next_guide = state.get("guidance_next") or {}
+  next_summary = None
+  if next_guide:
+    try:
+      next_distance = int(round(float(next_guide.get("distance_m", 0) or 0)))
+    except (TypeError, ValueError):
+      next_distance = -1
+    if next_distance >= 0:
+      try:
+        next_type = int(next_guide.get("turn_type", 0) or 0)
+      except (TypeError, ValueError):
+        next_type = 0
+      next_summary = {"turnType": next_type, "turnDist": next_distance}
+
+  summary = {
     "active": True,
     "guidanceLive": bool(guidance_live),
     "turnType": turn_type,
@@ -328,6 +344,9 @@ def _read_navi_summary():
     "remainDist": max(0, int(round(remain_distance))),
     "title": title[:48],
   }
+  if next_summary is not None:
+    summary["next"] = next_summary
+  return summary
 
 
 def _packet(sm, atc_mode):

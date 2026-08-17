@@ -14,7 +14,6 @@ from selfdrive.eon_cluster.renderer import HudRenderer, read_navi_state
 from selfdrive.eon_cluster.scene import extract_hud_scene
 from selfdrive.eon_cluster.trip import TripTracker
 PARAM_ENABLED = "EonClusterHud"
-PARAM_OUTPUT_MODE = "EonClusterHudOutputMode"
 PARAM_CONNECTED = "EonClusterHudConnected"
 PARAM_BRIGHTNESS = "EonClusterHudBrightness"
 PARAM_FPS = "EonClusterHudFps"
