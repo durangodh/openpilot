@@ -1,10 +1,16 @@
 name: Apply full Carrot Phase2 wiring
+
 on:
   push:
-    branches: [g_abcd]
-    paths: ['.github/workflows/apply-full-phase2-wiring.yml']
+    branches:
+      - g_abcd
+    paths:
+      - '.github/workflows/apply-full-phase2-wiring.yml'
+      - '.tmp_apply_full_phase2.py'
+
 permissions:
   contents: write
+
 jobs:
   apply:
     runs-on: ubuntu-latest
@@ -14,177 +20,13 @@ jobs:
           ref: g_abcd
           fetch-depth: 0
           persist-credentials: true
-      - name: Wire full Phase2
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          # controlsd: give the learner CP for desired-angle reconstruction and modelV2 for lane-center learning.
-          p = Path('selfdrive/controls/controlsd.py')
-          s = p.read_text()
-          old = '    self.carrot_lat_learner = CarrotLatLearner()'
-          new = '    self.carrot_lat_learner = CarrotLatLearner(self.CP)'
-          assert old in s
-          s = s.replace(old, new, 1)
-          old = "    self.carrot_lat_learner.tick(CS, CC.latActive, getattr(self, 'desired_curvature', 0.0))"
-          new = "    self.carrot_lat_learner.tick(CS, CC.latActive, getattr(self, 'desired_curvature', 0.0), self.sm['modelV2'])"
-          assert old in s
-          s = s.replace(old, new, 1)
-          p.write_text(s)
-
-          # latcontrol_torque: manual override > Carrot Phase2 > LiveTorque/default.
-          p = Path('selfdrive/controls/lib/latcontrol_torque.py')
-          s = p.read_text()
-          old = '''  def read_torque_params(self, force=False):
-            custom = int(self._pget("LateralTorqueCustom", 0))
-
-            if custom > 0:
-              # Apply the manually configured torque parameters.
-              self.torque_params.latAccelFactor = self._pget("LateralTorqueAccelFactor", 2700) * 0.001
-              self.torque_params.friction = self._pget("LateralTorqueFriction", 80) * 0.001
-              self.pid._k_p = [[0], [self._pget("LateralTorqueKpV", 10) * 0.01]]
-              self.pid._k_i = [[0], [self._pget("LateralTorqueKiV", 10) * 0.01]]
-              self.pid.k_f = self._pget("LateralTorqueKf", 100) * 0.01
-              self.pid._k_d = [[0], [self._pget("LateralTorqueKd", 0) * 0.01]]
-            elif self.lateral_torque_custom > 0 or force:
-              # 커스텀을 끄면 차량 기본값으로 복귀
-              self.torque_params.latAccelFactor = self.latAccelFactor_default
-              self.torque_params.friction = self.friction_default
-              self.pid._k_p = [[0], [self.kp_default]]
-              self.pid._k_i = [[0], [self.ki_default]]
-              self.pid.k_f = self.kf_default
-              self.pid._k_d = [[0], [self.kd_default]]
-            self.lateral_torque_custom = custom
-'''
-          new = '''  def read_torque_params(self, force=False):
-            custom = int(self._pget("LateralTorqueCustom", 0))
-            carrot_active = self.params.get_bool("CarrotLearningActive")
-            prev_carrot_active = getattr(self, "carrot_learning_active", False)
-
-            if custom > 0:
-              # Highest priority: explicit manual torque tuning.
-              self.torque_params.latAccelFactor = self._pget("LateralTorqueAccelFactor", 2700) * 0.001
-              self.torque_params.friction = self._pget("LateralTorqueFriction", 80) * 0.001
-              self.pid._k_p = [[0], [self._pget("LateralTorqueKpV", 10) * 0.01]]
-              self.pid._k_i = [[0], [self._pget("LateralTorqueKiV", 10) * 0.01]]
-              self.pid.k_f = self._pget("LateralTorqueKf", 100) * 0.01
-              self.pid._k_d = [[0], [self._pget("LateralTorqueKd", 0) * 0.01]]
-            elif carrot_active:
-              # Full Carrot Phase 2 auto-tune owns the torque parameters while enabled.
-              self.torque_params.latAccelFactor = self._pget("LateralTorqueAccelFactor", self.latAccelFactor_default * 1000.0) * 0.001
-              self.torque_params.friction = self._pget("LateralTorqueFriction", self.friction_default * 1000.0) * 0.001
-              self.pid._k_p = [[0], [self._pget("LateralTorqueKpV", self.kp_default * 100.0) * 0.01]]
-              self.pid._k_i = [[0], [self._pget("LateralTorqueKiV", self.ki_default * 100.0) * 0.01]]
-              self.pid.k_f = self._pget("LateralTorqueKf", self.kf_default * 100.0) * 0.01
-              self.pid._k_d = [[0], [self._pget("LateralTorqueKd", self.kd_default * 100.0) * 0.01]]
-            elif self.lateral_torque_custom > 0 or prev_carrot_active or force:
-              # Leaving manual/auto tune returns to the CP defaults; LiveTorque may then update factor/friction.
-              self.torque_params.latAccelFactor = self.latAccelFactor_default
-              self.torque_params.friction = self.friction_default
-              self.pid._k_p = [[0], [self.kp_default]]
-              self.pid._k_i = [[0], [self.ki_default]]
-              self.pid.k_f = self.kf_default
-              self.pid._k_d = [[0], [self.kd_default]]
-            self.lateral_torque_custom = custom
-            self.carrot_learning_active = carrot_active
-'''
-          assert old in s, 'latcontrol read_torque_params block changed'
-          s = s.replace(old, new, 1)
-          old = '''    if self.lateral_torque_custom > 0:
-              return
-            self.torque_params.latAccelFactor = latAccelFactor'''
-          new = '''    if self.lateral_torque_custom > 0 or getattr(self, "carrot_learning_active", False):
-              return
-            self.torque_params.latAccelFactor = latAccelFactor'''
-          assert old in s
-          s = s.replace(old, new, 1)
-          p.write_text(s)
-
-          # Onroad popup: show/apply all Phase2 recommendations, including float OffsetTotal.
-          p = Path('selfdrive/ui/qt/onroad.cc')
-          s = p.read_text()
-          old = '''  static const QMap<QString, QString> kLabels = {
-            {"SteerActuatorDelay", "조향 지연 보정 (SteerActuatorDelay)"},
-            {"CustomSteerRatio", "조향비 (CustomSteerRatio)"},
-          };'''
-          new = '''  static const QMap<QString, QString> kLabels = {
-            {"SteerActuatorDelay", "조향 지연 보정 (SteerActuatorDelay)"},
-            {"CustomSteerRatio", "조향비 (SteerRatioRate→CustomSteerRatio)"},
-            {"OffsetTotal", "차선 중심 오프셋 (PathOffset→OffsetTotal)"},
-            {"LateralTorqueAccelFactor", "토크 AccelFactor"},
-            {"LateralTorqueKf", "토크 Kf"},
-            {"LateralTorqueFriction", "토크 Friction"},
-            {"LateralTorqueKpV", "토크 Kp"},
-            {"LateralTorqueKiV", "토크 Ki"},
-          };'''
-          assert old in s
-          s = s.replace(old, new, 1)
-
-          old = '''    msg += QString("%1: %2 → %3\\n")
-              .arg(label)
-              .arg(entry.value("current").toInt())
-              .arg(entry.value("recommend").toInt());'''
-          new = '''    if (it.key() == "OffsetTotal") {
-              msg += QString("%1: %2 → %3 m\\n")
-                .arg(label)
-                .arg(entry.value("current").toDouble(), 0, 'f', 2)
-                .arg(entry.value("recommend").toDouble(), 0, 'f', 2);
-            } else {
-              msg += QString("%1: %2 → %3\\n")
-                .arg(label)
-                .arg(entry.value("current").toInt())
-                .arg(entry.value("recommend").toInt());
-            }'''
-          assert old in s
-          s = s.replace(old, new, 1)
-
-          old = '''    static const QMap<QString, QPair<int, int>> kBounds = {
-              {"SteerActuatorDelay", {15, 40}},
-              {"CustomSteerRatio", {1000, 2000}},
-            };
-            for (auto it = rec.constBegin(); it != rec.constEnd(); ++it) {
-              if (!kBounds.contains(it.key())) continue;
-              int v = it.value().toObject().value("recommend").toInt();
-              QPair<int, int> bounds = kBounds[it.key()];
-              v = std::max(bounds.first, std::min(bounds.second, v));
-              params.put(it.key().toStdString(), std::to_string(v));
-            }'''
-          new = '''    static const QMap<QString, QPair<int, int>> kBounds = {
-              {"SteerActuatorDelay", {15, 40}},
-              {"CustomSteerRatio", {1200, 1900}},
-              {"LateralTorqueAccelFactor", {1000, 6000}},
-              {"LateralTorqueKf", {0, 200}},
-              {"LateralTorqueFriction", {10, 300}},
-              {"LateralTorqueKpV", {30, 200}},
-              {"LateralTorqueKiV", {0, 50}},
-            };
-            for (auto it = rec.constBegin(); it != rec.constEnd(); ++it) {
-              if (it.key() == "OffsetTotal") {
-                double v = it.value().toObject().value("recommend").toDouble();
-                v = std::max(-0.30, std::min(0.30, v));
-                params.put("OffsetTotal", QString::number(v, 'f', 2).toStdString());
-                continue;
-              }
-              if (!kBounds.contains(it.key())) continue;
-              int v = it.value().toObject().value("recommend").toInt();
-              QPair<int, int> bounds = kBounds[it.key()];
-              v = std::max(bounds.first, std::min(bounds.second, v));
-              params.put(it.key().toStdString(), std::to_string(v));
-            }'''
-          assert old in s
-          s = s.replace(old, new, 1)
-          p.write_text(s)
-          PY
-
-          python3 -m py_compile selfdrive/carrot/carrot_lat_learning.py selfdrive/controls/controlsd.py selfdrive/controls/lib/latcontrol_torque.py
-
+      - name: Apply wiring
+        run: python3 .tmp_apply_full_phase2.py
+      - name: Syntax check
+        run: python3 -m py_compile selfdrive/carrot/carrot_lat_learning.py selfdrive/controls/controlsd.py selfdrive/controls/lib/latcontrol_torque.py
       - name: Cleanup and push
-        shell: bash
         run: |
-          set -euo pipefail
-          rm -f .github/workflows/apply-full-phase2-wiring.yml
+          rm -f .tmp_apply_full_phase2.py .github/workflows/apply-full-phase2-wiring.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
