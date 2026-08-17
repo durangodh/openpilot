@@ -50,6 +50,7 @@ services = {
   "ubloxRaw": (True, 20.),
   "liveLocationKalman": (True, 20., 5),
   "liveParameters": (True, 20., 5),
+  "liveTorqueParameters": (True, 4., 1),
   "cameraOdometry": (True, 20., 5),
   "lateralPlan": (True, 20., 5),
   "thumbnail": (True, 0.2, 1),

@@ -31,6 +31,7 @@ from selfdrive.locationd.calibrationd import Calibration
 from selfdrive.hardware import HARDWARE, TICI, EON
 from selfdrive.manager.process_config import managed_processes
 from selfdrive.controls.lib import live_tune
+from selfdrive.carrot.carrot_lat_learning import CarrotLatLearner
 
 SOFT_DISABLE_TIME = 3  # seconds
 LDW_MIN_SPEED = 31 * CV.MPH_TO_MS
@@ -105,8 +106,8 @@ class Controls:
       ignore = ['driverCameraState', 'managerState'] if SIMULATION else None
       self.sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState', 'modelV2', 'liveCalibration',
                                      'driverMonitoringState', 'longitudinalPlan', 'lateralPlan', 'liveLocationKalman',
-                                     'managerState', 'liveParameters', 'radarState'] + self.camera_packets + joystick_packet,
-                                    ignore_alive=ignore, ignore_avg_freq=['radarState', 'longitudinalPlan'])
+                                     'managerState', 'liveParameters', 'radarState', 'liveTorqueParameters'] + self.camera_packets + joystick_packet,
+                                    ignore_alive=ignore, ignore_avg_freq=['radarState', 'longitudinalPlan', 'liveTorqueParameters'])
 
     # set alternative experiences from parameters
     self.disengage_on_accelerator = params.get_bool("DisengageOnAccelerator")
@@ -163,6 +164,8 @@ class Controls:
       self.LaC = LatControlPID(self.CP, self.CI)
     elif self.CP.lateralTuning.which() == 'torque':
       self.LaC = LatControlTorque(self.CP, self.CI)
+
+    self.carrot_lat_learner = CarrotLatLearner()
 
     self.initialized = False
     self.state = State.disabled
@@ -656,6 +659,18 @@ class Controls:
 
     self.VM.update_params(x, sr)
 
+    # LiveTorque self-learning (backport from ajouatom/openpilot hoya/c3-atune):
+    # feed torqued's live-learned latAccelFactor/friction into LatControlTorque.
+    # Only takes effect on torque-tuned cars, and read_torque_params() in
+    # latcontrol_torque.py still gives priority to a manual LateralTorqueCustom
+    # override whenever that's enabled.
+    if self.CP.lateralTuning.which() == 'torque' and isinstance(self.LaC, LatControlTorque):
+      torque_params = self.sm['liveTorqueParameters']
+      if self.sm.all_checks(['liveTorqueParameters']) and torque_params.useParams:
+        self.LaC.update_live_torque_params(torque_params.latAccelFactorFiltered,
+                                           torque_params.latAccelOffsetFiltered,
+                                           torque_params.frictionCoefficientFiltered)
+
     lat_plan = self.sm['lateralPlan']
     long_plan = self.sm['longitudinalPlan']
 
@@ -758,6 +773,9 @@ class Controls:
       if not math.isfinite(attr):
         cloudlog.error(f"actuators.{p} not finite {actuators.to_dict()}")
         setattr(actuators, p, 0.0)
+
+    # CarrotLearning steering recommender (backport, see carrot_lat_learning.py)
+    self.carrot_lat_learner.tick(CS, CC.latActive, getattr(self, 'desired_curvature', 0.0))
 
     return CC, lac_log
 

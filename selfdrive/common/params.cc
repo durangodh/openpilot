@@ -278,6 +278,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LateralTorqueKd", PERSISTENT},           // kd x100
     {"LatAccelFrictionFactor", PERSISTENT},    // friction 입력 횡가속 비율 x100
     {"LatJerkFrictionFactor", PERSISTENT},     // friction 입력 횡저크 비율 x100
+    // ── LiveTorque self-learning (backport from ajouatom/openpilot hoya/c3-atune) ──
+    {"LiveTorqueParameters", PERSISTENT},      // torqued.py가 주기적으로 캐싱하는 학습값 (serialized Event bytes)
     {"ShowBlindSpotAlways", PERSISTENT},       // BSD 벽 상시표시 (진단용, 0=감지시만)         // 기어 변경 팝업 애니메이션
     {"KeepSteeringTurnSignals", PERSISTENT},
     {"HapticFeedbackWhenSpeedCamera", PERSISTENT},

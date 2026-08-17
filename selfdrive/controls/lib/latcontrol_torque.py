@@ -159,6 +159,10 @@ class LatControlTorque(LatControl):
       len(T_IDXS))
 
   def update_live_torque_params(self, latAccelFactor, latAccelOffset, friction):
+    # Manual override (LateralTorqueCustom) always wins -- don't let torqued's
+    # live-learned values fight read_torque_params() every frame.
+    if self.lateral_torque_custom > 0:
+      return
     self.torque_params.latAccelFactor = latAccelFactor
     self.torque_params.latAccelOffset = latAccelOffset
     self.torque_params.friction = friction

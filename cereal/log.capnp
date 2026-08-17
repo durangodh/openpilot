@@ -1739,6 +1739,24 @@ struct LiveParametersData {
   roll @14 :Float32;
 }
 
+struct LiveTorqueParametersData {
+  liveValid @0 :Bool;
+  latAccelFactorRaw @1 :Float32;
+  latAccelOffsetRaw @2 :Float32;
+  frictionCoefficientRaw @3 :Float32;
+  latAccelFactorFiltered @4 :Float32;
+  latAccelOffsetFiltered @5 :Float32;
+  frictionCoefficientFiltered @6 :Float32;
+  totalBucketPoints @7 :Float32;
+  decay @8 :Float32;
+  maxResets @9 :Float32;
+  points @10 :List(List(Float32));
+  version @11 :Int32;
+  useParams @12 :Bool;
+  calPerc @13 :Int8;
+  carFingerprint @14 :Text;
+}
+
 struct LiveMapDataDEPRECATED {
   speedLimitValid @0 :Bool;
   speedLimit @1 :Float32;
@@ -1928,6 +1946,9 @@ struct Event {
     
     # neokii
     roadLimitSpeed @89 :RoadLimitSpeed;
+
+    # carrot: LiveTorque self-learning (backport from ajouatom/openpilot hoya/c3-atune)
+    liveTorqueParameters @90 :LiveTorqueParametersData;
 
     # *********** debug ***********
     testJoystick @52 :Joystick;
