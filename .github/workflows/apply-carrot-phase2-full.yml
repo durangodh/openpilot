@@ -1,0 +1,525 @@
+name: Apply full Carrot Phase2 autotuner
+
+on:
+  push:
+    branches: [g_abcd]
+    paths: ['.github/workflows/apply-carrot-phase2-full.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: g_abcd
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Port Phase2 learner and wire parameters
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > selfdrive/carrot/carrot_lat_learning.py <<'PYEOF'
+          #!/usr/bin/env python3
+          """CarrotLearning Phase 2 lateral auto-tuner for g_abcd.
+
+          Ported from ajouatom/openpilot hoya/c3-atune Phase 2 and adapted to
+          this older fork. Learns/recommends:
+            PathOffset, SteerActuatorDelay, SteerRatioRate,
+            LateralTorqueAccelFactor, LateralTorqueKf, LateralTorqueFriction,
+            LateralTorqueKpV, LateralTorqueKiV.
+
+          Recommendations are generated from 10 Hz samples and are only applied
+          in PARK. Manual confirmation remains the default; auto-apply is opt-in.
+          """
+          import json
+          import time
+
+          from cereal import car
+          from common.params import Params
+
+          GearShifter = car.CarState.GearShifter
+
+          _SAMPLE_EVERY_N_TICKS = 10
+          _PARAMS_REFRESH_TICKS = 100
+          _MIN_SPEED_KPH = 20.0
+          _STRAIGHT_DEG = 5.0
+          _CURVE_DEG = 8.0
+          _CURVE_CURVATURE = 0.0025
+          _LATERAL_MIN_SAMPLES = 200
+          _CURVE_MIN_SAMPLES = 100
+
+          _PATH_OFFSET_LC_MIN_M = 0.08
+          _PATH_OFFSET_LC_GAIN = 0.5
+          _PATH_OFFSET_STEP_MAX = 10
+          _PATH_OFFSET_ABS_MAX = 30
+
+          _DELAY_STEP = 10
+          _DELAY_MIN, _DELAY_MAX = 15, 60
+          _DELAY_AUTO_BASELINE = 20
+
+          _SR_RATE_STEP = 3
+          _SR_RATE_MIN, _SR_RATE_MAX = 90, 150
+
+          _FACTOR_MIN, _FACTOR_MAX = 1000, 6000
+          _KF_MIN, _KF_MAX = 0, 200
+          _FRICTION_MIN, _FRICTION_MAX = 10, 300
+          _KPV_MIN, _KPV_MAX = 30, 200
+          _KIV_MIN, _KIV_MAX = 0, 50
+
+          _TORQUE_OSC_MIN = 8
+          _TORQUE_STEADY_MIN = 25
+          _TORQUE_KPV_STEP = 5
+          _TORQUE_KF_FF_PREF = 100
+          _PINGPONG_MIN_KPH = 70.0
+          _PINGPONG_DEG = 0.4
+          _PINGPONG_MIN_COUNT = 15
+
+          # g_abcd / Genesis DH current defaults. Source Phase2 logic is retained,
+          # but stable-state decay returns toward this branch's own baseline.
+          _DEFAULTS = {
+            "PathOffset": 0,
+            "SteerActuatorDelay": 50,
+            "SteerRatioRate": 100,
+            "LateralTorqueAccelFactor": 2500,
+            "LateralTorqueKf": 85,
+            "LateralTorqueFriction": 10,
+            "LateralTorqueKpV": 70,
+            "LateralTorqueKiV": 20,
+          }
+
+          _BOUNDS = {
+            "PathOffset": (-_PATH_OFFSET_ABS_MAX, _PATH_OFFSET_ABS_MAX),
+            "SteerActuatorDelay": (_DELAY_MIN, _DELAY_MAX),
+            "SteerRatioRate": (_SR_RATE_MIN, _SR_RATE_MAX),
+            "LateralTorqueAccelFactor": (_FACTOR_MIN, _FACTOR_MAX),
+            "LateralTorqueKf": (_KF_MIN, _KF_MAX),
+            "LateralTorqueFriction": (_FRICTION_MIN, _FRICTION_MAX),
+            "LateralTorqueKpV": (_KPV_MIN, _KPV_MAX),
+            "LateralTorqueKiV": (_KIV_MIN, _KIV_MAX),
+          }
+
+
+          def _clip(v, lo, hi):
+            return max(lo, min(hi, int(v)))
+
+
+          def _decay_toward(current, target, step):
+            if current < target:
+              return min(target, current + step)
+            if current > target:
+              return max(target, current - step)
+            return current
+
+
+          class CarrotLatLearner:
+            def __init__(self):
+              self._params = Params()
+              self._frame = 0
+              self._was_park = True
+              self._active_cached = False
+              self._apply_lat_cached = True
+              self._recommend = {}
+              self._reset_phase2()
+
+            def _reset_phase2(self):
+              self._lane_center_acc = 0.0
+              self._lane_center_n = 0
+              self._curve_entries = 0
+              self._curve_overrides = 0
+              self._curve_understeer = 0
+              self._curve_inner_hugging = 0
+              self._straight_entries = 0
+              self._straight_overrides = 0
+              self._torque_error_count = 0
+              self._torque_osc_count = 0
+              self._torque_steady_count = 0
+              self._straight_reversal = 0
+              self._prev_torque_err_sign = 0
+              self._prev_straight_steer_sign = 0
+
+            def _refresh_switches(self):
+              self._active_cached = self._params.get_bool("CarrotLearningActive")
+              raw = self._params.get("CarrotTunerApplyLat")
+              self._apply_lat_cached = True if raw is None else self._params.get_bool("CarrotTunerApplyLat")
+
+            def _get_int(self, key):
+              return self._params.get_int(key, _DEFAULTS.get(key, 0))
+
+            def _add_recommendation(self, key, current, recommended, reason, **extra):
+              if recommended == current:
+                return False
+              lo, hi = _BOUNDS[key]
+              rec = {
+                "current": int(current),
+                "recommend": _clip(recommended, lo, hi),
+                "reason": reason,
+              }
+              rec.update(extra)
+              self._recommend[key] = rec
+              return True
+
+            def tick(self, CS, latActive, desired_curvature, desired_angle_deg=0.0, lane_center_y=None):
+              self._frame += 1
+              if self._frame % _PARAMS_REFRESH_TICKS == 0 or self._frame == 1:
+                self._refresh_switches()
+
+              is_park = CS.gearShifter == GearShifter.park
+              if is_park and not self._was_park:
+                self._on_park()
+              self._was_park = is_park
+
+              if not self._active_cached or not self._apply_lat_cached:
+                return
+              if self._frame % _SAMPLE_EVERY_N_TICKS != 0:
+                return
+
+              v_kph = float(CS.vEgo) * 3.6
+              if not latActive or v_kph < _MIN_SPEED_KPH:
+                return
+
+              steer_deg = float(CS.steeringAngleDeg)
+              desired_angle = float(desired_angle_deg)
+              steer_err = desired_angle - steer_deg
+              exclude_override = bool(CS.leftBlinker or CS.rightBlinker)
+
+              # Straight/lane-center samples: same lane-center signal used by c3-atune.
+              if abs(steer_deg) < _STRAIGHT_DEG:
+                self._straight_entries += 1
+                self._prev_torque_err_sign = 0
+                if CS.steeringPressed and not exclude_override:
+                  self._straight_overrides += 1
+
+                if lane_center_y is not None:
+                  try:
+                    y = float(lane_center_y)
+                    if abs(y) < 2.0:
+                      self._lane_center_acc += y
+                      self._lane_center_n += 1
+                  except (TypeError, ValueError):
+                    pass
+
+                # High-speed straight ping-pong: repeated wheel-angle sign reversals
+                # without driver input are treated as excessive feedback gain.
+                if v_kph >= _PINGPONG_MIN_KPH and not CS.steeringPressed and abs(steer_deg) >= _PINGPONG_DEG:
+                  s = 1 if steer_deg > 0 else -1
+                  if self._prev_straight_steer_sign and s != self._prev_straight_steer_sign:
+                    self._straight_reversal += 1
+                  self._prev_straight_steer_sign = s
+                elif abs(steer_deg) < _PINGPONG_DEG:
+                  self._prev_straight_steer_sign = 0
+
+              # Curve samples. Use both actual wheel angle and requested curvature so
+              # low-angle high-speed curves are not missed.
+              in_curve = abs(steer_deg) >= _CURVE_DEG or abs(float(desired_curvature)) >= _CURVE_CURVATURE
+              if in_curve:
+                self._curve_entries += 1
+                if CS.steeringPressed and not exclude_override:
+                  self._curve_overrides += 1
+                  direction = desired_angle * steer_err
+                  if direction < 0:
+                    self._curve_understeer += 1
+                  elif direction > 0:
+                    self._curve_inner_hugging += 1
+
+                if abs(steer_err) >= 1.5:
+                  self._torque_error_count += 1
+                  s = 1 if steer_err > 0 else -1
+                  if self._prev_torque_err_sign:
+                    if s != self._prev_torque_err_sign:
+                      self._torque_osc_count += 1
+                    else:
+                      self._torque_steady_count += 1
+                  self._prev_torque_err_sign = s
+
+              changed = False
+              if self._lane_center_n >= _LATERAL_MIN_SAMPLES:
+                changed |= self._evaluate_path_offset()
+                self._lane_center_acc = 0.0
+                self._lane_center_n = 0
+
+              if self._curve_entries >= _CURVE_MIN_SAMPLES:
+                changed |= self._evaluate_curve()
+                self._curve_entries = 0
+                self._curve_overrides = 0
+                self._curve_understeer = 0
+                self._curve_inner_hugging = 0
+                self._torque_error_count = 0
+                self._torque_osc_count = 0
+                self._torque_steady_count = 0
+                self._prev_torque_err_sign = 0
+
+              if self._straight_entries >= _LATERAL_MIN_SAMPLES:
+                changed |= self._evaluate_straight()
+                self._straight_entries = 0
+                self._straight_overrides = 0
+                self._straight_reversal = 0
+                self._prev_straight_steer_sign = 0
+
+              if changed:
+                self._save()
+
+            def _evaluate_path_offset(self):
+              avg_lc = self._lane_center_acc / max(1, self._lane_center_n)
+              if abs(avg_lc) < _PATH_OFFSET_LC_MIN_M:
+                return False
+              current = self._get_int("PathOffset")
+              delta = _clip(round(avg_lc * 100.0 * _PATH_OFFSET_LC_GAIN),
+                            -_PATH_OFFSET_STEP_MAX, _PATH_OFFSET_STEP_MAX)
+              target = _clip(current + delta, -_PATH_OFFSET_ABS_MAX, _PATH_OFFSET_ABS_MAX)
+              return self._add_recommendation(
+                "PathOffset", current, target,
+                f"lane-center mean {avg_lc:+.3f}m",
+                lane_center_m=round(avg_lc, 3))
+
+            def _evaluate_curve(self):
+              override_ratio = self._curve_overrides / max(1, self._curve_entries)
+              under_ratio = self._curve_understeer / max(1, self._curve_overrides)
+              inner_ratio = self._curve_inner_hugging / max(1, self._curve_overrides)
+              changed = False
+
+              # SteerActuatorDelay: c3-atune bi-directional logic.
+              current_delay = self._get_int("SteerActuatorDelay")
+              base_delay = current_delay if current_delay > 0 else _DELAY_AUTO_BASELINE
+              target_delay = current_delay
+              if override_ratio >= 0.30:
+                if under_ratio >= 0.60:
+                  target_delay = min(_DELAY_MAX, base_delay + _DELAY_STEP)
+                elif inner_ratio >= 0.60:
+                  target_delay = max(_DELAY_MIN, base_delay - _DELAY_STEP)
+              changed |= self._add_recommendation(
+                "SteerActuatorDelay", current_delay, target_delay,
+                "curve understeer: delay up" if target_delay > current_delay else "curve inner-hugging: delay down",
+                override_ratio=round(override_ratio * 100, 1))
+
+              # SteerRatioRate: retain current live/custom SR source, learn only a multiplier.
+              current_sr = self._get_int("SteerRatioRate")
+              if current_sr <= 0:
+                current_sr = 100
+              target_sr = current_sr
+              if override_ratio >= 0.40:
+                if under_ratio >= 0.60:
+                  target_sr = min(_SR_RATE_MAX, current_sr + _SR_RATE_STEP)
+                elif inner_ratio >= 0.60:
+                  target_sr = max(_SR_RATE_MIN, current_sr - _SR_RATE_STEP)
+              elif override_ratio < 0.15 and current_sr > 100:
+                target_sr = max(100, current_sr - 1)
+              changed |= self._add_recommendation(
+                "SteerRatioRate", current_sr, target_sr,
+                "curve steering-ratio compensation",
+                override_ratio=round(override_ratio * 100, 1))
+
+              # Torque feed-forward pair: AccelFactor denominator + Kf gain.
+              current_factor = self._get_int("LateralTorqueAccelFactor")
+              current_kf = self._get_int("LateralTorqueKf")
+              target_factor = current_factor
+              target_kf = current_kf
+              steer_dir = "stable"
+              if override_ratio >= 0.40 and under_ratio >= 0.60:
+                target_factor = _clip(current_factor - 100, _FACTOR_MIN, _FACTOR_MAX)
+                target_kf = _clip(current_kf + 3, _KF_MIN, _KF_MAX)
+                steer_dir = "understeer"
+              elif override_ratio >= 0.40 and inner_ratio >= 0.60:
+                target_factor = _clip(current_factor + 100, _FACTOR_MIN, _FACTOR_MAX)
+                target_kf = _clip(current_kf - 3, _KF_MIN, _KF_MAX)
+                steer_dir = "inner_hugging"
+              elif override_ratio < 0.15:
+                target_kf = _decay_toward(current_kf, _DEFAULTS["LateralTorqueKf"], 1)
+
+              changed |= self._add_recommendation(
+                "LateralTorqueAccelFactor", current_factor, target_factor,
+                f"torque feed-forward {steer_dir}",
+                override_ratio=round(override_ratio * 100, 1))
+              changed |= self._add_recommendation(
+                "LateralTorqueKf", current_kf, target_kf,
+                f"torque feed-forward {steer_dir}",
+                override_ratio=round(override_ratio * 100, 1))
+
+              # Feedback gains: oscillation first; steady lag only after FF is sufficient.
+              current_kpv = self._get_int("LateralTorqueKpV")
+              current_kiv = self._get_int("LateralTorqueKiV")
+              target_kpv = current_kpv
+              target_kiv = current_kiv
+              kp_dir = ""
+              curve_osc = self._torque_osc_count >= _TORQUE_OSC_MIN and self._torque_osc_count > self._torque_steady_count
+              straight_pingpong = self._straight_reversal >= _PINGPONG_MIN_COUNT
+              if straight_pingpong or curve_osc:
+                target_kpv = max(_KPV_MIN, current_kpv - _TORQUE_KPV_STEP)
+                target_kiv = max(_KIV_MIN, current_kiv - 1)
+                kp_dir = "oscillation"
+              elif self._torque_steady_count >= _TORQUE_STEADY_MIN and self._torque_osc_count < _TORQUE_OSC_MIN:
+                if current_kf >= _TORQUE_KF_FF_PREF:
+                  target_kpv = min(_KPV_MAX, current_kpv + _TORQUE_KPV_STEP)
+                  target_kiv = min(_KIV_MAX, current_kiv + 1)
+                kp_dir = "steady_lag"
+              elif self._torque_error_count < 20:
+                target_kpv = _decay_toward(current_kpv, _DEFAULTS["LateralTorqueKpV"], 2)
+                target_kiv = _decay_toward(current_kiv, _DEFAULTS["LateralTorqueKiV"], 1)
+                kp_dir = "good"
+
+              changed |= self._add_recommendation(
+                "LateralTorqueKpV", current_kpv, target_kpv,
+                f"feedback {kp_dir}", error_ticks=self._torque_error_count,
+                osc_ticks=self._torque_osc_count + self._straight_reversal)
+              changed |= self._add_recommendation(
+                "LateralTorqueKiV", current_kiv, target_kiv,
+                f"feedback {kp_dir}", error_ticks=self._torque_error_count,
+                osc_ticks=self._torque_osc_count + self._straight_reversal)
+              return changed
+
+            def _evaluate_straight(self):
+              ratio = self._straight_overrides / max(1, self._straight_entries)
+              current = self._get_int("LateralTorqueFriction")
+              target = current
+              if ratio >= 0.35:
+                target = min(_FRICTION_MAX, current + 5)
+              elif ratio < 0.08:
+                target = max(_FRICTION_MIN, current - 2)
+              return self._add_recommendation(
+                "LateralTorqueFriction", current, target,
+                "straight micro-correction friction compensation",
+                override_ratio=round(ratio * 100, 1))
+
+            def _save(self):
+              data = {
+                "updated": time.time(),
+                "phase": 2,
+                "recommendations": list(self._recommend.keys()),
+              }
+              self._params.put("CarrotLearningData", json.dumps(data).encode("utf8"))
+              self._params.put("CarrotLearningRecommend", json.dumps(self._recommend).encode("utf8"))
+              if not self._params.get_bool("CarrotLearningAutoApply"):
+                self._params.put_bool("CarrotLearningPopupReady", True)
+
+            def _on_park(self):
+              if self._recommend and self._params.get_bool("CarrotLearningAutoApply"):
+                self.apply_recommendations()
+
+            def apply_recommendations(self):
+              for key, rec in list(self._recommend.items()):
+                if key not in _BOUNDS:
+                  continue
+                lo, hi = _BOUNDS[key]
+                value = _clip(rec.get("recommend", self._get_int(key)), lo, hi)
+                self._params.put(key, str(value))
+              self._recommend = {}
+              self._params.remove("CarrotLearningRecommend")
+              self._params.put_bool("CarrotLearningPopupReady", False)
+          PYEOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+            p = Path(path)
+            s = p.read_text()
+            if old not in s:
+              raise RuntimeError(f"pattern not found in {path}: {old[:100]!r}")
+            p.write_text(s.replace(old, new, 1))
+
+          # Params keys.
+          replace('selfdrive/common/params.cc',
+                  '    {"OffsetTotal", PERSISTENT},\n    {"AdjustLaneOffset", PERSISTENT},',
+                  '    {"OffsetTotal", PERSISTENT},\n    {"PathOffset", PERSISTENT},              // CarrotLearning Phase2, cm units (-30..30)\n    {"AdjustLaneOffset", PERSISTENT},')
+          replace('selfdrive/common/params.cc',
+                  '    {"UseLiveSteerRatio", PERSISTENT},         // 1=liveParameters 학습 조향비 사용\n    {"SteerActuatorDelay", PERSISTENT},',
+                  '    {"UseLiveSteerRatio", PERSISTENT},         // 1=liveParameters 학습 조향비 사용\n    {"SteerRatioRate", PERSISTENT},            // CarrotLearning Phase2 steer-ratio multiplier (%)\n    {"SteerActuatorDelay", PERSISTENT},')
+
+          # Defaults.
+          replace('selfdrive/manager/manager.py',
+                  '    ("CustomSteerRatio", "1650"),\n    ("UseLiveSteerRatio", "0"),\n    ("SteerActuatorDelay", "50"),',
+                  '    ("CustomSteerRatio", "1650"),\n    ("UseLiveSteerRatio", "0"),\n    ("SteerRatioRate", "100"),\n    ("SteerActuatorDelay", "50"),')
+          replace('selfdrive/manager/manager.py',
+                  '    ("OffsetTotal", "0.0"),        # 통합 오프셋(offset_total), 전 모드 공통 적용\n',
+                  '    ("OffsetTotal", "0.0"),        # 사용자 수동 오프셋(m)\n    ("PathOffset", "0"),            # CarrotLearning Phase2 자동 중심보정(cm)\n')
+
+          # Live steer-ratio multiplier.
+          p = Path('selfdrive/controls/lib/live_tune.py')
+          s = p.read_text()
+          if 'def steer_ratio_rate()' not in s:
+            s += '\n\ndef steer_ratio_rate():\n  """CarrotLearning Phase2 steer-ratio multiplier."""\n  return max(0.5, min(1.5, _get("SteerRatioRate", 100.0) * 0.01))\n'
+          p.write_text(s)
+
+          # PathOffset is a separate learned correction on top of manual OffsetTotal.
+          replace('selfdrive/controls/lib/lateral_planner.py',
+                  '    self.offset_total = DEFAULT_OFFSET_TOTAL\n',
+                  '    self.offset_total = DEFAULT_OFFSET_TOTAL\n    self.path_offset = 0.0\n')
+          replace('selfdrive/controls/lib/lateral_planner.py',
+                  '      self.offset_total = self._read_offset_total()\n',
+                  '      self.offset_total = self._read_offset_total()\n      try:\n        self.path_offset = max(-0.30, min(0.30, float(self.params.get("PathOffset", encoding="utf8") or "0") * 0.01))\n      except (TypeError, ValueError):\n        self.path_offset = 0.0\n')
+          replace('selfdrive/controls/lib/lateral_planner.py',
+                  '    self.path_xyz[:, 1] += self.offset_total\n',
+                  '    self.path_xyz[:, 1] += self.offset_total + self.path_offset\n')
+          replace('selfdrive/controls/lib/lateral_planner.py',
+                  "    tail = f'offset={offset_cm:.1f}cm'\n",
+                  "    tail = f'offset={offset_cm:.1f}cm auto={self.path_offset * 100.0:+.0f}cm'\n")
+
+          # VehicleModel: apply SteerRatioRate after existing live/custom choice.
+          replace('selfdrive/controls/controlsd.py',
+                  '    if live_tune.use_live_steer_ratio():\n      sr = max(params.steerRatio, 0.1)\n    else:\n      sr = max(live_tune.custom_steer_ratio(), 0.1)\n\n    self.VM.update_params(x, sr)\n',
+                  '    if live_tune.use_live_steer_ratio():\n      sr = max(params.steerRatio, 0.1)\n    else:\n      sr = max(live_tune.custom_steer_ratio(), 0.1)\n    sr = max(0.1, sr * live_tune.steer_ratio_rate())\n\n    self.VM.update_params(x, sr)\n')
+
+          # LiveTorque and Phase2 must not fight over AccelFactor/Friction.
+          replace('selfdrive/controls/controlsd.py',
+                  "    if self.CP.lateralTuning.which() == 'torque' and isinstance(self.LaC, LatControlTorque):\n      torque_params = self.sm['liveTorqueParameters']\n      if self.sm.all_checks(['liveTorqueParameters']) and torque_params.useParams:\n",
+                  "    carrot_phase2_active = self.params.get_bool('CarrotLearningActive') and self.params.get_bool('CarrotTunerApplyLat')\n    if self.CP.lateralTuning.which() == 'torque' and isinstance(self.LaC, LatControlTorque) and not carrot_phase2_active:\n      torque_params = self.sm['liveTorqueParameters']\n      if self.sm.all_checks(['liveTorqueParameters']) and torque_params.useParams:\n")
+
+          # Feed desired steering angle + model lane center to Phase2.
+          replace('selfdrive/controls/controlsd.py',
+                  "    # CarrotLearning steering recommender (backport, see carrot_lat_learning.py)\n    self.carrot_lat_learner.tick(CS, CC.latActive, getattr(self, 'desired_curvature', 0.0))\n",
+                  "    # CarrotLearning Phase2: desired/actual steering direction, lane-center error, torque feedback.\n    lane_center_y = None\n    try:\n      md = self.sm['modelV2']\n      if len(md.laneLines) >= 4 and len(md.laneLineProbs) >= 4 and md.laneLineProbs[1] > 0.5 and md.laneLineProbs[2] > 0.5 and len(md.laneLines[1].y) and len(md.laneLines[2].y):\n        lane_center_y = (md.laneLines[1].y[0] + md.laneLines[2].y[0]) * 0.5\n    except Exception:\n      lane_center_y = None\n    self.carrot_lat_learner.tick(CS, CC.latActive, getattr(self, 'desired_curvature', 0.0),\n                                 getattr(actuators, 'steeringAngleDeg', 0.0), lane_center_y)\n")
+
+          # Torque parameter precedence: manual custom > Carrot Phase2 > LiveTorque/default.
+          p = Path('selfdrive/controls/lib/latcontrol_torque.py')
+          s = p.read_text()
+          old = '''  def read_torque_params(self, force=False):\n    custom = int(self._pget("LateralTorqueCustom", 0))\n\n    if custom > 0:\n      # Apply the manually configured torque parameters.\n      self.torque_params.latAccelFactor = self._pget("LateralTorqueAccelFactor", 2700) * 0.001\n      self.torque_params.friction = self._pget("LateralTorqueFriction", 80) * 0.001\n      self.pid._k_p = [[0], [self._pget("LateralTorqueKpV", 10) * 0.01]]\n      self.pid._k_i = [[0], [self._pget("LateralTorqueKiV", 10) * 0.01]]\n      self.pid.k_f = self._pget("LateralTorqueKf", 100) * 0.01\n      self.pid._k_d = [[0], [self._pget("LateralTorqueKd", 0) * 0.01]]\n    elif self.lateral_torque_custom > 0 or force:\n      # 커스텀을 끄면 차량 기본값으로 복귀\n      self.torque_params.latAccelFactor = self.latAccelFactor_default\n      self.torque_params.friction = self.friction_default\n      self.pid._k_p = [[0], [self.kp_default]]\n      self.pid._k_i = [[0], [self.ki_default]]\n      self.pid.k_f = self.kf_default\n      self.pid._k_d = [[0], [self.kd_default]]\n    self.lateral_torque_custom = custom\n'''
+          new = '''  def read_torque_params(self, force=False):\n    custom = int(self._pget("LateralTorqueCustom", 0))\n    auto_tune = self.params.get_bool("CarrotLearningActive") and self.params.get_bool("CarrotTunerApplyLat")\n    mode = 2 if custom > 0 else (1 if auto_tune else 0)\n    prev_mode = getattr(self, "lateral_torque_mode", 0)\n\n    if mode > 0:\n      # Manual custom has priority, otherwise Phase2 uses the same Params surface.\n      self.torque_params.latAccelFactor = self._pget("LateralTorqueAccelFactor", 2500) * 0.001\n      self.torque_params.friction = self._pget("LateralTorqueFriction", 10) * 0.001\n      self.pid._k_p = [[0], [self._pget("LateralTorqueKpV", 70) * 0.01]]\n      self.pid._k_i = [[0], [self._pget("LateralTorqueKiV", 20) * 0.01]]\n      self.pid.k_f = self._pget("LateralTorqueKf", 85) * 0.01\n      self.pid._k_d = [[0], [self._pget("LateralTorqueKd", 0) * 0.01]]\n    elif prev_mode > 0 or force:\n      self.torque_params.latAccelFactor = self.latAccelFactor_default\n      self.torque_params.friction = self.friction_default\n      self.pid._k_p = [[0], [self.kp_default]]\n      self.pid._k_i = [[0], [self.ki_default]]\n      self.pid.k_f = self.kf_default\n      self.pid._k_d = [[0], [self.kd_default]]\n    self.lateral_torque_mode = mode\n    self.lateral_torque_custom = custom\n'''
+          if old not in s:
+            raise RuntimeError('latcontrol_torque read_torque_params pattern not found')
+          s = s.replace(old, new, 1)
+          s = s.replace('''    if self.lateral_torque_custom > 0:\n      return\n''', '''    auto_tune = self.params.get_bool("CarrotLearningActive") and self.params.get_bool("CarrotTunerApplyLat")\n    if self.lateral_torque_custom > 0 or auto_tune:\n      return\n''', 1)
+          p.write_text(s)
+
+          # Popup supports all Phase2 values and source-style bounds.
+          replace('selfdrive/ui/qt/onroad.cc',
+                  '    {"SteerActuatorDelay", "조향 지연 보정 (SteerActuatorDelay)"},\n    {"CustomSteerRatio", "조향비 (CustomSteerRatio)"},\n',
+                  '    {"PathOffset", "차선 중심 보정 (PathOffset)"},\n    {"SteerActuatorDelay", "조향 지연 보정 (SteerActuatorDelay)"},\n    {"SteerRatioRate", "조향비 비율 (SteerRatioRate)"},\n    {"LateralTorqueAccelFactor", "토크 AccelFactor"},\n    {"LateralTorqueKf", "토크 Kf"},\n    {"LateralTorqueFriction", "토크 Friction"},\n    {"LateralTorqueKpV", "토크 Kp"},\n    {"LateralTorqueKiV", "토크 Ki"},\n')
+          replace('selfdrive/ui/qt/onroad.cc',
+                  '      {"SteerActuatorDelay", {15, 40}},\n      {"CustomSteerRatio", {1000, 2000}},\n',
+                  '      {"PathOffset", {-30, 30}},\n      {"SteerActuatorDelay", {15, 60}},\n      {"SteerRatioRate", {90, 150}},\n      {"LateralTorqueAccelFactor", {1000, 6000}},\n      {"LateralTorqueKf", {0, 200}},\n      {"LateralTorqueFriction", {10, 300}},\n      {"LateralTorqueKpV", {30, 200}},\n      {"LateralTorqueKiV", {0, 50}},\n')
+          PY
+
+          python3 -m py_compile \
+            selfdrive/carrot/carrot_lat_learning.py \
+            selfdrive/controls/controlsd.py \
+            selfdrive/controls/lib/latcontrol_torque.py \
+            selfdrive/controls/lib/live_tune.py \
+            selfdrive/controls/lib/lateral_planner.py \
+            selfdrive/manager/manager.py
+
+          # Sanity checks for all eight Phase2 keys and live consumers.
+          grep -q '"PathOffset"' selfdrive/carrot/carrot_lat_learning.py
+          grep -q '"SteerRatioRate"' selfdrive/carrot/carrot_lat_learning.py
+          grep -q '"LateralTorqueAccelFactor"' selfdrive/carrot/carrot_lat_learning.py
+          grep -q '"LateralTorqueKf"' selfdrive/carrot/carrot_lat_learning.py
+          grep -q '"LateralTorqueFriction"' selfdrive/carrot/carrot_lat_learning.py
+          grep -q '"LateralTorqueKpV"' selfdrive/carrot/carrot_lat_learning.py
+          grep -q '"LateralTorqueKiV"' selfdrive/carrot/carrot_lat_learning.py
+          grep -q 'self.path_offset' selfdrive/controls/lib/lateral_planner.py
+          grep -q 'steer_ratio_rate' selfdrive/controls/controlsd.py
+
+      - name: Commit final result
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/apply-carrot-phase2-full.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "port full CarrotLearning Phase2 lateral autotuner"
+          git push origin HEAD:g_abcd
