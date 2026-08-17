@@ -656,6 +656,7 @@ class Controls:
       sr = max(params.steerRatio, 0.1)
     else:
       sr = max(live_tune.custom_steer_ratio(), 0.1)
+    sr = max(0.1, sr * live_tune.steer_ratio_rate())
 
     self.VM.update_params(x, sr)
 
@@ -664,7 +665,8 @@ class Controls:
     # Only takes effect on torque-tuned cars, and read_torque_params() in
     # latcontrol_torque.py still gives priority to a manual LateralTorqueCustom
     # override whenever that's enabled.
-    if self.CP.lateralTuning.which() == 'torque' and isinstance(self.LaC, LatControlTorque):
+    carrot_phase2_active = self.params.get_bool('CarrotLearningActive') and self.params.get_bool('CarrotTunerApplyLat')
+    if self.CP.lateralTuning.which() == 'torque' and isinstance(self.LaC, LatControlTorque) and not carrot_phase2_active:
       torque_params = self.sm['liveTorqueParameters']
       if self.sm.all_checks(['liveTorqueParameters']) and torque_params.useParams:
         self.LaC.update_live_torque_params(torque_params.latAccelFactorFiltered,
@@ -774,8 +776,16 @@ class Controls:
         cloudlog.error(f"actuators.{p} not finite {actuators.to_dict()}")
         setattr(actuators, p, 0.0)
 
-    # CarrotLearning steering recommender (backport, see carrot_lat_learning.py)
-    self.carrot_lat_learner.tick(CS, CC.latActive, getattr(self, 'desired_curvature', 0.0))
+    # CarrotLearning Phase2: desired/actual steering direction, lane-center error, torque feedback.
+    lane_center_y = None
+    try:
+      md = self.sm['modelV2']
+      if len(md.laneLines) >= 4 and len(md.laneLineProbs) >= 4 and md.laneLineProbs[1] > 0.5 and md.laneLineProbs[2] > 0.5 and len(md.laneLines[1].y) and len(md.laneLines[2].y):
+        lane_center_y = (md.laneLines[1].y[0] + md.laneLines[2].y[0]) * 0.5
+    except Exception:
+      lane_center_y = None
+    self.carrot_lat_learner.tick(CS, CC.latActive, getattr(self, 'desired_curvature', 0.0),
+                                 getattr(actuators, 'steeringAngleDeg', 0.0), lane_center_y)
 
     return CC, lac_log
 

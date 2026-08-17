@@ -87,8 +87,14 @@ OnroadWindow::OnroadWindow(QWidget *parent) : QWidget(parent) {
 // keep the two in sync if either changes.
 static QString formatCarrotLearningPrompt(const QJsonObject &rec) {
   static const QMap<QString, QString> kLabels = {
+    {"PathOffset", "차선 중심 보정 (PathOffset)"},
     {"SteerActuatorDelay", "조향 지연 보정 (SteerActuatorDelay)"},
-    {"CustomSteerRatio", "조향비 (CustomSteerRatio)"},
+    {"SteerRatioRate", "조향비 비율 (SteerRatioRate)"},
+    {"LateralTorqueAccelFactor", "토크 AccelFactor"},
+    {"LateralTorqueKf", "토크 Kf"},
+    {"LateralTorqueFriction", "토크 Friction"},
+    {"LateralTorqueKpV", "토크 Kp"},
+    {"LateralTorqueKiV", "토크 Ki"},
   };
   QString msg = "운전 패턴을 보고 아래 조향 튜닝을 추천합니다.\n\n";
   for (auto it = rec.constBegin(); it != rec.constEnd(); ++it) {
@@ -138,8 +144,14 @@ void OnroadWindow::checkCarrotLearningPopup(const cereal::CarState::Reader &car_
 
   if (accepted) {
     static const QMap<QString, QPair<int, int>> kBounds = {
-      {"SteerActuatorDelay", {15, 40}},
-      {"CustomSteerRatio", {1000, 2000}},
+      {"PathOffset", {-30, 30}},
+      {"SteerActuatorDelay", {15, 60}},
+      {"SteerRatioRate", {90, 150}},
+      {"LateralTorqueAccelFactor", {1000, 6000}},
+      {"LateralTorqueKf", {0, 200}},
+      {"LateralTorqueFriction", {10, 300}},
+      {"LateralTorqueKpV", {30, 200}},
+      {"LateralTorqueKiV", {0, 50}},
     };
     for (auto it = rec.constBegin(); it != rec.constEnd(); ++it) {
       if (!kBounds.contains(it.key())) continue;
