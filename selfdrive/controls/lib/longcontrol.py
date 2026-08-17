@@ -68,6 +68,8 @@ class LongControl:
     self.long_coast_band = 0.0
     self.v_pid = 0.0
     self.last_output_accel = 0.0
+    self.starting_accel = 0.0
+    self.starting_ramp_rate = 2.0
     self._update_pid_gains()
     # Read launch control immediately so StartAccelApply=0 disables the
     # starting state from the first control cycle.
@@ -199,16 +201,25 @@ class LongControl:
     self.pid.neg_limit = accel_limits[0]
     self.pid.pos_limit = accel_limits[1]
 
+    prev_long_control_state = self.long_control_state
     self.long_control_state, planned_stop = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
       CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now,
       self.starting_state)
 
+    if self.long_control_state == LongCtrlState.starting and prev_long_control_state != LongCtrlState.starting:
+      # Begin every launch from zero drive request instead of jumping straight
+      # to StartAccelApply. This removes the pause-then-lurch feeling after the
+      # stopping brake is released.
+      self.starting_accel = 0.0
+
     if self.long_control_state == LongCtrlState.off:
       self.reset(CS.vEgo)
+      self.starting_accel = 0.0
       output_accel = 0.0
 
     elif self.long_control_state == LongCtrlState.stopping:
+      self.starting_accel = 0.0
       output_accel = self.last_output_accel
       if output_accel > self.stop_accel:
         output_accel = min(output_accel, 0.0)
@@ -218,7 +229,13 @@ class LongControl:
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:
-      output_accel = min(self.start_accel, accel_limits[1])
+      # Smooth launch: ramp toward StartAccelApply at 2.0 m/s^3 instead of
+      # applying the full launch acceleration in one control cycle. At the
+      # default control rate this reaches 2.0 m/s^2 in about one second.
+      target_start_accel = min(self.start_accel, accel_limits[1])
+      self.starting_accel = min(target_start_accel,
+                                self.starting_accel + self.starting_ramp_rate * DT_CTRL)
+      output_accel = self.starting_accel
       self.reset(CS.vEgo)
 
     else:
@@ -235,6 +252,15 @@ class LongControl:
       error = apply_deadzone(self.v_pid - CS.vEgo, deadzone)
       output_accel = self.pid.update(error, speed=CS.vEgo, feedforward=a_target,
                                      freeze_integrator=prevent_overshoot)
+
+      # Keep the starting -> PID handoff bumpless at very low speed. PID may
+      # ask for substantially more acceleration than the launch ramp on the
+      # first cycle, so only allow the request to rise at the same ramp rate
+      # until the car is clearly moving.
+      if prev_long_control_state == LongCtrlState.starting and CS.vEgo < 2.0:
+        output_accel = min(output_accel,
+                           self.last_output_accel + self.starting_ramp_rate * DT_CTRL)
+      self.starting_accel = 0.0
 
       # Back-calculate only a positive saturated integral.  PIDController's
       # regular anti-windup prevents new accumulation, while this removes a
