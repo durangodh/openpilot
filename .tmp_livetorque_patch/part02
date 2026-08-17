@@ -1,0 +1,170 @@
++adapted to this (older, pre-livePose/carOutput) fork:
++  - uses `liveLocationKalman` instead of `livePose`/PoseCalibrator (this fork's
++    calibratedOrientationNED / angularVelocityCalibrated are already in the
++    vehicle-aligned calibrated frame, same fields latcontrol_torque.py already
++    reads via `llk`).
++  - uses `carState.steeringTorqueEps` instead of a separate `carOutput` message
++    (this fork has no carOutput split).
++  - uses a fixed lag (CP.steerActuatorDelay) instead of a live `liveDelay`
++    estimator (this fork has no locationd liveDelay process).
++  - PointBuckets/ParameterEstimator base classes inlined here since this fork's
++    selfdrive/locationd/ has no shared helpers.py for them.
++
++Output feeds LatControlTorque.update_live_torque_params(), which already exists
++in latcontrol_torque.py but, before this backport, was never called.
++
++NOTE: this only changes the *live-learning* torque parameters. It does not
++touch the manual "LateralTorqueCustom" override path, which still takes
++priority whenever it's enabled (read_torque_params() in latcontrol_torque.py
++early-returns to the manual values in that case).
++"""
++import os
++import time
++from collections import deque, defaultdict
++
++import numpy as np
++
++import cereal.messaging as messaging
++from cereal import car, log
++from common.params import Params, put_nonblocking
++from common.realtime import config_realtime_process, DT_MDL
++from common.filter_simple import FirstOrderFilter
++from selfdrive.swaglog import cloudlog
++from selfdrive.controls.lib.vehicle_model import ACCELERATION_DUE_TO_GRAVITY
++
++HISTORY = 5  # secs
++POINTS_PER_BUCKET = 1500
++MIN_POINTS_TOTAL = 4000
++FIT_POINTS_TOTAL = 2000
++MIN_VEL = 15  # m/s
++FRICTION_FACTOR = 1.5  # ~85% of data coverage
++FACTOR_SANITY = 0.3
++FRICTION_SANITY = 0.5
++STEER_MIN_THRESHOLD = 0.02
++MIN_FILTER_DECAY = 50
++MAX_FILTER_DECAY = 250
++LAT_ACC_THRESHOLD = 1
++STEER_BUCKET_BOUNDS = [(-0.5, -0.3), (-0.3, -0.2), (-0.2, -0.1), (-0.1, 0), (0, 0.1), (0.1, 0.2), (0.2, 0.3), (0.3, 0.5)]
++MIN_BUCKET_POINTS = np.array([100, 300, 500, 500, 500, 500, 300, 100])
++MIN_ENGAGE_BUFFER = 2  # secs
++
++# loop is polled on liveLocationKalman (~20Hz in this fork's services.py)
++PUBLISH_EVERY_N_FRAMES = 5     # -> 4Hz publish, matches services.py "liveTorqueParameters" freq
++CACHE_EVERY_N_FRAMES = 1200    # -> ~60s at 20Hz
++
++VERSION = 1  # bump this to invalidate old parameter caches
++
++
++def slope2rot(slope):
++  sin = np.sqrt(slope ** 2 / (slope ** 2 + 1))
++  cos = np.sqrt(1 / (slope ** 2 + 1))
++  return np.array([[cos, -sin], [sin, cos]])
++
++
++class PointBuckets:
++  """Minimal inline replacement for selfdrive/locationd/helpers.py's PointBuckets
++  (that module doesn't exist in this fork)."""
++
++  def __init__(self, x_bounds, min_points, min_points_total, points_per_bucket, rowsize):
++    self.x_bounds = x_bounds
++    self.buckets = {bounds: deque(maxlen=points_per_bucket) for bounds in x_bounds}
++    self.buckets_min_points = dict(zip(x_bounds, min_points))
++    self.min_points_total = min_points_total
++    self.rowsize = rowsize
++
++  def __len__(self):
++    return sum(len(v) for v in self.buckets.values())
++
++  def add_point(self, x, y):
++    for bound_min, bound_max in self.x_bounds:
++      if bound_min <= x < bound_max:
++        self.buckets[(bound_min, bound_max)].append([x, 1.0, y])
++        break
++
++  def is_valid(self):
++    individual_points = all(len(v) >= min_pts for v, min_pts in zip(self.buckets.values(), self.buckets_min_points.values()))
++    total_points = self.__len__() >= self.min_points_total
++    return individual_points and total_points
++
++  def is_calculable(self):
++    return all(len(v) > 0 for v in self.buckets.values())
++
++  def get_points(self, num_points=None):
++    points = np.array([point for bucket in self.buckets.values() for point in bucket])
++    if num_points is None:
++      return points
++    return points[np.random.choice(np.arange(len(points)), min(len(points), num_points), replace=False)]
++
++  def get_valid_percent(self):
++    return 100.0 * sum(min(len(v), min_pts) for v, min_pts in
++                        zip(self.buckets.values(), self.buckets_min_points.values())) / max(1, self.min_points_total)
++
++  def load_points(self, points):
++    for x, y in points:
++      self.add_point(x, y)
++
++
++class TorqueBuckets(PointBuckets):
++  pass
++
++
++class TorqueEstimator:
++  def __init__(self, CP):
++    self.CP_fingerprint = CP.carFingerprint
++    self.hist_len = int(HISTORY / DT_MDL)
++    self.lag = float(getattr(CP, "steerActuatorDelay", 0.2)) + 0.2
++
++    self.min_bucket_points = MIN_BUCKET_POINTS
++    self.min_points_total = MIN_POINTS_TOTAL
++    self.fit_points = FIT_POINTS_TOTAL
++    self.factor_sanity = FACTOR_SANITY
++    self.friction_sanity = FRICTION_SANITY
++
++    self.offline_friction = 0.0
++    self.offline_latAccelFactor = 0.0
++    self.use_params = CP.lateralTuning.which() == 'torque'
++
++    if self.use_params:
++      self.offline_friction = CP.lateralTuning.torque.friction
++      self.offline_latAccelFactor = CP.lateralTuning.torque.latAccelFactor
++
++    self.resets = 0.0
++    self.reset()
++
++    initial_params = {
++      'latAccelFactor': self.offline_latAccelFactor,
++      'latAccelOffset': 0.0,
++      'frictionCoefficient': self.offline_friction,
++      'points': []
++    }
++    self.decay = MIN_FILTER_DECAY
++    self.min_lataccel_factor = (1.0 - self.factor_sanity) * self.offline_latAccelFactor
++    self.max_lataccel_factor = (1.0 + self.factor_sanity) * self.offline_latAccelFactor
++    self.min_friction = (1.0 - self.friction_sanity) * self.offline_friction
++    self.max_friction = (1.0 + self.friction_sanity) * self.offline_friction
++
++    # try to restore cached params (guarded by carFingerprint match, no
++    # separate CarParamsPrevRoute key needed -- see module docstring)
++    params = Params()
++    torque_cache = params.get("LiveTorqueParameters")
++    if torque_cache is not None:
++      try:
++        with log.Event.from_bytes(torque_cache) as log_evt:
++          cache_ltp = log_evt.liveTorqueParameters
++        if cache_ltp.carFingerprint == CP.carFingerprint and cache_ltp.version == VERSION:
++          if cache_ltp.liveValid:
++            initial_params = {
++              'latAccelFactor': cache_ltp.latAccelFactorFiltered,
++              'latAccelOffset': cache_ltp.latAccelOffsetFiltered,
++              'frictionCoefficient': cache_ltp.frictionCoefficientFiltered,
++            }
++          initial_params['points'] = cache_ltp.points
++          self.decay = cache_ltp.decay
++          self.filtered_points.load_points(initial_params['points'])
++          cloudlog.info("torqued: restored live torque params from cache")
++      except Exception:
++        cloudlog.exception("torqued: failed to restore cached torque params")
++        params.remove("LiveTorqueParameters")
++
++    self.filtered_params = {}
++    for param in initial_params:
