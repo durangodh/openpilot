@@ -41,6 +41,7 @@ class CarState(CarStateBase):
     self.cruise_unavail_cnt = 0
     self.engine_oil_temp_seen = False
     self.engine_coolant_temp_seen = False
+    self.engine_rpm_seen = False
     self.distance_to_empty_seen = False
 
     self.apply_steer = 0.
@@ -207,6 +208,11 @@ class CarState(CarStateBase):
         self.engine_oil_temp_seen = True
       ret.engineCoolantTempC = cp.vl["EMS12"]["TEMP_ENG"] if self.engine_coolant_temp_seen else -1000.
       ret.engineOilTempC = cp.vl["EMS19"]["CR_Ems_EngOilTemp"] if self.engine_oil_temp_seen else -1000.
+      # EMS11 'N' = 엔진 회전수. checks 에 넣지 않아 이 메시지가 없는 차에서도
+      # canValid 가 깨지지 않고, 그 경우 값이 0 으로 남아 HUD 가 게이지를 숨긴다.
+      if cp.vl_all["EMS11"]["N"]:
+        self.engine_rpm_seen = True
+      ret.engineRpm = cp.vl["EMS11"]["N"] if self.engine_rpm_seen else 0.
 
     # TODO: refactor gear parsing in function
     # Gear Selection via Cluster - For those Kia/Hyundai which are not fully discovered, we can use the Cluster Indicator for Gear Selection,
@@ -490,6 +496,7 @@ class CarState(CarStateBase):
         ("TEMP_ENG", "EMS12"),
         ("CF_Ems_AclAct", "EMS16"),
         ("CR_Ems_EngOilTemp", "EMS19"),
+        ("N", "EMS11"),                   # 엔진 회전수 (rpm). checks 에는 넣지 않는다
       ]
       checks += [
         ("EMS12", 100),

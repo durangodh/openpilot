@@ -67,6 +67,8 @@ REMOTE_LAYOUT = {
   "tbt1Dx": 0, "tbt1Dy": 0, "tbt1Scale": 1.0,
   "tbt2Dx": 0, "tbt2Dy": 0, "tbt2Scale": 1.0,
   "laneDx": 0, "laneDy": 0, "laneScale": 1.0,
+  "rpmDx": 0, "rpmDy": 0, "rpmScale": 1.0,
+  "rpmRedline": 6500,   # DH 3.8 기준. 차종 바꾸면 여기만 고치면 됨
 }
 
 
@@ -239,6 +241,15 @@ def _path_offset(params):
   learned = max(-0.30, min(0.30, learned))
 
   return round(total + learned, 3)
+
+
+def _engine_rpm(car_state):
+  """EMS11 'N' 엔진 회전수. 신호가 없거나 EV 면 0 이 올라오므로 -1 로 바꿔
+  앱이 게이지를 아예 숨기게 한다."""
+  rpm = _finite(_field(car_state, "engineRpm", 0.0))
+  if rpm <= 0.0 or rpm > 12000.0:
+    return -1
+  return int(round(rpm))
 
 
 def _calib_pitch(live_calibration):
@@ -487,6 +498,7 @@ def _packet(sm, atc_mode, path_offset=0.0):
     "highBeam": bool(_field(car, "highBeam", False)),
     "frontFog": bool(_field(car, "frontFogLight", False)),
     "distanceToEmpty": round(_finite(_field(car, "distanceToEmptyKm", -1.0)), 1),
+    "rpm": _engine_rpm(car),
     "tpms": {
       "fl": _finite(_field(tpms, "fl", -1.0), -1.0),
       "fr": _finite(_field(tpms, "fr", -1.0), -1.0),

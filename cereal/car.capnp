@@ -216,6 +216,9 @@ struct CarState {
   # cluster distance-to-empty estimate in kilometres
   distanceToEmptyKm @53 :Float32;
 
+  # engine speed in rpm (EMS11 'N'), 0 = unavailable / EV
+  engineRpm @54 :Float32;
+
   # button presses
   buttonEvents @11 :List(ButtonEvent);
   leftBlinker @20 :Bool;

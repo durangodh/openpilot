@@ -13,6 +13,8 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
@@ -96,6 +98,7 @@ public final class HudService extends Service {
     private TurzxDisplay display;
     private Bitmap egoCar;
     private Bitmap otherCar;
+    private Bitmap wheelImage;   // res/drawable-nodpi/hud_wheel.png (없으면 기존 벡터 핸들)
     private Thread receiverThread;
     private Thread mapThread;
     private Thread renderThread;
@@ -143,6 +146,8 @@ public final class HudService extends Service {
     private float worldOdoM = 0f;
 
     // 렌더 재사용 자원 (렌더 스레드 전용)
+    private final Matrix wheelMatrix = new Matrix();
+    private ColorMatrixColorFilter wheelGray;
     private Bitmap outFrame;
     private Canvas outCanvas;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -236,6 +241,10 @@ public final class HudService extends Service {
         super.onCreate();
         egoCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_ego_car);
         otherCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_other_car);
+        // 핸들 이미지는 선택 사항이라 R.drawable 을 직접 참조하지 않는다.
+        // 파일이 없어도 빌드가 깨지지 않고, 있으면 자동으로 벡터 대신 쓰인다.
+        int wheelId = getResources().getIdentifier("hud_wheel", "drawable", getPackageName());
+        wheelImage = wheelId == 0 ? null : BitmapFactory.decodeResource(getResources(), wheelId);
 
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel(CHANNEL, "EON Remote HUD",
@@ -739,6 +748,10 @@ public final class HudService extends Service {
         drawSpeed(c, p, stale ? -1 : s.optInt("speed", 0));
         c.restoreToCount(save3);
 
+        int saveRpm = beginElement(c, l, "rpm", DRIVE_CX, 90f);
+        drawRpm(c, p, stale ? -1 : s.optInt("rpm", -1), lv(l, "rpmRedline", 6500f));
+        c.restoreToCount(saveRpm);
+
         drawModeAndEta(c, p, s);
         drawRange(c, p, s);
 
@@ -922,9 +935,48 @@ public final class HudService extends Service {
     }
 
     private void drawSpeed(Canvas c, Paint p, int speed) {
+        // 68 -> 88px. 기준선을 74 -> 84 로 내려 위쪽 여백을 확보하고, KM 라벨은
+        // 118 로 떨어뜨려 구분선(y=129)과 겹치지 않게 한다. 세 자리(100km/h 이상)
+        // 에서는 72px 로 줄여 RPM 아크 안쪽에 들어가게 한다.
         String value = speed < 0 ? "--" : Integer.toString(speed);
-        text(c, p, value, DRIVE_CX, 74f, 68f, ink(), Paint.Align.CENTER);
-        text(c, p, "KM", DRIVE_CX, 117f, 16f, dim(), Paint.Align.CENTER);
+        text(c, p, value, DRIVE_CX, 84f, value.length() < 3 ? 88f : 72f, ink(), Paint.Align.CENTER);
+        text(c, p, "KM", DRIVE_CX, 118f, 15f, dim(), Paint.Align.CENTER);
+    }
+
+    /** 속도 숫자를 위에서 감싸는 엔진 회전수 아크.
+     *  중심 (476,112) 반지름 110 은 아크 꼭대기(y=2)가 화면 안에 들어오면서
+     *  88px 두 자리 / 72px 세 자리 숫자를 모두 비껴가는 값이다. 바꿀 때 검산할 것.
+     *  rpm < 0 (신호 없음 / EV) 이면 아무것도 그리지 않는다. */
+    private void drawRpm(Canvas c, Paint p, int rpm, float redline) {
+        if (rpm < 0) {
+            return;
+        }
+        float cx = DRIVE_CX;
+        float cy = 112f;
+        float r = 110f;
+        float start = 181f;
+        float sweep = 178f;
+        float limit = redline > 100f ? redline : 6500f;
+        float redFrom = start + sweep * (5000f / limit);
+        float frac = Math.max(0f, Math.min(1f, rpm / limit));
+
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(10f);
+        scratchRect.set(cx - r, cy - r, cx + r, cy + r);
+
+        p.setColor(Color.rgb(52, 60, 70));
+        c.drawArc(scratchRect, start, sweep, false, p);
+        p.setColor(Color.rgb(96, 44, 46));
+        c.drawArc(scratchRect, redFrom, start + sweep - redFrom, false, p);
+        if (frac > 0.001f) {
+            p.setColor(rpm >= 5000 ? Color.rgb(222, 67, 70) : Color.rgb(40, 150, 255));
+            c.drawArc(scratchRect, start, sweep * frac, false, p);
+        }
+
+        text(c, p, "RPM", cx - r + 2f, 124f, 13f, dim(), Paint.Align.LEFT);
+        text(c, p, String.format(Locale.US, "%,d", rpm), cx + r - 2f, 124f, 22f,
+                ink(), Paint.Align.RIGHT);
     }
 
     private void drawPrnd(Canvas c, Paint p, String gear) {
@@ -1031,6 +1083,10 @@ public final class HudService extends Service {
     }
 
     private void drawSteeringWheel(Canvas c, Paint p, float cx, float cy, float angle, boolean enabled) {
+        if (wheelImage != null && !wheelImage.isRecycled()) {
+            drawWheelImage(c, p, cx, cy, angle, enabled);
+            return;
+        }
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(enabled ? Color.rgb(18, 95, 225) : Color.rgb(92, 101, 107));
@@ -1048,6 +1104,54 @@ public final class HudService extends Service {
         }
         p.setStyle(Paint.Style.FILL);
         c.drawCircle(cx, cy, 6f, p);
+    }
+
+    /** hud_wheel.png 을 지름 72px 원 안에 맞춰 조향각만큼 회전시켜 그린다.
+     *  해제 상태에서는 회색조 + 반투명으로 낮춰 기존 벡터 핸들과 같은 인상을 유지한다. */
+    private void drawWheelImage(Canvas c, Paint p, float cx, float cy, float angle, boolean enabled) {
+        float target = 72f;
+        int w = wheelImage.getWidth();
+        int h = wheelImage.getHeight();
+        if (w <= 0 || h <= 0) {
+            return;
+        }
+        float scale = target / Math.max(w, h);
+
+        wheelMatrix.reset();
+        wheelMatrix.postTranslate(-w * 0.5f, -h * 0.5f);
+        wheelMatrix.postScale(scale, scale);
+        wheelMatrix.postRotate(-angle);
+        wheelMatrix.postTranslate(cx, cy);
+
+        // 핸들 사진이 검정이라 어두운 주행 패널에서 묻힌다.
+        // 뒤에 상태색 원을 깔아 스포크 사이로 비치게 하고, 바깥 링으로 한 번 더 구분한다.
+        p.setShader(null);
+        p.setColorFilter(null);
+        p.setAlpha(255);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(enabled ? Color.rgb(18, 95, 225) : Color.rgb(92, 101, 107));
+        c.drawCircle(cx, cy, 34f, p);
+
+        p.setFilterBitmap(true);
+        p.setColorFilter(enabled ? null : wheelGrayFilter());
+        p.setAlpha(enabled ? 255 : 170);
+        c.drawBitmap(wheelImage, wheelMatrix, p);
+        p.setColorFilter(null);
+        p.setAlpha(255);
+
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(3f);
+        p.setColor(enabled ? Color.rgb(18, 95, 225) : Color.rgb(92, 101, 107));
+        c.drawCircle(cx, cy, 36f, p);
+    }
+
+    private ColorMatrixColorFilter wheelGrayFilter() {
+        if (wheelGray == null) {
+            ColorMatrix m = new ColorMatrix();
+            m.setSaturation(0f);
+            wheelGray = new ColorMatrixColorFilter(m);
+        }
+        return wheelGray;
     }
 
     private void drawSetSpeed(Canvas c, Paint p, float cx, float cy, int set, boolean enabled) {
@@ -1870,6 +1974,10 @@ public final class HudService extends Service {
         if (otherCar != null) {
             otherCar.recycle();
             otherCar = null;
+        }
+        if (wheelImage != null) {
+            wheelImage.recycle();
+            wheelImage = null;
         }
         if (outFrame != null) {
             outFrame.recycle();
