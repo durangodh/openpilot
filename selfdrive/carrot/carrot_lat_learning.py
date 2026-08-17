@@ -61,8 +61,8 @@ _CURVE_MIN_SAMPLES = 100      # curve-entry samples (@10Hz sampling, ~10s) befor
 _CURVE_OVERRIDE_RATIO = 0.5   # >=50% override during curve entry -> SteerActuatorDelay recommend
 _SR_OVERRIDE_RATIO = 0.7      # >=70% override -> also nudge CustomSteerRatio
 
-_DELAY_STEP = 10                 # SteerActuatorDelay units are x100s -> +0.10s per recommendation
-_DELAY_MIN, _DELAY_MAX = 15, 60  # 0.15s .. 0.60s sane bounds
+_DELAY_STEP = 5                  # Genesis DH: +0.05s per recommendation (conservative)
+_DELAY_MIN, _DELAY_MAX = 15, 40  # Genesis DH: clamp learning to 0.15s .. 0.40s
 _DELAY_DEFAULT = 10
 
 _SR_STEP = 30                  # CustomSteerRatio units are x100 -> +0.30 per recommendation
@@ -127,7 +127,7 @@ class CarrotLatLearner:
 
     if ratio >= _CURVE_OVERRIDE_RATIO:
       current = self._params.get_int("SteerActuatorDelay", _DELAY_DEFAULT)
-      target = min(_DELAY_MAX, current + _DELAY_STEP)
+      target = min(_DELAY_MAX, current + _DELAY_STEP) if current < _DELAY_MAX else current
       if target != current:
         self._recommend["SteerActuatorDelay"] = {
           "current": current, "recommend": target,

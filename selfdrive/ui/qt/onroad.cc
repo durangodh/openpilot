@@ -17,11 +17,13 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPainterPath>
+#include <QPair>
 
 #include <ctime>
 
 #include "selfdrive/common/timing.h"
 #include "selfdrive/ui/qt/util.h"
+#include "selfdrive/ui/qt/widgets/input.h"
 #ifdef ENABLE_MAPS
 #include "selfdrive/ui/qt/maps/map.h"
 #include "selfdrive/ui/qt/maps/map_helpers.h"
@@ -80,6 +82,77 @@ OnroadWindow::OnroadWindow(QWidget *parent) : QWidget(parent) {
 
 }
 
+// CarrotLatLearner steering recommendation popup.
+// Mirrors selfdrive/carrot/carrot_lat_learning.py's own clamp ranges --
+// keep the two in sync if either changes.
+static QString formatCarrotLearningPrompt(const QJsonObject &rec) {
+  static const QMap<QString, QString> kLabels = {
+    {"SteerActuatorDelay", "조향 지연 보정 (SteerActuatorDelay)"},
+    {"CustomSteerRatio", "조향비 (CustomSteerRatio)"},
+  };
+  QString msg = "운전 패턴을 보고 아래 조향 튜닝을 추천합니다.\n\n";
+  for (auto it = rec.constBegin(); it != rec.constEnd(); ++it) {
+    QJsonObject entry = it.value().toObject();
+    QString label = kLabels.value(it.key(), it.key());
+    msg += QString("%1: %2 → %3\n")
+      .arg(label)
+      .arg(entry.value("current").toInt())
+      .arg(entry.value("recommend").toInt());
+  }
+  msg += "\n지금 적용할까요? (거절해도 학습은 계속됩니다)";
+  return msg;
+}
+
+void OnroadWindow::checkCarrotLearningPopup(const cereal::CarState::Reader &car_state) {
+  bool is_park = car_state.getGearShifter() == cereal::CarState::GearShifter::PARK;
+  if (!is_park) {
+    carrot_learning_popup_shown = false;
+    return;
+  }
+  if (carrot_learning_popup_shown) return;
+
+  // Params I/O is comparatively expensive -- only poll once a second, and
+  // only while actually parked (is_park already gates that above).
+  if (++carrot_learning_popup_timer < UI_FREQ) return;
+  carrot_learning_popup_timer = 0;
+
+  if (!params.getBool("CarrotLearningPopupReady")) return;
+  // AutoApply mode applies from controlsd.py directly on park -- no UI
+  // confirmation needed, and the flag won't be set in that mode. This is a
+  // belt-and-suspenders check in case both got toggled on at the same time.
+  if (params.getBool("CarrotLearningAutoApply")) {
+    params.putBool("CarrotLearningPopupReady", false);
+    return;
+  }
+
+  std::string raw = params.get("CarrotLearningRecommend");
+  QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(raw));
+  if (!doc.isObject() || doc.object().isEmpty()) {
+    params.putBool("CarrotLearningPopupReady", false);
+    return;
+  }
+  QJsonObject rec = doc.object();
+
+  carrot_learning_popup_shown = true;  // one prompt per park stop, regardless of answer
+  bool accepted = ConfirmationDialog::confirm(formatCarrotLearningPrompt(rec), this);
+
+  if (accepted) {
+    static const QMap<QString, QPair<int, int>> kBounds = {
+      {"SteerActuatorDelay", {15, 40}},
+      {"CustomSteerRatio", {1000, 2000}},
+    };
+    for (auto it = rec.constBegin(); it != rec.constEnd(); ++it) {
+      if (!kBounds.contains(it.key())) continue;
+      int v = it.value().toObject().value("recommend").toInt();
+      QPair<int, int> bounds = kBounds[it.key()];
+      v = std::max(bounds.first, std::min(bounds.second, v));
+      params.put(it.key().toStdString(), std::to_string(v));
+    }
+  }
+  params.remove("CarrotLearningRecommend");
+  params.putBool("CarrotLearningPopupReady", false);
+}
+
 void OnroadWindow::updateState(const UIState &s) {
   // Keep NvgWindow state in sync with carState (including blind-spot signals).
   nvg->updateState(s);
@@ -101,6 +174,8 @@ void OnroadWindow::updateState(const UIState &s) {
   left_blindspot = car_state.getLeftBlindspot();
   right_blindspot = car_state.getRightBlindspot();
   steering_angle_deg = car_state.getSteeringAngleDeg();
+
+  checkCarrotLearningPopup(car_state);
 	
   QColor bgColor = bg_colors[s.status];
   Alert alert = Alert::get(*(s.sm), s.scene.started_frame);

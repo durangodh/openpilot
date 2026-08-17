@@ -132,6 +132,10 @@ def manager_init() -> None:
     ("LateralTorqueKd", "0"),
     ("LatAccelFrictionFactor", "70"),
     ("LatJerkFrictionFactor", "40"),
+    # CarrotLatLearner (조향 학습 추천) -- 기본은 꺼둠, 안전하게 몇 번 확인 후 켜는 걸 권장
+    ("CarrotLearningActive", "0"),
+    ("CarrotTunerApplyLat", "1"),
+    ("CarrotLearningAutoApply", "0"),
     ("AutoLaneChangeTimer", "0"),  # controlsd.py 크래시 수정
     ("AutoLaneChangeSpeed", "50"),  # 자동/방향지시등 차선변경 허용 최저 속도 (km/h)
     ("AdjustLaneOffset", "0"),    # 좌우 여유공간 비대칭 보정 (cm, 0=off)

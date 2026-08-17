@@ -1680,6 +1680,26 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(horizontal_line());
 
+  // ── CarrotLatLearner (운전 패턴 기반 조향 추천, selfdrive/carrot/carrot_lat_learning.py) ──
+  list->addItem(new ParamControl("CarrotLearningActive",
+      "조향 학습 추천 사용",
+      "켜짐: 커브 진입 시 운전자 개입 패턴을 보고 SteerActuatorDelay/CustomSteerRatio 값을 추천합니다.\n"
+      "학습 자체는 항상 켜져 있는 LiveTorque(자동 토크학습)와는 별개이며, 이건 '추천'만 하고 정차 시에만 반영됩니다.",
+      "../assets/offroad/icon_openpilot.png", this));
+
+  list->addItem(new ParamControl("CarrotTunerApplyLat",
+      "조향 추천 생성",
+      "꺼지면 조향 학습 추천 자체를 만들지 않습니다 (마스터 스위치는 위 항목).",
+      "../assets/offroad/icon_openpilot.png", this));
+
+  list->addItem(new ParamControl("CarrotLearningAutoApply",
+      "추천 자동 적용 (P단 정차 시)",
+      "켜짐: 정차(P단) 시 추천값을 확인 팝업 없이 즉시 적용.\n"
+      "꺼짐: 정차 시 팝업으로 물어보고 수락한 경우에만 적용. 처음에는 꺼두고 몇 번 추천을 확인해본 뒤 켜는 것을 권장합니다.",
+      "../assets/offroad/icon_openpilot.png", this));
+
+  list->addItem(horizontal_line());
+
   // ── Offset Total ─────────────────────────────────────────────
   // 레인모드 + 레인리스 모드 모두 적용. 0.01m 단위, -1.00 ~ +1.00m
   list->addItem(horizontal_line());
