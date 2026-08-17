@@ -95,10 +95,15 @@ index 5752ab7..8fa8043 100644
 +  }
 +  if (carrot_learning_popup_shown) return;
 +
++  // Params I/O is comparatively expensive -- only poll once a second, and
++  // only while actually parked (is_park already gates that above).
 +  if (++carrot_learning_popup_timer < UI_FREQ) return;
 +  carrot_learning_popup_timer = 0;
 +
 +  if (!params.getBool("CarrotLearningPopupReady")) return;
++  // AutoApply mode applies from controlsd.py directly on park -- no UI
++  // confirmation needed, and the flag won't be set in that mode. This is a
++  // belt-and-suspenders check in case both got toggled on at the same time.
 +  if (params.getBool("CarrotLearningAutoApply")) {
 +    params.putBool("CarrotLearningPopupReady", false);
 +    return;
@@ -112,7 +117,7 @@ index 5752ab7..8fa8043 100644
 +  }
 +  QJsonObject rec = doc.object();
 +
-+  carrot_learning_popup_shown = true;
++  carrot_learning_popup_shown = true;  // one prompt per park stop, regardless of answer
 +  bool accepted = ConfirmationDialog::confirm(formatCarrotLearningPrompt(rec), this);
 +
 +  if (accepted) {
@@ -164,13 +169,13 @@ index 7fe6cb5..7f5e073 100644
 diff --git a/selfdrive/carrot/carrot_lat_learning.py b/selfdrive/carrot/carrot_lat_learning.py
 --- a/selfdrive/carrot/carrot_lat_learning.py
 +++ b/selfdrive/carrot/carrot_lat_learning.py
-@@ -58,8 +58,8 @@
+@@ -58,3 +58,3 @@
 -_DELAY_STEP = 10                 # SteerActuatorDelay units are x100s -> +0.10s per recommendation
 -_DELAY_MIN, _DELAY_MAX = 15, 60  # 0.15s .. 0.60s sane bounds
 +_DELAY_STEP = 5                  # Genesis DH: +0.05s per recommendation (conservative)
 +_DELAY_MIN, _DELAY_MAX = 15, 40  # Genesis DH: clamp learning to 0.15s .. 0.40s
  _DELAY_DEFAULT = 10
-@@ -107,7 +107,7 @@
+@@ -107,3 +107,3 @@
        current = self._params.get_int("SteerActuatorDelay", _DELAY_DEFAULT)
 -      target = min(_DELAY_MAX, current + _DELAY_STEP)
 +      target = min(_DELAY_MAX, current + _DELAY_STEP) if current < _DELAY_MAX else current
