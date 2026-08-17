@@ -1,0 +1,63 @@
+name: Apply LiveTorque CarrotLat backport
+
+on:
+  push:
+    branches:
+      - g_abcd
+    paths:
+      - '.github/workflows/apply-livetorque-backport.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-backport:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout g_abcd
+        uses: actions/checkout@v4
+        with:
+          ref: g_abcd
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Reassemble and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .tmp_livetorque_patch/part00 \
+              .tmp_livetorque_patch/part01 \
+              .tmp_livetorque_patch/part02 \
+              .tmp_livetorque_patch/part03 > /tmp/livetorque-backport.patch
+          git apply --check /tmp/livetorque-backport.patch
+
+      - name: Apply backport
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply /tmp/livetorque-backport.patch
+          python3 -m py_compile \
+            selfdrive/locationd/torqued.py \
+            selfdrive/carrot/carrot_lat_learning.py \
+            selfdrive/controls/controlsd.py \
+            selfdrive/controls/lib/latcontrol_torque.py \
+            selfdrive/manager/process_config.py \
+            cereal/services.py
+
+      - name: Remove temporary patch runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .tmp_livetorque_patch
+          rm -f .github/workflows/apply-livetorque-backport.yml
+
+      - name: Commit and push final result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "backport LiveTorque and CarrotLatLearner"
+          git push origin HEAD:g_abcd
