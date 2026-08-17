@@ -36,10 +36,10 @@ final class World3D {
 
     /** 주행 패널 화면 영역 */
     static final float LEFT = 0f;
-    static final float RIGHT = 765f;
+    static final float RIGHT = 952f;
     static final float TOP = 217f;
     static final float BOTTOM = 454f;
-    static final float CX = 382.5f;
+    static final float CX = 476f;
 
     /** 카메라 */
     static final float FOCAL = 520f;

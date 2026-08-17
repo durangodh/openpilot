@@ -67,9 +67,14 @@ public final class HudService extends Service {
 
     private static final int WIDTH = 1920;
     private static final int HEIGHT = 462;
-    private static final int SYSTEM_LEFT = 776;
-    private static final int SYSTEM_RIGHT = 1144;
-    private static final int MAP_LEFT = 1152;
+    // 패널 폭 비율 5 : 4 : 1  (주행 : TMAP : SYSTEM)
+    private static final int DRIVE_RIGHT = 952;
+    private static final float DRIVE_CX = 476f;
+    private static final int MAP_LEFT = 960;
+    private static final int MAP_RIGHT = 1720;
+    private static final float MAP_CX = 1340f;
+    private static final int SYSTEM_LEFT = 1728;
+    private static final int SYSTEM_RIGHT = 1920;
 
     private static final int USB_RESET_AFTER_ERRORS = 3;
     private static final int USB_SLOWDOWN_AFTER_ERRORS = 5;
@@ -495,10 +500,23 @@ public final class HudService extends Service {
                 JSONObject currentState = state.get();
                 int requestedFps = Math.max(0, Math.min(15, currentState.optInt("hudFps", 8)));
                 if (requestedFps == 0) {
-                    configuredFps = 0;
+                    // 프레임 0 = 일시정지가 아니라 패널 끄기. 검은 프레임 한 장을
+                    // 보내고 밝기를 최소로 내린 뒤 대기한다. v0.19.1 까지는 전송만
+                    // 멈춰서 마지막 화면이 그대로 남아 있었다.
+                    if (configuredFps != 0) {
+                        configuredFps = 0;
+                        sendBlankFrame();
+                        display.setBrightness(1);
+                        appliedBrightness = 1;
+                        lastJpegSentElapsed = SystemClock.elapsedRealtime();
+                    }
+                    usbStatus = "연결됨 · 패널 꺼짐 (프레임 0)";
                     SystemClock.sleep(250L);
                     nextFrame = SystemClock.elapsedRealtime();
                     continue;
+                }
+                if (configuredFps == 0) {
+                    appliedBrightness = -1;   // 복귀시 밝기를 다시 적용
                 }
                 if (requestedFps != configuredFps) {
                     configuredFps = requestedFps;
@@ -607,6 +625,17 @@ public final class HudService extends Service {
         return outCanvas;
     }
 
+    /** 패널을 끌 때 보내는 검은 프레임 한 장. */
+    private void sendBlankFrame() throws Exception {
+        Canvas c = beginFrame();
+        c.drawColor(Color.BLACK);
+        jpegOut.reset();
+        outFrame.compress(Bitmap.CompressFormat.JPEG, 40, jpegOut);
+        byte[] jpeg = jpegOut.toByteArray();
+        display.sendJpeg(jpeg);
+        lastJpegBytes = jpeg.length;
+    }
+
     private Bitmap render(JSONObject s, Bitmap map, Bitmap tbtCurrent, Bitmap tbtNext, Bitmap lane) {
         Canvas c = beginFrame();
         Paint p = paint;
@@ -617,7 +646,7 @@ public final class HudService extends Service {
         drawDriving(c, p, s);
 
         JSONObject l = layout(s);
-        int save = beginElement(c, l, "system", 960f, 231f);
+        int save = beginElement(c, l, "system", 1824f, 231f);
         drawSystem(c, p, s);
         c.restoreToCount(save);
 
@@ -645,7 +674,7 @@ public final class HudService extends Service {
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(lc(l, "driveBg", Color.rgb(239, 241, 242)));
-        c.drawRect(0f, 0f, 765f, 462f, p);
+        c.drawRect(0f, 0f, DRIVE_RIGHT, 462f, p);
 
         world.draw(c, p, stale ? null : s, enabled, egoCar, otherCar, worldOdoM,
                 lc(l, "driveBg", Color.rgb(239, 241, 242)),
@@ -664,7 +693,7 @@ public final class HudService extends Service {
         drawPrnd(c, p, s.optString("gear", "--"));
         c.restoreToCount(save2);
 
-        int save3 = beginElement(c, l, "speed", 384f, 74f);
+        int save3 = beginElement(c, l, "speed", DRIVE_CX, 74f);
         drawSpeed(c, p, stale ? -1 : s.optInt("speed", 0));
         c.restoreToCount(save3);
 
@@ -674,18 +703,18 @@ public final class HudService extends Service {
         p.setStyle(Paint.Style.STROKE);
         p.setColor(Color.rgb(202, 207, 210));
         p.setStrokeWidth(1f);
-        c.drawLine(18f, 129f, 747f, 129f, p);
+        c.drawLine(18f, 129f, 934f, 129f, p);
 
         int save4 = beginElement(c, l, "wheel", 70f, 171f);
         drawSteeringWheel(c, p, 70f, 171f, (float) s.optDouble("steer", 0d), enabled);
         c.restoreToCount(save4);
 
-        int save5 = beginElement(c, l, "set", 384f, 171f);
-        drawSetSpeed(c, p, 384f, 171f, s.optInt("set", 0), enabled);
+        int save5 = beginElement(c, l, "set", DRIVE_CX, 171f);
+        drawSetSpeed(c, p, DRIVE_CX, 171f, s.optInt("set", 0), enabled);
         c.restoreToCount(save5);
 
-        int save6 = beginElement(c, l, "camera", 698f, 171f);
-        drawCamera(c, p, 698f, 171f, s.optInt("camera", 0), s.optInt("cameraDist", 0),
+        int save6 = beginElement(c, l, "camera", 882f, 171f);
+        drawCamera(c, p, 882f, 171f, s.optInt("camera", 0), s.optInt("cameraDist", 0),
                 s.optBoolean("cameraSection", false));
         c.restoreToCount(save6);
 
@@ -693,29 +722,25 @@ public final class HudService extends Service {
         drawLeadCard(c, p, s.optJSONObject("lead"));
         c.restoreToCount(save7);
 
-        int save8 = beginElement(c, l, "tpms", 678f, 415f);
+        int save8 = beginElement(c, l, "tpms", 865f, 415f);
         drawTpms(c, p, s.optJSONObject("tpms"));
         c.restoreToCount(save8);
-
-        int save9 = beginElement(c, l, "atc", 678f, 309f);
-        drawAtc(c, p, s);
-        c.restoreToCount(save9);
 
         if (stale) {
             p.setShader(null);
             p.setStyle(Paint.Style.FILL);
             p.setColor(Color.argb(210, 26, 30, 34));
-            scratchRect.set(214f, 296f, 552f, 356f);
+            scratchRect.set(307f, 296f, 645f, 356f);
             c.drawRoundRect(scratchRect, 10f, 10f, p);
-            text(c, p, lang("EON 연결 끊김", "EON LINK LOST"), 383f, 322f, 24f,
+            text(c, p, lang("EON 연결 끊김", "EON LINK LOST"), DRIVE_CX, 322f, 24f,
                     Color.rgb(255, 148, 118), Paint.Align.CENTER);
-            text(c, p, lastEonAddress, 383f, 345f, 15f, Color.rgb(186, 194, 200), Paint.Align.CENTER);
+            text(c, p, lastEonAddress, DRIVE_CX, 345f, 15f, Color.rgb(186, 194, 200), Paint.Align.CENTER);
         }
 
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(2f);
         p.setColor(Color.rgb(188, 194, 198));
-        scratchRect.set(2f, 2f, 763f, 458f);
+        scratchRect.set(2f, 2f, DRIVE_RIGHT - 2f, 458f);
         c.drawRoundRect(scratchRect, 18f, 18f, p);
     }
 
@@ -724,10 +749,10 @@ public final class HudService extends Service {
             return;
         }
         if (s.optBoolean("leftBlinker", false)) {
-            drawBlinker(c, p, 245f, 386f, true);
+            drawBlinker(c, p, 336f, 386f, true);
         }
         if (s.optBoolean("rightBlinker", false)) {
-            drawBlinker(c, p, 523f, 386f, false);
+            drawBlinker(c, p, 616f, 386f, false);
         }
     }
 
@@ -751,8 +776,8 @@ public final class HudService extends Service {
 
     private void drawSpeed(Canvas c, Paint p, int speed) {
         String value = speed < 0 ? "--" : Integer.toString(speed);
-        text(c, p, value, 384f, 74f, 68f, Color.rgb(18, 18, 18), Paint.Align.CENTER);
-        text(c, p, "KM", 384f, 117f, 16f, Color.rgb(104, 111, 116), Paint.Align.CENTER);
+        text(c, p, value, DRIVE_CX, 74f, 68f, Color.rgb(18, 18, 18), Paint.Align.CENTER);
+        text(c, p, "KM", DRIVE_CX, 117f, 16f, Color.rgb(104, 111, 116), Paint.Align.CENTER);
     }
 
     private void drawPrnd(Canvas c, Paint p, String gear) {
@@ -780,7 +805,7 @@ public final class HudService extends Service {
             label = "FAST";
             color = Color.rgb(222, 67, 70);
         }
-        text(c, p, label, lv(l, "modeX", 742f), lv(l, "modeY", 116f), lv(l, "modeSize", 29f),
+        text(c, p, label, lv(l, "modeX", 930f), lv(l, "modeY", 116f), lv(l, "modeSize", 29f),
                 color, Paint.Align.RIGHT);
 
         JSONObject navi = s.optJSONObject("navi");
@@ -793,7 +818,7 @@ public final class HudService extends Service {
         }
         long etaMs = System.currentTimeMillis() + remain * 1000L;
         String eta = new SimpleDateFormat("HH:mm", Locale.KOREA).format(new Date(etaMs));
-        float etaRight = lv(l, "etaRight", 620f);
+        float etaRight = lv(l, "etaRight", 800f);
         float etaY = lv(l, "etaY", 116f);
         float etaTimeSize = lv(l, "etaTimeSize", 27f);
         float etaLabelSize = lv(l, "etaLabelSize", 14f);
@@ -811,8 +836,8 @@ public final class HudService extends Service {
         if (!Double.isFinite(km) || km < 0d) {
             return;
         }
-        text(c, p, lang("주행", "RANGE"), 744f, 28f, 12f, Color.rgb(104, 111, 116), Paint.Align.RIGHT);
-        text(c, p, String.format(Locale.US, "%.0f km", km), 744f, 51f, 20f,
+        text(c, p, lang("주행", "RANGE"), 932f, 28f, 12f, Color.rgb(104, 111, 116), Paint.Align.RIGHT);
+        text(c, p, String.format(Locale.US, "%.0f km", km), 932f, 51f, 20f,
                 Color.rgb(36, 42, 46), Paint.Align.RIGHT);
     }
 
@@ -935,18 +960,18 @@ public final class HudService extends Service {
     }
 
     private void drawTpms(Canvas c, Paint p, JSONObject tpms) {
-        scratchRect.set(604f, 376f, 752f, 454f);
+        scratchRect.set(791f, 376f, 939f, 454f);
         drawCard(c, p, scratchRect);
-        text(c, p, "TPMS", 678f, 394f, 12f, Color.rgb(86, 94, 100), Paint.Align.CENTER);
+        text(c, p, "TPMS", 865f, 394f, 12f, Color.rgb(86, 94, 100), Paint.Align.CENTER);
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(Color.rgb(95, 102, 107));
-        scratchRect.set(665f, 404f, 691f, 446f);
+        scratchRect.set(852f, 404f, 878f, 446f);
         c.drawRoundRect(scratchRect, 4f, 4f, p);
-        text(c, p, tpmsText(tpmsValue(tpms, "fl")), 653f, 417f, 16f, Color.rgb(18, 18, 18), Paint.Align.RIGHT);
-        text(c, p, tpmsText(tpmsValue(tpms, "fr")), 703f, 417f, 16f, Color.rgb(18, 18, 18), Paint.Align.LEFT);
-        text(c, p, tpmsText(tpmsValue(tpms, "rl")), 653f, 443f, 16f, Color.rgb(18, 18, 18), Paint.Align.RIGHT);
-        text(c, p, tpmsText(tpmsValue(tpms, "rr")), 703f, 443f, 16f, Color.rgb(18, 18, 18), Paint.Align.LEFT);
+        text(c, p, tpmsText(tpmsValue(tpms, "fl")), 840f, 417f, 16f, Color.rgb(18, 18, 18), Paint.Align.RIGHT);
+        text(c, p, tpmsText(tpmsValue(tpms, "fr")), 890f, 417f, 16f, Color.rgb(18, 18, 18), Paint.Align.LEFT);
+        text(c, p, tpmsText(tpmsValue(tpms, "rl")), 840f, 443f, 16f, Color.rgb(18, 18, 18), Paint.Align.RIGHT);
+        text(c, p, tpmsText(tpmsValue(tpms, "rr")), 890f, 443f, 16f, Color.rgb(18, 18, 18), Paint.Align.LEFT);
     }
 
     private String tpmsText(float v) {
@@ -970,7 +995,11 @@ public final class HudService extends Service {
         if (dist < 0) {
             return;
         }
-        scratchRect.set(604f, 249f, 752f, 368f);
+        // 목적지(경로)가 살아 있을 때만 표시한다. 안내 없이 떠 있지 않도록.
+        if (navi.optInt("remainDist", 0) <= 0) {
+            return;
+        }
+        scratchRect.set(962f, 330f, 1106f, 456f);
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(Color.rgb(31, 35, 38));
@@ -984,18 +1013,53 @@ public final class HudService extends Service {
         if (title.length() > 12) {
             title = title.substring(0, 11) + "…";
         }
-        text(c, p, title, 678f, 269f, 14f, Color.rgb(248, 249, 250), Paint.Align.CENTER);
+        text(c, p, title, 1034f, 350f, 14f, Color.rgb(248, 249, 250), Paint.Align.CENTER);
 
         boolean blink = dist > 350 || ((SystemClock.elapsedRealtime() / 500L) & 1L) == 0L;
         if (blink) {
-            drawAtcArrow(c, p, 678f, 305f, navi.optInt("turnType", 0));
+            drawAtcArrow(c, p, 1034f, 388f, navi.optInt("turnType", 0));
         }
-        text(c, p, distanceText(dist), 678f, 346f, 22f, Color.rgb(248, 249, 250), Paint.Align.CENTER);
+        text(c, p, distanceText(dist), 1034f, 428f, 22f, Color.rgb(248, 249, 250), Paint.Align.CENTER);
         int remain = navi.optInt("remainDist", 0);
         if (remain > 0) {
-            text(c, p, lang("남은 ", "LEFT ") + distanceText(remain), 678f, 363f, 11f,
+            text(c, p, lang("남은 ", "LEFT ") + distanceText(remain), 1034f, 447f, 11f,
                     Color.rgb(180, 188, 194), Paint.Align.CENTER);
         }
+    }
+
+    private static final int TBT_GREEN = Color.rgb(31, 122, 72);
+
+    /**
+     * 1행(현재 회전)은 티맵 PNG 를 그대로 쓴다 — 고가차도·복잡분기 아이콘이
+     * 살아 있어야 하기 때문. 2행(다음 회전)만 1행과 같은 녹색으로 직접 그려
+     * 폭을 줄인다. 패킷의 navi.next 가 없으면 그리지 않는다.
+     */
+    private void drawTbtNext(Canvas c, Paint p, JSONObject navi) {
+        if (navi == null || !navi.optBoolean("active", false)
+                || navi.optInt("remainDist", 0) <= 0) {
+            return;
+        }
+        JSONObject next = navi.optJSONObject("next");
+        if (next == null) {
+            return;
+        }
+        int nextDist = next.optInt("turnDist", -1);
+        if (nextDist < 0) {
+            return;
+        }
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(TBT_GREEN);
+        scratchRect.set(968f, 134f, 1200f, 190f);
+        c.drawRoundRect(scratchRect, 8f, 8f, p);
+        drawScaledArrow(c, p, 1000f, 162f, next.optInt("turnType", 0), 0.78f);
+        text(c, p, distanceText(nextDist), 1034f, 174f, 29f, Color.WHITE, Paint.Align.LEFT);
+    }
+
+    private void drawScaledArrow(Canvas c, Paint p, float cx, float cy, int type, float scale) {
+        int save = c.save();
+        c.scale(scale, scale, cx, cy);
+        drawAtcArrow(c, p, cx, cy, type);
+        c.restoreToCount(save);
     }
 
     private void drawAtcArrow(Canvas c, Paint p, float cx, float cy, int type) {
@@ -1069,19 +1133,20 @@ public final class HudService extends Service {
                 ? "--" : String.format(Locale.US, "%.0f%s", value, unit);
     }
 
+    /** 폭 192px 패널이라 라벨을 위, 값을 아래로 쌓는다. */
     private void drawSystemMetric(Canvas c, Paint p, float top, String label, String value) {
-        float bottom = top + 72f;
+        float bottom = top + 84f;
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(Color.rgb(16, 23, 32));
-        scratchRect.set(790f, top, 1130f, bottom);
-        c.drawRoundRect(scratchRect, 10f, 10f, p);
+        scratchRect.set(1734f, top, 1914f, bottom);
+        c.drawRoundRect(scratchRect, 9f, 9f, p);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(2f);
         p.setColor(Color.rgb(55, 68, 80));
-        c.drawRoundRect(scratchRect, 10f, 10f, p);
-        text(c, p, label, 804f, top + 44f, 20f, Color.rgb(145, 158, 168), Paint.Align.LEFT);
-        text(c, p, value, 1116f, top + 47f, 30f, Color.rgb(235, 240, 245), Paint.Align.RIGHT);
+        c.drawRoundRect(scratchRect, 9f, 9f, p);
+        text(c, p, label, 1824f, top + 26f, 15f, Color.rgb(145, 158, 168), Paint.Align.CENTER);
+        text(c, p, value, 1824f, top + 66f, 30f, Color.rgb(235, 240, 245), Paint.Align.CENTER);
     }
 
     private void drawSystem(Canvas c, Paint p, JSONObject s) {
@@ -1089,35 +1154,23 @@ public final class HudService extends Service {
         p.setStyle(Paint.Style.FILL);
         p.setColor(Color.rgb(7, 12, 18));
         c.drawRect(SYSTEM_LEFT, 0f, SYSTEM_RIGHT, HEIGHT, p);
-        text(c, p, "SYSTEM", 960f, 31f, 24f, Color.rgb(235, 240, 245), Paint.Align.CENTER);
+        text(c, p, "SYSTEM", 1824f, 26f, 17f, Color.rgb(235, 240, 245), Paint.Align.CENTER);
 
         JSONObject system = s.optJSONObject("system");
         if (system == null) {
             system = s;
         }
-        drawSystemMetric(c, p, 54f, "CPU", systemValue(system, "cpu", "%"));
+        drawSystemMetric(c, p, 42f, "CPU", systemValue(system, "cpu", "%"));
         drawSystemMetric(c, p, 132f, "TEMP", systemValue(system, "temp", "°C"));
-        drawSystemMetric(c, p, 210f, "ENGINE", systemValue(system, "engineTemp", "°C"));
-        drawSystemMetric(c, p, 288f, "COOLANT", systemValue(system, "coolantTemp", "°C"));
+        drawSystemMetric(c, p, 222f, "ENGINE", systemValue(system, "engineTemp", "°C"));
+        drawSystemMetric(c, p, 312f, "COOLANT", systemValue(system, "coolantTemp", "°C"));
 
         double accel = s.optDouble("accel", Double.NaN);
         if (Double.isFinite(accel)) {
-            text(c, p, String.format(Locale.US, "ACCEL %+.2f m/s²", accel), 960f, 397f, 17f,
+            text(c, p, "ACCEL", 1824f, 424f, 13f, Color.rgb(120, 132, 142), Paint.Align.CENTER);
+            text(c, p, String.format(Locale.US, "%+.2f", accel), 1824f, 448f, 20f,
                     Color.rgb(173, 184, 192), Paint.Align.CENTER);
         }
-        JSONArray cores = system.optJSONArray("cores");
-        if (cores == null || cores.length() <= 0) {
-            return;
-        }
-        StringBuilder sb = new StringBuilder();
-        int count = Math.min(8, cores.length());
-        for (int i = 0; i < count; i++) {
-            if (i > 0) {
-                sb.append("  ");
-            }
-            sb.append('C').append(i).append(' ').append(Math.round(cores.optDouble(i, 0d))).append('%');
-        }
-        text(c, p, sb.toString(), 960f, 430f, 12f, Color.rgb(145, 158, 168), Paint.Align.CENTER);
     }
 
     private String lang(String ko, String en) {
@@ -1167,8 +1220,8 @@ public final class HudService extends Service {
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(dark ? Color.rgb(8, 13, 19) : Color.rgb(232, 235, 237));
-        c.drawRect(MAP_LEFT, 0f, WIDTH, HEIGHT, p);
-        text(c, p, title, 1536f, 42f, 27f, dark ? Color.WHITE : Color.rgb(25, 30, 34), Paint.Align.CENTER);
+        c.drawRect(MAP_LEFT, 0f, MAP_RIGHT, HEIGHT, p);
+        text(c, p, title, MAP_CX, 42f, 27f, dark ? Color.WHITE : Color.rgb(25, 30, 34), Paint.Align.CENTER);
     }
 
     private void drawDebugRight(Canvas c, Paint p, JSONObject s) {
@@ -1183,26 +1236,26 @@ public final class HudService extends Service {
 
         float y = 95f;
         text(c, p, String.format(Locale.US, "CPU %.0f%%   TEMP %.0f°C",
-                sys.optDouble("cpu", 0d), sys.optDouble("temp", 0d)), 1197f, y, 27f, fg, Paint.Align.LEFT);
+                sys.optDouble("cpu", 0d), sys.optDouble("temp", 0d)), 1000f, y, 25f, fg, Paint.Align.LEFT);
         y += 52f;
         text(c, p, String.format(Locale.US, "SPEED %d   SET %d   GAP %d",
                 s.optInt("speed", 0), s.optInt("set", 0), s.optInt("gap", 0)),
-                1197f, y, 25f, fg, Paint.Align.LEFT);
+                1000f, y, 23f, fg, Paint.Align.LEFT);
         y += 52f;
         JSONObject lead = s.optJSONObject("lead");
         if (lead != null) {
             text(c, p, String.format(Locale.US, "LEAD %.0fm  %+.0fkm/h",
-                    lead.optDouble("d", 0d), lead.optDouble("v", 0d)), 1197f, y, 25f, fg, Paint.Align.LEFT);
+                    lead.optDouble("d", 0d), lead.optDouble("v", 0d)), 1000f, y, 23f, fg, Paint.Align.LEFT);
         } else {
-            text(c, p, "LEAD --", 1197f, y, 25f, sub, Paint.Align.LEFT);
+            text(c, p, "LEAD --", 1000f, y, 23f, sub, Paint.Align.LEFT);
         }
         y += 52f;
         text(c, p, String.format(Locale.US, "FPS %d   MAP %dfps   JPEG %d",
                 configuredFps, Math.max(2, Math.min(5, s.optInt("hudMapFps", 5))), jpegQuality),
-                1197f, y, 24f, fg, Paint.Align.LEFT);
+                1000f, y, 22f, fg, Paint.Align.LEFT);
         y += 52f;
         text(c, p, lang("S9 렌더링 / USB 출력", "S9 RENDER / USB OUTPUT"),
-                1197f, y, 22f, sub, Paint.Align.LEFT);
+                1000f, y, 20f, sub, Paint.Align.LEFT);
     }
 
     private void drawTripRight(Canvas c, Paint p, JSONObject s) {
@@ -1214,39 +1267,45 @@ public final class HudService extends Service {
         int fg = dark ? Color.rgb(235, 240, 245) : Color.rgb(25, 30, 34);
         int sub = dark ? Color.rgb(160, 172, 182) : Color.rgb(90, 100, 108);
 
-        text(c, p, String.format(Locale.US, "%.1f km", tripDistanceKm), 1536f, 145f, 54f, fg, Paint.Align.CENTER);
-        text(c, p, lang("주행거리", "DISTANCE"), 1536f, 178f, 18f, sub, Paint.Align.CENTER);
+        text(c, p, String.format(Locale.US, "%.1f km", tripDistanceKm), MAP_CX, 145f, 54f, fg, Paint.Align.CENTER);
+        text(c, p, lang("주행거리", "DISTANCE"), MAP_CX, 178f, 18f, sub, Paint.Align.CENTER);
         text(c, p, String.format(Locale.US, "%02d:%02d", elapsed / 3600000L, (elapsed / 60000L) % 60L),
-                1536f, 255f, 48f, fg, Paint.Align.CENTER);
-        text(c, p, lang("주행시간", "DRIVE TIME"), 1536f, 286f, 18f, sub, Paint.Align.CENTER);
-        text(c, p, String.format(Locale.US, "AVG %.0f km/h", avg), 1536f, 363f, 35f, fg, Paint.Align.CENTER);
+                MAP_CX, 255f, 48f, fg, Paint.Align.CENTER);
+        text(c, p, lang("주행시간", "DRIVE TIME"), MAP_CX, 286f, 18f, sub, Paint.Align.CENTER);
+        text(c, p, String.format(Locale.US, "AVG %.0f km/h", avg), MAP_CX, 363f, 35f, fg, Paint.Align.CENTER);
     }
 
     private void drawMap(Canvas c, Paint p, JSONObject s, Bitmap map, Bitmap tbtCurrent,
                          Bitmap tbtNext, Bitmap lane) {
-        scratchIRect.set(MAP_LEFT, 0, WIDTH, HEIGHT);
+        scratchIRect.set(MAP_LEFT, 0, MAP_RIGHT, HEIGHT);
         if (map == null || map.isRecycled()) {
             p.setShader(null);
             p.setStyle(Paint.Style.FILL);
             p.setColor(Color.BLACK);
             c.drawRect(scratchIRect, p);
-            text(c, p, lang("TMAP 화면 대기", "WAITING FOR TMAP"), 1536f, 240f, 34f,
+            text(c, p, lang("TMAP 화면 대기", "WAITING FOR TMAP"), MAP_CX, 240f, 34f,
                     Color.GRAY, Paint.Align.CENTER);
+            drawAtc(c, p, s);
             return;
         }
         p.setFilterBitmap(true);
         c.drawBitmap(map, null, scratchIRect, p);
 
         JSONObject l = layout(s);
-        int save = beginElement(c, l, "tbt1", 1351f, 52f);
-        drawNativeOverlay(c, p, tbtCurrent, 1160f, 8f, 1542f, 96f, Paint.Align.LEFT);
+        int save = beginElement(c, l, "tbt1", 1168f, 64f);
+        drawNativeOverlay(c, p, tbtCurrent, 968f, 8f, 1368f, 120f, Paint.Align.LEFT);
         c.restoreToCount(save);
-        int save2 = beginElement(c, l, "tbt2", 1298f, 127f);
-        drawNativeOverlay(c, p, tbtNext, 1160f, 98f, 1437f, 156f, Paint.Align.LEFT);
+        int save2 = beginElement(c, l, "tbt2", 1084f, 156f);
+        drawTbtNext(c, p, s.optJSONObject("navi"));
         c.restoreToCount(save2);
-        int save3 = beginElement(c, l, "lane", 1536f, 400f);
-        drawNativeOverlay(c, p, lane, 1337f, 358f, 1830f, 442f, Paint.Align.CENTER);
+        int save3 = beginElement(c, l, "lane", 1395f, 408f);
+        drawNativeOverlay(c, p, lane, 1130f, 366f, 1660f, 450f, Paint.Align.CENTER);
         c.restoreToCount(save3);
+
+        // ATC 안내는 주행 패널에서 TMAP 패널 좌하단으로 이동했다.
+        int save4 = beginElement(c, l, "atc", 1034f, 393f);
+        drawAtc(c, p, s);
+        c.restoreToCount(save4);
     }
 
     private void drawNativeOverlay(Canvas c, Paint p, Bitmap bitmap,
