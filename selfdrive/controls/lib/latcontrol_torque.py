@@ -162,14 +162,14 @@ class LatControlTorque(LatControl):
       len(T_IDXS))
 
   def update_live_torque_params(self, latAccelFactor, latAccelOffset, friction):
-    # Manual override (LateralTorqueCustom) always wins -- don't let torqued's
-    # live-learned values fight read_torque_params() every frame.
-    auto_tune = self.params.get_bool("CarrotLearningActive") and self.params.get_bool("CarrotTunerApplyLat")
-    if self.lateral_torque_custom > 0 or auto_tune:
-      return
-    self.torque_params.latAccelFactor = latAccelFactor
-    self.torque_params.latAccelOffset = latAccelOffset
-    self.torque_params.friction = friction
+    # 2026-08-18: 실차 MDPS 폴트 사고 원인이 torqued.py(LiveTorque)의 값이
+    # 실제 제어에 들어간 것이었다. 그 이후 결정: LiveTorque는 실제 적용에
+    # 절대 쓰지 않고, 조향 관련 값은 전부 CarrotLatLearner(수동 확인 후
+    # 적용)로만 다룬다. 예전에는 이 조건이 CarrotLearningActive가 켜져 있을
+    # 때만 LiveTorque를 막았는데, CarrotLearningActive 기본값이 꺼짐이라
+    # 아무 것도 안 켜진 기본 상태에서 LiveTorque가 그대로 실제 제어에
+    # 들어가는 구멍이 있었다. 토글 상태와 무관하게 항상 막는다.
+    return
 
   def _update_curve_state(self, desired_curvature):
     """요구곡률 크기를 비대칭 필터로 추종해 커브/직진 강도(0~1)를 만든다."""

@@ -8,8 +8,13 @@ adapted to this (older, pre-livePose/carOutput) fork:
     calibratedOrientationNED / angularVelocityCalibrated are already in the
     vehicle-aligned calibrated frame, same fields latcontrol_torque.py already
     reads via `llk`).
-  - uses `carState.steeringTorqueEps` instead of a separate `carOutput` message
-    (this fork has no carOutput split).
+  - uses `carControl.actuatorsOutput.steer` for the steer-torque signal
+    (this fork has no separate `carOutput` message, but `carControl` itself
+    already carries `actuatorsOutput` -- controlsd.py fills it in every frame
+    with `CC.actuatorsOutput = self.last_actuators`). 2026-08-18: this used to
+    read `carState.steeringTorqueEps` (raw CAN-reported EPS torque, a very
+    different scale from the -1..1 normalized actuator output the bucket
+    fitting expects) -- switched to actuatorsOutput.steer to match units.
   - uses a fixed lag (CP.steerActuatorDelay) instead of a live `liveDelay`
     estimator (this fork has no locationd liveDelay process).
   - PointBuckets/ParameterEstimator base classes inlined here since this fork's
@@ -18,10 +23,12 @@ adapted to this (older, pre-livePose/carOutput) fork:
 Output feeds LatControlTorque.update_live_torque_params(), which already exists
 in latcontrol_torque.py but, before this backport, was never called.
 
-NOTE: this only changes the *live-learning* torque parameters. It does not
-touch the manual "LateralTorqueCustom" override path, which still takes
-priority whenever it's enabled (read_torque_params() in latcontrol_torque.py
-early-returns to the manual values in that case).
+NOTE: this only computes the *live-learning* torque parameters -- it does not
+apply them. update_live_torque_params() is hard-disabled (2026-08-18, after a
+real MDPS fault traced to LiveTorque output reaching real control) and never
+writes torqued's estimate into the actual steering controller, regardless of
+any toggle. Only CarrotLatLearner's manual-confirm recommendations (or the
+"LateralTorqueCustom" manual override) ever reach the car.
 """
 import os
 import time
@@ -220,14 +227,22 @@ class TorqueEstimator:
     if which == "carControl":
       self.raw_points["carControl_t"].append(t + self.lag)
       self.raw_points["lat_active"].append(bool(msg.latActive))
+      # 2026-08-18: 예전엔 carState.steeringTorqueEps(이 차량이 CAN으로
+      # 보고하는 원시 EPS 토크, 대략 수십~수백 스케일)를 썼는데,
+      # STEER_BUCKET_BOUNDS는 -0.5~0.5 범위의 정규화 액추에이터 출력을
+      # 가정하고 있어서 단위가 안 맞았다 -- 실제 조향값 대부분이 버킷 범위
+      # 밖으로 떨어지거나, 0 근처 값만 몰려서 회귀가 왜곡될 수 있는 종류의
+      # 버그. 이 fork도 carControl.actuatorsOutput.steer(-1~1 정규화, 안전
+      # 리미터를 거친 뒤 실제 커맨드된 값 -- controlsd.py가 매 프레임
+      # CC.actuatorsOutput = self.last_actuators로 채움)를 이미 갖고 있어서
+      # 이쪽으로 바꾼다. carOutput 메시지가 따로 없을 뿐, carControl 안에
+      # 데이터 자체는 있었다.
+      self.raw_points["steer_torque_t"].append(t + self.lag)
+      self.raw_points["steer_torque"].append(msg.actuatorsOutput.steer)
     elif which == "carState":
       self.raw_points["carState_t"].append(t + self.lag)
       self.raw_points["vego"].append(msg.vEgo)
       self.raw_points["steer_override"].append(bool(msg.steeringPressed))
-      # No separate carOutput message in this fork -- steeringTorqueEps is the
-      # commanded/actual EPS torque as reported back on the CAN bus.
-      self.raw_points["steer_torque_t"].append(t + self.lag)
-      self.raw_points["steer_torque"].append(-msg.steeringTorqueEps)
     elif which == "liveLocationKalman":
       if len(self.raw_points['steer_torque']) == 0 or len(self.raw_points['carState_t']) < 2:
         return
