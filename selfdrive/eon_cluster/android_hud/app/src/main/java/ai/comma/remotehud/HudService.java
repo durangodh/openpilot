@@ -778,10 +778,10 @@ public final class HudService extends Service {
             // EON onroad.cc drawSpeedLimit 과 같은 규칙: 방지턱이 있으면
             // 과속카메라 대신 이 자리를 쓴다.
             drawBumpIcon(c, p, 882f, 171f, bumpDist);
-        } else {
-            drawCamera(c, p, 882f, 171f, s.optInt("camera", 0), s.optInt("cameraDist", 0),
-                    s.optBoolean("cameraSection", false));
         }
+        // 2026-08-18: 도로 제한속도 원형 배지(흰 원 + 빨간 테두리 + 숫자)
+        // 표시 제거 요청. drawCamera()는 나중에 다시 필요할 수 있어 메서드
+        // 자체는 남겨두고 호출만 뺐다.
         c.restoreToCount(save6);
 
         int save7 = beginElement(c, l, "lead", 82f, 415f);

@@ -151,10 +151,22 @@ class CarrotLatLearner:
 
   def tick(self, CS, latActive, desired_curvature, desired_angle_deg=0.0, lane_center_y=None):
     self._frame += 1
+    is_park = CS.gearShifter == GearShifter.park
+
     if self._frame % _PARAMS_REFRESH_TICKS == 0 or self._frame == 1:
       self._refresh_switches()
+      # 2026-08-18: 팝업에서 수락해도 이 Python 카운터/추천 dict가 리셋되지
+      # 않던 문제. onroad.cc가 Params 값만 직접 쓰고 apply_recommendations()를
+      # 호출할 방법이 없어서, self._recommend에 남은 "이미 적용된" 항목의
+      # current 스냅샷이 갱신되지 않은 채 다음 _save() 때 그대로 다시
+      # 올라가 팝업이 중복/낡은 값으로 재표시될 수 있었다. 적용 여부와
+      # 상관없이 리셋의 단일 소스를 Python으로 만든다: 팝업 수락 시
+      # onroad.cc는 이 플래그만 세우고, 실제 적용+리셋은 여기서 처리.
+      if self._params.get_bool("CarrotLearningApplyNow"):
+        self._params.put_bool("CarrotLearningApplyNow", False)
+        if is_park and self._recommend:
+          self.apply_recommendations()
 
-    is_park = CS.gearShifter == GearShifter.park
     if is_park and not self._was_park:
       self._on_park()
     self._was_park = is_park

@@ -261,6 +261,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudTheme", PERSISTENT},
     {"EonClusterHudOrientation", PERSISTENT},
     {"EonClusterHudMirror", PERSISTENT},
+    {"EonClusterHudPathFlip", PERSISTENT},       // 진단용: S9 경로/차선 좌우반전 (0=기본, 1=반전)
     {"EonClusterHudLanguage", PERSISTENT},
     {"EonClusterHudRadarInfo", PERSISTENT},
     {"ShowMapboxMap", PERSISTENT},              // 1=Mapbox/ATC Tmap 지도 이미지 표시, 0=모든 지도 이미지 숨김
@@ -301,6 +302,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"CarrotLearningHistory", PERSISTENT},     // 적용 이력 (JSON, 최대 50)
     {"CarrotLearningPopupReady", PERSISTENT},  // 추천 준비 신호
     {"CarrotLearningPopupSource", PERSISTENT}, // 추천 발생 소스 ("parking")
+    {"CarrotLearningApplyNow", PERSISTENT},    // 팝업에서 수락 시 1회성 신호: Python이 적용+카운터 리셋을 전담
     {"CarrotLearningClear", PERSISTENT},       // 학습 데이터 초기화 신호
     {"CarrotTunerFactoryReset", PERSISTENT},   // 공장초기화 신호 (commit e06a7dd): UI→onroad 학습기 재동기화
     {"LongCoastBand", PERSISTENT},             // 코스팅 데드밴드 (x100 정수, m/s², 기본 0=off; commit 10fa725 Phase9 추천·longcontrol 라이브 반영)

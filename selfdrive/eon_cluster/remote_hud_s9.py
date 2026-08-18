@@ -21,11 +21,43 @@ def _bounded_int(key, default, minimum, maximum):
   return max(minimum, min(maximum, value))
 
 
+def _flip_points_y(points):
+  if not points:
+    return points
+  return [[p[0], -p[1]] for p in points]
+
+
+def _apply_path_flip(packet):
+  # 2026-08-18: 실차 확인 결과 EonClusterHudMirror(화면 전체 좌우반전)는
+  # 꺼져 있는데도 차선/경로 리본이 실제 도로와 반대로 보이는 문제가
+  # 있었다. 텍스트/아이콘은 정상이라 전체 미러는 원인이 아니고, 차선과
+  # 리본이 서로는 어긋나지 않고 같이 반대로 보인다는 것도 확인했다.
+  # BSD/텍스트/아이콘은 건드리지 않고 path/lanes/edges/pathOffset/lead.y
+  # 만 좌우 부호를 뒤집는, APK 재설치 없이(파이썬만 재시작) 테스트할 수
+  # 있는 진단용 토글이다. 기본 꺼짐.
+  if not _bounded_int("EonClusterHudPathFlip", 0, 0, 1):
+    return packet
+  packet["path"] = _flip_points_y(packet.get("path"))
+  for line in packet.get("lanes") or []:
+    if isinstance(line, dict):
+      line["p"] = _flip_points_y(line.get("p"))
+  for line in packet.get("edges") or []:
+    if isinstance(line, dict):
+      line["p"] = _flip_points_y(line.get("p"))
+  packet["pathOffset"] = -float(packet.get("pathOffset", 0.0) or 0.0)
+  for key in ("lead", "lead2"):
+    lead = packet.get(key)
+    if isinstance(lead, dict) and "y" in lead:
+      lead["y"] = -float(lead["y"] or 0.0)
+  return packet
+
+
 def _packet(sm, *args, **kwargs):
   # base._packet 의 인자가 늘어나도(atc_mode → +path_offset 등) 그대로
   # 흘려보낸다. 고정 인자로 받으면 base 쪽 시그니처가 바뀔 때마다
   # TypeError 로 패킷이 아예 안 나가고 폰에는 "EON 연결 끊김" 만 뜬다.
   packet = _original_packet(sm, *args, **kwargs)
+  packet = _apply_path_flip(packet)
 
   # Preserve 0 for FPS (pause) and brightness (auto), matching the UI.
   packet["hudFps"] = _bounded_int("EonClusterHudFps", 8, 0, 15)

@@ -100,6 +100,7 @@ def manager_init() -> None:
     ("EonClusterHudTheme", "0"),
     ("EonClusterHudOrientation", "0"),
     ("EonClusterHudMirror", "0"),
+    ("EonClusterHudPathFlip", "0"),
     ("EonClusterHudLanguage", "0"),
     ("EonClusterHudRadarInfo", "4"),
     ("ShowMapboxMap", "1"),

@@ -146,6 +146,7 @@ final class World3D {
     private LinearGradient hazeShader;
     private int hazeShaderColor;
     private LinearGradient ribbonShader;
+    private LinearGradient ribbonStrokeShader;
     private int ribbonShaderColor;
 
     private boolean dark;
@@ -732,7 +733,9 @@ final class World3D {
         }
         final float half = 0.9f;
         final int steps = 44;
-        float reach = Math.min(FAR_DEPTH * 0.62f, pathX[pathCount - 1] + 10f);
+        // 2026-08-18: 화면에 보이는 도로 끝까지 리본을 늘린다 (모델이 실제로
+        // 넘겨준 마지막 경로 포인트보다는 더 늘릴 수 없음).
+        float reach = Math.min(FAR_DEPTH * 0.95f, pathX[pathCount - 1] + 10f);
         poly.rewind();
         boolean started = false;
         int used = 0;
@@ -760,10 +763,16 @@ final class World3D {
         }
         poly.close();
 
+        // 2026-08-18: 색 더 진하게(20% 어둡게) + 그라데이션 강화(원거리 더
+        // 옅게, 근거리 더 진하게). 테두리도 단색 대신 같은 그라데이션을 써서
+        // 채우기와 어울리게 한다.
+        int darkR = Math.round(Color.red(color) * 0.8f);
+        int darkG = Math.round(Color.green(color) * 0.8f);
+        int darkB = Math.round(Color.blue(color) * 0.8f);
         if (ribbonShader == null || ribbonShaderColor != color) {
             ribbonShader = new LinearGradient(0f, HORIZON, 0f, BOTTOM,
-                    Color.argb(40, Color.red(color), Color.green(color), Color.blue(color)),
-                    Color.argb(190, Color.red(color), Color.green(color), Color.blue(color)),
+                    Color.argb(20, darkR, darkG, darkB),
+                    Color.argb(225, darkR, darkG, darkB),
                     Shader.TileMode.CLAMP);
             ribbonShaderColor = color;
         }
@@ -772,13 +781,18 @@ final class World3D {
         c.drawPath(poly, p);
         p.setShader(null);
 
+        if (ribbonStrokeShader == null || ribbonShaderColor != color) {
+            ribbonStrokeShader = new LinearGradient(0f, HORIZON, 0f, BOTTOM,
+                    Color.argb(60, darkR, darkG, darkB),
+                    Color.argb(255, darkR, darkG, darkB),
+                    Shader.TileMode.CLAMP);
+        }
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(2.8f);
         p.setStrokeJoin(Paint.Join.ROUND);
-        p.setColor(Color.rgb(Math.min(255, Color.red(color) + 60),
-                Math.min(255, Color.green(color) + 50),
-                Math.min(255, Color.blue(color) + 20)));
+        p.setShader(ribbonStrokeShader);
         c.drawPath(poly, p);
+        p.setShader(null);
         p.setStyle(Paint.Style.FILL);
     }
 

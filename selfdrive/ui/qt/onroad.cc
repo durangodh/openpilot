@@ -143,25 +143,14 @@ void OnroadWindow::checkCarrotLearningPopup(const cereal::CarState::Reader &car_
   bool accepted = ConfirmationDialog::confirm(formatCarrotLearningPrompt(rec), this);
 
   if (accepted) {
-    static const QMap<QString, QPair<int, int>> kBounds = {
-      {"PathOffset", {-30, 30}},
-      {"SteerActuatorDelay", {15, 60}},
-      {"SteerRatioRate", {90, 150}},
-      {"LateralTorqueAccelFactor", {1000, 6000}},
-      {"LateralTorqueKf", {0, 200}},
-      {"LateralTorqueFriction", {10, 300}},
-      {"LateralTorqueKpV", {30, 200}},
-      {"LateralTorqueKiV", {0, 50}},
-    };
-    for (auto it = rec.constBegin(); it != rec.constEnd(); ++it) {
-      if (!kBounds.contains(it.key())) continue;
-      int v = it.value().toObject().value("recommend").toInt();
-      QPair<int, int> bounds = kBounds[it.key()];
-      v = std::max(bounds.first, std::min(bounds.second, v));
-      params.put(it.key().toStdString(), std::to_string(v));
-    }
+    // 2026-08-18: 여기서 Params를 직접 쓰면 carrot_lat_learning.py 쪽
+    // 카운터/self._recommend가 리셋되지 않아, 다음 평가 주기에 이미 적용된
+    // (낡은) 추천이 그대로 다시 팝업에 올라오는 문제가 있었다. 클램핑과
+    // 리셋을 Python 한쪽으로 모으고 여기서는 신호만 준다.
+    params.putBool("CarrotLearningApplyNow", true);
+  } else {
+    params.remove("CarrotLearningRecommend");
   }
-  params.remove("CarrotLearningRecommend");
   params.putBool("CarrotLearningPopupReady", false);
 }
 

@@ -1237,6 +1237,10 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "EonClusterHudMirror", "S9 HUD 좌우 반전", "0: 기본 / 1: 좌우 미러",
       "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
   toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudPathFlip", "S9 HUD 차선/경로 좌우반전 (실험적)",
+      "0: 기본 / 1: 차선·경로 리본·옆차 위치만 좌우반전 (화면 전체 미러와는 별개, 진단용)",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudLanguage", "S9 HUD 언어", "0: 한국어 / 1: English",
       "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
   toggleLayout->addWidget(new ParamValueControlF(
