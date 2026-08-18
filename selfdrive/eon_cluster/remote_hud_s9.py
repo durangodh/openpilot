@@ -42,6 +42,7 @@ def _packet(sm, *args, **kwargs):
   packet["hudOutputMode"] = _bounded_int("EonClusterHudOutputMode", 1, 1, 3)
   packet["hudBsdStyle"] = _bounded_int("EonClusterHudBsdStyle", 2, 1, 3)
   packet["hudCarStyle"] = _bounded_int("EonClusterHudCarStyle", 1, 1, 2)
+  packet["hudRoadSigns"] = _bounded_int("EonClusterHudRoadSigns", 3, 0, 3)
   return packet
 
 

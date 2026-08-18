@@ -63,9 +63,11 @@ final class World3D {
     /** 차량 표현 방식 */
     static final int CAR_SPRITE = 1;   // 사진 스프라이트 (기본)
     static final int CAR_BOX = 2;      // 단색 3D 박스 + 음영
-    private static final float CAR_W = 1.86f;
-    private static final float CAR_H = 1.46f;
-    private static final float CAR_LEN = 4.6f;
+    // 3D 박스 차량 크기. 실제 치수(1.86 / 1.46 / 4.6)에서 30% 줄인 값 —
+    // 화면에서 차가 과하게 커 보인다는 피드백 반영. 사진 스프라이트는 별개다.
+    private static final float CAR_W = 1.30f;
+    private static final float CAR_H = 1.02f;
+    private static final float CAR_LEN = 3.22f;
 
     /** BSD 표시 방식 */
     static final int BSD_BAR = 1;      // 막대만
@@ -85,8 +87,11 @@ final class World3D {
 
     /** 과속방지턱 노면 표시 */
     private static final float BUMP_VISIBLE_M = 60f;   // 이보다 멀면 우측 아이콘만
-    private static final float BUMP_DEPTH = 1.6f;      // 진행방향 길이 (m)
-    private static final float BUMP_H = 0.42f;         // 과장한 높이 (m)
+    private static final float BUMP_DEPTH = 1.12f;     // 진행방향 길이 (m) — 1.6에서 30% 축소
+    private static final float BUMP_H = 0.29f;         // 과장한 높이 (m) — 0.42에서 30% 축소
+
+    /** 노면 표시 축소 배율. 1.0 이 차로 폭·기본 길이. */
+    private static final float SIGN_SCALE = 0.70f;
 
     private static final int SLICES = 30;
     private static final int MAX_PTS = 80;
@@ -309,21 +314,48 @@ final class World3D {
     /** 전방 x(m) 에서 자차 차선의 좌/우 경계 y(m). 차선이 없으면 ±1.75m 폴백.
      *  y 는 좌측이 + 이므로 왼쪽 경계가 큰 값이다. */
     private float laneEdgeAt(float x, boolean leftSide) {
-        if (leftSide) {
-            return laneLCount >= 2 ? sample(laneLX, laneLY, laneLCount, x) : 1.75f;
+        // modelV2 laneLines 의 인덱스 순서(1=좌, 2=우)를 믿지 않는다. 순서가 뒤바뀐
+        // 패킷이 오면 노면 사각형의 좌우가 맞바뀌어 글자가 거울처럼 뒤집힌다.
+        // y 는 좌측이 + 이므로 큰 쪽이 항상 왼쪽 경계다.
+        boolean haveL = laneLCount >= 2;
+        boolean haveR = laneRCount >= 2;
+        if (!haveL && !haveR) {
+            return leftSide ? 1.75f : -1.75f;
         }
-        return laneRCount >= 2 ? sample(laneRX, laneRY, laneRCount, x) : -1.75f;
+        float a = haveL ? sample(laneLX, laneLY, laneLCount, x) : -1.75f;
+        float b = haveR ? sample(laneRX, laneRY, laneRCount, x) : 1.75f;
+        float hi = Math.max(a, b);
+        float lo = Math.min(a, b);
+        // 한쪽만 잡혔거나 두 선이 붙어 버린 경우 최소 차로폭을 확보한다.
+        if (hi - lo < 2.0f) {
+            float mid = (hi + lo) * 0.5f;
+            hi = mid + 1.55f;
+            lo = mid - 1.55f;
+        }
+        return leftSide ? hi : lo;
     }
 
 
     // ── 노면 표시 (제한속도 / 과속방지턱) ──────────────────────────────────
 
+    private float laneMid(float x) {
+        return (laneEdgeAt(x, true) + laneEdgeAt(x, false)) * 0.5f;
+    }
+
+    private float laneHalf(float x) {
+        return (laneEdgeAt(x, true) - laneEdgeAt(x, false)) * 0.5f;
+    }
+
     /** 지면 사각형(전방 x0~x1, 좌우 경계는 자차 차선)에 비트맵을 원근 매핑한다. */
-    private boolean groundQuad(float x0, float x1, float inset, float[] out) {
-        if (!project(x1, laneEdgeAt(x1, true) - inset, 0f, pa)) return false;
-        if (!project(x1, laneEdgeAt(x1, false) + inset, 0f, pb)) return false;
-        if (!project(x0, laneEdgeAt(x0, false) + inset, 0f, pc)) return false;
-        if (!project(x0, laneEdgeAt(x0, true) - inset, 0f, pd)) return false;
+    private boolean groundQuad(float x0, float x1, float widthScale, float[] out) {
+        float l1 = laneMid(x1) + laneHalf(x1) * widthScale;
+        float r1 = laneMid(x1) - laneHalf(x1) * widthScale;
+        float l0 = laneMid(x0) + laneHalf(x0) * widthScale;
+        float r0 = laneMid(x0) - laneHalf(x0) * widthScale;
+        if (!project(x1, l1, 0f, pa)) return false;
+        if (!project(x1, r1, 0f, pb)) return false;
+        if (!project(x0, r0, 0f, pc)) return false;
+        if (!project(x0, l0, 0f, pd)) return false;
         out[0] = pa[0]; out[1] = pa[1];   // 먼쪽 좌
         out[2] = pb[0]; out[3] = pb[1];   // 먼쪽 우
         out[4] = pc[0]; out[5] = pc[1];   // 가까운쪽 우
@@ -366,7 +398,7 @@ final class World3D {
             return;
         }
         float x0 = 7f;
-        float x1 = 27f;
+        float x1 = x0 + 20f * SIGN_SCALE;   // 길이도 30% 축소 (20m -> 14m)
         if (leadDist > 0f) {
             x1 = Math.min(x1, leadDist - 6f);
         }
@@ -374,10 +406,10 @@ final class World3D {
         if (bumpDist > 0f && bumpDist <= BUMP_VISIBLE_M) {
             x1 = Math.min(x1, bumpDist - BUMP_DEPTH * 0.5f - 2.5f);
         }
-        if (x1 - x0 < 10f) {
+        if (x1 - x0 < 10f * SIGN_SCALE) {
             return;
         }
-        if (!groundQuad(x0, x1, 0.30f, polyDst)) {
+        if (!groundQuad(x0, x1, SIGN_SCALE, polyDst)) {
             return;
         }
         Bitmap tile = limitTile(limit, dark ? Color.rgb(238, 242, 245) : Color.rgb(70, 76, 84));
@@ -411,10 +443,10 @@ final class World3D {
             return;
         }
         x0 = Math.max(x0, NEAR_DEPTH - CAM_BACK + 0.2f);
-        float yl0 = laneEdgeAt(x0, true);
-        float yr0 = laneEdgeAt(x0, false);
-        float yl1 = laneEdgeAt(x1, true);
-        float yr1 = laneEdgeAt(x1, false);
+        float yl0 = laneMid(x0) + laneHalf(x0) * SIGN_SCALE;
+        float yr0 = laneMid(x0) - laneHalf(x0) * SIGN_SCALE;
+        float yl1 = laneMid(x1) + laneHalf(x1) * SIGN_SCALE;
+        float yr1 = laneMid(x1) - laneHalf(x1) * SIGN_SCALE;
 
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);

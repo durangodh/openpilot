@@ -123,6 +123,7 @@ public final class HudService extends Service {
     private int configuredBsdStyle = 2;
     /** 차량 표현 1: 사진 스프라이트 / 2: 3D 박스 */
     private int configuredCarStyle = 1;
+    private int configuredRoadSigns = 3;   // 0:끔 1:제한속도 2:방지턱 3:둘다
     /** 이번 프레임의 테마 (매 프레임 render() 에서 갱신) */
     private boolean frameDark = false;
     /** 1: 주행·지도·시스템 / 2: 실시간 디버그 / 3: S9 리모트 */
@@ -572,6 +573,7 @@ public final class HudService extends Service {
                 configuredBuildings = currentState.optInt("hudBuildings", 1) != 0;
                 configuredBsdStyle = Math.max(1, Math.min(3, currentState.optInt("hudBsdStyle", 2)));
                 configuredCarStyle = currentState.optInt("hudCarStyle", 1) == 2 ? 2 : 1;
+                configuredRoadSigns = Math.max(0, Math.min(3, currentState.optInt("hudRoadSigns", 3)));
                 configuredOutputMode = Math.max(1, Math.min(3, currentState.optInt("hudOutputMode", 1)));
 
                 int requestedBrightness = Math.max(0, Math.min(100, currentState.optInt("hudBrightness", 65)));
@@ -733,8 +735,8 @@ public final class HudService extends Service {
                 configuredCarStyle,
                 (float) s.optDouble("pathOffset", 0d),
                 (float) s.optDouble("calibPitch", 0d),
-                lv(l, "roadLimitPaint", 1f) > 0.5f,
-                lv(l, "roadBumpPaint", 1f) > 0.5f);
+                (configuredRoadSigns & 1) != 0,
+                (configuredRoadSigns & 2) != 0);
 
         drawBlinkers(c, p, s, stale);
 
