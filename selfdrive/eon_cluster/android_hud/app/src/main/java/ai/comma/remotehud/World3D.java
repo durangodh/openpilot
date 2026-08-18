@@ -235,6 +235,13 @@ final class World3D {
         return tmapRoadCat == 0 || tmapRoadCat == 1;
     }
 
+    // ── OSM 실제 지형 (OsmWorld.snapshot) ─────────────────────────────
+    private OsmWorld.Snapshot osm;
+
+    void setOsm(OsmWorld.Snapshot snapshot) {
+        osm = snapshot;
+    }
+
     private final float[] boxX = new float[8];
     private final float[] boxY = new float[8];
 
@@ -612,6 +619,9 @@ final class World3D {
         drawRoad(c, p, roadTop, roadBottom);
         drawCurb(c, p, true, roadTop);
         drawCurb(c, p, false, roadTop);
+        if (osm != null) {
+            drawOsmRoads(c, p, roadTop);
+        }
         drawMarkings(c, p, s);
         drawTmapLanes(c, p);
         if (highway) {
@@ -629,7 +639,11 @@ final class World3D {
             drawPathRibbon(c, p, pathColor);
         }
         if (buildings && !highway) {
-            drawBuildings(c, p, odoM, sky);
+            if (osm != null && osm.buildingCount > 0) {
+                drawOsmBuildings(c, p, sky);
+            } else {
+                drawBuildings(c, p, odoM, sky);
+            }
         }
         if (bumpPaint && s != null) {
             drawSpeedBump(c, p, (float) s.optDouble("bumpDist", -1d));
@@ -926,6 +940,124 @@ final class World3D {
             c.drawLine(pa[0], pa[1], pb[0], pb[1], p);
         }
         p.setStyle(Paint.Style.FILL);
+    }
+
+    /** OSM 옆길: 어두운 리본. 자차가 달리는 도로 자체(중심선과 6m 이내)는 건너뛴다
+     *  — 그 도로는 이미 drawRoad 가 그렸다. */
+    private void drawOsmRoads(Canvas c, Paint p, int roadColor) {
+        int shade = dark ? blend(roadColor, Color.BLACK, 0.22f)
+                : blend(roadColor, Color.BLACK, 0.14f);
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(shade);
+        for (int r = 0; r < osm.roadCount; r++) {
+            float[] xs = osm.roadX[r];
+            float[] ys = osm.roadY[r];
+            float halfW = osm.roadW[r] * 0.5f;
+            for (int i = 0; i < xs.length - 1; i++) {
+                float x1 = xs[i];
+                float y1 = ys[i];
+                float x2 = xs[i + 1];
+                float y2 = ys[i + 1];
+                if (Math.max(x1, x2) < 5f || Math.min(x1, x2) > 180f) {
+                    continue;
+                }
+                boolean nearEgo1 = x1 > -5f && Math.abs(y1 - centerAt(Math.max(0f, x1))) < 6f;
+                boolean nearEgo2 = x2 > -5f && Math.abs(y2 - centerAt(Math.max(0f, x2))) < 6f;
+                if (nearEgo1 && nearEgo2) {
+                    continue;
+                }
+                float dx = x2 - x1;
+                float dy = y2 - y1;
+                float len = (float) Math.sqrt(dx * dx + dy * dy);
+                if (len < 0.5f) {
+                    continue;
+                }
+                float nx = -dy / len * halfW;
+                float ny = dx / len * halfW;
+                worldQuad(c, p, x1 + nx, y1 + ny, x2 + nx, y2 + ny,
+                        x2 - nx, y2 - ny, x1 - nx, y1 - ny);
+            }
+        }
+    }
+
+    /** OSM 건물: 실제 외곽선을 벽면 단위로 세운다. 카메라를 향한 변만 그리고,
+     *  변의 방향에 따라 명암을 줘 입체감을 낸다. 먼 건물부터. */
+    private void drawOsmBuildings(Canvas c, Paint p, int fogColor) {
+        Integer[] order = new Integer[osm.buildingCount];
+        float[] dist = new float[osm.buildingCount];
+        for (int i = 0; i < osm.buildingCount; i++) {
+            order[i] = i;
+            float[] xs = osm.ringX[i];
+            float sum = 0f;
+            for (float x : xs) {
+                sum += x;
+            }
+            dist[i] = sum / xs.length;
+        }
+        java.util.Arrays.sort(order, new java.util.Comparator<Integer>() {
+            @Override
+            public int compare(Integer a, Integer b) {
+                return Float.compare(dist[b], dist[a]);
+            }
+        });
+
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        for (int oi = 0; oi < order.length; oi++) {
+            int b = order[oi];
+            float[] xs = osm.ringX[b];
+            float[] ys = osm.ringY[b];
+            float height = osm.ringH[b];
+            float d = Math.max(0f, dist[b]);
+            float fog = d <= HAZE_START ? 0f
+                    : Math.min(0.85f, (d - HAZE_START) / (BUILD_FAR - HAZE_START) * 0.95f);
+
+            // 링 방향(부호 면적)으로 바깥 법선을 정한다.
+            float area = 0f;
+            int n = xs.length;
+            for (int i = 0; i < n; i++) {
+                int j = (i + 1) % n;
+                area += xs[i] * ys[j] - xs[j] * ys[i];
+            }
+            float flip = area >= 0f ? 1f : -1f;
+
+            for (int i = 0; i < n; i++) {
+                int j = (i + 1) % n;
+                float ex = xs[j] - xs[i];
+                float ey = ys[j] - ys[i];
+                float len = (float) Math.sqrt(ex * ex + ey * ey);
+                if (len < 0.4f) {
+                    continue;
+                }
+                float nx = (ey / len) * flip;
+                float ny = (-ex / len) * flip;
+                float mx = (xs[i] + xs[j]) * 0.5f;
+                float my = (ys[i] + ys[j]) * 0.5f;
+                // 카메라(로컬 -CAM_BACK, 0)를 향한 면만.
+                if (nx * (-CAM_BACK - mx) + ny * (0f - my) <= 0f) {
+                    continue;
+                }
+                // 고정 조명(좌전방)으로 명암.
+                float light = Math.max(0f, nx * -0.55f + ny * 0.45f);
+                int tone = dark ? (int) (56f + light * 34f) : (int) (168f + light * 40f);
+                int wall = blend(Color.rgb(tone, Math.min(255, tone + 4),
+                        Math.min(255, tone + 10)), fogColor, fog);
+                p.setColor(wall);
+                if (!project(xs[i], ys[i], 0f, pa) || !project(xs[j], ys[j], 0f, pb)
+                        || !project(xs[j], ys[j], height, pc)
+                        || !project(xs[i], ys[i], height, pd)) {
+                    continue;
+                }
+                poly2.rewind();
+                poly2.moveTo(pa[0], pa[1]);
+                poly2.lineTo(pb[0], pb[1]);
+                poly2.lineTo(pc[0], pc[1]);
+                poly2.lineTo(pd[0], pd[1]);
+                poly2.close();
+                c.drawPath(poly2, p);
+            }
+        }
     }
 
     private void polyline(Canvas c, Paint p, JSONArray pts, int color, float widthM,

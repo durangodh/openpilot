@@ -162,6 +162,7 @@ public final class HudService extends Service {
     private final Rect scratchIRect = new Rect();
     private final Path scratchPath = new Path();
     private final World3D world = new World3D();
+    private OsmWorld osmWorld;
     private final ByteArrayOutputStream jpegOut = new ByteArrayOutputStream(180000);
 
     private final Handler starter = new Handler(Looper.getMainLooper());
@@ -249,6 +250,7 @@ public final class HudService extends Service {
         otherCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_other_car);
         // 핸들 이미지는 선택 사항이라 R.drawable 을 직접 참조하지 않는다.
         // 파일이 없어도 빌드가 깨지지 않고, 있으면 자동으로 벡터 대신 쓰인다.
+        osmWorld = new OsmWorld(new java.io.File(getCacheDir(), "osm"));
         int wheelId = getResources().getIdentifier("hud_wheel", "drawable", getPackageName());
         wheelImage = wheelId == 0 ? null : BitmapFactory.decodeResource(getResources(), wheelId);
 
@@ -732,7 +734,20 @@ public final class HudService extends Service {
         c.drawRect(0f, 0f, DRIVE_RIGHT, 462f, p);
 
         JSONObject naviForWorld = stale ? null : s.optJSONObject("navi");
-        world.setNavi(naviForWorld == null ? null : naviForWorld.optJSONObject("scene"));
+        JSONObject worldScene = naviForWorld == null ? null : naviForWorld.optJSONObject("scene");
+        world.setNavi(worldScene);
+        OsmWorld.Snapshot osmSnap = null;
+        JSONArray scenePos = worldScene == null ? null : worldScene.optJSONArray("pos");
+        if (scenePos != null && scenePos.length() >= 3 && osmWorld != null) {
+            double posLat = scenePos.optDouble(0, Double.NaN);
+            double posLon = scenePos.optDouble(1, Double.NaN);
+            double posHead = scenePos.optDouble(2, Double.NaN);
+            if (!Double.isNaN(posLat) && !Double.isNaN(posLon) && !Double.isNaN(posHead)) {
+                osmWorld.ensure(posLat, posLon);
+                osmSnap = osmWorld.snapshot(posLat, posLon, posHead);
+            }
+        }
+        world.setOsm(osmSnap);
         world.draw(c, p, stale ? null : s, enabled, egoCar, otherCar, worldOdoM,
                 driveBg,
                 lc(l, "roadTop", frameDark ? Color.rgb(42, 49, 58) : Color.rgb(226, 229, 231)),

@@ -396,6 +396,9 @@ def _navi_scene(state):
     heading = math.radians(float(vehicle.get("heading_deg")))
   except (TypeError, ValueError):
     lat0 = None
+  if lat0 is not None:
+    # S9 앱이 OSM(Overpass) 타일 조회에 쓰는 위치원. EON GPS 불요.
+    scene["pos"] = [round(lat0, 6), round(lon0, 6), round(math.degrees(heading), 1)]
   if lat0 is not None and len(poly) >= 2:
     m_lat = 111320.0
     m_lon = 111320.0 * math.cos(math.radians(lat0))
