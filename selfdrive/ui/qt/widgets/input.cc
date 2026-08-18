@@ -224,7 +224,11 @@ bool ConfirmationDialog::alert(const QString &prompt_text, QWidget *parent) {
 }
 
 bool ConfirmationDialog::confirm(const QString &prompt_text, QWidget *parent) {
-  ConfirmationDialog d = ConfirmationDialog(prompt_text, tr("Ok"), tr("Cancel"), false, parent);
+  // The Carrot lateral-learning prompt can contain several recommendation
+  // lines. Use the compact, scrollable layout only for this prompt so its
+  // last line never overlaps the OK/Cancel buttons on the EON display.
+  const bool carrot_learning_prompt = prompt_text.startsWith("운전 패턴을 보고 아래 조향 튜닝을 추천합니다.");
+  ConfirmationDialog d = ConfirmationDialog(prompt_text, tr("Ok"), tr("Cancel"), carrot_learning_prompt, parent);
   return d.exec();
 }
 
