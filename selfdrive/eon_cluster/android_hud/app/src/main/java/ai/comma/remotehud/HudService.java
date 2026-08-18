@@ -78,6 +78,11 @@ public final class HudService extends Service {
     private static final int SYSTEM_LEFT = 1728;
     private static final int SYSTEM_RIGHT = 1920;
 
+    /** 속도 숫자 기준선. 예전 KM 라벨이 있던 자리로, 위쪽 RPM 아크 공간용. */
+    private static final float SPEED_BASELINE = 118f;
+    /** "RPM" / 회전수 숫자를 아크 끝에서 좌우 바깥으로 띄우는 간격. */
+    private static final float RPM_LABEL_GAP = 16f;
+
     private static final int USB_RESET_AFTER_ERRORS = 3;
     private static final int USB_SLOWDOWN_AFTER_ERRORS = 5;
 
@@ -748,11 +753,11 @@ public final class HudService extends Service {
         drawPrnd(c, p, s.optString("gear", "--"));
         c.restoreToCount(save2);
 
-        int save3 = beginElement(c, l, "speed", DRIVE_CX, 74f);
+        int save3 = beginElement(c, l, "speed", DRIVE_CX, SPEED_BASELINE);
         drawSpeed(c, p, stale ? -1 : s.optInt("speed", 0));
         c.restoreToCount(save3);
 
-        int saveRpm = beginElement(c, l, "rpm", DRIVE_CX, 90f);
+        int saveRpm = beginElement(c, l, "rpm", DRIVE_CX, 118f);
         drawRpm(c, p, stale ? -1 : s.optInt("rpm", -1), lv(l, "rpmRedline", 6500f));
         c.restoreToCount(saveRpm);
 
@@ -945,26 +950,29 @@ public final class HudService extends Service {
         return frameDark ? Color.rgb(58, 66, 76) : Color.rgb(202, 207, 210);
     }
 
+    /** 속도 숫자. 기준선을 84 -> SPEED_BASELINE(118, 예전 KM 라벨 자리)까지 내려서
+     *  위쪽에 RPM 아크가 잘리지 않고 들어갈 공간을 만든다. 단위(KM) 라벨은 쓰지
+     *  않는다. 세 자리(100km/h 이상)에서는 72px 로 줄여 아크 안쪽에 들어가게 한다. */
     private void drawSpeed(Canvas c, Paint p, int speed) {
-        // 68 -> 88px. 기준선을 74 -> 84 로 내려 위쪽 여백을 확보하고, KM 라벨은
-        // 118 로 떨어뜨려 구분선(y=129)과 겹치지 않게 한다. 세 자리(100km/h 이상)
-        // 에서는 72px 로 줄여 RPM 아크 안쪽에 들어가게 한다.
         String value = speed < 0 ? "--" : Integer.toString(speed);
-        text(c, p, value, DRIVE_CX, 84f, value.length() < 3 ? 88f : 72f, ink(), Paint.Align.CENTER);
-        text(c, p, "KM", DRIVE_CX, 118f, 15f, dim(), Paint.Align.CENTER);
+        text(c, p, value, DRIVE_CX, SPEED_BASELINE, value.length() < 3 ? 88f : 72f,
+                ink(), Paint.Align.CENTER);
     }
 
     /** 속도 숫자를 위에서 감싸는 엔진 회전수 아크.
-     *  중심 (476,112) 반지름 110 은 아크 꼭대기(y=2)가 화면 안에 들어오면서
-     *  88px 두 자리 / 72px 세 자리 숫자를 모두 비껴가는 값이다. 바꿀 때 검산할 것.
+     *  예전 값(cy=112, r=110, 굵기 10)은 아크 바깥선이 y = 112-110-5 = -3 이라
+     *  패널 위쪽에서 3px 잘렸다. cy=118 / r=106 이면 바깥선이 y=7 로 들어온다.
+     *  구분선(y=129) 바로 아래는 SET 원(반지름 36+테두리 3, y=132부터)이 차지해서
+     *  라벨을 아크 아래로 더 내릴 수 없다. 그래서 "RPM" 과 회전수 숫자는 아래가
+     *  아니라 아크 양 끝에서 좌우 바깥으로 LABEL_GAP 만큼 띄운다.
      *  rpm < 0 (신호 없음 / EV) 이면 아무것도 그리지 않는다. */
     private void drawRpm(Canvas c, Paint p, int rpm, float redline) {
         if (rpm < 0) {
             return;
         }
         float cx = DRIVE_CX;
-        float cy = 112f;
-        float r = 110f;
+        float cy = 118f;
+        float r = 106f;
         float start = 181f;
         float sweep = 178f;
         float limit = redline > 100f ? redline : 6500f;
@@ -985,9 +993,9 @@ public final class HudService extends Service {
             c.drawArc(scratchRect, start, sweep * frac, false, p);
         }
 
-        text(c, p, "RPM", cx - r + 2f, 124f, 13f, dim(), Paint.Align.LEFT);
-        text(c, p, String.format(Locale.US, "%,d", rpm), cx + r - 2f, 124f, 22f,
-                ink(), Paint.Align.RIGHT);
+        text(c, p, "RPM", cx - r - RPM_LABEL_GAP, 122f, 13f, dim(), Paint.Align.RIGHT);
+        text(c, p, String.format(Locale.US, "%,d", rpm), cx + r + RPM_LABEL_GAP, 124f, 22f,
+                ink(), Paint.Align.LEFT);
     }
 
     private void drawPrnd(Canvas c, Paint p, String gear) {
@@ -1041,14 +1049,72 @@ public final class HudService extends Service {
                 dim(), Paint.Align.RIGHT);
     }
 
+    /** 주행가능거리. "주행/RANGE" 글자 대신 주유기 아이콘을 거리 왼쪽에 붙인다.
+     *  숫자 오른쪽 끝(932)은 그대로 두고 아이콘 위치만 숫자 폭에 맞춰 계산한다. */
     private void drawRange(Canvas c, Paint p, JSONObject s) {
         double km = s.optDouble("distanceToEmpty", -1d);
         if (!Double.isFinite(km) || km < 0d) {
             return;
         }
-        text(c, p, lang("주행", "RANGE"), 932f, 28f, 12f, dim(), Paint.Align.RIGHT);
-        text(c, p, String.format(Locale.US, "%.0f km", km), 932f, 51f, 20f,
-                ink(), Paint.Align.RIGHT);
+        String value = String.format(Locale.US, "%.0f km", km);
+        float size = 22f;
+        float baseline = 44f;
+        float iconH = 26f;
+        float gap = 9f;
+
+        p.setShader(null);
+        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        p.setTextAlign(Paint.Align.LEFT);
+        p.setTextSize(size);
+        float valueWidth = p.measureText(value);
+
+        drawFuelIcon(c, p, 932f - valueWidth - gap - fuelIconWidth(iconH), baseline, iconH);
+        text(c, p, value, 932f, baseline, size, ink(), Paint.Align.RIGHT);
+    }
+
+    private static float fuelIconWidth(float h) {
+        return h * 0.80f;
+    }
+
+    /** 주유기 아이콘. PNG 없이 벡터로 그린다.
+     *  x = 아이콘 왼쪽, baseline = 옆 숫자의 baseline(아이콘 아랫변), h = 높이. */
+    private void drawFuelIcon(Canvas c, Paint p, float x, float baseline, float h) {
+        float top = baseline - h;
+        float bodyW = h * 0.58f;
+        float stroke = Math.max(1.8f, h * 0.105f);
+        int color = dim();
+
+        p.setShader(null);
+        p.setColor(color);
+
+        // 펌프 본체
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(stroke);
+        scratchRect.set(x + stroke / 2f, top + stroke / 2f,
+                x + bodyW - stroke / 2f, baseline - stroke / 2f);
+        c.drawRoundRect(scratchRect, h * 0.13f, h * 0.13f, p);
+
+        // 표시창
+        p.setStyle(Paint.Style.FILL);
+        scratchRect.set(x + h * 0.15f, top + h * 0.16f,
+                x + bodyW - h * 0.15f, top + h * 0.42f);
+        c.drawRoundRect(scratchRect, h * 0.05f, h * 0.05f, p);
+
+        // 주유 호스 : 본체 오른쪽에서 나와 위로 꺾이는 파이프
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(stroke);
+        scratchPath.rewind();
+        scratchPath.moveTo(x + bodyW, baseline - h * 0.18f);
+        scratchPath.lineTo(x + bodyW + h * 0.16f, baseline - h * 0.18f);
+        scratchPath.quadTo(x + bodyW + h * 0.28f, baseline - h * 0.18f,
+                x + bodyW + h * 0.28f, baseline - h * 0.34f);
+        scratchPath.lineTo(x + bodyW + h * 0.28f, top + h * 0.30f);
+        scratchPath.quadTo(x + bodyW + h * 0.28f, top + h * 0.14f,
+                x + bodyW + h * 0.14f, top + h * 0.14f);
+        c.drawPath(scratchPath, p);
+
+        // 받침
+        c.drawLine(x - h * 0.05f, baseline, x + bodyW + h * 0.05f, baseline, p);
     }
 
     private void drawLights(Canvas c, Paint p, JSONObject s) {
