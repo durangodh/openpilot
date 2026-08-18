@@ -4,6 +4,8 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
+import android.graphics.Matrix;
+import android.graphics.Typeface;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
@@ -81,6 +83,11 @@ final class World3D {
     private static final float BUILD_FAR = 170f;
     private static final float HAZE_START = 95f;
 
+    /** 과속방지턱 노면 표시 */
+    private static final float BUMP_VISIBLE_M = 60f;   // 이보다 멀면 우측 아이콘만
+    private static final float BUMP_DEPTH = 1.6f;      // 진행방향 길이 (m)
+    private static final float BUMP_H = 0.42f;         // 과장한 높이 (m)
+
     private static final int SLICES = 30;
     private static final int MAX_PTS = 80;
 
@@ -95,6 +102,24 @@ final class World3D {
     private final float[] edgeRX = new float[MAX_PTS];
     private final float[] edgeRY = new float[MAX_PTS];
     private int edgeRCount;
+
+    // 자차 차선 (modelV2 laneLines index 1=좌, 2=우). 그리기용으로만 쓰던 것을
+    // 노면 표시(제한속도/방지턱)의 폭을 맞추기 위해 샘플 배열로도 보관한다.
+    private final float[] laneLX = new float[MAX_PTS];
+    private final float[] laneLY = new float[MAX_PTS];
+    private int laneLCount;
+    private final float[] laneRX = new float[MAX_PTS];
+    private final float[] laneRY = new float[MAX_PTS];
+    private int laneRCount;
+
+    // 노면 제한속도 타일. 값이 바뀔 때만 다시 만든다(텍스트 그리기가 렌더 비용의
+    // 대부분이라 매 프레임 그리면 안 된다).
+    private Bitmap limitTile;
+    private int limitTileValue = -1;
+    private boolean limitTileDark;
+    private final Matrix roadMatrix = new Matrix();
+    private final float[] polySrc = new float[8];
+    private final float[] polyDst = new float[8];
 
     private final float[] pa = new float[2];
     private final float[] pb = new float[2];
@@ -160,10 +185,24 @@ final class World3D {
         pathCount = 0;
         edgeLCount = 0;
         edgeRCount = 0;
+        laneLCount = 0;
+        laneRCount = 0;
         if (s == null) {
             return;
         }
         pathCount = decode(s.optJSONArray("path"), pathX, pathY);
+
+        JSONArray lanes = s.optJSONArray("lanes");
+        if (lanes != null && lanes.length() >= 3) {
+            JSONObject left = lanes.optJSONObject(1);
+            JSONObject right = lanes.optJSONObject(2);
+            if (left != null) {
+                laneLCount = decode(left.optJSONArray("p"), laneLX, laneLY);
+            }
+            if (right != null) {
+                laneRCount = decode(right.optJSONArray("p"), laneRX, laneRY);
+            }
+        }
 
         JSONArray edges = s.optJSONArray("edges");
         if (edges == null) {
@@ -267,6 +306,149 @@ final class World3D {
     }
 
     /** 인식된 도로경계가 있으면 그것으로, 없으면 고정 폭으로. */
+    /** 전방 x(m) 에서 자차 차선의 좌/우 경계 y(m). 차선이 없으면 ±1.75m 폴백.
+     *  y 는 좌측이 + 이므로 왼쪽 경계가 큰 값이다. */
+    private float laneEdgeAt(float x, boolean leftSide) {
+        if (leftSide) {
+            return laneLCount >= 2 ? sample(laneLX, laneLY, laneLCount, x) : 1.75f;
+        }
+        return laneRCount >= 2 ? sample(laneRX, laneRY, laneRCount, x) : -1.75f;
+    }
+
+
+    // ── 노면 표시 (제한속도 / 과속방지턱) ──────────────────────────────────
+
+    /** 지면 사각형(전방 x0~x1, 좌우 경계는 자차 차선)에 비트맵을 원근 매핑한다. */
+    private boolean groundQuad(float x0, float x1, float inset, float[] out) {
+        if (!project(x1, laneEdgeAt(x1, true) - inset, 0f, pa)) return false;
+        if (!project(x1, laneEdgeAt(x1, false) + inset, 0f, pb)) return false;
+        if (!project(x0, laneEdgeAt(x0, false) + inset, 0f, pc)) return false;
+        if (!project(x0, laneEdgeAt(x0, true) - inset, 0f, pd)) return false;
+        out[0] = pa[0]; out[1] = pa[1];   // 먼쪽 좌
+        out[2] = pb[0]; out[3] = pb[1];   // 먼쪽 우
+        out[4] = pc[0]; out[5] = pc[1];   // 가까운쪽 우
+        out[6] = pd[0]; out[7] = pd[1];   // 가까운쪽 좌
+        return true;
+    }
+
+    private Bitmap limitTile(int limit, int color) {
+        if (limitTile != null && limitTileValue == limit && limitTileDark == dark) {
+            return limitTile;
+        }
+        if (limitTile != null) {
+            limitTile.recycle();
+        }
+        int n = 420;
+        Bitmap bmp = Bitmap.createBitmap(n, n, Bitmap.Config.ARGB_8888);
+        Canvas tc = new Canvas(bmp);
+        Paint tp = new Paint(Paint.ANTI_ALIAS_FLAG);
+        tp.setColor(color);
+        tp.setStyle(Paint.Style.STROKE);
+        tp.setStrokeWidth(30f);
+        tc.drawCircle(n * 0.5f, n * 0.5f, n * 0.5f - 22f, tp);
+        tp.setStyle(Paint.Style.FILL);
+        tp.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        tp.setTextAlign(Paint.Align.CENTER);
+        String txt = Integer.toString(limit);
+        tp.setTextSize(txt.length() < 3 ? 200f : 158f);
+        Paint.FontMetrics fm = tp.getFontMetrics();
+        tc.drawText(txt, n * 0.5f, n * 0.5f - (fm.ascent + fm.descent) * 0.5f, tp);
+        limitTile = bmp;
+        limitTileValue = limit;
+        limitTileDark = dark;
+        return bmp;
+    }
+
+    /** 제한속도를 자차 차선 노면에 눕혀 그린다(흰 원 테두리 + 숫자).
+     *  원이 화면에서 정원으로 보이려면 진행방향 길이를 폭보다 늘려야 한다. */
+    private void drawLimitPaint(Canvas c, Paint p, int limit, float leadDist, float bumpDist) {
+        if (limit <= 0 || limit > 200) {
+            return;
+        }
+        float x0 = 7f;
+        float x1 = 27f;
+        if (leadDist > 0f) {
+            x1 = Math.min(x1, leadDist - 6f);
+        }
+        // 방지턱이 이 구간 안에 있으면 그 앞에서 끊는다. 둘이 겹치면 둘 다 못 읽는다.
+        if (bumpDist > 0f && bumpDist <= BUMP_VISIBLE_M) {
+            x1 = Math.min(x1, bumpDist - BUMP_DEPTH * 0.5f - 2.5f);
+        }
+        if (x1 - x0 < 10f) {
+            return;
+        }
+        if (!groundQuad(x0, x1, 0.30f, polyDst)) {
+            return;
+        }
+        Bitmap tile = limitTile(limit, dark ? Color.rgb(238, 242, 245) : Color.rgb(70, 76, 84));
+        int n = tile.getWidth();
+        polySrc[0] = 0f;  polySrc[1] = 0f;
+        polySrc[2] = n;   polySrc[3] = 0f;
+        polySrc[4] = n;   polySrc[5] = n;
+        polySrc[6] = 0f;  polySrc[7] = n;
+        roadMatrix.reset();
+        if (!roadMatrix.setPolyToPoly(polySrc, 0, polyDst, 0, 4)) {
+            return;
+        }
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColorFilter(null);
+        p.setAlpha(dark ? 225 : 205);
+        p.setFilterBitmap(true);
+        c.drawBitmap(tile, roadMatrix, p);
+        p.setAlpha(255);
+    }
+
+    /** 과속방지턱. 앞면(밝음) + 윗면(어두움) 두 면을 가진 낮은 입체로 그린다.
+     *  실제 방지턱 높이 0.1m 는 원근에 눌려 안 보이므로 과장한다. */
+    private void drawSpeedBump(Canvas c, Paint p, float dist) {
+        if (dist <= 0f || dist > BUMP_VISIBLE_M) {
+            return;
+        }
+        float x0 = dist - BUMP_DEPTH * 0.5f;
+        float x1 = dist + BUMP_DEPTH * 0.5f;
+        if (x1 + CAM_BACK < NEAR_DEPTH + 0.5f) {
+            return;
+        }
+        x0 = Math.max(x0, NEAR_DEPTH - CAM_BACK + 0.2f);
+        float yl0 = laneEdgeAt(x0, true);
+        float yr0 = laneEdgeAt(x0, false);
+        float yl1 = laneEdgeAt(x1, true);
+        float yr1 = laneEdgeAt(x1, false);
+
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setAlpha(245);
+        // 윗면 (어둡게)
+        bumpFace(c, p, x0, yl0, yr0, x1, yl1, yr1, BUMP_H, BUMP_H, 0.62f);
+        // 앞면 (밝게) — 가까운 쪽 수직면
+        bumpFace(c, p, x0, yl0, yr0, x0, yl0, yr0, 0f, BUMP_H, 1.0f);
+        p.setAlpha(255);
+    }
+
+    /** 방지턱 한 면을 노랑/검정 줄무늬로 분할해 그린다. */
+    private void bumpFace(Canvas c, Paint p, float xa, float yla, float yra,
+                          float xb, float ylb, float yrb, float za, float zb, float shade) {
+        int n = 8;
+        for (int i = 0; i < n; i++) {
+            float t0 = i / (float) n;
+            float t1 = (i + 1) / (float) n;
+            if (!project(xa, yla + (yra - yla) * t0, za, pa)) continue;
+            if (!project(xa, yla + (yra - yla) * t1, za, pb)) continue;
+            if (!project(xb, ylb + (yrb - ylb) * t1, zb, pc)) continue;
+            if (!project(xb, ylb + (yrb - ylb) * t0, zb, pd)) continue;
+            int base = (i % 2 == 0) ? Color.rgb(240, 192, 32) : Color.rgb(40, 42, 46);
+            p.setColor(shade >= 0.99f ? base : blend(base, Color.BLACK, 1f - shade));
+            poly2.reset();
+            poly2.moveTo(pa[0], pa[1]);
+            poly2.lineTo(pb[0], pb[1]);
+            poly2.lineTo(pc[0], pc[1]);
+            poly2.lineTo(pd[0], pd[1]);
+            poly2.close();
+            c.drawPath(poly2, p);
+        }
+    }
+
     private float roadEdgeAt(float x, boolean leftSide) {
         if (leftSide && edgeLCount >= 2) {
             return sample(edgeLX, edgeLY, edgeLCount, x);
@@ -284,7 +466,8 @@ final class World3D {
               Bitmap egoCar, Bitmap otherCar, float odoM,
               int bgColor, int roadTop, int roadBottom, int pathColor,
               int radarInfo, boolean buildings, boolean darkTheme, int bsdStyle,
-              int carStyleMode, float offsetTotal, float calibPitch) {
+              int carStyleMode, float offsetTotal, float calibPitch,
+              boolean limitPaint, boolean bumpPaint) {
         this.dark = darkTheme;
         this.carStyle = carStyleMode == CAR_BOX ? CAR_BOX : CAR_SPRITE;
         this.pathOffset = Math.max(-1f, Math.min(1f, offsetTotal));
@@ -310,12 +493,23 @@ final class World3D {
         drawCurb(c, p, true, roadTop);
         drawCurb(c, p, false, roadTop);
         drawMarkings(c, p, s);
+
+        if (limitPaint && s != null) {
+            JSONObject leadForPaint = s.optJSONObject("lead");
+            float leadD = leadForPaint == null ? -1f : (float) leadForPaint.optDouble("d", -1d);
+            drawLimitPaint(c, p, s.optInt("limit", 0), leadD,
+                    (float) s.optDouble("bumpDist", -1d));
+        }
         if (enabled) {
             drawPathRibbon(c, p, pathColor);
         }
         if (buildings) {
             drawBuildings(c, p, odoM, sky);
         }
+        if (bumpPaint && s != null) {
+            drawSpeedBump(c, p, (float) s.optDouble("bumpDist", -1d));
+        }
+
         drawBsd(c, p, s, bsdStyle);
         drawVehicles(c, p, s, egoCar, otherCar, radarInfo);
         drawHaze(c, p, sky);

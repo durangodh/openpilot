@@ -732,7 +732,9 @@ public final class HudService extends Service {
                 configuredRadarInfo, configuredBuildings, frameDark, configuredBsdStyle,
                 configuredCarStyle,
                 (float) s.optDouble("pathOffset", 0d),
-                (float) s.optDouble("calibPitch", 0d));
+                (float) s.optDouble("calibPitch", 0d),
+                lv(l, "roadLimitPaint", 1f) > 0.5f,
+                lv(l, "roadBumpPaint", 1f) > 0.5f);
 
         drawBlinkers(c, p, s, stale);
 
@@ -769,8 +771,15 @@ public final class HudService extends Service {
         c.restoreToCount(save5);
 
         int save6 = beginElement(c, l, "camera", 882f, 171f);
-        drawCamera(c, p, 882f, 171f, s.optInt("camera", 0), s.optInt("cameraDist", 0),
-                s.optBoolean("cameraSection", false));
+        int bumpDist = stale ? 0 : (int) Math.round(s.optDouble("bumpDist", 0d));
+        if (bumpDist > 0) {
+            // EON onroad.cc drawSpeedLimit 과 같은 규칙: 방지턱이 있으면
+            // 과속카메라 대신 이 자리를 쓴다.
+            drawBumpIcon(c, p, 882f, 171f, bumpDist);
+        } else {
+            drawCamera(c, p, 882f, 171f, s.optInt("camera", 0), s.optInt("cameraDist", 0),
+                    s.optBoolean("cameraSection", false));
+        }
         c.restoreToCount(save6);
 
         int save7 = beginElement(c, l, "lead", 82f, 415f);
@@ -1168,6 +1177,36 @@ public final class HudService extends Service {
         text(c, p, valid ? Integer.toString(set) : "--", cx, cy + 9f, 29f,
                 ink(), Paint.Align.CENTER);
         text(c, p, "SET", cx, cy + 55f, 14f, accent, Paint.Align.CENTER);
+    }
+
+    /** 과속방지턱 아이콘. 카메라(빨간 테두리)와 구분되게 노란 테두리를 쓴다. */
+    private void drawBumpIcon(Canvas c, Paint p, float cx, float cy, int dist) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(250, 250, 250));
+        c.drawCircle(cx, cy, 36f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(6f);
+        p.setColor(Color.rgb(240, 192, 32));
+        c.drawCircle(cx, cy, 36f, p);
+
+        // 둔덕 실루엣 + 줄무늬
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(46, 48, 52));
+        scratchRect.set(cx - 24f, cy - 8f, cx + 24f, cy + 32f);
+        c.drawArc(scratchRect, 180f, 180f, false, p);
+        c.drawRect(cx - 24f, cy + 10f, cx + 24f, cy + 13f, p);
+        p.setColor(Color.rgb(240, 192, 32));
+        for (int i = -1; i <= 1; i++) {
+            float bx = cx + i * 11f;
+            float half = 24f;
+            float t = Math.abs(bx - cx) / half;
+            float h = 19f * (float) Math.sqrt(Math.max(0f, 1f - t * t));
+            c.drawRect(bx - 2.5f, cy + 11f - h, bx + 2.5f, cy + 11f, p);
+        }
+
+        text(c, p, distanceText(dist), cx, cy + 60f, 18f, Color.rgb(235, 235, 235),
+                Paint.Align.CENTER);
     }
 
     private void drawCamera(Canvas c, Paint p, float cx, float cy, int limit, int dist, boolean section) {

@@ -67,6 +67,9 @@ REMOTE_LAYOUT = {
   "tbt1Dx": 0, "tbt1Dy": 0, "tbt1Scale": 1.0,
   "tbt2Dx": 0, "tbt2Dy": 0, "tbt2Scale": 1.0,
   "laneDx": 0, "laneDy": 0, "laneScale": 1.0,
+  # 노면 표시 on/off (1=켬). 앱 기본값도 1 이라 굳이 안 넣어도 되지만,
+  # 여기서 0 을 주면 앱 재설치 없이 끌 수 있어 남겨둔다.
+  "roadLimitPaint": 1, "roadBumpPaint": 1,
   "rpmDx": 0, "rpmDy": 0, "rpmScale": 1.0,
   "rpmRedline": 6500,   # DH 3.8 기준. 차종 바꾸면 여기만 고치면 됨
 }
@@ -440,6 +443,9 @@ def _packet(sm, atc_mode, path_offset=0.0):
   cam_type = int(_finite(_field(road, "camType", 0)))
   cam_speed = int(_finite(_field(road, "camLimitSpeed", 0)))
   cam_dist = int(_finite(_field(road, "camLimitSpeedLeftDist", 0)))
+  # camType 22 = 과속방지턱. 아래 분기에서 구간단속 값으로 덮이기 전에 따로 빼둔다
+  # (EON onroad.cc drawSpeedLimit 의 bump_detected 와 같은 판정).
+  bump_dist = cam_dist if (cam_type == 22 and cam_dist > 0) else 0
   camera_section = False
   if cam_type == 22 or cam_speed <= 0 or cam_dist <= 0:
     cam_speed = int(_finite(_field(road, "sectionLimitSpeed", 0)))
@@ -479,6 +485,7 @@ def _packet(sm, atc_mode, path_offset=0.0):
     "camera": max(0, cam_speed),
     "cameraDist": max(0, cam_dist),
     "cameraSection": bool(camera_section),
+    "bumpDist": bump_dist,
     "leftBsd": bool(_field(car, "leftBlindspot", False)),
     "rightBsd": bool(_field(car, "rightBlindspot", False)),
     "steer": round(_finite(_field(car, "steeringAngleDeg", 0.0)), 1),
