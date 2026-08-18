@@ -101,6 +101,10 @@ class PointBuckets:
 
   def get_points(self, num_points=None):
     points = np.array([point for bucket in self.buckets.values() for point in bucket])
+    if points.size == 0:
+      # 빈 배열은 shape (0,) 이라 호출측의 points[:, [0, 2]] 가 IndexError 를 낸다.
+      # 항상 (N, rowsize) 형태를 보장한다.
+      return np.zeros((0, self.rowsize))
     if num_points is None:
       return points
     return points[np.random.choice(np.arange(len(points)), min(len(points), num_points), replace=False)]
@@ -159,8 +163,10 @@ class TorqueEstimator:
     torque_cache = params.get("LiveTorqueParameters")
     if torque_cache is not None:
       try:
-        with log.Event.from_bytes(torque_cache) as log_evt:
-          cache_ltp = log_evt.liveTorqueParameters
+        # 이 포크의 pycapnp 는 from_bytes 가 리더를 바로 돌려준다.
+        # 상위 브랜치처럼 `with ... as` 로 쓰면 AttributeError: __enter__.
+        log_evt = log.Event.from_bytes(torque_cache)
+        cache_ltp = log_evt.liveTorqueParameters
         if cache_ltp.carFingerprint == CP.carFingerprint and cache_ltp.version == VERSION:
           if cache_ltp.liveValid:
             initial_params = {
@@ -319,10 +325,15 @@ def main():
       cloudlog.warning(f"torqued: waiting on inputs, alive={sm.alive} valid={sm.valid}")
 
     if sm.frame % PUBLISH_EVERY_N_FRAMES == 0:
-      pm.send('liveTorqueParameters', estimator.get_msg(valid=ok_all))
+      # msg.valid 는 항상 True. 이 포크의 SubMaster.all_valid() 에는 제외 목록이
+      # 없어서, 입력이 아직 안 모였다고 valid=False 를 보내면 controlsd 의
+      # all_checks() 가 깨지고 commIssue(SOFT_DISABLE/NO_ENTRY)로 차가 해제된다.
+      # 입력 상태는 liveValid / calPerc 로 이미 전달된다.
+      pm.send('liveTorqueParameters', estimator.get_msg(valid=True))
 
-    if sm.frame % CACHE_EVERY_N_FRAMES == 0:
-      msg = estimator.get_msg(valid=ok_all, with_points=True)
+    # frame 0 에서 바로 캐시를 쓰면 점이 하나도 없는 상태로 직렬화한다.
+    if sm.frame > 0 and sm.frame % CACHE_EVERY_N_FRAMES == 0:
+      msg = estimator.get_msg(valid=True, with_points=True)
       put_nonblocking("LiveTorqueParameters", msg.to_bytes())
 
 
