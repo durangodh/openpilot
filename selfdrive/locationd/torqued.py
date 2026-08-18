@@ -54,7 +54,12 @@ MIN_BUCKET_POINTS = np.array([100, 300, 500, 500, 500, 500, 300, 100])
 MIN_ENGAGE_BUFFER = 2  # secs
 
 # loop is polled on liveLocationKalman (~20Hz in this fork's services.py)
-PUBLISH_EVERY_N_FRAMES = 5     # -> 4Hz publish, matches services.py "liveTorqueParameters" freq
+# 비용의 대부분이 estimate_params 안의 get_points() 파이썬 루프(버킷 12,000개를
+# 매번 np.array 로 펼침)라 발행 주기가 곧 CPU 부하다. 학습값은 decay 50~250 의
+# 1차 필터를 거쳐 분 단위로 움직이므로 1Hz 로 충분하다.
+# 바꿀 때 services.py 의 "liveTorqueParameters" 주파수도 같이 맞출 것
+# (alive 판정 창이 10/주파수 로 계산된다).
+PUBLISH_EVERY_N_FRAMES = 20    # -> 1Hz publish, matches services.py "liveTorqueParameters" freq
 CACHE_EVERY_N_FRAMES = 1200    # -> ~60s at 20Hz
 
 VERSION = 1  # bump this to invalidate old parameter caches
