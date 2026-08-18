@@ -208,11 +208,15 @@ class CarState(CarStateBase):
         self.engine_oil_temp_seen = True
       ret.engineCoolantTempC = cp.vl["EMS12"]["TEMP_ENG"] if self.engine_coolant_temp_seen else -1000.
       ret.engineOilTempC = cp.vl["EMS19"]["CR_Ems_EngOilTemp"] if self.engine_oil_temp_seen else -1000.
-      # EMS11 'N' = 엔진 회전수. checks 에 넣지 않아 이 메시지가 없는 차에서도
-      # canValid 가 깨지지 않고, 그 경우 값이 0 으로 남아 HUD 가 게이지를 숨긴다.
-      if cp.vl_all["EMS11"]["N"]:
+      # 엔진 회전수. DH(GENESIS 2015-2016)는 EMS11(0x316)을 아예 보내지 않고
+      # EMS_366(0x366)의 'N' 으로 올린다 — can_printer 실측에서 0x366 데이터
+      # 1cbe09... 의 바이트1~2 가 0x09BE, x0.25 = 623.5rpm(공회전)로 확인됨.
+      # 차종에 따라 EMS11 쪽인 경우도 있어 살아있는 값을 쓴다. 둘 다 checks 에는
+      # 없으므로 메시지가 없어도 canValid 는 안 깨진다.
+      rpm_raw = cp.vl["EMS_366"]["N"] or cp.vl["EMS11"]["N"]
+      if rpm_raw:
         self.engine_rpm_seen = True
-      ret.engineRpm = cp.vl["EMS11"]["N"] if self.engine_rpm_seen else 0.
+      ret.engineRpm = rpm_raw if self.engine_rpm_seen else 0.
 
     # TODO: refactor gear parsing in function
     # Gear Selection via Cluster - For those Kia/Hyundai which are not fully discovered, we can use the Cluster Indicator for Gear Selection,
@@ -496,7 +500,8 @@ class CarState(CarStateBase):
         ("TEMP_ENG", "EMS12"),
         ("CF_Ems_AclAct", "EMS16"),
         ("CR_Ems_EngOilTemp", "EMS19"),
-        ("N", "EMS11"),                   # 엔진 회전수 (rpm). checks 에는 넣지 않는다
+        ("N", "EMS_366"),                 # 엔진 회전수 (rpm) — DH 는 이쪽
+        ("N", "EMS11"),                   # 엔진 회전수 (rpm) — 다른 차종 대비. 둘 다 checks 에는 안 넣는다
       ]
       checks += [
         ("EMS12", 100),
