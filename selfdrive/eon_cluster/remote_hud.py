@@ -38,7 +38,7 @@ PARAM_CONNECTED = "EonClusterHudConnected"
 PARAM_HEARTBEAT = "EonClusterHudHeartbeat"
 HEARTBEAT_PERIOD_S = 2.0
 PARAM_ATC_MODE = "CarrotAutoTurnControl"
-_NAVI_CACHE = {"signature": None, "state": {}}
+_NAVI_CACHE = {"signature": None, "state": {}, "scene_sig": None, "scene": None}
 
 # One-time S9 APK support for runtime layout tuning.  After the compatible APK
 # is installed, ordinary HUD position/size/color tweaks only require changing
@@ -346,6 +346,96 @@ def _set_speed(controls_state, car_control):
   return max(0, int(round(_finite(value))))
 
 
+def _navi_scene(state):
+  """티맵 lane_current + route.polyline 을 HUD 3D씬용으로 가공한다.
+
+  파일 서명 단위(_NAVI_CACHE)로 캐시하므로 폴리라인 최근접점 탐색이 10Hz 마다
+  돌지 않는다(파일 자체가 보통 1Hz 갱신).
+
+  결과: {"lane": {"n","cur","turns","avail","dist"}, "cat": roadcate,
+        "curve": [[x, y], ...]}  (전방 x m, 좌 +y m — World3D 좌표계와 동일)
+  """
+  scene = {}
+
+  lane = state.get("lane_current") or {}
+  try:
+    n = int(lane.get("count", 0) or 0)
+    cur = int(lane.get("current_lane", 0) or 0)
+  except (TypeError, ValueError):
+    n, cur = 0, 0
+  if 2 <= n <= 8 and 1 <= cur <= n:
+    def _ints(key):
+      raw = lane.get(key) or []
+      out = []
+      for i in range(n):
+        try:
+          out.append(int(raw[i]))
+        except (TypeError, ValueError, IndexError):
+          out.append(0)
+      return out
+    try:
+      lane_dist = max(0, int(round(float(lane.get("distance_m", 0) or 0))))
+    except (TypeError, ValueError):
+      lane_dist = 0
+    scene["lane"] = {"n": n, "cur": cur, "turns": _ints("turn_info"),
+                     "avail": _ints("available"), "dist": lane_dist}
+  try:
+    cat = int(lane.get("road_category", -1))
+  except (TypeError, ValueError):
+    cat = -1
+  if cat >= 0:
+    scene["cat"] = cat
+
+  # route.polyline → 자차 로컬좌표. 위치/방위는 티맵 vehicle 스트림(EON GPS 불요).
+  vehicle = state.get("vehicle") or {}
+  route = state.get("route") or {}
+  poly = route.get("polyline") or []
+  try:
+    lat0 = float(vehicle.get("lat"))
+    lon0 = float(vehicle.get("lon"))
+    heading = math.radians(float(vehicle.get("heading_deg")))
+  except (TypeError, ValueError):
+    lat0 = None
+  if lat0 is not None and len(poly) >= 2:
+    m_lat = 111320.0
+    m_lon = 111320.0 * math.cos(math.radians(lat0))
+    sin_h, cos_h = math.sin(heading), math.cos(heading)
+    # 최근접점부터 시작해 전방 380m 까지, 12m 이상 간격으로 최대 24점.
+    best_i, best_d = 0, float("inf")
+    pts = []
+    for i, pt in enumerate(poly):
+      try:
+        e = (float(pt.get("lon")) - lon0) * m_lon
+        nn = (float(pt.get("lat")) - lat0) * m_lat
+      except (TypeError, ValueError, AttributeError):
+        pts.append(None)
+        continue
+      x = e * sin_h + nn * cos_h          # 전방 +
+      y = -e * cos_h + nn * sin_h         # 좌 +
+      pts.append((x, y))
+      d = x * x + y * y
+      if d < best_d:
+        best_d, best_i = d, i
+    curve = []
+    last_x = -1e9
+    for pt in pts[best_i:]:
+      if pt is None:
+        continue
+      x, y = pt
+      if x < 0.0 or x <= last_x + 12.0:
+        continue
+      if x > 380.0:
+        break
+      curve.append([round(x, 1), round(y, 1)])
+      last_x = x
+      if len(curve) >= 24:
+        break
+    if len(curve) >= 2:
+      scene["curve"] = curve
+
+  return scene or None
+
+
 def _read_navi_summary():
   try:
     stat = os.stat(NAVI_STATE)
@@ -418,6 +508,13 @@ def _read_navi_summary():
         next_type = 0
       next_summary = {"turnType": next_type, "turnDist": next_distance}
 
+  if _NAVI_CACHE["scene_sig"] != _NAVI_CACHE["signature"]:
+    _NAVI_CACHE["scene_sig"] = _NAVI_CACHE["signature"]
+    try:
+      _NAVI_CACHE["scene"] = _navi_scene(state)
+    except Exception:
+      _NAVI_CACHE["scene"] = None
+
   summary = {
     "active": True,
     "guidanceLive": bool(guidance_live),
@@ -429,6 +526,8 @@ def _read_navi_summary():
   }
   if next_summary is not None:
     summary["next"] = next_summary
+  if _NAVI_CACHE["scene"]:
+    summary["scene"] = _NAVI_CACHE["scene"]
   return summary
 
 

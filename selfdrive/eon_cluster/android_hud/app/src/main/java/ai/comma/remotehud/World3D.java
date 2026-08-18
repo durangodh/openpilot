@@ -165,6 +165,76 @@ final class World3D {
      */
     private float horizonShift = 0f;
 
+    // ── 티맵 차로/경로 (packet.navi.scene) ────────────────────────────
+    //  lane_current 원본: count/current_lane/turn_info[]/available[]/distance_m/road_category
+    //  curve: 티맵 route.polyline 을 자차 기준 로컬좌표(전방 x, 좌 +y)로 변환한 것.
+    private static final float TMAP_LANE_W = 3.5f;
+    private static final float CURVE_BLEND_START = 60f;
+    private static final float CURVE_BLEND_SPAN = 60f;
+    private static final int TMAP_MAX_LANES = 8;
+    private int tmapLaneCount = 0;
+    private int tmapLaneCur = 0;
+    private int tmapRoadCat = -1;
+    private final int[] tmapTurns = new int[TMAP_MAX_LANES];
+    private final int[] tmapAvail = new int[TMAP_MAX_LANES];
+    private final float[] curveX = new float[32];
+    private final float[] curveY = new float[32];
+    private int curveCount = 0;
+
+    /** 티맵 씬 데이터 주입. null 이면 전부 해제(안내 종료). */
+    void setNavi(JSONObject scene) {
+        tmapLaneCount = 0;
+        tmapLaneCur = 0;
+        tmapRoadCat = -1;
+        curveCount = 0;
+        if (scene == null) {
+            return;
+        }
+        tmapRoadCat = scene.optInt("cat", -1);
+        JSONObject lane = scene.optJSONObject("lane");
+        if (lane != null) {
+            int n = lane.optInt("n", 0);
+            int cur = lane.optInt("cur", 0);
+            if (n >= 2 && n <= TMAP_MAX_LANES && cur >= 1 && cur <= n) {
+                tmapLaneCount = n;
+                tmapLaneCur = cur;
+                JSONArray turns = lane.optJSONArray("turns");
+                JSONArray avail = lane.optJSONArray("avail");
+                for (int i = 0; i < n; i++) {
+                    tmapTurns[i] = turns == null ? 0 : turns.optInt(i, 0);
+                    tmapAvail[i] = avail == null ? 1 : avail.optInt(i, 1);
+                }
+            }
+        }
+        JSONArray curve = scene.optJSONArray("curve");
+        if (curve != null) {
+            int m = Math.min(curve.length(), curveX.length);
+            int k = 0;
+            float lastX = -999f;
+            for (int i = 0; i < m; i++) {
+                JSONArray pt = curve.optJSONArray(i);
+                if (pt == null) {
+                    continue;
+                }
+                float x = (float) pt.optDouble(0, Double.NaN);
+                float y = (float) pt.optDouble(1, Double.NaN);
+                if (Float.isNaN(x) || Float.isNaN(y) || x <= lastX) {
+                    continue;
+                }
+                curveX[k] = x;
+                curveY[k] = y;
+                lastX = x;
+                k++;
+            }
+            curveCount = k >= 2 ? k : 0;
+        }
+    }
+
+    boolean tmapHighway() {
+        // roadcate 0(고속도로)/1(도시고속화도로). 실측 후 보정 여지 있음.
+        return tmapRoadCat == 0 || tmapRoadCat == 1;
+    }
+
     private final float[] boxX = new float[8];
     private final float[] boxY = new float[8];
 
@@ -308,7 +378,18 @@ final class World3D {
     }
 
     float centerAt(float x) {
-        return sample(pathX, pathY, pathCount, x);
+        float y = sample(pathX, pathY, pathCount, x);
+        if (curveCount >= 2 && x > CURVE_BLEND_START) {
+            // 근거리는 모델, 원거리는 티맵 폴리라인. GPS 오프셋(1~5m)이 그대로
+            // 보이지 않도록 블렌드 시작점에서 두 곡선의 차이를 바이어스로 빼서
+            // 이어붙인다 → 형상(커브)만 가져오고 절대 오프셋은 버린다.
+            float w = Math.min(1f, (x - CURVE_BLEND_START) / CURVE_BLEND_SPAN);
+            float bias = sample(curveX, curveY, curveCount, CURVE_BLEND_START)
+                    - sample(pathX, pathY, pathCount, CURVE_BLEND_START);
+            float curveYv = sample(curveX, curveY, curveCount, x) - bias;
+            y = y * (1f - w) + curveYv * w;
+        }
+        return y;
     }
 
     /** 인식된 도로경계가 있으면 그것으로, 없으면 고정 폭으로. */
@@ -490,6 +571,11 @@ final class World3D {
             return sample(edgeRX, edgeRY, edgeRCount, x);
         }
         float half = ROAD_HALF + SHOULDER;
+        if (tmapLaneCount >= 2) {
+            int lanesOnSide = leftSide ? Math.max(0, tmapLaneCur - 1)
+                    : Math.max(0, tmapLaneCount - tmapLaneCur);
+            half = 1.75f + TMAP_LANE_W * lanesOnSide + SHOULDER;
+        }
         return centerAt(x) + (leftSide ? half : -half);
     }
 
@@ -522,10 +608,16 @@ final class World3D {
         p.setColor(ground);
         c.drawRect(LEFT, HORIZON, RIGHT, BOTTOM, p);
 
+        boolean highway = tmapHighway();
         drawRoad(c, p, roadTop, roadBottom);
         drawCurb(c, p, true, roadTop);
         drawCurb(c, p, false, roadTop);
         drawMarkings(c, p, s);
+        drawTmapLanes(c, p);
+        if (highway) {
+            drawGuardrail(c, p, true, roadTop);
+            drawGuardrail(c, p, false, roadTop);
+        }
 
         if (limitPaint && s != null) {
             JSONObject leadForPaint = s.optJSONObject("lead");
@@ -536,7 +628,7 @@ final class World3D {
         if (enabled) {
             drawPathRibbon(c, p, pathColor);
         }
-        if (buildings) {
+        if (buildings && !highway) {
             drawBuildings(c, p, odoM, sky);
         }
         if (bumpPaint && s != null) {
@@ -664,6 +756,176 @@ final class World3D {
             boolean isEgo = (lanes.length() >= 3) && (i == 1 || i == 2);
             polyline(c, p, lane.optJSONArray("p"), isEgo ? ego : plain, LANE_PAINT_W, true, alpha);
         }
+    }
+
+    /** 티맵 차로 수 기반 추가 구분선 + 차로별 방향 화살표.
+     *  모델은 자기 차로 양옆 선까지만 주므로, 그 밖의 차로는 티맵 count 로
+     *  자차 경로(centerAt)에 평행 오프셋해 그린다. 좌 +y. */
+    private void drawTmapLanes(Canvas c, Paint p) {
+        if (tmapLaneCount < 2) {
+            return;
+        }
+        int divider = dark ? Color.rgb(196, 205, 214) : Color.rgb(240, 243, 244);
+        int leftLanes = tmapLaneCur - 1;
+        int rightLanes = tmapLaneCount - tmapLaneCur;
+        // k=1 은 자기 차로 경계(모델이 이미 그림)라 k=2 부터.
+        for (int k = 2; k <= leftLanes; k++) {
+            drawParallelDash(c, p, 1.75f + TMAP_LANE_W * (k - 1), divider);
+        }
+        for (int k = 2; k <= rightLanes; k++) {
+            drawParallelDash(c, p, -(1.75f + TMAP_LANE_W * (k - 1)), divider);
+        }
+        drawLaneArrows(c, p);
+    }
+
+    private void drawParallelDash(Canvas c, Paint p, float offset, int color) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(color);
+        p.setAlpha(150);
+        for (float x = 4f; x < 120f; x += DASH_PERIOD) {
+            float x2 = x + DASH_ON;
+            float y1 = centerAt(x) + offset;
+            float y2 = centerAt(x2) + offset;
+            if (!project(x, y1, 0f, pa) || !project(x2, y2, 0f, pb)) {
+                continue;
+            }
+            float w1 = LANE_PAINT_W * 0.5f * pxPerMeter(x + CAM_BACK);
+            float w2 = LANE_PAINT_W * 0.5f * pxPerMeter(x2 + CAM_BACK);
+            poly2.rewind();
+            poly2.moveTo(pa[0] - w1, pa[1]);
+            poly2.lineTo(pa[0] + w1, pa[1]);
+            poly2.lineTo(pb[0] + w2, pb[1]);
+            poly2.lineTo(pb[0] - w2, pb[1]);
+            poly2.close();
+            c.drawPath(poly2, p);
+        }
+        p.setAlpha(255);
+    }
+
+    /** 티맵 nLaneTurnInfo 코드 → 화살표 종류. 0 직진 / 1 좌 / 2 우 / 3 유턴.
+     *  ※ 코드표는 잠정 매핑 — 실주행 payload 로 검증 후 보정할 것. */
+    private static int arrowKindFor(int code) {
+        switch (code) {
+            case 2: case 5: case 7: case 12: return 1;
+            case 3: case 6: case 8: case 13: return 2;
+            case 4: case 14: return 3;
+            default: return 0;
+        }
+    }
+
+    /** 노면 화살표. 진행 가능(available) 차로는 밝게, 아니면 어둡게. */
+    private void drawLaneArrows(Canvas c, Paint p) {
+        float ax = 21f;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        for (int i = 1; i <= tmapLaneCount; i++) {
+            float laneY = centerAt(ax) + TMAP_LANE_W * (tmapLaneCur - i);
+            boolean ok = tmapAvail[i - 1] != 0;
+            int color;
+            if (i == tmapLaneCur) {
+                color = dark ? Color.rgb(246, 206, 92) : Color.rgb(222, 168, 32);
+            } else if (ok) {
+                color = dark ? Color.rgb(232, 238, 244) : Color.rgb(252, 253, 253);
+            } else {
+                color = dark ? Color.rgb(96, 106, 118) : Color.rgb(168, 176, 182);
+            }
+            p.setColor(color);
+            p.setAlpha(ok ? 235 : 130);
+            arrowGlyph(c, p, ax, laneY, arrowKindFor(tmapTurns[i - 1]));
+        }
+        p.setAlpha(255);
+    }
+
+    /** 바닥에 눕힌 화살표(도색 느낌). kind: 0 직진 / 1 좌 / 2 우 / 3 유턴. */
+    private void arrowGlyph(Canvas c, Paint p, float x, float y, int kind) {
+        float hw = 0.38f;
+        boolean okBase = worldQuad(c, p, x - 3.0f, y - hw, x - 3.0f, y + hw,
+                x + 0.8f, y + hw, x + 0.8f, y - hw);
+        if (!okBase) {
+            return;
+        }
+        if (kind == 1 || kind == 2) {
+            float dir = kind == 1 ? 1f : -1f;
+            // 옆으로 꺾인 짧은 몸통 + 촉
+            worldQuad(c, p, x + 0.2f, y - hw * dir, x + 0.2f, y + 1.5f * dir,
+                    x + 0.9f, y + 1.5f * dir, x + 0.9f, y - hw * dir);
+            worldTri(c, p, x + 0.55f, y + 2.6f * dir,
+                    x - 0.35f, y + 1.3f * dir, x + 1.45f, y + 1.3f * dir);
+        } else if (kind == 3) {
+            // 유턴 : 몸통 위 반원 느낌의 굽은 촉
+            worldQuad(c, p, x + 0.6f, y - hw, x + 1.6f, y - hw + 1.0f,
+                    x + 1.6f, y + 1.2f, x + 0.6f, y + 1.2f);
+            worldTri(c, p, x - 0.3f, y + 1.0f, x + 0.9f, y + 0.4f, x + 0.9f, y + 1.9f);
+        } else {
+            worldTri(c, p, x + 3.4f, y, x + 0.5f, y - 1.25f, x + 0.5f, y + 1.25f);
+        }
+    }
+
+    private boolean worldQuad(Canvas c, Paint p, float x1, float y1, float x2, float y2,
+                              float x3, float y3, float x4, float y4) {
+        if (!project(x1, y1, 0f, pa) || !project(x2, y2, 0f, pb)
+                || !project(x3, y3, 0f, pc) || !project(x4, y4, 0f, pd)) {
+            return false;
+        }
+        poly2.rewind();
+        poly2.moveTo(pa[0], pa[1]);
+        poly2.lineTo(pb[0], pb[1]);
+        poly2.lineTo(pc[0], pc[1]);
+        poly2.lineTo(pd[0], pd[1]);
+        poly2.close();
+        c.drawPath(poly2, p);
+        return true;
+    }
+
+    private void worldTri(Canvas c, Paint p, float x1, float y1, float x2, float y2,
+                          float x3, float y3) {
+        if (!project(x1, y1, 0f, pa) || !project(x2, y2, 0f, pb)
+                || !project(x3, y3, 0f, pc)) {
+            return;
+        }
+        poly2.rewind();
+        poly2.moveTo(pa[0], pa[1]);
+        poly2.lineTo(pb[0], pb[1]);
+        poly2.lineTo(pc[0], pc[1]);
+        poly2.close();
+        c.drawPath(poly2, p);
+    }
+
+    /** 고속도로 가드레일 : 도로경계 바깥 0.3m, 레일 높이 0.75m + 기둥 12m 간격. */
+    private void drawGuardrail(Canvas c, Paint p, boolean leftSide, int roadColor) {
+        int rail = dark ? Color.rgb(150, 160, 172) : Color.rgb(186, 193, 199);
+        int post = dark ? Color.rgb(104, 114, 126) : Color.rgb(158, 166, 173);
+        float side = leftSide ? 1f : -1f;
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        boolean have = false;
+        float px0 = 0f, py0 = 0f;
+        p.setColor(rail);
+        for (float x = 6f; x < 150f; x += 6f) {
+            float y = roadEdgeAt(x, leftSide) + side * 0.3f;
+            if (!project(x, y, 0.75f, pa)) {
+                have = false;
+                continue;
+            }
+            p.setStrokeWidth(Math.max(1.5f, 0.09f * pxPerMeter(x + CAM_BACK)));
+            if (have) {
+                c.drawLine(px0, py0, pa[0], pa[1], p);
+            }
+            px0 = pa[0];
+            py0 = pa[1];
+            have = true;
+        }
+        p.setColor(post);
+        for (float x = 8f; x < 110f; x += 12f) {
+            float y = roadEdgeAt(x, leftSide) + side * 0.3f;
+            if (!project(x, y, 0f, pa) || !project(x, y, 0.75f, pb)) {
+                continue;
+            }
+            p.setStrokeWidth(Math.max(1.2f, 0.07f * pxPerMeter(x + CAM_BACK)));
+            c.drawLine(pa[0], pa[1], pb[0], pb[1], p);
+        }
+        p.setStyle(Paint.Style.FILL);
     }
 
     private void polyline(Canvas c, Paint p, JSONArray pts, int color, float widthM,

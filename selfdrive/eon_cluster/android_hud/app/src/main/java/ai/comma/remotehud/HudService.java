@@ -731,6 +731,8 @@ public final class HudService extends Service {
         p.setColor(driveBg);
         c.drawRect(0f, 0f, DRIVE_RIGHT, 462f, p);
 
+        JSONObject naviForWorld = stale ? null : s.optJSONObject("navi");
+        world.setNavi(naviForWorld == null ? null : naviForWorld.optJSONObject("scene"));
         world.draw(c, p, stale ? null : s, enabled, egoCar, otherCar, worldOdoM,
                 driveBg,
                 lc(l, "roadTop", frameDark ? Color.rgb(42, 49, 58) : Color.rgb(226, 229, 231)),
