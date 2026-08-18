@@ -82,6 +82,13 @@ public final class HudService extends Service {
     private static final float SPEED_BASELINE = 118f;
     /** "RPM" / 회전수 숫자를 아크 끝에서 좌우 바깥으로 띄우는 간격. */
     private static final float RPM_LABEL_GAP = 16f;
+    /** RPM 인셋 바 게이지: 레일 두 줄 사이를 짧은 바로 채운다.
+     *  바깥 레일 반경 = 106+5 = 111 (예전 굵은 아크 바깥면과 동일),
+     *  안쪽 레일 반경 = 106-6-3 = 97 → 속도 숫자(2자리 88px)와 16px 여유. */
+    private static final int RPM_BARS = 44;
+    private static final float RPM_BAR_W = 12f;
+    private static final float RPM_RAIL_W = 2f;
+    private static final float RPM_RAIL_OFF = 5f;
 
     private static final int USB_RESET_AFTER_ERRORS = 3;
     private static final int USB_SLOWDOWN_AFTER_ERRORS = 5;
@@ -993,26 +1000,71 @@ public final class HudService extends Service {
         float start = 181f;
         float sweep = 178f;
         float limit = redline > 100f ? redline : 6500f;
-        float redFrom = start + sweep * (5000f / limit);
+        float redFrac = Math.max(0f, Math.min(1f, 5000f / limit));
         float frac = Math.max(0f, Math.min(1f, rpm / limit));
 
         p.setShader(null);
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(10f);
-        scratchRect.set(cx - r, cy - r, cx + r, cy + r);
+        p.setStrokeCap(Paint.Cap.BUTT);
 
-        p.setColor(Color.rgb(52, 60, 70));
+        int railColor = frameDark ? Color.rgb(74, 88, 108) : Color.rgb(150, 158, 166);
+        int railRed = Color.rgb(226, 72, 77);
+
+        // 바깥/안쪽 레일. 바깥면은 예전 아크(r=106, 굵기 10)와 같은 111 이라
+        // 위쪽 잘림(y=6)이나 RPM 라벨 간격에는 영향이 없다.
+        p.setStrokeWidth(RPM_RAIL_W);
+        float ro = r + RPM_RAIL_OFF;
+        float ri = r - RPM_BAR_W / 2f - 3f;
+        p.setColor(railColor);
+        scratchRect.set(cx - ro, cy - ro, cx + ro, cy + ro);
         c.drawArc(scratchRect, start, sweep, false, p);
-        p.setColor(Color.rgb(96, 44, 46));
-        c.drawArc(scratchRect, redFrom, start + sweep - redFrom, false, p);
-        if (frac > 0.001f) {
-            p.setColor(rpm >= 5000 ? Color.rgb(222, 67, 70) : Color.rgb(40, 150, 255));
-            c.drawArc(scratchRect, start, sweep * frac, false, p);
+        scratchRect.set(cx - ri, cy - ri, cx + ri, cy + ri);
+        c.drawArc(scratchRect, start, sweep, false, p);
+
+        p.setColor(railRed);
+        float redFrom = start + sweep * redFrac;
+        float redSweep = start + sweep - redFrom;
+        scratchRect.set(cx - ro, cy - ro, cx + ro, cy + ro);
+        c.drawArc(scratchRect, redFrom, redSweep, false, p);
+        scratchRect.set(cx - ri, cy - ri, cx + ri, cy + ri);
+        c.drawArc(scratchRect, redFrom, redSweep, false, p);
+
+        // 레일 사이를 채우는 인셋 바. 값 이하 구간만 파랑->시안 그라데이션으로
+        // 채우고, 레드존은 값이 못 미쳐도 어둡게 남겨 최대치를 알 수 있게 한다.
+        float rb = r - 2f;
+        float step = sweep / RPM_BARS;
+        float gap = 0.55f;
+        p.setStrokeWidth(RPM_BAR_W);
+        scratchRect.set(cx - rb, cy - rb, cx + rb, cy + rb);
+        for (int i = 0; i < RPM_BARS; i++) {
+            float mid = (i + 0.5f) / RPM_BARS;
+            int color;
+            if (mid <= frac) {
+                color = mid >= redFrac
+                        ? Color.rgb(222, 67, 70)
+                        : mixColor(Color.rgb(40, 150, 255), Color.rgb(46, 211, 224),
+                                frac > 0.001f ? mid / frac : 0f);
+            } else if (mid >= redFrac) {
+                color = frameDark ? Color.rgb(96, 40, 44) : Color.rgb(232, 186, 188);
+            } else {
+                continue;
+            }
+            p.setColor(color);
+            c.drawArc(scratchRect, start + step * i + gap, step - gap * 2f, false, p);
         }
 
         text(c, p, "RPM", cx - r - RPM_LABEL_GAP, 122f, 13f, dim(), Paint.Align.RIGHT);
         text(c, p, String.format(Locale.US, "%,d", rpm), cx + r + RPM_LABEL_GAP, 124f, 22f,
                 ink(), Paint.Align.LEFT);
+    }
+
+    /** 두 색을 t(0~1) 비율로 섞는다. RPM 인셋 바 그라데이션용. */
+    private static int mixColor(int a, int b, float t) {
+        float u = Math.max(0f, Math.min(1f, t));
+        return Color.rgb(
+                (int) (Color.red(a) + (Color.red(b) - Color.red(a)) * u),
+                (int) (Color.green(a) + (Color.green(b) - Color.green(a)) * u),
+                (int) (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * u));
     }
 
     private void drawPrnd(Canvas c, Paint p, String gear) {
