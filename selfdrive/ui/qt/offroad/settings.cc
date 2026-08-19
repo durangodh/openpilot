@@ -406,7 +406,16 @@ ParamValueControlF::ParamValueControlF(const QString &param, const QString &titl
 void ParamValueControlF::changeValue(int delta) {
   std::string cur = params.get(param_.toStdString());
   int v = cur.empty() ? vdefault_ : std::atoi(cur.c_str());
-  v = std::max(vmin_, std::min(vmax_, v + delta * step_));
+  const int step = std::max(1, step_);
+
+  // 저장된 값이 step 격자에서 벗어나 있으면(APM 등 다른 도구가 1 단위로 쓴 경우)
+  // 그냥 step 을 더하면 격자에 영원히 못 올라탄다. 예: step 5, 현재 97 -> 102/92 만
+  // 오가고 100 에 닿지 못한다. 그래서 격자 밖이면 먼저 누른 방향의 격자점으로 붙인다.
+  const int base = (int)std::floor((double)v / (double)step) * step;   // 음수 범위도 안전
+  v = (v == base) ? v + delta * step
+                  : ((delta > 0) ? base + step : base);
+
+  v = std::max(vmin_, std::min(vmax_, v));
   params.put(param_.toStdString(), std::to_string(v));
   refresh();
 }
@@ -482,7 +491,15 @@ NtuneValueControl::NtuneValueControl(const QString &group, const QString &key,
 
 void NtuneValueControl::changeValue(int delta) {
   double v = readNtuneValueS(group_, key_, vdefault_);
-  v += delta * step_;
+  const double step = (step_ > 0.0) ? step_ : 1.0;
+
+  // 격자 스냅 (ParamValueControlF 와 같은 이유). 예: step 0.005, 현재 0.097 이면
+  // 0.102/0.092 만 오가므로 0.100 에 닿지 못한다. 격자 밖이면 먼저 붙인다.
+  const double eps = step * 1e-6;
+  const double base = std::floor(v / step + eps) * step;
+  v = (std::fabs(v - base) < eps) ? v + delta * step
+                                  : ((delta > 0) ? base + step : base);
+
   // 부동소수 오차 정리
   double round_scale = std::pow(10.0, decimals_);
   v = std::round(v * round_scale) / round_scale;
