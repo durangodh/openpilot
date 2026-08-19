@@ -36,12 +36,7 @@ bool create_params_path(const std::string &param_path, const std::string &key_pa
 
   // See if the symlink exists, otherwise create it
   if (!util::file_exists(key_path)) {
-    // 1) Create temp folder
-    // 2) Symlink it to temp link
-    // 3) Move symlink to <params>/d
-
     std::string tmp_path = param_path + "/.tmp_XXXXXX";
-    // this should be OK since mkdtemp just replaces characters in place
     char *tmp_dir = mkdtemp((char *)tmp_path.c_str());
     if (tmp_dir == NULL) {
       return false;
@@ -52,7 +47,6 @@ bool create_params_path(const std::string &param_path, const std::string &key_pa
       return false;
     }
 
-    // don't return false if it has been created by other
     if (rename(link_path.c_str(), key_path.c_str()) != 0 && errno != EEXIST) {
       return false;
     }
@@ -107,7 +101,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"CruiseSpeed3", PERSISTENT},
     {"CruiseSpeed4", PERSISTENT},
     {"CruiseSpeed5", PERSISTENT},
-    {"AutoGasResumeGuard", PERSISTENT},            // 가속페달 재개 안전조건 (깜빡이/근접 앞차)   // 도로제한속도 대비 자동증속 상한(%), 0=off
+    {"AutoGasResumeGuard", PERSISTENT},
     {"AutoResumeFromGas", PERSISTENT},
     {"AutoResumeFromGasSpeedMode", PERSISTENT},
     {"AutoResumeFromBrakeRelease", PERSISTENT},
@@ -124,7 +118,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"ControlsReady", CLEAR_ON_MANAGER_START | CLEAR_ON_IGNITION_ON},
     {"CurrentRoute", CLEAR_ON_MANAGER_START | CLEAR_ON_IGNITION_ON},
     {"DisablePowerDown", PERSISTENT},
-    {"ExperimentalLongitudinalEnabled", PERSISTENT}, // WARNING: THIS MAY DISABLE AEB
+    {"ExperimentalLongitudinalEnabled", PERSISTENT},
     {"DisableUpdates", PERSISTENT},
     {"DisengageOnAccelerator", PERSISTENT},
     {"DongleId", PERSISTENT},
@@ -132,7 +126,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"DoShutdown", CLEAR_ON_MANAGER_START},
     {"DoUninstall", CLEAR_ON_MANAGER_START},
     {"ExperimentalMode", PERSISTENT},
-    {"E2EAccMode", PERSISTENT},             // 0: ACC, 1: AUTO, 2: E2E
+    {"E2EAccMode", PERSISTENT},
     {"EnableWideCamera", CLEAR_ON_MANAGER_START},
     {"ForcePowerDown", CLEAR_ON_MANAGER_START},
     {"GitBranch", PERSISTENT},
@@ -177,7 +171,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"PrimeRedirected", PERSISTENT},
     {"PrimeType", PERSISTENT},
     {"RecordFront", PERSISTENT},
-    {"RecordFrontLock", PERSISTENT},  // for the internal fleet
+    {"RecordFrontLock", PERSISTENT},
     {"ReleaseNotes", PERSISTENT},
     {"ShouldDoUpdate", CLEAR_ON_MANAGER_START},
     {"SnoozeUpdate", CLEAR_ON_MANAGER_START | CLEAR_ON_IGNITION_OFF},
@@ -223,33 +217,34 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LaneChangeEnabled", PERSISTENT},
     {"AutoLaneChangeEnabled", PERSISTENT},
     {"OffsetTotal", PERSISTENT},
-    {"PathOffset", PERSISTENT},              // CarrotLearning Phase2, cm units (-30..30)
-    {"AdjustLaneOffset", PERSISTENT},          // 좌우 여유공간 비대칭 보정 (cm, 0=off)     // 통합 오프셋(offset_total). 전 모드 공통, Auto-Tuner Phase2 학습 대상
+    {"PathOffset", PERSISTENT},
+    {"AdjustLaneOffset", PERSISTENT},
     {"SccSmootherState", PERSISTENT},
     {"SccSmootherSyncGasPressed", PERSISTENT},
     {"StockNaviDecelEnabled", PERSISTENT},
     {"NewRadarInterface", PERSISTENT},
     {"WideCameraOnly", PERSISTENT},
     {"AutoLaneChangeTimer", PERSISTENT},
-    {"AutoLaneChangeSpeed", PERSISTENT},        // 자동/방향지시등 차선변경 허용 최저 속도 (km/h)
+    {"AutoLaneChangeSpeed", PERSISTENT},
     {"CarrotAutoTurnControl", PERSISTENT},
     {"CarrotAutoTurnControlMigrated", PERSISTENT},
     {"CarrotAutoTurnSpeed", PERSISTENT},
     {"CarrotAutoTurnEndTime", PERSISTENT},
-    {"StopDistance", PERSISTENT},                // shared ACC/E2E standstill distance (cm), default 600
-    {"ApplyLongDynamicCost", PERSISTENT},        // 동적 longitudinal MPC cost 적용
-    {"MyDrivingMode", PERSISTENT},             // 주행모드 1:SAFE 2:ECO 3:NORM 4:FAST
-    {"InitMyDrivingMode", PERSISTENT},         // 부팅모드 1~4, 5=AUTO
-    {"MyEcoModeFactor", PERSISTENT},           // ECO 최대가속 비율 (x100)
-    {"MySafeModeFactor", PERSISTENT},           // SAFE 모드 TR 비율 (x100)
-    {"PrevCruiseGap", PERSISTENT},              // 마지막 소프트웨어 크루즈 갭 1~4
+    {"StopDistance", PERSISTENT},
+    {"ApplyLongDynamicCost", PERSISTENT},
+    {"MyDrivingMode", PERSISTENT},
+    {"InitMyDrivingMode", PERSISTENT},
+    {"MyEcoModeFactor", PERSISTENT},
+    {"MySafeModeFactor", PERSISTENT},
+    {"PrevCruiseGap", PERSISTENT},
     {"ShowGearAnimation", PERSISTENT},
-    {"ShowCarrotHud", PERSISTENT},              // 1=좌측 carrot HUD 박스 표시, 0=숨김
+    {"ShowCarrotHud", PERSISTENT},
     {"EonClusterHud", PERSISTENT},
     {"EonClusterHudBrightness", PERSISTENT},
     {"EonClusterHudBsdStyle", PERSISTENT},
     {"EonClusterHudCarStyle", PERSISTENT},
-    {"EonClusterHudRoadSigns", PERSISTENT},   // 노면 표시 0:끔 1:제한속도 2:방지턱 3:둘다
+    {"EonClusterHudRoadSigns", PERSISTENT},
+    {"CarrotLearnFrictionBase", PERSISTENT},
     {"EonClusterHudBuildings", PERSISTENT},
     {"EonClusterHudOutputMode", PERSISTENT},
     {"EonClusterHudConnected", CLEAR_ON_MANAGER_START},
@@ -261,51 +256,49 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudTheme", PERSISTENT},
     {"EonClusterHudOrientation", PERSISTENT},
     {"EonClusterHudMirror", PERSISTENT},
-    {"EonClusterHudPathFlip", PERSISTENT},       // 진단용: S9 경로/차선 좌우반전 (0=기본, 1=반전)
+    {"EonClusterHudPathFlip", PERSISTENT},
     {"EonClusterHudLanguage", PERSISTENT},
     {"EonClusterHudRadarInfo", PERSISTENT},
-    {"ShowMapboxMap", PERSISTENT},              // 1=Mapbox/ATC Tmap 지도 이미지 표시, 0=모든 지도 이미지 숨김
-    {"ShowRouteMapAlways", PERSISTENT},         // 1=목적지 경로 동안 Tmap 지도 이미지 상시 표시
-    {"ShowPathWidth", PERSISTENT},               // 경로 반폭 cm (90=0.90m)
-    {"ShowPathStatusColor", PERSISTENT},         // 가감속 상태에 따른 경로 색상
-    {"ShowPlotMode", PERSISTENT},                // 0=off, 1..8=C3 driving analysis plot
-    {"CustomSteerRatio", PERSISTENT},          // 고정 조향비 x100
-    {"UseLiveSteerRatio", PERSISTENT},         // 1=liveParameters 학습 조향비 사용
-    {"SteerRatioRate", PERSISTENT},            // CarrotLearning Phase2 steer-ratio multiplier (%)
-    {"SteerActuatorDelay", PERSISTENT},        // 조향 지연 보상 x100 (초)
-    {"LateralTorqueCustom", PERSISTENT},       // 1=아래 토크값 사용, 0=차량 기본값
-    {"LateralTorqueAccelFactor", PERSISTENT},  // latAccelFactor x1000
-    {"LateralTorqueFriction", PERSISTENT},     // friction x1000
-    {"LateralTorqueKpV", PERSISTENT},          // kp x100
-    {"LateralTorqueKiV", PERSISTENT},          // ki x100
-    {"LateralTorqueKf", PERSISTENT},           // kf x100
-    {"LateralTorqueKd", PERSISTENT},           // kd x100
-    {"LatAccelFrictionFactor", PERSISTENT},    // friction 입력 횡가속 비율 x100
-    {"LatJerkFrictionFactor", PERSISTENT},     // friction 입력 횡저크 비율 x100
-    // ── LiveTorque self-learning (backport from ajouatom/openpilot hoya/c3-atune) ──
-    {"LiveTorqueParameters", PERSISTENT},      // torqued.py가 주기적으로 캐싱하는 학습값 (serialized Event bytes)
-    {"ShowBlindSpotAlways", PERSISTENT},       // BSD 벽 상시표시 (진단용, 0=감지시만)         // 기어 변경 팝업 애니메이션
+    {"ShowMapboxMap", PERSISTENT},
+    {"ShowRouteMapAlways", PERSISTENT},
+    {"ShowPathWidth", PERSISTENT},
+    {"ShowPathStatusColor", PERSISTENT},
+    {"ShowPlotMode", PERSISTENT},
+    {"CustomSteerRatio", PERSISTENT},
+    {"UseLiveSteerRatio", PERSISTENT},
+    {"SteerRatioRate", PERSISTENT},
+    {"SteerActuatorDelay", PERSISTENT},
+    {"LateralTorqueCustom", PERSISTENT},
+    {"LateralTorqueAccelFactor", PERSISTENT},
+    {"LateralTorqueFriction", PERSISTENT},
+    {"LateralTorqueKpV", PERSISTENT},
+    {"LateralTorqueKiV", PERSISTENT},
+    {"LateralTorqueKf", PERSISTENT},
+    {"LateralTorqueKd", PERSISTENT},
+    {"LatAccelFrictionFactor", PERSISTENT},
+    {"LatJerkFrictionFactor", PERSISTENT},
+    {"LiveTorqueParameters", PERSISTENT},
+    {"ShowBlindSpotAlways", PERSISTENT},
     {"KeepSteeringTurnSignals", PERSISTENT},
     {"HapticFeedbackWhenSpeedCamera", PERSISTENT},
     {"TurnVisionControl", PERSISTENT},
-    {"AutoCurveSpeedFactor", PERSISTENT},       // vision curvature multiplier, x100
-    {"AutoCurveSpeedLowerLimit", PERSISTENT},   // minimum vision/map curve speed, km/h
-    {"MapTurnSpeedFactor", PERSISTENT},         // Tmap route curve speed multiplier, x100
-    {"AutoNaviSpeedDecelRate", PERSISTENT},     // map curve deceleration, x100 m/s^2
+    {"AutoCurveSpeedFactor", PERSISTENT},
+    {"AutoCurveSpeedLowerLimit", PERSISTENT},
+    {"MapTurnSpeedFactor", PERSISTENT},
+    {"AutoNaviSpeedDecelRate", PERSISTENT},
     {"SoftRestartTriggered", CLEAR_ON_MANAGER_START},
-    // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──────────────────
-    {"CarrotLearningActive", PERSISTENT},      // 학습 활성화 (0=off, 1=on)
-    {"CarrotLearningAutoApply", PERSISTENT},   // P단 전환 시 추천 자동 적용 (0=off, 1=on)
-    {"CarrotTunerApplyLat", PERSISTENT},       // 조향(LAT) 추천 적용 여부 (기본 1)
-    {"CarrotLearningData", PERSISTENT},        // 누적 학습 데이터 (JSON)
-    {"CarrotLearningRecommend", PERSISTENT},   // 추천값 (JSON)
-    {"CarrotLearningHistory", PERSISTENT},     // 적용 이력 (JSON, 최대 50)
-    {"CarrotLearningPopupReady", PERSISTENT},  // 추천 준비 신호
-    {"CarrotLearningPopupSource", PERSISTENT}, // 추천 발생 소스 ("parking")
-    {"CarrotLearningApplyNow", PERSISTENT},    // 팝업에서 수락 시 1회성 신호: Python이 적용+카운터 리셋을 전담
-    {"CarrotLearningClear", PERSISTENT},       // 학습 데이터 초기화 신호
-    {"CarrotTunerFactoryReset", PERSISTENT},   // 공장초기화 신호 (commit e06a7dd): UI→onroad 학습기 재동기화
-    {"LongCoastBand", PERSISTENT},             // 코스팅 데드밴드 (x100 정수, m/s², 기본 0=off; commit 10fa725 Phase9 추천·longcontrol 라이브 반영)
+    {"CarrotLearningActive", PERSISTENT},
+    {"CarrotLearningAutoApply", PERSISTENT},
+    {"CarrotTunerApplyLat", PERSISTENT},
+    {"CarrotLearningData", PERSISTENT},
+    {"CarrotLearningRecommend", PERSISTENT},
+    {"CarrotLearningHistory", PERSISTENT},
+    {"CarrotLearningPopupReady", PERSISTENT},
+    {"CarrotLearningPopupSource", PERSISTENT},
+    {"CarrotLearningApplyNow", PERSISTENT},
+    {"CarrotLearningClear", PERSISTENT},
+    {"CarrotTunerFactoryReset", PERSISTENT},
+    {"LongCoastBand", PERSISTENT},
     {"LongTuningKpV", PERSISTENT},
     {"LongTuningKiV", PERSISTENT},
     {"LongTuningKf", PERSISTENT},
@@ -313,18 +306,17 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LongitudinalActuatorDelayLowerBound", PERSISTENT},
     {"LongitudinalActuatorDelayUpperBound", PERSISTENT},
     {"StoppingAccel", PERSISTENT},
-    // 학습 대상 파라미터 (x100 정수 저장)
-    {"TFollowGap1", PERSISTENT},               // GAP1 (default 110 = 1.10s)
-    {"TFollowGap2", PERSISTENT},               // GAP2 (default 120 = 1.20s)
-    {"TFollowGap3", PERSISTENT},               // GAP3 (default 140 = 1.40s)
-    {"TFollowGap4", PERSISTENT},               // GAP4 (default 160 = 1.60s)
+    {"TFollowGap1", PERSISTENT},
+    {"TFollowGap2", PERSISTENT},
+    {"TFollowGap3", PERSISTENT},
+    {"TFollowGap4", PERSISTENT},
     {"EnableSpeedTF", PERSISTENT},
     {"StartAccelApply", PERSISTENT},
     {"StopAccelApply", PERSISTENT},
     {"SoftHoldMode", PERSISTENT},
-    {"TrafficStopMode", PERSISTENT},         // 0: off/ACC, 1: conditional, 2: aPilot conditional
-    {"TrafficStopAccel", PERSISTENT},        // traffic-signal deceleration factor, percent
-    {"TrafficStopDistanceAdjust", PERSISTENT}, // traffic-stop line adjustment (cm), default +400
+    {"TrafficStopMode", PERSISTENT},
+    {"TrafficStopAccel", PERSISTENT},
+    {"TrafficStopDistanceAdjust", PERSISTENT},
 
     {"CruiseMaxVals1", PERSISTENT},
     {"CruiseMaxVals2", PERSISTENT},
@@ -349,7 +341,6 @@ std::vector<std::string> Params::allKeys() const {
   return ret;
 }
 
-
 bool Params::checkKey(const std::string &key) {
   return keys.find(key) != keys.end();
 }
@@ -359,34 +350,20 @@ ParamKeyType Params::getKeyType(const std::string &key) {
 }
 
 int Params::put(const char* key, const char* value, size_t value_size) {
-  // Information about safely and atomically writing a file: https://lwn.net/Articles/457667/
-  // 1) Create temp file
-  // 2) Write data to temp file
-  // 3) fsync() the temp file
-  // 4) rename the temp file to the real name
-  // 5) fsync() the containing directory
   std::string tmp_path = params_path + "/.tmp_value_XXXXXX";
   int tmp_fd = mkstemp((char*)tmp_path.c_str());
   if (tmp_fd < 0) return -1;
 
   int result = -1;
   do {
-    // Write value to temp.
     ssize_t bytes_written = HANDLE_EINTR(write(tmp_fd, value, value_size));
     if (bytes_written < 0 || (size_t)bytes_written != value_size) {
       result = -20;
       break;
     }
-
-    // fsync to force persist the changes.
     if ((result = fsync(tmp_fd)) < 0) break;
-
     FileLock file_lock(params_path + "/.lock");
-
-    // Move temp into place.
     if ((result = rename(tmp_path.c_str(), getParamPath(key).c_str())) < 0) break;
-
-    // fsync parent directory
     result = fsync_dir(getParamPath());
   } while (false);
 
@@ -408,7 +385,6 @@ std::string Params::get(const std::string &key, bool block) {
   if (!block) {
     return util::read_file(getParamPath(key));
   } else {
-    // blocking read until successful
     params_do_exit = 0;
     void (*prev_handler_sigint)(int) = std::signal(SIGINT, params_sig_handler);
     void (*prev_handler_sigterm)(int) = std::signal(SIGTERM, params_sig_handler);
@@ -418,7 +394,7 @@ std::string Params::get(const std::string &key, bool block) {
       if (value = util::read_file(getParamPath(key)); !value.empty()) {
         break;
       }
-      util::sleep_for(100);  // 0.1 s
+      util::sleep_for(100);
     }
 
     std::signal(SIGINT, prev_handler_sigint);
@@ -434,13 +410,11 @@ std::map<std::string, std::string> Params::readAll() {
 
 void Params::clearAll(ParamKeyType key_type) {
   FileLock file_lock(params_path + "/.lock");
-
   std::string path;
   for (auto &[key, type] : keys) {
     if (type & key_type) {
       unlink(getParamPath(key).c_str());
     }
   }
-
   fsync_dir(getParamPath());
 }
