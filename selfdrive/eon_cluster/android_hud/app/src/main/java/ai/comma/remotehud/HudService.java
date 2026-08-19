@@ -109,6 +109,7 @@ public final class HudService extends Service {
 
     private TurzxDisplay display;
     private Bitmap egoCar;
+    private Bitmap speedBumpImage;
     private Bitmap otherCar;
     private Bitmap wheelImage;   // res/drawable-nodpi/hud_wheel.png (없으면 기존 벡터 핸들)
     private Thread receiverThread;
@@ -260,6 +261,14 @@ public final class HudService extends Service {
         osmWorld = new OsmWorld(new java.io.File(getCacheDir(), "osm"));
         int wheelId = getResources().getIdentifier("hud_wheel", "drawable", getPackageName());
         wheelImage = wheelId == 0 ? null : BitmapFactory.decodeResource(getResources(), wheelId);
+        // 과속방지턱 표지판은 EON assets/images/speed_bump.png 와 같은 그림을
+        // drawable-nodpi 에 넣어 쓴다. 없으면 아래 벡터 폴백으로 그린다.
+        int bumpId = getResources().getIdentifier("hud_speed_bump", "drawable", getPackageName());
+        if (bumpId != 0) {
+            BitmapFactory.Options bumpOpts = new BitmapFactory.Options();
+            bumpOpts.inScaled = false;
+            speedBumpImage = BitmapFactory.decodeResource(getResources(), bumpId, bumpOpts);
+        }
 
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel(CHANNEL, "EON Remote HUD",
@@ -807,10 +816,14 @@ public final class HudService extends Service {
             // EON onroad.cc drawSpeedLimit 과 같은 규칙: 방지턱이 있으면
             // 과속카메라 대신 이 자리를 쓴다.
             drawBumpIcon(c, p, 882f, 171f, bumpDist);
+        } else if (!stale) {
+            // 2026-08-19: 과속카메라 / 구간단속 표시 복구.
+            // packet 의 camera(=camLimitSpeed 또는 sectionLimitSpeed) 는
+            // remote_hud._packet 에서 이미 EON drawSpeedLimit 과 같은 우선순위로
+            // 골라 보낸다. 도로 제한속도(limit) 는 여기에 그리지 않는다.
+            drawCamera(c, p, 882f, 171f, s.optInt("camera", 0), s.optInt("cameraDist", 0),
+                    s.optBoolean("cameraSection", false));
         }
-        // 2026-08-18: 도로 제한속도 원형 배지(흰 원 + 빨간 테두리 + 숫자)
-        // 표시 제거 요청. drawCamera()는 나중에 다시 필요할 수 있어 메서드
-        // 자체는 남겨두고 호출만 뺐다.
         c.restoreToCount(save6);
 
         int save7 = beginElement(c, l, "lead", 82f, 415f);
@@ -1316,9 +1329,28 @@ public final class HudService extends Service {
         text(c, p, "SET", cx, cy + 55f, 14f, accent, Paint.Align.CENTER);
     }
 
-    /** 과속방지턱 아이콘. 카메라(빨간 테두리)와 구분되게 노란 테두리를 쓴다. */
+    /**
+     * 과속방지턱 아이콘.
+     *
+     * 2026-08-19: EON 이 쓰는 것과 같은 삼각 경고표지 그림
+     * (selfdrive/assets/images/speed_bump.png 사본 = res/drawable-nodpi/hud_speed_bump.png)
+     * 을 그대로 쓴다. 리소스가 없으면 예전 벡터 아이콘으로 떨어진다.
+     */
     private void drawBumpIcon(Canvas c, Paint p, float cx, float cy, int dist) {
         p.setShader(null);
+        if (speedBumpImage != null && !speedBumpImage.isRecycled()) {
+            float h = 86f;
+            float w = h * speedBumpImage.getWidth() / (float) speedBumpImage.getHeight();
+            scratchRect.set(cx - w / 2f, cy - h / 2f + 2f, cx + w / 2f, cy + h / 2f + 2f);
+            p.setStyle(Paint.Style.FILL);
+            p.setAlpha(255);
+            p.setFilterBitmap(true);
+            c.drawBitmap(speedBumpImage, null, scratchRect, p);
+            // 남은거리는 검정 (라이트 테마 배경에서 읽히도록)
+            text(c, p, distanceText(dist), cx, cy + 66f, 18f, Color.rgb(18, 18, 18),
+                    Paint.Align.CENTER);
+            return;
+        }
         p.setStyle(Paint.Style.FILL);
         p.setColor(Color.rgb(250, 250, 250));
         c.drawCircle(cx, cy, 36f, p);
@@ -1342,7 +1374,7 @@ public final class HudService extends Service {
             c.drawRect(bx - 2.5f, cy + 11f - h, bx + 2.5f, cy + 11f, p);
         }
 
-        text(c, p, distanceText(dist), cx, cy + 60f, 18f, Color.rgb(235, 235, 235),
+        text(c, p, distanceText(dist), cx, cy + 60f, 18f, Color.rgb(18, 18, 18),
                 Paint.Align.CENTER);
     }
 
@@ -1444,7 +1476,8 @@ public final class HudService extends Service {
 
         boolean blink = dist > 350 || ((SystemClock.elapsedRealtime() / 500L) & 1L) == 0L;
         if (blink) {
-            drawAtcArrow(c, p, 1034f, 388f, navi.optInt("turnType", 0));
+            drawAtcArrow(c, p, 1034f, 388f, navi.optInt("turnType", 0),
+                    navi.optString("title", ""));
         }
         text(c, p, distanceText(dist), 1034f, 428f, 22f, Color.rgb(248, 249, 250), Paint.Align.CENTER);
         int remain = navi.optInt("remainDist", 0);
@@ -1484,7 +1517,8 @@ public final class HudService extends Service {
         p.setColor(TBT_GREEN);
         scratchRect.set(left, top, left + w, top + h);
         c.drawRoundRect(scratchRect, 8f, 8f, p);
-        drawScaledArrow(c, p, left + 46f, top + 50f, navi.optInt("turnType", 0), 1.25f);
+        drawScaledArrow(c, p, left + 46f, top + 50f, navi.optInt("turnType", 0), 1.25f,
+                navi.optString("title", ""));
         text(c, p, distanceText(dist), left + 94f, top + 70f, 46f, Color.WHITE, Paint.Align.LEFT);
         String title = navi.optString("title", "");
         if (title.length() > 7) {
@@ -1535,55 +1569,143 @@ public final class HudService extends Service {
         // 폭 352 -> 176 (절반). 안쪽 화살표/글자도 같이 줄인다.
         scratchRect.set(left, top, left + 176f, top + 52f);
         c.drawRoundRect(scratchRect, 7f, 7f, p);
-        drawScaledArrow(c, p, left + 28f, top + 26f, next.optInt("turnType", 0), 0.62f);
+        drawScaledArrow(c, p, left + 28f, top + 26f, next.optInt("turnType", 0), 0.62f,
+                next.optString("title", ""));
         text(c, p, distanceText(nextDist), left + 52f, top + 36f, 24f, Color.WHITE, Paint.Align.LEFT);
     }
 
-    private void drawScaledArrow(Canvas c, Paint p, float cx, float cy, int type, float scale) {
+    // 회전 방향 종류. EON onroad_navi.inc 의 CarrotTurnDirection 과 1:1 대응.
+    private static final int TURN_STRAIGHT = 0;
+    private static final int TURN_LEFT = 1;
+    private static final int TURN_RIGHT = 2;
+    private static final int TURN_STRAIGHT_LEFT = 3;
+    private static final int TURN_STRAIGHT_RIGHT = 4;
+    private static final int TURN_LEFT_RIGHT = 5;
+    private static final int TURN_UTURN = 6;
+    private static final int TURN_SLIGHT_LEFT = 7;
+    private static final int TURN_SLIGHT_RIGHT = 8;
+    private static final int TURN_ARRIVE = 9;
+
+    /**
+     * 티맵 turn_type + 안내문구 → 회전 방향.
+     *
+     * 2026-08-19: 예전 매핑({12,16,20,3,5} 좌 / {13,18,21,4,6} 우)은 근거 없는
+     * 추정이라 티맵 화면과 자주 어긋났다. EON onroad_navi.inc 의
+     * carrotTurnDirection() 과 완전히 같은 규칙으로 교체한다(코드 우선,
+     * 못 맞추면 안내문구로 보정).
+     */
+    private static int turnDirection(int type, String label) {
+        String v = label == null ? "" : label.toLowerCase(Locale.US);
+        if (type == 20) return TURN_STRAIGHT_LEFT;
+        if (type == 21) return TURN_STRAIGHT_RIGHT;
+        if (type == 22) return TURN_LEFT_RIGHT;
+        if (v.contains("\uc720\ud134") || v.contains("u-turn") || type == 14) return TURN_UTURN;
+        if (v.contains("\ubaa9\uc801\uc9c0") || v.contains("\ub3c4\ucc29") || type == 2) return TURN_ARRIVE;
+        if (v.contains("\uc67c\ucabd \ubc29\ud5a5") || v.contains("\uc88c\uce21 \ubc29\ud5a5")
+                || v.contains("\ube44\uc2a4\ub4ec\ud788 \uc67c\ucabd")
+                || type == 16 || type == 17) return TURN_SLIGHT_LEFT;
+        if (v.contains("\uc624\ub978\ucabd \ubc29\ud5a5") || v.contains("\uc6b0\uce21 \ubc29\ud5a5")
+                || v.contains("\ube44\uc2a4\ub4ec\ud788 \uc624\ub978\ucabd")
+                || type == 18 || type == 19) return TURN_SLIGHT_RIGHT;
+        if (v.contains("\uc88c\ud68c\uc804") || v.contains("\uc67c\ucabd") || type == 12) return TURN_LEFT;
+        if (v.contains("\uc6b0\ud68c\uc804") || v.contains("\uc624\ub978\ucabd") || type == 13) return TURN_RIGHT;
+        return TURN_STRAIGHT;
+    }
+
+    private void drawScaledArrow(Canvas c, Paint p, float cx, float cy, int type,
+                                 float scale, String label) {
         int save = c.save();
         c.scale(scale, scale, cx, cy);
-        drawAtcArrow(c, p, cx, cy, type);
+        drawAtcArrow(c, p, cx, cy, type, label);
         c.restoreToCount(save);
     }
 
-    private void drawAtcArrow(Canvas c, Paint p, float cx, float cy, int type) {
-        int direction = 0;
-        if (type == 12 || type == 16 || type == 20 || type == 3 || type == 5) {
-            direction = -1;
-        } else if (type == 13 || type == 18 || type == 21 || type == 4 || type == 6) {
-            direction = 1;
-        }
+    /** EON drawCarrotTurnArrow() 의 도형을 그대로 옮긴 것(기준 s=22px). */
+    private void drawAtcArrow(Canvas c, Paint p, float cx, float cy, int type, String label) {
+        int dir = turnDirection(type, label);
+        float s = 22f;
         p.setShader(null);
-        p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(6f);
         p.setStrokeCap(Paint.Cap.ROUND);
         p.setStrokeJoin(Paint.Join.ROUND);
         p.setColor(Color.WHITE);
+
+        if (dir == TURN_ARRIVE) {
+            p.setStyle(Paint.Style.FILL);
+            c.drawCircle(cx, cy, s * 0.45f, p);
+            p.setStyle(Paint.Style.STROKE);
+            c.drawCircle(cx, cy, s * 0.85f, p);
+            p.setStyle(Paint.Style.FILL);
+            return;
+        }
+
+        p.setStyle(Paint.Style.STROKE);
         scratchPath.rewind();
-        if (type == 14) {
-            scratchPath.moveTo(cx + 10f, cy + 18f);
-            scratchPath.lineTo(cx + 10f, cy - 8f);
-            scratchPath.quadTo(cx + 10f, cy - 23f, cx - 8f, cy - 23f);
-            scratchPath.quadTo(cx - 26f, cy - 23f, cx - 26f, cy - 5f);
-            scratchPath.moveTo(cx - 26f, cy - 5f);
-            scratchPath.lineTo(cx - 35f, cy - 14f);
-            scratchPath.moveTo(cx - 26f, cy - 5f);
-            scratchPath.lineTo(cx - 17f, cy - 14f);
-        } else if (direction != 0) {
-            scratchPath.moveTo(cx, cy + 20f);
-            scratchPath.lineTo(cx, cy - 7f);
-            scratchPath.lineTo(cx + direction * 25f, cy - 7f);
-            scratchPath.moveTo(cx + direction * 25f, cy - 7f);
-            scratchPath.lineTo(cx + direction * 14f, cy - 17f);
-            scratchPath.moveTo(cx + direction * 25f, cy - 7f);
-            scratchPath.lineTo(cx + direction * 14f, cy + 3f);
+        if (dir == TURN_STRAIGHT_LEFT || dir == TURN_STRAIGHT_RIGHT || dir == TURN_LEFT_RIGHT) {
+            boolean drawStraight = dir != TURN_LEFT_RIGHT;
+            boolean drawLeft = dir == TURN_STRAIGHT_LEFT || dir == TURN_LEFT_RIGHT;
+            boolean drawRight = dir == TURN_STRAIGHT_RIGHT || dir == TURN_LEFT_RIGHT;
+            if (drawStraight) {
+                scratchPath.moveTo(cx, cy + s);
+                scratchPath.lineTo(cx, cy - s);
+                scratchPath.moveTo(cx - s * 0.35f, cy - s * 0.6f);
+                scratchPath.lineTo(cx, cy - s);
+                scratchPath.lineTo(cx + s * 0.35f, cy - s * 0.6f);
+            }
+            if (drawLeft) {
+                scratchPath.moveTo(cx, cy + s * 0.25f);
+                scratchPath.lineTo(cx, cy - s * 0.15f);
+                scratchPath.lineTo(cx - s, cy - s * 0.15f);
+                scratchPath.moveTo(cx - s * 0.55f, cy - s * 0.5f);
+                scratchPath.lineTo(cx - s, cy - s * 0.15f);
+                scratchPath.lineTo(cx - s * 0.55f, cy + s * 0.2f);
+            }
+            if (drawRight) {
+                scratchPath.moveTo(cx, cy + s * 0.25f);
+                scratchPath.lineTo(cx, cy - s * 0.15f);
+                scratchPath.lineTo(cx + s, cy - s * 0.15f);
+                scratchPath.moveTo(cx + s * 0.55f, cy - s * 0.5f);
+                scratchPath.lineTo(cx + s, cy - s * 0.15f);
+                scratchPath.lineTo(cx + s * 0.55f, cy + s * 0.2f);
+            }
+        } else if (dir == TURN_UTURN) {
+            scratchPath.moveTo(cx + s * 0.55f, cy + s);
+            scratchPath.lineTo(cx + s * 0.55f, cy - s * 0.25f);
+            scratchPath.cubicTo(cx + s * 0.55f, cy - s, cx - s * 0.65f, cy - s,
+                    cx - s * 0.65f, cy - s * 0.2f);
+            scratchPath.moveTo(cx - s, cy - s * 0.35f);
+            scratchPath.lineTo(cx - s * 0.65f, cy + s * 0.05f);
+            scratchPath.lineTo(cx - s * 0.3f, cy - s * 0.35f);
         } else {
-            scratchPath.moveTo(cx, cy + 20f);
-            scratchPath.lineTo(cx, cy - 22f);
-            scratchPath.moveTo(cx, cy - 22f);
-            scratchPath.lineTo(cx - 9f, cy - 11f);
-            scratchPath.moveTo(cx, cy - 22f);
-            scratchPath.lineTo(cx + 9f, cy - 11f);
+            float dx = 0f;
+            if (dir == TURN_LEFT) dx = -s;
+            else if (dir == TURN_RIGHT) dx = s;
+            else if (dir == TURN_SLIGHT_LEFT) dx = -s * 0.7f;
+            else if (dir == TURN_SLIGHT_RIGHT) dx = s * 0.7f;
+
+            float tipX;
+            float tipY;
+            scratchPath.moveTo(cx, cy + s);
+            if (dir == TURN_LEFT || dir == TURN_RIGHT) {
+                scratchPath.lineTo(cx, cy - s * 0.2f);
+                scratchPath.lineTo(cx + dx, cy - s * 0.2f);
+                tipX = cx + dx;
+                tipY = cy - s * 0.2f;
+            } else {
+                scratchPath.lineTo(cx + dx, cy - s);
+                tipX = cx + dx;
+                tipY = cy - s;
+            }
+            float side = dx < 0f ? 1f : (dx > 0f ? -1f : 0f);
+            if (dx == 0f) {
+                scratchPath.moveTo(tipX - s * 0.35f, tipY + s * 0.4f);
+                scratchPath.lineTo(tipX, tipY);
+                scratchPath.lineTo(tipX + s * 0.35f, tipY + s * 0.4f);
+            } else {
+                scratchPath.moveTo(tipX + side * s * 0.05f, tipY + s * 0.45f);
+                scratchPath.lineTo(tipX, tipY);
+                scratchPath.lineTo(tipX + side * s * 0.45f, tipY + s * 0.05f);
+            }
         }
         c.drawPath(scratchPath, p);
         p.setStyle(Paint.Style.FILL);

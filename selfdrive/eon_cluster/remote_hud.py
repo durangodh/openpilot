@@ -275,11 +275,14 @@ def _publish_connected(params, state, value):
     except Exception as exc:
       print("remote HUD connected flag failed: %s" % exc, flush=True)
 
-  # 하트비트. 이 프로세스가 True 를 남긴 채 죽으면 EON UI 가 내비 패널을
-  # 영영 안 그리게 되므로, 살아 있는 동안 2초마다 시각을 남긴다.
-  # UI 는 10초 이상 멈추면 죽은 것으로 보고 다시 그린다.
-  if not value:
-    return
+
+def _publish_heartbeat(params, state):
+  # 2026-08-19: 하트비트를 "폰이 ACK 를 보냈는가(connected)" 와 분리했다.
+  # 예전에는 connected 가 True 일 때만 찍어서, 와이파이가 잠깐 흔들리거나
+  # ACK 가 늦으면 EON UI 가 내비/ATC 패널을 다시 그렸다(= 외부 HUD 를 쓰는데도
+  # 이온에 지도·ATC 박스가 뜨는 증상). 이제는 원격 출력이 켜져 있고 이 프로세스가
+  # 살아 있으면 2초마다 찍는다. 프로세스가 죽거나 EonClusterHud 를 끄면
+  # 10초 뒤 EON 이 다시 그린다.
   now = time.time()
   if now - state[1] < HEARTBEAT_PERIOD_S:
     return
@@ -509,7 +512,9 @@ def _read_navi_summary():
         next_type = int(next_guide.get("turn_type", 0) or 0)
       except (TypeError, ValueError):
         next_type = 0
-      next_summary = {"turnType": next_type, "turnDist": next_distance}
+      next_title = str(next_guide.get("main_text") or next_guide.get("road_name") or "")
+      next_summary = {"turnType": next_type, "turnDist": next_distance,
+                      "title": next_title[:48]}
 
   if _NAVI_CACHE["scene_sig"] != _NAVI_CACHE["signature"]:
     _NAVI_CACHE["scene_sig"] = _NAVI_CACHE["signature"]
@@ -653,6 +658,7 @@ def main():
       map_server.set_inactive()
       time.sleep(0.25)
       continue
+    _publish_heartbeat(params, published)
     if started >= next_param_read:
       atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
       path_offset = _path_offset(params)
