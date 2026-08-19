@@ -40,5 +40,5 @@ def custom_steer_ratio():
 
 
 def steer_ratio_rate():
-  """CarrotLearning Phase2 steer-ratio multiplier."""
+  """설정 화면에서 조절하는 조향비 배율 (SteerRatioRate, %)."""
   return max(0.5, min(1.5, _get("SteerRatioRate", 100.0) * 0.01))

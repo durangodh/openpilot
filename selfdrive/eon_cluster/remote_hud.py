@@ -228,7 +228,7 @@ def _path_offset(params):
   lateral_planner.update():
       self.path_xyz[:, 1] += self.offset_total + self.path_offset
   offset_total = OffsetTotal (m, 사용자 수동)
-  path_offset  = PathOffset  (cm, CarrotLearning Phase2 자동학습, ±30cm)
+  path_offset  = PathOffset  (cm, 설정 화면 경로 좌우보정, ±30cm)
   둘 중 하나만 보내면 학습이 값을 채운 뒤부터 화면 경로가 실제와 어긋난다."""
   try:
     total = float(params.get("OffsetTotal", encoding="utf8") or 0.0)

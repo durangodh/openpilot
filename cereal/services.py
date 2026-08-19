@@ -78,7 +78,6 @@ services = {
 
   # 주의: 포트가 dict 순서(index) 기반이라 중간 삽입은 기존 서비스 포트를 전부 밀어버린다.
   #       새 서비스는 반드시 맨 끝에 추가할 것.
-  "liveTorqueParameters": (True, 1., 1),
 }
 service_list = {name: Service(new_port(idx), *vals) for  # type: ignore
                 idx, (name, vals) in enumerate(services.items())}

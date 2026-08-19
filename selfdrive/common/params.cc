@@ -223,7 +223,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LaneChangeEnabled", PERSISTENT},
     {"AutoLaneChangeEnabled", PERSISTENT},
     {"OffsetTotal", PERSISTENT},
-    {"PathOffset", PERSISTENT},              // CarrotLearning Phase2, cm units (-30..30)
+    {"PathOffset", PERSISTENT},              // 경로 좌우보정, cm units (-30..30)
     {"AdjustLaneOffset", PERSISTENT},          // 좌우 여유공간 비대칭 보정 (cm, 0=off)     // 통합 오프셋(offset_total). 전 모드 공통, Auto-Tuner Phase2 학습 대상
     {"SccSmootherState", PERSISTENT},
     {"SccSmootherSyncGasPressed", PERSISTENT},
@@ -272,7 +272,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"ShowPlotMode", PERSISTENT},                // 0=off, 1..8=C3 driving analysis plot
     {"CustomSteerRatio", PERSISTENT},          // 고정 조향비 x100
     {"UseLiveSteerRatio", PERSISTENT},         // 1=liveParameters 학습 조향비 사용
-    {"SteerRatioRate", PERSISTENT},            // CarrotLearning Phase2 steer-ratio multiplier (%)
+    {"SteerRatioRate", PERSISTENT},            // steer-ratio multiplier (%)
     {"SteerActuatorDelay", PERSISTENT},        // 조향 지연 보상 x100 (초)
     {"LateralTorqueCustom", PERSISTENT},       // 1=아래 토크값 사용, 0=차량 기본값
     {"LateralTorqueAccelFactor", PERSISTENT},  // latAccelFactor x1000
@@ -284,7 +284,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LatAccelFrictionFactor", PERSISTENT},    // friction 입력 횡가속 비율 x100
     {"LatJerkFrictionFactor", PERSISTENT},     // friction 입력 횡저크 비율 x100
     // ── LiveTorque self-learning (backport from ajouatom/openpilot hoya/c3-atune) ──
-    {"LiveTorqueParameters", PERSISTENT},      // torqued.py가 주기적으로 캐싱하는 학습값 (serialized Event bytes)
     {"ShowBlindSpotAlways", PERSISTENT},       // BSD 벽 상시표시 (진단용, 0=감지시만)         // 기어 변경 팝업 애니메이션
     {"KeepSteeringTurnSignals", PERSISTENT},
     {"HapticFeedbackWhenSpeedCamera", PERSISTENT},
@@ -295,17 +294,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"AutoNaviSpeedDecelRate", PERSISTENT},     // map curve deceleration, x100 m/s^2
     {"SoftRestartTriggered", CLEAR_ON_MANAGER_START},
     // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──────────────────
-    {"CarrotLearningActive", PERSISTENT},      // 학습 활성화 (0=off, 1=on)
-    {"CarrotLearningAutoApply", PERSISTENT},   // P단 전환 시 추천 자동 적용 (0=off, 1=on)
-    {"CarrotTunerApplyLat", PERSISTENT},       // 조향(LAT) 추천 적용 여부 (기본 1)
-    {"CarrotLearningData", PERSISTENT},        // 누적 학습 데이터 (JSON)
-    {"CarrotLearningRecommend", PERSISTENT},   // 추천값 (JSON)
-    {"CarrotLearningHistory", PERSISTENT},     // 적용 이력 (JSON, 최대 50)
-    {"CarrotLearningPopupReady", PERSISTENT},  // 추천 준비 신호
-    {"CarrotLearningPopupSource", PERSISTENT}, // 추천 발생 소스 ("parking")
-    {"CarrotLearningApplyNow", PERSISTENT},    // 팝업에서 수락 시 1회성 신호: Python이 적용+카운터 리셋을 전담
-    {"CarrotLearningClear", PERSISTENT},       // 학습 데이터 초기화 신호
-    {"CarrotTunerFactoryReset", PERSISTENT},   // 공장초기화 신호 (commit e06a7dd): UI→onroad 학습기 재동기화
     {"LongCoastBand", PERSISTENT},             // 코스팅 데드밴드 (x100 정수, m/s², 기본 0=off; commit 10fa725 Phase9 추천·longcontrol 라이브 반영)
     {"LongTuningKpV", PERSISTENT},
     {"LongTuningKiV", PERSISTENT},

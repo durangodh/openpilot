@@ -82,78 +82,6 @@ OnroadWindow::OnroadWindow(QWidget *parent) : QWidget(parent) {
 
 }
 
-// CarrotLatLearner steering recommendation popup.
-// Mirrors selfdrive/carrot/carrot_lat_learning.py's own clamp ranges --
-// keep the two in sync if either changes.
-static QString formatCarrotLearningPrompt(const QJsonObject &rec) {
-  static const QMap<QString, QString> kLabels = {
-    {"PathOffset", "차선 중심 보정 (PathOffset)"},
-    {"SteerActuatorDelay", "조향 지연 보정 (SteerActuatorDelay)"},
-    {"SteerRatioRate", "조향비 비율 (SteerRatioRate)"},
-    {"LateralTorqueAccelFactor", "토크 AccelFactor"},
-    {"LateralTorqueKf", "토크 Kf"},
-    {"LateralTorqueFriction", "토크 Friction"},
-    {"LateralTorqueKpV", "토크 Kp"},
-    {"LateralTorqueKiV", "토크 Ki"},
-  };
-  QString msg = "운전 패턴을 보고 아래 조향 튜닝을 추천합니다.\n\n";
-  for (auto it = rec.constBegin(); it != rec.constEnd(); ++it) {
-    QJsonObject entry = it.value().toObject();
-    QString label = kLabels.value(it.key(), it.key());
-    msg += QString("%1: %2 → %3\n")
-      .arg(label)
-      .arg(entry.value("current").toInt())
-      .arg(entry.value("recommend").toInt());
-  }
-  msg += "\n지금 적용할까요? (거절해도 학습은 계속됩니다)";
-  return msg;
-}
-
-void OnroadWindow::checkCarrotLearningPopup(const cereal::CarState::Reader &car_state) {
-  bool is_park = car_state.getGearShifter() == cereal::CarState::GearShifter::PARK;
-  if (!is_park) {
-    carrot_learning_popup_shown = false;
-    return;
-  }
-  if (carrot_learning_popup_shown) return;
-
-  // Params I/O is comparatively expensive -- only poll once a second, and
-  // only while actually parked (is_park already gates that above).
-  if (++carrot_learning_popup_timer < UI_FREQ) return;
-  carrot_learning_popup_timer = 0;
-
-  if (!params.getBool("CarrotLearningPopupReady")) return;
-  // AutoApply mode applies from controlsd.py directly on park -- no UI
-  // confirmation needed, and the flag won't be set in that mode. This is a
-  // belt-and-suspenders check in case both got toggled on at the same time.
-  if (params.getBool("CarrotLearningAutoApply")) {
-    params.putBool("CarrotLearningPopupReady", false);
-    return;
-  }
-
-  std::string raw = params.get("CarrotLearningRecommend");
-  QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(raw));
-  if (!doc.isObject() || doc.object().isEmpty()) {
-    params.putBool("CarrotLearningPopupReady", false);
-    return;
-  }
-  QJsonObject rec = doc.object();
-
-  carrot_learning_popup_shown = true;  // one prompt per park stop, regardless of answer
-  bool accepted = ConfirmationDialog::confirm(formatCarrotLearningPrompt(rec), this);
-
-  if (accepted) {
-    // 2026-08-18: 여기서 Params를 직접 쓰면 carrot_lat_learning.py 쪽
-    // 카운터/self._recommend가 리셋되지 않아, 다음 평가 주기에 이미 적용된
-    // (낡은) 추천이 그대로 다시 팝업에 올라오는 문제가 있었다. 클램핑과
-    // 리셋을 Python 한쪽으로 모으고 여기서는 신호만 준다.
-    params.putBool("CarrotLearningApplyNow", true);
-  } else {
-    params.remove("CarrotLearningRecommend");
-  }
-  params.putBool("CarrotLearningPopupReady", false);
-}
-
 void OnroadWindow::updateState(const UIState &s) {
   // Keep NvgWindow state in sync with carState (including blind-spot signals).
   nvg->updateState(s);
@@ -176,8 +104,6 @@ void OnroadWindow::updateState(const UIState &s) {
   right_blindspot = car_state.getRightBlindspot();
   steering_angle_deg = car_state.getSteeringAngleDeg();
 
-  checkCarrotLearningPopup(car_state);
-	
   QColor bgColor = bg_colors[s.status];
   Alert alert = Alert::get(*(s.sm), s.scene.started_frame);
   if (s.sm->updated("controlsState") || !alert.equal({})) {

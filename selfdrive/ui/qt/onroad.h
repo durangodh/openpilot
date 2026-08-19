@@ -223,12 +223,6 @@ private:
 
   Params params;
 
-  // CarrotLatLearner steering recommendation popup (park-only, see
-  // selfdrive/carrot/carrot_lat_learning.py)
-  int carrot_learning_popup_timer = 0;
-  bool carrot_learning_popup_shown = false;
-  void checkCarrotLearningPopup(const cereal::CarState::Reader &car_state);
-
 private slots:
   void offroadTransition(bool offroad);
   void updateState(const UIState &s);
