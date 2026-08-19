@@ -49,6 +49,16 @@ _MANUAL_TORQUE_KEYS = (
 _FACTOR_MIN, _FACTOR_MAX = 1000, 6000
 _KF_MIN, _KF_MAX = 0, 200
 _FRICTION_MIN, _FRICTION_MAX = 10, 300
+
+# friction 은 조향오차가 0 에 가까울 때도 상시 토크를 얹는 항이라, 누적 상승이
+# 그대로 MDPS 부하가 된다. 실제로 50 -> 74 로 올라간 뒤 5 분 만에 MDPS 폴트가
+# 났다(2026-08-18). 원본(ajouatom hoya/c3-atune)도 스텝은 +5/-2 로 같지만
+# 상한이 300 이라 매 주행 +5 씩 무한 누적되는 것을 막지 못한다.
+# 그래서 사용자의 수동값을 기준선으로 잡고 그 ±20% 밖으로는 학습이 못 나가게 한다.
+_FRICTION_BASE_KEY = "CarrotLearnFrictionBase"
+_FRICTION_BAND = 0.20      # 기준선 대비 허용 폭
+_FRICTION_UP_STEP = 2      # 원본 +5 -> 하향 스텝(-2)과 대칭으로 맞춰 래칫 방지
+_FRICTION_DOWN_STEP = 2
 _KPV_MIN, _KPV_MAX = 30, 200
 _KIV_MIN, _KIV_MAX = 0, 50
 
@@ -133,6 +143,29 @@ class CarrotLatLearner:
 
   def _get_int(self, key):
     return self._params.get_int(key, _DEFAULTS.get(key, 0))
+
+  def _friction_bounds(self):
+    """기준선 ±_FRICTION_BAND 를 friction 학습 범위로 돌려준다.
+
+    기준선은 사용자가 손으로 맞춘 값이다. 저장된 기준선이 없거나, 사용자가
+    UI 에서 범위 밖으로 직접 바꾸면 그 값을 새 기준선으로 다시 잡는다.
+    (수동으로 되돌린 값이 즉시 새 기준이 되므로 복구 순서를 신경쓸 필요가 없다)
+    """
+    current = self._get_int("LateralTorqueFriction")
+    base = self._params.get_int(_FRICTION_BASE_KEY, 0)
+    if base <= 0:
+      base = current
+      self._params.put_int(_FRICTION_BASE_KEY, base)
+
+    lo = max(_FRICTION_MIN, int(round(base * (1.0 - _FRICTION_BAND))))
+    hi = min(_FRICTION_MAX, int(round(base * (1.0 + _FRICTION_BAND))))
+    if current < lo or current > hi:
+      # 사용자가 직접 바꾼 값 -> 새 기준선
+      base = current
+      self._params.put_int(_FRICTION_BASE_KEY, base)
+      lo = max(_FRICTION_MIN, int(round(base * (1.0 - _FRICTION_BAND))))
+      hi = min(_FRICTION_MAX, int(round(base * (1.0 + _FRICTION_BAND))))
+    return current, lo, hi
 
   def _add_recommendation(self, key, current, recommended, reason, **extra):
     if recommended == current:
@@ -371,12 +404,12 @@ class CarrotLatLearner:
 
   def _evaluate_straight(self):
     ratio = self._straight_overrides / max(1, self._straight_entries)
-    current = self._get_int("LateralTorqueFriction")
+    current, lo, hi = self._friction_bounds()
     target = current
     if ratio >= 0.35:
-      target = min(_FRICTION_MAX, current + 5)
+      target = min(hi, current + _FRICTION_UP_STEP)
     elif ratio < 0.08:
-      target = max(_FRICTION_MIN, current - 2)
+      target = max(lo, current - _FRICTION_DOWN_STEP)
     return self._add_recommendation(
       "LateralTorqueFriction", current, target,
       "straight micro-correction friction compensation",
@@ -399,12 +432,16 @@ class CarrotLatLearner:
 
   def apply_recommendations(self):
     manual_torque = self._get_int("LateralTorqueCustom") > 0
+    _, friction_lo, friction_hi = self._friction_bounds()
     for key, rec in list(self._recommend.items()):
       if key not in _BOUNDS:
         continue
       if manual_torque and key in _MANUAL_TORQUE_KEYS:
         continue
       lo, hi = _BOUNDS[key]
+      if key == "LateralTorqueFriction":
+        # 추천을 만든 뒤 사용자가 값을 바꿨을 수 있으므로 적용 직전에 다시 막는다
+        lo, hi = friction_lo, friction_hi
       value = _clip(rec.get("recommend", self._get_int(key)), lo, hi)
       self._params.put(key, str(value))
     self._recommend = {}
