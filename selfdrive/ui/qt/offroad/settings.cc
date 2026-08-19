@@ -1651,8 +1651,8 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "SAD",
       "조향 지연 보정값(×0.01초)입니다. 값 증가(+): 더 미리 조향 / 값 감소(-): 조향 시작이 늦어짐.\n"
       "너무 높으면 커브 안쪽으로 치우치고 너무 낮으면 바깥쪽으로 밀릴 수 있습니다.\n"
-      "범위: 0 ~ 80  /  기본값: 10 (=0.10초)",
-      "../assets/offroad/icon_openpilot.png", 0, 80, 1, 0, 10, this));
+      "범위: 0 ~ 80  /  기본값: 25 (=0.25초, 차량 정의값)",
+      "../assets/offroad/icon_openpilot.png", 0, 80, 1, 0, 25, this));
 
   list->addItem(new ParamControl("LateralTorqueCustom",
       "토크custom사용",
@@ -1662,26 +1662,28 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(new NtuneValueControl("torque", "latAccelFactor",
       "LAT ACCEL FACTOR",
       "횡가속도 대비 토크 계수입니다. 값 증가(+): 조향이 약해짐 / 값 감소(-): 조향이 강해짐.\n"
-      "범위: 0.50 ~ 4.50  /  기본값: 2.70",
-      "../assets/offroad/icon_openpilot.png", 0.5, 4.5, 0.05, 2, 2.7, this));
+      "범위: 0.50 ~ 4.50  /  기본값: 2.75 (제네시스 2015-2016 공식값 2.747)",
+      "../assets/offroad/icon_openpilot.png", 0.5, 4.5, 0.05, 2, 2.75, this));
 
   list->addItem(new NtuneValueControl("torque", "friction",
       "FRICTION",
       "정지마찰 보상값입니다. 값 증가(+): 중앙 부근 조향 반응이 빨라짐 / 값 감소(-): 반응이 부드럽고 느려짐.\n"
-      "너무 크면 직진에서 좌우로 흔들립니다.\n"
+      "너무 크면 직진에서 좌우로 흔들리고, MDPS 부하가 커집니다.\n"
+      "차량 공식값은 0.098 이지만 이 포크는 마찰보상에 예측 횡저크를 더해 쓰므로 낮게 잡습니다.\n"
       "범위: 0.000 ~ 0.200  /  기본값: 0.080",
       "../assets/offroad/icon_openpilot.png", 0.0, 0.2, 0.005, 3, 0.08, this));
 
   list->addItem(new ParamValueControlF("LateralTorqueKpV",
-      "토크 비례게인 Kp", "현재 조향오차 반응값(×0.01)입니다. 값 증가(+): 조향 반응이 강하고 빠름 / 값 감소(-): 부드럽고 느림. 기본값: 10.",
-      "../assets/offroad/icon_openpilot.png", 0, 500, 5, 0, 10, this));
+      "토크 비례게인 Kp", "현재 조향오차 반응값(×0.01)입니다. 값 증가(+): 조향 반응이 강하고 빠름 / 값 감소(-): 부드럽고 느림. 기본값: 100 (=1.00, 차량 기본값과 동일).",
+      "../assets/offroad/icon_openpilot.png", 0, 500, 5, 0, 100, this));
 
   list->addItem(new ParamValueControlF("LateralTorqueKiV",
-      "토크 적분게인 Ki", "누적 조향오차 보정값(×0.01)입니다. 값 증가(+): 지속 오차를 빨리 보정 / 값 감소(-): 천천히 보정. 기본값: 10.",
-      "../assets/offroad/icon_openpilot.png", 0, 200, 1, 0, 10, this));
+      "토크 적분게인 Ki", "누적 조향오차 보정값(×0.01)입니다. 값 증가(+): 지속 오차를 빨리 보정 / 값 감소(-): 천천히 보정.\n"
+      "값이 크면 긴 커브에서 적분이 쌓여 안쪽으로 파고들 수 있습니다. 기본값: 5 (=0.05, 차량 기본값과 동일).",
+      "../assets/offroad/icon_openpilot.png", 0, 200, 1, 0, 5, this));
 
   list->addItem(new ParamValueControlF("LateralTorqueKf",
-      "토크 피드포워드 Kf", "목표 조향토크 반영값(×0.01)입니다. 값 증가(+): 전체 조향 명령이 강해짐 / 값 감소(-): 약해짐. 기본값: 100.",
+      "토크 피드포워드 Kf", "목표 조향토크 반영값(×0.01)입니다. 값 증가(+): 전체 조향 명령이 강해짐 / 값 감소(-): 약해짐. 기본값: 100 (=1.00, 차량 기본값과 동일).",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
 
   list->addItem(new ParamValueControlF("LateralTorqueKd",
