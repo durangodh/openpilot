@@ -29,7 +29,7 @@ ButtonType = car.CarState.ButtonEvent.Type
 
 X_DIM = 3
 U_DIM = 1
-PARAM_DIM = 7
+PARAM_DIM = 8
 COST_E_DIM = 5
 COST_DIM = COST_E_DIM + 1
 CONSTR_DIM = 4
@@ -67,9 +67,10 @@ COMFORT_BRAKE = 2.5
 STOP_DISTANCE = 6.0
 
 
-def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, krkeegan=False):
+def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, krkeegan=False,
+                                   comfort_brake=COMFORT_BRAKE):
   if not krkeegan:
-    return (v_lead**2) / (2 * COMFORT_BRAKE)
+    return (v_lead**2) / (2 * comfort_brake)
 
   # KRKeegan: lead 거리값을 고의로 늘려 solver가 더 빠른 가속을 유발하도록 함
   v_diff_offset = 0
@@ -78,12 +79,12 @@ def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dis
     v_diff_offset = np.clip(v_diff_offset, 0, stop_dist / 2)
     v_diff_offset = np.maximum(v_diff_offset * ((10 - v_ego) / 10), 0)
 
-  distance = (v_lead**2) / (2 * COMFORT_BRAKE) + v_diff_offset
+  distance = (v_lead**2) / (2 * comfort_brake) + v_diff_offset
   return distance
 
 
-def get_safe_obstacle_distance(v_ego, t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE):
-  return (v_ego**2) / (2 * COMFORT_BRAKE) + t_follow * v_ego + stop_dist
+def get_safe_obstacle_distance(v_ego, t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, comfort_brake=COMFORT_BRAKE):
+  return (v_ego**2) / (2 * comfort_brake) + t_follow * v_ego + stop_dist
 
 def desired_follow_distance(v_ego, v_lead):
   return get_safe_obstacle_distance(v_ego) - get_stopped_equivalence_factor(v_lead)
@@ -117,8 +118,10 @@ def gen_long_model():
   lead_t_follow = SX.sym('lead_t_follow')
   lead_danger_factor = SX.sym('lead_danger_factor')
   stop_dist = SX.sym('stop_dist')
+  comfort_brake = SX.sym('comfort_brake')
 
-  model.p = vertcat(a_min, a_max, x_obstacle, prev_a, lead_t_follow, lead_danger_factor, stop_dist)
+  model.p = vertcat(a_min, a_max, x_obstacle, prev_a, lead_t_follow, lead_danger_factor, stop_dist,
+                    comfort_brake)
 
   # dynamics model
   f_expl = vertcat(v_ego, a_ego, j_ego)
@@ -155,11 +158,12 @@ def gen_long_ocp():
   lead_t_follow = ocp.model.p[4]
   lead_danger_factor = ocp.model.p[5]
   stop_dist = ocp.model.p[6]
+  comfort_brake = ocp.model.p[7]
 
   ocp.cost.yref = np.zeros((COST_DIM, ))
   ocp.cost.yref_e = np.zeros((COST_E_DIM, ))
 
-  desired_dist_comfort = get_safe_obstacle_distance(v_ego, lead_t_follow, stop_dist)
+  desired_dist_comfort = get_safe_obstacle_distance(v_ego, lead_t_follow, stop_dist, comfort_brake)
 
   costs = [((x_obstacle - x_ego) - (desired_dist_comfort)) / (v_ego + 10.),
            x_ego,
@@ -178,7 +182,8 @@ def gen_long_ocp():
 
   x0 = np.zeros(X_DIM)
   ocp.constraints.x0 = x0
-  ocp.parameter_values = np.array([-1.2, 1.2, 0.0, 0.0, T_FOLLOW, LEAD_DANGER_FACTOR, STOP_DISTANCE])
+  ocp.parameter_values = np.array([-1.2, 1.2, 0.0, 0.0, T_FOLLOW, LEAD_DANGER_FACTOR, STOP_DISTANCE,
+                                   COMFORT_BRAKE])
 
   cost_weights = np.zeros(CONSTR_DIM)
   ocp.cost.zl = cost_weights
@@ -226,6 +231,11 @@ class LongitudinalMpc:
     self._tf_v_ego_kph = 0.0
     # ────────────────────────────────────────────────────────────────────
 
+    # UI 파라미터로 조절되는 제동 튜닝값. longitudinal_planner.read_param()이 주기적으로 갱신한다.
+    self.comfort_brake = COMFORT_BRAKE            # ComfortBrake     : 접근 감속 기준(m/s²)
+    self.x_ego_obstacle_cost = X_EGO_OBSTACLE_COST  # XEgoObstacleCost: 차간거리 추종 강도
+    # ────────────────────────────────────────────────────────────────────
+
     self.desired_distance = 0.0       # UI 표시용 목표 차간거리(m)
     self.traffic_stop_active = False
     self.traffic_stop_distance = 0.0
@@ -248,6 +258,7 @@ class LongitudinalMpc:
     self.x_sol = np.zeros((N+1, X_DIM))
     self.u_sol = np.zeros((N,1))
     self.params = np.zeros((N+1, PARAM_DIM))
+    self.params[:,7] = self.comfort_brake
     self.t_follow = T_FOLLOW
     self.stop_dist = self.stop_distance
     for i in range(N+1):
@@ -312,13 +323,13 @@ class LongitudinalMpc:
 
       if self.applyLongDynamicCost:
         cost_multipliers = self.get_cost_multipliers(v_lead0, v_lead1)
-        cost_weights = [X_EGO_OBSTACLE_COST, X_EGO_COST, V_EGO_COST, A_EGO_COST,
+        cost_weights = [self.x_ego_obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
                         a_change_cost * cost_multipliers[0],
                         J_EGO_COST * cost_multipliers[1]]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST,
                                    DANGER_ZONE_COST * cost_multipliers[2]]
       else:
-        cost_weights = [X_EGO_OBSTACLE_COST, X_EGO_COST, V_EGO_COST, A_EGO_COST, a_change_cost, J_EGO_COST]
+        cost_weights = [self.x_ego_obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST, a_change_cost, J_EGO_COST]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, DANGER_ZONE_COST]
 
     elif self.mode == 'blended':
@@ -426,10 +437,10 @@ class LongitudinalMpc:
 
     lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(
       lead_xv_0[:,1], self.x_sol[:,1], self.t_follow, self.stop_dist,
-      krkeegan=self.applyLongDynamicCost)
+      krkeegan=self.applyLongDynamicCost, comfort_brake=self.comfort_brake)
     lead_1_obstacle = lead_xv_1[:,0] + get_stopped_equivalence_factor(
       lead_xv_1[:,1], self.x_sol[:,1], self.t_follow, self.stop_dist,
-      krkeegan=self.applyLongDynamicCost)
+      krkeegan=self.applyLongDynamicCost, comfort_brake=self.comfort_brake)
 
     self.params[:,0] = MIN_ACCEL
     self.params[:,1] = self.max_a
@@ -442,7 +453,7 @@ class LongitudinalMpc:
       v_cruise_clipped = np.clip(v_cruise * np.ones(N+1),
                                  v_lower,
                                  v_upper)
-      cruise_obstacle = np.cumsum(T_DIFFS * v_cruise_clipped) + get_safe_obstacle_distance(v_cruise_clipped, self.t_follow, self.stop_dist)
+      cruise_obstacle = np.cumsum(T_DIFFS * v_cruise_clipped) + get_safe_obstacle_distance(v_cruise_clipped, self.t_follow, self.stop_dist, self.comfort_brake)
       obstacles = [lead_0_obstacle, lead_1_obstacle, cruise_obstacle]
       if self.traffic_stop_active:
         obstacles.append(np.full(N+1, max(0.0, self.traffic_stop_distance)))
@@ -485,6 +496,7 @@ class LongitudinalMpc:
     self.params[:,3] = np.copy(self.prev_a)
     self.params[:,4] = self.t_follow
     self.params[:,6] = self.stop_dist
+    self.params[:,7] = self.comfort_brake
 
     self.run()
     if (np.any(lead_xv_0[FCW_IDXS,0] - self.x_sol[FCW_IDXS,0] < CRASH_DISTANCE) and
@@ -494,9 +506,9 @@ class LongitudinalMpc:
       self.crash_cnt = 0
 
     if self.mode == 'blended':
-      if any((lead_0_obstacle - get_safe_obstacle_distance(self.x_sol[:,1], self.t_follow, self.stop_dist)) - self.x_sol[:, 0] < 0.0):
+      if any((lead_0_obstacle - get_safe_obstacle_distance(self.x_sol[:,1], self.t_follow, self.stop_dist, self.comfort_brake)) - self.x_sol[:, 0] < 0.0):
         self.source = 'lead0'
-      if any((lead_1_obstacle - get_safe_obstacle_distance(self.x_sol[:,1], self.t_follow, self.stop_dist)) - self.x_sol[:, 0] < 0.0) and \
+      if any((lead_1_obstacle - get_safe_obstacle_distance(self.x_sol[:,1], self.t_follow, self.stop_dist, self.comfort_brake)) - self.x_sol[:, 0] < 0.0) and \
          (lead_1_obstacle[0] - lead_0_obstacle[0]):
         self.source = 'lead1'
 

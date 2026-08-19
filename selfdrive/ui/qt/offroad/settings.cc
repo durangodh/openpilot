@@ -1559,6 +1559,16 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(horizontal_line());
 
   list->addItem(new ParamValueControlF(
+      "ComfortBrake", "접근 감속 기준 (x0.01m/s²)",
+      "앞차에 접근할 때 상정하는 감속 능력입니다. 값 증가(+): 제동을 더 늦게 시작하고 강하게 / 값 감소(-): 더 일찍 부드럽게 감속. 앞차와 속도가 같을 때는 영향이 없습니다. 기본값: 250.",
+      "../assets/offroad/icon_road.png", 150, 400, 5, 0, 250, this));
+
+  list->addItem(new ParamValueControlF(
+      "XEgoObstacleCost", "차간거리 추종 강도 (x0.01)",
+      "목표 차간거리 오차를 얼마나 급하게 없앨지 정합니다. 값 증가(+): 제동 시작이 이르고 단단해짐 / 값 감소(-): 제동이 늦고 부드러워짐. 기본값: 600.",
+      "../assets/offroad/icon_road.png", 100, 1200, 25, 0, 600, this));
+
+  list->addItem(new ParamValueControlF(
       "StopDistance", "정지 유지거리 (cm)",
       "앞차 정지와 신호정지의 기본 여유거리입니다. 값 증가(+): 더 멀리 정차 / 값 감소(-): 더 가까이 정차. aPilot 기본값: 600cm.",
       "../assets/offroad/icon_road.png", 200, 1000, 50, 0, 600, this));

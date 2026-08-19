@@ -126,6 +126,12 @@ class LongitudinalPlanner:
     self.mpc.tfollow_gaps = gap_values
     speed_ratio = self.params.get_int("TFollowSpeedRatio")
     self.mpc.t_follow_speed_ratio = (speed_ratio if speed_ratio >= 100 else 120) * 0.01
+
+    # 앞차 접근 제동 튜닝 (x100 정수 저장)
+    comfort_brake = self.params.get_int("ComfortBrake")
+    self.mpc.comfort_brake = float(clip((comfort_brake if comfort_brake > 0 else 250) * 0.01, 1.5, 4.0))
+    x_obstacle_cost = self.params.get_int("XEgoObstacleCost")
+    self.mpc.x_ego_obstacle_cost = float(clip((x_obstacle_cost if x_obstacle_cost > 0 else 600) * 0.01, 1.0, 12.0))
     # ───────────────────
 
   def reset_auto_e2e(self):
