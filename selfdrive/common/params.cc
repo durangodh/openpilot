@@ -249,7 +249,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudBrightness", PERSISTENT},
     {"EonClusterHudBsdStyle", PERSISTENT},
     {"EonClusterHudCarStyle", PERSISTENT},
-    {"EonClusterHudRoadSigns", PERSISTENT},   // 노면 표시 0:끔 1:제한속도 2:방지턱 3:둘다
+    {"EonClusterHudRoadSigns", PERSISTENT},
+    {"CarrotLearnFrictionBase", PERSISTENT},   // friction 학습 기준선(사용자 수동값)   // 노면 표시 0:끔 1:제한속도 2:방지턱 3:둘다
     {"EonClusterHudBuildings", PERSISTENT},
     {"EonClusterHudOutputMode", PERSISTENT},
     {"EonClusterHudConnected", CLEAR_ON_MANAGER_START},
