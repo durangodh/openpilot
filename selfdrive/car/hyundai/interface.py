@@ -8,7 +8,6 @@ from selfdrive.car.hyundai.values import CAR, Buttons, CarControllerParams
 from selfdrive.car.hyundai.cruise_buttons import button_transitions, main_button_transitions
 from selfdrive.car import STD_CARGO_KG, scale_rot_inertia, scale_tire_stiffness, gen_empty_fingerprint, get_safety_config
 from selfdrive.car.interfaces import CarInterfaceBase
-from selfdrive.swaglog import cloudlog
 from common.params import Params
 from selfdrive.controls.lib.desire_helper import LANE_CHANGE_SPEED_MIN
 
@@ -21,18 +20,6 @@ BUTTONS_DICT = {
   Buttons.GAP_DIST: ButtonType.gapAdjustCruise,
   Buttons.CANCEL: ButtonType.cancel,
 }
-
-def torque_tune(tune, lat_accel_factor=3.0, friction=0.01, kd=0.0, steering_angle_deadzone_deg=0.0):
-  tune.init('torque')
-  tune.torque.useSteeringAngle = True
-  tune.torque.kp = 1.0
-  tune.torque.kf = 1.0
-  tune.torque.ki = 0.05
-  tune.torque.latAccelFactor = lat_accel_factor
-  tune.torque.latAccelOffset = 0.0
-  tune.torque.friction = friction
-  tune.torque.steeringAngleDeadzoneDeg = steering_angle_deadzone_deg
-  tune.torque.kd = kd
 
 class CarInterface(CarInterfaceBase):
   def __init__(self, CP, CarController, CarState):
@@ -67,16 +54,13 @@ class CarInterface(CarInterfaceBase):
 
     # Hyundai/Kia always uses the torque lateral controller.
     #
-    # 2026-08-19: 여기는 원래 `except:` 로 모든 예외를 조용히 삼키고 폴백값을
-    # 쓰고 있었다. 그 탓에 torque_data/override.yaml 파일명이 깨져 있던 동안
-    # (보이지 않는 U+200E 가 붙어 FileNotFoundError) 차량 공식 토크값이 한 번도
-    # 로드되지 않고 아래 2.5/0.01 이 계속 쓰였는데도 아무 표시가 없었다.
-    # 폴백 자체는 남기되(부팅 실패보다는 낫다) 반드시 로그를 남긴다.
-    try:
-      CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
-    except Exception:
-      cloudlog.exception(f"torque params load failed for {candidate}, using fallback 2.5/0.01")
-      torque_tune(ret.lateralTuning, 2.5, 0.01)
+    # 2026-08-19: 원래 여기에 `except:` 로 모든 예외를 삼키고 2.5/0.01 폴백을
+    # 쓰는 코드가 있었다. 그 탓에 torque_data/override.yaml 파일명이 깨져 있던
+    # 동안(보이지 않는 U+200E → FileNotFoundError) 차량 정의 토크값이 한 번도
+    # 로드되지 않았는데도 아무 표시가 없었다. ajouatom/apilot c2-master 및
+    # 업스트림과 동일하게 폴백 없이 그대로 호출한다. 로딩이 실패하면 조용히
+    # 다른 값으로 달리는 대신 기동 단계에서 즉시 드러난다.
+    CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
 
     ret.steerRatio = 16.5
     ret.steerActuatorDelay = 0.25
