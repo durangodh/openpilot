@@ -123,7 +123,6 @@ def manager_init() -> None:
     ("CruiseMaxVals6", "60"),
     ("CustomSteerRatio", "1650"),
     ("UseLiveSteerRatio", "0"),
-    ("SteerRatioRate", "100"),
     ("SteerActuatorDelay", "50"),
     ("LateralTorqueCustom", "0"),
     ("LateralTorqueAccelFactor", "2500"),
@@ -138,7 +137,6 @@ def manager_init() -> None:
     ("AutoLaneChangeSpeed", "50"),  # 자동/방향지시등 차선변경 허용 최저 속도 (km/h)
     ("AdjustLaneOffset", "0"),    # 좌우 여유공간 비대칭 보정 (cm, 0=off)
     ("OffsetTotal", "0.0"),        # 사용자 수동 오프셋(m)
-    ("PathOffset", "0"),            # 설정 화면 경로 좌우보정(cm)
     ("TurnVisionControl", "0"),
     ("AutoCurveSpeedFactor", "120"),
     ("AutoCurveSpeedLowerLimit", "30"),
@@ -163,16 +161,6 @@ def manager_init() -> None:
 
   if params.get_bool("RecordFrontLock"):
     params.put_bool("RecordFront", True)
-
-  # PathOffset -> OffsetTotal 1회 이관 (기존 학습값 승계)
-  try:
-    if params.get("OffsetTotal") is None:
-      old_offset = open("/data/params/d/PathOffset").read().strip()
-      if old_offset:
-        params.put("OffsetTotal", old_offset)
-        cloudlog.warning(f"migrated PathOffset -> OffsetTotal: {old_offset}")
-  except Exception:
-    pass
 
   # AutoTurnControl -> CarrotAutoTurnControl one-time compatibility. The new
   # default may already have created a 0 on an earlier g_abcd boot, so inherit

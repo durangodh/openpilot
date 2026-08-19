@@ -37,7 +37,6 @@ class LateralPlanner:
     # Keep the hardware camera offset fixed and apply the cached user
     # OffsetTotal once to the final path.
     self.offset_total = DEFAULT_OFFSET_TOTAL
-    self.path_offset = 0.0
 
     self.LP = LanePlanner(wide_camera=wide_camera)
 
@@ -85,10 +84,6 @@ class LateralPlanner:
       except (TypeError, ValueError):
         self.dynamic_lane_profile = 0
       self.offset_total = self._read_offset_total()
-      try:
-        self.path_offset = max(-0.30, min(0.30, float(self.params.get("PathOffset", encoding="utf8") or "0") * 0.01))
-      except (TypeError, ValueError):
-        self.path_offset = 0.0
     self.param_read_counter += 1
 
   def _read_offset_total(self):
@@ -159,7 +154,7 @@ class LateralPlanner:
                              STEERING_RATE_COST)
 
     # offset_total 을 최종 결정된 path_xyz 에 적용 (레인모드/레인리스 공통)
-    self.path_xyz[:, 1] += self.offset_total + self.path_offset
+    self.path_xyz[:, 1] += self.offset_total
 
     # Reuse the path-distance vector for both interpolations. The trajectory is
     # unchanged between them, so a second NumPy norm only wastes planner CPU.
@@ -262,7 +257,7 @@ class LateralPlanner:
     # ── UI 하단 중앙 차선/오프셋 디버그 문자열 ──
     lane_mode = 'laneless' if self.dynamic_lane_profile_status else 'lanemode'
     offset_cm = self.offset_total * 100.0
-    tail = f'offset={offset_cm:.1f}cm auto={self.path_offset * 100.0:+.0f}cm'
+    tail = f'offset={offset_cm:.1f}cm'
     if abs(self.LP.lane_offset) > 0.005:
       tail += f' lane={self.LP.lane_offset * 100.0:+.0f}cm'
     lateralPlan.latDebugText = (

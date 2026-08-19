@@ -223,7 +223,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LaneChangeEnabled", PERSISTENT},
     {"AutoLaneChangeEnabled", PERSISTENT},
     {"OffsetTotal", PERSISTENT},
-    {"PathOffset", PERSISTENT},              // 경로 좌우보정, cm units (-30..30)
     {"AdjustLaneOffset", PERSISTENT},          // 좌우 여유공간 비대칭 보정 (cm, 0=off)     // 통합 오프셋(offset_total). 전 모드 공통, Auto-Tuner Phase2 학습 대상
     {"SccSmootherState", PERSISTENT},
     {"SccSmootherSyncGasPressed", PERSISTENT},
@@ -272,7 +271,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"ShowPlotMode", PERSISTENT},                // 0=off, 1..8=C3 driving analysis plot
     {"CustomSteerRatio", PERSISTENT},          // 고정 조향비 x100
     {"UseLiveSteerRatio", PERSISTENT},         // 1=liveParameters 학습 조향비 사용
-    {"SteerRatioRate", PERSISTENT},            // steer-ratio multiplier (%)
     {"SteerActuatorDelay", PERSISTENT},        // 조향 지연 보상 x100 (초)
     {"LateralTorqueCustom", PERSISTENT},       // 1=아래 토크값 사용, 0=차량 기본값
     {"LateralTorqueAccelFactor", PERSISTENT},  // latAccelFactor x1000

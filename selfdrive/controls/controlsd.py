@@ -655,7 +655,6 @@ class Controls:
       sr = max(params.steerRatio, 0.1)
     else:
       sr = max(live_tune.custom_steer_ratio(), 0.1)
-    sr = max(0.1, sr * live_tune.steer_ratio_rate())
 
     self.VM.update_params(x, sr)
 

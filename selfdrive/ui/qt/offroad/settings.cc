@@ -1631,19 +1631,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   ListWidget* list = new ListWidget(this);
   list->setSpacing(0);
 
-  list->addItem(new ParamValueControlF("PathOffset",
-      "경로 좌우보정 (PathOffset)",
-      "주행 경로를 좌우로 밀어주는 보정값(cm)입니다. 통합 경로 좌우보정에 더해서 적용됩니다.\n"
-      "왼쪽 이동: 양수(+) / 오른쪽 이동: 음수(−)\n"
-      "범위: -30 ~ 30cm  /  기본값: 0",
-      "../assets/offroad/icon_openpilot.png", -30, 30, 1, 0, 0, this));
-
-  list->addItem(new ParamValueControlF("SteerRatioRate",
-      "조향비 배율 (SteerRatioRate)",
-      "조향비(SR)에 곱하는 배율(%)입니다. 값을 올리면 조향이 약해지고, 내리면 강해집니다.\n"
-      "범위: 90 ~ 150  /  기본값: 100 (=변화 없음)",
-      "../assets/offroad/icon_openpilot.png", 90, 150, 1, 0, 100, this));
-
 
   // ── 조향 실시간 튜닝 (nTune 파일 직접 조절) ───────────────────
   list->addItem(horizontal_line());

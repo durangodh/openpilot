@@ -222,27 +222,19 @@ def _alert(controls_state):
 
 
 def _path_offset(params):
-  """lateral_planner 가 최종 path_xyz[:,1] 에 더하는 오프셋 합계 (m).
+  """lateral_planner 가 최종 path_xyz[:,1] 에 더하는 오프셋 (m).
   앱도 같은 값을 경로에 더해야 실제 주행선과 화면이 맞는다.
 
   lateral_planner.update():
-      self.path_xyz[:, 1] += self.offset_total + self.path_offset
-  offset_total = OffsetTotal (m, 사용자 수동)
-  path_offset  = PathOffset  (cm, 설정 화면 경로 좌우보정, ±30cm)
-  둘 중 하나만 보내면 학습이 값을 채운 뒤부터 화면 경로가 실제와 어긋난다."""
+      self.path_xyz[:, 1] += self.offset_total
+  offset_total = OffsetTotal (m, 사용자 수동)"""
   try:
     total = float(params.get("OffsetTotal", encoding="utf8") or 0.0)
   except (TypeError, ValueError):
     total = 0.0
   total = max(-1.0, min(1.0, total))
 
-  try:
-    learned = float(params.get("PathOffset", encoding="utf8") or 0.0) * 0.01
-  except (TypeError, ValueError):
-    learned = 0.0
-  learned = max(-0.30, min(0.30, learned))
-
-  return round(total + learned, 3)
+  return round(total, 3)
 
 
 def _engine_rpm(car_state):
