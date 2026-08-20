@@ -70,14 +70,15 @@ class LongControl:
     self.last_output_accel = 0.0
     self.starting_accel = 0.0
     self.starting_ramp_rate = 2.0
-    self.standstill_hold_accel = -1.0
-    self.standstill_hold_rate = 0.5
+    self.standstill_hold_accel = -1.1
+    self.standstill_hold_rate = 1.2
     self._update_pid_gains()
     # Read launch control immediately so StartAccelApply=0 disables the
     # starting state from the first control cycle.
     self._update_start_accel()
     self._update_stop_accel()
     self._update_stopping_decel_rate()
+    self._update_standstill_hold()
 
     # apilot-c2 uses two actuator-delay predictions and selects the more
     # conservative target. Derive safe defaults around the configured delay.
@@ -113,6 +114,21 @@ class LongControl:
     rate_raw = self.params.get_int("StoppingDecelRate")
     rate = rate_raw * 0.01 if rate_raw > 0 else self.CP.stoppingDecelRate
     self.stopping_decel_rate = float(clip(rate, 0.2, 2.0))
+
+  def _update_standstill_hold(self):
+    hold_raw = self.params.get("StandstillHoldApply", encoding="utf8")
+    rate_raw = self.params.get("StandstillHoldRate", encoding="utf8")
+    try:
+      hold_apply = int(hold_raw) if hold_raw is not None else 55
+    except (TypeError, ValueError):
+      hold_apply = 55
+    try:
+      hold_rate = int(rate_raw) * 0.01 if rate_raw is not None else 1.2
+    except (TypeError, ValueError):
+      hold_rate = 1.2
+
+    self.standstill_hold_accel = -2.0 * float(clip(hold_apply * 0.01, 0.1, 1.0))
+    self.standstill_hold_rate = float(clip(hold_rate, 0.2, 2.0))
 
   def _update_actuator_delays(self):
     lower = self.params.get_float("LongitudinalActuatorDelayLowerBound") * 0.01
@@ -161,6 +177,7 @@ class LongControl:
       self.read_param_count = 0
       self._update_stop_accel()
       self._update_stopping_decel_rate()
+      self._update_standstill_hold()
       self.long_coast_band = clip(self.params.get_float("LongCoastBand") * 0.01, 0.0, 0.4)
       self._update_actuator_delays()
 
@@ -233,7 +250,10 @@ class LongControl:
       # changing the approach-to-stop feel. This prevents the SCC from slowly
       # releasing and re-applying the brakes on a mild downhill or long stop.
       if CS.vEgo < 0.05 and not CS.brakePressed:
-        hold_target = min(self.stop_accel, self.standstill_hold_accel)
+        # Standstill holding is intentionally independent of StopAccelApply.
+        # This allows a softer stop approach without releasing the brake after
+        # the car has reached a complete stop.
+        hold_target = self.standstill_hold_accel
         if output_accel > hold_target:
           output_accel = max(hold_target, output_accel - self.standstill_hold_rate * DT_CTRL)
       self.reset(CS.vEgo)

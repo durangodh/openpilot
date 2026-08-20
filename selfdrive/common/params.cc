@@ -314,6 +314,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"RadarReactionFactor", PERSISTENT},       // 레이더 앞차 가속도 지속 예측 비율 (x100, default 70)
     {"StartAccelApply", PERSISTENT},
     {"StopAccelApply", PERSISTENT},
+    {"StandstillHoldApply", PERSISTENT},      // 완전정지 유지 제동값 (x100%, default 55)
+    {"StandstillHoldRate", PERSISTENT},       // 완전정지 유지 증가율 (x100, default 120)
     {"SoftHoldMode", PERSISTENT},
     {"TrafficStopMode", PERSISTENT},         // 0: off/ACC, 1: conditional, 2: aPilot conditional
     {"TrafficStopAccel", PERSISTENT},        // traffic-signal deceleration factor, percent

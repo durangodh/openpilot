@@ -1496,6 +1496,16 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_openpilot.png", 20, 200, 1, 0, 120, this));
 
   list->addItem(new ParamValueControlF(
+      "StandstillHoldApply", "완전정지 유지 제동값",
+      "차량이 완전히 멈춘 뒤 유지하는 제동값(×-0.02m/s²)입니다. 정지 접근 제동에는 영향을 주지 않습니다. 기본값 55 = -1.10m/s².",
+      "../assets/offroad/icon_openpilot.png", 10, 100, 5, 0, 55, this));
+
+  list->addItem(new ParamValueControlF(
+      "StandstillHoldRate", "완전정지 유지 증가율",
+      "완전정지 후 유지 제동값까지 증가하는 속도(×0.01m/s³)입니다. 값 증가(+): 더 빨리 고정 / 값 감소(-): 더 부드럽게 고정. 기본값: 120.",
+      "../assets/offroad/icon_openpilot.png", 20, 200, 1, 0, 120, this));
+
+  list->addItem(new ParamValueControlF(
       "SoftHoldMode", "소프트홀드 모드",
       "0: 끔, 1: 브레이크를 놓은 뒤 정지 유지, 2: aPilot SCC 호환 모드(일부 차량은 오토홀드/EPB가 작동할 수 있음). 가속페달 또는 RES/+로 해제합니다.",
       "../assets/offroad/icon_openpilot.png", 0, 2, 1, 0, 1, this));
