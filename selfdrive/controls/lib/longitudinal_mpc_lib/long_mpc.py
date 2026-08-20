@@ -254,6 +254,8 @@ class LongitudinalMpc:
     # longitudinal_planner.read_param() refreshes these values periodically.
     self.tfollow_gaps = None
     self.t_follow_speed_ratio = 1.2
+    self.t_follow_decel_boost = 0.3
+    self._tf_base_applied = 0.0
     self._tf_applied = 0.0
     self._tf_v_ego_kph = 0.0
     # ────────────────────────────────────────────────────────────────────
@@ -303,6 +305,7 @@ class LongitudinalMpc:
     self.time_integrator = 0.0
     self.x0 = np.zeros(X_DIM)
 
+    self._tf_base_applied = 0.0
     self._tf_applied = 0.0
     self._tf_v_ego_kph = 0.0
     # ────────────────────────────────────────────────────────────────────
@@ -458,11 +461,25 @@ class LongitudinalMpc:
     safe_mode_factor = float(clip(controls.mySafeModeFactor, 0.5, 1.0))
     gap_values = self.tfollow_gaps if self.tfollow_gaps is not None else CRUISE_GAP_V
     v_ego_kph = v_ego * CV.MS_TO_KPH
-    if self._tf_applied <= 0.0 or v_ego_kph >= self._tf_v_ego_kph:
+    if self._tf_base_applied <= 0.0 or v_ego_kph >= self._tf_v_ego_kph:
       tr = interp(float(cruise_gap), CRUISE_GAP_BP, gap_values)
       speed_scale = interp(v_ego_kph, [0.0, 100.0], [1.0, self.t_follow_speed_ratio])
-      self._tf_applied = max(0.6, float(tr * speed_scale * (2.0 - safe_mode_factor)))
+      self._tf_base_applied = max(0.6, float(tr * speed_scale * (2.0 - safe_mode_factor)))
     self._tf_v_ego_kph = v_ego_kph
+
+    # Keep the base gap from shrinking while decelerating, then add a bounded
+    # deceleration-only margin.  Increase it gradually so the virtual obstacle
+    # cannot jump toward ego and cause a brake step; remove it immediately once
+    # deceleration ends so acceleration recovery is not delayed.
+    decel_margin = interp(carstate.aEgo, [-2.5, -1.0, -0.2, 0.0],
+                           [0.25, 0.12, 0.02, 0.0]) * self.t_follow_decel_boost
+    tf_target = self._tf_base_applied + decel_margin
+    if self._tf_applied <= 0.0:
+      self._tf_applied = tf_target
+    elif tf_target > self._tf_applied:
+      self._tf_applied = min(tf_target, self._tf_applied + 0.1 * DT_MDL)
+    else:
+      self._tf_applied = tf_target
 
     self.t_follow = self._tf_applied
     self.stop_dist = self.stop_distance * (2.0 - safe_mode_factor)

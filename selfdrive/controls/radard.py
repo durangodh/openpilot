@@ -6,7 +6,7 @@ from collections import defaultdict, deque
 
 import cereal.messaging as messaging
 from cereal import car
-from common.numpy_fast import interp
+from common.numpy_fast import clip, interp
 from common.params import Params
 from common.realtime import Ratekeeper, Priority, config_realtime_process
 from selfdrive.controls.lib.cluster.fastcluster_py import cluster_points_centroid
@@ -104,6 +104,7 @@ class RadarD():
 
     self.ready = False
     self.mix_radar_info = False
+    self.radar_reaction_factor = 0.7
     self.params = Params()
     self.next_mix_radar_info_read = 0.0
 
@@ -111,6 +112,9 @@ class RadarD():
     now = time.monotonic()
     if now >= self.next_mix_radar_info_read:
       self.mix_radar_info = self.params.get_bool("MixRadarInfo")
+      reaction_raw = self.params.get_int("RadarReactionFactor")
+      self.radar_reaction_factor = clip((reaction_raw if reaction_raw > 0 else 70) * 0.01,
+                                         0.2, 2.0)
       self.next_mix_radar_info_read = now + 1.0
     self.current_time = 1e-9*max(sm.logMonoTime.values())
 
@@ -139,7 +143,8 @@ class RadarD():
       # create the track if it doesn't exist or it's a new track
       if ids not in self.tracks:
         self.tracks[ids] = Track(v_lead, self.kalman_params)
-      self.tracks[ids].update(rpt[0], rpt[1], rpt[2], v_lead, rpt[3])
+      self.tracks[ids].update(rpt[0], rpt[1], rpt[2], v_lead, rpt[3],
+                              self.radar_reaction_factor)
 
     idens = list(sorted(self.tracks.keys()))
     track_pts = [self.tracks[iden].get_key_for_cluster() for iden in idens]

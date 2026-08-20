@@ -1545,6 +1545,14 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "속도가 높아질 때 차간시간을 늘리는 비율입니다. 값 증가(+): 고속에서 차간거리 증가 / 값 감소(-): 고속 차간거리 감소.",
       "../assets/offroad/icon_openpilot.png", 100, 300, 5, 0, 120, this));
   list->addItem(new ParamValueControlF(
+      "TFollowDecelBoost", "감속 중 차간시간 보정 (%)",
+      "앞차 추종 중 내 차가 감속할 때만 차간시간을 조금 늘립니다. 값 증가(+): 재정지 앞차에 더 여유 있게 부드럽게 제동 / 0: 사용 안 함. 권장값: 30.",
+      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 30, this));
+  list->addItem(new ParamValueControlF(
+      "RadarReactionFactor", "레이더 반응 예측 비율 (%)",
+      "앞차 가감속이 유지될 것으로 예측하는 정도입니다. 100: 기본 반응 / 값 감소(-): 앞차 감속을 더 오래 예상해 일찍 제동. 권장값: 70.",
+      "../assets/offroad/icon_road.png", 20, 200, 5, 0, 70, this));
+  list->addItem(new ParamValueControlF(
       "PrevCruiseGap", "기억할 크루즈 GAP",
       "마지막 GAP을 저장·복원합니다. 값 증가(+): 더 먼 GAP / 값 감소(-): 더 가까운 GAP.",
       "../assets/offroad/icon_openpilot.png", 1, 4, 1, 0, 4, this));

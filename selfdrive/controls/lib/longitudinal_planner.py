@@ -126,6 +126,12 @@ class LongitudinalPlanner:
     self.mpc.tfollow_gaps = gap_values
     speed_ratio = self.params.get_int("TFollowSpeedRatio")
     self.mpc.t_follow_speed_ratio = (speed_ratio if speed_ratio >= 100 else 120) * 0.01
+    decel_boost_raw = self.params.get("TFollowDecelBoost", encoding="utf8")
+    try:
+      decel_boost = int(decel_boost_raw) if decel_boost_raw is not None else 30
+    except (TypeError, ValueError):
+      decel_boost = 30
+    self.mpc.t_follow_decel_boost = float(clip(decel_boost * 0.01, 0.0, 1.0))
 
     # 앞차 접근 제동 튜닝 (x100 정수 저장)
     comfort_brake = self.params.get_int("ComfortBrake")

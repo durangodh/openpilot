@@ -159,6 +159,8 @@ def manager_init() -> None:
     ("TrafficStopAccel", "80"),
     ("TrafficStopDistanceAdjust", "400"),
     ("StopDistance", "600"),
+    ("TFollowDecelBoost", "30"),
+    ("RadarReactionFactor", "70"),
     ("LongTuningKpV", "100"),
     ("LongTuningKiV", "200"),
     ("LongTuningKf", "100"),

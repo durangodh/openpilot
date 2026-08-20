@@ -310,6 +310,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"ComfortBrake", PERSISTENT},              // 접근 감속 기준 (x100, default 250 = 2.50m/s^2)
     {"XEgoObstacleCost", PERSISTENT},          // 차간거리 추종 강도 (x100, default 600 = 6.0)
     {"EnableSpeedTF", PERSISTENT},
+    {"TFollowDecelBoost", PERSISTENT},         // 감속 중 차간시간 추가 비율 (x100, default 30)
+    {"RadarReactionFactor", PERSISTENT},       // 레이더 앞차 가속도 지속 예측 비율 (x100, default 70)
     {"StartAccelApply", PERSISTENT},
     {"StopAccelApply", PERSISTENT},
     {"SoftHoldMode", PERSISTENT},

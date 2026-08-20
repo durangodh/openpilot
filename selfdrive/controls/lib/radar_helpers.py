@@ -26,7 +26,7 @@ class Track():
     self.kf = KF1D([[v_lead], [0.0]], self.K_A, self.K_C, self.K_K)
     self.vLead = v_lead
 
-  def update(self, d_rel, y_rel, v_rel, v_lead, measured):
+  def update(self, d_rel, y_rel, v_rel, v_lead, measured, reaction_factor=1.0):
     # Reset stale acceleration state when SCC reuses a track for a new target.
     if abs(self.vLead - v_lead) > 0.5:
       self.cnt = 0
@@ -46,9 +46,13 @@ class Track():
     self.vLeadK = float(self.kf.x[SPEED][0])
     self.aLeadK = float(self.kf.x[ACCEL][0])
 
-    # Learn if constant acceleration
-    if abs(self.aLeadK) < 0.5:
-      self.aLeadTau = _LEAD_ACCEL_TAU
+    # RadarReactionFactor below 1.0 keeps a measured lead acceleration in the
+    # prediction for longer.  This lets MPC react earlier when a lead that has
+    # just pulled away starts braking again, without changing radar distance or
+    # the acceleration limits themselves.
+    reaction_factor = max(0.2, min(float(reaction_factor), 2.0))
+    if abs(self.aLeadK) < 0.5 * reaction_factor:
+      self.aLeadTau = _LEAD_ACCEL_TAU * reaction_factor
     else:
       self.aLeadTau *= 0.9
 
