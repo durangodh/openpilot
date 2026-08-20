@@ -1,4 +1,5 @@
 import json
+import math
 import tempfile
 import time
 
@@ -191,6 +192,105 @@ def test_map_curve_speed_calculation_is_cached_at_5hz():
 
   assert navi.cached_map_curve_speed_kph({}, 60.0, now=0.21) == 42.0
   assert navi.calls == 2
+
+
+def route_turn_state(left=True):
+  lat0, lon0 = 37.5, 127.1
+  cos_lat = math.cos(math.radians(lat0))
+  local_points = [(float(x), 0.0) for x in range(0, 21, 4)]
+  direction = -1 if left else 1
+  for degree in range(-90, 1, 10):
+    angle = math.radians(degree)
+    x = 20.0 + 20.0 * math.cos(angle)
+    y = 20.0 + 20.0 * math.sin(angle)
+    local_points.append((x, y if left else -y))
+  polyline = [{
+    "lat": lat0 + math.degrees(y / 6371000.0),
+    "lon": lon0 + math.degrees(x / (6371000.0 * cos_lat)),
+  } for x, y in local_points]
+  return {
+    "fresh": True, "route_fresh": True, "kind": "turn",
+    "direction": direction, "distance": 20.0,
+    "vehicle": {"lat": lat0, "lon": lon0},
+    "route": {"polyline": polyline},
+  }
+
+
+def test_route_curvature_profile_matches_guidance_direction():
+  distances = [float(x) for x in range(0, 61, 2)]
+  left = CarrotNaviAtc.route_curvature_profile(route_turn_state(True), distances)
+  right = CarrotNaviAtc.route_curvature_profile(route_turn_state(False), distances)
+
+  assert left is not None and max(left) > 0.02 and min(left) >= 0.0
+  assert right is not None and min(right) < -0.02 and max(right) <= 0.0
+
+
+def test_route_curvature_rejects_stale_or_direction_mismatched_route():
+  distances = [float(x) for x in range(0, 61, 2)]
+  stale = route_turn_state(True)
+  stale["route_fresh"] = False
+  assert CarrotNaviAtc.route_curvature_profile(stale, distances) is None
+
+  mismatched = route_turn_state(True)
+  mismatched["direction"] = 1
+  assert CarrotNaviAtc.route_curvature_profile(mismatched, distances) is None
+
+
+def test_integrated_route_curvature_builds_smooth_relative_path():
+  distances = [float(x) for x in range(0, 51, 5)]
+  integrated = CarrotNaviAtc.integrate_curvature_profile([0.02] * len(distances), distances)
+  assert integrated is not None
+  y_values, headings = integrated
+  assert y_values[0] == 0.0 and headings[0] == 0.0
+  assert all(b >= a for a, b in zip(y_values, y_values[1:]))
+  assert all(b >= a for a, b in zip(headings, headings[1:]))
+  assert headings[-1] <= math.radians(85.0)
+
+
+def test_route_curvature_profile_is_cached_at_5hz():
+  class CountingNavi(CarrotNaviAtc):
+    def __init__(self):
+      super().__init__()
+      self.calls = 0
+
+    def route_curvature_profile(self, *_args, **_kwargs):
+      self.calls += 1
+      return [float(self.calls)]
+
+  navi = CountingNavi()
+  assert navi.cached_route_curvature_profile({}, [0.0], now=0.0) == [1.0]
+  assert navi.cached_route_curvature_profile({}, [0.0], now=0.1) == [1.0]
+  assert navi.calls == 1
+  assert navi.cached_route_curvature_profile({}, [0.0], now=0.21) == [2.0]
+  assert navi.calls == 2
+
+
+def test_long_route_window_finds_vehicle_far_from_route_start():
+  lat0, lon0 = 37.5, 127.1
+  cos_lat = math.cos(math.radians(lat0))
+  vehicle_x = 6000.0
+  local_points = [(float(x), 0.0) for x in range(0, 6021, 2)]
+  for degree in range(-90, 1, 5):
+    angle = math.radians(degree)
+    local_points.append((6020.0 + 20.0 * math.cos(angle),
+                         20.0 + 20.0 * math.sin(angle)))
+  local_points.extend((6040.0, float(y)) for y in range(22, 402, 2))
+
+  def geo_point(x, y):
+    return {
+      "lat": lat0 + math.degrees(y / 6371000.0),
+      "lon": lon0 + math.degrees(x / (6371000.0 * cos_lat)),
+    }
+
+  state = {
+    "fresh": True, "route_fresh": True, "kind": "turn",
+    "direction": -1, "distance": 20.0,
+    "vehicle": geo_point(vehicle_x, 0.0),
+    "route": {"polyline": [geo_point(x, y) for x, y in local_points]},
+  }
+  distances = [float(x) for x in range(0, 81, 2)]
+  profile = CarrotNaviAtc.route_curvature_profile(state, distances, 0.03)
+  assert profile is not None and max(profile) > 0.02 and min(profile) >= 0.0
 
 
 def fork_state(distance=300.0, direction=1, turn_type=6, text="right exit"):

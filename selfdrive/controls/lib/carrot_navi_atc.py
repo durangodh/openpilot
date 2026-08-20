@@ -6,6 +6,9 @@ import time
 STATE_FILE = "/dev/shm/carrot_navi_route.json"
 STALE_TIMEOUT = 3.0
 MAP_CURVE_UPDATE_INTERVAL = 0.20
+ROUTE_COARSE_SAMPLE_LIMIT = 256
+ROUTE_WINDOW_POINT_LIMIT = 512
+ROUTE_LOOKAHEAD_M = 400.0
 
 TURN_LEFT = {12, 16, 1000}
 TURN_RIGHT = {13, 19, 1001}
@@ -48,6 +51,8 @@ class CarrotNaviAtc:
     self.state = self.empty_state()
     self.last_map_curve_calc = -MAP_CURVE_UPDATE_INTERVAL
     self.map_curve_speed_cache = None
+    self.last_route_curvature_calc = -MAP_CURVE_UPDATE_INTERVAL
+    self.route_curvature_cache = None
 
   @staticmethod
   def empty_state():
@@ -212,6 +217,87 @@ class CarrotNaviAtc:
       return None
     return lat, lon
 
+  @classmethod
+  def _local_route_points(cls, state, max_distance=ROUTE_LOOKAHEAD_M):
+    """Return only the route window around and ahead of the vehicle.
+
+    Long TMAP routes can contain thousands of points. A bounded coarse search
+    locates the vehicle, then at most ROUTE_WINDOW_POINT_LIMIT nearby points
+    are converted to metres and clipped to the requested look-ahead distance.
+    """
+    route = state.get("route") if isinstance(state, dict) else None
+    vehicle = cls._lat_lon(state.get("vehicle")) if isinstance(state, dict) else None
+    if not isinstance(route, dict) or vehicle is None:
+      return None
+    raw_points = route.get("polyline")
+    if not isinstance(raw_points, list) or len(raw_points) < 5:
+      return None
+
+    lat0, lon0 = vehicle
+    cos_lat = max(0.1, math.cos(math.radians(lat0)))
+    stride = max(1, int(math.ceil(len(raw_points) / float(ROUTE_COARSE_SAMPLE_LIMIT))))
+    coarse_indices = list(range(0, len(raw_points), stride))
+    if coarse_indices[-1] != len(raw_points) - 1:
+      coarse_indices.append(len(raw_points) - 1)
+
+    coarse_nearest = None
+    for index in coarse_indices:
+      point = cls._lat_lon(raw_points[index])
+      if point is None:
+        continue
+      lat, lon = point
+      x = math.radians(lon - lon0) * EARTH_RADIUS_M * cos_lat
+      y = math.radians(lat - lat0) * EARTH_RADIUS_M
+      distance_sq = x * x + y * y
+      if coarse_nearest is None or distance_sq < coarse_nearest[0]:
+        coarse_nearest = (distance_sq, index)
+    if coarse_nearest is None or coarse_nearest[0] > 100.0 ** 2:
+      return None
+
+    # Include two coarse strides behind the candidate so the exact nearest
+    # segment is still present even when the polyline is densely sampled.
+    coarse_index = coarse_nearest[1]
+    start = max(0, coarse_index - 2 * stride - 2)
+    end = min(len(raw_points), coarse_index + ROUTE_WINDOW_POINT_LIMIT)
+    points = []
+    for raw in raw_points[start:end]:
+      point = cls._lat_lon(raw)
+      if point is not None:
+        lat, lon = point
+        points.append((math.radians(lon - lon0) * EARTH_RADIUS_M * cos_lat,
+                       math.radians(lat - lat0) * EARTH_RADIUS_M))
+    if len(points) < 5:
+      return None
+
+    best = None
+    for i in range(len(points) - 1):
+      p0, p1 = points[i], points[i + 1]
+      dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+      length_sq = dx * dx + dy * dy
+      if length_sq < 0.25:
+        continue
+      ratio = max(0.0, min(1.0, -(p0[0] * dx + p0[1] * dy) / length_sq))
+      projected = (p0[0] + ratio * dx, p0[1] + ratio * dy)
+      distance_sq = projected[0] ** 2 + projected[1] ** 2
+      if best is None or distance_sq < best[0]:
+        best = (distance_sq, i, projected)
+    if best is None or best[0] > 25.0 ** 2:
+      return None
+
+    _, nearest_segment, projected = best
+    route_points = [projected]
+    cumulative = [0.0]
+    max_distance = max(25.0, min(ROUTE_LOOKAHEAD_M, float(max_distance)))
+    for point in points[nearest_segment + 1:]:
+      gap = math.hypot(point[0] - route_points[-1][0], point[1] - route_points[-1][1])
+      if gap < 0.5:
+        continue
+      route_points.append(point)
+      cumulative.append(cumulative[-1] + gap)
+      if cumulative[-1] >= max_distance:
+        break
+    return (route_points, cumulative) if len(route_points) >= 5 else None
+
   @staticmethod
   def _interp(value, breakpoints, values):
     if value <= breakpoints[0]:
@@ -229,40 +315,10 @@ class CarrotNaviAtc:
     """Calculate carrot-wip-style general-road curve speed from Tmap polyline."""
     if not isinstance(state, dict) or not state.get("route_fresh", False):
       return None
-    route = state.get("route")
-    vehicle = cls._lat_lon(state.get("vehicle"))
-    if not isinstance(route, dict) or vehicle is None:
+    local_route = cls._local_route_points(state, 350.0)
+    if local_route is None:
       return None
-    raw_points = route.get("polyline")
-    if not isinstance(raw_points, list) or len(raw_points) < 9:
-      return None
-
-    lat0, lon0 = vehicle
-    cos_lat = max(0.1, math.cos(math.radians(lat0)))
-    points = []
-    for raw in raw_points:
-      point = cls._lat_lon(raw)
-      if point is not None:
-        lat, lon = point
-        x = math.radians(lon - lon0) * EARTH_RADIUS_M * cos_lat
-        y = math.radians(lat - lat0) * EARTH_RADIUS_M
-        points.append((x, y))
-    if len(points) < 9:
-      return None
-
-    nearest = min(range(len(points)), key=lambda i: points[i][0] ** 2 + points[i][1] ** 2)
-    points = points[nearest:]
-    if len(points) < 9:
-      return None
-
-    cumulative = [0.0]
-    for i in range(1, len(points)):
-      cumulative.append(cumulative[-1] + math.hypot(points[i][0] - points[i - 1][0],
-                                                    points[i][1] - points[i - 1][1]))
-      if cumulative[-1] >= 350.0:
-        points = points[:i + 1]
-        cumulative = cumulative[:i + 1]
-        break
+    points, cumulative = local_route
     if cumulative[-1] < 80.0:
       return None
 
@@ -328,6 +384,97 @@ class CarrotNaviAtc:
     self.map_curve_speed_cache = self.map_curve_speed_kph(
       state, v_ego_kph, speed_factor, lower_limit_kph, decel)
     return self.map_curve_speed_cache
+
+  @classmethod
+  def route_curvature_profile(cls, state, sample_distances, max_curvature=0.06):
+    """Return a signed TMAP curvature profile ahead of the vehicle.
+
+    The absolute map position is deliberately discarded. TMAP's centre-line
+    can be several metres away from the camera path, so lateral control uses
+    only the route shape and keeps the model path as its positional anchor.
+    """
+    if not isinstance(state, dict) or not state.get("route_fresh", False) or \
+       not state.get("fresh", False) or state.get("kind") not in ("turn", "uturn"):
+      return None
+    direction = int(_number(state.get("direction"), 0))
+    if direction not in (-1, 1):
+      return None
+    requested = [max(0.0, float(distance)) for distance in sample_distances]
+    if not requested:
+      return None
+    local_route = cls._local_route_points(state, max(80.0, max(requested) + 20.0))
+    if local_route is None:
+      return None
+    route_points, cumulative = local_route
+    if cumulative[-1] < min(25.0, max(requested) + 5.0):
+      return None
+
+    def point_at(distance):
+      distance = max(0.0, min(float(distance), cumulative[-1]))
+      segment = 1
+      while segment < len(cumulative) and cumulative[segment] < distance:
+        segment += 1
+      if segment >= len(cumulative):
+        return route_points[-1]
+      d0, d1 = cumulative[segment - 1], cumulative[segment]
+      ratio = (distance - d0) / (d1 - d0) if d1 > d0 else 0.0
+      p0, p1 = route_points[segment - 1], route_points[segment]
+      return (p0[0] + ratio * (p1[0] - p0[0]),
+              p0[1] + ratio * (p1[1] - p0[1]))
+
+    expected_sign = 1.0 if direction < 0 else -1.0
+    max_curvature = max(0.005, min(0.08, float(max_curvature)))
+    half_window = 6.0
+    profile = []
+    for distance in requested:
+      before = point_at(max(0.0, distance - half_window))
+      centre = point_at(distance)
+      after = point_at(min(cumulative[-1], distance + half_window))
+      a = math.hypot(centre[0] - before[0], centre[1] - before[1])
+      b = math.hypot(after[0] - centre[0], after[1] - centre[1])
+      c = math.hypot(after[0] - before[0], after[1] - before[1])
+      cross = ((centre[0] - before[0]) * (after[1] - before[1]) -
+               (centre[1] - before[1]) * (after[0] - before[0]))
+      curvature = 0.0 if a * b * c < 1e-3 else 2.0 * cross / (a * b * c)
+      # A route kink in the opposite direction must never make ATC steer
+      # across the instructed turn. Small map noise is ignored as well.
+      if curvature * expected_sign <= 0.0 or abs(curvature) < 0.002:
+        curvature = 0.0
+      profile.append(max(-max_curvature, min(max_curvature, curvature)))
+
+    # One-pass smoothing removes polyline vertices while retaining the turn's
+    # location. Require meaningful curvature before enabling map assistance.
+    if len(profile) >= 3:
+      profile = ([profile[0]] +
+                 [0.25 * profile[i - 1] + 0.5 * profile[i] + 0.25 * profile[i + 1]
+                  for i in range(1, len(profile) - 1)] +
+                 [profile[-1]])
+    return profile if max(abs(value) for value in profile) >= 0.004 else None
+
+  @staticmethod
+  def integrate_curvature_profile(curvatures, distances, max_heading=math.radians(85.0)):
+    """Integrate route curvature into a vehicle-relative path and heading."""
+    if len(curvatures) != len(distances) or not curvatures:
+      return None
+    y_values = [0.0]
+    headings = [0.0]
+    for i in range(1, len(curvatures)):
+      ds = max(0.0, float(distances[i]) - float(distances[i - 1]))
+      curvature = 0.5 * (float(curvatures[i - 1]) + float(curvatures[i]))
+      mid_heading = headings[-1] + 0.5 * curvature * ds
+      y_values.append(y_values[-1] + math.sin(mid_heading) * ds)
+      headings.append(max(-max_heading, min(max_heading, headings[-1] + curvature * ds)))
+    return y_values, headings
+
+  def cached_route_curvature_profile(self, state, sample_distances, max_curvature=0.06, now=None):
+    """Limit route geometry processing to the same 5 Hz as navigation input."""
+    now = time.monotonic() if now is None else float(now)
+    if now - self.last_route_curvature_calc < MAP_CURVE_UPDATE_INTERVAL:
+      return self.route_curvature_cache
+    self.last_route_curvature_calc = now
+    self.route_curvature_cache = self.route_curvature_profile(
+      state, sample_distances, max_curvature=max_curvature)
+    return self.route_curvature_cache
 
   @staticmethod
   def steering_request(state, v_ego):

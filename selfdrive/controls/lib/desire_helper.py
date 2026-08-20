@@ -71,6 +71,9 @@ class DesireHelper:
     self.empty_atc_state = self.carrot_atc.empty_state()
     self.atc_fork_controller = AtcForkLaneChangeController()
     self.carrot_atc_mode = 0
+    self.atc_state = self.empty_atc_state
+    self.atc_turn_direction = 0
+    self.atc_driver_cancel = True
 
   @staticmethod
   def _road_edge_detected(model_data, direction):
@@ -373,6 +376,16 @@ class DesireHelper:
     if effective_turn_direction and self.lane_change_state in (LaneChangeState.off, LaneChangeState.preLaneChange):
       self.desire = log.LateralPlan.Desire.turnLeft if effective_turn_direction < 0 else log.LateralPlan.Desire.turnRight
 
+    # LateralPlanner uses this already-validated state to blend TMAP route
+    # curvature into the model path. Never let map steering survive a driver
+    # override, brake press, stale route, or an actual lane change.
+    self.atc_state = atc_state
+    self.atc_turn_direction = effective_turn_direction
+    self.atc_driver_cancel = (opposite_torque or conflicting_blinker or carstate.brakePressed or
+                              not lateral_active or not atc_state.get('route_fresh', False) or
+                              self.lane_change_state in (LaneChangeState.laneChangeStarting,
+                                                         LaneChangeState.laneChangeFinishing))
+
     # Send keep pulse once per second during LaneChangeStart.preLaneChange
     if self.lane_change_state in (LaneChangeState.off, LaneChangeState.laneChangeStarting):
       self.keep_pulse_timer = 0.0
@@ -382,4 +395,3 @@ class DesireHelper:
         self.keep_pulse_timer = 0.0
       elif self.desire in (log.LateralPlan.Desire.keepLeft, log.LateralPlan.Desire.keepRight):
         self.desire = log.LateralPlan.Desire.none
-

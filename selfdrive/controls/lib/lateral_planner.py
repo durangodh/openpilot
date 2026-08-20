@@ -8,6 +8,7 @@ from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import LateralMpc
 from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import N as LAT_MPC_N
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, MIN_SPEED
 from selfdrive.controls.lib.desire_helper import DesireHelper, AUTO_LCA_START_TIME
+from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc
 import cereal.messaging as messaging
 from cereal import log
 from common.params import Params
@@ -22,6 +23,11 @@ LATERAL_ACCEL_COST = 0.0
 LATERAL_JERK_COST = 0.04
 STEERING_RATE_COST = 700.0
 LANE_MODE_BLEND_TIME = 0.6
+ATC_MAP_BLEND_MAX = 0.35
+ATC_MAP_BLEND_IN_TIME = 0.5
+ATC_MAP_BLEND_OUT_TIME = 0.25
+ATC_MAP_MAX_LAT_ACCEL = 2.0
+ATC_MAP_MAX_CURVATURE = 0.06
 
 # 기본값 상수
 DEFAULT_CAMERA_OFFSET = -0.06
@@ -70,6 +76,9 @@ class LateralPlanner:
     self.dynamic_lane_profile_status_buffer = True
     self.use_lane_line_mode = False
     self.lane_line_blend = None
+    self.atc_map_blend = 0.0
+    self.atc_map_profile_cache = None
+    self.atc_map_path_cache = None
 
     self.param_read_counter = 0
     self.read_param(force=True)
@@ -159,11 +168,65 @@ class LateralPlanner:
     # Reuse the path-distance vector for both interpolations. The trajectory is
     # unchanged between them, so a second NumPy norm only wastes planner CPU.
     path_distance = np.linalg.norm(self.path_xyz, axis=1)
-    y_pts = np.interp(self.v_ego * self.t_idxs[:LAT_MPC_N + 1],
+    sample_distances = self.v_ego * self.t_idxs[:LAT_MPC_N + 1]
+    y_pts = np.interp(sample_distances,
                       path_distance, self.path_xyz[:, 1])
-    heading_pts = np.interp(self.v_ego * self.t_idxs[:LAT_MPC_N + 1],
+    heading_pts = np.interp(sample_distances,
                             path_distance, self.plan_yaw)
     yaw_rate_pts = self.plan_yaw_rate[:LAT_MPC_N + 1]
+
+    map_profile = None
+    map_path = None
+    atc_state = self.DH.atc_state
+    atc_map_requested = (self.DH.atc_turn_direction != 0 and not self.DH.atc_driver_cancel and
+                         atc_state.get('fresh', False) and
+                         atc_state.get('kind') in ('turn', 'uturn') and
+                         3.0 <= float(atc_state.get('distance', -1.0)) <= 60.0 and
+                         self.v_ego <= 50.0 * CV.KPH_TO_MS)
+    if atc_map_requested:
+      speed_sq = max(self.v_ego * self.v_ego, 1.0)
+      max_curvature = min(ATC_MAP_MAX_CURVATURE, ATC_MAP_MAX_LAT_ACCEL / speed_sq)
+      map_profile = self.DH.carrot_atc.cached_route_curvature_profile(
+        atc_state, sample_distances, max_curvature=max_curvature)
+      if map_profile is not None:
+        map_path = CarrotNaviAtc.integrate_curvature_profile(map_profile, sample_distances)
+
+    fresh_map_path = map_path is not None
+    if fresh_map_path:
+      self.atc_map_profile_cache = map_profile
+      self.atc_map_path_cache = map_path
+    elif not atc_map_requested and not self.DH.atc_driver_cancel and self.atc_map_blend > 0.0:
+      # Keep the last vehicle-relative shape only for the short normal exit
+      # fade. Invalid/stale data and driver cancellation never use the cache.
+      map_profile = self.atc_map_profile_cache
+      map_path = self.atc_map_path_cache
+
+    map_invalid = atc_map_requested and map_path is None
+    if self.DH.atc_driver_cancel or map_invalid:
+      self.atc_map_blend = 0.0
+      self.atc_map_profile_cache = None
+      self.atc_map_path_cache = None
+    else:
+      speed_kph = self.v_ego * CV.MS_TO_KPH
+      speed_factor = float(np.interp(speed_kph, [25.0, 50.0], [1.0, 0.0]))
+      blend_target = ATC_MAP_BLEND_MAX * speed_factor if fresh_map_path else 0.0
+      blend_time = ATC_MAP_BLEND_IN_TIME if blend_target > self.atc_map_blend else ATC_MAP_BLEND_OUT_TIME
+      blend_step = ATC_MAP_BLEND_MAX * DT_MDL / blend_time
+      self.atc_map_blend += float(np.clip(blend_target - self.atc_map_blend, -blend_step, blend_step))
+      if self.atc_map_blend <= 0.0:
+        self.atc_map_profile_cache = None
+        self.atc_map_path_cache = None
+
+    if map_path is not None and self.atc_map_blend > 0.0:
+      map_y, map_heading = (np.asarray(map_path[0]), np.asarray(map_path[1]))
+      map_y += y_pts[0]
+      map_heading += heading_pts[0]
+      y_pts = (1.0 - self.atc_map_blend) * y_pts + self.atc_map_blend * map_y
+      heading_pts = ((1.0 - self.atc_map_blend) * heading_pts +
+                     self.atc_map_blend * map_heading)
+      map_yaw_rate = np.asarray(map_profile) * self.v_plan[:LAT_MPC_N + 1]
+      yaw_rate_pts = ((1.0 - self.atc_map_blend) * yaw_rate_pts +
+                      self.atc_map_blend * map_yaw_rate)
     self.y_pts = y_pts
 
     assert len(y_pts) == LAT_MPC_N + 1
@@ -260,6 +323,8 @@ class LateralPlanner:
     tail = f'offset={offset_cm:.1f}cm'
     if abs(self.LP.lane_offset) > 0.005:
       tail += f' lane={self.LP.lane_offset * 100.0:+.0f}cm'
+    if self.atc_map_blend > 0.005:
+      tail += f' atcmap={self.atc_map_blend * 100.0:.0f}%'
     lateralPlan.latDebugText = (
       f"{lane_mode} | "
       f"{self.LP.lane_width_left:.1f}m | "
