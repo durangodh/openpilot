@@ -254,7 +254,6 @@ class Controls:
       _div = 2
     self._pub_div = 2 if _div not in (1, 2) else _div
     # carState 는 감속하지 않는다 (locationd/paramsd/radard 가 먹는다)
-    self._current_alert = None
     self._not_running_processes = set()
 
   def update_events(self, CS):
@@ -855,25 +854,24 @@ class Controls:
     if hudControl.rightLaneDepart or hudControl.leftLaneDepart:
       self.events.add(EventName.ldw)
 
-    # controlsState / carControl and alert presentation share the same 50 Hz
-    # cadence. CI.apply, sendcan, and carState remain at the full 100 Hz.
-    _send_ctrlstate = (self.sm.frame % self._pub_div == 0)
-    if _send_ctrlstate:
-      clear_event_types = set()
-      if ET.WARNING not in self.current_alert_types:
-        clear_event_types.add(ET.WARNING)
-      if self.enabled:
-        clear_event_types.add(ET.NO_ENTRY)
+    # Alert processing stays at 100 Hz so one-frame events cannot be missed.
+    clear_event_types = set()
+    if ET.WARNING not in self.current_alert_types:
+      clear_event_types.add(ET.WARNING)
+    if self.enabled:
+      clear_event_types.add(ET.NO_ENTRY)
 
-      alerts = self.events.create_alerts(
-        self.current_alert_types,
-        [self.CP, self.sm, self.is_metric, self.soft_disable_timer])
-      self.AM.add_many(self.sm.frame, alerts)
-      self._current_alert = self.AM.process_alerts(self.sm.frame, clear_event_types)
-
-    current_alert = self._current_alert
+    alerts = self.events.create_alerts(
+      self.current_alert_types,
+      [self.CP, self.sm, self.is_metric, self.soft_disable_timer])
+    self.AM.add_many(self.sm.frame, alerts)
+    current_alert = self.AM.process_alerts(self.sm.frame, clear_event_types)
     if current_alert:
       hudControl.visualAlert = current_alert.visual_alert
+
+    # controlsState / carControl remain on the configured publish cadence.
+    # CI.apply, sendcan, and carState remain at the full 100 Hz.
+    _send_ctrlstate = (self.sm.frame % self._pub_div == 0)
 
     if not self.read_only and self.initialized:
       # send car controls over can
