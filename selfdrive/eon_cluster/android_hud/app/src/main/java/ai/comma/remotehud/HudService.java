@@ -777,7 +777,9 @@ public final class HudService extends Service {
                 (configuredRoadSigns & 2) != 0,
                 (float) s.optDouble("hudRoadZ", 100d),
                 (float) s.optDouble("pitch", 0d),
-                (float) s.optDouble("hudPitchDyn", 60d));
+                (float) s.optDouble("hudPitchDyn", 60d),
+                (float) s.optDouble("laneWidth", 0d),
+                s.isNull("stopDist") ? -1f : (float) s.optDouble("stopDist", -1d));
 
         drawBlinkers(c, p, s, stale);
 
@@ -1843,6 +1845,7 @@ public final class HudService extends Service {
                 {"USB ERR", Integer.toString(usbErrorStreak)},
                 {"PANEL", silence < 0L ? "--" : String.format(Locale.US, "%.0fs", silence / 1000f)},
                 {"LINK", linkAge < 0L ? "--" : durationText(linkAge)},
+                {"OSM", osmWorld == null ? "--" : osmWorld.status()},
         };
         float top = 46f;
         for (String[] row : rows) {

@@ -74,6 +74,30 @@ final class OsmWorld {
     private Thread worker;
     private int endpointIndex = 0;
 
+    // ── 진단용 계측 (출력모드 3 에 한 줄로 표시) ─────────────────────────
+    /** 마지막 실패 사유. "net"=요청 실패, "json"=파싱 실패, ""=없음. */
+    private static volatile String lastError = "";
+    /** 마지막 스냅샷의 건물 수. 폴백(가짜 건물)과 구분하는 기준. */
+    private volatile int lastBuildings = 0;
+
+    /**
+     * 출력모드 3 에 찍을 한 줄. 예)
+     *   "3/48"   타일 3개 로드, 건물 48개  → OSM 정상
+     *   "0/0"    데이터 없음               → 폴백(격자 건물)
+     *   "ERR net"  요청 실패 / "ERR json"  응답 형식 문제
+     */
+    String status() {
+        int loaded;
+        synchronized (lock) {
+            loaded = tiles.size();
+        }
+        String err = lastError;
+        if (loaded == 0 && !err.isEmpty()) {
+            return "ERR " + err;
+        }
+        return loaded + "/" + lastBuildings;
+    }
+
     OsmWorld(File dir) {
         cacheDir = dir;
         if (!cacheDir.exists()) {
@@ -170,6 +194,10 @@ final class OsmWorld {
         }
         Snapshot s = new Snapshot();
         s.buildingCount = bx.size();
+        lastBuildings = s.buildingCount;
+        if (s.buildingCount > 0) {
+            lastError = "";
+        }
         s.ringX = bx.toArray(new float[0][]);
         s.ringY = by.toArray(new float[0][]);
         s.ringH = new float[bh.size()];
@@ -294,6 +322,7 @@ final class OsmWorld {
                 endpointIndex = (endpointIndex + attempt) % ENDPOINTS.length;
                 return buf.toString("UTF-8");
             } catch (Exception e) {
+                lastError = "net";
                 Log.w(TAG, "fetch " + key + " via " + endpoint + " failed: " + e.getMessage());
             } finally {
                 if (conn != null) {
@@ -345,6 +374,7 @@ final class OsmWorld {
             }
             return tile;
         } catch (Exception e) {
+            lastError = "json";
             Log.w(TAG, "parse failed: " + e.getMessage());
             return null;
         }

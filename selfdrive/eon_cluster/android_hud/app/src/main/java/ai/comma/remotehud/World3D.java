@@ -107,6 +107,10 @@ final class World3D {
     private final float[] pathZ = new float[MAX_PTS];
     /** 노면 높낮이 배율. 0 이면 평지, 음수면 위아래 반전. */
     private float roadZGain = 1f;
+    /** 모델이 추정한 자기 차로 폭(m). 0 이면 예전 상수(3.5m)를 쓴다. */
+    private float laneWidthM = 0f;
+    /** 신호/E2E 정지선까지 거리(m). 음수면 안 그린다. */
+    private float stopDist = -1f;
     private int pathCount;
 
     private final float[] edgeLX = new float[MAX_PTS];
@@ -611,11 +615,16 @@ final class World3D {
         if (!leftSide && edgeRCount >= 2) {
             return sample(edgeRX, edgeRY, edgeRCount, x);
         }
-        float half = ROAD_HALF + SHOULDER;
+        // 모델이 준 실제 차로 폭이 있으면 그걸 쓴다. 좁은 골목과 넓은 간선이
+        // 전부 같은 폭으로 보이던 문제를 없앤다. 값이 튀면 화면이 출렁이므로
+        // 2.2~4.2m 로 자른다.
+        float laneW = laneWidthM > 0.1f
+                ? Math.max(2.2f, Math.min(4.2f, laneWidthM)) : TMAP_LANE_W;
+        float half = (laneWidthM > 0.1f ? laneW * 1.27f : ROAD_HALF) + SHOULDER;
         if (tmapLaneCount >= 2) {
             int lanesOnSide = leftSide ? Math.max(0, tmapLaneCur - 1)
                     : Math.max(0, tmapLaneCount - tmapLaneCur);
-            half = 1.75f + TMAP_LANE_W * lanesOnSide + SHOULDER;
+            half = laneW * 0.5f + laneW * lanesOnSide + SHOULDER;
         }
         return centerAt(x) + (leftSide ? half : -half);
     }
@@ -628,11 +637,14 @@ final class World3D {
               int radarInfo, boolean buildings, boolean darkTheme, int bsdStyle,
               int carStyleMode, float offsetTotal, float calibPitch,
               boolean limitPaint, boolean bumpPaint,
-              float roadZPercent, float livePitch, float pitchPercent) {
+              float roadZPercent, float livePitch, float pitchPercent,
+              float laneWidthMeters, float stopDistM) {
         this.dark = darkTheme;
         this.carStyle = carStyleMode == CAR_BOX ? CAR_BOX : CAR_SPRITE;
         this.pathOffset = Math.max(-1f, Math.min(1f, offsetTotal));
         this.roadZGain = Math.max(-3f, Math.min(3f, roadZPercent * 0.01f));
+        this.laneWidthM = laneWidthMeters;
+        this.stopDist = stopDistM;
         // 정적 캘리브 pitch + 주행 중 실시간 pitch(게인 적용). 실시간 항은
         // 따로 ±0.05rad 로 자른다 — 게인을 크게 줘도 화면이 뒤집히지 않게.
         float dynPitch = Math.max(-0.05f, Math.min(0.05f,
@@ -691,6 +703,7 @@ final class World3D {
         }
 
         drawBsd(c, p, s, bsdStyle);
+        drawStopLine(c, p);
         drawVehicles(c, p, s, egoCar, otherCar, radarInfo);
         drawHaze(c, p, sky);
 
@@ -1402,6 +1415,39 @@ final class World3D {
 
     // ── 차량 ──────────────────────────────────────────────────────────────
 
+    /**
+     * 신호/E2E 정지 지점에 노면 정지선을 그린다. 거리는 EON 이 longitudinalPlan
+     * 속도궤적을 적분해 보낸 값이라, 앞차 추종 정차에는 오지 않는다.
+     */
+    private void drawStopLine(Canvas c, Paint p) {
+        if (stopDist < 1f || stopDist > 90f) {
+            return;
+        }
+        float cy = centerAt(stopDist) + pathOffset;
+        float half = (laneWidthM > 0.1f
+                ? Math.max(2.2f, Math.min(4.2f, laneWidthM)) : TMAP_LANE_W) * 0.5f;
+        // 0.4m 두께의 실선. 가까워질수록 진하게.
+        float alpha = Math.max(90f, Math.min(235f, 235f - (stopDist - 8f) * 2.2f));
+        if (!project(stopDist - 0.2f, cy + half, 0f, pa)
+                || !project(stopDist - 0.2f, cy - half, 0f, pb)
+                || !project(stopDist + 0.2f, cy - half, 0f, pc)
+                || !project(stopDist + 0.2f, cy + half, 0f, pd)) {
+            return;
+        }
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(dark ? Color.rgb(236, 240, 245) : Color.rgb(250, 250, 250));
+        p.setAlpha((int) alpha);
+        poly2.reset();
+        poly2.moveTo(pa[0], pa[1]);
+        poly2.lineTo(pb[0], pb[1]);
+        poly2.lineTo(pc[0], pc[1]);
+        poly2.lineTo(pd[0], pd[1]);
+        poly2.close();
+        c.drawPath(poly2, p);
+        p.setAlpha(255);
+    }
+
     private void drawVehicles(Canvas c, Paint p, JSONObject s, Bitmap egoCar, Bitmap otherCar,
                               int radarInfo) {
         if (s == null) {
@@ -1439,12 +1485,70 @@ final class World3D {
         if (d <= 0f || d > FAR_DEPTH) {
             return;
         }
+        // 앞차 감속중이면 후미등. aLeadK 는 칼만필터 가속도라 vRel 과 달리
+        // "앞차가 실제로 브레이크를 밟았는지"를 나타낸다.
+        float aLead = (float) lead.optDouble("a", 0d);
+        boolean braking = aLead < -0.6f && d < 80f;
         if (carStyle == CAR_BOX) {
             boxCar(c, p, d, y, dark ? Color.rgb(126, 134, 146) : Color.rgb(112, 122, 136),
                     false, alpha);
-        } else {
-            billboard(c, p, bmp, d, y, 1.9f, 0f, alpha);
+            if (braking) {
+                brakeLights(c, p, d, y, aLead);
+            }
+            return;
         }
+        if (braking) {
+            brakeLights(c, p, d, y, aLead);
+        }
+        billboard(c, p, bmp, d, y, 1.9f, 0f, alpha);
+    }
+
+    /**
+     * 앞차 후미등. 차 뒷면 좌우에 붉은 사각형 두 개를 얹는다.
+     * 감속이 셀수록 진해진다(-0.6 ~ -3.0 m/s^2 구간에서 알파 120~255).
+     */
+    private void brakeLights(Canvas c, Paint p, float x, float y, float aLead) {
+        float rear = x - CAR_LEN / 2f;
+        if (rear < NEAR_DEPTH - CAM_BACK) {
+            return;
+        }
+        float t = Math.max(0f, Math.min(1f, (-aLead - 0.6f) / 2.4f));
+        int alpha = (int) (120f + 135f * t);
+        float inner = 0.42f;
+        float outer = 0.86f;
+        float zLo = 0.72f;
+        float zHi = 0.98f;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        for (int side = -1; side <= 1; side += 2) {
+            float ya = y + side * inner;
+            float yb = y + side * outer;
+            if (!project(rear, ya, zLo, pa) || !project(rear, yb, zLo, pb)
+                    || !project(rear, yb, zHi, pc) || !project(rear, ya, zHi, pd)) {
+                continue;
+            }
+            // 바깥쪽 옅은 번짐 → 안쪽 진한 코어 순으로 두 번 그린다.
+            p.setColor(Color.rgb(255, 96, 88));
+            p.setAlpha(Math.max(40, alpha / 3));
+            quad(c, p, pa, pb, pc, pd, 1.35f);
+            p.setColor(Color.rgb(232, 40, 44));
+            p.setAlpha(alpha);
+            quad(c, p, pa, pb, pc, pd, 1.0f);
+        }
+        p.setAlpha(255);
+    }
+
+    /** 네 점을 중심 기준으로 scale 배 키워 채운다. */
+    private void quad(Canvas c, Paint p, float[] a, float[] b, float[] d, float[] e, float scale) {
+        float cx = (a[0] + b[0] + d[0] + e[0]) * 0.25f;
+        float cy = (a[1] + b[1] + d[1] + e[1]) * 0.25f;
+        poly2.reset();
+        poly2.moveTo(cx + (a[0] - cx) * scale, cy + (a[1] - cy) * scale);
+        poly2.lineTo(cx + (b[0] - cx) * scale, cy + (b[1] - cy) * scale);
+        poly2.lineTo(cx + (d[0] - cx) * scale, cy + (d[1] - cy) * scale);
+        poly2.lineTo(cx + (e[0] - cx) * scale, cy + (e[1] - cy) * scale);
+        poly2.close();
+        c.drawPath(poly2, p);
     }
 
     /**
