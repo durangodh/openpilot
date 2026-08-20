@@ -66,6 +66,33 @@ T_FOLLOW = 1.45
 COMFORT_BRAKE = 2.5
 STOP_DISTANCE = 6.0
 
+LEAD_DEPARTURE_MIN_VREL = 0.3
+LEAD_DEPARTURE_FULL_VREL = 1.5
+LEAD_DEPARTURE_MAX_SPEED = 12.0
+LEAD_DEPARTURE_BRAKING_ACCEL = -0.2
+LEAD_DEPARTURE_MIN_COST_MULTIPLIER = 0.35
+
+
+def get_lead_departure_cost_multiplier(v_ego, v_lead, a_lead, lead_status):
+  """Reduce response-smoothing costs while a low-speed lead pulls away.
+
+  This only changes how quickly the MPC can react. It does not move the lead,
+  shorten the requested following distance, or raise the acceleration limit.
+  The assist is removed as soon as the lead starts braking.
+  """
+  if (not lead_status or v_ego >= LEAD_DEPARTURE_MAX_SPEED or
+      v_lead - v_ego <= LEAD_DEPARTURE_MIN_VREL or
+      a_lead <= LEAD_DEPARTURE_BRAKING_ACCEL):
+    return 1.0
+
+  speed_factor = interp(v_ego, [0.0, LEAD_DEPARTURE_MAX_SPEED], [1.0, 0.0])
+  relative_speed_factor = interp(v_lead - v_ego,
+                                 [LEAD_DEPARTURE_MIN_VREL, LEAD_DEPARTURE_FULL_VREL],
+                                 [0.0, 1.0])
+  lead_accel_factor = interp(a_lead, [LEAD_DEPARTURE_BRAKING_ACCEL, 0.0], [0.0, 1.0])
+  assist = speed_factor * relative_speed_factor * lead_accel_factor
+  return 1.0 - (1.0 - LEAD_DEPARTURE_MIN_COST_MULTIPLIER) * assist
+
 
 def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, krkeegan=False,
                                    comfort_brake=COMFORT_BRAKE):
@@ -294,7 +321,7 @@ class LongitudinalMpc:
     for i in range(N):
       self.solver.cost_set(i, 'Zl', Zl)
 
-  def get_cost_multipliers(self, v_lead0, v_lead1):
+  def get_cost_multipliers(self, v_lead0, v_lead1, a_lead0=0.0, lead0_status=False):
     v_ego = self.x0[1]
     v_ego_bps = [0, 10]
     TFs = [1.2, 1.45, 1.8]
@@ -302,6 +329,11 @@ class LongitudinalMpc:
     a_change_tf = interp(self.t_follow, TFs, [.8, 1., 1.1])
     j_ego_tf    = interp(self.t_follow, TFs, [.8, 1., 1.1])
     d_zone_tf   = interp(self.t_follow, TFs, [1.3, 1., 1.])
+
+    # Restore the normal smoothing costs immediately when the primary lead
+    # starts braking, even if it is still momentarily faster than ego.
+    if lead0_status and a_lead0 <= LEAD_DEPARTURE_BRAKING_ACCEL:
+      return (1.0, 1.0, d_zone_tf)
 
     j_ego_v_ego    = 1
     a_change_v_ego = 1
@@ -314,22 +346,30 @@ class LongitudinalMpc:
     a_change = min(a_change_tf, a_change_v_ego)
     return (a_change, j_ego, d_zone_tf)
 
-  def set_weights(self, v_ego=0., a_desired=0., prev_accel_constraint=True, v_lead0=0, v_lead1=0):
+  def set_weights(self, v_ego=0., a_desired=0., prev_accel_constraint=True,
+                  v_lead0=0, v_lead1=0, a_lead0=0.0, lead0_status=False):
     self.prev_accel_constraint = prev_accel_constraint
     self.a_desired = a_desired
 
     if self.mode == 'acc':
       a_change_cost = A_CHANGE_COST if prev_accel_constraint else 40
 
+      departure_cost_multiplier = get_lead_departure_cost_multiplier(
+        v_ego, v_lead0, a_lead0, lead0_status)
+
       if self.applyLongDynamicCost:
-        cost_multipliers = self.get_cost_multipliers(v_lead0, v_lead1)
+        cost_multipliers = self.get_cost_multipliers(v_lead0, v_lead1, a_lead0, lead0_status)
+        accel_change_multiplier = min(cost_multipliers[0], departure_cost_multiplier)
+        jerk_multiplier = min(cost_multipliers[1], departure_cost_multiplier)
         cost_weights = [self.x_ego_obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
-                        a_change_cost * cost_multipliers[0],
-                        J_EGO_COST * cost_multipliers[1]]
+                        a_change_cost * accel_change_multiplier,
+                        J_EGO_COST * jerk_multiplier]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST,
                                    DANGER_ZONE_COST * cost_multipliers[2]]
       else:
-        cost_weights = [self.x_ego_obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST, a_change_cost, J_EGO_COST]
+        cost_weights = [self.x_ego_obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
+                        a_change_cost * departure_cost_multiplier,
+                        J_EGO_COST * departure_cost_multiplier]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, DANGER_ZONE_COST]
 
     elif self.mode == 'blended':
@@ -433,7 +473,9 @@ class LongitudinalMpc:
                      a_desired=self.a_desired,
                      prev_accel_constraint=self.prev_accel_constraint,
                      v_lead0=lead_xv_0[0, 1],
-                     v_lead1=lead_xv_1[0, 1])
+                     v_lead1=lead_xv_1[0, 1],
+                     a_lead0=radarstate.leadOne.aLeadK if radarstate.leadOne.status else 0.0,
+                     lead0_status=radarstate.leadOne.status)
 
     lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(
       lead_xv_0[:,1], self.x_sol[:,1], self.t_follow, self.stop_dist,
