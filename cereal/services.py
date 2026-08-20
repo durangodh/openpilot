@@ -28,7 +28,11 @@ services = {
   "gpsNMEA": (True, 9.),
   "deviceState": (True, 2., 1),
   "can": (True, 100.),
-  "controlsState": (True, 100., 10),
+  # controlsState / carControl 은 controlsd 에서 ControlsPubDiv(기본 2) 만큼
+  # 나눠 발행한다. 소비자가 전부 UI 계열(ui 20fps, soundd, remote_hud 10Hz,
+  # plannerd 20Hz)이라 50Hz 로 충분하다. 100Hz 로 되돌려도(div=1) 선언값이
+  # 50 이면 freq_ok 는 통과하므로 이 값은 그대로 두면 된다.
+  "controlsState": (True, 50., 10),
   "pandaStates": (True, 2., 1),
   "peripheralState": (True, 2., 1),
   "radarState": (True, 20., 5),
@@ -40,7 +44,7 @@ services = {
   "liveCalibration": (True, 4., 4),
   "androidLog": (True, 0.),
   "carState": (True, 100., 10),
-  "carControl": (True, 100., 10),
+  "carControl": (True, 50., 10),
   "longitudinalPlan": (True, 20., 5),
   "procLog": (True, 0.5),
   "gpsLocationExternal": (True, 10., 10),
