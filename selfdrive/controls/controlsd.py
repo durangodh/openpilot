@@ -245,14 +245,9 @@ class Controls:
     # ---- 발행 감속 ---------------------------------------------------------
     # controlsState / carControl 은 소비자가 전부 UI 계열(ui 20fps, soundd,
     # remote_hud 10Hz, plannerd 20Hz)이라 100Hz 로 만들 필요가 없다.
-    # 1 = 원래대로 100Hz, 2 = 절반(50Hz). 3 이상은 services.py 의 50Hz 선언과
-    # 어긋나 freq_ok 가 깨지므로 허용하지 않는다.
-    #   되돌리기: echo -n "1" > /data/params/d/ControlsPubDiv && reboot
-    try:
-      _div = int(params.get("ControlsPubDiv", encoding="utf8") or 2)
-    except (TypeError, ValueError):
-      _div = 2
-    self._pub_div = 2 if _div not in (1, 2) else _div
+    # services.py 의 50 Hz 선언과 맞춘다. 미등록 Params 키를 읽으면
+    # controlsd 시작이 중단되므로 발행 분배값은 고정한다.
+    self._pub_div = 2
     # carState 는 감속하지 않는다 (locationd/paramsd/radard 가 먹는다)
     self._not_running_processes = set()
 
