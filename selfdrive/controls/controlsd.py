@@ -247,12 +247,28 @@ class Controls:
     # 메서드를 지우면 원본과 동일해진다.
     self._prof_keys = ["can_wait", "sm_update", "ci_update", "events",
                        "state_trans", "vm_update", "long_ctrl", "lat_ctrl",
-                       "ctrl_rest", "publish", "btn_timers", "rk_sleep"]
+                       "ctrl_rest", "publish", "btn_timers", "rk_sleep",
+                       # publish_logs 내부 분해 (합계가 publish 와 같아야 함)
+                       "p_pre", "p_alerts", "p_ci_apply", "p_ctrlstate",
+                       "p_carstate", "p_carcontrol", "p_rest"]
     self._prof_acc = {k: 0.0 for k in self._prof_keys}
     self._prof_n = 0
     self._prof_wall = sec_since_boot()
     self._prof_path = "/tmp/controlsd_prof.txt"
     self._prof_every = 500  # 5초마다 (100Hz 기준)
+
+    # ---- 발행 감속 ---------------------------------------------------------
+    # controlsState / carControl 은 소비자가 전부 UI 계열(ui 20fps, soundd,
+    # remote_hud 10Hz, plannerd 20Hz)이라 100Hz 로 만들 필요가 없다.
+    # 1 = 원래대로 100Hz, 2 = 절반(50Hz). 3 이상은 services.py 의 50Hz 선언과
+    # 어긋나 freq_ok 가 깨지므로 허용하지 않는다.
+    #   되돌리기: echo -n "1" > /data/params/d/ControlsPubDiv && reboot
+    try:
+      _div = int(params.get("ControlsPubDiv", encoding="utf8") or 2)
+    except (TypeError, ValueError):
+      _div = 2
+    self._pub_div = 2 if _div not in (1, 2) else _div
+    # carState 는 감속하지 않는다 (locationd/paramsd/radard 가 먹는다)
 
   def _prof_add(self, key, t0):
     t = sec_since_boot()
@@ -456,6 +472,7 @@ class Controls:
     if not SIMULATION:
       #if not NOSENSOR:
       #  if not self.sm['liveLocationKalman'].gpsOK and (self.distance_traveled > 1000):
+      #    # Not show in first 1 km to allow for driving out of garage. This event shows after 5 minutes
       #    self.events.add(EventName.noGps)
       if not self.sm.all_alive(self.camera_packets):
         self.events.add(EventName.cameraMalfunction)
@@ -625,6 +642,7 @@ class Controls:
         # SOFT DISABLING
         elif self.state == State.softDisabling:
           if not self.events.any(ET.SOFT_DISABLE):
+            # no more soft disabling condition, so go back to ENABLED
             self.state = State.enabled
 
           elif self.soft_disable_timer > 0:
@@ -823,6 +841,7 @@ class Controls:
 
   def publish_logs(self, CS, start_time, CC, lac_log):
     """Send actuators and hud commands to the car, send controlsstate and MPC logging"""
+    _p = sec_since_boot()
 
     # Orientation and angle rates can be useful for carcontroller
     # Only calibrated (car) frame is relevant for the carcontroller
@@ -880,6 +899,7 @@ class Controls:
     if hudControl.rightLaneDepart or hudControl.leftLaneDepart:
       self.events.add(EventName.ldw)
 
+    _p = self._prof_add("p_pre", _p)
     clear_event_types = set()
     if ET.WARNING not in self.current_alert_types:
       clear_event_types.add(ET.WARNING)
@@ -891,6 +911,7 @@ class Controls:
     current_alert = self.AM.process_alerts(self.sm.frame, clear_event_types)
     if current_alert:
       hudControl.visualAlert = current_alert.visual_alert
+    _p = self._prof_add("p_alerts", _p)
 
     if not self.read_only and self.initialized:
       # send car controls over can
@@ -898,17 +919,60 @@ class Controls:
       self.pm.send('sendcan', can_list_to_can_capnp(can_sends, msgtype='sendcan', valid=CS.canValid))
       CC.actuatorsOutput = self.last_actuators
       self.steer_limited = abs(CC.actuators.steer - CC.actuatorsOutput.steer) > 1e-2
+    _p = self._prof_add("p_ci_apply", _p)
 
-    force_decel = (self.sm['driverMonitoringState'].awarenessStatus < 0.) or \
-                  (self.state == State.softDisabling)
+    # controlsState 를 보내는 루프에서만 계산한다 (아래에서만 쓰이는 값들)
+    _send_ctrlstate = (self.sm.frame % self._pub_div == 0)
+    if _send_ctrlstate:
+      force_decel = (self.sm['driverMonitoringState'].awarenessStatus < 0.) or \
+                    (self.state == State.softDisabling)
 
-    # Curvature & Steering angle
-    params = self.sm['liveParameters']
+      # Curvature & Steering angle
+      params = self.sm['liveParameters']
 
-    steer_angle_without_offset = math.radians(CS.steeringAngleDeg - params.angleOffsetDeg)
-    curvature = -self.VM.calc_curvature(steer_angle_without_offset, CS.vEgo, params.roll)
+      steer_angle_without_offset = math.radians(CS.steeringAngleDeg - params.angleOffsetDeg)
+      curvature = -self.VM.calc_curvature(steer_angle_without_offset, CS.vEgo, params.roll)
 
-    # controlsState
+      self._publish_controls_state(CS, start_time, lac_log, current_alert,
+                                   curvature, steer_angle_without_offset, force_decel)
+    _p = self._prof_add("p_ctrlstate", _p)
+
+    # carState
+    car_events = self.events.to_msg()
+    cs_send = messaging.new_message('carState')
+    cs_send.valid = CS.canValid
+    cs_send.carState = CS
+    cs_send.carState.events = car_events
+    self.pm.send('carState', cs_send)
+    _p = self._prof_add("p_carstate", _p)
+
+    # carEvents - logged every second or on change
+    if (self.sm.frame % int(1. / DT_CTRL) == 0) or (self.events.names != self.events_prev):
+      ce_send = messaging.new_message('carEvents', len(self.events))
+      ce_send.carEvents = car_events
+      self.pm.send('carEvents', ce_send)
+    self.events_prev = self.events.names.copy()
+
+    # carParams - logged every 50 seconds (> 1 per segment)
+    if (self.sm.frame % int(50. / DT_CTRL) == 0):
+      cp_send = messaging.new_message('carParams')
+      cp_send.carParams = self.CP
+      self.pm.send('carParams', cp_send)
+
+    # carControl (UI 소비자만 있으므로 controlsState 와 같은 주기로 발행)
+    if _send_ctrlstate:
+      cc_send = messaging.new_message('carControl')
+      cc_send.valid = CS.canValid
+      cc_send.carControl = CC
+      self.pm.send('carControl', cc_send)
+    _p = self._prof_add("p_carcontrol", _p)
+
+    # copy CarControl to pass to CarInterface on the next iteration
+    self.CC = CC
+    self._prof_add("p_rest", _p)
+
+  def _publish_controls_state(self, CS, start_time, lac_log, current_alert,
+                              curvature, steer_angle_without_offset, force_decel):
     dat = messaging.new_message('controlsState')
     dat.valid = CS.canValid
     controlsState = dat.controlsState
@@ -969,36 +1033,6 @@ class Controls:
       controlsState.lateralControlState.torqueState = lac_log
 
     self.pm.send('controlsState', dat)
-
-    # carState
-    car_events = self.events.to_msg()
-    cs_send = messaging.new_message('carState')
-    cs_send.valid = CS.canValid
-    cs_send.carState = CS
-    cs_send.carState.events = car_events
-    self.pm.send('carState', cs_send)
-
-    # carEvents - logged every second or on change
-    if (self.sm.frame % int(1. / DT_CTRL) == 0) or (self.events.names != self.events_prev):
-      ce_send = messaging.new_message('carEvents', len(self.events))
-      ce_send.carEvents = car_events
-      self.pm.send('carEvents', ce_send)
-    self.events_prev = self.events.names.copy()
-
-    # carParams - logged every 50 seconds (> 1 per segment)
-    if (self.sm.frame % int(50. / DT_CTRL) == 0):
-      cp_send = messaging.new_message('carParams')
-      cp_send.carParams = self.CP
-      self.pm.send('carParams', cp_send)
-
-    # carControl
-    cc_send = messaging.new_message('carControl')
-    cc_send.valid = CS.canValid
-    cc_send.carControl = CC
-    self.pm.send('carControl', cc_send)
-
-    # copy CarControl to pass to CarInterface on the next iteration
-    self.CC = CC
 
   def step(self):
     start_time = sec_since_boot()
