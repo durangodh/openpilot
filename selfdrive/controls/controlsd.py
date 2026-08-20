@@ -102,13 +102,17 @@ class Controls:
 
     self.sm = sm
     if self.sm is None:
-      ignore = []
+      # 2026-08-19: 운전자 감시를 끈 구성이라 driverMonitoringState 를 아무도
+      # 발행하지 않는다. alive/freq 검사에서 빼지 않으면 commIssue 로 인게이지가
+      # 막힌다. dmonitoringd 를 되살리면 이 항목도 같이 빼야 한다.
+      ignore = ['driverMonitoringState']
       if SIMULATION:
         ignore += ['driverCameraState', 'managerState']
       self.sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState', 'modelV2', 'liveCalibration',
                                      'driverMonitoringState', 'longitudinalPlan', 'lateralPlan', 'liveLocationKalman',
                                      'managerState', 'liveParameters', 'radarState'] + self.camera_packets + joystick_packet,
-                                    ignore_alive=ignore, ignore_avg_freq=['radarState', 'longitudinalPlan'])
+                                    ignore_alive=ignore,
+                                    ignore_avg_freq=['radarState', 'longitudinalPlan', 'driverMonitoringState'])
 
     # set alternative experiences from parameters
     self.disengage_on_accelerator = params.get_bool("DisengageOnAccelerator")
