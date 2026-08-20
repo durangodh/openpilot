@@ -71,6 +71,11 @@ def _packet(sm, *args, **kwargs):
   packet["hudLanguage"] = _bounded_int("EonClusterHudLanguage", 0, 0, 1)
   packet["hudRadarInfo"] = _bounded_int("EonClusterHudRadarInfo", 4, 0, 4)
   packet["hudBuildings"] = _bounded_int("EonClusterHudBuildings", 1, 0, 1)
+  # 노면 높낮이 배율(%). 100=원본, 0=평지. 모델 z 의 부호가 기기마다 다를 수
+  # 있어 음수까지 열어둔다 — 오르막이 아래로 꺼져 보이면 -100 으로 뒤집는다.
+  packet["hudRoadZ"] = _bounded_int("EonClusterHudRoadZ", 100, -300, 300)
+  # 주행 중 차량 pitch 를 수평선에 반영하는 정도(%). 0=끄기(정적 캘리브만).
+  packet["hudPitchDyn"] = _bounded_int("EonClusterHudPitchDyn", 60, 0, 200)
   packet["hudOutputMode"] = _bounded_int("EonClusterHudOutputMode", 1, 1, 3)
   packet["hudBsdStyle"] = _bounded_int("EonClusterHudBsdStyle", 2, 1, 3)
   packet["hudCarStyle"] = _bounded_int("EonClusterHudCarStyle", 1, 1, 2)

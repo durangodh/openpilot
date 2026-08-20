@@ -1238,6 +1238,14 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "0: 끔 / 1: 제한속도만 / 2: 과속방지턱만 / 3: 둘 다",
       "../assets/offroad/icon_road.png", 0, 3, 1, 0, 3, this));
   toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudRoadZ", "S9 HUD 노면 높낮이",
+      "오르막·내리막 표현 강도(%). 100: 모델 값 그대로 / 0: 평지 / 음수: 위아래 반전(오르막이 꺼져 보일 때 -100).",
+      "../assets/offroad/icon_road.png", -300, 300, 10, 0, 100, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudPitchDyn", "S9 HUD 자세 반영",
+      "가감속·요철로 차가 기울 때 수평선이 따라 움직이는 정도(%). 0: 끔(정지 캘리브만), 클수록 화면이 많이 흔들립니다.",
+      "../assets/offroad/icon_road.png", 0, 200, 10, 0, 60, this));
+  toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudBuildings", "S9 HUD 도로변 건물",
       "0: 끔 / 1: 켬. 건물은 실제 지형이 아니라 속도감용 장식입니다.",
       "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));

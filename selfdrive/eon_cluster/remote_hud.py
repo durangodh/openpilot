@@ -285,12 +285,30 @@ def _publish_heartbeat(params, state):
     print("remote HUD heartbeat failed: %s" % exc, flush=True)
 
 
-def _line_points(position, limit=33):
+def _first(seq, default=0.0):
+  try:
+    for value in seq:
+      return value
+  except TypeError:
+    pass
+  return default
+
+
+def _line_points(position, limit=33, with_z=False):
   xs = list(_field(position, "x", []) or [])
   ys = list(_field(position, "y", []) or [])
   count = min(len(xs), len(ys), limit)
   if count < 2:
     return []
+  if with_z:
+    # 2026-08-20: 노면 높낮이. 앱의 World3D.project() 가 이 z 로 도로면을
+    # 올리고 내린다(오르막/내리막/둔덕). 경로 하나만 보내면 되는 이유는,
+    # 같은 거리에서는 차선·도로경계·노면이 모두 같은 높이이기 때문이다.
+    # 차선까지 z 를 실으면 패킷만 커지고 그림은 같다.
+    zs = list(_field(position, "z", []) or [])
+    if len(zs) >= count:
+      return [[round(_finite(xs[i]), 2), round(_finite(ys[i]), 2),
+               round(_finite(zs[i]), 2)] for i in range(count)]
   # 예전에는 count // 12 로 솎아 17점만 보냈다. 급커브에서 보간이 실제
   # 곡률을 못 따라가므로 33점을 전부 보낸다. 경로+차선4+경계2 가 두 배가 돼도
   # 패킷은 1.9KB → 3~4KB 수준이고 EON 부하(1~3%)는 그대로다.
@@ -612,10 +630,13 @@ def _packet(sm, atc_mode, path_offset=0.0):
     },
     "atcMode": int(atc_mode),
     "pathOffset": float(path_offset),
+    # 현재 차량 자세 pitch(rad). liveCalibration 의 정적 보정과 달리 주행 중
+    # 가감속·요철로 실시간 변한다. 앱은 여기에 게인을 곱해 수평선을 움직인다.
+    "pitch": round(_finite(_first(_field(_field(sm["modelV2"], "orientation", None), "y", []))), 4),
     "calibPitch": _calib_pitch(sm["liveCalibration"]),
     "alert": _alert(controls),
     "navi": navi,
-    "path": _line_points(_field(sm["modelV2"], "position", None)),
+    "path": _line_points(_field(sm["modelV2"], "position", None), with_z=True),
     "lanes": _model_lines(sm["modelV2"], "laneLines", "laneLineProbs", 0.0),
     "edges": _model_lines(sm["modelV2"], "roadEdges", "roadEdgeStds", 1.0, True),
     "lead": _lead(sm["radarState"], "leadOne"),

@@ -99,6 +99,14 @@ final class World3D {
     // ── 프레임당 재할당을 피하기 위한 버퍼 ────────────────────────────────
     private final float[] pathX = new float[MAX_PTS];
     private final float[] pathY = new float[MAX_PTS];
+    /**
+     * 노면 높낮이 (m, 위가 +). modelV2.position.z 를 그대로 받는다.
+     * project() 가 모든 점에 이 값을 더하므로 노면·차선·연석·앞차·BSD 가
+     * 한꺼번에 오르막/내리막을 탄다. 별도 호출부 수정이 필요 없다.
+     */
+    private final float[] pathZ = new float[MAX_PTS];
+    /** 노면 높낮이 배율. 0 이면 평지, 음수면 위아래 반전. */
+    private float roadZGain = 1f;
     private int pathCount;
 
     private final float[] edgeLX = new float[MAX_PTS];
@@ -254,7 +262,9 @@ final class World3D {
         }
         float inv = FOCAL / depth;
         out[0] = CX - y * inv;
-        out[1] = HORIZON + horizonShift + (CAM_H - z) * inv;
+        // z 는 "노면 위 높이"로 쓴다(연석 0.13, 방지턱, 차량 박스 등).
+        // 노면 자체의 오르내림은 roadZ(x) 가 담당한다.
+        out[1] = HORIZON + horizonShift + (CAM_H - (z + roadZ(x))) * inv;
         return true;
     }
 
@@ -273,7 +283,7 @@ final class World3D {
         if (s == null) {
             return;
         }
-        pathCount = decode(s.optJSONArray("path"), pathX, pathY);
+        pathCount = decode(s.optJSONArray("path"), pathX, pathY, pathZ);
 
         JSONArray lanes = s.optJSONArray("lanes");
         if (lanes != null && lanes.length() >= 3) {
@@ -314,6 +324,10 @@ final class World3D {
     }
 
     private static int decode(JSONArray a, float[] xs, float[] ys) {
+        return decode(a, xs, ys, null);
+    }
+
+    private static int decode(JSONArray a, float[] xs, float[] ys, float[] zs) {
         if (a == null) {
             return 0;
         }
@@ -335,6 +349,11 @@ final class World3D {
             }
             xs[n] = x;
             ys[n] = (float) dy;
+            if (zs != null) {
+                // 3번째 원소가 없는 옛 EON 패킷과도 호환되게 기본 0.
+                double dz = q.optDouble(2, 0d);
+                zs[n] = Double.isNaN(dz) ? 0f : (float) dz;
+            }
             n++;
         }
         return n;
@@ -344,6 +363,21 @@ final class World3D {
      * Catmull-Rom 보간. 모델 유효구간 밖에서는 기울기를 20m에 걸쳐 0으로
      * 감쇠시킨다 — 정차 중 먼 쪽이 좌우로 쓸리는 것을 막는 핵심.
      */
+    /**
+     * 전방 x(m) 지점의 노면 높이(m). 데이터가 없거나 배율이 0 이면 0 을 돌려
+     * 예전처럼 완전 평지로 그린다. 모델이 튀어도 화면이 뒤집히지 않게 ±3m 로 자른다.
+     */
+    private float roadZ(float x) {
+        if (pathCount < 2 || roadZGain == 0f) {
+            return 0f;
+        }
+        float z = sample(pathX, pathZ, pathCount, x) * roadZGain;
+        if (Float.isNaN(z) || Float.isInfinite(z)) {
+            return 0f;
+        }
+        return Math.max(-3f, Math.min(3f, z));
+    }
+
     private static float sample(float[] xs, float[] ys, int n, float x) {
         if (n == 0) {
             return 0f;
@@ -593,13 +627,20 @@ final class World3D {
               int bgColor, int roadTop, int roadBottom, int pathColor,
               int radarInfo, boolean buildings, boolean darkTheme, int bsdStyle,
               int carStyleMode, float offsetTotal, float calibPitch,
-              boolean limitPaint, boolean bumpPaint) {
+              boolean limitPaint, boolean bumpPaint,
+              float roadZPercent, float livePitch, float pitchPercent) {
         this.dark = darkTheme;
         this.carStyle = carStyleMode == CAR_BOX ? CAR_BOX : CAR_SPRITE;
         this.pathOffset = Math.max(-1f, Math.min(1f, offsetTotal));
+        this.roadZGain = Math.max(-3f, Math.min(3f, roadZPercent * 0.01f));
+        // 정적 캘리브 pitch + 주행 중 실시간 pitch(게인 적용). 실시간 항은
+        // 따로 ±0.05rad 로 자른다 — 게인을 크게 줘도 화면이 뒤집히지 않게.
+        float dynPitch = Math.max(-0.05f, Math.min(0.05f,
+                livePitch * Math.max(0f, Math.min(2f, pitchPercent * 0.01f))));
+        float pitch = Math.max(-0.15f, Math.min(0.15f, calibPitch + dynPitch));
         // pitch 가 아래를 볼수록(양수) 수평선이 화면 아래로 내려간다.
         this.horizonShift = Math.max(-46f, Math.min(46f,
-                FOCAL * (float) Math.tan(Math.max(-0.15f, Math.min(0.15f, calibPitch)))));
+                FOCAL * (float) Math.tan(pitch)));
         setScene(s);
 
         int save = c.save();

@@ -774,7 +774,10 @@ public final class HudService extends Service {
                 (float) s.optDouble("pathOffset", 0d),
                 (float) s.optDouble("calibPitch", 0d),
                 (configuredRoadSigns & 1) != 0,
-                (configuredRoadSigns & 2) != 0);
+                (configuredRoadSigns & 2) != 0,
+                (float) s.optDouble("hudRoadZ", 100d),
+                (float) s.optDouble("pitch", 0d),
+                (float) s.optDouble("hudPitchDyn", 60d));
 
         drawBlinkers(c, p, s, stale);
 
