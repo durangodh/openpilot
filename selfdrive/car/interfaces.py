@@ -357,32 +357,47 @@ class CarStateBase(ABC):
     d: Dict[str, car.CarState.GearShifter] = {
         'P': GearShifter.park, 'R': GearShifter.reverse, 'N': GearShifter.neutral,
         'E': GearShifter.eco, 'T': GearShifter.manumatic, 'D': GearShifter.drive,
-        'S': GearShifter.sport, 'L': GearShifter.low, 'B': GearShifter.brake,
-    }
-    return d.get(gear, GearShifter.unknown)
-
-  def parse_gear_shifter_af(self, gear: str) -> car.CarState.GearShifter:
-    d: Dict[str, car.CarState.GearShifter] = {
-        'P': GearShifter.park, 'R': GearShifter.reverse, 'N': GearShifter.neutral,
-        'E': GearShifter.eco, 'T': GearShifter.manumatic, 'D': GearShifter.drive,
-        'S': GearShifter.sport, 'L': GearShifter.low, 'B': GearShifter.brake,
-    }
-    return d.get(gear, self.out.gearShifter)
-
-  @staticmethod
-  def parse_gear_shifter_2(gear: str, gear_step: str) -> car.CarState.GearShifter:
-    d: Dict[str, car.CarState.GearShifter] = {
-        'P': GearShifter.park, 'R': GearShifter.reverse, 'N': GearShifter.neutral,
-        'E': GearShifter.eco, 'T': GearShifter.manumatic, 'D': GearShifter.drive,
-        'S': GearShifter.sport, 'L': GearShifter.low, 'B': GearShifter.brake,
+        'S': GearShifter.sport, 'L': GearShifter.low, 'B': GearShifter.brake
     }
     return d.get(gear, GearShifter.unknown)
 
   @staticmethod
-  def parse_gear_shifter_3(gear: str, gear_step: str) -> car.CarState.GearShifter:
-    d: Dict[str, car.CarState.GearShifter] = {
-        'P': GearShifter.park, 'R': GearShifter.reverse, 'N': GearShifter.neutral,
-        'E': GearShifter.eco, 'T': GearShifter.manumatic, 'D': GearShifter.drive,
-        'S': GearShifter.sport, 'L': GearShifter.low, 'B': GearShifter.brake,
-    }
-    return d.get(gear, GearShifter.unknown)
+  def get_cam_can_parser(CP):
+    return None
+
+  @staticmethod
+  def get_adas_can_parser(CP):
+    return None
+
+  @staticmethod
+  def get_body_can_parser(CP):
+    return None
+
+  @staticmethod
+  def get_loopback_can_parser(CP):
+    return None
+
+
+# interface-specific helpers
+
+def get_interface_attr(attr: str, combine_brands: bool = False, ignore_none: bool = False) -> Dict[str, Any]:
+  result = {}
+  for car_folder in sorted([x[0] for x in os.walk(BASEDIR + '/selfdrive/car')]):
+    try:
+      brand_name = car_folder.split('/')[-1]
+      brand_values = __import__(f'selfdrive.car.{brand_name}.values', fromlist=[attr])
+      if hasattr(brand_values, attr) or not ignore_none:
+        attr_data = getattr(brand_values, attr, None)
+      else:
+        continue
+
+      if combine_brands:
+        if isinstance(attr_data, dict):
+          for f, v in attr_data.items():
+            result[f] = v
+      else:
+        result[brand_name] = attr_data
+    except (ImportError, OSError):
+      pass
+
+  return result
