@@ -30,16 +30,24 @@ TORQUE_OVERRIDE_PATH = os.path.join(BASEDIR, 'selfdrive/car/torque_data/override
 TORQUE_SUBSTITUTE_PATH = os.path.join(BASEDIR, 'selfdrive/car/torque_data/substitute.yaml')
 
 
+# 2026-08-20: EON 의 PyYAML 은 libyaml(C 확장) 없이 빌드돼 있어서
+# yaml.CSafeLoader 가 없다. 예전에는 hyundai/interface.py 의 `except:` 가
+# 이 AttributeError 를 삼키고 폴백 토크값(2.5/0.01)을 써 왔다 — 차량 정의값이
+# 한 번도 로드된 적이 없었던 진짜 원인. C 로더가 있으면 쓰고 없으면 순수
+# 파이썬 SafeLoader 로 떨어진다(파싱 결과는 동일, 속도만 느림).
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
 def get_torque_params(candidate):
   with open(TORQUE_SUBSTITUTE_PATH) as f:
-    sub = yaml.load(f, Loader=yaml.CSafeLoader)
+    sub = yaml.load(f, Loader=_YAML_LOADER)
   if candidate in sub:
     candidate = sub[candidate]
 
   with open(TORQUE_PARAMS_PATH) as f:
-    params = yaml.load(f, Loader=yaml.CSafeLoader)
+    params = yaml.load(f, Loader=_YAML_LOADER)
   with open(TORQUE_OVERRIDE_PATH) as f:
-    override = yaml.load(f, Loader=yaml.CSafeLoader)
+    override = yaml.load(f, Loader=_YAML_LOADER)
 
   # Ensure no overlap
   if sum([candidate in x for x in [sub, params, override]]) > 1:
@@ -349,47 +357,32 @@ class CarStateBase(ABC):
     d: Dict[str, car.CarState.GearShifter] = {
         'P': GearShifter.park, 'R': GearShifter.reverse, 'N': GearShifter.neutral,
         'E': GearShifter.eco, 'T': GearShifter.manumatic, 'D': GearShifter.drive,
-        'S': GearShifter.sport, 'L': GearShifter.low, 'B': GearShifter.brake
+        'S': GearShifter.sport, 'L': GearShifter.low, 'B': GearShifter.brake,
+    }
+    return d.get(gear, GearShifter.unknown)
+
+  def parse_gear_shifter_af(self, gear: str) -> car.CarState.GearShifter:
+    d: Dict[str, car.CarState.GearShifter] = {
+        'P': GearShifter.park, 'R': GearShifter.reverse, 'N': GearShifter.neutral,
+        'E': GearShifter.eco, 'T': GearShifter.manumatic, 'D': GearShifter.drive,
+        'S': GearShifter.sport, 'L': GearShifter.low, 'B': GearShifter.brake,
+    }
+    return d.get(gear, self.out.gearShifter)
+
+  @staticmethod
+  def parse_gear_shifter_2(gear: str, gear_step: str) -> car.CarState.GearShifter:
+    d: Dict[str, car.CarState.GearShifter] = {
+        'P': GearShifter.park, 'R': GearShifter.reverse, 'N': GearShifter.neutral,
+        'E': GearShifter.eco, 'T': GearShifter.manumatic, 'D': GearShifter.drive,
+        'S': GearShifter.sport, 'L': GearShifter.low, 'B': GearShifter.brake,
     }
     return d.get(gear, GearShifter.unknown)
 
   @staticmethod
-  def get_cam_can_parser(CP):
-    return None
-
-  @staticmethod
-  def get_adas_can_parser(CP):
-    return None
-
-  @staticmethod
-  def get_body_can_parser(CP):
-    return None
-
-  @staticmethod
-  def get_loopback_can_parser(CP):
-    return None
-
-
-# interface-specific helpers
-
-def get_interface_attr(attr: str, combine_brands: bool = False, ignore_none: bool = False) -> Dict[str, Any]:
-  result = {}
-  for car_folder in sorted([x[0] for x in os.walk(BASEDIR + '/selfdrive/car')]):
-    try:
-      brand_name = car_folder.split('/')[-1]
-      brand_values = __import__(f'selfdrive.car.{brand_name}.values', fromlist=[attr])
-      if hasattr(brand_values, attr) or not ignore_none:
-        attr_data = getattr(brand_values, attr, None)
-      else:
-        continue
-
-      if combine_brands:
-        if isinstance(attr_data, dict):
-          for f, v in attr_data.items():
-            result[f] = v
-      else:
-        result[brand_name] = attr_data
-    except (ImportError, OSError):
-      pass
-
-  return result
+  def parse_gear_shifter_3(gear: str, gear_step: str) -> car.CarState.GearShifter:
+    d: Dict[str, car.CarState.GearShifter] = {
+        'P': GearShifter.park, 'R': GearShifter.reverse, 'N': GearShifter.neutral,
+        'E': GearShifter.eco, 'T': GearShifter.manumatic, 'D': GearShifter.drive,
+        'S': GearShifter.sport, 'L': GearShifter.low, 'B': GearShifter.brake,
+    }
+    return d.get(gear, GearShifter.unknown)
