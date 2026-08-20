@@ -242,6 +242,43 @@ class Controls:
     self.rk = Ratekeeper(100, print_delay_threshold=None)
     self.prof = Profiler(False)  # off by default
 
+    # ---- CPU 진단용 구간 타이머 (임시) --------------------------------------
+    # 제거 방법: 이 블록과 step()/controlsd_thread() 안의 _t_* 줄, _prof_dump()
+    # 메서드를 지우면 원본과 동일해진다.
+    self._prof_keys = ["can_wait", "sm_update", "ci_update", "events",
+                       "state_trans", "vm_update", "long_ctrl", "lat_ctrl",
+                       "ctrl_rest", "publish", "btn_timers", "rk_sleep"]
+    self._prof_acc = {k: 0.0 for k in self._prof_keys}
+    self._prof_n = 0
+    self._prof_wall = sec_since_boot()
+    self._prof_path = "/tmp/controlsd_prof.txt"
+    self._prof_every = 500  # 5초마다 (100Hz 기준)
+
+  def _prof_add(self, key, t0):
+    t = sec_since_boot()
+    self._prof_acc[key] += t - t0
+    return t
+
+  def _prof_dump(self):
+    n = self._prof_n
+    wall = sec_since_boot() - self._prof_wall
+    busy = sum(v for k, v in self._prof_acc.items() if k != "rk_sleep")
+    lines = []
+    lines.append("loops=%d  wall=%.2fs  hz=%.1f" % (n, wall, n / max(wall, 1e-6)))
+    lines.append("busy(=rk_sleep 제외) 총 %.2fs  = wall 대비 %.1f%%" % (busy, 100.0 * busy / max(wall, 1e-6)))
+    lines.append("%-12s %10s %10s %8s" % ("section", "total(s)", "avg(ms)", "%busy"))
+    for k, v in sorted(self._prof_acc.items(), key=lambda x: -x[1]):
+      lines.append("%-12s %10.2f %10.3f %8.1f" % (k, v, 1000.0 * v / max(n, 1), 100.0 * v / max(busy, 1e-6)))
+    try:
+      with open(self._prof_path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    except Exception:
+      pass
+    for k in self._prof_acc:
+      self._prof_acc[k] = 0.0
+    self._prof_n = 0
+    self._prof_wall = sec_since_boot()
+
   def update_events(self, CS):
     """Compute carEvents from carState"""
 
@@ -419,7 +456,6 @@ class Controls:
     if not SIMULATION:
       #if not NOSENSOR:
       #  if not self.sm['liveLocationKalman'].gpsOK and (self.distance_traveled > 1000):
-      #    # Not show in first 1 km to allow for driving out of garage. This event shows after 5 minutes
       #    self.events.add(EventName.noGps)
       if not self.sm.all_alive(self.camera_packets):
         self.events.add(EventName.cameraMalfunction)
@@ -494,10 +530,14 @@ class Controls:
     """Receive data from sockets and update carState"""
 
     # Update carState from CAN
+    _t = sec_since_boot()
     can_strs = messaging.drain_sock_raw(self.can_sock, wait_for_one=True)
+    _t = self._prof_add("can_wait", _t)
     CS = self.CI.update(self.CC, can_strs)
+    _t = self._prof_add("ci_update", _t)
 
     self.sm.update(0)
+    _t = self._prof_add("sm_update", _t)
 
     if not self.initialized:
       all_valid = CS.canValid and self.sm.all_checks()
@@ -585,7 +625,6 @@ class Controls:
         # SOFT DISABLING
         elif self.state == State.softDisabling:
           if not self.events.any(ET.SOFT_DISABLE):
-            # no more soft disabling condition, so go back to ENABLED
             self.state = State.enabled
 
           elif self.soft_disable_timer > 0:
@@ -655,12 +694,14 @@ class Controls:
     x = max(params.stiffnessFactor, 0.1)
     #sr = max(params.steerRatio, 0.1)
 
+    _t = sec_since_boot()
     if live_tune.use_live_steer_ratio():
       sr = max(params.steerRatio, 0.1)
     else:
       sr = max(live_tune.custom_steer_ratio(), 0.1)
 
     self.VM.update_params(x, sr)
+    _t = self._prof_add("vm_update", _t)
 
     lat_plan = self.sm['lateralPlan']
     long_plan = self.sm['longitudinalPlan']
@@ -701,10 +742,12 @@ class Controls:
       cruise_max_accel = self.cruise_helper.get_cruise_max_accel(CS.vEgo)
       pid_accel_limits = (pid_accel_limits[0], min(pid_accel_limits[1], cruise_max_accel))
       t_since_plan = (self.sm.frame - self.sm.rcv_frame['longitudinalPlan']) * DT_CTRL
+      _t = sec_since_boot()
       actuators.accel, actuators.jerk = self.LoC.update(
         CC.longActive,
         CS, long_plan, pid_accel_limits, t_since_plan, CC.hudControl.softHold,
         self.sm['radarState'])
+      _t = self._prof_add("long_ctrl", _t)
 
       # Steering PID loop and lateral MPC
       self.desired_curvature, self.desired_curvature_rate = get_lag_adjusted_curvature(self.CP, CS.vEgo,
@@ -715,6 +758,7 @@ class Controls:
                                                                              self.last_actuators, self.steer_limited, self.desired_curvature,
                                                                              self.desired_curvature_rate, self.sm['liveLocationKalman'],
                                                                              self.sm['modelV2'])
+      self._prof_add("lat_ctrl", _t)
     else:
       lac_log = log.ControlsState.LateralDebugState.new_message()
       if self.sm.rcv_frame['testJoystick'] > 0:
@@ -961,35 +1005,55 @@ class Controls:
     self.prof.checkpoint("Ratekeeper", ignore=True)
 
     # Sample data from sockets and get a carState
+    # (data_sample 내부에서 can_wait / ci_update / sm_update 로 나눠 계측한다)
     CS = self.data_sample()
     cloudlog.timestamp("Data sampled")
     self.prof.checkpoint("Sample")
 
+    _t = sec_since_boot()
     self.update_events(CS)
     cloudlog.timestamp("Events updated")
+    _t = self._prof_add("events", _t)
 
     if not self.read_only and self.initialized:
       # Update control state
       self.state_transition(CS)
       self.prof.checkpoint("State transition")
+    _t = self._prof_add("state_trans", _t)
 
     # Compute actuators (runs PID loops and lateral MPC)
+    # (state_control 내부에서 vm_update / long_ctrl / lat_ctrl 을 따로 뺀다.
+    #  ctrl_rest = state_control 전체에서 그 셋을 뺀 나머지)
+    _sub0 = self._prof_acc["vm_update"] + self._prof_acc["long_ctrl"] + self._prof_acc["lat_ctrl"]
+    _ctrl_t0 = sec_since_boot()
     CC, lac_log = self.state_control(CS)
+    _ctrl_dt = sec_since_boot() - _ctrl_t0
+    _sub1 = self._prof_acc["vm_update"] + self._prof_acc["long_ctrl"] + self._prof_acc["lat_ctrl"]
+    self._prof_acc["ctrl_rest"] += _ctrl_dt - (_sub1 - _sub0)
 
     self.prof.checkpoint("State Control")
 
     # Publish data
+    _t = sec_since_boot()
     self.publish_logs(CS, start_time, CC, lac_log)
+    _t = self._prof_add("publish", _t)
     self.prof.checkpoint("Sent")
 
     self.update_button_timers(CS.buttonEvents)
+    self._prof_add("btn_timers", _t)
     self.CS_prev = CS
 
   def controlsd_thread(self):
     while True:
       self.step()
+      _t = sec_since_boot()
       self.rk.monitor_time()
+      self._prof_add("rk_sleep", _t)
       self.prof.display()
+
+      self._prof_n += 1
+      if self._prof_n >= self._prof_every:
+        self._prof_dump()
 
 
 def main(sm=None, pm=None, logcan=None):
