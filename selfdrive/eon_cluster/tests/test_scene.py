@@ -1,10 +1,30 @@
 from types import SimpleNamespace
 
-from selfdrive.eon_cluster.scene import extract_driving_scene
+from selfdrive.eon_cluster.scene import extract_driving_scene, final_lateral_path
 
 
 def polyline(xs, ys):
   return SimpleNamespace(x=xs, y=ys)
+
+
+def test_final_lateral_path_uses_planner_y_and_model_time_geometry():
+  lateral = SimpleNamespace(mpcSolutionValid=True, dPathPoints=[0.0, 0.5, 2.0])
+  model = SimpleNamespace(
+    position=SimpleNamespace(z=[0.0, 0.1, 0.2]),
+    velocity=SimpleNamespace(x=[10.0], y=[0.0], z=[0.0]),
+  )
+  assert final_lateral_path(lateral, model, [0.0, 0.1, 0.4]) == [
+    [0.0, 0.0, 0.0], [1.0, 0.5, 0.1], [4.0, 2.0, 0.2],
+  ]
+
+
+def test_final_lateral_path_rejects_invalid_mpc_and_missing_velocity():
+  model = SimpleNamespace(position=SimpleNamespace(z=[]),
+                          velocity=SimpleNamespace(x=[], y=[], z=[]))
+  invalid = SimpleNamespace(mpcSolutionValid=False, dPathPoints=[0.0, 1.0])
+  missing_speed = SimpleNamespace(mpcSolutionValid=True, dPathPoints=[0.0, 1.0])
+  assert final_lateral_path(invalid, model, [0.0, 1.0]) == []
+  assert final_lateral_path(missing_speed, model, [0.0, 1.0]) == []
 
 
 def test_extract_driving_scene_from_model_and_radar():
@@ -104,5 +124,4 @@ def test_invalid_or_far_leads_are_ignored():
   scene = extract_driving_scene(empty_model, radar)
   assert scene["path"] == []
   assert scene["leads"] == []
-
 

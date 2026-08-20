@@ -112,6 +112,8 @@ final class World3D {
     /** 신호/E2E 정지선까지 거리(m). 음수면 안 그린다. */
     private float stopDist = -1f;
     private int pathCount;
+    /** true when packet.path is the final lateral MPC path, not modelV2. */
+    private boolean finalPath;
 
     private final float[] edgeLX = new float[MAX_PTS];
     private final float[] edgeLY = new float[MAX_PTS];
@@ -280,6 +282,7 @@ final class World3D {
 
     void setScene(JSONObject s) {
         pathCount = 0;
+        finalPath = false;
         edgeLCount = 0;
         edgeRCount = 0;
         laneLCount = 0;
@@ -287,6 +290,7 @@ final class World3D {
         if (s == null) {
             return;
         }
+        finalPath = s.optBoolean("pathFinal", false);
         pathCount = decode(s.optJSONArray("path"), pathX, pathY, pathZ);
 
         JSONArray lanes = s.optJSONArray("lanes");
@@ -424,13 +428,19 @@ final class World3D {
 
     float centerAt(float x) {
         float y = sample(pathX, pathY, pathCount, x);
-        if (curveCount >= 2 && x > CURVE_BLEND_START) {
+        // Preserve the final MPC path over its complete valid horizon. TMAP is
+        // used only beyond that horizon; otherwise ATC curvature would be
+        // blended a second time from the old fixed 60 m point.
+        float curveBlendStart = finalPath && pathCount >= 2
+                ? Math.max(CURVE_BLEND_START, pathX[pathCount - 1])
+                : CURVE_BLEND_START;
+        if (curveCount >= 2 && x > curveBlendStart) {
             // 근거리는 모델, 원거리는 티맵 폴리라인. GPS 오프셋(1~5m)이 그대로
             // 보이지 않도록 블렌드 시작점에서 두 곡선의 차이를 바이어스로 빼서
             // 이어붙인다 → 형상(커브)만 가져오고 절대 오프셋은 버린다.
-            float w = Math.min(1f, (x - CURVE_BLEND_START) / CURVE_BLEND_SPAN);
-            float bias = sample(curveX, curveY, curveCount, CURVE_BLEND_START)
-                    - sample(pathX, pathY, pathCount, CURVE_BLEND_START);
+            float w = Math.min(1f, (x - curveBlendStart) / CURVE_BLEND_SPAN);
+            float bias = sample(curveX, curveY, curveCount, curveBlendStart)
+                    - sample(pathX, pathY, pathCount, curveBlendStart);
             float curveYv = sample(curveX, curveY, curveCount, x) - bias;
             y = y * (1f - w) + curveYv * w;
         }

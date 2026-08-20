@@ -86,6 +86,38 @@ def _lead(radar_state, name):
   }
 
 
+def final_lateral_path(lateral_plan, model, time_indices, limit=33):
+  """Build the exact MPC lateral path using the planner's sampling axis.
+
+  LateralPlanner publishes dPathPoints at v_plan[0] * T_IDXS. Keep model Z at
+  the same time index so the S9 renderer retains the original road elevation.
+  """
+  if not bool(_field(lateral_plan, "mpcSolutionValid", False)):
+    return []
+  raw_ys = _field(lateral_plan, "dPathPoints", [])
+  ys = list(raw_ys) if raw_ys is not None else []
+  velocity = _field(model, "velocity")
+  vx = list(_field(velocity, "x", []) or [])
+  vy = list(_field(velocity, "y", []) or [])
+  vz = list(_field(velocity, "z", []) or [])
+  if not ys or not vx:
+    return []
+
+  speed = math.sqrt(_finite_float(vx[0]) ** 2 +
+                    _finite_float(vy[0] if vy else 0.0) ** 2 +
+                    _finite_float(vz[0] if vz else 0.0) ** 2)
+  speed = max(0.3, speed)
+  position = _field(model, "position")
+  zs = list(_field(position, "z", []) or [])
+  count = min(len(ys), len(time_indices), int(limit))
+  if count < 2:
+    return []
+  return [[round(speed * _finite_float(time_indices[i]), 2),
+           round(_finite_float(ys[i]), 2),
+           round(_finite_float(zs[i] if i < len(zs) else 0.0), 2)]
+          for i in range(count)]
+
+
 def extract_hud_scene(model, radar_state, include_debug_counts=False):
   """Extract only geometry that the external HUD actually paints."""
   leads = []

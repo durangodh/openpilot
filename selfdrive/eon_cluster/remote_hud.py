@@ -19,6 +19,7 @@ from common.params import Params
 
 
 from selfdrive.modeld.constants import T_IDXS
+from selfdrive.eon_cluster.scene import final_lateral_path
 
 PORT = 7210
 MAP_PORT = 7211
@@ -617,6 +618,10 @@ def _packet(sm, atc_mode, path_offset=0.0):
     mode = 3
   tpms = _field(car, "tpms", None)
   navi = _read_navi_summary()
+  hud_path = final_lateral_path(sm["lateralPlan"], sm["modelV2"], T_IDXS)
+  path_final = len(hud_path) >= 2
+  if not path_final:
+    hud_path = _line_points(_field(sm["modelV2"], "position", None), with_z=True)
   return {
     "v": 4,
     "t": int(time.time() * 1000),
@@ -659,7 +664,11 @@ def _packet(sm, atc_mode, path_offset=0.0):
       "rr": _finite(_field(tpms, "rr", -1.0), -1.0),
     },
     "atcMode": int(atc_mode),
-    "pathOffset": float(path_offset),
+    # dPathPoints already contains OffsetTotal. Keep the old offset only when
+    # falling back to the raw model path so old and new APKs both avoid adding
+    # it twice.
+    "pathOffset": 0.0 if path_final else float(path_offset),
+    "pathFinal": path_final,
     # 현재 차량 자세 pitch(rad). liveCalibration 의 정적 보정과 달리 주행 중
     # 가감속·요철로 실시간 변한다. 앱은 여기에 게인을 곱해 수평선을 움직인다.
     "pitch": round(_finite(_first(_field(_field(sm["modelV2"], "orientation", None), "y", []))), 4),
@@ -670,7 +679,7 @@ def _packet(sm, atc_mode, path_offset=0.0):
     "laneWidth": round(_finite(_field(sm["lateralPlan"], "laneWidth", 0.0)), 2),
     "alert": _alert(controls),
     "navi": navi,
-    "path": _line_points(_field(sm["modelV2"], "position", None), with_z=True),
+    "path": hud_path,
     "lanes": _model_lines(sm["modelV2"], "laneLines", "laneLineProbs", 0.0),
     "edges": _model_lines(sm["modelV2"], "roadEdges", "roadEdgeStds", 1.0, True),
     "lead": _lead(sm["radarState"], "leadOne"),

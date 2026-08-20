@@ -302,3 +302,14 @@ Catmull-Rom 보간이 실제 곡률을 못 따라간다. 이제 전부 보낸다
 카메라 intrinsics 로 투영하고, 앱은 가상 노면 위에 합성 카메라로 그린다.
 오프셋과 pitch 를 맞추면 "치우쳐 보이는" 문제는 사라지지만 곡선 형상은
 여전히 조금 다르다.
+
+## v0.27 (최종 MPC·ATC 경로 표시)
+
+* EON이 `modelV2.position` 대신 `lateralPlan.dPathPoints`를 전송한다.
+  X축은 lateral planner와 같은 `v_plan[0] * T_IDXS`, Z축은 같은 시간의
+  `modelV2.position.z`를 사용한다.
+* 패킷의 `pathFinal`이 참이면 최종 MPC 경로 유효구간 안에서는 TMAP 원거리
+  곡선을 다시 혼합하지 않는다. ATC 지도 곡률이 HUD에서 이중 적용되지 않는다.
+* 최종 경로에는 `OffsetTotal`이 이미 포함되어 있으므로 이 경우 패킷
+  `pathOffset`은 0으로 보낸다. MPC가 무효이면 기존 모델 경로와 별도 오프셋
+  방식으로 자동 폴백한다.
