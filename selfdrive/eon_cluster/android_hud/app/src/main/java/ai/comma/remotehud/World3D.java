@@ -688,8 +688,12 @@ final class World3D {
         drawMarkings(c, p, s);
         drawTmapLanes(c, p);
         if (highway) {
-            drawGuardrail(c, p, true, roadTop);
-            drawGuardrail(c, p, false, roadTop);
+            if (!hasOsmGuardRail(true)) {
+                drawGuardrail(c, p, true, roadTop);
+            }
+            if (!hasOsmGuardRail(false)) {
+                drawGuardrail(c, p, false, roadTop);
+            }
         }
 
         if (limitPaint && s != null) {
@@ -707,6 +711,11 @@ final class World3D {
             } else {
                 drawBuildings(c, p, odoM, sky);
             }
+        }
+        if (osm != null) {
+            drawOsmBarriers(c, p);
+            drawOsmTrees(c, p);
+            drawOsmLamps(c, p);
         }
         if (bumpPaint && s != null) {
             drawSpeedBump(c, p, (float) s.optDouble("bumpDist", -1d));
@@ -1043,6 +1052,134 @@ final class World3D {
                         x2 - nx, y2 - ny, x1 - nx, y1 - ny);
             }
         }
+    }
+
+    private boolean hasOsmGuardRail(boolean leftSide) {
+        if (osm == null) {
+            return false;
+        }
+        for (int i = 0; i < osm.barrierCount; i++) {
+            if (osm.barrierKind[i] != OsmWorld.BARRIER_GUARD_RAIL) {
+                continue;
+            }
+            float[] xs = osm.barrierX[i];
+            float[] ys = osm.barrierY[i];
+            for (int p = 0; p < xs.length; p++) {
+                if (xs[p] >= 3f && xs[p] <= 160f && (leftSide ? ys[p] > 0f : ys[p] < 0f)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** 실제 OSM 방음벽/가드레일. 방음벽은 높이 태그를 반영한 면, 가드레일은 선으로 단순화. */
+    private void drawOsmBarriers(Canvas c, Paint p) {
+        for (int b = 0; b < osm.barrierCount; b++) {
+            float[] xs = osm.barrierX[b];
+            float[] ys = osm.barrierY[b];
+            float height = osm.barrierH[b];
+            int kind = osm.barrierKind[b];
+            int color = kind == OsmWorld.BARRIER_NOISE_WALL
+                    ? (dark ? Color.rgb(82, 101, 112) : Color.rgb(164, 177, 181))
+                    : (dark ? Color.rgb(154, 164, 176) : Color.rgb(190, 197, 203));
+            for (int i = 0; i < xs.length - 1; i++) {
+                float x1 = xs[i];
+                float y1 = ys[i];
+                float x2 = xs[i + 1];
+                float y2 = ys[i + 1];
+                if (Math.max(x1, x2) < 3f || Math.min(x1, x2) > 190f) {
+                    continue;
+                }
+                p.setShader(null);
+                p.setColor(color);
+                if (kind == OsmWorld.BARRIER_GUARD_RAIL) {
+                    if (!project(x1, y1, height, pa) || !project(x2, y2, height, pb)) {
+                        continue;
+                    }
+                    p.setStyle(Paint.Style.STROKE);
+                    p.setStrokeWidth(Math.max(1.1f, 0.08f * pxPerMeter(Math.min(x1, x2) + CAM_BACK)));
+                    c.drawLine(pa[0], pa[1], pb[0], pb[1], p);
+                    if ((i & 1) == 0 && project(x1, y1, 0f, pc)) {
+                        c.drawLine(pc[0], pc[1], pa[0], pa[1], p);
+                    }
+                } else {
+                    if (!project(x1, y1, 0f, pa) || !project(x2, y2, 0f, pb)
+                            || !project(x2, y2, height, pc) || !project(x1, y1, height, pd)) {
+                        continue;
+                    }
+                    p.setStyle(Paint.Style.FILL);
+                    poly2.rewind();
+                    poly2.moveTo(pa[0], pa[1]);
+                    poly2.lineTo(pb[0], pb[1]);
+                    poly2.lineTo(pc[0], pc[1]);
+                    poly2.lineTo(pd[0], pd[1]);
+                    poly2.close();
+                    c.drawPath(poly2, p);
+                    p.setStyle(Paint.Style.STROKE);
+                    p.setColor(dark ? Color.rgb(113, 137, 149) : Color.rgb(202, 211, 214));
+                    p.setStrokeWidth(Math.max(0.8f, 0.05f * pxPerMeter(Math.min(x1, x2) + CAM_BACK)));
+                    c.drawLine(pd[0], pd[1], pc[0], pc[1], p);
+                }
+            }
+        }
+        p.setAlpha(255);
+        p.setStyle(Paint.Style.FILL);
+    }
+
+    /** 개별 natural=tree 와 tree_row 를 같은 저비용 빌보드 나무로 표시한다. */
+    private void drawOsmTrees(Canvas c, Paint p) {
+        for (int i = 0; i < osm.treeCount; i++) {
+            float x = osm.treeX[i];
+            float y = osm.treeY[i];
+            float height = Math.max(3f, Math.min(35f, osm.treeH[i]));
+            if (x < 2f || x > 150f) {
+                continue;
+            }
+            float trunkTop = height * 0.48f;
+            float crownCenter = height * 0.70f;
+            if (!project(x, y, 0f, pa) || !project(x, y, trunkTop, pb)
+                    || !project(x, y, crownCenter, pc)) {
+                continue;
+            }
+            float fog = Math.max(0f, Math.min(0.72f, (x - 80f) / 100f));
+            p.setShader(null);
+            p.setStyle(Paint.Style.STROKE);
+            p.setColor(blend(dark ? Color.rgb(76, 62, 48) : Color.rgb(112, 84, 58),
+                    dark ? Color.rgb(34, 40, 45) : Color.rgb(208, 214, 216), fog));
+            p.setStrokeWidth(Math.max(1f, 0.12f * pxPerMeter(x + CAM_BACK)));
+            c.drawLine(pa[0], pa[1], pb[0], pb[1], p);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(blend(dark ? Color.rgb(38, 82, 54) : Color.rgb(75, 132, 78),
+                    dark ? Color.rgb(34, 40, 45) : Color.rgb(208, 214, 216), fog));
+            float radius = Math.max(1.5f, Math.min(22f,
+                    height * 0.24f * pxPerMeter(x + CAM_BACK)));
+            c.drawCircle(pc[0], pc[1], radius, p);
+        }
+    }
+
+    /** 근거리 가로등만 표시한다. OSM height 가 없으면 OsmWorld 기본 7m. */
+    private void drawOsmLamps(Canvas c, Paint p) {
+        for (int i = 0; i < osm.lampCount; i++) {
+            float x = osm.lampX[i];
+            float y = osm.lampY[i];
+            float height = Math.max(3f, Math.min(18f, osm.lampH[i]));
+            if (x < 1f || x > 80f || !project(x, y, 0f, pa)
+                    || !project(x, y, height, pb)) {
+                continue;
+            }
+            p.setShader(null);
+            p.setStyle(Paint.Style.STROKE);
+            p.setColor(dark ? Color.rgb(142, 151, 158) : Color.rgb(124, 132, 137));
+            p.setStrokeWidth(Math.max(1f, 0.07f * pxPerMeter(x + CAM_BACK)));
+            c.drawLine(pa[0], pa[1], pb[0], pb[1], p);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(dark ? Color.rgb(255, 220, 126) : Color.rgb(202, 192, 150));
+            float radius = Math.max(1.3f, Math.min(5f, 0.14f * pxPerMeter(x + CAM_BACK)));
+            c.drawCircle(pb[0], pb[1], radius, p);
+        }
+        p.setAlpha(255);
+        p.setStyle(Paint.Style.FILL);
     }
 
     /** OSM 건물: 실제 외곽선을 벽면 단위로 세운다. 카메라를 향한 변만 그리고,
