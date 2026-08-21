@@ -103,6 +103,7 @@ public final class HudService extends Service {
     private static volatile float measuredFps;
     private static volatile int lastJpegBytes;
     private static volatile long lastJpegSentElapsed;
+    private static volatile long lastRenderElapsed;
     private static volatile long lastEonRxElapsed;
     private static volatile String lastEonAddress = "--";
     private static volatile String usbStatus = "미연결 · 1CBE:0092";
@@ -164,6 +165,11 @@ public final class HudService extends Service {
     private ColorMatrixColorFilter wheelGray;
     private Bitmap outFrame;
     private Canvas outCanvas;
+    private Bitmap phoneFrame;
+    private Canvas phoneCanvas;
+    private final Object phoneFrameLock = new Object();
+    private PhoneHudOverlay phoneOverlay;
+    private long nextUsbAttemptElapsed;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Matrix outMatrix = new Matrix();
     private final RectF scratchRect = new RectF();
@@ -243,10 +249,11 @@ public final class HudService extends Service {
     public static StatusSnapshot getStatusSnapshot() {
         long now = SystemClock.elapsedRealtime();
         boolean eonOk = serviceRunning && lastEonRxElapsed > 0 && now - lastEonRxElapsed < 2000;
-        boolean fpsOk = serviceRunning && lastJpegSentElapsed > 0 && now - lastJpegSentElapsed < 2000;
+        boolean fpsOk = serviceRunning && lastRenderElapsed > 0 && now - lastRenderElapsed < 2000;
+        boolean jpegOk = serviceRunning && lastJpegSentElapsed > 0 && now - lastJpegSentElapsed < 2000;
         return new StatusSnapshot(serviceRunning, eonOk, lastEonAddress, serviceRunning && mapConnected,
                 usbStatus, serviceRunning && usbConnected, usbError,
-                fpsOk ? measuredFps : 0.0f, fpsOk ? lastJpegBytes : 0);
+                fpsOk ? measuredFps : 0.0f, jpegOk ? lastJpegBytes : 0);
     }
 
     // ── 라이프사이클 ──────────────────────────────────────────────────────
@@ -269,6 +276,12 @@ public final class HudService extends Service {
             bumpOpts.inScaled = false;
             speedBumpImage = BitmapFactory.decodeResource(getResources(), bumpId, bumpOpts);
         }
+        phoneOverlay = new PhoneHudOverlay(this, new PhoneHudOverlay.FrameDrawer() {
+            @Override
+            public void draw(Canvas canvas, int width, int height) {
+                drawPhoneFrame(canvas, width, height);
+            }
+        });
 
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel(CHANNEL, "EON Remote HUD",
@@ -303,6 +316,9 @@ public final class HudService extends Service {
             return START_STICKY;
         }
         if (running.get()) {
+            if (phoneOverlay != null) {
+                phoneOverlay.start();
+            }
             return START_STICKY;
         }
         running.set(true);
@@ -312,6 +328,7 @@ public final class HudService extends Service {
         usbError = false;
         measuredFps = 0.0f;
         lastJpegBytes = 0;
+        lastRenderElapsed = 0L;
         acquireWakeLock();
 
         boolean fromBoot = intent != null && intent.getBooleanExtra(EXTRA_FROM_BOOT, false);
@@ -334,8 +351,11 @@ public final class HudService extends Service {
             return;
         }
         workersStarted = true;
-        usbStatus = "외부 HUD 검색 중";
+        usbStatus = "휴대폰 HUD 실행 · 외부 USB 검색 중";
         display = new TurzxDisplay(this);
+        if (phoneOverlay != null) {
+            phoneOverlay.start();
+        }
         receiverThread = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -539,133 +559,175 @@ public final class HudService extends Service {
             }
             long due = now + frameIntervalMs;
 
-            boolean wasOpen = display.isOpen();
-            try {
-                if (!display.openOrRequestPermission()) {
-                    usbStatus = display.describeStatus();
-                    usbConnected = false;
-                    usbError = false;
-                    SystemClock.sleep(500L);
-                    nextFrame = due;
-                    continue;
-                }
-
-                if (!wasOpen) {
-                    lastReconnectElapsed = SystemClock.elapsedRealtime();
-                }
-                usbStatus = "연결됨 · USB 권한 허용";
-                usbConnected = true;
-                usbError = false;
-                usbErrorStreak = 0;
-
-                JSONObject currentState = state.get();
-                int requestedFps = Math.max(0, Math.min(15, currentState.optInt("hudFps", 8)));
-                if (requestedFps == 0) {
-                    // 프레임 0 = 일시정지가 아니라 패널 끄기. 검은 프레임 한 장을
-                    // 보내고 밝기를 최소로 내린 뒤 대기한다. v0.19.1 까지는 전송만
-                    // 멈춰서 마지막 화면이 그대로 남아 있었다.
-                    if (configuredFps != 0) {
-                        configuredFps = 0;
-                        sendBlankFrame();
-                        display.setBrightness(1);
-                        appliedBrightness = 1;
-                        lastJpegSentElapsed = SystemClock.elapsedRealtime();
+            JSONObject currentState = state.get();
+            int requestedFps = Math.max(0, Math.min(15, currentState.optInt("hudFps", 8)));
+            if (requestedFps == 0) {
+                if (configuredFps != 0) {
+                    configuredFps = 0;
+                    clearPhoneFrame();
+                    if (phoneOverlay != null) {
+                        phoneOverlay.invalidateFrame();
                     }
-                    usbStatus = "연결됨 · 패널 꺼짐 (프레임 0)";
-                    SystemClock.sleep(250L);
-                    nextFrame = SystemClock.elapsedRealtime();
-                    continue;
+                    if (display.isOpen()) {
+                        try {
+                            sendBlankFrame();
+                            display.setBrightness(1);
+                            appliedBrightness = 1;
+                            lastJpegSentElapsed = SystemClock.elapsedRealtime();
+                        } catch (Exception e) {
+                            handleUsbError(e);
+                        }
+                    }
                 }
-                if (configuredFps == 0) {
-                    appliedBrightness = -1;   // 복귀시 밝기를 다시 적용
-                }
-                if (requestedFps != configuredFps) {
-                    configuredFps = requestedFps;
-                    frameIntervalMs = Math.max(67L, 1000L / configuredFps);
-                }
+                SystemClock.sleep(250L);
+                nextFrame = SystemClock.elapsedRealtime();
+                continue;
+            }
 
-                int requestedMapFps = Math.max(2, Math.min(5, currentState.optInt("hudMapFps", 5)));
-                mapFrameIntervalMs = Math.max(200L, 1000L / requestedMapFps);
-                jpegQuality = Math.max(20, Math.min(95, currentState.optInt("hudJpegQuality", 55)));
-                configuredTheme = Math.max(0, Math.min(2, currentState.optInt("hudTheme", 0)));
-                configuredLanguage = Math.max(0, Math.min(1, currentState.optInt("hudLanguage", 0)));
-                configuredRadarInfo = Math.max(0, Math.min(4, currentState.optInt("hudRadarInfo", 4)));
-                configuredScreenMode = Math.max(1, Math.min(3, currentState.optInt("hudScreenMode", 1)));
-                configuredOrientation = currentState.optInt("hudOrientation", 0) == 2 ? 2 : 0;
-                configuredMirror = currentState.optInt("hudMirror", 0) != 0;
-                configuredBuildings = currentState.optInt("hudBuildings", 1) != 0;
-                configuredBsdStyle = Math.max(1, Math.min(3, currentState.optInt("hudBsdStyle", 2)));
-                configuredCarStyle = currentState.optInt("hudCarStyle", 1) == 2 ? 2 : 1;
-                configuredRoadSigns = Math.max(0, Math.min(3, currentState.optInt("hudRoadSigns", 3)));
-                configuredOutputMode = Math.max(1, Math.min(3, currentState.optInt("hudOutputMode", 1)));
-
-                int requestedBrightness = Math.max(0, Math.min(100, currentState.optInt("hudBrightness", 65)));
-                if (requestedBrightness == 0) {
-                    requestedBrightness = darkTheme() ? 35 : 65;
-                }
-                if (requestedBrightness != appliedBrightness) {
-                    display.setBrightness(requestedBrightness);
-                    appliedBrightness = requestedBrightness;
-                }
-
-                updateTrip(currentState, now);
-
-                Bitmap frame;
-                synchronized (assetLock) {
-                    frame = render(currentState, mapFrame.get(), tbtCurrentFrame.get(),
-                            tbtNextFrame.get(), laneFrame.get());
-                }
-
-                jpegOut.reset();
-                frame.compress(Bitmap.CompressFormat.JPEG, jpegQuality, jpegOut);
-                byte[] jpeg = jpegOut.toByteArray();
-                display.sendJpeg(jpeg);
-
-                lastJpegBytes = jpeg.length;
-                lastJpegSentElapsed = SystemClock.elapsedRealtime();
-                frames++;
-                long span = lastJpegSentElapsed - fpsStart;
-                if (span >= 1000L) {
-                    measuredFps = frames * 1000.0f / span;
-                    fpsStart = lastJpegSentElapsed;
-                    frames = 0;
-                }
-
-                // 패널이 응답을 끊었는지 감시. TurzxDisplay 가 IN 엔드포인트에서
-                // 한 번이라도 응답을 본 적이 있을 때만 동작하므로, 원래 조용한
-                // 패널에서 헛되이 리셋하는 일은 없다.
-                if (display.isUnresponsive(15000L)) {
-                    usbStatus = "패널 무응답 · 재초기화";
-                    display.close();
-                    appliedBrightness = -1;
-                    usbErrorStreak++;
-                    SystemClock.sleep(600L);
-                }
-            } catch (Exception e) {
-                usbConnected = false;
-                usbError = true;
-                usbErrorStreak++;
-                display.recoverAfterError();
-                display.close();
+            if (configuredFps == 0) {
                 appliedBrightness = -1;
-                if (usbErrorStreak >= USB_RESET_AFTER_ERRORS) {
-                    usbStatus = "USB 복구 중 · 포트 재연결";
-                    boolean reset = UsbPortReset.resetPort(display.deviceNameOrNull());
-                    display.reset();
-                    if (!reset) {
-                        usbStatus = "USB 오류 · " + e.getMessage() + " (루트 불가)";
+            }
+            if (requestedFps != configuredFps) {
+                configuredFps = requestedFps;
+                frameIntervalMs = Math.max(67L, 1000L / configuredFps);
+            }
+
+            applyFrameConfiguration(currentState);
+            updateTrip(currentState, now);
+
+            boolean usbReady = ensureUsbReady(now);
+            Bitmap usbFrame = null;
+            synchronized (assetLock) {
+                Bitmap map = mapFrame.get();
+                Bitmap tbtCurrent = tbtCurrentFrame.get();
+                Bitmap tbtNext = tbtNextFrame.get();
+                Bitmap lane = laneFrame.get();
+                synchronized (phoneFrameLock) {
+                    renderPhone(currentState, map, tbtCurrent, tbtNext, lane);
+                    if (usbReady) {
+                        usbFrame = renderUsbFromPhone();
                     }
-                    SystemClock.sleep(2500L);
-                } else {
-                    usbStatus = "USB 오류 · " + e.getMessage();
-                    SystemClock.sleep(500L);
                 }
-                if (usbErrorStreak >= USB_SLOWDOWN_AFTER_ERRORS && frameIntervalMs < 250L) {
-                    frameIntervalMs = 250L;
-                }
+            }
+            if (phoneOverlay != null) {
+                phoneOverlay.invalidateFrame();
+            }
+
+            lastRenderElapsed = SystemClock.elapsedRealtime();
+            frames++;
+            long span = lastRenderElapsed - fpsStart;
+            if (span >= 1000L) {
+                measuredFps = frames * 1000.0f / span;
+                fpsStart = lastRenderElapsed;
                 frames = 0;
             }
+
+            if (usbFrame != null) {
+                sendUsbFrame(usbFrame, currentState);
+            }
             nextFrame = due;
+        }
+    }
+
+    private void applyFrameConfiguration(JSONObject currentState) {
+        int requestedMapFps = Math.max(2, Math.min(5, currentState.optInt("hudMapFps", 5)));
+        mapFrameIntervalMs = Math.max(200L, 1000L / requestedMapFps);
+        jpegQuality = Math.max(20, Math.min(95, currentState.optInt("hudJpegQuality", 55)));
+        configuredTheme = Math.max(0, Math.min(2, currentState.optInt("hudTheme", 0)));
+        configuredLanguage = Math.max(0, Math.min(1, currentState.optInt("hudLanguage", 0)));
+        configuredRadarInfo = Math.max(0, Math.min(4, currentState.optInt("hudRadarInfo", 4)));
+        configuredScreenMode = Math.max(1, Math.min(3, currentState.optInt("hudScreenMode", 1)));
+        configuredOrientation = currentState.optInt("hudOrientation", 0) == 2 ? 2 : 0;
+        configuredMirror = currentState.optInt("hudMirror", 0) != 0;
+        configuredBuildings = currentState.optInt("hudBuildings", 1) != 0;
+        configuredBsdStyle = Math.max(1, Math.min(3, currentState.optInt("hudBsdStyle", 2)));
+        configuredCarStyle = currentState.optInt("hudCarStyle", 1) == 2 ? 2 : 1;
+        configuredRoadSigns = Math.max(0, Math.min(3, currentState.optInt("hudRoadSigns", 3)));
+        configuredOutputMode = Math.max(1, Math.min(3, currentState.optInt("hudOutputMode", 1)));
+    }
+
+    private boolean ensureUsbReady(long now) {
+        if (display.isOpen()) {
+            return true;
+        }
+        if (now < nextUsbAttemptElapsed) {
+            return false;
+        }
+        nextUsbAttemptElapsed = now + 1000L;
+        try {
+            if (!display.openOrRequestPermission()) {
+                usbStatus = "휴대폰 HUD 실행 · " + display.describeStatus();
+                usbConnected = false;
+                usbError = false;
+                return false;
+            }
+            lastReconnectElapsed = SystemClock.elapsedRealtime();
+            usbStatus = "휴대폰 HUD + 외부 USB 연결됨";
+            usbConnected = true;
+            usbError = false;
+            usbErrorStreak = 0;
+            return true;
+        } catch (Exception e) {
+            handleUsbError(e);
+            return false;
+        }
+    }
+
+    private void sendUsbFrame(Bitmap frame, JSONObject currentState) {
+        try {
+            int requestedBrightness = Math.max(0,
+                    Math.min(100, currentState.optInt("hudBrightness", 65)));
+            if (requestedBrightness == 0) {
+                requestedBrightness = darkTheme() ? 35 : 65;
+            }
+            if (requestedBrightness != appliedBrightness) {
+                display.setBrightness(requestedBrightness);
+                appliedBrightness = requestedBrightness;
+            }
+
+            jpegOut.reset();
+            frame.compress(Bitmap.CompressFormat.JPEG, jpegQuality, jpegOut);
+            byte[] jpeg = jpegOut.toByteArray();
+            display.sendJpeg(jpeg);
+            lastJpegBytes = jpeg.length;
+            lastJpegSentElapsed = SystemClock.elapsedRealtime();
+            usbConnected = true;
+            usbError = false;
+            usbErrorStreak = 0;
+
+            if (display.isUnresponsive(15000L)) {
+                usbStatus = "패널 무응답 · 재초기화 (휴대폰 HUD 정상)";
+                display.close();
+                appliedBrightness = -1;
+                usbErrorStreak++;
+                nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + 600L;
+            }
+        } catch (Exception e) {
+            handleUsbError(e);
+        }
+    }
+
+    private void handleUsbError(Exception e) {
+        usbConnected = false;
+        usbError = true;
+        usbErrorStreak++;
+        display.recoverAfterError();
+        display.close();
+        appliedBrightness = -1;
+        nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + 500L;
+        if (usbErrorStreak >= USB_RESET_AFTER_ERRORS) {
+            usbStatus = "USB 복구 중 · 휴대폰 HUD는 계속 실행";
+            boolean reset = UsbPortReset.resetPort(display.deviceNameOrNull());
+            display.reset();
+            if (!reset) {
+                usbStatus = "USB 오류 · " + e.getMessage() + " (휴대폰 HUD 정상)";
+            }
+            nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + 2500L;
+        } else {
+            usbStatus = "USB 오류 · " + e.getMessage() + " (휴대폰 HUD 정상)";
+        }
+        if (usbErrorStreak >= USB_SLOWDOWN_AFTER_ERRORS && frameIntervalMs < 250L) {
+            frameIntervalMs = 250L;
         }
     }
 
@@ -675,7 +737,7 @@ public final class HudService extends Service {
      * 세로 방향 출력 버퍼를 한 번만 잡고 계속 재사용한다. 회전/미러는
      * 캔버스 행렬로 처리하므로 v0.18 처럼 회전 복사본을 새로 만들 필요가 없다.
      */
-    private Canvas beginFrame() {
+    private Canvas beginUsbFrame() {
         if (outFrame == null || outFrame.isRecycled()) {
             outFrame = Bitmap.createBitmap(HEIGHT, WIDTH, Bitmap.Config.RGB_565);
             outCanvas = new Canvas(outFrame);
@@ -690,9 +752,43 @@ public final class HudService extends Service {
         return outCanvas;
     }
 
+    /** Phone/nMirror uses the logical landscape frame without TURZX rotation. */
+    private Canvas beginPhoneFrame() {
+        if (phoneFrame == null || phoneFrame.isRecycled()) {
+            phoneFrame = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.RGB_565);
+            phoneCanvas = new Canvas(phoneFrame);
+        }
+        phoneCanvas.setMatrix(null);
+        return phoneCanvas;
+    }
+
+    private void clearPhoneFrame() {
+        synchronized (phoneFrameLock) {
+            Canvas c = beginPhoneFrame();
+            c.drawColor(Color.BLACK);
+        }
+    }
+
+    private void drawPhoneFrame(Canvas canvas, int width, int height) {
+        synchronized (phoneFrameLock) {
+            canvas.drawColor(Color.BLACK);
+            if (phoneFrame == null || phoneFrame.isRecycled() || width <= 0 || height <= 0) {
+                return;
+            }
+            float scale = Math.min(width / (float) WIDTH, height / (float) HEIGHT);
+            float drawWidth = WIDTH * scale;
+            float drawHeight = HEIGHT * scale;
+            float left = (width - drawWidth) * 0.5f;
+            float top = (height - drawHeight) * 0.5f;
+            Paint previewPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+            RectF destination = new RectF(left, top, left + drawWidth, top + drawHeight);
+            canvas.drawBitmap(phoneFrame, null, destination, previewPaint);
+        }
+    }
+
     /** 패널을 끌 때 보내는 검은 프레임 한 장. */
     private void sendBlankFrame() throws Exception {
-        Canvas c = beginFrame();
+        Canvas c = beginUsbFrame();
         c.drawColor(Color.BLACK);
         jpegOut.reset();
         outFrame.compress(Bitmap.CompressFormat.JPEG, 40, jpegOut);
@@ -701,8 +797,20 @@ public final class HudService extends Service {
         lastJpegBytes = jpeg.length;
     }
 
-    private Bitmap render(JSONObject s, Bitmap map, Bitmap tbtCurrent, Bitmap tbtNext, Bitmap lane) {
-        Canvas c = beginFrame();
+    private Bitmap renderUsbFromPhone() {
+        Canvas c = beginUsbFrame();
+        Paint copyPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        c.drawBitmap(phoneFrame, 0f, 0f, copyPaint);
+        return outFrame;
+    }
+
+    private void renderPhone(JSONObject s, Bitmap map, Bitmap tbtCurrent, Bitmap tbtNext, Bitmap lane) {
+        Canvas c = beginPhoneFrame();
+        drawFrame(c, s, map, tbtCurrent, tbtNext, lane);
+    }
+
+    private void drawFrame(Canvas c, JSONObject s, Bitmap map, Bitmap tbtCurrent,
+                           Bitmap tbtNext, Bitmap lane) {
         Paint p = paint;
         p.reset();
         p.setAntiAlias(true);
@@ -730,7 +838,6 @@ public final class HudService extends Service {
             drawMap(c, p, s, map, tbtCurrent, tbtNext, lane);
         }
         applyThemeOverlay(c, p);
-        return outFrame;
     }
 
     private boolean eonStale() {
@@ -2268,6 +2375,10 @@ public final class HudService extends Service {
         usbStatus = "서비스 중지됨";
         measuredFps = 0.0f;
         lastJpegBytes = 0;
+        lastRenderElapsed = 0L;
+        if (phoneOverlay != null) {
+            phoneOverlay.stop();
+        }
         if (display != null) {
             display.close();
         }
@@ -2287,6 +2398,13 @@ public final class HudService extends Service {
             outFrame.recycle();
             outFrame = null;
             outCanvas = null;
+        }
+        synchronized (phoneFrameLock) {
+            if (phoneFrame != null) {
+                phoneFrame.recycle();
+                phoneFrame = null;
+                phoneCanvas = null;
+            }
         }
         synchronized (assetLock) {
             recycleRef(mapFrame);

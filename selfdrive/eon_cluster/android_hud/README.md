@@ -327,3 +327,22 @@ Catmull-Rom 보간이 실제 곡률을 못 따라간다. 이제 전부 보낸다
   다운로드를 제거한다. 인접 타일에 중복 포함된 OSM ID도 프레임에서 한 번만
   렌더한다.
 * 리모트 진단의 OSM 표시는 `타일/건물+환경객체` 형식이다. 예: `3/48+35`.
+
+## v0.29 (S9 화면 HUD + TMAP 전환)
+
+외부 TURZX 패널이 없어도 S9 화면에 HUD를 렌더하고 nMirror가 Android Auto로
+전송할 수 있다. 최초 설치 후 앱 상태 화면에서 **HUD 화면 오버레이 권한**을
+한 번 허용해야 한다.
+
+* 부팅 경로의 30초 지연은 유지한다. TMAP이 먼저 실행된 뒤 포커스를 받지 않는
+  `TYPE_APPLICATION_OVERLAY` HUD가 올라오므로 TMAP task를 다시 실행하거나
+  백그라운드로 밀어내지 않는다.
+* 휴대폰 화면 렌더와 TURZX USB 출력을 분리했다. USB `1cbe:0092`가 없어도
+  UDP 7210 / TCP 7211을 받아 HUD와 원본 TMAP `map_main`을 계속 그린다.
+* 우상단 **TMAP** 버튼은 HUD 프레임과 별도 overlay window다. 누르면 HUD만
+  숨겨 이미 실행 중인 TMAP의 검색·키보드 화면을 드러내고, 남은 **HUD** 버튼을
+  누르면 같은 HUD로 복귀한다.
+* HUD 프레임은 `FLAG_NOT_FOCUSABLE | FLAG_NOT_TOUCHABLE`이므로 TMAP의 수명주기와
+  입력 포커스를 건드리지 않는다. 전환 버튼만 터치를 받는다.
+* 외부 USB 패널을 함께 연결하면 휴대폰 HUD와 USB JPEG 출력이 동시에 동작한다.
+  USB 오류/재검색 중에도 휴대폰 HUD 렌더는 멈추지 않는다.
