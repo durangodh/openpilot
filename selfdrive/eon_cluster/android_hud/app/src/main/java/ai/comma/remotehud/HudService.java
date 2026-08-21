@@ -175,6 +175,7 @@ public final class HudService extends Service {
     private final Paint phonePreviewPaint = new Paint(
             Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
     private final RectF phoneDestination = new RectF();
+    private final RectF phoneViewport = new RectF();
     private HudSwitchOverlay switchOverlay;
     private long nextUsbAttemptElapsed;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -809,10 +810,9 @@ public final class HudService extends Service {
     }
 
     /**
-     * Full-screen Activity가 현재 HUD 프레임을 직접 그린다. 1920x462 원본 비율을
-     * 유지하면서 실제 nMirror View 안에 들어가는 최대 크기로 중앙 정렬한다.
-     * 8인치 16:9 화면의 남는 위아래 영역은 검은 안전 여백이 되므로 글자, 차량,
-     * 원형 계기가 세로로 늘어나거나 bitmap 보간으로 번져 보이지 않는다.
+     * Full-screen Activity가 현재 HUD 프레임을 직접 그린다. 자동 모드는 실제 View,
+     * 수동 모드는 8인치 800x480 또는 9.2인치 1280x720 화면비의 중앙 안전영역을
+     * 사용한다. 어떤 모드에서도 1920x462 원본 비율을 변경하지 않는다.
      */
     static boolean drawFullscreenFrame(Canvas canvas, int width, int height) {
         HudService service = activeInstance;
@@ -824,15 +824,43 @@ public final class HudService extends Service {
                 return false;
             }
             canvas.drawColor(Color.BLACK);
-            float scale = Math.min(width / (float) WIDTH, height / (float) HEIGHT);
+            service.resolvePhoneViewport(width, height,
+                    AppPrefs.getDisplayProfile(service), service.phoneViewport);
+            float scale = Math.min(service.phoneViewport.width() / WIDTH,
+                    service.phoneViewport.height() / HEIGHT);
             int drawWidth = Math.max(1, Math.round(WIDTH * scale));
             int drawHeight = Math.max(1, Math.round(HEIGHT * scale));
-            int left = (width - drawWidth) / 2;
-            int top = (height - drawHeight) / 2;
+            int left = Math.round(service.phoneViewport.left
+                    + (service.phoneViewport.width() - drawWidth) * 0.5f);
+            int top = Math.round(service.phoneViewport.top
+                    + (service.phoneViewport.height() - drawHeight) * 0.5f);
             service.phoneDestination.set(left, top, left + drawWidth, top + drawHeight);
             canvas.drawBitmap(service.phoneFrame, null, service.phoneDestination,
                     service.phonePreviewPaint);
             return true;
+        }
+    }
+
+    private void resolvePhoneViewport(int width, int height, int profile, RectF out) {
+        float targetAspect;
+        if (profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8) {
+            targetAspect = 800.0f / 480.0f;
+        } else if (profile == AppPrefs.DISPLAY_PROFILE_GENESIS_9_2) {
+            targetAspect = 1280.0f / 720.0f;
+        } else {
+            out.set(0f, 0f, width, height);
+            return;
+        }
+
+        float actualAspect = width / (float) height;
+        if (actualAspect > targetAspect) {
+            int viewportWidth = Math.max(1, Math.round(height * targetAspect));
+            int left = (width - viewportWidth) / 2;
+            out.set(left, 0f, left + viewportWidth, height);
+        } else {
+            int viewportHeight = Math.max(1, Math.round(width / targetAspect));
+            int top = (height - viewportHeight) / 2;
+            out.set(0f, top, width, top + viewportHeight);
         }
     }
 

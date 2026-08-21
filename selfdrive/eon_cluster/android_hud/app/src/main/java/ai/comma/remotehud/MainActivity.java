@@ -13,11 +13,14 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 
@@ -41,6 +44,7 @@ public final class MainActivity extends Activity {
     private Switch autoSwitch;
     private TextView autoValue;
     private TextView eonValue;
+    private Spinner displayProfileSpinner;
     private TextView fpsValue;
     private TextView jpegValue;
     private TextView mapValue;
@@ -157,7 +161,7 @@ public final class MainActivity extends Activity {
 
         root.addView(text("EON Remote HUD", 27.0f, Color.WHITE, Typeface.BOLD));
 
-        View subtitle = text("v0.34  ·  8인치 비율 최적화 / 1CBE:0092",
+        View subtitle = text("v0.35  ·  8인치/9.2인치 화면 프로필 / 1CBE:0092",
                 14.0f, Color.rgb(145, 158, 171), Typeface.NORMAL);
         LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -212,6 +216,42 @@ public final class MainActivity extends Activity {
         autoCard.addView(autoRow);
         root.addView(autoCard, cardParams());
 
+        LinearLayout displayCard = card();
+        displayCard.addView(text("순정 내비 화면", 18.0f, Color.WHITE, Typeface.BOLD));
+        TextView displayGuide = text(
+                "자동 감지는 현재 화면 해상도를 사용합니다. nMirror 화면이 맞지 않으면 차량의 순정 모니터 크기를 직접 선택하세요.",
+                14.0f, Color.rgb(190, 200, 210), Typeface.NORMAL);
+        displayGuide.setLineSpacing(0.0f, 1.18f);
+        LinearLayout.LayoutParams displayGuideParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        displayGuideParams.setMargins(0, dp(9), 0, dp(10));
+        displayCard.addView(displayGuide, displayGuideParams);
+
+        displayProfileSpinner = new Spinner(this);
+        String[] profiles = {
+                "자동 감지 (권장)",
+                "제네시스 순정 8인치 · 800×480",
+                "제네시스 순정 9.2인치 · 1280×720"
+        };
+        ArrayAdapter<String> profileAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item, profiles);
+        profileAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        displayProfileSpinner.setAdapter(profileAdapter);
+        displayProfileSpinner.setSelection(AppPrefs.getDisplayProfile(this));
+        displayProfileSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                AppPrefs.setDisplayProfile(MainActivity.this, position);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
+        displayCard.addView(displayProfileSpinner, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(52)));
+        root.addView(displayCard, cardParams());
+
         LinearLayout permissionCard = card();
         permissionCard.addView(text("최초 실행 권한 안내", 18.0f, Color.WHITE, Typeface.BOLD));
         permissionValue = text(
@@ -248,7 +288,7 @@ public final class MainActivity extends Activity {
         root.addView(permissionCard, cardParams());
 
         TextView footer = text(
-                "S9은 HUD 렌더링·화면/USB 출력만 담당하며 차량 제어 명령은 받지 않습니다.",
+                "화면 프로필은 S9/nMirror에만 적용됩니다. 외부 TURZX HUD는 원본 1920×462 출력을 유지합니다.",
                 13.0f, Color.rgb(120, 135, 149), Typeface.NORMAL);
         footer.setGravity(android.view.Gravity.CENTER);
         root.addView(footer);

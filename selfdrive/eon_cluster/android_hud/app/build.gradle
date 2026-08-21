@@ -7,8 +7,8 @@ android {
     applicationId "ai.comma.remotehud"
     minSdk 26
     targetSdk 35
-    versionCode 50
-    versionName "0.34-8inch-aspect-fit"
+    versionCode 51
+    versionName "0.35-genesis-display-profiles"
   }
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_11

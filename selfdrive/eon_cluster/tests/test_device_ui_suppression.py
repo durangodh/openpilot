@@ -123,11 +123,22 @@ def test_s9_tmap_first_switch_uses_button_overlay_and_internal_fullscreen_activi
   assert 'GUIDE_SHOWN = "guide_shown_v33"' in prefs
   assert "HudService.drawFullscreenFrame" in fullscreen
   assert "static boolean drawFullscreenFrame" in service
-  assert "Math.min(width / (float) WIDTH, height / (float) HEIGHT)" in service
+  assert "AppPrefs.getDisplayProfile(service)" in service
+  assert "AppPrefs.DISPLAY_PROFILE_GENESIS_8" in service
+  assert "AppPrefs.DISPLAY_PROFILE_GENESIS_9_2" in service
+  assert "800.0f / 480.0f" in service
+  assert "1280.0f / 720.0f" in service
+  assert "service.phoneViewport.width() / WIDTH" in service
   assert "Math.round(WIDTH * scale)" in service
   assert "Math.round(HEIGHT * scale)" in service
   assert "phoneDestination.set(left, top, left + drawWidth, top + drawHeight)" in service
   assert "new RectF(0f, 0f, width, height)" not in service
+  main = (android / "java" / "ai" / "comma" / "remotehud" /
+          "MainActivity.java").read_text(encoding="utf-8")
+  assert '"자동 감지 (권장)"' in main
+  assert '"제네시스 순정 8인치 · 800×480"' in main
+  assert '"제네시스 순정 9.2인치 · 1280×720"' in main
+  assert "AppPrefs.setDisplayProfile" in main
   assert not (android / "java" / "ai" / "comma" / "remotehud" /
               "PhoneHudOverlay.java").exists()
 
