@@ -310,6 +310,17 @@ class CarrotNaviAtc:
     return values[-1]
 
   @classmethod
+  def map_steering_blend(cls, speed_kph, maximum=0.60,
+                         full_speed_kph=20.0, zero_speed_kph=50.0):
+    """Return a low-speed-only blend for TMAP steering assistance."""
+    maximum = max(0.0, min(1.0, float(maximum)))
+    full_speed_kph = max(0.0, float(full_speed_kph))
+    zero_speed_kph = max(full_speed_kph + 1.0, float(zero_speed_kph))
+    speed_factor = cls._interp(max(0.0, float(speed_kph)),
+                               [full_speed_kph, zero_speed_kph], [1.0, 0.0])
+    return maximum * speed_factor
+
+  @classmethod
   def map_curve_speed_kph(cls, state, v_ego_kph, speed_factor=0.9,
                           lower_limit_kph=30.0, decel=1.2):
     """Calculate carrot-wip-style general-road curve speed from Tmap polyline."""

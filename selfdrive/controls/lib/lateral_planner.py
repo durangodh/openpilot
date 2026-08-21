@@ -23,7 +23,9 @@ LATERAL_ACCEL_COST = 0.0
 LATERAL_JERK_COST = 0.04
 STEERING_RATE_COST = 700.0
 LANE_MODE_BLEND_TIME = 0.6
-ATC_MAP_BLEND_MAX = 0.35
+ATC_MAP_BLEND_MAX = 0.60
+ATC_MAP_BLEND_FULL_SPEED_KPH = 20.0
+ATC_MAP_BLEND_ZERO_SPEED_KPH = 50.0
 ATC_MAP_BLEND_IN_TIME = 0.5
 ATC_MAP_BLEND_OUT_TIME = 0.25
 ATC_MAP_MAX_LAT_ACCEL = 2.0
@@ -208,8 +210,13 @@ class LateralPlanner:
       self.atc_map_path_cache = None
     else:
       speed_kph = self.v_ego * CV.MS_TO_KPH
-      speed_factor = float(np.interp(speed_kph, [25.0, 50.0], [1.0, 0.0]))
-      blend_target = ATC_MAP_BLEND_MAX * speed_factor if fresh_map_path else 0.0
+      # Stronger map assistance is restricted to low speed. Preserve the
+      # existing 50 km/h zero point and all curvature, lateral-acceleration,
+      # driver-cancel, and Panda torque limits.
+      blend_target = CarrotNaviAtc.map_steering_blend(
+        speed_kph, ATC_MAP_BLEND_MAX,
+        ATC_MAP_BLEND_FULL_SPEED_KPH, ATC_MAP_BLEND_ZERO_SPEED_KPH,
+      ) if fresh_map_path else 0.0
       blend_time = ATC_MAP_BLEND_IN_TIME if blend_target > self.atc_map_blend else ATC_MAP_BLEND_OUT_TIME
       blend_step = ATC_MAP_BLEND_MAX * DT_MDL / blend_time
       self.atc_map_blend += float(np.clip(blend_target - self.atc_map_blend, -blend_step, blend_step))

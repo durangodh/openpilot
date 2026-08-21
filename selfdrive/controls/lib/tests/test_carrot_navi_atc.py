@@ -194,6 +194,16 @@ def test_map_curve_speed_calculation_is_cached_at_5hz():
   assert navi.calls == 2
 
 
+def test_map_steering_blend_is_strong_only_at_low_speed():
+  assert CarrotNaviAtc.map_steering_blend(0.0) == 0.60
+  assert CarrotNaviAtc.map_steering_blend(20.0) == 0.60
+  assert math.isclose(CarrotNaviAtc.map_steering_blend(25.0), 0.50)
+  assert math.isclose(CarrotNaviAtc.map_steering_blend(35.0), 0.30)
+  assert math.isclose(CarrotNaviAtc.map_steering_blend(45.0), 0.10)
+  assert CarrotNaviAtc.map_steering_blend(50.0) == 0.0
+  assert CarrotNaviAtc.map_steering_blend(80.0) == 0.0
+
+
 def route_turn_state(left=True):
   lat0, lon0 = 37.5, 127.1
   cos_lat = math.cos(math.radians(lat0))
