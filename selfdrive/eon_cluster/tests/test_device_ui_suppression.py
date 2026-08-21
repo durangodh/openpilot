@@ -41,8 +41,10 @@ def test_image_loading_is_gated_separately_from_json_state():
 
 def test_s9_hud_params_are_exposed_in_settings():
   settings = (UI_DIR / "offroad" / "settings.cc").read_text(encoding="utf-8")
-  assert '"EonClusterHud", "S9 외부 HUD 사용"' in settings
-  assert "EonClusterHudOutputMode" not in settings
+  assert '"EonClusterHud", "S9 HUD 사용"' in settings
+  assert '"EonClusterHudOutputTarget", "HUD 출력 대상"' in settings
+  assert '"1: 외부 HUD / 2: S9 화면 / 3: 동시 출력"' in settings
+  assert '"EonClusterHudOutputMode", "S9 HUD 표시 내용"' in settings
   assert '"EonClusterHudFps", "S9 HUD 프레임"' in settings
   assert '"../assets/offroad/icon_road.png", 0, 15, 1, 0, 10' in settings
   assert '"EonClusterHudMapFps", "S9 HUD 지도 프레임"' in settings
@@ -66,7 +68,21 @@ def test_manager_starts_only_s9_hud_publisher():
   assert "EonClusterHudOutputMode" not in remote
   assert "_migrate_legacy_remote_mode" not in remote
   assert 'params.put_bool(PARAM_ENABLED, True)' not in remote
-  assert '{"EonClusterHudOutputMode", PERSISTENT}' not in params
+  assert '{"EonClusterHudOutputMode", PERSISTENT}' in params
+  assert '{"EonClusterHudOutputTarget", PERSISTENT}' in params
+
+
+def test_s9_output_target_reaches_android_renderer():
+  manager = (ROOT / "selfdrive" / "manager" / "manager.py").read_text(encoding="utf-8")
+  remote = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud_s9.py").read_text(encoding="utf-8")
+  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+             "main" / "java" / "ai" / "comma" / "remotehud" / "HudService.java").read_text(encoding="utf-8")
+
+  assert '("EonClusterHudOutputTarget", "3")' in manager
+  assert 'packet["hudOutputTarget"] = _bounded_int("EonClusterHudOutputTarget", 3, 1, 3)' in remote
+  assert 'currentState.optInt("hudOutputTarget", 3)' in service
+  assert 'return configuredOutputTarget == 1 || configuredOutputTarget == 3;' in service
+  assert 'return configuredOutputTarget == 2 || configuredOutputTarget == 3;' in service
 
 
 def test_uiview_starts_only_s9_hud_publisher():

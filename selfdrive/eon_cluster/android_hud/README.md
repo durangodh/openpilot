@@ -15,14 +15,15 @@ python - <<'PY'
 from common.params import Params
 p = Params()
 p.put_bool("EonClusterHud", True)
-p.put("EonClusterHudOutputMode", "1")  # 0=EON direct, 1=S9 remote
+p.put("EonClusterHudOutputTarget", "2")  # 1=외부 HUD, 2=S9 화면, 3=동시 출력
 PY
 ```
 
 Keep both devices on the same hotspot/Wi-Fi network. UDP port 7210 and TCP port
-7211 must be reachable. To return instantly to the direct EON HUD, keep
-`EonClusterHud` true and set `EonClusterHudOutputMode` to `0`. The same choices
-are exposed as **EON 직접** and **S9 원격** in the EON settings UI.
+7211 must be reachable. `EonClusterHudOutputTarget` selects the physical output:
+external TURZX USB HUD (`1`), the S9 phone overlay (`2`), or both (`3`, default).
+`EonClusterHudOutputMode` separately selects the information shown in the system
+panel and does not select the output device.
 
 ## Rooted Galaxy S9 TMAP sender
 
@@ -213,6 +214,17 @@ PY
 * USB ERR 이 오르면 → 전송 자체가 실패 (허브 전원 / 호스트)
 * PANEL 만 커지면 → 앱은 보내는데 패널이 응답을 끊음
 * LINK 가 자꾸 0 으로 돌아가면 → 재연결을 반복하는 중
+
+## v0.30 (출력 대상 선택)
+
+EON UI에 `EonClusterHudOutputTarget`을 추가했다.
+
+* **1 — 외부 HUD**: TURZX USB 패널만 갱신하고 S9 오버레이를 숨긴다.
+* **2 — S9 화면**: S9 오버레이만 갱신하고 USB 검색·전송을 중단한다.
+* **3 — 동시 출력(기본)**: 외부 HUD와 S9 오버레이를 함께 갱신한다.
+
+출력 대상이 바뀌면 앱 재시작 없이 반영된다. USB 출력이 꺼질 때는 패널에
+검은 프레임을 한 번 전송한 뒤 연결을 닫아 마지막 화면이 남지 않게 한다.
 
 읽기 실패는 전부 `--` 로 떨어지므로 루팅 여부나 SELinux 정책에 상관없이 안전하다.
 

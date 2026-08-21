@@ -142,6 +142,8 @@ public final class HudService extends Service {
     private boolean frameDark = false;
     /** 1: 주행·지도·시스템 / 2: 실시간 디버그 / 3: S9 리모트 */
     private int configuredOutputMode = 1;
+    /** 출력 대상 1: 외부 USB HUD, 2: S9 화면, 3: 동시 출력 */
+    private int configuredOutputTarget = 3;
 
     // S9 자체 상태 (출력모드 3)
     private long lastReconnectElapsed = 0L;
@@ -560,6 +562,8 @@ public final class HudService extends Service {
             long due = now + frameIntervalMs;
 
             JSONObject currentState = state.get();
+            // 출력 대상은 FPS 0(패널 끄기) 상태에서도 즉시 바뀌어야 한다.
+            applyFrameConfiguration(currentState);
             int requestedFps = Math.max(0, Math.min(15, currentState.optInt("hudFps", 8)));
             if (requestedFps == 0) {
                 if (configuredFps != 0) {
@@ -592,10 +596,9 @@ public final class HudService extends Service {
                 frameIntervalMs = Math.max(67L, 1000L / configuredFps);
             }
 
-            applyFrameConfiguration(currentState);
             updateTrip(currentState, now);
 
-            boolean usbReady = ensureUsbReady(now);
+            boolean usbReady = usbOutputEnabled() && ensureUsbReady(now);
             Bitmap usbFrame = null;
             synchronized (assetLock) {
                 Bitmap map = mapFrame.get();
@@ -609,7 +612,7 @@ public final class HudService extends Service {
                     }
                 }
             }
-            if (phoneOverlay != null) {
+            if (phoneOutputEnabled() && phoneOverlay != null) {
                 phoneOverlay.invalidateFrame();
             }
 
@@ -644,6 +647,49 @@ public final class HudService extends Service {
         configuredCarStyle = currentState.optInt("hudCarStyle", 1) == 2 ? 2 : 1;
         configuredRoadSigns = Math.max(0, Math.min(3, currentState.optInt("hudRoadSigns", 3)));
         configuredOutputMode = Math.max(1, Math.min(3, currentState.optInt("hudOutputMode", 1)));
+        int requestedOutputTarget = Math.max(1, Math.min(3,
+                currentState.optInt("hudOutputTarget", 3)));
+        if (requestedOutputTarget != configuredOutputTarget) {
+            configuredOutputTarget = requestedOutputTarget;
+            applyOutputTarget();
+        }
+    }
+
+    private boolean usbOutputEnabled() {
+        return configuredOutputTarget == 1 || configuredOutputTarget == 3;
+    }
+
+    private boolean phoneOutputEnabled() {
+        return configuredOutputTarget == 2 || configuredOutputTarget == 3;
+    }
+
+    /** 출력 대상 변경을 즉시 반영하고, 꺼지는 쪽에는 마지막 영상이 남지 않게 한다. */
+    private void applyOutputTarget() {
+        if (phoneOverlay != null) {
+            if (phoneOutputEnabled()) {
+                phoneOverlay.start();
+            } else {
+                phoneOverlay.stop();
+            }
+        }
+        if (!usbOutputEnabled() && display != null) {
+            if (display.isOpen()) {
+                try {
+                    sendBlankFrame();
+                    display.setBrightness(1);
+                } catch (Exception ignored) {
+                }
+            }
+            display.close();
+            appliedBrightness = -1;
+            usbConnected = false;
+            usbError = false;
+            usbStatus = "외부 HUD 출력 꺼짐 · S9 화면 출력";
+        } else if (usbOutputEnabled()) {
+            nextUsbAttemptElapsed = 0L;
+            usbStatus = phoneOutputEnabled()
+                    ? "동시 출력 · 외부 USB 검색 중" : "외부 HUD 출력 · USB 검색 중";
+        }
     }
 
     private boolean ensureUsbReady(long now) {

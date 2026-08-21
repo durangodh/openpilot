@@ -1083,8 +1083,18 @@
   },
   {
    "group": "S9HUD",
+   "name": "EonClusterHudOutputTarget",
+   "title": "HUD \ucd9c\ub825 \ub300\uc0c1",
+   "descr": "1: \uc678\ubd80 HUD / 2: S9 \ud654\uba74 / 3: \ub3d9\uc2dc \ucd9c\ub825",
+   "min": 1,
+   "max": 3,
+   "default": 3,
+   "unit": 1
+  },
+  {
+   "group": "S9HUD",
    "name": "EonClusterHudOutputMode",
-   "title": "S9 HUD \ucd9c\ub825 \ubaa8\ub4dc",
+   "title": "S9 HUD \ud45c\uc2dc \ub0b4\uc6a9",
    "descr": "1: \uc8fc\ud589 / \uc9c0\ub3c4 / \uc2dc\uc2a4\ud15c   2: \uc2e4\uc2dc\uac04 \ub514\ubc84\uadf8   3: S9 \ub9ac\ubaa8\ud2b8(\ud3f0 \uc0c1\ud0dc\u00b7USB \uc9c4\ub2e8)",
    "min": 1,
    "max": 3,

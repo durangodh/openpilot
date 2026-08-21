@@ -1205,8 +1205,8 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
 
   // ── S9 외부 클러스터 HUD ──────────────────────────────────
   toggleLayout->addWidget(new ParamControl(
-      "EonClusterHud", "S9 외부 HUD 사용",
-      "EON 주행 데이터 전송과 S9의 TURZX USB HUD 출력을 켜거나 끕니다.",
+      "EonClusterHud", "S9 HUD 사용",
+      "EON 주행 데이터를 S9 앱으로 전송합니다. 아래 출력 대상에서 외부 HUD와 S9 화면을 선택할 수 있습니다.",
       "../assets/offroad/icon_road.png", this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudFps", "S9 HUD 프레임", "S9 HUD 렌더링 속도: 0 정지 / 1~15 fps, 기본값 10",
@@ -1221,7 +1221,11 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "EonClusterHudJpegQuality", "S9 HUD 화질", "S9에서 생성하는 HUD JPEG 품질: 20~95",
       "../assets/offroad/icon_road.png", 20, 95, 1, 0, 58, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudOutputMode", "S9 HUD 출력 모드",
+      "EonClusterHudOutputTarget", "HUD 출력 대상",
+      "1: 외부 HUD / 2: S9 화면 / 3: 동시 출력",
+      "../assets/offroad/icon_road.png", 1, 3, 1, 0, 3, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudOutputMode", "S9 HUD 표시 내용",
       "1: 주행 / 지도 / 시스템   2: 실시간 디버그   3: S9 리모트(폰 상태·USB 진단)",
       "../assets/offroad/icon_road.png", 1, 3, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(

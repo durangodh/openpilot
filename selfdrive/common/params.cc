@@ -254,6 +254,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudRoadZ", PERSISTENT},         // 노면 높낮이 배율 % (-300..300, 100=원본)
     {"EonClusterHudPitchDyn", PERSISTENT},      // 주행 중 pitch 반영 % (0..200)
     {"EonClusterHudOutputMode", PERSISTENT},
+    {"EonClusterHudOutputTarget", PERSISTENT}, // 1=외부 USB HUD, 2=S9 화면, 3=동시 출력
     {"EonClusterHudConnected", CLEAR_ON_MANAGER_START},
     {"EonClusterHudHeartbeat", CLEAR_ON_MANAGER_START},
     {"EonClusterHudFps", PERSISTENT},
