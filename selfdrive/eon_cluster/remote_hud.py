@@ -664,9 +664,9 @@ def _packet(sm, atc_mode, path_offset=0.0):
       "rr": _finite(_field(tpms, "rr", -1.0), -1.0),
     },
     "atcMode": int(atc_mode),
-    # dPathPoints already contains OffsetTotal. Keep the old offset only when
-    # falling back to the raw model path so old and new APKs both avoid adding
-    # it twice.
+    # The optimized MPC state follows a reference that already contains
+    # OffsetTotal. Keep the old offset only when falling back to the raw model
+    # path so old and new APKs both avoid adding it twice.
     "pathOffset": 0.0 if path_final else float(path_offset),
     "pathFinal": path_final,
     # 현재 차량 자세 pitch(rad). liveCalibration 의 정적 보정과 달리 주행 중

@@ -284,7 +284,12 @@ class LateralPlanner:
     lateralPlan = plan_send.lateralPlan
     lateralPlan.modelMonoTime = sm.logMonoTime['modelV2']
     lateralPlan.laneWidth = float(self.LP.lane_width)
+    # dPathPoints is the reference passed into the MPC. Publish the optimized
+    # x/y state trajectory separately so visualizers do not mistake the
+    # reference for the path the MPC actually solved.
     lateralPlan.dPathPoints = self.y_pts.tolist()
+    lateralPlan.mpcPathX = self.lat_mpc.x_sol[:, 0].tolist()
+    lateralPlan.mpcPathY = self.lat_mpc.x_sol[:, 1].tolist()
     lateralPlan.psis = self.lat_mpc.x_sol[0:CONTROL_N, 2].tolist()
     lateralPlan.curvatures = (self.lat_mpc.x_sol[0:CONTROL_N, 3] / self.v_ego).tolist()
     lateralPlan.curvatureRates = [float(x / self.v_ego) for x in self.lat_mpc.u_sol[0:CONTROL_N - 1]] + [0.0]

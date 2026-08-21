@@ -7,24 +7,29 @@ def polyline(xs, ys):
   return SimpleNamespace(x=xs, y=ys)
 
 
-def test_final_lateral_path_uses_planner_y_and_model_time_geometry():
-  lateral = SimpleNamespace(mpcSolutionValid=True, dPathPoints=[0.0, 0.5, 2.0])
+def test_final_lateral_path_uses_optimized_mpc_xy_and_model_z():
+  lateral = SimpleNamespace(
+    mpcSolutionValid=True,
+    dPathPoints=[0.0, 9.0, 18.0],
+    mpcPathX=[0.0, 0.9, 3.7],
+    mpcPathY=[0.0, 0.4, 1.8],
+  )
   model = SimpleNamespace(
     position=SimpleNamespace(z=[0.0, 0.1, 0.2]),
-    velocity=SimpleNamespace(x=[10.0], y=[0.0], z=[0.0]),
   )
   assert final_lateral_path(lateral, model, [0.0, 0.1, 0.4]) == [
-    [0.0, 0.0, 0.0], [1.0, 0.5, 0.1], [4.0, 2.0, 0.2],
+    [0.0, 0.0, 0.0], [0.9, 0.4, 0.1], [3.7, 1.8, 0.2],
   ]
 
 
-def test_final_lateral_path_rejects_invalid_mpc_and_missing_velocity():
-  model = SimpleNamespace(position=SimpleNamespace(z=[]),
-                          velocity=SimpleNamespace(x=[], y=[], z=[]))
-  invalid = SimpleNamespace(mpcSolutionValid=False, dPathPoints=[0.0, 1.0])
-  missing_speed = SimpleNamespace(mpcSolutionValid=True, dPathPoints=[0.0, 1.0])
+def test_final_lateral_path_rejects_invalid_or_missing_optimized_mpc_path():
+  model = SimpleNamespace(position=SimpleNamespace(z=[]))
+  invalid = SimpleNamespace(mpcSolutionValid=False,
+                            mpcPathX=[0.0, 1.0], mpcPathY=[0.0, 1.0])
+  missing_solution = SimpleNamespace(mpcSolutionValid=True,
+                                     dPathPoints=[0.0, 1.0])
   assert final_lateral_path(invalid, model, [0.0, 1.0]) == []
-  assert final_lateral_path(missing_speed, model, [0.0, 1.0]) == []
+  assert final_lateral_path(missing_solution, model, [0.0, 1.0]) == []
 
 
 def test_extract_driving_scene_from_model_and_radar():

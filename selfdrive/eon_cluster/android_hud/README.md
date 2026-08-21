@@ -305,9 +305,9 @@ Catmull-Rom 보간이 실제 곡률을 못 따라간다. 이제 전부 보낸다
 
 ## v0.27 (최종 MPC·ATC 경로 표시)
 
-* EON이 `modelV2.position` 대신 `lateralPlan.dPathPoints`를 전송한다.
-  X축은 lateral planner와 같은 `v_plan[0] * T_IDXS`, Z축은 같은 시간의
-  `modelV2.position.z`를 사용한다.
+* EON이 `modelV2.position`이나 MPC 입력 기준값인 `dPathPoints` 대신,
+  `lateralPlan.mpcPathX/mpcPathY`에 발행된 MPC 최적화 상태 경로를 전송한다.
+  Z축은 같은 shooting-node 인덱스의 `modelV2.position.z`를 사용한다.
 * 패킷의 `pathFinal`이 참이면 최종 MPC 경로 유효구간 안에서는 TMAP 원거리
   곡선을 다시 혼합하지 않는다. ATC 지도 곡률이 HUD에서 이중 적용되지 않는다.
 * 최종 경로에는 `OffsetTotal`이 이미 포함되어 있으므로 이 경우 패킷

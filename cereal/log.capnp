@@ -974,6 +974,10 @@ struct LateralPlan @0xe1e9318e2ae8b51e {
   lProb @5 :Float32;
   rProb @7 :Float32;
   dPathPoints @20 :List(Float32);
+  # Optimized MPC state trajectory. dPathPoints remains the reference passed
+  # to the solver; these fields are the x/y states returned by the solver.
+  mpcPathX @43 :List(Float32);
+  mpcPathY @44 :List(Float32);
   dProb @21 :Float32;
   dPathWLinesX @37 :List(Float32);
   dPathWLinesY @38 :List(Float32);
