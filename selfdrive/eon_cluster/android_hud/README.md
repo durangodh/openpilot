@@ -372,3 +372,10 @@ v0.29의 `TYPE_APPLICATION_OVERLAY` 방식과 우상단 TMAP/HUD 버튼을 제�
 * `SYSTEM_ALERT_WINDOW` 권한과 최초 실행 오버레이 권한 안내는 더 이상 필요 없다.
 * 기존 1920x462 논리 프레임은 USB 출력용으로 유지하며, S9 Activity에서는
   nMirror 출력 화면 전체 destination에 맞춰 그린다.
+
+## v0.32 (전체화면 HUD 시작 충돌 수정)
+
+Android 13에서 전체화면 Activity가 콘텐츠 뷰를 만들기 전에 system bar
+controller를 요청해 종료되던 문제를 수정했다. 콘텐츠 뷰를 먼저 연결하고 생성된
+`DecorView`에서 controller를 가져오므로 nMirror에서 EON HUD를 선택해도 시작
+단계에서 종료되지 않는다.

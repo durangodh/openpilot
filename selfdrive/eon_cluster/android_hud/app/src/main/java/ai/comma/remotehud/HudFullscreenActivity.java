@@ -29,10 +29,10 @@ public final class HudFullscreenActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
-        hideSystemUi();
 
         frameView = new HudFrameView();
         setContentView(frameView);
+        hideSystemUi();
         startHudService();
     }
 
@@ -70,15 +70,16 @@ public final class HudFullscreenActivity extends Activity {
     }
 
     private void hideSystemUi() {
+        View decorView = getWindow().getDecorView();
         if (Build.VERSION.SDK_INT >= 30) {
-            WindowInsetsController controller = getWindow().getInsetsController();
+            WindowInsetsController controller = decorView.getWindowInsetsController();
             if (controller != null) {
                 controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
                 controller.setSystemBarsBehavior(
                         WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
             }
         }
-        getWindow().getDecorView().setSystemUiVisibility(
+        decorView.setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                         | View.SYSTEM_UI_FLAG_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION

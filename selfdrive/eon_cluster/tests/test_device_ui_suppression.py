@@ -99,6 +99,10 @@ def test_s9_launcher_uses_fullscreen_activity_without_overlay_permission():
   assert "SYSTEM_ALERT_WINDOW" not in manifest
   assert "SYSTEM_UI_FLAG_IMMERSIVE_STICKY" in fullscreen
   assert "WindowInsets.Type.statusBars()" in fullscreen
+  on_create = fullscreen.split("public void onCreate", 1)[1].split("protected void onResume", 1)[0]
+  assert on_create.index("setContentView(frameView);") < on_create.index("hideSystemUi();")
+  assert "decorView.getWindowInsetsController()" in fullscreen
+  assert "getWindow().getInsetsController()" not in fullscreen
   assert "HudService.drawFullscreenFrame" in fullscreen
   assert "static boolean drawFullscreenFrame" in service
   assert not (android / "java" / "ai" / "comma" / "remotehud" /
