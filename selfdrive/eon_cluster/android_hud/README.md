@@ -379,3 +379,15 @@ Android 13에서 전체화면 Activity가 콘텐츠 뷰를 만들기 전에 syst
 controller를 요청해 종료되던 문제를 수정했다. 콘텐츠 뷰를 먼저 연결하고 생성된
 `DecorView`에서 controller를 가져오므로 nMirror에서 EON HUD를 선택해도 시작
 단계에서 종료되지 않는다.
+
+## v0.33 (TMAP 우선 HUD/TMAP 전환)
+
+S9 부팅 후 nMirror가 기존처럼 TMAP을 먼저 실행한다. HUD 앱을 nMirror 앱 목록에서
+직접 여는 대신 TMAP 위에 작은 **HUD** 전환 버튼만 표시한다.
+
+* **HUD**를 누르면 독립 Activity가 HUD를 전체화면으로 표시한다.
+* HUD 위의 **TMAP** 버튼을 누르면 HUD task를 닫아 이미 실행 중이던 TMAP으로
+  돌아간다. TMAP 패키지를 다시 실행하지 않으므로 안내와 경로가 유지된다.
+* `TYPE_APPLICATION_OVERLAY`는 작은 전환 버튼에만 사용한다. HUD 영상 자체는
+  overlay가 아니며, 버튼 이외 영역은 TMAP 터치를 가로채지 않는다.
+* 최초 한 번 앱 설정 화면에서 **HUD 전환 버튼 오버레이 권한**을 허용해야 한다.

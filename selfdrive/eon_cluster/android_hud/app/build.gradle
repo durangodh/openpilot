@@ -7,8 +7,8 @@ android {
     applicationId "ai.comma.remotehud"
     minSdk 26
     targetSdk 35
-    versionCode 48
-    versionName "0.32-fullscreen-startup-fix"
+    versionCode 49
+    versionName "0.33-tmap-first-switch"
   }
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_11

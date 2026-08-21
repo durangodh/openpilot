@@ -14,18 +14,26 @@ import android.view.WindowInsetsController;
 import android.view.WindowManager;
 
 /**
- * nMirror 앱 목록에서 직접 여는 S9 전용 HUD 화면.
+ * TMAP 위의 전환 버튼에서 여는 S9 전용 HUD 화면.
  *
  * TMAP 위에 overlay window를 얹지 않고 독립 Activity가 화면 전체를 소유한다.
- * TMAP으로 돌아갈 때는 nMirror 왼쪽 앱 목록에서 TMAP을 선택하면 된다.
+ * 영상이 아닌 작은 전환 버튼만 overlay로 유지해 기존 TMAP task로 돌아간다.
  */
 public final class HudFullscreenActivity extends Activity {
+
+    static final String ACTION_SHOW_HUD = "ai.comma.remotehud.SHOW_HUD";
+    static final String ACTION_SHOW_TMAP = "ai.comma.remotehud.SHOW_TMAP";
+
+    private static volatile boolean screenVisible;
 
     private HudFrameView frameView;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (handleScreenAction(getIntent())) {
+            return;
+        }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -37,8 +45,17 @@ public final class HudFullscreenActivity extends Activity {
     }
 
     @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleScreenAction(intent);
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
+        screenVisible = true;
+        HudService.setHudScreenVisible(true);
         hideSystemUi();
         startHudService();
         if (frameView != null) {
@@ -48,10 +65,33 @@ public final class HudFullscreenActivity extends Activity {
 
     @Override
     protected void onPause() {
+        screenVisible = false;
+        HudService.setHudScreenVisible(false);
         if (frameView != null) {
             frameView.stop();
         }
         super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        screenVisible = false;
+        HudService.setHudScreenVisible(false);
+        super.onDestroy();
+    }
+
+    static boolean isScreenVisible() {
+        return screenVisible;
+    }
+
+    private boolean handleScreenAction(Intent intent) {
+        if (intent != null && ACTION_SHOW_TMAP.equals(intent.getAction())) {
+            screenVisible = false;
+            HudService.setHudScreenVisible(false);
+            finishAndRemoveTask();
+            return true;
+        }
+        return false;
     }
 
     @Override

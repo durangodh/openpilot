@@ -6,7 +6,7 @@ import android.content.SharedPreferences;
 public final class AppPrefs {
     private static final String AUTO_START = "auto_start";
     private static final String FILE = "remote_hud_settings";
-    private static final String GUIDE_SHOWN = "guide_shown_v06";
+    private static final String GUIDE_SHOWN = "guide_shown_v33";
 
     private AppPrefs() {
     }

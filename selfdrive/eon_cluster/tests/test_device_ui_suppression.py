@@ -85,24 +85,42 @@ def test_s9_output_target_reaches_android_renderer():
   assert 'return configuredOutputTarget == 2 || configuredOutputTarget == 3;' in service
 
 
-def test_s9_launcher_uses_fullscreen_activity_without_overlay_permission():
+def test_s9_tmap_first_switch_uses_button_overlay_and_internal_fullscreen_activity():
   android = ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" / "main"
   manifest = (android / "AndroidManifest.xml").read_text(encoding="utf-8")
   fullscreen = (android / "java" / "ai" / "comma" / "remotehud" /
                 "HudFullscreenActivity.java").read_text(encoding="utf-8")
+  switch = (android / "java" / "ai" / "comma" / "remotehud" /
+            "HudSwitchOverlay.java").read_text(encoding="utf-8")
   service = (android / "java" / "ai" / "comma" / "remotehud" /
              "HudService.java").read_text(encoding="utf-8")
+  prefs = (android / "java" / "ai" / "comma" / "remotehud" /
+           "AppPrefs.java").read_text(encoding="utf-8")
 
+  fullscreen_decl = manifest.split('android:name=".HudFullscreenActivity"', 1)[1].split(
+      '<activity', 1)[0]
+  main_decl = manifest.split('android:name=".MainActivity"', 1)[1].split('</activity>', 1)[0]
   assert 'android:name=".HudFullscreenActivity"' in manifest
   assert 'android:label="EON HUD"' in manifest
   assert 'android:screenOrientation="landscape"' in manifest
-  assert "SYSTEM_ALERT_WINDOW" not in manifest
+  assert 'android:exported="false"' in fullscreen_decl
+  assert "android.intent.category.LAUNCHER" not in fullscreen_decl
+  assert "android.intent.category.LAUNCHER" in main_decl
+  assert "SYSTEM_ALERT_WINDOW" in manifest
   assert "SYSTEM_UI_FLAG_IMMERSIVE_STICKY" in fullscreen
   assert "WindowInsets.Type.statusBars()" in fullscreen
   on_create = fullscreen.split("public void onCreate", 1)[1].split("protected void onResume", 1)[0]
   assert on_create.index("setContentView(frameView);") < on_create.index("hideSystemUi();")
   assert "decorView.getWindowInsetsController()" in fullscreen
   assert "getWindow().getInsetsController()" not in fullscreen
+  assert "ACTION_SHOW_TMAP" in fullscreen
+  assert "finishAndRemoveTask();" in fullscreen
+  assert "TYPE_APPLICATION_OVERLAY" in switch
+  assert 'toggleView.setText(hudVisible ? "TMAP" : "HUD")' in switch
+  assert "HudFullscreenActivity.ACTION_SHOW_HUD" in switch
+  assert "HudFullscreenActivity.ACTION_SHOW_TMAP" in switch
+  assert "new HudSwitchOverlay(this)" in service
+  assert 'GUIDE_SHOWN = "guide_shown_v33"' in prefs
   assert "HudService.drawFullscreenFrame" in fullscreen
   assert "static boolean drawFullscreenFrame" in service
   assert not (android / "java" / "ai" / "comma" / "remotehud" /
