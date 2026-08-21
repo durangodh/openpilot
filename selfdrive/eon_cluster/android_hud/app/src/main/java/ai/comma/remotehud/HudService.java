@@ -61,6 +61,8 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class HudService extends Service {
 
+    private static volatile HudService activeInstance;
+
     static final String ACTION_RESCAN_USB = "ai.comma.remotehud.RESCAN_USB";
     static final String EXTRA_FROM_BOOT = "ai.comma.remotehud.FROM_BOOT";
 
@@ -170,7 +172,6 @@ public final class HudService extends Service {
     private Bitmap phoneFrame;
     private Canvas phoneCanvas;
     private final Object phoneFrameLock = new Object();
-    private PhoneHudOverlay phoneOverlay;
     private long nextUsbAttemptElapsed;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Matrix outMatrix = new Matrix();
@@ -263,6 +264,7 @@ public final class HudService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        activeInstance = this;
         egoCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_ego_car);
         otherCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_other_car);
         // 핸들 이미지는 선택 사항이라 R.drawable 을 직접 참조하지 않는다.
@@ -278,13 +280,6 @@ public final class HudService extends Service {
             bumpOpts.inScaled = false;
             speedBumpImage = BitmapFactory.decodeResource(getResources(), bumpId, bumpOpts);
         }
-        phoneOverlay = new PhoneHudOverlay(this, new PhoneHudOverlay.FrameDrawer() {
-            @Override
-            public void draw(Canvas canvas, int width, int height) {
-                drawPhoneFrame(canvas, width, height);
-            }
-        });
-
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel(CHANNEL, "EON Remote HUD",
                 NotificationManager.IMPORTANCE_LOW));
@@ -318,9 +313,6 @@ public final class HudService extends Service {
             return START_STICKY;
         }
         if (running.get()) {
-            if (phoneOverlay != null) {
-                phoneOverlay.start();
-            }
             return START_STICKY;
         }
         running.set(true);
@@ -355,9 +347,6 @@ public final class HudService extends Service {
         workersStarted = true;
         usbStatus = "휴대폰 HUD 실행 · 외부 USB 검색 중";
         display = new TurzxDisplay(this);
-        if (phoneOverlay != null) {
-            phoneOverlay.start();
-        }
         receiverThread = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -569,9 +558,6 @@ public final class HudService extends Service {
                 if (configuredFps != 0) {
                     configuredFps = 0;
                     clearPhoneFrame();
-                    if (phoneOverlay != null) {
-                        phoneOverlay.invalidateFrame();
-                    }
                     if (display.isOpen()) {
                         try {
                             sendBlankFrame();
@@ -612,10 +598,6 @@ public final class HudService extends Service {
                     }
                 }
             }
-            if (phoneOutputEnabled() && phoneOverlay != null) {
-                phoneOverlay.invalidateFrame();
-            }
-
             lastRenderElapsed = SystemClock.elapsedRealtime();
             frames++;
             long span = lastRenderElapsed - fpsStart;
@@ -665,13 +647,6 @@ public final class HudService extends Service {
 
     /** 출력 대상 변경을 즉시 반영하고, 꺼지는 쪽에는 마지막 영상이 남지 않게 한다. */
     private void applyOutputTarget() {
-        if (phoneOverlay != null) {
-            if (phoneOutputEnabled()) {
-                phoneOverlay.start();
-            } else {
-                phoneOverlay.stop();
-            }
-        }
         if (!usbOutputEnabled() && display != null) {
             if (display.isOpen()) {
                 try {
@@ -815,20 +790,24 @@ public final class HudService extends Service {
         }
     }
 
-    private void drawPhoneFrame(Canvas canvas, int width, int height) {
-        synchronized (phoneFrameLock) {
-            canvas.drawColor(Color.BLACK);
-            if (phoneFrame == null || phoneFrame.isRecycled() || width <= 0 || height <= 0) {
-                return;
+    /**
+     * Full-screen Activity가 현재 HUD 프레임을 직접 그린다. 외부 HUD용 1920x462
+     * 논리 프레임을 화면 전체 destination에 맞춰 nMirror의 8인치 화면을 채운다.
+     */
+    static boolean drawFullscreenFrame(Canvas canvas, int width, int height) {
+        HudService service = activeInstance;
+        if (service == null || !service.phoneOutputEnabled() || width <= 0 || height <= 0) {
+            return false;
+        }
+        synchronized (service.phoneFrameLock) {
+            if (service.phoneFrame == null || service.phoneFrame.isRecycled()) {
+                return false;
             }
-            float scale = Math.min(width / (float) WIDTH, height / (float) HEIGHT);
-            float drawWidth = WIDTH * scale;
-            float drawHeight = HEIGHT * scale;
-            float left = (width - drawWidth) * 0.5f;
-            float top = (height - drawHeight) * 0.5f;
+            canvas.drawColor(Color.BLACK);
             Paint previewPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-            RectF destination = new RectF(left, top, left + drawWidth, top + drawHeight);
-            canvas.drawBitmap(phoneFrame, null, destination, previewPaint);
+            RectF destination = new RectF(0f, 0f, width, height);
+            canvas.drawBitmap(service.phoneFrame, null, destination, previewPaint);
+            return true;
         }
     }
 
@@ -2422,8 +2401,8 @@ public final class HudService extends Service {
         measuredFps = 0.0f;
         lastJpegBytes = 0;
         lastRenderElapsed = 0L;
-        if (phoneOverlay != null) {
-            phoneOverlay.stop();
+        if (activeInstance == this) {
+            activeInstance = null;
         }
         if (display != null) {
             display.close();

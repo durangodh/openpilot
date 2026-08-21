@@ -21,7 +21,7 @@ PY
 
 Keep both devices on the same hotspot/Wi-Fi network. UDP port 7210 and TCP port
 7211 must be reachable. `EonClusterHudOutputTarget` selects the physical output:
-external TURZX USB HUD (`1`), the S9 phone overlay (`2`), or both (`3`, default).
+external TURZX USB HUD (`1`), the S9 full-screen Activity (`2`), or both (`3`, default).
 `EonClusterHudOutputMode` separately selects the information shown in the system
 panel and does not select the output device.
 
@@ -219,9 +219,9 @@ PY
 
 EON UI에 `EonClusterHudOutputTarget`을 추가했다.
 
-* **1 — 외부 HUD**: TURZX USB 패널만 갱신하고 S9 오버레이를 숨긴다.
-* **2 — S9 화면**: S9 오버레이만 갱신하고 USB 검색·전송을 중단한다.
-* **3 — 동시 출력(기본)**: 외부 HUD와 S9 오버레이를 함께 갱신한다.
+* **1 — 외부 HUD**: TURZX USB 패널만 갱신하고 S9 전체화면에는 대기 안내를 표시한다.
+* **2 — S9 화면**: S9 전체화면만 갱신하고 USB 검색·전송을 중단한다.
+* **3 — 동시 출력(기본)**: 외부 HUD와 S9 전체화면을 함께 갱신한다.
 
 출력 대상이 바뀌면 앱 재시작 없이 반영된다. USB 출력이 꺼질 때는 패널에
 검은 프레임을 한 번 전송한 뒤 연결을 닫아 마지막 화면이 남지 않게 한다.
@@ -358,3 +358,17 @@ Catmull-Rom 보간이 실제 곡률을 못 따라간다. 이제 전부 보낸다
   입력 포커스를 건드리지 않는다. 전환 버튼만 터치를 받는다.
 * 외부 USB 패널을 함께 연결하면 휴대폰 HUD와 USB JPEG 출력이 동시에 동작한다.
   USB 오류/재검색 중에도 휴대폰 HUD 렌더는 멈추지 않는다.
+
+## v0.31 (nMirror 앱 선택형 전체화면 HUD)
+
+v0.29의 `TYPE_APPLICATION_OVERLAY` 방식과 우상단 TMAP/HUD 버튼을 제거했다.
+
+* 런처 Activity 이름은 **EON HUD**다. nMirror 왼쪽 앱 목록에 EON HUD와
+  TMAP을 각각 추가해 앱 선택으로 전환한다.
+* EON HUD를 선택하면 가로 고정 immersive Activity가 상태바와 내비게이션 바를
+  숨기고 화면 전체를 채운다. TMAP은 HUD 뒤에 겹쳐 보이지 않는다.
+* TMAP을 선택하면 HUD Activity가 백그라운드로 이동하고 TMAP이 전체화면을
+  차지한다. HUD 서비스는 계속 실행돼 UDP/TCP 수신과 USB 출력을 유지한다.
+* `SYSTEM_ALERT_WINDOW` 권한과 최초 실행 오버레이 권한 안내는 더 이상 필요 없다.
+* 기존 1920x462 논리 프레임은 USB 출력용으로 유지하며, S9 Activity에서는
+  nMirror 출력 화면 전체 destination에 맞춰 그린다.

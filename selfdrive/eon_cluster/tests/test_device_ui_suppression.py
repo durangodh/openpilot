@@ -85,6 +85,26 @@ def test_s9_output_target_reaches_android_renderer():
   assert 'return configuredOutputTarget == 2 || configuredOutputTarget == 3;' in service
 
 
+def test_s9_launcher_uses_fullscreen_activity_without_overlay_permission():
+  android = ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" / "main"
+  manifest = (android / "AndroidManifest.xml").read_text(encoding="utf-8")
+  fullscreen = (android / "java" / "ai" / "comma" / "remotehud" /
+                "HudFullscreenActivity.java").read_text(encoding="utf-8")
+  service = (android / "java" / "ai" / "comma" / "remotehud" /
+             "HudService.java").read_text(encoding="utf-8")
+
+  assert 'android:name=".HudFullscreenActivity"' in manifest
+  assert 'android:label="EON HUD"' in manifest
+  assert 'android:screenOrientation="landscape"' in manifest
+  assert "SYSTEM_ALERT_WINDOW" not in manifest
+  assert "SYSTEM_UI_FLAG_IMMERSIVE_STICKY" in fullscreen
+  assert "WindowInsets.Type.statusBars()" in fullscreen
+  assert "HudService.drawFullscreenFrame" in fullscreen
+  assert "static boolean drawFullscreenFrame" in service
+  assert not (android / "java" / "ai" / "comma" / "remotehud" /
+              "PhoneHudOverlay.java").exists()
+
+
 def test_uiview_starts_only_s9_hud_publisher():
   debug_dir = ROOT / "selfdrive" / "debug"
   for script_name in ("uiview.py", "uiview_carrot.py"):
