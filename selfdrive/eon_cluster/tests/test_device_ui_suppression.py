@@ -123,6 +123,11 @@ def test_s9_tmap_first_switch_uses_button_overlay_and_internal_fullscreen_activi
   assert 'GUIDE_SHOWN = "guide_shown_v33"' in prefs
   assert "HudService.drawFullscreenFrame" in fullscreen
   assert "static boolean drawFullscreenFrame" in service
+  assert "Math.min(width / (float) WIDTH, height / (float) HEIGHT)" in service
+  assert "Math.round(WIDTH * scale)" in service
+  assert "Math.round(HEIGHT * scale)" in service
+  assert "phoneDestination.set(left, top, left + drawWidth, top + drawHeight)" in service
+  assert "new RectF(0f, 0f, width, height)" not in service
   assert not (android / "java" / "ai" / "comma" / "remotehud" /
               "PhoneHudOverlay.java").exists()
 
