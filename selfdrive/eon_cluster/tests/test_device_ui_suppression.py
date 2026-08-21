@@ -18,6 +18,17 @@ def test_s9_connection_does_not_hide_eon_driving_ui():
   assert "drawCarrotNavi(p);" in onroad
 
 
+def test_eon_driving_path_matches_valid_mpc_with_model_fallback():
+  ui = (ROOT / "selfdrive" / "ui" / "ui.cc").read_text(encoding="utf-8")
+  assert "getMpcSolutionValid()" in ui
+  assert "getMpcPathX()" in ui
+  assert "getMpcPathY()" in ui
+  assert "const float z = i < static_cast<int>(line_z.size()) ? line_z[i] : 0.0f;" in ui
+  assert 's->sm->alive("lateralPlan") && s->sm->valid("lateralPlan")' in ui
+  assert "!update_mpc_path_data(s, lateral_plan, model_position" in ui
+  assert "update_line_data(s, model_position, path_width" in ui
+
+
 def test_image_loading_is_gated_separately_from_json_state():
   navi = (UI_DIR / "onroad_navi.inc").read_text(encoding="utf-8")
   image_guard = navi.index("if (load_images)")

@@ -108,6 +108,48 @@ static void update_line_data(const UIState *s, const cereal::ModelDataV2::XYZTDa
   assert(pvd->cnt <= std::size(pvd->v));
 }
 
+static bool update_mpc_path_data(const UIState *s, const cereal::LateralPlan::Reader &lateral_plan,
+                                 const cereal::ModelDataV2::XYZTData::Reader &model_position,
+                                 float y_off, float z_off, line_vertices_data *pvd, float max_distance) {
+  if (!lateral_plan.getMpcSolutionValid()) return false;
+
+  const auto line_x = lateral_plan.getMpcPathX();
+  const auto line_y = lateral_plan.getMpcPathY();
+  const auto line_z = model_position.getZ();
+  const int point_count = std::min({static_cast<int>(line_x.size()),
+                                    static_cast<int>(line_y.size()),
+                                    TRAJECTORY_SIZE});
+  if (point_count < 2) return false;
+
+  QPointF left_points[TRAJECTORY_SIZE], right_points[TRAJECTORY_SIZE];
+  int cnt = 0;
+  for (int i = 0; i < point_count; ++i) {
+    const float x = line_x[i];
+    const float y = line_y[i];
+    const float z = i < static_cast<int>(line_z.size()) ? line_z[i] : 0.0f;
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) ||
+        x < 0.0f || x > max_distance) continue;
+
+    QPointF left, right;
+    const bool l = calib_frame_to_full_frame(s, x, y - y_off, z + z_off, &left);
+    const bool r = calib_frame_to_full_frame(s, x, y + y_off, z + z_off, &right);
+    if (l && r) {
+      if (cnt > 0 && left.y() > left_points[cnt - 1].y()) continue;
+      left_points[cnt] = left;
+      right_points[cnt] = right;
+      cnt++;
+    }
+  }
+
+  if (cnt < 2) return false;
+  QPointF *v = &pvd->v[0];
+  for (int i = 0; i < cnt; i++) *v++ = left_points[i];
+  for (int i = cnt - 1; i >= 0; i--) *v++ = right_points[i];
+  pvd->cnt = v - pvd->v;
+  assert(pvd->cnt <= std::size(pvd->v));
+  return true;
+}
+
 static void update_model(UIState *s, const cereal::ModelDataV2::Reader &model) {
   UIScene &scene = s->scene;
   auto model_position = model.getPosition();
@@ -150,8 +192,17 @@ static void update_model(UIState *s, const cereal::ModelDataV2::Reader &model) {
   if (lead_one.getStatus()) {
     max_distance = std::clamp((float)lead_one.getDRel(), 0.0f, max_distance);
   }
-  max_idx = get_path_length_idx(model_position, max_distance);
-  update_line_data(s, model_position, path_width, 1.22, 1.22, &scene.track_vertices, max_idx, false);
+  // Match the EON path to the optimized trajectory used by lateral control.
+  // Keep model road elevation, and fall back to the original model path until
+  // a complete, valid MPC solution is available.
+  const auto lateral_plan = (*s->sm)["lateralPlan"].getLateralPlan();
+  const bool lateral_plan_available = s->sm->alive("lateralPlan") && s->sm->valid("lateralPlan");
+  if (!lateral_plan_available ||
+      !update_mpc_path_data(s, lateral_plan, model_position, path_width, 1.22,
+                            &scene.track_vertices, max_distance)) {
+    max_idx = get_path_length_idx(model_position, max_distance);
+    update_line_data(s, model_position, path_width, 1.22, 1.22, &scene.track_vertices, max_idx, false);
+  }
 }
 
 static void update_sockets(UIState *s) {
