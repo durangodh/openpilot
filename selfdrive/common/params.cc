@@ -220,6 +220,11 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"StoppingDecelRate", PERSISTENT},
 
     {"DynamicLaneProfile", PERSISTENT},
+    {"MpcPathCost", PERSISTENT},
+    {"MpcLateralMotionCost", PERSISTENT},
+    {"MpcLateralAccelCost", PERSISTENT},
+    {"MpcLateralJerkCost", PERSISTENT},
+    {"SteeringRateCost", PERSISTENT},
     {"LaneChangeEnabled", PERSISTENT},
     {"AutoLaneChangeEnabled", PERSISTENT},
     {"OffsetTotal", PERSISTENT},

@@ -136,6 +136,11 @@ def manager_init() -> None:
     ("CustomSteerRatio", "1650"),
     ("UseLiveSteerRatio", "0"),
     ("SteerActuatorDelay", "25"),
+    ("MpcPathCost", "1000"),          # 1.000, 경로 추종 비용
+    ("MpcLateralMotionCost", "110"), # 0.110, 횡이동 비용
+    ("MpcLateralAccelCost", "0"),    # 0.000, 횡가속 비용
+    ("MpcLateralJerkCost", "40"),    # 0.040, 횡저크 비용
+    ("SteeringRateCost", "550"),  # DH 권장 MPC 조향변화 억제값 (낮을수록 빠른 반응)
     ("LateralTorqueCustom", "0"),
     ("LateralTorqueAccelFactor", "2750"),
     ("LateralTorqueFriction", "80"),

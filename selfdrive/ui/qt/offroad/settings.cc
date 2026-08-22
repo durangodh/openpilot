@@ -1705,6 +1705,37 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "범위: 0 ~ 80  /  기본값: 25 (=0.25초, 차량 정의값)",
       "../assets/offroad/icon_openpilot.png", 0, 80, 1, 0, 25, this));
 
+  list->addItem(new ParamValueControlF("MpcPathCost",
+      "MPC 경로 비용 (x0.001)",
+      "모델 경로를 따라가려는 비용입니다. 값 증가(+): 경로 추종이 강해짐 / 값 감소(-): 움직임이 부드러워짐.\n"
+      "표시값 1000 = 실제 1.000  /  기존 기본값: 1000  /  범위: 100 ~ 5000",
+      "../assets/offroad/icon_openpilot.png", 100, 5000, 50, 0, 1000, this));
+
+  list->addItem(new ParamValueControlF("MpcLateralMotionCost",
+      "MPC 횡이동 비용 (x0.001)",
+      "차량의 좌우 이동 자체를 억제하는 비용입니다. 값 증가(+): 안정적이지만 경로 변화가 느림 / 값 감소(-): 빠르게 이동.\n"
+      "표시값 110 = 실제 0.110  /  기존 기본값: 110  /  범위: 0 ~ 1000",
+      "../assets/offroad/icon_openpilot.png", 0, 1000, 10, 0, 110, this));
+
+  list->addItem(new ParamValueControlF("MpcLateralAccelCost",
+      "MPC 횡가속 비용 (x0.001)",
+      "횡가속을 억제하는 비용입니다. 값 증가(+): 완만한 조향 / 값 감소(-): 경로 변화에 적극 대응.\n"
+      "표시값 0 = 실제 0.000  /  기존 기본값: 0  /  범위: 0 ~ 1000",
+      "../assets/offroad/icon_openpilot.png", 0, 1000, 10, 0, 0, this));
+
+  list->addItem(new ParamValueControlF("MpcLateralJerkCost",
+      "MPC 횡저크 비용 (x0.001)",
+      "횡가속도의 급격한 변화를 억제하는 비용입니다. 값 증가(+): 부드러움 / 값 감소(-): 반응이 빨라짐.\n"
+      "표시값 40 = 실제 0.040  /  기존 기본값: 40  /  범위: 0 ~ 500",
+      "../assets/offroad/icon_openpilot.png", 0, 500, 5, 0, 40, this));
+
+  list->addItem(new ParamValueControlF("SteeringRateCost",
+      "MPC 조향변화 억제",
+      "목표 조향의 급격한 변화를 억제하는 MPC 비용값입니다.\n"
+      "값 감소(-): 차선·경로 변화에 빠르게 반응 / 값 증가(+): 부드럽지만 반응이 느려짐.\n"
+      "제네시스 DH 권장값: 550  /  기존 고정값: 700  /  범위: 200 ~ 1200",
+      "../assets/offroad/icon_openpilot.png", 200, 1200, 25, 0, 550, this));
+
   list->addItem(new ParamControl("LateralTorqueCustom",
       "토크custom사용",
       "켜짐: 아래 토크 수동값 적용 / 꺼짐: 차량 정의값 사용.\n"

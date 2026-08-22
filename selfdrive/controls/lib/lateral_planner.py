@@ -17,11 +17,11 @@ LaneChangeState = log.LateralPlan.LaneChangeState
 
 TRAJECTORY_SIZE = 33
 
-PATH_COST = 1.0
-LATERAL_MOTION_COST = 0.11
-LATERAL_ACCEL_COST = 0.0
-LATERAL_JERK_COST = 0.04
-STEERING_RATE_COST = 700.0
+DEFAULT_PATH_COST = 1.0
+DEFAULT_LATERAL_MOTION_COST = 0.11
+DEFAULT_LATERAL_ACCEL_COST = 0.0
+DEFAULT_LATERAL_JERK_COST = 0.04
+DEFAULT_STEERING_RATE_COST = 550.0
 LANE_MODE_BLEND_TIME = 0.6
 ATC_MAP_BLEND_MAX = 0.60
 ATC_MAP_BLEND_FULL_SPEED_KPH = 20.0
@@ -83,7 +83,19 @@ class LateralPlanner:
     self.atc_map_path_cache = None
 
     self.param_read_counter = 0
+    self.path_cost = DEFAULT_PATH_COST
+    self.lateral_motion_cost = DEFAULT_LATERAL_MOTION_COST
+    self.lateral_accel_cost = DEFAULT_LATERAL_ACCEL_COST
+    self.lateral_jerk_cost = DEFAULT_LATERAL_JERK_COST
+    self.steering_rate_cost = DEFAULT_STEERING_RATE_COST
     self.read_param(force=True)
+
+  def _read_mpc_cost(self, key, default, minimum, maximum, scale=1000.0):
+    try:
+      raw = float(self.params.get(key, encoding="utf8") or str(round(default * scale)))
+    except (TypeError, ValueError):
+      raw = default * scale
+    return float(np.clip(raw / scale, minimum, maximum))
 
   def read_param(self, force=False):
     # modelV2 drives this planner at 20 Hz. Params storage only needs a 1 Hz
@@ -95,6 +107,21 @@ class LateralPlanner:
       except (TypeError, ValueError):
         self.dynamic_lane_profile = 0
       self.offset_total = self._read_offset_total()
+      # Store fractional MPC weights as integers scaled by 1000 so the
+      # existing integer Params UI can adjust them without precision loss.
+      self.path_cost = self._read_mpc_cost(
+        "MpcPathCost", DEFAULT_PATH_COST, 0.1, 5.0)
+      self.lateral_motion_cost = self._read_mpc_cost(
+        "MpcLateralMotionCost", DEFAULT_LATERAL_MOTION_COST, 0.0, 1.0)
+      self.lateral_accel_cost = self._read_mpc_cost(
+        "MpcLateralAccelCost", DEFAULT_LATERAL_ACCEL_COST, 0.0, 1.0)
+      self.lateral_jerk_cost = self._read_mpc_cost(
+        "MpcLateralJerkCost", DEFAULT_LATERAL_JERK_COST, 0.0, 0.5)
+      # Very small values can make the DH steering response abrupt, while
+      # values above this range add little stability and noticeably delay
+      # lane/path changes. Keep the live UI setting inside a safe range.
+      self.steering_rate_cost = self._read_mpc_cost(
+        "SteeringRateCost", DEFAULT_STEERING_RATE_COST, 200.0, 1200.0, scale=1.0)
     self.param_read_counter += 1
 
   def _read_offset_total(self):
@@ -160,9 +187,9 @@ class LateralPlanner:
     self.d_path_w_lines_xyz = self.LP.get_d_path(
       self.v_ego, self.t_idxs, self.path_xyz, self.lane_line_blend)
 
-    self.lat_mpc.set_weights(PATH_COST, LATERAL_MOTION_COST,
-                             LATERAL_ACCEL_COST, LATERAL_JERK_COST,
-                             STEERING_RATE_COST)
+    self.lat_mpc.set_weights(self.path_cost, self.lateral_motion_cost,
+                             self.lateral_accel_cost, self.lateral_jerk_cost,
+                             self.steering_rate_cost)
 
     # offset_total 을 최종 결정된 path_xyz 에 적용 (레인모드/레인리스 공통)
     self.path_xyz[:, 1] += self.offset_total
