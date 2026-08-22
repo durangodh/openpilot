@@ -54,12 +54,12 @@ EXTRA = [
          title="LAT ACCEL FACTOR (x1000)",
          descr="횡가속도 대비 토크 계수 x1000. 2700 = 2.70.\n"
                "값 증가(+): 조향이 약해짐 / 값 감소(-): 조향이 강해짐. 범위 500~4500.",
-         min=500, max=4500, step=50, default=2500),
+         min=500, max=4500, step=1, default=2747),
     dict(group="VIPPanel", name="LateralTorqueFriction",
          title="FRICTION (x1000)",
          descr="정지마찰 보상값 x1000. 80 = 0.080.\n"
                "값 증가(+): 중앙 부근 반응이 빨라짐 / 너무 크면 직진에서 흔들림. 범위 0~200.",
-         min=0, max=200, step=5, default=80, force=True),   # 0.080 지정
+         min=0, max=200, step=1, default=98, force=True),   # DH 0.098 기준
     dict(group="VIPPanel", name="AdjustLaneOffset",
          title="차선 여유공간 자동보정 (cm)",
          descr="좌우 여유공간이 비대칭일 때 여유 있는 쪽으로 경로 이동. 0=끔, 0~40cm.",

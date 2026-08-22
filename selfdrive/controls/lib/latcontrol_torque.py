@@ -135,12 +135,20 @@ class LatControlTorque(LatControl):
 
     if custom > 0:
       # 수동 토크값(설정 화면)만 사용한다. 자동 학습 경로는 제거되었다.
-      self.torque_params.latAccelFactor = self._pget("LateralTorqueAccelFactor", 2500) * 0.001
-      self.torque_params.friction = self._pget("LateralTorqueFriction", 10) * 0.001
-      self.pid._k_p = [[0], [self._pget("LateralTorqueKpV", 70) * 0.01]]
-      self.pid._k_i = [[0], [self._pget("LateralTorqueKiV", 20) * 0.01]]
-      self.pid.k_f = self._pget("LateralTorqueKf", 85) * 0.01
-      self.pid._k_d = [[0], [self._pget("LateralTorqueKd", 0) * 0.01]]
+      # Missing Params must preserve the active vehicle tune. Hard-coded
+      # generic fallbacks made Custom mode jump away from the Genesis DH tune.
+      self.torque_params.latAccelFactor = self._pget(
+        "LateralTorqueAccelFactor", round(self.latAccelFactor_default * 1000.0)) * 0.001
+      self.torque_params.friction = self._pget(
+        "LateralTorqueFriction", round(self.friction_default * 1000.0)) * 0.001
+      self.pid._k_p = [[0], [self._pget(
+        "LateralTorqueKpV", round(self.kp_default * 100.0)) * 0.01]]
+      self.pid._k_i = [[0], [self._pget(
+        "LateralTorqueKiV", round(self.ki_default * 100.0)) * 0.01]]
+      self.pid.k_f = self._pget(
+        "LateralTorqueKf", round(self.kf_default * 100.0)) * 0.01
+      self.pid._k_d = [[0], [self._pget(
+        "LateralTorqueKd", round(self.kd_default * 100.0)) * 0.01]]
     elif prev_custom > 0 or force:
       self.torque_params.latAccelFactor = self.latAccelFactor_default
       self.torque_params.friction = self.friction_default

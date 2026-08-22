@@ -186,6 +186,9 @@ class LateralPlanner:
                                       -max_blend_step, max_blend_step)
     self.d_path_w_lines_xyz = self.LP.get_d_path(
       self.v_ego, self.t_idxs, self.path_xyz, self.lane_line_blend)
+    # Feed the selected lane/model blend into MPC. Previously this result was
+    # only published for display while MPC kept following the raw model path.
+    self.path_xyz = self.d_path_w_lines_xyz.copy()
 
     self.lat_mpc.set_weights(self.path_cost, self.lateral_motion_cost,
                              self.lateral_accel_cost, self.lateral_jerk_cost,

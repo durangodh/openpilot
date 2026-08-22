@@ -128,11 +128,10 @@ def manager_init() -> None:
     # 조향 기본값은 차량 공식값 기준으로 맞춘다 (2026-08-19, 학습 제거 후 정리)
     #  - CustomSteerRatio 1650  = hyundai/interface.py ret.steerRatio 16.5
     #  - SteerActuatorDelay 25  = 동 파일 ret.steerActuatorDelay 0.25s
-    #  - AccelFactor 2750       = torque_data/params.yaml GENESIS 2015-2016 (2.747)
-    #  - Kp/Ki/Kf 100/5/100     = interfaces.py configure_torque_tune 과 동일 (1.0/0.05/1.0)
-    #  - Friction 80            = 공식값은 0.098 이지만 이 포크는 friction 입력에
-    #                             예측 횡저크를 더해 쓰므로(latcontrol_torque) 낮게 잡음
-    # => LateralTorqueCustom 을 켜도 꺼도 거의 같은 조향이 나오는 중립 기준선.
+    #  - AccelFactor 2747       = torque_data/params.yaml GENESIS 2015-2016 (2.7466)
+    #  - Friction 98            = 같은 차량 정의값 (0.09845)
+    #  - Kp/Ki/Kf 100/10/100    = interfaces.py configure_torque_tune (1.0/0.1/1.0)
+    # => 새 설치에서 Custom 을 켜도 차량 정의값과 같은 기준선으로 시작한다.
     ("CustomSteerRatio", "1650"),
     ("UseLiveSteerRatio", "0"),
     ("SteerActuatorDelay", "25"),
@@ -142,10 +141,10 @@ def manager_init() -> None:
     ("MpcLateralJerkCost", "40"),    # 0.040, 횡저크 비용
     ("SteeringRateCost", "550"),  # DH 권장 MPC 조향변화 억제값 (낮을수록 빠른 반응)
     ("LateralTorqueCustom", "0"),
-    ("LateralTorqueAccelFactor", "2750"),
-    ("LateralTorqueFriction", "80"),
+    ("LateralTorqueAccelFactor", "2747"),
+    ("LateralTorqueFriction", "98"),
     ("LateralTorqueKpV", "100"),
-    ("LateralTorqueKiV", "5"),
+    ("LateralTorqueKiV", "10"),
     ("LateralTorqueKf", "100"),
     ("LateralTorqueKd", "0"),
     ("LatAccelFrictionFactor", "70"),
