@@ -153,7 +153,7 @@ public final class MainActivity extends Activity {
 
         root.addView(text("EON Remote HUD", 27.0f, Color.WHITE, Typeface.BOLD));
 
-        View subtitle = text("v0.36  ·  nMirror 즐겨찾기 HUD 전환 / 1CBE:0092",
+        View subtitle = text("v0.37  ·  8인치/9.2인치 네이티브 전체화면 / 1CBE:0092",
                 14.0f, Color.rgb(145, 158, 171), Typeface.NORMAL);
         LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -211,7 +211,7 @@ public final class MainActivity extends Activity {
         LinearLayout displayCard = card();
         displayCard.addView(text("순정 내비 화면", 18.0f, Color.WHITE, Typeface.BOLD));
         TextView displayGuide = text(
-                "자동 감지는 현재 화면 해상도를 사용합니다. nMirror 화면이 맞지 않으면 차량의 순정 모니터 크기를 직접 선택하세요.",
+                "8인치 또는 9.2인치를 선택하면 nMirror 즐겨찾기 영역을 제외한 전용 전체화면 UI가 적용됩니다. 자동 감지는 기존 원본 비율 표시입니다.",
                 14.0f, Color.rgb(190, 200, 210), Typeface.NORMAL);
         displayGuide.setLineSpacing(0.0f, 1.18f);
         LinearLayout.LayoutParams displayGuideParams = new LinearLayout.LayoutParams(
@@ -268,7 +268,7 @@ public final class MainActivity extends Activity {
         root.addView(permissionCard, cardParams());
 
         TextView footer = text(
-                "화면 프로필은 S9/nMirror에만 적용됩니다. 외부 TURZX HUD는 원본 1920×462 출력을 유지합니다.",
+                "화면 프로필은 S9/nMirror에만 적용됩니다. 외부 TURZX HUD는 원본 1920×462 UI를 유지합니다.",
                 13.0f, Color.rgb(120, 135, 149), Typeface.NORMAL);
         footer.setGravity(android.view.Gravity.CENTER);
         root.addView(footer);
@@ -324,7 +324,8 @@ public final class MainActivity extends Activity {
                 .setMessage("1. 알림 권한을 허용합니다.\n\n"
                         + "2. nMirror는 기존처럼 TMAP을 자동 실행합니다.\n\n"
                         + "3. nMirror 즐겨찾기에 ‘HUD 전환’을 추가합니다. 한 번 누르면 HUD, 다시 누르면 기존 TMAP으로 돌아갑니다.\n\n"
-                        + "4. 외부 HUD도 함께 쓰는 경우 USB 창에서 ‘항상 허용’을 선택합니다.\n\n"
+                        + "4. 이 앱에서 순정 8인치 또는 9.2인치를 선택하면 즐겨찾기 영역을 제외한 네이티브 전체화면 UI가 적용됩니다.\n\n"
+                        + "5. 외부 HUD도 함께 쓰는 경우 USB 창에서 ‘항상 허용’을 선택합니다.\n\n"
                         + "EON과 S9은 같은 네트워크에서 UDP 7210 / TCP 7211 통신이 가능해야 합니다.")
                 .setPositiveButton("권한 확인", new DialogInterface.OnClickListener() {
                     @Override

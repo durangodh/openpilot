@@ -80,6 +80,14 @@ public final class HudService extends Service {
     private static final int SYSTEM_LEFT = 1728;
     private static final int SYSTEM_RIGHT = 1920;
 
+    /** nMirror 즐겨찾기 바를 제외한 순정 화면 전용 네이티브 캔버스. */
+    private static final int PHONE_8_WIDTH = 800;
+    private static final int PHONE_8_HEIGHT = 480;
+    private static final int PHONE_8_SIDEBAR = 52;
+    private static final int PHONE_9_WIDTH = 1280;
+    private static final int PHONE_9_HEIGHT = 720;
+    private static final int PHONE_9_SIDEBAR = 80;
+
     /** 속도 숫자 기준선. 예전 KM 라벨이 있던 자리로, 위쪽 RPM 아크 공간용. */
     private static final float SPEED_BASELINE = 118f;
     /** "RPM" / 회전수 숫자를 아크 끝에서 좌우 바깥으로 띄우는 간격. */
@@ -171,11 +179,16 @@ public final class HudService extends Service {
     private Canvas outCanvas;
     private Bitmap phoneFrame;
     private Canvas phoneCanvas;
+    private Bitmap phoneNativeFrame;
+    private Canvas phoneNativeCanvas;
+    private int phoneNativeProfile = AppPrefs.DISPLAY_PROFILE_AUTO;
     private final Object phoneFrameLock = new Object();
     private final Paint phonePreviewPaint = new Paint(
             Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
     private final RectF phoneDestination = new RectF();
     private final RectF phoneViewport = new RectF();
+    private final Rect phoneNativeSource = new Rect();
+    private final Rect phoneNativeDestination = new Rect();
     private long nextUsbAttemptElapsed;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Matrix outMatrix = new Matrix();
@@ -597,6 +610,9 @@ public final class HudService extends Service {
                 Bitmap lane = laneFrame.get();
                 synchronized (phoneFrameLock) {
                     renderPhone(currentState, map, tbtCurrent, tbtNext, lane);
+                    if (phoneOutputEnabled()) {
+                        renderNativePhone(currentState, AppPrefs.getDisplayProfile(this));
+                    }
                     if (usbReady) {
                         usbFrame = renderUsbFromPhone();
                     }
@@ -791,13 +807,16 @@ public final class HudService extends Service {
         synchronized (phoneFrameLock) {
             Canvas c = beginPhoneFrame();
             c.drawColor(Color.BLACK);
+            if (phoneNativeCanvas != null) {
+                phoneNativeCanvas.drawColor(Color.BLACK);
+            }
         }
     }
 
     /**
-     * Full-screen Activity가 현재 HUD 프레임을 직접 그린다. 자동 모드는 실제 View,
-     * 수동 모드는 8인치 800x480 또는 9.2인치 1280x720 화면비의 중앙 안전영역을
-     * 사용한다. 어떤 모드에서도 1920x462 원본 비율을 변경하지 않는다.
+     * 자동 모드는 1920x462 원본을 비율 유지로 표시한다. 8/9.2인치 수동 모드는
+     * 각각의 네이티브 전체화면 프레임을 사용한다. 네이티브 프레임의 왼쪽 안전
+     * 영역은 nMirror 즐겨찾기 바가 덮고, 나머지 영역은 주행·지도·상태 UI가 채운다.
      */
     static boolean drawFullscreenFrame(Canvas canvas, int width, int height) {
         HudService service = activeInstance;
@@ -805,22 +824,29 @@ public final class HudService extends Service {
             return false;
         }
         synchronized (service.phoneFrameLock) {
-            if (service.phoneFrame == null || service.phoneFrame.isRecycled()) {
+            int profile = AppPrefs.getDisplayProfile(service);
+            Bitmap frame = service.phoneFrame;
+            if (profile != AppPrefs.DISPLAY_PROFILE_AUTO
+                    && profile == service.phoneNativeProfile
+                    && service.phoneNativeFrame != null
+                    && !service.phoneNativeFrame.isRecycled()) {
+                frame = service.phoneNativeFrame;
+            }
+            if (frame == null || frame.isRecycled()) {
                 return false;
             }
             canvas.drawColor(Color.BLACK);
-            service.resolvePhoneViewport(width, height,
-                    AppPrefs.getDisplayProfile(service), service.phoneViewport);
-            float scale = Math.min(service.phoneViewport.width() / WIDTH,
-                    service.phoneViewport.height() / HEIGHT);
-            int drawWidth = Math.max(1, Math.round(WIDTH * scale));
-            int drawHeight = Math.max(1, Math.round(HEIGHT * scale));
+            service.resolvePhoneViewport(width, height, profile, service.phoneViewport);
+            float scale = Math.min(service.phoneViewport.width() / frame.getWidth(),
+                    service.phoneViewport.height() / frame.getHeight());
+            int drawWidth = Math.max(1, Math.round(frame.getWidth() * scale));
+            int drawHeight = Math.max(1, Math.round(frame.getHeight() * scale));
             int left = Math.round(service.phoneViewport.left
                     + (service.phoneViewport.width() - drawWidth) * 0.5f);
             int top = Math.round(service.phoneViewport.top
                     + (service.phoneViewport.height() - drawHeight) * 0.5f);
             service.phoneDestination.set(left, top, left + drawWidth, top + drawHeight);
-            canvas.drawBitmap(service.phoneFrame, null, service.phoneDestination,
+            canvas.drawBitmap(frame, null, service.phoneDestination,
                     service.phonePreviewPaint);
             return true;
         }
@@ -829,9 +855,9 @@ public final class HudService extends Service {
     private void resolvePhoneViewport(int width, int height, int profile, RectF out) {
         float targetAspect;
         if (profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8) {
-            targetAspect = 800.0f / 480.0f;
+            targetAspect = PHONE_8_WIDTH / (float) PHONE_8_HEIGHT;
         } else if (profile == AppPrefs.DISPLAY_PROFILE_GENESIS_9_2) {
-            targetAspect = 1280.0f / 720.0f;
+            targetAspect = PHONE_9_WIDTH / (float) PHONE_9_HEIGHT;
         } else {
             out.set(0f, 0f, width, height);
             return;
@@ -862,14 +888,126 @@ public final class HudService extends Service {
 
     private Bitmap renderUsbFromPhone() {
         Canvas c = beginUsbFrame();
-        Paint copyPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
-        c.drawBitmap(phoneFrame, 0f, 0f, copyPaint);
+        c.drawBitmap(phoneFrame, 0f, 0f, phonePreviewPaint);
         return outFrame;
     }
 
     private void renderPhone(JSONObject s, Bitmap map, Bitmap tbtCurrent, Bitmap tbtNext, Bitmap lane) {
         Canvas c = beginPhoneFrame();
         drawFrame(c, s, map, tbtCurrent, tbtNext, lane);
+    }
+
+    private Canvas beginNativePhoneFrame(int profile) {
+        int width = profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8
+                ? PHONE_8_WIDTH : PHONE_9_WIDTH;
+        int height = profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8
+                ? PHONE_8_HEIGHT : PHONE_9_HEIGHT;
+        if (phoneNativeFrame == null || phoneNativeFrame.isRecycled()
+                || phoneNativeFrame.getWidth() != width || phoneNativeFrame.getHeight() != height) {
+            if (phoneNativeFrame != null && !phoneNativeFrame.isRecycled()) {
+                phoneNativeFrame.recycle();
+            }
+            phoneNativeFrame = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565);
+            phoneNativeCanvas = new Canvas(phoneNativeFrame);
+        }
+        phoneNativeCanvas.setMatrix(null);
+        phoneNativeProfile = profile;
+        return phoneNativeCanvas;
+    }
+
+    /**
+     * 1920x462 원본에서 주행/우측 화면을 비율 유지로 꺼내 순정 화면에 재배치한다.
+     * 원본 phoneFrame은 건드리지 않으므로 외부 TURZX는 이전 픽셀 구성을 그대로 쓴다.
+     */
+    private void renderNativePhone(JSONObject s, int profile) {
+        if (profile == AppPrefs.DISPLAY_PROFILE_AUTO || phoneFrame == null || phoneFrame.isRecycled()) {
+            phoneNativeProfile = AppPrefs.DISPLAY_PROFILE_AUTO;
+            return;
+        }
+
+        Canvas c = beginNativePhoneFrame(profile);
+        int width = phoneNativeFrame.getWidth();
+        int height = phoneNativeFrame.getHeight();
+        int sidebar = profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8
+                ? PHONE_8_SIDEBAR : PHONE_9_SIDEBAR;
+        int contentWidth = width - sidebar;
+        int driveHeight = Math.min(height,
+                Math.max(1, Math.round(contentWidth * HEIGHT / (float) DRIVE_RIGHT)));
+
+        c.drawColor(Color.rgb(5, 8, 12));
+        phoneNativeSource.set(0, 0, DRIVE_RIGHT, HEIGHT);
+        phoneNativeDestination.set(sidebar, 0, width, driveHeight);
+        c.drawBitmap(phoneFrame, phoneNativeSource, phoneNativeDestination, phonePreviewPaint);
+
+        drawNativeMapCard(c, profile, sidebar, contentWidth, driveHeight);
+        drawNativeStatusBar(c, s, profile, sidebar, driveHeight, width, height);
+
+        Paint p = paint;
+        p.reset();
+        p.setAntiAlias(true);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8 ? 2f : 3f);
+        p.setColor(Color.rgb(0, 208, 132));
+        c.drawLine(sidebar, 0f, sidebar, height, p);
+    }
+
+    private void drawNativeMapCard(Canvas c, int profile, int sidebar,
+                                   int contentWidth, int driveHeight) {
+        int margin = profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8 ? 12 : 18;
+        int mapWidth = profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8 ? 272 : 432;
+        mapWidth = Math.min(mapWidth, contentWidth - margin * 2);
+        int mapHeight = Math.max(1,
+                Math.round(mapWidth * HEIGHT / (float) (MAP_RIGHT - MAP_LEFT)));
+        int right = phoneNativeFrame.getWidth() - margin;
+        int bottom = driveHeight - margin;
+        int left = Math.max(sidebar + margin, right - mapWidth);
+        int top = Math.max(margin, bottom - mapHeight);
+
+        Paint p = paint;
+        p.reset();
+        p.setAntiAlias(true);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(210, 5, 8, 12));
+        float shadow = profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8 ? 5f : 8f;
+        scratchRect.set(left - shadow, top - shadow, right + shadow, bottom + shadow);
+        c.drawRoundRect(scratchRect, 12f, 12f, p);
+
+        phoneNativeSource.set(MAP_LEFT, 0, MAP_RIGHT, HEIGHT);
+        phoneNativeDestination.set(left, top, right, bottom);
+        c.drawBitmap(phoneFrame, phoneNativeSource, phoneNativeDestination, phonePreviewPaint);
+
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8 ? 2f : 3f);
+        p.setColor(Color.rgb(0, 208, 132));
+        c.drawRoundRect(left, top, right, bottom, 8f, 8f, p);
+    }
+
+    private void drawNativeStatusBar(Canvas c, JSONObject s, int profile, int sidebar,
+                                     int top, int right, int bottom) {
+        Paint p = paint;
+        p.reset();
+        p.setAntiAlias(true);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(8, 13, 19));
+        c.drawRect(sidebar, top, right, bottom, p);
+
+        float scale = profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8 ? 1f : 1.42f;
+        float baseline = top + (bottom - top) * 0.62f;
+        float margin = 18f * scale;
+        String gear = collapse(s.optString("gear", "--"));
+        if (gear.length() == 0) {
+            gear = "--";
+        }
+        text(c, p, gear, sidebar + margin, baseline, 34f * scale,
+                Color.WHITE, Paint.Align.LEFT);
+        text(c, p, profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8
+                        ? "HUD · 8인치" : "HUD · 9.2인치",
+                sidebar + (right - sidebar) * 0.5f, baseline, 21f * scale,
+                Color.rgb(204, 214, 222), Paint.Align.CENTER);
+        text(c, p, eonStale() ? "EON 대기" : "EON 연결",
+                right - margin, baseline, 18f * scale,
+                eonStale() ? Color.rgb(255, 148, 118) : Color.rgb(0, 208, 132),
+                Paint.Align.RIGHT);
     }
 
     private void drawFrame(Canvas c, JSONObject s, Bitmap map, Bitmap tbtCurrent,
@@ -2467,6 +2605,12 @@ public final class HudService extends Service {
                 phoneFrame.recycle();
                 phoneFrame = null;
                 phoneCanvas = null;
+            }
+            if (phoneNativeFrame != null) {
+                phoneNativeFrame.recycle();
+                phoneNativeFrame = null;
+                phoneNativeCanvas = null;
+                phoneNativeProfile = AppPrefs.DISPLAY_PROFILE_AUTO;
             }
         }
         synchronized (assetLock) {

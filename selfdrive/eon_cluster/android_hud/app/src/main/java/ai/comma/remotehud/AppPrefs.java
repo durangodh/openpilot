@@ -11,7 +11,7 @@ public final class AppPrefs {
     private static final String AUTO_START = "auto_start";
     private static final String DISPLAY_PROFILE = "display_profile";
     private static final String FILE = "remote_hud_settings";
-    private static final String GUIDE_SHOWN = "guide_shown_v36";
+    private static final String GUIDE_SHOWN = "guide_shown_v37";
 
     private AppPrefs() {
     }
