@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from selfdrive.controls.lib.desire_helper import DesireHelper
+from selfdrive.controls.lib.desire_helper import DesireHelper, ROAD_EDGE_OPEN_CONFIRM_FRAMES
 
 
 def line(y_values):
@@ -50,3 +50,30 @@ def test_right_current_lane_uses_probability_index_two():
 def test_invalid_model_data_fails_closed():
   assert DesireHelper._road_edge_detected(None, -1)
   assert DesireHelper._road_edge_detected(SimpleNamespace(), 1)
+
+
+def test_weak_outer_line_does_not_block_when_target_lane_space_is_wide_enough():
+  md = model([-5.4] * 8, [5.4] * 8,
+             probs=(0.8, 0.9, 0.9, 0.05), edge_stds=(0.1, 0.9))
+  assert not DesireHelper._road_edge_detected(md, 1)
+
+
+def test_open_geometry_must_remain_stable_for_point_two_seconds():
+  helper = DesireHelper.__new__(DesireHelper)
+  helper.road_edge_open_count = {-1: 0, 1: 0}
+  open_md = model([-5.4] * 8, [5.4] * 8)
+  for _ in range(ROAD_EDGE_OPEN_CONFIRM_FRAMES - 1):
+    assert helper._road_edge_blocked(open_md, 1)
+  assert not helper._road_edge_blocked(open_md, 1)
+
+
+def test_close_edge_blocks_immediately_and_resets_open_confirmation():
+  helper = DesireHelper.__new__(DesireHelper)
+  helper.road_edge_open_count = {-1: 0, 1: 0}
+  open_md = model([-5.4] * 8, [5.4] * 8)
+  close_md = model([-5.4] * 8, [2.5] * 8)
+  for _ in range(ROAD_EDGE_OPEN_CONFIRM_FRAMES):
+    helper._road_edge_blocked(open_md, 1)
+  assert helper.road_edge_open_count[1] == ROAD_EDGE_OPEN_CONFIRM_FRAMES
+  assert helper._road_edge_blocked(close_md, 1)
+  assert helper.road_edge_open_count[1] == 0

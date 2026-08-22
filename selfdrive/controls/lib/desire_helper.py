@@ -7,6 +7,7 @@ from common.params import Params
 from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc, AtcForkLaneChangeController
 
 AUTO_LCA_START_TIME = 1.0
+ROAD_EDGE_OPEN_CONFIRM_FRAMES = max(1, int(round(0.2 / DT_MDL)))
 
 LaneChangeState = log.LateralPlan.LaneChangeState
 LaneChangeDirection = log.LateralPlan.LaneChangeDirection
@@ -67,6 +68,8 @@ class DesireHelper:
     self.lane_change_wait_timer = 0.0
     self.prev_lane_change = False
     self.road_edge = False
+    # Fail closed and require 0.2 s of continuously open geometry per side.
+    self.road_edge_open_count = {-1: 0, 1: 0}
     self.carrot_atc = CarrotNaviAtc()
     self.empty_atc_state = self.carrot_atc.empty_state()
     self.atc_fork_controller = AtcForkLaneChangeController()
@@ -135,9 +138,26 @@ class DesireHelper:
     # Use a strict probability fallback only on the left to avoid crossing it.
     left_centre_line = (direction < 0 and current_lane_prob > 0.5 and
                         outer_lane_prob < 0.1)
-    uncertain_single_lane_edge = edge_confidence < 0.35 and no_outer_lane
+    # A weak outer-line/edge confidence alone must not hide a real adjacent
+    # lane. If model geometry still shows at least 2.5 m and 80% of the current
+    # lane width, treat it as usable space. A true last-lane edge remains close
+    # and continues to fail closed.
+    target_lane_space = edge_gap >= max(2.5, lane_width * 0.8)
+    uncertain_single_lane_edge = (edge_confidence < 0.35 and no_outer_lane and
+                                  not target_lane_space)
 
     return close_physical_edge or c2_single_lane_edge or left_centre_line or uncertain_single_lane_edge
+
+  def _road_edge_blocked(self, model_data, direction):
+    raw_blocked = self._road_edge_detected(model_data, direction)
+    if direction not in (-1, 1):
+      return True
+    if raw_blocked:
+      self.road_edge_open_count[direction] = 0
+      return True
+    self.road_edge_open_count[direction] = min(
+      ROAD_EDGE_OPEN_CONFIRM_FRAMES, self.road_edge_open_count[direction] + 1)
+    return self.road_edge_open_count[direction] < ROAD_EDGE_OPEN_CONFIRM_FRAMES
 
   def _update_atc_turn_completion(self, model_data, carstate, turn_active):
     """Stop re-requesting a turn after the vehicle passes the turn apex."""
@@ -190,6 +210,10 @@ class DesireHelper:
     # Keep the current fork event while steering is configured so a brake
     # press can latch cancellation instead of resetting and re-acquiring it.
     atc_state = self.carrot_atc.update() if atc_available else self.empty_atc_state
+    # Pre-compute both sides every model frame, like carrot-wip SideState.
+    # This prevents a single open frame from releasing a last-lane block.
+    left_road_edge = self._road_edge_blocked(model_data, -1)
+    right_road_edge = self._road_edge_blocked(model_data, 1)
     atc_direction = atc_state['direction'] if atc_steering else 0
     opposite_torque = carstate.steeringPressed and ((atc_direction < 0 and carstate.steeringTorque < 0) or
                                                     (atc_direction > 0 and carstate.steeringTorque > 0))
@@ -212,8 +236,9 @@ class DesireHelper:
     if atc_available:
       side_bsd = ((fork_direction < 0 and carstate.leftBlindspot) or
                   (fork_direction > 0 and carstate.rightBlindspot))
+      fork_road_edge = left_road_edge if fork_direction < 0 else right_road_edge
       fork_lane_open = (fork_direction in (-1, 1) and
-                        not self._road_edge_detected(model_data, fork_direction) and
+                        not fork_road_edge and
                         not side_bsd)
       requested_fork_direction = self.atc_fork_controller.update(
         atc_state, v_ego, fork_lane_open,
@@ -236,7 +261,8 @@ class DesireHelper:
     if direction == atc_fork_direction and atc_fork_direction != 0:
       self.road_edge = not fork_lane_open
     else:
-      self.road_edge = self._road_edge_detected(model_data, direction) if direction else False
+      self.road_edge = ((left_road_edge if direction < 0 else right_road_edge)
+                        if direction else False)
 
     if (not lateral_active) or (self.lane_change_timer > LANE_CHANGE_TIME_MAX) or \
        (not one_blinker) or (not self.lane_change_enabled):
