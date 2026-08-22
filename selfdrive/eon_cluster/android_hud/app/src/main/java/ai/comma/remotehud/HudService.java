@@ -80,13 +80,14 @@ public final class HudService extends Service {
     private static final int SYSTEM_LEFT = 1728;
     private static final int SYSTEM_RIGHT = 1920;
 
-    /** nMirror 즐겨찾기 바를 제외한 순정 화면 전용 네이티브 캔버스. */
+    /** 순정 화면 전용 네이티브 캔버스. nMirror가 앱 바깥에서 즐겨찾기 폭을
+     *  이미 제외하므로 앱 내부에는 추가 여백을 두지 않는다. */
     private static final int PHONE_8_WIDTH = 800;
     private static final int PHONE_8_HEIGHT = 480;
-    private static final int PHONE_8_SIDEBAR = 52;
+    private static final int PHONE_8_SIDEBAR = 0;
     private static final int PHONE_9_WIDTH = 1280;
     private static final int PHONE_9_HEIGHT = 720;
-    private static final int PHONE_9_SIDEBAR = 80;
+    private static final int PHONE_9_SIDEBAR = 0;
 
     /** 속도 숫자 기준선. 예전 KM 라벨이 있던 자리로, 위쪽 RPM 아크 공간용. */
     private static final float SPEED_BASELINE = 118f;
@@ -916,8 +917,10 @@ public final class HudService extends Service {
     }
 
     /**
-     * 1920x462 원본에서 주행/우측 화면을 비율 유지로 꺼내 순정 화면에 재배치한다.
-     * 원본 phoneFrame은 건드리지 않으므로 외부 TURZX는 이전 픽셀 구성을 그대로 쓴다.
+     * 두 번째 실차 사진과 같은 원본 3열 배치(주행/지도/시스템)를 유지한다.
+     * 순정 화면에서는 1920x462 전체를 네이티브 캔버스 높이에 맞춰 확장한다.
+     * nMirror 즐겨찾기 폭은 이미 앱 바깥에서 빠지므로 내부 추가 여백은 0이다.
+     * 원본 phoneFrame은 건드리지 않아 외부 TURZX 출력은 이전 픽셀 그대로다.
      */
     private void renderNativePhone(JSONObject s, int profile) {
         if (profile == AppPrefs.DISPLAY_PROFILE_AUTO || phoneFrame == null || phoneFrame.isRecycled()) {
@@ -928,86 +931,10 @@ public final class HudService extends Service {
         Canvas c = beginNativePhoneFrame(profile);
         int width = phoneNativeFrame.getWidth();
         int height = phoneNativeFrame.getHeight();
-        int sidebar = profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8
-                ? PHONE_8_SIDEBAR : PHONE_9_SIDEBAR;
-        int contentWidth = width - sidebar;
-        int driveHeight = Math.min(height,
-                Math.max(1, Math.round(contentWidth * HEIGHT / (float) DRIVE_RIGHT)));
-
         c.drawColor(Color.rgb(5, 8, 12));
-        phoneNativeSource.set(0, 0, DRIVE_RIGHT, HEIGHT);
-        phoneNativeDestination.set(sidebar, 0, width, driveHeight);
+        phoneNativeSource.set(0, 0, WIDTH, HEIGHT);
+        phoneNativeDestination.set(0, 0, width, height);
         c.drawBitmap(phoneFrame, phoneNativeSource, phoneNativeDestination, phonePreviewPaint);
-
-        drawNativeMapCard(c, profile, sidebar, contentWidth, driveHeight);
-        drawNativeStatusBar(c, s, profile, sidebar, driveHeight, width, height);
-
-        Paint p = paint;
-        p.reset();
-        p.setAntiAlias(true);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8 ? 2f : 3f);
-        p.setColor(Color.rgb(0, 208, 132));
-        c.drawLine(sidebar, 0f, sidebar, height, p);
-    }
-
-    private void drawNativeMapCard(Canvas c, int profile, int sidebar,
-                                   int contentWidth, int driveHeight) {
-        int margin = profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8 ? 12 : 18;
-        int mapWidth = profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8 ? 272 : 432;
-        mapWidth = Math.min(mapWidth, contentWidth - margin * 2);
-        int mapHeight = Math.max(1,
-                Math.round(mapWidth * HEIGHT / (float) (MAP_RIGHT - MAP_LEFT)));
-        int right = phoneNativeFrame.getWidth() - margin;
-        int bottom = driveHeight - margin;
-        int left = Math.max(sidebar + margin, right - mapWidth);
-        int top = Math.max(margin, bottom - mapHeight);
-
-        Paint p = paint;
-        p.reset();
-        p.setAntiAlias(true);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(210, 5, 8, 12));
-        float shadow = profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8 ? 5f : 8f;
-        scratchRect.set(left - shadow, top - shadow, right + shadow, bottom + shadow);
-        c.drawRoundRect(scratchRect, 12f, 12f, p);
-
-        phoneNativeSource.set(MAP_LEFT, 0, MAP_RIGHT, HEIGHT);
-        phoneNativeDestination.set(left, top, right, bottom);
-        c.drawBitmap(phoneFrame, phoneNativeSource, phoneNativeDestination, phonePreviewPaint);
-
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8 ? 2f : 3f);
-        p.setColor(Color.rgb(0, 208, 132));
-        c.drawRoundRect(left, top, right, bottom, 8f, 8f, p);
-    }
-
-    private void drawNativeStatusBar(Canvas c, JSONObject s, int profile, int sidebar,
-                                     int top, int right, int bottom) {
-        Paint p = paint;
-        p.reset();
-        p.setAntiAlias(true);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.rgb(8, 13, 19));
-        c.drawRect(sidebar, top, right, bottom, p);
-
-        float scale = profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8 ? 1f : 1.42f;
-        float baseline = top + (bottom - top) * 0.62f;
-        float margin = 18f * scale;
-        String gear = collapse(s.optString("gear", "--"));
-        if (gear.length() == 0) {
-            gear = "--";
-        }
-        text(c, p, gear, sidebar + margin, baseline, 34f * scale,
-                Color.WHITE, Paint.Align.LEFT);
-        text(c, p, profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8
-                        ? "HUD · 8인치" : "HUD · 9.2인치",
-                sidebar + (right - sidebar) * 0.5f, baseline, 21f * scale,
-                Color.rgb(204, 214, 222), Paint.Align.CENTER);
-        text(c, p, eonStale() ? "EON 대기" : "EON 연결",
-                right - margin, baseline, 18f * scale,
-                eonStale() ? Color.rgb(255, 148, 118) : Color.rgb(0, 208, 132),
-                Paint.Align.RIGHT);
     }
 
     private void drawFrame(Canvas c, JSONObject s, Bitmap map, Bitmap tbtCurrent,

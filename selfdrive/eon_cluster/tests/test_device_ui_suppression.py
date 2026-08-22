@@ -135,19 +135,20 @@ def test_s9_tmap_first_switch_uses_nmirror_favorite_and_internal_fullscreen_acti
   assert "AppPrefs.DISPLAY_PROFILE_GENESIS_9_2" in service
   assert "PHONE_8_WIDTH = 800" in service
   assert "PHONE_8_HEIGHT = 480" in service
-  assert "PHONE_8_SIDEBAR = 52" in service
+  assert "PHONE_8_SIDEBAR = 0" in service
   assert "PHONE_9_WIDTH = 1280" in service
   assert "PHONE_9_HEIGHT = 720" in service
-  assert "PHONE_9_SIDEBAR = 80" in service
+  assert "PHONE_9_SIDEBAR = 0" in service
   assert "renderNativePhone(currentState, AppPrefs.getDisplayProfile(this))" in service
   assert "profile == service.phoneNativeProfile" in service
   assert "service.phoneNativeFrame" in service
   assert "frame.getWidth() * scale" in service
   assert "frame.getHeight() * scale" in service
   assert "phoneDestination.set(left, top, left + drawWidth, top + drawHeight)" in service
-  assert "phoneNativeSource.set(0, 0, DRIVE_RIGHT, HEIGHT)" in service
-  assert "phoneNativeSource.set(MAP_LEFT, 0, MAP_RIGHT, HEIGHT)" in service
-  assert "drawNativeStatusBar" in service
+  assert "phoneNativeSource.set(0, 0, WIDTH, HEIGHT)" in service
+  assert "phoneNativeDestination.set(0, 0, width, height)" in service
+  assert "drawNativeMapCard" not in service
+  assert "drawNativeStatusBar" not in service
   assert "c.drawBitmap(phoneFrame, 0f, 0f, phonePreviewPaint);" in service
   assert "new RectF(0f, 0f, width, height)" not in service
   main = (android / "java" / "ai" / "comma" / "remotehud" /
