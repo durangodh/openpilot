@@ -215,9 +215,9 @@
    "group": "\ud06c\ub8e8\uc988",
    "name": "AutoResumeFromGasSpeedMode",
    "title": "\uc624\ud1a0\ub9ac\uc90c \uc124\uc815\uc18d\ub3c4 \ubaa8\ub4dc",
-   "descr": "0: \ud604\uc7ac \ucc28\ub7c9\uc18d\ub3c4\ub85c \uc7ac\uac1c / 1: \uc774\uc804 \uc124\uc815\uc18d\ub3c4\ub85c \uc7ac\uac1c / 2: \uc55e\ucc28\uac00 \uc788\uc744 \ub54c\ub9cc \uc774\uc804 \uc124\uc815\uc18d\ub3c4\ub85c \uc7ac\uac1c.",
+   "descr": "0: 현재속도 / 1: 이전 설정속도 / 2: 앞차가 있을 때 이전 설정속도 / 3: 정지점 60m 초과·가속 1초 초과 시 이전 설정속도로 재개.",
    "min": 0,
-   "max": 2,
+   "max": 3,
    "default": 0,
    "unit": 1
   },
@@ -245,8 +245,8 @@
    "group": "\ud06c\ub8e8\uc988",
    "name": "CruiseSpeed1",
    "title": "\ud06c\ub8e8\uc988 \uc18d\ub3c4\ud45c 1\ub2e8\uacc4 (km/h)",
-   "descr": "\ubc84\ud2bc \ubaa8\ub4dc 3\uc758 \uc21c\ud658 \uc124\uc815\uc18d\ub3c4\uc785\ub2c8\ub2e4. \uac12 \uc99d\uac00(+): \ud574\ub2f9 \ub2e8\uacc4 \uc18d\ub3c4\uac00 \ub192\uc544\uc9d0 / \uac12 \uac10\uc18c(-): \ud574\ub2f9 \ub2e8\uacc4 \uc18d\ub3c4\uac00 \ub0ae\uc544\uc9d0.",
-   "min": 30,
+   "descr": "버튼 모드 3의 순환 설정속도입니다. 0: 현재 도로 제한속도 사용 / 값 증가(+): 1단계 속도가 높아짐.",
+   "min": 0,
    "max": 145,
    "default": 30,
    "unit": 5

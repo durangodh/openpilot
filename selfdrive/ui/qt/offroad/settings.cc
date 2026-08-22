@@ -1376,17 +1376,17 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "RES/SET 길게누름 판정시간(×0.01초)입니다. 값 증가(+): 더 오래 눌러야 작동 / 값 감소(-): 빠르게 길게누름으로 판정.",
       "../assets/offroad/icon_road.png", 30, 150, 5, 0, 40, this));
 
-  const std::array<std::tuple<const char*, const char*, int>, 5> cruise_speed_table = {{
-    {"CruiseSpeed1", "크루즈 속도표 1단계 (km/h)", 30},
-    {"CruiseSpeed2", "크루즈 속도표 2단계 (km/h)", 50},
-    {"CruiseSpeed3", "크루즈 속도표 3단계 (km/h)", 70},
-    {"CruiseSpeed4", "크루즈 속도표 4단계 (km/h)", 90},
-    {"CruiseSpeed5", "크루즈 속도표 5단계 (km/h)", 110},
+  const std::array<std::tuple<const char*, const char*, int, int>, 5> cruise_speed_table = {{
+    {"CruiseSpeed1", "크루즈 속도표 1단계 (km/h)", 30, 0},
+    {"CruiseSpeed2", "크루즈 속도표 2단계 (km/h)", 50, 30},
+    {"CruiseSpeed3", "크루즈 속도표 3단계 (km/h)", 70, 30},
+    {"CruiseSpeed4", "크루즈 속도표 4단계 (km/h)", 90, 30},
+    {"CruiseSpeed5", "크루즈 속도표 5단계 (km/h)", 110, 30},
   }};
-  for (const auto& [key, title, default_value] : cruise_speed_table) {
+  for (const auto& [key, title, default_value, min_value] : cruise_speed_table) {
     list->addItem(new ParamValueControlF(
-        key, title, "버튼 모드 3의 순환 설정속도입니다. 값 증가(+): 해당 단계 속도가 높아짐 / 값 감소(-): 해당 단계 속도가 낮아짐.",
-        "../assets/offroad/icon_road.png", 30, 145, 5, 0, default_value, this));
+        key, title, "버튼 모드 3의 순환 설정속도입니다. 1단계 값 0: 현재 도로 제한속도 사용 / 값 증가(+): 해당 단계 속도가 높아짐.",
+        "../assets/offroad/icon_road.png", min_value, 145, 5, 0, default_value, this));
   }
 
   list->addItem(new ParamValueControlF(
@@ -1426,8 +1426,8 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamValueControlF(
       "AutoResumeFromGasSpeedMode", "오토리줌 설정속도 모드",
-      "0: 현재 차량속도로 재개 / 1: 이전 설정속도로 재개 / 2: 앞차가 있을 때만 이전 설정속도로 재개.",
-      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
+      "0: 현재속도 / 1: 이전 설정속도 / 2: 앞차가 있을 때 이전 설정속도 / 3: 정지점 60m 초과·가속 1초 초과 시 이전 설정속도로 재개.",
+      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 0, this));
 
   list->addItem(new ParamControl(
       "AutoResumeFromBrakeRelease", "브레이크 해제 오토리줌",
