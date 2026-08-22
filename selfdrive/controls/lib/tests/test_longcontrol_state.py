@@ -14,10 +14,12 @@ def make_cp(openpilot_longitudinal=True):
 
 def transition(cp, state=LongCtrlState.stopping, v_target=0.0,
                v_target_1sec=0.0, brake_pressed=False, cruise_standstill=False,
-               soft_hold=False, starting_state=False):
+               soft_hold=False, starting_state=False,
+               standstill_latched=False, standstill_release=False):
   next_state, _ = long_control_state_trans(
     cp, True, state, 0.0, v_target, v_target_1sec,
     brake_pressed, cruise_standstill, soft_hold, 0.0, starting_state,
+    standstill_latched, standstill_release,
   )
   return next_state
 
@@ -54,3 +56,15 @@ def test_brake_prevents_stale_standstill_override():
 def test_soft_hold_still_overrides_planner_launch():
   assert transition(make_cp(), v_target=0.0, v_target_1sec=0.21,
                     soft_hold=True) == LongCtrlState.stopping
+
+
+
+def test_latched_standstill_ignores_planner_launch_noise():
+  assert transition(make_cp(), v_target=0.0, v_target_1sec=1.0,
+                    starting_state=True, standstill_latched=True) == LongCtrlState.stopping
+
+
+def test_confirmed_standstill_release_enters_starting_ramp():
+  assert transition(make_cp(), v_target=0.0, v_target_1sec=0.0,
+                    starting_state=True, standstill_latched=True,
+                    standstill_release=True) == LongCtrlState.starting

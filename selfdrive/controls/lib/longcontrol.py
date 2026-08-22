@@ -4,13 +4,16 @@ from common.params import Params
 from common.realtime import DT_CTRL
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, apply_deadzone
 from selfdrive.controls.lib.pid import PIDController
+from selfdrive.controls.lib.lead_departure import StandstillHoldController
 from selfdrive.modeld.constants import T_IDXS
 
 LongCtrlState = car.CarControl.Actuators.LongControlState
+ButtonType = car.CarState.ButtonEvent.Type
 
 def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                              v_target_1sec, brake_pressed, cruise_standstill,
-                             soft_hold, a_target_now, starting_state):
+                             soft_hold, a_target_now, starting_state,
+                             standstill_latched=False, standstill_release=False):
   # apilot-c2 stopping transition: keep PID braking while the planned
   # acceleration is still strong, then hand over to the stopping ramp.
   # Match aPilot C2: CarState suppresses the stock SCC standstill flag during
@@ -40,7 +43,7 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
         long_control_state = LongCtrlState.stopping
 
     elif long_control_state == LongCtrlState.stopping:
-      if starting_condition:
+      if starting_condition or standstill_release:
         long_control_state = LongCtrlState.starting if starting_state else LongCtrlState.pid
 
     elif long_control_state == LongCtrlState.starting:
@@ -48,6 +51,11 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
         long_control_state = LongCtrlState.stopping
       elif started_condition:
         long_control_state = LongCtrlState.pid
+
+    # Once fully stopped, one noisy planner frame must never drop SCC StopReq.
+    # Only StandstillHoldController's confirmed release may leave stopping.
+    if standstill_latched and not standstill_release:
+      long_control_state = LongCtrlState.stopping
 
     if soft_hold:
       long_control_state = LongCtrlState.stopping
@@ -72,6 +80,7 @@ class LongControl:
     self.starting_ramp_rate = 2.0
     self.standstill_hold_accel = -1.1
     self.standstill_hold_rate = 1.2
+    self.standstill_hold = StandstillHoldController()
     self._update_pid_gains()
     # Read launch control immediately so StartAccelApply=0 disables the
     # starting state from the first control cycle.
@@ -221,10 +230,33 @@ class LongControl:
     self.pid.pos_limit = accel_limits[1]
 
     prev_long_control_state = self.long_control_state
+    plan_starting = (v_target_1sec > self.CP.vEgoStarting and
+                     v_target_1sec > v_target + 0.01)
+    resume_pressed = any(
+      event.pressed and event.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
+      for event in CS.buttonEvents)
+    lead = radar_state.leadOne if radar_state is not None else None
+    lead_status = bool(getattr(lead, 'status', False))
+    lead_distance = float(getattr(lead, 'dRel', 0.0)) if lead_status else 0.0
+    lead_speed = float(getattr(lead, 'vLeadK', getattr(lead, 'vLead', 0.0))) if lead_status else 0.0
+    standstill_latched, standstill_release = self.standstill_hold.update(
+      active=active,
+      stopping=self.long_control_state == LongCtrlState.stopping,
+      v_ego=CS.vEgo,
+      plan_starting=plan_starting,
+      soft_hold=soft_hold,
+      brake_pressed=CS.brakePressed,
+      gas_pressed=CS.gasPressed,
+      resume_pressed=resume_pressed,
+      lead_status=lead_status,
+      lead_distance=lead_distance,
+      lead_speed=lead_speed,
+      dt=DT_CTRL,
+    )
     self.long_control_state, planned_stop = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
       CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now,
-      self.starting_state)
+      self.starting_state, standstill_latched, standstill_release)
 
     if self.long_control_state == LongCtrlState.starting and prev_long_control_state != LongCtrlState.starting:
       # Begin every launch from zero drive request instead of jumping straight
@@ -249,10 +281,10 @@ class LongControl:
       # Once the car is fully stationary, add a little more brake hold without
       # changing the approach-to-stop feel. This prevents the SCC from slowly
       # releasing and re-applying the brakes on a mild downhill or long stop.
-      if CS.vEgo < 0.05 and not CS.brakePressed:
+      if (standstill_latched or CS.vEgo < 0.05) and not CS.brakePressed:
         # Standstill holding is intentionally independent of StopAccelApply.
-        # This allows a softer stop approach without releasing the brake after
-        # the car has reached a complete stop.
+        # Keep applying it while latched even if the car rolls a few cm, so a
+        # mild downhill cannot lower the request back to the approach value.
         hold_target = self.standstill_hold_accel
         if output_accel > hold_target:
           output_accel = max(hold_target, output_accel - self.standstill_hold_rate * DT_CTRL)
