@@ -183,13 +183,15 @@ public final class HudService extends Service {
     private Bitmap phoneNativeFrame;
     private Canvas phoneNativeCanvas;
     private int phoneNativeProfile = AppPrefs.DISPLAY_PROFILE_AUTO;
+    private boolean nativeLayoutRendering = false;
+    private float nativeScaleX = 1f;
+    private float nativeScaleY = 1f;
+    private float nativeWidgetScale = 1f;
     private final Object phoneFrameLock = new Object();
     private final Paint phonePreviewPaint = new Paint(
             Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
     private final RectF phoneDestination = new RectF();
     private final RectF phoneViewport = new RectF();
-    private final Rect phoneNativeSource = new Rect();
-    private final Rect phoneNativeDestination = new Rect();
     private long nextUsbAttemptElapsed;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Matrix outMatrix = new Matrix();
@@ -612,7 +614,8 @@ public final class HudService extends Service {
                 synchronized (phoneFrameLock) {
                     renderPhone(currentState, map, tbtCurrent, tbtNext, lane);
                     if (phoneOutputEnabled()) {
-                        renderNativePhone(currentState, AppPrefs.getDisplayProfile(this));
+                        renderNativePhone(currentState, AppPrefs.getDisplayProfile(this),
+                                map, tbtCurrent, tbtNext, lane);
                     }
                     if (usbReady) {
                         usbFrame = renderUsbFromPhone();
@@ -917,12 +920,12 @@ public final class HudService extends Service {
     }
 
     /**
-     * 두 번째 실차 사진과 같은 원본 3열 배치(주행/지도/시스템)를 유지한다.
-     * 순정 화면에서는 1920x462 전체를 네이티브 캔버스 높이에 맞춰 확장한다.
-     * nMirror 즐겨찾기 폭은 이미 앱 바깥에서 빠지므로 내부 추가 여백은 0이다.
-     * 원본 phoneFrame은 건드리지 않아 외부 TURZX 출력은 이전 픽셀 그대로다.
+     * 원본 3열 좌표는 유지하되 한 장의 비트맵을 늘리지 않고 다시 그린다.
+     * 배경 패널만 화면 전체를 채우고, 글자/계기/차량/지도는 별도 보정 행렬로
+     * 종횡비를 유지한다. nMirror 즐겨찾기 폭은 앱 외부에서 이미 제외된다.
      */
-    private void renderNativePhone(JSONObject s, int profile) {
+    private void renderNativePhone(JSONObject s, int profile, Bitmap map,
+                                   Bitmap tbtCurrent, Bitmap tbtNext, Bitmap lane) {
         if (profile == AppPrefs.DISPLAY_PROFILE_AUTO || phoneFrame == null || phoneFrame.isRecycled()) {
             phoneNativeProfile = AppPrefs.DISPLAY_PROFILE_AUTO;
             return;
@@ -932,9 +935,21 @@ public final class HudService extends Service {
         int width = phoneNativeFrame.getWidth();
         int height = phoneNativeFrame.getHeight();
         c.drawColor(Color.rgb(5, 8, 12));
-        phoneNativeSource.set(0, 0, WIDTH, HEIGHT);
-        phoneNativeDestination.set(0, 0, width, height);
-        c.drawBitmap(phoneFrame, phoneNativeSource, phoneNativeDestination, phonePreviewPaint);
+        nativeScaleX = width / (float) WIDTH;
+        nativeScaleY = height / (float) HEIGHT;
+        nativeWidgetScale = profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8 ? 0.64f : 0.96f;
+        nativeLayoutRendering = true;
+        int save = c.save();
+        try {
+            c.scale(nativeScaleX, nativeScaleY);
+            drawFrame(c, s, map, tbtCurrent, tbtNext, lane);
+        } finally {
+            c.restoreToCount(save);
+            nativeLayoutRendering = false;
+            nativeScaleX = 1f;
+            nativeScaleY = 1f;
+            nativeWidgetScale = 1f;
+        }
     }
 
     private void drawFrame(Canvas c, JSONObject s, Bitmap map, Bitmap tbtCurrent,
@@ -999,6 +1014,13 @@ public final class HudService extends Service {
             }
         }
         world.setOsm(osmSnap);
+        int worldSave = c.save();
+        if (nativeLayoutRendering) {
+            // 주행 장면은 세로 확대율을 X에도 적용하고 좌우만 중앙 크롭한다.
+            // 도로·차량·건물의 원형/차체 비율이 화면 압축으로 찌그러지지 않는다.
+            c.clipRect(0f, 0f, DRIVE_RIGHT, HEIGHT);
+            c.scale(nativeScaleY / nativeScaleX, 1f, DRIVE_CX, HEIGHT * 0.5f);
+        }
         world.draw(c, p, stale ? null : s, enabled, egoCar, otherCar, worldOdoM,
                 driveBg,
                 lc(l, "roadTop", frameDark ? Color.rgb(42, 49, 58) : Color.rgb(226, 229, 231)),
@@ -1015,8 +1037,11 @@ public final class HudService extends Service {
                 (float) s.optDouble("hudPitchDyn", 60d),
                 (float) s.optDouble("laneWidth", 0d),
                 s.isNull("stopDist") ? -1f : (float) s.optDouble("stopDist", -1d));
+        c.restoreToCount(worldSave);
 
+        int blinkerSave = beginElement(c, l, "blinkers", DRIVE_CX, 386f);
         drawBlinkers(c, p, s, stale);
+        c.restoreToCount(blinkerSave);
 
         int save = beginElement(c, l, "lights", 70f, 28f);
         drawLights(c, p, s);
@@ -1034,8 +1059,12 @@ public final class HudService extends Service {
         drawRpm(c, p, stale ? -1 : s.optInt("rpm", -1), lv(l, "rpmRedline", 6500f));
         c.restoreToCount(saveRpm);
 
+        int modeSave = beginElement(c, l, "mode", 938f, 116f);
         drawModeAndEta(c, p, s);
+        c.restoreToCount(modeSave);
+        int rangeSave = beginElement(c, l, "range", 932f, 44f);
         drawRange(c, p, s);
+        c.restoreToCount(rangeSave);
 
         p.setStyle(Paint.Style.STROKE);
         p.setColor(hairline());
@@ -1074,6 +1103,7 @@ public final class HudService extends Service {
         drawTpms(c, p, s.optJSONObject("tpms"));
         c.restoreToCount(save8);
 
+        int alertSave = beginElement(c, l, "alert", DRIVE_CX, 336f);
         drawAlert(c, p, stale ? null : s.optJSONObject("alert"));
 
         if (stale) {
@@ -1086,6 +1116,7 @@ public final class HudService extends Service {
                     Color.rgb(255, 148, 118), Paint.Align.CENTER);
             text(c, p, lastEonAddress, DRIVE_CX, 345f, 15f, Color.rgb(186, 194, 200), Paint.Align.CENTER);
         }
+        c.restoreToCount(alertSave);
 
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(2f);
@@ -2394,14 +2425,31 @@ public final class HudService extends Service {
             p.setStyle(Paint.Style.FILL);
             p.setColor(Color.BLACK);
             c.drawRect(scratchIRect, p);
+            JSONObject l = layout(s);
+            int waitSave = beginElement(c, l, "mapWait", MAP_CX, 240f);
             text(c, p, lang("TMAP 화면 대기", "WAITING FOR TMAP"), MAP_CX, 240f, 34f,
                     Color.GRAY, Paint.Align.CENTER);
+            c.restoreToCount(waitSave);
+            int atcSave = beginElement(c, l, "atc", 1034f, 393f);
             drawAtc(c, p, s);
+            c.restoreToCount(atcSave);
             return;
         }
         p.setFilterBitmap(true);
+        int mapSave = c.save();
+        if (nativeLayoutRendering) {
+            // 지도 비트맵은 세로 배율을 양축에 동일하게 적용해 중앙 크롭한다.
+            // 지도 글자와 도로 아이콘이 길쭉해지는 것을 막는다.
+            c.clipRect(MAP_LEFT, 0f, MAP_RIGHT, HEIGHT);
+            c.scale(nativeScaleY / nativeScaleX, 1f, MAP_CX, HEIGHT * 0.5f);
+        }
         c.drawBitmap(map, null, scratchIRect, p);
+        c.restoreToCount(mapSave);
 
+        int overlaySave = c.save();
+        if (nativeLayoutRendering) {
+            c.clipRect(MAP_LEFT, 0f, MAP_RIGHT, HEIGHT);
+        }
         JSONObject l = layout(s);
         int save = beginElement(c, l, "tbt1", 1139f, 71f);
         float tbtBottom = drawTbtBanner(c, p, s.optJSONObject("navi"), 962f, 8f);
@@ -2417,6 +2465,7 @@ public final class HudService extends Service {
         int save4 = beginElement(c, l, "atc", 1034f, 393f);
         drawAtc(c, p, s);
         c.restoreToCount(save4);
+        c.restoreToCount(overlaySave);
     }
 
     private void drawNativeOverlay(Canvas c, Paint p, Bitmap bitmap,
@@ -2463,6 +2512,21 @@ public final class HudService extends Service {
 
     private int beginElement(Canvas c, JSONObject l, String name, float px, float py) {
         int save = c.save();
+        if (nativeLayoutRendering) {
+            // Canvas 전체는 1920x462 좌표를 순정 해상도에 맞추지만, 위젯은
+            // 동일한 실제 X/Y 배율이 되도록 역보정해 원·글자·아이콘을 보존한다.
+            float desired = "system".equals(name) ? nativeScaleX : nativeWidgetScale;
+            float pivotX = px;
+            if (px >= MAP_LEFT && px < MAP_RIGHT) {
+                pivotX = MAP_LEFT;
+            } else if ("lights".equals(name) || "prnd".equals(name) || "lead".equals(name)) {
+                pivotX = 0f;
+            } else if ("mode".equals(name) || "range".equals(name)
+                    || "camera".equals(name) || "tpms".equals(name)) {
+                pivotX = DRIVE_RIGHT;
+            }
+            c.scale(desired / nativeScaleX, desired / nativeScaleY, pivotX, py);
+        }
         float dx = lv(l, name + "Dx", 0f);
         float dy = lv(l, name + "Dy", 0f);
         float scale = Math.max(0.5f, Math.min(2f, lv(l, name + "Scale", 1f)));

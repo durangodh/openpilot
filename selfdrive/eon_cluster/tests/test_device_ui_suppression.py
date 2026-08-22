@@ -139,14 +139,20 @@ def test_s9_tmap_first_switch_uses_nmirror_favorite_and_internal_fullscreen_acti
   assert "PHONE_9_WIDTH = 1280" in service
   assert "PHONE_9_HEIGHT = 720" in service
   assert "PHONE_9_SIDEBAR = 0" in service
-  assert "renderNativePhone(currentState, AppPrefs.getDisplayProfile(this))" in service
+  assert "renderNativePhone(currentState, AppPrefs.getDisplayProfile(this)," in service
   assert "profile == service.phoneNativeProfile" in service
   assert "service.phoneNativeFrame" in service
   assert "frame.getWidth() * scale" in service
   assert "frame.getHeight() * scale" in service
   assert "phoneDestination.set(left, top, left + drawWidth, top + drawHeight)" in service
-  assert "phoneNativeSource.set(0, 0, WIDTH, HEIGHT)" in service
-  assert "phoneNativeDestination.set(0, 0, width, height)" in service
+  assert "nativeLayoutRendering = true" in service
+  assert "drawFrame(c, s, map, tbtCurrent, tbtNext, lane)" in service
+  assert "desired / nativeScaleX" in service
+  assert "desired / nativeScaleY" in service
+  assert "nativeScaleY / nativeScaleX" in service
+  assert "c.clipRect(MAP_LEFT, 0f, MAP_RIGHT, HEIGHT)" in service
+  assert "c.clipRect(0f, 0f, DRIVE_RIGHT, HEIGHT)" in service
+  assert "c.drawBitmap(phoneFrame, phoneNativeSource" not in service
   assert "drawNativeMapCard" not in service
   assert "drawNativeStatusBar" not in service
   assert "c.drawBitmap(phoneFrame, 0f, 0f, phonePreviewPaint);" in service
