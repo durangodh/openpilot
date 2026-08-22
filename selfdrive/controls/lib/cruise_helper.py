@@ -296,10 +296,12 @@ class CruiseHelper:
       elif self.d_rel <= 0.0 and self.traffic_state == 1 and not (CS.leftBlinker or CS.rightBlinker):
         self._resume_longitudinal(controls, CS, 3)
     elif self.d_rel > self.auto_resume_from_brake_release_dist > 0.0:
-      controls.v_cruise_kph = float(clip(v_ego_kph, self.cruise_speed_min, MAX_SET_SPEED_KPH))
+      # Brake release now honors AutoResumeFromGasSpeedMode like the gas path
+      # instead of always clamping the set speed down to the current speed.
+      self._select_resume_speed(controls, CS)
       self._resume_longitudinal(controls, CS, 3)
     elif self.d_rel <= 0.0 and v_ego_kph >= self.auto_resume_from_brake_car_speed > 0.0:
-      controls.v_cruise_kph = float(clip(v_ego_kph, self.cruise_speed_min, MAX_SET_SPEED_KPH))
+      self._select_resume_speed(controls, CS)
       self._resume_longitudinal(controls, CS, 3)
 
   def _update_pedal_cruise(self, controls, CS):
