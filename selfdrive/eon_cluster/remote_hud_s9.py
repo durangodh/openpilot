@@ -77,6 +77,7 @@ def _packet(sm, *args, **kwargs):
   # 주행 중 차량 pitch 를 수평선에 반영하는 정도(%). 0=끄기(정적 캘리브만).
   packet["hudPitchDyn"] = _bounded_int("EonClusterHudPitchDyn", 60, 0, 200)
   packet["hudOutputMode"] = _bounded_int("EonClusterHudOutputMode", 1, 1, 3)
+  packet["hudLayoutMode"] = _bounded_int("EonClusterHudLayoutMode", 1, 1, 2)
   packet["hudOutputTarget"] = _bounded_int("EonClusterHudOutputTarget", 3, 1, 3)
   packet["hudBsdStyle"] = _bounded_int("EonClusterHudBsdStyle", 2, 1, 3)
   packet["hudCarStyle"] = _bounded_int("EonClusterHudCarStyle", 1, 1, 2)

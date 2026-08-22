@@ -1229,6 +1229,10 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "1: 주행 / 지도 / 시스템   2: 실시간 디버그   3: S9 리모트(폰 상태·USB 진단)",
       "../assets/offroad/icon_road.png", 1, 3, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudLayoutMode", "S9 HUD 화면 구성",
+      "1: 주행 + 티맵 + 시스템 정보 / 2: 주행 + 티맵만(우측 정보판 숨김, 티맵 폭 확장)",
+      "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudCarStyle", "S9 HUD 차량 모양",
       "1: 사진 / 2: 3D 박스. 자차와 앞차에 적용됩니다.",
       "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));

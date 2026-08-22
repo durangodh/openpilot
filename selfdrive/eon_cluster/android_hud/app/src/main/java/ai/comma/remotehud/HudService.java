@@ -91,7 +91,7 @@ public final class HudService extends Service {
     /** 순정 내비에서 우측 정보 패널이 차지하는 실제 화면 폭 비율. */
     private static final float NATIVE_SYSTEM_RATIO = 0.15f;
     /** 순정 8/9.2인치에서 속도와 RPM 표시 전체를 함께 올리는 실제 픽셀값. */
-    private static final float NATIVE_GAUGE_RAISE_PX = 18f;
+    private static final float NATIVE_GAUGE_RAISE_PX = 42f;
     /** 순정 화면의 상·하단 카드 위치 보정값. */
     private static final float NATIVE_CARD_SHIFT_PX = 18f;
     private static final float NATIVE_ATC_SHIFT_PX = 24f;
@@ -160,6 +160,8 @@ public final class HudService extends Service {
     private boolean frameDark = false;
     /** 1: 주행·지도·시스템 / 2: 실시간 디버그 / 3: S9 리모트 */
     private int configuredOutputMode = 1;
+    /** 화면 구성 1: 주행·티맵·시스템, 2: 주행·티맵만 */
+    private int configuredLayoutMode = 1;
     /** 출력 대상 1: 외부 USB HUD, 2: S9 화면, 3: 동시 출력 */
     private int configuredOutputTarget = 3;
 
@@ -660,6 +662,7 @@ public final class HudService extends Service {
         configuredCarStyle = currentState.optInt("hudCarStyle", 1) == 2 ? 2 : 1;
         configuredRoadSigns = Math.max(0, Math.min(3, currentState.optInt("hudRoadSigns", 3)));
         configuredOutputMode = Math.max(1, Math.min(3, currentState.optInt("hudOutputMode", 1)));
+        configuredLayoutMode = Math.max(1, Math.min(2, currentState.optInt("hudLayoutMode", 1)));
         int requestedOutputTarget = Math.max(1, Math.min(3,
                 currentState.optInt("hudOutputTarget", 3)));
         if (requestedOutputTarget != configuredOutputTarget) {
@@ -969,7 +972,7 @@ public final class HudService extends Service {
 
         drawDriving(c, p, s);
 
-        if (!nativeLayoutRendering) {
+        if (configuredLayoutMode == 1 && !nativeLayoutRendering) {
             JSONObject l = layout(s);
             int save = beginElement(c, l, "system", 1824f, 231f);
             if (configuredOutputMode == 3) {
@@ -989,7 +992,7 @@ public final class HudService extends Service {
         } else {
             drawMap(c, p, s, map, tbtCurrent, tbtNext, lane);
         }
-        if (nativeLayoutRendering) {
+        if (configuredLayoutMode == 1 && nativeLayoutRendering) {
             drawNativeSystemPanel(c, p, s);
         }
         applyThemeOverlay(c, p);
@@ -2474,13 +2477,21 @@ public final class HudService extends Service {
         }
     }
 
+    private int mapRight() {
+        return configuredLayoutMode == 2 ? WIDTH : MAP_RIGHT;
+    }
+
+    private float mapCenterX() {
+        return (MAP_LEFT + mapRight()) * 0.5f;
+    }
+
     private void drawRightBase(Canvas c, Paint p, String title) {
         boolean dark = darkTheme();
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(dark ? Color.rgb(8, 13, 19) : Color.rgb(232, 235, 237));
-        c.drawRect(MAP_LEFT, 0f, MAP_RIGHT, HEIGHT, p);
-        text(c, p, title, MAP_CX, 42f, 27f, dark ? Color.WHITE : Color.rgb(25, 30, 34), Paint.Align.CENTER);
+        c.drawRect(MAP_LEFT, 0f, mapRight(), HEIGHT, p);
+        text(c, p, title, mapCenterX(), 42f, 27f, dark ? Color.WHITE : Color.rgb(25, 30, 34), Paint.Align.CENTER);
     }
 
     private void drawDebugRight(Canvas c, Paint p, JSONObject s) {
@@ -2526,25 +2537,25 @@ public final class HudService extends Service {
         int fg = dark ? Color.rgb(235, 240, 245) : Color.rgb(25, 30, 34);
         int sub = dark ? Color.rgb(160, 172, 182) : Color.rgb(90, 100, 108);
 
-        text(c, p, String.format(Locale.US, "%.1f km", tripDistanceKm), MAP_CX, 145f, 54f, fg, Paint.Align.CENTER);
-        text(c, p, lang("주행거리", "DISTANCE"), MAP_CX, 178f, 18f, sub, Paint.Align.CENTER);
+        text(c, p, String.format(Locale.US, "%.1f km", tripDistanceKm), mapCenterX(), 145f, 54f, fg, Paint.Align.CENTER);
+        text(c, p, lang("주행거리", "DISTANCE"), mapCenterX(), 178f, 18f, sub, Paint.Align.CENTER);
         text(c, p, String.format(Locale.US, "%02d:%02d", elapsed / 3600000L, (elapsed / 60000L) % 60L),
-                MAP_CX, 255f, 48f, fg, Paint.Align.CENTER);
-        text(c, p, lang("주행시간", "DRIVE TIME"), MAP_CX, 286f, 18f, sub, Paint.Align.CENTER);
-        text(c, p, String.format(Locale.US, "AVG %.0f km/h", avg), MAP_CX, 363f, 35f, fg, Paint.Align.CENTER);
+                mapCenterX(), 255f, 48f, fg, Paint.Align.CENTER);
+        text(c, p, lang("주행시간", "DRIVE TIME"), mapCenterX(), 286f, 18f, sub, Paint.Align.CENTER);
+        text(c, p, String.format(Locale.US, "AVG %.0f km/h", avg), mapCenterX(), 363f, 35f, fg, Paint.Align.CENTER);
     }
 
     private void drawMap(Canvas c, Paint p, JSONObject s, Bitmap map, Bitmap tbtCurrent,
                          Bitmap tbtNext, Bitmap lane) {
-        scratchIRect.set(MAP_LEFT, 0, MAP_RIGHT, HEIGHT);
+        scratchIRect.set(MAP_LEFT, 0, mapRight(), HEIGHT);
         if (map == null || map.isRecycled()) {
             p.setShader(null);
             p.setStyle(Paint.Style.FILL);
             p.setColor(Color.BLACK);
             c.drawRect(scratchIRect, p);
             JSONObject l = layout(s);
-            int waitSave = beginElement(c, l, "mapWait", MAP_CX, 240f);
-            text(c, p, lang("TMAP 화면 대기", "WAITING FOR TMAP"), MAP_CX, 240f, 34f,
+            int waitSave = beginElement(c, l, "mapWait", mapCenterX(), 240f);
+            text(c, p, lang("TMAP 화면 대기", "WAITING FOR TMAP"), mapCenterX(), 240f, 34f,
                     Color.GRAY, Paint.Align.CENTER);
             c.restoreToCount(waitSave);
             int atcSave = beginElement(c, l, "atc", 1034f, 393f);
@@ -2560,15 +2571,15 @@ public final class HudService extends Service {
         if (nativeLayoutRendering) {
             // 지도 비트맵은 세로 배율을 양축에 동일하게 적용해 중앙 크롭한다.
             // 지도 글자와 도로 아이콘이 길쭉해지는 것을 막는다.
-            c.clipRect(MAP_LEFT, 0f, MAP_RIGHT, HEIGHT);
-            c.scale(nativeScaleY / nativeScaleX, 1f, MAP_CX, HEIGHT * 0.5f);
+            c.clipRect(MAP_LEFT, 0f, mapRight(), HEIGHT);
+            c.scale(nativeScaleY / nativeScaleX, 1f, mapCenterX(), HEIGHT * 0.5f);
         }
         c.drawBitmap(map, null, scratchIRect, p);
         c.restoreToCount(mapSave);
 
         int overlaySave = c.save();
         if (nativeLayoutRendering) {
-            c.clipRect(MAP_LEFT, 0f, MAP_RIGHT, HEIGHT);
+            c.clipRect(MAP_LEFT, 0f, mapRight(), HEIGHT);
         }
         JSONObject l = layout(s);
         int save = beginElement(c, l, "tbt1", 1139f, 71f);
@@ -2643,7 +2654,7 @@ public final class HudService extends Service {
             // 동일한 실제 X/Y 배율이 되도록 역보정해 원·글자·아이콘을 보존한다.
             float desired = "system".equals(name) ? nativeScaleX : nativeWidgetScale;
             float pivotX = px;
-            if (px >= MAP_LEFT && px < MAP_RIGHT) {
+            if (px >= MAP_LEFT && px < mapRight()) {
                 pivotX = MAP_LEFT;
             } else if ("lights".equals(name) || "prnd".equals(name) || "lead".equals(name)) {
                 pivotX = 0f;

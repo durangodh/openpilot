@@ -99,6 +99,7 @@ def manager_init() -> None:
     ("EonClusterHudBrightness", "65"),
     ("EonClusterHudJpegQuality", "58"),
     ("EonClusterHudOutputTarget", "3"),
+    ("EonClusterHudLayoutMode", "1"),
     ("EonClusterHudScreenMode", "1"),
     ("EonClusterHudTheme", "0"),
     ("EonClusterHudOrientation", "0"),

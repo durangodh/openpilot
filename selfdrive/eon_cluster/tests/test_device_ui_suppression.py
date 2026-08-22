@@ -45,6 +45,8 @@ def test_s9_hud_params_are_exposed_in_settings():
   assert '"EonClusterHudOutputTarget", "HUD 출력 대상"' in settings
   assert '"1: 외부 HUD / 2: S9 화면 / 3: 동시 출력"' in settings
   assert '"EonClusterHudOutputMode", "S9 HUD 표시 내용"' in settings
+  assert '"EonClusterHudLayoutMode", "S9 HUD 화면 구성"' in settings
+  assert '"2: 주행 + 티맵만(우측 정보판 숨김, 티맵 폭 확장)"' in settings
   assert '"EonClusterHudFps", "S9 HUD 프레임"' in settings
   assert '"../assets/offroad/icon_road.png", 0, 15, 1, 0, 10' in settings
   assert '"EonClusterHudMapFps", "S9 HUD 지도 프레임"' in settings
@@ -69,6 +71,7 @@ def test_manager_starts_only_s9_hud_publisher():
   assert "_migrate_legacy_remote_mode" not in remote
   assert 'params.put_bool(PARAM_ENABLED, True)' not in remote
   assert '{"EonClusterHudOutputMode", PERSISTENT}' in params
+  assert '{"EonClusterHudLayoutMode", PERSISTENT}' in params
   assert '{"EonClusterHudOutputTarget", PERSISTENT}' in params
 
 
@@ -80,6 +83,8 @@ def test_s9_output_target_reaches_android_renderer():
 
   assert '("EonClusterHudOutputTarget", "3")' in manager
   assert 'packet["hudOutputTarget"] = _bounded_int("EonClusterHudOutputTarget", 3, 1, 3)' in remote
+  assert 'packet["hudLayoutMode"] = _bounded_int("EonClusterHudLayoutMode", 1, 1, 2)' in remote
+  assert '("EonClusterHudLayoutMode", "1")' in manager
   assert 'currentState.optInt("hudOutputTarget", 3)' in service
   assert 'return configuredOutputTarget == 1 || configuredOutputTarget == 3;' in service
   assert 'return configuredOutputTarget == 2 || configuredOutputTarget == 3;' in service
@@ -150,13 +155,16 @@ def test_s9_tmap_first_switch_uses_nmirror_favorite_and_internal_fullscreen_acti
   assert "desired / nativeScaleX" in service
   assert "desired / nativeScaleY" in service
   assert "nativeScaleY / nativeScaleX" in service
-  assert "c.clipRect(MAP_LEFT, 0f, MAP_RIGHT, HEIGHT)" in service
+  assert "c.clipRect(MAP_LEFT, 0f, mapRight(), HEIGHT)" in service
   assert "c.clipRect(0f, 0f, DRIVE_RIGHT, HEIGHT)" in service
   assert "NATIVE_SYSTEM_RATIO = 0.15f" in service
   assert "drawNativeSystemPanel(c, p, s)" in service
   assert "float equalizeX = nativeScaleY / nativeScaleX" in service
   assert "float contentScale = targetWidthPx" in service
-  assert "NATIVE_GAUGE_RAISE_PX = 18f" in service
+  assert "NATIVE_GAUGE_RAISE_PX = 42f" in service
+  assert 'currentState.optInt("hudLayoutMode", 1)' in service
+  assert "return configuredLayoutMode == 2 ? WIDTH : MAP_RIGHT;" in service
+  assert "if (configuredLayoutMode == 1 && nativeLayoutRendering)" in service
   assert service.count("-NATIVE_GAUGE_RAISE_PX / nativeWidgetScale") == 2
   assert "NATIVE_CARD_SHIFT_PX = 18f" in service
   assert "NATIVE_ATC_SHIFT_PX = 24f" in service

@@ -1103,6 +1103,16 @@
   },
   {
    "group": "S9HUD",
+   "name": "EonClusterHudLayoutMode",
+   "title": "S9 HUD 화면 구성",
+   "descr": "1: 주행 + 티맵 + 시스템 정보 / 2: 주행 + 티맵만(우측 정보판 숨김, 티맵 폭 확장)",
+   "min": 1,
+   "max": 2,
+   "default": 1,
+   "unit": 1
+  },
+  {
+   "group": "S9HUD",
    "name": "EonClusterHudCarStyle",
    "title": "S9 HUD \ucc28\ub7c9 \ubaa8\uc591",
    "descr": "1: \uc0ac\uc9c4 / 2: 3D \ubc15\uc2a4. \uc790\ucc28\uc640 \uc55e\ucc28\uc5d0 \uc801\uc6a9\ub429\ub2c8\ub2e4.",

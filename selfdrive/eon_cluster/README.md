@@ -19,8 +19,9 @@ Enable it with the **S9 외부 HUD 사용** toggle. The following Params are sen
 - `EonClusterHudMirror`: 0 normal, 1 mirrored.
 - `EonClusterHudLanguage`: 0 Korean, 1 English.
 - `EonClusterHudRadarInfo`: 0 hidden; 1/3 relative speed; 2/4 distance and relative speed.
+- `EonClusterHudLayoutMode`: 1 driving/TMAP/system; 2 driving/TMAP only.
 
-The display layout is fixed at 4:2:4. The left panel uses model lane/path and radar data, the middle panel shows system information, and the right panel uses the original TMAP frame and selected native TMAP guidance assets.
+The display layout is selected with `EonClusterHudLayoutMode`: mode 1 shows driving, TMAP, and system information; mode 2 hides the system panel and expands TMAP to fill the remaining half of the screen. The driving panel uses model lane/path and radar data, while the TMAP panel uses the original map frame and selected native guidance assets.
 
 `EonClusterHudConnected` reports only the recent S9 UDP acknowledgement. It is useful as a network status indicator but is not treated as proof that the TURZX USB display is working. The EON driving UI therefore remains complete and independent of S9/USB status.
 
