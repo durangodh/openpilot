@@ -1770,11 +1770,19 @@ public final class HudService extends Service {
         p.setColor(Color.rgb(238, 241, 243));
         c.drawRoundRect(scratchRect, 10f, 10f, p);
 
-        String title = navi.optString("title", lang("경로 안내", "ROUTE GUIDE"));
+        double atcBlend = s.optDouble("atcBlend", 0d);
+        int atcDirection = s.optInt("atcDirection", 0);
+        boolean atcActive = atcBlend > 0.005d && atcDirection != 0;
+        String title = atcActive
+                ? String.format(Locale.US, "ATC %s %.0f%%",
+                        atcDirection < 0 ? "←" : "→", atcBlend * 100d)
+                : navi.optString("title", lang("경로 안내", "ROUTE GUIDE"));
         if (title.length() > 12) {
             title = title.substring(0, 11) + "…";
         }
-        text(c, p, title, 1034f, 350f, 14f, Color.rgb(248, 249, 250), Paint.Align.CENTER);
+        text(c, p, title, 1034f, 350f, 14f,
+                atcActive ? Color.rgb(76, 224, 144) : Color.rgb(248, 249, 250),
+                Paint.Align.CENTER);
 
         boolean blink = dist > 350 || ((SystemClock.elapsedRealtime() / 500L) & 1L) == 0L;
         if (blink) {

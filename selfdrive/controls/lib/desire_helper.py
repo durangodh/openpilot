@@ -185,10 +185,11 @@ class DesireHelper:
                              1.5 if lane_change_set_timer == 4 else 2.0
 
     v_ego = carstate.vEgo
-    atc_steering = self.carrot_atc_mode in (1, 2) and lateral_active and not carstate.brakePressed
-    # Avoid parsing the shared navigation JSON in lateral planning when ATC
-    # steering is disabled. Longitudinal navigation uses its own reader.
-    atc_state = self.carrot_atc.update() if atc_steering else self.empty_atc_state
+    atc_available = self.carrot_atc_mode in (1, 2) and lateral_active
+    atc_steering = atc_available and not carstate.brakePressed
+    # Keep the current fork event while steering is configured so a brake
+    # press can latch cancellation instead of resetting and re-acquiring it.
+    atc_state = self.carrot_atc.update() if atc_available else self.empty_atc_state
     atc_direction = atc_state['direction'] if atc_steering else 0
     opposite_torque = carstate.steeringPressed and ((atc_direction < 0 and carstate.steeringTorque < 0) or
                                                     (atc_direction > 0 and carstate.steeringTorque > 0))
@@ -203,31 +204,37 @@ class DesireHelper:
     atc_turn_matches_blinker = (atc_steering and atc_state.get('kind') in ('turn', 'uturn') and
                                ((atc_direction < 0 and carstate.leftBlinker) or
                                 (atc_direction > 0 and carstate.rightBlinker)))
-    # Latest carrot-style exit gating adapted to this fork's simpler model:
-    # right exits only, arm at the last lane, then request one change when the
-    # exit lane opens. Keep the request alive while BSD blocks it.
-    right_lane_open = False
-    if atc_steering:
-      right_lane_open = not self._road_edge_detected(model_data, 1)
-      atc_fork_direction = self.atc_fork_controller.update(
-        atc_state, v_ego, right_lane_open,
-        driver_cancel=opposite_torque or conflicting_blinker,
+    # Latest carrot-style exit gating adapted to the fields available here:
+    # support both fork directions, require a stable model-side lane, and
+    # include the matching physical BSD sensor before raising a virtual blinker.
+    fork_direction = int(atc_state.get('direction', 0))
+    fork_lane_open = False
+    if atc_available:
+      side_bsd = ((fork_direction < 0 and carstate.leftBlindspot) or
+                  (fork_direction > 0 and carstate.rightBlindspot))
+      fork_lane_open = (fork_direction in (-1, 1) and
+                        not self._road_edge_detected(model_data, fork_direction) and
+                        not side_bsd)
+      requested_fork_direction = self.atc_fork_controller.update(
+        atc_state, v_ego, fork_lane_open,
+        driver_cancel=opposite_torque or conflicting_blinker or carstate.brakePressed,
         lane_change_started=self.lane_change_state == LaneChangeState.laneChangeStarting,
         lane_change_finished=self.lane_change_state == LaneChangeState.laneChangeFinishing,
       )
+      atc_fork_direction = requested_fork_direction if atc_steering else 0
     else:
       self.atc_fork_controller.reset()
       atc_fork_direction = 0
-    left_blinker = carstate.leftBlinker
+    left_blinker = carstate.leftBlinker or atc_fork_direction < 0
     right_blinker = carstate.rightBlinker or atc_fork_direction > 0
     one_blinker = left_blinker != right_blinker
     below_lane_change_speed = v_ego < self.lane_change_speed_min
 
     # Driver lane changes retain the original road-edge gate. ATC only raises
-    # its virtual blinker after the controller has already observed an open lane.
+    # its virtual blinker after model geometry and the matching BSD are clear.
     direction = -1 if left_blinker else 1 if right_blinker else 0
-    if direction == 1 and atc_steering:
-      self.road_edge = not right_lane_open
+    if direction == atc_fork_direction and atc_fork_direction != 0:
+      self.road_edge = not fork_lane_open
     else:
       self.road_edge = self._road_edge_detected(model_data, direction) if direction else False
 

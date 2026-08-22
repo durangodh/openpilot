@@ -664,6 +664,8 @@ def _packet(sm, atc_mode, path_offset=0.0):
       "rr": _finite(_field(tpms, "rr", -1.0), -1.0),
     },
     "atcMode": int(atc_mode),
+    "atcBlend": round(_finite(_field(sm["lateralPlan"], "atcMapBlend", 0.0)), 3),
+    "atcDirection": int(_finite(_field(sm["lateralPlan"], "atcTurnDirection", 0))),
     # The optimized MPC state follows a reference that already contains
     # OffsetTotal. Keep the old offset only when falling back to the raw model
     # path so old and new APKs both avoid adding it twice.

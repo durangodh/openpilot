@@ -168,6 +168,9 @@ def test_s9_tmap_first_switch_uses_nmirror_favorite_and_internal_fullscreen_acti
   assert service.count("-NATIVE_GAUGE_RAISE_PX / nativeWidgetScale") == 2
   assert "NATIVE_CARD_SHIFT_PX = 18f" in service
   assert "NATIVE_ATC_SHIFT_PX = 24f" in service
+  assert 's.optDouble("atcBlend", 0d)' in service
+  assert 's.optInt("atcDirection", 0)' in service
+  assert '"ATC %s %.0f%%"' in service
   assert "drawNativeS9Remote(c, p, nativeWidth, nativeHeight, targetWidthPx)" in service
   assert "float unit = height / 480f" in service
   assert "RPM_LABEL_BASELINE" not in service

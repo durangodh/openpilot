@@ -520,7 +520,7 @@ class CarrotNaviAtc:
 
 
 class AtcForkLaneChangeController:
-  """One-shot, right-exit-only lane-change gate for CarrotNavi forks."""
+  """One-shot, direction-aware lane-change gate for CarrotNavi forks."""
 
   MIN_DISTANCE = 20.0
   CONFIRM_FRAMES = 10  # 0.5 s at model rate
@@ -541,12 +541,13 @@ class AtcForkLaneChangeController:
   def _event_key(state):
     return state.get("turn_type", -1), state.get("direction", 0)
 
-  def update(self, state, v_ego, right_lane_open, driver_cancel=False,
+  def update(self, state, v_ego, lane_open, driver_cancel=False,
              lane_change_started=False, lane_change_finished=False):
-    is_right_fork = (state.get("fresh", False) and state.get("kind") == "fork" and
-                     state.get("direction") == 1)
+    direction = int(state.get("direction", 0))
+    is_supported_fork = (state.get("fresh", False) and state.get("kind") == "fork" and
+                         direction in (-1, 1))
     distance = float(state.get("distance", -1.0))
-    if not is_right_fork or distance < self.MIN_DISTANCE:
+    if not is_supported_fork or distance < self.MIN_DISTANCE:
       self.reset()
       return 0
 
@@ -558,8 +559,8 @@ class AtcForkLaneChangeController:
       self.event_key = event_key
 
     self.last_distance = distance
-    self.lane_open_count = self.lane_open_count + 1 if right_lane_open else 0
-    self.lane_closed_count = self.lane_closed_count + 1 if not right_lane_open else 0
+    self.lane_open_count = self.lane_open_count + 1 if lane_open else 0
+    self.lane_closed_count = self.lane_closed_count + 1 if not lane_open else 0
     if driver_cancel:
       self.canceled = True
     if lane_change_finished:
@@ -575,4 +576,4 @@ class AtcForkLaneChangeController:
     if (self.canceled or self.completed or not self.armed_at_last_lane or
         self.lane_open_count < self.CONFIRM_FRAMES or distance > action_distance):
       return 0
-    return 1
+    return direction

@@ -317,6 +317,8 @@ class LateralPlanner:
     lateralPlan.useLaneLines = not self.dynamic_lane_profile_status
     lateralPlan.laneChangeState = self.DH.lane_change_state
     lateralPlan.laneChangeDirection = self.DH.lane_change_direction
+    lateralPlan.atcMapBlend = float(self.atc_map_blend)
+    lateralPlan.atcTurnDirection = int(self.DH.atc_turn_direction if self.atc_map_blend > 0.005 else 0)
 
     plan_send.lateralPlan.dPathWLinesX = [float(x) for x in self.d_path_w_lines_xyz[:, 0]]
     plan_send.lateralPlan.dPathWLinesY = [float(y) for y in self.d_path_w_lines_xyz[:, 1]]

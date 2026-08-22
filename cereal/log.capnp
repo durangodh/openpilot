@@ -978,6 +978,9 @@ struct LateralPlan @0xe1e9318e2ae8b51e {
   # to the solver; these fields are the x/y states returned by the solver.
   mpcPathX @43 :List(Float32);
   mpcPathY @44 :List(Float32);
+  # Actual TMAP route-curvature contribution used by the lateral planner.
+  atcMapBlend @45 :Float32;
+  atcTurnDirection @46 :Int8;  # -1 left, 0 inactive, 1 right
   dProb @21 :Float32;
   dPathWLinesX @37 :List(Float32);
   dPathWLinesY @38 :List(Float32);
