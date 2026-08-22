@@ -88,6 +88,8 @@ public final class HudService extends Service {
     private static final int PHONE_9_WIDTH = 1280;
     private static final int PHONE_9_HEIGHT = 720;
     private static final int PHONE_9_SIDEBAR = 0;
+    /** 순정 내비에서 우측 정보 패널이 차지하는 실제 화면 폭 비율. */
+    private static final float NATIVE_SYSTEM_RATIO = 0.15f;
 
     /** 속도 숫자 기준선. 예전 KM 라벨이 있던 자리로, 위쪽 RPM 아크 공간용. */
     private static final float SPEED_BASELINE = 118f;
@@ -962,16 +964,18 @@ public final class HudService extends Service {
 
         drawDriving(c, p, s);
 
-        JSONObject l = layout(s);
-        int save = beginElement(c, l, "system", 1824f, 231f);
-        if (configuredOutputMode == 3) {
-            drawS9Remote(c, p);
-        } else if (configuredOutputMode == 2) {
-            drawSystemDebug(c, p, s);
-        } else {
-            drawSystem(c, p, s);
+        if (!nativeLayoutRendering) {
+            JSONObject l = layout(s);
+            int save = beginElement(c, l, "system", 1824f, 231f);
+            if (configuredOutputMode == 3) {
+                drawS9Remote(c, p);
+            } else if (configuredOutputMode == 2) {
+                drawSystemDebug(c, p, s);
+            } else {
+                drawSystem(c, p, s);
+            }
+            c.restoreToCount(save);
         }
-        c.restoreToCount(save);
 
         if (configuredScreenMode == 2) {
             drawDebugRight(c, p, s);
@@ -979,6 +983,9 @@ public final class HudService extends Service {
             drawTripRight(c, p, s);
         } else {
             drawMap(c, p, s, map, tbtCurrent, tbtNext, lane);
+        }
+        if (nativeLayoutRendering) {
+            drawNativeSystemPanel(c, p, s);
         }
         applyThemeOverlay(c, p);
     }
@@ -2000,6 +2007,38 @@ public final class HudService extends Service {
     }
 
     // ── 우측 패널 ─────────────────────────────────────────────────────────
+
+    /**
+     * 8/9.2인치 순정 화면에서는 우측 정보 패널을 실제 폭의 15%로 확보한다.
+     * 배경은 전체 높이를 채우고, 내부 글자와 카드는 X/Y 동일 배율로 다시 그려
+     * 오른쪽 끝 잘림과 글자 찌그러짐을 함께 막는다.
+     */
+    private void drawNativeSystemPanel(Canvas c, Paint p, JSONObject s) {
+        float nativeWidth = phoneNativeFrame == null ? nativeScaleX * WIDTH
+                : phoneNativeFrame.getWidth();
+        float targetWidthPx = nativeWidth * NATIVE_SYSTEM_RATIO;
+        float logicalLeft = SYSTEM_RIGHT - targetWidthPx / nativeScaleX;
+
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(7, 12, 18));
+        c.drawRect(logicalLeft, 0f, SYSTEM_RIGHT, HEIGHT, p);
+
+        int save = c.save();
+        float equalizeX = nativeScaleY / nativeScaleX;
+        float contentScale = targetWidthPx
+                / ((SYSTEM_RIGHT - SYSTEM_LEFT) * nativeScaleY);
+        c.scale(equalizeX, 1f, SYSTEM_RIGHT, HEIGHT * 0.5f);
+        c.scale(contentScale, contentScale, SYSTEM_RIGHT, HEIGHT * 0.5f);
+        if (configuredOutputMode == 3) {
+            drawS9Remote(c, p);
+        } else if (configuredOutputMode == 2) {
+            drawSystemDebug(c, p, s);
+        } else {
+            drawSystem(c, p, s);
+        }
+        c.restoreToCount(save);
+    }
 
     private String systemValue(JSONObject system, String key, String unit) {
         if (system == null || system.isNull(key)) {

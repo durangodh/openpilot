@@ -152,6 +152,10 @@ def test_s9_tmap_first_switch_uses_nmirror_favorite_and_internal_fullscreen_acti
   assert "nativeScaleY / nativeScaleX" in service
   assert "c.clipRect(MAP_LEFT, 0f, MAP_RIGHT, HEIGHT)" in service
   assert "c.clipRect(0f, 0f, DRIVE_RIGHT, HEIGHT)" in service
+  assert "NATIVE_SYSTEM_RATIO = 0.15f" in service
+  assert "drawNativeSystemPanel(c, p, s)" in service
+  assert "float equalizeX = nativeScaleY / nativeScaleX" in service
+  assert "float contentScale = targetWidthPx" in service
   assert "c.drawBitmap(phoneFrame, phoneNativeSource" not in service
   assert "drawNativeMapCard" not in service
   assert "drawNativeStatusBar" not in service

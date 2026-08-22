@@ -152,7 +152,7 @@ public final class MainActivity extends Activity {
 
         root.addView(text("EON Remote HUD", 27.0f, Color.WHITE, Typeface.BOLD));
 
-        View subtitle = text("v0.40  ·  비율 보존 원본 3열 전체높이 UI / 1CBE:0092",
+        View subtitle = text("v0.41  ·  8/9.2인치 우측 정보 15% 맞춤 UI / 1CBE:0092",
                 14.0f, Color.rgb(145, 158, 171), Typeface.NORMAL);
         LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -210,7 +210,7 @@ public final class MainActivity extends Activity {
         LinearLayout displayCard = card();
         displayCard.addView(text("순정 내비 화면", 18.0f, Color.WHITE, Typeface.BOLD));
         TextView displayGuide = text(
-                "8인치 또는 9.2인치를 선택하면 주행·지도·시스템 원본 배치를 유지하고, 글자·차량·지도는 비율을 보존해 화면 전체 높이에 맞춥니다. nMirror 즐겨찾기 바로 옆부터 표시됩니다.",
+                "8인치 또는 9.2인치를 선택하면 주행 화면 비율은 유지하고 우측 정보 패널을 실제 폭의 15%로 맞춥니다. 글자·차량·지도 비율을 보존하며 nMirror 즐겨찾기 바로 옆부터 표시됩니다.",
                 14.0f, Color.rgb(190, 200, 210), Typeface.NORMAL);
         displayGuide.setLineSpacing(0.0f, 1.18f);
         LinearLayout.LayoutParams displayGuideParams = new LinearLayout.LayoutParams(
