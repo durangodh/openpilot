@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -14,17 +15,19 @@ import android.view.WindowInsetsController;
 import android.view.WindowManager;
 
 /**
- * TMAP 위의 전환 버튼에서 여는 S9 전용 HUD 화면.
+ * nMirror 즐겨찾기의 HUD 전환 아이콘에서 여는 S9 전용 HUD 화면.
  *
  * TMAP 위에 overlay window를 얹지 않고 독립 Activity가 화면 전체를 소유한다.
- * 영상이 아닌 작은 전환 버튼만 overlay로 유지해 기존 TMAP task로 돌아간다.
+ * 같은 즐겨찾기 아이콘을 다시 누르면 이 task를 닫아 기존 TMAP으로 돌아간다.
  */
 public final class HudFullscreenActivity extends Activity {
 
     static final String ACTION_SHOW_HUD = "ai.comma.remotehud.SHOW_HUD";
     static final String ACTION_SHOW_TMAP = "ai.comma.remotehud.SHOW_TMAP";
 
+    private static volatile long lastPauseElapsed;
     private static volatile boolean screenVisible;
+    private static volatile boolean taskOpen;
 
     private HudFrameView frameView;
 
@@ -34,6 +37,7 @@ public final class HudFullscreenActivity extends Activity {
         if (handleScreenAction(getIntent())) {
             return;
         }
+        taskOpen = true;
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -55,7 +59,6 @@ public final class HudFullscreenActivity extends Activity {
     protected void onResume() {
         super.onResume();
         screenVisible = true;
-        HudService.setHudScreenVisible(true);
         hideSystemUi();
         startHudService();
         if (frameView != null) {
@@ -66,7 +69,7 @@ public final class HudFullscreenActivity extends Activity {
     @Override
     protected void onPause() {
         screenVisible = false;
-        HudService.setHudScreenVisible(false);
+        lastPauseElapsed = SystemClock.elapsedRealtime();
         if (frameView != null) {
             frameView.stop();
         }
@@ -76,18 +79,18 @@ public final class HudFullscreenActivity extends Activity {
     @Override
     protected void onDestroy() {
         screenVisible = false;
-        HudService.setHudScreenVisible(false);
+        taskOpen = false;
         super.onDestroy();
     }
 
-    static boolean isScreenVisible() {
-        return screenVisible;
+    static boolean shouldCloseForFavoriteLaunch() {
+        long sincePause = SystemClock.elapsedRealtime() - lastPauseElapsed;
+        return taskOpen && (screenVisible || (sincePause >= 0L && sincePause < 1000L));
     }
 
     private boolean handleScreenAction(Intent intent) {
         if (intent != null && ACTION_SHOW_TMAP.equals(intent.getAction())) {
-            screenVisible = false;
-            HudService.setHudScreenVisible(false);
+            taskOpen = false;
             finishAndRemoveTask();
             return true;
         }

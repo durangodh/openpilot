@@ -11,7 +11,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- v0.13: 화면 꺼짐/도즈 상태에서 렌더·전송 스레드 유지 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
@@ -19,6 +18,22 @@
         android:label="EON Remote HUD"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".HudFavoriteActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:icon="@drawable/ic_hud_switch"
+            android:label="HUD 전환"
+            android:launchMode="singleTask"
+            android:noHistory="true"
+            android:taskAffinity="ai.comma.remotehud.favorite"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
         <activity
             android:name=".HudFullscreenActivity"

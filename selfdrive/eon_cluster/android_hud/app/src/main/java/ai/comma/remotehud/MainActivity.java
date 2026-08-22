@@ -6,12 +6,10 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.Settings;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -48,14 +46,12 @@ public final class MainActivity extends Activity {
     private TextView fpsValue;
     private TextView jpegValue;
     private TextView mapValue;
-    private Button overlayPermissionButton;
     private TextView permissionValue;
     private Button rescanUsbButton;
     private TextView serviceValue;
     private Button startButton;
     private Button stopButton;
     private TextView usbValue;
-    private boolean openOverlayAfterNotification;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -142,10 +138,6 @@ public final class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, results);
         if (requestCode == NOTIFICATION_PERMISSION_REQUEST) {
             startHudService();
-            if (openOverlayAfterNotification && !Settings.canDrawOverlays(this)) {
-                openOverlayAfterNotification = false;
-                openOverlayPermission();
-            }
         }
     }
 
@@ -161,7 +153,7 @@ public final class MainActivity extends Activity {
 
         root.addView(text("EON Remote HUD", 27.0f, Color.WHITE, Typeface.BOLD));
 
-        View subtitle = text("v0.35  ·  8인치/9.2인치 화면 프로필 / 1CBE:0092",
+        View subtitle = text("v0.36  ·  nMirror 즐겨찾기 HUD 전환 / 1CBE:0092",
                 14.0f, Color.rgb(145, 158, 171), Typeface.NORMAL);
         LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -253,9 +245,9 @@ public final class MainActivity extends Activity {
         root.addView(displayCard, cardParams());
 
         LinearLayout permissionCard = card();
-        permissionCard.addView(text("최초 실행 권한 안내", 18.0f, Color.WHITE, Typeface.BOLD));
+        permissionCard.addView(text("알림 권한", 18.0f, Color.WHITE, Typeface.BOLD));
         permissionValue = text(
-                "TMAP 위에 HUD 전환 버튼을 표시하려면 화면 오버레이 권한이 필요합니다. 외부 HUD를 연결하면 USB 사용 창에서 ‘항상 허용’을 선택하세요.",
+                "알림을 누르면 이 설정 화면을 다시 열 수 있습니다. 외부 HUD를 연결하면 USB 사용 창에서 ‘항상 허용’을 선택하세요.",
                 15.0f, Color.rgb(190, 200, 210), Typeface.NORMAL);
         permissionValue.setLineSpacing(0.0f, 1.18f);
         LinearLayout.LayoutParams permissionParams = new LinearLayout.LayoutParams(
@@ -272,18 +264,6 @@ public final class MainActivity extends Activity {
         });
         permissionCard.addView(permissionButton, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
-
-        overlayPermissionButton = button("HUD 전환 버튼 오버레이 권한", Color.rgb(40, 92, 132));
-        overlayPermissionButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                openOverlayPermission();
-            }
-        });
-        LinearLayout.LayoutParams overlayPermissionParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
-        overlayPermissionParams.setMargins(0, dp(10), 0, 0);
-        permissionCard.addView(overlayPermissionButton, overlayPermissionParams);
 
         root.addView(permissionCard, cardParams());
 
@@ -325,16 +305,12 @@ public final class MainActivity extends Activity {
 
         boolean notifyGranted = Build.VERSION.SDK_INT < 33
                 || checkSelfPermission("android.permission.POST_NOTIFICATIONS") == 0;
-        boolean overlayGranted = Settings.canDrawOverlays(this);
         String notificationStatus = notifyGranted
                 ? "알림 권한: 허용됨"
                 : "알림 권한: 미허용 (서비스는 동작하지만 알림이 보이지 않습니다)";
         permissionValue.setText(notificationStatus
-                + "\nHUD 전환 버튼: " + (overlayGranted ? "허용됨" : "미허용")
-                + "\n화면 전환: TMAP의 HUD 버튼 ↔ HUD의 TMAP 버튼"
+                + "\n화면 전환: nMirror 즐겨찾기의 ‘HUD 전환’ 아이콘"
                 + "\nUSB 권한: 외부 HUD 사용 시 ‘항상 허용’을 선택하세요.");
-        overlayPermissionButton.setText(overlayGranted
-                ? "HUD 전환 버튼 오버레이 허용됨" : "HUD 전환 버튼 오버레이 권한");
     }
 
     private void onAutoStartChanged(CompoundButton buttonView, boolean checked) {
@@ -345,9 +321,9 @@ public final class MainActivity extends Activity {
     private void showFirstRunGuide() {
         new AlertDialog.Builder(this)
                 .setTitle("최초 실행 안내")
-                .setMessage("1. 알림 권한과 HUD 전환 버튼 오버레이 권한을 허용합니다.\n\n"
+                .setMessage("1. 알림 권한을 허용합니다.\n\n"
                         + "2. nMirror는 기존처럼 TMAP을 자동 실행합니다.\n\n"
-                        + "3. TMAP 위 HUD 버튼을 누르면 HUD 전체화면, HUD 위 TMAP 버튼을 누르면 기존 TMAP으로 돌아갑니다.\n\n"
+                        + "3. nMirror 즐겨찾기에 ‘HUD 전환’을 추가합니다. 한 번 누르면 HUD, 다시 누르면 기존 TMAP으로 돌아갑니다.\n\n"
                         + "4. 외부 HUD도 함께 쓰는 경우 USB 창에서 ‘항상 허용’을 선택합니다.\n\n"
                         + "EON과 S9은 같은 네트워크에서 UDP 7210 / TCP 7211 통신이 가능해야 합니다.")
                 .setPositiveButton("권한 확인", new DialogInterface.OnClickListener() {
@@ -389,26 +365,12 @@ public final class MainActivity extends Activity {
     private void requestSetupPermissionsThenStart() {
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != 0) {
-            openOverlayAfterNotification = true;
             requestPermissions(
                     new String[]{"android.permission.POST_NOTIFICATIONS"},
                     NOTIFICATION_PERMISSION_REQUEST);
             startHudService();
         } else {
             startHudService();
-            if (!Settings.canDrawOverlays(this)) {
-                openOverlayPermission();
-            }
-        }
-    }
-
-    private void openOverlayPermission() {
-        try {
-            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
-        } catch (Exception ignored) {
-            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
         }
     }
 

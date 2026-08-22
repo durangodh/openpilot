@@ -176,7 +176,6 @@ public final class HudService extends Service {
             Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
     private final RectF phoneDestination = new RectF();
     private final RectF phoneViewport = new RectF();
-    private HudSwitchOverlay switchOverlay;
     private long nextUsbAttemptElapsed;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Matrix outMatrix = new Matrix();
@@ -264,22 +263,12 @@ public final class HudService extends Service {
                 fpsOk ? measuredFps : 0.0f, jpegOk ? lastJpegBytes : 0);
     }
 
-    static void setHudScreenVisible(boolean visible) {
-        HudService service = activeInstance;
-        if (service != null && service.switchOverlay != null) {
-            service.switchOverlay.setHudVisible(visible);
-        }
-    }
-
     // ── 라이프사이클 ──────────────────────────────────────────────────────
 
     @Override
     public void onCreate() {
         super.onCreate();
         activeInstance = this;
-        switchOverlay = new HudSwitchOverlay(this);
-        switchOverlay.setHudVisible(HudFullscreenActivity.isScreenVisible());
-        switchOverlay.start();
         egoCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_ego_car);
         otherCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_other_car);
         // 핸들 이미지는 선택 사항이라 R.drawable 을 직접 참조하지 않는다.
@@ -323,10 +312,6 @@ public final class HudService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (switchOverlay != null) {
-            switchOverlay.setHudVisible(HudFullscreenActivity.isScreenVisible());
-            switchOverlay.start();
-        }
         if (intent != null && ACTION_RESCAN_USB.equals(intent.getAction()) && running.get()) {
             requestUsbRescan();
             return START_STICKY;
@@ -2454,10 +2439,6 @@ public final class HudService extends Service {
         measuredFps = 0.0f;
         lastJpegBytes = 0;
         lastRenderElapsed = 0L;
-        if (switchOverlay != null) {
-            switchOverlay.stop();
-            switchOverlay = null;
-        }
         if (activeInstance == this) {
             activeInstance = null;
         }
