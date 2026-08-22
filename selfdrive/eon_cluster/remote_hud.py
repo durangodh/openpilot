@@ -35,10 +35,13 @@ NAVI_MAX_AGE_MS = 35000
 NAVI_GUIDANCE_MAX_AGE_MS = 3000
 MAP_IDLE_JPEG = base64.b64decode(
   "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDz+iiigD//2Q==")
-FPS = 10
+MAX_TELEMETRY_FPS = 10
+PAUSED_TELEMETRY_FPS = 2
 PARAM_ENABLED = "EonClusterHud"
 PARAM_CONNECTED = "EonClusterHudConnected"
 PARAM_HEARTBEAT = "EonClusterHudHeartbeat"
+PARAM_FPS = "EonClusterHudFps"
+PARAM_MAP_FPS = "EonClusterHudMapFps"
 HEARTBEAT_PERIOD_S = 2.0
 PARAM_ATC_MODE = "CarrotAutoTurnControl"
 _NAVI_CACHE = {"signature": None, "state": {}, "scene_sig": None, "scene": None}
@@ -98,6 +101,11 @@ class MapFrameServer(object):
     self.cached = {tag: fallback for tag, _, _, fallback in self.ASSETS}
     self.pending = set(tag for tag, _, _, _ in self.ASSETS)
     self.last_send = 0.0
+    self.poll_interval = 1.0 / 5.0
+    self.next_poll = 0.0
+
+  def set_poll_fps(self, fps):
+    self.poll_interval = 1.0 / max(1.0, float(fps))
 
   def _drop_client(self):
     if self.client is not None:
@@ -148,6 +156,17 @@ class MapFrameServer(object):
     self.client.sendall(tag + struct.pack(">I", len(payload)) + payload)
 
   def poll(self):
+    now = time.monotonic()
+    if now < self.next_poll:
+      return
+    # Advance from the previous deadline instead of from `now`. This avoids
+    # quantizing a 3 Hz map stream down to 2.3-2.5 Hz when telemetry runs at
+    # 7 or 10 Hz. If the process was stalled, skip the missed polls rather
+    # than doing a burst of file I/O.
+    self.next_poll += self.poll_interval
+    if self.next_poll <= now:
+      self.next_poll = now + self.poll_interval
+
     if self.client is None:
       try:
         self.client, _ = self.listener.accept()
@@ -160,7 +179,6 @@ class MapFrameServer(object):
     for asset in self.ASSETS:
       self._refresh_asset(*asset)
 
-    now = time.monotonic()
     if now - self.last_send >= MAP_KEEPALIVE_S:
       self.pending.add(b"MAP1")
 
@@ -709,6 +727,9 @@ def main():
   map_server = MapFrameServer()
   atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
   path_offset = _path_offset(params)
+  configured_fps = _param_int(params, PARAM_FPS, 7, 0, 15)
+  telemetry_fps = PAUSED_TELEMETRY_FPS if configured_fps == 0 else min(MAX_TELEMETRY_FPS, configured_fps)
+  map_server.set_poll_fps(_param_int(params, PARAM_MAP_FPS, 3, 2, 5))
   next_param_read = 0.0
   while running[0]:
     started = time.monotonic()
@@ -723,6 +744,9 @@ def main():
     if started >= next_param_read:
       atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
       path_offset = _path_offset(params)
+      configured_fps = _param_int(params, PARAM_FPS, 7, 0, 15)
+      telemetry_fps = PAUSED_TELEMETRY_FPS if configured_fps == 0 else min(MAX_TELEMETRY_FPS, configured_fps)
+      map_server.set_poll_fps(_param_int(params, PARAM_MAP_FPS, 3, 2, 5))
       next_param_read = started + 1.0
     sm.update(0)
     try:
@@ -742,7 +766,7 @@ def main():
       connected = False
       _publish_connected(params, published, False)
       print("remote HUD send failed: %s" % exc, flush=True)
-    time.sleep(max(0.0, 1.0 / FPS - (time.monotonic() - started)))
+    time.sleep(max(0.0, 1.0 / telemetry_fps - (time.monotonic() - started)))
   _publish_connected(params, published, False)
   map_server.close()
   sock.close()

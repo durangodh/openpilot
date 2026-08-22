@@ -4,20 +4,30 @@ Keeps the existing low-overhead remote_hud transport and exposes the S9 HUD
 Params to the Android renderer for live tuning.
 """
 
+import time
+
 from common.params import Params
 from selfdrive.eon_cluster import remote_hud as base
 
 
 _params = Params()
 _original_packet = base._packet
+_param_cache = {}
+PARAM_CACHE_S = 1.0
 
 
 def _bounded_int(key, default, minimum, maximum):
-  try:
-    raw = _params.get(key)
-    value = int(raw) if raw is not None else default
-  except (TypeError, ValueError):
-    value = default
+  now = time.monotonic()
+  cached = _param_cache.get(key)
+  if cached is not None and now - cached[0] < PARAM_CACHE_S:
+    value = cached[1]
+  else:
+    try:
+      raw = _params.get(key)
+      value = int(raw) if raw is not None else default
+    except (TypeError, ValueError):
+      value = default
+    _param_cache[key] = (now, value)
   return max(minimum, min(maximum, value))
 
 
@@ -60,8 +70,8 @@ def _packet(sm, *args, **kwargs):
   packet = _apply_path_flip(packet)
 
   # Preserve 0 for FPS (pause) and brightness (auto), matching the UI.
-  packet["hudFps"] = _bounded_int("EonClusterHudFps", 8, 0, 15)
-  packet["hudMapFps"] = _bounded_int("EonClusterHudMapFps", 5, 2, 5)
+  packet["hudFps"] = _bounded_int("EonClusterHudFps", 7, 0, 15)
+  packet["hudMapFps"] = _bounded_int("EonClusterHudMapFps", 3, 2, 5)
   packet["hudBrightness"] = _bounded_int("EonClusterHudBrightness", 65, 0, 100)
   packet["hudJpegQuality"] = _bounded_int("EonClusterHudJpegQuality", 55, 20, 95)
   packet["hudScreenMode"] = _bounded_int("EonClusterHudScreenMode", 1, 1, 3)

@@ -1209,17 +1209,20 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "EON 주행 데이터를 S9 앱으로 전송합니다. 아래 출력 대상에서 외부 HUD와 S9 화면을 선택할 수 있습니다.",
       "../assets/offroad/icon_road.png", this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudFps", "S9 HUD 프레임", "S9 HUD 렌더링 속도: 0 정지 / 1~15 fps, 기본값 10",
-      "../assets/offroad/icon_road.png", 0, 15, 1, 0, 10, this));
+      "EonClusterHudFps", "S9 HUD 프레임",
+      "EON 주행정보 송신과 S9 렌더링 속도입니다. 권장값 7 / 0은 화면 정지(연결유지 2Hz) / 10 초과는 EON 송신 10Hz 상한.",
+      "../assets/offroad/icon_road.png", 0, 15, 1, 0, 7, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudMapFps", "S9 HUD 지도 프레임", "S9에 전송되는 티맵 지도 갱신 속도: 2~5 fps, 기본값 5",
-      "../assets/offroad/icon_road.png", 2, 5, 1, 0, 5, this));
+      "EonClusterHudMapFps", "S9 HUD 지도 프레임",
+      "티맵 지도 수신·파일검사·S9 전송 속도입니다. 권장값 3 / 부하 최소 2 / 움직임 우선 5.",
+      "../assets/offroad/icon_road.png", 2, 5, 1, 0, 3, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudBrightness", "S9 HUD 밝기", "S9 외부 HUD 밝기: 0 자동 / 1~100 고정",
       "../assets/offroad/icon_road.png", 0, 100, 5, 0, 65, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudJpegQuality", "S9 HUD 화질", "S9에서 생성하는 HUD JPEG 품질: 20~95",
-      "../assets/offroad/icon_road.png", 20, 95, 1, 0, 58, this));
+      "EonClusterHudJpegQuality", "S9 HUD 화질",
+      "S9에서 생성해 외부 HUD로 보내는 JPEG 품질입니다. 권장값 55 / 선명도 우선 60. EON CPU 영향은 작습니다.",
+      "../assets/offroad/icon_road.png", 20, 95, 1, 0, 55, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudOutputTarget", "HUD 출력 대상",
       "1: 외부 HUD / 2: S9 화면 / 3: 동시 출력",
