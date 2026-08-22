@@ -47,7 +47,7 @@ class CruiseHelper:
     self.long_active_user = 0
     self.long_active_user_ready = 0
     self.user_cruise_paused = False
-    self.v_cruise_kph_backup = float(MIN_SET_SPEED_KPH)
+    self.v_cruise_kph_backup = 0.0
     self.prev_brake_pressed = False
     self.gas_pressed_count = 0
     self.pre_gas_pressed_max = 0.0
@@ -121,8 +121,10 @@ class CruiseHelper:
     self.cruise_speed_unit = int(clip(self.params.get_int("CruiseSpeedUnit"), 1, 20))
     self.cruise_speed_unit_basic = int(clip(self.params.get_int("CruiseSpeedUnitBasic"), 1, 10))
     self.cruise_button_long_delay = int(clip(self.params.get_int("CruiseButtonLongDelay"), 30, 150))
-    table = [self.params.get_int(f"CruiseSpeed{i}") for i in range(1, 6)]
-    self.cruise_speed_table = sorted(float(clip(v, self.cruise_speed_min, MAX_SET_SPEED_KPH)) for v in table)
+    # c3-wip keeps the raw values and resolves them at use time so an unset
+    # CruiseSpeed1 can fall back to the live road speed limit.
+    self.cruise_speed_table_raw = [self.params.get_int(f"CruiseSpeed{i}") for i in range(1, 6)]
+    self.cruise_speed_table = self.build_cruise_speed_table()
     self.sync_set_speed_while_gas_pressed = self.params.get_bool("SccSmootherSyncGasPressed")
     self.cruise_max_vals = []
     for key, default in zip(CRUISE_MAX_VAL_KEYS, CRUISE_MAX_VAL_DEFAULTS):
@@ -206,6 +208,31 @@ class CruiseHelper:
 
     self.read_driving_mode_params(initialize=True)
 
+  def build_cruise_speed_table(self):
+    # c3-wip behavior: CruiseSpeed1 left at 0 tracks the road speed limit
+    # instead of collapsing to the minimum set speed. Entries that stay at or
+    # below zero are dropped so RES never steps onto a placeholder value.
+    raw_values = list(getattr(self, "cruise_speed_table_raw", []))
+    resolved = []
+    for index, raw in enumerate(raw_values):
+      value = float(raw)
+      if index == 0 and value <= 0.0:
+        road_limit = float(self.last_road_limit_speed)
+        if road_limit > 0.0:
+          offset = float(getattr(self, "auto_road_speed_limit_offset", 0.0))
+          safety = float(getattr(self, "auto_navi_speed_safety_factor", 1.0))
+          value = road_limit * safety if offset < 0.0 else road_limit + offset
+      if value <= 0.0:
+        continue
+      resolved.append(float(clip(value, self.cruise_speed_min, MAX_SET_SPEED_KPH)))
+    return sorted(set(resolved))
+
+  def _clear_speed_backup(self):
+    # c3-wip treats the pre-brake speed as single use: once RES restores it, or
+    # SET states a new intent, the stored value is dropped so a stale set speed
+    # cannot reappear minutes later.
+    self.v_cruise_kph_backup = 0.0
+
   def kph_to_clu(self, kph):
     return int(kph * CV.KPH_TO_MS * self.speed_conv_to_clu)
 
@@ -270,6 +297,8 @@ class CruiseHelper:
     else:
       selected = current_kph
     controls.v_cruise_kph = float(clip(selected, self.cruise_speed_min, MAX_SET_SPEED_KPH))
+    if selected == backup_kph:
+      self._clear_speed_backup()
 
   def _brake_release_resume(self, controls, CS):
     if not self.auto_cruise_control:
@@ -285,7 +314,9 @@ class CruiseHelper:
       return
 
     gas_time = (self.param_read_counter - self.gas_pressed_frame) * DT_CTRL
-    if v_ego_kph < 20.0:
+    # c3-wip gates this on AutoGasTokSpeed rather than a hardcoded 20 km/h, so
+    # the UI value covers both pedal-resume paths.
+    if v_ego_kph < self.auto_resume_from_gas_speed:
       gas_wait = 5.0 if self.slow_speed_frame_count * DT_CTRL > 10.0 else 0.0
       if gas_time < gas_wait:
         return
@@ -453,9 +484,11 @@ class CruiseHelper:
                                         controls.v_cruise_kph if controls.v_cruise_kph <= MAX_SET_SPEED_KPH else 0.0)
           else:
             controls.v_cruise_kph = current_kph
+          self._clear_speed_backup()
           self._resume_longitudinal(controls, CS, 1)
         elif not self.button_long_pressed:
           controls.v_cruise_kph = self.apply_button_speed(controls.v_cruise_kph, event.type, False, CS.vEgo)
+          self._clear_speed_backup()
         self.button_count = 0
         self.button_long_pressed = False
         self.button_prev = ButtonType.unknown
@@ -464,6 +497,7 @@ class CruiseHelper:
       self.button_long_pressed = True
       if self.button_prev in (ButtonType.accelCruise, ButtonType.decelCruise):
         controls.v_cruise_kph = self.apply_button_speed(controls.v_cruise_kph, self.button_prev, True, CS.vEgo)
+        self._clear_speed_backup()
         self._resume_longitudinal(controls, CS, 1)
         self.button_count %= self.cruise_button_long_delay
 
@@ -525,10 +559,14 @@ class CruiseHelper:
       else:
         speed_kph -= delta - -speed_kph % delta
     elif button_type == ButtonType.accelCruise:
+      # Resolve on every press so an unset CruiseSpeed1 follows the road limit
+      # as it changes, instead of being frozen at param-read time.
+      if self.cruise_button_mode == 3:
+        self.cruise_speed_table = self.build_cruise_speed_table()
       if self.cruise_button_mode == 3 and self.cruise_speed_table:
         speed_kph = next((value for value in self.cruise_speed_table if value > speed_kph + 0.1),
-                         speed_kph + self.cruise_speed_unit)
-      elif self.cruise_button_mode in (1, 2):
+                         ((speed_kph // self.cruise_speed_unit) + 1) * self.cruise_speed_unit)
+      elif self.cruise_button_mode in (1, 2, 3):
         speed_kph = 30 if speed_kph < 30 else ((speed_kph // self.cruise_speed_unit) + 1) * self.cruise_speed_unit
       else:
         speed_kph += self.cruise_speed_unit_basic if self.is_metric else self.cruise_speed_unit_basic * CV.MPH_TO_KPH
