@@ -156,8 +156,9 @@ def test_s9_tmap_first_switch_uses_nmirror_favorite_and_internal_fullscreen_acti
   assert "drawNativeSystemPanel(c, p, s)" in service
   assert "float equalizeX = nativeScaleY / nativeScaleX" in service
   assert "float contentScale = targetWidthPx" in service
-  assert "NATIVE_RPM_RAISE_PX = 18f" in service
-  assert "-NATIVE_RPM_RAISE_PX / nativeWidgetScale" in service
+  assert "RPM_LABEL_BASELINE = 82f" in service
+  assert "RPM_VALUE_BASELINE = 86f" in service
+  assert "-NATIVE_RPM_RAISE_PX / nativeWidgetScale" not in service
   assert "c.drawBitmap(phoneFrame, phoneNativeSource" not in service
   assert "drawNativeMapCard" not in service
   assert "drawNativeStatusBar" not in service
