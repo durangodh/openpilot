@@ -90,6 +90,8 @@ public final class HudService extends Service {
     private static final int PHONE_9_SIDEBAR = 0;
     /** 순정 내비에서 우측 정보 패널이 차지하는 실제 화면 폭 비율. */
     private static final float NATIVE_SYSTEM_RATIO = 0.15f;
+    /** 순정 8/9.2인치에서 RPM 아크·라벨·숫자를 함께 올리는 실제 픽셀값. */
+    private static final float NATIVE_RPM_RAISE_PX = 18f;
 
     /** 속도 숫자 기준선. 예전 KM 라벨이 있던 자리로, 위쪽 RPM 아크 공간용. */
     private static final float SPEED_BASELINE = 118f;
@@ -1063,6 +1065,10 @@ public final class HudService extends Service {
         c.restoreToCount(save3);
 
         int saveRpm = beginElement(c, l, "rpm", DRIVE_CX, 118f);
+        if (nativeLayoutRendering) {
+            // 실제 화면 기준 18px: 아크, RPM 라벨, 회전수 숫자를 한 묶음으로 이동한다.
+            c.translate(0f, -NATIVE_RPM_RAISE_PX / nativeWidgetScale);
+        }
         drawRpm(c, p, stale ? -1 : s.optInt("rpm", -1), lv(l, "rpmRedline", 6500f));
         c.restoreToCount(saveRpm);
 
