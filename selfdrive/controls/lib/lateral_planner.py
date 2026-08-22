@@ -182,6 +182,7 @@ class LateralPlanner:
     atc_state = self.DH.atc_state
     atc_map_requested = (self.DH.atc_turn_direction != 0 and not self.DH.atc_driver_cancel and
                          atc_state.get('fresh', False) and
+                         atc_state.get('route_fresh', False) and
                          atc_state.get('kind') in ('turn', 'uturn') and
                          3.0 <= float(atc_state.get('distance', -1.0)) <= 60.0 and
                          self.v_ego <= 50.0 * CV.KPH_TO_MS)
@@ -318,7 +319,11 @@ class LateralPlanner:
     lateralPlan.laneChangeState = self.DH.lane_change_state
     lateralPlan.laneChangeDirection = self.DH.lane_change_direction
     lateralPlan.atcMapBlend = float(self.atc_map_blend)
-    lateralPlan.atcTurnDirection = int(self.DH.atc_turn_direction if self.atc_map_blend > 0.005 else 0)
+    # Publish the active guidance/model desire even when the optional TMAP
+    # polyline is unavailable. atcMapBlend separately tells the HUD whether
+    # route curvature is actually contributing to steering.
+    lateralPlan.atcTurnDirection = int(
+      self.DH.atc_turn_direction if not self.DH.atc_driver_cancel else 0)
 
     plan_send.lateralPlan.dPathWLinesX = [float(x) for x in self.d_path_w_lines_xyz[:, 0]]
     plan_send.lateralPlan.dPathWLinesY = [float(y) for y in self.d_path_w_lines_xyz[:, 1]]

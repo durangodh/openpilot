@@ -1,4 +1,5 @@
 import math
+import statistics
 
 
 MAX_POLYLINE_POINTS = 24
@@ -16,6 +17,63 @@ def _finite_float(value, default=0.0):
   except (TypeError, ValueError):
     return default
   return number if math.isfinite(number) else default
+
+
+def _near_line_y(line, maximum_x=30.0):
+  """Robust near-field lateral position for HUD-only lane placement."""
+  xs = list(_field(line, "x", []) or [])
+  ys = list(_field(line, "y", []) or [])
+  values = [_finite_float(y, float("nan")) for x, y in zip(xs, ys)
+            if math.isfinite(_finite_float(x, float("nan"))) and
+            0.0 <= _finite_float(x) <= maximum_x and
+            math.isfinite(_finite_float(y, float("nan")))]
+  return statistics.median(values) if len(values) >= 2 else None
+
+
+def camera_lane_position(model):
+  """Estimate the ego lane from modelV2 lane lines and road edges.
+
+  modelV2 does not publish a semantic "lane 2" value. It does publish the two
+  ego-lane boundaries and both road edges, so the number of lane-width spaces
+  between them gives a conservative camera-relative lane index. This metadata
+  is display-only and never feeds lateral control.
+  """
+  lanes = list(_field(model, "laneLines", []) or [])
+  edges = list(_field(model, "roadEdges", []) or [])
+  lane_probs = list(_field(model, "laneLineProbs", []) or [])
+  edge_stds = list(_field(model, "roadEdgeStds", []) or [])
+  if len(lanes) < 3 or len(edges) < 2:
+    return None
+
+  try:
+    inner = [_near_line_y(lanes[1]), _near_line_y(lanes[2])]
+    road = [_near_line_y(edges[0]), _near_line_y(edges[1])]
+    inner_conf = min(_finite_float(lane_probs[1], 0.0), _finite_float(lane_probs[2], 0.0))
+    edge_conf = min(1.0 - _finite_float(edge_stds[0], 1.0),
+                    1.0 - _finite_float(edge_stds[1], 1.0))
+  except (IndexError, TypeError):
+    return None
+  if any(value is None for value in inner + road) or inner_conf < 0.45 or edge_conf < 0.40:
+    return None
+
+  lane_left, lane_right = max(inner), min(inner)
+  road_left, road_right = max(road), min(road)
+  lane_width = lane_left - lane_right
+  if not 2.5 <= lane_width <= 4.5 or road_left < lane_left or road_right > lane_right:
+    return None
+
+  left_lanes = int(round(max(0.0, road_left - lane_left) / lane_width))
+  right_lanes = int(round(max(0.0, lane_right - road_right) / lane_width))
+  total = 1 + left_lanes + right_lanes
+  current = 1 + left_lanes
+  if not 1 <= total <= 8 or not 1 <= current <= total:
+    return None
+  return {
+    "n": total,
+    "cur": current,
+    "confidence": round(min(inner_conf, edge_conf), 2),
+    "laneWidth": round(lane_width, 2),
+  }
 
 
 def _point_series(polyline):

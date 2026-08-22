@@ -409,13 +409,17 @@ class DesireHelper:
     if effective_turn_direction and self.lane_change_state in (LaneChangeState.off, LaneChangeState.preLaneChange):
       self.desire = log.LateralPlan.Desire.turnLeft if effective_turn_direction < 0 else log.LateralPlan.Desire.turnRight
 
-    # LateralPlanner uses this already-validated state to blend TMAP route
-    # curvature into the model path. Never let map steering survive a driver
-    # override, brake press, stale route, or an actual lane change.
+    # Keep the turn desire independent from the optional route polyline.
+    # TMAP guidance_current is the authoritative turn request; route/vehicle
+    # updates can briefly lag behind it and are only needed by LateralPlanner's
+    # additional map-curvature blend. Cancelling ATC here on route_fresh hid
+    # an otherwise valid active direction from the planner/HUD and made map
+    # assistance drop abruptly during a short route-stream gap.
+    # Driver/brake/lateral/lane-change gates still cancel immediately.
     self.atc_state = atc_state
     self.atc_turn_direction = effective_turn_direction
     self.atc_driver_cancel = (opposite_torque or conflicting_blinker or carstate.brakePressed or
-                              not lateral_active or not atc_state.get('route_fresh', False) or
+                              not lateral_active or not atc_state.get('fresh', False) or
                               self.lane_change_state in (LaneChangeState.laneChangeStarting,
                                                          LaneChangeState.laneChangeFinishing))
 

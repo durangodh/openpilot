@@ -7,8 +7,8 @@ android {
     applicationId "ai.comma.remotehud"
     minSdk 26
     targetSdk 35
-    versionCode 64
-    versionName "0.48-atc-safe-indicator"
+    versionCode 65
+    versionName "0.49-camera-lane-atc"
   }
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_11

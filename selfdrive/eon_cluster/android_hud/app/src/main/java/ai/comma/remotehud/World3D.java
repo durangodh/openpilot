@@ -195,6 +195,17 @@ final class World3D {
     private final float[] curveY = new float[32];
     private int curveCount = 0;
 
+    // modelV2 laneLines + roadEdges 로 계산한 실제 카메라 기준 차로 위치.
+    // 티맵의 cur 값은 권장차로일 수 있으므로 자차 위치로 사용하지 않는다.
+    // 10 Hz 패킷에서 0.4초 연속 일치할 때만 바꾸고, 교차로에서 경계가 잠깐
+    // 사라지면 1초 동안 마지막 값을 유지해 화면이 좌우로 튀지 않게 한다.
+    private int cameraLaneCount = 0;
+    private int cameraLaneCur = 0;
+    private int pendingLaneCount = 0;
+    private int pendingLaneCur = 0;
+    private int pendingLaneFrames = 0;
+    private int missingLaneFrames = 0;
+
     /** 티맵 씬 데이터 주입. null 이면 전부 해제(안내 종료). */
     void setNavi(JSONObject scene) {
         tmapLaneCount = 0;
@@ -288,8 +299,10 @@ final class World3D {
         laneLCount = 0;
         laneRCount = 0;
         if (s == null) {
+            updateCameraLanePosition(null);
             return;
         }
+        updateCameraLanePosition(s.optJSONObject("lanePosition"));
         finalPath = s.optBoolean("pathFinal", false);
         pathCount = decode(s.optJSONArray("path"), pathX, pathY, pathZ);
 
@@ -311,7 +324,7 @@ final class World3D {
         }
         for (int i = 0; i < edges.length(); i++) {
             JSONObject e = edges.optJSONObject(i);
-            if (e == null || e.optDouble("c", 0d) < 0.18d) {
+            if (e == null || e.optDouble("c", 0d) < 0.40d) {
                 continue;
             }
             JSONArray pts = e.optJSONArray("p");
@@ -328,6 +341,36 @@ final class World3D {
             } else if (!leftSide && edgeRCount == 0) {
                 edgeRCount = decode(pts, edgeRX, edgeRY);
             }
+        }
+    }
+
+    private void updateCameraLanePosition(JSONObject position) {
+        int count = position == null ? 0 : position.optInt("n", 0);
+        int current = position == null ? 0 : position.optInt("cur", 0);
+        double confidence = position == null ? 0d : position.optDouble("confidence", 0d);
+        boolean valid = count >= 1 && count <= TMAP_MAX_LANES
+                && current >= 1 && current <= count && confidence >= 0.40d;
+        if (!valid) {
+            pendingLaneFrames = 0;
+            if (++missingLaneFrames > 10) {
+                cameraLaneCount = 0;
+                cameraLaneCur = 0;
+            }
+            return;
+        }
+        missingLaneFrames = 0;
+        if (count == cameraLaneCount && current == cameraLaneCur) {
+            pendingLaneFrames = 0;
+            return;
+        }
+        if (count != pendingLaneCount || current != pendingLaneCur) {
+            pendingLaneCount = count;
+            pendingLaneCur = current;
+            pendingLaneFrames = 1;
+        } else if (++pendingLaneFrames >= 4) {
+            cameraLaneCount = count;
+            cameraLaneCur = current;
+            pendingLaneFrames = 0;
         }
     }
 
@@ -631,9 +674,9 @@ final class World3D {
         float laneW = laneWidthM > 0.1f
                 ? Math.max(2.2f, Math.min(4.2f, laneWidthM)) : TMAP_LANE_W;
         float half = (laneWidthM > 0.1f ? laneW * 1.27f : ROAD_HALF) + SHOULDER;
-        if (tmapLaneCount >= 2) {
-            int lanesOnSide = leftSide ? Math.max(0, tmapLaneCur - 1)
-                    : Math.max(0, tmapLaneCount - tmapLaneCur);
+        if (cameraLaneCount >= 1) {
+            int lanesOnSide = leftSide ? Math.max(0, cameraLaneCur - 1)
+                    : Math.max(0, cameraLaneCount - cameraLaneCur);
             half = laneW * 0.5f + laneW * lanesOnSide + SHOULDER;
         }
         return centerAt(x) + (leftSide ? half : -half);
@@ -821,7 +864,7 @@ final class World3D {
         if (edges != null) {
             for (int i = 0; i < edges.length(); i++) {
                 JSONObject e = edges.optJSONObject(i);
-                if (e == null || e.optDouble("c", 0d) < 0.18d) {
+                if (e == null || e.optDouble("c", 0d) < 0.40d) {
                     continue;
                 }
                 polyline(c, p, e.optJSONArray("p"), edgeColor, EDGE_PAINT_W, false, 255);
@@ -838,56 +881,27 @@ final class World3D {
             if (lane == null) {
                 continue;
             }
-            double conf = lane.optDouble("c", 1d);
+            double conf = lane.optDouble("c", 0d);
+            // 약한 modelV2 선을 최소 알파로 억지 표시하면 교차로에서 존재하지
+            // 않는 차선이 선명하게 생긴다. 카메라가 확신한 선만 그린다.
+            if (conf < 0.45d) {
+                continue;
+            }
             int alpha = (int) Math.max(70d, Math.min(255d, 90d + conf * 170d));
             boolean isEgo = (lanes.length() >= 3) && (i == 1 || i == 2);
             polyline(c, p, lane.optJSONArray("p"), isEgo ? ego : plain, LANE_PAINT_W, true, alpha);
         }
     }
 
-    /** 티맵 차로 수 기반 추가 구분선 + 차로별 방향 화살표.
-     *  모델은 자기 차로 양옆 선까지만 주므로, 그 밖의 차로는 티맵 count 로
-     *  자차 경로(centerAt)에 평행 오프셋해 그린다. 좌 +y. */
+    /** 카메라로 확인된 차로에만 티맵 방향 화살표를 얹는다.
+     *  티맵 차로 수만으로 평행선을 생성하던 코드는 실제 도로와 다른 가상차선을
+     *  만들었으므로 제거했다. 차로 수가 서로 다르면 화살표도 숨긴다. */
     private void drawTmapLanes(Canvas c, Paint p) {
-        if (tmapLaneCount < 2) {
+        if (tmapLaneCount < 2 || cameraLaneCount != tmapLaneCount
+                || cameraLaneCur < 1 || cameraLaneCur > cameraLaneCount) {
             return;
         }
-        int divider = dark ? Color.rgb(196, 205, 214) : Color.rgb(240, 243, 244);
-        int leftLanes = tmapLaneCur - 1;
-        int rightLanes = tmapLaneCount - tmapLaneCur;
-        // k=1 은 자기 차로 경계(모델이 이미 그림)라 k=2 부터.
-        for (int k = 2; k <= leftLanes; k++) {
-            drawParallelDash(c, p, 1.75f + TMAP_LANE_W * (k - 1), divider);
-        }
-        for (int k = 2; k <= rightLanes; k++) {
-            drawParallelDash(c, p, -(1.75f + TMAP_LANE_W * (k - 1)), divider);
-        }
         drawLaneArrows(c, p);
-    }
-
-    private void drawParallelDash(Canvas c, Paint p, float offset, int color) {
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(color);
-        p.setAlpha(150);
-        for (float x = 4f; x < 120f; x += DASH_PERIOD) {
-            float x2 = x + DASH_ON;
-            float y1 = centerAt(x) + offset;
-            float y2 = centerAt(x2) + offset;
-            if (!project(x, y1, 0f, pa) || !project(x2, y2, 0f, pb)) {
-                continue;
-            }
-            float w1 = LANE_PAINT_W * 0.5f * pxPerMeter(x + CAM_BACK);
-            float w2 = LANE_PAINT_W * 0.5f * pxPerMeter(x2 + CAM_BACK);
-            poly2.rewind();
-            poly2.moveTo(pa[0] - w1, pa[1]);
-            poly2.lineTo(pa[0] + w1, pa[1]);
-            poly2.lineTo(pb[0] + w2, pb[1]);
-            poly2.lineTo(pb[0] - w2, pb[1]);
-            poly2.close();
-            c.drawPath(poly2, p);
-        }
-        p.setAlpha(255);
     }
 
     /** 티맵 nLaneTurnInfo 코드 → 화살표 종류. 0 직진 / 1 좌 / 2 우 / 3 유턴.
@@ -907,10 +921,12 @@ final class World3D {
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         for (int i = 1; i <= tmapLaneCount; i++) {
-            float laneY = centerAt(ax) + TMAP_LANE_W * (tmapLaneCur - i);
+            float laneW = laneWidthM > 0.1f
+                    ? Math.max(2.5f, Math.min(4.2f, laneWidthM)) : TMAP_LANE_W;
+            float laneY = centerAt(ax) + laneW * (cameraLaneCur - i);
             boolean ok = tmapAvail[i - 1] != 0;
             int color;
-            if (i == tmapLaneCur) {
+            if (i == cameraLaneCur) {
                 color = dark ? Color.rgb(246, 206, 92) : Color.rgb(222, 168, 32);
             } else if (ok) {
                 color = dark ? Color.rgb(232, 238, 244) : Color.rgb(252, 253, 253);

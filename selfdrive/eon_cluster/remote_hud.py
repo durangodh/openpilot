@@ -19,7 +19,7 @@ from common.params import Params
 
 
 from selfdrive.modeld.constants import T_IDXS
-from selfdrive.eon_cluster.scene import final_lateral_path
+from selfdrive.eon_cluster.scene import camera_lane_position, final_lateral_path
 
 PORT = 7210
 MAP_PORT = 7211
@@ -679,6 +679,9 @@ def _packet(sm, atc_mode, path_offset=0.0):
     "stopDist": _stop_point(sm["longitudinalPlan"]),
     # 모델이 추정한 자기 차로 폭(m). 앱의 폴백 도로폭 계산에 쓴다.
     "laneWidth": round(_finite(_field(sm["lateralPlan"], "laneWidth", 0.0)), 2),
+    # 카메라 roadEdges/laneLines 로 추정한 도로 내 자차 위치. 화면 배치에만
+    # 사용하며 조향 제어에는 절대 되먹이지 않는다.
+    "lanePosition": camera_lane_position(sm["modelV2"]),
     "alert": _alert(controls),
     "navi": navi,
     "path": hud_path,
