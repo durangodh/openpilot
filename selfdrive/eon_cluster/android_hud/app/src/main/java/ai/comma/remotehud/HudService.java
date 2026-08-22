@@ -90,9 +90,8 @@ public final class HudService extends Service {
     private static final int PHONE_9_SIDEBAR = 0;
     /** 순정 내비에서 우측 정보 패널이 차지하는 실제 화면 폭 비율. */
     private static final float NATIVE_SYSTEM_RATIO = 0.15f;
-    /** 기어·ETA·주행모드 행과 겹치지 않도록 RPM 글자와 숫자만 위로 올린다. */
-    private static final float RPM_LABEL_BASELINE = 82f;
-    private static final float RPM_VALUE_BASELINE = 86f;
+    /** 순정 8/9.2인치에서 속도와 RPM 표시 전체를 함께 올리는 실제 픽셀값. */
+    private static final float NATIVE_GAUGE_RAISE_PX = 18f;
 
     /** 속도 숫자 기준선. 예전 KM 라벨이 있던 자리로, 위쪽 RPM 아크 공간용. */
     private static final float SPEED_BASELINE = 118f;
@@ -1062,10 +1061,17 @@ public final class HudService extends Service {
         c.restoreToCount(save2);
 
         int save3 = beginElement(c, l, "speed", DRIVE_CX, SPEED_BASELINE);
+        if (nativeLayoutRendering) {
+            c.translate(0f, -NATIVE_GAUGE_RAISE_PX / nativeWidgetScale);
+        }
         drawSpeed(c, p, stale ? -1 : s.optInt("speed", 0));
         c.restoreToCount(save3);
 
         int saveRpm = beginElement(c, l, "rpm", DRIVE_CX, 118f);
+        if (nativeLayoutRendering) {
+            // RPM 아크, RPM 라벨, 회전수 숫자를 속도 숫자와 같은 실제 높이만큼 이동한다.
+            c.translate(0f, -NATIVE_GAUGE_RAISE_PX / nativeWidgetScale);
+        }
         drawRpm(c, p, stale ? -1 : s.optInt("rpm", -1), lv(l, "rpmRedline", 6500f));
         c.restoreToCount(saveRpm);
 
@@ -1347,8 +1353,8 @@ public final class HudService extends Service {
             c.drawArc(scratchRect, start + step * i + gap, step - gap * 2f, false, p);
         }
 
-        text(c, p, "RPM", cx - r - RPM_LABEL_GAP, RPM_LABEL_BASELINE, 13f, dim(), Paint.Align.RIGHT);
-        text(c, p, String.format(Locale.US, "%,d", rpm), cx + r + RPM_LABEL_GAP, RPM_VALUE_BASELINE, 22f,
+        text(c, p, "RPM", cx - r - RPM_LABEL_GAP, 122f, 13f, dim(), Paint.Align.RIGHT);
+        text(c, p, String.format(Locale.US, "%,d", rpm), cx + r + RPM_LABEL_GAP, 124f, 22f,
                 ink(), Paint.Align.LEFT);
     }
 
