@@ -152,7 +152,7 @@ public final class MainActivity extends Activity {
 
         root.addView(text("EON Remote HUD", 27.0f, Color.WHITE, Typeface.BOLD));
 
-        View subtitle = text("v0.44  ·  우측 정보·속도/RPM 행 겹침 보정 UI / 1CBE:0092",
+        View subtitle = text("v0.45  ·  실차 화살표 기준 전체 배치 보정 UI / 1CBE:0092",
                 14.0f, Color.rgb(145, 158, 171), Typeface.NORMAL);
         LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -210,7 +210,7 @@ public final class MainActivity extends Activity {
         LinearLayout displayCard = card();
         displayCard.addView(text("순정 내비 화면", 18.0f, Color.WHITE, Typeface.BOLD));
         TextView displayGuide = text(
-                "8인치 또는 9.2인치를 선택하면 주행 화면 비율은 유지하고 우측 정보 패널을 실제 폭의 15%로 맞춥니다. 속도 숫자와 RPM 아크·RPM 글자·회전수 숫자를 모두 같은 높이만큼 위로 이동해 기어·도착시간·주행모드 행과 겹치지 않으며, nMirror 즐겨찾기 바로 옆부터 표시됩니다.",
+                "8인치 또는 9.2인치를 선택하면 주행 화면 비율은 유지하고 우측 정보 패널을 실제 폭의 15%로 맞춥니다. 속도·RPM과 설정속도는 위로, 앞차·TPMS·교차로 카드는 아래로 맞추고 다음 안내는 위로 붙였습니다. 우측 S9 정보는 전체 높이에 균등 배치되며 nMirror 즐겨찾기 바로 옆부터 표시됩니다.",
                 14.0f, Color.rgb(190, 200, 210), Typeface.NORMAL);
         displayGuide.setLineSpacing(0.0f, 1.18f);
         LinearLayout.LayoutParams displayGuideParams = new LinearLayout.LayoutParams(

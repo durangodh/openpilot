@@ -7,8 +7,8 @@ android {
     applicationId "ai.comma.remotehud"
     minSdk 26
     targetSdk 35
-    versionCode 60
-    versionName "0.44-native-speed-rpm-raise"
+    versionCode 61
+    versionName "0.45-native-layout-arrows"
   }
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_11

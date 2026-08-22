@@ -92,6 +92,9 @@ public final class HudService extends Service {
     private static final float NATIVE_SYSTEM_RATIO = 0.15f;
     /** 순정 8/9.2인치에서 속도와 RPM 표시 전체를 함께 올리는 실제 픽셀값. */
     private static final float NATIVE_GAUGE_RAISE_PX = 18f;
+    /** 순정 화면의 상·하단 카드 위치 보정값. */
+    private static final float NATIVE_CARD_SHIFT_PX = 18f;
+    private static final float NATIVE_ATC_SHIFT_PX = 24f;
 
     /** 속도 숫자 기준선. 예전 KM 라벨이 있던 자리로, 위쪽 RPM 아크 공간용. */
     private static final float SPEED_BASELINE = 118f;
@@ -1092,6 +1095,9 @@ public final class HudService extends Service {
         c.restoreToCount(save4);
 
         int save5 = beginElement(c, l, "set", DRIVE_CX, 171f);
+        if (nativeLayoutRendering) {
+            c.translate(0f, -NATIVE_CARD_SHIFT_PX / nativeWidgetScale);
+        }
         drawSetSpeed(c, p, DRIVE_CX, 171f, s.optInt("set", 0), enabled);
         c.restoreToCount(save5);
 
@@ -1112,10 +1118,16 @@ public final class HudService extends Service {
         c.restoreToCount(save6);
 
         int save7 = beginElement(c, l, "lead", 82f, 415f);
+        if (nativeLayoutRendering) {
+            c.translate(0f, NATIVE_CARD_SHIFT_PX / nativeWidgetScale);
+        }
         drawLeadCard(c, p, s.optJSONObject("lead"));
         c.restoreToCount(save7);
 
         int save8 = beginElement(c, l, "tpms", 865f, 415f);
+        if (nativeLayoutRendering) {
+            c.translate(0f, NATIVE_CARD_SHIFT_PX / nativeWidgetScale);
+        }
         drawTpms(c, p, s.optJSONObject("tpms"));
         c.restoreToCount(save8);
 
@@ -2019,12 +2031,14 @@ public final class HudService extends Service {
 
     /**
      * 8/9.2인치 순정 화면에서는 우측 정보 패널을 실제 폭의 15%로 확보한다.
-     * 배경은 전체 높이를 채우고, 내부 글자와 카드는 X/Y 동일 배율로 다시 그려
-     * 오른쪽 끝 잘림과 글자 찌그러짐을 함께 막는다.
+     * 일반 시스템/디버그 화면은 비율 보존 확대를 쓰고, S9 리모트 화면은
+     * 네이티브 픽셀 좌표로 다시 그려 위·아래 빈 공간 없이 균등 배치한다.
      */
     private void drawNativeSystemPanel(Canvas c, Paint p, JSONObject s) {
         float nativeWidth = phoneNativeFrame == null ? nativeScaleX * WIDTH
                 : phoneNativeFrame.getWidth();
+        float nativeHeight = phoneNativeFrame == null ? nativeScaleY * HEIGHT
+                : phoneNativeFrame.getHeight();
         float targetWidthPx = nativeWidth * NATIVE_SYSTEM_RATIO;
         float logicalLeft = SYSTEM_RIGHT - targetWidthPx / nativeScaleX;
 
@@ -2033,20 +2047,75 @@ public final class HudService extends Service {
         p.setColor(Color.rgb(7, 12, 18));
         c.drawRect(logicalLeft, 0f, SYSTEM_RIGHT, HEIGHT, p);
 
+        if (configuredOutputMode == 3) {
+            int pixelSave = c.save();
+            c.scale(1f / nativeScaleX, 1f / nativeScaleY);
+            drawNativeS9Remote(c, p, nativeWidth, nativeHeight, targetWidthPx);
+            c.restoreToCount(pixelSave);
+            return;
+        }
+
         int save = c.save();
         float equalizeX = nativeScaleY / nativeScaleX;
         float contentScale = targetWidthPx
                 / ((SYSTEM_RIGHT - SYSTEM_LEFT) * nativeScaleY);
         c.scale(equalizeX, 1f, SYSTEM_RIGHT, HEIGHT * 0.5f);
         c.scale(contentScale, contentScale, SYSTEM_RIGHT, HEIGHT * 0.5f);
-        if (configuredOutputMode == 3) {
-            drawS9Remote(c, p);
-        } else if (configuredOutputMode == 2) {
+        if (configuredOutputMode == 2) {
             drawSystemDebug(c, p, s);
         } else {
             drawSystem(c, p, s);
         }
         c.restoreToCount(save);
+    }
+
+    /** S9 상태 7개를 순정 패널의 위에서 아래까지 네이티브 픽셀로 배치한다. */
+    private void drawNativeS9Remote(Canvas c, Paint p, float width, float height,
+                                    float panelWidth) {
+        long now = SystemClock.elapsedRealtime();
+        long silence = display == null ? -1L : display.silenceMs();
+        long linkAge = lastReconnectElapsed == 0L ? -1L : now - lastReconnectElapsed;
+        Runtime rt = Runtime.getRuntime();
+        long usedMb = (rt.totalMemory() - rt.freeMemory()) / 1048576L;
+        String[][] rows = {
+                {"SoC", s9TempC < 0f ? "--" : String.format(Locale.US, "%.0f°C", s9TempC)},
+                {"CPU", s9CpuPercent < 0f ? "--" : String.format(Locale.US, "%.0f%%", s9CpuPercent)},
+                {"MEM", usedMb + "M"},
+                {"USB ERR", Integer.toString(usbErrorStreak)},
+                {"PANEL", silence < 0L ? "--" : String.format(Locale.US, "%.0fs", silence / 1000f)},
+                {"LINK", linkAge < 0L ? "--" : durationText(linkAge)},
+                {"OSM", osmWorld == null ? "--" : osmWorld.status()},
+        };
+
+        float unit = height / 480f;
+        float left = width - panelWidth;
+        float cx = width - panelWidth * 0.5f;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(7, 12, 18));
+        c.drawRect(left, 0f, width, height, p);
+        text(c, p, lang("S9 리모트", "S9 REMOTE"), cx, 23f * unit, 12f * unit,
+                Color.rgb(140, 210, 255), Paint.Align.CENTER);
+
+        float top = 37f * unit;
+        float rowHeight = 48f * unit;
+        float gap = 7f * unit;
+        float margin = 5f * unit;
+        for (String[] row : rows) {
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.rgb(16, 23, 32));
+            scratchRect.set(left + margin, top, width - margin, top + rowHeight);
+            c.drawRoundRect(scratchRect, 6f * unit, 6f * unit, p);
+            text(c, p, row[0], cx, top + 18f * unit, 9f * unit,
+                    Color.rgb(140, 152, 162), Paint.Align.CENTER);
+            text(c, p, row[1], cx, top + 40f * unit, 16f * unit,
+                    Color.rgb(235, 240, 245), Paint.Align.CENTER);
+            top += rowHeight + gap;
+        }
+        text(c, p, lang("USB 오류 / 패널 응답", "USB ERR / PANEL"), cx, 448f * unit,
+                8f * unit, Color.rgb(110, 122, 132), Paint.Align.CENTER);
+        text(c, p, lang("LINK = 재연결 경과", "LINK = RECONNECT"), cx, 468f * unit,
+                8f * unit, Color.rgb(110, 122, 132), Paint.Align.CENTER);
     }
 
     private String systemValue(JSONObject system, String key, String unit) {
@@ -2479,6 +2548,9 @@ public final class HudService extends Service {
                     Color.GRAY, Paint.Align.CENTER);
             c.restoreToCount(waitSave);
             int atcSave = beginElement(c, l, "atc", 1034f, 393f);
+            if (nativeLayoutRendering) {
+                c.translate(0f, NATIVE_ATC_SHIFT_PX / nativeWidgetScale);
+            }
             drawAtc(c, p, s);
             c.restoreToCount(atcSave);
             return;
@@ -2503,6 +2575,9 @@ public final class HudService extends Service {
         float tbtBottom = drawTbtBanner(c, p, s.optJSONObject("navi"), 962f, 8f);
         c.restoreToCount(save);
         int save2 = beginElement(c, l, "tbt2", 1144f, 190f);
+        if (nativeLayoutRendering) {
+            c.translate(0f, -NATIVE_CARD_SHIFT_PX / nativeWidgetScale);
+        }
         drawTbtNext(c, p, s.optJSONObject("navi"), 962f, tbtBottom + 2f);
         c.restoreToCount(save2);
         int save3 = beginElement(c, l, "lane", 1395f, 408f);
@@ -2511,6 +2586,9 @@ public final class HudService extends Service {
 
         // ATC 안내는 주행 패널에서 TMAP 패널 좌하단으로 이동했다.
         int save4 = beginElement(c, l, "atc", 1034f, 393f);
+        if (nativeLayoutRendering) {
+            c.translate(0f, NATIVE_ATC_SHIFT_PX / nativeWidgetScale);
+        }
         drawAtc(c, p, s);
         c.restoreToCount(save4);
         c.restoreToCount(overlaySave);
