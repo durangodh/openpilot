@@ -152,9 +152,13 @@ def test_s9_tmap_first_switch_uses_nmirror_favorite_and_internal_fullscreen_acti
   assert "new RectF(0f, 0f, width, height)" not in service
   main = (android / "java" / "ai" / "comma" / "remotehud" /
           "MainActivity.java").read_text(encoding="utf-8")
-  assert '"자동 감지 (권장)"' in main
-  assert '"제네시스 순정 8인치 · 800×480"' in main
-  assert '"제네시스 순정 9.2인치 · 1280×720"' in main
+  assert '"자동 감지 (기존 원본 비율)"' in main
+  assert '"제네시스 순정 8인치  ·  800×480"' in main
+  assert '"제네시스 순정 9.2인치  ·  1280×720"' in main
+  assert "RadioGroup profileGroup" in main
+  assert "option.setChecked(true)" in main
+  assert 'displayProfileValue.setText("✓ 현재 적용: " + selected)' in main
+  assert "Spinner" not in main
   assert "AppPrefs.setDisplayProfile" in main
   assert "ACTION_MANAGE_OVERLAY_PERMISSION" not in main
   assert not (android / "java" / "ai" / "comma" / "remotehud" /

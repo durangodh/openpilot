@@ -11,14 +11,13 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
-import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 
@@ -42,7 +41,7 @@ public final class MainActivity extends Activity {
     private Switch autoSwitch;
     private TextView autoValue;
     private TextView eonValue;
-    private Spinner displayProfileSpinner;
+    private TextView displayProfileValue;
     private TextView fpsValue;
     private TextView jpegValue;
     private TextView mapValue;
@@ -153,7 +152,7 @@ public final class MainActivity extends Activity {
 
         root.addView(text("EON Remote HUD", 27.0f, Color.WHITE, Typeface.BOLD));
 
-        View subtitle = text("v0.37  ·  8인치/9.2인치 네이티브 전체화면 / 1CBE:0092",
+        View subtitle = text("v0.38  ·  선택 상태가 보이는 8인치/9.2인치 UI / 1CBE:0092",
                 14.0f, Color.rgb(145, 158, 171), Typeface.NORMAL);
         LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -219,29 +218,49 @@ public final class MainActivity extends Activity {
         displayGuideParams.setMargins(0, dp(9), 0, dp(10));
         displayCard.addView(displayGuide, displayGuideParams);
 
-        displayProfileSpinner = new Spinner(this);
-        String[] profiles = {
-                "자동 감지 (권장)",
-                "제네시스 순정 8인치 · 800×480",
-                "제네시스 순정 9.2인치 · 1280×720"
-        };
-        ArrayAdapter<String> profileAdapter = new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_item, profiles);
-        profileAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        displayProfileSpinner.setAdapter(profileAdapter);
-        displayProfileSpinner.setSelection(AppPrefs.getDisplayProfile(this));
-        displayProfileSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                AppPrefs.setDisplayProfile(MainActivity.this, position);
-            }
+        displayProfileValue = text("", 17.0f, GREEN, Typeface.BOLD);
+        LinearLayout.LayoutParams displayValueParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        displayValueParams.setMargins(0, dp(2), 0, dp(8));
+        displayCard.addView(displayProfileValue, displayValueParams);
 
+        String[] profiles = {
+                "자동 감지 (기존 원본 비율)",
+                "제네시스 순정 8인치  ·  800×480",
+                "제네시스 순정 9.2인치  ·  1280×720"
+        };
+        RadioGroup profileGroup = new RadioGroup(this);
+        profileGroup.setOrientation(RadioGroup.VERTICAL);
+        int selectedProfile = AppPrefs.getDisplayProfile(this);
+        for (int profile = 0; profile < profiles.length; profile++) {
+            RadioButton option = new RadioButton(this);
+            option.setId(View.generateViewId());
+            option.setTag(profile);
+            option.setText(profiles[profile]);
+            option.setTextColor(Color.WHITE);
+            option.setTextSize(16.0f);
+            option.setPadding(dp(4), dp(8), dp(4), dp(8));
+            profileGroup.addView(option, new RadioGroup.LayoutParams(
+                    RadioGroup.LayoutParams.MATCH_PARENT, dp(50)));
+            if (profile == selectedProfile) {
+                option.setChecked(true);
+            }
+        }
+        updateDisplayProfileValue(selectedProfile);
+        profileGroup.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
             @Override
-            public void onNothingSelected(AdapterView<?> parent) {
+            public void onCheckedChanged(RadioGroup group, int checkedId) {
+                View checked = group.findViewById(checkedId);
+                if (checked == null || !(checked.getTag() instanceof Integer)) {
+                    return;
+                }
+                int profile = (Integer) checked.getTag();
+                AppPrefs.setDisplayProfile(MainActivity.this, profile);
+                updateDisplayProfileValue(profile);
             }
         });
-        displayCard.addView(displayProfileSpinner, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(52)));
+        displayCard.addView(profileGroup, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         root.addView(displayCard, cardParams());
 
         LinearLayout permissionCard = card();
@@ -274,6 +293,21 @@ public final class MainActivity extends Activity {
         root.addView(footer);
 
         return scroll;
+    }
+
+    private void updateDisplayProfileValue(int profile) {
+        if (displayProfileValue == null) {
+            return;
+        }
+        String selected;
+        if (profile == AppPrefs.DISPLAY_PROFILE_GENESIS_8) {
+            selected = "제네시스 순정 8인치 · 800×480";
+        } else if (profile == AppPrefs.DISPLAY_PROFILE_GENESIS_9_2) {
+            selected = "제네시스 순정 9.2인치 · 1280×720";
+        } else {
+            selected = "자동 감지 · 기존 원본 비율";
+        }
+        displayProfileValue.setText("✓ 현재 적용: " + selected);
     }
 
     private void refreshStatus() {
