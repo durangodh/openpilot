@@ -29,18 +29,23 @@ import java.util.concurrent.LinkedBlockingQueue;
  *  - 위치원은 티맵 vehicle 스트림(패킷 navi.scene.pos = [lat, lon, heading]).
  *  - 0.005°(~500m) 격자 타일로 현재 위치 주변 3x3 을 유지한다.
  *  - 다운로드는 데몬 스레드 1개, 실패 타일은 90초 쿨다운.
- *  - 응답 원문은 디스크 캐시(cacheDir/osm)에 저장 → 같은 길은 재다운로드 없음,
- *    인터넷이 끊겨도 캐시 구간은 계속 보인다. 파일 500개 넘으면 오래된 것 삭제.
+ *  - 응답 원문은 디스크 캐시(cacheDir/osm)에 저장하고 7일 뒤 백그라운드 갱신한다.
+ *    갱신 중·실패 시 기존 캐시를 계속 표시하며 파일 500개 넘으면 오래된 것 삭제.
  *  - snapshot() 이 매 프레임 자차 로컬좌표(전방 x, 좌 +y)로 변환해 넘긴다.
  */
 final class OsmWorld {
     private static final String TAG = "OsmWorld";
     private static final double TILE = 0.005;
     private static final long FAIL_COOLDOWN_MS = 90_000L;
+    /** 오래된 캐시 갱신 실패 시 Overpass 재시도 간격. */
+    private static final long REFRESH_FAIL_COOLDOWN_MS = 90L * 60L * 1000L;
+    /** OSM 원문 캐시는 7일 동안 유효하다. */
+    private static final long CACHE_TTL_MS = 7L * 24L * 60L * 60L * 1000L;
     private static final int CACHE_MAX_FILES = 500;
     private static final long CACHE_MAX_BYTES = 96L * 1024L * 1024L;
     private static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
-    private static final String CACHE_VERSION = "v2_";
+    /** 환경 객체 쿼리가 없는 이전 캐시를 한 번 분리한다. */
+    private static final String CACHE_VERSION = "v3_";
     static final int BARRIER_NOISE_WALL = 1;
     static final int BARRIER_GUARD_RAIL = 2;
     private static final String[] ENDPOINTS = {
@@ -101,6 +106,8 @@ final class OsmWorld {
     private final HashMap<String, Tile> tiles = new HashMap<>();
     private final HashSet<String> pending = new HashSet<>();
     private final HashMap<String, Long> failedAt = new HashMap<>();
+    /** 메모리에 올라온 각 타일의 다음 자동 갱신 시각. */
+    private final HashMap<String, Long> refreshDueAt = new HashMap<>();
     private final LinkedBlockingQueue<String> queue = new LinkedBlockingQueue<>();
     private final HashSet<String> activeKeys = new HashSet<>();
     private Thread worker;
@@ -160,6 +167,7 @@ final class OsmWorld {
                 // 돌아오는 길에 네트워크 없이 즉시 다시 읽을 수 있다.
                 tiles.keySet().retainAll(wanted);
                 failedAt.keySet().retainAll(wanted);
+                refreshDueAt.keySet().retainAll(wanted);
                 for (String queued : new ArrayList<>(queue)) {
                     if (!wanted.contains(queued) && queue.remove(queued)) {
                         pending.remove(queued);
@@ -171,11 +179,15 @@ final class OsmWorld {
             for (int dy = -1; dy <= 1; dy++) {
                 for (int dx = -1; dx <= 1; dx++) {
                     String key = (ky + dy) + "_" + (kx + dx);
-                    if (tiles.containsKey(key) || pending.contains(key) || key.equals(inFlight)) {
+                    boolean loaded = tiles.containsKey(key);
+                    Long due = refreshDueAt.get(key);
+                    boolean stale = loaded && (due == null || now >= due);
+                    if ((loaded && !stale) || pending.contains(key) || key.equals(inFlight)) {
                         continue;
                     }
                     Long failed = failedAt.get(key);
-                    if (failed != null && now - failed < FAIL_COOLDOWN_MS) {
+                    long cooldown = loaded ? REFRESH_FAIL_COOLDOWN_MS : FAIL_COOLDOWN_MS;
+                    if (failed != null && now - failed < cooldown) {
                         continue;
                     }
                     pending.add(key);
@@ -451,32 +463,61 @@ final class OsmWorld {
             synchronized (lock) {
                 inFlight = key;
             }
+
+            long now = System.currentTimeMillis();
             Tile tile = null;
+            long refreshDue = 0L;
+            boolean refreshAttempted = false;
+            boolean refreshSucceeded = false;
             File cached = new File(cacheDir, CACHE_VERSION + key + ".json");
+
             if (cached.isFile()) {
                 tile = parseTile(readFile(cached));
                 if (tile != null) {
-                    cached.setLastModified(System.currentTimeMillis());
+                    // lastModified는 마지막 다운로드 시각이다. 읽을 때 갱신하지 않는다.
+                    refreshDue = cached.lastModified() + CACHE_TTL_MS;
+                    // stale-while-revalidate: 네트워크를 기다리지 않고 기존 타일부터 표시한다.
+                    synchronized (lock) {
+                        if (activeKeys.contains(key)) {
+                            tiles.put(key, tile);
+                            refreshDueAt.put(key, refreshDue);
+                        }
+                    }
                 }
             }
-            if (tile == null) {
+
+            boolean stale = tile != null && now >= refreshDue;
+            if (tile == null || stale) {
+                refreshAttempted = true;
                 String body = fetch(key);
                 if (body != null) {
-                    tile = parseTile(body);
-                    if (tile != null) {
+                    Tile fresh = parseTile(body);
+                    if (fresh != null) {
+                        tile = fresh;
                         writeFile(cached, body);
+                        cached.setLastModified(now);
+                        refreshDue = now + CACHE_TTL_MS;
+                        refreshSucceeded = true;
                         trimCache();
                     }
                 }
             }
+
             synchronized (lock) {
                 inFlight = null;
                 pending.remove(key);
                 if (tile != null && activeKeys.contains(key)) {
                     tiles.put(key, tile);
-                    failedAt.remove(key);
+                    refreshDueAt.put(key, refreshDue > 0L ? refreshDue : now + CACHE_TTL_MS);
+                    if (!refreshAttempted || refreshSucceeded) {
+                        failedAt.remove(key);
+                    } else {
+                        // 갱신 실패: 기존 캐시는 유지하고 90분 후 다시 시도한다.
+                        failedAt.put(key, now);
+                    }
                 } else if (tile == null && activeKeys.contains(key)) {
-                    failedAt.put(key, System.currentTimeMillis());
+                    // 표시할 캐시도 없는 최초 실패는 기존 90초 쿨다운을 사용한다.
+                    failedAt.put(key, now);
                 }
             }
         }

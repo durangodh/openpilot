@@ -7,8 +7,8 @@ android {
     applicationId "ai.comma.remotehud"
     minSdk 26
     targetSdk 35
-    versionCode 61
-    versionName "0.45-native-layout-arrows"
+    versionCode 62
+    versionName "0.46-osm-cache-refresh"
   }
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_11

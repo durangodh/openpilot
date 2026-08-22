@@ -213,3 +213,19 @@ def test_remote_ack_is_status_only():
   assert "params.put_bool(PARAM_CONNECTED, value)" in remote
   assert "_publish_connected(params, published, connected)" in remote
   assert "EonClusterHudConnected" not in onroad
+
+
+def test_osm_cache_is_versioned_and_refreshes_stale_tiles_safely():
+  osm = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" / "main" /
+         "java" / "ai" / "comma" / "remotehud" / "OsmWorld.java").read_text(encoding="utf-8")
+  assert 'CACHE_VERSION = "v3_"' in osm
+  assert "CACHE_TTL_MS = 7L * 24L * 60L * 60L * 1000L" in osm
+  assert "REFRESH_FAIL_COOLDOWN_MS = 90L * 60L * 1000L" in osm
+  assert "refreshDueAt" in osm
+  assert "boolean stale = loaded && (due == null || now >= due)" in osm
+  assert "boolean stale = tile != null && now >= refreshDue" in osm
+  assert "tiles.put(key, tile);" in osm
+  assert "if (tile == null || stale)" in osm
+  assert "cached.setLastModified(now);" in osm
+  assert "cached.setLastModified(System.currentTimeMillis())" not in osm
+  assert "failedAt.put(key, now);" in osm
