@@ -5,6 +5,7 @@ from common.realtime import DT_MDL
 from common.conversions import Conversions as CV
 from common.params import Params
 from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc, AtcForkLaneChangeController
+from selfdrive.controls.lib.navigation_noo import NavigationLaneChangeController
 
 AUTO_LCA_START_TIME = 1.0
 ROAD_EDGE_OPEN_CONFIRM_FRAMES = max(1, int(round(0.2 / DT_MDL)))
@@ -73,10 +74,15 @@ class DesireHelper:
     self.carrot_atc = CarrotNaviAtc()
     self.empty_atc_state = self.carrot_atc.empty_state()
     self.atc_fork_controller = AtcForkLaneChangeController()
+    self.noo_controller = NavigationLaneChangeController()
     self.carrot_atc_mode = 0
+    self.noo_enabled = False
     self.atc_state = self.empty_atc_state
     self.atc_turn_direction = 0
     self.atc_driver_cancel = True
+    self.noo_direction = 0
+    self.noo_current_lane = 0
+    self.noo_target_lane = 0
 
   @staticmethod
   def _road_edge_detected(model_data, direction):
@@ -184,6 +190,7 @@ class DesireHelper:
         self.carrot_atc_mode = int(self.params.get('CarrotAutoTurnControl', encoding='utf8') or '0')
       except (TypeError, ValueError):
         self.carrot_atc_mode = 0
+      self.noo_enabled = self.params.get_bool('NavigationOnOpenpilot')
       try:
         auto_lc_speed_kph = int(self.params.get('AutoLaneChangeSpeed', encoding='utf8') or '50')
       except (TypeError, ValueError):
@@ -206,10 +213,11 @@ class DesireHelper:
 
     v_ego = carstate.vEgo
     atc_available = self.carrot_atc_mode in (1, 2) and lateral_active
+    noo_available = self.noo_enabled and lateral_active and self.lane_change_enabled
     atc_steering = atc_available and not carstate.brakePressed
     # Keep the current fork event while steering is configured so a brake
     # press can latch cancellation instead of resetting and re-acquiring it.
-    atc_state = self.carrot_atc.update() if atc_available else self.empty_atc_state
+    atc_state = self.carrot_atc.update() if (atc_available or noo_available) else self.empty_atc_state
     # Pre-compute both sides every model frame, like carrot-wip SideState.
     # This prevents a single open frame from releasing a last-lane block.
     left_road_edge = self._road_edge_blocked(model_data, -1)
@@ -233,7 +241,7 @@ class DesireHelper:
     # include the matching physical BSD sensor before raising a virtual blinker.
     fork_direction = int(atc_state.get('direction', 0))
     fork_lane_open = False
-    if atc_available:
+    if atc_available and not self.noo_enabled:
       side_bsd = ((fork_direction < 0 and carstate.leftBlindspot) or
                   (fork_direction > 0 and carstate.rightBlindspot))
       fork_road_edge = left_road_edge if fork_direction < 0 else right_road_edge
@@ -250,15 +258,47 @@ class DesireHelper:
     else:
       self.atc_fork_controller.reset()
       atc_fork_direction = 0
-    left_blinker = carstate.leftBlinker or atc_fork_direction < 0
-    right_blinker = carstate.rightBlinker or atc_fork_direction > 0
+
+    ego_lane = self.carrot_atc.camera_lane_position(model_data) if noo_available else None
+    noo_probe_direction = 0
+    noo_plan = self.noo_controller.lane_plan(atc_state, ego_lane) if noo_available else None
+    if noo_plan is not None:
+      noo_probe_direction = int(noo_plan.get('direction', 0))
+    if noo_probe_direction == 0:
+      noo_probe_direction = int(self.noo_controller.requested_direction)
+    noo_opposite_torque = carstate.steeringPressed and \
+      ((noo_probe_direction < 0 and carstate.steeringTorque < 0) or
+       (noo_probe_direction > 0 and carstate.steeringTorque > 0))
+    noo_conflicting_blinker = ((noo_probe_direction < 0 and carstate.rightBlinker) or
+                               (noo_probe_direction > 0 and carstate.leftBlinker))
+    if noo_available:
+      noo_direction = self.noo_controller.update(
+        atc_state, ego_lane, v_ego,
+        not left_road_edge and not carstate.leftBlindspot,
+        not right_road_edge and not carstate.rightBlindspot,
+        driver_cancel=noo_opposite_torque or noo_conflicting_blinker or carstate.brakePressed,
+        lane_change_started=self.lane_change_state == LaneChangeState.laneChangeStarting,
+        lane_change_finished=self.lane_change_state == LaneChangeState.laneChangeFinishing,
+      )
+    else:
+      self.noo_controller.reset()
+      noo_direction = 0
+    self.noo_direction = noo_direction
+    self.noo_current_lane = self.noo_controller.current_lane
+    self.noo_target_lane = self.noo_controller.target_lane
+
+    navigation_lane_direction = noo_direction if noo_direction else atc_fork_direction
+    left_blinker = carstate.leftBlinker or navigation_lane_direction < 0
+    right_blinker = carstate.rightBlinker or navigation_lane_direction > 0
     one_blinker = left_blinker != right_blinker
     below_lane_change_speed = v_ego < self.lane_change_speed_min
 
     # Driver lane changes retain the original road-edge gate. ATC only raises
     # its virtual blinker after model geometry and the matching BSD are clear.
     direction = -1 if left_blinker else 1 if right_blinker else 0
-    if direction == atc_fork_direction and atc_fork_direction != 0:
+    if direction == noo_direction and noo_direction != 0:
+      self.road_edge = left_road_edge if direction < 0 else right_road_edge
+    elif direction == atc_fork_direction and atc_fork_direction != 0:
       self.road_edge = not fork_lane_open
     else:
       self.road_edge = ((left_road_edge if direction < 0 else right_road_edge)
@@ -279,7 +319,8 @@ class DesireHelper:
       # 토크나 자동타이머 둘 다 "차선변경 시작 의사"로 오인하지 않는다. 반대방향
       # 토크(opposite_torque, atc_direction 계산부에서 이미 처리됨)는 여전히 취소로
       # 작동한다.
-      torque_applied = manual_or_auto_torque and not atc_turn_matches_blinker
+      noo_auto_request = noo_direction != 0 and direction == noo_direction
+      torque_applied = noo_auto_request or (manual_or_auto_torque and not atc_turn_matches_blinker)
 
       blindspot_detected = ((carstate.leftBlindspot and self.lane_change_direction == LaneChangeDirection.left) or
                             (carstate.rightBlindspot and self.lane_change_direction == LaneChangeDirection.right))

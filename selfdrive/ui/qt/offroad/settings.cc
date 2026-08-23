@@ -1143,6 +1143,12 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   atc_mode->showDescription();
   toggleLayout->addWidget(atc_mode);
 
+  toggleLayout->addWidget(new ParamControl(
+      "NavigationOnOpenpilot", "NAVIGATION ON OPENPILOT",
+      "티맵 권장차로와 modelV2가 확인한 현재차로가 일치할 때만 목적지 경로에 필요한 차선변경을 한 차로씩 수행합니다. "
+      "차로 수·도로경계·BSD 중 하나라도 불확실하면 조향하지 않습니다. 시험 기능이므로 주변을 직접 확인하십시오.",
+      "../assets/offroad/icon_road.png", this));
+
   toggleLayout->addWidget(new ParamValueControlF(
       "CarrotAutoTurnSpeed", "ATC TURN SPEED",
       "회전 구간 목표속도(km/h)이며 모드 2·3에서 적용됩니다. 값 증가(+): 더 빠르게 회전 / 값 감소(-): 더 많이 감속.",

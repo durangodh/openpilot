@@ -2,8 +2,10 @@ import json
 import math
 import tempfile
 import time
+from types import SimpleNamespace
 
 from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc, AtcForkLaneChangeController
+from selfdrive.controls.lib.navigation_noo import NavigationLaneChangeController
 
 
 def state_with_speed(speed, off_route=False):
@@ -377,4 +379,98 @@ def test_does_not_arm_before_speed_based_action_range():
   # At 100 km/h (27.8 m/s), the action range is about 333 m.
   confirm(controller, fork_state(400), 27.8, lane_open=False)
   assert confirm(controller, fork_state(320), 27.8, lane_open=True) == 0
+
+
+def model_line(y):
+  return SimpleNamespace(x=[0.0, 10.0, 20.0, 30.0], y=[y] * 4)
+
+
+def lane_model(left_edge, right_edge):
+  return SimpleNamespace(
+    laneLines=[model_line(5.4), model_line(1.8), model_line(-1.8), model_line(-5.4)],
+    laneLineProbs=[0.8, 0.9, 0.9, 0.8],
+    roadEdges=[model_line(left_edge), model_line(right_edge)],
+    roadEdgeStds=[0.1, 0.1],
+  )
+
+
+def noo_state(available, distance=400.0, direction=1):
+  return {
+    "fresh": True, "route_fresh": True, "lane_fresh": True,
+    "off_route": False, "turn_type": 6, "direction": direction,
+    "distance": distance,
+    "lane_current": {"count": len(available), "current_lane": 1,
+                     "available": available, "distance_m": distance},
+  }
+
+
+def confirm_noo(controller, state, ego_lane, left_open=True, right_open=True, **kwargs):
+  result = 0
+  for _ in range(controller.CONFIRM_FRAMES):
+    result = controller.update(state, ego_lane, 25.0, left_open, right_open, **kwargs)
+  return result
+
+
+def test_camera_lane_position_uses_model_edges_not_tmap_lane_number():
+  left = CarrotNaviAtc.camera_lane_position(lane_model(2.5, -9.0))
+  middle = CarrotNaviAtc.camera_lane_position(lane_model(5.4, -5.4))
+  right = CarrotNaviAtc.camera_lane_position(lane_model(9.0, -2.5))
+  assert (left["count"], left["current"]) == (3, 1)
+  assert (middle["count"], middle["current"]) == (3, 2)
+  assert (right["count"], right["current"]) == (3, 3)
+
+
+def test_noo_requests_only_the_nearest_route_compatible_lane():
+  controller = NavigationLaneChangeController()
+  ego = {"count": 3, "current": 2, "confidence": 0.9}
+  assert confirm_noo(controller, noo_state([0, 0, 1]), ego) == 1
+  assert controller.current_lane == 2 and controller.target_lane == 3
+
+
+def test_noo_rejects_count_mismatch_opposite_plan_and_late_change():
+  controller = NavigationLaneChangeController()
+  ego = {"count": 3, "current": 2, "confidence": 0.9}
+  assert controller.update(noo_state([0, 1]), ego, 25.0, True, True) == 0
+  assert controller.update(noo_state([1, 0, 0], direction=1), ego, 25.0, True, True) == 0
+  assert confirm_noo(controller, noo_state([0, 0, 1], distance=50.0), ego) == 0
+
+
+def test_noo_waits_for_camera_confirmation_between_two_lane_changes():
+  controller = NavigationLaneChangeController()
+  state = noo_state([0, 0, 1], distance=400.0)
+  lane1 = {"count": 3, "current": 1, "confidence": 0.9}
+  lane2 = {"count": 3, "current": 2, "confidence": 0.9}
+  lane3 = {"count": 3, "current": 3, "confidence": 0.9}
+  assert confirm_noo(controller, state, lane1) == 1
+  assert controller.update(state, lane1, 25.0, True, True, lane_change_started=True) == 1
+  assert controller.update(state, lane1, 25.0, True, True, lane_change_finished=True) == 1
+  assert controller.update(state, lane1, 25.0, True, True) == 0
+  assert controller.update(state, lane2, 25.0, True, True) == 0
+  assert confirm_noo(controller, state, lane2) == 1
+  controller.update(state, lane2, 25.0, True, True, lane_change_finished=True)
+  controller.update(state, lane2, 25.0, True, True)
+  assert controller.update(state, lane3, 25.0, True, True) == 0
+  assert controller.completed
+
+
+def test_noo_driver_cancel_latches_until_the_maneuver_changes():
+  controller = NavigationLaneChangeController()
+  state = noo_state([0, 0, 1])
+  ego = {"count": 3, "current": 2, "confidence": 0.9}
+  assert controller.update(state, ego, 25.0, True, True, driver_cancel=True) == 0
+  assert confirm_noo(controller, state, ego) == 0
+  next_state = noo_state([0, 0, 1])
+  next_state["turn_type"] = 43
+  assert confirm_noo(controller, next_state, ego) == 1
+
+
+def test_noo_uses_fresh_lane_ahead_after_current_lane_is_satisfied():
+  controller = NavigationLaneChangeController()
+  state = noo_state([1, 1, 1], distance=180.0)
+  state["lane_ahead_fresh"] = True
+  state["lane_ahead"] = {"count": 3, "available": [0, 0, 1], "distance_m": 420.0}
+  state["next"] = {"fresh": True, "direction": 1, "distance": 420.0, "turn_type": 43}
+  ego = {"count": 3, "current": 2, "confidence": 0.9}
+  assert confirm_noo(controller, state, ego) == 1
+  assert controller.target_lane == 3
 

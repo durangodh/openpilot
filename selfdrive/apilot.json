@@ -953,6 +953,16 @@
   },
   {
    "group": "커브내비",
+   "name": "NavigationOnOpenpilot",
+   "title": "NAVIGATION ON OPENPILOT",
+   "descr": "티맵 권장차로와 modelV2 현재차로가 확실히 일치할 때 목적지 경로에 필요한 차선변경을 한 차로씩 수행합니다. 차로 수·도로경계·BSD가 불확실하면 작동하지 않습니다. 시험 기능이므로 주변을 직접 확인하십시오.",
+   "min": 0,
+   "max": 1,
+   "default": 0,
+   "unit": 1
+  },
+  {
+   "group": "커브내비",
    "name": "CarrotAutoTurnSpeed",
    "title": "ATC TURN SPEED",
    "descr": "회전 구간 목표속도(km/h)이며 모드 2·3에서 적용됩니다. 값 증가(+): 더 빠르게 회전 / 값 감소(-): 더 많이 감속.",

@@ -238,6 +238,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"AutoLaneChangeSpeed", PERSISTENT},        // 자동/방향지시등 차선변경 허용 최저 속도 (km/h)
     {"CarrotAutoTurnControl", PERSISTENT},
     {"CarrotAutoTurnControlMigrated", PERSISTENT},
+    {"NavigationOnOpenpilot", PERSISTENT},
     {"CarrotAutoTurnSpeed", PERSISTENT},
     {"CarrotAutoTurnEndTime", PERSISTENT},
     {"StopDistance", PERSISTENT},                // shared ACC/E2E standstill distance (cm), default 600

@@ -354,6 +354,9 @@ class LateralPlanner:
     # route curvature is actually contributing to steering.
     lateralPlan.atcTurnDirection = int(
       self.DH.atc_turn_direction if not self.DH.atc_driver_cancel else 0)
+    lateralPlan.nooCurrentLane = int(self.DH.noo_current_lane)
+    lateralPlan.nooTargetLane = int(self.DH.noo_target_lane)
+    lateralPlan.nooLaneChangeDirection = int(self.DH.noo_direction)
 
     plan_send.lateralPlan.dPathWLinesX = [float(x) for x in self.d_path_w_lines_xyz[:, 0]]
     plan_send.lateralPlan.dPathWLinesY = [float(y) for y in self.d_path_w_lines_xyz[:, 1]]
@@ -374,6 +377,8 @@ class LateralPlanner:
       tail += f' lane={self.LP.lane_offset * 100.0:+.0f}cm'
     if self.atc_map_blend > 0.005:
       tail += f' atcmap={self.atc_map_blend * 100.0:.0f}%'
+    if self.DH.noo_current_lane > 0 and self.DH.noo_target_lane > 0:
+      tail += f' noo={self.DH.noo_current_lane}>{self.DH.noo_target_lane}'
     lateralPlan.latDebugText = (
       f"{lane_mode} | "
       f"{self.LP.lane_width_left:.1f}m | "

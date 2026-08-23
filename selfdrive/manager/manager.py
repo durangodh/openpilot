@@ -56,6 +56,7 @@ def manager_init() -> None:
     ("AutoNaviSpeedBumpSpeed", "35"),
     ("AutoNaviSpeedSafetyFactor", "105"),
     ("CarrotAutoTurnControl", "0"),
+    ("NavigationOnOpenpilot", "0"),
     ("CarrotAutoTurnSpeed", "30"),
     ("CarrotAutoTurnEndTime", "6"),
     ("CruiseButtonMode", "0"),              # 0=normal, 1/2=custom, 3=speed table

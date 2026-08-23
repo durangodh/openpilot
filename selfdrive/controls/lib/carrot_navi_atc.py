@@ -1,5 +1,6 @@
 import json
 import math
+import statistics
 import time
 
 
@@ -59,6 +60,8 @@ class CarrotNaviAtc:
     return {"fresh": False, "kind": "none", "direction": 0,
             "distance": -1.0, "turn_type": -1, "text": "", "next": None,
             "route_fresh": False, "route": None, "vehicle": None,
+            "lane_fresh": False, "lane_current": None, "lane_ahead_fresh": False,
+            "lane_ahead": None,
             "speed_fresh": False, "speed": None, "off_route": False,
             "road_limit_kph": 0.0}
 
@@ -107,6 +110,20 @@ class CarrotNaviAtc:
                                    not guidance_blocked)
       self.state["route"] = root.get("route")
       self.state["vehicle"] = root.get("vehicle")
+      lane_updated_at = stream_times.get("lane_current", guidance_updated_at)
+      lane_age = time.time() - _number(lane_updated_at, 0.0) / 1000.0
+      lane_current = root.get("lane_current")
+      self.state["lane_fresh"] = (-5.0 <= lane_age <= STALE_TIMEOUT and
+                                  isinstance(lane_current, dict) and
+                                  not guidance_blocked)
+      self.state["lane_current"] = lane_current if self.state["lane_fresh"] else None
+      lane_ahead = root.get("lane_ahead")
+      lane_ahead_updated_at = stream_times.get("lane_ahead", lane_updated_at)
+      lane_ahead_age = time.time() - _number(lane_ahead_updated_at, 0.0) / 1000.0
+      self.state["lane_ahead_fresh"] = (-5.0 <= lane_ahead_age <= STALE_TIMEOUT and
+                                        isinstance(lane_ahead, dict) and
+                                        not guidance_blocked)
+      self.state["lane_ahead"] = lane_ahead if self.state["lane_ahead_fresh"] else None
       speed_state = root.get("speed") or {}
       speed_updated_at = stream_times.get("speed", root.get("updated_at_ms"))
       speed_age = time.time() - _number(speed_updated_at, 0.0) / 1000.0
@@ -206,6 +223,57 @@ class CarrotNaviAtc:
     if any(word in lower for word in ("우회전", "오른쪽", "right")):
       return ("fork" if any(word in lower for word in ("분기", "진출", "fork")) else "turn"), 1
     return "none", 0
+
+  @staticmethod
+  def camera_lane_position(model_data):
+    """Conservatively estimate total/current lane from modelV2 geometry.
+
+    TMAP's current_lane can describe its recommended lane rather than the
+    camera vehicle.  NOO therefore uses the ego-lane boundaries and road
+    edges, and accepts the result only while both are confident.
+    """
+    if model_data is None:
+      return None
+
+    def near_y(line):
+      try:
+        values = [float(y) for x, y in zip(line.x, line.y)
+                  if math.isfinite(float(x)) and 0.0 <= float(x) <= 30.0 and
+                  math.isfinite(float(y))]
+      except (AttributeError, TypeError, ValueError):
+        return None
+      return statistics.median(values) if len(values) >= 2 else None
+
+    try:
+      lanes = model_data.laneLines
+      edges = model_data.roadEdges
+      if len(lanes) < 3 or len(edges) < 2:
+        return None
+      inner = [near_y(lanes[1]), near_y(lanes[2])]
+      road = [near_y(edges[0]), near_y(edges[1])]
+      inner_conf = min(float(model_data.laneLineProbs[1]),
+                       float(model_data.laneLineProbs[2]))
+      edge_conf = min(1.0 - float(model_data.roadEdgeStds[0]),
+                      1.0 - float(model_data.roadEdgeStds[1]))
+    except (AttributeError, IndexError, TypeError, ValueError):
+      return None
+    if any(value is None for value in inner + road) or inner_conf < 0.45 or edge_conf < 0.40:
+      return None
+
+    lane_left, lane_right = max(inner), min(inner)
+    road_left, road_right = max(road), min(road)
+    lane_width = lane_left - lane_right
+    if not 2.5 <= lane_width <= 4.5 or road_left < lane_left or road_right > lane_right:
+      return None
+
+    left_lanes = int(round(max(0.0, road_left - lane_left) / lane_width))
+    right_lanes = int(round(max(0.0, lane_right - road_right) / lane_width))
+    total = 1 + left_lanes + right_lanes
+    current = 1 + left_lanes
+    if not 1 <= total <= 8 or not 1 <= current <= total:
+      return None
+    return {"count": total, "current": current,
+            "confidence": min(inner_conf, edge_conf), "width": lane_width}
 
   @staticmethod
   def _lat_lon(point):
