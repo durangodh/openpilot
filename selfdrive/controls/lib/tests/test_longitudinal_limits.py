@@ -3,9 +3,11 @@ import pytest
 from common.conversions import Conversions as CV
 from selfdrive.controls.lib.longitudinal_limits import (AUTO_SPEED_UP_RATE_KPH_S,
                                                         CRUISE_MAX_VAL_DEFAULTS,
+                                                        apply_no_lead_cruise_accel_limit,
                                                         apply_cruise_max_limit,
                                                         get_auto_speed_up_target,
                                                         get_cruise_max_accel,
+                                                        get_no_lead_cruise_accel_cap,
                                                         select_auto_driving_mode)
 
 
@@ -53,3 +55,19 @@ def test_cruise_max_limit_tracks_the_live_slider_and_driving_mode():
   assert apply_cruise_max_limit(2.5, False, get_cruise_max_accel(v_ego, vals, 3)) == pytest.approx(0.60)
   # ECO multiplies the same table by MyEcoModeFactor.
   assert apply_cruise_max_limit(2.5, False, get_cruise_max_accel(v_ego, vals, 2, 0.8)) == pytest.approx(0.48)
+
+
+def test_no_lead_cap_is_lower_and_tapers_near_set_speed():
+  assert get_no_lead_cruise_accel_cap(1.0, 30.0, 0.65) == pytest.approx(0.65)
+  assert get_no_lead_cruise_accel_cap(1.0, 15.0, 0.65) == pytest.approx(0.455)
+  assert get_no_lead_cruise_accel_cap(1.0, 5.0, 0.65) == pytest.approx(0.26)
+
+
+def test_no_lead_limit_rate_limits_only_positive_accel_rise():
+  limited = apply_no_lead_cruise_accel_limit(
+    1.2, False, 1.0, 30.0, 0.65, 0.20, 0.25, 0.01)
+  assert limited == pytest.approx(0.2025)
+  assert apply_no_lead_cruise_accel_limit(
+    -1.5, False, 1.0, 30.0, 0.65, 0.20, 0.25, 0.01) == pytest.approx(-1.5)
+  assert apply_no_lead_cruise_accel_limit(
+    1.2, True, 1.0, 30.0, 0.65, 0.20, 0.25, 0.01) == pytest.approx(1.2)

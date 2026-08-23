@@ -711,7 +711,9 @@ class Controls:
       # and final SCC12 transport use.  Keeping the PID's own pos_limit at the
       # vehicle maximum lets its integral wind up behind the final SCC clip,
       # which holds acceleration at the selected ceiling for too long.
-      cruise_max_accel = self.cruise_helper.get_cruise_max_accel(CS.vEgo)
+      set_speed_kph = self.applyMaxSpeed if self.applyMaxSpeed > 0.0 else self.v_cruise_kph
+      cruise_max_accel = self.cruise_helper.get_longitudinal_accel_limit(
+        CS, self.sm, set_speed_kph)
       pid_accel_limits = (pid_accel_limits[0], min(pid_accel_limits[1], cruise_max_accel))
       t_since_plan = (self.sm.frame - self.sm.rcv_frame['longitudinalPlan']) * DT_CTRL
       actuators.accel, actuators.jerk = self.LoC.update(

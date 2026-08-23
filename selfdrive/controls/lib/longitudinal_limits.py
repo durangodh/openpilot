@@ -13,6 +13,8 @@ CRUISE_MAX_ACCEL_BP = [0.0, 40.0 * CV.KPH_TO_MS, 60.0 * CV.KPH_TO_MS,
 CRUISE_MAX_VAL_KEYS = ["CruiseMaxVals1", "CruiseMaxVals2", "CruiseMaxVals3",
                        "CruiseMaxVals4", "CruiseMaxVals5", "CruiseMaxVals6"]
 CRUISE_MAX_VAL_DEFAULTS = [1.60, 1.20, 1.00, 0.80, 0.70, 0.60]
+NO_LEAD_CRUISE_ACCEL_FACTOR_DEFAULT = 0.65
+NO_LEAD_CRUISE_JERK_DEFAULT = 0.25
 
 
 def get_cruise_max_accel(v_ego, cruise_max_vals, driving_mode,
@@ -43,6 +45,34 @@ def apply_cruise_max_limit(accel, stopping, cruise_max_accel):
   if stopping or accel <= 0.0:
     return float(accel)
   return float(min(accel, cruise_max_accel))
+
+
+def get_no_lead_cruise_accel_cap(cruise_max_accel, speed_error_kph,
+                                  accel_factor=NO_LEAD_CRUISE_ACCEL_FACTOR_DEFAULT):
+  """Return a gentler positive-acceleration cap when no lead is present.
+
+  A large set-speed error may use the configured fraction of CruiseMax, while
+  the allowance tapers further near the set speed. Braking is handled outside
+  this helper and is never weakened by the no-lead policy.
+  """
+  error_scale = interp(clip(speed_error_kph, 0.0, 30.0),
+                       [0.0, 5.0, 15.0, 30.0], [0.20, 0.40, 0.70, 1.0])
+  factor = clip(accel_factor, 0.30, 1.0)
+  return float(max(0.0, cruise_max_accel * factor * error_scale))
+
+
+def apply_no_lead_cruise_accel_limit(accel, stopping, cruise_max_accel,
+                                      speed_error_kph, accel_factor,
+                                      previous_accel, rise_rate, dt):
+  """Apply the no-lead cap and rate-limit only increases in drive request."""
+  accel = apply_cruise_max_limit(accel, stopping, cruise_max_accel)
+  if stopping or accel <= 0.0:
+    return float(accel)
+
+  no_lead_cap = get_no_lead_cruise_accel_cap(cruise_max_accel, speed_error_kph,
+                                              accel_factor)
+  rising_cap = max(0.0, previous_accel) + max(0.0, rise_rate) * max(0.0, dt)
+  return float(min(accel, no_lead_cap, rising_cap))
 
 
 def select_auto_driving_mode(initial_mode, current_mode, driving_index):

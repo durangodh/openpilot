@@ -1547,6 +1547,15 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
         "../assets/offroad/icon_openpilot.png", 10, 250, 5, 0, default_value, this));
   }
 
+  list->addItem(new ParamValueControlF(
+      "NoLeadCruiseAccelFactor", "NO-LEAD CRUISE ACCEL (%)",
+      "앞차가 없을 때 설정속도로 복귀하는 최대가속 비율입니다. CRUISE MAX 값에 이 비율을 곱하며, 설정속도에 가까워질수록 자동으로 더 낮아집니다. 값 증가(+): 빠른 속도 복귀 / 값 감소(-): 부드러운 속도 복귀. 권장값: 65%.",
+      "../assets/offroad/icon_openpilot.png", 30, 100, 5, 0, 65, this));
+  list->addItem(new ParamValueControlF(
+      "NoLeadCruiseJerkLimit", "NO-LEAD ACCEL RAMP (X0.01m/s³)",
+      "앞차가 없을 때 가속 명령이 증가하는 속도입니다. 값 증가(+): 가속이 빨리 강해짐 / 값 감소(-): 가속이 천천히 부드럽게 증가. 감속과 앞차 추종에는 적용하지 않습니다. 권장값: 25.",
+      "../assets/offroad/icon_openpilot.png", 5, 100, 5, 0, 25, this));
+
   list->addItem(horizontal_line());
 
   const std::array<std::tuple<const char*, const char*, int>, 4> gap_controls = {{

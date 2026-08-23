@@ -12,8 +12,10 @@ from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software
 from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_auto_speed_up_target,
+                                                        apply_no_lead_cruise_accel_limit,
                                                         apply_cruise_max_limit,
                                                         get_cruise_max_accel,
+                                                        get_no_lead_cruise_accel_cap,
                                                         select_auto_driving_mode)
 from selfdrive.road_speed_limiter import get_road_speed_limiter
 
@@ -70,6 +72,10 @@ class CruiseHelper:
     self.my_safe_mode_factor = 1.0
     self.my_eco_mode_factor = 0.8
     self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
+    self.no_lead_cruise_accel_factor = 0.65
+    self.no_lead_cruise_jerk_limit = 0.25
+    self.last_apply_accel = 0.0
+    self.current_set_speed_kph = 0.0
 
     self.target_speed = 0.0
     self.max_speed_clu = 0.0
@@ -130,6 +136,12 @@ class CruiseHelper:
     for key, default in zip(CRUISE_MAX_VAL_KEYS, CRUISE_MAX_VAL_DEFAULTS):
       raw = self.params.get_int(key)
       self.cruise_max_vals.append(float(raw * 0.01 if raw > 0 else default))
+    no_lead_factor = self.params.get_int("NoLeadCruiseAccelFactor")
+    no_lead_jerk = self.params.get_int("NoLeadCruiseJerkLimit")
+    self.no_lead_cruise_accel_factor = float(clip(
+      (no_lead_factor if no_lead_factor > 0 else 65) * 0.01, 0.30, 1.0))
+    self.no_lead_cruise_jerk_limit = float(clip(
+      (no_lead_jerk if no_lead_jerk > 0 else 25) * 0.01, 0.05, 1.0))
 
   def read_curve_params(self):
     self.turn_vision_control = self.params.get_bool("TurnVisionControl")
@@ -252,6 +264,15 @@ class CruiseHelper:
   def get_cruise_max_accel(self, v_ego):
     return get_cruise_max_accel(v_ego, self.cruise_max_vals, self.my_driving_mode,
                                 self.my_eco_mode_factor, self.my_safe_mode_factor)
+
+  def get_longitudinal_accel_limit(self, CS, sm, set_speed_kph):
+    """Return the live positive limit shared by LongControl and SCC output."""
+    cruise_max_accel = self.get_cruise_max_accel(CS.out.vEgo)
+    if sm['radarState'].leadOne.status:
+      return cruise_max_accel
+    speed_error_kph = max(0.0, float(set_speed_kph) - CS.out.vEgo * CV.MS_TO_KPH)
+    return get_no_lead_cruise_accel_cap(
+      cruise_max_accel, speed_error_kph, self.no_lead_cruise_accel_factor)
 
   def _resume_longitudinal(self, controls, CS, active_mode=1):
     if self.long_active_user <= 0:
@@ -926,6 +947,7 @@ class CruiseHelper:
     cruise_set_speed = controls.v_cruise_kph if longcontrol else CS.cruiseState_speed * CV.MS_TO_KPH
     controls.applyMaxSpeed = float(clip(cruise_set_speed, self.cruise_speed_min,
                                        self.max_speed_clu * self.speed_conv_to_ms * CV.MS_TO_KPH))
+    self.current_set_speed_kph = controls.applyMaxSpeed
     CC.sccSmoother.longControl = longcontrol
     CC.sccSmoother.applyMaxSpeed = controls.applyMaxSpeed
     # In C2 mode MAIN engages lateral control before SET/RES activates
@@ -950,7 +972,17 @@ class CruiseHelper:
     # Keep a final CruiseMax guard at the SCC12 transport. controlsd applies the
     # same live ceiling to LongControl's PID pos_limit, preventing windup before
     # this clip. cruise_max_vals is refreshed once a second while driving.
-    return apply_cruise_max_limit(accel, stopping, self.get_cruise_max_accel(CS.out.vEgo))
+    cruise_max_accel = self.get_cruise_max_accel(CS.out.vEgo)
+    if sm['radarState'].leadOne.status:
+      apply_accel = apply_cruise_max_limit(accel, stopping, cruise_max_accel)
+    else:
+      speed_error_kph = max(0.0, self.current_set_speed_kph - CS.out.vEgo * CV.MS_TO_KPH)
+      apply_accel = apply_no_lead_cruise_accel_limit(
+        accel, stopping, cruise_max_accel, speed_error_kph,
+        self.no_lead_cruise_accel_factor, self.last_apply_accel,
+        self.no_lead_cruise_jerk_limit, DT_CTRL)
+    self.last_apply_accel = float(apply_accel)
+    return self.last_apply_accel
 
   def get_stock_cam_accel(self, apply_accel, stock_accel, scc11):
     stock_cam = scc11["Navi_SCC_Camera_Act"] == 2 and scc11["Navi_SCC_Camera_Status"] == 2

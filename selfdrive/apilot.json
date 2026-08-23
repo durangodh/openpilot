@@ -653,6 +653,26 @@
   },
   {
    "group": "종방향",
+   "name": "NoLeadCruiseAccelFactor",
+   "title": "NO-LEAD CRUISE ACCEL (%)",
+   "descr": "앞차가 없을 때 설정속도로 복귀하는 최대가속 비율입니다. CRUISE MAX 값에 이 비율을 곱하며, 설정속도에 가까워질수록 자동으로 더 낮아집니다. 값 증가(+): 빠른 속도 복귀 / 값 감소(-): 부드러운 속도 복귀. 권장값: 65%.",
+   "min": 30,
+   "max": 100,
+   "default": 65,
+   "unit": 5
+  },
+  {
+   "group": "종방향",
+   "name": "NoLeadCruiseJerkLimit",
+   "title": "NO-LEAD ACCEL RAMP (X0.01m/s³)",
+   "descr": "앞차가 없을 때 가속 명령이 증가하는 속도입니다. 값 증가(+): 가속이 빨리 강해짐 / 값 감소(-): 가속이 천천히 부드럽게 증가. 감속과 앞차 추종에는 적용하지 않습니다. 권장값: 25.",
+   "min": 5,
+   "max": 100,
+   "default": 25,
+   "unit": 5
+  },
+  {
+   "group": "종방향",
    "name": "TFollowGap1",
    "title": "T-FOLLOW GAP1",
    "descr": "해당 GAP의 추종시간(×0.01초)입니다. 값 증가(+): 앞차와 멀어짐 / 값 감소(-): 앞차와 가까워짐.",

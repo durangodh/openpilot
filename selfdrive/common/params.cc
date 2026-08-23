@@ -319,6 +319,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EnableSpeedTF", PERSISTENT},
     {"TFollowDecelBoost", PERSISTENT},         // 감속 중 차간시간 추가 비율 (x100, default 30)
     {"RadarReactionFactor", PERSISTENT},       // 레이더 앞차 가속도 지속 예측 비율 (x100, default 70)
+    {"NoLeadCruiseAccelFactor", PERSISTENT},  // 앞차 없을 때 CruiseMax 적용 비율 (x100)
+    {"NoLeadCruiseJerkLimit", PERSISTENT},    // 앞차 없을 때 가속 상승률 (x100 m/s^3)
     {"StartAccelApply", PERSISTENT},
     {"StopAccelApply", PERSISTENT},
     {"StandstillHoldApply", PERSISTENT},      // 완전정지 유지 제동값 (x100%, default 55)
