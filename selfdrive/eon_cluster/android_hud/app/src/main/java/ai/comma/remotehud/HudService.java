@@ -1772,11 +1772,26 @@ public final class HudService extends Service {
 
         double nooBlend = s.optDouble("atcBlend", 0d);  // legacy wire key
         int nooDirection = s.optInt("atcDirection", 0); // legacy wire key
+        int nooCurrentLane = s.optInt("nooCurrentLane", 0);
+        int nooTargetLane = s.optInt("nooTargetLane", 0);
+        int nooLaneDirection = s.optInt("nooLaneChangeDirection", 0);
+        int nooCameraLanes = s.optInt("nooCameraLaneCount", 0);
+        int nooRouteLanes = s.optInt("nooRouteLaneCount", 0);
         boolean nooActive = nooBlend > 0.005d && nooDirection != 0;
-        String title = nooActive
-                ? String.format(Locale.US, "NOO %s %.0f%%",
-                        nooDirection < 0 ? "←" : "→", nooBlend * 100d)
-                : navi.optString("title", lang("경로 안내", "ROUTE GUIDE"));
+        boolean lanePlanActive = nooLaneDirection != 0 && nooCurrentLane > 0
+                && nooTargetLane > 0;
+        String title;
+        if (lanePlanActive) {
+            title = String.format(Locale.US, "NOO %d→%d", nooCurrentLane, nooTargetLane);
+        } else if (nooActive) {
+            title = String.format(Locale.US, "NOO %s %.0f%%",
+                    nooDirection < 0 ? "←" : "→", nooBlend * 100d);
+        } else if (nooCameraLanes > 0 && nooRouteLanes > 0
+                && nooCameraLanes != nooRouteLanes) {
+            title = String.format(Locale.US, "NOO C%d/M%d", nooCameraLanes, nooRouteLanes);
+        } else {
+            title = navi.optString("title", lang("경로 안내", "ROUTE GUIDE"));
+        }
         if (title.length() > 12) {
             title = title.substring(0, 11) + "…";
         }

@@ -686,6 +686,13 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "atcMode": 1 if noo_enabled else 0,
     "atcBlend": round(_finite(_field(sm["lateralPlan"], "nooMapBlend", 0.0)), 3),
     "atcDirection": int(_finite(_field(sm["lateralPlan"], "nooTurnDirection", 0))),
+    # NOO 차로 진단/계획. APK가 자체적으로 다시 차로를 추측하지 않고 실제
+    # lateral planner가 사용한 보정 결과를 그대로 표시한다.
+    "nooCameraLaneCount": int(_finite(_field(sm["lateralPlan"], "nooCameraLaneCount", 0))),
+    "nooRouteLaneCount": int(_finite(_field(sm["lateralPlan"], "nooRouteLaneCount", 0))),
+    "nooCurrentLane": int(_finite(_field(sm["lateralPlan"], "nooCurrentLane", 0))),
+    "nooTargetLane": int(_finite(_field(sm["lateralPlan"], "nooTargetLane", 0))),
+    "nooLaneChangeDirection": int(_finite(_field(sm["lateralPlan"], "nooLaneChangeDirection", 0))),
     # The optimized MPC state follows a reference that already contains
     # OffsetTotal. Keep the old offset only when falling back to the raw model
     # path so old and new APKs both avoid adding it twice.

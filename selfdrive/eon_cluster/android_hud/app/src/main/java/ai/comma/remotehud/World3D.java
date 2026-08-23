@@ -207,6 +207,12 @@ final class World3D {
     private int pendingLaneCur = 0;
     private int pendingLaneFrames = 0;
     private int missingLaneFrames = 0;
+    // lateral planner가 실제 NOO 판단에 사용한 값. 갓길/중앙분리대를 차로로
+    // 잘못 센 경우 보정된 현재 차로를 노면 안내에도 동일하게 사용한다.
+    private int nooCameraLaneCount = 0;
+    private int nooRouteLaneCount = 0;
+    private int nooCurrentLane = 0;
+    private int nooTargetLane = 0;
 
     /** 티맵 씬 데이터 주입. null 이면 전부 해제(안내 종료). */
     void setNavi(JSONObject scene) {
@@ -302,11 +308,19 @@ final class World3D {
         laneRCount = 0;
         if (s == null) {
             nooMapBlend = 0f;
+            nooCameraLaneCount = 0;
+            nooRouteLaneCount = 0;
+            nooCurrentLane = 0;
+            nooTargetLane = 0;
             updateCameraLanePosition(null);
             return;
         }
         nooMapBlend = Math.max(0f, Math.min(1f,
                 (float) s.optDouble("atcBlend", 0d)));
+        nooCameraLaneCount = s.optInt("nooCameraLaneCount", 0);
+        nooRouteLaneCount = s.optInt("nooRouteLaneCount", 0);
+        nooCurrentLane = s.optInt("nooCurrentLane", 0);
+        nooTargetLane = s.optInt("nooTargetLane", 0);
         updateCameraLanePosition(s.optJSONObject("lanePosition"));
         finalPath = s.optBoolean("pathFinal", false);
         pathCount = decode(s.optJSONArray("path"), pathX, pathY, pathZ);
@@ -904,11 +918,23 @@ final class World3D {
      *  티맵 차로 수만으로 평행선을 생성하던 코드는 실제 도로와 다른 가상차선을
      *  만들었으므로 제거했다. 차로 수가 서로 다르면 화살표도 숨긴다. */
     private void drawTmapLanes(Canvas c, Paint p) {
-        if (tmapLaneCount < 2 || cameraLaneCount != tmapLaneCount
+        if (tmapLaneCount < 2) {
+            return;
+        }
+        int currentLane = cameraLaneCur;
+        // NOO plan이 살아 있으면 planner에서 갓길/중앙분리대를 제거한 값을
+        // 우선한다. 계획이 없을 때는 기존의 엄격한 카메라/TMAP 일치 조건을
+        // 유지해 가상 차로를 만들지 않는다.
+        boolean plannerLaneValid = nooRouteLaneCount == tmapLaneCount
+                && nooCurrentLane >= 1 && nooCurrentLane <= tmapLaneCount
+                && nooTargetLane >= 1 && nooTargetLane <= tmapLaneCount;
+        if (plannerLaneValid) {
+            currentLane = nooCurrentLane;
+        } else if (cameraLaneCount != tmapLaneCount
                 || cameraLaneCur < 1 || cameraLaneCur > cameraLaneCount) {
             return;
         }
-        drawLaneArrows(c, p);
+        drawLaneArrows(c, p, currentLane);
     }
 
     /** 티맵 nLaneTurnInfo 코드 → 화살표 종류. 0 직진 / 1 좌 / 2 우 / 3 유턴.
@@ -923,17 +949,17 @@ final class World3D {
     }
 
     /** 노면 화살표. 진행 가능(available) 차로는 밝게, 아니면 어둡게. */
-    private void drawLaneArrows(Canvas c, Paint p) {
+    private void drawLaneArrows(Canvas c, Paint p, int currentLane) {
         float ax = 21f;
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         for (int i = 1; i <= tmapLaneCount; i++) {
             float laneW = laneWidthM > 0.1f
                     ? Math.max(2.5f, Math.min(4.2f, laneWidthM)) : TMAP_LANE_W;
-            float laneY = centerAt(ax) + laneW * (cameraLaneCur - i);
+            float laneY = centerAt(ax) + laneW * (currentLane - i);
             boolean ok = tmapAvail[i - 1] != 0;
             int color;
-            if (i == cameraLaneCur) {
+            if (i == currentLane) {
                 color = dark ? Color.rgb(246, 206, 92) : Color.rgb(222, 168, 32);
             } else if (ok) {
                 color = dark ? Color.rgb(232, 238, 244) : Color.rgb(252, 253, 253);
