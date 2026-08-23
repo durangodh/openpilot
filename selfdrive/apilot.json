@@ -923,6 +923,16 @@
   },
   {
    "group": "횡방향",
+   "name": "LanelessOffset",
+   "title": "LANELESS OFFSET",
+   "descr": "레인리스(차선 미사용)에서만 적용되는 좌우보정(cm)입니다. 양수(+): 왼쪽 / 음수(-): 오른쪽. 레인모드에는 영향이 없습니다.",
+   "min": -30,
+   "max": 30,
+   "default": 0,
+   "unit": 1
+  },
+  {
+   "group": "횡방향",
    "name": "DynamicLaneProfile",
    "title": "DYNAMIC LANE PROFILE",
    "descr": "0: 차선 사용 / 1: 차선 미사용(E2E) / 2: 자동 전환.",

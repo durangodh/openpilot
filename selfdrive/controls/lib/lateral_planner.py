@@ -372,26 +372,31 @@ class LateralPlanner:
     lateralPlan.dynamicLaneProfile = int(self.dynamic_lane_profile)
 
     # ── UI 하단 중앙 차선/오프셋 디버그 문자열 ──
-    lane_mode = 'laneless' if self.dynamic_lane_profile_status else 'lanemode'
+    # 레인모드/레인리스는 글자 대신 onroad.cc 가 문자열 왼쪽에 점으로 그린다
+    # (파랑=레인모드 / 노랑=레인리스). dynamicLaneProfileStatus 를 쓴다.
     offset_cm = self.offset_total * 100.0
     tail = f'offset={offset_cm:.1f}cm'
     if abs(self.LP.lane_offset) > 0.005:
       tail += f' lane={self.LP.lane_offset * 100.0:+.0f}cm'
     if self.noo_map_blend > 0.005:
       tail += f' noomap={self.noo_map_blend * 100.0:.0f}%'
+    # NOO 상태는 offset 앞의 별도 칸에 넣는다. onroad.cc 의 하단 표시는
+    # "offset" 이 나오는 칸부터 잘라내므로, tail 에 붙이면 EON 화면에서는
+    # 보이지 않는다(rlog 에만 남는다).
+    noo_text = ''
     if self.DH.noo_turn_state:
-      tail += f' nooturn={self.DH.noo_turn_state}'
+      noo_text += f'nooturn={self.DH.noo_turn_state} '
     if self.DH.noo_current_lane > 0 and self.DH.noo_target_lane > 0:
-      tail += f' noo={self.DH.noo_current_lane}>{self.DH.noo_target_lane}'
+      noo_text += f'noo={self.DH.noo_current_lane}>{self.DH.noo_target_lane}'
     elif self.DH.noo_camera_lane_count or self.DH.noo_route_lane_count:
       # No plan yet: show why. cam = camera lane count, map = TMAP lane count.
-      tail += f' noo=cam{self.DH.noo_camera_lane_count}/map{self.DH.noo_route_lane_count}'
+      noo_text += f'noo=cam{self.DH.noo_camera_lane_count}/map{self.DH.noo_route_lane_count}'
     lateralPlan.latDebugText = (
-      f"{lane_mode} | "
       f"{self.LP.lane_width_left:.1f}m | "
       f"{self.LP.lane_width:.1f}m | "
       f"{self.LP.lane_width_right:.1f}m | "
-      f"{tail}"
+      + (f"{noo_text.strip()} | " if noo_text else "")
+      + f"{tail}"
     )
     lateralPlan.dynamicLaneProfileStatus = bool(self.dynamic_lane_profile_status)
 

@@ -173,6 +173,72 @@ void AdjustLaneOffsetControl::refresh() {
   plus_btn->setEnabled(val < 40);
 }
 
+// ── LanelessOffset Control ───────────────────────────────────────
+LanelessOffsetControl::LanelessOffsetControl(const QString &title,
+                                             const QString &desc,
+                                             const QString &icon,
+                                             QWidget *parent)
+    : AbstractControl(title, desc, icon, parent) {
+
+  QWidget *btn_widget = new QWidget();
+  QHBoxLayout *btn_layout = new QHBoxLayout(btn_widget);
+  btn_layout->setContentsMargins(0, 8, 0, 8);
+  btn_layout->setSpacing(12);
+
+  const QString btn_style = R"(
+    QPushButton {
+      font-size: 48px;
+      font-weight: bold;
+      border-radius: 14px;
+      background-color: #393939;
+      color: #ffffff;
+      min-width: 150px;
+      max-width: 150px;
+      min-height: 100px;
+      max-height: 100px;
+    }
+    QPushButton:pressed { background-color: #4a4a4a; }
+  )";
+
+  minus_btn = new QPushButton("−");
+  minus_btn->setStyleSheet(btn_style);
+  connect(minus_btn, &QPushButton::clicked, [=]() { changeValue(-1); });
+
+  value_label = new QLabel();
+  value_label->setAlignment(Qt::AlignCenter);
+  value_label->setStyleSheet("font-size: 40px; color: #ffffff; min-width: 140px;");
+
+  plus_btn = new QPushButton("+");
+  plus_btn->setStyleSheet(btn_style);
+  connect(plus_btn, &QPushButton::clicked, [=]() { changeValue(+1); });
+
+  btn_layout->addStretch();
+  btn_layout->addWidget(minus_btn);
+  btn_layout->addWidget(value_label);
+  btn_layout->addWidget(plus_btn);
+
+  qobject_cast<QVBoxLayout*>(layout())->addWidget(btn_widget);
+  refresh();
+}
+
+void LanelessOffsetControl::changeValue(int delta) {
+  int val = std::atoi(params.get("LanelessOffset").c_str());
+  val += delta;                             // 1cm 단위
+  val = std::max(-30, std::min(30, val));   // -30 ~ +30cm
+  params.put("LanelessOffset", std::to_string(val));
+  refresh();
+}
+
+void LanelessOffsetControl::refresh() {
+  int val = std::atoi(params.get("LanelessOffset").c_str());
+  val = std::max(-30, std::min(30, val));
+  value_label->setText(val == 0 ? QString("OFF")
+                                : QString(val > 0 ? "왼쪽 " : "오른쪽 ")
+                                    + QString::number(std::abs(val)) + " cm");
+  minus_btn->setEnabled(val > -30);
+  plus_btn->setEnabled(val < 30);
+}
+
 // ── AutoLaneChangeTimer Control ─────────────────────────────────
 AutoLaneChangeTimerControl::AutoLaneChangeTimerControl(const QString &title,
                                                        const QString &desc,
@@ -1839,6 +1905,21 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       this);
   lane_offset->showDescription();
   list->addItem(lane_offset);
+
+  list->addItem(horizontal_line());
+
+  // ── Laneless Offset ──────────────────────────────────────────
+  auto *laneless_offset = new LanelessOffsetControl(
+      "레인리스 좌우보정",
+      "차선을 쓰지 않는 레인리스 구간에서만 적용되는 좌우 보정입니다.\n"
+      "레인모드는 직진인데 레인리스에서만 한쪽으로 쏠릴 때 사용합니다.\n"
+      "차선이 잡히는 비중만큼 자동으로 줄어들어 레인모드 주행에는 영향이 없습니다.\n"
+      "왼쪽으로 이동: 양수(+) / 오른쪽으로 이동: 음수(−)\n"
+      "범위: −30 ~ +30cm (1cm 단위)  /  기본값: OFF",
+      "../assets/offroad/icon_road.png",
+      this);
+  laneless_offset->showDescription();
+  list->addItem(laneless_offset);
 
 
   list->addItem(horizontal_line());

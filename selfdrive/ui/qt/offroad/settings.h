@@ -242,3 +242,17 @@ private:
   QLabel *value_label;
   Params params;
 };
+
+// 레인리스(차선 미사용)에서만 적용되는 횡보정. 레인모드는 건드리지 않는다.
+class LanelessOffsetControl : public AbstractControl {
+  Q_OBJECT
+public:
+  LanelessOffsetControl(const QString &title, const QString &desc,
+                        const QString &icon, QWidget *parent = nullptr);
+  void refresh();
+private:
+  void changeValue(int delta);
+  QPushButton *minus_btn, *plus_btn;
+  QLabel *value_label;
+  Params params;
+};

@@ -6,6 +6,8 @@ from common.filter_simple import StreamingMovingAverage
 # the longer lead decels, the more likely it will keep decelerating
 # TODO is this a good default?
 _LEAD_ACCEL_TAU = 1.5
+# 이 값보다 작으면 레이더가 앞차 가감속을 아직 판단하지 못한 것으로 본다.
+RADAR_ACCEL_UNDECIDED = 0.1
 
 # radar tracks
 SPEED, ACCEL = 0, 1   # Kalman filter states enum
@@ -144,9 +146,17 @@ class Cluster():
     }
 
   def get_RadarState2(self, model_prob, lead_msg, mix_radar_info):
+    vision_accel = float(lead_msg.a[0])
+    radar_accel = float(self.aLeadK)
+    # 크기만 비교하면 부호가 반대일 때도 비전 값을 채택한다. 레이더가 앞차
+    # 감속을 보고 있는데 비전 가속도가 한 프레임 튀어 양수가 되면 제동이
+    # 풀려버린다. 방향이 같을 때, 또는 레이더가 아직 판단을 못 한
+    # (거의 0인) 구간에서만 섞는다. 후자가 SCC11 처럼 가속도 필드가 없어
+    # vRel 미분으로 aLeadK 를 만드는 차에서 실제로 이득이 나는 경우다.
+    same_direction = radar_accel * vision_accel > 0.0 or abs(radar_accel) < RADAR_ACCEL_UNDECIDED
     use_vision_mix = (mix_radar_info and float(lead_msg.prob) > 0.5 and
-                      abs(float(self.aLeadK)) < abs(float(lead_msg.a[0])))
-    a_lead_k = self.aLeadKFilter.process(float(lead_msg.a[0]) if use_vision_mix else float(self.aLeadK))
+                      same_direction and abs(radar_accel) < abs(vision_accel))
+    a_lead_k = self.aLeadKFilter.process(vision_accel if use_vision_mix else radar_accel)
     return {
       "dRel": float(self.dRel),
       "yRel": float(self.yRel) if not mix_radar_info or self.yRel != 0 else float(-lead_msg.y[0]),

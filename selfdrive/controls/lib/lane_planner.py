@@ -65,6 +65,10 @@ class LanePlanner:
     self.lane_offset = 0.0
     self.params = Params()
     self.adjust_lane_offset = 0.0
+    # 레인리스에서만 쓰는 횡보정. 모델 경로 자체가 한쪽으로 치우쳐 있을 때
+    # 쓴다(양수 = 왼쪽). 차선이 잡히는 비중만큼 자동으로 사라지므로 레인모드
+    # 주행에는 영향이 없다.
+    self.laneless_offset = 0.0
     self.param_read_frame = 0
 
   def parse_model(self, md):
@@ -99,6 +103,7 @@ class LanePlanner:
       self.r_lane_change_prob = desire_state[log.LateralPlan.Desire.laneChangeRight]
 
   def get_d_path(self, v_ego, path_t, path_xyz, lanelines_active):
+    path_xyz = path_xyz.copy()
     lane_line_blend = float(clip(float(lanelines_active), 0.0, 1.0))
     l_prob, r_prob = self.lll_prob, self.rll_prob
     width_pts = self.rll_y - self.lll_y
@@ -164,6 +169,10 @@ class LanePlanner:
         self.adjust_lane_offset = float(self.params.get("AdjustLaneOffset", encoding="utf8") or "0") * 0.01
       except (TypeError, ValueError):
         self.adjust_lane_offset = 0.0
+      try:
+        self.laneless_offset = float(self.params.get("LanelessOffset", encoding="utf8") or "0") * 0.01
+      except (TypeError, ValueError):
+        self.laneless_offset = 0.0
 
     lwl = self.lane_width_left_filtered.x
     lwr = self.lane_width_right_filtered.x
@@ -185,6 +194,7 @@ class LanePlanner:
     self.lane_offset = float(self.lane_offset_filtered.x)
 
     safe_idxs = np.isfinite(self.ll_t)
+    effective_d_prob = 0.0
     if safe_idxs[0] and lane_line_blend > 0.0:
       lane_path_y_interp = np.interp(path_t, self.ll_t[safe_idxs], lane_path_y[safe_idxs])
       effective_d_prob = self.d_prob * lane_line_blend
@@ -193,4 +203,9 @@ class LanePlanner:
       path_xyz[:,1] += self.lane_offset * effective_d_prob
     elif not safe_idxs[0]:
       cloudlog.warning("Lateral mpc - NaNs in laneline times, ignoring")
+
+    # 모델 경로가 쓰이는 비중(= 1 - effective_d_prob)만큼만 레인리스 보정을
+    # 적용한다. 차선이 잘 보이면 0 에 가까워지므로 레인모드는 그대로다.
+    if self.laneless_offset != 0.0:
+      path_xyz[:,1] += self.laneless_offset * (1.0 - effective_d_prob)
     return path_xyz
