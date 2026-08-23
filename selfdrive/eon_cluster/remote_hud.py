@@ -225,6 +225,18 @@ def _param_int(params, key, default=0, minimum=0, maximum=999):
   return max(minimum, min(maximum, value))
 
 
+def _param_bool(params, key, default=False):
+  try:
+    raw = params.get(key)
+    if raw is None:
+      return default
+    if isinstance(raw, bytes):
+      raw = raw.decode("utf-8", errors="ignore")
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
+  except Exception:
+    return default
+
+
 def _alert(controls_state):
   """controlsState 의 openpilot 이벤트 알림. EON 직접모드 renderer 와 동일한 필드."""
   text1 = str(_field(controls_state, "alertText1", "") or "")
