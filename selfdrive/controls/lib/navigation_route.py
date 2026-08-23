@@ -43,8 +43,8 @@ def _first(data, names, default=None):
   return default
 
 
-class CarrotNaviAtc:
-  """Read CarrotNavi guidance without adding a cereal dependency."""
+class NavigationRouteData:
+  """Read navigation guidance without adding a cereal dependency."""
 
   def __init__(self, state_file=STATE_FILE):
     self.state_file = state_file
@@ -515,7 +515,7 @@ class CarrotNaviAtc:
       cross = ((centre[0] - before[0]) * (after[1] - before[1]) -
                (centre[1] - before[1]) * (after[0] - before[0]))
       curvature = 0.0 if a * b * c < 1e-3 else 2.0 * cross / (a * b * c)
-      # A route kink in the opposite direction must never make ATC steer
+      # A route kink in the opposite direction must never make NOO steer
       # across the instructed turn. Small map noise is ignored as well.
       if curvature * expected_sign <= 0.0 or abs(curvature) < 0.002:
         curvature = 0.0
@@ -585,63 +585,3 @@ class CarrotNaviAtc:
     following = cls.speed_limit_kph(next_state, target_kph, end_time, decel) \
       if isinstance(next_state, dict) else None
     return current, following
-
-
-class AtcForkLaneChangeController:
-  """One-shot, direction-aware lane-change gate for CarrotNavi forks."""
-
-  MIN_DISTANCE = 20.0
-  CONFIRM_FRAMES = 10  # 0.5 s at model rate
-
-  def __init__(self):
-    self.reset()
-
-  def reset(self):
-    self.event_key = None
-    self.last_distance = -1.0
-    self.armed_at_last_lane = False
-    self.canceled = False
-    self.completed = False
-    self.lane_open_count = 0
-    self.lane_closed_count = 0
-
-  @staticmethod
-  def _event_key(state):
-    return state.get("turn_type", -1), state.get("direction", 0)
-
-  def update(self, state, v_ego, lane_open, driver_cancel=False,
-             lane_change_started=False, lane_change_finished=False):
-    direction = int(state.get("direction", 0))
-    is_supported_fork = (state.get("fresh", False) and state.get("kind") == "fork" and
-                         direction in (-1, 1))
-    distance = float(state.get("distance", -1.0))
-    if not is_supported_fork or distance < self.MIN_DISTANCE:
-      self.reset()
-      return 0
-
-    event_key = self._event_key(state)
-    new_event = (event_key != self.event_key or
-                 (self.last_distance >= 0.0 and distance > self.last_distance + 50.0))
-    if new_event:
-      self.reset()
-      self.event_key = event_key
-
-    self.last_distance = distance
-    self.lane_open_count = self.lane_open_count + 1 if lane_open else 0
-    self.lane_closed_count = self.lane_closed_count + 1 if not lane_open else 0
-    if driver_cancel:
-      self.canceled = True
-    if lane_change_finished:
-      self.completed = True
-
-    action_distance = min(350.0, max(160.0, v_ego * 12.0))
-    # Observe the current last lane only inside the actual ATC action range,
-    # before allowing an exit lane that appears later to trigger a change.
-    if (distance <= action_distance and self.lane_closed_count >= self.CONFIRM_FRAMES and
-        not lane_change_started):
-      self.armed_at_last_lane = True
-
-    if (self.canceled or self.completed or not self.armed_at_last_lane or
-        self.lane_open_count < self.CONFIRM_FRAMES or distance > action_distance):
-      return 0
-    return direction

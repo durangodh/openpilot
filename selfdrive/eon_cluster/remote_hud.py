@@ -43,7 +43,7 @@ PARAM_HEARTBEAT = "EonClusterHudHeartbeat"
 PARAM_FPS = "EonClusterHudFps"
 PARAM_MAP_FPS = "EonClusterHudMapFps"
 HEARTBEAT_PERIOD_S = 2.0
-PARAM_ATC_MODE = "CarrotAutoTurnControl"
+PARAM_NOO_ENABLED = "NavigationOnOpenpilot"
 _NAVI_CACHE = {"signature": None, "state": {}, "scene_sig": None, "scene": None}
 
 # One-time S9 APK support for runtime layout tuning.  After the compatible APK
@@ -292,8 +292,8 @@ def _publish_connected(params, state, value):
 def _publish_heartbeat(params, state):
   # 2026-08-19: 하트비트를 "폰이 ACK 를 보냈는가(connected)" 와 분리했다.
   # 예전에는 connected 가 True 일 때만 찍어서, 와이파이가 잠깐 흔들리거나
-  # ACK 가 늦으면 EON UI 가 내비/ATC 패널을 다시 그렸다(= 외부 HUD 를 쓰는데도
-  # 이온에 지도·ATC 박스가 뜨는 증상). 이제는 원격 출력이 켜져 있고 이 프로세스가
+  # ACK 가 늦으면 EON UI 가 내비/NOO 패널을 다시 그렸다(= 외부 HUD 를 쓰는데도
+  # 이온에 지도·NOO 박스가 뜨는 증상). 이제는 원격 출력이 켜져 있고 이 프로세스가
   # 살아 있으면 2초마다 찍는다. 프로세스가 죽거나 EonClusterHud 를 끄면
   # 10초 뒤 EON 이 다시 그린다.
   now = time.time()
@@ -598,7 +598,7 @@ def _read_navi_summary():
   return summary
 
 
-def _packet(sm, atc_mode, path_offset=0.0):
+def _packet(sm, noo_enabled, path_offset=0.0):
   car = sm["carState"]
   controls = sm["controlsState"]
   road = sm["roadLimitSpeed"]
@@ -681,9 +681,11 @@ def _packet(sm, atc_mode, path_offset=0.0):
       "rl": _finite(_field(tpms, "rl", -1.0), -1.0),
       "rr": _finite(_field(tpms, "rr", -1.0), -1.0),
     },
-    "atcMode": int(atc_mode),
-    "atcBlend": round(_finite(_field(sm["lateralPlan"], "atcMapBlend", 0.0)), 3),
-    "atcDirection": int(_finite(_field(sm["lateralPlan"], "atcTurnDirection", 0))),
+    # Legacy JSON keys are retained so the installed S9 APK remains wire
+    # compatible. Their values now come exclusively from NOO.
+    "atcMode": 1 if noo_enabled else 0,
+    "atcBlend": round(_finite(_field(sm["lateralPlan"], "nooMapBlend", 0.0)), 3),
+    "atcDirection": int(_finite(_field(sm["lateralPlan"], "nooTurnDirection", 0))),
     # The optimized MPC state follows a reference that already contains
     # OffsetTotal. Keep the old offset only when falling back to the raw model
     # path so old and new APKs both avoid adding it twice.
@@ -725,7 +727,7 @@ def main():
   connected = False
   published = [None, 0.0]
   map_server = MapFrameServer()
-  atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
+  noo_enabled = _param_bool(params, PARAM_NOO_ENABLED)
   path_offset = _path_offset(params)
   configured_fps = _param_int(params, PARAM_FPS, 7, 0, 15)
   telemetry_fps = PAUSED_TELEMETRY_FPS if configured_fps == 0 else min(MAX_TELEMETRY_FPS, configured_fps)
@@ -742,7 +744,7 @@ def main():
       continue
     _publish_heartbeat(params, published)
     if started >= next_param_read:
-      atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
+      noo_enabled = _param_bool(params, PARAM_NOO_ENABLED)
       path_offset = _path_offset(params)
       configured_fps = _param_int(params, PARAM_FPS, 7, 0, 15)
       telemetry_fps = PAUSED_TELEMETRY_FPS if configured_fps == 0 else min(MAX_TELEMETRY_FPS, configured_fps)
@@ -750,7 +752,7 @@ def main():
       next_param_read = started + 1.0
     sm.update(0)
     try:
-      sock.sendto(json.dumps(_packet(sm, atc_mode, path_offset), separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
+      sock.sendto(json.dumps(_packet(sm, noo_enabled, path_offset), separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
                   ("255.255.255.255", PORT))
       try:
         while True:

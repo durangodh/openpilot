@@ -979,8 +979,8 @@ struct LateralPlan @0xe1e9318e2ae8b51e {
   mpcPathX @43 :List(Float32);
   mpcPathY @44 :List(Float32);
   # Actual TMAP route-curvature contribution used by the lateral planner.
-  atcMapBlend @45 :Float32;
-  atcTurnDirection @46 :Int8;  # -1 left, 0 inactive, 1 right
+  nooMapBlend @45 :Float32;
+  nooTurnDirection @46 :Int8;  # -1 left, 0 inactive, 1 right
   nooCurrentLane @47 :Int8;
   nooTargetLane @48 :Int8;
   nooLaneChangeDirection @49 :Int8;  # -1 left, 0 inactive, 1 right

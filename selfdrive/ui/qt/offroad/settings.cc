@@ -1136,27 +1136,20 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   setAutoFillBackground(true);
   setPalette(pal);
 
-  auto *atc_mode = new ParamValueControlF(
-      "CarrotAutoTurnControl", "NAVIGATION ATC MODE",
-      "0: 끔 / 1: 회전 조향보조 / 2: 조향보조+회전감속 / 3: 회전감속만 사용.",
-      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 0, this);
-  atc_mode->showDescription();
-  toggleLayout->addWidget(atc_mode);
-
   toggleLayout->addWidget(new ParamControl(
       "NavigationOnOpenpilot", "NAVIGATION ON OPENPILOT",
-      "티맵 권장차로와 modelV2가 확인한 현재차로가 일치할 때만 목적지 경로에 필요한 차선변경을 한 차로씩 수행합니다. "
-      "차로 수·도로경계·BSD 중 하나라도 불확실하면 조향하지 않습니다. 시험 기능이므로 주변을 직접 확인하십시오.",
+      "티맵 경로 기반 회전조향·회전감속과 분기·권장차로 차선변경을 하나로 수행합니다. "
+      "차선변경은 modelV2 현재차로, 차로 수, 도로경계와 BSD가 모두 확실할 때 한 차로씩만 작동합니다.",
       "../assets/offroad/icon_road.png", this));
 
   toggleLayout->addWidget(new ParamValueControlF(
-      "CarrotAutoTurnSpeed", "ATC TURN SPEED",
-      "회전 구간 목표속도(km/h)이며 모드 2·3에서 적용됩니다. 값 증가(+): 더 빠르게 회전 / 값 감소(-): 더 많이 감속.",
+      "NooTurnSpeed", "NOO TURN SPEED",
+      "NOO 회전 구간 목표속도(km/h)입니다. 값 증가(+): 더 빠르게 회전 / 값 감소(-): 더 많이 감속.",
       "../assets/offroad/icon_speed_limit.png", 30, 60, 5, 0, 30, this));
 
   toggleLayout->addWidget(new ParamValueControlF(
-      "CarrotAutoTurnEndTime", "ATC DECEL TIMING",
-      "회전감속 준비시간(초)이며 모드 2·3에서 적용됩니다. 값 증가(+): 더 일찍 감속 시작 / 값 감소(-): 회전에 가까워져 감속.",
+      "NooTurnEndTime", "NOO DECEL TIMING",
+      "NOO 회전감속 준비시간(초)입니다. 값 증가(+): 더 일찍 감속 시작 / 값 감소(-): 회전에 가까워져 감속.",
       "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
 
   toggleLayout->addWidget(horizontal_line());
@@ -1664,11 +1657,11 @@ UISettingsPanel::UISettingsPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", this));
   list->addItem(new ParamControl(
       "ShowMapboxMap", "RIGHT MAP IMAGE",
-      "켜짐: 우측 Mapbox 지도와 ATC 구간의 티맵 지도 이미지를 표시합니다. / 꺼짐: 지도 이미지를 즉시 숨깁니다. 티맵 방향·거리·카메라 감속 기능은 유지됩니다.",
+      "켜짐: 우측 Mapbox 지도와 NOO 구간의 티맵 지도 이미지를 표시합니다. / 꺼짐: 지도 이미지를 즉시 숨깁니다. 티맵 방향·거리·카메라 감속 기능은 유지됩니다.",
       "../assets/offroad/icon_road.png", this));
   list->addItem(new ParamControl(
       "ShowRouteMapAlways", "ALWAYS SHOW ROUTE MAP",
-      "켜짐: 목적지 경로가 활성화된 동안 ATC 구간이 아니어도 우측 티맵 지도 이미지를 계속 표시합니다. / 꺼짐: ATC 진입 구간에서만 표시합니다. '우측 지도 이미지 표시'가 켜져 있어야 적용됩니다.",
+      "켜짐: 목적지 경로가 활성화된 동안 NOO 구간이 아니어도 우측 티맵 지도 이미지를 계속 표시합니다. / 꺼짐: NOO 진입 구간에서만 표시합니다. '우측 지도 이미지 표시'가 켜져 있어야 적용됩니다.",
       "../assets/offroad/icon_road.png", this));
   list->addItem(new ParamControl(
       "ShowGearAnimation", "GEAR POPUP ANIMATION",

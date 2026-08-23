@@ -110,9 +110,9 @@ protected:
   int  blink_timer = 0;
   int  carrot_param_timer = 0;
   int  my_driving_mode = 3;
-  int  carrot_atc_mode = 0;
-  int  carrot_atc_speed = 30;
-  int  carrot_atc_end_time = 6;
+  bool noo_enabled = false;
+  int  noo_turn_speed = 30;
+  int  noo_turn_end_time = 6;
   int  carrot_bump_speed = 35;
   int  show_gear_animation = 1;
   int  show_carrot_hud = 1;

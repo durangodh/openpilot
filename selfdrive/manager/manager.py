@@ -55,10 +55,9 @@ def manager_init() -> None:
     ("AutoNaviSpeedBumpTime", "1"),
     ("AutoNaviSpeedBumpSpeed", "35"),
     ("AutoNaviSpeedSafetyFactor", "105"),
-    ("CarrotAutoTurnControl", "0"),
     ("NavigationOnOpenpilot", "0"),
-    ("CarrotAutoTurnSpeed", "30"),
-    ("CarrotAutoTurnEndTime", "6"),
+    ("NooTurnSpeed", "30"),
+    ("NooTurnEndTime", "6"),
     ("CruiseButtonMode", "0"),              # 0=normal, 1/2=custom, 3=speed table
     ("CruiseSpeedUnit", "10"),
     ("CruiseSpeedUnitBasic", "1"),
@@ -185,20 +184,31 @@ def manager_init() -> None:
   if params.get_bool("RecordFrontLock"):
     params.put_bool("RecordFront", True)
 
-  # AutoTurnControl -> CarrotAutoTurnControl one-time compatibility. The new
-  # default may already have created a 0 on an earlier g_abcd boot, so inherit
-  # a nonzero legacy mode once, then never override the driver's new choice.
-  if params.get("CarrotAutoTurnControlMigrated") is None:
+  # Preserve the driver's previous navigation values once, then run only the
+  # unified NOO parameters. Legacy files are read directly because their keys
+  # are intentionally no longer registered.
+  if params.get("NooUnifiedMigrated") is None:
+    legacy_dir = "/data/params/d"
     try:
-      old_atc_mode = open("/data/params/d/AutoTurnControl").read().strip()
-      new_atc_mode = params.get("CarrotAutoTurnControl", encoding='utf8')
-      old_atc_mode = str(max(0, min(3, int(old_atc_mode))))
-      if old_atc_mode != "0" and new_atc_mode in (None, "0"):
-        params.put("CarrotAutoTurnControl", old_atc_mode)
-        cloudlog.warning(f"migrated AutoTurnControl -> CarrotAutoTurnControl: {old_atc_mode}")
-    except (IOError, OSError, TypeError, ValueError):
-      pass
-    params.put_bool("CarrotAutoTurnControlMigrated", True)
+      legacy_modes = []
+      for filename in ("CarrotAutoTurnControl", "AutoTurnControl"):
+        try:
+          legacy_modes.append(int(open(os.path.join(legacy_dir, filename)).read().strip()))
+        except (IOError, OSError, TypeError, ValueError):
+          pass
+      if any(mode > 0 for mode in legacy_modes):
+        params.put_bool("NavigationOnOpenpilot", True)
+
+      for old_name, new_name, lower, upper in (
+          ("CarrotAutoTurnSpeed", "NooTurnSpeed", 30, 60),
+          ("CarrotAutoTurnEndTime", "NooTurnEndTime", 2, 12)):
+        try:
+          value = int(open(os.path.join(legacy_dir, old_name)).read().strip())
+          params.put(new_name, str(max(lower, min(upper, value))))
+        except (IOError, OSError, TypeError, ValueError):
+          pass
+    finally:
+      params.put_bool("NooUnifiedMigrated", True)
 
   # 기존 단일 ACC/AUTO/E2E 선택값을 aPilot 방식의 ExperimentalMode +
   # TrafficStopMode 조합으로 1회 이관한다.

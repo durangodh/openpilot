@@ -236,11 +236,10 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"WideCameraOnly", PERSISTENT},
     {"AutoLaneChangeTimer", PERSISTENT},
     {"AutoLaneChangeSpeed", PERSISTENT},        // 자동/방향지시등 차선변경 허용 최저 속도 (km/h)
-    {"CarrotAutoTurnControl", PERSISTENT},
-    {"CarrotAutoTurnControlMigrated", PERSISTENT},
     {"NavigationOnOpenpilot", PERSISTENT},
-    {"CarrotAutoTurnSpeed", PERSISTENT},
-    {"CarrotAutoTurnEndTime", PERSISTENT},
+    {"NooUnifiedMigrated", PERSISTENT},
+    {"NooTurnSpeed", PERSISTENT},
+    {"NooTurnEndTime", PERSISTENT},
     {"StopDistance", PERSISTENT},                // shared ACC/E2E standstill distance (cm), default 600
     {"ApplyLongDynamicCost", PERSISTENT},        // 동적 longitudinal MPC cost 적용
     {"MyDrivingMode", PERSISTENT},             // 주행모드 1:SAFE 2:ECO 3:NORM 4:FAST
@@ -274,7 +273,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudPathFlip", PERSISTENT},       // 진단용: S9 경로/차선 좌우반전 (0=기본, 1=반전)
     {"EonClusterHudLanguage", PERSISTENT},
     {"EonClusterHudRadarInfo", PERSISTENT},
-    {"ShowMapboxMap", PERSISTENT},              // 1=Mapbox/ATC Tmap 지도 이미지 표시, 0=모든 지도 이미지 숨김
+    {"ShowMapboxMap", PERSISTENT},              // 1=Mapbox/NOO Tmap 지도 이미지 표시, 0=모든 지도 이미지 숨김
     {"ShowRouteMapAlways", PERSISTENT},         // 1=목적지 경로 동안 Tmap 지도 이미지 상시 표시
     {"ShowPathWidth", PERSISTENT},               // 경로 반폭 cm (90=0.90m)
     {"ShowPathStatusColor", PERSISTENT},         // 가감속 상태에 따른 경로 색상

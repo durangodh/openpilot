@@ -9,7 +9,7 @@ APM 의 설정화면(ParamsActivity)은 SSH 로 이 명령을 실행한다.
 이 스크립트는 selfdrive/apilot.json 에 정의된 파라미터들의 현재 값을 읽어
 /data/backup_params.json 에 아래 형식으로 쓴다.
 
-    [{"filename": "CarrotAutoTurnControl", "content": "1"}, ...]
+    [{"filename": "NavigationOnOpenpilot", "content": "1"}, ...]
 
 지켜야 하는 제약
  1. stdout 으로 아무것도 출력하지 않는다.

@@ -14,14 +14,14 @@ NAVI_LANE_BOTTOM = "/dev/shm/carrot_navi_lane_bottom.png"
 NAVI_MAX_AGE_MS = 35000
 NAVI_ROUTE_MAX_AGE_MS = 3000
 NAVI_ROUTE_GRACE_S = 2.0
-ATC_CARD_GRACE_S = 3.0
-ATC_ASSET_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "images")
-ATC_IMAGE_FILES = {
-  ("turn", -1): os.path.join(ATC_ASSET_DIR, "turn_l.png"),
-  ("turn", 1): os.path.join(ATC_ASSET_DIR, "turn_r.png"),
-  ("fork", -1): os.path.join(ATC_ASSET_DIR, "lane_change_l.png"),
-  ("fork", 1): os.path.join(ATC_ASSET_DIR, "lane_change_r.png"),
-  ("uturn", -1): os.path.join(ATC_ASSET_DIR, "turn_u.png"),
+NOO_CARD_GRACE_S = 3.0
+NOO_ASSET_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "images")
+NOO_IMAGE_FILES = {
+  ("turn", -1): os.path.join(NOO_ASSET_DIR, "turn_l.png"),
+  ("turn", 1): os.path.join(NOO_ASSET_DIR, "turn_r.png"),
+  ("fork", -1): os.path.join(NOO_ASSET_DIR, "lane_change_l.png"),
+  ("fork", 1): os.path.join(NOO_ASSET_DIR, "lane_change_r.png"),
+  ("uturn", -1): os.path.join(NOO_ASSET_DIR, "turn_u.png"),
 }
 BITMAP_FONT_DATA = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "Pretendard-SemiBold.fnt")
 BITMAP_FONT_IMAGE = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "Pretendard-SemiBold.png")
@@ -344,7 +344,7 @@ def _navi_route_active(navi, now_ms=None):
   return remain_distance > 0.0
 
 
-def _eon_atc_box_active(navi, now_ms=None):
+def _eon_noo_box_active(navi, now_ms=None):
   """Match drawCarrotNavi's box visibility gate on the EON screen."""
   if not isinstance(navi, dict):
     return False
@@ -362,8 +362,8 @@ def _eon_atc_box_active(navi, now_ms=None):
   return remain_distance > 0.0 and remain_time > 0.0
 
 
-def _atc_kind(turn_type, instruction):
-  """Python equivalent of the EON carrotAtcKind turn classification."""
+def _noo_kind(turn_type, instruction):
+  """Python equivalent of the EON navigation turn classification."""
   try:
     turn_type = int(turn_type or 0)
   except (TypeError, ValueError):
@@ -494,8 +494,8 @@ class HudRenderer(object):
     self.set_jpeg_quality(jpeg_quality)
     self.mirror = False
     self._route_visible_until = 0.0
-    self._atc_visible_until = 0.0
-    self._atc_navi_cache = {}
+    self._noo_visible_until = 0.0
+    self._noo_navi_cache = {}
     # Cache the static carrot-style road surface per panel size.
     self._road_backgrounds = {}
     # Display-only temporal history. Model coordinates remain untouched; only
@@ -506,7 +506,7 @@ class HudRenderer(object):
     # buckets so validated leads do not redraw complex car geometry every frame.
     self._vehicle_base_sprites = {}
     self._vehicle_sprite_cache = OrderedDict()
-    self._atc_icon_cache = {}
+    self._noo_icon_cache = {}
 
   def set_jpeg_quality(self, jpeg_quality):
     jpeg_quality = max(1, min(95, int(jpeg_quality)))
@@ -1125,11 +1125,11 @@ class HudRenderer(object):
                  y + math.sin(spoke) * inner_radius * 0.88),
                 fill=wheel_color, width=max(3, width - 1))
 
-  def _atc_card_box(self, box):
+  def _noo_card_box(self, box):
     left, top, right, bottom = box
     world_top = top + int((bottom - top) * 0.47)
     tpms_card = self._bottom_card_box((left, world_top, right, bottom), "right")
-    # Stack ATC directly above TPMS with exactly the same horizontal bounds.
+    # Stack NOO directly above TPMS with exactly the same horizontal bounds.
     # Its top stays below the camera/section remaining-distance label, while
     # the bottom keeps a small visual gap from the TPMS card.
     second_row_y = top + max(164, int(self.height * 0.37))
@@ -1141,23 +1141,23 @@ class HudRenderer(object):
     card_bottom = tpms_card[1] - 8
     return tpms_card[0], card_top, tpms_card[2], card_bottom
 
-  def _atc_icon(self, kind, direction, size):
+  def _noo_icon(self, kind, direction, size):
     key = (kind, direction, int(size))
-    cached = self._atc_icon_cache.get(key)
+    cached = self._noo_icon_cache.get(key)
     if cached is not None:
       return cached
-    source = _safe_image(ATC_IMAGE_FILES.get((kind, direction), ""))
+    source = _safe_image(NOO_IMAGE_FILES.get((kind, direction), ""))
     if source is None:
       return None
     # Match the source rectangle used by the EON QPainter implementation.
     source = source.crop((48, 48, 208, 208))
     resampling = getattr(Image, "Resampling", Image)
     icon = source.resize((int(size), int(size)), resampling.LANCZOS)
-    self._atc_icon_cache[key] = icon
+    self._noo_icon_cache[key] = icon
     return icon
 
   @staticmethod
-  def _draw_atc_fallback(draw, center_x, center_y, size, kind, direction, turn_type):
+  def _draw_noo_fallback(draw, center_x, center_y, size, kind, direction, turn_type):
     color = (245, 247, 248)
     width = max(4, size // 12)
     if kind in ("turn", "fork") and direction != 0:
@@ -1184,8 +1184,8 @@ class HudRenderer(object):
       _draw_text(draw, (center_x, center_y), label, max(12, size // 4), True,
                  fill=color, anchor="mm")
 
-  def _draw_atc_box(self, image, draw, box, navi, scene):
-    card = self._atc_card_box(box)
+  def _draw_noo_box(self, image, draw, box, navi, scene):
+    card = self._noo_card_box(box)
     left, top, right, bottom = card
     width = right - left
     height = bottom - top
@@ -1199,7 +1199,7 @@ class HudRenderer(object):
       turn_distance = float(guide.get("distance_m", -1) or 0)
     except (TypeError, ValueError):
       turn_type, turn_distance = 0, -1.0
-    kind, direction = _atc_kind(turn_type, title)
+    kind, direction = _noo_kind(turn_type, title)
 
     draw.rounded_rectangle(card, radius=10, fill=(31, 35, 38),
                            outline=(238, 241, 243), width=2)
@@ -1216,20 +1216,20 @@ class HudRenderer(object):
     stream_times = navi.get("stream_updated_at_ms") or {}
     guidance_updated_at = int(stream_times.get("guidance_current", navi.get("updated_at_ms", 0)) or 0)
     guidance_age = int(time.time() * 1000) - guidance_updated_at
-    atc_available = (1 <= int(scene.get("atc_mode", 0) or 0) <= 3 and
+    noo_available = (1 <= int(scene.get("noo_enabled", 0) or 0) <= 3 and
                      -5000 <= guidance_age <= 3000 and turn_distance >= 0 and kind != "none")
-    blink_on = not (atc_available and turn_distance <= 350.0) or int(time.monotonic() * 2.0) % 2 == 0
+    blink_on = not (noo_available and turn_distance <= 350.0) or int(time.monotonic() * 2.0) % 2 == 0
 
     icon_size = max(50, min(width - 30, int(height * 0.34)))
     icon_x = (left + right) // 2
     icon_y = top + int(height * 0.34)
-    icon = self._atc_icon(kind, direction, icon_size)
+    icon = self._noo_icon(kind, direction, icon_size)
     if blink_on:
       if icon is not None:
         image.paste(icon, (icon_x - icon_size // 2, icon_y - icon_size // 2),
                     icon if icon.mode == "RGBA" else None)
       else:
-        self._draw_atc_fallback(draw, icon_x, icon_y, icon_size, kind, direction, turn_type)
+        self._draw_noo_fallback(draw, icon_x, icon_y, icon_size, kind, direction, turn_type)
 
     is_metric = bool(scene.get("is_metric", True))
     language = "en" if str(scene.get("language", "ko")).lower() == "en" else "ko"
@@ -1404,20 +1404,20 @@ class HudRenderer(object):
                max(13, self.height // 31), True, fill=(104, 111, 116), anchor="mm")
 
     separator_y = top + max(124, int(self.height * 0.28))
-    atc_box_active = _eon_atc_box_active(navi)
-    atc_navi = navi
+    noo_box_active = _eon_noo_box_active(navi)
+    noo_navi = navi
     monotonic_now = time.monotonic()
-    if atc_box_active:
-      # Hold the last complete ATC payload across atomic JSON replacement.
+    if noo_box_active:
+      # Hold the last complete NOO payload across atomic JSON replacement.
       # Only the direction icon below is allowed to blink; the card and text
       # must not disappear on a transient empty/stale navigation frame.
-      self._atc_visible_until = monotonic_now + ATC_CARD_GRACE_S
-      self._atc_navi_cache = navi
-    elif monotonic_now < self._atc_visible_until and self._atc_navi_cache:
-      atc_box_active = True
-      atc_navi = self._atc_navi_cache
-    if atc_box_active:
-      route = atc_navi.get("route") or {}
+      self._noo_visible_until = monotonic_now + NOO_CARD_GRACE_S
+      self._noo_navi_cache = navi
+    elif monotonic_now < self._noo_visible_until and self._noo_navi_cache:
+      noo_box_active = True
+      noo_navi = self._noo_navi_cache
+    if noo_box_active:
+      route = noo_navi.get("route") or {}
       remain_time = int(route.get("remain_time_sec", 0) or 0)
       eta = time.localtime(time.time() + remain_time)
       eta_time_text = time.strftime("%H:%M", eta)
@@ -1466,8 +1466,8 @@ class HudRenderer(object):
       camera_distance_size = self._camera_distance_text_size()
       _draw_text(draw, (right_x, second_row_y + max(39, self.height // 11)), distance_text,
                  camera_distance_size, True, fill=(18, 18, 18), anchor="ma")
-    if atc_box_active:
-      self._draw_atc_box(image, draw, box, atc_navi, scene)
+    if noo_box_active:
+      self._draw_noo_box(image, draw, box, noo_navi, scene)
 
   def _draw_driving_mode(self, draw, box, mode):
     modes = {

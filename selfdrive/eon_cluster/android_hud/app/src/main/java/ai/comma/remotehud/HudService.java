@@ -94,7 +94,7 @@ public final class HudService extends Service {
     private static final float NATIVE_GAUGE_RAISE_PX = 42f;
     /** 순정 화면의 상·하단 카드 위치 보정값. */
     private static final float NATIVE_CARD_SHIFT_PX = 18f;
-    private static final float NATIVE_ATC_SHIFT_PX = 24f;
+    private static final float NATIVE_NOO_SHIFT_PX = 24f;
 
     /** 속도 숫자 기준선. 예전 KM 라벨이 있던 자리로, 위쪽 RPM 아크 공간용. */
     private static final float SPEED_BASELINE = 118f;
@@ -1745,8 +1745,8 @@ public final class HudService extends Service {
 
     private void drawAtc(Canvas c, Paint p, JSONObject s) {
         JSONObject navi = s.optJSONObject("navi");
-        int atcMode = s.optInt("atcMode", 0);
-        if (atcMode < 1 || atcMode > 3 || navi == null || !navi.optBoolean("active", false)) {
+        int nooMode = s.optInt("atcMode", 0);  // legacy wire key
+        if (nooMode < 1 || navi == null || !navi.optBoolean("active", false)) {
             return;
         }
         if (!navi.optBoolean("guidanceLive", false)) {
@@ -1770,18 +1770,18 @@ public final class HudService extends Service {
         p.setColor(Color.rgb(238, 241, 243));
         c.drawRoundRect(scratchRect, 10f, 10f, p);
 
-        double atcBlend = s.optDouble("atcBlend", 0d);
-        int atcDirection = s.optInt("atcDirection", 0);
-        boolean atcActive = atcBlend > 0.005d && atcDirection != 0;
-        String title = atcActive
-                ? String.format(Locale.US, "ATC %s %.0f%%",
-                        atcDirection < 0 ? "←" : "→", atcBlend * 100d)
+        double nooBlend = s.optDouble("atcBlend", 0d);  // legacy wire key
+        int nooDirection = s.optInt("atcDirection", 0); // legacy wire key
+        boolean nooActive = nooBlend > 0.005d && nooDirection != 0;
+        String title = nooActive
+                ? String.format(Locale.US, "NOO %s %.0f%%",
+                        nooDirection < 0 ? "←" : "→", nooBlend * 100d)
                 : navi.optString("title", lang("경로 안내", "ROUTE GUIDE"));
         if (title.length() > 12) {
             title = title.substring(0, 11) + "…";
         }
         text(c, p, title, 1034f, 350f, 14f,
-                atcActive ? Color.rgb(76, 224, 144) : Color.rgb(248, 249, 250),
+                nooActive ? Color.rgb(76, 224, 144) : Color.rgb(248, 249, 250),
                 Paint.Align.CENTER);
 
         boolean blink = dist > 350 || ((SystemClock.elapsedRealtime() / 500L) & 1L) == 0L;
@@ -2568,7 +2568,7 @@ public final class HudService extends Service {
             c.restoreToCount(waitSave);
             int atcSave = beginElement(c, l, "atc", 1034f, 393f);
             if (nativeLayoutRendering) {
-                c.translate(0f, NATIVE_ATC_SHIFT_PX / nativeWidgetScale);
+                c.translate(0f, NATIVE_NOO_SHIFT_PX / nativeWidgetScale);
             }
             drawAtc(c, p, s);
             c.restoreToCount(atcSave);
@@ -2603,10 +2603,10 @@ public final class HudService extends Service {
         drawNativeOverlay(c, p, lane, 1130f, 366f, 1660f, 450f, Paint.Align.CENTER);
         c.restoreToCount(save3);
 
-        // ATC 안내는 주행 패널에서 TMAP 패널 좌하단으로 이동했다.
+        // NOO 안내는 주행 패널에서 TMAP 패널 좌하단으로 이동했다.
         int save4 = beginElement(c, l, "atc", 1034f, 393f);
         if (nativeLayoutRendering) {
-            c.translate(0f, NATIVE_ATC_SHIFT_PX / nativeWidgetScale);
+            c.translate(0f, NATIVE_NOO_SHIFT_PX / nativeWidgetScale);
         }
         drawAtc(c, p, s);
         c.restoreToCount(save4);

@@ -306,52 +306,52 @@ enum class CarrotTurnDirection {
   UTURN, SLIGHT_LEFT, SLIGHT_RIGHT, ARRIVE
 };
 
-enum class CarrotAtcKind { NONE, TURN, FORK, UTURN, ROTARY };
+enum class NavigationKind { NONE, TURN, FORK, UTURN, ROTARY };
 
-static bool carrotAtcTypeIn(int type, std::initializer_list<int> types) {
+static bool navigationTypeIn(int type, std::initializer_list<int> types) {
   return std::find(types.begin(), types.end(), type) != types.end();
 }
 
-[[maybe_unused]] static CarrotAtcKind carrotAtcKind(int type, const QString &text, int *direction) {
+[[maybe_unused]] static NavigationKind navigationKind(int type, const QString &text, int *direction) {
   *direction = 0;
-  if (carrotAtcTypeIn(type, {12, 16})) {
+  if (navigationTypeIn(type, {12, 16})) {
     *direction = -1;
-    return CarrotAtcKind::TURN;
+    return NavigationKind::TURN;
   }
-  if (carrotAtcTypeIn(type, {13, 19})) {
+  if (navigationTypeIn(type, {13, 19})) {
     *direction = 1;
-    return CarrotAtcKind::TURN;
+    return NavigationKind::TURN;
   }
-  if (carrotAtcTypeIn(type, {7, 17, 44, 75, 76, 102, 105, 112, 115, 118})) {
+  if (navigationTypeIn(type, {7, 17, 44, 75, 76, 102, 105, 112, 115, 118})) {
     *direction = -1;
-    return CarrotAtcKind::FORK;
+    return NavigationKind::FORK;
   }
-  if (carrotAtcTypeIn(type, {6, 43, 73, 74, 101, 104, 111, 114, 117, 123, 124})) {
+  if (navigationTypeIn(type, {6, 43, 73, 74, 101, 104, 111, 114, 117, 123, 124})) {
     *direction = 1;
-    return CarrotAtcKind::FORK;
+    return NavigationKind::FORK;
   }
   if (type == 14) {
     *direction = -1;
-    return CarrotAtcKind::UTURN;
+    return NavigationKind::UTURN;
   }
-  if (type >= 131 && type <= 142) return CarrotAtcKind::ROTARY;
+  if (type >= 131 && type <= 142) return NavigationKind::ROTARY;
 
   const QString lower = text.toLower();
   if (lower.contains(QString::fromUtf8("유턴")) || lower.contains("u-turn") || lower.contains("uturn")) {
     *direction = -1;
-    return CarrotAtcKind::UTURN;
+    return NavigationKind::UTURN;
   }
   const bool fork = lower.contains(QString::fromUtf8("분기")) ||
                     lower.contains(QString::fromUtf8("진출")) || lower.contains("fork");
   if (lower.contains(QString::fromUtf8("좌회전")) || lower.contains(QString::fromUtf8("왼쪽")) || lower.contains("left")) {
     *direction = -1;
-    return fork ? CarrotAtcKind::FORK : CarrotAtcKind::TURN;
+    return fork ? NavigationKind::FORK : NavigationKind::TURN;
   }
   if (lower.contains(QString::fromUtf8("우회전")) || lower.contains(QString::fromUtf8("오른쪽")) || lower.contains("right")) {
     *direction = 1;
-    return fork ? CarrotAtcKind::FORK : CarrotAtcKind::TURN;
+    return fork ? NavigationKind::FORK : NavigationKind::TURN;
   }
-  return CarrotAtcKind::NONE;
+  return NavigationKind::NONE;
 }
 
 static CarrotTurnDirection carrotTurnDirection(int type, const QString &text) {
@@ -463,7 +463,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
 
   // c3-wip DISPLAY state equivalent for EON. The target branch has no
   // carrotMan DISPLAY message, so preserve the same 0.2 s MAP entry and
-  // 5 s ROAD return timing with the available ATC guidance state.
+  // 5 s ROAD return timing with the available NOO guidance state.
   static bool carrot_map_mode = false;
   static qint64 carrot_map_enter_since = 0;
   static qint64 carrot_map_exit_since = 0;
@@ -489,31 +489,31 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
                           height() - bottom_margin - compact_h,
                           panel_w, compact_h);
 
-  int atc_direction = 0;
-  const CarrotAtcKind atc_kind = carrotAtcKind(carrot_navi_turn_type,
+  int navigation_direction = 0;
+  const NavigationKind navigation_kind = navigationKind(carrot_navi_turn_type,
                                                carrot_navi_instruction,
-                                               &atc_direction);
+                                               &navigation_direction);
   const qint64 guidance_age = wall_now -
       static_cast<qint64>(carrot_navi_guidance_updated_at);
-  const bool atc_fresh = carrot_navi_guidance_updated_at != 0 &&
+  const bool navigation_fresh = carrot_navi_guidance_updated_at != 0 &&
                          guidance_age >= -5000 && guidance_age <= 3000;
-  const bool atc_available = carrot_atc_mode >= 1 && carrot_atc_mode <= 3 &&
-                             atc_fresh && carrot_navi_distance >= 0 &&
-                             atc_kind != CarrotAtcKind::NONE;
+  const bool navigation_available = noo_enabled &&
+                             navigation_fresh && carrot_navi_distance >= 0 &&
+                             navigation_kind != NavigationKind::NONE;
 
   // Match c3-wip's AutoTurnMapChange thresholds. Normal turns and forks use
   // a road-speed-dependent 160-350 m start distance; U-turn uses 1000 m.
   const qreal map_speed = std::clamp<qreal>(
       carrot_navi_speed_limit > 0 ? carrot_navi_speed_limit : 50, 30.0, 100.0);
-  qreal atc_map_start_distance = map_speed <= 50.0
+  qreal navigation_map_start_distance = map_speed <= 50.0
       ? 160.0 + (map_speed - 30.0) * 2.0
       : 200.0 + (map_speed - 50.0) * 3.0;
-  if (atc_kind == CarrotAtcKind::UTURN) atc_map_start_distance = 1000.0;
+  if (navigation_kind == NavigationKind::UTURN) navigation_map_start_distance = 1000.0;
 
-  const bool atc_map_request = atc_available &&
-                               carrot_navi_distance <= atc_map_start_distance;
+  const bool navigation_map_request = navigation_available &&
+                               carrot_navi_distance <= navigation_map_start_distance;
   const bool map_request = show_map_image &&
-                           (show_route_map_always || atc_map_request);
+                           (show_route_map_always || navigation_map_request);
   if (!show_map_image) {
     carrot_map_mode = false;
     carrot_map_enter_since = 0;
@@ -535,7 +535,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
     }
   }
 
-  // Do not draw a separate navigation/ATC lane arrow in the road center.
+  // Do not draw a separate navigation/NOO lane arrow in the road center.
   // Guidance remains contained in the bottom-right information box.
 
   // The compact c3-wip information box remains visible for the whole route.
@@ -562,9 +562,9 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const QRect turn_card(turn_center_x - qRound(56 * ui_scale),
                         turn_center_y - qRound(102 * ui_scale),
                         qRound(112 * ui_scale), qRound(245 * ui_scale));
-  const bool atc_prepare = atc_available && carrot_navi_distance > 350;
-  const bool atc_apply = atc_available && !atc_prepare;
-  const bool atc_blink_on = !atc_apply || blink_timer <= 8;
+  const bool navigation_prepare = navigation_available && carrot_navi_distance > 350;
+  const bool navigation_apply = navigation_available && !navigation_prepare;
+  const bool navigation_blink_on = !navigation_apply || blink_timer <= 8;
   const QColor turn_fill(55, 55, 55, 170);
   p.setPen(QPen(QColor(255, 255, 255, 230), std::max(2, qRound(2 * ui_scale))));
   p.setBrush(turn_fill);
@@ -584,24 +584,24 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   static const QPixmap fork_left_pixmap("../assets/images/lane_change_l.png");
   static const QPixmap fork_right_pixmap("../assets/images/lane_change_r.png");
   const QPixmap *turn_pixmap = nullptr;
-  if (atc_kind == CarrotAtcKind::TURN) {
-    turn_pixmap = atc_direction < 0 ? &turn_left_pixmap : &turn_right_pixmap;
-  } else if (atc_kind == CarrotAtcKind::FORK) {
-    turn_pixmap = atc_direction < 0 ? &fork_left_pixmap : &fork_right_pixmap;
-  } else if (atc_kind == CarrotAtcKind::UTURN) {
+  if (navigation_kind == NavigationKind::TURN) {
+    turn_pixmap = navigation_direction < 0 ? &turn_left_pixmap : &turn_right_pixmap;
+  } else if (navigation_kind == NavigationKind::FORK) {
+    turn_pixmap = navigation_direction < 0 ? &fork_left_pixmap : &fork_right_pixmap;
+  } else if (navigation_kind == NavigationKind::UTURN) {
     turn_pixmap = &turn_uturn_pixmap;
   }
 
   if (turn_pixmap != nullptr && !turn_pixmap->isNull()) {
     // Keep the original asset colors in inactive and prepare states. During
-    // actual ATC application, blink the unmodified image without per-frame
+    // actual NOO application, blink the unmodified image without per-frame
     // QPixmap copies or tint painting.
     const QRect turn_source(48, 48, 160, 160);
-    if (atc_blink_on) p.drawPixmap(turn_icon, *turn_pixmap, turn_source);
-  } else if (atc_kind == CarrotAtcKind::TURN ||
-             atc_kind == CarrotAtcKind::FORK ||
-             atc_kind == CarrotAtcKind::UTURN) {
-    if (atc_blink_on) {
+    if (navigation_blink_on) p.drawPixmap(turn_icon, *turn_pixmap, turn_source);
+  } else if (navigation_kind == NavigationKind::TURN ||
+             navigation_kind == NavigationKind::FORK ||
+             navigation_kind == NavigationKind::UTURN) {
+    if (navigation_blink_on) {
       drawCarrotTurnArrow(p, turn_icon, carrot_navi_turn_type,
                           carrot_navi_instruction, Qt::white,
                           std::max(6, qRound(13 * ui_scale)));
@@ -610,7 +610,7 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
     configFont(p, "Open Sans", std::max(18, qRound(32 * ui_scale)), "Bold");
     p.setPen(Qt::white);
     QString fallback_text = QString::fromUtf8("안내");
-    if (atc_kind == CarrotAtcKind::ROTARY) {
+    if (navigation_kind == NavigationKind::ROTARY) {
       // c3-wip maps rotary guidance to xTurnInfo 5; its default HUD case shows "감속:5".
       fallback_text = QString::fromUtf8("감속:5");
     } else if (carrot_navi_turn_type > 0) {

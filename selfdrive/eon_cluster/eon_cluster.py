@@ -24,7 +24,7 @@ PARAM_ORIENTATION = "EonClusterHudOrientation"
 PARAM_MIRROR = "EonClusterHudMirror"
 PARAM_LANGUAGE = "EonClusterHudLanguage"
 PARAM_RADAR_INFO = "EonClusterHudRadarInfo"
-PARAM_ATC_MODE = "CarrotAutoTurnControl"
+PARAM_NOO_ENABLED = "NavigationOnOpenpilot"
 TURZX_92_PRODUCT_ID = 0x0092
 RECONNECT_INTERVAL_S = 5.0
 SETTINGS_POLL_INTERVAL_S = 0.25
@@ -183,7 +183,7 @@ def main():
   next_frame = 0.0
   next_settings_read = 0.0
   active_fps = 10
-  active_atc_mode = 0
+  active_noo = False
   active_scene_settings = {
     "screen_mode": 1,
     "theme": 0,
@@ -241,7 +241,7 @@ def main():
           next_frame = now
           next_settings_read = now + SETTINGS_POLL_INTERVAL_S
           active_fps = fps
-          active_atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
+          active_noo = _param_bool(params, PARAM_NOO_ENABLED)
           active_scene_settings = _scene_settings(params)
           paused = False
           print("EON cluster connected: pid=0x%04x, %dx%d, %d fps" %
@@ -266,7 +266,7 @@ def main():
           renderer.set_jpeg_quality(_param_int(params, PARAM_JPEG_QUALITY, 58, 1, 95))
           renderer.set_mirror(_param_bool(params, PARAM_MIRROR))
           active_fps = next_fps
-          active_atc_mode = _param_int(params, PARAM_ATC_MODE, 0, 0, 3)
+          active_noo = _param_bool(params, PARAM_NOO_ENABLED)
           active_scene_settings = _scene_settings(params)
           next_settings_read = now + SETTINGS_POLL_INTERVAL_S
         except Exception as exc:
@@ -366,7 +366,7 @@ def main():
         scene["driving_mode"] = driving_mode if 1 <= driving_mode <= 4 else 3
         scene.update(active_scene_settings)
         scene["energy_mode"] = _energy_mode(sm["carParams"])
-        scene["atc_mode"] = active_atc_mode
+        scene["noo_enabled"] = active_noo
         scene["accel"] = accel
         scene["footer"] = footer
         actuators = _field(sm["carControl"], "actuatorsOutput", _field(sm["carControl"], "actuators"))

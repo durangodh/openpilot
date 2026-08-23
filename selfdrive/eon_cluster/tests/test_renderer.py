@@ -438,7 +438,7 @@ def test_native_tmap_lane_strip_stays_between_bottom_cards(tmp_path, monkeypatch
   assert changed[3] - changed[1] <= 52
 
 
-def test_external_atc_box_matches_eon_gate_and_tpms_width(monkeypatch):
+def test_external_noo_box_matches_eon_gate_and_tpms_width(monkeypatch):
   now_ms = 1_900_000_000_000
   active = {
     "updated_at_ms": now_ms,
@@ -446,52 +446,52 @@ def test_external_atc_box_matches_eon_gate_and_tpms_width(monkeypatch):
     "guidance_current": {"main_text": "좌회전", "turn_type": 12, "distance_m": 240},
     "route": {"remain_distance_m": 4700, "remain_time_sec": 540},
   }
-  assert renderer_module._eon_atc_box_active(active, now_ms)
-  assert not renderer_module._eon_atc_box_active(dict(active, updated_at_ms=now_ms - 35001), now_ms)
-  assert not renderer_module._eon_atc_box_active(
+  assert renderer_module._eon_noo_box_active(active, now_ms)
+  assert not renderer_module._eon_noo_box_active(dict(active, updated_at_ms=now_ms - 35001), now_ms)
+  assert not renderer_module._eon_noo_box_active(
     dict(active, route={"remain_distance_m": 4700, "remain_time_sec": 0}), now_ms)
 
   renderer = HudRenderer(1920, 462, 50)
   driving_box = (0, 0, int(1920 * renderer.DRIVE_RATIO) - 3, 462)
   world_top = int(462 * 0.47)
   tpms_box = renderer._bottom_card_box((0, world_top, driving_box[2], 462), "right")
-  atc_box = renderer._atc_card_box(driving_box)
-  assert atc_box[0] == tpms_box[0]
-  assert atc_box[2] == tpms_box[2]
-  assert atc_box[3] == tpms_box[1] - 8
+  noo_box = renderer._noo_card_box(driving_box)
+  assert noo_box[0] == tpms_box[0]
+  assert noo_box[2] == tpms_box[2]
+  assert noo_box[3] == tpms_box[1] - 8
   camera_distance_y = max(164, int(renderer.height * 0.37)) + max(39, renderer.height // 11)
   camera_distance_size = renderer._camera_distance_text_size()
-  assert atc_box[1] >= camera_distance_y + camera_distance_size + 14
-  assert atc_box[1] < atc_box[3]
+  assert noo_box[1] >= camera_distance_y + camera_distance_size + 14
+  assert noo_box[1] < noo_box[3]
   # Wheel, SET ring and camera-limit ring use the same radius.
   assert renderer._status_icon_radius() == int(round(max(25, renderer.height // 17) * 1.30))
 
-  # ATC stacks above TPMS and never removes the camera indicator.
+  # NOO stacks above TPMS and never removes the camera indicator.
   calls = []
   monotonic_clock = [100.0]
   monkeypatch.setattr(renderer_module.time, "time", lambda: now_ms / 1000.0)
   monkeypatch.setattr(renderer_module.time, "monotonic", lambda: monotonic_clock[0])
-  monkeypatch.setattr(renderer, "_draw_atc_box", lambda *_args: calls.append("atc"))
+  monkeypatch.setattr(renderer, "_draw_noo_box", lambda *_args: calls.append("noo"))
   monkeypatch.setattr(renderer, "_draw_speed_limit", lambda *_args: calls.append("camera"))
   from PIL import Image, ImageDraw
   frame = Image.new("RGB", (1920, 462))
   renderer._draw_requested_status_header(
     frame, ImageDraw.Draw(frame), driving_box, 82.0, 90.0, True,
-    {"is_metric": True, "atc_mode": 2}, active)
-  assert calls == ["camera", "atc"]
+    {"is_metric": True, "noo_enabled": 2}, active)
+  assert calls == ["camera", "noo"]
 
   calls[:] = []
   inactive = dict(active, route={"remain_distance_m": 0, "remain_time_sec": 0})
   renderer._draw_requested_status_header(
     frame, ImageDraw.Draw(frame), driving_box, 82.0, 90.0, True,
-    {"is_metric": True, "atc_mode": 2}, inactive)
-  assert calls == ["camera", "atc"]
+    {"is_metric": True, "noo_enabled": 2}, inactive)
+  assert calls == ["camera", "noo"]
 
   calls[:] = []
-  monotonic_clock[0] += renderer_module.ATC_CARD_GRACE_S + 0.1
+  monotonic_clock[0] += renderer_module.NOO_CARD_GRACE_S + 0.1
   renderer._draw_requested_status_header(
     frame, ImageDraw.Draw(frame), driving_box, 82.0, 90.0, True,
-    {"is_metric": True, "atc_mode": 2}, inactive)
+    {"is_metric": True, "noo_enabled": 2}, inactive)
   assert calls == ["camera"]
 
 

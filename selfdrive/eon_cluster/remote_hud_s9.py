@@ -63,7 +63,7 @@ def _apply_path_flip(packet):
 
 
 def _packet(sm, *args, **kwargs):
-  # base._packet 의 인자가 늘어나도(atc_mode → +path_offset 등) 그대로
+  # base._packet 의 인자가 늘어나도(noo_enabled → +path_offset 등) 그대로
   # 흘려보낸다. 고정 인자로 받으면 base 쪽 시그니처가 바뀔 때마다
   # TypeError 로 패킷이 아예 안 나가고 폰에는 "EON 연결 끊김" 만 뜬다.
   packet = _original_packet(sm, *args, **kwargs)

@@ -8,7 +8,7 @@ from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import LateralMpc
 from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import N as LAT_MPC_N
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, MIN_SPEED
 from selfdrive.controls.lib.desire_helper import DesireHelper, AUTO_LCA_START_TIME
-from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc
+from selfdrive.controls.lib.navigation_route import NavigationRouteData
 import cereal.messaging as messaging
 from cereal import log
 from common.params import Params
@@ -23,13 +23,13 @@ DEFAULT_LATERAL_ACCEL_COST = 0.0
 DEFAULT_LATERAL_JERK_COST = 0.04
 DEFAULT_STEERING_RATE_COST = 550.0
 LANE_MODE_BLEND_TIME = 0.6
-ATC_MAP_BLEND_MAX = 0.60
-ATC_MAP_BLEND_FULL_SPEED_KPH = 20.0
-ATC_MAP_BLEND_ZERO_SPEED_KPH = 50.0
-ATC_MAP_BLEND_IN_TIME = 0.5
-ATC_MAP_BLEND_OUT_TIME = 0.25
-ATC_MAP_MAX_LAT_ACCEL = 2.0
-ATC_MAP_MAX_CURVATURE = 0.06
+NOO_MAP_BLEND_MAX = 0.60
+NOO_MAP_BLEND_FULL_SPEED_KPH = 20.0
+NOO_MAP_BLEND_ZERO_SPEED_KPH = 50.0
+NOO_MAP_BLEND_IN_TIME = 0.5
+NOO_MAP_BLEND_OUT_TIME = 0.25
+NOO_MAP_MAX_LAT_ACCEL = 2.0
+NOO_MAP_MAX_CURVATURE = 0.06
 
 # 기본값 상수
 DEFAULT_CAMERA_OFFSET = -0.06
@@ -78,9 +78,9 @@ class LateralPlanner:
     self.dynamic_lane_profile_status_buffer = True
     self.use_lane_line_mode = False
     self.lane_line_blend = None
-    self.atc_map_blend = 0.0
-    self.atc_map_profile_cache = None
-    self.atc_map_path_cache = None
+    self.noo_map_blend = 0.0
+    self.noo_map_profile_cache = None
+    self.noo_map_path_cache = None
 
     self.param_read_counter = 0
     self.path_cost = DEFAULT_PATH_COST
@@ -209,62 +209,62 @@ class LateralPlanner:
 
     map_profile = None
     map_path = None
-    atc_state = self.DH.atc_state
-    atc_map_requested = (self.DH.atc_turn_direction != 0 and not self.DH.atc_driver_cancel and
-                         atc_state.get('fresh', False) and
-                         atc_state.get('route_fresh', False) and
-                         atc_state.get('kind') in ('turn', 'uturn') and
-                         3.0 <= float(atc_state.get('distance', -1.0)) <= 60.0 and
+    navigation_state = self.DH.navigation_state
+    noo_map_requested = (self.DH.noo_turn_direction != 0 and not self.DH.noo_driver_cancel and
+                         navigation_state.get('fresh', False) and
+                         navigation_state.get('route_fresh', False) and
+                         navigation_state.get('kind') in ('turn', 'uturn') and
+                         3.0 <= float(navigation_state.get('distance', -1.0)) <= 60.0 and
                          self.v_ego <= 50.0 * CV.KPH_TO_MS)
-    if atc_map_requested:
+    if noo_map_requested:
       speed_sq = max(self.v_ego * self.v_ego, 1.0)
-      max_curvature = min(ATC_MAP_MAX_CURVATURE, ATC_MAP_MAX_LAT_ACCEL / speed_sq)
-      map_profile = self.DH.carrot_atc.cached_route_curvature_profile(
-        atc_state, sample_distances, max_curvature=max_curvature)
+      max_curvature = min(NOO_MAP_MAX_CURVATURE, NOO_MAP_MAX_LAT_ACCEL / speed_sq)
+      map_profile = self.DH.navigation_route.cached_route_curvature_profile(
+        navigation_state, sample_distances, max_curvature=max_curvature)
       if map_profile is not None:
-        map_path = CarrotNaviAtc.integrate_curvature_profile(map_profile, sample_distances)
+        map_path = NavigationRouteData.integrate_curvature_profile(map_profile, sample_distances)
 
     fresh_map_path = map_path is not None
     if fresh_map_path:
-      self.atc_map_profile_cache = map_profile
-      self.atc_map_path_cache = map_path
-    elif not atc_map_requested and not self.DH.atc_driver_cancel and self.atc_map_blend > 0.0:
+      self.noo_map_profile_cache = map_profile
+      self.noo_map_path_cache = map_path
+    elif not noo_map_requested and not self.DH.noo_driver_cancel and self.noo_map_blend > 0.0:
       # Keep the last vehicle-relative shape only for the short normal exit
       # fade. Invalid/stale data and driver cancellation never use the cache.
-      map_profile = self.atc_map_profile_cache
-      map_path = self.atc_map_path_cache
+      map_profile = self.noo_map_profile_cache
+      map_path = self.noo_map_path_cache
 
-    map_invalid = atc_map_requested and map_path is None
-    if self.DH.atc_driver_cancel or map_invalid:
-      self.atc_map_blend = 0.0
-      self.atc_map_profile_cache = None
-      self.atc_map_path_cache = None
+    map_invalid = noo_map_requested and map_path is None
+    if self.DH.noo_driver_cancel or map_invalid:
+      self.noo_map_blend = 0.0
+      self.noo_map_profile_cache = None
+      self.noo_map_path_cache = None
     else:
       speed_kph = self.v_ego * CV.MS_TO_KPH
       # Stronger map assistance is restricted to low speed. Preserve the
       # existing 50 km/h zero point and all curvature, lateral-acceleration,
       # driver-cancel, and Panda torque limits.
-      blend_target = CarrotNaviAtc.map_steering_blend(
-        speed_kph, ATC_MAP_BLEND_MAX,
-        ATC_MAP_BLEND_FULL_SPEED_KPH, ATC_MAP_BLEND_ZERO_SPEED_KPH,
+      blend_target = NavigationRouteData.map_steering_blend(
+        speed_kph, NOO_MAP_BLEND_MAX,
+        NOO_MAP_BLEND_FULL_SPEED_KPH, NOO_MAP_BLEND_ZERO_SPEED_KPH,
       ) if fresh_map_path else 0.0
-      blend_time = ATC_MAP_BLEND_IN_TIME if blend_target > self.atc_map_blend else ATC_MAP_BLEND_OUT_TIME
-      blend_step = ATC_MAP_BLEND_MAX * DT_MDL / blend_time
-      self.atc_map_blend += float(np.clip(blend_target - self.atc_map_blend, -blend_step, blend_step))
-      if self.atc_map_blend <= 0.0:
-        self.atc_map_profile_cache = None
-        self.atc_map_path_cache = None
+      blend_time = NOO_MAP_BLEND_IN_TIME if blend_target > self.noo_map_blend else NOO_MAP_BLEND_OUT_TIME
+      blend_step = NOO_MAP_BLEND_MAX * DT_MDL / blend_time
+      self.noo_map_blend += float(np.clip(blend_target - self.noo_map_blend, -blend_step, blend_step))
+      if self.noo_map_blend <= 0.0:
+        self.noo_map_profile_cache = None
+        self.noo_map_path_cache = None
 
-    if map_path is not None and self.atc_map_blend > 0.0:
+    if map_path is not None and self.noo_map_blend > 0.0:
       map_y, map_heading = (np.asarray(map_path[0]), np.asarray(map_path[1]))
       map_y += y_pts[0]
       map_heading += heading_pts[0]
-      y_pts = (1.0 - self.atc_map_blend) * y_pts + self.atc_map_blend * map_y
-      heading_pts = ((1.0 - self.atc_map_blend) * heading_pts +
-                     self.atc_map_blend * map_heading)
+      y_pts = (1.0 - self.noo_map_blend) * y_pts + self.noo_map_blend * map_y
+      heading_pts = ((1.0 - self.noo_map_blend) * heading_pts +
+                     self.noo_map_blend * map_heading)
       map_yaw_rate = np.asarray(map_profile) * self.v_plan[:LAT_MPC_N + 1]
-      yaw_rate_pts = ((1.0 - self.atc_map_blend) * yaw_rate_pts +
-                      self.atc_map_blend * map_yaw_rate)
+      yaw_rate_pts = ((1.0 - self.noo_map_blend) * yaw_rate_pts +
+                      self.noo_map_blend * map_yaw_rate)
     self.y_pts = y_pts
 
     assert len(y_pts) == LAT_MPC_N + 1
@@ -348,12 +348,12 @@ class LateralPlanner:
     lateralPlan.useLaneLines = not self.dynamic_lane_profile_status
     lateralPlan.laneChangeState = self.DH.lane_change_state
     lateralPlan.laneChangeDirection = self.DH.lane_change_direction
-    lateralPlan.atcMapBlend = float(self.atc_map_blend)
+    lateralPlan.nooMapBlend = float(self.noo_map_blend)
     # Publish the active guidance/model desire even when the optional TMAP
-    # polyline is unavailable. atcMapBlend separately tells the HUD whether
+    # polyline is unavailable. nooMapBlend separately tells the HUD whether
     # route curvature is actually contributing to steering.
-    lateralPlan.atcTurnDirection = int(
-      self.DH.atc_turn_direction if not self.DH.atc_driver_cancel else 0)
+    lateralPlan.nooTurnDirection = int(
+      self.DH.noo_turn_direction if not self.DH.noo_driver_cancel else 0)
     lateralPlan.nooCurrentLane = int(self.DH.noo_current_lane)
     lateralPlan.nooTargetLane = int(self.DH.noo_target_lane)
     lateralPlan.nooLaneChangeDirection = int(self.DH.noo_direction)
@@ -375,8 +375,8 @@ class LateralPlanner:
     tail = f'offset={offset_cm:.1f}cm'
     if abs(self.LP.lane_offset) > 0.005:
       tail += f' lane={self.LP.lane_offset * 100.0:+.0f}cm'
-    if self.atc_map_blend > 0.005:
-      tail += f' atcmap={self.atc_map_blend * 100.0:.0f}%'
+    if self.noo_map_blend > 0.005:
+      tail += f' noomap={self.noo_map_blend * 100.0:.0f}%'
     if self.DH.noo_current_lane > 0 and self.DH.noo_target_lane > 0:
       tail += f' noo={self.DH.noo_current_lane}>{self.DH.noo_target_lane}'
     lateralPlan.latDebugText = (

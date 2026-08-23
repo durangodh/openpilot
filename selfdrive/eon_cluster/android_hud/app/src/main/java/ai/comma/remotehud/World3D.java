@@ -195,7 +195,7 @@ final class World3D {
     private final float[] curveY = new float[32];
     private int curveCount = 0;
     /** 최종 MPC 경로에 이미 티맵 곡률이 들어간 비율. 중복 곡률 방지용. */
-    private float atcMapBlend = 0f;
+    private float nooMapBlend = 0f;
 
     // modelV2 laneLines + roadEdges 로 계산한 실제 카메라 기준 차로 위치.
     // 티맵의 cur 값은 권장차로일 수 있으므로 자차 위치로 사용하지 않는다.
@@ -301,11 +301,11 @@ final class World3D {
         laneLCount = 0;
         laneRCount = 0;
         if (s == null) {
-            atcMapBlend = 0f;
+            nooMapBlend = 0f;
             updateCameraLanePosition(null);
             return;
         }
-        atcMapBlend = Math.max(0f, Math.min(1f,
+        nooMapBlend = Math.max(0f, Math.min(1f,
                 (float) s.optDouble("atcBlend", 0d)));
         updateCameraLanePosition(s.optJSONObject("lanePosition"));
         finalPath = s.optBoolean("pathFinal", false);
@@ -476,11 +476,11 @@ final class World3D {
 
     float centerAt(float x) {
         float y = sample(pathX, pathY, pathCount, x);
-        // atcMapBlend>0 이면 최종 MPC 경로에 티맵 곡률이 이미 포함돼 있으므로
+        // nooMapBlend>0 이면 최종 MPC 경로에 티맵 곡률이 이미 포함돼 있으므로
         // 그 유효구간 뒤에서만 이어 붙인다. 경로 좌표가 제어에 사용되지 않은
         // 경우에는 10m부터 24m에 걸쳐 화면에만 티맵 형상을 섞는다. 예전의
         // 60m 시작값 때문에 34m 앞 좌회전도 화면에는 직선으로 보였다.
-        boolean mapAlreadyInPath = finalPath && atcMapBlend > 0.005f;
+        boolean mapAlreadyInPath = finalPath && nooMapBlend > 0.005f;
         float curveBlendStart = mapAlreadyInPath && pathCount >= 2
                 ? Math.max(CURVE_BLEND_START, pathX[pathCount - 1])
                 : CURVE_BLEND_START;

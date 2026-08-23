@@ -6,7 +6,7 @@ from common.numpy_fast import clip, interp
 from common.params import Params, put_nonblocking
 from common.realtime import DT_CTRL, sec_since_boot
 from selfdrive.car.hyundai.values import Buttons
-from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc
+from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
 from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software_gap
 from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
@@ -106,8 +106,8 @@ class CruiseHelper:
     self.section_last_valid_time = 0.0
     self.section_passed = False
 
-    self.carrot_atc = CarrotNaviAtc()
-    self.empty_navi_state = self.carrot_atc.empty_state()
+    self.navigation_route = NavigationRouteData()
+    self.empty_navi_state = self.navigation_route.empty_state()
     self.last_road_limit_speed = 0.0
     self.pause_auto_speed_up = False
 
@@ -178,9 +178,9 @@ class CruiseHelper:
     self.auto_navi_speed_bump_time = float(clip(bump_time if bump_time > 0 else 1, 1, 50))
     self.auto_navi_speed_bump_speed = float(clip(bump_speed if bump_speed > 0 else 35, 10, 100))
     self.auto_navi_speed_safety_factor = float(clip(safety_factor if safety_factor > 0 else 105, 80, 120)) * 0.01
-    self.carrot_atc_mode = int(clip(self.params.get_int("CarrotAutoTurnControl"), 0, 3))
-    self.carrot_atc_speed = float(clip(self.params.get_int("CarrotAutoTurnSpeed"), 5, 80))
-    self.carrot_atc_end_time = float(clip(self.params.get_int("CarrotAutoTurnEndTime"), 1, 20))
+    self.noo_enabled = self.params.get_bool("NavigationOnOpenpilot")
+    self.noo_turn_speed = float(clip(self.params.get_int("NooTurnSpeed"), 5, 80))
+    self.noo_turn_end_time = float(clip(self.params.get_int("NooTurnEndTime"), 1, 20))
 
   def read_driving_mode_params(self, initialize=False):
     self.init_driving_mode = int(clip(self.params.get_int("InitMyDrivingMode"), 1, 5))
@@ -688,9 +688,9 @@ class CruiseHelper:
     section_dist = 0.0
     section_limit = 0.0
     # Keep the lightweight shared-file bridge, but read it independently of
-    # ATC/curve toggles so 7714 SDI and section data can feed the existing C3
+    # NOO/curve toggles so 7714 SDI and section data can feed the existing C3
     # navigation limiter. Existing roadLimitSpeed packets retain priority.
-    navi_state = self.carrot_atc.update()
+    navi_state = self.navigation_route.update()
     if road_data is not None:
       cam_type = int(road_data.camType)
       cam_dist = float(road_data.camLimitSpeedLeftDist)
@@ -698,7 +698,7 @@ class CruiseHelper:
       section_dist = float(road_data.sectionLeftDist)
       section_limit = float(road_data.sectionLimitSpeed)
 
-    navi_events = self.carrot_atc.speed_events(navi_state)
+    navi_events = self.navigation_route.speed_events(navi_state)
     navi_camera = navi_events["camera"]
     navi_section = navi_events["section"]
     if cam_dist <= 0.0 and navi_camera is not None:
@@ -826,7 +826,7 @@ class CruiseHelper:
 
     self.map_curve_speed_kph = 250.0
     if self.turn_vision_control:
-      map_speed = self.carrot_atc.cached_map_curve_speed_kph(
+      map_speed = self.navigation_route.cached_map_curve_speed_kph(
         navi_state, CS.out.vEgo * CV.MS_TO_KPH,
         self.map_turn_speed_factor, self.auto_curve_speed_lower_limit,
         self.auto_navi_speed_decel_rate)
@@ -861,15 +861,15 @@ class CruiseHelper:
       self.slowing_down_alert = False
       self.slowing_down = False
 
-    if self.carrot_atc_mode in (2, 3) and not CS.out.brakePressed:
-      limits = self.carrot_atc.speed_limits_kph(navi_state, self.carrot_atc_speed,
-                                                self.carrot_atc_end_time)
+    if self.noo_enabled and not CS.out.brakePressed:
+      limits = self.navigation_route.speed_limits_kph(navi_state, self.noo_turn_speed,
+                                                       self.noo_turn_end_time)
       limits = [value for value in limits if value is not None]
       if limits:
-        atc_speed_clu = self.kph_to_clu(min(limits))
-        if atc_speed_clu < max_speed_clu:
-          max_speed_clu = atc_speed_clu
-          self.apply_source = "atc"
+        noo_speed_clu = self.kph_to_clu(min(limits))
+        if noo_speed_clu < max_speed_clu:
+          max_speed_clu = noo_speed_clu
+          self.apply_source = "noo"
 
     self.update_max_speed(int(max_speed_clu + 0.5), controls.CP.openpilotLongitudinalControl)
     return normal_road_limit_speed

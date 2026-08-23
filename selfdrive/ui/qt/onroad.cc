@@ -468,7 +468,7 @@ static bool s9HudActive() {
 
   // 2026-08-19: EonClusterHudConnected(폰 ACK) 조건을 뺐다.
   // ACK 는 와이파이가 잠깐 흔들리기만 해도 2초 만에 False 가 되고, 그때마다
-  // EON 이 지도·ATC 박스를 다시 그렸다. 이제는 remote_hud 프로세스가 살아
+  // EON 이 지도·NOO 박스를 다시 그렸다. 이제는 remote_hud 프로세스가 살아
   // 있는지(하트비트)만 본다. 프로세스가 죽거나 EonClusterHud 를 끄면
   // 10초 뒤 EON 화면이 원래대로 돌아온다.
   active = false;
@@ -1144,12 +1144,12 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     Params params;
     int m = controls_state.getMyDrivingMode();
     my_driving_mode = (m >= 1 && m <= 4) ? m : 3;
-    carrot_atc_mode = std::atoi(params.get("CarrotAutoTurnControl").c_str());
-    carrot_atc_speed = std::atoi(params.get("CarrotAutoTurnSpeed").c_str());
-    carrot_atc_end_time = std::atoi(params.get("CarrotAutoTurnEndTime").c_str());
+    noo_enabled = params.getBool("NavigationOnOpenpilot");
+    noo_turn_speed = std::atoi(params.get("NooTurnSpeed").c_str());
+    noo_turn_end_time = std::atoi(params.get("NooTurnEndTime").c_str());
     carrot_bump_speed = std::atoi(params.get("AutoNaviSpeedBumpSpeed").c_str());
-    if (carrot_atc_speed < 30 || carrot_atc_speed > 60) carrot_atc_speed = 30;
-    if (carrot_atc_end_time < 2 || carrot_atc_end_time > 12) carrot_atc_end_time = 6;
+    if (noo_turn_speed < 30 || noo_turn_speed > 60) noo_turn_speed = 30;
+    if (noo_turn_end_time < 2 || noo_turn_end_time > 12) noo_turn_end_time = 6;
     if (carrot_bump_speed < 10 || carrot_bump_speed > 100) carrot_bump_speed = 35;
     std::string sga = params.get("ShowGearAnimation");
     show_gear_animation = sga.empty() ? 1 : std::atoi(sga.c_str());

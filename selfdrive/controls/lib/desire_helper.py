@@ -4,7 +4,7 @@ from cereal import log
 from common.realtime import DT_MDL
 from common.conversions import Conversions as CV
 from common.params import Params
-from selfdrive.controls.lib.carrot_navi_atc import CarrotNaviAtc, AtcForkLaneChangeController
+from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.controls.lib.navigation_noo import NavigationLaneChangeController
 
 AUTO_LCA_START_TIME = 1.0
@@ -58,7 +58,7 @@ class DesireHelper:
     self.auto_lane_change_timer_setting = 0
     self.prev_torque_applied = False
 
-    # apilot 참고: ATC 회전신호가 순간적으로 끊겨도(steering_request 는 distance/
+    # 내비 회전신호가 순간적으로 끊겨도(steering_request 는 distance/
     # kind 조건에서 벗어나는 즉시 0을 줌) 모델이 아직 회전 중이라고 보면(desireState
     # 의 turnLeft/turnRight 확률) 방향을 래치해두고 부드럽게 페이드아웃한다.
     self.turn_direction_latched = 0
@@ -71,15 +71,13 @@ class DesireHelper:
     self.road_edge = False
     # Fail closed and require 0.2 s of continuously open geometry per side.
     self.road_edge_open_count = {-1: 0, 1: 0}
-    self.carrot_atc = CarrotNaviAtc()
-    self.empty_atc_state = self.carrot_atc.empty_state()
-    self.atc_fork_controller = AtcForkLaneChangeController()
+    self.navigation_route = NavigationRouteData()
+    self.empty_navigation_state = self.navigation_route.empty_state()
     self.noo_controller = NavigationLaneChangeController()
-    self.carrot_atc_mode = 0
     self.noo_enabled = False
-    self.atc_state = self.empty_atc_state
-    self.atc_turn_direction = 0
-    self.atc_driver_cancel = True
+    self.navigation_state = self.empty_navigation_state
+    self.noo_turn_direction = 0
+    self.noo_driver_cancel = True
     self.noo_direction = 0
     self.noo_current_lane = 0
     self.noo_target_lane = 0
@@ -165,7 +163,7 @@ class DesireHelper:
       ROAD_EDGE_OPEN_CONFIRM_FRAMES, self.road_edge_open_count[direction] + 1)
     return self.road_edge_open_count[direction] < ROAD_EDGE_OPEN_CONFIRM_FRAMES
 
-  def _update_atc_turn_completion(self, model_data, carstate, turn_active):
+  def _update_noo_turn_completion(self, model_data, carstate, turn_active):
     """Stop re-requesting a turn after the vehicle passes the turn apex."""
     completed = False
     if turn_active and model_data is not None:
@@ -186,10 +184,6 @@ class DesireHelper:
     if t - self.last_params_update > 1.0:
       self.lane_change_enabled = self.params.get_bool('LaneChangeEnabled')
       self.auto_lane_change_enabled = self.params.get_bool('AutoLaneChangeEnabled')
-      try:
-        self.carrot_atc_mode = int(self.params.get('CarrotAutoTurnControl', encoding='utf8') or '0')
-      except (TypeError, ValueError):
-        self.carrot_atc_mode = 0
       self.noo_enabled = self.params.get_bool('NavigationOnOpenpilot')
       try:
         auto_lc_speed_kph = int(self.params.get('AutoLaneChangeSpeed', encoding='utf8') or '50')
@@ -212,56 +206,34 @@ class DesireHelper:
                              1.5 if lane_change_set_timer == 4 else 2.0
 
     v_ego = carstate.vEgo
-    atc_available = self.carrot_atc_mode in (1, 2) and lateral_active
-    noo_available = self.noo_enabled and lateral_active and self.lane_change_enabled
-    atc_steering = atc_available and not carstate.brakePressed
+    noo_available = self.noo_enabled and lateral_active
+    noo_lane_change_available = noo_available and self.lane_change_enabled
+    noo_steering = noo_available and not carstate.brakePressed
     # Keep the current fork event while steering is configured so a brake
     # press can latch cancellation instead of resetting and re-acquiring it.
-    atc_state = self.carrot_atc.update() if (atc_available or noo_available) else self.empty_atc_state
+    navigation_state = self.navigation_route.update() if noo_available else self.empty_navigation_state
     # Pre-compute both sides every model frame, like carrot-wip SideState.
     # This prevents a single open frame from releasing a last-lane block.
     left_road_edge = self._road_edge_blocked(model_data, -1)
     right_road_edge = self._road_edge_blocked(model_data, 1)
-    atc_direction = atc_state['direction'] if atc_steering else 0
-    opposite_torque = carstate.steeringPressed and ((atc_direction < 0 and carstate.steeringTorque < 0) or
-                                                    (atc_direction > 0 and carstate.steeringTorque > 0))
-    conflicting_blinker = (atc_direction < 0 and carstate.rightBlinker) or \
-                          (atc_direction > 0 and carstate.leftBlinker)
+    turn_event = navigation_state.get('kind') in ('turn', 'uturn')
+    turn_direction = navigation_state['direction'] if noo_steering and turn_event else 0
+    opposite_torque = carstate.steeringPressed and ((turn_direction < 0 and carstate.steeringTorque < 0) or
+                                                    (turn_direction > 0 and carstate.steeringTorque > 0))
+    conflicting_blinker = (turn_direction < 0 and carstate.rightBlinker) or \
+                          (turn_direction > 0 and carstate.leftBlinker)
     if opposite_torque or conflicting_blinker:
-      atc_direction = 0
+      turn_direction = 0
     # AutoLaneChangeEnabled 의 자동타이머, 그리고 방향이 맞는 핸들토크 둘 다 —
-    # ATC가 이미 같은 방향의 실제 회전(교차로 turn/uturn, 분기가 아님)을 보고 있을
+    # NOO가 이미 같은 방향의 실제 회전(교차로 turn/uturn, 분기가 아님)을 보고 있을
     # 때는 차선변경(laneChangeStarting)으로 새치기하지 못하게 막기 위한 플래그.
     # 반대방향 토크(opposite_torque)는 그대로 취소 신호로 살아있다.
-    atc_turn_matches_blinker = (atc_steering and atc_state.get('kind') in ('turn', 'uturn') and
-                               ((atc_direction < 0 and carstate.leftBlinker) or
-                                (atc_direction > 0 and carstate.rightBlinker)))
-    # Latest carrot-style exit gating adapted to the fields available here:
-    # support both fork directions, require a stable model-side lane, and
-    # include the matching physical BSD sensor before raising a virtual blinker.
-    fork_direction = int(atc_state.get('direction', 0))
-    fork_lane_open = False
-    if atc_available and not self.noo_enabled:
-      side_bsd = ((fork_direction < 0 and carstate.leftBlindspot) or
-                  (fork_direction > 0 and carstate.rightBlindspot))
-      fork_road_edge = left_road_edge if fork_direction < 0 else right_road_edge
-      fork_lane_open = (fork_direction in (-1, 1) and
-                        not fork_road_edge and
-                        not side_bsd)
-      requested_fork_direction = self.atc_fork_controller.update(
-        atc_state, v_ego, fork_lane_open,
-        driver_cancel=opposite_torque or conflicting_blinker or carstate.brakePressed,
-        lane_change_started=self.lane_change_state == LaneChangeState.laneChangeStarting,
-        lane_change_finished=self.lane_change_state == LaneChangeState.laneChangeFinishing,
-      )
-      atc_fork_direction = requested_fork_direction if atc_steering else 0
-    else:
-      self.atc_fork_controller.reset()
-      atc_fork_direction = 0
-
-    ego_lane = self.carrot_atc.camera_lane_position(model_data) if noo_available else None
+    noo_turn_matches_blinker = (noo_steering and turn_event and
+                               ((turn_direction < 0 and carstate.leftBlinker) or
+                                (turn_direction > 0 and carstate.rightBlinker)))
+    ego_lane = self.navigation_route.camera_lane_position(model_data) if noo_lane_change_available else None
     noo_probe_direction = 0
-    noo_plan = self.noo_controller.lane_plan(atc_state, ego_lane) if noo_available else None
+    noo_plan = self.noo_controller.lane_plan(navigation_state, ego_lane) if noo_lane_change_available else None
     if noo_plan is not None:
       noo_probe_direction = int(noo_plan.get('direction', 0))
     if noo_probe_direction == 0:
@@ -271,9 +243,9 @@ class DesireHelper:
        (noo_probe_direction > 0 and carstate.steeringTorque > 0))
     noo_conflicting_blinker = ((noo_probe_direction < 0 and carstate.rightBlinker) or
                                (noo_probe_direction > 0 and carstate.leftBlinker))
-    if noo_available:
+    if noo_lane_change_available:
       noo_direction = self.noo_controller.update(
-        atc_state, ego_lane, v_ego,
+        navigation_state, ego_lane, v_ego,
         not left_road_edge and not carstate.leftBlindspot,
         not right_road_edge and not carstate.rightBlindspot,
         driver_cancel=noo_opposite_torque or noo_conflicting_blinker or carstate.brakePressed,
@@ -287,19 +259,17 @@ class DesireHelper:
     self.noo_current_lane = self.noo_controller.current_lane
     self.noo_target_lane = self.noo_controller.target_lane
 
-    navigation_lane_direction = noo_direction if noo_direction else atc_fork_direction
+    navigation_lane_direction = noo_direction
     left_blinker = carstate.leftBlinker or navigation_lane_direction < 0
     right_blinker = carstate.rightBlinker or navigation_lane_direction > 0
     one_blinker = left_blinker != right_blinker
     below_lane_change_speed = v_ego < self.lane_change_speed_min
 
-    # Driver lane changes retain the original road-edge gate. ATC only raises
-    # its virtual blinker after model geometry and the matching BSD are clear.
+    # Driver lane changes retain the original road-edge gate. NOO raises its
+    # virtual blinker only after model geometry and matching BSD are clear.
     direction = -1 if left_blinker else 1 if right_blinker else 0
     if direction == noo_direction and noo_direction != 0:
       self.road_edge = left_road_edge if direction < 0 else right_road_edge
-    elif direction == atc_fork_direction and atc_fork_direction != 0:
-      self.road_edge = not fork_lane_open
     else:
       self.road_edge = ((left_road_edge if direction < 0 else right_road_edge)
                         if direction else False)
@@ -315,12 +285,12 @@ class DesireHelper:
                         (carstate.steeringTorque < 0 and self.lane_change_direction == LaneChangeDirection.right))) or \
                         (self.auto_lane_change_enabled and
                         (AUTO_LCA_START_TIME + 0.25) > self.auto_lane_change_timer > AUTO_LCA_START_TIME)
-      # ATC가 같은 방향의 실제 회전을 인식 중이면, 손을 얹어 생기는 미세한 동일방향
+      # NOO가 같은 방향의 실제 회전을 인식 중이면, 손을 얹어 생기는 미세한 동일방향
       # 토크나 자동타이머 둘 다 "차선변경 시작 의사"로 오인하지 않는다. 반대방향
-      # 토크(opposite_torque, atc_direction 계산부에서 이미 처리됨)는 여전히 취소로
+      # 토크(opposite_torque, turn_direction 계산부에서 이미 처리됨)는 여전히 취소로
       # 작동한다.
       noo_auto_request = noo_direction != 0 and direction == noo_direction
-      torque_applied = noo_auto_request or (manual_or_auto_torque and not atc_turn_matches_blinker)
+      torque_applied = noo_auto_request or (manual_or_auto_torque and not noo_turn_matches_blinker)
 
       blindspot_detected = ((carstate.leftBlindspot and self.lane_change_direction == LaneChangeDirection.left) or
                             (carstate.rightBlindspot and self.lane_change_direction == LaneChangeDirection.right))
@@ -398,15 +368,15 @@ class DesireHelper:
 
     self.desire = DESIRES[self.lane_change_direction][self.lane_change_state]
 
-    turn_direction = self.carrot_atc.steering_request(atc_state, v_ego) if atc_steering else 0
+    turn_direction = self.navigation_route.steering_request(navigation_state, v_ego) if noo_steering else 0
     if opposite_torque or conflicting_blinker:
       turn_direction = 0
 
     # Keep g_autoturn's distance/speed/driver safety gates for starting, then use
     # c3-wip's steering-angle + predicted-yaw falloff to end the turn at its apex.
-    turn_active = (atc_state.get('kind') in ('turn', 'uturn') and
+    turn_active = (navigation_state.get('kind') in ('turn', 'uturn') and
                    (turn_direction != 0 or self.turn_direction_latched != 0))
-    self._update_atc_turn_completion(model_data, carstate, turn_active)
+    self._update_noo_turn_completion(model_data, carstate, turn_active)
     if self.turn_disable_count > 0:
       turn_direction = 0
       self.turn_direction_latched = 0
@@ -444,7 +414,7 @@ class DesireHelper:
     # preLaneChange 는 지시등을 켠 순간 곧바로 들어가는 대기 상태일 뿐 아직 실제
     # 조향 개입은 없다(preLaneChange 의 desire 는 항상 none). 그런데 일반 도로
     # 우회전에서 습관적으로 지시등을 켜면, 속도가 AutoLaneChangeSpeed 이상일 때
-    # 여기서 상태가 off→preLaneChange 로 바뀌어버려서 아래 조건이 막혀 ATC 회전
+    # 여기서 상태가 off→preLaneChange 로 바뀌어버려서 아래 조건이 막혀 NOO 회전
     # 조향이 무시되는 문제가 있었다. 실제로 진행 중인 차선변경(laneChangeStarting/
     # Finishing)만 보호하고, preLaneChange 는 회전조향이 덮어써도 되게 완화한다.
     if effective_turn_direction and self.lane_change_state in (LaneChangeState.off, LaneChangeState.preLaneChange):
@@ -453,14 +423,14 @@ class DesireHelper:
     # Keep the turn desire independent from the optional route polyline.
     # TMAP guidance_current is the authoritative turn request; route/vehicle
     # updates can briefly lag behind it and are only needed by LateralPlanner's
-    # additional map-curvature blend. Cancelling ATC here on route_fresh hid
+    # additional map-curvature blend. Cancelling NOO here on route_fresh hid
     # an otherwise valid active direction from the planner/HUD and made map
     # assistance drop abruptly during a short route-stream gap.
     # Driver/brake/lateral/lane-change gates still cancel immediately.
-    self.atc_state = atc_state
-    self.atc_turn_direction = effective_turn_direction
-    self.atc_driver_cancel = (opposite_torque or conflicting_blinker or carstate.brakePressed or
-                              not lateral_active or not atc_state.get('fresh', False) or
+    self.navigation_state = navigation_state
+    self.noo_turn_direction = effective_turn_direction
+    self.noo_driver_cancel = (opposite_torque or conflicting_blinker or carstate.brakePressed or
+                              not lateral_active or not navigation_state.get('fresh', False) or
                               self.lane_change_state in (LaneChangeState.laneChangeStarting,
                                                          LaneChangeState.laneChangeFinishing))
 
