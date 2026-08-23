@@ -336,6 +336,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"CruiseMaxVals4", PERSISTENT},
     {"CruiseMaxVals5", PERSISTENT},
     {"CruiseMaxVals6", PERSISTENT},
+    {"CruiseMaxVals20", PERSISTENT},          // 20 km/h 최대가속 보간점 (x100)
 };
 
 } // namespace

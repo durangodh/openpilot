@@ -223,6 +223,15 @@ def manager_init() -> None:
     if params.get(k) is None:
       params.put(k, v)
 
+  # Preserve the existing 0~40 km/h curve when introducing the 20 km/h point.
+  # Devices with custom end points receive their actual midpoint rather than
+  # a static default that could create a new acceleration bump after updating.
+  if params.get("CruiseMaxVals20") is None:
+    vals1 = params.get_int("CruiseMaxVals1")
+    vals2 = params.get_int("CruiseMaxVals2")
+    midpoint = int(round((vals1 + vals2) / 10.0) * 5)
+    params.put("CruiseMaxVals20", str(max(10, min(250, midpoint))))
+
   # This EON build targets Korean left-hand-drive vehicles only.
   params.put_bool("IsRHD", False)
 

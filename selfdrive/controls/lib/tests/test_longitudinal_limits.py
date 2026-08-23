@@ -19,6 +19,13 @@ def test_cruise_max_modes_share_one_policy():
   assert get_cruise_max_accel(v_ego, CRUISE_MAX_VAL_DEFAULTS, 1, 0.8, 0.8) == pytest.approx(0.768)
 
 
+def test_cruise_max_has_dedicated_20_kph_breakpoint():
+  assert get_cruise_max_accel(20.0 * CV.KPH_TO_MS, CRUISE_MAX_VAL_DEFAULTS, 3) == pytest.approx(1.40)
+  custom = list(CRUISE_MAX_VAL_DEFAULTS)
+  custom[1] = 0.90
+  assert get_cruise_max_accel(20.0 * CV.KPH_TO_MS, custom, 3) == pytest.approx(0.90)
+
+
 def test_auto_mode_uses_safe_not_eco_and_can_return_to_normal():
   assert select_auto_driving_mode(5, 3, 90.0) == 1
   assert select_auto_driving_mode(5, 1, 10.0) == 3
@@ -51,7 +58,7 @@ def test_cruise_max_limit_tracks_the_live_slider_and_driving_mode():
   vals = list(CRUISE_MAX_VAL_DEFAULTS)
   v_ego = 40.0 * CV.KPH_TO_MS
   # read_cruise_params() rewrites cruise_max_vals once a second.
-  vals[1] = 0.60
+  vals[2] = 0.60
   assert apply_cruise_max_limit(2.5, False, get_cruise_max_accel(v_ego, vals, 3)) == pytest.approx(0.60)
   # ECO multiplies the same table by MyEcoModeFactor.
   assert apply_cruise_max_limit(2.5, False, get_cruise_max_accel(v_ego, vals, 2, 0.8)) == pytest.approx(0.48)
