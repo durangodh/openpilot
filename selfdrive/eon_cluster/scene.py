@@ -243,4 +243,3 @@ def extract_driving_scene(model, radar_state):
     "edges": edges,
     "leads": leads,
   }
-

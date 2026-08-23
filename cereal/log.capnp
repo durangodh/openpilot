@@ -2007,4 +2007,3 @@ struct Event {
     pandaStateDEPRECATED @12 :PandaState;
   }
 }
-

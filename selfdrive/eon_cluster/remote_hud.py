@@ -26,6 +26,7 @@ MAP_PORT = 7211
 MAP_FILE = "/dev/shm/carrot_navi_map.jpg"
 TBT_CURRENT_FILE = "/dev/shm/carrot_navi_tbt_current_full.png"
 TBT_COMPACT_FILE = "/dev/shm/carrot_navi_tbt_current_compact.png"
+CROSSROAD_FILE = "/dev/shm/carrot_navi_crossroad.png"
 TBT_NEXT_FILE = "/dev/shm/carrot_navi_tbt_next.png"
 LANE_BOTTOM_FILE = "/dev/shm/carrot_navi_lane_bottom.png"
 NAVI_STATE = "/dev/shm/carrot_navi_route.json"
@@ -65,6 +66,8 @@ REMOTE_LAYOUT = {
   "tpmsDx": 0, "tpmsDy": 0, "tpmsScale": 1.0,
   # NOO 안내는 주행 패널 중앙으로 옮겼다(구 atc* 키는 사라짐).
   "nooDx": 0, "nooDy": 0, "nooScale": 1.0,
+  "junctionDx": 0, "junctionDy": 0, "junctionScale": 1.0,
+  "etaDx": 0, "etaDy": 0, "etaScale": 1.0,
   "systemDx": 0, "systemDy": 0, "systemScale": 1.0,
   # 아래 값들은 주행패널이 765 폭이던 시절에 맞춘 것이라, 5:4:1 레이아웃
   # (주행 952) 에서는 앱 기본값을 덮어써 요소를 왼쪽에 붙여 놓았다.
@@ -90,6 +93,7 @@ class MapFrameServer(object):
     (b"TBT1", TBT_CURRENT_FILE, OVERLAY_MAX_BYTES, b""),
     (b"TBT2", TBT_NEXT_FILE, OVERLAY_MAX_BYTES, b""),
     (b"TBT3", TBT_COMPACT_FILE, OVERLAY_MAX_BYTES, b""),
+    (b"XRD1", CROSSROAD_FILE, OVERLAY_MAX_BYTES, b""),
     (b"LANE", LANE_BOTTOM_FILE, OVERLAY_MAX_BYTES, b""),
   )
 
@@ -804,4 +808,3 @@ def main():
 
 if __name__ == "__main__":
   main()
-

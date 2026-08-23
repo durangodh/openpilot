@@ -94,6 +94,8 @@ def _packet(sm, *args, **kwargs):
   packet["hudRoadSigns"] = _bounded_int("EonClusterHudRoadSigns", 3, 0, 3)
   # 1: 티맵이 보내주는 회전 아이콘 사용 / 0: 앱 내장 그림·벡터 화살표 사용
   packet["hudTmapIcon"] = _bounded_int("EonClusterHudTmapIcon", 1, 0, 1)
+  # 0: 끔 / 1: 분기 실사 이미지 / 2: 실사 + 하단 도착정보 바
+  packet["hudJunction"] = _bounded_int("EonClusterHudJunction", 2, 0, 2)
   return packet
 
 
@@ -107,4 +109,3 @@ main = base.main
 
 if __name__ == "__main__":
   base.main()
-

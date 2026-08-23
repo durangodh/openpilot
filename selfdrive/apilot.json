@@ -1213,6 +1213,16 @@
   },
   {
    "group": "S9HUD",
+   "name": "EonClusterHudJunction",
+   "title": "S9 HUD JUNCTION",
+   "descr": "티맵 분기 실사 이미지와 도착정보 바. 0: 끔 / 1: 실사 이미지만 / 2: 실사 + 도착·분·km 바",
+   "min": 0,
+   "max": 2,
+   "default": 2,
+   "unit": 1
+  },
+  {
+   "group": "S9HUD",
    "name": "EonClusterHudScreenMode",
    "title": "S9 HUD SCREEN MODE",
    "descr": "1: 자동(길안내/주행리포트) / 2: 실시간 디버그 / 3: 주행리포트 고정",
@@ -1353,4 +1363,3 @@
   }
  ]
 }
-

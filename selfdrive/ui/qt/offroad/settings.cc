@@ -1264,6 +1264,10 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "1: 티맵이 보내는 회전 아이콘 사용(유턴·분기·고가차도까지 티맵과 동일) / 0: 앱 내장 화살표.",
       "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudJunction", "S9 HUD JUNCTION",
+      "티맵 분기 실사 이미지와 도착정보 바.\n0: 끔 / 1: 실사 이미지만 / 2: 실사 + 도착·분·km 바",
+      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 2, this));
+  toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudScreenMode", "S9 HUD SCREEN MODE", "1: 자동(길안내/주행리포트) / 2: 실시간 디버그 / 3: 주행리포트 고정",
       "../assets/offroad/icon_road.png", 1, 3, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
@@ -1883,4 +1887,3 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
   scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   layout->addWidget(scroller);
 }
-

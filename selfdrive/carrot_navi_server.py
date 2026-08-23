@@ -46,6 +46,9 @@ OVERLAY_FILES = {
   # 직접 그린 그림이라, S9 HUD 가 직접 그리는 벡터 화살표를 대신한다.
   "tbt_current_compact": "/dev/shm/carrot_navi_tbt_current_compact.png",
   "tbt_current_full": "/dev/shm/carrot_navi_tbt_current_full.png",
+  # 분기 실사 이미지(폰 티맵의 확대 팝업). TMAP 이 안내를 끝내면 clear 메시지가
+  # 와서 파일이 지워지므로, 파일 존재 여부가 곧 표시 여부다.
+  "crossroad_expanded": "/dev/shm/carrot_navi_crossroad.png",
   "tbt_next": "/dev/shm/carrot_navi_tbt_next.png",
   "lane_bottom": "/dev/shm/carrot_navi_lane_bottom.png",
 }
@@ -648,4 +651,3 @@ def main():
 
 if __name__ == "__main__":
   main()
-

@@ -71,4 +71,3 @@ def test_a_new_request_restarts_the_machine_after_release():
   assert helper._advance_noo_turn(-1, 0.0) == -1
   assert helper.turn_state == 1
   assert helper.turn_direction_latched == -1
-

@@ -478,4 +478,3 @@ def test_median_and_shoulder_together_fail_closed():
   ego = NavigationRouteData.camera_lane_position(shoulder_model(7.0, -8.4))
   assert ego["count"] == 4
   assert NavigationLaneChangeController.lane_plan(noo_state([0, 0, 1]), ego) is None
-

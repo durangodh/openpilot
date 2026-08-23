@@ -141,8 +141,8 @@ public final class HudService extends Service {
     private TurzxDisplay display;
     private Bitmap egoCar;
     private Bitmap speedBumpImage;
-    private Bitmap turnLeftImage;
-    private Bitmap turnRightImage;
+    /** 회전종류(TURN_*) 별 실제 화살표 그림. 없는 칸은 벡터로 폴백한다. */
+    private final Bitmap[] turnImages = new Bitmap[10];
     private Bitmap otherCar;
     private Bitmap wheelImage;   // res/drawable-nodpi/hud_wheel.png (없으면 기존 벡터 핸들)
     private Thread receiverThread;
@@ -176,6 +176,8 @@ public final class HudService extends Service {
     private int configuredOutputMode = 1;
     /** 패킷 hudTmapIcon. 티맵 회전 아이콘을 쓸지(1) 앱 내장 화살표를 쓸지(0). */
     private volatile boolean tmapIconEnabled = true;
+    /** 패킷 hudJunction. 0: 끔 / 1: 분기 실사 / 2: 실사 + 도착정보 바. */
+    private volatile int junctionMode = 2;
     /** 화면 구성 1: 주행·티맵·시스템, 2: 주행·티맵만 */
     private int configuredLayoutMode = 1;
     /** 출력 대상 1: 외부 USB HUD, 2: S9 화면, 3: 동시 출력 */
@@ -235,6 +237,8 @@ public final class HudService extends Service {
     private final AtomicReference<Bitmap> tbtNextFrame = new AtomicReference<>();
     /** 티맵이 그린 현재 회전 아이콘(tbt_current_compact). 없으면 내장 그림/벡터. */
     private final AtomicReference<Bitmap> tbtCompactFrame = new AtomicReference<>();
+    /** 티맵 분기 실사 이미지(crossroad_expanded). 안내가 끝나면 EON 이 파일을 지운다. */
+    private final AtomicReference<Bitmap> crossroadFrame = new AtomicReference<>();
     private final AtomicReference<Bitmap> laneFrame = new AtomicReference<>();
     private final AtomicReference<InetAddress> eonAddress = new AtomicReference<>();
     private final Object assetLock = new Object();
@@ -327,10 +331,18 @@ public final class HudService extends Service {
             bumpOpts.inScaled = false;
             speedBumpImage = BitmapFactory.decodeResource(getResources(), bumpId, bumpOpts);
         }
-        // NOO 방향표시용 실제 화살표 그림. EON selfdrive/assets/images/turn_l·turn_r.png
-        // 을 drawable-nodpi 로 옮긴 것이라 이온 화면과 같은 모양이다. 없으면 벡터로 그린다.
-        turnLeftImage = decodeUnscaled("hud_turn_l");
-        turnRightImage = decodeUnscaled("hud_turn_r");
+        // NOO 방향표시용 화살표 그림 10종. 좌·우회전은 EON assets 원본이고 나머지는
+        // 같은 두께(획/상자 = 24%)로 맞춰 그린 것이다. 파일이 없으면 벡터로 폴백한다.
+        turnImages[TURN_STRAIGHT] = decodeUnscaled("hud_turn_s");
+        turnImages[TURN_LEFT] = decodeUnscaled("hud_turn_l");
+        turnImages[TURN_RIGHT] = decodeUnscaled("hud_turn_r");
+        turnImages[TURN_STRAIGHT_LEFT] = decodeUnscaled("hud_turn_sl");
+        turnImages[TURN_STRAIGHT_RIGHT] = decodeUnscaled("hud_turn_sr");
+        turnImages[TURN_LEFT_RIGHT] = decodeUnscaled("hud_turn_lr");
+        turnImages[TURN_UTURN] = decodeUnscaled("hud_turn_u");
+        turnImages[TURN_SLIGHT_LEFT] = decodeUnscaled("hud_turn_gl");
+        turnImages[TURN_SLIGHT_RIGHT] = decodeUnscaled("hud_turn_gr");
+        turnImages[TURN_ARRIVE] = decodeUnscaled("hud_turn_arrive");
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel(CHANNEL, "EON Remote HUD",
                 NotificationManager.IMPORTANCE_LOW));
@@ -566,6 +578,8 @@ public final class HudService extends Service {
                             replaceAsset(tbtNextFrame, data);
                         } else if (tagEquals(header, "TBT3")) {
                             replaceAsset(tbtCompactFrame, data);
+                        } else if (tagEquals(header, "XRD1")) {
+                            replaceAsset(crossroadFrame, data);
                         } else if (tagEquals(header, "LANE")) {
                             replaceAsset(laneFrame, data);
                         } else {
@@ -687,6 +701,7 @@ public final class HudService extends Service {
         configuredRoadSigns = Math.max(0, Math.min(3, currentState.optInt("hudRoadSigns", 3)));
         configuredOutputMode = Math.max(1, Math.min(3, currentState.optInt("hudOutputMode", 1)));
         tmapIconEnabled = currentState.optInt("hudTmapIcon", 1) != 0;
+        junctionMode = Math.max(0, Math.min(2, currentState.optInt("hudJunction", 2)));
         configuredLayoutMode = Math.max(1, Math.min(2, currentState.optInt("hudLayoutMode", 1)));
         int requestedOutputTarget = Math.max(1, Math.min(3,
                 currentState.optInt("hudOutputTarget", 3)));
@@ -1785,7 +1800,7 @@ public final class HudService extends Service {
     /**
      * 회전 그림 고르기.
      * 1순위 = 티맵이 보내준 현재 회전 아이콘(모든 회전종류 지원, current=true 일 때만).
-     * 2순위 = 앱에 넣은 turn_l / turn_r 그림(좌·우회전만).
+     * 2순위 = 앱에 넣은 hud_turn_* 그림(직진·좌우회전·유턴·분기·방향·도착).
      * 둘 다 없으면 null 을 돌려주어 호출부가 벡터 화살표로 폴백한다.
      */
     private Bitmap turnIcon(int type, String label, boolean current) {
@@ -1797,7 +1812,7 @@ public final class HudService extends Service {
             }
         }
         int dir = turnDirection(type, label);
-        Bitmap icon = dir == TURN_LEFT ? turnLeftImage : dir == TURN_RIGHT ? turnRightImage : null;
+        Bitmap icon = (dir >= 0 && dir < turnImages.length) ? turnImages[dir] : null;
         return (icon != null && !icon.isRecycled()) ? icon : null;
     }
 
@@ -1838,6 +1853,14 @@ public final class HudService extends Service {
 
     private static final int TBT_GREEN = Color.rgb(31, 122, 72);
     private static final int TBT_GREEN_DARK = Color.rgb(20, 98, 57);
+    /** 분기 실사 이미지 폭과, 도착정보 바를 침범하지 않는 아래 한계. */
+    private static final float JUNCTION_W = 340f;
+    private static final float JUNCTION_LEFT = MAP_LEFT + 2f;
+    /** 도착정보 바(위끝 396) 바로 위까지. */
+    private static final float JUNCTION_BOTTOM_MAX = 394f;
+    /** 도착정보 바는 실사 이미지와 같은 폭·같은 왼쪽 기준. */
+    private static final float ETA_TOP = 396f;
+    private static final float ETA_H = 58f;
 
     /**
      * 실제 회전 그림(turn_l/turn_r)을 중심 (cx, cy) 에 height 픽셀로 그린다.
@@ -2707,12 +2730,102 @@ public final class HudService extends Service {
         }
         drawTbtNext(c, p, s.optJSONObject("navi"), 962f, tbtBottom);
         c.restoreToCount(save2);
+        int junctionSave = beginElement(c, l, "junction", MAP_LEFT + 172f, 310f);
+        // 분기 실사가 있으면 2행(다음 회전) 배너를 덮는다. 그리기 순서상 뒤라서
+        // 별도 처리 없이 위에 얹힌다.
+        drawJunction(c, p, tbtBottom);
+        c.restoreToCount(junctionSave);
+        int etaSave = beginElement(c, l, "eta", MAP_LEFT + 172f, 424f);
+        drawNaviEta(c, p, s);
+        c.restoreToCount(etaSave);
+
         int save3 = beginElement(c, l, "lane", 1395f, 408f);
         drawNativeOverlay(c, p, lane, 1130f, 366f, 1660f, 450f, Paint.Align.CENTER);
         c.restoreToCount(save3);
 
         // NOO 안내는 지도 패널이 아니라 주행 패널 중앙에 그린다(drawNooTurn).
         c.restoreToCount(overlaySave);
+    }
+
+    /**
+     * 티맵 분기 실사 이미지. TBT 배너 바로 아래에 폰과 같은 순서로 붙인다.
+     * 파일이 사라지면(안내 종료) EON 이 빈 자산을 보내 비트맵이 null 이 되므로
+     * 별도의 표시 조건이 필요 없다.
+     */
+    private void drawJunction(Canvas c, Paint p, float top) {
+        if (junctionMode == 0) {
+            return;
+        }
+        Bitmap image = crossroadFrame.get();
+        if (image == null || image.isRecycled() || image.getWidth() <= 0 || image.getHeight() <= 0) {
+            return;
+        }
+        float width = JUNCTION_W;
+        float height = width * image.getHeight() / (float) image.getWidth();
+        if (top + height > JUNCTION_BOTTOM_MAX) {
+            height = JUNCTION_BOTTOM_MAX - top;
+            width = height * image.getWidth() / (float) image.getHeight();
+        }
+        if (width < 40f || height < 30f) {
+            return;
+        }
+        float left = JUNCTION_LEFT;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setAlpha(255);
+        p.setFilterBitmap(true);
+        scratchRect.set(left, top, left + width, top + height);
+        c.drawBitmap(image, null, scratchRect, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2f);
+        p.setColor(TBT_GREEN_DARK);
+        c.drawRect(left, top, left + width, top + height, p);
+    }
+
+    /** 폰 티맵 하단처럼 도착시각 · 남은 분 · 남은 km 를 한 줄로. */
+    private void drawNaviEta(Canvas c, Paint p, JSONObject s) {
+        if (junctionMode < 2) {
+            return;
+        }
+        JSONObject navi = s.optJSONObject("navi");
+        if (navi == null || !navi.optBoolean("active", false)) {
+            return;
+        }
+        int remainTime = navi.optInt("remainTime", 0);
+        int remainDist = navi.optInt("remainDist", 0);
+        if (remainTime <= 0 && remainDist <= 0) {
+            return;
+        }
+        float left = JUNCTION_LEFT;
+        float top = ETA_TOP;
+        float right = left + JUNCTION_W;
+        float bottom = top + ETA_H;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(248, 249, 250));
+        scratchRect.set(left, top, right, bottom);
+        c.drawRoundRect(scratchRect, 8f, 8f, p);
+
+        String eta = "--:--";
+        if (remainTime > 0) {
+            eta = new SimpleDateFormat("HH:mm", Locale.KOREA)
+                    .format(new Date(System.currentTimeMillis() + remainTime * 1000L));
+        }
+        String minutes = remainTime > 0 ? Integer.toString(Math.max(1, remainTime / 60)) : "--";
+        String kilometres = remainDist >= 1000
+                ? String.format(Locale.US, "%.0f", remainDist / 1000.0)
+                : (remainDist > 0 ? String.format(Locale.US, "%.1f", remainDist / 1000.0) : "--");
+        int value = Color.rgb(20, 24, 28);
+        int label = Color.rgb(120, 128, 134);
+        float[] columns = {left + JUNCTION_W * 0.24f, left + JUNCTION_W * 0.55f,
+                           left + JUNCTION_W * 0.80f};
+        String[][] cells = {{eta, lang("도착", "ETA")},
+                            {minutes, lang("분", "MIN")},
+                            {kilometres, "km"}};
+        for (int i = 0; i < columns.length; i++) {
+            text(c, p, cells[i][0], columns[i], top + 31f, 29f, value, Paint.Align.CENTER);
+            text(c, p, cells[i][1], columns[i], top + 51f, 16f, label, Paint.Align.CENTER);
+        }
     }
 
     private void drawNativeOverlay(Canvas c, Paint p, Bitmap bitmap,
@@ -2769,7 +2882,10 @@ public final class HudService extends Service {
             } else if ("lights".equals(name) || "prnd".equals(name) || "lead".equals(name)) {
                 pivotX = 0f;
             } else if ("mode".equals(name) || "range".equals(name)
-                    || "camera".equals(name) || "tpms".equals(name)) {
+                    || "camera".equals(name) || "tpms".equals(name)
+                    || "noo".equals(name)) {
+                // NOO 는 과속카메라와 같은 세로줄이라 기준점도 같이 묶어야
+                // 8인치/9.2인치 순정 화면에서 두 요소가 서로 어긋나지 않는다.
                 pivotX = DRIVE_RIGHT;
             }
             c.scale(desired / nativeScaleX, desired / nativeScaleY, pivotX, py);
@@ -2873,4 +2989,3 @@ public final class HudService extends Service {
         return null;
     }
 }
-
