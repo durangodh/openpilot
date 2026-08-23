@@ -242,3 +242,4 @@ class NavigationLaneChangeController:
 
     self.requested_direction = direction
     return direction
+

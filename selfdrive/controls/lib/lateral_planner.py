@@ -396,3 +396,4 @@ class LateralPlanner:
     lateralPlan.dynamicLaneProfileStatus = bool(self.dynamic_lane_profile_status)
 
     pm.send('lateralPlan', plan_send)
+

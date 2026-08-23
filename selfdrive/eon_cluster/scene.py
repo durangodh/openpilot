@@ -80,6 +80,7 @@ def camera_lane_position(model):
     "laneWidth": round(lane_width, 2),
   }
 
+
 def _point_series(polyline):
   raw_xs = _field(polyline, "x", [])
   raw_ys = _field(polyline, "y", [])
@@ -242,3 +243,4 @@ def extract_driving_scene(model, radar_state):
     "edges": edges,
     "leads": leads,
   }
+

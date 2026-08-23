@@ -25,6 +25,7 @@ PORT = 7210
 MAP_PORT = 7211
 MAP_FILE = "/dev/shm/carrot_navi_map.jpg"
 TBT_CURRENT_FILE = "/dev/shm/carrot_navi_tbt_current_full.png"
+TBT_COMPACT_FILE = "/dev/shm/carrot_navi_tbt_current_compact.png"
 TBT_NEXT_FILE = "/dev/shm/carrot_navi_tbt_next.png"
 LANE_BOTTOM_FILE = "/dev/shm/carrot_navi_lane_bottom.png"
 NAVI_STATE = "/dev/shm/carrot_navi_route.json"
@@ -62,7 +63,8 @@ REMOTE_LAYOUT = {
   "cameraDx": 0, "cameraDy": 0, "cameraScale": 1.0,
   "leadDx": 0, "leadDy": 0, "leadScale": 1.0,
   "tpmsDx": 0, "tpmsDy": 0, "tpmsScale": 1.0,
-  "atcDx": 0, "atcDy": 0, "atcScale": 1.0,
+  # NOO 안내는 주행 패널 중앙으로 옮겼다(구 atc* 키는 사라짐).
+  "nooDx": 0, "nooDy": 0, "nooScale": 1.0,
   "systemDx": 0, "systemDy": 0, "systemScale": 1.0,
   # 아래 값들은 주행패널이 765 폭이던 시절에 맞춘 것이라, 5:4:1 레이아웃
   # (주행 952) 에서는 앱 기본값을 덮어써 요소를 왼쪽에 붙여 놓았다.
@@ -87,6 +89,7 @@ class MapFrameServer(object):
     (b"MAP1", MAP_FILE, MAP_MAX_BYTES, MAP_IDLE_JPEG),
     (b"TBT1", TBT_CURRENT_FILE, OVERLAY_MAX_BYTES, b""),
     (b"TBT2", TBT_NEXT_FILE, OVERLAY_MAX_BYTES, b""),
+    (b"TBT3", TBT_COMPACT_FILE, OVERLAY_MAX_BYTES, b""),
     (b"LANE", LANE_BOTTOM_FILE, OVERLAY_MAX_BYTES, b""),
   )
 
@@ -216,6 +219,20 @@ def _finite(value, default=0.0):
     return default
 
 
+def _param_bool(params, key, default=False):
+  """Read a boolean Params key. Defined here so remote_hud never depends on
+  eon_cluster.py, which pulls in the direct-mode renderer."""
+  try:
+    raw = params.get(key)
+  except (TypeError, ValueError):
+    return default
+  if raw is None:
+    return default
+  if isinstance(raw, bytes):
+    raw = raw.decode("utf-8", "replace")
+  return str(raw).strip() not in ("", "0", "False", "false")
+
+
 def _param_int(params, key, default=0, minimum=0, maximum=999):
   try:
     raw = params.get(key)
@@ -223,18 +240,6 @@ def _param_int(params, key, default=0, minimum=0, maximum=999):
   except (TypeError, ValueError):
     value = default
   return max(minimum, min(maximum, value))
-
-
-def _param_bool(params, key, default=False):
-  try:
-    raw = params.get(key)
-    if raw is None:
-      return default
-    if isinstance(raw, bytes):
-      raw = raw.decode("utf-8", errors="ignore")
-    return str(raw).strip().lower() in ("1", "true", "yes", "on")
-  except Exception:
-    return default
 
 
 def _alert(controls_state):
@@ -695,17 +700,13 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     },
     # Legacy JSON keys are retained so the installed S9 APK remains wire
     # compatible. Their values now come exclusively from NOO.
-    "nooMode": 1 if noo_enabled else 0,
     "atcMode": 1 if noo_enabled else 0,
     "atcBlend": round(_finite(_field(sm["lateralPlan"], "nooMapBlend", 0.0)), 3),
     "atcDirection": int(_finite(_field(sm["lateralPlan"], "nooTurnDirection", 0))),
-    # NOO 차로 진단/계획. APK가 자체적으로 다시 차로를 추측하지 않고 실제
-    # lateral planner가 사용한 보정 결과를 그대로 표시한다.
-    "nooCameraLaneCount": int(_finite(_field(sm["lateralPlan"], "nooCameraLaneCount", 0))),
-    "nooRouteLaneCount": int(_finite(_field(sm["lateralPlan"], "nooRouteLaneCount", 0))),
-    "nooCurrentLane": int(_finite(_field(sm["lateralPlan"], "nooCurrentLane", 0))),
-    "nooTargetLane": int(_finite(_field(sm["lateralPlan"], "nooTargetLane", 0))),
-    "nooLaneChangeDirection": int(_finite(_field(sm["lateralPlan"], "nooLaneChangeDirection", 0))),
+    # New key alongside the legacy atcMode above. Old APKs ignore it.
+    "nooMode": 1 if noo_enabled else 0,
+    # Lane-change diagnostics. cam/map are the camera and TMAP lane counts; a
+    # permanent mismatch there is why a lane change never starts.
     "noo": {
       "cam": int(_finite(_field(sm["lateralPlan"], "nooCameraLaneCount", 0))),
       "map": int(_finite(_field(sm["lateralPlan"], "nooRouteLaneCount", 0))),
@@ -803,3 +804,4 @@ def main():
 
 if __name__ == "__main__":
   main()
+

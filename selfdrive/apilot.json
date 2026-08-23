@@ -1203,6 +1203,16 @@
   },
   {
    "group": "S9HUD",
+   "name": "EonClusterHudTmapIcon",
+   "title": "S9 HUD TMAP ICON",
+   "descr": "1: 티맵이 보내는 회전 아이콘 사용(유턴·분기·고가차도까지 티맵과 동일) / 0: 앱 내장 화살표.",
+   "min": 0,
+   "max": 1,
+   "default": 1,
+   "unit": 1
+  },
+  {
+   "group": "S9HUD",
    "name": "EonClusterHudScreenMode",
    "title": "S9 HUD SCREEN MODE",
    "descr": "1: 자동(길안내/주행리포트) / 2: 실시간 디버그 / 3: 주행리포트 고정",
@@ -1343,3 +1353,4 @@
   }
  ]
 }
+

@@ -152,8 +152,7 @@ public final class MainActivity extends Activity {
 
         root.addView(text("EON Remote HUD", 27.0f, Color.WHITE, Typeface.BOLD));
 
-        View subtitle = text("v" + BuildConfig.VERSION_NAME
-                        + "  ·  NOO 회전·차로 진단 / 1CBE:0092",
+        View subtitle = text("v0.57  ·  티맵 회전 아이콘 / 1CBE:0092",
                 14.0f, Color.rgb(145, 158, 171), Typeface.NORMAL);
         LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -468,3 +467,4 @@ public final class MainActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 }
+

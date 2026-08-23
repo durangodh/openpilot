@@ -42,6 +42,9 @@ MAX_LANE_FRAME_BYTES = 512 * 1024
 # widgets.  The EON never redraws these; remote_hud.py forwards the original
 # compressed assets to the S9, which places them over the map at HUD scale.
 OVERLAY_FILES = {
+  # 회전 아이콘만 들어 있는 작은 이미지. 직진·분기·고가차도·유턴까지 티맵이
+  # 직접 그린 그림이라, S9 HUD 가 직접 그리는 벡터 화살표를 대신한다.
+  "tbt_current_compact": "/dev/shm/carrot_navi_tbt_current_compact.png",
   "tbt_current_full": "/dev/shm/carrot_navi_tbt_current_full.png",
   "tbt_next": "/dev/shm/carrot_navi_tbt_next.png",
   "lane_bottom": "/dev/shm/carrot_navi_lane_bottom.png",
@@ -645,3 +648,4 @@ def main():
 
 if __name__ == "__main__":
   main()
+

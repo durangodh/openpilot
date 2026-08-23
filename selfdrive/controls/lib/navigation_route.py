@@ -599,3 +599,4 @@ class NavigationRouteData:
     following = cls.speed_limit_kph(next_state, target_kph, end_time, decel) \
       if isinstance(next_state, dict) else None
     return current, following
+

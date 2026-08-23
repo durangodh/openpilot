@@ -18,6 +18,8 @@ import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffColorFilter;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
@@ -94,7 +96,17 @@ public final class HudService extends Service {
     private static final float NATIVE_GAUGE_RAISE_PX = 42f;
     /** 순정 화면의 상·하단 카드 위치 보정값. */
     private static final float NATIVE_CARD_SHIFT_PX = 18f;
-    private static final float NATIVE_NOO_SHIFT_PX = 24f;
+    /**
+     * NOO 안내. 화살표는 깜박이고 아래 거리는 고정.
+     * 과속카메라 아이콘(882, 171)·그 거리표시(y=231) 아래, TPMS 카드(위끝 376)
+     * 위의 빈 공간에 같은 세로줄로 세운다.
+     */
+    private static final float NOO_CX = 882f;
+    private static final float NOO_CY = 300f;
+    private static final float NOO_ARROW_SCALE = 1.4f;
+    private static final float NOO_TEXT_DY = 52f;
+    private static final long NOO_BLINK_MS = 500L;
+    private static final float NOO_ICON_H = 62f;
 
     /** 속도 숫자 기준선. 예전 KM 라벨이 있던 자리로, 위쪽 RPM 아크 공간용. */
     private static final float SPEED_BASELINE = 118f;
@@ -129,6 +141,8 @@ public final class HudService extends Service {
     private TurzxDisplay display;
     private Bitmap egoCar;
     private Bitmap speedBumpImage;
+    private Bitmap turnLeftImage;
+    private Bitmap turnRightImage;
     private Bitmap otherCar;
     private Bitmap wheelImage;   // res/drawable-nodpi/hud_wheel.png (없으면 기존 벡터 핸들)
     private Thread receiverThread;
@@ -160,6 +174,8 @@ public final class HudService extends Service {
     private boolean frameDark = false;
     /** 1: 주행·지도·시스템 / 2: 실시간 디버그 / 3: S9 리모트 */
     private int configuredOutputMode = 1;
+    /** 패킷 hudTmapIcon. 티맵 회전 아이콘을 쓸지(1) 앱 내장 화살표를 쓸지(0). */
+    private volatile boolean tmapIconEnabled = true;
     /** 화면 구성 1: 주행·티맵·시스템, 2: 주행·티맵만 */
     private int configuredLayoutMode = 1;
     /** 출력 대상 1: 외부 USB HUD, 2: S9 화면, 3: 동시 출력 */
@@ -217,6 +233,8 @@ public final class HudService extends Service {
     private final AtomicReference<Bitmap> mapFrame = new AtomicReference<>();
     private final AtomicReference<Bitmap> tbtCurrentFrame = new AtomicReference<>();
     private final AtomicReference<Bitmap> tbtNextFrame = new AtomicReference<>();
+    /** 티맵이 그린 현재 회전 아이콘(tbt_current_compact). 없으면 내장 그림/벡터. */
+    private final AtomicReference<Bitmap> tbtCompactFrame = new AtomicReference<>();
     private final AtomicReference<Bitmap> laneFrame = new AtomicReference<>();
     private final AtomicReference<InetAddress> eonAddress = new AtomicReference<>();
     private final Object assetLock = new Object();
@@ -309,6 +327,10 @@ public final class HudService extends Service {
             bumpOpts.inScaled = false;
             speedBumpImage = BitmapFactory.decodeResource(getResources(), bumpId, bumpOpts);
         }
+        // NOO 방향표시용 실제 화살표 그림. EON selfdrive/assets/images/turn_l·turn_r.png
+        // 을 drawable-nodpi 로 옮긴 것이라 이온 화면과 같은 모양이다. 없으면 벡터로 그린다.
+        turnLeftImage = decodeUnscaled("hud_turn_l");
+        turnRightImage = decodeUnscaled("hud_turn_r");
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel(CHANNEL, "EON Remote HUD",
                 NotificationManager.IMPORTANCE_LOW));
@@ -542,6 +564,8 @@ public final class HudService extends Service {
                             replaceAsset(tbtCurrentFrame, data);
                         } else if (tagEquals(header, "TBT2")) {
                             replaceAsset(tbtNextFrame, data);
+                        } else if (tagEquals(header, "TBT3")) {
+                            replaceAsset(tbtCompactFrame, data);
                         } else if (tagEquals(header, "LANE")) {
                             replaceAsset(laneFrame, data);
                         } else {
@@ -662,6 +686,7 @@ public final class HudService extends Service {
         configuredCarStyle = currentState.optInt("hudCarStyle", 1) == 2 ? 2 : 1;
         configuredRoadSigns = Math.max(0, Math.min(3, currentState.optInt("hudRoadSigns", 3)));
         configuredOutputMode = Math.max(1, Math.min(3, currentState.optInt("hudOutputMode", 1)));
+        tmapIconEnabled = currentState.optInt("hudTmapIcon", 1) != 0;
         configuredLayoutMode = Math.max(1, Math.min(2, currentState.optInt("hudLayoutMode", 1)));
         int requestedOutputTarget = Math.max(1, Math.min(3,
                 currentState.optInt("hudOutputTarget", 3)));
@@ -1119,6 +1144,12 @@ public final class HudService extends Service {
                     s.optBoolean("cameraSection", false));
         }
         c.restoreToCount(save6);
+
+        int nooSave = beginElement(c, l, "noo", NOO_CX, NOO_CY);
+        if (!stale) {
+            drawNooTurn(c, p, s);
+        }
+        c.restoreToCount(nooSave);
 
         int save7 = beginElement(c, l, "lead", 82f, 415f);
         if (nativeLayoutRendering) {
@@ -1648,9 +1679,8 @@ public final class HudService extends Service {
             p.setAlpha(255);
             p.setFilterBitmap(true);
             c.drawBitmap(speedBumpImage, null, scratchRect, p);
-            // 남은거리는 검정 (라이트 테마 배경에서 읽히도록)
-            text(c, p, distanceText(dist), cx, cy + 66f, 18f, Color.rgb(18, 18, 18),
-                    Paint.Align.CENTER);
+            // 남은거리는 테마색(낮 검정 / 밤 흰색)
+            text(c, p, distanceText(dist), cx, cy + 66f, 18f, ink(), Paint.Align.CENTER);
             return;
         }
         p.setStyle(Paint.Style.FILL);
@@ -1676,8 +1706,7 @@ public final class HudService extends Service {
             c.drawRect(bx - 2.5f, cy + 11f - h, bx + 2.5f, cy + 11f, p);
         }
 
-        text(c, p, distanceText(dist), cx, cy + 60f, 18f, Color.rgb(18, 18, 18),
-                Paint.Align.CENTER);
+        text(c, p, distanceText(dist), cx, cy + 60f, 18f, ink(), Paint.Align.CENTER);
     }
 
     private void drawCamera(Canvas c, Paint p, float cx, float cy, int limit, int dist, boolean section) {
@@ -1695,7 +1724,7 @@ public final class HudService extends Service {
         text(c, p, Integer.toString(limit), cx, cy + 9f, 29f, Color.rgb(20, 20, 20), Paint.Align.CENTER);
         if (dist > 0) {
             text(c, p, (section ? lang("구간 ", "ZONE ") : "") + distanceText(dist), cx, cy + 60f, 18f,
-                    Color.rgb(18, 18, 18), Paint.Align.CENTER);
+                    ink(), Paint.Align.CENTER);
         }
     }
 
@@ -1743,7 +1772,41 @@ public final class HudService extends Service {
         return t == null ? -1f : (float) t.optDouble(key, -1d);
     }
 
-    private void drawAtc(Canvas c, Paint p, JSONObject s) {
+    private Bitmap decodeUnscaled(String name) {
+        int id = getResources().getIdentifier(name, "drawable", getPackageName());
+        if (id == 0) {
+            return null;
+        }
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inScaled = false;
+        return BitmapFactory.decodeResource(getResources(), id, opts);
+    }
+
+    /**
+     * 회전 그림 고르기.
+     * 1순위 = 티맵이 보내준 현재 회전 아이콘(모든 회전종류 지원, current=true 일 때만).
+     * 2순위 = 앱에 넣은 turn_l / turn_r 그림(좌·우회전만).
+     * 둘 다 없으면 null 을 돌려주어 호출부가 벡터 화살표로 폴백한다.
+     */
+    private Bitmap turnIcon(int type, String label, boolean current) {
+        if (current && tmapIconEnabled) {
+            Bitmap tmap = tbtCompactFrame.get();
+            // 자산 교체(replaceAsset)도 assetLock 안에서 일어나므로 렌더 중 재활용되지 않는다.
+            if (tmap != null && !tmap.isRecycled() && tmap.getWidth() > 0 && tmap.getHeight() > 0) {
+                return tmap;
+            }
+        }
+        int dir = turnDirection(type, label);
+        Bitmap icon = dir == TURN_LEFT ? turnLeftImage : dir == TURN_RIGHT ? turnRightImage : null;
+        return (icon != null && !icon.isRecycled()) ? icon : null;
+    }
+
+    /**
+     * NOO 안내 — 지도 패널의 카드를 없애고 주행 패널 한가운데에 표시한다.
+     * 화살표는 0.5 초 주기로 깜박이며 테마색(낮 검정 / 밤 흰색)을 따르고,
+     * 그 아래 남은거리는 같은 색으로 깜박이지 않고 계속 떠 있는다.
+     */
+    private void drawNooTurn(Canvas c, Paint p, JSONObject s) {
         JSONObject navi = s.optJSONObject("navi");
         int nooMode = s.optInt("nooMode", s.optInt("atcMode", 0));  // legacy wire key fallback
         if (nooMode < 1 || navi == null || !navi.optBoolean("active", false)) {
@@ -1760,59 +1823,45 @@ public final class HudService extends Service {
         if (navi.optInt("remainDist", 0) <= 0) {
             return;
         }
-        scratchRect.set(962f, 330f, 1106f, 456f);
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.rgb(31, 35, 38));
-        c.drawRoundRect(scratchRect, 10f, 10f, p);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(2f);
-        p.setColor(Color.rgb(238, 241, 243));
-        c.drawRoundRect(scratchRect, 10f, 10f, p);
-
-        double nooBlend = s.optDouble("atcBlend", 0d);  // legacy wire key
-        int nooDirection = s.optInt("atcDirection", 0); // legacy wire key
-        int nooCurrentLane = s.optInt("nooCurrentLane", 0);
-        int nooTargetLane = s.optInt("nooTargetLane", 0);
-        int nooLaneDirection = s.optInt("nooLaneChangeDirection", 0);
-        int nooCameraLanes = s.optInt("nooCameraLaneCount", 0);
-        int nooRouteLanes = s.optInt("nooRouteLaneCount", 0);
-        boolean nooActive = nooBlend > 0.005d && nooDirection != 0;
-        boolean lanePlanActive = nooLaneDirection != 0 && nooCurrentLane > 0
-                && nooTargetLane > 0;
-        String title;
-        if (lanePlanActive) {
-            title = String.format(Locale.US, "NOO %d→%d", nooCurrentLane, nooTargetLane);
-        } else if (nooActive) {
-            title = String.format(Locale.US, "NOO %s %.0f%%",
-                    nooDirection < 0 ? "←" : "→", nooBlend * 100d);
-        } else if (nooCameraLanes > 0 && nooRouteLanes > 0
-                && nooCameraLanes != nooRouteLanes) {
-            title = String.format(Locale.US, "NOO C%d/M%d", nooCameraLanes, nooRouteLanes);
-        } else {
-            title = navi.optString("title", lang("경로 안내", "ROUTE GUIDE"));
+        int color = ink();
+        // 남은거리를 turnDist(회전까지) 로 쓴다. 목적지까지 총 거리로 바꾸려면
+        // 아래 dist 를 navi.optInt("remainDist", 0) 으로 바꾸면 된다.
+        if (((SystemClock.elapsedRealtime() / NOO_BLINK_MS) & 1L) == 0L) {
+            if (!drawTurnIcon(c, p, NOO_CX, NOO_CY, NOO_ICON_H, navi.optInt("turnType", 0),
+                    navi.optString("title", ""), color, true)) {
+                drawScaledArrow(c, p, NOO_CX, NOO_CY, navi.optInt("turnType", 0),
+                        NOO_ARROW_SCALE, navi.optString("title", ""), color);
+            }
         }
-        if (title.length() > 12) {
-            title = title.substring(0, 11) + "…";
-        }
-        text(c, p, title, 1034f, 350f, 14f,
-                nooActive ? Color.rgb(76, 224, 144) : Color.rgb(248, 249, 250),
-                Paint.Align.CENTER);
-
-        boolean blink = dist > 350 || ((SystemClock.elapsedRealtime() / 500L) & 1L) == 0L;
-        if (blink) {
-            drawAtcArrow(c, p, 1034f, 388f, navi.optInt("turnType", 0),
-                    navi.optString("title", ""));
-        }
-        text(c, p, distanceText(dist), 1034f, 428f, 22f, Color.rgb(248, 249, 250), Paint.Align.CENTER);
-        int remain = navi.optInt("remainDist", 0);
-        if (remain > 0) {
-            text(c, p, lang("남은 ", "LEFT ") + distanceText(remain), 1034f, 447f, 11f,
-                    Color.rgb(180, 188, 194), Paint.Align.CENTER);
-        }
+        text(c, p, distanceText(dist), NOO_CX, NOO_CY + NOO_TEXT_DY, 28f, color, Paint.Align.CENTER);
     }
 
     private static final int TBT_GREEN = Color.rgb(31, 122, 72);
+    private static final int TBT_GREEN_DARK = Color.rgb(20, 98, 57);
+
+    /**
+     * 실제 회전 그림(turn_l/turn_r)을 중심 (cx, cy) 에 height 픽셀로 그린다.
+     * 흰색 원본이라 color 가 흰색이면 그대로, 아니면 그 색으로 물들인다.
+     * 그림이 없는 회전종류면 false 를 돌려주어 호출부가 벡터로 폴백한다.
+     */
+    private boolean drawTurnIcon(Canvas c, Paint p, float cx, float cy, float height,
+                                 int type, String label, int color, boolean current) {
+        Bitmap icon = turnIcon(type, label, current);
+        if (icon == null) {
+            return false;
+        }
+        float w = height * icon.getWidth() / (float) icon.getHeight();
+        scratchRect.set(cx - w / 2f, cy - height / 2f, cx + w / 2f, cy + height / 2f);
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setAlpha(255);
+        p.setFilterBitmap(true);
+        p.setColorFilter(color == Color.WHITE ? null
+                : new PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN));
+        c.drawBitmap(icon, null, scratchRect, p);
+        p.setColorFilter(null);
+        return true;
+    }
 
     /**
      * 1행(현재 회전)은 티맵 PNG 를 그대로 쓴다 — 고가차도·복잡분기 아이콘이
@@ -1842,15 +1891,24 @@ public final class HudService extends Service {
         p.setColor(TBT_GREEN);
         scratchRect.set(left, top, left + w, top + h);
         c.drawRoundRect(scratchRect, 8f, 8f, p);
-        drawScaledArrow(c, p, left + 46f, top + 50f, navi.optInt("turnType", 0), 1.25f,
-                navi.optString("title", ""));
-        text(c, p, distanceText(dist), left + 94f, top + 70f, 46f, Color.WHITE, Paint.Align.LEFT);
-        String title = navi.optString("title", "");
+        String label = navi.optString("title", "");
+        int turnType = navi.optInt("turnType", 0);
+        // 실제 티맵 화면처럼 굵은 흰 화살표 그림을 쓴다. 그림이 없는 회전종류는 벡터.
+        if (!drawTurnIcon(c, p, left + 52f, top + 50f, 68f, turnType, label, Color.WHITE, true)) {
+            drawScaledArrow(c, p, left + 46f, top + 50f, turnType, 1.25f, label);
+        }
+        text(c, p, distanceText(dist), left + 104f, top + 74f, 50f, Color.WHITE, Paint.Align.LEFT);
+        String title = label;
         if (title.length() > 7) {
             title = title.substring(0, 7);
         }
         if (title.length() > 0) {
-            text(c, p, title, left + 96f, top + 110f, 26f, Color.rgb(224, 240, 231), Paint.Align.LEFT);
+            // 도로명은 한 단 어두운 녹색 박스에 넣는다(티맵과 같은 형태).
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(TBT_GREEN_DARK);
+            scratchRect.set(left + 100f, top + 84f, left + w - 8f, top + h - 6f);
+            c.drawRoundRect(scratchRect, 6f, 6f, p);
+            text(c, p, title, left + 110f, top + h - 14f, 26f, Color.WHITE, Paint.Align.LEFT);
         }
         return top + h;
     }
@@ -1894,9 +1952,12 @@ public final class HudService extends Service {
         // 폭 352 -> 176 (절반). 안쪽 화살표/글자도 같이 줄인다.
         scratchRect.set(left, top, left + 176f, top + 52f);
         c.drawRoundRect(scratchRect, 7f, 7f, p);
-        drawScaledArrow(c, p, left + 28f, top + 26f, next.optInt("turnType", 0), 0.62f,
-                next.optString("title", ""));
-        text(c, p, distanceText(nextDist), left + 52f, top + 36f, 24f, Color.WHITE, Paint.Align.LEFT);
+        int nextType = next.optInt("turnType", 0);
+        String nextLabel = next.optString("title", "");
+        if (!drawTurnIcon(c, p, left + 28f, top + 25f, 30f, nextType, nextLabel, Color.WHITE, false)) {
+            drawScaledArrow(c, p, left + 28f, top + 26f, nextType, 0.62f, nextLabel);
+        }
+        text(c, p, distanceText(nextDist), left + 56f, top + 36f, 24f, Color.WHITE, Paint.Align.LEFT);
     }
 
     // 회전 방향 종류. EON onroad_navi.inc 의 CarrotTurnDirection 과 1:1 대응.
@@ -1939,21 +2000,31 @@ public final class HudService extends Service {
 
     private void drawScaledArrow(Canvas c, Paint p, float cx, float cy, int type,
                                  float scale, String label) {
+        drawScaledArrow(c, p, cx, cy, type, scale, label, Color.WHITE);
+    }
+
+    private void drawScaledArrow(Canvas c, Paint p, float cx, float cy, int type,
+                                 float scale, String label, int color) {
         int save = c.save();
         c.scale(scale, scale, cx, cy);
-        drawAtcArrow(c, p, cx, cy, type, label);
+        drawAtcArrow(c, p, cx, cy, type, label, color);
         c.restoreToCount(save);
     }
 
     /** EON drawCarrotTurnArrow() 의 도형을 그대로 옮긴 것(기준 s=22px). */
     private void drawAtcArrow(Canvas c, Paint p, float cx, float cy, int type, String label) {
+        drawAtcArrow(c, p, cx, cy, type, label, Color.WHITE);
+    }
+
+    private void drawAtcArrow(Canvas c, Paint p, float cx, float cy, int type, String label,
+                              int color) {
         int dir = turnDirection(type, label);
         float s = 22f;
         p.setShader(null);
         p.setStrokeWidth(6f);
         p.setStrokeCap(Paint.Cap.ROUND);
         p.setStrokeJoin(Paint.Join.ROUND);
-        p.setColor(Color.WHITE);
+        p.setColor(color);
 
         if (dir == TURN_ARRIVE) {
             p.setStyle(Paint.Style.FILL);
@@ -2221,6 +2292,7 @@ public final class HudService extends Service {
                 {"JPEG", String.format(Locale.US, "%.0fK", lastJpegBytes / 1024.0f)},
                 {"NOO", nooLaneText(s)},
         };
+        // 10 rows: 38 + 9*42 + 38 = 454 < HEIGHT(462).
         float top = 38f;
         for (String[] row : rows) {
             p.setStyle(Paint.Style.FILL);
@@ -2518,17 +2590,24 @@ public final class HudService extends Service {
         text(c, p, title, mapCenterX(), 42f, 27f, dark ? Color.WHITE : Color.rgb(25, 30, 34), Paint.Align.CENTER);
     }
 
-    /** Compact NOO lane-plan status for the system and debug panels. */
+    /**
+     * NOO 차선변경 진단 문자열.
+     * "2>3" = 현재차로>목표차로 계획 있음, "c4/m3" = 카메라 4차로 / 티맵 3차로로
+     * 서로 다르게 세는 중(계획 없음), "--" = 데이터 없음.
+     */
     private static String nooLaneText(JSONObject s) {
         JSONObject noo = s.optJSONObject("noo");
-        int cur = noo != null ? noo.optInt("cur", 0) : s.optInt("nooCurrentLane", 0);
-        int tgt = noo != null ? noo.optInt("tgt", 0) : s.optInt("nooTargetLane", 0);
-        int dir = noo != null ? noo.optInt("dir", 0) : s.optInt("nooLaneChangeDirection", 0);
+        if (noo == null) {
+            return "--";
+        }
+        int cur = noo.optInt("cur", 0);
+        int tgt = noo.optInt("tgt", 0);
         if (cur > 0 && tgt > 0) {
+            int dir = noo.optInt("dir", 0);
             return cur + ">" + tgt + (dir == 0 ? "" : (dir < 0 ? " L" : " R"));
         }
-        int cam = noo != null ? noo.optInt("cam", 0) : s.optInt("nooCameraLaneCount", 0);
-        int map = noo != null ? noo.optInt("map", 0) : s.optInt("nooRouteLaneCount", 0);
+        int cam = noo.optInt("cam", 0);
+        int map = noo.optInt("map", 0);
         if (cam > 0 || map > 0) {
             return "c" + cam + "/m" + map;
         }
@@ -2601,12 +2680,6 @@ public final class HudService extends Service {
             text(c, p, lang("TMAP 화면 대기", "WAITING FOR TMAP"), mapCenterX(), 240f, 34f,
                     Color.GRAY, Paint.Align.CENTER);
             c.restoreToCount(waitSave);
-            int atcSave = beginElement(c, l, "atc", 1034f, 393f);
-            if (nativeLayoutRendering) {
-                c.translate(0f, NATIVE_NOO_SHIFT_PX / nativeWidgetScale);
-            }
-            drawAtc(c, p, s);
-            c.restoreToCount(atcSave);
             return;
         }
         p.setFilterBitmap(true);
@@ -2626,25 +2699,19 @@ public final class HudService extends Service {
         }
         JSONObject l = layout(s);
         int save = beginElement(c, l, "tbt1", 1139f, 71f);
-        float tbtBottom = drawTbtBanner(c, p, s.optJSONObject("navi"), 962f, 8f);
+        float tbtBottom = drawTbtBanner(c, p, s.optJSONObject("navi"), 962f, 0f);
         c.restoreToCount(save);
         int save2 = beginElement(c, l, "tbt2", 1144f, 190f);
         if (nativeLayoutRendering) {
             c.translate(0f, -NATIVE_CARD_SHIFT_PX / nativeWidgetScale);
         }
-        drawTbtNext(c, p, s.optJSONObject("navi"), 962f, tbtBottom + 2f);
+        drawTbtNext(c, p, s.optJSONObject("navi"), 962f, tbtBottom);
         c.restoreToCount(save2);
         int save3 = beginElement(c, l, "lane", 1395f, 408f);
         drawNativeOverlay(c, p, lane, 1130f, 366f, 1660f, 450f, Paint.Align.CENTER);
         c.restoreToCount(save3);
 
-        // NOO 안내는 주행 패널에서 TMAP 패널 좌하단으로 이동했다.
-        int save4 = beginElement(c, l, "atc", 1034f, 393f);
-        if (nativeLayoutRendering) {
-            c.translate(0f, NATIVE_NOO_SHIFT_PX / nativeWidgetScale);
-        }
-        drawAtc(c, p, s);
-        c.restoreToCount(save4);
+        // NOO 안내는 지도 패널이 아니라 주행 패널 중앙에 그린다(drawNooTurn).
         c.restoreToCount(overlaySave);
     }
 
@@ -2806,3 +2873,4 @@ public final class HudService extends Service {
         return null;
     }
 }
+

@@ -256,6 +256,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudRoadSigns", PERSISTENT},
     {"CarrotLearnFrictionBase", PERSISTENT},   // friction 학습 기준선(사용자 수동값)   // 노면 표시 0:끔 1:제한속도 2:방지턱 3:둘다
     {"EonClusterHudBuildings", PERSISTENT},
+    {"EonClusterHudTmapIcon", PERSISTENT},
     {"EonClusterHudRoadZ", PERSISTENT},         // 노면 높낮이 배율 % (-300..300, 100=원본)
     {"EonClusterHudPitchDyn", PERSISTENT},      // 주행 중 pitch 반영 % (0..200)
     {"EonClusterHudOutputMode", PERSISTENT},
@@ -449,3 +450,4 @@ void Params::clearAll(ParamKeyType key_type) {
 
   fsync_dir(getParamPath());
 }
+

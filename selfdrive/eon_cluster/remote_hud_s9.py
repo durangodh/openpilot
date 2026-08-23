@@ -92,6 +92,8 @@ def _packet(sm, *args, **kwargs):
   packet["hudBsdStyle"] = _bounded_int("EonClusterHudBsdStyle", 2, 1, 3)
   packet["hudCarStyle"] = _bounded_int("EonClusterHudCarStyle", 1, 1, 2)
   packet["hudRoadSigns"] = _bounded_int("EonClusterHudRoadSigns", 3, 0, 3)
+  # 1: 티맵이 보내주는 회전 아이콘 사용 / 0: 앱 내장 그림·벡터 화살표 사용
+  packet["hudTmapIcon"] = _bounded_int("EonClusterHudTmapIcon", 1, 0, 1)
   return packet
 
 
@@ -105,3 +107,4 @@ main = base.main
 
 if __name__ == "__main__":
   base.main()
+

@@ -3,18 +3,16 @@ plugins { id "com.android.application" }
 android {
   namespace "ai.comma.remotehud"
   compileSdk 35
-  buildFeatures {
-    buildConfig true
-  }
   defaultConfig {
     applicationId "ai.comma.remotehud"
     minSdk 26
     targetSdk 35
-    versionCode 68
-    versionName "0.53-noo-turn-state"
+    versionCode 72
+    versionName "0.57-tmap-turn-icon"
   }
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_11
     targetCompatibility JavaVersion.VERSION_11
   }
 }
+
