@@ -14,12 +14,10 @@ def make_cp(openpilot_longitudinal=True):
 
 def transition(cp, state=LongCtrlState.stopping, v_target=0.0,
                v_target_1sec=0.0, brake_pressed=False, cruise_standstill=False,
-               soft_hold=False, starting_state=False,
-               standstill_latched=False, standstill_release=False):
+               soft_hold=False, starting_state=False):
   next_state, _ = long_control_state_trans(
     cp, True, state, 0.0, v_target, v_target_1sec,
     brake_pressed, cruise_standstill, soft_hold, 0.0, starting_state,
-    standstill_latched, standstill_release,
   )
   return next_state
 
@@ -58,13 +56,33 @@ def test_soft_hold_still_overrides_planner_launch():
                     soft_hold=True) == LongCtrlState.stopping
 
 
+def latched_transition(cp, standstill_latched=True, standstill_release=False, **kwargs):
+  defaults = dict(state=LongCtrlState.stopping, v_target=0.0, v_target_1sec=0.0,
+                  brake_pressed=False, cruise_standstill=False, soft_hold=False,
+                  starting_state=False)
+  defaults.update(kwargs)
+  next_state, _ = long_control_state_trans(
+    cp, True, defaults["state"], 0.0, defaults["v_target"], defaults["v_target_1sec"],
+    defaults["brake_pressed"], defaults["cruise_standstill"], defaults["soft_hold"],
+    0.0, defaults["starting_state"], standstill_latched, standstill_release)
+  return next_state
 
-def test_latched_standstill_ignores_planner_launch_noise():
-  assert transition(make_cp(), v_target=0.0, v_target_1sec=1.0,
-                    starting_state=True, standstill_latched=True) == LongCtrlState.stopping
+
+def test_latched_standstill_ignores_a_planner_start_request():
+  # 정차 래치 중에는 플래너가 출발을 요구해도 stopping 을 유지한다.
+  assert latched_transition(make_cp(), v_target_1sec=1.0) == LongCtrlState.stopping
 
 
-def test_confirmed_standstill_release_enters_starting_ramp():
-  assert transition(make_cp(), v_target=0.0, v_target_1sec=0.0,
-                    starting_state=True, standstill_latched=True,
-                    standstill_release=True) == LongCtrlState.starting
+def test_confirmed_release_leaves_stopping():
+  cp = make_cp()
+  assert latched_transition(cp, standstill_latched=False, standstill_release=True,
+                            v_target_1sec=1.0) == LongCtrlState.pid
+  assert latched_transition(cp, standstill_latched=False, standstill_release=True,
+                            v_target_1sec=1.0, starting_state=True) == LongCtrlState.starting
+
+
+def test_latch_does_not_block_pid_while_still_moving():
+  # 아직 서지 않았으면 래치가 걸리지 않으므로 평소대로 동작한다.
+  assert latched_transition(make_cp(), standstill_latched=False,
+                            state=LongCtrlState.pid, v_target=5.0,
+                            v_target_1sec=6.0) == LongCtrlState.pid

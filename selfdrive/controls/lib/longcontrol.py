@@ -4,11 +4,16 @@ from common.params import Params
 from common.realtime import DT_CTRL
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, apply_deadzone
 from selfdrive.controls.lib.pid import PIDController
-from selfdrive.controls.lib.lead_departure import StandstillHoldController
 from selfdrive.modeld.constants import T_IDXS
 
 LongCtrlState = car.CarControl.Actuators.LongControlState
 ButtonType = car.CarState.ButtonEvent.Type
+
+# 정차 래치. 완전히 선 뒤에는 플래너가 한 프레임 튀어도 stopping 을 유지한다.
+STANDSTILL_LATCH_SPEED = 0.1
+# 출발은 플래너가 이만큼 "연속으로" 요구해야 인정한다(0.15 s). 레이더·모델
+# 노이즈 한두 프레임은 걸러지고, 진짜 출발은 거의 지연 없이 통과한다.
+STANDSTILL_RELEASE_FRAMES = 15
 
 def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                              v_target_1sec, brake_pressed, cruise_standstill,
@@ -52,8 +57,8 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
       elif started_condition:
         long_control_state = LongCtrlState.pid
 
-    # Once fully stopped, one noisy planner frame must never drop SCC StopReq.
-    # Only StandstillHoldController's confirmed release may leave stopping.
+    # 완전히 선 뒤에는 플래너 한 프레임의 잡음으로 SCC StopReq 를 놓지 않는다.
+    # 확정된 출발(standstill_release)만 stopping 을 벗어날 수 있다.
     if standstill_latched and not standstill_release:
       long_control_state = LongCtrlState.stopping
 
@@ -80,7 +85,11 @@ class LongControl:
     self.starting_ramp_rate = 2.0
     self.standstill_hold_accel = -1.1
     self.standstill_hold_rate = 1.2
-    self.standstill_hold = StandstillHoldController()
+    self.standstill_latched = False
+    self.standstill_frames = 0
+    # 정차 중 실제로 걸고 있던 제동값. stopping 에 다시 들어올 때 0 부터 램프를
+    # 다시 타지 않게 해서, 상태가 잠깐 흔들려도 제동이 약해지지 않는다.
+    self.standstill_hold_memory = None
     self._update_pid_gains()
     # Read launch control immediately so StartAccelApply=0 disables the
     # starting state from the first control cycle.
@@ -123,6 +132,48 @@ class LongControl:
     rate_raw = self.params.get_int("StoppingDecelRate")
     rate = rate_raw * 0.01 if rate_raw > 0 else self.CP.stoppingDecelRate
     self.stopping_decel_rate = float(clip(rate, 0.2, 2.0))
+
+  def _update_standstill_latch(self, active, CS, v_target, v_target_1sec, soft_hold):
+    """완전 정차를 래치하고, 확정된 출발 요구에서만 푼다.
+
+    앞차 거동을 따로 판정하지 않는다. 레이더가 근접 정차에서 리드를 놓쳤다
+    잡았다 하면 출발이 들쭉날쭉해지고, 3 m 이내로 붙여 세우면 판정 자체가
+    시작되지 않기 때문이다. 대신 플래너의 출발 요구를 0.15 초 디바운스한다.
+    """
+    if not active:
+      self.standstill_latched = False
+      self.standstill_frames = 0
+      self.standstill_hold_memory = None
+      return False, False
+
+    if self.long_control_state == LongCtrlState.stopping and CS.vEgo < STANDSTILL_LATCH_SPEED:
+      self.standstill_latched = True
+
+    if not self.standstill_latched:
+      self.standstill_frames = 0
+      return False, False
+
+    starting_request = (v_target_1sec > self.CP.vEgoStarting and
+                        v_target_1sec > v_target + 0.01 and
+                        not CS.brakePressed and
+                        not CS.cruiseState.standstill)
+    self.standstill_frames = self.standstill_frames + 1 if starting_request else 0
+
+    resume_pressed = any(
+      event.pressed and event.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
+      for event in CS.buttonEvents)
+    # 운전자 의사(가속페달·RES)는 소프트홀드까지 포함해 언제나 즉시 푼다.
+    release = CS.gasPressed or resume_pressed
+    if not soft_hold and self.standstill_frames >= STANDSTILL_RELEASE_FRAMES:
+      release = True
+
+    if release:
+      self.standstill_latched = False
+      self.standstill_frames = 0
+      self.standstill_hold_memory = None
+      return False, True
+
+    return True, False
 
   def _update_standstill_hold(self):
     hold_raw = self.params.get("StandstillHoldApply", encoding="utf8")
@@ -230,29 +281,8 @@ class LongControl:
     self.pid.pos_limit = accel_limits[1]
 
     prev_long_control_state = self.long_control_state
-    plan_starting = (v_target_1sec > self.CP.vEgoStarting and
-                     v_target_1sec > v_target + 0.01)
-    resume_pressed = any(
-      event.pressed and event.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
-      for event in CS.buttonEvents)
-    lead = radar_state.leadOne if radar_state is not None else None
-    lead_status = bool(getattr(lead, 'status', False))
-    lead_distance = float(getattr(lead, 'dRel', 0.0)) if lead_status else 0.0
-    lead_speed = float(getattr(lead, 'vLeadK', getattr(lead, 'vLead', 0.0))) if lead_status else 0.0
-    standstill_latched, standstill_release = self.standstill_hold.update(
-      active=active,
-      stopping=self.long_control_state == LongCtrlState.stopping,
-      v_ego=CS.vEgo,
-      plan_starting=plan_starting,
-      soft_hold=soft_hold,
-      brake_pressed=CS.brakePressed,
-      gas_pressed=CS.gasPressed,
-      resume_pressed=resume_pressed,
-      lead_status=lead_status,
-      lead_distance=lead_distance,
-      lead_speed=lead_speed,
-      dt=DT_CTRL,
-    )
+    standstill_latched, standstill_release = self._update_standstill_latch(
+      active, CS, v_target, v_target_1sec, soft_hold)
     self.long_control_state, planned_stop = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
       CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now,
@@ -272,6 +302,11 @@ class LongControl:
     elif self.long_control_state == LongCtrlState.stopping:
       self.starting_accel = 0.0
       output_accel = self.last_output_accel
+      # 정차 중 걸고 있던 제동값을 기억해 두었다면 거기서 이어 간다. 상태가
+      # 한 번 흔들렸다고 0 에서 다시 램프를 타면 약 0.9 초 동안 제동이 약해져
+      # 차가 조금씩 밀린다("뚝뚝" 풀림).
+      if self.standstill_hold_memory is not None:
+        output_accel = min(output_accel, self.standstill_hold_memory)
       if output_accel > self.stop_accel:
         output_accel = min(output_accel, 0.0)
         output_accel -= self.stopping_decel_rate * DT_CTRL
@@ -283,11 +318,12 @@ class LongControl:
       # releasing and re-applying the brakes on a mild downhill or long stop.
       if (standstill_latched or CS.vEgo < 0.05) and not CS.brakePressed:
         # Standstill holding is intentionally independent of StopAccelApply.
-        # Keep applying it while latched even if the car rolls a few cm, so a
-        # mild downhill cannot lower the request back to the approach value.
+        # 래치 중에는 몇 cm 밀려도 계속 건다. 내리막에서 vEgo 가 0.05 를 넘는
+        # 순간 홀드가 빠져 더 밀리던 되먹임을 끊는다.
         hold_target = self.standstill_hold_accel
         if output_accel > hold_target:
           output_accel = max(hold_target, output_accel - self.standstill_hold_rate * DT_CTRL)
+        self.standstill_hold_memory = output_accel
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:
