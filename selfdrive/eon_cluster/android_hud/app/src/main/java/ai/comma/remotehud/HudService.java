@@ -1745,7 +1745,7 @@ public final class HudService extends Service {
 
     private void drawAtc(Canvas c, Paint p, JSONObject s) {
         JSONObject navi = s.optJSONObject("navi");
-        int nooMode = s.optInt("atcMode", 0);  // legacy wire key
+        int nooMode = s.optInt("nooMode", s.optInt("atcMode", 0));  // legacy wire key fallback
         if (nooMode < 1 || navi == null || !navi.optBoolean("active", false)) {
             return;
         }
@@ -2219,16 +2219,17 @@ public final class HudService extends Service {
                 {"REL", relText},
                 {"FPS", String.format(Locale.US, "%.1f", measuredFps)},
                 {"JPEG", String.format(Locale.US, "%.0fK", lastJpegBytes / 1024.0f)},
+                {"NOO", nooLaneText(s)},
         };
-        float top = 42f;
+        float top = 38f;
         for (String[] row : rows) {
             p.setStyle(Paint.Style.FILL);
             p.setColor(Color.rgb(16, 23, 32));
-            scratchRect.set(1734f, top, 1914f, top + 40f);
+            scratchRect.set(1734f, top, 1914f, top + 38f);
             c.drawRoundRect(scratchRect, 6f, 6f, p);
-            text(c, p, row[0], 1744f, top + 27f, 14f, Color.rgb(140, 152, 162), Paint.Align.LEFT);
-            text(c, p, row[1], 1904f, top + 28f, 19f, Color.rgb(235, 240, 245), Paint.Align.RIGHT);
-            top += 45f;
+            text(c, p, row[0], 1744f, top + 26f, 14f, Color.rgb(140, 152, 162), Paint.Align.LEFT);
+            text(c, p, row[1], 1904f, top + 27f, 19f, Color.rgb(235, 240, 245), Paint.Align.RIGHT);
+            top += 42f;
         }
     }
 
@@ -2517,6 +2518,23 @@ public final class HudService extends Service {
         text(c, p, title, mapCenterX(), 42f, 27f, dark ? Color.WHITE : Color.rgb(25, 30, 34), Paint.Align.CENTER);
     }
 
+    /** Compact NOO lane-plan status for the system and debug panels. */
+    private static String nooLaneText(JSONObject s) {
+        JSONObject noo = s.optJSONObject("noo");
+        int cur = noo != null ? noo.optInt("cur", 0) : s.optInt("nooCurrentLane", 0);
+        int tgt = noo != null ? noo.optInt("tgt", 0) : s.optInt("nooTargetLane", 0);
+        int dir = noo != null ? noo.optInt("dir", 0) : s.optInt("nooLaneChangeDirection", 0);
+        if (cur > 0 && tgt > 0) {
+            return cur + ">" + tgt + (dir == 0 ? "" : (dir < 0 ? " L" : " R"));
+        }
+        int cam = noo != null ? noo.optInt("cam", 0) : s.optInt("nooCameraLaneCount", 0);
+        int map = noo != null ? noo.optInt("map", 0) : s.optInt("nooRouteLaneCount", 0);
+        if (cam > 0 || map > 0) {
+            return "c" + cam + "/m" + map;
+        }
+        return "--";
+    }
+
     private void drawDebugRight(Canvas c, Paint p, JSONObject s) {
         drawRightBase(c, p, lang("실시간 디버그", "LIVE DEBUG"));
         JSONObject sys = s.optJSONObject("system");
@@ -2546,6 +2564,8 @@ public final class HudService extends Service {
         text(c, p, String.format(Locale.US, "FPS %d   MAP %dfps   JPEG %d",
                 configuredFps, Math.max(2, Math.min(5, s.optInt("hudMapFps", 5))), jpegQuality),
                 1000f, y, 22f, fg, Paint.Align.LEFT);
+        y += 52f;
+        text(c, p, "NOO " + nooLaneText(s), 1000f, y, 23f, fg, Paint.Align.LEFT);
         y += 52f;
         text(c, p, lang("S9 렌더링 / USB 출력", "S9 RENDER / USB OUTPUT"),
                 1000f, y, 20f, sub, Paint.Align.LEFT);

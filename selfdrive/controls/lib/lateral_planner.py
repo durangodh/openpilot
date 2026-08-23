@@ -379,6 +379,8 @@ class LateralPlanner:
       tail += f' lane={self.LP.lane_offset * 100.0:+.0f}cm'
     if self.noo_map_blend > 0.005:
       tail += f' noomap={self.noo_map_blend * 100.0:.0f}%'
+    if self.DH.noo_turn_state:
+      tail += f' nooturn={self.DH.noo_turn_state}'
     if self.DH.noo_current_lane > 0 and self.DH.noo_target_lane > 0:
       tail += f' noo={self.DH.noo_current_lane}>{self.DH.noo_target_lane}'
     elif self.DH.noo_camera_lane_count or self.DH.noo_route_lane_count:

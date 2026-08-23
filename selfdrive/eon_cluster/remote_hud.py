@@ -695,6 +695,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     },
     # Legacy JSON keys are retained so the installed S9 APK remains wire
     # compatible. Their values now come exclusively from NOO.
+    "nooMode": 1 if noo_enabled else 0,
     "atcMode": 1 if noo_enabled else 0,
     "atcBlend": round(_finite(_field(sm["lateralPlan"], "nooMapBlend", 0.0)), 3),
     "atcDirection": int(_finite(_field(sm["lateralPlan"], "nooTurnDirection", 0))),
@@ -705,6 +706,13 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "nooCurrentLane": int(_finite(_field(sm["lateralPlan"], "nooCurrentLane", 0))),
     "nooTargetLane": int(_finite(_field(sm["lateralPlan"], "nooTargetLane", 0))),
     "nooLaneChangeDirection": int(_finite(_field(sm["lateralPlan"], "nooLaneChangeDirection", 0))),
+    "noo": {
+      "cam": int(_finite(_field(sm["lateralPlan"], "nooCameraLaneCount", 0))),
+      "map": int(_finite(_field(sm["lateralPlan"], "nooRouteLaneCount", 0))),
+      "cur": int(_finite(_field(sm["lateralPlan"], "nooCurrentLane", 0))),
+      "tgt": int(_finite(_field(sm["lateralPlan"], "nooTargetLane", 0))),
+      "dir": int(_finite(_field(sm["lateralPlan"], "nooLaneChangeDirection", 0))),
+    },
     # The optimized MPC state follows a reference that already contains
     # OffsetTotal. Keep the old offset only when falling back to the raw model
     # path so old and new APKs both avoid adding it twice.

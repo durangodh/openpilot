@@ -64,6 +64,11 @@ class DesireHelper:
     self.turn_direction_latched = 0
     self.turn_ll_prob = 1.0
     self.turn_disable_count = 0
+    # apilot-c2 turnState 이식. 0=없음, 1=요청은 왔지만 모델이 아직 회전을
+    # 인지하지 못함(거리창이 닫혀도 유지), 2=모델이 회전을 인지함(확률로 종료).
+    # 거리창(steering_request)만 믿으면 큰 교차로에서 조향이 일찍 풀린다.
+    self.turn_state = 0
+    self.turn_state_timer = 0.0
 
     # Lane Change Timer (AutoLaneChangeTimer) 관련
     self.lane_change_wait_timer = 0.0
@@ -77,6 +82,7 @@ class DesireHelper:
     self.noo_enabled = False
     self.navigation_state = self.empty_navigation_state
     self.noo_turn_direction = 0
+    self.noo_turn_state = 0
     self.noo_driver_cancel = True
     self.noo_direction = 0
     self.noo_current_lane = 0
@@ -166,6 +172,75 @@ class DesireHelper:
     self.road_edge_open_count[direction] = min(
       ROAD_EDGE_OPEN_CONFIRM_FRAMES, self.road_edge_open_count[direction] + 1)
     return self.road_edge_open_count[direction] < ROAD_EDGE_OPEN_CONFIRM_FRAMES
+
+  # 모델이 회전을 "인지했다"고 볼 확률(turnState 1→2), 회전이 끝났다고 볼 확률,
+  # 모델이 끝내 회전을 못 잡았을 때의 유지 한계, 그리고 전체 상한.
+  NOO_TURN_ARM_PROB = 0.2
+  NOO_TURN_END_PROB = 0.02
+  NOO_TURN_ARM_TIMEOUT = 8.0
+  NOO_TURN_MAX_TIME = 20.0
+
+  @staticmethod
+  def _turn_model_prob(model_data, direction):
+    """modelV2 desireState 의 turnLeft/turnRight 확률."""
+    if model_data is None or direction == 0:
+      return 0.0
+    try:
+      desire = (log.LateralPlan.Desire.turnLeft if direction < 0
+                else log.LateralPlan.Desire.turnRight)
+      return float(model_data.meta.desireState[desire])
+    except (IndexError, AttributeError, TypeError, ValueError):
+      return 0.0
+
+  def _advance_noo_turn(self, turn_direction, turn_model_prob):
+    """apilot-c2 turnState 이식. 거리창(steering_request)은 회전을 시작시키는
+    조건일 뿐이고, 끝내는 건 모델의 회전 확률이 맡는다.
+
+    큰 교차로에서는 거리창이 닫힌 뒤에야 실제 선회가 시작되므로, 모델이 회전을
+    인지하기 전(state 1)에는 확률이 낮아도 방향을 유지한다. 인지한 뒤(state 2)
+    에야 확률로 종료한다. 반환값은 이번 프레임에 적용할 회전 방향.
+    """
+    if turn_direction != 0:
+      if self.turn_state == 0:
+        self.turn_state = 1
+        self.turn_state_timer = 0.0
+      self.turn_direction_latched = turn_direction
+      self.turn_ll_prob = 1.0
+    if self.turn_state:
+      self.turn_state_timer += DT_MDL
+
+    if self.turn_state == 1 and turn_model_prob >= self.NOO_TURN_ARM_PROB:
+      self.turn_state = 2
+
+    if turn_direction != 0:
+      hold = True
+    elif self.turn_state == 1:
+      # 모델이 끝내 회전을 못 잡는 경우(안내 오류 등)를 대비한 상한.
+      hold = self.turn_state_timer < self.NOO_TURN_ARM_TIMEOUT
+      self.turn_ll_prob = 1.0
+    elif self.turn_state == 2:
+      if turn_model_prob > self.NOO_TURN_END_PROB:
+        self.turn_ll_prob = 1.0
+        hold = True
+      else:
+        # 확률이 떨어진 뒤 0.5초에 걸쳐 페이드아웃(차선변경 종료와 동일 방식).
+        self.turn_ll_prob = max(self.turn_ll_prob - 2 * DT_MDL, 0.0)
+        hold = self.turn_ll_prob > 0.0
+    else:
+      hold = False
+
+    if self.turn_state and self.turn_state_timer > self.NOO_TURN_MAX_TIME:
+      hold = False
+    if not hold:
+      self._reset_noo_turn()
+      return 0
+    return turn_direction if turn_direction != 0 else self.turn_direction_latched
+
+  def _reset_noo_turn(self):
+    self.turn_state = 0
+    self.turn_state_timer = 0.0
+    self.turn_direction_latched = 0
+    self.turn_ll_prob = 1.0
 
   def _update_noo_turn_completion(self, model_data, carstate, turn_active):
     """Stop re-requesting a turn after the vehicle passes the turn apex."""
@@ -389,37 +464,18 @@ class DesireHelper:
     self._update_noo_turn_completion(model_data, carstate, turn_active)
     if self.turn_disable_count > 0:
       turn_direction = 0
-      self.turn_direction_latched = 0
-      self.turn_ll_prob = 1.0
+      self._reset_noo_turn()
 
-    # apilot 방식의 부드러운 회전종료 페이드: steering_request 가 0으로 끊긴 뒤에도
-    # 모델이 아직 이 방향의 회전을 인지하고 있으면(desireState 확률 > 2%) 0.5초에
-    # 걸쳐 래치된 방향을 유지하다 서서히 끈다. 차선변경 종료(lane_change_ll_prob)와
-    # 동일한 감쇠 방식.
-    turn_model_prob = 0.0
-    if model_data is not None and turn_direction == 0 and self.turn_direction_latched != 0:
-      try:
-        latched_desire = (log.LateralPlan.Desire.turnLeft if self.turn_direction_latched < 0
-                          else log.LateralPlan.Desire.turnRight)
-        turn_model_prob = model_data.meta.desireState[latched_desire]
-      except (IndexError, AttributeError, TypeError):
-        turn_model_prob = 0.0
-
-    if turn_direction != 0:
-      self.turn_direction_latched = turn_direction
-      self.turn_ll_prob = 1.0
-    elif turn_model_prob > 0.02 and self.turn_ll_prob > 0.0:
-      self.turn_ll_prob = max(self.turn_ll_prob - 2 * DT_MDL, 0.0)
-    else:
-      self.turn_direction_latched = 0
-      self.turn_ll_prob = 1.0
-
-    effective_turn_direction = turn_direction if turn_direction != 0 else (
-      self.turn_direction_latched if self.turn_ll_prob > 0.0 else 0)
+    # apilot-c2 turnState 이식. 거리창(steering_request)은 회전을 "시작"시키는
+    # 조건일 뿐이고, 끝내는 건 모델의 회전 확률이 맡는다. 큰 교차로에서는 거리창이
+    # 닫힌 뒤에야 실제 선회가 시작되므로, 모델이 회전을 인지하기 전(state 1)에는
+    # 확률이 낮아도 방향을 유지한다. 인지한 뒤(state 2)에야 확률로 종료한다.
+    turn_model_prob = self._turn_model_prob(
+      model_data, turn_direction if turn_direction != 0 else self.turn_direction_latched)
+    effective_turn_direction = self._advance_noo_turn(turn_direction, turn_model_prob)
     if opposite_torque or conflicting_blinker:
       effective_turn_direction = 0
-      self.turn_direction_latched = 0
-      self.turn_ll_prob = 1.0
+      self._reset_noo_turn()
 
     # preLaneChange 는 지시등을 켠 순간 곧바로 들어가는 대기 상태일 뿐 아직 실제
     # 조향 개입은 없다(preLaneChange 의 desire 는 항상 none). 그런데 일반 도로
@@ -439,6 +495,7 @@ class DesireHelper:
     # Driver/brake/lateral/lane-change gates still cancel immediately.
     self.navigation_state = navigation_state
     self.noo_turn_direction = effective_turn_direction
+    self.noo_turn_state = self.turn_state
     self.noo_driver_cancel = (opposite_torque or conflicting_blinker or carstate.brakePressed or
                               not lateral_active or not navigation_state.get('fresh', False) or
                               self.lane_change_state in (LaneChangeState.laneChangeStarting,

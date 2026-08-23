@@ -153,7 +153,7 @@ public final class MainActivity extends Activity {
         root.addView(text("EON Remote HUD", 27.0f, Color.WHITE, Typeface.BOLD));
 
         View subtitle = text("v" + BuildConfig.VERSION_NAME
-                        + "  ·  2분할 화면 + 상단 게이지 / 1CBE:0092",
+                        + "  ·  NOO 회전·차로 진단 / 1CBE:0092",
                 14.0f, Color.rgb(145, 158, 171), Typeface.NORMAL);
         LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);

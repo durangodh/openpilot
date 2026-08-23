@@ -30,6 +30,9 @@ def _near_line_y(line, maximum_x=30.0):
   return statistics.median(values) if len(values) >= 2 else None
 
 
+ROAD_EDGE_STD_MAX = 0.5
+
+
 def camera_lane_position(model):
   """Estimate the ego lane from modelV2 lane lines and road edges.
 
@@ -49,11 +52,13 @@ def camera_lane_position(model):
     inner = [_near_line_y(lanes[1]), _near_line_y(lanes[2])]
     road = [_near_line_y(edges[0]), _near_line_y(edges[1])]
     inner_conf = min(_finite_float(lane_probs[1], 0.0), _finite_float(lane_probs[2], 0.0))
-    edge_conf = min(1.0 - _finite_float(edge_stds[0], 1.0),
-                    1.0 - _finite_float(edge_stds[1], 1.0))
+    # roadEdgeStds is a standard deviation in metres, not a probability, so it
+    # is compared against a distance threshold (same rule as NOO control).
+    edge_std = max(_finite_float(edge_stds[0], 9.9), _finite_float(edge_stds[1], 9.9))
   except (IndexError, TypeError):
     return None
-  if any(value is None for value in inner + road) or inner_conf < 0.45 or edge_conf < 0.40:
+  if any(value is None for value in inner + road) or inner_conf < 0.45 or \
+     edge_std > ROAD_EDGE_STD_MAX:
     return None
 
   lane_left, lane_right = max(inner), min(inner)
@@ -71,10 +76,9 @@ def camera_lane_position(model):
   return {
     "n": total,
     "cur": current,
-    "confidence": round(min(inner_conf, edge_conf), 2),
+    "confidence": round(inner_conf, 2),
     "laneWidth": round(lane_width, 2),
   }
-
 
 def _point_series(polyline):
   raw_xs = _field(polyline, "x", [])
