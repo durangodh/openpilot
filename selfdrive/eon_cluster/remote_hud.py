@@ -46,7 +46,13 @@ PARAM_FPS = "EonClusterHudFps"
 PARAM_MAP_FPS = "EonClusterHudMapFps"
 HEARTBEAT_PERIOD_S = 2.0
 PARAM_NOO_ENABLED = "NavigationOnOpenpilot"
-_NAVI_CACHE = {"signature": None, "state": {}, "scene_sig": None, "scene": None}
+_NAVI_CACHE = {"signature": None, "state": {}, "scene_sig": None, "scene": None, "parsed_at": 0.0}
+# 티맵 상태 파일은 최대 20 Hz 로 다시 쓰이지만, 여기서 필요한 건 안내 거리와
+# 앞길 곡선뿐이라 5 Hz 로 충분하다. 경로 폴리라인이 길면(장거리 목적지) JSON
+# 파싱이 EON 에서 프레임당 15 ms 까지 나오므로, 파싱만 이 주기로 제한한다.
+# 남은거리·신선도 같은 값은 캐시된 상태로 매 프레임 다시 계산되므로 표시는
+# 그대로 10 Hz 로 갱신된다.
+NAVI_PARSE_INTERVAL_S = 0.20
 
 # One-time S9 APK support for runtime layout tuning.  After the compatible APK
 # is installed, ordinary HUD position/size/color tweaks only require changing
@@ -421,6 +427,23 @@ def _gear(car_state):
   return str(step) if step > 0 else "--"
 
 
+def _apply_speed(car_control):
+  """NOO·곡선·카메라 감속으로 실제 적용 중인 상한과 그 원인.
+
+  EON 화면(drawCarrotHud)과 같은 규칙: 설정속도와 0.5 km/h 넘게 차이날 때만
+  의미가 있다. (속도 kph, 원인 문자열) 을 돌려준다.
+  """
+  smoother = _field(car_control, "sccSmoother", None)
+  if smoother is None:
+    return 0, ""
+  apply_max = _finite(_field(smoother, "applyMaxSpeed", 0.0))
+  cruise_max = _finite(_field(smoother, "cruiseMaxSpeed", 0.0))
+  source = str(_field(smoother, "applySource", "") or "")
+  if apply_max <= 0 or cruise_max <= 0 or abs(apply_max - cruise_max) <= 0.5:
+    return 0, ""
+  return max(0, int(round(apply_max))), source[:8]
+
+
 def _set_speed(controls_state, car_control):
   smoother = _field(car_control, "sccSmoother", None)
   value = _field(smoother, "cruiseMaxSpeed", None)
@@ -529,9 +552,12 @@ def _read_navi_summary():
   except (IOError, OSError):
     _NAVI_CACHE["signature"] = None
     _NAVI_CACHE["state"] = {}
+    _NAVI_CACHE["parsed_at"] = 0.0
     return {}
 
-  if signature != _NAVI_CACHE["signature"]:
+  now = time.monotonic()
+  stale_enough = now - _NAVI_CACHE["parsed_at"] >= NAVI_PARSE_INTERVAL_S
+  if signature != _NAVI_CACHE["signature"] and stale_enough:
     try:
       with open(NAVI_STATE, "r") as state_file:
         state = json.load(state_file)
@@ -539,6 +565,7 @@ def _read_navi_summary():
       return _NAVI_CACHE["state"]
     _NAVI_CACHE["signature"] = signature
     _NAVI_CACHE["state"] = state
+    _NAVI_CACHE["parsed_at"] = now
   else:
     state = _NAVI_CACHE["state"]
 
@@ -657,6 +684,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     mode = 3
   tpms = _field(car, "tpms", None)
   navi = _read_navi_summary()
+  apply_speed, apply_source = _apply_speed(sm["carControl"])
   hud_path = final_lateral_path(sm["lateralPlan"], sm["modelV2"], T_IDXS)
   path_final = len(hud_path) >= 2
   if not path_final:
@@ -667,6 +695,8 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "layout": REMOTE_LAYOUT,
     "speed": int(round(_finite(_field(car, "vEgoCluster", _field(car, "vEgo", 0.0))) * 3.6)),
     "set": _set_speed(controls, sm["carControl"]),
+    "applySpeed": apply_speed,
+    "applySource": apply_source,
     "enabled": bool(_field(controls, "enabled", False)),
     "gear": _gear(car),
     "gap": gap if 1 <= gap <= 4 else 0,

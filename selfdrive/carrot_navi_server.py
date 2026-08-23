@@ -16,6 +16,9 @@ from common.params import Params
 PORT = 7714
 DISCOVERY_PORT = 7705
 STATE_FILE = "/dev/shm/carrot_navi_route.json"
+# 경로 폴리라인을 뺀 축약본. 폴리라인이 필요 없는 소비자(횡제어의 NOO)가
+# 이 파일을 읽으면 5 Hz 로 반복되는 대용량 JSON 파싱을 한 번 줄일 수 있다.
+GUIDE_FILE = "/dev/shm/carrot_navi_guide.json"
 MAP_FILE = "/dev/shm/carrot_navi_map.jpg"
 JSON_NAMES = (
   "vehicle", "guidance_current", "guidance_next", "lane_current", "lane_ahead",
@@ -106,14 +109,29 @@ class NaviState(object):
     threading.Thread(target=self._map_watchdog_loop, name="carrot-navi-map-watchdog", daemon=True).start()
 
   @staticmethod
-  def _write_state(output):
-    tmp = STATE_FILE + ".tmp"
+  def _write_json(path, payload):
+    tmp = path + ".tmp"
     try:
       with open(tmp, "w") as f:
-        json.dump(output, f, ensure_ascii=False, separators=(",", ":"))
-      os.rename(tmp, STATE_FILE)
+        json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
+      os.rename(tmp, path)
     except IOError:
       pass
+
+  @classmethod
+  def _write_state(cls, output):
+    cls._write_json(STATE_FILE, output)
+
+    # 축약본: route 에서 polyline 만 뺀다. 나머지는 같은 객체를 그대로 참조하므로
+    # 추가 비용은 dump 한 번뿐이고, 그 dump 는 폴리라인이 없어 매우 싸다.
+    route = output.get("route")
+    if isinstance(route, dict) and "polyline" in route:
+      lite_route = {k: v for k, v in route.items() if k != "polyline"}
+      lite = dict(output)
+      lite["route"] = lite_route
+    else:
+      lite = output
+    cls._write_json(GUIDE_FILE, lite)
 
   def _writer_loop(self):
     while True:

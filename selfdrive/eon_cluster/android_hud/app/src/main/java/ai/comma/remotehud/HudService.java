@@ -107,6 +107,9 @@ public final class HudService extends Service {
     private static final float NOO_TEXT_DY = 52f;
     private static final long NOO_BLINK_MS = 500L;
     private static final float NOO_ICON_H = 62f;
+    /** 적용속도 표시는 SET 원(반지름 36) 오른쪽으로 이만큼 띄운다. */
+    private static final float APPLY_DX = 52f;
+    private static final int APPLY_OCHRE = Color.rgb(214, 168, 60);
 
     /** 속도 숫자 기준선. 예전 KM 라벨이 있던 자리로, 위쪽 RPM 아크 공간용. */
     private static final float SPEED_BASELINE = 118f;
@@ -1142,6 +1145,7 @@ public final class HudService extends Service {
             c.translate(0f, -NATIVE_CARD_SHIFT_PX / nativeWidgetScale);
         }
         drawSetSpeed(c, p, DRIVE_CX, 171f, s.optInt("set", 0), enabled);
+        drawApplySpeed(c, p, s);
         c.restoreToCount(save5);
 
         int save6 = beginElement(c, l, "camera", 882f, 171f);
@@ -1659,6 +1663,26 @@ public final class HudService extends Service {
             wheelGray = new ColorMatrixColorFilter(m);
         }
         return wheelGray;
+    }
+
+    /**
+     * NOO·곡선·카메라 감속으로 실제 적용 중인 상한과 그 원인.
+     * SET 원 오른쪽에 EON 화면과 같은 황토색으로 세운다. 설정속도와 차이가
+     * 없으면(EON 기준 0.5 km/h 이내) EON 이 0 을 보내므로 아무것도 안 그린다.
+     */
+    private void drawApplySpeed(Canvas c, Paint p, JSONObject s) {
+        int applySpeed = s.optInt("applySpeed", 0);
+        if (applySpeed <= 0) {
+            return;
+        }
+        String source = s.optString("applySource", "");
+        float cx = DRIVE_CX + APPLY_DX;
+        text(c, p, Integer.toString(applySpeed), cx, 171f + 12f, 40f, APPLY_OCHRE,
+                Paint.Align.LEFT);
+        if (!source.isEmpty()) {
+            text(c, p, source.toUpperCase(Locale.US), cx, 171f + 36f, 18f, APPLY_OCHRE,
+                    Paint.Align.LEFT);
+        }
     }
 
     private void drawSetSpeed(Canvas c, Paint p, float cx, float cy, int set, boolean enabled) {

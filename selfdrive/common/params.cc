@@ -240,6 +240,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"NavigationOnOpenpilot", PERSISTENT},
     {"NooUnifiedMigrated", PERSISTENT},
     {"NooTurnSpeed", PERSISTENT},
+    {"NooMode", PERSISTENT},
     {"NooTurnEndTime", PERSISTENT},
     {"StopDistance", PERSISTENT},                // shared ACC/E2E standstill distance (cm), default 600
     {"ApplyLongDynamicCost", PERSISTENT},        // 동적 longitudinal MPC cost 적용

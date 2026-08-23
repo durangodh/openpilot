@@ -1,10 +1,13 @@
 import json
 import math
+import os
 import statistics
 import time
 
 
 STATE_FILE = "/dev/shm/carrot_navi_route.json"
+# 폴리라인 없는 축약본. 지도 곡률(폴리라인)이 필요 없는 쪽은 이걸 읽는다.
+GUIDE_FILE = "/dev/shm/carrot_navi_guide.json"
 STALE_TIMEOUT = 3.0
 MAP_CURVE_UPDATE_INTERVAL = 0.20
 ROUTE_COARSE_SAMPLE_LIMIT = 256
@@ -48,6 +51,7 @@ class NavigationRouteData:
 
   def __init__(self, state_file=STATE_FILE):
     self.state_file = state_file
+    self.file_signature = None
     self.last_read = 0.0
     self.state = self.empty_state()
     self.last_map_curve_calc = -MAP_CURVE_UPDATE_INTERVAL
@@ -84,8 +88,16 @@ class NavigationRouteData:
       return self.state
     self.last_read = now
     try:
+      # 파일이 그대로면 다시 파싱하지 않는다. 안내가 끊기거나 정차로 갱신이
+      # 멈춘 구간에서 큰 JSON 을 반복해 읽던 비용이 사라진다.
+      # (remote_hud._read_navi_summary 와 같은 방식)
+      stat = os.stat(self.state_file)
+      signature = (getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9)), stat.st_size)
+      if signature == self.file_signature:
+        return self.state
       with open(self.state_file, "r") as f:
         root = json.load(f)
+      self.file_signature = signature
       stream_times = root.get("stream_updated_at_ms") or {}
       guidance_updated_at = stream_times.get("guidance_current", root.get("updated_at_ms"))
       age = time.time() - _number(guidance_updated_at, 0.0) / 1000.0
@@ -143,6 +155,7 @@ class NavigationRouteData:
       next_state = self.guidance_state(root.get("guidance_next") or {}, next_fresh)
       self.state["next"] = next_state if next_state["fresh"] else None
     except (IOError, OSError, ValueError, TypeError):
+      self.file_signature = None
       self.state = self.empty_state()
     return self.state
 
@@ -284,10 +297,14 @@ class NavigationRouteData:
     current = 1 + left_lanes
     if not 1 <= total <= 8 or not 1 <= current <= total:
       return None
+    # left_frac / right_frac 은 그 쪽 여유폭이 차로폭의 몇 배인지의 소수부다.
+    # 0.5 이상이면 반올림에서 차로 하나가 "올라간" 쪽이므로 갓길·중앙분리대가
+    # 유령차로로 잡혔을 후보가 된다. 0.5 미만이면 애초에 세지 않았으므로
+    # 유령차로를 만들 수 없다.
     return {"count": total, "current": current,
             "confidence": inner_conf, "width": lane_width,
-            "left_error": abs(left_ratio - left_lanes),
-            "right_error": abs(right_ratio - right_lanes)}
+            "left_frac": left_ratio - math.floor(left_ratio),
+            "right_frac": right_ratio - math.floor(right_ratio)}
 
   @staticmethod
   def _lat_lon(point):

@@ -557,6 +557,52 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
              QFontMetrics(p.font()).elidedText(
                  title, Qt::ElideRight, compact_box.width() - qRound(28 * ui_scale)));
 
+  // ---- NOO 상태 배지 (제목줄 오른쪽) ----
+  //      회전조향 중 : 파랑  TURN ◀ / TURN ▶
+  //      차선변경 중 : 초록  2▶3
+  //      변경 계획됨 : 청록  2>3
+  //      계획 없음   : 회색  c4/m3  (카메라/티맵 차로수 불일치를 그대로 표시)
+  {
+    const auto lateral_plan = (*(uiState()->sm))["lateralPlan"].getLateralPlan();
+    const int noo_turn = lateral_plan.getNooTurnDirection();
+    const int noo_cur = lateral_plan.getNooCurrentLane();
+    const int noo_tgt = lateral_plan.getNooTargetLane();
+    const int noo_lc = lateral_plan.getNooLaneChangeDirection();
+    const int noo_cam = lateral_plan.getNooCameraLaneCount();
+    const int noo_map = lateral_plan.getNooRouteLaneCount();
+
+    QString noo_str;
+    QColor noo_color;
+    if (noo_turn != 0) {
+      noo_str = noo_turn < 0 ? QString::fromUtf8("TURN ◀") : QString::fromUtf8("TURN ▶");
+      noo_color = QColor(0, 90, 220, 220);
+    } else if (noo_lc != 0 && noo_cur > 0 && noo_tgt > 0) {
+      noo_str = QString("%1%2%3").arg(noo_cur)
+                    .arg(noo_lc < 0 ? QString::fromUtf8("◀") : QString::fromUtf8("▶")).arg(noo_tgt);
+      noo_color = QColor(0, 170, 60, 220);
+    } else if (noo_cur > 0 && noo_tgt > 0) {
+      noo_str = QString("%1>%2").arg(noo_cur).arg(noo_tgt);
+      noo_color = QColor(0, 150, 160, 220);
+    } else if (noo_cam > 0 || noo_map > 0) {
+      noo_str = QString("c%1/m%2").arg(noo_cam).arg(noo_map);
+      noo_color = QColor(96, 102, 110, 200);
+    }
+
+    if (!noo_str.isEmpty()) {
+      configFont(p, "Open Sans", std::max(14, qRound(24 * ui_scale)), "Bold");
+      const int pad = qRound(12 * ui_scale);
+      const int badge_w = QFontMetrics(p.font()).horizontalAdvance(noo_str) + pad * 2;
+      const int badge_h = qRound(38 * ui_scale);
+      const QRect badge(compact_box.right() - qRound(14 * ui_scale) - badge_w,
+                        compact_box.y() + qRound(10 * ui_scale), badge_w, badge_h);
+      p.setPen(Qt::NoPen);
+      p.setBrush(noo_color);
+      p.drawRoundedRect(badge, qRound(10 * ui_scale), qRound(10 * ui_scale));
+      p.setPen(Qt::white);
+      p.drawText(badge, Qt::AlignCenter, noo_str);
+    }
+  }
+
   const int turn_center_x = compact_box.x() + qRound(70 * ui_scale);
   const int turn_center_y = compact_box.y() + qRound(166 * ui_scale);
   const QRect turn_card(turn_center_x - qRound(56 * ui_scale),

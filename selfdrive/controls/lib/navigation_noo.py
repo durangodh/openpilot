@@ -62,18 +62,23 @@ class NavigationLaneChangeController:
     if camera_count - route_count != 1:
       return None
     try:
-      left_error = float(ego_lane.get("left_error", 0.0))
-      right_error = float(ego_lane.get("right_error", 0.0))
+      left_frac = float(ego_lane.get("left_frac", 0.0))
+      right_frac = float(ego_lane.get("right_frac", 0.0))
     except (TypeError, ValueError):
       return None
-    # Exactly one side may be ambiguous. If both sides are (a median and a
-    # shoulder together) the phantom lane cannot be attributed, and if neither
-    # is, the camera really does see one more lane than TMAP reports.
-    ambiguous_left = left_error >= cls.PHANTOM_LANE_MIN_ERROR
-    ambiguous_right = right_error >= cls.PHANTOM_LANE_MIN_ERROR
-    if ambiguous_left == ambiguous_right:
+    # 유령차로 후보 = 반올림에서 차로 하나가 "올라간"(소수부 0.5 이상) 쪽.
+    # 소수부가 1.0 에 가까우면 폭이 실제 차로와 같다는 뜻이라 진짜 차로로 본다.
+    # 소수부가 0.5 미만인 쪽(예: 1 m 중앙분리대)은 애초에 세지 않았으므로
+    # 후보가 아니다 — 이 구분이 없으면 갓길과 중앙분리대가 같이 있는 흔한
+    # 고속도로에서 판정이 통째로 막힌다.
+    def phantom(frac):
+      return 0.5 <= frac <= 1.0 - cls.PHANTOM_LANE_MIN_ERROR
+
+    phantom_left = phantom(left_frac)
+    phantom_right = phantom(right_frac)
+    if phantom_left == phantom_right:
       return None
-    resolved = current - 1 if ambiguous_left else current
+    resolved = current - 1 if phantom_left else current
     return resolved if 1 <= resolved <= route_count else None
 
   @classmethod

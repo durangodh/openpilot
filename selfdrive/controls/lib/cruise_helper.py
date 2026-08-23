@@ -47,7 +47,6 @@ class CruiseHelper:
     # CANCEL/brake can pause longitudinal control while steering remains enabled.
     self.auto_cruise_control = False
     self.long_active_user = 0
-    self.long_active_user_ready = 0
     self.user_cruise_paused = False
     self.v_cruise_kph_backup = 0.0
     self.prev_brake_pressed = False
@@ -80,15 +79,12 @@ class CruiseHelper:
     self.target_speed = 0.0
     self.max_speed_clu = 0.0
     self.curve_speed_ms = 250.0 * CV.KPH_TO_MS
-    self.map_curve_speed_kph = 250.0
     self.apply_source = ""
     self.active_cam = False
-    self.over_speed_limit = False
     self.slowing_down = False
     self.slowing_down_alert = False
     self.slowing_down_sound_alert = False
     self.slowing_down_for_bump = False
-    self.limited_lead = False
     self.stock_weight = 0.0
 
     # c3-wip style navigation distance tracking. This branch has no
@@ -107,7 +103,6 @@ class CruiseHelper:
     self.section_passed = False
 
     self.navigation_route = NavigationRouteData()
-    self.empty_navi_state = self.navigation_route.empty_state()
     self.last_road_limit_speed = 0.0
     self.pause_auto_speed_up = False
 
@@ -179,6 +174,8 @@ class CruiseHelper:
     self.auto_navi_speed_bump_speed = float(clip(bump_speed if bump_speed > 0 else 35, 10, 100))
     self.auto_navi_speed_safety_factor = float(clip(safety_factor if safety_factor > 0 else 105, 80, 120)) * 0.01
     self.noo_enabled = self.params.get_bool("NavigationOnOpenpilot")
+    # NooMode 2(차선변경만)에서는 회전조향과 함께 회전감속도 쓰지 않는다.
+    self.noo_mode = int(clip(self.params.get_int("NooMode"), 0, 2))
     self.noo_turn_speed = float(clip(self.params.get_int("NooTurnSpeed"), 5, 80))
     self.noo_turn_end_time = float(clip(self.params.get_int("NooTurnEndTime"), 1, 20))
 
@@ -267,14 +264,10 @@ class CruiseHelper:
 
   def get_longitudinal_accel_limit(self, CS, sm, set_speed_kph):
     """Return the live positive limit shared by LongControl and SCC output."""
-    # controlsd passes the published CarState reader here, not the internal
-    # CarState wrapper used by CarController. It therefore exposes vEgo
-    # directly and has no ``out`` member.
-    v_ego = CS.vEgo
-    cruise_max_accel = self.get_cruise_max_accel(v_ego)
+    cruise_max_accel = self.get_cruise_max_accel(CS.out.vEgo)
     if sm['radarState'].leadOne.status:
       return cruise_max_accel
-    speed_error_kph = max(0.0, float(set_speed_kph) - v_ego * CV.MS_TO_KPH)
+    speed_error_kph = max(0.0, float(set_speed_kph) - CS.out.vEgo * CV.MS_TO_KPH)
     return get_no_lead_cruise_accel_cap(
       cruise_max_accel, speed_error_kph, self.no_lead_cruise_accel_factor)
 
@@ -282,15 +275,13 @@ class CruiseHelper:
     if self.long_active_user <= 0:
       controls.LoC.reset(v_pid=CS.vEgo)
     self.long_active_user = active_mode
-    self.long_active_user_ready = active_mode
     self.user_cruise_paused = False
     self.auto_cruise_control = True
 
-  def _pause_longitudinal(self, controls, user_cancel=False):
+  def pause_longitudinal(self, controls, user_cancel=False):
     if self.long_active_user > 0 and self.cruise_speed_min <= controls.v_cruise_kph <= MAX_SET_SPEED_KPH:
       self.v_cruise_kph_backup = controls.v_cruise_kph
     self.long_active_user = 0 if user_cancel else -2
-    self.long_active_user_ready = 0
     if user_cancel:
       self.user_cruise_paused = True
       self.auto_cruise_control = False
@@ -391,13 +382,12 @@ class CruiseHelper:
     brake_pressed = CS.brakePressed or bool(getattr(CS, 'regenBraking', False))
     if not controls.enabled:
       self.long_active_user = 0
-      self.long_active_user_ready = 0
       self.gas_pressed_count = 0
       self.pre_gas_pressed_max = 0.0
     elif brake_pressed:
       # Match aPilot C2 pedal priority: brake input owns this control cycle.
       if not self.prev_brake_pressed:
-        self._pause_longitudinal(controls)
+        self.pause_longitudinal(controls)
     elif CS.gasPressed:
       # Gas input is evaluated before either pedal-release path. This prevents
       # brake release from resuming longitudinal control and the gas path from
@@ -412,7 +402,7 @@ class CruiseHelper:
         self._select_resume_speed(controls, CS)
         self._resume_longitudinal(controls, CS, 3)
       elif self.long_active_user > 0 and 0.0 < self.auto_gas_cancel_speed and v_ego_kph < self.auto_gas_cancel_speed:
-        self._pause_longitudinal(controls)
+        self.pause_longitudinal(controls)
 
       if self.auto_resume_from_gas_speed < v_ego_kph and v_ego_kph > controls.v_cruise_kph:
         controls.v_cruise_kph = float(clip(v_ego_kph, self.cruise_speed_min, MAX_SET_SPEED_KPH))
@@ -464,7 +454,7 @@ class CruiseHelper:
     # leave longitudinal control active while waiting for the release frame.
     # Lateral control remains engaged until cruise MAIN turns off.
     if any(event.type == ButtonType.cancel and event.pressed for event in CS.buttonEvents):
-      self._pause_longitudinal(controls, user_cancel=True)
+      self.pause_longitudinal(controls, user_cancel=True)
       self.button_count = 0
       self.button_long_pressed = False
       self.button_prev = ButtonType.unknown
@@ -570,7 +560,6 @@ class CruiseHelper:
 
     if not cruise_available:
       self.long_active_user = 0
-      self.long_active_user_ready = 0
       controls.v_cruise_kph = 0
 
     if longcontrol:
@@ -828,14 +817,12 @@ class CruiseHelper:
     else:
       max_speed_clu = self.kph_to_clu(controls.v_cruise_kph)
 
-    self.map_curve_speed_kph = 250.0
     if self.turn_vision_control:
       map_speed = self.navigation_route.cached_map_curve_speed_kph(
         navi_state, CS.out.vEgo * CV.MS_TO_KPH,
         self.map_turn_speed_factor, self.auto_curve_speed_lower_limit,
         self.auto_navi_speed_decel_rate)
       if map_speed is not None:
-        self.map_curve_speed_kph = map_speed
         map_speed_clu = self.kph_to_clu(map_speed)
         if map_speed_clu < max_speed_clu:
           max_speed_clu = map_speed_clu
@@ -845,9 +832,6 @@ class CruiseHelper:
     normal_road_limit_speed = 0.0
     if road_data is not None:
       normal_road_limit_speed = float(road_data.roadLimitSpeed)
-      self.over_speed_limit = self.active_cam and 0 < navi_target_kph < clu11_speed + 2
-    else:
-      self.over_speed_limit = False
 
     if apply_limit_speed >= self.kph_to_clu(10):
       if apply_limit_speed < max_speed_clu:
@@ -865,7 +849,7 @@ class CruiseHelper:
       self.slowing_down_alert = False
       self.slowing_down = False
 
-    if self.noo_enabled and not CS.out.brakePressed:
+    if self.noo_enabled and self.noo_mode != 2 and not CS.out.brakePressed:
       limits = self.navigation_route.speed_limits_kph(navi_state, self.noo_turn_speed,
                                                        self.noo_turn_end_time)
       limits = [value for value in limits if value is not None]

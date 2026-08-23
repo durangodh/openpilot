@@ -57,6 +57,7 @@ def manager_init() -> None:
     ("AutoNaviSpeedSafetyFactor", "105"),
     ("NavigationOnOpenpilot", "0"),
     ("NooTurnSpeed", "30"),
+    ("NooMode", "0"),
     ("NooTurnEndTime", "6"),
     ("CruiseButtonMode", "0"),              # 0=normal, 1/2=custom, 3=speed table
     ("CruiseSpeedUnit", "10"),

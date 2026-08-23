@@ -4,7 +4,7 @@ from cereal import log
 from common.realtime import DT_MDL
 from common.conversions import Conversions as CV
 from common.params import Params
-from selfdrive.controls.lib.navigation_route import NavigationRouteData
+from selfdrive.controls.lib.navigation_route import GUIDE_FILE, NavigationRouteData
 from selfdrive.controls.lib.navigation_noo import NavigationLaneChangeController
 
 AUTO_LCA_START_TIME = 1.0
@@ -76,10 +76,16 @@ class DesireHelper:
     self.road_edge = False
     # Fail closed and require 0.2 s of continuously open geometry per side.
     self.road_edge_open_count = {-1: 0, 1: 0}
-    self.navigation_route = NavigationRouteData()
+    # NOO 차선변경·회전조향은 경로 폴리라인을 쓰지 않는다. 폴리라인이 빠진
+    # 축약본을 읽어 plannerd 쪽 JSON 파싱 비용을 크게 줄인다(지도 곡률 감속은
+    # controlsd 의 cruise_helper 가 전체 파일로 계속 계산한다).
+    self.navigation_route = NavigationRouteData(GUIDE_FILE)
     self.empty_navigation_state = self.navigation_route.empty_state()
     self.noo_controller = NavigationLaneChangeController()
     self.noo_enabled = False
+    # NavigationOnOpenpilot 안에서 회전조향과 자동차선변경을 따로 끌 수 있다.
+    # NooMode 0: 둘 다 / 1: 회전조향만 / 2: 차선변경만
+    self.noo_mode = 0
     self.navigation_state = self.empty_navigation_state
     self.noo_turn_direction = 0
     self.noo_turn_state = 0
@@ -265,6 +271,12 @@ class DesireHelper:
       self.auto_lane_change_enabled = self.params.get_bool('AutoLaneChangeEnabled')
       self.noo_enabled = self.params.get_bool('NavigationOnOpenpilot')
       try:
+        self.noo_mode = int(self.params.get('NooMode', encoding='utf8') or '0')
+      except (TypeError, ValueError):
+        self.noo_mode = 0
+      if self.noo_mode not in (0, 1, 2):
+        self.noo_mode = 0
+      try:
         auto_lc_speed_kph = int(self.params.get('AutoLaneChangeSpeed', encoding='utf8') or '50')
       except (TypeError, ValueError):
         auto_lc_speed_kph = 50
@@ -286,8 +298,11 @@ class DesireHelper:
 
     v_ego = carstate.vEgo
     noo_available = self.noo_enabled and lateral_active
-    noo_lane_change_available = noo_available and self.lane_change_enabled
-    noo_steering = noo_available and not carstate.brakePressed
+    # NooMode 로 두 기능을 분리한다. 회전조향만 쓰거나, 차선변경만 쓰거나.
+    noo_lane_change_available = (noo_available and self.lane_change_enabled
+                                 and self.noo_mode != 1)
+    noo_steering = (noo_available and not carstate.brakePressed
+                    and self.noo_mode != 2)
     # Keep the current fork event while steering is configured so a brake
     # press can latch cancellation instead of resetting and re-acquiring it.
     navigation_state = self.navigation_route.update() if noo_available else self.empty_navigation_state

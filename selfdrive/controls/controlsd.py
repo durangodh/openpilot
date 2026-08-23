@@ -474,7 +474,7 @@ class Controls:
         self.reverse_reengage_pending = True
         # Reverse must never leave longitudinal control armed for the automatic
         # lateral re-engagement below.
-        self.cruise_helper._pause_longitudinal(self, user_cancel=True)
+        self.cruise_helper.pause_longitudinal(self, user_cancel=True)
       return
 
     if not self.reverse_reengage_pending:
@@ -499,7 +499,7 @@ class Controls:
 
     ready = self.state == State.disabled and CS.cruiseState.available and not self.events.any(ET.NO_ENTRY)
     if ready:
-      self.cruise_helper._pause_longitudinal(self, user_cancel=True)
+      self.cruise_helper.pause_longitudinal(self, user_cancel=True)
       self.events.add(EventName.buttonEnable)
       self.reverse_reengage_pending = False
 

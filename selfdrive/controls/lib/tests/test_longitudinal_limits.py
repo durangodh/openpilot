@@ -1,8 +1,11 @@
 import pytest
 
+DT_CTRL = 0.01
+
 from common.conversions import Conversions as CV
 from selfdrive.controls.lib.longitudinal_limits import (AUTO_SPEED_UP_RATE_KPH_S,
                                                         CRUISE_MAX_VAL_DEFAULTS,
+                                                        NO_LEAD_RECOVERY_START_ACCEL,
                                                         apply_no_lead_cruise_accel_limit,
                                                         apply_cruise_max_limit,
                                                         get_auto_speed_up_target,
@@ -78,3 +81,31 @@ def test_no_lead_limit_rate_limits_only_positive_accel_rise():
     -1.5, False, 1.0, 30.0, 0.65, 0.20, 0.25, 0.01) == pytest.approx(-1.5)
   assert apply_no_lead_cruise_accel_limit(
     1.2, True, 1.0, 30.0, 0.65, 0.20, 0.25, 0.01) == pytest.approx(1.2)
+
+
+def test_recovery_after_braking_does_not_restart_from_zero():
+  # 제동 직후 첫 프레임은 0 이 아니라 작은 시작값에서 램프를 시작한다.
+  first = apply_no_lead_cruise_accel_limit(1.6, False, 1.6, 30.0, 0.65,
+                                           -1.0, 0.25, DT_CTRL)
+  assert first > 0.25
+  assert first <= NO_LEAD_RECOVERY_START_ACCEL + 0.25 * DT_CTRL + 1e-6
+
+
+def test_recovery_start_never_exceeds_the_no_lead_cap():
+  # 설정속도에 거의 도달해 상한이 아주 낮을 때는 시작값도 그 상한을 넘지 않는다.
+  cap = get_no_lead_cruise_accel_cap(1.6, 0.0, 0.65)
+  value = apply_no_lead_cruise_accel_limit(1.6, False, 1.6, 0.0, 0.65,
+                                           -1.0, 0.25, DT_CTRL)
+  assert value <= cap + 1e-6
+
+
+def test_positive_ramp_is_unchanged():
+  # 이미 가속 중이면 기존과 같이 직전값에서 rise_rate 만큼만 올라간다.
+  value = apply_no_lead_cruise_accel_limit(1.6, False, 1.6, 30.0, 0.65,
+                                           0.50, 0.25, DT_CTRL)
+  assert abs(value - (0.50 + 0.25 * DT_CTRL)) < 1e-6
+
+
+def test_braking_request_still_passes_through():
+  assert apply_no_lead_cruise_accel_limit(-1.5, False, 1.6, 0.0, 0.65,
+                                          -1.0, 0.25, DT_CTRL) == -1.5

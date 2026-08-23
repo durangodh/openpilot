@@ -963,6 +963,16 @@
   },
   {
    "group": "커브내비",
+   "name": "NooMode",
+   "title": "NOO MODE",
+   "descr": "NOO 안에서 쓸 기능 선택. 0: 회전조향+자동차선변경 / 1: 회전조향만 / 2: 자동차선변경만. 1·2 선택시 나머지는 회전감속까지 함께 꺼집니다.",
+   "min": 0,
+   "max": 2,
+   "default": 0,
+   "unit": 1
+  },
+  {
+   "group": "커브내비",
    "name": "NooTurnSpeed",
    "title": "NOO TURN SPEED",
    "descr": "NOO 회전 구간 목표속도(km/h)입니다. 값 증가(+): 더 빠르게 회전 / 값 감소(-): 더 많이 감속.",

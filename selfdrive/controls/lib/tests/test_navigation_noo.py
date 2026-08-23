@@ -472,9 +472,20 @@ def test_lane_change_wait_times_out_without_camera_data():
   assert controller.waiting_from_lane == 0
 
 
-def test_median_and_shoulder_together_fail_closed():
-  # 1.4 m median on the left and a 3.0 m shoulder on the right: the extra
-  # camera lane cannot be attributed to one side, so NOO must not guess.
+def test_median_and_shoulder_together_pick_the_rounded_up_side():
+  # 좌 1.6 m 중앙분리대(차로폭의 0.44 → 세지 않음)와 우 3.0 m 갓길(0.83 →
+  # 차로 하나로 셈)이 함께 있는 흔한 고속도로. 유령차로는 갓길 쪽 하나뿐이므로
+  # 자차 인덱스는 그대로 두고 차로수만 맞춘다.
   ego = NavigationRouteData.camera_lane_position(shoulder_model(7.0, -8.4))
   assert ego["count"] == 4
+  plan = NavigationLaneChangeController.lane_plan(noo_state([0, 0, 1]), ego)
+  assert plan is not None
+  assert (plan["count"], plan["current"], plan["target"]) == (3, 2, 3)
+
+
+def test_both_sides_rounded_up_fail_closed():
+  # 양쪽 다 반올림에서 올라가면(좌 2.6 m 중앙분리대 / 우 3.0 m 갓길) 어느 쪽이
+  # 유령차로인지 정할 수 없어 판정을 포기한다.
+  ego = NavigationRouteData.camera_lane_position(shoulder_model(8.0, -8.4))
+  assert ego["count"] == 5
   assert NavigationLaneChangeController.lane_plan(noo_state([0, 0, 1]), ego) is None

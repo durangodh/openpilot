@@ -32,6 +32,11 @@ def get_cruise_max_accel(v_ego, cruise_max_vals, driving_mode,
   return float(max(0.0, interp(v_ego, CRUISE_MAX_ACCEL_BP, values) * mode_factor))
 
 
+# 제동에서 벗어난 직후 상승 상한의 시작값(m/s^2). 승차감상 이 정도의 계단은
+# SCC 가 브레이크를 놓을 때 발생하는 변화보다 작다.
+NO_LEAD_RECOVERY_START_ACCEL = 0.30
+
+
 def apply_cruise_max_limit(accel, stopping, cruise_max_accel):
   """Clamp the final SCC acceleration request to the CruiseMax policy.
 
@@ -71,7 +76,14 @@ def apply_no_lead_cruise_accel_limit(accel, stopping, cruise_max_accel,
 
   no_lead_cap = get_no_lead_cruise_accel_cap(cruise_max_accel, speed_error_kph,
                                               accel_factor)
-  rising_cap = max(0.0, previous_accel) + max(0.0, rise_rate) * max(0.0, dt)
+  baseline = max(0.0, previous_accel)
+  if previous_accel <= 0.0:
+    # 제동·타행에서 벗어난 첫 프레임. 직전 요청이 음수라 그대로 두면 상승
+    # 상한이 0 에서 다시 기어오르고, 곡선·과속카메라 감속 뒤 재가속이 매번
+    # 몇 초씩 걸린다. 요청 부호가 음수에서 양수로 넘어가는 순간은 어차피
+    # 연속적이지 않으므로, 이 한 프레임만 작은 시작값을 허용한다.
+    baseline = min(no_lead_cap, NO_LEAD_RECOVERY_START_ACCEL)
+  rising_cap = baseline + max(0.0, rise_rate) * max(0.0, dt)
   return float(min(accel, no_lead_cap, rising_cap))
 
 
