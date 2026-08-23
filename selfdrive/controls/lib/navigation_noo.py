@@ -13,6 +13,9 @@ class NavigationLaneChangeController:
   MAX_DISTANCE = 1200.0
   CONFIRM_FRAMES = 10       # 0.5 s at model rate
   LANE_UPDATE_FRAMES = 40   # fail closed after 2 s without camera confirmation
+  # A shoulder or median counted as one extra camera lane is only dropped when
+  # that side is clearly not a whole number of lanes wide.
+  PHANTOM_LANE_MIN_ERROR = 0.10
 
   def __init__(self):
     self.reset()
@@ -38,6 +41,40 @@ class NavigationLaneChangeController:
       return [int(value[index]) for index in range(count)]
     except (TypeError, ValueError):
       return None
+
+  @classmethod
+  def _resolve_current_lane(cls, ego_lane, route_count):
+    """Reconcile the camera lane estimate with the TMAP lane count.
+
+    Korean roads normally have a paved shoulder, so the road edge sits about
+    one lane beyond the outermost lane line and the camera counts one lane too
+    many.  Requiring an exact match made NOO silently never act.  A single
+    extra camera lane is dropped from the side whose width is clearly not a
+    whole number of lanes; anything else still fails closed.
+    """
+    try:
+      camera_count = int(ego_lane.get("count", 0))
+      current = int(ego_lane.get("current", 0))
+    except (TypeError, ValueError):
+      return None
+    if camera_count == route_count:
+      return current
+    if camera_count - route_count != 1:
+      return None
+    try:
+      left_error = float(ego_lane.get("left_error", 0.0))
+      right_error = float(ego_lane.get("right_error", 0.0))
+    except (TypeError, ValueError):
+      return None
+    # Exactly one side may be ambiguous. If both sides are (a median and a
+    # shoulder together) the phantom lane cannot be attributed, and if neither
+    # is, the camera really does see one more lane than TMAP reports.
+    ambiguous_left = left_error >= cls.PHANTOM_LANE_MIN_ERROR
+    ambiguous_right = right_error >= cls.PHANTOM_LANE_MIN_ERROR
+    if ambiguous_left == ambiguous_right:
+      return None
+    resolved = current - 1 if ambiguous_left else current
+    return resolved if 1 <= resolved <= route_count else None
 
   @classmethod
   def lane_plan(cls, state, ego_lane):
@@ -76,7 +113,8 @@ class NavigationLaneChangeController:
         lane_distance = float(lane.get("distance_m", fallback_distance))
       except (TypeError, ValueError):
         continue
-      if count != camera_count:
+      resolved_current = cls._resolve_current_lane(ego_lane, count)
+      if resolved_current is None:
         continue
       available = cls._ints(lane.get("available"), count)
       if available is None:
@@ -84,15 +122,15 @@ class NavigationLaneChangeController:
       recommended = [index + 1 for index, value in enumerate(available) if value != 0]
       if not recommended:
         continue
-      target = min(recommended, key=lambda value: (abs(value - current), value))
-      direction = -1 if target < current else 1 if target > current else 0
+      target = min(recommended, key=lambda value: (abs(value - resolved_current), value))
+      direction = -1 if target < resolved_current else 1 if target > resolved_current else 0
       # TMAP lane numbering and the camera estimate are both left-to-right.
       # Reject payloads that would prepare on the opposite side of the explicit
       # maneuver instead of guessing across lanes.
       if maneuver_direction in (-1, 1) and direction and direction != maneuver_direction:
         continue
       distance = lane_distance if lane_distance > 0.0 else fallback_distance
-      plan = {"count": count, "current": current, "target": target,
+      plan = {"count": count, "current": resolved_current, "target": target,
               "direction": direction, "distance": distance,
               "recommended": recommended, "source": source,
               "maneuver_direction": maneuver_direction, "turn_type": turn_type}
@@ -125,6 +163,24 @@ class NavigationLaneChangeController:
     if plan is None:
       if driver_cancel:
         self.canceled = True
+      # Without a plan the camera can never confirm a finished lane change, so
+      # the request must be released here as well instead of staying latched
+      # forever, and the wait that follows has to time out.
+      if self.requested_direction and self.finishing_seen:
+        self.requested_direction = 0
+        self.finishing_seen = False
+        if self.current_lane:
+          self.waiting_from_lane = self.current_lane
+          self.waiting_frames = 1
+        else:
+          self.canceled = True
+        return 0
+      if self.waiting_from_lane:
+        self.waiting_frames += 1
+        if self.waiting_frames >= self.LANE_UPDATE_FRAMES:
+          self.canceled = True
+          self.waiting_from_lane = 0
+          self.waiting_frames = 0
       return 0
 
     event_key = self._event_key(state, plan)

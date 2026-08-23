@@ -81,6 +81,10 @@ class DesireHelper:
     self.noo_direction = 0
     self.noo_current_lane = 0
     self.noo_target_lane = 0
+    # Diagnostics: what the camera counted vs what TMAP reported. A permanent
+    # mismatch here is why a lane change never starts.
+    self.noo_camera_lane_count = 0
+    self.noo_route_lane_count = 0
 
   @staticmethod
   def _road_edge_detected(model_data, direction):
@@ -232,6 +236,12 @@ class DesireHelper:
                                ((turn_direction < 0 and carstate.leftBlinker) or
                                 (turn_direction > 0 and carstate.rightBlinker)))
     ego_lane = self.navigation_route.camera_lane_position(model_data) if noo_lane_change_available else None
+    self.noo_camera_lane_count = int(ego_lane['count']) if isinstance(ego_lane, dict) else 0
+    route_lane = navigation_state.get('lane_current')
+    try:
+      self.noo_route_lane_count = int(route_lane.get('count', 0)) if isinstance(route_lane, dict) else 0
+    except (TypeError, ValueError):
+      self.noo_route_lane_count = 0
     noo_probe_direction = 0
     noo_plan = self.noo_controller.lane_plan(navigation_state, ego_lane) if noo_lane_change_available else None
     if noo_plan is not None:

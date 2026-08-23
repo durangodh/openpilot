@@ -410,3 +410,72 @@ def test_noo_uses_fresh_lane_ahead_after_current_lane_is_satisfied():
   assert confirm_noo(controller, state, ego) == 1
   assert controller.target_lane == 3
 
+
+
+def shoulder_model(left_edge, right_edge, edge_std=0.1):
+  return SimpleNamespace(
+    laneLines=[model_line(5.4), model_line(1.8), model_line(-1.8), model_line(-5.4)],
+    laneLineProbs=[0.8, 0.9, 0.9, 0.8],
+    roadEdges=[model_line(left_edge), model_line(right_edge)],
+    roadEdgeStds=[edge_std, edge_std],
+  )
+
+
+def test_paved_shoulder_does_not_block_the_lane_plan():
+  # 3 lanes + a 3.0 m right shoulder: the camera counts 4, TMAP says 3.
+  ego = NavigationRouteData.camera_lane_position(shoulder_model(5.4, -8.4))
+  assert ego["count"] == 4 and ego["current"] == 2
+  plan = NavigationLaneChangeController.lane_plan(noo_state([0, 0, 1]), ego)
+  assert plan is not None
+  assert (plan["count"], plan["current"], plan["target"], plan["direction"]) == (3, 2, 3, 1)
+
+
+def test_wide_median_shifts_the_resolved_lane_index():
+  # 3 lanes + a 2.2 m left median: the phantom lane is on the left.
+  ego = NavigationRouteData.camera_lane_position(shoulder_model(7.6, -5.4))
+  assert ego["count"] == 4 and ego["current"] == 3
+  plan = NavigationLaneChangeController.lane_plan(noo_state([0, 0, 1]), ego)
+  assert plan is not None
+  assert (plan["current"], plan["target"], plan["direction"]) == (2, 3, 1)
+
+
+def test_extra_whole_lane_still_fails_closed():
+  # A full extra lane on the right is not a shoulder, so the disagreement with
+  # TMAP is real and NOO must not guess.
+  ego = NavigationRouteData.camera_lane_position(shoulder_model(5.4, -9.0))
+  assert ego["count"] == 4
+  assert NavigationLaneChangeController.lane_plan(noo_state([0, 0, 1]), ego) is None
+
+
+def test_two_extra_camera_lanes_fail_closed():
+  ego = NavigationRouteData.camera_lane_position(shoulder_model(9.0, -8.4))
+  assert ego["count"] == 5
+  assert NavigationLaneChangeController.lane_plan(noo_state([0, 0, 1]), ego) is None
+
+
+def test_uncertain_road_edges_are_rejected_by_distance_not_probability():
+  assert NavigationRouteData.camera_lane_position(shoulder_model(5.4, -5.4, 0.4)) is not None
+  assert NavigationRouteData.camera_lane_position(shoulder_model(5.4, -5.4, 0.7)) is None
+
+
+def test_lane_change_wait_times_out_without_camera_data():
+  controller = NavigationLaneChangeController()
+  state = noo_state([0, 0, 1])
+  ego = NavigationRouteData.camera_lane_position(lane_model(5.4, -5.4))
+  assert confirm_noo(controller, state, ego) == 1
+  controller.update(state, ego, 25.0, True, True, lane_change_started=True)
+  controller.update(state, ego, 25.0, True, True, lane_change_finished=True)
+  # Camera geometry drops out right after the lane change.
+  for _ in range(NavigationLaneChangeController.LANE_UPDATE_FRAMES + 1):
+    assert controller.update(state, None, 25.0, True, True) == 0
+  assert controller.canceled
+  assert controller.waiting_from_lane == 0
+
+
+def test_median_and_shoulder_together_fail_closed():
+  # 1.4 m median on the left and a 3.0 m shoulder on the right: the extra
+  # camera lane cannot be attributed to one side, so NOO must not guess.
+  ego = NavigationRouteData.camera_lane_position(shoulder_model(7.0, -8.4))
+  assert ego["count"] == 4
+  assert NavigationLaneChangeController.lane_plan(noo_state([0, 0, 1]), ego) is None
+

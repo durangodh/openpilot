@@ -224,13 +224,22 @@ class NavigationRouteData:
       return ("fork" if any(word in lower for word in ("분기", "진출", "fork")) else "turn"), 1
     return "none", 0
 
-  @staticmethod
-  def camera_lane_position(model_data):
+  # roadEdgeStds is a standard deviation in metres, not a probability, so it is
+  # compared against a distance threshold instead of being read as confidence.
+  ROAD_EDGE_STD_MAX = 0.5
+
+  @classmethod
+  def camera_lane_position(cls, model_data):
     """Conservatively estimate total/current lane from modelV2 geometry.
 
     TMAP's current_lane can describe its recommended lane rather than the
     camera vehicle.  NOO therefore uses the ego-lane boundaries and road
     edges, and accepts the result only while both are confident.
+
+    The returned left_error/right_error are how far each side is from a whole
+    number of lanes.  A paved shoulder or a wide median produces a large error
+    there, which lets the lane planner drop that phantom lane instead of
+    silently disagreeing with the TMAP lane count.
     """
     if model_data is None:
       return None
@@ -253,11 +262,12 @@ class NavigationRouteData:
       road = [near_y(edges[0]), near_y(edges[1])]
       inner_conf = min(float(model_data.laneLineProbs[1]),
                        float(model_data.laneLineProbs[2]))
-      edge_conf = min(1.0 - float(model_data.roadEdgeStds[0]),
-                      1.0 - float(model_data.roadEdgeStds[1]))
+      edge_std = max(float(model_data.roadEdgeStds[0]),
+                     float(model_data.roadEdgeStds[1]))
     except (AttributeError, IndexError, TypeError, ValueError):
       return None
-    if any(value is None for value in inner + road) or inner_conf < 0.45 or edge_conf < 0.40:
+    if any(value is None for value in inner + road) or inner_conf < 0.45 or \
+       not math.isfinite(edge_std) or edge_std > cls.ROAD_EDGE_STD_MAX:
       return None
 
     lane_left, lane_right = max(inner), min(inner)
@@ -266,14 +276,18 @@ class NavigationRouteData:
     if not 2.5 <= lane_width <= 4.5 or road_left < lane_left or road_right > lane_right:
       return None
 
-    left_lanes = int(round(max(0.0, road_left - lane_left) / lane_width))
-    right_lanes = int(round(max(0.0, lane_right - road_right) / lane_width))
+    left_ratio = max(0.0, road_left - lane_left) / lane_width
+    right_ratio = max(0.0, lane_right - road_right) / lane_width
+    left_lanes = int(round(left_ratio))
+    right_lanes = int(round(right_ratio))
     total = 1 + left_lanes + right_lanes
     current = 1 + left_lanes
     if not 1 <= total <= 8 or not 1 <= current <= total:
       return None
     return {"count": total, "current": current,
-            "confidence": min(inner_conf, edge_conf), "width": lane_width}
+            "confidence": inner_conf, "width": lane_width,
+            "left_error": abs(left_ratio - left_lanes),
+            "right_error": abs(right_ratio - right_lanes)}
 
   @staticmethod
   def _lat_lon(point):

@@ -357,6 +357,8 @@ class LateralPlanner:
     lateralPlan.nooCurrentLane = int(self.DH.noo_current_lane)
     lateralPlan.nooTargetLane = int(self.DH.noo_target_lane)
     lateralPlan.nooLaneChangeDirection = int(self.DH.noo_direction)
+    lateralPlan.nooCameraLaneCount = int(self.DH.noo_camera_lane_count)
+    lateralPlan.nooRouteLaneCount = int(self.DH.noo_route_lane_count)
 
     plan_send.lateralPlan.dPathWLinesX = [float(x) for x in self.d_path_w_lines_xyz[:, 0]]
     plan_send.lateralPlan.dPathWLinesY = [float(y) for y in self.d_path_w_lines_xyz[:, 1]]
@@ -379,6 +381,9 @@ class LateralPlanner:
       tail += f' noomap={self.noo_map_blend * 100.0:.0f}%'
     if self.DH.noo_current_lane > 0 and self.DH.noo_target_lane > 0:
       tail += f' noo={self.DH.noo_current_lane}>{self.DH.noo_target_lane}'
+    elif self.DH.noo_camera_lane_count or self.DH.noo_route_lane_count:
+      # No plan yet: show why. cam = camera lane count, map = TMAP lane count.
+      tail += f' noo=cam{self.DH.noo_camera_lane_count}/map{self.DH.noo_route_lane_count}'
     lateralPlan.latDebugText = (
       f"{lane_mode} | "
       f"{self.LP.lane_width_left:.1f}m | "

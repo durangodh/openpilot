@@ -984,6 +984,8 @@ struct LateralPlan @0xe1e9318e2ae8b51e {
   nooCurrentLane @47 :Int8;
   nooTargetLane @48 :Int8;
   nooLaneChangeDirection @49 :Int8;  # -1 left, 0 inactive, 1 right
+  nooCameraLaneCount @50 :Int8;      # lanes counted from modelV2 geometry
+  nooRouteLaneCount @51 :Int8;       # lanes reported by TMAP lane_current
   dProb @21 :Float32;
   dPathWLinesX @37 :List(Float32);
   dPathWLinesY @38 :List(Float32);
