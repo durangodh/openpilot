@@ -3,6 +3,9 @@ plugins { id "com.android.application" }
 android {
   namespace "ai.comma.remotehud"
   compileSdk 35
+  buildFeatures {
+    buildConfig true
+  }
   defaultConfig {
     applicationId "ai.comma.remotehud"
     minSdk 26
