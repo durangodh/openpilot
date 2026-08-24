@@ -178,7 +178,7 @@ public final class HudService extends Service {
     /** 1: 주행·지도·시스템 / 2: 실시간 디버그 / 3: S9 리모트 */
     private int configuredOutputMode = 1;
     /** 패킷 hudTmapIcon. 티맵 회전 아이콘을 쓸지(1) 앱 내장 화살표를 쓸지(0). */
-    private volatile boolean tmapIconEnabled = true;
+    private volatile boolean tmapIconEnabled = false;
     /** 패킷 hudJunction. 0: 끔 / 1: 분기 실사 / 2: 실사 + 도착정보 바. */
     private volatile int junctionMode = 2;
     /** 화면 구성 1: 주행·티맵·시스템, 2: 주행·티맵만 */
@@ -703,7 +703,7 @@ public final class HudService extends Service {
         configuredCarStyle = currentState.optInt("hudCarStyle", 1) == 2 ? 2 : 1;
         configuredRoadSigns = Math.max(0, Math.min(3, currentState.optInt("hudRoadSigns", 3)));
         configuredOutputMode = Math.max(1, Math.min(3, currentState.optInt("hudOutputMode", 1)));
-        tmapIconEnabled = currentState.optInt("hudTmapIcon", 1) != 0;
+        tmapIconEnabled = currentState.optInt("hudTmapIcon", 0) != 0;
         junctionMode = Math.max(0, Math.min(2, currentState.optInt("hudJunction", 2)));
         configuredLayoutMode = Math.max(1, Math.min(2, currentState.optInt("hudLayoutMode", 1)));
         int requestedOutputTarget = Math.max(1, Math.min(3,
