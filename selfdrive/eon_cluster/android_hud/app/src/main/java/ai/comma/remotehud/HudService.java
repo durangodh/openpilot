@@ -78,6 +78,7 @@ public final class HudService extends Service {
     private static final float DRIVE_CX = 476f;
     private static final int MAP_LEFT = 960;
     private static final int MAP_RIGHT = 1720;
+    private static final float MAP_CX = 1340f;
     private static final int SYSTEM_LEFT = 1728;
     private static final int SYSTEM_RIGHT = 1920;
 
@@ -85,8 +86,10 @@ public final class HudService extends Service {
      *  이미 제외하므로 앱 내부에는 추가 여백을 두지 않는다. */
     private static final int PHONE_8_WIDTH = 800;
     private static final int PHONE_8_HEIGHT = 480;
+    private static final int PHONE_8_SIDEBAR = 0;
     private static final int PHONE_9_WIDTH = 1280;
     private static final int PHONE_9_HEIGHT = 720;
+    private static final int PHONE_9_SIDEBAR = 0;
     /** 순정 내비에서 우측 정보 패널이 차지하는 실제 화면 폭 비율. */
     private static final float NATIVE_SYSTEM_RATIO = 0.15f;
     /** 순정 8/9.2인치에서 속도와 RPM 표시 전체를 함께 올리는 실제 픽셀값. */
@@ -1136,6 +1139,10 @@ public final class HudService extends Service {
         c.drawLine(18f, 129f, 934f, 129f, p);
 
         int save4 = beginElement(c, l, "wheel", 70f, 171f);
+        if (nativeLayoutRendering) {
+            // SET 원과 같은 가로줄에 오도록 같은 보정을 준다.
+            c.translate(0f, -NATIVE_CARD_SHIFT_PX / nativeWidgetScale);
+        }
         drawSteeringWheel(c, p, 70f, 171f, (float) s.optDouble("steer", 0d), enabled);
         c.restoreToCount(save4);
 
@@ -1148,6 +1155,10 @@ public final class HudService extends Service {
         c.restoreToCount(save5);
 
         int save6 = beginElement(c, l, "camera", 882f, 171f);
+        if (nativeLayoutRendering) {
+            // 핸들·SET 과 같은 가로줄 유지.
+            c.translate(0f, -NATIVE_CARD_SHIFT_PX / nativeWidgetScale);
+        }
         int bumpDist = stale ? 0 : (int) Math.round(s.optDouble("bumpDist", 0d));
         if (bumpDist > 0) {
             // EON onroad.cc drawSpeedLimit 과 같은 규칙: 방지턱이 있으면
@@ -1208,8 +1219,8 @@ public final class HudService extends Service {
     }
 
     /**
-     * openpilot 이벤트 알림. controlsState의 alertText1/2 · alertStatus ·
-     * alertSize를 쓴다.
+     * openpilot 이벤트 알림. EON 직접모드 renderer.py `_draw_alert` 와 같은
+     * 소스(controlsState alertText1/2 · alertStatus · alertSize)를 쓴다.
      * 다만 이쪽 주행패널은 배경이 밝아서 흰 글씨가 안 읽히므로,
      * 어두운 반투명 박스를 깔고 그 위에 얹는다.
      */
@@ -1278,7 +1289,7 @@ public final class HudService extends Service {
         }
     }
 
-    /** 연속 공백을 한 칸으로 정규화한다. */
+    /** 연속 공백을 한 칸으로 (renderer.py 의 " ".join(split()) 과 동일) */
     private static String collapse(String value) {
         if (value == null) {
             return "";
@@ -1962,6 +1973,26 @@ public final class HudService extends Service {
         return top + h;
     }
 
+    /**
+     * (미사용 · 필요하면 되돌리기용) TBT 1행을 티맵 PNG 로 그린다. drawNativeOverlay 처럼
+     * 박스 안에서 세로 가운데 정렬을 하면 2행을 바로 밑에 붙일 수 없어서
+     * 실제로 그린 높이(아래쪽 y)를 돌려준다.
+     */
+    private float drawTbtImage(Canvas c, Paint p, Bitmap b, float left, float top,
+                               float maxWidth, float maxHeight) {
+        if (b == null || b.isRecycled() || b.getWidth() <= 0 || b.getHeight() <= 0) {
+            return top;
+        }
+        float scale = Math.min(maxWidth / b.getWidth(), maxHeight / b.getHeight());
+        float w = b.getWidth() * scale;
+        float h = b.getHeight() * scale;
+        p.setAlpha(255);
+        p.setFilterBitmap(true);
+        scratchRect.set(left, top, left + w, top + h);
+        c.drawBitmap(b, null, scratchRect, p);
+        return top + h;
+    }
+
     private void drawTbtNext(Canvas c, Paint p, JSONObject navi, float left, float top) {
         if (navi == null || !navi.optBoolean("active", false)
                 || navi.optInt("remainDist", 0) <= 0) {
@@ -2195,13 +2226,15 @@ public final class HudService extends Service {
         c.restoreToCount(save);
     }
 
-    private String[][] s9StatusRows() {
+    /** S9 상태 7개를 순정 패널의 위에서 아래까지 네이티브 픽셀로 배치한다. */
+    private void drawNativeS9Remote(Canvas c, Paint p, float width, float height,
+                                    float panelWidth) {
         long now = SystemClock.elapsedRealtime();
         long silence = display == null ? -1L : display.silenceMs();
         long linkAge = lastReconnectElapsed == 0L ? -1L : now - lastReconnectElapsed;
         Runtime rt = Runtime.getRuntime();
         long usedMb = (rt.totalMemory() - rt.freeMemory()) / 1048576L;
-        return new String[][] {
+        String[][] rows = {
                 {"SoC", s9TempC < 0f ? "--" : String.format(Locale.US, "%.0f°C", s9TempC)},
                 {"CPU", s9CpuPercent < 0f ? "--" : String.format(Locale.US, "%.0f%%", s9CpuPercent)},
                 {"MEM", usedMb + "M"},
@@ -2210,12 +2243,6 @@ public final class HudService extends Service {
                 {"LINK", linkAge < 0L ? "--" : durationText(linkAge)},
                 {"OSM", osmWorld == null ? "--" : osmWorld.status()},
         };
-    }
-
-    /** S9 상태 7개를 순정 패널의 위에서 아래까지 네이티브 픽셀로 배치한다. */
-    private void drawNativeS9Remote(Canvas c, Paint p, float width, float height,
-                                    float panelWidth) {
-        String[][] rows = s9StatusRows();
 
         float unit = height / 480f;
         float left = width - panelWidth;
@@ -2347,7 +2374,21 @@ public final class HudService extends Service {
         text(c, p, lang("S9 리모트", "S9 REMOTE"), 1824f, 26f, 17f,
                 Color.rgb(140, 210, 255), Paint.Align.CENTER);
 
-        String[][] rows = s9StatusRows();
+        long now = SystemClock.elapsedRealtime();
+        long silence = display == null ? -1L : display.silenceMs();
+        long linkAge = lastReconnectElapsed == 0L ? -1L : now - lastReconnectElapsed;
+        Runtime rt = Runtime.getRuntime();
+        long usedMb = (rt.totalMemory() - rt.freeMemory()) / 1048576L;
+
+        String[][] rows = {
+                {"SoC", s9TempC < 0f ? "--" : String.format(Locale.US, "%.0f°C", s9TempC)},
+                {"CPU", s9CpuPercent < 0f ? "--" : String.format(Locale.US, "%.0f%%", s9CpuPercent)},
+                {"MEM", usedMb + "M"},
+                {"USB ERR", Integer.toString(usbErrorStreak)},
+                {"PANEL", silence < 0L ? "--" : String.format(Locale.US, "%.0fs", silence / 1000f)},
+                {"LINK", linkAge < 0L ? "--" : durationText(linkAge)},
+                {"OSM", osmWorld == null ? "--" : osmWorld.status()},
+        };
         float top = 46f;
         for (String[] row : rows) {
             p.setStyle(Paint.Style.FILL);
@@ -2726,10 +2767,9 @@ public final class HudService extends Service {
         // beginElement 가 py 를 중심으로 위젯 배율을 역보정하는데, 1행(71)과
         // 2행(190)의 기준점이 119px 떨어져 있어서 배율이 1 이 아닌 순간
         // 그 차이만큼(119 x (1-배율)) 두 배너 사이가 벌어졌다.
+        // 기준점을 1행과 같은 0 으로 맞춘 뒤로는 별도 보정이 필요 없다.
+        // 예전 보정(-18px)이 남아 있으면 1행 아래끝을 파고들어 겹친다.
         int save2 = beginElement(c, l, "tbt2", 1144f, 0f);
-        if (nativeLayoutRendering) {
-            c.translate(0f, -NATIVE_CARD_SHIFT_PX / nativeWidgetScale);
-        }
         drawTbtNext(c, p, s.optJSONObject("navi"), 962f, tbtBottom);
         c.restoreToCount(save2);
         // 분기 실사도 1행 바로 아래에 붙어야 하므로 같은 기준점을 쓴다.
