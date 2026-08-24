@@ -267,7 +267,7 @@ class CruiseHelper:
     cruise_max_accel = self.get_cruise_max_accel(CS.vEgo)
     if sm['radarState'].leadOne.status:
       return cruise_max_accel
-    speed_error_kph = max(0.0, float(set_speed_kph) - CS.out.vEgo * CV.MS_TO_KPH)
+    speed_error_kph = max(0.0, float(set_speed_kph) - CS.vEgo * CV.MS_TO_KPH)
     return get_no_lead_cruise_accel_cap(
       cruise_max_accel, speed_error_kph, self.no_lead_cruise_accel_factor)
 
