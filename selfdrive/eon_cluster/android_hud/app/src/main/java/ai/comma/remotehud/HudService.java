@@ -32,6 +32,7 @@ import android.os.PowerManager;
 import android.os.SystemClock;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
@@ -109,18 +110,6 @@ public final class HudService extends Service {
     private static final float NOO_TEXT_DY = 62f;
     private static final long NOO_BLINK_MS = 500L;
     private static final float NOO_ICON_H = 62f;
-    /** 회전 임박시 화살표가 옮겨 가는 자리. SET 글자(baseline 226) 아래로 충분히 띄운다. */
-    private static final float NOO_CENTER_CX = DRIVE_CX;
-    private static final float NOO_CENTER_CY = 312f;
-    /** 중앙에서의 확대 배율(원래 크기보다 조금 더 크게). */
-    private static final float NOO_CENTER_SCALE = 1.6f;
-    /** 자리 이동 시간. HUD 가 8~13fps 라 너무 짧으면 순간이동으로 보인다. */
-    private static final long NOO_MOVE_MS = 380L;
-    /** 남은초가 이 값 이하가 되면 중앙으로 이동한다. */
-    private static final int NOO_CENTER_SEC = 5;
-    /** 실제 회전 중 색(주황)과, 점멸 반대편의 짙은 주황. */
-    private static final int NOO_TURN_COLOR = Color.rgb(255, 150, 40);
-    private static final int NOO_TURN_COLOR_DIM = Color.rgb(176, 96, 18);
     /** 적용속도 표시는 SET 원(반지름 36) 오른쪽으로 이만큼 띄운다. */
     private static final float APPLY_DX = 52f;
     private static final int APPLY_OCHRE = Color.rgb(214, 168, 60);
@@ -200,11 +189,11 @@ public final class HudService extends Service {
     /** 출력 대상 1: 외부 USB HUD, 2: S9 화면, 3: 동시 출력 */
     private int configuredOutputTarget = 3;
 
-    // NOO 화살표 자리 이동 (0 = 원래자리, 1 = 중앙)
-    private float nooArrowU = 0f;
-    private float nooArrowFromU = 0f;
-    private int nooArrowTarget = 0;
-    private long nooArrowMoveAtMs = 0L;
+    // 회전 카운트다운 (carrot-wip leftSec 방식: 단조감소)
+    /** 직전 프레임 남은초. 거리 튐으로 카운트가 역행하지 않게 상한으로 쓴다. */
+    private int countdownLastSec = 100;
+    /** 0 초를 처음 만난 시각. 잠깐 보여준 뒤 닫는다. */
+    private long countdownZeroAtMs = 0L;
 
     // S9 자체 상태 (출력모드 3)
     private long lastReconnectElapsed = 0L;
@@ -1215,7 +1204,14 @@ public final class HudService extends Service {
         c.restoreToCount(save8);
 
         int alertSave = beginElement(c, l, "alert", DRIVE_CX, 336f);
-        drawAlert(c, p, stale ? null : s.optJSONObject("alert"));
+        JSONObject alertBox = stale ? null : s.optJSONObject("alert");
+        if (stale) {
+            resetCountdown();
+        } else if (alertBox == null) {
+            // openpilot 이벤트 알림이 우선. 없을 때만 회전 카운트다운을 같은 자리에 띄운다.
+            alertBox = turnCountdownAlert(s);
+        }
+        drawAlert(c, p, alertBox);
 
         if (stale) {
             p.setShader(null);
@@ -1304,6 +1300,136 @@ public final class HudService extends Service {
                     Color.rgb(228, 233, 237), Paint.Align.CENTER);
         } else {
             text(c, p, text1, cx, cy + titleSize * 0.36f, titleSize, titleColor, Paint.Align.CENTER);
+        }
+    }
+
+    /**
+     * 회전 카운트다운 팝업. carrot-wip carrot_serv.py `_update_countdown_alert()` 와
+     * 같은 규칙이다. 다만 EON 이 아니라 앱에서 계산하므로 remote_hud.py 는 손대지 않는다.
+     *
+     *   남은초 = (turnDist - v) / v          (v: m/s)
+     *   시작초 = clamp(kph/10 + 1, 6, 11)    (빠를수록 일찍 시작)
+     *
+     * 거리(turnDist)는 티맵 guidance_current.distance_m 이 그대로 온 값이라
+     * 튀는 경우가 있어 단조감소로 묶는다.
+     */
+    private JSONObject turnCountdownAlert(JSONObject s) {
+        JSONObject navi = s.optJSONObject("navi");
+        if (navi == null || !navi.optBoolean("active", false)
+                || !navi.optBoolean("guidanceLive", false)) {
+            resetCountdown();
+            return null;
+        }
+
+        // NOO 게이트. 티맵이 회전을 안내하는 것만으로는 뜨지 않고,
+        // desire_helper 가 실제로 회전 조향을 잡았을 때(nooTurnDirection != 0)
+        // 또는 lateral_planner 가 지도경로를 섞기 시작했을 때(nooMapBlend > 0) 뜬다.
+        // 운전자가 반대 토크/지시등/브레이크로 취소하면 noo_driver_cancel 로
+        // 방향이 0 이 되므로 팝업도 같이 사라진다.
+        boolean nooOn = s.optBoolean("nooMode", false) || s.optInt("atcMode", 0) != 0;
+        int nooDir = s.optInt("atcDirection", 0);
+        double nooBlend = s.optDouble("atcBlend", 0d);
+        if (!nooOn || (nooDir == 0 && nooBlend <= 0.005d)) {
+            resetCountdown();
+            return null;
+        }
+        int dist = navi.optInt("turnDist", -1);
+        if (dist <= 0) {
+            resetCountdown();
+            return null;
+        }
+        int kph = Math.max(0, s.optInt("speed", 0));
+        float v = kph / 3.6f;
+        if (v < 1.0f) {
+            // 정차 중엔 "남은초"가 무한대로 튄다. 카운트 자체를 하지 않는다.
+            resetCountdown();
+            return null;
+        }
+
+        int sec = (int) ((Math.max(dist - v, 1f) / v) + 0.5f);
+        if (sec > 11) {
+            resetCountdown();
+            return null;
+        }
+        if (sec > countdownLastSec) {
+            sec = countdownLastSec;
+        }
+        countdownLastSec = sec;
+
+        int maxSec = Math.min(11, Math.max(6, kph / 10 + 1));
+        if (sec > maxSec) {
+            return null;
+        }
+
+        long now = SystemClock.elapsedRealtime();
+        if (sec <= 0) {
+            if (countdownZeroAtMs == 0L) {
+                countdownZeroAtMs = now;
+            }
+            if (now - countdownZeroAtMs > 800L) {
+                return null;
+            }
+        } else {
+            countdownZeroAtMs = 0L;
+        }
+
+        // 방향은 NOO 가 실제로 잡은 쪽을 우선한다(티맵 turn_type 보다 신뢰도가 높다).
+        String turn = nooDir < 0 ? lang("좌회전", "LEFT")
+                : nooDir > 0 ? lang("우회전", "RIGHT")
+                : turnWord(navi.optInt("turnType", 0), navi.optString("title", ""));
+        String head = sec <= 0 ? turn
+                : (Integer.toString(sec) + lang("초 후 ", "s  ") + turn);
+        String title = navi.optString("title", "");
+        if (title.length() > 16) {
+            title = title.substring(0, 16);
+        }
+        String detail = title.length() > 0 ? title + "  ·  " + distanceText(dist) : distanceText(dist);
+        // 지도경로 혼합률. 조향을 얼마나 지도에 맡기고 있는지 바로 보인다.
+        if (nooBlend > 0.005d) {
+            detail = detail + "  ·  NOO " + Math.round(nooBlend * 100d) + "%";
+        } else {
+            detail = detail + "  ·  NOO";
+        }
+
+        JSONObject box = new JSONObject();
+        try {
+            box.put("text1", head);
+            box.put("text2", detail);
+            // 3초 이하면 주황 테두리(drawAlert 의 prompt 색), 그 전엔 흰색.
+            box.put("status", sec <= 3 ? "prompt" : "");
+            box.put("size", "small");
+        } catch (JSONException e) {
+            return null;
+        }
+        return box;
+    }
+
+    private void resetCountdown() {
+        countdownLastSec = 100;
+        countdownZeroAtMs = 0L;
+    }
+
+    /** 카운트다운 문구용 회전 이름. 화살표는 이미 TBT 행에 있으니 글자만 쓴다. */
+    private String turnWord(int type, String label) {
+        switch (turnDirection(type, label)) {
+            case TURN_LEFT:
+                return lang("좌회전", "LEFT");
+            case TURN_RIGHT:
+                return lang("우회전", "RIGHT");
+            case TURN_SLIGHT_LEFT:
+            case TURN_STRAIGHT_LEFT:
+                return lang("좌측방향", "KEEP LEFT");
+            case TURN_SLIGHT_RIGHT:
+            case TURN_STRAIGHT_RIGHT:
+                return lang("우측방향", "KEEP RIGHT");
+            case TURN_LEFT_RIGHT:
+                return lang("좌우분기", "SPLIT");
+            case TURN_UTURN:
+                return lang("유턴", "U-TURN");
+            case TURN_ARRIVE:
+                return lang("목적지", "ARRIVE");
+            default:
+                return lang("직진", "STRAIGHT");
         }
     }
 
@@ -1871,104 +1997,38 @@ public final class HudService extends Service {
     }
 
     /**
-     * NOO 안내 화살표.
-     *
-     *   평소     원래자리(오른쪽 아래)에 흰색으로 가만히 — 깜박이지 않는다
-     *   5초 전   380ms 동안 SET 글자 아래 중앙으로 이동하며 1.6 배로 커진다
-     *   중앙     흰색 ↔ 주황 으로 교대 점멸 (화살표가 사라지는 구간은 없다)
-     *   회전 중  주황 ↔ 짙은 주황 으로 교대 점멸
-     *   종료     380ms 동안 원래자리로 돌아가고 흰색·정지 상태로 복귀
-     *
-     * 남은거리 글자는 화살표를 따라가지 않고 원래자리에 그대로 있는다.
+     * NOO 안내 — 지도 패널의 카드를 없애고 주행 패널 한가운데에 표시한다.
+     * 화살표는 0.5 초 주기로 깜박이며 테마색(낮 검정 / 밤 흰색)을 따르고,
+     * 그 아래 남은거리는 같은 색으로 깜박이지 않고 계속 떠 있는다.
      */
     private void drawNooTurn(Canvas c, Paint p, JSONObject s) {
         JSONObject navi = s.optJSONObject("navi");
         int nooMode = s.optInt("nooMode", s.optInt("atcMode", 0));  // legacy wire key fallback
         if (nooMode < 1 || navi == null || !navi.optBoolean("active", false)) {
-            resetNooArrow();
             return;
         }
         if (!navi.optBoolean("guidanceLive", false)) {
-            resetNooArrow();
             return;
         }
         int dist = navi.optInt("turnDist", -1);
         if (dist < 0) {
-            resetNooArrow();
             return;
         }
         // 목적지(경로)가 살아 있을 때만 표시한다. 안내 없이 떠 있지 않도록.
         if (navi.optInt("remainDist", 0) <= 0) {
-            resetNooArrow();
             return;
         }
-        long now = SystemClock.elapsedRealtime();
-
-        // 실제 회전 조향이 잡혔는지. desire_helper 의 noo_turn_direction 과
-        // lateral_planner 의 noo_map_blend 가 패킷으로 그대로 온다.
-        int nooDir = s.optInt("atcDirection", 0);
-        double nooBlend = s.optDouble("atcBlend", 0d);
-        boolean turning = nooDir != 0 || nooBlend > 0.005d;
-
-        // 남은초. 정차 중(v<1m/s)이면 -1 이라 중앙으로 가지 않는다.
-        int kph = Math.max(0, s.optInt("speed", 0));
-        float v = kph / 3.6f;
-        int sec = v >= 1.0f ? (int) ((Math.max(dist - v, 1f) / v) + 0.5f) : -1;
-        boolean wantCenter = turning || (sec >= 0 && sec <= NOO_CENTER_SEC);
-
-        float u = nooArrowTween(wantCenter ? 1 : 0, now);
-        float cx = NOO_CX + (NOO_CENTER_CX - NOO_CX) * u;
-        float cy = NOO_CY + (NOO_CENTER_CY - NOO_CY) * u;
-        float scale = 1f + (NOO_CENTER_SCALE - 1f) * u;
-
-        // 점멸은 색만 바뀐다. 화살표가 아예 사라지는 구간은 두지 않는다.
-        int home = ink();
-        int color;
-        if (u < 0.5f) {
-            color = turning ? NOO_TURN_COLOR : home;          // 원래자리에서는 정지
-        } else if (((now / NOO_BLINK_MS) & 1L) == 0L) {
-            color = turning ? NOO_TURN_COLOR : home;
-        } else {
-            color = turning ? NOO_TURN_COLOR_DIM : NOO_TURN_COLOR;
+        int color = ink();
+        // 남은거리를 turnDist(회전까지) 로 쓴다. 목적지까지 총 거리로 바꾸려면
+        // 아래 dist 를 navi.optInt("remainDist", 0) 으로 바꾸면 된다.
+        if (((SystemClock.elapsedRealtime() / NOO_BLINK_MS) & 1L) == 0L) {
+            if (!drawTurnIcon(c, p, NOO_CX, NOO_CY, NOO_ICON_H, navi.optInt("turnType", 0),
+                    navi.optString("title", ""), color, true)) {
+                drawScaledArrow(c, p, NOO_CX, NOO_CY, navi.optInt("turnType", 0),
+                        NOO_ARROW_SCALE, navi.optString("title", ""), color);
+            }
         }
-
-        if (!drawTurnIcon(c, p, cx, cy, NOO_ICON_H * scale, navi.optInt("turnType", 0),
-                navi.optString("title", ""), color, true)) {
-            drawScaledArrow(c, p, cx, cy, navi.optInt("turnType", 0),
-                    NOO_ARROW_SCALE * scale, navi.optString("title", ""), color);
-        }
-        // 남은거리는 화살표를 따라가지 않고 원래자리에 고정. 색도 테마색 그대로.
-        text(c, p, distanceText(dist), NOO_CX, NOO_CY + NOO_TEXT_DY, 28f, home,
-                Paint.Align.CENTER);
-    }
-
-    /**
-     * 화살표 자리 보간값(0 = 원래자리, 1 = 중앙). 목표가 바뀐 순간의 값에서
-     * 출발해 NOO_MOVE_MS 동안 이동한다. 프레임 간격이 들쭉날쭉해도(8~13fps)
-     * 시각 기준이라 이동 속도가 일정하다.
-     */
-    private float nooArrowTween(int target, long now) {
-        if (target != nooArrowTarget) {
-            nooArrowFromU = nooArrowU;
-            nooArrowTarget = target;
-            nooArrowMoveAtMs = now;
-        }
-        float t = nooArrowMoveAtMs == 0L ? 1f
-                : clamp01((now - nooArrowMoveAtMs) / (float) NOO_MOVE_MS);
-        t = 1f - (1f - t) * (1f - t) * (1f - t);   // ease-out cubic
-        nooArrowU = nooArrowFromU + (target - nooArrowFromU) * t;
-        return nooArrowU;
-    }
-
-    private void resetNooArrow() {
-        nooArrowU = 0f;
-        nooArrowFromU = 0f;
-        nooArrowTarget = 0;
-        nooArrowMoveAtMs = 0L;
-    }
-
-    private static float clamp01(float value) {
-        return value < 0f ? 0f : (value > 1f ? 1f : value);
+        text(c, p, distanceText(dist), NOO_CX, NOO_CY + NOO_TEXT_DY, 28f, color, Paint.Align.CENTER);
     }
 
     private static final int TBT_GREEN = Color.rgb(31, 122, 72);
