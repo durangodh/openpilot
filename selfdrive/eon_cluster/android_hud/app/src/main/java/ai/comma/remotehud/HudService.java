@@ -78,7 +78,6 @@ public final class HudService extends Service {
     private static final float DRIVE_CX = 476f;
     private static final int MAP_LEFT = 960;
     private static final int MAP_RIGHT = 1720;
-    private static final float MAP_CX = 1340f;
     private static final int SYSTEM_LEFT = 1728;
     private static final int SYSTEM_RIGHT = 1920;
 
@@ -86,10 +85,8 @@ public final class HudService extends Service {
      *  이미 제외하므로 앱 내부에는 추가 여백을 두지 않는다. */
     private static final int PHONE_8_WIDTH = 800;
     private static final int PHONE_8_HEIGHT = 480;
-    private static final int PHONE_8_SIDEBAR = 0;
     private static final int PHONE_9_WIDTH = 1280;
     private static final int PHONE_9_HEIGHT = 720;
-    private static final int PHONE_9_SIDEBAR = 0;
     /** 순정 내비에서 우측 정보 패널이 차지하는 실제 화면 폭 비율. */
     private static final float NATIVE_SYSTEM_RATIO = 0.15f;
     /** 순정 8/9.2인치에서 속도와 RPM 표시 전체를 함께 올리는 실제 픽셀값. */
@@ -1211,8 +1208,8 @@ public final class HudService extends Service {
     }
 
     /**
-     * openpilot 이벤트 알림. EON 직접모드 renderer.py `_draw_alert` 와 같은
-     * 소스(controlsState alertText1/2 · alertStatus · alertSize)를 쓴다.
+     * openpilot 이벤트 알림. controlsState의 alertText1/2 · alertStatus ·
+     * alertSize를 쓴다.
      * 다만 이쪽 주행패널은 배경이 밝아서 흰 글씨가 안 읽히므로,
      * 어두운 반투명 박스를 깔고 그 위에 얹는다.
      */
@@ -1281,7 +1278,7 @@ public final class HudService extends Service {
         }
     }
 
-    /** 연속 공백을 한 칸으로 (renderer.py 의 " ".join(split()) 과 동일) */
+    /** 연속 공백을 한 칸으로 정규화한다. */
     private static String collapse(String value) {
         if (value == null) {
             return "";
@@ -1965,26 +1962,6 @@ public final class HudService extends Service {
         return top + h;
     }
 
-    /**
-     * (미사용 · 필요하면 되돌리기용) TBT 1행을 티맵 PNG 로 그린다. drawNativeOverlay 처럼
-     * 박스 안에서 세로 가운데 정렬을 하면 2행을 바로 밑에 붙일 수 없어서
-     * 실제로 그린 높이(아래쪽 y)를 돌려준다.
-     */
-    private float drawTbtImage(Canvas c, Paint p, Bitmap b, float left, float top,
-                               float maxWidth, float maxHeight) {
-        if (b == null || b.isRecycled() || b.getWidth() <= 0 || b.getHeight() <= 0) {
-            return top;
-        }
-        float scale = Math.min(maxWidth / b.getWidth(), maxHeight / b.getHeight());
-        float w = b.getWidth() * scale;
-        float h = b.getHeight() * scale;
-        p.setAlpha(255);
-        p.setFilterBitmap(true);
-        scratchRect.set(left, top, left + w, top + h);
-        c.drawBitmap(b, null, scratchRect, p);
-        return top + h;
-    }
-
     private void drawTbtNext(Canvas c, Paint p, JSONObject navi, float left, float top) {
         if (navi == null || !navi.optBoolean("active", false)
                 || navi.optInt("remainDist", 0) <= 0) {
@@ -2218,15 +2195,13 @@ public final class HudService extends Service {
         c.restoreToCount(save);
     }
 
-    /** S9 상태 7개를 순정 패널의 위에서 아래까지 네이티브 픽셀로 배치한다. */
-    private void drawNativeS9Remote(Canvas c, Paint p, float width, float height,
-                                    float panelWidth) {
+    private String[][] s9StatusRows() {
         long now = SystemClock.elapsedRealtime();
         long silence = display == null ? -1L : display.silenceMs();
         long linkAge = lastReconnectElapsed == 0L ? -1L : now - lastReconnectElapsed;
         Runtime rt = Runtime.getRuntime();
         long usedMb = (rt.totalMemory() - rt.freeMemory()) / 1048576L;
-        String[][] rows = {
+        return new String[][] {
                 {"SoC", s9TempC < 0f ? "--" : String.format(Locale.US, "%.0f°C", s9TempC)},
                 {"CPU", s9CpuPercent < 0f ? "--" : String.format(Locale.US, "%.0f%%", s9CpuPercent)},
                 {"MEM", usedMb + "M"},
@@ -2235,6 +2210,12 @@ public final class HudService extends Service {
                 {"LINK", linkAge < 0L ? "--" : durationText(linkAge)},
                 {"OSM", osmWorld == null ? "--" : osmWorld.status()},
         };
+    }
+
+    /** S9 상태 7개를 순정 패널의 위에서 아래까지 네이티브 픽셀로 배치한다. */
+    private void drawNativeS9Remote(Canvas c, Paint p, float width, float height,
+                                    float panelWidth) {
+        String[][] rows = s9StatusRows();
 
         float unit = height / 480f;
         float left = width - panelWidth;
@@ -2366,21 +2347,7 @@ public final class HudService extends Service {
         text(c, p, lang("S9 리모트", "S9 REMOTE"), 1824f, 26f, 17f,
                 Color.rgb(140, 210, 255), Paint.Align.CENTER);
 
-        long now = SystemClock.elapsedRealtime();
-        long silence = display == null ? -1L : display.silenceMs();
-        long linkAge = lastReconnectElapsed == 0L ? -1L : now - lastReconnectElapsed;
-        Runtime rt = Runtime.getRuntime();
-        long usedMb = (rt.totalMemory() - rt.freeMemory()) / 1048576L;
-
-        String[][] rows = {
-                {"SoC", s9TempC < 0f ? "--" : String.format(Locale.US, "%.0f°C", s9TempC)},
-                {"CPU", s9CpuPercent < 0f ? "--" : String.format(Locale.US, "%.0f%%", s9CpuPercent)},
-                {"MEM", usedMb + "M"},
-                {"USB ERR", Integer.toString(usbErrorStreak)},
-                {"PANEL", silence < 0L ? "--" : String.format(Locale.US, "%.0fs", silence / 1000f)},
-                {"LINK", linkAge < 0L ? "--" : durationText(linkAge)},
-                {"OSM", osmWorld == null ? "--" : osmWorld.status()},
-        };
+        String[][] rows = s9StatusRows();
         float top = 46f;
         for (String[] row : rows) {
             p.setStyle(Paint.Style.FILL);
