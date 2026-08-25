@@ -190,7 +190,11 @@ class LateralPlanner:
     # only published for display while MPC kept following the raw model path.
     self.path_xyz = self.d_path_w_lines_xyz.copy()
 
-    self.lat_mpc.set_weights(self.path_cost, self.lateral_motion_cost,
+    # Preserve the legacy laneless heading weighting: hold the model heading
+    # at lower speeds, then taper the cost to zero between 5 and 10 m/s.
+    heading_cost = interp(sm['carState'].vEgo, [5.0, 10.0], [1.0, 0.0]) \
+      if use_laneless else self.lateral_motion_cost
+    self.lat_mpc.set_weights(self.path_cost, heading_cost,
                              self.lateral_accel_cost, self.lateral_jerk_cost,
                              self.steering_rate_cost)
 
