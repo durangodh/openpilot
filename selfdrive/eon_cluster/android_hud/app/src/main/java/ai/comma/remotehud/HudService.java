@@ -1055,6 +1055,53 @@ public final class HudService extends Service {
         return last == 0L || SystemClock.elapsedRealtime() - last > EON_STALE_MS;
     }
 
+    /**
+     * 카메라가 확인한 차로 위치로부터 자차 기준 전체 도로 중심 y를 계산한다.
+     * y는 좌측이 +이므로 2차로 중 1차로에서는 도로 중심이 자차 오른쪽
+     * 약 -1.75m가 된다. 이 값은 OSM 화면 정합에만 쓰고 제어에는 사용하지 않는다.
+     */
+    private static float osmRoadCenter(JSONObject scene) {
+        if (scene == null) {
+            return Float.NaN;
+        }
+        JSONObject position = scene.optJSONObject("lanePosition");
+        if (position == null || position.optDouble("confidence", 0d) < 0.40d) {
+            return Float.NaN;
+        }
+        int count = position.optInt("n", 0);
+        int current = position.optInt("cur", 0);
+        if (count < 1 || count > 8 || current < 1 || current > count) {
+            return Float.NaN;
+        }
+        float laneWidth = (float) scene.optDouble("laneWidth", 3.5d);
+        if (!Float.isFinite(laneWidth) || laneWidth < 0.1f) {
+            laneWidth = 3.5f;
+        }
+        laneWidth = Math.max(2.2f, Math.min(4.2f, laneWidth));
+        return (current - (count + 1) * 0.5f) * laneWidth;
+    }
+
+    /** OSM 주도로와 평행 서비스도로를 구분하기 위한 카메라 기반 전체 도로 폭. */
+    private static float osmRoadWidth(JSONObject scene) {
+        if (scene == null) {
+            return Float.NaN;
+        }
+        JSONObject position = scene.optJSONObject("lanePosition");
+        if (position == null || position.optDouble("confidence", 0d) < 0.40d) {
+            return Float.NaN;
+        }
+        int count = position.optInt("n", 0);
+        if (count < 1 || count > 8) {
+            return Float.NaN;
+        }
+        float laneWidth = (float) scene.optDouble("laneWidth", 3.5d);
+        if (!Float.isFinite(laneWidth) || laneWidth < 0.1f) {
+            laneWidth = 3.5f;
+        }
+        return Math.max(3f, Math.min(20f, count
+                * Math.max(2.2f, Math.min(4.2f, laneWidth))));
+    }
+
     private void drawDriving(Canvas c, Paint p, JSONObject s) {
         JSONObject l = layout(s);
         boolean stale = eonStale();
@@ -1077,7 +1124,8 @@ public final class HudService extends Service {
             double posHead = scenePos.optDouble(2, Double.NaN);
             if (!Double.isNaN(posLat) && !Double.isNaN(posLon) && !Double.isNaN(posHead)) {
                 osmWorld.ensure(posLat, posLon);
-                osmSnap = osmWorld.snapshot(posLat, posLon, posHead);
+                osmSnap = osmWorld.snapshot(posLat, posLon, posHead,
+                        osmRoadCenter(s), osmRoadWidth(s));
             }
         }
         world.setOsm(osmSnap);

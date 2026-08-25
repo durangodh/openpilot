@@ -256,3 +256,24 @@ def test_osm_cache_is_versioned_and_refreshes_stale_tiles_safely():
   assert "cached.setLastModified(now);" in osm
   assert "cached.setLastModified(System.currentTimeMillis())" not in osm
   assert "failedAt.put(key, now);" in osm
+
+
+def test_osm_environment_is_visually_map_matched_without_control_feedback():
+  java = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+          "main" / "java" / "ai" / "comma" / "remotehud")
+  matcher = (java / "OsmRoadMatcher.java").read_text(encoding="utf-8")
+  osm = (java / "OsmWorld.java").read_text(encoding="utf-8")
+  service = (java / "HudService.java").read_text(encoding="utf-8")
+
+  assert "MAX_HEADING_ERROR" in matcher
+  assert "MAX_LATERAL_SHIFT" in matcher
+  assert "Math.abs(width - targetRoadWidth) * 4f" in matcher
+  assert "transformPolylines(s.ringX, s.ringY" in osm
+  assert "transformPolylines(s.roadX, s.roadY" in osm
+  assert "transformPolylines(s.barrierX, s.barrierY" in osm
+  assert "transformPoints(s.treeX, s.treeY" in osm
+  assert "transformPoints(s.lampX, s.lampY" in osm
+  assert "osmRoadCenter(s), osmRoadWidth(s)" in service
+  assert "return (current - (count + 1) * 0.5f) * laneWidth" in service
+  assert "selfdrive.controls" not in matcher
+  assert "cereal" not in matcher

@@ -122,6 +122,13 @@ final class OsmWorld {
     /** 마지막 스냅샷의 건물 수. 폴백(가짜 건물)과 구분하는 기준. */
     private volatile int lastBuildings = 0;
     private volatile int lastEnvironment = 0;
+    /** 마지막 지도 정합 상태. M은 보정 적용, RAW는 신뢰할 도로 없음. */
+    private volatile String lastAlignment = "RAW";
+    private float alignmentYaw = 0f;
+    private float alignmentLateral = 0f;
+    private boolean alignmentReady = false;
+    private long alignmentNanos = 0L;
+    private long lastMatchMillis = 0L;
 
     /**
      * 출력모드 3 에 찍을 한 줄. 예)
@@ -138,7 +145,8 @@ final class OsmWorld {
         if (loaded == 0 && !err.isEmpty()) {
             return "ERR " + err;
         }
-        return loaded + "/" + lastBuildings + "+" + lastEnvironment;
+        return loaded + "/" + lastBuildings + "+" + lastEnvironment
+                + " " + lastAlignment;
     }
 
     OsmWorld(File dir) {
@@ -208,7 +216,8 @@ final class OsmWorld {
     }
 
     /** 자차 기준 로컬좌표 스냅샷. 렌더 스레드에서 매 프레임 호출. */
-    Snapshot snapshot(double lat0, double lon0, double headingDeg) {
+    Snapshot snapshot(double lat0, double lon0, double headingDeg,
+                      float targetRoadY, float targetRoadWidth) {
         double h = Math.toRadians(headingDeg);
         double sinH = Math.sin(h);
         double cosH = Math.cos(h);
@@ -376,7 +385,65 @@ final class OsmWorld {
         s.lampY = toFloatArray(ly);
         s.lampH = toFloatArray(lh);
         lastEnvironment = s.barrierCount + s.treeCount + s.lampCount;
+        alignSnapshot(s, targetRoadY, targetRoadWidth);
         return s;
+    }
+
+    /**
+     * GPS/방위 오차를 OSM 도로 중심선에 맞춘 하나의 강체 변환으로 보정한다.
+     * 건물·옆길·방음벽·나무·가로등에 모두 같은 변환을 적용하므로 서로의
+     * 상대 위치는 보존된다. 보정값은 약 2초 시정수로 완만하게 움직인다.
+     */
+    private void alignSnapshot(Snapshot s, float targetRoadY, float targetRoadWidth) {
+        OsmRoadMatcher.Match match = OsmRoadMatcher.find(
+                s.roadX, s.roadY, s.roadW, targetRoadY, targetRoadWidth);
+        long nowNanos = System.nanoTime();
+        long nowMillis = System.currentTimeMillis();
+        float dt = alignmentNanos == 0L ? 0f
+                : Math.max(0.016f, Math.min(0.5f,
+                (nowNanos - alignmentNanos) * 1.0e-9f));
+        alignmentNanos = nowNanos;
+
+        if (match != null) {
+            if (!alignmentReady || nowMillis - lastMatchMillis > 5000L) {
+                alignmentYaw = match.yawCorrection;
+                alignmentLateral = match.lateralShift;
+                alignmentReady = true;
+            } else {
+                float alpha = 1f - (float) Math.exp(-dt / 2.0f);
+                alignmentYaw += (match.yawCorrection - alignmentYaw) * alpha;
+                alignmentLateral += (match.lateralShift - alignmentLateral) * alpha;
+            }
+            lastMatchMillis = nowMillis;
+        } else if (alignmentReady && nowMillis - lastMatchMillis > 3000L) {
+            // 교차로/타일 교체 중 잠깐 도로가 사라지면 마지막 보정을 유지한다.
+            // 장시간 신뢰할 도로가 없을 때만 원좌표로 천천히 돌아간다.
+            float alpha = 1f - (float) Math.exp(-dt / 5.0f);
+            alignmentYaw *= 1f - alpha;
+            alignmentLateral *= 1f - alpha;
+            if (Math.abs(alignmentYaw) < 0.001f && Math.abs(alignmentLateral) < 0.05f) {
+                alignmentReady = false;
+                alignmentYaw = 0f;
+                alignmentLateral = 0f;
+            }
+        }
+
+        if (!alignmentReady) {
+            lastAlignment = "RAW";
+            return;
+        }
+        OsmRoadMatcher.transformPolylines(s.ringX, s.ringY,
+                alignmentYaw, alignmentLateral);
+        OsmRoadMatcher.transformPolylines(s.roadX, s.roadY,
+                alignmentYaw, alignmentLateral);
+        OsmRoadMatcher.transformPolylines(s.barrierX, s.barrierY,
+                alignmentYaw, alignmentLateral);
+        OsmRoadMatcher.transformPoints(s.treeX, s.treeY,
+                alignmentYaw, alignmentLateral);
+        OsmRoadMatcher.transformPoints(s.lampX, s.lampY,
+                alignmentYaw, alignmentLateral);
+        lastAlignment = String.format(Locale.US, "M%+.0f/%+.0f",
+                alignmentLateral, Math.toDegrees(alignmentYaw));
     }
 
     /** lat/lon 짝 배열 → 로컬 (x[], y[]). 범위 밖이면 null (컬링). */
