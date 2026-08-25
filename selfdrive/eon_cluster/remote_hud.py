@@ -19,7 +19,8 @@ from common.params import Params
 
 
 from selfdrive.modeld.constants import T_IDXS
-from selfdrive.eon_cluster.scene import camera_lane_position, final_lateral_path
+from selfdrive.eon_cluster.scene import (camera_lane_position, final_lateral_path,
+                                         reconcile_lane_position)
 
 PORT = 7210
 MAP_PORT = 7211
@@ -683,6 +684,38 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     mode = 3
   tpms = _field(car, "tpms", None)
   navi = _read_navi_summary()
+  raw_lane_position = camera_lane_position(sm["modelV2"])
+  route_lane_count = 0
+  try:
+    route_lane_count = int(navi.get("scene", {}).get("lane", {}).get("n", 0))
+  except (AttributeError, TypeError, ValueError):
+    route_lane_count = 0
+  reconciled_lane_position = reconcile_lane_position(raw_lane_position, route_lane_count)
+  lane_position = reconciled_lane_position or raw_lane_position
+
+  # Keep the nested object for the diagnostic panel, and also publish the flat
+  # keys consumed by the installed World3D renderer.  When NOO is inactive
+  # (for example while stopped), use the same conservative HUD-only camera /
+  # TMAP reconciliation so a shoulder or median cannot shift the displayed car
+  # from lane 1 to lane 2.
+  noo_camera_count = int(_finite(_field(sm["lateralPlan"], "nooCameraLaneCount", 0)))
+  noo_route_count = int(_finite(_field(sm["lateralPlan"], "nooRouteLaneCount", 0)))
+  noo_current_lane = int(_finite(_field(sm["lateralPlan"], "nooCurrentLane", 0)))
+  noo_target_lane = int(_finite(_field(sm["lateralPlan"], "nooTargetLane", 0)))
+  noo_lane_direction = int(_finite(_field(sm["lateralPlan"], "nooLaneChangeDirection", 0)))
+  planner_lane_valid = (noo_route_count == route_lane_count and
+                        1 <= noo_current_lane <= route_lane_count and
+                        1 <= noo_target_lane <= route_lane_count)
+  hud_camera_count = noo_camera_count or int((raw_lane_position or {}).get("n", 0))
+  if planner_lane_valid:
+    hud_route_count = noo_route_count
+    hud_current_lane = noo_current_lane
+    hud_target_lane = noo_target_lane
+  else:
+    hud_route_count = route_lane_count
+    hud_current_lane = int((lane_position or {}).get("cur", 0))
+    hud_target_lane = hud_current_lane
+
   apply_speed, apply_source = _apply_speed(sm["carControl"])
   hud_path = final_lateral_path(sm["lateralPlan"], sm["modelV2"], T_IDXS)
   path_final = len(hud_path) >= 2
@@ -738,14 +771,20 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "atcDirection": int(_finite(_field(sm["lateralPlan"], "nooTurnDirection", 0))),
     # New key alongside the legacy atcMode above. Old APKs ignore it.
     "nooMode": 1 if noo_enabled else 0,
+    # World3D reads these flat wire keys. They must remain available alongside
+    # the nested diagnostic object below for already-installed APKs.
+    "nooCameraLaneCount": hud_camera_count,
+    "nooRouteLaneCount": hud_route_count,
+    "nooCurrentLane": hud_current_lane,
+    "nooTargetLane": hud_target_lane,
     # Lane-change diagnostics. cam/map are the camera and TMAP lane counts; a
     # permanent mismatch there is why a lane change never starts.
     "noo": {
-      "cam": int(_finite(_field(sm["lateralPlan"], "nooCameraLaneCount", 0))),
-      "map": int(_finite(_field(sm["lateralPlan"], "nooRouteLaneCount", 0))),
-      "cur": int(_finite(_field(sm["lateralPlan"], "nooCurrentLane", 0))),
-      "tgt": int(_finite(_field(sm["lateralPlan"], "nooTargetLane", 0))),
-      "dir": int(_finite(_field(sm["lateralPlan"], "nooLaneChangeDirection", 0))),
+      "cam": noo_camera_count,
+      "map": noo_route_count,
+      "cur": noo_current_lane,
+      "tgt": noo_target_lane,
+      "dir": noo_lane_direction,
     },
     # The optimized MPC state follows a reference that already contains
     # OffsetTotal. Keep the old offset only when falling back to the raw model
@@ -762,7 +801,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "laneWidth": round(_finite(_field(sm["lateralPlan"], "laneWidth", 0.0)), 2),
     # 카메라 roadEdges/laneLines 로 추정한 도로 내 자차 위치. 화면 배치에만
     # 사용하며 조향 제어에는 절대 되먹이지 않는다.
-    "lanePosition": camera_lane_position(sm["modelV2"]),
+    "lanePosition": lane_position,
     "alert": _alert(controls),
     "navi": navi,
     "path": hud_path,

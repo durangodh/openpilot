@@ -29,6 +29,7 @@ def _near_line_y(line, maximum_x=30.0):
 
 
 ROAD_EDGE_STD_MAX = 0.5
+PHANTOM_LANE_MIN_ERROR = 0.10
 
 
 def camera_lane_position(model):
@@ -65,8 +66,10 @@ def camera_lane_position(model):
   if not 2.5 <= lane_width <= 4.5 or road_left < lane_left or road_right > lane_right:
     return None
 
-  left_lanes = int(round(max(0.0, road_left - lane_left) / lane_width))
-  right_lanes = int(round(max(0.0, lane_right - road_right) / lane_width))
+  left_ratio = max(0.0, road_left - lane_left) / lane_width
+  right_ratio = max(0.0, lane_right - road_right) / lane_width
+  left_lanes = int(round(left_ratio))
+  right_lanes = int(round(right_ratio))
   total = 1 + left_lanes + right_lanes
   current = 1 + left_lanes
   if not 1 <= total <= 8 or not 1 <= current <= total:
@@ -76,7 +79,55 @@ def camera_lane_position(model):
     "cur": current,
     "confidence": round(inner_conf, 2),
     "laneWidth": round(lane_width, 2),
+    "leftFrac": round(left_ratio - math.floor(left_ratio), 4),
+    "rightFrac": round(right_ratio - math.floor(right_ratio), 4),
   }
+
+
+def reconcile_lane_position(position, route_count):
+  """Remove one camera-only shoulder/median lane using the TMAP lane count.
+
+  This is display-only.  An exact count is accepted as-is; a single extra
+  camera lane is removed only when exactly one side was rounded up from a
+  clearly partial lane width.  Ambiguous geometry continues to fail closed.
+  """
+  if not isinstance(position, dict):
+    return None
+  try:
+    camera_count = int(position.get("n", 0))
+    current = int(position.get("cur", 0))
+    route_count = int(route_count)
+  except (TypeError, ValueError):
+    return None
+  if not 1 <= route_count <= 8 or not 1 <= current <= camera_count:
+    return None
+
+  resolved = dict(position)
+  if camera_count == route_count:
+    return resolved
+  if camera_count - route_count != 1:
+    return None
+
+  try:
+    left_frac = float(position.get("leftFrac", 0.0))
+    right_frac = float(position.get("rightFrac", 0.0))
+  except (TypeError, ValueError):
+    return None
+
+  def phantom(frac):
+    return 0.5 <= frac <= 1.0 - PHANTOM_LANE_MIN_ERROR
+
+  phantom_left = phantom(left_frac)
+  phantom_right = phantom(right_frac)
+  if phantom_left == phantom_right:
+    return None
+  current -= 1 if phantom_left else 0
+  if not 1 <= current <= route_count:
+    return None
+  resolved["n"] = route_count
+  resolved["cur"] = current
+  resolved["reconciled"] = True
+  return resolved
 
 
 def final_lateral_path(lateral_plan, model, time_indices, limit=33):
