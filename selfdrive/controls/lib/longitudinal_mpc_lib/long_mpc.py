@@ -342,8 +342,8 @@ class LongitudinalMpc:
     a_change_v_ego = 1
     if (v_lead0 - v_ego >= 0) and (v_lead1 - v_ego >= 0):
       v_ego_bps = [0, 10]
-      j_ego_v_ego    = interp(v_ego, v_ego_bps, [0.05, 1.0])
-      a_change_v_ego = interp(v_ego, v_ego_bps, [0.05, 1.0])
+      j_ego_v_ego    = interp(v_ego, v_ego_bps, [0.15, 1.0])
+      a_change_v_ego = interp(v_ego, v_ego_bps, [0.15, 1.0])
 
     j_ego    = min(j_ego_tf, j_ego_v_ego)
     a_change = min(a_change_tf, a_change_v_ego)
