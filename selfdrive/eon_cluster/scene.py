@@ -30,6 +30,7 @@ def _near_line_y(line, maximum_x=30.0):
 
 ROAD_EDGE_STD_MAX = 0.5
 PHANTOM_LANE_MIN_ERROR = 0.10
+MAX_GEOMETRY_SHIFT_M = 2.0
 
 
 def camera_lane_position(model):
@@ -128,6 +129,102 @@ def reconcile_lane_position(position, route_count):
   resolved["cur"] = current
   resolved["reconciled"] = True
   return resolved
+
+
+def _sample_points_y(points, x):
+  """Linearly sample compact HUD [[x, y, ...], ...] points."""
+  if not isinstance(points, list) or len(points) < 2:
+    return None
+  usable = [point for point in points
+            if isinstance(point, (list, tuple)) and len(point) >= 2]
+  if len(usable) < 2:
+    return None
+  if x <= _finite_float(usable[0][0]):
+    return _finite_float(usable[0][1])
+  for left, right in zip(usable, usable[1:]):
+    x0 = _finite_float(left[0])
+    x1 = _finite_float(right[0])
+    if x <= x1:
+      y0 = _finite_float(left[1])
+      y1 = _finite_float(right[1])
+      ratio = (x - x0) / (x1 - x0) if x1 > x0 else 0.0
+      return y0 + ratio * (y1 - y0)
+  return _finite_float(usable[-1][1])
+
+
+def align_scene_geometry(path, lanes, edges):
+  """Anchor model lane/edge geometry to the final MPC path centre.
+
+  modelV2 lane lines and the optimized MPC path can use slightly different
+  lateral centres after offsets or NOO map blending.  World3D previously drew
+  both unchanged, making the ribbon and road slide apart.  Preserve every
+  observed width and shape, but translate each cross-section so all geometry
+  shares the path centre used by control and lead rendering.
+  """
+  if not isinstance(path, list) or len(path) < 2 or not isinstance(lanes, list) or len(lanes) < 3:
+    return lanes, edges
+  left = lanes[1].get("p") if isinstance(lanes[1], dict) else None
+  right = lanes[2].get("p") if isinstance(lanes[2], dict) else None
+  if not isinstance(left, list) or len(left) < 2 or not isinstance(right, list) or len(right) < 2:
+    return lanes, edges
+  if min(_finite_float(lanes[1].get("c", 0.0)),
+         _finite_float(lanes[2].get("c", 0.0))) < 0.45:
+    return lanes, edges
+
+  def shift_at(x):
+    path_y = _sample_points_y(path, x)
+    left_y = _sample_points_y(left, x)
+    right_y = _sample_points_y(right, x)
+    if path_y is None or left_y is None or right_y is None:
+      return 0.0
+    return max(-MAX_GEOMETRY_SHIFT_M,
+               min(MAX_GEOMETRY_SHIFT_M, path_y - (left_y + right_y) * 0.5))
+
+  def aligned(lines):
+    output = []
+    for line in lines or []:
+      if not isinstance(line, dict):
+        output.append(line)
+        continue
+      copy = dict(line)
+      points = line.get("p")
+      if isinstance(points, list):
+        copy["p"] = [[point[0], round(_finite_float(point[1]) + shift_at(_finite_float(point[0])), 2)]
+                     for point in points if isinstance(point, (list, tuple)) and len(point) >= 2]
+      output.append(copy)
+    return output
+
+  return aligned(lanes), aligned(edges)
+
+
+def scale_scene_width(path, lines, scale):
+  """Scale HUD-only lateral geometry around the final path centre."""
+  try:
+    scale = max(0.5, min(1.6, float(scale)))
+  except (TypeError, ValueError):
+    scale = 1.0
+  if not isinstance(path, list) or len(path) < 2 or not isinstance(lines, list):
+    return lines
+  output = []
+  for line in lines:
+    if not isinstance(line, dict):
+      output.append(line)
+      continue
+    copy = dict(line)
+    points = line.get("p")
+    if isinstance(points, list):
+      scaled = []
+      for point in points:
+        if not isinstance(point, (list, tuple)) or len(point) < 2:
+          continue
+        x = _finite_float(point[0])
+        y = _finite_float(point[1])
+        centre = _sample_points_y(path, x)
+        centre = 0.0 if centre is None else centre
+        scaled.append([point[0], round(centre + (y - centre) * scale, 2)])
+      copy["p"] = scaled
+    output.append(copy)
+  return output
 
 
 def final_lateral_path(lateral_plan, model, time_indices, limit=33):

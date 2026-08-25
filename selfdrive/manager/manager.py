@@ -93,6 +93,8 @@ def manager_init() -> None:
     ("EonClusterHud", "0"),
     ("EonClusterHudRoadZ", "100"),
     ("EonClusterHudPitchDyn", "60"),
+    ("EonClusterHudWorldWidth", "100"),
+    ("EonClusterHudViewPitch", "0"),
     ("EonClusterHudFps", "7"),
     ("EonClusterHudMapFps", "3"),
     ("EonClusterHudBrightness", "65"),

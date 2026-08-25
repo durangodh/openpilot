@@ -1,7 +1,8 @@
 from types import SimpleNamespace
 
-from selfdrive.eon_cluster.scene import (camera_lane_position, final_lateral_path,
-                                         reconcile_lane_position)
+from selfdrive.eon_cluster.scene import (align_scene_geometry, camera_lane_position,
+                                         final_lateral_path, reconcile_lane_position,
+                                         scale_scene_width)
 
 
 def polyline(xs, ys):
@@ -87,3 +88,31 @@ def test_reconcile_lane_position_rejects_ambiguous_or_real_extra_lane():
 
   whole_extra_lane = camera_lane_position(lane_position_model(5.4, -5.4))
   assert reconcile_lane_position(whole_extra_lane, 2) is None
+
+
+def test_world_geometry_is_anchored_to_final_mpc_path_and_keeps_width():
+  path = [[0.0, 0.0, 0.0], [10.0, 1.0, 0.0], [20.0, 2.0, 0.0]]
+  lanes = [
+    {"p": [[0.0, 5.4], [10.0, 5.4], [20.0, 5.4]], "c": 0.8},
+    {"p": [[0.0, 1.8], [10.0, 1.8], [20.0, 1.8]], "c": 0.9},
+    {"p": [[0.0, -1.8], [10.0, -1.8], [20.0, -1.8]], "c": 0.9},
+    {"p": [[0.0, -5.4], [10.0, -5.4], [20.0, -5.4]], "c": 0.8},
+  ]
+  edges = [
+    {"p": [[0.0, 7.0], [10.0, 7.0], [20.0, 7.0]], "c": 0.9},
+    {"p": [[0.0, -7.0], [10.0, -7.0], [20.0, -7.0]], "c": 0.9},
+  ]
+  fixed_lanes, fixed_edges = align_scene_geometry(path, lanes, edges)
+  assert fixed_lanes[1]["p"][1][1] == 2.8
+  assert fixed_lanes[2]["p"][1][1] == -0.8
+  assert abs(fixed_lanes[1]["p"][1][1] - fixed_lanes[2]["p"][1][1] - 3.6) < 1e-6
+  assert fixed_edges[0]["p"][2][1] == 9.0
+  assert lanes[1]["p"][1][1] == 1.8  # input is not mutated
+
+
+def test_world_width_scale_uses_final_path_as_fixed_centre():
+  path = [[0.0, 0.0], [10.0, 1.0], [20.0, 2.0]]
+  lines = [{"p": [[0.0, 2.0], [10.0, 3.0], [20.0, 4.0]], "c": 0.9}]
+  scaled = scale_scene_width(path, lines, 0.5)
+  assert scaled[0]["p"] == [[0.0, 1.0], [10.0, 2.0], [20.0, 3.0]]
+  assert lines[0]["p"][1][1] == 3.0

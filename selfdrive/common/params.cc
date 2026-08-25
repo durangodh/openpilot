@@ -262,6 +262,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudJunction", PERSISTENT},
     {"EonClusterHudRoadZ", PERSISTENT},         // 노면 높낮이 배율 % (-300..300, 100=원본)
     {"EonClusterHudPitchDyn", PERSISTENT},      // 주행 중 pitch 반영 % (0..200)
+    {"EonClusterHudWorldWidth", PERSISTENT},    // World3D 도로/차선 표시 폭 % (70..140)
+    {"EonClusterHudViewPitch", PERSISTENT},     // World3D 수평선 보정 0.1도 (-50..50)
     {"EonClusterHudOutputMode", PERSISTENT},
     {"EonClusterHudLayoutMode", PERSISTENT},  // 1=3분할, 2=주행+티맵 2분할
     {"EonClusterHudOutputTarget", PERSISTENT}, // 1=외부 USB HUD, 2=S9 화면, 3=동시 출력

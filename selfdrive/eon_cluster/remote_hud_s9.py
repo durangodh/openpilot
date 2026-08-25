@@ -4,10 +4,12 @@ Keeps the existing low-overhead remote_hud transport and exposes the S9 HUD
 Params to the Android renderer for live tuning.
 """
 
+import math
 import time
 
 from common.params import Params
 from selfdrive.eon_cluster import remote_hud as base
+from selfdrive.eon_cluster.scene import scale_scene_width
 
 
 _params = Params()
@@ -68,6 +70,21 @@ def _packet(sm, *args, **kwargs):
   # TypeError 로 패킷이 아예 안 나가고 폰에는 "EON 연결 끊김" 만 뜬다.
   packet = _original_packet(sm, *args, **kwargs)
   packet = _apply_path_flip(packet)
+
+  # World3D keeps a deliberately synthetic camera. These two HUD-only trims
+  # let each vehicle/display installation correct its apparent road width and
+  # horizon without rebuilding the APK or changing any control geometry.
+  world_width = _bounded_int("EonClusterHudWorldWidth", 100, 70, 140)
+  world_scale = world_width * 0.01
+  packet["lanes"] = scale_scene_width(packet.get("path"), packet.get("lanes"), world_scale)
+  packet["edges"] = scale_scene_width(packet.get("path"), packet.get("edges"), world_scale)
+  packet["laneWidth"] = round(float(packet.get("laneWidth", 0.0) or 0.0) * world_scale, 2)
+  packet["hudWorldWidth"] = world_width
+
+  view_pitch = _bounded_int("EonClusterHudViewPitch", 0, -50, 50)
+  calibrated_pitch = float(packet.get("calibPitch", 0.0) or 0.0) + math.radians(view_pitch * 0.1)
+  packet["calibPitch"] = round(max(-0.15, min(0.15, calibrated_pitch)), 4)
+  packet["hudViewPitch"] = view_pitch
 
   # Preserve 0 for FPS (pause) and brightness (auto), matching the UI.
   packet["hudFps"] = _bounded_int("EonClusterHudFps", 7, 0, 15)

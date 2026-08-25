@@ -1208,8 +1208,28 @@
    "descr": "가감속·요철로 차가 기울 때 수평선이 따라 움직이는 정도(%). 0: 끔(정지 캘리브만), 클수록 화면이 많이 흔들립니다.",
    "min": 0,
    "max": 200,
-   "default": 60,
-   "unit": 10
+  "default": 60,
+  "unit": 10
+ },
+  {
+   "group": "S9HUD",
+   "name": "EonClusterHudWorldWidth",
+   "title": "S9 HUD WORLD WIDTH",
+   "descr": "최종 MPC 주행선 기준 World3D 도로·차선 표시 폭(%). 100 기본 / 증가: 넓게 / 감소: 좁게. 조향 제어에는 영향이 없습니다.",
+   "min": 70,
+   "max": 140,
+   "default": 100,
+   "unit": 5
+  },
+  {
+   "group": "S9HUD",
+   "name": "EonClusterHudViewPitch",
+   "title": "S9 HUD VIEW PITCH (X0.1°)",
+   "descr": "World3D 수평선 장착 보정. 증가: 도로가 화면 아래로 / 감소: 위로 이동. 정지 상태에서 실제 도로 소실점에 맞춥니다.",
+   "min": -50,
+   "max": 50,
+   "default": 0,
+   "unit": 1
   },
   {
    "group": "S9HUD",

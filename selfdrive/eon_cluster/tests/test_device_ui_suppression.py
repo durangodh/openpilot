@@ -90,6 +90,22 @@ def test_s9_output_target_reaches_android_renderer():
   assert 'return configuredOutputTarget == 2 || configuredOutputTarget == 3;' in service
 
 
+def test_world3d_geometry_calibration_reaches_existing_renderer():
+  manager = (ROOT / "selfdrive" / "manager" / "manager.py").read_text(encoding="utf-8")
+  params = (ROOT / "selfdrive" / "common" / "params.cc").read_text(encoding="utf-8")
+  settings = (UI_DIR / "offroad" / "settings.cc").read_text(encoding="utf-8")
+  remote = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud_s9.py").read_text(encoding="utf-8")
+
+  assert '("EonClusterHudWorldWidth", "100")' in manager
+  assert '("EonClusterHudViewPitch", "0")' in manager
+  assert '{"EonClusterHudWorldWidth", PERSISTENT}' in params
+  assert '{"EonClusterHudViewPitch", PERSISTENT}' in params
+  assert '"EonClusterHudWorldWidth", "S9 HUD WORLD WIDTH"' in settings
+  assert '"EonClusterHudViewPitch", "S9 HUD VIEW PITCH (X0.1°)"' in settings
+  assert 'scale_scene_width(packet.get("path"), packet.get("lanes"), world_scale)' in remote
+  assert 'math.radians(view_pitch * 0.1)' in remote
+
+
 def test_s9_tmap_first_switch_uses_nmirror_favorite_and_internal_fullscreen_activity():
   android = ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" / "main"
   manifest = (android / "AndroidManifest.xml").read_text(encoding="utf-8")
