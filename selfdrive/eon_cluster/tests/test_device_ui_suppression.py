@@ -102,7 +102,8 @@ def test_world3d_geometry_calibration_reaches_existing_renderer():
   assert '{"EonClusterHudViewPitch", PERSISTENT}' in params
   assert '"EonClusterHudWorldWidth", "S9 HUD WORLD WIDTH"' in settings
   assert '"EonClusterHudViewPitch", "S9 HUD VIEW PITCH (X0.1°)"' in settings
-  assert 'scale_scene_width(packet.get("path"), packet.get("lanes"), world_scale)' in remote
+  assert 'scale_scene_width(packet.get("path"), packet.get("lanes"),' in remote
+  assert remote.count("world_scale, centre_cache)") == 2
   assert 'math.radians(view_pitch * 0.1)' in remote
 
 

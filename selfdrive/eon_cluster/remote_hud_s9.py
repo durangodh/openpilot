@@ -76,8 +76,11 @@ def _packet(sm, *args, **kwargs):
   # horizon without rebuilding the APK or changing any control geometry.
   world_width = _bounded_int("EonClusterHudWorldWidth", 100, 70, 140)
   world_scale = world_width * 0.01
-  packet["lanes"] = scale_scene_width(packet.get("path"), packet.get("lanes"), world_scale)
-  packet["edges"] = scale_scene_width(packet.get("path"), packet.get("edges"), world_scale)
+  centre_cache = {}
+  packet["lanes"] = scale_scene_width(packet.get("path"), packet.get("lanes"),
+                                      world_scale, centre_cache)
+  packet["edges"] = scale_scene_width(packet.get("path"), packet.get("edges"),
+                                      world_scale, centre_cache)
   packet["laneWidth"] = round(float(packet.get("laneWidth", 0.0) or 0.0) * world_scale, 2)
   packet["hudWorldWidth"] = world_width
 

@@ -152,6 +152,18 @@ def _sample_points_y(points, x):
   return _finite_float(usable[-1][1])
 
 
+def _cached_points_y(points):
+  """Return an x sampler that interpolates each distinct x only once."""
+  cache = {}
+
+  def sample(x):
+    if x not in cache:
+      cache[x] = _sample_points_y(points, x)
+    return cache[x]
+
+  return sample
+
+
 def align_scene_geometry(path, lanes, edges):
   """Anchor model lane/edge geometry to the final MPC path centre.
 
@@ -171,14 +183,27 @@ def align_scene_geometry(path, lanes, edges):
          _finite_float(lanes[2].get("c", 0.0))) < 0.45:
     return lanes, edges
 
+  # modelV2 lines normally share the same 33 x positions.  Cache those
+  # cross-sections instead of scanning path/inner lanes again for every one
+  # of the six lane/edge lines (the old hot path repeated it ~200 times).
+  path_y_at = _cached_points_y(path)
+  left_y_at = _cached_points_y(left)
+  right_y_at = _cached_points_y(right)
+  shift_cache = {}
+
   def shift_at(x):
-    path_y = _sample_points_y(path, x)
-    left_y = _sample_points_y(left, x)
-    right_y = _sample_points_y(right, x)
+    if x in shift_cache:
+      return shift_cache[x]
+    path_y = path_y_at(x)
+    left_y = left_y_at(x)
+    right_y = right_y_at(x)
     if path_y is None or left_y is None or right_y is None:
-      return 0.0
-    return max(-MAX_GEOMETRY_SHIFT_M,
-               min(MAX_GEOMETRY_SHIFT_M, path_y - (left_y + right_y) * 0.5))
+      shift = 0.0
+    else:
+      shift = max(-MAX_GEOMETRY_SHIFT_M,
+                  min(MAX_GEOMETRY_SHIFT_M, path_y - (left_y + right_y) * 0.5))
+    shift_cache[x] = shift
+    return shift
 
   def aligned(lines):
     output = []
@@ -197,7 +222,7 @@ def align_scene_geometry(path, lanes, edges):
   return aligned(lanes), aligned(edges)
 
 
-def scale_scene_width(path, lines, scale):
+def scale_scene_width(path, lines, scale, centre_cache=None):
   """Scale HUD-only lateral geometry around the final path centre."""
   try:
     scale = max(0.5, min(1.6, float(scale)))
@@ -205,6 +230,16 @@ def scale_scene_width(path, lines, scale):
     scale = 1.0
   if not isinstance(path, list) or len(path) < 2 or not isinstance(lines, list):
     return lines
+  if centre_cache is None:
+    centre_cache = {}
+  path_y_at = _cached_points_y(path)
+
+  def centre_at(x):
+    if x not in centre_cache:
+      centre = path_y_at(x)
+      centre_cache[x] = 0.0 if centre is None else centre
+    return centre_cache[x]
+
   output = []
   for line in lines:
     if not isinstance(line, dict):
@@ -219,8 +254,7 @@ def scale_scene_width(path, lines, scale):
           continue
         x = _finite_float(point[0])
         y = _finite_float(point[1])
-        centre = _sample_points_y(path, x)
-        centre = 0.0 if centre is None else centre
+        centre = centre_at(x)
         scaled.append([point[0], round(centre + (y - centre) * scale, 2)])
       copy["p"] = scaled
     output.append(copy)
