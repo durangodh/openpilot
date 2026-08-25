@@ -49,6 +49,10 @@ class LateralPlanner:
     self.LP = LanePlanner(wide_camera=wide_camera)
 
     self.DH = DesireHelper()
+    # DesireHelper intentionally reads the polyline-free guide file on every
+    # model tick.  Keep a separate full-route reader for the short low-speed
+    # window where NOO actually needs the TMAP polyline for curvature blending.
+    self.noo_map_navigation_route = NavigationRouteData()
 
     self.factor1 = CP.wheelbase - CP.centerToFront
     self.factor2 = (CP.centerToFront * CP.mass) / (CP.wheelbase * CP.tireStiffnessRear)
@@ -214,17 +218,29 @@ class LateralPlanner:
     map_profile = None
     map_path = None
     navigation_state = self.DH.navigation_state
-    noo_map_requested = (self.DH.noo_turn_direction != 0 and not self.DH.noo_driver_cancel and
+    noo_map_candidate = (self.DH.noo_turn_direction != 0 and not self.DH.noo_driver_cancel and
                          navigation_state.get('fresh', False) and
                          navigation_state.get('route_fresh', False) and
                          navigation_state.get('kind') in ('turn', 'uturn') and
                          3.0 <= float(navigation_state.get('distance', -1.0)) <= 60.0 and
                          self.v_ego <= 50.0 * CV.KPH_TO_MS)
+    # carrot_navi_guide.json deliberately omits route.polyline, so it can gate
+    # the maneuver but cannot build a curvature profile.  Read the full file
+    # only in this active turn window and reject the brief state/guide skew
+    # possible while the server atomically replaces the two files in sequence.
+    map_navigation_state = self.noo_map_navigation_route.update() if noo_map_candidate else None
+    noo_map_requested = (noo_map_candidate and isinstance(map_navigation_state, dict) and
+                         map_navigation_state.get('fresh', False) and
+                         map_navigation_state.get('route_fresh', False) and
+                         map_navigation_state.get('kind') in ('turn', 'uturn') and
+                         int(map_navigation_state.get('direction', 0)) == self.DH.noo_turn_direction and
+                         int(map_navigation_state.get('turn_type', -1)) ==
+                         int(navigation_state.get('turn_type', -1)))
     if noo_map_requested:
       speed_sq = max(self.v_ego * self.v_ego, 1.0)
       max_curvature = min(NOO_MAP_MAX_CURVATURE, NOO_MAP_MAX_LAT_ACCEL / speed_sq)
-      map_profile = self.DH.navigation_route.cached_route_curvature_profile(
-        navigation_state, sample_distances, max_curvature=max_curvature)
+      map_profile = self.noo_map_navigation_route.cached_route_curvature_profile(
+        map_navigation_state, sample_distances, max_curvature=max_curvature)
       if map_profile is not None:
         map_path = NavigationRouteData.integrate_curvature_profile(map_profile, sample_distances)
 
