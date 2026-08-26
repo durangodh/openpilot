@@ -763,6 +763,8 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "lowBeam": bool(_field(car, "lowBeam", False)),
     "highBeam": bool(_field(car, "highBeam", False)),
     "frontFog": bool(_field(car, "frontFogLight", False)),
+    "seatbeltUnlatched": bool(_field(car, "seatbeltUnlatched", False)),
+    "outsideTemp": round(_finite(_field(car, "outsideTempC", -1000.0), -1000.0), 1),
     "distanceToEmpty": round(_finite(_field(car, "distanceToEmptyKm", -1.0)), 1),
     "rpm": _engine_rpm(car),
     "tpms": {

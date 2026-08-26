@@ -1163,7 +1163,7 @@ public final class HudService extends Service {
         c.restoreToCount(save);
 
         int save2 = beginElement(c, l, "prnd", 90f, 116f);
-        drawPrnd(c, p, s.optString("gear", "--"));
+        drawGearAndCoolant(c, p, s);
         c.restoreToCount(save2);
 
         int save3 = beginElement(c, l, "speed", DRIVE_CX, SPEED_BASELINE);
@@ -1186,6 +1186,7 @@ public final class HudService extends Service {
         c.restoreToCount(modeSave);
         int rangeSave = beginElement(c, l, "range", 932f, 44f);
         drawRange(c, p, s);
+        drawOutsideTemp(c, p, s);
         c.restoreToCount(rangeSave);
 
         p.setStyle(Paint.Style.STROKE);
@@ -1636,14 +1637,65 @@ public final class HudService extends Service {
                 (int) (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * u));
     }
 
-    private void drawPrnd(Canvas c, Paint p, String gear) {
-        float x = 26f;
-        String[] items = {"P", "R", "N", "D"};
-        for (String g : items) {
-            text(c, p, g, x, 116f, 30f,
-                    g.equals(gear) ? ink() : muted(), Paint.Align.LEFT);
-            x += 42f;
+    /** Single active-gear tile followed by an OEM-style coolant bar. */
+    private void drawGearAndCoolant(Canvas c, Paint p, JSONObject s) {
+        String gear = s.optString("gear", "--");
+        float boxLeft = 22f;
+        float boxTop = 82f;
+        float boxSize = 42f;
+
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(frameDark ? Color.rgb(42, 49, 58) : Color.rgb(248, 249, 250));
+        scratchRect.set(boxLeft, boxTop, boxLeft + boxSize, boxTop + boxSize);
+        c.drawRoundRect(scratchRect, 6f, 6f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2f);
+        p.setColor(frameDark ? Color.rgb(112, 125, 136) : Color.rgb(176, 184, 190));
+        c.drawRoundRect(scratchRect, 6f, 6f, p);
+        text(c, p, gear, boxLeft + boxSize * 0.5f, 114f, 28f,
+                frameDark ? Color.rgb(240, 243, 246) : Color.rgb(28, 32, 36),
+                Paint.Align.CENTER);
+
+        JSONObject system = s.optJSONObject("system");
+        double coolant = system == null ? Double.NaN
+                : system.optDouble("coolantTemp", Double.NaN);
+        float railLeft = 101f;
+        float railRight = 208f;
+        float railY = 116f;
+        text(c, p, "C", 78f, 104f, 18f, ink(), Paint.Align.CENTER);
+        text(c, p, "H", 231f, 104f, 18f, ink(), Paint.Align.CENTER);
+        drawCoolantThermometer(c, p, 154f, 93f);
+
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(4f);
+        p.setColor(frameDark ? Color.rgb(110, 122, 132) : Color.rgb(164, 174, 181));
+        c.drawLine(railLeft, railY, railRight, railY, p);
+        for (int i = 0; i <= 4; i++) {
+            float x = railLeft + (railRight - railLeft) * i / 4f;
+            c.drawLine(x, railY - 4f, x, railY + 4f, p);
         }
+        if (Double.isFinite(coolant) && coolant > -50d && coolant < 200d) {
+            float fraction = (float) Math.max(0d, Math.min(1d, (coolant - 50d) / 70d));
+            p.setStrokeWidth(7f);
+            p.setColor(fraction > 0.86f
+                    ? Color.rgb(226, 67, 70) : Color.rgb(42, 199, 218));
+            c.drawLine(railLeft, railY, railLeft + (railRight - railLeft) * fraction, railY, p);
+        }
+        p.setStrokeCap(Paint.Cap.BUTT);
+    }
+
+    private void drawCoolantThermometer(Canvas c, Paint p, float x, float y) {
+        p.setShader(null);
+        p.setColor(dim());
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2.5f);
+        c.drawLine(x, y - 9f, x, y + 7f, p);
+        c.drawCircle(x, y + 11f, 5f, p);
+        c.drawLine(x - 4f, y - 7f, x + 4f, y - 7f, p);
+        c.drawLine(x - 4f, y - 2f, x + 2f, y - 2f, p);
+        c.drawLine(x - 4f, y + 3f, x + 4f, y + 3f, p);
     }
 
     private void drawModeAndEta(Canvas c, Paint p, JSONObject s) {
@@ -1664,16 +1716,9 @@ public final class HudService extends Service {
         text(c, p, label, lv(l, "modeX", 938f), lv(l, "modeY", 116f), lv(l, "modeSize", 29f),
                 color, Paint.Align.RIGHT);
 
-        JSONObject navi = s.optJSONObject("navi");
-        if (navi == null || !navi.optBoolean("active", false)) {
-            return;
-        }
-        int remain = navi.optInt("remainTime", 0);
-        if (remain <= 0) {
-            return;
-        }
-        long etaMs = System.currentTimeMillis() + remain * 1000L;
-        String eta = new SimpleDateFormat("HH:mm", Locale.KOREA).format(new Date(etaMs));
+        Date now = new Date();
+        String clock = new SimpleDateFormat("h:mm", Locale.KOREA).format(now);
+        String period = new SimpleDateFormat("a", Locale.KOREA).format(now);
         float etaRight = lv(l, "etaRight", 832f);
         float etaY = lv(l, "etaY", 116f);
         float etaTimeSize = lv(l, "etaTimeSize", 27f);
@@ -1681,9 +1726,9 @@ public final class HudService extends Service {
         float gap = lv(l, "etaGap", 8f);
         p.setTypeface(Typeface.create("sans", Typeface.BOLD));
         p.setTextSize(etaTimeSize);
-        float etaWidth = p.measureText(eta);
-        text(c, p, eta, etaRight, etaY, etaTimeSize, ink(), Paint.Align.RIGHT);
-        text(c, p, lang("도착", "ETA"), etaRight - etaWidth - gap, etaY - 1f, etaLabelSize,
+        float clockWidth = p.measureText(clock);
+        text(c, p, clock, etaRight, etaY, etaTimeSize, ink(), Paint.Align.RIGHT);
+        text(c, p, period, etaRight - clockWidth - gap, etaY - 1f, etaLabelSize,
                 dim(), Paint.Align.RIGHT);
     }
 
@@ -1712,6 +1757,15 @@ public final class HudService extends Service {
 
     private static float fuelIconWidth(float h) {
         return h * 0.80f;
+    }
+
+    private void drawOutsideTemp(Canvas c, Paint p, JSONObject s) {
+        double temp = s.optDouble("outsideTemp", -1000d);
+        if (!Double.isFinite(temp) || temp < -50d || temp > 80d) {
+            return;
+        }
+        text(c, p, String.format(Locale.US, "%.0f°C", temp), 742f, 44f, 22f,
+                ink(), Paint.Align.RIGHT);
     }
 
     /** 주유기 아이콘. PNG 없이 벡터로 그린다.
@@ -1767,7 +1821,30 @@ public final class HudService extends Service {
         }
         if (s.optBoolean("frontFog", false)) {
             drawLamp(c, p, x, 28f, 2);
+            x += 45f;
         }
+        if (s.optBoolean("seatbeltUnlatched", false)) {
+            drawSeatbeltIcon(c, p, x + 7f, 28f);
+        }
+    }
+
+    private void drawSeatbeltIcon(Canvas c, Paint p, float x, float y) {
+        int red = Color.rgb(230, 48, 58);
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setStrokeWidth(4f);
+        p.setColor(red);
+        c.drawCircle(x, y - 10f, 4f, p);
+        scratchPath.rewind();
+        scratchPath.moveTo(x - 2f, y - 5f);
+        scratchPath.lineTo(x - 7f, y + 11f);
+        scratchPath.lineTo(x + 8f, y + 11f);
+        scratchPath.lineTo(x + 3f, y - 3f);
+        c.drawPath(scratchPath, p);
+        c.drawLine(x - 6f, y - 4f, x + 8f, y + 13f, p);
+        p.setStrokeCap(Paint.Cap.BUTT);
     }
 
     private void drawLamp(Canvas c, Paint p, float x, float y, int kind) {

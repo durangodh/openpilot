@@ -219,6 +219,9 @@ struct CarState {
   # engine speed in rpm (EMS11 'N'), 0 = unavailable / EV
   engineRpm @54 :Float32;
 
+  # exterior ambient temperature in degrees Celsius (FATC11)
+  outsideTempC @55 :Float32;
+
   # button presses
   buttonEvents @11 :List(ButtonEvent);
   leftBlinker @20 :Bool;
