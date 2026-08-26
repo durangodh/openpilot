@@ -1211,13 +1211,9 @@ public final class HudService extends Service {
         if (nativeLayoutRendering) {
             c.translate(0f, -NATIVE_CARD_SHIFT_PX / nativeWidgetScale);
         }
-        drawSetSpeed(c, p, DRIVE_CX, 171f, s.optInt("set", 0), enabled);
+        drawSetSpeed(c, p, DRIVE_CX, 171f, s.optInt("set", 0), enabled, s);
         drawApplySpeed(c, p, s);
         c.restoreToCount(save5);
-
-        int collisionSave = beginElement(c, l, "collision", DRIVE_CX, 236f);
-        drawCollisionWarning(c, p, s, DRIVE_CX, 236f);
-        c.restoreToCount(collisionSave);
 
         int save6 = beginElement(c, l, "camera", 882f, 171f);
         if (nativeLayoutRendering) {
@@ -2023,19 +2019,30 @@ public final class HudService extends Service {
         }
     }
 
-    private void drawSetSpeed(Canvas c, Paint p, float cx, float cy, int set, boolean enabled) {
+    /** SET 원이 전방충돌 경고도 함께 표시한다. AEB(빨강)가 FCW(노랑)보다 우선한다. */
+    private void drawSetSpeed(Canvas c, Paint p, float cx, float cy, int set,
+                              boolean enabled, JSONObject s) {
         boolean valid = enabled && set > 0 && set < 255;
-        int accent = valid ? Color.rgb(18, 149, 224) : Color.rgb(139, 147, 152);
+        boolean aeb = s.optBoolean("stockAeb", false);
+        boolean fcw = !aeb && s.optBoolean("stockFcw", false);
+        int accent = aeb ? Color.rgb(210, 42, 52)
+                : (fcw ? Color.rgb(214, 151, 20)
+                : (valid ? Color.rgb(18, 149, 224) : Color.rgb(139, 147, 152)));
+        int fill = aeb ? Color.rgb(230, 48, 58)
+                : (fcw ? Color.rgb(255, 205, 52)
+                : (frameDark ? Color.rgb(26, 32, 40) : Color.rgb(246, 247, 247)));
+        int valueColor = aeb ? Color.WHITE : (fcw ? Color.rgb(28, 30, 32) : ink());
+
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(frameDark ? Color.rgb(26, 32, 40) : Color.rgb(246, 247, 247));
+        p.setColor(fill);
         c.drawCircle(cx, cy, 36f, p);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(6f);
         p.setColor(accent);
         c.drawCircle(cx, cy, 36f, p);
         text(c, p, valid ? Integer.toString(set) : "--", cx, cy + 9f, 29f,
-                ink(), Paint.Align.CENTER);
+                valueColor, Paint.Align.CENTER);
         text(c, p, "SET", cx, cy + 55f, 14f, accent, Paint.Align.CENTER);
     }
 
@@ -2127,32 +2134,6 @@ public final class HudService extends Service {
     }
 
     private static final float TPMS_LOW_PSI = 28f;
-
-    private void drawCollisionWarning(Canvas c, Paint p, JSONObject s, float cx, float cy) {
-        boolean aeb = s.optBoolean("stockAeb", false);
-        boolean fcw = s.optBoolean("stockFcw", false);
-        if (!aeb && !fcw) return;
-        int color = aeb ? Color.rgb(230, 48, 58) : Color.rgb(242, 177, 38);
-        p.setShader(null);
-        p.setStrokeJoin(Paint.Join.ROUND);
-        p.setStrokeCap(Paint.Cap.ROUND);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(4f);
-        p.setColor(color);
-        scratchPath.rewind();
-        scratchPath.moveTo(cx, cy - 24f);
-        scratchPath.lineTo(cx - 26f, cy + 22f);
-        scratchPath.lineTo(cx + 26f, cy + 22f);
-        scratchPath.close();
-        c.drawPath(scratchPath, p);
-        scratchRect.set(cx - 15f, cy - 4f, cx - 4f, cy + 11f);
-        c.drawRoundRect(scratchRect, 2f, 2f, p);
-        scratchRect.set(cx + 4f, cy - 4f, cx + 15f, cy + 11f);
-        c.drawRoundRect(scratchRect, 2f, 2f, p);
-        c.drawLine(cx - 2f, cy + 1f, cx + 2f, cy - 3f, p);
-        c.drawLine(cx - 1f, cy + 5f, cx + 2f, cy + 8f, p);
-        p.setStrokeCap(Paint.Cap.BUTT);
-    }
 
     private void drawTpms(Canvas c, Paint p, JSONObject s) {
         JSONObject tpms = s.optJSONObject("tpms");
