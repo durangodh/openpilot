@@ -1499,10 +1499,10 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(horizontal_line());
 
   const std::array<std::tuple<const char*, const char*, int>, 7> accel_controls = {{
-    {"CruiseMaxVals1", "CRUISE MAX VALS1 (0 km/h)", 160},
-    {"CruiseMaxVals20", "CRUISE MAX VALS20 (20 km/h)", 140},
-    {"CruiseMaxVals2", "CRUISE MAX VALS2 (40 km/h)", 120},
-    {"CruiseMaxVals3", "CRUISE MAX VALS3 (60 km/h)", 100},
+    {"CruiseMaxVals1", "CRUISE MAX VALS1 (0 km/h)", 110},
+    {"CruiseMaxVals20", "CRUISE MAX VALS20 (20 km/h)", 100},
+    {"CruiseMaxVals2", "CRUISE MAX VALS2 (40 km/h)", 90},
+    {"CruiseMaxVals3", "CRUISE MAX VALS3 (60 km/h)", 90},
     {"CruiseMaxVals4", "CRUISE MAX VALS4 (80 km/h)", 80},
     {"CruiseMaxVals5", "CRUISE MAX VALS5 (110 km/h)", 70},
     {"CruiseMaxVals6", "CRUISE MAX VALS6 (140 km/h)", 60},
