@@ -14,7 +14,7 @@ CRUISE_MAX_ACCEL_BP = [0.0, 20.0 * CV.KPH_TO_MS, 40.0 * CV.KPH_TO_MS, 60.0 * CV.
                        140.0 * CV.KPH_TO_MS]
 CRUISE_MAX_VAL_KEYS = ["CruiseMaxVals1", "CruiseMaxVals20", "CruiseMaxVals2", "CruiseMaxVals3",
                        "CruiseMaxVals4", "CruiseMaxVals5", "CruiseMaxVals6"]
-CRUISE_MAX_VAL_DEFAULTS = [1.60, 1.40, 1.20, 1.00, 0.80, 0.70, 0.60]
+CRUISE_MAX_VAL_DEFAULTS = [1.10, 1.00, 0.90, 0.90, 0.80, 0.70, 0.60]
 NO_LEAD_CRUISE_ACCEL_FACTOR_DEFAULT = 0.65
 NO_LEAD_CRUISE_JERK_DEFAULT = 0.25
 
