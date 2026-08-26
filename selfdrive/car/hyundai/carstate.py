@@ -76,8 +76,12 @@ class CarState(CarStateBase):
 
     ret = car.CarState.new_message()
 
-    ret.doorOpen = any([cp.vl["CGW1"]["CF_Gway_DrvDrSw"], cp.vl["CGW1"]["CF_Gway_AstDrSw"],
-                        cp.vl["CGW2"]["CF_Gway_RLDrSw"], cp.vl["CGW2"]["CF_Gway_RRDrSw"]])
+    ret.frontLeftDoorOpen = bool(cp.vl["CGW1"]["CF_Gway_DrvDrSw"])
+    ret.frontRightDoorOpen = bool(cp.vl["CGW1"]["CF_Gway_AstDrSw"])
+    ret.rearLeftDoorOpen = bool(cp.vl["CGW2"]["CF_Gway_RLDrSw"])
+    ret.rearRightDoorOpen = bool(cp.vl["CGW2"]["CF_Gway_RRDrSw"])
+    ret.doorOpen = any([ret.frontLeftDoorOpen, ret.frontRightDoorOpen,
+                        ret.rearLeftDoorOpen, ret.rearRightDoorOpen])
 
     ret.seatbeltUnlatched = cp.vl["CGW1"]["CF_Gway_DrvSeatBeltSw"] == 0
 

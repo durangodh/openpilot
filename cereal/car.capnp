@@ -222,6 +222,12 @@ struct CarState {
   # exterior ambient temperature in degrees Celsius (FATC11)
   outsideTempC @55 :Float32;
 
+  # individual side-door states from CGW1/CGW2
+  frontLeftDoorOpen @56 :Bool;
+  frontRightDoorOpen @57 :Bool;
+  rearLeftDoorOpen @58 :Bool;
+  rearRightDoorOpen @59 :Bool;
+
   # button presses
   buttonEvents @11 :List(ButtonEvent);
   leftBlinker @20 :Bool;

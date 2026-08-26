@@ -1158,7 +1158,9 @@ public final class HudService extends Service {
         drawBlinkers(c, p, s, stale);
         c.restoreToCount(blinkerSave);
 
-        int save = beginElement(c, l, "lights", 70f, 28f);
+        // Existing lamp art stays unchanged; move the complete row inside
+        // the panel, centred on the outside-temperature/range row.
+        int save = beginElement(c, l, "lights", 70f, 36f);
         drawLights(c, p, s);
         c.restoreToCount(save);
 
@@ -1199,7 +1201,10 @@ public final class HudService extends Service {
             // SET 원과 같은 가로줄에 오도록 같은 보정을 준다.
             c.translate(0f, -NATIVE_CARD_SHIFT_PX / nativeWidgetScale);
         }
-        drawSteeringWheel(c, p, 70f, 171f, (float) s.optDouble("steer", 0d), enabled);
+        int steerWarning = s.optBoolean("steerFaultPermanent", false) ? 2
+                : (s.optBoolean("steerFaultTemporary", false) ? 1 : 0);
+        drawSteeringWheel(c, p, 70f, 171f, (float) s.optDouble("steer", 0d),
+                enabled, steerWarning);
         c.restoreToCount(save4);
 
         int save5 = beginElement(c, l, "set", DRIVE_CX, 171f);
@@ -1209,6 +1214,10 @@ public final class HudService extends Service {
         drawSetSpeed(c, p, DRIVE_CX, 171f, s.optInt("set", 0), enabled);
         drawApplySpeed(c, p, s);
         c.restoreToCount(save5);
+
+        int collisionSave = beginElement(c, l, "collision", DRIVE_CX, 236f);
+        drawCollisionWarning(c, p, s, DRIVE_CX, 236f);
+        c.restoreToCount(collisionSave);
 
         int save6 = beginElement(c, l, "camera", 882f, 171f);
         if (nativeLayoutRendering) {
@@ -1249,7 +1258,7 @@ public final class HudService extends Service {
         if (nativeLayoutRendering) {
             c.translate(0f, NATIVE_CARD_SHIFT_PX / nativeWidgetScale);
         }
-        drawTpms(c, p, s.optJSONObject("tpms"));
+        drawTpms(c, p, s);
         c.restoreToCount(save8);
 
         int alertSave = beginElement(c, l, "alert", DRIVE_CX, 336f);
@@ -1640,21 +1649,25 @@ public final class HudService extends Service {
     /** Single active-gear tile followed by a compact OEM-style coolant bar. */
     private void drawGearAndCoolant(Canvas c, Paint p, JSONObject s) {
         String gear = s.optString("gear", "--");
+        boolean parkingBrake = s.optBoolean("parkingBrake", false);
         float boxLeft = 22f;
         float boxTop = 82f;
         float boxSize = 42f;
 
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(frameDark ? Color.rgb(42, 49, 58) : Color.rgb(248, 249, 250));
+        p.setColor(parkingBrake ? Color.rgb(210, 42, 52)
+                : (frameDark ? Color.rgb(42, 49, 58) : Color.rgb(248, 249, 250)));
         scratchRect.set(boxLeft, boxTop, boxLeft + boxSize, boxTop + boxSize);
         c.drawRoundRect(scratchRect, 6f, 6f, p);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(2f);
-        p.setColor(frameDark ? Color.rgb(112, 125, 136) : Color.rgb(176, 184, 190));
+        p.setColor(parkingBrake ? Color.rgb(145, 22, 31)
+                : (frameDark ? Color.rgb(112, 125, 136) : Color.rgb(176, 184, 190)));
         c.drawRoundRect(scratchRect, 6f, 6f, p);
         text(c, p, gear, boxLeft + boxSize * 0.5f, 114f, 28f,
-                frameDark ? Color.rgb(240, 243, 246) : Color.rgb(28, 32, 36),
+                parkingBrake ? Color.WHITE
+                        : (frameDark ? Color.rgb(240, 243, 246) : Color.rgb(28, 32, 36)),
                 Paint.Align.CENTER);
 
         JSONObject system = s.optJSONObject("system");
@@ -1822,22 +1835,23 @@ public final class HudService extends Service {
     }
 
     private void drawLights(Canvas c, Paint p, JSONObject s) {
+        final float y = 36f;
         float x = 21f;
-        if (s.optBoolean("lowBeam", false)) {
-            drawLamp(c, p, x, 28f, 0);
-            x += 45f;
-        }
-        if (s.optBoolean("highBeam", false)) {
-            drawLamp(c, p, x, 28f, 1);
-            x += 45f;
-        }
-        if (s.optBoolean("frontFog", false)) {
-            drawLamp(c, p, x, 28f, 2);
-            x += 45f;
-        }
+        if (s.optBoolean("lowBeam", false)) { drawLamp(c, p, x, y, 0); x += 45f; }
+        if (s.optBoolean("highBeam", false)) { drawLamp(c, p, x, y, 1); x += 45f; }
+        if (s.optBoolean("frontFog", false)) { drawLamp(c, p, x, y, 2); x += 45f; }
         if (s.optBoolean("seatbeltUnlatched", false)) {
-            drawSeatbeltIcon(c, p, x + 7f, 28f);
+            drawSeatbeltIcon(c, p, x + 7f, y);
+            x += 34f;
         }
+        JSONObject doors = s.optJSONObject("doors");
+        if (hasOpenDoor(doors)) drawDoorWarning(c, p, x + 9f, y, doors);
+    }
+
+    private boolean hasOpenDoor(JSONObject doors) {
+        return doors != null && (doors.optBoolean("fl", false)
+                || doors.optBoolean("fr", false) || doors.optBoolean("rl", false)
+                || doors.optBoolean("rr", false));
     }
 
     private void drawSeatbeltIcon(Canvas c, Paint p, float x, float y) {
@@ -1856,6 +1870,28 @@ public final class HudService extends Service {
         scratchPath.lineTo(x + 3f, y - 3f);
         c.drawPath(scratchPath, p);
         c.drawLine(x - 6f, y - 4f, x + 8f, y + 13f, p);
+        p.setStrokeCap(Paint.Cap.BUTT);
+    }
+
+    private void drawDoorWarning(Canvas c, Paint p, float cx, float cy, JSONObject doors) {
+        final float left = cx - 7f, right = cx + 7f;
+        final float top = cy - 13f, bottom = cy + 13f;
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(2.5f);
+        p.setColor(ink());
+        scratchRect.set(left, top, right, bottom);
+        c.drawRoundRect(scratchRect, 4f, 4f, p);
+        c.drawLine(left + 2f, cy - 5f, right - 2f, cy - 5f, p);
+        c.drawLine(left + 2f, cy + 6f, right - 2f, cy + 6f, p);
+        p.setStrokeWidth(4f);
+        p.setColor(Color.rgb(230, 48, 58));
+        if (doors.optBoolean("fl", false)) c.drawLine(left, cy - 7f, left - 8f, cy - 12f, p);
+        if (doors.optBoolean("fr", false)) c.drawLine(right, cy - 7f, right + 8f, cy - 12f, p);
+        if (doors.optBoolean("rl", false)) c.drawLine(left, cy + 4f, left - 8f, cy + 10f, p);
+        if (doors.optBoolean("rr", false)) c.drawLine(right, cy + 4f, right + 8f, cy + 10f, p);
         p.setStrokeCap(Paint.Cap.BUTT);
     }
 
@@ -1886,14 +1922,18 @@ public final class HudService extends Service {
         }
     }
 
-    private void drawSteeringWheel(Canvas c, Paint p, float cx, float cy, float angle, boolean enabled) {
+    private void drawSteeringWheel(Canvas c, Paint p, float cx, float cy, float angle,
+                                   boolean enabled, int steerWarning) {
         if (wheelImage != null && !wheelImage.isRecycled()) {
-            drawWheelImage(c, p, cx, cy, angle, enabled);
+            drawWheelImage(c, p, cx, cy, angle, enabled, steerWarning);
             return;
         }
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(enabled ? Color.rgb(18, 95, 225) : Color.rgb(92, 101, 107));
+        int wheelBg = steerWarning >= 2 ? Color.rgb(210, 42, 52)
+                : (steerWarning == 1 ? Color.rgb(242, 177, 38)
+                : (enabled ? Color.rgb(18, 95, 225) : Color.rgb(92, 101, 107)));
+        p.setColor(wheelBg);
         c.drawCircle(cx, cy, 36f, p);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(4f);
@@ -1912,7 +1952,8 @@ public final class HudService extends Service {
 
     /** hud_wheel.png 을 지름 72px 원 안에 맞춰 조향각만큼 회전시켜 그린다.
      *  해제 상태에서는 회색조 + 반투명으로 낮춰 기존 벡터 핸들과 같은 인상을 유지한다. */
-    private void drawWheelImage(Canvas c, Paint p, float cx, float cy, float angle, boolean enabled) {
+    private void drawWheelImage(Canvas c, Paint p, float cx, float cy, float angle,
+                                boolean enabled, int steerWarning) {
         float target = 72f;
         int w = wheelImage.getWidth();
         int h = wheelImage.getHeight();
@@ -1933,19 +1974,23 @@ public final class HudService extends Service {
         p.setColorFilter(null);
         p.setAlpha(255);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(enabled ? Color.rgb(18, 95, 225) : Color.rgb(92, 101, 107));
+        int wheelBg = steerWarning >= 2 ? Color.rgb(210, 42, 52)
+                : (steerWarning == 1 ? Color.rgb(242, 177, 38)
+                : (enabled ? Color.rgb(18, 95, 225) : Color.rgb(92, 101, 107)));
+        p.setColor(wheelBg);
         c.drawCircle(cx, cy, 34f, p);
 
+        boolean vivid = enabled || steerWarning > 0;
         p.setFilterBitmap(true);
-        p.setColorFilter(enabled ? null : wheelGrayFilter());
-        p.setAlpha(enabled ? 255 : 170);
+        p.setColorFilter(vivid ? null : wheelGrayFilter());
+        p.setAlpha(vivid ? 255 : 170);
         c.drawBitmap(wheelImage, wheelMatrix, p);
         p.setColorFilter(null);
         p.setAlpha(255);
 
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(3f);
-        p.setColor(enabled ? Color.rgb(18, 95, 225) : Color.rgb(92, 101, 107));
+        p.setColor(wheelBg);
         c.drawCircle(cx, cy, 36f, p);
     }
 
@@ -2081,19 +2126,71 @@ public final class HudService extends Service {
                 145f, 440f, 17f, ink(), Paint.Align.RIGHT);
     }
 
-    private void drawTpms(Canvas c, Paint p, JSONObject tpms) {
+    private static final float TPMS_LOW_PSI = 28f;
+
+    private void drawCollisionWarning(Canvas c, Paint p, JSONObject s, float cx, float cy) {
+        boolean aeb = s.optBoolean("stockAeb", false);
+        boolean fcw = s.optBoolean("stockFcw", false);
+        if (!aeb && !fcw) return;
+        int color = aeb ? Color.rgb(230, 48, 58) : Color.rgb(242, 177, 38);
+        p.setShader(null);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(4f);
+        p.setColor(color);
+        scratchPath.rewind();
+        scratchPath.moveTo(cx, cy - 24f);
+        scratchPath.lineTo(cx - 26f, cy + 22f);
+        scratchPath.lineTo(cx + 26f, cy + 22f);
+        scratchPath.close();
+        c.drawPath(scratchPath, p);
+        scratchRect.set(cx - 15f, cy - 4f, cx - 4f, cy + 11f);
+        c.drawRoundRect(scratchRect, 2f, 2f, p);
+        scratchRect.set(cx + 4f, cy - 4f, cx + 15f, cy + 11f);
+        c.drawRoundRect(scratchRect, 2f, 2f, p);
+        c.drawLine(cx - 2f, cy + 1f, cx + 2f, cy - 3f, p);
+        c.drawLine(cx - 1f, cy + 5f, cx + 2f, cy + 8f, p);
+        p.setStrokeCap(Paint.Cap.BUTT);
+    }
+
+    private void drawTpms(Canvas c, Paint p, JSONObject s) {
+        JSONObject tpms = s.optJSONObject("tpms");
+        float fl = tpmsValue(tpms, "fl"), fr = tpmsValue(tpms, "fr");
+        float rl = tpmsValue(tpms, "rl"), rr = tpmsValue(tpms, "rr");
+        boolean lowFl = tpmsLow(fl), lowFr = tpmsLow(fr);
+        boolean lowRl = tpmsLow(rl), lowRr = tpmsLow(rr);
+        boolean warning = lowFl || lowFr || lowRl || lowRr;
         scratchRect.set(791f, 376f, 939f, 454f);
-        drawCard(c, p, scratchRect);
-        text(c, p, "TPMS", 865f, 394f, 12f, dim(), Paint.Align.CENTER);
+        if (warning) {
+            p.setShader(null);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(frameDark ? Color.rgb(157, 111, 18) : Color.rgb(255, 205, 52));
+            c.drawRoundRect(scratchRect, 9f, 9f, p);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(2f);
+            p.setColor(Color.rgb(214, 151, 20));
+            c.drawRoundRect(scratchRect, 9f, 9f, p);
+        } else {
+            drawCard(c, p, scratchRect);
+        }
+        int normalText = warning ? Color.rgb(28, 30, 32) : ink();
+        int titleColor = warning ? Color.rgb(56, 47, 20) : dim();
+        int lowText = Color.rgb(205, 30, 42);
+        text(c, p, "TPMS", 865f, 394f, 12f, titleColor, Paint.Align.CENTER);
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.rgb(95, 102, 107));
+        p.setColor(warning ? Color.rgb(80, 72, 54) : Color.rgb(95, 102, 107));
         scratchRect.set(852f, 404f, 878f, 446f);
         c.drawRoundRect(scratchRect, 4f, 4f, p);
-        text(c, p, tpmsText(tpmsValue(tpms, "fl")), 840f, 417f, 16f, ink(), Paint.Align.RIGHT);
-        text(c, p, tpmsText(tpmsValue(tpms, "fr")), 890f, 417f, 16f, ink(), Paint.Align.LEFT);
-        text(c, p, tpmsText(tpmsValue(tpms, "rl")), 840f, 443f, 16f, ink(), Paint.Align.RIGHT);
-        text(c, p, tpmsText(tpmsValue(tpms, "rr")), 890f, 443f, 16f, ink(), Paint.Align.LEFT);
+        text(c, p, tpmsText(fl), 840f, 417f, 16f, lowFl ? lowText : normalText, Paint.Align.RIGHT);
+        text(c, p, tpmsText(fr), 890f, 417f, 16f, lowFr ? lowText : normalText, Paint.Align.LEFT);
+        text(c, p, tpmsText(rl), 840f, 443f, 16f, lowRl ? lowText : normalText, Paint.Align.RIGHT);
+        text(c, p, tpmsText(rr), 890f, 443f, 16f, lowRr ? lowText : normalText, Paint.Align.LEFT);
+    }
+
+    private boolean tpmsLow(float value) {
+        return value >= 5f && value <= 60f && value < TPMS_LOW_PSI;
     }
 
     private String tpmsText(float v) {
