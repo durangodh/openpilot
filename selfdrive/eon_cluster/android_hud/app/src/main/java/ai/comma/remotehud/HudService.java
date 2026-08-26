@@ -1637,7 +1637,7 @@ public final class HudService extends Service {
                 (int) (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * u));
     }
 
-    /** Single active-gear tile followed by an OEM-style coolant bar. */
+    /** Single active-gear tile followed by a compact OEM-style coolant bar. */
     private void drawGearAndCoolant(Canvas c, Paint p, JSONObject s) {
         String gear = s.optString("gear", "--");
         float boxLeft = 22f;
@@ -1660,12 +1660,23 @@ public final class HudService extends Service {
         JSONObject system = s.optJSONObject("system");
         double coolant = system == null ? Double.NaN
                 : system.optDouble("coolantTemp", Double.NaN);
-        float railLeft = 101f;
-        float railRight = 208f;
-        float railY = 116f;
-        text(c, p, "C", 78f, 104f, 18f, ink(), Paint.Align.CENTER);
-        text(c, p, "H", 231f, 104f, 18f, ink(), Paint.Align.CENTER);
-        drawCoolantThermometer(c, p, 154f, 93f);
+
+        // Final on-car layout: 70% preview was too small, so use 77% of the
+        // original group (the reduced preview enlarged by 10%).  The local
+        // origin is the C-label centre at x=82 and the gear-tile bottom y=124.
+        // Every coolant element, including the rail and stroke widths, scales
+        // together.  Tick bottoms stay exactly aligned with the gear tile.
+        final float coolantScale = 0.77f;
+        int coolantSave = c.save();
+        c.translate(82f, boxTop + boxSize);
+        c.scale(coolantScale, coolantScale);
+
+        final float railLeft = 23f;
+        final float railRight = 130f;
+        final float railY = -4f;
+        text(c, p, "C", 0f, -16f, 18f, ink(), Paint.Align.CENTER);
+        text(c, p, "H", 153f, -16f, 18f, ink(), Paint.Align.CENTER);
+        drawCoolantThermometer(c, p, 76f, -27f);
 
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeCap(Paint.Cap.ROUND);
@@ -1684,6 +1695,7 @@ public final class HudService extends Service {
             c.drawLine(railLeft, railY, railLeft + (railRight - railLeft) * fraction, railY, p);
         }
         p.setStrokeCap(Paint.Cap.BUTT);
+        c.restoreToCount(coolantSave);
     }
 
     private void drawCoolantThermometer(Canvas c, Paint p, float x, float y) {
