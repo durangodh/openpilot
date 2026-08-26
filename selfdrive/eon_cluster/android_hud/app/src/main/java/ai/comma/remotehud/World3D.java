@@ -82,8 +82,8 @@ final class World3D {
     private static final float BLOCK = 24f;
     private static final int BLOCK_COUNT = 13;
     private static final float BUILD_NEAR = 14f;
-    private static final float BUILD_FAR = 170f;
-    private static final float HAZE_START = 95f;
+    private static final float BUILD_FAR = 220f;
+    private static final float HAZE_START = 115f;
 
     /** 과속방지턱 노면 표시 */
     private static final float BUMP_VISIBLE_M = 60f;   // 이보다 멀면 우측 아이콘만
@@ -270,6 +270,9 @@ final class World3D {
 
     // ── OSM 실제 지형 (OsmWorld.snapshot) ─────────────────────────────
     private OsmWorld.Snapshot osm;
+    // 상세 OSM 건물이 늘어도 프레임마다 Integer/Comparator 배열을 만들지 않는다.
+    private int[] osmBuildingOrder = new int[0];
+    private float[] osmBuildingDist = new float[0];
 
     void setOsm(OsmWorld.Snapshot snapshot) {
         osm = snapshot;
@@ -1081,7 +1084,7 @@ final class World3D {
                 float y1 = ys[i];
                 float x2 = xs[i + 1];
                 float y2 = ys[i + 1];
-                if (Math.max(x1, x2) < 5f || Math.min(x1, x2) > 180f) {
+                if (Math.max(x1, x2) < 5f || Math.min(x1, x2) > 220f) {
                     continue;
                 }
                 boolean nearEgo1 = x1 > -5f && Math.abs(y1 - centerAt(Math.max(0f, x1))) < 6f;
@@ -1234,32 +1237,40 @@ final class World3D {
     /** OSM 건물: 실제 외곽선을 벽면 단위로 세운다. 카메라를 향한 변만 그리고,
      *  변의 방향에 따라 명암을 줘 입체감을 낸다. 먼 건물부터. */
     private void drawOsmBuildings(Canvas c, Paint p, int fogColor) {
-        Integer[] order = new Integer[osm.buildingCount];
-        float[] dist = new float[osm.buildingCount];
-        for (int i = 0; i < osm.buildingCount; i++) {
-            order[i] = i;
+        int count = osm.buildingCount;
+        if (osmBuildingOrder.length < count) {
+            osmBuildingOrder = new int[count];
+            osmBuildingDist = new float[count];
+        }
+        for (int i = 0; i < count; i++) {
+            osmBuildingOrder[i] = i;
             float[] xs = osm.ringX[i];
             float sum = 0f;
             for (float x : xs) {
                 sum += x;
             }
-            dist[i] = sum / xs.length;
+            osmBuildingDist[i] = sum / xs.length;
         }
-        java.util.Arrays.sort(order, new java.util.Comparator<Integer>() {
-            @Override
-            public int compare(Integer a, Integer b) {
-                return Float.compare(dist[b], dist[a]);
+        // 최대 72개라 boxed Integer/Comparator 보다 무할당 삽입 정렬이 더 가볍다.
+        for (int i = 1; i < count; i++) {
+            int value = osmBuildingOrder[i];
+            float valueDist = osmBuildingDist[value];
+            int j = i - 1;
+            while (j >= 0 && osmBuildingDist[osmBuildingOrder[j]] < valueDist) {
+                osmBuildingOrder[j + 1] = osmBuildingOrder[j];
+                j--;
             }
-        });
+            osmBuildingOrder[j + 1] = value;
+        }
 
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        for (int oi = 0; oi < order.length; oi++) {
-            int b = order[oi];
+        for (int oi = 0; oi < count; oi++) {
+            int b = osmBuildingOrder[oi];
             float[] xs = osm.ringX[b];
             float[] ys = osm.ringY[b];
             float height = osm.ringH[b];
-            float d = Math.max(0f, dist[b]);
+            float d = Math.max(0f, osmBuildingDist[b]);
             float fog = d <= HAZE_START ? 0f
                     : Math.min(0.85f, (d - HAZE_START) / (BUILD_FAR - HAZE_START) * 0.95f);
 

@@ -45,7 +45,7 @@ final class OsmWorld {
     private static final long CACHE_MAX_BYTES = 96L * 1024L * 1024L;
     private static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
     /** 환경 객체 쿼리가 없는 이전 캐시를 한 번 분리한다. */
-    private static final String CACHE_VERSION = "v3_";
+    private static final String CACHE_VERSION = "v4_";
     static final int BARRIER_NOISE_WALL = 1;
     static final int BARRIER_GUARD_RAIL = 2;
     private static final String[] ENDPOINTS = {
@@ -257,14 +257,14 @@ final class OsmWorld {
                         continue;
                     }
                     for (Poly b : tile.buildings) {
-                        if (bx.size() >= 48) {
+                        if (bx.size() >= 72) {
                             break;
                         }
                         if (!buildingIds.add(b.id)) {
                             continue;
                         }
                         float[][] xy = toLocal(b.pts, lat0, lon0, sinH, cosH, mLat, mLon,
-                                -25f, 210f, 75f);
+                                -30f, 240f, 95f);
                         if (xy != null) {
                             bx.add(xy[0]);
                             by.add(xy[1]);
@@ -272,14 +272,14 @@ final class OsmWorld {
                         }
                     }
                     for (Poly r : tile.roads) {
-                        if (rx.size() >= 60) {
+                        if (rx.size() >= 96) {
                             break;
                         }
                         if (!roadIds.add(r.id)) {
                             continue;
                         }
                         float[][] xy = toLocal(r.pts, lat0, lon0, sinH, cosH, mLat, mLon,
-                                -10f, 200f, 90f);
+                                -15f, 240f, 115f);
                         if (xy != null) {
                             rx.add(xy[0]);
                             ry.add(xy[1]);
@@ -600,10 +600,11 @@ final class OsmWorld {
         // 레이어별 out 제한을 둔다. 나무/가로등이 많은 도심에서도 핵심인 건물과
         // 도로가 뒤 레이어에 밀려 누락되지 않고 LTE 응답 크기도 예측 가능하다.
         String query = "[out:json][timeout:12];"
-                + "way[\"building\"](" + bbox + ");out geom 160;"
+                + "way[\"building\"](" + bbox + ");out geom 220;"
                 + "way[\"highway\"~\"^(motorway|trunk|primary|secondary|tertiary|unclassified"
-                + "|residential|service|motorway_link|trunk_link|primary_link|secondary_link)$\"]"
-                + "(" + bbox + ");out geom 100;"
+                + "|residential|service|living_street|pedestrian|track|cycleway|road"
+                + "|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$\"]"
+                + "(" + bbox + ");out geom 180;"
                 + "way[\"barrier\"=\"wall\"][\"wall\"=\"noise_barrier\"](" + bbox + ");out geom 40;"
                 + "way[\"barrier\"=\"noise_barrier\"](" + bbox + ");out geom 20;"
                 + "way[\"barrier\"=\"guard_rail\"](" + bbox + ");out geom 40;"
@@ -716,12 +717,12 @@ final class OsmWorld {
                 }
                 if (tags.has("building")) {
                     poly.h = buildingHeight(tags);
-                    if (geom.length() >= 4 && tile.buildings.size() < 160) {
+                    if (geom.length() >= 4 && tile.buildings.size() < 220) {
                         tile.buildings.add(poly);
                     }
                 } else if (tags.has("highway")) {
-                    poly.h = roadWidth(tags.optString("highway", ""));
-                    if (tile.roads.size() < 120) {
+                    poly.h = roadWidth(tags);
+                    if (tile.roads.size() < 180) {
                         tile.roads.add(poly);
                     }
                 } else if ("guard_rail".equals(tags.optString("barrier"))) {
@@ -807,23 +808,48 @@ final class OsmWorld {
         }
     }
 
-    private static float roadWidth(String cls) {
+    /** OSM width 를 우선하고, 없으면 차로 수와 도로 등급으로 폭을 추정한다. */
+    private static float roadWidth(JSONObject tags) {
+        Float explicit = parseMetres(tags.optString("width", ""));
+        if (explicit != null) {
+            return clampF(explicit, 1.2f, 24f);
+        }
+
+        String cls = tags.optString("highway", "");
+        float inferred;
         if (cls.startsWith("motorway") || cls.startsWith("trunk")) {
-            return 9f;
+            inferred = 9f;
+        } else if (cls.startsWith("primary")) {
+            inferred = 8f;
+        } else if (cls.startsWith("secondary")) {
+            inferred = 7f;
+        } else if (cls.equals("tertiary") || cls.equals("tertiary_link")
+                || cls.equals("unclassified")) {
+            inferred = 6f;
+        } else if (cls.equals("living_street")) {
+            inferred = 4.5f;
+        } else if (cls.equals("service") || cls.equals("pedestrian")
+                || cls.equals("track") || cls.equals("road")) {
+            inferred = 3.5f;
+        } else if (cls.equals("cycleway")) {
+            inferred = 1.8f;
+        } else {
+            inferred = 5f;
         }
-        if (cls.startsWith("primary")) {
-            return 8f;
+
+        try {
+            String rawLanes = tags.optString("lanes", "");
+            int separator = rawLanes.indexOf(';');
+            if (separator >= 0) {
+                rawLanes = rawLanes.substring(0, separator);
+            }
+            int lanes = Integer.parseInt(rawLanes.trim());
+            if (lanes > 0 && lanes <= 12) {
+                inferred = Math.max(inferred, lanes * 3.05f);
+            }
+        } catch (NumberFormatException ignored) {
         }
-        if (cls.startsWith("secondary")) {
-            return 7f;
-        }
-        if (cls.equals("tertiary") || cls.equals("unclassified")) {
-            return 6f;
-        }
-        if (cls.equals("service")) {
-            return 3.5f;
-        }
-        return 5f;
+        return clampF(inferred, 1.2f, 24f);
     }
 
     private static float clampF(float v, float lo, float hi) {
