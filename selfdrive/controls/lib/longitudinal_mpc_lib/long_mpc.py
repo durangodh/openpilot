@@ -75,7 +75,7 @@ LEAD_DEPARTURE_MIN_VREL = 0.3
 LEAD_DEPARTURE_FULL_VREL = 1.65
 LEAD_DEPARTURE_MAX_SPEED = 9.0
 LEAD_DEPARTURE_BRAKING_ACCEL = -0.2
-LEAD_DEPARTURE_MIN_COST_MULTIPLIER = 0.45
+LEAD_DEPARTURE_MIN_COST_MULTIPLIER = 0.65
 
 
 def get_lead_departure_cost_multiplier(v_ego, v_lead, a_lead, lead_status):
@@ -355,8 +355,8 @@ class LongitudinalMpc:
     a_change_v_ego = 1
     if (v_lead0 - v_ego >= 0) and (v_lead1 - v_ego >= 0):
       v_ego_bps = [0, 10]
-      j_ego_v_ego    = interp(v_ego, v_ego_bps, [0.15, 1.0])
-      a_change_v_ego = interp(v_ego, v_ego_bps, [0.15, 1.0])
+      j_ego_v_ego    = interp(v_ego, v_ego_bps, [0.45, 1.0])
+      a_change_v_ego = interp(v_ego, v_ego_bps, [0.45, 1.0])
 
     j_ego    = min(j_ego_tf, j_ego_v_ego)
     a_change = min(a_change_tf, a_change_v_ego)
