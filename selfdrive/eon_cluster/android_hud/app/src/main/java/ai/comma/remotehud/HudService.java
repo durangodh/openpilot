@@ -2945,6 +2945,17 @@ public final class HudService extends Service {
         c.drawBitmap(map, null, scratchIRect, p);
         c.restoreToCount(mapSave);
 
+        // TMAP 캡처는 앱의 주간 지도가 그대로 들어오므로 전체 HUD 야간
+        // 오버레이만으로는 흰 배경이 지나치게 밝다. 야간 테마일 때 지도
+        // 영역에만 짙은 남청색 마스크를 추가한다. TBT 배너는 이 다음에
+        // 그리므로 안내 정보의 원래 밝기와 색상은 유지된다.
+        if (frameDark) {
+            p.setShader(null);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.argb(155, 2, 9, 20));
+            c.drawRect(scratchIRect, p);
+        }
+
         int overlaySave = c.save();
         if (nativeLayoutRendering) {
             c.clipRect(MAP_LEFT, 0f, mapRight(), HEIGHT);
