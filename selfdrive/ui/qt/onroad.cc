@@ -1038,6 +1038,21 @@ void NvgWindow::drawCarrotLead(QPainter &p) {
 
   if (!scene.lead_status[0]) lead_box_w = 0.0f;   // 리드 사라지면 EMA 초기화
 
+  // Planned following-distance marker. ui.cc projects the exact
+  // longitudinalPlan.desiredDistance onto the model path.
+  if (scene.tf_valid && scene.tf_distance > 1.0f) {
+    const QColor marker_color(255, 255, 255, 230);
+    p.setPen(QPen(marker_color, 3, Qt::SolidLine, Qt::RoundCap));
+    p.setBrush(Qt::NoBrush);
+    p.drawLine(scene.tf_left, scene.tf_right);
+
+    QString label;
+    const float display_distance = scene.tf_distance * m_to_disp;
+    label.sprintf("%.1f%s (%.2fs)", display_distance, is_metric ? "m" : "ft", scene.t_follow);
+    const QPointF label_anchor = scene.tf_right + QPointF(90.0, -4.0);
+    ctText(p, (int)label_anchor.x(), (int)label_anchor.y(), label, 25, marker_color, true, true);
+  }
+
   p.restore();
 }
 

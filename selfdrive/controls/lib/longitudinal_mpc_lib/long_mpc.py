@@ -8,6 +8,9 @@ from common.numpy_fast import clip, interp
 from selfdrive.swaglog import cloudlog
 from selfdrive.modeld.constants import index_function
 from selfdrive.controls.lib.radar_helpers import _LEAD_ACCEL_TAU
+from selfdrive.controls.lib.t_follow import (CRUISE_GAP_V, desired_follow_distance,
+                                             get_t_follow_base, get_t_follow_decel_margin,
+                                             hold_t_follow_while_decelerating, limit_t_follow_increase)
 from common.conversions import Conversions as CV
 
 if __name__ == '__main__':  # generating code
@@ -46,9 +49,6 @@ LEAD_DANGER_FACTOR = 0.8
 LIMIT_COST = 1e6
 ACADOS_SOLVER_TYPE = 'SQP_RTI'
 
-
-CRUISE_GAP_BP = [1., 2., 3., 4.]
-CRUISE_GAP_V = [1.1, 1.2, 1.4, 1.6]
 
 DIFF_RADAR_VISION = 1.0
 
@@ -112,10 +112,6 @@ def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dis
 
 def get_safe_obstacle_distance(v_ego, t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, comfort_brake=COMFORT_BRAKE):
   return (v_ego**2) / (2 * comfort_brake) + t_follow * v_ego + stop_dist
-
-def desired_follow_distance(v_ego, v_lead):
-  return get_safe_obstacle_distance(v_ego) - get_stopped_equivalence_factor(v_lead)
-
 
 def gen_long_model():
   model = AcadosModel()
@@ -257,7 +253,6 @@ class LongitudinalMpc:
     self.t_follow_decel_boost = 0.3
     self._tf_base_applied = 0.0
     self._tf_applied = 0.0
-    self._tf_v_ego_kph = 0.0
     # ────────────────────────────────────────────────────────────────────
 
     # UI 파라미터로 조절되는 제동 튜닝값. longitudinal_planner.read_param()이 주기적으로 갱신한다.
@@ -307,7 +302,6 @@ class LongitudinalMpc:
 
     self._tf_base_applied = 0.0
     self._tf_applied = 0.0
-    self._tf_v_ego_kph = 0.0
     # ────────────────────────────────────────────────────────────────────
 
     self.set_weights()
@@ -455,35 +449,27 @@ class LongitudinalMpc:
     lead_xv_0 = self.process_lead(radarstate.leadOne)
     lead_xv_1 = self.process_lead(radarstate.leadTwo)
 
-    # apilot-c2 방식: 가속/정속 중에만 갭별 TR과 속도 보정을 갱신하고,
-    # 감속 중에는 직전 TR을 유지한다.
+    # Keep the configured high-speed scaling, while handling braking transitions
+    # through small, independently testable steps.
     cruise_gap = int(clip(controls.longCruiseGap, 1., 4.))
     safe_mode_factor = float(clip(controls.mySafeModeFactor, 0.5, 1.0))
     gap_values = self.tfollow_gaps if self.tfollow_gaps is not None else CRUISE_GAP_V
     v_ego_kph = v_ego * CV.MS_TO_KPH
-    if self._tf_base_applied <= 0.0 or v_ego_kph >= self._tf_v_ego_kph:
-      tr = interp(float(cruise_gap), CRUISE_GAP_BP, gap_values)
-      speed_scale = interp(v_ego_kph, [0.0, 100.0], [1.0, self.t_follow_speed_ratio])
-      self._tf_base_applied = max(0.6, float(tr * speed_scale * (2.0 - safe_mode_factor)))
-    self._tf_v_ego_kph = v_ego_kph
+    tf_base_target = get_t_follow_base(cruise_gap, gap_values, v_ego_kph,
+                                       self.t_follow_speed_ratio, safe_mode_factor)
+    self._tf_base_applied = hold_t_follow_while_decelerating(
+      tf_base_target, self._tf_base_applied, carstate.aEgo)
 
-    # Keep the base gap from shrinking while decelerating, then add a bounded
-    # deceleration-only margin.  Increase it gradually so the virtual obstacle
-    # cannot jump toward ego and cause a brake step; remove it immediately once
-    # deceleration ends so acceleration recovery is not delayed.
-    decel_margin = interp(carstate.aEgo, [-2.5, -1.0, -0.2, 0.0],
-                           [0.25, 0.12, 0.02, 0.0]) * self.t_follow_decel_boost
+    decel_margin = get_t_follow_decel_margin(
+      carstate.aEgo, self.t_follow_decel_boost, self.status)
     tf_target = self._tf_base_applied + decel_margin
-    if self._tf_applied <= 0.0:
-      self._tf_applied = tf_target
-    elif tf_target > self._tf_applied:
-      self._tf_applied = min(tf_target, self._tf_applied + 0.1 * DT_MDL)
-    else:
-      self._tf_applied = tf_target
+    self._tf_applied = limit_t_follow_increase(tf_target, self._tf_applied)
 
     self.t_follow = self._tf_applied
     self.stop_dist = self.stop_distance * (2.0 - safe_mode_factor)
-    self.desired_distance = float(self.t_follow * v_ego + self.stop_dist)   # UI 표시용
+    lead_v = lead_xv_0[0, 1] if radarstate.leadOne.status else v_ego
+    self.desired_distance = float(desired_follow_distance(
+      v_ego, lead_v, self.t_follow, self.stop_dist, self.comfort_brake))
 
     # planner에서 저장된 값 + lead 속도 함께 전달
     self.set_weights(v_ego=v_ego,
