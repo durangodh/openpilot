@@ -383,9 +383,12 @@ class LongitudinalMpc:
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST,
                                    DANGER_ZONE_COST * cost_multipliers[2]]
       else:
+        # Dynamic Following Response OFF must also disable the independent
+        # low-speed lead-departure assist. Keep the full smoothing costs so the
+        # vehicle does not aggressively chase a lead while the toggle is off.
         cost_weights = [self.x_ego_obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
-                        a_change_cost * departure_cost_multiplier,
-                        J_EGO_COST * departure_cost_multiplier]
+                        a_change_cost,
+                        J_EGO_COST]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, DANGER_ZONE_COST]
 
     elif self.mode == 'blended':
