@@ -11,6 +11,7 @@ from selfdrive.controls.lib.longitudinal_limits import (AUTO_SPEED_UP_RATE_KPH_S
                                                         get_auto_speed_up_target,
                                                         get_cruise_max_accel,
                                                         get_no_lead_cruise_accel_cap,
+                                                        limit_accel_in_turns,
                                                         select_auto_driving_mode)
 
 
@@ -109,3 +110,17 @@ def test_positive_ramp_is_unchanged():
 def test_braking_request_still_passes_through():
   assert apply_no_lead_cruise_accel_limit(-1.5, False, 1.6, 0.0, 0.65,
                                           -1.0, 0.25, DT_CTRL) == -1.5
+
+
+def test_turn_limit_preserves_straight_road_acceleration():
+  limits = limit_accel_in_turns(30.0, 0.0, [-1.2, 1.2], 15.0, 2.7)
+  assert limits == pytest.approx([-1.2, 1.2])
+
+
+def test_turn_limit_reduces_only_positive_acceleration():
+  limits = limit_accel_in_turns(30.0, 10.0, [-1.2, 1.2], 15.0, 2.7)
+  assert limits[0] == pytest.approx(-1.2)
+  assert limits[1] == pytest.approx(0.0)
+
+  braking_limits = limit_accel_in_turns(30.0, 10.0, [-1.2, -0.2], 15.0, 2.7)
+  assert braking_limits == pytest.approx([-1.2, -0.2])

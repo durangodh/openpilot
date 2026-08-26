@@ -15,7 +15,8 @@ from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_sp
 from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_cruise_max_accel,
-                                                        get_no_lead_cruise_accel_cap)
+                                                        get_no_lead_cruise_accel_cap,
+                                                        limit_accel_in_turns)
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.events import Events
 from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_VISION_LEAD_DISTANCE,
@@ -254,7 +255,9 @@ class LongitudinalPlanner:
       cruise_max_accel = min(cruise_max_accel, get_no_lead_cruise_accel_cap(
         cruise_max_accel, speed_error_kph, self.no_lead_cruise_accel_factor))
     if self.mpc.mode == 'acc':
-      accel_limits = [A_CRUISE_MIN, cruise_max_accel]
+      accel_limits = limit_accel_in_turns(
+        v_ego, sm['carState'].steeringAngleDeg,
+        [A_CRUISE_MIN, cruise_max_accel], self.CP.steerRatio, self.CP.wheelbase)
     else:
       # Keep E2E/blended on the same user-selected upper bound as ACC. Its
       # braking authority remains MIN_ACCEL and is not weakened by CruiseMax.

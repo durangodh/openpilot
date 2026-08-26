@@ -147,7 +147,7 @@ class CruiseHelper:
     self.auto_curve_speed_factor = float(clip(curve_factor if curve_factor > 0 else 120, 50, 300)) * 0.01
     self.auto_curve_speed_lower_limit = float(clip(curve_lower if curve_lower > 0 else 30, 5, 80))
     self.map_turn_speed_factor = float(clip(map_factor if map_factor > 0 else 90, 50, 150)) * 0.01
-    self.auto_navi_speed_decel_rate = float(clip(navi_decel if navi_decel > 0 else 120, 10, 300)) * 0.01
+    self.auto_navi_speed_decel_rate = float(clip(navi_decel if navi_decel > 0 else 80, 10, 300)) * 0.01
 
   def read_pedal_params(self):
     # C2 pedal-resume settings. Existing branch keys are used so no unregistered

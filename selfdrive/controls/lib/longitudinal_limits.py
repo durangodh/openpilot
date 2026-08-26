@@ -1,3 +1,5 @@
+import math
+
 from common.conversions import Conversions as CV
 from common.numpy_fast import clip, interp
 
@@ -15,6 +17,23 @@ CRUISE_MAX_VAL_KEYS = ["CruiseMaxVals1", "CruiseMaxVals20", "CruiseMaxVals2", "C
 CRUISE_MAX_VAL_DEFAULTS = [1.60, 1.40, 1.20, 1.00, 0.80, 0.70, 0.60]
 NO_LEAD_CRUISE_ACCEL_FACTOR_DEFAULT = 0.65
 NO_LEAD_CRUISE_JERK_DEFAULT = 0.25
+
+# aPilot C2 total-acceleration envelope. Longitudinal acceleration is reduced
+# when the estimated lateral acceleration consumes the available tire force.
+TURN_ACCEL_MAX_BP = [20.0, 40.0]
+TURN_ACCEL_MAX_V = [2.5, 3.2]
+
+
+def limit_accel_in_turns(v_ego, steering_angle_deg, accel_limits, steer_ratio, wheelbase):
+  """Apply the aPilot C2 steering-angle longitudinal acceleration limit."""
+  if steer_ratio <= 0.0 or wheelbase <= 0.0:
+    return [float(accel_limits[0]), float(accel_limits[1])]
+
+  total_accel_max = interp(v_ego, TURN_ACCEL_MAX_BP, TURN_ACCEL_MAX_V)
+  lateral_accel = (v_ego ** 2 * steering_angle_deg * CV.DEG_TO_RAD /
+                   (steer_ratio * wheelbase))
+  longitudinal_accel_max = math.sqrt(max(total_accel_max ** 2 - lateral_accel ** 2, 0.0))
+  return [float(accel_limits[0]), float(min(accel_limits[1], longitudinal_accel_max))]
 
 
 def get_cruise_max_accel(v_ego, cruise_max_vals, driving_mode,
