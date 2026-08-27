@@ -1829,16 +1829,32 @@ public final class HudService extends Service {
 
     private void drawLights(Canvas c, Paint p, JSONObject s) {
         final float y = 36f;
-        float x = 21f;
-        if (s.optBoolean("lowBeam", false)) { drawLamp(c, p, x, y, 0); x += 45f; }
-        if (s.optBoolean("highBeam", false)) { drawLamp(c, p, x, y, 1); x += 45f; }
-        if (s.optBoolean("frontFog", false)) { drawLamp(c, p, x, y, 2); x += 45f; }
+        float x = 19f;
+
+        // Genesis cluster order: position lamps, dipped beam, optional high/fog,
+        // seat belt, then the top-view door warning.
+        if (s.optBoolean("lowBeam", false)) {
+            drawPositionLamp(c, p, x + 16f, y);
+            x += 39f;
+            drawLamp(c, p, x, y, 0);
+            x += 43f;
+        }
+        if (s.optBoolean("highBeam", false)) {
+            drawLamp(c, p, x, y, 1);
+            x += 43f;
+        }
+        if (s.optBoolean("frontFog", false)) {
+            drawLamp(c, p, x, y, 2);
+            x += 43f;
+        }
         if (s.optBoolean("seatbeltUnlatched", false)) {
-            drawSeatbeltIcon(c, p, x + 7f, y);
+            drawSeatbeltIcon(c, p, x + 9f, y);
             x += 34f;
         }
         JSONObject doors = s.optJSONObject("doors");
-        if (hasOpenDoor(doors)) drawDoorWarning(c, p, x + 9f, y, doors);
+        if (hasOpenDoor(doors)) {
+            drawDoorWarning(c, p, x + 10f, y, doors);
+        }
     }
 
     private boolean hasOpenDoor(JSONObject doors) {
@@ -1847,40 +1863,88 @@ public final class HudService extends Service {
                 || doors.optBoolean("rr", false));
     }
 
-    private void drawSeatbeltIcon(Canvas c, Paint p, float x, float y) {
-        int red = Color.rgb(230, 48, 58);
+    /** Genesis position-lamp telltale: two opposed green lamps with three rays. */
+    private void drawPositionLamp(Canvas c, Paint p, float cx, float cy) {
+        final int green = Color.rgb(47, 211, 83);
         p.setShader(null);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeCap(Paint.Cap.ROUND);
         p.setStrokeJoin(Paint.Join.ROUND);
-        p.setStrokeWidth(4f);
-        p.setColor(red);
-        c.drawCircle(x, y - 10f, 4f, p);
-        scratchPath.rewind();
-        scratchPath.moveTo(x - 2f, y - 5f);
-        scratchPath.lineTo(x - 7f, y + 11f);
-        scratchPath.lineTo(x + 8f, y + 11f);
-        scratchPath.lineTo(x + 3f, y - 3f);
-        c.drawPath(scratchPath, p);
-        c.drawLine(x - 6f, y - 4f, x + 8f, y + 13f, p);
+        p.setStrokeWidth(2.6f);
+        p.setColor(green);
+
+        // Opposed lamp bowls.
+        scratchRect.set(cx - 5.5f, cy - 9f, cx + 0.5f, cy + 9f);
+        c.drawArc(scratchRect, 270f, 180f, false, p);
+        scratchRect.set(cx - 0.5f, cy - 9f, cx + 5.5f, cy + 9f);
+        c.drawArc(scratchRect, 90f, 180f, false, p);
+
+        // Symmetric light rays.
+        c.drawLine(cx - 10f, cy, cx - 17f, cy, p);
+        c.drawLine(cx - 9f, cy - 6f, cx - 15f, cy - 10f, p);
+        c.drawLine(cx - 9f, cy + 6f, cx - 15f, cy + 10f, p);
+        c.drawLine(cx + 10f, cy, cx + 17f, cy, p);
+        c.drawLine(cx + 9f, cy - 6f, cx + 15f, cy - 10f, p);
+        c.drawLine(cx + 9f, cy + 6f, cx + 15f, cy + 10f, p);
         p.setStrokeCap(Paint.Cap.BUTT);
     }
 
+    /** Genesis red seated-person/belt telltale. */
+    private void drawSeatbeltIcon(Canvas c, Paint p, float cx, float cy) {
+        final int red = Color.rgb(234, 48, 58);
+        p.setShader(null);
+        p.setColor(red);
+
+        // Head.
+        p.setStyle(Paint.Style.FILL);
+        c.drawCircle(cx - 2f, cy - 11f, 3.6f, p);
+
+        // Seat back and cushion.
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setStrokeWidth(3.2f);
+        scratchPath.rewind();
+        scratchPath.moveTo(cx - 5f, cy - 5f);
+        scratchPath.lineTo(cx - 7f, cy + 7f);
+        scratchPath.quadTo(cx - 5f, cy + 12f, cx, cy + 12f);
+        scratchPath.lineTo(cx + 8f, cy + 12f);
+        c.drawPath(scratchPath, p);
+        c.drawLine(cx - 4f, cy + 3f, cx + 4f, cy + 7f, p);
+
+        // Diagonal belt and buckle.
+        p.setStrokeWidth(3f);
+        c.drawLine(cx - 7f, cy - 5f, cx + 8f, cy + 13f, p);
+        p.setStyle(Paint.Style.FILL);
+        scratchRect.set(cx + 4f, cy + 7f, cx + 8f, cy + 11f);
+        c.drawRoundRect(scratchRect, 1f, 1f, p);
+        p.setStrokeCap(Paint.Cap.BUTT);
+    }
+
+    /** Top-view Genesis body with only the actually open door highlighted red. */
     private void drawDoorWarning(Canvas c, Paint p, float cx, float cy, JSONObject doors) {
         final float left = cx - 7f, right = cx + 7f;
-        final float top = cy - 13f, bottom = cy + 13f;
+        final float top = cy - 14f, bottom = cy + 14f;
+        final int body = frameDark ? Color.rgb(245, 247, 250) : Color.rgb(52, 59, 66);
+        final int red = Color.rgb(234, 48, 58);
+
         p.setShader(null);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeJoin(Paint.Join.ROUND);
-        p.setStrokeCap(Paint.Cap.ROUND);
-        p.setStrokeWidth(2.5f);
-        p.setColor(ink());
-        scratchRect.set(left, top, right, bottom);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(body);
+        scratchRect.set(left + 1f, top + 2f, right - 1f, bottom - 2f);
         c.drawRoundRect(scratchRect, 4f, 4f, p);
-        c.drawLine(left + 2f, cy - 5f, right - 2f, cy - 5f, p);
-        c.drawLine(left + 2f, cy + 6f, right - 2f, cy + 6f, p);
-        p.setStrokeWidth(4f);
-        p.setColor(Color.rgb(230, 48, 58));
+
+        // Windscreens/cabin cut-outs create the OEM top-view silhouette.
+        p.setColor(frameDark ? Color.rgb(62, 70, 80) : Color.rgb(225, 229, 232));
+        scratchRect.set(left + 3f, top + 5f, right - 3f, cy - 3f);
+        c.drawRoundRect(scratchRect, 2f, 2f, p);
+        scratchRect.set(left + 3f, cy + 3f, right - 3f, bottom - 5f);
+        c.drawRoundRect(scratchRect, 2f, 2f, p);
+
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(3.2f);
+        p.setColor(red);
         if (doors.optBoolean("fl", false)) c.drawLine(left, cy - 7f, left - 8f, cy - 12f, p);
         if (doors.optBoolean("fr", false)) c.drawLine(right, cy - 7f, right + 8f, cy - 12f, p);
         if (doors.optBoolean("rl", false)) c.drawLine(left, cy + 4f, left - 8f, cy + 10f, p);
@@ -1888,31 +1952,42 @@ public final class HudService extends Service {
         p.setStrokeCap(Paint.Cap.BUTT);
     }
 
+    /** kind 0 dipped beam, 1 high beam, 2 front fog. */
     private void drawLamp(Canvas c, Paint p, float x, float y, int kind) {
-        int color = kind == 1 ? Color.rgb(44, 128, 238) : Color.rgb(39, 177, 89);
+        final int color = kind == 1 ? Color.rgb(46, 139, 245) : Color.rgb(47, 211, 83);
         p.setShader(null);
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(3f);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setStrokeWidth(2.8f);
         p.setColor(color);
-        scratchRect.set(x + 22f, y - 10f, x + 36f, y + 10f);
+
+        // Lamp bowl on the right.
+        scratchRect.set(x + 22f, y - 11f, x + 36f, y + 11f);
         c.drawArc(scratchRect, 90f, 180f, false, p);
+        c.drawLine(x + 29f, y - 11f, x + 29f, y + 11f, p);
+
+        // Three OEM-style rays: dipped rays slope down-left, high rays are flat.
         for (int i = -1; i <= 1; i++) {
             float yy = y + i * 7f;
-            if (kind == 2) {
-                c.drawLine(x, yy + 4f, x + 18f, yy, p);
+            if (kind == 0) {
+                c.drawLine(x + 1f, yy + 4f, x + 18f, yy, p);
+            } else if (kind == 2) {
+                c.drawLine(x + 1f, yy + 3f, x + 18f, yy, p);
             } else {
-                c.drawLine(x, yy, x + 18f, yy, p);
+                c.drawLine(x + 1f, yy, x + 18f, yy, p);
             }
         }
+
+        // Fog lamp wave crossing the rays.
         if (kind == 2) {
             scratchPath.rewind();
-            scratchPath.moveTo(x + 9f, y - 12f);
-            scratchPath.lineTo(x + 13f, y - 6f);
-            scratchPath.lineTo(x + 9f, y);
-            scratchPath.lineTo(x + 13f, y + 6f);
-            scratchPath.lineTo(x + 9f, y + 12f);
+            scratchPath.moveTo(x + 8f, y - 12f);
+            scratchPath.cubicTo(x + 14f, y - 8f, x + 5f, y - 4f, x + 11f, y);
+            scratchPath.cubicTo(x + 17f, y + 4f, x + 8f, y + 8f, x + 14f, y + 12f);
             c.drawPath(scratchPath, p);
         }
+        p.setStrokeCap(Paint.Cap.BUTT);
     }
 
     private void drawSteeringWheel(Canvas c, Paint p, float cx, float cy, float angle,
