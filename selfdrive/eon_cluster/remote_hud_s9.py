@@ -9,7 +9,6 @@ import time
 
 from common.params import Params
 from selfdrive.eon_cluster import remote_hud as base
-from selfdrive.eon_cluster.scene import scale_scene_width
 
 
 _params = Params()
@@ -33,36 +32,14 @@ def _bounded_int(key, default, minimum, maximum):
   return max(minimum, min(maximum, value))
 
 
-def _flip_points_y(points):
-  if not points:
-    return points
-  return [[p[0], -p[1]] for p in points]
-
-
 def _apply_path_flip(packet):
-  # 2026-08-18: 실차 확인 결과 EonClusterHudMirror(화면 전체 좌우반전)는
-  # 꺼져 있는데도 차선/경로 리본이 실제 도로와 반대로 보이는 문제가
-  # 있었다. 텍스트/아이콘은 정상이라 전체 미러는 원인이 아니고, 차선과
-  # 리본이 서로는 어긋나지 않고 같이 반대로 보인다는 것도 확인했다.
-  # BSD/텍스트/아이콘은 건드리지 않고 path/lanes/edges/pathOffset/lead.y
-  # 만 좌우 부호를 뒤집는, APK 재설치 없이(파이썬만 재시작) 테스트할 수
-  # 있는 진단용 토글이다. 기본 꺼짐.
-  if not _bounded_int("EonClusterHudPathFlip", 0, 0, 1):
-    return packet
-  packet["path"] = _flip_points_y(packet.get("path"))
-  for line in packet.get("lanes") or []:
-    if isinstance(line, dict):
-      line["p"] = _flip_points_y(line.get("p"))
-  for line in packet.get("edges") or []:
-    if isinstance(line, dict):
-      line["p"] = _flip_points_y(line.get("p"))
-  packet["pathOffset"] = -float(packet.get("pathOffset", 0.0) or 0.0)
-  for key in ("lead", "lead2"):
-    lead = packet.get(key)
-    if isinstance(lead, dict) and "y" in lead:
-      lead["y"] = -float(lead["y"] or 0.0)
+  # All producers and the Android renderer now share forward-X/left-Y.
+  # The old diagnostic flipped only model geometry and left OSM/TMAP in the
+  # original frame, so honoring it can never produce a coherent world.
+  requested = _bounded_int("EonClusterHudPathFlip", 0, 0, 1)
+  packet["hudPathFlip"] = 0
+  packet["hudPathFlipIgnored"] = bool(requested)
   return packet
-
 
 def _packet(sm, *args, **kwargs):
   # base._packet 의 인자가 늘어나도(noo_enabled → +path_offset 등) 그대로
@@ -71,18 +48,10 @@ def _packet(sm, *args, **kwargs):
   packet = _original_packet(sm, *args, **kwargs)
   packet = _apply_path_flip(packet)
 
-  # World3D keeps a deliberately synthetic camera. These two HUD-only trims
-  # let each vehicle/display installation correct its apparent road width and
-  # horizon without rebuilding the APK or changing any control geometry.
-  world_width = _bounded_int("EonClusterHudWorldWidth", 100, 70, 140)
-  world_scale = world_width * 0.01
-  centre_cache = {}
-  packet["lanes"] = scale_scene_width(packet.get("path"), packet.get("lanes"),
-                                      world_scale, centre_cache)
-  packet["edges"] = scale_scene_width(packet.get("path"), packet.get("edges"),
-                                      world_scale, centre_cache)
-  packet["laneWidth"] = round(float(packet.get("laneWidth", 0.0) or 0.0) * world_scale, 2)
-  packet["hudWorldWidth"] = world_width
+  # Keep modelV2 lane lines and road edges in their original camera frame.
+  # Scaling them around the MPC path made a visual width setting move perceived
+  # geometry toward a control trajectory and broke OSM/model alignment.
+  packet["hudWorldWidth"] = 100
 
   view_pitch = _bounded_int("EonClusterHudViewPitch", 0, -50, 50)
   calibrated_pitch = float(packet.get("calibPitch", 0.0) or 0.0) + math.radians(view_pitch * 0.1)

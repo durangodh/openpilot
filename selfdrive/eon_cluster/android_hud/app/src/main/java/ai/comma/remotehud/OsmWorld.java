@@ -36,6 +36,11 @@ import java.util.concurrent.LinkedBlockingQueue;
 final class OsmWorld {
     private static final String TAG = "OsmWorld";
     private static final double TILE = 0.005;
+    /** Current tile first, then cardinal neighbours, then corners. */
+    private static final int[][] TILE_OFFSETS = {
+            {0, 0}, {-1, 0}, {1, 0}, {0, -1}, {0, 1},
+            {-1, -1}, {-1, 1}, {1, -1}, {1, 1}
+    };
     private static final long FAIL_COOLDOWN_MS = 90_000L;
     /** 오래된 캐시 갱신 실패 시 Overpass 재시도 간격. */
     private static final long REFRESH_FAIL_COOLDOWN_MS = 90L * 60L * 1000L;
@@ -63,7 +68,9 @@ final class OsmWorld {
         float[][] roadY;
         float[] roadW;
         int[] roadMatch;
+        long[] roadId;
         int roadCount;
+        int matchedRoadIndex = -1;
         float[][] barrierX;
         float[][] barrierY;
         float[] barrierH;
@@ -126,8 +133,8 @@ final class OsmWorld {
     /** 마지막 지도 정합 상태. M은 보정 적용, RAW는 신뢰할 도로 없음. */
     private volatile String lastAlignment = "RAW";
     private float alignmentYaw = 0f;
-    private float alignmentLongitudinal = 0f;
     private float alignmentLateral = 0f;
+    private long alignmentRoadId = Long.MIN_VALUE;
     private boolean alignmentReady = false;
     private long alignmentNanos = 0L;
     private long lastMatchMillis = 0L;
@@ -166,10 +173,8 @@ final class OsmWorld {
         synchronized (lock) {
             if (ky != activeKy || kx != activeKx) {
                 HashSet<String> wanted = new HashSet<>();
-                for (int dy = -1; dy <= 1; dy++) {
-                    for (int dx = -1; dx <= 1; dx++) {
-                        wanted.add((ky + dy) + "_" + (kx + dx));
-                    }
+                for (int[] offset : TILE_OFFSETS) {
+                    wanted.add((ky + offset[0]) + "_" + (kx + offset[1]));
                 }
                 activeKeys.clear();
                 activeKeys.addAll(wanted);
@@ -186,23 +191,21 @@ final class OsmWorld {
                 activeKy = ky;
                 activeKx = kx;
             }
-            for (int dy = -1; dy <= 1; dy++) {
-                for (int dx = -1; dx <= 1; dx++) {
-                    String key = (ky + dy) + "_" + (kx + dx);
-                    boolean loaded = tiles.containsKey(key);
-                    Long due = refreshDueAt.get(key);
-                    boolean stale = loaded && (due == null || now >= due);
-                    if ((loaded && !stale) || pending.contains(key) || key.equals(inFlight)) {
-                        continue;
-                    }
-                    Long failed = failedAt.get(key);
-                    long cooldown = loaded ? REFRESH_FAIL_COOLDOWN_MS : FAIL_COOLDOWN_MS;
-                    if (failed != null && now - failed < cooldown) {
-                        continue;
-                    }
-                    pending.add(key);
-                    queue.offer(key);
+            for (int[] offset : TILE_OFFSETS) {
+                String key = (ky + offset[0]) + "_" + (kx + offset[1]);
+                boolean loaded = tiles.containsKey(key);
+                Long due = refreshDueAt.get(key);
+                boolean stale = loaded && (due == null || now >= due);
+                if ((loaded && !stale) || pending.contains(key) || key.equals(inFlight)) {
+                    continue;
                 }
+                Long failed = failedAt.get(key);
+                long cooldown = loaded ? REFRESH_FAIL_COOLDOWN_MS : FAIL_COOLDOWN_MS;
+                if (failed != null && now - failed < cooldown) {
+                    continue;
+                }
+                pending.add(key);
+                queue.offer(key);
             }
             if (worker == null || !worker.isAlive()) {
                 worker = new Thread(new Runnable() {
@@ -235,6 +238,7 @@ final class OsmWorld {
         List<float[]> ry = new ArrayList<>();
         List<Float> rw = new ArrayList<>();
         List<Integer> rm = new ArrayList<>();
+        List<Long> rid = new ArrayList<>();
         List<float[]> wx = new ArrayList<>();
         List<float[]> wy = new ArrayList<>();
         List<Float> wh = new ArrayList<>();
@@ -253,12 +257,11 @@ final class OsmWorld {
         HashSet<Long> lampIds = new HashSet<>();
 
         synchronized (lock) {
-            for (int dy = -1; dy <= 1; dy++) {
-                for (int dx = -1; dx <= 1; dx++) {
-                    Tile tile = tiles.get((ky + dy) + "_" + (kx + dx));
-                    if (tile == null) {
-                        continue;
-                    }
+            for (int[] offset : TILE_OFFSETS) {
+                Tile tile = tiles.get((ky + offset[0]) + "_" + (kx + offset[1]));
+                if (tile == null) {
+                    continue;
+                }
                     for (Poly b : tile.buildings) {
                         if (bx.size() >= 120) {
                             break;
@@ -288,6 +291,7 @@ final class OsmWorld {
                             ry.add(xy[1]);
                             rw.add(r.h);
                             rm.add(r.kind);
+                            rid.add(r.id);
                         }
                     }
                     for (Poly wall : tile.barriers) {
@@ -346,7 +350,6 @@ final class OsmWorld {
                             lh.add(lamp.h);
                         }
                     }
-                }
             }
         }
         if (bx.isEmpty() && rx.isEmpty() && wx.isEmpty() && tx.isEmpty() && lx.isEmpty()) {
@@ -369,9 +372,11 @@ final class OsmWorld {
         s.roadY = ry.toArray(new float[0][]);
         s.roadW = new float[rw.size()];
         s.roadMatch = new int[rm.size()];
+        s.roadId = new long[rid.size()];
         for (int i = 0; i < rw.size(); i++) {
             s.roadW[i] = rw.get(i);
             s.roadMatch[i] = rm.get(i);
+            s.roadId[i] = rid.get(i);
         }
         s.barrierCount = wx.size();
         s.barrierX = wx.toArray(new float[0][]);
@@ -396,14 +401,14 @@ final class OsmWorld {
     }
 
     /**
-     * GPS/방위 오차를 OSM 도로 중심선에 맞춘 하나의 강체 변환으로 보정한다.
-     * 건물·옆길·방음벽·나무·가로등에 모두 같은 변환을 적용하므로 서로의
-     * 상대 위치는 보존된다. 보정값은 약 2초 시정수로 완만하게 움직인다.
+     * Correct only heading and lateral GPS error against a camera-anchored
+     * OSM road. Forward translation is not observable on a continuous road.
+     * Keeping the selected OSM way id adds hysteresis on parallel roads.
      */
     private void alignSnapshot(Snapshot s, float targetRoadY, float targetRoadWidth) {
         OsmRoadMatcher.Match match = OsmRoadMatcher.find(
-                s.roadX, s.roadY, s.roadW, s.roadMatch,
-                targetRoadY, targetRoadWidth);
+                s.roadX, s.roadY, s.roadW, s.roadMatch, s.roadId,
+                alignmentRoadId, targetRoadY, targetRoadWidth);
         long nowNanos = System.nanoTime();
         long nowMillis = System.currentTimeMillis();
         float dt = alignmentNanos == 0L ? 0f
@@ -412,33 +417,33 @@ final class OsmWorld {
         alignmentNanos = nowNanos;
 
         if (match != null) {
-            if (!alignmentReady || nowMillis - lastMatchMillis > 5000L) {
+            long matchedId = match.roadIndex >= 0 && match.roadIndex < s.roadId.length
+                    ? s.roadId[match.roadIndex] : Long.MIN_VALUE;
+            boolean roadChanged = matchedId != alignmentRoadId;
+            if (!alignmentReady || roadChanged || nowMillis - lastMatchMillis > 5000L) {
                 alignmentYaw = match.yawCorrection;
-                alignmentLongitudinal = match.longitudinalShift;
                 alignmentLateral = match.lateralShift;
                 alignmentReady = true;
             } else {
                 float alpha = 1f - (float) Math.exp(-dt / 2.0f);
                 alignmentYaw += (match.yawCorrection - alignmentYaw) * alpha;
-                alignmentLongitudinal +=
-                        (match.longitudinalShift - alignmentLongitudinal) * alpha;
                 alignmentLateral += (match.lateralShift - alignmentLateral) * alpha;
             }
+            alignmentRoadId = matchedId;
+            s.matchedRoadIndex = match.roadIndex;
             lastMatchMillis = nowMillis;
         } else if (alignmentReady && nowMillis - lastMatchMillis > 3000L) {
-            // 교차로/타일 교체 중 잠깐 도로가 사라지면 마지막 보정을 유지한다.
-            // 장시간 신뢰할 도로가 없을 때만 원좌표로 천천히 돌아간다.
+            // Brief lane loss at an intersection keeps the last transform.
+            // A prolonged loss decays safely back to raw map coordinates.
             float alpha = 1f - (float) Math.exp(-dt / 5.0f);
             alignmentYaw *= 1f - alpha;
-            alignmentLongitudinal *= 1f - alpha;
             alignmentLateral *= 1f - alpha;
             if (Math.abs(alignmentYaw) < 0.001f
-                    && Math.abs(alignmentLongitudinal) < 0.05f
                     && Math.abs(alignmentLateral) < 0.05f) {
                 alignmentReady = false;
                 alignmentYaw = 0f;
-                alignmentLongitudinal = 0f;
                 alignmentLateral = 0f;
+                alignmentRoadId = Long.MIN_VALUE;
             }
         }
 
@@ -446,19 +451,26 @@ final class OsmWorld {
             lastAlignment = "RAW";
             return;
         }
+        if (s.matchedRoadIndex < 0 && alignmentRoadId != Long.MIN_VALUE) {
+            for (int i = 0; i < s.roadId.length; i++) {
+                if (s.roadId[i] == alignmentRoadId) {
+                    s.matchedRoadIndex = i;
+                    break;
+                }
+            }
+        }
         OsmRoadMatcher.transformPolylines(s.ringX, s.ringY,
-                alignmentYaw, alignmentLongitudinal, alignmentLateral);
+                alignmentYaw, alignmentLateral);
         OsmRoadMatcher.transformPolylines(s.roadX, s.roadY,
-                alignmentYaw, alignmentLongitudinal, alignmentLateral);
+                alignmentYaw, alignmentLateral);
         OsmRoadMatcher.transformPolylines(s.barrierX, s.barrierY,
-                alignmentYaw, alignmentLongitudinal, alignmentLateral);
+                alignmentYaw, alignmentLateral);
         OsmRoadMatcher.transformPoints(s.treeX, s.treeY,
-                alignmentYaw, alignmentLongitudinal, alignmentLateral);
+                alignmentYaw, alignmentLateral);
         OsmRoadMatcher.transformPoints(s.lampX, s.lampY,
-                alignmentYaw, alignmentLongitudinal, alignmentLateral);
-        lastAlignment = String.format(Locale.US, "M%+.0f,%+.0f/%+.0f",
-                alignmentLongitudinal, alignmentLateral,
-                Math.toDegrees(alignmentYaw));
+                alignmentYaw, alignmentLateral);
+        lastAlignment = String.format(Locale.US, "M%+.0f/%+.0f",
+                alignmentLateral, Math.toDegrees(alignmentYaw));
     }
 
     /** lat/lon 짝 배열 → 로컬 (x[], y[]). 범위 밖이면 null (컬링). */
@@ -470,7 +482,8 @@ final class OsmWorld {
         float[] ys = new float[n];
         float lo = Float.MAX_VALUE;
         float hi = -Float.MAX_VALUE;
-        float yMin = Float.MAX_VALUE;
+        float minY = Float.MAX_VALUE;
+        float maxY = -Float.MAX_VALUE;
         for (int i = 0; i < n; i++) {
             double e = (pts[i * 2 + 1] - lon0) * mLon;
             double nn = (pts[i * 2] - lat0) * mLat;
@@ -480,9 +493,10 @@ final class OsmWorld {
             ys[i] = y;
             lo = Math.min(lo, x);
             hi = Math.max(hi, x);
-            yMin = Math.min(yMin, Math.abs(y));
+            minY = Math.min(minY, y);
+            maxY = Math.max(maxY, y);
         }
-        if (hi < minX || lo > maxX || yMin > maxAbsY) {
+        if (hi < minX || lo > maxX || maxY < -maxAbsY || minY > maxAbsY) {
             return null;
         }
         return new float[][]{xs, ys};
@@ -682,10 +696,15 @@ final class OsmWorld {
             return null;
         }
         try {
-            JSONArray elements = new JSONObject(body).optJSONArray("elements");
+            JSONObject root = new JSONObject(body);
+            if (!root.optString("remark", "").isEmpty()) {
+                lastError = "partial";
+                return null;
+            }
+            JSONArray elements = root.optJSONArray("elements");
             Tile tile = new Tile();
             if (elements == null) {
-                return tile;
+                return null;
             }
             for (int i = 0; i < elements.length(); i++) {
                 JSONObject el = elements.optJSONObject(i);

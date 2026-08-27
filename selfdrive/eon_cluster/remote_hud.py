@@ -36,6 +36,9 @@ OVERLAY_MAX_BYTES = 512 * 1024
 MAP_KEEPALIVE_S = 1.0
 NAVI_MAX_AGE_MS = 35000
 NAVI_GUIDANCE_MAX_AGE_MS = 3000
+NAVI_STREAM_MAX_AGE_MS = 3000
+NAVI_FUTURE_TOLERANCE_MS = 5000
+NAVI_POSITION_PREDICT_MAX_S = 0.5
 MAP_IDLE_JPEG = base64.b64decode(
   "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDz+iiigD//2Q==")
 MAX_TELEMETRY_FPS = 10
@@ -48,6 +51,7 @@ PARAM_MAP_FPS = "EonClusterHudMapFps"
 HEARTBEAT_PERIOD_S = 2.0
 PARAM_NOO_ENABLED = "NavigationOnOpenpilot"
 _NAVI_CACHE = {"signature": None, "state": {}, "scene_sig": None, "scene": None, "parsed_at": 0.0}
+_NAVI_POSE_FILTER = {"heading": None, "lat": None, "lon": None, "seen": 0.0}
 # 티맵 상태 파일은 최대 20 Hz 로 다시 쓰이지만, 여기서 필요한 건 안내 거리와
 # 앞길 곡선뿐이라 5 Hz 로 충분하다. 경로 폴리라인이 길면(장거리 목적지) JSON
 # 파싱이 EON 에서 프레임당 15 ms 까지 나오므로, 파싱만 이 주기로 제한한다.
@@ -594,7 +598,18 @@ def _read_navi_summary():
   vehicle = state.get("vehicle") or {}
   stream_times = state.get("stream_updated_at_ms") or {}
   guidance_at = int(stream_times.get("guidance_current", updated_at) or 0)
-  guidance_live = -5000 <= now_ms - guidance_at <= NAVI_GUIDANCE_MAX_AGE_MS
+  vehicle_at = int(stream_times.get("vehicle", 0) or 0)
+  route_at = int(stream_times.get("route", 0) or 0)
+  lane_at = int(stream_times.get("lane_current", 0) or 0)
+
+  def _stream_live(timestamp_ms, maximum_age_ms=NAVI_STREAM_MAX_AGE_MS):
+    age_ms = now_ms - timestamp_ms
+    return timestamp_ms > 0 and -NAVI_FUTURE_TOLERANCE_MS <= age_ms <= maximum_age_ms
+
+  guidance_live = -NAVI_FUTURE_TOLERANCE_MS <= now_ms - guidance_at <= NAVI_GUIDANCE_MAX_AGE_MS
+  vehicle_live = _stream_live(vehicle_at)
+  route_live = _stream_live(route_at)
+  lane_live = _stream_live(lane_at)
   status = state.get("navigation_status") or {}
   active = True
   if isinstance(status, dict):
@@ -620,10 +635,22 @@ def _read_navi_summary():
       _NAVI_CACHE["scene"] = _navi_scene(state)
     except Exception:
       _NAVI_CACHE["scene"] = None
+  scene = dict(_NAVI_CACHE["scene"] or {})
+  if not vehicle_live:
+    scene.pop("pos", None)
+    scene.pop("curve", None)
+  else:
+    scene["posAgeMs"] = max(0, min(NAVI_STREAM_MAX_AGE_MS, now_ms - vehicle_at))
+  if not route_live:
+    scene.pop("curve", None)
+  if not lane_live:
+    scene.pop("lane", None)
+    scene.pop("cat", None)
+
   if not active:
     inactive = {"active": False}
-    if _NAVI_CACHE["scene"]:
-      inactive["scene"] = _NAVI_CACHE["scene"]
+    if scene:
+      inactive["scene"] = scene
     return inactive
 
   try:
@@ -662,9 +689,88 @@ def _read_navi_summary():
   }
   if next_summary is not None:
     summary["next"] = next_summary
-  if _NAVI_CACHE["scene"]:
-    summary["scene"] = _NAVI_CACHE["scene"]
+  if scene:
+    summary["scene"] = scene
   return summary
+
+
+def _compensate_navi_pose(navi, v_ego):
+  """Keep stopped heading stable and project a fresh TMAP fix to packet time."""
+  if not isinstance(navi, dict):
+    return
+  scene = navi.get("scene")
+  if not isinstance(scene, dict):
+    return
+  pos = scene.get("pos")
+  if not isinstance(pos, list) or len(pos) < 3:
+    return
+  try:
+    lat = float(pos[0])
+    lon = float(pos[1])
+    heading_deg = float(pos[2])
+    age_s = max(0.0, min(NAVI_POSITION_PREDICT_MAX_S,
+                         float(scene.get("posAgeMs", 0) or 0) * 0.001))
+    speed = max(0.0, min(70.0, float(v_ego)))
+  except (TypeError, ValueError):
+    return
+  if not all(math.isfinite(value) for value in (lat, lon, heading_deg, age_s, speed)):
+    scene.pop("pos", None)
+    scene.pop("curve", None)
+    return
+  if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+    scene.pop("pos", None)
+    scene.pop("curve", None)
+    return
+
+  now = time.monotonic()
+  raw_heading_deg = heading_deg
+  previous_heading = _NAVI_POSE_FILTER["heading"]
+  previous_lat = _NAVI_POSE_FILTER["lat"]
+  previous_lon = _NAVI_POSE_FILTER["lon"]
+  nearby = False
+  if previous_lat is not None and previous_lon is not None:
+    north = (lat - previous_lat) * 111320.0
+    east = (lon - previous_lon) * 111320.0 * math.cos(math.radians(lat))
+    nearby = north * north + east * east < 15.0 * 15.0
+  if speed < 0.5 and previous_heading is not None and nearby and now - _NAVI_POSE_FILTER["seen"] < 5.0:
+    heading_deg = previous_heading
+  else:
+    _NAVI_POSE_FILTER["heading"] = heading_deg
+  _NAVI_POSE_FILTER["lat"] = lat
+  _NAVI_POSE_FILTER["lon"] = lon
+  _NAVI_POSE_FILTER["seen"] = now
+
+  distance = speed * age_s
+  heading = math.radians(heading_deg)
+  lat += math.cos(heading) * distance / 111320.0
+  lon_scale = 111320.0 * max(0.1, math.cos(math.radians(lat)))
+  lon += math.sin(heading) * distance / lon_scale
+
+  # curve was built in the raw-heading frame at the unprojected position.
+  # Rotate it into the stabilized frame and move the origin forward by the
+  # same latency distance so map geometry and OSM keep one coordinate frame.
+  curve = scene.get("curve")
+  if isinstance(curve, list):
+    delta = math.radians(heading_deg - raw_heading_deg)
+    cos_delta, sin_delta = math.cos(delta), math.sin(delta)
+    adjusted = []
+    for point in curve:
+      if not isinstance(point, list) or len(point) < 2:
+        continue
+      try:
+        x = float(point[0])
+        y = float(point[1])
+      except (TypeError, ValueError):
+        continue
+      adjusted.append([round(x * cos_delta - y * sin_delta - distance, 1),
+                       round(x * sin_delta + y * cos_delta, 1)])
+    if len(adjusted) >= 2:
+      scene["curve"] = adjusted
+    else:
+      scene.pop("curve", None)
+
+  scene["pos"] = [round(lat, 6), round(lon, 6), round(heading_deg, 1)]
+  scene["posAgeMs"] = 0
 
 
 def _packet(sm, noo_enabled, path_offset=0.0):
@@ -705,6 +811,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     mode = 3
   tpms = _field(car, "tpms", None)
   navi = _read_navi_summary()
+  _compensate_navi_pose(navi, _finite(_field(car, "vEgo", 0.0)))
   raw_lane_position = camera_lane_position(sm["modelV2"])
   route_lane_count = 0
   try:

@@ -332,10 +332,10 @@ final class World3D {
         if (lanes != null && lanes.length() >= 3) {
             JSONObject left = lanes.optJSONObject(1);
             JSONObject right = lanes.optJSONObject(2);
-            if (left != null) {
+            if (left != null && left.optDouble("c", 0d) >= 0.45d) {
                 laneLCount = decode(left.optJSONArray("p"), laneLX, laneLY);
             }
-            if (right != null) {
+            if (right != null && right.optDouble("c", 0d) >= 0.45d) {
                 laneRCount = decode(right.optJSONArray("p"), laneRX, laneRY);
             }
         }
@@ -523,7 +523,13 @@ final class World3D {
             return (sample(laneLX, laneLY, laneLCount, x)
                     + sample(laneRX, laneRY, laneRCount, x)) * 0.5f;
         }
-        return centerAt(x);
+        if (edgeLCount >= 2 && edgeRCount >= 2) {
+            return (sample(edgeLX, edgeLY, edgeLCount, x)
+                    + sample(edgeRX, edgeRY, edgeRCount, x)) * 0.5f;
+        }
+        // The final MPC path may contain offsets and navigation blending.
+        // With no reliable perception boundary, neutral ego centre is safer.
+        return 0f;
     }
 
     /** 인식된 도로경계가 있으면 그것으로, 없으면 고정 폭으로. */
@@ -817,7 +823,7 @@ final class World3D {
             float depth = 1f / (invNear + (invFar - invNear) * t);
             float x = depth - CAM_BACK;
             float inv = FOCAL / depth;
-            float vy = HORIZON + horizonShift + CAM_H * inv;
+            float vy = HORIZON + horizonShift + (CAM_H - roadZ(x)) * inv;
             lx[i] = CX - roadEdgeAt(x, true) * inv;
             ly[i] = vy;
             rx[i] = CX - roadEdgeAt(x, false) * inv;
@@ -1086,6 +1092,9 @@ final class World3D {
         p.setStyle(Paint.Style.FILL);
         p.setColor(shade);
         for (int r = 0; r < osm.roadCount; r++) {
+            if (r == osm.matchedRoadIndex) {
+                continue;
+            }
             float[] xs = osm.roadX[r];
             float[] ys = osm.roadY[r];
             float halfW = osm.roadW[r] * 0.5f;
