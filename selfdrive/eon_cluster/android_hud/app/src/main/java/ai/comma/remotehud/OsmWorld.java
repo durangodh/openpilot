@@ -126,6 +126,7 @@ final class OsmWorld {
     /** 마지막 지도 정합 상태. M은 보정 적용, RAW는 신뢰할 도로 없음. */
     private volatile String lastAlignment = "RAW";
     private float alignmentYaw = 0f;
+    private float alignmentLongitudinal = 0f;
     private float alignmentLateral = 0f;
     private boolean alignmentReady = false;
     private long alignmentNanos = 0L;
@@ -413,11 +414,14 @@ final class OsmWorld {
         if (match != null) {
             if (!alignmentReady || nowMillis - lastMatchMillis > 5000L) {
                 alignmentYaw = match.yawCorrection;
+                alignmentLongitudinal = match.longitudinalShift;
                 alignmentLateral = match.lateralShift;
                 alignmentReady = true;
             } else {
                 float alpha = 1f - (float) Math.exp(-dt / 2.0f);
                 alignmentYaw += (match.yawCorrection - alignmentYaw) * alpha;
+                alignmentLongitudinal +=
+                        (match.longitudinalShift - alignmentLongitudinal) * alpha;
                 alignmentLateral += (match.lateralShift - alignmentLateral) * alpha;
             }
             lastMatchMillis = nowMillis;
@@ -426,10 +430,14 @@ final class OsmWorld {
             // 장시간 신뢰할 도로가 없을 때만 원좌표로 천천히 돌아간다.
             float alpha = 1f - (float) Math.exp(-dt / 5.0f);
             alignmentYaw *= 1f - alpha;
+            alignmentLongitudinal *= 1f - alpha;
             alignmentLateral *= 1f - alpha;
-            if (Math.abs(alignmentYaw) < 0.001f && Math.abs(alignmentLateral) < 0.05f) {
+            if (Math.abs(alignmentYaw) < 0.001f
+                    && Math.abs(alignmentLongitudinal) < 0.05f
+                    && Math.abs(alignmentLateral) < 0.05f) {
                 alignmentReady = false;
                 alignmentYaw = 0f;
+                alignmentLongitudinal = 0f;
                 alignmentLateral = 0f;
             }
         }
@@ -439,17 +447,18 @@ final class OsmWorld {
             return;
         }
         OsmRoadMatcher.transformPolylines(s.ringX, s.ringY,
-                alignmentYaw, alignmentLateral);
+                alignmentYaw, alignmentLongitudinal, alignmentLateral);
         OsmRoadMatcher.transformPolylines(s.roadX, s.roadY,
-                alignmentYaw, alignmentLateral);
+                alignmentYaw, alignmentLongitudinal, alignmentLateral);
         OsmRoadMatcher.transformPolylines(s.barrierX, s.barrierY,
-                alignmentYaw, alignmentLateral);
+                alignmentYaw, alignmentLongitudinal, alignmentLateral);
         OsmRoadMatcher.transformPoints(s.treeX, s.treeY,
-                alignmentYaw, alignmentLateral);
+                alignmentYaw, alignmentLongitudinal, alignmentLateral);
         OsmRoadMatcher.transformPoints(s.lampX, s.lampY,
-                alignmentYaw, alignmentLateral);
-        lastAlignment = String.format(Locale.US, "M%+.0f/%+.0f",
-                alignmentLateral, Math.toDegrees(alignmentYaw));
+                alignmentYaw, alignmentLongitudinal, alignmentLateral);
+        lastAlignment = String.format(Locale.US, "M%+.0f,%+.0f/%+.0f",
+                alignmentLongitudinal, alignmentLateral,
+                Math.toDegrees(alignmentYaw));
     }
 
     /** lat/lon 짝 배열 → 로컬 (x[], y[]). 범위 밖이면 null (컬링). */

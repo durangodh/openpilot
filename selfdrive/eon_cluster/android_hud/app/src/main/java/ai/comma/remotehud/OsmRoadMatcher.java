@@ -15,17 +15,20 @@ final class OsmRoadMatcher {
     private static final float PI = (float) Math.PI;
     private static final float MAX_HEADING_ERROR = (float) Math.toRadians(32d);
     private static final float MAX_LATERAL_SHIFT = 15f;
+    private static final float MAX_LONGITUDINAL_SHIFT = 20f;
     private static final float MIN_SEGMENT_LENGTH = 5f;
 
     static final class Match {
         final float yawCorrection;
+        final float longitudinalShift;
         final float lateralShift;
         final float distance;
         final float headingError;
 
-        Match(float yawCorrection, float lateralShift, float distance,
-              float headingError) {
+        Match(float yawCorrection, float longitudinalShift, float lateralShift,
+              float distance, float headingError) {
             this.yawCorrection = yawCorrection;
+            this.longitudinalShift = longitudinalShift;
             this.lateralShift = lateralShift;
             this.distance = distance;
             this.headingError = headingError;
@@ -90,9 +93,12 @@ final class OsmRoadMatcher {
                 float correction = -angle;
                 float cos = (float) Math.cos(correction);
                 float sin = (float) Math.sin(correction);
+                float matchedX = nearX * cos - nearY * sin;
                 float matchedY = nearX * sin + nearY * cos;
+                float longitudinalShift = -matchedX;
                 float lateralShift = haveTarget ? targetRoadY - matchedY : 0f;
-                if (Math.abs(lateralShift) > MAX_LATERAL_SHIFT) {
+                if (Math.abs(longitudinalShift) > MAX_LONGITUDINAL_SHIFT
+                        || Math.abs(lateralShift) > MAX_LATERAL_SHIFT) {
                     continue;
                 }
 
@@ -107,7 +113,8 @@ final class OsmRoadMatcher {
                         + Math.abs(nearX) * 0.08f - Math.min(10f, width) * 0.08f;
                 if (score < bestScore) {
                     bestScore = score;
-                    best = new Match(correction, lateralShift, distance, headingError);
+                    best = new Match(correction, longitudinalShift, lateralShift,
+                            distance, headingError);
                 }
             }
         }
@@ -125,18 +132,21 @@ final class OsmRoadMatcher {
     }
 
     static void transformPolylines(float[][] xs, float[][] ys,
-                                   float yawCorrection, float lateralShift) {
+                                   float yawCorrection, float longitudinalShift,
+                                   float lateralShift) {
         if (xs == null || ys == null) {
             return;
         }
         int count = Math.min(xs.length, ys.length);
         for (int i = 0; i < count; i++) {
-            transformPoints(xs[i], ys[i], yawCorrection, lateralShift);
+            transformPoints(xs[i], ys[i], yawCorrection,
+                    longitudinalShift, lateralShift);
         }
     }
 
     static void transformPoints(float[] xs, float[] ys,
-                                float yawCorrection, float lateralShift) {
+                                float yawCorrection, float longitudinalShift,
+                                float lateralShift) {
         if (xs == null || ys == null) {
             return;
         }
@@ -146,7 +156,7 @@ final class OsmRoadMatcher {
         for (int i = 0; i < count; i++) {
             float x = xs[i];
             float y = ys[i];
-            xs[i] = x * cos - y * sin;
+            xs[i] = x * cos - y * sin + longitudinalShift;
             ys[i] = x * sin + y * cos + lateralShift;
         }
     }
