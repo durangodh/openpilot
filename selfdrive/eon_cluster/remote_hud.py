@@ -520,7 +520,10 @@ def _navi_scene(state):
         pts.append(None)
         continue
       x = e * sin_h + nn * cos_h          # 전방 +
-      y = -e * cos_h + nn * sin_h         # 좌 +
+      # TMAP heading uses the opposite lateral handedness from its route
+      # polyline on DH.  Mirror only this display preview; NOO/control paths are
+      # generated independently and remain untouched.
+      y = e * cos_h - nn * sin_h           # World3D 좌 +
       pts.append((x, y))
       d = x * x + y * y
       if d < best_d:

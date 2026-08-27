@@ -1670,14 +1670,12 @@ public final class HudService extends Service {
         double coolant = system == null ? Double.NaN
                 : system.optDouble("coolantTemp", Double.NaN);
 
-        // Final on-car layout: 70% preview was too small, so use 77% of the
-        // original group (the reduced preview enlarged by 10%).  The local
-        // origin is the C-label centre at x=82 and the gear-tile bottom y=124.
-        // Every coolant element, including the rail and stroke widths, scales
-        // together.  Tick bottoms stay exactly aligned with the gear tile.
-        final float coolantScale = 0.77f;
+        // Enlarge the accepted gauge by 20% and add a small gap from the gear
+        // tile.  Scaling stays anchored to the tile bottom so the lower edge
+        // remains aligned exactly as approved on the vehicle preview.
+        final float coolantScale = 0.924f;
         int coolantSave = c.save();
-        c.translate(82f, boxTop + boxSize);
+        c.translate(90f, boxTop + boxSize);
         c.scale(coolantScale, coolantScale);
 
         final float railLeft = 23f;

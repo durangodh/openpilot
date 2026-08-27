@@ -44,6 +44,7 @@ class CarState(CarStateBase):
     self.engine_rpm_seen = False
     self.distance_to_empty_seen = False
     self.outside_temp_seen = False
+    self.outside_temp_c = -1000.
 
     self.apply_steer = 0.
     
@@ -89,9 +90,23 @@ class CarState(CarStateBase):
       self.distance_to_empty_seen = True
     ret.distanceToEmptyKm = cp.vl["CLU13"]["CF_Clu_DTE"] if self.distance_to_empty_seen else -1.
 
-    if cp.vl_all["FATC11"]["CR_Fatc_OutTemp"]:
-      self.outside_temp_seen = True
-    ret.outsideTempC = cp.vl["FATC11"]["CR_Fatc_OutTemp"] if self.outside_temp_seen else -1000.
+    # DH model years expose ambient temperature on different climate/gateway
+    # frames.  Keep the last plausible value from whichever source is present.
+    outside_temp_sources = (
+      ("FATC11", "CR_Fatc_OutTemp"),
+      ("FATC11", "CR_Fatc_OutTempSns"),
+      ("DATC11", "CR_Datc_OutTempC"),
+      ("CGW3", "C_MirOutTempSns"),
+    )
+    for msg, sig in outside_temp_sources:
+      values = cp.vl_all[msg][sig]
+      if values:
+        outside_temp = float(values[-1])
+        if -39.5 < outside_temp <= 80.:
+          self.outside_temp_seen = True
+          self.outside_temp_c = outside_temp
+          break
+    ret.outsideTempC = self.outside_temp_c if self.outside_temp_seen else -1000.
 
     self.is_set_speed_in_mph = bool(cp.vl["CLU11"]["CF_Clu_SPEED_UNIT"])
     self.speed_conv_to_ms = CV.MPH_TO_MS if self.is_set_speed_in_mph else CV.KPH_TO_MS
@@ -136,7 +151,10 @@ class CarState(CarStateBase):
     ret.yawRate = cp.vl["ESP12"]["YAW_RATE"]
     ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_lamp(50, cp.vl["CGW1"]["CF_Gway_TurnSigLh"],
                                                             cp.vl["CGW1"]["CF_Gway_TurnSigRh"])
-    ret.lowBeam = bool(cp.vl["CGW1"]["CF_Gway_HeadLampLow"])
+    # ExtTailAct reports the exterior lamps themselves and therefore covers
+    # manual switch operation as well as AUTO mode on DH.
+    ret.lowBeam = (bool(cp.vl["CGW1"]["CF_Gway_HeadLampLow"]) or
+                   bool(cp.vl["CGW2"]["CF_Gway_ExtTailAct"]))
     ret.highBeam = bool(cp.vl["CGW1"]["CF_Gway_HeadLampHigh"])
     ret.frontFogLight = bool(cp.vl["CGW1"]["CF_Gway_Frt_Fog_Act"])
     ret.steeringTorque = cp_mdps.vl["MDPS12"]["CR_Mdps_StrColTq"]
@@ -334,6 +352,7 @@ class CarState(CarStateBase):
       ("CF_Gway_TurnSigLh", "CGW1"),
       ("CF_Gway_TurnSigRh", "CGW1"),
       ("CF_Gway_HeadLampLow", "CGW1"),
+      ("CF_Gway_ExtTailAct", "CGW2"),
       ("CF_Gway_HeadLampHigh", "CGW1"),
       ("CF_Gway_Frt_Fog_Act", "CGW1"),
       ("CF_Gway_ParkBrakeSw", "CGW1"),   # Parking Brake
@@ -355,9 +374,13 @@ class CarState(CarStateBase):
 
       ("CF_Clu_DTE", "CLU13"),
 
-      # DH exterior ambient temperature. No frequency check: variants that omit
-      # FATC11 must not invalidate the rest of carState.
+      # DH exterior ambient temperature.  No frequency checks: model years
+      # use different climate/gateway frames and an absent variant must not
+      # invalidate the rest of carState.
       ("CR_Fatc_OutTemp", "FATC11"),
+      ("CR_Fatc_OutTempSns", "FATC11"),
+      ("CR_Datc_OutTempC", "DATC11"),
+      ("C_MirOutTempSns", "CGW3"),
 
       ("ACCEnable", "TCS13"),
       ("BrakeLight", "TCS13"),
