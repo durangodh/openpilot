@@ -238,6 +238,14 @@ public final class HudService extends Service {
     private final RectF scratchRect = new RectF();
     private final Rect scratchIRect = new Rect();
     private final Path scratchPath = new Path();
+    /** 문 열림 PNG: 흰 차체만 주간 배경용 진회색으로 바꾸고 빨간 문은 보존한다. */
+    private final ColorMatrixColorFilter dayDoorFilter = new ColorMatrixColorFilter(
+            new ColorMatrix(new float[] {
+                    1f, -0.398f, -0.398f, 0f, 0f,
+                    0f, 0.231f, 0f, 0f, 0f,
+                    0f, 0f, 0.259f, 0f, 0f,
+                    0f, 0f, 0f, 1f, 0f
+            }));
     private final World3D world = new World3D();
     private OsmWorld osmWorld;
     private final ByteArrayOutputStream jpegOut = new ByteArrayOutputStream(180000);
@@ -1880,9 +1888,12 @@ public final class HudService extends Service {
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setAlpha(255);
-        p.setColorFilter(null);
+        // 주간의 흰 배경에서는 흰 차체가 사라지므로 문 열림 아이콘에만
+        // 진회색 변환을 건다. 빨간 문은 행렬상 원래 색을 유지한다.
+        p.setColorFilter(index == 3 && !frameDark ? dayDoorFilter : null);
         p.setFilterBitmap(true);
         c.drawBitmap(statusIcons, scratchIRect, scratchRect, p);
+        p.setColorFilter(null);
     }
 
     private boolean hasOpenDoor(JSONObject doors) {
