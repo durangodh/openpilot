@@ -98,6 +98,9 @@ def _packet(sm, *args, **kwargs):
   # 1: modelV2-only OpenGL preview. EGL/GL failure automatically falls back
   # to the existing Canvas World3D. Set 0 to compare or revert instantly.
   packet["hudGl"] = _bounded_int("EonClusterHudGl", 1, 0, 1)
+  # 3차: 모델 도로를 바꾸지 않고, 근거리에서 modelV2와 일치할 때만
+  # 티맵 경로 의도를 반투명 선으로 표시한다. 0이면 즉시 숨긴다.
+  packet["hudNavRoute"] = _bounded_int("EonClusterHudNavRoute", 1, 0, 1)
   # 주행 중 차량 pitch 를 수평선에 반영하는 정도(%). 0=끄기(정적 캘리브만).
   packet["hudPitchDyn"] = _bounded_int("EonClusterHudPitchDyn", 60, 0, 200)
   packet["hudOutputMode"] = _bounded_int("EonClusterHudOutputMode", 1, 1, 3)

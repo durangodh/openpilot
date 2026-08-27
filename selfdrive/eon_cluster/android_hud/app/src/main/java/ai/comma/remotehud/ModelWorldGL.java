@@ -21,11 +21,11 @@ import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 
 /**
- * Second-stage modelV2-only road renderer.
+ * Third-stage modelV2-only road renderer.
  *
  * The renderer deliberately has no OSM, buildings, textures or lighting.
- * It adds temporal geometry filtering, confidence hysteresis, conservative
- * adjacent-lane gating and radar lead visualization without adding EON work.
+ * It keeps model geometry authoritative, adds a separately gated TMAP route
+ * trace, holds brief radar dropouts, and releases EGL on renderer shutdown.
  * Geometry is projected with the same camera constants as World3D, then an
  * unlit OpenGL ES 2.0 shader draws road, observed boundaries, lane lines and
  * the final lateral path into an offscreen pbuffer.  Any EGL/GL failure returns
@@ -83,10 +83,13 @@ final class ModelWorldGL {
     private final Line smoothedPath = new Line();
     private final Line[] smoothedLanes = {new Line(), new Line(), new Line(), new Line()};
     private final Line[] smoothedEdges = {new Line(), new Line()};
+    private final Line smoothedRoute = new Line();
     private final float[] laneConfidence = new float[4];
     private final boolean[] laneVisible = new boolean[4];
     private final float[] leadDistance = new float[2];
     private final float[] leadLateral = new float[2];
+    private final float[] leadAcceleration = new float[2];
+    private final long[] leadLastSeenTimestamp = new long[2];
     private final boolean[] leadSeen = new boolean[2];
 
     boolean draw(Canvas canvas, Paint paint, JSONObject scene, boolean enabled,
@@ -315,6 +318,16 @@ final class ModelWorldGL {
                     : Color.rgb(152, 161, 168), 2.0f, 0.92f);
         }
 
+        // TMAP never changes road or lane geometry.  It is only a gated,
+        // translucent intent trace and becomes visible where a turn/exit
+        // diverges from the model path.
+        Line route = navigationRoute(scene, path, geometryAlpha);
+        if (route != null) {
+            int routeColor = dark ? Color.rgb(54, 218, 178)
+                    : Color.rgb(0, 153, 123);
+            drawWorldLine(route, path, routeColor, 4.0f, 0.58f);
+        }
+
         JSONArray lanes = scene.optJSONArray("lanes");
         for (int i = 0; i < smoothedLanes.length; i++) {
             JSONObject laneObject = lanes == null ? null : lanes.optJSONObject(i);
@@ -352,11 +365,45 @@ final class ModelWorldGL {
         if (enabled) {
             drawPath(path, pathColor);
         }
-        drawLead(scene.optJSONObject("lead2"), path, 1, dark, true);
-        drawLead(scene.optJSONObject("lead"), path, 0, dark, false);
+        drawLead(scene.optJSONObject("lead2"), path, 1, dark, true, timestamp);
+        drawLead(scene.optJSONObject("lead"), path, 0, dark, false, timestamp);
         GLES20.glFinish();
         copyPixels();
+        int glError = GLES20.glGetError();
+        if (glError != GLES20.GL_NO_ERROR) {
+            throw new IllegalStateException("GL render/readback error=0x"
+                    + Integer.toHexString(glError));
+        }
         return true;
+    }
+
+    private Line navigationRoute(JSONObject scene, Line modelPath, float alpha) {
+        if (scene.optInt("hudNavRoute", 1) == 0) {
+            smoothedRoute.count = 0;
+            return null;
+        }
+        JSONObject navi = scene.optJSONObject("navi");
+        JSONObject naviScene = navi == null ? null : navi.optJSONObject("scene");
+        if (navi == null || !navi.optBoolean("active", false) || naviScene == null) {
+            smoothedRoute.count = 0;
+            return null;
+        }
+        Line raw = decode(naviScene.optJSONArray("curve"), 1f);
+        if (raw.count < 2) {
+            smoothedRoute.count = 0;
+            return null;
+        }
+
+        // A stale GPS/heading frame can place the map trace on a neighboring
+        // road.  Require agreement close to the car, but allow the far trace
+        // to diverge so genuine turns and exits remain visible.
+        float checkX = clamp(Math.max(12f, raw.x[0] + 6f), 12f, 32f);
+        float nearMismatch = Math.abs(yAt(raw, checkX) - yAt(modelPath, checkX));
+        if (!Float.isFinite(nearMismatch) || nearMismatch > 2.2f) {
+            smoothedRoute.count = 0;
+            return null;
+        }
+        return smoothLine(smoothedRoute, raw, clamp(alpha, 0.28f, 0.55f));
     }
 
     private float smoothingAlpha(long timestamp) {
@@ -420,28 +467,39 @@ final class ModelWorldGL {
     }
 
     private void drawLead(JSONObject lead, Line roadHeight, int index,
-                          boolean dark, boolean secondary) {
-        if (lead == null || index < 0 || index >= leadSeen.length) {
-            if (index >= 0 && index < leadSeen.length) {
-                leadSeen[index] = false;
-            }
+                          boolean dark, boolean secondary, long timestamp) {
+        if (index < 0 || index >= leadSeen.length) {
             return;
-        }
-        float rawDistance = clamp((float) lead.optDouble("d", 0d), 0f, 180f);
-        float rawLateral = clamp((float) lead.optDouble("y", 0d), -12f, 12f);
-        if (rawDistance < 2f) {
-            leadSeen[index] = false;
-            return;
-        }
-        if (!leadSeen[index] || Math.abs(rawDistance - leadDistance[index]) > 18f) {
-            leadDistance[index] = rawDistance;
-            leadLateral[index] = rawLateral;
-            leadSeen[index] = true;
-        } else {
-            leadDistance[index] += (rawDistance - leadDistance[index]) * 0.46f;
-            leadLateral[index] += (rawLateral - leadLateral[index]) * 0.42f;
         }
 
+        boolean live = lead != null;
+        if (live) {
+            float rawDistance = clamp((float) lead.optDouble("d", 0d), 0f, 180f);
+            float rawLateral = clamp((float) lead.optDouble("y", 0d), -12f, 12f);
+            if (rawDistance < 2f) {
+                leadSeen[index] = false;
+                return;
+            }
+            if (!leadSeen[index] || Math.abs(rawDistance - leadDistance[index]) > 18f) {
+                leadDistance[index] = rawDistance;
+                leadLateral[index] = rawLateral;
+                leadSeen[index] = true;
+            } else {
+                leadDistance[index] += (rawDistance - leadDistance[index]) * 0.46f;
+                leadLateral[index] += (rawLateral - leadLateral[index]) * 0.42f;
+            }
+            leadAcceleration[index] = (float) lead.optDouble("a", 0d);
+            leadLastSeenTimestamp[index] = timestamp;
+        } else {
+            long age = timestamp - leadLastSeenTimestamp[index];
+            if (!leadSeen[index] || timestamp <= 0L || age < 0L || age > 350L) {
+                leadSeen[index] = false;
+                return;
+            }
+        }
+
+        float holdAlpha = live ? 1f : clamp(
+                1f - (timestamp - leadLastSeenTimestamp[index]) / 350f, 0f, 1f);
         float distance = leadDistance[index];
         float z = zAt(roadHeight, distance) * roadZGain + 0.12f;
         if (!project(distance, leadLateral[index], z, projected)) {
@@ -461,19 +519,22 @@ final class ModelWorldGL {
                 : (dark ? Color.rgb(220, 229, 237) : Color.rgb(246, 248, 250));
         drawScreenRect(sx - width * 0.58f, sy - height * 0.08f,
                 sx + width * 0.58f, sy + height * 0.20f, shadow,
-                secondary ? 0.45f : 0.68f);
+                (secondary ? 0.45f : 0.68f) * holdAlpha);
         drawScreenRect(sx - width * 0.50f, sy - height,
-                sx + width * 0.50f, sy, body, secondary ? 0.62f : 0.94f);
+                sx + width * 0.50f, sy, body,
+                (secondary ? 0.62f : 0.94f) * holdAlpha);
         drawScreenRect(sx - width * 0.28f, sy - height * 0.82f,
                 sx + width * 0.28f, sy - height * 0.48f,
                 dark ? Color.rgb(29, 40, 51) : Color.rgb(53, 66, 78),
-                secondary ? 0.55f : 0.90f);
-        if (lead.optDouble("a", 0d) < -0.45d) {
+                (secondary ? 0.55f : 0.90f) * holdAlpha);
+        if (leadAcceleration[index] < -0.45f) {
             int brake = Color.rgb(255, 55, 62);
             drawScreenRect(sx - width * 0.40f, sy - height * 0.25f,
-                    sx - width * 0.18f, sy - height * 0.05f, brake, 0.96f);
+                    sx - width * 0.18f, sy - height * 0.05f,
+                    brake, 0.96f * holdAlpha);
             drawScreenRect(sx + width * 0.18f, sy - height * 0.25f,
-                    sx + width * 0.40f, sy - height * 0.05f, brake, 0.96f);
+                    sx + width * 0.40f, sy - height * 0.05f,
+                    brake, 0.96f * holdAlpha);
         }
     }
 
@@ -648,6 +709,23 @@ final class ModelWorldGL {
             line.z[n] = (float) z;
         }
         return line;
+    }
+
+    private static float yAt(Line line, float x) {
+        if (line == null || line.count == 0) {
+            return 0f;
+        }
+        if (x <= line.x[0]) {
+            return line.y[0];
+        }
+        for (int i = 1; i < line.count; i++) {
+            if (x <= line.x[i]) {
+                float span = line.x[i] - line.x[i - 1];
+                float t = span > 0.001f ? (x - line.x[i - 1]) / span : 0f;
+                return line.y[i - 1] + (line.y[i] - line.y[i - 1]) * t;
+            }
+        }
+        return line.y[line.count - 1];
     }
 
     private static float zAt(Line path, float x) {

@@ -707,6 +707,12 @@ public final class HudService extends Service {
             }
             nextFrame = due;
         }
+        // The EGL context was created and used on this render thread, so it
+        // must also be released here when the service loop stops.
+        if (modelWorldGl != null) {
+            modelWorldGl.release();
+            modelWorldGl = null;
+        }
     }
 
     private void applyFrameConfiguration(JSONObject currentState) {
@@ -1140,7 +1146,14 @@ public final class HudService extends Service {
         }
 
         boolean glDrawn = false;
-        if (!stale && s.optInt("hudGl", 1) != 0) {
+        int hudGlMode = s.optInt("hudGl", 1);
+        if (hudGlMode == 0 && modelWorldGl != null) {
+            // Manual Canvas fallback must release the pbuffer immediately;
+            // otherwise repeated A/B tests retain the old EGL allocation.
+            modelWorldGl.release();
+            modelWorldGl = null;
+        }
+        if (!stale && hudGlMode != 0) {
             if (modelWorldGl == null) {
                 modelWorldGl = new ModelWorldGL();
             }

@@ -401,18 +401,28 @@ def _line_points(position, limit=33, with_z=False):
   return [[round(_finite(xs[i]), 2), round(_finite(ys[i]), 2)] for i in range(count)]
 
 
-def _model_lines(model, name, confidence_name, confidence_default, invert_confidence=False):
+def _model_lines(model, name, confidence_name, confidence_default,
+                 invert_confidence=False, preserve_slots=False):
   lines = list(_field(model, name, []) or [])
   confidences = list(_field(model, confidence_name, []) or [])
   result = []
-  for index, line in enumerate(lines[:4]):
+  slot_count = min(4, max(len(lines), len(confidences)))
+  for index in range(slot_count):
+    line = lines[index] if index < len(lines) else None
     points = _line_points(line)
-    if len(points) < 2:
-      continue
     confidence = confidences[index] if index < len(confidences) else confidence_default
     if invert_confidence:
       confidence = 1.0 - _finite(confidence, 1.0)
-    result.append({"p": points, "c": round(max(0.0, min(1.0, _finite(confidence, confidence_default))), 2)})
+    confidence = round(max(0.0, min(1.0,
+                                   _finite(confidence, confidence_default))), 2)
+    if len(points) < 2:
+      # laneLines indices have fixed meaning (0 outer-left, 1/2 ego,
+      # 3 outer-right).  Never let one malformed line shift the remaining
+      # slots and turn a single-lane road into a phantom adjacent lane.
+      if preserve_slots:
+        result.append({"p": [], "c": 0.0})
+      continue
+    result.append({"p": points, "c": confidence})
   return result
 
 
@@ -877,7 +887,8 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   path_final = len(hud_path) >= 2
   if not path_final:
     hud_path = _line_points(_field(sm["modelV2"], "position", None), with_z=True)
-  hud_lanes = _model_lines(sm["modelV2"], "laneLines", "laneLineProbs", 0.0)
+  hud_lanes = _model_lines(sm["modelV2"], "laneLines", "laneLineProbs", 0.0,
+                           preserve_slots=True)
   hud_lanes = _limit_lane_visibility(hud_lanes, lane_position)
   hud_edges = _model_lines(sm["modelV2"], "roadEdges", "roadEdgeStds", 1.0, True)
   # Keep camera-observed lane lines and road edges in their original modelV2
