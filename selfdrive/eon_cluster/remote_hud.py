@@ -416,6 +416,34 @@ def _model_lines(model, name, confidence_name, confidence_default, invert_confid
   return result
 
 
+def _limit_lane_visibility(lines, lane_position):
+  """Keep modelV2's fixed four-line layout but hide impossible adjacent lanes.
+
+  Indices 1/2 are the ego-lane boundaries.  Index 0 exists only when there is
+  a lane left of ego, and index 3 only when there is a lane right of ego.
+  Keeping four entries preserves the Android decoder's stable index mapping.
+  """
+  if not isinstance(lane_position, dict) or len(lines) < 4:
+    return lines
+  try:
+    lane_count = int(lane_position.get("n", 0))
+    current_lane = int(lane_position.get("cur", 0))
+  except (TypeError, ValueError):
+    return lines
+  if lane_count < 1 or current_lane < 1 or current_lane > lane_count:
+    return lines
+
+  visible = {1, 2}
+  if current_lane > 1:
+    visible.add(0)
+  if current_lane < lane_count:
+    visible.add(3)
+  for index, line in enumerate(lines):
+    if index not in visible and isinstance(line, dict):
+      line["c"] = 0.0
+  return lines
+
+
 def _lead(radar_state, name):
   lead = _field(radar_state, name, None)
   if not bool(_field(lead, "status", False)):
@@ -850,6 +878,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   if not path_final:
     hud_path = _line_points(_field(sm["modelV2"], "position", None), with_z=True)
   hud_lanes = _model_lines(sm["modelV2"], "laneLines", "laneLineProbs", 0.0)
+  hud_lanes = _limit_lane_visibility(hud_lanes, lane_position)
   hud_edges = _model_lines(sm["modelV2"], "roadEdges", "roadEdgeStds", 1.0, True)
   # Keep camera-observed lane lines and road edges in their original modelV2
   # coordinates.  The MPC ribbon is a separate control prediction and must
