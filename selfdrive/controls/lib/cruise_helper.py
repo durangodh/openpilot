@@ -174,9 +174,11 @@ class CruiseHelper:
     self.auto_navi_speed_bump_speed = float(clip(bump_speed if bump_speed > 0 else 35, 10, 100))
     self.auto_navi_speed_safety_factor = float(clip(safety_factor if safety_factor > 0 else 105, 80, 120)) * 0.01
     self.noo_enabled = self.params.get_bool("NavigationOnOpenpilot")
-    # NooMode 2(차선변경만)에서는 회전조향과 함께 회전감속도 쓰지 않는다.
-    self.noo_mode = int(clip(self.params.get_int("NooMode"), 0, 2))
-    self.noo_turn_speed = float(clip(self.params.get_int("NooTurnSpeed"), 5, 80))
+    # 0: all, 1: turn steering+speed, 2: lane preparation only,
+    # 3: carrot-style speed only.
+    self.noo_mode = int(clip(self.params.get_int("NooMode"), 0, 3))
+    turn_speed = self.params.get_int("NooTurnSpeed")
+    self.noo_turn_speed = float(clip(turn_speed if turn_speed > 0 else 20, 20, 80))
     self.noo_turn_end_time = float(clip(self.params.get_int("NooTurnEndTime"), 1, 20))
 
   def read_driving_mode_params(self, initialize=False):
@@ -849,7 +851,7 @@ class CruiseHelper:
       self.slowing_down_alert = False
       self.slowing_down = False
 
-    if self.noo_enabled and self.noo_mode != 2 and not CS.out.brakePressed:
+    if self.noo_enabled and self.noo_mode in (0, 1, 3) and not CS.out.brakePressed:
       limits = self.navigation_route.speed_limits_kph(navi_state, self.noo_turn_speed,
                                                        self.noo_turn_end_time)
       limits = [value for value in limits if value is not None]

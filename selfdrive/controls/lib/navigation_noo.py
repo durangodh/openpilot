@@ -11,6 +11,9 @@ class NavigationLaneChangeController:
 
   MIN_DISTANCE = 80.0
   MAX_DISTANCE = 1200.0
+  CARROT_PREPARE_MIN_DISTANCE = 65.0
+  CARROT_PREPARE_SPEED_BP = (30.0, 50.0, 100.0)
+  CARROT_PREPARE_DISTANCE_BP = (160.0, 200.0, 350.0)
   CONFIRM_FRAMES = 10       # 0.5 s at model rate
   LANE_UPDATE_FRAMES = 40   # fail closed after 2 s without camera confirmation
   # A shoulder or median counted as one extra camera lane is only dropped when
@@ -82,7 +85,71 @@ class NavigationLaneChangeController:
     return resolved if 1 <= resolved <= route_count else None
 
   @classmethod
-  def lane_plan(cls, state, ego_lane):
+  @staticmethod
+  def _interp(value, breakpoints, values):
+    value = float(value)
+    if value <= breakpoints[0]:
+      return float(values[0])
+    for index in range(1, len(breakpoints)):
+      if value <= breakpoints[index]:
+        span = float(breakpoints[index] - breakpoints[index - 1])
+        ratio = (value - breakpoints[index - 1]) / span if span > 0.0 else 0.0
+        return float(values[index - 1] + ratio * (values[index] - values[index - 1]))
+    return float(values[-1])
+
+  @classmethod
+  def carrot_prepare_distance(cls, state, v_ego=0.0):
+    """carrot-wip's 160/200/350 m preparation window.
+
+    Prefer the current road limit.  When it is absent, vehicle speed is a
+    conservative proxy so the active window still opens without guessing a
+    fixed high-speed distance.
+    """
+    try:
+      road_kph = float(state.get("road_limit_kph", 0.0))
+    except (AttributeError, TypeError, ValueError):
+      road_kph = 0.0
+    if not math.isfinite(road_kph) or road_kph <= 0.0:
+      road_kph = max(30.0, min(100.0, float(v_ego) * 3.6))
+    return cls._interp(road_kph, cls.CARROT_PREPARE_SPEED_BP,
+                       cls.CARROT_PREPARE_DISTANCE_BP)
+
+  @classmethod
+  def _carrot_direction_plan(cls, state, ego_lane, v_ego):
+    """Fallback lane preparation using carrot's maneuver direction.
+
+    This is intentionally available only when TMAP supplied no lane guidance.
+    Camera geometry still owns ego-lane position, and DesireHelper still gates
+    the request with road edge, BSD and a continuous-open confirmation.
+    """
+    if state.get("kind") not in ("turn", "uturn", "fork"):
+      return None
+    try:
+      direction = int(state.get("direction", 0))
+      distance = float(state.get("distance", -1.0))
+      count = int(ego_lane.get("count", 0))
+      current = int(ego_lane.get("current", 0))
+      confidence = float(ego_lane.get("confidence", 0.0))
+    except (AttributeError, TypeError, ValueError):
+      return None
+    if direction not in (-1, 1) or not math.isfinite(distance) or \
+       confidence < 0.45 or not 2 <= count <= 8 or not 1 <= current <= count:
+      return None
+    prepare_distance = cls.carrot_prepare_distance(state, v_ego)
+    if distance < cls.CARROT_PREPARE_MIN_DISTANCE or distance > prepare_distance:
+      return None
+    target = current + direction
+    if target < 1 or target > count:
+      target = current
+      direction = 0
+    return {"count": count, "current": current, "target": target,
+            "direction": direction, "distance": distance,
+            "recommended": [target], "source": "carrot_prepare",
+            "maneuver_direction": int(state.get("direction", 0)),
+            "turn_type": int(state.get("turn_type", -1))}
+
+  @classmethod
+  def lane_plan(cls, state, ego_lane, v_ego=0.0, proactive=True):
     if not isinstance(state, dict) or not state.get("route_fresh", False) or state.get("off_route", False):
       return None
     if not isinstance(ego_lane, dict):
@@ -97,13 +164,16 @@ class NavigationLaneChangeController:
       return None
 
     candidates = []
+    lane_guidance_present = False
     if state.get("lane_fresh", False):
+      lane_guidance_present = isinstance(state.get("lane_current"), dict)
       candidates.append(("current", state.get("lane_current"),
                          int(state.get("direction", 0)),
                          float(state.get("distance", -1.0)),
                          int(state.get("turn_type", -1))))
     following = state.get("next")
     if state.get("lane_ahead_fresh", False) and isinstance(following, dict) and following.get("fresh", False):
+      lane_guidance_present = lane_guidance_present or isinstance(state.get("lane_ahead"), dict)
       candidates.append(("ahead", state.get("lane_ahead"),
                          int(following.get("direction", 0)),
                          float(following.get("distance", -1.0)),
@@ -143,7 +213,9 @@ class NavigationLaneChangeController:
         return plan
       if source == "current":
         current_plan = plan
-    return current_plan
+    if current_plan is not None or lane_guidance_present or not proactive:
+      return current_plan
+    return cls._carrot_direction_plan(state, ego_lane, v_ego)
 
   @staticmethod
   def _event_key(state, plan):
@@ -164,7 +236,7 @@ class NavigationLaneChangeController:
       self.finishing_seen = self.finishing_seen or lane_change_finished
       return self.requested_direction
 
-    plan = self.lane_plan(state, ego_lane)
+    plan = self.lane_plan(state, ego_lane, v_ego, proactive=True)
     if plan is None:
       if driver_cancel:
         self.canceled = True
@@ -232,9 +304,14 @@ class NavigationLaneChangeController:
 
     distance = plan["distance"]
     lane_delta = abs(self.target_lane - self.current_lane)
-    action_distance = min(self.MAX_DISTANCE, max(250.0, float(v_ego) * 18.0,
-                                                 160.0 * lane_delta))
-    if not math.isfinite(distance) or distance < self.MIN_DISTANCE or distance > action_distance:
+    if plan.get("source") == "carrot_prepare":
+      minimum_distance = self.CARROT_PREPARE_MIN_DISTANCE
+      action_distance = self.carrot_prepare_distance(state, v_ego)
+    else:
+      minimum_distance = self.MIN_DISTANCE
+      action_distance = min(self.MAX_DISTANCE, max(250.0, float(v_ego) * 18.0,
+                                                   160.0 * lane_delta))
+    if not math.isfinite(distance) or distance < minimum_distance or distance > action_distance:
       self.open_count[-1] = 0
       self.open_count[1] = 0
       return 0

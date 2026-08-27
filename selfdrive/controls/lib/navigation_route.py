@@ -602,7 +602,7 @@ class NavigationRouteData:
     distance = state["distance"]
     if distance < 0.0 or distance > 350.0:
       return None
-    target_kph = max(30.0, min(60.0, float(target_kph)))
+    target_kph = max(20.0, min(60.0, float(target_kph)))
     end_time = max(2.0, min(12.0, float(end_time)))
     target_mps = target_kph / 3.6
     braking_distance = max(0.0, distance - target_mps * end_time)

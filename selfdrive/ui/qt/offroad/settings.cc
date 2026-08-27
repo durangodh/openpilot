@@ -1090,12 +1090,12 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
 
   toggleLayout->addWidget(new ParamValueControlF(
       "NooMode", "NOO MODE",
-      "NOO 안에서 쓸 기능을 고릅니다.\n0: 회전조향 + 자동차선변경 / 1: 회전조향만 / 2: 자동차선변경만\n1·2 를 고르면 나머지 하나는 회전감속까지 함께 꺼집니다.",
-      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 2, this));
+      "캐럿식 적극 개입 기능을 고릅니다.\n0: 회전조향 + 조기 차로준비 + 감속 / 1: 회전조향 + 감속 / 2: 조기 차로준비만 / 3: 회전감속만",
+      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 3, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "NooTurnSpeed", "NOO TURN SPEED",
       "NOO 회전 구간 목표속도(km/h)입니다. 값 증가(+): 더 빠르게 회전 / 값 감소(-): 더 많이 감속.",
-      "../assets/offroad/icon_speed_limit.png", 30, 60, 5, 0, 30, this));
+      "../assets/offroad/icon_speed_limit.png", 20, 60, 5, 0, 20, this));
 
   toggleLayout->addWidget(new ParamValueControlF(
       "NooTurnEndTime", "NOO DECEL TIMING",

@@ -83,8 +83,9 @@ class DesireHelper:
     self.empty_navigation_state = self.navigation_route.empty_state()
     self.noo_controller = NavigationLaneChangeController()
     self.noo_enabled = False
-    # NavigationOnOpenpilot 안에서 회전조향과 자동차선변경을 따로 끌 수 있다.
-    # NooMode 0: 둘 다 / 1: 회전조향만 / 2: 차선변경만
+    # NavigationOnOpenpilot 안에서 기능을 분리한다. 기존 0/1/2 의미는
+    # 유지하고 carrot-wip의 속도 전용 모드만 3으로 확장한다.
+    # 0: 전부 / 1: 회전조향+감속 / 2: 적극 차선준비 / 3: 감속만
     self.noo_mode = 0
     self.navigation_state = self.empty_navigation_state
     self.noo_turn_direction = 0
@@ -274,7 +275,7 @@ class DesireHelper:
         self.noo_mode = int(self.params.get('NooMode', encoding='utf8') or '0')
       except (TypeError, ValueError):
         self.noo_mode = 0
-      if self.noo_mode not in (0, 1, 2):
+      if self.noo_mode not in (0, 1, 2, 3):
         self.noo_mode = 0
       try:
         auto_lc_speed_kph = int(self.params.get('AutoLaneChangeSpeed', encoding='utf8') or '50')
@@ -297,12 +298,14 @@ class DesireHelper:
                              1.5 if lane_change_set_timer == 4 else 2.0
 
     v_ego = carstate.vEgo
-    noo_available = self.noo_enabled and lateral_active
-    # NooMode 로 두 기능을 분리한다. 회전조향만 쓰거나, 차선변경만 쓰거나.
+    # Speed-only mode is handled by CruiseHelper; avoid route reads and model
+    # side-geometry work in DesireHelper when it cannot affect lateral control.
+    noo_available = self.noo_enabled and lateral_active and self.noo_mode != 3
+    # NooMode keeps lateral and longitudinal ATC selectable independently.
     noo_lane_change_available = (noo_available and self.lane_change_enabled
-                                 and self.noo_mode != 1)
+                                 and self.noo_mode in (0, 2))
     noo_steering = (noo_available and not carstate.brakePressed
-                    and self.noo_mode != 2)
+                    and self.noo_mode in (0, 1))
     # Keep the current fork event while steering is configured so a brake
     # press can latch cancellation instead of resetting and re-acquiring it.
     navigation_state = self.navigation_route.update() if noo_available else self.empty_navigation_state

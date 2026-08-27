@@ -179,7 +179,13 @@ class LateralPlanner:
       use_laneless = not self.use_lane_line_mode or self.get_dynamic_lane_profile()
 
     self.dynamic_lane_profile_status = use_laneless
-    lane_line_blend_target = 0.0 if use_laneless else 1.0
+    # carrot-wip removes lane-line authority while ATC is turning.  Do the
+    # same with the existing smooth blend so modelV2 and the bounded TMAP
+    # curvature can shape the intersection instead of fighting a straight
+    # pre-intersection lane line.
+    noo_turn_active = (self.DH.noo_turn_direction != 0 and
+                       not self.DH.noo_driver_cancel)
+    lane_line_blend_target = 0.0 if use_laneless or noo_turn_active else 1.0
     if self.lane_line_blend is None:
       self.lane_line_blend = lane_line_blend_target
     else:

@@ -176,6 +176,12 @@ def test_stale_next_maneuver_has_no_speed_limit():
   assert next_limit is None
 
 
+def test_carrot_twenty_kph_turn_target_is_preserved():
+  state = {"fresh": True, "kind": "turn", "direction": 1,
+           "distance": 0.0, "turn_type": 13, "next": None}
+  assert NavigationRouteData.speed_limit_kph(state, 20.0, 6.0) == 20.0
+
+
 def test_map_curve_speed_calculation_is_cached_at_5hz():
   class CountingNavi(NavigationRouteData):
     def __init__(self):
@@ -318,11 +324,12 @@ def lane_model(left_edge, right_edge):
   )
 
 
-def noo_state(available, distance=400.0, direction=1):
+def noo_state(available, distance=400.0, direction=1, road_limit=0.0):
   return {
     "fresh": True, "route_fresh": True, "lane_fresh": True,
-    "off_route": False, "turn_type": 6, "direction": direction,
+    "off_route": False, "kind": "fork", "turn_type": 6, "direction": direction,
     "distance": distance,
+    "road_limit_kph": road_limit,
     "lane_current": {"count": len(available), "current_lane": 1,
                      "available": available, "distance_m": distance},
   }
@@ -361,6 +368,46 @@ def test_fork_lane_change_requires_noo_lane_guidance():
   assert confirm_noo(controller, state, ego) == 0
   state = noo_state([0, 0, 1])
   assert confirm_noo(controller, state, ego) == 1
+
+
+def test_carrot_prepare_distance_matches_original_active_windows():
+  assert NavigationLaneChangeController.carrot_prepare_distance(
+    {"road_limit_kph": 30.0}) == 160.0
+  assert NavigationLaneChangeController.carrot_prepare_distance(
+    {"road_limit_kph": 50.0}) == 200.0
+  assert NavigationLaneChangeController.carrot_prepare_distance(
+    {"road_limit_kph": 100.0}) == 350.0
+  assert NavigationLaneChangeController.carrot_prepare_distance(
+    {"road_limit_kph": 40.0}) == 180.0
+
+
+def test_carrot_direction_prepares_early_without_tmap_lane_payload():
+  controller = NavigationLaneChangeController()
+  ego = {"count": 3, "current": 2, "confidence": 0.9}
+  state = noo_state([0, 0, 1], distance=175.0, direction=1, road_limit=50.0)
+  state["lane_fresh"] = False
+  state["lane_current"] = None
+  plan = controller.lane_plan(state, ego, 20.0, proactive=True)
+  assert plan is not None
+  assert plan["source"] == "carrot_prepare"
+  assert (plan["current"], plan["target"], plan["direction"]) == (2, 3, 1)
+  assert confirm_noo(controller, state, ego) == 1
+
+
+def test_carrot_direction_does_not_override_present_bad_lane_payload():
+  ego = {"count": 3, "current": 2, "confidence": 0.9}
+  state = noo_state([1, 0, 0], distance=150.0, direction=1, road_limit=50.0)
+  assert NavigationLaneChangeController.lane_plan(
+    state, ego, 20.0, proactive=True) is None
+
+
+def test_carrot_prepare_hands_control_to_turn_inside_65_metres():
+  ego = {"count": 3, "current": 2, "confidence": 0.9}
+  state = noo_state([0, 0, 1], distance=60.0, direction=1, road_limit=50.0)
+  state["lane_fresh"] = False
+  state["lane_current"] = None
+  assert NavigationLaneChangeController.lane_plan(
+    state, ego, 20.0, proactive=True) is None
 
 
 def test_noo_rejects_count_mismatch_opposite_plan_and_late_change():
