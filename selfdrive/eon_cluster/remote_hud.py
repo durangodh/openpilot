@@ -261,6 +261,16 @@ def _alert(controls_state):
   size = str(_field(controls_state, "alertSize", ""))
   if "none" in size.lower():
     return None
+
+  # Keep camera/bump icons visible, but suppress only their "decelerating"
+  # event box while cruise is disengaged.  Other safety alerts remain visible.
+  alert_type = str(_field(controls_state, "alertType", "") or "")
+  road_event_types = ("slowingDownSpeed/", "slowingDownSpeedSound/",
+                      "speedBump/", "speedBumpSound/")
+  road_event_text = text1 in ("과속카메라 감지 : 감속중", "과속방지턱 감지 : 감속중")
+  if (not bool(_field(controls_state, "enabled", False)) and
+      (alert_type.startswith(road_event_types) or road_event_text)):
+    return None
   return {
     "text1": text1[:64],
     "text2": text2[:64],
