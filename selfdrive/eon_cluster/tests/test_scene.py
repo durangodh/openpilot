@@ -65,6 +65,44 @@ def test_camera_lane_position_accepts_edge_order_and_rejects_weak_geometry():
     5.4, -5.4, edge_stds=(0.8, 0.1))) is None
 
 
+def sampled_lane_position_model(left_offsets, right_offsets, centers=None):
+  xs = [0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0]
+  centers = centers or [0.0] * len(xs)
+  return SimpleNamespace(
+    laneLines=[
+      polyline(xs, [center + 5.4 for center in centers]),
+      polyline(xs, [center + 1.8 for center in centers]),
+      polyline(xs, [center - 1.8 for center in centers]),
+      polyline(xs, [center - 5.4 for center in centers]),
+    ],
+    laneLineProbs=[0.8, 0.9, 0.9, 0.8],
+    roadEdges=[
+      polyline(xs, [center + offset for center, offset in zip(centers, left_offsets)]),
+      polyline(xs, [center + offset for center, offset in zip(centers, right_offsets)]),
+    ],
+    roadEdgeStds=[0.1, 0.1],
+  )
+
+
+def test_camera_lane_position_uses_matched_cross_sections_on_curve():
+  centers = [0.0, 0.3, 0.8, 1.5, 2.5, 3.8, 5.2]
+  model = sampled_lane_position_model([5.4] * 7, [-5.4] * 7, centers)
+  position = camera_lane_position(model)
+  assert position["n"] == 3 and position["cur"] == 2
+  assert position["laneWidth"] == 3.6
+
+
+def test_camera_lane_position_rejects_one_outlier_but_fails_closed_on_fork():
+  one_outlier = sampled_lane_position_model(
+    [5.4, 5.4, 5.4, 12.0, 5.4, 5.4, 5.4], [-5.4] * 7)
+  position = camera_lane_position(one_outlier)
+  assert position["n"] == 3 and position["cur"] == 2
+
+  inconsistent_fork = sampled_lane_position_model(
+    [1.8, 3.6, 5.4, 7.2, 9.0, 10.8, 12.6], [-5.4] * 7)
+  assert camera_lane_position(inconsistent_fork) is None
+
+
 def test_reconcile_lane_position_removes_left_median_phantom_lane():
   # Photo case: the vehicle is in lane 1 of a two-lane road, but the camera
   # rounds the bollard/median space on the left up to a third lane.

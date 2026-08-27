@@ -28,18 +28,46 @@ def _near_line_y(line, maximum_x=30.0):
   return statistics.median(values) if len(values) >= 2 else None
 
 
+LANE_SAMPLE_XS = (5.0, 10.0, 15.0, 20.0, 25.0)
+LANE_GEOMETRY_MAD_MAX = 0.35
+
+
+def _line_y_at(line, x):
+  """Interpolate one model line at an exact forward distance."""
+  xs = list(_field(line, "x", []) or [])
+  ys = list(_field(line, "y", []) or [])
+  points = []
+  for raw_x, raw_y in zip(xs, ys):
+    px = _finite_float(raw_x, float("nan"))
+    py = _finite_float(raw_y, float("nan"))
+    if math.isfinite(px) and math.isfinite(py):
+      points.append((px, py))
+  if len(points) < 2:
+    return None
+  points.sort(key=lambda point: point[0])
+  if x < points[0][0] or x > points[-1][0]:
+    return None
+  for (x0, y0), (x1, y1) in zip(points, points[1:]):
+    if x <= x1:
+      if x1 <= x0:
+        continue
+      ratio = (x - x0) / (x1 - x0)
+      return y0 + ratio * (y1 - y0)
+  return None
+
+
 ROAD_EDGE_STD_MAX = 0.5
 PHANTOM_LANE_MIN_ERROR = 0.10
 MAX_GEOMETRY_SHIFT_M = 2.0
 
 
 def camera_lane_position(model):
-  """Estimate the ego lane from modelV2 lane lines and road edges.
+  """Estimate the ego lane from matched modelV2 cross-sections.
 
-  modelV2 does not publish a semantic "lane 2" value. It does publish the two
-  ego-lane boundaries and both road edges, so the number of lane-width spaces
-  between them gives a conservative camera-relative lane index. This metadata
-  is display-only and never feeds lateral control.
+  Lane lines and road edges are sampled at the same forward distances.  This
+  avoids comparing unrelated points on curves.  Medians reject a single noisy
+  section, while inconsistent merge/fork geometry fails closed instead of
+  publishing a wrong current lane.  The result is display-only.
   """
   lanes = list(_field(model, "laneLines", []) or [])
   edges = list(_field(model, "roadEdges", []) or [])
@@ -49,26 +77,45 @@ def camera_lane_position(model):
     return None
 
   try:
-    inner = [_near_line_y(lanes[1]), _near_line_y(lanes[2])]
-    road = [_near_line_y(edges[0]), _near_line_y(edges[1])]
-    inner_conf = min(_finite_float(lane_probs[1], 0.0), _finite_float(lane_probs[2], 0.0))
-    # roadEdgeStds is a standard deviation in metres, not a probability, so it
-    # is compared against a distance threshold (same rule as NOO control).
-    edge_std = max(_finite_float(edge_stds[0], 9.9), _finite_float(edge_stds[1], 9.9))
+    inner_conf = min(_finite_float(lane_probs[1], 0.0),
+                     _finite_float(lane_probs[2], 0.0))
+    # roadEdgeStds is a standard deviation in metres, not a probability.
+    edge_std = max(_finite_float(edge_stds[0], 9.9),
+                   _finite_float(edge_stds[1], 9.9))
   except (IndexError, TypeError):
     return None
-  if any(value is None for value in inner + road) or inner_conf < 0.45 or \
-     edge_std > ROAD_EDGE_STD_MAX:
+  if inner_conf < 0.45 or edge_std > ROAD_EDGE_STD_MAX:
     return None
 
-  lane_left, lane_right = max(inner), min(inner)
-  road_left, road_right = max(road), min(road)
-  lane_width = lane_left - lane_right
-  if not 2.5 <= lane_width <= 4.5 or road_left < lane_left or road_right > lane_right:
+  lane_widths = []
+  left_ratios = []
+  right_ratios = []
+  for x in LANE_SAMPLE_XS:
+    inner = [_line_y_at(lanes[1], x), _line_y_at(lanes[2], x)]
+    road = [_line_y_at(edges[0], x), _line_y_at(edges[1], x)]
+    if any(value is None for value in inner + road):
+      continue
+
+    lane_left, lane_right = max(inner), min(inner)
+    road_left, road_right = max(road), min(road)
+    lane_width = lane_left - lane_right
+    if not 2.5 <= lane_width <= 4.5 or road_left < lane_left or road_right > lane_right:
+      continue
+    lane_widths.append(lane_width)
+    left_ratios.append(max(0.0, road_left - lane_left) / lane_width)
+    right_ratios.append(max(0.0, lane_right - road_right) / lane_width)
+
+  if len(lane_widths) < 3:
     return None
 
-  left_ratio = max(0.0, road_left - lane_left) / lane_width
-  right_ratio = max(0.0, lane_right - road_right) / lane_width
+  lane_width = statistics.median(lane_widths)
+  left_ratio = statistics.median(left_ratios)
+  right_ratio = statistics.median(right_ratios)
+  left_mad = statistics.median(abs(value - left_ratio) for value in left_ratios)
+  right_mad = statistics.median(abs(value - right_ratio) for value in right_ratios)
+  if max(left_mad, right_mad) > LANE_GEOMETRY_MAD_MAX:
+    return None
+
   left_lanes = int(round(left_ratio))
   right_lanes = int(round(right_ratio))
   total = 1 + left_lanes + right_lanes
