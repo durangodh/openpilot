@@ -171,7 +171,6 @@ public final class HudService extends Service {
     private int configuredRadarInfo = 4;
     private int configuredScreenMode = 1;
     /** 도로변 건물 표시 여부 (장식이므로 끌 수 있다) */
-    private boolean configuredBuildings = true;
     /** BSD 표시 방식 1: 막대만 / 2: 옅은 면 / 3: 진한 면 */
     private int configuredBsdStyle = 2;
     /** 차량 표현 1: 사진 스프라이트 / 2: 3D 박스 */
@@ -249,7 +248,6 @@ public final class HudService extends Service {
     private final World3D world = new World3D();
     /** Lazy-created on the render thread; any EGL failure keeps World3D active. */
     private ModelWorldGL modelWorldGl;
-    private OsmWorld osmWorld;
     private final ByteArrayOutputStream jpegOut = new ByteArrayOutputStream(180000);
 
     private final Handler starter = new Handler(Looper.getMainLooper());
@@ -343,7 +341,6 @@ public final class HudService extends Service {
         otherCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_other_car);
         // 핸들 이미지는 선택 사항이라 R.drawable 을 직접 참조하지 않는다.
         // 파일이 없어도 빌드가 깨지지 않고, 있으면 자동으로 벡터 대신 쓰인다.
-        osmWorld = new OsmWorld(new java.io.File(getCacheDir(), "osm"));
         int wheelId = getResources().getIdentifier("hud_wheel", "drawable", getPackageName());
         wheelImage = wheelId == 0 ? null : BitmapFactory.decodeResource(getResources(), wheelId);
         statusIcons = decodeUnscaled("hud_status_icons");
@@ -725,7 +722,6 @@ public final class HudService extends Service {
         configuredScreenMode = Math.max(1, Math.min(3, currentState.optInt("hudScreenMode", 1)));
         configuredOrientation = currentState.optInt("hudOrientation", 0) == 2 ? 2 : 0;
         configuredMirror = currentState.optInt("hudMirror", 0) != 0;
-        configuredBuildings = currentState.optInt("hudBuildings", 1) != 0;
         configuredBsdStyle = Math.max(1, Math.min(3, currentState.optInt("hudBsdStyle", 2)));
         configuredCarStyle = currentState.optInt("hudCarStyle", 1) == 2 ? 2 : 1;
         configuredRoadSigns = Math.max(0, Math.min(3, currentState.optInt("hudRoadSigns", 3)));
@@ -1073,53 +1069,6 @@ public final class HudService extends Service {
         return last == 0L || SystemClock.elapsedRealtime() - last > EON_STALE_MS;
     }
 
-    /**
-     * 카메라가 확인한 차로 위치로부터 자차 기준 전체 도로 중심 y를 계산한다.
-     * y는 좌측이 +이므로 2차로 중 1차로에서는 도로 중심이 자차 오른쪽
-     * 약 -1.75m가 된다. 이 값은 OSM 화면 정합에만 쓰고 제어에는 사용하지 않는다.
-     */
-    private static float osmRoadCenter(JSONObject scene) {
-        if (scene == null) {
-            return Float.NaN;
-        }
-        JSONObject position = scene.optJSONObject("lanePosition");
-        if (position == null || position.optDouble("confidence", 0d) < 0.40d) {
-            return Float.NaN;
-        }
-        int count = position.optInt("n", 0);
-        int current = position.optInt("cur", 0);
-        if (count < 1 || count > 8 || current < 1 || current > count) {
-            return Float.NaN;
-        }
-        float laneWidth = (float) scene.optDouble("laneWidth", 3.5d);
-        if (!Float.isFinite(laneWidth) || laneWidth < 0.1f) {
-            laneWidth = 3.5f;
-        }
-        laneWidth = Math.max(2.2f, Math.min(4.2f, laneWidth));
-        return (current - (count + 1) * 0.5f) * laneWidth;
-    }
-
-    /** OSM 주도로와 평행 서비스도로를 구분하기 위한 카메라 기반 전체 도로 폭. */
-    private static float osmRoadWidth(JSONObject scene) {
-        if (scene == null) {
-            return Float.NaN;
-        }
-        JSONObject position = scene.optJSONObject("lanePosition");
-        if (position == null || position.optDouble("confidence", 0d) < 0.40d) {
-            return Float.NaN;
-        }
-        int count = position.optInt("n", 0);
-        if (count < 1 || count > 8) {
-            return Float.NaN;
-        }
-        float laneWidth = (float) scene.optDouble("laneWidth", 3.5d);
-        if (!Float.isFinite(laneWidth) || laneWidth < 0.1f) {
-            laneWidth = 3.5f;
-        }
-        return Math.max(3f, Math.min(20f, count
-                * Math.max(2.2f, Math.min(4.2f, laneWidth))));
-    }
-
     private void drawDriving(Canvas c, Paint p, JSONObject s) {
         JSONObject l = layout(s);
         boolean stale = eonStale();
@@ -1179,22 +1128,9 @@ public final class HudService extends Service {
             JSONObject naviForWorld = stale ? null : s.optJSONObject("navi");
             JSONObject worldScene = naviForWorld == null ? null : naviForWorld.optJSONObject("scene");
             world.setNavi(worldScene);
-            OsmWorld.Snapshot osmSnap = null;
-            JSONArray scenePos = worldScene == null ? null : worldScene.optJSONArray("pos");
-            if (scenePos != null && scenePos.length() >= 3 && osmWorld != null) {
-                double posLat = scenePos.optDouble(0, Double.NaN);
-                double posLon = scenePos.optDouble(1, Double.NaN);
-                double posHead = scenePos.optDouble(2, Double.NaN);
-                if (!Double.isNaN(posLat) && !Double.isNaN(posLon) && !Double.isNaN(posHead)) {
-                    osmWorld.ensure(posLat, posLon);
-                    osmSnap = osmWorld.snapshot(posLat, posLon, posHead,
-                            osmRoadCenter(s), osmRoadWidth(s));
-                }
-            }
-            world.setOsm(osmSnap);
             world.draw(c, p, stale ? null : s, enabled, egoCar, otherCar, worldOdoM,
                     driveBg, roadTop, roadBottom, pathColor,
-                    configuredRadarInfo, configuredBuildings, frameDark, configuredBsdStyle,
+                    configuredRadarInfo, frameDark, configuredBsdStyle,
                     configuredCarStyle,
                     (float) s.optDouble("pathOffset", 0d),
                     (float) s.optDouble("calibPitch", 0d),
@@ -2755,7 +2691,6 @@ public final class HudService extends Service {
                 {"USB ERR", Integer.toString(usbErrorStreak)},
                 {"PANEL", silence < 0L ? "--" : String.format(Locale.US, "%.0fs", silence / 1000f)},
                 {"LINK", linkAge < 0L ? "--" : durationText(linkAge)},
-                {"OSM", osmWorld == null ? "--" : osmWorld.status()},
         };
 
         float unit = height / 480f;
@@ -2901,7 +2836,6 @@ public final class HudService extends Service {
                 {"USB ERR", Integer.toString(usbErrorStreak)},
                 {"PANEL", silence < 0L ? "--" : String.format(Locale.US, "%.0fs", silence / 1000f)},
                 {"LINK", linkAge < 0L ? "--" : durationText(linkAge)},
-                {"OSM", osmWorld == null ? "--" : osmWorld.status()},
         };
         float top = 46f;
         for (String[] row : rows) {

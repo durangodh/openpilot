@@ -557,7 +557,7 @@ def _navi_scene(state):
   except (TypeError, ValueError):
     lat0 = None
   if lat0 is not None:
-    # S9 앱이 OSM(Overpass) 타일 조회에 쓰는 위치원. EON GPS 불요.
+    # TMAP 경로를 차량 좌표계로 변환하기 위한 위치/방위.
     scene["pos"] = [round(lat0, 6), round(lon0, 6), round(math.degrees(heading), 1)]
   if lat0 is not None and len(poly) >= 2:
     m_lat = 111320.0
@@ -574,7 +574,7 @@ def _navi_scene(state):
         pts.append(None)
         continue
       x = e * sin_h + nn * cos_h          # 전방 +
-      # World3D/OSM use left-positive lateral coordinates.  Keep the
+      # HUD world uses left-positive lateral coordinates.  Keep the
       # TMAP display polyline in the same handedness; NOO/control paths are
       # generated independently and remain untouched.
       y = nn * sin_h - e * cos_h           # World3D 좌 +
@@ -664,9 +664,8 @@ def _read_navi_summary():
     remain_distance = 0.0
   active = active and (remain_distance > 0 or bool(guide))
 
-  # Vehicle position/heading is useful to World3D even when route guidance is
-  # inactive.  Keep the scene cache alive so S9 can fetch and render real OSM
-  # instead of dropping to a fictional background.
+  # Keep the navigation scene cached so route intent remains stable across
+  # short guidance-state transitions.
   if _NAVI_CACHE["scene_sig"] != _NAVI_CACHE["signature"]:
     _NAVI_CACHE["scene_sig"] = _NAVI_CACHE["signature"]
     try:
@@ -786,7 +785,7 @@ def _compensate_navi_pose(navi, v_ego):
 
   # curve was built in the raw-heading frame at the unprojected position.
   # Rotate it into the stabilized frame and move the origin forward by the
-  # same latency distance so map geometry and OSM keep one coordinate frame.
+  # same latency distance so the TMAP trace and model world share one frame.
   curve = scene.get("curve")
   if isinstance(curve, list):
     delta = math.radians(heading_deg - raw_heading_deg)
@@ -850,6 +849,12 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   tpms = _field(car, "tpms", None)
   navi = _read_navi_summary()
   _compensate_navi_pose(navi, _finite(_field(car, "vEgo", 0.0)))
+  # Position is consumed locally to align the TMAP curve.  The Android HUD
+  # only needs the resulting vehicle-frame curve, so do not transmit raw GPS.
+  navi_scene = navi.get("scene") if isinstance(navi, dict) else None
+  if isinstance(navi_scene, dict):
+    navi_scene.pop("pos", None)
+    navi_scene.pop("posAgeMs", None)
   raw_lane_position = camera_lane_position(sm["modelV2"])
   route_lane_count = 0
   try:

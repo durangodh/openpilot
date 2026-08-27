@@ -21,15 +21,15 @@ import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 
 /**
- * Third-stage modelV2-only road renderer.
+ * Fourth-stage modelV2-only road renderer.
  *
- * The renderer deliberately has no OSM, buildings, textures or lighting.
+ * The renderer deliberately has no external map, buildings, textures or lighting.
  * It keeps model geometry authoritative, adds a separately gated TMAP route
  * trace, holds brief radar dropouts, and releases EGL on renderer shutdown.
  * Geometry is projected with the same camera constants as World3D, then an
  * unlit OpenGL ES 2.0 shader draws road, observed boundaries, lane lines and
  * the final lateral path into an offscreen pbuffer.  Any EGL/GL failure returns
- * false so HudService can immediately draw the existing Canvas World3D.
+ * false so HudService can immediately draw the Canvas model-world fallback.
  */
 final class ModelWorldGL {
     private static final String TAG = "ModelWorldGL";
@@ -43,6 +43,7 @@ final class ModelWorldGL {
     private static final float CAM_BACK = 13.0f;
     private static final float HORIZON = 249f;
     private static final float NEAR_DEPTH = 11.4f;
+    private static final float[] ROAD_EDGE_SAMPLE_XS = {12f, 25f, 45f};
     private static final int MAX_POINTS = 80;
     private static final int MAX_VERTEX_FLOATS = 4096;
 
@@ -129,7 +130,7 @@ final class ModelWorldGL {
             return true;
         } catch (Throwable error) {
             failed = true;
-            Log.e(TAG, "OpenGL renderer disabled; falling back to World3D", error);
+            Log.e(TAG, "OpenGL renderer disabled; falling back to Canvas model world", error);
             release();
             return false;
         }
@@ -342,7 +343,8 @@ final class ModelWorldGL {
             laneConfidence[i] = fresh ? rawConfidence
                     : laneConfidence[i] * 0.68f + rawConfidence * 0.32f;
 
-            boolean allowed = laneAllowed(scene, i);
+            boolean allowed = laneAllowed(scene, i)
+                    && laneInsideRoadEdges(smoothedLanes[i], leftEdge, rightEdge);
             if (!allowed) {
                 laneVisible[i] = false;
             } else if (laneVisible[i]) {
@@ -367,7 +369,8 @@ final class ModelWorldGL {
         }
         drawLead(scene.optJSONObject("lead2"), path, 1, dark, true, timestamp);
         drawLead(scene.optJSONObject("lead"), path, 0, dark, false, timestamp);
-        GLES20.glFinish();
+        // glReadPixels already waits for rendering completion.  Avoid a second
+        // full GPU/CPU synchronization immediately before it.
         copyPixels();
         int glError = GLES20.glGetError();
         if (glError != GLES20.GL_NO_ERROR) {
@@ -455,7 +458,7 @@ final class ModelWorldGL {
             return true;
         }
         JSONObject position = scene.optJSONObject("lanePosition");
-        if (position == null) {
+        if (position == null || position.optDouble("confidence", 0d) < 0.40d) {
             return false;
         }
         int count = position.optInt("n", 0);
@@ -464,6 +467,34 @@ final class ModelWorldGL {
             return false;
         }
         return index == 0 ? current > 1 : index == 3 && current < count;
+    }
+
+    /**
+     * Reject model lane markings that sit outside the camera-observed road
+     * boundaries.  A single noisy point is tolerated; two valid near/mid
+     * samples must be outside by more than 0.45 m before hiding the line.
+     */
+    private static boolean laneInsideRoadEdges(Line lane, Line leftEdge, Line rightEdge) {
+        if (lane == null || lane.count < 2) {
+            return false;
+        }
+        int valid = 0;
+        int outside = 0;
+        for (float x : ROAD_EDGE_SAMPLE_XS) {
+            float laneY = yAt(lane, x);
+            if (laneY >= 0f && leftEdge != null && leftEdge.count >= 2) {
+                valid++;
+                if (laneY > yAt(leftEdge, x) + 0.45f) {
+                    outside++;
+                }
+            } else if (laneY < 0f && rightEdge != null && rightEdge.count >= 2) {
+                valid++;
+                if (laneY < yAt(rightEdge, x) - 0.45f) {
+                    outside++;
+                }
+            }
+        }
+        return valid < 2 || outside < 2;
     }
 
     private void drawLead(JSONObject lead, Line roadHeight, int index,

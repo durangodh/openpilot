@@ -243,38 +243,18 @@ def test_remote_ack_is_status_only():
   assert "EonClusterHudConnected" not in onroad
 
 
-def test_osm_cache_is_versioned_and_refreshes_stale_tiles_safely():
-  osm = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" / "main" /
-         "java" / "ai" / "comma" / "remotehud" / "OsmWorld.java").read_text(encoding="utf-8")
-  assert 'CACHE_VERSION = "v3_"' in osm
-  assert "CACHE_TTL_MS = 7L * 24L * 60L * 60L * 1000L" in osm
-  assert "REFRESH_FAIL_COOLDOWN_MS = 90L * 60L * 1000L" in osm
-  assert "refreshDueAt" in osm
-  assert "boolean stale = loaded && (due == null || now >= due)" in osm
-  assert "boolean stale = tile != null && now >= refreshDue" in osm
-  assert "tiles.put(key, tile);" in osm
-  assert "if (tile == null || stale)" in osm
-  assert "cached.setLastModified(now);" in osm
-  assert "cached.setLastModified(System.currentTimeMillis())" not in osm
-  assert "failedAt.put(key, now);" in osm
-
-
-def test_osm_environment_is_visually_map_matched_without_control_feedback():
+def test_external_map_renderer_is_completely_removed():
   java = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
           "main" / "java" / "ai" / "comma" / "remotehud")
-  matcher = (java / "OsmRoadMatcher.java").read_text(encoding="utf-8")
-  osm = (java / "OsmWorld.java").read_text(encoding="utf-8")
   service = (java / "HudService.java").read_text(encoding="utf-8")
+  world = (java / "World3D.java").read_text(encoding="utf-8")
+  renderer = (java / "ModelWorldGL.java").read_text(encoding="utf-8")
+  sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud_s9.py").read_text(encoding="utf-8")
 
-  assert "MAX_HEADING_ERROR" in matcher
-  assert "MAX_LATERAL_SHIFT" in matcher
-  assert "Math.abs(width - targetRoadWidth) * 4f" in matcher
-  assert "transformPolylines(s.ringX, s.ringY" in osm
-  assert "transformPolylines(s.roadX, s.roadY" in osm
-  assert "transformPolylines(s.barrierX, s.barrierY" in osm
-  assert "transformPoints(s.treeX, s.treeY" in osm
-  assert "transformPoints(s.lampX, s.lampY" in osm
-  assert "osmRoadCenter(s), osmRoadWidth(s)" in service
-  assert "return (current - (count + 1) * 0.5f) * laneWidth" in service
-  assert "selfdrive.controls" not in matcher
-  assert "cereal" not in matcher
+  assert not (java / "OsmWorld.java").exists()
+  assert not (java / "OsmRoadMatcher.java").exists()
+  assert "OsmWorld" not in service + world
+  assert "hudBuildings" not in service + sender
+  assert "laneInsideRoadEdges" in renderer
+  assert "ROAD_EDGE_SAMPLE_XS" in renderer
+  assert "GLES20.glFinish()" not in renderer

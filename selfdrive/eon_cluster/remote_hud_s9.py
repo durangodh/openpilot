@@ -72,7 +72,7 @@ def _packet(sm, *args, **kwargs):
 
   # Keep modelV2 lane lines and road edges in their original camera frame.
   # Scaling them around the MPC path made a visual width setting move perceived
-  # geometry toward a control trajectory and broke OSM/model alignment.
+  # geometry toward a control trajectory and broke model-world alignment.
   packet["hudWorldWidth"] = 100
 
   view_pitch = _bounded_int("EonClusterHudViewPitch", 0, -50, 50)
@@ -91,14 +91,13 @@ def _packet(sm, *args, **kwargs):
   packet["hudMirror"] = _bounded_int("EonClusterHudMirror", 0, 0, 1)
   packet["hudLanguage"] = _bounded_int("EonClusterHudLanguage", 0, 0, 1)
   packet["hudRadarInfo"] = _bounded_int("EonClusterHudRadarInfo", 4, 0, 4)
-  packet["hudBuildings"] = _bounded_int("EonClusterHudBuildings", 1, 0, 1)
   # 노면 높낮이 배율(%). 100=원본, 0=평지. 모델 z 의 부호가 기기마다 다를 수
   # 있어 음수까지 열어둔다 — 오르막이 아래로 꺼져 보이면 -100 으로 뒤집는다.
   packet["hudRoadZ"] = _bounded_int("EonClusterHudRoadZ", 100, -300, 300)
   # 1: modelV2-only OpenGL preview. EGL/GL failure automatically falls back
   # to the existing Canvas World3D. Set 0 to compare or revert instantly.
   packet["hudGl"] = _bounded_int("EonClusterHudGl", 1, 0, 1)
-  # 3차: 모델 도로를 바꾸지 않고, 근거리에서 modelV2와 일치할 때만
+  # 4차: 모델 도로를 바꾸지 않고, 근거리에서 modelV2와 일치할 때만
   # 티맵 경로 의도를 반투명 선으로 표시한다. 0이면 즉시 숨긴다.
   packet["hudNavRoute"] = _bounded_int("EonClusterHudNavRoute", 1, 0, 1)
   # 주행 중 차량 pitch 를 수평선에 반영하는 정도(%). 0=끄기(정적 캘리브만).
