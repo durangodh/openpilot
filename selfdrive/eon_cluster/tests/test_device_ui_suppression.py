@@ -279,19 +279,15 @@ def test_s9_v5_visual_layers_use_existing_telemetry_only():
   assert renderer.count("new float[MAX_POINTS]") == 5
 
 
-def test_android_hud_v5_receiver_accepts_full_udp_packets_without_socket_restart():
+def test_android_hud_receiver_uses_s9_proven_direct_binding():
   service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
              "main" / "java" / "ai" / "comma" / "remotehud" /
              "HudService.java").read_text(encoding="utf-8")
   receive = service.split("private void receiveLoop()", 1)[1].split(
       "private static boolean tagEquals", 1)[0]
 
-  assert "UDP_PACKET_MAX_BYTES = 65507" in service
-  assert "UDP_SOCKET_BUFFER_BYTES = 256 * 1024" in service
-  assert "new DatagramSocket(null)" in receive
-  assert "socket.setReuseAddress(true)" in receive
-  assert "socket.bind(new InetSocketAddress(7210))" in receive
-  assert "new byte[UDP_PACKET_MAX_BYTES]" in receive
-  assert "catch (JSONException malformed)" in receive
-  assert receive.index("catch (JSONException malformed)") < receive.index(
-      "catch (SocketTimeoutException ignored)")
+  assert "new DatagramSocket(7210)" in receive
+  assert "new byte[16384]" in receive
+  assert "new DatagramSocket(null)" not in receive
+  assert "socket.setReuseAddress(true)" not in receive
+  assert "socket.bind(new InetSocketAddress(7210))" not in receive
