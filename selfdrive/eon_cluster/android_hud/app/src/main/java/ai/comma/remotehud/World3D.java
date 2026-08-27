@@ -82,8 +82,8 @@ final class World3D {
     private static final float BLOCK = 24f;
     private static final int BLOCK_COUNT = 13;
     private static final float BUILD_NEAR = 14f;
-    private static final float BUILD_FAR = 220f;
-    private static final float HAZE_START = 115f;
+    private static final float BUILD_FAR = 280f;
+    private static final float HAZE_START = 140f;
 
     /** 과속방지턱 노면 표시 */
     private static final float BUMP_VISIBLE_M = 60f;   // 이보다 멀면 우측 아이콘만
@@ -1082,7 +1082,7 @@ final class World3D {
                 float y1 = ys[i];
                 float x2 = xs[i + 1];
                 float y2 = ys[i + 1];
-                if (Math.max(x1, x2) < 5f || Math.min(x1, x2) > 220f) {
+                if (Math.max(x1, x2) < 5f || Math.min(x1, x2) > 280f) {
                     continue;
                 }
                 boolean nearEgo1 = x1 > -5f && Math.abs(y1 - centerAt(Math.max(0f, x1))) < 6f;
@@ -1138,7 +1138,7 @@ final class World3D {
                 float y1 = ys[i];
                 float x2 = xs[i + 1];
                 float y2 = ys[i + 1];
-                if (Math.max(x1, x2) < 3f || Math.min(x1, x2) > 190f) {
+                if (Math.max(x1, x2) < 3f || Math.min(x1, x2) > 220f) {
                     continue;
                 }
                 p.setShader(null);
@@ -1183,7 +1183,7 @@ final class World3D {
             float x = osm.treeX[i];
             float y = osm.treeY[i];
             float height = Math.max(3f, Math.min(35f, osm.treeH[i]));
-            if (x < 2f || x > 150f) {
+            if (x < 2f || x > 175f) {
                 continue;
             }
             float trunkTop = height * 0.48f;
@@ -1214,7 +1214,7 @@ final class World3D {
             float x = osm.lampX[i];
             float y = osm.lampY[i];
             float height = Math.max(3f, Math.min(18f, osm.lampH[i]));
-            if (x < 1f || x > 80f || !project(x, y, 0f, pa)
+            if (x < 1f || x > 100f || !project(x, y, 0f, pa)
                     || !project(x, y, height, pb)) {
                 continue;
             }
@@ -1249,7 +1249,7 @@ final class World3D {
             }
             osmBuildingDist[i] = sum / xs.length;
         }
-        // 최대 72개라 boxed Integer/Comparator 보다 무할당 삽입 정렬이 더 가볍다.
+        // 최대 120개라 boxed Integer/Comparator 보다 무할당 삽입 정렬이 더 가볍다.
         for (int i = 1; i < count; i++) {
             int value = osmBuildingOrder[i];
             float valueDist = osmBuildingDist[value];

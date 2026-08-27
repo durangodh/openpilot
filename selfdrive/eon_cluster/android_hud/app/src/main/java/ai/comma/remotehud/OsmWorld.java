@@ -41,11 +41,11 @@ final class OsmWorld {
     private static final long REFRESH_FAIL_COOLDOWN_MS = 90L * 60L * 1000L;
     /** OSM 원문 캐시는 7일 동안 유효하다. */
     private static final long CACHE_TTL_MS = 7L * 24L * 60L * 60L * 1000L;
-    private static final int CACHE_MAX_FILES = 500;
-    private static final long CACHE_MAX_BYTES = 96L * 1024L * 1024L;
-    private static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
-    /** 환경 객체 쿼리가 없는 이전 캐시를 한 번 분리한다. */
-    private static final String CACHE_VERSION = "v4_";
+    private static final int CACHE_MAX_FILES = 900;
+    private static final long CACHE_MAX_BYTES = 192L * 1024L * 1024L;
+    private static final int MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+    /** 상세 도로와 확장 객체 한도가 없는 이전 캐시를 한 번 분리한다. */
+    private static final String CACHE_VERSION = "v5_";
     static final int BARRIER_NOISE_WALL = 1;
     static final int BARRIER_GUARD_RAIL = 2;
     private static final String[] ENDPOINTS = {
@@ -257,14 +257,14 @@ final class OsmWorld {
                         continue;
                     }
                     for (Poly b : tile.buildings) {
-                        if (bx.size() >= 72) {
+                        if (bx.size() >= 120) {
                             break;
                         }
                         if (!buildingIds.add(b.id)) {
                             continue;
                         }
                         float[][] xy = toLocal(b.pts, lat0, lon0, sinH, cosH, mLat, mLon,
-                                -30f, 240f, 95f);
+                                -30f, 300f, 120f);
                         if (xy != null) {
                             bx.add(xy[0]);
                             by.add(xy[1]);
@@ -272,14 +272,14 @@ final class OsmWorld {
                         }
                     }
                     for (Poly r : tile.roads) {
-                        if (rx.size() >= 96) {
+                        if (rx.size() >= 160) {
                             break;
                         }
                         if (!roadIds.add(r.id)) {
                             continue;
                         }
                         float[][] xy = toLocal(r.pts, lat0, lon0, sinH, cosH, mLat, mLon,
-                                -15f, 240f, 115f);
+                                -15f, 300f, 140f);
                         if (xy != null) {
                             rx.add(xy[0]);
                             ry.add(xy[1]);
@@ -287,14 +287,14 @@ final class OsmWorld {
                         }
                     }
                     for (Poly wall : tile.barriers) {
-                        if (wx.size() >= 60) {
+                        if (wx.size() >= 80) {
                             break;
                         }
                         if (!barrierIds.add(wall.id)) {
                             continue;
                         }
                         float[][] xy = toLocal(wall.pts, lat0, lon0, sinH, cosH, mLat, mLon,
-                                -10f, 210f, 80f);
+                                -10f, 240f, 100f);
                         if (xy != null) {
                             wx.add(xy[0]);
                             wy.add(xy[1]);
@@ -303,14 +303,14 @@ final class OsmWorld {
                         }
                     }
                     for (PointFeature tree : tile.trees) {
-                        if (tx.size() >= 80) {
+                        if (tx.size() >= 120) {
                             break;
                         }
                         if (!treeNodeIds.add(tree.id)) {
                             continue;
                         }
                         float[] xy = pointToLocal(tree.lat, tree.lon, lat0, lon0,
-                                sinH, cosH, mLat, mLon, -5f, 160f, 65f);
+                                sinH, cosH, mLat, mLon, -5f, 180f, 80f);
                         if (xy != null) {
                             tx.add(xy[0]);
                             ty.add(xy[1]);
@@ -318,24 +318,24 @@ final class OsmWorld {
                         }
                     }
                     for (Poly row : tile.treeRows) {
-                        if (tx.size() >= 80 || !treeRowIds.add(row.id)) {
+                        if (tx.size() >= 120 || !treeRowIds.add(row.id)) {
                             continue;
                         }
                         float[][] xy = toLocal(row.pts, lat0, lon0, sinH, cosH, mLat, mLon,
-                                -5f, 160f, 65f);
+                                -5f, 180f, 80f);
                         if (xy != null) {
-                            appendTreeRow(xy[0], xy[1], row.h, tx, ty, th, 80);
+                            appendTreeRow(xy[0], xy[1], row.h, tx, ty, th, 120);
                         }
                     }
                     for (PointFeature lamp : tile.lamps) {
-                        if (lx.size() >= 40) {
+                        if (lx.size() >= 60) {
                             break;
                         }
                         if (!lampIds.add(lamp.id)) {
                             continue;
                         }
                         float[] xy = pointToLocal(lamp.lat, lamp.lon, lat0, lon0,
-                                sinH, cosH, mLat, mLon, 0f, 80f, 35f);
+                                sinH, cosH, mLat, mLon, 0f, 100f, 45f);
                         if (xy != null) {
                             lx.add(xy[0]);
                             ly.add(xy[1]);
@@ -486,7 +486,7 @@ final class OsmWorld {
         return new float[]{x, y};
     }
 
-    /** tree_row 는 선 전체를 보내되 HUD 에서는 약 12m 간격의 나무로 단순화한다. */
+    /** tree_row 는 선 전체를 보내되 HUD 에서는 약 10m 간격의 나무로 단순화한다. */
     private static void appendTreeRow(float[] xs, float[] ys, float height,
                                       List<Float> outX, List<Float> outY, List<Float> outH,
                                       int maximum) {
@@ -494,12 +494,12 @@ final class OsmWorld {
             float dx = xs[i + 1] - xs[i];
             float dy = ys[i + 1] - ys[i];
             float length = (float) Math.sqrt(dx * dx + dy * dy);
-            int steps = Math.max(1, (int) Math.floor(length / 12f));
+            int steps = Math.max(1, (int) Math.floor(length / 10f));
             for (int step = 0; step < steps && outX.size() < maximum; step++) {
                 float t = step / (float) steps;
                 float x = xs[i] + dx * t;
                 float y = ys[i] + dy * t;
-                if (x < -5f || x > 160f || Math.abs(y) > 65f) {
+                if (x < -5f || x > 180f || Math.abs(y) > 80f) {
                     continue;
                 }
                 outX.add(x);
@@ -599,25 +599,25 @@ final class OsmWorld {
         String bbox = String.format(Locale.US, "%.5f,%.5f,%.5f,%.5f", s, w, s + TILE, w + TILE);
         // 레이어별 out 제한을 둔다. 나무/가로등이 많은 도심에서도 핵심인 건물과
         // 도로가 뒤 레이어에 밀려 누락되지 않고 LTE 응답 크기도 예측 가능하다.
-        String query = "[out:json][timeout:12];"
-                + "way[\"building\"](" + bbox + ");out geom 220;"
+        String query = "[out:json][timeout:18];"
+                + "way[\"building\"](" + bbox + ");out geom 360;"
                 + "way[\"highway\"~\"^(motorway|trunk|primary|secondary|tertiary|unclassified"
-                + "|residential|service|living_street|pedestrian|track|cycleway|road"
+                + "|residential|service|living_street|pedestrian|track|cycleway|road|footway|path|steps|bridleway|corridor"
                 + "|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$\"]"
-                + "(" + bbox + ");out geom 180;"
-                + "way[\"barrier\"=\"wall\"][\"wall\"=\"noise_barrier\"](" + bbox + ");out geom 40;"
-                + "way[\"barrier\"=\"noise_barrier\"](" + bbox + ");out geom 20;"
-                + "way[\"barrier\"=\"guard_rail\"](" + bbox + ");out geom 40;"
-                + "way[\"natural\"=\"tree_row\"](" + bbox + ");out geom 30;"
-                + "node[\"natural\"=\"tree\"](" + bbox + ");out 80;"
-                + "node[\"highway\"=\"street_lamp\"](" + bbox + ");out 40;";
+                + "(" + bbox + ");out geom 280;"
+                + "way[\"barrier\"=\"wall\"][\"wall\"=\"noise_barrier\"](" + bbox + ");out geom 60;"
+                + "way[\"barrier\"=\"noise_barrier\"](" + bbox + ");out geom 30;"
+                + "way[\"barrier\"=\"guard_rail\"](" + bbox + ");out geom 60;"
+                + "way[\"natural\"=\"tree_row\"](" + bbox + ");out geom 50;"
+                + "node[\"natural\"=\"tree\"](" + bbox + ");out 120;"
+                + "node[\"highway\"=\"street_lamp\"](" + bbox + ");out 80;";
         for (int attempt = 0; attempt < ENDPOINTS.length; attempt++) {
             String endpoint = ENDPOINTS[(endpointIndex + attempt) % ENDPOINTS.length];
             HttpURLConnection conn = null;
             try {
                 conn = (HttpURLConnection) new URL(endpoint).openConnection();
                 conn.setConnectTimeout(6000);
-                conn.setReadTimeout(12000);
+                conn.setReadTimeout(18000);
                 conn.setDoOutput(true);
                 conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
                 conn.setRequestProperty("User-Agent", "EONRemoteHUD/0.28");
@@ -690,11 +690,11 @@ final class OsmWorld {
                     if (Double.isNaN(point.lat) || Double.isNaN(point.lon)) {
                         continue;
                     }
-                    if ("tree".equals(tags.optString("natural")) && tile.trees.size() < 80) {
+                    if ("tree".equals(tags.optString("natural")) && tile.trees.size() < 120) {
                         point.h = taggedHeight(tags, 8f, 3f, 35f);
                         tile.trees.add(point);
                     } else if ("street_lamp".equals(tags.optString("highway"))
-                            && tile.lamps.size() < 40) {
+                            && tile.lamps.size() < 80) {
                         point.h = taggedHeight(tags, 7f, 3f, 18f);
                         tile.lamps.add(point);
                     }
@@ -717,12 +717,12 @@ final class OsmWorld {
                 }
                 if (tags.has("building")) {
                     poly.h = buildingHeight(tags);
-                    if (geom.length() >= 4 && tile.buildings.size() < 220) {
+                    if (geom.length() >= 4 && tile.buildings.size() < 360) {
                         tile.buildings.add(poly);
                     }
                 } else if (tags.has("highway")) {
                     poly.h = roadWidth(tags);
-                    if (tile.roads.size() < 180) {
+                    if (tile.roads.size() < 280) {
                         tile.roads.add(poly);
                     }
                 } else if ("guard_rail".equals(tags.optString("barrier"))) {
@@ -741,7 +741,7 @@ final class OsmWorld {
                     }
                 } else if ("tree_row".equals(tags.optString("natural"))) {
                     poly.h = taggedHeight(tags, 8f, 3f, 35f);
-                    if (tile.treeRows.size() < 40) {
+                    if (tile.treeRows.size() < 50) {
                         tile.treeRows.add(poly);
                     }
                 }
@@ -833,6 +833,11 @@ final class OsmWorld {
             inferred = 3.5f;
         } else if (cls.equals("cycleway")) {
             inferred = 1.8f;
+        } else if (cls.equals("footway") || cls.equals("path")
+                || cls.equals("bridleway") || cls.equals("corridor")) {
+            inferred = 1.5f;
+        } else if (cls.equals("steps")) {
+            inferred = 1.2f;
         } else {
             inferred = 5f;
         }
