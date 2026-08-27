@@ -7,7 +7,7 @@ Params to the Android renderer for live tuning.
 import math
 import time
 
-from common.params import Params
+from common.params import Params, UnknownKeyName
 from selfdrive.eon_cluster import remote_hud as base
 
 
@@ -26,7 +26,9 @@ def _bounded_int(key, default, minimum, maximum):
     try:
       raw = _params.get(key)
       value = int(raw) if raw is not None else default
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, UnknownKeyName):
+      # New HUD tuning keys may not exist in older EON Params registries.
+      # Keep the feature default instead of aborting the entire UDP packet.
       value = default
     _param_cache[key] = (now, value)
   return max(minimum, min(maximum, value))
