@@ -1844,10 +1844,12 @@ public final class HudService extends Service {
         float x = 21f;
         boolean raster = statusIcons != null && !statusIcons.isRecycled();
         if (s.optBoolean("lowBeam", false)) {
+            // lowBeam is already the vehicle's combined tail/headlamp state.
+            // Drawing both sprite slots here made a low-beam-only state look
+            // as if low and high beams were active together.  Slot 1 is the
+            // low-beam icon; high beam remains controlled only by highBeam.
             if (raster) {
-                drawStatusIcon(c, p, 0, x, y, 36f, 27f);  // 미등
-                x += 40f;
-                drawStatusIcon(c, p, 1, x, y, 38f, 27f);  // 하향등
+                drawStatusIcon(c, p, 1, x, y, 38f, 27f);
                 x += 43f;
             } else {
                 drawLamp(c, p, x, y, 0);
