@@ -19,8 +19,8 @@ from common.params import Params
 
 
 from selfdrive.modeld.constants import T_IDXS
-from selfdrive.eon_cluster.scene import (align_scene_geometry, camera_lane_position,
-                                         final_lateral_path, reconcile_lane_position)
+from selfdrive.eon_cluster.scene import (camera_lane_position, final_lateral_path,
+                                         reconcile_lane_position)
 
 PORT = 7210
 MAP_PORT = 7211
@@ -744,11 +744,9 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     hud_path = _line_points(_field(sm["modelV2"], "position", None), with_z=True)
   hud_lanes = _model_lines(sm["modelV2"], "laneLines", "laneLineProbs", 0.0)
   hud_edges = _model_lines(sm["modelV2"], "roadEdges", "roadEdgeStds", 1.0, True)
-  lane_change_state = int(_finite(_field(sm["lateralPlan"], "laneChangeState", 0)))
-  # During an actual lane change the control path must visibly leave the
-  # current lane, so keep raw observed lane geometry in starting/finishing.
-  if path_final and lane_change_state not in (2, 3):
-    hud_lanes, hud_edges = align_scene_geometry(hud_path, hud_lanes, hud_edges)
+  # Keep camera-observed lane lines and road edges in their original modelV2
+  # coordinates.  The MPC ribbon is a separate control prediction and must
+  # never drag the perceived road sideways on the HUD.
   return {
     "v": 4,
     "t": int(time.time() * 1000),

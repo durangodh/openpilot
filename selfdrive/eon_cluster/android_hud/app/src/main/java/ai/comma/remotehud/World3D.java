@@ -514,6 +514,18 @@ final class World3D {
         return y;
     }
 
+    /**
+     * Camera-observed ego-lane centre.  The control path can contain OffsetTotal
+     * or NOO map blending, so it is not a reliable centre for the rendered road.
+     */
+    private float perceptionCenterAt(float x) {
+        if (laneLCount >= 2 && laneRCount >= 2) {
+            return (sample(laneLX, laneLY, laneLCount, x)
+                    + sample(laneRX, laneRY, laneRCount, x)) * 0.5f;
+        }
+        return centerAt(x);
+    }
+
     /** 인식된 도로경계가 있으면 그것으로, 없으면 고정 폭으로. */
     /** 전방 x(m) 에서 자차 차선의 좌/우 경계 y(m). 차선이 없으면 ±1.75m 폴백.
      *  y 는 좌측이 + 이므로 왼쪽 경계가 큰 값이다. */
@@ -703,7 +715,7 @@ final class World3D {
                     : Math.max(0, cameraLaneCount - cameraLaneCur);
             half = laneW * 0.5f + laneW * lanesOnSide + SHOULDER;
         }
-        return centerAt(x) + (leftSide ? half : -half);
+        return perceptionCenterAt(x) + (leftSide ? half : -half);
     }
 
     // ── 씬 전체 ───────────────────────────────────────────────────────────
@@ -957,7 +969,7 @@ final class World3D {
         for (int i = 1; i <= tmapLaneCount; i++) {
             float laneW = laneWidthM > 0.1f
                     ? Math.max(2.5f, Math.min(4.2f, laneWidthM)) : TMAP_LANE_W;
-            float laneY = centerAt(ax) + laneW * (currentLane - i);
+            float laneY = perceptionCenterAt(ax) + laneW * (currentLane - i);
             boolean ok = tmapAvail[i - 1] != 0;
             int color;
             if (i == currentLane) {
@@ -1085,8 +1097,10 @@ final class World3D {
                 if (Math.max(x1, x2) < 5f || Math.min(x1, x2) > 280f) {
                     continue;
                 }
-                boolean nearEgo1 = x1 > -5f && Math.abs(y1 - centerAt(Math.max(0f, x1))) < 6f;
-                boolean nearEgo2 = x2 > -5f && Math.abs(y2 - centerAt(Math.max(0f, x2))) < 6f;
+                boolean nearEgo1 = x1 > -5f
+                        && Math.abs(y1 - perceptionCenterAt(Math.max(0f, x1))) < 6f;
+                boolean nearEgo2 = x2 > -5f
+                        && Math.abs(y2 - perceptionCenterAt(Math.max(0f, x2))) < 6f;
                 if (nearEgo1 && nearEgo2) {
                     continue;
                 }
