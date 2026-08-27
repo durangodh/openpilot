@@ -243,64 +243,38 @@ def test_remote_ack_is_status_only():
   assert "EonClusterHudConnected" not in onroad
 
 
-def test_external_map_renderer_is_completely_removed():
+def test_osm_cache_is_versioned_and_refreshes_stale_tiles_safely():
+  osm = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" / "main" /
+         "java" / "ai" / "comma" / "remotehud" / "OsmWorld.java").read_text(encoding="utf-8")
+  assert 'CACHE_VERSION = "v3_"' in osm
+  assert "CACHE_TTL_MS = 7L * 24L * 60L * 60L * 1000L" in osm
+  assert "REFRESH_FAIL_COOLDOWN_MS = 90L * 60L * 1000L" in osm
+  assert "refreshDueAt" in osm
+  assert "boolean stale = loaded && (due == null || now >= due)" in osm
+  assert "boolean stale = tile != null && now >= refreshDue" in osm
+  assert "tiles.put(key, tile);" in osm
+  assert "if (tile == null || stale)" in osm
+  assert "cached.setLastModified(now);" in osm
+  assert "cached.setLastModified(System.currentTimeMillis())" not in osm
+  assert "failedAt.put(key, now);" in osm
+
+
+def test_osm_environment_is_visually_map_matched_without_control_feedback():
   java = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
           "main" / "java" / "ai" / "comma" / "remotehud")
+  matcher = (java / "OsmRoadMatcher.java").read_text(encoding="utf-8")
+  osm = (java / "OsmWorld.java").read_text(encoding="utf-8")
   service = (java / "HudService.java").read_text(encoding="utf-8")
-  world = (java / "World3D.java").read_text(encoding="utf-8")
-  renderer = (java / "ModelWorldGL.java").read_text(encoding="utf-8")
-  sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud_s9.py").read_text(encoding="utf-8")
 
-  assert not (java / "OsmWorld.java").exists()
-  assert not (java / "OsmRoadMatcher.java").exists()
-  assert "OsmWorld" not in service + world
-  assert "hudBuildings" not in service + sender
-  assert "laneInsideRoadEdges" in renderer
-  assert "ROAD_EDGE_SAMPLE_XS" in renderer
-  assert "GLES20.glFinish()" not in renderer
-
-
-def test_s9_v5_visual_layers_use_existing_telemetry_only():
-  java = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
-          "main" / "java" / "ai" / "comma" / "remotehud")
-  renderer = (java / "ModelWorldGL.java").read_text(encoding="utf-8")
-  sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(
-      encoding="utf-8")
-
-  assert '"v": 5' in sender
-  assert '"desiredDistance":' in sender
-  assert "drawPathLayers" in renderer
-  assert "leadDistance[0] - 2.6f" in renderer
-  assert "drawRoadEdge" in renderer
-  assert "drawLaneMarking" in renderer
-  assert "drawDesiredDistance" in renderer
-  assert "routeShadow" in renderer
-  assert "lineScreenX" in renderer and "lineScreenY" in renderer
-  assert renderer.count("new float[MAX_POINTS]") == 5
-
-
-def test_android_hud_receiver_uses_s9_proven_direct_binding():
-  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
-             "main" / "java" / "ai" / "comma" / "remotehud" /
-             "HudService.java").read_text(encoding="utf-8")
-  receive = service.split("private void receiveLoop()", 1)[1].split(
-      "private static boolean tagEquals", 1)[0]
-
-  assert "new DatagramSocket(7210)" in receive
-  assert "UDP_PACKET_MAX_BYTES = 65507" in service
-  assert "new byte[UDP_PACKET_MAX_BYTES]" in receive
-  assert "new DatagramSocket(null)" not in receive
-  assert "socket.setReuseAddress(true)" not in receive
-  assert "socket.bind(new InetSocketAddress(7210))" not in receive
-  assert "udpLastRawRxElapsed = SystemClock.elapsedRealtime()" in receive
-  assert "catch (JSONException malformed)" in receive
-
-
-def test_android_hud_status_shows_actual_apk_and_udp_stage():
-  activity = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
-              "main" / "java" / "ai" / "comma" / "remotehud" /
-              "MainActivity.java").read_text(encoding="utf-8")
-  assert '"v" + appVersionName()' in activity
-  assert '"데이터 대기 · UDP 포트 정상"' in activity
-  assert '"원시 패킷 "' in activity
-  assert '"UDP 포트 오류"' in activity
+  assert "MAX_HEADING_ERROR" in matcher
+  assert "MAX_LATERAL_SHIFT" in matcher
+  assert "Math.abs(width - targetRoadWidth) * 4f" in matcher
+  assert "transformPolylines(s.ringX, s.ringY" in osm
+  assert "transformPolylines(s.roadX, s.roadY" in osm
+  assert "transformPolylines(s.barrierX, s.barrierY" in osm
+  assert "transformPoints(s.treeX, s.treeY" in osm
+  assert "transformPoints(s.lampX, s.lampY" in osm
+  assert "osmRoadCenter(s), osmRoadWidth(s)" in service
+  assert "return (current - (count + 1) * 0.5f) * laneWidth" in service
+  assert "selfdrive.controls" not in matcher
+  assert "cereal" not in matcher

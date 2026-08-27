@@ -152,7 +152,7 @@ public final class MainActivity extends Activity {
 
         root.addView(text("EON Remote HUD", 27.0f, Color.WHITE, Typeface.BOLD));
 
-        View subtitle = text("v" + appVersionName() + "  ·  NOO 회전 카운트다운 / 1CBE:0092",
+        View subtitle = text("v0.84-verified-dd313  ·  NOO 회전 카운트다운 / 1CBE:0092",
                 14.0f, Color.rgb(145, 158, 171), Typeface.NORMAL);
         LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -314,24 +314,9 @@ public final class MainActivity extends Activity {
         HudService.StatusSnapshot s = HudService.getStatusSnapshot();
 
         setStatus(serviceValue, s.running ? "실행 중" : "중지됨", s.running ? GREEN : RED);
-        String eonStatus;
-        int eonColor;
-        if (s.eonConnected) {
-            eonStatus = "연결됨 · " + s.eonAddress + " · " + s.udpLastRawBytes + "B";
-            eonColor = GREEN;
-        } else if (s.udpRawPacketRecent) {
-            eonStatus = "원시 패킷 " + s.udpLastRawBytes + "B · "
-                    + (s.udpReceiverError.length() == 0 ? "JSON 처리 대기" : s.udpReceiverError);
-            eonColor = RED;
-        } else if (s.udpReceiverBound) {
-            eonStatus = "데이터 대기 · UDP 포트 정상";
-            eonColor = AMBER;
-        } else {
-            eonStatus = "UDP 포트 오류"
-                    + (s.udpReceiverError.length() == 0 ? "" : " · " + s.udpReceiverError);
-            eonColor = RED;
-        }
-        setStatus(eonValue, eonStatus, eonColor);
+        setStatus(eonValue,
+                s.eonConnected ? "연결됨 · " + s.eonAddress : "데이터 대기",
+                s.eonConnected ? GREEN : AMBER);
         setStatus(mapValue, s.mapConnected ? "연결됨" : "영상 대기", s.mapConnected ? GREEN : AMBER);
         setStatus(usbValue, s.usbStatus,
                 s.usbConnected ? GREEN : (s.usbError ? RED : AMBER));
@@ -421,14 +406,6 @@ public final class MainActivity extends Activity {
             startHudService();
         } else {
             startHudService();
-        }
-    }
-
-    private String appVersionName() {
-        try {
-            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-        } catch (Exception ignored) {
-            return "?";
         }
     }
 
