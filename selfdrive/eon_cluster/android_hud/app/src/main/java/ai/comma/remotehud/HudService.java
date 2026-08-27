@@ -66,6 +66,8 @@ public final class HudService extends Service {
 
     private static volatile HudService activeInstance;
 
+    private static final int UDP_PACKET_MAX_BYTES = 65507;
+
     static final String ACTION_RESCAN_USB = "ai.comma.remotehud.RESCAN_USB";
     static final String EXTRA_FROM_BOOT = "ai.comma.remotehud.FROM_BOOT";
 
@@ -142,6 +144,11 @@ public final class HudService extends Service {
     private static volatile long lastRenderElapsed;
     private static volatile long lastEonRxElapsed;
     private static volatile String lastEonAddress = "--";
+    private static volatile boolean udpReceiverBound;
+    private static volatile long udpRawPacketCount;
+    private static volatile int udpLastRawBytes;
+    private static volatile long udpLastRawRxElapsed;
+    private static volatile String udpReceiverError = "";
     private static volatile String usbStatus = "미연결 · 1CBE:0092";
 
     private TurzxDisplay display;
@@ -171,7 +178,6 @@ public final class HudService extends Service {
     private int configuredRadarInfo = 4;
     private int configuredScreenMode = 1;
     /** 도로변 건물 표시 여부 (장식이므로 끌 수 있다) */
-    private boolean configuredBuildings = true;
     /** BSD 표시 방식 1: 막대만 / 2: 옅은 면 / 3: 진한 면 */
     private int configuredBsdStyle = 2;
     /** 차량 표현 1: 사진 스프라이트 / 2: 3D 박스 */
@@ -247,7 +253,8 @@ public final class HudService extends Service {
                     0f, 0f, 0f, 1f, 0f
             }));
     private final World3D world = new World3D();
-    private OsmWorld osmWorld;
+    /** Lazy-created on the render thread; any EGL failure keeps World3D active. */
+    private ModelWorldGL modelWorldGl;
     private final ByteArrayOutputStream jpegOut = new ByteArrayOutputStream(180000);
 
     private final Handler starter = new Handler(Looper.getMainLooper());
@@ -299,6 +306,11 @@ public final class HudService extends Service {
         final boolean running;
         final boolean eonConnected;
         final String eonAddress;
+        final boolean udpReceiverBound;
+        final boolean udpRawPacketRecent;
+        final long udpRawPacketCount;
+        final int udpLastRawBytes;
+        final String udpReceiverError;
         final boolean mapConnected;
         final String usbStatus;
         final boolean usbConnected;
@@ -307,11 +319,18 @@ public final class HudService extends Service {
         final int lastJpegBytes;
 
         StatusSnapshot(boolean running, boolean eonConnected, String eonAddress,
+                       boolean udpReceiverBound, boolean udpRawPacketRecent,
+                       long udpRawPacketCount, int udpLastRawBytes, String udpReceiverError,
                        boolean mapConnected, String usbStatus, boolean usbConnected,
                        boolean usbError, float fps, int lastJpegBytes) {
             this.running = running;
             this.eonConnected = eonConnected;
             this.eonAddress = eonAddress;
+            this.udpReceiverBound = udpReceiverBound;
+            this.udpRawPacketRecent = udpRawPacketRecent;
+            this.udpRawPacketCount = udpRawPacketCount;
+            this.udpLastRawBytes = udpLastRawBytes;
+            this.udpReceiverError = udpReceiverError;
             this.mapConnected = mapConnected;
             this.usbStatus = usbStatus;
             this.usbConnected = usbConnected;
@@ -324,9 +343,14 @@ public final class HudService extends Service {
     public static StatusSnapshot getStatusSnapshot() {
         long now = SystemClock.elapsedRealtime();
         boolean eonOk = serviceRunning && lastEonRxElapsed > 0 && now - lastEonRxElapsed < 2000;
+        boolean rawPacketRecent = serviceRunning && udpLastRawRxElapsed > 0
+                && now - udpLastRawRxElapsed < 2000;
         boolean fpsOk = serviceRunning && lastRenderElapsed > 0 && now - lastRenderElapsed < 2000;
         boolean jpegOk = serviceRunning && lastJpegSentElapsed > 0 && now - lastJpegSentElapsed < 2000;
-        return new StatusSnapshot(serviceRunning, eonOk, lastEonAddress, serviceRunning && mapConnected,
+        return new StatusSnapshot(serviceRunning, eonOk, lastEonAddress,
+                serviceRunning && udpReceiverBound, rawPacketRecent,
+                udpRawPacketCount, udpLastRawBytes, udpReceiverError,
+                serviceRunning && mapConnected,
                 usbStatus, serviceRunning && usbConnected, usbError,
                 fpsOk ? measuredFps : 0.0f, jpegOk ? lastJpegBytes : 0);
     }
@@ -341,7 +365,6 @@ public final class HudService extends Service {
         otherCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_other_car);
         // 핸들 이미지는 선택 사항이라 R.drawable 을 직접 참조하지 않는다.
         // 파일이 없어도 빌드가 깨지지 않고, 있으면 자동으로 벡터 대신 쓰인다.
-        osmWorld = new OsmWorld(new java.io.File(getCacheDir(), "osm"));
         int wheelId = getResources().getIdentifier("hud_wheel", "drawable", getPackageName());
         wheelImage = wheelId == 0 ? null : BitmapFactory.decodeResource(getResources(), wheelId);
         statusIcons = decodeUnscaled("hud_status_icons");
@@ -408,6 +431,11 @@ public final class HudService extends Service {
         measuredFps = 0.0f;
         lastJpegBytes = 0;
         lastRenderElapsed = 0L;
+        udpReceiverBound = false;
+        udpRawPacketCount = 0L;
+        udpLastRawBytes = 0;
+        udpLastRawRxElapsed = 0L;
+        udpReceiverError = "";
         acquireWakeLock();
 
         boolean fromBoot = intent != null && intent.getBooleanExtra(EXTRA_FROM_BOOT, false);
@@ -515,16 +543,31 @@ public final class HudService extends Service {
         while (running.get()) {
             DatagramSocket socket = null;
             try {
+                // Keep the direct bind path proven on the installed S9. Only the
+                // datagram buffer is enlarged for detailed modelV2 telemetry.
                 socket = new DatagramSocket(7210);
                 socket.setBroadcast(true);
                 socket.setSoTimeout(1000);
-                byte[] buffer = new byte[16384];
+                udpReceiverBound = true;
+                udpReceiverError = "";
+                byte[] buffer = new byte[UDP_PACKET_MAX_BYTES];
                 while (running.get()) {
                     try {
                         DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                         socket.receive(packet);
-                        state.set(new JSONObject(new String(packet.getData(), packet.getOffset(),
-                                packet.getLength(), "UTF-8")));
+                        udpRawPacketCount++;
+                        udpLastRawBytes = packet.getLength();
+                        udpLastRawRxElapsed = SystemClock.elapsedRealtime();
+                        JSONObject decoded;
+                        try {
+                            decoded = new JSONObject(new String(packet.getData(), packet.getOffset(),
+                                    packet.getLength(), "UTF-8"));
+                        } catch (JSONException malformed) {
+                            udpReceiverError = "JSON 오류";
+                            continue;
+                        }
+                        state.set(decoded);
+                        udpReceiverError = "";
                         eonAddress.set(packet.getAddress());
                         lastEonRxElapsed = SystemClock.elapsedRealtime();
                         lastEonAddress = packet.getAddress().getHostAddress();
@@ -534,8 +577,12 @@ public final class HudService extends Service {
                     }
                 }
             } catch (Exception e) {
+                String message = e.getMessage();
+                udpReceiverError = e.getClass().getSimpleName()
+                        + (message == null || message.length() == 0 ? "" : ": " + message);
                 SystemClock.sleep(1000L);
             } finally {
+                udpReceiverBound = false;
                 if (socket != null) {
                     try {
                         socket.close();
@@ -705,6 +752,12 @@ public final class HudService extends Service {
             }
             nextFrame = due;
         }
+        // The EGL context was created and used on this render thread, so it
+        // must also be released here when the service loop stops.
+        if (modelWorldGl != null) {
+            modelWorldGl.release();
+            modelWorldGl = null;
+        }
     }
 
     private void applyFrameConfiguration(JSONObject currentState) {
@@ -717,7 +770,6 @@ public final class HudService extends Service {
         configuredScreenMode = Math.max(1, Math.min(3, currentState.optInt("hudScreenMode", 1)));
         configuredOrientation = currentState.optInt("hudOrientation", 0) == 2 ? 2 : 0;
         configuredMirror = currentState.optInt("hudMirror", 0) != 0;
-        configuredBuildings = currentState.optInt("hudBuildings", 1) != 0;
         configuredBsdStyle = Math.max(1, Math.min(3, currentState.optInt("hudBsdStyle", 2)));
         configuredCarStyle = currentState.optInt("hudCarStyle", 1) == 2 ? 2 : 1;
         configuredRoadSigns = Math.max(0, Math.min(3, currentState.optInt("hudRoadSigns", 3)));
@@ -1065,53 +1117,6 @@ public final class HudService extends Service {
         return last == 0L || SystemClock.elapsedRealtime() - last > EON_STALE_MS;
     }
 
-    /**
-     * 카메라가 확인한 차로 위치로부터 자차 기준 전체 도로 중심 y를 계산한다.
-     * y는 좌측이 +이므로 2차로 중 1차로에서는 도로 중심이 자차 오른쪽
-     * 약 -1.75m가 된다. 이 값은 OSM 화면 정합에만 쓰고 제어에는 사용하지 않는다.
-     */
-    private static float osmRoadCenter(JSONObject scene) {
-        if (scene == null) {
-            return Float.NaN;
-        }
-        JSONObject position = scene.optJSONObject("lanePosition");
-        if (position == null || position.optDouble("confidence", 0d) < 0.40d) {
-            return Float.NaN;
-        }
-        int count = position.optInt("n", 0);
-        int current = position.optInt("cur", 0);
-        if (count < 1 || count > 8 || current < 1 || current > count) {
-            return Float.NaN;
-        }
-        float laneWidth = (float) scene.optDouble("laneWidth", 3.5d);
-        if (!Float.isFinite(laneWidth) || laneWidth < 0.1f) {
-            laneWidth = 3.5f;
-        }
-        laneWidth = Math.max(2.2f, Math.min(4.2f, laneWidth));
-        return (current - (count + 1) * 0.5f) * laneWidth;
-    }
-
-    /** OSM 주도로와 평행 서비스도로를 구분하기 위한 카메라 기반 전체 도로 폭. */
-    private static float osmRoadWidth(JSONObject scene) {
-        if (scene == null) {
-            return Float.NaN;
-        }
-        JSONObject position = scene.optJSONObject("lanePosition");
-        if (position == null || position.optDouble("confidence", 0d) < 0.40d) {
-            return Float.NaN;
-        }
-        int count = position.optInt("n", 0);
-        if (count < 1 || count > 8) {
-            return Float.NaN;
-        }
-        float laneWidth = (float) scene.optDouble("laneWidth", 3.5d);
-        if (!Float.isFinite(laneWidth) || laneWidth < 0.1f) {
-            laneWidth = 3.5f;
-        }
-        return Math.max(3f, Math.min(20f, count
-                * Math.max(2.2f, Math.min(4.2f, laneWidth))));
-    }
-
     private void drawDriving(Canvas c, Paint p, JSONObject s) {
         JSONObject l = layout(s);
         boolean stale = eonStale();
@@ -1123,45 +1128,68 @@ public final class HudService extends Service {
         p.setColor(driveBg);
         c.drawRect(0f, 0f, DRIVE_RIGHT, 462f, p);
 
-        JSONObject naviForWorld = stale ? null : s.optJSONObject("navi");
-        JSONObject worldScene = naviForWorld == null ? null : naviForWorld.optJSONObject("scene");
-        world.setNavi(worldScene);
-        OsmWorld.Snapshot osmSnap = null;
-        JSONArray scenePos = worldScene == null ? null : worldScene.optJSONArray("pos");
-        if (scenePos != null && scenePos.length() >= 3 && osmWorld != null) {
-            double posLat = scenePos.optDouble(0, Double.NaN);
-            double posLon = scenePos.optDouble(1, Double.NaN);
-            double posHead = scenePos.optDouble(2, Double.NaN);
-            if (!Double.isNaN(posLat) && !Double.isNaN(posLon) && !Double.isNaN(posHead)) {
-                osmWorld.ensure(posLat, posLon);
-                osmSnap = osmWorld.snapshot(posLat, posLon, posHead,
-                        osmRoadCenter(s), osmRoadWidth(s));
-            }
-        }
-        world.setOsm(osmSnap);
+        int roadTop = lc(l, "roadTop",
+                frameDark ? Color.rgb(42, 49, 58) : Color.rgb(226, 229, 231));
+        int roadBottom = lc(l, "roadBottom",
+                frameDark ? Color.rgb(53, 61, 71) : Color.rgb(216, 220, 223));
+        int pathColor = lc(l, "pathColor",
+                frameDark ? Color.rgb(40, 150, 255) : Color.rgb(24, 126, 224));
+
         int worldSave = c.save();
         if (nativeLayoutRendering) {
             // 주행 장면은 세로 확대율을 X에도 적용하고 좌우만 중앙 크롭한다.
-            // 도로·차량·건물의 원형/차체 비율이 화면 압축으로 찌그러지지 않는다.
             c.clipRect(0f, 0f, DRIVE_RIGHT, HEIGHT);
             c.scale(nativeScaleY / nativeScaleX, 1f, DRIVE_CX, HEIGHT * 0.5f);
         }
-        world.draw(c, p, stale ? null : s, enabled, egoCar, otherCar, worldOdoM,
-                driveBg,
-                lc(l, "roadTop", frameDark ? Color.rgb(42, 49, 58) : Color.rgb(226, 229, 231)),
-                lc(l, "roadBottom", frameDark ? Color.rgb(53, 61, 71) : Color.rgb(216, 220, 223)),
-                lc(l, "pathColor", frameDark ? Color.rgb(40, 150, 255) : Color.rgb(24, 126, 224)),
-                configuredRadarInfo, configuredBuildings, frameDark, configuredBsdStyle,
-                configuredCarStyle,
-                (float) s.optDouble("pathOffset", 0d),
-                (float) s.optDouble("calibPitch", 0d),
-                (configuredRoadSigns & 1) != 0,
-                (configuredRoadSigns & 2) != 0,
-                (float) s.optDouble("hudRoadZ", 100d),
-                (float) s.optDouble("pitch", 0d),
-                (float) s.optDouble("hudPitchDyn", 60d),
-                (float) s.optDouble("laneWidth", 0d),
-                s.isNull("stopDist") ? -1f : (float) s.optDouble("stopDist", -1d));
+
+        boolean glDrawn = false;
+        int hudGlMode = s.optInt("hudGl", 1);
+        if (hudGlMode == 0 && modelWorldGl != null) {
+            // Manual Canvas fallback must release the pbuffer immediately;
+            // otherwise repeated A/B tests retain the old EGL allocation.
+            modelWorldGl.release();
+            modelWorldGl = null;
+        }
+        if (!stale && hudGlMode != 0) {
+            if (modelWorldGl == null) {
+                modelWorldGl = new ModelWorldGL();
+            }
+            glDrawn = modelWorldGl.draw(c, p, s, enabled, driveBg, roadTop,
+                    roadBottom, pathColor, frameDark,
+                    (float) s.optDouble("hudRoadZ", 100d),
+                    (float) s.optDouble("pitch", 0d),
+                    (float) s.optDouble("hudPitchDyn", 60d),
+                    (float) s.optDouble("calibPitch", 0d));
+            if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
+                // Preserve the approved ego-car artwork in the GL preview.
+                float carWidth = 78f;
+                float carHeight = egoCar.getHeight() * carWidth / egoCar.getWidth();
+                scratchRect.set(DRIVE_CX - carWidth * 0.5f, 433f - carHeight,
+                        DRIVE_CX + carWidth * 0.5f, 433f);
+                p.setAlpha(255);
+                p.setFilterBitmap(true);
+                c.drawBitmap(egoCar, null, scratchRect, p);
+            }
+        }
+
+        if (!glDrawn) {
+            JSONObject naviForWorld = stale ? null : s.optJSONObject("navi");
+            JSONObject worldScene = naviForWorld == null ? null : naviForWorld.optJSONObject("scene");
+            world.setNavi(worldScene);
+            world.draw(c, p, stale ? null : s, enabled, egoCar, otherCar, worldOdoM,
+                    driveBg, roadTop, roadBottom, pathColor,
+                    configuredRadarInfo, frameDark, configuredBsdStyle,
+                    configuredCarStyle,
+                    (float) s.optDouble("pathOffset", 0d),
+                    (float) s.optDouble("calibPitch", 0d),
+                    (configuredRoadSigns & 1) != 0,
+                    (configuredRoadSigns & 2) != 0,
+                    (float) s.optDouble("hudRoadZ", 100d),
+                    (float) s.optDouble("pitch", 0d),
+                    (float) s.optDouble("hudPitchDyn", 60d),
+                    (float) s.optDouble("laneWidth", 0d),
+                    s.isNull("stopDist") ? -1f : (float) s.optDouble("stopDist", -1d));
+        }
         c.restoreToCount(worldSave);
 
         int blinkerSave = beginElement(c, l, "blinkers", DRIVE_CX, 386f);
@@ -2711,7 +2739,6 @@ public final class HudService extends Service {
                 {"USB ERR", Integer.toString(usbErrorStreak)},
                 {"PANEL", silence < 0L ? "--" : String.format(Locale.US, "%.0fs", silence / 1000f)},
                 {"LINK", linkAge < 0L ? "--" : durationText(linkAge)},
-                {"OSM", osmWorld == null ? "--" : osmWorld.status()},
         };
 
         float unit = height / 480f;
@@ -2857,7 +2884,6 @@ public final class HudService extends Service {
                 {"USB ERR", Integer.toString(usbErrorStreak)},
                 {"PANEL", silence < 0L ? "--" : String.format(Locale.US, "%.0fs", silence / 1000f)},
                 {"LINK", linkAge < 0L ? "--" : durationText(linkAge)},
-                {"OSM", osmWorld == null ? "--" : osmWorld.status()},
         };
         float top = 46f;
         for (String[] row : rows) {
