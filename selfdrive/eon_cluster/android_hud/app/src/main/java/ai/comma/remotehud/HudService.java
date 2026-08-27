@@ -1792,7 +1792,7 @@ public final class HudService extends Service {
         if (!Double.isFinite(temp) || temp < -50d || temp > 80d) {
             return;
         }
-        text(c, p, String.format(Locale.US, "%.0f°C", temp), 742f, 44f, 22f,
+        text(c, p, String.format(Locale.US, "%.0f°C", temp), 760f, 44f, 22f,
                 ink(), Paint.Align.RIGHT);
     }
 
@@ -1863,8 +1863,7 @@ public final class HudService extends Service {
         }
         JSONObject doors = s.optJSONObject("doors");
         if (hasOpenDoor(doors)) {
-            if (raster) drawStatusIcon(c, p, 3, x, y, 29f, 31f);
-            else drawDoorWarning(c, p, x + 9f, y, doors);
+            drawDoorStatus(c, p, x, y, doors);
         }
     }
 
@@ -1894,6 +1893,64 @@ public final class HudService extends Service {
         p.setFilterBitmap(true);
         c.drawBitmap(statusIcons, scratchIRect, scratchRect, p);
         p.setColorFilter(null);
+    }
+
+    /**
+     * 순정 PNG의 차체만 사용하고 실제 FL/FR/RL/RR 신호에 해당하는 문을
+     * 빨간색으로 표시한다. 기존 PNG에 고정된 운전석 문은 소스 크롭에서 제외한다.
+     */
+    private void drawDoorStatus(Canvas c, Paint p, float left, float cy, JSONObject doors) {
+        if (statusIcons == null || statusIcons.isRecycled()) {
+            drawDoorWarning(c, p, left + 9f, cy, doors);
+            return;
+        }
+
+        int sw = statusIcons.getWidth();
+        int sh = statusIcons.getHeight();
+        scratchIRect.set(Math.round(sw * 0.835f), Math.round(sh * 0.22f),
+                Math.round(sw * 0.95f), Math.round(sh * 0.78f));
+        float bodyLeft = left + 6f;
+        float bodyRight = left + 29f;
+        scratchRect.set(bodyLeft, cy - 15.5f, bodyRight, cy + 15.5f);
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setAlpha(255);
+        p.setColorFilter(!frameDark ? dayDoorFilter : null);
+        p.setFilterBitmap(true);
+        c.drawBitmap(statusIcons, scratchIRect, scratchRect, p);
+        p.setColorFilter(null);
+
+        p.setColor(Color.rgb(238, 45, 55));
+        if (doors.optBoolean("fl", false)) {
+            drawOpenDoorLeaf(c, p, bodyLeft + 1f, cy - 9f, cy - 3f,
+                    left - 1f, cy - 12f, cy - 6f);
+        }
+        if (doors.optBoolean("fr", false)) {
+            drawOpenDoorLeaf(c, p, bodyRight - 1f, cy - 9f, cy - 3f,
+                    left + 36f, cy - 12f, cy - 6f);
+        }
+        if (doors.optBoolean("rl", false)) {
+            drawOpenDoorLeaf(c, p, bodyLeft + 1f, cy + 3f, cy + 9f,
+                    left - 1f, cy + 6f, cy + 12f);
+        }
+        if (doors.optBoolean("rr", false)) {
+            drawOpenDoorLeaf(c, p, bodyRight - 1f, cy + 3f, cy + 9f,
+                    left + 36f, cy + 6f, cy + 12f);
+        }
+    }
+
+    private void drawOpenDoorLeaf(Canvas c, Paint p, float hingeX, float hingeTop,
+                                  float hingeBottom, float outerX, float outerTop,
+                                  float outerBottom) {
+        float inward = outerX < hingeX ? 1.8f : -1.8f;
+        scratchPath.rewind();
+        scratchPath.moveTo(hingeX, hingeTop);
+        scratchPath.lineTo(outerX, outerTop);
+        scratchPath.lineTo(outerX + inward, outerBottom);
+        scratchPath.lineTo(hingeX, hingeBottom);
+        scratchPath.close();
+        p.setStyle(Paint.Style.FILL);
+        c.drawPath(scratchPath, p);
     }
 
     private boolean hasOpenDoor(JSONObject doors) {

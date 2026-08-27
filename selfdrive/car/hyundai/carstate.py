@@ -84,7 +84,13 @@ class CarState(CarStateBase):
     ret.doorOpen = any([ret.frontLeftDoorOpen, ret.frontRightDoorOpen,
                         ret.rearLeftDoorOpen, ret.rearRightDoorOpen])
 
-    ret.seatbeltUnlatched = cp.vl["CGW1"]["CF_Gway_DrvSeatBeltSw"] == 0
+    # CGW4 indicators already include occupant/warning logic for passenger
+    # and rear seats.  Keep the proven driver switch as a fallback.
+    belt_warning = any(int(cp.vl["CGW4"][sig]) != 0 for sig in (
+      "CF_Gway_AstSeatBeltInd", "CF_Gway_RCSeatBeltInd",
+      "CF_Gway_RLSeatBeltInd", "CF_Gway_RRSeatBeltInd"))
+    ret.seatbeltUnlatched = (cp.vl["CGW1"]["CF_Gway_DrvSeatBeltSw"] == 0 or
+                             belt_warning)
 
     if cp.vl_all["CLU13"]["CF_Clu_DTE"]:
       self.distance_to_empty_seen = True
@@ -151,10 +157,16 @@ class CarState(CarStateBase):
     ret.yawRate = cp.vl["ESP12"]["YAW_RATE"]
     ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_lamp(50, cp.vl["CGW1"]["CF_Gway_TurnSigLh"],
                                                             cp.vl["CGW1"]["CF_Gway_TurnSigRh"])
-    # ExtTailAct reports the exterior lamps themselves and therefore covers
-    # manual switch operation as well as AUTO mode on DH.
-    ret.lowBeam = (bool(cp.vl["CGW1"]["CF_Gway_HeadLampLow"]) or
-                   bool(cp.vl["CGW2"]["CF_Gway_ExtTailAct"]))
+    # DH model years expose manual/AUTO exterior-lamp activity on different
+    # gateway variants.  OR the actual low beam with every available tail
+    # activity source so a manually selected lamp is not missed.
+    ret.lowBeam = any((
+      bool(cp.vl["CGW1"]["CF_Gway_HeadLampLow"]),
+      bool(cp.vl["CGW2"]["CF_Gway_AvTail"]),
+      bool(cp.vl["CGW2"]["CF_Gway_ExtTailAct"]),
+      bool(cp.vl["CGW2"]["CF_Gway_IntTailAct"]),
+      int(cp.vl["GW_IPM_PE_1"]["C_TailLampActivity"]) != 0,
+    ))
     ret.highBeam = bool(cp.vl["CGW1"]["CF_Gway_HeadLampHigh"])
     ret.frontFogLight = bool(cp.vl["CGW1"]["CF_Gway_Frt_Fog_Act"])
     ret.steeringTorque = cp_mdps.vl["MDPS12"]["CR_Mdps_StrColTq"]
@@ -343,6 +355,10 @@ class CarState(CarStateBase):
       ("YAW_RATE", "ESP12"),
 
       ("CF_Gway_DrvSeatBeltInd", "CGW4"),
+      ("CF_Gway_AstSeatBeltInd", "CGW4"),
+      ("CF_Gway_RCSeatBeltInd", "CGW4"),
+      ("CF_Gway_RLSeatBeltInd", "CGW4"),
+      ("CF_Gway_RRSeatBeltInd", "CGW4"),
 
       ("CF_Gway_DrvSeatBeltSw", "CGW1"),
       ("CF_Gway_DrvDrSw", "CGW1"),       # Driver Door
@@ -352,7 +368,10 @@ class CarState(CarStateBase):
       ("CF_Gway_TurnSigLh", "CGW1"),
       ("CF_Gway_TurnSigRh", "CGW1"),
       ("CF_Gway_HeadLampLow", "CGW1"),
+      ("CF_Gway_AvTail", "CGW2"),
       ("CF_Gway_ExtTailAct", "CGW2"),
+      ("CF_Gway_IntTailAct", "CGW2"),
+      ("C_TailLampActivity", "GW_IPM_PE_1"),
       ("CF_Gway_HeadLampHigh", "CGW1"),
       ("CF_Gway_Frt_Fog_Act", "CGW1"),
       ("CF_Gway_ParkBrakeSw", "CGW1"),   # Parking Brake
