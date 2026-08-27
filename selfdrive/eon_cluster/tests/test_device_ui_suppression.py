@@ -258,3 +258,22 @@ def test_external_map_renderer_is_completely_removed():
   assert "laneInsideRoadEdges" in renderer
   assert "ROAD_EDGE_SAMPLE_XS" in renderer
   assert "GLES20.glFinish()" not in renderer
+
+
+def test_s9_v5_visual_layers_use_existing_telemetry_only():
+  java = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+          "main" / "java" / "ai" / "comma" / "remotehud")
+  renderer = (java / "ModelWorldGL.java").read_text(encoding="utf-8")
+  sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(
+      encoding="utf-8")
+
+  assert '"v": 5' in sender
+  assert '"desiredDistance":' in sender
+  assert "drawPathLayers" in renderer
+  assert "leadDistance[0] - 2.6f" in renderer
+  assert "drawRoadEdge" in renderer
+  assert "drawLaneMarking" in renderer
+  assert "drawDesiredDistance" in renderer
+  assert "routeShadow" in renderer
+  assert "lineScreenX" in renderer and "lineScreenY" in renderer
+  assert renderer.count("new float[MAX_POINTS]") == 5

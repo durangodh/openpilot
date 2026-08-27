@@ -900,7 +900,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   # coordinates.  The MPC ribbon is a separate control prediction and must
   # never drag the perceived road sideways on the HUD.
   return {
-    "v": 4,
+    "v": 5,
     "t": int(time.time() * 1000),
     "layout": REMOTE_LAYOUT,
     "speed": int(round(_finite(_field(car, "vEgoCluster", _field(car, "vEgo", 0.0))) * 3.6)),
@@ -920,6 +920,8 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "rightBsd": bool(_field(car, "rightBlindspot", False)),
     "steer": round(_finite(_field(car, "steeringAngleDeg", 0.0)), 1),
     "accel": round(_finite(accels[0] if accels else 0.0), 2),
+    "desiredDistance": round(max(0.0, min(150.0,
+        _finite(_field(sm["longitudinalPlan"], "desiredDistance", 0.0)))), 1),
     "cpu": int(round(cpu_avg)),
     "temp": round(temp_avg, 1),
     "system": {

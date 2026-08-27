@@ -21,7 +21,7 @@ import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 
 /**
- * Fourth-stage modelV2-only road renderer.
+ * Fifth-stage modelV2-only road renderer.
  *
  * The renderer deliberately has no external map, buildings, textures or lighting.
  * It keeps model geometry authoritative, adds a separately gated TMAP route
@@ -64,6 +64,9 @@ final class ModelWorldGL {
             .order(ByteOrder.nativeOrder()).asIntBuffer();
     private final int[] pixels = new int[WIDTH * HEIGHT];
     private final float[] projected = new float[2];
+    private final float[] lineScreenX = new float[MAX_POINTS];
+    private final float[] lineScreenY = new float[MAX_POINTS];
+    private final float[] worldQuad = new float[8];
     private final Bitmap frame = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
 
     private long lastTimestamp = Long.MIN_VALUE;
@@ -309,14 +312,12 @@ final class ModelWorldGL {
         Line rightEdge = smoothOptional(smoothedEdges[1], rawRightEdge,
                 geometryAlpha, 0.28f);
 
-        drawRoad(path, leftEdge, rightEdge, scene, roadBottom);
+        drawRoad(path, leftEdge, rightEdge, scene, blend(roadTop, roadBottom, 0.55f));
         if (leftEdge != null) {
-            drawWorldLine(leftEdge, path, dark ? Color.rgb(126, 139, 153)
-                    : Color.rgb(152, 161, 168), 2.0f, 0.92f);
+            drawRoadEdge(leftEdge, path, dark);
         }
         if (rightEdge != null) {
-            drawWorldLine(rightEdge, path, dark ? Color.rgb(126, 139, 153)
-                    : Color.rgb(152, 161, 168), 2.0f, 0.92f);
+            drawRoadEdge(rightEdge, path, dark);
         }
 
         // TMAP never changes road or lane geometry.  It is only a gated,
@@ -326,7 +327,10 @@ final class ModelWorldGL {
         if (route != null) {
             int routeColor = dark ? Color.rgb(54, 218, 178)
                     : Color.rgb(0, 153, 123);
-            drawWorldLine(route, path, routeColor, 4.0f, 0.58f);
+            int routeShadow = dark ? Color.rgb(18, 30, 29)
+                    : Color.rgb(65, 92, 86);
+            drawWorldLine(route, path, routeShadow, 7.0f, 0.38f, 0.028f);
+            drawWorldLine(route, path, routeColor, 3.4f, 0.66f, 0.065f);
         }
 
         JSONArray lanes = scene.optJSONArray("lanes");
@@ -359,13 +363,19 @@ final class ModelWorldGL {
             int laneColor = (i == 1 || i == 2)
                     ? (dark ? Color.rgb(246, 206, 92) : Color.rgb(238, 196, 70))
                     : (dark ? Color.rgb(220, 226, 232) : Color.rgb(249, 250, 250));
-            drawWorldLine(smoothedLanes[i], path, laneColor,
+            drawLaneMarking(smoothedLanes[i], path, laneColor,
                     i == 1 || i == 2 ? 3.0f : 2.2f,
-                    clamp(0.22f + laneConfidence[i] * 0.78f, 0f, 1f));
+                    clamp(0.22f + laneConfidence[i] * 0.78f, 0f, 1f), dark);
         }
 
         if (enabled) {
-            drawPath(path, pathColor);
+            // Use the already-rendered lead state to taper the path before the
+            // car ahead.  No extra radar/model work or EON telemetry is needed.
+            float pathEnd = leadSeen[0]
+                    ? Math.max(3f, leadDistance[0] - 2.6f)
+                    : Float.POSITIVE_INFINITY;
+            drawPathLayers(path, pathColor, pathEnd);
+            drawDesiredDistance(scene, path, dark);
         }
         drawLead(scene.optJSONObject("lead2"), path, 1, dark, true, timestamp);
         drawLead(scene.optJSONObject("lead"), path, 0, dark, false, timestamp);
@@ -621,11 +631,24 @@ final class ModelWorldGL {
         drawVertices(GLES20.GL_TRIANGLE_STRIP, v / 2, color, 1f);
     }
 
-    private void drawPath(Line path, int color) {
+    private void drawPathLayers(Line path, int color, float maxX) {
+        drawPathLayer(path, blend(color, Color.BLACK, 0.58f), 0.70f,
+                0.015f, 0.52f, 0.18f, maxX);
+        drawPathLayer(path, color, 0.52f, 0.040f, 0.88f, 0.16f, maxX);
+        drawPathLayer(path, blend(color, Color.WHITE, 0.52f), 0.12f,
+                0.070f, 0.94f, 0.04f, maxX);
+    }
+
+    private void drawPathLayer(Line path, int color, float baseHalfWidth,
+                               float zOffset, float alpha, float farGrowth,
+                               float maxX) {
         int v = 0;
         for (int i = 0; i < path.count && v + 4 <= vertices.length; i++) {
-            float half = 0.52f + Math.min(0.22f, path.x[i] * 0.002f);
-            float z = path.z[i] * roadZGain + 0.035f;
+            if (path.x[i] > maxX) {
+                break;
+            }
+            float half = baseHalfWidth + Math.min(farGrowth, path.x[i] * 0.002f);
+            float z = path.z[i] * roadZGain + zOffset;
             if (!project(path.x[i], path.y[i] + half, z, projected)) continue;
             vertices[v++] = ndcX(projected[0]);
             vertices[v++] = ndcY(projected[1] - TOP);
@@ -636,37 +659,93 @@ final class ModelWorldGL {
             vertices[v++] = ndcX(projected[0]);
             vertices[v++] = ndcY(projected[1] - TOP);
         }
-        drawVertices(GLES20.GL_TRIANGLE_STRIP, v / 2, color, 0.88f);
+        drawVertices(GLES20.GL_TRIANGLE_STRIP, v / 2, color, alpha);
+    }
+
+    private void drawDesiredDistance(JSONObject scene, Line path, boolean dark) {
+        float distance = (float) scene.optDouble("desiredDistance", -1d);
+        if (!Float.isFinite(distance) || distance < 2f || distance > 150f) {
+            return;
+        }
+        float laneWidth = clamp((float) scene.optDouble("laneWidth", 3.5d), 2.2f, 4.2f);
+        float center = yAt(path, distance);
+        float halfWidth = laneWidth * 0.48f;
+        float halfDepth = 0.18f;
+        float z = zAt(path, distance) * roadZGain + 0.090f;
+        if (!projectQuadPoint(0, distance - halfDepth, center + halfWidth, z)
+                || !projectQuadPoint(2, distance - halfDepth, center - halfWidth, z)
+                || !projectQuadPoint(4, distance + halfDepth, center - halfWidth, z)
+                || !projectQuadPoint(6, distance + halfDepth, center + halfWidth, z)) {
+            return;
+        }
+        int v = 0;
+        v = addTriangle(v, worldQuad[0], worldQuad[1], worldQuad[2], worldQuad[3],
+                worldQuad[6], worldQuad[7]);
+        v = addTriangle(v, worldQuad[6], worldQuad[7], worldQuad[2], worldQuad[3],
+                worldQuad[4], worldQuad[5]);
+        drawVertices(GLES20.GL_TRIANGLES, v / 2,
+                dark ? Color.rgb(245, 80, 218) : Color.rgb(202, 24, 173), 0.94f);
+    }
+
+    private boolean projectQuadPoint(int offset, float x, float y, float z) {
+        if (!project(x, y, z, projected)) {
+            return false;
+        }
+        worldQuad[offset] = projected[0];
+        worldQuad[offset + 1] = projected[1] - TOP;
+        return true;
+    }
+
+    private void drawRoadEdge(Line edge, Line roadHeight, boolean dark) {
+        int shadow = dark ? Color.rgb(18, 24, 31) : Color.rgb(92, 99, 105);
+        int body = dark ? Color.rgb(126, 139, 153) : Color.rgb(152, 161, 168);
+        int crest = dark ? Color.rgb(205, 216, 226) : Color.rgb(225, 230, 234);
+        drawWorldLine(edge, roadHeight, shadow, 6.0f, 0.62f, 0.024f);
+        drawWorldLine(edge, roadHeight, body, 3.5f, 0.94f, 0.055f);
+        drawWorldLine(edge, roadHeight, crest, 1.2f, 0.92f, 0.086f);
+    }
+
+    private void drawLaneMarking(Line lane, Line roadHeight, int color,
+                                 float widthPx, float alpha, boolean dark) {
+        int border = dark ? Color.rgb(28, 34, 40) : Color.rgb(105, 110, 114);
+        drawWorldLine(lane, roadHeight, border, widthPx + 3.0f,
+                alpha * 0.66f, 0.030f);
+        drawWorldLine(lane, roadHeight, color, widthPx, alpha, 0.052f);
     }
 
     private void drawWorldLine(Line line, Line roadHeight, int color,
                                float widthPx, float alpha) {
+        drawWorldLine(line, roadHeight, color, widthPx, alpha, 0.045f);
+    }
+
+    private void drawWorldLine(Line line, Line roadHeight, int color,
+                               float widthPx, float alpha, float zOffset) {
         if (line == null || line.count < 2) {
             return;
         }
-        float[] sx = new float[MAX_POINTS];
-        float[] sy = new float[MAX_POINTS];
         int count = 0;
         for (int i = 0; i < line.count && count < MAX_POINTS; i++) {
-            float z = zAt(roadHeight, line.x[i]) * roadZGain + 0.045f;
+            float z = zAt(roadHeight, line.x[i]) * roadZGain + zOffset;
             if (project(line.x[i], line.y[i], z, projected)) {
-                sx[count] = projected[0];
-                sy[count] = projected[1] - TOP;
+                lineScreenX[count] = projected[0];
+                lineScreenY[count] = projected[1] - TOP;
                 count++;
             }
         }
         int v = 0;
         for (int i = 0; i + 1 < count && v + 12 <= vertices.length; i++) {
-            float dx = sx[i + 1] - sx[i];
-            float dy = sy[i + 1] - sy[i];
+            float dx = lineScreenX[i + 1] - lineScreenX[i];
+            float dy = lineScreenY[i + 1] - lineScreenY[i];
             float length = (float) Math.sqrt(dx * dx + dy * dy);
             if (length < 0.01f) continue;
             float nx = -dy / length * widthPx * 0.5f;
             float ny = dx / length * widthPx * 0.5f;
-            v = addTriangle(v, sx[i] + nx, sy[i] + ny,
-                    sx[i] - nx, sy[i] - ny, sx[i + 1] + nx, sy[i + 1] + ny);
-            v = addTriangle(v, sx[i + 1] + nx, sy[i + 1] + ny,
-                    sx[i] - nx, sy[i] - ny, sx[i + 1] - nx, sy[i + 1] - ny);
+            v = addTriangle(v, lineScreenX[i] + nx, lineScreenY[i] + ny,
+                    lineScreenX[i] - nx, lineScreenY[i] - ny,
+                    lineScreenX[i + 1] + nx, lineScreenY[i + 1] + ny);
+            v = addTriangle(v, lineScreenX[i + 1] + nx, lineScreenY[i + 1] + ny,
+                    lineScreenX[i] - nx, lineScreenY[i] - ny,
+                    lineScreenX[i + 1] - nx, lineScreenY[i + 1] - ny);
         }
         drawVertices(GLES20.GL_TRIANGLES, v / 2, color, alpha);
     }

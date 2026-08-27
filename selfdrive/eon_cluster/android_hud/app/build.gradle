@@ -7,8 +7,8 @@ android {
     applicationId "ai.comma.remotehud"
     minSdk 26
     targetSdk 35
-    versionCode 97
-    versionName "0.81-model-gl-v4"
+    versionCode 98
+    versionName "0.81-model-gl-v5"
   }
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_11
