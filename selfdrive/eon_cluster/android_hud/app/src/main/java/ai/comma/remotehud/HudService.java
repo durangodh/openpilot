@@ -247,6 +247,8 @@ public final class HudService extends Service {
                     0f, 0f, 0f, 1f, 0f
             }));
     private final World3D world = new World3D();
+    /** Lazy-created on the render thread; any EGL failure keeps World3D active. */
+    private ModelWorldGL modelWorldGl;
     private OsmWorld osmWorld;
     private final ByteArrayOutputStream jpegOut = new ByteArrayOutputStream(180000);
 
@@ -1123,45 +1125,74 @@ public final class HudService extends Service {
         p.setColor(driveBg);
         c.drawRect(0f, 0f, DRIVE_RIGHT, 462f, p);
 
-        JSONObject naviForWorld = stale ? null : s.optJSONObject("navi");
-        JSONObject worldScene = naviForWorld == null ? null : naviForWorld.optJSONObject("scene");
-        world.setNavi(worldScene);
-        OsmWorld.Snapshot osmSnap = null;
-        JSONArray scenePos = worldScene == null ? null : worldScene.optJSONArray("pos");
-        if (scenePos != null && scenePos.length() >= 3 && osmWorld != null) {
-            double posLat = scenePos.optDouble(0, Double.NaN);
-            double posLon = scenePos.optDouble(1, Double.NaN);
-            double posHead = scenePos.optDouble(2, Double.NaN);
-            if (!Double.isNaN(posLat) && !Double.isNaN(posLon) && !Double.isNaN(posHead)) {
-                osmWorld.ensure(posLat, posLon);
-                osmSnap = osmWorld.snapshot(posLat, posLon, posHead,
-                        osmRoadCenter(s), osmRoadWidth(s));
-            }
-        }
-        world.setOsm(osmSnap);
+        int roadTop = lc(l, "roadTop",
+                frameDark ? Color.rgb(42, 49, 58) : Color.rgb(226, 229, 231));
+        int roadBottom = lc(l, "roadBottom",
+                frameDark ? Color.rgb(53, 61, 71) : Color.rgb(216, 220, 223));
+        int pathColor = lc(l, "pathColor",
+                frameDark ? Color.rgb(40, 150, 255) : Color.rgb(24, 126, 224));
+
         int worldSave = c.save();
         if (nativeLayoutRendering) {
             // 주행 장면은 세로 확대율을 X에도 적용하고 좌우만 중앙 크롭한다.
-            // 도로·차량·건물의 원형/차체 비율이 화면 압축으로 찌그러지지 않는다.
             c.clipRect(0f, 0f, DRIVE_RIGHT, HEIGHT);
             c.scale(nativeScaleY / nativeScaleX, 1f, DRIVE_CX, HEIGHT * 0.5f);
         }
-        world.draw(c, p, stale ? null : s, enabled, egoCar, otherCar, worldOdoM,
-                driveBg,
-                lc(l, "roadTop", frameDark ? Color.rgb(42, 49, 58) : Color.rgb(226, 229, 231)),
-                lc(l, "roadBottom", frameDark ? Color.rgb(53, 61, 71) : Color.rgb(216, 220, 223)),
-                lc(l, "pathColor", frameDark ? Color.rgb(40, 150, 255) : Color.rgb(24, 126, 224)),
-                configuredRadarInfo, configuredBuildings, frameDark, configuredBsdStyle,
-                configuredCarStyle,
-                (float) s.optDouble("pathOffset", 0d),
-                (float) s.optDouble("calibPitch", 0d),
-                (configuredRoadSigns & 1) != 0,
-                (configuredRoadSigns & 2) != 0,
-                (float) s.optDouble("hudRoadZ", 100d),
-                (float) s.optDouble("pitch", 0d),
-                (float) s.optDouble("hudPitchDyn", 60d),
-                (float) s.optDouble("laneWidth", 0d),
-                s.isNull("stopDist") ? -1f : (float) s.optDouble("stopDist", -1d));
+
+        boolean glDrawn = false;
+        if (!stale && s.optInt("hudGl", 1) != 0) {
+            if (modelWorldGl == null) {
+                modelWorldGl = new ModelWorldGL();
+            }
+            glDrawn = modelWorldGl.draw(c, p, s, enabled, driveBg, roadTop,
+                    roadBottom, pathColor, frameDark,
+                    (float) s.optDouble("hudRoadZ", 100d),
+                    (float) s.optDouble("pitch", 0d),
+                    (float) s.optDouble("hudPitchDyn", 60d),
+                    (float) s.optDouble("calibPitch", 0d));
+            if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
+                // Preserve the approved ego-car artwork in the GL preview.
+                float carWidth = 78f;
+                float carHeight = egoCar.getHeight() * carWidth / egoCar.getWidth();
+                scratchRect.set(DRIVE_CX - carWidth * 0.5f, 433f - carHeight,
+                        DRIVE_CX + carWidth * 0.5f, 433f);
+                p.setAlpha(255);
+                p.setFilterBitmap(true);
+                c.drawBitmap(egoCar, null, scratchRect, p);
+            }
+        }
+
+        if (!glDrawn) {
+            JSONObject naviForWorld = stale ? null : s.optJSONObject("navi");
+            JSONObject worldScene = naviForWorld == null ? null : naviForWorld.optJSONObject("scene");
+            world.setNavi(worldScene);
+            OsmWorld.Snapshot osmSnap = null;
+            JSONArray scenePos = worldScene == null ? null : worldScene.optJSONArray("pos");
+            if (scenePos != null && scenePos.length() >= 3 && osmWorld != null) {
+                double posLat = scenePos.optDouble(0, Double.NaN);
+                double posLon = scenePos.optDouble(1, Double.NaN);
+                double posHead = scenePos.optDouble(2, Double.NaN);
+                if (!Double.isNaN(posLat) && !Double.isNaN(posLon) && !Double.isNaN(posHead)) {
+                    osmWorld.ensure(posLat, posLon);
+                    osmSnap = osmWorld.snapshot(posLat, posLon, posHead,
+                            osmRoadCenter(s), osmRoadWidth(s));
+                }
+            }
+            world.setOsm(osmSnap);
+            world.draw(c, p, stale ? null : s, enabled, egoCar, otherCar, worldOdoM,
+                    driveBg, roadTop, roadBottom, pathColor,
+                    configuredRadarInfo, configuredBuildings, frameDark, configuredBsdStyle,
+                    configuredCarStyle,
+                    (float) s.optDouble("pathOffset", 0d),
+                    (float) s.optDouble("calibPitch", 0d),
+                    (configuredRoadSigns & 1) != 0,
+                    (configuredRoadSigns & 2) != 0,
+                    (float) s.optDouble("hudRoadZ", 100d),
+                    (float) s.optDouble("pitch", 0d),
+                    (float) s.optDouble("hudPitchDyn", 60d),
+                    (float) s.optDouble("laneWidth", 0d),
+                    s.isNull("stopDist") ? -1f : (float) s.optDouble("stopDist", -1d));
+        }
         c.restoreToCount(worldSave);
 
         int blinkerSave = beginElement(c, l, "blinkers", DRIVE_CX, 386f);

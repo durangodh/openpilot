@@ -95,6 +95,9 @@ def _packet(sm, *args, **kwargs):
   # 노면 높낮이 배율(%). 100=원본, 0=평지. 모델 z 의 부호가 기기마다 다를 수
   # 있어 음수까지 열어둔다 — 오르막이 아래로 꺼져 보이면 -100 으로 뒤집는다.
   packet["hudRoadZ"] = _bounded_int("EonClusterHudRoadZ", 100, -300, 300)
+  # 1: modelV2-only OpenGL preview. EGL/GL failure automatically falls back
+  # to the existing Canvas World3D. Set 0 to compare or revert instantly.
+  packet["hudGl"] = _bounded_int("EonClusterHudGl", 1, 0, 1)
   # 주행 중 차량 pitch 를 수평선에 반영하는 정도(%). 0=끄기(정적 캘리브만).
   packet["hudPitchDyn"] = _bounded_int("EonClusterHudPitchDyn", 60, 0, 200)
   packet["hudOutputMode"] = _bounded_int("EonClusterHudOutputMode", 1, 1, 3)
