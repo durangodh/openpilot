@@ -610,8 +610,21 @@ def _read_navi_summary():
   except (TypeError, ValueError):
     remain_distance = 0.0
   active = active and (remain_distance > 0 or bool(guide))
+
+  # Vehicle position/heading is useful to World3D even when route guidance is
+  # inactive.  Keep the scene cache alive so S9 can fetch and render real OSM
+  # instead of dropping to a fictional background.
+  if _NAVI_CACHE["scene_sig"] != _NAVI_CACHE["signature"]:
+    _NAVI_CACHE["scene_sig"] = _NAVI_CACHE["signature"]
+    try:
+      _NAVI_CACHE["scene"] = _navi_scene(state)
+    except Exception:
+      _NAVI_CACHE["scene"] = None
   if not active:
-    return {"active": False}
+    inactive = {"active": False}
+    if _NAVI_CACHE["scene"]:
+      inactive["scene"] = _NAVI_CACHE["scene"]
+    return inactive
 
   try:
     turn_type = int(guide.get("turn_type", 0) or 0)
@@ -637,13 +650,6 @@ def _read_navi_summary():
       next_title = str(next_guide.get("main_text") or next_guide.get("road_name") or "")
       next_summary = {"turnType": next_type, "turnDist": next_distance,
                       "title": next_title[:48]}
-
-  if _NAVI_CACHE["scene_sig"] != _NAVI_CACHE["signature"]:
-    _NAVI_CACHE["scene_sig"] = _NAVI_CACHE["signature"]
-    try:
-      _NAVI_CACHE["scene"] = _navi_scene(state)
-    except Exception:
-      _NAVI_CACHE["scene"] = None
 
   summary = {
     "active": True,

@@ -772,12 +772,10 @@ final class World3D {
         if (enabled) {
             drawPathRibbon(c, p, pathColor);
         }
-        if (buildings && !highway) {
-            if (osm != null && osm.buildingCount > 0) {
-                drawOsmBuildings(c, p, sky);
-            } else {
-                drawBuildings(c, p, odoM, sky);
-            }
+        // Never present procedurally generated blocks as if they were map
+        // data.  Wait for the real OSM snapshot, then draw only real buildings.
+        if (buildings && !highway && osm != null && osm.buildingCount > 0) {
+            drawOsmBuildings(c, p, sky);
         }
         if (osm != null) {
             drawOsmBarriers(c, p);
