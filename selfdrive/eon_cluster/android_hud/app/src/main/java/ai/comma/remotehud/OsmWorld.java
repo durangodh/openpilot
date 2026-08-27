@@ -62,6 +62,7 @@ final class OsmWorld {
         float[][] roadX;
         float[][] roadY;
         float[] roadW;
+        int[] roadMatch;
         int roadCount;
         float[][] barrierX;
         float[][] barrierY;
@@ -232,6 +233,7 @@ final class OsmWorld {
         List<float[]> rx = new ArrayList<>();
         List<float[]> ry = new ArrayList<>();
         List<Float> rw = new ArrayList<>();
+        List<Integer> rm = new ArrayList<>();
         List<float[]> wx = new ArrayList<>();
         List<float[]> wy = new ArrayList<>();
         List<Float> wh = new ArrayList<>();
@@ -284,6 +286,7 @@ final class OsmWorld {
                             rx.add(xy[0]);
                             ry.add(xy[1]);
                             rw.add(r.h);
+                            rm.add(r.kind);
                         }
                     }
                     for (Poly wall : tile.barriers) {
@@ -364,8 +367,10 @@ final class OsmWorld {
         s.roadX = rx.toArray(new float[0][]);
         s.roadY = ry.toArray(new float[0][]);
         s.roadW = new float[rw.size()];
+        s.roadMatch = new int[rm.size()];
         for (int i = 0; i < rw.size(); i++) {
             s.roadW[i] = rw.get(i);
+            s.roadMatch[i] = rm.get(i);
         }
         s.barrierCount = wx.size();
         s.barrierX = wx.toArray(new float[0][]);
@@ -396,7 +401,8 @@ final class OsmWorld {
      */
     private void alignSnapshot(Snapshot s, float targetRoadY, float targetRoadWidth) {
         OsmRoadMatcher.Match match = OsmRoadMatcher.find(
-                s.roadX, s.roadY, s.roadW, targetRoadY, targetRoadWidth);
+                s.roadX, s.roadY, s.roadW, s.roadMatch,
+                targetRoadY, targetRoadWidth);
         long nowNanos = System.nanoTime();
         long nowMillis = System.currentTimeMillis();
         float dt = alignmentNanos == 0L ? 0f
@@ -722,6 +728,7 @@ final class OsmWorld {
                     }
                 } else if (tags.has("highway")) {
                     poly.h = roadWidth(tags);
+                    poly.kind = matchableVehicleRoad(tags) ? 1 : 0;
                     if (tile.roads.size() < 280) {
                         tile.roads.add(poly);
                     }
@@ -806,6 +813,19 @@ final class OsmWorld {
         } catch (NumberFormatException ignored) {
             return null;
         }
+    }
+
+    /**
+     * 보행 전용 길은 주변 표현에는 사용하되 차량 도로 정합에서는 제외한다.
+     * width 태그만으로 거르면 넓은 보행로가 주도로 후보가 될 수 있으므로
+     * highway 종류를 보존해 matcher 에 명시적으로 전달한다.
+     */
+    private static boolean matchableVehicleRoad(JSONObject tags) {
+        String cls = tags.optString("highway", "");
+        return !("footway".equals(cls) || "path".equals(cls)
+                || "steps".equals(cls) || "bridleway".equals(cls)
+                || "corridor".equals(cls) || "cycleway".equals(cls)
+                || "pedestrian".equals(cls));
     }
 
     /** OSM width 를 우선하고, 없으면 차로 수와 도로 등급으로 폭을 추정한다. */

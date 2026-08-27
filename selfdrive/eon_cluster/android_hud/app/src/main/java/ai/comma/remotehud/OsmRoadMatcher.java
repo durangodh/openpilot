@@ -42,7 +42,7 @@ final class OsmRoadMatcher {
      * underneath the car.
      */
     static Match find(float[][] roadX, float[][] roadY, float[] roadW,
-                      float targetRoadY, float targetRoadWidth) {
+                      int[] roadMatch, float targetRoadY, float targetRoadWidth) {
         if (roadX == null || roadY == null) {
             return null;
         }
@@ -52,6 +52,11 @@ final class OsmRoadMatcher {
         Match best = null;
         int roads = Math.min(roadX.length, roadY.length);
         for (int r = 0; r < roads; r++) {
+            // Minor pedestrian/cycle geometry remains available to World3D,
+            // but must never anchor the vehicle-road map alignment.
+            if (roadMatch != null && r < roadMatch.length && roadMatch[r] == 0) {
+                continue;
+            }
             float[] xs = roadX[r];
             float[] ys = roadY[r];
             if (xs == null || ys == null) {
