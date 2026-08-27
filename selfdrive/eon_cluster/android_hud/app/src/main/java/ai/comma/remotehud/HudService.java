@@ -30,6 +30,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -65,6 +66,11 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class HudService extends Service {
 
     private static volatile HudService activeInstance;
+
+    private static final String TAG = "EonRemoteHud";
+    /** Maximum legal IPv4 UDP payload. V5 telemetry can exceed the old 16 KiB buffer. */
+    private static final int UDP_PACKET_MAX_BYTES = 65507;
+    private static final int UDP_SOCKET_BUFFER_BYTES = 256 * 1024;
 
     static final String ACTION_RESCAN_USB = "ai.comma.remotehud.RESCAN_USB";
     static final String EXTRA_FROM_BOOT = "ai.comma.remotehud.FROM_BOOT";
@@ -514,16 +520,31 @@ public final class HudService extends Service {
         while (running.get()) {
             DatagramSocket socket = null;
             try {
-                socket = new DatagramSocket(7210);
+                // Configure reuse and the kernel receive buffer before bind so an APK
+                // package replacement can immediately reclaim 7210 from the old process.
+                socket = new DatagramSocket(null);
+                socket.setReuseAddress(true);
+                socket.setReceiveBufferSize(UDP_SOCKET_BUFFER_BYTES);
                 socket.setBroadcast(true);
+                socket.bind(new InetSocketAddress(7210));
                 socket.setSoTimeout(1000);
-                byte[] buffer = new byte[16384];
+                byte[] buffer = new byte[UDP_PACKET_MAX_BYTES];
                 while (running.get()) {
                     try {
                         DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                         socket.receive(packet);
-                        state.set(new JSONObject(new String(packet.getData(), packet.getOffset(),
-                                packet.getLength(), "UTF-8")));
+                        JSONObject decoded;
+                        try {
+                            // V4 and V5 use the same JSON envelope. A malformed packet
+                            // must be discarded in-place, not tear down the UDP socket.
+                            decoded = new JSONObject(new String(packet.getData(), packet.getOffset(),
+                                    packet.getLength(), "UTF-8"));
+                        } catch (JSONException malformed) {
+                            Log.w(TAG, "Discarding malformed HUD UDP packet ("
+                                    + packet.getLength() + " bytes)", malformed);
+                            continue;
+                        }
+                        state.set(decoded);
                         eonAddress.set(packet.getAddress());
                         lastEonRxElapsed = SystemClock.elapsedRealtime();
                         lastEonAddress = packet.getAddress().getHostAddress();
@@ -533,6 +554,7 @@ public final class HudService extends Service {
                     }
                 }
             } catch (Exception e) {
+                Log.w(TAG, "HUD UDP receiver restarting", e);
                 SystemClock.sleep(1000L);
             } finally {
                 if (socket != null) {

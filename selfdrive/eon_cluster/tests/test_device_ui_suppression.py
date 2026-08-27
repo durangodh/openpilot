@@ -277,3 +277,21 @@ def test_s9_v5_visual_layers_use_existing_telemetry_only():
   assert "routeShadow" in renderer
   assert "lineScreenX" in renderer and "lineScreenY" in renderer
   assert renderer.count("new float[MAX_POINTS]") == 5
+
+
+def test_android_hud_v5_receiver_accepts_full_udp_packets_without_socket_restart():
+  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+             "main" / "java" / "ai" / "comma" / "remotehud" /
+             "HudService.java").read_text(encoding="utf-8")
+  receive = service.split("private void receiveLoop()", 1)[1].split(
+      "private static boolean tagEquals", 1)[0]
+
+  assert "UDP_PACKET_MAX_BYTES = 65507" in service
+  assert "UDP_SOCKET_BUFFER_BYTES = 256 * 1024" in service
+  assert "new DatagramSocket(null)" in receive
+  assert "socket.setReuseAddress(true)" in receive
+  assert "socket.bind(new InetSocketAddress(7210))" in receive
+  assert "new byte[UDP_PACKET_MAX_BYTES]" in receive
+  assert "catch (JSONException malformed)" in receive
+  assert receive.index("catch (JSONException malformed)") < receive.index(
+      "catch (SocketTimeoutException ignored)")
