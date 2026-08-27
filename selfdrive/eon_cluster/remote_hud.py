@@ -469,7 +469,9 @@ def _navi_scene(state):
     cur = int(lane.get("current_lane", 0) or 0)
   except (TypeError, ValueError):
     n, cur = 0, 0
-  if 2 <= n <= 8 and 1 <= cur <= n:
+  # A single-lane TMAP count is essential on bollard/median roads: without it
+  # the camera-only road edge can be rounded into a phantom lane on the left.
+  if 1 <= n <= 8 and 1 <= cur <= n:
     def _ints(key):
       raw = lane.get(key) or []
       out = []

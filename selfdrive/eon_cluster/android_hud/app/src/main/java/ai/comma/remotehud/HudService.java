@@ -1220,18 +1220,21 @@ public final class HudService extends Service {
             // 핸들·SET 과 같은 가로줄 유지.
             c.translate(0f, -NATIVE_CARD_SHIFT_PX / nativeWidgetScale);
         }
-        int bumpDist = stale ? 0 : (int) Math.round(s.optDouble("bumpDist", 0d));
-        if (bumpDist > 0) {
-            // EON onroad.cc drawSpeedLimit 과 같은 규칙: 방지턱이 있으면
-            // 과속카메라 대신 이 자리를 쓴다.
-            drawBumpIcon(c, p, 882f, 171f, bumpDist);
-        } else if (!stale) {
-            // 2026-08-19: 과속카메라 / 구간단속 표시 복구.
-            // packet 의 camera(=camLimitSpeed 또는 sectionLimitSpeed) 는
-            // remote_hud._packet 에서 이미 EON drawSpeedLimit 과 같은 우선순위로
-            // 골라 보낸다. 도로 제한속도(limit) 는 여기에 그리지 않는다.
-            drawCamera(c, p, 882f, 171f, s.optInt("camera", 0), s.optInt("cameraDist", 0),
-                    s.optBoolean("cameraSection", false));
+        // Camera and bump events belong to cruise guidance.  Hide them as soon
+        // as controls disengage so stale TMAP events do not remain on screen.
+        if (enabled) {
+            int bumpDist = (int) Math.round(s.optDouble("bumpDist", 0d));
+            if (bumpDist > 0) {
+                // EON onroad.cc drawSpeedLimit 과 같은 규칙: 방지턱이 있으면
+                // 과속카메라 대신 이 자리를 쓴다.
+                drawBumpIcon(c, p, 882f, 171f, bumpDist);
+            } else {
+                // packet 의 camera(=camLimitSpeed 또는 sectionLimitSpeed) 는
+                // remote_hud._packet 에서 이미 EON drawSpeedLimit 과 같은 우선순위로
+                // 골라 보낸다. 도로 제한속도(limit) 는 여기에 그리지 않는다.
+                drawCamera(c, p, 882f, 171f, s.optInt("camera", 0), s.optInt("cameraDist", 0),
+                        s.optBoolean("cameraSection", false));
+            }
         }
         c.restoreToCount(save6);
 

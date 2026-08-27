@@ -228,7 +228,7 @@ final class World3D {
         if (lane != null) {
             int n = lane.optInt("n", 0);
             int cur = lane.optInt("cur", 0);
-            if (n >= 2 && n <= TMAP_MAX_LANES && cur >= 1 && cur <= n) {
+            if (n >= 1 && n <= TMAP_MAX_LANES && cur >= 1 && cur <= n) {
                 tmapLaneCount = n;
                 tmapLaneCur = cur;
                 JSONArray turns = lane.optJSONArray("turns");

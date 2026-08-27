@@ -75,6 +75,15 @@ def test_reconcile_lane_position_removes_left_median_phantom_lane():
   assert (fixed["n"], fixed["cur"]) == (2, 1)
 
 
+def test_reconcile_lane_position_removes_left_bollard_phantom_on_single_lane():
+  # One real lane with a partial lane-width space to bollards on the left.
+  raw = camera_lane_position(lane_position_model(4.8, -1.8))
+  assert (raw["n"], raw["cur"]) == (2, 2)
+  fixed = reconcile_lane_position(raw, 1)
+  assert fixed["reconciled"]
+  assert (fixed["n"], fixed["cur"]) == (1, 1)
+
+
 def test_reconcile_lane_position_removes_right_shoulder_phantom_lane():
   raw = camera_lane_position(lane_position_model(2.5, -8.4))
   assert (raw["n"], raw["cur"]) == (3, 1)
