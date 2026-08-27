@@ -21,9 +21,11 @@ import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 
 /**
- * First-stage modelV2-only road renderer.
+ * Second-stage modelV2-only road renderer.
  *
  * The renderer deliberately has no OSM, buildings, textures or lighting.
+ * It adds temporal geometry filtering, confidence hysteresis, conservative
+ * adjacent-lane gating and radar lead visualization without adding EON work.
  * Geometry is projected with the same camera constants as World3D, then an
  * unlit OpenGL ES 2.0 shader draws road, observed boundaries, lane lines and
  * the final lateral path into an offscreen pbuffer.  Any EGL/GL failure returns
@@ -65,6 +67,8 @@ final class ModelWorldGL {
 
     private long lastTimestamp = Long.MIN_VALUE;
     private int lastStyle;
+    private long previousSceneTimestamp = Long.MIN_VALUE;
+    private long nextRenderNanos;
     private float horizonShift;
     private float roadZGain = 1f;
 
@@ -75,6 +79,15 @@ final class ModelWorldGL {
         int count;
         float confidence = 1f;
     }
+
+    private final Line smoothedPath = new Line();
+    private final Line[] smoothedLanes = {new Line(), new Line(), new Line(), new Line()};
+    private final Line[] smoothedEdges = {new Line(), new Line()};
+    private final float[] laneConfidence = new float[4];
+    private final boolean[] laneVisible = new boolean[4];
+    private final float[] leadDistance = new float[2];
+    private final float[] leadLateral = new float[2];
+    private final boolean[] leadSeen = new boolean[2];
 
     boolean draw(Canvas canvas, Paint paint, JSONObject scene, boolean enabled,
                  int driveBg, int roadTop, int roadBottom, int pathColor,
@@ -89,13 +102,22 @@ final class ModelWorldGL {
             }
             long timestamp = scene.optLong("t", 0L);
             int style = driveBg ^ roadTop ^ roadBottom ^ pathColor ^ (dark ? 1 : 0);
-            if (timestamp != lastTimestamp || style != lastStyle) {
-                if (!render(scene, enabled, driveBg, roadTop, roadBottom, pathColor,
-                        dark, roadZPercent, livePitch, pitchPercent, calibPitch)) {
-                    return false;
+            boolean styleChanged = style != lastStyle;
+            if (timestamp != lastTimestamp || styleChanged) {
+                long started = System.nanoTime();
+                if (styleChanged || started >= nextRenderNanos) {
+                    if (!render(scene, enabled, driveBg, roadTop, roadBottom, pathColor,
+                            dark, roadZPercent, livePitch, pitchPercent, calibPitch)) {
+                        return false;
+                    }
+                    long cost = System.nanoTime() - started;
+                    // If readback is unexpectedly expensive on a hot S9, reuse
+                    // the last frame briefly instead of queuing more GL work.
+                    nextRenderNanos = started + (cost > 65_000_000L
+                            ? 180_000_000L : 0L);
+                    lastTimestamp = timestamp;
+                    lastStyle = style;
                 }
-                lastTimestamp = timestamp;
-                lastStyle = style;
             }
             paint.setShader(null);
             paint.setAlpha(255);
@@ -231,10 +253,13 @@ final class ModelWorldGL {
         if (!EGL14.eglMakeCurrent(display, surface, surface, context)) {
             return false;
         }
-        Line path = decode(scene.optJSONArray("path"), 1f);
-        if (path.count < 2) {
+        long timestamp = scene.optLong("t", 0L);
+        float geometryAlpha = smoothingAlpha(timestamp);
+        Line rawPath = decode(scene.optJSONArray("path"), 1f);
+        if (rawPath.count < 2) {
             return false;
         }
+        Line path = smoothLine(smoothedPath, rawPath, geometryAlpha);
 
         roadZGain = clamp(roadZPercent * 0.01f, -3f, 3f);
         float dynamicPitch = clamp(livePitch * clamp(pitchPercent * 0.01f, 0f, 2f),
@@ -254,27 +279,31 @@ final class ModelWorldGL {
         drawRect(0f, 0f, WIDTH, Math.max(0f, HORIZON + horizonShift - TOP), sky);
         drawRect(0f, Math.max(0f, HORIZON + horizonShift - TOP), WIDTH, HEIGHT, ground);
 
-        Line leftEdge = null;
-        Line rightEdge = null;
+        Line rawLeftEdge = null;
+        Line rawRightEdge = null;
         JSONArray edges = scene.optJSONArray("edges");
         if (edges != null) {
             for (int i = 0; i < edges.length(); i++) {
                 JSONObject edgeObject = edges.optJSONObject(i);
-                if (edgeObject == null || edgeObject.optDouble("c", 0d) < 0.40d) {
+                if (edgeObject == null) {
                     continue;
                 }
-                Line edge = decode(edgeObject.optJSONArray("p"),
-                        (float) edgeObject.optDouble("c", 0d));
+                float confidence = (float) edgeObject.optDouble("c", 0d);
+                Line edge = decode(edgeObject.optJSONArray("p"), confidence);
                 if (edge.count < 2) {
                     continue;
                 }
-                if (edge.y[0] > 0f && leftEdge == null) {
-                    leftEdge = edge;
-                } else if (edge.y[0] <= 0f && rightEdge == null) {
-                    rightEdge = edge;
+                if (edge.y[0] > 0f && rawLeftEdge == null) {
+                    rawLeftEdge = edge;
+                } else if (edge.y[0] <= 0f && rawRightEdge == null) {
+                    rawRightEdge = edge;
                 }
             }
         }
+        Line leftEdge = smoothOptional(smoothedEdges[0], rawLeftEdge,
+                geometryAlpha, 0.28f);
+        Line rightEdge = smoothOptional(smoothedEdges[1], rawRightEdge,
+                geometryAlpha, 0.28f);
 
         drawRoad(path, leftEdge, rightEdge, scene, roadBottom);
         if (leftEdge != null) {
@@ -287,31 +316,173 @@ final class ModelWorldGL {
         }
 
         JSONArray lanes = scene.optJSONArray("lanes");
-        if (lanes != null) {
-            for (int i = 0; i < lanes.length(); i++) {
-                JSONObject laneObject = lanes.optJSONObject(i);
-                if (laneObject == null) {
-                    continue;
-                }
-                float confidence = (float) laneObject.optDouble("c", 0d);
-                if (confidence < 0.45f) {
-                    continue;
-                }
-                Line lane = decode(laneObject.optJSONArray("p"), confidence);
-                int laneColor = (i == 1 || i == 2)
-                        ? (dark ? Color.rgb(246, 206, 92) : Color.rgb(238, 196, 70))
-                        : (dark ? Color.rgb(220, 226, 232) : Color.rgb(249, 250, 250));
-                drawWorldLine(lane, path, laneColor, i == 1 || i == 2 ? 3.0f : 2.2f,
-                        clamp(0.35f + confidence * 0.65f, 0f, 1f));
+        for (int i = 0; i < smoothedLanes.length; i++) {
+            JSONObject laneObject = lanes == null ? null : lanes.optJSONObject(i);
+            float rawConfidence = laneObject == null ? 0f
+                    : (float) laneObject.optDouble("c", 0d);
+            Line rawLane = laneObject == null ? null
+                    : decode(laneObject.optJSONArray("p"), rawConfidence);
+            boolean fresh = smoothedLanes[i].count < 2;
+            if (rawLane != null && rawLane.count >= 2) {
+                smoothLine(smoothedLanes[i], rawLane, geometryAlpha);
             }
+            laneConfidence[i] = fresh ? rawConfidence
+                    : laneConfidence[i] * 0.68f + rawConfidence * 0.32f;
+
+            boolean allowed = laneAllowed(scene, i);
+            if (!allowed) {
+                laneVisible[i] = false;
+            } else if (laneVisible[i]) {
+                laneVisible[i] = laneConfidence[i] >= 0.28f;
+            } else {
+                laneVisible[i] = laneConfidence[i] >= 0.56f;
+            }
+            if (!laneVisible[i] || smoothedLanes[i].count < 2) {
+                continue;
+            }
+
+            int laneColor = (i == 1 || i == 2)
+                    ? (dark ? Color.rgb(246, 206, 92) : Color.rgb(238, 196, 70))
+                    : (dark ? Color.rgb(220, 226, 232) : Color.rgb(249, 250, 250));
+            drawWorldLine(smoothedLanes[i], path, laneColor,
+                    i == 1 || i == 2 ? 3.0f : 2.2f,
+                    clamp(0.22f + laneConfidence[i] * 0.78f, 0f, 1f));
         }
 
         if (enabled) {
             drawPath(path, pathColor);
         }
+        drawLead(scene.optJSONObject("lead2"), path, 1, dark, true);
+        drawLead(scene.optJSONObject("lead"), path, 0, dark, false);
         GLES20.glFinish();
         copyPixels();
         return true;
+    }
+
+    private float smoothingAlpha(long timestamp) {
+        if (previousSceneTimestamp == Long.MIN_VALUE || timestamp <= previousSceneTimestamp
+                || timestamp - previousSceneTimestamp > 600L) {
+            previousSceneTimestamp = timestamp;
+            return 1f;
+        }
+        float alpha = clamp((timestamp - previousSceneTimestamp) / 300f, 0.30f, 0.62f);
+        previousSceneTimestamp = timestamp;
+        return alpha;
+    }
+
+    private static Line smoothLine(Line target, Line sample, float alpha) {
+        if (target.count != sample.count || target.count < 2) {
+            target.count = sample.count;
+            for (int i = 0; i < sample.count; i++) {
+                target.x[i] = sample.x[i];
+                target.y[i] = sample.y[i];
+                target.z[i] = sample.z[i];
+            }
+        } else {
+            for (int i = 0; i < sample.count; i++) {
+                target.x[i] += (sample.x[i] - target.x[i]) * alpha;
+                target.y[i] += (sample.y[i] - target.y[i]) * alpha;
+                target.z[i] += (sample.z[i] - target.z[i]) * alpha;
+            }
+        }
+        target.confidence = sample.confidence;
+        return target;
+    }
+
+    private static Line smoothOptional(Line target, Line sample, float alpha,
+                                       float minimumConfidence) {
+        if (sample != null && sample.count >= 2) {
+            boolean fresh = target.count < 2;
+            float previousConfidence = target.confidence;
+            smoothLine(target, sample, alpha);
+            target.confidence = fresh ? sample.confidence
+                    : previousConfidence * 0.68f + sample.confidence * 0.32f;
+        } else {
+            target.confidence *= 0.68f;
+        }
+        return target.count >= 2 && target.confidence >= minimumConfidence ? target : null;
+    }
+
+    private static boolean laneAllowed(JSONObject scene, int index) {
+        if (index == 1 || index == 2) {
+            return true;
+        }
+        JSONObject position = scene.optJSONObject("lanePosition");
+        if (position == null) {
+            return false;
+        }
+        int count = position.optInt("n", 0);
+        int current = position.optInt("cur", 0);
+        if (count < 1 || current < 1 || current > count) {
+            return false;
+        }
+        return index == 0 ? current > 1 : index == 3 && current < count;
+    }
+
+    private void drawLead(JSONObject lead, Line roadHeight, int index,
+                          boolean dark, boolean secondary) {
+        if (lead == null || index < 0 || index >= leadSeen.length) {
+            if (index >= 0 && index < leadSeen.length) {
+                leadSeen[index] = false;
+            }
+            return;
+        }
+        float rawDistance = clamp((float) lead.optDouble("d", 0d), 0f, 180f);
+        float rawLateral = clamp((float) lead.optDouble("y", 0d), -12f, 12f);
+        if (rawDistance < 2f) {
+            leadSeen[index] = false;
+            return;
+        }
+        if (!leadSeen[index] || Math.abs(rawDistance - leadDistance[index]) > 18f) {
+            leadDistance[index] = rawDistance;
+            leadLateral[index] = rawLateral;
+            leadSeen[index] = true;
+        } else {
+            leadDistance[index] += (rawDistance - leadDistance[index]) * 0.46f;
+            leadLateral[index] += (rawLateral - leadLateral[index]) * 0.42f;
+        }
+
+        float distance = leadDistance[index];
+        float z = zAt(roadHeight, distance) * roadZGain + 0.12f;
+        if (!project(distance, leadLateral[index], z, projected)) {
+            return;
+        }
+        float sx = projected[0];
+        float sy = projected[1] - TOP;
+        if (sx < -60f || sx > WIDTH + 60f || sy < -30f || sy > HEIGHT + 40f) {
+            return;
+        }
+        float scale = FOCAL / (distance + CAM_BACK);
+        float width = clamp(1.88f * scale, secondary ? 8f : 10f, secondary ? 38f : 52f);
+        float height = clamp(0.86f * scale, secondary ? 5f : 7f, secondary ? 18f : 25f);
+        int shadow = dark ? Color.rgb(4, 7, 10) : Color.rgb(58, 63, 68);
+        int body = secondary
+                ? (dark ? Color.rgb(116, 128, 140) : Color.rgb(150, 158, 166))
+                : (dark ? Color.rgb(220, 229, 237) : Color.rgb(246, 248, 250));
+        drawScreenRect(sx - width * 0.58f, sy - height * 0.08f,
+                sx + width * 0.58f, sy + height * 0.20f, shadow,
+                secondary ? 0.45f : 0.68f);
+        drawScreenRect(sx - width * 0.50f, sy - height,
+                sx + width * 0.50f, sy, body, secondary ? 0.62f : 0.94f);
+        drawScreenRect(sx - width * 0.28f, sy - height * 0.82f,
+                sx + width * 0.28f, sy - height * 0.48f,
+                dark ? Color.rgb(29, 40, 51) : Color.rgb(53, 66, 78),
+                secondary ? 0.55f : 0.90f);
+        if (lead.optDouble("a", 0d) < -0.45d) {
+            int brake = Color.rgb(255, 55, 62);
+            drawScreenRect(sx - width * 0.40f, sy - height * 0.25f,
+                    sx - width * 0.18f, sy - height * 0.05f, brake, 0.96f);
+            drawScreenRect(sx + width * 0.18f, sy - height * 0.25f,
+                    sx + width * 0.40f, sy - height * 0.05f, brake, 0.96f);
+        }
+    }
+
+    private void drawScreenRect(float left, float top, float right, float bottom,
+                                int color, float alpha) {
+        int v = 0;
+        v = addTriangle(v, left, top, left, bottom, right, top);
+        v = addTriangle(v, right, top, left, bottom, right, bottom);
+        drawVertices(GLES20.GL_TRIANGLES, v / 2, color, alpha);
     }
 
     private void drawRoad(Line path, Line left, Line right, JSONObject scene, int color) {
