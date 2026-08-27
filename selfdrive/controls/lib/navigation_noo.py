@@ -35,6 +35,7 @@ class NavigationLaneChangeController:
     self.current_lane = 0
     self.target_lane = 0
     self.lane_count = 0
+    self.plan_missing_frames = 0
 
   @staticmethod
   def _ints(value, count):
@@ -238,6 +239,7 @@ class NavigationLaneChangeController:
 
     plan = self.lane_plan(state, ego_lane, v_ego, proactive=True)
     if plan is None:
+      self.plan_missing_frames += 1
       if driver_cancel:
         self.canceled = True
       # Without a plan the camera can never confirm a finished lane change, so
@@ -258,12 +260,24 @@ class NavigationLaneChangeController:
           self.canceled = True
           self.waiting_from_lane = 0
           self.waiting_frames = 0
+      # Keep cancellation latched across short JSON/camera gaps, but retire the
+      # event identity after a sustained gap. Otherwise a later maneuver with
+      # the same turn type and recommended lanes inherits completed=True and
+      # silently never requests its lane changes.
+      if self.plan_missing_frames >= self.LANE_UPDATE_FRAMES and \
+         not self.requested_direction and not self.waiting_from_lane:
+        # Preserve canceled=True until a real next plan arrives. Clearing only
+        # the identity here lets that next plan trigger reset(), while keeping
+        # the controller visibly fail-closed throughout the missing-data gap.
+        self.event_key = None
+        self.completed = False
       return 0
 
     event_key = self._event_key(state, plan)
     if event_key != self.event_key:
       self.reset()
       self.event_key = event_key
+    self.plan_missing_frames = 0
 
     if driver_cancel:
       self.canceled = True

@@ -249,6 +249,14 @@ class DesireHelper:
     self.turn_direction_latched = 0
     self.turn_ll_prob = 1.0
 
+  @staticmethod
+  def _noo_turn_hard_cancel(noo_enabled, noo_mode, lateral_active,
+                            brake_pressed, lane_change_state):
+    return (brake_pressed or not lateral_active or not noo_enabled or
+            noo_mode not in (0, 1) or
+            lane_change_state in (LaneChangeState.laneChangeStarting,
+                                  LaneChangeState.laneChangeFinishing))
+
   def _update_noo_turn_completion(self, model_data, carstate, turn_active):
     """Stop re-requesting a turn after the vehicle passes the turn apex."""
     completed = False
@@ -336,7 +344,8 @@ class DesireHelper:
     except (TypeError, ValueError):
       self.noo_route_lane_count = 0
     noo_probe_direction = 0
-    noo_plan = self.noo_controller.lane_plan(navigation_state, ego_lane) if noo_lane_change_available else None
+    noo_plan = self.noo_controller.lane_plan(
+      navigation_state, ego_lane, v_ego) if noo_lane_change_available else None
     if noo_plan is not None:
       noo_probe_direction = int(noo_plan.get('direction', 0))
     if noo_probe_direction == 0:
@@ -475,6 +484,16 @@ class DesireHelper:
     if opposite_torque or conflicting_blinker:
       turn_direction = 0
 
+    # Brake, lateral disengagement, lateral-disabled NOO modes and an active
+    # lane change are hard cancellation boundaries. Do not let the turnState
+    # latch keep publishing a stale turn desire for up to its 8/20 s timeout.
+    turn_hard_cancel = self._noo_turn_hard_cancel(
+      self.noo_enabled, self.noo_mode, lateral_active,
+      carstate.brakePressed, self.lane_change_state)
+    if turn_hard_cancel:
+      turn_direction = 0
+      self._reset_noo_turn()
+
     # Keep g_autoturn's distance/speed/driver safety gates for starting, then use
     # c3-wip's steering-angle + predicted-yaw falloff to end the turn at its apex.
     turn_active = (navigation_state.get('kind') in ('turn', 'uturn') and
@@ -514,10 +533,8 @@ class DesireHelper:
     self.navigation_state = navigation_state
     self.noo_turn_direction = effective_turn_direction
     self.noo_turn_state = self.turn_state
-    self.noo_driver_cancel = (opposite_torque or conflicting_blinker or carstate.brakePressed or
-                              not lateral_active or not navigation_state.get('fresh', False) or
-                              self.lane_change_state in (LaneChangeState.laneChangeStarting,
-                                                         LaneChangeState.laneChangeFinishing))
+    self.noo_driver_cancel = (opposite_torque or conflicting_blinker or turn_hard_cancel or
+                              not navigation_state.get('fresh', False))
 
     # Send keep pulse once per second during LaneChangeStart.preLaneChange
     if self.lane_change_state in (LaneChangeState.off, LaneChangeState.laneChangeStarting):

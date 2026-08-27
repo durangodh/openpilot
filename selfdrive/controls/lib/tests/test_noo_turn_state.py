@@ -71,3 +71,14 @@ def test_a_new_request_restarts_the_machine_after_release():
   assert helper._advance_noo_turn(-1, 0.0) == -1
   assert helper.turn_state == 1
   assert helper.turn_direction_latched == -1
+
+
+def test_turn_hard_cancel_covers_brake_disengagement_and_non_steering_modes():
+  check = DesireHelper._noo_turn_hard_cancel
+  assert not check(True, 0, True, False, 0)
+  assert not check(True, 1, True, False, 0)
+  assert check(True, 0, True, True, 0)
+  assert check(True, 0, False, False, 0)
+  assert check(False, 0, True, False, 0)
+  assert check(True, 2, True, False, 0)
+  assert check(True, 3, True, False, 0)

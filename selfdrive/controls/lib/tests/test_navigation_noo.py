@@ -80,6 +80,24 @@ def test_update_off_route_blocks_turn_route_and_speed_control():
   assert not state["speed_fresh"]
 
 
+def test_route_fresh_requires_actual_route_and_vehicle_payloads():
+  now_ms = int(time.time() * 1000)
+  root = {
+    "stream_updated_at_ms": {"guidance_current": now_ms},
+    "guidance_current": {"turn_type": 12, "distance_m": 120},
+    "navigation_status": {"off_route": False},
+  }
+  with tempfile.NamedTemporaryFile(mode="w+") as state_file:
+    json.dump(root, state_file)
+    state_file.flush()
+    state = NavigationRouteData(state_file.name).update()
+
+  assert state["fresh"]
+  assert not state["route_fresh"]
+  assert state["route"] is None
+  assert state["vehicle"] is None
+
+
 def test_guidance_inactive_does_not_block_present_guidance_or_speed_events():
   now_ms = int(time.time() * 1000)
   root = {
@@ -381,6 +399,18 @@ def test_carrot_prepare_distance_matches_original_active_windows():
     {"road_limit_kph": 40.0}) == 180.0
 
 
+def test_carrot_prepare_uses_vehicle_speed_when_road_limit_is_missing():
+  ego = {"count": 3, "current": 2, "confidence": 0.9}
+  state = noo_state([0, 0, 1], distance=250.0, direction=1)
+  state["kind"] = "turn"
+  state["lane_fresh"] = False
+  state["lane_current"] = None
+  assert NavigationLaneChangeController.lane_plan(
+    state, ego, 0.0, proactive=True) is None
+  assert NavigationLaneChangeController.lane_plan(
+    state, ego, 100.0 / 3.6, proactive=True)["direction"] == 1
+
+
 def test_carrot_direction_prepares_early_without_tmap_lane_payload():
   controller = NavigationLaneChangeController()
   ego = {"count": 3, "current": 2, "confidence": 0.9}
@@ -434,6 +464,28 @@ def test_noo_waits_for_camera_confirmation_between_two_lane_changes():
   controller.update(state, lane2, 25.0, True, True)
   assert controller.update(state, lane3, 25.0, True, True) == 0
   assert controller.completed
+
+
+def test_identical_later_maneuver_does_not_inherit_completed_state():
+  controller = NavigationLaneChangeController()
+  state = noo_state([0, 0, 1], distance=300.0)
+  lane2 = {"count": 3, "current": 2, "confidence": 0.9}
+  lane3 = {"count": 3, "current": 3, "confidence": 0.9}
+
+  assert confirm_noo(controller, state, lane2) == 1
+  assert controller.update(state, lane2, 25.0, True, True,
+                           lane_change_started=True) == 1
+  assert controller.update(state, lane2, 25.0, True, True,
+                           lane_change_finished=True) == 1
+  assert controller.update(state, lane2, 25.0, True, True) == 0
+  assert controller.update(state, lane3, 25.0, True, True) == 0
+  assert controller.completed
+
+  # A short stream gap must keep cancel/completion latched, but a sustained
+  # absence separates this maneuver from a later structurally identical one.
+  for _ in range(controller.LANE_UPDATE_FRAMES):
+    assert controller.update({}, None, 25.0, False, False) == 0
+  assert confirm_noo(controller, state, lane2) == 1
 
 
 def test_noo_driver_cancel_latches_until_the_maneuver_changes():

@@ -117,11 +117,18 @@ class NavigationRouteData:
       vehicle_updated_at = stream_times.get("vehicle", guidance_updated_at)
       route_age = time.time() - _number(route_updated_at, 0.0) / 1000.0
       vehicle_age = time.time() - _number(vehicle_updated_at, 0.0) / 1000.0
+      route_state = root.get("route")
+      vehicle_state = root.get("vehicle")
+      # Missing streams used to inherit guidance_current's timestamp and made
+      # route_fresh true even though no route/vehicle payload had ever arrived.
+      # Proactive lane preparation must fail closed on that partial connection.
       self.state["route_fresh"] = (-5.0 <= route_age <= STALE_TIMEOUT and
                                    -5.0 <= vehicle_age <= STALE_TIMEOUT and
+                                   isinstance(route_state, dict) and
+                                   isinstance(vehicle_state, dict) and
                                    not guidance_blocked)
-      self.state["route"] = root.get("route")
-      self.state["vehicle"] = root.get("vehicle")
+      self.state["route"] = route_state
+      self.state["vehicle"] = vehicle_state
       lane_updated_at = stream_times.get("lane_current", guidance_updated_at)
       lane_age = time.time() - _number(lane_updated_at, 0.0) / 1000.0
       lane_current = root.get("lane_current")
