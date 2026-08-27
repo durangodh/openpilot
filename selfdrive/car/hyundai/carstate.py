@@ -96,14 +96,20 @@ class CarState(CarStateBase):
       self.distance_to_empty_seen = True
     ret.distanceToEmptyKm = cp.vl["CLU13"]["CF_Clu_DTE"] if self.distance_to_empty_seen else -1.
 
-    # DH model years expose ambient temperature on different climate/gateway
-    # frames.  Keep the last plausible value from whichever source is present.
-    outside_temp_sources = (
-      ("FATC11", "CR_Fatc_OutTemp"),
-      ("FATC11", "CR_Fatc_OutTempSns"),
-      ("DATC11", "CR_Datc_OutTempC"),
-      ("CGW3", "C_MirOutTempSns"),
-    )
+    # Genesis DH's cluster displays DATC11.CR_Datc_OutTempC.  FATC11 and
+    # mirror-sensor values can be several degrees hotter after heat soak, so
+    # using whichever frame arrived first made the remote HUD disagree with
+    # the cluster.  Keep DH locked to the cluster-ready DATC value; retain the
+    # multi-source fallback for other Hyundai variants.
+    if self.CP.carFingerprint == CAR.GENESIS:
+      outside_temp_sources = (("DATC11", "CR_Datc_OutTempC"),)
+    else:
+      outside_temp_sources = (
+        ("FATC11", "CR_Fatc_OutTemp"),
+        ("FATC11", "CR_Fatc_OutTempSns"),
+        ("DATC11", "CR_Datc_OutTempC"),
+        ("CGW3", "C_MirOutTempSns"),
+      )
     for msg, sig in outside_temp_sources:
       values = cp.vl_all[msg][sig]
       if values:
