@@ -287,7 +287,20 @@ def test_android_hud_receiver_uses_s9_proven_direct_binding():
       "private static boolean tagEquals", 1)[0]
 
   assert "new DatagramSocket(7210)" in receive
-  assert "new byte[16384]" in receive
+  assert "UDP_PACKET_MAX_BYTES = 65507" in service
+  assert "new byte[UDP_PACKET_MAX_BYTES]" in receive
   assert "new DatagramSocket(null)" not in receive
   assert "socket.setReuseAddress(true)" not in receive
   assert "socket.bind(new InetSocketAddress(7210))" not in receive
+  assert "udpLastRawRxElapsed = SystemClock.elapsedRealtime()" in receive
+  assert "catch (JSONException malformed)" in receive
+
+
+def test_android_hud_status_shows_actual_apk_and_udp_stage():
+  activity = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+              "main" / "java" / "ai" / "comma" / "remotehud" /
+              "MainActivity.java").read_text(encoding="utf-8")
+  assert '"v" + appVersionName()' in activity
+  assert '"데이터 대기 · UDP 포트 정상"' in activity
+  assert '"원시 패킷 "' in activity
+  assert '"UDP 포트 오류"' in activity

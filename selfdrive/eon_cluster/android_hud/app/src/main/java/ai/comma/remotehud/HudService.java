@@ -66,6 +66,8 @@ public final class HudService extends Service {
 
     private static volatile HudService activeInstance;
 
+    private static final int UDP_PACKET_MAX_BYTES = 65507;
+
     static final String ACTION_RESCAN_USB = "ai.comma.remotehud.RESCAN_USB";
     static final String EXTRA_FROM_BOOT = "ai.comma.remotehud.FROM_BOOT";
 
@@ -142,6 +144,11 @@ public final class HudService extends Service {
     private static volatile long lastRenderElapsed;
     private static volatile long lastEonRxElapsed;
     private static volatile String lastEonAddress = "--";
+    private static volatile boolean udpReceiverBound;
+    private static volatile long udpRawPacketCount;
+    private static volatile int udpLastRawBytes;
+    private static volatile long udpLastRawRxElapsed;
+    private static volatile String udpReceiverError = "";
     private static volatile String usbStatus = "미연결 · 1CBE:0092";
 
     private TurzxDisplay display;
@@ -299,6 +306,11 @@ public final class HudService extends Service {
         final boolean running;
         final boolean eonConnected;
         final String eonAddress;
+        final boolean udpReceiverBound;
+        final boolean udpRawPacketRecent;
+        final long udpRawPacketCount;
+        final int udpLastRawBytes;
+        final String udpReceiverError;
         final boolean mapConnected;
         final String usbStatus;
         final boolean usbConnected;
@@ -307,11 +319,18 @@ public final class HudService extends Service {
         final int lastJpegBytes;
 
         StatusSnapshot(boolean running, boolean eonConnected, String eonAddress,
+                       boolean udpReceiverBound, boolean udpRawPacketRecent,
+                       long udpRawPacketCount, int udpLastRawBytes, String udpReceiverError,
                        boolean mapConnected, String usbStatus, boolean usbConnected,
                        boolean usbError, float fps, int lastJpegBytes) {
             this.running = running;
             this.eonConnected = eonConnected;
             this.eonAddress = eonAddress;
+            this.udpReceiverBound = udpReceiverBound;
+            this.udpRawPacketRecent = udpRawPacketRecent;
+            this.udpRawPacketCount = udpRawPacketCount;
+            this.udpLastRawBytes = udpLastRawBytes;
+            this.udpReceiverError = udpReceiverError;
             this.mapConnected = mapConnected;
             this.usbStatus = usbStatus;
             this.usbConnected = usbConnected;
@@ -324,9 +343,14 @@ public final class HudService extends Service {
     public static StatusSnapshot getStatusSnapshot() {
         long now = SystemClock.elapsedRealtime();
         boolean eonOk = serviceRunning && lastEonRxElapsed > 0 && now - lastEonRxElapsed < 2000;
+        boolean rawPacketRecent = serviceRunning && udpLastRawRxElapsed > 0
+                && now - udpLastRawRxElapsed < 2000;
         boolean fpsOk = serviceRunning && lastRenderElapsed > 0 && now - lastRenderElapsed < 2000;
         boolean jpegOk = serviceRunning && lastJpegSentElapsed > 0 && now - lastJpegSentElapsed < 2000;
-        return new StatusSnapshot(serviceRunning, eonOk, lastEonAddress, serviceRunning && mapConnected,
+        return new StatusSnapshot(serviceRunning, eonOk, lastEonAddress,
+                serviceRunning && udpReceiverBound, rawPacketRecent,
+                udpRawPacketCount, udpLastRawBytes, udpReceiverError,
+                serviceRunning && mapConnected,
                 usbStatus, serviceRunning && usbConnected, usbError,
                 fpsOk ? measuredFps : 0.0f, jpegOk ? lastJpegBytes : 0);
     }
@@ -407,6 +431,11 @@ public final class HudService extends Service {
         measuredFps = 0.0f;
         lastJpegBytes = 0;
         lastRenderElapsed = 0L;
+        udpReceiverBound = false;
+        udpRawPacketCount = 0L;
+        udpLastRawBytes = 0;
+        udpLastRawRxElapsed = 0L;
+        udpReceiverError = "";
         acquireWakeLock();
 
         boolean fromBoot = intent != null && intent.getBooleanExtra(EXTRA_FROM_BOOT, false);
@@ -514,19 +543,31 @@ public final class HudService extends Service {
         while (running.get()) {
             DatagramSocket socket = null;
             try {
-                // Keep the receiver on the binding path proven on the installed S9.
-                // The generic reuse/unbound socket path prevented this device from
-                // receiving EON broadcasts after the APK update.
+                // Keep the direct bind path proven on the installed S9. Only the
+                // datagram buffer is enlarged for detailed modelV2 telemetry.
                 socket = new DatagramSocket(7210);
                 socket.setBroadcast(true);
                 socket.setSoTimeout(1000);
-                byte[] buffer = new byte[16384];
+                udpReceiverBound = true;
+                udpReceiverError = "";
+                byte[] buffer = new byte[UDP_PACKET_MAX_BYTES];
                 while (running.get()) {
                     try {
                         DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                         socket.receive(packet);
-                        state.set(new JSONObject(new String(packet.getData(), packet.getOffset(),
-                                packet.getLength(), "UTF-8")));
+                        udpRawPacketCount++;
+                        udpLastRawBytes = packet.getLength();
+                        udpLastRawRxElapsed = SystemClock.elapsedRealtime();
+                        JSONObject decoded;
+                        try {
+                            decoded = new JSONObject(new String(packet.getData(), packet.getOffset(),
+                                    packet.getLength(), "UTF-8"));
+                        } catch (JSONException malformed) {
+                            udpReceiverError = "JSON 오류";
+                            continue;
+                        }
+                        state.set(decoded);
+                        udpReceiverError = "";
                         eonAddress.set(packet.getAddress());
                         lastEonRxElapsed = SystemClock.elapsedRealtime();
                         lastEonAddress = packet.getAddress().getHostAddress();
@@ -536,8 +577,12 @@ public final class HudService extends Service {
                     }
                 }
             } catch (Exception e) {
+                String message = e.getMessage();
+                udpReceiverError = e.getClass().getSimpleName()
+                        + (message == null || message.length() == 0 ? "" : ": " + message);
                 SystemClock.sleep(1000L);
             } finally {
+                udpReceiverBound = false;
                 if (socket != null) {
                     try {
                         socket.close();
