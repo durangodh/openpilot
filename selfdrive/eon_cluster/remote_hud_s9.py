@@ -91,9 +91,6 @@ def _packet(sm, *args, **kwargs):
   # 노면 높낮이 배율(%). 100=원본, 0=평지. 모델 z 의 부호가 기기마다 다를 수
   # 있어 음수까지 열어둔다 — 오르막이 아래로 꺼져 보이면 -100 으로 뒤집는다.
   packet["hudRoadZ"] = _bounded_int("EonClusterHudRoadZ", 100, -300, 300)
-  # 1: modelV2-only OpenGL preview. EGL/GL failure automatically falls back
-  # to the existing Canvas World3D. Set 0 to compare or revert instantly.
-  packet["hudGl"] = _bounded_int("EonClusterHudGl", 1, 0, 1)
   # 4차: 모델 도로를 바꾸지 않고, 근거리에서 modelV2와 일치할 때만
   # 티맵 경로 의도를 반투명 선으로 표시한다. 0이면 즉시 숨긴다.
   packet["hudNavRoute"] = _bounded_int("EonClusterHudNavRoute", 1, 0, 1)
@@ -103,8 +100,6 @@ def _packet(sm, *args, **kwargs):
   packet["hudLayoutMode"] = _bounded_int("EonClusterHudLayoutMode", 1, 1, 2)
   packet["hudOutputTarget"] = _bounded_int("EonClusterHudOutputTarget", 3, 1, 3)
   packet["hudBsdStyle"] = _bounded_int("EonClusterHudBsdStyle", 2, 1, 3)
-  packet["hudCarStyle"] = _bounded_int("EonClusterHudCarStyle", 1, 1, 2)
-  packet["hudRoadSigns"] = _bounded_int("EonClusterHudRoadSigns", 3, 0, 3)
   # 0(기본): 앱 내장 화살표 그림 사용
   # 1: 티맵 tbt_current_compact 사용 — 다만 이 스트림은 아이콘이 아니라
   #    "화살표+거리+도로명"이 한 장에 그려진 미니 배너라 아이콘 자리에 넣으면

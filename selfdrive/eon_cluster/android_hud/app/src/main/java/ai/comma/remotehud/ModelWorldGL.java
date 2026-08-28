@@ -26,7 +26,7 @@ import java.nio.IntBuffer;
  * The renderer deliberately has no external map, buildings, textures or lighting.
  * It keeps model geometry authoritative, adds a separately gated TMAP route
  * trace, holds brief radar dropouts, and releases EGL on renderer shutdown.
- * Geometry is projected with the same camera constants as World3D, then an
+ * Geometry is projected with the fork's established camera constants, then an
  * unlit OpenGL ES 2.0 shader draws road, observed boundaries, lane lines and
  * the final lateral path into an offscreen pbuffer.  Any EGL/GL failure returns
  * false so HudService can immediately draw the Canvas model-world fallback.
@@ -34,8 +34,8 @@ import java.nio.IntBuffer;
 final class ModelWorldGL {
     private static final String TAG = "ModelWorldGL";
     private static final int WIDTH = 952;
-    private static final int TOP = 217;
-    private static final int BOTTOM = 454;
+    static final int TOP = 217;
+    static final int BOTTOM = 454;
     private static final int HEIGHT = BOTTOM - TOP;
     private static final float CX = 476f;
     private static final float FOCAL = 520f;
@@ -46,6 +46,18 @@ final class ModelWorldGL {
     private static final float[] ROAD_EDGE_SAMPLE_XS = {12f, 25f, 45f};
     private static final int MAX_POINTS = 80;
     private static final int MAX_VERTEX_FLOATS = 4096;
+
+    /** BSD 표시 방식. */
+    static final int BSD_BAR = 1;      // 막대만
+    static final int BSD_SOFT = 2;     // 옅은 면 + 막대 (기본)
+    static final int BSD_SOLID = 3;    // 진한 면 + 막대
+    private static final float BSD_NEAR = -6f;
+    private static final float BSD_FAR = 16f;
+    private static final float BSD_INNER = 2.0f;
+    private static final float BSD_OUTER = 5.2f;
+    private static final float BSD_Z_OFFSET = 0.04f;
+    private static final float BSD_BAR_NEAR_PX = 7f;
+    private static final float BSD_BAR_FAR_PX = 6f;
 
     private EGLDisplay display = EGL14.EGL_NO_DISPLAY;
     private EGLContext context = EGL14.EGL_NO_CONTEXT;
@@ -66,6 +78,19 @@ final class ModelWorldGL {
     private final float[] projected = new float[2];
     private final float[] lineScreenX = new float[MAX_POINTS];
     private final float[] lineScreenY = new float[MAX_POINTS];
+    // 앞차를 자차와 같은 그림으로 그리기 위한 화면 좌표. GL 은 텍스처를 쓰지
+    // 않으므로 위치만 계산해 두고 비트맵은 HudService 가 Canvas 로 얹는다.
+    private final float[] leadSpriteX = new float[2];
+    private final float[] leadSpriteY = new float[2];
+    private final float[] leadSpriteW = new float[2];
+    private final float[] leadSpriteAlpha = new float[2];
+    private final boolean[] leadSpriteValid = new boolean[2];
+    private final boolean[] leadSpriteBraking = new boolean[2];
+
+    private final float[] bsdInnerX = new float[MAX_POINTS];
+    private final float[] bsdInnerY = new float[MAX_POINTS];
+    private final float[] bsdOuterX = new float[MAX_POINTS];
+    private final float[] bsdOuterY = new float[MAX_POINTS];
     private final float[] worldQuad = new float[8];
     private final Bitmap frame = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
 
@@ -99,7 +124,8 @@ final class ModelWorldGL {
     boolean draw(Canvas canvas, Paint paint, JSONObject scene, boolean enabled,
                  int driveBg, int roadTop, int roadBottom, int pathColor,
                  boolean dark, float roadZPercent, float livePitch,
-                 float pitchPercent, float calibPitch) {
+                 float pitchPercent, float calibPitch, int bsdStyle,
+                 boolean leadSprite) {
         if (failed || scene == null) {
             return false;
         }
@@ -108,13 +134,19 @@ final class ModelWorldGL {
                 return false;
             }
             long timestamp = scene.optLong("t", 0L);
-            int style = driveBg ^ roadTop ^ roadBottom ^ pathColor ^ (dark ? 1 : 0);
+            // BSD 는 스타일·좌우 경고 상태가 바뀌면 같은 타임스탬프라도
+            // 다시 그려야 한다. 안 그러면 경고가 켜져도 옛 프레임이 남는다.
+            int style = driveBg ^ roadTop ^ roadBottom ^ pathColor ^ (dark ? 1 : 0)
+                    ^ (bsdStyle << 1)
+                    ^ (scene.optBoolean("leftBsd", false) ? 1 << 6 : 0)
+                    ^ (scene.optBoolean("rightBsd", false) ? 1 << 7 : 0);
             boolean styleChanged = style != lastStyle;
             if (timestamp != lastTimestamp || styleChanged) {
                 long started = System.nanoTime();
                 if (styleChanged || started >= nextRenderNanos) {
                     if (!render(scene, enabled, driveBg, roadTop, roadBottom, pathColor,
-                            dark, roadZPercent, livePitch, pitchPercent, calibPitch)) {
+                            dark, roadZPercent, livePitch, pitchPercent, calibPitch,
+                            bsdStyle, leadSprite)) {
                         return false;
                     }
                     long cost = System.nanoTime() - started;
@@ -256,7 +288,8 @@ final class ModelWorldGL {
     private boolean render(JSONObject scene, boolean enabled, int driveBg,
                            int roadTop, int roadBottom, int pathColor,
                            boolean dark, float roadZPercent, float livePitch,
-                           float pitchPercent, float calibPitch) {
+                           float pitchPercent, float calibPitch, int bsdStyle,
+                           boolean leadSprite) {
         if (!EGL14.eglMakeCurrent(display, surface, surface, context)) {
             return false;
         }
@@ -377,8 +410,9 @@ final class ModelWorldGL {
             drawPathLayers(path, pathColor, pathEnd);
             drawDesiredDistance(scene, path, dark);
         }
-        drawLead(scene.optJSONObject("lead2"), path, 1, dark, true, timestamp);
-        drawLead(scene.optJSONObject("lead"), path, 0, dark, false, timestamp);
+        drawBsd(scene, path, bsdStyle);
+        drawLead(scene.optJSONObject("lead2"), path, 1, dark, true, timestamp, leadSprite);
+        drawLead(scene.optJSONObject("lead"), path, 0, dark, false, timestamp, leadSprite);
         // glReadPixels already waits for rendering completion.  Avoid a second
         // full GPU/CPU synchronization immediately before it.
         copyPixels();
@@ -508,9 +542,13 @@ final class ModelWorldGL {
     }
 
     private void drawLead(JSONObject lead, Line roadHeight, int index,
-                          boolean dark, boolean secondary, long timestamp) {
+                          boolean dark, boolean secondary, long timestamp,
+                          boolean sprite) {
         if (index < 0 || index >= leadSeen.length) {
             return;
+        }
+        if (index < leadSpriteValid.length) {
+            leadSpriteValid[index] = false;
         }
 
         boolean live = lead != null;
@@ -561,6 +599,17 @@ final class ModelWorldGL {
         drawScreenRect(sx - width * 0.58f, sy - height * 0.08f,
                 sx + width * 0.58f, sy + height * 0.20f, shadow,
                 (secondary ? 0.45f : 0.68f) * holdAlpha);
+        if (sprite && index < leadSpriteValid.length) {
+            // 그림자만 GL 로 깔고 차체는 Canvas 가 그린다. 폭은 GL 박스와 같은
+            // 원근 계산을 쓰므로 거리에 따른 축소가 그대로 유지된다.
+            leadSpriteX[index] = sx;
+            leadSpriteY[index] = sy + TOP;
+            leadSpriteW[index] = width * 1.34f;
+            leadSpriteAlpha[index] = (secondary ? 0.72f : 1f) * holdAlpha;
+            leadSpriteBraking[index] = leadAcceleration[index] < -0.45f;
+            leadSpriteValid[index] = true;
+            return;
+        }
         drawScreenRect(sx - width * 0.50f, sy - height,
                 sx + width * 0.50f, sy, body,
                 (secondary ? 0.62f : 0.94f) * holdAlpha);
@@ -694,6 +743,116 @@ final class ModelWorldGL {
         worldQuad[offset] = projected[0];
         worldQuad[offset + 1] = projected[1] - TOP;
         return true;
+    }
+
+    /**
+     * BSD 경고 띠.
+     *
+     * openpilot 은 옆차의 앞뒤 위치를 모르고 유무만 알기 때문에, 차량 그림
+     * 대신 옆 차선 전체를 덮는 띠로 그린다. 좌표·색·알파는 Canvas 판과
+     * 같은 값을 쓴다.
+     *
+     * style 1 막대만 / 2 옅은 면 + 막대 / 3 진한 면 + 막대.
+     */
+    private void drawBsd(JSONObject scene, Line path, int style) {
+        if (scene == null) {
+            return;
+        }
+        if (scene.optBoolean("leftBsd", false)) {
+            bsdBand(path, 1, style);
+        }
+        if (scene.optBoolean("rightBsd", false)) {
+            bsdBand(path, -1, style);
+        }
+    }
+
+    private void bsdBand(Line path, int side, int style) {
+        final int steps = 16;
+        // project() 가 NEAR_DEPTH 앞을 버리므로 x=-6 부근은 자연히 잘린다.
+        // Canvas 판과 같은 규칙이라 보이는 길이도 같다.
+        int count = 0;
+        for (int i = 0; i < steps && count < MAX_POINTS; i++) {
+            float x = BSD_NEAR + (BSD_FAR - BSD_NEAR) * i / (steps - 1f);
+            float base = yAt(path, Math.max(0f, x));
+            float z = zAt(path, Math.max(0f, x)) * roadZGain + BSD_Z_OFFSET;
+            if (!project(x, base + side * BSD_INNER, z, projected)) {
+                continue;
+            }
+            float innerX = projected[0];
+            float innerY = projected[1] - TOP;
+            if (!project(x, base + side * BSD_OUTER, z, projected)) {
+                continue;
+            }
+            bsdInnerX[count] = innerX;
+            bsdInnerY[count] = innerY;
+            bsdOuterX[count] = projected[0];
+            bsdOuterY[count] = projected[1] - TOP;
+            count++;
+        }
+        if (count < 2) {
+            return;
+        }
+
+        int fillAlpha = style == BSD_SOLID ? 96 : style == BSD_SOFT ? 48 : 0;
+        if (fillAlpha > 0) {
+            int v = 0;
+            for (int i = 0; i + 1 < count && v + 12 <= vertices.length; i++) {
+                v = addTriangle(v, bsdInnerX[i], bsdInnerY[i],
+                        bsdOuterX[i], bsdOuterY[i],
+                        bsdInnerX[i + 1], bsdInnerY[i + 1]);
+                v = addTriangle(v, bsdInnerX[i + 1], bsdInnerY[i + 1],
+                        bsdOuterX[i], bsdOuterY[i],
+                        bsdOuterX[i + 1], bsdOuterY[i + 1]);
+            }
+            drawVertices(GLES20.GL_TRIANGLES, v / 2,
+                    Color.rgb(255, 168, 40), fillAlpha / 255f);
+        }
+
+        // 안쪽 경계 막대는 어느 방식에서나 그린다. 가까운 쪽 7px, 먼 쪽 6px
+        // 로 좁혀 Canvas 판과 같은 두께감을 낸다.
+        int v = 0;
+        for (int i = 0; i + 1 < count && v + 12 <= vertices.length; i++) {
+            float dx = bsdInnerX[i + 1] - bsdInnerX[i];
+            float dy = bsdInnerY[i + 1] - bsdInnerY[i];
+            float length = (float) Math.sqrt(dx * dx + dy * dy);
+            if (length < 0.4f) {
+                continue;
+            }
+            float nx = -dy / length;
+            float ny = dx / length;
+            float ha = BSD_BAR_NEAR_PX * 0.5f;
+            float hb = BSD_BAR_FAR_PX * 0.5f;
+            v = addTriangle(v, bsdInnerX[i] + nx * ha, bsdInnerY[i] + ny * ha,
+                    bsdInnerX[i] - nx * ha, bsdInnerY[i] - ny * ha,
+                    bsdInnerX[i + 1] + nx * hb, bsdInnerY[i + 1] + ny * hb);
+            v = addTriangle(v, bsdInnerX[i + 1] + nx * hb, bsdInnerY[i + 1] + ny * hb,
+                    bsdInnerX[i] - nx * ha, bsdInnerY[i] - ny * ha,
+                    bsdInnerX[i + 1] - nx * hb, bsdInnerY[i + 1] - ny * hb);
+        }
+        drawVertices(GLES20.GL_TRIANGLES, v / 2,
+                Color.rgb(255, 190, 70), 238 / 255f);
+    }
+
+    /**
+     * 앞차 그림을 얹을 자리. out = {중심 x, 접지 y, 폭} (캔버스 좌표).
+     * 이번 프레임에 앞차를 그리지 않았으면 false.
+     */
+    boolean leadSprite(int index, float[] out) {
+        if (index < 0 || index >= leadSpriteValid.length || !leadSpriteValid[index]) {
+            return false;
+        }
+        out[0] = leadSpriteX[index];
+        out[1] = leadSpriteY[index];
+        out[2] = leadSpriteW[index];
+        return true;
+    }
+
+    float leadSpriteAlpha(int index) {
+        return index >= 0 && index < leadSpriteAlpha.length ? leadSpriteAlpha[index] : 0f;
+    }
+
+    boolean leadSpriteBraking(int index) {
+        return index >= 0 && index < leadSpriteBraking.length && leadSpriteBraking[index];
     }
 
     private void drawRoadEdge(Line edge, Line roadHeight, boolean dark) {
@@ -884,7 +1043,7 @@ final class ModelWorldGL {
         return Math.max(minimum, Math.min(maximum, value));
     }
 
-    private static int blend(int a, int b, float t) {
+    static int blend(int a, int b, float t) {
         t = clamp(t, 0f, 1f);
         return Color.rgb(
                 (int) (Color.red(a) + (Color.red(b) - Color.red(a)) * t),

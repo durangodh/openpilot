@@ -1185,18 +1185,9 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "1: 주행 + 티맵 + 시스템 정보 / 2: 주행 + 티맵만(우측 정보판 숨김, 티맵 폭 확장)",
       "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudCarStyle", "S9 HUD CAR STYLE",
-      "1: 사진 / 2: 3D 박스. 자차와 앞차에 적용됩니다.",
-      "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
-  toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudBsdStyle", "S9 HUD BSD STYLE",
       "1: 경계막대만 / 2: 옅은 띠 / 3: 진한 띠. 옆차 앞뒤 위치는 알 수 없어 차선 전체를 표시합니다.",
       "../assets/offroad/icon_road.png", 1, 3, 1, 0, 2, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudRoadSigns", "S9 HUD ROAD SIGNS",
-      "주행씬 도로 바닥에 그리는 표시입니다.\n"
-      "0: 끔 / 1: 제한속도만 / 2: 과속방지턱만 / 3: 둘 다",
-      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 3, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudRoadZ", "S9 HUD ROAD Z",
       "오르막·내리막 표현 강도(%). 100: 모델 값 그대로 / 0: 평지 / 음수: 위아래 반전(오르막이 꺼져 보일 때 -100).",
@@ -1207,7 +1198,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 0, 200, 10, 0, 60, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudViewPitch", "S9 HUD VIEW PITCH (X0.1°)",
-      "World3D 수평선의 차량별 장착 보정입니다. 값 증가(+): 도로가 화면 아래쪽으로 이동 / 값 감소(-): 위쪽으로 이동. 정지 상태에서 실제 도로 소실점과 맞추십시오.",
+      "주행씬 수평선의 차량별 장착 보정입니다. 값 증가(+): 도로가 화면 아래쪽으로 이동 / 값 감소(-): 위쪽으로 이동. 정지 상태에서 실제 도로 소실점과 맞추십시오.",
       "../assets/offroad/icon_road.png", -50, 50, 1, 0, 0, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudTmapIcon", "S9 HUD TMAP ICON",
@@ -1239,10 +1230,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudRadarInfo", "S9 HUD RADAR INFO", "0: 숨김 / 1,3: 앞차 상대속도 / 2,4: 앞차 거리+상대속도",
       "../assets/offroad/icon_road.png", 0, 4, 1, 0, 4, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudGl", "S9 HUD OPENGL",
-      "1(기본): modelV2 OpenGL 주행씬 / 0: 기존 Canvas World3D. 증상 원인 분리용 A/B 스위치입니다.",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudNavRoute", "S9 HUD NAV ROUTE",
       "1(기본): 근거리에서 modelV2 와 일치할 때만 티맵 경로 의도를 반투명 선으로 표시 / 0: 숨김",

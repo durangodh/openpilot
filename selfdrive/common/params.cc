@@ -254,14 +254,12 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHud", PERSISTENT},
     {"EonClusterHudBrightness", PERSISTENT},
     {"EonClusterHudBsdStyle", PERSISTENT},
-    {"EonClusterHudCarStyle", PERSISTENT},
-    {"EonClusterHudRoadSigns", PERSISTENT},
     {"CarrotLearnFrictionBase", PERSISTENT},   // friction 학습 기준선(사용자 수동값)   // 노면 표시 0:끔 1:제한속도 2:방지턱 3:둘다
     {"EonClusterHudTmapIcon", PERSISTENT},
     {"EonClusterHudJunction", PERSISTENT},
     {"EonClusterHudRoadZ", PERSISTENT},         // 노면 높낮이 배율 % (-300..300, 100=원본)
     {"EonClusterHudPitchDyn", PERSISTENT},      // 주행 중 pitch 반영 % (0..200)
-    {"EonClusterHudViewPitch", PERSISTENT},     // World3D 수평선 보정 0.1도 (-50..50)
+    {"EonClusterHudViewPitch", PERSISTENT},     // 주행씬 수평선 보정 0.1도 (-50..50)
     {"EonClusterHudOutputMode", PERSISTENT},
     {"EonClusterHudLayoutMode", PERSISTENT},  // 1=3분할, 2=주행+티맵 2분할
     {"EonClusterHudOutputTarget", PERSISTENT}, // 1=외부 USB HUD, 2=S9 화면, 3=동시 출력
@@ -277,7 +275,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudPathFlip", PERSISTENT},       // 진단용: S9 경로/차선 좌우반전 (0=기본, 1=반전)
     {"EonClusterHudLanguage", PERSISTENT},
     {"EonClusterHudRadarInfo", PERSISTENT},
-    {"EonClusterHudGl", PERSISTENT},            // 1=modelV2 OpenGL 렌더, 0=기존 Canvas World3D
     {"EonClusterHudNavRoute", PERSISTENT},      // 1=티맵 경로 의도 반투명 표시, 0=숨김
     {"ShowMapboxMap", PERSISTENT},              // 1=Mapbox/NOO Tmap 지도 이미지 표시, 0=모든 지도 이미지 숨김
     {"ShowRouteMapAlways", PERSISTENT},         // 1=목적지 경로 동안 Tmap 지도 이미지 상시 표시

@@ -5,7 +5,9 @@ ROOT = Path(__file__).parents[3]
 UI_DIR = ROOT / "selfdrive" / "ui" / "qt"
 
 # OSM/OpenGL 전환으로 사라진 파라미터. 어느 층에도 남아 있으면 안 된다.
-DEAD_PARAMS = ("EonClusterHudWorldWidth", "EonClusterHudBuildings")
+DEAD_PARAMS = ("EonClusterHudWorldWidth", "EonClusterHudBuildings",
+               "EonClusterHudCarStyle", "EonClusterHudRoadSigns",
+               "EonClusterHudGl")
 
 
 def _code_only(source):
@@ -70,7 +72,6 @@ def test_s9_hud_params_are_exposed_in_settings():
       "EonClusterHudMirror",
       "EonClusterHudLanguage",
       "EonClusterHudRadarInfo",
-      "EonClusterHudGl",
       "EonClusterHudNavRoute",
   )
   for key in exposed:
@@ -272,13 +273,15 @@ def test_external_map_renderer_is_completely_removed():
   java = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
           "main" / "java" / "ai" / "comma" / "remotehud")
   service = (java / "HudService.java").read_text(encoding="utf-8")
-  world = (java / "World3D.java").read_text(encoding="utf-8")
   renderer = (java / "ModelWorldGL.java").read_text(encoding="utf-8")
   sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud_s9.py").read_text(encoding="utf-8")
 
   assert not (java / "OsmWorld.java").exists()
   assert not (java / "OsmRoadMatcher.java").exists()
-  assert "OsmWorld" not in service + world
+  # World3D 폴백은 제거됐다. ModelWorldGL 이 유일한 주행씬 렌더러다.
+  assert not (java / "World3D.java").exists()
+  assert "World3D" not in service
+  assert "OsmWorld" not in service
   assert "hudBuildings" not in service + sender
   assert "laneInsideRoadEdges" in renderer
   assert "ROAD_EDGE_SAMPLE_XS" in renderer
@@ -301,7 +304,10 @@ def test_s9_v5_visual_layers_use_existing_telemetry_only():
   assert "drawDesiredDistance" in renderer
   assert "routeShadow" in renderer
   assert "lineScreenX" in renderer and "lineScreenY" in renderer
-  assert renderer.count("new float[MAX_POINTS]") == 5
+  # 개수를 못 박으면 렌더러에 버퍼가 하나 늘 때마다 깨진다. 화면좌표 버퍼가
+  # MAX_POINTS 로 한계 지어져 있다는 사실만 확인한다.
+  assert renderer.count("new float[MAX_POINTS]") >= 5
+  assert "bsdInnerX" in renderer and "bsdOuterX" in renderer
 
 
 def test_android_hud_receiver_uses_s9_proven_direct_binding():

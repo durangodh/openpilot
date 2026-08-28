@@ -53,7 +53,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * v0.19 변경점
  *
- *  1. 주행씬을 World3D 의 실제 핀홀 원근투영으로 교체 (완전 3D).
+ *  1. 주행씬을 ModelWorldGL 의 실제 핀홀 원근투영으로 교체 (완전 3D).
  *  2. 프레임 버퍼 재사용 — v0.18 은 매 프레임 1920x462 비트맵을 만들고
  *     거기에 회전 복사본을 하나 더 만들었다(약 3.5MB/프레임, 8fps 면 28MB/s).
  *     이제 462x1920 세로 버퍼 하나만 잡아 두고 캔버스 행렬로 회전한다.
@@ -157,10 +157,10 @@ public final class HudService extends Service {
 
     private TurzxDisplay display;
     private Bitmap egoCar;
+    private final float[] leadSpriteInfo = new float[3];
     private Bitmap speedBumpImage;
     /** 회전종류(TURN_*) 별 실제 화살표 그림. 없는 칸은 벡터로 폴백한다. */
     private final Bitmap[] turnImages = new Bitmap[10];
-    private Bitmap otherCar;
     private Bitmap wheelImage;   // res/drawable-nodpi/hud_wheel.png (없으면 기존 벡터 핸들)
     private Bitmap statusIcons;  // 순정 계기판 스타일: 미등/전조등/안전벨트/문 열림 PNG 스프라이트
     private Thread receiverThread;
@@ -185,8 +185,6 @@ public final class HudService extends Service {
     /** BSD 표시 방식 1: 막대만 / 2: 옅은 면 / 3: 진한 면 */
     private int configuredBsdStyle = 2;
     /** 차량 표현 1: 사진 스프라이트 / 2: 3D 박스 */
-    private int configuredCarStyle = 1;
-    private int configuredRoadSigns = 3;   // 0:끔 1:제한속도 2:방지턱 3:둘다
     /** 이번 프레임의 테마 (매 프레임 render() 에서 갱신) */
     private boolean frameDark = false;
     /** 1: 주행·지도·시스템 / 2: 실시간 디버그 / 3: S9 리모트 */
@@ -221,7 +219,6 @@ public final class HudService extends Service {
     private long tripLastElapsed = 0L;
     private double tripDistanceKm = 0.0d;
     /** 건물이 뒤로 흘러가도록 하기 위한 누적 주행거리(m) */
-    private float worldOdoM = 0f;
 
     // 렌더 재사용 자원 (렌더 스레드 전용)
     private final Matrix wheelMatrix = new Matrix();
@@ -257,8 +254,7 @@ public final class HudService extends Service {
                     0f, 0f, 0.259f, 0f, 0f,
                     0f, 0f, 0f, 1f, 0f
             }));
-    private final World3D world = new World3D();
-    /** Lazy-created on the render thread; any EGL failure keeps World3D active. */
+    /** Lazy-created on the render thread. */
     private ModelWorldGL modelWorldGl;
     private final ByteArrayOutputStream jpegOut = new ByteArrayOutputStream(180000);
 
@@ -370,7 +366,6 @@ public final class HudService extends Service {
         configuredOrientation = AppPrefs.getOrientation(this);
         configuredMirror = AppPrefs.isMirror(this);
         egoCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_ego_car);
-        otherCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_other_car);
         // 핸들 이미지는 선택 사항이라 R.drawable 을 직접 참조하지 않는다.
         // 파일이 없어도 빌드가 깨지지 않고, 있으면 자동으로 벡터 대신 쓰인다.
         int wheelId = getResources().getIdentifier("hud_wheel", "drawable", getPackageName());
@@ -787,8 +782,6 @@ public final class HudService extends Service {
             AppPrefs.setMirror(this, requestedMirror);
         }
         configuredBsdStyle = Math.max(1, Math.min(3, currentState.optInt("hudBsdStyle", 2)));
-        configuredCarStyle = currentState.optInt("hudCarStyle", 1) == 2 ? 2 : 1;
-        configuredRoadSigns = Math.max(0, Math.min(3, currentState.optInt("hudRoadSigns", 3)));
         configuredOutputMode = Math.max(1, Math.min(3, currentState.optInt("hudOutputMode", 1)));
         tmapIconEnabled = currentState.optInt("hudTmapIcon", 0) != 0;
         junctionMode = Math.max(0, Math.min(2, currentState.optInt("hudJunction", 2)));
@@ -878,6 +871,41 @@ public final class HudService extends Service {
         boolean reset = UsbPortReset.resetPort(display.deviceNameOrNull());
         display.reset();
         nextUsbAttemptElapsed = now + (reset ? 2500L : 1500L);
+    }
+
+    /**
+     * 앞차를 자차와 같은 그림으로 그린다. info = {중심 x, 접지 y, 폭}.
+     * 원근 축소는 GL 이 계산한 폭을 그대로 쓰고, 높이는 그림 비율로 맞춘다.
+     */
+    private void drawLeadSprite(Canvas c, Paint p, float[] info,
+                                float alpha, boolean braking) {
+        float width = info[2];
+        if (width < 6f || egoCar == null || egoCar.isRecycled()) {
+            return;
+        }
+        float height = egoCar.getHeight() * width / egoCar.getWidth();
+        float left = info[0] - width * 0.5f;
+        float bottom = info[1];
+        scratchRect.set(left, bottom - height, left + width, bottom);
+        p.setShader(null);
+        p.setColorFilter(null);
+        p.setFilterBitmap(true);
+        p.setAlpha(Math.max(0, Math.min(255, Math.round(alpha * 255f))));
+        c.drawBitmap(egoCar, null, scratchRect, p);
+        if (braking) {
+            // 제동 중이면 뒷면 좌우에 붉은 표시. 그림 자체에는 등이 없다.
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.rgb(255, 55, 62));
+            p.setAlpha(Math.max(0, Math.min(255, Math.round(alpha * 245f))));
+            float lampW = width * 0.20f;
+            float lampH = Math.max(1.5f, height * 0.16f);
+            float lampY = bottom - height * 0.34f;
+            c.drawRect(left + width * 0.10f, lampY,
+                    left + width * 0.10f + lampW, lampY + lampH, p);
+            c.drawRect(left + width * 0.90f - lampW, lampY,
+                    left + width * 0.90f, lampY + lampH, p);
+        }
+        p.setAlpha(255);
     }
 
     private void sendUsbFrame(Bitmap frame, JSONObject currentState) {
@@ -1180,15 +1208,10 @@ public final class HudService extends Service {
             c.scale(nativeScaleY / nativeScaleX, 1f, DRIVE_CX, HEIGHT * 0.5f);
         }
 
+        // Canvas 렌더러가 없어졌으므로 GL 을 끄는 스위치도 없앴다. 끌 수 있게
+        // 두면 주행 패널이 배경색만 남는다.
         boolean glDrawn = false;
-        int hudGlMode = s.optInt("hudGl", 1);
-        if (hudGlMode == 0 && modelWorldGl != null) {
-            // Manual Canvas fallback must release the pbuffer immediately;
-            // otherwise repeated A/B tests retain the old EGL allocation.
-            modelWorldGl.release();
-            modelWorldGl = null;
-        }
-        if (!stale && hudGlMode != 0) {
+        if (!stale) {
             if (modelWorldGl == null) {
                 modelWorldGl = new ModelWorldGL();
             }
@@ -1197,7 +1220,20 @@ public final class HudService extends Service {
                     (float) s.optDouble("hudRoadZ", 100d),
                     (float) s.optDouble("pitch", 0d),
                     (float) s.optDouble("hudPitchDyn", 60d),
-                    (float) s.optDouble("calibPitch", 0d));
+                    (float) s.optDouble("calibPitch", 0d),
+                    configuredBsdStyle,
+                    egoCar != null && !egoCar.isRecycled());
+            if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
+                // 앞차도 자차와 같은 그림으로. 먼 차부터 그려 근경이 덮게 한다.
+                for (int leadIndex = 1; leadIndex >= 0; leadIndex--) {
+                    if (!modelWorldGl.leadSprite(leadIndex, leadSpriteInfo)) {
+                        continue;
+                    }
+                    drawLeadSprite(c, p, leadSpriteInfo,
+                            modelWorldGl.leadSpriteAlpha(leadIndex),
+                            modelWorldGl.leadSpriteBraking(leadIndex));
+                }
+            }
             if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
                 // Preserve the approved ego-car artwork in the GL preview.
                 float carWidth = 78f;
@@ -1211,22 +1247,15 @@ public final class HudService extends Service {
         }
 
         if (!glDrawn) {
-            JSONObject naviForWorld = stale ? null : s.optJSONObject("navi");
-            JSONObject worldScene = naviForWorld == null ? null : naviForWorld.optJSONObject("scene");
-            world.setNavi(worldScene);
-            world.draw(c, p, stale ? null : s, enabled, egoCar, otherCar, worldOdoM,
-                    driveBg, roadTop, roadBottom, pathColor,
-                    configuredRadarInfo, frameDark, configuredBsdStyle,
-                    configuredCarStyle,
-                    (float) s.optDouble("pathOffset", 0d),
-                    (float) s.optDouble("calibPitch", 0d),
-                    (configuredRoadSigns & 1) != 0,
-                    (configuredRoadSigns & 2) != 0,
-                    (float) s.optDouble("hudRoadZ", 100d),
-                    (float) s.optDouble("pitch", 0d),
-                    (float) s.optDouble("hudPitchDyn", 60d),
-                    (float) s.optDouble("laneWidth", 0d),
-                    s.isNull("stopDist") ? -1f : (float) s.optDouble("stopDist", -1d));
+            // Canvas 폴백 렌더러는 제거됐다. GL 이 못 그린 프레임(EON 정지, EGL 실패,
+            // 경로 점 부족)에서는 주행 패널을 배경색으로 지운다. 지우지 않으면
+            // 재사용 비트맵에 직전 장면이 남아 화면이 굳은 것처럼 보인다.
+            p.setShader(null);
+            p.setStyle(Paint.Style.FILL);
+            p.setAlpha(255);
+            p.setColor(ModelWorldGL.blend(driveBg, Color.BLACK,
+                    frameDark ? 0.15f : 0.10f));
+            c.drawRect(0f, ModelWorldGL.TOP, DRIVE_RIGHT, ModelWorldGL.BOTTOM, p);
         }
         c.restoreToCount(worldSave);
 
@@ -3160,11 +3189,6 @@ public final class HudService extends Service {
         tripLastElapsed = now;
         double speed = Math.max(0d, s.optDouble("speed", 0d));
         tripDistanceKm += dt * speed / 3600000d;
-        // 건물 스크롤용 누적 거리(m). 오래 달려도 float 정밀도가 남도록 접어 준다.
-        worldOdoM += (float) (dt * speed / 3600d);
-        if (worldOdoM > 1.0e6f) {
-            worldOdoM -= 1.0e6f;
-        }
     }
 
     private int mapRight() {
@@ -3529,10 +3553,6 @@ public final class HudService extends Service {
         if (egoCar != null) {
             egoCar.recycle();
             egoCar = null;
-        }
-        if (otherCar != null) {
-            otherCar.recycle();
-            otherCar = null;
         }
         if (wheelImage != null) {
             wheelImage.recycle();

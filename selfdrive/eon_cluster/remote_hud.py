@@ -89,8 +89,6 @@ REMOTE_LAYOUT = {
   "tbt1Dx": 0, "tbt1Dy": 0, "tbt1Scale": 1.0,
   "tbt2Dx": 0, "tbt2Dy": 0, "tbt2Scale": 1.0,
   "laneDx": 0, "laneDy": 0, "laneScale": 1.0,
-  # 노면 표시 on/off 는 EonClusterHudRoadSigns 파라미터(패킷 hudRoadSigns)로
-  # 옮겼다. 여기에 같은 키를 두면 두 곳에서 제어하게 돼 헷갈린다.
   "rpmDx": 0, "rpmDy": 0, "rpmScale": 1.0,
   "rpmRedline": 6500,   # DH 3.8 기준. 차종 바꾸면 여기만 고치면 됨
 }
@@ -387,7 +385,7 @@ def _line_points(position, limit=33, with_z=False):
   if count < 2:
     return []
   if with_z:
-    # 2026-08-20: 노면 높낮이. 앱의 World3D.project() 가 이 z 로 도로면을
+    # 2026-08-20: 노면 높낮이. 앱의 ModelWorldGL.project() 가 이 z 로 도로면을
     # 올리고 내린다(오르막/내리막/둔덕). 경로 하나만 보내면 되는 이유는,
     # 같은 거리에서는 차선·도로경계·노면이 모두 같은 높이이기 때문이다.
     # 차선까지 z 를 실으면 패킷만 커지고 그림은 같다.
@@ -511,7 +509,7 @@ def _navi_scene(state):
   돌지 않는다(파일 자체가 보통 1Hz 갱신).
 
   결과: {"lane": {"n","cur","turns","avail","dist"}, "cat": roadcate,
-        "curve": [[x, y], ...]}  (전방 x m, 좌 +y m — World3D 좌표계와 동일)
+        "curve": [[x, y], ...]}  (전방 x m, 좌 +y m — 주행씬 좌표계와 동일)
   """
   scene = {}
 
@@ -577,7 +575,7 @@ def _navi_scene(state):
       # HUD world uses left-positive lateral coordinates.  Keep the
       # TMAP display polyline in the same handedness; NOO/control paths are
       # generated independently and remain untouched.
-      y = nn * sin_h - e * cos_h           # World3D 좌 +
+      y = nn * sin_h - e * cos_h           # 주행씬 좌 +
       pts.append((x, y))
       d = x * x + y * y
       if d < best_d:
@@ -865,7 +863,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   lane_position = reconciled_lane_position or raw_lane_position
 
   # Keep the nested object for the diagnostic panel, and also publish the flat
-  # keys consumed by the installed World3D renderer.  When NOO is inactive
+  # keys consumed by the installed driving-scene renderer.  When NOO is inactive
   # (for example while stopped), use the same conservative HUD-only camera /
   # TMAP reconciliation so a shoulder or median cannot shift the displayed car
   # from lane 1 to lane 2.
@@ -964,7 +962,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "atcDirection": int(_finite(_field(sm["lateralPlan"], "nooTurnDirection", 0))),
     # New key alongside the legacy atcMode above. Old APKs ignore it.
     "nooMode": 1 if noo_enabled else 0,
-    # World3D reads these flat wire keys. They must remain available alongside
+    # The driving-scene renderer reads these flat wire keys. They must remain available alongside
     # the nested diagnostic object below for already-installed APKs.
     "nooCameraLaneCount": hud_camera_count,
     "nooRouteLaneCount": hud_route_count,

@@ -1,5 +1,13 @@
 # Android remote HUD (experimental)
 
+> **현재 상태 (v0.89)** — 주행씬 렌더러는 `ModelWorldGL.java` 하나뿐이다.
+> Canvas 판 `World3D.java` 와 그 전용 요소(건물 · 정지선 · 노면 제한속도 ·
+> 과속방지턱 · 티맵 차로선 · 가드레일 · 헤이즈)는 제거됐고, 파라미터
+> `EonClusterHudBuildings` / `WorldWidth` / `CarStyle` / `RoadSigns` /
+> `Gl` 도 함께 삭제됐다. BSD 경고 띠는 GL 안에서 그리고, 앞차는 자차와
+> 같은 `hud_ego_car` 그림을 축소해 얹는다. 아래 v0.19 이하 절은 당시
+> 기록이므로 현재 코드와 다를 수 있다.
+
 This optional companion moves the 1920x462 HUD render, JPEG compression and
 TURZX `1cbe:0092` USB upload from the EON to an Android phone.  The EON sends a
 small UDP JSON telemetry packet at 10 Hz. The already-compressed TMAP JPEG

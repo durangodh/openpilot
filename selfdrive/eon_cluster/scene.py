@@ -215,7 +215,7 @@ def align_scene_geometry(path, lanes, edges):
   """Anchor model lane/edge geometry to the final MPC path centre.
 
   modelV2 lane lines and the optimized MPC path can use slightly different
-  lateral centres after offsets or NOO map blending.  World3D previously drew
+  lateral centres after offsets or NOO map blending.  the driving scene previously drew
   both unchanged, making the ribbon and road slide apart.  Preserve every
   observed width and shape, but translate each cross-section so all geometry
   shares the path centre used by control and lead rendering.

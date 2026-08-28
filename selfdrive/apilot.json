@@ -243,56 +243,6 @@
   },
   {
    "group": "크루즈",
-   "name": "CruiseSpeed1",
-   "title": "CRUISE SPEED1 (km/h)",
-   "descr": "버튼 모드 3의 순환 설정속도입니다. 0: 현재 도로 제한속도 사용 / 값 증가(+): 1단계 속도가 높아짐.",
-   "min": 0,
-   "max": 145,
-   "default": 30,
-   "unit": 5
-  },
-  {
-   "group": "크루즈",
-   "name": "CruiseSpeed2",
-   "title": "CRUISE SPEED2 (km/h)",
-   "descr": "버튼 모드 3의 순환 설정속도입니다. 값 증가(+): 해당 단계 속도가 높아짐 / 값 감소(-): 해당 단계 속도가 낮아짐.",
-   "min": 30,
-   "max": 145,
-   "default": 50,
-   "unit": 5
-  },
-  {
-   "group": "크루즈",
-   "name": "CruiseSpeed3",
-   "title": "CRUISE SPEED3 (km/h)",
-   "descr": "버튼 모드 3의 순환 설정속도입니다. 값 증가(+): 해당 단계 속도가 높아짐 / 값 감소(-): 해당 단계 속도가 낮아짐.",
-   "min": 30,
-   "max": 145,
-   "default": 70,
-   "unit": 5
-  },
-  {
-   "group": "크루즈",
-   "name": "CruiseSpeed4",
-   "title": "CRUISE SPEED4 (km/h)",
-   "descr": "버튼 모드 3의 순환 설정속도입니다. 값 증가(+): 해당 단계 속도가 높아짐 / 값 감소(-): 해당 단계 속도가 낮아짐.",
-   "min": 30,
-   "max": 145,
-   "default": 90,
-   "unit": 5
-  },
-  {
-   "group": "크루즈",
-   "name": "CruiseSpeed5",
-   "title": "CRUISE SPEED5 (km/h)",
-   "descr": "버튼 모드 3의 순환 설정속도입니다. 값 증가(+): 해당 단계 속도가 높아짐 / 값 감소(-): 해당 단계 속도가 낮아짐.",
-   "min": 30,
-   "max": 145,
-   "default": 110,
-   "unit": 5
-  },
-  {
-   "group": "크루즈",
    "name": "ApplyLongDynamicCost",
    "title": "DYNAMIC FOLLOWING RESPONSE",
    "descr": "켜짐: 앞차 속도와 차간거리에 따라 가감속 반응을 동적으로 조정합니다. 저속에서 앞차가 멀어지면 가속 반응이 빨라질 수 있습니다.",
@@ -440,6 +390,26 @@
    "max": 1000,
    "default": 400,
    "unit": 10
+  },
+  {
+   "group": "종방향",
+   "name": "NoLeadCruiseAccelFactor",
+   "title": "NO-LEAD CRUISE ACCEL (%)",
+   "descr": "앞차가 없을 때 설정속도로 복귀하는 최대가속 비율입니다. CRUISE MAX 값에 이 비율을 곱하며, 설정속도에 가까워질수록 자동으로 더 낮아집니다. 값 증가(+): 빠른 속도 복귀 / 값 감소(-): 부드러운 속도 복귀. 권장값: 65%.",
+   "min": 30,
+   "max": 100,
+   "default": 65,
+   "unit": 5
+  },
+  {
+   "group": "종방향",
+   "name": "NoLeadCruiseJerkLimit",
+   "title": "NO-LEAD ACCEL RAMP (X0.01m/s³)",
+   "descr": "앞차가 없을 때 가속 명령이 증가하는 속도입니다. 값 증가(+): 가속이 빨리 강해짐 / 값 감소(-): 가속이 천천히 부드럽게 증가. 감속과 앞차 추종에는 적용하지 않습니다. 권장값: 25.",
+   "min": 5,
+   "max": 100,
+   "default": 25,
+   "unit": 5
   },
   {
    "group": "종방향",
@@ -608,7 +578,7 @@
    "descr": "해당 속도 기준점의 최대 가속 상한값(×0.01m/s²)입니다. 중간 속도는 인접한 두 기준점 값을 보간합니다. 값 증가(+): 허용 가속이 크고 강해짐 / 값 감소(-): 허용 가속이 작고 부드러워짐. 주행 중 약 1초 내에 반영됩니다.",
    "min": 10,
    "max": 250,
-   "default": 140,
+   "default": 100,
    "unit": 5
   },
   {
@@ -659,26 +629,6 @@
    "min": 10,
    "max": 250,
    "default": 60,
-   "unit": 5
-  },
-  {
-   "group": "종방향",
-   "name": "NoLeadCruiseAccelFactor",
-   "title": "NO-LEAD CRUISE ACCEL (%)",
-   "descr": "앞차가 없을 때 설정속도로 복귀하는 최대가속 비율입니다. CRUISE MAX 값에 이 비율을 곱하며, 설정속도에 가까워질수록 자동으로 더 낮아집니다. 값 증가(+): 빠른 속도 복귀 / 값 감소(-): 부드러운 속도 복귀. 권장값: 65%.",
-   "min": 30,
-   "max": 100,
-   "default": 65,
-   "unit": 5
-  },
-  {
-   "group": "종방향",
-   "name": "NoLeadCruiseJerkLimit",
-   "title": "NO-LEAD ACCEL RAMP (X0.01m/s³)",
-   "descr": "앞차가 없을 때 가속 명령이 증가하는 속도입니다. 값 증가(+): 가속이 빨리 강해짐 / 값 감소(-): 가속이 천천히 부드럽게 증가. 감속과 앞차 추종에는 적용하지 않습니다. 권장값: 25.",
-   "min": 5,
-   "max": 100,
-   "default": 25,
    "unit": 5
   },
   {
@@ -770,6 +720,56 @@
    "max": 80,
    "default": 25,
    "unit": 1
+  },
+  {
+   "group": "횡방향",
+   "name": "MpcPathCost",
+   "title": "MPC PATH COST (X0.001)",
+   "descr": "모델 경로를 따라가려는 비용입니다. 값 증가(+): 경로 추종이 강해짐 / 값 감소(-): 움직임이 부드러워짐.\n표시값 1000 = 실제 1.000  /  기존 기본값: 1000  /  범위: 100 ~ 5000",
+   "min": 100,
+   "max": 5000,
+   "default": 1000,
+   "unit": 50
+  },
+  {
+   "group": "횡방향",
+   "name": "MpcLateralMotionCost",
+   "title": "MPC LATERAL MOTION COST (X0.001)",
+   "descr": "차량의 좌우 이동 자체를 억제하는 비용입니다. 값 증가(+): 안정적이지만 경로 변화가 느림 / 값 감소(-): 빠르게 이동.\n표시값 110 = 실제 0.110  /  기존 기본값: 110  /  범위: 0 ~ 1000",
+   "min": 0,
+   "max": 1000,
+   "default": 110,
+   "unit": 10
+  },
+  {
+   "group": "횡방향",
+   "name": "MpcLateralAccelCost",
+   "title": "MPC LATERAL ACCEL COST (X0.001)",
+   "descr": "횡가속을 억제하는 비용입니다. 값 증가(+): 완만한 조향 / 값 감소(-): 경로 변화에 적극 대응.\n표시값 0 = 실제 0.000  /  기존 기본값: 0  /  범위: 0 ~ 1000",
+   "min": 0,
+   "max": 1000,
+   "default": 0,
+   "unit": 10
+  },
+  {
+   "group": "횡방향",
+   "name": "MpcLateralJerkCost",
+   "title": "MPC LATERAL JERK COST (X0.001)",
+   "descr": "횡가속도의 급격한 변화를 억제하는 비용입니다. 값 증가(+): 부드러움 / 값 감소(-): 반응이 빨라짐.\n표시값 40 = 실제 0.040  /  기존 기본값: 40  /  범위: 0 ~ 500",
+   "min": 0,
+   "max": 500,
+   "default": 40,
+   "unit": 5
+  },
+  {
+   "group": "횡방향",
+   "name": "SteeringRateCost",
+   "title": "MPC STEERING RATE COST",
+   "descr": "목표 조향의 급격한 변화를 억제하는 MPC 비용값입니다.\n값 감소(-): 차선·경로 변화에 빠르게 반응 / 값 증가(+): 부드럽지만 반응이 느려짐.\n제네시스 DH 권장값: 550  /  기존 고정값: 700  /  범위: 200 ~ 1200",
+   "min": 200,
+   "max": 1200,
+   "default": 550,
+   "unit": 25
   },
   {
    "group": "횡방향",
@@ -923,16 +923,6 @@
   },
   {
    "group": "횡방향",
-   "name": "LanelessOffset",
-   "title": "LANELESS OFFSET",
-   "descr": "레인리스(차선 미사용)에서만 적용되는 좌우보정(cm)입니다. 양수(+): 왼쪽 / 음수(-): 오른쪽. 레인모드에는 영향이 없습니다.",
-   "min": -30,
-   "max": 30,
-   "default": 0,
-   "unit": 1
-  },
-  {
-   "group": "횡방향",
    "name": "DynamicLaneProfile",
    "title": "DYNAMIC LANE PROFILE",
    "descr": "0: 차선 사용 / 1: 차선 미사용(E2E) / 2: 자동 전환.",
@@ -953,21 +943,11 @@
   },
   {
    "group": "커브내비",
-   "name": "NavigationOnOpenpilot",
-   "title": "NAVIGATION ON OPENPILOT",
-   "descr": "티맵 경로 기반 회전조향·회전감속과 분기·권장차로 차선변경을 하나로 수행합니다. 차선변경은 modelV2 현재차로, 차로 수, 도로경계와 BSD가 모두 확실할 때 한 차로씩만 작동합니다.",
-   "min": 0,
-   "max": 1,
-   "default": 0,
-   "unit": 1
-  },
-  {
-   "group": "커브내비",
    "name": "NooMode",
    "title": "NOO MODE",
-   "descr": "NOO 안에서 쓸 기능 선택. 0: 회전조향+자동차선변경 / 1: 회전조향만 / 2: 자동차선변경만. 1·2 선택시 나머지는 회전감속까지 함께 꺼집니다.",
+   "descr": "캐럿식 적극 개입 기능을 고릅니다.\n0: 회전조향 + 조기 차로준비 + 감속 / 1: 회전조향 + 감속 / 2: 조기 차로준비만 / 3: 회전감속만",
    "min": 0,
-   "max": 2,
+   "max": 3,
    "default": 0,
    "unit": 1
   },
@@ -976,7 +956,7 @@
    "name": "NooTurnSpeed",
    "title": "NOO TURN SPEED",
    "descr": "NOO 회전 구간 목표속도(km/h)입니다. 값 증가(+): 더 빠르게 회전 / 값 감소(-): 더 많이 감속.",
-   "min": 30,
+   "min": 20,
    "max": 60,
    "default": 30,
    "unit": 5
@@ -1063,6 +1043,16 @@
   },
   {
    "group": "커브내비",
+   "name": "NavigationOnOpenpilot",
+   "title": "NAVIGATION ON OPENPILOT",
+   "descr": "티맵 경로 기반 회전조향·회전감속과 분기·권장차로 차선변경을 하나로 수행합니다. 차선변경은 modelV2 현재차로, 차로 수, 도로경계와 BSD가 모두 확실할 때 한 차로씩만 작동합니다.",
+   "min": 0,
+   "max": 1,
+   "default": 0,
+   "unit": 1
+  },
+  {
+   "group": "커브내비",
    "name": "TurnVisionControl",
    "title": "VISION / MAP CURVE CONTROL",
    "descr": "켜짐: 비전 모델과 티맵 경로 중 더 낮은 커브 목표속도를 적용합니다. / 꺼짐: 커브 자동감속을 사용하지 않습니다.",
@@ -1095,20 +1085,20 @@
    "group": "S9HUD",
    "name": "EonClusterHudFps",
    "title": "S9 HUD FPS",
-   "descr": "S9 HUD 렌더링 속도: 0 정지 / 1~15 fps, 기본값 10",
+   "descr": "EON 주행정보 송신과 S9 렌더링 속도입니다. 권장값 7 / 0은 화면 정지(연결유지 2Hz) / 10 초과는 EON 송신 10Hz 상한.",
    "min": 0,
    "max": 15,
-   "default": 10,
+   "default": 7,
    "unit": 1
   },
   {
    "group": "S9HUD",
    "name": "EonClusterHudMapFps",
    "title": "S9 HUD MAP FPS",
-   "descr": "S9에 전송되는 티맵 지도 갱신 속도: 2~5 fps, 기본값 5",
+   "descr": "티맵 지도 수신·파일검사·S9 전송 속도입니다. 권장값 3 / 부하 최소 2 / 움직임 우선 5.",
    "min": 2,
    "max": 5,
-   "default": 5,
+   "default": 3,
    "unit": 1
   },
   {
@@ -1125,10 +1115,10 @@
    "group": "S9HUD",
    "name": "EonClusterHudJpegQuality",
    "title": "S9 HUD JPEG QUALITY",
-   "descr": "S9에서 생성하는 HUD JPEG 품질: 20~95",
+   "descr": "S9에서 생성해 외부 HUD로 보내는 JPEG 품질입니다. 권장값 55 / 선명도 우선 60. EON CPU 영향은 작습니다.",
    "min": 20,
    "max": 95,
-   "default": 58,
+   "default": 55,
    "unit": 1
   },
   {
@@ -1163,32 +1153,12 @@
   },
   {
    "group": "S9HUD",
-   "name": "EonClusterHudCarStyle",
-   "title": "S9 HUD CAR STYLE",
-   "descr": "1: 사진 / 2: 3D 박스. 자차와 앞차에 적용됩니다.",
-   "min": 1,
-   "max": 2,
-   "default": 1,
-   "unit": 1
-  },
-  {
-   "group": "S9HUD",
    "name": "EonClusterHudBsdStyle",
    "title": "S9 HUD BSD STYLE",
    "descr": "1: 경계막대만 / 2: 옅은 띠 / 3: 진한 띠. 옆차 앞뒤 위치는 알 수 없어 차선 전체를 표시합니다.",
    "min": 1,
    "max": 3,
    "default": 2,
-   "unit": 1
-  },
-  {
-   "group": "S9HUD",
-   "name": "EonClusterHudRoadSigns",
-   "title": "S9 HUD ROAD SIGNS",
-   "descr": "주행씬 도로 바닥에 그리는 표시입니다.\n0: 끔 / 1: 제한속도만 / 2: 과속방지턱만 / 3: 둘 다",
-   "min": 0,
-   "max": 3,
-   "default": 3,
    "unit": 1
   },
   {
@@ -1208,24 +1178,14 @@
    "descr": "가감속·요철로 차가 기울 때 수평선이 따라 움직이는 정도(%). 0: 끔(정지 캘리브만), 클수록 화면이 많이 흔들립니다.",
    "min": 0,
    "max": 200,
-  "default": 60,
-  "unit": 10
- },
-  {
-   "group": "S9HUD",
-   "name": "EonClusterHudWorldWidth",
-   "title": "S9 HUD WORLD WIDTH",
-   "descr": "최종 MPC 주행선 기준 World3D 도로·차선 표시 폭(%). 100 기본 / 증가: 넓게 / 감소: 좁게. 조향 제어에는 영향이 없습니다.",
-   "min": 70,
-   "max": 140,
-   "default": 100,
-   "unit": 5
+   "default": 60,
+   "unit": 10
   },
   {
    "group": "S9HUD",
    "name": "EonClusterHudViewPitch",
    "title": "S9 HUD VIEW PITCH (X0.1°)",
-   "descr": "World3D 수평선 장착 보정. 증가: 도로가 화면 아래로 / 감소: 위로 이동. 정지 상태에서 실제 도로 소실점에 맞춥니다.",
+   "descr": "주행씬 수평선의 차량별 장착 보정입니다. 값 증가(+): 도로가 화면 아래쪽으로 이동 / 값 감소(-): 위쪽으로 이동. 정지 상태에서 실제 도로 소실점과 맞추십시오.",
    "min": -50,
    "max": 50,
    "default": 0,
@@ -1233,19 +1193,9 @@
   },
   {
    "group": "S9HUD",
-   "name": "EonClusterHudBuildings",
-   "title": "S9 HUD BUILDINGS",
-   "descr": "0: 끔 / 1: 켬. 건물은 실제 지형이 아니라 속도감용 장식입니다.",
-   "min": 0,
-   "max": 1,
-   "default": 1,
-   "unit": 1
-  },
-  {
-   "group": "S9HUD",
    "name": "EonClusterHudTmapIcon",
    "title": "S9 HUD TMAP ICON",
-   "descr": "0(기본): 앱 내장 화살표 그림 / 1: 티맵 compact 스트림. compact 는 아이콘이 아니라 화살표+거리+도로명 미니 배너라 켜면 검은 박스나 배너 중복으로 보일 수 있습니다.",
+   "descr": "0(기본): 앱 내장 화살표 그림.\n1: 티맵 compact 스트림 사용 — 이 스트림은 아이콘이 아니라 화살표+거리+도로명이 한 장에 그려진 미니 배너라, 켜면 검은 박스나 배너 중복으로 보일 수 있습니다.",
    "min": 0,
    "max": 1,
    "default": 0,
@@ -1255,7 +1205,7 @@
    "group": "S9HUD",
    "name": "EonClusterHudJunction",
    "title": "S9 HUD JUNCTION",
-   "descr": "티맵 분기 실사 이미지와 도착정보 바. 0: 끔 / 1: 실사 이미지만 / 2: 실사 + 도착·분·km 바",
+   "descr": "티맵 분기 실사 이미지와 도착정보 바.\n0: 끔 / 1: 실사 이미지만 / 2: 실사 + 도착·분·km 바",
    "min": 0,
    "max": 2,
    "default": 2,
@@ -1333,9 +1283,19 @@
   },
   {
    "group": "S9HUD",
+   "name": "EonClusterHudNavRoute",
+   "title": "S9 HUD NAV ROUTE",
+   "descr": "1(기본): 근거리에서 modelV2 와 일치할 때만 티맵 경로 의도를 반투명 선으로 표시 / 0: 숨김",
+   "min": 0,
+   "max": 1,
+   "default": 1,
+   "unit": 1
+  },
+  {
+   "group": "S9HUD",
    "name": "EonClusterHud",
    "title": "S9 EXTERNAL HUD",
-   "descr": "EON 주행 데이터 전송과 S9의 TURZX USB HUD 출력을 켜거나 끕니다.",
+   "descr": "EON 주행 데이터를 S9 앱으로 전송합니다. 아래 출력 대상에서 외부 HUD와 S9 화면을 선택할 수 있습니다.",
    "min": 0,
    "max": 1,
    "default": 0,
