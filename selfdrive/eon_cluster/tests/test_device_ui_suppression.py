@@ -4,6 +4,15 @@ from pathlib import Path
 ROOT = Path(__file__).parents[3]
 UI_DIR = ROOT / "selfdrive" / "ui" / "qt"
 
+# OSM/OpenGL 전환으로 사라진 파라미터. 어느 층에도 남아 있으면 안 된다.
+DEAD_PARAMS = ("EonClusterHudWorldWidth", "EonClusterHudBuildings")
+
+
+def _code_only(source):
+  """전체 줄 주석을 걷어낸 소스. 주석에 남은 설명 문구가 단언에 걸리지 않게 한다."""
+  return "\n".join(line for line in source.splitlines()
+                    if not line.lstrip().startswith("//"))
+
 
 def test_s9_connection_does_not_hide_eon_driving_ui():
   onroad = (UI_DIR / "onroad.cc").read_text(encoding="utf-8")
@@ -14,7 +23,10 @@ def test_s9_connection_does_not_hide_eon_driving_ui():
   assert "drawLaneLines(p, s);" in onroad
   assert "drawCarrotPlot(p);" in onroad
   assert "drawCarrotLead(p);" in onroad
-  assert "updateCarrotNavi(true);" in onroad
+  # 내비 이미지 로드는 외부 HUD 생존 여부로만 가른다(현재는 s9HudActive).
+  # 인자가 무엇으로 바뀌든 폰 ACK 파라미터에 묶이면 안 된다.
+  navi_arg = onroad.split("updateCarrotNavi(", 1)[1].split(")", 1)[0]
+  assert "EonClusterHudConnected" not in navi_arg
   assert "drawCarrotNavi(p);" in onroad
 
 
@@ -40,24 +52,31 @@ def test_image_loading_is_gated_separately_from_json_state():
 
 
 def test_s9_hud_params_are_exposed_in_settings():
+  # 라벨 문구와 기본값은 자주 손보는 부분이라 검사하지 않는다.
+  # 여기서 지키려는 것은 "설정 UI 에서 손댈 수 있는가" 하나다.
   settings = (UI_DIR / "offroad" / "settings.cc").read_text(encoding="utf-8")
-  assert '"EonClusterHud", "S9 HUD 사용"' in settings
-  assert '"EonClusterHudOutputTarget", "HUD 출력 대상"' in settings
-  assert '"1: 외부 HUD / 2: S9 화면 / 3: 동시 출력"' in settings
-  assert '"EonClusterHudOutputMode", "S9 HUD 표시 내용"' in settings
-  assert '"EonClusterHudLayoutMode", "S9 HUD 화면 구성"' in settings
-  assert '"2: 주행 + 티맵만(우측 정보판 숨김, 티맵 폭 확장)"' in settings
-  assert '"EonClusterHudFps", "S9 HUD 프레임"' in settings
-  assert '"../assets/offroad/icon_road.png", 0, 15, 1, 0, 10' in settings
-  assert '"EonClusterHudMapFps", "S9 HUD 지도 프레임"' in settings
-  assert '"EonClusterHudBrightness", "S9 HUD 밝기"' in settings
-  assert '"EonClusterHudJpegQuality", "S9 HUD 화질"' in settings
-  assert '"../assets/offroad/icon_road.png", 20, 95, 1, 0, 58' in settings
-  assert '"EonClusterHudScreenMode", "S9 HUD 우측 화면"' in settings
-  assert '"EonClusterHudOrientation", "S9 HUD 화면 회전"' in settings
-  assert '"EonClusterHudMirror", "S9 HUD 좌우 반전"' in settings
-  assert '"EonClusterHudLanguage", "S9 HUD 언어"' in settings
-  assert '"EonClusterHudRadarInfo", "S9 HUD 레이더 정보"' in settings
+  exposed = (
+      "EonClusterHud",
+      "EonClusterHudFps",
+      "EonClusterHudMapFps",
+      "EonClusterHudBrightness",
+      "EonClusterHudJpegQuality",
+      "EonClusterHudOutputTarget",
+      "EonClusterHudOutputMode",
+      "EonClusterHudLayoutMode",
+      "EonClusterHudScreenMode",
+      "EonClusterHudTheme",
+      "EonClusterHudOrientation",
+      "EonClusterHudMirror",
+      "EonClusterHudLanguage",
+      "EonClusterHudRadarInfo",
+      "EonClusterHudGl",
+      "EonClusterHudNavRoute",
+  )
+  for key in exposed:
+    assert '"%s"' % key in settings, key
+  for dead in DEAD_PARAMS:
+    assert dead not in settings, dead
 
 
 def test_manager_starts_only_s9_hud_publisher():
@@ -159,10 +178,11 @@ def test_s9_tmap_first_switch_uses_nmirror_favorite_and_internal_fullscreen_acti
   assert "AppPrefs.DISPLAY_PROFILE_GENESIS_9_2" in service
   assert "PHONE_8_WIDTH = 800" in service
   assert "PHONE_8_HEIGHT = 480" in service
-  assert "PHONE_8_SIDEBAR" not in service
+  # 사이드바는 상수를 지워서가 아니라 폭 0 으로 두어 적용하지 않는다.
+  assert "PHONE_8_SIDEBAR = 0;" in service
   assert "PHONE_9_WIDTH = 1280" in service
   assert "PHONE_9_HEIGHT = 720" in service
-  assert "PHONE_9_SIDEBAR" not in service
+  assert "PHONE_9_SIDEBAR = 0;" in service
   assert "renderNativePhone(currentState, AppPrefs.getDisplayProfile(this)," in service
   assert "profile == service.phoneNativeProfile" in service
   assert "service.phoneNativeFrame" in service
@@ -186,10 +206,11 @@ def test_s9_tmap_first_switch_uses_nmirror_favorite_and_internal_fullscreen_acti
   assert "if (configuredLayoutMode == 1 && nativeLayoutRendering)" in service
   assert service.count("-NATIVE_GAUGE_RAISE_PX / nativeWidgetScale") == 2
   assert "NATIVE_CARD_SHIFT_PX = 18f" in service
-  assert "NATIVE_NOO_SHIFT_PX = 24f" in service
+  # NATIVE_NOO_SHIFT_PX 는 삭제된 상수라 더 검사하지 않는다(현재는 카드 시프트로 통합).
   assert 's.optDouble("atcBlend", 0d)' in service
   assert 's.optInt("atcDirection", 0)' in service
-  assert '"NOO %s %.0f%%"' in service
+  # NOO 디버그 줄은 String.format 대신 nooLaneText() 로 바뀌었다.
+  assert "nooLaneText(s)" in service
   assert "drawNativeS9Remote(c, p, nativeWidth, nativeHeight, targetWidthPx)" in service
   assert "float unit = height / 480f" in service
   assert "RPM_LABEL_BASELINE" not in service
@@ -242,7 +263,9 @@ def test_remote_ack_is_status_only():
   assert 'PARAM_CONNECTED = "EonClusterHudConnected"' in remote
   assert "params.put_bool(PARAM_CONNECTED, value)" in remote
   assert "_publish_connected(params, published, connected)" in remote
-  assert "EonClusterHudConnected" not in onroad
+  # 2026-08-19 이후 EON 은 하트비트만 본다. 주석에는 그 경위가 남아 있으므로
+  # 실행 코드에서만 사라졌는지 확인한다.
+  assert "EonClusterHudConnected" not in _code_only(onroad)
 
 
 def test_external_map_renderer_is_completely_removed():
