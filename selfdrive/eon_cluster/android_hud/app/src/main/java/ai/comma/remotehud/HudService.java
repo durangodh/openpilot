@@ -85,17 +85,20 @@ public final class HudService extends Service {
     private static final int SYSTEM_RIGHT = 1920;
 
     /**
-     * NOO 안내. 화살표는 깜박이고 아래 거리는 고정.
+     * NOO 안내. 화살표·거리·상태줄 모두 깜박이지 않고 고정이며, 상태줄은 안내가
+     * 없을 때도 항상 떠 있는다.
      * 과속카메라 아이콘(882, 171)·그 거리표시(y=231) 아래, TPMS 카드(위끝 376)
      * 위의 빈 공간에 같은 세로줄로 세운다.
      */
     private static final float NOO_CX = 882f;
-    // 거리 글자 아래끝이 TPMS 카드(위끝 376) 바로 위에 오도록 잡고,
-    // 그 위에 약간의 간격을 두고 화살표를 세운다.
-    private static final float NOO_CY = 306f;
+    // 위에서부터 화살표(278) → 남은거리(340) → 차선변경 진단(372) 순으로 쌓고,
+    // 맨 아래 진단 글자가 TPMS 카드(위끝 376) 바로 위에 닿게 잡는다.
+    private static final float NOO_CY = 278f;
     private static final float NOO_ARROW_SCALE = 1.4f;
     private static final float NOO_TEXT_DY = 62f;
-    private static final long NOO_BLINK_MS = 500L;
+    /** 차선변경 진단 문자열. TPMS 카드 바로 위, 깜박이지 않고 계속 떠 있는다. */
+    private static final float NOO_LANE_DY = 94f;
+    private static final float NOO_LANE_SIZE = 17f;
     private static final float NOO_ICON_H = 62f;
     /** 적용속도 표시는 SET 원(반지름 36) 오른쪽으로 이만큼 띄운다. */
     private static final float APPLY_DX = 52f;
@@ -2202,37 +2205,83 @@ public final class HudService extends Service {
 
     /**
      * NOO 안내 — 지도 패널의 카드를 없애고 주행 패널 한가운데에 표시한다.
-     * 화살표는 0.5 초 주기로 깜박이며 테마색(낮 검정 / 밤 흰색)을 따르고,
-     * 그 아래 남은거리는 같은 색으로 깜박이지 않고 계속 떠 있는다.
+     * 화살표와 남은거리는 안내가 살아 있을 때만, 상태줄은 항상 표시한다.
+     * 색은 동작 중이면 테마색(낮 검정 / 밤 흰색), 대기 중이면 흐린색.
      */
     private void drawNooTurn(Canvas c, Paint p, JSONObject s) {
         JSONObject navi = s.optJSONObject("navi");
         int nooMode = s.optInt("nooMode", s.optInt("atcMode", 0));  // legacy wire key fallback
-        if (nooMode < 1 || navi == null || !navi.optBoolean("active", false)) {
-            return;
-        }
-        if (!navi.optBoolean("guidanceLive", false)) {
-            return;
-        }
-        int dist = navi.optInt("turnDist", -1);
-        if (dist < 0) {
-            return;
-        }
-        // 목적지(경로)가 살아 있을 때만 표시한다. 안내 없이 떠 있지 않도록.
-        if (navi.optInt("remainDist", 0) <= 0) {
-            return;
-        }
-        int color = ink();
-        // 남은거리를 turnDist(회전까지) 로 쓴다. 목적지까지 총 거리로 바꾸려면
-        // 아래 dist 를 navi.optInt("remainDist", 0) 으로 바꾸면 된다.
-        if (((SystemClock.elapsedRealtime() / NOO_BLINK_MS) & 1L) == 0L) {
+        boolean guidance = navi != null && navi.optBoolean("active", false)
+                && navi.optBoolean("guidanceLive", false)
+                && navi.optInt("remainDist", 0) > 0;
+        int dist = guidance ? navi.optInt("turnDist", -1) : -1;
+        boolean armed = nooMode >= 1 && guidance && dist >= 0;
+        int color = armed ? ink() : dim();
+
+        // 화살표는 안내가 살아 있을 때만, 깜박이지 않고 계속 떠 있는다.
+        if (armed) {
             if (!drawTurnIcon(c, p, NOO_CX, NOO_CY, NOO_ICON_H, navi.optInt("turnType", 0),
                     navi.optString("title", ""), color, true)) {
                 drawScaledArrow(c, p, NOO_CX, NOO_CY, navi.optInt("turnType", 0),
                         NOO_ARROW_SCALE, navi.optString("title", ""), color);
             }
+            text(c, p, distanceText(dist), NOO_CX, NOO_CY + NOO_TEXT_DY, 28f, color,
+                    Paint.Align.CENTER);
         }
-        text(c, p, distanceText(dist), NOO_CX, NOO_CY + NOO_TEXT_DY, 28f, color, Paint.Align.CENTER);
+        // 상태 줄은 안내가 없어도 항상 뜬다. NOO 가 무엇을 할 참인지(몇 m 앞
+        // 어느 방향) 또는 왜 못 하는지를 한 줄로 알려준다.
+        text(c, p, nooEventText(s, nooMode, guidance, dist), NOO_CX, NOO_CY + NOO_LANE_DY,
+                NOO_LANE_SIZE, color, Paint.Align.CENTER);
+    }
+
+    private String nooSide(int direction) {
+        return direction < 0 ? lang("좌", "L") : lang("우", "R");
+    }
+
+    /**
+     * NOO 상태 한 줄. 우선순위는 실제로 무엇을 하고 있는지 → 무엇을 할 참인지 →
+     * 왜 못 하는지 순이다.
+     */
+    private String nooEventText(JSONObject s, int nooMode, boolean guidance, int dist) {
+        if (nooMode < 1) {
+            return lang("NOO 꺼짐", "NOO OFF");
+        }
+        JSONObject noo = s.optJSONObject("noo");
+        int laneDir = noo == null ? 0 : noo.optInt("dir", 0);
+        int cur = noo == null ? 0 : noo.optInt("cur", 0);
+        int tgt = noo == null ? 0 : noo.optInt("tgt", 0);
+        int cam = noo == null ? 0 : noo.optInt("cam", 0);
+        int map = noo == null ? 0 : noo.optInt("map", 0);
+        int turnDir = s.optInt("atcDirection", 0);
+        double blend = s.optDouble("atcBlend", 0d);
+        // 거리는 바로 윗줄에 크게 떠 있으므로 여기서는 방향과 사유만 짧게 쓴다.
+        // 주행패널 오른쪽 끝(952)까지 여유가 70px 뿐이라 길면 잘린다.
+        // 1) 차선변경을 이미 요청한 상태.
+        if (laneDir != 0) {
+            return nooSide(laneDir) + lang(" 차선변경", " LANE CHG");
+        }
+        // 2) 회전 조향을 잡았거나 지도경로를 섞기 시작한 상태.
+        if (turnDir != 0 || blend > 0.005d) {
+            return nooSide(turnDir) + lang("회전 조향", " TURN");
+        }
+        if (!guidance) {
+            return lang("안내 없음", "NO ROUTE");
+        }
+        // 3) 계획은 섰지만 아직 실행 전 — 어느 차로로 갈지.
+        if (cur > 0 && tgt > 0 && cur != tgt) {
+            return cur + "→" + tgt + lang("차로 ", "L ") + nooSide(tgt - cur);
+        }
+        if (cur > 0 && tgt > 0) {
+            return lang("차로 유지", "KEEP LANE");
+        }
+        // 4) 계획이 안 서는 이유.
+        if (cam > 0 && map > 0) {
+            return lang("차로 c", "LANE c") + cam + "/m" + map;
+        }
+        if (map > 0) {
+            return lang("차로판정 실패", "NO CAM LANES");
+        }
+        return lang("차로안내 없음", "NO LANE GUIDE");
     }
 
     private static final int TBT_GREEN = Color.rgb(31, 122, 72);
@@ -2609,9 +2658,9 @@ public final class HudService extends Service {
                 {"REL", relText},
                 {"FPS", String.format(Locale.US, "%.1f", measuredFps)},
                 {"JPEG", String.format(Locale.US, "%.0fK", lastJpegBytes / 1024.0f)},
-                {"NOO", nooLaneText(s)},
         };
-        // 10 rows: 38 + 9*42 + 38 = 454 < HEIGHT(462).
+        // NOO 차선변경 진단은 주행패널의 회전화살표 위로 옮겼다(drawNooTurn).
+        // 9 rows: 38 + 8*42 + 38 = 412 < HEIGHT(462).
         float top = 38f;
         for (String[] row : rows) {
             p.setStyle(Paint.Style.FILL);
@@ -2903,30 +2952,6 @@ public final class HudService extends Service {
         text(c, p, title, mapCenterX(), 42f, 27f, dark ? Color.WHITE : Color.rgb(25, 30, 34), Paint.Align.CENTER);
     }
 
-    /**
-     * NOO 차선변경 진단 문자열.
-     * "2>3" = 현재차로>목표차로 계획 있음, "c4/m3" = 카메라 4차로 / 티맵 3차로로
-     * 서로 다르게 세는 중(계획 없음), "--" = 데이터 없음.
-     */
-    private static String nooLaneText(JSONObject s) {
-        JSONObject noo = s.optJSONObject("noo");
-        if (noo == null) {
-            return "--";
-        }
-        int cur = noo.optInt("cur", 0);
-        int tgt = noo.optInt("tgt", 0);
-        if (cur > 0 && tgt > 0) {
-            int dir = noo.optInt("dir", 0);
-            return cur + ">" + tgt + (dir == 0 ? "" : (dir < 0 ? " L" : " R"));
-        }
-        int cam = noo.optInt("cam", 0);
-        int map = noo.optInt("map", 0);
-        if (cam > 0 || map > 0) {
-            return "c" + cam + "/m" + map;
-        }
-        return "--";
-    }
-
     private void drawDebugRight(Canvas c, Paint p, JSONObject s) {
         drawRightBase(c, p, lang("실시간 디버그", "LIVE DEBUG"));
         JSONObject sys = s.optJSONObject("system");
@@ -2956,8 +2981,6 @@ public final class HudService extends Service {
         text(c, p, String.format(Locale.US, "FPS %d   MAP %dfps   JPEG %d",
                 configuredFps, Math.max(2, Math.min(5, s.optInt("hudMapFps", 5))), jpegQuality),
                 1000f, y, 22f, fg, Paint.Align.LEFT);
-        y += 52f;
-        text(c, p, "NOO " + nooLaneText(s), 1000f, y, 23f, fg, Paint.Align.LEFT);
         y += 52f;
         text(c, p, lang("S9 렌더링 / USB 출력", "S9 RENDER / USB OUTPUT"),
                 1000f, y, 20f, sub, Paint.Align.LEFT);

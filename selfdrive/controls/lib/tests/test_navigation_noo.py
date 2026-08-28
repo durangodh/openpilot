@@ -431,9 +431,9 @@ def test_carrot_direction_does_not_override_present_bad_lane_payload():
     state, ego, 20.0, proactive=True) is None
 
 
-def test_carrot_prepare_hands_control_to_turn_inside_65_metres():
+def test_carrot_prepare_hands_control_to_turn_inside_45_metres():
   ego = {"count": 3, "current": 2, "confidence": 0.9}
-  state = noo_state([0, 0, 1], distance=60.0, direction=1, road_limit=50.0)
+  state = noo_state([0, 0, 1], distance=40.0, direction=1, road_limit=50.0)
   state["lane_fresh"] = False
   state["lane_current"] = None
   assert NavigationLaneChangeController.lane_plan(
@@ -445,7 +445,7 @@ def test_noo_rejects_count_mismatch_opposite_plan_and_late_change():
   ego = {"count": 3, "current": 2, "confidence": 0.9}
   assert controller.update(noo_state([0, 1]), ego, 25.0, True, True) == 0
   assert controller.update(noo_state([1, 0, 0], direction=1), ego, 25.0, True, True) == 0
-  assert confirm_noo(controller, noo_state([0, 0, 1], distance=50.0), ego) == 0
+  assert confirm_noo(controller, noo_state([0, 0, 1], distance=30.0), ego) == 0
 
 
 def test_noo_waits_for_camera_confirmation_between_two_lane_changes():
@@ -554,7 +554,7 @@ def test_two_extra_camera_lanes_fail_closed():
 
 def test_uncertain_road_edges_are_rejected_by_distance_not_probability():
   assert NavigationRouteData.camera_lane_position(shoulder_model(5.4, -5.4, 0.4)) is not None
-  assert NavigationRouteData.camera_lane_position(shoulder_model(5.4, -5.4, 0.7)) is None
+  assert NavigationRouteData.camera_lane_position(shoulder_model(5.4, -5.4, 1.5)) is None
 
 
 def test_lane_change_wait_times_out_without_camera_data():
@@ -582,9 +582,45 @@ def test_median_and_shoulder_together_pick_the_rounded_up_side():
   assert (plan["count"], plan["current"], plan["target"]) == (3, 2, 3)
 
 
-def test_both_sides_rounded_up_fail_closed():
-  # 양쪽 다 반올림에서 올라가면(좌 2.6 m 중앙분리대 / 우 3.0 m 갓길) 어느 쪽이
-  # 유령차로인지 정할 수 없어 판정을 포기한다.
+def test_both_sides_rounded_up_drop_one_lane_on_each_side():
+  # 좌 2.6 m 중앙분리대 + 우 3.0 m 갓길. 카메라가 티맵보다 두 칸 많고 양쪽 다
+  # 유령 후보이므로 양쪽에서 한 칸씩 뺀다(자차 인덱스는 좌측 한 칸만큼 당겨짐).
   ego = NavigationRouteData.camera_lane_position(shoulder_model(8.0, -8.4))
   assert ego["count"] == 5
-  assert NavigationLaneChangeController.lane_plan(noo_state([0, 0, 1]), ego) is None
+  plan = NavigationLaneChangeController.lane_plan(noo_state([0, 0, 1]), ego)
+  assert plan is not None
+  assert (plan["count"], plan["current"], plan["target"], plan["direction"]) == (3, 2, 3, 1)
+
+
+def test_lane_guidance_alone_is_enough_without_the_route_stream():
+  # 차선계획은 경로 폴리라인을 쓰지 않는다. route/vehicle 스트림이 안 와도
+  # 티맵 차로안내(lane_current)만 신선하면 계획이 선다.
+  ego = {"count": 3, "current": 2, "confidence": 0.9}
+  state = noo_state([0, 0, 1])
+  state["route_fresh"] = False
+  plan = NavigationLaneChangeController.lane_plan(state, ego)
+  assert plan is not None and plan["direction"] == 1
+
+
+def test_off_route_still_blocks_the_lane_plan():
+  ego = {"count": 3, "current": 2, "confidence": 0.9}
+  state = noo_state([0, 0, 1])
+  state["off_route"] = True
+  assert NavigationLaneChangeController.lane_plan(state, ego) is None
+
+
+def test_ambiguous_single_extra_lane_uses_the_wider_side():
+  # 좌 1.4 배 / 우 1.2 배 — 어느 쪽도 유령 후보(소수부 0.5 이상)는 아니지만
+  # 여유폭 차이가 뚜렷하면(0.15 이상) 넓은 좌측을 갓길로 본다.
+  ego = NavigationRouteData.camera_lane_position(shoulder_model(7.0, -6.12))
+  assert ego["count"] == 3 and ego["current"] == 2
+  plan = NavigationLaneChangeController.lane_plan(noo_state([0, 1]), ego)
+  assert plan is not None
+  assert (plan["count"], plan["current"], plan["target"], plan["direction"]) == (2, 1, 2, 1)
+
+
+def test_ambiguous_symmetric_extra_lane_still_fails_closed():
+  # 양쪽 여유폭이 같으면 어느 쪽이 갓길인지 정할 수 없어 종전대로 포기한다.
+  ego = NavigationRouteData.camera_lane_position(shoulder_model(7.0, -7.0))
+  assert ego["count"] == 3
+  assert NavigationLaneChangeController.lane_plan(noo_state([0, 1]), ego) is None

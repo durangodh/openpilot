@@ -246,7 +246,14 @@ class NavigationRouteData:
 
   # roadEdgeStds is a standard deviation in metres, not a probability, so it is
   # compared against a distance threshold instead of being read as confidence.
-  ROAD_EDGE_STD_MAX = 0.5
+  # 도로경계 불확실성 상한. 0.5 는 3차로 이상 도로에서 반대편 경계가 거의 항상
+  # 넘겨서 차로 판정 자체가 안 됐다. 판정 결과는 차선변경 "계획"에만 쓰이고
+  # 실제 차단은 DesireHelper._road_edge_detected 와 BSD 가 따로 하므로 완화한다.
+  ROAD_EDGE_STD_MAX = 1.2
+  # 자차 차선 확률 하한. 옆차로 진입/차선 흐림 구간에서 0.45 는 자주 미달했다.
+  LANE_PROB_MIN = 0.35
+  # 도로경계가 차선보다 살짝 안쪽으로 찍히는 모델 노이즈 허용치(m).
+  EDGE_INSIDE_TOL = 0.5
 
   @classmethod
   def camera_lane_position(cls, model_data):
@@ -286,15 +293,25 @@ class NavigationRouteData:
                      float(model_data.roadEdgeStds[1]))
     except (AttributeError, IndexError, TypeError, ValueError):
       return None
-    if any(value is None for value in inner + road) or inner_conf < 0.45 or \
+    if any(value is None for value in inner + road) or inner_conf < cls.LANE_PROB_MIN or \
        not math.isfinite(edge_std) or edge_std > cls.ROAD_EDGE_STD_MAX:
       return None
 
     lane_left, lane_right = max(inner), min(inner)
     road_left, road_right = max(road), min(road)
     lane_width = lane_left - lane_right
-    if not 2.5 <= lane_width <= 4.5 or road_left < lane_left or road_right > lane_right:
+    if not 2.5 <= lane_width <= 4.5:
       return None
+    # 경계가 차선보다 조금 안쪽이면 노이즈로 보고 차선에 붙인다. 그 이상 안쪽이면
+    # 기하가 어긋난 것이므로 종전대로 실패 처리한다.
+    if road_left < lane_left:
+      if lane_left - road_left > cls.EDGE_INSIDE_TOL:
+        return None
+      road_left = lane_left
+    if road_right > lane_right:
+      if road_right - lane_right > cls.EDGE_INSIDE_TOL:
+        return None
+      road_right = lane_right
 
     left_ratio = max(0.0, road_left - lane_left) / lane_width
     right_ratio = max(0.0, lane_right - road_right) / lane_width

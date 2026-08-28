@@ -9,16 +9,20 @@ class NavigationLaneChangeController:
   compatible lanes.  One adjacent lane is requested at a time.
   """
 
-  MIN_DISTANCE = 80.0
+  MIN_DISTANCE = 50.0
   MAX_DISTANCE = 1200.0
-  CARROT_PREPARE_MIN_DISTANCE = 65.0
+  CARROT_PREPARE_MIN_DISTANCE = 45.0
   CARROT_PREPARE_SPEED_BP = (30.0, 50.0, 100.0)
   CARROT_PREPARE_DISTANCE_BP = (160.0, 200.0, 350.0)
-  CONFIRM_FRAMES = 10       # 0.5 s at model rate
+  CONFIRM_FRAMES = 6        # 0.3 s at model rate
+  # 자차 차선 확률 하한. camera_lane_position 과 같은 값을 쓴다.
+  LANE_CONF_MIN = 0.35
   LANE_UPDATE_FRAMES = 40   # fail closed after 2 s without camera confirmation
   # A shoulder or median counted as one extra camera lane is only dropped when
   # that side is clearly not a whole number of lanes wide.
   PHANTOM_LANE_MIN_ERROR = 0.10
+  # 양쪽 다 유령 후보가 아닐 때, 여유폭 소수부 차이가 이만큼 나면 큰 쪽을 갓길로 본다.
+  PHANTOM_AMBIGUOUS_MARGIN = 0.15
 
   def __init__(self):
     self.reset()
@@ -61,9 +65,11 @@ class NavigationLaneChangeController:
       current = int(ego_lane.get("current", 0))
     except (TypeError, ValueError):
       return None
-    if camera_count == route_count:
+    diff = camera_count - route_count
+    if diff == 0:
       return current
-    if camera_count - route_count != 1:
+    # 갓길 하나(+1)뿐 아니라 갓길+중앙분리대가 같이 잡히는 경우(+2)까지 받는다.
+    if diff not in (1, 2):
       return None
     try:
       left_frac = float(ego_lane.get("left_frac", 0.0))
@@ -80,9 +86,19 @@ class NavigationLaneChangeController:
 
     phantom_left = phantom(left_frac)
     phantom_right = phantom(right_frac)
-    if phantom_left == phantom_right:
-      return None
-    resolved = current - 1 if phantom_left else current
+    if diff == 2:
+      # 두 칸이 남으려면 양쪽 다 유령이어야 한다. 그 외는 종전대로 실패.
+      if not (phantom_left and phantom_right):
+        return None
+      resolved = current - 1
+    elif phantom_left != phantom_right:
+      resolved = current - 1 if phantom_left else current
+    else:
+      # 양쪽 모두 애매하면 예전엔 무조건 포기했다. 한쪽 여유폭이 뚜렷하게
+      # 더 크면 그쪽을 유령으로 본다. 차이가 작으면 여전히 실패 처리.
+      if abs(left_frac - right_frac) < cls.PHANTOM_AMBIGUOUS_MARGIN:
+        return None
+      resolved = current - 1 if left_frac > right_frac else current
     return resolved if 1 <= resolved <= route_count else None
 
   @staticmethod
@@ -133,7 +149,7 @@ class NavigationLaneChangeController:
     except (AttributeError, TypeError, ValueError):
       return None
     if direction not in (-1, 1) or not math.isfinite(distance) or \
-       confidence < 0.45 or not 2 <= count <= 8 or not 1 <= current <= count:
+       confidence < cls.LANE_CONF_MIN or not 2 <= count <= 8 or not 1 <= current <= count:
       return None
     prepare_distance = cls.carrot_prepare_distance(state, v_ego)
     if distance < cls.CARROT_PREPARE_MIN_DISTANCE or distance > prepare_distance:
@@ -150,7 +166,12 @@ class NavigationLaneChangeController:
 
   @classmethod
   def lane_plan(cls, state, ego_lane, v_ego=0.0, proactive=True):
-    if not isinstance(state, dict) or not state.get("route_fresh", False) or state.get("off_route", False):
+    # 차선계획은 경로 폴리라인(route/vehicle 스트림)을 쓰지 않는다. route_fresh 를
+    # 필수로 걸면 티맵이 차로안내(lane_current)를 보내는데도 통째로 막혔다.
+    if not isinstance(state, dict) or state.get("off_route", False):
+      return None
+    if not (state.get("route_fresh", False) or state.get("lane_fresh", False) or
+            state.get("fresh", False)):
       return None
     if not isinstance(ego_lane, dict):
       return None
@@ -160,7 +181,8 @@ class NavigationLaneChangeController:
       confidence = float(ego_lane.get("confidence", 0.0))
     except (TypeError, ValueError):
       return None
-    if not 2 <= camera_count <= 8 or not 1 <= current <= camera_count or confidence < 0.45:
+    if not 2 <= camera_count <= 8 or not 1 <= current <= camera_count or \
+       confidence < cls.LANE_CONF_MIN:
       return None
 
     candidates = []
@@ -322,8 +344,8 @@ class NavigationLaneChangeController:
       action_distance = self.carrot_prepare_distance(state, v_ego)
     else:
       minimum_distance = self.MIN_DISTANCE
-      action_distance = min(self.MAX_DISTANCE, max(250.0, float(v_ego) * 18.0,
-                                                   160.0 * lane_delta))
+      action_distance = min(self.MAX_DISTANCE, max(300.0, float(v_ego) * 20.0,
+                                                   200.0 * lane_delta))
     if not math.isfinite(distance) or distance < minimum_distance or distance > action_distance:
       self.open_count[-1] = 0
       self.open_count[1] = 0
