@@ -7,7 +7,7 @@ UI_DIR = ROOT / "selfdrive" / "ui" / "qt"
 # OSM/OpenGL 전환으로 사라진 파라미터. 어느 층에도 남아 있으면 안 된다.
 DEAD_PARAMS = ("EonClusterHudWorldWidth", "EonClusterHudBuildings",
                "EonClusterHudCarStyle", "EonClusterHudRoadSigns",
-               "EonClusterHudGl")
+               "EonClusterHudGl", "EonClusterHudOutputTarget")
 
 
 def _code_only(source):
@@ -63,7 +63,6 @@ def test_s9_hud_params_are_exposed_in_settings():
       "EonClusterHudMapFps",
       "EonClusterHudBrightness",
       "EonClusterHudJpegQuality",
-      "EonClusterHudOutputTarget",
       "EonClusterHudOutputMode",
       "EonClusterHudLayoutMode",
       "EonClusterHudScreenMode",
@@ -92,22 +91,39 @@ def test_manager_starts_only_s9_hud_publisher():
   assert 'params.put_bool(PARAM_ENABLED, True)' not in remote
   assert '{"EonClusterHudOutputMode", PERSISTENT}' in params
   assert '{"EonClusterHudLayoutMode", PERSISTENT}' in params
-  assert '{"EonClusterHudOutputTarget", PERSISTENT}' in params
 
 
-def test_s9_output_target_reaches_android_renderer():
+def test_hud_output_is_external_panel_only():
+  """순정 화면(nMirror) 출력 경로가 남아 있지 않은지."""
   manager = (ROOT / "selfdrive" / "manager" / "manager.py").read_text(encoding="utf-8")
   remote = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud_s9.py").read_text(encoding="utf-8")
-  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
-             "main" / "java" / "ai" / "comma" / "remotehud" / "HudService.java").read_text(encoding="utf-8")
+  java = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+          "main" / "java" / "ai" / "comma" / "remotehud")
+  service = (java / "HudService.java").read_text(encoding="utf-8")
+  prefs = (java / "AppPrefs.java").read_text(encoding="utf-8")
+  main = (java / "MainActivity.java").read_text(encoding="utf-8")
+  manifest = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+              "main" / "AndroidManifest.xml").read_text(encoding="utf-8")
 
-  assert '("EonClusterHudOutputTarget", "3")' in manager
-  assert 'packet["hudOutputTarget"] = _bounded_int("EonClusterHudOutputTarget", 3, 1, 3)' in remote
+  # 레이아웃 모드는 남는다(패널 안 3분할/2분할).
   assert 'packet["hudLayoutMode"] = _bounded_int("EonClusterHudLayoutMode", 1, 1, 2)' in remote
   assert '("EonClusterHudLayoutMode", "1")' in manager
-  assert 'currentState.optInt("hudOutputTarget", 3)' in service
-  assert 'return configuredOutputTarget == 1 || configuredOutputTarget == 3;' in service
-  assert 'return configuredOutputTarget == 2 || configuredOutputTarget == 3;' in service
+
+  # 출력 대상 선택과 순정 화면 렌더 경로는 사라졌다.
+  for gone in ("hudOutputTarget", "configuredOutputTarget", "phoneOutputEnabled",
+               "usbOutputEnabled", "renderNativePhone", "nativeLayoutRendering",
+               "drawFullscreenFrame", "drawNativeSystemPanel", "DISPLAY_PROFILE"):
+    assert gone not in service, gone
+  assert "DISPLAY_PROFILE" not in prefs
+  assert "setDisplayProfile" not in main
+  assert not (java / "HudFullscreenActivity.java").exists()
+  assert not (java / "HudFavoriteActivity.java").exists()
+  assert "HudFullscreenActivity" not in manifest
+  assert "HudFavoriteActivity" not in manifest
+
+  # phoneFrame 은 USB 회전 전 논리 프레임이라 남아 있어야 한다.
+  assert "renderUsbFromPhone" in service
+  assert "beginPhoneFrame" in service
 
 
 def test_world3d_geometry_calibration_reaches_existing_renderer():
@@ -127,114 +143,6 @@ def test_world3d_geometry_calibration_reaches_existing_renderer():
     assert dead not in params
     assert dead not in settings
     assert dead not in remote
-
-
-def test_s9_tmap_first_switch_uses_nmirror_favorite_and_internal_fullscreen_activity():
-  android = ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" / "main"
-  manifest = (android / "AndroidManifest.xml").read_text(encoding="utf-8")
-  fullscreen = (android / "java" / "ai" / "comma" / "remotehud" /
-                "HudFullscreenActivity.java").read_text(encoding="utf-8")
-  favorite = (android / "java" / "ai" / "comma" / "remotehud" /
-              "HudFavoriteActivity.java").read_text(encoding="utf-8")
-  service = (android / "java" / "ai" / "comma" / "remotehud" /
-             "HudService.java").read_text(encoding="utf-8")
-  prefs = (android / "java" / "ai" / "comma" / "remotehud" /
-           "AppPrefs.java").read_text(encoding="utf-8")
-
-  fullscreen_decl = manifest.split('android:name=".HudFullscreenActivity"', 1)[1].split(
-      '<activity', 1)[0]
-  main_decl = manifest.split('android:name=".MainActivity"', 1)[1].split('</activity>', 1)[0]
-  favorite_decl = manifest.split('android:name=".HudFavoriteActivity"', 1)[1].split(
-      '</activity>', 1)[0]
-  assert 'android:name=".HudFullscreenActivity"' in manifest
-  assert 'android:label="EON HUD"' in manifest
-  assert 'android:screenOrientation="landscape"' in manifest
-  assert 'android:exported="false"' in fullscreen_decl
-  assert "android.intent.category.LAUNCHER" not in fullscreen_decl
-  assert "android.intent.category.LAUNCHER" in main_decl
-  assert "android.intent.category.LAUNCHER" in favorite_decl
-  assert 'android:label="HUD 전환"' in favorite_decl
-  assert 'android:icon="@drawable/ic_hud_switch"' in favorite_decl
-  assert "SYSTEM_ALERT_WINDOW" not in manifest
-  assert "SYSTEM_UI_FLAG_IMMERSIVE_STICKY" in fullscreen
-  assert "WindowInsets.Type.statusBars()" in fullscreen
-  on_create = fullscreen.split("public void onCreate", 1)[1].split("protected void onResume", 1)[0]
-  assert on_create.index("setContentView(frameView);") < on_create.index("hideSystemUi();")
-  assert "decorView.getWindowInsetsController()" in fullscreen
-  assert "getWindow().getInsetsController()" not in fullscreen
-  assert "ACTION_SHOW_TMAP" in fullscreen
-  assert "finishAndRemoveTask();" in fullscreen
-  assert "static boolean shouldCloseForFavoriteLaunch()" in fullscreen
-  assert "sincePause >= 0L && sincePause < 1000L" in fullscreen
-  assert "HudFullscreenActivity.shouldCloseForFavoriteLaunch()" in favorite
-  assert "HudFullscreenActivity.ACTION_SHOW_HUD" in favorite
-  assert "HudFullscreenActivity.ACTION_SHOW_TMAP" in favorite
-  assert "Intent.FLAG_ACTIVITY_NEW_TASK" in favorite
-  assert "HudSwitchOverlay" not in service
-  assert 'GUIDE_SHOWN = "guide_shown_v37"' in prefs
-  assert "HudService.drawFullscreenFrame" in fullscreen
-  assert "static boolean drawFullscreenFrame" in service
-  assert "AppPrefs.getDisplayProfile(service)" in service
-  assert "AppPrefs.DISPLAY_PROFILE_GENESIS_8" in service
-  assert "AppPrefs.DISPLAY_PROFILE_GENESIS_9_2" in service
-  assert "PHONE_8_WIDTH = 800" in service
-  assert "PHONE_8_HEIGHT = 480" in service
-  # 사이드바는 상수를 지워서가 아니라 폭 0 으로 두어 적용하지 않는다.
-  assert "PHONE_8_SIDEBAR = 0;" in service
-  assert "PHONE_9_WIDTH = 1280" in service
-  assert "PHONE_9_HEIGHT = 720" in service
-  assert "PHONE_9_SIDEBAR = 0;" in service
-  assert "renderNativePhone(currentState, AppPrefs.getDisplayProfile(this)," in service
-  assert "profile == service.phoneNativeProfile" in service
-  assert "service.phoneNativeFrame" in service
-  assert "frame.getWidth() * scale" in service
-  assert "frame.getHeight() * scale" in service
-  assert "phoneDestination.set(left, top, left + drawWidth, top + drawHeight)" in service
-  assert "nativeLayoutRendering = true" in service
-  assert "drawFrame(c, s, map, tbtCurrent, tbtNext, lane)" in service
-  assert "desired / nativeScaleX" in service
-  assert "desired / nativeScaleY" in service
-  assert "nativeScaleY / nativeScaleX" in service
-  assert "c.clipRect(MAP_LEFT, 0f, mapRight(), HEIGHT)" in service
-  assert "c.clipRect(0f, 0f, DRIVE_RIGHT, HEIGHT)" in service
-  assert "NATIVE_SYSTEM_RATIO = 0.15f" in service
-  assert "drawNativeSystemPanel(c, p, s)" in service
-  assert "float equalizeX = nativeScaleY / nativeScaleX" in service
-  assert "float contentScale = targetWidthPx" in service
-  assert "NATIVE_GAUGE_RAISE_PX = 42f" in service
-  assert 'currentState.optInt("hudLayoutMode", 1)' in service
-  assert "return configuredLayoutMode == 2 ? WIDTH : MAP_RIGHT;" in service
-  assert "if (configuredLayoutMode == 1 && nativeLayoutRendering)" in service
-  assert service.count("-NATIVE_GAUGE_RAISE_PX / nativeWidgetScale") == 2
-  assert "NATIVE_CARD_SHIFT_PX = 18f" in service
-  # NATIVE_NOO_SHIFT_PX 는 삭제된 상수라 더 검사하지 않는다(현재는 카드 시프트로 통합).
-  assert 's.optDouble("atcBlend", 0d)' in service
-  assert 's.optInt("atcDirection", 0)' in service
-  # NOO 디버그 줄은 String.format 대신 nooLaneText() 로 바뀌었다.
-  assert "nooLaneText(s)" in service
-  assert "drawNativeS9Remote(c, p, nativeWidth, nativeHeight, targetWidthPx)" in service
-  assert "float unit = height / 480f" in service
-  assert "RPM_LABEL_BASELINE" not in service
-  assert "c.drawBitmap(phoneFrame, phoneNativeSource" not in service
-  assert "drawNativeMapCard" not in service
-  assert "drawNativeStatusBar" not in service
-  assert "c.drawBitmap(phoneFrame, 0f, 0f, phonePreviewPaint);" in service
-  assert "new RectF(0f, 0f, width, height)" not in service
-  main = (android / "java" / "ai" / "comma" / "remotehud" /
-          "MainActivity.java").read_text(encoding="utf-8")
-  assert '"자동 감지 (기존 원본 비율)"' in main
-  assert '"제네시스 순정 8인치  ·  800×480"' in main
-  assert '"제네시스 순정 9.2인치  ·  1280×720"' in main
-  assert "RadioGroup profileGroup" in main
-  assert "option.setChecked(true)" in main
-  assert 'displayProfileValue.setText("✓ 현재 적용: " + selected)' in main
-  assert "Spinner" not in main
-  assert "AppPrefs.setDisplayProfile" in main
-  assert "ACTION_MANAGE_OVERLAY_PERMISSION" not in main
-  assert not (android / "java" / "ai" / "comma" / "remotehud" /
-              "HudSwitchOverlay.java").exists()
-  assert not (android / "java" / "ai" / "comma" / "remotehud" /
-              "PhoneHudOverlay.java").exists()
 
 
 def test_uiview_starts_only_s9_hud_publisher():

@@ -4,12 +4,8 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 public final class AppPrefs {
-    public static final int DISPLAY_PROFILE_AUTO = 0;
-    public static final int DISPLAY_PROFILE_GENESIS_8 = 1;
-    public static final int DISPLAY_PROFILE_GENESIS_9_2 = 2;
 
     private static final String AUTO_START = "auto_start";
-    private static final String DISPLAY_PROFILE = "display_profile";
     private static final String FILE = "remote_hud_settings";
     private static final String GUIDE_SHOWN = "guide_shown_v37";
     private static final String ORIENTATION = "hud_orientation";
@@ -24,22 +20,6 @@ public final class AppPrefs {
 
     public static void setAutoStart(Context context, boolean z) {
         prefs(context).edit().putBoolean(AUTO_START, z).apply();
-    }
-
-    public static int getDisplayProfile(Context context) {
-        int profile = prefs(context).getInt(DISPLAY_PROFILE, DISPLAY_PROFILE_AUTO);
-        if (profile < DISPLAY_PROFILE_AUTO || profile > DISPLAY_PROFILE_GENESIS_9_2) {
-            return DISPLAY_PROFILE_AUTO;
-        }
-        return profile;
-    }
-
-    public static void setDisplayProfile(Context context, int profile) {
-        int safeProfile = profile;
-        if (safeProfile < DISPLAY_PROFILE_AUTO || safeProfile > DISPLAY_PROFILE_GENESIS_9_2) {
-            safeProfile = DISPLAY_PROFILE_AUTO;
-        }
-        prefs(context).edit().putInt(DISPLAY_PROFILE, safeProfile).apply();
     }
 
     /**

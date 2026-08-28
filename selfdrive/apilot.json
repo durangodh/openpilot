@@ -1123,16 +1123,6 @@
   },
   {
    "group": "S9HUD",
-   "name": "EonClusterHudOutputTarget",
-   "title": "S9 HUD OUTPUT TARGET",
-   "descr": "1: 외부 HUD / 2: S9 화면 / 3: 동시 출력",
-   "min": 1,
-   "max": 3,
-   "default": 3,
-   "unit": 1
-  },
-  {
-   "group": "S9HUD",
    "name": "EonClusterHudOutputMode",
    "title": "S9 HUD OUTPUT MODE",
    "descr": "1: 주행 / 지도 / 시스템   2: 실시간 디버그   3: S9 리모트(폰 상태·USB 진단)",

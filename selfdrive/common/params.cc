@@ -262,7 +262,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudViewPitch", PERSISTENT},     // 주행씬 수평선 보정 0.1도 (-50..50)
     {"EonClusterHudOutputMode", PERSISTENT},
     {"EonClusterHudLayoutMode", PERSISTENT},  // 1=3분할, 2=주행+티맵 2분할
-    {"EonClusterHudOutputTarget", PERSISTENT}, // 1=외부 USB HUD, 2=S9 화면, 3=동시 출력
     {"EonClusterHudConnected", CLEAR_ON_MANAGER_START},
     {"EonClusterHudHeartbeat", CLEAR_ON_MANAGER_START},
     {"EonClusterHudFps", PERSISTENT},

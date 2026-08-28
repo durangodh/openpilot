@@ -98,7 +98,6 @@ def _packet(sm, *args, **kwargs):
   packet["hudPitchDyn"] = _bounded_int("EonClusterHudPitchDyn", 60, 0, 200)
   packet["hudOutputMode"] = _bounded_int("EonClusterHudOutputMode", 1, 1, 3)
   packet["hudLayoutMode"] = _bounded_int("EonClusterHudLayoutMode", 1, 1, 2)
-  packet["hudOutputTarget"] = _bounded_int("EonClusterHudOutputTarget", 3, 1, 3)
   packet["hudBsdStyle"] = _bounded_int("EonClusterHudBsdStyle", 2, 1, 3)
   # 0(기본): 앱 내장 화살표 그림 사용
   # 1: 티맵 tbt_current_compact 사용 — 다만 이 스트림은 아이콘이 아니라

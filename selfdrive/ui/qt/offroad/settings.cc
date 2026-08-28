@@ -1173,10 +1173,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "S9에서 생성해 외부 HUD로 보내는 JPEG 품질입니다. 권장값 55 / 선명도 우선 60. EON CPU 영향은 작습니다.",
       "../assets/offroad/icon_road.png", 20, 95, 1, 0, 55, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudOutputTarget", "S9 HUD OUTPUT TARGET",
-      "1: 외부 HUD / 2: S9 화면 / 3: 동시 출력",
-      "../assets/offroad/icon_road.png", 1, 3, 1, 0, 3, this));
-  toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudOutputMode", "S9 HUD OUTPUT MODE",
       "1: 주행 / 지도 / 시스템   2: 실시간 디버그   3: S9 리모트(폰 상태·USB 진단)",
       "../assets/offroad/icon_road.png", 1, 3, 1, 0, 1, this));

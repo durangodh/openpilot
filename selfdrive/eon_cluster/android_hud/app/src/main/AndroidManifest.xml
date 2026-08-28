@@ -20,33 +20,6 @@
         android:usesCleartextTraffic="true">
 
         <activity
-            android:name=".HudFavoriteActivity"
-            android:excludeFromRecents="true"
-            android:exported="true"
-            android:icon="@drawable/ic_hud_switch"
-            android:label="HUD 전환"
-            android:launchMode="singleTask"
-            android:noHistory="true"
-            android:taskAffinity="ai.comma.remotehud.favorite"
-            android:theme="@android:style/Theme.NoDisplay">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
-        <activity
-            android:name=".HudFullscreenActivity"
-            android:configChanges="keyboardHidden|orientation|screenSize"
-            android:excludeFromRecents="true"
-            android:exported="false"
-            android:label="EON HUD"
-            android:launchMode="singleTask"
-            android:resizeableActivity="false"
-            android:screenOrientation="landscape"
-            android:theme="@style/FullscreenHudTheme" />
-
-        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>

@@ -5,8 +5,12 @@
 > 과속방지턱 · 티맵 차로선 · 가드레일 · 헤이즈)는 제거됐고, 파라미터
 > `EonClusterHudBuildings` / `WorldWidth` / `CarStyle` / `RoadSigns` /
 > `Gl` 도 함께 삭제됐다. BSD 경고 띠는 GL 안에서 그리고, 앞차는 자차와
-> 같은 `hud_ego_car` 그림을 축소해 얹는다. 아래 v0.19 이하 절은 당시
-> 기록이므로 현재 코드와 다를 수 있다.
+> 같은 `hud_ego_car` 그림을 축소해 얹는다.
+>
+> 출력은 **외부 TURZX 패널 전용**이다. 순정 화면(nMirror) 출력 경로 —
+> `HudFullscreenActivity` / `HudFavoriteActivity` / 화면 프로필(순정 8 ·
+> 9.2인치) / `EonClusterHudOutputTarget` — 는 모두 제거됐다.
+> 아래 v0.31 이하 절은 당시 기록이므로 현재 코드와 다를 수 있다.
 
 This optional companion moves the 1920x462 HUD render, JPEG compression and
 TURZX `1cbe:0092` USB upload from the EON to an Android phone.  The EON sends a
