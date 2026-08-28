@@ -85,7 +85,6 @@ class NavigationLaneChangeController:
     resolved = current - 1 if phantom_left else current
     return resolved if 1 <= resolved <= route_count else None
 
-  @classmethod
   @staticmethod
   def _interp(value, breakpoints, values):
     value = float(value)
