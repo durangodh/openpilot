@@ -88,9 +88,11 @@ public final class HudService extends Service {
      * NOO 안내. 화살표·거리·상태줄 모두 깜박이지 않고 고정이며, 상태줄은 안내가
      * 없을 때도 항상 떠 있는다.
      * 과속카메라 아이콘(882, 171)·그 거리표시(y=231) 아래, TPMS 카드(위끝 376)
-     * 위의 빈 공간에 같은 세로줄로 세운다.
+     * 위의 빈 공간에 세운다. 가로 기준은 TPMS 카드 가운데(865).
      */
-    private static final float NOO_CX = 882f;
+    // 바로 아래 TPMS 카드(791~939) 의 가운데 865 에 맞춘다. 과속카메라 아이콘의
+    // 882 를 쓰면 안내가 없어 상태줄만 남았을 때 카드보다 오른쪽으로 치우쳐 보인다.
+    private static final float NOO_CX = 865f;
     // 위에서부터 화살표(278) → 남은거리(340) → 차선변경 진단(372) 순으로 쌓고,
     // 맨 아래 진단 글자가 TPMS 카드(위끝 376) 바로 위에 닿게 잡는다.
     private static final float NOO_CY = 278f;
