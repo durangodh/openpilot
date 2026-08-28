@@ -130,6 +130,10 @@ public final class HudService extends Service {
 
     private static final int USB_RESET_AFTER_ERRORS = 3;
     private static final int USB_SLOWDOWN_AFTER_ERRORS = 5;
+    /** openDevice/claimInterface 가 조용히 실패한 횟수가 이만큼 쌓이면 포트를 재바인딩한다. */
+    private static final int USB_OPEN_STALL_ATTEMPTS = 5;
+    /** 포트 재바인딩 재시도 간격. 너무 자주 하면 재열거만 반복된다. */
+    private static final long USB_OPEN_STALL_COOLDOWN_MS = 15000L;
 
     /** EON 텔레메트리가 이보다 오래 끊기면 화면에 표시한다 */
     private static final long EON_STALE_MS = 3000L;
@@ -239,6 +243,7 @@ public final class HudService extends Service {
     private final RectF phoneDestination = new RectF();
     private final RectF phoneViewport = new RectF();
     private long nextUsbAttemptElapsed;
+    private long nextOpenStallRecoverElapsed;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Matrix outMatrix = new Matrix();
     private final RectF scratchRect = new RectF();
@@ -828,6 +833,7 @@ public final class HudService extends Service {
                 usbStatus = "휴대폰 HUD 실행 · " + display.describeStatus();
                 usbConnected = false;
                 usbError = false;
+                recoverStalledOpen(now);
                 return false;
             }
             lastReconnectElapsed = SystemClock.elapsedRealtime();
@@ -840,6 +846,27 @@ public final class HudService extends Service {
             handleUsbError(e);
             return false;
         }
+    }
+
+    /**
+     * openDevice/claimInterface 실패는 예외가 아니라 false 로 돌아오므로
+     * handleUsbError() 를 타지 않는다. 그래서 clearHalt·포트 재바인딩 같은
+     * 복구가 하나도 돌지 않은 채 1초마다 같은 실패만 반복하게 된다.
+     * 여기서 그 구멍을 메운다. usbErrorStreak 는 건드리지 않으므로 프레임이
+     * 250ms 로 떨어지는 부작용은 생기지 않는다.
+     */
+    private void recoverStalledOpen(long now) {
+        if (display.openFailureStreak() < USB_OPEN_STALL_ATTEMPTS) {
+            return;
+        }
+        if (now < nextOpenStallRecoverElapsed) {
+            return;
+        }
+        nextOpenStallRecoverElapsed = now + USB_OPEN_STALL_COOLDOWN_MS;
+        usbStatus = "휴대폰 HUD 실행 · USB 포트 재바인딩 시도";
+        boolean reset = UsbPortReset.resetPort(display.deviceNameOrNull());
+        display.reset();
+        nextUsbAttemptElapsed = now + (reset ? 2500L : 1500L);
     }
 
     private void sendUsbFrame(Bitmap frame, JSONObject currentState) {

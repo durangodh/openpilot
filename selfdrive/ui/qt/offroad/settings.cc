@@ -1247,6 +1247,14 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudRadarInfo", "S9 HUD RADAR INFO", "0: 숨김 / 1,3: 앞차 상대속도 / 2,4: 앞차 거리+상대속도",
       "../assets/offroad/icon_road.png", 0, 4, 1, 0, 4, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudGl", "S9 HUD OPENGL",
+      "1(기본): modelV2 OpenGL 주행씬 / 0: 기존 Canvas World3D. 증상 원인 분리용 A/B 스위치입니다.",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudNavRoute", "S9 HUD NAV ROUTE",
+      "1(기본): 근거리에서 modelV2 와 일치할 때만 티맵 경로 의도를 반투명 선으로 표시 / 0: 숨김",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
 }
 
 SelectCar::SelectCar(QWidget* parent): QWidget(parent) {
