@@ -2130,7 +2130,7 @@ public final class HudService extends Service {
                 145f, 440f, 17f, ink(), Paint.Align.RIGHT);
     }
 
-    private static final float TPMS_LOW_PSI = 28f;
+    private static final float TPMS_LOW_PSI = 30f;
 
     private void drawTpms(Canvas c, Paint p, JSONObject s) {
         JSONObject tpms = s.optJSONObject("tpms");
@@ -2139,26 +2139,18 @@ public final class HudService extends Service {
         boolean lowFl = tpmsLow(fl), lowFr = tpmsLow(fr);
         boolean lowRl = tpmsLow(rl), lowRr = tpmsLow(rr);
         boolean warning = lowFl || lowFr || lowRl || lowRr;
+        // 카드 배경은 항상 기본. 경고는 가운데 차체 표시만 노란색으로 바꾼다.
         scratchRect.set(791f, 376f, 939f, 454f);
-        if (warning) {
-            p.setShader(null);
-            p.setStyle(Paint.Style.FILL);
-            p.setColor(frameDark ? Color.rgb(157, 111, 18) : Color.rgb(255, 205, 52));
-            c.drawRoundRect(scratchRect, 9f, 9f, p);
-            p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(2f);
-            p.setColor(Color.rgb(214, 151, 20));
-            c.drawRoundRect(scratchRect, 9f, 9f, p);
-        } else {
-            drawCard(c, p, scratchRect);
-        }
-        int normalText = warning ? Color.rgb(28, 30, 32) : ink();
-        int titleColor = warning ? Color.rgb(56, 47, 20) : dim();
+        drawCard(c, p, scratchRect);
+        int normalText = ink();
+        int titleColor = dim();
         int lowText = Color.rgb(205, 30, 42);
         text(c, p, "TPMS", 865f, 394f, 12f, titleColor, Paint.Align.CENTER);
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(warning ? Color.rgb(80, 72, 54) : Color.rgb(95, 102, 107));
+        p.setColor(warning
+                ? (frameDark ? Color.rgb(232, 176, 32) : Color.rgb(245, 190, 40))
+                : Color.rgb(95, 102, 107));
         scratchRect.set(852f, 404f, 878f, 446f);
         c.drawRoundRect(scratchRect, 4f, 4f, p);
         text(c, p, tpmsText(fl), 840f, 417f, 16f, lowFl ? lowText : normalText, Paint.Align.RIGHT);
