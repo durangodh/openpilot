@@ -56,6 +56,18 @@ final class ModelWorldGL {
     private static final float BSD_INNER = 2.0f;
     private static final float BSD_OUTER = 5.2f;
     private static final float BSD_Z_OFFSET = 0.04f;
+
+    /** 가드레일. 도로경계 바깥쪽에 세운다 — 위치는 모델 edges 그대로다. */
+    private static final float RAIL_INSET = 0.34f;   // 경계선 바깥으로 밀어낼 거리(m)
+    private static final float RAIL_BOTTOM = 0.44f;  // 노면 위 레일 하단(m)
+    private static final float RAIL_TOP = 0.80f;     // 노면 위 레일 상단(m)
+    private static final float RAIL_MAX_X = 95f;     // 이보다 먼 구간은 그리지 않는다
+    private static final float RAIL_POST_SPACING = 6f;
+    private static final float RAIL_POST_TOP = 0.86f;
+
+    /** 원경 헤이즈. 지평선 아래를 하늘색으로 덮어 깊이감을 준다. */
+    private static final int HAZE_BANDS = 7;
+    private static final float HAZE_DEPTH_PX = 46f;
     private static final float BSD_BAR_NEAR_PX = 7f;
     private static final float BSD_BAR_FAR_PX = 6f;
 
@@ -125,7 +137,7 @@ final class ModelWorldGL {
                  int driveBg, int roadTop, int roadBottom, int pathColor,
                  boolean dark, float roadZPercent, float livePitch,
                  float pitchPercent, float calibPitch, int bsdStyle,
-                 boolean leadSprite) {
+                 boolean leadSprite, boolean guardrail, int haze) {
         if (failed || scene == null) {
             return false;
         }
@@ -137,6 +149,7 @@ final class ModelWorldGL {
             // BSD 는 스타일·좌우 경고 상태가 바뀌면 같은 타임스탬프라도
             // 다시 그려야 한다. 안 그러면 경고가 켜져도 옛 프레임이 남는다.
             int style = driveBg ^ roadTop ^ roadBottom ^ pathColor ^ (dark ? 1 : 0)
+                    ^ (guardrail ? 1 << 8 : 0) ^ (haze << 9)
                     ^ (bsdStyle << 1)
                     ^ (scene.optBoolean("leftBsd", false) ? 1 << 6 : 0)
                     ^ (scene.optBoolean("rightBsd", false) ? 1 << 7 : 0);
@@ -146,7 +159,7 @@ final class ModelWorldGL {
                 if (styleChanged || started >= nextRenderNanos) {
                     if (!render(scene, enabled, driveBg, roadTop, roadBottom, pathColor,
                             dark, roadZPercent, livePitch, pitchPercent, calibPitch,
-                            bsdStyle, leadSprite)) {
+                            bsdStyle, leadSprite, guardrail, haze)) {
                         return false;
                     }
                     long cost = System.nanoTime() - started;
@@ -289,7 +302,7 @@ final class ModelWorldGL {
                            int roadTop, int roadBottom, int pathColor,
                            boolean dark, float roadZPercent, float livePitch,
                            float pitchPercent, float calibPitch, int bsdStyle,
-                           boolean leadSprite) {
+                           boolean leadSprite, boolean guardrail, int haze) {
         if (!EGL14.eglMakeCurrent(display, surface, surface, context)) {
             return false;
         }
@@ -352,6 +365,11 @@ final class ModelWorldGL {
         if (rightEdge != null) {
             drawRoadEdge(rightEdge, path, dark);
         }
+        if (guardrail) {
+            // 도로경계 위에 세운다. 차선·경로보다 먼저 그려 뒤로 물러나게 한다.
+            drawGuardrail(leftEdge, path, dark, 1f);
+            drawGuardrail(rightEdge, path, dark, -1f);
+        }
 
         // TMAP never changes road or lane geometry.  It is only a gated,
         // translucent intent trace and becomes visible where a turn/exit
@@ -413,6 +431,8 @@ final class ModelWorldGL {
         drawBsd(scene, path, bsdStyle);
         drawLead(scene.optJSONObject("lead2"), path, 1, dark, true, timestamp, leadSprite);
         drawLead(scene.optJSONObject("lead"), path, 0, dark, false, timestamp, leadSprite);
+        // 헤이즈는 맨 마지막. 지평선 근처만 덮으므로 근경에는 영향이 없다.
+        drawHaze(sky, haze);
         // glReadPixels already waits for rendering completion.  Avoid a second
         // full GPU/CPU synchronization immediately before it.
         copyPixels();
@@ -855,6 +875,93 @@ final class ModelWorldGL {
         return index >= 0 && index < leadSpriteBraking.length && leadSpriteBraking[index];
     }
 
+    /**
+     * 가드레일. 모델 도로경계(edges) 위치를 그대로 쓰므로 없는 곳에는 서지
+     * 않는다. 레일 띠 한 줄과 일정 간격 기둥으로만 구성한다.
+     */
+    private void drawGuardrail(Line edge, Line roadHeight, boolean dark, float side) {
+        if (edge == null || edge.count < 2) {
+            return;
+        }
+        int railColor = dark ? Color.rgb(122, 134, 146) : Color.rgb(178, 186, 193);
+        int postColor = dark ? Color.rgb(74, 84, 94) : Color.rgb(146, 154, 161);
+
+        int v = 0;
+        for (int i = 0; i < edge.count && v + 4 <= vertices.length; i++) {
+            float x = edge.x[i];
+            if (x < 0f) {
+                continue;
+            }
+            if (x > RAIL_MAX_X) {
+                break;
+            }
+            float y = edge.y[i] + side * RAIL_INSET;
+            float base = zAt(roadHeight, x) * roadZGain;
+            if (!project(x, y, base + RAIL_TOP, projected)) {
+                continue;
+            }
+            vertices[v++] = ndcX(projected[0]);
+            vertices[v++] = ndcY(projected[1] - TOP);
+            if (!project(x, y, base + RAIL_BOTTOM, projected)) {
+                v -= 2;
+                continue;
+            }
+            vertices[v++] = ndcX(projected[0]);
+            vertices[v++] = ndcY(projected[1] - TOP);
+        }
+        drawVertices(GLES20.GL_TRIANGLE_STRIP, v / 2, railColor, 0.90f);
+
+        // 기둥. 화면 폭은 거리에 따라 줄이되 1px 아래로는 내리지 않는다.
+        v = 0;
+        float first = edge.x[0] < 0f ? 0f : edge.x[0];
+        for (float x = first + RAIL_POST_SPACING; x <= RAIL_MAX_X; x += RAIL_POST_SPACING) {
+            if (v + 12 > vertices.length) {
+                break;
+            }
+            float y = yAt(edge, x) + side * RAIL_INSET;
+            float base = zAt(roadHeight, x) * roadZGain;
+            if (!project(x, y, base + RAIL_POST_TOP, projected)) {
+                continue;
+            }
+            float topX = projected[0];
+            float topY = projected[1] - TOP;
+            if (!project(x, y, base, projected)) {
+                continue;
+            }
+            float half = Math.max(0.6f, Math.min(3.4f,
+                    FOCAL / (x + CAM_BACK) * 0.055f));
+            float bottomX = projected[0];
+            float bottomY = projected[1] - TOP;
+            v = addTriangle(v, topX - half, topY, topX + half, topY,
+                    bottomX - half, bottomY);
+            v = addTriangle(v, topX + half, topY, bottomX - half, bottomY,
+                    bottomX + half, bottomY);
+        }
+        drawVertices(GLES20.GL_TRIANGLES, v / 2, postColor, 0.82f);
+    }
+
+    /**
+     * 원경 헤이즈. 지평선 바로 아래를 하늘색으로 옅게 덮어 멀리 있는 노면과
+     * 차선이 배경으로 녹아들게 한다. 밴드 알파를 계단식으로 줄여 그린다.
+     */
+    private void drawHaze(int sky, int strengthPercent) {
+        float strength = clamp(strengthPercent * 0.01f, 0f, 1f);
+        if (strength <= 0.01f) {
+            return;
+        }
+        float horizon = HORIZON + horizonShift - TOP;
+        float band = HAZE_DEPTH_PX / HAZE_BANDS;
+        for (int i = 0; i < HAZE_BANDS; i++) {
+            float top = horizon + i * band;
+            if (top >= HEIGHT) {
+                break;
+            }
+            float alpha = strength * (1f - i / (float) HAZE_BANDS);
+            drawRect(0f, Math.max(0f, top), WIDTH,
+                    Math.min(HEIGHT, top + band), sky, alpha * 0.9f);
+        }
+    }
+
     private void drawRoadEdge(Line edge, Line roadHeight, boolean dark) {
         int shadow = dark ? Color.rgb(18, 24, 31) : Color.rgb(92, 99, 105);
         int body = dark ? Color.rgb(126, 139, 153) : Color.rgb(152, 161, 168);
@@ -921,10 +1028,15 @@ final class ModelWorldGL {
     }
 
     private void drawRect(float left, float top, float right, float bottom, int color) {
+        drawRect(left, top, right, bottom, color, 1f);
+    }
+
+    private void drawRect(float left, float top, float right, float bottom,
+                          int color, float alpha) {
         int v = 0;
         v = addTriangle(v, left, top, left, bottom, right, top);
         v = addTriangle(v, right, top, left, bottom, right, bottom);
-        drawVertices(GLES20.GL_TRIANGLES, v / 2, color, 1f);
+        drawVertices(GLES20.GL_TRIANGLES, v / 2, color, alpha);
     }
 
     private void drawVertices(int mode, int count, int color, float alpha) {

@@ -1153,6 +1153,26 @@
   },
   {
    "group": "S9HUD",
+   "name": "EonClusterHudGuardrail",
+   "title": "S9 HUD GUARDRAIL",
+   "descr": "0: 끔 / 1: 켬. 모델이 인식한 도로경계 위에만 세웁니다. 경계가 없는 구간에는 나오지 않습니다.",
+   "min": 0,
+   "max": 1,
+   "default": 1,
+   "unit": 1
+  },
+  {
+   "group": "S9HUD",
+   "name": "EonClusterHudHaze",
+   "title": "S9 HUD HAZE",
+   "descr": "지평선 근처 원경을 배경색으로 흐리는 정도(%). 0: 끔 / 55: 기본. 값이 클수록 먼 노면이 배경에 녹아듭니다.",
+   "min": 0,
+   "max": 100,
+   "default": 55,
+   "unit": 5
+  },
+  {
+   "group": "S9HUD",
    "name": "EonClusterHudRoadZ",
    "title": "S9 HUD ROAD Z",
    "descr": "오르막·내리막 표현 강도(%). 100: 모델 값 그대로 / 0: 평지 / 음수: 위아래 반전(오르막이 꺼져 보일 때 -100).",

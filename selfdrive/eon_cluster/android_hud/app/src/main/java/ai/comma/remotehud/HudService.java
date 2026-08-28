@@ -1035,7 +1035,9 @@ public final class HudService extends Service {
                     (float) s.optDouble("hudPitchDyn", 60d),
                     (float) s.optDouble("calibPitch", 0d),
                     configuredBsdStyle,
-                    egoCar != null && !egoCar.isRecycled());
+                    egoCar != null && !egoCar.isRecycled(),
+                    s.optInt("hudGuardrail", 1) != 0,
+                    Math.max(0, Math.min(100, s.optInt("hudHaze", 55))));
             if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
                 // 앞차도 자차와 같은 그림으로. 먼 차부터 그려 근경이 덮게 한다.
                 for (int leadIndex = 1; leadIndex >= 0; leadIndex--) {

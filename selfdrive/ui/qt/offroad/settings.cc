@@ -1185,6 +1185,14 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "1: 경계막대만 / 2: 옅은 띠 / 3: 진한 띠. 옆차 앞뒤 위치는 알 수 없어 차선 전체를 표시합니다.",
       "../assets/offroad/icon_road.png", 1, 3, 1, 0, 2, this));
   toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudGuardrail", "S9 HUD GUARDRAIL",
+      "0: 끔 / 1: 켬. 모델이 인식한 도로경계 위에만 세웁니다. 경계가 없는 구간에는 나오지 않습니다.",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudHaze", "S9 HUD HAZE",
+      "지평선 근처 원경을 배경색으로 흐리는 정도(%). 0: 끔 / 55: 기본. 값이 클수록 먼 노면이 배경에 녹아듭니다.",
+      "../assets/offroad/icon_road.png", 0, 100, 5, 0, 55, this));
+  toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudRoadZ", "S9 HUD ROAD Z",
       "오르막·내리막 표현 강도(%). 100: 모델 값 그대로 / 0: 평지 / 음수: 위아래 반전(오르막이 꺼져 보일 때 -100).",
       "../assets/offroad/icon_road.png", -300, 300, 10, 0, 100, this));

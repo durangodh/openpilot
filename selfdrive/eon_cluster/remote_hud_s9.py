@@ -99,6 +99,10 @@ def _packet(sm, *args, **kwargs):
   packet["hudOutputMode"] = _bounded_int("EonClusterHudOutputMode", 1, 1, 3)
   packet["hudLayoutMode"] = _bounded_int("EonClusterHudLayoutMode", 1, 1, 2)
   packet["hudBsdStyle"] = _bounded_int("EonClusterHudBsdStyle", 2, 1, 3)
+  # 모델 도로경계(edges) 위에만 세우는 가드레일. 경계가 없으면 안 그려진다.
+  packet["hudGuardrail"] = _bounded_int("EonClusterHudGuardrail", 1, 0, 1)
+  # 지평선 근처 원경 페이드 강도(%). 0 이면 끔.
+  packet["hudHaze"] = _bounded_int("EonClusterHudHaze", 55, 0, 100)
   # 0(기본): 앱 내장 화살표 그림 사용
   # 1: 티맵 tbt_current_compact 사용 — 다만 이 스트림은 아이콘이 아니라
   #    "화살표+거리+도로명"이 한 장에 그려진 미니 배너라 아이콘 자리에 넣으면
