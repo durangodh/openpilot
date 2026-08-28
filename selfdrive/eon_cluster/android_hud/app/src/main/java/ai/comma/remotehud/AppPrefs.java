@@ -12,6 +12,8 @@ public final class AppPrefs {
     private static final String DISPLAY_PROFILE = "display_profile";
     private static final String FILE = "remote_hud_settings";
     private static final String GUIDE_SHOWN = "guide_shown_v37";
+    private static final String ORIENTATION = "hud_orientation";
+    private static final String MIRROR = "hud_mirror";
 
     private AppPrefs() {
     }
@@ -38,6 +40,27 @@ public final class AppPrefs {
             safeProfile = DISPLAY_PROFILE_AUTO;
         }
         prefs(context).edit().putInt(DISPLAY_PROFILE, safeProfile).apply();
+    }
+
+    /**
+     * 패널 방향(0 또는 2)과 좌우 미러는 EON 패킷으로만 오기 때문에, EON 이 붙기
+     * 전에는 앱이 알 수 없어 기본값으로 그리다 뒤집혀 보인다. 마지막으로 받은
+     * 값을 남겨 두고 서비스 시작 시 그 값으로 시작한다.
+     */
+    public static int getOrientation(Context context) {
+        return prefs(context).getInt(ORIENTATION, 0) == 2 ? 2 : 0;
+    }
+
+    public static void setOrientation(Context context, int orientation) {
+        prefs(context).edit().putInt(ORIENTATION, orientation == 2 ? 2 : 0).apply();
+    }
+
+    public static boolean isMirror(Context context) {
+        return prefs(context).getBoolean(MIRROR, false);
+    }
+
+    public static void setMirror(Context context, boolean mirror) {
+        prefs(context).edit().putBoolean(MIRROR, mirror).apply();
     }
 
     public static boolean wasGuideShown(Context context) {

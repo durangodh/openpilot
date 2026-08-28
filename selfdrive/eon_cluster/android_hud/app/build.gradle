@@ -7,8 +7,8 @@ android {
     applicationId "ai.comma.remotehud"
     minSdk 26
     targetSdk 35
-    versionCode 103
-    versionName "0.85-usb-open-diag"
+    versionCode 104
+    versionName "0.86-orientation-memory"
   }
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_11

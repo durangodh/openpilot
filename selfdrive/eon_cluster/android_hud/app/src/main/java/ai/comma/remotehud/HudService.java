@@ -366,6 +366,9 @@ public final class HudService extends Service {
     public void onCreate() {
         super.onCreate();
         activeInstance = this;
+        // EON 이 붙기 전 첫 프레임부터 올바른 방향으로 그리기 위해 마지막 값을 복원한다.
+        configuredOrientation = AppPrefs.getOrientation(this);
+        configuredMirror = AppPrefs.isMirror(this);
         egoCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_ego_car);
         otherCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_other_car);
         // 핸들 이미지는 선택 사항이라 R.drawable 을 직접 참조하지 않는다.
@@ -773,8 +776,16 @@ public final class HudService extends Service {
         configuredLanguage = Math.max(0, Math.min(1, currentState.optInt("hudLanguage", 0)));
         configuredRadarInfo = Math.max(0, Math.min(4, currentState.optInt("hudRadarInfo", 4)));
         configuredScreenMode = Math.max(1, Math.min(3, currentState.optInt("hudScreenMode", 1)));
-        configuredOrientation = currentState.optInt("hudOrientation", 0) == 2 ? 2 : 0;
-        configuredMirror = currentState.optInt("hudMirror", 0) != 0;
+        int requestedOrientation = currentState.optInt("hudOrientation", configuredOrientation) == 2 ? 2 : 0;
+        boolean requestedMirror = currentState.optInt("hudMirror", configuredMirror ? 1 : 0) != 0;
+        if (requestedOrientation != configuredOrientation) {
+            configuredOrientation = requestedOrientation;
+            AppPrefs.setOrientation(this, requestedOrientation);
+        }
+        if (requestedMirror != configuredMirror) {
+            configuredMirror = requestedMirror;
+            AppPrefs.setMirror(this, requestedMirror);
+        }
         configuredBsdStyle = Math.max(1, Math.min(3, currentState.optInt("hudBsdStyle", 2)));
         configuredCarStyle = currentState.optInt("hudCarStyle", 1) == 2 ? 2 : 1;
         configuredRoadSigns = Math.max(0, Math.min(3, currentState.optInt("hudRoadSigns", 3)));
