@@ -1206,17 +1206,9 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "가감속·요철로 차가 기울 때 수평선이 따라 움직이는 정도(%). 0: 끔(정지 캘리브만), 클수록 화면이 많이 흔들립니다.",
       "../assets/offroad/icon_road.png", 0, 200, 10, 0, 60, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudWorldWidth", "S9 HUD WORLD WIDTH",
-      "최종 MPC 주행선 기준으로 표시되는 도로·차선 폭입니다. 100: 기본 / 값 증가(+): 차선이 넓게 표시 / 값 감소(-): 좁게 표시. 조향 제어에는 영향이 없습니다.",
-      "../assets/offroad/icon_road.png", 70, 140, 5, 0, 100, this));
-  toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudViewPitch", "S9 HUD VIEW PITCH (X0.1°)",
       "World3D 수평선의 차량별 장착 보정입니다. 값 증가(+): 도로가 화면 아래쪽으로 이동 / 값 감소(-): 위쪽으로 이동. 정지 상태에서 실제 도로 소실점과 맞추십시오.",
       "../assets/offroad/icon_road.png", -50, 50, 1, 0, 0, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudBuildings", "S9 HUD BUILDINGS",
-      "0: 끔 / 1: 켬. 건물은 실제 지형이 아니라 속도감용 장식입니다.",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudTmapIcon", "S9 HUD TMAP ICON",
       "0(기본): 앱 내장 화살표 그림.\n1: 티맵 compact 스트림 사용 — 이 스트림은 아이콘이 아니라 화살표+거리+도로명이 한 장에 그려진 미니 배너라, 켜면 검은 박스나 배너 중복으로 보일 수 있습니다.",

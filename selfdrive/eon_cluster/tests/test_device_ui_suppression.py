@@ -96,15 +96,17 @@ def test_world3d_geometry_calibration_reaches_existing_renderer():
   settings = (UI_DIR / "offroad" / "settings.cc").read_text(encoding="utf-8")
   remote = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud_s9.py").read_text(encoding="utf-8")
 
-  assert '("EonClusterHudWorldWidth", "100")' in manager
   assert '("EonClusterHudViewPitch", "0")' in manager
-  assert '{"EonClusterHudWorldWidth", PERSISTENT}' in params
   assert '{"EonClusterHudViewPitch", PERSISTENT}' in params
-  assert '"EonClusterHudWorldWidth", "S9 HUD WORLD WIDTH"' in settings
   assert '"EonClusterHudViewPitch", "S9 HUD VIEW PITCH (X0.1°)"' in settings
-  assert 'scale_scene_width(packet.get("path"), packet.get("lanes"),' in remote
-  assert remote.count("world_scale, centre_cache)") == 2
   assert 'math.radians(view_pitch * 0.1)' in remote
+
+  # OSM/건물 렌더가 빠지면서 사장된 파라미터는 어느 층에도 남아 있으면 안 된다.
+  for dead in ("EonClusterHudWorldWidth", "EonClusterHudBuildings"):
+    assert dead not in manager
+    assert dead not in params
+    assert dead not in settings
+    assert dead not in remote
 
 
 def test_s9_tmap_first_switch_uses_nmirror_favorite_and_internal_fullscreen_activity():

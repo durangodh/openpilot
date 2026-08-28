@@ -72,11 +72,6 @@ def _packet(sm, *args, **kwargs):
   packet = _original_packet(sm, *args, **kwargs)
   packet = _apply_path_flip(packet)
 
-  # Keep modelV2 lane lines and road edges in their original camera frame.
-  # Scaling them around the MPC path made a visual width setting move perceived
-  # geometry toward a control trajectory and broke model-world alignment.
-  packet["hudWorldWidth"] = 100
-
   view_pitch = _bounded_int("EonClusterHudViewPitch", 0, -50, 50)
   calibrated_pitch = float(packet.get("calibPitch", 0.0) or 0.0) + math.radians(view_pitch * 0.1)
   packet["calibPitch"] = round(max(-0.15, min(0.15, calibrated_pitch)), 4)

@@ -257,12 +257,10 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudCarStyle", PERSISTENT},
     {"EonClusterHudRoadSigns", PERSISTENT},
     {"CarrotLearnFrictionBase", PERSISTENT},   // friction 학습 기준선(사용자 수동값)   // 노면 표시 0:끔 1:제한속도 2:방지턱 3:둘다
-    {"EonClusterHudBuildings", PERSISTENT},
     {"EonClusterHudTmapIcon", PERSISTENT},
     {"EonClusterHudJunction", PERSISTENT},
     {"EonClusterHudRoadZ", PERSISTENT},         // 노면 높낮이 배율 % (-300..300, 100=원본)
     {"EonClusterHudPitchDyn", PERSISTENT},      // 주행 중 pitch 반영 % (0..200)
-    {"EonClusterHudWorldWidth", PERSISTENT},    // World3D 도로/차선 표시 폭 % (70..140)
     {"EonClusterHudViewPitch", PERSISTENT},     // World3D 수평선 보정 0.1도 (-50..50)
     {"EonClusterHudOutputMode", PERSISTENT},
     {"EonClusterHudLayoutMode", PERSISTENT},  // 1=3분할, 2=주행+티맵 2분할
