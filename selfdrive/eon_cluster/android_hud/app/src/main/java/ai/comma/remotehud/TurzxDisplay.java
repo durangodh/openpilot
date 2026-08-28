@@ -176,13 +176,9 @@ public final class TurzxDisplay {
         }
 
         connection = manager.openDevice(device);
-        if (connection == null) {
+        if (connection == null || !connection.claimInterface(intf, true)) {
             close();
-            throw new Exception("USB 장치 열기 실패");
-        }
-        if (!connection.claimInterface(intf, true)) {
-            close();
-            throw new Exception("USB 인터페이스 점유 실패");
+            return false;
         }
 
         // 여는 시점에는 이전 세션의 halt 가 남아 있을 수 있으므로 여기서는 정리한다.
