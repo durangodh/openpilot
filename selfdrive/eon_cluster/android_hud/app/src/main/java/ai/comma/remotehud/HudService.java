@@ -73,6 +73,8 @@ public final class HudService extends Service {
 
     private static final String CHANNEL = "remote_hud";
     private static final long BOOT_START_DELAY_MS = 30000L;
+    /** 부팅 후 USB 재바인딩이 끝난 뒤 패널 재열거를 기다리는 시간. */
+    private static final long BOOT_USB_RECONNECT_SETTLE_MS = 2500L;
 
     private static final int WIDTH = 1920;
     private static final int HEIGHT = 462;
@@ -161,6 +163,8 @@ public final class HudService extends Service {
     private boolean usbReceiverRegistered;
     private PowerManager.WakeLock wakeLock;
     private volatile boolean workersStarted;
+    /** S9 부팅 경로에서만 C핀 재연결과 같은 USB 포트 재바인딩을 한 번 실행한다. */
+    private volatile boolean bootUsbReconnectPending;
 
     private long frameIntervalMs = 125L;
     private volatile long mapFrameIntervalMs = 200L;
@@ -428,6 +432,7 @@ public final class HudService extends Service {
         acquireWakeLock();
 
         boolean fromBoot = intent != null && intent.getBooleanExtra(EXTRA_FROM_BOOT, false);
+        bootUsbReconnectPending = fromBoot;
         if (fromBoot) {
             usbStatus = "부팅 대기 30초";
             starter.postDelayed(new Runnable() {
@@ -449,6 +454,26 @@ public final class HudService extends Service {
         workersStarted = true;
         usbStatus = "휴대폰 HUD 실행 · 외부 USB 검색 중";
         display = new TurzxDisplay(this);
+
+        // 외부 패널과 S9에 동시에 전원이 들어오면 패널이 먼저 부팅되어 호스트를
+        // 기다리다가 연결을 포기하는 경우가 있다. 수동으로 C핀을 뺐다 꽂으면
+        // 살아나는 것과 같은 동작을, S9 부팅 지연이 끝난 이 시점에 딱 한 번 한다.
+        // 일반 앱 실행/재시작에서는 이미 정상인 USB를 끊지 않도록 부팅 경로에만
+        // 적용한다.
+        if (bootUsbReconnectPending) {
+            bootUsbReconnectPending = false;
+            usbStatus = "부팅 완료 · 외부 HUD USB 자동 재연결 중";
+            boolean reset = UsbPortReset.resetPort(null);
+            display.reset();
+            if (reset) {
+                nextUsbAttemptElapsed = SystemClock.elapsedRealtime()
+                        + BOOT_USB_RECONNECT_SETTLE_MS;
+                usbStatus = "부팅 완료 · 외부 HUD 재인식 대기";
+            } else {
+                // 루트 권한이나 sysfs 포트를 찾지 못해도 기존 자동 검색은 계속한다.
+                usbStatus = "휴대폰 HUD 실행 · 외부 USB 검색 중";
+            }
+        }
         receiverThread = new Thread(new Runnable() {
             @Override
             public void run() {
