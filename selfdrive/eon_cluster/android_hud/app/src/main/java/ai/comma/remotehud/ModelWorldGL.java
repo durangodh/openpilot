@@ -47,15 +47,33 @@ final class ModelWorldGL {
     private static final int MAX_POINTS = 80;
     private static final int MAX_VERTEX_FLOATS = 4096;
 
-    /** BSD 표시 방식. */
-    static final int BSD_BAR = 1;      // 막대만
-    static final int BSD_SOFT = 2;     // 옅은 면 + 막대 (기본)
-    static final int BSD_SOLID = 3;    // 진한 면 + 막대
-    private static final float BSD_NEAR = -6f;
-    private static final float BSD_FAR = 16f;
-    private static final float BSD_INNER = 2.0f;
-    private static final float BSD_OUTER = 5.2f;
-    private static final float BSD_Z_OFFSET = 0.04f;
+    /**
+     * BSD 경고 — 순정 계기판과 같은 레이더 파동 아크.
+     *
+     * 자차 뒤범퍼 모서리를 중심으로 한 동심 아크 3개와 경고 삼각형을
+     * 화면 좌표에 직접 그린다. 노면 투영을 쓰지 않으므로 근거리 클리핑
+     * (NEAR_DEPTH)에 잘리지 않는다.
+     */
+    private static final float EGO_SPRITE_W = 78f;   // HudService 가 얹는 자차 그림 폭
+    private static final float EGO_BASELINE = 433f;  // 자차 접지선(패널 좌표)
+    private static final float BSD_CORNER_DY = 32f;  // 접지선 위로 올린 아크 중심
+    private static final float[] BSD_ARC_RADII = {42f, 64f, 86f};
+    private static final float BSD_ARC_SQUASH = 0.62f;   // 원근으로 눌린 세로비
+    private static final float BSD_ARC_A0 = 104f;        // 좌측 아크 시작각(도)
+    private static final float BSD_ARC_A1 = 196f;        // 좌측 아크 끝각(도)
+    private static final int BSD_ARC_SEGMENTS = 24;
+    private static final int BSD_ARC_CHUNKS = 3;         // 끝단 알파를 낮출 분할 수
+    private static final float BSD_ARC_CHUNK_FADE = 0.5f;
+    private static final float BSD_CORE_ALPHA = 165f / 255f;
+    // 굵기 가산 / 알파 배수 — 겹칠수록 번져 보인다.
+    private static final float[][] BSD_ARC_LAYERS = {
+            {10f, 0.06f}, {6f, 0.10f}, {3f, 0.16f}, {0f, 0.55f}};
+    private static final float BSD_TRI_DX = 112f;    // 자차 옆면에서 삼각형까지
+    private static final float BSD_TRI_DY = 14f;     // 접지선 위 삼각형 중심
+    private static final float BSD_TRI_SIZE = 34f;
+    private static final float BSD_TRI_STROKE = 4f;
+    private static final float BSD_TRI_ALPHA = 200f / 255f;
+    private static final int BSD_COLOR = Color.rgb(228, 62, 62);
 
     /** 가드레일. 도로경계 바깥쪽에 세운다 — 위치는 모델 edges 그대로다. */
     private static final float RAIL_INSET = 0.34f;   // 경계선 바깥으로 밀어낼 거리(m)
@@ -68,8 +86,6 @@ final class ModelWorldGL {
     /** 원경 헤이즈. 지평선 아래를 하늘색으로 덮어 깊이감을 준다. */
     private static final int HAZE_BANDS = 7;
     private static final float HAZE_DEPTH_PX = 46f;
-    private static final float BSD_BAR_NEAR_PX = 7f;
-    private static final float BSD_BAR_FAR_PX = 6f;
 
     private EGLDisplay display = EGL14.EGL_NO_DISPLAY;
     private EGLContext context = EGL14.EGL_NO_CONTEXT;
@@ -99,10 +115,6 @@ final class ModelWorldGL {
     private final boolean[] leadSpriteValid = new boolean[2];
     private final boolean[] leadSpriteBraking = new boolean[2];
 
-    private final float[] bsdInnerX = new float[MAX_POINTS];
-    private final float[] bsdInnerY = new float[MAX_POINTS];
-    private final float[] bsdOuterX = new float[MAX_POINTS];
-    private final float[] bsdOuterY = new float[MAX_POINTS];
     private final float[] worldQuad = new float[8];
     private final Bitmap frame = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
 
@@ -136,7 +148,7 @@ final class ModelWorldGL {
     boolean draw(Canvas canvas, Paint paint, JSONObject scene, boolean enabled,
                  int driveBg, int roadTop, int roadBottom, int pathColor,
                  boolean dark, float roadZPercent, float livePitch,
-                 float pitchPercent, float calibPitch, int bsdStyle,
+                 float pitchPercent, float calibPitch,
                  boolean leadSprite, boolean guardrail, int haze) {
         if (failed || scene == null) {
             return false;
@@ -146,11 +158,10 @@ final class ModelWorldGL {
                 return false;
             }
             long timestamp = scene.optLong("t", 0L);
-            // BSD 는 스타일·좌우 경고 상태가 바뀌면 같은 타임스탬프라도
+            // BSD 는 좌우 경고 상태가 바뀌면 같은 타임스탬프라도
             // 다시 그려야 한다. 안 그러면 경고가 켜져도 옛 프레임이 남는다.
             int style = driveBg ^ roadTop ^ roadBottom ^ pathColor ^ (dark ? 1 : 0)
                     ^ (guardrail ? 1 << 8 : 0) ^ (haze << 9)
-                    ^ (bsdStyle << 1)
                     ^ (scene.optBoolean("leftBsd", false) ? 1 << 6 : 0)
                     ^ (scene.optBoolean("rightBsd", false) ? 1 << 7 : 0);
             boolean styleChanged = style != lastStyle;
@@ -159,7 +170,7 @@ final class ModelWorldGL {
                 if (styleChanged || started >= nextRenderNanos) {
                     if (!render(scene, enabled, driveBg, roadTop, roadBottom, pathColor,
                             dark, roadZPercent, livePitch, pitchPercent, calibPitch,
-                            bsdStyle, leadSprite, guardrail, haze)) {
+                            leadSprite, guardrail, haze)) {
                         return false;
                     }
                     long cost = System.nanoTime() - started;
@@ -301,7 +312,7 @@ final class ModelWorldGL {
     private boolean render(JSONObject scene, boolean enabled, int driveBg,
                            int roadTop, int roadBottom, int pathColor,
                            boolean dark, float roadZPercent, float livePitch,
-                           float pitchPercent, float calibPitch, int bsdStyle,
+                           float pitchPercent, float calibPitch,
                            boolean leadSprite, boolean guardrail, int haze) {
         if (!EGL14.eglMakeCurrent(display, surface, surface, context)) {
             return false;
@@ -428,7 +439,7 @@ final class ModelWorldGL {
             drawPathLayers(path, pathColor, pathEnd);
             drawDesiredDistance(scene, path, dark);
         }
-        drawBsd(scene, path, bsdStyle);
+        drawBsd(scene);
         drawLead(scene.optJSONObject("lead2"), path, 1, dark, true, timestamp, leadSprite);
         drawLead(scene.optJSONObject("lead"), path, 0, dark, false, timestamp, leadSprite);
         // 헤이즈는 맨 마지막. 지평선 근처만 덮으므로 근경에는 영향이 없다.
@@ -766,91 +777,127 @@ final class ModelWorldGL {
     }
 
     /**
-     * BSD 경고 띠.
-     *
-     * openpilot 은 옆차의 앞뒤 위치를 모르고 유무만 알기 때문에, 차량 그림
-     * 대신 옆 차선 전체를 덮는 띠로 그린다. 좌표·색·알파는 Canvas 판과
-     * 같은 값을 쓴다.
-     *
-     * style 1 막대만 / 2 옅은 면 + 막대 / 3 진한 면 + 막대.
+     * BSD 경고. 좌/우 유무만 오므로 자차 뒤범퍼 모서리에서 퍼지는 파동
+     * 아크와 경고 삼각형으로 그린다. 순정 계기판과 같은 표현이라 옆차의
+     * 앞뒤 위치를 몰라도 어색하지 않다.
      */
-    private void drawBsd(JSONObject scene, Line path, int style) {
+    private void drawBsd(JSONObject scene) {
         if (scene == null) {
             return;
         }
         if (scene.optBoolean("leftBsd", false)) {
-            bsdBand(path, 1, style);
+            bsdWarning(1);
         }
         if (scene.optBoolean("rightBsd", false)) {
-            bsdBand(path, -1, style);
+            bsdWarning(-1);
         }
     }
 
-    private void bsdBand(Line path, int side, int style) {
-        final int steps = 16;
-        // project() 가 NEAR_DEPTH 앞을 버리므로 x=-6 부근은 자연히 잘린다.
-        // Canvas 판과 같은 규칙이라 보이는 길이도 같다.
-        int count = 0;
-        for (int i = 0; i < steps && count < MAX_POINTS; i++) {
-            float x = BSD_NEAR + (BSD_FAR - BSD_NEAR) * i / (steps - 1f);
-            float base = yAt(path, Math.max(0f, x));
-            float z = zAt(path, Math.max(0f, x)) * roadZGain + BSD_Z_OFFSET;
-            if (!project(x, base + side * BSD_INNER, z, projected)) {
-                continue;
-            }
-            float innerX = projected[0];
-            float innerY = projected[1] - TOP;
-            if (!project(x, base + side * BSD_OUTER, z, projected)) {
-                continue;
-            }
-            bsdInnerX[count] = innerX;
-            bsdInnerY[count] = innerY;
-            bsdOuterX[count] = projected[0];
-            bsdOuterY[count] = projected[1] - TOP;
-            count++;
-        }
-        if (count < 2) {
-            return;
-        }
+    /** side 1 = 좌측, -1 = 우측(세로축 대칭). */
+    private void bsdWarning(int side) {
+        float cx = CX - side * EGO_SPRITE_W * 0.5f;
+        float cy = EGO_BASELINE - TOP - BSD_CORNER_DY;
+        // 우측은 좌측 각도를 세로축 기준으로 뒤집는다: theta -> 180 - theta.
+        float a0 = side > 0 ? BSD_ARC_A0 : 180f - BSD_ARC_A0;
+        float a1 = side > 0 ? BSD_ARC_A1 : 180f - BSD_ARC_A1;
 
-        int fillAlpha = style == BSD_SOLID ? 96 : style == BSD_SOFT ? 48 : 0;
-        if (fillAlpha > 0) {
-            int v = 0;
-            for (int i = 0; i + 1 < count && v + 12 <= vertices.length; i++) {
-                v = addTriangle(v, bsdInnerX[i], bsdInnerY[i],
-                        bsdOuterX[i], bsdOuterY[i],
-                        bsdInnerX[i + 1], bsdInnerY[i + 1]);
-                v = addTriangle(v, bsdInnerX[i + 1], bsdInnerY[i + 1],
-                        bsdOuterX[i], bsdOuterY[i],
-                        bsdOuterX[i + 1], bsdOuterY[i + 1]);
+        for (float[] layer : BSD_ARC_LAYERS) {
+            float extraWidth = layer[0];
+            float alphaWeight = layer[1];
+            for (int chunk = 0; chunk < BSD_ARC_CHUNKS; chunk++) {
+                float u0 = (float) chunk / BSD_ARC_CHUNKS;
+                float u1 = (float) (chunk + 1) / BSD_ARC_CHUNKS;
+                boolean middle = chunk == BSD_ARC_CHUNKS / 2;
+                float chunkAlpha = middle ? 1f : BSD_ARC_CHUNK_FADE;
+                int v = 0;
+                for (int i = 0; i < BSD_ARC_RADII.length; i++) {
+                    v = bsdArcChunk(v, cx, cy, BSD_ARC_RADII[i], a0, a1, u0, u1,
+                            (7f - i) + extraWidth);
+                }
+                drawVertices(GLES20.GL_TRIANGLES, v / 2, BSD_COLOR,
+                        BSD_CORE_ALPHA * alphaWeight * chunkAlpha);
             }
-            drawVertices(GLES20.GL_TRIANGLES, v / 2,
-                    Color.rgb(255, 168, 40), fillAlpha / 255f);
         }
+        bsdTriangle(side, cx);
+    }
 
-        // 안쪽 경계 막대는 어느 방식에서나 그린다. 가까운 쪽 7px, 먼 쪽 6px
-        // 로 좁혀 Canvas 판과 같은 두께감을 낸다.
+    /**
+     * 아크 한 조각을 사각 띠로 쌓는다. 굵기는 양 끝에서 0 으로 좁혀
+     * 끝이 뾰족하게 사라지도록 한다.
+     */
+    private int bsdArcChunk(int v, float cx, float cy, float radius,
+                            float a0, float a1, float u0, float u1, float width) {
+        int steps = Math.max(2, Math.round(BSD_ARC_SEGMENTS * (u1 - u0)));
+        float prevX = 0f;
+        float prevY = 0f;
+        float prevHalf = 0f;
+        for (int i = 0; i <= steps; i++) {
+            float u = u0 + (u1 - u0) * i / steps;
+            double theta = Math.toRadians(a0 + (a1 - a0) * u);
+            float x = cx + radius * (float) Math.cos(theta);
+            float y = cy + radius * (float) Math.sin(theta) * BSD_ARC_SQUASH;
+            // 끝단 테이퍼. sin 곡선이라 중앙이 가장 굵다.
+            float half = width * 0.5f * (float) Math.pow(Math.sin(Math.PI * u), 0.6);
+            if (i > 0 && v + 12 <= vertices.length) {
+                float dx = x - prevX;
+                float dy = y - prevY;
+                float length = (float) Math.sqrt(dx * dx + dy * dy);
+                if (length >= 0.05f) {
+                    float nx = -dy / length;
+                    float ny = dx / length;
+                    v = addTriangle(v,
+                            prevX + nx * prevHalf, prevY + ny * prevHalf,
+                            prevX - nx * prevHalf, prevY - ny * prevHalf,
+                            x + nx * half, y + ny * half);
+                    v = addTriangle(v,
+                            x + nx * half, y + ny * half,
+                            prevX - nx * prevHalf, prevY - ny * prevHalf,
+                            x - nx * half, y - ny * half);
+                }
+            }
+            prevX = x;
+            prevY = y;
+            prevHalf = half;
+        }
+        return v;
+    }
+
+    /** 아크 바깥쪽 경고 삼각형. 테두리 + 느낌표를 한 배치로 그린다. */
+    private void bsdTriangle(int side, float arcCx) {
+        float cx = arcCx - side * BSD_TRI_DX;
+        float cy = EGO_BASELINE - TOP - BSD_TRI_DY;
+        float half = BSD_TRI_SIZE * 0.5f;
+        float h = BSD_TRI_SIZE * 0.88f;
+        float topY = cy - h * 0.5f;
+        float bottomY = cy + h * 0.5f;
         int v = 0;
-        for (int i = 0; i + 1 < count && v + 12 <= vertices.length; i++) {
-            float dx = bsdInnerX[i + 1] - bsdInnerX[i];
-            float dy = bsdInnerY[i + 1] - bsdInnerY[i];
-            float length = (float) Math.sqrt(dx * dx + dy * dy);
-            if (length < 0.4f) {
-                continue;
-            }
-            float nx = -dy / length;
-            float ny = dx / length;
-            float ha = BSD_BAR_NEAR_PX * 0.5f;
-            float hb = BSD_BAR_FAR_PX * 0.5f;
-            v = addTriangle(v, bsdInnerX[i] + nx * ha, bsdInnerY[i] + ny * ha,
-                    bsdInnerX[i] - nx * ha, bsdInnerY[i] - ny * ha,
-                    bsdInnerX[i + 1] + nx * hb, bsdInnerY[i + 1] + ny * hb);
-            v = addTriangle(v, bsdInnerX[i + 1] + nx * hb, bsdInnerY[i + 1] + ny * hb,
-                    bsdInnerX[i] - nx * ha, bsdInnerY[i] - ny * ha,
-                    bsdInnerX[i + 1] - nx * hb, bsdInnerY[i + 1] - ny * hb);
+        v = bsdStroke(v, cx, topY, cx - half, bottomY);
+        v = bsdStroke(v, cx - half, bottomY, cx + half, bottomY);
+        v = bsdStroke(v, cx + half, bottomY, cx, topY);
+        v = bsdStroke(v, cx, cy - h * 0.16f, cx, cy + h * 0.12f);
+        float dot = BSD_TRI_STROKE * 0.6f;
+        float dotY = cy + h * 0.26f;
+        if (v + 12 <= vertices.length) {
+            v = addTriangle(v, cx - dot, dotY - dot, cx + dot, dotY - dot,
+                    cx - dot, dotY + dot);
+            v = addTriangle(v, cx + dot, dotY - dot, cx + dot, dotY + dot,
+                    cx - dot, dotY + dot);
         }
-        drawVertices(GLES20.GL_TRIANGLES, v / 2,
-                Color.rgb(255, 190, 70), 238 / 255f);
+        drawVertices(GLES20.GL_TRIANGLES, v / 2, BSD_COLOR, BSD_TRI_ALPHA);
+    }
+
+    private int bsdStroke(int v, float ax, float ay, float bx, float by) {
+        float dx = bx - ax;
+        float dy = by - ay;
+        float length = (float) Math.sqrt(dx * dx + dy * dy);
+        if (length < 0.05f || v + 12 > vertices.length) {
+            return v;
+        }
+        float nx = -dy / length * BSD_TRI_STROKE * 0.5f;
+        float ny = dx / length * BSD_TRI_STROKE * 0.5f;
+        v = addTriangle(v, ax + nx, ay + ny, ax - nx, ay - ny, bx + nx, by + ny);
+        v = addTriangle(v, bx + nx, by + ny, ax - nx, ay - ny, bx - nx, by - ny);
+        return v;
     }
 
     /**

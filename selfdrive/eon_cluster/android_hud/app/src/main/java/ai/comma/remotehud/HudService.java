@@ -173,7 +173,6 @@ public final class HudService extends Service {
     private int configuredScreenMode = 1;
     /** 도로변 건물 표시 여부 (장식이므로 끌 수 있다) */
     /** BSD 표시 방식 1: 막대만 / 2: 옅은 면 / 3: 진한 면 */
-    private int configuredBsdStyle = 2;
     /** 차량 표현 1: 사진 스프라이트 / 2: 3D 박스 */
     /** 이번 프레임의 테마 (매 프레임 render() 에서 갱신) */
     private boolean frameDark = false;
@@ -760,7 +759,6 @@ public final class HudService extends Service {
             configuredMirror = requestedMirror;
             AppPrefs.setMirror(this, requestedMirror);
         }
-        configuredBsdStyle = Math.max(1, Math.min(3, currentState.optInt("hudBsdStyle", 2)));
         configuredOutputMode = Math.max(1, Math.min(3, currentState.optInt("hudOutputMode", 1)));
         tmapIconEnabled = currentState.optInt("hudTmapIcon", 0) != 0;
         junctionMode = Math.max(0, Math.min(2, currentState.optInt("hudJunction", 2)));
@@ -1039,7 +1037,6 @@ public final class HudService extends Service {
                     (float) s.optDouble("pitch", 0d),
                     (float) s.optDouble("hudPitchDyn", 60d),
                     (float) s.optDouble("calibPitch", 0d),
-                    configuredBsdStyle,
                     egoCar != null && !egoCar.isRecycled(),
                     s.optInt("hudGuardrail", 1) != 0,
                     Math.max(0, Math.min(100, s.optInt("hudHaze", 55))));

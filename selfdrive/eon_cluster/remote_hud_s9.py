@@ -98,7 +98,6 @@ def _packet(sm, *args, **kwargs):
   packet["hudPitchDyn"] = _bounded_int("EonClusterHudPitchDyn", 60, 0, 200)
   packet["hudOutputMode"] = _bounded_int("EonClusterHudOutputMode", 1, 1, 3)
   packet["hudLayoutMode"] = _bounded_int("EonClusterHudLayoutMode", 1, 1, 2)
-  packet["hudBsdStyle"] = _bounded_int("EonClusterHudBsdStyle", 2, 1, 3)
   # 모델 도로경계(edges) 위에만 세우는 가드레일. 경계가 없으면 안 그려진다.
   packet["hudGuardrail"] = _bounded_int("EonClusterHudGuardrail", 1, 0, 1)
   # 지평선 근처 원경 페이드 강도(%). 0 이면 끔.

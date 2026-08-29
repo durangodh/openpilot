@@ -7,8 +7,8 @@ android {
     applicationId "ai.comma.remotehud"
     minSdk 26
     targetSdk 35
-    versionCode 117
-    versionName "0.99-usb-grace-off"
+    versionCode 118
+    versionName "1.00-bsd-radar-arc"
   }
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_11

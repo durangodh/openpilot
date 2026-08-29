@@ -253,7 +253,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"ShowCarrotHud", PERSISTENT},              // 1=좌측 carrot HUD 박스 표시, 0=숨김
     {"EonClusterHud", PERSISTENT},
     {"EonClusterHudBrightness", PERSISTENT},
-    {"EonClusterHudBsdStyle", PERSISTENT},
     {"EonClusterHudGuardrail", PERSISTENT},     // 도로경계 위 가드레일 0=끔 1=켬
     {"EonClusterHudHaze", PERSISTENT},          // 원경 헤이즈 강도 % (0..100)
     {"CarrotLearnFrictionBase", PERSISTENT},   // friction 학습 기준선(사용자 수동값)   // 노면 표시 0:끔 1:제한속도 2:방지턱 3:둘다
