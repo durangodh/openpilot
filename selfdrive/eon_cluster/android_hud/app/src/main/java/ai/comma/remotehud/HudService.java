@@ -31,6 +31,7 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -176,6 +177,10 @@ public final class HudService extends Service {
     /** 차량 표현 1: 사진 스프라이트 / 2: 3D 박스 */
     /** 이번 프레임의 테마 (매 프레임 render() 에서 갱신) */
     private boolean frameDark = false;
+    private WeatherService weather;
+    /** 상단 밴드에 하늘을 깐 동안만 true. 이때 글자색을 하늘 밝기에 맞춘다. */
+    private boolean skyBand = false;
+    private boolean skyLightInk = false;
     /** 1: 주행·지도·시스템 / 2: 실시간 디버그 / 3: S9 리모트 */
     private int configuredOutputMode = 1;
     /** 패킷 hudTmapIcon. 티맵 회전 아이콘을 쓸지(1) 앱 내장 화살표를 쓸지(0). */
@@ -342,6 +347,7 @@ public final class HudService extends Service {
     public void onCreate() {
         super.onCreate();
         activeInstance = this;
+        weather = new WeatherService(this);
         // EON 이 붙기 전 첫 프레임부터 올바른 방향으로 그리기 위해 마지막 값을 복원한다.
         configuredOrientation = AppPrefs.getOrientation(this);
         configuredMirror = AppPrefs.isMirror(this);
@@ -1080,6 +1086,8 @@ public final class HudService extends Service {
         drawBlinkers(c, p, s, stale);
         c.restoreToCount(blinkerSave);
 
+        drawSkyBand(c, p);
+
         // Existing lamp art stays unchanged; move the complete row inside
         // the panel, centred on the outside-temperature/range row.
         int save = beginElement(c, l, "lights", 70f, 36f);
@@ -1137,6 +1145,7 @@ public final class HudService extends Service {
                     s.optBoolean("cameraSection", false));
         }
         c.restoreToCount(save6);
+        skyBand = false;
 
         // 세로 기준점을 TPMS 카드와 같은 415 로 맞춘다. 서로 다른 기준점을 쓰면
         // 순정 화면의 위젯 배율 역보정에서 그 차이만큼 사이가 벌어진다.
@@ -1423,14 +1432,23 @@ public final class HudService extends Service {
     }
 
     private int ink() {
+        if (skyBand) {
+            return skyLightInk ? Color.rgb(245, 248, 250) : Color.rgb(18, 18, 18);
+        }
         return frameDark ? Color.rgb(238, 242, 246) : Color.rgb(18, 18, 18);
     }
 
     private int dim() {
+        if (skyBand) {
+            return skyLightInk ? Color.rgb(196, 206, 214) : Color.rgb(86, 92, 98);
+        }
         return frameDark ? Color.rgb(140, 152, 163) : Color.rgb(104, 111, 116);
     }
 
     private int muted() {
+        if (skyBand) {
+            return skyLightInk ? Color.rgb(150, 160, 174) : Color.rgb(140, 148, 158);
+        }
         return frameDark ? Color.rgb(88, 98, 108) : Color.rgb(174, 179, 182);
     }
 
@@ -1443,6 +1461,10 @@ public final class HudService extends Service {
     }
 
     private int hairline() {
+        if (skyBand) {
+            return skyLightInk ? Color.argb(110, 255, 255, 255)
+                    : Color.argb(70, 0, 0, 0);
+        }
         return frameDark ? Color.rgb(58, 66, 76) : Color.rgb(202, 207, 210);
     }
 
@@ -1676,12 +1698,199 @@ public final class HudService extends Service {
     }
 
     private void drawOutsideTemp(Canvas c, Paint p, JSONObject s) {
+        feedWeather(s);
         double temp = s.optDouble("outsideTemp", -1000d);
         if (!Double.isFinite(temp) || temp < -50d || temp > 80d) {
             return;
         }
-        text(c, p, String.format(Locale.US, "%.0f°C", temp), 760f, 44f, 22f,
-                ink(), Paint.Align.RIGHT);
+        String label = String.format(Locale.US, "%.0f°C", temp);
+        // 우측 끝 790 — 오른쪽 주유기 아이콘(932 기준 유동)과 40px 를 남긴다.
+        text(c, p, label, 790f, 44f, 22f, ink(), Paint.Align.RIGHT);
+        int icon = weather == null ? WeatherService.ICON_NONE : weather.icon();
+        if (icon == WeatherService.ICON_NONE) {
+            return;
+        }
+        p.setTextSize(22f);
+        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        float labelWidth = p.measureText(label);
+        drawWeatherIcon(c, p, 790f - labelWidth - 10f - 13f, 36f, 26f,
+                icon, weather.isDay());
+    }
+
+    /**
+     * 상단 밴드 배경. 날씨 상태가 바뀔 때만 비트맵을 만들고 매 프레임은
+     * 얹기만 한다. 하늘이 어두우면 밴드 안 글자색을 밝은 쪽으로 뒤집는다.
+     */
+    private void drawSkyBand(Canvas c, Paint p) {
+        skyBand = false;
+        if (weather == null) {
+            return;
+        }
+        int icon = weather.icon();
+        if (icon == WeatherService.ICON_NONE) {
+            return;
+        }
+        SkyBackground.Sky sky = SkyBackground.get(icon, weather.isDay(),
+                weather.cloudPercent(), DRIVE_RIGHT, ModelWorldGL.TOP);
+        if (sky == null || sky.bitmap == null || sky.bitmap.isRecycled()) {
+            return;
+        }
+        p.setShader(null);
+        p.setColorFilter(null);
+        p.setAlpha(255);
+        c.drawBitmap(sky.bitmap, 0f, 0f, p);
+        skyBand = true;
+        skyLightInk = sky.lightInk;
+    }
+
+    /** 티맵이 주는 좌표를 날씨 조회에 넘긴다. 실제 요청은 서비스가 판단한다. */
+    private void feedWeather(JSONObject s) {
+        if (weather == null || s == null) {
+            return;
+        }
+        JSONObject navi = s.optJSONObject("navi");
+        JSONObject scene = navi == null ? null : navi.optJSONObject("scene");
+        JSONArray pos = scene == null ? null : scene.optJSONArray("pos");
+        if (pos == null || pos.length() < 2) {
+            return;
+        }
+        weather.onPosition(pos.optDouble(0, Double.NaN), pos.optDouble(1, Double.NaN));
+    }
+
+    /**
+     * 하늘상태 아이콘. PNG 없이 벡터로 그린다.
+     * 구름은 테마색, 해·달·비·눈·번개만 컬러다.
+     */
+    private void drawWeatherIcon(Canvas c, Paint p, float cx, float cy,
+                                 float size, int icon, boolean day) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        float u = size / 26f;
+        switch (icon) {
+            case WeatherService.ICON_CLEAR:
+                if (day) {
+                    drawSunDisc(c, p, cx, cy, 7.5f * u, true);
+                } else {
+                    drawMoon(c, p, cx, cy, 8f * u);
+                }
+                break;
+            case WeatherService.ICON_FEW:
+                if (day) {
+                    drawSunDisc(c, p, cx + 5f * u, cy - 5f * u, 5.5f * u, true);
+                } else {
+                    drawMoon(c, p, cx + 5f * u, cy - 5f * u, 5.5f * u);
+                }
+                drawCloud(c, p, cx - 1f * u, cy + 3f * u, u, ink());
+                break;
+            case WeatherService.ICON_OVERCAST:
+                drawCloud(c, p, cx + 3f * u, cy - 3f * u, u * 0.78f, dim());
+                drawCloud(c, p, cx - 2f * u, cy + 2f * u, u, ink());
+                break;
+            case WeatherService.ICON_FOG:
+                drawCloud(c, p, cx, cy - 3f * u, u * 0.9f, ink());
+                p.setColor(dim());
+                p.setStrokeWidth(2f * u);
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeCap(Paint.Cap.ROUND);
+                c.drawLine(cx - 8f * u, cy + 6f * u, cx + 8f * u, cy + 6f * u, p);
+                c.drawLine(cx - 5f * u, cy + 10f * u, cx + 7f * u, cy + 10f * u, p);
+                p.setStyle(Paint.Style.FILL);
+                break;
+            case WeatherService.ICON_RAIN:
+                drawCloud(c, p, cx, cy - 3f * u, u, ink());
+                p.setColor(wxRain());
+                p.setStrokeWidth(2.2f * u);
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeCap(Paint.Cap.ROUND);
+                for (int i = -1; i <= 1; i++) {
+                    float x = cx + i * 5.5f * u;
+                    c.drawLine(x + 1.5f * u, cy + 5f * u,
+                            x - 1.5f * u, cy + 10f * u, p);
+                }
+                p.setStyle(Paint.Style.FILL);
+                break;
+            case WeatherService.ICON_SNOW:
+                drawCloud(c, p, cx, cy - 3f * u, u, ink());
+                p.setColor(wxSnow());
+                for (int i = -1; i <= 1; i++) {
+                    c.drawCircle(cx + i * 5.5f * u, cy + 8f * u, 1.9f * u, p);
+                }
+                break;
+            case WeatherService.ICON_THUNDER:
+                drawCloud(c, p, cx, cy - 3f * u, u, ink());
+                p.setColor(wxBolt());
+                scratchPath.rewind();
+                scratchPath.moveTo(cx + 1.5f * u, cy + 3f * u);
+                scratchPath.lineTo(cx - 3.5f * u, cy + 11f * u);
+                scratchPath.lineTo(cx - 0.5f * u, cy + 11f * u);
+                scratchPath.lineTo(cx - 2.5f * u, cy + 16f * u);
+                scratchPath.lineTo(cx + 4f * u, cy + 8f * u);
+                scratchPath.lineTo(cx + 0.5f * u, cy + 8f * u);
+                scratchPath.close();
+                c.drawPath(scratchPath, p);
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void drawCloud(Canvas c, Paint p, float cx, float cy, float u, int color) {
+        p.setColor(color);
+        c.drawCircle(cx - 4.5f * u, cy + 0.5f * u, 4.2f * u, p);
+        c.drawCircle(cx + 0.5f * u, cy - 2.2f * u, 5.4f * u, p);
+        c.drawCircle(cx + 5.5f * u, cy + 0.5f * u, 4.0f * u, p);
+        c.drawRect(cx - 4.5f * u, cy + 0.2f * u, cx + 5.5f * u, cy + 4.4f * u, p);
+    }
+
+    private void drawSunDisc(Canvas c, Paint p, float cx, float cy, float r,
+                             boolean rays) {
+        p.setColor(wxSun());
+        c.drawCircle(cx, cy, r, p);
+        if (!rays) {
+            return;
+        }
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(r * 0.30f);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        for (int i = 0; i < 8; i++) {
+            double a = Math.PI * i / 4.0;
+            float sx = cx + (float) Math.cos(a) * r * 1.45f;
+            float sy = cy + (float) Math.sin(a) * r * 1.45f;
+            float ex = cx + (float) Math.cos(a) * r * 1.95f;
+            float ey = cy + (float) Math.sin(a) * r * 1.95f;
+            c.drawLine(sx, sy, ex, ey, p);
+        }
+        p.setStyle(Paint.Style.FILL);
+    }
+
+    private void drawMoon(Canvas c, Paint p, float cx, float cy, float r) {
+        Path full = new Path();
+        full.addCircle(cx, cy, r, Path.Direction.CW);
+        Path bite = new Path();
+        bite.addCircle(cx + r * 0.55f, cy - r * 0.42f, r * 0.88f, Path.Direction.CW);
+        full.op(bite, Path.Op.DIFFERENCE);
+        p.setColor(wxMoon());
+        c.drawPath(full, p);
+    }
+
+    private int wxSun() {
+        return frameDark ? Color.rgb(255, 196, 64) : Color.rgb(240, 164, 24);
+    }
+
+    private int wxMoon() {
+        return frameDark ? Color.rgb(154, 168, 188) : Color.rgb(122, 138, 160);
+    }
+
+    private int wxRain() {
+        return frameDark ? Color.rgb(96, 170, 255) : Color.rgb(38, 120, 214);
+    }
+
+    private int wxSnow() {
+        return frameDark ? Color.rgb(198, 224, 255) : Color.rgb(96, 150, 200);
+    }
+
+    private int wxBolt() {
+        return frameDark ? Color.rgb(255, 206, 84) : Color.rgb(232, 160, 20);
     }
 
     /** 주유기 아이콘. PNG 없이 벡터로 그린다.
