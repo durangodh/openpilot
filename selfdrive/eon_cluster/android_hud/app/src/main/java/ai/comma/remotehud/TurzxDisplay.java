@@ -86,6 +86,18 @@ public final class TurzxDisplay {
     private String lastOpenFailure = "";
     private int openFailureStreak;
 
+    /**
+     * 부팅 직후에는 권한 대화상자를 띄우지 않고 기다린다.
+     *
+     * 패널이 폰보다 먼저 켜지면 USB_DEVICE_ATTACHED 인텐트가 앱이 뜨기 전에
+     * 지나가 버리고, 뒤늦게 requestPermission() 을 부르면 매번 대화상자가
+     * 뜬다. 패널이 부팅화면을 몇 번 반복하는 동안 기다렸다가 재열거로 오는
+     * 인텐트를 받으면 권한이 자동으로 부여돼 대화상자가 없다.
+     */
+    private static final long PERMISSION_GRACE_MS = 25000L;
+    private final long createdElapsed = SystemClock.elapsedRealtime();
+
+
     public TurzxDisplay(Context context) {
         this.context = context;
     }
@@ -101,6 +113,12 @@ public final class TurzxDisplay {
             return "미연결 · 1CBE:0092";
         }
         if (!manager.hasPermission(target)) {
+            // 유예 중에는 왜 대화상자가 안 뜨는지 상태줄에 남긴다.
+            long since = SystemClock.elapsedRealtime() - createdElapsed;
+            if (since < PERMISSION_GRACE_MS) {
+                return "연결됨 · 권한 자동부여 대기 "
+                        + Math.max(1L, (PERMISSION_GRACE_MS - since + 999L) / 1000L) + "초";
+            }
             return "연결됨 · USB 권한 승인 대기";
         }
         if (isOpen()) {
@@ -155,6 +173,11 @@ public final class TurzxDisplay {
             return false;
         }
         if (!manager.hasPermission(device)) {
+            long since = SystemClock.elapsedRealtime() - createdElapsed;
+            if (since < PERMISSION_GRACE_MS) {
+                // 아직 유예 중. 이 사이에 인텐트가 오면 권한이 조용히 붙는다.
+                return false;
+            }
             if (permissionRequestedDeviceId != device.getDeviceId()) {
                 permissionRequestedDeviceId = device.getDeviceId();
                 manager.requestPermission(device, PendingIntent.getBroadcast(context,
