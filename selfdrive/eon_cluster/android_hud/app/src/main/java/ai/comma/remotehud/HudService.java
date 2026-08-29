@@ -30,6 +30,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -61,6 +62,17 @@ import java.util.concurrent.atomic.AtomicReference;
  *  4. EON UDP 가 끊기면 마지막 상태를 그대로 얼려 두지 않고 화면에 알린다.
  *     (v0.18 은 속도 0 인 채로 굳어 패널이 멈춘 것처럼 보였다)
  *  5. USB halt 처리 정리 + 패널 무응답 감시는 TurzxDisplay v0.19 참고.
+ *
+ * v0.19.1 (부팅 USB 재연결 보강)
+ *
+ *  1. onStartCommand 가 부팅 재연결 플래그를 무조건 덮어쓰던 문제 수정.
+ *     30초 대기 중 시스템이 null 인텐트로 서비스를 재시작하면 fromBoot 가
+ *     false 라 예약된 재연결이 통째로 취소됐다.
+ *  2. UsbPortReset.resetPort() 를 메인 스레드에서 부르지 않는다. su 프로세스를
+ *     띄우는 동기 호출이라 ANR 위험이 있었다. 전용 스레드(hud-boot-usb)로 이동.
+ *  3. 1회 시도로 끝나던 것을 8초 간격 3회까지 재시도한다. 이미 패널이 열려
+ *     있으면 멀쩡한 연결을 끊지 않고 빠져나간다.
+ *  4. 재바인딩 실패 사유(루트/sysfs)를 logcat 에도 남긴다. TAG = RemoteHUD.
  */
 public final class HudService extends Service {
 
@@ -71,10 +83,15 @@ public final class HudService extends Service {
     static final String ACTION_RESCAN_USB = "ai.comma.remotehud.RESCAN_USB";
     static final String EXTRA_FROM_BOOT = "ai.comma.remotehud.FROM_BOOT";
 
+    private static final String TAG = "RemoteHUD";
     private static final String CHANNEL = "remote_hud";
     private static final long BOOT_START_DELAY_MS = 30000L;
     /** 부팅 후 USB 재바인딩이 끝난 뒤 패널 재열거를 기다리는 시간. */
     private static final long BOOT_USB_RECONNECT_SETTLE_MS = 2500L;
+    /** 패널이 늦게 올라오는 경우를 대비한 부팅 재바인딩 최대 시도 횟수. */
+    private static final int BOOT_USB_RECONNECT_MAX_TRIES = 3;
+    /** 부팅 재바인딩 재시도 간격. */
+    private static final long BOOT_USB_RECONNECT_RETRY_MS = 8000L;
 
     private static final int WIDTH = 1920;
     private static final int HEIGHT = 462;
@@ -228,7 +245,8 @@ public final class HudService extends Service {
     private final Paint phonePreviewPaint = new Paint(
             Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
     private final RectF phoneViewport = new RectF();
-    private long nextUsbAttemptElapsed;
+    /** 부팅 재연결 스레드에서도 갱신하므로 volatile 이어야 한다. */
+    private volatile long nextUsbAttemptElapsed;
     private long nextOpenStallRecoverElapsed;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Matrix outMatrix = new Matrix();
@@ -432,8 +450,11 @@ public final class HudService extends Service {
         acquireWakeLock();
 
         boolean fromBoot = intent != null && intent.getBooleanExtra(EXTRA_FROM_BOOT, false);
-        bootUsbReconnectPending = fromBoot;
+        // 30초 대기 중에 시스템이 null 인텐트로 서비스를 재시작(START_STICKY)하면
+        // fromBoot 가 false 라, 그냥 대입하면 예약된 부팅 재연결이 통째로 취소된다.
+        // 한 번 켜진 플래그는 startWorkers() 가 소비할 때까지 유지한다.
         if (fromBoot) {
+            bootUsbReconnectPending = true;
             usbStatus = "부팅 대기 30초";
             starter.postDelayed(new Runnable() {
                 @Override
@@ -457,23 +478,21 @@ public final class HudService extends Service {
 
         // 외부 패널과 S9에 동시에 전원이 들어오면 패널이 먼저 부팅되어 호스트를
         // 기다리다가 연결을 포기하는 경우가 있다. 수동으로 C핀을 뺐다 꽂으면
-        // 살아나는 것과 같은 동작을, S9 부팅 지연이 끝난 이 시점에 딱 한 번 한다.
-        // 일반 앱 실행/재시작에서는 이미 정상인 USB를 끊지 않도록 부팅 경로에만
-        // 적용한다.
-        if (bootUsbReconnectPending) {
-            bootUsbReconnectPending = false;
+        // 살아나는 것과 같은 동작을 부팅 경로에서만 한다. 일반 앱 실행/재시작에서는
+        // 이미 정상인 USB 를 끊지 않는다.
+        //
+        // UsbPortReset.resetPort() 는 su 프로세스를 띄우고 sysfs 에 쓰는 동기
+        // 호출이라 메인 스레드에서 직접 부르면 ANR 위험이 있다. 전용 스레드로
+        // 넘기되, 렌더 스레드가 리셋 도중에 포트를 열어버리지 않도록 첫 시도
+        // 시각만 여기서 미리 미뤄 둔다.
+        boolean bootReconnect = bootUsbReconnectPending;
+        bootUsbReconnectPending = false;
+        if (bootReconnect) {
             usbStatus = "부팅 완료 · 외부 HUD USB 자동 재연결 중";
-            boolean reset = UsbPortReset.resetPort(null);
-            display.reset();
-            if (reset) {
-                nextUsbAttemptElapsed = SystemClock.elapsedRealtime()
-                        + BOOT_USB_RECONNECT_SETTLE_MS;
-                usbStatus = "부팅 완료 · 외부 HUD 재인식 대기";
-            } else {
-                // 루트 권한이나 sysfs 포트를 찾지 못해도 기존 자동 검색은 계속한다.
-                usbStatus = "휴대폰 HUD 실행 · 외부 USB 검색 중";
-            }
+            nextUsbAttemptElapsed = SystemClock.elapsedRealtime()
+                    + BOOT_USB_RECONNECT_SETTLE_MS;
         }
+
         receiverThread = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -502,6 +521,64 @@ public final class HudService extends Service {
         mapThread.start();
         renderThread.start();
         statsThread.start();
+
+        if (bootReconnect) {
+            startBootUsbReconnect();
+        }
+    }
+
+    /**
+     * 부팅 경로 전용 USB 포트 재바인딩. 패널이 늦게 올라오는 경우를 대비해
+     * 아직 안 붙었을 때만 일정 간격으로 몇 번 더 시도한다. 이미 열려 있으면
+     * 멀쩡한 연결을 끊지 않고 그대로 끝낸다.
+     *
+     * 30초 부팅 지연 + 8초 간격 3회 = 부팅 후 약 30~54초 구간을 덮는다.
+     * 그래도 못 잡으면 BOOT_START_DELAY_MS 를 늘리는 쪽이 맞다.
+     */
+    private void startBootUsbReconnect() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                for (int attempt = 1; attempt <= BOOT_USB_RECONNECT_MAX_TRIES; attempt++) {
+                    if (!running.get()) {
+                        return;
+                    }
+                    TurzxDisplay panel = display;
+                    if (panel == null) {
+                        return;
+                    }
+                    if (panel.isOpen()) {
+                        return;
+                    }
+                    usbStatus = "외부 HUD USB 재연결 " + attempt + "/"
+                            + BOOT_USB_RECONNECT_MAX_TRIES;
+                    boolean reset = UsbPortReset.resetPort(panel.deviceNameOrNull());
+                    panel.reset();
+                    if (!reset) {
+                        // 루트 권한이 없거나 sysfs 포트를 못 찾은 것이라
+                        // 재시도해도 결과가 같다. 기존 자동 검색에 맡긴다.
+                        Log.w(TAG, "boot usb port reset failed (root/sysfs), attempt=" + attempt);
+                        usbStatus = "휴대폰 HUD 실행 · 외부 USB 검색 중";
+                        return;
+                    }
+                    nextUsbAttemptElapsed = SystemClock.elapsedRealtime()
+                            + BOOT_USB_RECONNECT_SETTLE_MS;
+                    usbStatus = "부팅 완료 · 외부 HUD 재인식 대기";
+                    try {
+                        Thread.sleep(BOOT_USB_RECONNECT_RETRY_MS);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+                TurzxDisplay panel = display;
+                if (panel == null || !panel.isOpen()) {
+                    Log.w(TAG, "boot usb reconnect exhausted after "
+                            + BOOT_USB_RECONNECT_MAX_TRIES + " tries");
+                    usbStatus = "휴대폰 HUD 실행 · 외부 USB 검색 중";
+                }
+            }
+        }, "hud-boot-usb").start();
     }
 
     private void acquireWakeLock() {
