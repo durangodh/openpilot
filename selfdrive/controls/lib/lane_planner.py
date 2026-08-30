@@ -125,7 +125,10 @@ class LanePlanner:
         self.frame += 1
         if self.frame > 20:
           self.frame = 0
-          current_lane_width = clip(abs(self.rll_y[0] - self.lll_y[0]), 2.5, 3.5)
+          # 2.5m에서 잘라버리면 아래의 carrot c3 좁은 차로
+          # 분기(self.lane_width < 2.5)가 실행될 수 없다. 비정상
+          # 오인식은 2.0m 하한으로 방어하고 실제 좁은 차로는 유지한다.
+          current_lane_width = clip(abs(self.rll_y[0] - self.lll_y[0]), 2.0, 3.5)
           self.readings.append(current_lane_width)
           self.lane_width = mean(self.readings)
           if len(self.readings) >= 30:
