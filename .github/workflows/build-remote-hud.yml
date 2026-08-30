@@ -3,7 +3,7 @@ name: Build Galaxy S9 Remote HUD APK
 on:
   workflow_dispatch:
   push:
-    branches: [g_abcd]
+    branches: [g_abcd, g_hud]
     paths:
       - "selfdrive/eon_cluster/android_hud/**"
       - ".github/workflows/build-remote-hud.yml"
