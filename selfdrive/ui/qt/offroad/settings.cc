@@ -1787,6 +1787,16 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(horizontal_line());
 
+  // carrot c3 차선 경로 선행 입력 보상
+  list->addItem(new ParamValueControlF("LatMpcInputOffset",
+      "LATMPC INPUT OFFSET",
+      "차선 경로를 MPC에 앞서 입력하는 보상값입니다.\n"
+      "값 증가(+): 커브에 더 일찍 진입 / 값 감소(-): 더 늦게 진입.\n"
+      "범위: 0 ~ 20  /  기본값: 4 (=0.04)",
+      "../assets/offroad/icon_road.png", 0, 20, 1, 0, 4, this));
+
+  list->addItem(horizontal_line());
+
   // ── Laneless Offset ──────────────────────────────────────────
   auto *laneless_offset = new LanelessOffsetControl(
       "레인리스 좌우보정",
