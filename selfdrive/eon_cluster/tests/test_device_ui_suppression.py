@@ -196,14 +196,15 @@ def test_external_map_renderer_is_completely_removed():
   assert "GLES20.glFinish()" not in renderer
 
 
-def test_s9_v5_visual_layers_use_existing_telemetry_only():
+def test_s9_v6_visual_layers_and_local_map_context():
   java = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
           "main" / "java" / "ai" / "comma" / "remotehud")
   renderer = (java / "ModelWorldGL.java").read_text(encoding="utf-8")
   sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(
       encoding="utf-8")
 
-  assert '"v": 5' in sender
+  assert '"v": 6' in sender
+  assert '"mapPose": map_pose' in sender
   assert '"desiredDistance":' in sender
   assert "drawPathLayers" in renderer
   assert "leadDistance[0] - 2.6f" in renderer
@@ -216,6 +217,9 @@ def test_s9_v5_visual_layers_use_existing_telemetry_only():
   # MAX_POINTS 로 한계 지어져 있다는 사실만 확인한다.
   assert renderer.count("new float[MAX_POINTS]") >= 5
   assert "bsdInnerX" in renderer and "bsdOuterX" in renderer
+  assert "drawMapContext" in renderer
+  assert "HudMapStore" in renderer
+  assert (java / "HudMapStore.java").exists()
 
 
 def test_android_hud_receiver_uses_s9_proven_direct_binding():

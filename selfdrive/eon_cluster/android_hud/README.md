@@ -1,5 +1,28 @@
 # Android remote HUD (experimental)
 
+> **v1.06 local map context** — `ModelWorldGL` keeps the modelV2 road
+> authoritative and draws an optional S9-local SQLite road/building layer
+> underneath it. The database path is
+> `/sdcard/Android/data/ai.comma.remotehud/files/hud_map.sqlite`.
+>
+> Build the database directly from WGS84 GeoJSON or VWorld/NGII SHP ZIPs:
+>
+> ```sh
+> python selfdrive/eon_cluster/tools/build_hud_map_db.py \
+>   --building-shp-zip F_FAC_BUILDING_경기_오산시.zip \
+>   --building-shp-zip F_FAC_BUILDING_경기_화성시_효행구.zip \
+>   --building-shp-zip F_FAC_BUILDING_경기_화성시_만세구.zip \
+>   --building-shp-zip F_FAC_BUILDING_경기_화성시_병점구.zip \
+>   --building-shp-zip F_FAC_BUILDING_경기_화성시_동탄구.zip \
+>   --road-shp-zip '(연속수치지형도)도로중심선_경기.zip' \
+>   --output hud_map.sqlite
+> adb push hud_map.sqlite \
+>   /sdcard/Android/data/ai.comma.remotehud/files/hud_map.sqlite
+> ```
+>
+> Tile loading and JSON decoding run outside the render thread. At most 70
+> visible buildings are drawn, with no facade textures, shadows or trees.
+
 > **현재 상태 (v0.89)** — 주행씬 렌더러는 `ModelWorldGL.java` 하나뿐이다.
 > Canvas 판 `World3D.java` 와 그 전용 요소(건물 · 정지선 · 노면 제한속도 ·
 > 과속방지턱 · 티맵 차로선 · 가드레일 · 헤이즈)는 제거됐고, 파라미터

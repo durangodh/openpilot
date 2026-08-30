@@ -1154,7 +1154,7 @@ public final class HudService extends Service {
         boolean glDrawn = false;
         if (!stale) {
             if (modelWorldGl == null) {
-                modelWorldGl = new ModelWorldGL();
+                modelWorldGl = new ModelWorldGL(this);
             }
             glDrawn = modelWorldGl.draw(c, p, s, enabled, driveBg, roadTop,
                     roadBottom, pathColor, frameDark,

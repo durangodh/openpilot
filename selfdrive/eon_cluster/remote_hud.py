@@ -895,10 +895,22 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   tpms = _field(car, "tpms", None)
   navi = _read_navi_summary()
   _compensate_navi_pose(navi, _finite(_field(car, "vEgo", 0.0)))
-  # Position is consumed locally to align the TMAP curve.  The Android HUD
-  # only needs the resulting vehicle-frame curve, so do not transmit raw GPS.
+  # Preserve the compensated TMAP pose for the phone-local, display-only map
+  # context before removing it from the diagnostic/navigation object.
+  map_pose = None
   navi_scene = navi.get("scene") if isinstance(navi, dict) else None
   if isinstance(navi_scene, dict):
+    raw_map_pose = navi_scene.get("pos")
+    if isinstance(raw_map_pose, list) and len(raw_map_pose) >= 3:
+      try:
+        candidate = [float(raw_map_pose[0]), float(raw_map_pose[1]),
+                     float(raw_map_pose[2])]
+        if (all(math.isfinite(value) for value in candidate) and
+            -85.0 <= candidate[0] <= 85.0 and -180.0 <= candidate[1] <= 180.0):
+          map_pose = [round(candidate[0], 6), round(candidate[1], 6),
+                      round(candidate[2], 1)]
+      except (TypeError, ValueError):
+        pass
     navi_scene.pop("pos", None)
     navi_scene.pop("posAgeMs", None)
   raw_lane_position = camera_lane_position(sm["modelV2"])
@@ -946,8 +958,9 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   # coordinates.  The MPC ribbon is a separate control prediction and must
   # never drag the perceived road sideways on the HUD.
   return {
-    "v": 5,
+    "v": 6,
     "t": int(time.time() * 1000),
+    "mapPose": map_pose,
     "layout": REMOTE_LAYOUT,
     "speed": int(round(_finite(_field(car, "vEgoCluster", _field(car, "vEgo", 0.0))) * 3.6)),
     "set": _set_speed(controls, sm["carControl"]),

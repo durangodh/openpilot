@@ -1,5 +1,6 @@
 package ai.comma.remotehud;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -23,8 +24,8 @@ import java.nio.IntBuffer;
 /**
  * Fifth-stage modelV2-only road renderer.
  *
- * The renderer deliberately has no external map, buildings, textures or lighting.
- * It keeps model geometry authoritative, adds a separately gated TMAP route
+ * The renderer keeps model geometry authoritative and can place a lightweight
+ * phone-local building/road context underneath it. It adds a separately gated TMAP route
  * trace, holds brief radar dropouts, and releases EGL on renderer shutdown.
  * Geometry is projected with the fork's established camera constants, then an
  * unlit OpenGL ES 2.0 shader draws road, observed boundaries, lane lines and
@@ -106,6 +107,8 @@ final class ModelWorldGL {
     private final float[] projected = new float[2];
     private final float[] lineScreenX = new float[MAX_POINTS];
     private final float[] lineScreenY = new float[MAX_POINTS];
+    private final float[] mapBaseX = new float[MAX_POINTS];
+    private final float[] mapBaseY = new float[MAX_POINTS];
     // 앞차를 자차와 같은 그림으로 그리기 위한 화면 좌표. GL 은 텍스처를 쓰지
     // 않으므로 위치만 계산해 두고 비트맵은 HudService 가 Canvas 로 얹는다.
     private final float[] leadSpriteX = new float[2];
@@ -137,6 +140,8 @@ final class ModelWorldGL {
     private final Line[] smoothedLanes = {new Line(), new Line(), new Line(), new Line()};
     private final Line[] smoothedEdges = {new Line(), new Line()};
     private final Line smoothedRoute = new Line();
+    private final Line mapLine = new Line();
+    private final HudMapStore mapStore;
     private final float[] laneConfidence = new float[4];
     private final boolean[] laneVisible = new boolean[4];
     private final float[] leadDistance = new float[2];
@@ -144,6 +149,10 @@ final class ModelWorldGL {
     private final float[] leadAcceleration = new float[2];
     private final long[] leadLastSeenTimestamp = new long[2];
     private final boolean[] leadSeen = new boolean[2];
+
+    ModelWorldGL(Context context) {
+        mapStore = new HudMapStore(context.getApplicationContext());
+    }
 
     boolean draw(Canvas canvas, Paint paint, JSONObject scene, boolean enabled,
                  int driveBg, int roadTop, int roadBottom, int pathColor,
@@ -342,6 +351,11 @@ final class ModelWorldGL {
                 : blend(driveBg, Color.BLACK, 0.10f);
         drawRect(0f, 0f, WIDTH, Math.max(0f, HORIZON + horizonShift - TOP), sky);
         drawRect(0f, Math.max(0f, HORIZON + horizonShift - TOP), WIDTH, HEIGHT, ground);
+
+        // The local vector context is deliberately below the camera-observed
+        // model road, lanes, route and cars. GPS error therefore cannot move
+        // any driving-critical overlay.
+        drawMapContext(scene, path, dark);
 
         Line rawLeftEdge = null;
         Line rawRightEdge = null;
@@ -712,6 +726,123 @@ final class ModelWorldGL {
             vertices[v++] = ndcY(projected[1] - TOP);
         }
         drawVertices(GLES20.GL_TRIANGLE_STRIP, v / 2, color, 1f);
+    }
+
+    private void drawMapContext(JSONObject scene, Line roadHeight, boolean dark) {
+        JSONArray pose = scene.optJSONArray("mapPose");
+        if (pose == null || pose.length() < 3) {
+            return;
+        }
+        double lat = pose.optDouble(0, Double.NaN);
+        double lon = pose.optDouble(1, Double.NaN);
+        double heading = pose.optDouble(2, Double.NaN);
+        if (!Double.isFinite(lat) || !Double.isFinite(lon) || !Double.isFinite(heading)
+                || lat < -85.0 || lat > 85.0 || lon < -180.0 || lon > 180.0) {
+            return;
+        }
+        mapStore.update(lat, lon);
+        HudMapStore.Snapshot snapshot = mapStore.snapshot();
+        if (snapshot == HudMapStore.Snapshot.EMPTY) {
+            return;
+        }
+        double headingRad = Math.toRadians(heading);
+        double sinHeading = Math.sin(headingRad);
+        double cosHeading = Math.cos(headingRad);
+        double metersLat = 111320.0;
+        double metersLon = metersLat * Math.max(0.1, Math.cos(Math.toRadians(lat)));
+
+        int roadColor = dark ? Color.rgb(54, 62, 70) : Color.rgb(183, 189, 193);
+        for (HudMapStore.Road road : snapshot.roads) {
+            if (!fillLocalLine(road.lat, road.lon, lat, lon, metersLat, metersLon,
+                    sinHeading, cosHeading, 2)) {
+                continue;
+            }
+            drawWorldRibbon(mapLine, roadHeight, roadColor,
+                    clamp(road.width * 0.5f, 1.25f, 9f), dark ? 0.34f : 0.26f, 0.008f);
+        }
+
+        int walls = dark ? Color.rgb(65, 75, 87) : Color.rgb(174, 182, 188);
+        int roofs = dark ? Color.rgb(85, 96, 108) : Color.rgb(205, 211, 215);
+        int visible = 0;
+        // The loader sorts near-to-far; draw in reverse so nearer blocks cover
+        // distant ones without needing a depth buffer.
+        for (int i = snapshot.buildings.length - 1; i >= 0 && visible < 70; i--) {
+            HudMapStore.Building building = snapshot.buildings[i];
+            if (!fillLocalLine(building.lat, building.lon, lat, lon, metersLat, metersLon,
+                    sinHeading, cosHeading, 3) || !mapFeatureVisible(mapLine)) {
+                continue;
+            }
+            drawMapBuilding(mapLine, roadHeight, building.height, walls, roofs);
+            visible++;
+        }
+    }
+
+    private boolean fillLocalLine(double[] latitudes, double[] longitudes,
+                                  double lat0, double lon0,
+                                  double metersLat, double metersLon,
+                                  double sinHeading, double cosHeading,
+                                  int minimum) {
+        mapLine.count = 0;
+        int count = Math.min(Math.min(latitudes.length, longitudes.length), MAX_POINTS);
+        for (int i = 0; i < count; i++) {
+            double east = (longitudes[i] - lon0) * metersLon;
+            double north = (latitudes[i] - lat0) * metersLat;
+            float forward = (float) (east * sinHeading + north * cosHeading);
+            float lateral = (float) (north * sinHeading - east * cosHeading);
+            if (!Float.isFinite(forward) || !Float.isFinite(lateral)) {
+                continue;
+            }
+            int n = mapLine.count++;
+            mapLine.x[n] = forward;
+            mapLine.y[n] = lateral;
+            mapLine.z[n] = 0f;
+        }
+        return mapLine.count >= minimum;
+    }
+
+    private static boolean mapFeatureVisible(Line line) {
+        float x = 0f;
+        float y = 0f;
+        for (int i = 0; i < line.count; i++) {
+            x += line.x[i];
+            y += line.y[i];
+        }
+        x /= line.count;
+        y /= line.count;
+        return x >= -14f && x <= 175f && Math.abs(y) <= 72f;
+    }
+
+    private void drawMapBuilding(Line footprint, Line roadHeight, float height,
+                                 int wallColor, int roofColor) {
+        int count = footprint.count;
+        if (count < 3) return;
+        for (int i = 0; i < count; i++) {
+            float baseZ = zAt(roadHeight, Math.max(0f, footprint.x[i])) * roadZGain;
+            if (!project(footprint.x[i], footprint.y[i], baseZ, projected)) return;
+            mapBaseX[i] = projected[0];
+            mapBaseY[i] = projected[1] - TOP;
+            if (!project(footprint.x[i], footprint.y[i], baseZ + height, projected)) return;
+            lineScreenX[i] = projected[0];
+            lineScreenY[i] = projected[1] - TOP;
+        }
+
+        int v = 0;
+        for (int i = 0; i < count && v + 12 <= vertices.length; i++) {
+            int next = (i + 1) % count;
+            v = addTriangle(v, mapBaseX[i], mapBaseY[i], mapBaseX[next], mapBaseY[next],
+                    lineScreenX[i], lineScreenY[i]);
+            v = addTriangle(v, lineScreenX[i], lineScreenY[i], mapBaseX[next], mapBaseY[next],
+                    lineScreenX[next], lineScreenY[next]);
+        }
+        drawVertices(GLES20.GL_TRIANGLES, v / 2, wallColor, 0.84f);
+
+        v = 0;
+        for (int i = 1; i + 1 < count && v + 6 <= vertices.length; i++) {
+            v = addTriangle(v, lineScreenX[0], lineScreenY[0],
+                    lineScreenX[i], lineScreenY[i],
+                    lineScreenX[i + 1], lineScreenY[i + 1]);
+        }
+        drawVertices(GLES20.GL_TRIANGLES, v / 2, roofColor, 0.90f);
     }
 
     private void drawPathLayers(Line path, int color, float maxX) {
@@ -1258,6 +1389,7 @@ final class ModelWorldGL {
     }
 
     void release() {
+        mapStore.close();
         if (display != EGL14.EGL_NO_DISPLAY) {
             EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE,
                     EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT);

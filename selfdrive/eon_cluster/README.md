@@ -27,4 +27,8 @@ The display layout is selected with `EonClusterHudLayoutMode`: mode 1 shows driv
 
 TMAP render files are written atomically under `/dev/shm`. Only validated JPEG frames refresh the map watchdog. A stale map is removed after five seconds even if the TMAP control socket disconnects, and a later valid frame recreates it automatically.
 
-The S9 application must support telemetry protocol v4 and the TCP asset tags `MAP1`, `TBT1`, `TBT2`, and `LANE`.
+The S9 application must support telemetry protocol v6 and the TCP asset tags `MAP1`, `TBT1`, `TBT2`, and `LANE`.
+
+Protocol v6 optionally publishes `mapPose` (TMAP vehicle latitude, longitude,
+heading) for the S9-local display context. It is never consumed by vehicle
+control. If `hud_map.sqlite` is absent, rendering remains model-only.
