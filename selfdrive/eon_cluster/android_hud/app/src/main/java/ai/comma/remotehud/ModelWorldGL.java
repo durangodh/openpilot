@@ -109,6 +109,7 @@ final class ModelWorldGL {
     private final float[] lineScreenY = new float[MAX_POINTS];
     private final float[] mapBaseX = new float[MAX_POINTS];
     private final float[] mapBaseY = new float[MAX_POINTS];
+    private final int[] visibleMapBuildings = new int[70];
     private final int[] mapIndices = new int[MAX_POINTS];
     // 앞차를 자차와 같은 그림으로 그리기 위한 화면 좌표. GL 은 텍스처를 쓰지
     // 않으므로 위치만 계산해 두고 비트맵은 HudService 가 Canvas 로 얹는다.
@@ -772,16 +773,26 @@ final class ModelWorldGL {
         int walls = dark ? Color.rgb(65, 75, 87) : Color.rgb(174, 182, 188);
         int roofs = dark ? Color.rgb(85, 96, 108) : Color.rgb(205, 211, 215);
         int visible = 0;
-        // The loader sorts near-to-far; draw in reverse so nearer blocks cover
-        // distant ones without needing a depth buffer.
-        for (int i = snapshot.buildings.length - 1; i >= 0 && visible < 70; i--) {
+        // The loader sorts near-to-far. Select the nearest visible blocks first;
+        // selecting from the array tail would discard the buildings around the car.
+        for (int i = 0; i < snapshot.buildings.length
+                && visible < visibleMapBuildings.length; i++) {
             HudMapStore.Building building = snapshot.buildings[i];
             if (!fillLocalLine(building.lat, building.lon, lat, lon, metersLat, metersLon,
                     sinHeading, cosHeading, 3) || !mapFeatureVisible(mapLine)) {
                 continue;
             }
+            visibleMapBuildings[visible++] = i;
+        }
+        // Draw the selected near set far-to-near so nearer blocks cover distant
+        // ones without allocating a depth buffer or per-frame collections.
+        for (int selected = visible - 1; selected >= 0; selected--) {
+            HudMapStore.Building building = snapshot.buildings[visibleMapBuildings[selected]];
+            if (!fillLocalLine(building.lat, building.lon, lat, lon, metersLat, metersLon,
+                    sinHeading, cosHeading, 3)) {
+                continue;
+            }
             drawMapBuilding(mapLine, roadHeight, building.height, walls, roofs);
-            visible++;
         }
     }
 

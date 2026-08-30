@@ -216,9 +216,11 @@ def test_s9_v6_visual_layers_and_local_map_context():
   # 개수를 못 박으면 렌더러에 버퍼가 하나 늘 때마다 깨진다. 화면좌표 버퍼가
   # MAX_POINTS 로 한계 지어져 있다는 사실만 확인한다.
   assert renderer.count("new float[MAX_POINTS]") >= 5
-  assert "bsdInnerX" in renderer and "bsdOuterX" in renderer
+  assert "drawBsd" in renderer and "bsdWarning" in renderer and "bsdArcChunk" in renderer
   assert "drawMapContext" in renderer
   assert "HudMapStore" in renderer
+  assert "visibleMapBuildings" in renderer
+  assert "visibleMapBuildings[visible++] = i" in renderer
   assert (java / "HudMapStore.java").exists()
 
 
