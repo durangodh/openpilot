@@ -168,6 +168,21 @@ public final class HudService extends Service {
     private TurzxDisplay display;
     private Bitmap egoCar;
     private final float[] leadSpriteInfo = new float[3];
+    // 채도 0 + 밝기 0.82. 자차 그림을 앞차로 재사용할 때만 적용한다.
+    private static final ColorMatrixColorFilter leadTint = buildLeadTint();
+
+    private static ColorMatrixColorFilter buildLeadTint() {
+        ColorMatrix m = new ColorMatrix();
+        m.setSaturation(0f);
+        ColorMatrix dim = new ColorMatrix(new float[] {
+                0.82f, 0f, 0f, 0f, 0f,
+                0f, 0.82f, 0f, 0f, 0f,
+                0f, 0f, 0.82f, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f
+        });
+        m.postConcat(dim);
+        return new ColorMatrixColorFilter(m);
+    }
     private Bitmap speedBumpImage;
     /** 회전종류(TURN_*) 별 실제 화살표 그림. 없는 칸은 벡터로 폴백한다. */
     private final Bitmap[] turnImages = new Bitmap[10];
@@ -937,10 +952,12 @@ public final class HudService extends Service {
         float bottom = info[1];
         scratchRect.set(left, bottom - height, left + width, bottom);
         p.setShader(null);
-        p.setColorFilter(null);
+        // 앞차는 자차와 같은 그림을 쓰므로 채도를 빼고 살짝 어둡게 해서 구분한다.
+        p.setColorFilter(leadTint);
         p.setFilterBitmap(true);
         p.setAlpha(Math.max(0, Math.min(255, Math.round(alpha * 255f))));
         c.drawBitmap(egoCar, null, scratchRect, p);
+        p.setColorFilter(null);
         if (braking) {
             // 제동 중이면 뒷면 좌우에 붉은 표시. 그림 자체에는 등이 없다.
             p.setStyle(Paint.Style.FILL);
@@ -1603,7 +1620,9 @@ public final class HudService extends Service {
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeCap(Paint.Cap.BUTT);
 
-        int railColor = frameDark ? Color.rgb(74, 88, 108) : Color.rgb(150, 158, 166);
+        // 밝은 실내광에서 라이트테마 레일(150,158,166)이 흰 배경에 묻혀 안 보였다.
+        // 순정 계기판 링 색을 추출한 값으로 양 테마 통일한다.
+        int railColor = Color.rgb(72, 96, 104);
         int railRed = Color.rgb(226, 72, 77);
 
         // 바깥/안쪽 레일. 바깥면은 예전 아크(r=106, 굵기 10)와 같은 111 이라

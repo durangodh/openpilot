@@ -621,7 +621,7 @@ final class ModelWorldGL {
             return;
         }
         float scale = FOCAL / (distance + CAM_BACK);
-        float width = clamp(1.88f * scale, secondary ? 8f : 10f, secondary ? 38f : 52f);
+        float width = clamp(1.88f * scale, secondary ? 8f : 10f, secondary ? 38f : 44f);
         float height = clamp(0.86f * scale, secondary ? 5f : 7f, secondary ? 18f : 25f);
         int shadow = dark ? Color.rgb(4, 7, 10) : Color.rgb(58, 63, 68);
         int body = secondary
@@ -635,7 +635,8 @@ final class ModelWorldGL {
             // 원근 계산을 쓰므로 거리에 따른 축소가 그대로 유지된다.
             leadSpriteX[index] = sx;
             leadSpriteY[index] = sy + TOP;
-            leadSpriteW[index] = width * 1.34f;
+            // 1.34 배는 근거리에서 자차(78px)와 거의 같은 크기가 되어 과했다.
+            leadSpriteW[index] = width * 1.05f;
             leadSpriteAlpha[index] = (secondary ? 0.72f : 1f) * holdAlpha;
             leadSpriteBraking[index] = leadAcceleration[index] < -0.45f;
             leadSpriteValid[index] = true;
