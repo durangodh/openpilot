@@ -109,6 +109,7 @@ final class ModelWorldGL {
     private final float[] lineScreenY = new float[MAX_POINTS];
     private final float[] mapBaseX = new float[MAX_POINTS];
     private final float[] mapBaseY = new float[MAX_POINTS];
+    private final int[] mapIndices = new int[MAX_POINTS];
     // 앞차를 자차와 같은 그림으로 그리기 위한 화면 좌표. GL 은 텍스처를 쓰지
     // 않으므로 위치만 계산해 두고 비트맵은 HudService 가 Canvas 로 얹는다.
     private final float[] leadSpriteX = new float[2];
@@ -751,6 +752,13 @@ final class ModelWorldGL {
         double metersLat = 111320.0;
         double metersLon = metersLat * Math.max(0.1, Math.cos(Math.toRadians(lat)));
 
+        drawMapAreas(snapshot.waters, lat, lon, metersLat, metersLon,
+                sinHeading, cosHeading, roadHeight,
+                dark ? Color.rgb(40, 73, 91) : Color.rgb(117, 166, 187), 0.76f);
+        drawMapAreas(snapshot.greens, lat, lon, metersLat, metersLon,
+                sinHeading, cosHeading, roadHeight,
+                dark ? Color.rgb(45, 76, 60) : Color.rgb(128, 167, 133), 0.68f);
+
         int roadColor = dark ? Color.rgb(54, 62, 70) : Color.rgb(183, 189, 193);
         for (HudMapStore.Road road : snapshot.roads) {
             if (!fillLocalLine(road.lat, road.lon, lat, lon, metersLat, metersLon,
@@ -773,6 +781,22 @@ final class ModelWorldGL {
                 continue;
             }
             drawMapBuilding(mapLine, roadHeight, building.height, walls, roofs);
+            visible++;
+        }
+    }
+
+    private void drawMapAreas(HudMapStore.Area[] areas,
+                              double lat, double lon, double metersLat, double metersLon,
+                              double sinHeading, double cosHeading, Line roadHeight,
+                              int color, float alpha) {
+        int visible = 0;
+        for (int i = areas.length - 1; i >= 0 && visible < 50; i--) {
+            HudMapStore.Area area = areas[i];
+            if (!fillLocalLine(area.lat, area.lon, lat, lon, metersLat, metersLon,
+                    sinHeading, cosHeading, 3) || !mapFeatureVisible(mapLine)) {
+                continue;
+            }
+            drawMapArea(mapLine, roadHeight, color, alpha);
             visible++;
         }
     }
@@ -801,15 +825,88 @@ final class ModelWorldGL {
     }
 
     private static boolean mapFeatureVisible(Line line) {
-        float x = 0f;
-        float y = 0f;
+        float minX = Float.POSITIVE_INFINITY;
+        float maxX = Float.NEGATIVE_INFINITY;
+        float minY = Float.POSITIVE_INFINITY;
+        float maxY = Float.NEGATIVE_INFINITY;
         for (int i = 0; i < line.count; i++) {
-            x += line.x[i];
-            y += line.y[i];
+            minX = Math.min(minX, line.x[i]);
+            maxX = Math.max(maxX, line.x[i]);
+            minY = Math.min(minY, line.y[i]);
+            maxY = Math.max(maxY, line.y[i]);
         }
-        x /= line.count;
-        y /= line.count;
-        return x >= -14f && x <= 175f && Math.abs(y) <= 72f;
+        return maxX >= -14f && minX <= 175f && maxY >= -72f && minY <= 72f;
+    }
+
+    private void drawMapArea(Line area, Line roadHeight, int color, float alpha) {
+        int count = area.count;
+        if (count < 3) return;
+        for (int i = 0; i < count; i++) {
+            float z = zAt(roadHeight, Math.max(0f, area.x[i])) * roadZGain + 0.004f;
+            if (!project(area.x[i], area.y[i], z, projected)) return;
+            mapBaseX[i] = projected[0];
+            mapBaseY[i] = projected[1] - TOP;
+            mapIndices[i] = i;
+        }
+
+        float signedArea = 0f;
+        for (int i = 0; i < count; i++) {
+            int next = (i + 1) % count;
+            signedArea += area.x[i] * area.y[next] - area.x[next] * area.y[i];
+        }
+        float orientation = signedArea >= 0f ? 1f : -1f;
+        int remaining = count;
+        int vertex = 0;
+        int guard = count * count;
+        while (remaining > 2 && guard-- > 0 && vertex + 6 <= vertices.length) {
+            boolean clipped = false;
+            for (int position = 0; position < remaining; position++) {
+                int previous = mapIndices[(position + remaining - 1) % remaining];
+                int current = mapIndices[position];
+                int next = mapIndices[(position + 1) % remaining];
+                float cross = triangleCross(area.x[previous], area.y[previous],
+                        area.x[current], area.y[current], area.x[next], area.y[next]);
+                if (cross * orientation <= 0.0001f) continue;
+                boolean contains = false;
+                for (int testPosition = 0; testPosition < remaining; testPosition++) {
+                    int test = mapIndices[testPosition];
+                    if (test == previous || test == current || test == next) continue;
+                    if (pointInTriangle(area.x[test], area.y[test],
+                            area.x[previous], area.y[previous], area.x[current], area.y[current],
+                            area.x[next], area.y[next])) {
+                        contains = true;
+                        break;
+                    }
+                }
+                if (contains) continue;
+                vertex = addTriangle(vertex, mapBaseX[previous], mapBaseY[previous],
+                        mapBaseX[current], mapBaseY[current], mapBaseX[next], mapBaseY[next]);
+                for (int shift = position; shift + 1 < remaining; shift++) {
+                    mapIndices[shift] = mapIndices[shift + 1];
+                }
+                remaining--;
+                clipped = true;
+                break;
+            }
+            if (!clipped) break;
+        }
+        if (vertex > 0) drawVertices(GLES20.GL_TRIANGLES, vertex / 2, color, alpha);
+    }
+
+    private static float triangleCross(float ax, float ay, float bx, float by,
+                                       float cx, float cy) {
+        return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    }
+
+    private static boolean pointInTriangle(float px, float py,
+                                           float ax, float ay, float bx, float by,
+                                           float cx, float cy) {
+        float ab = triangleCross(ax, ay, bx, by, px, py);
+        float bc = triangleCross(bx, by, cx, cy, px, py);
+        float ca = triangleCross(cx, cy, ax, ay, px, py);
+        boolean negative = ab < 0f || bc < 0f || ca < 0f;
+        boolean positive = ab > 0f || bc > 0f || ca > 0f;
+        return !(negative && positive);
     }
 
     private void drawMapBuilding(Line footprint, Line roadHeight, float height,

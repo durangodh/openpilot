@@ -10,12 +10,16 @@ import json
 import math
 import os
 import re
+import shutil
 import sqlite3
 import struct
+import tempfile
 import zipfile
 
 ZOOM = 16
 MAX_TILES_PER_FEATURE = 64
+MAX_AREA_TILES_PER_FEATURE = 2048
+MAX_AREA_POINTS = 80
 
 
 def tile_xy(lat, lon, zoom=ZOOM):
@@ -51,6 +55,53 @@ def _tm_parameters(wkt):
           math.radians(_wkt_number(wkt, "Latitude_Of_Origin", 0.0)))
 
 
+def _towgs84_parameters(wkt):
+  match = re.search(r'TOWGS84\[([^]]+)\]', wkt, re.IGNORECASE)
+  if not match:
+    return None
+  values = [float(value.strip()) for value in match.group(1).split(",")]
+  if len(values) == 3:
+    values += [0.0, 0.0, 0.0, 0.0]
+  if len(values) != 7:
+    raise ValueError("TOWGS84 must contain 3 or 7 parameters")
+  return values
+
+
+def _to_wgs84(longitude, latitude, height, source_a, source_e2, parameters):
+  """Apply a WKT1 position-vector TOWGS84 transform."""
+  if not parameters:
+    return longitude, latitude
+  sin_lat, cos_lat = math.sin(latitude), math.cos(latitude)
+  sin_lon, cos_lon = math.sin(longitude), math.cos(longitude)
+  radius = source_a / math.sqrt(1.0 - source_e2 * sin_lat * sin_lat)
+  x = (radius + height) * cos_lat * cos_lon
+  y = (radius + height) * cos_lat * sin_lon
+  z = (radius * (1.0 - source_e2) + height) * sin_lat
+  dx, dy, dz, rx, ry, rz, ppm = parameters
+  arcsecond = math.pi / (180.0 * 3600.0)
+  rx, ry, rz = rx * arcsecond, ry * arcsecond, rz * arcsecond
+  scale = 1.0 + ppm * 1.0e-6
+  tx = dx + scale * x - rz * y + ry * z
+  ty = dy + rz * x + scale * y - rx * z
+  tz = dz - ry * x + rx * y + scale * z
+
+  target_a = 6378137.0
+  target_f = 1.0 / 298.257223563
+  target_e2 = target_f * (2.0 - target_f)
+  lon = math.atan2(ty, tx)
+  p = math.hypot(tx, ty)
+  lat = math.atan2(tz, p * (1.0 - target_e2))
+  for _ in range(8):
+    sinp = math.sin(lat)
+    n = target_a / math.sqrt(1.0 - target_e2 * sinp * sinp)
+    next_lat = math.atan2(tz + target_e2 * n * sinp, p)
+    if abs(next_lat - lat) < 1.0e-13:
+      lat = next_lat
+      break
+    lat = next_lat
+  return lon, lat
+
+
 def _meridian_arc(latitude, a, e2):
   e4, e6 = e2 * e2, e2 * e2 * e2
   return a * ((1 - e2 / 4 - 3 * e4 / 64 - 5 * e6 / 256) * latitude
@@ -61,6 +112,7 @@ def _meridian_arc(latitude, a, e2):
 
 def inverse_transverse_mercator(wkt):
   a, e2, fe, fn, lon0, scale, lat0 = _tm_parameters(wkt)
+  datum = _towgs84_parameters(wkt)
   ep2 = e2 / (1 - e2)
   e4, e6 = e2 * e2, e2 * e2 * e2
   factor = a * (1 - e2 / 4 - 3 * e4 / 64 - 5 * e6 / 256)
@@ -83,6 +135,7 @@ def inverse_transverse_mercator(wkt):
       + (61 + 90 * t + 298 * c + 45 * t * t - 252 * ep2 - 3 * c * c) * d ** 6 / 720)
     lon = lon0 + (d - (1 + 2 * t + c) * d ** 3 / 6
       + (5 - 2 * c + 28 * t - 3 * c * c + 8 * ep2 + 24 * t * t) * d ** 5 / 120) / cosp
+    lon, lat = _to_wgs84(lon, lat, 0.0, a, e2, datum)
     return math.degrees(lon), math.degrees(lat)
   return convert
 
@@ -192,8 +245,14 @@ def shapefile_zip_features(path, clip_bounds=None):
         project = forward_transverse_mercator(wkt)
         west, south, east, north = clip_bounds
         corners = [project(west, south), project(west, north), project(east, south), project(east, north)]
-        source_clip = (min(p[0] for p in corners), min(p[1] for p in corners),
-                       max(p[0] for p in corners), max(p[1] for p in corners))
+        # Bessel-based Korean CRS definitions include a datum transform. The
+        # forward helper intentionally stays small, so pad the coarse source
+        # filter enough to cover that shift; final clipping happens in WGS84.
+        margin = 1000.0 if _towgs84_parameters(wkt) else 0.0
+        source_clip = (min(p[0] for p in corners) - margin,
+                       min(p[1] for p in corners) - margin,
+                       max(p[0] for p in corners) + margin,
+                       max(p[1] for p in corners) + margin)
       cpg = names.get((base + ".cpg").lower())
       encoding = archive.read(cpg).decode("ascii", "replace").strip() if cpg else "euc-kr"
       with archive.open(shp_name) as shp, archive.open(dbf_name) as dbf:
@@ -225,7 +284,7 @@ def sources(path, archives, clip=None):
 
 def geometry_parts(geometry, category):
   kind, coordinates = (geometry or {}).get("type"), (geometry or {}).get("coordinates") or []
-  if category == "b":
+  if category in ("b", "a"):
     if kind == "Polygon": return [coordinates[0]] if coordinates else []
     if kind == "MultiPolygon": return [polygon[0] for polygon in coordinates if polygon]
   else:
@@ -249,6 +308,21 @@ def clean_points(points, minimum):
   return result if len(result) >= minimum else []
 
 
+def clean_latlon_points(points, minimum):
+  result = []
+  for point in points:
+    try:
+      lat, lon = float(point[0]), float(point[1])
+    except (TypeError, ValueError, IndexError):
+      continue
+    pair = [round(lat, 7), round(lon, 7)]
+    if math.isfinite(lat) and math.isfinite(lon) and (not result or pair != result[-1]):
+      result.append(pair)
+  if len(result) >= 2 and result[0] == result[-1]:
+    result.pop()
+  return result if len(result) >= minimum else []
+
+
 def number(properties, keys, default, minimum, maximum, multiplier=1.0):
   for key in keys:
     try:
@@ -260,13 +334,159 @@ def number(properties, keys, default, minimum, maximum, multiplier=1.0):
   return default
 
 
-def covered_tiles(points):
+def covered_tiles(points, maximum=MAX_TILES_PER_FEATURE):
   xy = [tile_xy(lat, lon) for lat, lon in points]
   x0, x1 = min(p[0] for p in xy), max(p[0] for p in xy)
   y0, y1 = min(p[1] for p in xy), max(p[1] for p in xy)
-  if (x1 - x0 + 1) * (y1 - y0 + 1) > MAX_TILES_PER_FEATURE:
+  if (x1 - x0 + 1) * (y1 - y0 + 1) > maximum:
     return [tile_xy(sum(p[0] for p in points) / len(points), sum(p[1] for p in points) / len(points))]
   return [(x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)]
+
+
+def tile_bounds(x0, x1, y0, y1, zoom=ZOOM):
+  scale = 1 << zoom
+  west = x0 / scale * 360.0 - 180.0
+  east = (x1 + 1) / scale * 360.0 - 180.0
+
+  def latitude(y):
+    return math.degrees(math.atan(math.sinh(math.pi - 2.0 * math.pi * y / scale)))
+
+  return west, latitude(y1 + 1), east, latitude(y0)
+
+
+def clip_polygon(points, bounds):
+  west, south, east, north = bounds
+
+  def clip(values, inside, intersect):
+    if not values:
+      return []
+    output, previous = [], values[-1]
+    previous_inside = inside(previous)
+    for current in values:
+      current_inside = inside(current)
+      if current_inside != previous_inside:
+        output.append(intersect(previous, current))
+      if current_inside:
+        output.append(current)
+      previous, previous_inside = current, current_inside
+    return output
+
+  def lon_intersection(a, b, longitude):
+    delta = b[1] - a[1]
+    ratio = 0.0 if abs(delta) < 1.0e-15 else (longitude - a[1]) / delta
+    return [a[0] + ratio * (b[0] - a[0]), longitude]
+
+  def lat_intersection(a, b, latitude):
+    delta = b[0] - a[0]
+    ratio = 0.0 if abs(delta) < 1.0e-15 else (latitude - a[0]) / delta
+    return [latitude, a[1] + ratio * (b[1] - a[1])]
+
+  result = clip(points, lambda p: p[1] >= west,
+                lambda a, b: lon_intersection(a, b, west))
+  result = clip(result, lambda p: p[1] <= east,
+                lambda a, b: lon_intersection(a, b, east))
+  result = clip(result, lambda p: p[0] >= south,
+                lambda a, b: lat_intersection(a, b, south))
+  return clip(result, lambda p: p[0] <= north,
+              lambda a, b: lat_intersection(a, b, north))
+
+
+def _point_segment_distance(point, start, end, lon_scale):
+  px, py = point[1] * lon_scale, point[0]
+  ax, ay = start[1] * lon_scale, start[0]
+  bx, by = end[1] * lon_scale, end[0]
+  dx, dy = bx - ax, by - ay
+  if dx == 0.0 and dy == 0.0:
+    return math.hypot(px - ax, py - ay)
+  ratio = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+  return math.hypot(px - (ax + ratio * dx), py - (ay + ratio * dy))
+
+
+def _rdp(points, tolerance, lon_scale):
+  if len(points) <= 2:
+    return points
+  maximum, selected = 0.0, 0
+  for index in range(1, len(points) - 1):
+    distance = _point_segment_distance(points[index], points[0], points[-1], lon_scale)
+    if distance > maximum:
+      maximum, selected = distance, index
+  if maximum <= tolerance:
+    return [points[0], points[-1]]
+  left = _rdp(points[:selected + 1], tolerance, lon_scale)
+  right = _rdp(points[selected:], tolerance, lon_scale)
+  return left[:-1] + right
+
+
+def simplify_polygon(points, tolerance_meters=1.5, maximum=MAX_AREA_POINTS):
+  if len(points) <= 3:
+    return points
+  lon_scale = max(0.1, math.cos(math.radians(sum(p[0] for p in points) / len(points))))
+  split = max(range(1, len(points)), key=lambda i: (
+    (points[i][0] - points[0][0]) ** 2
+    + ((points[i][1] - points[0][1]) * lon_scale) ** 2))
+  tolerance = tolerance_meters / 111320.0
+  first = _rdp(points[:split + 1], tolerance, lon_scale)
+  second = _rdp(points[split:] + [points[0]], tolerance, lon_scale)
+  result = first[:-1] + second[:-1]
+  if len(result) > maximum:
+    result = [result[int(index * len(result) / maximum)] for index in range(maximum)]
+  return result if len(result) >= 3 else points[:3]
+
+
+def extend_areas(base_db, output, parks=None, waters=None, park_zips=None, water_zips=None):
+  if os.path.abspath(base_db) != os.path.abspath(output):
+    output_directory = os.path.dirname(os.path.abspath(output))
+    descriptor, temporary = tempfile.mkstemp(prefix=".hud-map-", suffix=".sqlite",
+                                              dir=output_directory)
+    os.close(descriptor)
+    try:
+      shutil.copy2(base_db, temporary)
+      os.replace(temporary, output)
+    finally:
+      if os.path.exists(temporary):
+        os.remove(temporary)
+  with sqlite3.connect(output) as db:
+    x0, x1, y0, y1 = db.execute(
+      "SELECT min(x),max(x),min(y),max(y) FROM tiles WHERE z=?", (ZOOM,)).fetchone()
+    if None in (x0, x1, y0, y1):
+      raise ValueError("base DB has no z%d tiles" % ZOOM)
+  bounds = tile_bounds(x0, x1, y0, y1)
+  additions, counts = {}, {"g": 0, "w": 0}
+
+  def include_park(properties):
+    return properties.get("LCLAS_CL") in ("UQT200", "UQT300")
+
+  def collect(kind, path, archives, feature_filter=None):
+    for source in sources(path, archives, bounds):
+      for index, feature in enumerate(source):
+        properties = feature.get("properties") or {}
+        if feature_filter and not feature_filter(properties):
+          continue
+        for part, ring in enumerate(geometry_parts(feature.get("geometry"), "a")):
+          points = clean_points(ring, 3)
+          points = clean_latlon_points(clip_polygon(points, bounds), 3)
+          if not points:
+            continue
+          points = simplify_polygon(points)
+          item = {"i": "%s%s:%s" % (kind, feature.get("id", index), part), "p": points}
+          for x, y in covered_tiles(points, MAX_AREA_TILES_PER_FEATURE):
+            additions.setdefault((ZOOM, x, y), {"g": [], "w": []})[kind].append(item)
+          counts[kind] += 1
+
+  collect("g", parks, park_zips, include_park)
+  collect("w", waters, water_zips)
+  with sqlite3.connect(output) as db:
+    for (z, x, y), values in additions.items():
+      row = db.execute("SELECT payload FROM tiles WHERE z=? AND x=? AND y=?", (z, x, y)).fetchone()
+      payload = json.loads(row[0]) if row else {"b": [], "r": []}
+      payload["g"], payload["w"] = values["g"], values["w"]
+      encoded = json.dumps(payload, separators=(",", ":"))
+      db.execute("INSERT OR REPLACE INTO tiles VALUES(?,?,?,?)", (z, x, y, encoded))
+    metadata = {"format": "remote-hud-json-v2", "park_count": str(counts["g"]),
+                "water_count": str(counts["w"]),
+                "tile_count": str(db.execute("SELECT count(*) FROM tiles").fetchone()[0])}
+    db.executemany("INSERT OR REPLACE INTO metadata VALUES(?,?)", metadata.items())
+  return counts
 
 
 def build(buildings, roads, output, building_zips=None, road_zips=None):
@@ -319,8 +539,21 @@ def main():
   parser.add_argument("--roads")
   parser.add_argument("--building-shp-zip", action="append", default=[])
   parser.add_argument("--road-shp-zip", action="append", default=[])
+  parser.add_argument("--base-db")
+  parser.add_argument("--parks")
+  parser.add_argument("--water")
+  parser.add_argument("--park-shp-zip", action="append", default=[])
+  parser.add_argument("--water-shp-zip", action="append", default=[])
   parser.add_argument("--output", required=True)
   args = parser.parse_args()
+  if args.base_db:
+    if not (args.parks or args.water or args.park_shp_zip or args.water_shp_zip):
+      parser.error("--base-db requires a park or water input")
+    counts = extend_areas(args.base_db, args.output, args.parks, args.water,
+                          args.park_shp_zip, args.water_shp_zip)
+    print("added %d park and %d water polygons to %s" %
+          (counts["g"], counts["w"], args.output))
+    return
   if not (args.buildings or args.roads or args.building_shp_zip or args.road_shp_zip):
     parser.error("at least one input is required")
   print("wrote %d tiles to %s" % build(args.buildings, args.roads, args.output,

@@ -47,6 +47,45 @@ class BuildHudMapDbTest(unittest.TestCase):
       self.assertEqual(metadata["building_count"], "1")
       self.assertEqual(metadata["road_count"], "1")
 
+  def test_extend_area_payloads(self):
+    with tempfile.TemporaryDirectory() as directory:
+      root = Path(directory)
+      buildings = root / "b.json"
+      base = root / "base.sqlite"
+      output = root / "extended.sqlite"
+      park = root / "park.json"
+      water = root / "water.json"
+      footprint = [[127.069, 37.149], [127.0693, 37.149],
+                   [127.0693, 37.1493], [127.069, 37.1493],
+                   [127.069, 37.149]]
+      buildings.write_text(json.dumps({"type": "FeatureCollection", "features": [{
+        "type": "Feature", "id": "b1", "properties": {},
+        "geometry": {"type": "Polygon", "coordinates": [footprint]}}]}))
+      MODULE.build(str(buildings), None, str(base))
+      MODULE.build(str(buildings), None, str(output))
+      with sqlite3.connect(output) as db:
+        db.execute("INSERT INTO tiles VALUES(16,0,0,?)", ('{"b":[],"r":[]}',))
+      park.write_text(json.dumps({"type": "FeatureCollection", "features": [{
+        "type": "Feature", "id": "g1", "properties": {"LCLAS_CL": "UQT200"},
+        "geometry": {"type": "Polygon", "coordinates": [footprint]}}]}))
+      water.write_text(json.dumps({"type": "FeatureCollection", "features": [{
+        "type": "Feature", "id": "w1", "properties": {},
+        "geometry": {"type": "Polygon", "coordinates": [footprint]}}]}))
+      counts = MODULE.extend_areas(str(base), str(output), str(park), str(water))
+      self.assertEqual(counts, {"g": 1, "w": 1})
+      with sqlite3.connect(output) as db:
+        payloads = [json.loads(row[0]) for row in db.execute("SELECT payload FROM tiles")]
+        metadata = dict(db.execute("SELECT name,value FROM metadata"))
+        self.assertEqual(db.execute("SELECT count(*) FROM tiles WHERE x=0 AND y=0").fetchone()[0], 0)
+      self.assertTrue(any(value.get("g") for value in payloads))
+      self.assertTrue(any(value.get("w") for value in payloads))
+      area_point = next(value["g"][0]["p"][0] for value in payloads if value.get("g"))
+      self.assertAlmostEqual(area_point[0], 37.149, places=5)
+      self.assertAlmostEqual(area_point[1], 127.069, places=5)
+      self.assertEqual(metadata["format"], "remote-hud-json-v2")
+      self.assertEqual(metadata["park_count"], "1")
+      self.assertEqual(metadata["water_count"], "1")
+
 
 if __name__ == "__main__":
   unittest.main()

@@ -32,3 +32,29 @@ The S9 application must support telemetry protocol v6 and the TCP asset tags `MA
 Protocol v6 optionally publishes `mapPose` (TMAP vehicle latitude, longitude,
 heading) for the S9-local display context. It is never consumed by vehicle
 control. If `hud_map.sqlite` is absent, rendering remains model-only.
+
+The optional database is stored at the app external-files path:
+
+```text
+/sdcard/Android/data/ai.comma.remotehud/files/hud_map.sqlite
+```
+
+`tools/build_hud_map_db.py` packs VWorld/NGII SHP ZIPs into z16 JSON tiles.
+Buildings and road centerlines use the `b` and `r` payloads. A previously built
+database can be extended with flat park/green (`g`) and river/lake (`w`)
+polygons without rebuilding the building and road layers:
+
+```bash
+python3 selfdrive/eon_cluster/tools/build_hud_map_db.py \
+  --base-db hud_map.sqlite \
+  --park-shp-zip C_UQ153.zip \
+  --water-shp-zip N3A_E0032111.zip \
+  --water-shp-zip N3A_E0052114.zip \
+  --output hud_map_with_land_water.sqlite
+```
+
+The converter crops the nationwide inputs to the base database tile bounds,
+keeps park and green-facility classes from `C_UQ153`, simplifies large rings,
+and preserves bounded S9 runtime work. Water and green areas are drawn below
+local roads, model lanes, route, and vehicles; the right-side TMAP frame is
+unchanged.

@@ -25,6 +25,8 @@ final class HudMapStore {
     private static final int ZOOM = 16;
     private static final int MAX_BUILDINGS = 400;
     private static final int MAX_ROADS = 120;
+    private static final int MAX_GREEN_AREAS = 80;
+    private static final int MAX_WATER_AREAS = 80;
     private static final double RELOAD_METERS = 60.0;
 
     static final class Building {
@@ -55,14 +57,31 @@ final class HudMapStore {
         }
     }
 
+    static final class Area {
+        final double[] lat;
+        final double[] lon;
+        final double distanceSq;
+
+        Area(double[] lat, double[] lon, double distanceSq) {
+            this.lat = lat;
+            this.lon = lon;
+            this.distanceSq = distanceSq;
+        }
+    }
+
     static final class Snapshot {
-        static final Snapshot EMPTY = new Snapshot(new Building[0], new Road[0]);
+        static final Snapshot EMPTY = new Snapshot(new Building[0], new Road[0],
+                new Area[0], new Area[0]);
         final Building[] buildings;
         final Road[] roads;
+        final Area[] greens;
+        final Area[] waters;
 
-        Snapshot(Building[] buildings, Road[] roads) {
+        Snapshot(Building[] buildings, Road[] roads, Area[] greens, Area[] waters) {
             this.buildings = buildings;
             this.roads = roads;
+            this.greens = greens;
+            this.waters = waters;
         }
     }
 
@@ -119,8 +138,12 @@ final class HudMapStore {
     private Snapshot load(double lat, double lon, int tileX, int tileY) throws Exception {
         List<Building> buildings = new ArrayList<>();
         List<Road> roads = new ArrayList<>();
+        List<Area> greens = new ArrayList<>();
+        List<Area> waters = new ArrayList<>();
         Set<String> buildingIds = new HashSet<>();
         Set<String> roadIds = new HashSet<>();
+        Set<String> greenIds = new HashSet<>();
+        Set<String> waterIds = new HashSet<>();
         SQLiteDatabase database = SQLiteDatabase.openDatabase(databaseFile.getAbsolutePath(),
                 null, SQLiteDatabase.OPEN_READONLY | SQLiteDatabase.NO_LOCALIZED_COLLATORS);
         try (Cursor cursor = database.rawQuery(
@@ -132,21 +155,33 @@ final class HudMapStore {
                 JSONObject payload = new JSONObject(cursor.getString(0));
                 decodeBuildings(payload.optJSONArray("b"), buildingIds, buildings, lat, lon);
                 decodeRoads(payload.optJSONArray("r"), roadIds, roads, lat, lon);
+                decodeAreas(payload.optJSONArray("g"), greenIds, greens, lat, lon, "g");
+                decodeAreas(payload.optJSONArray("w"), waterIds, waters, lat, lon, "w");
             }
         } finally {
             database.close();
         }
         Comparator<Building> buildingDistance = Comparator.comparingDouble(value -> value.distanceSq);
         Comparator<Road> roadDistance = Comparator.comparingDouble(value -> value.distanceSq);
+        Comparator<Area> areaDistance = Comparator.comparingDouble(value -> value.distanceSq);
         Collections.sort(buildings, buildingDistance);
         Collections.sort(roads, roadDistance);
+        Collections.sort(greens, areaDistance);
+        Collections.sort(waters, areaDistance);
         if (buildings.size() > MAX_BUILDINGS) {
             buildings = new ArrayList<>(buildings.subList(0, MAX_BUILDINGS));
         }
         if (roads.size() > MAX_ROADS) {
             roads = new ArrayList<>(roads.subList(0, MAX_ROADS));
         }
-        return new Snapshot(buildings.toArray(new Building[0]), roads.toArray(new Road[0]));
+        if (greens.size() > MAX_GREEN_AREAS) {
+            greens = new ArrayList<>(greens.subList(0, MAX_GREEN_AREAS));
+        }
+        if (waters.size() > MAX_WATER_AREAS) {
+            waters = new ArrayList<>(waters.subList(0, MAX_WATER_AREAS));
+        }
+        return new Snapshot(buildings.toArray(new Building[0]), roads.toArray(new Road[0]),
+                greens.toArray(new Area[0]), waters.toArray(new Area[0]));
     }
 
     private static void decodeBuildings(JSONArray values, Set<String> ids,
@@ -178,6 +213,22 @@ final class HudMapStore {
             double distance = minimumDistance(points, lat0, lon0);
             float width = (float) Math.max(2.5, Math.min(18.0, value.optDouble("w", 5.5)));
             output.add(new Road(points.lat, points.lon, width, distance));
+        }
+    }
+
+    private static void decodeAreas(JSONArray values, Set<String> ids,
+                                    List<Area> output, double lat0, double lon0,
+                                    String prefix) {
+        if (values == null) return;
+        for (int i = 0; i < values.length(); i++) {
+            JSONObject value = values.optJSONObject(i);
+            if (value == null) continue;
+            String id = value.optString("i", prefix + i);
+            if (!ids.add(id)) continue;
+            PointArrays points = points(value.optJSONArray("p"), 3);
+            if (points == null) continue;
+            output.add(new Area(points.lat, points.lon,
+                    centroidDistance(points, lat0, lon0)));
         }
     }
 
