@@ -51,6 +51,37 @@ PARAM_MAP_FPS = "EonClusterHudMapFps"
 HEARTBEAT_PERIOD_S = 2.0
 PARAM_NOO_ENABLED = "NavigationOnOpenpilot"
 _NAVI_CACHE = {"signature": None, "state": {}, "scene_sig": None, "scene": None, "parsed_at": 0.0}
+
+# 날씨 조회용 마지막 좌표. 3초 신선도(NAVI_STREAM_MAX_AGE_MS)를 적용하지 않는다.
+# 날씨는 15분 주기라 몇 분 지난 좌표여도 무의미한 차이다. 정밀 GPS 는 여전히
+# 전송하지 않으며, 소수점 2자리(약 1.1km)로 뭉개서 내보낸다.
+_WX_POS = {"lat": None, "lon": None}
+
+
+def _remember_weather_position(state):
+  """TMAP vehicle 스트림에서 좌표만 뽑아 캐시한다. 나이 판정은 하지 않는다."""
+  vehicle = (state or {}).get("vehicle") or {}
+  try:
+    lat = float(vehicle.get("lat"))
+    lon = float(vehicle.get("lon"))
+  except (TypeError, ValueError):
+    return
+  if not (math.isfinite(lat) and math.isfinite(lon)):
+    return
+  if lat == 0.0 and lon == 0.0:
+    return
+  if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+    return
+  _WX_POS["lat"] = lat
+  _WX_POS["lon"] = lon
+
+
+def _wx_pos():
+  """날씨용 저정밀 좌표. 없으면 None."""
+  lat, lon = _WX_POS["lat"], _WX_POS["lon"]
+  if lat is None or lon is None:
+    return None
+  return [round(lat, 2), round(lon, 2)]
 _NAVI_POSE_FILTER = {"heading": None, "lat": None, "lon": None, "seen": 0.0}
 # 티맵 상태 파일은 최대 20 Hz 로 다시 쓰이지만, 여기서 필요한 건 안내 거리와
 # 앞길 곡선뿐이라 5 Hz 로 충분하다. 경로 폴리라인이 길면(장거리 목적지) JSON
@@ -625,6 +656,8 @@ def _read_navi_summary():
     state = _NAVI_CACHE["state"]
 
   now_ms = int(time.time() * 1000)
+  # 날씨 좌표는 navi 전체가 만료돼도 유지한다(목적지 미설정 상태 포함).
+  _remember_weather_position(state)
   updated_at = int(state.get("updated_at_ms", 0) or 0)
   if updated_at <= 0 or abs(now_ms - updated_at) > NAVI_MAX_AGE_MS:
     return {}
@@ -995,6 +1028,9 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "lanePosition": lane_position,
     "alert": _alert(controls),
     "navi": navi,
+    # 날씨 조회 전용 저정밀 좌표(소수점 2자리). navi.scene.pos 는 위에서 제거되고
+    # TMAP 안내가 꺼져 있으면 navi 자체가 비므로, 별도 최상위 키로 내보낸다.
+    "wxPos": _wx_pos(),
     "path": hud_path,
     "lanes": hud_lanes,
     "edges": hud_edges,

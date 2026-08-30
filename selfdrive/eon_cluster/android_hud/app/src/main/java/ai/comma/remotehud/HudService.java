@@ -1850,9 +1850,14 @@ public final class HudService extends Service {
         if (weather == null || s == null) {
             return;
         }
-        JSONObject navi = s.optJSONObject("navi");
-        JSONObject scene = navi == null ? null : navi.optJSONObject("scene");
-        JSONArray pos = scene == null ? null : scene.optJSONArray("pos");
+        // EON 은 정밀 GPS 를 전송하지 않고, TMAP 안내가 꺼져 있으면 navi 자체가
+        // 비어서 내려온다. 그래서 날씨 좌표는 최상위 wxPos 를 먼저 본다.
+        JSONArray pos = s.optJSONArray("wxPos");
+        if (pos == null || pos.length() < 2) {
+            JSONObject navi = s.optJSONObject("navi");
+            JSONObject scene = navi == null ? null : navi.optJSONObject("scene");
+            pos = scene == null ? null : scene.optJSONArray("pos");
+        }
         if (pos == null || pos.length() < 2) {
             return;
         }
