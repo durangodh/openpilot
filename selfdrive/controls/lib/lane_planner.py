@@ -11,7 +11,7 @@ ADJUST_OFFSET_LIMIT = 0.4   # 여유공간 보정 최대치(m)
 
 # CAMERA_OFFSET, PATH_OFFSET 하드코딩 제거
 # → lateral_planner.py에서 Params 기반으로 주입됨
-CAMERA_OFFSET = -0.06          # ← 이 줄 추가 (controlsd.py import 호환용)
+CAMERA_OFFSET = -0.06          # EON 카메라 장착 위치 보정
 DEFAULT_CAMERA_OFFSET = -0.06
 
 ENABLE_ZORROBYTE = True
@@ -64,6 +64,7 @@ class LanePlanner:
     self.lane_offset = 0.0
     self.params = Params()
     self.adjust_lane_offset = 0.0
+    self.lat_mpc_input_offset = 0.04
     # 레인리스에서만 쓰는 횡보정. 모델 경로 자체가 한쪽으로 치우쳐 있을 때
     # 쓴다(양수 = 왼쪽). 차선이 잡히는 비중만큼 자동으로 사라지므로 레인모드
     # 주행에는 영향이 없다.
@@ -101,7 +102,7 @@ class LanePlanner:
       self.l_lane_change_prob = desire_state[log.LateralPlan.Desire.laneChangeLeft]
       self.r_lane_change_prob = desire_state[log.LateralPlan.Desire.laneChangeRight]
 
-  def get_d_path(self, v_ego, path_t, path_xyz, lanelines_active):
+  def get_d_path(self, v_ego, path_t, path_xyz, lanelines_active, curve_speed=200.0):
     path_xyz = path_xyz.copy()
     lane_line_blend = float(clip(float(lanelines_active), 0.0, 1.0))
     l_prob, r_prob = self.lll_prob, self.rll_prob
@@ -109,7 +110,7 @@ class LanePlanner:
     prob_mods = []
     for t_check in (0.0, 1.5, 3.0):
       width_at_t = interp(t_check * (v_ego + 7), self.ll_x, width_pts)
-      prob_mods.append(interp(width_at_t, [4.0, 5.0], [1.0, 0.0]))
+      prob_mods.append(interp(width_at_t, [4.5, 6.0], [1.0, 0.0]))
     mod = min(prob_mods)
     l_prob *= mod
     r_prob *= mod
@@ -145,18 +146,32 @@ class LanePlanner:
     path_from_left_lane = self.lll_y + clipped_lane_width / 2.0
     path_from_right_lane = self.rll_y - clipped_lane_width / 2.0
 
-    self.d_prob = l_prob + r_prob - l_prob * r_prob
+    both_lane_available = l_prob > 0.5 and r_prob > 0.5
+    self.d_prob = max(l_prob, r_prob) if not both_lane_available else 1.0
 
     if ENABLE_INC_LANE_PROB and self.d_prob > 0.65:
       self.d_prob = min(self.d_prob * 1.3, 1.0)
 
-    lane_path_y = (l_prob * path_from_left_lane + r_prob * path_from_right_lane) / (l_prob + r_prob + 0.0001)
-
-    # ── carrot 이식 1 : 좌/우 여유폭 필터링 (1초) ─────────────────────────
+    # carrot c3: 좌/우 여유폭을 먼저 필터링한 뒤 좁은 차로의
+    # 기준 차선과 오프셋 방향을 결정한다.
     if self.lane_width_left > 0:
       self.lane_width_left_filtered.update(self.lane_width_left)
     if self.lane_width_right > 0:
       self.lane_width_right_filtered.update(self.lane_width_right)
+
+    # carrot c3: 좁아지는 차로에서는 도로 경계와 가까운 차선을
+    # 기준으로 경로를 만들고, 일반 차로에서는 양쪽/신뢰도를 혼합한다.
+    if self.lane_width < 2.5:
+      if r_prob > 0.5 and self.lane_width_right_filtered.x < self.lane_width_left_filtered.x:
+        lane_path_y = path_from_right_lane
+      elif l_prob > 0.5 and self.lane_width_left_filtered.x < 2.0:
+        lane_path_y = path_from_left_lane
+      else:
+        lane_path_y = path_from_left_lane if l_prob > 0.5 or l_prob > r_prob else path_from_right_lane
+    elif l_prob > 0.7 and r_prob > 0.7:
+      lane_path_y = (path_from_left_lane + path_from_right_lane) / 2.0
+    else:
+      lane_path_y = (l_prob * path_from_left_lane + r_prob * path_from_right_lane) / (l_prob + r_prob + 0.0001)
 
     # ── carrot 이식 2 : 여유공간 비대칭 시 경로 오프셋 ────────────────────
     #   AdjustLaneOffset (cm 단위 정수 파라미터). 0 이면 동작 안함.
@@ -172,6 +187,13 @@ class LanePlanner:
         self.laneless_offset = float(self.params.get("LanelessOffset", encoding="utf8") or "0") * 0.01
       except (TypeError, ValueError):
         self.laneless_offset = 0.0
+      try:
+        # carrot c3 stores 4 as 0.04 (4 percent of the model time axis).
+        self.lat_mpc_input_offset = float(
+          self.params.get("LatMpcInputOffset", encoding="utf8") or "4") * 0.01
+      except (TypeError, ValueError):
+        self.lat_mpc_input_offset = 0.04
+      self.lat_mpc_input_offset = float(clip(self.lat_mpc_input_offset, 0.0, 0.20))
 
     lwl = self.lane_width_left_filtered.x
     lwr = self.lane_width_right_filtered.x
@@ -186,16 +208,25 @@ class LanePlanner:
         offset_lane = interp(self.lane_width, [2.5, 2.9], [0.0, self.adjust_lane_offset])
       else:
         offset_lane = interp(self.lane_width, [2.5, 2.9], [0.0, -self.adjust_lane_offset])
-    offset_lane = clip(offset_lane, -ADJUST_OFFSET_LIMIT, ADJUST_OFFSET_LIMIT)
+    # carrot c3: 커브 안쪽 보정. 낮은 권장 속도의 커브일수록
+    # AdjustLaneOffset을 많이 쓰고 200 km/h에서 0으로 감쇠한다.
+    offset_curve = interp(abs(curve_speed), [50.0, 200.0],
+                          [self.adjust_lane_offset, 0.0]) * np.sign(curve_speed)
+    if offset_curve * offset_lane < 0.0:
+      offset_total = offset_curve + offset_lane
+    else:
+      offset_total = max(offset_curve, offset_lane, key=abs)
+    offset_total = clip(offset_total, -ADJUST_OFFSET_LIMIT, ADJUST_OFFSET_LIMIT)
 
     # d_prob 가 낮으면 오프셋도 서서히 0 으로 (2초 필터)
-    self.lane_offset_filtered.update(interp(self.d_prob, [0.0, 0.3], [0.0, offset_lane]))
+    self.lane_offset_filtered.update(interp(self.d_prob, [0.0, 0.3], [0.0, offset_total]))
     self.lane_offset = float(self.lane_offset_filtered.x)
 
     safe_idxs = np.isfinite(self.ll_t)
     effective_d_prob = 0.0
     if safe_idxs[0] and lane_line_blend > 0.0:
-      lane_path_y_interp = np.interp(path_t, self.ll_t[safe_idxs], lane_path_y[safe_idxs])
+      lane_path_y_interp = np.interp(path_t * (1.0 + self.lat_mpc_input_offset),
+                                     self.ll_t[safe_idxs], lane_path_y[safe_idxs])
       effective_d_prob = self.d_prob * lane_line_blend
       path_xyz[:,1] = effective_d_prob * lane_path_y_interp + (1.0 - effective_d_prob) * path_xyz[:,1]
       # 차선경로가 쓰이는 비중만큼만 여유공간 보정을 적용한다.

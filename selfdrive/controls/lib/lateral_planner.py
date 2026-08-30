@@ -194,8 +194,15 @@ class LateralPlanner:
       max_blend_step = DT_MDL / LANE_MODE_BLEND_TIME
       self.lane_line_blend += np.clip(lane_line_blend_target - self.lane_line_blend,
                                       -max_blend_step, max_blend_step)
+    # carrot c3 vTurnSpeed와 같은 의미의 부호 있는 커브 속도.
+    # 이 포크에는 carrotMan 필드가 없으므로 현재 곡률에서 같은 단위로 산출한다.
+    if abs(measured_curvature) > 1e-4:
+      curve_speed = np.sign(measured_curvature) * np.clip(
+        np.sqrt(2.5 / abs(measured_curvature)) * CV.MS_TO_KPH, 50.0, 200.0)
+    else:
+      curve_speed = 200.0
     self.d_path_w_lines_xyz = self.LP.get_d_path(
-      self.v_ego, self.t_idxs, self.path_xyz, self.lane_line_blend)
+      self.v_ego, self.t_idxs, self.path_xyz, self.lane_line_blend, curve_speed)
     # Feed the selected lane/model blend into MPC. Previously this result was
     # only published for display while MPC kept following the raw model path.
     self.path_xyz = self.d_path_w_lines_xyz.copy()

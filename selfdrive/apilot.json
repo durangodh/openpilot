@@ -923,6 +923,16 @@
   },
   {
    "group": "횡방향",
+   "name": "LatMpcInputOffset",
+   "title": "LATMPC INPUT OFFSET",
+   "descr": "차선 경로를 앞서 입력합니다. 값이 크면 커브에 더 일찍 진입. 4=기본(0.04).",
+   "min": 0,
+   "max": 20,
+   "default": 4,
+   "unit": 1
+  },
+  {
+   "group": "횡방향",
    "name": "DynamicLaneProfile",
    "title": "DYNAMIC LANE PROFILE",
    "descr": "0: 차선 사용 / 1: 차선 미사용(E2E) / 2: 자동 전환.",

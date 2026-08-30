@@ -154,7 +154,8 @@ def manager_init() -> None:
     ("LatJerkFrictionFactor", "40"),
     ("AutoLaneChangeTimer", "0"),  # controlsd.py 크래시 수정
     ("AutoLaneChangeSpeed", "50"),  # 자동/방향지시등 차선변경 허용 최저 속도 (km/h)
-    ("AdjustLaneOffset", "0"),    # 좌우 여유공간 비대칭 보정 (cm, 0=off)
+    ("AdjustLaneOffset", "0"),    # 좌우 여유공간/커브 보정 (cm, 0=off)
+    ("LatMpcInputOffset", "4"),   # carrot c3 차선 경로 선행 입력 (4=0.04)
     ("OffsetTotal", "0.0"),        # 사용자 수동 오프셋(m)
     ("TurnVisionControl", "0"),
     ("AutoCurveSpeedFactor", "120"),
