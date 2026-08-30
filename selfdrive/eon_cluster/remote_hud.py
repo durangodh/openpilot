@@ -592,7 +592,10 @@ def _navi_scene(state):
     m_lat = 111320.0
     m_lon = 111320.0 * math.cos(math.radians(lat0))
     sin_h, cos_h = math.sin(heading), math.cos(heading)
-    # 최근접점부터 시작해 전방 380m 까지, 12m 이상 간격으로 최대 24점.
+    # 최근접점부터 시작해 경로를 따라 380m 까지 추린다.
+    # 간격 판정은 전방거리(x) 가 아니라 '점 사이 실제 거리' 로 한다. x 기준이면
+    # 좌/우회전처럼 옆으로만 진행하는 구간에서 x 가 늘지 않아 코너 점이 전부
+    # 버려지고 경로가 직각으로 꺾여 보였다.
     best_i, best_d = 0, float("inf")
     pts = []
     for i, pt in enumerate(poly):
@@ -612,18 +615,30 @@ def _navi_scene(state):
       if d < best_d:
         best_d, best_i = d, i
     curve = []
-    last_x = -1e9
+    last_x = last_y = None
+    travelled = 0.0
     for pt in pts[best_i:]:
       if pt is None:
         continue
       x, y = pt
-      if x < 0.0 or x <= last_x + 12.0:
+      # 카메라 뒤쪽은 투영 자체가 불가능하다(NEAR_DEPTH - CAM_BACK 여유만 허용).
+      if x < -1.5:
         continue
-      if x > 380.0:
+      if last_x is None:
+        curve.append([round(x, 1), round(y, 1)])
+        last_x, last_y = x, y
+        continue
+      step = math.hypot(x - last_x, y - last_y)
+      # 가까울수록 촘촘히, 멀수록 성기게. 코너 형상은 근거리에서 결정된다.
+      min_step = min(16.0, max(4.0, travelled * 0.06))
+      if step < min_step:
+        continue
+      travelled += step
+      if travelled > 380.0:
         break
       curve.append([round(x, 1), round(y, 1)])
-      last_x = x
-      if len(curve) >= 24:
+      last_x, last_y = x, y
+      if len(curve) >= 48:
         break
     if len(curve) >= 2:
       scene["curve"] = curve

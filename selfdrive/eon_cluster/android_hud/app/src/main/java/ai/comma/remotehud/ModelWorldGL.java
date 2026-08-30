@@ -391,8 +391,10 @@ final class ModelWorldGL {
                     : Color.rgb(0, 153, 123);
             int routeShadow = dark ? Color.rgb(18, 30, 29)
                     : Color.rgb(65, 92, 86);
-            drawWorldLine(route, path, routeShadow, 7.0f, 0.38f, 0.028f);
-            drawWorldLine(route, path, routeColor, 3.4f, 0.66f, 0.065f);
+            // 화면 픽셀 고정 폭(3.4px)이던 시절엔 원경에서 심지가 1~2px 로 줄어
+            // 그림자 회색만 보였다. 미터 기준 리본으로 바꿔 색이 드러나게 한다.
+            drawWorldRibbon(route, path, routeShadow, 0.42f, 0.34f, 0.028f);
+            drawWorldRibbon(route, path, routeColor, 0.34f, 0.78f, 0.065f);
         }
 
         JSONArray lanes = scene.optJSONArray("lanes");
@@ -1062,6 +1064,44 @@ final class ModelWorldGL {
                     lineScreenX[i + 1] - nx, lineScreenY[i + 1] - ny);
         }
         drawVertices(GLES20.GL_TRIANGLES, v / 2, color, alpha);
+    }
+
+    /**
+     * 월드 미터 기준 폭으로 리본을 그린다. drawWorldLine 은 화면 픽셀 폭이라
+     * 거리와 무관하게 같은 굵기였고, 옆으로 꺾이는 구간에서 폭이 무너졌다.
+     * 접선을 월드 좌표에서 구해 수직으로 밀기 때문에 코너에서도 폭이 유지된다.
+     */
+    private void drawWorldRibbon(Line line, Line roadHeight, int color,
+                                 float halfWidth, float alpha, float zOffset) {
+        if (line == null || line.count < 2) {
+            return;
+        }
+        int v = 0;
+        for (int i = 0; i < line.count && v + 4 <= vertices.length; i++) {
+            int a = Math.max(0, i - 1);
+            int b = Math.min(line.count - 1, i + 1);
+            float tx = line.x[b] - line.x[a];
+            float ty = line.y[b] - line.y[a];
+            float length = (float) Math.sqrt(tx * tx + ty * ty);
+            if (length < 1e-4f) {
+                continue;
+            }
+            float nx = -ty / length * halfWidth;
+            float ny = tx / length * halfWidth;
+            float z = zAt(roadHeight, line.x[i]) * roadZGain + zOffset;
+            if (!project(line.x[i] + nx, line.y[i] + ny, z, projected)) {
+                continue;
+            }
+            vertices[v++] = ndcX(projected[0]);
+            vertices[v++] = ndcY(projected[1] - TOP);
+            if (!project(line.x[i] - nx, line.y[i] - ny, z, projected)) {
+                v -= 2;
+                continue;
+            }
+            vertices[v++] = ndcX(projected[0]);
+            vertices[v++] = ndcY(projected[1] - TOP);
+        }
+        drawVertices(GLES20.GL_TRIANGLE_STRIP, v / 2, color, alpha);
     }
 
     private int addTriangle(int index, float ax, float ay, float bx, float by,
