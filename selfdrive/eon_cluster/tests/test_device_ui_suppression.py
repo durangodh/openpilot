@@ -221,6 +221,9 @@ def test_s9_v6_visual_layers_and_local_map_context():
   assert "HudMapStore" in renderer
   assert "visibleMapBuildings" in renderer
   assert "visibleMapBuildings[visible++] = i" in renderer
+  assert "visibleMapAreas[visible++] = i" in renderer
+  assert "clipMapArea" in renderer and "clipMapBoundary" in renderer
+  assert renderer.index("drawMapAreas(snapshot.greens") < renderer.index("drawMapAreas(snapshot.waters")
   assert (java / "HudMapStore.java").exists()
 
 

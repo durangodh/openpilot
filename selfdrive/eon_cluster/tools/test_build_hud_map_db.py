@@ -86,6 +86,18 @@ class BuildHudMapDbTest(unittest.TestCase):
       self.assertEqual(metadata["park_count"], "1")
       self.assertEqual(metadata["water_count"], "1")
 
+      # Extending the two layers in separate runs must preserve the first one.
+      sequential = root / "sequential.sqlite"
+      MODULE.extend_areas(str(base), str(sequential), str(park), None)
+      MODULE.extend_areas(str(sequential), str(sequential), None, str(water))
+      with sqlite3.connect(sequential) as db:
+        sequential_payloads = [json.loads(row[0]) for row in db.execute("SELECT payload FROM tiles")]
+        sequential_metadata = dict(db.execute("SELECT name,value FROM metadata"))
+      self.assertTrue(any(value.get("g") for value in sequential_payloads))
+      self.assertTrue(any(value.get("w") for value in sequential_payloads))
+      self.assertEqual(sequential_metadata["park_count"], "1")
+      self.assertEqual(sequential_metadata["water_count"], "1")
+
 
 if __name__ == "__main__":
   unittest.main()

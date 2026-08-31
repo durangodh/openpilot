@@ -479,12 +479,21 @@ def extend_areas(base_db, output, parks=None, waters=None, park_zips=None, water
     for (z, x, y), values in additions.items():
       row = db.execute("SELECT payload FROM tiles WHERE z=? AND x=? AND y=?", (z, x, y)).fetchone()
       payload = json.loads(row[0]) if row else {"b": [], "r": []}
-      payload["g"], payload["w"] = values["g"], values["w"]
+      # Preserve a previously-added opposite layer and replace matching IDs
+      # instead of erasing it when parks and water are extended separately.
+      for kind in ("g", "w"):
+        if values[kind]:
+          merged = {str(item.get("i")): item for item in payload.get(kind, [])}
+          merged.update((str(item.get("i")), item) for item in values[kind])
+          payload[kind] = list(merged.values())
       encoded = json.dumps(payload, separators=(",", ":"))
       db.execute("INSERT OR REPLACE INTO tiles VALUES(?,?,?,?)", (z, x, y, encoded))
-    metadata = {"format": "remote-hud-json-v2", "park_count": str(counts["g"]),
-                "water_count": str(counts["w"]),
+    metadata = {"format": "remote-hud-json-v2",
                 "tile_count": str(db.execute("SELECT count(*) FROM tiles").fetchone()[0])}
+    if parks or park_zips:
+      metadata["park_count"] = str(counts["g"])
+    if waters or water_zips:
+      metadata["water_count"] = str(counts["w"])
     db.executemany("INSERT OR REPLACE INTO metadata VALUES(?,?)", metadata.items())
   return counts
 

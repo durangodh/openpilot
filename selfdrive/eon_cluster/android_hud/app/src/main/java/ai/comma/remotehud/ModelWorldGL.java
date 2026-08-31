@@ -45,7 +45,9 @@ final class ModelWorldGL {
     private static final float HORIZON = 249f;
     private static final float NEAR_DEPTH = 11.4f;
     private static final float[] ROAD_EDGE_SAMPLE_XS = {12f, 25f, 45f};
-    private static final int MAX_POINTS = 80;
+    // Area clipping can add up to four viewport-edge intersections to the
+    // converter's 80-point polygons.
+    private static final int MAX_POINTS = 96;
     private static final int MAX_VERTEX_FLOATS = 4096;
 
     /**
@@ -110,6 +112,7 @@ final class ModelWorldGL {
     private final float[] mapBaseX = new float[MAX_POINTS];
     private final float[] mapBaseY = new float[MAX_POINTS];
     private final int[] visibleMapBuildings = new int[70];
+    private final int[] visibleMapAreas = new int[50];
     private final int[] mapIndices = new int[MAX_POINTS];
     // 앞차를 자차와 같은 그림으로 그리기 위한 화면 좌표. GL 은 텍스처를 쓰지
     // 않으므로 위치만 계산해 두고 비트맵은 HudService 가 Canvas 로 얹는다.
@@ -753,12 +756,13 @@ final class ModelWorldGL {
         double metersLat = 111320.0;
         double metersLon = metersLat * Math.max(0.1, Math.cos(Math.toRadians(lat)));
 
-        drawMapAreas(snapshot.waters, lat, lon, metersLat, metersLon,
-                sinHeading, cosHeading, roadHeight,
-                dark ? Color.rgb(40, 73, 91) : Color.rgb(117, 166, 187), 0.76f);
+        // Draw green first so lakes and rivers remain visible inside parks.
         drawMapAreas(snapshot.greens, lat, lon, metersLat, metersLon,
                 sinHeading, cosHeading, roadHeight,
                 dark ? Color.rgb(45, 76, 60) : Color.rgb(128, 167, 133), 0.68f);
+        drawMapAreas(snapshot.waters, lat, lon, metersLat, metersLon,
+                sinHeading, cosHeading, roadHeight,
+                dark ? Color.rgb(40, 73, 91) : Color.rgb(117, 166, 187), 0.76f);
 
         int roadColor = dark ? Color.rgb(54, 62, 70) : Color.rgb(183, 189, 193);
         for (HudMapStore.Road road : snapshot.roads) {
@@ -801,15 +805,75 @@ final class ModelWorldGL {
                               double sinHeading, double cosHeading, Line roadHeight,
                               int color, float alpha) {
         int visible = 0;
-        for (int i = areas.length - 1; i >= 0 && visible < 50; i--) {
+        // Areas are sorted near-to-far. Select the nearest visible set first.
+        for (int i = 0; i < areas.length && visible < visibleMapAreas.length; i++) {
             HudMapStore.Area area = areas[i];
             if (!fillLocalLine(area.lat, area.lon, lat, lon, metersLat, metersLon,
                     sinHeading, cosHeading, 3) || !mapFeatureVisible(mapLine)) {
                 continue;
             }
-            drawMapArea(mapLine, roadHeight, color, alpha);
-            visible++;
+            visibleMapAreas[visible++] = i;
         }
+        // Paint the selected near set far-to-near for stable overlap.
+        for (int selected = visible - 1; selected >= 0; selected--) {
+            HudMapStore.Area area = areas[visibleMapAreas[selected]];
+            if (!fillLocalLine(area.lat, area.lon, lat, lon, metersLat, metersLon,
+                    sinHeading, cosHeading, 3)) {
+                continue;
+            }
+            Line clipped = clipMapArea(mapLine);
+            if (clipped.count >= 3) drawMapArea(clipped, roadHeight, color, alpha);
+        }
+    }
+
+    private final Line mapClipA = new Line();
+    private final Line mapClipB = new Line();
+
+    /** Clip large polygons to the forward HUD viewport before projection. */
+    private Line clipMapArea(Line source) {
+        clipMapBoundary(source, mapClipA, true, -1.5f, true);
+        clipMapBoundary(mapClipA, mapClipB, true, 175f, false);
+        clipMapBoundary(mapClipB, mapClipA, false, -72f, true);
+        clipMapBoundary(mapClipA, mapClipB, false, 72f, false);
+        return mapClipB;
+    }
+
+    private static void clipMapBoundary(Line source, Line output, boolean useX,
+                                        float boundary, boolean keepGreater) {
+        output.count = 0;
+        if (source.count < 3) return;
+        int previous = source.count - 1;
+        boolean previousInside = mapPointInside(source, previous, useX, boundary, keepGreater);
+        for (int current = 0; current < source.count; current++) {
+            boolean currentInside = mapPointInside(source, current, useX, boundary, keepGreater);
+            if (currentInside != previousInside) {
+                float previousValue = useX ? source.x[previous] : source.y[previous];
+                float currentValue = useX ? source.x[current] : source.y[current];
+                float denominator = currentValue - previousValue;
+                float ratio = Math.abs(denominator) < 1e-6f
+                        ? 0f : (boundary - previousValue) / denominator;
+                appendMapPoint(output,
+                        source.x[previous] + ratio * (source.x[current] - source.x[previous]),
+                        source.y[previous] + ratio * (source.y[current] - source.y[previous]));
+            }
+            if (currentInside) appendMapPoint(output, source.x[current], source.y[current]);
+            previous = current;
+            previousInside = currentInside;
+        }
+    }
+
+    private static boolean mapPointInside(Line line, int index, boolean useX,
+                                          float boundary, boolean keepGreater) {
+        float value = useX ? line.x[index] : line.y[index];
+        return keepGreater ? value >= boundary : value <= boundary;
+    }
+
+    private static void appendMapPoint(Line line, float x, float y) {
+        if (line.count >= MAX_POINTS) return;
+        int index = line.count++;
+        line.x[index] = x;
+        line.y[index] = y;
+        line.z[index] = 0f;
     }
 
     private boolean fillLocalLine(double[] latitudes, double[] longitudes,
