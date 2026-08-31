@@ -7,6 +7,8 @@ import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
 import android.graphics.RadialGradient;
 import android.graphics.Shader;
 
@@ -42,6 +44,8 @@ final class SkyBackground {
     private static final float CLEAR_RIGHT = 596f;
     private static final float CLEAR_TOP = 18f;
     private static final float CLEAR_BOTTOM = 130f;
+    /** 주행 화면 위로 내려오는 곡선형 하늘 페이드 깊이. */
+    private static final int CURVE_FADE_DEPTH = 34;
 
     private static Sky cached;
     private static long cachedKey = Long.MIN_VALUE;
@@ -58,12 +62,14 @@ final class SkyBackground {
             return null;
         }
         int quantized = cloudPct < 0 ? -1 : Math.min(100, cloudPct / 10 * 10);
-        long key = ((long) icon << 32) | ((day ? 1L : 0L) << 24)
-                | ((quantized + 1) << 16) | (width & 0xFFFF);
+        int bitmapHeight = height + CURVE_FADE_DEPTH;
+        long key = ((long) icon << 56) | ((day ? 1L : 0L) << 55)
+                | ((long) (quantized + 1) << 48)
+                | ((long) (width & 0xFFFF) << 16) | (height & 0xFFFFL);
         if (cached != null && key == cachedKey
                 && cached.bitmap != null && !cached.bitmap.isRecycled()
                 && cached.bitmap.getWidth() == width
-                && cached.bitmap.getHeight() == height) {
+                && cached.bitmap.getHeight() == bitmapHeight) {
             return cached;
         }
         Sky sky = render(icon, day, quantized, width, height);
@@ -80,9 +86,10 @@ final class SkyBackground {
 
     private static Sky render(int icon, boolean day, int cloudPct,
                               int width, int height) {
+        int bitmapHeight = height + CURVE_FADE_DEPTH;
         Bitmap bitmap;
         try {
-            bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            bitmap = Bitmap.createBitmap(width, bitmapHeight, Bitmap.Config.ARGB_8888);
         } catch (Throwable t) {
             return null;
         }
@@ -92,7 +99,7 @@ final class SkyBackground {
         int[] band = gradientFor(icon, day);
         p.setShader(new LinearGradient(0f, 0f, 0f, height, band[0], band[1],
                 Shader.TileMode.CLAMP));
-        c.drawRect(0f, 0f, width, height, p);
+        c.drawRect(0f, 0f, width, bitmapHeight, p);
         p.setShader(null);
 
         boolean clearish = icon == WeatherService.ICON_CLEAR
@@ -144,7 +151,65 @@ final class SkyBackground {
             drawBolt(c, p, width * 0.315f, height);
         }
 
-        return new Sky(bitmap, luminance(bitmap) < INK_FLIP_LUMA);
+        // 투명 마스크를 씌우기 전에 색 자체의 휘도를 잰다. 투명 영역의 RGB 0이
+        // 평균에 섞이면 밝은 낮 하늘에서도 글자를 흰색으로 잘못 뒤집을 수 있다.
+        boolean lightInk = luminance(bitmap) < INK_FLIP_LUMA;
+        applyCurvedBottomFade(bitmap, width, height);
+        return new Sky(bitmap, lightInk);
+    }
+
+    /**
+     * 직선이던 하늘 밴드 하단을 완만한 곡선으로 자르고, 같은 곡선을 아래로
+     * 조금씩 내려 그린 알파 마스크로 주행 화면과 자연스럽게 섞는다.
+     */
+    private static void applyCurvedBottomFade(Bitmap bitmap, int width, int horizon) {
+        Bitmap mask = null;
+        try {
+            mask = Bitmap.createBitmap(width, bitmap.getHeight(), Bitmap.Config.ARGB_8888);
+            Canvas mc = new Canvas(mask);
+            Paint mp = new Paint(Paint.ANTI_ALIAS_FLAG);
+            mp.setStyle(Paint.Style.FILL);
+
+            // 큰(아래쪽) 곡선부터 낮은 알파로 겹치면 경계와 평행한 부드러운
+            // 그라데이션이 만들어진다. 상태 변경 때만 계산하므로 프레임 비용은 없다.
+            int[] offsets = {34, 27, 21, 16, 11, 7, 4, 2, 0};
+            int[] alphas = {12, 18, 26, 38, 54, 76, 105, 145, 255};
+            for (int i = 0; i < offsets.length; i++) {
+                mp.setColor(Color.argb(alphas[i], 255, 255, 255));
+                mc.drawPath(curvedHorizon(width, horizon, offsets[i]), mp);
+            }
+
+            Paint apply = new Paint(Paint.ANTI_ALIAS_FLAG);
+            apply.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
+            new Canvas(bitmap).drawBitmap(mask, 0f, 0f, apply);
+            apply.setXfermode(null);
+        } catch (Throwable ignored) {
+            // 마스크 생성 실패 시 기존 직선 하늘이라도 계속 표시한다.
+        } finally {
+            if (mask != null && !mask.isRecycled()) {
+                mask.recycle();
+            }
+        }
+    }
+
+    /** 화면 폭 전체를 잇는 저주파 곡선. 작은 굴곡만 사용해 HUD가 출렁이지 않게 한다. */
+    private static Path curvedHorizon(int width, int horizon, int offset) {
+        float w = width;
+        float y = horizon + offset;
+        Path path = new Path();
+        path.moveTo(0f, 0f);
+        path.lineTo(0f, y - 5f);
+        path.cubicTo(w * 0.08f, y - 13f, w * 0.18f, y + 8f,
+                w * 0.29f, y - 3f);
+        path.cubicTo(w * 0.38f, y - 12f, w * 0.47f, y + 10f,
+                w * 0.58f, y + 1f);
+        path.cubicTo(w * 0.68f, y + 12f, w * 0.77f, y - 11f,
+                w * 0.86f, y - 3f);
+        path.cubicTo(w * 0.92f, y + 2f, w * 0.97f, y + 9f,
+                w, y + 2f);
+        path.lineTo(w, 0f);
+        path.close();
+        return path;
     }
 
     private static int[] gradientFor(int icon, boolean day) {
