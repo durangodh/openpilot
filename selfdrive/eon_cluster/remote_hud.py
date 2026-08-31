@@ -995,6 +995,8 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "stockFcw": bool(_field(car, "stockFcw", False)),
     "stockAeb": bool(_field(car, "stockAeb", False)),
     "aebSystemFault": bool(_field(car, "aebSystemFault", False)),
+    "blindSpotSystemFault": bool(_field(car, "blindSpotSystemFault", False)),
+    "lowFuelWarning": bool(_field(car, "lowFuelWarning", False)),
     "parkingSensors": {
       "valid": bool(_field(parking_sensors, "valid", False)),
       "fl": int(_finite(_field(parking_sensors, "frontLeft", 0))),

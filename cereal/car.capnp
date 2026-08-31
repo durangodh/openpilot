@@ -237,6 +237,10 @@ struct CarState {
   # 0 OFF, 1 AUTO, 2 INT, 3 LOW, 4 HIGH, 5 MIST.
   wiperMode @62 :UInt8;
 
+  # Additional OEM cluster warnings mirrored by the remote HUD.
+  lowFuelWarning @63 :Bool;
+  blindSpotSystemFault @64 :Bool;
+
   # button presses
   buttonEvents @11 :List(ButtonEvent);
   leftBlinker @20 :Bool;

@@ -1287,6 +1287,19 @@ public final class HudService extends Service {
             drawAebSystemPopup(c, p);
             return;
         }
+        if (s.optBoolean("blindSpotSystemFault", false)) {
+            drawBlindSpotSystemPopup(c, p);
+            return;
+        }
+        JSONObject doors = s.optJSONObject("doors");
+        if (hasOpenDoor(doors)) {
+            drawDoorOpenPopup(c, p, doors);
+            return;
+        }
+        if (s.optBoolean("lowFuelWarning", false)) {
+            drawLowFuelPopup(c, p, s.optDouble("distanceToEmpty", -1d));
+            return;
+        }
         drawParkingSensorPopup(c, p, s);
     }
 
@@ -1328,6 +1341,112 @@ public final class HudService extends Service {
         c.drawLine(cx - 18f, 335f, cx + 18f, 335f, p);
         p.setStrokeCap(Paint.Cap.BUTT);
         drawCollisionStar(c, p, cx, 311f, 14f);
+    }
+
+    /** Factory blind-spot/LCA failure message and rear-radar pictogram. */
+    private void drawBlindSpotSystemPopup(Canvas c, Paint p) {
+        final float cx = mapCenterX();
+        drawWhiteWarningPanel(c, p, cx);
+        drawWarningTriangle(c, p, cx, 158f, 25f);
+        text(c, p, lang("후측방 경보 시스템을", "CHECK BLIND-SPOT"),
+                cx, 225f, 28f, Color.rgb(35, 39, 43), Paint.Align.CENTER);
+        text(c, p, lang("점검하십시오", "WARNING SYSTEM"),
+                cx, 261f, 28f, Color.rgb(35, 39, 43), Paint.Align.CENTER);
+
+        final int amber = Color.rgb(226, 146, 17);
+        final float cy = 330f;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(amber);
+        scratchRect.set(cx - 19f, cy - 31f, cx + 19f, cy + 33f);
+        c.drawRoundRect(scratchRect, 9f, 9f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(5f);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setColor(amber);
+        scratchRect.set(cx - 69f, cy - 29f, cx - 13f, cy + 29f);
+        c.drawArc(scratchRect, 102f, 156f, false, p);
+        scratchRect.set(cx + 13f, cy - 29f, cx + 69f, cy + 29f);
+        c.drawArc(scratchRect, 282f, 156f, false, p);
+        p.setStrokeWidth(3f);
+        scratchRect.set(cx - 88f, cy - 43f, cx - 4f, cy + 43f);
+        c.drawArc(scratchRect, 112f, 136f, false, p);
+        scratchRect.set(cx + 4f, cy - 43f, cx + 88f, cy + 43f);
+        c.drawArc(scratchRect, 292f, 136f, false, p);
+        p.setStrokeCap(Paint.Cap.BUTT);
+    }
+
+    /** Move the small driving-scene door lamp into the large TMAP warning area. */
+    private void drawDoorOpenPopup(Canvas c, Paint p, JSONObject doors) {
+        final float cx = mapCenterX();
+        final float cy = 288f;
+        drawWhiteWarningPanel(c, p, cx);
+        text(c, p, lang("문이 열려 있습니다", "DOOR OPEN"),
+                cx, 163f, 29f, Color.rgb(35, 39, 43), Paint.Align.CENTER);
+
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(204, 211, 217));
+        scratchRect.set(cx - 34f, cy - 67f, cx + 34f, cy + 70f);
+        c.drawRoundRect(scratchRect, 15f, 15f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(3f);
+        p.setColor(Color.rgb(71, 79, 86));
+        c.drawRoundRect(scratchRect, 15f, 15f, p);
+        scratchRect.set(cx - 25f, cy - 43f, cx + 25f, cy + 35f);
+        c.drawRoundRect(scratchRect, 10f, 10f, p);
+        c.drawLine(cx - 29f, cy - 20f, cx + 29f, cy - 20f, p);
+        c.drawLine(cx - 29f, cy + 26f, cx + 29f, cy + 26f, p);
+
+        p.setColor(Color.rgb(232, 48, 58));
+        if (doors.optBoolean("fl", false)) {
+            drawOpenDoorLeaf(c, p, cx - 31f, cy - 43f, cy - 13f,
+                    cx - 78f, cy - 57f, cy - 23f);
+        }
+        if (doors.optBoolean("fr", false)) {
+            drawOpenDoorLeaf(c, p, cx + 31f, cy - 43f, cy - 13f,
+                    cx + 78f, cy - 57f, cy - 23f);
+        }
+        if (doors.optBoolean("rl", false)) {
+            drawOpenDoorLeaf(c, p, cx - 31f, cy + 8f, cy + 38f,
+                    cx - 78f, cy + 22f, cy + 56f);
+        }
+        if (doors.optBoolean("rr", false)) {
+            drawOpenDoorLeaf(c, p, cx + 31f, cy + 8f, cy + 38f,
+                    cx + 78f, cy + 22f, cy + 56f);
+        }
+    }
+
+    /** Factory low-fuel warning, retaining the cluster's remaining range. */
+    private void drawLowFuelPopup(Canvas c, Paint p, double distanceToEmpty) {
+        final float cx = mapCenterX();
+        final int amber = Color.rgb(232, 158, 18);
+        drawWhiteWarningPanel(c, p, cx);
+        drawWarningTriangle(c, p, cx, 158f, 25f);
+        text(c, p, lang("연료가 부족합니다", "LOW FUEL"),
+                cx, 232f, 30f, Color.rgb(35, 39, 43), Paint.Align.CENTER);
+        if (distanceToEmpty >= 0d && distanceToEmpty < 1000d) {
+            text(c, p, lang("주행가능거리 ", "RANGE ")
+                            + Math.round(distanceToEmpty) + " km",
+                    cx, 270f, 20f, Color.rgb(91, 98, 104), Paint.Align.CENTER);
+        }
+
+        p.setShader(null);
+        p.setColor(amber);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(7f);
+        scratchRect.set(cx - 34f, 300f, cx + 14f, 365f);
+        c.drawRoundRect(scratchRect, 7f, 7f, p);
+        scratchRect.set(cx - 23f, 310f, cx + 3f, 329f);
+        c.drawRoundRect(scratchRect, 3f, 3f, p);
+        scratchPath.rewind();
+        scratchPath.moveTo(cx + 14f, 315f);
+        scratchPath.lineTo(cx + 35f, 326f);
+        scratchPath.lineTo(cx + 35f, 354f);
+        scratchPath.quadTo(cx + 35f, 364f, cx + 25f, 364f);
+        scratchPath.lineTo(cx + 14f, 364f);
+        c.drawPath(scratchPath, p);
+        c.drawLine(cx - 42f, 368f, cx + 20f, 368f, p);
     }
 
     private void drawWarningTriangle(Canvas c, Paint p, float cx, float cy, float radius) {
@@ -2139,11 +2258,6 @@ public final class HudService extends Service {
             if (raster) drawStatusIcon(c, p, 2, x, y, 28f, 31f);
             else drawSeatbeltIcon(c, p, x + 7f, y);
             x += 34f;
-        }
-        JSONObject doors = s.optJSONObject("doors");
-        if (hasOpenDoor(doors)) {
-            drawDoorStatus(c, p, x, y, doors);
-            x += 43f;
         }
         int wiperMode = visibleWiperMode(s.optInt("wiperMode", 0));
         if (wiperMode != 0) {

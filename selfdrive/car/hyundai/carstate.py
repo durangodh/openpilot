@@ -96,6 +96,7 @@ class CarState(CarStateBase):
     if cp.vl_all["CLU13"]["CF_Clu_DTE"]:
       self.distance_to_empty_seen = True
     ret.distanceToEmptyKm = cp.vl["CLU13"]["CF_Clu_DTE"] if self.distance_to_empty_seen else -1.
+    ret.lowFuelWarning = int(cp.vl["CLU13"]["CF_Clu_LowfuelWarn"]) != 0
 
     # Genesis DH's cluster displays DATC11.CR_Datc_OutTempC.  FATC11 and
     # mirror-sensor values can be several degrees hotter after heat soak, so
@@ -331,9 +332,14 @@ class CarState(CarStateBase):
 
     # Blind Spot Detection and Lane Change Assist signals
     if self.CP.enableBsm:
+      # LCA normal operating modes are OFF, passive and active.  Values from
+      # the fail state upward request the factory "check blind-spot system"
+      # warning instead of being mistaken for an ordinary mirror indication.
+      ret.blindSpotSystemFault = int(cp.vl["LCA11"]["CF_Lca_Stat"]) >= 3
       ret.leftBlindspot = cp.vl["LCA11"]["CF_Lca_IndLeft"] != 0
       ret.rightBlindspot = cp.vl["LCA11"]["CF_Lca_IndRight"] != 0
     else:
+      ret.blindSpotSystemFault = False
       ret.leftBlindspot = False
       ret.rightBlindspot = False
 
@@ -439,6 +445,7 @@ class CarState(CarStateBase):
       ("CF_Clu_AliveCnt1", "CLU11"),
 
       ("CF_Clu_DTE", "CLU13"),
+      ("CF_Clu_LowfuelWarn", "CLU13"),
 
       # DH exterior ambient temperature.  No frequency checks: model years
       # use different climate/gateway frames and an absent variant must not
@@ -635,6 +642,7 @@ class CarState(CarStateBase):
 
     if CP.enableBsm:
       signals += [
+        ("CF_Lca_Stat", "LCA11"),
         ("CF_Lca_IndLeft", "LCA11"),
         ("CF_Lca_IndRight", "LCA11"),
       ]
