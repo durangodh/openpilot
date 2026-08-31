@@ -45,6 +45,7 @@ class CarState(CarStateBase):
     self.distance_to_empty_seen = False
     self.outside_temp_seen = False
     self.outside_temp_c = -1000.
+    self.parking_sensor_age = 10000
 
     self.apply_steer = 0.
     
@@ -175,6 +176,21 @@ class CarState(CarStateBase):
     ))
     ret.highBeam = bool(cp.vl["CGW1"]["CF_Gway_HeadLampHigh"])
     ret.frontFogLight = bool(cp.vl["CGW1"]["CF_Gway_Frt_Fog_Act"])
+    # Preserve the physical stalk position instead of reducing it to a single
+    # on/off bit.  AUTO and intermittent are separate CGW1 signals depending
+    # on whether the vehicle is equipped with a rain sensor.
+    if cp.vl["CGW1"]["CF_Gway_WiperHighSw"]:
+      ret.wiperMode = 4
+    elif cp.vl["CGW1"]["CF_Gway_WiperLowSw"]:
+      ret.wiperMode = 3
+    elif cp.vl["CGW1"]["CF_Gway_WiperAutoSw"]:
+      ret.wiperMode = 1
+    elif cp.vl["CGW1"]["CF_Gway_WiperIntSw"]:
+      ret.wiperMode = 2
+    elif cp.vl["CGW1"]["CF_Gway_WiperMistSw"]:
+      ret.wiperMode = 5
+    else:
+      ret.wiperMode = 0
     ret.steeringTorque = cp_mdps.vl["MDPS12"]["CR_Mdps_StrColTq"]
     ret.steeringTorqueEps = cp_mdps.vl["MDPS12"]["CR_Mdps_OutTq"] / 10.  # scale to Nm
     ret.steeringPressed = abs(ret.steeringTorque) > self.params.STEER_THRESHOLD
@@ -289,9 +305,29 @@ class CarState(CarStateBase):
     if self.CP.carFingerprint in FEATURES["use_fca"]:
       ret.stockAeb = cp.vl["FCA11"]["FCA_CmdAct"] != 0
       ret.stockFcw = cp.vl["FCA11"]["CF_VSM_Warn"] == 2
+      ret.aebSystemFault = cp.vl["FCA11"]["FCA_Failinfo"] != 0
     else:
-      ret.stockAeb = cp.vl["SCC12"]["AEB_CmdAct"] != 0
-      ret.stockFcw = cp.vl["SCC12"]["CF_VSM_Warn"] == 2
+      ret.stockAeb = cp_scc.vl["SCC12"]["AEB_CmdAct"] != 0
+      ret.stockFcw = cp_scc.vl["SCC12"]["CF_VSM_Warn"] == 2
+      ret.aebSystemFault = cp_scc.vl["SCC12"]["AEB_Failinfo"] != 0
+
+    # Genesis DH exposes the same six parking-distance zones used by the
+    # factory cluster in PAS11.  Keep a separate validity bit so vehicles that
+    # do not publish PAS11 cannot look like a valid all-clear state.
+    pas = cp.vl["PAS11"]
+    if cp.vl_all["PAS11"]["CF_Gway_PASSystemOn"]:
+      self.parking_sensor_age = 0
+    else:
+      self.parking_sensor_age += 1
+    # PAS11 is slower than carState.  Hold the last sample between frames, but
+    # clear it within one second if the optional message disappears.
+    ret.parkingSensors.valid = self.parking_sensor_age < 100
+    ret.parkingSensors.frontLeft = int(pas["CF_Gway_PASDisplayFLH"])
+    ret.parkingSensors.frontCenter = int(pas["CF_Gway_PASDisplayFCTR"])
+    ret.parkingSensors.frontRight = int(pas["CF_Gway_PASDisplayFRH"])
+    ret.parkingSensors.rearLeft = int(pas["CF_Gway_PASDisplayRLH"])
+    ret.parkingSensors.rearCenter = int(pas["CF_Gway_PASDisplayRCTR"])
+    ret.parkingSensors.rearRight = int(pas["CF_Gway_PASDisplayRRH"])
 
     # Blind Spot Detection and Lane Change Assist signals
     if self.CP.enableBsm:
@@ -380,6 +416,11 @@ class CarState(CarStateBase):
       ("C_TailLampActivity", "GW_IPM_PE_1"),
       ("CF_Gway_HeadLampHigh", "CGW1"),
       ("CF_Gway_Frt_Fog_Act", "CGW1"),
+      ("CF_Gway_WiperIntSw", "CGW1"),
+      ("CF_Gway_WiperLowSw", "CGW1"),
+      ("CF_Gway_WiperHighSw", "CGW1"),
+      ("CF_Gway_WiperAutoSw", "CGW1"),
+      ("CF_Gway_WiperMistSw", "CGW1"),
       ("CF_Gway_ParkBrakeSw", "CGW1"),   # Parking Brake
 
       ("CYL_PRES", "ESP12"),
@@ -473,6 +514,16 @@ class CarState(CarStateBase):
       ("PRESSURE_FR", "TPMS11"),
       ("PRESSURE_RL", "TPMS11"),
       ("PRESSURE_RR", "TPMS11"),
+
+      # Factory-cluster parking sensor sectors.  This frame is optional and
+      # deliberately omitted from checks; vl_all is used to detect presence.
+      ("CF_Gway_PASDisplayFLH", "PAS11"),
+      ("CF_Gway_PASDisplayFCTR", "PAS11"),
+      ("CF_Gway_PASDisplayFRH", "PAS11"),
+      ("CF_Gway_PASDisplayRLH", "PAS11"),
+      ("CF_Gway_PASDisplayRCTR", "PAS11"),
+      ("CF_Gway_PASDisplayRRH", "PAS11"),
+      ("CF_Gway_PASSystemOn", "PAS11"),
     ]
 
     checks = [
@@ -573,6 +624,7 @@ class CarState(CarStateBase):
       signals += [
         ("FCA_CmdAct", "FCA11"),
         ("CF_VSM_Warn", "FCA11"),
+        ("FCA_Failinfo", "FCA11"),
       ]
 
       if not CP.openpilotLongitudinalControl:

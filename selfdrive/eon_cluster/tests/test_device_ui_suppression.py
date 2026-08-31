@@ -252,3 +252,53 @@ def test_android_hud_status_shows_actual_apk_and_udp_stage():
   assert '"데이터 대기 · UDP 포트 정상"' in activity
   assert '"원시 패킷 "' in activity
   assert '"UDP 포트 오류"' in activity
+
+
+def test_genesis_cluster_warnings_reach_external_hud():
+  schema = (ROOT / "cereal" / "car.capnp").read_text(encoding="utf-8")
+  carstate = (ROOT / "selfdrive" / "car" / "hyundai" / "carstate.py").read_text(
+      encoding="utf-8")
+  sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(
+      encoding="utf-8")
+  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+             "main" / "java" / "ai" / "comma" / "remotehud" /
+             "HudService.java").read_text(encoding="utf-8")
+
+  assert "aebSystemFault @60 :Bool" in schema
+  assert "parkingSensors @61 :ParkingSensors" in schema
+  assert '("FCA_Failinfo", "FCA11")' in carstate
+  for signal in ("CF_Gway_PASDisplayFLH", "CF_Gway_PASDisplayFCTR",
+                 "CF_Gway_PASDisplayFRH", "CF_Gway_PASDisplayRLH",
+                 "CF_Gway_PASDisplayRCTR", "CF_Gway_PASDisplayRRH"):
+    assert '("%s", "PAS11")' % signal in carstate
+  assert '"aebSystemFault":' in sender
+  assert '"parkingSensors": {' in sender
+  assert "drawOemWarningPopup(c, p, s)" in service
+  assert "drawAebSystemPopup(c, p)" in service
+  assert "drawParkingSensorPopup(c, p, s)" in service
+  assert "drawWhiteWarningPanel(c, p, cx)" in service
+
+
+def test_wiper_mode_is_shown_beside_door_status():
+  schema = (ROOT / "cereal" / "car.capnp").read_text(encoding="utf-8")
+  carstate = (ROOT / "selfdrive" / "car" / "hyundai" / "carstate.py").read_text(
+      encoding="utf-8")
+  sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(
+      encoding="utf-8")
+  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+             "main" / "java" / "ai" / "comma" / "remotehud" /
+             "HudService.java").read_text(encoding="utf-8")
+
+  assert "wiperMode @62 :UInt8" in schema
+  for signal in ("CF_Gway_WiperAutoSw", "CF_Gway_WiperIntSw",
+                 "CF_Gway_WiperLowSw", "CF_Gway_WiperHighSw",
+                 "CF_Gway_WiperMistSw"):
+    assert '("%s", "CGW1")' % signal in carstate
+  assert '"wiperMode":' in sender
+  lights = service.split("private void drawLights", 1)[1].split(
+      "private int visibleWiperMode", 1)[0]
+  assert lights.index("drawDoorStatus") < lights.index("drawWiperStatus")
+  assert "WIPER_MODE_HIGHLIGHT_MS = 2500L" in service
+  assert 'case 1: label = "AUTO"' in service
+  assert 'case 3: label = "LOW"' in service
+  assert 'case 4: label = "HIGH"' in service

@@ -228,6 +228,15 @@ struct CarState {
   rearLeftDoorOpen @58 :Bool;
   rearRightDoorOpen @59 :Bool;
 
+  # OEM driver-assistance warnings mirrored from the instrument cluster.
+  # parkingSensors.valid stays false when PAS11 is not present on the vehicle.
+  aebSystemFault @60 :Bool;
+  parkingSensors @61 :ParkingSensors;
+
+  # Front wiper stalk position from CGW1.
+  # 0 OFF, 1 AUTO, 2 INT, 3 LOW, 4 HIGH, 5 MIST.
+  wiperMode @62 :UInt8;
+
   # button presses
   buttonEvents @11 :List(ButtonEvent);
   leftBlinker @20 :Bool;
@@ -259,6 +268,16 @@ struct CarState {
     fr @1 :Float32;
     rl @2 :Float32;
     rr @3 :Float32;
+  }
+
+  struct ParkingSensors {
+    valid @0 :Bool;
+    frontLeft @1 :UInt8;
+    frontCenter @2 :UInt8;
+    frontRight @3 :UInt8;
+    rearLeft @4 :UInt8;
+    rearCenter @5 :UInt8;
+    rearRight @6 :UInt8;
   }
 
   struct WheelSpeeds {

@@ -147,6 +147,8 @@ public final class HudService extends Service {
 
     /** EON 텔레메트리가 이보다 오래 끊기면 화면에 표시한다 */
     private static final long EON_STALE_MS = 3000L;
+    /** 와이퍼 조작 직후 상태표시 강조 시간. */
+    private static final long WIPER_MODE_HIGHLIGHT_MS = 2500L;
 
     private static volatile boolean serviceRunning;
     private static volatile boolean mapConnected;
@@ -232,6 +234,11 @@ public final class HudService extends Service {
     private int countdownLastSec = 100;
     /** 0 초를 처음 만난 시각. 잠깐 보여준 뒤 닫는다. */
     private long countdownZeroAtMs = 0L;
+
+    // 와이퍼 상태표시. MIST 는 짧은 펄스라 레버를 놓은 뒤에도 잠시 유지한다.
+    private int lastRawWiperMode = -1;
+    private int heldWiperMode = 0;
+    private long wiperModeChangedElapsed = 0L;
 
     // S9 자체 상태 (출력모드 3)
     private long lastReconnectElapsed = 0L;
@@ -1123,6 +1130,9 @@ public final class HudService extends Service {
             drawMap(c, p, s, map, tbtCurrent, tbtNext, lane);
         }
         applyThemeOverlay(c, p);
+        // 순정 계기판 경고는 우측 TMAP 위에 독립된 흰색 팝업으로 표시한다.
+        // 야간 지도 마스크 뒤에 그려 항상 선명한 흰색을 유지한다.
+        drawOemWarningPopup(c, p, s);
     }
 
     private boolean eonStale() {
@@ -1380,6 +1390,164 @@ public final class HudService extends Service {
         } else {
             text(c, p, text1, cx, cy + titleSize * 0.36f, titleSize, titleColor, Paint.Align.CENTER);
         }
+    }
+
+    /** 제네시스 순정 경고를 우측 TMAP 중앙의 흰색 팝업으로 표시한다. */
+    private void drawOemWarningPopup(Canvas c, Paint p, JSONObject s) {
+        if (eonStale()) {
+            return;
+        }
+        if (s.optBoolean("aebSystemFault", false)) {
+            drawAebSystemPopup(c, p);
+            return;
+        }
+        drawParkingSensorPopup(c, p, s);
+    }
+
+    private void drawWhiteWarningPanel(Canvas c, Paint p, float cx) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(92, 0, 0, 0));
+        scratchRect.set(cx - 176f, 124f, cx + 184f, 402f);
+        c.drawRoundRect(scratchRect, 13f, 13f, p);
+        p.setColor(Color.rgb(250, 251, 252));
+        scratchRect.set(cx - 180f, 118f, cx + 180f, 396f);
+        c.drawRoundRect(scratchRect, 13f, 13f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(4f);
+        p.setColor(Color.rgb(154, 163, 171));
+        c.drawRoundRect(scratchRect, 13f, 13f, p);
+    }
+
+    /** Factory-cluster AEB/FCA failure message (not an active braking event). */
+    private void drawAebSystemPopup(Canvas c, Paint p) {
+        final float cx = mapCenterX();
+        drawWhiteWarningPanel(c, p, cx);
+        drawWarningTriangle(c, p, cx, 165f, 27f);
+        text(c, p, lang("긴급제동 시스템을", "CHECK EMERGENCY"),
+                cx, 235f, 29f, Color.rgb(35, 39, 43), Paint.Align.CENTER);
+        text(c, p, lang("점검하십시오", "BRAKING SYSTEM"),
+                cx, 272f, 29f, Color.rgb(35, 39, 43), Paint.Align.CENTER);
+
+        // 순정 경고의 충돌 차량 표식을 작은 벡터로 재현한다.
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(7f);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setColor(Color.rgb(226, 159, 22));
+        scratchRect.set(cx - 72f, 318f, cx - 14f, 353f);
+        c.drawRoundRect(scratchRect, 9f, 9f, p);
+        scratchRect.set(cx + 14f, 318f, cx + 72f, 353f);
+        c.drawRoundRect(scratchRect, 9f, 9f, p);
+        c.drawLine(cx - 18f, 335f, cx + 18f, 335f, p);
+        p.setStrokeCap(Paint.Cap.BUTT);
+        drawCollisionStar(c, p, cx, 311f, 14f);
+    }
+
+    private void drawWarningTriangle(Canvas c, Paint p, float cx, float cy, float radius) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(255, 190, 38));
+        scratchPath.rewind();
+        scratchPath.moveTo(cx, cy - radius);
+        scratchPath.lineTo(cx - radius * 0.92f, cy + radius * 0.75f);
+        scratchPath.lineTo(cx + radius * 0.92f, cy + radius * 0.75f);
+        scratchPath.close();
+        c.drawPath(scratchPath, p);
+        p.setColor(Color.rgb(54, 57, 59));
+        scratchRect.set(cx - 3f, cy - 12f, cx + 3f, cy + 7f);
+        c.drawRoundRect(scratchRect, 3f, 3f, p);
+        c.drawCircle(cx, cy + 15f, 3.5f, p);
+    }
+
+    private void drawCollisionStar(Canvas c, Paint p, float cx, float cy, float radius) {
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(226, 159, 22));
+        scratchPath.rewind();
+        for (int i = 0; i < 16; i++) {
+            double a = -Math.PI / 2d + i * Math.PI / 8d;
+            float r = (i & 1) == 0 ? radius : radius * 0.42f;
+            float x = cx + (float) Math.cos(a) * r;
+            float y = cy + (float) Math.sin(a) * r;
+            if (i == 0) scratchPath.moveTo(x, y); else scratchPath.lineTo(x, y);
+        }
+        scratchPath.close();
+        c.drawPath(scratchPath, p);
+    }
+
+    /**
+     * Mirror the Genesis PAS11 six-zone parking display.  PAS11 levels are
+     * preserved as 0..7; higher levels are rendered with increasing urgency.
+     * Returns true only when a valid PAS11 frame contains an active sector.
+     */
+    private boolean drawParkingSensorPopup(Canvas c, Paint p, JSONObject s) {
+        JSONObject sensors = s.optJSONObject("parkingSensors");
+        if (sensors == null || !sensors.optBoolean("valid", false)) {
+            return false;
+        }
+        int fl = parkingLevel(sensors, "fl");
+        int fc = parkingLevel(sensors, "fc");
+        int fr = parkingLevel(sensors, "fr");
+        int rl = parkingLevel(sensors, "rl");
+        int rc = parkingLevel(sensors, "rc");
+        int rr = parkingLevel(sensors, "rr");
+        if ((fl | fc | fr | rl | rc | rr) == 0) {
+            return false;
+        }
+
+        final float cx = mapCenterX();
+        final float cy = 270f;
+        drawWhiteWarningPanel(c, p, cx);
+        text(c, p, lang("주차 거리 경고", "PARKING DISTANCE WARNING"),
+                cx, 153f, 22f, Color.rgb(48, 53, 57), Paint.Align.CENTER);
+
+        // Simplified top view keeps the six PAS sectors immediately legible.
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(210, 216, 221));
+        scratchRect.set(cx - 25f, cy - 39f, cx + 25f, cy + 48f);
+        c.drawRoundRect(scratchRect, 13f, 13f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2f);
+        p.setColor(Color.rgb(82, 91, 98));
+        c.drawRoundRect(scratchRect, 13f, 13f, p);
+        scratchRect.set(cx - 17f, cy - 23f, cx + 17f, cy + 22f);
+        c.drawRoundRect(scratchRect, 8f, 8f, p);
+        p.setStrokeWidth(4f);
+        c.drawLine(cx - 22f, cy - 19f, cx - 29f, cy - 12f, p);
+        c.drawLine(cx + 22f, cy - 19f, cx + 29f, cy - 12f, p);
+
+        // Android arc angles: 270 degrees is forward/up, 90 is rear/down.
+        drawParkingSector(c, p, cx, cy, 207f, 37f, fl);
+        drawParkingSector(c, p, cx, cy, 251.5f, 37f, fc);
+        drawParkingSector(c, p, cx, cy, 296f, 37f, fr);
+        drawParkingSector(c, p, cx, cy, 27f, 37f, rr);
+        drawParkingSector(c, p, cx, cy, 71.5f, 37f, rc);
+        drawParkingSector(c, p, cx, cy, 116f, 37f, rl);
+        return true;
+    }
+
+    private int parkingLevel(JSONObject sensors, String key) {
+        return Math.max(0, Math.min(7, sensors.optInt(key, 0)));
+    }
+
+    private void drawParkingSector(Canvas c, Paint p, float cx, float cy,
+                                   float start, float sweep, int level) {
+        if (level <= 0) {
+            return;
+        }
+        int color = level >= 5 ? Color.rgb(238, 70, 62)
+                : (level >= 3 ? Color.rgb(255, 183, 48) : Color.rgb(98, 207, 112));
+        // Bring high urgency closer to the vehicle while retaining a larger,
+        // easy-to-see stroke on the small external panel.
+        float radius = level >= 5 ? 54f : (level >= 3 ? 63f : 72f);
+        scratchRect.set(cx - radius, cy - radius, cx + radius, cy + radius);
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(level >= 5 ? 9f : 7f);
+        p.setColor(color);
+        c.drawArc(scratchRect, start, sweep, false, p);
+        p.setStrokeCap(Paint.Cap.BUTT);
     }
 
     /**
@@ -2089,7 +2257,79 @@ public final class HudService extends Service {
         JSONObject doors = s.optJSONObject("doors");
         if (hasOpenDoor(doors)) {
             drawDoorStatus(c, p, x, y, doors);
+            x += 43f;
         }
+        int wiperMode = visibleWiperMode(s.optInt("wiperMode", 0));
+        if (wiperMode != 0) {
+            boolean highlighted = SystemClock.elapsedRealtime() - wiperModeChangedElapsed
+                    <= WIPER_MODE_HIGHLIGHT_MS;
+            drawWiperStatus(c, p, x, y, wiperMode, highlighted);
+        }
+    }
+
+    /**
+     * OFF 는 즉시 숨기고, 순간 입력인 MIST 만 2.5초 동안 유지한다. AUTO/INT/LOW/HIGH
+     * 는 선택된 동안 계속 표시해 운전자가 현재 레버 위치를 바로 확인할 수 있게 한다.
+     */
+    private int visibleWiperMode(int rawMode) {
+        int mode = Math.max(0, Math.min(5, rawMode));
+        long now = SystemClock.elapsedRealtime();
+        if (mode != lastRawWiperMode) {
+            int previous = lastRawWiperMode;
+            lastRawWiperMode = mode;
+            if (mode != 0) {
+                heldWiperMode = mode;
+                wiperModeChangedElapsed = now;
+            } else if (previous != 5) {
+                heldWiperMode = 0;
+            }
+        }
+        if (mode != 0) return mode;
+        if (heldWiperMode == 5
+                && now - wiperModeChangedElapsed <= WIPER_MODE_HIGHLIGHT_MS) {
+            return heldWiperMode;
+        }
+        heldWiperMode = 0;
+        return 0;
+    }
+
+    /** 문 열림 상태 바로 오른쪽에 붙는 소형 와이퍼 아이콘과 모드명. */
+    private void drawWiperStatus(Canvas c, Paint p, float left, float cy, int mode,
+                                 boolean highlighted) {
+        String label;
+        switch (mode) {
+            case 1: label = "AUTO"; break;
+            case 2: label = "INT"; break;
+            case 3: label = "LOW"; break;
+            case 4: label = "HIGH"; break;
+            case 5: label = "MIST"; break;
+            default: return;
+        }
+
+        int color = mode == 1 ? Color.rgb(42, 145, 235) : ink();
+        float right = left + ("HIGH".equals(label) ? 83f : 77f);
+        if (highlighted) {
+            p.setShader(null);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(frameDark ? Color.rgb(47, 56, 66) : Color.rgb(222, 229, 234));
+            scratchRect.set(left - 5f, cy - 20f, right, cy + 20f);
+            c.drawRoundRect(scratchRect, 8f, 8f, p);
+        }
+
+        // Windshield outline and a single swept blade, kept vector-only so it
+        // remains crisp at the small status-row size.
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setStrokeWidth(2.6f);
+        p.setColor(color);
+        scratchRect.set(left, cy - 13f, left + 28f, cy + 14f);
+        c.drawArc(scratchRect, 205f, 130f, false, p);
+        c.drawLine(left + 4f, cy + 7f, left + 24f, cy - 5f, p);
+        c.drawLine(left + 4f, cy + 7f, left + 1f, cy + 12f, p);
+        p.setStrokeCap(Paint.Cap.BUTT);
+        text(c, p, label, left + 34f, cy + 6f, 15f, color, Paint.Align.LEFT);
     }
 
     /** 투명 PNG 스프라이트에서 아이콘 한 개만 잘라 원래 상태표시 줄에 그린다. */

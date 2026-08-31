@@ -878,6 +878,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   if not 1 <= mode <= 4:
     mode = 3
   tpms = _field(car, "tpms", None)
+  parking_sensors = _field(car, "parkingSensors", None)
   navi = _read_navi_summary()
   _compensate_navi_pose(navi, _finite(_field(car, "vEgo", 0.0)))
   # Preserve the compensated TMAP pose for the phone-local, display-only map
@@ -980,6 +981,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "lowBeam": bool(_field(car, "lowBeam", False)),
     "highBeam": bool(_field(car, "highBeam", False)),
     "frontFog": bool(_field(car, "frontFogLight", False)),
+    "wiperMode": max(0, min(5, int(_finite(_field(car, "wiperMode", 0))))),
     "seatbeltUnlatched": bool(_field(car, "seatbeltUnlatched", False)),
     "doors": {
       "fl": bool(_field(car, "frontLeftDoorOpen", False)),
@@ -992,6 +994,16 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "steerFaultPermanent": bool(_field(car, "steerFaultPermanent", False)),
     "stockFcw": bool(_field(car, "stockFcw", False)),
     "stockAeb": bool(_field(car, "stockAeb", False)),
+    "aebSystemFault": bool(_field(car, "aebSystemFault", False)),
+    "parkingSensors": {
+      "valid": bool(_field(parking_sensors, "valid", False)),
+      "fl": int(_finite(_field(parking_sensors, "frontLeft", 0))),
+      "fc": int(_finite(_field(parking_sensors, "frontCenter", 0))),
+      "fr": int(_finite(_field(parking_sensors, "frontRight", 0))),
+      "rl": int(_finite(_field(parking_sensors, "rearLeft", 0))),
+      "rc": int(_finite(_field(parking_sensors, "rearCenter", 0))),
+      "rr": int(_finite(_field(parking_sensors, "rearRight", 0))),
+    },
     "outsideTemp": round(_finite(_field(car, "outsideTempC", -1000.0), -1000.0), 1),
     "distanceToEmpty": round(_finite(_field(car, "distanceToEmptyKm", -1.0)), 1),
     "rpm": _engine_rpm(car),
