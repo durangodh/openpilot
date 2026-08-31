@@ -84,6 +84,12 @@ class CarState(CarStateBase):
     ret.rearRightDoorOpen = bool(cp.vl["CGW2"]["CF_Gway_RRDrSw"])
     ret.doorOpen = any([ret.frontLeftDoorOpen, ret.frontRightDoorOpen,
                         ret.rearLeftDoorOpen, ret.rearRightDoorOpen])
+    ret.trunkOpen = bool(cp.vl["CGW1"]["CF_Gway_TrunkTgSw"])
+    ret.hoodOpen = bool(cp.vl["CGW1"]["CF_Gway_HoodSw"])
+    ret.frontLeftWindowOpen = bool(cp.vl["CGW4"]["CF_Gway_DrvWdwStat"])
+    ret.frontRightWindowOpen = bool(cp.vl["CGW4"]["CF_Gway_AstWdwStat"])
+    ret.rearLeftWindowOpen = bool(cp.vl["CGW4"]["CF_Gway_RLWdwState"])
+    ret.rearRightWindowOpen = bool(cp.vl["CGW4"]["CF_Gway_RRWdwState"])
 
     # CGW4 indicators already include occupant/warning logic for passenger
     # and rear seats.  Keep the proven driver switch as a fallback.
@@ -407,10 +413,16 @@ class CarState(CarStateBase):
       ("CF_Gway_RCSeatBeltInd", "CGW4"),
       ("CF_Gway_RLSeatBeltInd", "CGW4"),
       ("CF_Gway_RRSeatBeltInd", "CGW4"),
+      ("CF_Gway_DrvWdwStat", "CGW4"),
+      ("CF_Gway_AstWdwStat", "CGW4"),
+      ("CF_Gway_RLWdwState", "CGW4"),
+      ("CF_Gway_RRWdwState", "CGW4"),
 
       ("CF_Gway_DrvSeatBeltSw", "CGW1"),
       ("CF_Gway_DrvDrSw", "CGW1"),       # Driver Door
       ("CF_Gway_AstDrSw", "CGW1"),       # Passenger door
+      ("CF_Gway_TrunkTgSw", "CGW1"),     # Trunk / tailgate
+      ("CF_Gway_HoodSw", "CGW1"),        # Hood
       ("CF_Gway_RLDrSw", "CGW2"),        # Rear reft door
       ("CF_Gway_RRDrSw", "CGW2"),        # Rear right door
       ("CF_Gway_TurnSigLh", "CGW1"),

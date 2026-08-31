@@ -1292,8 +1292,9 @@ public final class HudService extends Service {
             return;
         }
         JSONObject doors = s.optJSONObject("doors");
-        if (hasOpenDoor(doors)) {
-            drawDoorOpenPopup(c, p, doors);
+        JSONObject windows = s.optJSONObject("windows");
+        if (hasVehicleOpening(doors, windows)) {
+            drawVehicleOpenPopup(c, p, doors, windows);
             return;
         }
         if (s.optBoolean("lowFuelWarning", false)) {
@@ -1376,12 +1377,37 @@ public final class HudService extends Service {
         p.setStrokeCap(Paint.Cap.BUTT);
     }
 
-    /** Move the small driving-scene door lamp into the large TMAP warning area. */
-    private void drawDoorOpenPopup(Canvas c, Paint p, JSONObject doors) {
+    /** Show every open door, window, hood and trunk in the large TMAP warning area. */
+    private void drawVehicleOpenPopup(Canvas c, Paint p, JSONObject doors,
+                                      JSONObject windows) {
         final float cx = mapCenterX();
         final float cy = 288f;
         drawWhiteWarningPanel(c, p, cx);
-        text(c, p, lang("문이 열려 있습니다", "DOOR OPEN"),
+        boolean sideDoorOpen = hasOpenDoor(doors);
+        boolean windowOpen = hasOpenWindow(windows);
+        boolean hoodOpen = doors != null && doors.optBoolean("hood", false);
+        boolean trunkOpen = doors != null && doors.optBoolean("trunk", false);
+        int typeCount = (sideDoorOpen ? 1 : 0) + (windowOpen ? 1 : 0)
+                + (hoodOpen ? 1 : 0) + (trunkOpen ? 1 : 0);
+        String titleKo;
+        String titleEn;
+        if (typeCount > 1) {
+            titleKo = "열림 상태를 확인하십시오";
+            titleEn = "CHECK OPENINGS";
+        } else if (sideDoorOpen) {
+            titleKo = "문이 열려 있습니다";
+            titleEn = "DOOR OPEN";
+        } else if (windowOpen) {
+            titleKo = "창문이 열려 있습니다";
+            titleEn = "WINDOW OPEN";
+        } else if (hoodOpen) {
+            titleKo = "보닛이 열려 있습니다";
+            titleEn = "HOOD OPEN";
+        } else {
+            titleKo = "트렁크가 열려 있습니다";
+            titleEn = "TRUNK OPEN";
+        }
+        text(c, p, lang(titleKo, titleEn),
                 cx, 163f, 29f, Color.rgb(35, 39, 43), Paint.Align.CENTER);
 
         p.setShader(null);
@@ -1398,23 +1424,64 @@ public final class HudService extends Service {
         c.drawLine(cx - 29f, cy - 20f, cx + 29f, cy - 20f, p);
         c.drawLine(cx - 29f, cy + 26f, cx + 29f, cy + 26f, p);
 
+        // The front of the vehicle points upward.  Hood and trunk panels
+        // hinge away from the body so their position stays unmistakable.
         p.setColor(Color.rgb(232, 48, 58));
-        if (doors.optBoolean("fl", false)) {
+        p.setStyle(Paint.Style.FILL);
+        if (hoodOpen) {
+            scratchPath.rewind();
+            scratchPath.moveTo(cx - 31f, cy - 56f);
+            scratchPath.lineTo(cx - 42f, cy - 94f);
+            scratchPath.lineTo(cx + 42f, cy - 94f);
+            scratchPath.lineTo(cx + 31f, cy - 56f);
+            scratchPath.close();
+            c.drawPath(scratchPath, p);
+        }
+        if (trunkOpen) {
+            scratchPath.rewind();
+            scratchPath.moveTo(cx - 31f, cy + 56f);
+            scratchPath.lineTo(cx - 42f, cy + 94f);
+            scratchPath.lineTo(cx + 42f, cy + 94f);
+            scratchPath.lineTo(cx + 31f, cy + 56f);
+            scratchPath.close();
+            c.drawPath(scratchPath, p);
+        }
+        if (doors != null && doors.optBoolean("fl", false)) {
             drawOpenDoorLeaf(c, p, cx - 31f, cy - 43f, cy - 13f,
                     cx - 78f, cy - 57f, cy - 23f);
         }
-        if (doors.optBoolean("fr", false)) {
+        if (doors != null && doors.optBoolean("fr", false)) {
             drawOpenDoorLeaf(c, p, cx + 31f, cy - 43f, cy - 13f,
                     cx + 78f, cy - 57f, cy - 23f);
         }
-        if (doors.optBoolean("rl", false)) {
+        if (doors != null && doors.optBoolean("rl", false)) {
             drawOpenDoorLeaf(c, p, cx - 31f, cy + 8f, cy + 38f,
                     cx - 78f, cy + 22f, cy + 56f);
         }
-        if (doors.optBoolean("rr", false)) {
+        if (doors != null && doors.optBoolean("rr", false)) {
             drawOpenDoorLeaf(c, p, cx + 31f, cy + 8f, cy + 38f,
                     cx + 78f, cy + 22f, cy + 56f);
         }
+
+        // Open glass is blue and remains visible even when its door is also
+        // open.  Each bar follows the matching FL/FR/RL/RR side window.
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(8f);
+        p.setColor(Color.rgb(36, 160, 224));
+        if (windows != null && windows.optBoolean("fl", false)) {
+            c.drawLine(cx - 25f, cy - 40f, cx - 25f, cy - 16f, p);
+        }
+        if (windows != null && windows.optBoolean("fr", false)) {
+            c.drawLine(cx + 25f, cy - 40f, cx + 25f, cy - 16f, p);
+        }
+        if (windows != null && windows.optBoolean("rl", false)) {
+            c.drawLine(cx - 25f, cy + 7f, cx - 25f, cy + 32f, p);
+        }
+        if (windows != null && windows.optBoolean("rr", false)) {
+            c.drawLine(cx + 25f, cy + 7f, cx + 25f, cy + 32f, p);
+        }
+        p.setStrokeCap(Paint.Cap.BUTT);
     }
 
     /** Factory low-fuel warning, retaining the cluster's remaining range. */
@@ -2422,6 +2489,18 @@ public final class HudService extends Service {
         return doors != null && (doors.optBoolean("fl", false)
                 || doors.optBoolean("fr", false) || doors.optBoolean("rl", false)
                 || doors.optBoolean("rr", false));
+    }
+
+    private boolean hasOpenWindow(JSONObject windows) {
+        return windows != null && (windows.optBoolean("fl", false)
+                || windows.optBoolean("fr", false) || windows.optBoolean("rl", false)
+                || windows.optBoolean("rr", false));
+    }
+
+    private boolean hasVehicleOpening(JSONObject doors, JSONObject windows) {
+        return hasOpenDoor(doors) || hasOpenWindow(windows)
+                || (doors != null && (doors.optBoolean("hood", false)
+                || doors.optBoolean("trunk", false)));
     }
 
     private void drawSeatbeltIcon(Canvas c, Paint p, float x, float y) {

@@ -241,6 +241,14 @@ struct CarState {
   lowFuelWarning @63 :Bool;
   blindSpotSystemFault @64 :Bool;
 
+  # Individual body-opening states shown by the factory cluster.
+  trunkOpen @65 :Bool;
+  hoodOpen @66 :Bool;
+  frontLeftWindowOpen @67 :Bool;
+  frontRightWindowOpen @68 :Bool;
+  rearLeftWindowOpen @69 :Bool;
+  rearRightWindowOpen @70 :Bool;
+
   # button presses
   buttonEvents @11 :List(ButtonEvent);
   leftBlinker @20 :Bool;
