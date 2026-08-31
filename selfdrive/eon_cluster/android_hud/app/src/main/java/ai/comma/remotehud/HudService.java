@@ -1033,14 +1033,14 @@ public final class HudService extends Service {
 
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        int driveBg = lc(l, "driveBg", frameDark ? Color.rgb(15, 19, 25) : Color.rgb(239, 241, 242));
+        int driveBg = lc(l, "driveBg", frameDark ? Color.rgb(22, 28, 36) : Color.rgb(226, 229, 231));
         p.setColor(driveBg);
         c.drawRect(0f, 0f, DRIVE_RIGHT, 462f, p);
 
         int roadTop = lc(l, "roadTop",
-                frameDark ? Color.rgb(42, 49, 58) : Color.rgb(226, 229, 231));
+                frameDark ? Color.rgb(50, 58, 68) : Color.rgb(210, 215, 219));
         int roadBottom = lc(l, "roadBottom",
-                frameDark ? Color.rgb(53, 61, 71) : Color.rgb(216, 220, 223));
+                frameDark ? Color.rgb(62, 72, 84) : Color.rgb(198, 204, 209));
         int pathColor = lc(l, "pathColor",
                 frameDark ? Color.rgb(40, 150, 255) : Color.rgb(24, 126, 224));
 
@@ -2485,13 +2485,18 @@ public final class HudService extends Service {
         boolean valid = enabled && set > 0 && set < 255;
         boolean aeb = s.optBoolean("stockAeb", false);
         boolean fcw = !aeb && s.optBoolean("stockFcw", false);
+        int inactiveAccent = frameDark
+                ? Color.rgb(139, 147, 152) : Color.rgb(88, 98, 106);
         int accent = aeb ? Color.rgb(210, 42, 52)
                 : (fcw ? Color.rgb(214, 151, 20)
-                : (valid ? Color.rgb(18, 149, 224) : Color.rgb(139, 147, 152)));
+                : (valid ? Color.rgb(18, 149, 224) : inactiveAccent));
         int fill = aeb ? Color.rgb(230, 48, 58)
                 : (fcw ? Color.rgb(255, 205, 52)
-                : (frameDark ? Color.rgb(26, 32, 40) : Color.rgb(246, 247, 247)));
-        int valueColor = aeb ? Color.WHITE : (fcw ? Color.rgb(28, 30, 32) : ink());
+                : (frameDark ? Color.rgb(26, 32, 40) : Color.rgb(232, 235, 237)));
+        // This value sits inside its own opaque badge. Using sky-band ink here
+        // made cloudy daytime skies select white text on the white daytime badge.
+        int valueColor = aeb ? Color.WHITE : (fcw ? Color.rgb(28, 30, 32)
+                : (frameDark ? Color.rgb(238, 242, 246) : Color.rgb(18, 18, 18)));
 
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
@@ -3379,7 +3384,7 @@ public final class HudService extends Service {
         }
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(45, 0, 0, 0));
+        p.setColor(Color.argb(28, 0, 0, 0));
         c.drawRect(0f, 0f, WIDTH, HEIGHT, p);
     }
 

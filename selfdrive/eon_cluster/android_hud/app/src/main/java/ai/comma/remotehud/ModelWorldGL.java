@@ -762,18 +762,18 @@ final class ModelWorldGL {
                 sinHeading, cosHeading, roadHeight,
                 dark ? Color.rgb(40, 73, 91) : Color.rgb(117, 166, 187), 0.76f);
 
-        int roadColor = dark ? Color.rgb(54, 62, 70) : Color.rgb(183, 189, 193);
+        int roadColor = dark ? Color.rgb(64, 74, 84) : Color.rgb(126, 138, 148);
         for (HudMapStore.Road road : snapshot.roads) {
             if (!fillLocalLine(road.lat, road.lon, lat, lon, metersLat, metersLon,
                     sinHeading, cosHeading, 2)) {
                 continue;
             }
             drawWorldRibbon(mapLine, roadHeight, roadColor,
-                    clamp(road.width * 0.5f, 1.25f, 9f), dark ? 0.34f : 0.26f, 0.008f);
+                    clamp(road.width * 0.5f, 1.25f, 9f), dark ? 0.34f : 0.52f, 0.008f);
         }
 
-        int walls = dark ? Color.rgb(65, 75, 87) : Color.rgb(174, 182, 188);
-        int roofs = dark ? Color.rgb(85, 96, 108) : Color.rgb(205, 211, 215);
+        int walls = dark ? Color.rgb(80, 92, 105) : Color.rgb(112, 126, 140);
+        int roofs = dark ? Color.rgb(104, 116, 130) : Color.rgb(150, 164, 176);
         int visible = 0;
         // The loader sorts near-to-far. Select the nearest visible blocks first;
         // selecting from the array tail would discard the buildings around the car.
