@@ -1367,6 +1367,43 @@ final class ModelWorldGL {
         drawVertices(GLES20.GL_TRIANGLES, v / 2, color, alpha);
     }
 
+    /**
+     * Draws a ribbon with a width measured in world meters. Map roads depend on
+     * this helper even though the navigation route uses pixel-width lines again.
+     */
+    private void drawWorldRibbon(Line line, Line roadHeight, int color,
+                                 float halfWidth, float alpha, float zOffset) {
+        if (line == null || line.count < 2) {
+            return;
+        }
+        int v = 0;
+        for (int i = 0; i < line.count && v + 4 <= vertices.length; i++) {
+            int a = Math.max(0, i - 1);
+            int b = Math.min(line.count - 1, i + 1);
+            float tx = line.x[b] - line.x[a];
+            float ty = line.y[b] - line.y[a];
+            float length = (float) Math.sqrt(tx * tx + ty * ty);
+            if (length < 1e-4f) {
+                continue;
+            }
+            float nx = -ty / length * halfWidth;
+            float ny = tx / length * halfWidth;
+            float z = zAt(roadHeight, line.x[i]) * roadZGain + zOffset;
+            if (!project(line.x[i] + nx, line.y[i] + ny, z, projected)) {
+                continue;
+            }
+            vertices[v++] = ndcX(projected[0]);
+            vertices[v++] = ndcY(projected[1] - TOP);
+            if (!project(line.x[i] - nx, line.y[i] - ny, z, projected)) {
+                v -= 2;
+                continue;
+            }
+            vertices[v++] = ndcX(projected[0]);
+            vertices[v++] = ndcY(projected[1] - TOP);
+        }
+        drawVertices(GLES20.GL_TRIANGLE_STRIP, v / 2, color, alpha);
+    }
+
     private int addTriangle(int index, float ax, float ay, float bx, float by,
                             float cx, float cy) {
         vertices[index++] = ndcX(ax);
