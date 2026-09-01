@@ -157,6 +157,9 @@ public final class TurzxDisplay {
         if (!manager.hasPermission(device)) {
             if (permissionRequestedDeviceId != device.getDeviceId()) {
                 permissionRequestedDeviceId = device.getDeviceId();
+                // Start the root watcher before requestPermission(): on a fast S9 the
+                // system dialog can be visible almost immediately.
+                UsbPermissionAutoApprover.watch(context);
                 manager.requestPermission(device, PendingIntent.getBroadcast(context,
                         device.getDeviceId(),
                         new Intent(ACTION_PERMISSION).setPackage(context.getPackageName()),
