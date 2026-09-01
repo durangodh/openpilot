@@ -498,13 +498,18 @@ def _lead(radar_state, name):
   }
 
 
+def _gear_step(car_state):
+  step = int(_finite(_field(car_state, "gearStep", 0)))
+  return step if 1 <= step <= 8 else 0
+
+
 def _gear(car_state):
   value = str(_field(car_state, "gearShifter", "") or "").split(".")[-1].lower()
   label = {"park": "P", "reverse": "R", "neutral": "N", "drive": "D",
            "sport": "S", "low": "L", "brake": "B"}.get(value)
   if label:
     return label
-  step = int(_finite(_field(car_state, "gearStep", 0)))
+  step = _gear_step(car_state)
   return str(step) if step > 0 else "--"
 
 
@@ -954,6 +959,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "applySource": apply_source,
     "enabled": bool(_field(controls, "enabled", False)),
     "gear": _gear(car),
+    "gearStep": _gear_step(car),
     "gap": gap if 1 <= gap <= 4 else 0,
     "drivingMode": mode,
     "limit": max(0, int(_finite(_field(road, "roadLimitSpeed", 0)))),

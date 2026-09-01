@@ -1941,9 +1941,10 @@ public final class HudService extends Service {
                 (int) (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * u));
     }
 
-    /** Single active-gear tile followed by a compact OEM-style coolant bar. */
+    /** Active-gear tile, unboxed drive step and compact OEM-style coolant bar. */
     private void drawGearAndCoolant(Canvas c, Paint p, JSONObject s) {
         String gear = s.optString("gear", "--");
+        int gearStep = Math.max(0, Math.min(8, s.optInt("gearStep", 0)));
         boolean parkingBrake = s.optBoolean("parkingBrake", false);
         float boxLeft = 22f;
         float boxTop = 82f;
@@ -1964,6 +1965,12 @@ public final class HudService extends Service {
                 parkingBrake ? Color.WHITE
                         : (frameDark ? Color.rgb(240, 243, 246) : Color.rgb(28, 32, 36)),
                 Paint.Align.CENTER);
+        if ("D".equals(gear)) {
+            String stepText = gearStep >= 1 ? Integer.toString(gearStep) : "--";
+            text(c, p, stepText, boxLeft + boxSize + 20f, 114f, 28f,
+                    frameDark ? Color.rgb(240, 243, 246) : Color.rgb(28, 32, 36),
+                    Paint.Align.CENTER);
+        }
 
         JSONObject system = s.optJSONObject("system");
         double coolant = system == null ? Double.NaN
@@ -1974,7 +1981,9 @@ public final class HudService extends Service {
         // remains aligned exactly as approved on the vehicle preview.
         final float coolantScale = 0.924f;
         int coolantSave = c.save();
-        c.translate(90f, boxTop + boxSize);
+        // Keep space reserved for the unboxed D-range step so the gauge does
+        // not jump sideways when the selector moves between P/R/N and D.
+        c.translate(122f, boxTop + boxSize);
         c.scale(coolantScale, coolantScale);
 
         final float railLeft = 23f;
@@ -2343,7 +2352,8 @@ public final class HudService extends Service {
         if (s.optBoolean("seatbeltUnlatched", false)) {
             if (raster) drawStatusIcon(c, p, 2, x, y, 28f, 31f);
             else drawSeatbeltIcon(c, p, x + 7f, y);
-            x += 34f;
+            // Keep the wiper badge visually separate from the red seatbelt icon.
+            x += 48f;
         }
         int wiperMode = visibleWiperMode(s.optInt("wiperMode", 0));
         if (wiperMode != 0) {
