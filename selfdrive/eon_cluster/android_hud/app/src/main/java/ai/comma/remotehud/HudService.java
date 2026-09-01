@@ -2840,7 +2840,7 @@ public final class HudService extends Service {
     }
 
     private boolean tpmsLow(float value) {
-        return value >= 5f && value <= 60f && value < TPMS_LOW_PSI;
+        return value >= 5f && value <= 60f && value <= TPMS_LOW_PSI;
     }
 
     private String tpmsText(float v) {
