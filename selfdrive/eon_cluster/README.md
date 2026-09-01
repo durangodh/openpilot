@@ -39,6 +39,11 @@ The optional database is stored at the app external-files path:
 /sdcard/Android/data/ai.comma.remotehud/files/hud_map.sqlite
 ```
 
+When that file is missing, the S9 app downloads `hud_map.sqlite` from the
+repository's `hud-map-v1` Release, validates its format and z16 tile table, and
+atomically installs it. Rendering continues without local map context while
+the background download is in progress.
+
 `tools/build_hud_map_db.py` packs VWorld/NGII SHP ZIPs into z16 JSON tiles.
 Buildings and road centerlines use the `b` and `r` payloads. A previously built
 database can be extended with flat park/green (`g`) and river/lake (`w`)

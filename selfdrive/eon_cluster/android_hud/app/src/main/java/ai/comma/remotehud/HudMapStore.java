@@ -8,7 +8,13 @@ import android.util.Log;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -28,6 +34,13 @@ final class HudMapStore {
     private static final int MAX_GREEN_AREAS = 80;
     private static final int MAX_WATER_AREAS = 80;
     private static final double RELOAD_METERS = 60.0;
+    private static final String DATABASE_DOWNLOAD_URL =
+            "https://github.com/durangodh/openpilot/releases/download/"
+                    + "hud-map-v1/hud_map.sqlite";
+    private static final String DATABASE_SHA256 =
+            "c60ec8ae516acd163cfcbc6f3179079d7fd479f305ddf69c466124ed8b279d51";
+    private static final long DOWNLOAD_RETRY_MS = 60_000L;
+    private static final long MIN_DATABASE_BYTES = 1024L * 1024L;
 
     static final class Building {
         final double[] lat;
@@ -88,8 +101,10 @@ final class HudMapStore {
     private final File databaseFile;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean loading = new AtomicBoolean(false);
+    private final AtomicBoolean downloading = new AtomicBoolean(false);
     private volatile Snapshot snapshot = Snapshot.EMPTY;
     private volatile boolean closed;
+    private volatile long nextDownloadAtMs;
     private volatile double loadedLat = Double.NaN;
     private volatile double loadedLon = Double.NaN;
     private volatile int loadedTileX = Integer.MIN_VALUE;
@@ -99,6 +114,7 @@ final class HudMapStore {
         File directory = context.getExternalFilesDir(null);
         databaseFile = new File(directory == null ? context.getFilesDir() : directory,
                 "hud_map.sqlite");
+        requestDownload();
     }
 
     Snapshot snapshot() {
@@ -106,7 +122,11 @@ final class HudMapStore {
     }
 
     void update(double lat, double lon) {
-        if (closed || !validPosition(lat, lon) || !databaseFile.isFile()) {
+        if (closed || !validPosition(lat, lon)) {
+            return;
+        }
+        if (!databaseFile.isFile()) {
+            requestDownload();
             return;
         }
         int tileX = tileX(lon);
@@ -133,6 +153,137 @@ final class HudMapStore {
                 loading.set(false);
             }
         });
+    }
+
+    /**
+     * Restore the optional map database after Android has removed the app's
+     * external-files directory during an uninstall. The 168 MiB download stays
+     * on the existing single background executor and never blocks rendering.
+     */
+    private void requestDownload() {
+        if (closed || databaseFile.isFile()
+                || System.currentTimeMillis() < nextDownloadAtMs
+                || !downloading.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            executor.execute(() -> {
+                try {
+                    downloadDatabase();
+                } catch (Throwable error) {
+                    nextDownloadAtMs = System.currentTimeMillis() + DOWNLOAD_RETRY_MS;
+                    Log.w(TAG, "Local HUD map download failed", error);
+                } finally {
+                    downloading.set(false);
+                }
+            });
+        } catch (RuntimeException rejected) {
+            downloading.set(false);
+            if (!closed) {
+                nextDownloadAtMs = System.currentTimeMillis() + DOWNLOAD_RETRY_MS;
+                Log.w(TAG, "Local HUD map download could not be scheduled", rejected);
+            }
+        }
+    }
+
+    private void downloadDatabase() throws Exception {
+        File parent = databaseFile.getParentFile();
+        if (parent == null || (!parent.isDirectory() && !parent.mkdirs())) {
+            throw new IllegalStateException("Map directory is unavailable");
+        }
+        File temporary = new File(parent, databaseFile.getName() + ".download");
+        if (temporary.isFile() && !temporary.delete()) {
+            throw new IllegalStateException("Old map download cannot be removed");
+        }
+
+        HttpURLConnection connection = null;
+        long total = 0L;
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try {
+            connection = (HttpURLConnection) new URL(DATABASE_DOWNLOAD_URL).openConnection();
+            connection.setConnectTimeout(15_000);
+            connection.setReadTimeout(30_000);
+            connection.setInstanceFollowRedirects(true);
+            connection.setRequestProperty("User-Agent", "EON-Remote-HUD/1.0");
+            int response = connection.getResponseCode();
+            if (response != HttpURLConnection.HTTP_OK) {
+                throw new IllegalStateException("Map download HTTP " + response);
+            }
+            long expected = connection.getContentLengthLong();
+            try (BufferedInputStream input = new BufferedInputStream(
+                    connection.getInputStream(), 256 * 1024);
+                 FileOutputStream fileOutput = new FileOutputStream(temporary);
+                 BufferedOutputStream output = new BufferedOutputStream(
+                         fileOutput, 256 * 1024)) {
+                byte[] buffer = new byte[256 * 1024];
+                int count;
+                while (!closed && (count = input.read(buffer)) >= 0) {
+                    if (count == 0) continue;
+                    output.write(buffer, 0, count);
+                    digest.update(buffer, 0, count);
+                    total += count;
+                }
+                output.flush();
+                fileOutput.getFD().sync();
+            }
+            if (closed) {
+                throw new InterruptedException("HUD map store closed");
+            }
+            if (total < MIN_DATABASE_BYTES || (expected > 0L && total != expected)) {
+                throw new IllegalStateException("Incomplete map download: " + total
+                        + "/" + expected);
+            }
+            if (!DATABASE_SHA256.equals(hex(digest.digest()))) {
+                throw new IllegalStateException("Downloaded map checksum mismatch");
+            }
+            validateDatabase(temporary);
+            if (!temporary.renameTo(databaseFile)) {
+                throw new IllegalStateException("Downloaded map cannot be installed");
+            }
+            Log.i(TAG, "Local HUD map restored: " + total + " bytes");
+        } finally {
+            if (connection != null) connection.disconnect();
+            if (temporary.isFile() && !temporary.equals(databaseFile)) {
+                // A failed partial download is never opened as SQLite.
+                //noinspection ResultOfMethodCallIgnored
+                temporary.delete();
+            }
+        }
+    }
+
+    private static String hex(byte[] value) {
+        char[] result = new char[value.length * 2];
+        final char[] digits = "0123456789abcdef".toCharArray();
+        for (int i = 0; i < value.length; i++) {
+            int number = value[i] & 0xff;
+            result[i * 2] = digits[number >>> 4];
+            result[i * 2 + 1] = digits[number & 0x0f];
+        }
+        return new String(result);
+    }
+
+    private static void validateDatabase(File file) throws Exception {
+        SQLiteDatabase database = SQLiteDatabase.openDatabase(file.getAbsolutePath(),
+                null, SQLiteDatabase.OPEN_READONLY | SQLiteDatabase.NO_LOCALIZED_COLLATORS);
+        try {
+            String format = null;
+            try (Cursor cursor = database.rawQuery(
+                    "SELECT value FROM metadata WHERE name='format'", null)) {
+                if (cursor.moveToFirst()) format = cursor.getString(0);
+            }
+            long tileCount = 0L;
+            try (Cursor cursor = database.rawQuery(
+                    "SELECT count(*) FROM tiles WHERE z=?",
+                    new String[]{String.valueOf(ZOOM)})) {
+                if (cursor.moveToFirst()) tileCount = cursor.getLong(0);
+            }
+            if (format == null || !format.startsWith("remote-hud-json-")
+                    || tileCount <= 0L) {
+                throw new IllegalStateException("Downloaded map database is incompatible");
+            }
+        } finally {
+            database.close();
+        }
     }
 
     private Snapshot load(double lat, double lon, int tileX, int tileY) throws Exception {

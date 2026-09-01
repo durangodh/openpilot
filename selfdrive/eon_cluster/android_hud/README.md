@@ -4,6 +4,9 @@
 > authoritative and draws an optional S9-local SQLite road/building layer
 > underneath it. The database path is
 > `/sdcard/Android/data/ai.comma.remotehud/files/hud_map.sqlite`.
+> If Android removes that app-specific file during an uninstall, the S9 app
+> restores the verified database in the background from the `hud-map-v1`
+> GitHub Release. The HUD remains model-only until the download completes.
 >
 > Build the database directly from WGS84 GeoJSON or VWorld/NGII SHP ZIPs:
 >
