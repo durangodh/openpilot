@@ -1293,8 +1293,12 @@ public final class HudService extends Service {
         }
         JSONObject doors = s.optJSONObject("doors");
         JSONObject windows = s.optJSONObject("windows");
-        if (hasVehicleOpening(doors, windows)) {
-            drawVehicleOpenPopup(c, p, doors, windows);
+        // The factory cluster only reminds the driver about open glass while
+        // parked.  Never let a deliberately lowered window cover TMAP while
+        // driving; doors, hood and trunk remain unconditional safety alerts.
+        JSONObject visibleWindows = "P".equals(s.optString("gear", "")) ? windows : null;
+        if (hasVehicleOpening(doors, visibleWindows)) {
+            drawVehicleOpenPopup(c, p, doors, visibleWindows);
             return;
         }
         if (s.optBoolean("lowFuelWarning", false)) {
