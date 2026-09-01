@@ -259,7 +259,13 @@ def shapefile_zip_features(path, clip_bounds=None):
         for index, (geometry, properties) in enumerate(zip(
             _shp_geometries(shp, inverse, source_clip), _dbf_records(dbf, encoding))):
           if geometry is not None and properties is not None:
-            yield {"type": "Feature", "id": properties.get("UFID", index),
+            # VWorld's large AL_D010 exports anonymize column names. A1 is the
+            # stable 28-character GIS building identifier and A26 is the
+            # above-ground floor count in that schema.
+            feature_id = properties.get("UFID") or properties.get("A1") or index
+            if "GRND_FLR" not in properties and properties.get("A26"):
+              properties["GRND_FLR"] = properties["A26"]
+            yield {"type": "Feature", "id": feature_id,
                    "properties": properties, "geometry": geometry}
 
 
@@ -459,6 +465,8 @@ def extend_areas(base_db, output, parks=None, waters=None, park_zips=None, water
   def collect(kind, path, archives, feature_filter=None):
     for source in sources(path, archives, bounds):
       for index, feature in enumerate(source):
+        if index and index % 50000 == 0:
+          print("scanned %d %s area features" % (index, kind), flush=True)
         properties = feature.get("properties") or {}
         if feature_filter and not feature_filter(properties):
           continue
@@ -503,6 +511,8 @@ def build(buildings, roads, output, building_zips=None, road_zips=None):
   bounds = [180.0, 90.0, -180.0, -90.0]
   for source in sources(buildings, building_zips):
     for index, feature in enumerate(source):
+      if index and index % 100000 == 0:
+        print("processed %d building features" % index, flush=True)
       props = feature.get("properties") or {}
       height = number(props, ("height", "HEIGHT", "건물높이"), 0, 4, 18)
       if not height:
@@ -519,6 +529,8 @@ def build(buildings, roads, output, building_zips=None, road_zips=None):
   clip = None if not counts["b"] else (bounds[0] - .01, bounds[1] - .01, bounds[2] + .01, bounds[3] + .01)
   for source in sources(roads, road_zips, clip):
     for index, feature in enumerate(source):
+      if index and index % 100000 == 0:
+        print("processed %d road features" % index, flush=True)
       props = feature.get("properties") or {}
       width = number(props, ("width", "WIDTH", "도로폭", "RVWD"), 0, 2.5, 18)
       if not width:
@@ -565,8 +577,9 @@ def main():
     return
   if not (args.buildings or args.roads or args.building_shp_zip or args.road_shp_zip):
     parser.error("at least one input is required")
-  print("wrote %d tiles to %s" % build(args.buildings, args.roads, args.output,
-                                        args.building_shp_zip, args.road_shp_zip))
+  tile_count = build(args.buildings, args.roads, args.output,
+                     args.building_shp_zip, args.road_shp_zip)
+  print("wrote %d tiles to %s" % (tile_count, args.output))
 
 
 if __name__ == "__main__":
