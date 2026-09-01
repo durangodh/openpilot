@@ -50,6 +50,7 @@ final class HudMapStore {
     private static final String REGIONAL_MANIFEST_FORMAT =
             "remote-hud-region-manifest-v1";
     private static final long DOWNLOAD_RETRY_MS = 60_000L;
+    private static final long MANIFEST_RETRY_MS = 6L * 60L * 60L * 1000L;
     private static final int MAX_MANIFEST_CHARACTERS = 256 * 1024;
 
     static final class Building {
@@ -231,7 +232,7 @@ final class HudMapStore {
                     regions = downloadManifest();
                     Log.i(TAG, "Regional HUD map manifest loaded");
                 } catch (Throwable error) {
-                    nextManifestAtMs = System.currentTimeMillis() + DOWNLOAD_RETRY_MS;
+                    nextManifestAtMs = System.currentTimeMillis() + MANIFEST_RETRY_MS;
                     Log.i(TAG, "Regional HUD map is not published yet; using legacy map");
                     requestLegacyDownload();
                 } finally {
@@ -240,7 +241,7 @@ final class HudMapStore {
             });
         } catch (RuntimeException rejected) {
             loadingManifest.set(false);
-            if (!closed) nextManifestAtMs = System.currentTimeMillis() + DOWNLOAD_RETRY_MS;
+            if (!closed) nextManifestAtMs = System.currentTimeMillis() + MANIFEST_RETRY_MS;
         }
     }
 
