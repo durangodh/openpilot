@@ -39,10 +39,13 @@ The optional database is stored at the app external-files path:
 /sdcard/Android/data/ai.comma.remotehud/files/hud_map.sqlite
 ```
 
-When that file is missing, the S9 app downloads `hud_map.sqlite` from the
-repository's `hud-map-v1` Release, validates its format and z16 tile table, and
-atomically installs it. Rendering continues without local map context while
-the background download is in progress.
+At startup the S9 app first checks the `hud-map-gyeonggi-v1` Release manifest.
+When four regional assets are published, the current `mapPose` selects one of
+`south`, `north`, `west`, or `east`; only that database is downloaded, verified
+by byte count and SHA-256, and atomically installed. Already downloaded regions
+remain cached for later trips. Until that regional Release exists, the app
+keeps the compatible `hud-map-v1/hud_map.sqlite` fallback. Rendering continues
+without local map context while a background download is in progress.
 
 `tools/build_hud_map_db.py` packs VWorld/NGII SHP ZIPs into z16 JSON tiles.
 Buildings and road centerlines use the `b` and `r` payloads. A previously built
@@ -63,3 +66,19 @@ keeps park and green-facility classes from `C_UQ153`, simplifies large rings,
 and preserves bounded S9 runtime work. Water and green areas are drawn below
 local roads, model lanes, route, and vehicles; the right-side TMAP frame is
 unchanged.
+
+After building one complete Gyeonggi database, split it into the four runtime
+assets and a checksummed manifest:
+
+```bash
+python3 selfdrive/eon_cluster/tools/split_hud_map_db.py \
+  --input hud_map_gyeonggi.sqlite \
+  --output-dir hud-map-gyeonggi-v1 \
+  --version gyeonggi-v1
+```
+
+The selection rectangles do not overlap. Each output still includes a small
+tile margin around its border so the normal z16 3x3 query does not show a gap
+while crossing between regions. Publish all four SQLite files and
+`manifest.json` together under the fixed `hud-map-gyeonggi-v1` Release tag;
+publishing only part of the set is rejected by the app.

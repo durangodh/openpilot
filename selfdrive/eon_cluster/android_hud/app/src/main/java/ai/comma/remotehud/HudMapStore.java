@@ -10,8 +10,10 @@ import org.json.JSONObject;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.MessageDigest;
@@ -34,13 +36,21 @@ final class HudMapStore {
     private static final int MAX_GREEN_AREAS = 80;
     private static final int MAX_WATER_AREAS = 80;
     private static final double RELOAD_METERS = 60.0;
-    private static final String DATABASE_DOWNLOAD_URL =
+    private static final String LEGACY_DATABASE_DOWNLOAD_URL =
             "https://github.com/durangodh/openpilot/releases/download/"
                     + "hud-map-v1/hud_map.sqlite";
-    private static final String DATABASE_SHA256 =
+    private static final String LEGACY_DATABASE_SHA256 =
             "c60ec8ae516acd163cfcbc6f3179079d7fd479f305ddf69c466124ed8b279d51";
+    private static final long LEGACY_DATABASE_BYTES = 175_321_088L;
+    private static final String REGIONAL_RELEASE_BASE =
+            "https://github.com/durangodh/openpilot/releases/download/"
+                    + "hud-map-gyeonggi-v1/";
+    private static final String REGIONAL_MANIFEST_URL =
+            REGIONAL_RELEASE_BASE + "manifest.json";
+    private static final String REGIONAL_MANIFEST_FORMAT =
+            "remote-hud-region-manifest-v1";
     private static final long DOWNLOAD_RETRY_MS = 60_000L;
-    private static final long MIN_DATABASE_BYTES = 1024L * 1024L;
+    private static final int MAX_MANIFEST_CHARACTERS = 256 * 1024;
 
     static final class Building {
         final double[] lat;
@@ -98,13 +108,46 @@ final class HudMapStore {
         }
     }
 
-    private final File databaseFile;
+    private static final class RegionSpec {
+        final String id;
+        final String fileName;
+        final String sha256;
+        final long bytes;
+        final double south;
+        final double west;
+        final double north;
+        final double east;
+
+        RegionSpec(String id, String fileName, String sha256, long bytes,
+                   double south, double west, double north, double east) {
+            this.id = id;
+            this.fileName = fileName;
+            this.sha256 = sha256;
+            this.bytes = bytes;
+            this.south = south;
+            this.west = west;
+            this.north = north;
+            this.east = east;
+        }
+
+        boolean contains(double lat, double lon) {
+            return lat >= south && lat <= north && lon >= west && lon <= east;
+        }
+    }
+
+    private final File databaseDirectory;
+    private final File legacyDatabaseFile;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean loading = new AtomicBoolean(false);
     private final AtomicBoolean downloading = new AtomicBoolean(false);
+    private final AtomicBoolean loadingManifest = new AtomicBoolean(false);
     private volatile Snapshot snapshot = Snapshot.EMPTY;
+    private volatile File activeDatabaseFile;
+    private volatile List<RegionSpec> regions = Collections.emptyList();
+    private volatile String selectedRegionId;
     private volatile boolean closed;
     private volatile long nextDownloadAtMs;
+    private volatile long nextManifestAtMs;
     private volatile double loadedLat = Double.NaN;
     private volatile double loadedLon = Double.NaN;
     private volatile int loadedTileX = Integer.MIN_VALUE;
@@ -112,9 +155,13 @@ final class HudMapStore {
 
     HudMapStore(Context context) {
         File directory = context.getExternalFilesDir(null);
-        databaseFile = new File(directory == null ? context.getFilesDir() : directory,
-                "hud_map.sqlite");
-        requestDownload();
+        databaseDirectory = directory == null ? context.getFilesDir() : directory;
+        legacyDatabaseFile = new File(databaseDirectory, "hud_map.sqlite");
+        if (legacyDatabaseFile.isFile()
+                && legacyDatabaseFile.length() == LEGACY_DATABASE_BYTES) {
+            activeDatabaseFile = legacyDatabaseFile;
+        }
+        requestManifest();
     }
 
     Snapshot snapshot() {
@@ -125,8 +172,25 @@ final class HudMapStore {
         if (closed || !validPosition(lat, lon)) {
             return;
         }
-        if (!databaseFile.isFile()) {
-            requestDownload();
+        List<RegionSpec> availableRegions = regions;
+        if (availableRegions.isEmpty()) {
+            requestManifest();
+        } else {
+            RegionSpec region = findRegion(availableRegions, lat, lon);
+            selectedRegionId = region == null ? null : region.id;
+            if (region != null) {
+                File regionalFile = new File(databaseDirectory, region.fileName);
+                if (regionalFile.isFile() && regionalFile.length() == region.bytes) {
+                    setActiveDatabase(regionalFile);
+                } else {
+                    requestRegionDownload(region);
+                }
+            }
+        }
+
+        File mapFile = activeDatabaseFile;
+        if (mapFile == null || !mapFile.isFile()) {
+            if (availableRegions.isEmpty()) requestLegacyDownload();
             return;
         }
         int tileX = tileX(lon);
@@ -139,8 +203,8 @@ final class HudMapStore {
         }
         executor.execute(() -> {
             try {
-                Snapshot loaded = load(lat, lon, tileX, tileY);
-                if (!closed) {
+                Snapshot loaded = load(mapFile, lat, lon, tileX, tileY);
+                if (!closed && mapFile.equals(activeDatabaseFile)) {
                     snapshot = loaded;
                     loadedLat = lat;
                     loadedLon = lon;
@@ -155,43 +219,146 @@ final class HudMapStore {
         });
     }
 
-    /**
-     * Restore the optional map database after Android has removed the app's
-     * external-files directory during an uninstall. The 168 MiB download stays
-     * on the existing single background executor and never blocks rendering.
-     */
-    private void requestDownload() {
-        if (closed || databaseFile.isFile()
-                || System.currentTimeMillis() < nextDownloadAtMs
+    private void requestManifest() {
+        if (closed || !regions.isEmpty()
+                || System.currentTimeMillis() < nextManifestAtMs
+                || !loadingManifest.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            executor.execute(() -> {
+                try {
+                    regions = downloadManifest();
+                    Log.i(TAG, "Regional HUD map manifest loaded");
+                } catch (Throwable error) {
+                    nextManifestAtMs = System.currentTimeMillis() + DOWNLOAD_RETRY_MS;
+                    Log.i(TAG, "Regional HUD map is not published yet; using legacy map");
+                    requestLegacyDownload();
+                } finally {
+                    loadingManifest.set(false);
+                }
+            });
+        } catch (RuntimeException rejected) {
+            loadingManifest.set(false);
+            if (!closed) nextManifestAtMs = System.currentTimeMillis() + DOWNLOAD_RETRY_MS;
+        }
+    }
+
+    private List<RegionSpec> downloadManifest() throws Exception {
+        HttpURLConnection connection = null;
+        try {
+            connection = openConnection(REGIONAL_MANIFEST_URL);
+            int response = connection.getResponseCode();
+            if (response != HttpURLConnection.HTTP_OK) {
+                throw new IllegalStateException("Map manifest HTTP " + response);
+            }
+            StringBuilder text = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(connection.getInputStream(), "UTF-8"))) {
+                char[] buffer = new char[8192];
+                int count;
+                while ((count = reader.read(buffer)) >= 0) {
+                    text.append(buffer, 0, count);
+                    if (text.length() > MAX_MANIFEST_CHARACTERS) {
+                        throw new IllegalStateException("Map manifest is too large");
+                    }
+                }
+            }
+            JSONObject manifest = new JSONObject(text.toString());
+            if (!REGIONAL_MANIFEST_FORMAT.equals(manifest.optString("format"))) {
+                throw new IllegalStateException("Map manifest format is incompatible");
+            }
+            JSONArray values = manifest.optJSONArray("regions");
+            if (values == null || values.length() != 4) {
+                throw new IllegalStateException("Map manifest must contain four regions");
+            }
+            List<RegionSpec> result = new ArrayList<>();
+            Set<String> ids = new HashSet<>();
+            for (int i = 0; i < values.length(); i++) {
+                JSONObject value = values.optJSONObject(i);
+                JSONObject bounds = value == null ? null : value.optJSONObject("selection");
+                if (value == null || bounds == null) {
+                    throw new IllegalStateException("Map region is incomplete");
+                }
+                String id = value.optString("id");
+                String fileName = value.optString("name");
+                String sha256 = value.optString("sha256").toLowerCase();
+                long bytes = value.optLong("bytes", -1L);
+                double south = bounds.optDouble("south", Double.NaN);
+                double west = bounds.optDouble("west", Double.NaN);
+                double north = bounds.optDouble("north", Double.NaN);
+                double east = bounds.optDouble("east", Double.NaN);
+                if (!(id.equals("south") || id.equals("north")
+                        || id.equals("west") || id.equals("east"))
+                        || !ids.add(id)
+                        || !fileName.matches("hud_map_gyeonggi_[a-z]+\\.sqlite")
+                        || !sha256.matches("[0-9a-f]{64}") || bytes <= 0L
+                        || !validPosition(south, west) || !validPosition(north, east)
+                        || south >= north || west >= east) {
+                    throw new IllegalStateException("Map region is invalid: " + id);
+                }
+                result.add(new RegionSpec(id, fileName, sha256, bytes,
+                        south, west, north, east));
+            }
+            return Collections.unmodifiableList(result);
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    /** Restore the old single database until all four regional assets exist. */
+    private void requestLegacyDownload() {
+        if (closed || !regions.isEmpty()) return;
+        if (legacyDatabaseFile.isFile()
+                && legacyDatabaseFile.length() == LEGACY_DATABASE_BYTES) {
+            setActiveDatabase(legacyDatabaseFile);
+            return;
+        }
+        requestDatabaseDownload(null, legacyDatabaseFile, LEGACY_DATABASE_DOWNLOAD_URL,
+                LEGACY_DATABASE_SHA256, LEGACY_DATABASE_BYTES);
+    }
+
+    private void requestRegionDownload(RegionSpec region) {
+        File target = new File(databaseDirectory, region.fileName);
+        requestDatabaseDownload(region, target, REGIONAL_RELEASE_BASE + region.fileName,
+                region.sha256, region.bytes);
+    }
+
+    private void requestDatabaseDownload(RegionSpec region, File target, String url,
+                                         String sha256, long expectedBytes) {
+        if (closed || System.currentTimeMillis() < nextDownloadAtMs
                 || !downloading.compareAndSet(false, true)) {
             return;
         }
         try {
             executor.execute(() -> {
                 try {
-                    downloadDatabase();
+                    if (region == null && !regions.isEmpty()) return;
+                    downloadDatabase(target, url, sha256, expectedBytes);
+                    if (region == null) {
+                        if (regions.isEmpty()) setActiveDatabase(target);
+                    } else if (region.id.equals(selectedRegionId)) {
+                        setActiveDatabase(target);
+                    }
                 } catch (Throwable error) {
                     nextDownloadAtMs = System.currentTimeMillis() + DOWNLOAD_RETRY_MS;
-                    Log.w(TAG, "Local HUD map download failed", error);
+                    Log.w(TAG, "Local HUD map download failed: " + target.getName(), error);
                 } finally {
                     downloading.set(false);
                 }
             });
         } catch (RuntimeException rejected) {
             downloading.set(false);
-            if (!closed) {
-                nextDownloadAtMs = System.currentTimeMillis() + DOWNLOAD_RETRY_MS;
-                Log.w(TAG, "Local HUD map download could not be scheduled", rejected);
-            }
+            if (!closed) nextDownloadAtMs = System.currentTimeMillis() + DOWNLOAD_RETRY_MS;
         }
     }
 
-    private void downloadDatabase() throws Exception {
-        File parent = databaseFile.getParentFile();
-        if (parent == null || (!parent.isDirectory() && !parent.mkdirs())) {
+    private void downloadDatabase(File target, String url, String expectedSha256,
+                                  long expectedBytes) throws Exception {
+        if (!databaseDirectory.isDirectory() && !databaseDirectory.mkdirs()) {
             throw new IllegalStateException("Map directory is unavailable");
         }
-        File temporary = new File(parent, databaseFile.getName() + ".download");
+        File temporary = new File(databaseDirectory, target.getName() + ".download");
         if (temporary.isFile() && !temporary.delete()) {
             throw new IllegalStateException("Old map download cannot be removed");
         }
@@ -200,16 +367,12 @@ final class HudMapStore {
         long total = 0L;
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         try {
-            connection = (HttpURLConnection) new URL(DATABASE_DOWNLOAD_URL).openConnection();
-            connection.setConnectTimeout(15_000);
-            connection.setReadTimeout(30_000);
-            connection.setInstanceFollowRedirects(true);
-            connection.setRequestProperty("User-Agent", "EON-Remote-HUD/1.0");
+            connection = openConnection(url);
             int response = connection.getResponseCode();
             if (response != HttpURLConnection.HTTP_OK) {
                 throw new IllegalStateException("Map download HTTP " + response);
             }
-            long expected = connection.getContentLengthLong();
+            long contentLength = connection.getContentLengthLong();
             try (BufferedInputStream input = new BufferedInputStream(
                     connection.getInputStream(), 256 * 1024);
                  FileOutputStream fileOutput = new FileOutputStream(temporary);
@@ -226,29 +389,59 @@ final class HudMapStore {
                 output.flush();
                 fileOutput.getFD().sync();
             }
-            if (closed) {
-                throw new InterruptedException("HUD map store closed");
-            }
-            if (total < MIN_DATABASE_BYTES || (expected > 0L && total != expected)) {
+            if (closed) throw new InterruptedException("HUD map store closed");
+            if (total != expectedBytes || (contentLength > 0L && total != contentLength)) {
                 throw new IllegalStateException("Incomplete map download: " + total
-                        + "/" + expected);
+                        + "/" + expectedBytes);
             }
-            if (!DATABASE_SHA256.equals(hex(digest.digest()))) {
+            if (!expectedSha256.equals(hex(digest.digest()))) {
                 throw new IllegalStateException("Downloaded map checksum mismatch");
             }
             validateDatabase(temporary);
-            if (!temporary.renameTo(databaseFile)) {
+            if (target.isFile() && !target.delete()) {
+                throw new IllegalStateException("Old map database cannot be replaced");
+            }
+            if (!temporary.renameTo(target)) {
                 throw new IllegalStateException("Downloaded map cannot be installed");
             }
-            Log.i(TAG, "Local HUD map restored: " + total + " bytes");
+            Log.i(TAG, "Local HUD map installed: " + target.getName()
+                    + " (" + total + " bytes)");
         } finally {
             if (connection != null) connection.disconnect();
-            if (temporary.isFile() && !temporary.equals(databaseFile)) {
+            if (temporary.isFile()) {
                 // A failed partial download is never opened as SQLite.
                 //noinspection ResultOfMethodCallIgnored
                 temporary.delete();
             }
         }
+    }
+
+    private static HttpURLConnection openConnection(String url) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setConnectTimeout(15_000);
+        connection.setReadTimeout(30_000);
+        connection.setInstanceFollowRedirects(true);
+        connection.setRequestProperty("User-Agent", "EON-Remote-HUD/1.0");
+        return connection;
+    }
+
+    private static RegionSpec findRegion(List<RegionSpec> values, double lat, double lon) {
+        for (RegionSpec value : values) {
+            if (value.contains(lat, lon)) return value;
+        }
+        return null;
+    }
+
+    private void setActiveDatabase(File file) {
+        File previous = activeDatabaseFile;
+        if (file.equals(previous)) return;
+        activeDatabaseFile = file;
+        snapshot = Snapshot.EMPTY;
+        loadedLat = Double.NaN;
+        loadedLon = Double.NaN;
+        loadedTileX = Integer.MIN_VALUE;
+        loadedTileY = Integer.MIN_VALUE;
+        Log.i(TAG, "Active HUD map: " + file.getName());
     }
 
     private static String hex(byte[] value) {
@@ -286,7 +479,8 @@ final class HudMapStore {
         }
     }
 
-    private Snapshot load(double lat, double lon, int tileX, int tileY) throws Exception {
+    private Snapshot load(File mapFile, double lat, double lon,
+                          int tileX, int tileY) throws Exception {
         List<Building> buildings = new ArrayList<>();
         List<Road> roads = new ArrayList<>();
         List<Area> greens = new ArrayList<>();
@@ -295,7 +489,7 @@ final class HudMapStore {
         Set<String> roadIds = new HashSet<>();
         Set<String> greenIds = new HashSet<>();
         Set<String> waterIds = new HashSet<>();
-        SQLiteDatabase database = SQLiteDatabase.openDatabase(databaseFile.getAbsolutePath(),
+        SQLiteDatabase database = SQLiteDatabase.openDatabase(mapFile.getAbsolutePath(),
                 null, SQLiteDatabase.OPEN_READONLY | SQLiteDatabase.NO_LOCALIZED_COLLATORS);
         try (Cursor cursor = database.rawQuery(
                 "SELECT payload FROM tiles WHERE z=? AND x BETWEEN ? AND ? AND y BETWEEN ? AND ?",

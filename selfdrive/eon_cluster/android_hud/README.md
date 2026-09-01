@@ -2,11 +2,13 @@
 
 > **v1.06 local map context** — `ModelWorldGL` keeps the modelV2 road
 > authoritative and draws an optional S9-local SQLite road/building layer
-> underneath it. The database path is
-> `/sdcard/Android/data/ai.comma.remotehud/files/hud_map.sqlite`.
-> If Android removes that app-specific file during an uninstall, the S9 app
-> restores the verified database in the background from the `hud-map-v1`
-> GitHub Release. The HUD remains model-only until the download completes.
+> underneath it. The legacy database path is
+> `/sdcard/Android/data/ai.comma.remotehud/files/hud_map.sqlite`. The app also
+> supports four checksummed Gyeonggi assets (`south`, `north`, `west`, `east`)
+> and automatically selects/downloads the current `mapPose` region. If the
+> regional manifest is not published yet, it safely retains the verified
+> `hud-map-v1` fallback. The HUD remains model-only until a required download
+> completes.
 >
 > Build the database directly from WGS84 GeoJSON or VWorld/NGII SHP ZIPs:
 >
@@ -21,6 +23,14 @@
 >   --output hud_map.sqlite
 > adb push hud_map.sqlite \
 >   /sdcard/Android/data/ai.comma.remotehud/files/hud_map.sqlite
+> ```
+>
+> A complete Gyeonggi database is split for Release deployment with:
+>
+> ```sh
+> python selfdrive/eon_cluster/tools/split_hud_map_db.py \
+>   --input hud_map_gyeonggi.sqlite \
+>   --output-dir hud-map-gyeonggi-v1
 > ```
 >
 > Tile loading and JSON decoding run outside the render thread. At most 70
