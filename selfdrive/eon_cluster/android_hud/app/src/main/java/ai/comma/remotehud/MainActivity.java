@@ -71,7 +71,10 @@ public final class MainActivity extends Activity {
         // 조건을 모두 제거해 어떤 상태에서도 전면을 빼앗지 않도록 했다.
         if (fromUsbAttach) {
             AppPrefs.markGuideShown(this);
-            startHudService();
+            // 이미 서비스가 실행 중이어도 새로 열거된 UsbDevice 로 즉시 다시
+            // 잡도록 한다. "항상 열기"가 승인돼 있으면 화면을 띄우지 않고
+            // 곧바로 권한을 이어받아 전송을 시작한다.
+            startHudService(HudService.ACTION_RESCAN_USB);
             finish();
             return;
         }
@@ -101,8 +104,7 @@ public final class MainActivity extends Activity {
         rescanUsbButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                startForegroundService(new Intent(MainActivity.this, HudService.class)
-                        .setAction(HudService.ACTION_RESCAN_USB));
+                startHudService(HudService.ACTION_RESCAN_USB);
             }
         });
 
@@ -119,6 +121,13 @@ public final class MainActivity extends Activity {
         super.onResume();
         if (AppPrefs.isAutoStart(this)) {
             startHudService();
+            HudService.StatusSnapshot snapshot = HudService.getStatusSnapshot();
+            // 부팅 초기에 보낸 시스템 USB 권한창이 표시되지 않았더라도 사용자가
+            // 상태 화면을 열면 "다시 검색" 버튼을 누를 필요 없이 한 번 재요청한다.
+            if (snapshot.running && !snapshot.usbConnected
+                    && snapshot.usbStatus.contains("USB 권한 승인 대기")) {
+                startHudService(HudService.ACTION_RESCAN_USB);
+            }
         }
         handler.post(refreshTask);
     }
@@ -317,8 +326,16 @@ public final class MainActivity extends Activity {
     }
 
     private void startHudService() {
+        startHudService(null);
+    }
+
+    private void startHudService(String action) {
         try {
-            startForegroundService(new Intent(this, HudService.class));
+            Intent service = new Intent(this, HudService.class);
+            if (action != null) {
+                service.setAction(action);
+            }
+            startForegroundService(service);
         } catch (Exception ignored) {
         }
     }
