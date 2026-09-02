@@ -24,6 +24,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
@@ -157,6 +158,8 @@ public final class HudService extends Service {
     private static volatile long udpLastRawRxElapsed;
     private static volatile String udpReceiverError = "";
     private static volatile String usbStatus = "미연결 · 1CBE:0092";
+    // 재검색 시 장치가 안 보일 때 루트로 읽은 sysfs 진단 문자열 (동작 변경 없음, 표시용)
+    private static volatile String usbDiag = "";
 
     private TurzxDisplay display;
     private Bitmap egoCar;
@@ -557,6 +560,31 @@ public final class HudService extends Service {
         measuredFps = 0.0f;
         lastJpegBytes = 0;
         usbErrorStreak = 0;
+        usbDiag = "";
+
+        // 진단 전용: UsbManager 에 패널이 없으면 sysfs 상태를 읽어 상태줄에 붙인다.
+        // 복구 동작은 하지 않는다.
+        UsbManager manager = (UsbManager) getSystemService(Context.USB_SERVICE);
+        boolean present = false;
+        if (manager != null) {
+            for (UsbDevice d : manager.getDeviceList().values()) {
+                if (TurzxDisplay.isTarget(d)) {
+                    present = true;
+                    break;
+                }
+            }
+        }
+        if (present) {
+            return;
+        }
+        usbDiag = "진단 중";
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String d = UsbPortReset.diagnose();
+                usbDiag = d == null ? "진단 실패 (루트 없음)" : d;
+            }
+        }, "hud-usb-diag").start();
     }
 
     // ── 네트워크 ──────────────────────────────────────────────────────────
@@ -818,7 +846,8 @@ public final class HudService extends Service {
         nextUsbAttemptElapsed = now + 1000L;
         try {
             if (!display.openOrRequestPermission()) {
-                usbStatus = "휴대폰 HUD 실행 · " + display.describeStatus();
+                usbStatus = "휴대폰 HUD 실행 · " + display.describeStatus()
+                        + (usbDiag.isEmpty() ? "" : " · " + usbDiag);
                 usbConnected = false;
                 usbError = false;
                 recoverStalledOpen(now);
@@ -826,6 +855,7 @@ public final class HudService extends Service {
             }
             lastReconnectElapsed = SystemClock.elapsedRealtime();
             usbStatus = "휴대폰 HUD + 외부 USB 연결됨";
+            usbDiag = "";
             usbConnected = true;
             usbError = false;
             usbErrorStreak = 0;

@@ -36,6 +36,47 @@ final class UsbPortReset {
         return runAsRoot(script) != null;
     }
 
+    /**
+     * 진단 전용 — 아무것도 바꾸지 않는다. 재검색 시 UsbManager 에 패널이 없을 때
+     * sysfs 상태를 한 줄로 요약해 상태줄에 표시한다.
+     *
+     *   role=[host] device · dev: usb1 1-1 · 1cbe:0092 있음/없음
+     *
+     * @return 요약 문자열. 루트가 없으면 null.
+     */
+    static String diagnose() {
+        String out = runAsRoot(
+                "r=; for p in /sys/class/typec/port* /sys/class/dual_role_usb/*; do " +
+                "  [ -f \"$p/data_role\" ] && { r=$(cat \"$p/data_role\"); break; }; " +
+                "done; " +
+                "[ -z \"$r\" ] && r=none; " +
+                "echo \"ROLE=$r\"; " +
+                "l=; f=0; for d in /sys/bus/usb/devices/*; do " +
+                "  n=$(basename \"$d\"); case \"$n\" in *:*) continue;; esac; " +
+                "  l=\"$l $n\"; " +
+                "  if [ -f \"$d/idVendor\" ] && [ \"$(cat \"$d/idVendor\")\" = \"1cbe\" ]; then f=1; fi; " +
+                "done; " +
+                "echo \"DEV=$l\"; echo \"FOUND=$f\"");
+        if (out == null) {
+            return null;
+        }
+        String role = "?", dev = "?", found = "?";
+        for (String line : out.split("\\n")) {
+            String t = line.trim();
+            if (t.startsWith("ROLE=")) {
+                role = t.substring(5).trim();
+            } else if (t.startsWith("DEV=")) {
+                dev = t.substring(4).trim();
+            } else if (t.startsWith("FOUND=")) {
+                found = "1".equals(t.substring(6).trim()) ? "있음" : "없음";
+            }
+        }
+        if (dev.isEmpty()) {
+            dev = "(비어있음)";
+        }
+        return "role=" + role + " · dev: " + dev + " · 1cbe " + found;
+    }
+
     /** /sys/bus/usb/devices 를 훑어 1CBE:0092 가 붙은 포트 이름을 찾는다. */
     private static String findPort() {
         String out = runAsRoot(
