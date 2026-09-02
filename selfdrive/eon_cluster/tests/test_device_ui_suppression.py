@@ -279,7 +279,7 @@ def test_android_hud_status_shows_actual_apk_and_udp_stage():
   assert '"UDP 포트 오류"' in activity
 
 
-def test_ego_turn_signals_use_enlarged_tail_lamps_without_green_arrows():
+def test_ego_brake_and_turn_lamps_use_original_size_without_green_arrows():
   service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
              "main" / "java" / "ai" / "comma" / "remotehud" /
              "HudService.java").read_text(encoding="utf-8")
@@ -288,8 +288,12 @@ def test_ego_turn_signals_use_enlarged_tail_lamps_without_green_arrows():
               "ModelWorldGL.java").read_text(encoding="utf-8")
 
   assert "EGO_CAR_WIDTH = 94f" in service
-  assert "TURN_LAMP_SCALE = 1.10f" in service
+  assert "TURN_LAMP_SCALE = 1.00f" in service
+  assert '"brakeLights": bool(_field(car, "brakeLights", False))' in (ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(encoding="utf-8")
+  assert "drawEgoBrakeLamps(c, p, scratchRect, s)" in service
+  assert 's.optBoolean("brakeLights", false)' in service
   assert "drawEgoTurnLamps(c, p, scratchRect, s)" in service
+  assert "0.650f, 0.062f" in service
   assert 's.optBoolean("leftBlinker", false)' in service
   assert 's.optBoolean("rightBlinker", false)' in service
   assert "drawBlinkers(" not in service

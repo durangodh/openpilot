@@ -984,6 +984,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     },
     "leftBlinker": bool(_field(car, "leftBlinker", False)),
     "rightBlinker": bool(_field(car, "rightBlinker", False)),
+    "brakeLights": bool(_field(car, "brakeLights", False)),
     "lowBeam": bool(_field(car, "lowBeam", False)),
     "highBeam": bool(_field(car, "highBeam", False)),
     "frontFog": bool(_field(car, "frontFogLight", False)),

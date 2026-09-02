@@ -77,12 +77,12 @@ public final class HudService extends Service {
     // 패널 폭 비율 5 : 4 : 1  (주행 : TMAP : SYSTEM)
     private static final int DRIVE_RIGHT = 952;
     private static final float DRIVE_CX = 476f;
-    /** 기존 78 px 대비 20% 확대한 자차 폭(93.6 -> 94 px). */
+    /** 현재 HUD 자차 폭을 유지한다. */
     private static final float EGO_CAR_WIDTH = 94f;
-    /** 순정 녹색 화살표 대신 자차 후미등을 같은 주기로 점멸한다. */
+    /** 자차 후미등 아래 방향지시등을 같은 주기로 점멸한다. */
     private static final long TURN_SIGNAL_BLINK_MS = 500L;
-    /** 작은 패널에서도 보이도록 실제 후미등 영역보다 10% 크게 점등한다. */
-    private static final float TURN_LAMP_SCALE = 1.10f;
+    /** 원래 HUD 크기를 유지한다. */
+    private static final float TURN_LAMP_SCALE = 1.00f;
     private static final int MAP_LEFT = 960;
     private static final int MAP_RIGHT = 1720;
     private static final float MAP_CX = 1340f;
@@ -1148,6 +1148,7 @@ public final class HudService extends Service {
                 p.setAlpha(255);
                 p.setFilterBitmap(true);
                 c.drawBitmap(egoCar, null, scratchRect, p);
+                drawEgoBrakeLamps(c, p, scratchRect, s);
                 drawEgoTurnLamps(c, p, scratchRect, s);
             }
         }
@@ -1828,10 +1829,18 @@ public final class HudService extends Service {
         return value.trim().replaceAll("\\s+", " ");
     }
 
-    /**
-     * 자차 PNG의 실제 후미등 렌즈 위치에 방향지시등을 표시한다. 차량은 항상
-     * 20% 확대된 크기를 유지하고, 램프 영역만 실제 렌즈보다 10% 크게 점멸한다.
-     */
+    /** 자차 PNG의 실제 후미등 렌즈 위치에는 브레이크등을 표시한다. */
+    private void drawEgoBrakeLamps(Canvas c, Paint p, RectF carRect, JSONObject s) {
+        if (!s.optBoolean("brakeLights", false)) {
+            return;
+        }
+        drawEgoRearLamp(c, p, carRect, true, 0.535f, 0.055f,
+                Color.argb(125, 255, 18, 28), Color.argb(235, 255, 30, 42));
+        drawEgoRearLamp(c, p, carRect, false, 0.535f, 0.055f,
+                Color.argb(125, 255, 18, 28), Color.argb(235, 255, 30, 42));
+    }
+
+    /** 브레이크등 바로 아래에 원래 폭의 자연스러운 진한 노랑 방향지시등을 점멸한다. */
     private void drawEgoTurnLamps(Canvas c, Paint p, RectF carRect, JSONObject s) {
         if (((SystemClock.elapsedRealtime() / TURN_SIGNAL_BLINK_MS) & 1L) != 0L) {
             return;
@@ -1845,12 +1854,19 @@ public final class HudService extends Service {
     }
 
     private void drawEgoTurnLamp(Canvas c, Paint p, RectF carRect, boolean left) {
+        // 원래 폭을 유지하면서 브레이크등에 자연스럽게 붙이고, 세로만 살짝 두껍게 한다.
+        drawEgoRearLamp(c, p, carRect, left, 0.650f, 0.062f,
+                Color.argb(120, 118, 76, 0), Color.argb(245, 226, 156, 18));
+    }
+
+    private void drawEgoRearLamp(Canvas c, Paint p, RectF carRect, boolean left,
+                                 float centerY, float halfHeight,
+                                 int strokeColor, int fillColor) {
         float width = carRect.width();
         float height = carRect.height();
         float centerX = left ? 0.225f : 0.775f;
         float halfWidth = 0.125f * TURN_LAMP_SCALE;
-        float centerY = 0.535f;
-        float halfHeight = 0.055f * TURN_LAMP_SCALE;
+        halfHeight *= TURN_LAMP_SCALE;
         float x0 = carRect.left + width * (centerX - halfWidth);
         float x1 = carRect.left + width * (centerX + halfWidth);
         float y0 = carRect.top + height * (centerY - halfHeight);
@@ -1875,10 +1891,10 @@ public final class HudService extends Service {
         p.setShader(null);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(Math.max(3f, width * 0.045f));
-        p.setColor(Color.argb(125, 255, 18, 28));
+        p.setColor(strokeColor);
         c.drawPath(scratchPath, p);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(235, 255, 30, 42));
+        p.setColor(fillColor);
         c.drawPath(scratchPath, p);
         p.setAlpha(255);
     }
