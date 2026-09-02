@@ -297,6 +297,27 @@ def test_ego_turn_signals_use_enlarged_tail_lamps_without_green_arrows():
   assert "EGO_SPRITE_W = 94f" in renderer
 
 
+def test_primary_lead_distance_follows_the_lead_sprite():
+  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+             "main" / "java" / "ai" / "comma" / "remotehud" /
+             "HudService.java").read_text(encoding="utf-8")
+  renderer = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+              "main" / "java" / "ai" / "comma" / "remotehud" /
+              "ModelWorldGL.java").read_text(encoding="utf-8")
+
+  assert "if (leadIndex == 0)" in service
+  assert "drawLeadDistanceLabel(c, p, leadSpriteInfo" in service
+  assert 'String label = Math.round(distance) + "m"' in service
+  assert "info[0] + carWidth * 0.5f" in service
+  assert "info[1] - Math.max" in service
+  assert "drawLeadCard(" not in service
+  assert "Paint.Style.STROKE" in service
+  assert "Color.rgb(18, 44, 72)" in service
+  assert "Color.rgb(255, 255, 255)" in service
+  assert "leadSpriteDistance(int index)" in renderer
+  assert "leadSpriteValid[index]" in renderer
+
+
 def test_genesis_cluster_warnings_reach_external_hud():
   schema = (ROOT / "cereal" / "car.capnp").read_text(encoding="utf-8")
   carstate = (ROOT / "selfdrive" / "car" / "hyundai" / "carstate.py").read_text(

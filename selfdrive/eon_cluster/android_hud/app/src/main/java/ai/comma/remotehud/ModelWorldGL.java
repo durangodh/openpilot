@@ -1222,6 +1222,11 @@ final class ModelWorldGL {
         return index >= 0 && index < leadSpriteAlpha.length ? leadSpriteAlpha[index] : 0f;
     }
 
+    float leadSpriteDistance(int index) {
+        return index >= 0 && index < leadDistance.length && leadSpriteValid[index]
+                ? leadDistance[index] : 0f;
+    }
+
     boolean leadSpriteBraking(int index) {
         return index >= 0 && index < leadSpriteBraking.length && leadSpriteBraking[index];
     }

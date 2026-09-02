@@ -894,6 +894,40 @@ public final class HudService extends Service {
         p.setAlpha(255);
     }
 
+    /** 앞차의 우측 뒷바퀴 옆에 투영 위치를 따라가는 레이더 거리(m)를 표시한다. */
+    private void drawLeadDistanceLabel(Canvas c, Paint p, float[] info,
+                                       float distance, float alpha) {
+        if (!Float.isFinite(distance) || distance < 2f || alpha <= 0f) {
+            return;
+        }
+        float carWidth = info[2];
+        float carHeight = egoCar.getHeight() * carWidth / egoCar.getWidth();
+        float fontSize = Math.max(13f, Math.min(18f, carWidth * 0.38f));
+        String label = Math.round(distance) + "m";
+
+        p.setShader(null);
+        p.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
+        p.setTextSize(fontSize);
+        p.setTextAlign(Paint.Align.LEFT);
+        float labelWidth = p.measureText(label);
+        float x = info[0] + carWidth * 0.5f + Math.max(5f, carWidth * 0.10f);
+        x = Math.min(x, DRIVE_RIGHT - labelWidth - 6f);
+        float baseline = info[1] - Math.max(2f, carHeight * 0.06f);
+
+        // 별도 카드 없이 굵은 외곽선과 채움으로 도로/차선 위 가독성을 확보한다.
+        int drawAlpha = Math.max(0, Math.min(255, Math.round(alpha * 255f)));
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(Math.max(2.5f, fontSize * 0.18f));
+        p.setColor(frameDark ? Color.rgb(8, 13, 17) : Color.rgb(245, 248, 250));
+        p.setAlpha(drawAlpha);
+        c.drawText(label, x, baseline, p);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(frameDark ? Color.rgb(255, 255, 255) : Color.rgb(18, 44, 72));
+        c.drawText(label, x, baseline, p);
+        p.setStrokeWidth(1f);
+        p.setAlpha(255);
+    }
+
     private void sendUsbFrame(Bitmap frame, JSONObject currentState) {
         try {
             int requestedBrightness = Math.max(0,
@@ -1095,9 +1129,14 @@ public final class HudService extends Service {
                     if (!modelWorldGl.leadSprite(leadIndex, leadSpriteInfo)) {
                         continue;
                     }
+                    float leadAlpha = modelWorldGl.leadSpriteAlpha(leadIndex);
                     drawLeadSprite(c, p, leadSpriteInfo,
-                            modelWorldGl.leadSpriteAlpha(leadIndex),
+                            leadAlpha,
                             modelWorldGl.leadSpriteBraking(leadIndex));
+                    if (leadIndex == 0) {
+                        drawLeadDistanceLabel(c, p, leadSpriteInfo,
+                                modelWorldGl.leadSpriteDistance(leadIndex), leadAlpha);
+                    }
                 }
             }
             if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
@@ -1194,10 +1233,6 @@ public final class HudService extends Service {
             drawNooTurn(c, p, s);
         }
         c.restoreToCount(nooSave);
-
-        int save7 = beginElement(c, l, "lead", 82f, 415f);
-        drawLeadCard(c, p, s.optJSONObject("lead"));
-        c.restoreToCount(save7);
 
         int save8 = beginElement(c, l, "tpms", 865f, 415f);
         drawTpms(c, p, s);
@@ -2832,27 +2867,6 @@ public final class HudService extends Service {
             text(c, p, (section ? lang("구간 ", "ZONE ") : "") + distanceText(dist), cx, cy + 60f, 18f,
                     ink(), Paint.Align.CENTER);
         }
-    }
-
-    private void drawLeadCard(Canvas c, Paint p, JSONObject lead) {
-        if (configuredRadarInfo == 0) {
-            return;
-        }
-        scratchRect.set(8f, 376f, 156f, 454f);
-        drawCard(c, p, scratchRect);
-        double d = lead == null ? 0d : lead.optDouble("d", 0d);
-        double v = lead == null ? 0d : lead.optDouble("v", 0d);
-        boolean showDistance = configuredRadarInfo == 2 || configuredRadarInfo == 4;
-        text(c, p, lang("앞차", "LEAD"), 18f, 400f, 13f, dim(), Paint.Align.LEFT);
-        text(c, p, (!showDistance || d <= 0d) ? "--" : String.format(Locale.US, "%.0f m", d),
-                145f, 400f, 19f, ink(), Paint.Align.RIGHT);
-        p.setStyle(Paint.Style.STROKE);
-        p.setColor(hairline());
-        p.setStrokeWidth(1f);
-        c.drawLine(16f, 414f, 148f, 414f, p);
-        text(c, p, lang("상대", "REL"), 18f, 440f, 13f, dim(), Paint.Align.LEFT);
-        text(c, p, d > 0d ? String.format(Locale.US, "%+.0f km/h", v) : "--",
-                145f, 440f, 17f, ink(), Paint.Align.RIGHT);
     }
 
     private static final float TPMS_LOW_PSI = 30f;
