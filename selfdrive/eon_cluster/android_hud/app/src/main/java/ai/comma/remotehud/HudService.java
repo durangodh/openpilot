@@ -1234,6 +1234,10 @@ public final class HudService extends Service {
         }
         c.restoreToCount(nooSave);
 
+        int statusSave = beginElement(c, l, "lead", 82f, 415f);
+        drawOpS9StatusCard(c, p, s, stale);
+        c.restoreToCount(statusSave);
+
         int save8 = beginElement(c, l, "tpms", 865f, 415f);
         drawTpms(c, p, s);
         c.restoreToCount(save8);
@@ -3311,6 +3315,43 @@ public final class HudService extends Service {
         c.drawRoundRect(box, 9f, 9f, p);
     }
 
+    /** 좌측 하단의 기존 148x78 카드에 OP(EON)와 S9 상태를 두 줄로 표시한다. */
+    private void drawOpS9StatusCard(Canvas c, Paint p, JSONObject s, boolean stale) {
+        scratchRect.set(8f, 376f, 156f, 454f);
+        drawCard(c, p, scratchRect);
+
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(1f);
+        p.setColor(hairline());
+        c.drawLine(16f, 415f, 148f, 415f, p);
+        c.drawLine(54f, 382f, 54f, 448f, p);
+        c.drawLine(104f, 382f, 104f, 448f, p);
+
+        JSONObject system = stale ? null : s.optJSONObject("system");
+        if (system == null && !stale) {
+            system = s;
+        }
+        String opTemp = systemValue(system, "temp", "°C");
+        String opCpu = systemValue(system, "cpu", "%");
+        String phoneTemp = s9TempC < 0f ? "--"
+                : String.format(Locale.US, "%.0f°C", s9TempC);
+        String phoneCpu = s9CpuPercent < 0f ? "--"
+                : String.format(Locale.US, "%.0f%%", s9CpuPercent);
+
+        // OP/S9는 작고 얇게, 온도와 CPU 값은 같은 크기와 일반 굵기로 맞춘다.
+        textNormal(c, p, "OP", 31f, 403f, 9f, ink(), Paint.Align.CENTER);
+        textNormal(c, p, "SoC", 79f, 389f, 9f, dim(), Paint.Align.CENTER);
+        textNormal(c, p, opTemp, 79f, 406f, 14.5f, ink(), Paint.Align.CENTER);
+        textNormal(c, p, "CPU", 129f, 389f, 9f, dim(), Paint.Align.CENTER);
+        textNormal(c, p, opCpu, 129f, 406f, 14.5f, ink(), Paint.Align.CENTER);
+        textNormal(c, p, "S9", 31f, 442f, 9f, ink(), Paint.Align.CENTER);
+        textNormal(c, p, "SoC", 79f, 428f, 9f, dim(), Paint.Align.CENTER);
+        textNormal(c, p, phoneTemp, 79f, 445f, 14.5f, ink(), Paint.Align.CENTER);
+        textNormal(c, p, "CPU", 129f, 428f, 9f, dim(), Paint.Align.CENTER);
+        textNormal(c, p, phoneCpu, 129f, 445f, 14.5f, ink(), Paint.Align.CENTER);
+    }
+
     private String distanceText(int meters) {
         return meters >= 1000
                 ? String.format(Locale.US, "%.1f km", meters / 1000f)
@@ -3943,6 +3984,17 @@ public final class HudService extends Service {
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        p.setTextSize(size);
+        p.setTextAlign(align);
+        p.setColor(color);
+        c.drawText(value, x, y, p);
+    }
+
+    private static void textNormal(Canvas c, Paint p, String value, float x, float y,
+                                   float size, int color, Paint.Align align) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setTypeface(Typeface.create("sans", Typeface.NORMAL));
         p.setTextSize(size);
         p.setTextAlign(align);
         p.setColor(color);
