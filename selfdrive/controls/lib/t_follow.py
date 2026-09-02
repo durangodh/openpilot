@@ -10,6 +10,7 @@ T_FOLLOW_DECEL_HOLD_EXIT_ACCEL = -0.1
 T_FOLLOW_ACCEL_FILTER_ALPHA = 0.2
 T_FOLLOW_INCREASE_RATE = 0.1
 T_FOLLOW_DECREASE_RATE = 0.3
+T_FOLLOW_DECEL_RELEASE_RATE = 0.08
 T_FOLLOW_DT = 0.05
 
 
@@ -38,9 +39,10 @@ def update_t_follow_decel_hold(hold_active, a_ego_filtered):
 
 
 def hold_t_follow_while_decelerating(tf_target, tf_previous, hold_active):
-  """Do not shrink the base gap while braking, but always permit a safer increase."""
+  """Taper a braking gap back to its target instead of holding then releasing it."""
   if tf_previous > 0.0 and hold_active and tf_target < tf_previous:
-    return float(tf_previous)
+    # Avoid a held brake demand followed by an abrupt coast transition.
+    return float(max(tf_target, tf_previous - T_FOLLOW_DECEL_RELEASE_RATE * T_FOLLOW_DT))
   return float(tf_target)
 
 
@@ -51,6 +53,15 @@ def get_t_follow_decel_margin(a_ego, decel_boost, lead_status):
   margin = interp(a_ego, [-2.5, -1.0, -0.2, 0.0],
                   [0.25, 0.12, 0.02, 0.0])
   return float(margin * clip(decel_boost, 0.0, 1.0))
+
+
+def get_t_follow_closing_margin(v_ego, v_lead, lead_status):
+  """Start easing off earlier when a confirmed lead is closing quickly."""
+  if not lead_status:
+    return 0.0
+  closing_speed = max(0.0, float(v_ego - v_lead))
+  return float(interp(closing_speed, [0.0, 1.5, 4.0, 8.0],
+                      [0.0, 0.03, 0.10, 0.18]))
 
 
 def limit_t_follow_change(tf_target, tf_previous, dt=T_FOLLOW_DT):
