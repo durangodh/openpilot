@@ -11,6 +11,7 @@ from selfdrive.controls.lib.radar_helpers import _LEAD_ACCEL_TAU
 from selfdrive.controls.lib.t_follow import (CRUISE_GAP_BP as _CRUISE_GAP_BP, CRUISE_GAP_V,
                                              clamp_desired_follow_distance, filter_t_follow_accel,
                                              get_t_follow_base, get_t_follow_decel_margin,
+                                             get_t_follow_closing_margin,
                                              hold_t_follow_while_decelerating, limit_t_follow_change,
                                              update_t_follow_decel_hold)
 from common.conversions import Conversions as CV
@@ -488,7 +489,11 @@ class LongitudinalMpc:
 
     decel_margin = get_t_follow_decel_margin(
       self._tf_a_ego_filtered, self.t_follow_decel_boost, self.status)
-    tf_target = self._tf_base_applied + decel_margin
+    # Relative speed is available before ego deceleration begins, so begin with
+    # a light brake request instead of waiting for a large distance error.
+    closing_margin = get_t_follow_closing_margin(
+      v_ego, lead_xv_0[0, 1], radarstate.leadOne.status)
+    tf_target = self._tf_base_applied + decel_margin + closing_margin
     self._tf_applied = limit_t_follow_change(tf_target, self._tf_applied)
 
     self.t_follow = self._tf_applied
