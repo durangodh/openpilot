@@ -1166,8 +1166,16 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "티맵 지도 수신·파일검사·S9 전송 속도입니다. 권장값 3 / 부하 최소 2 / 움직임 우선 5.",
       "../assets/offroad/icon_road.png", 2, 5, 1, 0, 3, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudBrightness", "S9 HUD BRIGHTNESS", "S9 외부 HUD 밝기: 0 자동 / 1~100 고정",
-      "../assets/offroad/icon_road.png", 0, 100, 5, 0, 65, this));
+      "EonClusterHudBrightness", "S9 HUD BRIGHTNESS", "S9 외부 HUD 밝기: 0 주야간 자동 / 1~100 고정",
+      "../assets/offroad/icon_road.png", 0, 100, 5, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudDayBrightness", "S9 HUD DAY BRIGHTNESS",
+      "자동 밝기(0)에서 오전 7시부터 오후 7시 전까지 적용할 주간 밝기입니다.",
+      "../assets/offroad/icon_road.png", 1, 100, 5, 0, 65, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudNightBrightness", "S9 HUD NIGHT BRIGHTNESS",
+      "자동 밝기(0)에서 오후 7시부터 다음 날 오전 7시 전까지 적용할 야간 밝기입니다.",
+      "../assets/offroad/icon_road.png", 1, 100, 5, 0, 35, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudJpegQuality", "S9 HUD JPEG QUALITY",
       "S9에서 생성해 외부 HUD로 보내는 JPEG 품질입니다. 권장값 55 / 선명도 우선 60. EON CPU 영향은 작습니다.",

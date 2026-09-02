@@ -80,7 +80,9 @@ def _packet(sm, *args, **kwargs):
   # Preserve 0 for FPS (pause) and brightness (auto), matching the UI.
   packet["hudFps"] = _bounded_int("EonClusterHudFps", 7, 0, 15)
   packet["hudMapFps"] = _bounded_int("EonClusterHudMapFps", 3, 2, 5)
-  packet["hudBrightness"] = _bounded_int("EonClusterHudBrightness", 65, 0, 100)
+  packet["hudBrightness"] = _bounded_int("EonClusterHudBrightness", 0, 0, 100)
+  packet["hudDayBrightness"] = _bounded_int("EonClusterHudDayBrightness", 65, 1, 100)
+  packet["hudNightBrightness"] = _bounded_int("EonClusterHudNightBrightness", 35, 1, 100)
   packet["hudJpegQuality"] = _bounded_int("EonClusterHudJpegQuality", 55, 20, 95)
   packet["hudScreenMode"] = _bounded_int("EonClusterHudScreenMode", 1, 1, 3)
   packet["hudTheme"] = _bounded_int("EonClusterHudTheme", 0, 0, 2)

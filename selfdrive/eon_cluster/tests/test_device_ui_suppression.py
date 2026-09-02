@@ -62,6 +62,8 @@ def test_s9_hud_params_are_exposed_in_settings():
       "EonClusterHudFps",
       "EonClusterHudMapFps",
       "EonClusterHudBrightness",
+      "EonClusterHudDayBrightness",
+      "EonClusterHudNightBrightness",
       "EonClusterHudJpegQuality",
       "EonClusterHudOutputMode",
       "EonClusterHudLayoutMode",
@@ -77,6 +79,29 @@ def test_s9_hud_params_are_exposed_in_settings():
     assert '"%s"' % key in settings, key
   for dead in DEAD_PARAMS:
     assert dead not in settings, dead
+
+
+def test_s9_hud_auto_brightness_uses_day_and_night_params():
+  manager = (ROOT / "selfdrive" / "manager" / "manager.py").read_text(encoding="utf-8")
+  params = (ROOT / "selfdrive" / "common" / "params.cc").read_text(encoding="utf-8")
+  sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud_s9.py").read_text(encoding="utf-8")
+  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+             "main" / "java" / "ai" / "comma" / "remotehud" / "HudService.java").read_text(encoding="utf-8")
+
+  assert '("EonClusterHudBrightness", "0")' in manager
+  assert 'params.get("EonClusterHudBrightness") == b"65"' in manager
+  assert 'params.put("EonClusterHudBrightness", "0")' in manager
+  assert '_bounded_int("EonClusterHudBrightness", 0, 0, 100)' in sender
+  assert 'currentState.optInt("hudBrightness", 0)' in service
+  for key, default in (("EonClusterHudDayBrightness", "65"),
+                       ("EonClusterHudNightBrightness", "35")):
+    assert '("%s", "%s")' % (key, default) in manager
+    assert '{"%s", PERSISTENT}' % key in params
+    assert '"%s"' % key in sender
+
+  assert 'currentState.optInt("hudDayBrightness", 65)' in service
+  assert 'currentState.optInt("hudNightBrightness", 35)' in service
+  assert '? configuredNightBrightness : configuredDayBrightness' in service
 
 
 def test_manager_starts_only_s9_hud_publisher():

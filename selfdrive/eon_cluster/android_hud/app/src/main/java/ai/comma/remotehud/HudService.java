@@ -188,6 +188,8 @@ public final class HudService extends Service {
     private int configuredFps = 8;
     private int jpegQuality = 55;
     private int appliedBrightness = -1;
+    private int configuredDayBrightness = 65;
+    private int configuredNightBrightness = 35;
     private int configuredTheme = 0;
     private int configuredLanguage = 0;
     private int configuredRadarInfo = 4;
@@ -776,6 +778,10 @@ public final class HudService extends Service {
         int requestedMapFps = Math.max(2, Math.min(5, currentState.optInt("hudMapFps", 5)));
         mapFrameIntervalMs = Math.max(200L, 1000L / requestedMapFps);
         jpegQuality = Math.max(20, Math.min(95, currentState.optInt("hudJpegQuality", 55)));
+        configuredDayBrightness = Math.max(1,
+                Math.min(100, currentState.optInt("hudDayBrightness", 65)));
+        configuredNightBrightness = Math.max(1,
+                Math.min(100, currentState.optInt("hudNightBrightness", 35)));
         configuredTheme = Math.max(0, Math.min(2, currentState.optInt("hudTheme", 0)));
         configuredLanguage = Math.max(0, Math.min(1, currentState.optInt("hudLanguage", 0)));
         configuredRadarInfo = Math.max(0, Math.min(4, currentState.optInt("hudRadarInfo", 4)));
@@ -885,9 +891,10 @@ public final class HudService extends Service {
     private void sendUsbFrame(Bitmap frame, JSONObject currentState) {
         try {
             int requestedBrightness = Math.max(0,
-                    Math.min(100, currentState.optInt("hudBrightness", 65)));
+                    Math.min(100, currentState.optInt("hudBrightness", 0)));
             if (requestedBrightness == 0) {
-                requestedBrightness = darkTheme() ? 35 : 65;
+                requestedBrightness = darkTheme()
+                        ? configuredNightBrightness : configuredDayBrightness;
             }
             if (requestedBrightness != appliedBrightness) {
                 display.setBrightness(requestedBrightness);

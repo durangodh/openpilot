@@ -96,7 +96,9 @@ def manager_init() -> None:
     ("EonClusterHudViewPitch", "0"),
     ("EonClusterHudFps", "7"),
     ("EonClusterHudMapFps", "3"),
-    ("EonClusterHudBrightness", "65"),
+    ("EonClusterHudBrightness", "0"),
+    ("EonClusterHudDayBrightness", "65"),
+    ("EonClusterHudNightBrightness", "35"),
     ("EonClusterHudJpegQuality", "55"),
     ("EonClusterHudLayoutMode", "1"),
     ("EonClusterHudScreenMode", "1"),
@@ -230,6 +232,14 @@ def manager_init() -> None:
     if params.get("CruiseButtonLongDelay", encoding='utf8') == "70":
       params.put("CruiseButtonLongDelay", "40")
     params.put_bool("CruiseButtonLongDelayC2Migrated", True)
+
+  # The old HUD schema stored 65 as the default fixed brightness. When the
+  # day/night controls first appear, migrate only that legacy default to auto.
+  # Other fixed values are user choices and remain unchanged.
+  if (params.get("EonClusterHudDayBrightness") is None and
+      params.get("EonClusterHudNightBrightness") is None and
+      params.get("EonClusterHudBrightness") == b"65"):
+    params.put("EonClusterHudBrightness", "0")
 
   # set unset params
   for k, v in default_params:

@@ -11,7 +11,9 @@ Enable it with the **S9 외부 HUD 사용** toggle. The following Params are sen
 
 - `EonClusterHudFps`: 0 pauses S9 rendering; 1-15 FPS otherwise (7 recommended).
 - `EonClusterHudMapFps`: 2-5 FPS for the native TMAP map stream (3 recommended).
-- `EonClusterHudBrightness`: 0 automatic; 1-100 fixed.
+- `EonClusterHudBrightness`: defaults to 0, which uses automatic day/night brightness; 1-100 is fixed.
+- `EonClusterHudDayBrightness`: 1-100 automatic-mode brightness from 07:00 to 18:59 (65 default).
+- `EonClusterHudNightBrightness`: 1-100 automatic-mode brightness from 19:00 to 06:59 (35 default).
 - `EonClusterHudJpegQuality`: 20-95 (55 recommended).
 - `EonClusterHudScreenMode`: 1 automatic, 2 live debug, 3 fixed trip report.
 - `EonClusterHudTheme`: 0 automatic, 1 dark, 2 light.

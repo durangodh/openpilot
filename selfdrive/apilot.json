@@ -1115,10 +1115,30 @@
    "group": "S9HUD",
    "name": "EonClusterHudBrightness",
    "title": "S9 HUD BRIGHTNESS",
-   "descr": "S9 외부 HUD 밝기: 0 자동 / 1~100 고정",
+   "descr": "S9 외부 HUD 밝기: 0 주야간 자동 / 1~100 고정",
    "min": 0,
    "max": 100,
+   "default": 0,
+   "unit": 5
+  },
+  {
+   "group": "S9HUD",
+   "name": "EonClusterHudDayBrightness",
+   "title": "S9 HUD DAY BRIGHTNESS",
+   "descr": "자동 밝기(0)에서 오전 7시부터 오후 7시 전까지 적용할 주간 밝기입니다.",
+   "min": 1,
+   "max": 100,
    "default": 65,
+   "unit": 5
+  },
+  {
+   "group": "S9HUD",
+   "name": "EonClusterHudNightBrightness",
+   "title": "S9 HUD NIGHT BRIGHTNESS",
+   "descr": "자동 밝기(0)에서 오후 7시부터 다음 날 오전 7시 전까지 적용할 야간 밝기입니다.",
+   "min": 1,
+   "max": 100,
+   "default": 35,
    "unit": 5
   },
   {
