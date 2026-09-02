@@ -57,7 +57,7 @@ final class ModelWorldGL {
      * 화면 좌표에 직접 그린다. 노면 투영을 쓰지 않으므로 근거리 클리핑
      * (NEAR_DEPTH)에 잘리지 않는다.
      */
-    private static final float EGO_SPRITE_W = 78f;   // HudService 가 얹는 자차 그림 폭
+    private static final float EGO_SPRITE_W = 94f;   // HudService 의 상시 20% 확대 자차 폭
     private static final float EGO_BASELINE = 433f;  // 자차 접지선(패널 좌표)
     private static final float BSD_CORNER_DY = 32f;  // 접지선 위로 올린 아크 중심
     private static final float[] BSD_ARC_RADII = {42f, 64f, 86f};

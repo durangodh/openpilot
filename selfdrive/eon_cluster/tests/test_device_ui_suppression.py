@@ -279,6 +279,24 @@ def test_android_hud_status_shows_actual_apk_and_udp_stage():
   assert '"UDP 포트 오류"' in activity
 
 
+def test_ego_turn_signals_use_enlarged_tail_lamps_without_green_arrows():
+  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+             "main" / "java" / "ai" / "comma" / "remotehud" /
+             "HudService.java").read_text(encoding="utf-8")
+  renderer = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+              "main" / "java" / "ai" / "comma" / "remotehud" /
+              "ModelWorldGL.java").read_text(encoding="utf-8")
+
+  assert "EGO_CAR_WIDTH = 94f" in service
+  assert "TURN_LAMP_SCALE = 1.10f" in service
+  assert "drawEgoTurnLamps(c, p, scratchRect, s)" in service
+  assert 's.optBoolean("leftBlinker", false)' in service
+  assert 's.optBoolean("rightBlinker", false)' in service
+  assert "drawBlinkers(" not in service
+  assert "Color.rgb(72, 226, 118)" not in service
+  assert "EGO_SPRITE_W = 94f" in renderer
+
+
 def test_genesis_cluster_warnings_reach_external_hud():
   schema = (ROOT / "cereal" / "car.capnp").read_text(encoding="utf-8")
   carstate = (ROOT / "selfdrive" / "car" / "hyundai" / "carstate.py").read_text(

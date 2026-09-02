@@ -77,6 +77,12 @@ public final class HudService extends Service {
     // 패널 폭 비율 5 : 4 : 1  (주행 : TMAP : SYSTEM)
     private static final int DRIVE_RIGHT = 952;
     private static final float DRIVE_CX = 476f;
+    /** 기존 78 px 대비 20% 확대한 자차 폭(93.6 -> 94 px). */
+    private static final float EGO_CAR_WIDTH = 94f;
+    /** 순정 녹색 화살표 대신 자차 후미등을 같은 주기로 점멸한다. */
+    private static final long TURN_SIGNAL_BLINK_MS = 500L;
+    /** 작은 패널에서도 보이도록 실제 후미등 영역보다 10% 크게 점등한다. */
+    private static final float TURN_LAMP_SCALE = 1.10f;
     private static final int MAP_LEFT = 960;
     private static final int MAP_RIGHT = 1720;
     private static final float MAP_CX = 1340f;
@@ -1096,13 +1102,14 @@ public final class HudService extends Service {
             }
             if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
                 // Preserve the approved ego-car artwork in the GL preview.
-                float carWidth = 78f;
+                float carWidth = EGO_CAR_WIDTH;
                 float carHeight = egoCar.getHeight() * carWidth / egoCar.getWidth();
                 scratchRect.set(DRIVE_CX - carWidth * 0.5f, 433f - carHeight,
                         DRIVE_CX + carWidth * 0.5f, 433f);
                 p.setAlpha(255);
                 p.setFilterBitmap(true);
                 c.drawBitmap(egoCar, null, scratchRect, p);
+                drawEgoTurnLamps(c, p, scratchRect, s);
             }
         }
 
@@ -1118,10 +1125,6 @@ public final class HudService extends Service {
             c.drawRect(0f, ModelWorldGL.TOP, DRIVE_RIGHT, ModelWorldGL.BOTTOM, p);
         }
         c.restoreToCount(worldSave);
-
-        int blinkerSave = beginElement(c, l, "blinkers", DRIVE_CX, 386f);
-        drawBlinkers(c, p, s, stale);
-        c.restoreToCount(blinkerSave);
 
         drawSkyBand(c, p);
 
@@ -1786,34 +1789,59 @@ public final class HudService extends Service {
         return value.trim().replaceAll("\\s+", " ");
     }
 
-    private void drawBlinkers(Canvas c, Paint p, JSONObject s, boolean stale) {
-        if (stale || ((SystemClock.elapsedRealtime() / 500L) & 1L) != 0L) {
+    /**
+     * 자차 PNG의 실제 후미등 렌즈 위치에 방향지시등을 표시한다. 차량은 항상
+     * 20% 확대된 크기를 유지하고, 램프 영역만 실제 렌즈보다 10% 크게 점멸한다.
+     */
+    private void drawEgoTurnLamps(Canvas c, Paint p, RectF carRect, JSONObject s) {
+        if (((SystemClock.elapsedRealtime() / TURN_SIGNAL_BLINK_MS) & 1L) != 0L) {
             return;
         }
         if (s.optBoolean("leftBlinker", false)) {
-            drawBlinker(c, p, 336f, 386f, true);
+            drawEgoTurnLamp(c, p, carRect, true);
         }
         if (s.optBoolean("rightBlinker", false)) {
-            drawBlinker(c, p, 616f, 386f, false);
+            drawEgoTurnLamp(c, p, carRect, false);
         }
     }
 
-    private void drawBlinker(Canvas c, Paint p, float x, float y, boolean left) {
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.rgb(72, 226, 118));
+    private void drawEgoTurnLamp(Canvas c, Paint p, RectF carRect, boolean left) {
+        float width = carRect.width();
+        float height = carRect.height();
+        float centerX = left ? 0.225f : 0.775f;
+        float halfWidth = 0.125f * TURN_LAMP_SCALE;
+        float centerY = 0.535f;
+        float halfHeight = 0.055f * TURN_LAMP_SCALE;
+        float x0 = carRect.left + width * (centerX - halfWidth);
+        float x1 = carRect.left + width * (centerX + halfWidth);
+        float y0 = carRect.top + height * (centerY - halfHeight);
+        float y1 = carRect.top + height * (centerY + halfHeight);
+
+        // 후미등 사진의 안쪽은 좁고 바깥쪽은 높은 사다리꼴이다.
+        float inner = width * 0.025f;
         scratchPath.rewind();
         if (left) {
-            scratchPath.moveTo(x - 16f, y);
-            scratchPath.lineTo(x + 10f, y - 13f);
-            scratchPath.lineTo(x + 10f, y + 13f);
+            scratchPath.moveTo(x0, y0);
+            scratchPath.lineTo(x1 - inner, y0 + height * 0.018f);
+            scratchPath.lineTo(x1, y1 - height * 0.012f);
+            scratchPath.lineTo(x0 + inner, y1);
         } else {
-            scratchPath.moveTo(x + 16f, y);
-            scratchPath.lineTo(x - 10f, y - 13f);
-            scratchPath.lineTo(x - 10f, y + 13f);
+            scratchPath.moveTo(x1, y0);
+            scratchPath.lineTo(x0 + inner, y0 + height * 0.018f);
+            scratchPath.lineTo(x0, y1 - height * 0.012f);
+            scratchPath.lineTo(x1 - inner, y1);
         }
         scratchPath.close();
+
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(Math.max(3f, width * 0.045f));
+        p.setColor(Color.argb(125, 255, 18, 28));
         c.drawPath(scratchPath, p);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(235, 255, 30, 42));
+        c.drawPath(scratchPath, p);
+        p.setAlpha(255);
     }
 
     private int ink() {
