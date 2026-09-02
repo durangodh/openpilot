@@ -318,15 +318,15 @@ def test_primary_lead_distance_follows_the_lead_sprite():
   assert "leadSpriteValid[index]" in renderer
 
 
-def test_op_s9_status_card_restores_the_bottom_left_slot():
+def test_c2_s9_status_card_restores_the_bottom_left_slot():
   service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
              "main" / "java" / "ai" / "comma" / "remotehud" /
              "HudService.java").read_text(encoding="utf-8")
 
   assert "drawOpS9StatusCard(c, p, s, stale)" in service
   assert "scratchRect.set(8f, 376f, 156f, 454f)" in service
-  assert 'textNormal(c, p, "OP", 31f, 403f, 9f' in service
-  assert 'textNormal(c, p, "S9", 31f, 442f, 9f' in service
+  assert 'textNormal(c, p, "C2", 31f, 403f, 14.5f' in service
+  assert 'textNormal(c, p, "S9", 31f, 442f, 14.5f' in service
   assert 'systemValue(system, "temp", "°C")' in service
   assert 'systemValue(system, "cpu", "%")' in service
   assert 'String.format(Locale.US, "%.0f°C", s9TempC)' in service

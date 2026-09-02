@@ -3315,7 +3315,7 @@ public final class HudService extends Service {
         c.drawRoundRect(box, 9f, 9f, p);
     }
 
-    /** 좌측 하단의 기존 148x78 카드에 OP(EON)와 S9 상태를 두 줄로 표시한다. */
+    /** 좌측 하단의 기존 148x78 카드에 C2(EON)와 S9 상태를 두 줄로 표시한다. */
     private void drawOpS9StatusCard(Canvas c, Paint p, JSONObject s, boolean stale) {
         scratchRect.set(8f, 376f, 156f, 454f);
         drawCard(c, p, scratchRect);
@@ -3339,13 +3339,13 @@ public final class HudService extends Service {
         String phoneCpu = s9CpuPercent < 0f ? "--"
                 : String.format(Locale.US, "%.0f%%", s9CpuPercent);
 
-        // OP/S9는 작고 얇게, 온도와 CPU 값은 같은 크기와 일반 굵기로 맞춘다.
-        textNormal(c, p, "OP", 31f, 403f, 9f, ink(), Paint.Align.CENTER);
+        // C2/S9 라벨을 온도와 CPU 값과 같은 크기로 맞춰 외부 HUD에서도 잘 보이게 한다.
+        textNormal(c, p, "C2", 31f, 403f, 14.5f, ink(), Paint.Align.CENTER);
         textNormal(c, p, "SoC", 79f, 389f, 9f, dim(), Paint.Align.CENTER);
         textNormal(c, p, opTemp, 79f, 406f, 14.5f, ink(), Paint.Align.CENTER);
         textNormal(c, p, "CPU", 129f, 389f, 9f, dim(), Paint.Align.CENTER);
         textNormal(c, p, opCpu, 129f, 406f, 14.5f, ink(), Paint.Align.CENTER);
-        textNormal(c, p, "S9", 31f, 442f, 9f, ink(), Paint.Align.CENTER);
+        textNormal(c, p, "S9", 31f, 442f, 14.5f, ink(), Paint.Align.CENTER);
         textNormal(c, p, "SoC", 79f, 428f, 9f, dim(), Paint.Align.CENTER);
         textNormal(c, p, phoneTemp, 79f, 445f, 14.5f, ink(), Paint.Align.CENTER);
         textNormal(c, p, "CPU", 129f, 428f, 9f, dim(), Paint.Align.CENTER);
