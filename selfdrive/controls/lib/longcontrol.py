@@ -25,6 +25,17 @@ TRANSITION_HARD_BRAKE_ACCEL = -1.5
 TRANSITION_RELEASE_RATE = 0.9
 TRANSITION_ACCEL_RATE = 1.2
 
+
+def get_bumpless_launch_integral(previous_accel, proportional, derivative,
+                                 feedforward, positive_limit):
+  """Seed PID integral so a launch does not sag at the starting -> PID handoff."""
+  positive_limit = max(0.0, float(positive_limit))
+  target = clip(float(previous_accel), 0.0, positive_limit)
+  non_integral = float(proportional) + float(derivative) + float(feedforward)
+  return float(clip(target - non_integral, 0.0,
+                    max(0.0, positive_limit - non_integral)))
+
+
 def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                              v_target_1sec, brake_pressed, cruise_standstill,
                              soft_hold, a_target_now, starting_state,
@@ -375,6 +386,24 @@ class LongControl:
       error = apply_deadzone(self.v_pid - CS.vEgo, deadzone)
       output_accel = self.pid.update(error, speed=CS.vEgo, feedforward=a_target,
                                      freeze_integrator=prevent_overshoot)
+
+      # Starting resets the PID on every frame. Without a bumpless transfer,
+      # the first PID request can fall well below StartAccelApply; the integral
+      # then rebuilds for several seconds and produces a delayed acceleration
+      # surge. Carry only the already-commanded positive launch effort into PID
+      # while the plan is still accelerating. A braking/closing plan bypasses
+      # this immediately, so deceleration authority is unchanged.
+      launch_handoff = (prev_long_control_state == LongCtrlState.starting and
+                        self.last_output_accel > 0.0 and
+                        v_target_1sec > v_target + 0.01 and
+                        a_target_now > -0.05 and a_target > -0.05)
+      if launch_handoff and output_accel < self.last_output_accel:
+        self.pid.i = get_bumpless_launch_integral(
+          self.last_output_accel, self.pid.p, self.pid.d, self.pid.f,
+          self.pid.pos_limit)
+        output_accel = clip(self.pid.p + self.pid.i + self.pid.d + self.pid.f,
+                            self.pid.neg_limit, self.pid.pos_limit)
+        self.pid.control = output_accel
 
       # Keep the starting -> PID handoff bumpless at very low speed. PID may
       # ask for substantially more acceleration than the launch ramp on the

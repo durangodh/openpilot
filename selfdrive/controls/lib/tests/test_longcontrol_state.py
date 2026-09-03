@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
-from selfdrive.controls.lib.longcontrol import LongCtrlState, long_control_state_trans
+from selfdrive.controls.lib.longcontrol import (LongCtrlState, get_bumpless_launch_integral,
+                                                long_control_state_trans)
 
 
 def make_cp(openpilot_longitudinal=True):
@@ -86,3 +87,23 @@ def test_latch_does_not_block_pid_while_still_moving():
   assert latched_transition(make_cp(), standstill_latched=False,
                             state=LongCtrlState.pid, v_target=5.0,
                             v_target_1sec=6.0) == LongCtrlState.pid
+
+
+def test_launch_integral_preserves_previous_positive_accel():
+  integral = get_bumpless_launch_integral(
+    previous_accel=0.8, proportional=0.15, derivative=0.0,
+    feedforward=0.25, positive_limit=1.35)
+  assert abs((0.15 + integral + 0.25) - 0.8) < 1e-9
+
+
+def test_launch_integral_never_exceeds_positive_limit():
+  integral = get_bumpless_launch_integral(
+    previous_accel=2.0, proportional=0.1, derivative=0.0,
+    feedforward=0.2, positive_limit=1.35)
+  assert abs((0.1 + integral + 0.2) - 1.35) < 1e-9
+
+
+def test_launch_integral_never_seeds_negative_drive():
+  assert get_bumpless_launch_integral(
+    previous_accel=-0.5, proportional=0.1, derivative=0.0,
+    feedforward=0.2, positive_limit=1.35) == 0.0
