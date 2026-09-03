@@ -18,6 +18,10 @@ STANDSTILL_RELEASE_FRAMES = 10
 # PID 가속/감속 전환을 0 근처에서 연속적으로 통과시키는 변화율 제한값.
 # 감속 진입은 안전을 위해 더 빠르게, 브레이크 해제와 재가속은 더 완만하게 둔다.
 TRANSITION_BRAKE_RATE = 2.5
+# When moving from drive to brake, first bleed drive request toward zero unless
+# the planner asks for a genuinely hard brake.
+TRANSITION_COAST_RATE = 0.8
+TRANSITION_HARD_BRAKE_ACCEL = -1.5
 TRANSITION_RELEASE_RATE = 0.9
 TRANSITION_ACCEL_RATE = 1.2
 
@@ -237,7 +241,11 @@ class LongControl:
     """Avoid an abrupt sign flip between drive and brake requests."""
     delta = target_accel - self.last_output_accel
     if delta < 0.0:
-      max_delta = TRANSITION_BRAKE_RATE * DT_CTRL
+      # A normal lead response should release drive through coast before brake.
+      # Retain fast response for a real hard-braking target.
+      rate = (TRANSITION_COAST_RATE if self.last_output_accel > 0.0 and
+              target_accel > TRANSITION_HARD_BRAKE_ACCEL else TRANSITION_BRAKE_RATE)
+      max_delta = rate * DT_CTRL
     elif self.last_output_accel < 0.0:
       max_delta = TRANSITION_RELEASE_RATE * DT_CTRL
     else:
