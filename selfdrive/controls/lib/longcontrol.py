@@ -15,6 +15,12 @@ STANDSTILL_LATCH_SPEED = 0.05
 # 노이즈 한두 프레임은 걸러지고, 진짜 출발은 거의 지연 없이 통과한다.
 STANDSTILL_RELEASE_FRAMES = 10
 
+# PID 가속/감속 전환을 0 근처에서 연속적으로 통과시키는 변화율 제한값.
+# 감속 진입은 안전을 위해 더 빠르게, 브레이크 해제와 재가속은 더 완만하게 둔다.
+TRANSITION_BRAKE_RATE = 2.5
+TRANSITION_RELEASE_RATE = 0.9
+TRANSITION_ACCEL_RATE = 1.2
+
 def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                              v_target_1sec, brake_pressed, cruise_standstill,
                              soft_hold, a_target_now, starting_state,
@@ -227,6 +233,17 @@ class LongControl:
     except (TypeError, ValueError):
       pass
 
+  def _smooth_accel_transition(self, target_accel):
+    """Avoid an abrupt sign flip between drive and brake requests."""
+    delta = target_accel - self.last_output_accel
+    if delta < 0.0:
+      max_delta = TRANSITION_BRAKE_RATE * DT_CTRL
+    elif self.last_output_accel < 0.0:
+      max_delta = TRANSITION_RELEASE_RATE * DT_CTRL
+    else:
+      max_delta = TRANSITION_ACCEL_RATE * DT_CTRL
+    return self.last_output_accel + clip(delta, -max_delta, max_delta)
+
   def reset(self, v_pid=0.0):
     self.pid.reset()
     self.v_pid = v_pid
@@ -372,6 +389,10 @@ class LongControl:
 
       if -self.long_coast_band < output_accel < 0.0:
         output_accel = 0.0
+
+      # Cross zero progressively: accelerate -> coast -> light brake and the
+      # reverse path use bounded steps, preventing a repeated gas/brake feel.
+      output_accel = self._smooth_accel_transition(output_accel)
 
     self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
     return self.last_output_accel, -0.5 if planned_stop else j_target
