@@ -80,7 +80,6 @@ class LateralPlanner:
     self.dynamic_lane_profile = 0
     self.dynamic_lane_profile_status = True
     self.dynamic_lane_profile_status_buffer = True
-    self.use_lane_line_mode = False
     self.lane_line_blend = None
     self.noo_map_blend = 0.0
     self.noo_map_profile_cache = None
@@ -163,20 +162,15 @@ class LateralPlanner:
       self.LP.lll_prob *= self.DH.lane_change_ll_prob
       self.LP.rll_prob *= self.DH.lane_change_ll_prob
 
-    lane_mode_speed = 10 * CV.MPH_TO_MS
-    if self.v_ego >= lane_mode_speed + 2 * CV.KPH_TO_MS:
-      self.use_lane_line_mode = True
-    elif self.v_ego < lane_mode_speed - 2 * CV.KPH_TO_MS:
-      self.use_lane_line_mode = False
-
-    # Fixed selections must match the setting at every speed. The low-speed
-    # lane-line fallback belongs only to Auto mode.
+    # Lane profile selection is independent of vehicle speed. In Auto mode,
+    # lane probabilities and lane-change state alone decide whether to use
+    # the laneless path.
     if self.dynamic_lane_profile == 0:
       use_laneless = False
     elif self.dynamic_lane_profile == 1:
       use_laneless = True
     else:
-      use_laneless = not self.use_lane_line_mode or self.get_dynamic_lane_profile()
+      use_laneless = self.get_dynamic_lane_profile()
 
     self.dynamic_lane_profile_status = use_laneless
     # carrot-wip removes lane-line authority while ATC is turning.  Do the
