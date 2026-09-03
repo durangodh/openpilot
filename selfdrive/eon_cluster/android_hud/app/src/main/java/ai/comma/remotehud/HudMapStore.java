@@ -3,6 +3,7 @@ package ai.comma.remotehud;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import android.os.StatFs;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -12,7 +13,9 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -49,9 +52,32 @@ final class HudMapStore {
             REGIONAL_RELEASE_BASE + "manifest.json";
     private static final String REGIONAL_MANIFEST_FORMAT =
             "remote-hud-region-manifest-v1";
+    private static final String DOWNLOAD_SUFFIX = ".download";
     private static final long DOWNLOAD_RETRY_MS = 60_000L;
+    /** Retry much later when the storage is full: a 60 s loop only heats the phone. */
+    private static final long SPACE_RETRY_MS = 30L * 60L * 1000L;
     private static final long MANIFEST_RETRY_MS = 6L * 60L * 60L * 1000L;
     private static final int MAX_MANIFEST_CHARACTERS = 256 * 1024;
+    /** Free space that must remain after a download completes. */
+    private static final long SPACE_MARGIN_BYTES = 256L * 1024L * 1024L;
+    /** Complete regional databases kept on disk: the active one plus this many recent. */
+    private static final int MAX_KEPT_REGIONS = 2;
+    /** Partial downloads older than this are not worth resuming. */
+    private static final long STALE_PARTIAL_MS = 7L * 24L * 60L * 60L * 1000L;
+
+    /** Raised when the download cannot proceed because the storage is (nearly) full. */
+    private static final class InsufficientSpaceException extends IOException {
+        InsufficientSpaceException(String message) {
+            super(message);
+        }
+    }
+
+    /** Raised when the downloaded bytes are unusable and the partial file must be dropped. */
+    private static final class CorruptDownloadException extends IOException {
+        CorruptDownloadException(String message) {
+            super(message);
+        }
+    }
 
     static final class Building {
         final double[] lat;
@@ -142,6 +168,12 @@ final class HudMapStore {
     private final AtomicBoolean loading = new AtomicBoolean(false);
     private final AtomicBoolean downloading = new AtomicBoolean(false);
     private final AtomicBoolean loadingManifest = new AtomicBoolean(false);
+    private final AtomicBoolean verifying = new AtomicBoolean(false);
+    /** "path:length" of files whose SQLite content was checked once (either result). */
+    private final Set<String> verifiedFiles =
+            Collections.synchronizedSet(new HashSet<String>());
+    private final Set<String> rejectedFiles =
+            Collections.synchronizedSet(new HashSet<String>());
     private volatile Snapshot snapshot = Snapshot.EMPTY;
     private volatile File activeDatabaseFile;
     private volatile List<RegionSpec> regions = Collections.emptyList();
@@ -158,10 +190,9 @@ final class HudMapStore {
         File directory = context.getExternalFilesDir(null);
         databaseDirectory = directory == null ? context.getFilesDir() : directory;
         legacyDatabaseFile = new File(databaseDirectory, "hud_map.sqlite");
-        if (legacyDatabaseFile.isFile()
-                && legacyDatabaseFile.length() == LEGACY_DATABASE_BYTES) {
-            activeDatabaseFile = legacyDatabaseFile;
-        }
+        // Fix 4: a hand-built database whose size differs from the release asset is
+        // still accepted once its SQLite content validates (done off-thread).
+        acceptDatabase(legacyDatabaseFile, LEGACY_DATABASE_BYTES, null);
         requestManifest();
     }
 
@@ -181,9 +212,7 @@ final class HudMapStore {
             selectedRegionId = region == null ? null : region.id;
             if (region != null) {
                 File regionalFile = new File(databaseDirectory, region.fileName);
-                if (regionalFile.isFile() && regionalFile.length() == region.bytes) {
-                    setActiveDatabase(regionalFile);
-                } else {
+                if (!acceptDatabase(regionalFile, region.bytes, region)) {
                     requestRegionDownload(region);
                 }
             }
@@ -218,6 +247,58 @@ final class HudMapStore {
                 loading.set(false);
             }
         });
+    }
+
+    /**
+     * Fix 4. Returns true when {@code file} is usable (already active or activated now,
+     * or a validation is pending), false when it is missing/rejected and must be
+     * downloaded. Exact-size files are accepted immediately; other sizes are checked
+     * once as SQLite on the worker thread so a hand-copied database still counts.
+     */
+    private boolean acceptDatabase(File file, long expectedBytes, RegionSpec region) {
+        if (!file.isFile()) return false;
+        long length = file.length();
+        if (length == expectedBytes) {
+            activate(file, region);
+            return true;
+        }
+        String key = file.getAbsolutePath() + ":" + length;
+        if (rejectedFiles.contains(key)) return false;
+        if (verifiedFiles.contains(key)) {
+            activate(file, region);
+            return true;
+        }
+        if (length <= 0L || closed || !verifying.compareAndSet(false, true)) {
+            // Pending: report usable so no download starts while the check runs.
+            return length > 0L;
+        }
+        try {
+            executor.execute(() -> {
+                try {
+                    validateDatabase(file);
+                    verifiedFiles.add(key);
+                    Log.i(TAG, "Accepted HUD map with non-release size: " + file.getName()
+                            + " (" + length + " bytes)");
+                    if (!closed) activate(file, region);
+                } catch (Throwable error) {
+                    rejectedFiles.add(key);
+                    Log.w(TAG, "Ignoring unusable HUD map: " + file.getName(), error);
+                } finally {
+                    verifying.set(false);
+                }
+            });
+        } catch (RuntimeException rejected) {
+            verifying.set(false);
+        }
+        return true;
+    }
+
+    private void activate(File file, RegionSpec region) {
+        if (region == null) {
+            if (regions.isEmpty()) setActiveDatabase(file);
+        } else if (region.id.equals(selectedRegionId)) {
+            setActiveDatabase(file);
+        }
     }
 
     private void requestManifest() {
@@ -310,11 +391,7 @@ final class HudMapStore {
     /** Restore the old single database until all four regional assets exist. */
     private void requestLegacyDownload() {
         if (closed || !regions.isEmpty()) return;
-        if (legacyDatabaseFile.isFile()
-                && legacyDatabaseFile.length() == LEGACY_DATABASE_BYTES) {
-            setActiveDatabase(legacyDatabaseFile);
-            return;
-        }
+        if (acceptDatabase(legacyDatabaseFile, LEGACY_DATABASE_BYTES, null)) return;
         requestDatabaseDownload(null, legacyDatabaseFile, LEGACY_DATABASE_DOWNLOAD_URL,
                 LEGACY_DATABASE_SHA256, LEGACY_DATABASE_BYTES);
     }
@@ -341,6 +418,10 @@ final class HudMapStore {
                     } else if (region.id.equals(selectedRegionId)) {
                         setActiveDatabase(target);
                     }
+                } catch (InsufficientSpaceException error) {
+                    // Fix 3: back off for a long time instead of a 60 s write-fail loop.
+                    nextDownloadAtMs = System.currentTimeMillis() + SPACE_RETRY_MS;
+                    Log.w(TAG, "Local HUD map download postponed: " + error.getMessage());
                 } catch (Throwable error) {
                     nextDownloadAtMs = System.currentTimeMillis() + DOWNLOAD_RETRY_MS;
                     Log.w(TAG, "Local HUD map download failed: " + target.getName(), error);
@@ -354,51 +435,112 @@ final class HudMapStore {
         }
     }
 
+    /**
+     * Fix 2 + 3. Downloads with HTTP Range resume: a partial {@code .download} file is
+     * kept across failures and continued on the next attempt; only a checksum or
+     * format mismatch discards it. Free space is checked (after pruning) before any
+     * bytes are written.
+     */
     private void downloadDatabase(File target, String url, String expectedSha256,
                                   long expectedBytes) throws Exception {
         if (!databaseDirectory.isDirectory() && !databaseDirectory.mkdirs()) {
             throw new IllegalStateException("Map directory is unavailable");
         }
-        File temporary = new File(databaseDirectory, target.getName() + ".download");
-        if (temporary.isFile() && !temporary.delete()) {
-            throw new IllegalStateException("Old map download cannot be removed");
+        File temporary = new File(databaseDirectory, target.getName() + DOWNLOAD_SUFFIX);
+        long resumeFrom = temporary.isFile() ? temporary.length() : 0L;
+        if (resumeFrom >= expectedBytes
+                || (resumeFrom > 0L && System.currentTimeMillis() - temporary.lastModified()
+                        > STALE_PARTIAL_MS)) {
+            deleteQuietly(temporary);
+            resumeFrom = 0L;
+        }
+
+        ensureFreeSpace(target, expectedBytes - resumeFrom);
+
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        if (resumeFrom > 0L) {
+            hashExisting(temporary, digest);
+            Log.i(TAG, "Resuming HUD map download: " + target.getName()
+                    + " from " + resumeFrom + "/" + expectedBytes);
         }
 
         HttpURLConnection connection = null;
-        long total = 0L;
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        long total = resumeFrom;
+        boolean corrupt = false;
         try {
             connection = openConnection(url);
+            if (resumeFrom > 0L) {
+                connection.setRequestProperty("Range", "bytes=" + resumeFrom + "-");
+            }
             int response = connection.getResponseCode();
-            if (response != HttpURLConnection.HTTP_OK) {
+            boolean append;
+            if (response == HttpURLConnection.HTTP_PARTIAL && resumeFrom > 0L) {
+                append = true;
+            } else if (response == HttpURLConnection.HTTP_OK) {
+                // Server ignored the range (or nothing to resume): start over.
+                append = false;
+                if (resumeFrom > 0L) {
+                    digest.reset();
+                    total = 0L;
+                    Log.i(TAG, "Range not honoured; restarting HUD map download");
+                }
+            } else {
                 throw new IllegalStateException("Map download HTTP " + response);
             }
             long contentLength = connection.getContentLengthLong();
+            long expectedBody = expectedBytes - total;
+            if (contentLength > 0L && contentLength != expectedBody) {
+                // Asset changed size on the server: a partial from the old asset is useless.
+                corrupt = total > 0L;
+                throw new IllegalStateException("Unexpected map size " + contentLength
+                        + " (expected " + expectedBody + ")");
+            }
             try (BufferedInputStream input = new BufferedInputStream(
                     connection.getInputStream(), 256 * 1024);
-                 FileOutputStream fileOutput = new FileOutputStream(temporary);
+                 FileOutputStream fileOutput = new FileOutputStream(temporary, append);
                  BufferedOutputStream output = new BufferedOutputStream(
                          fileOutput, 256 * 1024)) {
                 byte[] buffer = new byte[256 * 1024];
                 int count;
                 while (!closed && (count = input.read(buffer)) >= 0) {
                     if (count == 0) continue;
-                    output.write(buffer, 0, count);
+                    try {
+                        output.write(buffer, 0, count);
+                    } catch (IOException writeError) {
+                        if (isNoSpace(writeError)) {
+                            output.flush();
+                            throw new InsufficientSpaceException(
+                                    "storage full while writing " + target.getName());
+                        }
+                        throw writeError;
+                    }
                     digest.update(buffer, 0, count);
                     total += count;
+                    if (total > expectedBytes) {
+                        corrupt = true;
+                        throw new IllegalStateException("Map download exceeded "
+                                + expectedBytes + " bytes");
+                    }
                 }
                 output.flush();
                 fileOutput.getFD().sync();
             }
             if (closed) throw new InterruptedException("HUD map store closed");
-            if (total != expectedBytes || (contentLength > 0L && total != contentLength)) {
+            if (total != expectedBytes) {
+                // Connection dropped: keep the partial file, resume next time.
                 throw new IllegalStateException("Incomplete map download: " + total
-                        + "/" + expectedBytes);
+                        + "/" + expectedBytes + " (will resume)");
             }
             if (!expectedSha256.equals(hex(digest.digest()))) {
-                throw new IllegalStateException("Downloaded map checksum mismatch");
+                corrupt = true;
+                throw new CorruptDownloadException("Downloaded map checksum mismatch");
             }
-            validateDatabase(temporary);
+            try {
+                validateDatabase(temporary);
+            } catch (Exception error) {
+                corrupt = true;
+                throw new CorruptDownloadException(error.getMessage());
+            }
             if (target.isFile() && !target.delete()) {
                 throw new IllegalStateException("Old map database cannot be replaced");
             }
@@ -409,12 +551,126 @@ final class HudMapStore {
                     + " (" + total + " bytes)");
         } finally {
             if (connection != null) connection.disconnect();
-            if (temporary.isFile()) {
-                // A failed partial download is never opened as SQLite.
-                //noinspection ResultOfMethodCallIgnored
-                temporary.delete();
+            if (corrupt && temporary.isFile()) {
+                // Only an unusable partial is thrown away; a truncated one is resumed.
+                deleteQuietly(temporary);
             }
         }
+    }
+
+    private static void hashExisting(File file, MessageDigest digest) throws IOException {
+        try (BufferedInputStream input = new BufferedInputStream(
+                new FileInputStream(file), 256 * 1024)) {
+            byte[] buffer = new byte[256 * 1024];
+            int count;
+            while ((count = input.read(buffer)) >= 0) {
+                if (count > 0) digest.update(buffer, 0, count);
+            }
+        }
+    }
+
+    private static boolean isNoSpace(IOException error) {
+        String message = error.getMessage();
+        return message != null && (message.contains("ENOSPC")
+                || message.contains("No space left"));
+    }
+
+    /**
+     * Fix 3. Ensures {@code neededBytes} + margin are available, pruning unused
+     * databases first. Throws {@link InsufficientSpaceException} otherwise.
+     */
+    private void ensureFreeSpace(File target, long neededBytes) throws IOException {
+        long required = Math.max(0L, neededBytes) + SPACE_MARGIN_BYTES;
+        if (availableBytes() >= required) {
+            pruneDatabases(target, false);
+            return;
+        }
+        pruneDatabases(target, true);
+        long available = availableBytes();
+        if (available < required) {
+            throw new InsufficientSpaceException("need " + (required >> 20) + " MB, have "
+                    + (available >> 20) + " MB for " + target.getName());
+        }
+    }
+
+    private long availableBytes() {
+        try {
+            return new StatFs(databaseDirectory.getAbsolutePath()).getAvailableBytes();
+        } catch (RuntimeException error) {
+            return Long.MAX_VALUE;
+        }
+    }
+
+    /**
+     * Fix 1. Removes databases that are no longer needed:
+     * regional files not in the manifest, the legacy file once regional maps are in
+     * use, stray partial downloads for unknown files, and complete regional files
+     * beyond the active one + {@link #MAX_KEPT_REGIONS} most recently used.
+     * With {@code aggressive} everything except the active/target database goes.
+     */
+    private void pruneDatabases(File keep, boolean aggressive) {
+        File[] files = databaseDirectory.listFiles();
+        if (files == null) return;
+        List<RegionSpec> known = regions;
+        File active = activeDatabaseFile;
+        Set<String> knownNames = new HashSet<>();
+        for (RegionSpec region : known) knownNames.add(region.fileName);
+        boolean regional = !known.isEmpty();
+        List<File> candidates = new ArrayList<>();
+        for (File file : files) {
+            if (!file.isFile()) continue;
+            String name = file.getName();
+            if (file.equals(keep) || file.equals(active)) continue;
+            if (name.endsWith(DOWNLOAD_SUFFIX)) {
+                String base = name.substring(0, name.length() - DOWNLOAD_SUFFIX.length());
+                boolean resumable = base.equals(keep == null ? "" : keep.getName());
+                boolean known2 = base.equals(legacyDatabaseFile.getName())
+                        || knownNames.contains(base);
+                if (!resumable && (aggressive || !known2)) deleteLogged(file, "partial");
+                continue;
+            }
+            if (name.equals(legacyDatabaseFile.getName())) {
+                if (regional && (aggressive || active != null)) {
+                    deleteLogged(file, "legacy map superseded by regional maps");
+                }
+                continue;
+            }
+            if (name.matches("hud_map_gyeonggi_[a-z]+\\.sqlite")) {
+                if (!regional) continue;
+                if (!knownNames.contains(name)) {
+                    deleteLogged(file, "region not in manifest");
+                } else if (aggressive) {
+                    deleteLogged(file, "freeing space");
+                } else {
+                    candidates.add(file);
+                }
+            }
+        }
+        if (candidates.size() > MAX_KEPT_REGIONS) {
+            Collections.sort(candidates, new Comparator<File>() {
+                @Override
+                public int compare(File a, File b) {
+                    return Long.compare(b.lastModified(), a.lastModified());
+                }
+            });
+            for (int i = MAX_KEPT_REGIONS; i < candidates.size(); i++) {
+                deleteLogged(candidates.get(i), "least recently used region");
+            }
+        }
+    }
+
+    private static void deleteLogged(File file, String reason) {
+        long bytes = file.length();
+        if (file.delete()) {
+            Log.i(TAG, "Removed " + file.getName() + " (" + (bytes >> 20) + " MB): " + reason);
+        } else {
+            Log.w(TAG, "Could not remove " + file.getName());
+        }
+    }
+
+    private static void deleteQuietly(File file) {
+        //noinspection ResultOfMethodCallIgnored
+        file.delete();
     }
 
     private static HttpURLConnection openConnection(String url) throws Exception {
@@ -442,7 +698,16 @@ final class HudMapStore {
         loadedLon = Double.NaN;
         loadedTileX = Integer.MIN_VALUE;
         loadedTileY = Integer.MIN_VALUE;
+        // Recency drives the keep-N pruning; a copied file may carry an old mtime.
+        //noinspection ResultOfMethodCallIgnored
+        file.setLastModified(System.currentTimeMillis());
         Log.i(TAG, "Active HUD map: " + file.getName());
+        if (closed) return;
+        try {
+            executor.execute(() -> pruneDatabases(file, false));
+        } catch (RuntimeException ignored) {
+            // executor shut down
+        }
     }
 
     private static String hex(byte[] value) {
