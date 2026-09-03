@@ -1228,13 +1228,14 @@ public final class HudService extends Service {
         drawGearAndCoolant(c, p, s);
         c.restoreToCount(save2);
 
-        int save3 = beginElement(c, l, "speed", DRIVE_CX, SPEED_BASELINE);
-        drawSpeed(c, p, stale ? -1 : s.optInt("speed", 0));
-        c.restoreToCount(save3);
-
         int saveRpm = beginElement(c, l, "rpm", DRIVE_CX, 118f);
         drawRpm(c, p, stale ? -1 : s.optInt("rpm", -1), lv(l, "rpmRedline", 6500f));
         c.restoreToCount(saveRpm);
+
+        // RPM 대비용 배경띠/외곽선이 속도 숫자를 덮지 않도록 속도는 마지막에 그린다.
+        int save3 = beginElement(c, l, "speed", DRIVE_CX, SPEED_BASELINE);
+        drawSpeed(c, p, stale ? -1 : s.optInt("speed", 0));
+        c.restoreToCount(save3);
 
         int modeSave = beginElement(c, l, "mode", 938f, 116f);
         drawModeAndEta(c, p, s);
@@ -2018,10 +2019,19 @@ public final class HudService extends Service {
         p.setShader(null);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeCap(Paint.Cap.BUTT);
+        p.setAlpha(255);
 
-        // 밝은 실내광에서 라이트테마 레일(150,158,166)이 흰 배경에 묻혀 안 보였다.
-        // 순정 계기판 링 색을 추출한 값으로 양 테마 통일한다.
-        int railColor = Color.rgb(72, 96, 104);
+        // 날씨 하늘과 RPM 색이 비슷해도 형태가 사라지지 않도록 아크 모양의 배경만
+        // 어둡게 받친다. 사각 패널을 쓰지 않아 기존 곡선형 디자인은 그대로 유지한다.
+        p.setStrokeWidth(frameDark ? 24f : 28f);
+        p.setColor(frameDark ? Color.argb(56, 5, 8, 13) : Color.argb(148, 7, 17, 26));
+        float backdropR = r - 4f;
+        scratchRect.set(cx - backdropR, cy - backdropR, cx + backdropR, cy + backdropR);
+        c.drawArc(scratchRect, start, sweep, false, p);
+
+        // 주간은 진한 레일, 야간은 중간 회색 레일을 사용한다. 레드존은 양쪽 모두
+        // 같은 경고색을 유지해 주야간 전환 시 의미가 달라지지 않게 한다.
+        int railColor = frameDark ? Color.rgb(150, 162, 173) : Color.rgb(52, 72, 82);
         int railRed = Color.rgb(226, 72, 77);
 
         // 바깥/안쪽 레일. 바깥면은 예전 아크(r=106, 굵기 10)와 같은 111 이라
@@ -2043,29 +2053,45 @@ public final class HudService extends Service {
         scratchRect.set(cx - ri, cy - ri, cx + ri, cy + ri);
         c.drawArc(scratchRect, redFrom, redSweep, false, p);
 
-        // 레일 사이를 채우는 인셋 바. 값 이하 구간만 파랑->시안 그라데이션으로
-        // 채우고, 레드존은 값이 못 미쳐도 어둡게 남겨 최대치를 알 수 있게 한다.
+        // 모든 바를 먼저 검정 외곽선으로 받친 다음 안쪽 색을 그린다. 주간 활성값은
+        // 파랑->청록, 야간 활성값은 흰색이다. 미점등 바도 회색으로 남겨 밝은 하늘
+        // 위에서 전체 RPM 범위를 한눈에 확인할 수 있게 한다.
         float rb = r - 2f;
         float step = sweep / RPM_BARS;
         float gap = 0.55f;
-        p.setStrokeWidth(RPM_BAR_W);
         scratchRect.set(cx - rb, cy - rb, cx + rb, cy + rb);
         for (int i = 0; i < RPM_BARS; i++) {
             float mid = (i + 0.5f) / RPM_BARS;
+            boolean active = mid <= frac;
             int color;
             if (mid <= frac) {
-                color = mid >= redFrac
-                        ? Color.rgb(222, 67, 70)
-                        : mixColor(Color.rgb(40, 150, 255), Color.rgb(46, 211, 224),
-                                frac > 0.001f ? mid / frac : 0f);
+                if (mid >= redFrac) {
+                    float redT = (mid - redFrac) / Math.max(0.001f, 1f - redFrac);
+                    color = mixColor(Color.rgb(255, 159, 50), Color.rgb(255, 63, 79), redT);
+                } else if (frameDark) {
+                    color = Color.rgb(248, 250, 252);
+                } else {
+                    color = mixColor(Color.rgb(40, 150, 255), Color.rgb(0, 240, 224),
+                            frac > 0.001f ? mid / frac : 0f);
+                }
             } else if (mid >= redFrac) {
-                color = frameDark ? Color.rgb(96, 40, 44) : Color.rgb(232, 186, 188);
+                color = frameDark ? Color.rgb(108, 66, 70) : Color.rgb(104, 68, 66);
             } else {
-                continue;
+                color = frameDark ? Color.rgb(120, 133, 146) : Color.rgb(52, 73, 88);
             }
+
+            float barStart = start + step * i + gap;
+            float barSweep = step - gap * 2f;
+            p.setStrokeWidth(RPM_BAR_W + 4f);
+            p.setColor(frameDark ? Color.argb(122, 5, 9, 14) : Color.argb(196, 5, 9, 14));
+            c.drawArc(scratchRect, barStart, barSweep, false, p);
+
+            p.setStrokeWidth(active ? RPM_BAR_W : RPM_BAR_W - 4f);
             p.setColor(color);
-            c.drawArc(scratchRect, start + step * i + gap, step - gap * 2f, false, p);
+            c.drawArc(scratchRect, barStart, barSweep, false, p);
         }
+
+        p.setAlpha(255);
 
         text(c, p, "RPM", cx - r - RPM_LABEL_GAP, 122f, 13f, dim(), Paint.Align.RIGHT);
         text(c, p, String.format(Locale.US, "%,d", rpm), cx + r + RPM_LABEL_GAP, 124f, 22f,

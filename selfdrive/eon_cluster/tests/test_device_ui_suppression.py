@@ -374,6 +374,27 @@ def test_genesis_cluster_warnings_reach_external_hud():
   assert "drawWhiteWarningPanel(c, p, cx)" in service
 
 
+def test_rpm_arc_keeps_contrast_over_day_and_night_sky():
+  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+             "main" / "java" / "ai" / "comma" / "remotehud" /
+             "HudService.java").read_text(encoding="utf-8")
+
+  driving = service.split("private void drawDriving", 1)[1].split(
+      "private void drawAlert", 1)[0]
+  assert driving.index("drawRpm(c, p") < driving.index("drawSpeed(c, p")
+  rpm = service.split("private void drawRpm", 1)[1].split(
+      "private static int mixColor", 1)[0]
+  assert "float backdropR = r - 4f" in rpm
+  assert "Color.argb(148, 7, 17, 26)" in rpm
+  assert "Color.rgb(248, 250, 252)" in rpm
+  assert "Color.rgb(0, 240, 224)" in rpm
+  assert "Color.rgb(120, 133, 146)" in rpm
+  assert "Color.rgb(52, 73, 88)" in rpm
+  assert "RPM_BAR_W + 4f" in rpm
+  assert "Color.rgb(255, 159, 50)" in rpm
+  assert "Color.rgb(255, 63, 79)" in rpm
+
+
 def test_wiper_mode_is_shown_beside_door_status():
   schema = (ROOT / "cereal" / "car.capnp").read_text(encoding="utf-8")
   carstate = (ROOT / "selfdrive" / "car" / "hyundai" / "carstate.py").read_text(
