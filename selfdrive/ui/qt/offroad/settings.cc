@@ -1540,6 +1540,14 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "앞차 추종 중 내 차가 감속할 때만 차간시간을 조금 늘립니다. 값 증가(+): 재정지 앞차에 더 여유 있게 부드럽게 제동 / 0: 사용 안 함. 권장값: 30.",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 30, this));
   list->addItem(new ParamValueControlF(
+      "TFollowClosingMargin", "CLOSING T-FOLLOW MARGIN (%)",
+      "앞차에 접근할 때 미리 차간시간을 늘려 선제 제동하는 비율입니다. 100: 기존(최대 +0.18s) / 0: apilot 방식(선제 제동 없음, 마지막 제동이 세짐). 권장값: 50.",
+      "../assets/offroad/icon_openpilot.png", 0, 100, 10, 0, 50, this));
+  list->addItem(new ParamValueControlF(
+      "LeadDepartCost", "LEAD DEPART COST (X0.01)",
+      "저속(36km/h 이하)에서 앞차가 출발할 때 따라붙는 반응 강도입니다. 값 감소(-): 빠르게 따라붙음(apilot=5) / 값 증가(+): 부드럽지만 굼뜸(기존=45). ApplyLongDynamicCost 켜야 동작. 권장값: 20.",
+      "../assets/offroad/icon_openpilot.png", 5, 100, 5, 0, 20, this));
+  list->addItem(new ParamValueControlF(
       "RadarReactionFactor", "RADAR REACTION FACTOR (%)",
       "앞차 가감속이 유지될 것으로 예측하는 정도입니다. 100: 기본 반응 / 값 감소(-): 앞차 감속을 더 오래 예상해 일찍 제동. 권장값: 70.",
       "../assets/offroad/icon_road.png", 20, 200, 5, 0, 70, this));

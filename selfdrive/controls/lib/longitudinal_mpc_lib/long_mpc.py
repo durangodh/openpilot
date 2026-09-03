@@ -267,6 +267,8 @@ class LongitudinalMpc:
     self.tfollow_gaps = None
     self.t_follow_speed_ratio = 1.2
     self.t_follow_decel_boost = 0.3
+    self.lead_depart_cost = 0.2        # LeadDepartCost: 저속 출발 추종 코스트 배율(0m/s 기준, apilot=0.05, 기존=0.45)
+    self.t_follow_closing_ratio = 0.5  # TFollowClosingMargin: 접근마진 적용 비율(apilot=0, 기존=1.0)
     self._tf_base_applied = 0.0
     self._tf_applied = 0.0
     self._tf_a_ego_filtered = None
@@ -356,8 +358,8 @@ class LongitudinalMpc:
     a_change_v_ego = 1
     if (v_lead0 - v_ego >= 0) and (v_lead1 - v_ego >= 0):
       v_ego_bps = [0, 10]
-      j_ego_v_ego    = interp(v_ego, v_ego_bps, [0.45, 1.0])
-      a_change_v_ego = interp(v_ego, v_ego_bps, [0.45, 1.0])
+      j_ego_v_ego    = interp(v_ego, v_ego_bps, [self.lead_depart_cost, 1.0])
+      a_change_v_ego = interp(v_ego, v_ego_bps, [self.lead_depart_cost, 1.0])
 
     j_ego    = min(j_ego_tf, j_ego_v_ego)
     a_change = min(a_change_tf, a_change_v_ego)
@@ -371,13 +373,11 @@ class LongitudinalMpc:
     if self.mode == 'acc':
       a_change_cost = A_CHANGE_COST if prev_accel_constraint else 40
 
-      departure_cost_multiplier = get_lead_departure_cost_multiplier(
-        v_ego, v_lead0, a_lead0, lead0_status)
-
       if self.applyLongDynamicCost:
+        # 별도 departure 배율은 사용하지 않음. 저속 출발 반응은 LeadDepartCost 하나로 조절.
         cost_multipliers = self.get_cost_multipliers(v_lead0, v_lead1, a_lead0, lead0_status)
-        accel_change_multiplier = min(cost_multipliers[0], departure_cost_multiplier)
-        jerk_multiplier = min(cost_multipliers[1], departure_cost_multiplier)
+        accel_change_multiplier = cost_multipliers[0]
+        jerk_multiplier = cost_multipliers[1]
         cost_weights = [self.x_ego_obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
                         a_change_cost * accel_change_multiplier,
                         J_EGO_COST * jerk_multiplier]
@@ -492,7 +492,7 @@ class LongitudinalMpc:
     # Relative speed is available before ego deceleration begins, so begin with
     # a light brake request instead of waiting for a large distance error.
     closing_margin = get_t_follow_closing_margin(
-      v_ego, lead_xv_0[0, 1], radarstate.leadOne.status)
+      v_ego, lead_xv_0[0, 1], radarstate.leadOne.status) * self.t_follow_closing_ratio
     tf_target = self._tf_base_applied + decel_margin + closing_margin
     self._tf_applied = limit_t_follow_change(tf_target, self._tf_applied)
 

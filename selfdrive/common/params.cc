@@ -324,6 +324,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"XEgoObstacleCost", PERSISTENT},          // 차간거리 추종 강도 (x100, default 600 = 6.0)
     {"EnableSpeedTF", PERSISTENT},
     {"TFollowDecelBoost", PERSISTENT},         // 감속 중 차간시간 추가 비율 (x100, default 30)
+    {"TFollowClosingMargin", PERSISTENT},      // 접근 중 차간시간 선제 마진 비율 (%, default 50, 0=apilot)
+    {"LeadDepartCost", PERSISTENT},            // 저속 출발 추종 코스트 배율 (x100, default 20, apilot=5 기존=45)
     {"RadarReactionFactor", PERSISTENT},       // 레이더 앞차 가속도 지속 예측 비율 (x100, default 70)
     {"NoLeadCruiseAccelFactor", PERSISTENT},  // 앞차 없을 때 CruiseMax 적용 비율 (x100)
     {"NoLeadCruiseJerkLimit", PERSISTENT},    // 앞차 없을 때 가속 상승률 (x100 m/s^3)

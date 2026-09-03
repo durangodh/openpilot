@@ -138,6 +138,14 @@ class LongitudinalPlanner:
     except (TypeError, ValueError):
       decel_boost = 30
     self.mpc.t_follow_decel_boost = float(clip(decel_boost * 0.01, 0.0, 1.0))
+    depart_cost = self.params.get_int("LeadDepartCost")
+    self.mpc.lead_depart_cost = float(clip((depart_cost if depart_cost > 0 else 20) * 0.01, 0.05, 1.0))
+    closing_raw = self.params.get("TFollowClosingMargin", encoding="utf8")
+    try:
+      closing_ratio = int(closing_raw) if closing_raw is not None else 50
+    except (TypeError, ValueError):
+      closing_ratio = 50
+    self.mpc.t_follow_closing_ratio = float(clip(closing_ratio * 0.01, 0.0, 1.0))
 
     # 앞차 접근 제동 튜닝 (x100 정수 저장)
     comfort_brake = self.params.get_int("ComfortBrake")
