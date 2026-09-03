@@ -311,8 +311,12 @@ def test_primary_lead_distance_follows_the_lead_sprite():
 
   assert "if (leadIndex == 0)" in service
   assert "drawLeadDistanceLabel(c, p, leadSpriteInfo" in service
-  assert 'String label = Math.round(distance) + "m"' in service
+  assert "carWidth * 0.80f" in service
+  assert "Math.max(18f, Math.min(38f" in service
+  assert 'String unit = "m"' in service
+  assert "unitSize = Math.max(13f, Math.min(18f" in service
   assert "info[0] + carWidth * 0.5f" in service
+  assert "Math.max(8f, carWidth * 0.14f)" in service
   assert "info[1] - Math.max" in service
   assert "drawLeadCard(" not in service
   assert "Paint.Style.STROKE" in service
@@ -327,16 +331,22 @@ def test_c2_s9_status_card_restores_the_bottom_left_slot():
              "main" / "java" / "ai" / "comma" / "remotehud" /
              "HudService.java").read_text(encoding="utf-8")
 
-  assert "drawOpS9StatusCard(c, p, s, stale)" in service
+  assert "drawC2S9StatusCard(c, p, s, stale)" in service
   assert "scratchRect.set(8f, 376f, 156f, 454f)" in service
-  assert 'textNormal(c, p, "C2", 31f, 403f, 14.5f' in service
-  assert 'textNormal(c, p, "S9", 31f, 442f, 14.5f' in service
+  assert 'textNormal(c, p, "C2", 33f, 403f, 9f' in service
+  assert 'textNormal(c, p, "S9", 33f, 442f, 9f' in service
   assert 'systemValue(system, "temp", "°C")' in service
   assert 'systemValue(system, "cpu", "%")' in service
   assert 'String.format(Locale.US, "%.0f°C", s9TempC)' in service
   assert 'String.format(Locale.US, "%.0f%%", s9CpuPercent)' in service
-  assert service.count("14.5f, ink(), Paint.Align.CENTER") >= 4
+  assert service.count("14.5f, ink(), Paint.Align.LEFT") >= 4
   assert 'Typeface.create("sans", Typeface.NORMAL)' in service
+  assert "drawThermometerGlyph(c, p" in service
+  assert "drawCpuGlyph(c, p" in service
+  assert 'textNormal(c, p, "SoC"' not in service
+  assert 'textNormal(c, p, "CPU"' not in service
+  assert "Color.rgb(97, 213, 255)" in service
+  assert "Color.rgb(157, 168, 255)" in service
 
 
 def test_genesis_cluster_warnings_reach_external_hud():

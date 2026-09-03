@@ -932,28 +932,48 @@ public final class HudService extends Service {
         }
         float carWidth = info[2];
         float carHeight = egoCar.getHeight() * carWidth / egoCar.getWidth();
-        float fontSize = Math.max(13f, Math.min(18f, carWidth * 0.38f));
-        String label = Math.round(distance) + "m";
+        float unitSize = Math.max(13f, Math.min(18f, carWidth * 0.38f));
+        float numberSize = Math.max(18f, Math.min(38f, carWidth * 0.80f));
+        String number = Integer.toString(Math.round(distance));
+        String unit = "m";
 
         p.setShader(null);
         p.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
-        p.setTextSize(fontSize);
         p.setTextAlign(Paint.Align.LEFT);
-        float labelWidth = p.measureText(label);
-        float x = info[0] + carWidth * 0.5f + Math.max(5f, carWidth * 0.10f);
-        x = Math.min(x, DRIVE_RIGHT - labelWidth - 6f);
+        p.setTextSize(numberSize);
+        float numberWidth = p.measureText(number);
+        p.setTextSize(unitSize);
+        float unitWidth = p.measureText(unit);
+        float unitGap = 2f;
+        float totalWidth = numberWidth + unitGap + unitWidth;
+        float x = info[0] + carWidth * 0.5f + Math.max(8f, carWidth * 0.14f);
+        x = Math.max(6f, Math.min(x, DRIVE_RIGHT - totalWidth - 6f));
         float baseline = info[1] - Math.max(2f, carHeight * 0.06f);
 
-        // 별도 카드 없이 굵은 외곽선과 채움으로 도로/차선 위 가독성을 확보한다.
+        // 숫자는 앞차 폭의 80%까지 키우고, 단위 m은 기존 크기로 유지한다.
         int drawAlpha = Math.max(0, Math.min(255, Math.round(alpha * 255f)));
+        int outlineColor = frameDark ? Color.rgb(8, 13, 17) : Color.rgb(245, 248, 250);
+        int fillColor = frameDark ? Color.rgb(255, 255, 255) : Color.rgb(18, 44, 72);
+
+        p.setTextSize(numberSize);
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(Math.max(2.5f, fontSize * 0.18f));
-        p.setColor(frameDark ? Color.rgb(8, 13, 17) : Color.rgb(245, 248, 250));
+        p.setStrokeWidth(Math.max(2.8f, numberSize * 0.14f));
+        p.setColor(outlineColor);
         p.setAlpha(drawAlpha);
-        c.drawText(label, x, baseline, p);
+        c.drawText(number, x, baseline, p);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(frameDark ? Color.rgb(255, 255, 255) : Color.rgb(18, 44, 72));
-        c.drawText(label, x, baseline, p);
+        p.setColor(fillColor);
+        c.drawText(number, x, baseline, p);
+
+        float unitX = x + numberWidth + unitGap;
+        p.setTextSize(unitSize);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(Math.max(2.5f, unitSize * 0.18f));
+        p.setColor(outlineColor);
+        c.drawText(unit, unitX, baseline, p);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(fillColor);
+        c.drawText(unit, unitX, baseline, p);
         p.setStrokeWidth(1f);
         p.setAlpha(255);
     }
@@ -1266,7 +1286,7 @@ public final class HudService extends Service {
         c.restoreToCount(nooSave);
 
         int statusSave = beginElement(c, l, "lead", 82f, 415f);
-        drawOpS9StatusCard(c, p, s, stale);
+        drawC2S9StatusCard(c, p, s, stale);
         c.restoreToCount(statusSave);
 
         int save8 = beginElement(c, l, "tpms", 865f, 415f);
@@ -3362,7 +3382,7 @@ public final class HudService extends Service {
     }
 
     /** 좌측 하단의 기존 148x78 카드에 C2(EON)와 S9 상태를 두 줄로 표시한다. */
-    private void drawOpS9StatusCard(Canvas c, Paint p, JSONObject s, boolean stale) {
+    private void drawC2S9StatusCard(Canvas c, Paint p, JSONObject s, boolean stale) {
         scratchRect.set(8f, 376f, 156f, 454f);
         drawCard(c, p, scratchRect);
 
@@ -3371,31 +3391,72 @@ public final class HudService extends Service {
         p.setStrokeWidth(1f);
         p.setColor(hairline());
         c.drawLine(16f, 415f, 148f, 415f, p);
-        c.drawLine(54f, 382f, 54f, 448f, p);
-        c.drawLine(104f, 382f, 104f, 448f, p);
+
+        int c2Accent = frameDark ? Color.rgb(97, 213, 255) : Color.rgb(0, 112, 154);
+        int s9Accent = frameDark ? Color.rgb(157, 168, 255) : Color.rgb(82, 93, 170);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(c2Accent);
+        scratchRect.set(14f, 387f, 17f, 404f);
+        c.drawRoundRect(scratchRect, 1.5f, 1.5f, p);
+        p.setColor(s9Accent);
+        scratchRect.set(14f, 426f, 17f, 443f);
+        c.drawRoundRect(scratchRect, 1.5f, 1.5f, p);
 
         JSONObject system = stale ? null : s.optJSONObject("system");
         if (system == null && !stale) {
             system = s;
         }
-        String opTemp = systemValue(system, "temp", "°C");
-        String opCpu = systemValue(system, "cpu", "%");
+        String c2Temp = systemValue(system, "temp", "°C");
+        String c2Cpu = systemValue(system, "cpu", "%");
         String phoneTemp = s9TempC < 0f ? "--"
                 : String.format(Locale.US, "%.0f°C", s9TempC);
         String phoneCpu = s9CpuPercent < 0f ? "--"
                 : String.format(Locale.US, "%.0f%%", s9CpuPercent);
 
-        // C2/S9 라벨을 온도와 CPU 값과 같은 크기로 맞춰 외부 HUD에서도 잘 보이게 한다.
-        textNormal(c, p, "C2", 31f, 403f, 14.5f, ink(), Paint.Align.CENTER);
-        textNormal(c, p, "SoC", 79f, 389f, 9f, dim(), Paint.Align.CENTER);
-        textNormal(c, p, opTemp, 79f, 406f, 14.5f, ink(), Paint.Align.CENTER);
-        textNormal(c, p, "CPU", 129f, 389f, 9f, dim(), Paint.Align.CENTER);
-        textNormal(c, p, opCpu, 129f, 406f, 14.5f, ink(), Paint.Align.CENTER);
-        textNormal(c, p, "S9", 31f, 442f, 14.5f, ink(), Paint.Align.CENTER);
-        textNormal(c, p, "SoC", 79f, 428f, 9f, dim(), Paint.Align.CENTER);
-        textNormal(c, p, phoneTemp, 79f, 445f, 14.5f, ink(), Paint.Align.CENTER);
-        textNormal(c, p, "CPU", 129f, 428f, 9f, dim(), Paint.Align.CENTER);
-        textNormal(c, p, phoneCpu, 129f, 445f, 14.5f, ink(), Paint.Align.CENTER);
+        // 글자 라벨 대신 온도계/CPU 칩 그림을 사용해 작은 카드의 혼잡도를 낮춘다.
+        int iconColor = dim();
+        textNormal(c, p, "C2", 33f, 403f, 9f, ink(), Paint.Align.CENTER);
+        drawThermometerGlyph(c, p, 63f, 397f, iconColor);
+        textNormal(c, p, c2Temp, 70f, 403f, 14.5f, ink(), Paint.Align.LEFT);
+        drawCpuGlyph(c, p, 112f, 397f, iconColor);
+        textNormal(c, p, c2Cpu, 119f, 403f, 14.5f, ink(), Paint.Align.LEFT);
+        textNormal(c, p, "S9", 33f, 442f, 9f, ink(), Paint.Align.CENTER);
+        drawThermometerGlyph(c, p, 63f, 436f, iconColor);
+        textNormal(c, p, phoneTemp, 70f, 442f, 14.5f, ink(), Paint.Align.LEFT);
+        drawCpuGlyph(c, p, 112f, 436f, iconColor);
+        textNormal(c, p, phoneCpu, 119f, 442f, 14.5f, ink(), Paint.Align.LEFT);
+    }
+
+    private void drawThermometerGlyph(Canvas c, Paint p, float cx, float cy, int color) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(1.3f);
+        p.setColor(color);
+        scratchRect.set(cx - 2f, cy - 6f, cx + 2f, cy + 3f);
+        c.drawRoundRect(scratchRect, 2f, 2f, p);
+        c.drawLine(cx, cy - 3.5f, cx, cy + 3f, p);
+        p.setStyle(Paint.Style.FILL);
+        c.drawCircle(cx, cy + 4f, 2.5f, p);
+        p.setStrokeCap(Paint.Cap.BUTT);
+    }
+
+    private void drawCpuGlyph(Canvas c, Paint p, float cx, float cy, int color) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(1.2f);
+        p.setColor(color);
+        scratchRect.set(cx - 3.5f, cy - 3.5f, cx + 3.5f, cy + 3.5f);
+        c.drawRect(scratchRect, p);
+        for (int i = -2; i <= 2; i += 2) {
+            c.drawLine(cx + i, cy - 5.5f, cx + i, cy - 3.5f, p);
+            c.drawLine(cx + i, cy + 3.5f, cx + i, cy + 5.5f, p);
+            c.drawLine(cx - 5.5f, cy + i, cx - 3.5f, cy + i, p);
+            c.drawLine(cx + 3.5f, cy + i, cx + 5.5f, cy + i, p);
+        }
+        p.setStyle(Paint.Style.FILL);
+        scratchRect.set(cx - 1.5f, cy - 1.5f, cx + 1.5f, cy + 1.5f);
+        c.drawRect(scratchRect, p);
     }
 
     private String distanceText(int meters) {
