@@ -335,10 +335,6 @@ class LateralPlanner:
     elif self.dynamic_lane_profile == 0:
       return False
     elif self.dynamic_lane_profile == 2:
-      # Keep the original low-speed threshold only: below 16 km/h, do not
-      # auto-switch to laneless when lane probabilities briefly flicker.
-      if self.v_ego < 4.5:
-        return False
       # laneless while lane change in progress
       if self.DH.lane_change_state in (LaneChangeState.laneChangeStarting, LaneChangeState.laneChangeFinishing):
         return True
