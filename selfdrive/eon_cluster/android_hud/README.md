@@ -11,10 +11,10 @@ never enter RadarD, longitudinal control, or FCW decisions.
 detector. To display every vehicle seen in the camera image, a separate
 detector may atomically publish `/dev/shm/vision_vehicle_objects.json`:
 
-Without that optional detector or its DLC, `leadOne`, `leadTwo`, and each
-distinct unmatched `leadsV3` candidate still use the normal vehicle sprite.
-Unmatched candidates are tinted cyan and labelled `VISION`; candidates near a
-tracked lead are suppressed to avoid drawing the same vehicle twice.
+Without that optional detector or its DLC, `leadOne` and `leadTwo` keep the
+normal vehicle sprite while each distinct unmatched `leadsV3` candidate is
+shown only as a cyan box. Candidates near a tracked lead are suppressed to
+avoid drawing the same vehicle twice.
 
 ```json
 {

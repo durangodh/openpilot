@@ -348,10 +348,8 @@ def test_remote_hud_displays_vision_candidates_without_control_feedback():
   assert 'drawVisionObjects(scene.optJSONArray("visionObjects")' in renderer
   assert "nearTrackedLead(scene.optJSONObject(\"lead\")" in renderer
   assert "Math.min(objects.length(), 24)" in renderer
-  assert "MAX_VISION_SPRITES = 3" in renderer
-  assert "visionSprite(int index, float[] out)" in renderer
-  assert "modelWorldGl.visionSpriteCount()" in service
-  assert "modelWorldGl.visionSpriteProbability(candidateIndex)" in service
+  assert "visionSprite" not in renderer
+  assert "modelWorldGl.visionSprite" not in service
   assert "leadSpriteVision(int index)" in renderer
   assert '"D".equals(object.optString("src", "M"))' in renderer
   assert '"VISION %.0f%%"' in service

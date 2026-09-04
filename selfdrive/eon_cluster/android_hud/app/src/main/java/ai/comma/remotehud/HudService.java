@@ -1212,19 +1212,6 @@ public final class HudService extends Service {
                     s.optInt("hudGuardrail", 1) != 0,
                     Math.max(0, Math.min(100, s.optInt("hudHaze", 55))));
             if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
-                // Draw unmatched built-in modelV2 candidates first. These are
-                // available without vehicle_detector.dlc; tracked leads are
-                // drawn afterwards so duplicate/primary information wins.
-                for (int candidateIndex = 0;
-                     candidateIndex < modelWorldGl.visionSpriteCount(); candidateIndex++) {
-                    if (!modelWorldGl.visionSprite(candidateIndex, leadSpriteInfo)) {
-                        continue;
-                    }
-                    float candidateAlpha = modelWorldGl.visionSpriteAlpha(candidateIndex);
-                    drawLeadSprite(c, p, leadSpriteInfo, candidateAlpha, false, true);
-                    drawLeadSourceLabel(c, p, leadSpriteInfo, true,
-                            modelWorldGl.visionSpriteProbability(candidateIndex), candidateAlpha);
-                }
                 // 앞차도 자차와 같은 그림으로. 먼 차부터 그려 근경이 덮게 한다.
                 for (int leadIndex = 1; leadIndex >= 0; leadIndex--) {
                     if (!modelWorldGl.leadSprite(leadIndex, leadSpriteInfo)) {
