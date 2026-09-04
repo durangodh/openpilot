@@ -20,8 +20,8 @@ STANDSTILL_RELEASE_FRAMES = 10
 TRANSITION_BRAKE_RATE = 2.5
 # When moving from drive to brake, first bleed drive request toward zero unless
 # the planner asks for a genuinely hard brake.
-TRANSITION_COAST_RATE = 0.8
-TRANSITION_HARD_BRAKE_ACCEL = -1.5
+TRANSITION_COAST_RATE = 1.0
+TRANSITION_HARD_BRAKE_ACCEL = -1.2
 TRANSITION_RELEASE_RATE = 0.9
 TRANSITION_ACCEL_RATE = 1.2
 
