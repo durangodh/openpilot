@@ -1,5 +1,6 @@
 from common.numpy_fast import mean
 from common.kalman.simple_kalman import KF1D
+from selfdrive.controls.lib.scc_lead_policy import blend_scc_lead_accel
 
 
 # the longer lead decels, the more likely it will keep decelerating
@@ -67,7 +68,8 @@ class Track():
     self.kf = KF1D([[v_lead], [0.0]], self.K_A, self.K_C, self.K_K)
     self.vLead = v_lead
 
-  def update(self, d_rel, y_rel, v_rel, v_lead, measured, reaction_factor=1.0):
+  def update(self, d_rel, y_rel, v_rel, v_lead, measured, reaction_factor=1.0,
+             a_lead_sensor=None):
     # Reset stale acceleration state when SCC reuses a track for a new target.
     if abs(self.vLead - v_lead) > 0.5:
       self.cnt = 0
@@ -86,6 +88,9 @@ class Track():
 
     self.vLeadK = float(self.kf.x[SPEED][0])
     self.aLeadK = float(self.kf.x[ACCEL][0])
+    if a_lead_sensor is not None and measured:
+      self.aLeadK = blend_scc_lead_accel(self.aLeadK, a_lead_sensor)
+      self.kf.x = [[self.vLeadK], [self.aLeadK]]
 
     # RadarReactionFactor below 1.0 keeps a measured lead acceleration in the
     # prediction for longer.  This lets MPC react earlier when a lead that has

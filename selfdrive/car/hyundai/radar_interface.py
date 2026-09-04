@@ -4,9 +4,8 @@ import math
 from cereal import car
 from opendbc.can.parser import CANParser
 from selfdrive.car.interfaces import RadarInterfaceBase
+from selfdrive.car.hyundai.scc_lead_tracker import SCCLeadTracker
 from selfdrive.car.hyundai.values import DBC
-from common.params import Params
-from common.filter_simple import StreamingMovingAverage
 
 RADAR_START_ADDR = 0x500
 RADAR_MSG_COUNT = 32
@@ -49,6 +48,7 @@ class RadarInterface(RadarInterfaceBase):
   def __init__(self, CP):
     super().__init__(CP)
     self.new_radar = False #Params().get_bool("NewRadarInterface")
+    self.scc_only = not self.new_radar
     self.updated_messages = set()
     self.trigger_msg = 0x420 if not self.new_radar else RADAR_START_ADDR + RADAR_MSG_COUNT - 1
     self.track_id = 0
@@ -56,9 +56,7 @@ class RadarInterface(RadarInterfaceBase):
     self.radar_off_can = CP.radarOffCan
     self.rcp = get_radar_can_parser(CP)
 
-    self.dRelFilter = StreamingMovingAverage(2)
-    self.vRelFilter = StreamingMovingAverage(4)
-    self.valid_prev = False
+    self.scc_lead_tracker = SCCLeadTracker()
 
   def update(self, can_strings):
     if self.radar_off_can or (self.rcp is None):
@@ -114,34 +112,27 @@ class RadarInterface(RadarInterfaceBase):
 
     else:
       cpt = self.rcp.vl
+      scc11 = cpt["SCC11"]
+      sample = self.scc_lead_tracker.update(
+        scc11['ObjValid'],
+        scc11['ACC_ObjStatus'],
+        scc11['ACC_ObjDist'],
+        -scc11['ACC_ObjLatPos'],  # in car frame's y axis, left is negative
+        scc11['ACC_ObjRelSpd'],
+      )
 
-      valid = cpt["SCC11"]['ACC_ObjStatus']
+      if sample is None:
+        self.pts.pop(0, None)
+      else:
+        if 0 not in self.pts:
+          self.pts[0] = car.RadarData.RadarPoint.new_message()
+        self.pts[0].trackId = sample.track_id
+        self.pts[0].dRel = sample.d_rel  # from front of car
+        self.pts[0].yRel = sample.y_rel
+        self.pts[0].vRel = sample.v_rel
+        self.pts[0].aRel = sample.a_rel
+        self.pts[0].yvRel = float('nan')
+        self.pts[0].measured = sample.measured
 
-      for ii in range(1):
-        if valid:
-          if ii not in self.pts:
-            self.pts[ii] = car.RadarData.RadarPoint.new_message()
-            self.pts[ii].trackId = self.track_id
-            self.track_id += 1
-
-          if not self.valid_prev:
-            dRel = self.dRelFilter.set(cpt["SCC11"]['ACC_ObjDist'])
-            vRel = self.vRelFilter.set(cpt["SCC11"]['ACC_ObjRelSpd'])
-          else:
-            dRel = self.dRelFilter.process(cpt["SCC11"]['ACC_ObjDist'])
-            vRel = self.vRelFilter.process(cpt["SCC11"]['ACC_ObjRelSpd'])
-
-          self.pts[ii].dRel = dRel  # from front of car
-          self.pts[ii].yRel = -cpt["SCC11"]['ACC_ObjLatPos']  # in car frame's y axis, left is negative
-          self.pts[ii].vRel = vRel
-          self.pts[ii].aRel = float('nan')
-          self.pts[ii].yvRel = float('nan')
-          self.pts[ii].measured = True
-
-        else:
-          if ii in self.pts:
-            del self.pts[ii]
-
-      self.valid_prev = valid
       ret.points = list(self.pts.values())
       return ret

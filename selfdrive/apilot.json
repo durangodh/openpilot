@@ -693,6 +693,16 @@
   },
   {
    "group": "종방향",
+   "name": "SccVisionMismatchFallback",
+   "title": "SCC VISION MISMATCH FALLBACK",
+   "descr": "켜짐(기본): 카메라 매칭이 잠깐 실패해도 측정된 SCC 앞차가 물리적으로 타당하고 비전 앞차보다 8m 이상 멀지 않으면 SCC 거리·상대속도를 유지합니다. 문제가 있으면 끄세요.",
+   "min": 0,
+   "max": 1,
+   "default": 1,
+   "unit": 1
+  },
+  {
+   "group": "종방향",
    "name": "MyDrivingMode",
    "title": "CURRENT DRIVING MODE",
    "descr": "1: SAFE / 2: ECO / 3: NORMAL / 4: FAST. 주행 중 즉시 반영됩니다.",
