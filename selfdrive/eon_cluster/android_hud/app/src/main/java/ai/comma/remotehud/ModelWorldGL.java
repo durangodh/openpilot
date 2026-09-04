@@ -761,7 +761,10 @@ final class ModelWorldGL {
             float scale = FOCAL / (distance + CAM_BACK);
             float width = clamp(1.88f * scale, 8f, 44f);
             float height = clamp(0.90f * scale, 6f, 27f);
-            float alpha = clamp(0.28f + probability * 0.58f, 0f, 0.90f);
+            // Vision vehicles were too washed out on the reflective external
+            // panel. Keep confidence visible without making low-score tracks
+            // nearly transparent.
+            float alpha = clamp(0.62f + probability * 0.36f, 0f, 0.98f);
             String type = object.optString("type", "");
             if (isPhoneVehicleType(type)) {
                 drawVisionVehicleIcon(sx, sy, width, height, type, dark, alpha);
@@ -808,9 +811,9 @@ final class ModelWorldGL {
 
         int vision = dark ? Color.rgb(65, 157, 255) : Color.rgb(0, 82, 255);
         int shadow = dark ? Color.rgb(7, 10, 14) : Color.rgb(73, 80, 87);
-        int body = dark ? Color.rgb(168, 177, 186) : Color.rgb(183, 190, 197);
-        int highlight = dark ? Color.rgb(213, 220, 226) : Color.rgb(224, 228, 232);
-        int glass = dark ? Color.rgb(39, 49, 59) : Color.rgb(86, 96, 106);
+        int body = dark ? Color.rgb(194, 204, 214) : Color.rgb(145, 154, 164);
+        int highlight = dark ? Color.rgb(238, 243, 247) : Color.rgb(202, 210, 218);
+        int glass = dark ? Color.rgb(24, 34, 44) : Color.rgb(47, 59, 70);
         int lamp = Color.rgb(226, 58, 64);
 
         // Blue ground glow identifies every phone-camera-only object without a
@@ -820,10 +823,10 @@ final class ModelWorldGL {
                 sx + width * 0.64f, sy - height * 0.03f,
                 sx + width * 0.48f, sy + Math.max(1.5f, height * 0.13f),
                 sx - width * 0.48f, sy + Math.max(1.5f, height * 0.13f),
-                vision, 0.48f * alpha);
+                vision, 0.72f * alpha);
         drawScreenRect(sx - width * 0.52f, sy - height * 0.02f,
                 sx + width * 0.52f, sy + Math.max(1.0f, height * 0.06f),
-                shadow, 0.42f * alpha);
+                shadow, 0.66f * alpha);
 
         if ("truck".equals(type)) {
             drawTruckIcon(sx, sy, width, height, body, highlight, shadow, lamp, alpha);

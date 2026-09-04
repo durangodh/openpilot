@@ -12,6 +12,7 @@ import org.tensorflow.lite.support.label.Category;
 import org.tensorflow.lite.task.vision.detector.Detection;
 import org.tensorflow.lite.task.vision.detector.ObjectDetector;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -19,8 +20,30 @@ import java.util.Locale;
 final class PhoneVehicleDetector implements AutoCloseable {
     private static final float CAMERA_TO_BUMPER_M = 1.52f;
     private static final int MAX_RESULTS = 24;
+    // MobileNet occasionally misses one or two of the 2 Hz camera frames.
+    // Keep a matched display track for one second so a single weak JPEG or
+    // partial occlusion does not make the HUD vehicle blink.
+    private static final int MAX_MISSED_FRAMES = 2;
+    private static final float TRACK_ALPHA = 0.55f;
 
     private final ObjectDetector detector;
+    private final ArrayList<VehicleTrack> tracks = new ArrayList<>();
+
+    private static final class VehicleTrack {
+        double distance;
+        double lateral;
+        float score;
+        String type;
+        int missed;
+        boolean matched;
+
+        VehicleTrack(double distance, double lateral, float score, String type) {
+            this.distance = distance;
+            this.lateral = lateral;
+            this.score = score;
+            this.type = type;
+        }
+    }
 
     PhoneVehicleDetector(Context context) throws Exception {
         ObjectDetector.ObjectDetectorOptions options =
@@ -35,16 +58,16 @@ final class PhoneVehicleDetector implements AutoCloseable {
     }
 
     JSONArray detect(byte[] jpeg, JSONObject scene) throws Exception {
-        JSONArray output = new JSONArray();
+        ArrayList<VehicleTrack> observations = new ArrayList<>();
         JSONObject ground = scene.optJSONObject("cameraGround");
         JSONArray matrix = ground == null ? null : ground.optJSONArray("m");
         if (jpeg == null || jpeg.length == 0 || matrix == null || matrix.length() != 9) {
-            return output;
+            return trackedOutput(observations);
         }
 
         Bitmap image = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length);
         if (image == null) {
-            return output;
+            return trackedOutput(observations);
         }
         try {
             int sourceWidth = ground.optInt("w", 0);
@@ -58,7 +81,7 @@ final class PhoneVehicleDetector implements AutoCloseable {
             for (int i = 0; i < m.length; i++) {
                 m[i] = matrix.optDouble(i, Double.NaN);
                 if (!Double.isFinite(m[i])) {
-                    return output;
+                    return trackedOutput(observations);
                 }
             }
 
@@ -91,24 +114,79 @@ final class PhoneVehicleDetector implements AutoCloseable {
                         || distance < 2d || distance > 120d || Math.abs(lateral) > 15d) {
                     continue;
                 }
-                JSONObject object = new JSONObject();
-                object.put("d", Math.round(distance * 10d) / 10d);
-                object.put("y", Math.round(lateral * 100d) / 100d);
-                object.put("p", Math.round(vehicle.getScore() * 100d) / 100d);
-                object.put("src", "P");
                 // Retain the COCO class for display-only type-specific HUD
                 // silhouettes.  This value never leaves the S9 or reaches
                 // RadarD/controls.
-                object.put("type", normalizeVehicleType(vehicle.getLabel()));
-                output.put(object);
-                if (output.length() >= MAX_RESULTS) {
+                observations.add(new VehicleTrack(distance, lateral, vehicle.getScore(),
+                        normalizeVehicleType(vehicle.getLabel())));
+                if (observations.size() >= MAX_RESULTS) {
                     break;
                 }
             }
-            return output;
+            return trackedOutput(observations);
         } finally {
             image.recycle();
         }
+    }
+
+    private JSONArray trackedOutput(ArrayList<VehicleTrack> observations) throws Exception {
+        for (VehicleTrack track : tracks) {
+            track.matched = false;
+        }
+        for (VehicleTrack observation : observations) {
+            VehicleTrack best = null;
+            double bestCost = Double.POSITIVE_INFINITY;
+            for (VehicleTrack track : tracks) {
+                if (track.matched) {
+                    continue;
+                }
+                double distanceError = Math.abs(track.distance - observation.distance);
+                double lateralError = Math.abs(track.lateral - observation.lateral);
+                double distanceGate = Math.max(4d, Math.min(12d, observation.distance * 0.18d));
+                if (distanceError <= distanceGate && lateralError <= 2.2d) {
+                    double cost = distanceError / distanceGate + lateralError / 2.2d;
+                    if (cost < bestCost) {
+                        bestCost = cost;
+                        best = track;
+                    }
+                }
+            }
+            if (best == null) {
+                observation.matched = true;
+                tracks.add(observation);
+            } else {
+                best.distance += (observation.distance - best.distance) * TRACK_ALPHA;
+                best.lateral += (observation.lateral - best.lateral) * TRACK_ALPHA;
+                best.score = Math.max(observation.score, best.score * 0.92f);
+                best.type = observation.type;
+                best.missed = 0;
+                best.matched = true;
+            }
+        }
+
+        JSONArray output = new JSONArray();
+        for (int i = tracks.size() - 1; i >= 0; i--) {
+            VehicleTrack track = tracks.get(i);
+            if (!track.matched) {
+                track.missed++;
+                // The renderer's validity floor is 0.30. Keep a held track at
+                // that floor and let the bounded miss count expire it instead
+                // of making a low-confidence vehicle blink immediately.
+                track.score = Math.max(0.30f, track.score * 0.90f);
+            }
+            if (track.missed > MAX_MISSED_FRAMES) {
+                tracks.remove(i);
+                continue;
+            }
+            JSONObject object = new JSONObject();
+            object.put("d", Math.round(track.distance * 10d) / 10d);
+            object.put("y", Math.round(track.lateral * 100d) / 100d);
+            object.put("p", Math.round(track.score * 100d) / 100d);
+            object.put("src", "P");
+            object.put("type", track.type);
+            output.put(object);
+        }
+        return output;
     }
 
     private static Category bestVehicleCategory(List<Category> categories) {
@@ -132,6 +210,7 @@ final class PhoneVehicleDetector implements AutoCloseable {
 
     @Override
     public void close() {
+        tracks.clear();
         detector.close();
     }
 }
