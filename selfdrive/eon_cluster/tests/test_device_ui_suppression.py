@@ -394,6 +394,7 @@ def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
   assert "Process.THREAD_PRIORITY_BACKGROUND" in service
   assert "s9TempC >= 82f" in service and "s9TempC <= 78f" in service
   assert 'object.put("src", "P")' in phone
+  assert '"hudPathFlip"' not in phone
   assert 'object.put("type", normalizeVehicleType(vehicle.getLabel()))' in phone
   for vehicle_type in ("car", "truck", "bus", "motorcycle", "bicycle"):
     assert '"%s"' % vehicle_type in phone

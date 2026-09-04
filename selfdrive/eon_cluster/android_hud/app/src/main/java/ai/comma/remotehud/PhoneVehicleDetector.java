@@ -54,7 +54,6 @@ final class PhoneVehicleDetector implements AutoCloseable {
             }
             float threshold = Math.max(0.30f, Math.min(0.90f,
                     scene.optInt("hudVisionThreshold", 55) * 0.01f));
-            boolean flipLateral = scene.optInt("hudPathFlip", 0) != 0;
             double[] m = new double[9];
             for (int i = 0; i < m.length; i++) {
                 m[i] = matrix.optDouble(i, Double.NaN);
@@ -84,10 +83,10 @@ final class PhoneVehicleDetector implements AutoCloseable {
                 }
                 double distance = (m[0] * pixelX + m[1] * pixelY + m[2]) / scale
                         - CAMERA_TO_BUMPER_M;
+                // Keep the camera projection's native left-positive lateral axis.
+                // hudPathFlip only corrects model geometry on the installed display;
+                // applying it here mirrors phone detections to the opposite lane.
                 double lateral = (m[3] * pixelX + m[4] * pixelY + m[5]) / scale;
-                if (flipLateral) {
-                    lateral = -lateral;
-                }
                 if (!Double.isFinite(distance) || !Double.isFinite(lateral)
                         || distance < 2d || distance > 120d || Math.abs(lateral) > 15d) {
                     continue;
