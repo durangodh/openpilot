@@ -59,6 +59,9 @@ def test_s9_hud_params_are_exposed_in_settings():
   settings = (UI_DIR / "offroad" / "settings.cc").read_text(encoding="utf-8")
   exposed = (
       "EonClusterHud",
+      "EonClusterHudVisionDetector",
+      "EonClusterHudVisionDetectorFps",
+      "EonClusterHudVisionDetectorThreshold",
       "EonClusterHudFps",
       "EonClusterHudMapFps",
       "EonClusterHudBrightness",
@@ -352,6 +355,45 @@ def test_remote_hud_displays_vision_candidates_without_control_feedback():
   assert "visionLeadTint" in service
   # The new wire is consumed only by the HUD renderer, never RadarD/planner.
   assert "visionObjects" not in (ROOT / "selfdrive" / "controls" / "radard.py").read_text(encoding="utf-8")
+
+
+def test_optional_vehicle_detector_is_dsp_only_and_display_only():
+  manager = (ROOT / "selfdrive" / "manager" / "manager.py").read_text(encoding="utf-8")
+  processes = (ROOT / "selfdrive" / "manager" / "process_config.py").read_text(encoding="utf-8")
+  params = (ROOT / "selfdrive" / "common" / "params.cc").read_text(encoding="utf-8")
+  sconscript = (ROOT / "selfdrive" / "modeld" / "SConscript").read_text(encoding="utf-8")
+  daemon = (ROOT / "selfdrive" / "modeld" / "vehicle_detectord.cc").read_text(encoding="utf-8")
+  detector = (ROOT / "selfdrive" / "modeld" / "models" /
+              "vehicle_detector.cc").read_text(encoding="utf-8")
+  config = (ROOT / "models" / "vehicle_detector.json").read_text(encoding="utf-8")
+  release_files = (ROOT / "release" / "files_common").read_text(encoding="utf-8")
+
+  assert 'NativeProcess("vehicle_detectord", "selfdrive/modeld", ["./vehicle_detectord"], enabled=EON)' in processes
+  assert "lenv.Program('_vehicle_detectord'" in sconscript
+  for key, default in (("EonClusterHudVisionDetector", "0"),
+                       ("EonClusterHudVisionDetectorFps", "2"),
+                       ("EonClusterHudVisionDetectorThreshold", "55")):
+    assert '("%s", "%s")' % (key, default) in manager
+    assert '{"%s", PERSISTENT}' % key in params
+  assert 'setRuntimeProcessor(zdl::DlSystem::Runtime_t::DSP)' in detector
+  assert ".setCPUFallbackMode(false)" in detector
+  assert "PerformanceProfile_t::POWER_SAVER" in detector
+  assert 'OUTPUT_PATH[] = "/dev/shm/vision_vehicle_objects.json"' in daemon
+  assert "THERMAL_PAUSE_C = 82.0f" in daemon
+  assert "inference_ms > 250.0" in daemon
+  assert 'params.getBool("EonClusterHudVisionDetector")' in daemon
+  assert '"input_width": 300' in config
+  for path in ("models/vehicle_detector.json",
+               "selfdrive/modeld/vehicle_detectord.cc",
+               "selfdrive/modeld/vehicle_detectord",
+               "selfdrive/modeld/models/vehicle_detector.cc",
+               "selfdrive/modeld/models/vehicle_detector.h"):
+    assert path in release_files
+  # The detector cannot feed planning or actuation, and a site model is not bundled.
+  assert "PubMaster" not in daemon
+  assert "radarState" not in daemon
+  assert "controlsState" not in daemon
+  assert not (ROOT / "models" / "vehicle_detector.dlc").exists()
 
 
 def test_c2_s9_status_card_restores_the_bottom_left_slot():

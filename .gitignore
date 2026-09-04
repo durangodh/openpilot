@@ -77,6 +77,8 @@ comma*.sh
 
 selfdrive/modeld/thneed/compile
 models/*.thneed
+# Site-supplied, SNPE-version-specific model; never commit an unlicensed DLC.
+models/vehicle_detector.dlc
 
 *.bz2
 

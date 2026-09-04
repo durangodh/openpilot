@@ -23,11 +23,13 @@ detector may atomically publish `/dev/shm/vision_vehicle_objects.json`:
 
 `d` is forward distance in metres from the car, `y` is left-positive lateral
 offset in metres, and `p` is detector confidence. The HUD accepts at most 24
-objects, rejects confidence below 0.30, drops the whole feed after 500 ms, and
+objects, rejects confidence below 0.30, drops the whole feed after 900 ms, and
 suppresses boxes that overlap `leadOne` or `leadTwo`. Detector objects are
 green; built-in model candidates are cyan. No detector model is bundled: EON
 needs a separately benchmarked SNPE/DSP model, because adding an unverified
 CPU ONNX detector can reduce model/control timing and overheat the device.
+The supported tensor contract, installation path, and thermal safeguards are
+documented in `selfdrive/modeld/VEHICLE_DETECTOR.md`.
 
 > **v1.06 local map context** — `ModelWorldGL` keeps the modelV2 road
 > authoritative and draws an optional S9-local SQLite road/building layer

@@ -1,0 +1,10 @@
+#!/bin/sh
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null && pwd)"
+cd "$DIR"
+
+# The full-frame detector is EON/SNPE-DSP only. CPU fallback is explicitly
+# disabled in the binary so a bad or incompatible DLC cannot steal control CPU.
+export LD_LIBRARY_PATH="/data/pythonpath/third_party/snpe/aarch64/:$LD_LIBRARY_PATH"
+export ADSP_LIBRARY_PATH="/data/pythonpath/third_party/snpe/dsp/"
+exec ./_vehicle_detectord

@@ -35,10 +35,10 @@ def test_detector_objects_require_fresh_timestamp(tmp_path, monkeypatch):
     ],
   }), encoding="utf-8")
 
-  assert remote_hud._detector_vision_objects(10_400) == [
+  assert remote_hud._detector_vision_objects(10_850) == [
     {"d": 18.0, "y": 3.1, "p": 0.91, "src": "D"},
   ]
-  assert remote_hud._detector_vision_objects(10_501) == []
+  assert remote_hud._detector_vision_objects(10_901) == []
 
 
 def test_detector_wins_duplicate_merge(monkeypatch):

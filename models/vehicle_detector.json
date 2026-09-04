@@ -1,0 +1,14 @@
+{
+  "input_width": 300,
+  "input_height": 300,
+  "input_mean": 128.0,
+  "input_scale": 0.0078125,
+  "confidence_threshold": 0.55,
+  "max_detections": 24,
+  "boxes_tensor": "boxes",
+  "scores_tensor": "scores",
+  "classes_tensor": "classes",
+  "count_tensor": "num_detections",
+  "boxes_format": "yxyx",
+  "vehicle_class_ids": [2, 3, 4, 6, 8]
+}

@@ -60,6 +60,7 @@ common/api/__init__.py
 
 models/supercombo.dlc
 models/dmonitoring_model_q.dlc
+models/vehicle_detector.json
 
 release/*
 
@@ -406,9 +407,12 @@ selfdrive/manager/test/test_manager.py
 selfdrive/modeld/SConscript
 selfdrive/modeld/modeld.cc
 selfdrive/modeld/dmonitoringmodeld.cc
+selfdrive/modeld/vehicle_detectord.cc
 selfdrive/modeld/constants.py
 selfdrive/modeld/modeld
 selfdrive/modeld/dmonitoringmodeld
+selfdrive/modeld/vehicle_detectord
+selfdrive/modeld/VEHICLE_DETECTOR.md
 
 selfdrive/modeld/models/commonmodel.cc
 selfdrive/modeld/models/commonmodel.h
@@ -416,6 +420,8 @@ selfdrive/modeld/models/driving.cc
 selfdrive/modeld/models/driving.h
 selfdrive/modeld/models/dmonitoring.cc
 selfdrive/modeld/models/dmonitoring.h
+selfdrive/modeld/models/vehicle_detector.cc
+selfdrive/modeld/models/vehicle_detector.h
 
 selfdrive/modeld/transforms/loadyuv.cc
 selfdrive/modeld/transforms/loadyuv.h

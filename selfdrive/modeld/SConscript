@@ -93,3 +93,11 @@ lenv.Program('_modeld', [
     "modeld.cc",
     "models/driving.cc",
   ]+common_model, LIBS=libs)
+
+# Optional display-only full-frame detector for the S9 HUD. It is a separate
+# process so failure, throttling, or an incompatible DLC cannot affect modeld.
+if arch != "Darwin":  # this runner intentionally requires SNPE
+  lenv.Program('_vehicle_detectord', [
+      "vehicle_detectord.cc",
+      "models/vehicle_detector.cc",
+    ], LIBS=libs)

@@ -36,7 +36,9 @@ NAVI_STATE = "/dev/shm/carrot_navi_route.json"
 # vehicle in the image.  A detector can publish display-only ground-plane
 # objects here without touching controls or radar fusion.
 VISION_OBJECTS_FILE = "/dev/shm/vision_vehicle_objects.json"
-VISION_OBJECTS_MAX_AGE_MS = 500
+# Default detector cadence is 2 Hz. Allow one frame plus scheduling jitter,
+# while still failing closed in under a second if the producer stops.
+VISION_OBJECTS_MAX_AGE_MS = 900
 VISION_OBJECTS_MAX_COUNT = 24
 MAP_MAX_BYTES = 2 * 1024 * 1024
 OVERLAY_MAX_BYTES = 512 * 1024
