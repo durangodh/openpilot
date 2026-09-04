@@ -166,6 +166,7 @@ public final class HudService extends Service {
     private final float[] leadSpriteInfo = new float[3];
     // 채도 0 + 밝기 0.82. 자차 그림을 앞차로 재사용할 때만 적용한다.
     private static final ColorMatrixColorFilter leadTint = buildLeadTint();
+    private static final ColorMatrixColorFilter visionLeadTint = buildVisionLeadTint();
 
     private static ColorMatrixColorFilter buildLeadTint() {
         ColorMatrix m = new ColorMatrix();
@@ -177,6 +178,19 @@ public final class HudService extends Service {
                 0f, 0f, 0f, 1f, 0f
         });
         m.postConcat(dim);
+        return new ColorMatrixColorFilter(m);
+    }
+
+    private static ColorMatrixColorFilter buildVisionLeadTint() {
+        ColorMatrix m = new ColorMatrix();
+        m.setSaturation(0f);
+        ColorMatrix cyan = new ColorMatrix(new float[] {
+                0.42f, 0f, 0f, 0f, 0f,
+                0f, 0.88f, 0f, 0f, 0f,
+                0f, 0f, 1.02f, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f
+        });
+        m.postConcat(cyan);
         return new ColorMatrixColorFilter(m);
     }
     private Bitmap speedBumpImage;
@@ -892,7 +906,7 @@ public final class HudService extends Service {
      * 원근 축소는 GL 이 계산한 폭을 그대로 쓰고, 높이는 그림 비율로 맞춘다.
      */
     private void drawLeadSprite(Canvas c, Paint p, float[] info,
-                                float alpha, boolean braking) {
+                                float alpha, boolean braking, boolean vision) {
         float width = info[2];
         if (width < 6f || egoCar == null || egoCar.isRecycled()) {
             return;
@@ -903,7 +917,7 @@ public final class HudService extends Service {
         scratchRect.set(left, bottom - height, left + width, bottom);
         p.setShader(null);
         // 앞차는 자차와 같은 그림을 쓰므로 채도를 빼고 살짝 어둡게 해서 구분한다.
-        p.setColorFilter(leadTint);
+        p.setColorFilter(vision ? visionLeadTint : leadTint);
         p.setFilterBitmap(true);
         p.setAlpha(Math.max(0, Math.min(255, Math.round(alpha * 255f))));
         c.drawBitmap(egoCar, null, scratchRect, p);
@@ -921,6 +935,30 @@ public final class HudService extends Service {
             c.drawRect(left + width * 0.90f - lampW, lampY,
                     left + width * 0.90f, lampY + lampH, p);
         }
+        p.setAlpha(255);
+    }
+
+    /** Small source badge: camera-only leads are visually distinct from SCC/radar. */
+    private void drawLeadSourceLabel(Canvas c, Paint p, float[] info,
+                                     boolean vision, float probability, float alpha) {
+        float width = info[2];
+        if (width < 8f || alpha <= 0f) {
+            return;
+        }
+        String label = vision
+                ? String.format(Locale.US, "VISION %.0f%%", probability * 100f)
+                : "SCC/RADAR";
+        float textSize = Math.max(8f, Math.min(12f, width * 0.30f));
+        p.setShader(null);
+        p.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
+        p.setTextAlign(Paint.Align.CENTER);
+        p.setTextSize(textSize);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(vision
+                ? (frameDark ? Color.rgb(92, 231, 245) : Color.rgb(0, 120, 158))
+                : (frameDark ? Color.rgb(226, 232, 238) : Color.rgb(42, 53, 65)));
+        p.setAlpha(Math.max(0, Math.min(255, Math.round(alpha * 230f))));
+        c.drawText(label, info[0], info[1] - Math.max(12f, width * 0.72f), p);
         p.setAlpha(255);
     }
 
@@ -1180,9 +1218,12 @@ public final class HudService extends Service {
                         continue;
                     }
                     float leadAlpha = modelWorldGl.leadSpriteAlpha(leadIndex);
+                    boolean visionLead = modelWorldGl.leadSpriteVision(leadIndex);
                     drawLeadSprite(c, p, leadSpriteInfo,
                             leadAlpha,
-                            modelWorldGl.leadSpriteBraking(leadIndex));
+                            modelWorldGl.leadSpriteBraking(leadIndex), visionLead);
+                    drawLeadSourceLabel(c, p, leadSpriteInfo, visionLead,
+                            modelWorldGl.leadSpriteProbability(leadIndex), leadAlpha);
                     if (leadIndex == 0) {
                         drawLeadDistanceLabel(c, p, leadSpriteInfo,
                                 modelWorldGl.leadSpriteDistance(leadIndex), leadAlpha);

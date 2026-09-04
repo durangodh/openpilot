@@ -62,6 +62,9 @@ def _apply_path_flip(packet):
     lead = packet.get(key)
     if isinstance(lead, dict) and "y" in lead:
       lead["y"] = -float(lead["y"] or 0.0)
+  for vehicle in packet.get("visionObjects") or []:
+    if isinstance(vehicle, dict) and "y" in vehicle:
+      vehicle["y"] = -float(vehicle["y"] or 0.0)
   packet["hudPathFlip"] = 1
   return packet
 

@@ -328,6 +328,32 @@ def test_primary_lead_distance_follows_the_lead_sprite():
   assert "leadSpriteValid[index]" in renderer
 
 
+def test_remote_hud_displays_vision_candidates_without_control_feedback():
+  remote = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(encoding="utf-8")
+  wrapper = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud_s9.py").read_text(encoding="utf-8")
+  renderer = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+              "main" / "java" / "ai" / "comma" / "remotehud" /
+              "ModelWorldGL.java").read_text(encoding="utf-8")
+  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+             "main" / "java" / "ai" / "comma" / "remotehud" /
+             "HudService.java").read_text(encoding="utf-8")
+
+  assert 'VISION_OBJECTS_FILE = "/dev/shm/vision_vehicle_objects.json"' in remote
+  assert '"visionObjects": _vision_objects(sm["modelV2"])' in remote
+  assert '"src": "R" if bool(_field(lead, "radar", False)) else "V"' in remote
+  assert 'for vehicle in packet.get("visionObjects") or []' in wrapper
+  assert 'drawVisionObjects(scene.optJSONArray("visionObjects")' in renderer
+  assert "nearTrackedLead(scene.optJSONObject(\"lead\")" in renderer
+  assert "Math.min(objects.length(), 24)" in renderer
+  assert "leadSpriteVision(int index)" in renderer
+  assert '"D".equals(object.optString("src", "M"))' in renderer
+  assert '"VISION %.0f%%"' in service
+  assert '"SCC/RADAR"' in service
+  assert "visionLeadTint" in service
+  # The new wire is consumed only by the HUD renderer, never RadarD/planner.
+  assert "visionObjects" not in (ROOT / "selfdrive" / "controls" / "radard.py").read_text(encoding="utf-8")
+
+
 def test_c2_s9_status_card_restores_the_bottom_left_slot():
   service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
              "main" / "java" / "ai" / "comma" / "remotehud" /

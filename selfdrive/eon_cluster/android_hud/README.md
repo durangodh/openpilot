@@ -1,5 +1,34 @@
 # Android remote HUD (experimental)
 
+## Vision vehicle overlays
+
+The HUD distinguishes an unmatched camera lead (`VISION`, cyan) from an
+SCC/radar-backed lead (`SCC/RADAR`). It also draws every distinct current
+candidate exposed by `modelV2.leadsV3`. These candidates are display-only and
+never enter RadarD, longitudinal control, or FCW decisions.
+
+`leadsV3` is a small set of time-offset lead hypotheses, not a full object
+detector. To display every vehicle seen in the camera image, a separate
+detector may atomically publish `/dev/shm/vision_vehicle_objects.json`:
+
+```json
+{
+  "updated_at_ms": 1730000000000,
+  "objects": [
+    {"d": 24.8, "y": -3.1, "p": 0.92},
+    {"d": 41.2, "y": 3.5, "p": 0.81}
+  ]
+}
+```
+
+`d` is forward distance in metres from the car, `y` is left-positive lateral
+offset in metres, and `p` is detector confidence. The HUD accepts at most 24
+objects, rejects confidence below 0.30, drops the whole feed after 500 ms, and
+suppresses boxes that overlap `leadOne` or `leadTwo`. Detector objects are
+green; built-in model candidates are cyan. No detector model is bundled: EON
+needs a separately benchmarked SNPE/DSP model, because adding an unverified
+CPU ONNX detector can reduce model/control timing and overheat the device.
+
 > **v1.06 local map context** — `ModelWorldGL` keeps the modelV2 road
 > authoritative and draws an optional S9-local SQLite road/building layer
 > underneath it. The legacy database path is

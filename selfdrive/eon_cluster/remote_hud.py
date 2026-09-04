@@ -31,6 +31,13 @@ CROSSROAD_FILE = "/dev/shm/carrot_navi_crossroad.png"
 TBT_NEXT_FILE = "/dev/shm/carrot_navi_tbt_next.png"
 LANE_BOTTOM_FILE = "/dev/shm/carrot_navi_lane_bottom.png"
 NAVI_STATE = "/dev/shm/carrot_navi_route.json"
+# Optional output of a separate full-frame vehicle detector.  The stock
+# supercombo model only exposes lead hypotheses; it does not expose every
+# vehicle in the image.  A detector can publish display-only ground-plane
+# objects here without touching controls or radar fusion.
+VISION_OBJECTS_FILE = "/dev/shm/vision_vehicle_objects.json"
+VISION_OBJECTS_MAX_AGE_MS = 500
+VISION_OBJECTS_MAX_COUNT = 24
 MAP_MAX_BYTES = 2 * 1024 * 1024
 OVERLAY_MAX_BYTES = 512 * 1024
 MAP_KEEPALIVE_S = 1.0
@@ -51,6 +58,7 @@ PARAM_MAP_FPS = "EonClusterHudMapFps"
 HEARTBEAT_PERIOD_S = 2.0
 PARAM_NOO_ENABLED = "NavigationOnOpenpilot"
 _NAVI_CACHE = {"signature": None, "state": {}, "scene_sig": None, "scene": None, "parsed_at": 0.0}
+_VISION_OBJECTS_CACHE = {"signature": None, "objects": []}
 
 # 날씨 조회용 마지막 좌표. 3초 신선도(NAVI_STREAM_MAX_AGE_MS)를 적용하지 않는다.
 # 날씨는 15분 주기라 몇 분 지난 좌표여도 무의미한 차이다. 정밀 GPS 는 여전히
@@ -495,7 +503,104 @@ def _lead(radar_state, name):
     # 뜻이라 앱이 후미등을 켠다. vRel 만으로는 "내가 더 빠른 것"과 구분이
     # 안 돼서 오르막 추월 등에서 오검출이 난다.
     "a": round(_finite(_field(lead, "aLeadK", 0.0)), 2),
+    # radar=False means RadarD is publishing an unmatched camera-model lead.
+    # Keep this display-only provenance out of the control decision itself.
+    "src": "R" if bool(_field(lead, "radar", False)) else "V",
+    "p": round(max(0.0, min(1.0, _finite(_field(lead, "modelProb", 0.0)))), 2),
   }
+
+
+def _append_vision_object(objects, distance, lateral, probability, source):
+  """Validate and de-duplicate one display-only vehicle candidate."""
+  distance = _finite(distance, -1.0)
+  lateral = _finite(lateral, 99.0)
+  probability = _finite(probability, 0.0)
+  if not (2.0 <= distance <= 180.0 and abs(lateral) <= 15.0 and probability >= 0.30):
+    return
+  candidate = {
+    "d": round(distance, 1),
+    "y": round(lateral, 2),
+    "p": round(min(1.0, probability), 2),
+    "src": source,
+  }
+  for index, current in enumerate(objects):
+    if abs(current["d"] - candidate["d"]) <= 3.0 and abs(current["y"] - candidate["y"]) <= 1.2:
+      # Prefer the full-frame detector over a lead hypothesis, then confidence.
+      if ((candidate["src"] == "D" and current["src"] != "D") or
+          (candidate["src"] == current["src"] and
+           candidate["p"] > current["p"])):
+        objects[index] = candidate
+      return
+  if len(objects) < VISION_OBJECTS_MAX_COUNT:
+    objects.append(candidate)
+
+
+def _model_vision_objects(model):
+  """Return distinct current-position lead candidates exposed by modelV2.
+
+  leadsV3 contains time-offset lead hypotheses, not an object-detection list.
+  We therefore de-duplicate them aggressively and identify them as model lead
+  candidates (M), never as a promise that every visible car was detected.
+  """
+  objects = []
+  for lead in list(_field(model, "leadsV3", []) or []):
+    xs = list(_field(lead, "x", []) or [])
+    ys = list(_field(lead, "y", []) or [])
+    if not xs or not ys:
+      continue
+    # RadarD uses the same camera-to-car longitudinal and lateral conversion.
+    _append_vision_object(objects, _finite(xs[0]) - 1.52, -_finite(ys[0]),
+                          _field(lead, "prob", 0.0), "M")
+  return objects
+
+
+def _detector_vision_objects(now_ms=None):
+  """Read fresh ground-plane detections from an optional detector process.
+
+  Wire format:
+    {"updated_at_ms": <unix ms>,
+     "objects": [{"d": <forward m>, "y": <left m>, "p": <0..1>}, ...]}
+
+  Malformed, stale, future-dated, or absent files result in no objects.  This
+  makes detector installation optional and prevents stale boxes from being
+  left on the HUD when that process stops.
+  """
+  if now_ms is None:
+    now_ms = int(time.time() * 1000)
+  try:
+    stat = os.stat(VISION_OBJECTS_FILE)
+    signature = (getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9)), stat.st_size)
+    if signature != _VISION_OBJECTS_CACHE["signature"]:
+      with open(VISION_OBJECTS_FILE, "r") as state_file:
+        state = json.load(state_file)
+      updated_at_ms = int(state.get("updated_at_ms", 0) or 0)
+      objects = []
+      for item in list(state.get("objects") or [])[:VISION_OBJECTS_MAX_COUNT]:
+        if not isinstance(item, dict):
+          continue
+        _append_vision_object(objects, item.get("d"), item.get("y"),
+                              item.get("p", 0.0), "D")
+      _VISION_OBJECTS_CACHE["signature"] = signature
+      _VISION_OBJECTS_CACHE["objects"] = (updated_at_ms, objects)
+  except (IOError, OSError, TypeError, ValueError, json.JSONDecodeError):
+    _VISION_OBJECTS_CACHE["signature"] = None
+    _VISION_OBJECTS_CACHE["objects"] = []
+    return []
+
+  cached = _VISION_OBJECTS_CACHE.get("objects") or []
+  if not isinstance(cached, tuple) or len(cached) != 2:
+    return []
+  updated_at_ms, objects = cached
+  age_ms = now_ms - updated_at_ms
+  return list(objects) if -100 <= age_ms <= VISION_OBJECTS_MAX_AGE_MS else []
+
+
+def _vision_objects(model):
+  """Merge optional full-frame detections with built-in lead candidates."""
+  objects = []
+  for item in _detector_vision_objects() + _model_vision_objects(model):
+    _append_vision_object(objects, item["d"], item["y"], item["p"], item["src"])
+  return sorted(objects, key=lambda item: item["d"], reverse=True)
 
 
 def _gear_step(car_state):
@@ -1078,6 +1183,8 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "edges": hud_edges,
     "lead": _lead(sm["radarState"], "leadOne"),
     "lead2": _lead(sm["radarState"], "leadTwo"),
+    # UI only: controls continue to consume radarState exactly as before.
+    "visionObjects": _vision_objects(sm["modelV2"]),
   }
 
 

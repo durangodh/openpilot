@@ -122,6 +122,8 @@ final class ModelWorldGL {
     private final float[] leadSpriteAlpha = new float[2];
     private final boolean[] leadSpriteValid = new boolean[2];
     private final boolean[] leadSpriteBraking = new boolean[2];
+    private final boolean[] leadSpriteVision = new boolean[2];
+    private final float[] leadSpriteProbability = new float[2];
 
     private final float[] worldQuad = new float[8];
     private final Bitmap frame = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
@@ -459,6 +461,9 @@ final class ModelWorldGL {
             drawDesiredDistance(scene, path, dark);
         }
         drawBsd(scene);
+        // Full-frame detector objects and unmatched model lead candidates are
+        // display-only.  They are never fed back into RadarD or controls.
+        drawVisionObjects(scene.optJSONArray("visionObjects"), scene, path, dark);
         drawLead(scene.optJSONObject("lead2"), path, 1, dark, true, timestamp, leadSprite);
         drawLead(scene.optJSONObject("lead"), path, 0, dark, false, timestamp, leadSprite);
         // 헤이즈는 맨 마지막. 지평선 근처만 덮으므로 근경에는 영향이 없다.
@@ -618,6 +623,9 @@ final class ModelWorldGL {
                 leadLateral[index] += (rawLateral - leadLateral[index]) * 0.42f;
             }
             leadAcceleration[index] = (float) lead.optDouble("a", 0d);
+            leadSpriteVision[index] = "V".equals(lead.optString("src", "R"));
+            leadSpriteProbability[index] = clamp(
+                    (float) lead.optDouble("p", 0d), 0f, 1f);
             leadLastSeenTimestamp[index] = timestamp;
         } else {
             long age = timestamp - leadLastSeenTimestamp[index];
@@ -649,6 +657,13 @@ final class ModelWorldGL {
         drawScreenRect(sx - width * 0.58f, sy - height * 0.08f,
                 sx + width * 0.58f, sy + height * 0.20f, shadow,
                 (secondary ? 0.45f : 0.68f) * holdAlpha);
+        if (leadSpriteVision[index]) {
+            drawScreenOutline(sx - width * 0.58f, sy - height * 1.08f,
+                    sx + width * 0.58f, sy + height * 0.08f,
+                    Math.max(1.2f, width * 0.055f),
+                    dark ? Color.rgb(65, 222, 242) : Color.rgb(0, 145, 184),
+                    (secondary ? 0.58f : 0.88f) * holdAlpha);
+        }
         if (sprite && index < leadSpriteValid.length) {
             // 그림자만 GL 로 깔고 차체는 Canvas 가 그린다. 폭은 GL 박스와 같은
             // 원근 계산을 쓰므로 거리에 따른 축소가 그대로 유지된다.
@@ -685,6 +700,64 @@ final class ModelWorldGL {
         v = addTriangle(v, left, top, left, bottom, right, top);
         v = addTriangle(v, right, top, left, bottom, right, bottom);
         drawVertices(GLES20.GL_TRIANGLES, v / 2, color, alpha);
+    }
+
+    private void drawScreenOutline(float left, float top, float right, float bottom,
+                                   float stroke, int color, float alpha) {
+        drawScreenRect(left, top, right, top + stroke, color, alpha);
+        drawScreenRect(left, bottom - stroke, right, bottom, color, alpha);
+        drawScreenRect(left, top + stroke, left + stroke, bottom - stroke, color, alpha);
+        drawScreenRect(right - stroke, top + stroke, right, bottom - stroke, color, alpha);
+    }
+
+    /** Draw every fresh vehicle candidate supplied on the display-only wire. */
+    private void drawVisionObjects(JSONArray objects, JSONObject scene,
+                                   Line roadHeight, boolean dark) {
+        if (objects == null) {
+            return;
+        }
+        int count = Math.min(objects.length(), 24);
+        for (int i = 0; i < count; i++) {
+            JSONObject object = objects.optJSONObject(i);
+            if (object == null) {
+                continue;
+            }
+            float probability = clamp((float) object.optDouble("p", 0d), 0f, 1f);
+            float distance = (float) object.optDouble("d", 0d);
+            float lateral = (float) object.optDouble("y", 0d);
+            if (probability < 0.30f || distance < 2f || distance > 180f
+                    || Math.abs(lateral) > 15f
+                    || nearTrackedLead(scene.optJSONObject("lead"), distance, lateral)
+                    || nearTrackedLead(scene.optJSONObject("lead2"), distance, lateral)) {
+                continue;
+            }
+            float z = zAt(roadHeight, distance) * roadZGain + 0.12f;
+            if (!project(distance, lateral, z, projected)) {
+                continue;
+            }
+            float sx = projected[0];
+            float sy = projected[1] - TOP;
+            if (sx < -60f || sx > WIDTH + 60f || sy < -30f || sy > HEIGHT + 40f) {
+                continue;
+            }
+            float scale = FOCAL / (distance + CAM_BACK);
+            float width = clamp(1.88f * scale, 8f, 44f);
+            float height = clamp(0.90f * scale, 6f, 27f);
+            float alpha = clamp(0.28f + probability * 0.58f, 0f, 0.90f);
+            boolean detector = "D".equals(object.optString("src", "M"));
+            int color = detector
+                    ? (dark ? Color.rgb(84, 236, 148) : Color.rgb(0, 150, 76))
+                    : (dark ? Color.rgb(65, 222, 242) : Color.rgb(0, 145, 184));
+            drawScreenOutline(sx - width * 0.52f, sy - height,
+                    sx + width * 0.52f, sy,
+                    Math.max(1.0f, width * 0.05f), color, alpha);
+        }
+    }
+
+    private static boolean nearTrackedLead(JSONObject lead, float distance, float lateral) {
+        return lead != null
+                && Math.abs((float) lead.optDouble("d", -1000d) - distance) <= 3.0f
+                && Math.abs((float) lead.optDouble("y", -1000d) - lateral) <= 1.2f;
     }
 
     private void drawRoad(Line path, Line left, Line right, JSONObject scene, int color) {
@@ -1229,6 +1302,15 @@ final class ModelWorldGL {
 
     boolean leadSpriteBraking(int index) {
         return index >= 0 && index < leadSpriteBraking.length && leadSpriteBraking[index];
+    }
+
+    boolean leadSpriteVision(int index) {
+        return index >= 0 && index < leadSpriteVision.length && leadSpriteVision[index];
+    }
+
+    float leadSpriteProbability(int index) {
+        return index >= 0 && index < leadSpriteProbability.length
+                ? leadSpriteProbability[index] : 0f;
     }
 
     /**
