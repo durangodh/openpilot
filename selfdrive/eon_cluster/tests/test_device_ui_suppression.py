@@ -317,7 +317,8 @@ def test_primary_lead_source_and_distance_share_one_day_night_label():
   assert "if (leadIndex == 0)" in service
   assert "drawLeadSourceLabel(c, p, leadSpriteInfo" in service
   assert 'String distanceLabel = String.format(Locale.US, "%d m"' in service
-  assert 'String sourceLabel = vision' in service
+  assert 'String sourceLabel = vision' not in service
+  assert 'Math.min(18f, width * 0.42f)' in service
   assert ': "RADAR"' in service
   assert "boolean placeRight" in service
   assert "frameDark ? Color.WHITE : Color.rgb(15, 20, 26)" in service
@@ -396,7 +397,8 @@ def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
   assert 'object.put("src", "P")' in phone
   assert "MAX_MISSED_FRAMES = 2" in phone
   assert "trackedOutput(observations)" in phone
-  assert "TRACK_ALPHA = 0.55f" in phone
+  assert "TRACK_ALPHA = 0.42f" in phone
+  assert "distanceStep" in phone and "lateralStep" in phone
   assert '"hudPathFlip"' not in phone
   assert 'object.put("type", normalizeVehicleType(vehicle.getLabel()))' in phone
   for vehicle_type in ("car", "truck", "bus", "motorcycle", "bicycle"):

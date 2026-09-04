@@ -1039,61 +1039,40 @@ public final class HudService extends Service {
         p.setAlpha(255);
     }
 
-    /** Primary lead source and distance, placed together beside the vehicle. */
+    /** Primary lead distance, placed beside the vehicle without source text. */
     private void drawLeadSourceLabel(Canvas c, Paint p, float[] info,
-                                     boolean vision, float probability,
                                      float distance, float alpha) {
         float width = info[2];
         if (width < 8f || alpha <= 0f || !Float.isFinite(distance) || distance < 2f
                 || egoCar == null || egoCar.isRecycled()) {
             return;
         }
-        String sourceLabel = vision
-                ? (probability > 0f
-                    ? String.format(Locale.US, "VISION %.0f%%", probability * 100f)
-                    : "VISION")
-                : "RADAR";
         String distanceLabel = String.format(Locale.US, "%d m", Math.round(distance));
-        float textSize = Math.max(8f, Math.min(12f, width * 0.30f));
+        float textSize = Math.max(12f, Math.min(18f, width * 0.42f));
         float carHeight = egoCar.getHeight() * width / egoCar.getWidth();
         float carTop = info[1] - carHeight;
         p.setShader(null);
         p.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
         p.setTextSize(textSize);
-        float labelWidth = Math.max(p.measureText(sourceLabel), p.measureText(distanceLabel));
+        float labelWidth = p.measureText(distanceLabel);
         float carLeft = info[0] - width * 0.5f;
         float carRight = info[0] + width * 0.5f;
         float sideGap = Math.max(11f, width * 0.18f);
         boolean placeRight = carRight + sideGap + labelWidth <= DRIVE_RIGHT - 7f;
         float textX = placeRight ? carRight + sideGap : carLeft - sideGap;
         p.setTextAlign(placeRight ? Paint.Align.LEFT : Paint.Align.RIGHT);
-        float sourceBaseline = Math.max(textSize + 3f, carTop + textSize);
-        float distanceBaseline = sourceBaseline + textSize + 3f;
+        float distanceBaseline = Math.max(textSize + 3f, carTop + textSize);
         int drawAlpha = Math.max(0, Math.min(255, Math.round(alpha * 245f)));
-        int sourceColor = vision
-                ? (frameDark ? Color.rgb(65, 157, 255) : Color.rgb(0, 82, 255))
-                : Color.rgb(255, 175, 3);
         int textColor = frameDark ? Color.WHITE : Color.rgb(15, 20, 26);
         int outlineColor = frameDark ? Color.rgb(8, 12, 18) : Color.WHITE;
 
-        // A short source-coloured leader line makes RADAR/vision distinction
-        // visible even though both text rows use the day/night ink colour.
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(Math.max(1.4f, textSize * 0.14f));
-        p.setColor(sourceColor);
         p.setAlpha(drawAlpha);
-        float lineY = sourceBaseline - textSize * 0.34f;
-        c.drawLine(placeRight ? carRight : carLeft,
-                carTop + carHeight * 0.42f,
-                placeRight ? textX - 4f : textX + 4f, lineY, p);
-
+        p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(Math.max(1.8f, textSize * 0.16f));
         p.setColor(outlineColor);
-        c.drawText(sourceLabel, textX, sourceBaseline, p);
         c.drawText(distanceLabel, textX, distanceBaseline, p);
         p.setStyle(Paint.Style.FILL);
         p.setColor(textColor);
-        c.drawText(sourceLabel, textX, sourceBaseline, p);
         c.drawText(distanceLabel, textX, distanceBaseline, p);
         p.setStrokeWidth(1f);
         p.setAlpha(255);
@@ -1306,8 +1285,7 @@ public final class HudService extends Service {
                             leadAlpha,
                             modelWorldGl.leadSpriteBraking(leadIndex), visionLead);
                     if (leadIndex == 0) {
-                        drawLeadSourceLabel(c, p, leadSpriteInfo, visionLead,
-                                modelWorldGl.leadSpriteProbability(leadIndex),
+                        drawLeadSourceLabel(c, p, leadSpriteInfo,
                                 modelWorldGl.leadSpriteDistance(leadIndex), leadAlpha);
                     }
                 }

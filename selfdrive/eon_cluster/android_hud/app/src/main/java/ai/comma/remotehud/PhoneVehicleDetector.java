@@ -24,7 +24,7 @@ final class PhoneVehicleDetector implements AutoCloseable {
     // Keep a matched display track for one second so a single weak JPEG or
     // partial occlusion does not make the HUD vehicle blink.
     private static final int MAX_MISSED_FRAMES = 2;
-    private static final float TRACK_ALPHA = 0.55f;
+    private static final float TRACK_ALPHA = 0.42f;
 
     private final ObjectDetector detector;
     private final ArrayList<VehicleTrack> tracks = new ArrayList<>();
@@ -36,6 +36,8 @@ final class PhoneVehicleDetector implements AutoCloseable {
         String type;
         int missed;
         boolean matched;
+        double distanceStep;
+        double lateralStep;
 
         VehicleTrack(double distance, double lateral, float score, String type) {
             this.distance = distance;
@@ -73,7 +75,7 @@ final class PhoneVehicleDetector implements AutoCloseable {
             int sourceWidth = ground.optInt("w", 0);
             int sourceHeight = ground.optInt("h", 0);
             if (sourceWidth <= 0 || sourceHeight <= 0) {
-                return output;
+                return trackedOutput(observations);
             }
             float threshold = Math.max(0.30f, Math.min(0.90f,
                     scene.optInt("hudVisionThreshold", 55) * 0.01f));
@@ -140,8 +142,10 @@ final class PhoneVehicleDetector implements AutoCloseable {
                 if (track.matched) {
                     continue;
                 }
-                double distanceError = Math.abs(track.distance - observation.distance);
-                double lateralError = Math.abs(track.lateral - observation.lateral);
+                double predictedDistance = track.distance + track.distanceStep;
+                double predictedLateral = track.lateral + track.lateralStep;
+                double distanceError = Math.abs(predictedDistance - observation.distance);
+                double lateralError = Math.abs(predictedLateral - observation.lateral);
                 double distanceGate = Math.max(4d, Math.min(12d, observation.distance * 0.18d));
                 if (distanceError <= distanceGate && lateralError <= 2.2d) {
                     double cost = distanceError / distanceGate + lateralError / 2.2d;
@@ -155,8 +159,18 @@ final class PhoneVehicleDetector implements AutoCloseable {
                 observation.matched = true;
                 tracks.add(observation);
             } else {
-                best.distance += (observation.distance - best.distance) * TRACK_ALPHA;
-                best.lateral += (observation.lateral - best.lateral) * TRACK_ALPHA;
+                double oldDistance = best.distance;
+                double oldLateral = best.lateral;
+                double predictedDistance = oldDistance + best.distanceStep;
+                double predictedLateral = oldLateral + best.lateralStep;
+                best.distance = predictedDistance
+                        + (observation.distance - predictedDistance) * TRACK_ALPHA;
+                best.lateral = predictedLateral
+                        + (observation.lateral - predictedLateral) * TRACK_ALPHA;
+                best.distanceStep = clampStep(best.distanceStep * 0.55d
+                        + (observation.distance - oldDistance) * 0.45d, 8d);
+                best.lateralStep = clampStep(best.lateralStep * 0.55d
+                        + (observation.lateral - oldLateral) * 0.45d, 1.5d);
                 best.score = Math.max(observation.score, best.score * 0.92f);
                 best.type = observation.type;
                 best.missed = 0;
@@ -169,6 +183,10 @@ final class PhoneVehicleDetector implements AutoCloseable {
             VehicleTrack track = tracks.get(i);
             if (!track.matched) {
                 track.missed++;
+                track.distance += track.distanceStep;
+                track.lateral += track.lateralStep;
+                track.distanceStep *= 0.70d;
+                track.lateralStep *= 0.70d;
                 // The renderer's validity floor is 0.30. Keep a held track at
                 // that floor and let the bounded miss count expire it instead
                 // of making a low-confidence vehicle blink immediately.
@@ -187,6 +205,10 @@ final class PhoneVehicleDetector implements AutoCloseable {
             output.put(object);
         }
         return output;
+    }
+
+    private static double clampStep(double value, double limit) {
+        return Math.max(-limit, Math.min(limit, value));
     }
 
     private static Category bestVehicleCategory(List<Category> categories) {
