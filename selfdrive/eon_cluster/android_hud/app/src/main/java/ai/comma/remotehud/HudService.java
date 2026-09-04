@@ -28,7 +28,6 @@ import android.hardware.usb.UsbManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
-import android.os.Process;
 import android.os.SystemClock;
 
 import org.json.JSONArray;
@@ -757,7 +756,7 @@ public final class HudService extends Service {
 
     /** Low-rate CPU inference on S9. Results are render-only JSON boxes. */
     private void detectorLoop() {
-        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
         PhoneVehicleDetector detector = null;
         boolean thermalPaused = false;
         long retryAfter = 0L;
