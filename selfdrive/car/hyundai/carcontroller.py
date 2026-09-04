@@ -274,7 +274,11 @@ class CarController:
         set_speed *= CV.MS_TO_MPH if CS.is_set_speed_in_mph else CV.MS_TO_KPH
 
         apply_accel = controls.cruise_helper.get_apply_accel(CS, controls.sm, actuators.accel, stopping)
-        apply_accel = clip(apply_accel if (CC.longActive or soft_hold_scc) else 0,
+        # Keep the SCC brake request alive for the entire latched stopping
+        # state. At a long stop CC.longActive can flicker false for one cycle;
+        # dropping accel to zero there releases hydraulic hold even though
+        # LongControl is still deliberately stopped.
+        apply_accel = clip(apply_accel if (CC.longActive or stopping or soft_hold_scc) else 0,
                            CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX)
 
         # Panda rejects any nonzero SCC12 request while the driver brake is

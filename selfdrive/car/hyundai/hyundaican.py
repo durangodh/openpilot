@@ -155,7 +155,9 @@ def create_scc12(packer, apply_accel, enabled, cnt, scc_live, scc12, gaspressed,
   # Match aPilot C2: openpilot owns ACCMode whenever it owns SCC acceleration.
   # Copying stock ACCMode on radar-equipped cars makes ACC/E2E transitions
   # depend on the stale stock state and can cause a harsh handoff.
-  command_active = enabled and (long_active or soft_hold_active)
+  # Match the apilot-c2 longEnabled behaviour only while stopped: a transient
+  # longActive drop must not clear StopReq or the latched brake command.
+  command_active = enabled and (long_active or standstill or soft_hold_active)
   if not command_active:
     acc_mode = 0
   elif soft_hold_active:
@@ -192,7 +194,8 @@ def create_scc14(packer, enabled, e_vgo, standstill, accel, gaspressed, objgap, 
 
   # aPilot C2 SCC14 state: 1=active control, 4=driver/brake override,
   # 0=inactive. Never advertise an override without longitudinal ownership.
-  command_active = enabled and (long_active or soft_hold_active)
+  # SCC14 ownership must follow SCC12 through the complete stopping latch.
+  command_active = enabled and (long_active or standstill or soft_hold_active)
   if not command_active:
     acc_mode = 0
   elif soft_hold_active:
