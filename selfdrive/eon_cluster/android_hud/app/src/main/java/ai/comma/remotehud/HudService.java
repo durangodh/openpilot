@@ -1015,6 +1015,23 @@ public final class HudService extends Service {
         float height = egoCar.getHeight() * width / egoCar.getWidth();
         float left = info[0] - width * 0.5f;
         float bottom = info[1];
+        int sourceColor = vision
+                ? (frameDark ? Color.rgb(65, 157, 255) : Color.rgb(0, 82, 255))
+                : Color.rgb(255, 175, 3);
+        p.setShader(null);
+        p.setColorFilter(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(sourceColor);
+        p.setAlpha(Math.max(0, Math.min(255, Math.round(alpha * 65f))));
+        scratchRect.set(left - width * 0.10f, bottom - height * 0.08f,
+                left + width * 1.10f, bottom + height * 0.15f);
+        c.drawOval(scratchRect, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(Math.max(1.2f, width * 0.025f));
+        p.setAlpha(Math.max(0, Math.min(255, Math.round(alpha * 240f))));
+        scratchRect.set(left - 1.5f, bottom - height - 1f, left + width + 1.5f, bottom + 1.5f);
+        c.drawRoundRect(scratchRect, 2f, 2f, p);
+        p.setStyle(Paint.Style.FILL);
         scratchRect.set(left, bottom - height, left + width, bottom);
         p.setShader(null);
         // 앞차는 자차와 같은 그림을 쓰므로 채도를 빼고 살짝 어둡게 해서 구분한다.
@@ -1041,14 +1058,14 @@ public final class HudService extends Service {
 
     /** Primary lead distance, placed beside the vehicle without source text. */
     private void drawLeadSourceLabel(Canvas c, Paint p, float[] info,
-                                     float distance, float alpha) {
+                                     float distance, float alpha, boolean vision) {
         float width = info[2];
         if (width < 8f || alpha <= 0f || !Float.isFinite(distance) || distance < 2f
                 || egoCar == null || egoCar.isRecycled()) {
             return;
         }
-        String distanceLabel = String.format(Locale.US, "%d m", Math.round(distance));
-        float textSize = Math.max(12f, Math.min(18f, width * 0.42f));
+        String distanceLabel = Integer.toString(Math.round(distance));
+        float textSize = Math.max(18f, Math.min(24f, width * 0.56f));
         float carHeight = egoCar.getHeight() * width / egoCar.getWidth();
         float carTop = info[1] - carHeight;
         p.setShader(null);
@@ -1057,14 +1074,30 @@ public final class HudService extends Service {
         float labelWidth = p.measureText(distanceLabel);
         float carLeft = info[0] - width * 0.5f;
         float carRight = info[0] + width * 0.5f;
-        float sideGap = Math.max(11f, width * 0.18f);
+        float sideGap = Math.max(26f, width * 0.50f);
         boolean placeRight = carRight + sideGap + labelWidth <= DRIVE_RIGHT - 7f;
         float textX = placeRight ? carRight + sideGap : carLeft - sideGap;
         p.setTextAlign(placeRight ? Paint.Align.LEFT : Paint.Align.RIGHT);
         float distanceBaseline = Math.max(textSize + 3f, carTop + textSize);
+        int sourceColor = vision
+                ? (frameDark ? Color.rgb(65, 157, 255) : Color.rgb(0, 82, 255))
+                : Color.rgb(255, 175, 3);
         int drawAlpha = Math.max(0, Math.min(255, Math.round(alpha * 245f)));
         int textColor = frameDark ? Color.WHITE : Color.rgb(15, 20, 26);
         int outlineColor = frameDark ? Color.rgb(8, 12, 18) : Color.WHITE;
+
+        // The connector follows the same EON source flag as the vehicle outline.
+        p.setStyle(Paint.Style.STROKE);
+        p.setColor(sourceColor);
+        p.setAlpha(drawAlpha);
+        p.setStrokeWidth(1.4f);
+        float direction = placeRight ? 1f : -1f;
+        float lineStartX = placeRight ? carRight : carLeft;
+        float lineEndX = textX - direction * 4f;
+        float lineY = distanceBaseline - textSize * 0.35f;
+        float elbowX = lineEndX - direction * 9f;
+        c.drawLine(lineStartX, info[1] - carHeight * 0.25f, elbowX, lineY, p);
+        c.drawLine(elbowX, lineY, lineEndX, lineY, p);
 
         p.setAlpha(drawAlpha);
         p.setStyle(Paint.Style.STROKE);
@@ -1286,7 +1319,7 @@ public final class HudService extends Service {
                             modelWorldGl.leadSpriteBraking(leadIndex), visionLead);
                     if (leadIndex == 0) {
                         drawLeadSourceLabel(c, p, leadSpriteInfo,
-                                modelWorldGl.leadSpriteDistance(leadIndex), leadAlpha);
+                                modelWorldGl.leadSpriteDistance(leadIndex), leadAlpha, visionLead);
                     }
                 }
             }

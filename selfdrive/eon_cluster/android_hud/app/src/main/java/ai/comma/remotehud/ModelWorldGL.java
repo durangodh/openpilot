@@ -677,10 +677,13 @@ final class ModelWorldGL {
         int sourceColor = leadSpriteVision[index]
                 ? (dark ? Color.rgb(65, 157, 255) : Color.rgb(0, 82, 255))
                 : Color.rgb(255, 175, 3);
-        drawScreenOutline(sx - width * 0.58f, sy - height * 1.08f,
+        if (!sprite) {
+            // Canvas outlines sprite-backed leads using the real bitmap height.
+            drawScreenOutline(sx - width * 0.58f, sy - height * 1.08f,
                 sx + width * 0.58f, sy + height * 0.08f,
                 Math.max(1.2f, width * 0.055f), sourceColor,
                 (secondary ? 0.58f : 0.88f) * holdAlpha);
+        }
         if (sprite && index < leadSpriteValid.length) {
             // 그림자만 GL 로 깔고 차체는 Canvas 가 그린다. 폭은 GL 박스와 같은
             // 원근 계산을 쓰므로 거리에 따른 축소가 그대로 유지된다.
