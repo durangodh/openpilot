@@ -52,6 +52,17 @@ def test_detector_wins_duplicate_merge(monkeypatch):
   ]
 
 
+def test_model_candidates_survive_missing_detector_output(tmp_path, monkeypatch):
+  missing = tmp_path / "missing_vehicle_detector_output.json"
+  monkeypatch.setattr(remote_hud, "VISION_OBJECTS_FILE", str(missing))
+  remote_hud._VISION_OBJECTS_CACHE.update(signature=None, objects=[])
+  model = SimpleNamespace(leadsV3=[_lead(0.81, 26.52, -1.1)])
+
+  assert remote_hud._vision_objects(model) == [
+    {"d": 25.0, "y": 1.1, "p": 0.81, "src": "M"},
+  ]
+
+
 def test_radar_lead_wire_keeps_sensor_provenance():
   radar = SimpleNamespace(leadOne=SimpleNamespace(
     status=True, dRel=21.0, yRel=-0.3, vRel=-1.0, aLeadK=-0.2,

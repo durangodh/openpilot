@@ -124,6 +124,17 @@ final class ModelWorldGL {
     private final boolean[] leadSpriteBraking = new boolean[2];
     private final boolean[] leadSpriteVision = new boolean[2];
     private final float[] leadSpriteProbability = new float[2];
+    // leadsV3 exposes three built-in camera hypotheses.  Keep a separate set
+    // of Canvas sprite positions for candidates that are not already covered
+    // by leadOne/leadTwo.  This path is independent of the optional DLC
+    // detector and lets the stock supercombo vision output remain visible.
+    private static final int MAX_VISION_SPRITES = 3;
+    private final float[] visionSpriteX = new float[MAX_VISION_SPRITES];
+    private final float[] visionSpriteY = new float[MAX_VISION_SPRITES];
+    private final float[] visionSpriteW = new float[MAX_VISION_SPRITES];
+    private final float[] visionSpriteAlpha = new float[MAX_VISION_SPRITES];
+    private final float[] visionSpriteProbability = new float[MAX_VISION_SPRITES];
+    private int visionSpriteCount;
 
     private final float[] worldQuad = new float[8];
     private final Bitmap frame = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
@@ -713,6 +724,7 @@ final class ModelWorldGL {
     /** Draw every fresh vehicle candidate supplied on the display-only wire. */
     private void drawVisionObjects(JSONArray objects, JSONObject scene,
                                    Line roadHeight, boolean dark) {
+        visionSpriteCount = 0;
         if (objects == null) {
             return;
         }
@@ -751,6 +763,17 @@ final class ModelWorldGL {
             drawScreenOutline(sx - width * 0.52f, sy - height,
                     sx + width * 0.52f, sy,
                     Math.max(1.0f, width * 0.05f), color, alpha);
+            // Model candidates get the same vehicle artwork as tracked leads,
+            // with the cyan vision tint. Detector candidates retain their
+            // green outline so the optional source stays visually distinct.
+            if (!detector && visionSpriteCount < MAX_VISION_SPRITES) {
+                int spriteIndex = visionSpriteCount++;
+                visionSpriteX[spriteIndex] = sx;
+                visionSpriteY[spriteIndex] = sy + TOP;
+                visionSpriteW[spriteIndex] = width * 1.05f;
+                visionSpriteAlpha[spriteIndex] = alpha;
+                visionSpriteProbability[spriteIndex] = probability;
+            }
         }
     }
 
@@ -1311,6 +1334,28 @@ final class ModelWorldGL {
     float leadSpriteProbability(int index) {
         return index >= 0 && index < leadSpriteProbability.length
                 ? leadSpriteProbability[index] : 0f;
+    }
+
+    int visionSpriteCount() {
+        return visionSpriteCount;
+    }
+
+    boolean visionSprite(int index, float[] out) {
+        if (index < 0 || index >= visionSpriteCount || out == null || out.length < 3) {
+            return false;
+        }
+        out[0] = visionSpriteX[index];
+        out[1] = visionSpriteY[index];
+        out[2] = visionSpriteW[index];
+        return true;
+    }
+
+    float visionSpriteAlpha(int index) {
+        return index >= 0 && index < visionSpriteCount ? visionSpriteAlpha[index] : 0f;
+    }
+
+    float visionSpriteProbability(int index) {
+        return index >= 0 && index < visionSpriteCount ? visionSpriteProbability[index] : 0f;
     }
 
     /**
