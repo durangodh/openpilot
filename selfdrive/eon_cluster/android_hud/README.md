@@ -2,8 +2,8 @@
 
 ## Vision vehicle overlays
 
-The HUD distinguishes an unmatched camera lead (`VISION`, cyan) from an
-SCC/radar-backed lead (`SCC/RADAR`). It also draws every distinct current
+The HUD distinguishes an unmatched camera lead (`VISION`, blue) from a
+radar-backed lead (`RADAR`, orange). It also draws every distinct current
 candidate exposed by `modelV2.leadsV3`. These candidates are display-only and
 never enter RadarD, longitudinal control, or FCW decisions.
 
@@ -14,8 +14,8 @@ detects COCO car/truck/bus/motorcycle/bicycle classes. No DLC, SNPE SDK, or
 user-supplied model file is required.
 
 `leadOne` and `leadTwo` keep the normal vehicle sprite. Each distinct unmatched
-`leadsV3` candidate remains a cyan box, while phone TFLite detections are green
-boxes only. Candidates near a tracked lead are suppressed to avoid drawing the
+`leadsV3` candidate and phone TFLite detection remains a blue box only.
+Candidates near a tracked lead are suppressed to avoid drawing the
 same vehicle twice. All detector data stays inside the S9 renderer and is never
 sent back to EON controls.
 

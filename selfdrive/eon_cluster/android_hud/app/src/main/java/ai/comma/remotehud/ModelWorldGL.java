@@ -662,13 +662,15 @@ final class ModelWorldGL {
         drawScreenRect(sx - width * 0.58f, sy - height * 0.08f,
                 sx + width * 0.58f, sy + height * 0.20f, shadow,
                 (secondary ? 0.45f : 0.68f) * holdAlpha);
-        if (leadSpriteVision[index]) {
-            drawScreenOutline(sx - width * 0.58f, sy - height * 1.08f,
-                    sx + width * 0.58f, sy + height * 0.08f,
-                    Math.max(1.2f, width * 0.055f),
-                    dark ? Color.rgb(65, 222, 242) : Color.rgb(0, 145, 184),
-                    (secondary ? 0.58f : 0.88f) * holdAlpha);
-        }
+        // Match the EON source convention: radar is orange, camera vision is
+        // blue.  Use a brighter blue at night so it remains visible.
+        int sourceColor = leadSpriteVision[index]
+                ? (dark ? Color.rgb(65, 157, 255) : Color.rgb(0, 82, 255))
+                : Color.rgb(255, 175, 3);
+        drawScreenOutline(sx - width * 0.58f, sy - height * 1.08f,
+                sx + width * 0.58f, sy + height * 0.08f,
+                Math.max(1.2f, width * 0.055f), sourceColor,
+                (secondary ? 0.58f : 0.88f) * holdAlpha);
         if (sprite && index < leadSpriteValid.length) {
             // 그림자만 GL 로 깔고 차체는 Canvas 가 그린다. 폭은 GL 박스와 같은
             // 원근 계산을 쓰므로 거리에 따른 축소가 그대로 유지된다.
@@ -750,11 +752,10 @@ final class ModelWorldGL {
             float width = clamp(1.88f * scale, 8f, 44f);
             float height = clamp(0.90f * scale, 6f, 27f);
             float alpha = clamp(0.28f + probability * 0.58f, 0f, 0.90f);
-            String source = object.optString("src", "M");
-            boolean detector = "D".equals(source) || "P".equals(source);
-            int color = detector
-                    ? (dark ? Color.rgb(84, 236, 148) : Color.rgb(0, 150, 76))
-                    : (dark ? Color.rgb(65, 222, 242) : Color.rgb(0, 145, 184));
+            // leadsV3 and phone TFLite are both camera-only observations.
+            // Keep every untracked vision box blue; orange is reserved for a
+            // radar-backed tracked lead.
+            int color = dark ? Color.rgb(65, 157, 255) : Color.rgb(0, 82, 255);
             drawScreenOutline(sx - width * 0.52f, sy - height,
                     sx + width * 0.52f, sy,
                     Math.max(1.0f, width * 0.05f), color, alpha);

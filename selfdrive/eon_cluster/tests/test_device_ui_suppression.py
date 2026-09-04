@@ -306,7 +306,7 @@ def test_ego_brake_and_turn_lamps_use_original_size_without_green_arrows():
   assert "EGO_SPRITE_W = 94f" in renderer
 
 
-def test_primary_lead_distance_follows_the_lead_sprite():
+def test_primary_lead_source_and_distance_share_one_day_night_label():
   service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
              "main" / "java" / "ai" / "comma" / "remotehud" /
              "HudService.java").read_text(encoding="utf-8")
@@ -315,20 +315,20 @@ def test_primary_lead_distance_follows_the_lead_sprite():
               "ModelWorldGL.java").read_text(encoding="utf-8")
 
   assert "if (leadIndex == 0)" in service
-  assert "drawLeadDistanceLabel(c, p, leadSpriteInfo" in service
-  assert "carWidth * 0.80f" in service
-  assert "Math.max(18f, Math.min(38f" in service
-  assert 'String unit = "m"' in service
-  assert "unitSize = Math.max(13f, Math.min(18f" in service
-  assert "info[0] + carWidth * 0.5f" in service
-  assert "Math.max(18f, carWidth * 0.24f)" in service
-  assert "info[1] - Math.max" in service
+  assert "drawLeadSourceLabel(c, p, leadSpriteInfo" in service
+  assert 'String distanceLabel = String.format(Locale.US, "%d m"' in service
+  assert 'String sourceLabel = vision' in service
+  assert ': "RADAR"' in service
+  assert "boolean placeRight" in service
+  assert "frameDark ? Color.WHITE : Color.rgb(15, 20, 26)" in service
+  assert "Color.rgb(255, 175, 3)" in service
+  assert "drawLeadDistanceLabel" not in service
   assert "drawLeadCard(" not in service
   assert "Paint.Style.STROKE" in service
-  assert "Color.rgb(18, 44, 72)" in service
-  assert "Color.rgb(255, 255, 255)" in service
   assert "leadSpriteDistance(int index)" in renderer
   assert "leadSpriteValid[index]" in renderer
+  assert "Color.rgb(255, 175, 3)" in renderer
+  assert "Color.rgb(0, 82, 255)" in renderer
 
 
 def test_remote_hud_displays_vision_candidates_without_control_feedback():
@@ -351,12 +351,10 @@ def test_remote_hud_displays_vision_candidates_without_control_feedback():
   assert "visionSprite" not in renderer
   assert "modelWorldGl.visionSprite" not in service
   assert "leadSpriteVision(int index)" in renderer
-  assert '"D".equals(source) || "P".equals(source)' in renderer
   assert "nearVisionObject(suppress, distance, lateral)" in renderer
   assert '"VISION %.0f%%"' in service
-  assert "float labelBaseline = Math.max(textSize + 4f" in service
-  assert "carTop - Math.max(5f, textSize * 0.35f)" in service
-  assert '"SCC/RADAR"' in service
+  assert '"RADAR"' in service
+  assert '"SCC/RADAR"' not in service
   assert "visionLeadTint" in service
   # The new wire is consumed only by the HUD renderer, never RadarD/planner.
   assert "visionObjects" not in (ROOT / "selfdrive" / "controls" / "radard.py").read_text(encoding="utf-8")

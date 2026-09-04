@@ -1039,87 +1039,62 @@ public final class HudService extends Service {
         p.setAlpha(255);
     }
 
-    /** Small source badge: camera-only leads are visually distinct from SCC/radar. */
+    /** Primary lead source and distance, placed together beside the vehicle. */
     private void drawLeadSourceLabel(Canvas c, Paint p, float[] info,
-                                     boolean vision, float probability, float alpha) {
+                                     boolean vision, float probability,
+                                     float distance, float alpha) {
         float width = info[2];
-        if (width < 8f || alpha <= 0f || egoCar == null || egoCar.isRecycled()) {
+        if (width < 8f || alpha <= 0f || !Float.isFinite(distance) || distance < 2f
+                || egoCar == null || egoCar.isRecycled()) {
             return;
         }
-        String label = vision
-                ? String.format(Locale.US, "VISION %.0f%%", probability * 100f)
-                : "SCC/RADAR";
+        String sourceLabel = vision
+                ? (probability > 0f
+                    ? String.format(Locale.US, "VISION %.0f%%", probability * 100f)
+                    : "VISION")
+                : "RADAR";
+        String distanceLabel = String.format(Locale.US, "%d m", Math.round(distance));
         float textSize = Math.max(8f, Math.min(12f, width * 0.30f));
         float carHeight = egoCar.getHeight() * width / egoCar.getWidth();
         float carTop = info[1] - carHeight;
-        // Use the actual bitmap aspect ratio, not only its width. At short
-        // distances the lead bitmap is much taller than the old width-based
-        // offset, which placed VISION text on the roof/rear window.
-        float labelBaseline = Math.max(textSize + 4f,
-                carTop - Math.max(5f, textSize * 0.35f));
         p.setShader(null);
         p.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
-        p.setTextAlign(Paint.Align.CENTER);
         p.setTextSize(textSize);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(vision
-                ? (frameDark ? Color.rgb(92, 231, 245) : Color.rgb(0, 120, 158))
-                : (frameDark ? Color.rgb(226, 232, 238) : Color.rgb(42, 53, 65)));
-        p.setAlpha(Math.max(0, Math.min(255, Math.round(alpha * 230f))));
-        c.drawText(label, info[0], labelBaseline, p);
-        p.setAlpha(255);
-    }
+        float labelWidth = Math.max(p.measureText(sourceLabel), p.measureText(distanceLabel));
+        float carLeft = info[0] - width * 0.5f;
+        float carRight = info[0] + width * 0.5f;
+        float sideGap = Math.max(11f, width * 0.18f);
+        boolean placeRight = carRight + sideGap + labelWidth <= DRIVE_RIGHT - 7f;
+        float textX = placeRight ? carRight + sideGap : carLeft - sideGap;
+        p.setTextAlign(placeRight ? Paint.Align.LEFT : Paint.Align.RIGHT);
+        float sourceBaseline = Math.max(textSize + 3f, carTop + textSize);
+        float distanceBaseline = sourceBaseline + textSize + 3f;
+        int drawAlpha = Math.max(0, Math.min(255, Math.round(alpha * 245f)));
+        int sourceColor = vision
+                ? (frameDark ? Color.rgb(65, 157, 255) : Color.rgb(0, 82, 255))
+                : Color.rgb(255, 175, 3);
+        int textColor = frameDark ? Color.WHITE : Color.rgb(15, 20, 26);
+        int outlineColor = frameDark ? Color.rgb(8, 12, 18) : Color.WHITE;
 
-    /** 앞차의 우측 뒷바퀴 옆에 투영 위치를 따라가는 레이더 거리(m)를 표시한다. */
-    private void drawLeadDistanceLabel(Canvas c, Paint p, float[] info,
-                                       float distance, float alpha) {
-        if (!Float.isFinite(distance) || distance < 2f || alpha <= 0f) {
-            return;
-        }
-        float carWidth = info[2];
-        float carHeight = egoCar.getHeight() * carWidth / egoCar.getWidth();
-        float unitSize = Math.max(13f, Math.min(18f, carWidth * 0.38f));
-        float numberSize = Math.max(18f, Math.min(38f, carWidth * 0.80f));
-        String number = Integer.toString(Math.round(distance));
-        String unit = "m";
-
-        p.setShader(null);
-        p.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
-        p.setTextAlign(Paint.Align.LEFT);
-        p.setTextSize(numberSize);
-        float numberWidth = p.measureText(number);
-        p.setTextSize(unitSize);
-        float unitWidth = p.measureText(unit);
-        float unitGap = 2f;
-        float totalWidth = numberWidth + unitGap + unitWidth;
-        float x = info[0] + carWidth * 0.5f + Math.max(18f, carWidth * 0.24f);
-        x = Math.max(6f, Math.min(x, DRIVE_RIGHT - totalWidth - 6f));
-        float baseline = info[1] - Math.max(2f, carHeight * 0.06f);
-
-        // 숫자는 앞차 폭의 80%까지 키우고, 단위 m은 기존 크기로 유지한다.
-        int drawAlpha = Math.max(0, Math.min(255, Math.round(alpha * 255f)));
-        int outlineColor = frameDark ? Color.rgb(8, 13, 17) : Color.rgb(245, 248, 250);
-        int fillColor = frameDark ? Color.rgb(255, 255, 255) : Color.rgb(18, 44, 72);
-
-        p.setTextSize(numberSize);
+        // A short source-coloured leader line makes RADAR/vision distinction
+        // visible even though both text rows use the day/night ink colour.
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(Math.max(2.8f, numberSize * 0.14f));
-        p.setColor(outlineColor);
+        p.setStrokeWidth(Math.max(1.4f, textSize * 0.14f));
+        p.setColor(sourceColor);
         p.setAlpha(drawAlpha);
-        c.drawText(number, x, baseline, p);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(fillColor);
-        c.drawText(number, x, baseline, p);
+        float lineY = sourceBaseline - textSize * 0.34f;
+        c.drawLine(placeRight ? carRight : carLeft,
+                carTop + carHeight * 0.42f,
+                placeRight ? textX - 4f : textX + 4f, lineY, p);
 
-        float unitX = x + numberWidth + unitGap;
-        p.setTextSize(unitSize);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(Math.max(2.5f, unitSize * 0.18f));
+        p.setStrokeWidth(Math.max(1.8f, textSize * 0.16f));
         p.setColor(outlineColor);
-        c.drawText(unit, unitX, baseline, p);
+        c.drawText(sourceLabel, textX, sourceBaseline, p);
+        c.drawText(distanceLabel, textX, distanceBaseline, p);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(fillColor);
-        c.drawText(unit, unitX, baseline, p);
+        p.setColor(textColor);
+        c.drawText(sourceLabel, textX, sourceBaseline, p);
+        c.drawText(distanceLabel, textX, distanceBaseline, p);
         p.setStrokeWidth(1f);
         p.setAlpha(255);
     }
@@ -1330,10 +1305,9 @@ public final class HudService extends Service {
                     drawLeadSprite(c, p, leadSpriteInfo,
                             leadAlpha,
                             modelWorldGl.leadSpriteBraking(leadIndex), visionLead);
-                    drawLeadSourceLabel(c, p, leadSpriteInfo, visionLead,
-                            modelWorldGl.leadSpriteProbability(leadIndex), leadAlpha);
                     if (leadIndex == 0) {
-                        drawLeadDistanceLabel(c, p, leadSpriteInfo,
+                        drawLeadSourceLabel(c, p, leadSpriteInfo, visionLead,
+                                modelWorldGl.leadSpriteProbability(leadIndex),
                                 modelWorldGl.leadSpriteDistance(leadIndex), leadAlpha);
                     }
                 }
