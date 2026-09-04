@@ -3513,22 +3513,6 @@ public final class HudService extends Service {
         scratchRect.set(8f, 376f, 156f, 454f);
         drawCard(c, p, scratchRect);
 
-        p.setShader(null);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(1f);
-        p.setColor(hairline());
-        c.drawLine(16f, 415f, 148f, 415f, p);
-
-        int c2Accent = frameDark ? Color.rgb(97, 213, 255) : Color.rgb(0, 112, 154);
-        int s9Accent = frameDark ? Color.rgb(157, 168, 255) : Color.rgb(82, 93, 170);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(c2Accent);
-        scratchRect.set(14f, 387f, 17f, 404f);
-        c.drawRoundRect(scratchRect, 1.5f, 1.5f, p);
-        p.setColor(s9Accent);
-        scratchRect.set(14f, 426f, 17f, 443f);
-        c.drawRoundRect(scratchRect, 1.5f, 1.5f, p);
-
         JSONObject system = stale ? null : s.optJSONObject("system");
         if (system == null && !stale) {
             system = s;
@@ -3545,25 +3529,27 @@ public final class HudService extends Service {
         double c2CpuValue = system == null ? Double.NaN
                 : system.optDouble("cpu", Double.NaN);
         int warningColor = Color.rgb(255, 58, 68);
-        int c2TempColor = Double.isFinite(c2TempValue) && c2TempValue >= 75d
+        int c2TempColor = Double.isFinite(c2TempValue) && c2TempValue >= 70d
                 ? warningColor : ink();
-        int c2CpuColor = Double.isFinite(c2CpuValue) && c2CpuValue > 90d
+        int c2CpuColor = Double.isFinite(c2CpuValue) && c2CpuValue >= 90d
                 ? warningColor : ink();
-        int phoneTempColor = s9TempC >= 75f ? warningColor : ink();
-        int phoneCpuColor = s9CpuPercent > 90f ? warningColor : ink();
+        int phoneTempColor = s9TempC >= 70f ? warningColor : ink();
+        int phoneCpuColor = s9CpuPercent >= 90f ? warningColor : ink();
 
-        // 글자 라벨 대신 온도계/CPU 칩 그림을 사용해 작은 카드의 혼잡도를 낮춘다.
-        int iconColor = dim();
-        textNormal(c, p, "C2", 33f, 403f, 11f, ink(), Paint.Align.CENTER);
-        drawThermometerGlyph(c, p, 63f, 397f, iconColor);
-        textNormal(c, p, c2Temp, 70f, 403f, 14.5f, c2TempColor, Paint.Align.LEFT);
-        drawCpuGlyph(c, p, 112f, 397f, iconColor);
-        textNormal(c, p, c2Cpu, 119f, 403f, 14.5f, c2CpuColor, Paint.Align.LEFT);
-        textNormal(c, p, "S9", 33f, 442f, 11f, ink(), Paint.Align.CENTER);
-        drawThermometerGlyph(c, p, 63f, 436f, iconColor);
-        textNormal(c, p, phoneTemp, 70f, 442f, 14.5f, phoneTempColor, Paint.Align.LEFT);
-        drawCpuGlyph(c, p, 112f, 436f, iconColor);
-        textNormal(c, p, phoneCpu, 119f, 442f, 14.5f, phoneCpuColor, Paint.Align.LEFT);
+        // Match the sketch: temperature | device | CPU, aligned with TPMS rows.
+        textNormal(c, p, "온도", 40f, 394f, 12f, dim(), Paint.Align.CENTER);
+        textNormal(c, p, "CPU", 126f, 394f, 12f, dim(), Paint.Align.CENTER);
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(95, 102, 107)); // Same neutral fill as the TPMS body.
+        scratchRect.set(68f, 401f, 96f, 449f);
+        c.drawRoundRect(scratchRect, 4f, 4f, p);
+        textNormal(c, p, "C2", 82f, 417f, 14f, Color.rgb(238, 242, 246), Paint.Align.CENTER);
+        textNormal(c, p, "S9", 82f, 443f, 14f, Color.rgb(238, 242, 246), Paint.Align.CENTER);
+        textNormal(c, p, c2Temp, 40f, 417f, 16f, c2TempColor, Paint.Align.CENTER);
+        textNormal(c, p, phoneTemp, 40f, 443f, 16f, phoneTempColor, Paint.Align.CENTER);
+        textNormal(c, p, c2Cpu, 126f, 417f, 16f, c2CpuColor, Paint.Align.CENTER);
+        textNormal(c, p, phoneCpu, 126f, 443f, 16f, phoneCpuColor, Paint.Align.CENTER);
     }
 
     private void drawThermometerGlyph(Canvas c, Paint p, float cx, float cy, int color) {
