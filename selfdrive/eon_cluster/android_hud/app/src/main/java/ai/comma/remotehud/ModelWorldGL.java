@@ -67,7 +67,7 @@ final class ModelWorldGL {
     private static final int BSD_ARC_SEGMENTS = 24;
     private static final int BSD_ARC_CHUNKS = 3;         // 끝단 알파를 낮출 분할 수
     private static final float BSD_ARC_CHUNK_FADE = 0.5f;
-    private static final float BSD_CORE_ALPHA = 165f / 255f;
+    private static final float BSD_CORE_ALPHA = 190f / 255f;
     // 굵기 가산 / 알파 배수 — 겹칠수록 번져 보인다.
     private static final float[][] BSD_ARC_LAYERS = {
             {10f, 0.06f}, {6f, 0.10f}, {3f, 0.16f}, {0f, 0.55f}};
@@ -75,7 +75,7 @@ final class ModelWorldGL {
     private static final float BSD_TRI_DY = 14f;     // 접지선 위 삼각형 중심
     private static final float BSD_TRI_SIZE = 34f;
     private static final float BSD_TRI_STROKE = 4f;
-    private static final float BSD_TRI_ALPHA = 200f / 255f;
+    private static final float BSD_TRI_ALPHA = 225f / 255f;
     private static final int BSD_COLOR = Color.rgb(228, 62, 62);
 
     /** 가드레일. 도로경계 바깥쪽에 세운다 — 위치는 모델 edges 그대로다. */

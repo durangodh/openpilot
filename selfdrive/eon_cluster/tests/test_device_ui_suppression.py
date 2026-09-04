@@ -242,6 +242,8 @@ def test_s9_v6_visual_layers_and_local_map_context():
   # MAX_POINTS 로 한계 지어져 있다는 사실만 확인한다.
   assert renderer.count("new float[MAX_POINTS]") >= 5
   assert "drawBsd" in renderer and "bsdWarning" in renderer and "bsdArcChunk" in renderer
+  assert "BSD_CORE_ALPHA = 190f / 255f" in renderer
+  assert "BSD_TRI_ALPHA = 225f / 255f" in renderer
   assert "drawMapContext" in renderer
   assert "HudMapStore" in renderer
   assert "visibleMapBuildings" in renderer
@@ -316,7 +318,7 @@ def test_primary_lead_distance_follows_the_lead_sprite():
   assert 'String unit = "m"' in service
   assert "unitSize = Math.max(13f, Math.min(18f" in service
   assert "info[0] + carWidth * 0.5f" in service
-  assert "Math.max(8f, carWidth * 0.14f)" in service
+  assert "Math.max(18f, carWidth * 0.24f)" in service
   assert "info[1] - Math.max" in service
   assert "drawLeadCard(" not in service
   assert "Paint.Style.STROKE" in service
@@ -333,13 +335,21 @@ def test_c2_s9_status_card_restores_the_bottom_left_slot():
 
   assert "drawC2S9StatusCard(c, p, s, stale)" in service
   assert "scratchRect.set(8f, 376f, 156f, 454f)" in service
-  assert 'textNormal(c, p, "C2", 33f, 403f, 9f' in service
-  assert 'textNormal(c, p, "S9", 33f, 442f, 9f' in service
+  assert 'textNormal(c, p, "C2", 33f, 403f, 11f' in service
+  assert 'textNormal(c, p, "S9", 33f, 442f, 11f' in service
   assert 'systemValue(system, "temp", "°C")' in service
   assert 'systemValue(system, "cpu", "%")' in service
   assert 'String.format(Locale.US, "%.0f°C", s9TempC)' in service
   assert 'String.format(Locale.US, "%.0f%%", s9CpuPercent)' in service
-  assert service.count("14.5f, ink(), Paint.Align.LEFT") >= 4
+  assert '14.5f, c2TempColor, Paint.Align.LEFT' in service
+  assert '14.5f, c2CpuColor, Paint.Align.LEFT' in service
+  assert '14.5f, phoneTempColor, Paint.Align.LEFT' in service
+  assert '14.5f, phoneCpuColor, Paint.Align.LEFT' in service
+  assert "c2TempValue >= 75d" in service
+  assert "c2CpuValue > 90d" in service
+  assert "s9TempC >= 75f" in service
+  assert "s9CpuPercent > 90f" in service
+  assert "Color.rgb(255, 58, 68)" in service
   assert 'Typeface.create("sans", Typeface.NORMAL)' in service
   assert "drawThermometerGlyph(c, p" in service
   assert "drawCpuGlyph(c, p" in service

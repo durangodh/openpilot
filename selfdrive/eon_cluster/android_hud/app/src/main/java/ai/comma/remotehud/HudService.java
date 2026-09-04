@@ -946,7 +946,7 @@ public final class HudService extends Service {
         float unitWidth = p.measureText(unit);
         float unitGap = 2f;
         float totalWidth = numberWidth + unitGap + unitWidth;
-        float x = info[0] + carWidth * 0.5f + Math.max(8f, carWidth * 0.14f);
+        float x = info[0] + carWidth * 0.5f + Math.max(18f, carWidth * 0.24f);
         x = Math.max(6f, Math.min(x, DRIVE_RIGHT - totalWidth - 6f));
         float baseline = info[1] - Math.max(2f, carHeight * 0.06f);
 
@@ -3439,18 +3439,30 @@ public final class HudService extends Service {
         String phoneCpu = s9CpuPercent < 0f ? "--"
                 : String.format(Locale.US, "%.0f%%", s9CpuPercent);
 
+        double c2TempValue = system == null ? Double.NaN
+                : system.optDouble("temp", Double.NaN);
+        double c2CpuValue = system == null ? Double.NaN
+                : system.optDouble("cpu", Double.NaN);
+        int warningColor = Color.rgb(255, 58, 68);
+        int c2TempColor = Double.isFinite(c2TempValue) && c2TempValue >= 75d
+                ? warningColor : ink();
+        int c2CpuColor = Double.isFinite(c2CpuValue) && c2CpuValue > 90d
+                ? warningColor : ink();
+        int phoneTempColor = s9TempC >= 75f ? warningColor : ink();
+        int phoneCpuColor = s9CpuPercent > 90f ? warningColor : ink();
+
         // 글자 라벨 대신 온도계/CPU 칩 그림을 사용해 작은 카드의 혼잡도를 낮춘다.
         int iconColor = dim();
-        textNormal(c, p, "C2", 33f, 403f, 9f, ink(), Paint.Align.CENTER);
+        textNormal(c, p, "C2", 33f, 403f, 11f, ink(), Paint.Align.CENTER);
         drawThermometerGlyph(c, p, 63f, 397f, iconColor);
-        textNormal(c, p, c2Temp, 70f, 403f, 14.5f, ink(), Paint.Align.LEFT);
+        textNormal(c, p, c2Temp, 70f, 403f, 14.5f, c2TempColor, Paint.Align.LEFT);
         drawCpuGlyph(c, p, 112f, 397f, iconColor);
-        textNormal(c, p, c2Cpu, 119f, 403f, 14.5f, ink(), Paint.Align.LEFT);
-        textNormal(c, p, "S9", 33f, 442f, 9f, ink(), Paint.Align.CENTER);
+        textNormal(c, p, c2Cpu, 119f, 403f, 14.5f, c2CpuColor, Paint.Align.LEFT);
+        textNormal(c, p, "S9", 33f, 442f, 11f, ink(), Paint.Align.CENTER);
         drawThermometerGlyph(c, p, 63f, 436f, iconColor);
-        textNormal(c, p, phoneTemp, 70f, 442f, 14.5f, ink(), Paint.Align.LEFT);
+        textNormal(c, p, phoneTemp, 70f, 442f, 14.5f, phoneTempColor, Paint.Align.LEFT);
         drawCpuGlyph(c, p, 112f, 436f, iconColor);
-        textNormal(c, p, phoneCpu, 119f, 442f, 14.5f, ink(), Paint.Align.LEFT);
+        textNormal(c, p, phoneCpu, 119f, 442f, 14.5f, phoneCpuColor, Paint.Align.LEFT);
     }
 
     private void drawThermometerGlyph(Canvas c, Paint p, float cx, float cy, int color) {
