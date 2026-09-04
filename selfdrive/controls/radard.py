@@ -11,7 +11,6 @@ from common.params import Params
 from common.realtime import Ratekeeper, Priority, config_realtime_process
 from selfdrive.controls.lib.cluster.fastcluster_py import cluster_points_centroid
 from selfdrive.controls.lib.radar_helpers import Cluster, Track, RADAR_TO_CAMERA
-from selfdrive.controls.lib.scc_lead_policy import clusters_for_lead_two, should_preserve_scc_on_mismatch
 from selfdrive.swaglog import cloudlog
 from selfdrive.hardware import TICI
 
@@ -67,8 +66,7 @@ def match_vision_to_cluster(v_ego, lead, clusters):
     return None
 
 
-def get_lead(v_ego, ready, clusters, lead_msg, model_v_ego, low_speed_override=True,
-             mix_radar_info=False, preserve_scc_on_mismatch=False):
+def get_lead(v_ego, ready, clusters, lead_msg, model_v_ego, low_speed_override=True, mix_radar_info=False):
   # Determine leads, this is where the essential logic happens
   if len(clusters) > 0 and ready and lead_msg.prob > .5:
     cluster = match_vision_to_cluster(v_ego, lead_msg, clusters)
@@ -79,15 +77,7 @@ def get_lead(v_ego, ready, clusters, lead_msg, model_v_ego, low_speed_override=T
   if cluster is not None:
     lead_dict = cluster.get_RadarState2(lead_msg.prob, lead_msg, mix_radar_info)
   elif (cluster is None) and ready and (lead_msg.prob > .5):
-    vision_d_rel = lead_msg.x[0] - RADAR_TO_CAMERA
-    preserve_scc = preserve_scc_on_mismatch and len(clusters) == 1 and should_preserve_scc_on_mismatch(
-      clusters[0].dRel, clusters[0].yRel, clusters[0].vRel, v_ego,
-      vision_d_rel, lead_msg.prob, clusters[0].measured,
-    )
-    if preserve_scc:
-      lead_dict = clusters[0].get_RadarState2(lead_msg.prob, lead_msg, mix_radar_info)
-    else:
-      lead_dict = Cluster().get_RadarState_from_vision(lead_msg, v_ego, model_v_ego)
+    lead_dict = Cluster().get_RadarState_from_vision(lead_msg, v_ego, model_v_ego)
 
   if low_speed_override:
     low_speed_clusters = [c for c in clusters if c.potential_low_speed_lead(v_ego)]
@@ -102,7 +92,7 @@ def get_lead(v_ego, ready, clusters, lead_msg, model_v_ego, low_speed_override=T
 
 
 class RadarD():
-  def __init__(self, radar_ts, delay=0, scc_only=False):
+  def __init__(self, radar_ts, delay=0):
     self.current_time = 0
 
     self.tracks = defaultdict(dict)
@@ -113,8 +103,6 @@ class RadarD():
     self.v_ego_hist = deque([0], maxlen=delay+1)
 
     self.ready = False
-    self.scc_only = bool(scc_only)
-    self.scc_vision_mismatch_fallback = False
     self.mix_radar_info = False
     self.radar_reaction_factor = 0.7
     self.params = Params()
@@ -124,7 +112,6 @@ class RadarD():
     now = time.monotonic()
     if now >= self.next_mix_radar_info_read:
       self.mix_radar_info = self.params.get_bool("MixRadarInfo")
-      self.scc_vision_mismatch_fallback = self.params.get_bool("SccVisionMismatchFallback")
       reaction_raw = self.params.get_int("RadarReactionFactor")
       self.radar_reaction_factor = clip((reaction_raw if reaction_raw > 0 else 70) * 0.01,
                                          0.2, 2.0)
@@ -139,7 +126,7 @@ class RadarD():
 
     ar_pts = {}
     for pt in rr.points:
-      ar_pts[pt.trackId] = [pt.dRel, pt.yRel, pt.vRel, pt.measured, pt.aRel]
+      ar_pts[pt.trackId] = [pt.dRel, pt.yRel, pt.vRel, pt.measured]
 
     # *** remove missing points from meta data ***
     for ids in list(self.tracks.keys()):
@@ -156,11 +143,8 @@ class RadarD():
       # create the track if it doesn't exist or it's a new track
       if ids not in self.tracks:
         self.tracks[ids] = Track(v_lead, self.kalman_params)
-      a_lead_sensor = None
-      if self.scc_only and rpt[3] and math.isfinite(rpt[4]):
-        a_lead_sensor = rpt[4] + sm['carState'].aEgo
       self.tracks[ids].update(rpt[0], rpt[1], rpt[2], v_lead, rpt[3],
-                              self.radar_reaction_factor, a_lead_sensor)
+                              self.radar_reaction_factor)
 
     idens = list(sorted(self.tracks.keys()))
     track_pts = [self.tracks[iden].get_key_for_cluster() for iden in idens]
@@ -203,11 +187,8 @@ class RadarD():
     if len(leads_v3) > 1:
       model_v_ego = sm['modelV2'].velocity.x[0] if len(sm['modelV2'].velocity.x) else self.v_ego
       radarState.leadOne = get_lead(self.v_ego, self.ready, clusters, leads_v3[0], model_v_ego,
-                                    low_speed_override=True, mix_radar_info=self.mix_radar_info,
-                                    preserve_scc_on_mismatch=(self.scc_only and
-                                                              self.scc_vision_mismatch_fallback))
-      lead_two_clusters = clusters_for_lead_two(clusters, self.scc_only)
-      radarState.leadTwo = get_lead(self.v_ego, self.ready, lead_two_clusters, leads_v3[1], model_v_ego,
+                                    low_speed_override=True, mix_radar_info=self.mix_radar_info)
+      radarState.leadTwo = get_lead(self.v_ego, self.ready, clusters, leads_v3[1], model_v_ego,
                                     low_speed_override=False, mix_radar_info=self.mix_radar_info)
     return dat
 
@@ -236,7 +217,7 @@ def radard_thread(sm=None, pm=None, can_sock=None):
   RI = RadarInterface(CP)
 
   rk = Ratekeeper(1.0 / CP.radarTimeStep, print_delay_threshold=None)
-  RD = RadarD(CP.radarTimeStep, RI.delay, getattr(RI, 'scc_only', False))
+  RD = RadarD(CP.radarTimeStep, RI.delay)
 
   while 1:
     can_strings = messaging.drain_sock_raw(can_sock, wait_for_one=True)

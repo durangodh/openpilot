@@ -1458,11 +1458,6 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "켜짐: 레이더 앞차와 비전 모델의 가속도 변화를 혼합해 출발·감속 반응을 보완합니다. / 꺼짐: 레이더 정보를 우선합니다.",
       "../assets/offroad/icon_road.png"));
 
-  list->addItem(new ParamControl(
-      "SccVisionMismatchFallback", "SCC VISION MISMATCH FALLBACK",
-      "기본 켜짐: 카메라 매칭이 잠깐 실패해도 물리적으로 타당한 SCC 앞차를 유지합니다. 문제가 있으면 끄세요.",
-      "../assets/offroad/icon_road.png"));
-
   list->addItem(new ParamValueControlF(
       "StartAccelApply", "START ACCEL",
       "정지 후 출발 가속도(×0.02m/s²)입니다. 값 증가(+): 더 빠르고 강하게 출발 / 값 감소(-): 천천히 출발 / 0: 추가 출발가속 끔.",
