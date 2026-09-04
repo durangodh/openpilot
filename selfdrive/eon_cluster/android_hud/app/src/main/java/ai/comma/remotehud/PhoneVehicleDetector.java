@@ -19,11 +19,11 @@ import java.util.Locale;
 /** CPU TFLite detector whose output is consumed only by the HUD renderer. */
 final class PhoneVehicleDetector implements AutoCloseable {
     private static final float CAMERA_TO_BUMPER_M = 1.52f;
-    private static final int MAX_RESULTS = 24;
+    private static final int MAX_RESULTS = 40;
     // MobileNet occasionally misses one or two of the 2 Hz camera frames.
-    // Keep a matched display track for one second so a single weak JPEG or
-    // partial occlusion does not make the HUD vehicle blink.
-    private static final int MAX_MISSED_FRAMES = 2;
+    // Keep a matched display track for about 1.5 seconds so weak JPEGs or a
+    // brief partial occlusion do not make the HUD vehicle blink.
+    private static final int MAX_MISSED_FRAMES = 3;
     private static final float TRACK_ALPHA = 0.42f;
 
     private final ObjectDetector detector;
@@ -51,8 +51,8 @@ final class PhoneVehicleDetector implements AutoCloseable {
         ObjectDetector.ObjectDetectorOptions options =
                 ObjectDetector.ObjectDetectorOptions.builder()
                         // Keep the runtime threshold low enough that the EON
-                        // setting can still select 30..90% without rebuilding.
-                        .setScoreThreshold(0.30f)
+                        // setting can select 25..45% without rebuilding.
+                        .setScoreThreshold(0.25f)
                         .setMaxResults(MAX_RESULTS)
                         .build();
         detector = ObjectDetector.createFromFileAndOptions(
@@ -77,8 +77,8 @@ final class PhoneVehicleDetector implements AutoCloseable {
             if (sourceWidth <= 0 || sourceHeight <= 0) {
                 return trackedOutput(observations);
             }
-            float threshold = Math.max(0.30f, Math.min(0.90f,
-                    scene.optInt("hudVisionThreshold", 55) * 0.01f));
+            float threshold = Math.max(0.25f, Math.min(0.45f,
+                    scene.optInt("hudVisionThreshold", 40) * 0.01f));
             double[] m = new double[9];
             for (int i = 0; i < m.length; i++) {
                 m[i] = matrix.optDouble(i, Double.NaN);
@@ -187,10 +187,11 @@ final class PhoneVehicleDetector implements AutoCloseable {
                 track.lateral += track.lateralStep;
                 track.distanceStep *= 0.70d;
                 track.lateralStep *= 0.70d;
-                // The renderer's validity floor is 0.30. Keep a held track at
-                // that floor and let the bounded miss count expire it instead
-                // of making a low-confidence vehicle blink immediately.
-                track.score = Math.max(0.30f, track.score * 0.90f);
+                // Keep a held track clearly visible while fading it gently
+                // gently for up to roughly 1.5 s at 2 Hz. This bridges a truck
+                // edge, glare, or one poor JPEG without leaving a long-lived
+                // ghost after the physical vehicle has gone.
+                track.score = Math.max(0.30f, track.score * 0.88f);
             }
             if (track.missed > MAX_MISSED_FRAMES) {
                 tracks.remove(i);

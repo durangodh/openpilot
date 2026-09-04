@@ -654,8 +654,16 @@ final class ModelWorldGL {
             return;
         }
         float scale = FOCAL / (distance + CAM_BACK);
-        float width = clamp(1.88f * scale, secondary ? 8f : 10f, secondary ? 38f : 44f);
-        float height = clamp(0.86f * scale, secondary ? 5f : 7f, secondary ? 18f : 25f);
+        // Preserve the full perspective range. The former 44 px cap made a
+        // vehicle at 5 m look almost the same size as one at 20 m, flattening
+        // the scene. Far vehicles may now become small while close vehicles
+        // grow strongly, like an FSD-style spatial view.
+        float width = clamp(1.88f * scale, secondary ? 4.5f : 5.5f,
+                secondary ? 62f : 72f);
+        float height = clamp(0.90f * scale, secondary ? 3.0f : 3.8f,
+                secondary ? 35f : 42f);
+        float depthAlpha = leadSpriteVision[index] ? perspectiveAlpha(distance) : 1f;
+        holdAlpha *= depthAlpha;
         int shadow = dark ? Color.rgb(4, 7, 10) : Color.rgb(58, 63, 68);
         int body = secondary
                 ? (dark ? Color.rgb(116, 128, 140) : Color.rgb(150, 158, 166))
@@ -733,7 +741,7 @@ final class ModelWorldGL {
         if (objects == null) {
             return;
         }
-        int count = Math.min(objects.length(), 24);
+        int count = Math.min(objects.length(), 40);
         for (int i = 0; i < count; i++) {
             JSONObject object = objects.optJSONObject(i);
             if (object == null) {
@@ -742,7 +750,7 @@ final class ModelWorldGL {
             float probability = clamp((float) object.optDouble("p", 0d), 0f, 1f);
             float distance = (float) object.optDouble("d", 0d);
             float lateral = (float) object.optDouble("y", 0d);
-            if (probability < 0.30f || distance < 2f || distance > 180f
+            if (probability < 0.25f || distance < 2f || distance > 180f
                     || Math.abs(lateral) > 15f
                     || nearTrackedLead(scene.optJSONObject("lead"), distance, lateral)
                     || nearTrackedLead(scene.optJSONObject("lead2"), distance, lateral)
@@ -759,12 +767,16 @@ final class ModelWorldGL {
                 continue;
             }
             float scale = FOCAL / (distance + CAM_BACK);
-            float width = clamp(1.88f * scale, 8f, 44f);
-            float height = clamp(0.90f * scale, 6f, 27f);
-            // Vision vehicles were too washed out on the reflective external
-            // panel. Keep confidence visible without making low-score tracks
-            // nearly transparent.
-            float alpha = clamp(0.62f + probability * 0.36f, 0f, 0.98f);
+            // Do not clamp every candidate into the same apparent size. A
+            // nearby car is intentionally several times larger than a distant
+            // one, providing the requested depth cue across adjacent lanes.
+            float width = clamp(1.88f * scale, 4.5f, 72f);
+            float height = clamp(0.90f * scale, 3.2f, 42f);
+            // Distance controls visual weight; confidence only makes a small
+            // correction. Close vehicles stay solid and dark, while distant
+            // vehicles recede without disappearing completely.
+            float alpha = clamp(perspectiveAlpha(distance)
+                    * (0.88f + probability * 0.12f), 0.26f, 1f);
             String type = object.optString("type", "");
             if (isPhoneVehicleType(type)) {
                 drawVisionVehicleIcon(sx, sy, width, height, type, dark, alpha);
@@ -783,6 +795,14 @@ final class ModelWorldGL {
     private static boolean isPhoneVehicleType(String type) {
         return "car".equals(type) || "truck".equals(type) || "bus".equals(type)
                 || "motorcycle".equals(type) || "bicycle".equals(type);
+    }
+
+    private static float perspectiveAlpha(float distance) {
+        // 1.00 around the ego car, 0.70 at 45 m, 0.47 at 80 m and 0.30 at
+        // 120 m. Smoothstep avoids visible brightness steps as a track moves.
+        float near = 1f - clamp((distance - 8f) / 112f, 0f, 1f);
+        float smooth = near * near * (3f - 2f * near);
+        return 0.30f + 0.70f * smooth;
     }
 
     /**
@@ -843,6 +863,9 @@ final class ModelWorldGL {
     private void drawCarIcon(float sx, float sy, float width, float height,
                              int body, int highlight, int glass, int lamp,
                              float alpha) {
+        int trim = Color.rgb(37, 44, 51);
+        int plate = Color.rgb(224, 228, 231);
+        drawVehicleTires(sx, sy, width, height, alpha);
         drawScreenQuad(sx - width * 0.50f, sy - height * 0.48f,
                 sx + width * 0.50f, sy - height * 0.48f,
                 sx + width * 0.43f, sy, sx - width * 0.43f, sy,
@@ -857,15 +880,34 @@ final class ModelWorldGL {
                 sx + width * 0.32f, sy - height * 0.58f,
                 sx - width * 0.32f, sy - height * 0.58f,
                 glass, 0.76f * alpha);
+        // Rear-window pillars, trunk crease and bumper give the silhouette
+        // enough depth to remain recognisable on the 1920x720 HUD panel.
+        float detailStroke = Math.max(0.8f, width * 0.025f);
+        drawScreenRect(sx - detailStroke * 0.5f, sy - height * 0.88f,
+                sx + detailStroke * 0.5f, sy - height * 0.59f,
+                trim, 0.54f * alpha);
+        drawScreenRect(sx - width * 0.39f, sy - height * 0.43f,
+                sx + width * 0.39f, sy - height * 0.43f + detailStroke,
+                trim, 0.56f * alpha);
         drawScreenRect(sx - width * 0.38f, sy - height * 0.25f,
                 sx - width * 0.22f, sy - height * 0.10f, lamp, 0.90f * alpha);
         drawScreenRect(sx + width * 0.22f, sy - height * 0.25f,
                 sx + width * 0.38f, sy - height * 0.10f, lamp, 0.90f * alpha);
+        drawScreenRect(sx - width * 0.13f, sy - height * 0.20f,
+                sx + width * 0.13f, sy - height * 0.09f,
+                plate, 0.82f * alpha);
+        drawScreenRect(sx - width * 0.46f, sy - height * 0.075f,
+                sx + width * 0.46f, sy - height * 0.025f,
+                trim, 0.72f * alpha);
+        drawScreenRect(sx - width * 0.13f, sy - height * 0.55f,
+                sx + width * 0.13f, sy - height * 0.51f,
+                lamp, 0.72f * alpha);
     }
 
     private void drawTruckIcon(float sx, float sy, float width, float height,
                                int body, int highlight, int shadow, int lamp,
                                float alpha) {
+        drawVehicleTires(sx, sy, width, height, alpha);
         drawScreenQuad(sx - width * 0.48f, sy - height,
                 sx + width * 0.48f, sy - height,
                 sx + width * 0.52f, sy - height * 0.19f,
@@ -880,11 +922,19 @@ final class ModelWorldGL {
                 sx - width * 0.29f, sy - height * 0.06f, lamp, 0.92f * alpha);
         drawScreenRect(sx + width * 0.29f, sy - height * 0.20f,
                 sx + width * 0.43f, sy - height * 0.06f, lamp, 0.92f * alpha);
+        float seam = Math.max(0.8f, width * 0.025f);
+        drawScreenRect(sx - seam * 0.5f, sy - height * 0.86f,
+                sx + seam * 0.5f, sy - height * 0.32f,
+                shadow, 0.52f * alpha);
+        drawScreenRect(sx - width * 0.13f, sy - height * 0.20f,
+                sx + width * 0.13f, sy - height * 0.08f,
+                Color.rgb(224, 228, 231), 0.82f * alpha);
     }
 
     private void drawBusIcon(float sx, float sy, float width, float height,
                              int body, int highlight, int glass, int lamp,
                              float alpha) {
+        drawVehicleTires(sx, sy, width, height, alpha);
         drawScreenQuad(sx - width * 0.46f, sy - height,
                 sx + width * 0.46f, sy - height,
                 sx + width * 0.52f, sy, sx - width * 0.52f, sy,
@@ -899,6 +949,26 @@ final class ModelWorldGL {
                 sx - width * 0.27f, sy - height * 0.06f, lamp, 0.94f * alpha);
         drawScreenRect(sx + width * 0.27f, sy - height * 0.20f,
                 sx + width * 0.40f, sy - height * 0.06f, lamp, 0.94f * alpha);
+        float divider = Math.max(0.7f, width * 0.022f);
+        drawScreenRect(sx - divider * 0.5f, sy - height * 0.83f,
+                sx + divider * 0.5f, sy - height * 0.49f,
+                body, 0.76f * alpha);
+        drawScreenRect(sx - width * 0.12f, sy - height * 0.19f,
+                sx + width * 0.12f, sy - height * 0.08f,
+                Color.rgb(224, 228, 231), 0.80f * alpha);
+    }
+
+    private void drawVehicleTires(float sx, float sy, float width, float height,
+                                  float alpha) {
+        int tire = Color.rgb(22, 25, 29);
+        float tireWidth = Math.max(1.1f, width * 0.105f);
+        float tireHeight = Math.max(1.8f, height * 0.25f);
+        drawScreenRect(sx - width * 0.53f, sy - tireHeight,
+                sx - width * 0.53f + tireWidth, sy + height * 0.015f,
+                tire, 0.88f * alpha);
+        drawScreenRect(sx + width * 0.53f - tireWidth, sy - tireHeight,
+                sx + width * 0.53f, sy + height * 0.015f,
+                tire, 0.88f * alpha);
     }
 
     private void drawTwoWheelerIcon(float sx, float sy, float width, float height,

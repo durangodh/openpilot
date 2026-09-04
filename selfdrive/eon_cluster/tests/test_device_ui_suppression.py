@@ -348,7 +348,7 @@ def test_remote_hud_displays_vision_candidates_without_control_feedback():
   assert 'for vehicle in packet.get("visionObjects") or []' in wrapper
   assert 'drawVisionObjects(scene.optJSONArray("visionObjects")' in renderer
   assert "nearTrackedLead(scene.optJSONObject(\"lead\")" in renderer
-  assert "Math.min(objects.length(), 24)" in renderer
+  assert "Math.min(objects.length(), 40)" in renderer
   assert "visionSprite" not in renderer
   assert "modelWorldGl.visionSprite" not in service
   assert "leadSpriteVision(int index)" in renderer
@@ -383,7 +383,7 @@ def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
   assert 'NativeProcess("vehicle_detectord", "selfdrive/modeld", ["./vehicle_detectord"], enabled=False)' in processes
   for key, default in (("EonClusterHudVisionDetector", "0"),
                        ("EonClusterHudVisionDetectorFps", "2"),
-                       ("EonClusterHudVisionDetectorThreshold", "55")):
+                       ("EonClusterHudVisionDetectorThreshold", "40")):
     assert '("%s", "%s")' % (key, default) in manager
     assert '{"%s", PERSISTENT}' % key in params
   assert 'PREVIEW_SIZE = (320, 240)' in preview

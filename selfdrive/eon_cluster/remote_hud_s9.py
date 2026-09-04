@@ -97,7 +97,9 @@ def _packet(sm, *args, **kwargs):
   # display-only, and never returns to the driving stack.
   packet["hudPhoneVision"] = _bounded_int("EonClusterHudVisionDetector", 0, 0, 1)
   packet["hudVisionFps"] = _bounded_int("EonClusterHudVisionDetectorFps", 2, 1, 2)
-  packet["hudVisionThreshold"] = _bounded_int("EonClusterHudVisionDetectorThreshold", 55, 30, 90)
+  # Favour scene coverage: even an older persisted 55% value is capped at
+  # 45%, while the UI can still lower the threshold to 25% in difficult light.
+  packet["hudVisionThreshold"] = _bounded_int("EonClusterHudVisionDetectorThreshold", 40, 25, 45)
   # 노면 높낮이 배율(%). 100=원본, 0=평지. 모델 z 의 부호가 기기마다 다를 수
   # 있어 음수까지 열어둔다 — 오르막이 아래로 꺼져 보이면 -100 으로 뒤집는다.
   packet["hudRoadZ"] = _bounded_int("EonClusterHudRoadZ", 100, -300, 300)
