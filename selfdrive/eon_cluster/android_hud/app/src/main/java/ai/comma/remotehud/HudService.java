@@ -4057,6 +4057,11 @@ public final class HudService extends Service {
             c.drawRect(scratchIRect, p);
         }
 
+        // Keep the current-position symbol unmistakable over both the native
+        // day map and our night mask: blue halo with the classic white-edged
+        // red navigation pointer shown in the user's reference display.
+        drawTmapVehicleMarker(c, p, mapCenterX(), HEIGHT * 0.64f);
+
         int overlaySave = c.save();
         JSONObject l = layout(s);
         // 배너 위끝(0)이 곧 기준점이어야 패널 최상단에 딱 붙는다. 기준점이 71 이면
@@ -4090,6 +4095,37 @@ public final class HudService extends Service {
 
         // NOO 안내는 지도 패널이 아니라 주행 패널 중앙에 그린다(drawNooTurn).
         c.restoreToCount(overlaySave);
+    }
+
+    private void drawTmapVehicleMarker(Canvas c, Paint p, float cx, float cy) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(58, 29, 139, 255));
+        c.drawCircle(cx, cy, 39f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(6f);
+        p.setColor(Color.argb(220, 35, 145, 255));
+        c.drawCircle(cx, cy, 32f, p);
+
+        scratchPath.rewind();
+        scratchPath.moveTo(cx, cy - 29f);
+        scratchPath.lineTo(cx - 23f, cy + 24f);
+        scratchPath.lineTo(cx, cy + 14f);
+        scratchPath.lineTo(cx + 23f, cy + 24f);
+        scratchPath.close();
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(218, 35, 62));
+        c.drawPath(scratchPath, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(4f);
+        p.setColor(Color.WHITE);
+        c.drawPath(scratchPath, p);
+
+        p.setStrokeJoin(Paint.Join.MITER);
+        p.setStrokeWidth(1f);
+        p.setStyle(Paint.Style.FILL);
+        p.setAlpha(255);
     }
 
     /**
