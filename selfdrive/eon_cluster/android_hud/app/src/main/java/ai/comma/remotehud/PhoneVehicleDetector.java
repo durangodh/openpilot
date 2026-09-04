@@ -25,6 +25,12 @@ final class PhoneVehicleDetector implements AutoCloseable {
     // brief partial occlusion do not make the HUD vehicle blink.
     private static final int MAX_MISSED_FRAMES = 3;
     private static final float TRACK_ALPHA = 0.42f;
+    // 과다 검출 억제: 새 트랙은 연속 2프레임(1 s @2 Hz) 확인 후에만 표시하고,
+    // 같은 프레임 안의 중복 박스(세단/트럭 이중 검출)는 하나로 합친다.
+    private static final int CONFIRM_HITS = 2;
+    private static final double MERGE_DISTANCE_M = 3.0d;
+    private static final double MERGE_LATERAL_M = 1.4d;
+    private static final double MAX_LATERAL_M = 7.5d;   // 좌우 2차선까지만
 
     private final ObjectDetector detector;
     private final ArrayList<VehicleTrack> tracks = new ArrayList<>();
@@ -35,6 +41,7 @@ final class PhoneVehicleDetector implements AutoCloseable {
         float score;
         String type;
         int missed;
+        int hits;
         boolean matched;
         double distanceStep;
         double lateralStep;
@@ -77,8 +84,8 @@ final class PhoneVehicleDetector implements AutoCloseable {
             if (sourceWidth <= 0 || sourceHeight <= 0) {
                 return trackedOutput(observations);
             }
-            float threshold = Math.max(0.25f, Math.min(0.45f,
-                    scene.optInt("hudVisionThreshold", 40) * 0.01f));
+            float threshold = Math.max(0.25f, Math.min(0.70f,
+                    scene.optInt("hudVisionThreshold", 50) * 0.01f));
             double[] m = new double[9];
             for (int i = 0; i < m.length; i++) {
                 m[i] = matrix.optDouble(i, Double.NaN);
@@ -95,7 +102,9 @@ final class PhoneVehicleDetector implements AutoCloseable {
                     continue;
                 }
                 RectF box = detection.getBoundingBox();
-                if (box == null || box.width() < 4f || box.height() < 4f) {
+                // 4px 짜리 점 검출은 대부분 오검출. 입력 해상도의 3% 이상만 받는다.
+                if (box == null || box.width() < image.getWidth() * 0.03f
+                        || box.height() < image.getHeight() * 0.03f) {
                     continue;
                 }
                 double pixelX = Math.max(0d, Math.min(image.getWidth() - 1d,
@@ -113,14 +122,18 @@ final class PhoneVehicleDetector implements AutoCloseable {
                 // applying it here mirrors phone detections to the opposite lane.
                 double lateral = (m[3] * pixelX + m[4] * pixelY + m[5]) / scale;
                 if (!Double.isFinite(distance) || !Double.isFinite(lateral)
-                        || distance < 2d || distance > 120d || Math.abs(lateral) > 15d) {
+                        || distance < 2d || distance > 120d
+                        || Math.abs(lateral) > MAX_LATERAL_M) {
                     continue;
                 }
                 // Retain the COCO class for display-only type-specific HUD
                 // silhouettes.  This value never leaves the S9 or reaches
                 // RadarD/controls.
-                observations.add(new VehicleTrack(distance, lateral, vehicle.getScore(),
-                        normalizeVehicleType(vehicle.getLabel())));
+                VehicleTrack candidate = new VehicleTrack(distance, lateral,
+                        vehicle.getScore(), normalizeVehicleType(vehicle.getLabel()));
+                if (!mergeDuplicate(observations, candidate)) {
+                    observations.add(candidate);
+                }
                 if (observations.size() >= MAX_RESULTS) {
                     break;
                 }
@@ -129,6 +142,24 @@ final class PhoneVehicleDetector implements AutoCloseable {
         } finally {
             image.recycle();
         }
+    }
+
+    /** 같은 프레임 안에서 거의 같은 자리의 박스는 점수 높은 쪽 하나로 합친다. */
+    private static boolean mergeDuplicate(ArrayList<VehicleTrack> observations,
+                                          VehicleTrack candidate) {
+        for (VehicleTrack other : observations) {
+            if (Math.abs(other.distance - candidate.distance) <= MERGE_DISTANCE_M
+                    && Math.abs(other.lateral - candidate.lateral) <= MERGE_LATERAL_M) {
+                if (candidate.score > other.score) {
+                    other.distance = candidate.distance;
+                    other.lateral = candidate.lateral;
+                    other.score = candidate.score;
+                    other.type = candidate.type;
+                }
+                return true;
+            }
+        }
+        return false;
     }
 
     private JSONArray trackedOutput(ArrayList<VehicleTrack> observations) throws Exception {
@@ -157,6 +188,7 @@ final class PhoneVehicleDetector implements AutoCloseable {
             }
             if (best == null) {
                 observation.matched = true;
+                observation.hits = 1;
                 tracks.add(observation);
             } else {
                 double oldDistance = best.distance;
@@ -174,6 +206,7 @@ final class PhoneVehicleDetector implements AutoCloseable {
                 best.score = Math.max(observation.score, best.score * 0.92f);
                 best.type = observation.type;
                 best.missed = 0;
+                best.hits++;
                 best.matched = true;
             }
         }
@@ -191,10 +224,16 @@ final class PhoneVehicleDetector implements AutoCloseable {
                 // gently for up to roughly 1.5 s at 2 Hz. This bridges a truck
                 // edge, glare, or one poor JPEG without leaving a long-lived
                 // ghost after the physical vehicle has gone.
-                track.score = Math.max(0.30f, track.score * 0.88f);
+                // 0.30 바닥은 표시 컷(0.25)보다 높아 유령이 1.5 s 남았다. 바닥을
+                // 낮춰 두 번째 미검출부터는 화면에서 빠지게 한다.
+                track.score = Math.max(0.12f, track.score * 0.72f);
             }
             if (track.missed > MAX_MISSED_FRAMES) {
                 tracks.remove(i);
+                continue;
+            }
+            if (track.hits < CONFIRM_HITS) {
+                // 아직 확인되지 않은 트랙은 내부에만 유지하고 표시하지 않는다.
                 continue;
             }
             JSONObject object = new JSONObject();

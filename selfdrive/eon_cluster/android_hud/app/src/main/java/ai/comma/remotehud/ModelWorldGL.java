@@ -354,8 +354,9 @@ final class ModelWorldGL {
 
         int sky = dark ? blend(driveBg, Color.BLACK, 0.35f)
                 : blend(driveBg, Color.WHITE, 0.35f);
-        int ground = dark ? blend(driveBg, Color.BLACK, 0.15f)
-                : blend(driveBg, Color.BLACK, 0.10f);
+        // 비전 차량 접지감을 위해 지평선 아래를 더 어둡게(아스팔트 톤) 깐다.
+        int ground = dark ? blend(driveBg, Color.BLACK, 0.35f)
+                : blend(driveBg, Color.BLACK, 0.22f);
         drawRect(0f, 0f, WIDTH, Math.max(0f, HORIZON + horizonShift - TOP), sky);
         drawRect(0f, Math.max(0f, HORIZON + horizonShift - TOP), WIDTH, HEIGHT, ground);
 
@@ -757,7 +758,8 @@ final class ModelWorldGL {
                     || nearVisionObject(suppress, distance, lateral)) {
                 continue;
             }
-            float z = zAt(roadHeight, distance) * roadZGain + 0.12f;
+            // 노면 높이에 그대로 붙인다. 이전 +0.12f 오프셋이 차량을 떠 보이게 했다.
+            float z = zAt(roadHeight, distance) * roadZGain;
             if (!project(distance, lateral, z, projected)) {
                 continue;
             }
@@ -806,9 +808,10 @@ final class ModelWorldGL {
     }
 
     /**
-     * Tesla-like spatial vehicle language without copying any proprietary art.
-     * A few shaded quads make distinct rear-view silhouettes and cost much less
-     * than loading/scaling a bitmap for every 2 Hz phone detection.
+     * 테슬라식 덩어리 표현. 창문·후미등·번호판을 그리지 않고 뒷면/윗면/옆면
+     * 세 개의 회색 면과 접지 그림자만으로 차량 부피를 나타낸다. 디테일이 없어
+     * 실제 차와 달라도 어색하지 않고, 위치 오차에도 덜 튄다.
+     * 옆면은 자차 기준 안쪽(중앙 쪽)에 그리며 중앙에 가까울수록 얇아진다.
      */
     private void drawVisionVehicleIcon(float sx, float sy, float baseWidth,
                                        float baseHeight, String type,
@@ -817,182 +820,78 @@ final class ModelWorldGL {
         float height = baseHeight * 1.20f;
         if ("truck".equals(type)) {
             width *= 1.12f;
-            height *= 1.42f;
+            height *= 1.55f;
         } else if ("bus".equals(type)) {
             width *= 1.16f;
-            height *= 1.58f;
+            height *= 1.75f;
         } else if ("motorcycle".equals(type)) {
-            width *= 0.48f;
-            height *= 1.04f;
+            width *= 0.42f;
+            height *= 1.10f;
         } else if ("bicycle".equals(type)) {
-            width *= 0.54f;
-            height *= 0.92f;
+            width *= 0.40f;
+            height *= 1.00f;
         }
 
-        int vision = dark ? Color.rgb(65, 157, 255) : Color.rgb(0, 82, 255);
         int shadow = dark ? Color.rgb(7, 10, 14) : Color.rgb(73, 80, 87);
-        int body = dark ? Color.rgb(194, 204, 214) : Color.rgb(145, 154, 164);
-        int highlight = dark ? Color.rgb(238, 243, 247) : Color.rgb(202, 210, 218);
-        int glass = dark ? Color.rgb(24, 34, 44) : Color.rgb(47, 59, 70);
-        int lamp = Color.rgb(226, 58, 64);
+        int top = dark ? Color.rgb(178, 186, 196) : Color.rgb(196, 202, 208);
+        int rear = dark ? Color.rgb(142, 151, 162) : Color.rgb(160, 167, 175);
+        int flank = dark ? Color.rgb(110, 119, 130) : Color.rgb(128, 136, 144);
 
-        // Blue ground glow identifies every phone-camera-only object without a
-        // rectangular detector box. The neutral body remains readable in both
-        // themes and matches the reference's understated vehicle models.
-        drawScreenQuad(sx - width * 0.64f, sy - height * 0.03f,
-                sx + width * 0.64f, sy - height * 0.03f,
-                sx + width * 0.48f, sy + Math.max(1.5f, height * 0.13f),
-                sx - width * 0.48f, sy + Math.max(1.5f, height * 0.13f),
-                vision, 0.72f * alpha);
-        drawScreenRect(sx - width * 0.52f, sy - height * 0.02f,
-                sx + width * 0.52f, sy + Math.max(1.0f, height * 0.06f),
-                shadow, 0.66f * alpha);
+        // 접지 그림자: 넓고 옅은 띠 + 좁고 진한 접촉선.
+        float contact = Math.max(1.0f, height * 0.05f);
+        drawScreenQuad(sx - width * 0.58f, sy - contact,
+                sx + width * 0.58f, sy - contact,
+                sx + width * 0.66f, sy + Math.max(2.0f, height * 0.12f),
+                sx - width * 0.66f, sy + Math.max(2.0f, height * 0.12f),
+                shadow, 0.34f * alpha);
+        drawScreenRect(sx - width * 0.54f, sy - contact,
+                sx + width * 0.54f, sy + Math.max(1.0f, height * 0.05f),
+                shadow, 0.74f * alpha);
 
-        if ("truck".equals(type)) {
-            drawTruckIcon(sx, sy, width, height, body, highlight, shadow, lamp, alpha);
-        } else if ("bus".equals(type)) {
-            drawBusIcon(sx, sy, width, height, body, highlight, glass, lamp, alpha);
-        } else if ("motorcycle".equals(type) || "bicycle".equals(type)) {
-            drawTwoWheelerIcon(sx, sy, width, height, body, highlight, shadow,
-                    lamp, "bicycle".equals(type), alpha);
-        } else {
-            drawCarIcon(sx, sy, width, height, body, highlight, glass, lamp, alpha);
-        }
+        drawBlob(sx, sy, width, height, top, rear, flank, alpha);
     }
 
-    private void drawCarIcon(float sx, float sy, float width, float height,
-                             int body, int highlight, int glass, int lamp,
-                             float alpha) {
-        int trim = Color.rgb(37, 44, 51);
-        int plate = Color.rgb(224, 228, 231);
-        drawVehicleTires(sx, sy, width, height, alpha);
-        drawScreenQuad(sx - width * 0.50f, sy - height * 0.48f,
-                sx + width * 0.50f, sy - height * 0.48f,
-                sx + width * 0.43f, sy, sx - width * 0.43f, sy,
-                body, 0.94f * alpha);
-        drawScreenQuad(sx - width * 0.28f, sy - height,
-                sx + width * 0.28f, sy - height,
-                sx + width * 0.40f, sy - height * 0.45f,
-                sx - width * 0.40f, sy - height * 0.45f,
-                highlight, 0.94f * alpha);
-        drawScreenQuad(sx - width * 0.23f, sy - height * 0.89f,
-                sx + width * 0.23f, sy - height * 0.89f,
-                sx + width * 0.32f, sy - height * 0.58f,
-                sx - width * 0.32f, sy - height * 0.58f,
-                glass, 0.76f * alpha);
-        // Rear-window pillars, trunk crease and bumper give the silhouette
-        // enough depth to remain recognisable on the 1920x720 HUD panel.
-        float detailStroke = Math.max(0.8f, width * 0.025f);
-        drawScreenRect(sx - detailStroke * 0.5f, sy - height * 0.88f,
-                sx + detailStroke * 0.5f, sy - height * 0.59f,
-                trim, 0.54f * alpha);
-        drawScreenRect(sx - width * 0.39f, sy - height * 0.43f,
-                sx + width * 0.39f, sy - height * 0.43f + detailStroke,
-                trim, 0.56f * alpha);
-        drawScreenRect(sx - width * 0.38f, sy - height * 0.25f,
-                sx - width * 0.22f, sy - height * 0.10f, lamp, 0.90f * alpha);
-        drawScreenRect(sx + width * 0.22f, sy - height * 0.25f,
-                sx + width * 0.38f, sy - height * 0.10f, lamp, 0.90f * alpha);
-        drawScreenRect(sx - width * 0.13f, sy - height * 0.20f,
-                sx + width * 0.13f, sy - height * 0.09f,
-                plate, 0.82f * alpha);
-        drawScreenRect(sx - width * 0.46f, sy - height * 0.075f,
-                sx + width * 0.46f, sy - height * 0.025f,
-                trim, 0.72f * alpha);
-        drawScreenRect(sx - width * 0.13f, sy - height * 0.55f,
-                sx + width * 0.13f, sy - height * 0.51f,
-                lamp, 0.72f * alpha);
-    }
+    /** 뒷면(사각) + 윗면(앞으로 밀린 평행사변형) + 옆면. 모서리는 작은 삼각형으로 깎는다. */
+    private void drawBlob(float sx, float sy, float width, float height,
+                          int top, int rear, int flank, float alpha) {
+        float centerX = WIDTH * 0.5f;
+        float side = sx < centerX ? 1f : -1f;              // 자차 왼쪽 차 → 오른쪽 옆면
+        float depth = Math.min(width * 0.28f, Math.abs(sx - centerX) * 0.09f);
+        float dx = side * depth;
+        float dy = -height * 0.12f;
+        float roofY = sy - height;
+        float halfW = width * 0.5f;
+        float corner = Math.max(1.0f, width * 0.08f);
 
-    private void drawTruckIcon(float sx, float sy, float width, float height,
-                               int body, int highlight, int shadow, int lamp,
-                               float alpha) {
-        drawVehicleTires(sx, sy, width, height, alpha);
-        drawScreenQuad(sx - width * 0.48f, sy - height,
-                sx + width * 0.48f, sy - height,
-                sx + width * 0.52f, sy - height * 0.19f,
-                sx - width * 0.52f, sy - height * 0.19f,
-                highlight, 0.96f * alpha);
-        drawScreenRect(sx - width * 0.52f, sy - height * 0.30f,
-                sx + width * 0.52f, sy, body, 0.96f * alpha);
-        drawScreenRect(sx - width * 0.40f, sy - height * 0.88f,
-                sx + width * 0.40f, sy - height * 0.31f,
-                shadow, 0.24f * alpha);
-        drawScreenRect(sx - width * 0.43f, sy - height * 0.20f,
-                sx - width * 0.29f, sy - height * 0.06f, lamp, 0.92f * alpha);
-        drawScreenRect(sx + width * 0.29f, sy - height * 0.20f,
-                sx + width * 0.43f, sy - height * 0.06f, lamp, 0.92f * alpha);
-        float seam = Math.max(0.8f, width * 0.025f);
-        drawScreenRect(sx - seam * 0.5f, sy - height * 0.86f,
-                sx + seam * 0.5f, sy - height * 0.32f,
-                shadow, 0.52f * alpha);
-        drawScreenRect(sx - width * 0.13f, sy - height * 0.20f,
-                sx + width * 0.13f, sy - height * 0.08f,
-                Color.rgb(224, 228, 231), 0.82f * alpha);
-    }
-
-    private void drawBusIcon(float sx, float sy, float width, float height,
-                             int body, int highlight, int glass, int lamp,
-                             float alpha) {
-        drawVehicleTires(sx, sy, width, height, alpha);
-        drawScreenQuad(sx - width * 0.46f, sy - height,
-                sx + width * 0.46f, sy - height,
-                sx + width * 0.52f, sy, sx - width * 0.52f, sy,
-                body, 0.96f * alpha);
-        drawScreenRect(sx - width * 0.38f, sy - height * 0.84f,
-                sx + width * 0.38f, sy - height * 0.48f,
-                glass, 0.82f * alpha);
-        drawScreenRect(sx - width * 0.44f, sy - height,
-                sx + width * 0.44f, sy - height * 0.91f,
-                highlight, 0.86f * alpha);
-        drawScreenRect(sx - width * 0.40f, sy - height * 0.20f,
-                sx - width * 0.27f, sy - height * 0.06f, lamp, 0.94f * alpha);
-        drawScreenRect(sx + width * 0.27f, sy - height * 0.20f,
-                sx + width * 0.40f, sy - height * 0.06f, lamp, 0.94f * alpha);
-        float divider = Math.max(0.7f, width * 0.022f);
-        drawScreenRect(sx - divider * 0.5f, sy - height * 0.83f,
-                sx + divider * 0.5f, sy - height * 0.49f,
-                body, 0.76f * alpha);
-        drawScreenRect(sx - width * 0.12f, sy - height * 0.19f,
-                sx + width * 0.12f, sy - height * 0.08f,
-                Color.rgb(224, 228, 231), 0.80f * alpha);
-    }
-
-    private void drawVehicleTires(float sx, float sy, float width, float height,
-                                  float alpha) {
-        int tire = Color.rgb(22, 25, 29);
-        float tireWidth = Math.max(1.1f, width * 0.105f);
-        float tireHeight = Math.max(1.8f, height * 0.25f);
-        drawScreenRect(sx - width * 0.53f, sy - tireHeight,
-                sx - width * 0.53f + tireWidth, sy + height * 0.015f,
-                tire, 0.88f * alpha);
-        drawScreenRect(sx + width * 0.53f - tireWidth, sy - tireHeight,
-                sx + width * 0.53f, sy + height * 0.015f,
-                tire, 0.88f * alpha);
-    }
-
-    private void drawTwoWheelerIcon(float sx, float sy, float width, float height,
-                                    int body, int highlight, int shadow, int lamp,
-                                    boolean bicycle, float alpha) {
-        float wheel = Math.max(1.2f, width * (bicycle ? 0.18f : 0.24f));
-        drawScreenRect(sx - wheel * 0.50f, sy - height * 0.58f,
-                sx + wheel * 0.50f, sy + height * 0.02f,
-                shadow, 0.88f * alpha);
-        drawScreenQuad(sx - width * 0.30f, sy - height * 0.52f,
-                sx + width * 0.30f, sy - height * 0.52f,
-                sx + width * 0.20f, sy - height * 0.08f,
-                sx - width * 0.20f, sy - height * 0.08f,
-                body, 0.95f * alpha);
-        drawScreenQuad(sx - width * 0.16f, sy - height * 0.92f,
-                sx + width * 0.16f, sy - height * 0.92f,
-                sx + width * 0.27f, sy - height * 0.50f,
-                sx - width * 0.27f, sy - height * 0.50f,
-                highlight, 0.92f * alpha);
-        if (!bicycle) {
-            drawScreenRect(sx - width * 0.18f, sy - height * 0.20f,
-                    sx + width * 0.18f, sy - height * 0.07f,
-                    lamp, 0.92f * alpha);
-        }
+        // 옆면
+        float inner = sx + side * halfW;
+        drawScreenQuad(inner, sy, inner + dx, sy + dy,
+                inner + dx, roofY + dy, inner, roofY,
+                flank, 0.96f * alpha);
+        // 윗면
+        drawScreenQuad(sx - halfW, roofY, sx + halfW, roofY,
+                sx + halfW + dx, roofY + dy, sx - halfW + dx, roofY + dy,
+                top, 0.96f * alpha);
+        // 뒷면: 가운데 사각 + 위아래 좁은 띠로 모서리를 둥글게 보이게 한다.
+        drawScreenRect(sx - halfW, roofY + corner, sx + halfW, sy - corner,
+                rear, 0.96f * alpha);
+        drawScreenRect(sx - halfW + corner, roofY, sx + halfW - corner, roofY + corner,
+                rear, 0.96f * alpha);
+        drawScreenRect(sx - halfW + corner, sy - corner, sx + halfW - corner, sy,
+                rear, 0.96f * alpha);
+        // 모서리 삼각형 4개
+        drawScreenQuad(sx - halfW, roofY + corner, sx - halfW + corner, roofY,
+                sx - halfW + corner, roofY + corner, sx - halfW + corner, roofY + corner,
+                rear, 0.96f * alpha);
+        drawScreenQuad(sx + halfW - corner, roofY, sx + halfW, roofY + corner,
+                sx + halfW - corner, roofY + corner, sx + halfW - corner, roofY + corner,
+                rear, 0.96f * alpha);
+        drawScreenQuad(sx - halfW, sy - corner, sx - halfW + corner, sy - corner,
+                sx - halfW + corner, sy, sx - halfW + corner, sy - corner,
+                rear, 0.96f * alpha);
+        drawScreenQuad(sx + halfW - corner, sy - corner, sx + halfW, sy - corner,
+                sx + halfW - corner, sy, sx + halfW - corner, sy - corner,
+                rear, 0.96f * alpha);
     }
 
     private static boolean nearTrackedLead(JSONObject lead, float distance, float lateral) {
