@@ -372,6 +372,9 @@ def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
   phone = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
            "main" / "java" / "ai" / "comma" / "remotehud" /
            "PhoneVehicleDetector.java").read_text(encoding="utf-8")
+  renderer = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+              "main" / "java" / "ai" / "comma" / "remotehud" /
+              "ModelWorldGL.java").read_text(encoding="utf-8")
   gradle = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" /
             "build.gradle").read_text(encoding="utf-8")
 
@@ -391,6 +394,14 @@ def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
   assert "Process.THREAD_PRIORITY_BACKGROUND" in service
   assert "s9TempC >= 82f" in service and "s9TempC <= 78f" in service
   assert 'object.put("src", "P")' in phone
+  assert 'object.put("type", normalizeVehicleType(vehicle.getLabel()))' in phone
+  for vehicle_type in ("car", "truck", "bus", "motorcycle", "bicycle"):
+    assert '"%s"' % vehicle_type in phone
+    assert '"%s"' % vehicle_type in renderer
+  assert "drawVisionVehicleIcon" in renderer
+  assert "drawTruckIcon" in renderer
+  assert "drawBusIcon" in renderer
+  assert "drawTwoWheelerIcon" in renderer
   assert "CAMERA_TO_BUMPER_M = 1.52f" in phone
   assert 'context, "mobilenetv1.tflite", options' in phone
   assert 'tensorflow-lite-task-vision:0.4.0' in gradle

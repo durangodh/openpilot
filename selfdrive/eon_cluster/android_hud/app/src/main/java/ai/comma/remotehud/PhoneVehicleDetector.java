@@ -97,6 +97,10 @@ final class PhoneVehicleDetector implements AutoCloseable {
                 object.put("y", Math.round(lateral * 100d) / 100d);
                 object.put("p", Math.round(vehicle.getScore() * 100d) / 100d);
                 object.put("src", "P");
+                // Retain the COCO class for display-only type-specific HUD
+                // silhouettes.  This value never leaves the S9 or reaches
+                // RadarD/controls.
+                object.put("type", normalizeVehicleType(vehicle.getLabel()));
                 output.put(object);
                 if (output.length() >= MAX_RESULTS) {
                     break;
@@ -111,16 +115,20 @@ final class PhoneVehicleDetector implements AutoCloseable {
     private static Category bestVehicleCategory(List<Category> categories) {
         Category best = null;
         for (Category category : categories) {
-            String label = category.getLabel() == null ? ""
-                    : category.getLabel().toLowerCase(Locale.US);
+            String label = normalizeVehicleType(category.getLabel());
             boolean vehicle = label.equals("car") || label.equals("truck")
                     || label.equals("bus") || label.equals("motorcycle")
-                    || label.equals("motorbike") || label.equals("bicycle");
+                    || label.equals("bicycle");
             if (vehicle && (best == null || category.getScore() > best.getScore())) {
                 best = category;
             }
         }
         return best;
+    }
+
+    private static String normalizeVehicleType(String label) {
+        String normalized = label == null ? "" : label.toLowerCase(Locale.US);
+        return normalized.equals("motorbike") ? "motorcycle" : normalized;
     }
 
     @Override

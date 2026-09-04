@@ -466,8 +466,9 @@ final class ModelWorldGL {
         JSONArray phoneObjects = scene.optJSONArray("phoneVisionObjects");
         drawVisionObjects(scene.optJSONArray("visionObjects"), scene, path, dark,
                 phoneObjects);
-        // Phone-side TFLite results use the same box-only renderer and remain
-        // completely separate from the tracked lead sprites and controls.
+        // Phone-side TFLite results retain their COCO vehicle class and use
+        // lightweight type-specific silhouettes. They remain completely
+        // separate from the tracked lead sprites and controls.
         drawVisionObjects(phoneObjects, scene, path, dark, null);
         drawLead(scene.optJSONObject("lead2"), path, 1, dark, true, timestamp, leadSprite);
         drawLead(scene.optJSONObject("lead"), path, 0, dark, false, timestamp, leadSprite);
@@ -709,6 +710,15 @@ final class ModelWorldGL {
         drawVertices(GLES20.GL_TRIANGLES, v / 2, color, alpha);
     }
 
+    private void drawScreenQuad(float ax, float ay, float bx, float by,
+                                float cx, float cy, float dx, float dy,
+                                int color, float alpha) {
+        int v = 0;
+        v = addTriangle(v, ax, ay, dx, dy, bx, by);
+        v = addTriangle(v, bx, by, dx, dy, cx, cy);
+        drawVertices(GLES20.GL_TRIANGLES, v / 2, color, alpha);
+    }
+
     private void drawScreenOutline(float left, float top, float right, float bottom,
                                    float stroke, int color, float alpha) {
         drawScreenRect(left, top, right, top + stroke, color, alpha);
@@ -752,13 +762,163 @@ final class ModelWorldGL {
             float width = clamp(1.88f * scale, 8f, 44f);
             float height = clamp(0.90f * scale, 6f, 27f);
             float alpha = clamp(0.28f + probability * 0.58f, 0f, 0.90f);
+            String type = object.optString("type", "");
+            if (isPhoneVehicleType(type)) {
+                drawVisionVehicleIcon(sx, sy, width, height, type, dark, alpha);
+                continue;
+            }
             // leadsV3 and phone TFLite are both camera-only observations.
-            // Keep every untracked vision box blue; orange is reserved for a
-            // radar-backed tracked lead.
+            // An old phone packet without a type and unmatched leadsV3 remain
+            // blue boxes; orange is reserved for a radar-backed tracked lead.
             int color = dark ? Color.rgb(65, 157, 255) : Color.rgb(0, 82, 255);
             drawScreenOutline(sx - width * 0.52f, sy - height,
                     sx + width * 0.52f, sy,
                     Math.max(1.0f, width * 0.05f), color, alpha);
+        }
+    }
+
+    private static boolean isPhoneVehicleType(String type) {
+        return "car".equals(type) || "truck".equals(type) || "bus".equals(type)
+                || "motorcycle".equals(type) || "bicycle".equals(type);
+    }
+
+    /**
+     * Tesla-like spatial vehicle language without copying any proprietary art.
+     * A few shaded quads make distinct rear-view silhouettes and cost much less
+     * than loading/scaling a bitmap for every 2 Hz phone detection.
+     */
+    private void drawVisionVehicleIcon(float sx, float sy, float baseWidth,
+                                       float baseHeight, String type,
+                                       boolean dark, float alpha) {
+        float width = baseWidth;
+        float height = baseHeight * 1.20f;
+        if ("truck".equals(type)) {
+            width *= 1.12f;
+            height *= 1.42f;
+        } else if ("bus".equals(type)) {
+            width *= 1.16f;
+            height *= 1.58f;
+        } else if ("motorcycle".equals(type)) {
+            width *= 0.48f;
+            height *= 1.04f;
+        } else if ("bicycle".equals(type)) {
+            width *= 0.54f;
+            height *= 0.92f;
+        }
+
+        int vision = dark ? Color.rgb(65, 157, 255) : Color.rgb(0, 82, 255);
+        int shadow = dark ? Color.rgb(7, 10, 14) : Color.rgb(73, 80, 87);
+        int body = dark ? Color.rgb(168, 177, 186) : Color.rgb(183, 190, 197);
+        int highlight = dark ? Color.rgb(213, 220, 226) : Color.rgb(224, 228, 232);
+        int glass = dark ? Color.rgb(39, 49, 59) : Color.rgb(86, 96, 106);
+        int lamp = Color.rgb(226, 58, 64);
+
+        // Blue ground glow identifies every phone-camera-only object without a
+        // rectangular detector box. The neutral body remains readable in both
+        // themes and matches the reference's understated vehicle models.
+        drawScreenQuad(sx - width * 0.64f, sy - height * 0.03f,
+                sx + width * 0.64f, sy - height * 0.03f,
+                sx + width * 0.48f, sy + Math.max(1.5f, height * 0.13f),
+                sx - width * 0.48f, sy + Math.max(1.5f, height * 0.13f),
+                vision, 0.48f * alpha);
+        drawScreenRect(sx - width * 0.52f, sy - height * 0.02f,
+                sx + width * 0.52f, sy + Math.max(1.0f, height * 0.06f),
+                shadow, 0.42f * alpha);
+
+        if ("truck".equals(type)) {
+            drawTruckIcon(sx, sy, width, height, body, highlight, shadow, lamp, alpha);
+        } else if ("bus".equals(type)) {
+            drawBusIcon(sx, sy, width, height, body, highlight, glass, lamp, alpha);
+        } else if ("motorcycle".equals(type) || "bicycle".equals(type)) {
+            drawTwoWheelerIcon(sx, sy, width, height, body, highlight, shadow,
+                    lamp, "bicycle".equals(type), alpha);
+        } else {
+            drawCarIcon(sx, sy, width, height, body, highlight, glass, lamp, alpha);
+        }
+    }
+
+    private void drawCarIcon(float sx, float sy, float width, float height,
+                             int body, int highlight, int glass, int lamp,
+                             float alpha) {
+        drawScreenQuad(sx - width * 0.50f, sy - height * 0.48f,
+                sx + width * 0.50f, sy - height * 0.48f,
+                sx + width * 0.43f, sy, sx - width * 0.43f, sy,
+                body, 0.94f * alpha);
+        drawScreenQuad(sx - width * 0.28f, sy - height,
+                sx + width * 0.28f, sy - height,
+                sx + width * 0.40f, sy - height * 0.45f,
+                sx - width * 0.40f, sy - height * 0.45f,
+                highlight, 0.94f * alpha);
+        drawScreenQuad(sx - width * 0.23f, sy - height * 0.89f,
+                sx + width * 0.23f, sy - height * 0.89f,
+                sx + width * 0.32f, sy - height * 0.58f,
+                sx - width * 0.32f, sy - height * 0.58f,
+                glass, 0.76f * alpha);
+        drawScreenRect(sx - width * 0.38f, sy - height * 0.25f,
+                sx - width * 0.22f, sy - height * 0.10f, lamp, 0.90f * alpha);
+        drawScreenRect(sx + width * 0.22f, sy - height * 0.25f,
+                sx + width * 0.38f, sy - height * 0.10f, lamp, 0.90f * alpha);
+    }
+
+    private void drawTruckIcon(float sx, float sy, float width, float height,
+                               int body, int highlight, int shadow, int lamp,
+                               float alpha) {
+        drawScreenQuad(sx - width * 0.48f, sy - height,
+                sx + width * 0.48f, sy - height,
+                sx + width * 0.52f, sy - height * 0.19f,
+                sx - width * 0.52f, sy - height * 0.19f,
+                highlight, 0.96f * alpha);
+        drawScreenRect(sx - width * 0.52f, sy - height * 0.30f,
+                sx + width * 0.52f, sy, body, 0.96f * alpha);
+        drawScreenRect(sx - width * 0.40f, sy - height * 0.88f,
+                sx + width * 0.40f, sy - height * 0.31f,
+                shadow, 0.24f * alpha);
+        drawScreenRect(sx - width * 0.43f, sy - height * 0.20f,
+                sx - width * 0.29f, sy - height * 0.06f, lamp, 0.92f * alpha);
+        drawScreenRect(sx + width * 0.29f, sy - height * 0.20f,
+                sx + width * 0.43f, sy - height * 0.06f, lamp, 0.92f * alpha);
+    }
+
+    private void drawBusIcon(float sx, float sy, float width, float height,
+                             int body, int highlight, int glass, int lamp,
+                             float alpha) {
+        drawScreenQuad(sx - width * 0.46f, sy - height,
+                sx + width * 0.46f, sy - height,
+                sx + width * 0.52f, sy, sx - width * 0.52f, sy,
+                body, 0.96f * alpha);
+        drawScreenRect(sx - width * 0.38f, sy - height * 0.84f,
+                sx + width * 0.38f, sy - height * 0.48f,
+                glass, 0.82f * alpha);
+        drawScreenRect(sx - width * 0.44f, sy - height,
+                sx + width * 0.44f, sy - height * 0.91f,
+                highlight, 0.86f * alpha);
+        drawScreenRect(sx - width * 0.40f, sy - height * 0.20f,
+                sx - width * 0.27f, sy - height * 0.06f, lamp, 0.94f * alpha);
+        drawScreenRect(sx + width * 0.27f, sy - height * 0.20f,
+                sx + width * 0.40f, sy - height * 0.06f, lamp, 0.94f * alpha);
+    }
+
+    private void drawTwoWheelerIcon(float sx, float sy, float width, float height,
+                                    int body, int highlight, int shadow, int lamp,
+                                    boolean bicycle, float alpha) {
+        float wheel = Math.max(1.2f, width * (bicycle ? 0.18f : 0.24f));
+        drawScreenRect(sx - wheel * 0.50f, sy - height * 0.58f,
+                sx + wheel * 0.50f, sy + height * 0.02f,
+                shadow, 0.88f * alpha);
+        drawScreenQuad(sx - width * 0.30f, sy - height * 0.52f,
+                sx + width * 0.30f, sy - height * 0.52f,
+                sx + width * 0.20f, sy - height * 0.08f,
+                sx - width * 0.20f, sy - height * 0.08f,
+                body, 0.95f * alpha);
+        drawScreenQuad(sx - width * 0.16f, sy - height * 0.92f,
+                sx + width * 0.16f, sy - height * 0.92f,
+                sx + width * 0.27f, sy - height * 0.50f,
+                sx - width * 0.27f, sy - height * 0.50f,
+                highlight, 0.92f * alpha);
+        if (!bicycle) {
+            drawScreenRect(sx - width * 0.18f, sy - height * 0.20f,
+                    sx + width * 0.18f, sy - height * 0.07f,
+                    lamp, 0.92f * alpha);
         }
     }
 

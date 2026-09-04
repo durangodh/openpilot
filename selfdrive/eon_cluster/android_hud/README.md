@@ -14,23 +14,26 @@ detects COCO car/truck/bus/motorcycle/bicycle classes. No DLC, SNPE SDK, or
 user-supplied model file is required.
 
 `leadOne` and `leadTwo` keep the normal vehicle sprite. Each distinct unmatched
-`leadsV3` candidate and phone TFLite detection remains a blue box only.
-Candidates near a tracked lead are suppressed to avoid drawing the
-same vehicle twice. All detector data stays inside the S9 renderer and is never
-sent back to EON controls.
+`leadsV3` candidate remains a blue box because the openpilot lead hypotheses do
+not carry an object class. Phone TFLite detections retain their COCO class and
+are drawn as neutral 3D-style car, truck, bus, motorcycle, or bicycle
+silhouettes with a blue camera-only ground highlight. Candidates near a tracked
+lead are suppressed to avoid drawing the same vehicle twice. All detector data
+stays inside the S9 renderer and is never sent back to EON controls.
 
 ```json
 {
   "updated_at_ms": 1730000000000,
   "objects": [
-    {"d": 24.8, "y": -3.1, "p": 0.92},
-    {"d": 41.2, "y": 3.5, "p": 0.81}
+    {"d": 24.8, "y": -3.1, "p": 0.92, "type": "truck"},
+    {"d": 41.2, "y": 3.5, "p": 0.81, "type": "motorcycle"}
   ]
 }
 ```
 
 `d` is forward distance in metres from the car, `y` is left-positive lateral
-offset in metres, and `p` is detector confidence. Phone detections use the
+offset in metres, `p` is detector confidence, and phone-local `type` selects the
+display silhouette. Phone detections use the
 bottom centre of each box plus EON live calibration to project onto the road.
 The app accepts at most 24 objects, rejects the configured confidence threshold,
 drops stale results after 1.2 seconds, pauses inference at 82 C, and resumes at
