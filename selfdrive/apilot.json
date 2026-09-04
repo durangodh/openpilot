@@ -1344,8 +1344,8 @@
   {
    "group": "S9HUD",
    "name": "EonClusterHudVisionDetector",
-   "title": "S9 HUD ALL VEHICLES (DSP)",
-   "descr": "실험 기능: 별도 SNPE/DSP 차량 검출 모델로 여러 차량을 표시합니다. 표시 전용이며 제어에는 사용하지 않습니다.",
+   "title": "S9 HUD CAMERA VEHICLES (TFLITE)",
+   "descr": "EON 저해상도 카메라를 S9 내장 TFLite 모델로 검출해 차량을 박스로만 표시합니다. DLC/Qualcomm SDK가 필요 없고 제어에는 사용하지 않습니다.",
    "min": 0,
    "max": 1,
    "default": 0,
@@ -1355,9 +1355,9 @@
    "group": "S9HUD",
    "name": "EonClusterHudVisionDetectorFps",
    "title": "S9 VEHICLE DETECTOR FPS",
-   "descr": "차량 검출 빈도. 권장 2 / 발열 최소 1 / 최대 3",
+   "descr": "S9 CPU 차량 검출 빈도. 권장 2 / 발열 최소 1 / 최대 2",
    "min": 1,
-   "max": 3,
+   "max": 2,
    "default": 2,
    "unit": 1
   },

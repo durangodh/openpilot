@@ -1,5 +1,10 @@
 # S9 HUD full-frame vehicle detector
 
+> Legacy reference only: the manager no longer starts this SNPE/DLC daemon.
+> The supported implementation now bundles MobileNetV1 TFLite in the Android
+> APK and runs inference on the S9 from a low-rate EON camera preview. No DLC or
+> Qualcomm SDK installation is required.
+
 `vehicle_detectord` is an optional, display-only detector for EON. It reads the
 road RGB VisionIPC stream, runs a small network on the Qualcomm SNPE DSP, maps
 the bottom centre of each vehicle box onto the calibrated road plane, and

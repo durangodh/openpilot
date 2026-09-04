@@ -463,7 +463,12 @@ final class ModelWorldGL {
         drawBsd(scene);
         // Full-frame detector objects and unmatched model lead candidates are
         // display-only.  They are never fed back into RadarD or controls.
-        drawVisionObjects(scene.optJSONArray("visionObjects"), scene, path, dark);
+        JSONArray phoneObjects = scene.optJSONArray("phoneVisionObjects");
+        drawVisionObjects(scene.optJSONArray("visionObjects"), scene, path, dark,
+                phoneObjects);
+        // Phone-side TFLite results use the same box-only renderer and remain
+        // completely separate from the tracked lead sprites and controls.
+        drawVisionObjects(phoneObjects, scene, path, dark, null);
         drawLead(scene.optJSONObject("lead2"), path, 1, dark, true, timestamp, leadSprite);
         drawLead(scene.optJSONObject("lead"), path, 0, dark, false, timestamp, leadSprite);
         // 헤이즈는 맨 마지막. 지평선 근처만 덮으므로 근경에는 영향이 없다.
@@ -712,7 +717,7 @@ final class ModelWorldGL {
 
     /** Draw every fresh vehicle candidate supplied on the display-only wire. */
     private void drawVisionObjects(JSONArray objects, JSONObject scene,
-                                   Line roadHeight, boolean dark) {
+                                   Line roadHeight, boolean dark, JSONArray suppress) {
         if (objects == null) {
             return;
         }
@@ -728,7 +733,8 @@ final class ModelWorldGL {
             if (probability < 0.30f || distance < 2f || distance > 180f
                     || Math.abs(lateral) > 15f
                     || nearTrackedLead(scene.optJSONObject("lead"), distance, lateral)
-                    || nearTrackedLead(scene.optJSONObject("lead2"), distance, lateral)) {
+                    || nearTrackedLead(scene.optJSONObject("lead2"), distance, lateral)
+                    || nearVisionObject(suppress, distance, lateral)) {
                 continue;
             }
             float z = zAt(roadHeight, distance) * roadZGain + 0.12f;
@@ -744,7 +750,8 @@ final class ModelWorldGL {
             float width = clamp(1.88f * scale, 8f, 44f);
             float height = clamp(0.90f * scale, 6f, 27f);
             float alpha = clamp(0.28f + probability * 0.58f, 0f, 0.90f);
-            boolean detector = "D".equals(object.optString("src", "M"));
+            String source = object.optString("src", "M");
+            boolean detector = "D".equals(source) || "P".equals(source);
             int color = detector
                     ? (dark ? Color.rgb(84, 236, 148) : Color.rgb(0, 150, 76))
                     : (dark ? Color.rgb(65, 222, 242) : Color.rgb(0, 145, 184));
@@ -758,6 +765,21 @@ final class ModelWorldGL {
         return lead != null
                 && Math.abs((float) lead.optDouble("d", -1000d) - distance) <= 3.0f
                 && Math.abs((float) lead.optDouble("y", -1000d) - lateral) <= 1.2f;
+    }
+
+    private static boolean nearVisionObject(JSONArray objects, float distance, float lateral) {
+        if (objects == null) {
+            return false;
+        }
+        for (int i = 0; i < objects.length(); i++) {
+            JSONObject other = objects.optJSONObject(i);
+            if (other != null
+                    && Math.abs((float) other.optDouble("d", -1000d) - distance) <= 3.0f
+                    && Math.abs((float) other.optDouble("y", -1000d) - lateral) <= 1.2f) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void drawRoad(Line path, Line left, Line right, JSONObject scene, int color) {

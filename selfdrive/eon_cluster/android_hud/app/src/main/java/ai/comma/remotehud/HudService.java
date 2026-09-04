@@ -28,6 +28,7 @@ import android.hardware.usb.UsbManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.os.Process;
 import android.os.SystemClock;
 
 import org.json.JSONArray;
@@ -200,6 +201,7 @@ public final class HudService extends Service {
     private Bitmap statusIcons;  // 순정 계기판 스타일: 미등/전조등/안전벨트/문 열림 PNG 스프라이트
     private Thread receiverThread;
     private Thread mapThread;
+    private Thread detectorThread;
     private Thread renderThread;
     private int usbErrorStreak;
     private boolean usbReceiverRegistered;
@@ -304,6 +306,11 @@ public final class HudService extends Service {
     /** 티맵 분기 실사 이미지(crossroad_expanded). 안내가 끝나면 EON 이 파일을 지운다. */
     private final AtomicReference<Bitmap> crossroadFrame = new AtomicReference<>();
     private final AtomicReference<Bitmap> laneFrame = new AtomicReference<>();
+    /** Latest compressed road preview; inference takes only the newest frame. */
+    private final AtomicReference<byte[]> phoneCameraFrame = new AtomicReference<>();
+    private final AtomicReference<JSONArray> phoneVisionObjects =
+            new AtomicReference<>(new JSONArray());
+    private volatile long phoneVisionUpdatedElapsed;
     private final AtomicReference<InetAddress> eonAddress = new AtomicReference<>();
     private final Object assetLock = new Object();
 
@@ -516,6 +523,12 @@ public final class HudService extends Service {
                 renderLoop();
             }
         }, "hud-render");
+        detectorThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                detectorLoop();
+            }
+        }, "hud-phone-vision");
         statsThread = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -524,6 +537,7 @@ public final class HudService extends Service {
         }, "hud-stats");
         receiverThread.start();
         mapThread.start();
+        detectorThread.start();
         renderThread.start();
         statsThread.start();
 
@@ -698,6 +712,12 @@ public final class HudService extends Service {
                     if (length > 0) {
                         in.readFully(data);
                     }
+                    if (tagEquals(header, "CAM1")) {
+                        // Keep networking responsive: JPEG decode and TFLite
+                        // inference happen on the low-priority detector thread.
+                        phoneCameraFrame.set(data.length == 0 ? null : data);
+                        continue;
+                    }
                     synchronized (assetLock) {
                         if (tagEquals(header, "MAP1")) {
                             long mapNow = SystemClock.elapsedRealtime();
@@ -735,6 +755,79 @@ public final class HudService extends Service {
         mapConnected = false;
     }
 
+    /** Low-rate CPU inference on S9. Results are render-only JSON boxes. */
+    private void detectorLoop() {
+        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+        PhoneVehicleDetector detector = null;
+        boolean thermalPaused = false;
+        long retryAfter = 0L;
+        long nextInference = 0L;
+        try {
+            while (running.get()) {
+                JSONObject currentState = state.get();
+                boolean enabled = currentState.optInt("hudPhoneVision", 0) != 0;
+                if (!enabled) {
+                    phoneCameraFrame.set(null);
+                    phoneVisionObjects.set(new JSONArray());
+                    phoneVisionUpdatedElapsed = 0L;
+                    SystemClock.sleep(300L);
+                    continue;
+                }
+
+                if (s9TempC >= 82f) {
+                    thermalPaused = true;
+                } else if (s9TempC > 0f && s9TempC <= 78f) {
+                    thermalPaused = false;
+                }
+                if (thermalPaused) {
+                    phoneCameraFrame.set(null);
+                    phoneVisionObjects.set(new JSONArray());
+                    phoneVisionUpdatedElapsed = 0L;
+                    SystemClock.sleep(500L);
+                    continue;
+                }
+
+                long now = SystemClock.elapsedRealtime();
+                if (now < nextInference) {
+                    SystemClock.sleep(Math.min(50L, nextInference - now));
+                    continue;
+                }
+                byte[] jpeg = phoneCameraFrame.getAndSet(null);
+                if (jpeg == null) {
+                    SystemClock.sleep(50L);
+                    continue;
+                }
+                if (detector == null) {
+                    if (now < retryAfter) {
+                        continue;
+                    }
+                    try {
+                        detector = new PhoneVehicleDetector(getApplicationContext());
+                    } catch (Throwable error) {
+                        retryAfter = now + 10000L;
+                        SystemClock.sleep(500L);
+                        continue;
+                    }
+                }
+                try {
+                    JSONArray objects = detector.detect(jpeg, currentState);
+                    phoneVisionObjects.set(objects);
+                    phoneVisionUpdatedElapsed = SystemClock.elapsedRealtime();
+                } catch (Throwable error) {
+                    phoneVisionObjects.set(new JSONArray());
+                    phoneVisionUpdatedElapsed = 0L;
+                }
+                int fps = Math.max(1, Math.min(2,
+                        currentState.optInt("hudVisionFps", 2)));
+                nextInference = SystemClock.elapsedRealtime() + 1000L / fps;
+            }
+        } finally {
+            if (detector != null) {
+                detector.close();
+            }
+        }
+    }
+
     // ── 렌더 루프 ─────────────────────────────────────────────────────────
 
     private void renderLoop() {
@@ -751,6 +844,15 @@ public final class HudService extends Service {
             long due = now + frameIntervalMs;
 
             JSONObject currentState = state.get();
+            try {
+                if (phoneVisionUpdatedElapsed > 0L
+                        && now - phoneVisionUpdatedElapsed <= 1200L) {
+                    currentState.put("phoneVisionObjects", phoneVisionObjects.get());
+                } else {
+                    currentState.remove("phoneVisionObjects");
+                }
+            } catch (JSONException ignored) {
+            }
             // 출력 대상은 FPS 0(패널 끄기) 상태에서도 즉시 바뀌어야 한다.
             applyFrameConfiguration(currentState);
             int requestedFps = Math.max(0, Math.min(15, currentState.optInt("hudFps", 8)));
@@ -4215,6 +4317,9 @@ public final class HudService extends Service {
         measuredFps = 0.0f;
         lastJpegBytes = 0;
         lastRenderElapsed = 0L;
+        phoneCameraFrame.set(null);
+        phoneVisionObjects.set(new JSONArray());
+        phoneVisionUpdatedElapsed = 0L;
         if (activeInstance == this) {
             activeInstance = null;
         }

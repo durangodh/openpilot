@@ -8,13 +8,16 @@ candidate exposed by `modelV2.leadsV3`. These candidates are display-only and
 never enter RadarD, longitudinal control, or FCW decisions.
 
 `leadsV3` is a small set of time-offset lead hypotheses, not a full object
-detector. To display every vehicle seen in the camera image, a separate
-detector may atomically publish `/dev/shm/vision_vehicle_objects.json`:
+detector. The supported full-image path therefore sends a rate-limited
+320x240 road preview to the S9, where the APK-bundled MobileNetV1 TFLite model
+detects COCO car/truck/bus/motorcycle/bicycle classes. No DLC, SNPE SDK, or
+user-supplied model file is required.
 
-Without that optional detector or its DLC, `leadOne` and `leadTwo` keep the
-normal vehicle sprite while each distinct unmatched `leadsV3` candidate is
-shown only as a cyan box. Candidates near a tracked lead are suppressed to
-avoid drawing the same vehicle twice.
+`leadOne` and `leadTwo` keep the normal vehicle sprite. Each distinct unmatched
+`leadsV3` candidate remains a cyan box, while phone TFLite detections are green
+boxes only. Candidates near a tracked lead are suppressed to avoid drawing the
+same vehicle twice. All detector data stays inside the S9 renderer and is never
+sent back to EON controls.
 
 ```json
 {
@@ -27,14 +30,13 @@ avoid drawing the same vehicle twice.
 ```
 
 `d` is forward distance in metres from the car, `y` is left-positive lateral
-offset in metres, and `p` is detector confidence. The HUD accepts at most 24
-objects, rejects confidence below 0.30, drops the whole feed after 900 ms, and
-suppresses boxes that overlap `leadOne` or `leadTwo`. Detector objects are
-green; built-in model candidates are cyan. No detector model is bundled: EON
-needs a separately benchmarked SNPE/DSP model, because adding an unverified
-CPU ONNX detector can reduce model/control timing and overheat the device.
-The supported tensor contract, installation path, and thermal safeguards are
-documented in `selfdrive/modeld/VEHICLE_DETECTOR.md`.
+offset in metres, and `p` is detector confidence. Phone detections use the
+bottom centre of each box plus EON live calibration to project onto the road.
+The app accepts at most 24 objects, rejects the configured confidence threshold,
+drops stale results after 1.2 seconds, pauses inference at 82 C, and resumes at
+78 C. The preview/detector rate is limited to 1 or 2 FPS. This is display-only
+and is not physical radar: hills, dips, crests, partial occlusion, calibration
+error, and poor light can make the estimated position wrong or miss vehicles.
 
 > **v1.06 local map context** — `ModelWorldGL` keeps the modelV2 road
 > authoritative and draws an optional S9-local SQLite road/building layer
@@ -85,10 +87,12 @@ documented in `selfdrive/modeld/VEHICLE_DETECTOR.md`.
 > 아래 v0.31 이하 절은 당시 기록이므로 현재 코드와 다를 수 있다.
 
 This optional companion moves the 1920x462 HUD render, JPEG compression and
-TURZX `1cbe:0092` USB upload from the EON to an Android phone.  The EON sends a
-small UDP JSON telemetry packet at 10 Hz. The already-compressed TMAP JPEG
-received from the existing phone sender is forwarded unchanged over TCP; EON
-does not decode, resize, composite, or re-encode it.
+TURZX `1cbe:0092` USB upload from the EON to an Android phone. The EON sends a
+small UDP JSON telemetry packet at 10 Hz. When camera-vehicle boxes are enabled,
+it additionally resizes/JPEG-encodes one 320x240 preview at no more than 2 FPS.
+The already-compressed TMAP JPEG received from the existing phone sender is
+forwarded unchanged over TCP; EON does not decode, resize, composite, or
+re-encode the map.
 
 ## EON
 

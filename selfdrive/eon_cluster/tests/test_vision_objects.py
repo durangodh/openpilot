@@ -1,6 +1,7 @@
 import json
 from types import SimpleNamespace
 
+from common.transformations.camera import get_view_frame_from_road_frame
 from selfdrive.eon_cluster import remote_hud
 
 
@@ -75,3 +76,17 @@ def test_radar_lead_wire_keeps_sensor_provenance():
 
   assert remote_hud._lead(radar, "leadOne")["src"] == "R"
   assert remote_hud._lead(vision, "leadOne")["src"] == "V"
+
+
+def test_camera_ground_homography_is_finite_and_matches_eon_frame():
+  extrinsic = get_view_frame_from_road_frame(0.0, 0.0, 0.0, 1.22)
+  calibration = SimpleNamespace(extrinsicMatrix=extrinsic.reshape(-1).tolist())
+  remote_hud._CAMERA_GROUND_CACHE.update(signature=None, value=None)
+
+  ground = remote_hud._camera_ground(calibration)
+  assert ground["w"] == 1164
+  assert ground["h"] == 874
+  assert len(ground["m"]) == 9
+  assert all(abs(value) < 1e6 for value in ground["m"])
+  # Invalid/stale calibration fails closed, so phone detections disappear.
+  assert remote_hud._camera_ground(SimpleNamespace(extrinsicMatrix=[])) is None

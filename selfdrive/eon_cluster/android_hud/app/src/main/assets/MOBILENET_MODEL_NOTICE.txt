@@ -1,0 +1,12 @@
+The bundled mobilenetv1.tflite file is the TensorFlow Lite Task Library
+MobileNetV1 SSD object-detection example model downloaded from:
+
+https://storage.googleapis.com/download.tensorflow.org/models/tflite/task_library/object_detection/android/lite-model_ssd_mobilenet_v1_1_metadata_2.tflite
+
+It is the model selected by TensorFlow's Apache-2.0 licensed Android object
+detection example:
+
+https://github.com/tensorflow/examples/tree/master/lite/examples/object_detection/android
+
+SHA-256:
+cbdecd08b44c5dea3821f77c5468e2936ecfbf43cde0795a2729fdb43401e58b

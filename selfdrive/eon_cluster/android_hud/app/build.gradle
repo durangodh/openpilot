@@ -1,8 +1,8 @@
 plugins { id "com.android.application" }
 
 def remoteHudKeystorePath = System.getenv("REMOTE_HUD_KEYSTORE_PATH")
-def remoteHudVersionCode = (System.getenv("REMOTE_HUD_VERSION_CODE") ?: "125").toInteger()
-def remoteHudVersionName = System.getenv("REMOTE_HUD_VERSION_NAME") ?: "1.08-stable-signing"
+def remoteHudVersionCode = (System.getenv("REMOTE_HUD_VERSION_CODE") ?: "126").toInteger()
+def remoteHudVersionName = System.getenv("REMOTE_HUD_VERSION_NAME") ?: "1.09-phone-vision"
 
 android {
   namespace "ai.comma.remotehud"
@@ -13,6 +13,9 @@ android {
     targetSdk 35
     versionCode remoteHudVersionCode
     versionName remoteHudVersionName
+    // The target SM-G960F / LineageOS 20 installation is arm64. Avoid bundling
+    // unused x86/32-bit TensorFlow native runtimes into the signed APK.
+    ndk { abiFilters "arm64-v8a" }
   }
   signingConfigs {
     remoteHudStable {
@@ -38,4 +41,11 @@ android {
     sourceCompatibility JavaVersion.VERSION_11
     targetCompatibility JavaVersion.VERSION_11
   }
+  androidResources { noCompress "tflite" }
+}
+
+dependencies {
+  // Standalone runtime: works on the user's LineageOS S9 without requiring
+  // Google Play services.  CPU inference is deliberately rate-limited.
+  implementation "org.tensorflow:tensorflow-lite-task-vision:0.4.0"
 }

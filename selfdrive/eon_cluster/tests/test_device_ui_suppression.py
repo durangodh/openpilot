@@ -351,7 +351,8 @@ def test_remote_hud_displays_vision_candidates_without_control_feedback():
   assert "visionSprite" not in renderer
   assert "modelWorldGl.visionSprite" not in service
   assert "leadSpriteVision(int index)" in renderer
-  assert '"D".equals(object.optString("src", "M"))' in renderer
+  assert '"D".equals(source) || "P".equals(source)' in renderer
+  assert "nearVisionObject(suppress, distance, lateral)" in renderer
   assert '"VISION %.0f%%"' in service
   assert "float labelBaseline = Math.max(textSize + 4f" in service
   assert "carTop - Math.max(5f, textSize * 0.35f)" in service
@@ -361,42 +362,44 @@ def test_remote_hud_displays_vision_candidates_without_control_feedback():
   assert "visionObjects" not in (ROOT / "selfdrive" / "controls" / "radard.py").read_text(encoding="utf-8")
 
 
-def test_optional_vehicle_detector_is_dsp_only_and_display_only():
+def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
   manager = (ROOT / "selfdrive" / "manager" / "manager.py").read_text(encoding="utf-8")
   processes = (ROOT / "selfdrive" / "manager" / "process_config.py").read_text(encoding="utf-8")
   params = (ROOT / "selfdrive" / "common" / "params.cc").read_text(encoding="utf-8")
-  sconscript = (ROOT / "selfdrive" / "modeld" / "SConscript").read_text(encoding="utf-8")
-  daemon = (ROOT / "selfdrive" / "modeld" / "vehicle_detectord.cc").read_text(encoding="utf-8")
-  detector = (ROOT / "selfdrive" / "modeld" / "models" /
-              "vehicle_detector.cc").read_text(encoding="utf-8")
-  config = (ROOT / "models" / "vehicle_detector.json").read_text(encoding="utf-8")
-  release_files = (ROOT / "release" / "files_common").read_text(encoding="utf-8")
+  preview = (ROOT / "selfdrive" / "eon_cluster" / "camera_preview.py").read_text(encoding="utf-8")
+  sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(encoding="utf-8")
+  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+             "main" / "java" / "ai" / "comma" / "remotehud" /
+             "HudService.java").read_text(encoding="utf-8")
+  phone = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+           "main" / "java" / "ai" / "comma" / "remotehud" /
+           "PhoneVehicleDetector.java").read_text(encoding="utf-8")
+  gradle = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" /
+            "build.gradle").read_text(encoding="utf-8")
 
-  assert 'NativeProcess("vehicle_detectord", "selfdrive/modeld", ["./vehicle_detectord"], enabled=EON)' in processes
-  assert "lenv.Program('_vehicle_detectord'" in sconscript
+  assert 'PythonProcess("hud_camera_previewd", "selfdrive.eon_cluster.camera_preview", enabled=EON)' in processes
+  assert 'NativeProcess("vehicle_detectord", "selfdrive/modeld", ["./vehicle_detectord"], enabled=False)' in processes
   for key, default in (("EonClusterHudVisionDetector", "0"),
                        ("EonClusterHudVisionDetectorFps", "2"),
                        ("EonClusterHudVisionDetectorThreshold", "55")):
     assert '("%s", "%s")' % (key, default) in manager
     assert '{"%s", PERSISTENT}' % key in params
-  assert 'setRuntimeProcessor(zdl::DlSystem::Runtime_t::DSP)' in detector
-  assert ".setCPUFallbackMode(false)" in detector
-  assert "PerformanceProfile_t::POWER_SAVER" in detector
-  assert 'OUTPUT_PATH[] = "/dev/shm/vision_vehicle_objects.json"' in daemon
-  assert "THERMAL_PAUSE_C = 82.0f" in daemon
-  assert "inference_ms > 250.0" in daemon
-  assert 'params.getBool("EonClusterHudVisionDetector")' in daemon
-  assert '"input_width": 300' in config
-  for path in ("models/vehicle_detector.json",
-               "selfdrive/modeld/vehicle_detectord.cc",
-               "selfdrive/modeld/vehicle_detectord",
-               "selfdrive/modeld/models/vehicle_detector.cc",
-               "selfdrive/modeld/models/vehicle_detector.h"):
-    assert path in release_files
-  # The detector cannot feed planning or actuation, and a site model is not bundled.
-  assert "PubMaster" not in daemon
-  assert "radarState" not in daemon
-  assert "controlsState" not in daemon
+  assert 'PREVIEW_SIZE = (320, 240)' in preview
+  assert 'return max(1, min(2, value))' in preview
+  assert 'os.nice(10)' in preview
+  assert '(b"CAM1", CAMERA_PREVIEW_FILE' in sender
+  assert '"cameraGround": _camera_ground(sm["liveCalibration"])' in sender
+  assert 'tagEquals(header, "CAM1")' in service
+  assert "Process.THREAD_PRIORITY_BACKGROUND" in service
+  assert "s9TempC >= 82f" in service and "s9TempC <= 78f" in service
+  assert 'object.put("src", "P")' in phone
+  assert "CAMERA_TO_BUMPER_M = 1.52f" in phone
+  assert 'context, "mobilenetv1.tflite", options' in phone
+  assert 'tensorflow-lite-task-vision:0.4.0' in gradle
+  model = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" /
+           "src" / "main" / "assets" / "mobilenetv1.tflite")
+  assert model.exists() and model.stat().st_size == 4185175
+  # Legacy DLC is not started and no DLC is bundled.
   assert not (ROOT / "models" / "vehicle_detector.dlc").exists()
 
 

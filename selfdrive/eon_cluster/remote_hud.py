@@ -15,7 +15,9 @@ import struct
 import time
 
 import cereal.messaging as messaging
+import numpy as np
 from common.params import Params
+from common.transformations.camera import FULL_FRAME_SIZE, fcam_intrinsics
 
 
 from selfdrive.modeld.constants import T_IDXS
@@ -30,6 +32,7 @@ TBT_COMPACT_FILE = "/dev/shm/carrot_navi_tbt_current_compact.png"
 CROSSROAD_FILE = "/dev/shm/carrot_navi_crossroad.png"
 TBT_NEXT_FILE = "/dev/shm/carrot_navi_tbt_next.png"
 LANE_BOTTOM_FILE = "/dev/shm/carrot_navi_lane_bottom.png"
+CAMERA_PREVIEW_FILE = "/dev/shm/eon_hud_camera.jpg"
 NAVI_STATE = "/dev/shm/carrot_navi_route.json"
 # Optional output of a separate full-frame vehicle detector.  The stock
 # supercombo model only exposes lead hypotheses; it does not expose every
@@ -42,6 +45,7 @@ VISION_OBJECTS_MAX_AGE_MS = 900
 VISION_OBJECTS_MAX_COUNT = 24
 MAP_MAX_BYTES = 2 * 1024 * 1024
 OVERLAY_MAX_BYTES = 512 * 1024
+CAMERA_PREVIEW_MAX_BYTES = 256 * 1024
 MAP_KEEPALIVE_S = 1.0
 NAVI_MAX_AGE_MS = 35000
 NAVI_GUIDANCE_MAX_AGE_MS = 3000
@@ -61,6 +65,7 @@ HEARTBEAT_PERIOD_S = 2.0
 PARAM_NOO_ENABLED = "NavigationOnOpenpilot"
 _NAVI_CACHE = {"signature": None, "state": {}, "scene_sig": None, "scene": None, "parsed_at": 0.0}
 _VISION_OBJECTS_CACHE = {"signature": None, "objects": []}
+_CAMERA_GROUND_CACHE = {"signature": None, "value": None}
 
 # 날씨 조회용 마지막 좌표. 3초 신선도(NAVI_STREAM_MAX_AGE_MS)를 적용하지 않는다.
 # 날씨는 15분 주기라 몇 분 지난 좌표여도 무의미한 차이다. 정밀 GPS 는 여전히
@@ -145,6 +150,7 @@ class MapFrameServer(object):
     (b"TBT3", TBT_COMPACT_FILE, OVERLAY_MAX_BYTES, b""),
     (b"XRD1", CROSSROAD_FILE, OVERLAY_MAX_BYTES, b""),
     (b"LANE", LANE_BOTTOM_FILE, OVERLAY_MAX_BYTES, b""),
+    (b"CAM1", CAMERA_PREVIEW_FILE, CAMERA_PREVIEW_MAX_BYTES, b""),
   )
 
   def __init__(self):
@@ -354,6 +360,44 @@ def _calib_pitch(live_calibration):
     return 0.0
   pitch = _finite(rpy[1], 0.0)
   return round(max(-0.15, min(0.15, pitch)), 4)
+
+
+def _camera_ground(live_calibration):
+  """Pixel-to-road homography for phone-side display-only detections.
+
+  The detector sees the 320x240 resize, then scales its box bottom-centre back
+  to the original road-camera coordinates before applying this matrix.
+  """
+  values = list(_field(live_calibration, "extrinsicMatrix", []) or [])
+  if len(values) != 12:
+    return None
+  try:
+    signature = tuple(round(float(value), 7) for value in values)
+  except (TypeError, ValueError):
+    return None
+  if signature == _CAMERA_GROUND_CACHE["signature"]:
+    return _CAMERA_GROUND_CACHE["value"]
+  result = None
+  try:
+    extrinsic = np.asarray(signature, dtype=np.float64).reshape((3, 4))
+    projection = np.dot(fcam_intrinsics, extrinsic)
+    pixel_from_road = np.column_stack((projection[:, 0],
+                                       projection[:, 1],
+                                       projection[:, 3]))
+    determinant = float(np.linalg.det(pixel_from_road))
+    if math.isfinite(determinant) and abs(determinant) >= 1e-6:
+      road_from_pixel = np.linalg.inv(pixel_from_road)
+      if np.isfinite(road_from_pixel).all():
+        result = {
+          "w": int(FULL_FRAME_SIZE[0]),
+          "h": int(FULL_FRAME_SIZE[1]),
+          "m": [round(float(value), 9) for value in road_from_pixel.reshape(-1)],
+        }
+  except (TypeError, ValueError, np.linalg.LinAlgError):
+    result = None
+  _CAMERA_GROUND_CACHE["signature"] = signature
+  _CAMERA_GROUND_CACHE["value"] = result
+  return result
 
 
 def _remote_output_enabled(params):
@@ -1168,6 +1212,8 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     # 가감속·요철로 실시간 변한다. 앱은 여기에 게인을 곱해 수평선을 움직인다.
     "pitch": round(_finite(_first(_field(_field(sm["modelV2"], "orientation", None), "y", []))), 4),
     "calibPitch": _calib_pitch(sm["liveCalibration"]),
+    # Display-only camera projection consumed by the S9 TFLite detector.
+    "cameraGround": _camera_ground(sm["liveCalibration"]),
     # 정지선까지 거리(m). None 이면 앱이 안 그린다.
     "stopDist": _stop_point(sm["longitudinalPlan"]),
     # 모델이 추정한 자기 차로 폭(m). 앱의 폴백 도로폭 계산에 쓴다.
