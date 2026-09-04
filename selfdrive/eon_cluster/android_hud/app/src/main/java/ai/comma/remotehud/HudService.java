@@ -942,13 +942,20 @@ public final class HudService extends Service {
     private void drawLeadSourceLabel(Canvas c, Paint p, float[] info,
                                      boolean vision, float probability, float alpha) {
         float width = info[2];
-        if (width < 8f || alpha <= 0f) {
+        if (width < 8f || alpha <= 0f || egoCar == null || egoCar.isRecycled()) {
             return;
         }
         String label = vision
                 ? String.format(Locale.US, "VISION %.0f%%", probability * 100f)
                 : "SCC/RADAR";
         float textSize = Math.max(8f, Math.min(12f, width * 0.30f));
+        float carHeight = egoCar.getHeight() * width / egoCar.getWidth();
+        float carTop = info[1] - carHeight;
+        // Use the actual bitmap aspect ratio, not only its width. At short
+        // distances the lead bitmap is much taller than the old width-based
+        // offset, which placed VISION text on the roof/rear window.
+        float labelBaseline = Math.max(textSize + 4f,
+                carTop - Math.max(5f, textSize * 0.35f));
         p.setShader(null);
         p.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
         p.setTextAlign(Paint.Align.CENTER);
@@ -958,7 +965,7 @@ public final class HudService extends Service {
                 ? (frameDark ? Color.rgb(92, 231, 245) : Color.rgb(0, 120, 158))
                 : (frameDark ? Color.rgb(226, 232, 238) : Color.rgb(42, 53, 65)));
         p.setAlpha(Math.max(0, Math.min(255, Math.round(alpha * 230f))));
-        c.drawText(label, info[0], info[1] - Math.max(12f, width * 0.72f), p);
+        c.drawText(label, info[0], labelBaseline, p);
         p.setAlpha(255);
     }
 

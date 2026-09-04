@@ -353,6 +353,8 @@ def test_remote_hud_displays_vision_candidates_without_control_feedback():
   assert "leadSpriteVision(int index)" in renderer
   assert '"D".equals(object.optString("src", "M"))' in renderer
   assert '"VISION %.0f%%"' in service
+  assert "float labelBaseline = Math.max(textSize + 4f" in service
+  assert "carTop - Math.max(5f, textSize * 0.35f)" in service
   assert '"SCC/RADAR"' in service
   assert "visionLeadTint" in service
   # The new wire is consumed only by the HUD renderer, never RadarD/planner.
