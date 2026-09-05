@@ -266,6 +266,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudViewPitch", PERSISTENT},     // 주행씬 수평선 보정 0.1도 (-50..50)
     {"EonClusterHudOutputMode", PERSISTENT},
     {"EonClusterHudLayoutMode", PERSISTENT},  // 1=3분할, 2=주행+티맵 2분할
+    {"EonClusterHudNavApp", PERSISTENT},      // 1=티맵, 2=네이버지도
     {"EonClusterHudConnected", CLEAR_ON_MANAGER_START},
     {"EonClusterHudHeartbeat", CLEAR_ON_MANAGER_START},
     {"EonClusterHudFps", PERSISTENT},
