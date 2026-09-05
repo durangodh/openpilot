@@ -110,6 +110,9 @@ def _packet(sm, *args, **kwargs):
   packet["hudPitchDyn"] = _bounded_int("EonClusterHudPitchDyn", 60, 0, 200)
   packet["hudOutputMode"] = _bounded_int("EonClusterHudOutputMode", 1, 1, 3)
   packet["hudLayoutMode"] = _bounded_int("EonClusterHudLayoutMode", 1, 1, 2)
+  # EON에서 선택한 내비를 S9 Remote HUD가 실행한다. nMirror 본체는 원본
+  # 서명을 유지하므로 재패키징 뒤 종료되는 문제를 만들지 않는다.
+  packet["hudNavApp"] = _bounded_int("EonClusterHudNavApp", 1, 1, 2)
   # 모델 도로경계(edges) 위에만 세우는 가드레일. 경계가 없으면 안 그려진다.
   packet["hudGuardrail"] = _bounded_int("EonClusterHudGuardrail", 1, 0, 1)
   # 지평선 근처 원경 페이드 강도(%). 0 이면 끔.
