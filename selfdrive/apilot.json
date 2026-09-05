@@ -1173,6 +1173,16 @@
   },
   {
    "group": "S9HUD",
+   "name": "EonClusterHudNavApp",
+   "title": "NAVIGATION APP",
+   "descr": "EON에서 휴대폰 내비를 선택합니다. 1: 티맵 / 2: 네이버지도. 변경하면 S9에서 선택한 앱이 자동 실행됩니다.",
+   "min": 1,
+   "max": 2,
+   "default": 1,
+   "unit": 1
+  },
+  {
+   "group": "S9HUD",
    "name": "EonClusterHudGuardrail",
    "title": "S9 HUD GUARDRAIL",
    "descr": "0: 끔 / 1: 켬. 모델이 인식한 도로경계 위에만 세웁니다. 경계가 없는 구간에는 나오지 않습니다.",
