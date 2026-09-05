@@ -133,11 +133,13 @@ final class PhoneVehicleDetector implements AutoCloseable {
                                     long frameTime) throws Exception {
         JSONArray output=new JSONArray();
         for (CameraVehicleTracker.Track t:tracker.update(observations,frameTime)) {
+            long age=Math.max(0L,frameTime-t.time);
+            double fade=1d-0.72d*Math.min(1d,age/450d);
             JSONObject object=new JSONObject();
             object.put("id",t.id);
             object.put("d",t.box.d);
             object.put("y",t.box.y);
-            object.put("p",t.box.score);
+            object.put("p",t.box.score*fade);
             object.put("src","P");
             object.put("type",t.box.type);
             object.put("width",t.box.width);

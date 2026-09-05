@@ -825,8 +825,8 @@ public final class HudService extends Service {
                     phoneVisionObjects.set(new JSONArray());
                     phoneVisionUpdatedElapsed = 0L;
                 }
-                int fps = Math.max(1, Math.min(2,
-                        currentState.optInt("hudVisionFps", 2)));
+                int fps = Math.max(1, Math.min(3,
+                        currentState.optInt("hudVisionFps", 3)));
                 // Count from inference start, not finish: avoid adding processing
                 // time to every configured camera interval. No backlog is queued.
                 nextInference = Math.max(now + 1000L / fps, SystemClock.elapsedRealtime());
@@ -855,8 +855,8 @@ public final class HudService extends Service {
 
             JSONObject currentState = state.get();
             try {
-                long visionTtl = Math.min(1000L, 1500L / Math.max(1,
-                        Math.min(2, currentState.optInt("hudVisionFps", 2))));
+                long visionTtl = Math.min(1000L, 1800L / Math.max(1,
+                        Math.min(3, currentState.optInt("hudVisionFps", 3))));
                 currentState.put("phoneVisionNow", now);
                 if (phoneVisionUpdatedElapsed > 0L
                         && now - phoneVisionUpdatedElapsed <= visionTtl) {

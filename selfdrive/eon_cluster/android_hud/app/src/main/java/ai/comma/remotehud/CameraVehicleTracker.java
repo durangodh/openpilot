@@ -5,6 +5,7 @@ import java.util.List;
 
 /** Camera-only display tracking. No control or radar state is written here. */
 final class CameraVehicleTracker {
+    private static final long FADE_HOLD_MS = 450L;
     static final class Box {
         double d, y, width, height;
         float left, top, right, bottom, score;
@@ -70,16 +71,22 @@ final class CameraVehicleTracker {
                 double dt=(now-best.time)/1000.0;
                 best.vd=clamp(best.vd*0.4+(b.d-best.box.d)/dt*0.6,-40,40);
                 best.vy=clamp(best.vy*0.4+(b.y-best.box.y)/dt*0.6,-8,8);
-                // Favour the current observation instead of dragging the old box.
-                b.d=best.box.d*0.15+b.d*0.85;
-                b.y=best.box.y*0.15+b.y*0.85;
+                // Retain enough history to remove one-frame lateral jumps while
+                // still following real adjacent-lane movement promptly at 3 FPS.
+                b.d=best.box.d*0.28+b.d*0.72;
+                b.y=best.box.y*0.28+b.y*0.72;
                 best.box=b; best.time=now; best.hits++;
             }
             best.matched=true;
             if (best.hits>=2 || b.score>=0.65f) visible.add(best);
         }
-        // Unseen vehicles disappear from output immediately; identity survives
-        // only briefly for a reacquisition. Never extrapolate missed detections.
+        // Bridge only a single short detector miss. The renderer predicts from
+        // measured velocity and PhoneVehicleDetector fades confidence with age,
+        // so an object disappears smoothly without becoming a long-lived ghost.
+        for (Track t:tracks) {
+            long age=now-t.time;
+            if (!t.matched && t.hits>=2 && age>0 && age<=FADE_HOLD_MS) visible.add(t);
+        }
         tracks.removeIf(t->now-t.time>1000);
         return visible;
     }

@@ -37,7 +37,7 @@ display silhouette. Phone detections use the
 bottom centre of each box plus EON live calibration to project onto the road.
 The app accepts at most 24 objects, rejects the configured confidence threshold,
 drops stale results after 1.2 seconds, pauses inference at 82 C, and resumes at
-78 C. The preview/detector rate is limited to 1 or 2 FPS. This is display-only
+78 C. The preview/detector rate is limited to 1 to 3 FPS. This is display-only
 and is not physical radar: hills, dips, crests, partial occlusion, calibration
 error, and poor light can make the estimated position wrong or miss vehicles.
 
@@ -92,7 +92,7 @@ error, and poor light can make the estimated position wrong or miss vehicles.
 This optional companion moves the 1920x462 HUD render, JPEG compression and
 TURZX `1cbe:0092` USB upload from the EON to an Android phone. The EON sends a
 small UDP JSON telemetry packet at 10 Hz. When camera-vehicle boxes are enabled,
-it additionally resizes/JPEG-encodes one 320x240 preview at no more than 2 FPS.
+it additionally resizes/JPEG-encodes one 320x240 preview at no more than 3 FPS.
 The already-compressed TMAP JPEG received from the existing phone sender is
 forwarded unchanged over TCP; EON does not decode, resize, composite, or
 re-encode the map.

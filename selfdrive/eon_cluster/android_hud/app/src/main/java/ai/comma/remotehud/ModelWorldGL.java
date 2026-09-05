@@ -137,6 +137,10 @@ final class ModelWorldGL {
     private long nextRenderNanos;
     private float horizonShift;
     private float roadZGain = 1f;
+    private boolean mapPoseValid;
+    private double mapLat;
+    private double mapLon;
+    private double mapHeading;
 
     private static final class Line {
         final float[] x = new float[MAX_POINTS];
@@ -1078,13 +1082,36 @@ final class ModelWorldGL {
         if (pose == null || pose.length() < 3) {
             return;
         }
-        double lat = pose.optDouble(0, Double.NaN);
-        double lon = pose.optDouble(1, Double.NaN);
-        double heading = pose.optDouble(2, Double.NaN);
-        if (!Double.isFinite(lat) || !Double.isFinite(lon) || !Double.isFinite(heading)
-                || lat < -85.0 || lat > 85.0 || lon < -180.0 || lon > 180.0) {
+        double rawLat = pose.optDouble(0, Double.NaN);
+        double rawLon = pose.optDouble(1, Double.NaN);
+        double rawHeading = pose.optDouble(2, Double.NaN);
+        if (!Double.isFinite(rawLat) || !Double.isFinite(rawLon) || !Double.isFinite(rawHeading)
+                || rawLat < -85.0 || rawLat > 85.0 || rawLon < -180.0 || rawLon > 180.0) {
             return;
         }
+        if (!mapPoseValid) {
+            mapLat = rawLat;
+            mapLon = rawLon;
+            mapHeading = rawHeading;
+            mapPoseValid = true;
+        } else {
+            // Move the vector context toward each fresh GPS pose over several
+            // HUD frames. Cap a single step so one noisy fix cannot throw the
+            // complete road/building layer across the display.
+            double metresLat = 111320.0;
+            double metresLon = metresLat * Math.max(0.1, Math.cos(Math.toRadians(mapLat)));
+            double north = (rawLat - mapLat) * metresLat;
+            double east = (rawLon - mapLon) * metresLon;
+            double jump = Math.hypot(north, east);
+            double positionAlpha = Math.min(0.28, 12.0 / Math.max(1.0, jump));
+            mapLat += (rawLat - mapLat) * positionAlpha;
+            mapLon += (rawLon - mapLon) * positionAlpha;
+            double headingError = ((rawHeading - mapHeading + 540.0) % 360.0) - 180.0;
+            mapHeading = (mapHeading + headingError * 0.22 + 360.0) % 360.0;
+        }
+        double lat = mapLat;
+        double lon = mapLon;
+        double heading = mapHeading;
         mapStore.update(lat, lon);
         HudMapStore.Snapshot snapshot = mapStore.snapshot();
         if (snapshot == HudMapStore.Snapshot.EMPTY) {

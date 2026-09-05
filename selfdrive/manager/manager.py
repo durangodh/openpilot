@@ -111,7 +111,7 @@ def manager_init() -> None:
     ("EonClusterHudGuardrail", "1"),
     ("EonClusterHudHaze", "55"),
     ("EonClusterHudVisionDetector", "0"),
-    ("EonClusterHudVisionDetectorFps", "2"),
+    ("EonClusterHudVisionDetectorFps", "3"),
     ("EonClusterHudVisionDetectorThreshold", "40"),
     ("ShowMapboxMap", "1"),
     ("ShowRouteMapAlways", "0"),

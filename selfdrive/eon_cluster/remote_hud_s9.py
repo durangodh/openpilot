@@ -96,7 +96,7 @@ def _packet(sm, *args, **kwargs):
   # The EON sends only a 320x240 JPEG preview. Detection is CPU TFLite on S9,
   # display-only, and never returns to the driving stack.
   packet["hudPhoneVision"] = _bounded_int("EonClusterHudVisionDetector", 0, 0, 1)
-  packet["hudVisionFps"] = _bounded_int("EonClusterHudVisionDetectorFps", 2, 1, 2)
+  packet["hudVisionFps"] = _bounded_int("EonClusterHudVisionDetectorFps", 3, 1, 3)
   # Favour scene coverage: even an older persisted 55% value is capped at
   # 45%, while the UI can still lower the threshold to 25% in difficult light.
   packet["hudVisionThreshold"] = _bounded_int("EonClusterHudVisionDetectorThreshold", 40, 25, 45)

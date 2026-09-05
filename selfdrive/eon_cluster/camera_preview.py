@@ -33,11 +33,12 @@ def _enabled(params):
 def _fps(params):
   try:
     raw = params.get(PARAM_FPS)
-    value = int(raw) if raw is not None else 2
+    value = int(raw) if raw is not None else 3
   except (TypeError, ValueError):
-    value = 2
-  # Two frames per second is enough for display boxes and bounds EON work.
-  return max(1, min(2, value))
+    value = 3
+  # Three frames per second improves adjacent-object continuity while keeping
+  # the EON resize/JPEG work deliberately low.
+  return max(1, min(3, value))
 
 
 def _remove_preview():

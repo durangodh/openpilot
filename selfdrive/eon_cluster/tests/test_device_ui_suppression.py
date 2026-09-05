@@ -382,12 +382,12 @@ def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
   assert 'PythonProcess("hud_camera_previewd", "selfdrive.eon_cluster.camera_preview", enabled=EON)' in processes
   assert 'NativeProcess("vehicle_detectord", "selfdrive/modeld", ["./vehicle_detectord"], enabled=False)' in processes
   for key, default in (("EonClusterHudVisionDetector", "0"),
-                       ("EonClusterHudVisionDetectorFps", "2"),
+                       ("EonClusterHudVisionDetectorFps", "3"),
                        ("EonClusterHudVisionDetectorThreshold", "40")):
     assert '("%s", "%s")' % (key, default) in manager
     assert '{"%s", PERSISTENT}' % key in params
   assert 'PREVIEW_SIZE = (320, 240)' in preview
-  assert 'return max(1, min(2, value))' in preview
+  assert 'return max(1, min(3, value))' in preview
   assert 'os.nice(10)' in preview
   assert '(b"CAM1", CAMERA_PREVIEW_FILE' in sender
   assert '"cameraGround": _camera_ground(sm["liveCalibration"])' in sender
@@ -395,9 +395,13 @@ def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
   assert "Process.THREAD_PRIORITY_BACKGROUND" in service
   assert "s9TempC >= 82f" in service and "s9TempC <= 78f" in service
   assert 'object.put("src", "P")' in phone
-  assert "MAX_MISSED_FRAMES = 2" in phone
-  assert "trackedOutput(observations)" in phone
-  assert "TRACK_ALPHA = 0.42f" in phone
+  assert "FADE_HOLD_MS = 450L" in (ROOT / "selfdrive" / "eon_cluster" /
+          "android_hud" / "app" / "src" / "main" / "java" / "ai" /
+          "comma" / "remotehud" / "CameraVehicleTracker.java").read_text(encoding="utf-8")
+  assert "trackedOutput(observations, frameTime)" in phone
+  assert "b.d=best.box.d*0.28+b.d*0.72" in (ROOT / "selfdrive" / "eon_cluster" /
+          "android_hud" / "app" / "src" / "main" / "java" / "ai" /
+          "comma" / "remotehud" / "CameraVehicleTracker.java").read_text(encoding="utf-8")
   assert "distanceStep" in phone and "lateralStep" in phone
   assert '"hudPathFlip"' not in phone
   assert 'object.put("type", normalizeVehicleType(vehicle.getLabel()))' in phone
@@ -409,6 +413,8 @@ def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
   assert "drawBusIcon" in renderer
   assert "drawTwoWheelerIcon" in renderer
   assert "CAMERA_TO_BUMPER_M = 1.52f" in phone
+  assert "mapHeading + headingError * 0.22" in renderer
+  assert "Math.min(0.28, 12.0 / Math.max(1.0, jump))" in renderer
   assert 'context, "mobilenetv1.tflite", options' in phone
   assert 'tensorflow-lite-task-vision:0.4.0' in gradle
   model = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" /
