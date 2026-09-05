@@ -1036,12 +1036,12 @@ public final class HudService extends Service {
         p.setColorFilter(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(sourceColor);
-        p.setAlpha(Math.max(0, Math.min(255, Math.round(alpha * 65f))));
+        p.setAlpha(Math.max(0, Math.min(255, Math.round(alpha * 88f))));
         scratchRect.set(left - width * 0.10f, bottom - height * 0.08f,
                 left + width * 1.10f, bottom + height * 0.15f);
         c.drawOval(scratchRect, p);
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(Math.max(1.2f, width * 0.025f));
+        p.setStrokeWidth(Math.max(1.4f, width * 0.034f));
         p.setAlpha(Math.max(0, Math.min(255, Math.round(alpha * 240f))));
         scratchRect.set(left - 1.5f, bottom - height - 1f, left + width + 1.5f, bottom + 1.5f);
         c.drawRoundRect(scratchRect, 2f, 2f, p);
@@ -1079,19 +1079,25 @@ public final class HudService extends Service {
             return;
         }
         String distanceLabel = Integer.toString(Math.round(distance));
-        float textSize = Math.max(18f, Math.min(24f, width * 0.56f));
+        String distanceUnit = "m";
+        float textSize = Math.max(21f, Math.min(29f, width * 0.66f));
+        float unitSize = textSize * 0.55f;
         float carHeight = egoCar.getHeight() * width / egoCar.getWidth();
         float carTop = info[1] - carHeight;
         p.setShader(null);
         p.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
         p.setTextSize(textSize);
-        float labelWidth = p.measureText(distanceLabel);
+        float numberWidth = p.measureText(distanceLabel);
+        p.setTextSize(unitSize);
+        float unitWidth = p.measureText(distanceUnit);
+        float unitGap = Math.max(2f, textSize * 0.10f);
+        float labelWidth = numberWidth + unitGap + unitWidth;
         float carLeft = info[0] - width * 0.5f;
         float carRight = info[0] + width * 0.5f;
         float sideGap = Math.max(26f, width * 0.50f);
         boolean placeRight = carRight + sideGap + labelWidth <= DRIVE_RIGHT - 7f;
-        float textX = placeRight ? carRight + sideGap : carLeft - sideGap;
-        p.setTextAlign(placeRight ? Paint.Align.LEFT : Paint.Align.RIGHT);
+        float textX = placeRight ? carRight + sideGap : carLeft - sideGap - labelWidth;
+        p.setTextAlign(Paint.Align.LEFT);
         float distanceBaseline = Math.max(textSize + 3f, carTop + textSize);
         int sourceColor = vision
                 ? (frameDark ? Color.rgb(65, 157, 255) : Color.rgb(0, 82, 255))
@@ -1107,12 +1113,13 @@ public final class HudService extends Service {
         p.setStrokeWidth(1.4f);
         float direction = placeRight ? 1f : -1f;
         float lineStartX = placeRight ? carRight : carLeft;
-        float lineEndX = textX - direction * 4f;
+        float lineEndX = placeRight ? textX - 4f : textX + labelWidth + 4f;
         float lineY = distanceBaseline - textSize * 0.35f;
         float elbowX = lineEndX - direction * 9f;
         c.drawLine(lineStartX, info[1] - carHeight * 0.25f, elbowX, lineY, p);
         c.drawLine(elbowX, lineY, lineEndX, lineY, p);
 
+        p.setTextSize(textSize);
         p.setAlpha(drawAlpha);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(Math.max(1.8f, textSize * 0.16f));
@@ -1121,6 +1128,15 @@ public final class HudService extends Service {
         p.setStyle(Paint.Style.FILL);
         p.setColor(textColor);
         c.drawText(distanceLabel, textX, distanceBaseline, p);
+        p.setTextSize(unitSize);
+        float unitX = textX + numberWidth + unitGap;
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(Math.max(1.2f, unitSize * 0.14f));
+        p.setColor(outlineColor);
+        c.drawText(distanceUnit, unitX, distanceBaseline, p);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(textColor);
+        c.drawText(distanceUnit, unitX, distanceBaseline, p);
         p.setStrokeWidth(1f);
         p.setAlpha(255);
     }

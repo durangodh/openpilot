@@ -401,7 +401,7 @@ def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
   assert "distanceStep" in phone and "lateralStep" in phone
   assert '"hudPathFlip"' not in phone
   assert 'object.put("type", normalizeVehicleType(vehicle.getLabel()))' in phone
-  for vehicle_type in ("car", "truck", "bus", "motorcycle", "bicycle"):
+  for vehicle_type in ("car", "truck", "bus", "motorcycle", "bicycle", "person"):
     assert '"%s"' % vehicle_type in phone
     assert '"%s"' % vehicle_type in renderer
   assert "drawVisionVehicleIcon" in renderer

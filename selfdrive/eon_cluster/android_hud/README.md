@@ -10,14 +10,14 @@ never enter RadarD, longitudinal control, or FCW decisions.
 `leadsV3` is a small set of time-offset lead hypotheses, not a full object
 detector. The supported full-image path therefore sends a rate-limited
 320x240 road preview to the S9, where the APK-bundled MobileNetV1 TFLite model
-detects COCO car/truck/bus/motorcycle/bicycle classes. No DLC, SNPE SDK, or
+detects COCO car/truck/bus/motorcycle/bicycle/person classes. No DLC, SNPE SDK, or
 user-supplied model file is required.
 
 `leadOne` and `leadTwo` keep the normal vehicle sprite. Each distinct unmatched
 `leadsV3` candidate remains a blue box because the openpilot lead hypotheses do
 not carry an object class. Phone TFLite detections retain their COCO class and
 are drawn as neutral 3D-style car, truck, bus, motorcycle, or bicycle
-silhouettes with a blue camera-only ground highlight. Candidates near a tracked
+or pedestrian silhouettes with a blue camera-only ground highlight. Candidates near a tracked
 lead are suppressed to avoid drawing the same vehicle twice. All detector data
 stays inside the S9 renderer and is never sent back to EON controls.
 

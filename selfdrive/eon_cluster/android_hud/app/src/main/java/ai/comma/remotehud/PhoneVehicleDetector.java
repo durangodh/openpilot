@@ -158,7 +158,7 @@ final class PhoneVehicleDetector implements AutoCloseable {
             String label = normalizeVehicleType(category.getLabel());
             boolean vehicle = label.equals("car") || label.equals("truck")
                     || label.equals("bus") || label.equals("motorcycle")
-                    || label.equals("bicycle");
+                    || label.equals("bicycle") || label.equals("person");
             if (vehicle && (best == null || category.getScore() > best.getScore())) {
                 best = category;
             }

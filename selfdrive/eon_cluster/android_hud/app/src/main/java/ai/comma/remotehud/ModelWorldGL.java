@@ -781,7 +781,8 @@ final class ModelWorldGL {
             float probability = clamp((float) object.optDouble("p", 0d), 0f, 1f);
             float distance = (float) object.optDouble("d", 0d);
             float lateral = (float) object.optDouble("y", 0d);
-            if ("P".equals(object.optString("src", ""))) {
+            boolean phoneObject = "P".equals(object.optString("src", ""));
+            if (phoneObject) {
                 long age=scene.optLong("phoneVisionNow",0L)-object.optLong("seen",0L);
                 if (age<0 || age>1000L) continue;
                 distance=(float) CameraVehicleTracker.predicted(distance,object.optDouble("vd",0d),age);
@@ -793,6 +794,17 @@ final class ModelWorldGL {
                     || nearTrackedLead(scene.optJSONObject("lead2"), distance, lateral)
                     || nearVisionObject(suppress, distance, lateral)) {
                 continue;
+            }
+            // Keep an already-adjacent phone detection visibly beside the ego-lane
+            // boundary.  Only side-lane objects are nudged; a centre lead keeps its
+            // measured position and the normal lead sprite remains authoritative.
+            float pathCentre = yAt(roadHeight, distance);
+            float laneWidth = clamp((float) scene.optDouble("laneWidth", 3.5d), 2.6f, 4.2f);
+            float laneDelta = lateral - pathCentre;
+            if (phoneObject && Math.abs(laneDelta) > laneWidth * 0.55f) {
+                float observedWidthM = clamp((float) object.optDouble("width", 1.88d), 0.6f, 3.5f);
+                float minimumSideOffset = laneWidth * 0.5f + observedWidthM * 0.5f + 0.12f;
+                lateral = pathCentre + Math.copySign(Math.max(Math.abs(laneDelta), minimumSideOffset), laneDelta);
             }
             // 노면 높이에 그대로 붙인다. 이전 +0.12f 오프셋이 차량을 떠 보이게 했다.
             float z = zAt(roadHeight, distance) * roadZGain;
@@ -835,7 +847,8 @@ final class ModelWorldGL {
 
     private static boolean isPhoneVehicleType(String type) {
         return "car".equals(type) || "truck".equals(type) || "bus".equals(type)
-                || "motorcycle".equals(type) || "bicycle".equals(type);
+                || "motorcycle".equals(type) || "bicycle".equals(type)
+                || "person".equals(type);
     }
 
     private static float perspectiveAlpha(float distance) {
@@ -876,6 +889,12 @@ final class ModelWorldGL {
         int rear = dark ? Color.rgb(142, 151, 162) : Color.rgb(160, 167, 175);
         int flank = dark ? Color.rgb(110, 119, 130) : Color.rgb(128, 136, 144);
 
+        if ("person".equals(type)) {
+            drawPersonIcon(sx, sy, Math.max(4.5f, width), Math.max(8f, height),
+                    rear, shadow, alpha);
+            return;
+        }
+
         // 접지 그림자: 넓고 옅은 띠 + 좁고 진한 접촉선.
         float contact = Math.max(1.0f, height * 0.05f);
         drawScreenQuad(sx - width * 0.58f, sy - contact,
@@ -887,7 +906,63 @@ final class ModelWorldGL {
                 sx + width * 0.54f, sy + Math.max(1.0f, height * 0.05f),
                 shadow, 0.74f * alpha);
 
+        if ("truck".equals(type)) {
+            drawTruckIcon(sx, sy, width, height, top, rear, flank, alpha);
+        } else if ("bus".equals(type)) {
+            drawBusIcon(sx, sy, width, height, top, rear, flank, alpha);
+        } else if ("motorcycle".equals(type) || "bicycle".equals(type)) {
+            drawTwoWheelerIcon(sx, sy, width, height, rear, shadow, alpha);
+        } else {
+            drawBlob(sx, sy, width, height, top, rear, flank, alpha);
+        }
+    }
+
+    private void drawTruckIcon(float sx, float sy, float width, float height,
+                               int top, int rear, int flank, float alpha) {
+        float cargoHeight = height * 0.64f;
+        drawBlob(sx, sy - height * 0.28f, width, cargoHeight, top, rear, flank, alpha);
+        drawBlob(sx, sy, width * 0.82f, height * 0.34f, top, rear, flank, alpha);
+    }
+
+    private void drawBusIcon(float sx, float sy, float width, float height,
+                             int top, int rear, int flank, float alpha) {
         drawBlob(sx, sy, width, height, top, rear, flank, alpha);
+        int glass = Color.rgb(78, 86, 95);
+        drawScreenRect(sx - width * 0.34f, sy - height * 0.78f,
+                sx + width * 0.34f, sy - height * 0.60f, glass, 0.72f * alpha);
+    }
+
+    private void drawTwoWheelerIcon(float sx, float sy, float width, float height,
+                                    int body, int shadow, float alpha) {
+        float wheel = Math.max(1.2f, width * 0.22f);
+        drawScreenRect(sx - width * 0.42f, sy - wheel, sx - width * 0.18f, sy,
+                shadow, 0.82f * alpha);
+        drawScreenRect(sx + width * 0.18f, sy - wheel, sx + width * 0.42f, sy,
+                shadow, 0.82f * alpha);
+        drawScreenQuad(sx - width * 0.26f, sy - wheel,
+                sx, sy - height, sx + width * 0.26f, sy - wheel,
+                sx, sy - height * 0.42f, body, 0.96f * alpha);
+    }
+
+    private void drawPersonIcon(float sx, float sy, float width, float height,
+                                int body, int shadow, float alpha) {
+        float head = Math.max(2f, width * 0.24f);
+        drawScreenRect(sx - head, sy - height, sx + head, sy - height + head * 2f,
+                body, 0.96f * alpha);
+        drawScreenQuad(sx - width * 0.16f, sy - height + head * 2f,
+                sx + width * 0.16f, sy - height + head * 2f,
+                sx + width * 0.28f, sy - height * 0.34f,
+                sx - width * 0.28f, sy - height * 0.34f, body, 0.94f * alpha);
+        drawScreenQuad(sx - width * 0.24f, sy - height * 0.34f,
+                sx - width * 0.04f, sy - height * 0.34f,
+                sx - width * 0.12f, sy, sx - width * 0.34f, sy,
+                body, 0.94f * alpha);
+        drawScreenQuad(sx + width * 0.04f, sy - height * 0.34f,
+                sx + width * 0.24f, sy - height * 0.34f,
+                sx + width * 0.34f, sy, sx + width * 0.12f, sy,
+                body, 0.94f * alpha);
+        drawScreenRect(sx - width * 0.48f, sy, sx + width * 0.48f,
+                sy + Math.max(1f, height * 0.05f), shadow, 0.52f * alpha);
     }
 
     /** 뒷면(사각) + 윗면(앞으로 밀린 평행사변형) + 옆면. 모서리는 작은 삼각형으로 깎는다. */
