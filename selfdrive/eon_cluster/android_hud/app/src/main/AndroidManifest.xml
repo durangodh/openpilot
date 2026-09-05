@@ -2,6 +2,11 @@
 <!-- v0.13 : package / versionCode / minSdk / targetSdk 는 app/build.gradle 이 담당 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <queries>
+        <package android:name="com.skt.tmap.ku" />
+        <package android:name="com.nhn.android.nmap" />
+    </queries>
+
     <uses-feature
         android:name="android.hardware.usb.host"
         android:required="true" />
