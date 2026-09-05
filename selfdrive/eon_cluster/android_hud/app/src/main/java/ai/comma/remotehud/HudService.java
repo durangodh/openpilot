@@ -306,7 +306,12 @@ public final class HudService extends Service {
     private final AtomicReference<Bitmap> crossroadFrame = new AtomicReference<>();
     private final AtomicReference<Bitmap> laneFrame = new AtomicReference<>();
     /** Latest compressed road preview; inference takes only the newest frame. */
-    private final AtomicReference<byte[]> phoneCameraFrame = new AtomicReference<>();
+    private static final class CameraSample {
+        final byte[] jpeg;
+        final long received;
+        CameraSample(byte[] jpeg) { this.jpeg=jpeg; received=SystemClock.elapsedRealtime(); }
+    }
+    private final AtomicReference<CameraSample> phoneCameraFrame = new AtomicReference<>();
     private final AtomicReference<JSONArray> phoneVisionObjects =
             new AtomicReference<>(new JSONArray());
     private volatile long phoneVisionUpdatedElapsed;
@@ -714,7 +719,7 @@ public final class HudService extends Service {
                     if (tagEquals(header, "CAM1")) {
                         // Keep networking responsive: JPEG decode and TFLite
                         // inference happen on the low-priority detector thread.
-                        phoneCameraFrame.set(data.length == 0 ? null : data);
+                        phoneCameraFrame.set(data.length == 0 ? null : new CameraSample(data));
                         continue;
                     }
                     synchronized (assetLock) {
@@ -766,6 +771,7 @@ public final class HudService extends Service {
                 JSONObject currentState = state.get();
                 boolean enabled = currentState.optInt("hudPhoneVision", 0) != 0;
                 if (!enabled) {
+                    if (detector != null) detector.reset();
                     phoneCameraFrame.set(null);
                     phoneVisionObjects.set(new JSONArray());
                     phoneVisionUpdatedElapsed = 0L;
@@ -779,6 +785,7 @@ public final class HudService extends Service {
                     thermalPaused = false;
                 }
                 if (thermalPaused) {
+                    if (detector != null) detector.reset();
                     phoneCameraFrame.set(null);
                     phoneVisionObjects.set(new JSONArray());
                     phoneVisionUpdatedElapsed = 0L;
@@ -791,8 +798,8 @@ public final class HudService extends Service {
                     SystemClock.sleep(Math.min(50L, nextInference - now));
                     continue;
                 }
-                byte[] jpeg = phoneCameraFrame.getAndSet(null);
-                if (jpeg == null) {
+                CameraSample sample = phoneCameraFrame.getAndSet(null);
+                if (sample == null) {
                     SystemClock.sleep(50L);
                     continue;
                 }
@@ -809,16 +816,20 @@ public final class HudService extends Service {
                     }
                 }
                 try {
-                    JSONArray objects = detector.detect(jpeg, currentState);
+                    // Reject a queued old image rather than drawing a departed vehicle.
+                    if (now - sample.received > 750L) continue;
+                    JSONArray objects = detector.detect(sample.jpeg, currentState, sample.received);
                     phoneVisionObjects.set(objects);
-                    phoneVisionUpdatedElapsed = SystemClock.elapsedRealtime();
+                    phoneVisionUpdatedElapsed = sample.received;
                 } catch (Throwable error) {
                     phoneVisionObjects.set(new JSONArray());
                     phoneVisionUpdatedElapsed = 0L;
                 }
                 int fps = Math.max(1, Math.min(2,
                         currentState.optInt("hudVisionFps", 2)));
-                nextInference = SystemClock.elapsedRealtime() + 1000L / fps;
+                // Count from inference start, not finish: avoid adding processing
+                // time to every configured camera interval. No backlog is queued.
+                nextInference = Math.max(now + 1000L / fps, SystemClock.elapsedRealtime());
             }
         } finally {
             if (detector != null) {
@@ -844,8 +855,11 @@ public final class HudService extends Service {
 
             JSONObject currentState = state.get();
             try {
+                long visionTtl = Math.min(1000L, 1500L / Math.max(1,
+                        Math.min(2, currentState.optInt("hudVisionFps", 2))));
+                currentState.put("phoneVisionNow", now);
                 if (phoneVisionUpdatedElapsed > 0L
-                        && now - phoneVisionUpdatedElapsed <= 1200L) {
+                        && now - phoneVisionUpdatedElapsed <= visionTtl) {
                     currentState.put("phoneVisionObjects", phoneVisionObjects.get());
                 } else {
                     currentState.remove("phoneVisionObjects");

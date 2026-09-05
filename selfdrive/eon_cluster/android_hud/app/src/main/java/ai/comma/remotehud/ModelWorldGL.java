@@ -16,6 +16,7 @@ import android.util.Log;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -130,6 +131,7 @@ final class ModelWorldGL {
 
     private long lastTimestamp = Long.MIN_VALUE;
     private int lastStyle;
+    private long lastPhoneMotionTick = -1L;
     private int lastLeadDisplayState = -1;
     private long previousSceneTimestamp = Long.MIN_VALUE;
     private long nextRenderNanos;
@@ -186,9 +188,13 @@ final class ModelWorldGL {
             int leadState = leadDisplayState(scene.optJSONObject("lead"))
                     | (leadDisplayState(scene.optJSONObject("lead2")) << 2);
             boolean leadChanged = leadState != lastLeadDisplayState;
-            if (timestamp != lastTimestamp || styleChanged || leadChanged) {
+            JSONArray phoneDetections=scene.optJSONArray("phoneVisionObjects");
+            long phoneTick=phoneDetections != null && phoneDetections.length()>0
+                    ? scene.optLong("phoneVisionNow",0L)/100L : -1L;
+            boolean phoneChanged=phoneTick != lastPhoneMotionTick;
+            if (timestamp != lastTimestamp || styleChanged || leadChanged || phoneChanged) {
                 long started = System.nanoTime();
-                if (LeadDisplayPolicy.refreshNow(timestamp != lastTimestamp, styleChanged,
+                if (LeadDisplayPolicy.refreshNow(timestamp != lastTimestamp || phoneChanged, styleChanged,
                         leadChanged, started, nextRenderNanos)) {
                     if (!render(scene, enabled, driveBg, roadTop, roadBottom, pathColor,
                             dark, roadZPercent, livePitch, pitchPercent, calibPitch,
@@ -203,6 +209,7 @@ final class ModelWorldGL {
                     lastTimestamp = timestamp;
                     lastStyle = style;
                     lastLeadDisplayState = leadState;
+                    lastPhoneMotionTick = phoneTick;
                 }
             }
             paint.setShader(null);
@@ -760,15 +767,26 @@ final class ModelWorldGL {
         if (objects == null) {
             return;
         }
-        int count = Math.min(objects.length(), 40);
-        for (int i = 0; i < count; i++) {
-            JSONObject object = objects.optJSONObject(i);
+        ArrayList<JSONObject> ordered = new ArrayList<>();
+        for (int i=0; i<Math.min(objects.length(),40); i++) {
+            JSONObject item=objects.optJSONObject(i);
+            if (item!=null) ordered.add(item);
+        }
+        // Far vehicles first: a distant detection must not cover a nearer one.
+        ordered.sort((a,b)->Double.compare(b.optDouble("d",0),a.optDouble("d",0)));
+        for (JSONObject object : ordered) {
             if (object == null) {
                 continue;
             }
             float probability = clamp((float) object.optDouble("p", 0d), 0f, 1f);
             float distance = (float) object.optDouble("d", 0d);
             float lateral = (float) object.optDouble("y", 0d);
+            if ("P".equals(object.optString("src", ""))) {
+                long age=scene.optLong("phoneVisionNow",0L)-object.optLong("seen",0L);
+                if (age<0 || age>1000L) continue;
+                distance=(float) CameraVehicleTracker.predicted(distance,object.optDouble("vd",0d),age);
+                lateral=(float) CameraVehicleTracker.predicted(lateral,object.optDouble("vy",0d),age);
+            }
             if (probability < 0.25f || distance < 2f || distance > 180f
                     || Math.abs(lateral) > 15f
                     || nearTrackedLead(scene.optJSONObject("lead"), distance, lateral)
@@ -790,8 +808,10 @@ final class ModelWorldGL {
             // Do not clamp every candidate into the same apparent size. A
             // nearby car is intentionally several times larger than a distant
             // one, providing the requested depth cue across adjacent lanes.
-            float width = clamp(1.88f * scale, 4.5f, 72f);
-            float height = clamp(0.90f * scale, 3.2f, 42f);
+            float observedWidth=clamp((float)object.optDouble("width",1.88d),0.6f,3.5f);
+            float observedHeight=clamp((float)object.optDouble("height",0.90d),0.6f,4f);
+            float width = clamp(observedWidth * scale, 4.5f, 100f);
+            float height = clamp(observedHeight * scale, 3.2f, 90f);
             // Distance controls visual weight; confidence only makes a small
             // correction. Close vehicles stay solid and dark, while distant
             // vehicles recede without disappearing completely.
@@ -799,7 +819,8 @@ final class ModelWorldGL {
                     * (0.88f + probability * 0.12f), 0.26f, 1f);
             String type = object.optString("type", "");
             if (isPhoneVehicleType(type)) {
-                drawVisionVehicleIcon(sx, sy, width, height, type, dark, alpha);
+                drawVisionVehicleIcon(sx, sy, width, height, type, dark, alpha,
+                        object.has("width") && object.has("height"));
                 continue;
             }
             // leadsV3 and phone TFLite are both camera-only observations.
@@ -833,19 +854,19 @@ final class ModelWorldGL {
      */
     private void drawVisionVehicleIcon(float sx, float sy, float baseWidth,
                                        float baseHeight, String type,
-                                       boolean dark, float alpha) {
+                                       boolean dark, float alpha, boolean observedSize) {
         float width = baseWidth;
-        float height = baseHeight * 1.20f;
-        if ("truck".equals(type)) {
+        float height = observedSize ? baseHeight : baseHeight * 1.20f;
+        if (!observedSize && "truck".equals(type)) {
             width *= 1.12f;
             height *= 1.55f;
-        } else if ("bus".equals(type)) {
+        } else if (!observedSize && "bus".equals(type)) {
             width *= 1.16f;
             height *= 1.75f;
-        } else if ("motorcycle".equals(type)) {
+        } else if (!observedSize && "motorcycle".equals(type)) {
             width *= 0.42f;
             height *= 1.10f;
-        } else if ("bicycle".equals(type)) {
+        } else if (!observedSize && "bicycle".equals(type)) {
             width *= 0.40f;
             height *= 1.00f;
         }

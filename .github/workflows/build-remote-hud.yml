@@ -46,6 +46,13 @@ jobs:
       # The old sed / apply_runtime_tuning.py / apply_s9_3d_patch.py steps are gone:
       # they rewrote v0.17 sources into v0.18 at build time, which is why the
       # installed APK always ran ahead of the repository.
+      - name: Check camera vehicle tracking
+        working-directory: selfdrive/eon_cluster/android_hud
+        run: |
+          javac -d "$RUNNER_TEMP/hud-camera-check" \
+            app/src/main/java/ai/comma/remotehud/CameraVehicleTracker.java \
+            tests/CameraVehicleTrackerCheck.java
+          java -cp "$RUNNER_TEMP/hud-camera-check" ai.comma.remotehud.CameraVehicleTrackerCheck
       - name: Build debug APK
         working-directory: selfdrive/eon_cluster/android_hud
         env:
