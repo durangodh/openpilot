@@ -188,7 +188,7 @@ void LanelessOffsetControl::refresh() {
   int val = std::atoi(params.get("LanelessOffset").c_str());
   val = std::max(-30, std::min(30, val));
   value_label->setText(val == 0 ? QString("OFF")
-                                : QString(val > 0 ? "왼쪽 " : "오른쪽 ")
+                                : QString(val > 0 ? "오른쪽 " : "왼쪽 ")
                                     + QString::number(std::abs(val)) + " cm");
   minus_btn->setEnabled(val > -30);
   plus_btn->setEnabled(val < 30);
@@ -1791,7 +1791,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "통합 경로 좌우보정",
       "주행 경로 좌우 통합 보정값입니다. 레인모드·레인리스 모두 적용됩니다.\n"
       "카메라 오프셋은 하드웨어 기본값으로 고정되고 이 값 하나로 조정합니다.\n"
-      "왼쪽으로 이동: 양수(+) / 오른쪽으로 이동: 음수(−)\n"
+      "오른쪽으로 이동: 양수(+) / 왼쪽으로 이동: 음수(−)\n"
       "범위: −1.00 ~ +1.00m  /  기본값: 0.00m",
       "../assets/offroad/icon_road.png",
       this);
@@ -1831,7 +1831,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "차선을 쓰지 않는 레인리스 구간에서만 적용되는 좌우 보정입니다.\n"
       "레인모드는 직진인데 레인리스에서만 한쪽으로 쏠릴 때 사용합니다.\n"
       "차선이 잡히는 비중만큼 자동으로 줄어들어 레인모드 주행에는 영향이 없습니다.\n"
-      "왼쪽으로 이동: 양수(+) / 오른쪽으로 이동: 음수(−)\n"
+      "오른쪽으로 이동: 양수(+) / 왼쪽으로 이동: 음수(−)\n"
       "범위: −30 ~ +30cm (1cm 단위)  /  기본값: OFF",
       "../assets/offroad/icon_road.png",
       this);
