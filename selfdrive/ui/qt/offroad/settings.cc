@@ -1201,6 +1201,10 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "1: 주행 + 티맵 + 시스템 정보 / 2: 주행 + 티맵만(우측 정보판 숨김, 티맵 폭 확장)",
       "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudNavApp", "NAVIGATION APP",
+      "EON에서 휴대폰 내비를 선택합니다. 1: 티맵 / 2: 네이버지도. 변경하면 S9에서 선택한 앱이 자동 실행됩니다.",
+      "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudGuardrail", "S9 HUD GUARDRAIL",
       "0: 끔 / 1: 켬. 모델이 인식한 도로경계 위에만 세웁니다. 경계가 없는 구간에는 나오지 않습니다.",
       "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
