@@ -1312,6 +1312,12 @@ public final class HudService extends Service {
                     if (!modelWorldGl.leadSprite(leadIndex, leadSpriteInfo)) {
                         continue;
                     }
+                    // Leave a visible gap above the ego car, including the lead's
+                    // ground marker. Keep the real EON distance for the label.
+                    leadSpriteInfo[1] = LeadDisplayPolicy.separatedBottom(
+                            leadSpriteInfo[0], leadSpriteInfo[1], leadSpriteInfo[2],
+                            (float) egoCar.getHeight() / egoCar.getWidth(),
+                            DRIVE_CX, 433f, EGO_CAR_WIDTH, 8f);
                     float leadAlpha = modelWorldGl.leadSpriteAlpha(leadIndex);
                     boolean visionLead = modelWorldGl.leadSpriteVision(leadIndex);
                     drawLeadSprite(c, p, leadSpriteInfo,

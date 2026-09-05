@@ -130,6 +130,7 @@ final class ModelWorldGL {
 
     private long lastTimestamp = Long.MIN_VALUE;
     private int lastStyle;
+    private int lastLeadDisplayState = -1;
     private long previousSceneTimestamp = Long.MIN_VALUE;
     private long nextRenderNanos;
     private float horizonShift;
@@ -181,9 +182,14 @@ final class ModelWorldGL {
                     ^ (scene.optBoolean("leftBsd", false) ? 1 << 6 : 0)
                     ^ (scene.optBoolean("rightBsd", false) ? 1 << 7 : 0);
             boolean styleChanged = style != lastStyle;
-            if (timestamp != lastTimestamp || styleChanged) {
+            // Source/visibility changes must bypass expensive-frame reuse.
+            int leadState = leadDisplayState(scene.optJSONObject("lead"))
+                    | (leadDisplayState(scene.optJSONObject("lead2")) << 2);
+            boolean leadChanged = leadState != lastLeadDisplayState;
+            if (timestamp != lastTimestamp || styleChanged || leadChanged) {
                 long started = System.nanoTime();
-                if (styleChanged || started >= nextRenderNanos) {
+                if (LeadDisplayPolicy.refreshNow(timestamp != lastTimestamp, styleChanged,
+                        leadChanged, started, nextRenderNanos)) {
                     if (!render(scene, enabled, driveBg, roadTop, roadBottom, pathColor,
                             dark, roadZPercent, livePitch, pitchPercent, calibPitch,
                             leadSprite, guardrail, haze)) {
@@ -196,6 +202,7 @@ final class ModelWorldGL {
                             ? 180_000_000L : 0L);
                     lastTimestamp = timestamp;
                     lastStyle = style;
+                    lastLeadDisplayState = leadState;
                 }
             }
             paint.setShader(null);
@@ -603,6 +610,11 @@ final class ModelWorldGL {
         return valid < 2 || outside < 2;
     }
 
+    private static int leadDisplayState(JSONObject lead) {
+        if (lead == null) return 0;
+        return "V".equals(lead.optString("src", "R")) ? 2 : 1;
+    }
+
     private void drawLead(JSONObject lead, Line roadHeight, int index,
                           boolean dark, boolean secondary, long timestamp,
                           boolean sprite) {
@@ -669,9 +681,12 @@ final class ModelWorldGL {
         int body = secondary
                 ? (dark ? Color.rgb(116, 128, 140) : Color.rgb(150, 158, 166))
                 : (dark ? Color.rgb(220, 229, 237) : Color.rgb(246, 248, 250));
-        drawScreenRect(sx - width * 0.58f, sy - height * 0.08f,
-                sx + width * 0.58f, sy + height * 0.20f, shadow,
-                (secondary ? 0.45f : 0.68f) * holdAlpha);
+        if (!sprite) {
+            // Sprite shadows/markers follow the adjusted Canvas position.
+            drawScreenRect(sx - width * 0.58f, sy - height * 0.08f,
+                    sx + width * 0.58f, sy + height * 0.20f, shadow,
+                    (secondary ? 0.45f : 0.68f) * holdAlpha);
+        }
         // Match the EON source convention: radar is orange, camera vision is
         // blue.  Use a brighter blue at night so it remains visible.
         int sourceColor = leadSpriteVision[index]
