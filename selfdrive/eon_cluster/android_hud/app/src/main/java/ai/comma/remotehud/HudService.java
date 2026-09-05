@@ -235,6 +235,8 @@ public final class HudService extends Service {
     private volatile int junctionMode = 2;
     /** 화면 구성 1: 주행·티맵·시스템, 2: 주행·티맵만 */
     private int configuredLayoutMode = 1;
+    /** EON 선택 내비: 1=티맵, 2=네이버지도. */
+    private volatile int configuredNavApp = 0;
     /** 출력 대상 1: 외부 USB HUD, 2: S9 화면, 3: 동시 출력 */
 
     // 회전 카운트다운 (carrot-wip leftSec 방식: 단조감소)
@@ -649,6 +651,7 @@ public final class HudService extends Service {
                             continue;
                         }
                         state.set(decoded);
+                        applyNavigationSelection(decoded.optInt("hudNavApp", 1));
                         udpReceiverError = "";
                         eonAddress.set(packet.getAddress());
                         lastEonRxElapsed = SystemClock.elapsedRealtime();
@@ -672,6 +675,32 @@ public final class HudService extends Service {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * EON 설정값이 바뀐 순간에만 선택한 내비를 앞으로 가져온다.
+     * Android 13의 백그라운드 Activity 실행 제한을 피하기 위해, 사용자가 이미
+     * Magisk에서 허용한 Remote HUD 루트 권한으로 launcher Activity를 실행한다.
+     */
+    private void applyNavigationSelection(int requested) {
+        final int selected = requested == 2 ? 2 : 1;
+        if (configuredNavApp == selected) {
+            return;
+        }
+        configuredNavApp = selected;
+        final String packageName = selected == 2
+                ? "com.nhn.android.nmap" : "com.skt.tmap.ku";
+        try {
+            Intent launch = getPackageManager().getLaunchIntentForPackage(packageName);
+            if (launch == null || launch.getComponent() == null) {
+                return;
+            }
+            String component = launch.getComponent().flattenToShortString();
+            Runtime.getRuntime().exec(new String[] {
+                    "su", "-c", "am start -n " + component
+            });
+        } catch (Exception ignored) {
         }
     }
 
