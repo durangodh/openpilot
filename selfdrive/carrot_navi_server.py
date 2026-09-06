@@ -58,6 +58,9 @@ OVERLAY_FILES = {
 MAP_RENDER_WIDTH = 640
 MAP_RENDER_HEIGHT = 384
 PARAM_MAP_FPS = "EonClusterHudMapFps"
+PARAM_NAV_APP = "EonClusterHudNavApp"
+SOURCE_TMAP = "tmap"
+SOURCE_NAVER = "naver"
 MAP_RENDER_FPS_DEFAULT = 5
 MAP_RENDER_FPS_MIN = 2
 MAP_RENDER_FPS_MAX = 5
@@ -105,8 +108,52 @@ class NaviState(object):
     self.control_send_lock = threading.Lock()
     self.session_id = uuid.uuid4().hex
     self.manifest_revision = 1
+    self.active_source = None
     threading.Thread(target=self._writer_loop, name="carrot-navi-state", daemon=True).start()
     threading.Thread(target=self._map_watchdog_loop, name="carrot-navi-map-watchdog", daemon=True).start()
+
+  def _configured_source(self):
+    try:
+      raw = self.params.get(PARAM_NAV_APP)
+      if isinstance(raw, bytes):
+        raw = raw.decode("utf-8")
+      return SOURCE_NAVER if int(raw or 1) == 2 else SOURCE_TMAP
+    except (TypeError, ValueError, UnicodeDecodeError):
+      return SOURCE_TMAP
+
+  def accepts(self, source):
+    """Accept data only from the navigation app selected in EON settings."""
+    selected = self._configured_source()
+    changed = False
+    with self.lock:
+      if self.active_source != selected:
+        self.active_source = selected
+        self.values.clear()
+        self.updated_at.clear()
+        self.route_signature = None
+        self.route_change_pending = False
+        self.route_change_started = 0.0
+        self.route_change_baseline_digest = None
+        self.last_map_rx = 0.0
+        self.last_map_sequence = -1
+        self.last_map_digest = None
+        self.map_seen = False
+        self.map_stale_cleared = False
+        self.dirty = True
+        self.condition.notify()
+        changed = True
+    if changed:
+      self.clear_visuals()
+    return source == selected
+
+  @staticmethod
+  def clear_visuals():
+    NaviState.clear_map()
+    for target in OVERLAY_FILES.values():
+      try:
+        os.unlink(target)
+      except OSError:
+        pass
 
   @staticmethod
   def _write_json(path, payload):
@@ -172,8 +219,8 @@ class NaviState(object):
       return None
     return destination, distance_bucket
 
-  def update(self, name, value):
-    if name not in JSON_NAMES:
+  def update(self, source, name, value):
+    if not self.accepts(source) or name not in JSON_NAMES:
       return
 
     route_changed = False
@@ -229,8 +276,8 @@ class NaviState(object):
       return message_type, format_or_reason, sequence, body
     return 1, 0, -1, packet
 
-  def update_map(self, payload):
-    if not payload or len(payload) > MAX_MAP_FRAME_BYTES:
+  def update_map(self, source, payload):
+    if not self.accepts(source) or not payload or len(payload) > MAX_MAP_FRAME_BYTES:
       return
 
     parsed = self._binary_payload(payload)
@@ -305,7 +352,9 @@ class NaviState(object):
     except OSError:
       pass
 
-  def update_overlay(self, name, payload):
+  def update_overlay(self, source, name, payload):
+    if not self.accepts(source):
+      return
     target = OVERLAY_FILES.get(name)
     if target is None or not payload or len(payload) > MAX_LANE_FRAME_BYTES:
       return
@@ -350,7 +399,7 @@ class NaviState(object):
       pass
 
   def update_lane(self, payload):
-    self.update_overlay("lane_bottom", payload)
+    self.update_overlay(SOURCE_TMAP, "lane_bottom", payload)
 
   def clear_lane(self):
     self.clear_overlay("lane_bottom")
@@ -390,6 +439,8 @@ class NaviState(object):
       return False
 
   def request_map_resync(self):
+    if not self.accepts(SOURCE_TMAP):
+      return False
     now = time.monotonic()
     with self.lock:
       if self.control_conn is None or now < self.last_resync_request + MAP_RESYNC_INTERVAL_S:
@@ -407,6 +458,7 @@ class NaviState(object):
   def _map_watchdog_loop(self):
     while True:
       time.sleep(0.5)
+      selected_tmap = self.accepts(SOURCE_TMAP)
       now = time.monotonic()
       with self.lock:
         map_seen = self.map_seen
@@ -420,7 +472,7 @@ class NaviState(object):
       # old JPEG repeatedly. Packet timestamps alone would look healthy, so
       # keep asking for resync until the actual map pixels change. If the
       # control socket is gone, clearing still proceeds after the same timeout.
-      if route_change_pending:
+      if route_change_pending and selected_tmap:
         if control_present:
           self.request_map_resync()
         route_age = now - route_change_started if route_change_started > 0.0 else 0.0
@@ -434,7 +486,7 @@ class NaviState(object):
         continue
 
       age = now - last_map_rx
-      if age >= MAP_STALE_S and control_present:
+      if age >= MAP_STALE_S and control_present and selected_tmap:
         self.request_map_resync()
 
       # Clear stale pixels even when TMAP's control socket disconnected. The
@@ -554,6 +606,7 @@ def websocket_handshake(conn):
 
 def client_loop(conn, state):
   path = websocket_handshake(conn)
+  source = SOURCE_NAVER if "/naver/" in path.lower() else SOURCE_TMAP
   is_control = "/control/" in path
   stream_name = path.rstrip("/").split("/")[-1] if not is_control else None
   if is_control:
@@ -577,9 +630,9 @@ def client_loop(conn, state):
         continue
       if opcode == 2:
         if not is_control and stream_name == "map_main":
-          state.update_map(payload)
+          state.update_map(source, payload)
         elif not is_control and stream_name in OVERLAY_FILES:
-          state.update_overlay(stream_name, payload)
+          state.update_overlay(source, stream_name, payload)
         continue
       if opcode != 1:
         continue
@@ -596,8 +649,12 @@ def client_loop(conn, state):
       elif not is_control and message.get("type") == "item_update":
         name = message.get("name", stream_name)
         value = message.get("value") if message.get("present", True) else None
-        if name == "map_main" or name in OVERLAY_FILES:
+        is_encoded_image = (isinstance(value, str) or
+                            (isinstance(value, dict) and isinstance(value.get("data"), str)))
+        if name == "map_main" or (name in OVERLAY_FILES and (value is None or is_encoded_image)):
           if value is None:
+            if not state.accepts(source):
+              continue
             if name == "map_main":
               state.clear_map()
             else:
@@ -610,13 +667,13 @@ def client_loop(conn, state):
             try:
               image = base64.b64decode(encoded)
               if name == "map_main":
-                state.update_map(image)
+                state.update_map(source, image)
               else:
-                state.update_overlay(name, image)
+                state.update_overlay(source, name, image)
             except (TypeError, ValueError):
               pass
         else:
-          state.update(name, value)
+          state.update(source, name, value)
   finally:
     if is_control:
       state.control_disconnected(conn)
