@@ -9,9 +9,11 @@ import time
 
 from common.params import Params, UnknownKeyName
 from selfdrive.eon_cluster import remote_hud as base
+from selfdrive.controls.lib.navigation_route import NavigationRouteData
 
 
 _params = Params()
+_nav_route = NavigationRouteData()
 _original_packet = base._packet
 _param_cache = {}
 PARAM_CACHE_S = 1.0
@@ -68,12 +70,47 @@ def _apply_path_flip(packet):
   packet["hudPathFlip"] = 1
   return packet
 
+
+def _apply_naver_speed(packet):
+  """Project NAVER SDI into the existing HUD fields only when NAVER is selected.
+
+  TMAP keeps base._packet's original roadLimitSpeed values byte-for-byte.
+  """
+  if _bounded_int("EonClusterHudNavApp", 1, 1, 2) != 2:
+    return packet
+
+  state = _nav_route.update()
+  events = _nav_route.speed_events(state)
+  camera = events.get("camera")
+  section = events.get("section")
+  packet["limit"] = max(0, int(round(float(state.get("road_limit_kph", 0.0) or 0.0))))
+  packet["camera"] = 0
+  packet["cameraDist"] = 0
+  packet["cameraSection"] = False
+  packet["bumpDist"] = 0
+
+  if isinstance(camera, dict):
+    event_type = int(camera.get("type", 0) or 0)
+    distance = max(0, int(round(float(camera.get("distance", 0.0) or 0.0))))
+    limit = max(0, int(round(float(camera.get("limit", 0.0) or 0.0))))
+    if event_type == 22:
+      packet["bumpDist"] = distance
+    else:
+      packet["camera"] = limit
+      packet["cameraDist"] = distance
+  elif isinstance(section, dict):
+    packet["camera"] = max(0, int(round(float(section.get("limit", 0.0) or 0.0))))
+    packet["cameraDist"] = max(0, int(round(float(section.get("distance", 0.0) or 0.0))))
+    packet["cameraSection"] = packet["camera"] > 0 and packet["cameraDist"] > 0
+  return packet
+
 def _packet(sm, *args, **kwargs):
   # base._packet 의 인자가 늘어나도(noo_enabled → +path_offset 등) 그대로
   # 흘려보낸다. 고정 인자로 받으면 base 쪽 시그니처가 바뀔 때마다
   # TypeError 로 패킷이 아예 안 나가고 폰에는 "EON 연결 끊김" 만 뜬다.
   packet = _original_packet(sm, *args, **kwargs)
   packet = _apply_path_flip(packet)
+  packet = _apply_naver_speed(packet)
 
   view_pitch = _bounded_int("EonClusterHudViewPitch", 0, -50, 50)
   calibrated_pitch = float(packet.get("calibPitch", 0.0) or 0.0) + math.radians(view_pitch * 0.1)

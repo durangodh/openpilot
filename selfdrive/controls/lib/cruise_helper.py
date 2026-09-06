@@ -686,7 +686,11 @@ class CruiseHelper:
     # NOO/curve toggles so 7714 SDI and section data can feed the existing C3
     # navigation limiter. Existing roadLimitSpeed packets retain priority.
     navi_state = self.navigation_route.update()
-    if road_data is not None:
+    # TMAP remains exactly on the legacy roadLimitSpeed path.  NAVER selection
+    # deliberately ignores that phone-side TMAP packet and uses NAVER's 7714
+    # SDI/section stream below, so display and real deceleration share a source.
+    naver_selected = self.params.get_int("EonClusterHudNavApp") == 2
+    if road_data is not None and not naver_selected:
       cam_type = int(road_data.camType)
       cam_dist = float(road_data.camLimitSpeedLeftDist)
       cam_limit = float(road_data.camLimitSpeed)
@@ -832,7 +836,9 @@ class CruiseHelper:
 
     self.active_cam = road_limit_speed > 0 and left_dist > 0
     normal_road_limit_speed = 0.0
-    if road_data is not None:
+    if naver_selected:
+      normal_road_limit_speed = float(navi_state.get("road_limit_kph", 0.0) or 0.0)
+    elif road_data is not None:
       normal_road_limit_speed = float(road_data.roadLimitSpeed)
 
     if apply_limit_speed >= self.kph_to_clu(10):

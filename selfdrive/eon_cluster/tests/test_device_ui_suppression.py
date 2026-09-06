@@ -205,6 +205,23 @@ def test_remote_ack_is_status_only():
   assert "EonClusterHudConnected" not in _code_only(onroad)
 
 
+def test_naver_speed_projection_does_not_replace_tmap_legacy_path():
+  wrapper = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud_s9.py").read_text(encoding="utf-8")
+  cruise = (ROOT / "selfdrive" / "controls" / "lib" / "cruise_helper.py").read_text(encoding="utf-8")
+
+  # The base packet still owns TMAP camera display. NAVER projection is gated
+  # in the S9-only wrapper and therefore cannot overwrite TMAP HUD fields.
+  assert 'if _bounded_int("EonClusterHudNavApp", 1, 1, 2) != 2:' in wrapper
+  assert 'packet = _original_packet(sm, *args, **kwargs)' in wrapper
+  assert 'packet = _apply_naver_speed(packet)' in wrapper
+
+  # Real deceleration follows the same selection rule: TMAP keeps the exact
+  # roadLimitSpeed path, NAVER uses only its selected 7714 SDI/section stream.
+  assert 'naver_selected = self.params.get_int("EonClusterHudNavApp") == 2' in cruise
+  assert 'if road_data is not None and not naver_selected:' in cruise
+  assert 'if naver_selected:\n      normal_road_limit_speed = float(navi_state.get(' in cruise
+
+
 def test_external_map_renderer_is_completely_removed():
   java = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
           "main" / "java" / "ai" / "comma" / "remotehud")
