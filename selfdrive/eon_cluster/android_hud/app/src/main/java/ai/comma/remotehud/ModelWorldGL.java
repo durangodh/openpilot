@@ -791,6 +791,7 @@ final class ModelWorldGL {
                 if (age<0 || age>1000L) continue;
                 distance=(float) CameraVehicleTracker.predicted(distance,object.optDouble("vd",0d),age);
                 lateral=(float) CameraVehicleTracker.predicted(lateral,object.optDouble("vy",0d),age);
+                if (scene.optInt("hudPathFlip", 0) != 0) lateral = -lateral;
             }
             if (probability < 0.25f || distance < 2f || distance > 180f
                     || Math.abs(lateral) > 15f
@@ -805,9 +806,14 @@ final class ModelWorldGL {
             float pathCentre = yAt(roadHeight, distance);
             float laneWidth = clamp((float) scene.optDouble("laneWidth", 3.5d), 2.6f, 4.2f);
             float laneDelta = lateral - pathCentre;
-            if (phoneObject && Math.abs(laneDelta) > laneWidth * 0.55f) {
+            if (phoneObject && Math.abs(laneDelta) > laneWidth * 0.45f) {
                 float observedWidthM = clamp((float) object.optDouble("width", 1.88d), 0.6f, 3.5f);
-                float minimumSideOffset = laneWidth * 0.5f + observedWidthM * 0.5f + 0.12f;
+                String objectType = object.optString("type", "car");
+                float minimumObjectWidth = ("truck".equals(objectType) || "bus".equals(objectType))
+                        ? 2.45f : (("motorcycle".equals(objectType) || "bicycle".equals(objectType))
+                        ? 0.82f : ("person".equals(objectType) ? 0.68f : 1.88f));
+                observedWidthM = Math.max(observedWidthM, minimumObjectWidth);
+                float minimumSideOffset = laneWidth * 0.5f + observedWidthM * 0.5f + 0.40f;
                 lateral = pathCentre + Math.copySign(Math.max(Math.abs(laneDelta), minimumSideOffset), laneDelta);
             }
             // 노면 높이에 그대로 붙인다. 이전 +0.12f 오프셋이 차량을 떠 보이게 했다.
@@ -874,6 +880,9 @@ final class ModelWorldGL {
                                        boolean dark, float alpha, boolean observedSize) {
         float width = baseWidth;
         float height = observedSize ? baseHeight : baseHeight * 1.20f;
+        if ("car".equals(type)) height = Math.max(height, width * 1.32f);
+        if ("truck".equals(type)) height = Math.max(height, width * 1.72f);
+        if ("bus".equals(type)) height = Math.max(height, width * 2.05f);
         if (!observedSize && "truck".equals(type)) {
             width *= 1.12f;
             height *= 1.55f;
@@ -917,8 +926,41 @@ final class ModelWorldGL {
         } else if ("motorcycle".equals(type) || "bicycle".equals(type)) {
             drawTwoWheelerIcon(sx, sy, width, height, rear, shadow, alpha);
         } else {
-            drawBlob(sx, sy, width, height, top, rear, flank, alpha);
+            drawFsdCarIcon(sx, sy, width, height, top, rear, flank, shadow, alpha);
         }
+    }
+
+    /** Tesla FSD-like tapered top/rear silhouette instead of a rectangular cuboid. */
+    private void drawFsdCarIcon(float sx, float sy, float width, float height,
+                                int top, int rear, int flank, int shadow, float alpha) {
+        float halfRear = width * 0.50f;
+        float halfNose = width * 0.34f;
+        float noseY = sy - height;
+        float shoulderY = sy - height * 0.72f;
+        float side = sx < WIDTH * 0.5f ? 1f : -1f;
+        float skew = side * Math.min(width * 0.13f, Math.abs(sx - WIDTH * 0.5f) * 0.025f);
+
+        drawScreenQuad(sx - halfRear, sy - height * 0.18f,
+                sx + halfRear, sy - height * 0.18f,
+                sx + halfNose + skew, noseY, sx - halfNose + skew, noseY,
+                top, 0.98f * alpha);
+        drawScreenQuad(sx - halfRear, sy - height * 0.18f,
+                sx + halfRear, sy - height * 0.18f,
+                sx + width * 0.42f, sy, sx - width * 0.42f, sy,
+                rear, 0.98f * alpha);
+        drawScreenQuad(sx + side * halfRear, sy - height * 0.18f,
+                sx + side * width * 0.42f, sy,
+                sx + side * halfNose + skew, noseY,
+                sx + side * width * 0.40f + skew, shoulderY,
+                flank, 0.88f * alpha);
+        int glass = Color.rgb(47, 54, 62);
+        drawScreenQuad(sx - width * 0.28f + skew * 0.45f, sy - height * 0.39f,
+                sx + width * 0.28f + skew * 0.45f, sy - height * 0.39f,
+                sx + width * 0.21f + skew, sy - height * 0.73f,
+                sx - width * 0.21f + skew, sy - height * 0.73f,
+                glass, 0.88f * alpha);
+        drawScreenRect(sx - width * 0.31f, sy - height * 0.14f,
+                sx + width * 0.31f, sy - height * 0.08f, shadow, 0.45f * alpha);
     }
 
     private void drawTruckIcon(float sx, float sy, float width, float height,
@@ -950,9 +992,10 @@ final class ModelWorldGL {
 
     private void drawPersonIcon(float sx, float sy, float width, float height,
                                 int body, int shadow, float alpha) {
+        width = Math.max(width, height * 0.28f);
+        height = Math.max(height, width * 2.8f);
         float head = Math.max(2f, width * 0.24f);
-        drawScreenRect(sx - head, sy - height, sx + head, sy - height + head * 2f,
-                body, 0.96f * alpha);
+        drawScreenDisc(sx, sy - height + head, head, body, 0.96f * alpha);
         drawScreenQuad(sx - width * 0.16f, sy - height + head * 2f,
                 sx + width * 0.16f, sy - height + head * 2f,
                 sx + width * 0.28f, sy - height * 0.34f,
@@ -967,6 +1010,19 @@ final class ModelWorldGL {
                 body, 0.94f * alpha);
         drawScreenRect(sx - width * 0.48f, sy, sx + width * 0.48f,
                 sy + Math.max(1f, height * 0.05f), shadow, 0.52f * alpha);
+    }
+
+    private void drawScreenDisc(float cx, float cy, float radius, int color, float alpha) {
+        int v = 0;
+        final int segments = 12;
+        for (int i = 0; i < segments; i++) {
+            double a0 = Math.PI * 2d * i / segments;
+            double a1 = Math.PI * 2d * (i + 1) / segments;
+            v = addTriangle(v, cx, cy,
+                    cx + radius * (float) Math.cos(a0), cy + radius * (float) Math.sin(a0),
+                    cx + radius * (float) Math.cos(a1), cy + radius * (float) Math.sin(a1));
+        }
+        drawVertices(GLES20.GL_TRIANGLES, v / 2, color, alpha);
     }
 
     /** 뒷면(사각) + 윗면(앞으로 밀린 평행사변형) + 옆면. 모서리는 작은 삼각형으로 깎는다. */

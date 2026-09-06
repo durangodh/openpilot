@@ -1295,10 +1295,10 @@
    "group": "S9HUD",
    "name": "EonClusterHudPathFlip",
    "title": "S9 HUD PATH FLIP",
-   "descr": "0: 기본 / 1: 차선·경로 리본·옆차 위치만 좌우반전 (화면 전체 미러와는 별개, 진단용)",
+   "descr": "0: 기본 / 1: 차선·경로 리본·옆차 위치 좌우반전 (S9 설치 기본값)",
    "min": 0,
    "max": 1,
-   "default": 0,
+   "default": 1,
    "unit": 1
   },
   {

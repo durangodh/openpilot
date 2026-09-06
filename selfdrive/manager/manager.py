@@ -106,7 +106,7 @@ def manager_init() -> None:
     ("EonClusterHudTheme", "0"),
     ("EonClusterHudOrientation", "0"),
     ("EonClusterHudMirror", "0"),
-    ("EonClusterHudPathFlip", "0"),
+    ("EonClusterHudPathFlip", "1"),
     ("EonClusterHudLanguage", "0"),
     ("EonClusterHudRadarInfo", "4"),
     ("EonClusterHudGuardrail", "1"),
@@ -236,6 +236,13 @@ def manager_init() -> None:
     if params.get("CruiseButtonLongDelay", encoding='utf8') == "70":
       params.put("CruiseButtonLongDelay", "40")
     params.put_bool("CruiseButtonLongDelayC2Migrated", True)
+
+  # Installed S9 compositor uses the opposite lateral screen axis. Move the
+  # previous default once; a later explicit driver choice remains untouched.
+  if params.get("EonClusterHudPathFlipV2Migrated") is None:
+    if params.get("EonClusterHudPathFlip", encoding='utf8') in (None, "0"):
+      params.put("EonClusterHudPathFlip", "1")
+    params.put_bool("EonClusterHudPathFlipV2Migrated", True)
 
   # The old HUD schema stored 65 as the default fixed brightness. When the
   # day/night controls first appear, migrate only that legacy default to auto.

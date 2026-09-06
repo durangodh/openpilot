@@ -277,6 +277,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudOrientation", PERSISTENT},
     {"EonClusterHudMirror", PERSISTENT},
     {"EonClusterHudPathFlip", PERSISTENT},       // 진단용: S9 경로/차선 좌우반전 (0=기본, 1=반전)
+    {"EonClusterHudPathFlipV2Migrated", PERSISTENT},
     {"EonClusterHudLanguage", PERSISTENT},
     {"EonClusterHudRadarInfo", PERSISTENT},
     {"EonClusterHudNavRoute", PERSISTENT},      // 1=티맵 경로 의도 반투명 표시, 0=숨김

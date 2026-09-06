@@ -403,6 +403,9 @@ def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
                        ("EonClusterHudVisionDetectorThreshold", "40")):
     assert '("%s", "%s")' % (key, default) in manager
     assert '{"%s", PERSISTENT}' % key in params
+  assert '("EonClusterHudPathFlip", "1")' in manager
+  assert 'params.get("EonClusterHudPathFlipV2Migrated") is None' in manager
+  assert '{"EonClusterHudPathFlipV2Migrated", PERSISTENT}' in params
   assert 'PREVIEW_SIZE = (320, 240)' in preview
   assert 'return max(1, min(3, value))' in preview
   assert 'os.nice(10)' in preview
@@ -411,7 +414,7 @@ def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
   assert 'tagEquals(header, "CAM1")' in service
   assert "Process.THREAD_PRIORITY_BACKGROUND" in service
   assert "s9TempC >= 82f" in service and "s9TempC <= 78f" in service
-  assert 'object.put("src", "P")' in phone
+  assert 'object.put("src","P")' in phone
   assert "FADE_HOLD_MS = 450L" in (ROOT / "selfdrive" / "eon_cluster" /
           "android_hud" / "app" / "src" / "main" / "java" / "ai" /
           "comma" / "remotehud" / "CameraVehicleTracker.java").read_text(encoding="utf-8")
@@ -419,9 +422,10 @@ def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
   assert "b.d=best.box.d*0.28+b.d*0.72" in (ROOT / "selfdrive" / "eon_cluster" /
           "android_hud" / "app" / "src" / "main" / "java" / "ai" /
           "comma" / "remotehud" / "CameraVehicleTracker.java").read_text(encoding="utf-8")
-  assert "distanceStep" in phone and "lateralStep" in phone
   assert '"hudPathFlip"' not in phone
-  assert 'object.put("type", normalizeVehicleType(vehicle.getLabel()))' in phone
+  assert 'object.put("type",t.box.type)' in phone
+  assert 'threshold - 0.12f' in phone
+  assert '"person".equals(vehicleType) ? 0.015f : 0.03f' in phone
   for vehicle_type in ("car", "truck", "bus", "motorcycle", "bicycle", "person"):
     assert '"%s"' % vehicle_type in phone
     assert '"%s"' % vehicle_type in renderer
@@ -429,6 +433,10 @@ def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
   assert "drawTruckIcon" in renderer
   assert "drawBusIcon" in renderer
   assert "drawTwoWheelerIcon" in renderer
+  assert "drawFsdCarIcon" in renderer
+  assert "drawScreenDisc" in renderer
+  assert 'scene.optInt("hudPathFlip", 0)' in renderer
+  assert "minimumObjectWidth" in renderer
   assert "CAMERA_TO_BUMPER_M = 1.52f" in phone
   assert "mapHeading + headingError * 0.22" in renderer
   assert "Math.min(0.28, 12.0 / Math.max(1.0, jump))" in renderer

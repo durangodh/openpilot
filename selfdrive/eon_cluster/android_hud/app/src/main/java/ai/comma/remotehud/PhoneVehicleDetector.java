@@ -67,12 +67,17 @@ final class PhoneVehicleDetector implements AutoCloseable {
             List<Detection> detections = detector.detect(input);
             for (Detection detection : detections) {
                 Category vehicle = bestVehicleCategory(detection.getCategories());
-                if (vehicle == null || vehicle.getScore() < threshold) {
+                if (vehicle == null) {
                     continue;
                 }
+                String vehicleType = normalizeVehicleType(vehicle.getLabel());
+                float classThreshold = "person".equals(vehicleType)
+                        ? Math.max(0.25f, threshold - 0.12f) : threshold;
+                if (vehicle.getScore() < classThreshold) continue;
                 RectF box = detection.getBoundingBox();
-                // 4px 짜리 점 검출은 대부분 오검출. 입력 해상도의 3% 이상만 받는다.
-                if (box == null || box.width() < image.getWidth() * 0.03f
+                // 보행자는 차보다 폭이 좁으므로 별도 최소 폭을 적용한다.
+                float minWidthRatio = "person".equals(vehicleType) ? 0.015f : 0.03f;
+                if (box == null || box.width() < image.getWidth() * minWidthRatio
                         || box.height() < image.getHeight() * 0.03f) {
                     continue;
                 }
@@ -86,9 +91,8 @@ final class PhoneVehicleDetector implements AutoCloseable {
                 }
                 double distance = (m[0] * pixelX + m[1] * pixelY + m[2]) / scale
                         - CAMERA_TO_BUMPER_M;
-                // Keep the camera projection's native left-positive lateral axis.
-                // hudPathFlip only corrects model geometry on the installed display;
-                // applying it here mirrors phone detections to the opposite lane.
+                // Keep the native camera axis here. ModelWorldGL applies the
+                // installed display's hudPathFlip after tracker prediction.
                 double lateral = (m[3] * pixelX + m[4] * pixelY + m[5]) / scale;
                 if (!Double.isFinite(distance) || !Double.isFinite(lateral)
                         || distance < 2d || distance > 120d
@@ -118,7 +122,7 @@ final class PhoneVehicleDetector implements AutoCloseable {
                         estimatedWidth,estimatedHeight,
                         box.left/image.getWidth(),box.top/image.getHeight(),
                         box.right/image.getWidth(),box.bottom/image.getHeight(),
-                        vehicle.getScore(),normalizeVehicleType(vehicle.getLabel())));
+                        vehicle.getScore(),vehicleType));
                 if (observations.size() >= MAX_RESULTS) {
                     break;
                 }

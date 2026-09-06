@@ -78,7 +78,8 @@ final class CameraVehicleTracker {
                 best.box=b; best.time=now; best.hits++;
             }
             best.matched=true;
-            if (best.hits>=2 || b.score>=0.65f) visible.add(best);
+            if (best.hits>=2 || b.score>=0.65f
+                    || ("person".equals(b.type) && b.score>=0.45f)) visible.add(best);
         }
         // Bridge only a single short detector miss. The renderer predicts from
         // measured velocity and PhoneVehicleDetector fades confidence with age,
