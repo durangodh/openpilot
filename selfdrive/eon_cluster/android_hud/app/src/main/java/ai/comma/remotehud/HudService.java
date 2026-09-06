@@ -414,6 +414,9 @@ public final class HudService extends Service {
         // EON 이 붙기 전 첫 프레임부터 올바른 방향으로 그리기 위해 마지막 값을 복원한다.
         configuredOrientation = AppPrefs.getOrientation(this);
         configuredMirror = AppPrefs.isMirror(this);
+        // 부팅 시 BootReceiver 가 이미 이 값으로 내비를 띄웠으므로, EON 이 같은 값을
+        // 보내오면 다시 띄우지 않는다(0 이면 서비스 시작마다 재실행됐음).
+        configuredNavApp = AppPrefs.getNavApp(this);
         egoCar = BitmapFactory.decodeResource(getResources(), R.drawable.hud_ego_car);
         // 핸들 이미지는 선택 사항이라 R.drawable 을 직접 참조하지 않는다.
         // 파일이 없어도 빌드가 깨지지 않고, 있으면 자동으로 벡터 대신 쓰인다.
@@ -688,11 +691,41 @@ public final class HudService extends Service {
         if (configuredNavApp == selected) {
             return;
         }
+        final int previous = configuredNavApp;
         configuredNavApp = selected;
-        final String packageName = selected == 2
-                ? "com.nhn.android.nmap" : "com.skt.tmap.ku";
+        AppPrefs.setNavApp(this, selected);
+        // 주행 중 전환이면 이전 내비를 완전 종료한다. 그대로 두면 뒤에서 목적지
+        // 안내를 계속해 음성이 겹치고 S9 부하가 생긴다. 부팅 직후 첫 적용(0)이나
+        // 같은 값이면 종료할 것이 없다.
+        if (previous == 1 || previous == 2) {
+            stopNavApp(previous);
+        }
+        launchNavApp(this, selected);
+    }
+
+    private static String navPackage(int navApp) {
+        return navApp == 2 ? "com.nhn.android.nmap" : "com.skt.tmap.ku";
+    }
+
+    /** 다른 쪽 내비를 완전 종료(루트 am force-stop). 안내·음성·GPS 전부 멈춘다. */
+    static void stopNavApp(int navApp) {
         try {
-            Intent launch = getPackageManager().getLaunchIntentForPackage(packageName);
+            Runtime.getRuntime().exec(new String[] {
+                    "su", "-c", "am force-stop " + navPackage(navApp)
+            }).waitFor();
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * 선택한 내비(1=티맵, 2=네이버지도)를 앞으로 가져온다. BootReceiver(부팅 직후)와
+     * EON 선택 변경 두 곳에서 같은 경로를 쓴다. Android 13 백그라운드 Activity
+     * 제한을 피하려고 Magisk 에서 허용된 루트로 am start 를 실행한다.
+     */
+    static void launchNavApp(Context context, int navApp) {
+        final String packageName = navPackage(navApp);
+        try {
+            Intent launch = context.getPackageManager().getLaunchIntentForPackage(packageName);
             if (launch == null || launch.getComponent() == null) {
                 return;
             }
