@@ -10,6 +10,7 @@ public final class AppPrefs {
     private static final String GUIDE_SHOWN = "guide_shown_v37";
     private static final String ORIENTATION = "hud_orientation";
     private static final String MIRROR = "hud_mirror";
+    private static final String NAV_APP = "hud_nav_app";
 
     private AppPrefs() {
     }
@@ -41,6 +42,19 @@ public final class AppPrefs {
 
     public static void setMirror(Context context, boolean mirror) {
         prefs(context).edit().putBoolean(MIRROR, mirror).apply();
+    }
+
+    /**
+     * EON 에서 마지막으로 선택한 내비(1=티맵, 2=네이버지도). EON 은 S9 보다
+     * 부팅이 훨씬 늦으므로, 부팅 직후엔 이 값으로 먼저 내비를 띄우고 EON 이
+     * 붙은 뒤 선택이 다르면 그때 바꾼다.
+     */
+    public static int getNavApp(Context context) {
+        return prefs(context).getInt(NAV_APP, 1) == 2 ? 2 : 1;
+    }
+
+    public static void setNavApp(Context context, int navApp) {
+        prefs(context).edit().putInt(NAV_APP, navApp == 2 ? 2 : 1).apply();
     }
 
     public static boolean wasGuideShown(Context context) {
