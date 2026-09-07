@@ -9,9 +9,9 @@ from selfdrive.car.hyundai.scc_lead_tracker import (
 )
 
 
-def test_scc_validity_uses_both_flags_and_rejects_empty_or_nonfinite_values():
+def test_scc_validity_uses_status_and_rejects_empty_or_nonfinite_values():
   assert scc_object_valid(1, 1, 40.0, 0.2, -2.0)
-  assert not scc_object_valid(0, 1, 40.0, 0.2, -2.0)
+  assert scc_object_valid(0, 1, 40.0, 0.2, -2.0)
   assert not scc_object_valid(1, 0, 40.0, 0.2, -2.0)
   assert not scc_object_valid(1, 1, 204.7, 0.2, -2.0)
   assert not scc_object_valid(1, 1, float('nan'), 0.2, -2.0)
@@ -104,3 +104,31 @@ def test_smooth_braking_motion_does_not_churn_track_identity():
   assert set(track_ids) == {0}
   assert samples[-1].a_rel < -1.0
   assert SCC_MIN_REL_ACCEL <= samples[-1].a_rel <= SCC_MAX_REL_ACCEL
+
+
+def test_stationary_lead_survives_obj_valid_changes():
+  tracker = SCCLeadTracker()
+  # Ego travels at 10 m/s towards a stationary lead.
+  samples = [tracker.update(flag, 1, 40.0 - index * 0.2, 0.0, -10.0)
+             for index, flag in enumerate((0, 0, 1, 0, 0, 0, 1))]
+  assert all(sample is not None and sample.measured for sample in samples)
+  assert len({sample.track_id for sample in samples}) == 1
+  assert all(sample.v_rel == -10.0 for sample in samples)
+
+
+def test_status_loss_with_plausible_distance_still_expires():
+  tracker = SCCLeadTracker()
+  tracker.update(0, 1, 40.0, 0.0, -10.0)
+  held = tracker.update(1, 0, 39.8, 0.0, -10.0)
+  assert held is not None and not held.measured
+  assert tracker.update(1, 0, 39.6, 0.0, -10.0) is None
+
+
+def test_obj_valid_low_does_not_bypass_measurement_guards():
+  for distance, lateral, velocity in (
+    (204.7, 0.0, -10.0), (0.75, 0.0, -10.0),
+    (40.0, 21.0, -10.0), (40.0, 0.0, 101.0),
+    (float('nan'), 0.0, -10.0), (40.0, float('inf'), -10.0),
+    (40.0, 0.0, float('nan')),
+  ):
+    assert SCCLeadTracker().update(0, 1, distance, lateral, velocity) is None

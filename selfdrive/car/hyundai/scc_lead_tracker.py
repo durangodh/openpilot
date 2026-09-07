@@ -34,7 +34,8 @@ def scc_object_valid(obj_valid, obj_status, d_rel, y_rel, v_rel):
   if not all(math.isfinite(float(value)) for value in values):
     return False
 
-  return (bool(obj_valid) and int(obj_status) != 0 and
+  # Restore ACC_ObjStatus-based validity; keep obj_valid for caller compatibility.
+  return (int(obj_status) != 0 and
           SCC_MIN_DISTANCE < float(d_rel) < SCC_MAX_VALID_DISTANCE and
           abs(float(y_rel)) <= SCC_MAX_ABS_YREL and
           abs(float(v_rel)) <= SCC_MAX_ABS_VREL)
