@@ -39,7 +39,7 @@ Margins can remain where the phone/map aspect ratio differs from the HUD panel.
 This preserves map coverage and reduces oversized labels compared with HUD5's crop.
 It is still Naver's own map renderer/zoom, not TMAP's dedicated offscreen renderer.
 
-Update EON, Remote HUD 1.17 (versionCode 134), and CarrotNaver HUD6 once. Thereafter
+Update EON, Remote HUD 1.17 (CI uses an increasing versionCode), and CarrotNaver HUD6 once. Thereafter
 these EON S9HUD settings reach the Naver bridge without rebuilding the Naver APK:
 
 | Parameter | Default | Meaning |
