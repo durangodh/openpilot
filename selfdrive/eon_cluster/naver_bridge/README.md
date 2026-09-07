@@ -28,8 +28,8 @@ The transmitted bitmap is 960×576 with JPEG quality 90. The encoded metadata
 matches those dimensions. TMAP is unchanged.
 
 Aspect-ratio tests cover portrait, landscape, large and small inputs, crop
-bounds, final dimensions, and equal horizontal/vertical scaling. Signing and
-on-device text verification are still required for HUD5.
+bounds, final dimensions, and equal horizontal/vertical scaling. HUD5 is signed with the recovered HUD4 key and supports an in-place update.
+On-device text verification remains. See [HUD5 release notes](../../../docs/carrot_naver_hud5.md).
 
 ## Reproduce
 
