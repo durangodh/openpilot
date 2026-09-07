@@ -655,6 +655,7 @@ public final class HudService extends Service {
                         }
                         state.set(decoded);
                         applyNavigationSelection(decoded.optInt("hudNavApp", 1));
+                        NaverSettingsRelay.update(decoded, socket);
                         udpReceiverError = "";
                         eonAddress.set(packet.getAddress());
                         lastEonRxElapsed = SystemClock.elapsedRealtime();

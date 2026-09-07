@@ -1201,6 +1201,18 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "1: 주행 + 티맵 + 시스템 정보 / 2: 주행 + 티맵만(우측 정보판 숨김, 티맵 폭 확장)",
       "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudNaverLandscape", "NAVER LANDSCAPE", "0: 앱 기본 방향 / 1: 가로 지도 화면 (권장)",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudNaverMapFit", "NAVER MAP FIT", "0: 잘라서 채움 / 1: 지도 전체 비율 맞춤 (권장)",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudNaverMapScale", "NAVER MAP SIZE", "지도 이미지 표시 크기(%). 100: 최대 / 낮추면 여백 증가. 지도 자체 줌은 변경하지 않습니다.",
+      "../assets/offroad/icon_road.png", 50, 100, 5, 0, 100, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudNaverMapQuality", "NAVER MAP QUALITY", "지도 JPEG 화질. 높이면 글자가 선명하지만 전송량이 늘어납니다.",
+      "../assets/offroad/icon_road.png", 60, 95, 5, 0, 90, this));
+  toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudNavApp", "NAVIGATION APP",
       "EON에서 휴대폰 내비를 선택합니다. 1: 티맵 / 2: 네이버지도. 변경하면 S9에서 선택한 앱이 자동 실행됩니다.",
       "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));

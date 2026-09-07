@@ -5,6 +5,15 @@ final class MapCaptureGeometry {
     static final int WIDTH = 960;
     static final int HEIGHT = 576;
 
+    static int[] destination(int width, int height, int percent) {
+        double scale = Math.min(WIDTH / (double) width, HEIGHT / (double) height)
+                * Math.max(50, Math.min(100, percent)) / 100d;
+        int w = Math.max(1, (int) Math.round(width * scale));
+        int h = Math.max(1, (int) Math.round(height * scale));
+        int x = (WIDTH - w) / 2, y = (HEIGHT - h) / 2;
+        return new int[]{x, y, x + w, y + h};
+    }
+
     static int[] captureSize(int width, int height) {
         // Bound the readback allocation to 16 MiB, without upscaling source pixels.
         double scale = Math.min(1d, 2048d / Math.max(width, height));

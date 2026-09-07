@@ -1,6 +1,7 @@
 package com.naver.map.carrot;
 
 import android.app.Activity;
+import android.content.pm.ActivityInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -17,6 +18,9 @@ import android.view.ViewParent;
 
 /** Capture only Naver's native map renderer, never the Activity window. */
 public final class CarrotMapCapture {
+    private static java.lang.ref.WeakReference<Activity> oriented = new java.lang.ref.WeakReference<>(null);
+    private static int originalOrientation;
+    private static boolean orientationSaved;
     private static Handler worker;
     private static volatile boolean inFlight;
     private static volatile long lastClear;
@@ -34,9 +38,25 @@ public final class CarrotMapCapture {
     public static void capture(Object owner, CarrotNaverBridge bridge) {
         if (!(owner instanceof Activity) || bridge == null || inFlight) return;
         Activity activity = (Activity) owner;
+        NaverHudSettings.start();
+        NaverHudSettings.Values settings = NaverHudSettings.current;
         if (activity.isFinishing() || activity.isDestroyed() || activity.getWindow() == null) {
             clear(bridge);
             return;
+        }
+        if (oriented.get() != activity) {
+            oriented = new java.lang.ref.WeakReference<>(activity);
+            if (!orientationSaved) {
+                originalOrientation = activity.getRequestedOrientation();
+                orientationSaved = true;
+            }
+        }
+        int orientation = settings.landscape ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE : originalOrientation;
+        if (activity.getRequestedOrientation() != orientation) {
+            try { activity.setRequestedOrientation(orientation); }
+            catch (IllegalStateException ignored) { }
+            clear(bridge);
+            return; // Let the Activity lay out the real landscape map first.
         }
         View map = findMap(activity.getWindow().getDecorView());
         if (map == null) {
@@ -82,12 +102,17 @@ public final class CarrotMapCapture {
     private static void finish(CarrotNaverBridge bridge, View map, Bitmap bitmap, boolean ok) {
         try {
             if (ok && map.isAttachedToWindow() && map.isShown()) {
-                int[] crop = MapCaptureGeometry.crop(bitmap.getWidth(), bitmap.getHeight());
+                NaverHudSettings.Values settings = NaverHudSettings.current;
+                int[] crop = settings.fit ? new int[]{0, 0, bitmap.getWidth(), bitmap.getHeight()}
+                        : MapCaptureGeometry.crop(bitmap.getWidth(), bitmap.getHeight());
+                int[] destination = MapCaptureGeometry.destination(crop[2] - crop[0], crop[3] - crop[1], settings.scale);
                 Bitmap output = Bitmap.createBitmap(MapCaptureGeometry.WIDTH, MapCaptureGeometry.HEIGHT,
                         Bitmap.Config.ARGB_8888);
                 try {
-                    new Canvas(output).drawBitmap(bitmap, new Rect(crop[0], crop[1], crop[2], crop[3]),
-                            new Rect(0, 0, output.getWidth(), output.getHeight()),
+                    Canvas canvas = new Canvas(output);
+                    canvas.drawColor(0xff101820);
+                    canvas.drawBitmap(bitmap, new Rect(crop[0], crop[1], crop[2], crop[3]),
+                            new Rect(destination[0], destination[1], destination[2], destination[3]),
                             new Paint(Paint.FILTER_BITMAP_FLAG));
                     bridge.sendBitmap(output); // JPEG encoder owns/recycles it.
                 } finally {

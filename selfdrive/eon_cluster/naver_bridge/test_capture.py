@@ -9,6 +9,12 @@ import subprocess
 
 
 SOURCES = {
+  "org/json/JSONObject.java": """package org.json;
+public class JSONObject {
+ java.util.Map<String,Integer> values=new java.util.HashMap<>();
+ public JSONObject put(String key,int value){values.put(key,value);return this;}
+ public int optInt(String key,int fallback){return values.containsKey(key)?values.get(key):fallback;}
+}""",
   "android/view/ViewParent.java": """package android.view;
 public interface ViewParent { ViewParent getParent(); }""",
   "android/view/View.java": """package android.view;
@@ -47,9 +53,11 @@ public class PixelCopy {
 }""",
   "android/view/Window.java": """package android.view;
 public class Window { public ViewGroup root=new ViewGroup(); public View getDecorView(){return root;} }""",
+  "android/content/pm/ActivityInfo.java": "package android.content.pm; public class ActivityInfo { public static final int SCREEN_ORIENTATION_SENSOR_LANDSCAPE=6; }",
   "android/app/Activity.java": """package android.app;
 public class Activity {
  public android.view.Window window=new android.view.Window();
+ public int orientation=6; public int getRequestedOrientation(){return orientation;} public void setRequestedOrientation(int o){orientation=o;}
  public boolean isFinishing(){return false;} public boolean isDestroyed(){return false;}
  public android.view.Window getWindow(){return window;}
 }""",
@@ -64,7 +72,7 @@ public class Bitmap {
   "android/graphics/Paint.java": """package android.graphics;
 public class Paint { public static final int FILTER_BITMAP_FLAG=2; public Paint(int flags){} }""",
   "android/graphics/Canvas.java": """package android.graphics;
-public class Canvas { public Canvas(Bitmap b){} public void drawBitmap(Bitmap b,Rect src,Rect dst,Paint p){
+public class Canvas { public Canvas(Bitmap b){} public void drawColor(int c){} public void drawBitmap(Bitmap b,Rect src,Rect dst,Paint p){
  double x=dst.width()/(double)src.width(), y=dst.height()/(double)src.height();
  if(Math.abs(x-y)>0.01)throw new AssertionError("distorted bitmap");
 } }""",
@@ -89,7 +97,7 @@ import android.app.Activity;
 import android.view.*;
 public class CaptureCheck {
  static void check(boolean ok){if(!ok)throw new AssertionError();}
- public static void main(String[] args){
+ public static void main(String[] args) throws Exception {
   for(int[] wh:new int[][]{{1080,2400},{1440,2960},{1920,1080},{640,384},{384,640},{960,576}}){
    int[] size=MapCaptureGeometry.captureSize(wh[0],wh[1]);
    check(size[0]<=2048 && size[1]<=2048);
@@ -97,6 +105,16 @@ public class CaptureCheck {
    int[] c=MapCaptureGeometry.crop(size[0],size[1]);
    check(c[0]>=0 && c[1]>=0 && c[2]<=size[0] && c[3]<=size[1]);
    check(Math.abs((c[2]-c[0])/(double)(c[3]-c[1])-960d/576d)<0.005);
+  }
+  check(NaverHudSettings.parse("NHUD1,1,1,100,90")!=null);
+  check(NaverHudSettings.parse("NHUD1,0,0,50,60").scale==50);
+  for(String bad:new String[]{"NHUD2,1,1,100,90","NHUD1,1,1,0,90","NHUD1,2,1,100,90","NHUD1,1,1,100,100","NHUD1,1,1,x,90","NHUD1,1,1,100,90,0"})check(NaverHudSettings.parse(bad)==null);
+  for(int[] wh:new int[][]{{1080,2400},{2400,1080},{640,384}}){
+   int[] d=MapCaptureGeometry.destination(wh[0],wh[1],100);
+   check(d[0]>=0 && d[1]>=0 && d[2]<=960 && d[3]<=576);
+   check(Math.abs((d[2]-d[0])/(double)(d[3]-d[1])-wh[0]/(double)wh[1])<0.01);
+   int[] small=MapCaptureGeometry.destination(wh[0],wh[1],50);
+   check(small[2]-small[0]<= (d[2]-d[0])/2+1);
   }
   Activity a=new Activity(); CarrotNaverBridge b=new CarrotNaverBridge();
   CarrotMapCapture.capture(a,b); check(b.sent==0 && b.cleared==1);
@@ -115,7 +133,18 @@ public class CaptureCheck {
   a.window.root.children.clear();
   a.window.root.add(new com.navercorp.android.vgx.lib.VgxGLTextureView());
   CarrotMapCapture.capture(a,b);check(b.sent==4 && b.last.isRecycled());check(b.last.getWidth()==960 && b.last.getHeight()==576);
-  System.out.println("PASS: no-map, ads, texture, surface, unavailable/hidden, error recovery, VGX, recycling, portrait/landscape aspect ratio, output dimensions");
+  java.lang.reflect.Method relay=Class.forName("ai.comma.remotehud.NaverSettingsRelay").getDeclaredMethod("update",org.json.JSONObject.class,java.net.DatagramSocket.class);
+  relay.setAccessible(true);
+  org.json.JSONObject options=new org.json.JSONObject().put("hudNavApp",2).put("hudNaverLandscape",0).put("hudNaverMapFit",1).put("hudNaverMapScale",75).put("hudNaverMapQuality",80);
+  try(java.net.DatagramSocket socket=new java.net.DatagramSocket()){
+   for(int attempt=0;attempt<20 && NaverHudSettings.quality()!=80;attempt++){
+    relay.invoke(null,options,socket);Thread.sleep(20);
+   }
+   check(NaverHudSettings.quality()==80 && NaverHudSettings.current.scale==75 && !NaverHudSettings.current.landscape);
+   options.put("hudNavApp",1).put("hudNaverMapQuality",95);
+   relay.invoke(null,options,socket);Thread.sleep(20);check(NaverHudSettings.quality()==80);
+  }
+  System.out.println("PASS: live UDP relay, TMAP isolation, settings validation; no-map, ads, texture, surface, unavailable/hidden, error recovery, VGX, recycling, portrait/landscape aspect ratio, output dimensions");
  }
 }""",
 }
@@ -138,7 +167,9 @@ def main():
   classes.mkdir()
   subprocess.run([str(args.java_home / ("bin/javac" + suffix)), "--release", "8", "-d", str(classes),
                   *files, str(Path(__file__).with_name("CarrotMapCapture.java")),
-                  str(Path(__file__).with_name("MapCaptureGeometry.java"))], check=True)
+                  str(Path(__file__).with_name("MapCaptureGeometry.java")),
+                  str(Path(__file__).with_name("NaverHudSettings.java")),
+                  str(Path(__file__).parent.parent / "android_hud/app/src/main/java/ai/comma/remotehud/NaverSettingsRelay.java")], check=True)
   subprocess.run([str(args.java_home / ("bin/java" + suffix)), "-cp", str(classes),
                   "com.naver.map.carrot.CaptureCheck"], check=True)
 

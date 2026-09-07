@@ -58,7 +58,8 @@ def main():
   classes.mkdir()
   run(javac, "--release", "8", "-encoding", "UTF-8", "-cp", android, "-d", classes,
       stub, Path(__file__).with_name("CarrotMapCapture.java"),
-      Path(__file__).with_name("MapCaptureGeometry.java"))
+      Path(__file__).with_name("MapCaptureGeometry.java"),
+      Path(__file__).with_name("NaverHudSettings.java"))
   with zipfile.ZipFile(work / "capture.jar", "w") as jar:
     for item in classes.rglob("*.class"):
       if item.name != "CarrotNaverBridge.class":
@@ -85,7 +86,7 @@ def main():
   encoder = source[start:end]
   if 'const/16 v2, 0x41' not in encoder or '\\"width\\":640,\\"height\\":384' not in encoder:
     raise ValueError("Unexpected map JPEG encoder")
-  encoder = encoder.replace('const/16 v2, 0x41', 'const/16 v2, 0x5a')
+  encoder = encoder.replace('const/16 v2, 0x41', 'invoke-static {}, Lcom/naver/map/carrot/NaverHudSettings;->quality()I\n\n    move-result v2')
   encoder = encoder.replace('\\"width\\":640,\\"height\\":384', '\\"width\\":960,\\"height\\":576')
   source = source[:start] + encoder + source[end:]
   source += '''

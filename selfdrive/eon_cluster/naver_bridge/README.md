@@ -31,6 +31,35 @@ Aspect-ratio tests cover portrait, landscape, large and small inputs, crop
 bounds, final dimensions, and equal horizontal/vertical scaling. HUD5 is signed with the recovered HUD4 key and supports an in-place update.
 On-device text verification remains. See [HUD5 release notes](../../../docs/carrot_naver_hud5.md).
 
+## HUD6 live bridge settings
+
+HUD6 requests a real landscape Activity layout and defaults to fitting the entire
+native map into the output. It does not crop the portrait map to fill the panel.
+Margins can remain where the phone/map aspect ratio differs from the HUD panel.
+This preserves map coverage and reduces oversized labels compared with HUD5's crop.
+It is still Naver's own map renderer/zoom, not TMAP's dedicated offscreen renderer.
+
+Update EON, Remote HUD 1.17 (versionCode 134), and CarrotNaver HUD6 once. Thereafter
+these EON S9HUD settings reach the Naver bridge without rebuilding the Naver APK:
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| EonClusterHudNaverLandscape | 1 | 1: landscape Activity; 0: original orientation |
+| EonClusterHudNaverMapFit | 1 | 1: whole-map fit; 0: crop to fill |
+| EonClusterHudNaverMapScale | 100 | 50–100%, image display size; smaller adds margins |
+| EonClusterHudNaverMapQuality | 90 | JPEG quality 60–95 |
+
+The EON sends these bounded values in HUD telemetry. Remote HUD relays them at
+most once per second to `127.0.0.1:28992` using the versioned `NHUD1` message.
+The bridge validates the whole message and atomically applies a settings snapshot.
+No setting changes navigation routes, driving controls, or the native map's zoom.
+Values are refreshed while connected; after a Naver process restart defaults apply
+until the next relay packet arrives. Older Remote HUD builds can use HUD6 defaults,
+but cannot relay EON adjustments. Landscape selection can cause Activity recreation.
+
+Tests exercise the real UDP relay/receiver, malformed and out-of-range messages,
+TMAP isolation, fit/crop geometry, surface routing and bitmap recycling.
+
 ## Reproduce
 
 Requires JDK 17, Android platform 35/build-tools 35.0.0, Apktool 3.0.3, Python 3,
@@ -44,7 +73,7 @@ python selfdrive/eon_cluster/naver_bridge/build_patch.py \
   --input CarrotNaver_6.9.1.3_hud3.apks \
   --java-home /path/to/jdk --sdk /path/to/android-sdk \
   --apktool /path/to/apktool_3.0.3.jar \
-  --work /new/build-directory --output CarrotNaver_HUD5_base_UNSIGNED.apk
+  --work /new/build-directory --output CarrotNaver_HUD6_base_UNSIGNED.apk
 ```
 
 The input SHA-256 is checked before patching. The script assembles only the bridge

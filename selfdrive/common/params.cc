@@ -268,6 +268,10 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudOutputMode", PERSISTENT},
     {"EonClusterHudLayoutMode", PERSISTENT},  // 1=3분할, 2=주행+티맵 2분할
     {"EonClusterHudNavApp", PERSISTENT},      // 1=티맵, 2=네이버지도
+    {"EonClusterHudNaverLandscape", PERSISTENT},
+    {"EonClusterHudNaverMapFit", PERSISTENT},
+    {"EonClusterHudNaverMapScale", PERSISTENT},
+    {"EonClusterHudNaverMapQuality", PERSISTENT},
     {"EonClusterHudConnected", CLEAR_ON_MANAGER_START},
     {"EonClusterHudHeartbeat", CLEAR_ON_MANAGER_START},
     {"EonClusterHudFps", PERSISTENT},
