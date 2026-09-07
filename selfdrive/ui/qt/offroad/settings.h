@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QButtonGroup>
+#include <QComboBox>
 #include <QFileSystemWatcher>
 #include <QFrame>
 #include <QLabel>
@@ -104,6 +105,7 @@ private:
   void showEvent(QShowEvent *event) override;
   QString getIPAddress();
   LabelControl *ipaddress;
+  QComboBox *timezone_select;
 };
 
 class SelectCar : public QWidget {

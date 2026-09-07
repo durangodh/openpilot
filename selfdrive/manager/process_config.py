@@ -52,7 +52,7 @@ procs = [
   PythonProcess("plannerd", "selfdrive.controls.plannerd"),
   PythonProcess("radard", "selfdrive.controls.radard"),
   PythonProcess("thermald", "selfdrive.thermald.thermald", persistent=True),
-  PythonProcess("timezoned", "selfdrive.timezoned", enabled=TICI, persistent=True),
+  PythonProcess("timezoned", "selfdrive.timezoned", enabled=(EON or TICI), persistent=True),
   #PythonProcess("tombstoned", "selfdrive.tombstoned", enabled=not PC, persistent=True),
   #PythonProcess("updated", "selfdrive.updated", enabled=not PC, persistent=True),
   # loggerd 가 꺼져 있어 올릴 로그가 없다. 5~60초 주기 스캔·네트워크 시도 제거.

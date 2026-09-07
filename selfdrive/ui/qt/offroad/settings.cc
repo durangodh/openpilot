@@ -31,6 +31,7 @@
 #include "selfdrive/ui/qt/qt_window.h"
 
 #include <QComboBox>
+#include <QListView>
 #include <QAbstractItemView>
 #include <QScroller>
 #include <QListView>
@@ -855,6 +856,38 @@ C2NetworkPanel::C2NetworkPanel(QWidget *parent) : QWidget(parent) {
 
   ListWidget *list = new ListWidget();
   list->setSpacing(30);
+  auto timezone_row = new QHBoxLayout();
+  auto timezone_label = new QLabel(tr("타임존"));
+  timezone_label->setToolTip(tr("선택한 시간대는 주행 종료 후 5초 이내에 적용됩니다."));
+  timezone_row->addWidget(timezone_label, 1);
+  timezone_select = new QComboBox(this);
+  timezone_select->setView(new QListView(timezone_select));
+  timezone_select->setMinimumSize(520, 100);
+  timezone_select->setMaxVisibleItems(6);
+  timezone_select->setStyleSheet(R"(
+    QComboBox { font-size: 35px; padding: 20px; border-radius: 15px; background-color: #393939; }
+    QComboBox QAbstractItemView { font-size: 35px; background-color: #393939; selection-background-color: #555555; }
+    QComboBox QAbstractItemView::item { min-height: 80px; }
+  )");
+  QFile timezone_file("../assets/timezones.txt");
+  if (timezone_file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    QTextStream stream(&timezone_file);
+    while (!stream.atEnd()) {
+      const QString timezone = stream.readLine().trimmed();
+      if (!timezone.isEmpty()) timezone_select->addItem(timezone);
+    }
+  }
+  timezone_select->setEnabled(timezone_select->count() > 0);
+  QScroller::grabGesture(timezone_select->view()->viewport(), QScroller::LeftMouseButtonGesture);
+  QObject::connect(timezone_select, QOverload<int>::of(&QComboBox::activated), this, [=](int index) {
+    if (Params().put("Timezone", timezone_select->itemText(index).toStdString()) != 0) {
+      ConfirmationDialog::alert(tr("타임존을 저장하지 못했습니다. 다시 시도해 주세요."), this);
+      const QString saved = QString::fromStdString(Params().get("Timezone"));
+      timezone_select->setCurrentText(saved.isEmpty() ? "Asia/Seoul" : saved);
+    }
+  });
+  timezone_row->addWidget(timezone_select);
+  list->addItem(timezone_row);
 #ifdef QCOM
   auto wifiBtn = new ButtonControl("Wi-Fi Settings", "OPEN");
   QObject::connect(wifiBtn, &ButtonControl::clicked, [=]() { HardwareEon::launch_wifi(); });
@@ -874,6 +907,8 @@ C2NetworkPanel::C2NetworkPanel(QWidget *parent) : QWidget(parent) {
 }
 
 void C2NetworkPanel::showEvent(QShowEvent *event) {
+  const QString timezone = QString::fromStdString(Params().get("Timezone")).trimmed();
+  timezone_select->setCurrentIndex(timezone_select->findText(timezone.isEmpty() ? "Asia/Seoul" : timezone));
   ipaddress->setText(getIPAddress());
 }
 
