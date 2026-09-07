@@ -1,7 +1,7 @@
 # Naver map-only HUD capture
 
 This patch targets the verified `CarrotNaver_6.9.1.3_hud3.apks` release.
-It keeps the TMAP-compatible `map_main` JPEG transport (640×384, quality 65)
+It keeps the TMAP-compatible `map_main` JPEG transport (960×576, quality 90)
 and the existing HUD guidance/ETA overlay pipeline. It does not implement
 TMAP's separate offscreen map renderer inside Naver.
 
@@ -17,6 +17,20 @@ it copied the whole Activity, including the start page. The replacement:
   using the receiver's existing map-clear protocol.
 - Keeps JPEG encoding/network work on a worker and permits one capture in flight.
 
+## HUD5 text clarity correction
+
+HUD4 copied any source aspect ratio into 640×384, which flattened portrait-map
+labels and enlarged low-resolution JPEG text. HUD5 first reads back the map at
+its own aspect ratio (long edge capped at 2048), then crops to a 5:3 landscape
+viewport with equal scaling on both axes. The crop favors the lower map area;
+it removes some map coverage rather than squeezing the whole portrait screen.
+The transmitted bitmap is 960×576 with JPEG quality 90. The encoded metadata
+matches those dimensions. TMAP is unchanged.
+
+Aspect-ratio tests cover portrait, landscape, large and small inputs, crop
+bounds, final dimensions, and equal horizontal/vertical scaling. Signing and
+on-device text verification are still required for HUD5.
+
 ## Reproduce
 
 Requires JDK 17, Android platform 35/build-tools 35.0.0, Apktool 3.0.3, Python 3,
@@ -30,7 +44,7 @@ python selfdrive/eon_cluster/naver_bridge/build_patch.py \
   --input CarrotNaver_6.9.1.3_hud3.apks \
   --java-home /path/to/jdk --sdk /path/to/android-sdk \
   --apktool /path/to/apktool_3.0.3.jar \
-  --work /new/build-directory --output CarrotNaver_HUD4_base_UNSIGNED.apk
+  --work /new/build-directory --output CarrotNaver_HUD5_base_UNSIGNED.apk
 ```
 
 The input SHA-256 is checked before patching. The script assembles only the bridge

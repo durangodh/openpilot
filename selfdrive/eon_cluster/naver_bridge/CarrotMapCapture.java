@@ -2,6 +2,8 @@ package com.naver.map.carrot;
 
 import android.app.Activity;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.os.HandlerThread;
@@ -41,7 +43,18 @@ public final class CarrotMapCapture {
             clear(bridge);
             return;
         }
-        Bitmap bitmap = Bitmap.createBitmap(640, 384, Bitmap.Config.ARGB_8888);
+        int sourceWidth = map.getWidth();
+        int sourceHeight = map.getHeight();
+        if (map instanceof SurfaceView) {
+            Rect frame = ((SurfaceView) map).getHolder().getSurfaceFrame();
+            if (frame.width() > 0 && frame.height() > 0) {
+                sourceWidth = frame.width();
+                sourceHeight = frame.height();
+            }
+        }
+        int[] size = MapCaptureGeometry.captureSize(sourceWidth, sourceHeight);
+        // Never squeeze a portrait map into the landscape output bitmap.
+        Bitmap bitmap = Bitmap.createBitmap(size[0], size[1], Bitmap.Config.ARGB_8888);
         inFlight = true;
         try {
             if (map instanceof TextureView) {
@@ -69,7 +82,17 @@ public final class CarrotMapCapture {
     private static void finish(CarrotNaverBridge bridge, View map, Bitmap bitmap, boolean ok) {
         try {
             if (ok && map.isAttachedToWindow() && map.isShown()) {
-                bridge.sendBitmap(bitmap); // Existing JPEG encoder owns/recycles it.
+                int[] crop = MapCaptureGeometry.crop(bitmap.getWidth(), bitmap.getHeight());
+                Bitmap output = Bitmap.createBitmap(MapCaptureGeometry.WIDTH, MapCaptureGeometry.HEIGHT,
+                        Bitmap.Config.ARGB_8888);
+                try {
+                    new Canvas(output).drawBitmap(bitmap, new Rect(crop[0], crop[1], crop[2], crop[3]),
+                            new Rect(0, 0, output.getWidth(), output.getHeight()),
+                            new Paint(Paint.FILTER_BITMAP_FLAG));
+                    bridge.sendBitmap(output); // JPEG encoder owns/recycles it.
+                } finally {
+                    if (!output.isRecycled()) output.recycle();
+                }
             } else {
                 clear(bridge);
             }

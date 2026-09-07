@@ -57,10 +57,12 @@ def main():
   classes = work / "classes"
   classes.mkdir()
   run(javac, "--release", "8", "-encoding", "UTF-8", "-cp", android, "-d", classes,
-      stub, Path(__file__).with_name("CarrotMapCapture.java"))
+      stub, Path(__file__).with_name("CarrotMapCapture.java"),
+      Path(__file__).with_name("MapCaptureGeometry.java"))
   with zipfile.ZipFile(work / "capture.jar", "w") as jar:
-    for item in classes.rglob("CarrotMapCapture*.class"):
-      jar.write(item, item.relative_to(classes).as_posix())
+    for item in classes.rglob("*.class"):
+      if item.name != "CarrotNaverBridge.class":
+        jar.write(item, item.relative_to(classes).as_posix())
   dex = work / "dex"
   dex.mkdir()
   run(java, "-cp", args.sdk / "build-tools/35.0.0/lib/d8.jar", "com.android.tools.r8.D8",
@@ -78,6 +80,14 @@ def main():
   source = bridge.read_text(encoding="utf-8")
   if ".method sendBitmap(Ljava/lang/Object;)V" not in source:
     raise ValueError("Unexpected bridge ABI")
+  start = source.index(".method sendBitmap(Ljava/lang/Object;)V")
+  end = source.index(".end method", start)
+  encoder = source[start:end]
+  if 'const/16 v2, 0x41' not in encoder or '\\"width\\":640,\\"height\\":384' not in encoder:
+    raise ValueError("Unexpected map JPEG encoder")
+  encoder = encoder.replace('const/16 v2, 0x41', 'const/16 v2, 0x5a')
+  encoder = encoder.replace('\\"width\\":640,\\"height\\":384', '\\"width\\":960,\\"height\\":576')
+  source = source[:start] + encoder + source[end:]
   source += '''
 .method clearMap()V
     .locals 2
