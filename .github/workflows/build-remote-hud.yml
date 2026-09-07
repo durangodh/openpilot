@@ -63,6 +63,7 @@ jobs:
         working-directory: selfdrive/eon_cluster/android_hud
         run: |
           python3 ../tests/test_nav_selection.py
+          python3 ../tests/test_tmap_guidance.py
           javac -d "$RUNNER_TEMP/hud-selection-check" app/src/main/java/ai/comma/remotehud/NavSelectionProtocol.java tests/NavSelectionProtocolCheck.java
           java -cp "$RUNNER_TEMP/hud-selection-check" ai.comma.remotehud.NavSelectionProtocolCheck
       - name: Build debug APK

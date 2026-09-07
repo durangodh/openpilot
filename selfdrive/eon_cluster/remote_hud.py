@@ -797,6 +797,15 @@ def _navigation_is_active(status, guide, remain_distance, guidance_live):
   valid current maneuver was arriving.  Treat fresh guidance as authoritative,
   matching the behavior users already get from TMAP.
   """
+  # TMAP supplies its own route/guidance lifecycle. A default maneuver dict
+  # (turn_type=0, distance_m=0) is not evidence that a destination exists.
+  # Preserve the positive remaining-distance gate previously used by the HUD.
+  if isinstance(status, dict) and "guidance_active" in status:
+    return (status.get("guidance_active") is True
+            and status.get("route_present", True) is not False
+            and str(status.get("mode", "")).lower() != "idle"
+            and remain_distance > 0)
+
   explicitly_inactive = False
   if isinstance(status, dict):
     for key in ("active", "is_active", "isActive", "navigating", "is_navigating", "isNavigating",
