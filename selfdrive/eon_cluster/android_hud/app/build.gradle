@@ -1,8 +1,8 @@
 plugins { id "com.android.application" }
 
 def remoteHudKeystorePath = System.getenv("REMOTE_HUD_KEYSTORE_PATH")
-def remoteHudVersionCode = (System.getenv("REMOTE_HUD_VERSION_CODE") ?: "136").toInteger()
-def remoteHudVersionName = System.getenv("REMOTE_HUD_VERSION_NAME") ?: "1.19-app-navigation-switch"
+def remoteHudVersionCode = (System.getenv("REMOTE_HUD_VERSION_CODE") ?: "137").toInteger()
+def remoteHudVersionName = System.getenv("REMOTE_HUD_VERSION_NAME") ?: "1.20-naver-navigation-fix"
 
 android {
   namespace "ai.comma.remotehud"

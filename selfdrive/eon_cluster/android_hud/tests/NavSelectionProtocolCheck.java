@@ -20,6 +20,15 @@ public final class NavSelectionProtocolCheck {
         check(!NavSelectionProtocol.acknowledged(current, old));
         check(!NavSelectionProtocol.acknowledged("", ""));
         check(NavSelectionProtocol.acknowledged(current, current));
+        check(NavSelectionProtocol.normalizeApp(1) == 1);
+        check(NavSelectionProtocol.normalizeApp(2) == 2);
+        check(NavSelectionProtocol.normalizeApp(99) == 1);
+        // A button tap must stop the opposite app even after a cold service
+        // start has already loaded the newly saved selection.
+        check(NavSelectionProtocol.appToStop(2, 2, true) == 1);
+        check(NavSelectionProtocol.appToStop(1, 1, true) == 2);
+        check(NavSelectionProtocol.appToStop(1, 2, false) == 1);
+        check(NavSelectionProtocol.appToStop(2, 2, false) == 0);
         System.out.println("Navigation protocol checks passed");
     }
 }

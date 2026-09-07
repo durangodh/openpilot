@@ -788,6 +788,30 @@ def _navi_scene(state):
   return scene or None
 
 
+def _navigation_is_active(status, guide, remain_distance, guidance_live):
+  """Resolve navigation activity without trusting one app-specific enum string.
+
+  The patched Naver app exposes live guidance reliably, but its obfuscated
+  navigation-state enum is not stable across builds.  HUD6 compared that enum
+  with exactly ``Guiding`` and could therefore publish ``active:false`` while a
+  valid current maneuver was arriving.  Treat fresh guidance as authoritative,
+  matching the behavior users already get from TMAP.
+  """
+  explicitly_inactive = False
+  if isinstance(status, dict):
+    for key in ("active", "is_active", "isActive", "navigating", "is_navigating", "isNavigating",
+                "route_active", "routeActive"):
+      if key in status and not bool(status.get(key)):
+        explicitly_inactive = True
+    status_text = str(status.get("state", status.get("status", "")) or "").lower()
+    if status_text in ("idle", "inactive", "off", "stopped", "ended", "none"):
+      explicitly_inactive = True
+
+  if explicitly_inactive:
+    return bool(guidance_live and isinstance(guide, dict) and guide)
+  return remain_distance > 0 or bool(guide)
+
+
 def _read_navi_summary():
   try:
     stat = os.stat(NAVI_STATE)
@@ -837,20 +861,11 @@ def _read_navi_summary():
   route_live = _stream_live(route_at)
   lane_live = _stream_live(lane_at)
   status = state.get("navigation_status") or {}
-  active = True
-  if isinstance(status, dict):
-    for key in ("active", "is_active", "isActive", "navigating", "is_navigating", "isNavigating",
-                "route_active", "routeActive"):
-      if key in status and not bool(status.get(key)):
-        active = False
-    status_text = str(status.get("state", status.get("status", "")) or "").lower()
-    if status_text in ("idle", "inactive", "off", "stopped", "ended", "none"):
-      active = False
   try:
     remain_distance = float(route.get("remain_distance_m", 0) or 0)
   except (TypeError, ValueError):
     remain_distance = 0.0
-  active = active and (remain_distance > 0 or bool(guide))
+  active = _navigation_is_active(status, guide, remain_distance, guidance_live)
 
   # Keep the navigation scene cached so route intent remains stable across
   # short guidance-state transitions.

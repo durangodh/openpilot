@@ -51,8 +51,8 @@ public class NavigationRenderCheck {
   void drawScaledArrow(Canvas c,Paint p,float x,float y,int type,float size,String title){}
   String distanceText(int n){return Integer.toString(n);}
   /* PRODUCTION_METHODS */
-  static JSONObject state(boolean active,int remain){return new JSONObject().put("navi",
-    new JSONObject().put("active",active).put("remainDist",remain).put("turnDist",200));}
+  static JSONObject state(boolean active,int remain,int turn){return new JSONObject().put("navi",
+    new JSONObject().put("active",active).put("remainDist",remain).put("turnDist",turn));}
   void check(String name,JSONObject state,Bitmap map,int banners,int maps){
     Canvas c=new Canvas(); drawMap(c,new Paint(),state,map,null,null,null);
     if(c.banners!=banners||c.maps!=maps||c.markers!=maps||c.nextCalls!=1||c.etaCalls!=1)
@@ -60,15 +60,16 @@ public class NavigationRenderCheck {
   }
   public static void main(String[] args){
     NavigationRenderCheck hud=new NavigationRenderCheck(); Bitmap map=new Bitmap();
-    hud.check("map available",state(true,1000),map,1,1);
-    hud.check("map missing",state(true,1000),null,1,0);
-    map.recycled=true; hud.check("map recycled",state(true,1000),map,1,0);
-    hud.frameDark=true; hud.check("dark map missing",state(true,1000),null,1,0);
-    map.recycled=false; hud.check("map recovered",state(true,1000),map,1,1);
-    hud.check("ended without map",state(false,1000),null,0,0);
-    hud.check("arrived without map",state(true,0),null,0,0);
+    hud.check("map available",state(true,1000,200),map,1,1);
+    hud.check("map missing",state(true,1000,200),null,1,0);
+    map.recycled=true; hud.check("map recycled",state(true,1000,200),map,1,0);
+    hud.frameDark=true; hud.check("dark map missing",state(true,1000,200),null,1,0);
+    map.recycled=false; hud.check("map recovered",state(true,1000,200),map,1,1);
+    hud.check("naver guidance before route summary",state(true,0,200),null,1,0);
+    hud.check("ended without map",state(false,1000,200),null,0,0);
+    hud.check("arrived without map",state(true,0,-1),null,0,0);
     hud.check("no navigation",new JSONObject(),null,0,0);
-    System.out.println("8 navigation rendering cases passed");
+    System.out.println("9 navigation rendering cases passed");
   }
 }
 '''

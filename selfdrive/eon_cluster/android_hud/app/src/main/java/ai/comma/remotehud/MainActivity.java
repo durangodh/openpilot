@@ -35,6 +35,8 @@ public final class MainActivity extends Activity {
     private static final int GREEN = Color.rgb(0, 208, 132);
     private static final int RED = Color.rgb(255, 92, 92);
     private static final int AMBER = Color.rgb(255, 193, 74);
+    private static final int NAV_SELECTED = Color.rgb(76, 86, 96);
+    private static final int NAV_UNSELECTED = Color.rgb(43, 50, 58);
 
     private Switch autoSwitch;
     private TextView autoValue;
@@ -171,8 +173,8 @@ public final class MainActivity extends Activity {
         navCard.addView(text("내비게이션 선택", 18.0f, Color.WHITE, Typeface.BOLD));
         LinearLayout navRow = new LinearLayout(this);
         navRow.setOrientation(LinearLayout.HORIZONTAL);
-        tmapButton = button("티맵", GREEN);
-        naverButton = button("네이버지도", GREEN);
+        tmapButton = button("티맵", NAV_UNSELECTED);
+        naverButton = button("네이버지도", NAV_UNSELECTED);
         LinearLayout.LayoutParams tmapParams = new LinearLayout.LayoutParams(0, dp(52), 1.0f);
         tmapParams.setMargins(0, dp(10), dp(6), dp(8));
         LinearLayout.LayoutParams naverParams = new LinearLayout.LayoutParams(0, dp(52), 1.0f);
@@ -283,6 +285,10 @@ public final class MainActivity extends Activity {
         int navApp = AppPrefs.getNavApp(this);
         tmapButton.setText(navApp == 1 ? "✓ 티맵" : "티맵");
         naverButton.setText(navApp == 2 ? "✓ 네이버지도" : "네이버지도");
+        tmapButton.setBackgroundColor(navApp == 1 ? NAV_SELECTED : NAV_UNSELECTED);
+        naverButton.setBackgroundColor(navApp == 2 ? NAV_SELECTED : NAV_UNSELECTED);
+        tmapButton.setTextColor(navApp == 1 ? Color.WHITE : Color.LTGRAY);
+        naverButton.setTextColor(navApp == 2 ? Color.WHITE : Color.LTGRAY);
         boolean pending = !AppPrefs.pendingNavRequest(this).isEmpty();
         navValue.setText(pending ? (s.eonConnected ?
                 (HudService.navSelectionSupported ? "EON에 선택 반영 중…" : "EON 코드 업데이트 후 선택이 반영됩니다.") :

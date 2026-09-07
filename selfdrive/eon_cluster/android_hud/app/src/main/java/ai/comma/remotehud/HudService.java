@@ -479,12 +479,7 @@ public final class HudService extends Service {
         if (intent != null && ACTION_SELECT_NAV.equals(intent.getAction())) {
             new Thread(() -> {
                 synchronized (AppPrefs.class) {
-                    int requested = AppPrefs.getNavApp(this);
-                    if (configuredNavApp == requested) {
-                        launchNavApp(this, requested);
-                    } else {
-                        applyNavigationSelection(requested);
-                    }
+                    applyNavigationSelection(AppPrefs.getNavApp(this), true);
                 }
             }, "hud-select-nav").start();
         }
@@ -731,18 +726,24 @@ public final class HudService extends Service {
      * Magisk에서 허용한 Remote HUD 루트 권한으로 launcher Activity를 실행한다.
      */
     private void applyNavigationSelection(int requested) {
-        final int selected = requested == 2 ? 2 : 1;
-        if (configuredNavApp == selected) {
+        applyNavigationSelection(requested, false);
+    }
+
+    private void applyNavigationSelection(int requested, boolean explicitSelection) {
+        final int selected = NavSelectionProtocol.normalizeApp(requested);
+        final int appToStop = NavSelectionProtocol.appToStop(
+                configuredNavApp, selected, explicitSelection);
+        if (!explicitSelection && configuredNavApp == selected) {
             return;
         }
-        final int previous = configuredNavApp;
         configuredNavApp = selected;
         AppPrefs.setNavApp(this, selected);
-        // 주행 중 전환이면 이전 내비를 완전 종료한다. 그대로 두면 뒤에서 목적지
-        // 안내를 계속해 음성이 겹치고 S9 부하가 생긴다. 부팅 직후 첫 적용(0)이나
-        // 같은 값이면 종료할 것이 없다.
-        if (previous == 1 || previous == 2) {
-            stopNavApp(previous);
+        // A button tap is explicit: stop the opposite app even when this service
+        // has just loaded the newly saved preference and sees no value change.
+        // Telemetry synchronization remains edge-triggered to avoid force-stop at 10 Hz.
+        clearNavigationAssets();
+        if (appToStop != 0) {
+            stopNavApp(appToStop);
         }
         launchNavApp(this, selected);
     }
@@ -794,6 +795,26 @@ public final class HudService extends Service {
         Bitmap old = target.getAndSet(decoded);
         if (old != null && old != decoded) {
             old.recycle();
+        }
+    }
+
+    private static void recycleAndClear(AtomicReference<Bitmap> target) {
+        Bitmap old = target.getAndSet(null);
+        if (old != null && !old.isRecycled()) {
+            old.recycle();
+        }
+    }
+
+    /** Remove the old app's map/TBT immediately while the new source connects. */
+    private void clearNavigationAssets() {
+        synchronized (assetLock) {
+            recycleAndClear(mapFrame);
+            recycleAndClear(tbtCurrentFrame);
+            recycleAndClear(tbtNextFrame);
+            recycleAndClear(tbtCompactFrame);
+            recycleAndClear(crossroadFrame);
+            recycleAndClear(laneFrame);
+            lastMapAcceptedElapsed = 0L;
         }
     }
 
@@ -3441,8 +3462,7 @@ public final class HudService extends Service {
      * 그린 아래쪽 y 를 돌려주어 2행을 바로 밑에 붙인다.
      */
     private float drawTbtBanner(Canvas c, Paint p, JSONObject navi, float left, float top) {
-        if (navi == null || !navi.optBoolean("active", false)
-                || navi.optInt("remainDist", 0) <= 0) {
+        if (navi == null || !navi.optBoolean("active", false)) {
             return top;
         }
         int dist = navi.optInt("turnDist", -1);
@@ -3499,8 +3519,7 @@ public final class HudService extends Service {
     }
 
     private void drawTbtNext(Canvas c, Paint p, JSONObject navi, float left, float top) {
-        if (navi == null || !navi.optBoolean("active", false)
-                || navi.optInt("remainDist", 0) <= 0) {
+        if (navi == null || !navi.optBoolean("active", false)) {
             return;
         }
         JSONObject next = navi.optJSONObject("next");
