@@ -4147,28 +4147,29 @@ public final class HudService extends Service {
     private void drawMap(Canvas c, Paint p, JSONObject s, Bitmap map, Bitmap tbtCurrent,
                          Bitmap tbtNext, Bitmap lane) {
         scratchIRect.set(MAP_LEFT, 0, mapRight(), HEIGHT);
-        if (map == null || map.isRecycled()) {
+        final boolean mapAvailable = map != null && !map.isRecycled();
+        if (!mapAvailable) {
             p.setShader(null);
             p.setStyle(Paint.Style.FILL);
             p.setColor(Color.BLACK);
             c.drawRect(scratchIRect, p);
             JSONObject l = layout(s);
             int waitSave = beginElement(c, l, "mapWait", mapCenterX(), 240f);
-            text(c, p, lang("TMAP 화면 대기", "WAITING FOR TMAP"), mapCenterX(), 240f, 34f,
+            text(c, p, lang("지도 화면 대기", "WAITING FOR MAP"), mapCenterX(), 240f, 34f,
                     Color.GRAY, Paint.Align.CENTER);
             c.restoreToCount(waitSave);
-            return;
+        } else {
+            p.setFilterBitmap(true);
+            int mapSave = c.save();
+            c.drawBitmap(map, null, scratchIRect, p);
+            c.restoreToCount(mapSave);
         }
-        p.setFilterBitmap(true);
-        int mapSave = c.save();
-        c.drawBitmap(map, null, scratchIRect, p);
-        c.restoreToCount(mapSave);
 
         // TMAP 캡처는 앱의 주간 지도가 그대로 들어오므로 전체 HUD 야간
         // 오버레이만으로는 흰 배경이 지나치게 밝다. 야간 테마일 때 지도
         // 영역에만 짙은 남청색 마스크를 추가한다. TBT 배너는 이 다음에
         // 그리므로 안내 정보의 원래 밝기와 색상은 유지된다.
-        if (frameDark) {
+        if (mapAvailable && frameDark) {
             p.setShader(null);
             p.setStyle(Paint.Style.FILL);
             p.setColor(Color.argb(155, 2, 9, 20));
@@ -4178,8 +4179,14 @@ public final class HudService extends Service {
         // Keep the current-position symbol unmistakable over both the native
         // day map and our night mask: blue halo with the classic white-edged
         // red navigation pointer shown in the user's reference display.
-        drawTmapVehicleMarker(c, p, mapCenterX(), HEIGHT * 0.64f);
+        if (mapAvailable) {
+            drawTmapVehicleMarker(c, p, mapCenterX(), HEIGHT * 0.64f);
+        }
 
+        // Navigation JSON is independent of map capture. In particular, NAVER
+        // clears map_main while its Activity changes orientation or surfaces.
+        // Keep valid guidance/ETA visible on the waiting background; their
+        // existing active/distance checks still hide ended navigation.
         int overlaySave = c.save();
         JSONObject l = layout(s);
         // 배너 위끝(0)이 곧 기준점이어야 패널 최상단에 딱 붙는다. 기준점이 71 이면
