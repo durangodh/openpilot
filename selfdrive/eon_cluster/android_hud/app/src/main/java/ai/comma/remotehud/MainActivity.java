@@ -48,6 +48,8 @@ public final class MainActivity extends Activity {
     private Button startButton;
     private Button stopButton;
     private TextView usbValue;
+    private Button tmapButton, naverButton;
+    private TextView navValue;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -165,6 +167,25 @@ public final class MainActivity extends Activity {
         subtitleParams.setMargins(0, dp(3), 0, dp(18));
         root.addView(subtitle, subtitleParams);
 
+        LinearLayout navCard = card();
+        navCard.addView(text("내비게이션 선택", 18.0f, Color.WHITE, Typeface.BOLD));
+        LinearLayout navRow = new LinearLayout(this);
+        navRow.setOrientation(LinearLayout.HORIZONTAL);
+        tmapButton = button("티맵", GREEN);
+        naverButton = button("네이버지도", GREEN);
+        LinearLayout.LayoutParams tmapParams = new LinearLayout.LayoutParams(0, dp(52), 1.0f);
+        tmapParams.setMargins(0, dp(10), dp(6), dp(8));
+        LinearLayout.LayoutParams naverParams = new LinearLayout.LayoutParams(0, dp(52), 1.0f);
+        naverParams.setMargins(dp(6), dp(10), 0, dp(8));
+        navRow.addView(tmapButton, tmapParams);
+        navRow.addView(naverButton, naverParams);
+        navCard.addView(navRow);
+        navValue = text("", 14.0f, Color.LTGRAY, Typeface.NORMAL);
+        navCard.addView(navValue);
+        tmapButton.setOnClickListener(v -> selectNavApp(1));
+        naverButton.setOnClickListener(v -> selectNavApp(2));
+        root.addView(navCard, cardParams());
+
         LinearLayout controlCard = card();
         controlCard.addView(text("서비스 제어", 18.0f, Color.WHITE, Typeface.BOLD));
 
@@ -192,7 +213,7 @@ public final class MainActivity extends Activity {
         statusCard.addView(text("실시간 상태", 18.0f, Color.WHITE, Typeface.BOLD));
         serviceValue = addStatusRow(statusCard, "HUD 서비스");
         eonValue = addStatusRow(statusCard, "EON 데이터  UDP 7210");
-        mapValue = addStatusRow(statusCard, "TMAP 영상  TCP 7211");
+        mapValue = addStatusRow(statusCard, "지도 영상  TCP 7211");
         usbValue = addStatusRow(statusCard, "외부 HUD USB");
         fpsValue = addStatusRow(statusCard, "전송 FPS");
         jpegValue = addStatusRow(statusCard, "JPEG 전송");
@@ -245,8 +266,27 @@ public final class MainActivity extends Activity {
         return scroll;
     }
 
+    private void selectNavApp(int app) {
+        String packageName = app == 2 ? "com.nhn.android.nmap" : "com.skt.tmap.ku";
+        if (getPackageManager().getLaunchIntentForPackage(packageName) == null) {
+            new AlertDialog.Builder(this).setMessage(app == 2 ? "네이버지도를 먼저 설치해 주세요." : "티맵을 먼저 설치해 주세요.")
+                    .setPositiveButton("확인", null).show();
+            return;
+        }
+        AppPrefs.requestNavApp(this, app);
+        startHudService(HudService.ACTION_SELECT_NAV);
+        refreshStatus();
+    }
+
     private void refreshStatus() {
         HudService.StatusSnapshot s = HudService.getStatusSnapshot();
+        int navApp = AppPrefs.getNavApp(this);
+        tmapButton.setText(navApp == 1 ? "✓ 티맵" : "티맵");
+        naverButton.setText(navApp == 2 ? "✓ 네이버지도" : "네이버지도");
+        boolean pending = !AppPrefs.pendingNavRequest(this).isEmpty();
+        navValue.setText(pending ? (s.eonConnected ?
+                (HudService.navSelectionSupported ? "EON에 선택 반영 중…" : "EON 코드 업데이트 후 선택이 반영됩니다.") :
+                "EON 연결 후 선택이 반영됩니다.") : "EON과 연결되면 선택한 내비를 함께 사용합니다.");
 
         setStatus(serviceValue, s.running ? "실행 중" : "중지됨", s.running ? GREEN : RED);
         String eonStatus;
@@ -306,7 +346,7 @@ public final class MainActivity extends Activity {
                 .setTitle("최초 실행 안내")
                 .setMessage("1. 알림 권한을 허용합니다.\n\n"
                         + "2. 외부 HUD 를 연결하고 USB 창에서 ‘항상 허용’을 선택합니다.\n\n"
-                        + "3. 티맵은 기존처럼 따로 실행하면 됩니다. 이 앱은 순정 화면에 아무것도 띄우지 않습니다.\n\n"
+                        + "3. 앱 상단에서 티맵 또는 네이버지도를 선택할 수 있습니다. 선택은 EON에도 반영됩니다.\n\n"
                         + "EON과 S9은 같은 네트워크에서 UDP 7210 / TCP 7211 통신이 가능해야 합니다.")
                 .setPositiveButton("권한 확인", new DialogInterface.OnClickListener() {
                     @Override

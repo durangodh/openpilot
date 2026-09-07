@@ -23,7 +23,7 @@ PARAM_CACHE_S = 1.0
 def _bounded_int(key, default, minimum, maximum):
   now = time.monotonic()
   cached = _param_cache.get(key)
-  if cached is not None and now - cached[0] < PARAM_CACHE_S:
+  if key != "EonClusterHudNavApp" and cached is not None and now - cached[0] < PARAM_CACHE_S:
     value = cached[1]
   else:
     try:

@@ -17,6 +17,7 @@ import time
 import cereal.messaging as messaging
 import numpy as np
 from common.params import Params
+from selfdrive.eon_cluster.nav_selection import NavSelectionSync
 from common.transformations.camera import FULL_FRAME_SIZE, fcam_intrinsics
 
 
@@ -1238,6 +1239,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
 
 def main():
   params = Params()
+  nav_selection = NavSelectionSync(params)
   running = [True]
   signal.signal(signal.SIGINT, lambda *_: running.__setitem__(0, False))
   signal.signal(signal.SIGTERM, lambda *_: running.__setitem__(0, False))
@@ -1276,12 +1278,16 @@ def main():
       next_param_read = started + 1.0
     sm.update(0)
     try:
-      sock.sendto(json.dumps(_packet(sm, noo_enabled, path_offset), separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
+      packet = _packet(sm, noo_enabled, path_offset)
+      packet.update(nav_selection.telemetry())
+      sock.sendto(json.dumps(packet, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
                   ("255.255.255.255", PORT))
       try:
-        while True:
-          reply, _ = sock.recvfrom(64)
+        for _ in range(64):
+          reply, address = sock.recvfrom(256)
           if reply == b"HUD1":
+            last_ack = time.monotonic()
+          elif nav_selection.receive(reply, address):
             last_ack = time.monotonic()
       except (BlockingIOError, socket.error):
         pass

@@ -79,6 +79,7 @@ selfdrive/updated.py
 selfdrive/rtshield.py
 selfdrive/statsd.py
 selfdrive/timezoned.py
+selfdrive/eon_cluster/nav_selection.py
 
 selfdrive/athena/__init__.py
 selfdrive/athena/athenad.py

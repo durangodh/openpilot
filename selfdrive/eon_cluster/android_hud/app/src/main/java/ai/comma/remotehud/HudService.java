@@ -69,6 +69,10 @@ public final class HudService extends Service {
     private static final int UDP_PACKET_MAX_BYTES = 65507;
 
     static final String ACTION_RESCAN_USB = "ai.comma.remotehud.RESCAN_USB";
+    static final String ACTION_SELECT_NAV = "ai.comma.remotehud.SELECT_NAV";
+    static volatile boolean navSelectionSupported;
+    private long lastNavRequestAt;
+    private String lastNavRequestId = "";
     static final String EXTRA_FROM_BOOT = "ai.comma.remotehud.FROM_BOOT";
 
     private static final String CHANNEL = "remote_hud";
@@ -472,6 +476,18 @@ public final class HudService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         boolean fromBoot = intent != null && intent.getBooleanExtra(EXTRA_FROM_BOOT, false);
+        if (intent != null && ACTION_SELECT_NAV.equals(intent.getAction())) {
+            new Thread(() -> {
+                synchronized (AppPrefs.class) {
+                    int requested = AppPrefs.getNavApp(this);
+                    if (configuredNavApp == requested) {
+                        launchNavApp(this, requested);
+                    } else {
+                        applyNavigationSelection(requested);
+                    }
+                }
+            }, "hud-select-nav").start();
+        }
         if (intent != null && ACTION_RESCAN_USB.equals(intent.getAction()) && running.get()) {
             requestUsbRescan();
             return START_STICKY;
@@ -653,8 +669,8 @@ public final class HudService extends Service {
                             udpReceiverError = "JSON 오류";
                             continue;
                         }
+                        synchronizeNavigation(decoded, socket, packet);
                         state.set(decoded);
-                        applyNavigationSelection(decoded.optInt("hudNavApp", 1));
                         NaverSettingsRelay.update(decoded, socket);
                         udpReceiverError = "";
                         eonAddress.set(packet.getAddress());
@@ -682,8 +698,35 @@ public final class HudService extends Service {
         }
     }
 
+    private void synchronizeNavigation(JSONObject decoded, DatagramSocket socket, DatagramPacket packet) throws Exception {
+        synchronized (AppPrefs.class) {
+            String session = decoded.optString("hudNavSession", "");
+            navSelectionSupported = NavSelectionProtocol.validId(session);
+            if (navSelectionSupported) {
+                AppPrefs.acknowledgeNavRequest(this, decoded.optString("hudNavRequestAck", ""));
+            }
+            String request = AppPrefs.pendingNavRequest(this);
+            if (!request.isEmpty()) {
+                int desired = AppPrefs.getNavApp(this);
+                long now = SystemClock.elapsedRealtime();
+                byte[] command = NavSelectionProtocol.request(session, request, desired);
+                if (command != null && (!request.equals(lastNavRequestId) || now - lastNavRequestAt >= 500L)) {
+                    socket.send(new DatagramPacket(command, command.length, packet.getAddress(), packet.getPort()));
+                    lastNavRequestId = request;
+                    lastNavRequestAt = now;
+                }
+                // Do not label the old app's route as the newly requested one.
+                if (decoded.optInt("hudNavApp", 1) != desired) decoded.remove("navi");
+                decoded.put("hudNavApp", desired);
+                applyNavigationSelection(desired);
+            } else {
+                applyNavigationSelection(decoded.optInt("hudNavApp", 1));
+            }
+        }
+    }
+
     /**
-     * EON 설정값이 바뀐 순간에만 선택한 내비를 앞으로 가져온다.
+     * EON 또는 앱에서 선택값이 바뀐 순간에만 선택한 내비를 앞으로 가져온다.
      * Android 13의 백그라운드 Activity 실행 제한을 피하기 위해, 사용자가 이미
      * Magisk에서 허용한 Remote HUD 루트 권한으로 launcher Activity를 실행한다.
      */

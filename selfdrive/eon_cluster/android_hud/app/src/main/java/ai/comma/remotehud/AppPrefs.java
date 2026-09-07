@@ -11,6 +11,7 @@ public final class AppPrefs {
     private static final String ORIENTATION = "hud_orientation";
     private static final String MIRROR = "hud_mirror";
     private static final String NAV_APP = "hud_nav_app";
+    private static final String NAV_REQUEST = "hud_nav_request";
 
     private AppPrefs() {
     }
@@ -55,6 +56,24 @@ public final class AppPrefs {
 
     public static void setNavApp(Context context, int navApp) {
         prefs(context).edit().putInt(NAV_APP, navApp == 2 ? 2 : 1).apply();
+    }
+
+    // All request read/ack operations use the AppPrefs.class monitor so an old
+    // telemetry reply cannot erase a newer tap from the settings Activity.
+    public static synchronized void requestNavApp(Context context, int app) {
+        if (app != 1 && app != 2) return;
+        String request = java.util.UUID.randomUUID().toString().replace("-", "");
+        prefs(context).edit().putInt(NAV_APP, app).putString(NAV_REQUEST, request).apply();
+    }
+
+    public static synchronized String pendingNavRequest(Context context) {
+        return prefs(context).getString(NAV_REQUEST, "");
+    }
+
+    public static synchronized void acknowledgeNavRequest(Context context, String ack) {
+        if (NavSelectionProtocol.acknowledged(pendingNavRequest(context), ack)) {
+            prefs(context).edit().remove(NAV_REQUEST).apply();
+        }
     }
 
     public static boolean wasGuideShown(Context context) {
