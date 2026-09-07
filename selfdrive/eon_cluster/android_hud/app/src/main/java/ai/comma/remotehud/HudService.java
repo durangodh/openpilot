@@ -4280,8 +4280,27 @@ public final class HudService extends Service {
         drawNativeOverlay(c, p, lane, 1130f, 378f, 1660f, (float) HEIGHT, Paint.Align.CENTER);
         c.restoreToCount(save3);
 
+        // Always keep the selected map source visible above native map labels.
+        // This sits in the user's requested top-right corner and is deliberately
+        // independent of map/guidance availability during an app transition.
+        drawMapSourceBadge(c, p, s);
+
         // NOO 안내는 지도 패널이 아니라 주행 패널 중앙에 그린다(drawNooTurn).
         c.restoreToCount(overlaySave);
+    }
+
+    private void drawMapSourceBadge(Canvas c, Paint p, JSONObject s) {
+        final float right = mapRight() - 18f;
+        final float top = 12f;
+        final float width = 146f;
+        final float height = 48f;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(190, 28, 34, 40));
+        scratchRect.set(right - width, top, right, top + height);
+        c.drawRoundRect(scratchRect, 10f, 10f, p);
+        text(c, p, NavSelectionProtocol.appLabel(s.optInt("hudNavApp", 1)),
+                right - width * 0.5f, top + 34f, 25f, Color.WHITE, Paint.Align.CENTER);
     }
 
     private void drawTmapVehicleMarker(Canvas c, Paint p, float cx, float cy) {

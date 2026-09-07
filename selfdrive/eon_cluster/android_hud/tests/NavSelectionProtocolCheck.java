@@ -23,6 +23,8 @@ public final class NavSelectionProtocolCheck {
         check(NavSelectionProtocol.normalizeApp(1) == 1);
         check(NavSelectionProtocol.normalizeApp(2) == 2);
         check(NavSelectionProtocol.normalizeApp(99) == 1);
+        check(NavSelectionProtocol.appLabel(1).equals("Tmap"));
+        check(NavSelectionProtocol.appLabel(2).equals("Naver"));
         // A button tap must stop the opposite app even after a cold service
         // start has already loaded the newly saved selection.
         check(NavSelectionProtocol.appToStop(2, 2, true) == 1);

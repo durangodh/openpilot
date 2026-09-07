@@ -7,6 +7,9 @@ final class NavSelectionProtocol {
     static int normalizeApp(int app) {
         return app == 2 ? 2 : 1;
     }
+    static String appLabel(int app) {
+        return normalizeApp(app) == 2 ? "Naver" : "Tmap";
+    }
     static int appToStop(int configured, int requested, boolean explicitSelection) {
         int selected = normalizeApp(requested);
         if (explicitSelection) return selected == 2 ? 1 : 2;

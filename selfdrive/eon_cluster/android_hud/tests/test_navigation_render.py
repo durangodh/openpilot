@@ -27,7 +27,7 @@ public class NavigationRenderCheck {
     void setShader(Object x){} void setStyle(Style x){} void setColor(int x){} void setFilterBitmap(boolean x){}
   }
   static class Canvas {
-    int banners, maps, markers, nextCalls, etaCalls;
+    int banners, maps, markers, nextCalls, etaCalls, sourceBadges;
     int save(){return 1;} void restoreToCount(int x){}
     void drawRect(Rect r,Paint p){}
     void drawBitmap(Bitmap b,Object src,Rect dst,Paint p){
@@ -46,6 +46,7 @@ public class NavigationRenderCheck {
   void drawTbtNext(Canvas c,Paint p,JSONObject n,float x,float y){c.nextCalls++;}
   void drawJunction(Canvas c,Paint p,float y){}
   void drawNaviEta(Canvas c,Paint p,JSONObject s){c.etaCalls++;}
+  void drawMapSourceBadge(Canvas c,Paint p,JSONObject s){c.sourceBadges++;}
   void drawNativeOverlay(Canvas c,Paint p,Bitmap b,float x,float y,float w,float h,Paint.Align a){}
   boolean drawTurnIcon(Canvas c,Paint p,float x,float y,float size,int type,String title,int color,boolean b){return false;}
   void drawScaledArrow(Canvas c,Paint p,float x,float y,int type,float size,String title){}
@@ -55,8 +56,8 @@ public class NavigationRenderCheck {
     new JSONObject().put("active",active).put("remainDist",remain).put("turnDist",turn));}
   void check(String name,JSONObject state,Bitmap map,int banners,int maps){
     Canvas c=new Canvas(); drawMap(c,new Paint(),state,map,null,null,null);
-    if(c.banners!=banners||c.maps!=maps||c.markers!=maps||c.nextCalls!=1||c.etaCalls!=1)
-      throw new AssertionError(name+": banners="+c.banners+" maps="+c.maps+" next="+c.nextCalls+" eta="+c.etaCalls);
+    if(c.banners!=banners||c.maps!=maps||c.markers!=maps||c.nextCalls!=1||c.etaCalls!=1||c.sourceBadges!=1)
+      throw new AssertionError(name+": banners="+c.banners+" maps="+c.maps+" next="+c.nextCalls+" eta="+c.etaCalls+" badge="+c.sourceBadges);
   }
   public static void main(String[] args){
     NavigationRenderCheck hud=new NavigationRenderCheck(); Bitmap map=new Bitmap();
@@ -84,7 +85,7 @@ def main():
               "app/src/main/java/ai/comma/remotehud/HudService.java").read_text(encoding="utf-8")
     # Use complete source methods, so restoring the old early return fails this test.
     methods = []
-    for start, end in (("    private void drawMap(", "    private void drawTmapVehicleMarker("),
+    for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),
                        ("    private float drawTbtBanner(", "    private float drawTbtImage(")):
         methods.append(source[source.index(start):source.index(end)])
     args.work.mkdir(parents=True, exist_ok=True)
