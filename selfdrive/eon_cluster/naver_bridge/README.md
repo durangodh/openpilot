@@ -40,6 +40,12 @@ revision, not a changed upstream Naver version.
 
 ## Signing/install status
 
+A signed HUD4 package is now published with a new certificate:
+`b8b4093f1351346ae1642299d0f75fad33b8764c004058b85b744d514c23e6ad`.
+It requires uninstalling HUD3 first. See [release notes](../../../docs/carrot_naver_hud4.md).
+The build script itself still produces an unsigned intermediate as described below.
+
+
 The build output is **unsigned and cannot be installed as delivered**.
 Zipalign it and sign it using the original HUD3 signing key. Verify the resulting
 certificate SHA-256 is

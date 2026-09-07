@@ -2,7 +2,8 @@
 
 The map-only capture correction is maintained in
 [`selfdrive/eon_cluster/naver_bridge`](../selfdrive/eon_cluster/naver_bridge/README.md).
-Its unsigned build has been verified, but it is not a signed replacement release.
+A newly signed [HUD4 release](carrot_naver_hud4.md) replaces the HUD3 release.
+The HUD3 details below are historical; the original APKS is needed to reproduce the patch.
 
 This document records the reproducible HUD bridge changes shipped in the `CarrotNaver_6.9.1.3_hud3.apks` release asset. The APK bundle is kept in GitHub Releases because its 138 MB size exceeds the normal repository file limit.
 
