@@ -1,0 +1,57 @@
+# Naver map-only HUD capture
+
+This patch targets the verified `CarrotNaver_6.9.1.3_hud3.apks` release.
+It keeps the TMAP-compatible `map_main` JPEG transport (640×384, quality 65)
+and the existing HUD guidance/ETA overlay pipeline. It does not implement
+TMAP's separate offscreen map renderer inside Naver.
+
+HUD3 found a map SurfaceView/TextureView rectangle but copied the **Window**,
+which can omit independently composited map buffers. If no map was found,
+it copied the whole Activity, including the start page. The replacement:
+
+- Captures TextureView pixels using `getBitmap`, or a SurfaceView buffer using
+  `PixelCopy.request(SurfaceView, ...)`.
+- Accepts only the verified VGX renderer hierarchy or a render view belonging
+  to Naver's `MapView`; unrelated advertisement/video views are rejected.
+- Sends a null `map_main` update when the map is absent/hidden/unavailable,
+  using the receiver's existing map-clear protocol.
+- Keeps JPEG encoding/network work on a worker and permits one capture in flight.
+
+## Reproduce
+
+Requires JDK 17, Android platform 35/build-tools 35.0.0, Apktool 3.0.3, Python 3,
+and the original HUD3 APKS from the repository's GitHub Release.
+
+```sh
+python selfdrive/eon_cluster/naver_bridge/test_capture.py \
+  --java-home /path/to/jdk --work /new/test-directory
+
+python selfdrive/eon_cluster/naver_bridge/build_patch.py \
+  --input CarrotNaver_6.9.1.3_hud3.apks \
+  --java-home /path/to/jdk --sdk /path/to/android-sdk \
+  --apktool /path/to/apktool_3.0.3.jar \
+  --work /new/build-directory --output CarrotNaver_HUD4_base_UNSIGNED.apk
+```
+
+The input SHA-256 is checked before patching. The script assembles only the bridge
+DEX and verifies that every other non-signature ZIP entry is byte-for-byte
+unchanged. The APK manifest/version code is preserved; HUD4 identifies this patch
+revision, not a changed upstream Naver version.
+
+## Signing/install status
+
+The build output is **unsigned and cannot be installed as delivered**.
+Zipalign it and sign it using the original HUD3 signing key. Verify the resulting
+certificate SHA-256 is
+`f44cd44e862dcdc254efc6fff207b18d3c724ded139ecc1a1a72c00c894b3252`
+before packaging it with the original arm64-v8a and xxhdpi splits. Do not replace
+the release with an unsigned bundle or mix different signing certificates.
+
+## Validation
+
+Production Java capture routing was exercised against a fake Android API:
+no map, unrelated video/ad views, both texture/surface paths, hidden/unavailable
+maps, failed PixelCopy followed by recovery, VGX identification, bitmap recycling.
+Java compilation against Android API 35, D8 conversion, Smali assembly, and ZIP
+payload preservation checks passed. These checks do not validate GPU pixels,
+actual phone lifecycle/concurrency, or a running S9; device verification remains.
