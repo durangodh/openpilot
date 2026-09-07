@@ -873,8 +873,8 @@ C2NetworkPanel::C2NetworkPanel(QWidget *parent) : QWidget(parent) {
   if (timezone_file.open(QIODevice::ReadOnly | QIODevice::Text)) {
     QTextStream stream(&timezone_file);
     while (!stream.atEnd()) {
-      const QString timezone = stream.readLine().trimmed();
-      if (!timezone.isEmpty()) timezone_select->addItem(timezone);
+      const QString timezone_name = stream.readLine().trimmed();
+      if (!timezone_name.isEmpty()) timezone_select->addItem(timezone_name);
     }
   }
   timezone_select->setEnabled(timezone_select->count() > 0);
@@ -907,8 +907,8 @@ C2NetworkPanel::C2NetworkPanel(QWidget *parent) : QWidget(parent) {
 }
 
 void C2NetworkPanel::showEvent(QShowEvent *event) {
-  const QString timezone = QString::fromStdString(Params().get("Timezone")).trimmed();
-  timezone_select->setCurrentIndex(timezone_select->findText(timezone.isEmpty() ? "Asia/Seoul" : timezone));
+  const QString saved_timezone = QString::fromStdString(Params().get("Timezone")).trimmed();
+  timezone_select->setCurrentIndex(timezone_select->findText(saved_timezone.isEmpty() ? "Asia/Seoul" : saved_timezone));
   ipaddress->setText(getIPAddress());
 }
 
