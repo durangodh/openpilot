@@ -1,6 +1,6 @@
 from common.numpy_fast import mean
 from common.kalman.simple_kalman import KF1D
-from selfdrive.controls.lib.scc_lead_policy import blend_scc_lead_accel
+from common.filter_simple import StreamingMovingAverage
 
 
 # the longer lead decels, the more likely it will keep decelerating
@@ -68,9 +68,8 @@ class Track():
     self.kf = KF1D([[v_lead], [0.0]], self.K_A, self.K_C, self.K_K)
     self.vLead = v_lead
 
-  def update(self, d_rel, y_rel, v_rel, v_lead, measured, reaction_factor=1.0,
-             a_lead_sensor=None):
-    # Reset stale acceleration state when SCC reuses a track for a new target.
+  def update(self, d_rel, y_rel, v_rel, v_lead, measured):
+    #apilot: changed radar target
     if abs(self.vLead - v_lead) > 0.5:
       self.cnt = 0
       self.kf = KF1D([[v_lead], [0.0]], self.K_A, self.K_C, self.K_K)
@@ -88,17 +87,10 @@ class Track():
 
     self.vLeadK = float(self.kf.x[SPEED][0])
     self.aLeadK = float(self.kf.x[ACCEL][0])
-    if a_lead_sensor is not None and measured:
-      self.aLeadK = blend_scc_lead_accel(self.aLeadK, a_lead_sensor)
-      self.kf.x = [[self.vLeadK], [self.aLeadK]]
 
-    # RadarReactionFactor below 1.0 keeps a measured lead acceleration in the
-    # prediction for longer.  This lets MPC react earlier when a lead that has
-    # just pulled away starts braking again, without changing radar distance or
-    # the acceleration limits themselves.
-    reaction_factor = max(0.2, min(float(reaction_factor), 2.0))
-    if abs(self.aLeadK) < 0.5 * reaction_factor:
-      self.aLeadTau = _LEAD_ACCEL_TAU * reaction_factor
+    # Learn if constant acceleration
+    if abs(self.aLeadK) < 0.5:
+      self.aLeadTau = _LEAD_ACCEL_TAU
     else:
       self.aLeadTau *= 0.9
 
@@ -117,6 +109,7 @@ class Track():
 class Cluster():
   def __init__(self):
     self.tracks = set()
+    self.aLeadKFilter = StreamingMovingAverage(5)
 
   def add(self, t):
     # add the first track
@@ -188,27 +181,24 @@ class Cluster():
       "aLeadTau": float(self.aLeadTau)
     }
 
-  def get_RadarState2(self, model_prob, lead_msg, mix_radar_info):
-    vision_accel = float(lead_msg.a[0])
-    radar_accel = float(self.aLeadK)
-    track_frames = min((t.cnt for t in self.tracks), default=0)
-    a_lead_k, _ = blend_radar_vision_accel(
-      radar_accel, vision_accel, float(lead_msg.prob), mix_radar_info,
-      track_frames, float(self.vRel))
+  def get_RadarState2(self, model_prob, lead_msg, mixRadarInfo):
+    useVisionMix = False
+    if mixRadarInfo>0 and float(lead_msg.prob) > 0.5 and abs(float(self.aLeadK)) < abs(float(lead_msg.a[0])):
+      useVisionMix = True
+
+    aLeadK = self.aLeadKFilter.process(float(lead_msg.a[0]) if useVisionMix else float(self.aLeadK))
     return {
       "dRel": float(self.dRel),
-      "yRel": float(self.yRel) if not mix_radar_info or self.yRel != 0 else float(-lead_msg.y[0]),
+      "yRel": float(self.yRel) if mixRadarInfo == 0 or self.yRel != 0 else float(-lead_msg.y[0]),
       "vRel": float(self.vRel),
       "vLead": float(self.vLead),
       "vLeadK": float(self.vLeadK),
-      "aLeadK": float(a_lead_k),
+      "aLeadK": aLeadK,
       "status": True,
       "fcw": self.is_potential_fcw(model_prob),
       "modelProb": model_prob,
       "radar": True,
-      # Keep the radar decay horizon.  The previous fixed 0.3 value made a
-      # one-frame vision deceleration persist and amplified the initial brake.
-      "aLeadTau": float(self.aLeadTau)
+      "aLeadTau": 0.3 if useVisionMix else float(self.aLeadTau)
     }
 
   def get_RadarState_from_vision(self, lead_msg, v_ego, model_v_ego):
@@ -233,7 +223,7 @@ class Cluster():
 
   def potential_low_speed_lead(self, v_ego):
     # stop for stuff in front of you and low speed, even without model confirmation
-    # Radar points closer than 0.75 m are usually glitches.
+    # Radar points closer than 0.75, are almost always glitches on toyota radars
     return abs(self.yRel) < 1.0 and (v_ego < v_ego_stationary) and (0.75 < self.dRel < 25)
 
   def is_potential_fcw(self, model_prob):
