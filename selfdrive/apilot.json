@@ -1304,11 +1304,11 @@
   {
    "group": "S9HUD",
    "name": "EonClusterHudPathFlip",
-   "title": "S9 HUD PATH FLIP",
-   "descr": "0: 기본 / 1: 차선·경로 리본·옆차 위치 좌우반전 (S9 설치 기본값)",
+   "title": "S9 HUD SCENE FLIP",
+   "descr": "0: 정상 / 1: 주행화면 전체 좌우반전 (패스·차선·차량·배경·가드레일, 글자 제외)",
    "min": 0,
    "max": 1,
-   "default": 1,
+   "default": 0,
    "unit": 1
   },
   {

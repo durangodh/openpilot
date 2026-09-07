@@ -129,6 +129,7 @@ final class ModelWorldGL {
     private final float[] worldQuad = new float[8];
     private final Bitmap frame = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
 
+    private boolean sceneFlip;
     private long lastTimestamp = Long.MIN_VALUE;
     private int lastStyle;
     private long lastPhoneMotionTick = -1L;
@@ -187,7 +188,8 @@ final class ModelWorldGL {
                     ^ (guardrail ? 1 << 8 : 0) ^ (haze << 9)
                     ^ (scene.optBoolean("leftBsd", false) ? 1 << 6 : 0)
                     ^ (scene.optBoolean("rightBsd", false) ? 1 << 7 : 0);
-            boolean styleChanged = style != lastStyle;
+            boolean styleChanged = style != lastStyle
+                    || sceneFlip != (scene.optInt("hudPathFlip", 0) != 0);
             // Source/visibility changes must bypass expensive-frame reuse.
             int leadState = leadDisplayState(scene.optJSONObject("lead"))
                     | (leadDisplayState(scene.optJSONObject("lead2")) << 2);
@@ -351,6 +353,7 @@ final class ModelWorldGL {
         if (!EGL14.eglMakeCurrent(display, surface, surface, context)) {
             return false;
         }
+        sceneFlip = scene.optInt("hudPathFlip", 0) != 0;
         long timestamp = scene.optLong("t", 0L);
         float geometryAlpha = smoothingAlpha(timestamp);
         Line rawPath = decode(scene.optJSONArray("path"), 1f);
@@ -791,7 +794,6 @@ final class ModelWorldGL {
                 if (age<0 || age>1000L) continue;
                 distance=(float) CameraVehicleTracker.predicted(distance,object.optDouble("vd",0d),age);
                 lateral=(float) CameraVehicleTracker.predicted(lateral,object.optDouble("vy",0d),age);
-                if (scene.optInt("hudPathFlip", 0) != 0) lateral = -lateral;
             }
             if (probability < 0.25f || distance < 2f || distance > 180f
                     || Math.abs(lateral) > 15f
@@ -1524,6 +1526,7 @@ final class ModelWorldGL {
 
     /** side 1 = 좌측, -1 = 우측(세로축 대칭). */
     private void bsdWarning(int side) {
+        if (sceneFlip) side = -side;
         float cx = CX - side * EGO_SPRITE_W * 0.5f;
         float cy = EGO_BASELINE - TOP - BSD_CORNER_DY;
         // 우측은 좌측 각도를 세로축 기준으로 뒤집는다: theta -> 180 - theta.
@@ -1888,7 +1891,7 @@ final class ModelWorldGL {
             return false;
         }
         float scale = FOCAL / depth;
-        out[0] = CX - y * scale;
+        out[0] = HudProjection.screenX(CX, y, scale, sceneFlip);
         out[1] = HORIZON + horizonShift + (CAM_H - z) * scale;
         return Float.isFinite(out[0]) && Float.isFinite(out[1]);
     }

@@ -362,7 +362,7 @@ def test_remote_hud_displays_vision_candidates_without_control_feedback():
   assert 'VISION_OBJECTS_FILE = "/dev/shm/vision_vehicle_objects.json"' in remote
   assert '"visionObjects": _vision_objects(sm["modelV2"])' in remote
   assert '"src": "R" if bool(_field(lead, "radar", False)) else "V"' in remote
-  assert 'for vehicle in packet.get("visionObjects") or []' in wrapper
+  assert "normalize_geometry(packet," in wrapper
   assert 'drawVisionObjects(scene.optJSONArray("visionObjects")' in renderer
   assert "nearTrackedLead(scene.optJSONObject(\"lead\")" in renderer
   assert "Math.min(objects.length(), 40)" in renderer
@@ -403,8 +403,8 @@ def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
                        ("EonClusterHudVisionDetectorThreshold", "40")):
     assert '("%s", "%s")' % (key, default) in manager
     assert '{"%s", PERSISTENT}' % key in params
-  assert '("EonClusterHudPathFlip", "1")' in manager
-  assert 'params.get("EonClusterHudPathFlipV2Migrated") is None' in manager
+  assert '("EonClusterHudPathFlip", "0")' in manager
+  assert 'params.get("EonClusterHudPathFlipV2Migrated") is None' not in manager
   assert '{"EonClusterHudPathFlipV2Migrated", PERSISTENT}' in params
   assert 'PREVIEW_SIZE = (320, 240)' in preview
   assert 'return max(1, min(3, value))' in preview

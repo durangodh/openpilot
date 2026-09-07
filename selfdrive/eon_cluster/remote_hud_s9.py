@@ -9,6 +9,7 @@ import time
 
 from common.params import Params, UnknownKeyName
 from selfdrive.eon_cluster import remote_hud as base
+from selfdrive.eon_cluster.hud_geometry import normalize_geometry
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
 
 
@@ -36,39 +37,9 @@ def _bounded_int(key, default, minimum, maximum):
   return max(minimum, min(maximum, value))
 
 
-def _flip_points_y(points):
-  if not points:
-    return points
-  # Preserve optional modelV2 Z and any future point fields while changing
-  # only the lateral axis.
-  return [[p[0], -p[1]] + list(p[2:]) for p in points
-          if isinstance(p, (list, tuple)) and len(p) >= 2]
-
-
 def _apply_path_flip(packet):
-  # The S9/nMirror compositor presents model geometry with the opposite
-  # lateral sign on the user's installed on-car display.  Flip only geometry;
-  # text, icons and the complete framebuffer remain untouched.
-  if not _bounded_int("EonClusterHudPathFlip", 0, 0, 1):
-    packet["hudPathFlip"] = 0
-    return packet
-  packet["path"] = _flip_points_y(packet.get("path"))
-  for line in packet.get("lanes") or []:
-    if isinstance(line, dict):
-      line["p"] = _flip_points_y(line.get("p"))
-  for line in packet.get("edges") or []:
-    if isinstance(line, dict):
-      line["p"] = _flip_points_y(line.get("p"))
-  packet["pathOffset"] = -float(packet.get("pathOffset", 0.0) or 0.0)
-  for key in ("lead", "lead2"):
-    lead = packet.get(key)
-    if isinstance(lead, dict) and "y" in lead:
-      lead["y"] = -float(lead["y"] or 0.0)
-  for vehicle in packet.get("visionObjects") or []:
-    if isinstance(vehicle, dict) and "y" in vehicle:
-      vehicle["y"] = -float(vehicle["y"] or 0.0)
-  packet["hudPathFlip"] = 1
-  return packet
+  # Normalize source axes once; the Android projector reflects the whole scene.
+  return normalize_geometry(packet, _bounded_int("EonClusterHudPathFlip", 0, 0, 1))
 
 
 def _apply_naver_speed(packet):

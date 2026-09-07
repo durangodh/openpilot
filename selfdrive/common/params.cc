@@ -277,7 +277,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudTheme", PERSISTENT},
     {"EonClusterHudOrientation", PERSISTENT},
     {"EonClusterHudMirror", PERSISTENT},
-    {"EonClusterHudPathFlip", PERSISTENT},       // 진단용: S9 경로/차선 좌우반전 (0=기본, 1=반전)
+    {"EonClusterHudPathFlip", PERSISTENT},       // S9 주행 장면 전체 좌우반전 (0=정상, 1=반전)
     {"EonClusterHudPathFlipV2Migrated", PERSISTENT},
     {"EonClusterHudLanguage", PERSISTENT},
     {"EonClusterHudRadarInfo", PERSISTENT},
