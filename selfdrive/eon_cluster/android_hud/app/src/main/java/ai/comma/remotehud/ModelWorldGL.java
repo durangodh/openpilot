@@ -41,6 +41,8 @@ final class ModelWorldGL {
     private static final int HEIGHT = BOTTOM - TOP;
     private static final float CX = 476f;
     private static final float FOCAL = 520f;
+    private static final float VISION_ICON_SCALE = 0.68f;
+    private static final float PERSON_ICON_SCALE = 0.65f;
     private static final float CAM_H = 4.6f;
     private static final float CAM_BACK = 13.0f;
     private static final float HORIZON = 249f;
@@ -828,14 +830,14 @@ final class ModelWorldGL {
             if (sx < -60f || sx > WIDTH + 60f || sy < -30f || sy > HEIGHT + 40f) {
                 continue;
             }
-            float scale = FOCAL / (distance + CAM_BACK);
+            float scale = FOCAL / (distance + CAM_BACK) * VISION_ICON_SCALE;
             // Do not clamp every candidate into the same apparent size. A
             // nearby car is intentionally several times larger than a distant
             // one, providing the requested depth cue across adjacent lanes.
             float observedWidth=clamp((float)object.optDouble("width",1.88d),0.6f,3.5f);
             float observedHeight=clamp((float)object.optDouble("height",0.90d),0.6f,4f);
-            float width = clamp(observedWidth * scale, 4.5f, 100f);
-            float height = clamp(observedHeight * scale, 3.2f, 90f);
+            float width = clamp(observedWidth * scale, 3.5f, 72f);
+            float height = clamp(observedHeight * scale, 2.8f, 64f);
             // Distance controls visual weight; confidence only makes a small
             // correction. Close vehicles stay solid and dark, while distant
             // vehicles recede without disappearing completely.
@@ -843,6 +845,10 @@ final class ModelWorldGL {
                     * (0.88f + probability * 0.12f), 0.26f, 1f);
             String type = object.optString("type", "");
             if (isPhoneVehicleType(type)) {
+                if ("person".equals(type)) {
+                    width *= PERSON_ICON_SCALE;
+                    height *= PERSON_ICON_SCALE;
+                }
                 drawVisionVehicleIcon(sx, sy, width, height, type, dark, alpha,
                         object.has("width") && object.has("height"));
                 continue;

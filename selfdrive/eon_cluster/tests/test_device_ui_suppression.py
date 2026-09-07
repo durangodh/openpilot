@@ -424,8 +424,10 @@ def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
           "comma" / "remotehud" / "CameraVehicleTracker.java").read_text(encoding="utf-8")
   assert '"hudPathFlip"' not in phone
   assert 'object.put("type",t.box.type)' in phone
-  assert 'threshold - 0.12f' in phone
-  assert '"person".equals(vehicleType) ? 0.015f : 0.03f' in phone
+  assert "CameraVehicleTracker.detectionThreshold(vehicleType, threshold)" in phone
+  assert "CameraVehicleTracker.plausiblePersonBox(widthRatio, heightRatio)" in phone
+  assert "VISION_ICON_SCALE = 0.68f" in renderer
+  assert "PERSON_ICON_SCALE = 0.65f" in renderer
   for vehicle_type in ("car", "truck", "bus", "motorcycle", "bicycle", "person"):
     assert '"%s"' % vehicle_type in phone
     assert '"%s"' % vehicle_type in renderer

@@ -8,6 +8,9 @@ public class CameraVehicleTrackerCheck {
     static CameraVehicleTracker.Box box(double d,double y,float x,float score) {
         return new CameraVehicleTracker.Box(d,y,1.9,1.5,x,.4f,x+.12f,.65f,score,"car");
     }
+    static CameraVehicleTracker.Box person(double d,double y,float x,float score) {
+        return new CameraVehicleTracker.Box(d,y,.7,1.7,x,.3f,x+.05f,.7f,score,"person");
+    }
     static List<CameraVehicleTracker.Box> input(CameraVehicleTracker.Box... boxes) {
         ArrayList<CameraVehicleTracker.Box> out=new ArrayList<>();
         for(CameraVehicleTracker.Box b:boxes) out.add(b);
@@ -28,6 +31,20 @@ public class CameraVehicleTrackerCheck {
         t.clear();
         check(t.update(input(box(30,0,.4f,.4f)),3000).isEmpty(),"Weak one-frame detection suppressed");
         check(t.update(input(box(30,0,.4f,.4f)),3500).size()==1,"Weak repeated detection confirmed");
+        t.clear();
+        check(t.update(input(person(20,0,.4f,.95f)),3600).isEmpty(),"One-frame person suppressed");
+        check(t.update(input(person(20,0,.4f,.95f)),3900).isEmpty(),"Two-frame person suppressed");
+        check(t.update(input(person(20,0,.4f,.95f)),4200).size()==1,"Persistent person confirmed");
+        check(CameraVehicleTracker.detectionThreshold("person",.40f)>=.58f,"Person threshold raised");
+        check(CameraVehicleTracker.detectionThreshold("car",.40f)==.40f,"Vehicle threshold preserved");
+        check(CameraVehicleTracker.plausiblePersonBox(.03,.16),"Tall person box accepted");
+        check(!CameraVehicleTracker.plausiblePersonBox(.03,.05),"Short sign-shaped person rejected");
+        check(!CameraVehicleTracker.plausiblePersonBox(.01,.16),"Tiny person box rejected");
+        t.clear();
+        t.update(input(box(20,0,.4f,.9f)),4300);
+        t.update(input(box(20,0,.4f,.9f)),4600);
+        a=t.update(input(person(20,0,.4f,.95f)),4900);
+        check(a.size()==1 && "car".equals(a.get(0).box.type),"Car history cannot confirm false person");
         t.clear();
         a=t.update(input(box(30,0,.2f,.9f),box(30,1,.55f,.8f)),4000);
         check(a.size()==2,"Nearby vehicles with separate image boxes stay separate");

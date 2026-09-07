@@ -39,6 +39,15 @@ final class CameraVehicleTracker {
     static double predicted(double value, double speed, long ageMs) {
         return value+speed*clamp(ageMs/1000.0,0,0.25);
     }
+    static float detectionThreshold(String type, float baseThreshold) {
+        // Person false positives are much more distracting than a briefly missed
+        // silhouette. Never make them easier to accept than vehicle classes.
+        return "person".equals(type) ? Math.max(0.58f, baseThreshold + 0.15f) : baseThreshold;
+    }
+    static boolean plausiblePersonBox(double widthRatio, double heightRatio) {
+        return widthRatio >= 0.020d && heightRatio >= 0.10d
+                && heightRatio / Math.max(0.001d, widthRatio) >= 1.15d;
+    }
 
     List<Track> update(List<Box> input, long now) {
         ArrayList<Box> observations=new ArrayList<>();
@@ -57,6 +66,9 @@ final class CameraVehicleTracker {
             for (Track t:tracks) {
                 long age=now-t.time;
                 if (t.matched || age<=0 || age>1500) continue;
+                // Never inherit confirmation history across the person/vehicle
+                // boundary; class flicker on a car must start a new person track.
+                if ("person".equals(t.box.type) != "person".equals(b.type)) continue;
                 double dd=Math.abs(predicted(t.box.d,t.vd,age)-b.d);
                 double dy=Math.abs(predicted(t.box.y,t.vy,age)-b.y);
                 double gate=Math.max(4,Math.min(15,b.d*0.2));
@@ -78,8 +90,11 @@ final class CameraVehicleTracker {
                 best.box=b; best.time=now; best.hits++;
             }
             best.matched=true;
-            if (best.hits>=2 || b.score>=0.65f
-                    || ("person".equals(b.type) && b.score>=0.45f)) visible.add(best);
+            boolean person="person".equals(b.type);
+            // A person must persist across three detector frames. Vehicles keep
+            // the fast high-confidence path needed for cut-ins and close traffic.
+            if ((person && best.hits>=3)
+                    || (!person && (best.hits>=2 || b.score>=0.65f))) visible.add(best);
         }
         // Bridge only a single short detector miss. The renderer predicts from
         // measured velocity and PhoneVehicleDetector fades confidence with age,

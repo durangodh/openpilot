@@ -71,14 +71,19 @@ final class PhoneVehicleDetector implements AutoCloseable {
                     continue;
                 }
                 String vehicleType = normalizeVehicleType(vehicle.getLabel());
-                float classThreshold = "person".equals(vehicleType)
-                        ? Math.max(0.25f, threshold - 0.12f) : threshold;
+                float classThreshold = CameraVehicleTracker.detectionThreshold(vehicleType, threshold);
                 if (vehicle.getScore() < classThreshold) continue;
                 RectF box = detection.getBoundingBox();
-                // 보행자는 차보다 폭이 좁으므로 별도 최소 폭을 적용한다.
-                float minWidthRatio = "person".equals(vehicleType) ? 0.015f : 0.03f;
-                if (box == null || box.width() < image.getWidth() * minWidthRatio
-                        || box.height() < image.getHeight() * 0.03f) {
+                if (box == null) {
+                    continue;
+                }
+                float widthRatio = box.width() / image.getWidth();
+                float heightRatio = box.height() / image.getHeight();
+                if ("person".equals(vehicleType)) {
+                    // Reject tiny/sign-shaped person false positives. On this HUD
+                    // distant boxes below these dimensions are not useful anyway.
+                    if (!CameraVehicleTracker.plausiblePersonBox(widthRatio, heightRatio)) continue;
+                } else if (widthRatio < 0.03f || heightRatio < 0.03f) {
                     continue;
                 }
                 double pixelX = Math.max(0d, Math.min(image.getWidth() - 1d,
