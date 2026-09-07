@@ -15,17 +15,6 @@ STANDSTILL_LATCH_SPEED = 0.05
 # 노이즈 한두 프레임은 걸러지고, 진짜 출발은 거의 지연 없이 통과한다.
 STANDSTILL_RELEASE_FRAMES = 10
 
-# PID 가속/감속 전환을 0 근처에서 연속적으로 통과시키는 변화율 제한값.
-# 감속 진입은 안전을 위해 더 빠르게, 브레이크 해제와 재가속은 더 완만하게 둔다.
-TRANSITION_BRAKE_RATE = 2.5
-# When moving from drive to brake, first bleed drive request toward zero unless
-# the planner asks for a genuinely hard brake.
-TRANSITION_COAST_RATE = 1.0
-TRANSITION_HARD_BRAKE_ACCEL = -1.2
-TRANSITION_RELEASE_RATE = 0.9
-TRANSITION_ACCEL_RATE = 1.2
-
-
 def get_bumpless_launch_integral(previous_accel, proportional, derivative,
                                  feedforward, positive_limit):
   """Seed PID integral so a launch does not sag at the starting -> PID handoff."""
@@ -99,7 +88,6 @@ class LongControl:
     self.params = Params()
     self.read_param_count = 0
     self.stop_accel = CP.stopAccel
-    self.long_coast_band = 0.0
     self.v_pid = 0.0
     self.last_output_accel = 0.0
     self.starting_accel = 0.0
@@ -248,21 +236,6 @@ class LongControl:
     except (TypeError, ValueError):
       pass
 
-  def _smooth_accel_transition(self, target_accel):
-    """Avoid an abrupt sign flip between drive and brake requests."""
-    delta = target_accel - self.last_output_accel
-    if delta < 0.0:
-      # A normal lead response should release drive through coast before brake.
-      # Retain fast response for a real hard-braking target.
-      rate = (TRANSITION_COAST_RATE if self.last_output_accel > 0.0 and
-              target_accel > TRANSITION_HARD_BRAKE_ACCEL else TRANSITION_BRAKE_RATE)
-      max_delta = rate * DT_CTRL
-    elif self.last_output_accel < 0.0:
-      max_delta = TRANSITION_RELEASE_RATE * DT_CTRL
-    else:
-      max_delta = TRANSITION_ACCEL_RATE * DT_CTRL
-    return self.last_output_accel + clip(delta, -max_delta, max_delta)
-
   def reset(self, v_pid=0.0):
     self.pid.reset()
     self.v_pid = v_pid
@@ -274,7 +247,6 @@ class LongControl:
       self._update_stop_accel()
       self._update_stopping_decel_rate()
       self._update_standstill_hold()
-      self.long_coast_band = clip(self.params.get_float("LongCoastBand") * 0.01, 0.0, 0.4)
       self._update_actuator_delays()
 
       self._update_start_accel()
@@ -424,12 +396,8 @@ class LongControl:
                             self.pid.neg_limit, self.pid.pos_limit)
         self.pid.control = output_accel
 
-      if -self.long_coast_band < output_accel < 0.0:
-        output_accel = 0.0
-
-      # Cross zero progressively: accelerate -> coast -> light brake and the
-      # reverse path use bounded steps, preventing a repeated gas/brake feel.
-      output_accel = self._smooth_accel_transition(output_accel)
+      # Match apilot-c2: send PID braking directly to the actuator limits.
+      # Do not suppress light deceleration or delay it with a slew limiter.
 
     self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
     return self.last_output_accel, -0.5 if planned_stop else j_target
