@@ -129,9 +129,9 @@ public final class CarrotOffscreenMap {
     private CarrotOffscreenMap() {
     }
 
-    /** True while this renderer owns map_main (bridge skips its own captures). */
+    /** True after this renderer has produced a real frame and owns map_main. */
     public static boolean active() {
-        return initialized && !failed;
+        return initialized && !failed && lastFrameSeenAt > 0;
     }
 
     /**
@@ -194,7 +194,11 @@ public final class CarrotOffscreenMap {
                 }
             });
         }
-        return true;
+        // Do not block the proven HUD7 car/phone capture paths while the
+        // private MapSurface is merely initialized but has produced no pixels.
+        // On a real device an SDK/GL incompatibility can otherwise leave the
+        // HUD on WAITING FOR MAP through all four 20-second restart windows.
+        return lastFrameSeenAt > 0;
     }
 
     private static void ensureStarted() {
@@ -211,6 +215,16 @@ public final class CarrotOffscreenMap {
                 HandlerThread thread = new HandlerThread("carrot-offscreen-map");
                 thread.start();
                 worker = new Handler(thread.getLooper());
+            }
+        }
+        // Remove a frame left by the previously selected app immediately.
+        // The fallback capture may replace it while the offscreen GL surface
+        // starts, and the first offscreen frame takes ownership afterwards.
+        CarrotNaverBridge currentBridge = bridge;
+        if (currentBridge != null) {
+            try {
+                currentBridge.clearMap();
+            } catch (Throwable ignored) {
             }
         }
         main.post(new Runnable() {
@@ -254,8 +268,6 @@ public final class CarrotOffscreenMap {
         Object ms = surfaceClass.getConstructor(Context.class, optionsClass).newInstance(context, options);
         mapSurface = ms;
         invoke(ms, M_SURFACE_ON_CREATE, new Class<?>[]{android.os.Bundle.class}, new Object[]{null});
-        invoke(ms, M_SURFACE_ON_START, new Class<?>[0], new Object[0]);
-        invoke(ms, M_SURFACE_ON_RESUME, new Class<?>[0], new Object[0]);
 
         ImageReader r = ImageReader.newInstance(WIDTH, HEIGHT, PixelFormat.RGBA_8888, 3);
         r.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
@@ -266,9 +278,6 @@ public final class CarrotOffscreenMap {
         }, worker);
         reader = r;
         surface = r.getSurface();
-        invoke(ms, M_SURFACE_CREATED, new Class<?>[]{Surface.class}, new Object[]{surface});
-        invoke(ms, M_SURFACE_CHANGED, new Class<?>[]{Surface.class, int.class, int.class},
-               new Object[]{surface, Integer.valueOf(WIDTH), Integer.valueOf(HEIGHT)});
 
         Class<?> readyClass = Class.forName(CLS_READY_CB, true, loader);
         Object callback = Proxy.newProxyInstance(loader, new Class<?>[]{readyClass}, new InvocationHandler() {
@@ -295,7 +304,14 @@ public final class CarrotOffscreenMap {
                 return null;
             }
         });
+        // Match Naver's Android Auto MapProvider order: onCreate registers the
+        // map callback before the surface and before onStart/onResume.
         invoke(ms, M_SURFACE_GET_MAP_ASYNC, new Class<?>[]{readyClass}, new Object[]{callback});
+        invoke(ms, M_SURFACE_CREATED, new Class<?>[]{Surface.class}, new Object[]{surface});
+        invoke(ms, M_SURFACE_CHANGED, new Class<?>[]{Surface.class, int.class, int.class},
+               new Object[]{surface, Integer.valueOf(WIDTH), Integer.valueOf(HEIGHT)});
+        invoke(ms, M_SURFACE_ON_START, new Class<?>[0], new Object[0]);
+        invoke(ms, M_SURFACE_ON_RESUME, new Class<?>[0], new Object[0]);
         Log.i(TAG, "offscreen map surface created " + WIDTH + "x" + HEIGHT);
     }
 

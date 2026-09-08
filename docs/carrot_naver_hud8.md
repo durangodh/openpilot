@@ -36,7 +36,9 @@ Naver's own SDK.
   `NaverHudSettings` relay and the EON receiver is unchanged.
 - Recovery: if no GL frame arrives for 20 s the surface is rebuilt (up to 3
   times); after that, or if the SDK cannot be constructed at all, `capture()`
-  returns false and the HUD7 car/phone capture paths run as before.
+  returns false. The HUD7 car/phone capture paths remain active until the first
+  real offscreen frame arrives, so initialization alone cannot hold the HUD on
+  `WAITING FOR MAP`.
 
 `CarrotNaverBridge.captureMap()` gets one hook before the HUD7 car-capture
 hook: `if (CarrotOffscreenMap.capture(this)) return;`. While the offscreen
@@ -78,11 +80,11 @@ the offscreen renderer is active (quality still applies).
 Published HUD8 bundle checksums:
 
 - `CarrotNaver_6.9.1.3_hud8.apks` SHA-256:
-  `5834efbe6d71562f0b1026fbd099f36b2f5e945d10f2ce866ffa3d2fe365ed87`
-- supplied unsigned base SHA-256:
-  `3ee18fc695fcc4a6f93e8c2a357f28eff1a2d697bd970c0f334516a5f069e658`
-- supplied/embedded `classes43.dex` SHA-256:
-  `c1c95a5449d05848d1cfb4396271110ae560c524e031aec3eccb738af6ca1e5a`
+  `7752e59949f0d57cfbefe95f136805ea1accc122d4876f1c7248ad50a914976c`
+- unsigned base SHA-256:
+  `288a5e534a01ecaaaeadad3ad6e3ffe3424a8ce1d5ca83a2fcaa0d75fd8a3c02`
+- embedded `classes43.dex` SHA-256:
+  `3022e54801f825ca734e44ad0880347549ff095ba5ec605262c7af54280e61cf`
 
 ## Validation and limits
 

@@ -190,8 +190,14 @@ def test_map_activity_requires_valid_jpeg_and_stale_clear_survives_disconnect():
   assert first_activity > server.index(valid_marker)
   watchdog = server.split("def _map_watchdog_loop", 1)[1].split("def local_ip", 1)[0]
   assert "if not control_present:\n        continue" not in watchdog
-  assert "if age >= MAP_STALE_S and control_present:" in watchdog
+  assert "if age >= MAP_STALE_S and control_present and selected_tmap:" in watchdog
   assert "if age >= MAP_STALE_CLEAR_S and not already_cleared:" in watchdog
+  # An old TMAP packet already being processed when NAVER is selected must not
+  # recreate the map after clear_visuals() removes it.
+  assert 'tmp = MAP_FILE + ".tmp." + source' in server
+  assert "if source != self.active_source or source != self._configured_source():" in server
+  assert server.index("if source != self.active_source", server.index("def update_map")) < \
+         server.index("os.rename(tmp, MAP_FILE)", server.index("def update_map"))
 
 
 def test_remote_ack_is_status_only():

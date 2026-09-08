@@ -333,12 +333,21 @@ class NaviState(object):
           self.route_change_started = 0.0
           self.route_change_baseline_digest = None
 
-    tmp = MAP_FILE + ".tmp"
+    # Each navigation client has its own temporary file. More importantly,
+    # recheck the selected source at the atomic publish point: an in-flight
+    # TMAP packet may have passed accepts() just before the user selected Naver.
+    # Without this guard it can recreate the deleted TMAP JPEG after the source
+    # switch and leave that stale map on the HUD indefinitely.
+    tmp = MAP_FILE + ".tmp." + source
     try:
       with open(tmp, "wb") as f:
         f.write(image)
-      os.rename(tmp, MAP_FILE)
-      self.last_map_write = now
+      with self.lock:
+        if source != self.active_source or source != self._configured_source():
+          os.unlink(tmp)
+          return
+        os.rename(tmp, MAP_FILE)
+        self.last_map_write = now
     except IOError:
       try:
         os.unlink(tmp)

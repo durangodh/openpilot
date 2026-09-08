@@ -149,10 +149,11 @@ public class OffscreenCheck {
   FakeStore.Path path=new FakeStore.Path(); path.pts=pts; store.route.e=new FakeStore.RouteE(); store.route.e.p=path;
   CarrotNaverBridge.setStore(store);
 
-  // 1. First poll starts the renderer on the main thread and owns map_main immediately.
-  check(CarrotOffscreenMap.capture(bridge),"capture owns map_main");
+  // 1. Startup clears stale pixels but keeps HUD7 fallback active until a real frame arrives.
+  check(!CarrotOffscreenMap.capture(bridge),"first poll keeps fallback active");
+  check(bridge.cleared==1,"startup clears previous app map");
   Handler.drain();
-  check(MapSurface.log.equals(java.util.Arrays.asList("<init>","onCreate","onStart","onResume","surfaceCreated","surfaceChanged:960x576","getMapAsync")),"lifecycle order "+MapSurface.log);
+  check(MapSurface.log.equals(java.util.Arrays.asList("<init>","onCreate","getMapAsync","surfaceCreated","surfaceChanged:960x576","onStart","onResume")),"lifecycle order "+MapSurface.log);
   check(MapSurface.last.options.mapType==NaverMap.MapType.Navi,"navi map type via options");
   NaverMap map=MapSurface.last.map;
   check(map.buildingHeight==0f && !map.night && map.fpsLimit==12 && map.padding[1]==288,"map setup: buildings off, day, fps limit, top padding");
@@ -160,7 +161,7 @@ public class OffscreenCheck {
   check(map.lo.position.latitude==37.25 && map.lo.bearing==90f && map.lo.visible,"location overlay follows");
 
   // 2. Route drawn from getPathPoints; progress starts near 0 and follows the vehicle.
-  SystemClock.now+=300; check(CarrotOffscreenMap.capture(bridge),"second poll"); Handler.drain();
+  SystemClock.now+=300; check(!CarrotOffscreenMap.capture(bridge),"fallback remains before first frame"); Handler.drain();
   com.naver.maps.map.overlay.PathOverlay po=null;
   // Locate the path overlay through the map reference it was attached to.
   java.lang.reflect.Field f=CarrotOffscreenMap.class.getDeclaredField("pathOverlay"); f.setAccessible(true); po=(com.naver.maps.map.overlay.PathOverlay)f.get(null);
@@ -178,6 +179,7 @@ public class OffscreenCheck {
   ImageReader reader=ImageReader.last;
   reader.deliver(new Image(960,576,960*4+64));
   check(bridge.sent==1 && bridge.last.getWidth()==960 && bridge.last.getHeight()==576,"first frame sent 960x576");
+  check(CarrotOffscreenMap.capture(bridge) && CarrotOffscreenMap.active(),"first frame takes map ownership");
   reader.deliver(new Image(960,576,960*4));
   check(bridge.sent==1,"second frame within 200 ms dropped");
   SystemClock.now+=250; reader.deliver(new Image(960,576,960*4));
@@ -208,7 +210,7 @@ public class OffscreenInitFailCheck {
  public static void main(String[] args) throws Exception {
   MapSurface.failCreate=true;
   CarrotNaverBridge bridge=new CarrotNaverBridge();
-  if(!CarrotOffscreenMap.capture(bridge)) throw new AssertionError("first poll starts");
+  if(CarrotOffscreenMap.capture(bridge)) throw new AssertionError("startup must keep fallback active");
   Handler.drain();
   if(CarrotOffscreenMap.capture(bridge)) throw new AssertionError("init failure must fall back");
   System.out.println("PASS: SDK construction failure falls back to HUD7 capture");
