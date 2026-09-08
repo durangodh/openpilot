@@ -2,8 +2,9 @@
 
 Produces an unsigned base APK. Sign with the existing HUD key and retain the
 untouched HUD7 splits. Only classes43.dex (bridge) changes: CarrotOffscreenMap and CarrotNaverCodes
-are added, TBT/lane/SDI codes are mapped to TMAP codes, and CarrotNaverBridge.captureMap() tries it before the HUD7 car/phone
-capture paths.
+are added, TBT/lane/SDI codes are mapped to TMAP codes, and CarrotNaverBridge.captureMap() tries the
+offscreen renderer before the proven HUD6 phone capture path. The HUD7 Android Auto Surface hook is
+removed because accepting a protected/non-readable car Surface blocks that working fallback.
 """
 import argparse
 import hashlib
@@ -24,6 +25,12 @@ HOOK = """
     return-void
     :hud_offscreen_fallback
 """
+CAR_HOOK = re.compile(
+  r"(?m)^[ \t]*invoke-static \{p0\}, Lcom/naver/map/carrot/CarrotCarMapCapture;->capture\(Lcom/naver/map/carrot/CarrotNaverBridge;\)Z\r?\n"
+  r"(?:^[ \t]*\r?\n)*^[ \t]*move-result v0\r?\n"
+  r"(?:^[ \t]*\r?\n)*^[ \t]*if-eqz v0, :cond_0\r?\n"
+  r"(?:^[ \t]*\r?\n)*^[ \t]*return-void\r?\n"
+)
 
 
 def patch_bridge(text):
@@ -35,6 +42,9 @@ def patch_bridge(text):
   locals_match = re.search(r"\.locals (\d+)", body)
   if not locals_match or int(locals_match[1]) < 1:
     raise ValueError("Unexpected captureMap registers")
+  body, car_hooks = CAR_HOOK.subn("", body, count=1)
+  if car_hooks != 1:
+    raise ValueError("Expected the HUD7 car Surface capture hook")
   body = body[:locals_match.end()] + "\n" + HOOK + body[locals_match.end():]
   return text[:start] + body + text[end:]
 

@@ -38,7 +38,9 @@ Naver's own SDK.
   times); after that, or if the SDK cannot be constructed at all, `capture()`
   returns false. The HUD7 car/phone capture paths remain active until the first
   real offscreen frame arrives, so initialization alone cannot hold the HUD on
-  `WAITING FOR MAP`.
+  `WAITING FOR MAP`. The HUD7 Android Auto Surface capture hook is bypassed:
+  some vehicle Surfaces report available but cannot be copied, and claiming
+  them prevented the HUD6 phone capture that was confirmed working on S9.
 
 `CarrotNaverBridge.captureMap()` gets one hook before the HUD7 car-capture
 hook: `if (CarrotOffscreenMap.capture(this)) return;`. While the offscreen
@@ -80,11 +82,11 @@ the offscreen renderer is active (quality still applies).
 Published HUD8 bundle checksums:
 
 - `CarrotNaver_6.9.1.3_hud8.apks` SHA-256:
-  `7752e59949f0d57cfbefe95f136805ea1accc122d4876f1c7248ad50a914976c`
+  `21dc4f0dccb18b7b7306f0e2b3e2b40bb27fd2f78a4c7edc0845c1bd05170e0c`
 - unsigned base SHA-256:
-  `288a5e534a01ecaaaeadad3ad6e3ffe3424a8ce1d5ca83a2fcaa0d75fd8a3c02`
+  `f7718b9887db36ddb4c3e1d68cc1f336dc9b673aea9f82e9cb9f6f82b21ca146`
 - embedded `classes43.dex` SHA-256:
-  `3022e54801f825ca734e44ad0880347549ff095ba5ec605262c7af54280e61cf`
+  `3cbc2f3cf9cf2e5abe3f3324dcd6d1c9d5d55200d257367ea3e1a95ead04992a`
 
 ## Validation and limits
 

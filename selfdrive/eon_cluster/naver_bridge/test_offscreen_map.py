@@ -12,6 +12,30 @@ import argparse
 from pathlib import Path
 import subprocess
 
+from build_offscreen_map import patch_bridge
+
+
+def check_bridge_fallback_order():
+  source = """.method private captureMap()V
+    .locals 1
+
+    invoke-static {p0}, Lcom/naver/map/carrot/CarrotCarMapCapture;->capture(Lcom/naver/map/carrot/CarrotNaverBridge;)Z
+
+    move-result v0
+
+    if-eqz v0, :cond_0
+
+    return-void
+
+    :cond_0
+    return-void
+.end method
+"""
+  patched = patch_bridge(source)
+  assert "CarrotOffscreenMap;->capture" in patched
+  assert "CarrotCarMapCapture;->capture" not in patched
+  assert ":cond_0" in patched
+
 
 SOURCES = {
   "android/content/Context.java": """package android.content;
@@ -220,6 +244,7 @@ public class OffscreenInitFailCheck {
 
 
 def main():
+  check_bridge_fallback_order()
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument("--java-home", type=Path, required=True)
   parser.add_argument("--work", type=Path, required=True)

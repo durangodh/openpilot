@@ -6,7 +6,9 @@ HUD8 stops depending on the phone or car display for its primary map source.
 `CarrotOffscreenMap` renders a private Naver `MapSurface` into an `ImageReader`
 and streams it as `map_main`, following TMAP's `CarrotMapRenderStream` design.
 `CarrotNaverCodes` converts Naver turn, lane, and safety data to the codes used
-by the TMAP/EON HUD path. The HUD3–HUD7 capture paths remain as fallback. See
+by the TMAP/EON HUD path. Until the first offscreen frame, the known-working
+HUD6 phone capture remains active; the HUD7 car Surface hook is bypassed because
+it can claim an unreadable vehicle Surface and block the phone fallback. See
 [HUD8 notes](../../../docs/carrot_naver_hud8.md), `build_offscreen_map.py`,
 `test_offscreen_map.py`, and `CarrotNaverCodesCheck.java`.
 
