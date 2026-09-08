@@ -217,7 +217,8 @@ def test_naver_speed_projection_does_not_replace_tmap_legacy_path():
 
   # Real deceleration follows the same selection rule: TMAP keeps the exact
   # roadLimitSpeed path, NAVER uses only its selected 7714 SDI/section stream.
-  assert 'naver_selected = self.params.get_int("EonClusterHudNavApp") == 2' in cruise
+  assert 'self.nav_app_selected = self.params.get_int("EonClusterHudNavApp")' in cruise
+  assert 'naver_selected = self.nav_app_selected == 2' in cruise
   assert 'if road_data is not None and not naver_selected:' in cruise
   assert 'if naver_selected:\n      normal_road_limit_speed = float(navi_state.get(' in cruise
 

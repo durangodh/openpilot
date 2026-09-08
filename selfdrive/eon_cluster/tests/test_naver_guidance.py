@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 SOURCE = ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py"
+ROUTE_SOURCE = ROOT / "selfdrive" / "controls" / "lib" / "navigation_route.py"
 
 
 def load_helper():
@@ -29,7 +30,15 @@ def main():
   # Preserve normal TMAP/route behavior.
   assert active({"active": True}, {}, 1500, False)
   assert not active({"active": True}, {}, 0, False)
-  print("6 Naver guidance activity checks passed")
+
+  route_tree = ast.parse(ROUTE_SOURCE.read_text(encoding="utf-8"))
+  fork_right = next(node.value for node in route_tree.body
+                    if isinstance(node, ast.Assign) and
+                    any(isinstance(target, ast.Name) and target.id == "FORK_RIGHT"
+                        for target in node.targets))
+  values = ast.literal_eval(fork_right)
+  assert 18 in values
+  print("7 Naver guidance and code mapping checks passed")
 
 
 if __name__ == "__main__":

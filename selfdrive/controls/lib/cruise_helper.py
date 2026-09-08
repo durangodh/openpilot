@@ -103,6 +103,7 @@ class CruiseHelper:
     self.section_passed = False
 
     self.navigation_route = NavigationRouteData()
+    self.nav_app_selected = None
     self.last_road_limit_speed = 0.0
     self.pause_auto_speed_up = False
 
@@ -689,7 +690,11 @@ class CruiseHelper:
     # TMAP remains exactly on the legacy roadLimitSpeed path.  NAVER selection
     # deliberately ignores that phone-side TMAP packet and uses NAVER's 7714
     # SDI/section stream below, so display and real deceleration share a source.
-    naver_selected = self.params.get_int("EonClusterHudNavApp") == 2
+    # Params are file reads; refresh the app selection once a second instead of
+    # on every 100 Hz control frame (switching still applies within 1 s).
+    if frame % 100 == 0 or self.nav_app_selected is None:
+      self.nav_app_selected = self.params.get_int("EonClusterHudNavApp")
+    naver_selected = self.nav_app_selected == 2
     if road_data is not None and not naver_selected:
       cam_type = int(road_data.camType)
       cam_dist = float(road_data.camLimitSpeedLeftDist)

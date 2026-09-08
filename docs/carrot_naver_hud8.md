@@ -75,14 +75,14 @@ No EON, Remote HUD, TMAP or nMirror change is required; the EON
 `EonClusterHudNaverLandscape/MapFit/MapScale` settings no longer matter while
 the offscreen renderer is active (quality still applies).
 
-Verified signed HUD8 APKS SHA-256:
+Published HUD8 bundle checksums:
 
-`aeb61bc8f4013c99c1ead173c8cd6d382af7ab5e755d7ac276eaf865f8f46e54`
-
-The supplied unsigned base SHA-256 is
-`d1163f1ec3504b3804c61ed036869b214347b5c446c7cda8ef83e04305752143`.
-Its embedded `classes43.dex` exactly matches the separately supplied component,
-SHA-256 `76866a60e87bc5666a894402feadc279c4238c7103150a8b378e2294b78fa299`.
+- `CarrotNaver_6.9.1.3_hud8.apks` SHA-256:
+  `5834efbe6d71562f0b1026fbd099f36b2f5e945d10f2ce866ffa3d2fe365ed87`
+- supplied unsigned base SHA-256:
+  `3ee18fc695fcc4a6f93e8c2a357f28eff1a2d697bd970c0f334516a5f069e658`
+- supplied/embedded `classes43.dex` SHA-256:
+  `c1c95a5449d05848d1cfb4396271110ae560c524e031aec3eccb738af6ca1e5a`
 
 ## Validation and limits
 
@@ -93,3 +93,44 @@ every other entry). Not validated: real GPU output of `MapSurface` while the
 Naver app is in the background, and the visual tuning constants (zoom, tilt,
 symbol scale, path width) — those are plain constants in
 `CarrotOffscreenMap.java`.
+
+## TMAP code parity (CarrotNaverCodes)
+
+`CarrotNaverCodes` replaces the bridge's `turnType` / `laneTurn` / `safetyJson`
+so a Naver route feeds NOO / ATC / speed control and the HUD banner with the
+same codes a TMAP route does.
+
+| Naver `TurnPointType` (value) | TMAP TBT |
+| --- | --- |
+| Straight 1, StraightAtTurn 111, LaneChangeStraight 112, *Straight access/exit 50–56/75/78, DivideAndJoin 83, Rest/Shelter/Via 85–87, tollgates 121–123, tunnel/bridge/ferry 43–49 | 11 |
+| Left 2, UnsafeLeft 8, Direction9 12 | 12 |
+| Right 3, Direction3 15 | 13 |
+| UTurn 6, PTurn 7 | 14 |
+| Direction8 11 (8 o'clock) | 16 |
+| LeftDirection 4, Direction11 13, AccessLeft 41, *Left access/exit/side 57–65, car-only left 76/79, JoinLeft 81 | 17 |
+| RightDirection 5, Direction1 14, AccessRight 42, *Right access/exit/side 66–74, car-only right 77/80, JoinRight 82 | 18 |
+| Direction4 16 (4 o'clock) | 19 |
+| LaneChangeLeftDirection 113 / RightDirection 114 | 20 / 21 |
+| Rotary 21–34, Roundabout 91–104 | 131–142 |
+| Goal 88 | 2 |
+
+EON `navigation_route.py`: 18 (2 o'clock / keep right) is now in `FORK_RIGHT`,
+matching 17 in `FORK_LEFT`; previously it classified as "none".
+
+| Naver `SafetyCode` (value) | TMAP SDI | limit passed to EON |
+| --- | --- | --- |
+| SpeedCam 1, BoxSpeedCam 6, VariableSpeedCam 21, MoveSpeedCam 23, SchoolZone 131, SilverZone 132 | 1 | yes |
+| SpeedSignalCam 2, VariableSpeedSignalCam 22 | 0 | yes |
+| StartSectionSpeedCam 12, VariableSectionStart 14 | 2 | yes |
+| EndSectionSpeedCam 13, VariableSectionEnd 15 | 3 | yes |
+| BusCam 4 | 4 | no |
+| Traffic/Parking/Overload/LaneIntrusion/SideLane/Tunnel/Tailing/BadLoad/Green 5–25 | 5 | no |
+| SpeedBump 104 | 22 | bump speed (EON) |
+| everything else (curves, accident areas, zones, ...) | 99 | no |
+
+Only speed-enforcing types keep `speed_limit_kph`, so an informational
+"dangerous curve" code with a posted limit no longer triggers camera
+deceleration.  Lane `LaneDirection` sets map to 11 / 12 / 13 / 14 / 20 / 21 / 22.
+
+EON `cruise_helper.py`: `EonClusterHudNavApp` is now read once per second
+instead of on every 100 Hz control frame.

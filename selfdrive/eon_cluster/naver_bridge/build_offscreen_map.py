@@ -1,8 +1,8 @@
 """Patch verified HUD7 to render the HUD map offscreen (TMAP CarrotMapRenderStream style).
 
 Produces an unsigned base APK. Sign with the existing HUD key and retain the
-untouched HUD7 splits. Only classes43.dex (bridge) changes: CarrotOffscreenMap
-is added and CarrotNaverBridge.captureMap() tries it before the HUD7 car/phone
+untouched HUD7 splits. Only classes43.dex (bridge) changes: CarrotOffscreenMap and CarrotNaverCodes
+are added, TBT/lane/SDI codes are mapped to TMAP codes, and CarrotNaverBridge.captureMap() tries it before the HUD7 car/phone
 capture paths.
 """
 import argparse
@@ -37,6 +37,25 @@ def patch_bridge(text):
     raise ValueError("Unexpected captureMap registers")
   body = body[:locals_match.end()] + "\n" + HOOK + body[locals_match.end():]
   return text[:start] + body + text[end:]
+
+
+DELEGATES = {
+  "private static turnType(ILjava/lang/String;)I":
+    "    .locals 1\n    invoke-static {p0, p1}, Lcom/naver/map/carrot/CarrotNaverCodes;->turnType(ILjava/lang/String;)I\n    move-result v0\n    return v0\n",
+  "private static laneTurn(Ljava/lang/String;)I":
+    "    .locals 1\n    invoke-static {p0}, Lcom/naver/map/carrot/CarrotNaverCodes;->laneTurn(Ljava/lang/String;)I\n    move-result v0\n    return v0\n",
+  "private safetyJson(Ljava/lang/Object;)Ljava/lang/String;":
+    "    .locals 1\n    invoke-static {p1}, Lcom/naver/map/carrot/CarrotNaverCodes;->safetyJson(Ljava/lang/Object;)Ljava/lang/String;\n    move-result-object v0\n    return-object v0\n",
+}
+
+
+def patch_codes(text):
+  """Route TBT / lane / SDI code derivation through CarrotNaverCodes (TMAP code mapping)."""
+  for signature, body in DELEGATES.items():
+    start = text.index(".method " + signature)
+    end = text.index(".end method", start)
+    text = text[:start] + ".method " + signature + "\n" + body + text[end:]
+  return text
 
 
 def main():
@@ -77,7 +96,7 @@ def main():
   classes = work / "classes"
   classes.mkdir()
   run(javac, "--release", "8", "-encoding", "UTF-8", "-cp", android, "-d", classes, stub,
-      Path(__file__).with_name("CarrotOffscreenMap.java"))
+      Path(__file__).with_name("CarrotOffscreenMap.java"), Path(__file__).with_name("CarrotNaverCodes.java"))
   with zipfile.ZipFile(work / "offscreen.jar", "w") as jar:
     for item in classes.rglob("*.class"):
       if item.name != "CarrotNaverBridge.class":
@@ -90,10 +109,11 @@ def main():
     apk.write(work / "dex/classes.dex", "classes.dex")
   apktool("d", "-r", "-o", work / "offscreen", work / "offscreen.apk")
   smali = work / "bridge/smali" / PACKAGE
-  for item in (work / "offscreen/smali" / PACKAGE).glob("CarrotOffscreenMap*.smali"):
-    shutil.copyfile(item, smali / item.name)
+  for pattern in ("CarrotOffscreenMap*.smali", "CarrotNaverCodes*.smali"):
+    for item in (work / "offscreen/smali" / PACKAGE).glob(pattern):
+      shutil.copyfile(item, smali / item.name)
   bridge = smali / "CarrotNaverBridge.smali"
-  bridge.write_text(patch_bridge(bridge.read_text(encoding="utf-8")), encoding="utf-8")
+  bridge.write_text(patch_codes(patch_bridge(bridge.read_text(encoding="utf-8"))), encoding="utf-8")
   apktool("b", work / "bridge", "-o", work / "bridge-patched.apk")
   with zipfile.ZipFile(work / "bridge-patched.apk") as apk:
     replacement = {"classes43.dex": apk.read("classes.dex")}
