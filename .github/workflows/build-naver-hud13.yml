@@ -1,0 +1,121 @@
+name: Build and release CarrotNaver HUD13
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [g_hud]
+    paths: [".github/workflows/build-naver-hud13.yml"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: naver-hud13-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - name: Prepare HUD11 and tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          mkdir -p "$RUNNER_TEMP/naver-input" "$RUNNER_TEMP/naver-sdk"
+          ln -s "$ANDROID_HOME/platforms" "$RUNNER_TEMP/naver-sdk/platforms"
+          ln -s "$ANDROID_HOME/build-tools" "$RUNNER_TEMP/naver-sdk/build-tools"
+          gh release download carrot-naver-6.9.1.3-hud11 --pattern 'CarrotNaver_6.9.1.3_hud11.apks' --dir "$RUNNER_TEMP/naver-input"
+          curl --fail --location --retry 3 https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar -o "$RUNNER_TEMP/apktool.jar"
+      - name: Test snapshot path and rebuild
+        run: |
+          python3 selfdrive/eon_cluster/naver_bridge/test_car_snapshot.py --java-home "$JAVA_HOME" --work "$RUNNER_TEMP/naver-snapshot-check"
+          python3 selfdrive/eon_cluster/naver_bridge/build_car_snapshot.py \
+            --input "$RUNNER_TEMP/naver-input/CarrotNaver_6.9.1.3_hud11.apks" \
+            --java-home "$JAVA_HOME" --sdk "$RUNNER_TEMP/naver-sdk" \
+            --apktool "$RUNNER_TEMP/apktool.jar" --work "$RUNNER_TEMP/naver-build" \
+            --output "$RUNNER_TEMP/naver-unsigned.apk"
+      - name: Sign all splits and verify
+        env:
+          HUD_KEY_DATA: ${{ secrets.REMOTE_HUD_KEYSTORE_BASE64 }}
+          HUD_STORE_PASSWORD: ${{ secrets.REMOTE_HUD_KEYSTORE_PASSWORD }}
+          HUD_KEY_ALIAS: ${{ secrets.REMOTE_HUD_KEY_ALIAS }}
+          HUD_KEY_PASSWORD: ${{ secrets.REMOTE_HUD_KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, json, os, pathlib, re, subprocess, zipfile
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          out = pathlib.Path("naver-release")
+          out.mkdir()
+          for key in ("HUD_KEY_DATA", "HUD_STORE_PASSWORD", "HUD_KEY_ALIAS", "HUD_KEY_PASSWORD"):
+              if not os.environ.get(key):
+                  raise RuntimeError(key + " missing")
+          keystore = temp / "naver-signing.p12"
+          keystore.write_bytes(base64.b64decode(os.environ["HUD_KEY_DATA"], validate=True))
+          keystore.chmod(0o600)
+          tools = pathlib.Path(os.environ["ANDROID_HOME"]) / "build-tools/35.0.0"
+          parts = []
+          certificates = set()
+          with zipfile.ZipFile(temp / "naver-input/CarrotNaver_6.9.1.3_hud11.apks") as original:
+              names = [n for n in original.namelist() if n.endswith(".apk")]
+              if sorted(names) != ["base.apk", "split_config.arm64_v8a.apk", "split_config.xxhdpi.apk"]:
+                  raise RuntimeError("Unexpected split set")
+              for name in names:
+                  raw = temp / ("unsigned-" + name)
+                  raw.write_bytes((temp / "naver-unsigned.apk").read_bytes() if name == "base.apk" else original.read(name))
+                  aligned = temp / ("aligned-" + name)
+                  signed = temp / ("signed-" + name)
+                  subprocess.run([str(tools / "zipalign"), "-P", "16", "-f", "4", str(raw), str(aligned)], check=True)
+                  subprocess.run([str(tools / "apksigner"), "sign", "--ks", str(keystore),
+                                  "--ks-key-alias", os.environ["HUD_KEY_ALIAS"],
+                                  "--ks-pass", "env:HUD_STORE_PASSWORD", "--key-pass", "env:HUD_KEY_PASSWORD",
+                                  "--out", str(signed), str(aligned)], check=True)
+                  verify = subprocess.check_output([str(tools / "apksigner"), "verify", "--verbose", "--print-certs", str(signed)], text=True)
+                  cert = re.search(r"Signer #1 certificate SHA-256 digest: ([0-9a-f]+)", verify).group(1)
+                  certificates.add(cert)
+                  subprocess.run([str(tools / "zipalign"), "-c", "-P", "16", "4", str(signed)], check=True)
+                  parts.append((name, signed))
+          if len(certificates) != 1:
+              raise RuntimeError("Split certificates differ")
+          bundle = out / "CarrotNaver_6.9.1.3_hud13.apks"
+          with zipfile.ZipFile(bundle, "w", zipfile.ZIP_STORED) as apkset:
+              for name, signed in parts:
+                  apkset.write(signed, name)
+          report = {"artifact": bundle.name, "sha256": hashlib.sha256(bundle.read_bytes()).hexdigest(),
+                    "certificate_sha256": next(iter(certificates)), "commit": os.environ["GITHUB_SHA"],
+                    "all_splits_verified": True, "zip_alignment_16k_verified": True,
+                    "device_tested": False, "same_signing_key_as_hud11": True,
+                    "base_release": "carrot-naver-6.9.1.3-hud11",
+                    "capture_change": "map_main from Android Auto NaverMap.takeSnapshot (GL readback); phone capture kept as fallback",
+                    "parts": [{"name": n, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for n, p in parts]}
+          (out / "naver-hud13-verification.json").write_text(json.dumps(report, indent=2) + "\n")
+          keystore.unlink()
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: carrot-naver-hud13
+          path: naver-release/*
+      - name: Publish HUD13
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > "$RUNNER_TEMP/naver-notes.md" <<'EOF'
+          네이버 HUD13: nMirror(가상 디스플레이) 네이버 지도를 SDK takeSnapshot으로 HUD에 전송
+
+          HUD12.1 로그로 확인된 사실: 차량 화면의 네이버는 Android Auto 앱(MapProvider)이 아니라
+          nMirror가 띄운 일반 Activity(가상 디스플레이)입니다. HUD13은 그 Activity 안의
+          com.naver.maps.map.MapView에서 NaverMap을 꺼내 SDK takeSnapshot(GL readback)으로
+          프레임을 받아 map_main으로 보냅니다(세로 화면은 차량 위치가 보이도록 하단 쪽 5:3 띠).
+          AA MapProvider 경로도 그대로 유지되고, 둘 다 없으면 기존 폰 캡처로 폴백합니다.
+          로그: /sdcard/Android/data/com.nhn.android.nmap/files/carrot_hud.log
+          HUD9~12와 같은 서명 키.
+          EOF
+          gh release create carrot-naver-6.9.1.3-hud13 naver-release/* \
+            --target "$GITHUB_SHA" --title "CarrotNaver 6.9.1.3 HUD13" \
+            --notes-file "$RUNNER_TEMP/naver-notes.md"

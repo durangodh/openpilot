@@ -13,7 +13,8 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 
 /**
- * HUD12: map_main from the Android Auto navigation map via NaverMap.takeSnapshot.
+ * HUD13: map_main via NaverMap.takeSnapshot from either the Android Auto MapProvider map
+ * or the phone MapView (nMirror / virtual display), whichever exists.
  *
  * When Naver runs on Android Auto its navigation map (route, car marker, camera)
  * is rendered by {@code MapProvider}'s {@code MapSurface} into the vehicle
@@ -68,27 +69,29 @@ public final class CarrotCarMapSnapshot {
             return false;
         }
         bridge = b;
-        if (p == null) {
-            long t = SystemClock.elapsedRealtime();
-            if (lastIdleLogAt == 0 || t - lastIdleLogAt >= 60000) {
-                lastIdleLogAt = t;
-                CarrotHudLog.log(TAG, "HUD12.1 bridge polling, no Android Auto MapProvider yet -> phone capture path");
-            }
-            return false;
-        }
         Object map = null;
-        try {
-            Method i = p.getClass().getMethod("i", new Class<?>[0]);
-            map = i.invoke(p, new Object[0]);
-        } catch (Throwable t) {
-            CarrotHudLog.log(TAG, "MapProvider.i() failed: " + t);
-            return false;
+        String source = null;
+        if (p != null) {
+            try {
+                Method i = p.getClass().getMethod("i", new Class<?>[0]);
+                map = i.invoke(p, new Object[0]);
+                source = "AndroidAuto MapProvider";
+            } catch (Throwable t) {
+                CarrotHudLog.log(TAG, "MapProvider.i() failed: " + t);
+            }
+        }
+        if (map == null) {
+            // nMirror / virtual-display case: Naver runs as a normal Activity whose
+            // com.naver.maps.map.MapView holds the NaverMap (MapView.a0 = delegate, delegate.f() = map).
+            map = phoneMap();
+            source = "phone MapView";
         }
         long now = SystemClock.elapsedRealtime();
         if (map == null) {
-            if (now - lastStatusLogAt >= STATUS_LOG_MS) {
-                lastStatusLogAt = now;
-                CarrotHudLog.log(TAG, "MapProvider present, NaverMap not ready yet");
+            if (lastIdleLogAt == 0 || now - lastIdleLogAt >= 60000) {
+                lastIdleLogAt = now;
+                CarrotHudLog.log(TAG, "HUD13 bridge polling, no NaverMap yet (provider=" + (p != null)
+                        + ", activity=" + (activityObject() != null) + ") -> phone capture path");
             }
             return false;
         }
@@ -97,7 +100,7 @@ public final class CarrotCarMapSnapshot {
             firstRequestAt = 0;
             lastBitmapAt = 0;
             requestedAt = 0;
-            CarrotHudLog.log(TAG, "AA NaverMap available " + map.getClass().getName());
+            CarrotHudLog.log(TAG, "NaverMap available from " + source + " " + map.getClass().getName());
         }
         if (now - lastStatusLogAt >= STATUS_LOG_MS) {
             lastStatusLogAt = now;
@@ -123,6 +126,76 @@ public final class CarrotCarMapSnapshot {
             });
         }
         return true;
+    }
+
+    private static Object activityObject() {
+        try {
+            java.lang.reflect.Field f = CarrotNaverBridge.class.getDeclaredField("activity");
+            f.setAccessible(true);
+            return f.get(null);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** NaverMap of the first com.naver.maps.map.MapView in the Activity view tree, or null. */
+    private static Object phoneMap() {
+        Object activity = activityObject();
+        if (!(activity instanceof android.app.Activity)) {
+            return null;
+        }
+        try {
+            android.view.View root = ((android.app.Activity) activity).getWindow().getDecorView();
+            android.view.View mapView = findMapView(root, 0);
+            if (mapView == null) {
+                return null;
+            }
+            java.lang.reflect.Field delegateField = null;
+            for (Class<?> c = mapView.getClass(); c != null && delegateField == null; c = c.getSuperclass()) {
+                try {
+                    delegateField = c.getDeclaredField("a0");
+                } catch (NoSuchFieldException ignored) {
+                }
+            }
+            if (delegateField == null) {
+                return null;
+            }
+            delegateField.setAccessible(true);
+            Object delegate = delegateField.get(mapView);
+            if (delegate == null) {
+                return null;
+            }
+            Method f = delegate.getClass().getMethod("f", new Class<?>[0]);
+            return f.invoke(delegate, new Object[0]);
+        } catch (Throwable t) {
+            long now = SystemClock.elapsedRealtime();
+            if (now - lastStatusLogAt >= STATUS_LOG_MS) {
+                lastStatusLogAt = now;
+                CarrotHudLog.log(TAG, "phone MapView lookup failed: " + t);
+            }
+            return null;
+        }
+    }
+
+    private static android.view.View findMapView(android.view.View view, int depth) {
+        if (view == null || depth > 40) {
+            return null;
+        }
+        for (Class<?> c = view.getClass(); c != null; c = c.getSuperclass()) {
+            if ("com.naver.maps.map.MapView".equals(c.getName())) {
+                return view;
+            }
+        }
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                android.view.View found = findMapView(group.getChildAt(i), depth + 1);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 
     private static Handler mainHandler() {
@@ -210,7 +283,10 @@ public final class CarrotCarMapSnapshot {
         int cropW = Math.min(sw, Math.round(width / scale));
         int cropH = Math.min(sh, Math.round(height / scale));
         int left = (sw - cropW) / 2;
-        int top = (sh - cropH) / 2;
+        // Portrait navigation views keep the vehicle in the lower part of the map;
+        // bias the band towards the bottom so the car stays in frame.
+        int top = sh > sw ? Math.round(sh * 0.62f - cropH / 2f) : (sh - cropH) / 2;
+        top = Math.max(0, Math.min(sh - cropH, top));
         Bitmap out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(out);
         Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);

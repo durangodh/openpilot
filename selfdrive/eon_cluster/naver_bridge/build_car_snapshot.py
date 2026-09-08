@@ -1,4 +1,4 @@
-"""HUD12: map_main from the Android Auto NaverMap via the SDK's own takeSnapshot.
+"""HUD13: map_main from the Android Auto NaverMap via the SDK's own takeSnapshot.
 
 Input: verified HUD11 APKS. Output: unsigned base APK where exactly two entries
 change:
