@@ -46,6 +46,7 @@ public final class CarrotCarMapSnapshot {
     private static volatile long snapshots;
     private static volatile long sent;
     private static long lastStatusLogAt;
+    private static long lastIdleLogAt;
     private static Object callbackProxy;
 
     private CarrotCarMapSnapshot() {
@@ -63,10 +64,18 @@ public final class CarrotCarMapSnapshot {
     /** Bridge thread, every 500 ms. True while this path owns map_main. */
     public static boolean capture(CarrotNaverBridge b) {
         Object p = provider;
-        if (b == null || p == null) {
+        if (b == null) {
             return false;
         }
         bridge = b;
+        if (p == null) {
+            long t = SystemClock.elapsedRealtime();
+            if (lastIdleLogAt == 0 || t - lastIdleLogAt >= 60000) {
+                lastIdleLogAt = t;
+                CarrotHudLog.log(TAG, "HUD12.1 bridge polling, no Android Auto MapProvider yet -> phone capture path");
+            }
+            return false;
+        }
         Object map = null;
         try {
             Method i = p.getClass().getMethod("i", new Class<?>[0]);
