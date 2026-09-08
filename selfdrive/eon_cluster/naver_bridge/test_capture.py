@@ -19,9 +19,9 @@ public class JSONObject {
 public interface ViewParent { ViewParent getParent(); }""",
   "android/view/View.java": """package android.view;
 public class View implements ViewParent {
- public boolean shown=true; public ViewParent parent;
+ public boolean shown=true, attached=true; public ViewParent parent;
  public ViewParent getParent(){return parent;} public boolean isShown(){return shown;}
- public boolean isAttachedToWindow(){return shown;} public float getAlpha(){return 1;}
+ public boolean isAttachedToWindow(){return attached;} public float getAlpha(){return 1;}
  public int getWidth(){return 640;} public int getHeight(){return 384;}
  public boolean getGlobalVisibleRect(android.graphics.Rect r){return shown;}
 }""",
@@ -95,6 +95,10 @@ public class SystemClock { static long time=0; public static long elapsedRealtim
 public class MapView extends android.view.ViewGroup {}""",
   "com/navercorp/android/vgx/lib/VgxGLTextureView.java": """package com.navercorp.android.vgx.lib;
 public class VgxGLTextureView extends android.view.TextureView {}""",
+  "com/navercorp/android/vgx/lib/VgxGLSurfaceView.java": """package com.navercorp.android.vgx.lib;
+public class VgxGLSurfaceView extends android.view.SurfaceView {}""",
+  "com/naver/maps/map/renderer/vulkan/VulkanSurfaceView.java": """package com.naver.maps.map.renderer.vulkan;
+public class VulkanSurfaceView extends android.view.SurfaceView {}""",
   "com/naver/map/carrot/CarrotNaverBridge.java": """package com.naver.map.carrot;
 public class CarrotNaverBridge {
  public int sent=0,cleared=0; public android.graphics.Bitmap last;
@@ -137,11 +141,19 @@ public class CaptureCheck {
   CarrotMapCapture.capture(a,b);check(b.sent==2 && PixelCopy.calls==1 && b.last.isRecycled());
   PixelCopy.result=3;CarrotMapCapture.capture(a,b);check(b.sent==2 && b.cleared==4);
   PixelCopy.result=0;CarrotMapCapture.capture(a,b);check(b.sent==3);
-  surface.shown=false;CarrotMapCapture.capture(a,b);check(b.sent==3 && b.cleared==5);
-  map.shown=false;CarrotMapCapture.capture(a,b);check(b.sent==3 && b.cleared==6);
+  // The Naver Activity is hidden behind Remote HUD, but its attached renderer
+  // remains capturable and must continue to deliver map frames.
+  surface.shown=false;CarrotMapCapture.capture(a,b);check(b.sent==4 && b.cleared==4);
+  map.shown=false;CarrotMapCapture.capture(a,b);check(b.sent==5 && b.cleared==4);
   a.window.root.children.clear();
   a.window.root.add(new com.navercorp.android.vgx.lib.VgxGLTextureView());
-  CarrotMapCapture.capture(a,b);check(b.sent==4 && b.last.isRecycled());check(b.last.getWidth()==960 && b.last.getHeight()==576);
+  CarrotMapCapture.capture(a,b);check(b.sent==6 && b.last.isRecycled());check(b.last.getWidth()==960 && b.last.getHeight()==576);
+  a.window.root.children.clear();
+  com.navercorp.android.vgx.lib.VgxGLSurfaceView vgxSurface=new com.navercorp.android.vgx.lib.VgxGLSurfaceView();
+  vgxSurface.shown=false;a.window.root.add(vgxSurface);CarrotMapCapture.capture(a,b);check(b.sent==7);
+  a.window.root.children.clear();
+  com.naver.maps.map.renderer.vulkan.VulkanSurfaceView vulkan=new com.naver.maps.map.renderer.vulkan.VulkanSurfaceView();
+  vulkan.shown=false;a.window.root.add(vulkan);CarrotMapCapture.capture(a,b);check(b.sent==8);
   java.lang.reflect.Method relay=Class.forName("ai.comma.remotehud.NaverSettingsRelay").getDeclaredMethod("update",org.json.JSONObject.class,java.net.DatagramSocket.class);
   relay.setAccessible(true);
   org.json.JSONObject options=new org.json.JSONObject().put("hudNavApp",2).put("hudNaverLandscape",0).put("hudNaverMapFit",1).put("hudNaverMapScale",75).put("hudNaverMapQuality",80);

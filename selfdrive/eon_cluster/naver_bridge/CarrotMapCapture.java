@@ -102,7 +102,11 @@ public final class CarrotMapCapture {
 
     private static void finish(CarrotNaverBridge bridge, View map, Bitmap bitmap, boolean ok) {
         try {
-            if (ok && map.isAttachedToWindow() && map.isShown() && !CarrotCarMapCapture.active()) {
+            // The Remote HUD is the foreground Activity while navigation is
+            // running. Naver's renderer can therefore be attached with a valid
+            // buffer even though View.isShown() is false. HUD6 rejected that
+            // exact state and only guidance/ETA reached the HUD.
+            if (ok && map.isAttachedToWindow() && rendererReady(map) && !CarrotCarMapCapture.active()) {
                 NaverHudSettings.Values settings = NaverHudSettings.current;
                 int[] crop = settings.fit ? new int[]{0, 0, bitmap.getWidth(), bitmap.getHeight()}
                         : MapCaptureGeometry.crop(bitmap.getWidth(), bitmap.getHeight());
@@ -144,7 +148,10 @@ public final class CarrotMapCapture {
         // Verified renderer hierarchy in CarrotNaver 6.9.1.3. Do not choose an
         // ad/video SurfaceView simply because it is the largest on the page.
         for (Class<?> type = view.getClass(); type != null; type = type.getSuperclass()) {
-            if (type.getName().equals("com.navercorp.android.vgx.lib.VgxGLTextureView")) return true;
+            String name = type.getName();
+            if (name.equals("com.navercorp.android.vgx.lib.VgxGLTextureView")
+                    || name.equals("com.navercorp.android.vgx.lib.VgxGLSurfaceView")
+                    || name.equals("com.naver.maps.map.renderer.vulkan.VulkanSurfaceView")) return true;
         }
         // Naver MapView owns either a plain TextureView, GLSurfaceView, or
         // VulkanSurfaceView depending on its options/device capabilities.
@@ -156,21 +163,32 @@ public final class CarrotMapCapture {
         return false;
     }
 
+    private static boolean rendererReady(View view) {
+        if (view instanceof TextureView) return ((TextureView) view).isAvailable();
+        return view instanceof SurfaceView && ((SurfaceView) view).getHolder().getSurface().isValid();
+    }
+
     private static View findMap(View view) {
-        if (view == null || !view.isShown() || view.getAlpha() <= 0f
-                || view.getWidth() < 64 || view.getHeight() < 64) return null;
+        View visible = findMap(view, true);
+        return visible != null ? visible : findMap(view, false);
+    }
+
+    private static View findMap(View view, boolean requireVisible) {
+        if (view == null || view.getAlpha() <= 0f || view.getWidth() < 64 || view.getHeight() < 64) return null;
         if (isMapRenderer(view)) {
-            Rect visible = new Rect();
-            if (!view.getGlobalVisibleRect(visible) || visible.width() < view.getWidth() / 2
-                    || visible.height() < view.getHeight() / 2) return null;
-            if (view instanceof TextureView && ((TextureView) view).isAvailable()) return view;
-            if (view instanceof SurfaceView && ((SurfaceView) view).getHolder().getSurface().isValid()) return view;
+            boolean enoughVisible = view.isShown();
+            if (enoughVisible) {
+                Rect bounds = new Rect();
+                enoughVisible = view.getGlobalVisibleRect(bounds) && bounds.width() >= view.getWidth() / 2
+                        && bounds.height() >= view.getHeight() / 2;
+            }
+            if ((!requireVisible || enoughVisible) && rendererReady(view)) return view;
         }
         View best = null;
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                View candidate = findMap(group.getChildAt(i));
+                View candidate = findMap(group.getChildAt(i), requireVisible);
                 if (candidate != null && (best == null || (long) candidate.getWidth() * candidate.getHeight()
                         > (long) best.getWidth() * best.getHeight())) best = candidate;
             }
