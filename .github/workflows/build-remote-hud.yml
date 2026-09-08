@@ -70,7 +70,9 @@ jobs:
       - name: Check Naver phone and car map capture
         # The Naver bridge shares the HUD map transport; cover both sources.
         working-directory: selfdrive/eon_cluster/naver_bridge
-        run: python3 test_car_capture.py --java-home "$JAVA_HOME" --work "$RUNNER_TEMP/naver-car-capture-check"
+        run: |
+          python3 test_car_capture.py --java-home "$JAVA_HOME" --work "$RUNNER_TEMP/naver-car-capture-check"
+          python3 test_offscreen_map.py --java-home "$JAVA_HOME" --work "$RUNNER_TEMP/naver-offscreen-map-check"
       - name: Build debug APK
         working-directory: selfdrive/eon_cluster/android_hud
         env:
