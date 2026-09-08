@@ -1,6 +1,6 @@
-"""Patch verified HUD6 to capture the Android Auto map Surface as well as the phone.
+"""Patch verified HUD10 to capture Android Auto and phone map Surfaces together.
 
-Produces an unsigned base APK. Sign with the existing HUD6 key and retain its splits.
+Produces an unsigned base APK. Sign with the HUD10 key and retain its splits.
 Only classes5.dex (car Surface lifecycle hooks) and classes43.dex (bridge) change.
 """
 import argparse
@@ -13,7 +13,7 @@ import zipfile
 
 from build_patch import signature_entry
 
-HUD6_SHA256 = "52e04217403f941b281aae71f3d8f0ccbd26accb6f1f3308cba196b3b764c3c0"
+HUD10_SHA256 = "22f3854803dc0bcbd63d77382b5b0f3a159435d2ebc6a2d4cada44e403c410ca"
 PACKAGE = Path("com/naver/map/carrot")
 CALLBACK = Path("com/naver/map/core/auto/map/MapProvider$mapSurfaceCallback$1.smali")
 
@@ -57,8 +57,8 @@ def main():
   for key in ("input", "java-home", "sdk", "apktool", "work", "output"):
     parser.add_argument("--" + key, type=Path, required=True)
   args = parser.parse_args()
-  if hashlib.sha256(args.input.read_bytes()).hexdigest() != HUD6_SHA256:
-    raise ValueError("Expected verified HUD6 APKS")
+  if hashlib.sha256(args.input.read_bytes()).hexdigest() != HUD10_SHA256:
+    raise ValueError("Expected published HUD10 APKS")
   if args.output.exists():
     raise FileExistsError(args.output)
   work = args.work.resolve()

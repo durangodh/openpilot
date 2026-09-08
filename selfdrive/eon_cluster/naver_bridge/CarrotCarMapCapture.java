@@ -18,7 +18,7 @@ public final class CarrotCarMapCapture {
     private static Object owner;
     private static int width, height;
     private static long generation, lastGood, lastWarning;
-    private static boolean inFlight;
+    private static boolean inFlight, hasFrame;
     private static Handler handler;
 
     private static synchronized Handler worker() {
@@ -34,11 +34,15 @@ public final class CarrotCarMapCapture {
     public static void available(Object callback, Surface next, int w, int h) {
         if (next == null || !next.isValid() || w <= 0 || h <= 0) return;
         synchronized (lock) {
+            boolean replacement = owner != callback || surface != next;
             owner = callback;
             surface = next;
             width = w;
             height = h;
             generation++;
+            if (replacement) hasFrame = false;
+            // This is only a retry grace timestamp. A valid Surface is not a
+            // valid map until PixelCopy has returned the first real frame.
             lastGood = SystemClock.elapsedRealtime();
         }
         Log.i("CarrotCarMap", "car map surface available: " + w + "x" + h);
@@ -50,6 +54,7 @@ public final class CarrotCarMapCapture {
             if (owner != callback) return;
             surface = null;
             owner = null;
+            hasFrame = false;
             generation++;
         }
         Log.i("CarrotCarMap", "car map surface destroyed; using phone map");
@@ -57,18 +62,18 @@ public final class CarrotCarMapCapture {
 
     public static boolean active() {
         synchronized (lock) {
-            return surface != null && surface.isValid();
+            return surface != null && surface.isValid() && hasFrame;
         }
     }
 
-    /** True means the car surface owns this frame, including temporary no-data. */
+    /** True only after the car Surface has delivered at least one real frame. */
     public static boolean capture(CarrotNaverBridge bridge) {
         final Surface source;
         final long ticket;
         final int[] size;
         synchronized (lock) {
             if (surface == null || !surface.isValid()) return false;
-            if (inFlight) return true;
+            if (inFlight) return hasFrame;
             source = surface;
             ticket = generation;
             size = MapCaptureGeometry.captureSize(width, height);
@@ -86,7 +91,9 @@ public final class CarrotCarMapCapture {
             synchronized (lock) { inFlight = false; }
             failed(bridge, ticket, -1);
         }
-        return true;
+        synchronized (lock) {
+            return generation == ticket && hasFrame;
+        }
     }
 
     private static void failed(CarrotNaverBridge bridge, long ticket, int result) {
@@ -98,7 +105,10 @@ public final class CarrotCarMapCapture {
             clear = now - lastGood >= 2000L;
             warn = now - lastWarning >= 10000L;
             if (warn) lastWarning = now;
-            if (clear) lastGood = now;
+            if (clear) {
+                lastGood = now;
+                hasFrame = false;
+            }
         }
         if (warn) Log.w("CarrotCarMap", "car map copy failed: " + result);
         if (clear) {
@@ -126,7 +136,12 @@ public final class CarrotCarMapCapture {
                     new Rect(dst[0], dst[1], dst[2], dst[3]), new Paint(Paint.FILTER_BITMAP_FLAG));
             synchronized (lock) { if (generation != ticket) return; }
             bridge.sendBitmap(output);
-            synchronized (lock) { if (generation == ticket) lastGood = SystemClock.elapsedRealtime(); }
+            synchronized (lock) {
+                if (generation == ticket) {
+                    hasFrame = true;
+                    lastGood = SystemClock.elapsedRealtime();
+                }
+            }
         } finally {
             if (output != null) output.recycle();
             captured.recycle();

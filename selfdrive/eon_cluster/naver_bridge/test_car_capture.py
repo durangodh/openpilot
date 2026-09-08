@@ -17,6 +17,7 @@ public class CarMapCheck {
   check(!CarrotCarMapCapture.active());
   CarrotCarMapCapture.available(first,one,1280,720);
   check(CarrotCarMapCapture.capture(bridge));
+  check(CarrotCarMapCapture.active());
   check(bridge.sent==1 && bridge.last.getWidth()==960 && bridge.last.getHeight()==576);
   check(PixelCopy.pendingBitmap.isRecycled());
   // A hidden/absent phone map must not clear the live car map.
@@ -27,13 +28,14 @@ public class CarMapCheck {
   int calls=PixelCopy.calls;
   CarrotCarMapCapture.capture(bridge);check(PixelCopy.calls==calls);
   CarrotCarMapCapture.available(second,two,1920,1080);
-  CarrotCarMapCapture.destroyed(first);check(CarrotCarMapCapture.active());
+  check(!CarrotCarMapCapture.active()); // replacement has no successful frame yet
+  CarrotCarMapCapture.destroyed(first);check(!CarrotCarMapCapture.active());
   PixelCopy.pending.onPixelCopyFinished(0);
   check(bridge.sent==1 && PixelCopy.pendingBitmap.isRecycled());
   PixelCopy.defer=false;
   CarrotCarMapCapture.capture(bridge);check(bridge.sent==2);
   PixelCopy.result=3;
-  CarrotCarMapCapture.capture(bridge);check(bridge.sent==2 && bridge.cleared==1);
+  CarrotCarMapCapture.capture(bridge);check(bridge.sent==2 && bridge.cleared==1 && !CarrotCarMapCapture.active());
   PixelCopy.result=0;PixelCopy.fail=true;
   CarrotCarMapCapture.capture(bridge);
   PixelCopy.fail=false;
