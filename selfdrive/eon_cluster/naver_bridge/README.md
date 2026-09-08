@@ -1,5 +1,10 @@
 # Naver map-only HUD capture
 
+HUD7 adds capture of Naver's existing Android Auto map Surface so the bridge
+can produce map frames when the map is outside the phone Activity. See
+[HUD7 implementation, installation, and validation](../../../docs/carrot_naver_hud7.md).
+The earlier HUD3–HUD6 phone capture behavior is described below.
+
 This patch targets the verified `CarrotNaver_6.9.1.3_hud3.apks` release.
 It keeps the TMAP-compatible `map_main` JPEG transport (960×576, quality 90)
 and the existing HUD guidance/ETA overlay pipeline. It does not implement

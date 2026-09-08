@@ -46,11 +46,20 @@ public class SurfaceView extends View {
   "android/view/PixelCopy.java": """package android.view;
 public class PixelCopy {
  public static final int SUCCESS=0; public static int calls=0, result=0;
+ public static boolean defer=false, fail=false;
+ public static OnPixelCopyFinishedListener pending;
+ public static android.graphics.Bitmap pendingBitmap;
  public interface OnPixelCopyFinishedListener { void onPixelCopyFinished(int result); }
+ public static void request(Surface s, android.graphics.Bitmap b, OnPixelCopyFinishedListener cb, android.os.Handler h){
+  if(fail)throw new IllegalArgumentException("surface gone");
+  calls++;pendingBitmap=b;if(defer)pending=cb;else cb.onPixelCopyFinished(result);
+ }
  public static void request(SurfaceView s, android.graphics.Bitmap b,
   OnPixelCopyFinishedListener cb, android.os.Handler h){calls++;cb.onPixelCopyFinished(result);}
  // Deliberately no Window overload: production must never fall back to it.
 }""",
+  "android/view/Surface.java": "package android.view; public class Surface { public boolean valid=true; public boolean isValid(){return valid;} }",
+  "android/util/Log.java": "package android.util; public class Log { public static int i(String t,String s){return 0;} public static int w(String t,String s){return 0;} }",
   "android/view/Window.java": """package android.view;
 public class Window { public ViewGroup root=new ViewGroup(); public View getDecorView(){return root;} }""",
   "android/content/pm/ActivityInfo.java": "package android.content.pm; public class ActivityInfo { public static final int SCREEN_ORIENTATION_SENSOR_LANDSCAPE=6; }",
@@ -167,6 +176,7 @@ def main():
   classes.mkdir()
   subprocess.run([str(args.java_home / ("bin/javac" + suffix)), "--release", "8", "-d", str(classes),
                   *files, str(Path(__file__).with_name("CarrotMapCapture.java")),
+                  str(Path(__file__).with_name("CarrotCarMapCapture.java")),
                   str(Path(__file__).with_name("MapCaptureGeometry.java")),
                   str(Path(__file__).with_name("NaverHudSettings.java")),
                   str(Path(__file__).parent.parent / "android_hud/app/src/main/java/ai/comma/remotehud/NaverSettingsRelay.java")], check=True)

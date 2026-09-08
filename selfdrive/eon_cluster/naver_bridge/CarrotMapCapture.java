@@ -36,6 +36,7 @@ public final class CarrotMapCapture {
 
     // capture() is invoked on the Activity UI thread by the existing bridge.
     public static void capture(Object owner, CarrotNaverBridge bridge) {
+        if (CarrotCarMapCapture.active()) return;
         if (!(owner instanceof Activity) || bridge == null || inFlight) return;
         Activity activity = (Activity) owner;
         NaverHudSettings.start();
@@ -101,7 +102,7 @@ public final class CarrotMapCapture {
 
     private static void finish(CarrotNaverBridge bridge, View map, Bitmap bitmap, boolean ok) {
         try {
-            if (ok && map.isAttachedToWindow() && map.isShown()) {
+            if (ok && map.isAttachedToWindow() && map.isShown() && !CarrotCarMapCapture.active()) {
                 NaverHudSettings.Values settings = NaverHudSettings.current;
                 int[] crop = settings.fit ? new int[]{0, 0, bitmap.getWidth(), bitmap.getHeight()}
                         : MapCaptureGeometry.crop(bitmap.getWidth(), bitmap.getHeight());
@@ -128,10 +129,12 @@ public final class CarrotMapCapture {
     }
 
     private static void clear(CarrotNaverBridge bridge) {
+        if (CarrotCarMapCapture.active()) return;
         long now = SystemClock.elapsedRealtime();
         if (now - lastClear < 1000L) return;
         lastClear = now;
         worker().post(() -> {
+            if (CarrotCarMapCapture.active()) return;
             try { bridge.clearMap(); } catch (Exception ignored) { }
         });
     }

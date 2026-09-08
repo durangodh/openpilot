@@ -6,6 +6,7 @@ on:
     branches: [g_abcd, g_hud]
     paths:
       - "selfdrive/eon_cluster/android_hud/**"
+      - "selfdrive/eon_cluster/naver_bridge/**"
       - ".github/workflows/build-remote-hud.yml"
 
 jobs:
@@ -66,6 +67,10 @@ jobs:
           python3 ../tests/test_tmap_guidance.py
           javac -d "$RUNNER_TEMP/hud-selection-check" app/src/main/java/ai/comma/remotehud/NavSelectionProtocol.java tests/NavSelectionProtocolCheck.java
           java -cp "$RUNNER_TEMP/hud-selection-check" ai.comma.remotehud.NavSelectionProtocolCheck
+      - name: Check Naver phone and car map capture
+        # The Naver bridge shares the HUD map transport; cover both sources.
+        working-directory: selfdrive/eon_cluster/naver_bridge
+        run: python3 test_car_capture.py --java-home "$JAVA_HOME" --work "$RUNNER_TEMP/naver-car-capture-check"
       - name: Build debug APK
         working-directory: selfdrive/eon_cluster/android_hud
         env:

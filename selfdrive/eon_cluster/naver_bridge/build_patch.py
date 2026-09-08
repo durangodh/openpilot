@@ -58,6 +58,7 @@ def main():
   classes.mkdir()
   run(javac, "--release", "8", "-encoding", "UTF-8", "-cp", android, "-d", classes,
       stub, Path(__file__).with_name("CarrotMapCapture.java"),
+      Path(__file__).with_name("CarrotCarMapCapture.java"),
       Path(__file__).with_name("MapCaptureGeometry.java"),
       Path(__file__).with_name("NaverHudSettings.java"))
   with zipfile.ZipFile(work / "capture.jar", "w") as jar:
