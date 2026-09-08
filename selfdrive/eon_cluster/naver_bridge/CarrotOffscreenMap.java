@@ -283,15 +283,9 @@ public final class CarrotOffscreenMap {
         Object callback = Proxy.newProxyInstance(loader, new Class<?>[]{readyClass}, new InvocationHandler() {
             @Override
             public Object invoke(Object proxy, Method method, Object[] args) {
-                if (args != null && args.length == 1 && args[0] != null) {
-                    try {
-                        onMapReady(args[0]);
-                    } catch (Throwable t) {
-                        Log.e(TAG, "map ready setup failed: " + t);
-                        failed = true;
-                    }
-                    return null;
-                }
+                // Proxy.equals(Object) also has one argument. Handle Object
+                // methods before dispatching the SDK callback, otherwise an
+                // identity comparison permanently disables the renderer.
                 if ("hashCode".equals(method.getName())) {
                     return Integer.valueOf(System.identityHashCode(proxy));
                 }
@@ -300,6 +294,17 @@ public final class CarrotOffscreenMap {
                 }
                 if ("toString".equals(method.getName())) {
                     return "CarrotOffscreenMap.ready";
+                }
+                if ("s".equals(method.getName()) && args != null && args.length == 1
+                        && args[0] != null
+                        && CLS_NAVER_MAP.equals(method.getParameterTypes()[0].getName())) {
+                    try {
+                        onMapReady(args[0]);
+                    } catch (Throwable t) {
+                        Log.e(TAG, "map ready setup failed: " + t);
+                        failed = true;
+                    }
+                    return null;
                 }
                 return null;
             }

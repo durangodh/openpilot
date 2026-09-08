@@ -143,7 +143,7 @@ public class MapSurface { public static java.util.List<String> log=new java.util
  public void k(){log.add("onPause");} public void o(){log.add("onStop");} public void i(){log.add("onDestroy");}
  public void r(android.view.Surface s){log.add("surfaceCreated");} public void q(android.view.Surface s,int w,int hh){log.add("surfaceChanged:"+w+"x"+hh);}
  public void s(){log.add("surfaceDestroyed");}
- public void f(OnMapReadyCallback c){log.add("getMapAsync"); cb=c; if(!deferReady) c.s(map);} }""",
+ public void f(OnMapReadyCallback c){log.add("getMapAsync"); cb=c; if(!c.equals(c) || c.equals(new Object()) || c.equals(null)) throw new AssertionError("callback identity"); c.hashCode(); c.toString(); if(!deferReady) c.s(map);} }""",
   # ---- fake navigation store (obfuscated Naver app accessors used by the bridge) ----
   "com/naver/map/carrot/FakeStore.java": """package com.naver.map.carrot;
 public class FakeStore {
