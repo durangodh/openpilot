@@ -56,26 +56,12 @@ Margins can remain where the phone/map aspect ratio differs from the HUD panel.
 This preserves map coverage and reduces oversized labels compared with HUD5's crop.
 It is still Naver's own map renderer/zoom, not TMAP's dedicated offscreen renderer.
 
-Update EON, Remote HUD 1.17 (CI uses an increasing versionCode), and CarrotNaver HUD6 once. Thereafter
-these EON S9HUD settings reach the Naver bridge without rebuilding the Naver APK:
+HUD14 uses a fixed 960×576 map frame and fixed JPEG transport settings. The old
+EON controls for Naver orientation, fit, size, and quality were removed because
+the active SDK snapshot path did not consume them.
 
-| Parameter | Default | Meaning |
-| --- | --- | --- |
-| EonClusterHudNaverLandscape | 1 | 1: landscape Activity; 0: original orientation |
-| EonClusterHudNaverMapFit | 1 | 1: whole-map fit; 0: crop to fill |
-| EonClusterHudNaverMapScale | 100 | 50–100%, image display size; smaller adds margins |
-| EonClusterHudNaverMapQuality | 90 | JPEG quality 60–95 |
-
-The EON sends these bounded values in HUD telemetry. Remote HUD relays them at
-most once per second to `127.0.0.1:28992` using the versioned `NHUD1` message.
-The bridge validates the whole message and atomically applies a settings snapshot.
-No setting changes navigation routes, driving controls, or the native map's zoom.
-Values are refreshed while connected; after a Naver process restart defaults apply
-until the next relay packet arrives. Older Remote HUD builds can use HUD6 defaults,
-but cannot relay EON adjustments. Landscape selection can cause Activity recreation.
-
-Tests exercise the real UDP relay/receiver, malformed and out-of-range messages,
-TMAP isolation, fit/crop geometry, surface routing and bitmap recycling.
+Tests retain coverage for the legacy capture geometry and bitmap recycling used
+by the older APK reproduction tools.
 
 ## Reproduce
 

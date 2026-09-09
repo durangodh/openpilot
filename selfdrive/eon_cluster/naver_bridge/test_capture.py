@@ -154,18 +154,7 @@ public class CaptureCheck {
   a.window.root.children.clear();
   com.naver.maps.map.renderer.vulkan.VulkanSurfaceView vulkan=new com.naver.maps.map.renderer.vulkan.VulkanSurfaceView();
   vulkan.shown=false;a.window.root.add(vulkan);CarrotMapCapture.capture(a,b);check(b.sent==8);
-  java.lang.reflect.Method relay=Class.forName("ai.comma.remotehud.NaverSettingsRelay").getDeclaredMethod("update",org.json.JSONObject.class,java.net.DatagramSocket.class);
-  relay.setAccessible(true);
-  org.json.JSONObject options=new org.json.JSONObject().put("hudNavApp",2).put("hudNaverLandscape",0).put("hudNaverMapFit",1).put("hudNaverMapScale",75).put("hudNaverMapQuality",80);
-  try(java.net.DatagramSocket socket=new java.net.DatagramSocket()){
-   for(int attempt=0;attempt<20 && NaverHudSettings.quality()!=80;attempt++){
-    relay.invoke(null,options,socket);Thread.sleep(20);
-   }
-   check(NaverHudSettings.quality()==80 && NaverHudSettings.current.scale==75 && !NaverHudSettings.current.landscape);
-   options.put("hudNavApp",1).put("hudNaverMapQuality",95);
-   relay.invoke(null,options,socket);Thread.sleep(20);check(NaverHudSettings.quality()==80);
-  }
-  System.out.println("PASS: live UDP relay, TMAP isolation, settings validation; no-map, ads, texture, surface, unavailable/hidden, error recovery, VGX, recycling, portrait/landscape aspect ratio, output dimensions");
+  System.out.println("PASS: settings validation; no-map, ads, texture, surface, unavailable/hidden, error recovery, VGX, recycling, portrait/landscape aspect ratio, output dimensions");
  }
 }""",
 }
@@ -190,8 +179,7 @@ def main():
                   *files, str(Path(__file__).with_name("CarrotMapCapture.java")),
                   str(Path(__file__).with_name("CarrotCarMapCapture.java")),
                   str(Path(__file__).with_name("MapCaptureGeometry.java")),
-                  str(Path(__file__).with_name("NaverHudSettings.java")),
-                  str(Path(__file__).parent.parent / "android_hud/app/src/main/java/ai/comma/remotehud/NaverSettingsRelay.java")], check=True)
+                  str(Path(__file__).with_name("NaverHudSettings.java"))], check=True)
   subprocess.run([str(args.java_home / ("bin/java" + suffix)), "-cp", str(classes),
                   "com.naver.map.carrot.CaptureCheck"], check=True)
 
