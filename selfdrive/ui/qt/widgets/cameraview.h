@@ -46,6 +46,11 @@ protected:
   bool zoomed_view;
   std::mutex lock;
   int latest_texture_id = -1;
+  // 2026-09-09: 카메라 프레임 N 개당 1 번만 화면을 다시 그린다(1 = 매 프레임).
+  // NvgWindow 가 2 로 두어 EON 도로화면을 10fps 로 낮춘다. 운전자뷰 등 다른
+  // CameraViewWidget 은 1 그대로.
+  int frame_divider = 1;
+  uint64_t frame_counter = 0;
   GLuint frame_vao, frame_vbo, frame_ibo;
   mat4 frame_mat;
   std::unique_ptr<EGLImageTexture> texture[UI_BUF_COUNT];

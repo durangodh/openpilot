@@ -25,7 +25,9 @@ procs = [
   # deviceState.cpuUsagePercent 라 이것과 무관하다.
   NativeProcess("proclogd", "selfdrive/proclogd", ["./proclogd"], enabled=False),
   NativeProcess("sensord", "selfdrive/sensord", ["./sensord"], enabled=not PC, persistent=EON, sigkill=EON),
-  NativeProcess("ubloxd", "selfdrive/locationd", ["./ubloxd"], enabled=(not PC or WEBCAM)),
+  # 2026-09-09: EON GPS 비동작(판다 안테나 없음)이라 ubloxd 출력이 없다. locationd 는
+  # gpsLocationExternal 을 ignore_alive 로 두어 없어도 정상. 되살리려면 enabled=(not PC or WEBCAM)
+  NativeProcess("ubloxd", "selfdrive/locationd", ["./ubloxd"], enabled=False),
   NativeProcess("ui", "selfdrive/ui", ["./ui"], persistent=True, watchdog_max_dt=(5 if TICI else None)),
   NativeProcess("soundd", "selfdrive/ui/soundd", ["./soundd"], persistent=True),
   NativeProcess("locationd", "selfdrive/locationd", ["./locationd"]),

@@ -7,6 +7,62 @@ from cereal import car, log
 from common.numpy_fast import clip
 from common.realtime import sec_since_boot, config_realtime_process, Priority, Ratekeeper, DT_CTRL
 from common.profiler import Profiler
+import time as _ptime
+
+
+class _SectionProf:
+  """controlsd 구간 타이머. /tmp/controlsd_prof 파일이 있을 때만 켜지고,
+  500 루프마다 /tmp/controlsd_prof.txt 를 덮어쓴다. 제거 = _prof 표시 줄 전부 삭제."""
+  PERIOD = 500
+  OUT = "/tmp/controlsd_prof.txt"
+  FLAG = "/tmp/controlsd_prof"
+
+  def __init__(self):
+    self.on = False
+    self.acc = {}
+    self.n = 0
+    self.wall0 = _ptime.monotonic()
+    self.t = self.wall0
+    self._check = 0
+
+  def mark(self, name):
+    if not self.on:
+      return
+    now = _ptime.monotonic()
+    self.acc[name] = self.acc.get(name, 0.0) + (now - self.t)
+    self.t = now
+
+  def add(self, name, dt):
+    if self.on:
+      self.acc[name] = self.acc.get(name, 0.0) + dt
+
+  def tick(self):
+    self._check += 1
+    if self._check % self.PERIOD != 0:
+      if self.on:
+        self.n += 1
+      return
+    import os
+    was_on = self.on
+    self.on = os.path.exists(self.FLAG)
+    if not was_on:
+      self.acc, self.n, self.wall0 = {}, 0, _ptime.monotonic()
+      self.t = self.wall0
+      return
+    self.n += 1
+    wall = _ptime.monotonic() - self.wall0
+    busy = sum(self.acc.values())
+    lines = ["loops=%d wall=%.3fs hz=%.1f busy=%.1f%%" % (self.n, wall, self.n / max(wall, 1e-6), 100.0 * busy / max(wall, 1e-6))]
+    for k, v in sorted(self.acc.items(), key=lambda kv: -kv[1]):
+      lines.append("%-14s %7.3f ms  %5.1f%%" % (k, 1000.0 * v / self.n, 100.0 * v / max(busy, 1e-9)))
+    try:
+      with open(self.OUT, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    except OSError:
+      pass
+    self.acc, self.n, self.wall0 = {}, 0, _ptime.monotonic()
+    self.t = self.wall0
+
 from common.params import Params, put_nonblocking
 import cereal.messaging as messaging
 from common.conversions import Conversions as CV
@@ -241,13 +297,15 @@ class Controls:
     # controlsd is driven by can recv, expected at 100Hz
     self.rk = Ratekeeper(100, print_delay_threshold=None)
     self.prof = Profiler(False)  # off by default
+    self._sp = _SectionProf()  # _prof
 
     # ---- 발행 감속 ---------------------------------------------------------
     # controlsState / carControl 은 소비자가 전부 UI 계열(ui 20fps, soundd,
     # remote_hud 10Hz, plannerd 20Hz)이라 100Hz 로 만들 필요가 없다.
-    # services.py 의 50 Hz 선언과 맞춘다. 미등록 Params 키를 읽으면
+    # services.py 의 25 Hz 선언과 맞춘다. 미등록 Params 키를 읽으면
     # controlsd 시작이 중단되므로 발행 분배값은 고정한다.
-    self._pub_div = 2
+    # 2026-09-09: 2(50Hz) → 4(25Hz). 되돌리면 services.py 도 같이 50 으로.
+    self._pub_div = 4
     # carState 는 감속하지 않는다 (locationd/paramsd/radard 가 먹는다)
     self._not_running_processes = set()
 
@@ -497,10 +555,16 @@ class Controls:
     """Receive data from sockets and update carState"""
 
     # Update carState from CAN
+    self._sp.mark("rk_sleep")  # _prof
     can_strs = messaging.drain_sock_raw(self.can_sock, wait_for_one=True)
+    self._sp.mark("can_wait")  # _prof
     CS = self.CI.update(self.CC, can_strs)
+    self._sp.mark("ci_update")  # _prof
+    self._sp.add("  ci_parse", getattr(self.CI, "prof_parse", 0.0))  # _prof
+    self._sp.add("  ci_cstate", getattr(self.CI, "prof_cstate", 0.0))  # _prof
 
     self.sm.update(0)
+    self._sp.mark("sm_update")  # _prof
 
     if not self.initialized:
       all_valid = CS.canValid and self.sm.all_checks()
@@ -860,10 +924,13 @@ class Controls:
     # CI.apply, sendcan, and carState remain at the full 100 Hz.
     _send_ctrlstate = (self.sm.frame % self._pub_div == 0)
 
+    self._sp.mark("pub_pre")  # _prof
     if not self.read_only and self.initialized:
       # send car controls over can
       self.last_actuators, can_sends = self.CI.apply(CC, self)
+      self._sp.mark("pub_ci_apply")  # _prof
       self.pm.send('sendcan', can_list_to_can_capnp(can_sends, msgtype='sendcan', valid=CS.canValid))
+      self._sp.mark("pub_sendcan")  # _prof
       CC.actuatorsOutput = self.last_actuators
       self.steer_limited = abs(CC.actuators.steer - CC.actuatorsOutput.steer) > 1e-2
 
@@ -879,6 +946,7 @@ class Controls:
 
       self._publish_controls_state(CS, start_time, lac_log, current_alert,
                                    curvature, steer_angle_without_offset, force_decel)
+      self._sp.mark("pub_ctrlstate")  # _prof
 
     # carState
     car_events = self.events.to_msg()
@@ -887,6 +955,7 @@ class Controls:
     cs_send.carState = CS
     cs_send.carState.events = car_events
     self.pm.send('carState', cs_send)
+    self._sp.mark("pub_carstate")  # _prof
 
     # carEvents - logged every second or on change
     if (self.sm.frame % int(1. / DT_CTRL) == 0) or (self.events.names != self.events_prev):
@@ -907,6 +976,7 @@ class Controls:
       cc_send.valid = CS.canValid
       cc_send.carControl = CC
       self.pm.send('carControl', cc_send)
+      self._sp.mark("pub_carctrl")  # _prof
 
     # copy CarControl to pass to CarInterface on the next iteration
     self.CC = CC
@@ -984,21 +1054,27 @@ class Controls:
     cloudlog.timestamp("Data sampled")
     self.prof.checkpoint("Sample")
 
+    self._sp.mark("sample_rest")  # _prof
     self.update_events(CS)
+    self._sp.mark("events")  # _prof
     cloudlog.timestamp("Events updated")
 
     if not self.read_only and self.initialized:
       # Update control state
       self.state_transition(CS)
+      self._sp.mark("state_trans")  # _prof
       self.prof.checkpoint("State transition")
 
     # Compute actuators (runs PID loops and lateral MPC)
     CC, lac_log = self.state_control(CS)
+    self._sp.mark("state_ctrl")  # _prof
 
     self.prof.checkpoint("State Control")
 
     # Publish data
     self.publish_logs(CS, start_time, CC, lac_log)
+    self._sp.mark("pub_rest")  # _prof
+    self._sp.tick()  # _prof
     self.prof.checkpoint("Sent")
 
     self.update_button_timers(CS.buttonEvents)

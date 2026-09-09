@@ -121,11 +121,13 @@ void OnroadWindow::updateState(const UIState &s) {
     split->setDirection(QBoxLayout::RightToLeft);
   }
 
+  // 2026-09-09: 테두리색이 바뀔 때만 다시 그린다. 도로화면·알림은 각자
+  // 카메라 프레임/updateAlert 로 갱신되므로 20Hz 무조건 repaint 는 낭비.
   if (bg != bgColor) {
     // repaint border
     bg = bgColor;
+    update();
   }
-  update();
 }
 
 void OnroadWindow::mouseReleaseEvent(QMouseEvent* e) {
@@ -315,6 +317,8 @@ void OnroadAlerts::paintEvent(QPaintEvent *event) {
 // NvgWindow
 
 NvgWindow::NvgWindow(VisionStreamType type, QWidget* parent) : last_update_params(0), fps_filter(UI_FREQ, 3, 1. / UI_FREQ), accel_filter(UI_FREQ, .5, 1. / UI_FREQ), CameraViewWidget("camerad", type, true, parent) {
+  // 2026-09-09: EON 도로화면 20fps → 10fps (HUD 는 S9 가 그린다). 되돌리기: 1
+  frame_divider = 2;
 }
 
 void NvgWindow::initializeGL() {
@@ -504,7 +508,8 @@ void NvgWindow::paintEvent(QPaintEvent *event) {
   double cur_draw_t = millis_since_boot();
   double dt = cur_draw_t - prev_draw_t;
   double fps = fps_filter.update(1. / dt * 1000);
-  if (fps < 15 && cur_draw_t - last_slow_fps_log_t >= 5000) {
+  // frame_divider=2 라 정상이 10fps. 그보다 떨어질 때만 경고.
+  if (fps < 8 && cur_draw_t - last_slow_fps_log_t >= 5000) {
     LOGW("slow frame rate: %.2f fps", fps);
     last_slow_fps_log_t = cur_draw_t;
   }

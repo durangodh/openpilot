@@ -295,6 +295,11 @@ void CameraViewWidget::vipcThread() {
     }
 
     if (VisionBuf *buf = vipc_client->recv(nullptr, 1000)) {
+      // 2026-09-09: frame_divider 프레임마다 한 번만 텍스처 갱신 + repaint.
+      // 건너뛴 프레임은 여기서 버린다(제어와 무관, 화면 전용).
+      if (frame_divider > 1 && (frame_counter++ % frame_divider) != 0) {
+        continue;
+      }
       {
         std::lock_guard lk(lock);
         if (!Hardware::EON()) {

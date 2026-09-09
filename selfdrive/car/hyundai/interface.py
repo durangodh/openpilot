@@ -298,11 +298,16 @@ class CarInterface(CarInterfaceBase):
     pass
 
   def update(self, c: car.CarControl, can_strings: List[bytes]) -> car.CarState:
+    _t0 = time.monotonic()  # _prof
     self.cp.update_strings(can_strings)
     self.cp2.update_strings(can_strings)
     self.cp_cam.update_strings(can_strings)
+    _t1 = time.monotonic()  # _prof
 
     ret = self.CS.update(self.cp, self.cp2, self.cp_cam)
+    _t2 = time.monotonic()  # _prof
+    self.prof_parse = _t1 - _t0  # _prof
+    self.prof_cstate = _t2 - _t1  # _prof
     ret.canValid = self.cp.can_valid and self.cp2.can_valid and self.cp_cam.can_valid
     ret.canTimeout = any(cp.bus_timeout for cp in self.can_parsers if cp is not None)
 

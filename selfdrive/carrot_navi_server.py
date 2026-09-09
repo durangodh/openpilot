@@ -69,7 +69,10 @@ SOURCE_NAVER = "naver"
 MAP_RENDER_FPS_DEFAULT = 5
 MAP_RENDER_FPS_MIN = 2
 MAP_RENDER_FPS_MAX = 5
-STATE_WRITE_INTERVAL_S = 0.05
+# 2026-09-09: 0.05(20Hz) → 0.20(5Hz). 전체 route JSON(폴리라인 포함)을 vehicle
+# 스트림이 올 때마다 dump 하던 비용을 1/4 로. 읽는 쪽(remote_hud·navigation_route
+# 0.2s, UI 0.5s)이 원래 5Hz 이하라 잃는 것이 없다. 되돌리기: 0.05
+STATE_WRITE_INTERVAL_S = 0.20
 
 # TMAP's v2 render worker normally delivers map_main continuously.  When TMAP
 # rebuilds its route/camera after a destination change, the worker can remain
