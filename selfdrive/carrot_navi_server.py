@@ -638,7 +638,10 @@ def client_loop(conn, state):
           send_frame(conn, payload, 10)
         continue
       if opcode == 2:
-        if not is_control and stream_name == "map_main":
+        # TMAP uses a dedicated map_main render socket. HUD14 sends Naver's
+        # JPEG on its existing state socket as a binary frame, avoiding the
+        # large Base64 JSON path that could fail without an observable error.
+        if not is_control and (stream_name == "map_main" or source == SOURCE_NAVER):
           state.update_map(source, payload)
         elif not is_control and stream_name in OVERLAY_FILES:
           state.update_overlay(source, stream_name, payload)

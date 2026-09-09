@@ -56,7 +56,7 @@ Read `carrot_hud.log`:
 |---|---|
 | `MapProvider created` | AA session started, hook works |
 | `AA NaverMap available` | map ready; snapshots start |
-| `first snapshot WxH` | frames flowing — HUD must show the map |
+| `first snapshot WxH` | SDK capture callback works; this does not prove WebSocket delivery |
 | `takeSnapshot failed: …` | SDK method mismatch (report the line) |
 | `status … lastBitmapAgeMs=-1` for >10 s | renderer never answers; report |
 | no `MapProvider created` at all | Naver was not on Android Auto; phone capture path applies |

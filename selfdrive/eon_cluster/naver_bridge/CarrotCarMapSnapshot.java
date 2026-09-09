@@ -13,7 +13,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 
 /**
- * HUD13: map_main via NaverMap.takeSnapshot from either the Android Auto MapProvider map
+ * HUD14: map_main via NaverMap.takeSnapshot from either the Android Auto MapProvider map
  * or the phone MapView (nMirror / virtual display), whichever exists.
  *
  * When Naver runs on Android Auto its navigation map (route, car marker, camera)
@@ -90,7 +90,7 @@ public final class CarrotCarMapSnapshot {
         if (map == null) {
             if (lastIdleLogAt == 0 || now - lastIdleLogAt >= 60000) {
                 lastIdleLogAt = now;
-                CarrotHudLog.log(TAG, "HUD13 bridge polling, no NaverMap yet (provider=" + (p != null)
+                CarrotHudLog.log(TAG, "HUD14 bridge polling, no NaverMap yet (provider=" + (p != null)
                         + ", activity=" + (activityObject() != null) + ") -> phone capture path");
             }
             return false;
