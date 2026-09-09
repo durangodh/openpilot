@@ -56,7 +56,7 @@ Read `carrot_hud.log`:
 |---|---|
 | `MapProvider created` | AA session started, hook works |
 | `AA NaverMap available` | map ready; snapshots start |
-| `first snapshot WxH` | SDK capture callback works; this does not prove WebSocket delivery |
+| `first snapshot WxH` | frames flowing — HUD must show the map |
 | `takeSnapshot failed: …` | SDK method mismatch (report the line) |
 | `status … lastBitmapAgeMs=-1` for >10 s | renderer never answers; report |
 | no `MapProvider created` at all | Naver was not on Android Auto; phone capture path applies |
@@ -77,3 +77,27 @@ display is what the phone-capture path was failing on.
 `f()` (NaverMap), then uses the same `takeSnapshot` GL readback. Portrait
 snapshots are cropped to a 5:3 band centred at 62 % height so the vehicle
 marker stays in frame. Status line: `NaverMap available from phone MapView`.
+
+## HUD13.1: two MainActivity instances under nMirror
+
+The last build that showed the Naver map on the HUD was HUD6 at commit 923215b
+(2026-09-07), before the HUD app's navigation-selection button existed. That
+button runs `am start -n com.nhn.android.nmap/com.naver.map.MainActivity` on
+the phone display while nMirror already hosts a MainActivity on its virtual
+display. `MainActivity.onResume` -> `CarrotNaverBridge.setActivity()` keeps
+only the most recently resumed instance, i.e. the phone-display copy, whose
+map is not showing — so both the HUD6 capture and HUD13 `takeSnapshot` targeted
+the wrong window. `setActivity` now also calls
+`CarrotCarMapSnapshot.registerActivity()`, and `phoneMap()` picks the live
+activity whose `MapView.isShown()`; the hidden copy is only a last resort.
+
+## HUD13.2: NetworkOnMainThreadException
+
+HUD13.1 in the car: `NaverMap available from phone MapView`, `first snapshot
+1034x720`, ~1.4 fps, `sent=69` — yet EON had `carrot_navi_guide.json` updating
+and no `carrot_navi_map.jpg`, with one healthy 7714 connection. The SDK
+delivers `SnapshotReadyCallback` on the main thread; `sendBitmap()` wrote to
+the socket there, Android threw `NetworkOnMainThreadException`, and the
+bridge's catch-all swallowed it. HUD13.2 crops on the main thread and hands
+the bitmap to a `HandlerThread` for JPEG encode + send; `sent` now counts
+completed sends and failures log `sendBitmap failed`.

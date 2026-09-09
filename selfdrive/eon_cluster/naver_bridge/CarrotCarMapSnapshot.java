@@ -13,7 +13,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 
 /**
- * HUD14: map_main via NaverMap.takeSnapshot from either the Android Auto MapProvider map
+ * HUD13: map_main via NaverMap.takeSnapshot from either the Android Auto MapProvider map
  * or the phone MapView (nMirror / virtual display), whichever exists.
  *
  * When Naver runs on Android Auto its navigation map (route, car marker, camera)
@@ -41,6 +41,7 @@ public final class CarrotCarMapSnapshot {
     private static volatile Object naverMap;
     private static volatile CarrotNaverBridge bridge;
     private static Handler main;
+    private static Handler worker;
     private static volatile long requestedAt;
     private static volatile long lastBitmapAt;
     private static volatile long firstRequestAt;
@@ -90,7 +91,7 @@ public final class CarrotCarMapSnapshot {
         if (map == null) {
             if (lastIdleLogAt == 0 || now - lastIdleLogAt >= 60000) {
                 lastIdleLogAt = now;
-                CarrotHudLog.log(TAG, "HUD14 bridge polling, no NaverMap yet (provider=" + (p != null)
+                CarrotHudLog.log(TAG, "HUD13.2 bridge polling, no NaverMap yet (provider=" + (p != null)
                         + ", activity=" + (activityObject() != null) + ") -> phone capture path");
             }
             return false;
@@ -128,6 +129,61 @@ public final class CarrotCarMapSnapshot {
         return true;
     }
 
+    private static final java.util.List<java.lang.ref.WeakReference<Object>> activities =
+            new java.util.ArrayList<java.lang.ref.WeakReference<Object>>();
+
+    /**
+     * Called from the patched CarrotNaverBridge.setActivity() (MainActivity.onResume).
+     * With nMirror there can be two MainActivity instances (car virtual display and
+     * phone display, the latter created by the HUD app's `am start`); the bridge's
+     * single `activity` field only remembers the most recently resumed one, which is
+     * often the invisible phone-display copy. Keep all of them and pick the one whose
+     * map is actually showing.
+     */
+    public static void registerActivity(Object activity) {
+        if (activity == null) {
+            return;
+        }
+        synchronized (activities) {
+            for (int i = activities.size() - 1; i >= 0; i--) {
+                Object a = activities.get(i).get();
+                if (a == null || a == activity) {
+                    activities.remove(i);
+                }
+            }
+            activities.add(new java.lang.ref.WeakReference<Object>(activity));
+        }
+        CarrotHudLog.log(TAG, "activity resumed " + activity.getClass().getName() + " display="
+                + displayId(activity) + " total=" + activities.size());
+    }
+
+    private static int displayId(Object activity) {
+        try {
+            android.view.Display d = ((android.app.Activity) activity).getWindowManager().getDefaultDisplay();
+            return d == null ? -1 : d.getDisplayId();
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
+    private static java.util.List<Object> candidateActivities() {
+        java.util.List<Object> out = new java.util.ArrayList<Object>();
+        synchronized (activities) {
+            for (int i = activities.size() - 1; i >= 0; i--) {
+                Object a = activities.get(i).get();
+                if (a instanceof android.app.Activity && !((android.app.Activity) a).isFinishing()
+                        && !((android.app.Activity) a).isDestroyed()) {
+                    out.add(a);
+                }
+            }
+        }
+        Object single = activityObject();
+        if (single != null && !out.contains(single)) {
+            out.add(single);
+        }
+        return out;
+    }
+
     private static Object activityObject() {
         try {
             java.lang.reflect.Field f = CarrotNaverBridge.class.getDeclaredField("activity");
@@ -138,43 +194,62 @@ public final class CarrotCarMapSnapshot {
         }
     }
 
-    /** NaverMap of the first com.naver.maps.map.MapView in the Activity view tree, or null. */
+    /** NaverMap of a showing com.naver.maps.map.MapView in any live MainActivity, or null. */
     private static Object phoneMap() {
-        Object activity = activityObject();
-        if (!(activity instanceof android.app.Activity)) {
-            return null;
-        }
-        try {
-            android.view.View root = ((android.app.Activity) activity).getWindow().getDecorView();
-            android.view.View mapView = findMapView(root, 0);
-            if (mapView == null) {
-                return null;
-            }
-            java.lang.reflect.Field delegateField = null;
-            for (Class<?> c = mapView.getClass(); c != null && delegateField == null; c = c.getSuperclass()) {
-                try {
-                    delegateField = c.getDeclaredField("a0");
-                } catch (NoSuchFieldException ignored) {
+        Object fallback = null;
+        for (Object activity : candidateActivities()) {
+            try {
+                android.view.View root = ((android.app.Activity) activity).getWindow().getDecorView();
+                android.view.View mapView = findMapView(root, 0);
+                if (mapView == null) {
+                    continue;
+                }
+                Object map = mapOf(mapView);
+                if (map == null) {
+                    continue;
+                }
+                if (mapView.isShown() && root.isAttachedToWindow()) {
+                    if (activity != chosenActivity) {
+                        chosenActivity = activity;
+                        CarrotHudLog.log(TAG, "using MapView of activity on display " + displayId(activity)
+                                + " (" + mapView.getWidth() + "x" + mapView.getHeight() + ")");
+                    }
+                    return map;
+                }
+                if (fallback == null) {
+                    fallback = map;
+                }
+            } catch (Throwable t) {
+                long now = SystemClock.elapsedRealtime();
+                if (now - lastStatusLogAt >= STATUS_LOG_MS) {
+                    lastStatusLogAt = now;
+                    CarrotHudLog.log(TAG, "phone MapView lookup failed: " + t);
                 }
             }
-            if (delegateField == null) {
-                return null;
+        }
+        return fallback;
+    }
+
+    private static volatile Object chosenActivity;
+
+    private static Object mapOf(android.view.View mapView) throws Exception {
+        java.lang.reflect.Field delegateField = null;
+        for (Class<?> c = mapView.getClass(); c != null && delegateField == null; c = c.getSuperclass()) {
+            try {
+                delegateField = c.getDeclaredField("a0");
+            } catch (NoSuchFieldException ignored) {
             }
-            delegateField.setAccessible(true);
-            Object delegate = delegateField.get(mapView);
-            if (delegate == null) {
-                return null;
-            }
-            Method f = delegate.getClass().getMethod("f", new Class<?>[0]);
-            return f.invoke(delegate, new Object[0]);
-        } catch (Throwable t) {
-            long now = SystemClock.elapsedRealtime();
-            if (now - lastStatusLogAt >= STATUS_LOG_MS) {
-                lastStatusLogAt = now;
-                CarrotHudLog.log(TAG, "phone MapView lookup failed: " + t);
-            }
+        }
+        if (delegateField == null) {
             return null;
         }
+        delegateField.setAccessible(true);
+        Object delegate = delegateField.get(mapView);
+        if (delegate == null) {
+            return null;
+        }
+        Method f = delegate.getClass().getMethod("f", new Class<?>[0]);
+        return f.invoke(delegate, new Object[0]);
     }
 
     private static android.view.View findMapView(android.view.View view, int depth) {
@@ -252,25 +327,50 @@ public final class CarrotCarMapSnapshot {
         return cb;
     }
 
-    /** Main thread, from the SDK. */
+    /**
+     * Main thread, from the SDK. The socket write must NOT happen here: Android
+     * throws NetworkOnMainThreadException for main-thread socket I/O and the
+     * bridge's sendBitmap() swallows it, so HUD13 counted frames that never left
+     * the phone. Crop here, encode+send on a worker thread.
+     */
     private static void onSnapshot(Bitmap source) {
         long now = SystemClock.elapsedRealtime();
         requestedAt = 0;
         lastBitmapAt = now;
-        CarrotNaverBridge b = bridge;
+        final CarrotNaverBridge b = bridge;
         if (b == null || source == null || source.isRecycled()) {
             return;
         }
         try {
-            Bitmap out = fitCenterCrop(source, WIDTH, HEIGHT);
-            if (sent == 0) {
+            final Bitmap out = fitCenterCrop(source, WIDTH, HEIGHT);
+            if (snapshots == 1 || sent == 0) {
                 CarrotHudLog.log(TAG, "first snapshot " + source.getWidth() + "x" + source.getHeight());
             }
-            sent++;
-            b.sendBitmap(out); // JPEG-encodes at the live quality setting and recycles.
+            workerHandler().post(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        b.sendBitmap(out); // JPEG-encodes at the live quality setting and recycles.
+                        sent++;
+                    } catch (Throwable t) {
+                        CarrotHudLog.log(TAG, "sendBitmap failed: " + t);
+                    }
+                }
+            });
         } catch (Throwable t) {
             CarrotHudLog.log(TAG, "snapshot handling failed: " + t);
         }
+    }
+
+    private static Handler workerHandler() {
+        Handler h = worker;
+        if (h == null) {
+            android.os.HandlerThread thread = new android.os.HandlerThread("carrot-map-snapshot-send");
+            thread.start();
+            h = new Handler(thread.getLooper());
+            worker = h;
+        }
+        return h;
     }
 
     static Bitmap fitCenterCrop(Bitmap src, int width, int height) {

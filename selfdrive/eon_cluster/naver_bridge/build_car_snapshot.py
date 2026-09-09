@@ -1,4 +1,4 @@
-"""HUD14: map_main from NaverMap.takeSnapshot over TMAP-style binary WebSocket.
+"""HUD13: map_main from the Android Auto NaverMap via the SDK's own takeSnapshot.
 
 Input: verified HUD11 APKS. Output: unsigned base APK where exactly two entries
 change:
@@ -42,38 +42,21 @@ def patch_bridge(text):
   if not locals_match or int(locals_match[1]) < 1:
     raise ValueError("Unexpected captureMap registers")
   body = body[:locals_match.end()] + BRIDGE_HOOK + body[locals_match.end():]
-  text = text[:start] + body + text[end:]
-  start = text.index(".method sendBitmap(Ljava/lang/Object;)V")
-  end = text.index(".end method", start) + len(".end method")
-  binary_encoder = """.method sendBitmap(Ljava/lang/Object;)V
-    .locals 1
-
-    invoke-static {p0, p1}, Lcom/naver/map/carrot/CarrotMapBinary;->send(Lcom/naver/map/carrot/CarrotNaverBridge;Ljava/lang/Object;)Z
-
-    move-result v0
-
-    return-void
-.end method"""
-  return text[:start] + binary_encoder + text[end:]
+  return text[:start] + body + text[end:]
 
 
-def patch_websocket(text):
-  """Add a byte[] overload of Ws.send using binary opcode 0x82."""
-  start = text.index(".method declared-synchronized send(Ljava/lang/String;)Z")
-  end = text.index(".end method", start) + len(".end method")
-  binary = text[start:end]
-  binary = binary.replace("send(Ljava/lang/String;)Z", "send([B)Z", 1)
-  utf8 = """    sget-object v0, Ljava/nio/charset/StandardCharsets;->UTF_8:Ljava/nio/charset/Charset;
-
-    invoke-virtual {p1, v0}, Ljava/lang/String;->getBytes(Ljava/nio/charset/Charset;)[B
-
-    move-result-object p1
-
-"""
-  if utf8 not in binary or "const/16 v3, 0x81" not in binary:
-    raise ValueError("Unexpected WebSocket send ABI")
-  binary = binary.replace(utf8, "", 1).replace("const/16 v3, 0x81", "const/16 v3, 0x82", 1)
-  return text[:end] + "\n\n" + binary + text[end:]
+def patch_set_activity(text):
+  start = text.index(".method public static setActivity(Ljava/lang/Object;)V")
+  end = text.index(".end method", start)
+  body = text[start:end]
+  if "registerActivity" in body:
+    raise ValueError("setActivity already patched")
+  locals_match = re.search(r"\.locals (\d+)", body)
+  if not locals_match:
+    raise ValueError("Unexpected setActivity")
+  hook = "\n\n    invoke-static {p0}, Lcom/naver/map/carrot/CarrotCarMapSnapshot;->registerActivity(Ljava/lang/Object;)V"
+  body = body[:locals_match.end()] + hook + body[locals_match.end():]
+  return text[:start] + body + text[end:]
 
 
 def patch_provider(text):
@@ -134,8 +117,7 @@ def main():
   classes = work / "classes"
   classes.mkdir()
   subprocess.run([str(javac), "--release", "8", "-encoding", "UTF-8", "-cp", str(android), "-d", str(classes),
-                  str(stub), str(here / "CarrotCarMapSnapshot.java"), str(here / "CarrotMapBinary.java"),
-                  str(here / "CarrotHudLog.java")], check=True)
+                  str(stub), str(here / "CarrotCarMapSnapshot.java"), str(here / "CarrotHudLog.java")], check=True)
   with zipfile.ZipFile(work / "new.jar", "w") as jar:
     for item in classes.rglob("*.class"):
       if item.name != "CarrotNaverBridge.class":
@@ -150,9 +132,7 @@ def main():
   for item in (new / "smali" / PACKAGE).glob("Carrot*.smali"):
     shutil.copyfile(item, bridge / "smali" / PACKAGE / item.name)
   bridge_smali = bridge / "smali" / PACKAGE / "CarrotNaverBridge.smali"
-  bridge_smali.write_text(patch_bridge(bridge_smali.read_text(encoding="utf-8")), encoding="utf-8")
-  ws_smali = bridge / "smali" / PACKAGE / "CarrotNaverBridge$Ws.smali"
-  ws_smali.write_text(patch_websocket(ws_smali.read_text(encoding="utf-8")), encoding="utf-8")
+  bridge_smali.write_text(patch_set_activity(patch_bridge(bridge_smali.read_text(encoding="utf-8"))), encoding="utf-8")
   provider_smali = provider / "smali/com/naver/map/core/auto/map/MapProvider.smali"
   provider_smali.write_text(patch_provider(provider_smali.read_text(encoding="utf-8")), encoding="utf-8")
   replacement = {"classes43.dex": build(java, args.apktool, work, "bridge"),
