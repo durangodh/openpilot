@@ -4237,13 +4237,6 @@ public final class HudService extends Service {
             c.drawRect(scratchIRect, p);
         }
 
-        // Keep the current-position symbol unmistakable over both the native
-        // day map and our night mask: blue halo with the classic white-edged
-        // red navigation pointer shown in the user's reference display.
-        if (mapAvailable) {
-            drawTmapVehicleMarker(c, p, mapCenterX(), HEIGHT * 0.64f);
-        }
-
         // Navigation JSON is independent of map capture. In particular, NAVER
         // clears map_main while its Activity changes orientation or surfaces.
         // Keep valid guidance/ETA visible on the waiting background; their
@@ -4300,37 +4293,6 @@ public final class HudService extends Service {
         c.drawRoundRect(scratchRect, 10f, 10f, p);
         text(c, p, NavSelectionProtocol.appLabel(s.optInt("hudNavApp", 1)),
                 right - width * 0.5f, top + 34f, 25f, Color.WHITE, Paint.Align.CENTER);
-    }
-
-    private void drawTmapVehicleMarker(Canvas c, Paint p, float cx, float cy) {
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(58, 29, 139, 255));
-        c.drawCircle(cx, cy, 39f, p);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(6f);
-        p.setColor(Color.argb(220, 35, 145, 255));
-        c.drawCircle(cx, cy, 32f, p);
-
-        scratchPath.rewind();
-        scratchPath.moveTo(cx, cy - 29f);
-        scratchPath.lineTo(cx - 23f, cy + 24f);
-        scratchPath.lineTo(cx, cy + 14f);
-        scratchPath.lineTo(cx + 23f, cy + 24f);
-        scratchPath.close();
-        p.setStrokeJoin(Paint.Join.ROUND);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.rgb(218, 35, 62));
-        c.drawPath(scratchPath, p);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(4f);
-        p.setColor(Color.WHITE);
-        c.drawPath(scratchPath, p);
-
-        p.setStrokeJoin(Paint.Join.MITER);
-        p.setStrokeWidth(1f);
-        p.setStyle(Paint.Style.FILL);
-        p.setAlpha(255);
     }
 
     /**
