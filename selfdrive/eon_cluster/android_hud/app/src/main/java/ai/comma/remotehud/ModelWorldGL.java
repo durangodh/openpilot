@@ -377,9 +377,8 @@ final class ModelWorldGL {
 
         int sky = dark ? blend(driveBg, Color.BLACK, 0.35f)
                 : blend(driveBg, Color.WHITE, 0.35f);
-        // 비전 차량 접지감을 위해 지평선 아래를 더 어둡게(아스팔트 톤) 깐다.
-        int ground = dark ? blend(driveBg, Color.BLACK, 0.35f)
-                : blend(driveBg, Color.BLACK, 0.22f);
+        int ground = dark ? blend(driveBg, Color.BLACK, 0.15f)
+                : blend(driveBg, Color.BLACK, 0.10f);
         drawRect(0f, 0f, WIDTH, Math.max(0f, HORIZON + horizonShift - TOP), sky);
         drawRect(0f, Math.max(0f, HORIZON + horizonShift - TOP), WIDTH, HEIGHT, ground);
 
