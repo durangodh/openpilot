@@ -30,12 +30,14 @@ import java.lang.reflect.Proxy;
  */
 public final class CarrotCarMapSnapshot {
     private static final String TAG = "CarrotCarMapSnapshot";
-    static final int WIDTH = 960;
-    static final int HEIGHT = 576;
+    static final int WIDTH = 640;   // TMAP map_main size (was 960x576 in HUD13)
+    static final int HEIGHT = 384;
     private static final long SNAPSHOT_TIMEOUT_MS = 3000;
     /** No callback for this long -> the AA renderer is gone; release map_main. */
     private static final long DEAD_AFTER_MS = 12000;
     private static final long STATUS_LOG_MS = 5000;
+    /** TMAP's map_main JPEG quality. The EON NHUD1 quality relay was removed in g_hud 9475e5c. */
+    private static final int JPEG_QUALITY = 65;
 
     private static volatile Object provider;
     private static volatile Object naverMap;
@@ -91,7 +93,7 @@ public final class CarrotCarMapSnapshot {
         if (map == null) {
             if (lastIdleLogAt == 0 || now - lastIdleLogAt >= 60000) {
                 lastIdleLogAt = now;
-                CarrotHudLog.log(TAG, "HUD13.2 bridge polling, no NaverMap yet (provider=" + (p != null)
+                CarrotHudLog.log(TAG, "HUD13.3 bridge polling, no NaverMap yet (provider=" + (p != null)
                         + ", activity=" + (activityObject() != null) + ") -> phone capture path");
             }
             return false;
@@ -350,7 +352,7 @@ public final class CarrotCarMapSnapshot {
                 @Override
                 public void run() {
                     try {
-                        b.sendBitmap(out); // JPEG-encodes at the live quality setting and recycles.
+                        sendJpeg(b, out);
                         sent++;
                     } catch (Throwable t) {
                         CarrotHudLog.log(TAG, "sendBitmap failed: " + t);
@@ -361,6 +363,36 @@ public final class CarrotCarMapSnapshot {
             CarrotHudLog.log(TAG, "snapshot handling failed: " + t);
         }
     }
+
+    /**
+     * Worker thread. Same JSON item_update the bridge's sendBitmap() produces, but
+     * at TMAP's JPEG quality instead of the bridge's fixed 90.
+     */
+    private static void sendJpeg(CarrotNaverBridge b, Bitmap bitmap) throws Exception {
+        java.io.ByteArrayOutputStream stream = new java.io.ByteArrayOutputStream(64 * 1024);
+        try {
+            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, stream)) {
+                throw new IllegalStateException("JPEG compress failed");
+            }
+        } finally {
+            bitmap.recycle();
+        }
+        byte[] jpeg = stream.toByteArray();
+        String value = "{\"format\":\"jpeg\",\"width\":" + WIDTH + ",\"height\":" + HEIGHT
+                + ",\"data\":\"" + android.util.Base64.encodeToString(jpeg, android.util.Base64.NO_WRAP) + "\"}";
+        Method send = bridgeSend;
+        if (send == null) {
+            send = CarrotNaverBridge.class.getDeclaredMethod("send", String.class, String.class);
+            send.setAccessible(true);
+            bridgeSend = send;
+        }
+        send.invoke(b, "map_main", value);
+        if (sent == 0) {
+            CarrotHudLog.log(TAG, "first map_main sent " + jpeg.length + " bytes q" + JPEG_QUALITY);
+        }
+    }
+
+    private static volatile Method bridgeSend;
 
     private static Handler workerHandler() {
         Handler h = worker;

@@ -101,3 +101,13 @@ the socket there, Android threw `NetworkOnMainThreadException`, and the
 bridge's catch-all swallowed it. HUD13.2 crops on the main thread and hands
 the bitmap to a `HandlerThread` for JPEG encode + send; `sent` now counts
 completed sends and failures log `sendBitmap failed`.
+
+## HUD13.3: TMAP-sized frames and EON CPU
+
+With the map finally flowing, EON CPU was far above TMAP's. Per frame Naver
+sent 960x576 at JPEG quality 90 as Base64 JSON (300-400 KB) and
+`carrot_navi_server.recv_frame` unmasked it with a per-byte Python loop.
+HUD13.3 sends 640x384 like TMAP at JPEG quality 65 (encoded in
+`CarrotCarMapSnapshot.sendJpeg`, since the NHUD1 quality relay was removed in
+9475e5c), and EON `recv_frame` unmasks with numpy (int fallback). Apparent map
+size on the HUD is unchanged.

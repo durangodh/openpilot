@@ -12,6 +12,11 @@ import uuid
 
 from common.params import Params
 
+try:
+  import numpy as np
+except ImportError:  # pragma: no cover
+  np = None
+
 
 PORT = 7714
 DISCOVERY_PORT = 7705
@@ -539,8 +544,23 @@ def recv_frame(sock):
   mask = recv_exact(sock, 4) if second & 0x80 else None
   payload = recv_exact(sock, length)
   if mask:
-    payload = bytes(bytearray(v ^ mask[i % 4] for i, v in enumerate(bytearray(payload))))
+    payload = unmask(payload, mask)
   return opcode, payload
+
+
+def unmask(payload, mask):
+  # Naver map frames are large per message; the per-byte Python loop that used
+  # to live here cost hundreds of ms of EON CPU per frame. Vector XOR instead.
+  n = len(payload)
+  if n == 0:
+    return payload
+  if np is not None and n >= 4096:
+    data = np.frombuffer(payload, dtype=np.uint8)
+    key = np.frombuffer(bytes(mask) * (n // 4 + 1), dtype=np.uint8)[:n]
+    return (data ^ key).tobytes()
+  full = int.from_bytes(payload, "little")
+  key = int.from_bytes((bytes(mask) * (n // 4 + 1))[:n], "little")
+  return (full ^ key).to_bytes(n, "little")
 
 
 def send_frame(sock, payload, opcode=1):
