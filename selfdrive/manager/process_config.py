@@ -35,12 +35,6 @@ procs = [
   # External HUD output is S9-only. EON publishes compact telemetry/native
   # TMAP assets plus live S9 render tuning; Android renders/JPEG-encodes/USB.
   PythonProcess("remote_hud", "selfdrive.eon_cluster.remote_hud_s9", enabled=EON, persistent=True),
-  # Optional low-rate road preview.  EON only resizes/JPEG-encodes; the bundled
-  # TFLite detector runs on the S9 and remains display-only.
-  PythonProcess("hud_camera_previewd", "selfdrive.eon_cluster.camera_preview", enabled=EON),
-  # Legacy SNPE/DLC detector is retained in source for reference, but is not
-  # started by the manager now that phone-side TFLite is the supported path.
-  NativeProcess("vehicle_detectord", "selfdrive/modeld", ["./vehicle_detectord"], enabled=False),
   PythonProcess("controlsd", "selfdrive.controls.controlsd"),
   # loggerd 가 꺼져 있어 지울 로그가 없다.
   PythonProcess("deleter", "selfdrive.loggerd.deleter", enabled=False, persistent=True),

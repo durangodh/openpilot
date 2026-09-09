@@ -1,45 +1,11 @@
 # Android remote HUD (experimental)
 
-## Vision vehicle overlays
+## Lead display
 
-The HUD distinguishes an unmatched camera lead (`VISION`, blue) from a
-radar-backed lead (`RADAR`, orange). It also draws every distinct current
-candidate exposed by `modelV2.leadsV3`. These candidates are display-only and
-never enter RadarD, longitudinal control, or FCW decisions.
-
-`leadsV3` is a small set of time-offset lead hypotheses, not a full object
-detector. The supported full-image path therefore sends a rate-limited
-320x240 road preview to the S9, where the APK-bundled MobileNetV1 TFLite model
-detects COCO car/truck/bus/motorcycle/bicycle/person classes. No DLC, SNPE SDK, or
-user-supplied model file is required.
-
-`leadOne` and `leadTwo` keep the normal vehicle sprite. Each distinct unmatched
-`leadsV3` candidate remains a blue box because the openpilot lead hypotheses do
-not carry an object class. Phone TFLite detections retain their COCO class and
-are drawn as neutral 3D-style car, truck, bus, motorcycle, or bicycle
-or pedestrian silhouettes with a blue camera-only ground highlight. Candidates near a tracked
-lead are suppressed to avoid drawing the same vehicle twice. All detector data
-stays inside the S9 renderer and is never sent back to EON controls.
-
-```json
-{
-  "updated_at_ms": 1730000000000,
-  "objects": [
-    {"d": 24.8, "y": -3.1, "p": 0.92, "type": "truck"},
-    {"d": 41.2, "y": 3.5, "p": 0.81, "type": "motorcycle"}
-  ]
-}
-```
-
-`d` is forward distance in metres from the car, `y` is left-positive lateral
-offset in metres, `p` is detector confidence, and phone-local `type` selects the
-display silhouette. Phone detections use the
-bottom centre of each box plus EON live calibration to project onto the road.
-The app accepts at most 24 objects, rejects the configured confidence threshold,
-drops stale results after 1.2 seconds, pauses inference at 82 C, and resumes at
-78 C. The preview/detector rate is limited to 1 to 3 FPS. This is display-only
-and is not physical radar: hills, dips, crests, partial occlusion, calibration
-error, and poor light can make the estimated position wrong or miss vehicles.
+The HUD displays the existing `radarState.leadOne` and `leadTwo` outputs.
+Camera-model leads (`VISION`, blue) and radar-backed leads (`RADAR`, orange)
+retain their normal vehicle sprites. No additional vehicle detector or road
+camera preview runs on the EON or S9.
 
 > **v1.06 local map context** — `ModelWorldGL` keeps the modelV2 road
 > authoritative and draws an optional S9-local SQLite road/building layer

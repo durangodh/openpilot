@@ -1192,18 +1192,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "EonClusterHud", "S9 EXTERNAL HUD",
       "EON 주행 데이터를 S9 앱으로 전송합니다. 아래 출력 대상에서 외부 HUD와 S9 화면을 선택할 수 있습니다.",
       "../assets/offroad/icon_road.png", this));
-  toggleLayout->addWidget(new ParamControl(
-      "EonClusterHudVisionDetector", "S9 HUD CAMERA VEHICLES (TFLITE)",
-      "EON 카메라의 저해상도 영상을 S9 내장 TFLite 모델로 검출해 여러 차량을 박스로만 표시합니다. 별도 DLC나 Qualcomm SDK가 필요 없으며 조향·가감속에는 사용하지 않습니다.",
-      "../assets/offroad/icon_road.png", this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudVisionDetectorFps", "S9 VEHICLE DETECTOR FPS",
-      "S9 CPU 차량 검출 빈도입니다. 권장 2 / 발열 최소 1 / 최대 2. HUD FPS와 별개이며 S9 82°C 이상에서는 자동 일시정지합니다.",
-      "../assets/offroad/icon_road.png", 1, 2, 1, 0, 2, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudVisionDetectorThreshold", "S9 VEHICLE CONFIDENCE (%)",
-      "차량 검출 신뢰도 하한입니다. 권장 55 / 오검출이 많으면 높이고 누락이 많으면 낮추십시오.",
-      "../assets/offroad/icon_road.png", 30, 90, 5, 0, 55, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudFps", "S9 HUD FPS",
       "EON 주행정보 송신과 S9 렌더링 속도입니다. 권장값 7 / 0은 화면 정지(연결유지 2Hz) / 10 초과는 EON 송신 10Hz 상한.",

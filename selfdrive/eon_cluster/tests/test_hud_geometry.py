@@ -12,10 +12,8 @@ class TestHudGeometry(unittest.TestCase):
             "edges": [{"p": [[10, -5], [30, -7]], "c": 0.8}],
             "pathOffset": -0.2,
             "lead": {"d": 30, "y": 3}, "lead2": {"d": 35, "y": -3},
-            "visionObjects": [{"d": 30, "y": 3, "src": "M"}],
-            "phoneVisionObjects": [{"d": 30, "y": 3, "vy": 0.5, "src": "P"}],
             "navi": {"scene": {"curve": [[10, 1], [30, 3]]}},
-            "mapPose": [37, 127, 0], "cameraGround": {"m": list(range(9))}}
+            "mapPose": [37, 127, 0]}
 
   def test_sources_share_left_axis_and_preserve_other_fields(self):
     raw = self.scene()
@@ -24,8 +22,8 @@ class TestHudGeometry(unittest.TestCase):
     self.assertEqual(packet["lanes"], [{"p": [[10, 2], [30, 4]], "c": 0.9}])
     self.assertEqual(packet["edges"], [{"p": [[10, 5], [30, 7]], "c": 0.8}])
     self.assertEqual(packet["pathOffset"], 0.2)
-    for key in ("lead", "lead2", "visionObjects", "phoneVisionObjects",
-                "navi", "mapPose", "cameraGround"):
+    for key in ("lead", "lead2",
+                "navi", "mapPose"):
       self.assertEqual(packet[key], raw[key])
 
   def test_flip_changes_only_display_flag_and_is_reversible(self):

@@ -59,9 +59,6 @@ def test_s9_hud_params_are_exposed_in_settings():
   settings = (UI_DIR / "offroad" / "settings.cc").read_text(encoding="utf-8")
   exposed = (
       "EonClusterHud",
-      "EonClusterHudVisionDetector",
-      "EonClusterHudVisionDetectorFps",
-      "EonClusterHudVisionDetectorThreshold",
       "EonClusterHudFps",
       "EonClusterHudMapFps",
       "EonClusterHudBrightness",
@@ -354,108 +351,6 @@ def test_primary_lead_source_and_distance_share_one_day_night_label():
   assert "leadSpriteValid[index]" in renderer
   assert "Color.rgb(255, 175, 3)" in renderer
   assert "Color.rgb(0, 82, 255)" in renderer
-
-
-def test_remote_hud_displays_vision_candidates_without_control_feedback():
-  remote = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(encoding="utf-8")
-  wrapper = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud_s9.py").read_text(encoding="utf-8")
-  renderer = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
-              "main" / "java" / "ai" / "comma" / "remotehud" /
-              "ModelWorldGL.java").read_text(encoding="utf-8")
-  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
-             "main" / "java" / "ai" / "comma" / "remotehud" /
-             "HudService.java").read_text(encoding="utf-8")
-
-  assert 'VISION_OBJECTS_FILE = "/dev/shm/vision_vehicle_objects.json"' in remote
-  assert '"visionObjects": _vision_objects(sm["modelV2"])' in remote
-  assert '"src": "R" if bool(_field(lead, "radar", False)) else "V"' in remote
-  assert "normalize_geometry(packet," in wrapper
-  assert 'drawVisionObjects(scene.optJSONArray("visionObjects")' in renderer
-  assert "nearTrackedLead(scene.optJSONObject(\"lead\")" in renderer
-  assert "Math.min(objects.length(), 40)" in renderer
-  assert "visionSprite" not in renderer
-  assert "modelWorldGl.visionSprite" not in service
-  assert "leadSpriteVision(int index)" in renderer
-  assert "nearVisionObject(suppress, distance, lateral)" in renderer
-  assert '"VISION %.0f%%"' in service
-  assert '"RADAR"' in service
-  assert '"SCC/RADAR"' not in service
-  assert "visionLeadTint" in service
-  # The new wire is consumed only by the HUD renderer, never RadarD/planner.
-  assert "visionObjects" not in (ROOT / "selfdrive" / "controls" / "radard.py").read_text(encoding="utf-8")
-
-
-def test_phone_vehicle_detector_is_bundled_rate_limited_and_display_only():
-  manager = (ROOT / "selfdrive" / "manager" / "manager.py").read_text(encoding="utf-8")
-  processes = (ROOT / "selfdrive" / "manager" / "process_config.py").read_text(encoding="utf-8")
-  params = (ROOT / "selfdrive" / "common" / "params.cc").read_text(encoding="utf-8")
-  preview = (ROOT / "selfdrive" / "eon_cluster" / "camera_preview.py").read_text(encoding="utf-8")
-  sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(encoding="utf-8")
-  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
-             "main" / "java" / "ai" / "comma" / "remotehud" /
-             "HudService.java").read_text(encoding="utf-8")
-  phone = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
-           "main" / "java" / "ai" / "comma" / "remotehud" /
-           "PhoneVehicleDetector.java").read_text(encoding="utf-8")
-  renderer = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
-              "main" / "java" / "ai" / "comma" / "remotehud" /
-              "ModelWorldGL.java").read_text(encoding="utf-8")
-  gradle = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" /
-            "build.gradle").read_text(encoding="utf-8")
-
-  assert 'PythonProcess("hud_camera_previewd", "selfdrive.eon_cluster.camera_preview", enabled=EON)' in processes
-  assert 'NativeProcess("vehicle_detectord", "selfdrive/modeld", ["./vehicle_detectord"], enabled=False)' in processes
-  for key, default in (("EonClusterHudVisionDetector", "0"),
-                       ("EonClusterHudVisionDetectorFps", "3"),
-                       ("EonClusterHudVisionDetectorThreshold", "40")):
-    assert '("%s", "%s")' % (key, default) in manager
-    assert '{"%s", PERSISTENT}' % key in params
-  assert '("EonClusterHudPathFlip", "0")' in manager
-  assert 'params.get("EonClusterHudPathFlipV2Migrated") is None' not in manager
-  assert '{"EonClusterHudPathFlipV2Migrated", PERSISTENT}' in params
-  assert 'PREVIEW_SIZE = (320, 240)' in preview
-  assert 'return max(1, min(3, value))' in preview
-  assert 'os.nice(10)' in preview
-  assert '(b"CAM1", CAMERA_PREVIEW_FILE' in sender
-  assert '"cameraGround": _camera_ground(sm["liveCalibration"])' in sender
-  assert 'tagEquals(header, "CAM1")' in service
-  assert "Process.THREAD_PRIORITY_BACKGROUND" in service
-  assert "s9TempC >= 82f" in service and "s9TempC <= 78f" in service
-  assert 'object.put("src","P")' in phone
-  assert "FADE_HOLD_MS = 450L" in (ROOT / "selfdrive" / "eon_cluster" /
-          "android_hud" / "app" / "src" / "main" / "java" / "ai" /
-          "comma" / "remotehud" / "CameraVehicleTracker.java").read_text(encoding="utf-8")
-  assert "trackedOutput(observations, frameTime)" in phone
-  assert "b.d=best.box.d*0.28+b.d*0.72" in (ROOT / "selfdrive" / "eon_cluster" /
-          "android_hud" / "app" / "src" / "main" / "java" / "ai" /
-          "comma" / "remotehud" / "CameraVehicleTracker.java").read_text(encoding="utf-8")
-  assert '"hudPathFlip"' not in phone
-  assert 'object.put("type",t.box.type)' in phone
-  assert "CameraVehicleTracker.detectionThreshold(vehicleType, threshold)" in phone
-  assert "CameraVehicleTracker.plausiblePersonBox(widthRatio, heightRatio)" in phone
-  assert "VISION_ICON_SCALE = 0.68f" in renderer
-  assert "PERSON_ICON_SCALE = 0.65f" in renderer
-  for vehicle_type in ("car", "truck", "bus", "motorcycle", "bicycle", "person"):
-    assert '"%s"' % vehicle_type in phone
-    assert '"%s"' % vehicle_type in renderer
-  assert "drawVisionVehicleIcon" in renderer
-  assert "drawTruckIcon" in renderer
-  assert "drawBusIcon" in renderer
-  assert "drawTwoWheelerIcon" in renderer
-  assert "drawFsdCarIcon" in renderer
-  assert "drawScreenDisc" in renderer
-  assert 'scene.optInt("hudPathFlip", 0)' in renderer
-  assert "minimumObjectWidth" in renderer
-  assert "CAMERA_TO_BUMPER_M = 1.52f" in phone
-  assert "mapHeading + headingError * 0.22" in renderer
-  assert "Math.min(0.28, 12.0 / Math.max(1.0, jump))" in renderer
-  assert 'context, "mobilenetv1.tflite", options' in phone
-  assert 'tensorflow-lite-task-vision:0.4.0' in gradle
-  model = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" /
-           "src" / "main" / "assets" / "mobilenetv1.tflite")
-  assert model.exists() and model.stat().st_size == 4185175
-  # Legacy DLC is not started and no DLC is bundled.
-  assert not (ROOT / "models" / "vehicle_detector.dlc").exists()
 
 
 def test_c2_s9_status_card_restores_the_bottom_left_slot():

@@ -15,10 +15,8 @@ import struct
 import time
 
 import cereal.messaging as messaging
-import numpy as np
 from common.params import Params
 from selfdrive.eon_cluster.nav_selection import NavSelectionSync
-from common.transformations.camera import FULL_FRAME_SIZE, fcam_intrinsics
 
 
 from selfdrive.modeld.constants import T_IDXS
@@ -33,20 +31,9 @@ TBT_COMPACT_FILE = "/dev/shm/carrot_navi_tbt_current_compact.png"
 CROSSROAD_FILE = "/dev/shm/carrot_navi_crossroad.png"
 TBT_NEXT_FILE = "/dev/shm/carrot_navi_tbt_next.png"
 LANE_BOTTOM_FILE = "/dev/shm/carrot_navi_lane_bottom.png"
-CAMERA_PREVIEW_FILE = "/dev/shm/eon_hud_camera.jpg"
 NAVI_STATE = "/dev/shm/carrot_navi_route.json"
-# Optional output of a separate full-frame vehicle detector.  The stock
-# supercombo model only exposes lead hypotheses; it does not expose every
-# vehicle in the image.  A detector can publish display-only ground-plane
-# objects here without touching controls or radar fusion.
-VISION_OBJECTS_FILE = "/dev/shm/vision_vehicle_objects.json"
-# Default detector cadence is 2 Hz. Allow one frame plus scheduling jitter,
-# while still failing closed in under a second if the producer stops.
-VISION_OBJECTS_MAX_AGE_MS = 900
-VISION_OBJECTS_MAX_COUNT = 24
 MAP_MAX_BYTES = 2 * 1024 * 1024
 OVERLAY_MAX_BYTES = 512 * 1024
-CAMERA_PREVIEW_MAX_BYTES = 256 * 1024
 MAP_KEEPALIVE_S = 1.0
 NAVI_MAX_AGE_MS = 35000
 NAVI_GUIDANCE_MAX_AGE_MS = 3000
@@ -65,8 +52,6 @@ PARAM_MAP_FPS = "EonClusterHudMapFps"
 HEARTBEAT_PERIOD_S = 2.0
 PARAM_NOO_ENABLED = "NavigationOnOpenpilot"
 _NAVI_CACHE = {"signature": None, "state": {}, "scene_sig": None, "scene": None, "parsed_at": 0.0}
-_VISION_OBJECTS_CACHE = {"signature": None, "objects": []}
-_CAMERA_GROUND_CACHE = {"signature": None, "value": None}
 
 # 날씨 조회용 마지막 좌표. 3초 신선도(NAVI_STREAM_MAX_AGE_MS)를 적용하지 않는다.
 # 날씨는 15분 주기라 몇 분 지난 좌표여도 무의미한 차이다. 정밀 GPS 는 여전히
@@ -151,7 +136,6 @@ class MapFrameServer(object):
     (b"TBT3", TBT_COMPACT_FILE, OVERLAY_MAX_BYTES, b""),
     (b"XRD1", CROSSROAD_FILE, OVERLAY_MAX_BYTES, b""),
     (b"LANE", LANE_BOTTOM_FILE, OVERLAY_MAX_BYTES, b""),
-    (b"CAM1", CAMERA_PREVIEW_FILE, CAMERA_PREVIEW_MAX_BYTES, b""),
   )
 
   def __init__(self):
@@ -363,44 +347,6 @@ def _calib_pitch(live_calibration):
   return round(max(-0.15, min(0.15, pitch)), 4)
 
 
-def _camera_ground(live_calibration):
-  """Pixel-to-road homography for phone-side display-only detections.
-
-  The detector sees the 320x240 resize, then scales its box bottom-centre back
-  to the original road-camera coordinates before applying this matrix.
-  """
-  values = list(_field(live_calibration, "extrinsicMatrix", []) or [])
-  if len(values) != 12:
-    return None
-  try:
-    signature = tuple(round(float(value), 7) for value in values)
-  except (TypeError, ValueError):
-    return None
-  if signature == _CAMERA_GROUND_CACHE["signature"]:
-    return _CAMERA_GROUND_CACHE["value"]
-  result = None
-  try:
-    extrinsic = np.asarray(signature, dtype=np.float64).reshape((3, 4))
-    projection = np.dot(fcam_intrinsics, extrinsic)
-    pixel_from_road = np.column_stack((projection[:, 0],
-                                       projection[:, 1],
-                                       projection[:, 3]))
-    determinant = float(np.linalg.det(pixel_from_road))
-    if math.isfinite(determinant) and abs(determinant) >= 1e-6:
-      road_from_pixel = np.linalg.inv(pixel_from_road)
-      if np.isfinite(road_from_pixel).all():
-        result = {
-          "w": int(FULL_FRAME_SIZE[0]),
-          "h": int(FULL_FRAME_SIZE[1]),
-          "m": [round(float(value), 9) for value in road_from_pixel.reshape(-1)],
-        }
-  except (TypeError, ValueError, np.linalg.LinAlgError):
-    result = None
-  _CAMERA_GROUND_CACHE["signature"] = signature
-  _CAMERA_GROUND_CACHE["value"] = result
-  return result
-
-
 def _remote_output_enabled(params):
   return params.get_bool(PARAM_ENABLED)
 
@@ -555,99 +501,6 @@ def _lead(radar_state, name):
     "src": "R" if bool(_field(lead, "radar", False)) else "V",
     "p": round(max(0.0, min(1.0, _finite(_field(lead, "modelProb", 0.0)))), 2),
   }
-
-
-def _append_vision_object(objects, distance, lateral, probability, source):
-  """Validate and de-duplicate one display-only vehicle candidate."""
-  distance = _finite(distance, -1.0)
-  lateral = _finite(lateral, 99.0)
-  probability = _finite(probability, 0.0)
-  if not (2.0 <= distance <= 180.0 and abs(lateral) <= 15.0 and probability >= 0.30):
-    return
-  candidate = {
-    "d": round(distance, 1),
-    "y": round(lateral, 2),
-    "p": round(min(1.0, probability), 2),
-    "src": source,
-  }
-  for index, current in enumerate(objects):
-    if abs(current["d"] - candidate["d"]) <= 3.0 and abs(current["y"] - candidate["y"]) <= 1.2:
-      # Prefer the full-frame detector over a lead hypothesis, then confidence.
-      if ((candidate["src"] == "D" and current["src"] != "D") or
-          (candidate["src"] == current["src"] and
-           candidate["p"] > current["p"])):
-        objects[index] = candidate
-      return
-  if len(objects) < VISION_OBJECTS_MAX_COUNT:
-    objects.append(candidate)
-
-
-def _model_vision_objects(model):
-  """Return distinct current-position lead candidates exposed by modelV2.
-
-  leadsV3 contains time-offset lead hypotheses, not an object-detection list.
-  We therefore de-duplicate them aggressively and identify them as model lead
-  candidates (M), never as a promise that every visible car was detected.
-  """
-  objects = []
-  for lead in list(_field(model, "leadsV3", []) or []):
-    xs = list(_field(lead, "x", []) or [])
-    ys = list(_field(lead, "y", []) or [])
-    if not xs or not ys:
-      continue
-    # RadarD uses the same camera-to-car longitudinal and lateral conversion.
-    _append_vision_object(objects, _finite(xs[0]) - 1.52, -_finite(ys[0]),
-                          _field(lead, "prob", 0.0), "M")
-  return objects
-
-
-def _detector_vision_objects(now_ms=None):
-  """Read fresh ground-plane detections from an optional detector process.
-
-  Wire format:
-    {"updated_at_ms": <unix ms>,
-     "objects": [{"d": <forward m>, "y": <left m>, "p": <0..1>}, ...]}
-
-  Malformed, stale, future-dated, or absent files result in no objects.  This
-  makes detector installation optional and prevents stale boxes from being
-  left on the HUD when that process stops.
-  """
-  if now_ms is None:
-    now_ms = int(time.time() * 1000)
-  try:
-    stat = os.stat(VISION_OBJECTS_FILE)
-    signature = (getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9)), stat.st_size)
-    if signature != _VISION_OBJECTS_CACHE["signature"]:
-      with open(VISION_OBJECTS_FILE, "r") as state_file:
-        state = json.load(state_file)
-      updated_at_ms = int(state.get("updated_at_ms", 0) or 0)
-      objects = []
-      for item in list(state.get("objects") or [])[:VISION_OBJECTS_MAX_COUNT]:
-        if not isinstance(item, dict):
-          continue
-        _append_vision_object(objects, item.get("d"), item.get("y"),
-                              item.get("p", 0.0), "D")
-      _VISION_OBJECTS_CACHE["signature"] = signature
-      _VISION_OBJECTS_CACHE["objects"] = (updated_at_ms, objects)
-  except (IOError, OSError, TypeError, ValueError, json.JSONDecodeError):
-    _VISION_OBJECTS_CACHE["signature"] = None
-    _VISION_OBJECTS_CACHE["objects"] = []
-    return []
-
-  cached = _VISION_OBJECTS_CACHE.get("objects") or []
-  if not isinstance(cached, tuple) or len(cached) != 2:
-    return []
-  updated_at_ms, objects = cached
-  age_ms = now_ms - updated_at_ms
-  return list(objects) if -100 <= age_ms <= VISION_OBJECTS_MAX_AGE_MS else []
-
-
-def _vision_objects(model):
-  """Merge optional full-frame detections with built-in lead candidates."""
-  objects = []
-  for item in _detector_vision_objects() + _model_vision_objects(model):
-    _append_vision_object(objects, item["d"], item["y"], item["p"], item["src"])
-  return sorted(objects, key=lambda item: item["d"], reverse=True)
 
 
 def _gear_step(car_state):
@@ -1238,7 +1091,6 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "pitch": round(_finite(_first(_field(_field(sm["modelV2"], "orientation", None), "y", []))), 4),
     "calibPitch": _calib_pitch(sm["liveCalibration"]),
     # Display-only camera projection consumed by the S9 TFLite detector.
-    "cameraGround": _camera_ground(sm["liveCalibration"]),
     # 정지선까지 거리(m). None 이면 앱이 안 그린다.
     "stopDist": _stop_point(sm["longitudinalPlan"]),
     # 모델이 추정한 자기 차로 폭(m). 앱의 폴백 도로폭 계산에 쓴다.
@@ -1257,7 +1109,6 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "lead": _lead(sm["radarState"], "leadOne"),
     "lead2": _lead(sm["radarState"], "leadTwo"),
     # UI only: controls continue to consume radarState exactly as before.
-    "visionObjects": _vision_objects(sm["modelV2"]),
   }
 
 

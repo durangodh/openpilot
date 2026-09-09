@@ -1,6 +1,6 @@
 """S9 HUD wire geometry: forward X, left-positive Y, original model Z.
 
-Model/MPC Y is right-positive. Radar, vision objects, cameraGround and map
+Model/MPC Y is right-positive. Radar and map
 geometry already use left-positive Y. Display reflection belongs exclusively
 to the renderer, after comparisons, smoothing and projection.
 """

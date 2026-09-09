@@ -1352,36 +1352,6 @@
    "unit": 1
   },
   {
-   "group": "S9HUD",
-   "name": "EonClusterHudVisionDetector",
-   "title": "S9 HUD CAMERA VEHICLES (TFLITE)",
-   "descr": "EON 저해상도 카메라를 S9 내장 TFLite 모델로 검출해 차량을 박스로만 표시합니다. DLC/Qualcomm SDK가 필요 없고 제어에는 사용하지 않습니다.",
-   "min": 0,
-   "max": 1,
-   "default": 0,
-   "unit": 1
-  },
-  {
-   "group": "S9HUD",
-   "name": "EonClusterHudVisionDetectorFps",
-   "title": "S9 VEHICLE DETECTOR FPS",
-   "descr": "S9 CPU 차량 검출 빈도. 권장 2 / 발열 최소 1 / 최대 2",
-   "min": 1,
-   "max": 2,
-   "default": 2,
-   "unit": 1
-  },
-  {
-   "group": "S9HUD",
-   "name": "EonClusterHudVisionDetectorThreshold",
-   "title": "S9 VEHICLE CONFIDENCE (%)",
-   "descr": "차량 검출 신뢰도 하한. 권장 55",
-   "min": 30,
-   "max": 90,
-   "default": 55,
-   "unit": 5
-  },
-  {
    "group": "화면",
    "name": "ShowPathWidth",
    "title": "PATH WIDTH (cm)",
