@@ -1,6 +1,5 @@
 from common.numpy_fast import mean
 from common.kalman.simple_kalman import KF1D
-from common.filter_simple import StreamingMovingAverage
 
 
 # the longer lead decels, the more likely it will keep decelerating
@@ -109,7 +108,6 @@ class Track():
 class Cluster():
   def __init__(self):
     self.tracks = set()
-    self.aLeadKFilter = StreamingMovingAverage(5)
 
   def add(self, t):
     # add the first track
@@ -182,23 +180,25 @@ class Cluster():
     }
 
   def get_RadarState2(self, model_prob, lead_msg, mixRadarInfo):
-    useVisionMix = False
-    if mixRadarInfo>0 and float(lead_msg.prob) > 0.5 and abs(float(self.aLeadK)) < abs(float(lead_msg.a[0])):
-      useVisionMix = True
-
-    aLeadK = self.aLeadKFilter.process(float(lead_msg.a[0]) if useVisionMix else float(self.aLeadK))
+    # 신규 트랙(레이더 KF 미수렴, aLeadK≈0)에서 비전 감속값을 그대로 쓰고
+    # aLeadTau 0.3으로 고정하면 첫 인식 순간 한 번 툭 제동이 들어간다.
+    # 레이더 우선 + 트랙 안정 후 제한된 비율만 비전으로 보정한다.
+    track_frames = min((t.cnt for t in self.tracks), default=0)
+    aLeadK, _ = blend_radar_vision_accel(
+      float(self.aLeadK), float(lead_msg.a[0]), float(lead_msg.prob), mixRadarInfo,
+      track_frames, float(self.vRel))
     return {
       "dRel": float(self.dRel),
       "yRel": float(self.yRel) if mixRadarInfo == 0 or self.yRel != 0 else float(-lead_msg.y[0]),
       "vRel": float(self.vRel),
       "vLead": float(self.vLead),
       "vLeadK": float(self.vLeadK),
-      "aLeadK": aLeadK,
+      "aLeadK": float(aLeadK),
       "status": True,
       "fcw": self.is_potential_fcw(model_prob),
       "modelProb": model_prob,
       "radar": True,
-      "aLeadTau": 0.3 if useVisionMix else float(self.aLeadTau)
+      "aLeadTau": float(self.aLeadTau)
     }
 
   def get_RadarState_from_vision(self, lead_msg, v_ego, model_v_ego):
