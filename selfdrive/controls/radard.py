@@ -105,7 +105,6 @@ class RadarD():
     self.ready = False
     self.scc_only = bool(scc_only)
     self.mix_radar_info = False
-    self.radar_reaction_factor = 0.7
     self.params = Params()
     self.next_mix_radar_info_read = 0.0
 
@@ -113,9 +112,6 @@ class RadarD():
     now = time.monotonic()
     if now >= self.next_mix_radar_info_read:
       self.mix_radar_info = self.params.get_bool("MixRadarInfo")
-      reaction_raw = self.params.get_int("RadarReactionFactor")
-      self.radar_reaction_factor = clip((reaction_raw if reaction_raw > 0 else 70) * 0.01,
-                                         0.2, 2.0)
       self.next_mix_radar_info_read = now + 1.0
     self.current_time = 1e-9*max(sm.logMonoTime.values())
 

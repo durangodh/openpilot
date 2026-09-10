@@ -193,7 +193,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"Version", PERSISTENT},
     {"VisionRadarToggle", PERSISTENT},
     {"MixRadarInfo", PERSISTENT},
-    {"SccVisionMismatchFallback", PERSISTENT},
     {"LanelessOffset", PERSISTENT},
     {"ApiCache_Device", PERSISTENT},
     {"ApiCache_DriveStats", PERSISTENT},
@@ -326,16 +325,9 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"ComfortBrake", PERSISTENT},              // 접근 감속 기준 (x100, default 250 = 2.50m/s^2)
     {"XEgoObstacleCost", PERSISTENT},          // 차간거리 추종 강도 (x100, default 600 = 6.0)
     {"EnableSpeedTF", PERSISTENT},
-    {"TFollowDecelBoost", PERSISTENT},         // 감속 중 차간시간 추가 비율 (x100, default 30)
-    {"TFollowClosingMargin", PERSISTENT},      // 접근 중 차간시간 선제 마진 비율 (%, default 50, 0=apilot)
     {"LeadDepartCost", PERSISTENT},            // 저속 출발 추종 코스트 배율 (x100, default 20, apilot=5 기존=45)
-    {"RadarReactionFactor", PERSISTENT},       // 레이더 앞차 가속도 지속 예측 비율 (x100, default 70)
-    {"NoLeadCruiseAccelFactor", PERSISTENT},  // 앞차 없을 때 CruiseMax 적용 비율 (x100)
-    {"NoLeadCruiseJerkLimit", PERSISTENT},    // 앞차 없을 때 가속 상승률 (x100 m/s^3)
     {"StartAccelApply", PERSISTENT},
     {"StopAccelApply", PERSISTENT},
-    {"StandstillHoldApply", PERSISTENT},      // 완전정지 유지 제동값 (x100%, default 55)
-    {"StandstillHoldRate", PERSISTENT},       // 완전정지 유지 증가율 (x100, default 120)
     {"SoftHoldMode", PERSISTENT},
     {"TrafficStopMode", PERSISTENT},         // 0: off/ACC, 1: conditional, 2: aPilot conditional
     {"TrafficStopAccel", PERSISTENT},        // traffic-signal deceleration factor, percent

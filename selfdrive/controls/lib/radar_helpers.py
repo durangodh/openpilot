@@ -5,20 +5,6 @@ from common.kalman.simple_kalman import KF1D
 # the longer lead decels, the more likely it will keep decelerating
 # TODO is this a good default?
 _LEAD_ACCEL_TAU = 1.5
-# 이 값보다 작으면 레이더가 앞차 가감속을 아직 판단하지 못한 것으로 본다.
-RADAR_ACCEL_UNDECIDED = 0.1
-
-# Vision acceleration is useful when SCC radar acceleration lags, but replacing
-# the radar value outright can create a brake step when a new/stationary lead is
-# first matched.  Wait for a stable radar track, then blend only a bounded part
-# of the vision correction.  Acceleration gets slightly more assistance so a
-# departing lead is still followed promptly; braking remains radar-dominant.
-VISION_MIX_MIN_TRACK_FRAMES = 5
-VISION_MIX_BRAKE_WEIGHT = 0.20
-VISION_MIX_ACCEL_WEIGHT = 0.30
-VISION_MIX_MAX_ACCEL_DELTA = 1.0
-VISION_MIX_MIN_CLOSING_SPEED = 0.3
-VISION_MIX_MIN_DEPARTURE_SPEED = 0.2
 
 # radar tracks
 SPEED, ACCEL = 0, 1   # Kalman filter states enum
@@ -28,81 +14,6 @@ v_ego_stationary = 4.   # no stationary object flag below this speed
 
 RADAR_TO_CENTER = 2.7   # (deprecated) RADAR is ~ 2.7m ahead from center of car
 RADAR_TO_CAMERA = 1.52   # RADAR is ~ 1.5m ahead from center of mesh frame
-
-
-def blend_radar_vision_accel(radar_accel, vision_accel, model_prob, mix_radar_info,
-                             track_frames, v_rel):
-  """Return a radar-dominant lead acceleration and whether vision was blended.
-
-  New tracks use radar only.  Once the track is stable, vision may add a small,
-  bounded correction when it agrees with radar.  If radar acceleration is not
-  established yet, relative speed must independently confirm the direction.
-  Distance and relative speed themselves always remain radar values.
-  """
-  if not mix_radar_info or model_prob <= 0.5 or track_frames < VISION_MIX_MIN_TRACK_FRAMES:
-    return radar_accel, False
-
-  radar_undecided = abs(radar_accel) < RADAR_ACCEL_UNDECIDED
-  same_direction = radar_accel * vision_accel > 0.0
-  motion_confirms_vision = radar_undecided and (
-    (vision_accel < 0.0 and v_rel < -VISION_MIX_MIN_CLOSING_SPEED) or
-    (vision_accel > 0.0 and v_rel > VISION_MIX_MIN_DEPARTURE_SPEED)
-  )
-  stronger_vision = abs(vision_accel) > abs(radar_accel)
-  if not stronger_vision or not (same_direction or motion_confirms_vision):
-    return radar_accel, False
-
-  accel_delta = max(-VISION_MIX_MAX_ACCEL_DELTA,
-                    min(VISION_MIX_MAX_ACCEL_DELTA, vision_accel - radar_accel))
-  weight = VISION_MIX_BRAKE_WEIGHT if vision_accel < 0.0 else VISION_MIX_ACCEL_WEIGHT
-  return radar_accel + weight * accel_delta, True
-
-class Track():
-  def __init__(self, v_lead, kalman_params):
-    self.cnt = 0
-    self.aLeadTau = _LEAD_ACCEL_TAU
-    self.K_A = kalman_params.A
-    self.K_C = kalman_params.C
-    self.K_K = kalman_params.K
-    self.kf = KF1D([[v_lead], [0.0]], self.K_A, self.K_C, self.K_K)
-    self.vLead = v_lead
-
-  def update(self, d_rel, y_rel, v_rel, v_lead, measured):
-    #apilot: changed radar target
-    if abs(self.vLead - v_lead) > 0.5:
-      self.cnt = 0
-      self.kf = KF1D([[v_lead], [0.0]], self.K_A, self.K_C, self.K_K)
-
-    # relative values, copy
-    self.dRel = d_rel   # LONG_DIST
-    self.yRel = y_rel   # -LAT_DIST
-    self.vRel = v_rel   # REL_SPEED
-    self.vLead = v_lead
-    self.measured = measured   # measured or estimate
-
-    # computed velocity and accelerations
-    if self.cnt > 0:
-      self.kf.update(self.vLead)
-
-    self.vLeadK = float(self.kf.x[SPEED][0])
-    self.aLeadK = float(self.kf.x[ACCEL][0])
-
-    # Learn if constant acceleration
-    if abs(self.aLeadK) < 0.5:
-      self.aLeadTau = _LEAD_ACCEL_TAU
-    else:
-      self.aLeadTau *= 0.9
-
-    self.cnt += 1
-
-  def get_key_for_cluster(self):
-    # Weigh y higher since radar is inaccurate in this dimension
-    return [self.dRel, self.yRel*2, self.vRel]
-
-  def reset_a_lead(self, aLeadK, aLeadTau):
-    self.kf = KF1D([[self.vLead], [aLeadK]], self.K_A, self.K_C, self.K_K)
-    self.aLeadK = aLeadK
-    self.aLeadTau = aLeadTau
 
 
 class Cluster():
@@ -180,13 +91,11 @@ class Cluster():
     }
 
   def get_RadarState2(self, model_prob, lead_msg, mixRadarInfo):
-    # 신규 트랙(레이더 KF 미수렴, aLeadK≈0)에서 비전 감속값을 그대로 쓰고
-    # aLeadTau 0.3으로 고정하면 첫 인식 순간 한 번 툭 제동이 들어간다.
-    # 레이더 우선 + 트랙 안정 후 제한된 비율만 비전으로 보정한다.
-    track_frames = min((t.cnt for t in self.tracks), default=0)
-    aLeadK, _ = blend_radar_vision_accel(
-      float(self.aLeadK), float(lead_msg.a[0]), float(lead_msg.prob), mixRadarInfo,
-      track_frames, float(self.vRel))
+    # apilot-c2 원본: MixRadarInfo 켜짐 + 비전 prob>0.5 + |비전a| > |레이더a| 이면 비전 가속도를 그대로 사용
+    useVisionMix = False
+    if mixRadarInfo > 0 and float(lead_msg.prob) > 0.5 and abs(float(self.aLeadK)) < abs(float(lead_msg.a[0])):
+      useVisionMix = True
+    aLeadK = float(lead_msg.a[0]) if useVisionMix else float(self.aLeadK)
     return {
       "dRel": float(self.dRel),
       "yRel": float(self.yRel) if mixRadarInfo == 0 or self.yRel != 0 else float(-lead_msg.y[0]),
@@ -198,7 +107,7 @@ class Cluster():
       "fcw": self.is_potential_fcw(model_prob),
       "modelProb": model_prob,
       "radar": True,
-      "aLeadTau": float(self.aLeadTau)
+      "aLeadTau": 0.3 if useVisionMix else float(self.aLeadTau)
     }
 
   def get_RadarState_from_vision(self, lead_msg, v_ego, model_v_ego):

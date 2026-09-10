@@ -132,12 +132,6 @@ class CruiseHelper:
     for key, default in zip(CRUISE_MAX_VAL_KEYS, CRUISE_MAX_VAL_DEFAULTS):
       raw = self.params.get_int(key)
       self.cruise_max_vals.append(float(raw * 0.01 if raw > 0 else default))
-    no_lead_factor = self.params.get_int("NoLeadCruiseAccelFactor")
-    no_lead_jerk = self.params.get_int("NoLeadCruiseJerkLimit")
-    self.no_lead_cruise_accel_factor = float(clip(
-      (no_lead_factor if no_lead_factor > 0 else 65) * 0.01, 0.30, 1.0))
-    self.no_lead_cruise_jerk_limit = float(clip(
-      (no_lead_jerk if no_lead_jerk > 0 else 25) * 0.01, 0.05, 1.0))
 
   def read_curve_params(self):
     self.turn_vision_control = self.params.get_bool("TurnVisionControl")

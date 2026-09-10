@@ -15,7 +15,6 @@ from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_sp
 from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_cruise_max_accel,
-                                                        get_no_lead_cruise_accel_cap,
                                                         limit_accel_in_turns)
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.events import Events
@@ -56,7 +55,6 @@ class LongitudinalPlanner:
     self.my_driving_mode = 3
     self.my_eco_mode_factor = 0.8
     self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
-    self.no_lead_cruise_accel_factor = 0.65
 
     self.read_param()
     self.param_read_counter = 1
@@ -120,9 +118,6 @@ class LongitudinalPlanner:
     for key, default in zip(CRUISE_MAX_VAL_KEYS, CRUISE_MAX_VAL_DEFAULTS):
       raw = self.params.get_int(key)
       self.cruise_max_vals.append(float(raw * 0.01 if raw > 0 else default))
-    no_lead_factor = self.params.get_int("NoLeadCruiseAccelFactor")
-    self.no_lead_cruise_accel_factor = float(clip(
-      (no_lead_factor if no_lead_factor > 0 else 65) * 0.01, 0.30, 1.0))
 
     gap_defaults = [110, 120, 140, 160]
     gap_values = []
@@ -132,20 +127,10 @@ class LongitudinalPlanner:
     self.mpc.tfollow_gaps = gap_values
     speed_ratio = self.params.get_int("TFollowSpeedRatio")
     self.mpc.t_follow_speed_ratio = (speed_ratio if speed_ratio >= 100 else 120) * 0.01
-    decel_boost_raw = self.params.get("TFollowDecelBoost", encoding="utf8")
-    try:
-      decel_boost = int(decel_boost_raw) if decel_boost_raw is not None else 30
-    except (TypeError, ValueError):
-      decel_boost = 30
-    self.mpc.t_follow_decel_boost = float(clip(decel_boost * 0.01, 0.0, 1.0))
+    # apilot-c2 저속 출발 코스트 배율은 0.05 고정. LeadDepartCost=5 가 apilot-c2 와 동일.
+    # (TFollowDecelBoost / TFollowClosingMargin 은 apilot-c2 에 없는 항목이라 더 이상 읽지 않음)
     depart_cost = self.params.get_int("LeadDepartCost")
-    self.mpc.lead_depart_cost = float(clip((depart_cost if depart_cost > 0 else 20) * 0.01, 0.05, 1.0))
-    closing_raw = self.params.get("TFollowClosingMargin", encoding="utf8")
-    try:
-      closing_ratio = int(closing_raw) if closing_raw is not None else 50
-    except (TypeError, ValueError):
-      closing_ratio = 50
-    self.mpc.t_follow_closing_ratio = float(clip(closing_ratio * 0.01, 0.0, 1.0))
+    self.mpc.lead_depart_cost = float(clip((depart_cost if depart_cost > 0 else 5) * 0.01, 0.05, 1.0))
 
     # 앞차 접근 제동 튜닝 (x100 정수 저장)
     comfort_brake = self.params.get_int("ComfortBrake")
@@ -255,25 +240,17 @@ class LongitudinalPlanner:
     # No change cost when user is controlling the speed, or when standstill
     prev_accel_constraint = not (reset_state or sm['carState'].standstill)
 
+    # apilot-c2: 최대가속 = CruiseMaxVals(속도별) x MyDrivingMode 배율. 앞차 유무에 따른 별도 상한 없음.
     cruise_max_accel = float(clip(get_cruise_max_accel(
       v_ego, self.cruise_max_vals, driving_mode, self.my_eco_mode_factor,
       float(clip(sm['controlsState'].mySafeModeFactor, 0.5, 1.0))), 0.0, MAX_ACCEL))
-    if not sm['radarState'].leadOne.status:
-      speed_error_kph = max(0.0, (v_cruise - v_ego) * CV.MS_TO_KPH)
-      cruise_max_accel = min(cruise_max_accel, get_no_lead_cruise_accel_cap(
-        cruise_max_accel, speed_error_kph, self.no_lead_cruise_accel_factor))
     if self.mpc.mode == 'acc':
       accel_limits = limit_accel_in_turns(
         v_ego, sm['carState'].steeringAngleDeg,
         [A_CRUISE_MIN, cruise_max_accel], self.CP.steerRatio, self.CP.wheelbase)
     else:
-      # Keep E2E/blended on the same user-selected upper bound as ACC. Its
-      # braking authority remains MIN_ACCEL and is not weakened by CruiseMax.
+      # E2E/blended 도 사용자 CruiseMax 상한은 유지(apilot-c2 는 MAX_ACCEL 2.5 고정)
       accel_limits = [MIN_ACCEL, cruise_max_accel]
-
-    # CruiseMax is a hard positive-acceleration limit. If the setting or mode
-    # is lowered while engaged, do not carry a higher planner state forward.
-    self.a_desired = min(self.a_desired, cruise_max_accel)
 
     if reset_state:
       self.v_desired_filter.x = v_ego
@@ -294,15 +271,15 @@ class LongitudinalPlanner:
       # if required so, force a smooth deceleration
       accel_limits[1] = min(accel_limits[1], AWARENESS_DECEL)
       accel_limits[0] = min(accel_limits[0], accel_limits[1])
-    # clip limits, cannot init MPC outside of bounds
+    # clip limits, cannot init MPC outside of bounds (apilot-c2)
     accel_limits[0] = min(accel_limits[0], self.a_desired + 0.05, a_min_sol)
-    accel_limits[1] = min(cruise_max_accel, max(accel_limits[1], self.a_desired - 0.05))
+    accel_limits[1] = max(accel_limits[1], self.a_desired - 0.05)
 
     self.mpc.set_accel_limits(accel_limits[0], accel_limits[1])
     self.mpc.set_cur_state(self.v_desired_filter.x, self.a_desired)
     x, v, a, j = self.parse_model(sm['modelV2'], self.v_model_error)
     self.mpc.update(sm['carState'], sm['radarState'], sm['controlsState'], v_cruise_sol, x, v, a, j,
-                    prev_accel_constraint=prev_accel_constraint)
+                    prev_accel_constraint=prev_accel_constraint, reset_state=reset_state)
 
     self.v_desired_trajectory = np.interp(T_IDXS[:CONTROL_N], T_IDXS_MPC, self.mpc.v_solution)
     self.a_desired_trajectory = np.interp(T_IDXS[:CONTROL_N], T_IDXS_MPC, self.mpc.a_solution)

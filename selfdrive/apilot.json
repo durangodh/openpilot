@@ -343,26 +343,6 @@
   },
   {
    "group": "종방향",
-   "name": "StandstillHoldApply",
-   "title": "STANDSTILL HOLD",
-   "descr": "차량이 완전히 멈춘 뒤 유지하는 제동값(×-0.02m/s²)입니다. 정지 접근 제동에는 영향을 주지 않습니다. 기본값 55 = -1.10m/s².",
-   "min": 10,
-   "max": 100,
-   "default": 55,
-   "unit": 5
-  },
-  {
-   "group": "종방향",
-   "name": "StandstillHoldRate",
-   "title": "STANDSTILL HOLD RATE",
-   "descr": "완전정지 후 유지 제동값까지 증가하는 속도(×0.01m/s³)입니다. 값 증가(+): 더 빨리 고정 / 값 감소(-): 더 부드럽게 고정. 기본값: 120.",
-   "min": 20,
-   "max": 200,
-   "default": 120,
-   "unit": 1
-  },
-  {
-   "group": "종방향",
    "name": "SoftHoldMode",
    "title": "SOFT HOLD MODE",
    "descr": "0: 끔, 1: 브레이크를 놓은 뒤 정지 유지, 2: aPilot SCC 호환 모드(일부 차량은 오토홀드/EPB가 작동할 수 있음). 가속페달 또는 RES/+로 해제합니다.",
@@ -393,26 +373,6 @@
   },
   {
    "group": "종방향",
-   "name": "NoLeadCruiseAccelFactor",
-   "title": "NO-LEAD CRUISE ACCEL (%)",
-   "descr": "앞차가 없을 때 설정속도로 복귀하는 최대가속 비율입니다. CRUISE MAX 값에 이 비율을 곱하며, 설정속도에 가까워질수록 자동으로 더 낮아집니다. 값 증가(+): 빠른 속도 복귀 / 값 감소(-): 부드러운 속도 복귀. 권장값: 65%.",
-   "min": 30,
-   "max": 100,
-   "default": 65,
-   "unit": 5
-  },
-  {
-   "group": "종방향",
-   "name": "NoLeadCruiseJerkLimit",
-   "title": "NO-LEAD ACCEL RAMP (X0.01m/s³)",
-   "descr": "앞차가 없을 때 가속 명령이 증가하는 속도입니다. 값 증가(+): 가속이 빨리 강해짐 / 값 감소(-): 가속이 천천히 부드럽게 증가. 감속과 앞차 추종에는 적용하지 않습니다. 권장값: 25.",
-   "min": 5,
-   "max": 100,
-   "default": 25,
-   "unit": 5
-  },
-  {
-   "group": "종방향",
    "name": "TFollowSpeedRatio",
    "title": "HIGH-SPEED T-FOLLOW RATIO (%)",
    "descr": "속도가 높아질 때 차간시간을 늘리는 비율입니다. 값 증가(+): 고속에서 차간거리 증가 / 값 감소(-): 고속 차간거리 감소.",
@@ -423,22 +383,12 @@
   },
   {
    "group": "종방향",
-   "name": "TFollowDecelBoost",
-   "title": "DECEL T-FOLLOW BOOST (%)",
-   "descr": "앞차 추종 중 내 차가 감속할 때만 차간시간을 조금 늘립니다. 값 증가(+): 재정지 앞차에 더 여유 있게 부드럽게 제동 / 0: 사용 안 함. 권장값: 30.",
-   "min": 0,
+   "name": "LeadDepartCost",
+   "title": "LEAD DEPART COST (X0.01)",
+   "descr": "저속(36km/h 이하)에서 앞차가 출발할 때 따라붙는 반응 강도입니다. 값 감소(-): 빠르게 따라붙음 / 값 증가(+): 부드럽지만 굼뜸. ApplyLongDynamicCost 켜야 동작. apilot-c2 기본값: 5.",
+   "min": 5,
    "max": 100,
-   "default": 30,
-   "unit": 5
-  },
-  {
-   "group": "종방향",
-   "name": "RadarReactionFactor",
-   "title": "RADAR REACTION FACTOR (%)",
-   "descr": "앞차 가감속이 유지될 것으로 예측하는 정도입니다. 100: 기본 반응 / 값 감소(-): 앞차 감속을 더 오래 예상해 일찍 제동. 권장값: 70.",
-   "min": 20,
-   "max": 200,
-   "default": 70,
+   "default": 5,
    "unit": 5
   },
   {
@@ -685,20 +635,10 @@
    "group": "종방향",
    "name": "MixRadarInfo",
    "title": "RADAR / VISION ACCEL BLEND",
-   "descr": "켜짐: 레이더 앞차와 비전 모델의 가속도 변화를 혼합해 출발·감속 반응을 보완합니다. / 꺼짐: 레이더 정보를 우선합니다.",
+   "descr": "켜짐(apilot-c2 방식): 비전 모델의 앞차 가속도가 레이더보다 크면 비전 값을 사용합니다. / 꺼짐: 레이더 가속도만 사용합니다. 앞차 첫 인식 때 제동이 툭 들어가면 끄세요.",
    "min": 0,
    "max": 1,
    "default": 0,
-   "unit": 1
-  },
-  {
-   "group": "종방향",
-   "name": "SccVisionMismatchFallback",
-   "title": "SCC VISION MISMATCH FALLBACK",
-   "descr": "켜짐(기본): 카메라 매칭이 잠깐 실패해도 측정된 SCC 앞차가 물리적으로 타당하고 비전 앞차보다 3m 이상 멀지 않으면 SCC 거리·상대속도를 유지합니다. 문제가 있으면 끄세요.",
-   "min": 0,
-   "max": 1,
-   "default": 1,
    "unit": 1
   },
   {
@@ -843,6 +783,16 @@
   },
   {
    "group": "횡방향",
+   "name": "LatMpcInputOffset",
+   "title": "LATMPC INPUT OFFSET",
+   "descr": "차선 경로를 MPC에 앞서 입력하는 보상값입니다.\n값 증가(+): 커브에 더 일찍 진입 / 값 감소(-): 더 늦게 진입.\n범위: 0 ~ 20  /  기본값: 4 (=0.04)",
+   "min": 0,
+   "max": 20,
+   "default": 4,
+   "unit": 1
+  },
+  {
+   "group": "횡방향",
    "name": "AutoLaneChangeSpeed",
    "title": "AUTO LANE CHANGE MIN SPEED",
    "descr": "자동·방향지시등 차선변경 허용 최저속도(km/h)입니다. 값 증가(+): 더 높은 속도에서만 작동 / 값 감소(-): 저속에서도 작동.",
@@ -930,16 +880,6 @@
    "max": 40,
    "default": 0,
    "unit": 5
-  },
-  {
-   "group": "횡방향",
-   "name": "LatMpcInputOffset",
-   "title": "LATMPC INPUT OFFSET",
-   "descr": "차선 경로를 앞서 입력합니다. 값이 크면 커브에 더 일찍 진입. 4=기본(0.04).",
-   "min": 0,
-   "max": 20,
-   "default": 4,
-   "unit": 1
   },
   {
    "group": "횡방향",
