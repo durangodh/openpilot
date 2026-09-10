@@ -250,6 +250,21 @@ def manager_init() -> None:
     midpoint = int(round((vals1 + vals2) / 10.0) * 5)
     params.put("CruiseMaxVals20", str(max(10, min(250, midpoint))))
 
+  # apilot-c2 종제어 이식(2026-09) 1회 이관: 저속 출발 코스트를 C2 기본값(5)으로 맞추고,
+  # 더 이상 읽지 않는 옛 파라미터 파일을 지운다.
+  if params.get("ApilotC2LongMigrated") is None:
+    try:
+      params.put("LeadDepartCost", "5")
+      for legacy_key in ("TFollowDecelBoost", "TFollowClosingMargin", "NoLeadCruiseAccelFactor",
+                         "NoLeadCruiseJerkLimit", "StandstillHoldApply", "StandstillHoldRate",
+                         "RadarReactionFactor", "SccVisionMismatchFallback"):
+        try:
+          os.remove(os.path.join("/data/params/d", legacy_key))
+        except OSError:
+          pass
+    finally:
+      params.put_bool("ApilotC2LongMigrated", True)
+
   # This EON build targets Korean left-hand-drive vehicles only.
   params.put_bool("IsRHD", False)
 
