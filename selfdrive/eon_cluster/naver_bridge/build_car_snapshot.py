@@ -2,9 +2,11 @@
 
 Input: verified HUD11 APKS. Output: unsigned base APK where exactly two entries
 change:
+  classes.dex      LocationManager$Companion.b keeps the real provider name for mock fixes
   classes43.dex  + CarrotCarMapSnapshot, CarrotHudLog;
                    CarrotNaverBridge.captureMap() tries the snapshot first
-  classes5.dex     MapProvider.<init> hands its instance to CarrotCarMapSnapshot
+  classes5.dex     MapProvider.<init> hands its instance to CarrotCarMapSnapshot;
+                   mapmatching LocationExtensionsKt.a (isMock) always false
 """
 import argparse
 import hashlib
@@ -59,6 +61,31 @@ def patch_set_activity(text):
   return text[:start] + body + text[end:]
 
 
+def replace_method_body(text, signature, new_body):
+  start = text.index(signature)
+  end = text.index(".end method", start)
+  body = text[start:end]
+  locals_match = re.search(r"\.locals (\d+)", body)
+  if not locals_match:
+    raise ValueError("Unexpected method " + signature)
+  body = body[:locals_match.start()] + ".locals 1\n\n" + new_body + "\n"
+  return text[:start] + body + text[end:]
+
+
+def patch_mock_location(navi_text, app_text):
+  """HUD13.4: accept mock-provider fixes (nMirror '차량 GPS'). Naver tags mock
+  locations and its map-matching filters them, which froze navigation while the
+  phone sat in the console box; TMAP has no such check."""
+  navi_text = replace_method_body(
+    navi_text, ".method public static final a(Landroid/location/Location;)Z",
+    "    const/4 v0, 0x0\n\n    return v0")
+  app_text = replace_method_body(
+    app_text, ".method public final b(Landroid/location/Location;)Ljava/lang/String;",
+    "    invoke-virtual {p1}, Landroid/location/Location;->getProvider()Ljava/lang/String;\n\n"
+    "    move-result-object v0\n\n    return-object v0")
+  return navi_text, app_text
+
+
 def patch_provider(text):
   start = text.index(".method public constructor <init>(Landroidx/car/app/CarContext;")
   end = text.index(".end method", start)
@@ -109,6 +136,7 @@ def main():
     manifest = original.read("AndroidManifest.xml")
     bridge_dex = original.read("classes43.dex")
     provider_dex = original.read("classes5.dex")
+    app_dex = original.read("classes.dex")
 
   stub = work / "src" / PACKAGE / "CarrotNaverBridge.java"
   stub.parent.mkdir(parents=True)
@@ -129,14 +157,22 @@ def main():
   bridge = decode(java, args.apktool, work, "bridge", manifest, bridge_dex)
   new = decode(java, args.apktool, work, "new", manifest, (work / "dex/classes.dex").read_bytes())
   provider = decode(java, args.apktool, work, "provider", manifest, provider_dex)
+  app = decode(java, args.apktool, work, "app", manifest, app_dex)
   for item in (new / "smali" / PACKAGE).glob("Carrot*.smali"):
     shutil.copyfile(item, bridge / "smali" / PACKAGE / item.name)
   bridge_smali = bridge / "smali" / PACKAGE / "CarrotNaverBridge.smali"
   bridge_smali.write_text(patch_set_activity(patch_bridge(bridge_smali.read_text(encoding="utf-8"))), encoding="utf-8")
   provider_smali = provider / "smali/com/naver/map/core/auto/map/MapProvider.smali"
   provider_smali.write_text(patch_provider(provider_smali.read_text(encoding="utf-8")), encoding="utf-8")
+  navi_smali = provider / "smali/com/naver/maps/navi/mapmatching/LocationExtensionsKt.smali"
+  app_smali = app / "smali/com/naver/map/core/common/location/LocationManager$Companion.smali"
+  navi_text, app_text = patch_mock_location(navi_smali.read_text(encoding="utf-8"),
+                                            app_smali.read_text(encoding="utf-8"))
+  navi_smali.write_text(navi_text, encoding="utf-8")
+  app_smali.write_text(app_text, encoding="utf-8")
   replacement = {"classes43.dex": build(java, args.apktool, work, "bridge"),
-                 "classes5.dex": build(java, args.apktool, work, "provider")}
+                 "classes5.dex": build(java, args.apktool, work, "provider"),
+                 "classes.dex": build(java, args.apktool, work, "app")}
 
   args.output.parent.mkdir(parents=True, exist_ok=True)
   with zipfile.ZipFile(work / "base.apk") as original, zipfile.ZipFile(args.output, "w") as output:
@@ -152,7 +188,7 @@ def main():
       if entry.filename not in replacement and not signature_entry(entry.filename):
         assert original.read(entry) == output.read(entry.filename), entry.filename
     assert output.testzip() is None
-  print("Verified: only classes43.dex and classes5.dex changed. UNSIGNED:", args.output)
+  print("Verified: only classes.dex, classes5.dex and classes43.dex changed. UNSIGNED:", args.output)
 
 
 if __name__ == "__main__":

@@ -310,7 +310,6 @@ public final class HudService extends Service {
     /** 티맵 분기 실사 이미지(crossroad_expanded). 안내가 끝나면 EON 이 파일을 지운다. */
     private final AtomicReference<Bitmap> crossroadFrame = new AtomicReference<>();
     private final AtomicReference<Bitmap> laneFrame = new AtomicReference<>();
-    /** Latest compressed road preview; inference takes only the newest frame. */
     private final AtomicReference<InetAddress> eonAddress = new AtomicReference<>();
     private final Object assetLock = new Object();
 
@@ -862,7 +861,6 @@ public final class HudService extends Service {
         mapConnected = false;
     }
 
-    /** Low-rate CPU inference on S9. Results are render-only JSON boxes. */
     private void renderLoop() {
         long fpsStart = SystemClock.elapsedRealtime();
         long nextFrame = 0L;
@@ -4122,6 +4120,13 @@ public final class HudService extends Service {
             c.drawRect(scratchIRect, p);
         }
 
+        // Keep the current-position symbol unmistakable over both the native
+        // day map and our night mask: blue halo with the classic white-edged
+        // red navigation pointer shown in the user's reference display.
+        if (mapAvailable) {
+            drawTmapVehicleMarker(c, p, mapCenterX(), HEIGHT * 0.64f);
+        }
+
         // Navigation JSON is independent of map capture. In particular, NAVER
         // clears map_main while its Activity changes orientation or surfaces.
         // Keep valid guidance/ETA visible on the waiting background; their
@@ -4178,6 +4183,71 @@ public final class HudService extends Service {
         c.drawRoundRect(scratchRect, 10f, 10f, p);
         text(c, p, NavSelectionProtocol.appLabel(s.optInt("hudNavApp", 1)),
                 right - width * 0.5f, top + 34f, 25f, Color.WHITE, Paint.Align.CENTER);
+        drawGpsBadge(c, p, s, right - width - 12f, top, height);
+    }
+
+    /**
+     * GPS state of the navigation app's position (EON telemetry "gpsState"):
+     * 0 no position (grey), 1 frozen/stale while moving (red, blinking), 2 updating (green).
+     * The phone sits in the console box, so this is the only hint that the fix was lost.
+     */
+    private void drawGpsBadge(Canvas c, Paint p, JSONObject s, float right, float top, float height) {
+        int state = s.optInt("gpsState", -1);
+        if (state < 0) return;
+        final float width = 96f;
+        int dot;
+        String label;
+        if (state == 2) {
+            dot = Color.rgb(84, 214, 120);
+            label = "GPS";
+        } else if (state == 1) {
+            boolean on = (SystemClock.elapsedRealtime() / 500L) % 2L == 0L;
+            dot = on ? Color.rgb(255, 82, 82) : Color.rgb(120, 40, 40);
+            label = lang("GPS 끊김", "GPS LOST");
+        } else {
+            dot = Color.rgb(140, 148, 156);
+            label = lang("GPS 없음", "NO GPS");
+        }
+        float w = state == 2 ? width : width + 46f;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(190, 28, 34, 40));
+        scratchRect.set(right - w, top, right, top + height);
+        c.drawRoundRect(scratchRect, 10f, 10f, p);
+        p.setColor(dot);
+        c.drawCircle(right - w + 20f, top + height * 0.5f, 8f, p);
+        text(c, p, label, right - w + 36f, top + 34f, 22f, Color.WHITE, Paint.Align.LEFT);
+    }
+
+    private void drawTmapVehicleMarker(Canvas c, Paint p, float cx, float cy) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(58, 29, 139, 255));
+        c.drawCircle(cx, cy, 39f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(6f);
+        p.setColor(Color.argb(220, 35, 145, 255));
+        c.drawCircle(cx, cy, 32f, p);
+
+        scratchPath.rewind();
+        scratchPath.moveTo(cx, cy - 29f);
+        scratchPath.lineTo(cx - 23f, cy + 24f);
+        scratchPath.lineTo(cx, cy + 14f);
+        scratchPath.lineTo(cx + 23f, cy + 24f);
+        scratchPath.close();
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(218, 35, 62));
+        c.drawPath(scratchPath, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(4f);
+        p.setColor(Color.WHITE);
+        c.drawPath(scratchPath, p);
+
+        p.setStrokeJoin(Paint.Join.MITER);
+        p.setStrokeWidth(1f);
+        p.setStyle(Paint.Style.FILL);
+        p.setAlpha(255);
     }
 
     /**

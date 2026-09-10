@@ -111,3 +111,15 @@ HUD13.3 sends 640x384 like TMAP at JPEG quality 65 (encoded in
 `CarrotCarMapSnapshot.sendJpeg`, since the NHUD1 quality relay was removed in
 9475e5c), and EON `recv_frame` unmasks with numpy (int fallback). Apparent map
 size on the HUD is unchanged.
+
+
+## HUD13.4: accept mock-provider locations (nMirror car GPS)
+
+Naver navigation froze at one spot while TMAP kept working with nMirror's
+"차량 GPS 사용". Naver checks `Location.isMock()/isFromMockProvider()` in two
+places — `com.naver.map.core.common.location.LocationManager$Companion.b`
+(tags the provider as mock) and `com.naver.maps.navi.mapmatching.LocationExtensionsKt.a`
+(used by `LocationController` and `AvnStopFilter`) — and the map-matcher
+ignores tagged fixes, falling back to the phone's own GPS, which has no sky
+view in the console box. HUD13.4 patches both to treat every fix as a real
+provider fix. `classes.dex` is now the third changed entry.

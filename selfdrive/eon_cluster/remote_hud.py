@@ -796,6 +796,36 @@ def _read_navi_summary():
   return summary
 
 
+# GPS badge for the HUD navi panel. The phone lives in the console box, so
+# show whether the navigation app's position is actually moving:
+#   0 = no position (nav app not connected / no fix yet)
+#   1 = position frozen or stale while the car is moving (GPS lost)
+#   2 = position updating
+_GPS_TRACK = {"lat": None, "lon": None, "changed_at": 0.0}
+GPS_FROZEN_S = 4.0
+GPS_STALE_MS = 3000
+GPS_MOVING_MPS = 1.5
+
+
+def _gps_state(map_pose, pos_age_ms, v_ego):
+  if map_pose is None:
+    _GPS_TRACK["lat"] = None
+    return 0
+  now = time.monotonic()
+  lat, lon = map_pose[0], map_pose[1]
+  if (_GPS_TRACK["lat"] is None or abs(lat - _GPS_TRACK["lat"]) > 1e-6
+      or abs(lon - _GPS_TRACK["lon"]) > 1e-6):
+    _GPS_TRACK["lat"] = lat
+    _GPS_TRACK["lon"] = lon
+    _GPS_TRACK["changed_at"] = now
+  frozen = now - _GPS_TRACK["changed_at"] > GPS_FROZEN_S
+  if pos_age_ms > GPS_STALE_MS:
+    return 1
+  if frozen and v_ego > GPS_MOVING_MPS:
+    return 1
+  return 2
+
+
 def _compensate_navi_pose(navi, v_ego):
   """Keep stopped heading stable and project a fresh TMAP fix to packet time."""
   if not isinstance(navi, dict):
@@ -919,7 +949,12 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   # context before removing it from the diagnostic/navigation object.
   map_pose = None
   navi_scene = navi.get("scene") if isinstance(navi, dict) else None
+  pos_age_ms = 0
   if isinstance(navi_scene, dict):
+    try:
+      pos_age_ms = int(navi_scene.get("posAgeMs", 0) or 0)
+    except (TypeError, ValueError):
+      pos_age_ms = 0
     raw_map_pose = navi_scene.get("pos")
     if isinstance(raw_map_pose, list) and len(raw_map_pose) >= 3:
       try:
@@ -933,6 +968,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
         pass
     navi_scene.pop("pos", None)
     navi_scene.pop("posAgeMs", None)
+  gps_state = _gps_state(map_pose, pos_age_ms, _finite(_field(car, "vEgo", 0.0)))
   raw_lane_position = camera_lane_position(sm["modelV2"])
   route_lane_count = 0
   try:
@@ -981,6 +1017,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "v": 6,
     "t": int(time.time() * 1000),
     "mapPose": map_pose,
+    "gpsState": gps_state,
     "layout": REMOTE_LAYOUT,
     "speed": int(round(_finite(_field(car, "vEgoCluster", _field(car, "vEgo", 0.0))) * 3.6)),
     "set": _set_speed(controls, sm["carControl"]),
@@ -1090,7 +1127,6 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     # 가감속·요철로 실시간 변한다. 앱은 여기에 게인을 곱해 수평선을 움직인다.
     "pitch": round(_finite(_first(_field(_field(sm["modelV2"], "orientation", None), "y", []))), 4),
     "calibPitch": _calib_pitch(sm["liveCalibration"]),
-    # Display-only camera projection consumed by the S9 TFLite detector.
     # 정지선까지 거리(m). None 이면 앱이 안 그린다.
     "stopDist": _stop_point(sm["longitudinalPlan"]),
     # 모델이 추정한 자기 차로 폭(m). 앱의 폴백 도로폭 계산에 쓴다.
