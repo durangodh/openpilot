@@ -13,12 +13,13 @@ ButtonType = car.CarState.ButtonEvent.Type
 STANDSTILL_LATCH_SPEED = 0.05
 # 출발은 플래너가 이만큼 "연속으로" 요구해야 인정한다(0.15 s). 레이더·모델
 # 노이즈 한두 프레임은 걸러지고, 진짜 출발은 거의 지연 없이 통과한다.
-STANDSTILL_RELEASE_FRAMES = 50
-# 정차 시 앞차가 있었으면(15 m 이내) 앞차가 실제로 멀어졌을 때만 플래너 출발 요구를 받는다.
+STANDSTILL_RELEASE_FRAMES = 10          # 원래 값(0.1 s). 앞차 출발 확인됐거나 앞차 없이 정차한 경우
+STANDSTILL_RELEASE_FRAMES_LOST = 50     # 0.5 s. 앞차를 놓친 상태에서 플래너만 출발을 요구할 때
+# 정차 시 앞차가 있었으면(15 m 이내) 앞차가 실제로 움직였을 때만 플래너 출발 요구를 바로 받는다.
 # 레이더가 근접 정차 앞차를 잠깐 놓쳐 플래너가 튀어도, 1.0 s 이상 계속 놓쳐야 출발 허용.
 STANDSTILL_LEAD_MAX_DIST = 15.0
-STANDSTILL_LEAD_DEPART_DIST = 1.0    # m, 정차 때보다 이만큼 멀어져야 출발
-STANDSTILL_LEAD_DEPART_SPEED = 0.3   # m/s
+STANDSTILL_LEAD_DEPART_DIST = 0.5    # m, 정차 때보다 이만큼 멀어지면 출발로 인정
+STANDSTILL_LEAD_DEPART_SPEED = 0.3   # m/s, 또는 앞차 속도가 이 이상이면 출발로 인정
 STANDSTILL_LEAD_LOST_FRAMES = 100    # 1.0 s
 
 def get_bumpless_launch_integral(previous_accel, proportional, derivative,
@@ -151,28 +152,33 @@ class LongControl:
     rate = rate_raw * 0.01 if rate_raw > 0 else self.CP.stoppingDecelRate
     self.stopping_decel_rate = float(clip(rate, 0.2, 2.0))
 
-  def _lead_allows_release(self, radar_state):
-    """정차 때 잡고 있던 앞차가 실제로 출발했는지(또는 충분히 오래 사라졌는지)."""
+  def _lead_release_frames(self, radar_state):
+    """앞차 상태에 따라 플래너 출발 요구에 필요한 디바운스 프레임 수. None 이면 출발 금지."""
     if self.standstill_lead_drel is None:
-      return True
+      return STANDSTILL_RELEASE_FRAMES
     lead = radar_state.leadOne if radar_state is not None else None
     if lead is not None and lead.status:
       self.standstill_lead_lost_frames = 0
       # 정차 중 살짝 밀려 가까워진 경우 기준 거리를 갱신해 그만큼 출발로 오인하지 않게 한다.
       if lead.dRel < self.standstill_lead_drel:
         self.standstill_lead_drel = float(lead.dRel)
-      return (lead.dRel > self.standstill_lead_drel + STANDSTILL_LEAD_DEPART_DIST and
-              lead.vLead > STANDSTILL_LEAD_DEPART_SPEED)
+      departed = (lead.vLead > STANDSTILL_LEAD_DEPART_SPEED or
+                  lead.dRel > self.standstill_lead_drel + STANDSTILL_LEAD_DEPART_DIST)
+      # 앞차가 움직였으면 원래 디바운스로 즉시 출발, 아직 서 있으면 출발 금지
+      return STANDSTILL_RELEASE_FRAMES if departed else None
     self.standstill_lead_lost_frames += 1
-    return self.standstill_lead_lost_frames >= STANDSTILL_LEAD_LOST_FRAMES
+    if self.standstill_lead_lost_frames >= STANDSTILL_LEAD_LOST_FRAMES:
+      return STANDSTILL_RELEASE_FRAMES_LOST
+    return None
 
   def _update_standstill_latch(self, active, CS, v_target, v_target_1sec, soft_hold, radar_state=None):
     """완전 정차를 래치하고, 확정된 출발 요구에서만 푼다.
 
-    플래너 출발 요구를 0.5 s 디바운스하고, 정차 때 앞차가 있었으면 그 앞차가
-    실제로 멀어졌을 때(또는 1 s 이상 계속 사라졌을 때)만 푼다. 레이더가 근접
-    정차 앞차를 한두 번 놓쳐 플래너가 튀는 것으로 브레이크가 풀렸다 잡히는
-    반복을 막는다.
+    정차 때 앞차가 있었으면 그 앞차가 실제로 움직였을 때(0.3 m/s 이상 또는
+    0.5 m 이상 멀어짐) 원래 디바운스(0.1 s)로 바로 푼다. 앞차가 그대로 서 있으면
+    플래너가 튀어도 풀지 않고, 앞차를 1 s 이상 계속 놓친 경우에만 0.5 s 디바운스로
+    푼다. 레이더 한두 프레임 놓침으로 브레이크가 풀렸다 잡히는 반복을 막으면서
+    실제 출발 반응은 종전과 같다.
     """
     if not active:
       self.standstill_latched = False
@@ -201,14 +207,14 @@ class LongControl:
                         not CS.brakePressed and
                         not CS.cruiseState.standstill)
     self.standstill_frames = self.standstill_frames + 1 if starting_request else 0
-    lead_ok = self._lead_allows_release(radar_state)
+    release_frames = self._lead_release_frames(radar_state)
 
     resume_pressed = any(
       event.pressed and event.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
       for event in CS.buttonEvents)
     # 운전자 의사(가속페달·RES)는 소프트홀드까지 포함해 언제나 즉시 푼다.
     release = CS.gasPressed or resume_pressed
-    if not soft_hold and lead_ok and self.standstill_frames >= STANDSTILL_RELEASE_FRAMES:
+    if not soft_hold and release_frames is not None and self.standstill_frames >= release_frames:
       release = True
 
     if release:
