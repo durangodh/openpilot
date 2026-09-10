@@ -1,32 +1,37 @@
 import pytest
+from types import SimpleNamespace
 
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import (COMFORT_BRAKE, STOP_DISTANCE, T_FOLLOW,
                                                                  desired_follow_distance,
-                                                                 get_lead_departure_cost_multiplier,
+                                                                 LongitudinalMpc,
                                                                  get_safe_obstacle_distance,
                                                                  get_stopped_equivalence_factor)
 
 
-def test_lead_departure_assist_requires_a_real_departing_lead():
-  assert get_lead_departure_cost_multiplier(0.0, 2.0, 0.5, False) == 1.0
-  assert get_lead_departure_cost_multiplier(2.0, 2.2, 0.5, True) == 1.0
+def cost_multipliers(v_ego, lead0, lead1, t_follow=1.45, depart_cost=0.05):
+  # Exercise the real cost policy without constructing the native MPC solver.
+  mpc = SimpleNamespace(x0=[0.0, v_ego, 0.0], t_follow=t_follow,
+                        lead_depart_cost=depart_cost)
+  return LongitudinalMpc.get_cost_multipliers(mpc, lead0, lead1)
 
 
-def test_lead_departure_assist_reacts_early_at_low_speed():
-  multiplier = get_lead_departure_cost_multiplier(0.0, 1.5, 0.0, True)
-  assert multiplier == pytest.approx(0.35)
+def test_departure_cost_requires_both_leads_to_be_at_least_as_fast():
+  assert cost_multipliers(2.0, 1.0, 4.0) == pytest.approx((1.0, 1.0, 1.0))
+  assert cost_multipliers(2.0, 4.0, 1.0) == pytest.approx((1.0, 1.0, 1.0))
 
 
-def test_lead_departure_assist_fades_with_ego_speed():
-  low_speed = get_lead_departure_cost_multiplier(2.0, 3.5, 0.0, True)
-  higher_speed = get_lead_departure_cost_multiplier(10.0, 11.5, 0.0, True)
-  assert 0.35 < low_speed < higher_speed < 1.0
-  assert get_lead_departure_cost_multiplier(12.0, 14.0, 0.0, True) == 1.0
+def test_departure_cost_uses_c2_default_and_fades_by_36_kph():
+  assert cost_multipliers(0.0, 1.5, 1.5) == pytest.approx((0.05, 0.05, 1.0))
+  assert cost_multipliers(5.0, 7.0, 7.0) == pytest.approx((0.525, 0.525, 1.0))
+  assert cost_multipliers(10.0, 12.0, 12.0) == pytest.approx((1.0, 1.0, 1.0))
 
 
-def test_lead_braking_immediately_disables_departure_assist():
-  assert get_lead_departure_cost_multiplier(2.0, 4.0, -0.2, True) == 1.0
-  assert get_lead_departure_cost_multiplier(2.0, 4.0, -1.0, True) == 1.0
+def test_departure_cost_respects_configured_value():
+  assert cost_multipliers(0.0, 1.0, 1.0, depart_cost=0.2) == pytest.approx((0.2, 0.2, 1.0))
+
+
+def test_gap_cost_still_applies_without_departure_assistance():
+  assert cost_multipliers(10.0, 8.0, 8.0, t_follow=1.2) == pytest.approx((0.8, 0.8, 1.3))
 
 
 def test_desired_follow_distance_keeps_legacy_signature():

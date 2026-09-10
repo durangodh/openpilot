@@ -16,13 +16,11 @@ def brake_output(previous, requested, state='pid'):
              long_control_state_trans=lambda *args: (state, False))
   exec(compile(ast.Module(body=[update], type_ignores=[]), str(source), 'exec'), env)
   pid = NS(update=lambda *a, **kw: requested, p=requested, i=0.0, d=0.0, f=0.0)
-  obj = NS(_read_params=lambda: None, _update_standstill_latch=lambda *a: (False, False),
-           CP=NS(stoppingControl=True, longitudinalTuning=NS(deadzoneBP=[0], deadzoneV=[0])),
+  obj = NS(_read_params=lambda: None,
+           CP=NS(stoppingControl=True, stopAccel=-0.6, longitudinalTuning=NS(deadzoneBP=[0], deadzoneV=[0])),
            actuator_delay_lower=0.2, actuator_delay_upper=0.4, pid=pid,
-           long_control_state=state, starting_state=False, last_output_accel=previous,
-           starting_ramp_rate=2.0, standstill_hold_memory=None, stop_accel=-0.6,
-           stopping_decel_rate=1.0, standstill_hold_accel=-1.1, standstill_hold_rate=1.2,
-           reset=lambda *a: None, long_coast_band=0.4)
+           long_control_state=state, last_output_accel=previous,
+           stopping_decel_rate=1.0, reset=lambda *a: None)
   cs = NS(vEgo=0.0 if state == 'stopping' else 10.0, brakePressed=False,
           cruiseState=NS(standstill=False))
   plan = NS(speeds=[10.0, 10.0], accels=[0.0, 0.0], jerks=[0.0])
@@ -40,6 +38,6 @@ def test_actuator_limits_still_apply():
   assert brake_output(-0.5, 3.0) == 2.0
 
 
-def test_standstill_hold_is_preserved():
-  assert brake_output(-0.6, 0.0, 'stopping') < -0.6
+def test_c2_stop_accel_is_held_without_extra_standstill_ramp():
+  assert brake_output(-0.6, 0.0, 'stopping') == -0.6
   assert brake_output(-1.1, 0.0, 'stopping') == -1.1
