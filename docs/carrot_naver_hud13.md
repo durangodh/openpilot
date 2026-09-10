@@ -123,3 +123,14 @@ places — `com.naver.map.core.common.location.LocationManager$Companion.b`
 ignores tagged fixes, falling back to the phone's own GPS, which has no sky
 view in the console box. HUD13.4 patches both to treat every fix as a real
 provider fix. `classes.dex` is now the third changed entry.
+
+## HUD13.5: keep polling while the renderer is paused
+
+At a long red light the HUD Naver map froze and never resumed although Naver
+itself kept navigating. `capture()` declared the renderer dead after 12 s
+without a bitmap and stopped issuing `takeSnapshot` requests, so when the
+virtual display woke up nothing asked for frames again. HUD13.5 keeps
+requesting every 3 s while dead (map_main is released to the phone-capture
+fallback meanwhile) and logs `renderer not answering` / `renderer answering
+again`. The HUD GPS badge's `지도 Ns` (gpsInfo.mapAge, already in g_hud) shows
+this state directly.

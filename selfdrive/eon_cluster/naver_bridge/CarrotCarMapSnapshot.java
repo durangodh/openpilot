@@ -93,7 +93,7 @@ public final class CarrotCarMapSnapshot {
         if (map == null) {
             if (lastIdleLogAt == 0 || now - lastIdleLogAt >= 60000) {
                 lastIdleLogAt = now;
-                CarrotHudLog.log(TAG, "HUD13.4 bridge polling, no NaverMap yet (provider=" + (p != null)
+                CarrotHudLog.log(TAG, "HUD13.5 bridge polling, no NaverMap yet (provider=" + (p != null)
                         + ", activity=" + (activityObject() != null) + ") -> phone capture path");
             }
             return false;
@@ -111,10 +111,14 @@ public final class CarrotCarMapSnapshot {
                     + " lastBitmapAgeMs=" + (lastBitmapAt > 0 ? now - lastBitmapAt : -1));
         }
         long reference = lastBitmapAt > 0 ? lastBitmapAt : firstRequestAt;
-        if (reference > 0 && now - reference > DEAD_AFTER_MS) {
-            // Renderer stopped answering (AA disconnected?) -> let phone capture run.
-            return false;
+        boolean dead = reference > 0 && now - reference > DEAD_AFTER_MS;
+        if (dead && !deadLogged) {
+            deadLogged = true;
+            CarrotHudLog.log(TAG, "renderer not answering for " + (now - reference) + " ms; releasing map_main but keep polling");
         }
+        // Keep requesting even while "dead": the renderer pauses when the virtual
+        // display idles (e.g. long red light) and answers again when it resumes.
+        // HUD13.4 stopped requesting here, which froze the HUD map for good.
         if (requestedAt == 0 || now - requestedAt > SNAPSHOT_TIMEOUT_MS) {
             requestedAt = now;
             if (firstRequestAt == 0) {
@@ -128,8 +132,10 @@ public final class CarrotCarMapSnapshot {
                 }
             });
         }
-        return true;
+        return !dead;
     }
+
+    private static volatile boolean deadLogged;
 
     private static final java.util.List<java.lang.ref.WeakReference<Object>> activities =
             new java.util.ArrayList<java.lang.ref.WeakReference<Object>>();
@@ -338,6 +344,10 @@ public final class CarrotCarMapSnapshot {
     private static void onSnapshot(Bitmap source) {
         long now = SystemClock.elapsedRealtime();
         requestedAt = 0;
+        if (deadLogged) {
+            deadLogged = false;
+            CarrotHudLog.log(TAG, "renderer answering again after " + (lastBitmapAt > 0 ? now - lastBitmapAt : -1) + " ms");
+        }
         lastBitmapAt = now;
         final CarrotNaverBridge b = bridge;
         if (b == null || source == null || source.isRecycled()) {
