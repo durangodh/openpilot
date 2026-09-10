@@ -82,7 +82,11 @@ jobs:
           apk = pathlib.Path("selfdrive/eon_cluster/android_hud/app/build/outputs/apk/debug/app-debug.apk")
           signer = sorted((pathlib.Path(os.environ["ANDROID_HOME"]) / "build-tools").glob("*/apksigner"))[-1]
           report = subprocess.check_output([str(signer), "verify", "--verbose", "--print-certs", str(apk)], text=True)
-          cert = re.search(r"Signer #1 certificate SHA-256 digest: ([0-9a-f]+)", report).group(1)
+          print(report)
+          matches = re.findall(r"certificate SHA-256 digest: ([0-9a-fA-F]{64})", report)
+          assert matches, "No signer certificate in apksigner output"
+          assert len(set(x.lower() for x in matches)) == 1, "Multiple signer certificates"
+          cert = matches[0].lower()
           assert cert == "8864e2b9ad307f5f189de9c747697854275089fc81296d6fbb5b2a9576d23c06", cert
           print("Verified existing HUD certificate SHA-256: " + cert)
           PY
