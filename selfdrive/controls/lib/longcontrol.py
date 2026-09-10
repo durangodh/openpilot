@@ -13,7 +13,13 @@ ButtonType = car.CarState.ButtonEvent.Type
 STANDSTILL_LATCH_SPEED = 0.05
 # 출발은 플래너가 이만큼 "연속으로" 요구해야 인정한다(0.15 s). 레이더·모델
 # 노이즈 한두 프레임은 걸러지고, 진짜 출발은 거의 지연 없이 통과한다.
-STANDSTILL_RELEASE_FRAMES = 10
+STANDSTILL_RELEASE_FRAMES = 50
+# 정차 시 앞차가 있었으면(15 m 이내) 앞차가 실제로 멀어졌을 때만 플래너 출발 요구를 받는다.
+# 레이더가 근접 정차 앞차를 잠깐 놓쳐 플래너가 튀어도, 1.0 s 이상 계속 놓쳐야 출발 허용.
+STANDSTILL_LEAD_MAX_DIST = 15.0
+STANDSTILL_LEAD_DEPART_DIST = 1.0    # m, 정차 때보다 이만큼 멀어져야 출발
+STANDSTILL_LEAD_DEPART_SPEED = 0.3   # m/s
+STANDSTILL_LEAD_LOST_FRAMES = 100    # 1.0 s
 
 def get_bumpless_launch_integral(previous_accel, proportional, derivative,
                                  feedforward, positive_limit):
@@ -99,6 +105,9 @@ class LongControl:
     # 정차 중 실제로 걸고 있던 제동값. stopping 에 다시 들어올 때 0 부터 램프를
     # 다시 타지 않게 해서, 상태가 잠깐 흔들려도 제동이 약해지지 않는다.
     self.standstill_hold_memory = None
+    # 정차 순간의 앞차 거리(없으면 None). 앞차가 멀어져야 출발을 허용한다.
+    self.standstill_lead_drel = None
+    self.standstill_lead_lost_frames = 0
     self._update_pid_gains()
     # Read launch control immediately so StartAccelApply=0 disables the
     # starting state from the first control cycle.
@@ -142,21 +151,46 @@ class LongControl:
     rate = rate_raw * 0.01 if rate_raw > 0 else self.CP.stoppingDecelRate
     self.stopping_decel_rate = float(clip(rate, 0.2, 2.0))
 
-  def _update_standstill_latch(self, active, CS, v_target, v_target_1sec, soft_hold):
+  def _lead_allows_release(self, radar_state):
+    """정차 때 잡고 있던 앞차가 실제로 출발했는지(또는 충분히 오래 사라졌는지)."""
+    if self.standstill_lead_drel is None:
+      return True
+    lead = radar_state.leadOne if radar_state is not None else None
+    if lead is not None and lead.status:
+      self.standstill_lead_lost_frames = 0
+      # 정차 중 살짝 밀려 가까워진 경우 기준 거리를 갱신해 그만큼 출발로 오인하지 않게 한다.
+      if lead.dRel < self.standstill_lead_drel:
+        self.standstill_lead_drel = float(lead.dRel)
+      return (lead.dRel > self.standstill_lead_drel + STANDSTILL_LEAD_DEPART_DIST and
+              lead.vLead > STANDSTILL_LEAD_DEPART_SPEED)
+    self.standstill_lead_lost_frames += 1
+    return self.standstill_lead_lost_frames >= STANDSTILL_LEAD_LOST_FRAMES
+
+  def _update_standstill_latch(self, active, CS, v_target, v_target_1sec, soft_hold, radar_state=None):
     """완전 정차를 래치하고, 확정된 출발 요구에서만 푼다.
 
-    앞차 거동을 따로 판정하지 않는다. 레이더가 근접 정차에서 리드를 놓쳤다
-    잡았다 하면 출발이 들쭉날쭉해지고, 3 m 이내로 붙여 세우면 판정 자체가
-    시작되지 않기 때문이다. 대신 플래너의 출발 요구를 0.15 초 디바운스한다.
+    플래너 출발 요구를 0.5 s 디바운스하고, 정차 때 앞차가 있었으면 그 앞차가
+    실제로 멀어졌을 때(또는 1 s 이상 계속 사라졌을 때)만 푼다. 레이더가 근접
+    정차 앞차를 한두 번 놓쳐 플래너가 튀는 것으로 브레이크가 풀렸다 잡히는
+    반복을 막는다.
     """
     if not active:
       self.standstill_latched = False
       self.standstill_frames = 0
       self.standstill_hold_memory = None
+      self.standstill_lead_drel = None
+      self.standstill_lead_lost_frames = 0
       return False, False
 
-    if self.long_control_state == LongCtrlState.stopping and CS.vEgo < STANDSTILL_LATCH_SPEED:
+    if (not self.standstill_latched and
+        self.long_control_state == LongCtrlState.stopping and CS.vEgo < STANDSTILL_LATCH_SPEED):
       self.standstill_latched = True
+      lead = radar_state.leadOne if radar_state is not None else None
+      if lead is not None and lead.status and lead.dRel < STANDSTILL_LEAD_MAX_DIST:
+        self.standstill_lead_drel = float(lead.dRel)
+      else:
+        self.standstill_lead_drel = None
+      self.standstill_lead_lost_frames = 0
 
     if not self.standstill_latched:
       self.standstill_frames = 0
@@ -167,19 +201,22 @@ class LongControl:
                         not CS.brakePressed and
                         not CS.cruiseState.standstill)
     self.standstill_frames = self.standstill_frames + 1 if starting_request else 0
+    lead_ok = self._lead_allows_release(radar_state)
 
     resume_pressed = any(
       event.pressed and event.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
       for event in CS.buttonEvents)
     # 운전자 의사(가속페달·RES)는 소프트홀드까지 포함해 언제나 즉시 푼다.
     release = CS.gasPressed or resume_pressed
-    if not soft_hold and self.standstill_frames >= STANDSTILL_RELEASE_FRAMES:
+    if not soft_hold and lead_ok and self.standstill_frames >= STANDSTILL_RELEASE_FRAMES:
       release = True
 
     if release:
       self.standstill_latched = False
       self.standstill_frames = 0
       self.standstill_hold_memory = None
+      self.standstill_lead_drel = None
+      self.standstill_lead_lost_frames = 0
       return False, True
 
     return True, False
@@ -290,7 +327,7 @@ class LongControl:
 
     prev_long_control_state = self.long_control_state
     standstill_latched, standstill_release = self._update_standstill_latch(
-      active, CS, v_target, v_target_1sec, soft_hold)
+      active, CS, v_target, v_target_1sec, soft_hold, radar_state)
     self.long_control_state, planned_stop = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
       CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now,
