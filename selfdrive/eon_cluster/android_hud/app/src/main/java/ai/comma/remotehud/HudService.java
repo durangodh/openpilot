@@ -4120,13 +4120,6 @@ public final class HudService extends Service {
             c.drawRect(scratchIRect, p);
         }
 
-        // Keep the current-position symbol unmistakable over both the native
-        // day map and our night mask: blue halo with the classic white-edged
-        // red navigation pointer shown in the user's reference display.
-        if (mapAvailable) {
-            drawTmapVehicleMarker(c, p, mapCenterX(), HEIGHT * 0.64f);
-        }
-
         // Navigation JSON is independent of map capture. In particular, NAVER
         // clears map_main while its Activity changes orientation or surfaces.
         // Keep valid guidance/ETA visible on the waiting background; their
@@ -4219,42 +4212,7 @@ public final class HudService extends Service {
         text(c, p, label, right - w + 36f, top + 34f, 22f, Color.WHITE, Paint.Align.LEFT);
     }
 
-    private void drawTmapVehicleMarker(Canvas c, Paint p, float cx, float cy) {
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(58, 29, 139, 255));
-        c.drawCircle(cx, cy, 39f, p);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(6f);
-        p.setColor(Color.argb(220, 35, 145, 255));
-        c.drawCircle(cx, cy, 32f, p);
 
-        scratchPath.rewind();
-        scratchPath.moveTo(cx, cy - 29f);
-        scratchPath.lineTo(cx - 23f, cy + 24f);
-        scratchPath.lineTo(cx, cy + 14f);
-        scratchPath.lineTo(cx + 23f, cy + 24f);
-        scratchPath.close();
-        p.setStrokeJoin(Paint.Join.ROUND);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.rgb(218, 35, 62));
-        c.drawPath(scratchPath, p);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(4f);
-        p.setColor(Color.WHITE);
-        c.drawPath(scratchPath, p);
-
-        p.setStrokeJoin(Paint.Join.MITER);
-        p.setStrokeWidth(1f);
-        p.setStyle(Paint.Style.FILL);
-        p.setAlpha(255);
-    }
-
-    /**
-     * 티맵 분기 실사 이미지. TBT 배너 바로 아래에 폰과 같은 순서로 붙인다.
-     * 파일이 사라지면(안내 종료) EON 이 빈 자산을 보내 비트맵이 null 이 되므로
-     * 별도의 표시 조건이 필요 없다.
-     */
     private void drawJunction(Canvas c, Paint p, float top) {
         if (junctionMode == 0) {
             return;
