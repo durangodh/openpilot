@@ -724,10 +724,29 @@ public final class HudService extends Service {
         // has just loaded the newly saved preference and sees no value change.
         // Telemetry synchronization remains edge-triggered to avoid force-stop at 10 Hz.
         clearNavigationAssets();
-        if (appToStop != 0) {
-            stopNavApp(appToStop);
+        // Process work goes to its own thread, outside the AppPrefs lock the
+        // telemetry loop also takes: two blocking `su` round trips used to stall
+        // the HUD for seconds on every switch. One su invocation starts the new
+        // app first and only then force-stops the old one.
+        final Context context = this;
+        new Thread(() -> switchNavApps(context, selected, appToStop), "hud-nav-switch").start();
+    }
+
+    static void switchNavApps(Context context, int launch, int stop) {
+        try {
+            Intent intent = context.getPackageManager().getLaunchIntentForPackage(navPackage(launch));
+            String component = intent != null && intent.getComponent() != null
+                    ? intent.getComponent().flattenToShortString() : null;
+            StringBuilder sh = new StringBuilder();
+            if (component != null) sh.append("am start -n ").append(component);
+            if (stop != 0) {
+                if (sh.length() > 0) sh.append("; ");
+                sh.append("am force-stop ").append(navPackage(stop));
+            }
+            if (sh.length() == 0) return;
+            Runtime.getRuntime().exec(new String[] {"su", "-c", sh.toString()}).waitFor();
+        } catch (Exception ignored) {
         }
-        launchNavApp(this, selected);
     }
 
     private static String navPackage(int navApp) {
