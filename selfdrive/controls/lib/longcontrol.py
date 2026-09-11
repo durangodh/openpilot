@@ -7,13 +7,15 @@ from selfdrive.controls.lib.pid import PIDController
 from selfdrive.modeld.constants import T_IDXS
 
 LongCtrlState = car.CarControl.Actuators.LongControlState
+ButtonType = car.CarState.ButtonEvent.Type
 
 
 # apilot-c2 상태전이.
 # planned_stop 조건인데 accel 이 이미 stopAccel 보다 낮은 상태로 stopping 에 들어가면 너무 급하게 서므로
 # a_target_now 가 -1.0 보다 커질 때까지(=제동이 완만해질 때까지) PID 를 유지한다. (apilot 2023-09-11)
 def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
-                             v_target_1sec, brake_pressed, cruise_standstill, soft_hold, a_target_now):
+                             v_target_1sec, brake_pressed, cruise_standstill, soft_hold, a_target_now,
+                             start_gate=True):
   # Ignore cruise standstill if car has a gas interceptor
   cruise_standstill = cruise_standstill and not CP.enableGasInterceptor
   accelerating = v_target_1sec > (v_target + 0.01)
@@ -25,10 +27,13 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                   (brake_pressed or cruise_standstill))
   stopping_condition = planned_stop or stay_stopped
 
+  # start_gate: 정체 가다서다 둔감화(StandstillReleaseSpeed/Ms). LongControl 이
+  # 플래너 출발 요구의 세기·지속시간을 보고 넘겨준다. 가속페달·RES 는 게이트를 우회한다.
   starting_condition = (v_target_1sec > CP.vEgoStarting and
                         accelerating and
                         not cruise_standstill and
-                        not brake_pressed)
+                        not brake_pressed and
+                        start_gate)
   started_condition = v_ego > CP.vEgoStarting
 
   if not active:
@@ -81,6 +86,8 @@ class LongControl:
     self._update_actuator_delays()
     self._update_start_stop_accel()
     self._update_stopping_decel_rate()
+    self._update_standstill_release()
+    self.start_request_frames = 0
 
   # ---- 파라미터 (키 이름은 이 포크 것을 유지) ----
   def _update_pid_gains(self):
@@ -130,6 +137,22 @@ class LongControl:
     self.CP.startAccel = 2.0 * self.start_accel_apply
     self.CP.stopAccel = -2.0 * self.stop_accel_apply
 
+  def _update_standstill_release(self):
+    """정체 가다서다 출발 둔감화. StandstillReleaseSpeed (x0.1 m/s, 기본 2=0.2),
+    StandstillReleaseMs (기본 100). 기본값이면 종전 동작과 같다."""
+    try:
+      raw = self.params.get("StandstillReleaseSpeed", encoding="utf8")
+      speed = int(raw) * 0.1 if raw not in (None, "") else self.CP.vEgoStarting
+    except (TypeError, ValueError):
+      speed = self.CP.vEgoStarting
+    try:
+      raw = self.params.get("StandstillReleaseMs", encoding="utf8")
+      ms = int(raw) if raw not in (None, "") else 100
+    except (TypeError, ValueError):
+      ms = 100
+    self.standstill_release_speed = float(clip(speed, 0.0, 2.0))
+    self.standstill_release_frames = int(clip(ms, 50, 2000) / 10)
+
   def _update_stopping_decel_rate(self):
     try:
       rate_raw = self.params.get("StoppingDecelRate", encoding="utf8")
@@ -142,6 +165,7 @@ class LongControl:
     self.read_param_count += 1
     if self.read_param_count >= 100:
       self.read_param_count = 0
+      self._update_standstill_release()
     elif self.read_param_count == 10:
       self._update_pid_gains()
     elif self.read_param_count == 30:
@@ -190,9 +214,22 @@ class LongControl:
 
     output_accel = self.last_output_accel
 
+    # 정체 둔감화 게이트: 정차 상태에서 플래너 출발 요구가 임계속도 이상으로
+    # 지속돼야 출발. 운전자 의사(가속페달·RES)는 즉시 통과.
+    if self.long_control_state == LongCtrlState.stopping:
+      strong_request = v_target_1sec > max(self.CP.vEgoStarting, self.standstill_release_speed)
+      self.start_request_frames = self.start_request_frames + 1 if strong_request else 0
+      resume_pressed = any(e.pressed and e.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
+                           for e in CS.buttonEvents)
+      start_gate = (CS.gasPressed or resume_pressed or
+                    self.start_request_frames >= self.standstill_release_frames)
+    else:
+      self.start_request_frames = 0
+      start_gate = True
+
     self.long_control_state, planned_stop = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
-      CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now)
+      CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now, start_gate)
 
     if self.long_control_state == LongCtrlState.off:
       self.reset(CS.vEgo)

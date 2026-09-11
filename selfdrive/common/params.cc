@@ -221,6 +221,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"CruiseSpeedMin", PERSISTENT},
     {"JerkStartLimit", PERSISTENT},
     {"StoppingDecelRate", PERSISTENT},
+    {"StandstillReleaseSpeed", PERSISTENT},   // 정차 후 자동출발 임계 목표속도 (x0.1 m/s, default 2)
+    {"StandstillReleaseMs", PERSISTENT},      // 자동출발 요구 지속시간 ms (default 100)
 
     {"DynamicLaneProfile", PERSISTENT},
     {"MpcPathCost", PERSISTENT},

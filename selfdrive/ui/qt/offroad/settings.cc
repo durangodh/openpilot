@@ -1505,6 +1505,16 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_openpilot.png", 20, 200, 1, 0, 120, this));
 
   list->addItem(new ParamValueControlF(
+      "StandstillReleaseSpeed", "STANDSTILL RELEASE SPEED",
+      "완전정지 후 자동 출발을 시작하는 플래너 목표속도(×0.1m/s)입니다. 값 증가(+): 앞차가 조금 움직여도 따라 출발하지 않음(정체 가다서다) / 값 감소(-): 즉시 반응. 가속페달·RES 는 항상 즉시 출발. 기본값: 2 (=0.2m/s), 둔감: 5~8.",
+      "../assets/offroad/icon_openpilot.png", 2, 20, 1, 0, 2, this));
+
+  list->addItem(new ParamValueControlF(
+      "StandstillReleaseMs", "STANDSTILL RELEASE DELAY",
+      "출발 요구가 이 시간(ms) 이상 이어져야 정차에서 출발합니다. 값 증가(+): 앞차의 잠깐 움직임 무시 / 값 감소(-): 빠른 출발. 기본값: 100, 둔감: 400~600.",
+      "../assets/offroad/icon_openpilot.png", 50, 2000, 50, 0, 100, this));
+
+  list->addItem(new ParamValueControlF(
       "SoftHoldMode", "SOFT HOLD MODE",
       "0: 끔, 1: 브레이크를 놓은 뒤 정지 유지, 2: aPilot SCC 호환 모드(일부 차량은 오토홀드/EPB가 작동할 수 있음). 가속페달 또는 RES/+로 해제합니다.",
       "../assets/offroad/icon_openpilot.png", 0, 2, 1, 0, 1, this));
