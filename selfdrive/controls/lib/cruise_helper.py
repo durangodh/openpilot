@@ -143,6 +143,10 @@ class CruiseHelper:
     self.auto_curve_speed_lower_limit = float(clip(curve_lower if curve_lower > 0 else 30, 5, 80))
     self.map_turn_speed_factor = float(clip(map_factor if map_factor > 0 else 90, 50, 150)) * 0.01
     self.auto_navi_speed_decel_rate = float(clip(navi_decel if navi_decel > 0 else 80, 10, 300)) * 0.01
+    # 커브(경로 곡률) 감속 세기를 카메라와 분리. 0(미설정)이면 카메라 값을 따른다.
+    curve_decel = self.params.get_int("AutoCurveSpeedDecelRate")
+    self.auto_curve_speed_decel_rate = (float(clip(curve_decel, 10, 300)) * 0.01
+                                        if curve_decel > 0 else self.auto_navi_speed_decel_rate)
 
   def read_pedal_params(self):
     # C2 pedal-resume settings. Existing branch keys are used so no unregistered
@@ -830,7 +834,7 @@ class CruiseHelper:
       map_speed = self.navigation_route.cached_map_curve_speed_kph(
         navi_state, CS.out.vEgo * CV.MS_TO_KPH,
         self.map_turn_speed_factor, self.auto_curve_speed_lower_limit,
-        self.auto_navi_speed_decel_rate)
+        self.auto_curve_speed_decel_rate)
       if map_speed is not None:
         map_speed_clu = self.kph_to_clu(map_speed)
         if map_speed_clu < max_speed_clu:
