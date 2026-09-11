@@ -204,6 +204,7 @@ public final class HudService extends Service {
     private Bitmap statusIcons;  // 순정 계기판 스타일: 미등/전조등/안전벨트/문 열림 PNG 스프라이트
     private Thread receiverThread;
     private Thread mapThread;
+    private Thread detectorThread;
     private Thread renderThread;
     private int usbErrorStreak;
     private boolean usbReceiverRegistered;
@@ -310,6 +311,16 @@ public final class HudService extends Service {
     /** 티맵 분기 실사 이미지(crossroad_expanded). 안내가 끝나면 EON 이 파일을 지운다. */
     private final AtomicReference<Bitmap> crossroadFrame = new AtomicReference<>();
     private final AtomicReference<Bitmap> laneFrame = new AtomicReference<>();
+    /** Latest compressed road preview; inference takes only the newest frame. */
+    private static final class CameraSample {
+        final byte[] jpeg;
+        final long received;
+        CameraSample(byte[] jpeg) { this.jpeg=jpeg; received=SystemClock.elapsedRealtime(); }
+    }
+    private final AtomicReference<CameraSample> phoneCameraFrame = new AtomicReference<>();
+    private final AtomicReference<JSONArray> phoneVisionObjects =
+            new AtomicReference<>(new JSONArray());
+    private volatile long phoneVisionUpdatedElapsed;
     private final AtomicReference<InetAddress> eonAddress = new AtomicReference<>();
     private final Object assetLock = new Object();
 
@@ -532,6 +543,12 @@ public final class HudService extends Service {
                 renderLoop();
             }
         }, "hud-render");
+        detectorThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                detectorLoop();
+            }
+        }, "hud-phone-vision");
         statsThread = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -540,6 +557,7 @@ public final class HudService extends Service {
         }, "hud-stats");
         receiverThread.start();
         mapThread.start();
+        detectorThread.start();
         renderThread.start();
         statsThread.start();
 
@@ -648,6 +666,7 @@ public final class HudService extends Service {
                         }
                         synchronizeNavigation(decoded, socket, packet);
                         state.set(decoded);
+                        NaverSettingsRelay.update(decoded, socket);
                         udpReceiverError = "";
                         eonAddress.set(packet.getAddress());
                         lastEonRxElapsed = SystemClock.elapsedRealtime();
@@ -824,6 +843,12 @@ public final class HudService extends Service {
                     if (length > 0) {
                         in.readFully(data);
                     }
+                    if (tagEquals(header, "CAM1")) {
+                        // Keep networking responsive: JPEG decode and TFLite
+                        // inference happen on the low-priority detector thread.
+                        phoneCameraFrame.set(data.length == 0 ? null : new CameraSample(data));
+                        continue;
+                    }
                     synchronized (assetLock) {
                         if (tagEquals(header, "MAP1")) {
                             long mapNow = SystemClock.elapsedRealtime();
@@ -861,6 +886,87 @@ public final class HudService extends Service {
         mapConnected = false;
     }
 
+    /** Low-rate CPU inference on S9. Results are render-only JSON boxes. */
+    private void detectorLoop() {
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+        PhoneVehicleDetector detector = null;
+        boolean thermalPaused = false;
+        long retryAfter = 0L;
+        long nextInference = 0L;
+        try {
+            while (running.get()) {
+                JSONObject currentState = state.get();
+                boolean enabled = currentState.optInt("hudPhoneVision", 0) != 0;
+                if (!enabled) {
+                    if (detector != null) detector.reset();
+                    phoneCameraFrame.set(null);
+                    phoneVisionObjects.set(new JSONArray());
+                    phoneVisionUpdatedElapsed = 0L;
+                    SystemClock.sleep(300L);
+                    continue;
+                }
+
+                if (s9TempC >= 82f) {
+                    thermalPaused = true;
+                } else if (s9TempC > 0f && s9TempC <= 78f) {
+                    thermalPaused = false;
+                }
+                if (thermalPaused) {
+                    if (detector != null) detector.reset();
+                    phoneCameraFrame.set(null);
+                    phoneVisionObjects.set(new JSONArray());
+                    phoneVisionUpdatedElapsed = 0L;
+                    SystemClock.sleep(500L);
+                    continue;
+                }
+
+                long now = SystemClock.elapsedRealtime();
+                if (now < nextInference) {
+                    SystemClock.sleep(Math.min(50L, nextInference - now));
+                    continue;
+                }
+                CameraSample sample = phoneCameraFrame.getAndSet(null);
+                if (sample == null) {
+                    SystemClock.sleep(50L);
+                    continue;
+                }
+                if (detector == null) {
+                    if (now < retryAfter) {
+                        continue;
+                    }
+                    try {
+                        detector = new PhoneVehicleDetector(getApplicationContext());
+                    } catch (Throwable error) {
+                        retryAfter = now + 10000L;
+                        SystemClock.sleep(500L);
+                        continue;
+                    }
+                }
+                try {
+                    // Reject a queued old image rather than drawing a departed vehicle.
+                    if (now - sample.received > 750L) continue;
+                    JSONArray objects = detector.detect(sample.jpeg, currentState, sample.received);
+                    phoneVisionObjects.set(objects);
+                    phoneVisionUpdatedElapsed = sample.received;
+                } catch (Throwable error) {
+                    phoneVisionObjects.set(new JSONArray());
+                    phoneVisionUpdatedElapsed = 0L;
+                }
+                int fps = Math.max(1, Math.min(3,
+                        currentState.optInt("hudVisionFps", 3)));
+                // Count from inference start, not finish: avoid adding processing
+                // time to every configured camera interval. No backlog is queued.
+                nextInference = Math.max(now + 1000L / fps, SystemClock.elapsedRealtime());
+            }
+        } finally {
+            if (detector != null) {
+                detector.close();
+            }
+        }
+    }
+
+    // ── 렌더 루프 ─────────────────────────────────────────────────────────
+
     private void renderLoop() {
         long fpsStart = SystemClock.elapsedRealtime();
         long nextFrame = 0L;
@@ -875,6 +981,18 @@ public final class HudService extends Service {
             long due = now + frameIntervalMs;
 
             JSONObject currentState = state.get();
+            try {
+                long visionTtl = Math.min(1000L, 1800L / Math.max(1,
+                        Math.min(3, currentState.optInt("hudVisionFps", 3))));
+                currentState.put("phoneVisionNow", now);
+                if (phoneVisionUpdatedElapsed > 0L
+                        && now - phoneVisionUpdatedElapsed <= visionTtl) {
+                    currentState.put("phoneVisionObjects", phoneVisionObjects.get());
+                } else {
+                    currentState.remove("phoneVisionObjects");
+                }
+            } catch (JSONException ignored) {
+            }
             // 출력 대상은 FPS 0(패널 끄기) 상태에서도 즉시 바뀌어야 한다.
             applyFrameConfiguration(currentState);
             int requestedFps = Math.max(0, Math.min(15, currentState.optInt("hudFps", 8)));
@@ -1345,6 +1463,16 @@ public final class HudService extends Service {
                     egoCar != null && !egoCar.isRecycled(),
                     s.optInt("hudGuardrail", 1) != 0,
                     Math.max(0, Math.min(100, s.optInt("hudHaze", 55))));
+            if (glDrawn) {
+                String mapStatus = modelWorldGl.mapStatus();
+                if (!mapStatus.isEmpty()) {
+                    // Small note why the road/building context is missing (DB download, out of region, ...).
+                    p.setShader(null);
+                    p.setStyle(Paint.Style.FILL);
+                    text(c, p, lang("배경 ", "MAP ") + mapStatus, 14f, roadBottom - 12f, 18f,
+                            Color.argb(210, 255, 205, 120), Paint.Align.LEFT);
+                }
+            }
             if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
                 // 앞차도 자차와 같은 그림으로. 먼 차부터 그려 근경이 덮게 한다.
                 for (int leadIndex = 1; leadIndex >= 0; leadIndex--) {
@@ -4120,6 +4248,13 @@ public final class HudService extends Service {
             c.drawRect(scratchIRect, p);
         }
 
+        // Keep the current-position symbol unmistakable over both the native
+        // day map and our night mask: blue halo with the classic white-edged
+        // red navigation pointer shown in the user's reference display.
+        if (mapAvailable) {
+            drawTmapVehicleMarker(c, p, mapCenterX(), HEIGHT * 0.64f);
+        }
+
         // Navigation JSON is independent of map capture. In particular, NAVER
         // clears map_main while its Activity changes orientation or surfaces.
         // Keep valid guidance/ETA visible on the waiting background; their
@@ -4210,6 +4345,11 @@ public final class HudService extends Service {
             if (hz >= 0) d.append(d.length() > 0 ? "·" : "").append(String.format(java.util.Locale.US, "%.0fHz", hz));
             if (navKph >= 0) d.append(d.length() > 0 ? "·" : "").append(navKph).append("km");
             if (info.optBoolean("virtual", false)) d.append(lang("·가상", "·SIM"));
+            int mapAge = info.optInt("mapAge", -1);
+            if (mapAge > 2500) {
+                // Map frames stopped even though the position stream is alive.
+                d.append(d.length() > 0 ? "·" : "").append(lang("지도 ", "MAP ")).append(Math.min(mapAge, 999000) / 1000).append("s");
+            }
             if (d.length() > 0) sb.append("  ").append(d);
         }
         String label = sb.toString();
@@ -4223,10 +4363,46 @@ public final class HudService extends Service {
         p.setColor(dot);
         c.drawCircle(right - w + 18f, top + height * 0.5f, 8f, p);
         int color = state == 2 ? Color.WHITE : Color.rgb(255, 205, 205);
+        if (state == 2 && info != null && info.optInt("mapAge", -1) > 2500) color = Color.rgb(255, 190, 110);
         text(c, p, label, right - w + 32f, top + 33f, 21f, color, Paint.Align.LEFT);
     }
 
+    private void drawTmapVehicleMarker(Canvas c, Paint p, float cx, float cy) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(58, 29, 139, 255));
+        c.drawCircle(cx, cy, 39f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(6f);
+        p.setColor(Color.argb(220, 35, 145, 255));
+        c.drawCircle(cx, cy, 32f, p);
 
+        scratchPath.rewind();
+        scratchPath.moveTo(cx, cy - 29f);
+        scratchPath.lineTo(cx - 23f, cy + 24f);
+        scratchPath.lineTo(cx, cy + 14f);
+        scratchPath.lineTo(cx + 23f, cy + 24f);
+        scratchPath.close();
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(218, 35, 62));
+        c.drawPath(scratchPath, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(4f);
+        p.setColor(Color.WHITE);
+        c.drawPath(scratchPath, p);
+
+        p.setStrokeJoin(Paint.Join.MITER);
+        p.setStrokeWidth(1f);
+        p.setStyle(Paint.Style.FILL);
+        p.setAlpha(255);
+    }
+
+    /**
+     * 티맵 분기 실사 이미지. TBT 배너 바로 아래에 폰과 같은 순서로 붙인다.
+     * 파일이 사라지면(안내 종료) EON 이 빈 자산을 보내 비트맵이 null 이 되므로
+     * 별도의 표시 조건이 필요 없다.
+     */
     private void drawJunction(Canvas c, Paint p, float top) {
         if (junctionMode == 0) {
             return;
@@ -4398,6 +4574,9 @@ public final class HudService extends Service {
         measuredFps = 0.0f;
         lastJpegBytes = 0;
         lastRenderElapsed = 0L;
+        phoneCameraFrame.set(null);
+        phoneVisionObjects.set(new JSONArray());
+        phoneVisionUpdatedElapsed = 0L;
         if (activeInstance == this) {
             activeInstance = null;
         }

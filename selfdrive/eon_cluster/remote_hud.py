@@ -595,6 +595,9 @@ def _navi_scene(state):
     heading = math.radians(float(vehicle.get("heading_deg")))
   except (TypeError, ValueError):
     lat0 = None
+  if lat0 is not None and abs(lat0) < 0.5 and abs(lon0) < 0.5:
+    # Nav app has no fix yet and reports (0,0); never publish it as a pose.
+    lat0 = None
   if lat0 is not None:
     # TMAP 경로를 차량 좌표계로 변환하기 위한 위치/방위.
     scene["pos"] = [round(lat0, 6), round(lon0, 6), round(math.degrees(heading), 1)]
@@ -885,7 +888,7 @@ def _compensate_navi_pose(navi, v_ego):
     scene.pop("pos", None)
     scene.pop("curve", None)
     return
-  if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+  if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0) or (abs(lat) < 0.5 and abs(lon) < 0.5):
     scene.pop("pos", None)
     scene.pop("curve", None)
     return

@@ -175,6 +175,8 @@ final class HudMapStore {
     private final Set<String> rejectedFiles =
             Collections.synchronizedSet(new HashSet<String>());
     private volatile Snapshot snapshot = Snapshot.EMPTY;
+    /** Why the map context is currently missing ("" when a snapshot is showing). */
+    private volatile String status = "";
     private volatile File activeDatabaseFile;
     private volatile List<RegionSpec> regions = Collections.emptyList();
     private volatile String selectedRegionId;
@@ -200,13 +202,21 @@ final class HudMapStore {
         return snapshot;
     }
 
+    /** Short reason the drive panel shows when no map context is drawn. */
+    String statusText() {
+        if (snapshot != Snapshot.EMPTY) return status.isEmpty() ? "" : status;
+        return status.isEmpty() ? "타일 없음" : status;
+    }
+
     void update(double lat, double lon) {
         if (closed || !validPosition(lat, lon)) {
+            status = "위치 없음";
             return;
         }
         List<RegionSpec> availableRegions = regions;
         if (availableRegions.isEmpty()) {
             requestManifest();
+            status = "권역 목록 대기";
         } else {
             RegionSpec region = findRegion(availableRegions, lat, lon);
             selectedRegionId = region == null ? null : region.id;
@@ -214,13 +224,23 @@ final class HudMapStore {
                 File regionalFile = new File(databaseDirectory, region.fileName);
                 if (!acceptDatabase(regionalFile, region.bytes, region)) {
                     requestRegionDownload(region);
+                    File partial = new File(databaseDirectory, region.fileName + DOWNLOAD_SUFFIX);
+                    long have = partial.isFile() ? partial.length() : (regionalFile.isFile() ? regionalFile.length() : 0L);
+                    int pct = region.bytes > 0 ? (int) Math.min(99L, have * 100L / region.bytes) : 0;
+                    boolean waiting = System.currentTimeMillis() < nextDownloadAtMs && !downloading.get();
+                    status = "DB " + region.id + " " + pct + "%" + (downloading.get() ? " 받는 중" : (waiting ? " 대기" : ""));
+                } else {
+                    status = "";
                 }
+            } else {
+                status = "권역 밖";
             }
         }
 
         File mapFile = activeDatabaseFile;
         if (mapFile == null || !mapFile.isFile()) {
             if (availableRegions.isEmpty()) requestLegacyDownload();
+            if (status.isEmpty()) status = "DB 없음";
             return;
         }
         int tileX = tileX(lon);
