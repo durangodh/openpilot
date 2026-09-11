@@ -94,6 +94,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"AutoRoadSpeedAdjust", PERSISTENT},
     {"AutoRoadSpeedLimitOffset", PERSISTENT},
     {"AutoNaviSpeedCtrlEnd", PERSISTENT},
+    {"AutoNaviSpeedReleaseDist", PERSISTENT},  // 카메라 앞 감속 해제 거리 m (default 0)
     {"AutoNaviSpeedBumpTime", PERSISTENT},
     {"AutoNaviSpeedBumpSpeed", PERSISTENT},
     {"AutoNaviSpeedSafetyFactor", PERSISTENT},

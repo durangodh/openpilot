@@ -1155,22 +1155,31 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "MapTurnSpeedFactor", "TMAP CURVE SPEED FACTOR",
       "티맵 경로의 커브 목표속도 비율입니다. 값 증가(+): 커브 속도가 빨라지고 감속이 줄어듦 / 값 감소(-): 더 느리게 통과.",
       "../assets/offroad/icon_road.png", 50, 150, 5, 0, 90, this));
+  toggleLayout->addWidget(horizontal_line());
+  toggleLayout->addWidget(new LabelControl("과속카메라·구간단속 감속",
+      "", "감속 시작 거리는 '감속 세기'와 목표속도에서 자동 계산됩니다. 세기를 낮출수록 더 멀리서 부드럽게 시작하고, 높일수록 카메라 가까이에서 급하게 줄입니다."));
   toggleLayout->addWidget(new ParamValueControlF(
-      "AutoNaviSpeedDecelRate", "MAP CURVE DECEL RATE",
-      "티맵 커브 진입 감속 강도(×0.01m/s²)입니다. 값 증가(+): 늦고 강하게 감속 / 값 감소(-): 일찍 부드럽게 감속.",
-      "../assets/offroad/icon_road.png", 10, 300, 10, 0, 120, this));
+      "AutoNaviSpeedDecelRate", "1. 감속 세기 (×0.01m/s²)",
+      "카메라·구간단속·티맵 커브 공용 감속 강도입니다. 값 감소(-): 일찍·부드럽게 시작 / 값 증가(+): 늦게·강하게. 기본값: 120.",
+      "../assets/offroad/icon_speed_limit.png", 10, 300, 10, 0, 120, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "AutoNaviSpeedCtrlEnd", "CAMERA DECEL END TIME (SEC)",
-      "C3 방식의 카메라 감속 완료지점입니다. 값 증가(+): 카메라에서 더 먼 지점까지 감속을 완료합니다.",
+      "AutoNaviSpeedCtrlEnd", "2. 감속 완료 지점 (카메라 N초 전)",
+      "이 시점(카메라까지 남은 주행시간)에 제한속도 도달을 완료합니다. 값 증가(+): 더 멀리서 완료(감속 시작도 앞당겨짐) / 값 감소(-): 카메라 직전에 완료. 기본값: 7.",
       "../assets/offroad/icon_speed_limit.png", 3, 20, 1, 0, 7, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "AutoNaviSpeedBumpTime", "SPEED BUMP DECEL TIME (SEC)",
-      "C3 방식의 방지턱 감속 완료지점입니다. 목표속도로 이 시간만큼 주행할 거리 전에 감속을 완료합니다.",
-      "../assets/offroad/icon_speed_limit.png", 1, 50, 1, 0, 1, this));
+      "AutoNaviSpeedReleaseDist", "3. 가속 복귀 지점 (카메라 N m 전)",
+      "카메라 도달 N m 전에 감속 유지를 끝내고 설정속도로 복귀합니다. 0: 카메라를 지난 뒤 복귀(기본). 실제 단속 지점은 카메라보다 앞일 수 있어 10 이하를 권장합니다.",
+      "../assets/offroad/icon_speed_limit.png", 0, 50, 5, 0, 0, this));
+  toggleLayout->addWidget(horizontal_line());
+  toggleLayout->addWidget(new LabelControl("과속방지턱 감속", "", "카메라와 별도로 방지턱만의 목표속도·완료 지점입니다."));
   toggleLayout->addWidget(new ParamValueControlF(
-      "AutoNaviSpeedBumpSpeed", "SPEED BUMP TARGET SPEED (km/h)",
-      "C3 방식의 고정 방지턱 통과 목표속도입니다. 카메라 안전비율은 적용하지 않습니다.",
+      "AutoNaviSpeedBumpSpeed", "방지턱 통과 속도 (km/h)",
+      "방지턱 통과 목표속도입니다(카메라 비율 미적용). 기본값: 35.",
       "../assets/offroad/icon_speed_limit.png", 10, 100, 5, 0, 35, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoNaviSpeedBumpTime", "방지턱 감속 완료 지점 (N초 전)",
+      "방지턱까지 남은 주행시간이 이 값일 때 목표속도 도달을 완료합니다. 기본값: 1.",
+      "../assets/offroad/icon_speed_limit.png", 1, 50, 1, 0, 1, this));
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("StockNaviDecelEnabled",
                                             "STOCK NAVI DECEL",

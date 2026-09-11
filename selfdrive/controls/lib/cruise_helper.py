@@ -164,6 +164,9 @@ class CruiseHelper:
     bump_time = self.params.get_int("AutoNaviSpeedBumpTime")
     bump_speed = self.params.get_int("AutoNaviSpeedBumpSpeed")
     safety_factor = self.params.get_int("AutoNaviSpeedSafetyFactor")
+    release_dist = self.params.get_int("AutoNaviSpeedReleaseDist")
+    # 카메라 이 거리(m) 앞에서 감속 유지를 끝내고 원래 속도로 복귀. 0 = 카메라를 지난 뒤.
+    self.auto_navi_speed_release_dist = float(clip(release_dist, 0, 50))
     self.auto_navi_speed_ctrl_end = float(clip(ctrl_end if ctrl_end > 0 else 7, 3, 20))
     self.auto_navi_speed_bump_time = float(clip(bump_time if bump_time > 0 else 1, 1, 50))
     self.auto_navi_speed_bump_speed = float(clip(bump_speed if bump_speed > 0 else 35, 10, 100))
@@ -723,7 +726,8 @@ class CruiseHelper:
 
     if self.cam_dist_est > 0.0 and not self.cam_passed:
       self.cam_dist_est = max(0.0, self.cam_dist_est - traveled)
-      if self.cam_dist_est <= 0.0:
+      # AutoNaviSpeedReleaseDist: 카메라 앞 N m 에서 미리 "지난 것"으로 보고 가속을 허용.
+      if self.cam_dist_est <= self.auto_navi_speed_release_dist:
         self.cam_passed = True
 
     if cam_dist > 0.0 and cam_limit > 0.0:
