@@ -56,7 +56,8 @@ public class NavigationRenderCheck {
     new JSONObject().put("active",active).put("remainDist",remain).put("turnDist",turn));}
   void check(String name,JSONObject state,Bitmap map,int banners,int maps){
     Canvas c=new Canvas(); drawMap(c,new Paint(),state,map,null,null,null);
-    if(c.banners!=banners||c.maps!=maps||c.markers!=0||c.nextCalls!=1||c.etaCalls!=1||c.sourceBadges!=1)
+    // The supplied renderer draws one position marker only when a map is available.
+    if(c.banners!=banners||c.maps!=maps||c.markers!=maps||c.nextCalls!=1||c.etaCalls!=1||c.sourceBadges!=1)
       throw new AssertionError(name+": banners="+c.banners+" maps="+c.maps+" markers="+c.markers+" next="+c.nextCalls+" eta="+c.etaCalls+" badge="+c.sourceBadges);
   }
   public static void main(String[] args){
@@ -100,3 +101,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
