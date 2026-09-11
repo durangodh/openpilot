@@ -129,6 +129,8 @@ def manager_init() -> None:
     ("CruiseMaxVals4", "80"),
     ("CruiseMaxVals5", "70"),
     ("CruiseMaxVals6", "60"),
+    ("NoLeadCruiseAccelFactor", "65"),
+    ("NoLeadCruiseJerkLimit", "25"),
     # 조향 기본값은 차량 공식값 기준으로 맞춘다 (2026-08-19, 학습 제거 후 정리)
     #  - CustomSteerRatio 1650  = hyundai/interface.py ret.steerRatio 16.5
     #  - SteerActuatorDelay 25  = 동 파일 ret.steerActuatorDelay 0.25s
@@ -255,8 +257,8 @@ def manager_init() -> None:
   if params.get("ApilotC2LongMigrated") is None:
     try:
       params.put("LeadDepartCost", "5")
-      for legacy_key in ("TFollowDecelBoost", "TFollowClosingMargin", "NoLeadCruiseAccelFactor",
-                         "NoLeadCruiseJerkLimit", "StandstillHoldApply", "StandstillHoldRate",
+      for legacy_key in ("TFollowDecelBoost", "TFollowClosingMargin",
+                         "StandstillHoldApply", "StandstillHoldRate",
                          "RadarReactionFactor", "SccVisionMismatchFallback"):
         try:
           os.remove(os.path.join("/data/params/d", legacy_key))

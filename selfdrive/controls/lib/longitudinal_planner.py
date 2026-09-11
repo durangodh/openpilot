@@ -15,6 +15,7 @@ from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_sp
 from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_cruise_max_accel,
+                                                        get_no_lead_cruise_accel_cap,
                                                         limit_accel_in_turns)
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.events import Events
@@ -55,6 +56,7 @@ class LongitudinalPlanner:
     self.my_driving_mode = 3
     self.my_eco_mode_factor = 0.8
     self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
+    self.no_lead_cruise_accel_factor = 0.65
 
     self.read_param()
     self.param_read_counter = 1
@@ -118,6 +120,9 @@ class LongitudinalPlanner:
     for key, default in zip(CRUISE_MAX_VAL_KEYS, CRUISE_MAX_VAL_DEFAULTS):
       raw = self.params.get_int(key)
       self.cruise_max_vals.append(float(raw * 0.01 if raw > 0 else default))
+    no_lead_factor = self.params.get_int("NoLeadCruiseAccelFactor")
+    self.no_lead_cruise_accel_factor = float(clip(
+      (no_lead_factor if no_lead_factor > 0 else 65) * 0.01, 0.30, 1.0))
 
     gap_defaults = [110, 120, 140, 160]
     gap_values = []
@@ -240,10 +245,14 @@ class LongitudinalPlanner:
     # No change cost when user is controlling the speed, or when standstill
     prev_accel_constraint = not (reset_state or sm['carState'].standstill)
 
-    # apilot-c2: 최대가속 = CruiseMaxVals(속도별) x MyDrivingMode 배율. 앞차 유무에 따른 별도 상한 없음.
+    # Apply the restored no-lead policy on top of the speed/mode CruiseMax table.
     cruise_max_accel = float(clip(get_cruise_max_accel(
       v_ego, self.cruise_max_vals, driving_mode, self.my_eco_mode_factor,
       float(clip(sm['controlsState'].mySafeModeFactor, 0.5, 1.0))), 0.0, MAX_ACCEL))
+    if not (sm['radarState'].leadOne.status or sm['radarState'].leadTwo.status):
+      speed_error_kph = max(0.0, (v_cruise - v_ego) * CV.MS_TO_KPH)
+      cruise_max_accel = min(cruise_max_accel, get_no_lead_cruise_accel_cap(
+        cruise_max_accel, speed_error_kph, self.no_lead_cruise_accel_factor))
     if self.mpc.mode == 'acc':
       accel_limits = limit_accel_in_turns(
         v_ego, sm['carState'].steeringAngleDeg,

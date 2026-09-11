@@ -273,9 +273,10 @@ class CarController:
           set_speed = max(CS.out.vEgo, min_set_speed)
         set_speed *= CV.MS_TO_MPH if CS.is_set_speed_in_mph else CV.MS_TO_KPH
 
-        # apilot-c2: LongControl 출력(actuators.accel)을 그대로 SCC12 에 싣는다.
-        # (앞차 유무별 상한·상승 제한 등 전송단 후처리 없음. 최대가속은 플래너의 CruiseMax 가 담당)
-        apply_accel = clip(actuators.accel if (CC.longActive or stopping or soft_hold_scc) else 0,
+        requested_accel = actuators.accel if (CC.longActive or stopping or soft_hold_scc) else 0.0
+        apply_accel = controls.cruise_helper.get_apply_accel(
+          CS, controls.sm, requested_accel, stopping, dt=2 * DT_CTRL)
+        apply_accel = clip(apply_accel,
                            CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX)
 
         # Panda rejects any nonzero SCC12 request while the driver brake is
@@ -307,6 +308,9 @@ class CarController:
           controls.sccStockCamStatus = 0
           stock_cam = False
 
+        # Base the next ramp step on the request actually sent, including brake
+        # override and stock navigation deceleration. SCC12 runs at 50 Hz.
+        controls.cruise_helper.last_apply_accel = float(apply_accel)
         lead = controls.cruise_helper.get_lead(controls.sm)
         lead_distance = float(lead.dRel) if lead is not None else 0.0
         lead_relative_speed = float(lead.vRel) if lead is not None else 0.0

@@ -332,6 +332,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"XEgoObstacleCost", PERSISTENT},          // 차간거리 추종 강도 (x100, default 600 = 6.0)
     {"EnableSpeedTF", PERSISTENT},
     {"LeadDepartCost", PERSISTENT},            // 저속 출발 추종 코스트 배율 (x100, default 20, apilot=5 기존=45)
+    {"NoLeadCruiseAccelFactor", PERSISTENT},  // No-lead CruiseMax percentage
+    {"NoLeadCruiseJerkLimit", PERSISTENT},    // No-lead accel rise rate (x100 m/s^3)
     {"StartAccelApply", PERSISTENT},
     {"StopAccelApply", PERSISTENT},
     {"SoftHoldMode", PERSISTENT},
