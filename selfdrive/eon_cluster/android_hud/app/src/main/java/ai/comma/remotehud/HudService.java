@@ -212,6 +212,10 @@ public final class HudService extends Service {
     private long frameIntervalMs = 125L;
     private volatile long mapFrameIntervalMs = 200L;
     private long lastMapAcceptedElapsed = 0L;
+    private final MapThemePolicy mapThemePolicy = new MapThemePolicy();
+    private final int[] mapThemePixels = new int[16 * 12];
+    private long lastThemeSampleElapsed = 0L;
+    private long lastThemeMapElapsed = 0L;
     private int configuredFps = 8;
     private int jpegQuality = 55;
     private int appliedBrightness = -1;
@@ -816,6 +820,8 @@ public final class HudService extends Service {
             recycleAndClear(crossroadFrame);
             recycleAndClear(laneFrame);
             lastMapAcceptedElapsed = 0L;
+            mapThemePolicy.reset();
+            lastThemeMapElapsed = lastThemeSampleElapsed = 0L;
         }
     }
 
@@ -933,6 +939,7 @@ public final class HudService extends Service {
             Bitmap usbFrame = null;
             synchronized (assetLock) {
                 Bitmap map = mapFrame.get();
+                updateMapTheme(map, now);
                 Bitmap tbtCurrent = tbtCurrentFrame.get();
                 Bitmap tbtNext = tbtNextFrame.get();
                 Bitmap lane = laneFrame.get();
@@ -4025,8 +4032,34 @@ public final class HudService extends Service {
         if (configuredTheme == 2) {
             return false;
         }
+        int mapTheme = mapThemePolicy.current(SystemClock.elapsedRealtime());
+        if (mapTheme != MapThemePolicy.UNKNOWN) {
+            return mapTheme == MapThemePolicy.NIGHT;
+        }
         int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
         return h < 7 || h >= 19;
+    }
+
+    // Called under assetLock, before any HUD tint/overlay is applied.
+    // Only inspect fresh frames, at most twice a second (192 pixel reads).
+    private void updateMapTheme(Bitmap map, long now) {
+        if (map == null || map.isRecycled() || lastMapAcceptedElapsed == 0L
+                || lastMapAcceptedElapsed == lastThemeMapElapsed
+                || now - lastThemeSampleElapsed < 500L) return;
+        lastThemeMapElapsed = lastMapAcceptedElapsed;
+        lastThemeSampleElapsed = now;
+        int width = map.getWidth(), height = map.getHeight();
+        if (width < 16 || height < 12) return;
+        int index = 0;
+        // Avoid the usual guidance banner at the top and ETA at the bottom.
+        for (int row = 0; row < 12; row++) {
+            int y = Math.min(height - 1, (int) (height * (0.22f + (row + 0.5f) * 0.66f / 12f)));
+            for (int col = 0; col < 16; col++) {
+                int x = Math.min(width - 1, (int) (width * (col + 0.5f) / 16f));
+                mapThemePixels[index++] = map.getPixel(x, y);
+            }
+        }
+        mapThemePolicy.observe(MapThemePolicy.classify(mapThemePixels), now);
     }
 
     private void applyThemeOverlay(Canvas c, Paint p) {
@@ -4491,4 +4524,3 @@ public final class HudService extends Service {
         return null;
     }
 }
-

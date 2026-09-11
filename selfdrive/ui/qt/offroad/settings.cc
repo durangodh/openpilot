@@ -1258,7 +1258,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "EonClusterHudScreenMode", "S9 HUD SCREEN MODE", "1: 자동(길안내/주행리포트) / 2: 실시간 디버그 / 3: 주행리포트 고정",
       "../assets/offroad/icon_road.png", 1, 3, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudTheme", "S9 HUD THEME", "0: 자동 / 1: 다크 / 2: 라이트. S9의 시스템·우측 정보 패널에 실시간 적용됩니다.",
+      "EonClusterHudTheme", "S9 HUD THEME", "0: 지도 밝기 자동 / 1: 다크 / 2: 라이트. 자동은 네이버·티맵 지도 배경 밝기에 맞춰 주행화면을 전환합니다. 판별 불가·지도 끊김 시 시간 기준을 사용합니다.",
       "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudOrientation", "S9 HUD ORIENTATION", "0: 기본 / 2: 180도 회전",
