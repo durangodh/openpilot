@@ -93,7 +93,7 @@ public final class CarrotCarMapSnapshot {
         if (map == null) {
             if (lastIdleLogAt == 0 || now - lastIdleLogAt >= 60000) {
                 lastIdleLogAt = now;
-                CarrotHudLog.log(TAG, "HUD13.5 bridge polling, no NaverMap yet (provider=" + (p != null)
+                CarrotHudLog.log(TAG, "HUD13.6 bridge polling, no NaverMap yet (provider=" + (p != null)
                         + ", activity=" + (activityObject() != null) + ") -> phone capture path");
             }
             return false;

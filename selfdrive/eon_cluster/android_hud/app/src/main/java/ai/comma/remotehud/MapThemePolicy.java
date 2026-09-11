@@ -2,9 +2,14 @@ package ai.comma.remotehud;
 
 /** Conservative image-based theme estimate shared by NAVER and TMAP.
  * This is not the navigation app's authoritative night-mode flag.
+ *
+ * A settled theme is held for HOLD_MS after the last confident frame, so a
+ * map that pauses for a while (red light, renderer idle, app switch) does not
+ * flip the drive panel back to the time-of-day fallback and forth again.
  */
 final class MapThemePolicy {
     static final int UNKNOWN = -1, DAY = 0, NIGHT = 1;
+    static final long HOLD_MS = 60_000L;
     private int stable = UNKNOWN, candidate = UNKNOWN;
     private long candidateSince, lastConfident = -1;
 
@@ -38,7 +43,7 @@ final class MapThemePolicy {
     }
 
     synchronized void observe(int value, long now) {
-        if (lastConfident >= 0 && now - lastConfident > 5000L) reset();
+        if (lastConfident >= 0 && now - lastConfident > HOLD_MS) reset();
         if (value == UNKNOWN) {
             candidate = UNKNOWN;
             return;
@@ -53,6 +58,6 @@ final class MapThemePolicy {
     }
 
     synchronized int current(long now) {
-        return lastConfident >= 0 && now - lastConfident <= 5000L ? stable : UNKNOWN;
+        return lastConfident >= 0 && now - lastConfident <= HOLD_MS ? stable : UNKNOWN;
     }
 }

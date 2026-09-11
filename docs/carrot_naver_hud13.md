@@ -134,3 +134,12 @@ requesting every 3 s while dead (map_main is released to the phone-capture
 fallback meanwhile) and logs `renderer not answering` / `renderer answering
 again`. The HUD GPS badge's `지도 Ns` (gpsInfo.mapAge, already in g_hud) shows
 this state directly.
+
+## HUD13.6: remaining time is milliseconds
+
+`RoutePosition.duration()` returns a raw `TimeInterval` (its class exposes
+`getMilliseconds` / `seconds-impl`), i.e. milliseconds. The bridge guessed the
+unit from magnitude and treated values ≤ 200,000 as seconds, so within the
+last ~3 minutes of a trip the HUD showed thousands of minutes (143,280 ms →
+"2388분"). `CarrotNaverCodes.remainTimeSec` now always divides by 1000; the
+bridge's `remainTimeSec` delegates to it.

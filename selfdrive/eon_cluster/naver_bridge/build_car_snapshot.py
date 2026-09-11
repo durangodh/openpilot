@@ -61,14 +61,14 @@ def patch_set_activity(text):
   return text[:start] + body + text[end:]
 
 
-def replace_method_body(text, signature, new_body):
+def replace_method_body(text, signature, new_body, locals_count=1):
   start = text.index(signature)
   end = text.index(".end method", start)
   body = text[start:end]
   locals_match = re.search(r"\.locals (\d+)", body)
   if not locals_match:
     raise ValueError("Unexpected method " + signature)
-  body = body[:locals_match.start()] + ".locals 1\n\n" + new_body + "\n"
+  body = body[:locals_match.start()] + ".locals %d\n\n" % locals_count + new_body + "\n"
   return text[:start] + body + text[end:]
 
 
@@ -145,7 +145,7 @@ def main():
   classes = work / "classes"
   classes.mkdir()
   subprocess.run([str(javac), "--release", "8", "-encoding", "UTF-8", "-cp", str(android), "-d", str(classes),
-                  str(stub), str(here / "CarrotCarMapSnapshot.java"), str(here / "CarrotHudLog.java")], check=True)
+                  str(stub), str(here / "CarrotCarMapSnapshot.java"), str(here / "CarrotHudLog.java"), str(here / "CarrotNaverCodes.java")], check=True)
   with zipfile.ZipFile(work / "new.jar", "w") as jar:
     for item in classes.rglob("*.class"):
       if item.name != "CarrotNaverBridge.class":
@@ -161,7 +161,12 @@ def main():
   for item in (new / "smali" / PACKAGE).glob("Carrot*.smali"):
     shutil.copyfile(item, bridge / "smali" / PACKAGE / item.name)
   bridge_smali = bridge / "smali" / PACKAGE / "CarrotNaverBridge.smali"
-  bridge_smali.write_text(patch_set_activity(patch_bridge(bridge_smali.read_text(encoding="utf-8"))), encoding="utf-8")
+  bridge_text = patch_set_activity(patch_bridge(bridge_smali.read_text(encoding="utf-8")))
+  bridge_text = replace_method_body(
+    bridge_text, ".method private static remainTimeSec(Ljava/lang/Object;)J",
+    "    invoke-static {p0}, Lcom/naver/map/carrot/CarrotNaverCodes;->remainTimeSec(Ljava/lang/Object;)J\n\n"
+    "    move-result-wide v0\n\n    return-wide v0", locals_count=2)
+  bridge_smali.write_text(bridge_text, encoding="utf-8")
   provider_smali = provider / "smali/com/naver/map/core/auto/map/MapProvider.smali"
   provider_smali.write_text(patch_provider(provider_smali.read_text(encoding="utf-8")), encoding="utf-8")
   navi_smali = provider / "smali/com/naver/maps/navi/mapmatching/LocationExtensionsKt.smali"

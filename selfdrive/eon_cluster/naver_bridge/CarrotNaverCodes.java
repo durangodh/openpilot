@@ -203,6 +203,53 @@ public final class CarrotNaverCodes {
      * Replacement for CarrotNaverBridge.safetyJson(): same JSON shape, TMAP type
      * and a limit only for speed-enforcing cameras.
      */
+    /**
+     * HUD13.6: remaining time to the goal, in seconds.
+     * RoutePosition.duration() is a raw {@code TimeInterval} whose value is
+     * MILLISECONDS (the class exposes getMilliseconds / seconds-impl). The old
+     * bridge guessed the unit from magnitude and treated anything up to 200,000
+     * as seconds, so the last ~3 minutes of every trip showed thousands of
+     * minutes on the HUD. Always divide by 1000.
+     */
+    public static long remainTimeSec(Object goal) {
+        if (goal == null) {
+            return 0;
+        }
+        Object value = callNoArg(goal, "duration");
+        if (value == null) {
+            value = callPrefixNoArg(goal, "getDuration");
+        }
+        double ms = number(value);
+        if (!(ms > 0.0)) {
+            return 0;
+        }
+        return Math.round(ms / 1000.0);
+    }
+
+    private static Object callNoArg(Object obj, String name) {
+        try {
+            java.lang.reflect.Method m = obj.getClass().getMethod(name, new Class<?>[0]);
+            m.setAccessible(true);
+            return m.invoke(obj, new Object[0]);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static Object callPrefixNoArg(Object obj, String prefix) {
+        try {
+            for (java.lang.reflect.Method m : obj.getClass().getMethods()) {
+                if (m.getName().startsWith(prefix) && m.getParameterTypes().length == 0) {
+                    m.setAccessible(true);
+                    return m.invoke(obj, new Object[0]);
+                }
+            }
+        } catch (Throwable t) {
+            return null;
+        }
+        return null;
+    }
+
     public static String safetyJson(Object sdi) {
         Object code = call(sdi, "getCode");
         int naver = (int) number(call(code, "getValue"));
