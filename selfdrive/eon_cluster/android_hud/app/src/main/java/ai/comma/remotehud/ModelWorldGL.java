@@ -16,7 +16,6 @@ import android.util.Log;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.util.ArrayList;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -41,8 +40,6 @@ final class ModelWorldGL {
     private static final int HEIGHT = BOTTOM - TOP;
     private static final float CX = 476f;
     private static final float FOCAL = 520f;
-    private static final float VISION_ICON_SCALE = 0.68f;
-    private static final float PERSON_ICON_SCALE = 0.65f;
     private static final float CAM_H = 4.6f;
     private static final float CAM_BACK = 13.0f;
     private static final float HORIZON = 249f;
@@ -134,7 +131,6 @@ final class ModelWorldGL {
     private boolean sceneFlip;
     private long lastTimestamp = Long.MIN_VALUE;
     private int lastStyle;
-    private long lastPhoneMotionTick = -1L;
     private int lastLeadDisplayState = -1;
     private long previousSceneTimestamp = Long.MIN_VALUE;
     private long nextRenderNanos;
@@ -196,13 +192,9 @@ final class ModelWorldGL {
             int leadState = leadDisplayState(scene.optJSONObject("lead"))
                     | (leadDisplayState(scene.optJSONObject("lead2")) << 2);
             boolean leadChanged = leadState != lastLeadDisplayState;
-            JSONArray phoneDetections=scene.optJSONArray("phoneVisionObjects");
-            long phoneTick=phoneDetections != null && phoneDetections.length()>0
-                    ? scene.optLong("phoneVisionNow",0L)/100L : -1L;
-            boolean phoneChanged=phoneTick != lastPhoneMotionTick;
-            if (timestamp != lastTimestamp || styleChanged || leadChanged || phoneChanged) {
+            if (timestamp != lastTimestamp || styleChanged || leadChanged) {
                 long started = System.nanoTime();
-                if (LeadDisplayPolicy.refreshNow(timestamp != lastTimestamp || phoneChanged, styleChanged,
+                if (LeadDisplayPolicy.refreshNow(timestamp != lastTimestamp, styleChanged,
                         leadChanged, started, nextRenderNanos)) {
                     if (!render(scene, enabled, driveBg, roadTop, roadBottom, pathColor,
                             dark, roadZPercent, livePitch, pitchPercent, calibPitch,
@@ -217,7 +209,6 @@ final class ModelWorldGL {
                     lastTimestamp = timestamp;
                     lastStyle = style;
                     lastLeadDisplayState = leadState;
-                    lastPhoneMotionTick = phoneTick;
                 }
             }
             paint.setShader(null);
@@ -485,15 +476,6 @@ final class ModelWorldGL {
             drawDesiredDistance(scene, path, dark);
         }
         drawBsd(scene);
-        // Full-frame detector objects and unmatched model lead candidates are
-        // display-only.  They are never fed back into RadarD or controls.
-        JSONArray phoneObjects = scene.optJSONArray("phoneVisionObjects");
-        drawVisionObjects(scene.optJSONArray("visionObjects"), scene, path, dark,
-                phoneObjects);
-        // Phone-side TFLite results retain their COCO vehicle class and use
-        // lightweight type-specific silhouettes. They remain completely
-        // separate from the tracked lead sprites and controls.
-        drawVisionObjects(phoneObjects, scene, path, dark, null);
         drawLead(scene.optJSONObject("lead2"), path, 1, dark, true, timestamp, leadSprite);
         drawLead(scene.optJSONObject("lead"), path, 0, dark, false, timestamp, leadSprite);
         // 헤이즈는 맨 마지막. 지평선 근처만 덮으므로 근경에는 영향이 없다.
@@ -753,15 +735,6 @@ final class ModelWorldGL {
         drawVertices(GLES20.GL_TRIANGLES, v / 2, color, alpha);
     }
 
-    private void drawScreenQuad(float ax, float ay, float bx, float by,
-                                float cx, float cy, float dx, float dy,
-                                int color, float alpha) {
-        int v = 0;
-        v = addTriangle(v, ax, ay, dx, dy, bx, by);
-        v = addTriangle(v, bx, by, dx, dy, cx, cy);
-        drawVertices(GLES20.GL_TRIANGLES, v / 2, color, alpha);
-    }
-
     private void drawScreenOutline(float left, float top, float right, float bottom,
                                    float stroke, int color, float alpha) {
         drawScreenRect(left, top, right, top + stroke, color, alpha);
@@ -770,331 +743,12 @@ final class ModelWorldGL {
         drawScreenRect(right - stroke, top + stroke, right, bottom - stroke, color, alpha);
     }
 
-    /** Draw every fresh vehicle candidate supplied on the display-only wire. */
-    private void drawVisionObjects(JSONArray objects, JSONObject scene,
-                                   Line roadHeight, boolean dark, JSONArray suppress) {
-        if (objects == null) {
-            return;
-        }
-        ArrayList<JSONObject> ordered = new ArrayList<>();
-        for (int i=0; i<Math.min(objects.length(),40); i++) {
-            JSONObject item=objects.optJSONObject(i);
-            if (item!=null) ordered.add(item);
-        }
-        // Far vehicles first: a distant detection must not cover a nearer one.
-        ordered.sort((a,b)->Double.compare(b.optDouble("d",0),a.optDouble("d",0)));
-        for (JSONObject object : ordered) {
-            if (object == null) {
-                continue;
-            }
-            float probability = clamp((float) object.optDouble("p", 0d), 0f, 1f);
-            float distance = (float) object.optDouble("d", 0d);
-            float lateral = (float) object.optDouble("y", 0d);
-            boolean phoneObject = "P".equals(object.optString("src", ""));
-            if (phoneObject) {
-                long age=scene.optLong("phoneVisionNow",0L)-object.optLong("seen",0L);
-                if (age<0 || age>1000L) continue;
-                distance=(float) CameraVehicleTracker.predicted(distance,object.optDouble("vd",0d),age);
-                lateral=(float) CameraVehicleTracker.predicted(lateral,object.optDouble("vy",0d),age);
-            }
-            if (probability < 0.25f || distance < 2f || distance > 180f
-                    || Math.abs(lateral) > 15f
-                    || nearTrackedLead(scene.optJSONObject("lead"), distance, lateral)
-                    || nearTrackedLead(scene.optJSONObject("lead2"), distance, lateral)
-                    || nearVisionObject(suppress, distance, lateral)) {
-                continue;
-            }
-            // Keep an already-adjacent phone detection visibly beside the ego-lane
-            // boundary.  Only side-lane objects are nudged; a centre lead keeps its
-            // measured position and the normal lead sprite remains authoritative.
-            float pathCentre = yAt(roadHeight, distance);
-            float laneWidth = clamp((float) scene.optDouble("laneWidth", 3.5d), 2.6f, 4.2f);
-            float laneDelta = lateral - pathCentre;
-            if (phoneObject && Math.abs(laneDelta) > laneWidth * 0.45f) {
-                float observedWidthM = clamp((float) object.optDouble("width", 1.88d), 0.6f, 3.5f);
-                String objectType = object.optString("type", "car");
-                float minimumObjectWidth = ("truck".equals(objectType) || "bus".equals(objectType))
-                        ? 2.45f : (("motorcycle".equals(objectType) || "bicycle".equals(objectType))
-                        ? 0.82f : ("person".equals(objectType) ? 0.68f : 1.88f));
-                observedWidthM = Math.max(observedWidthM, minimumObjectWidth);
-                float minimumSideOffset = laneWidth * 0.5f + observedWidthM * 0.5f + 0.40f;
-                lateral = pathCentre + Math.copySign(Math.max(Math.abs(laneDelta), minimumSideOffset), laneDelta);
-            }
-            // 노면 높이에 그대로 붙인다. 이전 +0.12f 오프셋이 차량을 떠 보이게 했다.
-            float z = zAt(roadHeight, distance) * roadZGain;
-            if (!project(distance, lateral, z, projected)) {
-                continue;
-            }
-            float sx = projected[0];
-            float sy = projected[1] - TOP;
-            if (sx < -60f || sx > WIDTH + 60f || sy < -30f || sy > HEIGHT + 40f) {
-                continue;
-            }
-            float scale = FOCAL / (distance + CAM_BACK) * VISION_ICON_SCALE;
-            // Do not clamp every candidate into the same apparent size. A
-            // nearby car is intentionally several times larger than a distant
-            // one, providing the requested depth cue across adjacent lanes.
-            float observedWidth=clamp((float)object.optDouble("width",1.88d),0.6f,3.5f);
-            float observedHeight=clamp((float)object.optDouble("height",0.90d),0.6f,4f);
-            float width = clamp(observedWidth * scale, 3.5f, 72f);
-            float height = clamp(observedHeight * scale, 2.8f, 64f);
-            // Distance controls visual weight; confidence only makes a small
-            // correction. Close vehicles stay solid and dark, while distant
-            // vehicles recede without disappearing completely.
-            float alpha = clamp(perspectiveAlpha(distance)
-                    * (0.88f + probability * 0.12f), 0.26f, 1f);
-            String type = object.optString("type", "");
-            if (isPhoneVehicleType(type)) {
-                if ("person".equals(type)) {
-                    width *= PERSON_ICON_SCALE;
-                    height *= PERSON_ICON_SCALE;
-                }
-                drawVisionVehicleIcon(sx, sy, width, height, type, dark, alpha,
-                        object.has("width") && object.has("height"));
-                continue;
-            }
-            // leadsV3 and phone TFLite are both camera-only observations.
-            // An old phone packet without a type and unmatched leadsV3 remain
-            // blue boxes; orange is reserved for a radar-backed tracked lead.
-            int color = dark ? Color.rgb(65, 157, 255) : Color.rgb(0, 82, 255);
-            drawScreenOutline(sx - width * 0.52f, sy - height,
-                    sx + width * 0.52f, sy,
-                    Math.max(1.0f, width * 0.05f), color, alpha);
-        }
-    }
-
-    private static boolean isPhoneVehicleType(String type) {
-        return "car".equals(type) || "truck".equals(type) || "bus".equals(type)
-                || "motorcycle".equals(type) || "bicycle".equals(type)
-                || "person".equals(type);
-    }
-
     private static float perspectiveAlpha(float distance) {
         // 1.00 around the ego car, 0.70 at 45 m, 0.47 at 80 m and 0.30 at
         // 120 m. Smoothstep avoids visible brightness steps as a track moves.
         float near = 1f - clamp((distance - 8f) / 112f, 0f, 1f);
         float smooth = near * near * (3f - 2f * near);
         return 0.30f + 0.70f * smooth;
-    }
-
-    /**
-     * 테슬라식 덩어리 표현. 창문·후미등·번호판을 그리지 않고 뒷면/윗면/옆면
-     * 세 개의 회색 면과 접지 그림자만으로 차량 부피를 나타낸다. 디테일이 없어
-     * 실제 차와 달라도 어색하지 않고, 위치 오차에도 덜 튄다.
-     * 옆면은 자차 기준 안쪽(중앙 쪽)에 그리며 중앙에 가까울수록 얇아진다.
-     */
-    private void drawVisionVehicleIcon(float sx, float sy, float baseWidth,
-                                       float baseHeight, String type,
-                                       boolean dark, float alpha, boolean observedSize) {
-        float width = baseWidth;
-        float height = observedSize ? baseHeight : baseHeight * 1.20f;
-        if ("car".equals(type)) height = Math.max(height, width * 1.32f);
-        if ("truck".equals(type)) height = Math.max(height, width * 1.72f);
-        if ("bus".equals(type)) height = Math.max(height, width * 2.05f);
-        if (!observedSize && "truck".equals(type)) {
-            width *= 1.12f;
-            height *= 1.55f;
-        } else if (!observedSize && "bus".equals(type)) {
-            width *= 1.16f;
-            height *= 1.75f;
-        } else if (!observedSize && "motorcycle".equals(type)) {
-            width *= 0.42f;
-            height *= 1.10f;
-        } else if (!observedSize && "bicycle".equals(type)) {
-            width *= 0.40f;
-            height *= 1.00f;
-        }
-
-        int shadow = dark ? Color.rgb(7, 10, 14) : Color.rgb(73, 80, 87);
-        int top = dark ? Color.rgb(178, 186, 196) : Color.rgb(196, 202, 208);
-        int rear = dark ? Color.rgb(142, 151, 162) : Color.rgb(160, 167, 175);
-        int flank = dark ? Color.rgb(110, 119, 130) : Color.rgb(128, 136, 144);
-
-        if ("person".equals(type)) {
-            drawPersonIcon(sx, sy, Math.max(4.5f, width), Math.max(8f, height),
-                    rear, shadow, alpha);
-            return;
-        }
-
-        // 접지 그림자: 넓고 옅은 띠 + 좁고 진한 접촉선.
-        float contact = Math.max(1.0f, height * 0.05f);
-        drawScreenQuad(sx - width * 0.58f, sy - contact,
-                sx + width * 0.58f, sy - contact,
-                sx + width * 0.66f, sy + Math.max(2.0f, height * 0.12f),
-                sx - width * 0.66f, sy + Math.max(2.0f, height * 0.12f),
-                shadow, 0.34f * alpha);
-        drawScreenRect(sx - width * 0.54f, sy - contact,
-                sx + width * 0.54f, sy + Math.max(1.0f, height * 0.05f),
-                shadow, 0.74f * alpha);
-
-        if ("truck".equals(type)) {
-            drawTruckIcon(sx, sy, width, height, top, rear, flank, alpha);
-        } else if ("bus".equals(type)) {
-            drawBusIcon(sx, sy, width, height, top, rear, flank, alpha);
-        } else if ("motorcycle".equals(type) || "bicycle".equals(type)) {
-            drawTwoWheelerIcon(sx, sy, width, height, rear, shadow, alpha);
-        } else {
-            drawFsdCarIcon(sx, sy, width, height, top, rear, flank, shadow, alpha);
-        }
-    }
-
-    /** Tesla FSD-like tapered top/rear silhouette instead of a rectangular cuboid. */
-    private void drawFsdCarIcon(float sx, float sy, float width, float height,
-                                int top, int rear, int flank, int shadow, float alpha) {
-        float halfRear = width * 0.50f;
-        float halfNose = width * 0.34f;
-        float noseY = sy - height;
-        float shoulderY = sy - height * 0.72f;
-        float side = sx < WIDTH * 0.5f ? 1f : -1f;
-        float skew = side * Math.min(width * 0.13f, Math.abs(sx - WIDTH * 0.5f) * 0.025f);
-
-        drawScreenQuad(sx - halfRear, sy - height * 0.18f,
-                sx + halfRear, sy - height * 0.18f,
-                sx + halfNose + skew, noseY, sx - halfNose + skew, noseY,
-                top, 0.98f * alpha);
-        drawScreenQuad(sx - halfRear, sy - height * 0.18f,
-                sx + halfRear, sy - height * 0.18f,
-                sx + width * 0.42f, sy, sx - width * 0.42f, sy,
-                rear, 0.98f * alpha);
-        drawScreenQuad(sx + side * halfRear, sy - height * 0.18f,
-                sx + side * width * 0.42f, sy,
-                sx + side * halfNose + skew, noseY,
-                sx + side * width * 0.40f + skew, shoulderY,
-                flank, 0.88f * alpha);
-        int glass = Color.rgb(47, 54, 62);
-        drawScreenQuad(sx - width * 0.28f + skew * 0.45f, sy - height * 0.39f,
-                sx + width * 0.28f + skew * 0.45f, sy - height * 0.39f,
-                sx + width * 0.21f + skew, sy - height * 0.73f,
-                sx - width * 0.21f + skew, sy - height * 0.73f,
-                glass, 0.88f * alpha);
-        drawScreenRect(sx - width * 0.31f, sy - height * 0.14f,
-                sx + width * 0.31f, sy - height * 0.08f, shadow, 0.45f * alpha);
-    }
-
-    private void drawTruckIcon(float sx, float sy, float width, float height,
-                               int top, int rear, int flank, float alpha) {
-        float cargoHeight = height * 0.64f;
-        drawBlob(sx, sy - height * 0.28f, width, cargoHeight, top, rear, flank, alpha);
-        drawBlob(sx, sy, width * 0.82f, height * 0.34f, top, rear, flank, alpha);
-    }
-
-    private void drawBusIcon(float sx, float sy, float width, float height,
-                             int top, int rear, int flank, float alpha) {
-        drawBlob(sx, sy, width, height, top, rear, flank, alpha);
-        int glass = Color.rgb(78, 86, 95);
-        drawScreenRect(sx - width * 0.34f, sy - height * 0.78f,
-                sx + width * 0.34f, sy - height * 0.60f, glass, 0.72f * alpha);
-    }
-
-    private void drawTwoWheelerIcon(float sx, float sy, float width, float height,
-                                    int body, int shadow, float alpha) {
-        float wheel = Math.max(1.2f, width * 0.22f);
-        drawScreenRect(sx - width * 0.42f, sy - wheel, sx - width * 0.18f, sy,
-                shadow, 0.82f * alpha);
-        drawScreenRect(sx + width * 0.18f, sy - wheel, sx + width * 0.42f, sy,
-                shadow, 0.82f * alpha);
-        drawScreenQuad(sx - width * 0.26f, sy - wheel,
-                sx, sy - height, sx + width * 0.26f, sy - wheel,
-                sx, sy - height * 0.42f, body, 0.96f * alpha);
-    }
-
-    private void drawPersonIcon(float sx, float sy, float width, float height,
-                                int body, int shadow, float alpha) {
-        width = Math.max(width, height * 0.28f);
-        height = Math.max(height, width * 2.8f);
-        float head = Math.max(2f, width * 0.24f);
-        drawScreenDisc(sx, sy - height + head, head, body, 0.96f * alpha);
-        drawScreenQuad(sx - width * 0.16f, sy - height + head * 2f,
-                sx + width * 0.16f, sy - height + head * 2f,
-                sx + width * 0.28f, sy - height * 0.34f,
-                sx - width * 0.28f, sy - height * 0.34f, body, 0.94f * alpha);
-        drawScreenQuad(sx - width * 0.24f, sy - height * 0.34f,
-                sx - width * 0.04f, sy - height * 0.34f,
-                sx - width * 0.12f, sy, sx - width * 0.34f, sy,
-                body, 0.94f * alpha);
-        drawScreenQuad(sx + width * 0.04f, sy - height * 0.34f,
-                sx + width * 0.24f, sy - height * 0.34f,
-                sx + width * 0.34f, sy, sx + width * 0.12f, sy,
-                body, 0.94f * alpha);
-        drawScreenRect(sx - width * 0.48f, sy, sx + width * 0.48f,
-                sy + Math.max(1f, height * 0.05f), shadow, 0.52f * alpha);
-    }
-
-    private void drawScreenDisc(float cx, float cy, float radius, int color, float alpha) {
-        int v = 0;
-        final int segments = 12;
-        for (int i = 0; i < segments; i++) {
-            double a0 = Math.PI * 2d * i / segments;
-            double a1 = Math.PI * 2d * (i + 1) / segments;
-            v = addTriangle(v, cx, cy,
-                    cx + radius * (float) Math.cos(a0), cy + radius * (float) Math.sin(a0),
-                    cx + radius * (float) Math.cos(a1), cy + radius * (float) Math.sin(a1));
-        }
-        drawVertices(GLES20.GL_TRIANGLES, v / 2, color, alpha);
-    }
-
-    /** 뒷면(사각) + 윗면(앞으로 밀린 평행사변형) + 옆면. 모서리는 작은 삼각형으로 깎는다. */
-    private void drawBlob(float sx, float sy, float width, float height,
-                          int top, int rear, int flank, float alpha) {
-        float centerX = WIDTH * 0.5f;
-        float side = sx < centerX ? 1f : -1f;              // 자차 왼쪽 차 → 오른쪽 옆면
-        float depth = Math.min(width * 0.28f, Math.abs(sx - centerX) * 0.09f);
-        float dx = side * depth;
-        float dy = -height * 0.12f;
-        float roofY = sy - height;
-        float halfW = width * 0.5f;
-        float corner = Math.max(1.0f, width * 0.08f);
-
-        // 옆면
-        float inner = sx + side * halfW;
-        drawScreenQuad(inner, sy, inner + dx, sy + dy,
-                inner + dx, roofY + dy, inner, roofY,
-                flank, 0.96f * alpha);
-        // 윗면
-        drawScreenQuad(sx - halfW, roofY, sx + halfW, roofY,
-                sx + halfW + dx, roofY + dy, sx - halfW + dx, roofY + dy,
-                top, 0.96f * alpha);
-        // 뒷면: 가운데 사각 + 위아래 좁은 띠로 모서리를 둥글게 보이게 한다.
-        drawScreenRect(sx - halfW, roofY + corner, sx + halfW, sy - corner,
-                rear, 0.96f * alpha);
-        drawScreenRect(sx - halfW + corner, roofY, sx + halfW - corner, roofY + corner,
-                rear, 0.96f * alpha);
-        drawScreenRect(sx - halfW + corner, sy - corner, sx + halfW - corner, sy,
-                rear, 0.96f * alpha);
-        // 모서리 삼각형 4개
-        drawScreenQuad(sx - halfW, roofY + corner, sx - halfW + corner, roofY,
-                sx - halfW + corner, roofY + corner, sx - halfW + corner, roofY + corner,
-                rear, 0.96f * alpha);
-        drawScreenQuad(sx + halfW - corner, roofY, sx + halfW, roofY + corner,
-                sx + halfW - corner, roofY + corner, sx + halfW - corner, roofY + corner,
-                rear, 0.96f * alpha);
-        drawScreenQuad(sx - halfW, sy - corner, sx - halfW + corner, sy - corner,
-                sx - halfW + corner, sy, sx - halfW + corner, sy - corner,
-                rear, 0.96f * alpha);
-        drawScreenQuad(sx + halfW - corner, sy - corner, sx + halfW, sy - corner,
-                sx + halfW - corner, sy, sx + halfW - corner, sy - corner,
-                rear, 0.96f * alpha);
-    }
-
-    private static boolean nearTrackedLead(JSONObject lead, float distance, float lateral) {
-        return lead != null
-                && Math.abs((float) lead.optDouble("d", -1000d) - distance) <= 3.0f
-                && Math.abs((float) lead.optDouble("y", -1000d) - lateral) <= 1.2f;
-    }
-
-    private static boolean nearVisionObject(JSONArray objects, float distance, float lateral) {
-        if (objects == null) {
-            return false;
-        }
-        for (int i = 0; i < objects.length(); i++) {
-            JSONObject other = objects.optJSONObject(i);
-            if (other != null
-                    && Math.abs((float) other.optDouble("d", -1000d) - distance) <= 3.0f
-                    && Math.abs((float) other.optDouble("y", -1000d) - lateral) <= 1.2f) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private void drawRoad(Line path, Line left, Line right, JSONObject scene, int color) {
@@ -2044,3 +1698,4 @@ final class ModelWorldGL {
         program = 0;
     }
 }
+
