@@ -24,6 +24,11 @@ import numpy as np
 
 LOW_SPEED_X = [0, 10, 20, 30]
 LOW_SPEED_Y = [15, 13, 10, 5]
+# 극저속 출발 잔떨림 필터(v3): 1.5 m/s(5 km/h) 이하에서만, 2.5 m/s 에서 완전 해제.
+# 목표 곡률이 LOW_SPEED_FILTER_CURV_MAX(반경 50 m) 보다 크면 = 실제 회전이면 필터를
+# 즉시 우회한다. v2 는 14 km/h 까지 지연이 걸려 교차로 우회전에서 언더스티어를 냈다.
+LOW_SPEED_FILTER_X = [1.5, 2.5]
+LOW_SPEED_FILTER_CURV_MAX = 0.02
 
 # ── carrot 이식 : 예측 횡저크(lateral jerk) 를 friction 입력에 섞는다 ──────────
 # 모델의 acceleration.y 예측을 미분해 앞으로의 저크를 구하고, 부호가 유지되는
@@ -108,6 +113,8 @@ class LatControlTorque(LatControl):
     self.lat_accel_friction_factor = 0.7
     self.lat_jerk_friction_factor = 0.4
     self.desired_lat_jerk_time = 0.3
+    self.low_speed_curv_tau = 0.30       # s = LatLowSpeedCurvTauMs / 1000, 0 = 끔
+    self.low_speed_curv_filtered = 0.0
     self.t_diffs = np.diff(T_IDXS)
     self.friction_upper_idx = len(T_IDXS)
     self.predicted_lateral_jerk = []
@@ -159,6 +166,7 @@ class LatControlTorque(LatControl):
 
     self.lat_accel_friction_factor = self._pget("LatAccelFrictionFactor", 70) * 0.01
     self.lat_jerk_friction_factor = self._pget("LatJerkFrictionFactor", 40) * 0.01
+    self.low_speed_curv_tau = max(0.0, min(1.0, self._pget("LatLowSpeedCurvTauMs", 300) * 0.001))
     self.desired_lat_jerk_time = max(
       0.1, self._pget("SteerActuatorDelay", 10) * 0.01 + 0.3)
     self.friction_upper_idx = next(
@@ -189,6 +197,7 @@ class LatControlTorque(LatControl):
       # 비활성 구간에서 커브 상태를 들고 있으면 재인게이지 직후 직진에서도
       # 커브용 강한 데드존이 걸린다.
       self.curve_mag = 0.0
+      self.low_speed_curv_filtered = desired_curvature
     else:
       if self.use_steering_angle:
         actual_curvature = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
@@ -206,7 +215,21 @@ class LatControlTorque(LatControl):
       lateral_accel_deadzone = curvature_deadzone * CS.vEgo ** 2
 
       low_speed_factor = interp(CS.vEgo, LOW_SPEED_X, LOW_SPEED_Y)**2
-      setpoint = desired_lateral_accel + low_speed_factor * desired_curvature
+      # 극저속 출발 잔떨림만 걸러내고 회전은 건드리지 않는다:
+      #  - 1.5 m/s 이하에서만(2.5 m/s 까지 점감)
+      #  - 목표/필터 곡률이 모두 거의 직진(|k| < 0.02)일 때만 저역통과
+      #  - 그 외(회전 진입·진행 중)엔 목표 곡률을 그대로 사용
+      tau = interp(CS.vEgo, LOW_SPEED_FILTER_X, [self.low_speed_curv_tau, 0.0])
+      straight = (abs(desired_curvature) < LOW_SPEED_FILTER_CURV_MAX and
+                  abs(self.low_speed_curv_filtered) < LOW_SPEED_FILTER_CURV_MAX)
+      if tau > 0.0 and straight:
+        alpha = DT_CTRL / (tau + DT_CTRL)
+        self.low_speed_curv_filtered += alpha * (desired_curvature - self.low_speed_curv_filtered)
+        low_speed_curvature = self.low_speed_curv_filtered
+      else:
+        self.low_speed_curv_filtered = desired_curvature
+        low_speed_curvature = desired_curvature
+      setpoint = desired_lateral_accel + low_speed_factor * low_speed_curvature
       measurement = actual_lateral_accel + low_speed_factor * actual_curvature
       error = setpoint - measurement
       gravity_adjusted_lateral_accel = desired_lateral_accel - params.roll * ACCELERATION_DUE_TO_GRAVITY
