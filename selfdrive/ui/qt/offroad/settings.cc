@@ -1805,6 +1805,11 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "예측 횡저크 반영비율(×0.01)입니다. 값 증가(+): 커브 진입 조향이 빨라짐 / 값 감소(-): 진입 반응이 느려짐 / 0: 사용 안 함. 기본값: 40.",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 40, this));
 
+  list->addItem(new ParamValueControlF("LatLowSpeedCurvTauMs",
+      "LOW SPEED CURV FILTER (ms)",
+      "2 m/s(7.2 km/h) 이하에서 저속 곡률 보정용 목표 곡률을 부드럽게 하는 시간상수입니다(4 m/s 까지 점감). 앞차 뒤 출발 시 핸들이 좌우로 잘게 흔들리면 올리세요(300~500). 0: 사용 안 함. 기본값: 300.",
+      "../assets/offroad/icon_openpilot.png", 0, 1000, 50, 0, 300, this));
+
   list->addItem(horizontal_line());
 
   list->addItem(horizontal_line());
@@ -1901,6 +1906,11 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "AutoLaneChangeEnabled", "AUTO LANE CHANGE",
       "켜짐: 방향지시등 작동 후 별도의 핸들 입력 없이 차선변경을 시작합니다. 시험 기능이므로 주변을 직접 확인하십시오.",
       "../assets/offroad/icon_road.png", this));
+
+  list->addItem(new ParamValueControlF(
+      "LaneChangeNeedTorque", "NOO 차선변경 시작 방식 (캐럿)",
+      "NOO(내비 연동) 가상 깜빡이 차선변경의 시작 조건입니다. -1: NOO 자동 차선변경 사용 안 함 / 0: 조건이 맞으면 즉시 시작 / 1: 깜빡이만 준비하고 운전자가 같은 방향으로 핸들을 살짝 밀어야 시작(토크 필요). 레버 깜빡이 차선변경에는 영향 없음. 기본값: 0.",
+      "../assets/offroad/icon_road.png", -1, 1, 1, 0, 0, this));
   list->addItem(new ParamControl(
       "KeepSteeringTurnSignals", "KEEP STEERING WITH BLINKER",
       "켜짐: 방향지시등 작동 중에도 조향 제어를 유지합니다. / 꺼짐: 차량 조건에 따라 조향이 제한될 수 있습니다.",

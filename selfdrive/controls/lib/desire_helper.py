@@ -6,6 +6,7 @@ from common.conversions import Conversions as CV
 from common.params import Params
 from selfdrive.controls.lib.navigation_route import GUIDE_FILE, NavigationRouteData
 from selfdrive.controls.lib.navigation_noo import NavigationLaneChangeController
+from selfdrive.eon_cluster.hud_remote import RemoteLaneChangeSource
 
 AUTO_LCA_START_TIME = 1.0
 ROAD_EDGE_OPEN_CONFIRM_FRAMES = max(1, int(round(0.2 / DT_MDL)))
@@ -43,6 +44,9 @@ class DesireHelper:
     self.lane_change_state = LaneChangeState.off
     self.lane_change_direction = LaneChangeDirection.none
     self.lane_change_timer = 0.0
+    # HUD 리모컨 차선변경 요청(가상 깜빡이, carrot LANECHANGE). NOO 와 같은 게이트를 탄다.
+    self.remote_lane = RemoteLaneChangeSource()
+    self.remote_direction = 0
     self.lane_change_ll_prob = 1.0
     self.keep_pulse_timer = 0.0
     self.prev_one_blinker = False
@@ -278,6 +282,14 @@ class DesireHelper:
     if t - self.last_params_update > 1.0:
       self.lane_change_enabled = self.params.get_bool('LaneChangeEnabled')
       self.auto_lane_change_enabled = self.params.get_bool('AutoLaneChangeEnabled')
+      # carrot LaneChangeNeedTorque: NOO(가상 깜빡이) 차선변경 시작 조건.
+      #  -1: NOO 자동 차선변경 사용 안 함 / 0: 조건 맞으면 즉시 / 1: 운전자가 핸들에 같은 방향 토크를 줘야 시작
+      try:
+        self.lane_change_need_torque = int(self.params.get('LaneChangeNeedTorque', encoding='utf8') or '0')
+      except (TypeError, ValueError):
+        self.lane_change_need_torque = 0
+      if self.lane_change_need_torque not in (-1, 0, 1):
+        self.lane_change_need_torque = 0
       self.noo_enabled = self.params.get_bool('NavigationOnOpenpilot')
       try:
         self.noo_mode = int(self.params.get('NooMode', encoding='utf8') or '0')
@@ -311,7 +323,8 @@ class DesireHelper:
     noo_available = self.noo_enabled and lateral_active and self.noo_mode != 3
     # NooMode keeps lateral and longitudinal ATC selectable independently.
     noo_lane_change_available = (noo_available and self.lane_change_enabled
-                                 and self.noo_mode in (0, 2))
+                                 and self.noo_mode in (0, 2)
+                                 and self.lane_change_need_torque >= 0)
     noo_steering = (noo_available and not carstate.brakePressed
                     and self.noo_mode in (0, 1))
     # Keep the current fork event while steering is configured so a brake
@@ -371,6 +384,11 @@ class DesireHelper:
     self.noo_current_lane = self.noo_controller.current_lane
     self.noo_target_lane = self.noo_controller.target_lane
 
+    # 리모컨 요청은 NOO 요청이 없을 때만, 그리고 자동 차선변경이 켜져 있을 때(LaneChangeNeedTorque >= 0)만.
+    self.remote_direction = self.remote_lane.poll() if (self.lane_change_enabled and
+                                                       self.lane_change_need_torque >= 0) else 0
+    if noo_direction == 0 and self.remote_direction != 0 and lateral_active and not carstate.brakePressed:
+      noo_direction = self.remote_direction
     navigation_lane_direction = noo_direction
     left_blinker = carstate.leftBlinker or navigation_lane_direction < 0
     right_blinker = carstate.rightBlinker or navigation_lane_direction > 0
@@ -402,7 +420,15 @@ class DesireHelper:
       # 토크(opposite_torque, turn_direction 계산부에서 이미 처리됨)는 여전히 취소로
       # 작동한다.
       noo_auto_request = noo_direction != 0 and direction == noo_direction
-      torque_applied = noo_auto_request or (manual_or_auto_torque and not noo_turn_matches_blinker)
+      if noo_auto_request and self.lane_change_need_torque > 0:
+        # carrot "토크필요": NOO가 깜빡이만 세워 준비하고, 운전자가 같은 방향으로
+        # 핸들을 살짝 밀어야(steeringPressed + 방향 일치) 차선변경을 시작한다.
+        noo_nudge = carstate.steeringPressed and (
+          (carstate.steeringTorque > 0 and noo_direction < 0) or
+          (carstate.steeringTorque < 0 and noo_direction > 0))
+        torque_applied = noo_nudge
+      else:
+        torque_applied = noo_auto_request or (manual_or_auto_torque and not noo_turn_matches_blinker)
 
       blindspot_detected = ((carstate.leftBlindspot and self.lane_change_direction == LaneChangeDirection.left) or
                             (carstate.rightBlindspot and self.lane_change_direction == LaneChangeDirection.right))
