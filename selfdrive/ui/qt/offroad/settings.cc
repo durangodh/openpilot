@@ -1805,11 +1805,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "예측 횡저크 반영비율(×0.01)입니다. 값 증가(+): 커브 진입 조향이 빨라짐 / 값 감소(-): 진입 반응이 느려짐 / 0: 사용 안 함. 기본값: 40.",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 40, this));
 
-  list->addItem(new ParamValueControlF("LatLowSpeedCurvTauMs",
-      "LOW SPEED CURV FILTER (ms)",
-      "2 m/s(7.2 km/h) 이하에서 저속 곡률 보정용 목표 곡률을 부드럽게 하는 시간상수입니다(4 m/s 까지 점감). 앞차 뒤 출발 시 핸들이 좌우로 잘게 흔들리면 올리세요(300~500). 0: 사용 안 함. 기본값: 300.",
-      "../assets/offroad/icon_openpilot.png", 0, 1000, 50, 0, 300, this));
-
   list->addItem(horizontal_line());
 
   list->addItem(horizontal_line());

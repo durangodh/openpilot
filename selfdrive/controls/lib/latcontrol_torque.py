@@ -24,8 +24,6 @@ import numpy as np
 
 LOW_SPEED_X = [0, 10, 20, 30]
 LOW_SPEED_Y = [15, 13, 10, 5]
-# 저속 곡률 필터 적용 구간: 2 m/s(7.2 km/h) 까지 전부, 4 m/s(14.4 km/h) 에서 해제
-LOW_SPEED_FILTER_X = [2.0, 4.0]
 
 # ── carrot 이식 : 예측 횡저크(lateral jerk) 를 friction 입력에 섞는다 ──────────
 # 모델의 acceleration.y 예측을 미분해 앞으로의 저크를 구하고, 부호가 유지되는
@@ -110,10 +108,6 @@ class LatControlTorque(LatControl):
     self.lat_accel_friction_factor = 0.7
     self.lat_jerk_friction_factor = 0.4
     self.desired_lat_jerk_time = 0.3
-    # 극저속 출발 좌우 흔들림 억제: 2 m/s 이하에서 저속 곡률 보정에 쓰는 목표 곡률만
-    # 1차 저역통과(4 m/s 까지 점감). 기본 횡가속도·예측 횡저크 보정은 그대로. 0 이면 종전 동작.
-    self.low_speed_curv_tau = 0.30       # s = LatLowSpeedCurvTauMs / 1000
-    self.low_speed_curv_filtered = 0.0
     self.t_diffs = np.diff(T_IDXS)
     self.friction_upper_idx = len(T_IDXS)
     self.predicted_lateral_jerk = []
@@ -165,7 +159,6 @@ class LatControlTorque(LatControl):
 
     self.lat_accel_friction_factor = self._pget("LatAccelFrictionFactor", 70) * 0.01
     self.lat_jerk_friction_factor = self._pget("LatJerkFrictionFactor", 40) * 0.01
-    self.low_speed_curv_tau = max(0.0, min(1.0, self._pget("LatLowSpeedCurvTauMs", 300) * 0.001))
     self.desired_lat_jerk_time = max(
       0.1, self._pget("SteerActuatorDelay", 10) * 0.01 + 0.3)
     self.friction_upper_idx = next(
@@ -196,7 +189,6 @@ class LatControlTorque(LatControl):
       # 비활성 구간에서 커브 상태를 들고 있으면 재인게이지 직후 직진에서도
       # 커브용 강한 데드존이 걸린다.
       self.curve_mag = 0.0
-      self.low_speed_curv_filtered = desired_curvature
     else:
       if self.use_steering_angle:
         actual_curvature = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
@@ -214,19 +206,7 @@ class LatControlTorque(LatControl):
       lateral_accel_deadzone = curvature_deadzone * CS.vEgo ** 2
 
       low_speed_factor = interp(CS.vEgo, LOW_SPEED_X, LOW_SPEED_Y)**2
-      # ── 극저속 출발 흔들림 억제 (LOW_SPEED_FILTER_X 구간) ──
-      # 앞차가 바짝 붙은 정차 직후엔 모델 경로가 잘게 흔들리는데, 0~2 m/s 에서는
-      # low_speed_factor(최대 225)가 그 흔들림을 그대로 토크로 증폭한다.
-      # 저속 보정 항의 목표 곡률만 저역통과한다(회전 자체의 느린 곡률 변화는 통과).
-      tau = interp(CS.vEgo, LOW_SPEED_FILTER_X, [self.low_speed_curv_tau, 0.0])
-      if tau > 0.0:
-        alpha = DT_CTRL / (tau + DT_CTRL)
-        self.low_speed_curv_filtered += alpha * (desired_curvature - self.low_speed_curv_filtered)
-        low_speed_curvature = self.low_speed_curv_filtered
-      else:
-        self.low_speed_curv_filtered = desired_curvature
-        low_speed_curvature = desired_curvature
-      setpoint = desired_lateral_accel + low_speed_factor * low_speed_curvature
+      setpoint = desired_lateral_accel + low_speed_factor * desired_curvature
       measurement = actual_lateral_accel + low_speed_factor * actual_curvature
       error = setpoint - measurement
       gravity_adjusted_lateral_accel = desired_lateral_accel - params.roll * ACCELERATION_DUE_TO_GRAVITY
