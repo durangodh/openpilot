@@ -22,7 +22,9 @@ DEFAULT_LATERAL_MOTION_COST = 0.11
 DEFAULT_LATERAL_ACCEL_COST = 0.0
 DEFAULT_LATERAL_JERK_COST = 0.04
 DEFAULT_STEERING_RATE_COST = 550.0
-LANE_MODE_BLEND_TIME = 0.6
+# 레인모드 ↔ 레인리스 경로 전환 시간. 0.6 s 는 차선중심과 모델경로 차이(수십 cm)를
+# 너무 빨리 옮겨 핸들이 튀었다. 1.5 s 면 체감상 자연스럽고 차선변경 시작에도 늦지 않다.
+LANE_MODE_BLEND_TIME = 1.5
 NOO_MAP_BLEND_MAX = 0.60
 NOO_MAP_BLEND_FULL_SPEED_KPH = 20.0
 NOO_MAP_BLEND_ZERO_SPEED_KPH = 50.0
@@ -203,8 +205,11 @@ class LateralPlanner:
 
     # Preserve the legacy laneless heading weighting: hold the model heading
     # at lower speeds, then taper the cost to zero between 5 and 10 m/s.
-    heading_cost = interp(sm['carState'].vEgo, [5.0, 10.0], [1.0, 0.0]) \
-      if use_laneless else self.lateral_motion_cost
+    # 전환 순간 MPC 가중치가 계단으로 바뀌면 경로 혼합이 부드러워도 조향이 튄다.
+    # 헤딩 비용도 경로와 같은 혼합 비율로 넘긴다.
+    laneless_heading_cost = interp(sm['carState'].vEgo, [5.0, 10.0], [1.0, 0.0])
+    heading_cost = (self.lane_line_blend * self.lateral_motion_cost +
+                    (1.0 - self.lane_line_blend) * laneless_heading_cost)
     self.lat_mpc.set_weights(self.path_cost, heading_cost,
                              self.lateral_accel_cost, self.lateral_jerk_cost,
                              self.steering_rate_cost)
