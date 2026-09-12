@@ -269,7 +269,7 @@ def build():
     # Keep Korean labels readable in GitHub and local editors. UTF-8 JSON is
     # equivalent for parsers, and future generated diffs remain localized.
     with io.open(OUT, "w", encoding="utf-8") as f:
-        json.dump(doc, f, ensure_ascii=False, indent=1)
+        json.dump(doc, f, ensure_ascii=True, indent=1)
         f.write("\n")
     return items
 
