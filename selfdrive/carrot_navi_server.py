@@ -243,6 +243,25 @@ class NaviState(object):
             self.route_change_baseline_digest = self.last_map_digest
           self.route_signature = signature
 
+      if name == "guidance_next" and source == SOURCE_NAVER and isinstance(value, dict):
+        # NAVER's bridge reports guidance_next.distance_m as the absolute
+        # distance from the vehicle (matching its internal SDK field), while
+        # NAVER's own on-screen "next" banner shows the segment distance from
+        # the current turn to the next one. TMAP already sends the segment
+        # distance directly, so only NAVER needs this correction. Example:
+        # vehicle->turn1 622m, vehicle->turn2 1502m (raw) -> on-screen banner
+        # shows 1502 - 622 = 880m for turn1->turn2.
+        current = self.values.get("guidance_current")
+        try:
+          next_distance = float(value.get("distance_m"))
+          current_distance = float(current.get("distance_m")) if isinstance(current, dict) else None
+        except (TypeError, ValueError):
+          next_distance = None
+          current_distance = None
+        if next_distance is not None and current_distance is not None:
+          value = dict(value)
+          value["distance_m"] = max(0, round(next_distance - current_distance))
+
       self.values[name] = value
       now_ms = int(time.time() * 1000)
       self.updated_at[name] = now_ms
