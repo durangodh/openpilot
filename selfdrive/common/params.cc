@@ -259,6 +259,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"ShowGearAnimation", PERSISTENT},
     {"ShowCarrotHud", PERSISTENT},              // 1=좌측 carrot HUD 박스 표시, 0=숨김
     {"EonClusterHud", PERSISTENT},
+    {"EonClusterHudShowOwnMap", PERSISTENT},    // 1=S9 켜져도 이온 자체 지도/ATC 계속 표시
     {"EonClusterHudBrightness", PERSISTENT},
     {"EonClusterHudDayBrightness", PERSISTENT},
     {"EonClusterHudNightBrightness", PERSISTENT},

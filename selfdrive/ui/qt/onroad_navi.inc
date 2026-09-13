@@ -458,8 +458,10 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const bool navi_fresh = carrot_navi_updated_at != 0 &&
                           wall_now - static_cast<qint64>(carrot_navi_updated_at) >= -5000 &&
                           wall_now - static_cast<qint64>(carrot_navi_updated_at) <= 35000;
-  const bool route_active = carrot_navi_remain_distance > 0 &&
-                            carrot_navi_remain_time > 0;
+  // 네이버 소스는 remain_time_sec 이 0으로 고정되는 알려진 문제가 있다.
+  // remain_time 을 route_active 조건에서 빼면(거리만 확인) 네이버도 정상
+  // 표시된다 — remote_hud.py 의 navi.active 게이트도 원래 거리만 본다.
+  const bool route_active = carrot_navi_remain_distance > 0;
 
   // c3-wip DISPLAY state equivalent for EON. The target branch has no
   // carrotMan DISPLAY message, so preserve the same 0.2 s MAP entry and
@@ -675,12 +677,17 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
 
   const int info_x = compact_box.x() + qRound(136 * ui_scale);
   const int info_w = compact_box.right() - info_x - qRound(14 * ui_scale);
-  const QDateTime eta = QDateTime::currentDateTime().addSecs(carrot_navi_remain_time);
+  const bool eta_valid = carrot_navi_remain_time > 0;
+  const QDateTime eta = QDateTime::currentDateTime().addSecs(eta_valid ? carrot_navi_remain_time : 0);
   const int eta_hour = eta.time().hour();
-  const QString ampm_text = eta_hour < 12 ? QString::fromUtf8("오전") : QString::fromUtf8("오후");
-  const QString time_text = QString("%1:%2")
-      .arg(eta_hour % 12 == 0 ? 12 : eta_hour % 12)
-      .arg(eta.time().minute(), 2, 10, QChar('0'));
+  const QString ampm_text = eta_valid
+      ? (eta_hour < 12 ? QString::fromUtf8("오전") : QString::fromUtf8("오후"))
+      : QString();
+  const QString time_text = eta_valid
+      ? QString("%1:%2")
+          .arg(eta_hour % 12 == 0 ? 12 : eta_hour % 12)
+          .arg(eta.time().minute(), 2, 10, QChar('0'))
+      : QString("--:--");
   const bool distance_in_km = carrot_navi_remain_distance >= 1000;
   const QString distance_text = carrot_navi_remain_distance < 0
       ? QString("--")

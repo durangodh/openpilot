@@ -596,7 +596,9 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
 
   // S9 외부 HUD 가 붙어 있으면 내비 패널은 그쪽에서 이미 그린다.
   // 차선·경로·리드는 EON 화면에서 조향 확인용으로 계속 남긴다.
-  const bool s9_hud = s9HudActive();
+  // EonClusterHudShowOwnMap 이 켜져 있으면 S9 가 붙어 있어도 이온 자체
+  // 지도/ATC 표시를 억제하지 않는다(둘 다 뜸).
+  const bool s9_hud = s9HudActive() && !s9_show_own_map;
 
   drawLaneLines(p, s);
   drawCarrotPlot(p);
@@ -1176,6 +1178,7 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     std::string spsc = params.get("ShowPathStatusColor");
     show_path_status_color = spsc.empty() ? 1 : std::atoi(spsc.c_str());
     show_route_map_always = params.getBool("ShowRouteMapAlways");
+    s9_show_own_map = params.getBool("EonClusterHudShowOwnMap");
   }
 
   if (!show_carrot_hud) { p.restore(); return; }

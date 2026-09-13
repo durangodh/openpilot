@@ -1135,6 +1135,11 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "NooTurnEndTime", "NOO DECEL TIMING",
       "NOO 회전감속 준비시간(초)입니다. 값 증가(+): 더 일찍 감속 시작 / 값 감소(-): 회전에 가까워져 감속.",
       "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "LaneChangeNeedTorque", "NOO 차선변경 시작 방식 (캐럿)",
+      "NOO(내비 연동) 가상 깜빡이 차선변경의 시작 조건입니다. -1: NOO 자동 차선변경 사용 안 함 / 0: 조건이 맞으면 즉시 시작 / 1: 깜빡이만 준비하고 운전자가 같은 방향으로 핸들을 살짝 밀어야 시작(토크 필요). 레버 깜빡이 차선변경에는 영향 없음. 기본값: 0.\\n"
+      "※ NOO MODE 가 1 또는 3(조기 차로준비 없음)이면 이 값과 무관하게 NOO 차선변경은 작동하지 않습니다 — 둘 다 확인하세요.",
+      "../assets/offroad/icon_road.png", -1, 1, 1, 0, 0, this));
 
   toggleLayout->addWidget(horizontal_line());
 
@@ -1205,6 +1210,10 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   toggleLayout->addWidget(new ParamControl(
       "EonClusterHud", "S9 EXTERNAL HUD",
       "EON 주행 데이터를 S9 앱으로 전송합니다. 아래 출력 대상에서 외부 HUD와 S9 화면을 선택할 수 있습니다.",
+      "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamControl(
+      "EonClusterHudShowOwnMap", "EON SHOW OWN MAP",
+      "켜짐: S9 외부 HUD가 켜져 있어도 이온 자체 화면에 지도/ATC를 계속 표시합니다. 꺼짐(기본): S9 연결 중엔 이온 화면 지도가 숨겨집니다.",
       "../assets/offroad/icon_road.png", this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudFps", "S9 HUD FPS",
@@ -1907,10 +1916,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "켜짐: 방향지시등 작동 후 별도의 핸들 입력 없이 차선변경을 시작합니다. 시험 기능이므로 주변을 직접 확인하십시오.",
       "../assets/offroad/icon_road.png", this));
 
-  list->addItem(new ParamValueControlF(
-      "LaneChangeNeedTorque", "NOO 차선변경 시작 방식 (캐럿)",
-      "NOO(내비 연동) 가상 깜빡이 차선변경의 시작 조건입니다. -1: NOO 자동 차선변경 사용 안 함 / 0: 조건이 맞으면 즉시 시작 / 1: 깜빡이만 준비하고 운전자가 같은 방향으로 핸들을 살짝 밀어야 시작(토크 필요). 레버 깜빡이 차선변경에는 영향 없음. 기본값: 0.",
-      "../assets/offroad/icon_road.png", -1, 1, 1, 0, 0, this));
   list->addItem(new ParamControl(
       "KeepSteeringTurnSignals", "KEEP STEERING WITH BLINKER",
       "켜짐: 방향지시등 작동 중에도 조향 제어를 유지합니다. / 꺼짐: 차량 조건에 따라 조향이 제한될 수 있습니다.",

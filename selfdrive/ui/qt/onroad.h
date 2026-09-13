@@ -119,6 +119,7 @@ protected:
   int  show_path_status_color = 1;
   bool show_map_image = true;
   bool show_route_map_always = false;
+  bool s9_show_own_map = false;  // S9 켜져도 이온 자체 지도/ATC 계속 표시
   uint64_t carrot_navi_last_read = 0;
   uint64_t carrot_navi_updated_at = 0;
   uint64_t carrot_navi_guidance_updated_at = 0;
