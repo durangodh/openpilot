@@ -2417,21 +2417,8 @@ public final class HudService extends Service {
 
     private void drawModeAndEta(Canvas c, Paint p, JSONObject s) {
         JSONObject l = layout(s);
-        int mode = s.optInt("drivingMode", 3);
-        String label = "NORM";
-        int color = frameDark ? Color.rgb(196, 206, 214) : Color.rgb(68, 76, 82);
-        if (mode == 1) {
-            label = "SAFE";
-            color = Color.rgb(226, 144, 38);
-        } else if (mode == 2) {
-            label = "ECO";
-            color = Color.rgb(20, 160, 92);
-        } else if (mode == 4) {
-            label = "FAST";
-            color = Color.rgb(222, 67, 70);
-        }
-        text(c, p, label, lv(l, "modeX", 938f), lv(l, "modeY", 116f), lv(l, "modeSize", 29f),
-                color, Paint.Align.RIGHT);
+        drawInferredTrafficSignal(c, p, s.optInt("trafficState", 0),
+                lv(l, "modeX", 938f), lv(l, "modeY", 116f));
 
         Date now = new Date();
         String clock = new SimpleDateFormat("h:mm", Locale.KOREA).format(now);
@@ -2447,6 +2434,40 @@ public final class HudService extends Service {
         text(c, p, clock, etaRight, etaY, etaTimeSize, ink(), Paint.Align.RIGHT);
         text(c, p, period, etaRight - clockWidth - gap, etaY - 1f, etaLabelSize,
                 dim(), Paint.Align.RIGHT);
+    }
+
+    /**
+     * Compact E2E stop/start indicator in the former drive-mode label slot.
+     * This is intentionally icon-only: 1 lights red, 2 lights green, and 0
+     * hides the housing. The model does not provide a trustworthy yellow state.
+     */
+    private void drawInferredTrafficSignal(Canvas c, Paint p, int state,
+                                           float right, float baseline) {
+        if (state != 1 && state != 2) {
+            return;
+        }
+        final float width = 82f;
+        final float height = 34f;
+        final float top = baseline - 27f;
+        final float cy = top + height * 0.5f;
+        final float radius = 9f;
+
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(225, 20, 24, 28));
+        scratchRect.set(right - width, top, right, top + height);
+        c.drawRoundRect(scratchRect, 10f, 10f, p);
+
+        final int lampOff = frameDark ? Color.rgb(52, 61, 65) : Color.rgb(62, 70, 73);
+        final float redX = right - 62f;
+        final float amberX = right - 41f;
+        final float greenX = right - 20f;
+        p.setColor(state == 1 ? Color.rgb(255, 58, 70) : lampOff);
+        c.drawCircle(redX, cy, radius, p);
+        p.setColor(lampOff);
+        c.drawCircle(amberX, cy, radius, p);
+        p.setColor(state == 2 ? Color.rgb(47, 219, 119) : lampOff);
+        c.drawCircle(greenX, cy, radius, p);
     }
 
     /** 주행가능거리. "주행/RANGE" 글자 대신 주유기 아이콘을 거리 왼쪽에 붙인다.

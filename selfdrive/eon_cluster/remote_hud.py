@@ -1177,6 +1177,10 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "calibPitch": _calib_pitch(sm["liveCalibration"]),
     # 정지선까지 거리(m). None 이면 앱이 안 그린다.
     "stopDist": _stop_point(sm["longitudinalPlan"]),
+    # E2E 궤적으로 추정한 신호 상태. 0=없음, 1=정지(빨강), 2=출발(초록).
+    # 실제 신호등 색상 인식값이 아니므로 노란불 상태는 만들지 않는다.
+    "trafficState": max(0, min(2, int(_finite(
+        _field(sm["longitudinalPlan"], "trafficState", 0))))),
     # 모델이 추정한 자기 차로 폭(m). 앱의 폴백 도로폭 계산에 쓴다.
     "laneWidth": round(_finite(_field(sm["lateralPlan"], "laneWidth", 0.0)), 2),
     # 카메라 roadEdges/laneLines 로 추정한 도로 내 자차 위치. 화면 배치에만
