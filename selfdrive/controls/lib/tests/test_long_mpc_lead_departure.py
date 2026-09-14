@@ -8,22 +8,25 @@ from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import (COMFORT_BRAKE,
                                                                  get_stopped_equivalence_factor)
 
 
-def cost_multipliers(v_ego, lead0, lead1, t_follow=1.45, depart_cost=0.05):
+def cost_multipliers(v_ego, lead0, lead1, t_follow=1.45, depart_cost=0.05,
+                     a_lead0=0.0, lead0_status=True):
   # Exercise the real cost policy without constructing the native MPC solver.
   mpc = SimpleNamespace(x0=[0.0, v_ego, 0.0], t_follow=t_follow,
                         lead_depart_cost=depart_cost)
-  return LongitudinalMpc.get_cost_multipliers(mpc, lead0, lead1)
+  return LongitudinalMpc.get_cost_multipliers(
+    mpc, lead0, lead1, a_lead0=a_lead0, lead0_status=lead0_status)
 
 
-def test_departure_cost_requires_both_leads_to_be_at_least_as_fast():
-  assert cost_multipliers(2.0, 1.0, 4.0) == pytest.approx((1.0, 1.0, 1.0))
-  assert cost_multipliers(2.0, 4.0, 1.0) == pytest.approx((1.0, 1.0, 1.0))
+def test_departure_cost_requires_confirmed_pulling_away_lead():
+  assert cost_multipliers(2.0, 4.0, 4.0, lead0_status=False) == pytest.approx((1.0, 1.0, 1.0))
+  assert cost_multipliers(2.0, 2.2, 4.0) == pytest.approx((1.0, 1.0, 1.0))
+  assert cost_multipliers(2.0, 4.0, 4.0, a_lead0=-0.3) == pytest.approx((1.0, 1.0, 1.0))
 
 
-def test_departure_cost_uses_c2_default_and_fades_by_36_kph():
+def test_departure_cost_uses_c2_default_only_at_low_speed():
   assert cost_multipliers(0.0, 1.5, 1.5) == pytest.approx((0.05, 0.05, 1.0))
-  assert cost_multipliers(5.0, 7.0, 7.0) == pytest.approx((0.525, 0.525, 1.0))
-  assert cost_multipliers(10.0, 12.0, 12.0) == pytest.approx((1.0, 1.0, 1.0))
+  assert cost_multipliers(2.5, 4.5, 4.5) == pytest.approx((0.2875, 0.2875, 1.0))
+  assert cost_multipliers(5.0, 7.0, 7.0) == pytest.approx((1.0, 1.0, 1.0))
 
 
 def test_departure_cost_respects_configured_value():
