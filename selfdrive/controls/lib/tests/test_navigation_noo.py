@@ -376,6 +376,43 @@ def test_noo_requests_only_the_nearest_route_compatible_lane():
   assert controller.current_lane == 2 and controller.target_lane == 3
 
 
+def test_collapsed_road_edges_use_outer_lane_lines_for_three_lane_road():
+  # The road-edge head can collapse onto the ego boundaries even while the
+  # lane-line head clearly sees a lane on the right. With TMAP count=3 this
+  # uniquely places the car in lane 1 and must allow the 1 -> 3 preparation.
+  md = lane_model(1.8, -1.8)
+  md.laneLineProbs = [0.05, 0.9, 0.9, 0.8]
+  ego = NavigationRouteData.camera_lane_position(md)
+  assert (ego["count"], ego["current"]) == (1, 1)
+  assert not ego["left_adjacent"] and ego["right_adjacent"]
+  plan = NavigationLaneChangeController.lane_plan(
+    noo_state([0, 0, 1], distance=100.0), ego)
+  assert plan is not None
+  assert (plan["count"], plan["current"], plan["target"], plan["direction"]) == (3, 1, 3, 1)
+
+
+def test_naver_recommended_current_lane_is_not_used_as_ego_lane():
+  md = lane_model(1.8, -1.8)
+  md.laneLineProbs = [0.05, 0.9, 0.9, 0.8]
+  ego = NavigationRouteData.camera_lane_position(md)
+  state = noo_state([0, 0, 1], distance=100.0)
+  state["lane_current"]["source"] = "NAVER"
+  # HUD13.6 writes the recommended lane into current_lane. The controller must
+  # still derive ego lane 1 from camera geometry instead of accepting this 3.
+  state["lane_current"]["current_lane"] = 3
+  plan = NavigationLaneChangeController.lane_plan(state, ego)
+  assert plan is not None
+  assert (plan["current"], plan["target"], plan["direction"]) == (1, 3, 1)
+
+
+def test_collapsed_edges_still_fail_closed_when_outer_lines_are_ambiguous():
+  md = lane_model(1.8, -1.8)
+  ego = NavigationRouteData.camera_lane_position(md)
+  assert ego["left_adjacent"] and ego["right_adjacent"]
+  two_lane = noo_state([0, 1], distance=100.0)
+  assert NavigationLaneChangeController.lane_plan(two_lane, ego) is None
+
+
 def test_fork_lane_change_requires_noo_lane_guidance():
   controller = NavigationLaneChangeController()
   ego = {"count": 3, "current": 2, "confidence": 0.9}

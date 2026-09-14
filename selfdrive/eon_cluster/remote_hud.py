@@ -1025,8 +1025,9 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   # Keep the nested object for the diagnostic panel, and also publish the flat
   # keys consumed by the installed driving-scene renderer.  When NOO is inactive
   # (for example while stopped), use the same conservative HUD-only camera /
-  # TMAP reconciliation so a shoulder or median cannot shift the displayed car
-  # from lane 1 to lane 2.
+  # navigation reconciliation. This removes shoulder/median overcounts and
+  # repairs a roadEdge undercount only when outer lane lines uniquely locate
+  # the car on a two- or three-lane road.
   noo_camera_count = int(_finite(_field(sm["lateralPlan"], "nooCameraLaneCount", 0)))
   noo_route_count = int(_finite(_field(sm["lateralPlan"], "nooRouteLaneCount", 0)))
   noo_current_lane = int(_finite(_field(sm["lateralPlan"], "nooCurrentLane", 0)))

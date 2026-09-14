@@ -58,6 +58,7 @@ def _line_y_at(line, x):
 
 ROAD_EDGE_STD_MAX = 0.5
 PHANTOM_LANE_MIN_ERROR = 0.10
+ADJACENT_LANE_PROB_MIN = 0.55
 MAX_GEOMETRY_SHIFT_M = 2.0
 
 
@@ -116,6 +117,24 @@ def camera_lane_position(model):
   if max(left_mad, right_mad) > LANE_GEOMETRY_MAD_MAX:
     return None
 
+  def adjacent_visible(outer_index, inner_index):
+    try:
+      probability = _finite_float(lane_probs[outer_index], 0.0)
+      gaps = []
+      for x in LANE_SAMPLE_XS:
+        outer_y = _line_y_at(lanes[outer_index], x)
+        inner_y = _line_y_at(lanes[inner_index], x)
+        if outer_y is not None and inner_y is not None:
+          gaps.append(abs(outer_y - inner_y))
+      spacing = statistics.median(gaps) if len(gaps) >= 3 else 0.0
+    except (IndexError, TypeError):
+      return False
+    return (probability >= ADJACENT_LANE_PROB_MIN and
+            lane_width * 0.65 <= spacing <= lane_width * 1.35)
+
+  left_adjacent = adjacent_visible(0, 1)
+  right_adjacent = adjacent_visible(3, 2)
+
   left_lanes = int(round(left_ratio))
   right_lanes = int(round(right_ratio))
   total = 1 + left_lanes + right_lanes
@@ -129,15 +148,18 @@ def camera_lane_position(model):
     "laneWidth": round(lane_width, 2),
     "leftFrac": round(left_ratio - math.floor(left_ratio), 4),
     "rightFrac": round(right_ratio - math.floor(right_ratio), 4),
+    "leftAdjacent": left_adjacent,
+    "rightAdjacent": right_adjacent,
   }
 
 
 def reconcile_lane_position(position, route_count):
-  """Remove one camera-only shoulder/median lane using the TMAP lane count.
+  """Reconcile camera geometry with a TMAP/Naver navigation lane count.
 
-  This is display-only.  An exact count is accepted as-is; a single extra
-  camera lane is removed only when exactly one side was rounded up from a
-  clearly partial lane width.  Ambiguous geometry continues to fail closed.
+  This is display-only. An undercount is expanded only when the fixed outer
+  lane lines uniquely locate the vehicle on a two- or three-lane road. A
+  single camera-only shoulder/median lane can also be removed when one side
+  was clearly rounded up from a partial width. Ambiguous geometry fails closed.
   """
   if not isinstance(position, dict):
     return None
@@ -152,6 +174,20 @@ def reconcile_lane_position(position, route_count):
 
   resolved = dict(position)
   if camera_count == route_count:
+    return resolved
+  if camera_count < route_count and route_count in (2, 3):
+    left_adjacent = position.get("leftAdjacent") is True
+    right_adjacent = position.get("rightAdjacent") is True
+    current = ({
+      (False, True): 1,
+      (True, False): route_count,
+      (True, True): 2 if route_count == 3 else None,
+    }).get((left_adjacent, right_adjacent))
+    if current is None:
+      return None
+    resolved["n"] = route_count
+    resolved["cur"] = current
+    resolved["reconciled"] = True
     return resolved
   if camera_count - route_count != 1:
     return None

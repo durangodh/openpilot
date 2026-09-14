@@ -58,6 +58,7 @@ def test_camera_lane_position_accepts_edge_order_and_rejects_weak_geometry():
   assert camera_lane_position(reversed_edges) == {
     "n": 3, "cur": 2, "confidence": 0.9, "laneWidth": 3.6,
     "leftFrac": 0.0, "rightFrac": 0.0,
+    "leftAdjacent": True, "rightAdjacent": True,
   }
   assert camera_lane_position(lane_position_model(
     5.4, -5.4, lane_probs=(0.8, 0.2, 0.9, 0.8))) is None
@@ -135,6 +136,15 @@ def test_reconcile_lane_position_rejects_ambiguous_or_real_extra_lane():
 
   whole_extra_lane = camera_lane_position(lane_position_model(5.4, -5.4))
   assert reconcile_lane_position(whole_extra_lane, 2) is None
+
+
+def test_reconcile_lane_position_expands_collapsed_edges_from_outer_lines():
+  raw = camera_lane_position(lane_position_model(
+    1.8, -1.8, lane_probs=(0.05, 0.9, 0.9, 0.8)))
+  assert (raw["n"], raw["cur"]) == (1, 1)
+  fixed = reconcile_lane_position(raw, 3)
+  assert fixed["reconciled"]
+  assert (fixed["n"], fixed["cur"]) == (3, 1)
 
 
 def test_world_geometry_is_anchored_to_final_mpc_path_and_keeps_width():

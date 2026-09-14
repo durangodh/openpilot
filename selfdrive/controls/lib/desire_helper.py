@@ -369,10 +369,17 @@ class DesireHelper:
     noo_conflicting_blinker = ((noo_probe_direction < 0 and carstate.rightBlinker) or
                                (noo_probe_direction > 0 and carstate.leftBlinker))
     if noo_lane_change_available:
+      # lane_plan already verified the TMAP target and reconciled ego lane.
+      # Let a strong adjacent lane line override only a contradictory roadEdge
+      # estimate for that NOO direction; BSD and all other gates still apply.
+      left_adjacent = isinstance(ego_lane, dict) and ego_lane.get('left_adjacent') is True
+      right_adjacent = isinstance(ego_lane, dict) and ego_lane.get('right_adjacent') is True
+      noo_left_open = not left_road_edge or (noo_probe_direction < 0 and left_adjacent)
+      noo_right_open = not right_road_edge or (noo_probe_direction > 0 and right_adjacent)
       noo_direction = self.noo_controller.update(
         navigation_state, ego_lane, v_ego,
-        not left_road_edge and not carstate.leftBlindspot,
-        not right_road_edge and not carstate.rightBlindspot,
+        noo_left_open and not carstate.leftBlindspot,
+        noo_right_open and not carstate.rightBlindspot,
         driver_cancel=noo_opposite_torque or noo_conflicting_blinker or carstate.brakePressed,
         lane_change_started=self.lane_change_state == LaneChangeState.laneChangeStarting,
         lane_change_finished=self.lane_change_state == LaneChangeState.laneChangeFinishing,

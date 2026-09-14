@@ -254,6 +254,9 @@ class NavigationRouteData:
   LANE_PROB_MIN = 0.35
   # 도로경계가 차선보다 살짝 안쪽으로 찍히는 모델 노이즈 허용치(m).
   EDGE_INSIDE_TOL = 0.5
+  # An outer model lane line is independent evidence that one adjacent lane
+  # exists even when roadEdges temporarily collapses onto the ego lane.
+  ADJACENT_LANE_PROB_MIN = 0.55
 
   @classmethod
   def camera_lane_position(cls, model_data):
@@ -286,6 +289,8 @@ class NavigationRouteData:
       if len(lanes) < 3 or len(edges) < 2:
         return None
       inner = [near_y(lanes[1]), near_y(lanes[2])]
+      outer = [near_y(lanes[0]) if len(lanes) > 0 else None,
+               near_y(lanes[3]) if len(lanes) > 3 else None]
       road = [near_y(edges[0]), near_y(edges[1])]
       inner_conf = min(float(model_data.laneLineProbs[1]),
                        float(model_data.laneLineProbs[2]))
@@ -302,6 +307,20 @@ class NavigationRouteData:
     lane_width = lane_left - lane_right
     if not 2.5 <= lane_width <= 4.5:
       return None
+
+    def adjacent_visible(index, outer_y, inner_y):
+      if outer_y is None:
+        return False
+      try:
+        probability = float(model_data.laneLineProbs[index])
+      except (AttributeError, IndexError, TypeError, ValueError):
+        return False
+      spacing = abs(outer_y - inner_y)
+      return (probability >= cls.ADJACENT_LANE_PROB_MIN and
+              lane_width * 0.65 <= spacing <= lane_width * 1.35)
+
+    left_adjacent = adjacent_visible(0, outer[0], lane_left)
+    right_adjacent = adjacent_visible(3, outer[1], lane_right)
     # 경계가 차선보다 조금 안쪽이면 노이즈로 보고 차선에 붙인다. 그 이상 안쪽이면
     # 기하가 어긋난 것이므로 종전대로 실패 처리한다.
     if road_left < lane_left:
@@ -328,7 +347,9 @@ class NavigationRouteData:
     return {"count": total, "current": current,
             "confidence": inner_conf, "width": lane_width,
             "left_frac": left_ratio - math.floor(left_ratio),
-            "right_frac": right_ratio - math.floor(right_ratio)}
+            "right_frac": right_ratio - math.floor(right_ratio),
+            "left_adjacent": left_adjacent,
+            "right_adjacent": right_adjacent}
 
   @staticmethod
   def _lat_lon(point):

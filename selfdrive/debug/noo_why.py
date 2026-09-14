@@ -46,26 +46,47 @@ def camera_reason(md):
 
   if any(v is None for v in inner + road):
     return None, "차선/도로경계 y 표본 부족"
-  if conf < 0.45:
-    return None, "차선확률 %.2f < 0.45" % conf
-  if not math.isfinite(edge_std) or edge_std > 0.5:
-    return None, "roadEdgeStd %.2f > 0.50 (경계 불확실)" % edge_std
+  if conf < NavigationRouteData.LANE_PROB_MIN:
+    return None, "차선확률 %.2f < %.2f" % (conf, NavigationRouteData.LANE_PROB_MIN)
+  if not math.isfinite(edge_std) or edge_std > NavigationRouteData.ROAD_EDGE_STD_MAX:
+    return None, "roadEdgeStd %.2f > %.2f (경계 불확실)" % (
+      edge_std, NavigationRouteData.ROAD_EDGE_STD_MAX)
 
   lane_left, lane_right = max(inner), min(inner)
   road_left, road_right = max(road), min(road)
   width = lane_left - lane_right
   if not 2.5 <= width <= 4.5:
     return None, "차로폭 %.2fm 범위밖" % width
-  if road_left < lane_left or road_right > lane_right:
-    return None, "도로경계가 자차차선 안쪽 (L %.1f/%.1f R %.1f/%.1f)" % (road_left, lane_left, road_right, lane_right)
+  if road_left < lane_left:
+    if lane_left - road_left > NavigationRouteData.EDGE_INSIDE_TOL:
+      return None, "좌 도로경계가 자차차선 안쪽 (%.1f/%.1f)" % (road_left, lane_left)
+    road_left = lane_left
+  if road_right > lane_right:
+    if road_right - lane_right > NavigationRouteData.EDGE_INSIDE_TOL:
+      return None, "우 도로경계가 자차차선 안쪽 (%.1f/%.1f)" % (road_right, lane_right)
+    road_right = lane_right
 
   lr = max(0.0, road_left - lane_left) / width
   rr = max(0.0, lane_right - road_right) / width
   total = 1 + int(round(lr)) + int(round(rr))
   cur = 1 + int(round(lr))
+  def adjacent(index, outer_y, inner_y):
+    try:
+      probability = float(md.laneLineProbs[index])
+    except (AttributeError, IndexError, TypeError, ValueError):
+      return False
+    return (outer_y is not None and probability >= NavigationRouteData.ADJACENT_LANE_PROB_MIN and
+            width * 0.65 <= abs(outer_y - inner_y) <= width * 1.35)
+
+  outer_left = near_y(lanes[0]) if len(lanes) > 0 else None
+  outer_right = near_y(lanes[3]) if len(lanes) > 3 else None
+  left_adjacent = adjacent(0, outer_left, lane_left)
+  right_adjacent = adjacent(3, outer_right, lane_right)
   return ({"count": total, "current": cur, "confidence": conf, "width": width,
-           "left_frac": lr - math.floor(lr), "right_frac": rr - math.floor(rr)},
-          "cam %d차로 중 %d (std %.2f, 폭 %.2f, L%.2f R%.2f)" % (total, cur, edge_std, width, lr, rr))
+           "left_frac": lr - math.floor(lr), "right_frac": rr - math.floor(rr),
+           "left_adjacent": left_adjacent, "right_adjacent": right_adjacent},
+          "cam %d차로 중 %d (std %.2f, 폭 %.2f, L%.2f R%.2f, 옆차로=%s/%s)" %
+          (total, cur, edge_std, width, lr, rr, left_adjacent, right_adjacent))
 
 
 def main():
@@ -97,8 +118,9 @@ def main():
     lines.append("[%s] 파라미터  NOO=%s NooMode=%d(차선변경 0/2) LaneChange=%s 최저속도=%dkm/h" %
                  (mark(noo_on and lc_on and mode in (0, 2)), noo_on, mode, lc_on, lc_min))
     lines.append("[%s] 속도       %.1f km/h" % (mark(v_ego * 3.6 >= lc_min), v_ego * 3.6))
-    lines.append("[%s] 경로스트림 route_fresh=%s lane_fresh=%s ahead=%s off_route=%s kind=%s dir=%s dist=%.0f" %
-                 (mark(st.get('route_fresh') and not st.get('off_route')),
+    guidance_fresh = bool(st.get('route_fresh') or st.get('lane_fresh') or st.get('fresh'))
+    lines.append("[%s] 안내스트림 route_fresh=%s lane_fresh=%s ahead=%s off_route=%s kind=%s dir=%s dist=%.0f" %
+                 (mark(guidance_fresh and not st.get('off_route')),
                   st.get('route_fresh'), st.get('lane_fresh'), st.get('lane_ahead_fresh'),
                   st.get('off_route'), st.get('kind'), st.get('direction'),
                   st.get('distance', -1.0)))
@@ -106,7 +128,9 @@ def main():
     lane_cur = st.get('lane_current')
     map_count = int(lane_cur.get('count', 0)) if isinstance(lane_cur, dict) else 0
     avail = lane_cur.get('available') if isinstance(lane_cur, dict) else None
-    lines.append("[%s] 티맵차로   count=%d available=%s" % (mark(map_count >= 2), map_count, avail))
+    source = lane_cur.get('source', 'MAP') if isinstance(lane_cur, dict) else 'MAP'
+    lines.append("[%s] 지도차로   source=%s count=%d available=%s" %
+                 (mark(map_count >= 2), source, map_count, avail))
     lines.append("[%s] 카메라차로 %s" % (mark(cam is not None), cam_msg))
 
     if cam is not None and map_count:
@@ -125,7 +149,7 @@ def main():
         hi = NavigationLaneChangeController.carrot_prepare_distance(st, v_ego)
       else:
         lo = NavigationLaneChangeController.MIN_DISTANCE
-        hi = min(1200.0, max(250.0, v_ego * 18.0, 160.0 * delta))
+        hi = min(controller.MAX_DISTANCE, max(300.0, v_ego * 20.0, 200.0 * delta))
       lines.append("[%s] 거리창      %.0fm (허용 %.0f~%.0f, source=%s)" %
                    (mark(lo <= dist <= hi), dist, lo, hi, plan.get('source')))
 

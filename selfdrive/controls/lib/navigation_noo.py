@@ -2,11 +2,12 @@ import math
 
 
 class NavigationLaneChangeController:
-  """Fail-closed TMAP lane planner for Navigation on Openpilot.
+  """Fail-closed map lane planner for Navigation on Openpilot.
 
-  It never treats TMAP's current_lane as the ego lane.  The ego lane comes
-  from modelV2 geometry, while TMAP available[] supplies only the set of route
-  compatible lanes.  One adjacent lane is requested at a time.
+  It never treats a provider's current_lane as the ego lane. Naver in
+  particular publishes its recommended lane in that field. The ego lane comes
+  from modelV2 geometry, while available[] supplies only the set of route-
+  compatible lanes. One adjacent lane is requested at a time.
   """
 
   MIN_DISTANCE = 50.0
@@ -52,7 +53,7 @@ class NavigationLaneChangeController:
 
   @classmethod
   def _resolve_current_lane(cls, ego_lane, route_count):
-    """Reconcile the camera lane estimate with the TMAP lane count.
+    """Reconcile the camera lane estimate with the navigation lane count.
 
     Korean roads normally have a paved shoulder, so the road edge sits about
     one lane beyond the outermost lane line and the camera counts one lane too
@@ -68,6 +69,20 @@ class NavigationLaneChangeController:
     diff = camera_count - route_count
     if diff == 0:
       return current
+    # roadEdges can briefly collapse onto the ego lane and report one lane on
+    # a multi-lane road.  For two- and three-lane TMAP guidance, the model's
+    # fixed outer lane lines uniquely identify the ego lane without trusting
+    # provider current_lane (Naver publishes its recommended lane there).
+    if diff < 0 and route_count in (2, 3):
+      left_adjacent = ego_lane.get("left_adjacent") is True
+      right_adjacent = ego_lane.get("right_adjacent") is True
+      adjacency = (left_adjacent, right_adjacent)
+      resolved = ({
+        (False, True): 1,
+        (True, False): route_count,
+        (True, True): 2 if route_count == 3 else None,
+      }).get(adjacency)
+      return resolved if resolved is not None and 1 <= resolved <= route_count else None
     # 갓길 하나(+1)뿐 아니라 갓길+중앙분리대가 같이 잡히는 경우(+2)까지 받는다.
     if diff not in (1, 2):
       return None
@@ -181,7 +196,7 @@ class NavigationLaneChangeController:
       confidence = float(ego_lane.get("confidence", 0.0))
     except (TypeError, ValueError):
       return None
-    if not 2 <= camera_count <= 8 or not 1 <= current <= camera_count or \
+    if not 1 <= camera_count <= 8 or not 1 <= current <= camera_count or \
        confidence < cls.LANE_CONF_MIN:
       return None
 
