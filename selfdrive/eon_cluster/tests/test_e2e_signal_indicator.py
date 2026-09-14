@@ -18,7 +18,8 @@ def main():
   assert "drawInferredTrafficSignal" in mode_area
   assert 'state == 1 ? Color.rgb(255, 58, 70)' in mode_area
   assert 'state == 2 ? Color.rgb(47, 219, 119)' in mode_area
-  assert 'if (state != 1 && state != 2)' in mode_area
+  assert 'c.drawRoundRect(scratchRect, 10f, 10f, p)' in mode_area
+  assert 'if (state != 1 && state != 2)' not in mode_area
   for removed in ('"NORM"', '"SAFE"', '"ECO"', '"FAST"', '"E2E"'):
     assert removed not in mode_area
   print("E2E signal indicator test passed")

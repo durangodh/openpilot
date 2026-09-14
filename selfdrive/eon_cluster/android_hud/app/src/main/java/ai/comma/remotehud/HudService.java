@@ -2439,13 +2439,12 @@ public final class HudService extends Service {
     /**
      * Compact E2E stop/start indicator in the former drive-mode label slot.
      * This is intentionally icon-only: 1 lights red, 2 lights green, and 0
-     * hides the housing. The model does not provide a trustworthy yellow state.
+     * leaves all three lamps off. The housing stays visible so the indicator
+     * position does not appear and disappear. The model does not provide a
+     * trustworthy yellow state.
      */
     private void drawInferredTrafficSignal(Canvas c, Paint p, int state,
                                            float right, float baseline) {
-        if (state != 1 && state != 2) {
-            return;
-        }
         final float width = 82f;
         final float height = 34f;
         final float top = baseline - 27f;
