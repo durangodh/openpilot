@@ -13,6 +13,10 @@ T_FOLLOW_DECREASE_RATE = 0.3
 T_FOLLOW_DECEL_RELEASE_RATE = 0.08
 T_FOLLOW_DT = 0.05
 
+STOPPED_LEAD_MAX_SPEED = 3.0
+STOPPED_LEAD_MIN_EGO_SPEED = 10.0
+STOPPED_LEAD_MIN_CLOSING_SPEED = 5.0
+
 
 def get_t_follow_base(cruise_gap, gap_values, v_ego_kph, speed_ratio, safe_mode_factor):
   """Return the configured, speed-scaled following time before transient adjustments."""
@@ -62,6 +66,29 @@ def get_t_follow_closing_margin(v_ego, v_lead, lead_status):
   closing_speed = max(0.0, float(v_ego - v_lead))
   return float(interp(closing_speed, [0.0, 1.5, 4.0, 8.0],
                       [0.0, 0.03, 0.10, 0.18]))
+
+
+def get_stopped_lead_comfort_brake(configured_comfort_brake, v_ego, v_lead, lead_status):
+  """Use an earlier braking envelope for a confirmed slow lead at road speed.
+
+  This does not create a lead or lower perception thresholds. It only prevents
+  a high ComfortBrake setting from postponing braking after radar/vision has
+  confirmed a nearly stationary vehicle with a large closing speed.
+  """
+  base = float(clip(configured_comfort_brake, 1.0, 4.0))
+  if not lead_status or v_ego < STOPPED_LEAD_MIN_EGO_SPEED or v_lead > STOPPED_LEAD_MAX_SPEED:
+    return base
+
+  closing_speed = max(0.0, float(v_ego - v_lead))
+  if closing_speed < STOPPED_LEAD_MIN_CLOSING_SPEED:
+    return base
+
+  # At 70 km/h against a stopped lead this caps the planning assumption near
+  # 1.5 m/s^2, moving the comfort-braking envelope roughly 30 m earlier than
+  # the default 2.5 m/s^2 setting. The physical acceleration limit is unchanged.
+  safety_cap = interp(closing_speed, [5.0, 10.0, 15.0, 20.0],
+                      [4.0, 2.2, 1.7, 1.5])
+  return float(min(base, safety_cap))
 
 
 def limit_t_follow_change(tf_target, tf_previous, dt=T_FOLLOW_DT):

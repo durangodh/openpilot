@@ -4,6 +4,7 @@ from selfdrive.controls.lib.t_follow import (
   CRUISE_GAP_V,
   clamp_desired_follow_distance,
   filter_t_follow_accel,
+  get_stopped_lead_comfort_brake,
   get_t_follow_base,
   get_t_follow_decel_margin,
   hold_t_follow_while_decelerating,
@@ -50,6 +51,16 @@ class TestTFollow(unittest.TestCase):
     self.assertEqual(get_t_follow_decel_margin(-2.5, 0.3, False), 0.0)
     self.assertAlmostEqual(get_t_follow_decel_margin(-2.5, 0.3, True), 0.075)
     self.assertEqual(get_t_follow_decel_margin(0.0, 0.3, True), 0.0)
+
+  def test_stopped_lead_caps_high_speed_comfort_brake(self):
+    # 70 km/h (19.44 m/s) approaching a confirmed stopped lead.
+    capped = get_stopped_lead_comfort_brake(2.5, 70.0 / 3.6, 0.0, True)
+    self.assertLess(capped, 1.6)
+
+  def test_stopped_lead_cap_requires_confirmed_high_closing_risk(self):
+    self.assertEqual(get_stopped_lead_comfort_brake(2.5, 70.0 / 3.6, 0.0, False), 2.5)
+    self.assertEqual(get_stopped_lead_comfort_brake(2.5, 8.0, 0.0, True), 2.5)
+    self.assertEqual(get_stopped_lead_comfort_brake(2.5, 20.0, 18.0, True), 2.5)
 
   def test_both_t_follow_directions_are_rate_limited(self):
     self.assertAlmostEqual(limit_t_follow_change(1.5, 1.2, dt=0.05), 1.205)

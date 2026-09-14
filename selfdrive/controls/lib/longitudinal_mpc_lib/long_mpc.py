@@ -10,6 +10,7 @@ from selfdrive.modeld.constants import index_function
 from selfdrive.controls.lib.radar_helpers import _LEAD_ACCEL_TAU
 from selfdrive.controls.lib.t_follow import (CRUISE_GAP_BP as _CRUISE_GAP_BP, CRUISE_GAP_V,
                                              clamp_desired_follow_distance,
+                                             get_stopped_lead_comfort_brake,
                                              get_t_follow_closing_margin)
 from common.conversions import Conversions as CV
 
@@ -457,8 +458,14 @@ class LongitudinalMpc:
       v_ego, lead_xv_0[0, 1], lead0_status)
     self.t_follow = self.t_follow_base + closing_margin
 
-    # apilot-c2: 안전모드일수록 comfort_brake 를 낮춰(=더 일찍 감속) 정지거리도 늘린다
+    # apilot-c2: 안전모드일수록 comfort_brake 를 낮춰(=더 일찍 감속) 정지거리도 늘린다.
+    # A confirmed stopped/slow lead with a large closing speed gets an additional
+    # safety cap, preventing a high user setting from postponing highway braking.
     comfort_brake = self.comfort_brake * self.safe_mode_factor
+    comfort_brake = get_stopped_lead_comfort_brake(
+      comfort_brake, v_ego, lead_xv_0[0, 1], lead0_status)
+    lead1_comfort_brake = get_stopped_lead_comfort_brake(
+      self.comfort_brake * self.safe_mode_factor, v_ego, lead_xv_1[0, 1], radarstate.leadTwo.status)
     self.stop_dist = self.stop_distance * (2.0 - self.safe_mode_factor)
     lead_v = lead_xv_0[0, 1] if radarstate.leadOne.status else v_ego
     self.desired_distance = float(desired_follow_distance(
@@ -474,10 +481,10 @@ class LongitudinalMpc:
     # apilot-c2: 리드 정지환산거리는 기본 comfort_brake/기본 stop_distance 로 계산
     lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(
       lead_xv_0[:,1], self.x_sol[:,1], self.t_follow, self.stop_distance,
-      krkeegan=self.applyLongDynamicCost, comfort_brake=self.comfort_brake)
+      krkeegan=self.applyLongDynamicCost, comfort_brake=comfort_brake)
     lead_1_obstacle = lead_xv_1[:,0] + get_stopped_equivalence_factor(
       lead_xv_1[:,1], self.x_sol[:,1], self.t_follow, self.stop_distance,
-      krkeegan=self.applyLongDynamicCost, comfort_brake=self.comfort_brake)
+      krkeegan=self.applyLongDynamicCost, comfort_brake=lead1_comfort_brake)
 
     # apilot-c2: 비활성(reset) 상태에서는 현재 aEgo 로 상하한을 고정해 활성 전환시 튀지 않게 한다
     self.params[:,0] = MIN_ACCEL if not reset_state else a_ego
