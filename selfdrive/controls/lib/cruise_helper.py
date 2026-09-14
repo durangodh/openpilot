@@ -67,6 +67,7 @@ class CruiseHelper:
     self.lead_car_speed_kph = 0.0
     self.long_cruise_gap = 4
     self.gap_param_initialized = False
+    self.gap_pressed = False
     self.gap_hold_frames = 0
     self.nav_toggle_done = False
     self.init_driving_mode = 3
@@ -542,7 +543,20 @@ class CruiseHelper:
     gap_button_events = [event for event in CS.buttonEvents if event.type == ButtonType.gapAdjustCruise]
 
     # ── GAP 길게 누르기 → 내비 앱 전환 ──
-    if CS.cruiseButtons == Buttons.GAP_DIST:
+    # carState(capnp)에는 현재 눌린 버튼 필드가 없으므로 buttonEvents 의
+    # 누름/뗌으로 유지시간을 잰다.
+    for event in gap_button_events:
+      if event.pressed:
+        self.gap_pressed = True
+        self.gap_hold_frames = 0
+        self.nav_toggle_done = False
+      else:
+        self.gap_pressed = False
+        if self.nav_toggle_done:
+          # 전환에 쓰인 입력이므로 차간 단계는 바꾸지 않는다.
+          self.nav_toggle_done = False
+          return
+    if self.gap_pressed:
       self.gap_hold_frames += 1
       if self.gap_hold_frames >= NAV_TOGGLE_HOLD_FRAMES and not self.nav_toggle_done:
         self.nav_toggle_done = True
@@ -551,12 +565,6 @@ class CruiseHelper:
           put_nonblocking("EonClusterHudNavApp", "1" if current == 2 else "2")
         except (TypeError, ValueError):
           pass
-    else:
-      self.gap_hold_frames = 0
-      self.nav_toggle_done = False
-    if self.nav_toggle_done:
-      # 전환으로 소비된 입력이므로 차간 단계는 바꾸지 않는다.
-      return
 
     if longcontrol:
       # The stock SCC can restart at gap 4 even when PrevCruiseGap is 2. Cycle
