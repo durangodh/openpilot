@@ -32,6 +32,7 @@ TBT_COMPACT_FILE = "/dev/shm/carrot_navi_tbt_current_compact.png"
 CROSSROAD_FILE = "/dev/shm/carrot_navi_crossroad.png"
 TBT_NEXT_FILE = "/dev/shm/carrot_navi_tbt_next.png"
 LANE_BOTTOM_FILE = "/dev/shm/carrot_navi_lane_bottom.png"
+TRAFFIC_SIGNAL_FILE = "/dev/shm/carrot_navi_traffic_signal.png"
 NAVI_STATE = "/dev/shm/carrot_navi_route.json"
 MAP_MAX_BYTES = 2 * 1024 * 1024
 OVERLAY_MAX_BYTES = 512 * 1024
@@ -137,6 +138,7 @@ class MapFrameServer(object):
     (b"TBT3", TBT_COMPACT_FILE, OVERLAY_MAX_BYTES, b""),
     (b"XRD1", CROSSROAD_FILE, OVERLAY_MAX_BYTES, b""),
     (b"LANE", LANE_BOTTOM_FILE, OVERLAY_MAX_BYTES, b""),
+    (b"SIG1", TRAFFIC_SIGNAL_FILE, OVERLAY_MAX_BYTES, b""),
   )
 
   def __init__(self):

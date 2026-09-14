@@ -314,6 +314,8 @@ public final class HudService extends Service {
     /** 티맵 분기 실사 이미지(crossroad_expanded). 안내가 끝나면 EON 이 파일을 지운다. */
     private final AtomicReference<Bitmap> crossroadFrame = new AtomicReference<>();
     private final AtomicReference<Bitmap> laneFrame = new AtomicReference<>();
+    /** Native TMAP/NAVER live traffic-light and remaining-time overlay. */
+    private final AtomicReference<Bitmap> trafficSignalFrame = new AtomicReference<>();
     /** Latest compressed road preview; inference takes only the newest frame. */
     private final AtomicReference<InetAddress> eonAddress = new AtomicReference<>();
     private final Object assetLock = new Object();
@@ -819,6 +821,7 @@ public final class HudService extends Service {
             recycleAndClear(tbtCompactFrame);
             recycleAndClear(crossroadFrame);
             recycleAndClear(laneFrame);
+            recycleAndClear(trafficSignalFrame);
             lastMapAcceptedElapsed = 0L;
             mapThemePolicy.reset();
             lastThemeMapElapsed = lastThemeSampleElapsed = 0L;
@@ -867,6 +870,8 @@ public final class HudService extends Service {
                             replaceAsset(crossroadFrame, data);
                         } else if (tagEquals(header, "LANE")) {
                             replaceAsset(laneFrame, data);
+                        } else if (tagEquals(header, "SIG1")) {
+                            replaceAsset(trafficSignalFrame, data);
                         } else {
                             throw new Exception("bad asset tag");
                         }
@@ -943,10 +948,11 @@ public final class HudService extends Service {
                 Bitmap tbtCurrent = tbtCurrentFrame.get();
                 Bitmap tbtNext = tbtNextFrame.get();
                 Bitmap lane = laneFrame.get();
+                Bitmap trafficSignal = trafficSignalFrame.get();
                 synchronized (phoneFrameLock) {
                     // phoneFrame 은 화면 출력용이 아니라 USB 회전 전의 논리
                     // 프레임이다. 외부 HUD 전용이 된 뒤에도 이 단계는 남는다.
-                    renderPhone(currentState, map, tbtCurrent, tbtNext, lane);
+                    renderPhone(currentState, map, tbtCurrent, tbtNext, lane, trafficSignal);
                     if (usbReady) {
                         usbFrame = renderUsbFromPhone();
                     }
@@ -1292,13 +1298,14 @@ public final class HudService extends Service {
         return outFrame;
     }
 
-    private void renderPhone(JSONObject s, Bitmap map, Bitmap tbtCurrent, Bitmap tbtNext, Bitmap lane) {
+    private void renderPhone(JSONObject s, Bitmap map, Bitmap tbtCurrent, Bitmap tbtNext, Bitmap lane,
+                             Bitmap trafficSignal) {
         Canvas c = beginPhoneFrame();
-        drawFrame(c, s, map, tbtCurrent, tbtNext, lane);
+        drawFrame(c, s, map, tbtCurrent, tbtNext, lane, trafficSignal);
     }
 
     private void drawFrame(Canvas c, JSONObject s, Bitmap map, Bitmap tbtCurrent,
-                           Bitmap tbtNext, Bitmap lane) {
+                           Bitmap tbtNext, Bitmap lane, Bitmap trafficSignal) {
         Paint p = paint;
         p.reset();
         p.setAntiAlias(true);
@@ -1325,7 +1332,7 @@ public final class HudService extends Service {
         } else if (configuredScreenMode == 3) {
             drawTripRight(c, p, s);
         } else {
-            drawMap(c, p, s, map, tbtCurrent, tbtNext, lane);
+            drawMap(c, p, s, map, tbtCurrent, tbtNext, lane, trafficSignal);
         }
         applyThemeOverlay(c, p);
         // 순정 계기판 경고는 우측 TMAP 위에 독립된 흰색 팝업으로 표시한다.
@@ -4153,7 +4160,7 @@ public final class HudService extends Service {
     }
 
     private void drawMap(Canvas c, Paint p, JSONObject s, Bitmap map, Bitmap tbtCurrent,
-                         Bitmap tbtNext, Bitmap lane) {
+                         Bitmap tbtNext, Bitmap lane, Bitmap trafficSignal) {
         scratchIRect.set(MAP_LEFT, 0, mapRight(), HEIGHT);
         final boolean mapAvailable = map != null && !map.isRecycled();
         if (!mapAvailable) {
@@ -4218,6 +4225,15 @@ public final class HudService extends Service {
         int save3 = beginElement(c, l, "lane", 1395f, (float) HEIGHT);
         drawNativeOverlay(c, p, lane, 1130f, 378f, 1660f, (float) HEIGHT, Paint.Align.CENTER);
         c.restoreToCount(save3);
+
+        // The native navigation apps publish the signal lamp/countdown as a
+        // separate transparent bitmap.  Render it after the night mask so red,
+        // amber and green remain distinguishable.  NAVER versions which paint
+        // the signal directly into map_main simply leave this asset absent.
+        int signalSave = beginElement(c, l, "signal", mapRight() - 169f, 164f);
+        drawNativeOverlay(c, p, trafficSignal,
+                mapRight() - 320f, 68f, mapRight() - 18f, 260f, Paint.Align.RIGHT);
+        c.restoreToCount(signalSave);
 
         // Always keep the selected map source visible above native map labels.
         // This sits in the user's requested top-right corner and is deliberately
@@ -4507,6 +4523,7 @@ public final class HudService extends Service {
             recycleRef(tbtCurrentFrame);
             recycleRef(tbtNextFrame);
             recycleRef(laneFrame);
+            recycleRef(trafficSignalFrame);
         }
         if (usbReceiverRegistered) {
             try {

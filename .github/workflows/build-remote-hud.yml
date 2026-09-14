@@ -3,8 +3,11 @@ name: Build Galaxy S9 Remote HUD APK
 on:
   workflow_dispatch:
   push:
-    branches: [g_abcd, g_hud]
+    branches: [g_abcd, g_hud, g_remote]
     paths:
+      - "selfdrive/carrot_navi_server.py"
+      - "selfdrive/eon_cluster/remote_hud.py"
+      - "selfdrive/eon_cluster/tests/test_traffic_signal_transport.py"
       - "selfdrive/eon_cluster/android_hud/**"
       - "selfdrive/eon_cluster/naver_bridge/**"
       - ".github/workflows/build-remote-hud.yml"
@@ -42,7 +45,7 @@ jobs:
           chmod 600 "$RUNNER_TEMP/remote-hud-signing.p12"
           echo "REMOTE_HUD_KEYSTORE_PATH=$RUNNER_TEMP/remote-hud-signing.p12" >> "$GITHUB_ENV"
           echo "REMOTE_HUD_VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
-          echo "REMOTE_HUD_VERSION_NAME=1.25-map-auto-theme" >> "$GITHUB_ENV"
+          echo "REMOTE_HUD_VERSION_NAME=1.26-traffic-signal" >> "$GITHUB_ENV"
       # v0.19+ builds the checked-in tree as-is.
       # The old sed / apply_runtime_tuning.py / apply_s9_3d_patch.py steps are gone:
       # they rewrote v0.17 sources into v0.18 at build time, which is why the
@@ -52,6 +55,7 @@ jobs:
         run: |
           python3 tests/test_navigation_render.py --java-home "$JAVA_HOME" --work "$RUNNER_TEMP/hud-navigation-check"
           python3 ../tests/test_naver_guidance.py
+          python3 ../tests/test_traffic_signal_transport.py
       - name: Check navigation selection
         # Exercise retransmission and old acknowledgements before packaging.
         working-directory: selfdrive/eon_cluster/android_hud

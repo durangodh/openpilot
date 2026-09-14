@@ -23,11 +23,11 @@ public class NavigationRenderCheck {
   static class RectF { void set(float a,float b,float c,float d){} }
   static class Color { static int BLACK=0,GRAY=1,WHITE=2; static int argb(int a,int r,int g,int b){return 3;} }
   static class Paint {
-    enum Style { FILL } enum Align { CENTER,LEFT }
+    enum Style { FILL } enum Align { CENTER,LEFT,RIGHT }
     void setShader(Object x){} void setStyle(Style x){} void setColor(int x){} void setFilterBitmap(boolean x){}
   }
   static class Canvas {
-    int banners, maps, markers, nextCalls, etaCalls, sourceBadges;
+    int banners, maps, markers, nextCalls, etaCalls, sourceBadges, nativeOverlays;
     int save(){return 1;} void restoreToCount(int x){}
     void drawRect(Rect r,Paint p){}
     void drawBitmap(Bitmap b,Object src,Rect dst,Paint p){
@@ -47,31 +47,34 @@ public class NavigationRenderCheck {
   void drawJunction(Canvas c,Paint p,float y){}
   void drawNaviEta(Canvas c,Paint p,JSONObject s){c.etaCalls++;}
   void drawMapSourceBadge(Canvas c,Paint p,JSONObject s){c.sourceBadges++;}
-  void drawNativeOverlay(Canvas c,Paint p,Bitmap b,float x,float y,float w,float h,Paint.Align a){}
+  void drawNativeOverlay(Canvas c,Paint p,Bitmap b,float x,float y,float w,float h,Paint.Align a){
+    if(b!=null&&!b.isRecycled())c.nativeOverlays++;
+  }
   boolean drawTurnIcon(Canvas c,Paint p,float x,float y,float size,int type,String title,int color,boolean b){return false;}
   void drawScaledArrow(Canvas c,Paint p,float x,float y,int type,float size,String title){}
   String distanceText(int n){return Integer.toString(n);}
   /* PRODUCTION_METHODS */
   static JSONObject state(boolean active,int remain,int turn){return new JSONObject().put("navi",
     new JSONObject().put("active",active).put("remainDist",remain).put("turnDist",turn));}
-  void check(String name,JSONObject state,Bitmap map,int banners,int maps){
-    Canvas c=new Canvas(); drawMap(c,new Paint(),state,map,null,null,null);
+  void check(String name,JSONObject state,Bitmap map,Bitmap signal,int banners,int maps,int overlays){
+    Canvas c=new Canvas(); drawMap(c,new Paint(),state,map,null,null,null,signal);
     // The native map supplies its own marker; the HUD must not draw another.
-    if(c.banners!=banners||c.maps!=maps||c.markers!=0||c.nextCalls!=1||c.etaCalls!=1||c.sourceBadges!=1)
-      throw new AssertionError(name+": banners="+c.banners+" maps="+c.maps+" markers="+c.markers+" next="+c.nextCalls+" eta="+c.etaCalls+" badge="+c.sourceBadges);
+    if(c.banners!=banners||c.maps!=maps||c.nativeOverlays!=overlays||c.markers!=0||c.nextCalls!=1||c.etaCalls!=1||c.sourceBadges!=1)
+      throw new AssertionError(name+": banners="+c.banners+" maps="+c.maps+" overlays="+c.nativeOverlays+" markers="+c.markers+" next="+c.nextCalls+" eta="+c.etaCalls+" badge="+c.sourceBadges);
   }
   public static void main(String[] args){
     NavigationRenderCheck hud=new NavigationRenderCheck(); Bitmap map=new Bitmap();
-    hud.check("map available",state(true,1000,200),map,1,1);
-    hud.check("map missing",state(true,1000,200),null,1,0);
-    map.recycled=true; hud.check("map recycled",state(true,1000,200),map,1,0);
-    hud.frameDark=true; hud.check("dark map missing",state(true,1000,200),null,1,0);
-    map.recycled=false; hud.check("map recovered",state(true,1000,200),map,1,1);
-    hud.check("naver guidance before route summary",state(true,0,200),null,1,0);
-    hud.check("ended without map",state(false,1000,200),null,0,0);
-    hud.check("arrived without map",state(true,0,-1),null,0,0);
-    hud.check("no navigation",new JSONObject(),null,0,0);
-    System.out.println("9 navigation rendering cases passed");
+    Bitmap signal=new Bitmap();
+    hud.check("map and signal available",state(true,1000,200),map,signal,1,1,1);
+    hud.check("map missing, signal available",state(true,1000,200),null,signal,1,0,1);
+    map.recycled=true; hud.check("map recycled",state(true,1000,200),map,null,1,0,0);
+    hud.frameDark=true; hud.check("dark map missing",state(true,1000,200),null,null,1,0,0);
+    map.recycled=false; hud.check("map recovered",state(true,1000,200),map,null,1,1,0);
+    hud.check("naver guidance before route summary",state(true,0,200),null,null,1,0,0);
+    hud.check("ended without map",state(false,1000,200),null,null,0,0,0);
+    hud.check("arrived without map",state(true,0,-1),null,null,0,0,0);
+    hud.check("no navigation",new JSONObject(),null,null,0,0,0);
+    System.out.println("9 navigation rendering cases passed, including traffic signal overlay");
   }
 }
 '''

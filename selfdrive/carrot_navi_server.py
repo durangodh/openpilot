@@ -25,6 +25,7 @@ STATE_FILE = "/dev/shm/carrot_navi_route.json"
 # 이 파일을 읽으면 5 Hz 로 반복되는 대용량 JSON 파싱을 한 번 줄일 수 있다.
 GUIDE_FILE = "/dev/shm/carrot_navi_guide.json"
 MAP_FILE = "/dev/shm/carrot_navi_map.jpg"
+TRAFFIC_SIGNAL_FILE = "/dev/shm/carrot_navi_traffic_signal.png"
 JSON_NAMES = (
   "vehicle", "guidance_current", "guidance_next", "lane_current", "lane_ahead",
   "speed", "traffic_signal", "crossroad", "route", "navigation_status",
@@ -39,7 +40,7 @@ IMAGE_NAMES = (
 RENDER_NAMES = ("map_main",)
 ENABLED = {
   "vehicle", "guidance_current", "guidance_next", "lane_current", "lane_ahead",
-  "route", "navigation_status", "speed",
+  "route", "navigation_status", "speed", "traffic_signal",
 }
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 PROTOCOL_VERSION = 2
@@ -59,6 +60,10 @@ OVERLAY_FILES = {
   "crossroad_expanded": "/dev/shm/carrot_navi_crossroad.png",
   "tbt_next": "/dev/shm/carrot_navi_tbt_next.png",
   "lane_bottom": "/dev/shm/carrot_navi_lane_bottom.png",
+  # TMAP exposes the live light/countdown as a native transparent bitmap.  Keep
+  # the same stream enabled for NAVER too: NAVER can paint the signal into
+  # map_main, while patched/newer builds may publish the dedicated asset instead.
+  "traffic_signal": TRAFFIC_SIGNAL_FILE,
 }
 MAP_RENDER_WIDTH = 640
 MAP_RENDER_HEIGHT = 384
