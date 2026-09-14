@@ -36,6 +36,23 @@ SOURCES = {
 
 }
 
+SOURCES['android/view/View.java'] = (
+  'package android.view; public class View { public static final int VISIBLE=0; '
+  'public boolean shown=true, attached=true; public int width,height,visibility=VISIBLE; public float alpha=1f; '
+  'public boolean isShown(){return shown;} public boolean isAttachedToWindow(){return attached;} '
+  'public int getWidth(){return width;} public int getHeight(){return height;} '
+  'public int getVisibility(){return visibility;} public float getAlpha(){return alpha;} '
+  'public void draw(android.graphics.Canvas c){} }\n')
+SOURCES['com/naver/map/carrot/SnapCheck.java'] = SOURCES['com/naver/map/carrot/SnapCheck.java'].replace(
+  '  System.out.println("PASS snapshot path");',
+  '  android.view.View signal=new android.view.View(); signal.width=180; signal.height=64;\n'
+  '  CarrotTrafficSignalCapture.register(signal); b.sent=0; SystemClock.now+=500;\n'
+  '  CarrotTrafficSignalCapture.capture(b); Handler.drain();\n'
+  '  c(b.sent==1 && "traffic_signal".equals(b.lastName) && b.lastValue.contains("\\\"format\\\":\\\"png\\\"") && b.lastValue.contains("\\\"width\\\":180"),"native signal PNG sent");\n'
+  '  signal.shown=false; SystemClock.now+=500; CarrotTrafficSignalCapture.capture(b); Handler.drain();\n'
+  '  c(b.sent==2 && b.lastValue==null,"hidden signal cleared");\n'
+  '  System.out.println("PASS snapshot path");')
+
 
 def main():
   parser = argparse.ArgumentParser(description=__doc__)
@@ -53,7 +70,8 @@ def main():
   classes.mkdir()
   suffix = ".exe" if (args.java_home / "bin/java.exe").exists() else ""
   here = Path(__file__).resolve().parent
-  files = [str(p) for p in src.rglob("*.java")] + [str(here / "CarrotCarMapSnapshot.java"), str(here / "CarrotHudLog.java")]
+  files = [str(p) for p in src.rglob("*.java")] + [str(here / "CarrotCarMapSnapshot.java"),
+          str(here / "CarrotTrafficSignalCapture.java"), str(here / "CarrotHudLog.java")]
   subprocess.run([str(args.java_home / ("bin/javac" + suffix)), "--release", "8", "-encoding", "UTF-8",
                   "-Xlint:-options", "-d", str(classes)] + files, check=True)
   subprocess.run([str(args.java_home / ("bin/java" + suffix)), "-cp", str(classes), "com.naver.map.carrot.SnapCheck"], check=True)

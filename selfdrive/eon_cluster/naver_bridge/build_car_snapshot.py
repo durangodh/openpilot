@@ -1,8 +1,9 @@
 """HUD13: map_main from the Android Auto NaverMap via the SDK's own takeSnapshot.
 
-Input: verified HUD11 APKS. Output: unsigned base APK where exactly two entries
+Input: verified HUD11 APKS. Output: unsigned base APK where exactly four entries
 change:
   classes.dex      LocationManager$Companion.b keeps the real provider name for mock fixes
+  classes12.dex    NaviTrafficSignalView registers its native widget for PNG capture
   classes43.dex  + CarrotCarMapSnapshot, CarrotHudLog;
                    CarrotNaverBridge.captureMap() tries the snapshot first
   classes5.dex     MapProvider.<init> hands its instance to CarrotCarMapSnapshot;
@@ -32,6 +33,7 @@ BRIDGE_HOOK = """
 
     :hud_snapshot_fallback"""
 PROVIDER_HOOK = "    invoke-static {p0}, Lcom/naver/map/carrot/CarrotCarMapSnapshot;->provider(Ljava/lang/Object;)V\n\n    return-void"
+SIGNAL_HOOK = "    invoke-static {p0}, Lcom/naver/map/carrot/CarrotTrafficSignalCapture;->register(Ljava/lang/Object;)V\n\n    return-void"
 
 
 def patch_bridge(text):
@@ -95,6 +97,16 @@ def patch_provider(text):
   return text[:start] + body.replace("    return-void", PROVIDER_HOOK) + text[end:]
 
 
+def patch_signal_view(text):
+  signature = ".method public constructor <init>(Landroid/content/Context;Landroid/util/AttributeSet;I)V"
+  start = text.index(signature)
+  end = text.index(".end method", start)
+  body = text[start:end]
+  if body.count("    return-void") != 1 or "CarrotTrafficSignalCapture" in body:
+    raise ValueError("Unexpected NaviTrafficSignalView constructor")
+  return text[:start] + body.replace("    return-void", SIGNAL_HOOK) + text[end:]
+
+
 def decode(java, apktool, work, name, manifest, dex):
   apk = work / (name + ".apk")
   with zipfile.ZipFile(apk, "w") as z:
@@ -136,6 +148,7 @@ def main():
     manifest = original.read("AndroidManifest.xml")
     bridge_dex = original.read("classes43.dex")
     provider_dex = original.read("classes5.dex")
+    signal_dex = original.read("classes12.dex")
     app_dex = original.read("classes.dex")
 
   stub = work / "src" / PACKAGE / "CarrotNaverBridge.java"
@@ -145,7 +158,8 @@ def main():
   classes = work / "classes"
   classes.mkdir()
   subprocess.run([str(javac), "--release", "8", "-encoding", "UTF-8", "-cp", str(android), "-d", str(classes),
-                  str(stub), str(here / "CarrotCarMapSnapshot.java"), str(here / "CarrotHudLog.java"), str(here / "CarrotNaverCodes.java")], check=True)
+                  str(stub), str(here / "CarrotCarMapSnapshot.java"), str(here / "CarrotTrafficSignalCapture.java"),
+                  str(here / "CarrotHudLog.java"), str(here / "CarrotNaverCodes.java")], check=True)
   with zipfile.ZipFile(work / "new.jar", "w") as jar:
     for item in classes.rglob("*.class"):
       if item.name != "CarrotNaverBridge.class":
@@ -157,6 +171,7 @@ def main():
   bridge = decode(java, args.apktool, work, "bridge", manifest, bridge_dex)
   new = decode(java, args.apktool, work, "new", manifest, (work / "dex/classes.dex").read_bytes())
   provider = decode(java, args.apktool, work, "provider", manifest, provider_dex)
+  signal = decode(java, args.apktool, work, "signal", manifest, signal_dex)
   app = decode(java, args.apktool, work, "app", manifest, app_dex)
   for item in (new / "smali" / PACKAGE).glob("Carrot*.smali"):
     shutil.copyfile(item, bridge / "smali" / PACKAGE / item.name)
@@ -169,6 +184,8 @@ def main():
   bridge_smali.write_text(bridge_text, encoding="utf-8")
   provider_smali = provider / "smali/com/naver/map/core/auto/map/MapProvider.smali"
   provider_smali.write_text(patch_provider(provider_smali.read_text(encoding="utf-8")), encoding="utf-8")
+  signal_smali = signal / "smali/com/naver/map/core/navigation/view/NaviTrafficSignalView.smali"
+  signal_smali.write_text(patch_signal_view(signal_smali.read_text(encoding="utf-8")), encoding="utf-8")
   navi_smali = provider / "smali/com/naver/maps/navi/mapmatching/LocationExtensionsKt.smali"
   app_smali = app / "smali/com/naver/map/core/common/location/LocationManager$Companion.smali"
   navi_text, app_text = patch_mock_location(navi_smali.read_text(encoding="utf-8"),
@@ -177,6 +194,7 @@ def main():
   app_smali.write_text(app_text, encoding="utf-8")
   replacement = {"classes43.dex": build(java, args.apktool, work, "bridge"),
                  "classes5.dex": build(java, args.apktool, work, "provider"),
+                 "classes12.dex": build(java, args.apktool, work, "signal"),
                  "classes.dex": build(java, args.apktool, work, "app")}
 
   args.output.parent.mkdir(parents=True, exist_ok=True)

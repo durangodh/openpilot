@@ -3,10 +3,10 @@
 ## Live traffic signals
 
 The map panel accepts the native `traffic_signal` bitmap published by both
-navigation sources. TMAP sends the dedicated lamp/countdown asset. NAVER's
-Android Auto map may include the signal in `map_main`; the dedicated asset is
-used automatically when a NAVER build publishes it. The signal is drawn
-after the night-theme mask so its red, amber, and green colors remain readable.
+navigation sources. TMAP sends the dedicated lamp/countdown asset. CarrotNaver
+HUD13.7 captures NAVER's native `NaviTrafficSignalView` as a transparent PNG
+and clears it when the widget disappears. The signal is drawn after the
+night-theme mask so its red, amber, and green colors remain readable.
 
 ## Lead display
 

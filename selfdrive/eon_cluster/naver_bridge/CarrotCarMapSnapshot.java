@@ -71,6 +71,7 @@ public final class CarrotCarMapSnapshot {
         if (b == null) {
             return false;
         }
+        CarrotTrafficSignalCapture.capture(b);
         bridge = b;
         Object map = null;
         String source = null;
