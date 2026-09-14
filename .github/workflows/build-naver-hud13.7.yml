@@ -11,6 +11,7 @@ on:
       - "selfdrive/eon_cluster/naver_bridge/CarrotHudLog.java"
       - "selfdrive/eon_cluster/naver_bridge/CarrotNaverCodes.java"
       - "selfdrive/eon_cluster/naver_bridge/build_car_snapshot.py"
+      - "selfdrive/eon_cluster/naver_bridge/build_traffic_signal.py"
       - "selfdrive/eon_cluster/naver_bridge/test_car_snapshot.py"
 
 permissions:
@@ -30,7 +31,7 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
-      - name: Prepare HUD11 and tools
+      - name: Prepare HUD13.6 and tools
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -38,13 +39,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/naver-input" "$RUNNER_TEMP/naver-sdk"
           ln -s "$ANDROID_HOME/platforms" "$RUNNER_TEMP/naver-sdk/platforms"
           ln -s "$ANDROID_HOME/build-tools" "$RUNNER_TEMP/naver-sdk/build-tools"
-          gh release download carrot-naver-6.9.1.3-hud11 --pattern 'CarrotNaver_6.9.1.3_hud11.apks' --dir "$RUNNER_TEMP/naver-input"
+          gh release download carrot-naver-6.9.1.3-hud13.6 --pattern 'CarrotNaver_6.9.1.3_hud13.6.apks' --dir "$RUNNER_TEMP/naver-input"
           curl --fail --location --retry 3 https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar -o "$RUNNER_TEMP/apktool.jar"
       - name: Test native traffic signal and rebuild
         run: |
           python3 selfdrive/eon_cluster/naver_bridge/test_car_snapshot.py --java-home "$JAVA_HOME" --work "$RUNNER_TEMP/naver-snapshot-check"
-          python3 selfdrive/eon_cluster/naver_bridge/build_car_snapshot.py \
-            --input "$RUNNER_TEMP/naver-input/CarrotNaver_6.9.1.3_hud11.apks" \
+          python3 selfdrive/eon_cluster/naver_bridge/build_traffic_signal.py \
+            --input "$RUNNER_TEMP/naver-input/CarrotNaver_6.9.1.3_hud13.6.apks" \
             --java-home "$JAVA_HOME" --sdk "$RUNNER_TEMP/naver-sdk" \
             --apktool "$RUNNER_TEMP/apktool.jar" --work "$RUNNER_TEMP/naver-build" \
             --output "$RUNNER_TEMP/naver-unsigned.apk"
@@ -70,7 +71,7 @@ jobs:
           tools = pathlib.Path(os.environ["ANDROID_HOME"]) / "build-tools/35.0.0"
           parts = []
           certificates = set()
-          with zipfile.ZipFile(temp / "naver-input/CarrotNaver_6.9.1.3_hud11.apks") as original:
+          with zipfile.ZipFile(temp / "naver-input/CarrotNaver_6.9.1.3_hud13.6.apks") as original:
               names = [n for n in original.namelist() if n.endswith(".apk")]
               if sorted(names) != ["base.apk", "split_config.arm64_v8a.apk", "split_config.xxhdpi.apk"]:
                   raise RuntimeError("Unexpected split set")
@@ -99,7 +100,7 @@ jobs:
                     "certificate_sha256": expected_cert, "commit": os.environ["GITHUB_SHA"],
                     "all_splits_verified": True, "zip_alignment_16k_verified": True,
                     "device_tested": False, "same_signing_key_as_hud9_through_hud13_6": True,
-                    "base_release": "carrot-naver-6.9.1.3-hud11",
+                    "base_release": "carrot-naver-6.9.1.3-hud13.6",
                     "traffic_signal_change": "native NaviTrafficSignalView captured as transparent PNG",
                     "parts": [{"name": n, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for n, p in parts]}
           (out / "naver-hud13.7-verification.json").write_text(json.dumps(report, indent=2) + "\n")
