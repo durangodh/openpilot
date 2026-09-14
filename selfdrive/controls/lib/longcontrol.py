@@ -9,6 +9,13 @@ from selfdrive.modeld.constants import T_IDXS
 LongCtrlState = car.CarControl.Actuators.LongControlState
 ButtonType = car.CarState.ButtonEvent.Type
 
+STANDSTILL_LEAD_MAX_DISTANCE = 20.0
+STANDSTILL_LEAD_MAX_SPEED = 0.3
+LEAD_RELEASE_MIN_SPEED = 0.25
+LEAD_RELEASE_MIN_VREL = 0.1
+LEAD_RELEASE_CONFIRM_SAMPLES = 2
+LEAD_DROPOUT_FALLBACK_FRAMES = round(1.5 / DT_CTRL)
+
 
 # apilot-c2 상태전이.
 # planned_stop 조건인데 accel 이 이미 stopAccel 보다 낮은 상태로 stopping 에 들어가면 너무 급하게 서므로
@@ -88,6 +95,10 @@ class LongControl:
     self._update_stopping_decel_rate()
     self._update_standstill_release()
     self.start_request_frames = 0
+    self.standstill_lead_latched = False
+    self.lead_release_samples = 0
+    self.lead_measurement_available = False
+    self.lead_missing_frames = 0
 
   # ---- 파라미터 (키 이름은 이 포크 것을 유지) ----
   def _update_pid_gains(self):
@@ -153,6 +164,48 @@ class LongControl:
     self.standstill_release_speed = float(clip(speed, 0.0, 2.0))
     self.standstill_release_frames = int(clip(ms, 50, 2000) / 10)
 
+  def _reset_standstill_lead(self):
+    self.standstill_lead_latched = False
+    self.lead_release_samples = 0
+    self.lead_measurement_available = False
+    self.lead_missing_frames = 0
+
+  def _update_standstill_lead(self, radar_state, radar_state_valid, radar_state_updated):
+    """Latch a stopped lead and release only after fresh samples confirm it is moving.
+
+    A transient missing/stale radar sample never opens the gate. If radar remains
+    unavailable for 1.5 seconds, the caller falls back to the sustained planner
+    request so a permanent radar outage cannot disable automatic launch.
+    """
+    if radar_state_updated:
+      lead_valid = (radar_state is not None and radar_state_valid and
+                    len(radar_state.radarErrors) == 0 and radar_state.leadOne.status)
+      self.lead_measurement_available = lead_valid
+      if not lead_valid:
+        self.lead_release_samples = 0
+      else:
+        lead = radar_state.leadOne
+        if not self.standstill_lead_latched:
+          stopped_lead = (0.0 < lead.dRel <= STANDSTILL_LEAD_MAX_DISTANCE and
+                          abs(lead.vLeadK) <= STANDSTILL_LEAD_MAX_SPEED and
+                          abs(lead.vRel) <= STANDSTILL_LEAD_MAX_SPEED)
+          if stopped_lead:
+            self.standstill_lead_latched = True
+        else:
+          lead_moving = (lead.vLeadK > LEAD_RELEASE_MIN_SPEED and
+                         lead.vRel > LEAD_RELEASE_MIN_VREL)
+          self.lead_release_samples = self.lead_release_samples + 1 if lead_moving else 0
+    elif not radar_state_valid:
+      self.lead_measurement_available = False
+      self.lead_release_samples = 0
+
+    if self.standstill_lead_latched:
+      if self.lead_measurement_available:
+        self.lead_missing_frames = 0
+      else:
+        self.lead_missing_frames += 1
+    return self.lead_release_samples >= LEAD_RELEASE_CONFIRM_SAMPLES
+
   def _update_stopping_decel_rate(self):
     try:
       rate_raw = self.params.get("StoppingDecelRate", encoding="utf8")
@@ -179,7 +232,8 @@ class LongControl:
     self.pid.reset()
     self.v_pid = v_pid
 
-  def update(self, active, CS, long_plan, accel_limits, t_since_plan, soft_hold=False, radar_state=None):
+  def update(self, active, CS, long_plan, accel_limits, t_since_plan, soft_hold=False,
+             radar_state=None, radar_state_valid=False, radar_state_updated=False):
     """Update longitudinal control. This updates the state machine and runs a PID loop"""
     self._read_params()
 
@@ -214,17 +268,26 @@ class LongControl:
 
     output_accel = self.last_output_accel
 
-    # 정체 둔감화 게이트: 정차 상태에서 플래너 출발 요구가 임계속도 이상으로
-    # 지속돼야 출발. 운전자 의사(가속페달·RES)는 즉시 통과.
+    # 정차 중 멈춘 선행차를 확인했다면 플래너 속도만으로 출발하지 않는다.
+    # 새 radarState 샘플에서 선행차 이동이 연속 확인될 때 빠르게 출발한다.
+    # 선행차 없이 정차한 경우(신호 등)는 기존 속도/지연 설정을 사용한다.
     if self.long_control_state == LongCtrlState.stopping:
-      strong_request = v_target_1sec > max(self.CP.vEgoStarting, self.standstill_release_speed)
-      self.start_request_frames = self.start_request_frames + 1 if strong_request else 0
       resume_pressed = any(e.pressed and e.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
                            for e in CS.buttonEvents)
-      start_gate = (CS.gasPressed or resume_pressed or
-                    self.start_request_frames >= self.standstill_release_frames)
+      driver_override = CS.gasPressed or resume_pressed
+      lead_release = self._update_standstill_lead(radar_state, radar_state_valid, radar_state_updated)
+      radar_fallback = self.lead_missing_frames >= LEAD_DROPOUT_FALLBACK_FRAMES
+      if self.standstill_lead_latched and not radar_fallback:
+        self.start_request_frames = 0
+        start_gate = driver_override or lead_release
+      else:
+        strong_request = v_target_1sec > max(self.CP.vEgoStarting, self.standstill_release_speed)
+        self.start_request_frames = self.start_request_frames + 1 if strong_request else 0
+        start_gate = (driver_override or lead_release or
+                      self.start_request_frames >= self.standstill_release_frames)
     else:
       self.start_request_frames = 0
+      self._reset_standstill_lead()
       start_gate = True
 
     self.long_control_state, planned_stop = long_control_state_trans(

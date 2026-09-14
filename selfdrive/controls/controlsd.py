@@ -770,7 +770,8 @@ class Controls:
       actuators.accel, actuators.jerk = self.LoC.update(
         CC.longActive,
         CS, long_plan, pid_accel_limits, t_since_plan, CC.hudControl.softHold,
-        self.sm['radarState'])
+        self.sm['radarState'], self.sm.valid['radarState'] and self.sm.alive['radarState'],
+        self.sm.updated['radarState'])
 
       # Steering PID loop and lateral MPC
       self.desired_curvature, self.desired_curvature_rate = get_lag_adjusted_curvature(self.CP, CS.vEgo,

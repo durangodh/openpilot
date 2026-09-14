@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 
 from selfdrive.controls.lib.longcontrol import (LongCtrlState,
+                                                LEAD_DROPOUT_FALLBACK_FRAMES,
+                                                LongControl,
                                                 long_control_state_trans)
 
 
@@ -79,3 +81,60 @@ def test_starting_returns_to_stopping_when_plan_stops():
 def test_launch_requires_speed_above_threshold_and_increasing_target():
   assert transition(make_cp(), v_target_1sec=0.2) == LongCtrlState.stopping
   assert transition(make_cp(), v_target=0.5, v_target_1sec=0.5) == LongCtrlState.stopping
+
+
+def make_radar(status=True, d_rel=5.0, v_lead=0.0, v_rel=0.0, errors=()):
+  return SimpleNamespace(
+    radarErrors=errors,
+    leadOne=SimpleNamespace(status=status, dRel=d_rel, vLeadK=v_lead, vRel=v_rel),
+  )
+
+
+def make_long_control_for_lead_gate():
+  control = LongControl.__new__(LongControl)
+  control.standstill_lead_latched = False
+  control.lead_release_samples = 0
+  control.lead_measurement_available = False
+  control.lead_missing_frames = 0
+  return control
+
+
+def test_stopped_lead_is_latched_and_planner_cannot_release_it():
+  control = make_long_control_for_lead_gate()
+  assert not control._update_standstill_lead(make_radar(), True, True)
+  assert control.standstill_lead_latched
+
+  # A radar dropout must close the gate and preserve the stopped-lead latch.
+  assert not control._update_standstill_lead(make_radar(status=False), True, True)
+  assert control.standstill_lead_latched
+
+
+def test_lead_release_requires_two_fresh_moving_samples():
+  control = make_long_control_for_lead_gate()
+  control._update_standstill_lead(make_radar(), True, True)
+  moving = make_radar(v_lead=0.5, v_rel=0.5)
+
+  assert not control._update_standstill_lead(moving, True, True)
+  # Re-reading the same stale message does not count as a second confirmation.
+  assert not control._update_standstill_lead(moving, True, False)
+  assert control._update_standstill_lead(moving, True, True)
+
+
+def test_invalid_radar_never_releases_latched_lead():
+  control = make_long_control_for_lead_gate()
+  control._update_standstill_lead(make_radar(), True, True)
+  moving = make_radar(v_lead=1.0, v_rel=1.0)
+  assert not control._update_standstill_lead(moving, False, True)
+  assert not control._update_standstill_lead(moving, True, False)
+
+
+def test_long_radar_dropout_enables_planner_fallback():
+  control = make_long_control_for_lead_gate()
+  control._update_standstill_lead(make_radar(), True, True)
+
+  for _ in range(LEAD_DROPOUT_FALLBACK_FRAMES):
+    assert not control._update_standstill_lead(None, False, False)
+  assert control.lead_missing_frames >= LEAD_DROPOUT_FALLBACK_FRAMES
+
+  # The state machine combines this timeout with the normal sustained planner
+  # request; the timeout alone is not an acceleration command.
