@@ -18,6 +18,13 @@ from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 
 VisualAlert = car.CarControl.HUDControl.VisualAlert
 
+
+def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego):
+  """Assert Hyundai StopReq only after the vehicle has actually stopped."""
+  actual_standstill = car_standstill or v_ego < 0.1
+  return bool((stopping or soft_hold_scc) and actual_standstill)
+
+
 def process_hud_alert(enabled, fingerprint, hud_control):
 
   sys_warning = (hud_control.visualAlert in (VisualAlert.steerRequired, VisualAlert.ldw))
@@ -240,7 +247,8 @@ class CarController:
     soft_hold_scc = soft_hold and self.soft_hold_mode == 2 and CS.out.brakePressed
     stopping = controls.LoC.long_control_state == LongCtrlState.stopping
     jerk_stopping = stopping or soft_hold
-    scc_standstill = stopping or soft_hold_scc
+    scc_stop_request = should_request_scc_standstill(
+      stopping, soft_hold_scc, CS.out.standstill, CS.out.vEgo)
 
     # aPilot C2 gradually expands the SCC jerk allowance after a stop. This
     # keeps the brake release and launch acceleration in one continuous step.
@@ -323,7 +331,7 @@ class CarController:
 
         can_sends.append(create_scc12(self.packer, apply_accel, CC.enabled, self.scc12_cnt, self.scc_live, CS.scc12,
                                       CS.out.gasPressed, CS.out.brakePressed and not soft_hold_scc,
-                                      scc_standstill and CS.out.vEgo < 2.,
+                                      scc_stop_request,
                                       self.car_fingerprint, long_active=CC.longActive,
                                       soft_hold_active=soft_hold_scc))
 
@@ -336,7 +344,7 @@ class CarController:
           can_sends.append(create_scc13(self.packer, CS.scc13))
 
         if CS.has_scc14:
-          acc_standstill = scc_standstill if CS.out.vEgo < 2. else False
+          acc_standstill = scc_stop_request
 
           # apilot-c2 comfort bands: keep the SCC brake-to-accel handoff in
           # the normal control range instead of switching from 0 to 50.
