@@ -60,6 +60,12 @@ using namespace std::chrono_literals;
 std::atomic<bool> ignition(false);
 std::atomic<bool> pigeon_active(false);
 
+// Genesis DH multimedia CAN wiring for this installation:
+// vehicle M-CAN (100 kbit/s FT-CAN) -> CANBridge-1054 -> harness CAN3.
+// Black Panda exposes that CAN3/OBD path to openpilot as logical bus 1.
+constexpr uint16_t GENESIS_DH_MCAN_BUS = 1U;
+constexpr uint16_t GENESIS_DH_MCAN_SPEED_KBPS = 100U;
+
 ExitHandler do_exit;
 
 static std::string get_time_str(const struct tm &time) {
@@ -186,6 +192,16 @@ Panda *usb_connect(std::string serial="", uint32_t index=0) {
     panda = std::make_unique<Panda>(serial, (index * PANDA_BUS_CNT));
   } catch (std::exception &e) {
     return nullptr;
+  }
+
+  // Configure the dedicated M-CAN input before VIN/fingerprint traffic starts.
+  // Only the primary Panda is connected to the vehicle harness; buses 0 and 2
+  // remain at their default 500 kbit/s rates.
+  if (index == 0U) {
+    panda->set_can_speed_kbps(GENESIS_DH_MCAN_BUS, GENESIS_DH_MCAN_SPEED_KBPS);
+    LOGW("configured Genesis DH M-CAN on Panda bus %u at %u kbit/s",
+         static_cast<unsigned int>(GENESIS_DH_MCAN_BUS),
+         static_cast<unsigned int>(GENESIS_DH_MCAN_SPEED_KBPS));
   }
 
   if (getenv("BOARDD_LOOPBACK")) {
