@@ -2,7 +2,8 @@ from selfdrive.controls.lib.conditional_e2e import (E2E_LEAD_DROPOUT_CONFIRM_TIM
                                                     E2E_MODE_RELEASE_HOLD_TIME,
                                                     E2E_VISION_LEAD_CONFIRM_TIME,
                                                     ConditionalE2EController,
-                                                    adjust_stop_distance_for_decel)
+                                                    adjust_stop_distance_for_decel,
+                                                    update_latched_stop_distance)
 
 
 DT_MDL = 0.05
@@ -22,6 +23,24 @@ def test_traffic_stop_decel_adjusts_virtual_obstacle():
 def test_traffic_stop_distance_adjust_moves_virtual_obstacle_only():
   assert adjust_stop_distance_for_decel(20.0, 0.0, 1.0, 4.0) == 24.0
   assert adjust_stop_distance_for_decel(2.0, 0.0, 1.0, -4.0) == 0.0
+
+
+def test_far_stop_ratio_progressively_moves_distant_stops_earlier():
+  assert adjust_stop_distance_for_decel(20.0, 0.0, 1.0, 0.0, 0.9) == 19.6
+  assert adjust_stop_distance_for_decel(50.0, 0.0, 1.0, 0.0, 0.9) == 47.5
+  assert adjust_stop_distance_for_decel(100.0, 0.0, 1.0, 0.0, 0.9) == 90.0
+
+
+def test_latched_stop_point_cannot_move_toward_distant_signal_head():
+  assert update_latched_stop_distance(30.0, 80.0, 10.0, DT_MDL) == 29.5
+
+
+def test_latched_stop_point_accepts_a_closer_observation():
+  assert update_latched_stop_distance(30.0, 20.0, 10.0, DT_MDL) == 20.0
+
+
+def test_latched_stop_point_never_becomes_negative():
+  assert update_latched_stop_distance(0.2, 5.0, 10.0, DT_MDL) == 0.0
 
 
 def update(controller, **overrides):
@@ -52,6 +71,18 @@ def update(controller, **overrides):
 def enter_stop(controller, distance=50.0, v_ego=10.0):
   return update(controller, model_x=distance, model_v0=10.0,
                 model_v_end=1.0, v_ego=v_ego)
+
+
+def test_active_signal_stop_does_not_chase_farther_model_endpoint():
+  controller = ConditionalE2EController(DT_MDL)
+  enter_stop(controller, distance=30.0, v_ego=10.0)
+  previous_distance = controller.stop_distance
+
+  for _ in range(5):
+    update(controller, model_x=80.0, model_v0=10.0,
+           model_v_end=1.0, v_ego=10.0)
+    assert controller.stop_distance < previous_distance
+    previous_distance = controller.stop_distance
 
 
 def test_fixed_acc_and_e2e_modes():

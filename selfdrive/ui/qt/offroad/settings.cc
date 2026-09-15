@@ -1553,6 +1553,11 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "신호정지에만 적용됩니다. 양수(+): 정지선에 더 가까이 정차 / 음수(-): 정지선에서 더 멀리 정차. aPilot 기본값: +400cm.",
       "../assets/offroad/icon_road.png", -1000, 1000, 10, 0, 400, this));
 
+  list->addItem(new ParamValueControlF(
+      "TrafficStopAdjustRatio", "FAR STOP DISTANCE RATIO (%)",
+      "먼 신호 정지점을 거리에 비례해 앞당깁니다. 100%는 보정 없음, 90%는 100m 정지점을 90m로 보정하며 가까운 정지점에는 영향이 작습니다.",
+      "../assets/offroad/icon_road.png", 70, 110, 1, 0, 90, this));
+
   list->addItem(horizontal_line());
 
   const std::array<std::tuple<const char*, const char*, int>, 7> accel_controls = {{

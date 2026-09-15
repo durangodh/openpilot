@@ -17,7 +17,8 @@ TRAFFIC_STOP_SOLVER_COMFORT_BRAKE = 2.5
 TRAFFIC_STOP_APILOT_COMFORT_BRAKE = 2.5
 
 
-def adjust_stop_distance_for_decel(stop_distance, v_ego, decel_factor, distance_adjust=0.0):
+def adjust_stop_distance_for_decel(stop_distance, v_ego, decel_factor, distance_adjust=0.0,
+                                   far_distance_ratio=1.0):
   """Emulate a variable MPC comfort-brake value with a fixed-parameter solver.
 
   aPilot changes the comfort-brake MPC parameter while stopping for a traffic
@@ -28,10 +29,20 @@ def adjust_stop_distance_for_decel(stop_distance, v_ego, decel_factor, distance_
   """
   factor = max(0.1, min(1.2, float(decel_factor)))
   speed = max(0.0, float(v_ego))
+  distance = max(0.0, float(stop_distance))
+  ratio = max(0.5, min(1.2, float(far_distance_ratio)))
+  distance_blend = min(distance, 100.0) / 100.0
+  ranged_distance = distance * (1.0 + (ratio - 1.0) * distance_blend)
   base_distance = speed ** 2 / (2.0 * TRAFFIC_STOP_SOLVER_COMFORT_BRAKE)
   adjusted_distance = speed ** 2 / (2.0 * TRAFFIC_STOP_APILOT_COMFORT_BRAKE * factor)
-  return max(0.0, float(stop_distance) + float(distance_adjust) -
+  return max(0.0, ranged_distance + float(distance_adjust) -
              (adjusted_distance - base_distance))
+
+
+def update_latched_stop_distance(stop_distance, observed_distance, v_ego, dt):
+  """Dead-reckon a confirmed stop point without allowing it to move away."""
+  remaining_distance = max(0.0, float(stop_distance) - max(0.0, float(v_ego)) * float(dt))
+  return min(remaining_distance, max(0.0, float(observed_distance)))
 
 
 class ConditionalE2EController:
@@ -176,7 +187,12 @@ class ConditionalE2EController:
       elif v_ego < 0.1:
         self.stop_distance = 0.0
       elif stop_sign:
-        self.stop_distance = max(filtered_stop_x, v_ego ** 2 / 4.0)
+        # The model can shift its endpoint from the stop line toward overhead
+        # signal heads in a large intersection. Keep the road-fixed stop point
+        # acquired on entry, while still accepting a newly observed closer stop.
+        observed_stop_distance = max(filtered_stop_x, v_ego ** 2 / 4.0)
+        self.stop_distance = update_latched_stop_distance(
+          self.stop_distance, observed_stop_distance, v_ego, self.dt)
       else:
         self.stop_distance = max(0.0, self.stop_distance - v_ego * self.dt)
 
