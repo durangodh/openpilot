@@ -404,7 +404,7 @@ EV_HYBRID_CAR = EV_CAR | HYBRID_CAR
 
 DBC = {
   # genesis
-  CAR.GENESIS: dbc_dict('hyundai_kia_generic', None, body_dbc='hyundai_2015_mcan'),
+  CAR.GENESIS: dbc_dict('hyundai_kia_generic', None),
   CAR.GENESIS_G70: dbc_dict('hyundai_kia_generic', None),  
   CAR.GENESIS_G80: dbc_dict('hyundai_kia_generic', None),
   CAR.GENESIS_EQ900: dbc_dict('hyundai_kia_generic', None),
