@@ -1,4 +1,5 @@
-from selfdrive.controls.lib.conditional_e2e import (E2E_MODE_RELEASE_HOLD_TIME,
+from selfdrive.controls.lib.conditional_e2e import (E2E_LEAD_DROPOUT_CONFIRM_TIME,
+                                                    E2E_MODE_RELEASE_HOLD_TIME,
                                                     E2E_VISION_LEAD_CONFIRM_TIME,
                                                     ConditionalE2EController,
                                                     adjust_stop_distance_for_decel)
@@ -111,6 +112,40 @@ def test_radar_lead_stays_acc_and_suppresses_new_signal_stop():
   mode = update(controller, model_x=80.0, model_v0=10.0, model_v_end=1.0,
                 lead_present=True, radar_lead_present=True, radar_lead_distance=100.0)
   assert mode == 'acc'
+  assert not controller.stopping
+
+
+def test_brief_lead_dropout_does_not_enter_signal_stop():
+  controller = ConditionalE2EController(DT_MDL)
+  stop_args = dict(model_x=30.0, model_v0=10.0, model_v_end=1.0)
+
+  assert update(controller, lead_present=True, radar_lead_present=True,
+                radar_lead_distance=20.0, **stop_args) == 'acc'
+
+  confirm_frames = round(E2E_LEAD_DROPOUT_CONFIRM_TIME / DT_MDL)
+  for _ in range(confirm_frames - 1):
+    assert update(controller, lead_present=False, radar_lead_present=False,
+                  radar_lead_distance=0.0, **stop_args) == 'acc'
+    assert not controller.stopping
+
+  update(controller, lead_present=False, radar_lead_present=False,
+         radar_lead_distance=0.0, **stop_args)
+  assert controller.stopping
+
+
+def test_confirmed_vision_lead_releases_existing_signal_stop():
+  controller = ConditionalE2EController(DT_MDL)
+  assert enter_stop(controller, distance=30.0) == 'acc'
+  assert controller.stopping
+
+  confirm_frames = round(E2E_VISION_LEAD_CONFIRM_TIME / DT_MDL)
+  for _ in range(confirm_frames - 1):
+    update(controller, model_x=30.0, model_v0=10.0, model_v_end=1.0,
+           lead_present=True, vision_lead_present=True, radar_lead_distance=15.0)
+    assert controller.stopping
+
+  update(controller, model_x=30.0, model_v0=10.0, model_v_end=1.0,
+         lead_present=True, vision_lead_present=True, radar_lead_distance=15.0)
   assert not controller.stopping
 
 

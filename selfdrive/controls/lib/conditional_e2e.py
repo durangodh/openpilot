@@ -11,6 +11,7 @@ E2E_START_MIN_DISTANCE = 60.0
 E2E_FAR_STOP_DISTANCE = 40.0
 E2E_VISION_LEAD_DISTANCE = 90.0
 E2E_VISION_LEAD_CONFIRM_TIME = 0.5
+E2E_LEAD_DROPOUT_CONFIRM_TIME = 0.5
 E2E_MODE_RELEASE_HOLD_TIME = 0.0
 TRAFFIC_STOP_SOLVER_COMFORT_BRAKE = 2.5
 TRAFFIC_STOP_APILOT_COMFORT_BRAKE = 2.5
@@ -50,6 +51,9 @@ class ConditionalE2EController:
     self.start_sign_count = 0
     self.vision_lead_count = 0
     self.vision_lead_latched = False
+    self.lead_dropout_confirm_frames = max(1, round(E2E_LEAD_DROPOUT_CONFIRM_TIME / self.dt))
+    self.lead_missing_count = 0
+    self.lead_recent = False
     self.mode_release_hold_count = 0
     self.model_v_history = deque(maxlen=10)
     self.stop_x_median_history = deque(maxlen=3)
@@ -138,8 +142,25 @@ class ConditionalE2EController:
       self.vision_lead_count = max(0, self.vision_lead_count - 1)
       if self.vision_lead_count == 0:
         self.vision_lead_latched = False
-    radar_lead_before_stop = (radar_lead_present and radar_lead_distance > 0.0 and
-                              radar_lead_distance - filtered_stop_x < 2.0)
+
+    # Do not enter traffic-stop control on a brief lead dropout. A lead that
+    # was already being tracked must be absent continuously before the model
+    # stop can take ownership; a scene that never had a lead is unaffected.
+    if lead_present:
+      self.lead_recent = True
+      self.lead_missing_count = 0
+    elif self.lead_recent:
+      self.lead_missing_count += 1
+      if self.lead_missing_count >= self.lead_dropout_confirm_frames:
+        self.lead_recent = False
+        self.lead_missing_count = 0
+    effective_lead_present = lead_present or self.lead_recent
+
+    # A confirmed vision lead is just as valid as a radar lead for deciding
+    # that the real stopped vehicle lies before the model's traffic stop.
+    confirmed_lead_before_stop = ((radar_lead_present or self.vision_lead_latched) and
+                                  radar_lead_distance > 0.0 and
+                                  radar_lead_distance - filtered_stop_x < 2.0)
 
     if self.stopping:
       if start_sign or gas_pressed:
@@ -147,7 +168,7 @@ class ConditionalE2EController:
         self.prepare = True
         self.mode_release_hold_count = 0
         self.stop_distance = 0.0
-      elif radar_lead_before_stop:
+      elif confirmed_lead_before_stop:
         # The real lead is closer than the model stop line; let ACC follow it.
         self.stopping = False
         self.prepare = False
@@ -171,7 +192,7 @@ class ConditionalE2EController:
         self.prepare = False
         self.mode_release_hold_count = self.mode_release_hold_frames
 
-    elif (stop_sign and not lead_present and
+    elif (stop_sign and not effective_lead_present and
           abs(steering_angle_deg) <= 5.0 and not gas_pressed):
       self.stopping = True
       self.stop_distance = 0.0 if v_ego < 0.1 else max(filtered_stop_x, v_ego ** 2 / 4.0)
