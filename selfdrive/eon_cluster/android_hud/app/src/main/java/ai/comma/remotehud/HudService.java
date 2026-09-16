@@ -1333,7 +1333,7 @@ public final class HudService extends Service {
         frameDark = darkTheme();
         c.drawColor(Color.rgb(5, 8, 12));
 
-        drawDriving(c, p, s);
+        drawDriving(c, p, s, map);
 
         if (configuredLayoutMode == 1) {
             JSONObject l = layout(s);
@@ -1366,7 +1366,7 @@ public final class HudService extends Service {
         return last == 0L || SystemClock.elapsedRealtime() - last > EON_STALE_MS;
     }
 
-    private void drawDriving(Canvas c, Paint p, JSONObject s) {
+    private void drawDriving(Canvas c, Paint p, JSONObject s, Bitmap map) {
         JSONObject l = layout(s);
         boolean stale = eonStale();
         boolean enabled = !stale && s.optBoolean("enabled", false);
@@ -1376,6 +1376,17 @@ public final class HudService extends Service {
         int driveBg = lc(l, "driveBg", frameDark ? Color.rgb(22, 28, 36) : Color.rgb(226, 229, 231));
         p.setColor(driveBg);
         c.drawRect(0f, 0f, DRIVE_RIGHT, 462f, p);
+
+        // Reuse the navigation frame already received for the right-hand map as
+        // a subdued ground-map layer.  This adds no second map SDK, HTTP request,
+        // decode or bitmap allocation.  The phone-local Gyeonggi buildings and
+        // roads are rendered by ModelWorldGL above it, followed by the
+        // camera/model road, guardrails, lane lines and path.
+        boolean drivingMapAvailable = !stale && map != null && !map.isRecycled()
+                && map.getWidth() >= 2 && map.getHeight() >= 2;
+        if (drivingMapAvailable) {
+            drawDrivingMapBackground(c, p, map, frameDark);
+        }
 
         int roadTop = lc(l, "roadTop",
                 frameDark ? Color.rgb(50, 58, 68) : Color.rgb(210, 215, 219));
@@ -1400,7 +1411,8 @@ public final class HudService extends Service {
                     (float) s.optDouble("calibPitch", 0d),
                     egoCar != null && !egoCar.isRecycled(),
                     s.optInt("hudGuardrail", 1) != 0,
-                    Math.max(0, Math.min(100, s.optInt("hudHaze", 55))));
+                    Math.max(0, Math.min(100, s.optInt("hudHaze", 55))),
+                    drivingMapAvailable);
             if (glDrawn) {
                 String mapStatus = modelWorldGl.mapStatus();
                 if (!mapStatus.isEmpty()) {
@@ -1569,6 +1581,48 @@ public final class HudService extends Service {
         p.setColor(cardEdge());
         scratchRect.set(2f, 2f, DRIVE_RIGHT - 2f, 458f);
         c.drawRoundRect(scratchRect, 18f, 18f, p);
+    }
+
+    private void drawDrivingMapBackground(Canvas c, Paint p, Bitmap map, boolean dark) {
+        if (map == null || map.isRecycled() || map.getWidth() < 2 || map.getHeight() < 2) {
+            return;
+        }
+
+        // Center-crop instead of stretching the navigation capture.  The HUD
+        // world strip is much wider than map_main; preserving its aspect ratio
+        // keeps road widths and labels recognizable.  A little more of the
+        // lower half is retained because heading-up navigation maps place the
+        // ego marker below centre.
+        final float destinationWidth = DRIVE_RIGHT;
+        final float destinationHeight = ModelWorldGL.BOTTOM - ModelWorldGL.TOP;
+        final float destinationAspect = destinationWidth / destinationHeight;
+        final int sourceWidth = map.getWidth();
+        final int sourceHeight = map.getHeight();
+        int cropWidth = sourceWidth;
+        int cropHeight = Math.max(1, Math.round(sourceWidth / destinationAspect));
+        if (cropHeight > sourceHeight) {
+            cropHeight = sourceHeight;
+            cropWidth = Math.max(1, Math.round(sourceHeight * destinationAspect));
+        }
+        int cropLeft = Math.max(0, (sourceWidth - cropWidth) / 2);
+        int availableTop = Math.max(0, sourceHeight - cropHeight);
+        int cropTop = Math.max(0, Math.min(availableTop,
+                Math.round(availableTop * 0.62f)));
+
+        scratchIRect.set(cropLeft, cropTop, cropLeft + cropWidth, cropTop + cropHeight);
+        scratchRect.set(0f, ModelWorldGL.TOP, DRIVE_RIGHT, ModelWorldGL.BOTTOM);
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setFilterBitmap(true);
+        p.setAlpha(dark ? 116 : 92);
+        c.drawBitmap(map, scratchIRect, scratchRect, p);
+
+        // Keep the map contextual rather than dominant; critical model-world
+        // geometry remains high-contrast on both day and night captures.
+        p.setAlpha(255);
+        p.setColor(dark ? Color.argb(92, 3, 9, 18)
+                : Color.argb(54, 225, 230, 234));
+        c.drawRect(scratchRect, p);
     }
 
     /**

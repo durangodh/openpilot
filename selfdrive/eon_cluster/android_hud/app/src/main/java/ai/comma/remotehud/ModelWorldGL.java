@@ -176,7 +176,8 @@ final class ModelWorldGL {
                  int driveBg, int roadTop, int roadBottom, int pathColor,
                  boolean dark, float roadZPercent, float livePitch,
                  float pitchPercent, float calibPitch,
-                 boolean leadSprite, boolean guardrail, int haze) {
+                 boolean leadSprite, boolean guardrail, int haze,
+                 boolean mapBackground) {
         if (failed || scene == null) {
             return false;
         }
@@ -189,6 +190,7 @@ final class ModelWorldGL {
             // 다시 그려야 한다. 안 그러면 경고가 켜져도 옛 프레임이 남는다.
             int style = driveBg ^ roadTop ^ roadBottom ^ pathColor ^ (dark ? 1 : 0)
                     ^ (guardrail ? 1 << 8 : 0) ^ (haze << 9)
+                    ^ (mapBackground ? 1 << 17 : 0)
                     ^ (scene.optBoolean("leftBsd", false) ? 1 << 6 : 0)
                     ^ (scene.optBoolean("rightBsd", false) ? 1 << 7 : 0);
             boolean styleChanged = style != lastStyle
@@ -203,7 +205,7 @@ final class ModelWorldGL {
                         leadChanged, started, nextRenderNanos)) {
                     if (!render(scene, enabled, driveBg, roadTop, roadBottom, pathColor,
                             dark, roadZPercent, livePitch, pitchPercent, calibPitch,
-                            leadSprite, guardrail, haze)) {
+                            leadSprite, guardrail, haze, mapBackground)) {
                         return false;
                     }
                     long cost = System.nanoTime() - started;
@@ -299,7 +301,12 @@ final class ModelWorldGL {
         GLES20.glDisable(GLES20.GL_DEPTH_TEST);
         GLES20.glDisable(GLES20.GL_CULL_FACE);
         GLES20.glEnable(GLES20.GL_BLEND);
-        GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
+        // RGB is accumulated premultiplied over the transparent pbuffer while
+        // alpha uses the conventional source-over equation.  Using glBlendFunc
+        // for all four channels would square source alpha and make translucent
+        // lanes/buildings too faint when the frame is composited over the map.
+        GLES20.glBlendFuncSeparate(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA,
+                GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA);
         return true;
     }
 
@@ -347,7 +354,8 @@ final class ModelWorldGL {
                            int roadTop, int roadBottom, int pathColor,
                            boolean dark, float roadZPercent, float livePitch,
                            float pitchPercent, float calibPitch,
-                           boolean leadSprite, boolean guardrail, int haze) {
+                           boolean leadSprite, boolean guardrail, int haze,
+                           boolean mapBackground) {
         if (!EGL14.eglMakeCurrent(display, surface, surface, context)) {
             return false;
         }
@@ -367,8 +375,11 @@ final class ModelWorldGL {
         horizonShift = clamp(FOCAL * (float) Math.tan(pitch), -46f, 46f);
 
         GLES20.glViewport(0, 0, WIDTH, HEIGHT);
-        GLES20.glClearColor(Color.red(driveBg) / 255f, Color.green(driveBg) / 255f,
-                Color.blue(driveBg) / 255f, 1f);
+        // HudService may place the already-received navigation snapshot below
+        // this frame.  Keep the untouched pixels transparent so that map stays
+        // visible, while all local-map and model geometry below is composited
+        // over it in its existing safety-first draw order.
+        GLES20.glClearColor(0f, 0f, 0f, 0f);
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
 
         int sky = dark ? blend(driveBg, Color.BLACK, 0.35f)
@@ -376,8 +387,11 @@ final class ModelWorldGL {
         // 비전 차량 접지감을 위해 지평선 아래를 더 어둡게(아스팔트 톤) 깐다.
         int ground = dark ? blend(driveBg, Color.BLACK, 0.35f)
                 : blend(driveBg, Color.BLACK, 0.22f);
-        drawRect(0f, 0f, WIDTH, Math.max(0f, HORIZON + horizonShift - TOP), sky);
-        drawRect(0f, Math.max(0f, HORIZON + horizonShift - TOP), WIDTH, HEIGHT, ground);
+        float skyAlpha = mapBackground ? 0.34f : 1f;
+        float groundAlpha = mapBackground ? 0.46f : 1f;
+        drawRect(0f, 0f, WIDTH, Math.max(0f, HORIZON + horizonShift - TOP), sky, skyAlpha);
+        drawRect(0f, Math.max(0f, HORIZON + horizonShift - TOP), WIDTH, HEIGHT,
+                ground, groundAlpha);
 
         // The local vector context is deliberately below the camera-observed
         // model road, lanes, route and cars. GPS error therefore cannot move
@@ -1687,9 +1701,19 @@ final class ModelWorldGL {
             int target = y * WIDTH;
             for (int x = 0; x < WIDTH; x++) {
                 int abgr = readBuffer.get(source + x);
-                pixels[target + x] = (abgr & 0xff00ff00)
-                        | ((abgr & 0x000000ff) << 16)
-                        | ((abgr & 0x00ff0000) >>> 16);
+                int alpha = (abgr >>> 24) & 0xff;
+                int red = abgr & 0xff;
+                int green = (abgr >>> 8) & 0xff;
+                int blue = (abgr >>> 16) & 0xff;
+                // GLES source-over leaves premultiplied RGB in a transparent
+                // framebuffer. Bitmap.setPixels expects straight ARGB and
+                // premultiplies it internally, so undo that once here.
+                if (alpha > 0 && alpha < 255) {
+                    red = Math.min(255, (red * 255 + alpha / 2) / alpha);
+                    green = Math.min(255, (green * 255 + alpha / 2) / alpha);
+                    blue = Math.min(255, (blue * 255 + alpha / 2) / alpha);
+                }
+                pixels[target + x] = (alpha << 24) | (red << 16) | (green << 8) | blue;
             }
         }
         frame.setPixels(pixels, 0, WIDTH, 0, 0, WIDTH, HEIGHT);
