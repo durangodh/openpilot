@@ -27,12 +27,6 @@ def test_traffic_stop_distance_adjust_moves_virtual_obstacle_only():
   assert adjust_stop_distance_for_decel(2.0, 0.0, 1.0, -4.0) == 0.0
 
 
-def test_far_stop_ratio_progressively_moves_distant_stops_earlier():
-  assert adjust_stop_distance_for_decel(20.0, 0.0, 1.0, 0.0, 0.9) == 19.6
-  assert adjust_stop_distance_for_decel(50.0, 0.0, 1.0, 0.0, 0.9) == 47.5
-  assert adjust_stop_distance_for_decel(100.0, 0.0, 1.0, 0.0, 0.9) == 90.0
-
-
 def test_latched_stop_point_cannot_move_toward_distant_signal_head():
   assert update_latched_stop_distance(30.0, 80.0, 10.0, DT_MDL) == 29.5
 

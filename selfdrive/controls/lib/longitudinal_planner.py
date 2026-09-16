@@ -54,7 +54,6 @@ class LongitudinalPlanner:
     self.e2e_stop_distance = 0.0
     self.traffic_stop_accel_factor = 0.8
     self.traffic_stop_distance_adjust = 4.0
-    self.traffic_stop_adjust_ratio = 0.9
     self.stop_line_confirm_count = 0
     self.model_stop_line_x = 0.0
     self.model_stop_line_prob = 0.0
@@ -104,9 +103,6 @@ class LongitudinalPlanner:
                                                 0.1, 1.2))
     traffic_stop_distance_adjust = self.params.get_int('TrafficStopDistanceAdjust')
     self.traffic_stop_distance_adjust = float(clip(traffic_stop_distance_adjust * 0.01, -10.0, 10.0))
-    traffic_stop_adjust_ratio = self.params.get_int('TrafficStopAdjustRatio')
-    self.traffic_stop_adjust_ratio = float(clip(
-      (traffic_stop_adjust_ratio if traffic_stop_adjust_ratio > 0 else 90) * 0.01, 0.5, 1.2))
     if not self.auto_e2e_enabled:
       self.mpc.mode = 'acc'
     # aPilot uses one standstill distance for ACC and E2E. Params are stored
@@ -216,7 +212,7 @@ class LongitudinalPlanner:
     stop_decel_factor = self.traffic_stop_accel_factor * float(clip(safe_mode_factor, 0.5, 1.0))
     self.mpc.traffic_stop_distance = adjust_stop_distance_for_decel(
       self.e2e_stop_distance, car_state.vEgo, stop_decel_factor,
-      self.traffic_stop_distance_adjust, self.traffic_stop_adjust_ratio)
+      self.traffic_stop_distance_adjust)
     return mode
 
   def parse_model(self, model_msg, model_error):
