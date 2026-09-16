@@ -142,6 +142,8 @@ final class ModelWorldGL {
     private float horizonShift;
     private float roadZGain = 1f;
     private boolean mapPoseValid;
+    private boolean mapPoseFrameValid;
+    private long lastMapPoseTimestamp = Long.MIN_VALUE;
     private double mapLat;
     private double mapLon;
     private double mapHeading;
@@ -817,59 +819,18 @@ final class ModelWorldGL {
 
     /** "" while the vector map context is drawing; otherwise why it is not. */
     String mapStatus() {
-        if (!mapPoseValid) return "내비 위치 없음";
+        if (!mapPoseValid || !mapPoseFrameValid) return "내비 위치 없음";
         return mapStore.statusText();
     }
 
     private void drawMapContext(JSONObject scene, Line roadHeight, boolean dark) {
-        JSONArray pose = scene.optJSONArray("mapPose");
-        if (pose == null || pose.length() < 3) {
-            mapPoseValid = false;
+        double[] pose = mapPoseScratch;
+        if (!resolveMapPose(scene, pose)) {
             return;
         }
-        double rawLat = pose.optDouble(0, Double.NaN);
-        double rawLon = pose.optDouble(1, Double.NaN);
-        double rawHeading = pose.optDouble(2, Double.NaN);
-        if (!Double.isFinite(rawLat) || !Double.isFinite(rawLon) || !Double.isFinite(rawHeading)
-                || rawLat < -85.0 || rawLat > 85.0 || rawLon < -180.0 || rawLon > 180.0
-                || (Math.abs(rawLat) < 0.5 && Math.abs(rawLon) < 0.5)) {
-            // (0,0) is what a navigation app reports before its first GPS fix.
-            // Anchoring the vector context there and crawling 9,000 km back at
-            // 12 m/frame is why the background "sometimes never comes back".
-            return;
-        }
-        if (mapPoseValid) {
-            double jumpCheck = Math.hypot((rawLat - mapLat) * 111320.0,
-                    (rawLon - mapLon) * 111320.0 * Math.max(0.1, Math.cos(Math.toRadians(mapLat))));
-            if (jumpCheck > 1500.0) {
-                // Real relocation (app switch, GPS source change, tunnel exit):
-                // snap instead of smoothing, otherwise the layer is drawn off-screen for minutes.
-                mapPoseValid = false;
-            }
-        }
-        if (!mapPoseValid) {
-            mapLat = rawLat;
-            mapLon = rawLon;
-            mapHeading = rawHeading;
-            mapPoseValid = true;
-        } else {
-            // Move the vector context toward each fresh GPS pose over several
-            // HUD frames. Cap a single step so one noisy fix cannot throw the
-            // complete road/building layer across the display.
-            double metresLat = 111320.0;
-            double metresLon = metresLat * Math.max(0.1, Math.cos(Math.toRadians(mapLat)));
-            double north = (rawLat - mapLat) * metresLat;
-            double east = (rawLon - mapLon) * metresLon;
-            double jump = Math.hypot(north, east);
-            double positionAlpha = Math.min(0.28, 12.0 / Math.max(1.0, jump));
-            mapLat += (rawLat - mapLat) * positionAlpha;
-            mapLon += (rawLon - mapLon) * positionAlpha;
-            double headingError = ((rawHeading - mapHeading + 540.0) % 360.0) - 180.0;
-            mapHeading = (mapHeading + headingError * 0.22 + 360.0) % 360.0;
-        }
-        double lat = mapLat;
-        double lon = mapLon;
-        double heading = mapHeading;
+        double lat = pose[0];
+        double lon = pose[1];
+        double heading = pose[2];
         mapStore.update(lat, lon);
         HudMapStore.Snapshot snapshot = mapStore.snapshot();
         if (snapshot == HudMapStore.Snapshot.EMPTY) {
@@ -923,6 +884,76 @@ final class ModelWorldGL {
             }
             drawMapBuilding(mapLine, roadHeight, building.height, walls, roofs);
         }
+    }
+
+    private final double[] mapPoseScratch = new double[3];
+
+    /**
+     * Resolve the one filtered pose shared by the Static Map ground image and
+     * the local Gyeonggi vector layer. Repeated calls for the same telemetry
+     * timestamp return the same pose and never advance the filter twice.
+     */
+    boolean resolveMapPose(JSONObject scene, double[] output) {
+        if (scene == null || output == null || output.length < 3) return false;
+        long timestamp = scene.optLong("t", 0L);
+        if (timestamp != lastMapPoseTimestamp) {
+            lastMapPoseTimestamp = timestamp;
+            mapPoseFrameValid = updateMapPose(scene);
+        }
+        if (!mapPoseFrameValid) return false;
+        output[0] = mapLat;
+        output[1] = mapLon;
+        output[2] = mapHeading;
+        return true;
+    }
+
+    private boolean updateMapPose(JSONObject scene) {
+        JSONArray pose = scene.optJSONArray("mapPose");
+        if (pose == null || pose.length() < 3) {
+            mapPoseValid = false;
+            return false;
+        }
+        double rawLat = pose.optDouble(0, Double.NaN);
+        double rawLon = pose.optDouble(1, Double.NaN);
+        double rawHeading = pose.optDouble(2, Double.NaN);
+        if (!Double.isFinite(rawLat) || !Double.isFinite(rawLon) || !Double.isFinite(rawHeading)
+                || rawLat < -85.0 || rawLat > 85.0 || rawLon < -180.0 || rawLon > 180.0
+                || (Math.abs(rawLat) < 0.5 && Math.abs(rawLon) < 0.5)) {
+            // (0,0) is what a navigation app reports before its first GPS fix.
+            // Anchoring the vector context there and crawling 9,000 km back at
+            // 12 m/frame is why the background "sometimes never comes back".
+            return false;
+        }
+        if (mapPoseValid) {
+            double jumpCheck = Math.hypot((rawLat - mapLat) * 111320.0,
+                    (rawLon - mapLon) * 111320.0 * Math.max(0.1, Math.cos(Math.toRadians(mapLat))));
+            if (jumpCheck > 1500.0) {
+                // Real relocation (app switch, GPS source change, tunnel exit):
+                // snap instead of smoothing, otherwise the layer is drawn off-screen for minutes.
+                mapPoseValid = false;
+            }
+        }
+        if (!mapPoseValid) {
+            mapLat = rawLat;
+            mapLon = rawLon;
+            mapHeading = rawHeading;
+            mapPoseValid = true;
+        } else {
+            // Move the vector context toward each fresh GPS pose over several
+            // HUD frames. Cap a single step so one noisy fix cannot throw the
+            // complete road/building layer across the display.
+            double metresLat = 111320.0;
+            double metresLon = metresLat * Math.max(0.1, Math.cos(Math.toRadians(mapLat)));
+            double north = (rawLat - mapLat) * metresLat;
+            double east = (rawLon - mapLon) * metresLon;
+            double jump = Math.hypot(north, east);
+            double positionAlpha = Math.min(0.28, 12.0 / Math.max(1.0, jump));
+            mapLat += (rawLat - mapLat) * positionAlpha;
+            mapLon += (rawLon - mapLon) * positionAlpha;
+            double headingError = ((rawHeading - mapHeading + 540.0) % 360.0) - 180.0;
+            mapHeading = (mapHeading + headingError * 0.22 + 360.0) % 360.0;
+        }
+        return true;
     }
 
     private void drawMapAreas(HudMapStore.Area[] areas,

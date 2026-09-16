@@ -283,6 +283,7 @@ public final class HudService extends Service {
     private final Matrix mapBackgroundMatrix = new Matrix();
     private final float[] mapSourceQuad = new float[8];
     private final float[] mapDestinationQuad = new float[8];
+    private final double[] sharedMapPose = new double[3];
     private ColorMatrixColorFilter wheelGray;
     private Bitmap outFrame;
     private Canvas outCanvas;
@@ -1427,13 +1428,19 @@ public final class HudService extends Service {
         p.setColor(driveBg);
         c.drawRect(0f, 0f, DRIVE_RIGHT, 462f, p);
 
+        if (!stale && modelWorldGl == null) {
+            modelWorldGl = new ModelWorldGL(this);
+        }
+        boolean sharedMapPoseValid = !stale && modelWorldGl != null
+                && modelWorldGl.resolveMapPose(s, sharedMapPose);
+
         // A clean NAVER Static Map (no route, vehicle marker or navigation UI)
         // is the lowest ground layer. Phone-local Gyeonggi buildings/roads and
         // all camera/model geometry remain above it.
         boolean drivingMapAvailable = !stale && map != null && !map.isRecycled()
-                && map.getWidth() >= 2 && map.getHeight() >= 2;
+                && map.getWidth() >= 2 && map.getHeight() >= 2 && sharedMapPoseValid;
         if (drivingMapAvailable) {
-            drawDrivingMapBackground(c, p, map, s, frameDark);
+            drawDrivingMapBackground(c, p, map, s, sharedMapPose, frameDark);
         }
 
         int roadTop = lc(l, "roadTop",
@@ -1448,9 +1455,6 @@ public final class HudService extends Service {
         // 두면 주행 패널이 배경색만 남는다.
         boolean glDrawn = false;
         if (!stale) {
-            if (modelWorldGl == null) {
-                modelWorldGl = new ModelWorldGL(this);
-            }
             glDrawn = modelWorldGl.draw(c, p, s, enabled, driveBg, roadTop,
                     roadBottom, pathColor, frameDark,
                     (float) s.optDouble("hudRoadZ", 100d),
@@ -1652,7 +1656,7 @@ public final class HudService extends Service {
     }
 
     private void drawDrivingMapBackground(Canvas c, Paint p, Bitmap map, JSONObject state,
-                                          boolean dark) {
+                                          double[] pose, boolean dark) {
         if (map == null || map.isRecycled() || map.getWidth() < 2 || map.getHeight() < 2) {
             return;
         }
@@ -1661,11 +1665,9 @@ public final class HudService extends Service {
         // ModelWorldGL. This one homography handles heading, perspective and
         // the car's movement inside the cached 50 m map window without making
         // a transformed bitmap every frame.
-        JSONArray pose = state == null ? null : state.optJSONArray("mapPose");
-        float heading = pose == null || pose.length() < 3
-                ? 0f : (float) pose.optDouble(2, 0d);
-        double currentLat = pose == null ? Double.NaN : pose.optDouble(0, Double.NaN);
-        double currentLon = pose == null ? Double.NaN : pose.optDouble(1, Double.NaN);
+        float heading = (float) pose[2];
+        double currentLat = pose[0];
+        double currentLon = pose[1];
         float vehiclePixelX = map.getWidth() * 0.5f;
         float vehiclePixelY = map.getHeight() * 0.5f;
         if (StaticMapPolicy.validPose(staticMapCenterLat, staticMapCenterLon)
