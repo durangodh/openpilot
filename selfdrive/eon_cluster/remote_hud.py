@@ -1177,6 +1177,11 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "calibPitch": _calib_pitch(sm["liveCalibration"]),
     # 정지선까지 거리(m). None 이면 앱이 안 그린다.
     "stopDist": _stop_point(sm["longitudinalPlan"]),
+    # 모델 stop-line head가 3프레임 확인한 실제 정지선. 0이면 미확정.
+    "stopLine": round(max(0.0, min(120.0, _finite(_first(
+        _field(sm["longitudinalPlan"], "stopLine", []))))), 1),
+    "stoplineProb": round(max(0.0, min(1.0, _finite(
+        _field(sm["longitudinalPlan"], "stoplineProb", 0.0)))), 3),
     # E2E 궤적으로 추정한 신호 상태. 0=없음, 1=정지(빨강), 2=출발(초록).
     # 실제 신호등 색상 인식값이 아니므로 노란불 상태는 만들지 않는다.
     "trafficState": max(0, min(2, int(_finite(

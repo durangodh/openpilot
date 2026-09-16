@@ -249,17 +249,23 @@ def test_s9_v6_visual_layers_and_local_map_context():
   java = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
           "main" / "java" / "ai" / "comma" / "remotehud")
   renderer = (java / "ModelWorldGL.java").read_text(encoding="utf-8")
+  service = (java / "HudService.java").read_text(encoding="utf-8")
   sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(
       encoding="utf-8")
 
   assert '"v": 6' in sender
   assert '"mapPose": map_pose' in sender
   assert '"desiredDistance":' in sender
+  assert '"stopLine":' in sender and '"stoplineProb":' in sender
   assert "drawPathLayers" in renderer
   assert "leadDistance[0] - 2.6f" in renderer
   assert "drawRoadEdge" in renderer
   assert "drawLaneMarking" in renderer
   assert "drawDesiredDistance" in renderer
+  assert "updateStopLineMarker(scene, path)" in renderer
+  assert "drawConfirmedStopLine(c, p, stopLineInfo)" in service
+  assert "Color.rgb(255, 32, 40)" in service
+  assert "Paint.Cap.ROUND" in service
   assert "routeShadow" in renderer
   assert "lineScreenX" in renderer and "lineScreenY" in renderer
   # 개수를 못 박으면 렌더러에 버퍼가 하나 늘 때마다 깨진다. 화면좌표 버퍼가
@@ -276,6 +282,15 @@ def test_s9_v6_visual_layers_and_local_map_context():
   assert "clipMapArea" in renderer and "clipMapBoundary" in renderer
   assert renderer.index("drawMapAreas(snapshot.greens") < renderer.index("drawMapAreas(snapshot.waters")
   assert (java / "HudMapStore.java").exists()
+
+
+def test_confirmed_stop_line_overlay_is_shared_by_eon_and_hud():
+  ui = (ROOT / "selfdrive" / "ui" / "ui.cc").read_text(encoding="utf-8")
+  onroad = (ROOT / "selfdrive" / "ui" / "qt" / "onroad.cc").read_text(encoding="utf-8")
+  assert "update_stop_line" in ui
+  assert "prob < 0.6f" in ui
+  assert "scene.stop_line_valid" in onroad
+  assert "QColor(255, 32, 40, 235)" in onroad
 
 
 def test_android_hud_receiver_uses_s9_proven_direct_binding():
