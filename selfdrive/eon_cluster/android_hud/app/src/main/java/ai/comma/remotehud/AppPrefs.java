@@ -12,6 +12,7 @@ public final class AppPrefs {
     private static final String MIRROR = "hud_mirror";
     private static final String NAV_APP = "hud_nav_app";
     private static final String NAV_REQUEST = "hud_nav_request";
+    private static final String NAVER_STATIC_ENABLED = "naver_static_enabled";
     private static final String NAVER_STATIC_CLIENT_ID = "naver_static_client_id";
     private static final String NAVER_STATIC_CLIENT_SECRET = "naver_static_client_secret";
 
@@ -89,6 +90,14 @@ public final class AppPrefs {
     public static boolean hasNaverStaticCredentials(Context context) {
         return !getNaverStaticClientId(context).isEmpty()
                 && !getNaverStaticClientSecret(context).isEmpty();
+    }
+
+    public static boolean isNaverStaticEnabled(Context context) {
+        return prefs(context).getBoolean(NAVER_STATIC_ENABLED, true);
+    }
+
+    public static void setNaverStaticEnabled(Context context, boolean enabled) {
+        prefs(context).edit().putBoolean(NAVER_STATIC_ENABLED, enabled).apply();
     }
 
     /** Credentials stay in this app's private storage and are never sent to EON. */

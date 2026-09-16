@@ -54,7 +54,8 @@ camera preview runs on the EON or S9.
 The driving panel can download a clean NAVER Static Map `basic` image directly
 on the S9. Its Client ID and Client Secret are entered in the Remote HUD app and
 remain in app-private storage; they are never committed or sent to EON. The
-1024x1024 image is cached, refreshed only after roughly 50 m of movement (and
+`주행화면 지도 사용` switch disables both map display and network requests.
+The 1024x1024 image is cached, refreshed only after roughly 50 m of movement (and
 never repeatedly while stopped), rotated heading-up without allocating a new
 bitmap, and drawn below the local Gyeonggi roads/buildings and every
 model-derived road edge, lane, guardrail, path, lead and stop-line overlay. If

@@ -81,13 +81,20 @@ final class NaverStaticMapClient {
         lastFetchElapsed = 0L;
         retryAfterElapsed = 0L;
         hasFrame = false;
-        status = AppPrefs.hasNaverStaticCredentials(context) ? "지도 요청 대기" : "인증정보 필요";
+        status = !AppPrefs.isNaverStaticEnabled(context) ? "사용 안 함"
+                : (AppPrefs.hasNaverStaticCredentials(context)
+                ? "지도 요청 대기" : "인증정보 필요");
         wake();
     }
 
     void runLoop() {
         while (running) {
             try {
+                if (!AppPrefs.isNaverStaticEnabled(context)) {
+                    status = "사용 안 함";
+                    waitFor(IDLE_POLL_MS);
+                    continue;
+                }
                 if (!AppPrefs.hasNaverStaticCredentials(context)) {
                     status = "인증정보 필요";
                     waitFor(IDLE_POLL_MS);

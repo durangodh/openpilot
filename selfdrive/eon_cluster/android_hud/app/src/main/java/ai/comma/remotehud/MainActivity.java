@@ -41,6 +41,7 @@ public final class MainActivity extends Activity {
     private static final int NAV_UNSELECTED = Color.rgb(43, 50, 58);
 
     private Switch autoSwitch;
+    private Switch staticMapSwitch;
     private TextView autoValue;
     private TextView eonValue;
     private TextView fpsValue;
@@ -114,6 +115,12 @@ public final class MainActivity extends Activity {
             public void onClick(View v) {
                 startHudService(HudService.ACTION_RESCAN_USB);
             }
+        });
+        staticMapSwitch.setChecked(AppPrefs.isNaverStaticEnabled(this));
+        staticMapSwitch.setOnCheckedChangeListener((buttonView, checked) -> {
+            AppPrefs.setNaverStaticEnabled(this, checked);
+            notifyStaticMapSettings();
+            refreshStatus();
         });
 
         if (AppPrefs.isAutoStart(this)) {
@@ -227,6 +234,17 @@ public final class MainActivity extends Activity {
 
         LinearLayout staticMapCard = card();
         staticMapCard.addView(text("네이버 Static Map", 18.0f, Color.WHITE, Typeface.BOLD));
+        LinearLayout staticMapToggleRow = new LinearLayout(this);
+        staticMapToggleRow.setOrientation(LinearLayout.HORIZONTAL);
+        staticMapToggleRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        staticMapToggleRow.setPadding(0, dp(10), 0, 0);
+        staticMapToggleRow.addView(text("주행화면 지도 사용", 15.0f,
+                Color.rgb(190, 200, 210), Typeface.NORMAL),
+                new LinearLayout.LayoutParams(0,
+                        LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        staticMapSwitch = new Switch(this);
+        staticMapToggleRow.addView(staticMapSwitch);
+        staticMapCard.addView(staticMapToggleRow);
         staticMapValue = text("인증정보 미설정", 14.0f,
                 Color.rgb(190, 200, 210), Typeface.NORMAL);
         LinearLayout.LayoutParams staticStatusParams = new LinearLayout.LayoutParams(
@@ -332,11 +350,14 @@ public final class MainActivity extends Activity {
         }
         setStatus(eonValue, eonStatus, eonColor);
         setStatus(mapValue, s.mapConnected ? "연결됨" : "영상 대기", s.mapConnected ? GREEN : AMBER);
+        boolean staticMapEnabled = AppPrefs.isNaverStaticEnabled(this);
         boolean staticMapConfigured = AppPrefs.hasNaverStaticCredentials(this);
-        String staticMapStatus = !staticMapConfigured ? "인증정보 미설정"
+        String staticMapStatus = !staticMapEnabled ? "사용 안 함"
+                : !staticMapConfigured ? "인증정보 미설정"
                 : (s.running ? s.staticMapStatus : "설정됨 · 서비스 대기");
         setStatus(staticMapValue, staticMapStatus,
-                !staticMapConfigured ? AMBER
+                !staticMapEnabled ? Color.rgb(145, 158, 171)
+                        : !staticMapConfigured ? AMBER
                         : (staticMapStatus.startsWith("정상") ? GREEN
                         : (s.staticMapStatus.contains("실패") || s.staticMapStatus.contains("오류")
                         || s.staticMapStatus.contains("초과") ? RED : AMBER)));
@@ -433,17 +454,23 @@ public final class MainActivity extends Activity {
                     if (secret.isEmpty()) secret = AppPrefs.getNaverStaticClientSecret(this);
                     if (!id.isEmpty() && !secret.isEmpty()) {
                         AppPrefs.setNaverStaticCredentials(this, id, secret);
-                        startHudService(HudService.ACTION_STATIC_MAP_SETTINGS);
+                        notifyStaticMapSettings();
                         refreshStatus();
                     }
                 })
                 .setNeutralButton("정보 삭제", (dialog, which) -> {
                     AppPrefs.clearNaverStaticCredentials(this);
-                    startHudService(HudService.ACTION_STATIC_MAP_SETTINGS);
+                    notifyStaticMapSettings();
                     refreshStatus();
                 })
                 .setNegativeButton("취소", null)
                 .show();
+    }
+
+    private void notifyStaticMapSettings() {
+        if (HudService.getStatusSnapshot().running) {
+            startHudService(HudService.ACTION_STATIC_MAP_SETTINGS);
+        }
     }
 
     private void startHudService(String action) {
