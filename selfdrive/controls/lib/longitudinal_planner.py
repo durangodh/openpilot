@@ -201,7 +201,8 @@ class LongitudinalPlanner:
       lead_present=lead_present,
       radar_lead_present=radar_lead_present,
       radar_lead_distance=float(lead_one.dRel) if lead_one.status else 0.0,
-      vision_lead_present=vision_lead_present)
+      vision_lead_present=vision_lead_present,
+      stop_line_confirmed=stop_line_confirmed)
     self.auto_e2e_stopping = self.conditional_e2e.stopping
     self.auto_e2e_prepare = self.conditional_e2e.prepare
     self.e2e_stop_distance = self.conditional_e2e.stop_distance

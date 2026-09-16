@@ -2,19 +2,19 @@ from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software
 
 
 def test_disengage_fallback_does_not_overwrite_saved_gap():
-  gap, changed = select_physical_gap(2, 4, short_gap_release=False)
+  gap, changed = select_physical_gap(2, 4, accepted_gap_release=False)
   assert gap == 2
   assert not changed
 
 
 def test_passive_physical_gap_change_is_not_persisted():
-  gap, changed = select_physical_gap(4, 2, short_gap_release=False)
+  gap, changed = select_physical_gap(4, 2, accepted_gap_release=False)
   assert gap == 4
   assert not changed
 
 
 def test_completed_short_physical_gap_press_is_persisted():
-  gap, changed = select_physical_gap(4, 2, short_gap_release=True)
+  gap, changed = select_physical_gap(4, 2, accepted_gap_release=True)
   assert gap == 2
   assert changed
 
@@ -44,3 +44,11 @@ def test_navigation_long_press_keeps_saved_gap_two():
   gap, changed = select_software_gap(gap, short_gap_release=False)
   assert gap == 2
   assert not changed
+
+
+def test_stock_scc_navigation_long_press_syncs_the_real_gap():
+  # Stock SCC consumes the same physical long press, so its real TauGapSet is
+  # authoritative after release even though navigation also switched.
+  gap, changed = select_physical_gap(2, 3, accepted_gap_release=True)
+  assert gap == 3
+  assert changed

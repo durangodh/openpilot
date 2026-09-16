@@ -104,7 +104,7 @@ class ConditionalE2EController:
              model_x, model_y, model_v0, model_v_end, v_ego,
              steering_angle_deg, gas_pressed, brake_pressed, right_blinker,
              lead_present, radar_lead_present, radar_lead_distance,
-             vision_lead_present):
+             vision_lead_present, stop_line_confirmed=False):
     if not available:
       self.reset()
       return 'acc'
@@ -177,7 +177,12 @@ class ConditionalE2EController:
       if self.lead_missing_count >= self.lead_dropout_confirm_frames:
         self.lead_recent = False
         self.lead_missing_count = 0
-    effective_lead_present = lead_present or self.lead_recent
+    # A live lead must always keep ACC ownership. Once that lead disappears,
+    # however, a separately confirmed physical stop line is strong enough to
+    # bypass the dropout timer. This avoids travelling another ~10 m at
+    # motorway speed before traffic-stop braking starts, while the legacy path
+    # endpoint still keeps the full dropout protection.
+    effective_lead_present = lead_present or (self.lead_recent and not stop_line_confirmed)
 
     # A confirmed vision lead is just as valid as a radar lead for deciding
     # that the real stopped vehicle lies before the model's traffic stop.

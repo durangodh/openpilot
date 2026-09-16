@@ -73,6 +73,7 @@ def update(controller, **overrides):
     radar_lead_present=False,
     radar_lead_distance=0.0,
     vision_lead_present=False,
+    stop_line_confirmed=False,
   )
   args.update(overrides)
   return controller.update(**args)
@@ -172,6 +173,27 @@ def test_brief_lead_dropout_does_not_enter_signal_stop():
   update(controller, lead_present=False, radar_lead_present=False,
          radar_lead_distance=0.0, **stop_args)
   assert controller.stopping
+
+
+def test_confirmed_physical_stop_line_bypasses_stale_lead_dropout():
+  controller = ConditionalE2EController(DT_MDL)
+  stop_args = dict(model_x=80.0, model_v0=20.0, model_v_end=1.0, v_ego=20.0)
+
+  update(controller, lead_present=True, radar_lead_present=True,
+         radar_lead_distance=100.0, **stop_args)
+  assert not controller.stopping
+
+  update(controller, lead_present=False, radar_lead_present=False,
+         radar_lead_distance=0.0, stop_line_confirmed=True, **stop_args)
+  assert controller.stopping
+
+
+def test_confirmed_physical_stop_line_does_not_override_live_lead():
+  controller = ConditionalE2EController(DT_MDL)
+  update(controller, model_x=80.0, model_v0=20.0, model_v_end=1.0,
+         v_ego=20.0, lead_present=True, radar_lead_present=True,
+         radar_lead_distance=100.0, stop_line_confirmed=True)
+  assert not controller.stopping
 
 
 def test_confirmed_vision_lead_releases_existing_signal_stop():

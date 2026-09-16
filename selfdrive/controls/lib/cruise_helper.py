@@ -541,6 +541,7 @@ class CruiseHelper:
     # after a completed short button press, never from a passive SCC value.
     gap_button_events = [event for event in CS.buttonEvents if event.type == ButtonType.gapAdjustCruise]
     short_gap_release = False
+    navigation_gap_release = False
 
     # ── GAP 길게 누르기 → 내비 앱 전환 ──
     # carState(capnp)에는 현재 눌린 버튼 필드가 없으므로 buttonEvents 의
@@ -555,6 +556,7 @@ class CruiseHelper:
         self.gap_pressed = False
         if self.nav_toggle_done:
           # 전환에 쓰인 입력이므로 차간 단계는 바꾸지 않는다.
+          navigation_gap_release = True
           self.nav_toggle_done = False
         else:
           short_gap_release = True
@@ -574,8 +576,12 @@ class CruiseHelper:
       # press belongs exclusively to navigation selection.
       gap, changed = select_software_gap(self.long_cruise_gap, short_gap_release)
     else:
+      # With stock SCC the physical GAP button really changes TauGapSet even
+      # when its long press is also used for navigation. Reflect that actual
+      # value in software on release so the HUD and persisted gap cannot drift
+      # apart. Openpilot longitudinal control keeps its saved gap above.
       gap, changed = select_physical_gap(self.long_cruise_gap, CS.cruiseGap,
-                                         short_gap_release)
+                                         accepted_gap_release=(short_gap_release or navigation_gap_release))
     if changed:
       self.long_cruise_gap = gap
       put_nonblocking("PrevCruiseGap", str(gap))

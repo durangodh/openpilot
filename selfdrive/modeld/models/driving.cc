@@ -133,14 +133,16 @@ void fill_stop_line(cereal::ModelDataV2::StopLineData::Builder stop_line, const 
   stop_line.setSpeedAtLine(best_data.mean.speed);
   stop_line.setSecondsUntilLine(best_data.mean.time);
 
-  stop_line.setXStd(best_data.std.position.x);
-  stop_line.setYStd(best_data.std.position.y);
-  stop_line.setZStd(best_data.std.position.z);
-  stop_line.setRollStd(best_data.std.rotation.x);
-  stop_line.setPitchStd(best_data.std.rotation.y);
-  stop_line.setYawStd(best_data.std.rotation.z);
-  stop_line.setSpeedAtLineStd(best_data.std.speed);
-  stop_line.setSecondsUntilLineStd(best_data.std.time);
+  // Model standard deviations are emitted in log space, like the trajectory
+  // and lead heads above. Publish real standard deviations to cereal.
+  stop_line.setXStd(exp(best_data.std.position.x));
+  stop_line.setYStd(exp(best_data.std.position.y));
+  stop_line.setZStd(exp(best_data.std.position.z));
+  stop_line.setRollStd(exp(best_data.std.rotation.x));
+  stop_line.setPitchStd(exp(best_data.std.rotation.y));
+  stop_line.setYawStd(exp(best_data.std.rotation.z));
+  stop_line.setSpeedAtLineStd(exp(best_data.std.speed));
+  stop_line.setSecondsUntilLineStd(exp(best_data.std.time));
 }
 
 void fill_meta(cereal::ModelDataV2::MetaData::Builder meta, const ModelOutputMeta &meta_data) {

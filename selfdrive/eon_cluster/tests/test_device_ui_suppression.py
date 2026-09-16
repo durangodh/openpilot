@@ -342,7 +342,7 @@ def test_ego_brake_and_turn_lamps_use_original_size_without_green_arrows():
   assert "EGO_SPRITE_W = 94f" in renderer
 
 
-def test_primary_lead_source_and_distance_share_one_day_night_label():
+def test_primary_lead_distance_uses_source_colored_connector():
   service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
              "main" / "java" / "ai" / "comma" / "remotehud" /
              "HudService.java").read_text(encoding="utf-8")
@@ -352,10 +352,10 @@ def test_primary_lead_source_and_distance_share_one_day_night_label():
 
   assert "if (leadIndex == 0)" in service
   assert "drawLeadSourceLabel(c, p, leadSpriteInfo" in service
-  assert 'String distanceLabel = String.format(Locale.US, "%d m"' in service
+  assert "String distanceLabel = Integer.toString(Math.round(distance))" in service
+  assert 'String distanceUnit = "m"' in service
   assert 'String sourceLabel = vision' not in service
-  assert 'Math.min(18f, width * 0.42f)' in service
-  assert ': "RADAR"' in service
+  assert 'Math.min(29f, width * 0.66f)' in service
   assert "boolean placeRight" in service
   assert "frameDark ? Color.WHITE : Color.rgb(15, 20, 26)" in service
   assert "Color.rgb(255, 175, 3)" in service
@@ -375,28 +375,24 @@ def test_c2_s9_status_card_restores_the_bottom_left_slot():
 
   assert "drawC2S9StatusCard(c, p, s, stale)" in service
   assert "scratchRect.set(8f, 376f, 156f, 454f)" in service
-  assert 'textNormal(c, p, "C2", 33f, 403f, 11f' in service
-  assert 'textNormal(c, p, "S9", 33f, 442f, 11f' in service
+  assert 'textNormal(c, p, "C2", 82f, 417f, 14f' in service
+  assert 'textNormal(c, p, "S9", 82f, 443f, 14f' in service
   assert 'systemValue(system, "temp", "°C")' in service
   assert 'systemValue(system, "cpu", "%")' in service
   assert 'String.format(Locale.US, "%.0f°C", s9TempC)' in service
   assert 'String.format(Locale.US, "%.0f%%", s9CpuPercent)' in service
-  assert '14.5f, c2TempColor, Paint.Align.LEFT' in service
-  assert '14.5f, c2CpuColor, Paint.Align.LEFT' in service
-  assert '14.5f, phoneTempColor, Paint.Align.LEFT' in service
-  assert '14.5f, phoneCpuColor, Paint.Align.LEFT' in service
-  assert "c2TempValue >= 75d" in service
-  assert "c2CpuValue > 90d" in service
-  assert "s9TempC >= 75f" in service
-  assert "s9CpuPercent > 90f" in service
+  assert '16f, c2TempColor, Paint.Align.CENTER' in service
+  assert '16f, c2CpuColor, Paint.Align.CENTER' in service
+  assert '16f, phoneTempColor, Paint.Align.CENTER' in service
+  assert '16f, phoneCpuColor, Paint.Align.CENTER' in service
+  assert "c2TempValue >= 70d" in service
+  assert "c2CpuValue >= 90d" in service
+  assert "s9TempC >= 70f" in service
+  assert "s9CpuPercent >= 90f" in service
   assert "Color.rgb(255, 58, 68)" in service
-  assert 'Typeface.create("sans", Typeface.NORMAL)' in service
-  assert "drawThermometerGlyph(c, p" in service
-  assert "drawCpuGlyph(c, p" in service
-  assert 'textNormal(c, p, "SoC"' not in service
-  assert 'textNormal(c, p, "CPU"' not in service
-  assert "Color.rgb(97, 213, 255)" in service
-  assert "Color.rgb(157, 168, 255)" in service
+  assert 'textNormal(c, p, "온도", 40f, 394f, 12f' in service
+  assert 'textNormal(c, p, "CPU", 126f, 394f, 12f' in service
+  assert "Color.rgb(95, 102, 107)" in service
 
 
 def test_genesis_cluster_warnings_reach_external_hud():
@@ -445,7 +441,7 @@ def test_rpm_arc_keeps_contrast_over_day_and_night_sky():
   assert "Color.rgb(255, 63, 79)" in rpm
 
 
-def test_wiper_mode_is_shown_beside_door_status():
+def test_wiper_mode_is_shown_in_the_status_icon_row():
   schema = (ROOT / "cereal" / "car.capnp").read_text(encoding="utf-8")
   carstate = (ROOT / "selfdrive" / "car" / "hyundai" / "carstate.py").read_text(
       encoding="utf-8")
@@ -463,7 +459,7 @@ def test_wiper_mode_is_shown_beside_door_status():
   assert '"wiperMode":' in sender
   lights = service.split("private void drawLights", 1)[1].split(
       "private int visibleWiperMode", 1)[0]
-  assert lights.index("drawDoorStatus") < lights.index("drawWiperStatus")
+  assert lights.index('s.optBoolean("seatbeltUnlatched", false)') < lights.index("drawWiperStatus")
   assert "WIPER_MODE_HIGHLIGHT_MS = 2500L" in service
   assert 'case 1: label = "AUTO"' in service
   assert 'case 3: label = "LOW"' in service

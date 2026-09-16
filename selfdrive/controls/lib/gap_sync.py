@@ -1,6 +1,6 @@
-def select_physical_gap(current_gap, physical_gap, short_gap_release):
-  """Persist the physical SCC gap only after a completed short GAP press."""
-  if not short_gap_release:
+def select_physical_gap(current_gap, physical_gap, accepted_gap_release):
+  """Persist physical SCC gap only when the caller accepts the release."""
+  if not accepted_gap_release:
     return current_gap, False
 
   gap = int(physical_gap)
