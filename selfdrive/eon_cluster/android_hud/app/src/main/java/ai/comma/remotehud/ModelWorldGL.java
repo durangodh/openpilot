@@ -564,7 +564,12 @@ final class ModelWorldGL {
         } else {
             for (int i = 0; i < sample.count; i++) {
                 target.x[i] += (sample.x[i] - target.x[i]) * alpha;
-                target.y[i] += (sample.y[i] - target.y[i]) * alpha;
+                // Lateral lag is most visible close to the car when entering a
+                // curve. Follow fresh model geometry faster there, while the
+                // distance and road-height axes retain the original smoothing
+                // and far geometry stays stable near the horizon.
+                float lateralAlpha = HudGeometrySmoothing.lateralAlpha(alpha, sample.x[i]);
+                target.y[i] += (sample.y[i] - target.y[i]) * lateralAlpha;
                 target.z[i] += (sample.z[i] - target.z[i]) * alpha;
             }
         }

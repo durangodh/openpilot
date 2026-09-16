@@ -72,6 +72,8 @@ jobs:
       - name: Check map theme transitions
         working-directory: selfdrive/eon_cluster/android_hud
         run: |
+          javac -d "$RUNNER_TEMP/hud-geometry-check" app/src/main/java/ai/comma/remotehud/HudGeometrySmoothing.java tests/HudGeometrySmoothingCheck.java
+          java -cp "$RUNNER_TEMP/hud-geometry-check" ai.comma.remotehud.HudGeometrySmoothingCheck
           javac -d "$RUNNER_TEMP/hud-theme-check" app/src/main/java/ai/comma/remotehud/MapThemePolicy.java tests/MapThemePolicyCheck.java
           java -cp "$RUNNER_TEMP/hud-theme-check" ai.comma.remotehud.MapThemePolicyCheck
           javac -d "$RUNNER_TEMP/hud-static-map-check" app/src/main/java/ai/comma/remotehud/StaticMapPolicy.java tests/StaticMapPolicyCheck.java
