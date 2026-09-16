@@ -275,6 +275,11 @@ class LongControl:
       resume_pressed = any(e.pressed and e.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
                            for e in CS.buttonEvents)
       driver_override = CS.gasPressed or resume_pressed
+      # ConditionalE2E already confirms the green/departure signal before it
+      # publishes state 2. Do not apply StandstillReleaseMs a second time when
+      # there is no confirmed stopped lead. A latched lead still owns release
+      # above, so a green signal can never launch into a stationary vehicle.
+      traffic_departure = int(getattr(long_plan, 'trafficState', 0)) % 100 == 2
       lead_release = self._update_standstill_lead(radar_state, radar_state_valid, radar_state_updated)
       radar_fallback = self.lead_missing_frames >= LEAD_DROPOUT_FALLBACK_FRAMES
       if self.standstill_lead_latched and not radar_fallback:
@@ -283,7 +288,7 @@ class LongControl:
       else:
         strong_request = v_target_1sec > max(self.CP.vEgoStarting, self.standstill_release_speed)
         self.start_request_frames = self.start_request_frames + 1 if strong_request else 0
-        start_gate = (driver_override or lead_release or
+        start_gate = (driver_override or lead_release or traffic_departure or
                       self.start_request_frames >= self.standstill_release_frames)
     else:
       self.start_request_frames = 0
