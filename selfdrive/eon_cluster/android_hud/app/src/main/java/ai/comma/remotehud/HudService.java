@@ -1634,25 +1634,6 @@ public final class HudService extends Service {
         scratchRect.set(2f, 2f, DRIVE_RIGHT - 2f, 458f);
         c.drawRoundRect(scratchRect, 18f, 18f, p);
 
-        if (drivingMapAvailable) {
-            drawStaticMapAttribution(c, p);
-        }
-    }
-
-    /**
-     * The perspective projection intentionally samples only the road ahead, so
-     * the copyright strip embedded at the bottom of a Static Map response can
-     * fall outside the sampled quadrilateral. Keep a small, unobstructed
-     * attribution on the final composition whenever NAVER imagery is visible.
-     */
-    private void drawStaticMapAttribution(Canvas c, Paint p) {
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(frameDark ? 188 : 164, 8, 14, 20));
-        scratchRect.set(642f, 432f, 786f, 456f);
-        c.drawRoundRect(scratchRect, 5f, 5f, p);
-        text(c, p, "NAVER 지도 · © NAVER", 714f, 449f, 12f,
-                Color.argb(238, 255, 255, 255), Paint.Align.CENTER);
     }
 
     private void drawDrivingMapBackground(Canvas c, Paint p, Bitmap map, JSONObject state,
