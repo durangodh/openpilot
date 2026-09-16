@@ -15,6 +15,10 @@ E2E_LEAD_DROPOUT_CONFIRM_TIME = 0.5
 E2E_MODE_RELEASE_HOLD_TIME = 0.0
 TRAFFIC_STOP_SOLVER_COMFORT_BRAKE = 2.5
 TRAFFIC_STOP_APILOT_COMFORT_BRAKE = 2.5
+STOP_LINE_MIN_PROB = 0.6
+STOP_LINE_MIN_DISTANCE = 2.0
+STOP_LINE_MAX_DISTANCE = 120.0
+STOP_LINE_MAX_LATERAL_OFFSET = 5.0
 
 
 def adjust_stop_distance_for_decel(stop_distance, v_ego, decel_factor, distance_adjust=0.0,
@@ -43,6 +47,19 @@ def update_latched_stop_distance(stop_distance, observed_distance, v_ego, dt):
   """Dead-reckon a confirmed stop point without allowing it to move away."""
   remaining_distance = max(0.0, float(stop_distance) - max(0.0, float(v_ego)) * float(dt))
   return min(remaining_distance, max(0.0, float(observed_distance)))
+
+
+def model_stop_line_valid(distance, lateral_offset, probability):
+  return bool(STOP_LINE_MIN_DISTANCE <= float(distance) <= STOP_LINE_MAX_DISTANCE and
+              abs(float(lateral_offset)) <= STOP_LINE_MAX_LATERAL_OFFSET and
+              float(probability) >= STOP_LINE_MIN_PROB)
+
+
+def select_model_stop_distance(path_stop_distance, stop_line_distance, stop_line_confirmed):
+  path_distance = max(0.0, float(path_stop_distance))
+  if not stop_line_confirmed:
+    return path_distance
+  return min(path_distance, max(0.0, float(stop_line_distance)))
 
 
 class ConditionalE2EController:

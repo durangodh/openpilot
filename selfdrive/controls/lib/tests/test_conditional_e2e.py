@@ -3,6 +3,8 @@ from selfdrive.controls.lib.conditional_e2e import (E2E_LEAD_DROPOUT_CONFIRM_TIM
                                                     E2E_VISION_LEAD_CONFIRM_TIME,
                                                     ConditionalE2EController,
                                                     adjust_stop_distance_for_decel,
+                                                    model_stop_line_valid,
+                                                    select_model_stop_distance,
                                                     update_latched_stop_distance)
 
 
@@ -41,6 +43,20 @@ def test_latched_stop_point_accepts_a_closer_observation():
 
 def test_latched_stop_point_never_becomes_negative():
   assert update_latched_stop_distance(0.2, 5.0, 10.0, DT_MDL) == 0.0
+
+
+def test_model_stop_line_requires_confidence_and_sane_geometry():
+  assert model_stop_line_valid(40.0, 0.5, 0.8)
+  assert not model_stop_line_valid(40.0, 0.5, 0.59)
+  assert not model_stop_line_valid(1.0, 0.5, 0.9)
+  assert not model_stop_line_valid(121.0, 0.5, 0.9)
+  assert not model_stop_line_valid(40.0, 5.1, 0.9)
+
+
+def test_confirmed_stop_line_can_only_move_target_closer():
+  assert select_model_stop_distance(80.0, 30.0, True) == 30.0
+  assert select_model_stop_distance(30.0, 80.0, True) == 30.0
+  assert select_model_stop_distance(80.0, 30.0, False) == 80.0
 
 
 def update(controller, **overrides):
