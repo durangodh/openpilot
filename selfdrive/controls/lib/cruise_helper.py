@@ -56,6 +56,8 @@ class CruiseHelper:
     self.prev_brake_pressed = False
     self.gas_pressed_count = 0
     self.pre_gas_pressed_max = 0.0
+    self.gas_tap_cruise_active = False
+    self.gas_tap_set_speed_kph = 0.0
     self.gas_pressed_frame = 0
     self.slow_speed_frame_count = 0
     self.x_state = XState.cruise
@@ -166,6 +168,7 @@ class CruiseHelper:
     # Params access can crash controlsd.
     self.auto_resume_from_gas_speed = float(clip(self.params.get_int("AutoGasTokSpeed"), 5, 160))
     self.auto_gas_cancel_speed = float(clip(self.params.get_int("AutoGasCancelSpeed"), 0, 160))
+    self.auto_gas_tap_speed_increment = int(clip(self.params.get_int("AutoGasTapSpeedIncrement"), 0, 30))
     self.auto_gas_resume_guard = self.params.get_bool("AutoGasResumeGuard")
     self.auto_resume_from_gas = int(clip(self.params.get_int("AutoResumeFromGas"), 0, 2))
     self.auto_resume_from_gas_speed_mode = int(clip(self.params.get_int("AutoResumeFromGasSpeedMode"), 0, 3))
@@ -401,14 +404,23 @@ class CruiseHelper:
       self.long_active_user = 0
       self.gas_pressed_count = 0
       self.pre_gas_pressed_max = 0.0
+      self.gas_tap_cruise_active = False
+      self.gas_tap_set_speed_kph = 0.0
     elif brake_pressed:
       # Match aPilot C2 pedal priority: brake input owns this control cycle.
       if not self.prev_brake_pressed:
         self.pause_longitudinal(controls)
+      self.gas_tap_cruise_active = False
+      self.gas_tap_set_speed_kph = 0.0
     elif CS.gasPressed:
       # Gas input is evaluated before either pedal-release path. This prevents
       # brake release from resuming longitudinal control and the gas path from
       # immediately pausing it again in the same low-speed control cycle.
+      if self.gas_pressed_count == 0:
+        # A traffic-stop pedal departure is not a cruise-speed command. Also
+        # require longitudinal control to remain active through release below.
+        self.gas_tap_cruise_active = self.long_active_user > 0 and self.traffic_state != 1
+        self.gas_tap_set_speed_kph = float(controls.v_cruise_kph)
       self.gas_pressed_count += 1
       self.gas_pressed_frame = self.param_read_counter
       self.pre_gas_pressed_max = max(self.pre_gas_pressed_max, float(CS.gas))
@@ -426,12 +438,19 @@ class CruiseHelper:
     elif self.gas_pressed_count > 0:
       # Match aPilot C2: process gas release before brake release.
       quick_release = self.gas_pressed_count * DT_CTRL < 0.6 and self.pre_gas_pressed_max > 0.03
-      if quick_release and self.auto_resume_from_gas > 1 and self.long_active_user <= 0 and \
+      if quick_release and self.gas_tap_cruise_active and self.long_active_user > 0 and \
+         self.auto_gas_tap_speed_increment > 0:
+        controls.v_cruise_kph = float(clip(
+          self.gas_tap_set_speed_kph + self.auto_gas_tap_speed_increment,
+          self.cruise_speed_min, MAX_SET_SPEED_KPH))
+      elif quick_release and self.auto_resume_from_gas > 1 and self.long_active_user <= 0 and \
          self.auto_cruise_control and v_ego_kph >= self.auto_resume_from_gas_speed and self._resume_guard_ok(CS):
         self._select_resume_speed(controls, CS)
         self._resume_longitudinal(controls, CS, 3)
       self.gas_pressed_count = 0
       self.pre_gas_pressed_max = 0.0
+      self.gas_tap_cruise_active = False
+      self.gas_tap_set_speed_kph = 0.0
     elif self.prev_brake_pressed:
       # Brake-release resume runs only when neither gas press nor gas release
       # was handled, matching aPilot C2's mutually exclusive elif chain.

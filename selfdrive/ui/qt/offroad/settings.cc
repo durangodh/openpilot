@@ -1386,6 +1386,11 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 0, 60, 1, 0, 30, this));
 
   list->addItem(new ParamValueControlF(
+      "AutoGasTapSpeedIncrement", "GAS PEDAL TOK (km/h)",
+      "자동 크루즈 활성 중 가속페달을 0.6초 미만으로 짧게 밟았다 놓을 때 설정속도를 올리는 값입니다. 0: 끔 / 5~30: 해당 km/h만큼 증가.",
+      "../assets/offroad/icon_road.png", 0, 30, 5, 0, 5, this));
+
+  list->addItem(new ParamValueControlF(
       "CruiseButtonMode", "CRUISE BUTTON MODE",
       "0: 기본 증감 / 1: RES·SET 사용자 단위 / 2: SET으로 현재속도 동기화 / 3: RES로 지정속도표 순환.",
       "../assets/offroad/icon_road.png", 0, 3, 1, 0, 0, this));

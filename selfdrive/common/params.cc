@@ -89,6 +89,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"AthenadUploadQueue", PERSISTENT},
     {"AutoGasTokSpeed", PERSISTENT},
     {"AutoGasCancelSpeed", PERSISTENT},
+    {"AutoGasTapSpeedIncrement", PERSISTENT},
     {"SpeedFromPCM", PERSISTENT},
     {"AutoSpeedUptoRoadSpeedLimit", PERSISTENT},
     {"AutoRoadSpeedAdjust", PERSISTENT},

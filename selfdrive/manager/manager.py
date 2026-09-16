@@ -43,6 +43,7 @@ def manager_init() -> None:
     # HKG
     ("AutoGasTokSpeed", "30"),
     ("AutoGasCancelSpeed", "30"),
+    ("AutoGasTapSpeedIncrement", "5"),
     ("SpeedFromPCM", "2"),
     ("AutoSpeedUptoRoadSpeedLimit", "0"),
     ("AutoRoadSpeedAdjust", "0"),          # -100=limit immediately, 0=retain, 1..100=blend on limit drop
