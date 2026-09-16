@@ -537,14 +537,15 @@ class CruiseHelper:
       controls.v_cruise_cluster_kph = controls.v_cruise_kph
 
   def sync_physical_gap(self, controls, CS, longcontrol):
-    # Hyundai SCC falls back to gap 4 as cruise disengages. Do not treat that
-    # passive fallback as a driver choice or persist it over PrevCruiseGap.
-    # Still accept an explicit physical gap-button event while disengaged.
+    # Hyundai SCC falls back to gap 4 as cruise disengages. Only persist a gap
+    # after a completed short button press, never from a passive SCC value.
     gap_button_events = [event for event in CS.buttonEvents if event.type == ButtonType.gapAdjustCruise]
+    short_gap_release = False
 
     # ── GAP 길게 누르기 → 내비 앱 전환 ──
     # carState(capnp)에는 현재 눌린 버튼 필드가 없으므로 buttonEvents 의
-    # 누름/뗌으로 유지시간을 잰다.
+    # 누름/뗌으로 유지시간을 잰다. 짧은 누름인지 긴 누름인지 알기 전에는
+    # PrevCruiseGap을 바꾸지 않는다.
     for event in gap_button_events:
       if event.pressed:
         self.gap_pressed = True
@@ -555,7 +556,8 @@ class CruiseHelper:
         if self.nav_toggle_done:
           # 전환에 쓰인 입력이므로 차간 단계는 바꾸지 않는다.
           self.nav_toggle_done = False
-          return
+        else:
+          short_gap_release = True
     if self.gap_pressed:
       self.gap_hold_frames += 1
       if self.gap_hold_frames >= NAV_TOGGLE_HOLD_FRAMES and not self.nav_toggle_done:
@@ -568,13 +570,12 @@ class CruiseHelper:
 
     if longcontrol:
       # The stock SCC can restart at gap 4 even when PrevCruiseGap is 2. Cycle
-      # from the persisted value on a real button press and ignore passive SCC
-      # fallback values, keeping planner and cluster behavior deterministic.
-      gap_button_pressed = any(event.pressed for event in gap_button_events)
-      gap, changed = select_software_gap(self.long_cruise_gap, gap_button_pressed)
+      # from the persisted value only after a completed short press. A long
+      # press belongs exclusively to navigation selection.
+      gap, changed = select_software_gap(self.long_cruise_gap, short_gap_release)
     else:
       gap, changed = select_physical_gap(self.long_cruise_gap, CS.cruiseGap,
-                                         controls.enabled, bool(gap_button_events))
+                                         short_gap_release)
     if changed:
       self.long_cruise_gap = gap
       put_nonblocking("PrevCruiseGap", str(gap))
