@@ -173,6 +173,56 @@
   },
   {
    "group": "크루즈",
+   "name": "CruiseSpeed1",
+   "title": "CRUISE SPEED1 (km/h)",
+   "descr": "버튼 모드 3의 순환 설정속도입니다. 1단계 값 0: 현재 도로 제한속도 사용 / 값 증가(+): 해당 단계 속도가 높아짐.",
+   "min": 0,
+   "max": 145,
+   "default": 30,
+   "unit": 5
+  },
+  {
+   "group": "크루즈",
+   "name": "CruiseSpeed2",
+   "title": "CRUISE SPEED2 (km/h)",
+   "descr": "버튼 모드 3의 순환 설정속도입니다. 1단계 값 0: 현재 도로 제한속도 사용 / 값 증가(+): 해당 단계 속도가 높아짐.",
+   "min": 30,
+   "max": 145,
+   "default": 50,
+   "unit": 5
+  },
+  {
+   "group": "크루즈",
+   "name": "CruiseSpeed3",
+   "title": "CRUISE SPEED3 (km/h)",
+   "descr": "버튼 모드 3의 순환 설정속도입니다. 1단계 값 0: 현재 도로 제한속도 사용 / 값 증가(+): 해당 단계 속도가 높아짐.",
+   "min": 30,
+   "max": 145,
+   "default": 70,
+   "unit": 5
+  },
+  {
+   "group": "크루즈",
+   "name": "CruiseSpeed4",
+   "title": "CRUISE SPEED4 (km/h)",
+   "descr": "버튼 모드 3의 순환 설정속도입니다. 1단계 값 0: 현재 도로 제한속도 사용 / 값 증가(+): 해당 단계 속도가 높아짐.",
+   "min": 30,
+   "max": 145,
+   "default": 90,
+   "unit": 5
+  },
+  {
+   "group": "크루즈",
+   "name": "CruiseSpeed5",
+   "title": "CRUISE SPEED5 (km/h)",
+   "descr": "버튼 모드 3의 순환 설정속도입니다. 1단계 값 0: 현재 도로 제한속도 사용 / 값 증가(+): 해당 단계 속도가 높아짐.",
+   "min": 30,
+   "max": 145,
+   "default": 110,
+   "unit": 5
+  },
+  {
+   "group": "크루즈",
    "name": "AutoSpeedUptoRoadSpeedLimit",
    "title": "AUTO SPEED UPTO ROAD SPEED LIMIT (%)",
    "descr": "앞차를 따라 설정속도를 올릴 수 있는 도로 제한속도 비율입니다. 값 증가(+): 더 높은 속도까지 증속 / 값 감소(-): 증속 상한이 낮아짐 / 0: 끔.",
@@ -940,6 +990,16 @@
    "max": 40,
    "default": 0,
    "unit": 5
+  },
+  {
+   "group": "횡방향",
+   "name": "LanelessOffset",
+   "title": "LANELESS OFFSET (cm)",
+   "descr": "차선 미사용 경로의 좌우 오프셋입니다. 음수: 왼쪽 / 양수: 오른쪽 / 0: 끔.",
+   "min": -30,
+   "max": 30,
+   "default": 0,
+   "unit": 1
   },
   {
    "group": "횡방향",

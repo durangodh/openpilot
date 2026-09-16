@@ -64,6 +64,10 @@ EXTRA = [
          title="AUTO LANE OFFSET (cm)",
          descr="좌우 여유공간이 비대칭일 때 여유 있는 쪽으로 경로 이동. 0=끔, 0~40cm.",
          min=0, max=40, step=5, default=0),
+    dict(group="VIPPanel", name="LanelessOffset",
+         title="LANELESS OFFSET (cm)",
+         descr="차선 미사용 경로의 좌우 오프셋입니다. 음수: 왼쪽 / 양수: 오른쪽 / 0: 끔.",
+         min=-30, max=30, step=1, default=0),
     dict(group="VIPPanel", name="LatMpcInputOffset",
          title="LATMPC INPUT OFFSET",
          descr="차선 경로를 앞서 입력합니다. 값이 크면 커브에 더 일찍 진입. 4=기본(0.04).",
@@ -235,6 +239,23 @@ def build():
             add(grp, key, as_str('"%s"' % title), as_str(a[2]),
                 as_int(a[4]), as_int(a[5]), as_int(a[6]), int(dv))
 
+    # CruiseSpeed table has a fourth per-row minimum value.
+    for tbl in re.finditer(r"std::array<std::tuple<const char\*, const char\*, int, int>,\s*\d+>\s*"
+                           r"(\w+)\s*=\s*\{\{(.*?)\}\};(.*?)\}\n", src, re.S):
+        rows = re.findall(r'\{\s*"([A-Za-z0-9_]+)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*,\s*'
+                          r'(-?\d+)\s*,\s*(-?\d+)\s*\}', tbl.group(2))
+        body = tbl.group(3)
+        call = find_calls(body, "ParamValueControlF")
+        if not rows or not call:
+            continue
+        a = call[0][1]
+        if len(a) < 9:
+            continue
+        grp = section_of(tbl.start())
+        for key, title, dv, row_min in rows:
+            add(grp, key, as_str('"%s"' % title), as_str(a[2]),
+                int(row_min), as_int(a[5]), as_int(a[6]), int(dv))
+
     # 3) ParamControl(param, title, desc, icon) → 0/1 토글
     for pos, a in find_calls(src, "ParamControl"):
         if len(a) < 3:
@@ -269,7 +290,7 @@ def build():
     # Keep Korean labels readable in GitHub and local editors. UTF-8 JSON is
     # equivalent for parsers, and future generated diffs remain localized.
     with io.open(OUT, "w", encoding="utf-8") as f:
-        json.dump(doc, f, ensure_ascii=True, indent=1)
+        json.dump(doc, f, ensure_ascii=False, indent=1)
         f.write("\n")
     return items
 
