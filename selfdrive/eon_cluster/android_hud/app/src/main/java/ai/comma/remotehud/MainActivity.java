@@ -305,8 +305,11 @@ public final class MainActivity extends Activity {
     }
 
     private void selectNavApp(int app) {
-        String packageName = app == 2 ? "com.nhn.android.nmap" : "com.skt.tmap.ku";
-        if (getPackageManager().getLaunchIntentForPackage(packageName) == null) {
+        boolean installed = app == 2
+                ? getPackageManager().getLaunchIntentForPackage("com.nhn.android.nmap") != null
+                : getPackageManager().getLaunchIntentForPackage("com.skt.tmap.ku") != null
+                    || getPackageManager().getLaunchIntentForPackage("com.skt.skaf.l001mtm091") != null;
+        if (!installed) {
             new AlertDialog.Builder(this).setMessage(app == 2 ? "네이버지도를 먼저 설치해 주세요." : "티맵을 먼저 설치해 주세요.")
                     .setPositiveButton("확인", null).show();
             return;

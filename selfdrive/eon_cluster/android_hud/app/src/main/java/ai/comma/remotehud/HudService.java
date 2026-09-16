@@ -249,6 +249,9 @@ public final class HudService extends Service {
     private int configuredLayoutMode = 1;
     /** EON 선택 내비: 1=티맵, 2=네이버지도. */
     private volatile int configuredNavApp = 0;
+    /** Navigation changes invalidate the map socket so stale frames cannot return. */
+    private volatile int navigationGeneration = 0;
+    private volatile Socket activeMapSocket;
     /** 출력 대상 1: 외부 USB HUD, 2: S9 화면, 3: 동시 출력 */
 
     // 회전 카운트다운 (carrot-wip leftSec 방식: 단조감소)
@@ -775,44 +778,67 @@ public final class HudService extends Service {
         }
         configuredNavApp = selected;
         AppPrefs.setNavApp(this, selected);
+        synchronizeNMirrorSelection(this, selected);
         // A button tap is explicit: stop the opposite app even when this service
         // has just loaded the newly saved preference and sees no value change.
         // Telemetry synchronization remains edge-triggered to avoid force-stop at 10 Hz.
         clearNavigationAssets();
         // Process work goes to its own thread, outside the AppPrefs lock the
         // telemetry loop also takes: two blocking `su` round trips used to stall
-        // the HUD for seconds on every switch. One su invocation starts the new
-        // app first and only then force-stops the old one.
+        // the HUD for seconds on every switch. One su invocation fully stops the
+        // old app first and then starts the selected app.
         final Context context = this;
         new Thread(() -> switchNavApps(context, selected, appToStop), "hud-nav-switch").start();
     }
 
     static void switchNavApps(Context context, int launch, int stop) {
         try {
-            Intent intent = context.getPackageManager().getLaunchIntentForPackage(navPackage(launch));
+            String launchPackage = launchNavPackage(context, launch);
+            Intent intent = context.getPackageManager().getLaunchIntentForPackage(launchPackage);
             String component = intent != null && intent.getComponent() != null
                     ? intent.getComponent().flattenToShortString() : null;
-            StringBuilder sh = new StringBuilder();
-            if (component != null) sh.append("am start -n ").append(component);
-            if (stop != 0) {
-                if (sh.length() > 0) sh.append("; ");
-                sh.append("am force-stop ").append(navPackage(stop));
-            }
-            if (sh.length() == 0) return;
-            Runtime.getRuntime().exec(new String[] {"su", "-c", sh.toString()}).waitFor();
+            String command = NavSelectionProtocol.switchCommand(
+                    packagesToStop(stop), component);
+            if (command.isEmpty()) return;
+            Runtime.getRuntime().exec(new String[] {"su", "-c", command}).waitFor();
         } catch (Exception ignored) {
         }
     }
 
-    private static String navPackage(int navApp) {
-        return navApp == 2 ? "com.nhn.android.nmap" : "com.skt.tmap.ku";
+    private static String launchNavPackage(Context context, int navApp) {
+        if (navApp == 2) return "com.nhn.android.nmap";
+        if (context.getPackageManager().getLaunchIntentForPackage("com.skt.tmap.ku") != null) {
+            return "com.skt.tmap.ku";
+        }
+        return "com.skt.skaf.l001mtm091";
+    }
+
+    private static String[] packagesToStop(int navApp) {
+        if (navApp == 1) {
+            return new String[] {"com.skt.tmap.ku", "com.skt.skaf.l001mtm091"};
+        }
+        if (navApp == 2) return new String[] {"com.nhn.android.nmap"};
+        return new String[0];
+    }
+
+    /** Keep nMirror's visible selection and stream gates aligned with HUD/EON. */
+    private static void synchronizeNMirrorSelection(Context context, int navApp) {
+        try {
+            Intent sync = new Intent("com.aa.nmirror.SET_NAV_SOURCE");
+            sync.setPackage("com.aa.nmirror");
+            sync.putExtra("nav_app", NavSelectionProtocol.normalizeApp(navApp));
+            context.sendBroadcast(sync);
+        } catch (Exception ignored) {
+        }
     }
 
     /** 다른 쪽 내비를 완전 종료(루트 am force-stop). 안내·음성·GPS 전부 멈춘다. */
     static void stopNavApp(int navApp) {
         try {
+            String command = NavSelectionProtocol.switchCommand(packagesToStop(navApp), null);
+            if (command.isEmpty()) return;
             Runtime.getRuntime().exec(new String[] {
-                    "su", "-c", "am force-stop " + navPackage(navApp)
+                    "su", "-c", command
             }).waitFor();
         } catch (Exception ignored) {
         }
@@ -824,7 +850,7 @@ public final class HudService extends Service {
      * 제한을 피하려고 Magisk 에서 허용된 루트로 am start 를 실행한다.
      */
     static void launchNavApp(Context context, int navApp) {
-        final String packageName = navPackage(navApp);
+        final String packageName = launchNavPackage(context, navApp);
         try {
             Intent launch = context.getPackageManager().getLaunchIntentForPackage(packageName);
             if (launch == null || launch.getComponent() == null) {
@@ -863,6 +889,14 @@ public final class HudService extends Service {
 
     /** Remove the old app's map/TBT immediately while the new source connects. */
     private void clearNavigationAssets() {
+        navigationGeneration++;
+        Socket current = activeMapSocket;
+        if (current != null) {
+            try {
+                current.close();
+            } catch (Exception ignored) {
+            }
+        }
         synchronized (assetLock) {
             recycleAndClear(mapFrame);
             recycleAndClear(tbtCurrentFrame);
@@ -879,20 +913,32 @@ public final class HudService extends Service {
 
     private void mapLoop() {
         while (running.get()) {
+            // A fresh connection after the HUDNAV1 acknowledgement makes the
+            // EON server resend every selected-source asset immediately. Never
+            // accept a keepalive frame from the old source while switching.
+            if (!AppPrefs.pendingNavRequest(this).isEmpty()) {
+                mapConnected = false;
+                SystemClock.sleep(25L);
+                continue;
+            }
             InetAddress address = eonAddress.get();
             if (address == null) {
                 SystemClock.sleep(500L);
                 continue;
             }
+            final int generation = navigationGeneration;
             Socket socket = null;
             try {
                 socket = new Socket();
+                activeMapSocket = socket;
                 socket.connect(new InetSocketAddress(address, 7211), 2000);
                 mapConnected = true;
                 socket.setSoTimeout(4000);
                 DataInputStream in = new DataInputStream(socket.getInputStream());
                 byte[] header = new byte[4];
-                while (running.get() && address.equals(eonAddress.get())) {
+                while (running.get() && address.equals(eonAddress.get())
+                        && generation == navigationGeneration
+                        && AppPrefs.pendingNavRequest(this).isEmpty()) {
                     in.readFully(header);
                     int length = in.readInt();
                     if (length < 0 || length > 2097152) {
@@ -928,8 +974,11 @@ public final class HudService extends Service {
                 }
             } catch (Exception e) {
                 mapConnected = false;
-                SystemClock.sleep(500L);
+                boolean switching = generation != navigationGeneration
+                        || !AppPrefs.pendingNavRequest(this).isEmpty();
+                SystemClock.sleep(switching ? 25L : 500L);
             } finally {
+                if (activeMapSocket == socket) activeMapSocket = null;
                 if (socket != null) {
                     try {
                         socket.close();
