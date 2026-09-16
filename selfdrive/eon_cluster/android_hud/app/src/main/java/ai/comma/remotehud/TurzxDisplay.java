@@ -64,6 +64,10 @@ public final class TurzxDisplay {
 
     private static final int CHUNK_BYTES = 16384;
     private static final long COMMAND_GAP_MS = 200L;
+    // PermissionController can appear late while the S9 is still booting. If the
+    // first root-assisted approval misses it, start a fresh bounded watcher and
+    // permission request instead of waiting forever for this device ID.
+    private static final long PERMISSION_RETRY_MS = 30_000L;
 
     private final Context context;
     private UsbManager manager;
@@ -73,6 +77,7 @@ public final class TurzxDisplay {
     private UsbEndpoint out;
     private UsbEndpoint in;
     private int permissionRequestedDeviceId = -1;
+    private long lastPermissionRequestElapsed;
 
     private final byte[] drainBuffer = new byte[512];
     private boolean sawInbound;
@@ -150,15 +155,21 @@ public final class TurzxDisplay {
         device = findTargetDevice();
         if (device == null) {
             permissionRequestedDeviceId = -1;
+            lastPermissionRequestElapsed = 0L;
             lastOpenFailure = "";
             openFailureStreak = 0;
             return false;
         }
         if (!manager.hasPermission(device)) {
-            if (permissionRequestedDeviceId != device.getDeviceId()) {
+            long now = SystemClock.elapsedRealtime();
+            boolean newDevice = permissionRequestedDeviceId != device.getDeviceId();
+            boolean retryExpired = now - lastPermissionRequestElapsed >= PERMISSION_RETRY_MS;
+            if (newDevice || retryExpired) {
                 permissionRequestedDeviceId = device.getDeviceId();
+                lastPermissionRequestElapsed = now;
                 // Start the root watcher before requestPermission(): on a fast S9 the
-                // system dialog can be visible almost immediately.
+                // system dialog can be visible almost immediately. Retry after the
+                // bounded watcher expires because boot-time UI dumps can fail.
                 UsbPermissionAutoApprover.watch(context);
                 manager.requestPermission(device, PendingIntent.getBroadcast(context,
                         device.getDeviceId(),
@@ -168,6 +179,7 @@ public final class TurzxDisplay {
             return false;
         }
         permissionRequestedDeviceId = -1;
+        lastPermissionRequestElapsed = 0L;
 
         intf = null;
         out = null;
@@ -261,6 +273,7 @@ public final class TurzxDisplay {
 
     public synchronized void reset() {
         permissionRequestedDeviceId = -1;
+        lastPermissionRequestElapsed = 0L;
         close();
         device = null;
         lastOpenFailure = "";

@@ -14,6 +14,8 @@ import java.util.regex.Pattern;
 final class UsbPermissionAutoApprover {
 
     private static final String UI_DUMP = "/data/local/tmp/remote_hud_usb_permission.xml";
+    private static final int WATCH_ATTEMPTS = 60;
+    private static final long WATCH_INTERVAL_MS = 500L;
     private static final AtomicBoolean RUNNING = new AtomicBoolean(false);
     private static final Pattern NODE = Pattern.compile("<node\\s+[^>]*>");
     private static final Pattern BOUNDS = Pattern.compile(
@@ -32,12 +34,12 @@ final class UsbPermissionAutoApprover {
             try {
                 // The permission controller can appear late during boot. Keep the watcher
                 // bounded so a missing dialog never leaves a permanent root process behind.
-                for (int attempt = 0; attempt < 16; attempt++) {
+                for (int attempt = 0; attempt < WATCH_ATTEMPTS; attempt++) {
                     String xml = dumpUi();
                     if (isTargetDialog(xml, appName) && approve(xml, appName)) {
                         return;
                     }
-                    SystemClock.sleep(500L);
+                    SystemClock.sleep(WATCH_INTERVAL_MS);
                 }
             } finally {
                 runRoot("rm -f " + UI_DUMP);
