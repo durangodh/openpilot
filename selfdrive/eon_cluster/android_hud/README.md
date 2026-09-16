@@ -51,12 +51,15 @@ camera preview runs on the EON or S9.
 > Tile loading and JSON decoding run outside the render thread. At most 70
 > visible buildings are drawn, with no facade textures, shadows or trees.
 
-The driving panel also reuses the already-decoded `map_main` navigation frame
-as a low-opacity, center-cropped ground-map snapshot. It is drawn below the
-local Gyeonggi roads/buildings and below every model-derived road edge, lane,
-guardrail, path, lead and stop-line overlay. No second map SDK, static-map HTTP
-request or bitmap allocation is introduced; when `map_main` is unavailable the
-existing solid/vector background remains in use.
+The driving panel can download a clean NAVER Static Map `basic` image directly
+on the S9. Its Client ID and Client Secret are entered in the Remote HUD app and
+remain in app-private storage; they are never committed or sent to EON. The
+1024x1024 image is cached, refreshed only after roughly 50 m of movement (and
+never repeatedly while stopped), rotated heading-up without allocating a new
+bitmap, and drawn below the local Gyeonggi roads/buildings and every
+model-derived road edge, lane, guardrail, path, lead and stop-line overlay. If
+credentials, position or network are unavailable, the existing solid/vector
+background remains in use.
 
 > **현재 상태 (v0.89)** — 주행씬 렌더러는 `ModelWorldGL.java` 하나뿐이다.
 > Canvas 판 `World3D.java` 와 그 전용 요소(건물 · 정지선 · 노면 제한속도 ·

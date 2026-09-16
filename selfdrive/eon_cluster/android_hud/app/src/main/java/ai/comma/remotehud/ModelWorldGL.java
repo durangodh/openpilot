@@ -375,8 +375,8 @@ final class ModelWorldGL {
         horizonShift = clamp(FOCAL * (float) Math.tan(pitch), -46f, 46f);
 
         GLES20.glViewport(0, 0, WIDTH, HEIGHT);
-        // HudService may place the already-received navigation snapshot below
-        // this frame.  Keep the untouched pixels transparent so that map stays
+        // HudService may place a clean NAVER Static Map below this frame. Keep
+        // the untouched pixels transparent so that map stays
         // visible, while all local-map and model geometry below is composited
         // over it in its existing safety-first draw order.
         GLES20.glClearColor(0f, 0f, 0f, 0f);

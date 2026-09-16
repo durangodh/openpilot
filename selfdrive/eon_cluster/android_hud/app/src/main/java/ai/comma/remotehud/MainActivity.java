@@ -10,9 +10,11 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.InputType;
 import android.view.View;
 import android.widget.Button;
 import android.widget.CompoundButton;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -44,6 +46,7 @@ public final class MainActivity extends Activity {
     private TextView fpsValue;
     private TextView jpegValue;
     private TextView mapValue;
+    private TextView staticMapValue;
     private TextView permissionValue;
     private Button rescanUsbButton;
     private TextView serviceValue;
@@ -51,6 +54,7 @@ public final class MainActivity extends Activity {
     private Button stopButton;
     private TextView usbValue;
     private Button tmapButton, naverButton;
+    private Button staticMapButton;
     private TextView navValue;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -221,6 +225,20 @@ public final class MainActivity extends Activity {
         jpegValue = addStatusRow(statusCard, "JPEG 전송");
         root.addView(statusCard, cardParams());
 
+        LinearLayout staticMapCard = card();
+        staticMapCard.addView(text("네이버 Static Map", 18.0f, Color.WHITE, Typeface.BOLD));
+        staticMapValue = text("인증정보 미설정", 14.0f,
+                Color.rgb(190, 200, 210), Typeface.NORMAL);
+        LinearLayout.LayoutParams staticStatusParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        staticStatusParams.setMargins(0, dp(10), 0, dp(10));
+        staticMapCard.addView(staticMapValue, staticStatusParams);
+        staticMapButton = button("Client ID / Secret 설정", Color.rgb(40, 92, 132));
+        staticMapButton.setOnClickListener(v -> showStaticMapCredentials());
+        staticMapCard.addView(staticMapButton, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
+        root.addView(staticMapCard, cardParams());
+
         LinearLayout autoCard = card();
         autoCard.addView(text("자동실행", 18.0f, Color.WHITE, Typeface.BOLD));
         LinearLayout autoRow = new LinearLayout(this);
@@ -314,6 +332,14 @@ public final class MainActivity extends Activity {
         }
         setStatus(eonValue, eonStatus, eonColor);
         setStatus(mapValue, s.mapConnected ? "연결됨" : "영상 대기", s.mapConnected ? GREEN : AMBER);
+        boolean staticMapConfigured = AppPrefs.hasNaverStaticCredentials(this);
+        String staticMapStatus = !staticMapConfigured ? "인증정보 미설정"
+                : (s.running ? s.staticMapStatus : "설정됨 · 서비스 대기");
+        setStatus(staticMapValue, staticMapStatus,
+                !staticMapConfigured ? AMBER
+                        : (staticMapStatus.startsWith("정상") ? GREEN
+                        : (s.staticMapStatus.contains("실패") || s.staticMapStatus.contains("오류")
+                        || s.staticMapStatus.contains("초과") ? RED : AMBER)));
         setStatus(usbValue, s.usbStatus,
                 s.usbConnected ? GREEN : (s.usbError ? RED : AMBER));
         setStatus(fpsValue,
@@ -373,6 +399,51 @@ public final class MainActivity extends Activity {
 
     private void startHudService() {
         startHudService(null);
+    }
+
+    private void showStaticMapCredentials() {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        int pad = dp(20);
+        form.setPadding(pad, dp(6), pad, 0);
+
+        EditText clientId = new EditText(this);
+        clientId.setHint("Client ID");
+        clientId.setSingleLine(true);
+        clientId.setText(AppPrefs.getNaverStaticClientId(this));
+        form.addView(clientId, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        EditText clientSecret = new EditText(this);
+        clientSecret.setHint(AppPrefs.hasNaverStaticCredentials(this)
+                ? "Client Secret (변경할 때만 입력)" : "Client Secret");
+        clientSecret.setSingleLine(true);
+        clientSecret.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        form.addView(clientSecret, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        new AlertDialog.Builder(this)
+                .setTitle("네이버 Static Map 인증정보")
+                .setMessage("값은 S9 앱 전용 저장소에만 보관되며 EON이나 GitHub로 전송되지 않습니다.")
+                .setView(form)
+                .setPositiveButton("저장", (dialog, which) -> {
+                    String id = clientId.getText().toString().trim();
+                    String secret = clientSecret.getText().toString().trim();
+                    if (secret.isEmpty()) secret = AppPrefs.getNaverStaticClientSecret(this);
+                    if (!id.isEmpty() && !secret.isEmpty()) {
+                        AppPrefs.setNaverStaticCredentials(this, id, secret);
+                        startHudService(HudService.ACTION_STATIC_MAP_SETTINGS);
+                        refreshStatus();
+                    }
+                })
+                .setNeutralButton("정보 삭제", (dialog, which) -> {
+                    AppPrefs.clearNaverStaticCredentials(this);
+                    startHudService(HudService.ACTION_STATIC_MAP_SETTINGS);
+                    refreshStatus();
+                })
+                .setNegativeButton("취소", null)
+                .show();
     }
 
     private void startHudService(String action) {

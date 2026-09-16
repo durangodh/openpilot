@@ -70,6 +70,7 @@ public final class HudService extends Service {
 
     static final String ACTION_RESCAN_USB = "ai.comma.remotehud.RESCAN_USB";
     static final String ACTION_SELECT_NAV = "ai.comma.remotehud.SELECT_NAV";
+    static final String ACTION_STATIC_MAP_SETTINGS = "ai.comma.remotehud.STATIC_MAP_SETTINGS";
     static volatile boolean navSelectionSupported;
     private long lastNavRequestAt;
     private String lastNavRequestId = "";
@@ -82,6 +83,8 @@ public final class HudService extends Service {
     // 패널 폭 비율 5 : 4 : 1  (주행 : TMAP : SYSTEM)
     private static final int DRIVE_RIGHT = 952;
     private static final float DRIVE_CX = 476f;
+    private static final float[] STATIC_MAP_FORWARD = {0f, 0f, 170f, 170f};
+    private static final float[] STATIC_MAP_LATERAL = {72f, -72f, -72f, 72f};
     /** 현재 HUD 자차 폭을 유지한다. */
     private static final float EGO_CAR_WIDTH = 94f;
     /** 자차 후미등 아래 방향지시등을 같은 주기로 점멸한다. */
@@ -205,6 +208,7 @@ public final class HudService extends Service {
     private Bitmap statusIcons;  // 순정 계기판 스타일: 미등/전조등/안전벨트/문 열림 PNG 스프라이트
     private Thread receiverThread;
     private Thread mapThread;
+    private Thread staticMapThread;
     private Thread renderThread;
     private int usbErrorStreak;
     private boolean usbReceiverRegistered;
@@ -276,6 +280,9 @@ public final class HudService extends Service {
 
     // 렌더 재사용 자원 (렌더 스레드 전용)
     private final Matrix wheelMatrix = new Matrix();
+    private final Matrix mapBackgroundMatrix = new Matrix();
+    private final float[] mapSourceQuad = new float[8];
+    private final float[] mapDestinationQuad = new float[8];
     private ColorMatrixColorFilter wheelGray;
     private Bitmap outFrame;
     private Canvas outCanvas;
@@ -303,11 +310,15 @@ public final class HudService extends Service {
             }));
     /** Lazy-created on the render thread. */
     private ModelWorldGL modelWorldGl;
+    private NaverStaticMapClient staticMapClient;
     private final ByteArrayOutputStream jpegOut = new ByteArrayOutputStream(180000);
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicReference<JSONObject> state = new AtomicReference<>(new JSONObject());
     private final AtomicReference<Bitmap> mapFrame = new AtomicReference<>();
+    private final AtomicReference<Bitmap> staticMapFrame = new AtomicReference<>();
+    private volatile double staticMapCenterLat = Double.NaN;
+    private volatile double staticMapCenterLon = Double.NaN;
     private final AtomicReference<Bitmap> tbtCurrentFrame = new AtomicReference<>();
     private final AtomicReference<Bitmap> tbtNextFrame = new AtomicReference<>();
     /** 티맵이 그린 현재 회전 아이콘(tbt_current_compact). 없으면 내장 그림/벡터. */
@@ -362,6 +373,8 @@ public final class HudService extends Service {
         final int udpLastRawBytes;
         final String udpReceiverError;
         final boolean mapConnected;
+        final boolean staticMapConfigured;
+        final String staticMapStatus;
         final String usbStatus;
         final boolean usbConnected;
         final boolean usbError;
@@ -371,7 +384,8 @@ public final class HudService extends Service {
         StatusSnapshot(boolean running, boolean eonConnected, String eonAddress,
                        boolean udpReceiverBound, boolean udpRawPacketRecent,
                        long udpRawPacketCount, int udpLastRawBytes, String udpReceiverError,
-                       boolean mapConnected, String usbStatus, boolean usbConnected,
+                       boolean mapConnected, boolean staticMapConfigured,
+                       String staticMapStatus, String usbStatus, boolean usbConnected,
                        boolean usbError, float fps, int lastJpegBytes) {
             this.running = running;
             this.eonConnected = eonConnected;
@@ -382,6 +396,8 @@ public final class HudService extends Service {
             this.udpLastRawBytes = udpLastRawBytes;
             this.udpReceiverError = udpReceiverError;
             this.mapConnected = mapConnected;
+            this.staticMapConfigured = staticMapConfigured;
+            this.staticMapStatus = staticMapStatus;
             this.usbStatus = usbStatus;
             this.usbConnected = usbConnected;
             this.usbError = usbError;
@@ -401,6 +417,9 @@ public final class HudService extends Service {
                 serviceRunning && udpReceiverBound, rawPacketRecent,
                 udpRawPacketCount, udpLastRawBytes, udpReceiverError,
                 serviceRunning && mapConnected,
+                activeInstance != null && AppPrefs.hasNaverStaticCredentials(activeInstance),
+                activeInstance == null || activeInstance.staticMapClient == null
+                        ? "서비스 대기" : activeInstance.staticMapClient.status(),
                 usbStatus, serviceRunning && usbConnected, usbError,
                 fpsOk ? measuredFps : 0.0f, jpegOk ? lastJpegBytes : 0);
     }
@@ -411,6 +430,18 @@ public final class HudService extends Service {
     public void onCreate() {
         super.onCreate();
         activeInstance = this;
+        staticMapClient = new NaverStaticMapClient(this,
+                new NaverStaticMapClient.Listener() {
+                    @Override
+                    public void onStaticMap(Bitmap bitmap, double centerLat, double centerLon) {
+                        synchronized (assetLock) {
+                            Bitmap old = staticMapFrame.getAndSet(bitmap);
+                            staticMapCenterLat = centerLat;
+                            staticMapCenterLon = centerLon;
+                            if (old != null && old != bitmap && !old.isRecycled()) old.recycle();
+                        }
+                    }
+                });
         weather = new WeatherService(this);
         // EON 이 붙기 전 첫 프레임부터 올바른 방향으로 그리기 위해 마지막 값을 복원한다.
         configuredOrientation = AppPrefs.getOrientation(this);
@@ -480,6 +511,13 @@ public final class HudService extends Service {
                 }
             }, "hud-select-nav").start();
         }
+        if (intent != null && ACTION_STATIC_MAP_SETTINGS.equals(intent.getAction())
+                && staticMapClient != null) {
+            synchronized (assetLock) {
+                recycleAndClear(staticMapFrame);
+            }
+            staticMapClient.credentialsChanged();
+        }
         if (intent != null && ACTION_RESCAN_USB.equals(intent.getAction()) && running.get()) {
             requestUsbRescan();
             return START_STICKY;
@@ -534,6 +572,13 @@ public final class HudService extends Service {
                 mapLoop();
             }
         }, "hud-tmap");
+        staticMapClient.start();
+        staticMapThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                staticMapClient.runLoop();
+            }
+        }, "hud-static-map");
         renderThread = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -548,6 +593,7 @@ public final class HudService extends Service {
         }, "hud-stats");
         receiverThread.start();
         mapThread.start();
+        staticMapThread.start();
         renderThread.start();
         statsThread.start();
 
@@ -656,6 +702,7 @@ public final class HudService extends Service {
                         }
                         synchronizeNavigation(decoded, socket, packet);
                         state.set(decoded);
+                        if (staticMapClient != null) staticMapClient.update(decoded);
                         udpReceiverError = "";
                         eonAddress.set(packet.getAddress());
                         lastEonRxElapsed = SystemClock.elapsedRealtime();
@@ -945,6 +992,7 @@ public final class HudService extends Service {
             Bitmap usbFrame = null;
             synchronized (assetLock) {
                 Bitmap map = mapFrame.get();
+                Bitmap staticMap = staticMapFrame.get();
                 updateMapTheme(map, now);
                 Bitmap tbtCurrent = tbtCurrentFrame.get();
                 Bitmap tbtNext = tbtNextFrame.get();
@@ -953,7 +1001,8 @@ public final class HudService extends Service {
                 synchronized (phoneFrameLock) {
                     // phoneFrame 은 화면 출력용이 아니라 USB 회전 전의 논리
                     // 프레임이다. 외부 HUD 전용이 된 뒤에도 이 단계는 남는다.
-                    renderPhone(currentState, map, tbtCurrent, tbtNext, lane, trafficSignal);
+                    renderPhone(currentState, map, staticMap, tbtCurrent, tbtNext, lane,
+                            trafficSignal);
                     if (usbReady) {
                         usbFrame = renderUsbFromPhone();
                     }
@@ -1319,21 +1368,22 @@ public final class HudService extends Service {
         return outFrame;
     }
 
-    private void renderPhone(JSONObject s, Bitmap map, Bitmap tbtCurrent, Bitmap tbtNext, Bitmap lane,
-                             Bitmap trafficSignal) {
+    private void renderPhone(JSONObject s, Bitmap map, Bitmap staticMap, Bitmap tbtCurrent,
+                             Bitmap tbtNext, Bitmap lane, Bitmap trafficSignal) {
         Canvas c = beginPhoneFrame();
-        drawFrame(c, s, map, tbtCurrent, tbtNext, lane, trafficSignal);
+        drawFrame(c, s, map, staticMap, tbtCurrent, tbtNext, lane, trafficSignal);
     }
 
-    private void drawFrame(Canvas c, JSONObject s, Bitmap map, Bitmap tbtCurrent,
-                           Bitmap tbtNext, Bitmap lane, Bitmap trafficSignal) {
+    private void drawFrame(Canvas c, JSONObject s, Bitmap map, Bitmap staticMap,
+                           Bitmap tbtCurrent, Bitmap tbtNext, Bitmap lane,
+                           Bitmap trafficSignal) {
         Paint p = paint;
         p.reset();
         p.setAntiAlias(true);
         frameDark = darkTheme();
         c.drawColor(Color.rgb(5, 8, 12));
 
-        drawDriving(c, p, s, map);
+        drawDriving(c, p, s, staticMap);
 
         if (configuredLayoutMode == 1) {
             JSONObject l = layout(s);
@@ -1377,15 +1427,13 @@ public final class HudService extends Service {
         p.setColor(driveBg);
         c.drawRect(0f, 0f, DRIVE_RIGHT, 462f, p);
 
-        // Reuse the navigation frame already received for the right-hand map as
-        // a subdued ground-map layer.  This adds no second map SDK, HTTP request,
-        // decode or bitmap allocation.  The phone-local Gyeonggi buildings and
-        // roads are rendered by ModelWorldGL above it, followed by the
-        // camera/model road, guardrails, lane lines and path.
+        // A clean NAVER Static Map (no route, vehicle marker or navigation UI)
+        // is the lowest ground layer. Phone-local Gyeonggi buildings/roads and
+        // all camera/model geometry remain above it.
         boolean drivingMapAvailable = !stale && map != null && !map.isRecycled()
                 && map.getWidth() >= 2 && map.getHeight() >= 2;
         if (drivingMapAvailable) {
-            drawDrivingMapBackground(c, p, map, frameDark);
+            drawDrivingMapBackground(c, p, map, s, frameDark);
         }
 
         int roadTop = lc(l, "roadTop",
@@ -1581,41 +1629,102 @@ public final class HudService extends Service {
         p.setColor(cardEdge());
         scratchRect.set(2f, 2f, DRIVE_RIGHT - 2f, 458f);
         c.drawRoundRect(scratchRect, 18f, 18f, p);
+
+        if (drivingMapAvailable) {
+            drawStaticMapAttribution(c, p);
+        }
     }
 
-    private void drawDrivingMapBackground(Canvas c, Paint p, Bitmap map, boolean dark) {
+    /**
+     * The perspective projection intentionally samples only the road ahead, so
+     * the copyright strip embedded at the bottom of a Static Map response can
+     * fall outside the sampled quadrilateral. Keep a small, unobstructed
+     * attribution on the final composition whenever NAVER imagery is visible.
+     */
+    private void drawStaticMapAttribution(Canvas c, Paint p) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(frameDark ? 188 : 164, 8, 14, 20));
+        scratchRect.set(642f, 432f, 786f, 456f);
+        c.drawRoundRect(scratchRect, 5f, 5f, p);
+        text(c, p, "NAVER 지도 · © NAVER", 714f, 449f, 12f,
+                Color.argb(238, 255, 255, 255), Paint.Align.CENTER);
+    }
+
+    private void drawDrivingMapBackground(Canvas c, Paint p, Bitmap map, JSONObject state,
+                                          boolean dark) {
         if (map == null || map.isRecycled() || map.getWidth() < 2 || map.getHeight() < 2) {
             return;
         }
 
-        // Center-crop instead of stretching the navigation capture.  The HUD
-        // world strip is much wider than map_main; preserving its aspect ratio
-        // keeps road widths and labels recognizable.  A little more of the
-        // lower half is retained because heading-up navigation maps place the
-        // ego marker below centre.
-        final float destinationWidth = DRIVE_RIGHT;
-        final float destinationHeight = ModelWorldGL.BOTTOM - ModelWorldGL.TOP;
-        final float destinationAspect = destinationWidth / destinationHeight;
-        final int sourceWidth = map.getWidth();
-        final int sourceHeight = map.getHeight();
-        int cropWidth = sourceWidth;
-        int cropHeight = Math.max(1, Math.round(sourceWidth / destinationAspect));
-        if (cropHeight > sourceHeight) {
-            cropHeight = sourceHeight;
-            cropWidth = Math.max(1, Math.round(sourceHeight * destinationAspect));
+        // Project the north-up Static Map onto the same ground plane used by
+        // ModelWorldGL. This one homography handles heading, perspective and
+        // the car's movement inside the cached 50 m map window without making
+        // a transformed bitmap every frame.
+        JSONArray pose = state == null ? null : state.optJSONArray("mapPose");
+        float heading = pose == null || pose.length() < 3
+                ? 0f : (float) pose.optDouble(2, 0d);
+        double currentLat = pose == null ? Double.NaN : pose.optDouble(0, Double.NaN);
+        double currentLon = pose == null ? Double.NaN : pose.optDouble(1, Double.NaN);
+        float vehiclePixelX = map.getWidth() * 0.5f;
+        float vehiclePixelY = map.getHeight() * 0.5f;
+        if (StaticMapPolicy.validPose(staticMapCenterLat, staticMapCenterLon)
+                && StaticMapPolicy.validPose(currentLat, currentLon)) {
+            double metersPerPixel = 156543.03392
+                    * Math.cos(Math.toRadians(staticMapCenterLat)) / (1 << 17);
+            double east = (currentLon - staticMapCenterLon) * 111320.0
+                    * Math.max(0.1, Math.cos(Math.toRadians(staticMapCenterLat)));
+            double north = (currentLat - staticMapCenterLat) * 111320.0;
+            vehiclePixelX += (float) (east / metersPerPixel);
+            vehiclePixelY -= (float) (north / metersPerPixel);
         }
-        int cropLeft = Math.max(0, (sourceWidth - cropWidth) / 2);
-        int availableTop = Math.max(0, sourceHeight - cropHeight);
-        int cropTop = Math.max(0, Math.min(availableTop,
-                Math.round(availableTop * 0.62f)));
+        final float headingRadians = (float) Math.toRadians(heading);
+        final float sinHeading = (float) Math.sin(headingRadians);
+        final float cosHeading = (float) Math.cos(headingRadians);
+        final double metersPerPixel = 156543.03392
+                * Math.cos(Math.toRadians(StaticMapPolicy.validPose(staticMapCenterLat,
+                staticMapCenterLon) ? staticMapCenterLat : currentLat)) / (1 << 17);
 
-        scratchIRect.set(cropLeft, cropTop, cropLeft + cropWidth, cropTop + cropHeight);
+        float livePitch = (float) state.optDouble("pitch", 0d);
+        float pitchGain = Math.max(0f, Math.min(2f,
+                (float) state.optDouble("hudPitchDyn", 60d) * 0.01f));
+        float pitch = (float) state.optDouble("calibPitch", 0d)
+                + Math.max(-0.05f, Math.min(0.05f, livePitch * pitchGain));
+        pitch = Math.max(-0.15f, Math.min(0.15f, pitch));
+        float horizonShift = Math.max(-46f, Math.min(46f,
+                520f * (float) Math.tan(pitch)));
+        boolean flip = state.optInt("hudPathFlip", 0) != 0;
+
+        for (int i = 0; i < 4; i++) {
+            float east = STATIC_MAP_FORWARD[i] * sinHeading
+                    - STATIC_MAP_LATERAL[i] * cosHeading;
+            float north = STATIC_MAP_FORWARD[i] * cosHeading
+                    + STATIC_MAP_LATERAL[i] * sinHeading;
+            mapSourceQuad[i * 2] = vehiclePixelX + (float) (east / metersPerPixel);
+            mapSourceQuad[i * 2 + 1] = vehiclePixelY - (float) (north / metersPerPixel);
+
+            float projectionScale = 520f / (STATIC_MAP_FORWARD[i] + 13f);
+            mapDestinationQuad[i * 2] = 476f
+                    + (flip ? STATIC_MAP_LATERAL[i] : -STATIC_MAP_LATERAL[i])
+                    * projectionScale;
+            mapDestinationQuad[i * 2 + 1] = 249f + horizonShift
+                    + 4.6f * projectionScale;
+        }
+        mapBackgroundMatrix.reset();
+        if (!mapBackgroundMatrix.setPolyToPoly(mapSourceQuad, 0,
+                mapDestinationQuad, 0, 4)) {
+            return;
+        }
+
         scratchRect.set(0f, ModelWorldGL.TOP, DRIVE_RIGHT, ModelWorldGL.BOTTOM);
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setFilterBitmap(true);
         p.setAlpha(dark ? 116 : 92);
-        c.drawBitmap(map, scratchIRect, scratchRect, p);
+        int save = c.save();
+        c.clipRect(scratchRect);
+        c.drawBitmap(map, mapBackgroundMatrix, p);
+        c.restoreToCount(save);
 
         // Keep the map contextual rather than dominant; critical model-world
         // geometry remains high-contrast on both day and night captures.
@@ -4577,6 +4686,7 @@ public final class HudService extends Service {
     @Override
     public void onDestroy() {
         running.set(false);
+        if (staticMapClient != null) staticMapClient.stop();
         workersStarted = false;
         serviceRunning = false;
         mapConnected = false;
@@ -4618,6 +4728,7 @@ public final class HudService extends Service {
         }
         synchronized (assetLock) {
             recycleRef(mapFrame);
+            recycleRef(staticMapFrame);
             recycleRef(tbtCurrentFrame);
             recycleRef(tbtNextFrame);
             recycleRef(laneFrame);

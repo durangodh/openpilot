@@ -12,6 +12,8 @@ public final class AppPrefs {
     private static final String MIRROR = "hud_mirror";
     private static final String NAV_APP = "hud_nav_app";
     private static final String NAV_REQUEST = "hud_nav_request";
+    private static final String NAVER_STATIC_CLIENT_ID = "naver_static_client_id";
+    private static final String NAVER_STATIC_CLIENT_SECRET = "naver_static_client_secret";
 
     private AppPrefs() {
     }
@@ -74,6 +76,34 @@ public final class AppPrefs {
         if (NavSelectionProtocol.acknowledged(pendingNavRequest(context), ack)) {
             prefs(context).edit().remove(NAV_REQUEST).apply();
         }
+    }
+
+    public static String getNaverStaticClientId(Context context) {
+        return prefs(context).getString(NAVER_STATIC_CLIENT_ID, "").trim();
+    }
+
+    public static String getNaverStaticClientSecret(Context context) {
+        return prefs(context).getString(NAVER_STATIC_CLIENT_SECRET, "").trim();
+    }
+
+    public static boolean hasNaverStaticCredentials(Context context) {
+        return !getNaverStaticClientId(context).isEmpty()
+                && !getNaverStaticClientSecret(context).isEmpty();
+    }
+
+    /** Credentials stay in this app's private storage and are never sent to EON. */
+    public static void setNaverStaticCredentials(Context context, String clientId,
+                                                  String clientSecret) {
+        prefs(context).edit()
+                .putString(NAVER_STATIC_CLIENT_ID, clientId == null ? "" : clientId.trim())
+                .putString(NAVER_STATIC_CLIENT_SECRET,
+                        clientSecret == null ? "" : clientSecret.trim())
+                .apply();
+    }
+
+    public static void clearNaverStaticCredentials(Context context) {
+        prefs(context).edit().remove(NAVER_STATIC_CLIENT_ID)
+                .remove(NAVER_STATIC_CLIENT_SECRET).apply();
     }
 
     public static boolean wasGuideShown(Context context) {
