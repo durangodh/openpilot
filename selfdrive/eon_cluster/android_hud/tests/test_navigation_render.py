@@ -89,6 +89,8 @@ def main():
               "app/src/main/java/ai/comma/remotehud/HudService.java").read_text(encoding="utf-8")
     model_world = (Path(__file__).resolve().parents[1] /
                    "app/src/main/java/ai/comma/remotehud/ModelWorldGL.java").read_text(encoding="utf-8")
+    turzx = (Path(__file__).resolve().parents[1] /
+             "app/src/main/java/ai/comma/remotehud/TurzxDisplay.java").read_text(encoding="utf-8")
     activity = (Path(__file__).resolve().parents[1] /
                 "app/src/main/java/ai/comma/remotehud/MainActivity.java").read_text(encoding="utf-8")
     # A navigation button request must never suspend the TCP map stream. An
@@ -120,6 +122,21 @@ def main():
         "private void drawFallbackRoad(", 1)[0]
     assert draw_road.index("drawFallbackRoad(path, scene, color)") < draw_road.index(
         "if (left == null || right == null)")
+    # A normal USB open must not issue raw CLEAR_FEATURE: Android does not
+    # reset its host-side data toggle with that request. Failed initialization
+    # must close the connection so the next attempt starts clean.
+    usb_open = turzx.split("public synchronized boolean openOrRequestPermission()", 1)[1].split(
+        "private void initialize()", 1)[0]
+    assert "clearHalt();" not in usb_open
+    init_failure = usb_open.split("catch (Exception first)", 1)[1]
+    assert init_failure.index("close();") < init_failure.index("return false;")
+    # Every new session primes the native 462x1920 JPEG surface before live HUD.
+    assert "usbNeedsPrimeFrame = true;" in source
+    assert "sendUsbPrimerFrame();" in source
+    primer = source.split("private void sendUsbPrimerFrame()", 1)[1].split(
+        "private void handleUsbError", 1)[0]
+    assert "c.drawColor(Color.BLACK)" in primer
+    assert "SystemClock.sleep(200L)" in primer
     # Use complete source methods, so restoring the old early return fails this test.
     methods = []
     for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),

@@ -228,18 +228,23 @@ public final class TurzxDisplay {
         lastOpenFailure = "";
         openFailureStreak = 0;
 
-        // 여는 시점에는 이전 세션의 halt 가 남아 있을 수 있으므로 여기서는 정리한다.
-        clearHalt();
+        // A freshly opened Android USB connection already starts with matching
+        // host/device data toggles. Sending a raw CLEAR_FEATURE here can reset
+        // only the panel side and corrupt the first JPEG after permission is
+        // granted. Drain stale replies, but do not touch endpoint halt state on
+        // the normal open path.
         drainInput(5, 2);
         sawInbound = false;
         lastInboundElapsed = SystemClock.elapsedRealtime();
         try {
             initialize();
         } catch (Exception first) {
-            clearHalt();
-            drainInput(5, 2);
-            Thread.sleep(300L);
-            initialize();
+            // Never retry initialization on a connection whose USB sequence is
+            // uncertain. Closing it lets Android establish fresh endpoint
+            // toggles on the next one-second open attempt.
+            noteOpenFailure("초기화 실패");
+            close();
+            return false;
         }
         return true;
     }
