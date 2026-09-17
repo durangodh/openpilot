@@ -801,8 +801,29 @@ public final class HudService extends Service {
                 if (sh.length() > 0) sh.append("; ");
                 sh.append("am force-stop ").append(navPackage(stop));
             }
-            if (sh.length() == 0) return;
-            Runtime.getRuntime().exec(new String[] {"su", "-c", sh.toString()}).waitFor();
+            if (sh.length() > 0) {
+                // 선택 앱을 먼저 살린 뒤 nMirror의 표시 대상을 바꾼다. 반대로 하면
+                // 네이버 Activity가 아직 없어서 nMirror가 대기 화면에 머물 수 있다.
+                Runtime.getRuntime().exec(new String[] {"su", "-c", sh.toString()}).waitFor();
+                SystemClock.sleep(200L);
+            }
+            synchronizeNMirrorSelection(context, launch);
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * 새 nMirror에 현재 선택 내비를 알려 차량 화면의 표시 앱도 함께 전환한다.
+     * 지도 TCP 소켓이나 HUD 렌더 스레드는 건드리지 않으므로, 이전 동기화
+     * 커밋에서 발생했던 지도 대기/축소 화면 문제와 분리된 단방향 알림이다.
+     */
+    private static void synchronizeNMirrorSelection(Context context, int navApp) {
+        try {
+            Intent sync = new Intent("com.aa.nmirror.SET_NAV_SOURCE");
+            sync.setPackage("com.aa.nmirror");
+            sync.putExtra("nav_app", NavSelectionProtocol.normalizeApp(navApp));
+            sync.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
+            context.sendBroadcast(sync);
         } catch (Exception ignored) {
         }
     }

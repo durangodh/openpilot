@@ -92,6 +92,13 @@ def main():
     # blank indefinitely.
     assert "if (!AppPrefs.pendingNavRequest(this).isEmpty())" not in source
     assert "generation == navigationGeneration" not in source
+    # HUD selection follows the safe order: start the selected app, then notify
+    # the new nMirror. It must not suspend or invalidate the map TCP stream.
+    assert 'new Intent("com.aa.nmirror.SET_NAV_SOURCE")' in source
+    assert 'sync.setPackage("com.aa.nmirror")' in source
+    switch_body = source.split("static void switchNavApps", 1)[1].split(
+        "private static void synchronizeNMirrorSelection", 1)[0]
+    assert switch_body.index("waitFor()") < switch_body.index("synchronizeNMirrorSelection")
     # Use complete source methods, so restoring the old early return fails this test.
     methods = []
     for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),
