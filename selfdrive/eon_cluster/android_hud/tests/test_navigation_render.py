@@ -87,6 +87,8 @@ def main():
     args = parser.parse_args()
     source = (Path(__file__).resolve().parents[1] /
               "app/src/main/java/ai/comma/remotehud/HudService.java").read_text(encoding="utf-8")
+    model_world = (Path(__file__).resolve().parents[1] /
+                   "app/src/main/java/ai/comma/remotehud/ModelWorldGL.java").read_text(encoding="utf-8")
     activity = (Path(__file__).resolve().parents[1] /
                 "app/src/main/java/ai/comma/remotehud/MainActivity.java").read_text(encoding="utf-8")
     # A navigation button request must never suspend the TCP map stream. An
@@ -112,6 +114,12 @@ def main():
     assert "suUnavailable" not in source
     assert "nextSuStatsRetryElapsed = now + 30000L" in source
     assert "now >= nextSuStatsRetryElapsed" in source
+    # The model/path road must mask the Static Map even while a pair of
+    # camera-observed edges is temporarily short or stale.
+    draw_road = model_world.split("private void drawRoad(", 1)[1].split(
+        "private void drawFallbackRoad(", 1)[0]
+    assert draw_road.index("drawFallbackRoad(path, scene, color)") < draw_road.index(
+        "if (left == null || right == null)")
     # Use complete source methods, so restoring the old early return fails this test.
     methods = []
     for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),

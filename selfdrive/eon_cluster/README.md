@@ -9,7 +9,7 @@ This branch uses one external-HUD path only:
 
 Enable it with the **S9 외부 HUD 사용** toggle. The following Params are sent to the S9 at runtime:
 
-- `EonClusterHudFps`: 0 pauses S9 rendering; 1-15 FPS otherwise (7 recommended).
+- `EonClusterHudFps`: 0 pauses S9 rendering; 1-15 FPS otherwise (10 recommended; EON telemetry is capped at 10 Hz).
 - `EonClusterHudMapFps`: 2-5 FPS for the native TMAP map stream (3 recommended).
 - `EonClusterHudBrightness`: defaults to 0, which uses automatic day/night brightness; 1-100 is fixed.
 - `EonClusterHudDayBrightness`: 1-100 automatic-mode brightness from 07:00 to 18:59 (65 default).

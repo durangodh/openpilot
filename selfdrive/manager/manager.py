@@ -95,7 +95,7 @@ def manager_init() -> None:
     ("EonClusterHudRoadZ", "100"),
     ("EonClusterHudPitchDyn", "60"),
     ("EonClusterHudViewPitch", "0"),
-    ("EonClusterHudFps", "7"),
+    ("EonClusterHudFps", "10"),
     ("EonClusterHudMapFps", "3"),
     ("EonClusterHudBrightness", "0"),
     ("EonClusterHudDayBrightness", "65"),
@@ -240,6 +240,13 @@ def manager_init() -> None:
       params.get("EonClusterHudNightBrightness") is None and
       params.get("EonClusterHudBrightness") == b"65"):
     params.put("EonClusterHudBrightness", "0")
+
+  # Migrate the legacy stored 7 FPS value once. Preserve 0 (paused) and every
+  # non-legacy value the driver selected.
+  if params.get("EonClusterHudGeometryV2Migrated") is None:
+    if params.get("EonClusterHudFps", encoding="utf8") in (None, "7"):
+      params.put("EonClusterHudFps", "10")
+    params.put_bool("EonClusterHudGeometryV2Migrated", True)
 
   # set unset params
   for k, v in default_params:

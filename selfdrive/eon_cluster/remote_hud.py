@@ -1235,7 +1235,7 @@ def main():
   map_server = MapFrameServer()
   noo_enabled = _param_bool(params, PARAM_NOO_ENABLED)
   path_offset = _path_offset(params)
-  configured_fps = _param_int(params, PARAM_FPS, 7, 0, 15)
+  configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
   telemetry_fps = PAUSED_TELEMETRY_FPS if configured_fps == 0 else min(MAX_TELEMETRY_FPS, configured_fps)
   map_server.set_poll_fps(_param_int(params, PARAM_MAP_FPS, 3, 2, 5))
   next_param_read = 0.0
@@ -1252,7 +1252,7 @@ def main():
     if started >= next_param_read:
       noo_enabled = _param_bool(params, PARAM_NOO_ENABLED)
       path_offset = _path_offset(params)
-      configured_fps = _param_int(params, PARAM_FPS, 7, 0, 15)
+      configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
       telemetry_fps = PAUSED_TELEMETRY_FPS if configured_fps == 0 else min(MAX_TELEMETRY_FPS, configured_fps)
       map_server.set_poll_fps(_param_int(params, PARAM_MAP_FPS, 3, 2, 5))
       next_param_read = started + 1.0

@@ -1215,10 +1215,10 @@
    "group": "S9HUD",
    "name": "EonClusterHudFps",
    "title": "S9 HUD FPS",
-   "descr": "EON 주행정보 송신과 S9 렌더링 속도입니다. 권장값 7 / 0은 화면 정지(연결유지 2Hz) / 10 초과는 EON 송신 10Hz 상한.",
+   "descr": "EON 주행정보 송신과 S9 렌더링 속도입니다. 권장값 10 / 0은 화면 정지(연결유지 2Hz) / 10 초과는 EON 송신 10Hz 상한.",
    "min": 0,
    "max": 15,
-   "default": 7,
+   "default": 10,
    "unit": 1
   },
   {

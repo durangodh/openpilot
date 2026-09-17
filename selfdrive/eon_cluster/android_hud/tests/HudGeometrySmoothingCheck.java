@@ -11,6 +11,9 @@ public final class HudGeometrySmoothingCheck {
         close(0.72f, HudGeometrySmoothing.lateralAlpha(0.40f, 10f));
         close(0.56f, HudGeometrySmoothing.lateralAlpha(0.40f, 62.5f));
         close(0.40f, HudGeometrySmoothing.lateralAlpha(0.40f, 90f));
+        close(0.84f, HudGeometrySmoothing.lateralAlpha(0.40f, 10f, true));
+        close(0.62f, HudGeometrySmoothing.lateralAlpha(0.40f, 62.5f, true));
+        close(0.40f, HudGeometrySmoothing.lateralAlpha(0.40f, 90f, true));
         close(0.80f, HudGeometrySmoothing.lateralAlpha(0.80f, 10f));
         close(0.40f, HudGeometrySmoothing.lateralAlpha(0.40f, Float.NaN));
         System.out.println("HudGeometrySmoothingCheck: passed (near/mid/far lateral response)");

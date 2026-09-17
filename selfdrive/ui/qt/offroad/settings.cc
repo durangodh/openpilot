@@ -1217,8 +1217,8 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudFps", "S9 HUD FPS",
-      "EON 주행정보 송신과 S9 렌더링 속도입니다. 권장값 7 / 0은 화면 정지(연결유지 2Hz) / 10 초과는 EON 송신 10Hz 상한.",
-      "../assets/offroad/icon_road.png", 0, 15, 1, 0, 7, this));
+      "EON 주행정보 송신과 S9 렌더링 속도입니다. 권장값 10 / 0은 화면 정지(연결유지 2Hz) / 10 초과는 EON 송신 10Hz 상한.",
+      "../assets/offroad/icon_road.png", 0, 15, 1, 0, 10, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudMapFps", "S9 HUD MAP FPS",
       "티맵 지도 수신·파일검사·S9 전송 속도입니다. 권장값 3 / 부하 최소 2 / 움직임 우선 5.",

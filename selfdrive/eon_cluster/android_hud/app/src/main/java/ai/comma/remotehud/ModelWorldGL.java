@@ -461,7 +461,11 @@ final class ModelWorldGL {
                     : decode(laneObject.optJSONArray("p"), rawConfidence);
             boolean fresh = smoothedLanes[i].count < 2;
             if (rawLane != null && rawLane.count >= 2) {
-                smoothLine(smoothedLanes[i], rawLane, geometryAlpha);
+                // The two ego-lane boundaries should follow fresh camera
+                // geometry faster near the car. Outer lanes keep the original
+                // smoothing so uncertain adjacent markings do not flicker.
+                smoothLine(smoothedLanes[i], rawLane, geometryAlpha,
+                        i == 1 || i == 2);
             }
             laneConfidence[i] = fresh ? rawConfidence
                     : laneConfidence[i] * 0.68f + rawConfidence * 0.32f;
@@ -554,6 +558,11 @@ final class ModelWorldGL {
     }
 
     private static Line smoothLine(Line target, Line sample, float alpha) {
+        return smoothLine(target, sample, alpha, false);
+    }
+
+    private static Line smoothLine(Line target, Line sample, float alpha,
+                                   boolean egoLane) {
         if (target.count != sample.count || target.count < 2) {
             target.count = sample.count;
             for (int i = 0; i < sample.count; i++) {
@@ -568,7 +577,8 @@ final class ModelWorldGL {
                 // curve. Follow fresh model geometry faster there, while the
                 // distance and road-height axes retain the original smoothing
                 // and far geometry stays stable near the horizon.
-                float lateralAlpha = HudGeometrySmoothing.lateralAlpha(alpha, sample.x[i]);
+                float lateralAlpha = HudGeometrySmoothing.lateralAlpha(
+                        alpha, sample.x[i], egoLane);
                 target.y[i] += (sample.y[i] - target.y[i]) * lateralAlpha;
                 target.z[i] += (sample.z[i] - target.z[i]) * alpha;
             }
@@ -779,29 +789,36 @@ final class ModelWorldGL {
     }
 
     private void drawRoad(Line path, Line left, Line right, JSONObject scene, int color) {
-        int count;
-        if (left != null && right != null) {
-            count = Math.min(left.count, right.count);
-            int v = 0;
-            for (int i = 0; i < count && v + 4 <= vertices.length; i++) {
-                float x = (left.x[i] + right.x[i]) * 0.5f;
-                float z = zAt(path, x) * roadZGain;
-                float ly = Math.max(left.y[i], right.y[i]);
-                float ry = Math.min(left.y[i], right.y[i]);
-                if (!project(x, ly, z, projected)) continue;
-                vertices[v++] = ndcX(projected[0]);
-                vertices[v++] = ndcY(projected[1] - TOP);
-                if (!project(x, ry, z, projected)) {
-                    v -= 2;
-                    continue;
-                }
-                vertices[v++] = ndcX(projected[0]);
-                vertices[v++] = ndcY(projected[1] - TOP);
-            }
-            drawVertices(GLES20.GL_TRIANGLE_STRIP, v / 2, color, 1f);
+        // Always lay down the path-derived road first. Previously this was
+        // used only when an observed edge was missing; a short or stale pair
+        // of edges could therefore leave holes where the Static Map showed
+        // through the camera road. The observed road is still drawn above it.
+        drawFallbackRoad(path, scene, color);
+        if (left == null || right == null) {
             return;
         }
 
+        int count = Math.min(left.count, right.count);
+        int v = 0;
+        for (int i = 0; i < count && v + 4 <= vertices.length; i++) {
+            float x = (left.x[i] + right.x[i]) * 0.5f;
+            float z = zAt(path, x) * roadZGain;
+            float ly = Math.max(left.y[i], right.y[i]);
+            float ry = Math.min(left.y[i], right.y[i]);
+            if (!project(x, ly, z, projected)) continue;
+            vertices[v++] = ndcX(projected[0]);
+            vertices[v++] = ndcY(projected[1] - TOP);
+            if (!project(x, ry, z, projected)) {
+                v -= 2;
+                continue;
+            }
+            vertices[v++] = ndcX(projected[0]);
+            vertices[v++] = ndcY(projected[1] - TOP);
+        }
+        drawVertices(GLES20.GL_TRIANGLE_STRIP, v / 2, color, 1f);
+    }
+
+    private void drawFallbackRoad(Line path, JSONObject scene, int color) {
         float laneWidth = clamp((float) scene.optDouble("laneWidth", 3.5d), 2.2f, 4.2f);
         JSONObject lanePosition = scene.optJSONObject("lanePosition");
         int laneCount = lanePosition == null ? 1 : Math.max(1, lanePosition.optInt("n", 1));

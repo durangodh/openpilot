@@ -89,7 +89,7 @@ def _packet(sm, *args, **kwargs):
   packet["hudViewPitch"] = view_pitch
 
   # Preserve 0 for FPS (pause) and brightness (auto), matching the UI.
-  packet["hudFps"] = _bounded_int("EonClusterHudFps", 7, 0, 15)
+  packet["hudFps"] = _bounded_int("EonClusterHudFps", 10, 0, 15)
   packet["hudMapFps"] = _bounded_int("EonClusterHudMapFps", 3, 2, 5)
   packet["hudBrightness"] = _bounded_int("EonClusterHudBrightness", 0, 0, 100)
   packet["hudDayBrightness"] = _bounded_int("EonClusterHudDayBrightness", 65, 1, 100)
