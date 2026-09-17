@@ -109,6 +109,9 @@ def main():
     switch_body = source.split("static void switchNavApps", 1)[1].split(
         "private static void synchronizeNMirrorSelection", 1)[0]
     assert switch_body.index("waitFor()") < switch_body.index("synchronizeNMirrorSelection")
+    assert switch_body.index("synchronizeNMirrorSelection") < switch_body.index("am force-stop")
+    assert "NMIRROR_SYNC_ATTEMPTS = 4" in source
+    assert "am broadcast --user 0" in source
     # A tap must open the selected navigation Activity on the display where
     # the settings screen is currently visible, not only update preferences.
     assert "launchNavigationOnCurrentDisplay(launch)" in activity

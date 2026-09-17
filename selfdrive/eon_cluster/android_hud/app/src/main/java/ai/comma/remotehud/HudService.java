@@ -143,6 +143,9 @@ public final class HudService extends Service {
     private static final long USB_OPEN_STALL_COOLDOWN_MS = 15000L;
     /** 부팅 직후 Android USB 서비스와 Magisk가 준비될 때까지 첫 검색을 늦춘다. */
     private static final long BOOT_USB_SCAN_DELAY_MS = 5000L;
+    /** nMirror가 부팅/화면 재생성 중 첫 방송을 놓쳐도 선택값을 받도록 재전송한다. */
+    private static final int NMIRROR_SYNC_ATTEMPTS = 4;
+    private static final long NMIRROR_SYNC_RETRY_MS = 500L;
 
     /** EON 텔레메트리가 이보다 오래 끊기면 화면에 표시한다 */
     private static final long EON_STALE_MS = 3000L;
@@ -801,19 +804,22 @@ public final class HudService extends Service {
                     context.getPackageManager().getLaunchIntentForPackage(navPackage(launch));
             String component = intent != null && intent.getComponent() != null
                     ? intent.getComponent().flattenToShortString() : null;
-            StringBuilder sh = new StringBuilder();
-            if (component != null) sh.append("am start -n ").append(component);
-            if (stop != 0) {
-                if (sh.length() > 0) sh.append("; ");
-                sh.append("am force-stop ").append(navPackage(stop));
+            if (component != null) {
+                Runtime.getRuntime().exec(new String[] {
+                        "su", "-c", "am start -n " + component
+                }).waitFor();
+                SystemClock.sleep(300L);
             }
-            if (sh.length() > 0) {
-                // 선택 앱을 먼저 살린 뒤 nMirror의 표시 대상을 바꾼다. 반대로 하면
-                // 네이버 Activity가 아직 없어서 nMirror가 대기 화면에 머물 수 있다.
-                Runtime.getRuntime().exec(new String[] {"su", "-c", sh.toString()}).waitFor();
-                SystemClock.sleep(200L);
-            }
+
+            // 기존 앱을 먼저 죽이면 nMirror가 전환 방송을 한 번 놓쳤을 때 정지된
+            // 화면만 남는다. 새 앱을 살린 상태에서 nMirror를 충분히 동기화한 뒤
+            // 마지막에 반대쪽 앱을 종료한다.
             synchronizeNMirrorSelection(context, launch);
+            if (stop != 0) {
+                Runtime.getRuntime().exec(new String[] {
+                        "su", "-c", "am force-stop " + navPackage(stop)
+                }).waitFor();
+            }
         } catch (Exception ignored) {
         }
     }
@@ -824,13 +830,28 @@ public final class HudService extends Service {
      * 커밋에서 발생했던 지도 대기/축소 화면 문제와 분리된 단방향 알림이다.
      */
     private static void synchronizeNMirrorSelection(Context context, int navApp) {
-        try {
-            Intent sync = new Intent("com.aa.nmirror.SET_NAV_SOURCE");
-            sync.setPackage("com.aa.nmirror");
-            sync.putExtra("nav_app", NavSelectionProtocol.normalizeApp(navApp));
-            sync.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
-            context.sendBroadcast(sync);
-        } catch (Exception ignored) {
+        final int selected = NavSelectionProtocol.normalizeApp(navApp);
+        final String rootBroadcast = "am broadcast --user 0"
+                + " -a com.aa.nmirror.SET_NAV_SOURCE"
+                + " -p com.aa.nmirror --ei nav_app " + selected;
+        for (int attempt = 0; attempt < NMIRROR_SYNC_ATTEMPTS; attempt++) {
+            if (attempt > 0) {
+                SystemClock.sleep(NMIRROR_SYNC_RETRY_MS);
+            }
+            try {
+                Intent sync = new Intent("com.aa.nmirror.SET_NAV_SOURCE");
+                sync.setPackage("com.aa.nmirror");
+                sync.putExtra("nav_app", selected);
+                sync.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
+                context.sendBroadcast(sync);
+            } catch (Exception ignored) {
+            }
+            try {
+                // Android 13이 백그라운드 앱의 외부 방송을 제한하는 경우에도
+                // root ActivityManager 경로로 같은 선택값을 확실히 전달한다.
+                Runtime.getRuntime().exec(new String[] {"su", "-c", rootBroadcast}).waitFor();
+            } catch (Exception ignored) {
+            }
         }
     }
 
