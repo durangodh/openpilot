@@ -5,11 +5,13 @@ from selfdrive.controls.lib.t_follow import (
   clamp_desired_follow_distance,
   filter_t_follow_accel,
   get_stopped_lead_comfort_brake,
+  get_stationary_lead_target_accel,
   get_t_follow_base,
   get_t_follow_decel_margin,
   hold_t_follow_while_decelerating,
   limit_t_follow_change,
   update_t_follow_decel_hold,
+  StationaryLeadApproach,
 )
 
 
@@ -61,6 +63,32 @@ class TestTFollow(unittest.TestCase):
     self.assertEqual(get_stopped_lead_comfort_brake(2.5, 70.0 / 3.6, 0.0, False), 2.5)
     self.assertEqual(get_stopped_lead_comfort_brake(2.5, 8.0, 0.0, True), 2.5)
     self.assertEqual(get_stopped_lead_comfort_brake(2.5, 20.0, 18.0, True), 2.5)
+
+  def test_stationary_lead_target_uses_remaining_stopping_distance(self):
+    target = get_stationary_lead_target_accel(20.0, 106.0, 6.0)
+    self.assertAlmostEqual(target, -2.0)
+
+  def test_stationary_lead_target_is_bounded(self):
+    self.assertEqual(get_stationary_lead_target_accel(20.0, 16.0, 6.0), -2.5)
+    self.assertEqual(get_stationary_lead_target_accel(5.0, 5.0, 6.0), -2.5)
+    self.assertEqual(get_stationary_lead_target_accel(1.0, 30.0, 6.0), 0.0)
+
+  def test_stationary_approach_confirms_and_rate_limits_brake(self):
+    approach = StationaryLeadApproach(dt=0.05)
+    self.assertEqual(approach.update(20.0, 106.0, 0.0, True, 6.0), 0.0)
+    self.assertEqual(approach.update(20.0, 106.0, 0.0, True, 6.0), 0.0)
+    target = approach.update(20.0, 106.0, 0.0, True, 6.0)
+    self.assertAlmostEqual(target, -0.03)
+
+  def test_stationary_approach_holds_short_lead_dropout(self):
+    approach = StationaryLeadApproach(dt=0.05)
+    for _ in range(10):
+      approach.update(20.0, 106.0, 0.0, True, 6.0)
+    held = approach.target_accel
+    for _ in range(6):
+      self.assertAlmostEqual(approach.update(20.0, 0.0, 0.0, False, 6.0), held)
+    released = approach.update(20.0, 0.0, 0.0, False, 6.0)
+    self.assertGreater(released, held)
 
   def test_both_t_follow_directions_are_rate_limited(self):
     self.assertAlmostEqual(limit_t_follow_change(1.5, 1.2, dt=0.05), 1.205)
