@@ -4,24 +4,36 @@ from pathlib import Path
 from types import SimpleNamespace as NS
 
 
-def brake_output(previous, requested, state='pid'):
+def brake_output(previous, requested, state='pid', v_ego=None, brake_pressed=False,
+                 hold_active=False):
   source = Path(__file__).resolve().parents[1] / 'lib' / 'longcontrol.py'
   tree = ast.parse(source.read_text())
   cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'LongControl')
   update = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'update')
   states = NS(off='off', pid='pid', stopping='stopping', starting='starting')
   env = dict(LongCtrlState=states, CONTROL_N=2, T_IDXS=[0, 1], DT_CTRL=0.01,
+             LEAD_DROPOUT_FALLBACK_FRAMES=150,
              clip=lambda x, lo, hi: max(lo, min(x, hi)),
              interp=lambda x, bp, values: values[0], apply_deadzone=lambda x, dz: x,
              long_control_state_trans=lambda *args: (state, False))
   exec(compile(ast.Module(body=[update], type_ignores=[]), str(source), 'exec'), env)
   pid = NS(update=lambda *a, **kw: requested, p=requested, i=0.0, d=0.0, f=0.0)
   obj = NS(_read_params=lambda: None,
-           CP=NS(stoppingControl=True, stopAccel=-0.6, longitudinalTuning=NS(deadzoneBP=[0], deadzoneV=[0])),
+           _reset_standstill_lead=lambda: None,
+           _update_standstill_lead=lambda *a: False,
+           CP=NS(stoppingControl=True, stopAccel=-0.6, vEgoStarting=0.3,
+                 longitudinalTuning=NS(deadzoneBP=[0], deadzoneV=[0])),
            actuator_delay_lower=0.2, actuator_delay_upper=0.4, pid=pid,
            long_control_state=state, last_output_accel=previous,
-           stopping_decel_rate=1.0, reset=lambda *a: None)
-  cs = NS(vEgo=0.0 if state == 'stopping' else 10.0, brakePressed=False,
+           stopping_decel_rate=1.0, standstill_hold_accel=-1.1,
+           standstill_hold_rate=1.2, standstill_hold_active=hold_active,
+           start_request_frames=0, standstill_release_speed=0.2,
+           standstill_release_frames=10, standstill_lead_latched=False,
+           lead_missing_frames=0,
+           reset=lambda *a: None)
+  speed = (0.0 if state == 'stopping' else 10.0) if v_ego is None else v_ego
+  cs = NS(vEgo=speed, standstill=speed < 0.01, brakePressed=brake_pressed,
+          gasPressed=False, buttonEvents=[],
           cruiseState=NS(standstill=False))
   plan = NS(speeds=[10.0, 10.0], accels=[0.0, 0.0], jerks=[0.0])
   return env['update'](obj, True, cs, plan, (-3.5, 2.0), 0.0)[0]
@@ -38,6 +50,13 @@ def test_actuator_limits_still_apply():
   assert brake_output(-0.5, 3.0) == 2.0
 
 
-def test_c2_stop_accel_is_held_without_extra_standstill_ramp():
-  assert brake_output(-0.6, 0.0, 'stopping') == -0.6
+def test_standstill_hold_strengthens_only_after_actual_stop():
+  assert brake_output(-0.6, 0.0, 'stopping', v_ego=0.2) == -0.6
+  assert brake_output(-0.6, 0.0, 'stopping', v_ego=0.0) < -0.6
   assert brake_output(-1.1, 0.0, 'stopping') == -1.1
+
+
+def test_latched_hold_survives_small_wheel_speed_and_respects_driver_brake():
+  assert brake_output(-0.6, 0.0, 'stopping', v_ego=0.1, hold_active=True) < -0.6
+  assert brake_output(-0.6, 0.0, 'stopping', v_ego=0.0,
+                      brake_pressed=True) == -0.6

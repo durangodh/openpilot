@@ -1534,6 +1534,16 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_openpilot.png", 20, 200, 1, 0, 120, this));
 
   list->addItem(new ParamValueControlF(
+      "StandstillHoldApply", "STANDSTILL HOLD ACCEL",
+      "완전히 정지한 뒤에만 사용하는 유지 제동값(×-0.02m/s²)입니다. 정지 접근 제동에는 영향을 주지 않습니다. 기본값 55 = -1.10m/s².",
+      "../assets/offroad/icon_openpilot.png", 10, 100, 5, 0, 55, this));
+
+  list->addItem(new ParamValueControlF(
+      "StandstillHoldRate", "STANDSTILL HOLD RATE",
+      "완전정지 후 유지 제동값까지 강화하는 속도(×0.01m/s³)입니다. 값 증가(+): 더 빨리 고정 / 값 감소(-): 더 부드럽게 고정. 기본값: 120.",
+      "../assets/offroad/icon_openpilot.png", 20, 200, 1, 0, 120, this));
+
+  list->addItem(new ParamValueControlF(
       "StandstillReleaseSpeed", "STANDSTILL RELEASE SPEED",
       "정지 선행차가 확인되지 않은 상태에서 자동 출발을 시작하는 플래너 목표속도(×0.1m/s)입니다. 정지 선행차가 확인되면 실제 이동을 레이더로 확인하고, 레이더가 장시간 끊기면 다시 플래너 기준으로 자동 출발합니다. 가속페달·RES 는 항상 즉시 출발. 기본값: 2 (=0.2m/s).",
       "../assets/offroad/icon_openpilot.png", 2, 20, 1, 0, 2, this));

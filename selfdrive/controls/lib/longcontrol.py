@@ -88,11 +88,18 @@ class LongControl:
     self.start_accel_apply = 0.0
     self.stop_accel_apply = 0.3
     self.stopping_decel_rate = CP.stoppingDecelRate
+    # StopAccelApply controls the approach to zero speed.  A separate target
+    # is needed after the car is fully stopped so a comfortable stop does not
+    # slowly lose hydraulic hold during a long wait.
+    self.standstill_hold_accel = -1.1
+    self.standstill_hold_rate = 1.2
+    self.standstill_hold_active = False
 
     self._update_pid_gains()
     self._update_actuator_delays()
     self._update_start_stop_accel()
     self._update_stopping_decel_rate()
+    self._update_standstill_hold()
     self._update_standstill_release()
     self.start_request_frames = 0
     self.standstill_lead_latched = False
@@ -214,6 +221,21 @@ class LongControl:
       rate = 0.0
     self.stopping_decel_rate = float(clip(rate, 0.2, 2.0)) if rate > 0.0 else self.CP.stoppingDecelRate
 
+  def _update_standstill_hold(self):
+    try:
+      hold_raw = self.params.get("StandstillHoldApply", encoding="utf8")
+      hold_apply = int(hold_raw) if hold_raw not in (None, "") else 55
+    except (TypeError, ValueError):
+      hold_apply = 55
+    try:
+      rate_raw = self.params.get("StandstillHoldRate", encoding="utf8")
+      hold_rate = int(rate_raw) * 0.01 if rate_raw not in (None, "") else 1.2
+    except (TypeError, ValueError):
+      hold_rate = 1.2
+
+    self.standstill_hold_accel = -2.0 * float(clip(hold_apply * 0.01, 0.1, 1.0))
+    self.standstill_hold_rate = float(clip(hold_rate, 0.2, 2.0))
+
   def _read_params(self):
     self.read_param_count += 1
     if self.read_param_count >= 100:
@@ -226,6 +248,7 @@ class LongControl:
     elif self.read_param_count == 40:
       self._update_start_stop_accel()
       self._update_stopping_decel_rate()
+      self._update_standstill_hold()
 
   def reset(self, v_pid=0.0):
     """Reset PID controller and change setpoint"""
@@ -299,6 +322,9 @@ class LongControl:
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
       CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now, start_gate)
 
+    if self.long_control_state != LongCtrlState.stopping:
+      self.standstill_hold_active = False
+
     if self.long_control_state == LongCtrlState.off:
       self.reset(CS.vEgo)
       output_accel = 0.
@@ -310,6 +336,18 @@ class LongControl:
         output_accel -= self.stopping_decel_rate * DT_CTRL
         if soft_hold:
           output_accel = self.CP.stopAccel
+
+      # Arm only after an actual stop, then keep the stronger request latched
+      # through tiny wheel-speed fluctuations.  This does not change braking
+      # on the approach and it is cleared as soon as the state machine accepts
+      # a genuine departure.
+      if CS.standstill or CS.vEgo < 0.05:
+        self.standstill_hold_active = True
+      if self.standstill_hold_active and not CS.brakePressed:
+        hold_target = min(self.CP.stopAccel, self.standstill_hold_accel)
+        if output_accel > hold_target:
+          output_accel = max(hold_target,
+                             output_accel - self.standstill_hold_rate * DT_CTRL)
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:

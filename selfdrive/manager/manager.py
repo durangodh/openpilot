@@ -170,6 +170,8 @@ def manager_init() -> None:
     ("StartAccelApply", "0"),
     ("StopAccelApply", "30"),
     ("StoppingDecelRate", "120"),
+    ("StandstillHoldApply", "55"),
+    ("StandstillHoldRate", "120"),
     ("TrafficStopAccel", "80"),
     ("TrafficStopDistanceAdjust", "400"),
     ("StopDistance", "600"),
@@ -259,7 +261,6 @@ def manager_init() -> None:
     try:
       params.put("LeadDepartCost", "5")
       for legacy_key in ("TFollowDecelBoost", "TFollowClosingMargin",
-                         "StandstillHoldApply", "StandstillHoldRate",
                          "RadarReactionFactor", "SccVisionMismatchFallback"):
         try:
           os.remove(os.path.join("/data/params/d", legacy_key))
