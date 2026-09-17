@@ -1,6 +1,7 @@
 package ai.comma.remotehud;
 
 import android.app.Activity;
+import android.app.ActivityOptions;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -385,14 +386,41 @@ public final class MainActivity extends Activity {
 
     private void selectNavApp(int app) {
         String packageName = app == 2 ? "com.nhn.android.nmap" : "com.skt.tmap.ku";
-        if (getPackageManager().getLaunchIntentForPackage(packageName) == null) {
+        Intent launch = getPackageManager().getLaunchIntentForPackage(packageName);
+        if (launch == null) {
             new AlertDialog.Builder(this).setMessage(app == 2 ? "네이버지도를 먼저 설치해 주세요." : "티맵을 먼저 설치해 주세요.")
                     .setPositiveButton("확인", null).show();
             return;
         }
         AppPrefs.requestNavApp(this, app);
-        startHudService(HudService.ACTION_SELECT_NAV);
+        // 이 버튼은 설정값만 바꾸는 버튼이 아니다. 현재 MainActivity가 보이는
+        // S9/nMirror 디스플레이에 선택한 내비 Activity를 직접 띄운다. 서비스의
+        // 백그라운드 `am start`는 기본 디스플레이로 빠질 수 있어 대체할 수 없다.
+        boolean launchedHere = launchNavigationOnCurrentDisplay(launch);
+        startHudService(HudService.ACTION_SELECT_NAV, launchedHere);
         refreshStatus();
+    }
+
+    private boolean launchNavigationOnCurrentDisplay(Intent launch) {
+        try {
+            launch.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            if (Build.VERSION.SDK_INT >= 26 && getDisplay() != null) {
+                ActivityOptions options = ActivityOptions.makeBasic();
+                options.setLaunchDisplayId(getDisplay().getDisplayId());
+                startActivity(launch, options.toBundle());
+            } else {
+                startActivity(launch);
+            }
+            return true;
+        } catch (RuntimeException first) {
+            try {
+                // 일부 ROM이 launchDisplayId를 막으면 일반 Activity 실행으로 복구한다.
+                startActivity(launch);
+                return true;
+            } catch (RuntimeException ignored) {
+                return false;
+            }
+        }
     }
 
     private void refreshStatus() {
@@ -554,10 +582,17 @@ public final class MainActivity extends Activity {
     }
 
     private void startHudService(String action) {
+        startHudService(action, false);
+    }
+
+    private void startHudService(String action, boolean navigationLaunchedHere) {
         try {
             Intent service = new Intent(this, HudService.class);
             if (action != null) {
                 service.setAction(action);
+            }
+            if (navigationLaunchedHere) {
+                service.putExtra(HudService.EXTRA_NAV_FOREGROUND_LAUNCHED, true);
             }
             startForegroundService(service);
         } catch (Exception ignored) {

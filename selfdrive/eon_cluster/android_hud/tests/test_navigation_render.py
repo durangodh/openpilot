@@ -87,6 +87,8 @@ def main():
     args = parser.parse_args()
     source = (Path(__file__).resolve().parents[1] /
               "app/src/main/java/ai/comma/remotehud/HudService.java").read_text(encoding="utf-8")
+    activity = (Path(__file__).resolve().parents[1] /
+                "app/src/main/java/ai/comma/remotehud/MainActivity.java").read_text(encoding="utf-8")
     # A navigation button request must never suspend the TCP map stream. An
     # unacknowledged request previously left both the S9 and external HUD map
     # blank indefinitely.
@@ -99,6 +101,12 @@ def main():
     switch_body = source.split("static void switchNavApps", 1)[1].split(
         "private static void synchronizeNMirrorSelection", 1)[0]
     assert switch_body.index("waitFor()") < switch_body.index("synchronizeNMirrorSelection")
+    # A tap must open the selected navigation Activity on the display where
+    # the settings screen is currently visible, not only update preferences.
+    assert "launchNavigationOnCurrentDisplay(launch)" in activity
+    assert "options.setLaunchDisplayId(getDisplay().getDisplayId())" in activity
+    assert "EXTRA_NAV_FOREGROUND_LAUNCHED" in activity
+    assert "foregroundLaunched ? null" in source
     # Use complete source methods, so restoring the old early return fails this test.
     methods = []
     for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),

@@ -73,6 +73,8 @@ public final class HudService extends Service {
     static final String ACTION_RESCAN_USB = "ai.comma.remotehud.RESCAN_USB";
     static final String ACTION_SELECT_NAV = "ai.comma.remotehud.SELECT_NAV";
     static final String ACTION_STATIC_MAP_SETTINGS = "ai.comma.remotehud.STATIC_MAP_SETTINGS";
+    static final String EXTRA_NAV_FOREGROUND_LAUNCHED =
+            "ai.comma.remotehud.NAV_FOREGROUND_LAUNCHED";
     static volatile boolean navSelectionSupported;
     private long lastNavRequestAt;
     private String lastNavRequestId = "";
@@ -509,9 +511,12 @@ public final class HudService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         boolean fromBoot = intent != null && intent.getBooleanExtra(EXTRA_FROM_BOOT, false);
         if (intent != null && ACTION_SELECT_NAV.equals(intent.getAction())) {
+            final boolean foregroundLaunched = intent.getBooleanExtra(
+                    EXTRA_NAV_FOREGROUND_LAUNCHED, false);
             new Thread(() -> {
                 synchronized (AppPrefs.class) {
-                    applyNavigationSelection(AppPrefs.getNavApp(this), true);
+                    applyNavigationSelection(AppPrefs.getNavApp(this), true,
+                            foregroundLaunched);
                 }
             }, "hud-select-nav").start();
         }
@@ -766,10 +771,15 @@ public final class HudService extends Service {
      * Magisk에서 허용한 Remote HUD 루트 권한으로 launcher Activity를 실행한다.
      */
     private void applyNavigationSelection(int requested) {
-        applyNavigationSelection(requested, false);
+        applyNavigationSelection(requested, false, false);
     }
 
     private void applyNavigationSelection(int requested, boolean explicitSelection) {
+        applyNavigationSelection(requested, explicitSelection, false);
+    }
+
+    private void applyNavigationSelection(int requested, boolean explicitSelection,
+                                          boolean foregroundLaunched) {
         final int selected = NavSelectionProtocol.normalizeApp(requested);
         final int appToStop = NavSelectionProtocol.appToStop(
                 configuredNavApp, selected, explicitSelection);
@@ -787,12 +797,19 @@ public final class HudService extends Service {
         // the HUD for seconds on every switch. One su invocation starts the new
         // app first and only then force-stops the old one.
         final Context context = this;
-        new Thread(() -> switchNavApps(context, selected, appToStop), "hud-nav-switch").start();
+        new Thread(() -> switchNavApps(context, selected, appToStop,
+                foregroundLaunched), "hud-nav-switch").start();
     }
 
     static void switchNavApps(Context context, int launch, int stop) {
+        switchNavApps(context, launch, stop, false);
+    }
+
+    static void switchNavApps(Context context, int launch, int stop,
+                              boolean foregroundLaunched) {
         try {
-            Intent intent = context.getPackageManager().getLaunchIntentForPackage(navPackage(launch));
+            Intent intent = foregroundLaunched ? null :
+                    context.getPackageManager().getLaunchIntentForPackage(navPackage(launch));
             String component = intent != null && intent.getComponent() != null
                     ? intent.getComponent().flattenToShortString() : null;
             StringBuilder sh = new StringBuilder();
