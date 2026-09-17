@@ -1,5 +1,8 @@
 name: Build Galaxy S9 Remote HUD APK
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   push:
@@ -49,7 +52,7 @@ jobs:
           chmod 600 "$RUNNER_TEMP/remote-hud-signing.p12"
           echo "REMOTE_HUD_KEYSTORE_PATH=$RUNNER_TEMP/remote-hud-signing.p12" >> "$GITHUB_ENV"
           echo "REMOTE_HUD_VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
-          echo "REMOTE_HUD_VERSION_NAME=1.29-nav-sync" >> "$GITHUB_ENV"
+          echo "REMOTE_HUD_VERSION_NAME=1.30-auto-update" >> "$GITHUB_ENV"
       # v0.19+ builds the checked-in tree as-is.
       # The old sed / apply_runtime_tuning.py / apply_s9_3d_patch.py steps are gone:
       # they rewrote v0.17 sources into v0.18 at build time, which is why the
@@ -112,3 +115,16 @@ jobs:
         with:
           name: eon-remote-hud-s9-debug
           path: selfdrive/eon_cluster/android_hud/app/build/outputs/apk/debug/app-debug.apk
+      - name: Publish in-app updater APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset="$RUNNER_TEMP/EON-Remote-HUD-fixed-latest.apk"
+          cp selfdrive/eon_cluster/android_hud/app/build/outputs/apk/debug/app-debug.apk "$asset"
+          if ! gh release view remote-hud-auto >/dev/null 2>&1; then
+            gh release create remote-hud-auto \
+              --title "EON Remote HUD automatic updates" \
+              --notes "Same-signature APK used by the in-app update button."
+          fi
+          gh release upload remote-hud-auto "$asset" --clobber
