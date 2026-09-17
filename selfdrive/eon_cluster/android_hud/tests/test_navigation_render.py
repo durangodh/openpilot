@@ -107,6 +107,11 @@ def main():
     assert "options.setLaunchDisplayId(getDisplay().getDisplayId())" in activity
     assert "EXTRA_NAV_FOREGROUND_LAUNCHED" in activity
     assert "foregroundLaunched ? null" in source
+    # Magisk can be unavailable for a few seconds after boot/package update.
+    # A single failed read must not leave the S9 CPU row at "--" forever.
+    assert "suUnavailable" not in source
+    assert "nextSuStatsRetryElapsed = now + 30000L" in source
+    assert "now >= nextSuStatsRetryElapsed" in source
     # Use complete source methods, so restoring the old early return fails this test.
     methods = []
     for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),

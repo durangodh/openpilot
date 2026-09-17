@@ -272,7 +272,8 @@ public final class HudService extends Service {
     private long cpuLastIdle = 0L;
     private volatile float s9CpuPercent = -1f;
     private volatile float s9TempC = -1f;
-    private volatile boolean suUnavailable = false;
+    /** 부팅 직후 Magisk가 아직 준비되지 않았을 때의 다음 재시도 시각. */
+    private volatile long nextSuStatsRetryElapsed = 0L;
     private Thread statsThread;
     private int configuredOrientation = 0;
     private boolean configuredMirror = false;
@@ -4108,13 +4109,16 @@ public final class HudService extends Service {
     private void sampleS9Stats() {
         String thermal = readThermalDump();
         String stat = readProcStat();
-        if ((thermal == null || stat == null) && !suUnavailable) {
+        long now = SystemClock.elapsedRealtime();
+        if ((thermal == null || stat == null) && now >= nextSuStatsRetryElapsed) {
             String dump = shellRead(
                     "for z in /sys/class/thermal/thermal_zone*; do "
                             + "echo \"T:$(cat $z/type 2>/dev/null):$(cat $z/temp 2>/dev/null)\"; done; "
                             + "echo \"S:$(head -1 /proc/stat)\"");
             if (dump == null) {
-                suUnavailable = true;
+                // 패키지 교체/부팅 직후에는 Magisk 서비스가 늦게 준비될 수 있다.
+                // 한 번 실패했다고 영구 차단하지 말고 낮은 빈도로 계속 복구한다.
+                nextSuStatsRetryElapsed = now + 30000L;
             } else {
                 StringBuilder zones = new StringBuilder();
                 for (String line : dump.split("\n")) {
@@ -4127,6 +4131,7 @@ public final class HudService extends Service {
                 if (thermal == null && zones.length() > 0) {
                     thermal = zones.toString();
                 }
+                nextSuStatsRetryElapsed = stat == null ? now + 30000L : 0L;
             }
         }
         applyThermal(thermal);
