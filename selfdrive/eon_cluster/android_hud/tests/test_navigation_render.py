@@ -112,6 +112,8 @@ def main():
     assert switch_body.index("synchronizeNMirrorSelection") < switch_body.index("am force-stop")
     assert "NMIRROR_SYNC_ATTEMPTS = 4" in source
     assert "am broadcast --user 0" in source
+    assert "displayAwareLaunchCommand(component)" in source
+    assert 'am start --display \\"$display_id\\" -n' in source
     # A tap must open the selected navigation Activity on the display where
     # the settings screen is currently visible, not only update preferences.
     assert "launchNavigationOnCurrentDisplay(launch)" in activity

@@ -806,7 +806,7 @@ public final class HudService extends Service {
                     ? intent.getComponent().flattenToShortString() : null;
             if (component != null) {
                 Runtime.getRuntime().exec(new String[] {
-                        "su", "-c", "am start -n " + component
+                        "su", "-c", displayAwareLaunchCommand(component)
                 }).waitFor();
                 SystemClock.sleep(300L);
             }
@@ -822,6 +822,24 @@ public final class HudService extends Service {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    /**
+     * Stock nMirrorOS does not implement Remote HUD's optional SET_NAV_SOURCE
+     * receiver. Find the non-default display that already hosts HUD/TMAP/Naver
+     * and start the selected launcher Activity on that same display. Falling
+     * back to display 0 preserves normal S9 operation when nMirror is absent.
+     */
+    private static String displayAwareLaunchCommand(String component) {
+        final String findDisplay = "display_id=$(dumpsys activity activities | awk '"
+                + "/^[[:space:]]*Display #[0-9]+/ {d=$2; sub(/^#/, \"\", d)} "
+                + "d != \"0\" && ($0 ~ /com\\.skt\\.tmap\\.ku/ "
+                + "|| $0 ~ /com\\.nhn\\.android\\.nmap/ "
+                + "|| $0 ~ /ai\\.comma\\.remotehud/) {print d; exit}'";
+        return findDisplay + "); "
+                + "if [ -n \"$display_id\" ]; then "
+                + "am start --display \"$display_id\" -n " + component + "; "
+                + "else am start -n " + component + "; fi";
     }
 
     /**
