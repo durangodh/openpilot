@@ -70,7 +70,8 @@ STOP_DISTANCE = 6.0
 # Apply the low-cost lead departure response only during an actual low-speed
 # pull-away.  Without these gates, merely acquiring a faster lead can drop the
 # acceleration/jerk costs and make the ego car chase the lead aggressively.
-LEAD_DEPARTURE_MAX_EGO_SPEED = 5.0
+LEAD_DEPARTURE_FULL_EGO_SPEED = 5.0          # 18 km/h
+LEAD_DEPARTURE_MAX_EGO_SPEED = 30.0 / 3.6   # fade out completely at 30 km/h
 LEAD_DEPARTURE_MIN_VREL = 0.3
 LEAD_DEPARTURE_MIN_ALEAD = -0.2
 
@@ -84,7 +85,16 @@ def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dis
   if np.all(v_lead - v_ego > 0):
     v_diff_offset = ((v_lead - v_ego) * 1.)
     v_diff_offset = np.clip(v_diff_offset, 0, stop_dist / 2)
-    v_diff_offset = np.maximum(v_diff_offset * ((10 - v_ego) / 10), 0)
+    # Keep the quicker pull-away response through 18 km/h, then fade it out
+    # smoothly by 30 km/h.  The former 10 m/s (36 km/h) tail made ego keep
+    # chasing a departing lead into medium speed.
+    dynamic_weight = np.interp(
+      v_ego,
+      [LEAD_DEPARTURE_FULL_EGO_SPEED, LEAD_DEPARTURE_MAX_EGO_SPEED],
+      [1.0, 0.0],
+    )
+    v_diff_offset = np.maximum(
+      v_diff_offset * dynamic_weight, 0)
 
   distance = (v_lead**2) / (2 * comfort_brake) + v_diff_offset
   return distance
@@ -311,12 +321,22 @@ class LongitudinalMpc:
   def get_cost_multipliers(self, v_lead0, v_lead1, a_lead0=0.0, lead0_status=False):
     # apilot-c2 (KRKeegan) cost multipliers
     v_ego = self.x0[1]
-    v_ego_bps = [0, 10]
     TFs = [1.2, 1.45, 1.8]
     # TF에 의한 a, j, d cost 변경
-    a_change_tf = interp(self.t_follow, TFs, [.8, 1., 1.1])   # 가까울수록 작게
-    j_ego_tf    = interp(self.t_follow, TFs, [.8, 1., 1.1])   # 가까울수록 작게
-    d_zone_tf   = interp(self.t_follow, TFs, [1.3, 1., 1.])   # 가까울수록 크게
+    # Dynamic response is useful for pulling away from rest, but leaving the
+    # reduced costs active at medium/high speed makes ego chase every lead
+    # acceleration. Keep the low-speed response through 18 km/h, then fade
+    # every multiplier back to normal by 30 km/h while retaining t-follow.
+    dynamic_weight = interp(
+      v_ego,
+      [LEAD_DEPARTURE_FULL_EGO_SPEED, LEAD_DEPARTURE_MAX_EGO_SPEED],
+      [1.0, 0.0])
+    a_change_tf_raw = interp(self.t_follow, TFs, [.8, 1., 1.1])
+    j_ego_tf_raw = interp(self.t_follow, TFs, [.8, 1., 1.1])
+    d_zone_tf_raw = interp(self.t_follow, TFs, [1.3, 1., 1.])
+    a_change_tf = 1.0 + (a_change_tf_raw - 1.0) * dynamic_weight
+    j_ego_tf = 1.0 + (j_ego_tf_raw - 1.0) * dynamic_weight
+    d_zone_tf = 1.0 + (d_zone_tf_raw - 1.0) * dynamic_weight
 
     # KRKeegan adjustments to improve sluggish acceleration. do not apply to deceleration
     j_ego_v_ego    = 1
@@ -326,8 +346,9 @@ class LongitudinalMpc:
                       v_lead0 - v_ego > LEAD_DEPARTURE_MIN_VREL and
                       a_lead0 > LEAD_DEPARTURE_MIN_ALEAD)
     if lead_departing:
-      j_ego_v_ego    = interp(v_ego, v_ego_bps, [self.lead_depart_cost, 1.0])
-      a_change_v_ego = interp(v_ego, v_ego_bps, [self.lead_depart_cost, 1.0])
+      departure_cost = 1.0 + (self.lead_depart_cost - 1.0) * dynamic_weight
+      j_ego_v_ego = departure_cost
+      a_change_v_ego = departure_cost
 
     j_ego    = min(j_ego_tf, j_ego_v_ego)
     a_change = min(a_change_tf, a_change_v_ego)

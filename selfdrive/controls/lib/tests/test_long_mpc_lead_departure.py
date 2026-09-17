@@ -25,16 +25,29 @@ def test_departure_cost_requires_confirmed_pulling_away_lead():
 
 def test_departure_cost_uses_c2_default_only_at_low_speed():
   assert cost_multipliers(0.0, 1.5, 1.5) == pytest.approx((0.05, 0.05, 1.0))
-  assert cost_multipliers(2.5, 4.5, 4.5) == pytest.approx((0.2875, 0.2875, 1.0))
-  assert cost_multipliers(5.0, 7.0, 7.0) == pytest.approx((1.0, 1.0, 1.0))
+  assert cost_multipliers(2.5, 4.5, 4.5) == pytest.approx((0.05, 0.05, 1.0))
+  assert cost_multipliers(5.0, 7.0, 7.0) == pytest.approx((0.05, 0.05, 1.0))
+  assert cost_multipliers(20.0 / 3.6, 8.0, 8.0)[0] < 1.0
+  assert cost_multipliers(30.0 / 3.6, 10.0, 10.0) == pytest.approx((1.0, 1.0, 1.0))
 
 
 def test_departure_cost_respects_configured_value():
   assert cost_multipliers(0.0, 1.0, 1.0, depart_cost=0.2) == pytest.approx((0.2, 0.2, 1.0))
 
 
-def test_gap_cost_still_applies_without_departure_assistance():
-  assert cost_multipliers(10.0, 8.0, 8.0, t_follow=1.2) == pytest.approx((0.8, 0.8, 1.3))
+def test_gap_cost_holds_to_18_kph_then_fades_by_30_kph():
+  assert cost_multipliers(0.0, 0.0, 0.0, t_follow=1.2) == pytest.approx((0.8, 0.8, 1.3))
+  assert cost_multipliers(5.0, 5.0, 5.0, t_follow=1.2) == pytest.approx((0.8, 0.8, 1.3))
+  assert cost_multipliers(24.0 / 3.6, 6.0, 6.0, t_follow=1.2) == pytest.approx((0.9, 0.9, 1.15))
+  assert cost_multipliers(30.0 / 3.6, 8.0, 8.0, t_follow=1.2) == pytest.approx((1.0, 1.0, 1.0))
+  assert cost_multipliers(10.0, 8.0, 8.0, t_follow=1.2) == pytest.approx((1.0, 1.0, 1.0))
+
+
+def test_departing_lead_distance_boost_ends_at_30_kph():
+  v_lead = 12.0
+  normal = get_stopped_equivalence_factor(v_lead, 30.0 / 3.6, krkeegan=False)
+  dynamic = get_stopped_equivalence_factor(v_lead, 30.0 / 3.6, krkeegan=True)
+  assert dynamic == pytest.approx(normal)
 
 
 def test_desired_follow_distance_keeps_legacy_signature():
