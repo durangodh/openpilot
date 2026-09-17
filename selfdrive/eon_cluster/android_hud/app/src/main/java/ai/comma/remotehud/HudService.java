@@ -141,11 +141,7 @@ public final class HudService extends Service {
     private static final int USB_OPEN_STALL_ATTEMPTS = 5;
     /** 포트 재바인딩 재시도 간격. 너무 자주 하면 재열거만 반복된다. */
     private static final long USB_OPEN_STALL_COOLDOWN_MS = 15000L;
-    /**
-     * 부팅 직후 Android USB 서비스가 완전히 준비되기 전에 권한 요청을 보내면
-     * 확인창이 뜨지 않은 채 "권한 승인 대기"로 남는 S9가 있다. 네트워크와
-     * 렌더러는 즉시 시작하되 USB 첫 검색만 잠깐 늦춘다.
-     */
+    /** 부팅 직후 Android USB 서비스와 Magisk가 준비될 때까지 첫 검색을 늦춘다. */
     private static final long BOOT_USB_SCAN_DELAY_MS = 5000L;
 
     /** EON 텔레메트리가 이보다 오래 끊기면 화면에 표시한다 */
@@ -354,14 +350,6 @@ public final class HudService extends Service {
                 usbStatus = "분리됨 · 재연결 대기";
                 usbConnected = false;
                 usbError = false;
-            } else if ("ai.comma.remotehud.USB_PERMISSION".equals(action)) {
-                boolean granted = intent.getBooleanExtra("permission", false);
-                if (display != null) {
-                    display.reset();
-                }
-                usbStatus = granted ? "USB 권한 허용 · 연결 중" : "USB 권한 거부됨 · 재검색 필요";
-                usbConnected = false;
-                usbError = !granted;
             } else if ("android.hardware.usb.action.USB_DEVICE_ATTACHED".equals(action)) {
                 requestUsbRescan();
             }
@@ -500,7 +488,6 @@ public final class HudService extends Service {
         IntentFilter filter = new IntentFilter();
         filter.addAction("android.hardware.usb.action.USB_DEVICE_ATTACHED");
         filter.addAction("android.hardware.usb.action.USB_DEVICE_DETACHED");
-        filter.addAction("ai.comma.remotehud.USB_PERMISSION");
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         } else {
@@ -551,8 +538,8 @@ public final class HudService extends Service {
         udpReceiverError = "";
         acquireWakeLock();
 
-        // 예전처럼 서비스 전체를 30초 기다리게 하지 않는다. EON/TMAP 수신과
-        // 화면 렌더는 바로 시작하고, 부팅 경로의 USB 권한 요청만 5초 늦춘다.
+        // EON/TMAP 수신과 화면 렌더는 바로 시작하고, 부팅 경로의 루트 USB
+        // 자동 등록만 5초 늦춘다.
         if (fromBoot) {
             nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + BOOT_USB_SCAN_DELAY_MS;
             usbStatus = "부팅 완료 · 외부 HUD 자동 연결 대기";

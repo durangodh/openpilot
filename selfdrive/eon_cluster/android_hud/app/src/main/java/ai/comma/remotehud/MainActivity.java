@@ -144,13 +144,6 @@ public final class MainActivity extends Activity {
         super.onResume();
         if (AppPrefs.isAutoStart(this)) {
             startHudService();
-            HudService.StatusSnapshot snapshot = HudService.getStatusSnapshot();
-            // 부팅 초기에 보낸 시스템 USB 권한창이 표시되지 않았더라도 사용자가
-            // 상태 화면을 열면 "다시 검색" 버튼을 누를 필요 없이 한 번 재요청한다.
-            if (snapshot.running && !snapshot.usbConnected
-                    && snapshot.usbStatus.contains("USB 권한 승인 대기")) {
-                startHudService(HudService.ACTION_RESCAN_USB);
-            }
         }
         handler.post(refreshTask);
     }
@@ -283,7 +276,7 @@ public final class MainActivity extends Activity {
         LinearLayout permissionCard = card();
         permissionCard.addView(text("알림 권한", 18.0f, Color.WHITE, Typeface.BOLD));
         permissionValue = text(
-                "알림을 누르면 이 설정 화면을 다시 열 수 있습니다. 외부 HUD를 연결하면 USB 사용 창에서 ‘항상 허용’을 선택하세요.",
+                "알림을 누르면 이 설정 화면을 다시 열 수 있습니다. 외부 HUD USB 권한은 루트로 자동 설정됩니다.",
                 15.0f, Color.rgb(190, 200, 210), Typeface.NORMAL);
         permissionValue.setLineSpacing(0.0f, 1.18f);
         LinearLayout.LayoutParams permissionParams = new LinearLayout.LayoutParams(
@@ -494,7 +487,7 @@ public final class MainActivity extends Activity {
                 ? "알림 권한: 허용됨"
                 : "알림 권한: 미허용 (서비스는 동작하지만 알림이 보이지 않습니다)";
         permissionValue.setText(notificationStatus
-                + "\nUSB 권한: 외부 HUD 사용 시 ‘항상 허용’을 선택하세요.");
+                + "\nUSB 권한: 루트 자동 설정 (승인 팝업 없음)");
     }
 
     private void onAutoStartChanged(CompoundButton buttonView, boolean checked) {
@@ -506,7 +499,7 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle("최초 실행 안내")
                 .setMessage("1. 알림 권한을 허용합니다.\n\n"
-                        + "2. 외부 HUD 를 연결하고 USB 창에서 ‘항상 허용’을 선택합니다.\n\n"
+                        + "2. 외부 HUD 를 연결합니다. USB 권한은 루트로 자동 설정됩니다.\n\n"
                         + "3. 앱 상단에서 티맵 또는 네이버지도를 선택할 수 있습니다. 선택은 EON에도 반영됩니다.\n\n"
                         + "EON과 S9은 같은 네트워크에서 UDP 7210 / TCP 7211 통신이 가능해야 합니다.")
                 .setPositiveButton("권한 확인", new DialogInterface.OnClickListener() {

@@ -93,6 +93,10 @@ def main():
              "app/src/main/java/ai/comma/remotehud/TurzxDisplay.java").read_text(encoding="utf-8")
     activity = (Path(__file__).resolve().parents[1] /
                 "app/src/main/java/ai/comma/remotehud/MainActivity.java").read_text(encoding="utf-8")
+    manifest = (Path(__file__).resolve().parents[1] /
+                "app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
+    usb_granter = (Path(__file__).resolve().parents[1] /
+                   "app/src/main/java/ai/comma/remotehud/UsbPermissionGranter.java").read_text(encoding="utf-8")
     # A navigation button request must never suspend the TCP map stream. An
     # unacknowledged request previously left both the S9 and external HUD map
     # blank indefinitely.
@@ -130,6 +134,15 @@ def main():
     assert "clearHalt();" not in usb_open
     init_failure = usb_open.split("catch (Exception first)", 1)[1]
     assert init_failure.index("close();") < init_failure.index("return false;")
+    # Never let Android create the modal USB permission/default-app prompt.
+    # The rooted helper grants both the live and persistent framework access.
+    assert "manager.requestPermission" not in turzx
+    assert "USB_DEVICE_ATTACHED" not in manifest
+    assert "USB_PERMISSION" not in turzx
+    assert "USB_PERMISSION" not in source
+    assert "grantDevicePermission" in usb_granter
+    assert "setDevicePersistentPermission" in usb_granter
+    assert "setDevicePackage" in usb_granter
     # Every new session primes the native 462x1920 JPEG surface before live HUD.
     assert "usbNeedsPrimeFrame = true;" in source
     assert "sendUsbPrimerFrame();" in source

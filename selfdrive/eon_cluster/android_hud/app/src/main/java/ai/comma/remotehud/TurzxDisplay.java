@@ -1,8 +1,6 @@
 package ai.comma.remotehud;
 
-import android.app.PendingIntent;
 import android.content.Context;
-import android.content.Intent;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
@@ -58,16 +56,15 @@ import javax.crypto.spec.SecretKeySpec;
  */
 public final class TurzxDisplay {
 
-    static final String ACTION_PERMISSION = "ai.comma.remotehud.USB_PERMISSION";
     static final int VID = 0x1CBE;   // 7358
     static final int PID = 0x0092;   // 146
 
     private static final int CHUNK_BYTES = 16384;
     private static final long COMMAND_GAP_MS = 200L;
-    // PermissionController can appear late while the S9 is still booting. If the
-    // first root-assisted approval misses it, start a fresh bounded watcher and
-    // permission request instead of waiting forever for this device ID.
-    private static final long PERMISSION_RETRY_MS = 30_000L;
+    // Magisk can become available a few seconds after Android reports the USB
+    // device. Retry the silent framework grant without ever opening Android's
+    // disruptive USB permission dialog.
+    private static final long PERMISSION_RETRY_MS = 3_000L;
 
     private final Context context;
     private UsbManager manager;
@@ -106,7 +103,7 @@ public final class TurzxDisplay {
             return "미연결 · 1CBE:0092";
         }
         if (!manager.hasPermission(target)) {
-            return "연결됨 · USB 권한 승인 대기";
+            return "연결됨 · USB 권한 자동 설정 중";
         }
         if (isOpen()) {
             return "연결됨 · USB 권한 허용";
@@ -167,16 +164,11 @@ public final class TurzxDisplay {
             if (newDevice || retryExpired) {
                 permissionRequestedDeviceId = device.getDeviceId();
                 lastPermissionRequestElapsed = now;
-                // Start the root watcher before requestPermission(): on a fast S9 the
-                // system dialog can be visible almost immediately. Retry after the
-                // bounded watcher expires because boot-time UI dumps can fail.
-                UsbPermissionAutoApprover.watch(context);
-                manager.requestPermission(device, PendingIntent.getBroadcast(context,
-                        device.getDeviceId(),
-                        new Intent(ACTION_PERMISSION).setPackage(context.getPackageName()),
-                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+                UsbPermissionGranter.grantSilently(context);
             }
-            return false;
+            if (!manager.hasPermission(device)) {
+                return false;
+            }
         }
         permissionRequestedDeviceId = -1;
         lastPermissionRequestElapsed = 0L;

@@ -104,8 +104,9 @@ panel and does not select the output device.
 ## Rooted Galaxy S9 TMAP sender
 
 Build and install the `app` with Android Studio (minSdk 26; rooted Galaxy S9
-running LineageOS 20 / Android 13 is the target). Root access is not
-required, so it does not interfere with the existing Carrot/TMAP sender setup.
+running LineageOS 20 / Android 13 is the target). Root access is used only to
+register the dedicated TURZX USB permission silently and does not interfere
+with the existing Carrot/TMAP sender setup.
 Connect the TURZX panel through a powered USB-C OTG adapter. Select **EON Remote
 HUD** in E-Mirror's auto-launch list. The app starts its foreground service and
 closes its activity immediately; it never requests screen-capture permission.
@@ -128,9 +129,10 @@ and lanes/path are constrained inside the stabilized road surface. These guards
 prevent short model dropouts and sharp curves from lifting lane marks off the
 road or collapsing the road polygon.
 
-USB access may require one approval after initial installation. Selecting the
-app as the default handler for `1cbe:0092` lets Android grant access and launch
-it automatically on later USB attachments/reboots.
+USB access is registered through the rooted Android USB service for
+`1cbe:0092`; the app does not register an attach Activity or call
+`requestPermission()`. This prevents the modal USB approval/default-app popup
+both after a cable reconnection and after an S9 reboot.
 
 Vehicle control and CAN messages are never accepted from the phone.
 
