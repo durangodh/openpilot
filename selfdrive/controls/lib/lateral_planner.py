@@ -25,6 +25,13 @@ DEFAULT_STEERING_RATE_COST = 550.0
 # 레인모드 ↔ 레인리스 경로 전환 시간. 0.6 s 는 차선중심과 모델경로 차이(수십 cm)를
 # 너무 빨리 옮겨 핸들이 튀었다. 1.5 s 면 체감상 자연스럽고 차선변경 시작에도 늦지 않다.
 LANE_MODE_BLEND_TIME = 1.5
+# Pure model paths can move a few centimetres to either side from frame to
+# frame even when both lane lines are reliable.  Keep a small amount of lane
+# centre authority in laneless mode; this is deliberately too small to turn
+# laneless back into lane-line control.
+LANELESS_LANE_CENTER_BLEND = 0.15
+LANELESS_LANE_PROB_MIN = 0.50
+LANELESS_LANE_PROB_FULL = 0.70
 NOO_MAP_BLEND_MAX = 0.60
 NOO_MAP_BLEND_FULL_SPEED_KPH = 20.0
 NOO_MAP_BLEND_ZERO_SPEED_KPH = 50.0
@@ -181,12 +188,27 @@ class LateralPlanner:
     # pre-intersection lane line.
     noo_turn_active = (self.DH.noo_turn_direction != 0 and
                        not self.DH.noo_driver_cancel)
-    lane_line_blend_target = 0.0 if use_laneless or noo_turn_active else 1.0
+    if noo_turn_active:
+      # Do not let pre-intersection lane lines fight the navigation turn.
+      lane_line_blend_target = 0.0
+    elif use_laneless:
+      # A fixed left/right offset cannot correct a model path that wanders to
+      # either side.  When both lane lines are trustworthy, use them only as
+      # a weak symmetric centre reference.  The correction disappears when
+      # either line is uncertain or a lane change lowers its probability.
+      lane_confidence = min(self.LP.lll_prob, self.LP.rll_prob)
+      lane_line_blend_target = interp(
+        lane_confidence,
+        [LANELESS_LANE_PROB_MIN, LANELESS_LANE_PROB_FULL],
+        [0.0, LANELESS_LANE_CENTER_BLEND],
+      )
+    else:
+      lane_line_blend_target = 1.0
     if self.lane_line_blend is None:
       self.lane_line_blend = lane_line_blend_target
     else:
       # Avoid a lateral target jump when Auto mode changes between the
-      # lane-line and model paths. At 20 Hz this completes in about 0.6 s.
+      # lane-line and model paths. At 20 Hz this completes in about 1.5 s.
       max_blend_step = DT_MDL / LANE_MODE_BLEND_TIME
       self.lane_line_blend += np.clip(lane_line_blend_target - self.lane_line_blend,
                                       -max_blend_step, max_blend_step)
@@ -203,11 +225,13 @@ class LateralPlanner:
     # only published for display while MPC kept following the raw model path.
     self.path_xyz = self.d_path_w_lines_xyz.copy()
 
-    # Preserve the legacy laneless heading weighting: hold the model heading
-    # at lower speeds, then taper the cost to zero between 5 and 10 m/s.
+    # Hold the model heading strongly at lower speeds.  At higher speeds keep
+    # the same small heading floor used by lane mode instead of dropping to
+    # zero; zero allowed small model-path changes to wander left or right.
     # 전환 순간 MPC 가중치가 계단으로 바뀌면 경로 혼합이 부드러워도 조향이 튄다.
     # 헤딩 비용도 경로와 같은 혼합 비율로 넘긴다.
-    laneless_heading_cost = interp(sm['carState'].vEgo, [5.0, 10.0], [1.0, 0.0])
+    laneless_heading_cost = interp(
+      sm['carState'].vEgo, [5.0, 10.0], [1.0, self.lateral_motion_cost])
     heading_cost = (self.lane_line_blend * self.lateral_motion_cost +
                     (1.0 - self.lane_line_blend) * laneless_heading_cost)
     self.lat_mpc.set_weights(self.path_cost, heading_cost,
