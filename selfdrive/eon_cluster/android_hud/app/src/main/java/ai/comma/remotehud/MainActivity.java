@@ -4,13 +4,16 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.text.InputType;
+import android.net.Uri;
 import android.view.View;
 import android.widget.Button;
 import android.widget.CompoundButton;
@@ -22,6 +25,7 @@ import android.widget.Switch;
 import android.widget.TextView;
 
 import java.util.Locale;
+import java.io.File;
 
 /**
  * v0.13 변경점
@@ -57,6 +61,9 @@ public final class MainActivity extends Activity {
     private Button tmapButton, naverButton;
     private Button staticMapButton;
     private TextView navValue;
+    private Button updateButton;
+    private TextView updateValue;
+    private File pendingUpdateApk;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -295,6 +302,20 @@ public final class MainActivity extends Activity {
 
         root.addView(permissionCard, cardParams());
 
+        LinearLayout updateCard = card();
+        updateCard.addView(text("앱 업데이트", 18.0f, Color.WHITE, Typeface.BOLD));
+        updateValue = text("현재 버전: " + appVersionName(), 14.0f,
+                Color.rgb(190, 200, 210), Typeface.NORMAL);
+        LinearLayout.LayoutParams updateStatusParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        updateStatusParams.setMargins(0, dp(10), 0, dp(10));
+        updateCard.addView(updateValue, updateStatusParams);
+        updateButton = button("업데이트 확인", Color.rgb(40, 92, 132));
+        updateButton.setOnClickListener(v -> checkForUpdate());
+        updateCard.addView(updateButton, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
+        root.addView(updateCard, cardParams());
+
         TextView footer = text(
                 "외부 TURZX HUD 전용입니다. 원본 1920×462 UI 를 그대로 패널로 보냅니다.",
                 13.0f, Color.rgb(120, 135, 149), Typeface.NORMAL);
@@ -302,6 +323,64 @@ public final class MainActivity extends Activity {
         root.addView(footer);
 
         return scroll;
+    }
+
+    private void checkForUpdate() {
+        updateButton.setEnabled(false);
+        pendingUpdateApk = null;
+        new UpdateManager(this).check(new UpdateManager.Callback() {
+            @Override
+            public void onProgress(String message) {
+                updateValue.setText(message);
+            }
+
+            @Override
+            public void onNoUpdate(String message) {
+                updateButton.setEnabled(true);
+                updateValue.setText(message + "\n현재 버전: " + appVersionName());
+            }
+
+            @Override
+            public void onUpdateReady(String versionName, File apk) {
+                updateButton.setEnabled(true);
+                pendingUpdateApk = apk;
+                updateValue.setText("새 버전 " + versionName + " 다운로드 및 서명 확인 완료");
+                new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("HUD 앱 업데이트")
+                        .setMessage("새 버전 " + versionName
+                                + "의 패키지명과 서명이 확인되었습니다. 업데이트할까요?")
+                        .setPositiveButton("업데이트", (dialog, which) -> installPendingUpdate())
+                        .setNegativeButton("나중에", null)
+                        .show();
+            }
+
+            @Override
+            public void onError(String message) {
+                updateButton.setEnabled(true);
+                updateValue.setText(message);
+            }
+        });
+    }
+
+    private void installPendingUpdate() {
+        if (pendingUpdateApk == null || !pendingUpdateApk.isFile()) {
+            updateValue.setText("다운로드한 업데이트 파일이 없습니다.");
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 26
+                && !getPackageManager().canRequestPackageInstalls()) {
+            updateValue.setText("‘이 출처 허용’을 켠 뒤 업데이트 버튼을 다시 누르세요.");
+            new AlertDialog.Builder(this)
+                    .setTitle("앱 설치 권한 필요")
+                    .setMessage("처음 한 번만 EON Remote HUD의 ‘이 출처 허용’을 켜 주세요.")
+                    .setPositiveButton("설정 열기", (dialog, which) -> startActivity(
+                            new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                    Uri.parse("package:" + getPackageName()))))
+                    .setNegativeButton("취소", null)
+                    .show();
+            return;
+        }
+        new UpdateManager(this).launchInstaller(pendingUpdateApk);
     }
 
     private void selectNavApp(int app) {
@@ -384,7 +463,8 @@ public final class MainActivity extends Activity {
         rescanUsbButton.setEnabled(s.running);
 
         boolean notifyGranted = Build.VERSION.SDK_INT < 33
-                || checkSelfPermission("android.permission.POST_NOTIFICATIONS") == 0;
+                || checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                == PackageManager.PERMISSION_GRANTED;
         String notificationStatus = notifyGranted
                 ? "알림 권한: 허용됨"
                 : "알림 권한: 미허용 (서비스는 동작하지만 알림이 보이지 않습니다)";
@@ -489,7 +569,8 @@ public final class MainActivity extends Activity {
 
     private void openNotificationPermission() {
         if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != 0) {
+                && checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(
                     new String[]{"android.permission.POST_NOTIFICATIONS"},
                     NOTIFICATION_PERMISSION_REQUEST);
@@ -501,7 +582,8 @@ public final class MainActivity extends Activity {
 
     private void requestSetupPermissionsThenStart() {
         if (Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != 0) {
+                && checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(
                     new String[]{"android.permission.POST_NOTIFICATIONS"},
                     NOTIFICATION_PERMISSION_REQUEST);

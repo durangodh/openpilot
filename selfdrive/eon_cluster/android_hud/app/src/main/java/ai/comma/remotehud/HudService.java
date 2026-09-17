@@ -1,5 +1,7 @@
 package ai.comma.remotehud;
 
+import android.annotation.SuppressLint;
+
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -430,6 +432,7 @@ public final class HudService extends Service {
 
     // ── 라이프사이클 ──────────────────────────────────────────────────────
 
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
     @Override
     public void onCreate() {
         super.onCreate();
