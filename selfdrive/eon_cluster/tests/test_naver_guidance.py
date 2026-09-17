@@ -30,6 +30,13 @@ def main():
   # Preserve normal TMAP/route behavior.
   assert active({"active": True}, {}, 1500, False)
   assert not active({"active": True}, {}, 0, False)
+  # A live real maneuver is sufficient while a newly selected route briefly
+  # reports zero/missing remaining distance.
+  tmap_guide = {"distance_m": 620, "turn_type": 13, "main_text": "우회전"}
+  assert active({"guidance_active": True, "route_present": True}, tmap_guide, 0, True)
+  assert not active({"guidance_active": True, "route_present": True}, tmap_guide, 0, False)
+  assert not active({"guidance_active": True, "route_present": True},
+                    {"distance_m": 0, "turn_type": 0}, 0, True)
 
   route_tree = ast.parse(ROUTE_SOURCE.read_text(encoding="utf-8"))
   fork_right = next(node.value for node in route_tree.body
@@ -38,7 +45,7 @@ def main():
                         for target in node.targets))
   values = ast.literal_eval(fork_right)
   assert 18 in values
-  print("7 Naver guidance and code mapping checks passed")
+  print("10 navigation guidance and code mapping checks passed")
 
 
 if __name__ == "__main__":

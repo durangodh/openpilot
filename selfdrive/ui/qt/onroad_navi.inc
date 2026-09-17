@@ -458,10 +458,19 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const bool navi_fresh = carrot_navi_updated_at != 0 &&
                           wall_now - static_cast<qint64>(carrot_navi_updated_at) >= -5000 &&
                           wall_now - static_cast<qint64>(carrot_navi_updated_at) <= 35000;
-  // 네이버 소스는 remain_time_sec 이 0으로 고정되는 알려진 문제가 있다.
-  // remain_time 을 route_active 조건에서 빼면(거리만 확인) 네이버도 정상
-  // 표시된다 — remote_hud.py 의 navi.active 게이트도 원래 거리만 본다.
-  const bool route_active = carrot_navi_remain_distance > 0;
+  const qint64 guidance_age = wall_now -
+      static_cast<qint64>(carrot_navi_guidance_updated_at);
+  const bool navigation_fresh = carrot_navi_guidance_updated_at != 0 &&
+                         guidance_age >= -5000 && guidance_age <= 3000;
+  // 새 목적지 직후 일부 TMAP/NAVER 빌드는 remain_distance_m 을 잠시 0 또는
+  // 누락으로 보내면서 실제 회전 안내는 계속 보낸다. 그 한 필드 때문에 EON과
+  // S9가 동시에 사라지지 않도록, 신선하고 의미 있는 안내도 경로 증거로 쓴다.
+  // 앱이 보내는 기본 빈 안내(거리/타입/문구 모두 없음)는 활성으로 보지 않는다.
+  const bool guidance_present = carrot_navi_distance > 0 ||
+                                carrot_navi_turn_type > 0 ||
+                                !carrot_navi_instruction.trimmed().isEmpty();
+  const bool route_active = carrot_navi_remain_distance > 0 ||
+                            (navigation_fresh && guidance_present);
 
   // c3-wip DISPLAY state equivalent for EON. The target branch has no
   // carrotMan DISPLAY message, so preserve the same 0.2 s MAP entry and
@@ -495,10 +504,6 @@ void NvgWindow::drawCarrotNavi(QPainter &p) {
   const NavigationKind navigation_kind = navigationKind(carrot_navi_turn_type,
                                                carrot_navi_instruction,
                                                &navigation_direction);
-  const qint64 guidance_age = wall_now -
-      static_cast<qint64>(carrot_navi_guidance_updated_at);
-  const bool navigation_fresh = carrot_navi_guidance_updated_at != 0 &&
-                         guidance_age >= -5000 && guidance_age <= 3000;
   const bool navigation_available = noo_enabled &&
                              navigation_fresh && carrot_navi_distance >= 0 &&
                              navigation_kind != NavigationKind::NONE;
