@@ -320,6 +320,7 @@ public final class HudService extends Service {
     private final ByteArrayOutputStream jpegOut = new ByteArrayOutputStream(180000);
 
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicBoolean bootNavigationSyncRunning = new AtomicBoolean(false);
     private final AtomicReference<JSONObject> state = new AtomicReference<>(new JSONObject());
     private final AtomicReference<Bitmap> mapFrame = new AtomicReference<>();
     private final AtomicReference<Bitmap> staticMapFrame = new AtomicReference<>();
@@ -522,6 +523,9 @@ public final class HudService extends Service {
         if (intent != null && ACTION_RESCAN_USB.equals(intent.getAction()) && running.get()) {
             requestUsbRescan();
             return START_STICKY;
+        }
+        if (fromBoot) {
+            scheduleBootNavigationSync();
         }
         if (running.get()) {
             return START_STICKY;
@@ -831,6 +835,10 @@ public final class HudService extends Service {
      * back to display 0 preserves normal S9 operation when nMirror is absent.
      */
     private static String displayAwareLaunchCommand(String component) {
+        return displayAwareLaunchCommand(component, true);
+    }
+
+    private static String displayAwareLaunchCommand(String component, boolean fallbackDefault) {
         final String findDisplay = "display_id=$(dumpsys activity activities | awk '"
                 + "/^[[:space:]]*Display #[0-9]+/ {d=$2; sub(/^#/, \"\", d)} "
                 + "d != \"0\" && ($0 ~ /com\\.skt\\.tmap\\.ku/ "
@@ -839,7 +847,50 @@ public final class HudService extends Service {
         return findDisplay + "); "
                 + "if [ -n \"$display_id\" ]; then "
                 + "am start --display \"$display_id\" -n " + component + "; "
-                + "else am start -n " + component + "; fi";
+                + (fallbackDefault
+                ? "else am start -n " + component + "; fi"
+                : "else exit 73; fi");
+    }
+
+    private void scheduleBootNavigationSync() {
+        if (!bootNavigationSyncRunning.compareAndSet(false, true)) {
+            return;
+        }
+        final Context context = this;
+        new Thread(() -> {
+            try {
+                // nMirrorOS creates its virtual display after BOOT_COMPLETED.
+                // Retry for 16 seconds, but never fall back to S9 display 0.
+                for (int attempt = 0; attempt < 8; attempt++) {
+                    SystemClock.sleep(2000L);
+                    int selected = AppPrefs.getNavApp(context);
+                    if (launchNavAppOnMirrorDisplay(context, selected)) {
+                        synchronizeNMirrorSelection(context, selected);
+                        stopNavApp(selected == 2 ? 1 : 2);
+                        return;
+                    }
+                }
+            } finally {
+                bootNavigationSyncRunning.set(false);
+            }
+        }, "hud-boot-nav-sync").start();
+    }
+
+    static boolean launchNavAppOnMirrorDisplay(Context context, int navApp) {
+        try {
+            Intent launch = context.getPackageManager().getLaunchIntentForPackage(
+                    navPackage(navApp));
+            if (launch == null || launch.getComponent() == null) {
+                return false;
+            }
+            String component = launch.getComponent().flattenToShortString();
+            Process process = Runtime.getRuntime().exec(new String[] {
+                    "su", "-c", displayAwareLaunchCommand(component, false)
+            });
+            return process.waitFor() == 0;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     /**

@@ -15,6 +15,7 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.text.InputType;
 import android.net.Uri;
+import android.view.Display;
 import android.view.View;
 import android.widget.Button;
 import android.widget.CompoundButton;
@@ -79,6 +80,22 @@ public final class MainActivity extends Activity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // nMirrorOS may keep Remote HUD as its boot app after an APK update. Do
+        // not leave this settings Activity covering the vehicle display: move
+        // the last selected navigation app onto that display and close only
+        // this Activity. The settings screen remains available on S9 display 0.
+        if (Build.VERSION.SDK_INT >= 26 && getDisplay() != null
+                && getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY) {
+            int selected = AppPrefs.getNavApp(this);
+            String packageName = selected == 2
+                    ? "com.nhn.android.nmap" : "com.skt.tmap.ku";
+            Intent launch = getPackageManager().getLaunchIntentForPackage(packageName);
+            boolean launchedHere = launch != null && launchNavigationOnCurrentDisplay(launch);
+            startHudService(HudService.ACTION_SELECT_NAV, launchedHere);
+            finish();
+            return;
+        }
 
         boolean fromUsbAttach =
                 "android.hardware.usb.action.USB_DEVICE_ATTACHED".equals(getIntent().getAction());

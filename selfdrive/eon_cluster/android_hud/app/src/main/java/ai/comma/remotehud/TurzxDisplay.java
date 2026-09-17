@@ -1,6 +1,8 @@
 package ai.comma.remotehud;
 
+import android.app.PendingIntent;
 import android.content.Context;
+import android.content.Intent;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
@@ -56,6 +58,7 @@ import javax.crypto.spec.SecretKeySpec;
  */
 public final class TurzxDisplay {
 
+    static final String ACTION_PERMISSION = "ai.comma.remotehud.USB_PERMISSION";
     static final int VID = 0x1CBE;   // 7358
     static final int PID = 0x0092;   // 146
 
@@ -75,6 +78,8 @@ public final class TurzxDisplay {
     private UsbEndpoint in;
     private int permissionRequestedDeviceId = -1;
     private long lastPermissionRequestElapsed;
+    private int silentGrantFailureStreak;
+    private boolean permissionFallbackRequested;
 
     private final byte[] drainBuffer = new byte[512];
     private boolean sawInbound;
@@ -153,6 +158,8 @@ public final class TurzxDisplay {
         if (device == null) {
             permissionRequestedDeviceId = -1;
             lastPermissionRequestElapsed = 0L;
+            silentGrantFailureStreak = 0;
+            permissionFallbackRequested = false;
             lastOpenFailure = "";
             openFailureStreak = 0;
             return false;
@@ -162,9 +169,34 @@ public final class TurzxDisplay {
             boolean newDevice = permissionRequestedDeviceId != device.getDeviceId();
             boolean retryExpired = now - lastPermissionRequestElapsed >= PERMISSION_RETRY_MS;
             if (newDevice || retryExpired) {
+                if (newDevice) {
+                    silentGrantFailureStreak = 0;
+                    permissionFallbackRequested = false;
+                }
                 permissionRequestedDeviceId = device.getDeviceId();
                 lastPermissionRequestElapsed = now;
                 UsbPermissionGranter.grantSilently(context);
+                // Binder permission state normally changes immediately. Give a
+                // vendor USB service a brief moment before counting a failure.
+                SystemClock.sleep(100L);
+                if (!manager.hasPermission(device)) {
+                    silentGrantFailureStreak++;
+                }
+            }
+            if (!manager.hasPermission(device)
+                    && silentGrantFailureStreak >= 3
+                    && !permissionFallbackRequested) {
+                permissionFallbackRequested = true;
+                // Last-resort recovery for the Android 16 nMirrorOS GSI when
+                // its hidden IUsbManager path cannot be called. The root watcher accepts
+                // only our app + TURZX dialog, checks "always", and confirms it.
+                // USB attach is not an Activity intent filter, so this fallback
+                // cannot reopen the settings screen on later reconnects.
+                UsbPermissionAutoApprover.watch(context);
+                manager.requestPermission(device, PendingIntent.getBroadcast(context,
+                        device.getDeviceId(),
+                        new Intent(ACTION_PERMISSION).setPackage(context.getPackageName()),
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
             }
             if (!manager.hasPermission(device)) {
                 return false;
@@ -172,6 +204,8 @@ public final class TurzxDisplay {
         }
         permissionRequestedDeviceId = -1;
         lastPermissionRequestElapsed = 0L;
+        silentGrantFailureStreak = 0;
+        permissionFallbackRequested = false;
 
         intf = null;
         out = null;

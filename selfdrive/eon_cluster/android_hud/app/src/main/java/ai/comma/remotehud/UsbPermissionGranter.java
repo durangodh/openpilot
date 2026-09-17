@@ -91,9 +91,10 @@ public final class UsbPermissionGranter {
             throw new IllegalStateException("TURZX panel unavailable");
         }
 
-        // The session grant makes the current connection usable immediately.
-        usbManager.getMethod("grantDevicePermission", UsbDevice.class, int.class)
-                .invoke(service, target, uid);
+        // nMirrorOS runs an Android 16 GSI whose hidden-IUsbManager ABI may
+        // differ from the SDK used to build this APK. Resolve the live grant
+        // by parameter kind instead of assuming one exact framework revision.
+        invokeDeviceGrant(usbManager, service, target, uid);
 
         // Android 12+ supports an explicit persistent grant. Keep the default
         // package registration too so vendor Android 13 builds retain access
@@ -104,11 +105,41 @@ public final class UsbPermissionGranter {
             usbManager.getMethod("setDevicePersistentPermission", UsbDevice.class, int.class,
                     UserHandle.class, boolean.class)
                     .invoke(service, target, uid, user, true);
-        } catch (NoSuchMethodException ignored) {
-            // Older vendor frameworks still retain the default-package choice.
+        } catch (Exception ignored) {
+            // The live session grant above is sufficient. Persistent permission
+            // is best-effort because vendor ROMs expose different signatures.
         }
-        usbManager.getMethod("setDevicePackage", UsbDevice.class, String.class, int.class)
-                .invoke(service, target, packageName, userId);
+        try {
+            usbManager.getMethod("setDevicePackage", UsbDevice.class, String.class, int.class)
+                    .invoke(service, target, packageName, userId);
+        } catch (Exception ignored) {
+            // Not present on every Android 13 USB service implementation.
+        }
+    }
+
+    private static void invokeDeviceGrant(Class<?> usbManager, Object service,
+                                          UsbDevice target, int uid) throws Exception {
+        for (Method method : usbManager.getMethods()) {
+            if (!"grantDevicePermission".equals(method.getName())) {
+                continue;
+            }
+            Class<?>[] types = method.getParameterTypes();
+            if (types.length != 2 || (types[1] != int.class && types[1] != Integer.class)) {
+                continue;
+            }
+            Object deviceArg;
+            if (types[0].isAssignableFrom(UsbDevice.class)) {
+                deviceArg = target;
+            } else if (types[0] == String.class) {
+                deviceArg = target.getDeviceName();
+            } else {
+                continue;
+            }
+            method.setAccessible(true);
+            method.invoke(service, deviceArg, uid);
+            return;
+        }
+        throw new NoSuchMethodException("grantDevicePermission");
     }
 
     private static void allowHiddenApis() {

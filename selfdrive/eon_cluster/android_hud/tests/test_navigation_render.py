@@ -97,6 +97,8 @@ def main():
                 "app/src/main/AndroidManifest.xml").read_text(encoding="utf-8")
     usb_granter = (Path(__file__).resolve().parents[1] /
                    "app/src/main/java/ai/comma/remotehud/UsbPermissionGranter.java").read_text(encoding="utf-8")
+    usb_approver = (Path(__file__).resolve().parents[1] /
+                    "app/src/main/java/ai/comma/remotehud/UsbPermissionAutoApprover.java").read_text(encoding="utf-8")
     # A navigation button request must never suspend the TCP map stream. An
     # unacknowledged request previously left both the S9 and external HUD map
     # blank indefinitely.
@@ -114,12 +116,23 @@ def main():
     assert "am broadcast --user 0" in source
     assert "displayAwareLaunchCommand(component)" in source
     assert 'am start --display \\"$display_id\\" -n' in source
+    assert "scheduleBootNavigationSync();" in source
+    assert "launchNavAppOnMirrorDisplay(context, selected)" in source
+    assert "displayAwareLaunchCommand(component, false)" in source
+    assert "else exit 73; fi" in source
     # A tap must open the selected navigation Activity on the display where
     # the settings screen is currently visible, not only update preferences.
     assert "launchNavigationOnCurrentDisplay(launch)" in activity
     assert "options.setLaunchDisplayId(getDisplay().getDisplayId())" in activity
     assert "EXTRA_NAV_FOREGROUND_LAUNCHED" in activity
     assert "foregroundLaunched ? null" in source
+    assert "getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY" in activity
+    secondary_display = activity.split(
+        "getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY", 1)[1].split(
+        "boolean fromUsbAttach", 1)[0]
+    assert "AppPrefs.getNavApp(this)" in secondary_display
+    assert "launchNavigationOnCurrentDisplay(launch)" in secondary_display
+    assert "finish();" in secondary_display
     # Magisk can be unavailable for a few seconds after boot/package update.
     # A single failed read must not leave the S9 CPU row at "--" forever.
     assert "suUnavailable" not in source
@@ -139,15 +152,22 @@ def main():
     assert "clearHalt();" not in usb_open
     init_failure = usb_open.split("catch (Exception first)", 1)[1]
     assert init_failure.index("close();") < init_failure.index("return false;")
-    # Never let Android create the modal USB permission/default-app prompt.
-    # The rooted helper grants both the live and persistent framework access.
-    assert "manager.requestPermission" not in turzx
+    # Try the no-dialog root framework grant first. Only after repeated vendor
+    # ABI failures may a tightly scoped auto-approved system dialog recover USB.
+    permission_path = usb_open.split("if (!manager.hasPermission(device))", 1)[1].split(
+        "permissionRequestedDeviceId = -1", 1)[0]
+    assert permission_path.index("UsbPermissionGranter.grantSilently") < permission_path.index(
+        "manager.requestPermission")
+    assert "silentGrantFailureStreak >= 3" in permission_path
+    assert "UsbPermissionAutoApprover.watch(context)" in permission_path
     assert "USB_DEVICE_ATTACHED" not in manifest
-    assert "USB_PERMISSION" not in turzx
     assert "USB_PERMISSION" not in source
     assert "grantDevicePermission" in usb_granter
     assert "setDevicePersistentPermission" in usb_granter
     assert "setDevicePackage" in usb_granter
+    assert 'xml.contains(appName)' in usb_approver
+    assert 'xml.contains("TURZX1.00")' in usb_approver
+    assert 'attributeIsTrue(checkNode, "checked")' in usb_approver
     # Every new session primes the native 462x1920 JPEG surface before live HUD.
     assert "usbNeedsPrimeFrame = true;" in source
     assert "sendUsbPrimerFrame();" in source
