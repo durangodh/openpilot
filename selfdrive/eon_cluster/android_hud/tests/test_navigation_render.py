@@ -87,6 +87,11 @@ def main():
     args = parser.parse_args()
     source = (Path(__file__).resolve().parents[1] /
               "app/src/main/java/ai/comma/remotehud/HudService.java").read_text(encoding="utf-8")
+    # A navigation button request must never suspend the TCP map stream. An
+    # unacknowledged request previously left both the S9 and external HUD map
+    # blank indefinitely.
+    assert "if (!AppPrefs.pendingNavRequest(this).isEmpty())" not in source
+    assert "generation == navigationGeneration" not in source
     # Use complete source methods, so restoring the old early return fails this test.
     methods = []
     for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),

@@ -1,19 +1,5 @@
 # Android remote HUD (experimental)
 
-## nMirror / HUD / steering-wheel navigation synchronization
-
-Navigation selection has one shared path. A tap on TMAP/Naver in Remote HUD,
-an explicit `ai.comma.remotehud.SELECT_NAV` broadcast from nMirror, or the EON
-GAP-button long press all update `EonClusterHudNavApp`. Remote HUD immediately
-clears the previous map/TBT assets, fully stops the opposite navigation package,
-and then starts the selected package. Short GAP presses keep their normal cruise
-gap behavior.
-
-The nMirror broadcast is explicit to package `ai.comma.remotehud` and carries
-integer extra `nav_app` (`1` TMAP, `2` Naver). Remote HUD returns the accepted
-selection with explicit action `com.aa.nmirror.SET_NAV_SOURCE`, so the nMirror
-settings screen and its mutually exclusive stream gates show the same source.
-
 ## Live traffic signals
 
 The map panel accepts the native `traffic_signal` bitmap published by both

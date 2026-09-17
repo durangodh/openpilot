@@ -4,9 +4,7 @@
 
     <queries>
         <package android:name="com.skt.tmap.ku" />
-        <package android:name="com.skt.skaf.l001mtm091" />
         <package android:name="com.nhn.android.nmap" />
-        <package android:name="com.aa.nmirror" />
     </queries>
 
     <uses-feature
@@ -51,15 +49,6 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
-        </receiver>
-
-        <!-- Explicit nMirror -> Remote HUD navigation selection bridge. -->
-        <receiver
-            android:name=".NavSelectionReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="ai.comma.remotehud.SELECT_NAV" />
             </intent-filter>
         </receiver>
 

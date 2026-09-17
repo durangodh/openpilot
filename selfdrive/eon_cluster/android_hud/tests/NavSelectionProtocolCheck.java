@@ -31,13 +31,6 @@ public final class NavSelectionProtocolCheck {
         check(NavSelectionProtocol.appToStop(1, 1, true) == 2);
         check(NavSelectionProtocol.appToStop(1, 2, false) == 1);
         check(NavSelectionProtocol.appToStop(2, 2, false) == 0);
-        check(NavSelectionProtocol.switchCommand(
-                new String[] {"com.skt.tmap.ku", "com.skt.skaf.l001mtm091"},
-                "com.nhn.android.nmap/.Main").equals(
-                "am force-stop com.skt.tmap.ku; am force-stop com.skt.skaf.l001mtm091; "
-                        + "am start -n com.nhn.android.nmap/.Main"));
-        check(NavSelectionProtocol.switchCommand(null, "com.skt.tmap.ku/.Main")
-                .equals("am start -n com.skt.tmap.ku/.Main"));
         System.out.println("Navigation protocol checks passed");
     }
 }
