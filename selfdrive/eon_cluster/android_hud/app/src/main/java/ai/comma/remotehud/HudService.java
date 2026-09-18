@@ -36,8 +36,10 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.io.InputStreamReader;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -49,6 +51,7 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -146,6 +149,11 @@ public final class HudService extends Service {
     /** nMirror가 부팅/화면 재생성 중 첫 방송을 놓쳐도 선택값을 받도록 재전송한다. */
     private static final int NMIRROR_SYNC_ATTEMPTS = 4;
     private static final long NMIRROR_SYNC_RETRY_MS = 500L;
+    /** 네이버지도 6.9.1.3은 Android 16에서 경로안내 확인 화면 렌더 중 죽을 수 있다. */
+    private static final int NAVER_CRASH_WATCH_ATTEMPTS = 25;
+    private static final int NAVER_MAX_RELAUNCHES = 2;
+    /** 자체 nMirror 감시 없이, 우리가 시작한 전환끼리만 겹치지 않게 막는다. */
+    private static final AtomicInteger navSwitchGeneration = new AtomicInteger();
 
     /** EON 텔레메트리가 이보다 오래 끊기면 화면에 표시한다 */
     private static final long EON_STALE_MS = 3000L;
@@ -816,6 +824,7 @@ public final class HudService extends Service {
 
     static void switchNavApps(Context context, int launch, int stop,
                               boolean foregroundLaunched) {
+        int generation = navSwitchGeneration.incrementAndGet();
         try {
             Intent intent = foregroundLaunched ? null :
                     context.getPackageManager().getLaunchIntentForPackage(navPackage(launch));
@@ -832,11 +841,112 @@ public final class HudService extends Service {
             // 화면만 남는다. 새 앱을 살린 상태에서 nMirror를 충분히 동기화한 뒤
             // 마지막에 반대쪽 앱을 종료한다.
             synchronizeNMirrorSelection(context, launch);
-            if (stop != 0) {
-                Runtime.getRuntime().exec(new String[] {
-                        "su", "-c", "am force-stop " + navPackage(stop)
-                }).waitFor();
+            if (generation != navSwitchGeneration.get()) {
+                return;
             }
+
+            if (launch == 2) {
+                // 네이버지도는 경로안내 확인 화면을 그리다 죽는 경우가 있어
+                // 살아있는지 확인한 뒤에만 이전 앱을 종료한다. 재실행도 실패하면
+                // 이전 앱(티맵)을 다시 띄워 검정화면으로 영구히 남는 걸 막는다.
+                monitorNaverAndRecover(context, stop, generation);
+            } else if (stop != 0) {
+                forceStopNavApp(stop);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * 네이버지도 6.9.1.3/Android 16 조합은 경로안내 확인 화면(Compose
+     * fontMetrics 계산) 렌더 중 5~20초 뒤 죽는 경우가 있다. 한 번 얻은 su 셸
+     * 안에서만 PID를 반복 확인해 Magisk 허용 알림이 매초 반복되는 걸 피하고,
+     * 죽거나 PID가 바뀌면(=시스템이 새 PID로 재생성) 같은 화면에 자동으로
+     * 다시 띄운다. 재실행조차 반복 실패하면 appToStop(이전 앱)을 복구해
+     * 화면이 검게 굳은 채로 남지 않게 한다.
+     */
+    private static void monitorNaverAndRecover(Context context, int appToStop, int generation) {
+        Process observer = null;
+        String observedPid = "";
+        int relaunches = 0;
+        int stableChecks = 0;
+        int missingChecks = 0;
+        boolean oldAppStopped = false;
+        try {
+            StringBuilder watchBuilder = new StringBuilder("for ignored in");
+            for (int i = 0; i < NAVER_CRASH_WATCH_ATTEMPTS; i++) {
+                watchBuilder.append(' ').append(i);
+            }
+            String watch = watchBuilder.append("; do pidof ")
+                    .append(navPackage(2))
+                    .append(" || echo -; sleep 1; done")
+                    .toString();
+            observer = Runtime.getRuntime().exec(new String[] {"su", "-c", watch});
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(observer.getInputStream()))) {
+                String currentPid;
+                while ((currentPid = reader.readLine()) != null) {
+                    currentPid = currentPid.trim();
+                    if (generation != navSwitchGeneration.get()) {
+                        return;
+                    }
+                    if (currentPid.isEmpty() || "-".equals(currentPid)) {
+                        missingChecks++;
+                        stableChecks = 0;
+                        // 시작 직후 두 번은 프로세스 생성 시간을 준다.
+                        if (missingChecks < 3) continue;
+                    } else if (!observedPid.isEmpty()
+                            && !currentPid.equals(observedPid)) {
+                        // PID 교체는 uncaught exception 뒤 시스템 재생성을 뜻한다.
+                        missingChecks = 3;
+                        stableChecks = 0;
+                    } else {
+                        observedPid = currentPid;
+                        missingChecks = 0;
+                        stableChecks++;
+                        // 네이버 프로세스가 최소 2초간 유지된 뒤에만 이전 앱을 종료한다.
+                        if (!oldAppStopped && stableChecks >= 2 && appToStop != 0) {
+                            forceStopNavApp(appToStop);
+                            oldAppStopped = true;
+                        }
+                        continue;
+                    }
+
+                    if (relaunches >= NAVER_MAX_RELAUNCHES) {
+                        observedPid = "";
+                        break;
+                    }
+                    forceStopNavApp(2);
+                    SystemClock.sleep(250L);
+                    launchNavAppOnMirrorDisplay(context, 2);
+                    relaunches++;
+                    observedPid = "";
+                    missingChecks = 0;
+                }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (observer != null) observer.destroyForcibly();
+        }
+
+        if (generation != navSwitchGeneration.get()) {
+            return;
+        }
+        if (observedPid.isEmpty()) {
+            // 재실행까지 실패하면 이전 앱을 복구해 영구 검정화면을 막는다.
+            if (appToStop != 0) {
+                launchNavAppOnMirrorDisplay(context, appToStop);
+            }
+        } else if (!oldAppStopped && appToStop != 0) {
+            forceStopNavApp(appToStop);
+        }
+    }
+
+    private static void forceStopNavApp(int navApp) {
+        try {
+            Runtime.getRuntime().exec(new String[] {
+                    "su", "-c", "am force-stop " + navPackage(navApp)
+            }).waitFor();
         } catch (Exception ignored) {
         }
     }
