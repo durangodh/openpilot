@@ -65,6 +65,20 @@ final class UsbPortReset {
                 "  case \"$r\" in host|*\\[host\\]*) echo HOST; exit 0;; esac; " +
                 "  if echo host > \"$p\" 2>/dev/null; then echo HOST; exit 0; fi; " +
                 "done; " +
+                // MAX77705 rejects DR_SWAP with some powered OTG adapters. Its
+                // port_type setter uses MANUAL_ROLE_SWAP instead, which is the
+                // software equivalent of dropping and restoring adapter VBUS.
+                // Verify data_role afterwards because a successful sysfs write
+                // only means the controller accepted the request.
+                "for p in /sys/class/typec/port*/port_type; do " +
+                "  [ -f \"$p\" ] || continue; " +
+                "  b=${p%/port_type}; r=$(cat \"$b/data_role\" 2>/dev/null); " +
+                "  case \"$r\" in host|*\\[host\\]*) echo HOST; exit 0;; esac; " +
+                "  if echo source > \"$p\" 2>/dev/null; then " +
+                "    sleep 1; r=$(cat \"$b/data_role\" 2>/dev/null); " +
+                "    case \"$r\" in host|*\\[host\\]*) echo HOST; exit 0;; esac; " +
+                "  fi; " +
+                "done; " +
                 "for p in /sys/class/dual_role_usb/*/mode; do " +
                 "  [ -f \"$p\" ] || continue; " +
                 "  r=$(cat \"$p\" 2>/dev/null); " +
