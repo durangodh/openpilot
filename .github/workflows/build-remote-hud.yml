@@ -10,6 +10,8 @@ on:
     paths:
       - "selfdrive/carrot_navi_server.py"
       - "selfdrive/eon_cluster/remote_hud.py"
+      - "selfdrive/eon_cluster/remote_hud_s9.py"
+      - "selfdrive/controls/lib/cruise_helper.py"
       - "selfdrive/eon_cluster/tests/test_traffic_signal_transport.py"
       - "selfdrive/eon_cluster/tests/test_e2e_signal_indicator.py"
       - "selfdrive/eon_cluster/android_hud/**"
@@ -52,7 +54,7 @@ jobs:
           chmod 600 "$RUNNER_TEMP/remote-hud-signing.p12"
           echo "REMOTE_HUD_KEYSTORE_PATH=$RUNNER_TEMP/remote-hud-signing.p12" >> "$GITHUB_ENV"
           echo "REMOTE_HUD_VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
-          echo "REMOTE_HUD_VERSION_NAME=1.34-s9-cpu" >> "$GITHUB_ENV"
+          echo "REMOTE_HUD_VERSION_NAME=1.35-tmap-camera" >> "$GITHUB_ENV"
       # v0.19+ builds the checked-in tree as-is.
       # The old sed / apply_runtime_tuning.py / apply_s9_3d_patch.py steps are gone:
       # they rewrote v0.17 sources into v0.18 at build time, which is why the

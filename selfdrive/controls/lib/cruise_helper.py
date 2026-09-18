@@ -752,9 +752,12 @@ class CruiseHelper:
     # NOO/curve toggles so 7714 SDI and section data can feed the existing C3
     # navigation limiter. Existing roadLimitSpeed packets retain priority.
     navi_state = self.navigation_route.update()
-    # TMAP remains exactly on the legacy roadLimitSpeed path.  NAVER selection
-    # deliberately ignores that phone-side TMAP packet and uses NAVER's 7714
-    # SDI/section stream below, so display and real deceleration share a source.
+    # TMAP prefers the legacy roadLimitSpeed camera/section fields when that
+    # path has an active sender; NAVER always skips it and uses NAVER's 7714
+    # SDI/section stream below instead. In this fork nothing currently sends
+    # to the legacy UDP 2843 path for either app, so cam_dist/section_dist
+    # stay 0 here and the navi_camera/navi_section fallback below (shared,
+    # not naver_selected-gated) is what actually supplies both apps today.
     # Params are file reads; refresh the app selection once a second instead of
     # on every 100 Hz control frame (switching still applies within 1 s).
     if frame % 100 == 0 or self.nav_app_selected is None:
@@ -906,10 +909,14 @@ class CruiseHelper:
           self.apply_source = "route"
 
     self.active_cam = road_limit_speed > 0 and left_dist > 0
-    normal_road_limit_speed = 0.0
-    if naver_selected:
-      normal_road_limit_speed = float(navi_state.get("road_limit_kph", 0.0) or 0.0)
-    elif road_data is not None:
+    # carrot_navi_server.accepts() already gates the shared state file by
+    # EonClusterHudNavApp, so navi_state["road_limit_kph"] is valid for
+    # whichever app is selected -- it does not need a naver_selected check.
+    # road_data.roadLimitSpeed is the legacy UDP 2843 path, which has no
+    # sender anywhere in this fork; keep it only as a fallback in case that
+    # ever changes, instead of excluding TMAP from the shared source.
+    normal_road_limit_speed = float(navi_state.get("road_limit_kph", 0.0) or 0.0)
+    if normal_road_limit_speed <= 0.0 and road_data is not None:
       normal_road_limit_speed = float(road_data.roadLimitSpeed)
 
     if apply_limit_speed >= self.kph_to_clu(10):

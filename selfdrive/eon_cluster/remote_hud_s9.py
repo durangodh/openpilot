@@ -43,12 +43,15 @@ def _apply_path_flip(packet):
 
 
 def _apply_naver_speed(packet):
-  """Project NAVER SDI into the existing HUD fields only when NAVER is selected.
+  """Project navi camera/section speed limits into the existing HUD fields.
 
-  TMAP keeps base._packet's original roadLimitSpeed values byte-for-byte.
+  carrot_navi_server.accepts() already gates /dev/shm/carrot_navi_route.json
+  by EonClusterHudNavApp, so this file only ever holds whichever app (TMAP or
+  NAVER) is currently selected -- NavigationRouteData does not need to check
+  the selection again. TMAP's legacy road_speed_limiter (UDP 2843) path has
+  no sender anywhere in this fork, so base._packet's roadLimitSpeed is always
+  0 for TMAP; this projection is the only working source for either app.
   """
-  if _bounded_int("EonClusterHudNavApp", 1, 1, 2) != 2:
-    return packet
 
   state = _nav_route.update()
   events = _nav_route.speed_events(state)

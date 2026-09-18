@@ -208,22 +208,37 @@ def test_remote_ack_is_status_only():
   assert "EonClusterHudConnected" not in _code_only(onroad)
 
 
-def test_naver_speed_projection_does_not_replace_tmap_legacy_path():
+def test_navi_speed_projection_applies_to_both_apps():
   wrapper = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud_s9.py").read_text(encoding="utf-8")
   cruise = (ROOT / "selfdrive" / "controls" / "lib" / "cruise_helper.py").read_text(encoding="utf-8")
 
-  # The base packet still owns TMAP camera display. NAVER projection is gated
-  # in the S9-only wrapper and therefore cannot overwrite TMAP HUD fields.
-  assert 'if _bounded_int("EonClusterHudNavApp", 1, 1, 2) != 2:' in wrapper
+  # TMAP's legacy road_speed_limiter (UDP 2843) path has no sender anywhere in
+  # this fork, so it never produces camera/limit data for TMAP. The shared
+  # carrot_navi_route.json projection (gated by source in
+  # carrot_navi_server.accepts(), not here) is the only working source for
+  # either app, so the wrapper must no longer skip it for TMAP.
+  assert 'if _bounded_int("EonClusterHudNavApp", 1, 1, 2) != 2:' not in wrapper
   assert 'packet = _original_packet(sm, *args, **kwargs)' in wrapper
   assert 'packet = _apply_naver_speed(packet)' in wrapper
 
-  # Real deceleration follows the same selection rule: TMAP keeps the exact
-  # roadLimitSpeed path, NAVER uses only its selected 7714 SDI/section stream.
+  # Camera/section deceleration: TMAP still prefers the legacy roadLimitSpeed
+  # path when that sender exists, NAVER always uses its own 7714 stream; the
+  # naver_selected gate on the legacy read stays (still correct, just
+  # currently a no-op since nothing feeds UDP 2843 in this fork).
   assert 'self.nav_app_selected = self.params.get_int("EonClusterHudNavApp")' in cruise
   assert 'naver_selected = self.nav_app_selected == 2' in cruise
   assert 'if road_data is not None and not naver_selected:' in cruise
-  assert 'if naver_selected:\n      normal_road_limit_speed = float(navi_state.get(' in cruise
+
+  # The general (non-camera) road speed limit used for auto speed-up and the
+  # RES speed table, though, was excluded for TMAP entirely (elif road_data).
+  # navi_state["road_limit_kph"] is already source-agnostic (same file, same
+  # accepts() gate as above), so both apps must read it the same way, with
+  # the dead legacy path only as a fallback.
+  assert 'if naver_selected:\n      normal_road_limit_speed' not in cruise
+  assert ('normal_road_limit_speed = float(navi_state.get("road_limit_kph", 0.0) or 0.0)'
+          in cruise)
+  assert ('if normal_road_limit_speed <= 0.0 and road_data is not None:\n'
+          '      normal_road_limit_speed = float(road_data.roadLimitSpeed)') in cruise
 
 
 def test_external_map_renderer_is_completely_removed():
