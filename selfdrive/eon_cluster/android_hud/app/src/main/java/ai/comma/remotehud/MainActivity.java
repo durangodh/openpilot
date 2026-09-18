@@ -47,6 +47,7 @@ public final class MainActivity extends Activity {
     private static final int NAV_UNSELECTED = Color.rgb(43, 50, 58);
 
     private Switch autoSwitch;
+    private Switch usbHostRecoverySwitch;
     private Switch staticMapSwitch;
     private TextView autoValue;
     private TextView eonValue;
@@ -141,6 +142,9 @@ public final class MainActivity extends Activity {
                 startHudService(HudService.ACTION_RESCAN_USB);
             }
         });
+        usbHostRecoverySwitch.setChecked(AppPrefs.isUsbHostRecoveryEnabled(this));
+        usbHostRecoverySwitch.setOnCheckedChangeListener((buttonView, checked) ->
+                AppPrefs.setUsbHostRecoveryEnabled(this, checked));
         staticMapSwitch.setChecked(AppPrefs.isNaverStaticEnabled(this));
         staticMapSwitch.setOnCheckedChangeListener((buttonView, checked) -> {
             AppPrefs.setNaverStaticEnabled(this, checked);
@@ -288,6 +292,18 @@ public final class MainActivity extends Activity {
         autoSwitch = new Switch(this);
         autoRow.addView(autoSwitch);
         autoCard.addView(autoRow);
+
+        LinearLayout usbHostRow = new LinearLayout(this);
+        usbHostRow.setOrientation(LinearLayout.HORIZONTAL);
+        usbHostRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        usbHostRow.setPadding(0, dp(12), 0, 0);
+        usbHostRow.addView(text("전원형 OTG 부팅 시 USB 호스트 자동 복구", 15.0f,
+                        Color.rgb(190, 200, 210), Typeface.NORMAL),
+                new LinearLayout.LayoutParams(0,
+                        LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        usbHostRecoverySwitch = new Switch(this);
+        usbHostRow.addView(usbHostRecoverySwitch);
+        autoCard.addView(usbHostRow);
         root.addView(autoCard, cardParams());
 
         LinearLayout permissionCard = card();

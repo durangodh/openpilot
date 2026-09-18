@@ -12,6 +12,7 @@ public final class AppPrefs {
     private static final String MIRROR = "hud_mirror";
     private static final String NAV_APP = "hud_nav_app";
     private static final String NAV_REQUEST = "hud_nav_request";
+    private static final String USB_HOST_RECOVERY = "usb_host_recovery";
     private static final String NAVER_STATIC_ENABLED = "naver_static_enabled";
     private static final String NAVER_STATIC_CLIENT_ID = "naver_static_client_id";
     private static final String NAVER_STATIC_CLIENT_SECRET = "naver_static_client_secret";
@@ -25,6 +26,20 @@ public final class AppPrefs {
 
     public static void setAutoStart(Context context, boolean z) {
         prefs(context).edit().putBoolean(AUTO_START, z).apply();
+    }
+
+    /**
+     * Powered OTG adapters can make the phone boot as a USB device even though
+     * the external HUD needs the phone to be the USB data host. This opt-in
+     * recovery is deliberately separate from normal auto-start because forcing
+     * host mode during boot temporarily disconnects an attached ADB computer.
+     */
+    public static boolean isUsbHostRecoveryEnabled(Context context) {
+        return prefs(context).getBoolean(USB_HOST_RECOVERY, false);
+    }
+
+    public static void setUsbHostRecoveryEnabled(Context context, boolean enabled) {
+        prefs(context).edit().putBoolean(USB_HOST_RECOVERY, enabled).apply();
     }
 
     /**

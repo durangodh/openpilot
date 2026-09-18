@@ -37,6 +37,53 @@ final class UsbPortReset {
     }
 
     /**
+     * Recover the USB data role after booting with a powered OTG adapter.
+     *
+     * Some adapters present VBUS before Android starts. The Type-C controller
+     * then settles in device mode and the TURZX panel is never enumerated until
+     * the power lead is physically unplugged. Request only the data-host role;
+     * never change power_role, because the adapter is intentionally supplying
+     * the phone while it acts as the USB data host.
+     *
+     * The kernels used by starlte have exposed this through different sysfs
+     * ABIs over time, so try the standard usb_role, Type-C, then legacy
+     * dual-role interfaces. Unsupported/read-only paths fail without changing
+     * anything.
+     */
+    static boolean ensureHostRole() {
+        String out = runAsRoot(
+                "for p in /sys/class/usb_role/*/role; do " +
+                "  [ -f \"$p\" ] || continue; " +
+                "  r=$(cat \"$p\" 2>/dev/null); " +
+                "  case \"$r\" in host|*\\[host\\]*) echo HOST; exit 0;; esac; " +
+                "  echo none > \"$p\" 2>/dev/null; sleep 1; " +
+                "  if echo host > \"$p\" 2>/dev/null; then echo HOST; exit 0; fi; " +
+                "done; " +
+                "for p in /sys/class/typec/port*/data_role; do " +
+                "  [ -f \"$p\" ] || continue; " +
+                "  r=$(cat \"$p\" 2>/dev/null); " +
+                "  case \"$r\" in host|*\\[host\\]*) echo HOST; exit 0;; esac; " +
+                "  if echo host > \"$p\" 2>/dev/null; then echo HOST; exit 0; fi; " +
+                "done; " +
+                "for p in /sys/class/dual_role_usb/*/mode; do " +
+                "  [ -f \"$p\" ] || continue; " +
+                "  r=$(cat \"$p\" 2>/dev/null); " +
+                "  case \"$r\" in dfp|*\\[dfp\\]*) echo HOST; exit 0;; esac; " +
+                "  if echo dfp > \"$p\" 2>/dev/null; then echo HOST; exit 0; fi; " +
+                "done; " +
+                "echo NOHOST");
+        if (out == null) {
+            return false;
+        }
+        for (String line : out.split("\n")) {
+            if ("HOST".equals(line.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * 진단 전용 — 아무것도 바꾸지 않는다. 재검색 시 UsbManager 에 패널이 없을 때
      * sysfs 상태를 한 줄로 요약해 상태줄에 표시한다.
      *

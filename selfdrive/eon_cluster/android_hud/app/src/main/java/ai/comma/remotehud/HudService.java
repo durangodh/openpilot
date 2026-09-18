@@ -321,6 +321,7 @@ public final class HudService extends Service {
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean bootNavigationSyncRunning = new AtomicBoolean(false);
+    private final AtomicBoolean bootUsbHostRecoveryRunning = new AtomicBoolean(false);
     private final AtomicReference<JSONObject> state = new AtomicReference<>(new JSONObject());
     private final AtomicReference<Bitmap> mapFrame = new AtomicReference<>();
     private final AtomicReference<Bitmap> staticMapFrame = new AtomicReference<>();
@@ -524,10 +525,13 @@ public final class HudService extends Service {
             requestUsbRescan();
             return START_STICKY;
         }
-        if (fromBoot) {
-            scheduleBootNavigationSync();
-        }
         if (running.get()) {
+            if (fromBoot) {
+                scheduleBootNavigationSync();
+                if (AppPrefs.isUsbHostRecoveryEnabled(this)) {
+                    scheduleBootUsbHostRecovery();
+                }
+            }
             return START_STICKY;
         }
         running.set(true);
@@ -544,6 +548,15 @@ public final class HudService extends Service {
         udpLastRawRxElapsed = 0L;
         udpReceiverError = "";
         acquireWakeLock();
+
+        // Start boot-only workers after running becomes true. The USB recovery
+        // loop uses that flag as its service-lifetime guard.
+        if (fromBoot) {
+            scheduleBootNavigationSync();
+            if (AppPrefs.isUsbHostRecoveryEnabled(this)) {
+                scheduleBootUsbHostRecovery();
+            }
+        }
 
         // EON/TMAP 수신과 화면 렌더는 바로 시작하고, 부팅 경로의 루트 USB
         // 자동 등록만 5초 늦춘다.
@@ -874,6 +887,49 @@ public final class HudService extends Service {
                 bootNavigationSyncRunning.set(false);
             }
         }, "hud-boot-nav-sync").start();
+    }
+
+    /**
+     * A powered OTG adapter can leave starlte in USB device mode at boot. Retry
+     * for the first half minute, stopping as soon as the TURZX panel appears.
+     * This mirrors the user's successful unplug/replug sequence without ever
+     * changing the USB power role.
+     */
+    private void scheduleBootUsbHostRecovery() {
+        if (!bootUsbHostRecoveryRunning.compareAndSet(false, true)) {
+            return;
+        }
+        new Thread(() -> {
+            try {
+                for (int attempt = 0; attempt < 6 && running.get(); attempt++) {
+                    SystemClock.sleep(attempt == 0 ? 4000L : 5000L);
+                    if (hasTurzxUsbDevice()) {
+                        return;
+                    }
+                    usbStatus = "전원형 OTG · USB 호스트 전환 중";
+                    boolean changed = UsbPortReset.ensureHostRole();
+                    if (display != null) {
+                        display.reset();
+                    }
+                    nextUsbAttemptElapsed = SystemClock.elapsedRealtime()
+                            + (changed ? 2500L : 1000L);
+                }
+            } finally {
+                bootUsbHostRecoveryRunning.set(false);
+            }
+        }, "hud-boot-usb-host").start();
+    }
+
+    private boolean hasTurzxUsbDevice() {
+        UsbManager manager = (UsbManager) getSystemService(Context.USB_SERVICE);
+        if (manager == null) return false;
+        for (UsbDevice device : manager.getDeviceList().values()) {
+            if (device.getVendorId() == TurzxDisplay.VID
+                    && device.getProductId() == TurzxDisplay.PID) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static boolean launchNavAppOnMirrorDisplay(Context context, int navApp) {
