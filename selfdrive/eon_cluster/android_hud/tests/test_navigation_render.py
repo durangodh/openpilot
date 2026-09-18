@@ -142,6 +142,23 @@ def main():
     assert monitor_body.index("stableChecks >= 2") < monitor_body.index(
         "forceStopNavApp(appToStop)")
     assert "launchNavAppOnMirrorDisplayByRoot(appToStop)" in monitor_body
+    # nMirror 0.1.14 has no public selection broadcast. A single long-lived
+    # root observer follows the visible navigation task on its non-default
+    # display, debounces it, and feeds the normal HUD/EON selection path.
+    assert "scheduleNMirrorNavigationWatcher();" in source
+    assert "hud-nmirror-nav-watch" in source
+    assert "NMIRROR_FOREGROUND_CONFIRMATIONS = 2" in source
+    assert 'd != \\\"0\\\" && visible' in source
+    watcher_body = source.split("private void scheduleNMirrorNavigationWatcher", 1)[1].split(
+        "private void scheduleBootNavigationSync", 1)[0]
+    assert "AppPrefs.requestNavApp(this, visibleApp)" in watcher_body
+    assert "applyNavigationSelection(visibleApp, true, true)" in watcher_body
+    assert watcher_body.index("AppPrefs.requestNavApp(this, visibleApp)") < \
+        watcher_body.index("applyNavigationSelection(visibleApp, true, true)")
+    assert "nMirrorNavIgnoreUntilElapsed" in watcher_body
+    assert "nMirrorNavWatcherProcess" in watcher_body
+    destroy_body = source.split("public void onDestroy()", 1)[1]
+    assert "navWatcher.destroyForcibly()" in destroy_body
     assert "getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY" in activity
     secondary_display = activity.split(
         "getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY", 1)[1].split(

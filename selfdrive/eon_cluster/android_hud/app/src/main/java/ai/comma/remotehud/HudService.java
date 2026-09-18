@@ -152,6 +152,9 @@ public final class HudService extends Service {
     /** 네이버지도 6.9.1.3은 Android 16에서 첫 화면 글꼴 계산 중 늦게 죽을 수 있다. */
     private static final int NAVER_CRASH_WATCH_ATTEMPTS = 30;
     private static final int NAVER_MAX_RELAUNCHES = 2;
+    /** nMirror 자체 버튼은 외부 방송이 없으므로 보조 화면 전면 앱을 두 번 확인한다. */
+    private static final int NMIRROR_FOREGROUND_CONFIRMATIONS = 2;
+    private static final long NMIRROR_SWITCH_IGNORE_MS = 5000L;
 
     /** EON 텔레메트리가 이보다 오래 끊기면 화면에 표시한다 */
     private static final long EON_STALE_MS = 3000L;
@@ -330,6 +333,9 @@ public final class HudService extends Service {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean bootNavigationSyncRunning = new AtomicBoolean(false);
     private final AtomicBoolean bootUsbHostRecoveryRunning = new AtomicBoolean(false);
+    private final AtomicBoolean nMirrorNavWatcherRunning = new AtomicBoolean(false);
+    private volatile Process nMirrorNavWatcherProcess;
+    private volatile long nMirrorNavIgnoreUntilElapsed;
     private final AtomicReference<JSONObject> state = new AtomicReference<>(new JSONObject());
     private final AtomicReference<Bitmap> mapFrame = new AtomicReference<>();
     private final AtomicReference<Bitmap> staticMapFrame = new AtomicReference<>();
@@ -534,6 +540,7 @@ public final class HudService extends Service {
             return START_STICKY;
         }
         if (running.get()) {
+            scheduleNMirrorNavigationWatcher();
             if (fromBoot) {
                 scheduleBootNavigationSync();
                 if (AppPrefs.isUsbHostRecoveryEnabled(this)) {
@@ -556,6 +563,7 @@ public final class HudService extends Service {
         udpLastRawRxElapsed = 0L;
         udpReceiverError = "";
         acquireWakeLock();
+        scheduleNMirrorNavigationWatcher();
 
         // Start boot-only workers after running becomes true. The USB recovery
         // loop uses that flag as its service-lifetime guard.
@@ -805,6 +813,10 @@ public final class HudService extends Service {
         }
         configuredNavApp = selected;
         AppPrefs.setNavApp(this, selected);
+        // 허드앱/갭버튼이 화면을 바꾸는 동안 감시기가 아직 보이는 이전 앱을
+        // nMirror 버튼 입력으로 오인해 선택을 되돌리지 않게 한다.
+        nMirrorNavIgnoreUntilElapsed = SystemClock.elapsedRealtime()
+                + NMIRROR_SWITCH_IGNORE_MS;
         // A button tap is explicit: stop the opposite app even when this service
         // has just loaded the newly saved preference and sees no value change.
         // Telemetry synchronization remains edge-triggered to avoid force-stop at 10 Hz.
@@ -1005,6 +1017,102 @@ public final class HudService extends Service {
                 + (fallbackDefault
                 ? "else am start -n " + component + "; fi"
                 : "else exit 73; fi");
+    }
+
+    /**
+     * nMirror 0.1.14의 자체 네비맵 버튼은 선택 방송을 외부로 내보내지 않는다.
+     * 대신 하나의 장기 su 셸에서 보조 디스플레이의 최상단 태스크를 관찰한다.
+     * 앱마다 su를 다시 띄우지 않으므로 Magisk 허용 알림도 반복되지 않는다.
+     */
+    private void scheduleNMirrorNavigationWatcher() {
+        if (!nMirrorNavWatcherRunning.compareAndSet(false, true)) {
+            return;
+        }
+        new Thread(() -> {
+            int candidate = 0;
+            int confirmations = 0;
+            try {
+                while (running.get()) {
+                    Process observer = null;
+                    try {
+                        String watch = "while true; do dumpsys activity activities | awk '"
+                                + "/^[[:space:]]*Display #[0-9]+/ {d=$2; sub(/^#/, \"\", d); visible=0} "
+                                + "/^[[:space:]]*\\* Task\\{/ {visible=($0 ~ /visible=true/)} "
+                                + "d != \"0\" && visible && /com\\.skt\\.tmap\\.ku/ "
+                                + "{print 1; found=1; exit} "
+                                + "d != \"0\" && visible && /com\\.nhn\\.android\\.nmap/ "
+                                + "{print 2; found=1; exit} "
+                                + "END {if (!found) print 0}'; sleep 1; done";
+                        observer = Runtime.getRuntime().exec(new String[] {
+                                "su", "-c", watch
+                        });
+                        nMirrorNavWatcherProcess = observer;
+                        try (BufferedReader reader = new BufferedReader(
+                                new InputStreamReader(observer.getInputStream()))) {
+                            String line;
+                            while (running.get() && (line = reader.readLine()) != null) {
+                                int visibleApp;
+                                try {
+                                    visibleApp = Integer.parseInt(line.trim());
+                                } catch (NumberFormatException ignored) {
+                                    continue;
+                                }
+                                if (visibleApp != 1 && visibleApp != 2) {
+                                    candidate = 0;
+                                    confirmations = 0;
+                                    continue;
+                                }
+                                if (SystemClock.elapsedRealtime()
+                                        < nMirrorNavIgnoreUntilElapsed) {
+                                    candidate = 0;
+                                    confirmations = 0;
+                                    continue;
+                                }
+                                if (visibleApp == configuredNavApp) {
+                                    candidate = 0;
+                                    confirmations = 0;
+                                    continue;
+                                }
+                                if (candidate == visibleApp) {
+                                    confirmations++;
+                                } else {
+                                    candidate = visibleApp;
+                                    confirmations = 1;
+                                }
+                                if (confirmations < NMIRROR_FOREGROUND_CONFIRMATIONS) {
+                                    continue;
+                                }
+
+                                synchronized (AppPrefs.class) {
+                                    if (visibleApp != configuredNavApp
+                                            && SystemClock.elapsedRealtime()
+                                            >= nMirrorNavIgnoreUntilElapsed) {
+                                        // EON에도 같은 선택을 요청하고, 이미 nMirror가
+                                        // 띄운 Activity는 다시 만들지 않은 채 공통 전환/
+                                        // 네이버 충돌 복구 경로를 사용한다.
+                                        AppPrefs.requestNavApp(this, visibleApp);
+                                        applyNavigationSelection(visibleApp, true, true);
+                                    }
+                                }
+                                candidate = 0;
+                                confirmations = 0;
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    } finally {
+                        if (observer != null) observer.destroyForcibly();
+                        if (nMirrorNavWatcherProcess == observer) {
+                            nMirrorNavWatcherProcess = null;
+                        }
+                    }
+                    if (running.get()) {
+                        SystemClock.sleep(3000L);
+                    }
+                }
+            } finally {
+                nMirrorNavWatcherRunning.set(false);
+            }
+        }, "hud-nmirror-nav-watch").start();
     }
 
     private void scheduleBootNavigationSync() {
@@ -5014,6 +5122,9 @@ public final class HudService extends Service {
     @Override
     public void onDestroy() {
         running.set(false);
+        Process navWatcher = nMirrorNavWatcherProcess;
+        nMirrorNavWatcherProcess = null;
+        if (navWatcher != null) navWatcher.destroyForcibly();
         if (staticMapClient != null) staticMapClient.stop();
         workersStarted = false;
         serviceRunning = false;
