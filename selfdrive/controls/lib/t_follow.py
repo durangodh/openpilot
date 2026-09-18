@@ -17,14 +17,6 @@ STOPPED_LEAD_MAX_SPEED = 3.0
 STOPPED_LEAD_MIN_EGO_SPEED = 10.0
 STOPPED_LEAD_MIN_CLOSING_SPEED = 5.0
 
-STATIONARY_APPROACH_MIN_EGO_SPEED = 2.0
-STATIONARY_APPROACH_MIN_DECEL = 0.25
-STATIONARY_APPROACH_MAX_DECEL = 2.5
-STATIONARY_APPROACH_CONFIRM_FRAMES = 3
-STATIONARY_APPROACH_DROPOUT_FRAMES = 6
-STATIONARY_APPROACH_BRAKE_JERK = 0.6
-STATIONARY_APPROACH_RELEASE_JERK = 0.4
-
 
 def get_t_follow_base(cruise_gap, gap_values, v_ego_kph, speed_ratio, safe_mode_factor):
   """Return the configured, speed-scaled following time before transient adjustments."""
@@ -97,70 +89,6 @@ def get_stopped_lead_comfort_brake(configured_comfort_brake, v_ego, v_lead, lead
   safety_cap = interp(closing_speed, [5.0, 10.0, 15.0, 20.0],
                       [4.0, 2.2, 1.7, 1.5])
   return float(min(base, safety_cap))
-
-
-def get_stationary_lead_target_accel(v_ego, d_rel, stop_distance):
-  """Return the constant deceleration needed to stop at the configured gap."""
-  if v_ego < STATIONARY_APPROACH_MIN_EGO_SPEED:
-    return 0.0
-
-  remaining_distance = max(0.1, float(d_rel - stop_distance))
-  required_decel = (float(v_ego) ** 2) / (2.0 * remaining_distance)
-  if required_decel < STATIONARY_APPROACH_MIN_DECEL:
-    return 0.0
-  return -float(clip(required_decel, STATIONARY_APPROACH_MIN_DECEL,
-                     STATIONARY_APPROACH_MAX_DECEL))
-
-
-class StationaryLeadApproach:
-  """Keep a stable distance-based deceleration target for a stopped lead."""
-
-  def __init__(self, dt=T_FOLLOW_DT):
-    self.dt = dt
-    self.reset()
-
-  def reset(self):
-    self.confirm_frames = 0
-    self.dropout_frames = 0
-    self.lead_latched = False
-    self.target_accel = 0.0
-
-  def update(self, v_ego, d_rel, v_lead, lead_status, stop_distance, enabled=True):
-    if not enabled:
-      self.reset()
-      return self.target_accel
-
-    raw_target = get_stationary_lead_target_accel(v_ego, d_rel, stop_distance)
-    stationary_lead = bool(lead_status and v_lead <= STOPPED_LEAD_MAX_SPEED and raw_target < 0.0)
-
-    if stationary_lead:
-      self.confirm_frames = min(STATIONARY_APPROACH_CONFIRM_FRAMES, self.confirm_frames + 1)
-      self.dropout_frames = 0
-      if self.confirm_frames >= STATIONARY_APPROACH_CONFIRM_FRAMES:
-        self.lead_latched = True
-    else:
-      self.confirm_frames = 0
-      if self.lead_latched:
-        self.dropout_frames += 1
-        if self.dropout_frames > STATIONARY_APPROACH_DROPOUT_FRAMES:
-          self.lead_latched = False
-
-    if self.lead_latched and stationary_lead:
-      desired_accel = raw_target
-    elif self.lead_latched:
-      # Hold through a short radar/vision dropout instead of pulsing the brake.
-      desired_accel = self.target_accel
-    else:
-      desired_accel = 0.0
-
-    jerk_limit = (STATIONARY_APPROACH_BRAKE_JERK
-                  if desired_accel < self.target_accel
-                  else STATIONARY_APPROACH_RELEASE_JERK)
-    max_step = jerk_limit * self.dt
-    self.target_accel += float(clip(desired_accel - self.target_accel, -max_step, max_step))
-    if not self.lead_latched and abs(self.target_accel) < max_step:
-      self.target_accel = 0.0
-    return self.target_accel
 
 
 def limit_t_follow_change(tf_target, tf_previous, dt=T_FOLLOW_DT):

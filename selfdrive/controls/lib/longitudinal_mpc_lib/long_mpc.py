@@ -11,8 +11,7 @@ from selfdrive.controls.lib.radar_helpers import _LEAD_ACCEL_TAU
 from selfdrive.controls.lib.t_follow import (CRUISE_GAP_BP as _CRUISE_GAP_BP, CRUISE_GAP_V,
                                              clamp_desired_follow_distance,
                                              get_stopped_lead_comfort_brake,
-                                             get_t_follow_closing_margin,
-                                             StationaryLeadApproach)
+                                             get_t_follow_closing_margin)
 from common.conversions import Conversions as CV
 
 if __name__ == '__main__':  # generating code
@@ -266,7 +265,6 @@ class LongitudinalMpc:
     self.traffic_stop_active = False
     self.traffic_stop_distance = 0.0
     self.stop_distance = STOP_DISTANCE
-    self.stationary_lead_approach = StationaryLeadApproach(DT_MDL)
     # ────────────────────────────────────────────────────────────────────
 
     self.reset()
@@ -305,7 +303,6 @@ class LongitudinalMpc:
 
     self.v_ego_kph_prev = 0.0
     self.t_follow_base = T_FOLLOW
-    self.stationary_lead_approach.reset()
 
     self.set_weights()
 
@@ -471,13 +468,6 @@ class LongitudinalMpc:
     lead_xv_0 = self.process_lead(radarstate.leadOne)
     lead_xv_1 = self.process_lead(radarstate.leadTwo)
 
-    # A stopped lead detected at range gets a kinematic constant-deceleration
-    # target. Keep it across short perception dropouts and rate-limit changes,
-    # while the normal obstacle constraints remain free to demand more braking.
-    stationary_target_accel = self.stationary_lead_approach.update(
-      v_ego, radarstate.leadOne.dRel, lead_xv_0[0, 1], radarstate.leadOne.status,
-      self.stop_distance, enabled=not reset_state and not carstate.gasPressed)
-
     # apilot-c2: 갭/속도/안전계수 기반 t_follow (감속 중 유지)
     self.update_gap_tf(controls, v_ego)
 
@@ -569,13 +559,7 @@ class LongitudinalMpc:
     self.solver.set(N, "yref", self.yref[N][:COST_E_DIM])
 
     self.params[:,2] = np.min(x_obstacles, axis=1)
-    if stationary_target_accel < 0.0:
-      target_delta = stationary_target_accel - a_ego
-      approach_accel_ref = a_ego + np.clip(
-        target_delta, -0.6 * T_IDXS, 0.4 * T_IDXS)
-      self.params[:,3] = approach_accel_ref
-    else:
-      self.params[:,3] = np.copy(self.prev_a)
+    self.params[:,3] = np.copy(self.prev_a)
     self.params[:,4] = self.t_follow
     self.params[:,6] = self.stop_dist
     self.params[:,7] = comfort_brake
