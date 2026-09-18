@@ -110,10 +110,13 @@ def main():
     assert 'sync.setPackage("com.aa.nmirror")' in source
     switch_body = source.split("static void switchNavApps", 1)[1].split(
         "private static void synchronizeNMirrorSelection", 1)[0]
-    assert switch_body.index("waitFor()") < switch_body.index("synchronizeNMirrorSelection")
-    assert switch_body.index("synchronizeNMirrorSelection") < switch_body.index("am force-stop")
+    assert switch_body.index("launchComponentOnSelectedDisplay(component)") < \
+        switch_body.index("synchronizeNMirrorSelection")
+    assert switch_body.index("synchronizeNMirrorSelection") < \
+        switch_body.index("monitorNaverAndRecover(component, stop, generation)")
     assert "NMIRROR_SYNC_ATTEMPTS = 4" in source
     assert "am broadcast --user 0" in source
+    assert "launchComponentOnSelectedDisplay(component)" in switch_body
     assert "displayAwareLaunchCommand(component)" in source
     assert 'am start --display \\"$display_id\\" -n' in source
     assert "scheduleBootNavigationSync();" in source
@@ -125,7 +128,20 @@ def main():
     assert "launchNavigationOnCurrentDisplay(launch)" in activity
     assert "options.setLaunchDisplayId(getDisplay().getDisplayId())" in activity
     assert "EXTRA_NAV_FOREGROUND_LAUNCHED" in activity
-    assert "foregroundLaunched ? null" in source
+    assert "if (!foregroundLaunched)" in switch_body
+    # Naver 6.9.1.3 can crash several seconds after its first Android 16
+    # Compose frame. Keep TMAP until the new process is alive, watch its PID,
+    # relaunch on death/PID replacement, and restore TMAP if recovery fails.
+    assert "monitorNaverAndRecover(component, stop, generation)" in switch_body
+    assert "NAVER_CRASH_WATCH_ATTEMPTS = 30" in source
+    assert "NAVER_MAX_RELAUNCHES = 2" in source
+    assert "!currentPid.equals(observedPid)" in source
+    assert "new InputStreamReader(observer.getInputStream())" in source
+    monitor_body = source.split("private static void monitorNaverAndRecover", 1)[1].split(
+        "private static boolean launchComponentOnSelectedDisplay", 1)[0]
+    assert monitor_body.index("stableChecks >= 2") < monitor_body.index(
+        "forceStopNavApp(appToStop)")
+    assert "launchNavAppOnMirrorDisplayByRoot(appToStop)" in monitor_body
     assert "getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY" in activity
     secondary_display = activity.split(
         "getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY", 1)[1].split(

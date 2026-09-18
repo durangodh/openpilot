@@ -36,8 +36,10 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.io.InputStreamReader;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -49,6 +51,7 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -146,6 +149,9 @@ public final class HudService extends Service {
     /** nMirror가 부팅/화면 재생성 중 첫 방송을 놓쳐도 선택값을 받도록 재전송한다. */
     private static final int NMIRROR_SYNC_ATTEMPTS = 4;
     private static final long NMIRROR_SYNC_RETRY_MS = 500L;
+    /** 네이버지도 6.9.1.3은 Android 16에서 첫 화면 글꼴 계산 중 늦게 죽을 수 있다. */
+    private static final int NAVER_CRASH_WATCH_ATTEMPTS = 30;
+    private static final int NAVER_MAX_RELAUNCHES = 2;
 
     /** EON 텔레메트리가 이보다 오래 끊기면 화면에 표시한다 */
     private static final long EON_STALE_MS = 3000L;
@@ -252,6 +258,8 @@ public final class HudService extends Service {
     private int configuredLayoutMode = 1;
     /** EON 선택 내비: 1=티맵, 2=네이버지도. */
     private volatile int configuredNavApp = 0;
+    /** 이전 전환 감시가 나중에 선택한 내비를 다시 덮어쓰지 못하게 한다. */
+    private static final AtomicInteger navSwitchGeneration = new AtomicInteger();
     /** 출력 대상 1: 외부 USB HUD, 2: S9 화면, 3: 동시 출력 */
 
     // 회전 카운트다운 (carrot-wip leftSec 방식: 단조감소)
@@ -802,29 +810,39 @@ public final class HudService extends Service {
         // Telemetry synchronization remains edge-triggered to avoid force-stop at 10 Hz.
         clearNavigationAssets();
         // Process work goes to its own thread, outside the AppPrefs lock the
-        // telemetry loop also takes: two blocking `su` round trips used to stall
-        // the HUD for seconds on every switch. One su invocation starts the new
-        // app first and only then force-stops the old one.
+        // telemetry loop also takes: blocking `su` round trips used to stall
+        // the HUD for seconds on every switch. The worker starts the new app,
+        // watches Naver for its delayed Android 16 crash, and only then retires
+        // the old app.
         final Context context = this;
+        final int generation = navSwitchGeneration.incrementAndGet();
         new Thread(() -> switchNavApps(context, selected, appToStop,
-                foregroundLaunched), "hud-nav-switch").start();
+                foregroundLaunched, generation), "hud-nav-switch").start();
     }
 
     static void switchNavApps(Context context, int launch, int stop) {
-        switchNavApps(context, launch, stop, false);
+        int generation = navSwitchGeneration.incrementAndGet();
+        switchNavApps(context, launch, stop, false, generation);
     }
 
     static void switchNavApps(Context context, int launch, int stop,
                               boolean foregroundLaunched) {
+        int generation = navSwitchGeneration.incrementAndGet();
+        switchNavApps(context, launch, stop, foregroundLaunched, generation);
+    }
+
+    private static void switchNavApps(Context context, int launch, int stop,
+                                      boolean foregroundLaunched, int generation) {
         try {
-            Intent intent = foregroundLaunched ? null :
-                    context.getPackageManager().getLaunchIntentForPackage(navPackage(launch));
+            Intent intent = context.getPackageManager().getLaunchIntentForPackage(
+                    navPackage(launch));
             String component = intent != null && intent.getComponent() != null
                     ? intent.getComponent().flattenToShortString() : null;
-            if (component != null) {
-                Runtime.getRuntime().exec(new String[] {
-                        "su", "-c", displayAwareLaunchCommand(component)
-                }).waitFor();
+            if (component == null || generation != navSwitchGeneration.get()) {
+                return;
+            }
+            if (!foregroundLaunched) {
+                launchComponentOnSelectedDisplay(component);
                 SystemClock.sleep(300L);
             }
 
@@ -832,11 +850,135 @@ public final class HudService extends Service {
             // 화면만 남는다. 새 앱을 살린 상태에서 nMirror를 충분히 동기화한 뒤
             // 마지막에 반대쪽 앱을 종료한다.
             synchronizeNMirrorSelection(context, launch);
-            if (stop != 0) {
-                Runtime.getRuntime().exec(new String[] {
-                        "su", "-c", "am force-stop " + navPackage(stop)
-                }).waitFor();
+            if (generation != navSwitchGeneration.get()) {
+                return;
             }
+
+            if (launch == 2) {
+                // 네이버지도 6.9.1.3/Android 16 조합은 첫 화면의 Compose
+                // fontMetrics 계산 중 5~20초 뒤 프로세스가 죽는 경우가 있다.
+                // PID를 감시해 죽거나 시스템이 새 PID로 재시작하면 같은 화면에
+                // 자동으로 다시 올린다. 최초 실행조차 확인되지 않으면 기존 티맵은
+                // 종료하지 않으므로 차량 화면이 검게 남지 않는다.
+                monitorNaverAndRecover(component, stop, generation);
+            } else if (stop != 0) {
+                forceStopNavApp(stop);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void monitorNaverAndRecover(String component, int appToStop,
+                                               int generation) {
+        Process observer = null;
+        String observedPid = "";
+        int relaunches = 0;
+        int stableChecks = 0;
+        int missingChecks = 0;
+        boolean oldAppStopped = false;
+        try {
+            // 한 번 얻은 su 셸 안에서만 PID를 읽는다. 매초 su를 새로 실행해
+            // Magisk의 '슈퍼유저 권한 허용됨' 알림이 반복되는 것을 피한다.
+            StringBuilder watchBuilder = new StringBuilder("for ignored in");
+            for (int i = 0; i < NAVER_CRASH_WATCH_ATTEMPTS; i++) {
+                watchBuilder.append(' ').append(i);
+            }
+            String watch = watchBuilder.append("; do pidof ")
+                    .append(navPackage(2))
+                    .append(" || echo -; sleep 1; done")
+                    .toString();
+            observer = Runtime.getRuntime().exec(new String[] {
+                    "su", "-c", watch
+            });
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(observer.getInputStream()))) {
+                String currentPid;
+                while ((currentPid = reader.readLine()) != null) {
+                    currentPid = currentPid.trim();
+                    if (generation != navSwitchGeneration.get()) {
+                        return;
+                    }
+                    if (currentPid.isEmpty() || "-".equals(currentPid)) {
+                        missingChecks++;
+                        stableChecks = 0;
+                        // 시작 직후 두 번은 프로세스 생성 시간을 준다.
+                        if (missingChecks < 3) continue;
+                    } else if (!observedPid.isEmpty()
+                            && !currentPid.equals(observedPid)) {
+                        // PID 교체는 uncaught exception 뒤 시스템 재생성을 뜻한다.
+                        missingChecks = 3;
+                        stableChecks = 0;
+                    } else {
+                        observedPid = currentPid;
+                        missingChecks = 0;
+                        stableChecks++;
+                        // 네이버 프로세스가 최소 2초간 유지된 뒤에만 티맵을 종료한다.
+                        if (!oldAppStopped && stableChecks >= 2 && appToStop != 0) {
+                            forceStopNavApp(appToStop);
+                            oldAppStopped = true;
+                        }
+                        continue;
+                    }
+
+                    if (relaunches >= NAVER_MAX_RELAUNCHES) {
+                        observedPid = "";
+                        break;
+                    }
+                    forceStopNavApp(2);
+                    SystemClock.sleep(250L);
+                    launchComponentOnSelectedDisplay(component);
+                    relaunches++;
+                    observedPid = "";
+                    missingChecks = 0;
+                }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (observer != null) observer.destroyForcibly();
+        }
+
+        if (generation != navSwitchGeneration.get()) {
+            return;
+        }
+        if (observedPid.isEmpty()) {
+            // 자동 재실행까지 실패하면 이전 지도를 복구해 영구 블랙 화면을 막는다.
+            if (appToStop != 0) {
+                launchNavAppOnMirrorDisplayByRoot(appToStop);
+            }
+        } else if (!oldAppStopped && appToStop != 0) {
+            forceStopNavApp(appToStop);
+        }
+    }
+
+    private static boolean launchComponentOnSelectedDisplay(String component) {
+        try {
+            Process process = Runtime.getRuntime().exec(new String[] {
+                    "su", "-c", displayAwareLaunchCommand(component)
+            });
+            return process.waitFor() == 0;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static void launchNavAppOnMirrorDisplayByRoot(int navApp) {
+        try {
+            Intent launch = activeInstance == null ? null
+                    : activeInstance.getPackageManager().getLaunchIntentForPackage(
+                            navPackage(navApp));
+            if (launch != null && launch.getComponent() != null) {
+                launchComponentOnSelectedDisplay(
+                        launch.getComponent().flattenToShortString());
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static void forceStopNavApp(int navApp) {
+        try {
+            Runtime.getRuntime().exec(new String[] {
+                    "su", "-c", "am force-stop " + navPackage(navApp)
+            }).waitFor();
         } catch (Exception ignored) {
         }
     }
