@@ -139,7 +139,8 @@ class Cluster():
     }
 
   def get_RadarState2(self, model_prob, lead_msg, mixRadarInfo):
-    # apilot-c2 원본: MixRadarInfo 켜짐 + 비전 prob>0.5 + |비전a| > |레이더a| 이면 비전 가속도를 그대로 사용
+    # ajouatom/apilot c3-master 원본: MixRadarInfo 켜짐 + 비전 prob>0.5 + |비전a| > |레이더a| 이면 비전 가속도를 그대로 사용.
+    # aLeadTau는 useVisionMix 여부와 무관하게 레이더로 추적·학습된 self.aLeadTau를 그대로 씀 (0.3 강제 없음 — 원본 반영)
     useVisionMix = False
     if mixRadarInfo > 0 and float(lead_msg.prob) > 0.5 and abs(float(self.aLeadK)) < abs(float(lead_msg.a[0])):
       useVisionMix = True
@@ -155,7 +156,7 @@ class Cluster():
       "fcw": self.is_potential_fcw(model_prob),
       "modelProb": model_prob,
       "radar": True,
-      "aLeadTau": 0.3 if useVisionMix else float(self.aLeadTau)
+      "aLeadTau": float(self.aLeadTau)
     }
 
   def get_RadarState_from_vision(self, lead_msg, v_ego, model_v_ego):
