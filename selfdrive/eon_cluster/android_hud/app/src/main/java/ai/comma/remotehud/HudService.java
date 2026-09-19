@@ -1037,8 +1037,12 @@ public final class HudService extends Service {
         final Context context = this;
         Thread worker = new Thread(() -> {
             try {
-                // nMirrorOS creates its virtual display after BOOT_COMPLETED.
-                // Retry for 16 seconds, but never fall back to S9 display 0.
+                // nMirrorOS creates its virtual display after BOOT_COMPLETED,
+                // and separately launches its own "app to start on boot" once
+                // during that same window (its timing relative to ours is
+                // unknown). Keep reasserting our selection for the full 16 s
+                // instead of stopping at the first success, so whichever app
+                // nMirror launches on its own, our last attempt still wins.
                 for (int attempt = 0; attempt < 8 && running.get(); attempt++) {
                     SystemClock.sleep(2000L);
                     if (!running.get()) return;
@@ -1046,7 +1050,6 @@ public final class HudService extends Service {
                     if (launchNavAppOnMirrorDisplay(context, selected)) {
                         synchronizeNMirrorSelection(context, selected);
                         stopNavApp(selected == 2 ? 1 : 2);
-                        return;
                     }
                 }
             } finally {
