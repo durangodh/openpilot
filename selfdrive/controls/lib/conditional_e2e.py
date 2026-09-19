@@ -119,8 +119,24 @@ class ConditionalE2EController:
 
     if v_ego_kph < 1.0:
       raw_stop_sign = model_x < 20.0 and model_v < 10.0
-    elif v_ego_kph < 80.0:
-      raw_stop_sign = (model_x < 120.0 and
+    elif v_ego_kph < 82.0:
+      # Match c3-wip's check_model_stopping(): the model's own path endpoint
+      # can round out into a phantom "stop" well behind a real lead car, so
+      # require it to also sit closer than the actual lead. No lead present
+      # -> no cap (radar_lead_distance is 0.0 either way in that case, so use
+      # a large fallback rather than letting it block every stop check).
+      lead_distance_guard = radar_lead_distance if radar_lead_present else 1000.0
+      # Higher speed needs more runway to legitimately see a real stop that
+      # far out; scale the distance cap from 120 m at <=60 km/h up to 150 m
+      # at >=80 km/h instead of a single fixed 120 m for the whole bracket.
+      if v_ego_kph <= 60.0:
+        distance_cap = 120.0
+      elif v_ego_kph >= 80.0:
+        distance_cap = 150.0
+      else:
+        distance_cap = 120.0 + (v_ego_kph - 60.0) * 1.5
+      raw_stop_sign = (model_x < lead_distance_guard - 3.0 and
+                       model_x < distance_cap and
                        (model_v < 3.0 or model_v < model_v0 * 0.7) and
                        abs(model_y) < 5.0)
     else:
