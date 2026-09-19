@@ -151,7 +151,14 @@ public final class HudService extends Service {
     private static final long NMIRROR_SYNC_RETRY_MS = 500L;
     /** 네이버지도 6.9.1.3은 Android 16에서 경로안내 확인 화면 렌더 중 죽을 수 있다. */
     private static final int NAVER_CRASH_WATCH_ATTEMPTS = 25;
-    private static final int NAVER_MAX_RELAUNCHES = 2;
+    // 재실행을 반복할수록 안드로이드 자체의 "계속 중단됨" 반복크래시
+    // 판정(ANR 다이얼로그)을 유발할 위험이 커진다 — 그 다이얼로그는 화면을
+    // 가로막아서 복구 시도 자체를 무력화한다. 1회만 시도하고, 그래도
+    // 안 되면 바로 이전 앱으로 되돌린다(재시도를 더 늘리는 것보다 안전).
+    private static final int NAVER_MAX_RELAUNCHES = 1;
+    // 강제종료 직후 곧바로 재실행하면 죽은 프로세스 정리와 겹쳐 반복크래시
+    // 판정에 더 잘 걸린다. 여유를 좀 더 둔다.
+    private static final long NAVER_RELAUNCH_DELAY_MS = 1000L;
     /** 자체 nMirror 감시 없이, 우리가 시작한 전환끼리만 겹치지 않게 막는다. */
     private static final AtomicInteger navSwitchGeneration = new AtomicInteger();
     /** displayAwareLaunchCommand 가 실제 사용한 디스플레이 번호를 stdout 에
@@ -931,7 +938,7 @@ public final class HudService extends Service {
                         break;
                     }
                     forceStopNavApp(2);
-                    SystemClock.sleep(250L);
+                    SystemClock.sleep(NAVER_RELAUNCH_DELAY_MS);
                     launchNavAppOnMirrorDisplay(context, 2);
                     relaunches++;
                     observedPid = "";
