@@ -175,6 +175,22 @@ def main():
         "private void handleUsbError", 1)[0]
     assert "c.drawColor(Color.BLACK)" in primer
     assert "SystemClock.sleep(200L)" in primer
+    # An S9-only reboot leaves the powered TURZX decoder in its previous USB
+    # session. Even when VID/PID is already visible, boot must rebind it once
+    # before the first JPEG. Duplicate boot broadcasts must not reset it twice.
+    assert "bootUsbPreparationDone" in source
+    boot_usb = source.split("private void scheduleBootUsbHostRecovery()", 1)[1].split(
+        "private boolean hasTurzxUsbDevice()", 1)[0]
+    present_panel = boot_usb.split("if (hasTurzxUsbDevice())", 1)[1].split(
+        "panelWasMissing = true", 1)[0]
+    assert "UsbPortReset.resetPort(null)" in present_panel
+    assert "nextUsbAttemptElapsed" in present_panel
+    assert "usbNeedsPrimeFrame = true" in present_panel
+    assert "bootUsbPreparationDone.set(true)" in present_panel
+    # resetPort must verify that sysfs unbind and bind actually succeeded. The
+    # old unconditional 'echo done' incorrectly reported success on failure.
+    assert '"RESET_OK".equals(line.trim())' in (Path(__file__).resolve().parents[1] /
+        "app/src/main/java/ai/comma/remotehud/UsbPortReset.java").read_text(encoding="utf-8")
     # Use complete source methods, so restoring the old early return fails this test.
     methods = []
     for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),
