@@ -380,30 +380,6 @@ def _publish_heartbeat(params, state):
     print("remote HUD heartbeat failed: %s" % exc, flush=True)
 
 
-def _stop_point(long_plan):
-  """신호/E2E 정지까지 남은 거리(m). 없으면 None.
-
-  별도 메시지 필드를 만들지 않고 이미 구독 중인 longitudinalPlan 의 속도
-  궤적을 적분한다. 속도가 0 에 수렴하는 지점이 곧 정지 지점이다.
-  trafficState/onStop 으로 게이트해서 앞차 추종 정차에는 선을 그리지 않는다.
-  """
-  traffic = int(_finite(_field(long_plan, "trafficState", 0)))
-  if traffic <= 0 and not bool(_field(long_plan, "onStop", False)):
-    return None
-  speeds = list(_field(long_plan, "speeds", []) or [])
-  if len(speeds) < 2:
-    return None
-  # T_IDXS 와 같은 비균등 시간축. 여기서는 인접 구간을 사다리꼴로 적분한다.
-  dist = 0.0
-  for i in range(1, min(len(speeds), len(T_IDXS))):
-    v0 = _finite(speeds[i - 1])
-    v1 = _finite(speeds[i])
-    if v1 < 0.3:
-      return round(max(0.0, dist), 1)
-    dist += (v0 + v1) * 0.5 * (T_IDXS[i] - T_IDXS[i - 1])
-  return None
-
-
 def _first(seq, default=0.0):
   try:
     for value in seq:
@@ -1186,13 +1162,6 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     # 가감속·요철로 실시간 변한다. 앱은 여기에 게인을 곱해 수평선을 움직인다.
     "pitch": round(_finite(_first(_field(_field(sm["modelV2"], "orientation", None), "y", []))), 4),
     "calibPitch": _calib_pitch(sm["liveCalibration"]),
-    # 정지선까지 거리(m). None 이면 앱이 안 그린다.
-    "stopDist": _stop_point(sm["longitudinalPlan"]),
-    # 모델 stop-line head가 3프레임 확인한 실제 정지선. 0이면 미확정.
-    "stopLine": round(max(0.0, min(120.0, _finite(_first(
-        _field(sm["longitudinalPlan"], "stopLine", []))))), 1),
-    "stoplineProb": round(max(0.0, min(1.0, _finite(
-        _field(sm["longitudinalPlan"], "stoplineProb", 0.0)))), 3),
     # E2E 궤적으로 추정한 신호 상태. 0=없음, 1=정지(빨강), 2=출발(초록).
     # 실제 신호등 색상 인식값이 아니므로 노란불 상태는 만들지 않는다.
     "trafficState": max(0, min(2, int(_finite(

@@ -913,8 +913,8 @@ struct LongitudinalPlan @0xe00b5b3eba12876c {
   turnSpeed @44 :Float32;
   turnSpeedControlState @45 :SpeedLimitControlState;
   turnSign @46 :Int16;
-  stopLine @47 :List(Float64) = [0.];
-  stoplineProb @48 :Float32;
+  stopLineDEPRECATED @47 :List(Float64) = [0.];
+  stoplineProbDEPRECATED @48 :Float32;
   trafficState @49 : Int32;
   e2eX @50 :List(Float64) = [0.];
   lead0Obstacle @51 :List(Float64) = [0.];

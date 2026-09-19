@@ -20,15 +20,11 @@ from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.events import Events
 from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_VISION_LEAD_DISTANCE,
-                                                    adjust_stop_distance_for_decel,
-                                                    model_stop_line_valid,
-                                                    select_model_stop_distance)
+                                                    adjust_stop_distance_for_decel)
 
 LON_MPC_STEP = 0.2  # first step is 0.2s
 AWARENESS_DECEL = -0.2  # car smoothly decel at .2m/s^2 when user is distracted
 A_CRUISE_MIN = -1.2
-STOP_LINE_CONFIRM_FRAMES = 3
-
 # ── MyDrivingMode (1:SAFE 2:ECO 3:NORM 4:FAST) ────────────────────────────
 # UI 의 모드 박스를 탭하면 1→2→3→4→1 로 순환한다 (onroad.cc).
 # 갭버튼은 순정 SCC 갭 기능 그대로 두고, 모드는 그 위에 배율로만 얹는다.
@@ -54,9 +50,6 @@ class LongitudinalPlanner:
     self.e2e_stop_distance = 0.0
     self.traffic_stop_accel_factor = 0.8
     self.traffic_stop_distance_adjust = 4.0
-    self.stop_line_confirm_count = 0
-    self.model_stop_line_x = 0.0
-    self.model_stop_line_prob = 0.0
 
     # MyDrivingMode
     self.my_driving_mode = 3
@@ -168,20 +161,7 @@ class LongitudinalPlanner:
     vision_lead_present = (lead_one.status and lead_one.dRel < E2E_VISION_LEAD_DISTANCE and
                            not lead_one.radar)
     path_stop_x = float(model_msg.position.x[-1]) if model_valid else 0.0
-    stop_line_x = float(model_msg.stopLine.x) if model_valid else 0.0
-    stop_line_y = float(model_msg.stopLine.y) if model_valid else 0.0
-    stop_line_prob = float(model_msg.stopLine.prob) if model_valid else 0.0
-    if model_stop_line_valid(stop_line_x, stop_line_y, stop_line_prob):
-      self.stop_line_confirm_count = min(STOP_LINE_CONFIRM_FRAMES, self.stop_line_confirm_count + 1)
-    else:
-      self.stop_line_confirm_count = 0
-    stop_line_confirmed = self.stop_line_confirm_count >= STOP_LINE_CONFIRM_FRAMES
-    self.model_stop_line_x = stop_line_x if stop_line_confirmed else 0.0
-    self.model_stop_line_prob = stop_line_prob
-    # A stop-line prediction may only move the target closer. A bad head output
-    # can therefore cause an earlier conservative stop, never a later one.
-    selected_stop_x = select_model_stop_distance(
-      path_stop_x, self.model_stop_line_x, stop_line_confirmed)
+    selected_stop_x = path_stop_x
 
     mode = self.conditional_e2e.update(
       available=active and self.auto_e2e_enabled,
@@ -201,8 +181,7 @@ class LongitudinalPlanner:
       lead_present=lead_present,
       radar_lead_present=radar_lead_present,
       radar_lead_distance=float(lead_one.dRel) if lead_one.status else 0.0,
-      vision_lead_present=vision_lead_present,
-      stop_line_confirmed=stop_line_confirmed)
+      vision_lead_present=vision_lead_present)
     self.auto_e2e_stopping = self.conditional_e2e.stopping
     self.auto_e2e_prepare = self.conditional_e2e.prepare
     self.e2e_stop_distance = self.conditional_e2e.stop_distance
@@ -348,8 +327,6 @@ class LongitudinalPlanner:
     longitudinalPlan.desiredDistance = float(self.mpc.desired_distance)
     longitudinalPlan.mpcMode = 1 if self.mpc.mode == 'blended' else 0
     longitudinalPlan.xState = self.mpc.xState
-    longitudinalPlan.stopLine = [self.model_stop_line_x]
-    longitudinalPlan.stoplineProb = self.model_stop_line_prob
     # Expose the automatic E2E stop/depart state to the onroad UI.
     # 0: inactive, 1: stopping/waiting, 2: preparing to depart.
     e2e_state_active = self.auto_e2e_enabled and sm['controlsState'].enabled

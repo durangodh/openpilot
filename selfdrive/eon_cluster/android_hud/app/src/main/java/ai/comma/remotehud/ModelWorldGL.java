@@ -124,11 +124,6 @@ final class ModelWorldGL {
     private final boolean[] leadSpriteBraking = new boolean[2];
     private final boolean[] leadSpriteVision = new boolean[2];
     private final float[] leadSpriteProbability = new float[2];
-    // 정지선은 GL 도로 좌표로 위치를 계산하고 Canvas가 선명한 HUD 선을 얹는다.
-    private boolean stopLineMarkerValid;
-    private float stopLineMarkerX;
-    private float stopLineMarkerY;
-    private float stopLineMarkerW;
 
     private final float[] worldQuad = new float[8];
     private final Bitmap frame = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
@@ -531,7 +526,6 @@ final class ModelWorldGL {
             drawPathLayers(path, pathColor, pathEnd);
             drawDesiredDistance(scene, path, dark);
         }
-        updateStopLineMarker(scene, path);
         drawBsd(scene);
         drawLead(scene.optJSONObject("lead2"), path, 1, dark, true, timestamp, leadSprite);
         drawLead(scene.optJSONObject("lead"), path, 0, dark, false, timestamp, leadSprite);
@@ -1288,33 +1282,6 @@ final class ModelWorldGL {
                 dark ? Color.rgb(245, 80, 218) : Color.rgb(202, 24, 173), 0.94f);
     }
 
-    private void updateStopLineMarker(JSONObject scene, Line path) {
-        stopLineMarkerValid = false;
-        float distance = (float) scene.optDouble("stopLine", -1d);
-        float probability = (float) scene.optDouble("stoplineProb", 0d);
-        if (!Float.isFinite(distance) || distance < 2f || distance > 120f
-                || probability < 0.6f) {
-            return;
-        }
-        float laneWidth = clamp((float) scene.optDouble("laneWidth", 3.5d), 2.2f, 4.2f);
-        float center = yAt(path, distance);
-        float halfWidth = laneWidth * 0.52f;
-        float z = zAt(path, distance) * roadZGain + 0.105f;
-        if (!project(distance, center, z, projected)) {
-            return;
-        }
-        float centerX = projected[0];
-        float centerY = projected[1];
-        if (!project(distance, center + halfWidth, z, projected)) return;
-        float leftX = projected[0];
-        if (!project(distance, center - halfWidth, z, projected)) return;
-        float rightX = projected[0];
-        stopLineMarkerX = centerX;
-        stopLineMarkerY = centerY;
-        stopLineMarkerW = clamp(Math.abs(rightX - leftX), 18f, 130f);
-        stopLineMarkerValid = true;
-    }
-
     private boolean projectQuadPoint(int offset, float x, float y, float z) {
         if (!project(x, y, z, projected)) {
             return false;
@@ -1460,15 +1427,6 @@ final class ModelWorldGL {
         out[0] = leadSpriteX[index];
         out[1] = leadSpriteY[index];
         out[2] = leadSpriteW[index];
-        return true;
-    }
-
-    /** Confirmed stop-line marker = {center x, center y, width}, in Canvas coordinates. */
-    boolean stopLineMarker(float[] out) {
-        if (!stopLineMarkerValid) return false;
-        out[0] = stopLineMarkerX;
-        out[1] = stopLineMarkerY;
-        out[2] = stopLineMarkerW;
         return true;
     }
 

@@ -185,7 +185,6 @@ public final class HudService extends Service {
     private TurzxDisplay display;
     private Bitmap egoCar;
     private final float[] leadSpriteInfo = new float[3];
-    private final float[] stopLineInfo = new float[3];
     // 채도 0 + 밝기 0.82. 자차 그림을 앞차로 재사용할 때만 적용한다.
     private static final ColorMatrixColorFilter leadTint = buildLeadTint();
     private static final ColorMatrixColorFilter visionLeadTint = buildVisionLeadTint();
@@ -1588,26 +1587,6 @@ public final class HudService extends Service {
             c.drawRect(left + width * 0.90f - lampW, lampY,
                     left + width * 0.90f, lampY + lampH, p);
         }
-        p.setAlpha(255);
-    }
-
-    /** 사진 속 제안처럼 정지선 위치에 둥근 빨간 가로선과 약한 발광을 표시한다. */
-    private void drawConfirmedStopLine(Canvas c, Paint p, float[] info) {
-        float halfWidth = info[2] * 0.5f;
-        float y = info[1];
-        p.setShader(null);
-        p.setColorFilter(null);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeCap(Paint.Cap.ROUND);
-        p.setColor(Color.rgb(255, 32, 40));
-        p.setAlpha(72);
-        p.setStrokeWidth(10f);
-        c.drawLine(info[0] - halfWidth, y, info[0] + halfWidth, y, p);
-        p.setAlpha(248);
-        p.setStrokeWidth(4.5f);
-        c.drawLine(info[0] - halfWidth, y, info[0] + halfWidth, y, p);
-        p.setStrokeCap(Paint.Cap.BUTT);
-        p.setStyle(Paint.Style.FILL);
         p.setAlpha(255);
     }
 

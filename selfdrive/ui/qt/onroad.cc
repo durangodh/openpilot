@@ -448,12 +448,6 @@ void NvgWindow::drawLaneLines(QPainter &painter, const UIState *s) {
     painter.drawPolygon(scene.track_vertices.v, track_count);
   }
 
-  if (scene.stop_line_valid) {
-    painter.setBrush(Qt::NoBrush);
-    painter.setPen(QPen(QColor(255, 32, 40, 235), 8.0, Qt::SolidLine, Qt::RoundCap));
-    painter.drawLine(scene.stop_line_left, scene.stop_line_right);
-  }
-
   painter.restore();
 }
 

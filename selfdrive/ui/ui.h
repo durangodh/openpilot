@@ -117,11 +117,6 @@ typedef struct UIScene {
   QPointF tf_left, tf_right;
   float   tf_distance = 0.0f;
   float   t_follow = 0.0f;
-  // confirmed physical stop-line overlay
-  bool    stop_line_valid = false;
-  QPointF stop_line_left, stop_line_right;
-  float   stop_line_distance = 0.0f;
-  float   stop_line_prob = 0.0f;
 
   float light_sensor, accel_sensor, gyro_sensor;
   bool started, ignition, is_metric, map_on_left, longitudinal_control, experimental_mode;

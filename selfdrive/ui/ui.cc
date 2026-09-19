@@ -83,29 +83,6 @@ static void update_tfollow_line(UIState *s, const cereal::ModelDataV2::XYZTData:
   }
 }
 
-// Confirmed model stop line, projected across the ego lane.
-static void update_stop_line(UIState *s, const cereal::ModelDataV2::XYZTData::Reader &line) {
-  const auto plan = (*s->sm)["longitudinalPlan"].getLongitudinalPlan();
-  const auto stop_line = plan.getStopLine();
-  const float d = stop_line.size() > 0 ? stop_line[0] : 0.0f;
-  const float prob = plan.getStoplineProb();
-  s->scene.stop_line_valid = false;
-  s->scene.stop_line_distance = d;
-  s->scene.stop_line_prob = prob;
-  if (d < 2.0f || d > 120.0f || prob < 0.6f ||
-      line.getX().size() == 0 || line.getY().size() == 0 || line.getZ().size() == 0) return;
-
-  const int idx = std::min({get_path_length_idx(line, d),
-                            static_cast<int>(line.getY().size()) - 1,
-                            static_cast<int>(line.getZ().size()) - 1});
-  const float y = line.getY()[idx];
-  const float z = line.getZ()[idx];
-  if (calib_frame_to_full_frame(s, d, y - 1.8f, z + 1.22f, &s->scene.stop_line_left) &&
-      calib_frame_to_full_frame(s, d, y + 1.8f, z + 1.22f, &s->scene.stop_line_right)) {
-    s->scene.stop_line_valid = true;
-  }
-}
-
 static void update_line_data(const UIState *s, const cereal::ModelDataV2::XYZTData::Reader &line,
                              float y_off, float z_off_left, float z_off_right, line_vertices_data *pvd, int max_idx, bool allow_invert=true,
                              float y_shift=0.0) {
@@ -261,7 +238,6 @@ static void update_state(UIState *s) {
     }
     if (sm.updated("modelV2")) {
       update_tfollow_line(s, sm["modelV2"].getModelV2().getPosition());
-      update_stop_line(s, sm["modelV2"].getModelV2().getPosition());
       auto leads_v3 = sm["modelV2"].getModelV2().getLeadsV3();
       s->scene.lead_vision_dist = (leads_v3.size() > 0 && leads_v3[0].getProb() > 0.5)
                                 ? leads_v3[0].getX()[0] : 0.0f;
