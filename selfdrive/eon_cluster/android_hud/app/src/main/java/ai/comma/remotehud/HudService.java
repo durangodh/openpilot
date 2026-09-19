@@ -1039,13 +1039,22 @@ public final class HudService extends Service {
                 // nMirrorOS creates its virtual display after BOOT_COMPLETED,
                 // and separately launches its own "app to start on boot" once
                 // during that same window (its timing relative to ours is
-                // unknown). Keep reasserting our selection for the full 16 s
-                // instead of stopping at the first success, so whichever app
-                // nMirror launches on its own, our last attempt still wins.
+                // unknown). Keep watching for the full 16 s instead of
+                // stopping at the first success, so whichever app nMirror
+                // launches on its own, our selection still wins in the end.
+                //
+                // Only actually re-launch when the selected app is NOT
+                // already the one showing -- re-asserting an already-correct
+                // app every 2 s made it visibly flicker on nMirror's mirrored
+                // screen for the whole 16 s window even when nothing needed
+                // fixing.
                 for (int attempt = 0; attempt < 8 && running.get(); attempt++) {
                     SystemClock.sleep(2000L);
                     if (!running.get()) return;
                     int selected = AppPrefs.getNavApp(context);
+                    if (isNavAppForegroundOnMirror(context, selected)) {
+                        continue;
+                    }
                     if (launchNavAppOnMirrorDisplay(context, selected)) {
                         synchronizeNMirrorSelection(context, selected);
                         stopNavApp(selected == 2 ? 1 : 2);
@@ -1214,6 +1223,39 @@ public final class HudService extends Service {
 
     private static String navPackage(int navApp) {
         return navApp == 2 ? "com.nhn.android.nmap" : "com.skt.tmap.ku";
+    }
+
+    /**
+     * navApp 이 지금 nMirror 화면(또는 캐시된 디스플레이)에서 이미 보이는
+     * 중인지 확인한다. su 셸 하나로 dumpsys 를 한 번만 훑는 가벼운 체크라,
+     * 이미 맞는 상태일 때 재주장으로 인한 깜빡임을 피하는 용도로만 쓴다 —
+     * 실패(권한/시간초과 등)하면 "모른다"로 보고 false(재주장) 쪽으로
+     * 안전하게 넘어간다.
+     */
+    private static boolean isNavAppForegroundOnMirror(Context context, int navApp) {
+        try {
+            int cached = AppPrefs.getMirrorDisplayId(context);
+            String pkg = navPackage(navApp).replace(".", "\\.");
+            String script = (cached >= 0
+                    ? "d=" + cached + "; "
+                    : "d=$(dumpsys activity activities | awk '"
+                            + "/^[[:space:]]*Display #[0-9]+/ {d=$2; sub(/^#/, \"\", d)} "
+                            + "d != \"0\" {print d; exit}'); ")
+                    + "dumpsys activity activities | awk -v want=\"$d\" '"
+                    + "/^[[:space:]]*Display #[0-9]+/ {d=$2; sub(/^#/, \"\", d); visible=0} "
+                    + "/^[[:space:]]*\\* Task\\{/ {visible=($0 ~ /visible=true/)} "
+                    + "d == want && visible && /" + pkg + "/ {print 1; exit}'";
+            Process process = Runtime.getRuntime().exec(new String[] {"su", "-c", script});
+            String result;
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream()))) {
+                result = reader.readLine();
+            }
+            process.waitFor();
+            return "1".equals(result == null ? null : result.trim());
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     /** 다른 쪽 내비를 완전 종료(루트 am force-stop). 안내·음성·GPS 전부 멈춘다. */
