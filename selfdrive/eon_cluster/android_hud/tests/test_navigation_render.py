@@ -118,11 +118,17 @@ def main():
     assert switch_body.index("synchronizeNMirrorSelection") < switch_body.index("am force-stop")
     assert "NMIRROR_SYNC_ATTEMPTS = 4" in source
     assert "am broadcast --user 0" in source
-    assert "displayAwareLaunchCommand(component)" in source
+    # 리모컨/갭버튼(창이 없는 백그라운드 Service)에서 dumpsys 탐지가 실패해도
+    # 마지막으로 확실히 알던 nMirror 디스플레이로 대신 띄운다 — 없으면 기본
+    # 화면(S9 자체)으로 새는 게 유일한 선택지였고, 그게 nMirror 화면만
+    # 까맣게 남던 원인이었다.
+    assert "displayAwareLaunchCommand(component, true,\n" in source
+    assert "AppPrefs.getMirrorDisplayId(context)" in source
+    assert "captureMirrorDisplayId(context, launchProcess)" in source
     assert 'am start --display \\"$display_id\\" -n' in source
     assert "scheduleBootNavigationSync();" in source
     assert "launchNavAppOnMirrorDisplay(context, selected)" in source
-    assert "displayAwareLaunchCommand(component, false)" in source
+    assert "displayAwareLaunchCommand(component, false,\n" in source
     assert "else exit 73; fi" in source
     # A tap must open the selected navigation Activity on the display where
     # the settings screen is currently visible, not only update preferences.

@@ -12,6 +12,7 @@ public final class AppPrefs {
     private static final String MIRROR = "hud_mirror";
     private static final String NAV_APP = "hud_nav_app";
     private static final String NAV_REQUEST = "hud_nav_request";
+    private static final String NAV_MIRROR_DISPLAY_ID = "hud_nav_mirror_display_id";
     private static final String USB_HOST_RECOVERY = "usb_host_recovery";
     private static final String NAVER_STATIC_ENABLED = "naver_static_enabled";
     private static final String NAVER_STATIC_CLIENT_ID = "naver_static_client_id";
@@ -92,6 +93,22 @@ public final class AppPrefs {
         if (NavSelectionProtocol.acknowledged(pendingNavRequest(context), ack)) {
             prefs(context).edit().remove(NAV_REQUEST).apply();
         }
+    }
+
+    /**
+     * nMirror의 가상 디스플레이 번호. 매번 dumpsys로 다시 찾는 대신, 한 번
+     * 확실하게 알아낸 값(su 셸의 dumpsys 탐지 성공, 또는 MainActivity 자신이
+     * 그 디스플레이 위에서 실행 중일 때의 getDisplay().getDisplayId())을
+     * 캐시해서 리모컨/갭버튼처럼 창(Activity)이 없는 경로에서도 재사용한다.
+     * -1 은 아직 모름.
+     */
+    public static int getMirrorDisplayId(Context context) {
+        return prefs(context).getInt(NAV_MIRROR_DISPLAY_ID, -1);
+    }
+
+    public static void setMirrorDisplayId(Context context, int displayId) {
+        if (displayId < 0) return;
+        prefs(context).edit().putInt(NAV_MIRROR_DISPLAY_ID, displayId).apply();
     }
 
     public static String getNaverStaticClientId(Context context) {

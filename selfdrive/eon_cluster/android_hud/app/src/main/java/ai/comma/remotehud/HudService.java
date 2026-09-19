@@ -154,6 +154,9 @@ public final class HudService extends Service {
     private static final int NAVER_MAX_RELAUNCHES = 2;
     /** 자체 nMirror 감시 없이, 우리가 시작한 전환끼리만 겹치지 않게 막는다. */
     private static final AtomicInteger navSwitchGeneration = new AtomicInteger();
+    /** displayAwareLaunchCommand 가 실제 사용한 디스플레이 번호를 stdout 에
+     * 찍을 때 붙이는 마커 — 이 줄만 파싱해서 캐시(AppPrefs)를 갱신한다. */
+    private static final String DISPLAY_ID_ECHO_PREFIX = "REMOTEHUD_DISPLAY:";
 
     /** EON 텔레메트리가 이보다 오래 끊기면 화면에 표시한다 */
     private static final long EON_STALE_MS = 3000L;
@@ -840,9 +843,12 @@ public final class HudService extends Service {
             String component = intent != null && intent.getComponent() != null
                     ? intent.getComponent().flattenToShortString() : null;
             if (component != null) {
-                Runtime.getRuntime().exec(new String[] {
-                        "su", "-c", displayAwareLaunchCommand(component)
-                }).waitFor();
+                Process launchProcess = Runtime.getRuntime().exec(new String[] {
+                        "su", "-c", displayAwareLaunchCommand(component, true,
+                                AppPrefs.getMirrorDisplayId(context))
+                });
+                captureMirrorDisplayId(context, launchProcess);
+                launchProcess.waitFor();
                 SystemClock.sleep(300L);
             }
 
@@ -960,6 +966,27 @@ public final class HudService extends Service {
         }
     }
 
+    /** displayAwareLaunchCommand 가 echo 로 찍는 실제 사용 디스플레이 번호를
+     * 읽어 캐시(AppPrefs)에 갱신한다. dumpsys 탐지가 이번엔 성공했어도, 창이
+     * 없는 다음 번 호출(리모컨/갭버튼)에서 재사용할 수 있게 한다. */
+    private static void captureMirrorDisplayId(Context context, Process process) {
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.startsWith(DISPLAY_ID_ECHO_PREFIX)) {
+                    try {
+                        int found = Integer.parseInt(
+                                line.substring(DISPLAY_ID_ECHO_PREFIX.length()).trim());
+                        AppPrefs.setMirrorDisplayId(context, found);
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     /**
      * Stock nMirrorOS does not implement Remote HUD's optional SET_NAV_SOURCE
      * receiver. Find the non-default display that already hosts HUD/TMAP/Naver
@@ -967,16 +994,35 @@ public final class HudService extends Service {
      * back to display 0 preserves normal S9 operation when nMirror is absent.
      */
     private static String displayAwareLaunchCommand(String component) {
-        return displayAwareLaunchCommand(component, true);
+        return displayAwareLaunchCommand(component, true, -1);
     }
 
     private static String displayAwareLaunchCommand(String component, boolean fallbackDefault) {
+        return displayAwareLaunchCommand(component, fallbackDefault, -1);
+    }
+
+    /**
+     * cachedDisplayId >= 0 이면, dumpsys 로 방금 못 찾았을 때(전환 순간이라
+     * 아직 아무 것도 안 보이는 등)도 마지막으로 확실히 알던 nMirror
+     * 디스플레이로 대신 띄운다. 리모컨/갭버튼 경로(창이 없는 백그라운드
+     * Service)는 이 폴백이 없으면 기본 화면(S9 자체)으로 새는 게 유일한
+     * 선택지였다 — 허드앱 버튼은 되는데 갭버튼/리모컨은 nMirror 화면이
+     * 까맣게 남던 원인. echo 로 실제 사용한 번호를 찍어 caller 가 캐시를
+     * 최신으로 유지할 수 있게 한다.
+     */
+    private static String displayAwareLaunchCommand(String component, boolean fallbackDefault,
+                                                     int cachedDisplayId) {
         final String findDisplay = "display_id=$(dumpsys activity activities | awk '"
                 + "/^[[:space:]]*Display #[0-9]+/ {d=$2; sub(/^#/, \"\", d)} "
                 + "d != \"0\" && ($0 ~ /com\\.skt\\.tmap\\.ku/ "
                 + "|| $0 ~ /com\\.nhn\\.android\\.nmap/ "
                 + "|| $0 ~ /ai\\.comma\\.remotehud/) {print d; exit}'";
+        final String cachedFallback = cachedDisplayId >= 0
+                ? "if [ -z \"$display_id\" ]; then display_id=" + cachedDisplayId + "; fi; "
+                : "";
         return findDisplay + "); "
+                + cachedFallback
+                + "echo \"" + DISPLAY_ID_ECHO_PREFIX + "$display_id\"; "
                 + "if [ -n \"$display_id\" ]; then "
                 + "am start --display \"$display_id\" -n " + component + "; "
                 + (fallbackDefault
@@ -1123,8 +1169,10 @@ public final class HudService extends Service {
             }
             String component = launch.getComponent().flattenToShortString();
             Process process = Runtime.getRuntime().exec(new String[] {
-                    "su", "-c", displayAwareLaunchCommand(component, false)
+                    "su", "-c", displayAwareLaunchCommand(component, false,
+                            AppPrefs.getMirrorDisplayId(context))
             });
+            captureMirrorDisplayId(context, process);
             return process.waitFor() == 0;
         } catch (Exception ignored) {
             return false;

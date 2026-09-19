@@ -88,6 +88,10 @@ public final class MainActivity extends Activity {
         // this Activity. The settings screen remains available on S9 display 0.
         if (Build.VERSION.SDK_INT >= 26 && getDisplay() != null
                 && getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY) {
+            // 확실한 값(자기 자신이 그 디스플레이 위에서 실행 중)이므로, 리모컨/
+            // 갭버튼처럼 창이 없는 경로가 dumpsys 탐지에 실패할 때 쓸 수 있게
+            // 캐시해둔다.
+            AppPrefs.setMirrorDisplayId(this, getDisplay().getDisplayId());
             int selected = AppPrefs.getNavApp(this);
             String packageName = selected == 2
                     ? "com.nhn.android.nmap" : "com.skt.tmap.ku";
@@ -431,6 +435,9 @@ public final class MainActivity extends Activity {
         try {
             launch.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
             if (Build.VERSION.SDK_INT >= 26 && getDisplay() != null) {
+                if (getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY) {
+                    AppPrefs.setMirrorDisplayId(this, getDisplay().getDisplayId());
+                }
                 ActivityOptions options = ActivityOptions.makeBasic();
                 options.setLaunchDisplayId(getDisplay().getDisplayId());
                 startActivity(launch, options.toBundle());
