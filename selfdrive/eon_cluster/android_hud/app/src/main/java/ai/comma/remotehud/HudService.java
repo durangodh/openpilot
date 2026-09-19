@@ -221,6 +221,11 @@ public final class HudService extends Service {
     private Thread mapThread;
     private Thread staticMapThread;
     private Thread renderThread;
+    private volatile Thread bootNavigationThread;
+    private volatile Thread bootUsbThread;
+    private volatile Thread usbRecoveryThread;
+    private volatile DatagramSocket receiverSocket;
+    private volatile Socket assetSocket;
     private int usbErrorStreak;
     private boolean usbReceiverRegistered;
     private PowerManager.WakeLock wakeLock;
@@ -330,6 +335,7 @@ public final class HudService extends Service {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean bootNavigationSyncRunning = new AtomicBoolean(false);
     private final AtomicBoolean bootUsbHostRecoveryRunning = new AtomicBoolean(false);
+    private final AtomicBoolean usbPortResetRunning = new AtomicBoolean(false);
     /** Prevent BOOT_COMPLETED and QUICKBOOT_POWERON from resetting the panel twice. */
     private final AtomicBoolean bootUsbPreparationDone = new AtomicBoolean(false);
     private final AtomicReference<JSONObject> state = new AtomicReference<>(new JSONObject());
@@ -707,6 +713,7 @@ public final class HudService extends Service {
                 // Keep the direct bind path proven on the installed S9. Only the
                 // datagram buffer is enlarged for detailed modelV2 telemetry.
                 socket = new DatagramSocket(7210);
+                receiverSocket = socket;
                 socket.setBroadcast(true);
                 socket.setSoTimeout(1000);
                 udpReceiverBound = true;
@@ -746,6 +753,7 @@ public final class HudService extends Service {
                 SystemClock.sleep(1000L);
             } finally {
                 udpReceiverBound = false;
+                if (receiverSocket == socket) receiverSocket = null;
                 if (socket != null) {
                     try {
                         socket.close();
@@ -981,12 +989,13 @@ public final class HudService extends Service {
             return;
         }
         final Context context = this;
-        new Thread(() -> {
+        Thread worker = new Thread(() -> {
             try {
                 // nMirrorOS creates its virtual display after BOOT_COMPLETED.
                 // Retry for 16 seconds, but never fall back to S9 display 0.
-                for (int attempt = 0; attempt < 8; attempt++) {
+                for (int attempt = 0; attempt < 8 && running.get(); attempt++) {
                     SystemClock.sleep(2000L);
+                    if (!running.get()) return;
                     int selected = AppPrefs.getNavApp(context);
                     if (launchNavAppOnMirrorDisplay(context, selected)) {
                         synchronizeNMirrorSelection(context, selected);
@@ -997,7 +1006,9 @@ public final class HudService extends Service {
             } finally {
                 bootNavigationSyncRunning.set(false);
             }
-        }, "hud-boot-nav-sync").start();
+        }, "hud-boot-nav-sync");
+        bootNavigationThread = worker;
+        worker.start();
     }
 
     /**
@@ -1021,21 +1032,29 @@ public final class HudService extends Service {
         if (!bootUsbHostRecoveryRunning.compareAndSet(false, true)) {
             return;
         }
-        new Thread(() -> {
+        Thread worker = new Thread(() -> {
             boolean panelWasMissing = false;
             try {
                 for (int attempt = 0; attempt < 6 && running.get(); attempt++) {
                     SystemClock.sleep(attempt == 0 ? 4000L : 5000L);
+                    if (!running.get()) return;
                     if (hasTurzxUsbDevice()) {
                         if (!panelWasMissing && !bootUsbPreparationDone.get()) {
                             // Keep the render thread from opening the device while
                             // sysfs unbind/bind is in progress.
-                            nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + 6000L;
+                            nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + 14_000L;
                             usbStatus = "부팅 완료 · 외부 HUD 세션 초기화 중";
                             if (display != null) {
                                 display.reset();
                             }
-                            boolean rebound = UsbPortReset.resetPort(null);
+                            boolean rebound = false;
+                            if (usbPortResetRunning.compareAndSet(false, true)) {
+                                try {
+                                    rebound = UsbPortReset.resetPort(null);
+                                } finally {
+                                    usbPortResetRunning.set(false);
+                                }
+                            }
                             usbNeedsPrimeFrame = true;
                             appliedBrightness = -1;
                             if (!rebound && attempt < 2) {
@@ -1078,7 +1097,9 @@ public final class HudService extends Service {
             } finally {
                 bootUsbHostRecoveryRunning.set(false);
             }
-        }, "hud-boot-usb-host").start();
+        }, "hud-boot-usb-host");
+        bootUsbThread = worker;
+        worker.start();
     }
 
     private boolean hasTurzxUsbDevice() {
@@ -1181,7 +1202,21 @@ public final class HudService extends Service {
     }
 
     private void replaceAsset(AtomicReference<Bitmap> target, byte[] data) {
-        Bitmap decoded = data.length == 0 ? null : BitmapFactory.decodeByteArray(data, 0, data.length);
+        Bitmap decoded = null;
+        if (data.length > 0) {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(data, 0, data.length, bounds);
+            long pixels = (long) bounds.outWidth * (long) bounds.outHeight;
+            // Transport frames are normally at most 1920x576. Keep generous
+            // headroom while rejecting malformed compressed-image bombs.
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0
+                    || bounds.outWidth > 4096 || bounds.outHeight > 4096
+                    || pixels > 8_000_000L) {
+                return;
+            }
+            decoded = BitmapFactory.decodeByteArray(data, 0, data.length);
+        }
         if (data.length > 0 && decoded == null) {
             return;
         }
@@ -1224,6 +1259,7 @@ public final class HudService extends Service {
             Socket socket = null;
             try {
                 socket = new Socket();
+                assetSocket = socket;
                 socket.connect(new InetSocketAddress(address, 7211), 2000);
                 mapConnected = true;
                 socket.setSoTimeout(4000);
@@ -1267,6 +1303,7 @@ public final class HudService extends Service {
                 mapConnected = false;
                 SystemClock.sleep(500L);
             } finally {
+                if (assetSocket == socket) assetSocket = null;
                 if (socket != null) {
                     try {
                         socket.close();
@@ -1445,9 +1482,8 @@ public final class HudService extends Service {
         }
         nextOpenStallRecoverElapsed = now + USB_OPEN_STALL_COOLDOWN_MS;
         usbStatus = "휴대폰 HUD 실행 · USB 포트 재바인딩 시도";
-        boolean reset = UsbPortReset.resetPort(display.deviceNameOrNull());
-        display.reset();
-        nextUsbAttemptElapsed = now + (reset ? 2500L : 1500L);
+        scheduleUsbPortReset(display.deviceNameOrNull(),
+                "USB 재바인딩 실패 · 자동 재시도");
     }
 
     /**
@@ -1660,18 +1696,53 @@ public final class HudService extends Service {
         nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + 500L;
         if (usbErrorStreak >= USB_RESET_AFTER_ERRORS) {
             usbStatus = "USB 복구 중 · 휴대폰 HUD는 계속 실행";
-            boolean reset = UsbPortReset.resetPort(display.deviceNameOrNull());
-            display.reset();
-            if (!reset) {
-                usbStatus = "USB 오류 · " + e.getMessage() + " (휴대폰 HUD 정상)";
-            }
-            nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + 2500L;
+            scheduleUsbPortReset(display.deviceNameOrNull(),
+                    "USB 오류 · " + safeMessage(e) + " (휴대폰 HUD 정상)");
         } else {
-            usbStatus = "USB 오류 · " + e.getMessage() + " (휴대폰 HUD 정상)";
+            usbStatus = "USB 오류 · " + safeMessage(e) + " (휴대폰 HUD 정상)";
         }
         if (usbErrorStreak >= USB_SLOWDOWN_AFTER_ERRORS && frameIntervalMs < 250L) {
             frameIntervalMs = 250L;
         }
+    }
+
+    /**
+     * sysfs unbind/bind includes sleeps and a root round trip. Keep it entirely
+     * off the render thread so the S9 preview and telemetry continue updating.
+     */
+    private void scheduleUsbPortReset(String deviceName, String failureStatus) {
+        if (!running.get() || !usbPortResetRunning.compareAndSet(false, true)) {
+            return;
+        }
+        if (display != null) display.reset();
+        nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + 14_000L;
+        Thread worker = new Thread(() -> {
+            boolean reset = false;
+            try {
+                if (running.get()) reset = UsbPortReset.resetPort(deviceName);
+            } finally {
+                if (display != null) display.reset();
+                usbNeedsPrimeFrame = true;
+                appliedBrightness = -1;
+                if (running.get()) {
+                    nextUsbAttemptElapsed = SystemClock.elapsedRealtime()
+                            + (reset ? 2500L : 1500L);
+                    usbStatus = reset
+                            ? "USB 재바인딩 완료 · 패널 재연결 대기"
+                            : failureStatus;
+                }
+                usbPortResetRunning.set(false);
+            }
+        }, "hud-usb-recovery");
+        usbRecoveryThread = worker;
+        worker.start();
+    }
+
+    private static String safeMessage(Exception error) {
+        String message = error == null ? null : error.getMessage();
+        return message == null || message.trim().isEmpty()
+                ? (error == null ? "알 수 없음" : error.getClass().getSimpleName())
+                : message;
     }
 
     // ── 렌더 ──────────────────────────────────────────────────────────────
@@ -5025,15 +5096,97 @@ public final class HudService extends Service {
 
     private void recycleRef(AtomicReference<Bitmap> ref) {
         Bitmap old = ref.getAndSet(null);
-        if (old != null) {
+        if (old != null && !old.isRecycled()) {
             old.recycle();
+        }
+    }
+
+    private static void interrupt(Thread thread) {
+        if (thread != null) thread.interrupt();
+    }
+
+    private void stopWorkerIo() {
+        DatagramSocket udp = receiverSocket;
+        if (udp != null) udp.close();
+        Socket tcp = assetSocket;
+        if (tcp != null) {
+            try {
+                tcp.close();
+            } catch (Exception ignored) {
+            }
+        }
+        interrupt(receiverThread);
+        interrupt(mapThread);
+        interrupt(staticMapThread);
+        interrupt(renderThread);
+        interrupt(statsThread);
+        interrupt(bootNavigationThread);
+        interrupt(bootUsbThread);
+        interrupt(usbRecoveryThread);
+    }
+
+    /** Wait off the Android main thread, then release objects no worker can still touch. */
+    private void cleanupAfterWorkers() {
+        if (display != null) display.close();
+        Thread[] workers = {receiverThread, mapThread, staticMapThread, renderThread,
+                statsThread, bootNavigationThread, bootUsbThread, usbRecoveryThread};
+        long deadline = SystemClock.elapsedRealtime() + 15_000L;
+        boolean stopped = true;
+        for (Thread worker : workers) {
+            if (worker == null || worker == Thread.currentThread()) continue;
+            long remaining = deadline - SystemClock.elapsedRealtime();
+            if (remaining > 0L) {
+                try {
+                    worker.join(remaining);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            stopped &= !worker.isAlive();
+        }
+        // Never recycle a bitmap underneath a late USB/renderer call. If a
+        // vendor call ignored its timeout, let process GC reclaim the objects.
+        if (!stopped) return;
+
+        if (egoCar != null && !egoCar.isRecycled()) egoCar.recycle();
+        egoCar = null;
+        if (wheelImage != null && !wheelImage.isRecycled()) wheelImage.recycle();
+        wheelImage = null;
+        if (statusIcons != null && !statusIcons.isRecycled()) statusIcons.recycle();
+        statusIcons = null;
+        if (speedBumpImage != null && !speedBumpImage.isRecycled()) speedBumpImage.recycle();
+        speedBumpImage = null;
+        for (int i = 0; i < turnImages.length; i++) {
+            Bitmap image = turnImages[i];
+            if (image != null && !image.isRecycled()) image.recycle();
+            turnImages[i] = null;
+        }
+        if (outFrame != null && !outFrame.isRecycled()) outFrame.recycle();
+        outFrame = null;
+        outCanvas = null;
+        synchronized (phoneFrameLock) {
+            if (phoneFrame != null && !phoneFrame.isRecycled()) phoneFrame.recycle();
+            phoneFrame = null;
+            phoneCanvas = null;
+        }
+        synchronized (assetLock) {
+            recycleRef(mapFrame);
+            recycleRef(staticMapFrame);
+            recycleRef(tbtCurrentFrame);
+            recycleRef(tbtNextFrame);
+            recycleRef(tbtCompactFrame);
+            recycleRef(crossroadFrame);
+            recycleRef(laneFrame);
+            recycleRef(trafficSignalFrame);
         }
     }
 
     @Override
     public void onDestroy() {
         running.set(false);
+        navSwitchGeneration.incrementAndGet();
         if (staticMapClient != null) staticMapClient.stop();
+        stopWorkerIo();
         workersStarted = false;
         serviceRunning = false;
         mapConnected = false;
@@ -5046,41 +5199,7 @@ public final class HudService extends Service {
         if (activeInstance == this) {
             activeInstance = null;
         }
-        if (display != null) {
-            display.close();
-        }
-        if (egoCar != null) {
-            egoCar.recycle();
-            egoCar = null;
-        }
-        if (wheelImage != null) {
-            wheelImage.recycle();
-            wheelImage = null;
-        }
-        if (statusIcons != null) {
-            statusIcons.recycle();
-            statusIcons = null;
-        }
-        if (outFrame != null) {
-            outFrame.recycle();
-            outFrame = null;
-            outCanvas = null;
-        }
-        synchronized (phoneFrameLock) {
-            if (phoneFrame != null) {
-                phoneFrame.recycle();
-                phoneFrame = null;
-                phoneCanvas = null;
-            }
-        }
-        synchronized (assetLock) {
-            recycleRef(mapFrame);
-            recycleRef(staticMapFrame);
-            recycleRef(tbtCurrentFrame);
-            recycleRef(tbtNextFrame);
-            recycleRef(laneFrame);
-            recycleRef(trafficSignalFrame);
-        }
+        new Thread(this::cleanupAfterWorkers, "hud-worker-cleanup").start();
         if (usbReceiverRegistered) {
             try {
                 unregisterReceiver(usbReceiver);

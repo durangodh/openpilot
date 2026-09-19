@@ -6,6 +6,7 @@ import android.os.SystemClock;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -16,6 +17,7 @@ final class UsbPermissionAutoApprover {
     private static final String UI_DUMP = "/data/local/tmp/remote_hud_usb_permission.xml";
     private static final int WATCH_ATTEMPTS = 60;
     private static final long WATCH_INTERVAL_MS = 250L;
+    private static final long ROOT_TIMEOUT_SECONDS = 8L;
     private static final AtomicBoolean RUNNING = new AtomicBoolean(false);
     private static final Pattern NODE = Pattern.compile("<node\\s+[^>]*>");
     private static final Pattern BOUNDS = Pattern.compile(
@@ -128,26 +130,42 @@ final class UsbPermissionAutoApprover {
 
     private static String runRoot(String command) {
         Process process = null;
+        Thread outputReader = null;
         try {
-            process = Runtime.getRuntime().exec(new String[]{"su", "-c", command});
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            try (InputStream input = process.getInputStream()) {
-                byte[] buffer = new byte[4096];
-                int count;
-                while ((count = input.read(buffer)) >= 0) {
-                    output.write(buffer, 0, count);
-                }
-            }
-            if (process.waitFor() != 0) {
+            process = new ProcessBuilder("su", "-c", command)
+                    .redirectErrorStream(true).start();
+            final Process runningProcess = process;
+            final ByteArrayOutputStream output = new ByteArrayOutputStream();
+            outputReader = new Thread(() -> copyOutput(runningProcess, output),
+                    "hud-usb-permission-output");
+            outputReader.setDaemon(true);
+            outputReader.start();
+            if (!process.waitFor(ROOT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                outputReader.join(1000L);
                 return null;
             }
+            outputReader.join(1000L);
+            if (process.exitValue() != 0) return null;
             return new String(output.toByteArray(), StandardCharsets.UTF_8);
         } catch (Exception ignored) {
             return null;
         } finally {
             if (process != null) {
-                process.destroy();
+                if (process.isAlive()) process.destroyForcibly();
             }
+            if (outputReader != null && outputReader.isAlive()) outputReader.interrupt();
+        }
+    }
+
+    private static void copyOutput(Process process, ByteArrayOutputStream output) {
+        try (InputStream input = process.getInputStream()) {
+            byte[] buffer = new byte[4096];
+            int count;
+            while ((count = input.read(buffer)) >= 0) {
+                output.write(buffer, 0, count);
+            }
+        } catch (Exception ignored) {
         }
     }
 }

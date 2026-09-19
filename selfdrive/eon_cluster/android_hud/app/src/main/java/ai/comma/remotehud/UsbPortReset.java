@@ -1,8 +1,10 @@
 package ai.comma.remotehud;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
 
 /**
  * v0.17 — 루트로 USB 포트를 재바인딩한다. 케이블을 뽑았다 꽂는 것과 같은 효과.
@@ -14,6 +16,9 @@ import java.io.OutputStreamWriter;
  * 루트가 없으면 조용히 false 를 돌려준다. 그 경우 동작은 v0.16 과 같다.
  */
 final class UsbPortReset {
+
+    /** Bound every Magisk/sysfs round trip so USB recovery can never hang forever. */
+    private static final long ROOT_TIMEOUT_SECONDS = 12L;
 
     private UsbPortReset() {
     }
@@ -175,30 +180,50 @@ final class UsbPortReset {
 
     private static String runAsRoot(String script) {
         Process process = null;
+        Thread outputReader = null;
         try {
-            process = Runtime.getRuntime().exec("su");
+            process = new ProcessBuilder("su").redirectErrorStream(true).start();
             OutputStreamWriter writer = new OutputStreamWriter(process.getOutputStream());
             writer.write(script);
             writer.write("\nexit\n");
             writer.flush();
+            writer.close();
 
-            StringBuilder sb = new StringBuilder();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                sb.append(line).append('\n');
+            final Process runningProcess = process;
+            final ByteArrayOutputStream output = new ByteArrayOutputStream();
+            outputReader = new Thread(() -> copyOutput(runningProcess, output),
+                    "hud-usb-root-output");
+            outputReader.setDaemon(true);
+            outputReader.start();
+
+            if (!process.waitFor(ROOT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                outputReader.join(1000L);
+                return null;
             }
-            process.waitFor();
-            return sb.toString();
+            outputReader.join(1000L);
+            return new String(output.toByteArray(), StandardCharsets.UTF_8);
         } catch (Exception e) {
             return null;
         } finally {
             if (process != null) {
                 try {
-                    process.destroy();
+                    if (process.isAlive()) process.destroyForcibly();
                 } catch (Exception ignored) {
                 }
             }
+            if (outputReader != null && outputReader.isAlive()) outputReader.interrupt();
+        }
+    }
+
+    private static void copyOutput(Process process, ByteArrayOutputStream output) {
+        try (InputStream input = process.getInputStream()) {
+            byte[] buffer = new byte[4096];
+            int count;
+            while ((count = input.read(buffer)) >= 0) {
+                output.write(buffer, 0, count);
+            }
+        } catch (Exception ignored) {
         }
     }
 }

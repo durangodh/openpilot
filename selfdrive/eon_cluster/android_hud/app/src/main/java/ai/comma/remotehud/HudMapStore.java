@@ -272,17 +272,13 @@ final class HudMapStore {
     /**
      * Fix 4. Returns true when {@code file} is usable (already active or activated now,
      * or a validation is pending), false when it is missing/rejected and must be
-     * downloaded. Exact-size files are accepted immediately; other sizes are checked
-     * once as SQLite on the worker thread so a hand-copied database still counts.
+     * downloaded. Every existing file is checked once as SQLite on the worker thread;
+     * matching the release byte count alone is not proof that the file is intact.
      */
     private boolean acceptDatabase(File file, long expectedBytes, RegionSpec region) {
         if (!file.isFile()) return false;
         long length = file.length();
-        if (length == expectedBytes) {
-            activate(file, region);
-            return true;
-        }
-        String key = file.getAbsolutePath() + ":" + length;
+        String key = file.getAbsolutePath() + ":" + length + ":" + file.lastModified();
         if (rejectedFiles.contains(key)) return false;
         if (verifiedFiles.contains(key)) {
             activate(file, region);
@@ -297,8 +293,8 @@ final class HudMapStore {
                 try {
                     validateDatabase(file);
                     verifiedFiles.add(key);
-                    Log.i(TAG, "Accepted HUD map with non-release size: " + file.getName()
-                            + " (" + length + " bytes)");
+                    Log.i(TAG, "Validated HUD map: " + file.getName()
+                            + " (" + length + "/" + expectedBytes + " bytes)");
                     if (!closed) activate(file, region);
                 } catch (Throwable error) {
                     rejectedFiles.add(key);
