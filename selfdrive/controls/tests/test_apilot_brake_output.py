@@ -26,7 +26,7 @@ def brake_output(previous, requested, state='pid', v_ego=None, brake_pressed=Fal
            actuator_delay_lower=0.2, actuator_delay_upper=0.4, pid=pid,
            long_control_state=state, last_output_accel=previous,
            stopping_decel_rate=1.0, standstill_hold_accel=-1.1,
-           standstill_hold_rate=1.2, standstill_hold_active=hold_active,
+           standstill_hold_active=hold_active,
            start_request_frames=0, standstill_release_speed=0.2,
            standstill_release_frames=10, standstill_lead_latched=False,
            lead_missing_frames=0,

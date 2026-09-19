@@ -225,7 +225,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"JerkStartLimit", PERSISTENT},
     {"StoppingDecelRate", PERSISTENT},
     {"StandstillHoldApply", PERSISTENT},      // 완전정지 유지 제동값 (x-0.02 m/s^2)
-    {"StandstillHoldRate", PERSISTENT},       // 완전정지 유지 증가율 (x0.01 m/s^3)
     {"StandstillReleaseSpeed", PERSISTENT},   // 정차 후 자동출발 임계 목표속도 (x0.1 m/s, default 2)
     {"StandstillReleaseMs", PERSISTENT},      // 자동출발 요구 지속시간 ms (default 100)
 

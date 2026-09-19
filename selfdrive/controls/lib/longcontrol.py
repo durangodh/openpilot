@@ -92,7 +92,6 @@ class LongControl:
     # is needed after the car is fully stopped so a comfortable stop does not
     # slowly lose hydraulic hold during a long wait.
     self.standstill_hold_accel = -1.1
-    self.standstill_hold_rate = 1.2
     self.standstill_hold_active = False
 
     self._update_pid_gains()
@@ -227,14 +226,8 @@ class LongControl:
       hold_apply = int(hold_raw) if hold_raw not in (None, "") else 55
     except (TypeError, ValueError):
       hold_apply = 55
-    try:
-      rate_raw = self.params.get("StandstillHoldRate", encoding="utf8")
-      hold_rate = int(rate_raw) * 0.01 if rate_raw not in (None, "") else 1.2
-    except (TypeError, ValueError):
-      hold_rate = 1.2
 
     self.standstill_hold_accel = -2.0 * float(clip(hold_apply * 0.01, 0.1, 1.0))
-    self.standstill_hold_rate = float(clip(hold_rate, 0.2, 2.0))
 
   def _read_params(self):
     self.read_param_count += 1
@@ -337,17 +330,19 @@ class LongControl:
       if CS.standstill or CS.vEgo < 0.05:
         self.standstill_hold_active = True
 
-      # sunnypilot 의 저크제한 적분기를 참고: 접근 중엔 목표를 0으로 두고
-      # 실제 정지 확정 후에만 hold_target으로 바꾼다. 목표가 바뀌는 그
-      # 순간에도 같은 저크 상한(stopping_decel_rate) 하나로 계속 이어서만
-      # 움직이므로, 접근 램프가 덜 끝난 채로 서 버려도 standstill_hold_active
-      # 가 켜지는 순간 추가로 한 번 더 밟는 계단현상이 생기지 않는다.
+      # sunnypilot 의 저크제한 적분기를 참고: 접근 중엔 목표를 stopAccel로
+      # 유지(예전과 동일 — 이 값이 제동을 계속 단단히 유지시켜 밀림을 막는
+      # 목적이라 0으로 풀면 안 됨), 실제 정지 확정 후에만 더 강한
+      # hold_target으로 바꾼다. 목표가 바뀌는 그 순간에도 같은 저크
+      # 상한(stopping_decel_rate) 하나로 계속 이어서만 움직이므로,
+      # 접근 램프가 덜 끝난 채로 서 버려도 standstill_hold_active 가
+      # 켜지는 순간 추가로 한 번 더 밟는 계단현상이 생기지 않는다.
       # (기존 2단 구조: 접근램프 따로 + 정지 후 hold램프 따로 — 이 둘의
-      # 목표가 어긋나 있으면 경계에서 겹쳐 밟혔다.)
+      # 속도/목표가 어긋나 있으면 경계에서 겹쳐 밟혔다.)
       if self.standstill_hold_active and not CS.brakePressed:
         target = min(self.CP.stopAccel, self.standstill_hold_accel)
       else:
-        target = 0.0
+        target = self.CP.stopAccel
       if soft_hold:
         target = self.CP.stopAccel
       max_delta = self.stopping_decel_rate * DT_CTRL
