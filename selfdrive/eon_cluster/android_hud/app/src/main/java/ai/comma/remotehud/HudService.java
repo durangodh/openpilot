@@ -1611,6 +1611,47 @@ public final class HudService extends Service {
         p.setAlpha(255);
     }
 
+    /**
+     * 총 차선수 안 내 차로 위치를 작은 박스 행 + 텍스트로 표시. info =
+     * [총차선수, 내차로번호, 출처(1=안내중 실제값, 0=카메라 추정)].
+     * 카메라 추정은 내 차로 좌우 각 1개(모델이 주는 라인 0/3)까지만 보여서
+     * 최대 3차로로 캡된다 — 그 이상은 안내 중일 때만(navi.scene.lane) 나옴.
+     */
+    private void drawLaneCounter(Canvas c, Paint p, int[] info) {
+        int laneCount = info[0];
+        int lanePosition = info[1];
+        boolean fromNavi = info[2] != 0;
+        if (laneCount < 1 || lanePosition < 1 || lanePosition > laneCount) {
+            return;
+        }
+        float boxW = 22f;
+        float boxH = 15f;
+        float gap = 5f;
+        float totalW = laneCount * boxW + (laneCount - 1) * gap;
+        float left = DRIVE_CX - totalW * 0.5f;
+        float boxY = ModelWorldGL.TOP + 16f;
+        p.setShader(null);
+        for (int i = 0; i < laneCount; i++) {
+            float x = left + i * (boxW + gap);
+            scratchRect.set(x, boxY, x + boxW, boxY + boxH);
+            boolean ego = (i + 1) == lanePosition;
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(ego ? Color.rgb(238, 196, 70) : cardBg());
+            p.setAlpha(ego ? 235 : 180);
+            c.drawRoundRect(scratchRect, 3f, 3f, p);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(1.4f);
+            p.setColor(ego ? Color.rgb(120, 92, 16) : cardEdge());
+            p.setAlpha(ego ? 255 : 160);
+            c.drawRoundRect(scratchRect, 3f, 3f, p);
+        }
+        p.setStyle(Paint.Style.FILL);
+        p.setAlpha(255);
+        String label = laneCount + lang("차선 중 ", "-lane, ") + lanePosition
+                + lang("차로", fromNavi ? " (nav)" : "");
+        text(c, p, label, DRIVE_CX, boxY + boxH + 20f, 15f, dim(), Paint.Align.CENTER);
+    }
+
     /** Primary lead distance, placed beside the vehicle without source text. */
     private void drawLeadSourceLabel(Canvas c, Paint p, float[] info,
                                      float distance, float alpha, boolean vision) {
@@ -1956,6 +1997,7 @@ public final class HudService extends Service {
                     text(c, p, lang("배경 ", "MAP ") + mapStatus, 14f, roadBottom - 12f, 18f,
                             Color.argb(210, 255, 205, 120), Paint.Align.LEFT);
                 }
+                drawLaneCounter(c, p, modelWorldGl.laneCounter());
             }
             if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
                 // 앞차도 자차와 같은 그림으로. 먼 차부터 그려 근경이 덮게 한다.

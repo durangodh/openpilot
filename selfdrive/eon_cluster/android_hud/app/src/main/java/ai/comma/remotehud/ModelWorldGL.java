@@ -164,6 +164,12 @@ final class ModelWorldGL {
     private final HudMapStore mapStore;
     private final float[] laneConfidence = new float[4];
     private final boolean[] laneVisible = new boolean[4];
+    // 카메라만으로 셀 수 있는 최대치(내 차로 좌우 각 1개씩)와, 안내 중일 때
+    // 티맵/네이버 lane_current 가 주는 실제 총 차선수/내 차로 번호.
+    private int cameraLaneCount = 1;
+    private int cameraLanePosition = 1;
+    private int naviLaneCount = -1;
+    private int naviLanePosition = -1;
     private final float[] leadDistance = new float[2];
     private final float[] leadLateral = new float[2];
     private final float[] leadAcceleration = new float[2];
@@ -489,6 +495,31 @@ final class ModelWorldGL {
             drawLaneMarking(smoothedLanes[i], path, laneColor,
                     i == 1 || i == 2 ? 3.0f : 2.2f,
                     clamp(0.22f + laneConfidence[i] * 0.78f, 0f, 1f), dark);
+        }
+
+        // 카메라 모델은 내 차로 좌우 각 1개(라인 0/3)까지만 주므로, 보이는
+        // 범위 안에서 최대 3차로까지만 셀 수 있다. laneVisible 은 이미
+        // 신뢰도 히스테리시스(0.28/0.56)가 적용된 값이라 그대로 쓴다.
+        int visibleLeft = laneVisible[0] ? 1 : 0;
+        int visibleRight = laneVisible[3] ? 1 : 0;
+        cameraLaneCount = 1 + visibleLeft + visibleRight;
+        cameraLanePosition = 1 + visibleLeft;
+
+        // 안내 중이면 티맵/네이버 lane_current 가 실제 총 차선수를 준다
+        // (navi.scene.lane, remote_hud.py _navi_scene 에서 이미 가공됨).
+        JSONObject naviLaneRoot = scene.optJSONObject("navi");
+        JSONObject naviLaneScene = naviLaneRoot == null ? null
+                : naviLaneRoot.optJSONObject("scene");
+        JSONObject laneInfo = (naviLaneRoot != null && naviLaneRoot.optBoolean("active", false)
+                && naviLaneScene != null) ? naviLaneScene.optJSONObject("lane") : null;
+        int naviCount = laneInfo == null ? 0 : laneInfo.optInt("n", 0);
+        int naviPosition = laneInfo == null ? 0 : laneInfo.optInt("cur", 0);
+        if (naviCount >= 1 && naviCount <= 8 && naviPosition >= 1 && naviPosition <= naviCount) {
+            naviLaneCount = naviCount;
+            naviLanePosition = naviPosition;
+        } else {
+            naviLaneCount = -1;
+            naviLanePosition = -1;
         }
 
         if (enabled) {
@@ -1461,6 +1492,18 @@ final class ModelWorldGL {
     float leadSpriteProbability(int index) {
         return index >= 0 && index < leadSpriteProbability.length
                 ? leadSpriteProbability[index] : 0f;
+    }
+
+    /**
+     * 차로 카운터: [총차선수, 내차로번호, 출처(1=티맵/네이버 안내중, 0=카메라
+     * 추정)]. 안내 중이면 실제 총 차선수, 아니면 카메라로 보이는 범위 안에서
+     * 최대 3차로까지만(내 차로 좌우 각 1개) 추정한다.
+     */
+    int[] laneCounter() {
+        if (naviLaneCount >= 1) {
+            return new int[] {naviLaneCount, naviLanePosition, 1};
+        }
+        return new int[] {cameraLaneCount, cameraLanePosition, 0};
     }
 
     /**
