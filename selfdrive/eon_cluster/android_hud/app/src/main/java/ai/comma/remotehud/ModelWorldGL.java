@@ -11,6 +11,7 @@ import android.opengl.EGLContext;
 import android.opengl.EGLDisplay;
 import android.opengl.EGLSurface;
 import android.opengl.GLES20;
+import android.os.SystemClock;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -97,6 +98,14 @@ final class ModelWorldGL {
     private int positionHandle;
     private int colorHandle;
     private boolean failed;
+    // 부팅 직후 EGL/GPU 드라이버가 아직 준비 안 된 순간과 겹치면 첫 초기화가
+    // 실패할 수 있다. 예전엔 이 한 번의 실패로 GL을 영구히 꺼버려서, 앱을
+    // 다시 켜기 전까지 주행씬이 계속 까맣게 남았다(재부팅 후 좌상단만 나오는
+    // 증상). 일정 시간 두고 몇 번 더 시도한 뒤에만 영구히 포기한다.
+    private static final int GL_MAX_RETRIES = 5;
+    private static final long GL_RETRY_DELAY_MS = 3000L;
+    private int glFailCount;
+    private long glNextRetryElapsed;
 
     private final FloatBuffer vertexBuffer = ByteBuffer
             .allocateDirect(MAX_VERTEX_FLOATS * 4)
@@ -184,6 +193,11 @@ final class ModelWorldGL {
         if (failed || scene == null) {
             return false;
         }
+        if (program == 0 && glFailCount > 0
+                && SystemClock.elapsedRealtime() < glNextRetryElapsed) {
+            // 백오프 구간 — 아직 재시도할 때가 아니다.
+            return false;
+        }
         try {
             if (!ensureGl()) {
                 return false;
@@ -227,10 +241,25 @@ final class ModelWorldGL {
             canvas.drawBitmap(frame, 0f, TOP, paint);
             return true;
         } catch (Throwable error) {
-            failed = true;
-            Log.e(TAG, "OpenGL renderer disabled; falling back to Canvas model world", error);
-            release();
+            Log.e(TAG, "OpenGL render error", error);
+            releaseGl();
+            registerGlFailure();
             return false;
+        }
+    }
+
+    /** ensureGl()의 fail()과 draw()의 catch 양쪽에서 공유하는 재시도 카운터.
+     * 재시도 여지가 남아있는 동안은 mapStore 는 안 건드린다 — 진짜로
+     * 포기할 때만(failed=true) 같이 닫는다. */
+    private void registerGlFailure() {
+        glFailCount++;
+        if (glFailCount >= GL_MAX_RETRIES) {
+            failed = true;
+            mapStore.close();
+            Log.e(TAG, "OpenGL renderer disabled after " + glFailCount
+                    + " failed attempts; falling back to Canvas model world");
+        } else {
+            glNextRetryElapsed = SystemClock.elapsedRealtime() + GL_RETRY_DELAY_MS;
         }
     }
 
@@ -1800,13 +1829,20 @@ final class ModelWorldGL {
     }
 
     private void fail(String message) {
-        failed = true;
         Log.e(TAG, message + " EGL error=0x" + Integer.toHexString(EGL14.eglGetError()));
-        release();
+        releaseGl();
+        registerGlFailure();
     }
 
     void release() {
         mapStore.close();
+        releaseGl();
+    }
+
+    /** EGL/GL 자원만 정리한다. 재시도 가능한 일시적 실패 경로에서 쓴다 —
+     * mapStore 는 GL과 무관하게 계속 살려둬서, 재시도가 성공하면 지도
+     * 배경도 처음부터 다시 받을 필요 없이 그대로 이어 쓴다. */
+    private void releaseGl() {
         if (display != EGL14.EGL_NO_DISPLAY) {
             EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE,
                     EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT);
