@@ -102,6 +102,9 @@ class LongControl:
     # slowly lose hydraulic hold during a long wait.
     self.standstill_hold_accel = -1.1
     self.standstill_hold_active = False
+    # 정상주행(PID) 저크상한 배율. 기본 1.0(=코드 기본 속도별 곡선 그대로).
+    self.pid_jerk_accel_mult = 1.0
+    self.pid_jerk_decel_mult = 1.0
 
     self._update_pid_gains()
     self._update_actuator_delays()
@@ -238,6 +241,21 @@ class LongControl:
 
     self.standstill_hold_accel = -2.0 * float(clip(hold_apply * 0.01, 0.1, 1.0))
 
+  def _update_pid_jerk(self):
+    try:
+      accel_raw = self.params.get("PidJerkAccel", encoding="utf8")
+      accel_mult = int(accel_raw) * 0.01 if accel_raw not in (None, "") else 1.0
+    except (TypeError, ValueError):
+      accel_mult = 1.0
+    try:
+      decel_raw = self.params.get("PidJerkDecel", encoding="utf8")
+      decel_mult = int(decel_raw) * 0.01 if decel_raw not in (None, "") else 1.0
+    except (TypeError, ValueError):
+      decel_mult = 1.0
+
+    self.pid_jerk_accel_mult = float(clip(accel_mult, 0.3, 3.0))
+    self.pid_jerk_decel_mult = float(clip(decel_mult, 0.3, 3.0))
+
   def _read_params(self):
     self.read_param_count += 1
     if self.read_param_count >= 100:
@@ -251,6 +269,8 @@ class LongControl:
       self._update_start_stop_accel()
       self._update_stopping_decel_rate()
       self._update_standstill_hold()
+    elif self.read_param_count == 60:
+      self._update_pid_jerk()
 
   def reset(self, v_pid=0.0):
     """Reset PID controller and change setpoint"""
@@ -386,8 +406,8 @@ class LongControl:
       # 와는 별도). 감속(jerk_lower)을 가속(jerk_upper)보다 크게 열어둬서
       # 급제동에도 어느 정도는 빠르게 반응하되, 완전 무제한(한 사이클 순간
       # 점프)은 아니게 한다.
-      jerk_upper = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_UPPER_V)
-      jerk_lower = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_LOWER_V)
+      jerk_upper = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_UPPER_V) * self.pid_jerk_accel_mult
+      jerk_lower = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_LOWER_V) * self.pid_jerk_decel_mult
       output_accel = float(clip(pid_output,
                                output_accel - jerk_lower * DT_CTRL,
                                output_accel + jerk_upper * DT_CTRL))

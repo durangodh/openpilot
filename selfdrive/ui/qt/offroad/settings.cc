@@ -1534,6 +1534,16 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_openpilot.png", 20, 200, 1, 0, 120, this));
 
   list->addItem(new ParamValueControlF(
+      "PidJerkAccel", "CRUISE JERK ACCEL (%)",
+      "출발 이후 정상주행 중 가속 반응 속도 배율입니다. 값 증가(+): 더 즉각적으로 가속 / 값 감소(-): 더 부드럽게. 기본값: 100(=코드 기본 곡선 그대로).",
+      "../assets/offroad/icon_openpilot.png", 30, 300, 5, 0, 100, this));
+
+  list->addItem(new ParamValueControlF(
+      "PidJerkDecel", "CRUISE JERK DECEL (%)",
+      "출발 이후 정상주행 중 감속(제동) 반응 속도 배율입니다. 값 증가(+): 급제동 등에 더 빠르게 반응(반응 지연 감소) / 값 감소(-): 더 부드럽지만 반응이 늦어짐 — 낮출수록 안전 여유가 줄 수 있으니 주의. 기본값: 100.",
+      "../assets/offroad/icon_openpilot.png", 30, 300, 5, 0, 100, this));
+
+  list->addItem(new ParamValueControlF(
       "StandstillHoldApply", "STANDSTILL HOLD ACCEL",
       "완전히 정지한 뒤에만 사용하는 유지 제동값(×-0.02m/s²)입니다. 정지 접근 제동에는 영향을 주지 않습니다. 기본값 55 = -1.10m/s².",
       "../assets/offroad/icon_openpilot.png", 10, 100, 5, 0, 55, this));
