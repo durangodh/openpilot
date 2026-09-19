@@ -793,7 +793,19 @@ public final class HudService extends Service {
                 // Do not label the old app's route as the newly requested one.
                 if (decoded.optInt("hudNavApp", 1) != desired) decoded.remove("navi");
                 decoded.put("hudNavApp", desired);
-                applyNavigationSelection(desired);
+                // The local button press that created this pending request
+                // already triggered its own explicit switch (MainActivity ->
+                // ACTION_SELECT_NAV, foregroundLaunched=true, launches the app
+                // directly). Calling applyNavigationSelection() again here on
+                // every telemetry packet while the request is still
+                // unacknowledged would spawn a second, competing switchNavApps
+                // thread (su -c am start) racing that first real launch -- a
+                // cold-starting app hit by two near-simultaneous launches is a
+                // plausible crash trigger, and this race only exists when
+                // telemetry is actually flowing (vehicle connected), matching
+                // "안 붙었을 땐 항상 잘 됨". Just keep resending the request and
+                // patching the packet; the pending button press already owns
+                // the actual switch.
             } else {
                 applyNavigationSelection(decoded.optInt("hudNavApp", 1));
             }
