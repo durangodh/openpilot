@@ -2,6 +2,7 @@ from cereal import car
 from common.numpy_fast import clip, interp
 from common.params import Params
 from common.realtime import DT_CTRL
+from selfdrive.car.hyundai.values import CAR
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, apply_deadzone
 from selfdrive.controls.lib.pid import PIDController
 from selfdrive.modeld.constants import T_IDXS
@@ -94,6 +95,9 @@ class LongControl:
     self.standstill_hold_accel = -1.1
     self.standstill_hold_rate = 1.2
     self.standstill_hold_active = False
+    # Genesis DH 전용 저크제한 정지 전이(sunnypilot 참고, 2026-09-20). 다른
+    # 차종은 기존 2단 램프 방식 그대로 둔다.
+    self.dh_jerk_limited_stopping = CP.carFingerprint in (CAR.GENESIS_EQ900, CAR.GENESIS_EQ900_L)
 
     self._update_pid_gains()
     self._update_actuator_delays()
@@ -330,24 +334,42 @@ class LongControl:
       output_accel = 0.
 
     elif self.long_control_state == LongCtrlState.stopping:
-      # apilot-c2: 0 이하에서 stoppingDecelRate 로 stopAccel 까지 내려가 고정
-      if output_accel > self.CP.stopAccel:
-        output_accel = min(output_accel, 0.0)
-        output_accel -= self.stopping_decel_rate * DT_CTRL
-        if soft_hold:
-          output_accel = self.CP.stopAccel
-
       # Arm only after an actual stop, then keep the stronger request latched
       # through tiny wheel-speed fluctuations.  This does not change braking
       # on the approach and it is cleared as soon as the state machine accepts
       # a genuine departure.
       if CS.standstill or CS.vEgo < 0.05:
         self.standstill_hold_active = True
-      if self.standstill_hold_active and not CS.brakePressed:
-        hold_target = min(self.CP.stopAccel, self.standstill_hold_accel)
-        if output_accel > hold_target:
-          output_accel = max(hold_target,
-                             output_accel - self.standstill_hold_rate * DT_CTRL)
+
+      if self.dh_jerk_limited_stopping:
+        # Genesis DH 전용: sunnypilot 의 저크제한 적분기를 참고해, 접근 중엔
+        # 목표를 0으로 두고 실제 정지 확정 후에만 hold_target으로 바꾼다.
+        # 목표가 바뀌는 그 순간에도 같은 저크 상한(stopping_decel_rate) 하나로
+        # 계속 이어서만 움직이므로, 접근 램프가 덜 끝난 채로 서 버려도
+        # standstill_hold_active 가 켜지는 순간 추가로 한 번 더 밟는
+        # 계단현상이 생기지 않는다. (기존 2단 구조: 접근램프 따로 + 정지 후
+        # hold램프 따로 — 이 둘의 목표가 어긋나 있으면 경계에서 겹쳐 밟혔다.)
+        if self.standstill_hold_active and not CS.brakePressed:
+          target = min(self.CP.stopAccel, self.standstill_hold_accel)
+        else:
+          target = 0.0
+        if soft_hold:
+          target = self.CP.stopAccel
+        max_delta = self.stopping_decel_rate * DT_CTRL
+        output_accel = float(clip(target, output_accel - max_delta, output_accel + max_delta))
+      else:
+        # apilot-c2: 0 이하에서 stoppingDecelRate 로 stopAccel 까지 내려가 고정
+        if output_accel > self.CP.stopAccel:
+          output_accel = min(output_accel, 0.0)
+          output_accel -= self.stopping_decel_rate * DT_CTRL
+          if soft_hold:
+            output_accel = self.CP.stopAccel
+
+        if self.standstill_hold_active and not CS.brakePressed:
+          hold_target = min(self.CP.stopAccel, self.standstill_hold_accel)
+          if output_accel > hold_target:
+            output_accel = max(hold_target,
+                               output_accel - self.standstill_hold_rate * DT_CTRL)
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:
