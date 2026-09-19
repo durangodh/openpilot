@@ -97,7 +97,10 @@ class LongControl:
     self.standstill_hold_active = False
     # Genesis DH 전용 저크제한 정지 전이(sunnypilot 참고, 2026-09-20). 다른
     # 차종은 기존 2단 램프 방식 그대로 둔다.
-    self.dh_jerk_limited_stopping = CP.carFingerprint in (CAR.GENESIS_EQ900, CAR.GENESIS_EQ900_L)
+    # 2015-2016년식 DH는 CAR.GENESIS, 2017년식 이후는 CAR.GENESIS_EQ900/_L로
+    # 별도 핑거프린트다. 실제 차량(2015/2016)을 놓치지 않게 셋 다 포함.
+    self.dh_jerk_limited_stopping = CP.carFingerprint in (
+        CAR.GENESIS, CAR.GENESIS_EQ900, CAR.GENESIS_EQ900_L)
 
     self._update_pid_gains()
     self._update_actuator_delays()
