@@ -29,11 +29,25 @@ final class UsbPortReset {
             return false;
         }
         String script =
-                "echo " + port + " > /sys/bus/usb/drivers/usb/unbind 2>/dev/null; " +
-                "sleep 2; " +
-                "echo " + port + " > /sys/bus/usb/drivers/usb/bind 2>/dev/null; " +
-                "echo done";
-        return runAsRoot(script) != null;
+                "if echo " + port + " > /sys/bus/usb/drivers/usb/unbind 2>/dev/null; then " +
+                "  sleep 2; " +
+                "  ok=0; for n in 1 2 3; do " +
+                "    if echo " + port + " > /sys/bus/usb/drivers/usb/bind 2>/dev/null; then " +
+                "      ok=1; break; " +
+                "    fi; sleep 1; " +
+                "  done; " +
+                "  [ \"$ok\" = 1 ] && echo RESET_OK || echo RESET_FAILED; " +
+                "else echo RESET_FAILED; fi";
+        String out = runAsRoot(script);
+        if (out == null) {
+            return false;
+        }
+        for (String line : out.split("\n")) {
+            if ("RESET_OK".equals(line.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
