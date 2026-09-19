@@ -16,6 +16,15 @@ LEAD_RELEASE_MIN_VREL = 0.1
 LEAD_RELEASE_CONFIRM_SAMPLES = 2
 LEAD_DROPOUT_FALLBACK_FRAMES = round(1.5 / DT_CTRL)
 
+# 정상주행(PID) 중 속도별 저크상한, m/s^3 (sunnypilot 참고). 정지/출발 전환의
+# stopping_decel_rate 와는 별도 값 — 그쪽은 부드러움이 목적이라 낮고, 여긴
+# 반응성도 같이 필요해서 훨씬 크다. 감속(LOWER)을 가속(UPPER)보다 크게 둬서
+# 급제동 상황도 약 1초 안에 최대제동에 도달하게 한다(즉시반응보다는 느리지만
+# 완전 무제한이던 예전보다 부드럽다 — 2026-09-20 사용자 확인 후 반영).
+PID_JERK_SPEED_BP = [0.0, 5.0, 20.0]
+PID_JERK_UPPER_V = [2.0, 3.0, 2.0]
+PID_JERK_LOWER_V = [3.5, 3.5, 3.0]
+
 
 # apilot-c2 상태전이.
 # planned_stop 조건인데 accel 이 이미 stopAccel 보다 낮은 상태로 stopping 에 들어가면 너무 급하게 서므로
@@ -369,9 +378,19 @@ class LongControl:
 
       error = self.v_pid - CS.vEgo
       error_deadzone = apply_deadzone(error, deadzone)
-      output_accel = self.pid.update(error_deadzone, speed=CS.vEgo,
-                                     feedforward=a_target,
-                                     freeze_integrator=freeze_integrator)
+      pid_output = self.pid.update(error_deadzone, speed=CS.vEgo,
+                                   feedforward=a_target,
+                                   freeze_integrator=freeze_integrator)
+
+      # sunnypilot 참고, 정상주행 전용 저크상한(정지/출발용 stopping_decel_rate
+      # 와는 별도). 감속(jerk_lower)을 가속(jerk_upper)보다 크게 열어둬서
+      # 급제동에도 어느 정도는 빠르게 반응하되, 완전 무제한(한 사이클 순간
+      # 점프)은 아니게 한다.
+      jerk_upper = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_UPPER_V)
+      jerk_lower = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_LOWER_V)
+      output_accel = float(clip(pid_output,
+                               output_accel - jerk_lower * DT_CTRL,
+                               output_accel + jerk_upper * DT_CTRL))
 
     self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
 

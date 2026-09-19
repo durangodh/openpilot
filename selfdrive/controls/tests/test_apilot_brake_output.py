@@ -13,6 +13,8 @@ def brake_output(previous, requested, state='pid', v_ego=None, brake_pressed=Fal
   states = NS(off='off', pid='pid', stopping='stopping', starting='starting')
   env = dict(LongCtrlState=states, CONTROL_N=2, T_IDXS=[0, 1], DT_CTRL=0.01,
              LEAD_DROPOUT_FALLBACK_FRAMES=150,
+             PID_JERK_SPEED_BP=[0.0, 5.0, 20.0],
+             PID_JERK_UPPER_V=[2.0, 3.0, 2.0], PID_JERK_LOWER_V=[3.5, 3.5, 3.0],
              clip=lambda x, lo, hi: max(lo, min(x, hi)),
              interp=lambda x, bp, values: values[0], apply_deadzone=lambda x, dz: x,
              long_control_state_trans=lambda *args: (state, False))
@@ -39,15 +41,21 @@ def brake_output(previous, requested, state='pid', v_ego=None, brake_pressed=Fal
   return env['update'](obj, True, cs, plan, (-3.5, 2.0), 0.0)[0]
 
 
-def test_pid_braking_passes_without_extra_ramp_or_coast_band():
-  for previous in (0.5, 0.0, -0.5):
-    for requested in (-0.05, -0.5, -1.2, -3.0):
-      assert brake_output(previous, requested) == requested
+def test_pid_output_is_jerk_limited_per_cycle():
+  # Mock interp always returns values[0]: jerk_upper=2.0, jerk_lower=3.5 m/s^3.
+  # Max change per 0.01s cycle: +0.02 (accel) / -0.035 (decel).
+  assert brake_output(0.0, -3.0) == -0.035
+  assert brake_output(0.0, 3.0) == 0.02
+  # Requests within the jerk budget for this cycle pass through unchanged.
+  assert brake_output(0.0, -0.03) == -0.03
+  assert brake_output(0.0, 0.015) == 0.015
 
 
 def test_actuator_limits_still_apply():
-  assert brake_output(0.5, -5.0) == -3.5
-  assert brake_output(-0.5, 3.0) == 2.0
+  # Already close enough to the limit that the jerk budget does not block
+  # reaching it in one cycle.
+  assert brake_output(-3.49, -5.0) == -3.5
+  assert brake_output(1.99, 3.0) == 2.0
 
 
 def test_standstill_hold_strengthens_only_after_actual_stop():
