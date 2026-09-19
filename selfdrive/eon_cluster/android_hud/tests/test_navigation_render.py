@@ -99,6 +99,10 @@ def main():
                    "app/src/main/java/ai/comma/remotehud/UsbPermissionGranter.java").read_text(encoding="utf-8")
     usb_approver = (Path(__file__).resolve().parents[1] /
                     "app/src/main/java/ai/comma/remotehud/UsbPermissionAutoApprover.java").read_text(encoding="utf-8")
+    usb_reset = (Path(__file__).resolve().parents[1] /
+                 "app/src/main/java/ai/comma/remotehud/UsbPortReset.java").read_text(encoding="utf-8")
+    map_store = (Path(__file__).resolve().parents[1] /
+                 "app/src/main/java/ai/comma/remotehud/HudMapStore.java").read_text(encoding="utf-8")
     # A navigation button request must never suspend the TCP map stream. An
     # unacknowledged request previously left both the S9 and external HUD map
     # blank indefinitely.
@@ -189,8 +193,35 @@ def main():
     assert "bootUsbPreparationDone.set(true)" in present_panel
     # resetPort must verify that sysfs unbind and bind actually succeeded. The
     # old unconditional 'echo done' incorrectly reported success on failure.
-    assert '"RESET_OK".equals(line.trim())' in (Path(__file__).resolve().parents[1] /
-        "app/src/main/java/ai/comma/remotehud/UsbPortReset.java").read_text(encoding="utf-8")
+    assert '"RESET_OK".equals(line.trim())' in usb_reset
+    # Root/sysfs recovery must be bounded and must not block the render loop.
+    assert "waitFor(ROOT_TIMEOUT_SECONDS, TimeUnit.SECONDS)" in usb_reset
+    assert "destroyForcibly()" in usb_reset
+    assert "waitFor(ROOT_TIMEOUT_SECONDS, TimeUnit.SECONDS)" in usb_approver
+    stalled_open = source.split("private void recoverStalledOpen", 1)[1].split(
+        "/**", 1)[0]
+    usb_error = source.split("private void handleUsbError", 1)[1].split(
+        "private void scheduleUsbPortReset", 1)[0]
+    assert "scheduleUsbPortReset" in stalled_open and "UsbPortReset.resetPort" not in stalled_open
+    assert "scheduleUsbPortReset" in usb_error and "UsbPortReset.resetPort" not in usb_error
+    # Service shutdown closes blocking I/O and waits off the main thread before
+    # recycling any frame that a worker might still be drawing.
+    destroy = source.split("public void onDestroy()", 1)[1].split(
+        "public IBinder onBind", 1)[0]
+    assert destroy.index("stopWorkerIo();") < destroy.index("cleanupAfterWorkers")
+    assert 'new Thread(this::cleanupAfterWorkers, "hud-worker-cleanup")' in destroy
+    assert "worker.join(remaining)" in source
+    assert "recycleRef(tbtCompactFrame)" in source
+    assert "recycleRef(crossroadFrame)" in source
+    # Reject decompression bombs and validate even exact-size map databases.
+    replace_asset = source.split("private void replaceAsset", 1)[1].split(
+        "private static void recycleAndClear", 1)[0]
+    assert "inJustDecodeBounds = true" in replace_asset
+    assert "pixels > 8_000_000L" in replace_asset
+    accept_database = map_store.split("private boolean acceptDatabase", 1)[1].split(
+        "private void activate", 1)[0]
+    assert "validateDatabase(file)" in accept_database
+    assert "if (length == expectedBytes)" not in accept_database
     # Use complete source methods, so restoring the old early return fails this test.
     methods = []
     for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),
