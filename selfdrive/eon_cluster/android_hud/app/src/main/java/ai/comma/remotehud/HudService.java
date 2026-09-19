@@ -2017,9 +2017,6 @@ public final class HudService extends Service {
                                 modelWorldGl.leadSpriteDistance(leadIndex), leadAlpha, visionLead);
                     }
                 }
-                if (modelWorldGl.stopLineMarker(stopLineInfo)) {
-                    drawConfirmedStopLine(c, p, stopLineInfo);
-                }
             }
             if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
                 // Preserve the approved ego-car artwork in the GL preview.
