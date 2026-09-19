@@ -330,6 +330,8 @@ public final class HudService extends Service {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean bootNavigationSyncRunning = new AtomicBoolean(false);
     private final AtomicBoolean bootUsbHostRecoveryRunning = new AtomicBoolean(false);
+    /** Prevent BOOT_COMPLETED and QUICKBOOT_POWERON from resetting the panel twice. */
+    private final AtomicBoolean bootUsbPreparationDone = new AtomicBoolean(false);
     private final AtomicReference<JSONObject> state = new AtomicReference<>(new JSONObject());
     private final AtomicReference<Bitmap> mapFrame = new AtomicReference<>();
     private final AtomicReference<Bitmap> staticMapFrame = new AtomicReference<>();
@@ -536,9 +538,7 @@ public final class HudService extends Service {
         if (running.get()) {
             if (fromBoot) {
                 scheduleBootNavigationSync();
-                if (AppPrefs.isUsbHostRecoveryEnabled(this)) {
-                    scheduleBootUsbHostRecovery();
-                }
+                scheduleBootUsbHostRecovery();
             }
             return START_STICKY;
         }
@@ -561,9 +561,10 @@ public final class HudService extends Service {
         // loop uses that flag as its service-lifetime guard.
         if (fromBoot) {
             scheduleBootNavigationSync();
-            if (AppPrefs.isUsbHostRecoveryEnabled(this)) {
-                scheduleBootUsbHostRecovery();
-            }
+            // Always prepare a panel that stayed powered while the S9 rebooted.
+            // The preference only controls Type-C host-role recovery when the
+            // panel is missing; it does not disable the stale-session reset.
+            scheduleBootUsbHostRecovery();
         }
 
         // EON/TMAP 수신과 화면 렌더는 바로 시작하고, 부팅 경로의 루트 USB
@@ -1000,20 +1001,67 @@ public final class HudService extends Service {
     }
 
     /**
-     * A powered OTG adapter can leave starlte in USB device mode at boot. Retry
-     * for the first half minute, stopping as soon as the TURZX panel appears.
-     * This mirrors the user's successful unplug/replug sequence without ever
-     * changing the USB power role.
+     * Prepare TURZX after an S9-only reboot.
+     *
+     * The powered hub keeps the panel alive while Android and this process die.
+     * VID/PID therefore appears immediately after boot, but the panel can still
+     * retain the previous JPEG decoder/session state. A normal open then succeeds
+     * even though the 1920x462 HUD is shown at half scale in the top-left corner.
+     * Rebind an already-present panel once before the first frame, which is the
+     * software equivalent of unplugging only its USB data connection.
+     *
+     * If the panel is absent, the existing optional Type-C host-role recovery is
+     * used. A panel which appears after that is already freshly enumerated and
+     * must not be rebound a second time.
      */
     private void scheduleBootUsbHostRecovery() {
+        if (bootUsbPreparationDone.get()) {
+            return;
+        }
         if (!bootUsbHostRecoveryRunning.compareAndSet(false, true)) {
             return;
         }
         new Thread(() -> {
+            boolean panelWasMissing = false;
             try {
                 for (int attempt = 0; attempt < 6 && running.get(); attempt++) {
                     SystemClock.sleep(attempt == 0 ? 4000L : 5000L);
                     if (hasTurzxUsbDevice()) {
+                        if (!panelWasMissing && !bootUsbPreparationDone.get()) {
+                            // Keep the render thread from opening the device while
+                            // sysfs unbind/bind is in progress.
+                            nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + 6000L;
+                            usbStatus = "부팅 완료 · 외부 HUD 세션 초기화 중";
+                            if (display != null) {
+                                display.reset();
+                            }
+                            boolean rebound = UsbPortReset.resetPort(null);
+                            usbNeedsPrimeFrame = true;
+                            appliedBrightness = -1;
+                            if (!rebound && attempt < 2) {
+                                // Magisk can become ready a few seconds after
+                                // BOOT_COMPLETED. Keep USB closed and retry the
+                                // rebind instead of opening the stale session.
+                                nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + 6000L;
+                                usbStatus = "부팅 완료 · 외부 HUD 초기화 재시도";
+                                continue;
+                            }
+                            bootUsbPreparationDone.set(true);
+                            nextUsbAttemptElapsed = SystemClock.elapsedRealtime()
+                                    + (rebound ? 2500L : 1000L);
+                            usbStatus = rebound
+                                    ? "부팅 완료 · 외부 HUD 재연결 대기"
+                                    : "부팅 완료 · 외부 HUD 초기화 대기";
+                        } else {
+                            bootUsbPreparationDone.set(true);
+                        }
+                        return;
+                    }
+                    panelWasMissing = true;
+                    if (!AppPrefs.isUsbHostRecoveryEnabled(this)) {
+                        // No powered-OTG role manipulation was requested. The
+                        // normal one-second USB scan remains active.
+                        bootUsbPreparationDone.set(true);
                         return;
                     }
                     usbStatus = "전원형 OTG · USB 호스트 전환 중";
@@ -1021,9 +1069,12 @@ public final class HudService extends Service {
                     if (display != null) {
                         display.reset();
                     }
+                    usbNeedsPrimeFrame = true;
+                    appliedBrightness = -1;
                     nextUsbAttemptElapsed = SystemClock.elapsedRealtime()
                             + (changed ? 2500L : 1000L);
                 }
+                bootUsbPreparationDone.set(true);
             } finally {
                 bootUsbHostRecoveryRunning.set(false);
             }
