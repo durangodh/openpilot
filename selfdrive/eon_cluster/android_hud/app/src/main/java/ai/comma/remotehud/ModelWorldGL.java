@@ -973,7 +973,13 @@ final class ModelWorldGL {
             mapLat += (rawLat - mapLat) * positionAlpha;
             mapLon += (rawLon - mapLon) * positionAlpha;
             double headingError = ((rawHeading - mapHeading + 540.0) % 360.0) - 180.0;
-            mapHeading = (mapHeading + headingError * 0.22 + 360.0) % 360.0;
+            // 작은 오차(정차·저속 중 GPS 헤딩 노이즈)는 기존처럼 천천히
+            // 따라간다. 하지만 실제 회전은 한 GPS 주기 안에 오차가 크게
+            // 튀므로, 오차가 클수록 더 빠르게 따라잡아 배경이 이미 돌아간
+            // 차로 자리에 겹쳐 보이는(회전 중 지연) 문제를 줄인다.
+            double headingAlpha = Math.min(0.55,
+                    0.22 + Math.abs(headingError) / 45.0 * 0.33);
+            mapHeading = (mapHeading + headingError * headingAlpha + 360.0) % 360.0;
         }
         return true;
     }
