@@ -1620,7 +1620,6 @@ public final class HudService extends Service {
     private void drawLaneCounter(Canvas c, Paint p, int[] info) {
         int laneCount = info[0];
         int lanePosition = info[1];
-        boolean fromNavi = info[2] != 0;
         if (laneCount < 1 || lanePosition < 1 || lanePosition > laneCount) {
             return;
         }
@@ -1647,9 +1646,6 @@ public final class HudService extends Service {
         }
         p.setStyle(Paint.Style.FILL);
         p.setAlpha(255);
-        String label = laneCount + lang("차선 중 ", "-lane, ") + lanePosition
-                + lang("차로", fromNavi ? " (nav)" : "");
-        text(c, p, label, DRIVE_CX, boxY + boxH + 20f, 15f, dim(), Paint.Align.CENTER);
     }
 
     /** Primary lead distance, placed beside the vehicle without source text. */
