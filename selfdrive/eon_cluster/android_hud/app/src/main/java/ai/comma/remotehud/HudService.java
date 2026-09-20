@@ -1806,6 +1806,11 @@ public final class HudService extends Service {
     private void sendUsbPrimerFrame() throws Exception {
         Canvas c = beginUsbFrame();
         c.drawColor(Color.BLACK);
+        Paint primerPaint = paint;
+        primerPaint.reset();
+        primerPaint.setAntiAlias(true);
+        text(c, primerPaint, "연결중...", WIDTH / 2f, HEIGHT / 2f + 8f, 36f,
+                Color.rgb(150, 160, 170), Paint.Align.CENTER);
         jpegOut.reset();
         outFrame.compress(Bitmap.CompressFormat.JPEG, 40, jpegOut);
         display.sendJpeg(jpegOut.toByteArray());
