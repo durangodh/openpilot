@@ -184,7 +184,7 @@ def main():
     primer = source.split("private void sendUsbPrimerFrame()", 1)[1].split(
         "private void handleUsbError", 1)[0]
     assert "c.drawColor(Color.BLACK)" in primer
-    assert "SystemClock.sleep(isFirstUsbConnection ? 2000L : 200L)" in primer
+    assert "SystemClock.sleep(2000L)" in primer
     # An S9-only reboot leaves the powered TURZX decoder in its previous USB
     # session. Even when VID/PID is already visible, boot must rebind it once
     # before the first JPEG. Duplicate boot broadcasts must not reset it twice.
