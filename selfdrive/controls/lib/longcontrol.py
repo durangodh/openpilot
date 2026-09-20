@@ -105,11 +105,13 @@ class LongControl:
     # 정상주행(PID) 저크상한 배율. 기본 1.0(=코드 기본 속도별 곡선 그대로).
     self.pid_jerk_accel_mult = 1.0
     self.pid_jerk_decel_mult = 1.0
-    # 출발(정지→가속 시작) 전용 저크, m/s^3. PID_JERK_UPPER/pid_jerk_accel_mult
-    # 와 분리 — 그걸 올리면 중고속 정상가속까지 같이 세져버리므로, 출발만
-    # 따로 조절 가능하게 둔다. 출발은 항상 저속(0 근처)에서만 일어나니
-    # 속도별 곡선 없이 고정값 하나로 충분하다.
-    self.start_jerk = 2.0
+    # 출발(정지→가속 시작) 전용 저크, m/s^3 — 고정 상수. UI로 따로 안 뺐다:
+    # hyundai/carcontroller.py 의 JerkStartLimit("START JERK LIMIT")이 CAN
+    # 최종값을 이미 더 아래층에서 제한하고 있어서, 여기 계획 단계에 또
+    # UI를 두면 조절할 게 두 개로 갈려 헷갈리기만 한다. 여기 값은 넉넉하게
+    # 둬서 그 아래층 제한이 실질적인 병목이 되게 하고, 출발 체감 조절은
+    # START JERK LIMIT 하나로 통일한다.
+    self.start_jerk = 5.0
 
     self._update_pid_gains()
     self._update_actuator_delays()
@@ -260,13 +262,6 @@ class LongControl:
 
     self.pid_jerk_accel_mult = float(clip(accel_mult, 0.3, 3.0))
     self.pid_jerk_decel_mult = float(clip(decel_mult, 0.3, 3.0))
-
-    try:
-      start_raw = self.params.get("StartJerk", encoding="utf8")
-      start_jerk = int(start_raw) * 0.01 if start_raw not in (None, "") else 2.0
-    except (TypeError, ValueError):
-      start_jerk = 2.0
-    self.start_jerk = float(clip(start_jerk, 0.5, 8.0))
 
   def _read_params(self):
     self.read_param_count += 1
