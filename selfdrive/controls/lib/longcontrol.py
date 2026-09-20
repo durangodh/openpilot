@@ -25,6 +25,12 @@ PID_JERK_SPEED_BP = [0.0, 5.0, 20.0]
 PID_JERK_UPPER_V = [2.0, 3.0, 2.0]
 PID_JERK_LOWER_V = [3.5, 3.5, 3.0]
 
+# 정지 진입속도별 STOPPING DECEL RATE 배율. 정체(가다서다, 저속 진입)일수록
+# 빠르게 반응하고, 고속 진입이면 1.0(=STOPPING DECEL RATE 값 그대로, 기존
+# 고속 체감 유지)으로 둔다. m/s 기준: 0=0km/h, 5.6≈20km/h, 11.1≈40km/h.
+STOPPING_JERK_ENTRY_SPEED_BP = [0.0, 5.6, 11.1]
+STOPPING_JERK_ENTRY_MULT_V = [2.5, 1.5, 1.0]
+
 
 # apilot-c2 상태전이.
 # planned_stop 조건인데 accel 이 이미 stopAccel 보다 낮은 상태로 stopping 에 들어가면 너무 급하게 서므로
@@ -112,6 +118,8 @@ class LongControl:
     # 둬서 그 아래층 제한이 실질적인 병목이 되게 하고, 출발 체감 조절은
     # START JERK LIMIT 하나로 통일한다.
     self.start_jerk = 5.0
+    # 정지 진입속도에 따라 매 정지 사이클마다 한 번씩 갱신됨(위 상수표 참고).
+    self.stopping_jerk_mult = 1.0
 
     self._update_pid_gains()
     self._update_actuator_delays()
@@ -347,12 +355,22 @@ class LongControl:
       self._reset_standstill_lead()
       start_gate = True
 
+    prev_long_control_state = self.long_control_state
     self.long_control_state, planned_stop = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
       CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now, start_gate)
 
     if self.long_control_state != LongCtrlState.stopping:
       self.standstill_hold_active = False
+    if (self.long_control_state == LongCtrlState.stopping
+        and prev_long_control_state != LongCtrlState.stopping):
+      # 정지-출발 한 사이클 동안 쓸 저크배율을, 정지 시작 시점의 속도로
+      # 한 번만 정한다(정지 상태에 들어온 뒤엔 vEgo가 0으로 수렴하므로,
+      # "지금 vEgo"로는 정체 진입이었는지 고속 진입이었는지 구분이 안 됨).
+      # 저속(정체 가다서다)일수록 배율을 키워 반응을 빠르게, 고속
+      # 진입이면 1.0(=STOPPING DECEL RATE 그대로, 지금 값 유지)로 둔다.
+      self.stopping_jerk_mult = float(interp(
+        CS.vEgo, STOPPING_JERK_ENTRY_SPEED_BP, STOPPING_JERK_ENTRY_MULT_V))
 
     if self.long_control_state == LongCtrlState.off:
       self.reset(CS.vEgo)
@@ -381,7 +399,7 @@ class LongControl:
         target = self.CP.stopAccel
       if soft_hold:
         target = self.CP.stopAccel
-      max_delta = self.stopping_decel_rate * DT_CTRL
+      max_delta = self.stopping_decel_rate * self.stopping_jerk_mult * DT_CTRL
       output_accel = float(clip(target, output_accel - max_delta, output_accel + max_delta))
       self.reset(CS.vEgo)
 
