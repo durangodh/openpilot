@@ -316,6 +316,9 @@ public final class HudService extends Service {
     private Bitmap phoneFrame;
     private Canvas phoneCanvas;
     private boolean usbNeedsPrimeFrame = true;
+    // 서비스 시작 후 첫 연결에서만 긴 대기를 준다 — 그 뒤로는 재연결마다
+    // 2초씩 화면이 멈추는 걸 피한다.
+    private boolean isFirstUsbConnection = true;
     private final Object phoneFrameLock = new Object();
     private final Paint phonePreviewPaint = new Paint(
             Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
@@ -1809,8 +1812,15 @@ public final class HudService extends Service {
         jpegOut.reset();
         outFrame.compress(Bitmap.CompressFormat.JPEG, 40, jpegOut);
         display.sendJpeg(jpegOut.toByteArray());
-        // Give the panel decoder one command gap before the live HUD follows.
-        SystemClock.sleep(200L);
+        // 예전엔 항상 200ms(디코더 명령 간격 정도)만 줬는데, 부팅/재부팅
+        // 직후 첫 연결에서는 패널이 좁고 긴 패널 모드(1920x462)로 완전히
+        // 전환되기 전에 실제 화면 프레임이 나가서, 전체 내용이 화면
+        // 좌상단 구석에 작게 박혀 나오는 증상이 보고됐다. 서비스 시작 후
+        // 첫 연결에서만 더 오래(2초) 기다려서 모드 전환이 끝날 시간을 주고,
+        // 이후 재연결(주행 중 USB 순간 끊김 등)은 예전처럼 짧게 유지한다
+        // — 그래야 매번 재연결될 때마다 화면이 2초씩 멈추지 않는다.
+        SystemClock.sleep(isFirstUsbConnection ? 2000L : 200L);
+        isFirstUsbConnection = false;
     }
 
     private void handleUsbError(Exception e) {
