@@ -379,11 +379,14 @@ class LongControl:
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:
-      # 예전엔 startAccel 로 한 사이클(0.01초) 만에 순간 점프했다 — 정지
-      # 유지값(음수)에서 출발목표(양수, 최대 2.0)로 바로 튀는 구조라, 정지쪽
-      # 계단현상보다 더 급격할 수 있었다. 같은 저크 상한(stopping_decel_rate)
-      # 으로 여기도 부드럽게 이어지게 한다.
-      max_delta = self.stopping_decel_rate * DT_CTRL
+      # stopping_decel_rate(정지용, 느림)로 램프하면 정지유지값(-1.1 근처)에서
+      # 양의 가속도까지 올라가는 데 1초 넘게 걸려서, 출발을 체감하기 전에
+      # 사용자가 먼저 수동 개입하는 문제가 있었다. 출발은 부드러움보다
+      # "체감되는 속도"가 우선이라, 정상주행 가속용 저크(PID_JERK_UPPER,
+      # CRUISE JERK ACCEL 슬라이더로 조절)를 대신 쓴다 — 순간점프는 아니되
+      # 눈에 띄게 더 빠르게 startAccel까지 올라간다.
+      start_jerk = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_UPPER_V) * self.pid_jerk_accel_mult
+      max_delta = start_jerk * DT_CTRL
       output_accel = float(clip(self.CP.startAccel,
                                 output_accel - max_delta, output_accel + max_delta))
       self.reset(CS.vEgo)
