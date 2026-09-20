@@ -2033,7 +2033,6 @@ public final class HudService extends Service {
                     text(c, p, lang("배경 ", "MAP ") + mapStatus, 14f, roadBottom - 12f, 18f,
                             Color.argb(210, 255, 205, 120), Paint.Align.LEFT);
                 }
-                drawLaneCounter(c, p, modelWorldGl.laneCounter());
             }
             if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
                 // 앞차도 자차와 같은 그림으로. 먼 차부터 그려 근경이 덮게 한다.
