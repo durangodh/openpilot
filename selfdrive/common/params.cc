@@ -226,6 +226,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"StoppingDecelRate", PERSISTENT},
     {"PidJerkAccel", PERSISTENT},              // 정상주행 가속 저크 배율 (%, default 100)
     {"PidJerkDecel", PERSISTENT},              // 정상주행 감속 저크 배율 (%, default 100)
+    {"StartJerk", PERSISTENT},                 // 출발 전용 저크 (x0.01 m/s^3, default 200)
     {"StandstillHoldApply", PERSISTENT},      // 완전정지 유지 제동값 (x-0.02 m/s^2)
     {"StandstillReleaseSpeed", PERSISTENT},   // 정차 후 자동출발 임계 목표속도 (x0.1 m/s, default 2)
     {"StandstillReleaseMs", PERSISTENT},      // 자동출발 요구 지속시간 ms (default 100)

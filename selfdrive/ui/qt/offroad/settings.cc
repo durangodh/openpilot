@@ -1544,6 +1544,11 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_openpilot.png", 30, 300, 5, 0, 100, this));
 
   list->addItem(new ParamValueControlF(
+      "StartJerk", "START RAMP JERK (×0.01m/s³)",
+      "정지→출발 전환 시 0에서 출발가속도까지 올라가는 속도입니다. 값 증가(+): 더 빠르게 체감 / 값 감소(-): 더 부드럽게. 참고: 그 아래 START JERK LIMIT(carcontroller, CAN 최종값 제한)이 출발 후 1.5초간 더 강하게 묶을 수 있어, 그쪽부터 먼저 조절해보는 걸 권장. 기본값: 200(=2.0m/s³).",
+      "../assets/offroad/icon_openpilot.png", 50, 800, 10, 0, 200, this));
+
+  list->addItem(new ParamValueControlF(
       "StandstillHoldApply", "STANDSTILL HOLD ACCEL",
       "완전히 정지한 뒤에만 사용하는 유지 제동값(×-0.02m/s²)입니다. 정지 접근 제동에는 영향을 주지 않습니다. 기본값 55 = -1.10m/s².",
       "../assets/offroad/icon_openpilot.png", 10, 100, 5, 0, 55, this));
