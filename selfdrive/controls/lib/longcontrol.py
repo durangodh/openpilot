@@ -385,6 +385,15 @@ class LongControl:
       # "체감되는 속도"가 우선이라, 정상주행 가속용 저크(PID_JERK_UPPER,
       # CRUISE JERK ACCEL 슬라이더로 조절)를 대신 쓴다 — 순간점프는 아니되
       # 눈에 띄게 더 빠르게 startAccel까지 올라간다.
+      #
+      # 그래도 여전히 느리다는 피드백 — 브레이크를 "놓는" 것(음수→0)까지
+      # 저크제한을 걸 필요는 없다. 울컥거림은 앞으로 미는 가속(양수)이
+      # 빠르게 커질 때 생기는 거지, 잡고 있던 제동을 놓는 건 그 자체로
+      # 튀는 느낌이 아니다. 음수 구간은 즉시 0으로 풀고, 0→startAccel
+      # (실제 전진가속) 구간만 저크제한을 건다 — 램프해야 할 구간 자체가
+      # 짧아져서 체감이 더 빨라진다.
+      if output_accel < 0.0:
+        output_accel = 0.0
       start_jerk = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_UPPER_V) * self.pid_jerk_accel_mult
       max_delta = start_jerk * DT_CTRL
       output_accel = float(clip(self.CP.startAccel,
