@@ -106,9 +106,12 @@ final class ModelWorldGL {
     // 재시도 대기 중엔 매 프레임 draw()가 그냥 false를 반환해서 그 구간
     // 전체가 화면에 비어 보인다(주행패널이 잠깐 꺼졌다 켜지는 것처럼).
     // 예전 3초 간격은 이 빈 구간이 눈에 띄게 길어서, 훨씬 짧은 간격으로
-    // 더 자주 재시도하도록 바꿨다 — 전체 최대 대기시간(횟수×간격)은
-    // 비슷하게 유지하면서, 한 번에 비는 구간만 짧게.
-    private static final int GL_MAX_RETRIES = 20;
+    // 더 자주 재시도하도록 바꿨다 — 한 번에 비는 구간만 짧게.
+    //
+    // S9 전체 재부팅 후엔 차량 재부팅 때보다 SurfaceFlinger/디스플레이
+    // 드라이버 초기화에 훨씬 오래 걸릴 수 있어서, 총 10초(20회×0.5초)로도
+    // 부족한 사례가 보고됐다. 횟수를 크게 늘려 총 대기시간을 2분으로.
+    private static final int GL_MAX_RETRIES = 240;
     private static final long GL_RETRY_DELAY_MS = 500L;
     private int glFailCount;
     private long glNextRetryElapsed;
