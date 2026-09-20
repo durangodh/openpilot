@@ -102,8 +102,14 @@ final class ModelWorldGL {
     // 실패할 수 있다. 예전엔 이 한 번의 실패로 GL을 영구히 꺼버려서, 앱을
     // 다시 켜기 전까지 주행씬이 계속 까맣게 남았다(재부팅 후 좌상단만 나오는
     // 증상). 일정 시간 두고 몇 번 더 시도한 뒤에만 영구히 포기한다.
-    private static final int GL_MAX_RETRIES = 5;
-    private static final long GL_RETRY_DELAY_MS = 3000L;
+    //
+    // 재시도 대기 중엔 매 프레임 draw()가 그냥 false를 반환해서 그 구간
+    // 전체가 화면에 비어 보인다(주행패널이 잠깐 꺼졌다 켜지는 것처럼).
+    // 예전 3초 간격은 이 빈 구간이 눈에 띄게 길어서, 훨씬 짧은 간격으로
+    // 더 자주 재시도하도록 바꿨다 — 전체 최대 대기시간(횟수×간격)은
+    // 비슷하게 유지하면서, 한 번에 비는 구간만 짧게.
+    private static final int GL_MAX_RETRIES = 20;
+    private static final long GL_RETRY_DELAY_MS = 500L;
     private int glFailCount;
     private long glNextRetryElapsed;
 
