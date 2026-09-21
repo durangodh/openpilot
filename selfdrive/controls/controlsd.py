@@ -761,11 +761,11 @@ class Controls:
     if not self.joystick_mode:
       # accel PID loop
       pid_accel_limits = self.CI.get_pid_accel_limits(self.CP, CS.vEgo, self.v_cruise_kph * CV.KPH_TO_MS)
-      # Keep PID integration within the no-lead cap before the final SCC clip.
-      if not (self.sm['radarState'].leadOne.status or self.sm['radarState'].leadTwo.status):
-        set_speed_kph = self.applyMaxSpeed if self.applyMaxSpeed > 0.0 else self.v_cruise_kph
-        cruise_max_accel = self.cruise_helper.get_longitudinal_accel_limit(CS, self.sm, set_speed_kph)
-        pid_accel_limits = (pid_accel_limits[0], min(pid_accel_limits[1], cruise_max_accel))
+      # Share the positive allowance with SCC even while following a lead.
+      # This also prevents PID integration above a still-opening lead cap.
+      set_speed_kph = self.applyMaxSpeed if self.applyMaxSpeed > 0.0 else self.v_cruise_kph
+      cruise_max_accel = self.cruise_helper.get_longitudinal_accel_limit(CS, self.sm, set_speed_kph)
+      pid_accel_limits = (pid_accel_limits[0], min(pid_accel_limits[1], cruise_max_accel))
       t_since_plan = (self.sm.frame - self.sm.rcv_frame['longitudinalPlan']) * DT_CTRL
       actuators.accel, actuators.jerk = self.LoC.update(
         CC.longActive,

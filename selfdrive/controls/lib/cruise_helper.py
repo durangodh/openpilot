@@ -13,8 +13,10 @@ from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_auto_speed_up_target,
                                                         apply_no_lead_cruise_accel_limit,
+                                                        apply_cruise_max_limit,
                                                         get_cruise_max_accel,
                                                         get_no_lead_cruise_accel_cap,
+                                                        transition_follow_accel_limit,
                                                         select_auto_driving_mode)
 from selfdrive.road_speed_limiter import get_road_speed_limiter
 
@@ -83,6 +85,7 @@ class CruiseHelper:
     self.no_lead_cruise_accel_factor = 0.65
     self.no_lead_cruise_jerk_limit = 0.25
     self.last_apply_accel = 0.0
+    self.follow_accel_limit = None
     self.current_set_speed_kph = 0.0
 
     self.target_speed = 0.0
@@ -285,11 +288,14 @@ class CruiseHelper:
   def get_longitudinal_accel_limit(self, CS, sm, set_speed_kph):
     """Return the live positive limit shared by LongControl and SCC output."""
     cruise_max_accel = self.get_cruise_max_accel(CS.vEgo)
-    if sm['radarState'].leadOne.status or sm['radarState'].leadTwo.status:
-      return cruise_max_accel
     speed_error_kph = max(0.0, float(set_speed_kph) - CS.vEgo * CV.MS_TO_KPH)
-    return get_no_lead_cruise_accel_cap(
+    no_lead_cap = get_no_lead_cruise_accel_cap(
       cruise_max_accel, speed_error_kph, self.no_lead_cruise_accel_factor)
+    has_lead = sm['radarState'].leadOne.status or sm['radarState'].leadTwo.status
+    target = cruise_max_accel if has_lead else no_lead_cap
+    self.follow_accel_limit = transition_follow_accel_limit(
+      target, self.follow_accel_limit, CS.vEgo, DT_CTRL)
+    return self.follow_accel_limit
 
   def _resume_longitudinal(self, controls, CS, active_mode=1):
     if self.long_active_user <= 0:
@@ -1043,11 +1049,12 @@ class CruiseHelper:
     self.target_speed = 0.0
 
   def get_apply_accel(self, CS, sm, accel, stopping, dt=DT_CTRL):
-    # Restore no-lead positive-acceleration limiting at the SCC12 output.
-    # Preserve the current aPilot output whenever either lead is present.
+    # Match the PID allowance at the final SCC12 boundary, including starts.
+    # Braking/stopping requests bypass this positive-acceleration policy.
     cruise_max_accel = self.get_cruise_max_accel(CS.out.vEgo)
     if sm['radarState'].leadOne.status or sm['radarState'].leadTwo.status:
-      apply_accel = float(accel)
+      cap = cruise_max_accel if self.follow_accel_limit is None else min(cruise_max_accel, self.follow_accel_limit)
+      apply_accel = apply_cruise_max_limit(accel, stopping, cap)
     else:
       speed_error_kph = max(0.0, self.current_set_speed_kph - CS.out.vEgo * CV.MS_TO_KPH)
       apply_accel = apply_no_lead_cruise_accel_limit(

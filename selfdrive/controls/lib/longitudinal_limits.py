@@ -17,6 +17,7 @@ CRUISE_MAX_VAL_KEYS = ["CruiseMaxVals1", "CruiseMaxVals20", "CruiseMaxVals2", "C
 CRUISE_MAX_VAL_DEFAULTS = [1.10, 1.00, 0.90, 0.90, 0.80, 0.70, 0.60]
 NO_LEAD_CRUISE_ACCEL_FACTOR_DEFAULT = 0.65
 NO_LEAD_CRUISE_JERK_DEFAULT = 0.25
+FOLLOW_ACCEL_LIMIT_RISE = 0.35  # m/s^3, above the low-speed departure window
 
 # aPilot C2 total-acceleration envelope. Longitudinal acceleration is reduced
 # when the estimated lateral acceleration consumes the available tire force.
@@ -83,6 +84,21 @@ def get_no_lead_cruise_accel_cap(cruise_max_accel, speed_error_kph,
                        [0.0, 5.0, 15.0, 30.0], [0.20, 0.40, 0.70, 1.0])
   factor = clip(accel_factor, 0.30, 1.0)
   return float(max(0.0, cruise_max_accel * factor * error_scale))
+
+
+def transition_follow_accel_limit(target, previous, v_ego, dt):
+  """Open a positive acceleration allowance gradually after acquiring a lead.
+
+  Reductions apply immediately. Preserve the existing launch response through
+  18 km/h and blend into the full rise limit by 30 km/h. This bounds an upper
+  limit only; it never delays a negative acceleration request.
+  """
+  target = max(0.0, float(target))
+  if previous is None:
+    return target
+  weight = interp(v_ego, [5.0, 30.0 / 3.6], [0.0, 1.0])
+  limited = min(target, max(0.0, previous) + FOLLOW_ACCEL_LIMIT_RISE * max(0.0, dt))
+  return float(target + weight * (limited - target))
 
 
 def apply_no_lead_cruise_accel_limit(accel, stopping, cruise_max_accel,
