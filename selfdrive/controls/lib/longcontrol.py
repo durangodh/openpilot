@@ -5,6 +5,7 @@ from common.realtime import DT_CTRL
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, apply_deadzone
 from selfdrive.controls.lib.pid import PIDController
 from selfdrive.modeld.constants import T_IDXS
+from selfdrive.controls.lib.lead_departure import LeadDepartureAssist
 
 LongCtrlState = car.CarControl.Actuators.LongControlState
 ButtonType = car.CarState.ButtonEvent.Type
@@ -43,7 +44,7 @@ STOPPING_JERK_ENTRY_MULT_V = [2.5, 1.5, 1.0]
 # a_target_now 가 -1.0 보다 커질 때까지(=제동이 완만해질 때까지) PID 를 유지한다. (apilot 2023-09-11)
 def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                              v_target_1sec, brake_pressed, cruise_standstill, soft_hold, a_target_now,
-                             start_gate=True):
+                             start_gate=True, lead_departure=False):
   # Ignore cruise standstill if car has a gas interceptor
   cruise_standstill = cruise_standstill and not CP.enableGasInterceptor
   accelerating = v_target_1sec > (v_target + 0.01)
@@ -57,7 +58,7 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
 
   # start_gate: 정체 가다서다 둔감화(StandstillReleaseSpeed/Ms). LongControl 이
   # 플래너 출발 요구의 세기·지속시간을 보고 넘겨준다. 가속페달·RES 는 게이트를 우회한다.
-  starting_condition = (v_target_1sec > CP.vEgoStarting and
+  starting_condition = ((v_target_1sec > CP.vEgoStarting or lead_departure) and
                         accelerating and
                         not cruise_standstill and
                         not brake_pressed and
@@ -140,6 +141,7 @@ class LongControl:
     self.lead_release_samples = 0
     self.lead_measurement_available = False
     self.lead_missing_frames = 0
+    self.departure_assist = LeadDepartureAssist(DT_CTRL)
 
   # ---- 파라미터 (키 이름은 이 포크 것을 유지) ----
   def _update_pid_gains(self):
@@ -318,13 +320,15 @@ class LongControl:
     self.v_pid = v_pid
 
   def update(self, active, CS, long_plan, accel_limits, t_since_plan, soft_hold=False,
-             radar_state=None, radar_state_valid=False, radar_state_updated=False):
+             radar_state=None, radar_state_valid=False, radar_state_updated=False,
+             plan_valid=True):
     """Update longitudinal control. This updates the state machine and runs a PID loop"""
     self._read_params()
 
     # Interp control trajectory
     speeds = long_plan.speeds
-    if len(speeds) == CONTROL_N:
+    trajectory_valid = len(speeds) == CONTROL_N and len(long_plan.accels) == CONTROL_N
+    if trajectory_valid:
       v_target_now = interp(t_since_plan, T_IDXS[:CONTROL_N], speeds)
       a_target_now = interp(t_since_plan, T_IDXS[:CONTROL_N], long_plan.accels)
       j_target = long_plan.jerks[0] if len(long_plan.jerks) else 0.0
@@ -356,6 +360,7 @@ class LongControl:
     # 정차 중 멈춘 선행차를 확인했다면 플래너 속도만으로 출발하지 않는다.
     # 새 radarState 샘플에서 선행차 이동이 연속 확인될 때 빠르게 출발한다.
     # 선행차 없이 정차한 경우(신호 등)는 기존 속도/지연 설정을 사용한다.
+    lead_release = False
     if self.long_control_state == LongCtrlState.stopping:
       resume_pressed = any(e.pressed and e.type in (ButtonType.accelCruise, ButtonType.resumeCruise)
                            for e in CS.buttonEvents)
@@ -380,10 +385,18 @@ class LongControl:
       self._reset_standstill_lead()
       start_gate = True
 
+    assisted_departure = self.departure_assist.update(
+      enabled=active and self.CP.openpilotLongitudinalControl,
+      stopping=self.long_control_state == LongCtrlState.stopping,
+      confirmed=lead_release, cs=CS, plan=long_plan, radar=radar_state,
+      radar_valid=radar_state_valid, plan_valid=plan_valid and trajectory_valid,
+      plan_age=t_since_plan, a_now=a_target_now, a_target=a_target,
+      v_target=v_target, v_future=v_target_1sec, soft_hold=soft_hold)
     prev_long_control_state = self.long_control_state
     self.long_control_state, planned_stop = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
-      CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now, start_gate)
+      CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now, start_gate,
+      assisted_departure)
     departed_stopping = (prev_long_control_state == LongCtrlState.stopping and
                          self.long_control_state != LongCtrlState.stopping)
 
@@ -404,6 +417,8 @@ class LongControl:
       output_accel = 0.
 
     elif self.long_control_state == LongCtrlState.stopping:
+      # A blocked state transition must not advertise a launch to the CAN layer.
+      self.departure_assist.reset()
       # Arm only after an actual stop, then keep the stronger request latched
       # through tiny wheel-speed fluctuations.  This does not change braking
       # on the approach and it is cleared as soon as the state machine accepts
@@ -473,6 +488,8 @@ class LongControl:
       pid_output = self.pid.update(error_deadzone, speed=CS.vEgo,
                                    feedforward=a_target,
                                    freeze_integrator=freeze_integrator)
+      if assisted_departure and not prevent_overshoot:
+        pid_output = max(pid_output, self.departure_assist.accel_floor)
 
       # sunnypilot 참고, 정상주행 전용 저크상한(정지/출발용 stopping_decel_rate
       # 와는 별도). 감속(jerk_lower)을 가속(jerk_upper)보다 크게 열어둬서

@@ -771,7 +771,8 @@ class Controls:
         CC.longActive,
         CS, long_plan, pid_accel_limits, t_since_plan, CC.hudControl.softHold,
         self.sm['radarState'], self.sm.valid['radarState'] and self.sm.alive['radarState'],
-        self.sm.updated['radarState'])
+        self.sm.updated['radarState'],
+        plan_valid=self.sm.valid['longitudinalPlan'] and self.sm.alive['longitudinalPlan'])
 
       # Steering PID loop and lateral MPC
       self.desired_curvature, self.desired_curvature_rate = get_lag_adjusted_curvature(self.CP, CS.vEgo,

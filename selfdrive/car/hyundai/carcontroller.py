@@ -14,6 +14,7 @@ from opendbc.can.packer import CANPacker
 from common.conversions import Conversions as CV
 from common.params import Params
 from selfdrive.controls.lib.longcontrol import LongCtrlState
+from selfdrive.controls.lib.lead_departure import departure_jerk_upper
 from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 
 VisualAlert = car.CarControl.HUDControl.VisualAlert
@@ -267,6 +268,10 @@ class CarController:
     else:
       jerk_upper = min(float(clip(planned_jerk * 2.0, 0.5, jerk_limit)), jerk_max)
       jerk_lower = min(float(clip(-planned_jerk * 2.0, 1.0, jerk_limit)), jerk_max)
+      assisted_launch = (CC.longActive and controls.LoC.departure_assist.active and
+                         actuators.accel > 0.0 and not CS.out.brakePressed and not CS.out.gasPressed)
+      jerk_upper = departure_jerk_upper(
+        jerk_upper, self.jerk_start_limit, 2.0 * controls.LoC.pid_jerk_accel_mult, assisted_launch)
 
     # Community safety now follows the physical SCC MAIN state independently
     # of stock ACC engagement. Start replacing SCC messages as soon as
