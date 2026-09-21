@@ -125,15 +125,23 @@ def main():
     assert "displayAwareLaunchCommand(component, true,\n" in source
     assert "AppPrefs.getMirrorDisplayId(context)" in source
     assert "captureMirrorDisplayId(context, launchProcess)" in source
-    assert 'am start --display \\"$display_id\\" -n' in source
+    assert 'am start --display 0 -n' in source
+    assert 'display_id=$(dumpsys activity activities' not in source
     assert "scheduleBootNavigationSync();" in source
     assert "launchNavAppOnMirrorDisplay(context, selected)" in source
     assert "displayAwareLaunchCommand(component, false,\n" in source
-    assert "else exit 73; fi" in source
+    assert 'awk -v want=0' in source
+    assert 'mResumedActivity:' in source
+    assert 'mirrorDisplays.registerDisplayListener' in source
+    assert 'mirrorDisplays.unregisterDisplayListener' in source
+    assert 'HudPixelBuffer.create(HEIGHT, WIDTH)' in source
+    assert 'HudPixelBuffer.create(WIDTH, HEIGHT)' in source
+    assert 'HudPixelBuffer.copy(c, phoneFrame, usbLogicalFrameBounds, phonePreviewPaint)' in source
+    assert 'c.drawBitmap(phoneFrame, 0f, 0f' not in source
     # A tap must open the selected navigation Activity on the display where
     # the settings screen is currently visible, not only update preferences.
     assert "launchNavigationOnCurrentDisplay(launch)" in activity
-    assert "options.setLaunchDisplayId(getDisplay().getDisplayId())" in activity
+    assert "options.setLaunchDisplayId(Display.DEFAULT_DISPLAY)" in activity
     assert "EXTRA_NAV_FOREGROUND_LAUNCHED" in activity
     assert "foregroundLaunched ? null" in source
     assert "getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY" in activity

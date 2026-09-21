@@ -1,0 +1,6 @@
+id=nmirror_fast_start
+name=nMirror Wireless Fast Start
+version=1.7
+versionCode=8
+author=Codex
+description=Monitor navigation on display 0 and preserve bounded boot diagnostics.

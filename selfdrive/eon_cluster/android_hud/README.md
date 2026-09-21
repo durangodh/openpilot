@@ -1,5 +1,32 @@
 # Android remote HUD (experimental)
 
+## nMirror 0.1.18 startup/display correction (2026-09-21)
+
+Navigation is launched and checked on display **0**, as nMirror's own startup
+app launcher does. The `nMirror2 capture` display and cached display IDs from
+older HUD builds must not be used as activity destinations. A display listener
+retries navigation when capture starts, including vehicle connections long
+after boot. Existing nMirror/HUD navigation selections are not rewritten.
+
+Both fixed-pixel HUD buffers now use `Bitmap.DENSITY_NONE`; the logical frame
+is copied with an explicit destination rectangle before USB rotation. The old
+coordinate-only `drawBitmap` overload applied destination/source DPI scaling.
+On the S9, a 560-DPI logical buffer copied into a 160-DPI output buffer shrank
+the content to 160/560 of its intended size. Buffer allocation timing explains
+why the symptom could change after restarting or changing startup applications;
+matching navigation selections alone is not a rendering fix.
+
+`tests/HudPixelBufferDeviceCheck.java` reproduces that legacy shrink using real
+Android Canvas and checks all 16 DPI/rotation/mirror combinations with the
+production `HudPixelBuffer`. Run the compiled DEX with `app_process` on Android;
+it allocates test bitmaps only and does not change system display settings.
+
+App-private `files/hud-session.log` and `hud-session.previous.log` retain bounded
+boot, buffer-density, navigation and USB initialization evidence. USB reset
+policy is not made more aggressive by this change; actual vehicle cold-boot
+verification remains necessary. The companion Magisk 1.7 source is under
+`magisk/nmirror_fast_start/`.
+
 ## Live traffic signals
 
 The map panel accepts the native `traffic_signal` bitmap published by both

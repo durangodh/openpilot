@@ -241,6 +241,27 @@ public final class HudService extends Service {
     private volatile Socket assetSocket;
     private int usbErrorStreak;
     private boolean usbReceiverRegistered;
+    private android.hardware.display.DisplayManager mirrorDisplays;
+    private final android.hardware.display.DisplayManager.DisplayListener mirrorDisplayListener =
+            new android.hardware.display.DisplayManager.DisplayListener() {
+        public void onDisplayAdded(int id) { mirrorDisplayChanged(id); }
+        public void onDisplayChanged(int id) { mirrorDisplayChanged(id); }
+        public void onDisplayRemoved(int id) { }
+    };
+
+    private void mirrorDisplayChanged(int id) {
+        if (!running.get() || mirrorDisplays == null) return;
+        // nMirror creates a capture display after its display-0 transition.
+        // Retry then, even when the vehicle connects long after the boot window.
+        for (android.view.Display candidate : mirrorDisplays.getDisplays()) {
+            if (candidate.getName().startsWith("nMirror")) {
+                HudDiagnostics.log("mirror-display event=" + id + " nav-target=0 dpi="
+                        + getResources().getDisplayMetrics().densityDpi);
+                scheduleBootNavigationSync();
+                return;
+            }
+        }
+    }
     private PowerManager.WakeLock wakeLock;
     private volatile boolean workersStarted;
     private long frameIntervalMs = 125L;
@@ -314,6 +335,7 @@ public final class HudService extends Service {
     private Bitmap outFrame;
     private Canvas outCanvas;
     private Bitmap phoneFrame;
+    private final Rect usbLogicalFrameBounds = new Rect(0, 0, WIDTH, HEIGHT);
     private Canvas phoneCanvas;
     /** Written by USB recovery workers and consumed by the render thread. */
     private volatile boolean usbNeedsPrimeFrame = true;
@@ -446,6 +468,12 @@ public final class HudService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        HudDiagnostics.init(this);
+        mirrorDisplays = (android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE);
+        if (mirrorDisplays != null) {
+            mirrorDisplays.registerDisplayListener(mirrorDisplayListener,
+                    new android.os.Handler(getMainLooper()));
+        }
         activeInstance = this;
         AppPrefs.removeLegacyStaticMapSettings(this);
         weather = new WeatherService(this);
@@ -973,10 +1001,8 @@ public final class HudService extends Service {
     }
 
     /**
-     * Stock nMirrorOS does not implement Remote HUD's optional SET_NAV_SOURCE
-     * receiver. Find the non-default display that already hosts HUD/TMAP/Naver
-     * and start the selected launcher Activity on that same display. Falling
-     * back to display 0 preserves normal S9 operation when nMirror is absent.
+     * Stock nMirrorOS captures display 0. A virtual capture display must never
+     * be treated as a destination for navigation activities.
      */
     private static String displayAwareLaunchCommand(String component) {
         return displayAwareLaunchCommand(component, true, -1);
@@ -986,33 +1012,14 @@ public final class HudService extends Service {
         return displayAwareLaunchCommand(component, fallbackDefault, -1);
     }
 
-    /**
-     * cachedDisplayId >= 0 이면, dumpsys 로 방금 못 찾았을 때(전환 순간이라
-     * 아직 아무 것도 안 보이는 등)도 마지막으로 확실히 알던 nMirror
-     * 디스플레이로 대신 띄운다. 리모컨/갭버튼 경로(창이 없는 백그라운드
-     * Service)는 이 폴백이 없으면 기본 화면(S9 자체)으로 새는 게 유일한
-     * 선택지였다 — 허드앱 버튼은 되는데 갭버튼/리모컨은 nMirror 화면이
-     * 까맣게 남던 원인. echo 로 실제 사용한 번호를 찍어 caller 가 캐시를
-     * 최신으로 유지할 수 있게 한다.
+    /** nMirror 0.1.18 mirrors display 0; its capture display is NOT an app target.
+     * Never reuse the persisted capture-display ID from older HUD versions.
+     * Display 0 also provides the intended standalone-phone behavior.
      */
     private static String displayAwareLaunchCommand(String component, boolean fallbackDefault,
                                                      int cachedDisplayId) {
-        final String findDisplay = "display_id=$(dumpsys activity activities | awk '"
-                + "/^[[:space:]]*Display #[0-9]+/ {d=$2; sub(/^#/, \"\", d)} "
-                + "d != \"0\" && ($0 ~ /com\\.skt\\.tmap\\.ku/ "
-                + "|| $0 ~ /com\\.nhn\\.android\\.nmap/ "
-                + "|| $0 ~ /ai\\.comma\\.remotehud/) {print d; exit}'";
-        final String cachedFallback = cachedDisplayId >= 0
-                ? "if [ -z \"$display_id\" ]; then display_id=" + cachedDisplayId + "; fi; "
-                : "";
-        return findDisplay + "); "
-                + cachedFallback
-                + "echo \"" + DISPLAY_ID_ECHO_PREFIX + "$display_id\"; "
-                + "if [ -n \"$display_id\" ]; then "
-                + "am start --display \"$display_id\" -n " + component + "; "
-                + (fallbackDefault
-                ? "else am start -n " + component + "; fi"
-                : "else exit 73; fi");
+        return "am start --display 0 -n " + component + "; rc=$?; "
+                + "if [ \"$rc\" = 0 ]; then echo \"" + DISPLAY_ID_ECHO_PREFIX + "0\"; fi; exit \"$rc\"";
     }
 
     private void scheduleBootNavigationSync() {
@@ -1022,7 +1029,7 @@ public final class HudService extends Service {
         final Context context = this;
         Thread worker = new Thread(() -> {
             try {
-                // nMirrorOS creates its virtual display after BOOT_COMPLETED,
+                // nMirrorOS creates its capture display after BOOT_COMPLETED,
                 // and separately launches its own "app to start on boot" once
                 // during that same window (its timing relative to ours is
                 // unknown). Keep watching for the full 16 s instead of
@@ -1091,6 +1098,7 @@ public final class HudService extends Service {
         Thread worker = new Thread(() -> {
             boolean panelWasMissing = false;
             try {
+                HudDiagnostics.log("usb-preparation begin");
                 long firstDelayMs = SystemClock.elapsedRealtime() <= RECENT_BOOT_UPTIME_MS
                         ? 4000L : USB_RESTART_PREP_DELAY_MS;
                 for (int attempt = 0; attempt < 6 && running.get(); attempt++) {
@@ -1115,6 +1123,7 @@ public final class HudService extends Service {
                             }
                             usbNeedsPrimeFrame = true;
                             appliedBrightness = -1;
+                            HudDiagnostics.log("usb-preparation attempt=" + attempt + " rebound=" + rebound);
                             if (!rebound && attempt < 2) {
                                 // Magisk can become ready a few seconds after
                                 // BOOT_COMPLETED. Keep USB closed and retry the
@@ -1130,6 +1139,7 @@ public final class HudService extends Service {
                                     ? "부팅 완료 · 외부 HUD 재연결 대기"
                                     : "부팅 완료 · 외부 HUD 초기화 대기";
                         } else {
+                            HudDiagnostics.log("usb-preparation fresh enumeration after absent panel");
                             bootUsbPreparationDone.set(true);
                         }
                         return;
@@ -1185,7 +1195,9 @@ public final class HudService extends Service {
                             AppPrefs.getMirrorDisplayId(context))
             });
             captureMirrorDisplayId(context, process);
-            return process.waitFor() == 0;
+            int exit = process.waitFor();
+            HudDiagnostics.log("nav-launch target=0 app=" + navApp + " exit=" + exit);
+            return exit == 0;
         } catch (Exception ignored) {
             return false;
         }
@@ -1197,6 +1209,13 @@ public final class HudService extends Service {
      * 커밋에서 발생했던 지도 대기/축소 화면 문제와 분리된 단방향 알림이다.
      */
     private static void synchronizeNMirrorSelection(Context context, int navApp) {
+        // The optional old receiver is not installed on stock nMirrorOS.
+        // Avoid repeated root broadcasts which can stall startup needlessly.
+        try {
+            context.getPackageManager().getPackageInfo("com.aa.nmirror", 0);
+        } catch (android.content.pm.PackageManager.NameNotFoundException absent) {
+            return;
+        }
         final int selected = NavSelectionProtocol.normalizeApp(navApp);
         final String rootBroadcast = "am broadcast --user 0"
                 + " -a com.aa.nmirror.SET_NAV_SOURCE"
@@ -1235,17 +1254,10 @@ public final class HudService extends Service {
      */
     private static boolean isNavAppForegroundOnMirror(Context context, int navApp) {
         try {
-            int cached = AppPrefs.getMirrorDisplayId(context);
             String pkg = navPackage(navApp).replace(".", "\\.");
-            String script = (cached >= 0
-                    ? "d=" + cached + "; "
-                    : "d=$(dumpsys activity activities | awk '"
-                            + "/^[[:space:]]*Display #[0-9]+/ {d=$2; sub(/^#/, \"\", d)} "
-                            + "d != \"0\" {print d; exit}'); ")
-                    + "dumpsys activity activities | awk -v want=\"$d\" '"
+            String script = "dumpsys activity activities | awk -v want=0 '"
                     + "/^[[:space:]]*Display #[0-9]+/ {d=$2; sub(/^#/, \"\", d); visible=0} "
-                    + "/^[[:space:]]*\\* Task\\{/ {visible=($0 ~ /visible=true/)} "
-                    + "d == want && visible && /" + pkg + "/ {print 1; exit}'";
+                    + "d == want && /mResumedActivity:|topResumedActivity=/ && /" + pkg + "/ {print 1; exit}'";
             Process process = Runtime.getRuntime().exec(new String[] {"su", "-c", script});
             String result;
             try (BufferedReader reader = new BufferedReader(
@@ -1558,6 +1570,7 @@ public final class HudService extends Service {
             // Clear any incomplete/stale decoder surface before the first HUD
             // frame of every newly opened USB session.
             usbNeedsPrimeFrame = true;
+            HudDiagnostics.log("usb-open device=" + display.deviceNameOrNull());
             return true;
         } catch (Exception e) {
             handleUsbError(e);
@@ -1772,8 +1785,11 @@ public final class HudService extends Service {
             }
 
             if (usbNeedsPrimeFrame) {
+                HudDiagnostics.log("usb-primer bitmap=" + frame.getWidth() + "x" + frame.getHeight()
+                        + " density=" + frame.getDensity());
                 sendUsbPrimerFrame();
                 usbNeedsPrimeFrame = false;
+                HudDiagnostics.log("usb-primer complete");
                 // The primer intentionally overwrites outFrame. Restore the
                 // current logical HUD before encoding the normal frame below.
                 renderUsbFromPhone();
@@ -1837,6 +1853,7 @@ public final class HudService extends Service {
     }
 
     private void handleUsbError(Exception e) {
+        HudDiagnostics.log("usb-error " + safeMessage(e));
         usbConnected = false;
         usbError = true;
         usbNeedsPrimeFrame = true;
@@ -1904,8 +1921,9 @@ public final class HudService extends Service {
      */
     private Canvas beginUsbFrame() {
         if (outFrame == null || outFrame.isRecycled()) {
-            outFrame = Bitmap.createBitmap(HEIGHT, WIDTH, Bitmap.Config.RGB_565);
+            outFrame = HudPixelBuffer.create(HEIGHT, WIDTH);
             outCanvas = new Canvas(outFrame);
+            HudDiagnostics.log("usb-buffer=" + HEIGHT + "x" + WIDTH + " density=" + outFrame.getDensity());
         }
         outMatrix.reset();
         outMatrix.setScale(configuredMirror ? -1f : 1f, 1f);
@@ -1920,8 +1938,9 @@ public final class HudService extends Service {
     /** USB 회전 전의 논리 가로 프레임. 화면 출력용이 아니다. */
     private Canvas beginPhoneFrame() {
         if (phoneFrame == null || phoneFrame.isRecycled()) {
-            phoneFrame = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.RGB_565);
+            phoneFrame = HudPixelBuffer.create(WIDTH, HEIGHT);
             phoneCanvas = new Canvas(phoneFrame);
+            HudDiagnostics.log("logical-buffer=" + WIDTH + "x" + HEIGHT + " density=" + phoneFrame.getDensity());
         }
         phoneCanvas.setMatrix(null);
         return phoneCanvas;
@@ -1947,7 +1966,7 @@ public final class HudService extends Service {
 
     private Bitmap renderUsbFromPhone() {
         Canvas c = beginUsbFrame();
-        c.drawBitmap(phoneFrame, 0f, 0f, phonePreviewPaint);
+        HudPixelBuffer.copy(c, phoneFrame, usbLogicalFrameBounds, phonePreviewPaint);
         return outFrame;
     }
 
@@ -5235,6 +5254,7 @@ public final class HudService extends Service {
 
     @Override
     public void onDestroy() {
+        if (mirrorDisplays != null) mirrorDisplays.unregisterDisplayListener(mirrorDisplayListener);
         running.set(false);
         navSwitchGeneration.incrementAndGet();
         stopWorkerIo();
