@@ -52,6 +52,7 @@ class NavigationRouteData:
   def __init__(self, state_file=STATE_FILE):
     self.state_file = state_file
     self.file_signature = None
+    self.cached_root = None
     self.last_read = 0.0
     self.state = self.empty_state()
     self.last_map_curve_calc = -MAP_CURVE_UPDATE_INTERVAL
@@ -78,9 +79,14 @@ class NavigationRouteData:
     text = str(_first(guidance, (
       "main_text", "text", "road_name", "szTBTMainText"), "") or "")
     kind, direction = cls.classify(turn_type, text)
+    modifier = str(_first(guidance, ("maneuver_modifier", "maneuverModifier"), "") or "")
+    # Only explicit guidance can mark a sharp turn; a fork is not a sharp turn.
+    sharp_turn = kind == "turn" and (modifier in ("sharpLeft", "sharpRight") or
+                                    any(word in text.lower() for word in
+                                        ("급좌회전", "급우회전", "sharp left", "sharp right")))
     return {"fresh": fresh and kind != "none" and distance >= 0.0,
             "kind": kind, "direction": direction, "distance": distance,
-            "turn_type": turn_type, "text": text, "next": None}
+            "turn_type": turn_type, "text": text, "sharp_turn": sharp_turn, "next": None}
 
   def update(self):
     now = time.monotonic()
@@ -93,11 +99,17 @@ class NavigationRouteData:
       # (remote_hud._read_navi_summary 와 같은 방식)
       stat = os.stat(self.state_file)
       signature = (getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9)), stat.st_size)
-      if signature == self.file_signature:
-        return self.state
-      with open(self.state_file, "r") as f:
-        root = json.load(f)
-      self.file_signature = signature
+      if signature != self.file_signature:
+        with open(self.state_file, "r") as f:
+          root = json.load(f)
+        if not isinstance(root, dict):
+          raise ValueError("navigation state must be an object")
+        self.cached_root = root
+        self.file_signature = signature
+      # Reuse the parsed payload, not its freshness decision. A silent sender
+      # must expire even when the file has not changed. Check each stream so
+      # fresh camera data cannot keep stale turn/lane guidance alive.
+      root = self.cached_root
       stream_times = root.get("stream_updated_at_ms") or {}
       guidance_updated_at = stream_times.get("guidance_current", root.get("updated_at_ms"))
       age = time.time() - _number(guidance_updated_at, 0.0) / 1000.0
@@ -163,6 +175,7 @@ class NavigationRouteData:
       self.state["next"] = next_state if next_state["fresh"] else None
     except (IOError, OSError, ValueError, TypeError):
       self.file_signature = None
+      self.cached_root = None
       self.state = self.empty_state()
     return self.state
 
@@ -641,13 +654,27 @@ class NavigationRouteData:
     return 0
 
   @staticmethod
-  def speed_limit_kph(state, target_kph=30.0, end_time=6.0, decel=1.2):
+  def maneuver_target_kph(state, target_kph):
+    """Derive maneuver targets from NooTurnSpeed without raising its limit.
+
+    Ordinary turns retain the existing setting. Explicit sharp turns use 80%,
+    roundabouts 90%, and U-turns 60%, with a 10 km/h lower bound. These are
+    tuning defaults, not a guarantee of a suitable speed for every junction.
+    """
+    base = max(20.0, min(60.0, float(target_kph)))
+    kind = state.get("kind")
+    factor = 0.6 if kind == "uturn" else 0.9 if kind == "rotary" else \
+             0.8 if kind == "turn" and state.get("sharp_turn", False) else 1.0
+    return max(10.0, base * factor)
+
+  @classmethod
+  def speed_limit_kph(cls, state, target_kph=30.0, end_time=6.0, decel=1.2):
     if not state["fresh"] or state["kind"] not in ("turn", "uturn", "rotary"):
       return None
     distance = state["distance"]
     if distance < 0.0 or distance > 350.0:
       return None
-    target_kph = max(20.0, min(60.0, float(target_kph)))
+    target_kph = cls.maneuver_target_kph(state, target_kph)
     end_time = max(2.0, min(12.0, float(end_time)))
     target_mps = target_kph / 3.6
     braking_distance = max(0.0, distance - target_mps * end_time)

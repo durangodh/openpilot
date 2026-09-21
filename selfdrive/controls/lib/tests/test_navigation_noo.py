@@ -2,10 +2,118 @@ import json
 import math
 import tempfile
 import time
+from unittest.mock import patch
 from types import SimpleNamespace
 
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.controls.lib.navigation_noo import NavigationLaneChangeController
+
+
+def test_unchanged_file_expires_each_stream_without_reparsing(tmp_path):
+  clock = [100.0]
+  root = {
+    "updated_at_ms": 100000,
+    "stream_updated_at_ms": {"guidance_current": 98000, "guidance_next": 98000,
+                             "lane_current": 98000, "lane_ahead": 98000},
+    "guidance_current": {"turn_type": 12, "distance_m": 30},
+    "guidance_next": {"turn_type": 13, "distance_m": 200},
+    "lane_current": {"count": 3, "available": [1, 0, 0]},
+    "lane_ahead": {"count": 3, "available": [0, 0, 1]},
+    "route": {"polyline": []}, "vehicle": {"lat": 37.5, "lon": 127.1},
+    "speed": {"sdi": {"type": 1, "distance_m": 100, "speed_limit_kph": 30}},
+  }
+  path = tmp_path / "route.json"
+  path.write_text(json.dumps(root))
+  reader = NavigationRouteData(str(path))
+  with patch("time.time", side_effect=lambda: clock[0]), \
+       patch("time.monotonic", side_effect=lambda: clock[0]), \
+       patch("json.load", wraps=json.load) as read_json:
+    initial = reader.update()
+    assert initial["fresh"] and initial["lane_fresh"] and initial["lane_ahead_fresh"]
+    assert initial["next"] is not None
+    clock[0] = 101.1
+    expired_turn = reader.update()
+    assert not expired_turn["fresh"] and not expired_turn["lane_fresh"]
+    assert not expired_turn["lane_ahead_fresh"] and expired_turn["next"] is None
+    assert NavigationRouteData.steering_request(expired_turn, 5.0) == 0
+    assert NavigationRouteData.speed_limits_kph(expired_turn) == (None, None)
+    assert expired_turn["speed_fresh"]
+    clock[0] = 103.1
+    expired_all = reader.update()
+    assert not expired_all["route_fresh"] and not expired_all["speed_fresh"]
+    assert NavigationRouteData.speed_events(expired_all) == {"camera": None, "section": None}
+    assert read_json.call_count == 1
+    # A new valid payload must recover after the silent-sender timeout.
+    root["updated_at_ms"] = 103100
+    root["stream_updated_at_ms"] = {}
+    path.write_text(json.dumps(root))
+    clock[0] = 103.4
+    assert reader.update()["fresh"]
+
+
+def test_invalid_navigation_document_clears_cached_guidance(tmp_path):
+  path = tmp_path / "route.json"
+  path.write_text("[]")
+  reader = NavigationRouteData(str(path))
+  assert not reader.update()["fresh"]
+  assert reader.cached_root is None
+
+
+def test_maneuver_speed_targets_keep_normal_turn_and_reduce_tighter_maneuvers():
+  examples = [(12, "좌회전", 20.0), (13, "급우회전", 16.0),
+              (14, "유턴", 12.0), (131, "회전교차로", 18.0)]
+  for turn_type, text, expected in examples:
+    state = NavigationRouteData.guidance_state(
+      {"turn_type": turn_type, "text": text, "distance_m": 0}, True)
+    assert NavigationRouteData.speed_limit_kph(state, 20.0) == expected
+    approach = NavigationRouteData.speed_limit_kph(dict(state, distance=200.0), 20.0)
+    closer = NavigationRouteData.speed_limit_kph(dict(state, distance=100.0), 20.0)
+    assert approach >= closer >= expected
+
+
+def test_explicit_sharp_modifier_and_next_maneuver_use_separate_targets():
+  current = NavigationRouteData.guidance_state(
+    {"turn_type": 12, "maneuverModifier": "sharpLeft", "distance_m": 0}, True)
+  current["next"] = NavigationRouteData.guidance_state(
+    {"turn_type": 14, "distance_m": 0}, True)
+  assert NavigationRouteData.speed_limits_kph(current, 30.0) == (24.0, 18.0)
+  fork = NavigationRouteData.guidance_state(
+    {"turn_type": 6, "text": "급우회전", "distance_m": 30}, True)
+  assert not fork["sharp_turn"]
+  assert NavigationRouteData.speed_limit_kph(fork) is None
+
+
+def test_bare_fork_never_guesses_a_lane_even_inside_prepare_window():
+  ego = {"count": 3, "current": 2, "confidence": 0.9}
+  for distance in (50.0, 100.0, 175.0, 300.0):
+    state = noo_state([0, 0, 1], distance=distance, road_limit=100.0)
+    state.update(lane_fresh=False, lane_current=None)
+    assert confirm_noo(NavigationLaneChangeController(), state, ego) == 0
+
+
+def test_current_fork_lane_takes_priority_over_next_maneuver():
+  state = noo_state([0, 1, 1], distance=180.0)
+  state["lane_ahead_fresh"] = True
+  state["lane_ahead"] = {"count": 3, "available": [0, 0, 1], "distance_m": 420.0}
+  state["next"] = {"fresh": True, "direction": 1, "distance": 420.0, "turn_type": 43}
+  ego = {"count": 3, "current": 2, "confidence": 0.9}
+  controller = NavigationLaneChangeController()
+  assert confirm_noo(controller, state, ego) == 0
+  assert controller.target_lane == 2
+  # Fresh, explicit lane guidance can still request a necessary fork change.
+  state["lane_current"]["available"] = [0, 0, 1]
+  assert confirm_noo(controller, state, ego) == 1
+
+
+def test_missing_plan_requires_a_new_continuous_open_confirmation():
+  state = noo_state([0, 0, 1])
+  ego = {"count": 3, "current": 2, "confidence": 0.9}
+  controller = NavigationLaneChangeController()
+  for _ in range(controller.CONFIRM_FRAMES - 1):
+    assert controller.update(state, ego, 25.0, True, True) == 0
+  assert controller.update({}, ego, 25.0, True, True) == 0
+  assert controller.update(state, ego, 25.0, True, True) == 0
+  assert confirm_noo(controller, state, ego) == 1
 
 
 def state_with_speed(speed, off_route=False):
@@ -448,10 +556,11 @@ def test_carrot_prepare_uses_vehicle_speed_when_road_limit_is_missing():
     state, ego, 100.0 / 3.6, proactive=True)["direction"] == 1
 
 
-def test_carrot_direction_prepares_early_without_tmap_lane_payload():
+def test_carrot_turn_direction_prepares_early_without_tmap_lane_payload():
   controller = NavigationLaneChangeController()
   ego = {"count": 3, "current": 2, "confidence": 0.9}
   state = noo_state([0, 0, 1], distance=175.0, direction=1, road_limit=50.0)
+  state["kind"] = "turn"
   state["lane_fresh"] = False
   state["lane_current"] = None
   plan = controller.lane_plan(state, ego, 20.0, proactive=True)
@@ -536,9 +645,10 @@ def test_noo_driver_cancel_latches_until_the_maneuver_changes():
   assert confirm_noo(controller, next_state, ego) == 1
 
 
-def test_noo_uses_fresh_lane_ahead_after_current_lane_is_satisfied():
+def test_noo_uses_fresh_lane_ahead_outside_a_current_fork():
   controller = NavigationLaneChangeController()
   state = noo_state([1, 1, 1], distance=180.0)
+  state["kind"] = "none"
   state["lane_ahead_fresh"] = True
   state["lane_ahead"] = {"count": 3, "available": [0, 0, 1], "distance_m": 420.0}
   state["next"] = {"fresh": True, "direction": 1, "distance": 420.0, "turn_type": 43}
