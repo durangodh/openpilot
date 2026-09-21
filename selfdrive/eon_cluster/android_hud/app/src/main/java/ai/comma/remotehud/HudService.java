@@ -146,6 +146,10 @@ public final class HudService extends Service {
     private static final long USB_OPEN_STALL_COOLDOWN_MS = 15000L;
     /** 부팅 직후 Android USB 서비스와 Magisk가 준비될 때까지 첫 검색을 늦춘다. */
     private static final long BOOT_USB_SCAN_DELAY_MS = 5000L;
+    /** 첫 검은 프레임으로 패널 JPEG 디코더를 깨운 뒤 안내 프레임을 보낸다. */
+    private static final long USB_PRIMER_WARMUP_MS = 350L;
+    /** 기존 2초 안정화 시간을 유지하면서 두 번째 프레임이 정착할 시간을 준다. */
+    private static final long USB_PRIMER_SETTLE_MS = 1650L;
     /** nMirror가 부팅/화면 재생성 중 첫 방송을 놓쳐도 선택값을 받도록 재전송한다. */
     private static final int NMIRROR_SYNC_ATTEMPTS = 4;
     private static final long NMIRROR_SYNC_RETRY_MS = 500L;
@@ -1108,6 +1112,12 @@ public final class HudService extends Service {
         if (!bootUsbHostRecoveryRunning.compareAndSet(false, true)) {
             return;
         }
+        // compareAndSet() is synchronous, so ensureUsbReady() starts rejecting
+        // output before this worker's initial four-second wait.  This closes the
+        // race where the render thread could open a still-powered panel and send
+        // one JPEG using its stale half-scale decoder session.
+        usbStatus = "부팅 완료 · 외부 HUD 세션 초기화 대기";
+        usbConnected = false;
         Thread worker = new Thread(() -> {
             boolean panelWasMissing = false;
             try {
@@ -1545,6 +1555,13 @@ public final class HudService extends Service {
     }
 
     private boolean ensureUsbReady(long now) {
+        // A powered hub leaves TURZX enumerated while the S9 reboots. Never open
+        // that stale session until the boot worker has unbound/rebound it.  The
+        // time-based delay alone had a narrow race at its deadline and allowed
+        // a half-scale frame to flash in the top-left corner.
+        if (bootUsbHostRecoveryRunning.get() && !bootUsbPreparationDone.get()) {
+            return false;
+        }
         if (display.isOpen()) {
             return true;
         }
@@ -1804,8 +1821,23 @@ public final class HudService extends Service {
 
     /** Reset the panel's JPEG surface at its exact native portrait size. */
     private void sendUsbPrimerFrame() throws Exception {
+        // The first JPEG after USB enumeration is used only to wake/reset the
+        // panel decoder. Some powered TURZX units otherwise keep a small copy of
+        // the previous HUD in the top-left while decoding the first real frame.
         Canvas c = beginUsbFrame();
+        c.setMatrix(null);
         c.drawColor(Color.BLACK);
+        jpegOut.reset();
+        outFrame.compress(Bitmap.CompressFormat.JPEG, 40, jpegOut);
+        display.sendJpeg(jpegOut.toByteArray());
+        SystemClock.sleep(USB_PRIMER_WARMUP_MS);
+
+        // Clear the physical backing bitmap explicitly, then restore the normal
+        // logical 1920x462 transform before drawing the user-visible message.
+        c = beginUsbFrame();
+        c.setMatrix(null);
+        c.drawColor(Color.BLACK);
+        c = beginUsbFrame();
         Paint primerPaint = paint;
         primerPaint.reset();
         primerPaint.setAntiAlias(true);
@@ -1819,7 +1851,7 @@ public final class HudService extends Service {
         // 0.2초로는 부족해 다시 화면이 구석에 박히는 게 재현됐다. 재연결
         // 빈도가 낮은 한(정상 주행 중엔 USB가 계속 붙어있음), 매번 2초 주는
         // 쪽이 화면이 깨지는 것보다 낫다 — 모든 연결에 동일하게 적용한다.
-        SystemClock.sleep(2000L);
+        SystemClock.sleep(USB_PRIMER_SETTLE_MS);
     }
 
     private void handleUsbError(Exception e) {
