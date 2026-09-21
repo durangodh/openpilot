@@ -16,6 +16,15 @@ E2E_MODE_RELEASE_HOLD_TIME = 0.0
 TRAFFIC_STOP_SOLVER_COMFORT_BRAKE = 2.5
 TRAFFIC_STOP_APILOT_COMFORT_BRAKE = 2.5
 
+# Published through LongitudinalPlan.e2eReason for the compact onroad badge.
+# Keep these values stable because the Qt UI consumes them directly.
+E2E_REASON_OFF = 0
+E2E_REASON_ACC = 1
+E2E_REASON_SIGNAL = 2
+E2E_REASON_VISION_LEAD = 3
+E2E_REASON_DEPARTURE = 4
+E2E_REASON_MANUAL = 5
+
 
 def adjust_stop_distance_for_decel(stop_distance, v_ego, decel_factor, distance_adjust=0.0):
   """Emulate a variable MPC comfort-brake value with a fixed-parameter solver.
@@ -64,6 +73,7 @@ class ConditionalE2EController:
     self.model_v_history = deque(maxlen=10)
     self.stop_x_median_history = deque(maxlen=3)
     self.stop_x_history = deque(maxlen=15)
+    self.reason = E2E_REASON_OFF
 
   @property
   def traffic_state(self):
@@ -75,13 +85,31 @@ class ConditionalE2EController:
 
   def select_mode(self, experimental_mode, traffic_stop_mode):
     if experimental_mode:
+      self.reason = E2E_REASON_MANUAL
       return 'blended'
     if traffic_stop_mode == 0:
+      self.reason = E2E_REASON_ACC
       return 'acc'
     far_stop = self.stopping and self.stop_distance > E2E_FAR_STOP_DISTANCE
     apilot_vision_lead = traffic_stop_mode == 2 and self.vision_lead_confirmed
     hold_blended = self.mode_release_hold_count > 0
-    return 'blended' if self.prepare or far_stop or apilot_vision_lead or hold_blended else 'acc'
+    if self.prepare:
+      self.reason = E2E_REASON_DEPARTURE
+      return 'blended'
+    if far_stop:
+      self.reason = E2E_REASON_SIGNAL
+      return 'blended'
+    if apilot_vision_lead:
+      self.reason = E2E_REASON_VISION_LEAD
+      return 'blended'
+    if hold_blended:
+      # The current release hold is a single planner tick. Preserve the most
+      # recent E2E reason rather than flashing ACC during that transition.
+      if self.reason not in (E2E_REASON_SIGNAL, E2E_REASON_VISION_LEAD, E2E_REASON_DEPARTURE):
+        self.reason = E2E_REASON_MANUAL
+      return 'blended'
+    self.reason = E2E_REASON_ACC
+    return 'acc'
 
   def update(self, *, available, experimental_mode, traffic_stop_mode, driving_mode, model_valid,
              model_x, model_y, model_v0, model_v_end, v_ego,
@@ -95,16 +123,18 @@ class ConditionalE2EController:
     traffic_stop_mode = max(0, min(2, traffic_stop_mode))
     if traffic_stop_mode == 0:
       self.reset()
-      return 'blended' if experimental_mode else 'acc'
+      return self.select_mode(experimental_mode, traffic_stop_mode)
 
     # aPilot disables traffic-light stopping in HIGH/FAST mode. Explicit E2E
     # still remains blended, matching ExperimentalMode behavior.
     if driving_mode == 4:
       self.reset()
+      self.reason = E2E_REASON_MANUAL if experimental_mode else E2E_REASON_ACC
       return 'blended' if experimental_mode else 'acc'
 
     if not model_valid:
       self.reset()
+      self.reason = E2E_REASON_MANUAL if experimental_mode else E2E_REASON_ACC
       return 'blended' if experimental_mode else 'acc'
 
     if self.mode_release_hold_count > 0:

@@ -908,6 +908,7 @@ struct LongitudinalPlan @0xe00b5b3eba12876c {
   vTargetNow @62 :Float32;       # current velocity target for longitudinal PID
   jTargetNow @63 :Float32;       # current jerk target for logging/controller output
   xState @64 :XState;
+  e2eReason @65 :UInt8;         # 0: OFF, 1: ACC, 2: signal, 3: vision lead, 4: departure, 5: manual E2E
 
   distToTurn @43 :Float32;
   turnSpeed @44 :Float32;

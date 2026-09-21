@@ -1,5 +1,11 @@
 from selfdrive.controls.lib.conditional_e2e import (E2E_LEAD_DROPOUT_CONFIRM_TIME,
                                                     E2E_MODE_RELEASE_HOLD_TIME,
+                                                    E2E_REASON_ACC,
+                                                    E2E_REASON_DEPARTURE,
+                                                    E2E_REASON_MANUAL,
+                                                    E2E_REASON_OFF,
+                                                    E2E_REASON_SIGNAL,
+                                                    E2E_REASON_VISION_LEAD,
                                                     E2E_VISION_LEAD_CONFIRM_TIME,
                                                     ConditionalE2EController,
                                                     adjust_stop_distance_for_decel,
@@ -85,6 +91,36 @@ def test_fixed_acc_and_e2e_modes():
   assert update(controller, experimental_mode=True) == 'blended'
   assert update(controller, experimental_mode=True, traffic_stop_mode=0) == 'blended'
   assert update(controller, experimental_mode=True, available=False) == 'acc'
+
+
+def test_mode_reason_matches_selected_control_path():
+  controller = ConditionalE2EController(DT_MDL)
+  assert controller.reason == E2E_REASON_OFF
+
+  assert update(controller, traffic_stop_mode=0) == 'acc'
+  assert controller.reason == E2E_REASON_ACC
+
+  assert update(controller, experimental_mode=True) == 'blended'
+  assert controller.reason == E2E_REASON_MANUAL
+
+  controller.reset()
+  assert enter_stop(controller, distance=80.0) == 'blended'
+  assert controller.reason == E2E_REASON_SIGNAL
+
+  controller.reset()
+  confirm_frames = round(E2E_VISION_LEAD_CONFIRM_TIME / DT_MDL)
+  for _ in range(confirm_frames):
+    update(controller, lead_present=True, vision_lead_present=True)
+  assert controller.reason == E2E_REASON_VISION_LEAD
+
+  controller.reset()
+  enter_stop(controller, distance=30.0)
+  assert update(controller, model_x=30.0, model_v0=10.0,
+                model_v_end=1.0, gas_pressed=True) == 'blended'
+  assert controller.reason == E2E_REASON_DEPARTURE
+
+  assert update(controller, available=False) == 'acc'
+  assert controller.reason == E2E_REASON_OFF
 
 
 def test_auto_uses_e2e_for_far_stop_and_acc_for_close_stop():

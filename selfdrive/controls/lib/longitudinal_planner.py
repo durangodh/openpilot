@@ -19,7 +19,8 @@ from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         limit_accel_in_turns)
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.events import Events
-from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_VISION_LEAD_DISTANCE,
+from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_REASON_OFF,
+                                                    E2E_VISION_LEAD_DISTANCE,
                                                     adjust_stop_distance_for_decel)
 
 LON_MPC_STEP = 0.2  # first step is 0.2s
@@ -330,6 +331,7 @@ class LongitudinalPlanner:
     # Expose the automatic E2E stop/depart state to the onroad UI.
     # 0: inactive, 1: stopping/waiting, 2: preparing to depart.
     e2e_state_active = self.auto_e2e_enabled and sm['controlsState'].enabled
+    longitudinalPlan.e2eReason = int(self.conditional_e2e.reason) if e2e_state_active else E2E_REASON_OFF
     longitudinalPlan.trafficState = (2 if self.auto_e2e_prepare else (1 if self.auto_e2e_stopping else 0)) if e2e_state_active else 0
     longitudinalPlan.onStop = bool(e2e_state_active and self.auto_e2e_stopping)
     longitudinalPlan.eventsDEPRECATED = self.events.to_msg()
