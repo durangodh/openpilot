@@ -31,6 +31,9 @@ def manager_init() -> None:
   set_time(cloudlog)
 
   params = Params()
+  # Complete a rolled-back tuning restore before any control process starts.
+  from selfdrive.controls.lib.tuning_profiles import recover_pending_restore
+  recover_pending_restore(params)
   params.clear_all(ParamKeyType.CLEAR_ON_MANAGER_START)
 
   default_params: List[Tuple[str, Union[str, bytes]]] = [
@@ -463,3 +466,4 @@ if __name__ == "__main__":
 
   # manual exit because we are forked
   sys.exit(0)
+
