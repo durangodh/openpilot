@@ -625,7 +625,7 @@ def manifest(params, session_id, revision):
         stream_params = {"composition": "map_route_vehicle",
                          "width": MAP_RENDER_WIDTH, "height": MAP_RENDER_HEIGHT, "dpi": 160,
                          "fps": map_fps, "codec": "jpeg", "jpeg_quality": 65,
-                         "camera_mode": "app_sync", "map_theme": "light",
+                         "camera_mode": "app_sync", "map_theme": "auto",
                          "stale_timeout_ms": int(MAP_STALE_S * 1000)}
       streams.append({"kind": kind, "name": name, "schema_version": 1,
                       "stream_handle": handle, "enabled": enabled, "params": stream_params})
