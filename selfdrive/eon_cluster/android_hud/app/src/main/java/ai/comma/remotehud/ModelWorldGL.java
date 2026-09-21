@@ -197,8 +197,7 @@ final class ModelWorldGL {
                  int driveBg, int roadTop, int roadBottom, int pathColor,
                  boolean dark, float roadZPercent, float livePitch,
                  float pitchPercent, float calibPitch,
-                 boolean leadSprite, boolean guardrail, int haze,
-                 boolean mapBackground) {
+                 boolean leadSprite, boolean guardrail, int haze) {
         if (failed || scene == null) {
             return false;
         }
@@ -216,7 +215,6 @@ final class ModelWorldGL {
             // 다시 그려야 한다. 안 그러면 경고가 켜져도 옛 프레임이 남는다.
             int style = driveBg ^ roadTop ^ roadBottom ^ pathColor ^ (dark ? 1 : 0)
                     ^ (guardrail ? 1 << 8 : 0) ^ (haze << 9)
-                    ^ (mapBackground ? 1 << 17 : 0)
                     ^ (scene.optBoolean("leftBsd", false) ? 1 << 6 : 0)
                     ^ (scene.optBoolean("rightBsd", false) ? 1 << 7 : 0);
             boolean styleChanged = style != lastStyle
@@ -231,7 +229,7 @@ final class ModelWorldGL {
                         leadChanged, started, nextRenderNanos)) {
                     if (!render(scene, enabled, driveBg, roadTop, roadBottom, pathColor,
                             dark, roadZPercent, livePitch, pitchPercent, calibPitch,
-                            leadSprite, guardrail, haze, mapBackground)) {
+                            leadSprite, guardrail, haze)) {
                         return false;
                     }
                     long cost = System.nanoTime() - started;
@@ -395,8 +393,7 @@ final class ModelWorldGL {
                            int roadTop, int roadBottom, int pathColor,
                            boolean dark, float roadZPercent, float livePitch,
                            float pitchPercent, float calibPitch,
-                           boolean leadSprite, boolean guardrail, int haze,
-                           boolean mapBackground) {
+                           boolean leadSprite, boolean guardrail, int haze) {
         if (!EGL14.eglMakeCurrent(display, surface, surface, context)) {
             return false;
         }
@@ -428,11 +425,9 @@ final class ModelWorldGL {
         // 비전 차량 접지감을 위해 지평선 아래를 더 어둡게(아스팔트 톤) 깐다.
         int ground = dark ? blend(driveBg, Color.BLACK, 0.35f)
                 : blend(driveBg, Color.BLACK, 0.22f);
-        float skyAlpha = mapBackground ? 0.34f : 1f;
-        float groundAlpha = mapBackground ? 0.46f : 1f;
-        drawRect(0f, 0f, WIDTH, Math.max(0f, HORIZON + horizonShift - TOP), sky, skyAlpha);
+        drawRect(0f, 0f, WIDTH, Math.max(0f, HORIZON + horizonShift - TOP), sky, 1f);
         drawRect(0f, Math.max(0f, HORIZON + horizonShift - TOP), WIDTH, HEIGHT,
-                ground, groundAlpha);
+                ground, 1f);
 
         // The local vector context is deliberately below the camera-observed
         // model road, lanes, route and cars. GPS error therefore cannot move

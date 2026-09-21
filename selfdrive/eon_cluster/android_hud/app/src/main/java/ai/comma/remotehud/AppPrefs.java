@@ -14,9 +14,6 @@ public final class AppPrefs {
     private static final String NAV_REQUEST = "hud_nav_request";
     private static final String NAV_MIRROR_DISPLAY_ID = "hud_nav_mirror_display_id";
     private static final String USB_HOST_RECOVERY = "usb_host_recovery";
-    private static final String NAVER_STATIC_ENABLED = "naver_static_enabled";
-    private static final String NAVER_STATIC_CLIENT_ID = "naver_static_client_id";
-    private static final String NAVER_STATIC_CLIENT_SECRET = "naver_static_client_secret";
 
     private AppPrefs() {
     }
@@ -111,40 +108,13 @@ public final class AppPrefs {
         prefs(context).edit().putInt(NAV_MIRROR_DISPLAY_ID, displayId).apply();
     }
 
-    public static String getNaverStaticClientId(Context context) {
-        return prefs(context).getString(NAVER_STATIC_CLIENT_ID, "").trim();
-    }
-
-    public static String getNaverStaticClientSecret(Context context) {
-        return prefs(context).getString(NAVER_STATIC_CLIENT_SECRET, "").trim();
-    }
-
-    public static boolean hasNaverStaticCredentials(Context context) {
-        return !getNaverStaticClientId(context).isEmpty()
-                && !getNaverStaticClientSecret(context).isEmpty();
-    }
-
-    public static boolean isNaverStaticEnabled(Context context) {
-        return prefs(context).getBoolean(NAVER_STATIC_ENABLED, true);
-    }
-
-    public static void setNaverStaticEnabled(Context context, boolean enabled) {
-        prefs(context).edit().putBoolean(NAVER_STATIC_ENABLED, enabled).apply();
-    }
-
-    /** Credentials stay in this app's private storage and are never sent to EON. */
-    public static void setNaverStaticCredentials(Context context, String clientId,
-                                                  String clientSecret) {
+    /** Remove secrets left by builds which supported the deleted Static Map feature. */
+    public static void removeLegacyStaticMapSettings(Context context) {
         prefs(context).edit()
-                .putString(NAVER_STATIC_CLIENT_ID, clientId == null ? "" : clientId.trim())
-                .putString(NAVER_STATIC_CLIENT_SECRET,
-                        clientSecret == null ? "" : clientSecret.trim())
+                .remove("naver_static_enabled")
+                .remove("naver_static_client_id")
+                .remove("naver_static_client_secret")
                 .apply();
-    }
-
-    public static void clearNaverStaticCredentials(Context context) {
-        prefs(context).edit().remove(NAVER_STATIC_CLIENT_ID)
-                .remove(NAVER_STATIC_CLIENT_SECRET).apply();
     }
 
     public static boolean wasGuideShown(Context context) {

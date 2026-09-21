@@ -81,8 +81,6 @@ jobs:
           java -cp "$RUNNER_TEMP/hud-geometry-check" ai.comma.remotehud.HudGeometrySmoothingCheck
           javac -d "$RUNNER_TEMP/hud-theme-check" app/src/main/java/ai/comma/remotehud/MapThemePolicy.java tests/MapThemePolicyCheck.java
           java -cp "$RUNNER_TEMP/hud-theme-check" ai.comma.remotehud.MapThemePolicyCheck
-          javac -d "$RUNNER_TEMP/hud-static-map-check" app/src/main/java/ai/comma/remotehud/StaticMapPolicy.java tests/StaticMapPolicyCheck.java
-          java -cp "$RUNNER_TEMP/hud-static-map-check" ai.comma.remotehud.StaticMapPolicyCheck
       - name: Check Naver phone and car map capture
         # The Naver bridge shares the HUD map transport; cover both sources.
         working-directory: selfdrive/eon_cluster/naver_bridge
