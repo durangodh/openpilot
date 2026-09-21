@@ -204,6 +204,24 @@ def main():
     assert "bootUsbHostRecoveryRunning.get()" in ensure_usb
     assert ensure_usb.index("bootUsbHostRecoveryRunning.get()") < ensure_usb.index(
         "display.isOpen()")
+    # A fresh START_STICKY service can be recreated with a null Intent, so USB
+    # preparation must be unconditional for a new service lifetime. Also close
+    # the late-broadcast race at the final frame-output boundary.
+    startup = source.split("running.set(true);", 1)[1].split("startWorkers();", 1)[0]
+    assert "scheduleBootUsbHostRecovery();" in startup
+    send_frame = source.split("private void sendUsbFrame", 1)[1].split(
+        "private void sendUsbPrimerFrame", 1)[0]
+    assert "synchronized (usbSessionGate)" in send_frame
+    assert "bootUsbHostRecoveryRunning.get()" in send_frame
+    assert send_frame.index("bootUsbHostRecoveryRunning.get()") < send_frame.index(
+        "sendUsbFrameUnderGate")
+    boot_schedule = source.split("private void scheduleBootUsbHostRecovery", 1)[1].split(
+        "private boolean hasTurzxUsbDevice", 1)[0]
+    assert boot_schedule.index("synchronized (usbSessionGate)") < boot_schedule.index(
+        "bootUsbHostRecoveryRunning.compareAndSet")
+    assert "RECENT_BOOT_UPTIME_MS" in boot_schedule
+    assert "USB_RESTART_PREP_DELAY_MS" in boot_schedule
+    assert "private volatile boolean usbNeedsPrimeFrame" in source
     # resetPort must verify that sysfs unbind and bind actually succeeded. The
     # old unconditional 'echo done' incorrectly reported success on failure.
     assert '"RESET_OK".equals(line.trim())' in usb_reset

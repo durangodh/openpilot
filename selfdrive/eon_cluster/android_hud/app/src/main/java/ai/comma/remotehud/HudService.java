@@ -146,6 +146,10 @@ public final class HudService extends Service {
     private static final long USB_OPEN_STALL_COOLDOWN_MS = 15000L;
     /** 부팅 직후 Android USB 서비스와 Magisk가 준비될 때까지 첫 검색을 늦춘다. */
     private static final long BOOT_USB_SCAN_DELAY_MS = 5000L;
+    /** Treat service creation during the first two uptime minutes as boot recovery. */
+    private static final long RECENT_BOOT_UPTIME_MS = 120_000L;
+    /** A manual service restart later in the drive only needs a short handoff gap. */
+    private static final long USB_RESTART_PREP_DELAY_MS = 350L;
     /** 첫 검은 프레임으로 패널 JPEG 디코더를 깨운 뒤 안내 프레임을 보낸다. */
     private static final long USB_PRIMER_WARMUP_MS = 350L;
     /** 기존 2초 안정화 시간을 유지하면서 두 번째 프레임이 정착할 시간을 준다. */
@@ -319,7 +323,8 @@ public final class HudService extends Service {
     private Canvas outCanvas;
     private Bitmap phoneFrame;
     private Canvas phoneCanvas;
-    private boolean usbNeedsPrimeFrame = true;
+    /** Written by USB recovery workers and consumed by the render thread. */
+    private volatile boolean usbNeedsPrimeFrame = true;
     private final Object phoneFrameLock = new Object();
     private final Paint phonePreviewPaint = new Paint(
             Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
@@ -347,6 +352,8 @@ public final class HudService extends Service {
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean bootNavigationSyncRunning = new AtomicBoolean(false);
+    /** Serializes the transition from live USB output into session preparation. */
+    private final Object usbSessionGate = new Object();
     private final AtomicBoolean bootUsbHostRecoveryRunning = new AtomicBoolean(false);
     private final AtomicBoolean usbPortResetRunning = new AtomicBoolean(false);
     /** Prevent BOOT_COMPLETED and QUICKBOOT_POWERON from resetting the panel twice. */
@@ -576,14 +583,10 @@ public final class HudService extends Service {
         udpReceiverError = "";
         acquireWakeLock();
 
-        // Start boot-only workers after running becomes true. The USB recovery
+        // Start boot-only navigation work after running becomes true. Its retry
         // loop uses that flag as its service-lifetime guard.
         if (fromBoot) {
             scheduleBootNavigationSync();
-            // Always prepare a panel that stayed powered while the S9 rebooted.
-            // The preference only controls Type-C host-role recovery when the
-            // panel is missing; it does not disable the stale-session reset.
-            scheduleBootUsbHostRecovery();
         }
 
         // EON/TMAP 수신과 화면 렌더는 바로 시작하고, 부팅 경로의 루트 USB
@@ -592,6 +595,13 @@ public final class HudService extends Service {
             nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + BOOT_USB_SCAN_DELAY_MS;
             usbStatus = "부팅 완료 · 외부 HUD 자동 연결 대기";
         }
+        // Prepare every fresh service process, not only starts which retained
+        // EXTRA_FROM_BOOT. Android can recreate a START_STICKY service with a
+        // null Intent, and some vendor ROMs deliver the boot broadcast late. In
+        // both cases the powered TURZX panel can still hold the previous narrow
+        // display session. The preparation guard is set synchronously before
+        // startWorkers(), so no frame can escape through that startup gap.
+        scheduleBootUsbHostRecovery();
         startWorkers();
         return START_STICKY;
     }
@@ -1092,7 +1102,9 @@ public final class HudService extends Service {
     }
 
     /**
-     * Prepare TURZX after an S9-only reboot.
+     * Prepare TURZX for a fresh service process, especially after an S9-only
+     * reboot. Starts during the first two uptime minutes retain the longer
+     * Android/Magisk settling delay; later manual restarts use a short delay.
      *
      * The powered hub keeps the panel alive while Android and this process die.
      * VID/PID therefore appears immediately after boot, but the panel can still
@@ -1106,23 +1118,30 @@ public final class HudService extends Service {
      * must not be rebound a second time.
      */
     private void scheduleBootUsbHostRecovery() {
-        if (bootUsbPreparationDone.get()) {
-            return;
-        }
-        if (!bootUsbHostRecoveryRunning.compareAndSet(false, true)) {
-            return;
+        synchronized (usbSessionGate) {
+            if (bootUsbPreparationDone.get()) {
+                return;
+            }
+            if (!bootUsbHostRecoveryRunning.compareAndSet(false, true)) {
+                return;
+            }
+            // Set the gate while holding the same lock as the final send path.
+            // When this block returns there cannot be an older frame still
+            // crossing into a session which is about to be rebound.
+            usbStatus = "부팅 완료 · 외부 HUD 세션 초기화 대기";
+            usbConnected = false;
         }
         // compareAndSet() is synchronous, so ensureUsbReady() starts rejecting
-        // output before this worker's initial four-second wait.  This closes the
-        // race where the render thread could open a still-powered panel and send
-        // one JPEG using its stale half-scale decoder session.
-        usbStatus = "부팅 완료 · 외부 HUD 세션 초기화 대기";
-        usbConnected = false;
+        // output before this worker's initial wait. This closes the race where
+        // the render thread could open a still-powered panel and send one JPEG
+        // using its stale half-scale decoder session.
         Thread worker = new Thread(() -> {
             boolean panelWasMissing = false;
             try {
+                long firstDelayMs = SystemClock.elapsedRealtime() <= RECENT_BOOT_UPTIME_MS
+                        ? 4000L : USB_RESTART_PREP_DELAY_MS;
                 for (int attempt = 0; attempt < 6 && running.get(); attempt++) {
-                    SystemClock.sleep(attempt == 0 ? 4000L : 5000L);
+                    SystemClock.sleep(attempt == 0 ? firstDelayMs : 5000L);
                     if (!running.get()) return;
                     if (hasTurzxUsbDevice()) {
                         if (!panelWasMissing && !bootUsbPreparationDone.get()) {
@@ -1777,6 +1796,17 @@ public final class HudService extends Service {
     }
 
     private void sendUsbFrame(Bitmap frame, JSONObject currentState) {
+        synchronized (usbSessionGate) {
+            // Recheck at the final output boundary. A late boot broadcast can
+            // start preparation after the render loop passed ensureUsbReady().
+            if (bootUsbHostRecoveryRunning.get() && !bootUsbPreparationDone.get()) {
+                return;
+            }
+            sendUsbFrameUnderGate(frame, currentState);
+        }
+    }
+
+    private void sendUsbFrameUnderGate(Bitmap frame, JSONObject currentState) {
         try {
             int requestedBrightness = Math.max(0,
                     Math.min(100, currentState.optInt("hudBrightness", 0)));
