@@ -2,7 +2,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from selfdrive.controls.lib.lead_following import get_follow_obstacle_cost
+from selfdrive.controls.lib.lead_following import get_follow_obstacle_cost, get_follow_approach_limit
 
 
 def lead(v_ego=20.0, **kwargs):
@@ -53,3 +53,22 @@ def test_comfort_fades_before_gap_deficit_or_closing_gate():
   closing = cost(leads=(lead(vLead=19.75),))
   assert ordinary < near_gap < 6.0
   assert ordinary < closing < 6.0
+
+
+@pytest.mark.parametrize('distance,expected', [(70.0, 1.0), (66.0, 1.0), (62.0, 0.5), (58.0, 0.0)])
+def test_approach_removes_only_positive_allowance(distance, expected):
+  cap, comfortable = get_follow_approach_limit(1.0, 20.0, (lead(vLead=18.0, dRel=distance),), 50.0)
+  assert comfortable
+  assert cap == pytest.approx(expected)
+
+
+@pytest.mark.parametrize('kwargs', [dict(vLead=0.0), dict(vLead=17.5), dict(aLeadK=-0.35),
+                                  dict(dRel=40.0), dict(dRel=float('nan'))])
+def test_approach_comfort_rejects_hazardous_or_invalid_secondary_lead(kwargs):
+  leads = (lead(vLead=18.0, dRel=60.0), lead(**kwargs))
+  assert get_follow_approach_limit(1.0, 20.0, leads, 50.0) == (1.0, False)
+
+
+def test_approach_preserves_low_speed_and_invalid_target_gap():
+  assert get_follow_approach_limit(1.0, 5.0, (lead(),), 6.0) == (1.0, False)
+  assert get_follow_approach_limit(1.0, 20.0, (lead(),), float('nan')) == (1.0, False)

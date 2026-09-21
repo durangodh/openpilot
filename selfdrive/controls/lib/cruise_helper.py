@@ -9,6 +9,7 @@ from selfdrive.car.hyundai.values import Buttons
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
 from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software_gap
+from selfdrive.controls.lib.lead_following import APPROACH_ACCEL_LIMIT_FALL, get_follow_approach_limit
 from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_auto_speed_up_target,
@@ -86,6 +87,7 @@ class CruiseHelper:
     self.no_lead_cruise_jerk_limit = 0.25
     self.last_apply_accel = 0.0
     self.follow_accel_limit = None
+    self.follow_source = None
     self.current_set_speed_kph = 0.0
 
     self.target_speed = 0.0
@@ -293,6 +295,24 @@ class CruiseHelper:
       cruise_max_accel, speed_error_kph, self.no_lead_cruise_accel_factor)
     has_lead = sm['radarState'].leadOne.status or sm['radarState'].leadTwo.status
     target = cruise_max_accel if has_lead else no_lead_cap
+    plan = sm['longitudinalPlan']
+    source = plan.longitudinalPlanSource
+    comfort_valid = all(sm.valid[s] and sm.alive[s] for s in ('radarState', 'longitudinalPlan'))
+    if comfort_valid and has_lead and plan.mpcMode == 0 and not (plan.onStop or plan.fcw):
+      target, comfortable = get_follow_approach_limit(
+        target, CS.vEgo, (sm['radarState'].leadOne, sm['radarState'].leadTwo),
+        float(plan.desiredDistance))
+      if comfortable and self.follow_accel_limit is not None:
+        # Ease throttle lift, but never delay an actual MPC/PID braking request
+        # or a lower user-configured acceleration ceiling.
+        target = min(cruise_max_accel, max(target, self.follow_accel_limit - APPROACH_ACCEL_LIMIT_FALL * DT_CTRL))
+      # Re-open positive drive from the last transmitted output when distant
+      # lead/cruise sources change. Raw MPC obstacle selection stays immediate.
+      if (comfortable and self.follow_source is not None and source != self.follow_source and
+          source in ('lead0', 'lead1', 'cruise') and self.follow_source in ('lead0', 'lead1', 'cruise') and
+          self.follow_accel_limit is not None):
+        self.follow_accel_limit = min(self.follow_accel_limit, max(0.0, self.last_apply_accel))
+    self.follow_source = source if comfort_valid else None
     self.follow_accel_limit = transition_follow_accel_limit(
       target, self.follow_accel_limit, CS.vEgo, DT_CTRL)
     return self.follow_accel_limit
