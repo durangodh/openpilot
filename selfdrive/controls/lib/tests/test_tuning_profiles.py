@@ -1,3 +1,4 @@
+import ast
 import json
 from pathlib import Path
 import re
@@ -22,8 +23,9 @@ class Params:
   def all_keys(self):
     return [key.encode() for key in self.keys]
 
-  def get(self, key):
-    return self.data.get(key)
+  def get(self, key, encoding=None):
+    value = self.data.get(key)
+    return value.decode(encoding) if value is not None and encoding else value
 
   def get_bool(self, key):
     return self.get(key) == b'1'
@@ -180,3 +182,138 @@ def test_allowlist_matches_registered_c2_keys():
   registered = set(re.findall(r'\{"([^"]+)"\s*,', (root / 'selfdrive/common/params.cc').read_text()))
   assert not (set(profiles.SPECS) - registered)
   assert not (set(profiles.SPECS) & {'CalibrationParams', 'SelectedCar', 'ExperimentalMode', 'TrafficStopMode'})
+
+
+def test_damaged_journal_keeps_startup_alive_and_preserves_tuning(tmp_path):
+  p = Params()
+  before = p.data.copy()
+  journal = tmp_path / 'restore-pending.json'
+  journal.write_text('{broken')
+  error = profiles.startup_recovery_error(p, tmp_path)
+  assert error
+  assert p.get(profiles.RECOVERY_ERROR_KEY).decode() == error
+  assert {k: v for k, v in p.data.items() if k != profiles.RECOVERY_ERROR_KEY} == before
+  assert journal.read_text() == '{broken'
+  # Removing the damaged file alone must not enable potentially mixed tuning.
+  journal.unlink()
+  assert profiles.startup_recovery_error(p, tmp_path)
+
+
+def test_complete_slot_repairs_damaged_journal_and_clears_error(tmp_path):
+  p = Params()
+  profiles.save_profile(p, 'a', tmp_path)
+  p.put('CruiseMaxVals1', '150')
+  (tmp_path / 'restore-pending.json').write_text('{broken')
+  assert profiles.startup_recovery_error(p, tmp_path)
+  profiles.restore_profile(p, 'a', tmp_path)
+  assert p.get('CruiseMaxVals1') == b'110'
+  assert p.get(profiles.RECOVERY_ERROR_KEY) is None
+  assert profiles.startup_recovery_error(p, tmp_path) == ''
+
+
+@pytest.mark.parametrize('damage', ['missing', 'invalid'])
+def test_partial_slot_cannot_clear_recovery_block(tmp_path, damage):
+  p = Params()
+  profiles.save_profile(p, 'a', tmp_path)
+  slot = tmp_path / 'profile-a.json'
+  data = json.loads(slot.read_text())
+  if damage == 'missing':
+    data['settings'].pop('TFollowGap2')
+  else:
+    data['settings']['TFollowGap2']['value'] = '9999'
+  slot.write_text(json.dumps(data))
+  journal = tmp_path / 'restore-pending.json'
+  journal.write_text('{broken')
+  profiles.startup_recovery_error(p, tmp_path)
+  before = p.data.copy()
+  with pytest.raises(profiles.ProfileError):
+    profiles.restore_profile(p, 'a', tmp_path)
+  assert p.data == before
+  assert journal.read_text() == '{broken'
+
+
+def test_recovery_block_prevents_overwriting_good_slot(tmp_path):
+  p = Params()
+  profiles.save_profile(p, 'a', tmp_path)
+  slot = tmp_path / 'profile-a.json'
+  before = slot.read_bytes()
+  p.put(profiles.RECOVERY_ERROR_KEY, 'pending repair')
+  with pytest.raises(profiles.ProfileError):
+    profiles.save_profile(p, 'a', tmp_path)
+  assert slot.read_bytes() == before
+
+
+def test_interrupted_repair_rolls_back_but_remains_blocked(tmp_path):
+  p = Params()
+  profiles.save_profile(p, 'a', tmp_path)
+  p.put('CruiseMaxVals1', '150')
+  (tmp_path / 'restore-pending.json').write_text(json.dumps({
+    'format': profiles.FORMAT, 'version': 1, 'recoveryRequired': True,
+    'previous': {'CruiseMaxVals1': '145'}}))
+  assert profiles.startup_recovery_error(p, tmp_path)
+  assert p.get('CruiseMaxVals1') == b'145'
+  assert profiles.startup_recovery_error(p, tmp_path)  # blocked across further reboots
+  profiles.restore_profile(p, 'a', tmp_path)
+  assert profiles.startup_recovery_error(p, tmp_path) == ''
+  assert p.get('CruiseMaxVals1') == b'110'
+
+
+def test_repair_write_failure_does_not_clear_block(tmp_path):
+  p = Params()
+  profiles.save_profile(p, 'a', tmp_path)
+  p.put('CruiseMaxVals1', '150')
+  (tmp_path / 'restore-pending.json').write_text('{broken')
+  profiles.startup_recovery_error(p, tmp_path)
+  p.fail_key = 'CruiseMaxVals1'
+  with pytest.raises(profiles.ProfileError):
+    profiles.restore_profile(p, 'a', tmp_path)
+  assert p.get('CruiseMaxVals1') == b'150'
+  assert p.get(profiles.RECOVERY_ERROR_KEY)
+  assert profiles.startup_recovery_error(p, tmp_path)
+
+
+def test_error_return_blocks_boot_even_if_params_write_fails(tmp_path):
+  p = Params()
+  (tmp_path / 'restore-pending.json').write_text('{broken')
+  p.fail_key = profiles.RECOVERY_ERROR_KEY
+  assert profiles.startup_recovery_error(p, tmp_path)
+
+
+def test_manager_boot_latches_control_block_until_reboot(tmp_path, monkeypatch):
+  from types import SimpleNamespace as NS
+  import os
+  source = Path(__file__).resolve().parents[3] / 'manager' / 'manager.py'
+  tree = ast.parse(source.read_text())
+  init = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'manager_init')
+  # Exercise the actual startup recovery call before unrelated registration /
+  # hardware initialization, followed by the actual manager process deny list.
+  stop = next(i for i, n in enumerate(init.body) if isinstance(n, ast.AnnAssign))
+  init.body = init.body[:stop]
+  thread = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'manager_thread')
+  stop = next(i for i, n in enumerate(thread.body) if isinstance(n, ast.Expr) and
+              isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name) and n.value.func.id == 'ensure_running')
+  thread.body = thread.body[:stop + 1]
+  p = Params()
+  p.clear_all = lambda *args: None
+  (tmp_path / 'restore-pending.json').write_text('{broken')
+  startup = profiles.startup_recovery_error
+  monkeypatch.setattr(profiles, 'startup_recovery_error', lambda params: startup(params, tmp_path))
+  calls = []
+  env = dict(Params=lambda: p, ParamKeyType=NS(CLEAR_ON_MANAGER_START=4),
+             cloudlog=NS(bind=lambda **kw: None, info=lambda *a: None, error=lambda *a: None),
+             set_time=lambda *a: None, os=os, EON=False, UNREGISTERED_DONGLE_ID='unregistered',
+             Process=lambda **kw: NS(start=lambda: None), launcher=lambda *a: None,
+             managed_processes={}, ensure_running=lambda *a, **kw: calls.append(kw['not_run']))
+  exec(compile(ast.Module(body=[init, thread], type_ignores=[]), str(source), 'exec'), env)
+  env['manager_init']()
+  assert env['tuning_recovery_blocked']
+  env['manager_thread']()
+  assert 'controlsd' in calls[-1]
+  assert 'ui' not in calls[-1] and 'remote_hud' not in calls[-1]
+  p.remove(profiles.RECOVERY_ERROR_KEY)  # UI repaired: remain blocked this boot
+  env['manager_thread']()
+  assert 'controlsd' in calls[-1]
+  (tmp_path / 'restore-pending.json').unlink()
+  env['manager_init']()  # next boot after completed repair
+  env['manager_thread']()
+  assert 'controlsd' not in calls[-1]

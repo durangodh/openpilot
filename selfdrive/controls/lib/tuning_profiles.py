@@ -15,6 +15,7 @@ PROFILE_ROOT = Path('/data/tuning_profiles')
 FORMAT = 'g-remote-tuning'
 VERSION = 1
 MAX_BYTES = 128 * 1024
+RECOVERY_ERROR_KEY = 'TuningProfileRecoveryError'
 # Stored units match Params/UI, not physical units. Keep this list deliberately
 # limited to longitudinal, lateral and curve tuning, including enable switches.
 INT_RANGES = {
@@ -160,7 +161,9 @@ def _recover_locked(params, root):
     return False
   data = _read_json(journal)
   values = data.get('previous')
-  if data.get('format') != FORMAT or data.get('version') != VERSION or not isinstance(values, dict):
+  if (data.get('format') != FORMAT or type(data.get('version')) is not int or
+      data['version'] != VERSION or not isinstance(values, dict) or
+      type(data.get('recoveryRequired', False)) is not bool):
     raise ProfileError('중단된 설정 복원 기록을 확인할 수 없습니다.')
   # Recovery retains exact previous bytes, even old values outside the current
   # UI range. Still restrict writes to known tuning keys and bounded strings.
@@ -172,6 +175,12 @@ def _recover_locked(params, root):
     _write_param(params, key, value)
   journal.unlink()
   _sync_directory(root)
+  # A failed repair may roll back to a previously partial configuration. Keep
+  # control blocked until a COMPLETE known profile has been restored.
+  if data.get('recoveryRequired', False):
+    _write_param(params, RECOVERY_ERROR_KEY, '설정 복구가 완료되지 않았습니다. A/B 복원 후 재부팅하세요.')
+  else:
+    _write_param(params, RECOVERY_ERROR_KEY, None)
   return True
 
 
@@ -184,12 +193,30 @@ def recover_pending_restore(params, root=PROFILE_ROOT):
     return _recover_locked(params, root)
 
 
+def startup_recovery_error(params, root=PROFILE_ROOT):
+  """Keep UI bootable, returning a boot-latched reason to withhold controlsd."""
+  try:
+    recover_pending_restore(params, root)
+    return _text(params.get(RECOVERY_ERROR_KEY)) or ''
+  except (ProfileError, OSError, ValueError) as error:
+    message = '튜닝 설정 복구가 필요합니다. A/B 복원 후 재부팅하세요.\n' + str(error)
+    # Even if storage is unavailable, the returned error blocks control for
+    # this boot. The journal remains in place for the next startup attempt.
+    try:
+      params.put(RECOVERY_ERROR_KEY, message)
+    except OSError:
+      pass
+    return message
+
+
 def save_profile(params, slot, root=PROFILE_ROOT):
   root = Path(root)
   path = _slot_path(root, slot)
   _offroad(params)
   with _lock(root):
     _recover_locked(params, root)
+    if params.get(RECOVERY_ERROR_KEY):
+      raise ProfileError('복구가 끝나기 전에는 새로 저장할 수 없습니다. 기존 A/B 설정을 복원하세요.')
     values = {}
     skipped = 0
     for key, (kind, _) in SPECS.items():
@@ -214,7 +241,14 @@ def restore_profile(params, slot, root=PROFILE_ROOT):
   path = _slot_path(root, slot)
   _offroad(params)
   with _lock(root):
-    _recover_locked(params, root)
+    repair_required = bool(params.get(RECOVERY_ERROR_KEY))
+    try:
+      _recover_locked(params, root)
+    except (ProfileError, OSError, ValueError):
+      # The user explicitly chose RESTORE. A complete, validated saved profile
+      # may repair an unreadable journal; never silently accept a partial slot.
+      repair_required = True
+    repair_required = repair_required or bool(params.get(RECOVERY_ERROR_KEY))
     data = _read_json(path)
     if (data.get('format') != FORMAT or type(data.get('version')) is not int or
         data['version'] != VERSION or data.get('slot') != slot or not isinstance(data.get('settings'), dict)):
@@ -232,11 +266,17 @@ def restore_profile(params, slot, root=PROFILE_ROOT):
         skipped += 1
     if not values:
       raise ProfileError('복원할 수 있는 튜닝값이 없습니다.')
+    required_keys = {key for key in SPECS if _known(params, key)}
+    if repair_required and (skipped or set(values) != required_keys):
+      raise ProfileError('복구에는 현재 버전의 전체 튜닝값이 담긴 A/B 설정이 필요합니다. 다른 슬롯을 선택하세요.')
     previous = {key: _text(params.get(key)) for key in values}
     if any(value is not None and (not isinstance(value, str) or len(value) > 64) for value in previous.values()):
       raise ProfileError('현재 튜닝값에 복구할 수 없는 항목이 있어 복원을 중단했습니다.')
     _offroad(params)
-    _atomic_json(root / 'restore-pending.json', {'format': FORMAT, 'version': VERSION, 'previous': previous})
+    if repair_required:
+      _write_param(params, RECOVERY_ERROR_KEY, '설정 복구 진행 중입니다. 복원 후 재부팅하세요.')
+    _atomic_json(root / 'restore-pending.json', {'format': FORMAT, 'version': VERSION,
+                                              'previous': previous, 'recoveryRequired': repair_required})
     try:
       for key, value in values.items():
         _offroad(params)
@@ -250,6 +290,7 @@ def restore_profile(params, slot, root=PROFILE_ROOT):
       raise ProfileError('복원에 실패하여 이전 설정으로 되돌렸습니다.') from error
     (root / 'restore-pending.json').unlink()
     _sync_directory(root)
+    _write_param(params, RECOVERY_ERROR_KEY, None)
     return {'count': len(values), 'skipped': skipped}
 
 

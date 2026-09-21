@@ -25,15 +25,22 @@ from selfdrive.hardware.eon.apk import system
 
 sys.path.append(os.path.join(BASEDIR, "pyextra"))
 
+# Latch until reboot: UI recovery must not start controlsd midway through an
+# ignition cycle with other processes still holding earlier tuning values.
+tuning_recovery_blocked = False
 
 def manager_init() -> None:
+  global tuning_recovery_blocked
   # update system time from panda
   set_time(cloudlog)
 
   params = Params()
   # Complete a rolled-back tuning restore before any control process starts.
-  from selfdrive.controls.lib.tuning_profiles import recover_pending_restore
-  recover_pending_restore(params)
+  from selfdrive.controls.lib.tuning_profiles import startup_recovery_error
+  recovery_error = startup_recovery_error(params)
+  tuning_recovery_blocked = bool(recovery_error)
+  if recovery_error:
+    cloudlog.error(recovery_error)
   params.clear_all(ParamKeyType.CLEAR_ON_MANAGER_START)
 
   default_params: List[Tuple[str, Union[str, bytes]]] = [
@@ -356,6 +363,8 @@ def manager_thread() -> None:
   params = Params()
 
   ignore: List[str] = []
+  if tuning_recovery_blocked:
+    ignore.append("controlsd")
   if params.get("DongleId", encoding='utf8') in (None, UNREGISTERED_DONGLE_ID):
     ignore += ["manage_athenad", "uploader"]
   if os.getenv("NOBOARD") is not None:

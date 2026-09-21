@@ -649,6 +649,10 @@ DevicePanel::DevicePanel(SettingsWindow *parent) : ListWidget(parent) {
   profiles_info->setWordWrap(true);
   profiles_info->setStyleSheet("font-size: 35px; color: #dddddd;");
   profiles_layout->addWidget(profiles_info);
+  auto *profile_error = new QLabel(profiles);
+  profile_error->setWordWrap(true);
+  profile_error->setStyleSheet("font-size: 35px; color: #ff9b70;");
+  profiles_layout->addWidget(profile_error);
   auto *profile_process = new QProcess(this);
   profile_process->setWorkingDirectory("/data/openpilot");
   auto *profile_buttons = new QWidget(profiles);
@@ -656,8 +660,18 @@ DevicePanel::DevicePanel(SettingsWindow *parent) : ListWidget(parent) {
   profile_rows->setContentsMargins(0, 0, 0, 0);
   profiles_layout->addWidget(profile_buttons);
   auto update_profile_buttons = [=]() {
+    const QString error = QString::fromStdString(params.get("TuningProfileRecoveryError"));
+    profile_error->setText(error.isEmpty() ? "" :
+        "튜닝 설정 복구 필요: 주행 보조가 중지되었습니다.\n기존 A 또는 B를 RESTORE한 뒤 재부팅하세요.");
+    profile_error->setVisible(!error.isEmpty());
+    for (auto *button : profile_buttons->findChildren<QPushButton*>()) {
+      if (button->property("profileSave").toBool()) button->setEnabled(error.isEmpty());
+    }
     profile_buttons->setEnabled(params.getBool("IsOffroad") && profile_process->state() == QProcess::NotRunning);
   };
+  auto *profile_status_timer = new QTimer(this);
+  connect(profile_status_timer, &QTimer::timeout, this, update_profile_buttons);
+  profile_status_timer->start(1000);
   connect(uiState(), &UIState::offroadTransition, this, [=](bool) { update_profile_buttons(); });
   connect(profile_process, &QProcess::errorOccurred, this, [=](QProcess::ProcessError error) {
     if (error == QProcess::FailedToStart) {
@@ -689,6 +703,7 @@ DevicePanel::DevicePanel(SettingsWindow *parent) : ListWidget(parent) {
     for (const QString action : {QString("save"), QString("restore")}) {
       const bool saving = action == "save";
       auto *button = new QPushButton(slot.toUpper() + (saving ? " SAVE" : " RESTORE"));
+      button->setProperty("profileSave", saving);
       button->setStyleSheet("font-size: 38px; min-height: 110px; border-radius: 15px; background-color: #393939;");
       row->addWidget(button);
       connect(button, &QPushButton::clicked, this, [=]() {
