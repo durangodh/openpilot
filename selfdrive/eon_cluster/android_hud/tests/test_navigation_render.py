@@ -184,7 +184,9 @@ def main():
     primer = source.split("private void sendUsbPrimerFrame()", 1)[1].split(
         "private void handleUsbError", 1)[0]
     assert "c.drawColor(Color.BLACK)" in primer
-    assert "SystemClock.sleep(2000L)" in primer
+    assert primer.count("display.sendJpeg") == 2
+    assert "SystemClock.sleep(USB_PRIMER_WARMUP_MS)" in primer
+    assert "SystemClock.sleep(USB_PRIMER_SETTLE_MS)" in primer
     # An S9-only reboot leaves the powered TURZX decoder in its previous USB
     # session. Even when VID/PID is already visible, boot must rebind it once
     # before the first JPEG. Duplicate boot broadcasts must not reset it twice.
@@ -197,6 +199,11 @@ def main():
     assert "nextUsbAttemptElapsed" in present_panel
     assert "usbNeedsPrimeFrame = true" in present_panel
     assert "bootUsbPreparationDone.set(true)" in present_panel
+    ensure_usb = source.split("private boolean ensureUsbReady", 1)[1].split(
+        "/**", 1)[0]
+    assert "bootUsbHostRecoveryRunning.get()" in ensure_usb
+    assert ensure_usb.index("bootUsbHostRecoveryRunning.get()") < ensure_usb.index(
+        "display.isOpen()")
     # resetPort must verify that sysfs unbind and bind actually succeeded. The
     # old unconditional 'echo done' incorrectly reported success on failure.
     assert '"RESET_OK".equals(line.trim())' in usb_reset
