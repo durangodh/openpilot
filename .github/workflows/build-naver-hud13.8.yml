@@ -27,6 +27,8 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Prepare HUD13.7 and tools
         env:
           GH_TOKEN: ${{ github.token }}
