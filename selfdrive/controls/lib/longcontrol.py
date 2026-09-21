@@ -247,6 +247,16 @@ class LongControl:
         self.lead_missing_frames += 1
     return self.lead_release_samples >= LEAD_RELEASE_CONFIRM_SAMPLES
 
+  @staticmethod
+  def _lead_is_departing(radar_state, radar_state_valid):
+    """True only while a valid lead is measurably pulling away from ego."""
+    if (radar_state is None or not radar_state_valid or
+        len(radar_state.radarErrors) != 0 or not radar_state.leadOne.status):
+      return False
+    lead = radar_state.leadOne
+    return (lead.vLeadK > LEAD_RELEASE_MIN_SPEED and
+            lead.vRel > LEAD_RELEASE_MIN_VREL)
+
   def _update_stopping_decel_rate(self):
     try:
       rate_raw = self.params.get("StoppingDecelRate", encoding="utf8")
@@ -374,6 +384,8 @@ class LongControl:
     self.long_control_state, planned_stop = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
       CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now, start_gate)
+    departed_stopping = (prev_long_control_state == LongCtrlState.stopping and
+                         self.long_control_state != LongCtrlState.stopping)
 
     if self.long_control_state != LongCtrlState.stopping:
       self.standstill_hold_active = False
@@ -442,6 +454,15 @@ class LongControl:
     elif self.long_control_state == LongCtrlState.pid:
       self.v_pid = v_target_now
 
+      # START ACCEL=0 skips the dedicated `starting` state. In that default
+      # configuration the old PID path slowly ramped the standstill hold
+      # (-1.1 m/s² or similar) back to zero even after the lead-release gate
+      # had already confirmed departure, creating the noticeable extra pause.
+      # Release only the negative hold immediately; positive acceleration is
+      # still subject to the normal jerk limit below.
+      if departed_stopping and output_accel < 0.0:
+        output_accel = 0.0
+
       # Freeze the integrator so we don't accelerate to compensate, and don't allow positive acceleration
       prevent_overshoot = not self.CP.stoppingControl and CS.vEgo < 1.5 and v_target_1sec < 0.7 and v_target_1sec < self.v_pid
       deadzone = interp(CS.vEgo, self.CP.longitudinalTuning.deadzoneBP, self.CP.longitudinalTuning.deadzoneV)
@@ -461,8 +482,13 @@ class LongControl:
       # 저속 앞차출발 추종 전용 부스트(long_mpc.py의 LEAD_DEPARTURE_* 와 같은
       # 저속 구간). CRUISE JERK ACCEL과는 별개로, 이 구간에서만 추가로
       # 곱해진다 — 정상주행(중~고속) 가속 체감엔 영향 없음.
+      # Do not change unrelated low-speed acceleration. The extra multiplier
+      # is active only while a valid lead is actually pulling away.
+      departure_boost = (self.low_speed_jerk_boost
+                         if self._lead_is_departing(radar_state, radar_state_valid)
+                         else 1.0)
       jerk_upper *= interp(CS.vEgo, LOW_SPEED_JERK_BOOST_SPEED_BP,
-                           [self.low_speed_jerk_boost, self.low_speed_jerk_boost, 1.0])
+                           [departure_boost, departure_boost, 1.0])
       jerk_lower = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_LOWER_V) * self.pid_jerk_decel_mult
       output_accel = float(clip(pid_output,
                                output_accel - jerk_lower * DT_CTRL,

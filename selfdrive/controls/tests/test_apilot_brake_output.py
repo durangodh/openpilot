@@ -17,7 +17,7 @@ def _linear_interp(x, bp, values):
 
 
 def brake_output(previous, requested, state='pid', v_ego=None, brake_pressed=False,
-                 hold_active=False):
+                 hold_active=False, initial_state=None, boost=1.0, lead=None):
   source = Path(__file__).resolve().parents[1] / 'lib' / 'longcontrol.py'
   tree = ast.parse(source.read_text())
   cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'LongControl')
@@ -36,13 +36,15 @@ def brake_output(previous, requested, state='pid', v_ego=None, brake_pressed=Fal
   obj = NS(_read_params=lambda: None,
            _reset_standstill_lead=lambda: None,
            _update_standstill_lead=lambda *a: False,
+           _lead_is_departing=lambda *a: lead is not None,
            CP=NS(stoppingControl=True, stopAccel=-0.6, vEgoStarting=0.3,
                  longitudinalTuning=NS(deadzoneBP=[0], deadzoneV=[0])),
            actuator_delay_lower=0.2, actuator_delay_upper=0.4, pid=pid,
-           long_control_state=state, last_output_accel=previous,
+           long_control_state=state if initial_state is None else initial_state,
+           last_output_accel=previous,
            stopping_decel_rate=1.0, standstill_hold_accel=-1.1,
            pid_jerk_accel_mult=1.0, pid_jerk_decel_mult=1.0, start_jerk=5.0,
-           low_speed_jerk_boost=1.0,
+           low_speed_jerk_boost=boost,
            stopping_jerk_mult=1.0,
            standstill_hold_active=hold_active,
            start_request_frames=0, standstill_release_speed=0.2,
@@ -54,7 +56,9 @@ def brake_output(previous, requested, state='pid', v_ego=None, brake_pressed=Fal
           gasPressed=False, buttonEvents=[],
           cruiseState=NS(standstill=False))
   plan = NS(speeds=[10.0, 10.0], accels=[0.0, 0.0], jerks=[0.0])
-  return env['update'](obj, True, cs, plan, (-3.5, 2.0), 0.0)[0]
+  radar = None if lead is None else NS(radarErrors=[], leadOne=lead)
+  return env['update'](obj, True, cs, plan, (-3.5, 2.0), 0.0,
+                       radar_state=radar, radar_state_valid=radar is not None)[0]
 
 
 def test_pid_output_is_jerk_limited_per_cycle():
@@ -65,6 +69,23 @@ def test_pid_output_is_jerk_limited_per_cycle():
   # Requests within the jerk budget for this cycle pass through unchanged.
   assert brake_output(0.0, -0.03) == -0.03
   assert brake_output(0.0, 0.015) == 0.015
+
+
+def test_default_departure_releases_negative_hold_before_positive_jerk_ramp():
+  # START ACCEL=0 transitions directly from stopping to PID. The brake hold
+  # must be gone immediately, while forward acceleration still rises by the
+  # normal 0.02 m/s² per control cycle at zero speed.
+  assert brake_output(-1.1, 1.0, state='pid', initial_state='stopping',
+                      v_ego=0.0) == pytest.approx(0.02)
+  assert brake_output(-1.1, 1.0, state='pid', initial_state='pid',
+                      v_ego=0.0) == pytest.approx(-1.08)
+
+
+def test_low_speed_departure_boost_requires_a_departing_lead():
+  assert brake_output(0.0, 2.0, v_ego=0.0, boost=5.0) == pytest.approx(0.02)
+  lead = NS(status=True, dRel=8.0, vLeadK=1.0, vRel=0.8)
+  assert brake_output(0.0, 2.0, v_ego=0.0, boost=5.0,
+                      lead=lead) == pytest.approx(0.10)
 
 
 def test_actuator_limits_still_apply():
