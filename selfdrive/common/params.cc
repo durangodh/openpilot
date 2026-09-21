@@ -156,7 +156,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"IsLdwEnabled", PERSISTENT},
     {"IsMetric", PERSISTENT},
     {"IsOffroad", CLEAR_ON_MANAGER_START},
-    {"TuningProfileRecoveryError", PERSISTENT},  // cleared only after verified tuning recovery
     {"IsOnroad", PERSISTENT},
     {"IsRHD", PERSISTENT},
     {"IsTakingSnapshot", CLEAR_ON_MANAGER_START},

@@ -42,14 +42,8 @@
 #include <QStringList>
 #include <QFile>
 #include <QDir>
-#include <QProcess>
 
 namespace {
-
-template <typename T>
-void refreshProfileWidgets(QWidget *root) {
-  for (auto *control : root->findChildren<T*>()) control->refresh();
-}
 
 struct StepperWidgets {
   QWidget *container;
@@ -639,89 +633,6 @@ DevicePanel::DevicePanel(SettingsWindow *parent) : ListWidget(parent) {
   setSpacing(50);
   addItem(new LabelControl("Dongle ID", getDongleId().value_or("N/A")));
   addItem(new LabelControl("Serial", params.get("HardwareSerial").c_str()));
-
-  auto *profiles = new QWidget(this);
-  auto *profiles_layout = new QVBoxLayout(profiles);
-  profiles_layout->setContentsMargins(0, 0, 0, 0);
-  auto *profiles_info = new QLabel(
-      "TUNING A / B\n가감속·차간거리·조향·커브 튜닝값을 저장·복원합니다.\n"
-      "차량 전원을 끈 상태에서 사용하며, 차량 선택·보정값·HUD 설정은 포함하지 않습니다.");
-  profiles_info->setWordWrap(true);
-  profiles_info->setStyleSheet("font-size: 35px; color: #dddddd;");
-  profiles_layout->addWidget(profiles_info);
-  auto *profile_error = new QLabel(profiles);
-  profile_error->setWordWrap(true);
-  profile_error->setStyleSheet("font-size: 35px; color: #ff9b70;");
-  profiles_layout->addWidget(profile_error);
-  auto *profile_process = new QProcess(this);
-  profile_process->setWorkingDirectory("/data/openpilot");
-  auto *profile_buttons = new QWidget(profiles);
-  auto *profile_rows = new QVBoxLayout(profile_buttons);
-  profile_rows->setContentsMargins(0, 0, 0, 0);
-  profiles_layout->addWidget(profile_buttons);
-  auto update_profile_buttons = [=]() {
-    const QString error = QString::fromStdString(params.get("TuningProfileRecoveryError"));
-    profile_error->setText(error.isEmpty() ? "" :
-        "튜닝 설정 복구 필요: 주행 보조가 중지되었습니다.\n기존 A 또는 B를 RESTORE한 뒤 재부팅하세요.");
-    profile_error->setVisible(!error.isEmpty());
-    for (auto *button : profile_buttons->findChildren<QPushButton*>()) {
-      if (button->property("profileSave").toBool()) button->setEnabled(error.isEmpty());
-    }
-    profile_buttons->setEnabled(params.getBool("IsOffroad") && profile_process->state() == QProcess::NotRunning);
-  };
-  auto *profile_status_timer = new QTimer(this);
-  connect(profile_status_timer, &QTimer::timeout, this, update_profile_buttons);
-  profile_status_timer->start(1000);
-  connect(uiState(), &UIState::offroadTransition, this, [=](bool) { update_profile_buttons(); });
-  connect(profile_process, &QProcess::errorOccurred, this, [=](QProcess::ProcessError error) {
-    if (error == QProcess::FailedToStart) {
-      parent->setEnabled(true);
-      update_profile_buttons();
-      ConfirmationDialog::alert("설정 저장·복원을 실행할 수 없습니다.", this);
-    }
-  });
-  connect(profile_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
-          [=](int exit_code, QProcess::ExitStatus status) {
-    const auto result = QJsonDocument::fromJson(profile_process->readAllStandardOutput()).object();
-    const bool ok = status == QProcess::NormalExit && exit_code == 0 && result.value("ok").toBool();
-    parent->setEnabled(true);
-    update_profile_buttons();
-    if (ok) {
-      refreshProfileWidgets<ParamValueControlF>(parent);
-      refreshProfileWidgets<NtuneValueControl>(parent);
-      refreshProfileWidgets<OffsetTotalControl>(parent);
-      refreshProfileWidgets<AdjustLaneOffsetControl>(parent);
-      refreshProfileWidgets<LanelessOffsetControl>(parent);
-      refreshProfileWidgets<DynamicLaneProfileControl>(parent);
-      refreshProfileWidgets<ParamControl>(parent);
-    }
-    const QString message = result.value("message").toString();
-    ConfirmationDialog::alert(message.isEmpty() ? "설정 작업이 중단되었습니다. 재부팅 후 다시 확인하세요." : message, this);
-  });
-  for (const QString slot : {QString("a"), QString("b")}) {
-    auto *row = new QHBoxLayout();
-    for (const QString action : {QString("save"), QString("restore")}) {
-      const bool saving = action == "save";
-      auto *button = new QPushButton(slot.toUpper() + (saving ? " SAVE" : " RESTORE"));
-      button->setProperty("profileSave", saving);
-      button->setStyleSheet("font-size: 38px; min-height: 110px; border-radius: 15px; background-color: #393939;");
-      row->addWidget(button);
-      connect(button, &QPushButton::clicked, this, [=]() {
-        if (!params.getBool("IsOffroad") || profile_process->state() != QProcess::NotRunning) return;
-        const QString question = saving
-            ? slot.toUpper() + "에 현재 튜닝값을 저장할까요? 기존 저장값은 덮어씁니다."
-            : slot.toUpper() + "의 튜닝값을 복원할까요? 현재 튜닝값이 변경됩니다.";
-        if (!ConfirmationDialog::confirm(question, this) || !params.getBool("IsOffroad")) return;
-        // Keep other tuning controls from changing values during the snapshot.
-        parent->setEnabled(false);
-        profile_buttons->setEnabled(false);
-        profile_process->start("python3", QStringList{"-m", "selfdrive.controls.lib.tuning_profiles", action, slot});
-      });
-    }
-    profile_rows->addLayout(row);
-  }
-  update_profile_buttons();
-  addItem(profiles);
 
   QHBoxLayout *reset_layout = new QHBoxLayout();
   reset_layout->setSpacing(30);
