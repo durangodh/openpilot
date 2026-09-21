@@ -7,6 +7,7 @@ from common.params import Params, put_nonblocking
 from common.realtime import DT_CTRL, sec_since_boot
 from selfdrive.car.hyundai.values import Buttons
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
+from selfdrive.controls.lib.vision_curve_speed import VisionCurveSpeed, UNLIMITED_SPEED
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
 from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software_gap
 from selfdrive.controls.lib.lead_following import APPROACH_ACCEL_LIMIT_FALL, get_follow_approach_limit
@@ -92,7 +93,9 @@ class CruiseHelper:
 
     self.target_speed = 0.0
     self.max_speed_clu = 0.0
-    self.curve_speed_ms = 250.0 * CV.KPH_TO_MS
+    self.curve_speed_ms = UNLIMITED_SPEED
+    self.vision_curve_speed = VisionCurveSpeed()
+    self.curve_update_frame = None
     self.apply_source = ""
     self.active_cam = False
     self.slowing_down = False
@@ -715,34 +718,17 @@ class CruiseHelper:
       events.add(EventName.speedBump if self.slowing_down_for_bump else EventName.slowingDownSpeed)
 
   def cal_curve_speed(self, sm, v_ego, frame):
-    """carrot-wip vision curve speed using predicted lateral acceleration."""
-    # modelV2 changes much slower than controlsd's 100 Hz loop. Keep the C2
-    # cadence to avoid repeating the same NumPy work on every control frame.
+    # Retain the existing 5 Hz cadence on EON. Never smooth a stricter cap;
+    # only debounce and ramp its release after a curve or a brief model dropout.
     if frame % 20 != 0:
       return
-
-    orientation_rates = np.asarray(sm['modelV2'].orientationRate.z, dtype=np.float64)
-    velocities = np.asarray(sm['modelV2'].velocity.x, dtype=np.float64)
-    if len(orientation_rates) == 0 or len(orientation_rates) != len(velocities):
-      self.curve_speed_ms = 250.0 * CV.KPH_TO_MS
-      return
-
-    orientation_rates *= self.auto_curve_speed_factor
-    valid = np.isfinite(orientation_rates) & np.isfinite(velocities)
-    if not np.any(valid):
-      self.curve_speed_ms = 250.0 * CV.KPH_TO_MS
-      return
-
-    max_pred_lat_acc = float(np.max(np.abs(orientation_rates[valid]) * velocities[valid]))
-    v_ego = max(float(v_ego), 0.1)
-    max_curve = max_pred_lat_acc / (v_ego ** 2)
-    if max_curve <= 1e-6:
-      turn_speed_kph = 250.0
-    else:
-      turn_speed_kph = float(clip(
-        np.sqrt(1.9 / max_curve) * CV.MS_TO_KPH,
-        self.auto_curve_speed_lower_limit, 250.0))
-    self.curve_speed_ms = turn_speed_kph * CV.KPH_TO_MS
+    dt = 20 * DT_CTRL if self.curve_update_frame is None else max(0, frame - self.curve_update_frame) * DT_CTRL
+    self.curve_update_frame = frame
+    valid = getattr(sm, 'valid', {}).get('modelV2', True) and getattr(sm, 'alive', {}).get('modelV2', True)
+    self.curve_speed_ms = self.vision_curve_speed.update(
+      sm['modelV2'] if valid else None, self.auto_curve_speed_factor,
+      self.auto_curve_speed_lower_limit * CV.KPH_TO_MS,
+      self.auto_curve_speed_decel_rate, dt)
 
   def update_max_speed(self, max_speed, longcontrol):
     # c3-wip applies the selected navigation target directly. The old 0.01
@@ -914,7 +900,9 @@ class CruiseHelper:
     if self.turn_vision_control:
       self.cal_curve_speed(sm, CS.out.vEgo, frame)
     else:
-      self.curve_speed_ms = 250.0 * CV.KPH_TO_MS
+      self.vision_curve_speed.reset()
+      self.curve_update_frame = None
+      self.curve_speed_ms = UNLIMITED_SPEED
     cruise_speed_ms = controls.v_cruise_kph * CV.KPH_TO_MS
     self.apply_source = ""
     if self.turn_vision_control and self.curve_speed_ms < cruise_speed_ms:
