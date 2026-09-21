@@ -1544,6 +1544,11 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_openpilot.png", 30, 300, 5, 0, 100, this));
 
   list->addItem(new ParamValueControlF(
+      "LowSpeedJerkBoost", "LOW SPEED DEPART BOOST (%)",
+      "시속 18km/h 이하에서 앞차 출발 추종 시에만 추가로 곱해지는 가속 반응 배율입니다(30km/h까지 서서히 해제, CRUISE JERK ACCEL과 무관). 값 증가(+): 정체구간 앞차 출발에 더 즉각 반응. 기본값: 100(=부스트 없음).",
+      "../assets/offroad/icon_openpilot.png", 100, 500, 10, 0, 100, this));
+
+  list->addItem(new ParamValueControlF(
       "StandstillHoldApply", "STANDSTILL HOLD ACCEL",
       "완전히 정지한 뒤에만 사용하는 유지 제동값(×-0.02m/s²)입니다. 정지 접근 제동에는 영향을 주지 않습니다. 기본값 55 = -1.10m/s².",
       "../assets/offroad/icon_openpilot.png", 10, 100, 5, 0, 55, this));

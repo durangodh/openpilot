@@ -25,6 +25,12 @@ PID_JERK_SPEED_BP = [0.0, 5.0, 20.0]
 PID_JERK_UPPER_V = [2.0, 3.0, 2.0]
 PID_JERK_LOWER_V = [3.5, 3.5, 3.0]
 
+# 저속 앞차출발 추종 전용 저크 부스트 구간. long_mpc.py의 LEAD_DEPARTURE_*
+# (18~30km/h에서 서서히 해제)와 같은 구간을 써서, "계획단계는 빨리 붙으라는데
+# 실행단계가 못 따라가는" 문제를 이 저속 구간에서만 별도로 풀어준다 —
+# CRUISE JERK ACCEL(정상주행 전반)과는 무관하게 독립 조절.
+LOW_SPEED_JERK_BOOST_SPEED_BP = [0.0, 5.0, 30.0 / 3.6]  # 0, 18, 30 km/h
+
 # 정지 진입속도별 STOPPING DECEL RATE 배율. 정체(가다서다, 저속 진입)일수록
 # 빠르게 반응하고, 고속 진입이면 1.0(=STOPPING DECEL RATE 값 그대로, 기존
 # 고속 체감 유지)으로 둔다. m/s 기준: 0=0km/h, 5.6≈20km/h, 11.1≈40km/h.
@@ -120,6 +126,8 @@ class LongControl:
     self.start_jerk = 5.0
     # 정지 진입속도에 따라 매 정지 사이클마다 한 번씩 갱신됨(위 상수표 참고).
     self.stopping_jerk_mult = 1.0
+    # 저속(0~30km/h) 앞차출발 추종 전용 저크 부스트 배율. 기본 1.0(=부스트 없음).
+    self.low_speed_jerk_boost = 1.0
 
     self._update_pid_gains()
     self._update_actuator_delays()
@@ -270,6 +278,13 @@ class LongControl:
 
     self.pid_jerk_accel_mult = float(clip(accel_mult, 0.3, 3.0))
     self.pid_jerk_decel_mult = float(clip(decel_mult, 0.3, 3.0))
+
+    try:
+      boost_raw = self.params.get("LowSpeedJerkBoost", encoding="utf8")
+      boost_mult = int(boost_raw) * 0.01 if boost_raw not in (None, "") else 1.0
+    except (TypeError, ValueError):
+      boost_mult = 1.0
+    self.low_speed_jerk_boost = float(clip(boost_mult, 1.0, 5.0))
 
   def _read_params(self):
     self.read_param_count += 1
@@ -443,6 +458,11 @@ class LongControl:
       # 급제동에도 어느 정도는 빠르게 반응하되, 완전 무제한(한 사이클 순간
       # 점프)은 아니게 한다.
       jerk_upper = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_UPPER_V) * self.pid_jerk_accel_mult
+      # 저속 앞차출발 추종 전용 부스트(long_mpc.py의 LEAD_DEPARTURE_* 와 같은
+      # 저속 구간). CRUISE JERK ACCEL과는 별개로, 이 구간에서만 추가로
+      # 곱해진다 — 정상주행(중~고속) 가속 체감엔 영향 없음.
+      jerk_upper *= interp(CS.vEgo, LOW_SPEED_JERK_BOOST_SPEED_BP,
+                           [self.low_speed_jerk_boost, self.low_speed_jerk_boost, 1.0])
       jerk_lower = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_LOWER_V) * self.pid_jerk_decel_mult
       output_accel = float(clip(pid_output,
                                output_accel - jerk_lower * DT_CTRL,
