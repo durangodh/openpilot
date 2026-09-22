@@ -1,5 +1,17 @@
 # Android remote HUD (experimental)
 
+## S9 telemetry freshness
+
+S9 temperature and CPU show `--` immediately after a failed/invalid sample and
+after nine seconds without a successful update, on both driving and S9 status
+views. CPU counters are re-baselined after read failures, long gaps or resets;
+two valid samples are needed to resume a percentage. NaN/invalid temperatures
+and malformed CPU counters are rejected. Root sampling has a two-second shell
+timeout and a 2.5-second outer deadline with a bounded output reader. Temperature
+sensor preference and whole-phone CPU utilization semantics are unchanged.
+`tests/test_s9_stats.py` exercises production parsers, freshness, recovery and
+process timeout/output-limit failures.
+
 ## Live GPS source badge (2026-09-22)
 
 The map's top-right corner and the phone settings status card show the source

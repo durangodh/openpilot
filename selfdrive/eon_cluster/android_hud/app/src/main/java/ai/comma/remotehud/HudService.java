@@ -316,8 +316,15 @@ public final class HudService extends Service {
     private long lastReconnectElapsed = 0L;
     private long cpuLastTotal = 0L;
     private long cpuLastIdle = 0L;
+    private long cpuLastSampleElapsed = 0L;
     private volatile float s9CpuPercent = -1f;
     private volatile float s9TempC = -1f;
+    private volatile long s9CpuSampleElapsed = 0L;
+    private volatile long s9TempSampleElapsed = 0L;
+
+    private static float freshStat(float value, long sampledAt, long now) {
+        return sampledAt > 0L && now >= sampledAt && now - sampledAt < 9000L ? value : -1f;
+    }
     /** 부팅 직후 Magisk가 아직 준비되지 않았을 때의 다음 재시도 시각. */
     private volatile long nextSuStatsRetryElapsed = 0L;
     private Thread statsThread;
@@ -4337,6 +4344,9 @@ public final class HudService extends Service {
 
     /** 좌측 하단의 기존 148x78 카드에 C2(EON)와 S9 상태를 두 줄로 표시한다. */
     private void drawC2S9StatusCard(Canvas c, Paint p, JSONObject s, boolean stale) {
+        long statsNow = SystemClock.elapsedRealtime();
+        float s9TempC = freshStat(this.s9TempC, s9TempSampleElapsed, statsNow);
+        float s9CpuPercent = freshStat(this.s9CpuPercent, s9CpuSampleElapsed, statsNow);
         scratchRect.set(8f, 376f, 156f, 454f);
         drawCard(c, p, scratchRect);
 
@@ -4511,6 +4521,9 @@ public final class HudService extends Service {
 
     /** 출력모드 3 — S9(폰) 자신의 상태와 USB 경로 진단. */
     private void drawS9Remote(Canvas c, Paint p) {
+        long statsNow = SystemClock.elapsedRealtime();
+        float s9TempC = freshStat(this.s9TempC, s9TempSampleElapsed, statsNow);
+        float s9CpuPercent = freshStat(this.s9CpuPercent, s9CpuSampleElapsed, statsNow);
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(Color.rgb(7, 12, 18));
@@ -4575,6 +4588,8 @@ public final class HudService extends Service {
             try {
                 sampleS9Stats();
             } catch (Exception ignored) {
+                applyThermal(null);
+                applyCpu(null);
             }
             SystemClock.sleep(STATS_PERIOD_MS);
         }
@@ -4598,14 +4613,14 @@ public final class HudService extends Service {
                 for (String line : dump.split("\n")) {
                     if (line.startsWith("T:")) {
                         zones.append(line.substring(2)).append('\n');
-                    } else if (line.startsWith("S:")) {
+                    } else if (line.startsWith("S:") && stat == null) {
                         stat = line.substring(2);
                     }
                 }
                 if (thermal == null && zones.length() > 0) {
                     thermal = zones.toString();
                 }
-                nextSuStatsRetryElapsed = stat == null ? now + 30000L : 0L;
+                nextSuStatsRetryElapsed = thermal == null || stat == null ? now + 30000L : 0L;
             }
         }
         applyThermal(thermal);
@@ -4640,6 +4655,8 @@ public final class HudService extends Service {
 
     /** cpu/big/soc 존을 우선하고, 없으면 가장 높은 온도를 쓴다. */
     private void applyThermal(String dump) {
+        s9TempC = -1f;
+        s9TempSampleElapsed = 0L;
         if (dump == null) {
             return;
         }
@@ -4659,7 +4676,7 @@ public final class HudService extends Service {
             if (value > 1000f) {
                 value /= 1000f;
             }
-            if (value <= 0f || value >= 150f) {
+            if (!Float.isFinite(value) || value <= 0f || value >= 150f) {
                 continue;
             }
             String type = line.substring(0, sep).toLowerCase(Locale.US);
@@ -4670,54 +4687,62 @@ public final class HudService extends Service {
             hottest = Math.max(hottest, value);
         }
         s9TempC = best > 0f ? best : hottest;
+        if (s9TempC > 0f) s9TempSampleElapsed = SystemClock.elapsedRealtime();
     }
 
     private void applyCpu(String line) {
+        long now = SystemClock.elapsedRealtime();
+        if (now < cpuLastSampleElapsed || now - cpuLastSampleElapsed >= 9000L) {
+            cpuLastTotal = cpuLastIdle = 0L;
+        }
+        cpuLastSampleElapsed = now;
+        s9CpuPercent = -1f;
+        s9CpuSampleElapsed = 0L;
         if (line == null) {
+            cpuLastTotal = cpuLastIdle = 0L;
             return;
         }
         String[] parts = line.trim().split("\\s+");
+        if (parts.length < 9 || !"cpu".equals(parts[0])) {
+            cpuLastTotal = cpuLastIdle = 0L;
+            return;
+        }
         long total = 0L;
         long idle = 0L;
         try {
             for (int i = 1; i < parts.length && i <= 8; i++) {
                 long v = Long.parseLong(parts[i]);
-                total += v;
+                if (v < 0L) throw new NumberFormatException("negative CPU counter");
+                total = Math.addExact(total, v);
                 if (i == 4 || i == 5) {
                     idle += v;
                 }
             }
-        } catch (NumberFormatException e) {
+        } catch (NumberFormatException | ArithmeticException e) {
+            cpuLastTotal = cpuLastIdle = 0L;
             return;
         }
         if (cpuLastTotal > 0L && total > cpuLastTotal) {
             long dt = total - cpuLastTotal;
             long di = idle - cpuLastIdle;
-            s9CpuPercent = Math.max(0f, Math.min(100f, (dt - di) * 100f / dt));
+            if (di >= 0L && di <= dt) {
+                s9CpuPercent = (dt - di) * 100f / dt;
+                s9CpuSampleElapsed = SystemClock.elapsedRealtime();
+            }
         }
         cpuLastTotal = total;
         cpuLastIdle = idle;
     }
 
     private static String shellRead(String command) {
-        Process proc = null;
         try {
-            proc = Runtime.getRuntime().exec(new String[]{"su", "-c", command});
-            java.io.BufferedReader reader = new java.io.BufferedReader(
-                    new java.io.InputStreamReader(proc.getInputStream()), 2048);
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                sb.append(line).append('\n');
-            }
-            reader.close();
-            return sb.length() > 0 ? sb.toString() : null;
+            // Inner timeout also terminates the root shell's children; outer
+            // deadline covers su authorization waits and incomplete stdout.
+            String bounded = "timeout 2 sh -c '" + command.replace("'", "'\\''") + "'";
+            Process proc = new ProcessBuilder("su", "-c", bounded).redirectErrorStream(true).start();
+            return BoundedProcessRead.read(proc, 2500L);
         } catch (Exception e) {
             return null;
-        } finally {
-            if (proc != null) {
-                proc.destroy();
-            }
         }
     }
 

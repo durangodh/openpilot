@@ -63,6 +63,7 @@ jobs:
         working-directory: selfdrive/eon_cluster/android_hud
         run: |
           python3 tests/test_navigation_render.py --java-home "$JAVA_HOME" --work "$RUNNER_TEMP/hud-navigation-check"
+          python3 tests/test_s9_stats.py --java-home "$JAVA_HOME" --work "$RUNNER_TEMP/hud-stats-check"
           python3 ../tests/test_naver_guidance.py
           python3 ../tests/test_traffic_signal_transport.py
           python3 ../tests/test_e2e_signal_indicator.py
