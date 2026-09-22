@@ -36,6 +36,14 @@ LOW_SPEED_FILTER_CURV_MAX = 0.02
 # 초기 응답을 살리되, S 자처럼 부호가 뒤집히는 구간에서는 개입하지 않는다.
 LAT_PLAN_MIN_IDX = 5
 
+# 차로 중앙 부근의 작은 모델 저크가 friction 을 반복해서 깨우면 직진에서
+# 잔보타가 생길 수 있다. 작은 저크만 속도별로 잘라내고, 실제 커브 진입처럼
+# 횡가속도가 커지면 데드존을 0으로 줄여 조향 응답을 보존한다.
+CENTER_JERK_DEADZONE_SPEED_BP = [0.0, 5.0, 12.0, 25.0]  # m/s
+CENTER_JERK_DEADZONE_SPEED_V = [0.08, 0.12, 0.18, 0.18]  # m/s^3
+CENTER_JERK_DEADZONE_LAT_ACCEL_BP = [0.0, 0.18, 0.35]  # m/s^2
+CENTER_JERK_DEADZONE_LAT_ACCEL_V = [1.0, 1.0, 0.0]
+
 
 def _sign(x):
   return 1.0 if x > 0.0 else (-1.0 if x < 0.0 else 0.0)
@@ -52,6 +60,15 @@ def get_lookahead_value(future_vals, current_val):
   if len(same_sign) < len(future_vals):
     return 0.0
   return min(same_sign + [current_val], key=lambda x: abs(x))
+
+
+def get_center_jerk_deadzone(v_ego, desired_lateral_accel):
+  speed_deadzone = interp(v_ego, CENTER_JERK_DEADZONE_SPEED_BP,
+                          CENTER_JERK_DEADZONE_SPEED_V)
+  center_weight = interp(abs(desired_lateral_accel),
+                         CENTER_JERK_DEADZONE_LAT_ACCEL_BP,
+                         CENTER_JERK_DEADZONE_LAT_ACCEL_V)
+  return speed_deadzone * center_weight
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── 긴 커브 안쪽 파고듦 대응 (적분 와인드업 억제) ────────────────────────────
@@ -109,9 +126,9 @@ class LatControlTorque(LatControl):
     self.kf_default = self.torque_params.kf
     self.kd_default = self.torque_params.kd
 
-    # friction 입력 계수 (carrot 기본값)
+    # friction 입력 계수 (DH용 안전 시작값)
     self.lat_accel_friction_factor = 0.7
-    self.lat_jerk_friction_factor = 0.4
+    self.lat_jerk_friction_factor = 0.2
     self.desired_lat_jerk_time = 0.3
     self.low_speed_curv_tau = 0.30       # s = LatLowSpeedCurvTauMs / 1000, 0 = 끔
     self.low_speed_curv_filtered = 0.0
@@ -165,7 +182,7 @@ class LatControlTorque(LatControl):
     self.lateral_torque_custom = custom
 
     self.lat_accel_friction_factor = self._pget("LatAccelFrictionFactor", 70) * 0.01
-    self.lat_jerk_friction_factor = self._pget("LatJerkFrictionFactor", 40) * 0.01
+    self.lat_jerk_friction_factor = self._pget("LatJerkFrictionFactor", 20) * 0.01
     self.low_speed_curv_tau = max(0.0, min(1.0, self._pget("LatLowSpeedCurvTauMs", 300) * 0.001))
     self.desired_lat_jerk_time = max(
       0.1, self._pget("SteerActuatorDelay", 10) * 0.01 + 0.3)
@@ -239,11 +256,10 @@ class LatControlTorque(LatControl):
       # ── friction 입력 : 횡가속도 오차 + 앞으로의 횡저크 (carrot 이식) ──
       accel_error = desired_lateral_accel - actual_lateral_accel
       lookahead_lateral_jerk = 0.0
-      # modelV2 updates at 20 Hz while lateral control runs at 100 Hz. Skip the
-      # calculation entirely when steering-angle control will discard it, and
-      # otherwise reuse one prediction for each model period.
-      if not self.use_steering_angle and model_data is not None and \
-         len(model_data.acceleration.y) >= len(T_IDXS):
+      # modelV2 updates at 20 Hz while lateral control runs at 100 Hz, so reuse
+      # one prediction for each model period. 실제 곡률 측정은 DH에 맞는 조향각
+      # 기반을 유지하되, friction 선행보상에는 모델의 예측 횡저크를 사용한다.
+      if model_data is not None and len(model_data.acceleration.y) >= len(T_IDXS):
         try:
           model_frame_id = int(model_data.frameId)
           if model_frame_id != self.predicted_lateral_jerk_frame_id or \
@@ -256,6 +272,10 @@ class LatControlTorque(LatControl):
           lookahead_lateral_jerk = get_lookahead_value(
               self.predicted_lateral_jerk[LAT_PLAN_MIN_IDX:self.friction_upper_idx],
               desired_lateral_jerk)
+          jerk_deadzone = get_center_jerk_deadzone(CS.vEgo, desired_lateral_accel)
+          lookahead_lateral_jerk = math.copysign(
+            max(abs(lookahead_lateral_jerk) - jerk_deadzone, 0.0),
+            lookahead_lateral_jerk)
         except (ValueError, ZeroDivisionError):
           lookahead_lateral_jerk = 0.0
 
