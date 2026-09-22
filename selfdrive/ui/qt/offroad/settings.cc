@@ -1370,6 +1370,11 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "켜짐: 18km/h까지 앞차 출발 반응을 동적으로 조정하고, 18~30km/h에서 점차 줄여 30km/h부터 일반 추종으로 복귀합니다.",
       "../assets/offroad/icon_road.png", this));
 
+  list->addItem(new ParamControl(
+      "TrafficMode", "TRAFFIC MODE",
+      "FrogPilot 정체 추종 모드입니다. ACC 앞차 추종 중 차간시간·가감속·저크를 자동 조정합니다. 저속 차간시간은 최소 0.5초이며 기존 GAP 설정보다 가까워질 수 있습니다. 활성 중에는 동적 출발 코스트 대신 이 모드를 사용하며, 사용자 가속 상한과 정차거리를 유지합니다. 기본값: 끔.",
+      "../assets/offroad/icon_road.png", this));
+
   list->addItem(new ParamValueControlF(
       "SpeedFromPCM", "SPEED FROM PCM",
       "1: 순정 SCC 설정속도 사용 / 2: 오픈파일럿 설정속도와 사용자 크루즈 버튼 설정 사용.",
