@@ -462,6 +462,15 @@ public final class HudService extends Service {
                 fpsOk ? measuredFps : 0.0f, jpegOk ? lastJpegBytes : 0);
     }
 
+    private GpsSourceMonitor gpsSourceMonitor;
+    private GpsSourceIcons gpsSourceIcons;
+
+    static String gpsSourceLabel() {
+        HudService instance = activeInstance;
+        return instance == null || instance.gpsSourceMonitor == null
+                ? "GPS 서비스 대기" : instance.gpsSourceMonitor.label();
+    }
+
     // ── 라이프사이클 ──────────────────────────────────────────────────────
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -469,6 +478,9 @@ public final class HudService extends Service {
     public void onCreate() {
         super.onCreate();
         HudDiagnostics.init(this);
+        gpsSourceMonitor = new GpsSourceMonitor(this);
+        gpsSourceMonitor.start();
+        gpsSourceIcons = new GpsSourceIcons(getResources());
         mirrorDisplays = (android.hardware.display.DisplayManager) getSystemService(DISPLAY_SERVICE);
         if (mirrorDisplays != null) {
             mirrorDisplays.registerDisplayListener(mirrorDisplayListener,
@@ -4954,60 +4966,16 @@ public final class HudService extends Service {
         c.drawRoundRect(scratchRect, 10f, 10f, p);
         text(c, p, NavSelectionProtocol.appLabel(s.optInt("hudNavApp", 1)),
                 right - width * 0.5f, top + 34f, 25f, Color.WHITE, Paint.Align.CENTER);
-        drawGpsBadge(c, p, s, right - width - 12f, top, height);
+        drawGpsSourceBadge(c, p, right - width - 12f, top, height);
     }
 
     /**
-     * One top-row badge left of the Naver/TMAP label: dot (state) + compact detail.
-     * gpsState: 0 no position (grey), 1 frozen/stale while moving (red, blinking), 2 updating (green).
-     * gpsInfo:  age of last position change, update rate, navi speed.
-     * Example: "● GPS 0.2s·4Hz·46km" / "● GPS 끊김 6.2s·0Hz". Never grows into the TBT card (x <= 1304).
+     * Replace the old GPS health badge in the same top-row slot with actual
+     * Android GPS source. No EON age/rate/speed, status dot or map-delay text.
      */
-    private void drawGpsBadge(Canvas c, Paint p, JSONObject s, float right, float top, float height) {
-        int state = s.optInt("gpsState", -1);
-        if (state < 0) return;
-        int dot;
-        StringBuilder sb = new StringBuilder("GPS");
-        if (state == 2) {
-            dot = Color.rgb(84, 214, 120);
-        } else if (state == 1) {
-            boolean on = (SystemClock.elapsedRealtime() / 500L) % 2L == 0L;
-            dot = on ? Color.rgb(255, 82, 82) : Color.rgb(120, 40, 40);
-            sb.append(lang(" 끊김", " LOST"));
-        } else {
-            dot = Color.rgb(140, 148, 156);
-            sb.append(lang(" 없음", " NONE"));
-        }
-        JSONObject info = s.optJSONObject("gpsInfo");
-        if (info != null && state != 0) {
-            int age = info.optInt("age", -1);
-            double hz = info.optDouble("hz", -1);
-            int navKph = info.optInt("navKph", -1);
-            StringBuilder d = new StringBuilder();
-            if (age >= 0) d.append(String.format(java.util.Locale.US, "%.1fs", Math.min(age, 99000) / 1000f));
-            if (hz >= 0) d.append(d.length() > 0 ? "·" : "").append(String.format(java.util.Locale.US, "%.0fHz", hz));
-            if (navKph >= 0) d.append(d.length() > 0 ? "·" : "").append(navKph).append("km");
-            if (info.optBoolean("virtual", false)) d.append(lang("·가상", "·SIM"));
-            int mapAge = info.optInt("mapAge", -1);
-            if (mapAge > 2500) {
-                // Map frames stopped even though the position stream is alive.
-                d.append(d.length() > 0 ? "·" : "").append(lang("지도 ", "MAP ")).append(Math.min(mapAge, 999000) / 1000).append("s");
-            }
-            if (d.length() > 0) sb.append("  ").append(d);
-        }
-        String label = sb.toString();
-        p.setTextSize(21f);
-        float w = Math.min(p.measureText(label) + 44f, right - 1316f); // keep clear of the TBT card
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(190, 28, 34, 40));
-        scratchRect.set(right - w, top, right, top + height);
-        c.drawRoundRect(scratchRect, 10f, 10f, p);
-        p.setColor(dot);
-        c.drawCircle(right - w + 18f, top + height * 0.5f, 8f, p);
-        int color = state == 2 ? Color.WHITE : Color.rgb(255, 205, 205);
-        if (state == 2 && info != null && info.optInt("mapAge", -1) > 2500) color = Color.rgb(255, 190, 110);
-        text(c, p, label, right - w + 32f, top + 33f, 21f, color, Paint.Align.LEFT);
+    private void drawGpsSourceBadge(Canvas c, Paint p, float right, float top, float height) {
+        if (gpsSourceIcons == null || gpsSourceMonitor == null || right - 1316f < 154f) return;
+        gpsSourceIcons.draw(c, right, top, gpsSourceMonitor.sourceKind(), gpsSourceMonitor.isPredicted());
     }
 
     /**
@@ -5221,6 +5189,7 @@ public final class HudService extends Service {
         if (!stopped) return;
 
         if (egoCar != null && !egoCar.isRecycled()) egoCar.recycle();
+        if (gpsSourceIcons != null) gpsSourceIcons.close();
         egoCar = null;
         if (wheelImage != null && !wheelImage.isRecycled()) wheelImage.recycle();
         wheelImage = null;
@@ -5254,6 +5223,7 @@ public final class HudService extends Service {
 
     @Override
     public void onDestroy() {
+        if (gpsSourceMonitor != null) gpsSourceMonitor.stop();
         if (mirrorDisplays != null) mirrorDisplays.unregisterDisplayListener(mirrorDisplayListener);
         running.set(false);
         navSwitchGeneration.incrementAndGet();

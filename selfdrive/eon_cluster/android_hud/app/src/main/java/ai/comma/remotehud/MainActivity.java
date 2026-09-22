@@ -52,6 +52,7 @@ public final class MainActivity extends Activity {
     private TextView jpegValue;
     private TextView mapValue;
     private TextView permissionValue;
+    private TextView gpsSourceValue;
     private Button rescanUsbButton;
     private TextView serviceValue;
     private Button startButton;
@@ -245,6 +246,22 @@ public final class MainActivity extends Activity {
         usbValue = addStatusRow(statusCard, "외부 HUD USB");
         fpsValue = addStatusRow(statusCard, "전송 FPS");
         jpegValue = addStatusRow(statusCard, "JPEG 전송");
+        gpsSourceValue = addStatusRow(statusCard, "실제 GPS 수신 출처");
+        Button gpsPermissionButton = button("GPS 출처 표시 권한 설정", Color.rgb(40, 92, 132));
+        gpsPermissionButton.setOnClickListener(v -> {
+            if (checkSelfPermission("android.permission.ACCESS_FINE_LOCATION") != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{"android.permission.ACCESS_FINE_LOCATION",
+                        "android.permission.ACCESS_COARSE_LOCATION"}, 73);
+            } else if (!GpsSourceMonitor.hasPermissions(this)) {
+                new AlertDialog.Builder(this).setTitle("GPS 출처 표시")
+                        .setMessage("내비가 실행 중일 때도 GPS 출처를 확인하려면 앱 권한에서 위치를 '항상 허용'으로 설정해 주세요. 정확한 위치도 켜 주세요. 위치를 저장하거나 전송하지 않습니다.")
+                        .setPositiveButton("앱 설정 열기", (dialog, which) -> startActivity(
+                                new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.parse("package:" + getPackageName()))))
+                        .setNegativeButton("취소", null).show();
+            }
+        });
+        statusCard.addView(gpsPermissionButton);
         root.addView(statusCard, cardParams());
 
         LinearLayout autoCard = card();
@@ -419,6 +436,7 @@ public final class MainActivity extends Activity {
     }
 
     private void refreshStatus() {
+        if (gpsSourceValue != null) gpsSourceValue.setText(HudService.gpsSourceLabel());
         HudService.StatusSnapshot s = HudService.getStatusSnapshot();
         int navApp = AppPrefs.getNavApp(this);
         tmapButton.setText(navApp == 1 ? "✓ 티맵" : "티맵");

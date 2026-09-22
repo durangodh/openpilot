@@ -1,5 +1,43 @@
 # Android remote HUD (experimental)
 
+## Live GPS source badge (2026-09-22)
+
+The map's top-right corner and the phone settings status card show the source
+of recently delivered Android **GPS** fixes. This replaces the old top-row GPS
+health badge (dot, age, rate, navigation speed and map delay) in the same slot
+left of the unchanged Naver/TMAP label; no second-row badge is drawn.
+The HUD uses the user's car and satellite icons (car = vehicle, satellite = S9).
+Both are visible: only a confirmed recent source is green; the other is grey.
+Grey icons with a dash mean waiting; both icons amber (no question mark) mean unknown,
+both icons red (no exclamation mark) mean permission/error,
+`M` mock location, and grey `×` location disabled. Vehicle extrapolation makes
+the car blink bright/dim green at one cycle per second (no `≈` symbol), while
+the satellite remains grey. Normal measured vehicle fixes stay green. Phone settings retain
+the full text labels. Original supplied PNGs are unchanged; white background
+and padding are handled at render time.
+A passive listener never enables GPS, injects
+locations, or changes the navigation app's requests. Fine and background
+location permissions are required (settings button: GPS 출처 표시 권한 설정).
+
+`GPS 차량` requires a non-mock GPS fix with `extras.source=vehicle`;
+`GPS S9` requires a non-mock GPS fix with native satellite-count evidence and
+no foreign source marker. Missing evidence shows `GPS 출처 미확인`, mock fixes
+are explicitly labeled, and fixes older than three seconds show `GPS 수신 대기`.
+Network/fused updates do not overwrite GPS source. `보간` denotes nMirror's
+predicted vehicle fix, not a new vehicle measurement. No coordinates are logged
+or transmitted by this monitor. The badge does not claim which fused position
+the navigation app ultimately selects internally.
+
+Verified against the installed S9 ROM: nMirror 0.1.18 adds the vehicle marker;
+LocationManagerService/LocationProviderManager accept and copy the location,
+preserving extras and suppressing native GPS reports while vehicle input is
+valid. Native GnssLocationProvider attaches satellite counts. Other ROMs that
+strip metadata may show unknown rather than a guessed source.
+
+`GpsSourcePolicyCheck` covers source precedence and freshness. The Android-only
+`GpsSourceDeviceCheck` exercises synthetic callbacks in memory; it does not
+inject locations into Android or exercise real vehicle GPS reception.
+
 ## nMirror 0.1.18 startup/display correction (2026-09-21)
 
 Navigation is launched and checked on display **0**, as nMirror's own startup

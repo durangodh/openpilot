@@ -87,6 +87,14 @@ def main():
     args = parser.parse_args()
     source = (Path(__file__).resolve().parents[1] /
               "app/src/main/java/ai/comma/remotehud/HudService.java").read_text(encoding="utf-8")
+    # GPS source replaces the old health badge, in its original top-row slot.
+    badges = source.split("private void drawMapSourceBadge(", 1)[1].split(
+        "private void drawJunction(", 1)[0]
+    assert "drawGpsSourceBadge(c, p, right - width - 12f, top, height)" in badges
+    assert "gpsSourceMonitor.sourceKind()" in badges
+    assert "NavSelectionProtocol.appLabel" in badges
+    for old in ('"gpsState"', '"gpsInfo"', "drawCircle", "sourceTop", "drawGpsBadge("):
+        assert old not in badges, old
     model_world = (Path(__file__).resolve().parents[1] /
                    "app/src/main/java/ai/comma/remotehud/ModelWorldGL.java").read_text(encoding="utf-8")
     turzx = (Path(__file__).resolve().parents[1] /
