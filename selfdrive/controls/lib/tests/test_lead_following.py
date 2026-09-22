@@ -12,7 +12,7 @@ def lead(v_ego=20.0, **kwargs):
 
 
 def cost(v_ego=20.0, **kwargs):
-  values = dict(base_cost=6.0, v_ego=v_ego, a_ego=0.0, planned_accel=0.0,
+  values = dict(base_cost=6.0, v_ego=v_ego, a_ego=0.2, planned_accel=0.2,
                 leads=(lead(v_ego), NS(status=False)), t_follow=1.45,
                 stop_distance=6.0, comfort_brake=2.5)
   values.update(kwargs)
@@ -38,6 +38,22 @@ def test_second_lead_can_cancel_comfort():
 def test_actual_or_planned_braking_restores_original_cost():
   assert cost(a_ego=-0.01) == 6.0
   assert cost(planned_accel=-0.01) == 6.0
+
+
+@pytest.mark.parametrize('field', ['a_ego', 'planned_accel'])
+@pytest.mark.parametrize('kph', [60.0, 100.0])
+def test_acceleration_zero_crossing_does_not_toggle_following_weight(field, kph):
+  values = [cost(v_ego=kph / 3.6, **{field: accel})
+            for accel in [-0.001, 0.0, 0.001, 0.0, -0.001]]
+  assert max(values) - min(values) < 0.001
+  assert values[0] == values[1] == 6.0
+
+
+@pytest.mark.parametrize('field', ['a_ego', 'planned_accel'])
+def test_comfort_returns_progressively_before_acceleration_reaches_zero(field):
+  values = [cost(**{field: accel}) for accel in [0.2, 0.15, 0.1, 0.05, 0.0, -0.1]]
+  assert all(a < b for a, b in zip(values[:4], values[1:5]))
+  assert values[-2:] == [6.0, 6.0]
 
 
 def test_user_cost_and_gap_settings_are_respected():

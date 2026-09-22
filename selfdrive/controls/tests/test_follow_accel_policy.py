@@ -33,7 +33,6 @@ def setup_policy(v_ego=20.0):
   policy.no_lead_cruise_accel_factor = 0.65
   policy.no_lead_cruise_jerk_limit = 0.25
   policy.follow_accel_limit = None
-  policy.follow_source = None
   policy.last_apply_accel = 0.65
   policy.current_set_speed_kph = v_ego * 3.6 + 40.0
   cs = NS(vEgo=v_ego)
@@ -97,16 +96,34 @@ def test_second_lead_gets_the_same_pid_and_transport_cap():
   assert policy.get_apply_accel(NS(out=cs), sm, 2.0, False) == cap
 
 
-def test_distant_source_switch_reopens_from_actual_output():
+def test_distant_source_switch_preserves_allowance_even_after_coasting():
   policy, cs, sm = setup_policy()
   sm['radarState'].leadOne.status = True
   assert policy.get_longitudinal_accel_limit(cs, sm, policy.current_set_speed_kph) == 1.0
-  policy.last_apply_accel = 0.2
-  sm['longitudinalPlan'].longitudinalPlanSource = 'lead0'
-  cap = policy.get_longitudinal_accel_limit(cs, sm, policy.current_set_speed_kph)
-  assert cap == pytest.approx(0.2035)
-  assert policy.get_apply_accel(NS(out=cs), sm, 1.0, False) == cap
-  assert policy.get_apply_accel(NS(out=cs), sm, -3.5, False) == -3.5
+  for output in [0.2, 0.0, -0.1]:
+    for source in ['lead0', 'cruise', 'lead1', 'lead0', 'cruise']:
+      policy.last_apply_accel = output
+      sm['longitudinalPlan'].longitudinalPlanSource = source
+      cap = policy.get_longitudinal_accel_limit(cs, sm, policy.current_set_speed_kph)
+      assert cap == 1.0
+      assert policy.get_apply_accel(NS(out=cs), sm, 0.1, False) == 0.1
+      assert policy.get_apply_accel(NS(out=cs), sm, -3.5, False) == -3.5
+
+
+def test_source_switch_does_not_bypass_real_approach_limit():
+  steady, cs, sm = setup_policy()
+  switching, _, _ = setup_policy()
+  sm['radarState'].leadOne = NS(status=True, dRel=60.0, vLead=18.0, aLeadK=0.0)
+  sm['longitudinalPlan'].desiredDistance = 50.0
+  for frame in range(100):
+    sm['longitudinalPlan'].longitudinalPlanSource = 'lead0'
+    expected = steady.get_longitudinal_accel_limit(cs, sm, steady.current_set_speed_kph)
+    sm['longitudinalPlan'].longitudinalPlanSource = 'lead0' if frame % 2 else 'cruise'
+    switching.last_apply_accel = 0.0
+    actual = switching.get_longitudinal_accel_limit(cs, sm, switching.current_set_speed_kph)
+    assert actual == pytest.approx(expected)
+    assert actual == pytest.approx(0.25)
+    assert switching.get_apply_accel(NS(out=cs), sm, 1.0, False) == actual
 
 
 def test_far_approach_lifts_throttle_before_follow_gap():
@@ -139,7 +156,6 @@ def test_stale_plans_cannot_apply_approach_or_source_comfort():
   sm['longitudinalPlan'].desiredDistance = 50.0
   sm.valid = dict(sm.valid, longitudinalPlan=False)
   assert policy.get_longitudinal_accel_limit(cs, sm, policy.current_set_speed_kph) == 1.0
-  assert policy.follow_source is None
 
 
 @pytest.mark.parametrize('guard', ['stop', 'fcw', 'blended', 'stopped_lead', 'braking_lead'])

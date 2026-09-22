@@ -46,18 +46,19 @@ def load_mpc(comfort=True):
 
 
 def scenario(comfort=True, speed=100.0 / 3.6, lead_speed=None, distance=90.0,
-             lead_accel=0.0, second=False, traffic_stop=False, mode='acc', braking=False):
+             lead_accel=0.0, second=False, traffic_stop=False, mode='acc', braking=False,
+             ego_accel=0.2, planned_accel=0.2):
   env = load_mpc(comfort)
   mpc = env['LongitudinalMpc'](mode)
   mpc.run = lambda: None
-  mpc.set_cur_state(speed, -0.3 if braking else 0.0)
+  mpc.set_cur_state(speed, -0.3 if braking else planned_accel)
   mpc.set_accel_limits(-1.2, 0.8)
   mpc.traffic_stop_active = traffic_stop
   mpc.traffic_stop_distance = 25.0
   lead = NS(status=True, dRel=distance, vLead=speed if lead_speed is None else lead_speed,
             aLeadK=lead_accel, aLeadTau=1.5, modelProb=1.0)
   other = NS(status=second, dRel=20.0, vLead=0.0, aLeadK=0.0, aLeadTau=1.5, modelProb=1.0)
-  cs = NS(aEgo=-0.3 if braking else 0.0, brakePressed=False, gasPressed=False, buttonEvents=[])
+  cs = NS(aEgo=-0.3 if braking else ego_accel, brakePressed=False, gasPressed=False, buttonEvents=[])
   controls = NS(enabled=True, mySafeModeFactor=1.0, longCruiseGap=2)
   refs = [np.zeros(13) for _ in range(4)]
   mpc.update(cs, NS(leadOne=lead, leadTwo=other), controls, 32.0, *refs)
@@ -73,6 +74,15 @@ def test_comfort_changes_only_distance_weight_not_obstacles_or_constraints():
     np.testing.assert_array_equal(stock.solver.values[stage, 'Zl'], tuned.solver.values[stage, 'Zl'])
     np.testing.assert_array_equal(stock.solver.values[stage, 'W'][1:, 1:], tuned.solver.values[stage, 'W'][1:, 1:])
   assert stock.source == tuned.source
+
+
+def test_mpc_follow_cost_is_continuous_at_actual_and_planned_zero_crossings():
+  for field in ('ego_accel', 'planned_accel'):
+    before = scenario(**{field: 0.001})
+    after = scenario(**{field: -0.001})
+    assert abs(before.solver.values[0, 'W'][0, 0] - after.solver.values[0, 'W'][0, 0]) < 0.001
+    np.testing.assert_array_equal(before.params[:, [0, 1, 2, 4, 5, 6, 7]],
+                                  after.params[:, [0, 1, 2, 4, 5, 6, 7]])
 
 
 @pytest.mark.parametrize('overrides', [dict(speed=5.0), dict(lead_speed=0.0), dict(lead_accel=-1.0),

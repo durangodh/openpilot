@@ -8,6 +8,7 @@ import math
 from common.numpy_fast import interp
 
 APPROACH_ACCEL_LIMIT_FALL = 0.5  # m/s^3, positive throttle lift only
+FOLLOW_COMFORT_FULL_ACCEL = 0.2  # m/s^2, fade out comfort before either acceleration reaches zero
 
 
 def get_follow_obstacle_cost(base_cost, v_ego, a_ego, planned_accel, leads,
@@ -19,7 +20,12 @@ def get_follow_obstacle_cost(base_cost, v_ego, a_ego, planned_accel, leads,
       comfort_brake <= 0.0):
     return base_cost
 
-  comfort = 1.0
+  # Restore the normal distance weight continuously as actual OR planned
+  # acceleration approaches coasting. A hard sign gate used to switch the
+  # weight by up to 35% around zero. This instantaneous blend adds no filter
+  # delay: braking/closing/short-gap guards still restore the base cost.
+  accel_weight = interp(min(a_ego, planned_accel), [0.0, FOLLOW_COMFORT_FULL_ACCEL], [0.0, 1.0])
+  comfort = accel_weight * accel_weight * (3.0 - 2.0 * accel_weight)
   has_lead = False
   for lead in leads:
     if not lead.status:
@@ -41,16 +47,16 @@ def get_follow_obstacle_cost(base_cost, v_ego, a_ego, planned_accel, leads,
     return base_cost
 
   reduction = interp(v_ego * 3.6, [30.0, 60.0, 100.0], [0.0, 0.20, 0.35])
-  # Respect already-soft user settings. Default 6.0 becomes 4.8 at 60 km/h
-  # and 3.9 at 100 km/h; no change to the danger-zone constraint penalty.
+  # Respect already-soft user settings. At full comfort, default 6.0 becomes
+  # 4.8 at 60 km/h and 3.9 at 100 km/h; the danger penalty stays unchanged.
   return max(min(base_cost, 3.0), base_cost * (1.0 - reduction * comfort))
 
 
 def get_follow_approach_limit(max_accel, v_ego, leads, desired_gap):
   """Lift positive throttle before a distant lead consumes the spare gap.
 
-  Return (positive allowance, comfortable scene). The latter also permits
-  re-anchoring the allowance to actual output when the MPC source switches.
+  Return (positive allowance, comfortable scene). The latter permits gradual
+  throttle lift while the existing hazard guards keep their immediate response.
   Never filter distance/speed measurements or weaken a braking request.
   desired_gap is the planner's current primary-lead gap with user settings.
   """
