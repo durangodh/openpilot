@@ -16,6 +16,16 @@ final class GpsSourcePolicy {
     static String symbol(int source) {
         return source == MOCK ? "M" : source == -2 ? "×" : source == WAITING ? "—" : "";
     }
+    static int badgeWidth(int source) {
+        return symbol(source).isEmpty() ? 106 : 154;
+    }
+    static String accuracyLabel(int source, boolean hasAccuracy, float meters) {
+        if ((source != VEHICLE && source != PHONE && source != UNKNOWN)
+                || !hasAccuracy || !Float.isFinite(meters) || meters <= 0f) return "";
+        // Round up, never imply zero error or understate the reported radius.
+        if (meters > 9999f) return "±>9999m";
+        return "±" + (int) Math.ceil(meters) + "m";
+    }
     static int classify(String provider, String source, int satellites, boolean mock) {
         if (!"gps".equals(provider)) return WAITING;
         if (mock) return MOCK;

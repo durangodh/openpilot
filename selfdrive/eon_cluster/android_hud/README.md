@@ -27,6 +27,15 @@ the car blink bright/dim green at one cycle per second (no `≈` symbol), while
 the satellite remains grey. Normal measured vehicle fixes stay green. Phone settings retain
 the full text labels. Original supplied PNGs are unchanged; white background
 and padding are handled at render time.
+The badge shrinks from 154 to 106 logical pixels when no status symbol is present;
+icon size and spacing remain unchanged and the right edge stays aligned.
+Fresh GPS fixes with a valid horizontal accuracy estimate show a white `±5m`
+style label beside the icons (whole meters rounded up). This is Android's
+reported uncertainty radius, not satellite count, signal strength, or a
+guaranteed error bound. Vehicle prediction uses the predicted fix's reported
+accuracy and keeps the blinking vehicle icon. Missing/invalid/stale/mock fixes
+show no accuracy number. The background grows only to fit the actual label.
+Source, prediction and accuracy are read together from one location snapshot.
 A passive listener never enables GPS, injects
 locations, or changes the navigation app's requests. Fine and background
 location permissions are required (settings button: GPS 출처 표시 권한 설정).

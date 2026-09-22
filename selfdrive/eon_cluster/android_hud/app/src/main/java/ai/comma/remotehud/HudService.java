@@ -4999,8 +4999,10 @@ public final class HudService extends Service {
      * Android GPS source. No EON age/rate/speed, status dot or map-delay text.
      */
     private void drawGpsSourceBadge(Canvas c, Paint p, float right, float top, float height) {
-        if (gpsSourceIcons == null || gpsSourceMonitor == null || right - 1316f < 154f) return;
-        gpsSourceIcons.draw(c, right, top, gpsSourceMonitor.sourceKind(), gpsSourceMonitor.isPredicted());
+        if (gpsSourceIcons == null || gpsSourceMonitor == null) return;
+        GpsSourceMonitor.Reading reading = gpsSourceMonitor.snapshot();
+        if (right - 1316f < gpsSourceIcons.width(reading)) return;
+        gpsSourceIcons.draw(c, right, top, reading);
     }
 
     /**

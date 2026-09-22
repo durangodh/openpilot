@@ -69,33 +69,44 @@ final class GpsSourceMonitor implements LocationListener {
             lastGps = new Location(location);
         }
     }
-    int sourceKind() {
-        if (!allowed) return -1;
-        if (!enabled) return -2;
-        if (failed) return -3;
+    static final class Reading {
+        final int kind;
+        final boolean predicted;
+        final String accuracy;
+        Reading(int kind, boolean predicted, String accuracy) {
+            this.kind = kind;
+            this.predicted = predicted;
+            this.accuracy = accuracy;
+        }
+        Reading(int kind) { this(kind, false, ""); }
+    }
+    Reading snapshot() {
+        if (!allowed) return new Reading(-1);
+        if (!enabled) return new Reading(-2);
+        if (failed) return new Reading(-3);
         Location location = lastGps;
-        if (location == null) return GpsSourcePolicy.WAITING;
+        if (location == null) return new Reading(GpsSourcePolicy.WAITING);
         Bundle extras = location.getExtras();
         String source = extras == null ? null : extras.getString("source");
         int satellites = extras == null ? 0 : extras.getInt("satellites", 0);
-        return GpsSourcePolicy.current(GpsSourcePolicy.classify(location.getProvider(),
+        int kind = GpsSourcePolicy.current(GpsSourcePolicy.classify(location.getProvider(),
                 source, satellites, location.isFromMockProvider()),
                 location.getElapsedRealtimeNanos() / 1000000L, SystemClock.elapsedRealtime());
-    }
-    boolean isPredicted() {
-        Location location = lastGps;
-        return location != null && location.getExtras() != null
-                && location.getExtras().getBoolean("predicted", false);
+        return new Reading(kind, kind == GpsSourcePolicy.VEHICLE && extras != null
+                && extras.getBoolean("predicted", false),
+                GpsSourcePolicy.accuracyLabel(kind, location.hasAccuracy(), location.getAccuracy()));
     }
     String label() {
-        int kind = sourceKind();
+        Reading reading = snapshot();
+        int kind = reading.kind;
         if (kind == -1) return "GPS 위치 권한 필요";
         if (kind == -2) return "GPS 위치 꺼짐";
         if (kind == -3) return "GPS 확인 오류";
         String label = GpsSourcePolicy.label(kind);
-        if (kind == GpsSourcePolicy.VEHICLE && isPredicted()) {
+        if (reading.predicted) {
             label += " · 보간";
         }
+        if (!reading.accuracy.isEmpty()) label += " " + reading.accuracy;
         return label;
     }
     @Override public void onProviderEnabled(String provider) { }

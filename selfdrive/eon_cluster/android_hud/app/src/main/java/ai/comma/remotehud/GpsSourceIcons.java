@@ -68,20 +68,35 @@ final class GpsSourceIcons {
         canvas.drawBitmap(bitmap, source, rect, paint);
         paint.setColorFilter(null);
     }
-    void draw(Canvas canvas, float right, float top, int kind, boolean predicted) {
+    float width(GpsSourceMonitor.Reading reading) {
+        paint.setTextSize(21f);
+        return GpsSourcePolicy.badgeWidth(reading.kind)
+                + (reading.accuracy.isEmpty() ? 0f : paint.measureText(reading.accuracy) + 16f);
+    }
+    void draw(Canvas canvas, float right, float top, GpsSourceMonitor.Reading reading) {
+        int kind = reading.kind;
+        boolean predicted = reading.predicted;
+        String status = GpsSourcePolicy.symbol(kind);
+        float width = width(reading);
+        float left = right - width;
         paint.setColor(Color.argb(210, 28, 34, 40));
-        rect.set(right - 154f, top, right, top + 48f);
+        rect.set(left, top, right, top + 48f);
         canvas.drawRoundRect(rect, 10f, 10f, paint);
         long now = SystemClock.elapsedRealtime();
-        icon(canvas, car, carBounds, right - 125f, top,
+        icon(canvas, car, carBounds, left + 29f, top,
                 tone(GpsSourcePolicy.iconTone(kind, predicted, true, now)));
-        icon(canvas, phone, phoneBounds, right - 73f, top,
+        icon(canvas, phone, phoneBounds, left + 81f, top,
                 tone(GpsSourcePolicy.iconTone(kind, predicted, false, now)));
-        String status = GpsSourcePolicy.symbol(kind);
         paint.setColor(kind == GpsSourcePolicy.WAITING || kind == -2 ? GREY : AMBER);
         paint.setTextSize(23f);
         paint.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText(status, right - 24f, top + 33f, paint);
+        canvas.drawText(status, left + GpsSourcePolicy.badgeWidth(kind) - 24f, top + 33f, paint);
+        if (!reading.accuracy.isEmpty()) {
+            paint.setColor(Color.WHITE);
+            paint.setTextSize(21f);
+            paint.setTextAlign(Paint.Align.LEFT);
+            canvas.drawText(reading.accuracy, left + GpsSourcePolicy.badgeWidth(kind), top + 32f, paint);
+        }
     }
     void close() { car.recycle(); phone.recycle(); }
 }

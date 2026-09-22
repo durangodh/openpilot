@@ -37,8 +37,18 @@ public final class GpsSourceDeviceCheck {
         location.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
         monitor.onLocationChanged(location);
         check(monitor.label().equals("GPS S9"));
+        check(monitor.snapshot().accuracy.isEmpty());
+        location.setAccuracy(4.1f);
+        location.setElapsedRealtimeNanos(location.getElapsedRealtimeNanos() + 1L);
+        monitor.onLocationChanged(location);
+        check(monitor.snapshot().accuracy.equals("±5m"));
+        check(monitor.label().equals("GPS S9 ±5m"));
         monitor.stop();
         check(monitor.label().equals("GPS 수신 대기"));
-        System.out.println("GPS Android callback: 6 checks passed; no system location injected");
+        location.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos() - 4000000000L);
+        monitor.onLocationChanged(location);
+        check(monitor.snapshot().accuracy.isEmpty());
+        check(monitor.label().equals("GPS 수신 대기"));
+        System.out.println("GPS Android callback: 11 checks passed; no system location injected");
     }
 }
