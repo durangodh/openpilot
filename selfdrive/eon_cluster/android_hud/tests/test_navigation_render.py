@@ -87,6 +87,14 @@ def main():
     args = parser.parse_args()
     source = (Path(__file__).resolve().parents[1] /
               "app/src/main/java/ai/comma/remotehud/HudService.java").read_text(encoding="utf-8")
+    # The map socket must react promptly to the first EON packet and reconnect;
+    # otherwise the HUD can spend an avoidable half-second on WAITING FOR MAP.
+    assert "MAP_ADDRESS_WAIT_MS = 100L" in source
+    assert "MAP_RETRY_WAIT_MS = 200L" in source
+    map_loop = source.split("private void mapLoop()", 1)[1].split(
+        "/** Low-rate CPU inference", 1)[0]
+    assert "SystemClock.sleep(MAP_ADDRESS_WAIT_MS)" in map_loop
+    assert "SystemClock.sleep(MAP_RETRY_WAIT_MS)" in map_loop
     # GPS source replaces the old health badge, in its original top-row slot.
     badges = source.split("private void drawMapSourceBadge(", 1)[1].split(
         "private void drawJunction(", 1)[0]

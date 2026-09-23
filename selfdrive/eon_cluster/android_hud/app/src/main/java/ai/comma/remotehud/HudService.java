@@ -151,6 +151,10 @@ public final class HudService extends Service {
     private static final long USB_PRIMER_WARMUP_MS = 350L;
     /** 기존 2초 안정화 시간을 유지하면서 두 번째 프레임이 정착할 시간을 준다. */
     private static final long USB_PRIMER_SETTLE_MS = 1650L;
+    /** EON 주소를 받기 전 지도 소켓 스레드의 대기 간격. 짧은 구간에만 동작한다. */
+    private static final long MAP_ADDRESS_WAIT_MS = 100L;
+    /** 지도 TCP 연결이 끊겼을 때의 재시도 간격. */
+    private static final long MAP_RETRY_WAIT_MS = 200L;
     /** nMirror가 부팅/화면 재생성 중 첫 방송을 놓쳐도 선택값을 받도록 재전송한다. */
     private static final int NMIRROR_SYNC_ATTEMPTS = 4;
     private static final long NMIRROR_SYNC_RETRY_MS = 500L;
@@ -1393,7 +1397,7 @@ public final class HudService extends Service {
         while (running.get()) {
             InetAddress address = eonAddress.get();
             if (address == null) {
-                SystemClock.sleep(500L);
+                SystemClock.sleep(MAP_ADDRESS_WAIT_MS);
                 continue;
             }
             Socket socket = null;
@@ -1441,7 +1445,7 @@ public final class HudService extends Service {
                 }
             } catch (Exception e) {
                 mapConnected = false;
-                SystemClock.sleep(500L);
+                SystemClock.sleep(MAP_RETRY_WAIT_MS);
             } finally {
                 if (assetSocket == socket) assetSocket = null;
                 if (socket != null) {
