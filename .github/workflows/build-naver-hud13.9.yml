@@ -31,7 +31,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          sdkmanager "build-tools;35.0.0"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0"
           mkdir -p "$RUNNER_TEMP/naver-input"
           gh release download carrot-naver-6.9.1.3-hud13.7 --pattern 'CarrotNaver_6.9.1.3_hud13.7.apks' --dir "$RUNNER_TEMP/naver-input"
           curl --fail --location --retry 3 https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar -o "$RUNNER_TEMP/apktool.jar"
