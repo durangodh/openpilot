@@ -1,5 +1,7 @@
 package ai.comma.remotehud;
 
+import java.util.Locale;
+
 /** Source of delivered GPS fixes, not the app's selected/fused navigation position. */
 final class GpsSourcePolicy {
     static final int WAITING = 0, VEHICLE = 1, PHONE = 2, UNKNOWN = 3, MOCK = 4;
@@ -22,9 +24,8 @@ final class GpsSourcePolicy {
     static String accuracyLabel(int source, boolean hasAccuracy, float meters) {
         if ((source != VEHICLE && source != PHONE && source != UNKNOWN)
                 || !hasAccuracy || !Float.isFinite(meters) || meters <= 0f) return "";
-        // Round up, never imply zero error or understate the reported radius.
-        if (meters > 9999f) return "±>9999m";
-        return "±" + (int) Math.ceil(meters) + "m";
+        if (meters > 9999f) return ">9999m";
+        return String.format(Locale.US, "%.1fm", meters);
     }
     static int classify(String provider, String source, int satellites, boolean mock) {
         if (!"gps".equals(provider)) return WAITING;

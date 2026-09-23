@@ -29,8 +29,8 @@ the full text labels. Original supplied PNGs are unchanged; white background
 and padding are handled at render time.
 The badge shrinks from 154 to 106 logical pixels when no status symbol is present;
 icon size and spacing remain unchanged and the right edge stays aligned.
-Fresh GPS fixes with a valid horizontal accuracy estimate show a white `±5m`
-style label beside the icons (whole meters rounded up). This is Android's
+Fresh GPS fixes with a valid horizontal accuracy estimate show a white `4.1m`
+style label beside the icons (one decimal place, without a plus/minus prefix). This is Android's
 reported uncertainty radius, not satellite count, signal strength, or a
 guaranteed error bound. Vehicle prediction uses the predicted fix's reported
 accuracy and keeps the blinking vehicle icon. Missing/invalid/stale/mock fixes
