@@ -11,7 +11,6 @@ from common.conversions import Conversions as CV
 from common.numpy_fast import clip, interp
 from selfdrive.controls.lib import t_follow
 from selfdrive.controls.lib.lead_following import get_follow_obstacle_cost
-from selfdrive.controls.lib.traffic_mode import TrafficMode
 from selfdrive.modeld.constants import index_function
 
 
@@ -37,7 +36,7 @@ def load_mpc(comfort=True):
   env = {name: getattr(t_follow, name) for name in dir(t_follow) if not name.startswith('__')}
   env.update(os=os, np=np, __file__=str(source), CV=CV, clip=clip, interp=interp,
              _CRUISE_GAP_BP=t_follow.CRUISE_GAP_BP, DT_MDL=0.05, index_function=index_function,
-             _LEAD_ACCEL_TAU=1.5, AcadosOcpSolverCython=RecordingSolver, TrafficMode=TrafficMode,
+             _LEAD_ACCEL_TAU=1.5, AcadosOcpSolverCython=RecordingSolver,
              get_follow_obstacle_cost=get_follow_obstacle_cost if comfort else lambda base, *args: base,
              car=NS(CarState=NS(ButtonEvent=NS(Type=NS(accelCruise=1, resumeCruise=2)))),
              log=NS(LongitudinalPlan=NS(XState=NS(cruise=0, lead=1, softHold=2))))

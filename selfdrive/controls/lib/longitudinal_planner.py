@@ -9,8 +9,7 @@ from common.params import Params
 from common.realtime import DT_MDL
 from selfdrive.modeld.constants import T_IDXS
 from selfdrive.controls.lib.longcontrol import LongCtrlState
-from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, MIN_ACCEL, MAX_ACCEL, N, LEAD_DANGER_FACTOR, XState
-from selfdrive.controls.lib.t_follow import get_stopped_lead_comfort_brake
+from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, MIN_ACCEL, MAX_ACCEL, N
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_speed_error
 from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
@@ -78,7 +77,6 @@ class LongitudinalPlanner:
     self.events = Events()
 
   def read_param(self):
-    self.traffic_mode_enabled = self.params.get_bool("TrafficMode")
     self.mpc.applyLongDynamicCost = self.params.get_bool("ApplyLongDynamicCost")
     self.mpc.softHoldMode = int(clip(self.params.get_int("SoftHoldMode"), 0, 2))
     self.auto_e2e_enabled = self.CP.openpilotLongitudinalControl
@@ -145,26 +143,6 @@ class LongitudinalPlanner:
     x_obstacle_cost = self.params.get_int("XEgoObstacleCost")
     self.mpc.x_ego_obstacle_cost = float(clip((x_obstacle_cost if x_obstacle_cost > 0 else 600) * 0.01, 1.0, 12.0))
     # ───────────────────
-
-  def update_traffic_mode(self, sm, reset_state, accel_limits):
-    lead = sm['radarState'].leadOne
-    model_x = sm['modelV2'].position.x
-    safe_factor = float(clip(sm['controlsState'].mySafeModeFactor, 0.5, 1.0))
-    comfort_brake = get_stopped_lead_comfort_brake(
-      self.mpc.comfort_brake * safe_factor, sm['carState'].vEgo, lead.vLead, lead.status)
-    available = (self.traffic_mode_enabled and self.CP.openpilotLongitudinalControl and
-                 sm['controlsState'].enabled and not reset_state and self.mpc.mode == 'acc' and
-                 not self.mpc.traffic_stop_active and self.mpc.xState != XState.softHold and
-                 not sm['carState'].gasPressed and not sm['carState'].brakePressed and
-                 sm.all_checks(service_list=['carState', 'radarState', 'modelV2']))
-    self.mpc.traffic.update(
-      sm, available=available, model_distance=float(model_x[-1]) if len(model_x) == 33 else -1.0,
-      model_time=float(T_IDXS[-1]), max_accel=accel_limits[1], min_accel=MIN_ACCEL,
-      stop_distance=self.mpc.stop_distance * (2.0 - safe_factor), comfort_brake=comfort_brake,
-      danger_factor=LEAD_DANGER_FACTOR, initial_t_follow=self.mpc.t_follow)
-    if self.mpc.traffic.active:
-      accel_limits[0] = min(accel_limits[0], self.mpc.traffic.min_accel)
-      accel_limits[1] = min(accel_limits[1], self.mpc.traffic.max_accel)
 
   def reset_auto_e2e(self):
     self.conditional_e2e.reset()
@@ -285,8 +263,6 @@ class LongitudinalPlanner:
     else:
       # E2E/blended 도 사용자 CruiseMax 상한은 유지(apilot-c2 는 MAX_ACCEL 2.5 고정)
       accel_limits = [MIN_ACCEL, cruise_max_accel]
-
-    self.update_traffic_mode(sm, reset_state, accel_limits)
 
     if reset_state:
       self.v_desired_filter.x = v_ego

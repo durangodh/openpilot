@@ -120,7 +120,6 @@ def manager_init() -> None:
     ("ShowPlotMode", "0"),
     ("PrevCruiseGap", "4"),
     ("ApplyLongDynamicCost", "0"),
-    ("TrafficMode", "0"),
     ("MyDrivingMode", "3"),
     ("InitMyDrivingMode", "3"),
     ("MyEcoModeFactor", "80"),

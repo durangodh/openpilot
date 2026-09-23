@@ -9,7 +9,6 @@ from selfdrive.swaglog import cloudlog
 from selfdrive.modeld.constants import index_function
 from selfdrive.controls.lib.radar_helpers import _LEAD_ACCEL_TAU
 from selfdrive.controls.lib.lead_following import get_follow_obstacle_cost
-from selfdrive.controls.lib.traffic_mode import TrafficMode
 from selfdrive.controls.lib.t_follow import (CRUISE_GAP_BP as _CRUISE_GAP_BP, CRUISE_GAP_V,
                                              clamp_desired_follow_distance,
                                              get_stopped_lead_comfort_brake,
@@ -241,7 +240,6 @@ class LongitudinalMpc:
   def __init__(self, mode='acc'):
     self.mode = mode
     self.applyLongDynamicCost = False
-    self.traffic = TrafficMode(DT_MDL)
     self.softHoldMode = 1
     self.softHoldTimer = 0
     self.xState = XState.cruise
@@ -274,7 +272,6 @@ class LongitudinalMpc:
     self.source = SOURCES[2]
 
   def reset(self):
-    self.traffic.reset()
     self.solver.reset()
     self.v_solution = np.zeros(N+1)
     self.a_solution = np.zeros(N+1)
@@ -367,13 +364,7 @@ class LongitudinalMpc:
     if self.mode == 'acc':
       a_change_cost = A_CHANGE_COST if prev_accel_constraint else 40
 
-      if self.traffic.active:
-        cost_weights = [obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
-                        a_change_cost * self.traffic.acceleration_jerk,
-                        J_EGO_COST * self.traffic.speed_jerk]
-        constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST,
-                                   DANGER_ZONE_COST * self.traffic.danger_jerk]
-      elif self.applyLongDynamicCost:
+      if self.applyLongDynamicCost:
         cost_multipliers = self.get_cost_multipliers(v_lead0, v_lead1, a_lead0, lead0_status)
         cost_weights = [obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
                         a_change_cost * cost_multipliers[0],
@@ -486,14 +477,9 @@ class LongitudinalMpc:
     # closing. Keep it separate from the held base value so it cannot build up
     # frame after frame while ego is decelerating.
     lead0_status = radarstate.leadOne.status
-    if reset_state or self.mode != 'acc' or self.traffic_stop_active or self.xState == XState.softHold:
-      self.traffic.reset()
-    traffic_active = self.traffic.active
-    # FrogPilot's profile replaces C2 departure/gap adjustments while active.
-    dynamic_cost = self.applyLongDynamicCost and not traffic_active
     closing_margin = get_t_follow_closing_margin(
       v_ego, lead_xv_0[0, 1], lead0_status)
-    self.t_follow = self.traffic.t_follow if traffic_active else self.t_follow_base + closing_margin
+    self.t_follow = self.t_follow_base + closing_margin
 
     # apilot-c2: 안전모드일수록 comfort_brake 를 낮춰(=더 일찍 감속) 정지거리도 늘린다.
     # A confirmed stopped/slow lead with a large closing speed gets an additional
@@ -507,10 +493,10 @@ class LongitudinalMpc:
     lead_v = lead_xv_0[0, 1] if radarstate.leadOne.status else v_ego
     self.desired_distance = float(desired_follow_distance(
       v_ego, lead_v, self.t_follow, self.stop_dist, comfort_brake,
-      krkeegan=dynamic_cost))
+      krkeegan=self.applyLongDynamicCost))
 
     obstacle_cost = self.x_ego_obstacle_cost
-    if self.mode == 'acc' and not (traffic_active or reset_state or self.traffic_stop_active or self.xState == XState.softHold):
+    if self.mode == 'acc' and not (reset_state or self.traffic_stop_active or self.xState == XState.softHold):
       obstacle_cost = get_follow_obstacle_cost(
         obstacle_cost, v_ego, a_ego, self.x0[2],
         (radarstate.leadOne, radarstate.leadTwo), self.t_follow, self.stop_dist, comfort_brake)
@@ -524,17 +510,17 @@ class LongitudinalMpc:
     # apilot-c2: 리드 정지환산거리는 기본 comfort_brake/기본 stop_distance 로 계산
     lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(
       lead_xv_0[:,1], self.x_sol[:,1], self.t_follow, self.stop_distance,
-      krkeegan=dynamic_cost, comfort_brake=comfort_brake)
+      krkeegan=self.applyLongDynamicCost, comfort_brake=comfort_brake)
     lead_1_obstacle = lead_xv_1[:,0] + get_stopped_equivalence_factor(
       lead_xv_1[:,1], self.x_sol[:,1], self.t_follow, self.stop_distance,
-      krkeegan=dynamic_cost, comfort_brake=lead1_comfort_brake)
+      krkeegan=self.applyLongDynamicCost, comfort_brake=lead1_comfort_brake)
 
     # apilot-c2: 비활성(reset) 상태에서는 현재 aEgo 로 상하한을 고정해 활성 전환시 튀지 않게 한다
     self.params[:,0] = MIN_ACCEL if not reset_state else a_ego
     self.params[:,1] = self.max_a if not reset_state else a_ego
 
     if self.mode == 'acc':
-      self.params[:,5] = self.traffic.danger_factor if traffic_active else LEAD_DANGER_FACTOR
+      self.params[:,5] = LEAD_DANGER_FACTOR
 
       v_lower = v_ego + (T_IDXS * self.cruise_min_a * 1.05)
       v_upper = v_ego + (T_IDXS * self.max_a * 1.05)
