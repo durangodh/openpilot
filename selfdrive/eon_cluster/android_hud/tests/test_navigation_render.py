@@ -87,6 +87,8 @@ def main():
     args = parser.parse_args()
     source = (Path(__file__).resolve().parents[1] /
               "app/src/main/java/ai/comma/remotehud/HudService.java").read_text(encoding="utf-8")
+    magisk_service = (Path(__file__).resolve().parents[1] /
+                      "magisk/nmirror_fast_start/service.sh").read_text(encoding="utf-8")
     # The map socket must react promptly to the first EON packet and reconnect;
     # otherwise the HUD can spend an avoidable half-second on WAITING FOR MAP.
     assert "MAP_ADDRESS_WAIT_MS = 100L" in source
@@ -145,6 +147,12 @@ def main():
     assert 'display_id=$(dumpsys activity activities' not in source
     assert "scheduleBootNavigationSync();" in source
     assert "launchNavAppOnMirrorDisplay(context, selected)" in source
+    # Once the selected navigation has appeared during boot, Back/Home is a
+    # user action. Neither later display events nor Magisk retries may reopen it.
+    assert "bootNavigationReady.get()" in source
+    assert "bootNavigationReady.set(true)" in source
+    assert 'NAV_WAS_READY="$NAV_READY"' not in magisk_service
+    assert '[ "$NAV_WAS_READY" != 1 ]' in magisk_service
     assert "displayAwareLaunchCommand(component, false,\n" in source
     assert 'awk -v want=0' in source
     assert 'mResumedActivity:' in source

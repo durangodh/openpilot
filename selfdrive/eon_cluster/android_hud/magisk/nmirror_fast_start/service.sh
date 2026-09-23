@@ -220,18 +220,17 @@ fi
 COUNT=0
 NAV_WAS_READY=0
 while [ "$COUNT" -lt 180 ]; do
-  NAV_READY=0
   if [ "$HUD_READY" = "1" ]; then
     HUD_NAV_PACKAGE="$(hud_nav_package)"
     if [ -n "$HUD_NAV_PACKAGE" ] && nav_on_mirror_display "$HUD_NAV_PACKAGE"; then
-      NAV_READY=1
       if [ "$NAV_WAS_READY" != 1 ]; then
-        log "RemoteHUD navigation is resumed on display 0; continue watching vehicle startup"
+        log "RemoteHUD navigation is resumed on display 0; boot handoff complete"
       fi
+      # Latch the first confirmed foreground state. If it later disappears,
+      # the user pressed Back/Home; do not turn that into another boot sync.
+      NAV_WAS_READY=1
     fi
   fi
-
-  NAV_WAS_READY="$NAV_READY"
 
   # nMirror stops MirrorService after its own bounded Bluetooth retries. A
   # successful am invocation only means Android accepted the request, so issue
@@ -245,8 +244,10 @@ while [ "$COUNT" -lt 180 ]; do
 
   # A FROM_BOOT start asks the already-running HUD service to retry its own
   # display-aware navigation synchronization without opening its settings UI.
-  if [ "$HUD_READY" = "1" ] && [ $((COUNT % 20)) -eq 0 ] && \
-    { [ "$NAV_READY" != 1 ] || [ "$COUNT" -eq 0 ]; }; then
+  # Stop asking permanently after the selected app has appeared once, so a
+  # later intentional Back/Home action remains respected.
+  if [ "$HUD_READY" = "1" ] && [ "$NAV_WAS_READY" != 1 ] && \
+    [ $((COUNT % 20)) -eq 0 ]; then
     request_hud_sync
     log "RemoteHUD navigation handoff requested"
   fi

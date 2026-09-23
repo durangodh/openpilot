@@ -376,6 +376,12 @@ public final class HudService extends Service {
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean bootNavigationSyncRunning = new AtomicBoolean(false);
+    /**
+     * Latches after the boot-selected navigation has appeared once. From that
+     * point a missing foreground Activity is a user action (Back/Home), not a
+     * failed boot launch, so later display/Magisk events must not reopen it.
+     */
+    private final AtomicBoolean bootNavigationReady = new AtomicBoolean(false);
     /** Serializes the transition from live USB output into session preparation. */
     private final Object usbSessionGate = new Object();
     private final AtomicBoolean bootUsbHostRecoveryRunning = new AtomicBoolean(false);
@@ -1053,6 +1059,9 @@ public final class HudService extends Service {
     }
 
     private void scheduleBootNavigationSync() {
+        if (bootNavigationReady.get()) {
+            return;
+        }
         if (!bootNavigationSyncRunning.compareAndSet(false, true)) {
             return;
         }
@@ -1062,9 +1071,10 @@ public final class HudService extends Service {
                 // nMirrorOS creates its capture display after BOOT_COMPLETED,
                 // and separately launches its own "app to start on boot" once
                 // during that same window (its timing relative to ours is
-                // unknown). Keep watching for the full 16 s instead of
-                // stopping at the first success, so whichever app nMirror
-                // launches on its own, our selection still wins in the end.
+                // unknown). Retry until our selected app is seen once. That
+                // first confirmed foreground state completes boot handoff;
+                // after it, Back/Home must remain a user-owned action instead
+                // of being mistaken for another startup failure.
                 //
                 // Only actually re-launch when the selected app is NOT
                 // already the one showing -- re-asserting an already-correct
@@ -1072,21 +1082,26 @@ public final class HudService extends Service {
                 // screen for the whole 16 s window even when nothing needed
                 // fixing.
                 for (int attempt = 0; attempt < 8 && running.get(); attempt++) {
-                    SystemClock.sleep(2000L);
-                    if (!running.get()) return;
+                    if (!running.get() || bootNavigationReady.get()) return;
                     int selected = AppPrefs.getNavApp(context);
                     if (selected == 0) {
                         synchronizeNMirrorSelection(context, 0);
                         stopNavApp(1);
                         stopNavApp(2);
-                        continue;
+                        bootNavigationReady.set(true);
+                        return;
                     }
                     if (isNavAppForegroundOnMirror(context, selected)) {
-                        continue;
+                        bootNavigationReady.set(true);
+                        HudDiagnostics.log("boot navigation handoff complete app=" + selected);
+                        return;
                     }
                     if (launchNavAppOnMirrorDisplay(context, selected)) {
                         synchronizeNMirrorSelection(context, selected);
                         stopNavApp(selected == 2 ? 1 : 2);
+                    }
+                    if (attempt < 7) {
+                        SystemClock.sleep(2000L);
                     }
                 }
             } finally {

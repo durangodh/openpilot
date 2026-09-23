@@ -65,7 +65,10 @@ Navigation is launched and checked on display **0**, as nMirror's own startup
 app launcher does. The `nMirror2 capture` display and cached display IDs from
 older HUD builds must not be used as activity destinations. A display listener
 retries navigation when capture starts, including vehicle connections long
-after boot. Existing nMirror/HUD navigation selections are not rewritten.
+after boot. Once the selected navigation has been observed in the foreground,
+boot handoff is latched as complete: subsequent Back/Home actions are respected
+and neither display events nor the Magisk startup monitor reopen navigation.
+Existing nMirror/HUD navigation selections are not rewritten.
 
 Both fixed-pixel HUD buffers now use `Bitmap.DENSITY_NONE`; the logical frame
 is copied with an explicit destination rectangle before USB rotation. The old
