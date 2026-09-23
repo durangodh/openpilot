@@ -30,7 +30,8 @@ public final class BootReceiver extends BroadcastReceiver {
         // nMirror 가 하던 "부팅 후 내비 실행" 을 여기서 대신한다. EON 패킷을
         // 기다리지 않고 마지막 선택(AppPrefs)으로 즉시 띄운다.
         if (!"android.intent.action.MY_PACKAGE_REPLACED".equals(action)) {
-            HudService.launchNavApp(context, AppPrefs.getNavApp(context));
+            int selected = AppPrefs.getNavApp(context);
+            if (selected != 0) HudService.launchNavApp(context, selected);
         }
 
         Intent service = new Intent(context, HudService.class);

@@ -109,7 +109,9 @@ class RemoteCommandSync:
         return False
     elif command in PARAM_COMMANDS:
       try:
-        current = 2 if int(self.params.get("EonClusterHudNavApp") or 1) == 2 else 1
+        current = int(self.params.get("EonClusterHudNavApp") or 1)
+        if current < 0 or current > 2:
+          current = 1
       except (TypeError, ValueError):
         current = 1
       target = {"nav_tmap": 1, "nav_naver": 2}.get(command, 2 if current == 1 else 1)

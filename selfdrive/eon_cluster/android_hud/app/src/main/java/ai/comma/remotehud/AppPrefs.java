@@ -62,22 +62,24 @@ public final class AppPrefs {
     }
 
     /**
-     * EON 에서 마지막으로 선택한 내비(1=티맵, 2=네이버지도). EON 은 S9 보다
+     * EON 에서 마지막으로 선택한 내비(0=선택 안 함, 1=티맵, 2=네이버지도). EON 은 S9 보다
      * 부팅이 훨씬 늦으므로, 부팅 직후엔 이 값으로 먼저 내비를 띄우고 EON 이
      * 붙은 뒤 선택이 다르면 그때 바꾼다.
      */
     public static int getNavApp(Context context) {
-        return prefs(context).getInt(NAV_APP, 1) == 2 ? 2 : 1;
+        int selected = prefs(context).getInt(NAV_APP, 1);
+        return selected >= 0 && selected <= 2 ? selected : 1;
     }
 
     public static void setNavApp(Context context, int navApp) {
-        prefs(context).edit().putInt(NAV_APP, navApp == 2 ? 2 : 1).apply();
+        prefs(context).edit().putInt(NAV_APP,
+                navApp >= 0 && navApp <= 2 ? navApp : 1).apply();
     }
 
     // All request read/ack operations use the AppPrefs.class monitor so an old
     // telemetry reply cannot erase a newer tap from the settings Activity.
     public static synchronized void requestNavApp(Context context, int app) {
-        if (app != 1 && app != 2) return;
+        if (app < 0 || app > 2) return;
         String request = java.util.UUID.randomUUID().toString().replace("-", "");
         prefs(context).edit().putInt(NAV_APP, app).putString(NAV_REQUEST, request).apply();
     }

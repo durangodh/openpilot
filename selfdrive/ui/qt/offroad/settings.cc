@@ -1248,8 +1248,8 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudNavApp", "NAVIGATION APP",
-      "EON에서 휴대폰 내비를 선택합니다. 1: 티맵 / 2: 네이버지도. 변경하면 S9에서 선택한 앱이 자동 실행됩니다.",
-      "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
+      "EON에서 휴대폰 내비를 선택합니다. 0: 선택 안 함 / 1: 티맵 / 2: 네이버지도. 변경하면 S9에서 선택한 앱이 자동 실행됩니다.",
+      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudGuardrail", "S9 HUD GUARDRAIL",
       "0: 끔 / 1: 켬. 모델이 인식한 도로경계 위에만 세웁니다. 경계가 없는 구간에는 나오지 않습니다.",

@@ -58,7 +58,7 @@ public final class MainActivity extends Activity {
     private Button startButton;
     private Button stopButton;
     private TextView usbValue;
-    private Button tmapButton, naverButton;
+    private Button noneButton, tmapButton, naverButton;
     private TextView navValue;
     private Button updateButton;
     private TextView updateValue;
@@ -90,9 +90,10 @@ public final class MainActivity extends Activity {
             // 캐시해둔다.
             AppPrefs.setMirrorDisplayId(this, Display.DEFAULT_DISPLAY);
             int selected = AppPrefs.getNavApp(this);
-            String packageName = selected == 2
+            String packageName = selected == 0 ? null : selected == 2
                     ? "com.nhn.android.nmap" : "com.skt.tmap.ku";
-            Intent launch = getPackageManager().getLaunchIntentForPackage(packageName);
+            Intent launch = packageName == null ? null
+                    : getPackageManager().getLaunchIntentForPackage(packageName);
             boolean launchedHere = launch != null && launchNavigationOnCurrentDisplay(launch);
             startHudService(HudService.ACTION_SELECT_NAV, launchedHere);
             finish();
@@ -200,17 +201,22 @@ public final class MainActivity extends Activity {
         navCard.addView(text("내비게이션 선택", 18.0f, Color.WHITE, Typeface.BOLD));
         LinearLayout navRow = new LinearLayout(this);
         navRow.setOrientation(LinearLayout.HORIZONTAL);
+        noneButton = button("선택 안 함", NAV_UNSELECTED);
         tmapButton = button("티맵", NAV_UNSELECTED);
         naverButton = button("네이버지도", NAV_UNSELECTED);
+        LinearLayout.LayoutParams noneParams = new LinearLayout.LayoutParams(0, dp(52), 1.0f);
+        noneParams.setMargins(0, dp(10), dp(4), dp(8));
         LinearLayout.LayoutParams tmapParams = new LinearLayout.LayoutParams(0, dp(52), 1.0f);
-        tmapParams.setMargins(0, dp(10), dp(6), dp(8));
+        tmapParams.setMargins(dp(4), dp(10), dp(4), dp(8));
         LinearLayout.LayoutParams naverParams = new LinearLayout.LayoutParams(0, dp(52), 1.0f);
-        naverParams.setMargins(dp(6), dp(10), 0, dp(8));
+        naverParams.setMargins(dp(4), dp(10), 0, dp(8));
+        navRow.addView(noneButton, noneParams);
         navRow.addView(tmapButton, tmapParams);
         navRow.addView(naverButton, naverParams);
         navCard.addView(navRow);
         navValue = text("", 14.0f, Color.LTGRAY, Typeface.NORMAL);
         navCard.addView(navValue);
+        noneButton.setOnClickListener(v -> selectNavApp(0));
         tmapButton.setOnClickListener(v -> selectNavApp(1));
         naverButton.setOnClickListener(v -> selectNavApp(2));
         root.addView(navCard, cardParams());
@@ -396,6 +402,12 @@ public final class MainActivity extends Activity {
     }
 
     private void selectNavApp(int app) {
+        if (app == 0) {
+            AppPrefs.requestNavApp(this, 0);
+            startHudService(HudService.ACTION_SELECT_NAV, false);
+            refreshStatus();
+            return;
+        }
         String packageName = app == 2 ? "com.nhn.android.nmap" : "com.skt.tmap.ku";
         Intent launch = getPackageManager().getLaunchIntentForPackage(packageName);
         if (launch == null) {
@@ -439,16 +451,21 @@ public final class MainActivity extends Activity {
         if (gpsSourceValue != null) gpsSourceValue.setText(HudService.gpsSourceLabel());
         HudService.StatusSnapshot s = HudService.getStatusSnapshot();
         int navApp = AppPrefs.getNavApp(this);
+        noneButton.setText(navApp == 0 ? "✓ 선택 안 함" : "선택 안 함");
         tmapButton.setText(navApp == 1 ? "✓ 티맵" : "티맵");
         naverButton.setText(navApp == 2 ? "✓ 네이버지도" : "네이버지도");
+        noneButton.setBackgroundColor(navApp == 0 ? NAV_SELECTED : NAV_UNSELECTED);
         tmapButton.setBackgroundColor(navApp == 1 ? NAV_SELECTED : NAV_UNSELECTED);
         naverButton.setBackgroundColor(navApp == 2 ? NAV_SELECTED : NAV_UNSELECTED);
+        noneButton.setTextColor(navApp == 0 ? Color.WHITE : Color.LTGRAY);
         tmapButton.setTextColor(navApp == 1 ? Color.WHITE : Color.LTGRAY);
         naverButton.setTextColor(navApp == 2 ? Color.WHITE : Color.LTGRAY);
         boolean pending = !AppPrefs.pendingNavRequest(this).isEmpty();
         navValue.setText(pending ? (s.eonConnected ?
                 (HudService.navSelectionSupported ? "EON에 선택 반영 중…" : "EON 코드 업데이트 후 선택이 반영됩니다.") :
-                "EON 연결 후 선택이 반영됩니다.") : "EON과 연결되면 선택한 내비를 함께 사용합니다.");
+                "EON 연결 후 선택이 반영됩니다.") : (navApp == 0
+                ? "자동으로 실행할 내비게이션이 없습니다."
+                : "EON과 연결되면 선택한 내비를 함께 사용합니다."));
 
         setStatus(serviceValue, s.running ? "실행 중" : "중지됨", s.running ? GREEN : RED);
         String eonStatus;

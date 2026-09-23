@@ -10,7 +10,7 @@ public final class NavSelectionProtocolCheck {
         String session = "0123456789abcdef0123456789abcdef";
         String old = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         String current = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-        for (int app = 1; app <= 2; app++) {
+        for (int app = 0; app <= 2; app++) {
             check(new String(NavSelectionProtocol.request(session, current, app), StandardCharsets.US_ASCII)
                     .equals("HUDNAV1 " + session + " " + current + " " + app));
         }
@@ -22,7 +22,9 @@ public final class NavSelectionProtocolCheck {
         check(NavSelectionProtocol.acknowledged(current, current));
         check(NavSelectionProtocol.normalizeApp(1) == 1);
         check(NavSelectionProtocol.normalizeApp(2) == 2);
+        check(NavSelectionProtocol.normalizeApp(0) == 0);
         check(NavSelectionProtocol.normalizeApp(99) == 1);
+        check(NavSelectionProtocol.appLabel(0).equals("None"));
         check(NavSelectionProtocol.appLabel(1).equals("Tmap"));
         check(NavSelectionProtocol.appLabel(2).equals("Naver"));
         // A button tap must stop the opposite app even after a cold service

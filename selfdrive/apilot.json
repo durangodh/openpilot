@@ -1295,8 +1295,8 @@
    "group": "S9HUD",
    "name": "EonClusterHudNavApp",
    "title": "NAVIGATION APP",
-   "descr": "EON에서 휴대폰 내비를 선택합니다. 1: 티맵 / 2: 네이버지도. 변경하면 S9에서 선택한 앱이 자동 실행됩니다.",
-   "min": 1,
+   "descr": "EON에서 휴대폰 내비를 선택합니다. 0: 선택 안 함 / 1: 티맵 / 2: 네이버지도. 변경하면 S9에서 선택한 앱이 자동 실행됩니다.",
+   "min": 0,
    "max": 2,
    "default": 1,
    "unit": 1

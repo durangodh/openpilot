@@ -609,7 +609,7 @@ class CruiseHelper:
         self.nav_toggle_done = True
         try:
           current = self.params.get_int("EonClusterHudNavApp")
-          put_nonblocking("EonClusterHudNavApp", "1" if current == 2 else "2")
+          put_nonblocking("EonClusterHudNavApp", "2" if current == 1 else "1")
         except (TypeError, ValueError):
           pass
 
@@ -770,7 +770,7 @@ class CruiseHelper:
     if frame % 100 == 0 or self.nav_app_selected is None:
       self.nav_app_selected = self.params.get_int("EonClusterHudNavApp")
     naver_selected = self.nav_app_selected == 2
-    if road_data is not None and not naver_selected:
+    if road_data is not None and self.nav_app_selected == 1:
       cam_type = int(road_data.camType)
       cam_dist = float(road_data.camLimitSpeedLeftDist)
       cam_limit = float(road_data.camLimitSpeed)

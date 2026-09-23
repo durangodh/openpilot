@@ -130,7 +130,8 @@ class NaviState(object):
       raw = self.params.get(PARAM_NAV_APP)
       if isinstance(raw, bytes):
         raw = raw.decode("utf-8")
-      return SOURCE_NAVER if int(raw or 1) == 2 else SOURCE_TMAP
+      selected = int(raw or 1)
+      return None if selected == 0 else SOURCE_NAVER if selected == 2 else SOURCE_TMAP
     except (TypeError, ValueError, UnicodeDecodeError):
       return SOURCE_TMAP
 

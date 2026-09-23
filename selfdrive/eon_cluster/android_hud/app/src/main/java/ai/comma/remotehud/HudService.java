@@ -870,6 +870,13 @@ public final class HudService extends Service {
                               boolean foregroundLaunched) {
         int generation = navSwitchGeneration.incrementAndGet();
         try {
+            if (launch == 0) {
+                // "선택 안 함"은 단순히 다음 자동 실행을 막는 것에 그치지 않고,
+                // 지금 실행 중인 두 내비도 종료해 선택 상태와 화면을 일치시킨다.
+                forceStopNavApp(1);
+                forceStopNavApp(2);
+                return;
+            }
             Intent intent = foregroundLaunched ? null :
                     context.getPackageManager().getLaunchIntentForPackage(navPackage(launch));
             String component = intent != null && intent.getComponent() != null
@@ -1064,6 +1071,12 @@ public final class HudService extends Service {
                     SystemClock.sleep(2000L);
                     if (!running.get()) return;
                     int selected = AppPrefs.getNavApp(context);
+                    if (selected == 0) {
+                        synchronizeNMirrorSelection(context, 0);
+                        stopNavApp(1);
+                        stopNavApp(2);
+                        continue;
+                    }
                     if (isNavAppForegroundOnMirror(context, selected)) {
                         continue;
                     }
@@ -1202,6 +1215,7 @@ public final class HudService extends Service {
     }
 
     static boolean launchNavAppOnMirrorDisplay(Context context, int navApp) {
+        if (navApp != 1 && navApp != 2) return false;
         try {
             Intent launch = context.getPackageManager().getLaunchIntentForPackage(
                     navPackage(navApp));
@@ -1292,6 +1306,7 @@ public final class HudService extends Service {
 
     /** 다른 쪽 내비를 완전 종료(루트 am force-stop). 안내·음성·GPS 전부 멈춘다. */
     static void stopNavApp(int navApp) {
+        if (navApp != 1 && navApp != 2) return;
         try {
             Runtime.getRuntime().exec(new String[] {
                     "su", "-c", "am force-stop " + navPackage(navApp)
@@ -1306,6 +1321,7 @@ public final class HudService extends Service {
      * 제한을 피하려고 Magisk 에서 허용된 루트로 am start 를 실행한다.
      */
     static void launchNavApp(Context context, int navApp) {
+        if (navApp != 1 && navApp != 2) return;
         final String packageName = navPackage(navApp);
         try {
             Intent launch = context.getPackageManager().getLaunchIntentForPackage(packageName);
