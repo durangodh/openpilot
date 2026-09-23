@@ -1,8 +1,9 @@
-"""Build HUD13.9 with a faster, shorter-stall Naver HUD map snapshot loop.
+"""Build HUD13.10 with a renderer-waking Naver HUD map snapshot loop.
 
-Input is the published HUD13.7 APKS. Only classes43.dex in the base APK is
-changed: the bridge map tick moves from 500 ms to 200 ms and a missing SDK
-snapshot is retried after 1.2 s instead of 3 s.
+Input is the published HUD13.7 APKS. classes43.dex changes the bridge map tick
+from 500 ms to 200 ms and retries a missing SDK snapshot after 1.2 s instead of
+3 s. classes.dex requests a render immediately before every SDK snapshot so a
+sleeping WHEN_DIRTY renderer cannot leave the HUD on a stale frame for seconds.
 """
 import argparse
 import hashlib
@@ -46,6 +47,30 @@ def patch_snapshot(text):
   return text[:start] + body + text[end:]
 
 
+def patch_naver_map(text):
+  start = text.index(".method public p2(ZLcom/naver/maps/map/NaverMap$SnapshotReadyCallback;)V")
+  end = text.index(".end method", start)
+  body = text[start:end]
+  old = """    iget-object p2, p0, Lcom/naver/maps/map/NaverMap;->b:Lcom/naver/maps/map/NativeMapView;
+
+    .line 4
+    .line 5
+    invoke-virtual {p2, p1}, Lcom/naver/maps/map/NativeMapView;->f1(Z)V"""
+  new = """    iget-object p2, p0, Lcom/naver/maps/map/NaverMap;->b:Lcom/naver/maps/map/NativeMapView;
+
+    iget-object p2, p2, Lcom/naver/maps/map/NativeMapView;->c:Lcom/naver/maps/map/renderer/MapRenderer;
+
+    invoke-interface {p2}, Lcom/naver/maps/map/renderer/MapRendererScheduler;->requestRender()V
+
+    iget-object p2, p0, Lcom/naver/maps/map/NaverMap;->b:Lcom/naver/maps/map/NativeMapView;
+
+    .line 4
+    .line 5
+    invoke-virtual {p2, p1}, Lcom/naver/maps/map/NativeMapView;->f1(Z)V"""
+  body = replace_once(body, old, new, "render wake before snapshot")
+  return text[:start] + body + text[end:]
+
+
 def run(*args):
   subprocess.run([str(arg) for arg in args], check=True)
 
@@ -70,13 +95,14 @@ def main():
   base_apk.write_bytes(base)
   with zipfile.ZipFile(base_apk) as original:
     manifest = original.read("AndroidManifest.xml")
-    dex = original.read("classes43.dex")
+    bridge_dex = original.read("classes43.dex")
+    sdk_dex = original.read("classes.dex")
 
   # Apktool only treats classes.dex as the primary dex in a minimal container.
   mini = work / "mini.apk"
   with zipfile.ZipFile(mini, "w") as z:
     z.writestr("AndroidManifest.xml", manifest)
-    z.writestr("classes.dex", dex)
+    z.writestr("classes.dex", bridge_dex)
   decoded = work / "decoded"
   run(java, "-jar", args.apktool, "d", "-r", "-o", decoded, mini)
 
@@ -89,7 +115,20 @@ def main():
   rebuilt = work / "rebuilt.apk"
   run(java, "-jar", args.apktool, "b", decoded, "-o", rebuilt)
   with zipfile.ZipFile(rebuilt) as patched:
-    replacement = patched.read("classes.dex")
+    bridge_replacement = patched.read("classes.dex")
+
+  sdk_mini = work / "sdk-mini.apk"
+  with zipfile.ZipFile(sdk_mini, "w") as z:
+    z.writestr("AndroidManifest.xml", manifest)
+    z.writestr("classes.dex", sdk_dex)
+  sdk_decoded = work / "sdk-decoded"
+  run(java, "-jar", args.apktool, "d", "-r", "-o", sdk_decoded, sdk_mini)
+  naver_map = sdk_decoded / "smali/com/naver/maps/map/NaverMap.smali"
+  naver_map.write_text(patch_naver_map(naver_map.read_text(encoding="utf-8")), encoding="utf-8")
+  sdk_rebuilt = work / "sdk-rebuilt.apk"
+  run(java, "-jar", args.apktool, "b", sdk_decoded, "-o", sdk_rebuilt)
+  with zipfile.ZipFile(sdk_rebuilt) as patched:
+    sdk_replacement = patched.read("classes.dex")
 
   args.output.parent.mkdir(parents=True, exist_ok=True)
   with zipfile.ZipFile(base_apk) as original, zipfile.ZipFile(args.output, "w") as output:
@@ -99,7 +138,8 @@ def main():
       info = zipfile.ZipInfo(entry.filename, date_time=entry.date_time)
       info.compress_type = entry.compress_type
       info.external_attr = entry.external_attr
-      output.writestr(info, replacement if entry.filename == "classes43.dex" else original.read(entry))
+      replacement = {"classes.dex": sdk_replacement, "classes43.dex": bridge_replacement}.get(entry.filename)
+      output.writestr(info, replacement if replacement is not None else original.read(entry))
 
   with zipfile.ZipFile(base_apk) as original, zipfile.ZipFile(args.output) as output:
     changed = []
@@ -108,11 +148,11 @@ def main():
         continue
       if original.read(entry) != output.read(entry.filename):
         changed.append(entry.filename)
-    if changed != ["classes43.dex"]:
+    if changed != ["classes.dex", "classes43.dex"]:
       raise RuntimeError("Unexpected changed entries: " + repr(changed))
     if output.testzip() is not None:
       raise RuntimeError("Corrupt output APK")
-  print("Verified: only classes43.dex changed. UNSIGNED:", args.output)
+  print("Verified: only classes.dex and classes43.dex changed. UNSIGNED:", args.output)
 
 
 if __name__ == "__main__":
