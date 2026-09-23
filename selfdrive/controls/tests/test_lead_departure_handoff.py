@@ -9,7 +9,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 from common.numpy_fast import clip, interp
-from selfdrive.controls.lib.lead_departure import LeadDepartureAssist
+from selfdrive.controls.lib.lead_departure import LeadDepartureAssist, lead_is_departing
 from selfdrive.controls.lib.pid import PIDController
 
 
@@ -24,7 +24,7 @@ def load_control():
              Params=lambda: NS(get=lambda *args, **kw: None), DT_CTRL=0.01,
              T_IDXS=[0.0, 0.5, 1.5], CONTROL_N=3,
              apply_deadzone=lambda error, dz: max(error - dz, 0.0) if error > 0 else min(error + dz, 0.0),
-             LeadDepartureAssist=LeadDepartureAssist)
+             LeadDepartureAssist=LeadDepartureAssist, lead_is_departing=lead_is_departing)
   exec(compile(tree, str(source), 'exec'), env)
   return env['LongControl'], env['long_control_state_trans']
 
@@ -68,7 +68,7 @@ def test_confirmed_departure_releases_below_old_speed_threshold(starting):
   accel = step(control, cs, plan, radar)
   assert control.long_control_state == ('starting' if starting else 'pid')
   assert control.departure_assist.active
-  assert accel == pytest.approx(0.05 if starting else 0.02)
+  assert accel == pytest.approx(-1.04)
   for _ in range(5):
     step(control, cs, plan, radar, fresh=False)
   assert control.long_control_state != 'stopping'

@@ -19,12 +19,13 @@ def _linear_interp(x, bp, values):
 def brake_output(previous, requested, state='pid', v_ego=None, brake_pressed=False,
                  hold_active=False, initial_state=None, boost=1.0, lead=None):
   source = Path(__file__).resolve().parents[1] / 'lib' / 'longcontrol.py'
-  tree = ast.parse(source.read_text())
+  tree = ast.parse(source.read_text(encoding='utf-8'))
   cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'LongControl')
   update = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'update')
   states = NS(off='off', pid='pid', stopping='stopping', starting='starting')
   env = dict(LongCtrlState=states, CONTROL_N=2, T_IDXS=[0, 1], DT_CTRL=0.01,
              LEAD_DROPOUT_FALLBACK_FRAMES=150,
+             START_RELEASE_JERK=6.0,
              PID_JERK_SPEED_BP=[0.0, 5.0, 20.0],
              PID_JERK_UPPER_V=[2.0, 3.0, 2.0], PID_JERK_LOWER_V=[3.5, 3.5, 3.0],
              LOW_SPEED_JERK_BOOST_SPEED_BP=[0.0, 5.0, 30.0 / 3.6],
@@ -51,6 +52,7 @@ def brake_output(previous, requested, state='pid', v_ego=None, brake_pressed=Fal
            start_request_frames=0, standstill_release_speed=0.2,
            standstill_release_frames=10, standstill_lead_latched=False,
            lead_missing_frames=0,
+           departure_release_active=False,
            reset=lambda *a: None)
   speed = (0.0 if state == 'stopping' else 10.0) if v_ego is None else v_ego
   cs = NS(vEgo=speed, standstill=speed < 0.01, brakePressed=brake_pressed,
@@ -72,12 +74,12 @@ def test_pid_output_is_jerk_limited_per_cycle():
   assert brake_output(0.0, 0.015) == 0.015
 
 
-def test_default_departure_releases_negative_hold_before_positive_jerk_ramp():
+def test_default_departure_blends_negative_hold_before_positive_jerk_ramp():
   # START ACCEL=0 transitions directly from stopping to PID. The brake hold
-  # must be gone immediately, while forward acceleration still rises by the
-  # normal 0.02 m/s² per control cycle at zero speed.
+  # releases at the dedicated 6.0 m/s³ handoff rate instead of disappearing
+  # in one frame. A normal PID cycle still uses the 2.0 m/s³ positive limit.
   assert brake_output(-1.1, 1.0, state='pid', initial_state='stopping',
-                      v_ego=0.0) == pytest.approx(0.02)
+                      v_ego=0.0) == pytest.approx(-1.04)
   assert brake_output(-1.1, 1.0, state='pid', initial_state='pid',
                       v_ego=0.0) == pytest.approx(-1.08)
 
@@ -113,7 +115,7 @@ def _brake_output_entering_stopping(entry_v_ego, requested=0.0, previous=-0.6):
   경우를 재현한다(기존 mock은 이전 상태와 다음 상태가 항상 같아서 진입 판정
   분기를 못 탔다)."""
   source = Path(__file__).resolve().parents[1] / 'lib' / 'longcontrol.py'
-  tree = ast.parse(source.read_text())
+  tree = ast.parse(source.read_text(encoding='utf-8'))
   cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'LongControl')
   update = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'update')
   states = NS(off='off', pid='pid', stopping='stopping', starting='starting')
