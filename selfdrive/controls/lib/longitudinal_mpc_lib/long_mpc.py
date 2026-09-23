@@ -9,6 +9,7 @@ from selfdrive.swaglog import cloudlog
 from selfdrive.modeld.constants import index_function
 from selfdrive.controls.lib.radar_helpers import _LEAD_ACCEL_TAU
 from selfdrive.controls.lib.lead_following import get_follow_obstacle_cost
+from selfdrive.controls.lib.lead_departure import departure_motion_valid
 from selfdrive.controls.lib.t_follow import (CRUISE_GAP_BP as _CRUISE_GAP_BP, CRUISE_GAP_V,
                                              clamp_desired_follow_distance,
                                              get_stopped_lead_comfort_brake,
@@ -344,8 +345,10 @@ class LongitudinalMpc:
     a_change_v_ego = 1
     lead_departing = (lead0_status and
                       v_ego < LEAD_DEPARTURE_MAX_EGO_SPEED and
-                      v_lead0 - v_ego > LEAD_DEPARTURE_MIN_VREL and
-                      a_lead0 > LEAD_DEPARTURE_MIN_ALEAD)
+                      departure_motion_valid(
+                        v_lead0, v_lead0 - v_ego, a_lead=a_lead0,
+                        min_speed=None, min_vrel=LEAD_DEPARTURE_MIN_VREL,
+                        min_accel=LEAD_DEPARTURE_MIN_ALEAD))
     if lead_departing:
       departure_cost = 1.0 + (self.lead_depart_cost - 1.0) * dynamic_weight
       j_ego_v_ego = departure_cost

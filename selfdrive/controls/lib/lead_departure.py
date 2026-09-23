@@ -5,6 +5,51 @@ from math import isfinite
 DEPARTURE_WINDOW = 1.0
 DEPARTURE_MAX_SPEED = 1.5
 DEPARTURE_MIN_ACCEL = 0.15
+LEAD_RELEASE_MIN_SPEED = 0.25
+LEAD_RELEASE_MIN_VREL = 0.1
+
+
+def departure_motion_valid(v_lead, v_rel, *, a_lead=None, min_speed=LEAD_RELEASE_MIN_SPEED,
+                           min_vrel=LEAD_RELEASE_MIN_VREL, min_accel=None):
+  """Shared finite-motion predicate for the longitudinal departure layers.
+
+  Each layer can retain its intentionally different safety profile (for example,
+  the MPC uses a stricter relative-speed threshold while the handoff additionally
+  requires non-negative lead acceleration) without reimplementing comparisons.
+  """
+  values = [v_lead, v_rel]
+  if min_accel is not None:
+    values.append(a_lead if a_lead is not None else float('nan'))
+  if not all(isfinite(x) for x in values):
+    return False
+  if min_speed is not None and v_lead <= min_speed:
+    return False
+  if v_rel <= min_vrel:
+    return False
+  return min_accel is None or (a_lead is not None and a_lead > min_accel)
+
+
+def lead_is_departing(lead, *, require_radar=False, min_distance=None, max_distance=None,
+                      min_speed=LEAD_RELEASE_MIN_SPEED, min_vrel=LEAD_RELEASE_MIN_VREL,
+                      min_accel=None):
+  """Validate a lead object and apply the common departure-motion predicate."""
+  if lead is None or not getattr(lead, 'status', False):
+    return False
+  if require_radar and not getattr(lead, 'radar', False):
+    return False
+  if min_distance is not None or max_distance is not None:
+    distance = getattr(lead, 'dRel', float('nan'))
+    if not isfinite(distance):
+      return False
+    if min_distance is not None and distance < min_distance:
+      return False
+    if max_distance is not None and distance > max_distance:
+      return False
+  return departure_motion_valid(
+    getattr(lead, 'vLeadK', float('nan')),
+    getattr(lead, 'vRel', float('nan')),
+    a_lead=getattr(lead, 'aLeadK', None),
+    min_speed=min_speed, min_vrel=min_vrel, min_accel=min_accel)
 
 
 class LeadDepartureAssist:
@@ -65,11 +110,9 @@ class LeadDepartureAssist:
 
   @staticmethod
   def _moving_lead(lead, min_gap):
-    if not lead.status or not getattr(lead, 'radar', False):
-      return False
-    values = (lead.dRel, lead.vLeadK, lead.vRel, lead.aLeadK)
-    return (all(isfinite(x) for x in values) and min_gap <= lead.dRel <= 20.0 and
-            lead.vLeadK > 0.25 and lead.vRel > 0.1 and lead.aLeadK >= 0.0)
+    return lead_is_departing(lead, require_radar=True, min_distance=min_gap,
+                             max_distance=20.0) and \
+           isfinite(lead.aLeadK) and lead.aLeadK >= 0.0
 
 
 def departure_jerk_upper(normal_upper, configured_start, pid_upper, assisted):

@@ -17,10 +17,10 @@ from selfdrive.controls.lib.longitudinal_limits import (AUTO_SPEED_UP_RATE_KPH_S
 
 def test_cruise_max_modes_share_one_policy():
   v_ego = 40.0 * CV.KPH_TO_MS
-  assert get_cruise_max_accel(v_ego, CRUISE_MAX_VAL_DEFAULTS, 3) == pytest.approx(0.90)
-  assert get_cruise_max_accel(v_ego, CRUISE_MAX_VAL_DEFAULTS, 4) == pytest.approx(0.90)
-  assert get_cruise_max_accel(v_ego, CRUISE_MAX_VAL_DEFAULTS, 2, 0.8, 0.9) == pytest.approx(0.72)
-  assert get_cruise_max_accel(v_ego, CRUISE_MAX_VAL_DEFAULTS, 1, 0.8, 0.8) == pytest.approx(0.576)
+  assert get_cruise_max_accel(v_ego, CRUISE_MAX_VAL_DEFAULTS, 3) == pytest.approx(1.20)
+  assert get_cruise_max_accel(v_ego, CRUISE_MAX_VAL_DEFAULTS, 4) == pytest.approx(1.20)
+  assert get_cruise_max_accel(v_ego, CRUISE_MAX_VAL_DEFAULTS, 2, 0.8, 0.9) == pytest.approx(0.96)
+  assert get_cruise_max_accel(v_ego, CRUISE_MAX_VAL_DEFAULTS, 1, 0.8, 0.8) == pytest.approx(0.768)
 
 
 def test_cruise_max_has_dedicated_20_kph_breakpoint():
@@ -47,7 +47,7 @@ def test_cruise_max_limit_clips_pid_overshoot():
   # Keep the SCC12 transport guard even though LongControl normally uses the
   # same CruiseMax value as its PID positive limit.
   cap = get_cruise_max_accel(40.0 * CV.KPH_TO_MS, CRUISE_MAX_VAL_DEFAULTS, 3)
-  assert apply_cruise_max_limit(2.5, False, cap) == pytest.approx(0.90)
+  assert apply_cruise_max_limit(2.5, False, cap) == pytest.approx(1.20)
   assert apply_cruise_max_limit(0.4, False, cap) == pytest.approx(0.4)
 
 

@@ -5,15 +5,14 @@ from common.realtime import DT_CTRL
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, apply_deadzone
 from selfdrive.controls.lib.pid import PIDController
 from selfdrive.modeld.constants import T_IDXS
-from selfdrive.controls.lib.lead_departure import LeadDepartureAssist
+from selfdrive.controls.lib.lead_departure import (LeadDepartureAssist,
+                                                   lead_is_departing)
 
 LongCtrlState = car.CarControl.Actuators.LongControlState
 ButtonType = car.CarState.ButtonEvent.Type
 
 STANDSTILL_LEAD_MAX_DISTANCE = 20.0
 STANDSTILL_LEAD_MAX_SPEED = 0.3
-LEAD_RELEASE_MIN_SPEED = 0.25
-LEAD_RELEASE_MIN_VREL = 0.1
 LEAD_RELEASE_CONFIRM_SAMPLES = 2
 LEAD_DROPOUT_FALLBACK_FRAMES = round(1.5 / DT_CTRL)
 
@@ -235,8 +234,7 @@ class LongControl:
           if stopped_lead:
             self.standstill_lead_latched = True
         else:
-          lead_moving = (lead.vLeadK > LEAD_RELEASE_MIN_SPEED and
-                         lead.vRel > LEAD_RELEASE_MIN_VREL)
+          lead_moving = lead_is_departing(lead)
           self.lead_release_samples = self.lead_release_samples + 1 if lead_moving else 0
     elif not radar_state_valid:
       self.lead_measurement_available = False
@@ -255,9 +253,7 @@ class LongControl:
     if (radar_state is None or not radar_state_valid or
         len(radar_state.radarErrors) != 0 or not radar_state.leadOne.status):
       return False
-    lead = radar_state.leadOne
-    return (lead.vLeadK > LEAD_RELEASE_MIN_SPEED and
-            lead.vRel > LEAD_RELEASE_MIN_VREL)
+    return lead_is_departing(radar_state.leadOne)
 
   def _update_stopping_decel_rate(self):
     try:

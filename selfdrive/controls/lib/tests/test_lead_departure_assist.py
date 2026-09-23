@@ -2,7 +2,10 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from selfdrive.controls.lib.lead_departure import LeadDepartureAssist, departure_jerk_upper
+from selfdrive.controls.lib.lead_departure import (LeadDepartureAssist,
+                                                   departure_jerk_upper,
+                                                   departure_motion_valid,
+                                                   lead_is_departing)
 
 
 def inputs():
@@ -13,6 +16,17 @@ def inputs():
               radar=NS(leadOne=lead, leadTwo=NS(status=False), radarErrors=[]),
               radar_valid=True, plan_valid=True, plan_age=0.05,
               a_now=0.0, a_target=0.25, v_target=0.05, v_future=0.18, soft_hold=False)
+
+
+def test_shared_departure_motion_predicate_rejects_boundaries_and_nonfinite_values():
+  assert departure_motion_valid(0.26, 0.11)
+  assert not departure_motion_valid(0.25, 0.11)
+  assert not departure_motion_valid(0.26, 0.1)
+  assert not departure_motion_valid(float('nan'), 0.2)
+  lead = inputs()['radar'].leadOne
+  assert lead_is_departing(lead)
+  lead.vRel = float('inf')
+  assert not lead_is_departing(lead)
 
 
 def test_floor_never_exceeds_planner_and_distinguishes_creep():
