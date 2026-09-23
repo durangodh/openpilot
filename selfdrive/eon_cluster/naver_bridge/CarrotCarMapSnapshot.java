@@ -32,7 +32,9 @@ public final class CarrotCarMapSnapshot {
     private static final String TAG = "CarrotCarMapSnapshot";
     static final int WIDTH = 640;   // TMAP map_main size (was 960x576 in HUD13)
     static final int HEIGHT = 384;
-    private static final long SNAPSHOT_TIMEOUT_MS = 3000;
+    // Retry quickly enough that a paused virtual-display renderer does not
+    // leave the HUD several seconds behind the phone map.
+    private static final long SNAPSHOT_TIMEOUT_MS = 1200;
     /** No callback for this long -> the AA renderer is gone; release map_main. */
     private static final long DEAD_AFTER_MS = 12000;
     private static final long STATUS_LOG_MS = 5000;
@@ -65,7 +67,7 @@ public final class CarrotCarMapSnapshot {
         CarrotHudLog.log(TAG, "MapProvider created " + (mapProvider == null ? "null" : mapProvider.getClass().getName()));
     }
 
-    /** Bridge thread, every 500 ms. True while this path owns map_main. */
+    /** Bridge thread, every 200 ms in the smooth-map build. True while this path owns map_main. */
     public static boolean capture(CarrotNaverBridge b) {
         Object p = provider;
         if (b == null) {
