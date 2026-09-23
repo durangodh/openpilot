@@ -481,7 +481,8 @@ class LongitudinalMpc:
     # frame after frame while ego is decelerating.
     lead0_status = radarstate.leadOne.status
     closing_margin = get_t_follow_closing_margin(
-      v_ego, lead_xv_0[0, 1], lead0_status)
+      v_ego, lead_xv_0[0, 1], lead0_status,
+      radarstate.leadOne.dRel if lead0_status else None)
     self.t_follow = self.t_follow_base + closing_margin
 
     # apilot-c2: 안전모드일수록 comfort_brake 를 낮춰(=더 일찍 감속) 정지거리도 늘린다.
