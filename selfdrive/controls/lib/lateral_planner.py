@@ -89,6 +89,11 @@ class LateralPlanner:
     self.dynamic_lane_profile = 0
     self.dynamic_lane_profile_status = True
     self.dynamic_lane_profile_status_buffer = True
+    # Auto lane-profile debounce: model lane probabilities can cross the
+    # thresholds for a frame or two. Require a sustained decision before
+    # changing the visible/active lane mode.
+    self.dynamic_lane_profile_lane_frames = 0
+    self.dynamic_lane_profile_laneless_frames = 0
     self.lane_line_blend = None
     self.noo_map_blend = 0.0
     self.noo_map_profile_cache = None
@@ -362,10 +367,19 @@ class LateralPlanner:
       if self.DH.lane_change_state in (LaneChangeState.laneChangeStarting, LaneChangeState.laneChangeFinishing):
         return True
       elif self.DH.lane_change_state == LaneChangeState.off:
-        if self.LP.lll_prob < 0.3 and self.LP.rll_prob < 0.3:
-          self.dynamic_lane_profile_status_buffer = True
-        elif self.LP.lll_prob > 0.5 and self.LP.rll_prob > 0.5:
+        # 20 Hz planner: require stable confidence before switching modes.
+        # Lane mode: both lanes > 0.55 for 0.5 s.
+        # Laneless: both lanes < 0.25 for 0.7 s.
+        lane_confident = self.LP.lll_prob > 0.55 and self.LP.rll_prob > 0.55
+        lanes_lost = self.LP.lll_prob < 0.25 and self.LP.rll_prob < 0.25
+        self.dynamic_lane_profile_lane_frames = self.dynamic_lane_profile_lane_frames + 1 if lane_confident else 0
+        self.dynamic_lane_profile_laneless_frames = self.dynamic_lane_profile_laneless_frames + 1 if lanes_lost else 0
+        if self.dynamic_lane_profile_lane_frames >= 10:
           self.dynamic_lane_profile_status_buffer = False
+          self.dynamic_lane_profile_laneless_frames = 0
+        elif self.dynamic_lane_profile_laneless_frames >= 14:
+          self.dynamic_lane_profile_status_buffer = True
+          self.dynamic_lane_profile_lane_frames = 0
         if self.dynamic_lane_profile_status_buffer:
           return True
     return False
