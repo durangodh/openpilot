@@ -1836,8 +1836,8 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamValueControlF("LatJerkFrictionFactor",
       "LAT JERK FRICTION FACTOR",
-      "예측 횡저크 반영비율(×0.01)입니다. 값 증가(+): 커브 진입 조향이 빨라짐 / 값 감소(-): 진입 반응이 느려짐 / 0: 사용 안 함. 직진 잔보타 방지 데드존이 적용됩니다. DH 권장 기본값: 20.",
-      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 20, this));
+      "예측 횡저크 반영비율(×0.01)입니다. 값 증가(+): 커브 진입 조향이 빨라짐 / 값 감소(-): 진입 반응이 느려짐 / 0: 사용 안 함. 기본값: 40.",
+      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 40, this));
 
   list->addItem(new ParamValueControlF("LatLowSpeedCurvTauMs",
       "LOW SPEED JITTER FILTER (ms)",
