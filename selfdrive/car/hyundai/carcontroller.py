@@ -92,7 +92,6 @@ class CarController:
     self.angle_limit_counter = 0
     self.cut_steer_frames = 0
     self.cut_steer = False
-    self.genesis_high_angle = False
 
     self.steer_fault_max_angle = CP.steerFaultMaxAngle
     self.steer_fault_max_frames = CP.steerFaultMaxFrames
@@ -116,18 +115,6 @@ class CarController:
       lkas_active = 0
     if self.turning_signal_timer > 0:
       self.turning_signal_timer -= 1
-
-    if self.car_fingerprint == CAR.GENESIS:
-      # The DH MDPS can reject extended LKAS torque at large steering angles.
-      # Release assist before the 85 degree fault window; do not assert the
-      # LKAS ToiFlt reset bit while the driver is making a tight turn.
-      angle = abs(CS.out.steeringAngleDeg)
-      if angle >= 75:
-        self.genesis_high_angle = True
-      elif angle <= 60:
-        self.genesis_high_angle = False
-      if self.genesis_high_angle:
-        lkas_active = False
 
     if not lkas_active:
       apply_steer = 0
@@ -160,7 +147,7 @@ class CarController:
 
     cut_steer_temp = False
 
-    if self.steer_fault_max_angle > 0 and self.car_fingerprint != CAR.GENESIS:
+    if self.steer_fault_max_angle > 0:
       if lkas_active and abs(CS.out.steeringAngleDeg) >= self.steer_fault_max_angle:
         self.angle_limit_counter += 1
       else:
