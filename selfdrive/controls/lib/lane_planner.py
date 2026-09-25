@@ -5,8 +5,6 @@ from common.numpy_fast import interp, clip, mean
 from common.realtime import DT_MDL
 from selfdrive.swaglog import cloudlog
 from common.params import Params
-from selfdrive.controls.lib.lane_path_validation import (valid_samples, valid_lane_path,
-                                                       valid_lane_times, lane_horizon_weights)
 
 TRAJECTORY_SIZE = 33
 ADJUST_OFFSET_LIMIT = 0.4   # 여유공간 보정 최대치(m)
@@ -74,98 +72,39 @@ class LanePlanner:
     self.param_read_frame = 0
 
   def parse_model(self, md):
-    # Clear validity EVERY frame: malformed samples must not retain the previous
-    # frame's confident lanes, road edges or lane-change probabilities.
-    self.lll_prob = self.rll_prob = self.d_prob = 0.0
-    self.l_lane_change_prob = self.r_lane_change_prob = 0.0
-    self.lane_width_left = self.lane_width_right = 0.0
-    self.ll_t.fill(0.0)
-    self.ll_x = np.zeros(TRAJECTORY_SIZE)
-    self.lll_y.fill(0.0)
-    self.rll_y.fill(0.0)
-    lanes_valid = False
-    try:
-      lanes = md.laneLines
-      probs = np.asarray(md.laneLineProbs, dtype=float)
-      stds = np.asarray(md.laneLineStds, dtype=float)
-      if len(lanes) == 4 and len(probs) == 4 and len(stds) == 4:
-        left, right = lanes[1], lanes[2]
-        left_t, right_t = np.asarray(left.t), np.asarray(right.t)
-        left_x, right_x = np.asarray(left.x), np.asarray(right.x)
-        left_y, right_y = np.asarray(left.y), np.asarray(right.y)
-        lanes_valid = (valid_lane_path(left_t, left_x, left_y, right_y) and
-                       valid_lane_path(right_t, right_x, left_y, right_y) and
-                       np.isfinite(probs[1:3]).all() and np.isfinite(stds[1:3]).all() and
-                       np.all((probs[1:3] >= 0.0) & (probs[1:3] <= 1.0)) and
-                       np.all(stds[1:3] >= 0.0))
-        if lanes_valid:
-          self.ll_t = (left_t + right_t) / 2.0
-          self.ll_x = left_x.copy()
-          self.lll_y = left_y + self.camera_offset
-          self.rll_y = right_y + self.camera_offset
-          self.lll_prob, self.rll_prob = probs[1:3]
-          self.lll_std, self.rll_std = stds[1:3]
-    except (AttributeError, IndexError, TypeError, ValueError):
-      lanes_valid = False
+    lane_lines = md.laneLines
+    if len(lane_lines) == 4 and len(lane_lines[0].t) == TRAJECTORY_SIZE:
+      self.ll_t = (np.array(lane_lines[1].t) + np.array(lane_lines[2].t))/2
+      self.ll_x = lane_lines[1].x
 
-    edges_valid = False
-    try:
-      edges = md.roadEdges
-      stds = np.asarray(md.roadEdgeStds, dtype=float)
-      if lanes_valid and len(edges) >= 2 and len(stds) >= 2:
-        edges_valid = (valid_samples(edges[0].y, edges[1].y) and
-                       valid_lane_times(edges[0].t) and valid_lane_times(edges[1].t) and
-                       np.isfinite(stds[:2]).all() and np.all(stds[:2] >= 0.0))
-        if edges_valid:
-          self.le_y = np.asarray(edges[0].y) + stds[0] * 0.4 + self.camera_offset
-          self.re_y = np.asarray(edges[1].y) - stds[1] * 0.4 + self.camera_offset
-          self.lane_width_left = float(max(0.0, abs(self.le_y[0]) - abs(self.lll_y[0])))
-          self.lane_width_right = float(max(0.0, abs(self.re_y[0]) - abs(self.rll_y[0])))
-    except (AttributeError, IndexError, TypeError, ValueError):
-      edges_valid = False
-    if not edges_valid:
-      self.le_y.fill(0.0)
-      self.re_y.fill(0.0)
-      self.lane_width_left_filtered.x = self.lane_width_right_filtered.x = 0.0
+      self.lll_y = np.array(lane_lines[1].y) + self.camera_offset
+      self.rll_y = np.array(lane_lines[2].y) + self.camera_offset
+      self.lll_prob = md.laneLineProbs[1]
+      self.rll_prob = md.laneLineProbs[2]
+      self.lll_std = md.laneLineStds[1]
+      self.rll_std = md.laneLineStds[2]
 
-    try:
-      desire = md.meta.desireState
-      left = float(desire[log.LateralPlan.Desire.laneChangeLeft])
-      right = float(desire[log.LateralPlan.Desire.laneChangeRight])
-      if np.isfinite([left, right]).all() and 0.0 <= left <= 1.0 and 0.0 <= right <= 1.0:
-        self.l_lane_change_prob, self.r_lane_change_prob = left, right
-    except (AttributeError, IndexError, TypeError, ValueError):
-      pass
+      # 좌/우 차선까지의 횡거리 (카메라 오프셋 반영된 값의 절대값)
+      self.lane_width_left = float(abs(self.lll_y[0]))
+      self.lane_width_right = float(abs(self.rll_y[0]))
+
+    # 도로경계까지의 거리 → 차선 바깥 여유폭
+    edges = md.roadEdges
+    if len(edges) >= 2 and len(edges[0].t) == TRAJECTORY_SIZE:
+      self.le_y = np.array(edges[0].y) + md.roadEdgeStds[0] * 0.4 + self.camera_offset
+      self.re_y = np.array(edges[1].y) - md.roadEdgeStds[1] * 0.4 + self.camera_offset
+      # 좌: 좌차선 ~ 좌측 도로경계 / 우: 우차선 ~ 우측 도로경계
+      self.lane_width_left = float(max(0.0, abs(self.le_y[0]) - abs(self.lll_y[0])))
+      self.lane_width_right = float(max(0.0, abs(self.re_y[0]) - abs(self.rll_y[0])))
+
+    desire_state = md.meta.desireState
+    if len(desire_state):
+      self.l_lane_change_prob = desire_state[log.LateralPlan.Desire.laneChangeLeft]
+      self.r_lane_change_prob = desire_state[log.LateralPlan.Desire.laneChangeRight]
 
   def get_d_path(self, v_ego, path_t, path_xyz, lanelines_active, curve_speed=200.0):
     path_xyz = path_xyz.copy()
     lane_line_blend = float(clip(float(lanelines_active), 0.0, 1.0))
-    self.param_read_frame += 1
-    if self.param_read_frame % 20 == 1:      # 1초 주기
-      try:
-        self.adjust_lane_offset = float(self.params.get("AdjustLaneOffset", encoding="utf8") or "0") * 0.01
-      except (TypeError, ValueError):
-        self.adjust_lane_offset = 0.0
-      try:
-        self.laneless_offset = float(self.params.get("LanelessOffset", encoding="utf8") or "0") * 0.01
-      except (TypeError, ValueError):
-        self.laneless_offset = 0.0
-      try:
-        # carrot c3 stores 4 as 0.04 (4 percent of the model time axis).
-        self.lat_mpc_input_offset = float(
-          self.params.get("LatMpcInputOffset", encoding="utf8") or "4") * 0.01
-      except (TypeError, ValueError):
-        self.lat_mpc_input_offset = 0.04
-      self.lat_mpc_input_offset = float(clip(self.lat_mpc_input_offset, 0.0, 0.20))
-
-    lane_valid = (valid_lane_path(self.ll_t, self.ll_x, self.lll_y, self.rll_y) and
-                  valid_samples(path_t) and np.all(np.diff(path_t) > 0.0))
-    if not lane_valid:
-      self.d_prob = 0.0
-      # Preserve the model path and the existing laneless offset, with no stale
-      # lane-centering or road-edge correction. Do not feed NaNs to interpolation.
-      path_xyz[:, 1] += self.laneless_offset
-      return path_xyz
     l_prob, r_prob = self.lll_prob, self.rll_prob
     width_pts = self.rll_y - self.lll_y
     prob_mods = []
@@ -218,9 +157,9 @@ class LanePlanner:
 
     # carrot c3: 좌/우 여유폭을 먼저 필터링한 뒤 좁은 차로의
     # 기준 차선과 오프셋 방향을 결정한다.
-    if self.lane_width_left >= 0:
+    if self.lane_width_left > 0:
       self.lane_width_left_filtered.update(self.lane_width_left)
-    if self.lane_width_right >= 0:
+    if self.lane_width_right > 0:
       self.lane_width_right_filtered.update(self.lane_width_right)
 
     # carrot c3: 좁아지는 차로에서는 도로 경계와 가까운 차선을
@@ -241,6 +180,23 @@ class LanePlanner:
     #   AdjustLaneOffset (cm 단위 정수 파라미터). 0 이면 동작 안함.
     #   양쪽 다 여유(>2.2m) 또는 양쪽 다 빡빡(<2.0m) 하면 보정하지 않고,
     #   한쪽만 여유가 있을 때 그 반대쪽(좁은 쪽)에서 떨어지도록 민다.
+    self.param_read_frame += 1
+    if self.param_read_frame % 20 == 1:      # 1초 주기
+      try:
+        self.adjust_lane_offset = float(self.params.get("AdjustLaneOffset", encoding="utf8") or "0") * 0.01
+      except (TypeError, ValueError):
+        self.adjust_lane_offset = 0.0
+      try:
+        self.laneless_offset = float(self.params.get("LanelessOffset", encoding="utf8") or "0") * 0.01
+      except (TypeError, ValueError):
+        self.laneless_offset = 0.0
+      try:
+        # carrot c3 stores 4 as 0.04 (4 percent of the model time axis).
+        self.lat_mpc_input_offset = float(
+          self.params.get("LatMpcInputOffset", encoding="utf8") or "4") * 0.01
+      except (TypeError, ValueError):
+        self.lat_mpc_input_offset = 0.04
+      self.lat_mpc_input_offset = float(clip(self.lat_mpc_input_offset, 0.0, 0.20))
 
     lwl = self.lane_width_left_filtered.x
     lwr = self.lane_width_right_filtered.x
@@ -272,14 +228,9 @@ class LanePlanner:
     safe_idxs = np.isfinite(self.ll_t)
     effective_d_prob = 0.0
     if safe_idxs[0] and lane_line_blend > 0.0:
-      # Preserve C2's normal NaN-padded lane times and input lead compensation.
-      # If lanes cover less than the full model horizon, fade their authority
-      # over the last measured second rather than extending the endpoint.
-      horizon_weights = lane_horizon_weights(self.ll_t, np.asarray(path_t))
-      preview_t = np.minimum(path_t * (1.0 + self.lat_mpc_input_offset), self.ll_t[safe_idxs][-1])
-      lane_path_y_interp = np.interp(preview_t,
+      lane_path_y_interp = np.interp(path_t * (1.0 + self.lat_mpc_input_offset),
                                      self.ll_t[safe_idxs], lane_path_y[safe_idxs])
-      effective_d_prob = self.d_prob * lane_line_blend * horizon_weights
+      effective_d_prob = self.d_prob * lane_line_blend
       path_xyz[:,1] = effective_d_prob * lane_path_y_interp + (1.0 - effective_d_prob) * path_xyz[:,1]
       # 차선경로가 쓰이는 비중만큼만 여유공간 보정을 적용한다.
       path_xyz[:,1] += self.lane_offset * effective_d_prob
