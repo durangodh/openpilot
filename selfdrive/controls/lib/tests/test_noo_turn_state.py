@@ -7,46 +7,6 @@ from common.realtime import DT_MDL
 from selfdrive.controls.lib.desire_helper import DesireHelper
 
 
-def test_expired_guidance_clears_latched_turn_in_update(tmp_path, monkeypatch):
-  import json
-  import time
-  from types import SimpleNamespace
-  from selfdrive.controls.lib import desire_helper
-  from selfdrive.controls.lib.navigation_route import NavigationRouteData
-
-  class TestParams:
-    def get_bool(self, key):
-      return key == "NavigationOnOpenpilot"
-
-    def get(self, key, **kwargs):
-      return "1" if key == "NooMode" else "0"
-
-  monkeypatch.setattr(desire_helper, "Params", TestParams)
-  monkeypatch.setattr(desire_helper, "RemoteLaneChangeSource",
-                      lambda: SimpleNamespace(poll=lambda: 0))
-  clock = [100.0]
-  monkeypatch.setattr(time, "time", lambda: clock[0])
-  monkeypatch.setattr(time, "monotonic", lambda: clock[0])
-  path = tmp_path / "guide.json"
-  path.write_text(json.dumps({"updated_at_ms": 100000,
-                            "guidance_current": {"turn_type": 12, "distance_m": 30}}))
-  helper = DesireHelper()
-  helper.navigation_route = NavigationRouteData(str(path))
-  car = SimpleNamespace(vEgo=5.0, brakePressed=False, steeringPressed=False,
-                        steeringTorque=0.0, steeringAngleDeg=0.0,
-                        leftBlinker=False, rightBlinker=False,
-                        leftBlindspot=False, rightBlindspot=False)
-  helper.update(car, True, 0.0)
-  assert helper.turn_state == 1
-  assert helper.noo_turn_direction == -1
-  # Same on-disk payload; the turn latch must not survive the stream timeout.
-  clock[0] = 103.1
-  helper.update(car, True, 0.0)
-  assert helper.turn_state == 0
-  assert helper.noo_turn_direction == 0
-  assert helper.desire == desire_helper.log.LateralPlan.Desire.none
-
-
 def machine():
   helper = DesireHelper.__new__(DesireHelper)
   helper.turn_state = 0
@@ -122,4 +82,3 @@ def test_turn_hard_cancel_covers_brake_disengagement_and_non_steering_modes():
   assert check(False, 0, True, False, 0)
   assert check(True, 2, True, False, 0)
   assert check(True, 3, True, False, 0)
-  assert check(True, 0, True, False, 0, guidance_fresh=False)

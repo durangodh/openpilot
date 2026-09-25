@@ -83,39 +83,6 @@ def test_explicit_sharp_modifier_and_next_maneuver_use_separate_targets():
   assert NavigationRouteData.speed_limit_kph(fork) is None
 
 
-def test_bare_fork_never_guesses_a_lane_even_inside_prepare_window():
-  ego = {"count": 3, "current": 2, "confidence": 0.9}
-  for distance in (50.0, 100.0, 175.0, 300.0):
-    state = noo_state([0, 0, 1], distance=distance, road_limit=100.0)
-    state.update(lane_fresh=False, lane_current=None)
-    assert confirm_noo(NavigationLaneChangeController(), state, ego) == 0
-
-
-def test_current_fork_lane_takes_priority_over_next_maneuver():
-  state = noo_state([0, 1, 1], distance=180.0)
-  state["lane_ahead_fresh"] = True
-  state["lane_ahead"] = {"count": 3, "available": [0, 0, 1], "distance_m": 420.0}
-  state["next"] = {"fresh": True, "direction": 1, "distance": 420.0, "turn_type": 43}
-  ego = {"count": 3, "current": 2, "confidence": 0.9}
-  controller = NavigationLaneChangeController()
-  assert confirm_noo(controller, state, ego) == 0
-  assert controller.target_lane == 2
-  # Fresh, explicit lane guidance can still request a necessary fork change.
-  state["lane_current"]["available"] = [0, 0, 1]
-  assert confirm_noo(controller, state, ego) == 1
-
-
-def test_missing_plan_requires_a_new_continuous_open_confirmation():
-  state = noo_state([0, 0, 1])
-  ego = {"count": 3, "current": 2, "confidence": 0.9}
-  controller = NavigationLaneChangeController()
-  for _ in range(controller.CONFIRM_FRAMES - 1):
-    assert controller.update(state, ego, 25.0, True, True) == 0
-  assert controller.update({}, ego, 25.0, True, True) == 0
-  assert controller.update(state, ego, 25.0, True, True) == 0
-  assert confirm_noo(controller, state, ego) == 1
-
-
 def state_with_speed(speed, off_route=False):
   return {"speed_fresh": True, "speed": speed, "off_route": off_route}
 

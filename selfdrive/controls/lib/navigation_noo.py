@@ -153,9 +153,7 @@ class NavigationLaneChangeController:
     Camera geometry still owns ego-lane position, and DesireHelper still gates
     the request with road edge, BSD and a continuous-open confirmation.
     """
-    # A fork direction describes the road branch, not a required lane change.
-    # Without lane guidance, staying in the current lane may already follow it.
-    if not state.get("fresh", False) or state.get("kind") not in ("turn", "uturn"):
+    if state.get("kind") not in ("turn", "uturn", "fork"):
       return None
     try:
       direction = int(state.get("direction", 0))
@@ -211,10 +209,7 @@ class NavigationLaneChangeController:
                          float(state.get("distance", -1.0)),
                          int(state.get("turn_type", -1))))
     following = state.get("next")
-    # Finish the current fork before positioning for the next maneuver. Ahead
-    # guidance must not pull a route-compatible lane across the current split.
-    if state.get("kind") != "fork" and state.get("lane_ahead_fresh", False) and \
-       isinstance(following, dict) and following.get("fresh", False):
+    if state.get("lane_ahead_fresh", False) and isinstance(following, dict) and following.get("fresh", False):
       lane_guidance_present = lane_guidance_present or isinstance(state.get("lane_ahead"), dict)
       candidates.append(("ahead", state.get("lane_ahead"),
                          int(following.get("direction", 0)),
@@ -281,8 +276,6 @@ class NavigationLaneChangeController:
     plan = self.lane_plan(state, ego_lane, v_ego, proactive=True)
     if plan is None:
       self.plan_missing_frames += 1
-      self.open_count[-1] = 0
-      self.open_count[1] = 0
       if driver_cancel:
         self.canceled = True
       # Without a plan the camera can never confirm a finished lane change, so
