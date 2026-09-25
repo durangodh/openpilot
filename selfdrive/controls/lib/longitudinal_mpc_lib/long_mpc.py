@@ -350,7 +350,13 @@ class LongitudinalMpc:
                         min_speed=None, min_vrel=LEAD_DEPARTURE_MIN_VREL,
                         min_accel=LEAD_DEPARTURE_MIN_ALEAD))
     if lead_departing:
-      departure_cost = 1.0 + (self.lead_depart_cost - 1.0) * dynamic_weight
+      # Keep the configured quick response at standstill, then restore more
+      # accel/jerk smoothing once ego is rolling behind the departing lead.
+      # The old 0.05 multiplier persisted to 18 km/h and felt too forceful.
+      rolling_floor = interp(v_ego, [0.0, 2.0, LEAD_DEPARTURE_FULL_EGO_SPEED],
+                             [self.lead_depart_cost, max(self.lead_depart_cost, 0.35),
+                              max(self.lead_depart_cost, 0.55)])
+      departure_cost = 1.0 + (rolling_floor - 1.0) * dynamic_weight
       j_ego_v_ego = departure_cost
       a_change_v_ego = departure_cost
 

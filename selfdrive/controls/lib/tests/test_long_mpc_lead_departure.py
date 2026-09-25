@@ -23,10 +23,10 @@ def test_departure_cost_requires_confirmed_pulling_away_lead():
   assert cost_multipliers(2.0, 4.0, 4.0, a_lead0=-0.3) == pytest.approx((1.0, 1.0, 1.0))
 
 
-def test_departure_cost_uses_c2_default_only_at_low_speed():
+def test_departure_cost_restores_smoothing_after_launch():
   assert cost_multipliers(0.0, 1.5, 1.5) == pytest.approx((0.05, 0.05, 1.0))
-  assert cost_multipliers(2.5, 4.5, 4.5) == pytest.approx((0.05, 0.05, 1.0))
-  assert cost_multipliers(5.0, 7.0, 7.0) == pytest.approx((0.05, 0.05, 1.0))
+  assert cost_multipliers(2.5, 4.5, 4.5) == pytest.approx((0.3833333333, 0.3833333333, 1.0))
+  assert cost_multipliers(5.0, 7.0, 7.0) == pytest.approx((0.55, 0.55, 1.0))
   assert cost_multipliers(20.0 / 3.6, 8.0, 8.0)[0] < 1.0
   assert cost_multipliers(30.0 / 3.6, 10.0, 10.0) == pytest.approx((1.0, 1.0, 1.0))
 
