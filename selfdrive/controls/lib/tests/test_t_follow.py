@@ -62,6 +62,13 @@ class TestTFollow(unittest.TestCase):
     self.assertEqual(get_stopped_lead_comfort_brake(2.5, 8.0, 0.0, True), 2.5)
     self.assertEqual(get_stopped_lead_comfort_brake(2.5, 20.0, 18.0, True), 2.5)
 
+  def test_stopped_lead_cap_enters_smoothly_as_lead_slows(self):
+    values = [get_stopped_lead_comfort_brake(2.5, 20.0, speed, True)
+              for speed in (5.0, 4.0, 3.01, 3.0, 2.99, 2.0)]
+    self.assertEqual(values[0], 2.5)
+    self.assertTrue(all(left >= right for left, right in zip(values, values[1:])))
+    self.assertLess(abs(values[2] - values[4]), 0.02)
+
   def test_both_t_follow_directions_are_rate_limited(self):
     self.assertAlmostEqual(limit_t_follow_change(1.5, 1.2, dt=0.05), 1.205)
     self.assertAlmostEqual(limit_t_follow_change(1.2, 1.44, dt=0.05), 1.425)

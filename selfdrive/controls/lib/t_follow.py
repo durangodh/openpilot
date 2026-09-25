@@ -100,19 +100,22 @@ def get_stopped_lead_comfort_brake(configured_comfort_brake, v_ego, v_lead, lead
   confirmed a nearly stationary vehicle with a large closing speed.
   """
   base = float(clip(configured_comfort_brake, 1.0, 4.0))
-  if not lead_status or v_ego < STOPPED_LEAD_MIN_EGO_SPEED or v_lead > STOPPED_LEAD_MAX_SPEED:
+  if not lead_status:
     return base
 
   closing_speed = max(0.0, float(v_ego - v_lead))
-  if closing_speed < STOPPED_LEAD_MIN_CLOSING_SPEED:
-    return base
 
   # At 70 km/h against a stopped lead this caps the planning assumption near
   # 1.5 m/s^2, moving the comfort-braking envelope roughly 30 m earlier than
   # the default 2.5 m/s^2 setting. The physical acceleration limit is unchanged.
   safety_cap = interp(closing_speed, [5.0, 10.0, 15.0, 20.0],
                       [4.0, 2.2, 1.7, 1.5])
-  return float(min(base, safety_cap))
+  # Fade the cap across detection thresholds. A hard switch at 3 m/s lead
+  # speed could suddenly change the MPC obstacle when a lead slows down.
+  weight = (interp(v_ego, [STOPPED_LEAD_MIN_EGO_SPEED - 2.0, STOPPED_LEAD_MIN_EGO_SPEED], [0.0, 1.0]) *
+            interp(v_lead, [STOPPED_LEAD_MAX_SPEED, STOPPED_LEAD_MAX_SPEED + 2.0], [1.0, 0.0]) *
+            interp(closing_speed, [STOPPED_LEAD_MIN_CLOSING_SPEED - 2.0, STOPPED_LEAD_MIN_CLOSING_SPEED], [0.0, 1.0]))
+  return float(base - weight * max(0.0, base - safety_cap))
 
 
 def limit_t_follow_change(tf_target, tf_previous, dt=T_FOLLOW_DT):
