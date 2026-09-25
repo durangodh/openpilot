@@ -89,11 +89,6 @@ class LateralPlanner:
     self.dynamic_lane_profile = 0
     self.dynamic_lane_profile_status = True
     self.dynamic_lane_profile_status_buffer = True
-    # Auto lane-profile debounce: model lane probabilities can cross the
-    # thresholds for a frame or two. Require a sustained decision before
-    # changing the visible/active lane mode.
-    self.dynamic_lane_profile_lane_frames = 0
-    self.dynamic_lane_profile_laneless_frames = 0
     self.lane_line_blend = None
     self.noo_map_blend = 0.0
     self.noo_map_profile_cache = None
@@ -367,29 +362,10 @@ class LateralPlanner:
       if self.DH.lane_change_state in (LaneChangeState.laneChangeStarting, LaneChangeState.laneChangeFinishing):
         return True
       elif self.DH.lane_change_state == LaneChangeState.off:
-        # 20 Hz planner: prefer stable lane mode on ordinary marked roads.
-        # Enter lane mode after both lines stay reasonably confident for 0.3 s.
-        # Enter laneless only after both lines are genuinely weak for 1.0 s.
-        # A brief confidence dip decays the counters instead of erasing all
-        # accumulated evidence, preventing yellow/blue flicker.
-        lane_confident = self.LP.lll_prob > 0.45 and self.LP.rll_prob > 0.45
-        lanes_lost = self.LP.lll_prob < 0.20 and self.LP.rll_prob < 0.20
-        if lane_confident:
-          self.dynamic_lane_profile_lane_frames += 1
-        else:
-          self.dynamic_lane_profile_lane_frames = max(0, self.dynamic_lane_profile_lane_frames - 1)
-        if lanes_lost:
-          self.dynamic_lane_profile_laneless_frames += 1
-        else:
-          self.dynamic_lane_profile_laneless_frames = max(0, self.dynamic_lane_profile_laneless_frames - 1)
-        if self.dynamic_lane_profile_lane_frames >= 6:
-          self.dynamic_lane_profile_status_buffer = False
-          self.dynamic_lane_profile_lane_frames = 6
-          self.dynamic_lane_profile_laneless_frames = 0
-        elif self.dynamic_lane_profile_laneless_frames >= 20:
+        if self.LP.lll_prob < 0.3 and self.LP.rll_prob < 0.3:
           self.dynamic_lane_profile_status_buffer = True
-          self.dynamic_lane_profile_laneless_frames = 20
-          self.dynamic_lane_profile_lane_frames = 0
+        elif self.LP.lll_prob > 0.5 and self.LP.rll_prob > 0.5:
+          self.dynamic_lane_profile_status_buffer = False
         if self.dynamic_lane_profile_status_buffer:
           return True
     return False
