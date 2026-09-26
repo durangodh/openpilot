@@ -16,6 +16,22 @@ E2E_MODE_RELEASE_HOLD_TIME = 0.0
 TRAFFIC_STOP_SOLVER_COMFORT_BRAKE = 2.5
 TRAFFIC_STOP_APILOT_COMFORT_BRAKE = 2.5
 
+# 완만한 커브에서 모델 정지(앞 정지차 포함)를 막던 두 가드 완화.
+# 완화는 모델이 '완전 정지'(끝 속도 3m/s 미만)를 계획할 때만 적용한다.
+E2E_CURVE_STOP_LAT_RATIO = 0.15
+E2E_CURVE_STOP_STEER_BP = [30.0, 50.0]
+E2E_CURVE_STOP_STEER_V = [5.0, 12.0]
+
+
+def _curve_stop_steer_limit(v_ego_kph):
+  lo_v, hi_v = E2E_CURVE_STOP_STEER_BP
+  lo_s, hi_s = E2E_CURVE_STOP_STEER_V
+  if v_ego_kph <= lo_v:
+    return lo_s
+  if v_ego_kph >= hi_v:
+    return hi_s
+  return lo_s + (hi_s - lo_s) * (v_ego_kph - lo_v) / (hi_v - lo_v)
+
 # Published through LongitudinalPlan.e2eReason for the compact onroad badge.
 # Keep these values stable because the Qt UI consumes them directly.
 E2E_REASON_OFF = 0
@@ -165,10 +181,12 @@ class ConditionalE2EController:
         distance_cap = 150.0
       else:
         distance_cap = 120.0 + (v_ego_kph - 60.0) * 1.5
-      raw_stop_sign = (model_x < lead_distance_guard - 3.0 and
-                       model_x < distance_cap and
-                       (model_v < 3.0 or model_v < model_v0 * 0.7) and
-                       abs(model_y) < 5.0)
+      in_range = model_x < lead_distance_guard - 3.0 and model_x < distance_cap
+      straight_stop = (abs(model_y) < 5.0 and
+                       (model_v < 3.0 or model_v < model_v0 * 0.7))
+      curve_stop = (model_v < 3.0 and
+                    abs(model_y) < max(5.0, E2E_CURVE_STOP_LAT_RATIO * model_x))
+      raw_stop_sign = in_range and (straight_stop or curve_stop)
     else:
       raw_stop_sign = False
 
@@ -251,8 +269,9 @@ class ConditionalE2EController:
         self.prepare = False
         self.mode_release_hold_count = self.mode_release_hold_frames
 
-    elif (stop_sign and not effective_lead_present and
-          abs(steering_angle_deg) <= 5.0 and not gas_pressed):
+    elif (stop_sign and not effective_lead_present and not gas_pressed and
+          (abs(steering_angle_deg) <= 5.0 or
+           (model_v < 3.0 and abs(steering_angle_deg) <= _curve_stop_steer_limit(v_ego_kph)))):
       self.stopping = True
       self.stop_distance = 0.0 if v_ego < 0.1 else max(filtered_stop_x, v_ego ** 2 / 4.0)
 
