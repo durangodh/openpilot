@@ -272,6 +272,24 @@ public final class HudService extends Service {
     private volatile long mapFrameIntervalMs = 200L;
     private long lastMapAcceptedElapsed = 0L;
     private final MapThemePolicy mapThemePolicy = new MapThemePolicy();
+    // 야간 테마에서 지도 영역에 덮는 남청색 마스크 알파.
+    // DAY: 밤인데 주간(흰) 지도가 들어올 때 / NIGHT: 지도 자체가 야간 지도일 때.
+    private static final int DAY_MAP_MASK_ALPHA = 155;
+    private static final int NIGHT_MAP_MASK_ALPHA = 40;
+    // 주/야 전환(터널 등) 부드럽게: 마스크 알파 변화 속도, 화면 크로스페이드 시간,
+    // 패널 백라이트 단계 간격·최소 폭(남은 차이의 1/4 씩 줄어드는 감속형).
+    private static final float MAP_MASK_FADE_PER_SEC = 160f;
+    private static final long THEME_FADE_MS = 800L;
+    private static final long BRIGHTNESS_STEP_MS = 100L;
+    private static final int BRIGHTNESS_MIN_STEP = 3;
+    private float mapMaskAlphaNow = 0f;
+    private long mapMaskElapsed = 0L;
+    private Bitmap themeFadeFrame;
+    private Canvas themeFadeCanvas;
+    private final Paint themeFadePaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private long themeFadeStartElapsed = 0L;
+    private int lastRenderedDark = -1;
+    private long lastBrightnessStepElapsed = 0L;
     private final int[] mapThemePixels = new int[16 * 12];
     private long lastThemeSampleElapsed = 0L;
     private long lastThemeMapElapsed = 0L;
@@ -1835,8 +1853,20 @@ public final class HudService extends Service {
                         ? configuredNightBrightness : configuredDayBrightness;
             }
             if (requestedBrightness != appliedBrightness) {
-                display.setBrightness(requestedBrightness);
-                appliedBrightness = requestedBrightness;
+                long now = SystemClock.elapsedRealtime();
+                if (appliedBrightness < 1) {
+                    display.setBrightness(requestedBrightness);
+                    appliedBrightness = requestedBrightness;
+                    lastBrightnessStepElapsed = now;
+                } else if (now - lastBrightnessStepElapsed >= BRIGHTNESS_STEP_MS) {
+                    int diff = requestedBrightness - appliedBrightness;
+                    int step = Math.max(BRIGHTNESS_MIN_STEP, Math.abs(diff) / 4);
+                    int next = Math.abs(diff) <= step ? requestedBrightness
+                            : appliedBrightness + (diff > 0 ? step : -step);
+                    display.setBrightness(next);
+                    appliedBrightness = next;
+                    lastBrightnessStepElapsed = now;
+                }
             }
 
             if (usbNeedsPrimeFrame) {
@@ -2005,6 +2035,8 @@ public final class HudService extends Service {
         synchronized (phoneFrameLock) {
             Canvas c = beginPhoneFrame();
             c.drawColor(Color.BLACK);
+            lastRenderedDark = -1;
+            themeFadeStartElapsed = 0L;
         }
     }
 
@@ -2028,7 +2060,30 @@ public final class HudService extends Service {
     private void renderPhone(JSONObject s, Bitmap map, Bitmap tbtCurrent,
                              Bitmap tbtNext, Bitmap lane, Bitmap trafficSignal) {
         Canvas c = beginPhoneFrame();
+        // 주/야 테마가 바뀌는 순간 직전 프레임(아직 phoneFrame 에 남아 있음)을
+        // 보관해 두고, 새 프레임 위에 THEME_FADE_MS 동안 점점 투명하게 겹친다.
+        int dark = darkTheme() ? 1 : 0;
+        long now = SystemClock.elapsedRealtime();
+        if (lastRenderedDark >= 0 && dark != lastRenderedDark) {
+            if (themeFadeFrame == null || themeFadeFrame.isRecycled()) {
+                themeFadeFrame = HudPixelBuffer.create(WIDTH, HEIGHT);
+                themeFadeCanvas = new Canvas(themeFadeFrame);
+            }
+            themeFadeCanvas.drawBitmap(phoneFrame, 0f, 0f, null);
+            themeFadeStartElapsed = now;
+        }
         drawFrame(c, s, map, tbtCurrent, tbtNext, lane, trafficSignal);
+        lastRenderedDark = frameDark ? 1 : 0;
+        if (themeFadeStartElapsed != 0L) {
+            long age = now - themeFadeStartElapsed;
+            if (age >= THEME_FADE_MS || themeFadeFrame == null || themeFadeFrame.isRecycled()) {
+                themeFadeStartElapsed = 0L;
+            } else {
+                c.setMatrix(null);
+                themeFadePaint.setAlpha(Math.round(255f * (1f - (float) age / THEME_FADE_MS)));
+                c.drawBitmap(themeFadeFrame, 0f, 0f, themeFadePaint);
+            }
+        }
     }
 
     private void drawFrame(Canvas c, JSONObject s, Bitmap map,
@@ -4930,6 +4985,27 @@ public final class HudService extends Service {
         text(c, p, String.format(Locale.US, "AVG %.0f km/h", avg), mapCenterX(), 363f, 35f, fg, Paint.Align.CENTER);
     }
 
+    // 야간 테마 지도 마스크 알파(0~155). 지도 자체가 야간 지도(네이버 등)로
+    // 판정되면 이미 어두우므로 약하게, 밤에 주간 지도가 들어오는 경우(티맵·
+    // 시간 기준·테마 고정)는 155. 목표가 바뀌면 약 1초에 걸쳐 따라간다.
+    private int nightMapMaskAlpha() {
+        long maskNow = SystemClock.elapsedRealtime();
+        float maskTarget = 0f;
+        if (frameDark) {
+            maskTarget = mapThemePolicy.current(maskNow) == MapThemePolicy.NIGHT
+                    ? NIGHT_MAP_MASK_ALPHA : DAY_MAP_MASK_ALPHA;
+        }
+        if (mapMaskElapsed == 0L || maskNow - mapMaskElapsed > 2000L) {
+            mapMaskAlphaNow = maskTarget;
+        } else {
+            float maxStep = MAP_MASK_FADE_PER_SEC * (maskNow - mapMaskElapsed) / 1000f;
+            float diff = maskTarget - mapMaskAlphaNow;
+            mapMaskAlphaNow += Math.max(-maxStep, Math.min(maxStep, diff));
+        }
+        mapMaskElapsed = maskNow;
+        return Math.round(mapMaskAlphaNow);
+    }
+
     private void drawMap(Canvas c, Paint p, JSONObject s, Bitmap map, Bitmap tbtCurrent,
                          Bitmap tbtNext, Bitmap lane, Bitmap trafficSignal) {
         scratchIRect.set(MAP_LEFT, 0, mapRight(), HEIGHT);
@@ -4955,10 +5031,11 @@ public final class HudService extends Service {
         // 오버레이만으로는 흰 배경이 지나치게 밝다. 야간 테마일 때 지도
         // 영역에만 짙은 남청색 마스크를 추가한다. TBT 배너는 이 다음에
         // 그리므로 안내 정보의 원래 밝기와 색상은 유지된다.
-        if (mapAvailable && frameDark) {
+        int maskAlpha = nightMapMaskAlpha();
+        if (mapAvailable && maskAlpha > 0) {
             p.setShader(null);
             p.setStyle(Paint.Style.FILL);
-            p.setColor(Color.argb(155, 2, 9, 20));
+            p.setColor(Color.argb(maskAlpha, 2, 9, 20));
             c.drawRect(scratchIRect, p);
         }
 
