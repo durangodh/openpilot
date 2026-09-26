@@ -41,9 +41,7 @@ LOW_SPEED_JERK_BOOST_SPEED_BP = [0.0, 5.0, 30.0 / 3.6]  # 0, 18, 30 km/h
 # 빠르게 반응하고, 고속 진입이면 1.0(=STOPPING DECEL RATE 값 그대로, 기존
 # 고속 체감 유지)으로 둔다. m/s 기준: 0=0km/h, 5.6≈20km/h, 11.1≈40km/h.
 STOPPING_JERK_ENTRY_SPEED_BP = [0.0, 5.6, 11.1]
-# Traffic should start braking early rather than waiting and then ramping the
-# stopping request very quickly. Keep the highway end unchanged.
-STOPPING_JERK_ENTRY_MULT_V = [1.6, 1.3, 1.0]
+STOPPING_JERK_ENTRY_MULT_V = [2.5, 1.5, 1.0]
 
 
 # apilot-c2 상태전이.
@@ -490,13 +488,6 @@ class LongControl:
                                    feedforward=a_target,
                                    freeze_integrator=freeze_integrator)
 
-      # In stop-and-go traffic, a delayed plan can otherwise build a large
-      # speed error and then command a short acceleration/braking pulse. Blend
-      # toward the planner feed-forward below 30 km/h so the car reacts earlier
-      # but with a smaller peak. This fades out completely by 30 km/h.
-      traffic_blend = interp(CS.vEgo, [0.0, 5.0, 30.0 / 3.6], [0.45, 0.30, 0.0])
-      if radar_state_valid and radar_state is not None and radar_state.leadOne.status:
-        pid_output = (1.0 - traffic_blend) * pid_output + traffic_blend * a_target
 
       if assisted_departure and not prevent_overshoot:
         pid_output = max(pid_output, self.departure_assist.accel_floor)
