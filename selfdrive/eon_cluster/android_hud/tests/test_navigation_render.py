@@ -53,6 +53,7 @@ public class NavigationRenderCheck {
   boolean drawTurnIcon(Canvas c,Paint p,float x,float y,float size,int type,String title,int color,boolean b){return false;}
   void drawScaledArrow(Canvas c,Paint p,float x,float y,int type,float size,String title){}
   String distanceText(int n){return Integer.toString(n);}
+  int nightMapMaskAlpha(){return frameDark?155:0;}
   /* PRODUCTION_METHODS */
   static JSONObject state(boolean active,int remain,int turn){return new JSONObject().put("navi",
     new JSONObject().put("active",active).put("remainDist",remain).put("turnDist",turn));}
