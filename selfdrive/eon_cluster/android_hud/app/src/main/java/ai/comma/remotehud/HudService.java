@@ -1436,11 +1436,12 @@ public final class HudService extends Service {
                     }
                     synchronized (assetLock) {
                         if (tagEquals(header, "MAP1")) {
-                            long mapNow = SystemClock.elapsedRealtime();
-                            if (lastMapAcceptedElapsed == 0 || mapNow - lastMapAcceptedElapsed >= mapFrameIntervalMs) {
-                                replaceAsset(mapFrame, data);
-                                lastMapAcceptedElapsed = mapNow;
-                            }
+                            // EON already rate-limits MAP1 to hudMapFps. Accept every
+                            // delivered map frame here so network/scheduler jitter near
+                            // the old 200 ms gate cannot discard a fresh frame and make
+                            // turns look one frame late on the external HUD.
+                            replaceAsset(mapFrame, data);
+                            lastMapAcceptedElapsed = SystemClock.elapsedRealtime();
                         } else if (tagEquals(header, "TBT1")) {
                             replaceAsset(tbtCurrentFrame, data);
                         } else if (tagEquals(header, "TBT2")) {
