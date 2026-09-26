@@ -1,3 +1,7 @@
+import os
+import threading
+import time
+from collections import deque
 from random import randint
 
 from cereal import car
@@ -50,6 +54,34 @@ def process_hud_alert(enabled, fingerprint, hud_control):
   return sys_warning, sys_state, left_lane_warning, right_lane_warning
 
 
+# ── MDPS 폴트 블랙박스 ──────────────────────────────────────────────────────
+# loggerd 없이도 폴트 원인을 볼 수 있게, 최근 6초를 메모리에만 들고 있다가
+# steerFaultTemporary 가 켜지는 순간 전후(6초 전 ~ 1초 후)를 CSV 로 남긴다.
+# 평소엔 파일을 쓰지 않는다. 저장 위치: /data/steer_fault_logs/
+FAULT_LOG_DIR = "/data/steer_fault_logs"
+FAULT_PRE_FRAMES = 600    # 100Hz × 6s
+FAULT_POST_FRAMES = 100   # 100Hz × 1s
+FAULT_LOG_KEEP = 10
+FAULT_LOG_HEADER = ("frame,vEgo,angle,rate,drvTq,drvPressed,enabled,latActive,"
+                    "reqSteer,applySteer,applyLast,cutSteer,angleCnt,"
+                    "toiUnavail,toiFlt,failStat,mdpsOutTq,mdpsColTq,pid_p,pid_i,pid_f")
+
+
+def _write_fault_log(rows, stamp):
+  try:
+    os.makedirs(FAULT_LOG_DIR, exist_ok=True)
+    path = os.path.join(FAULT_LOG_DIR, f"fault_{stamp}.csv")
+    with open(path, "w") as f:
+      f.write(FAULT_LOG_HEADER + "\n")
+      for r in rows:
+        f.write(",".join(f"{v:.4f}" if isinstance(v, float) else str(v) for v in r) + "\n")
+    files = sorted(n for n in os.listdir(FAULT_LOG_DIR) if n.startswith("fault_"))
+    for n in files[:-FAULT_LOG_KEEP]:
+      os.remove(os.path.join(FAULT_LOG_DIR, n))
+  except Exception:
+    pass
+
+
 class CarController:
   def __init__(self, dbc_name, CP, VM):
     self.car_fingerprint = CP.carFingerprint
@@ -95,6 +127,39 @@ class CarController:
 
     self.steer_fault_max_angle = CP.steerFaultMaxAngle
     self.steer_fault_max_frames = CP.steerFaultMaxFrames
+
+    self.fault_buf = deque(maxlen=FAULT_PRE_FRAMES + FAULT_POST_FRAMES)
+    self.fault_prev = False
+    self.fault_post_left = -1
+    self.fault_stamp = ""
+
+  def _record_fault(self, CC, CS, controls, apply_steer, lkas_active, cut_steer_temp):
+    try:
+      m = CS.mdps12
+      pid = getattr(getattr(controls, "LaC", None), "pid", None)
+      self.fault_buf.append((
+        self.frame, float(CS.out.vEgo), float(CS.out.steeringAngleDeg), float(CS.out.steeringRateDeg),
+        float(CS.out.steeringTorque), int(CS.out.steeringPressed), int(CC.enabled), int(bool(lkas_active)),
+        float(CC.actuators.steer), int(apply_steer), int(self.apply_steer_last), int(cut_steer_temp),
+        int(self.angle_limit_counter),
+        int(m.get("CF_Mdps_ToiUnavail", -1)), int(m.get("CF_Mdps_ToiFlt", -1)), int(m.get("CF_Mdps_FailStat", -1)),
+        float(m.get("CR_Mdps_OutTq", 0.0)), float(m.get("CR_Mdps_StrColTq", 0.0)),
+        float(getattr(pid, "p", 0.0)), float(getattr(pid, "i", 0.0)), float(getattr(pid, "f", 0.0)),
+      ))
+
+      fault = bool(CS.out.steerFaultTemporary or CS.out.steerFaultPermanent)
+      if fault and not self.fault_prev and self.fault_post_left < 0:
+        self.fault_post_left = FAULT_POST_FRAMES
+        self.fault_stamp = time.strftime("%Y%m%d_%H%M%S")
+      self.fault_prev = fault
+
+      if self.fault_post_left >= 0:
+        if self.fault_post_left == 0:
+          threading.Thread(target=_write_fault_log,
+                           args=(list(self.fault_buf), self.fault_stamp), daemon=True).start()
+        self.fault_post_left -= 1
+    except Exception:
+      pass
 
   def update(self, CC, CS, controls):
     actuators = CC.actuators
@@ -165,6 +230,8 @@ class CarController:
         cut_steer_temp = True
         self.angle_limit_counter = 0
         self.cut_steer_frames += 1
+
+    self._record_fault(CC, CS, controls, apply_steer, lkas_active, cut_steer_temp)
 
     can_sends = []
     can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, apply_steer, lkas_active,
