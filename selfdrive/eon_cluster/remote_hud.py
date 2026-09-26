@@ -522,6 +522,85 @@ def _set_speed(controls_state, car_control):
   return max(0, int(round(_finite(value))))
 
 
+# 티맵 경로선(주행씬) 샘플링. 전방거리(x) 단조증가 방식은 교차로 회전 뒤
+# 옆으로 뻗는 구간을 버리고 모서리를 긴 직선으로 이어서 ㄱ자로 보였다.
+# 경로 길이 기준으로 재샘플하고 모서리를 이동평균으로 둥글린다.
+NAV_CURVE_STEP_M = 4.0
+NAV_CURVE_MAX_LEN_M = 380.0
+NAV_CURVE_SMOOTH_PASSES = 3
+NAV_CURVE_DENSE_M = 160.0
+NAV_CURVE_MAX_POINTS = 64
+
+
+def _route_curve(pts, best_i):
+  poly = [p for p in pts if p is not None]
+  if len(poly) < 2:
+    return []
+  valid_before = sum(1 for p in pts[:best_i] if p is not None)
+  best = min(valid_before, len(poly) - 1)
+
+  start_seg, start_t, start_d = best, 0.0, float("inf")
+  for seg in (best - 1, best):
+    if seg < 0 or seg + 1 >= len(poly):
+      continue
+    (ax, ay), (bx, by) = poly[seg], poly[seg + 1]
+    dx, dy = bx - ax, by - ay
+    ll = dx * dx + dy * dy
+    t = 0.0 if ll < 1e-6 else max(0.0, min(1.0, -(ax * dx + ay * dy) / ll))
+    px, py = ax + dx * t, ay + dy * t
+    d = px * px + py * py
+    if d < start_d:
+      start_seg, start_t, start_d = seg, t, d
+  if start_seg + 1 >= len(poly):
+    return []
+  ax, ay = poly[start_seg]
+  bx, by = poly[start_seg + 1]
+  verts = [(ax + (bx - ax) * start_t, ay + (by - ay) * start_t)] + poly[start_seg + 1:]
+
+  out = [verts[0]]
+  travelled = 0.0
+  next_at = NAV_CURVE_STEP_M
+  for i in range(1, len(verts)):
+    (x0, y0), (x1, y1) = verts[i - 1], verts[i]
+    seg_len = math.hypot(x1 - x0, y1 - y0)
+    if seg_len < 1e-6:
+      continue
+    while next_at <= travelled + seg_len and next_at <= NAV_CURVE_MAX_LEN_M:
+      t = (next_at - travelled) / seg_len
+      out.append((x0 + (x1 - x0) * t, y0 + (y1 - y0) * t))
+      next_at += NAV_CURVE_STEP_M
+    travelled += seg_len
+    if travelled >= NAV_CURVE_MAX_LEN_M:
+      break
+  else:
+    last = verts[-1]
+    if math.hypot(last[0] - out[-1][0], last[1] - out[-1][1]) > 0.5:
+      out.append(last)
+  if len(out) < 2:
+    return []
+
+  for _ in range(NAV_CURVE_SMOOTH_PASSES):
+    if len(out) < 3:
+      break
+    out = [out[0]] + [
+      ((out[i - 1][0] + 2.0 * out[i][0] + out[i + 1][0]) * 0.25,
+       (out[i - 1][1] + 2.0 * out[i][1] + out[i + 1][1]) * 0.25)
+      for i in range(1, len(out) - 1)
+    ] + [out[-1]]
+
+  while len(out) > 2 and out[0][0] < 0.0 and out[1][0] < 0.0:
+    out.pop(0)
+
+  dense_n = int(NAV_CURVE_DENSE_M / NAV_CURVE_STEP_M)
+  curve = []
+  for i, (x, y) in enumerate(out):
+    if i <= dense_n or (i - dense_n) % 3 == 0 or i == len(out) - 1:
+      curve.append([round(x, 1), round(y, 1)])
+    if len(curve) >= NAV_CURVE_MAX_POINTS:
+      break
+  return curve
+
+
 def _navi_scene(state):
   """티맵 lane_current + route.polyline 을 HUD 3D씬용으로 가공한다.
 
@@ -605,20 +684,7 @@ def _navi_scene(state):
       d = x * x + y * y
       if d < best_d:
         best_d, best_i = d, i
-    curve = []
-    last_x = -1e9
-    for pt in pts[best_i:]:
-      if pt is None:
-        continue
-      x, y = pt
-      if x < 0.0 or x <= last_x + 12.0:
-        continue
-      if x > 380.0:
-        break
-      curve.append([round(x, 1), round(y, 1)])
-      last_x = x
-      if len(curve) >= 24:
-        break
+    curve = _route_curve(pts, best_i)
     if len(curve) >= 2:
       scene["curve"] = curve
 
