@@ -77,7 +77,6 @@ from selfdrive.controls.lib.drive_helpers import V_CRUISE_INITIAL, initialize_v_
 from selfdrive.controls.lib.drive_helpers import get_lag_adjusted_curvature
 from selfdrive.controls.lib.latcontrol import LatControl
 from selfdrive.controls.lib.longcontrol import LongControl
-from selfdrive.controls.lib.long_blackbox import LongBlackbox
 from selfdrive.controls.lib.latcontrol_pid import LatControlPID
 from selfdrive.controls.lib.latcontrol_angle import LatControlAngle
 from selfdrive.controls.lib.events import Events, ET
@@ -217,7 +216,6 @@ class Controls:
     self.events = Events()
 
     self.LoC = LongControl(self.CP)
-    self.long_blackbox = LongBlackbox()
     self.VM = VehicleModel(self.CP)
 
     self.LaC: LatControl
@@ -775,11 +773,6 @@ class Controls:
         self.sm['radarState'], self.sm.valid['radarState'] and self.sm.alive['radarState'],
         self.sm.updated['radarState'],
         plan_valid=self.sm.valid['longitudinalPlan'] and self.sm.alive['longitudinalPlan'])
-      self.long_blackbox.update(CS, long_plan, self.sm['radarState'].leadOne,
-                                self.sm.valid['radarState'] and self.sm.alive['radarState'],
-                                actuators, self.LoC, CC.longActive, t_since_plan,
-                                self.sm['modelV2'].leadsV3[0] if len(self.sm['modelV2'].leadsV3) else None,
-                                self.v_cruise_kph, self.applyMaxSpeed, self.cruise_helper, self.sm['modelV2'])
 
       # Steering PID loop and lateral MPC
       self.desired_curvature, self.desired_curvature_rate = get_lag_adjusted_curvature(self.CP, CS.vEgo,
