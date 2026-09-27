@@ -1,0 +1,94 @@
+name: Publish Navi Music 1.1.0
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [g_remote]
+    paths: ['.github/workflows/publish-navi-music-1.1.0.yml']
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-navi-music-1-1-0
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SOURCE_RUN: '36323121736'
+      SOURCE_SHA: b27bc30b27ac1d03545480d65cbba9389ae28614
+    steps:
+      - name: Wait for the exact tested build
+        run: |
+          gh run watch "$SOURCE_RUN" --exit-status --interval 15
+          gh api "repos/$GH_REPO/actions/runs/$SOURCE_RUN" > source-run.json
+          python3 - <<'PY'
+          import json, os
+          run = json.load(open('source-run.json'))
+          assert run['head_sha'] == os.environ['SOURCE_SHA'], 'Unexpected source commit'
+          assert run['head_branch'] == 'g_remote', 'Unexpected source branch'
+          assert run['path'] == '.github/workflows/navi_music_android.yml', 'Unexpected workflow'
+          assert run['conclusion'] == 'success', 'Build and tests must pass'
+          PY
+      - name: Download the signed APK without rebuilding
+        run: gh run download "$SOURCE_RUN" --name Navi-Music-1.1.0 --dir release
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify APK identity, hash and existing signing certificate
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0'
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, subprocess, zipfile
+          root = pathlib.Path('release')
+          apk = root / 'Navi-Music-1.1.0.apk'
+          expected_cert = '8864e2b9ad307f5f189de9c747697854275089fc81296d6fbb5b2a9576d23c06'
+          checksums = (root / 'SHA256SUMS.txt').read_text().splitlines()
+          assert len(checksums) == 1, 'Unexpected checksum manifest'
+          expected, name = checksums[0].split()
+          assert pathlib.PurePosixPath(name).name == apk.name, 'Unexpected APK name'
+          digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+          assert digest == expected, 'APK hash mismatch'
+          with zipfile.ZipFile(apk) as archive:
+              assert archive.testzip() is None, 'Invalid APK ZIP'
+          tools = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools/35.0.0'
+          signature = subprocess.check_output([str(tools / 'apksigner'), 'verify', '--verbose', '--print-certs', str(apk)], text=True)
+          certs = re.findall(r'Signer #\d+ certificate SHA-256 digest: ([0-9a-f]+)', signature)
+          assert certs == [expected_cert], 'Unexpected signing certificate'
+          info = subprocess.check_output([str(tools / 'aapt'), 'dump', 'badging', str(apk)], text=True)
+          assert "package: name='ai.comma.nmirrorpanel'" in info, 'Unexpected application'
+          assert "versionName='1.1.0'" in info, 'Unexpected version'
+          assert "targetSdkVersion:'36'" in info, 'Unexpected target SDK'
+          report = dict(artifact=apk.name, sha256=digest, certificate_sha256=expected_cert,
+                        source_commit=os.environ['SOURCE_SHA'], source_run=int(os.environ['SOURCE_RUN']),
+                        android_16_emulator_tests_passed=True, vehicle_tested=False)
+          (root / 'verification.json').write_text(json.dumps(report, indent=2) + '\n')
+          (root / 'SHA256SUMS.txt').write_text(digest + '  ' + apk.name + '\n')
+          PY
+      - name: Publish downloadable APK
+        run: |
+          cat > release-notes.md <<'EOF'
+          ## Navi Music 1.1.0 — 지도 옆 음악 패널
+
+          **아래 Assets에서 `Navi-Music-1.1.0.apk`를 받아 설치하세요.** 일반 APK이며 SAI는 필요하지 않습니다.
+
+          - Android 16용 별도 음악 패널: 곡명, 가수, 앨범 이미지와 이전/재생·일시정지/다음 곡
+          - 패널 크기에 따라 글자와 버튼 크기 자동 조절
+          - 같은 기기의 벅스 등 미디어 세션을 제공하는 음악 앱과 연결
+          - 네이버 지도 또는 TMAP과 Android 분할 화면으로 사용
+
+          설치 후 Navi Music → 설정 → 음악 연결 권한에서 알림 접근을 허용하고, 같은 기기에서 음악을 재생한 다음 ‘지도와 함께 열기’를 누르세요. 기존 1.0.0 위에 업데이트할 수 있습니다.
+
+          Android 16 에뮬레이터에서 미디어 제어·분할 화면·크기 조절 테스트를 통과했습니다. S9·nMirror·차량에서의 실제 동작은 아직 확인하지 않았습니다. 좌우 위치와 자동 분할은 OS 동작에 따릅니다. 기존 서명 인증서를 검증한 Actions 산출물을 재빌드 없이 게시합니다.
+          EOF
+          gh release create navi-music-v1.1.0 \
+            release/Navi-Music-1.1.0.apk release/SHA256SUMS.txt release/verification.json \
+            --target "$SOURCE_SHA" --title 'Navi Music 1.1.0 — 지도 옆 음악 패널' \
+            --notes-file release-notes.md --prerelease --latest=false
