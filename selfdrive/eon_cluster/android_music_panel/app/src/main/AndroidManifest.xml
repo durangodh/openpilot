@@ -1,0 +1,24 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <package android:name="com.nhn.android.nmap" />
+        <package android:name="com.skt.tmap.ku" />
+        <package android:name="com.spotify.music" />
+        <package android:name="com.google.android.apps.youtube.music" />
+        <package android:name="com.samsung.android.app.music" />
+        <package android:name="com.maxmpz.audioplayer" />
+        <package android:name="org.videolan.vlc" />
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.APP_MUSIC" /></intent>
+    </queries>
+    <application android:allowBackup="false" android:label="Navi Music" android:icon="@drawable/ic_app"
+        android:theme="@style/AppTheme" android:supportsRtl="true" android:resizeableActivity="true">
+        <activity android:name=".MainActivity" android:exported="true" android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+            <layout android:minWidth="180dp" android:minHeight="240dp" />
+        </activity>
+        <service android:name=".MediaAccessService" android:label="Navi Music 음악 정보"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true">
+            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
+        </service>
+    </application>
+</manifest>

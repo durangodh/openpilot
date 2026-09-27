@@ -1,0 +1,6 @@
+<resources>
+    <item name="song_title" type="id" />
+    <item name="song_artist" type="id" />
+    <item name="play_pause" type="id" />
+    <item name="navigation_button" type="id" />
+</resources>
