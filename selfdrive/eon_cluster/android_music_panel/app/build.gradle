@@ -1,0 +1,34 @@
+plugins { id "com.android.application" }
+android {
+  namespace "ai.comma.nmirrorpanel"
+  compileSdk 36
+  defaultConfig {
+    applicationId "ai.comma.nmirrorpanel"
+    minSdk 32
+    targetSdk 36
+    versionCode = (System.getenv("PANEL_VERSION_CODE") ?: "1").toInteger()
+    versionName "1.1.0"
+    testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+  }
+  signingConfigs {
+    stable {
+      if (System.getenv("PANEL_KEYSTORE_PATH")) {
+        storeFile file(System.getenv("PANEL_KEYSTORE_PATH"))
+        storePassword System.getenv("REMOTE_HUD_KEYSTORE_PASSWORD")
+        keyAlias System.getenv("REMOTE_HUD_KEY_ALIAS")
+        keyPassword System.getenv("REMOTE_HUD_KEY_PASSWORD")
+        storeType "PKCS12"
+      }
+    }
+  }
+  buildTypes {
+    release { signingConfig signingConfigs.stable; minifyEnabled false }
+  }
+  compileOptions { sourceCompatibility JavaVersion.VERSION_11; targetCompatibility JavaVersion.VERSION_11 }
+}
+dependencies {
+  testImplementation "junit:junit:4.13.2"
+  androidTestImplementation "androidx.test:runner:1.6.2"
+  androidTestImplementation "androidx.test:rules:1.6.1"
+  androidTestImplementation "androidx.test.ext:junit:1.2.1"
+}
