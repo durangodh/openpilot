@@ -4,7 +4,7 @@
         <package android:name="com.skt.tmap.ku" />
         <package android:name="com.spotify.music" />
         <package android:name="com.google.android.apps.youtube.music" />
-        <package android:name="com.samsung.android.app.music" />
+        <package android:name="com.sec.android.app.music" />
         <package android:name="com.maxmpz.audioplayer" />
         <package android:name="org.videolan.vlc" />
         <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.APP_MUSIC" /></intent>
