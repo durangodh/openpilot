@@ -141,19 +141,19 @@ public final class MainActivity extends Activity {
         android.view.ViewGroup.LayoutParams params=view.getLayoutParams();
         if(params.width!=width || params.height!=height) { params.width=width; params.height=height; view.setLayoutParams(params); }
     }
-    private CharSequence metadata(MediaMetadata m,String key,String fallback) { CharSequence value=m==null?null:m.getText(key); return value==null||value.length()==0?fallback:value; }
     private String appName(String pkg) { try { return getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(pkg,0)).toString(); } catch(Exception e) { return pkg; } }
     private void render(MediaController current,boolean authorized) {
         controller=current;
         MediaMetadata m=current==null?null:current.getMetadata();
-        title.setText(metadata(m,MediaMetadata.METADATA_KEY_TITLE,authorized?"음악을 재생해 주세요":"음악 연결을 허용해 주세요"));
-        artist.setText(metadata(m,MediaMetadata.METADATA_KEY_ARTIST,current==null?"같은 기기의 음악 앱과 연결됩니다":"아티스트 정보 없음"));
+        CharSequence song=MediaInfo.title(m), singer=MediaInfo.artist(m);
+        title.setText(song.length()>0?song:!authorized?"음악 연결을 허용해 주세요":current==null?"음악을 재생해 주세요":"곡 정보가 전달되지 않습니다");
+        artist.setText(singer.length()>0?singer:current==null?"같은 기기의 음악 앱과 연결됩니다":"아티스트 정보 없음");
         source.setText(current==null?"NAVI MUSIC":appName(current.getPackageName()));
         Bitmap art=m==null?null:m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
         if(art==null && m!=null) art=m.getBitmap(MediaMetadata.METADATA_KEY_ART);
         if(art==null && m!=null) art=m.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON);
         artwork.setImageBitmap(art);
-        hint.setText(!authorized?"여기를 눌러 알림 접근을 허용하세요":current==null?"설정 → 음악 앱 열기에서 먼저 재생하세요":"분할 위치·크기는 가운데 구분선으로 조정하세요");
+        hint.setText(!authorized?"여기를 눌러 알림 접근을 허용하세요":current==null||song.length()==0?"설정 → 연결 상태에서 곡 정보 수신을 확인하세요":"분할 위치·크기는 가운데 구분선으로 조정하세요");
         updateProgress();
     }
     private void updateProgress() {
@@ -193,21 +193,23 @@ public final class MainActivity extends Activity {
     private void openAccess() { try { startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); } catch(RuntimeException e) { message("설정 확인","Android 설정에서 Navi Music의 알림 접근을 허용해 주세요."); } }
     private void message(String title,String body) { new AlertDialog.Builder(this).setTitle(title).setMessage(body).setPositiveButton("확인",null).show(); }
     private void showSettings() {
-        String[] rows={"음악 연결 권한", "지도 선택", "음악 앱 선택", "음악 앱 열기", "시작할 때 지도 함께 열기: "+(preferences.getBoolean("autoSplit",false)?"켜짐":"꺼짐"),"연결 도움말"};
+        String[] rows={"음악 연결 권한", "지도 선택", "음악 앱 선택", "음악 앱 열기", "시작할 때 지도 함께 열기: "+(preferences.getBoolean("autoSplit",false)?"켜짐":"꺼짐"),"연결 도움말","연결 상태 · 1.2.0"};
         new AlertDialog.Builder(this).setTitle("Navi Music 설정").setItems(rows,(dialog,which)->{
             if(which==0) openAccess();
             else if(which==1) new AlertDialog.Builder(this).setTitle("지도 선택").setSingleChoiceItems(new String[]{"네이버 지도","TMAP"},preferences.getString("navigation","").equals("com.skt.tmap.ku")?1:0,(d,n)->{ preferences.edit().putString("navigation",n==0?"com.nhn.android.nmap":"com.skt.tmap.ku").apply(); d.dismiss(); }).show();
             else if(which==2) choosePlayer();
             else if(which==3) openPlayer();
             else if(which==4) { preferences.edit().putBoolean("autoSplit",!preferences.getBoolean("autoSplit",false)).apply(); showSettings(); }
+            else if(which==6) message("음악 연결 상태",repository.diagnostics());
             else message("nMirror 연결","1. 이 기기의 음악 앱에서 재생\n2. Navi Music 알림 접근 허용\n3. 지도와 함께 열기\n4. nMirror에서 기본 화면을 미러링\n\n분할이 안 되면 최근 앱에서 수동으로 분할하세요. 좌우 순서와 비율은 시스템에서 조정합니다. 다른 휴대폰에서 재생하는 음악은 표시되지 않습니다. 차량 음성 버튼 연결은 nMirror·지도 앱의 별도 기능입니다.");
         }).setNegativeButton("닫기",null).show();
     }
     private void choosePlayer() {
         LinkedHashMap<String,String> choices=new LinkedHashMap<>(); choices.put("","자동 선택 · 재생 중인 앱 우선");
-        String[] known={"com.spotify.music","com.google.android.apps.youtube.music","com.sec.android.app.music","com.maxmpz.audioplayer","org.videolan.vlc"};
+        String[] known={"com.neowiz.android.bugs","com.nhn.android.nmap","com.spotify.music","com.google.android.apps.youtube.music","com.sec.android.app.music","com.maxmpz.audioplayer","org.videolan.vlc"};
         for(String pkg:known) if(getPackageManager().getLaunchIntentForPackage(pkg)!=null) choices.put(pkg,appName(pkg));
         for(ResolveInfo r:getPackageManager().queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MUSIC),0)) choices.put(r.activityInfo.packageName,appName(r.activityInfo.packageName));
+        for(String pkg:repository.activePackages()) choices.put(pkg,appName(pkg));
         if(controller!=null) choices.put(controller.getPackageName(),appName(controller.getPackageName()));
         ArrayList<String> packages=new ArrayList<>(choices.keySet());
         new AlertDialog.Builder(this).setTitle("음악 앱 선택").setItems(choices.values().toArray(new String[0]),(d,n)->{ preferences.edit().putString("player",packages.get(n)).apply(); repository.start(packages.get(n)); }).show();

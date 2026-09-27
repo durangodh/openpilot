@@ -73,11 +73,11 @@ jobs:
           gradle --no-daemon assembleRelease
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
           mkdir -p dist
-          cp app/build/outputs/apk/release/app-release.apk dist/Navi-Music-1.1.0.apk
-          sha256sum dist/Navi-Music-1.1.0.apk > dist/SHA256SUMS.txt
+          cp app/build/outputs/apk/release/app-release.apk dist/Navi-Music-1.2.0.apk
+          (cd dist && sha256sum Navi-Music-1.2.0.apk > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         with:
-          name: Navi-Music-1.1.0
+          name: Navi-Music-1.2.0
           path: selfdrive/eon_cluster/android_music_panel/dist/
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
@@ -87,3 +87,59 @@ jobs:
           path: |
             selfdrive/eon_cluster/android_music_panel/app/build/reports/
             selfdrive/eon_cluster/android_music_panel/screenshots/
+  publish:
+    needs: build
+    if: github.ref == 'refs/heads/g_remote'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Navi-Music-1.2.0
+          path: release
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verify signed APK identity
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0'
+          (cd release && sha256sum --check SHA256SUMS.txt)
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re, subprocess
+          apk = pathlib.Path('release/Navi-Music-1.2.0.apk')
+          tools = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools/35.0.0'
+          cert = '8864e2b9ad307f5f189de9c747697854275089fc81296d6fbb5b2a9576d23c06'
+          output = subprocess.check_output([str(tools/'apksigner'), 'verify', '--verbose', '--print-certs', str(apk)], text=True)
+          assert re.findall(r'Signer #\d+ certificate SHA-256 digest: ([0-9a-f]+)',output) == [cert]
+          info = subprocess.check_output([str(tools/'aapt'), 'dump', 'badging', str(apk)],text=True)
+          assert "package: name='ai.comma.nmirrorpanel'" in info and "versionName='1.2.0'" in info
+          report = dict(artifact=apk.name, sha256=hashlib.sha256(apk.read_bytes()).hexdigest(), certificate_sha256=cert,
+                        source_commit=os.environ['GITHUB_SHA'], source_run=int(os.environ['GITHUB_RUN_ID']),
+                        android_16_emulator_tests_passed=True, vehicle_tested=False)
+          pathlib.Path('release/verification.json').write_text(json.dumps(report,indent=2)+'\n')
+          PY
+      - name: Publish Navi Music 1.2.0
+        run: |
+          cat > notes.md <<'EOF'
+          ## Navi Music 1.2.0 — 네이버 연동 음악 정보 처리 수정
+
+          아래 Assets에서 **Navi-Music-1.2.0.apk**를 설치하세요. 1.1.0 위에 업데이트할 수 있으며 SAI는 필요하지 않습니다.
+
+          - 네이버에서 보내는 미디어 세션을 모두 제외하던 문제 수정: 곡 정보가 있는 지도 앱 재생도 표시
+          - DISPLAY_TITLE·DISPLAY_SUBTITLE 등으로 전달되는 곡명·가수 정보 지원
+          - 벅스 앱을 선택 목록에 추가
+          - 설정 → 연결 상태에서 권한과 곡 정보 전달 여부 확인
+          - 기존 패널 크기 자동 조절 유지
+
+          업데이트 후 음악 앱 선택을 ‘자동 선택’으로 두고 확인하세요. 여전히 정보가 없으면 ‘연결 상태’ 화면으로 원인을 확인할 수 있습니다. 원래 재생 앱이 곡 정보를 Android에 제공하지 않으면 표시할 수 없습니다.
+
+          Android 16 에뮬레이터 테스트와 기존 서명 검증을 통과한 APK입니다. 실차의 네이버 연동 벅스 동작은 아직 검증하지 않았습니다.
+          EOF
+          gh release create navi-music-v1.2.0 release/Navi-Music-1.2.0.apk release/SHA256SUMS.txt release/verification.json \
+            --target "$GITHUB_SHA" --title 'Navi Music 1.2.0 — 네이버 연동 음악 정보 수정' \
+            --notes-file notes.md --prerelease --latest=false

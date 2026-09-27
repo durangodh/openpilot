@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <queries>
+        <package android:name="com.neowiz.android.bugs" />
         <package android:name="com.nhn.android.nmap" />
         <package android:name="com.skt.tmap.ku" />
         <package android:name="com.spotify.music" />

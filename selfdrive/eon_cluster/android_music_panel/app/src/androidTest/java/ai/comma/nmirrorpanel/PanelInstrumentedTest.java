@@ -30,6 +30,23 @@ import static org.junit.Assert.*;
 
 @RunWith(AndroidJUnit4.class)
 public class PanelInstrumentedTest {
+ @Test public void navigationMusicAndDisplayMetadata() {
+  String naver="com.nhn.android.nmap", bugs="com.neowiz.android.bugs";
+  PlaybackState voice=new PlaybackState.Builder().setState(PlaybackState.STATE_PLAYING,0,1).setActions(PlaybackState.ACTION_PAUSE).build();
+  assertFalse("Navigation with no song metadata is ignored",MediaInfo.eligible(naver,null,voice,""));
+  MediaMetadata guidance=new MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE,"길안내").build();
+  assertFalse("Title-only guidance is not automatically a song",MediaInfo.eligible(naver,guidance,voice,""));
+  MediaMetadata song=new MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE,"연동 음악").putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE,"연동 가수").build();
+  assertEquals("연동 음악",MediaInfo.title(song).toString());
+  assertEquals("연동 가수",MediaInfo.artist(song).toString());
+  assertTrue("Naver integrated music must be selectable",MediaInfo.eligible(naver,song,voice,""));
+  assertTrue("Explicit navigation selection accepts title-only metadata",MediaInfo.eligible(naver,guidance,voice,naver));
+  assertTrue("Standalone Bugs remains selectable",MediaInfo.eligible(bugs,null,voice,""));
+  assertFalse("Losing metadata excludes guidance again",MediaInfo.eligible(naver,null,voice,naver));
+  MediaMetadata blanks=new MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE,"  ").putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE,"대체 곡명").putString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST,"앨범 가수").build();
+  assertEquals("대체 곡명",MediaInfo.title(blanks).toString());
+  assertEquals("앨범 가수",MediaInfo.artist(blanks).toString());
+ }
  private void shell(String command) throws Exception {
   try(ParcelFileDescriptor fd=InstrumentationRegistry.getInstrumentation().getUiAutomation().executeShellCommand(command); FileInputStream in=new FileInputStream(fd.getFileDescriptor())) { byte[] b=new byte[1024]; while(in.read(b)!=-1) {} }
  }
@@ -97,9 +114,18 @@ public class PanelInstrumentedTest {
     assertTrue("Title must grow again",((TextView)a.findViewById(R.id.song_title)).getTextSize()>narrowTitle[0]);
     assertEquals("Music survives resize","밤의 드라이브",((TextView)a.findViewById(R.id.song_title)).getText().toString());
    });
+   session.setMetadata(new MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE,"표시용 곡명").putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE,"표시용 가수").build());
+   AtomicBoolean displayFound=new AtomicBoolean();
+   for(int n=0;n<30&&!displayFound.get();n++){Thread.sleep(200); scenario.onActivity(a->displayFound.set(((TextView)a.findViewById(R.id.song_title)).getText().toString().equals("표시용 곡명")));}
+   assertTrue("Live display-title updates must reach the panel",displayFound.get());
+   scenario.onActivity(a->assertEquals("표시용 가수",((TextView)a.findViewById(R.id.song_artist)).getText().toString()));
+   session.setMetadata(null);
+   AtomicBoolean missing=new AtomicBoolean();
+   for(int n=0;n<30&&!missing.get();n++){Thread.sleep(200); scenario.onActivity(a->missing.set(((TextView)a.findViewById(R.id.song_title)).getText().toString().equals("곡 정보가 전달되지 않습니다")));}
+   assertTrue("Missing metadata must not retain the previous song",missing.get());
    session.setActive(false); session.release();
    AtomicBoolean cleared=new AtomicBoolean();
-   for(int n=0;n<30&&!cleared.get();n++){Thread.sleep(200); scenario.onActivity(a->cleared.set(!((TextView)a.findViewById(R.id.song_title)).getText().toString().equals("밤의 드라이브")));}
+   for(int n=0;n<30&&!cleared.get();n++){Thread.sleep(200); scenario.onActivity(a->cleared.set(((TextView)a.findViewById(R.id.song_title)).getText().toString().equals("음악을 재생해 주세요")));}
    assertTrue("Destroyed session must clear stale metadata",cleared.get());
   } finally { session.release(); shell("cmd notification disallow_listener ai.comma.nmirrorpanel/.MediaAccessService"); }
  }
