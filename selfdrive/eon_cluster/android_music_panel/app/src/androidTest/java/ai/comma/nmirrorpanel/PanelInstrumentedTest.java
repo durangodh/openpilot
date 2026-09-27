@@ -23,6 +23,7 @@ import java.io.FileInputStream;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.*;
 
 @RunWith(AndroidJUnit4.class)
@@ -49,10 +50,12 @@ public class PanelInstrumentedTest {
    scenario.onActivity(a->{assertEquals("테스트 아티스트",((TextView)a.findViewById(R.id.song_artist)).getText().toString()); assertTrue(a.findViewById(R.id.play_pause).isEnabled()); a.findViewById(R.id.play_pause).performClick();});
    assertTrue("Pause must reach source media session",paused.await(3,TimeUnit.SECONDS));
    shell("screencap -p /sdcard/Download/navi-music-full.png");
-   scenario.onActivity(a->a.launchAdjacent(new Intent(Settings.ACTION_SETTINGS)));
+   AtomicInteger fullWidth=new AtomicInteger();
+   scenario.onActivity(a->{fullWidth.set(a.getWindow().getDecorView().getWidth()); a.launchAdjacent(new Intent(Settings.ACTION_SETTINGS));});
    AtomicBoolean split=new AtomicBoolean();
-   for(int n=0;n<30&&!split.get();n++){Thread.sleep(200); scenario.onActivity(a->split.set(a.isInMultiWindowMode()));}
+   for(int n=0;n<30&&!split.get();n++){Thread.sleep(200); scenario.onActivity(a->split.set(a.isInMultiWindowMode() && a.getWindow().getDecorView().getWidth()<fullWidth.get()*0.8));}
    assertTrue("Android 16 must enter split screen",split.get());
+   Thread.sleep(1500); // Capture after the system split-screen transition finishes.
    shell("screencap -p /sdcard/Download/navi-music-split.png");
    session.setActive(false); session.release();
    AtomicBoolean cleared=new AtomicBoolean();

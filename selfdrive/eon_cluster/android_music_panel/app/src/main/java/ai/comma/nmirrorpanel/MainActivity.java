@@ -69,9 +69,9 @@ public final class MainActivity extends Activity {
     private Button button(String label) { Button b=new Button(this); b.setText(label); b.setAllCaps(false); b.setTextColor(0xffeaf3f4); b.setMinHeight(dp(44)); return b; }
     private void buildUi() {
         FrameLayout frame=new FrameLayout(this);
-        artwork=new ImageView(this); artwork.setScaleType(ImageView.ScaleType.CENTER_CROP); artwork.setAlpha(.32f);
+        artwork=new ImageView(this); artwork.setScaleType(ImageView.ScaleType.CENTER_CROP); artwork.setAlpha(1f);
         frame.addView(artwork,new FrameLayout.LayoutParams(-1,-1));
-        View shade=new View(this); shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0xa010191e,0xdd10191e,0xff10191e}));
+        View shade=new View(this); shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x5510191e,0x9910191e,0xf510191e}));
         frame.addView(shade,new FrameLayout.LayoutParams(-1,-1));
         ScrollView scroll=new ScrollView(this); scroll.setFillViewport(true); frame.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
         root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(20),dp(12),dp(20),dp(12)); scroll.addView(root,new ScrollView.LayoutParams(-1,-1));
