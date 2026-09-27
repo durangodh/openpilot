@@ -1,0 +1,104 @@
+name: Build signed CarrotNaver HUD13.12 voice button
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/naver-hud13.12-voice-button]
+    paths:
+      - ".github/workflows/build-naver-hud13.12.yml"
+      - "selfdrive/eon_cluster/naver_bridge/build_voice_button.py"
+      - "selfdrive/eon_cluster/naver_bridge/test_voice_button.py"
+      - "selfdrive/eon_cluster/naver_bridge/CarrotVoiceButton.java"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: naver-hud13-12-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Prepare HUD13.11 and tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0" "platforms;android-35"
+          mkdir -p "$RUNNER_TEMP/naver-input"
+          gh release download carrot-naver-6.9.1.3-hud13.11 --pattern 'CarrotNaver_6.9.1.3_hud13.11.apks' --dir "$RUNNER_TEMP/naver-input"
+          curl --fail --location --retry 3 https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar -o "$RUNNER_TEMP/apktool.jar"
+      - name: Test and rebuild
+        run: |
+          python3 selfdrive/eon_cluster/naver_bridge/test_voice_button.py
+          python3 selfdrive/eon_cluster/naver_bridge/build_voice_button.py \
+            --input "$RUNNER_TEMP/naver-input/CarrotNaver_6.9.1.3_hud13.11.apks" \
+            --apktool "$RUNNER_TEMP/apktool.jar" \
+            --android-jar "$ANDROID_HOME/platforms/android-35/android.jar" \
+            --d8 "$ANDROID_HOME/build-tools/35.0.0/lib/d8.jar" \
+            --work "$RUNNER_TEMP/naver-build" --output "$RUNNER_TEMP/naver-unsigned.apk"
+      - name: Sign all splits with the official HUD key
+        env:
+          HUD_KEY_DATA: ${{ secrets.REMOTE_HUD_KEYSTORE_BASE64 }}
+          HUD_STORE_PASSWORD: ${{ secrets.REMOTE_HUD_KEYSTORE_PASSWORD }}
+          HUD_KEY_ALIAS: ${{ secrets.REMOTE_HUD_KEY_ALIAS }}
+          HUD_KEY_PASSWORD: ${{ secrets.REMOTE_HUD_KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, json, os, pathlib, re, subprocess, zipfile
+          expected_cert = "8864e2b9ad307f5f189de9c747697854275089fc81296d6fbb5b2a9576d23c06"
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          out = pathlib.Path("naver-release")
+          out.mkdir()
+          for key in ("HUD_KEY_DATA", "HUD_STORE_PASSWORD", "HUD_KEY_ALIAS", "HUD_KEY_PASSWORD"):
+            if not os.environ.get(key):
+              raise RuntimeError(key + " missing")
+          keystore = temp / "naver-signing.p12"
+          keystore.write_bytes(base64.b64decode(os.environ["HUD_KEY_DATA"], validate=True))
+          keystore.chmod(0o600)
+          tools = pathlib.Path(os.environ["ANDROID_HOME"]) / "build-tools/35.0.0"
+          parts, certificates = [], set()
+          with zipfile.ZipFile(temp / "naver-input/CarrotNaver_6.9.1.3_hud13.11.apks") as original:
+            names = [n for n in original.namelist() if n.endswith(".apk")]
+            if sorted(names) != ["base.apk", "split_config.arm64_v8a.apk", "split_config.xxhdpi.apk"]:
+              raise RuntimeError("Unexpected split set")
+            for name in names:
+              raw = temp / ("unsigned-" + name)
+              raw.write_bytes((temp / "naver-unsigned.apk").read_bytes() if name == "base.apk" else original.read(name))
+              aligned, signed = temp / ("aligned-" + name), temp / ("signed-" + name)
+              subprocess.run([str(tools / "zipalign"), "-P", "16", "-f", "4", str(raw), str(aligned)], check=True)
+              subprocess.run([str(tools / "apksigner"), "sign", "--ks", str(keystore),
+                              "--ks-key-alias", os.environ["HUD_KEY_ALIAS"],
+                              "--ks-pass", "env:HUD_STORE_PASSWORD", "--key-pass", "env:HUD_KEY_PASSWORD",
+                              "--out", str(signed), str(aligned)], check=True)
+              verify = subprocess.check_output([str(tools / "apksigner"), "verify", "--verbose", "--print-certs", str(signed)], text=True)
+              certificates.add(re.search(r"Signer #1 certificate SHA-256 digest: ([0-9a-f]+)", verify).group(1))
+              subprocess.run([str(tools / "zipalign"), "-c", "-P", "16", "4", str(signed)], check=True)
+              parts.append((name, signed))
+          if certificates != {expected_cert}:
+            raise RuntimeError("Signing certificate mismatch: " + repr(certificates))
+          bundle = out / "CarrotNaver_6.9.1.3_hud13.12.apks"
+          with zipfile.ZipFile(bundle, "w", zipfile.ZIP_STORED) as apkset:
+            for name, signed in parts:
+              apkset.write(signed, name)
+          report = {"artifact": bundle.name, "sha256": hashlib.sha256(bundle.read_bytes()).hexdigest(),
+                    "certificate_sha256": expected_cert, "commit": os.environ["GITHUB_SHA"],
+                    "all_splits_verified": True, "zip_alignment_16k_verified": True,
+                    "base_release": "carrot-naver-6.9.1.3-hud13.11",
+                    "voice_button": "existing btn_speech_recognition accessibility ID -> original Compose callback",
+                    "changed_payload_entries": ["classes4.dex"],
+                    "on_device_tested": False,
+                    "parts": [{"name": n, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for n, p in parts]}
+          (out / "naver-hud13.12-verification.json").write_text(json.dumps(report, indent=2) + "\n")
+          keystore.unlink()
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: carrot-naver-hud13.12
+          path: naver-release/*
