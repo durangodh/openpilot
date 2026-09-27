@@ -1,0 +1,77 @@
+name: Publish verified CarrotNaver HUD13.12 voice button
+on:
+  push:
+    branches: [codex/naver-hud13.12-voice-button]
+    paths: ['.github/workflows/publish-naver-hud13.12.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: publish-naver-hud13-12
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download the existing successful build
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/36309240906" > run.json
+          python3 - <<'PY'
+          import json
+          r=json.load(open('run.json'))
+          assert r['head_sha']=='6197990da169d8fbe406d3101c6d5178b4b4d144'
+          assert r['conclusion']=='success'
+          assert r['path']=='.github/workflows/build-naver-hud13.12.yml'
+          PY
+          gh run download 36309240906 --repo "$GITHUB_REPOSITORY" --name carrot-naver-hud13.12 --dir release
+      - name: Verify hashes and existing signing certificate
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0'
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,re,subprocess,tempfile,zipfile
+          root=pathlib.Path('release')
+          report=json.loads((root/'naver-hud13.12-verification.json').read_text())
+          expected='8864e2b9ad307f5f189de9c747697854275089fc81296d6fbb5b2a9576d23c06'
+          assert report['commit']=='6197990da169d8fbe406d3101c6d5178b4b4d144'
+          assert report['artifact']=='CarrotNaver_6.9.1.3_hud13.12.apks'
+          assert report['certificate_sha256']==expected
+          assert report['all_splits_verified'] is True
+          assert report['changed_payload_entries']==['classes4.dex']
+          bundle=root/report['artifact']
+          assert hashlib.sha256(bundle.read_bytes()).hexdigest()==report['sha256']
+          hashes={p['name']:p['sha256'] for p in report['parts']}
+          assert set(hashes)=={'base.apk','split_config.arm64_v8a.apk','split_config.xxhdpi.apk'}
+          signer=pathlib.Path(os.environ['ANDROID_HOME'])/'build-tools/35.0.0/apksigner'
+          with tempfile.TemporaryDirectory() as tmp, zipfile.ZipFile(bundle) as z:
+              assert set(z.namelist())==set(hashes)
+              for name,sha in hashes.items():
+                  data=z.read(name)
+                  assert hashlib.sha256(data).hexdigest()==sha
+                  apk=pathlib.Path(tmp)/name; apk.write_bytes(data)
+                  result=subprocess.check_output([str(signer),'verify','--verbose','--print-certs',str(apk)],text=True)
+                  assert re.search(r'Signer #1 certificate SHA-256 digest: ([0-9a-f]+)',result).group(1)==expected
+          print('Verified original build, bundle and three split APK certificates:',report['sha256'])
+          PY
+      - name: Publish voice button test release
+        run: |
+          cat > notes.md <<'NOTES'
+          차량 음성 버튼으로 네이버 지도 화면의 마이크 버튼을 실행하기 위한 HUD13.12 수정본입니다.
+
+          - 네이버의 기존 음성 검색 콜백을 엔미러가 찾는 접근성 버튼 ID와 연결했습니다.
+          - HUD13.11 기반이며 classes4.dex만 변경했습니다.
+          - 기존 HUD 서명과 동일합니다. APKS는 기존에 사용하던 분할 APK 설치 방식으로 설치하세요.
+          - 빌드·패치 검증과 모든 분할 APK의 서명 검증을 완료했습니다. 실제 차량 음성 버튼 동작은 아직 실기기 확인이 필요합니다.
+          - 이번 릴리즈는 음성 버튼 수정본입니다. 부팅 시 마커가 커지는 문제에 대한 추가 수정은 포함하지 않습니다.
+
+          성공한 Actions 빌드 36309240906의 파일을 재빌드 없이 그대로 게시했습니다.
+          NOTES
+          gh release create carrot-naver-6.9.1.3-hud13.12 \
+            release/CarrotNaver_6.9.1.3_hud13.12.apks release/naver-hud13.12-verification.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --target 6197990da169d8fbe406d3101c6d5178b4b4d144 \
+            --title 'CarrotNaver HUD13.12 — 차량 음성 버튼 연동' \
+            --notes-file notes.md --prerelease --latest=false
