@@ -6,7 +6,7 @@ android {
     applicationId "ai.comma.nmirrorpanel"
     minSdk 32
     targetSdk 36
-    versionCode (System.getenv("PANEL_VERSION_CODE") ?: "1").toInteger()
+    versionCode = (System.getenv("PANEL_VERSION_CODE") ?: "1").toInteger()
     versionName "1.0.0"
     testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
   }
