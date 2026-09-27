@@ -21,6 +21,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
@@ -38,7 +39,11 @@ public final class MainActivity extends Activity {
     private ImageView artwork;
     private ProgressBar progress;
     private TransportButton play, previous, next;
-    private Button navigation;
+    private Button navigation, settings;
+    private ScrollView scroll;
+    private View spacer, bottomSpacer;
+    private int lastWidth, lastHeight;
+    private float lastDensity, lastFontScale;
     private LinearLayout root;
     private boolean firstResume;
     private final Runnable ticker = new Runnable() {
@@ -73,13 +78,13 @@ public final class MainActivity extends Activity {
         frame.addView(artwork,new FrameLayout.LayoutParams(-1,-1));
         View shade=new View(this); shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{0x5510191e,0x9910191e,0xf510191e}));
         frame.addView(shade,new FrameLayout.LayoutParams(-1,-1));
-        ScrollView scroll=new ScrollView(this); scroll.setFillViewport(true); frame.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
+        scroll=new ScrollView(this); scroll.setFillViewport(true); frame.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
         root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(dp(20),dp(12),dp(20),dp(12)); scroll.addView(root,new ScrollView.LayoutParams(-1,-1));
         LinearLayout header=new LinearLayout(this); header.setGravity(Gravity.CENTER_VERTICAL);
         source=text("NAVI MUSIC",12,0xff70e2c8); source.setTypeface(null,Typeface.BOLD); source.setMaxLines(1);
         header.addView(source,new LinearLayout.LayoutParams(0,dp(48),1)); source.setGravity(Gravity.CENTER_VERTICAL);
-        Button settings=button("설정"); header.addView(settings,new LinearLayout.LayoutParams(dp(72),dp(48))); settings.setOnClickListener(v->showSettings()); root.addView(header);
-        View spacer=new View(this); root.addView(spacer,new LinearLayout.LayoutParams(1,dp(12),1));
+        settings=button("설정"); header.addView(settings,new LinearLayout.LayoutParams(dp(72),dp(48))); settings.setOnClickListener(v->showSettings()); root.addView(header);
+        spacer=new View(this); root.addView(spacer,new LinearLayout.LayoutParams(1,dp(12),1));
         title=text("음악을 재생해 주세요",28,Color.WHITE); title.setId(R.id.song_title); title.setTypeface(null,Typeface.BOLD); title.setMaxLines(3); root.addView(title);
         artist=text("같은 기기의 음악 앱과 연결됩니다",16,0xffb8c8cd); artist.setId(R.id.song_artist); artist.setMaxLines(2); artist.setPadding(0,dp(8),0,dp(18)); root.addView(artist);
         progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal); progress.setMax(1000); progress.setProgressTintList(android.content.res.ColorStateList.valueOf(0xff70e2c8)); root.addView(progress,new LinearLayout.LayoutParams(-1,dp(8)));
@@ -88,13 +93,54 @@ public final class MainActivity extends Activity {
         previous=new TransportButton(this,0,"이전 곡"); play=new TransportButton(this,1,"재생"); play.setId(R.id.play_pause); next=new TransportButton(this,3,"다음 곡");
         transport.addView(previous,new LinearLayout.LayoutParams(dp(64),dp(64))); transport.addView(play,new LinearLayout.LayoutParams(dp(84),dp(84))); transport.addView(next,new LinearLayout.LayoutParams(dp(64),dp(64))); root.addView(transport);
         previous.setOnClickListener(v->transport(0)); play.setOnClickListener(v->transport(1)); next.setOnClickListener(v->transport(2));
-        View bottomSpacer=new View(this); root.addView(bottomSpacer,new LinearLayout.LayoutParams(1,dp(8),1));
+        bottomSpacer=new View(this); root.addView(bottomSpacer,new LinearLayout.LayoutParams(1,dp(8),1));
         navigation=button("지도와 함께 열기"); navigation.setId(R.id.navigation_button); navigation.setOnClickListener(v->openNavigation()); root.addView(navigation,new LinearLayout.LayoutParams(-1,dp(50)));
         hint=text("",12,0xffb8c8cd); hint.setPadding(0,dp(8),0,0); hint.setOnClickListener(v->{ if(!repository.authorized()) openAccess(); else showSettings(); }); root.addView(hint);
         frame.setOnApplyWindowInsetsListener((v,insets)->{ Insets i=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()); v.setPadding(i.left,i.top,i.right,i.bottom); return insets; });
+        title.setEllipsize(TextUtils.TruncateAt.END); artist.setEllipsize(TextUtils.TruncateAt.END);
+        source.setEllipsize(TextUtils.TruncateAt.END);
+        navigation.setSingleLine(true); navigation.setEllipsize(TextUtils.TruncateAt.END);
+        settings.setSingleLine(true);
+        scroll.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->updateLayout());
         setContentView(frame); frame.requestApplyInsets(); updateLayout(); render(null,repository.authorized());
     }
-    private void updateLayout() { if(title!=null) title.setTextSize(getResources().getConfiguration().screenHeightDp<400?22:28); }
+    /** Use the inset-free viewport, never the scrolling content's measured height. */
+    private void updateLayout() {
+        if(scroll==null || title==null) return;
+        int widthPx=scroll.getWidth(), heightPx=scroll.getHeight();
+        if(widthPx<=0 || heightPx<=0) return;
+        float density=getResources().getDisplayMetrics().density;
+        float fontScale=getResources().getConfiguration().fontScale;
+        if(widthPx==lastWidth && heightPx==lastHeight && density==lastDensity && fontScale==lastFontScale) return;
+        lastWidth=widthPx; lastHeight=heightPx; lastDensity=density; lastFontScale=fontScale;
+        float width=widthPx/density, height=heightPx/density;
+        float scale=Math.max(.70f, Math.min(Math.min(1.65f,height/440f),
+                (float)Math.sqrt(width/420f)*Math.max(.75f, Math.min(1.10f,height/480f))));
+        // Keep three reachable controls even in the narrowest supported window.
+        float horizontal=Math.min(20*scale,Math.max(8,(width-160)/2));
+        root.setPadding(dp(horizontal),dp(12*scale),dp(horizontal),dp(12*scale));
+        title.setTextSize(Math.max(18,28*scale));
+        title.setMaxLines(height<440?2:3);
+        artist.setTextSize(Math.max(12,16*scale)); artist.setMaxLines(height<360?1:2);
+        artist.setPadding(0,dp(8*scale),0,dp(18*scale));
+        source.setTextSize(Math.max(11,12*scale));
+        elapsed.setTextSize(Math.max(11,12*scale)); total.setTextSize(Math.max(11,12*scale));
+        hint.setTextSize(Math.max(11,12*scale)); hint.setPadding(0,dp(8*scale),0,0);
+        settings.setTextSize(Math.max(12,14*scale)); navigation.setTextSize(Math.max(12,14*scale));
+        settings.setPadding(dp(4),0,dp(4),0); navigation.setPadding(dp(8),0,dp(8),0);
+        float side=Math.max(48,64*scale), center=Math.max(56,84*scale);
+        resize(previous,dp(side),dp(side)); resize(play,dp(center),dp(center)); resize(next,dp(side),dp(side));
+        resize(source,0,dp(Math.max(48,48*scale)));
+        resize(settings,dp(Math.max(52,72*scale)),dp(Math.max(48,48*scale)));
+        resize(elapsed,0,dp(Math.max(24,28*scale))); resize(total,0,dp(Math.max(24,28*scale)));
+        resize(progress,-1,dp(Math.max(6,8*scale)));
+        resize(navigation,-1,dp(Math.max(48,50*scale)));
+        resize(spacer,1,dp(12*scale)); resize(bottomSpacer,1,dp(8*scale));
+    }
+    private void resize(View view,int width,int height) {
+        android.view.ViewGroup.LayoutParams params=view.getLayoutParams();
+        if(params.width!=width || params.height!=height) { params.width=width; params.height=height; view.setLayoutParams(params); }
+    }
     private CharSequence metadata(MediaMetadata m,String key,String fallback) { CharSequence value=m==null?null:m.getText(key); return value==null||value.length()==0?fallback:value; }
     private String appName(String pkg) { try { return getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(pkg,0)).toString(); } catch(Exception e) { return pkg; } }
     private void render(MediaController current,boolean authorized) {

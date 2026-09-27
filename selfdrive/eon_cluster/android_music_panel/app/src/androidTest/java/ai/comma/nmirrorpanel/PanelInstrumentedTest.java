@@ -14,6 +14,8 @@ import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.provider.Settings;
 import android.widget.TextView;
+import android.view.View;
+import android.view.ViewGroup;
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -51,12 +53,50 @@ public class PanelInstrumentedTest {
    assertTrue("Pause must reach source media session",paused.await(3,TimeUnit.SECONDS));
    shell("screencap -p /sdcard/Download/navi-music-full.png");
    AtomicInteger fullWidth=new AtomicInteger();
+   AtomicInteger fullButton=new AtomicInteger();
+   final float[] fullTitle={0};
+   scenario.onActivity(a->{fullButton.set(a.findViewById(R.id.play_pause).getWidth()); fullTitle[0]=((TextView)a.findViewById(R.id.song_title)).getTextSize();});
    scenario.onActivity(a->{fullWidth.set(a.getWindow().getDecorView().getWidth()); a.launchAdjacent(new Intent(Settings.ACTION_SETTINGS));});
    AtomicBoolean split=new AtomicBoolean();
    for(int n=0;n<30&&!split.get();n++){Thread.sleep(200); scenario.onActivity(a->split.set(a.isInMultiWindowMode() && a.getWindow().getDecorView().getWidth()<fullWidth.get()*0.8));}
    assertTrue("Android 16 must enter split screen",split.get());
    Thread.sleep(1500); // Capture after the system split-screen transition finishes.
+   scenario.onActivity(a->{
+    assertTrue("Title must shrink with split viewport",((TextView)a.findViewById(R.id.song_title)).getTextSize()<fullTitle[0]);
+    assertTrue("Playback control must shrink with split viewport",a.findViewById(R.id.play_pause).getWidth()<fullButton.get());
+   });
    shell("screencap -p /sdcard/Download/navi-music-split.png");
+   final View[] viewport={null};
+   final int[] originalSize={0,0};
+   scenario.onActivity(a->{
+    View root=(View)a.findViewById(R.id.song_title).getParent();
+    viewport[0]=(View)root.getParent();
+    ViewGroup.LayoutParams params=viewport[0].getLayoutParams();
+    originalSize[0]=params.width; originalSize[1]=params.height;
+    params.width=Math.round(240*a.getResources().getDisplayMetrics().density);
+    params.height=Math.round(360*a.getResources().getDisplayMetrics().density);
+    viewport[0].setLayoutParams(params);
+   });
+   Thread.sleep(800);
+   AtomicInteger narrowButton=new AtomicInteger(); final float[] narrowTitle={0};
+   scenario.onActivity(a->{
+    View button=a.findViewById(R.id.play_pause); narrowButton.set(button.getWidth());
+    narrowTitle[0]=((TextView)a.findViewById(R.id.song_title)).getTextSize();
+    ViewGroup row=(ViewGroup)button.getParent();
+    assertTrue("Controls must fit narrow panel",row.getChildAt(2).getRight()<=row.getWidth());
+    assertTrue("Controls must not clip on left",row.getChildAt(0).getLeft()>=0);
+    for(int n=0;n<3;n++) assertTrue("Minimum touch target",row.getChildAt(n).getWidth()>=48*a.getResources().getDisplayMetrics().density);
+   });
+   shell("screencap -p /sdcard/Download/navi-music-narrow.png");
+   scenario.onActivity(a->{
+    ViewGroup.LayoutParams params=viewport[0].getLayoutParams(); params.width=originalSize[0]; params.height=originalSize[1]; viewport[0].setLayoutParams(params);
+   });
+   Thread.sleep(800);
+   scenario.onActivity(a->{
+    assertTrue("Button must grow again",a.findViewById(R.id.play_pause).getWidth()>narrowButton.get());
+    assertTrue("Title must grow again",((TextView)a.findViewById(R.id.song_title)).getTextSize()>narrowTitle[0]);
+    assertEquals("Music survives resize","밤의 드라이브",((TextView)a.findViewById(R.id.song_title)).getText().toString());
+   });
    session.setActive(false); session.release();
    AtomicBoolean cleared=new AtomicBoolean();
    for(int n=0;n<30&&!cleared.get();n++){Thread.sleep(200); scenario.onActivity(a->cleared.set(!((TextView)a.findViewById(R.id.song_title)).getText().toString().equals("밤의 드라이브")));}
