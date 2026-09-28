@@ -68,7 +68,8 @@ def test_confirmed_departure_releases_below_old_speed_threshold(starting):
   accel = step(control, cs, plan, radar)
   assert control.long_control_state == ('starting' if starting else 'pid')
   assert control.departure_assist.active
-  assert accel == pytest.approx(-1.04)
+  # Current brake-release ramp is 11 m/s^3, independent of stopping comfort.
+  assert accel == pytest.approx(-0.99)
   for _ in range(5):
     step(control, cs, plan, radar, fresh=False)
   assert control.long_control_state != 'stopping'
@@ -150,3 +151,50 @@ def test_original_state_regressions_with_real_transition():
   for name, test in list(env.items()):
     if name.startswith('test_'):
       test()
+
+
+def configure_reported_start_stop(control):
+  values = {'StartAccelApply': '40', 'StopAccelApply': '30',
+            'StoppingDecelRate': '120', 'StandstillHoldApply': '55',
+            'StandstillReleaseSpeed': '3', 'StandstillReleaseMs': '300'}
+  control.params = NS(get=lambda key, **kw: values.get(key))
+  control._update_start_stop_accel()
+  control._update_stopping_decel_rate()
+  control._update_standstill_hold()
+  control._update_standstill_release()
+
+
+def test_reported_stop_rate_applies_at_low_speed_and_through_hold():
+  control, cs, plan, radar = setup_control()
+  configure_reported_start_stop(control)
+  assert control.CP.startAccel == pytest.approx(0.8)
+  assert control.CP.stopAccel == pytest.approx(-0.6)
+  assert control.standstill_hold_accel == pytest.approx(-1.1)
+  control.long_control_state = 'pid'
+  control.last_output_accel = -0.3
+  cs.vEgo, cs.standstill = 0.2, False
+  plan.speeds, plan.accels = [0.0]*3, [-0.3]*3
+  previous = control.last_output_accel
+  for frame in range(150):
+    if frame == 50:
+      cs.vEgo, cs.standstill = 0.0, True
+    output = step(control, cs, plan, radar)
+    assert control.long_control_state == 'stopping'
+    assert abs(output - previous) <= 1.2 * 0.01 + 1e-10
+    previous = output
+    if frame == 49:
+      assert output == pytest.approx(-0.6)
+  assert output == pytest.approx(-1.1)
+
+
+def test_stop_comfort_does_not_limit_pid_braking():
+  control, cs, plan, radar = setup_control()
+  configure_reported_start_stop(control)
+  control.long_control_state = 'pid'
+  control.last_output_accel = -2.0
+  control.pid.k_f = 1.0
+  cs.vEgo, cs.standstill = 5.0, False
+  plan.speeds, plan.accels = [5.0, 3.5, 0.5], [-3.0]*3
+  result = step(control, cs, plan, radar)
+  assert control.long_control_state == 'pid'
+  assert result < -2.03  # Original normal-driving braking jerk is preserved.

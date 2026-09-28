@@ -84,8 +84,9 @@ def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dis
 
   # KRKeegan: lead 거리값을 고의로 늘려 solver가 더 빠른 가속을 유발하도록 함
   v_diff_offset = 0
-  if np.all(v_lead - v_ego > 0):
-    v_diff_offset = ((v_lead - v_ego) * 1.)
+  relative_speed = v_lead - v_ego
+  if np.all(relative_speed > 0):
+    v_diff_offset = relative_speed * 1.
     v_diff_offset = np.clip(v_diff_offset, 0, stop_dist / 2)
     # Keep the quicker pull-away response through 18 km/h, then fade it out
     # smoothly by 30 km/h.  The former 10 m/s (36 km/h) tail made ego keep
@@ -95,8 +96,12 @@ def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dis
       [LEAD_DEPARTURE_FULL_EGO_SPEED, LEAD_DEPARTURE_MAX_EGO_SPEED],
       [1.0, 0.0],
     )
+    # A single prediction stage crossing zero used to remove the bonus from
+    # every stage at once. Fade it before that boundary, without retaining
+    # any bonus when a stage is closing. This only reduces the old offset.
+    departure_weight = np.interp(np.min(relative_speed), [0.0, 1.0], [0.0, 1.0])
     v_diff_offset = np.maximum(
-      v_diff_offset * dynamic_weight, 0)
+      v_diff_offset * dynamic_weight * departure_weight, 0)
 
   distance = (v_lead**2) / (2 * comfort_brake) + v_diff_offset
   return distance
@@ -356,7 +361,13 @@ class LongitudinalMpc:
       rolling_floor = interp(v_ego, [0.0, 2.0, LEAD_DEPARTURE_FULL_EGO_SPEED],
                              [self.lead_depart_cost, max(self.lead_depart_cost, 0.35),
                               max(self.lead_depart_cost, 0.55)])
-      departure_cost = 1.0 + (rolling_floor - 1.0) * dynamic_weight
+      # Blend near the motion gates instead of switching the full configured
+      # cost reduction on/off in one frame. Restore normal costs as the lead
+      # slows or relative speed closes, with no time filter on braking data.
+      motion_weight = (
+        interp(v_lead0 - v_ego, [LEAD_DEPARTURE_MIN_VREL, 1.0], [0.0, 1.0]) *
+        interp(a_lead0, [LEAD_DEPARTURE_MIN_ALEAD, 0.0], [0.0, 1.0]))
+      departure_cost = 1.0 + (rolling_floor - 1.0) * dynamic_weight * motion_weight
       j_ego_v_ego = departure_cost
       a_change_v_ego = departure_cost
 

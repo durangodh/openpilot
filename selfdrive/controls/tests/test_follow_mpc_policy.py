@@ -10,6 +10,7 @@ import pytest
 from common.conversions import Conversions as CV
 from common.numpy_fast import clip, interp
 from selfdrive.controls.lib import t_follow
+from selfdrive.controls.lib.lead_departure import departure_motion_valid
 from selfdrive.controls.lib.lead_following import get_follow_obstacle_cost
 from selfdrive.modeld.constants import index_function
 
@@ -37,6 +38,7 @@ def load_mpc(comfort=True):
   env.update(os=os, np=np, __file__=str(source), CV=CV, clip=clip, interp=interp,
              _CRUISE_GAP_BP=t_follow.CRUISE_GAP_BP, DT_MDL=0.05, index_function=index_function,
              _LEAD_ACCEL_TAU=1.5, AcadosOcpSolverCython=RecordingSolver,
+             departure_motion_valid=departure_motion_valid,
              get_follow_obstacle_cost=get_follow_obstacle_cost if comfort else lambda base, *args: base,
              car=NS(CarState=NS(ButtonEvent=NS(Type=NS(accelCruise=1, resumeCruise=2)))),
              log=NS(LongitudinalPlan=NS(XState=NS(cruise=0, lead=1, softHold=2))))
@@ -105,3 +107,37 @@ def test_existing_departure_and_distance_regressions():
   for name, test in list(env.items()):
     if name.startswith('test_'):
       test()
+
+
+@pytest.mark.parametrize('boundary', ['relative_speed', 'lead_accel'])
+def test_departure_cost_has_no_step_at_motion_gate(boundary):
+  env = load_mpc()
+  mpc = NS(x0=[0.0, 2.0, 0.0], t_follow=1.15, lead_depart_cost=0.10)
+  values = []
+  for delta in (-0.00001, 0.00001):
+    speed = 2.3 + delta if boundary == 'relative_speed' else 4.0
+    accel = -0.2 + delta if boundary == 'lead_accel' else 0.2
+    values.append(env['LongitudinalMpc'].get_cost_multipliers(
+      mpc, speed, speed, a_lead0=accel, lead0_status=True))
+  np.testing.assert_allclose(values[0], values[1], atol=0.0001)
+
+
+def test_future_speed_crossing_does_not_jump_entire_obstacle():
+  equivalence = load_mpc()['get_stopped_equivalence_factor']
+  ego = np.array([2.0, 2.0, 2.0])
+  before = equivalence(np.array([3.0, 3.0, 2.00001]), ego, krkeegan=True)
+  after = equivalence(np.array([3.0, 3.0, 1.99999]), ego, krkeegan=True)
+  np.testing.assert_allclose(before, after, atol=0.0001)
+
+
+def test_departure_offset_never_exceeds_original_bonus_or_extends_speed_range():
+  equivalence = load_mpc()['get_stopped_equivalence_factor']
+  for speed in (0.0, 2.0, 5.0, 7.0, 30.0 / 3.6, 12.0):
+    for relative in (-2.0, 0.0, 0.1, 0.5, 1.0, 4.0):
+      lead = max(0.0, speed + relative)
+      base = equivalence(lead, speed, krkeegan=False)
+      bonus = equivalence(lead, speed, krkeegan=True) - base
+      old_bonus = min(max(lead - speed, 0.0), 3.0) * interp(speed, [5.0, 30.0 / 3.6], [1.0, 0.0])
+      assert -1e-12 <= bonus <= old_bonus + 1e-12
+      if relative >= 1.0:
+        assert bonus == pytest.approx(old_bonus)
