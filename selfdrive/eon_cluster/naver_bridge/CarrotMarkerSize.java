@@ -18,9 +18,12 @@ public final class CarrotMarkerSize {
     private static final class State {
         final OverlayImage icon;
         final float density;
-        State(OverlayImage icon, float density) {
+        final int width, height;
+        State(OverlayImage icon, float density, int width, int height) {
             this.icon = icon;
             this.density = density;
+            this.width = width;
+            this.height = height;
         }
     }
 
@@ -47,7 +50,9 @@ public final class CarrotMarkerSize {
             float density = context.getResources().getDisplayMetrics().density;
             if (!valid(density)) return;
             State previous = states.get(overlay);
-            if (previous != null && previous.icon == icon && previous.density == density) return;
+            if (previous != null && previous.icon == icon && previous.density == density
+                    && overlay.getIconWidth() == previous.width
+                    && overlay.getIconHeight() == previous.height) return;
 
             Float sourceDensity = sources.get(icon);
             boolean resource = icon.getClass().getName().endsWith("$ResourceDescriptor");
@@ -72,7 +77,7 @@ public final class CarrotMarkerSize {
             if (width <= 0 || height <= 0) return;
             if (overlay.getIconWidth() != width) overlay.setIconWidth(width);
             if (overlay.getIconHeight() != height) overlay.setIconHeight(height);
-            states.put(overlay, new State(icon, density));
+            states.put(overlay, new State(icon, density, width, height));
         } catch (RuntimeException ignored) {
             // The original map renderer remains usable if a map is released.
         }

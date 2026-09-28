@@ -1,6 +1,6 @@
-"""HUD13.8: refresh navigation marker pixel dimensions after display density changes.
+"""Refresh navigation marker pixel dimensions after display density changes.
 
-Input is the verified HUD13.7 release; only classes6.dex/classes12.dex change.
+Input is verified HUD13.7 (legacy) or HUD13.12; only classes6.dex/classes12.dex change.
 Output is unsigned and must use the existing HUD release certificate.
 """
 import argparse
@@ -15,6 +15,7 @@ from build_car_snapshot import decode, build
 from build_patch import signature_entry
 
 HUD137_SHA256 = "70664f27927f95a78918666669639f400b585b7e6c2eca47bc880e6807a80681"
+HUD1312_SHA256 = "76a734eeac0899fad99b60294d31cd527c96e8a8aded7a7ef0653e49fd4e3a4d"
 PACKAGE = Path("com/naver/map/carrot")
 MANAGER = "com/naver/map/core/navigation/NaviCarvatarIconManager"
 LOADER = MANAGER + "$loadIcons$2$results$1$1"
@@ -110,8 +111,8 @@ def main():
     parser.add_argument("--" + key, type=Path, required=True)
   parser.add_argument("--ecj", type=Path, help="Optional Java compiler for JRE-only development hosts")
   args = parser.parse_args()
-  if hashlib.sha256(args.input.read_bytes()).hexdigest() != HUD137_SHA256:
-    raise ValueError("Expected verified HUD13.7 APKS")
+  if hashlib.sha256(args.input.read_bytes()).hexdigest() not in (HUD137_SHA256, HUD1312_SHA256):
+    raise ValueError("Expected verified HUD13.7 or HUD13.12 APKS")
   if args.output.exists():
     raise FileExistsError(args.output)
   work = args.work.resolve()
@@ -153,6 +154,20 @@ def main():
     shutil.copyfile(p, target / p.name)
   replacement = {"classes6.dex": build(java, args.apktool, work, "wrapper"),
                  "classes12.dex": build(java, args.apktool, work, "manager")}
+  # Inspect the assembled DEX, not just the source, before signing/releasing.
+  verify_wrapper = decode(java, args.apktool, work, "verify-wrapper", manifest, replacement["classes6.dex"])
+  verify_manager = decode(java, args.apktool, work, "verify-manager", manifest, replacement["classes12.dex"])
+  checks = [
+    (verify_wrapper, WRAPPER, "->carrotRefreshMarkerSize()V", 3),
+    (verify_wrapper, WRAPPER, HELPER + "->apply(", 1),
+    (verify_manager, MANAGER, "->carrotSourceDensity:F", 1),
+    (verify_manager, LOADER, HELPER + "->remember(", 1),
+  ]
+  for root, name, anchor, count in checks:
+    if (root / "smali" / (name + ".smali")).read_text().count(anchor) != count:
+      raise ValueError("Missing assembled marker hook: " + name)
+  if not (verify_wrapper / "smali" / PACKAGE / "CarrotMarkerSize.smali").is_file():
+    raise ValueError("Assembled marker helper missing")
   args.output.parent.mkdir(parents=True, exist_ok=True)
   with zipfile.ZipFile(work / "base.apk") as original, zipfile.ZipFile(args.output, "w") as output:
     for entry in original.infolist():
@@ -169,6 +184,8 @@ def main():
     for name in expected - replacement.keys():
       if original.read(name) != output.read(name):
         raise ValueError("Unexpected payload change: " + name)
+    if any(original.read(name) == output.read(name) for name in replacement):
+      raise ValueError("Marker DEX was not changed")
     if output.testzip() is not None:
       raise ValueError("Invalid output ZIP")
   print("Verified: only classes6.dex and classes12.dex changed. UNSIGNED:", args.output)

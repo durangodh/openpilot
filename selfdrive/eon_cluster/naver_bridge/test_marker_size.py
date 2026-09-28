@@ -63,6 +63,12 @@ public class CarrotMarkerSizeCheck {
     c.resources.metrics.density=1f;
     CarrotMarkerSize.apply(o,c);
     size(o,60,40,"phone to virtual display");
+    o.width=0; o.height=0;
+    CarrotMarkerSize.apply(o,c);
+    size(o,60,40,"restore size after renderer reset with same icon and density");
+    writes=o.writes;
+    CarrotMarkerSize.apply(o,c);
+    check(o.writes==writes,"stable corrected marker avoids repeated writes");
     c.resources.metrics.density=3f;
     CarrotMarkerSize.apply(o,c);
     size(o,180,120,"virtual display to phone, no compounded scale");
