@@ -53,13 +53,33 @@ public final class CarrotCarMapSnapshot {
     private static volatile long sent;
     private static long lastStatusLogAt;
     private static long lastIdleLogAt;
-    private static Object callbackProxy;
+    private static final Object frameLock = new Object();
+    private static long generation;
+    private static long requestSerial;
+    private static long activeRequest;
+    private static Bitmap pendingFrame;
+    private static CarrotNaverBridge pendingBridge;
+    private static long pendingGeneration, pendingAt;
+    private static boolean senderScheduled;
+    private static final long MAX_FRAME_AGE_MS = 1200;
+
+    private static void resetRequests() {
+        synchronized (frameLock) {
+            generation++;
+            activeRequest = 0;
+            requestedAt = 0;
+            if (pendingFrame != null) pendingFrame.recycle();
+            pendingFrame = null;
+            pendingBridge = null;
+        }
+    }
 
     private CarrotCarMapSnapshot() {
     }
 
     /** Called from the patched MapProvider constructor (classes5.dex). */
     public static void provider(Object mapProvider) {
+        resetRequests();
         provider = mapProvider;
         naverMap = null;
         firstRequestAt = 0;
@@ -94,6 +114,10 @@ public final class CarrotCarMapSnapshot {
         }
         long now = SystemClock.elapsedRealtime();
         if (map == null) {
+            if (naverMap != null) {
+                resetRequests();
+                naverMap = null;
+            }
             if (lastIdleLogAt == 0 || now - lastIdleLogAt >= 60000) {
                 lastIdleLogAt = now;
                 CarrotHudLog.log(TAG, "HUD13.6 bridge polling, no NaverMap yet (provider=" + (p != null)
@@ -102,6 +126,7 @@ public final class CarrotCarMapSnapshot {
             return false;
         }
         if (map != naverMap) {
+            resetRequests();
             naverMap = map;
             firstRequestAt = 0;
             lastBitmapAt = 0;
@@ -122,8 +147,12 @@ public final class CarrotCarMapSnapshot {
         // Keep requesting even while "dead": the renderer pauses when the virtual
         // display idles (e.g. long red light) and answers again when it resumes.
         // HUD13.4 stopped requesting here, which froze the HUD map for good.
-        if (requestedAt == 0 || now - requestedAt > SNAPSHOT_TIMEOUT_MS) {
+        synchronized (frameLock) {
+          if (requestedAt == 0 || now - requestedAt > SNAPSHOT_TIMEOUT_MS) {
             requestedAt = now;
+            final long ticket = ++requestSerial;
+            activeRequest = ticket;
+            final long epoch = generation;
             if (firstRequestAt == 0) {
                 firstRequestAt = now;
             }
@@ -131,9 +160,10 @@ public final class CarrotCarMapSnapshot {
             mainHandler().post(new Runnable() {
                 @Override
                 public void run() {
-                    requestSnapshot(target);
+                    requestSnapshot(target, ticket, epoch);
                 }
             });
+        }
         }
         return !dead;
     }
@@ -294,9 +324,12 @@ public final class CarrotCarMapSnapshot {
     }
 
     /** Main thread. */
-    private static void requestSnapshot(Object map) {
+    private static void requestSnapshot(Object map, long ticket, long epoch) {
+        synchronized (frameLock) {
+            if (epoch != generation || ticket != activeRequest) return;
+        }
         try {
-            Object cb = callback(map.getClass().getClassLoader());
+            Object cb = callback(map.getClass().getClassLoader(), ticket, epoch);
             Class<?> cbClass = Class.forName("com.naver.maps.map.NaverMap$SnapshotReadyCallback", true,
                     map.getClass().getClassLoader());
             Method take = map.getClass().getMethod("p2", new Class<?>[]{boolean.class, cbClass});
@@ -304,22 +337,24 @@ public final class CarrotCarMapSnapshot {
             snapshots++;
         } catch (Throwable t) {
             CarrotHudLog.log(TAG, "takeSnapshot failed: " + t);
-            requestedAt = 0;
+            synchronized (frameLock) {
+                if (epoch == generation && ticket == activeRequest) {
+                    activeRequest = 0;
+                    requestedAt = 0;
+                }
+            }
         }
     }
 
-    private static Object callback(ClassLoader loader) throws ClassNotFoundException {
-        Object cb = callbackProxy;
-        if (cb != null) {
-            return cb;
-        }
+    private static Object callback(ClassLoader loader, final long ticket, final long epoch) throws ClassNotFoundException {
         Class<?> cbClass = Class.forName("com.naver.maps.map.NaverMap$SnapshotReadyCallback", true, loader);
-        cb = Proxy.newProxyInstance(loader, new Class<?>[]{cbClass}, new InvocationHandler() {
+        return Proxy.newProxyInstance(loader, new Class<?>[]{cbClass}, new InvocationHandler() {
             @Override
             public Object invoke(Object proxy, Method method, Object[] args) {
                 String name = method.getName();
-                if ("a".equals(name) && args != null && args.length == 1 && args[0] instanceof Bitmap) {
-                    onSnapshot((Bitmap) args[0]);
+                if ("a".equals(name) && args != null && args.length == 1
+                        && (args[0] == null || args[0] instanceof Bitmap)) {
+                    onSnapshot((Bitmap) args[0], ticket, epoch);
                     return null;
                 }
                 if ("hashCode".equals(name)) {
@@ -334,8 +369,6 @@ public final class CarrotCarMapSnapshot {
                 return null;
             }
         });
-        callbackProxy = cb;
-        return cb;
     }
 
     /**
@@ -344,9 +377,16 @@ public final class CarrotCarMapSnapshot {
      * bridge's sendBitmap() swallows it, so HUD13 counted frames that never left
      * the phone. Crop here, encode+send on a worker thread.
      */
-    private static void onSnapshot(Bitmap source) {
+    private static void onSnapshot(Bitmap source, long ticket, long epoch) {
         long now = SystemClock.elapsedRealtime();
-        requestedAt = 0;
+        synchronized (frameLock) {
+            // Late/duplicate callbacks must not unlock a newer request or replace
+            // its map with an old renderer's frame.
+            if (epoch != generation || ticket != activeRequest) return;
+            activeRequest = 0;
+            requestedAt = 0;
+        }
+        if (source == null || source.isRecycled()) return;
         if (deadLogged) {
             deadLogged = false;
             CarrotHudLog.log(TAG, "renderer answering again after " + (lastBitmapAt > 0 ? now - lastBitmapAt : -1) + " ms");
@@ -358,22 +398,53 @@ public final class CarrotCarMapSnapshot {
         }
         try {
             final Bitmap out = fitCenterCrop(source, WIDTH, HEIGHT);
-            if (snapshots == 1 || sent == 0) {
+            if (snapshots == 1) {
                 CarrotHudLog.log(TAG, "first snapshot " + source.getWidth() + "x" + source.getHeight());
             }
-            workerHandler().post(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        sendJpeg(b, out);
-                        sent++;
-                    } catch (Throwable t) {
-                        CarrotHudLog.log(TAG, "sendBitmap failed: " + t);
-                    }
+            synchronized (frameLock) {
+                if (epoch != generation) { out.recycle(); return; }
+                // At most one frame waits behind the currently sending frame.
+                // Slow sockets must not turn this into a FIFO of stale maps.
+                if (pendingFrame != null) pendingFrame.recycle();
+                pendingFrame = out;
+                pendingBridge = b;
+                pendingGeneration = epoch;
+                pendingAt = now;
+                if (!senderScheduled) {
+                    senderScheduled = true;
+                    workerHandler().post(new Runnable() {
+                        @Override public void run() { drainLatestFrames(); }
+                    });
                 }
-            });
+            }
         } catch (Throwable t) {
             CarrotHudLog.log(TAG, "snapshot handling failed: " + t);
+        }
+    }
+
+    private static void drainLatestFrames() {
+        while (true) {
+            Bitmap bitmap;
+            CarrotNaverBridge target;
+            long epoch, capturedAt;
+            synchronized (frameLock) {
+                bitmap = pendingFrame;
+                if (bitmap == null) { senderScheduled = false; return; }
+                target = pendingBridge;
+                epoch = pendingGeneration;
+                capturedAt = pendingAt;
+                pendingFrame = null;
+                pendingBridge = null;
+                if (epoch != generation || SystemClock.elapsedRealtime() - capturedAt > MAX_FRAME_AGE_MS) {
+                    bitmap.recycle();
+                    continue;
+                }
+            }
+            try {
+                sendJpeg(target, bitmap, epoch, capturedAt);
+            } catch (Throwable t) {
+                CarrotHudLog.log(TAG, "sendBitmap failed: " + t);
+            }
         }
     }
 
@@ -381,7 +452,7 @@ public final class CarrotCarMapSnapshot {
      * Worker thread. Same JSON item_update the bridge's sendBitmap() produces, but
      * at TMAP's JPEG quality instead of the bridge's fixed 90.
      */
-    private static void sendJpeg(CarrotNaverBridge b, Bitmap bitmap) throws Exception {
+    private static void sendJpeg(CarrotNaverBridge b, Bitmap bitmap, long epoch, long capturedAt) throws Exception {
         java.io.ByteArrayOutputStream stream = new java.io.ByteArrayOutputStream(64 * 1024);
         try {
             if (!bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, stream)) {
@@ -393,6 +464,10 @@ public final class CarrotCarMapSnapshot {
         byte[] jpeg = stream.toByteArray();
         String value = "{\"format\":\"jpeg\",\"width\":" + WIDTH + ",\"height\":" + HEIGHT
                 + ",\"data\":\"" + android.util.Base64.encodeToString(jpeg, android.util.Base64.NO_WRAP) + "\"}";
+        synchronized (frameLock) {
+            if (epoch != generation || pendingFrame != null
+                    || SystemClock.elapsedRealtime() - capturedAt > MAX_FRAME_AGE_MS) return;
+        }
         Method send = bridgeSend;
         if (send == null) {
             send = CarrotNaverBridge.class.getDeclaredMethod("send", String.class, String.class);
@@ -403,6 +478,7 @@ public final class CarrotCarMapSnapshot {
         if (sent == 0) {
             CarrotHudLog.log(TAG, "first map_main sent " + jpeg.length + " bytes q" + JPEG_QUALITY);
         }
+        sent++;
     }
 
     private static volatile Method bridgeSend;
