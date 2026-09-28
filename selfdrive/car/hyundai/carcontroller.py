@@ -58,15 +58,6 @@ def process_hud_alert(enabled, fingerprint, hud_control):
 # loggerd 없이도 폴트 원인을 볼 수 있게, 최근 6초를 메모리에만 들고 있다가
 # steerFaultTemporary 가 켜지는 순간 전후(6초 전 ~ 1초 후)를 CSV 로 남긴다.
 # 평소엔 파일을 쓰지 않는다. 저장 위치: /data/steer_fault_logs/
-# ── 고각도 조향 보조 해제 (MDPS 폴트 방지) ─────────────────────────────────
-# 2026-09-28 블랙박스 실측: 인게이지 상태 유턴(7~10km/h)에서 조향각 90° 이상일 때
-# 오파 토크(최대 112)가 약 1.4초 이어지자 113°에서 MDPS ToiFlt/FailStat 발생.
-# 기존 85°/0.89초 주기 컷(induced temporary fault)만으로는 DH MDPS 가 버티지 못함.
-# → 85° 이상이면 LKAS 요청 자체를 내리고, 70° 아래로 돌아오면 다시 켠다(히스테리시스).
-#   고속 주행에선 85° 에 도달할 일이 없어 유턴·교차로 급회전에만 해당.
-HIGH_ANGLE_CUT_DEG = 85.0
-HIGH_ANGLE_RELEASE_DEG = 70.0
-
 FAULT_LOG_DIR = "/data/steer_fault_logs"
 FAULT_PRE_FRAMES = 600    # 100Hz × 6s
 FAULT_POST_FRAMES = 100   # 100Hz × 1s
@@ -133,7 +124,6 @@ class CarController:
     self.angle_limit_counter = 0
     self.cut_steer_frames = 0
     self.cut_steer = False
-    self.high_angle_cut = False
 
     self.steer_fault_max_angle = CP.steerFaultMaxAngle
     self.steer_fault_max_frames = CP.steerFaultMaxFrames
@@ -190,14 +180,6 @@ class CarController:
       lkas_active = 0
     if self.turning_signal_timer > 0:
       self.turning_signal_timer -= 1
-
-    abs_angle = abs(CS.out.steeringAngleDeg)
-    if abs_angle >= HIGH_ANGLE_CUT_DEG:
-      self.high_angle_cut = True
-    elif abs_angle <= HIGH_ANGLE_RELEASE_DEG:
-      self.high_angle_cut = False
-    if self.high_angle_cut:
-      lkas_active = 0
 
     if not lkas_active:
       apply_steer = 0
