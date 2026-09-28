@@ -17,6 +17,13 @@ LaneChangeDirection = log.LateralPlan.LaneChangeDirection
 LANE_CHANGE_SPEED_MIN = 50 * CV.KPH_TO_MS
 LANE_CHANGE_TIME_MAX = 10.
 
+# NOO 분기/출구 keepLeft·keepRight (StarPilot 방식 이식).
+# 분기점까지 이 거리 안에서 운전자가 분기 방향으로 핸들을 살짝 밀면 시작하고,
+# 거리창을 벗어나거나 반대토크·브레이크·반대 깜빡이·BSD 면 즉시 해제한다.
+NOO_KEEP_SPEED_BP = [0., 15., 30.]          # m/s
+NOO_KEEP_DISTANCE_BP = [25., 90., 160.]     # m
+NOO_KEEP_MAX_TIME = 8.0                     # s, 한 번 시작한 keep 의 상한
+
 DESIRES = {
   LaneChangeDirection.none: {
     LaneChangeState.off: log.LateralPlan.Desire.none,
@@ -102,6 +109,10 @@ class DesireHelper:
     # mismatch here is why a lane change never starts.
     self.noo_camera_lane_count = 0
     self.noo_route_lane_count = 0
+    # 분기 keep 래치: 0 없음 / -1 keepLeft / 1 keepRight
+    self.noo_keep_direction = 0
+    self.noo_keep_timer = 0.0
+    self.noo_keep_expired = False
 
   @staticmethod
   def _road_edge_detected(model_data, direction):
@@ -252,6 +263,59 @@ class DesireHelper:
     self.turn_state_timer = 0.0
     self.turn_direction_latched = 0
     self.turn_ll_prob = 1.0
+
+  def _update_noo_keep(self, navigation_state, carstate, v_ego, allowed):
+    """분기/출구에서 keepLeft/keepRight 방향. 운전자 같은방향 토크로만 시작한다."""
+    direction = 0
+    distance = -1.0
+    if allowed and navigation_state.get('fresh', False) and navigation_state.get('kind') == 'fork':
+      try:
+        direction = int(navigation_state.get('direction', 0))
+        distance = float(navigation_state.get('distance', -1.0))
+      except (TypeError, ValueError):
+        direction = 0
+    window = float(np.interp(v_ego, NOO_KEEP_SPEED_BP, NOO_KEEP_DISTANCE_BP))
+    in_window = direction in (-1, 1) and 0.0 <= distance <= window
+
+    blocked = False
+    if in_window:
+      blindspot = carstate.leftBlindspot if direction < 0 else carstate.rightBlindspot
+      opposite_blinker = carstate.rightBlinker if direction < 0 else carstate.leftBlinker
+      # 토크 부호: 왼쪽(+) / 오른쪽(-) — 차선변경 토크 판정과 동일
+      opposite_torque = carstate.steeringPressed and (
+        (direction < 0 and carstate.steeringTorque < 0) or
+        (direction > 0 and carstate.steeringTorque > 0))
+      blocked = blindspot or opposite_blinker or opposite_torque or carstate.brakePressed
+
+    if not in_window:
+      self.noo_keep_direction = 0
+      self.noo_keep_timer = 0.0
+      self.noo_keep_expired = False
+      return 0
+    if blocked or self.noo_keep_direction not in (0, direction):
+      self.noo_keep_direction = 0
+      self.noo_keep_timer = 0.0
+      return 0
+    if self.noo_keep_expired:
+      return 0
+
+    if self.noo_keep_direction == 0:
+      same_torque = carstate.steeringPressed and (
+        (direction < 0 and carstate.steeringTorque > 0) or
+        (direction > 0 and carstate.steeringTorque < 0))
+      if same_torque:
+        self.noo_keep_direction = direction
+        self.noo_keep_timer = 0.0
+      return self.noo_keep_direction
+
+    self.noo_keep_timer += DT_MDL
+    if self.noo_keep_timer > NOO_KEEP_MAX_TIME:
+      # 상한 도달 후엔 거리창을 벗어날 때까지 재시작하지 않는다.
+      self.noo_keep_direction = 0
+      self.noo_keep_timer = 0.0
+      self.noo_keep_expired = True
+      return 0
+    return self.noo_keep_direction
 
   @staticmethod
   def _noo_turn_hard_cancel(noo_enabled, noo_mode, lateral_active,
@@ -541,9 +605,16 @@ class DesireHelper:
     # 조건일 뿐이고, 끝내는 건 모델의 회전 확률이 맡는다. 큰 교차로에서는 거리창이
     # 닫힌 뒤에야 실제 선회가 시작되므로, 모델이 회전을 인지하기 전(state 1)에는
     # 확률이 낮아도 방향을 유지한다. 인지한 뒤(state 2)에야 확률로 종료한다.
-    turn_model_prob = self._turn_model_prob(
-      model_data, turn_direction if turn_direction != 0 else self.turn_direction_latched)
-    effective_turn_direction = self._advance_noo_turn(turn_direction, turn_model_prob)
+    # 정지 중(신호대기 등)에는 회전 desire 를 내보내지 않는다. 롱컨 정지는
+    # brakePressed 가 없어서 교차로 앞 정차 중에도 desire 가 계속 나갔다.
+    # turnState 는 리셋하지 않고 멈춰(타이머 정지) 두었다가 출발하면 이어간다.
+    standstill = bool(getattr(carstate, 'standstill', False))
+    if standstill:
+      effective_turn_direction = 0
+    else:
+      turn_model_prob = self._turn_model_prob(
+        model_data, turn_direction if turn_direction != 0 else self.turn_direction_latched)
+      effective_turn_direction = self._advance_noo_turn(turn_direction, turn_model_prob)
     if opposite_torque or conflicting_blinker:
       effective_turn_direction = 0
       self._reset_noo_turn()
@@ -556,6 +627,13 @@ class DesireHelper:
     # Finishing)만 보호하고, preLaneChange 는 회전조향이 덮어써도 되게 완화한다.
     if effective_turn_direction and self.lane_change_state in (LaneChangeState.off, LaneChangeState.preLaneChange):
       self.desire = log.LateralPlan.Desire.turnLeft if effective_turn_direction < 0 else log.LateralPlan.Desire.turnRight
+
+    # 분기/출구 keep: 회전·NOO/리모컨 차선변경·실제 차선변경이 없을 때만.
+    keep_allowed = (noo_steering and not standstill and effective_turn_direction == 0 and
+                    noo_direction == 0 and self.lane_change_state == LaneChangeState.off)
+    keep_direction = self._update_noo_keep(navigation_state, carstate, v_ego, keep_allowed)
+    if keep_direction:
+      self.desire = log.LateralPlan.Desire.keepLeft if keep_direction < 0 else log.LateralPlan.Desire.keepRight
 
     # Keep the turn desire independent from the optional route polyline.
     # TMAP guidance_current is the authoritative turn request; route/vehicle

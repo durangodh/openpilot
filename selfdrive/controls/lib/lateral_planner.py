@@ -442,6 +442,8 @@ class LateralPlanner:
     noo_text = ''
     if self.DH.noo_turn_state:
       noo_text += f'nooturn={self.DH.noo_turn_state} '
+    if self.DH.noo_keep_direction:
+      noo_text += f'nookeep={"L" if self.DH.noo_keep_direction < 0 else "R"} '
     if self.DH.noo_current_lane > 0 and self.DH.noo_target_lane > 0:
       noo_text += f'noo={self.DH.noo_current_lane}>{self.DH.noo_target_lane}'
     elif self.DH.noo_camera_lane_count or self.DH.noo_route_lane_count:
