@@ -255,8 +255,8 @@ class DesireHelper:
 
   @staticmethod
   def _noo_turn_hard_cancel(noo_enabled, noo_mode, lateral_active,
-                            brake_pressed, lane_change_state):
-    return (brake_pressed or not lateral_active or not noo_enabled or
+                            brake_pressed, lane_change_state, guidance_fresh=True):
+    return (not guidance_fresh or brake_pressed or not lateral_active or not noo_enabled or
             noo_mode not in (0, 1) or
             lane_change_state in (LaneChangeState.laneChangeStarting,
                                   LaneChangeState.laneChangeFinishing))
@@ -522,7 +522,8 @@ class DesireHelper:
     # latch keep publishing a stale turn desire for up to its 8/20 s timeout.
     turn_hard_cancel = self._noo_turn_hard_cancel(
       self.noo_enabled, self.noo_mode, lateral_active,
-      carstate.brakePressed, self.lane_change_state)
+      carstate.brakePressed, self.lane_change_state,
+      guidance_fresh=navigation_state.get('fresh', False))
     if turn_hard_cancel:
       turn_direction = 0
       self._reset_noo_turn()
