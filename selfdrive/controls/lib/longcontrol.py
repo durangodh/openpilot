@@ -31,6 +31,11 @@ PID_JERK_LOWER_V = [3.5, 3.5, 3.0]
 # 새 제동 요청은 이 램프를 즉시 취소하므로 제동 반응에는 적용되지 않는다.
 START_RELEASE_JERK = 11.0
 
+# Briefly blend a positive starting request into PID after a confirmed lead
+# departure. A new braking request or invalid departure cancels this blend.
+START_HANDOFF_TIME = 0.6
+START_HANDOFF_JERK = 0.8
+
 # 저속 앞차출발 추종 전용 저크 부스트 구간. long_mpc.py의 LEAD_DEPARTURE_*
 # (18~30km/h에서 서서히 해제)와 같은 구간을 써서, "계획단계는 빨리 붙으라는데
 # 실행단계가 못 따라가는" 문제를 이 저속 구간에서만 별도로 풀어준다 —
@@ -138,6 +143,7 @@ class LongControl:
     self.lead_measurement_available = False
     self.lead_missing_frames = 0
     self.departure_release_active = False
+    self.start_handoff_remaining = 0.0
     self.departure_assist = LeadDepartureAssist(DT_CTRL)
 
   # ---- 파라미터 (키 이름은 이 포크 것을 유지) ----
@@ -312,6 +318,7 @@ class LongControl:
     """Reset PID controller and change setpoint"""
     self.pid.reset()
     self.v_pid = v_pid
+    self.start_handoff_remaining = 0.0
 
   def update(self, active, CS, long_plan, accel_limits, t_since_plan, soft_hold=False,
              radar_state=None, radar_state_valid=False, radar_state_updated=False,
@@ -494,6 +501,22 @@ class LongControl:
       jerk_upper *= interp(CS.vEgo, LOW_SPEED_JERK_BOOST_SPEED_BP,
                            [departure_boost, departure_boost, 1.0])
       jerk_lower = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_LOWER_V) * self.pid_jerk_decel_mult
+      # At vEgoStarting the fixed startAccel can be much higher than PID's
+      # first positive request. Avoid dropping drive torque just as the car
+      # begins rolling, but only inside the confirmed departure window.
+      if prev_long_control_state == LongCtrlState.starting and assisted_departure:
+        self.start_handoff_remaining = min(START_HANDOFF_TIME, self.departure_assist.remaining)
+      if (not assisted_departure or prevent_overshoot or
+          not 0.0 < pid_output < output_accel):
+        self.start_handoff_remaining = 0.0
+      if self.start_handoff_remaining > 0.0:
+        remaining = min(self.start_handoff_remaining, self.departure_assist.remaining)
+        # Converge to the current PID request by the deadline, even if it
+        # changes during the blend. Never slow zero/negative requests.
+        handoff_jerk = max(START_HANDOFF_JERK,
+                           (output_accel - pid_output) / max(remaining, DT_CTRL))
+        jerk_lower = min(jerk_lower, handoff_jerk)
+        self.start_handoff_remaining = max(0.0, remaining - DT_CTRL)
       # START ACCEL=0은 starting 상태를 건너뛴다. 이 경로도 동일한 짧은
       # 제동해제 램프를 사용하되, 플래너가 다시 감속을 요구하면 즉시 기존
       # PID/감속 저크 경로로 돌아가 안전 제동을 지연시키지 않는다.
