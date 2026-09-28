@@ -1,5 +1,9 @@
 name: Build Galaxy S9 Remote HUD APK
 
+concurrency:
+  group: remote-hud-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 

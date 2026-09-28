@@ -278,7 +278,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudViewPitch", PERSISTENT},     // 주행씬 수평선 보정 0.1도 (-50..50)
     {"EonClusterHudOutputMode", PERSISTENT},
     {"EonClusterHudLayoutMode", PERSISTENT},  // 1=3분할, 2=주행+티맵 2분할
-    {"HudRemoteKey", PERSISTENT},           // S9 remote HMAC pairing key; never sent in telemetry
+    {"HudRemoteKey", PERSISTENT | DONT_LOG},           // S9 remote HMAC pairing key; never sent in telemetry
     {"EonClusterHudNavApp", PERSISTENT},      // 0=선택 안 함, 1=티맵, 2=네이버지도
     {"EonClusterHudConnected", CLEAR_ON_MANAGER_START},
     {"EonClusterHudHeartbeat", CLEAR_ON_MANAGER_START},

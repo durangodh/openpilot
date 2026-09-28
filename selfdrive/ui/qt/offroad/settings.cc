@@ -1231,7 +1231,10 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   auto remoteForget = new ButtonControl("REMOTE UNPAIR", "DELETE", "등록한 S9 리모컨 연결 키를 삭제합니다.");
   toggleLayout->addWidget(remoteForget);
   connect(remoteForget, &ButtonControl::clicked, [=]() {
-    Params().remove("HudRemoteKey");
+    if (Params().remove("HudRemoteKey") != 0) {
+      ConfirmationDialog::alert("연결 키 삭제 실패. 다시 시도하세요.", this);
+      return;
+    }
     ConfirmationDialog::alert("리모컨 연결 키를 삭제했습니다.", this);
   });
 

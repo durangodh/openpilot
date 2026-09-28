@@ -57,6 +57,12 @@ public final class RemoteSettingsActivity extends Activity {
             names.add(device.getName()); descriptors.add(device.getDescriptor());
             if (RemoteControl.selected(this, device)) selected = names.size() - 1;
         }
+        String savedDevice = RemoteControl.prefs(this).getString("device", "");
+        if (selected == 0 && !savedDevice.isEmpty()) {
+            descriptors.add(savedDevice);
+            names.add(RemoteControl.prefs(this).getString("deviceName", "저장된 리모컨") + " (연결 안 됨)");
+            selected = names.size() - 1;
+        }
         Spinner devices = new Spinner(this);
         devices.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, names));
         devices.setSelection(selected); root.addView(devices);
@@ -68,7 +74,7 @@ public final class RemoteSettingsActivity extends Activity {
                     // Mappings must be learned again for a different device.
                     String secret = RemoteControl.prefs(RemoteSettingsActivity.this).getString("secret", "");
                     RemoteControl.prefs(RemoteSettingsActivity.this).edit().clear().putString("secret", secret)
-                            .putString("device", descriptor).apply();
+                            .putString("device", descriptor).putString("deviceName", names.get(position)).apply();
                     RemoteControl.learnedKey = -1;
                     build();
                 }
