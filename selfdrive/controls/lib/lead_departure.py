@@ -115,10 +115,14 @@ class LeadDepartureAssist:
            isfinite(lead.aLeadK) and lead.aLeadK >= 0.0
 
 
+LAUNCH_JERK_UPPER_MAX = 1.5
+
+
 def departure_jerk_upper(normal_upper, configured_start, pid_upper, assisted):
   """Remove the SCC startup bottleneck only for a confirmed assisted launch."""
   if not assisted:
     return normal_upper
   # Retain a deliberately softer user PID setting and all existing hard caps.
-  launch_upper = min(2.0, max(0.0, pid_upper), max(0.0, configured_start) * 2.0)
+  # Partially bypass the C2 startup ramp only (was 2.0); keeps a human-like launch.
+  launch_upper = min(LAUNCH_JERK_UPPER_MAX, max(0.0, pid_upper), max(0.0, configured_start) * 2.0)
   return min(5.0, max(normal_upper, launch_upper))

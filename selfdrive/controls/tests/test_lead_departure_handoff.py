@@ -69,8 +69,8 @@ def test_confirmed_departure_releases_below_old_speed_threshold(starting):
   accel = step(control, cs, plan, radar)
   assert control.long_control_state == ('starting' if starting else 'pid')
   assert control.departure_assist.active
-  # Current brake-release ramp is 11 m/s^3, independent of stopping comfort.
-  assert accel == pytest.approx(-0.99)
+  # Current brake-release ramp is 8 m/s^3, independent of stopping comfort.
+  assert accel == pytest.approx(-1.02)
   for _ in range(5):
     step(control, cs, plan, radar, fresh=False)
   assert control.long_control_state != 'stopping'
@@ -230,8 +230,8 @@ def test_confirmed_start_handoff_does_not_drop_drive_request_in_150ms():
   control, cs, plan, radar = setup_confirmed_start_handoff()
   values = [step(control, cs, plan, radar) for _ in range(15)]
   assert control.long_control_state == 'pid'
-  assert values[0] >= 0.79
-  assert values[-1] >= 0.65
+  assert values[0] == pytest.approx(0.788)
+  assert values[-1] == pytest.approx(0.62)
   assert all(0.38 <= x <= 0.8 for x in values)
   assert all(b <= a for a, b in zip(values, values[1:]))
   for _ in range(60):

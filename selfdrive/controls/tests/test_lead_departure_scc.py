@@ -35,7 +35,7 @@ def scc_limits(assisted=True, state='pid', braking=False, gas=False, soft_hold=F
 
 def test_only_positive_launch_jerk_changes_not_braking_or_stop_request():
   assert scc_limits(False) == (0.5, 1.0, False)
-  assert scc_limits(True) == (2.0, 1.0, False)
+  assert scc_limits(True) == (1.5, 1.0, False)
 
 
 @pytest.mark.parametrize('kwargs', [dict(braking=True), dict(gas=True), dict(active=False)])
