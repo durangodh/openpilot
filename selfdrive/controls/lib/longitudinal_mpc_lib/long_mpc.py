@@ -8,7 +8,7 @@ from common.numpy_fast import clip, interp
 from selfdrive.swaglog import cloudlog
 from selfdrive.modeld.constants import index_function
 from selfdrive.controls.lib.radar_helpers import _LEAD_ACCEL_TAU
-from selfdrive.controls.lib.lead_following import get_follow_obstacle_cost
+from selfdrive.controls.lib.lead_following import get_follow_obstacle_cost, get_accel_jerk_scale
 from selfdrive.controls.lib.lead_departure import departure_motion_valid
 from selfdrive.controls.lib.t_follow import (CRUISE_GAP_BP as _CRUISE_GAP_BP, CRUISE_GAP_V,
                                              clamp_desired_follow_distance,
@@ -376,7 +376,7 @@ class LongitudinalMpc:
     return (a_change, j_ego, d_zone_tf)
 
   def set_weights(self, prev_accel_constraint=True, v_lead0=0, v_lead1=0,
-                  a_lead0=0.0, lead0_status=False, obstacle_cost=None):
+                  a_lead0=0.0, lead0_status=False, obstacle_cost=None, jerk_scale=1.0):
     # apilot-c2 set_weights
     self.prev_accel_constraint = prev_accel_constraint
     obstacle_cost = self.x_ego_obstacle_cost if obstacle_cost is None else obstacle_cost
@@ -388,12 +388,12 @@ class LongitudinalMpc:
         cost_multipliers = self.get_cost_multipliers(v_lead0, v_lead1, a_lead0, lead0_status)
         cost_weights = [obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
                         a_change_cost * cost_multipliers[0],
-                        J_EGO_COST * cost_multipliers[1]]
+                        J_EGO_COST * cost_multipliers[1] * jerk_scale]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST,
                                    DANGER_ZONE_COST * cost_multipliers[2]]
       else:
         cost_weights = [obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
-                        a_change_cost, J_EGO_COST]
+                        a_change_cost, J_EGO_COST * jerk_scale]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, DANGER_ZONE_COST]
 
     elif self.mode == 'blended':
@@ -517,16 +517,20 @@ class LongitudinalMpc:
       krkeegan=self.applyLongDynamicCost))
 
     obstacle_cost = self.x_ego_obstacle_cost
+    jerk_scale = 1.0
     if self.mode == 'acc' and not (reset_state or self.traffic_stop_active or self.xState == XState.softHold):
       obstacle_cost = get_follow_obstacle_cost(
         obstacle_cost, v_ego, a_ego, self.x0[2],
         (radarstate.leadOne, radarstate.leadTwo), self.t_follow, self.stop_dist, comfort_brake)
+      jerk_scale = get_accel_jerk_scale(v_ego, a_ego, self.x0[2],
+                                        (radarstate.leadOne, radarstate.leadTwo))
 
     self.set_weights(prev_accel_constraint=self.prev_accel_constraint,
                      v_lead0=lead_xv_0[0, 1],
                      v_lead1=lead_xv_1[0, 1],
                      a_lead0=radarstate.leadOne.aLeadK if lead0_status else 0.0,
-                     lead0_status=lead0_status, obstacle_cost=obstacle_cost)
+                     lead0_status=lead0_status, obstacle_cost=obstacle_cost,
+                     jerk_scale=jerk_scale)
 
     # apilot-c2: 리드 정지환산거리는 기본 comfort_brake/기본 stop_distance 로 계산
     lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(
