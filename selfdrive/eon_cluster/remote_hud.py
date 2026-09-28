@@ -17,7 +17,7 @@ import time
 import cereal.messaging as messaging
 from common.params import Params
 from selfdrive.eon_cluster.nav_selection import NavSelectionSync
-from selfdrive.eon_cluster.hud_remote import RemoteCommandSync
+from selfdrive.eon_cluster.hud_remote import RemoteCommandSync, allowed_commands
 
 
 from selfdrive.modeld.constants import T_IDXS
@@ -1296,6 +1296,11 @@ def main():
       packet = _packet(sm, noo_enabled, path_offset)
       packet.update(nav_selection.telemetry())
       packet.update(remote_commands.telemetry())
+      remote_allowed = allowed_commands(
+        sm.alive["deviceState"] and sm["deviceState"].started,
+        sm.alive["carState"] and sm.valid["carState"] and sm["carState"].canValid,
+        sm["carState"].gearShifter == "drive", sm["carState"].brakePressed, sm["carState"].gasPressed)
+      packet["hudCmdDriveAllowed"] = "res" in remote_allowed
       sock.sendto(json.dumps(packet, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
                   ("255.255.255.255", PORT))
       try:
@@ -1305,7 +1310,7 @@ def main():
             last_ack = time.monotonic()
           elif nav_selection.receive(reply, address):
             last_ack = time.monotonic()
-          elif remote_commands.receive(reply, address):
+          elif remote_commands.receive(reply, address, remote_allowed):
             last_ack = time.monotonic()
       except (BlockingIOError, socket.error):
         pass

@@ -787,6 +787,9 @@ public final class HudService extends Service {
                             continue;
                         }
                         synchronizeNavigation(decoded, socket, packet);
+                        byte[] remoteCommand = RemoteControl.packet(this, decoded);
+                        if (remoteCommand != null) socket.send(new DatagramPacket(remoteCommand,
+                                remoteCommand.length, packet.getAddress(), packet.getPort()));
                         state.set(decoded);
                         udpReceiverError = "";
                         eonAddress.set(packet.getAddress());
@@ -5363,6 +5366,7 @@ public final class HudService extends Service {
 
     @Override
     public void onDestroy() {
+        RemoteControl.reset();
         if (gpsSourceMonitor != null) gpsSourceMonitor.stop();
         if (mirrorDisplays != null) mirrorDisplays.unregisterDisplayListener(mirrorDisplayListener);
         running.set(false);

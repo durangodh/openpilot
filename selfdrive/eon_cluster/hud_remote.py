@@ -1,232 +1,213 @@
-"""HUD remote control: Bluetooth remote → S9 Remote HUD app → EON.
+"""S9 key remote -> authenticated, short-lived EON button requests.
 
-Two halves live here so they share one protocol definition:
-
-* ``RemoteCommandSync`` runs inside ``remote_hud`` (the 7210 telemetry loop).
-  It accepts idempotent ``HUDCMD1 <session> <id> <cmd>`` requests from the
-  HUD app, acknowledges them through telemetry (``hudCmdAck``) and hands
-  each new command to the rest of the system: cruise button commands are
-  written to ``/dev/shm/hud_remote_cmd.json``; the navigation-app toggle is
-  applied straight to ``EonClusterHudNavApp``.
-
-* ``RemoteButtonSource`` runs inside the car interface (100 Hz). It polls the
-  command file cheaply (``os.stat`` every few frames) and turns a new command
-  into a one-frame ``pressed`` ButtonEvent followed by the release, exactly
-  like a steering-wheel button transition. The car interface appends those
-  to ``ret.buttonEvents`` so controlsd, cruise_helper and the engage logic see
-  a normal RES/SET/CANCEL/GAP press.
-
-Safety: only button *presses* can be injected (never a steering or
-acceleration command), one command at a time, and a command older than
-``COMMAND_MAX_AGE_S`` is dropped so a stale file can never fire later.
+Adapted from carrot-wip bluetooth/model.py policies (962d4484): explicit
+mapping, monotonic expiry, bounded journals, startup/replay rejection.
+Android owns Bluetooth on S9; BlueZ/evdev is not transplanted onto EON.
 """
+from collections import deque
+import hashlib
+import hmac
 import json
+import math
 import os
 import time
 import uuid
 
-from cereal import car
-
-ButtonType = car.CarState.ButtonEvent.Type
-
 COMMAND_FILE = "/dev/shm/hud_remote_cmd.json"
-COMMAND_MAX_AGE_S = 1.5
-POLL_FRAMES = 5           # 100 Hz interface -> stat the file every 50 ms
-
-# Remote command name -> ButtonEvent type. RES also raises the set speed and
-# SET lowers it on Hyundai, so the remote's "speed ±" keys map to these two.
-BUTTON_COMMANDS = {
-  "res": ButtonType.accelCruise,
-  "set": ButtonType.decelCruise,
-  "cancel": ButtonType.cancel,
-  "gap": ButtonType.gapAdjustCruise,
-}
-# Commands the EON applies itself (no car button involved).
-PARAM_COMMANDS = ("nav_toggle", "nav_tmap", "nav_naver")
-# Lane change request (carrot "LANECHANGE LEFT/RIGHT"): a virtual blinker held for
-# LANE_CHANGE_HOLD_S per command. The sender repeats the command while the key is
-# held, so releasing the key ends the request. desire_helper applies the same
-# gates as NOO (LaneChangeNeedTorque, speed, road edge, BSD, opposite torque).
-LANE_COMMANDS = {"lane_left": -1, "lane_right": 1}
-LANE_CHANGE_HOLD_S = 0.3
 LANE_FILE = "/dev/shm/hud_remote_lane.json"
+COMMAND_MAX_AGE_S = 0.4
+LANE_CHANGE_HOLD_S = 0.3
+POLL_FRAMES = 5
+BUTTON_COMMANDS = {"res": "accelCruise", "set": "decelCruise",
+                   "cancel": "cancel", "gap": "gapAdjustCruise"}
+PARAM_COMMANDS = ("nav_toggle", "nav_tmap", "nav_naver")
+LANE_COMMANDS = {"lane_left": -1, "lane_right": 1}
 ALL_COMMANDS = tuple(BUTTON_COMMANDS) + PARAM_COMMANDS + tuple(LANE_COMMANDS)
 
 
+def valid_hex(value, length=32):
+  return isinstance(value, str) and len(value) == length and all(c in "0123456789abcdef" for c in value)
+
+
+def atomic_json(path, payload):
+  temporary = path + ".tmp"
+  with open(temporary, "w") as f:
+    json.dump(payload, f)
+  os.replace(temporary, path)
+
+
+def fresh(created, started, now):
+  return (isinstance(created, (float, int)) and math.isfinite(created) and
+          started <= created <= now and now - created <= COMMAND_MAX_AGE_S)
+
+
 class RemoteCommandSync:
-  """Request/ack handling for HUDCMD1 on the EON reply socket (remote_hud)."""
-
-  def __init__(self, params, command_file=COMMAND_FILE, lane_file=LANE_FILE):
-    self.params = params
-    self.command_file = command_file
-    self.lane_file = lane_file
+  def __init__(self, params, command_file=COMMAND_FILE, lane_file=LANE_FILE, clock=time.monotonic):
+    self.params, self.command_file, self.lane_file = params, command_file, lane_file
+    self.clock = clock
     self.session = uuid.uuid4().hex
-    self.ack = ""
+    self.ack = self.result = self.last_command = ""
     self.applied = {}
-    self.seq = 0
-    self.last_command = ""
-    self.last_command_at = 0.0
+    self.events = []
+    self.tickets = {}
+    self.key = ""
+    self.last_command_at = None
 
-  def receive(self, data, address):
-    if address[1] != 7210 or len(data) > 128:
+  def refresh_key(self):
+    raw = self.params.get("HudRemoteKey") or b""
+    key = raw.decode("ascii", errors="ignore") if isinstance(raw, bytes) else raw
+    key = key if valid_hex(key) else ""
+    if key != self.key:
+      self.key = key
+      self.session = uuid.uuid4().hex
+      self.tickets.clear()
+      self.applied.clear()
+      self.events.clear()
+      self.ack = self.result = ""
+    return key
+
+  def receive(self, data, address, allowed=()):
+    if address[1] != 7210 or len(data) > 256 or not self.refresh_key():
       return False
     try:
-      kind, session, request, command = data.decode("ascii").split(" ")
+      body, signature = data.decode("ascii").rsplit(" ", 1)
+      kind, session, request, ticket, command = body.split(" ")
     except (UnicodeDecodeError, ValueError):
       return False
-    if (kind != "HUDCMD1" or session != self.session or command not in ALL_COMMANDS or
-        len(request) != 32 or any(c not in "0123456789abcdef" for c in request)):
+    if (kind != "HUDCMD2" or session != self.session or command not in ALL_COMMANDS or
+        not valid_hex(request) or not valid_hex(signature, 64)):
       return False
-    if request not in self.applied:
-      if not self._apply(command):
+    digest = hmac.new(self.key.encode("ascii"), body.encode("ascii"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, digest):
+      return False
+    now = self.clock()
+    created = self.tickets.get(ticket)
+    if created is None or not fresh(created, 0.0, now):
+      return False
+    if request in self.applied:
+      old_command, result = self.applied[request]
+      if old_command != command:
         return False
-      if len(self.applied) >= 32:
+    else:
+      result = "blocked"
+      if command in allowed:
+        if not self._apply(command, request, now):
+          return False
+        result = "accepted"
+      if len(self.applied) >= 128:
         del self.applied[next(iter(self.applied))]
-      self.applied[request] = command
-    self.ack = request
+      self.applied[request] = (command, result)
+    self.ack, self.result = request, result
     return True
 
-  def _apply(self, command):
-    now = time.time()
-    if command in BUTTON_COMMANDS:
-      self.seq += 1
-      payload = {"seq": self.seq, "cmd": command, "ts": now}
-      tmp = self.command_file + ".tmp"
-      try:
-        with open(tmp, "w") as f:
-          json.dump(payload, f)
-        os.rename(tmp, self.command_file)
-      except OSError:
-        return False
-    elif command in LANE_COMMANDS:
-      payload = {"direction": LANE_COMMANDS[command], "ts": now}
-      tmp = self.lane_file + ".tmp"
-      try:
-        with open(tmp, "w") as f:
-          json.dump(payload, f)
-        os.rename(tmp, self.lane_file)
-      except OSError:
-        return False
-    elif command in PARAM_COMMANDS:
-      try:
-        current = int(self.params.get("EonClusterHudNavApp") or 1)
-        if current < 0 or current > 2:
+  def _apply(self, command, request, now):
+    try:
+      if command in BUTTON_COMMANDS:
+        events = [e for e in self.events if fresh(e["ts"], 0.0, now)]
+        events.append({"id": self.session + request, "cmd": command, "ts": now})
+        atomic_json(self.command_file, {"events": events[-32:]})
+        self.events = events[-32:]
+      elif command in LANE_COMMANDS:
+        atomic_json(self.lane_file, {"direction": LANE_COMMANDS[command], "ts": now})
+      else:
+        try:
+          current = int(self.params.get("EonClusterHudNavApp") or 1)
+        except (ValueError, TypeError):
           current = 1
-      except (TypeError, ValueError):
-        current = 1
-      target = {"nav_tmap": 1, "nav_naver": 2}.get(command, 2 if current == 1 else 1)
-      try:
+        target = {"nav_tmap": 1, "nav_naver": 2}.get(command, 2 if current == 1 else 1)
         self.params.put("EonClusterHudNavApp", str(target))
-      except Exception:
-        return False
-    self.last_command = command
-    self.last_command_at = now
+    except OSError:
+      return False
+    self.last_command, self.last_command_at = command, now
     return True
 
   def telemetry(self):
-    return {"hudCmdSession": self.session, "hudCmdAck": self.ack,
+    self.refresh_key()
+    now = self.clock()
+    self.tickets = {t: ts for t, ts in self.tickets.items() if fresh(ts, 0.0, now)}
+    ticket = uuid.uuid4().hex[:16] if self.key else ""
+    if ticket:
+      self.tickets[ticket] = now
+    return {"hudCmdSession": self.session, "hudCmdTicket": ticket,
+            "hudCmdAck": self.ack, "hudCmdResult": self.result,
             "hudCmdLast": self.last_command,
-            "hudCmdAgeMs": int((time.time() - self.last_command_at) * 1000) if self.last_command_at else -1}
+            "hudCmdAgeMs": int((now - self.last_command_at) * 1000) if self.last_command_at is not None else -1}
 
 
 class RemoteButtonSource:
-  """Turns commands from COMMAND_FILE into press/release ButtonEvents (car interface)."""
-
-  def __init__(self, command_file=COMMAND_FILE):
-    self.command_file = command_file
+  def __init__(self, command_file=COMMAND_FILE, clock=time.monotonic):
+    self.command_file, self.clock = command_file, clock
+    self.started = clock()
     self.frame = 0
-    self.last_mtime = None
-    self.last_seq = None
+    self.seen = deque(maxlen=128)
     self.release_type = None
-    self.last_button = ""
-    self.last_button_at = 0.0
 
-  def _read(self):
+  def poll(self, allowed=True):
+    if self.release_type is not None:
+      button, self.release_type = self.release_type, None
+      return [(button, False)]
+    self.frame += 1
+    if self.frame % POLL_FRAMES:
+      return []
     try:
       with open(self.command_file) as f:
         payload = json.load(f)
-      seq = int(payload.get("seq"))
-      cmd = payload.get("cmd")
-      ts = float(payload.get("ts", 0.0))
-    except (OSError, ValueError, TypeError, AttributeError):
-      return None
-    if cmd not in BUTTON_COMMANDS:
-      return None
-    if seq == self.last_seq:
-      return None
-    self.last_seq = seq
-    if time.time() - ts > COMMAND_MAX_AGE_S:
-      return None   # stale (EON rebooted, file left over): never fire late
-    return cmd
+      events = payload.get("events", [])
+      if not isinstance(events, list):
+        return []
+    except (OSError, ValueError, AttributeError):
+      return []
+    now = self.clock()
+    for event in events[-32:]:
+      if not isinstance(event, dict):
+        continue
+      request = event.get("id")
+      if not isinstance(request, str) or request in self.seen:
+        continue
+      self.seen.append(request)
+      command = event.get("cmd")
+      if command not in BUTTON_COMMANDS or not fresh(event.get("ts"), self.started, now):
+        continue
+      if not allowed and command != "cancel":
+        continue
+      self.release_type = BUTTON_COMMANDS[command]
+      return [(self.release_type, True)]
+    return []
 
-  def poll(self):
-    """Returns a list of (ButtonType, pressed) to append this frame."""
-    events = []
-    if self.release_type is not None:
-      events.append((self.release_type, False))
-      self.release_type = None
-      return events
-    self.frame += 1
-    if self.frame % POLL_FRAMES:
-      return events
-    try:
-      mtime = os.stat(self.command_file).st_mtime
-    except OSError:
-      return events
-    if mtime == self.last_mtime:
-      return events
-    self.last_mtime = mtime
-    cmd = self._read()
-    if cmd is None:
-      return events
-    button = BUTTON_COMMANDS[cmd]
-    self.release_type = button
-    self.last_button = cmd
-    self.last_button_at = time.time()
-    events.append((button, True))
-    return events
-
-  def button_events(self):
-    """Same as poll() but as car.CarState.ButtonEvent messages."""
+  def button_events(self, allowed=True):
+    from cereal import car
     out = []
-    for button, pressed in self.poll():
-      be = car.CarState.ButtonEvent.new_message()
-      be.type = button
-      be.pressed = pressed
-      out.append(be)
+    for button, pressed in self.poll(allowed):
+      event = car.CarState.ButtonEvent.new_message()
+      event.type, event.pressed = button, pressed
+      out.append(event)
     return out
 
 
 class RemoteLaneChangeSource:
-  """desire_helper (20 Hz): -1/0/1 while a remote lane request is being held."""
-
-  def __init__(self, lane_file=LANE_FILE):
-    self.lane_file = lane_file
-    self.frame = 0
-    self.last_mtime = None
-    self.direction = 0
-    self.until = 0.0
+  def __init__(self, lane_file=LANE_FILE, clock=time.monotonic):
+    self.lane_file, self.clock = lane_file, clock
+    self.started = clock()
 
   def poll(self):
-    self.frame += 1
-    now = time.time()
-    if self.frame % 2 == 0:
-      try:
-        mtime = os.stat(self.lane_file).st_mtime
-      except OSError:
-        mtime = None
-      if mtime is not None and mtime != self.last_mtime:
-        self.last_mtime = mtime
-        try:
-          with open(self.lane_file) as f:
-            payload = json.load(f)
-          direction = int(payload.get("direction", 0))
-          ts = float(payload.get("ts", 0.0))
-        except (OSError, ValueError, TypeError, AttributeError):
-          direction, ts = 0, 0.0
-        if direction in (-1, 1) and now - ts <= COMMAND_MAX_AGE_S:
-          self.direction = direction
-          self.until = ts + LANE_CHANGE_HOLD_S
-    if now > self.until:
-      self.direction = 0
-    return self.direction
+    now = self.clock()
+    try:
+      with open(self.lane_file) as f:
+        payload = json.load(f)
+      ts = payload.get("ts")
+      direction = payload.get("direction")
+      if fresh(ts, self.started, now) and now - ts <= LANE_CHANGE_HOLD_S and direction in (-1, 1):
+        return direction
+    except (OSError, ValueError, AttributeError, TypeError):
+      pass
+    return 0
+
+
+def allowed_commands(started, car_valid, drive, brake, gas):
+  allowed = set(PARAM_COMMANDS)
+  if started and car_valid:
+    allowed.add("cancel")
+    if drive and not brake and not gas:
+      allowed.update(BUTTON_COMMANDS)
+      allowed.update(LANE_COMMANDS)
+  return allowed

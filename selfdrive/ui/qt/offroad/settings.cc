@@ -9,6 +9,7 @@
 #include <tuple>
 
 #include <QDebug>
+#include <QUuid>
 
 #ifndef QCOM
 #include "selfdrive/ui/qt/offroad/networking.h"
@@ -1207,6 +1208,33 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   toggleLayout->addWidget(horizontal_line());
 
   // ── S9 외부 클러스터 HUD ──────────────────────────────────
+
+  auto remotePair = new ButtonControl("REMOTE PAIR", "PAIR",
+      "S9 HUD 앱의 무선 리모컨 설정에 입력할 연결 키입니다. 시동을 끈 상태에서 확인하세요.");
+  toggleLayout->addWidget(remotePair);
+  connect(remotePair, &ButtonControl::clicked, [=]() {
+    if (!Params().getBool("IsOffroad")) {
+      ConfirmationDialog::alert("시동을 끈 상태에서 연결 키를 확인하세요.", this);
+      return;
+    }
+    auto key = Params().get("HudRemoteKey");
+    if (key.empty()) {
+      key = QUuid::createUuid().toString(QUuid::WithoutBraces).remove('-').toStdString();
+      if (Params().put("HudRemoteKey", key) != 0) {
+        ConfirmationDialog::alert("연결 키 저장 실패", this);
+        return;
+      }
+    }
+    ConfirmationDialog::alert("S9 HUD → 무선 리모컨 → EON 연결 키에 입력\n\n" +
+                              QString::fromStdString(key), this);
+  });
+  auto remoteForget = new ButtonControl("REMOTE UNPAIR", "DELETE", "등록한 S9 리모컨 연결 키를 삭제합니다.");
+  toggleLayout->addWidget(remoteForget);
+  connect(remoteForget, &ButtonControl::clicked, [=]() {
+    Params().remove("HudRemoteKey");
+    ConfirmationDialog::alert("리모컨 연결 키를 삭제했습니다.", this);
+  });
+
   toggleLayout->addWidget(new ParamControl(
       "EonClusterHud", "S9 EXTERNAL HUD",
       "EON 주행 데이터를 S9 앱으로 전송합니다. 아래 출력 대상에서 외부 HUD와 S9 화면을 선택할 수 있습니다.",

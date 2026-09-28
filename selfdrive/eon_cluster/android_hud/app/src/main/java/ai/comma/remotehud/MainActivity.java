@@ -221,6 +221,10 @@ public final class MainActivity extends Activity {
         naverButton.setOnClickListener(v -> selectNavApp(2));
         root.addView(navCard, cardParams());
 
+        Button remoteButton = button("무선 리모컨 설정", NAV_UNSELECTED);
+        remoteButton.setOnClickListener(v -> startActivity(new Intent(this, RemoteSettingsActivity.class)));
+        root.addView(remoteButton, cardParams());
+
         LinearLayout controlCard = card();
         controlCard.addView(text("서비스 제어", 18.0f, Color.WHITE, Typeface.BOLD));
 
