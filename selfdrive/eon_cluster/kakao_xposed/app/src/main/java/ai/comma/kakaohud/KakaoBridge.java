@@ -21,7 +21,10 @@ final class KakaoBridge {
     private final AtomicBoolean loggedRouteShape = new AtomicBoolean(false);
     private final AtomicBoolean loggedLocShape = new AtomicBoolean(false);
     private final AtomicBoolean loggedSafety = new AtomicBoolean(false);
+    private final AtomicBoolean loggedRouteSummary = new AtomicBoolean(false);
     private volatile int vehicleDistFromS = -1;
+    private volatile Object repository;
+    private volatile long lastRouteSummaryMs = 0;
 
     private Object coordCompanion;   // KNMCoordinateSystem.INSTANCE
     private Method katecToWgs;       // katecToWGS84(double,double) -> Pair
@@ -29,6 +32,15 @@ final class KakaoBridge {
     KakaoBridge(KakaoNaviClient client, KakaoMap map) {
         this.client = client;
         this.map = map;
+    }
+
+    void setRepository(Object repository) {
+        if (repository == null) return;
+        boolean changed = this.repository != repository;
+        this.repository = repository;
+        if (changed) {
+            KakaoHudLog.line("repository captured: " + repository.getClass().getName());
+        }
     }
 
     void setClassLoader(ClassLoader cl) {
@@ -75,6 +87,7 @@ final class KakaoBridge {
             int angle = getInt(loc, "getAngleOrigin", "e");
             int distFromS = getInt(loc, "getDistFromS", "f");
             if (distFromS >= 0) vehicleDistFromS = distFromS;
+            sendRouteSummary(loc);
             String road = getString(loc, "getRoadName", "m");
 
             double[] wgs = toWgs(kx, ky);
@@ -98,6 +111,59 @@ final class KakaoBridge {
             KakaoHudLog.status("loc road=" + road + " ang=" + angle);
         } catch (Throwable t) {
             KakaoHudLog.ex("onLocationGuide", t);
+        }
+    }
+
+    /**
+     * SDK 경로의 d0/e0는 현재 위치부터 목적지까지의 거리와 링크별 예상 시간을
+     * 계산한다. 버전 차이로 호출에 실패하면 KNURoute 총량과 진행거리로 보정한다.
+     */
+    private void sendRouteSummary(Object location) {
+        Object repo = repository;
+        if (repo == null || location == null) return;
+
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - lastRouteSummaryMs < 1000) return;
+        lastRouteSummaryMs = now;
+
+        try {
+            Object route = callAny(repo, "getCurrentRoute", "currentRoute", "U");
+            if (route == null) return;
+
+            int remainDistance = -1;
+            int remainTime = -1;
+            boolean exact = false;
+
+            Object sdkRoute = tryCallAny(route, "getKnRoute", "d");
+            if (sdkRoute != null) {
+                remainDistance = getIntWithArg(sdkRoute, location, "getRemainDist", "d0");
+                remainTime = getIntWithArg(sdkRoute, location, "getRemainTime", "e0");
+                exact = remainDistance >= 0 && remainTime >= 0;
+            }
+
+            if (!exact) {
+                int totalDistance = getInt(route, "getTotalDist", "l");
+                int totalTime = getInt(route, "getTotalTime", "m");
+                if (totalDistance >= 0 && vehicleDistFromS >= 0) {
+                    remainDistance = Math.max(0, totalDistance - vehicleDistFromS);
+                    if (totalTime >= 0 && totalDistance > 0) {
+                        remainTime = (int) Math.round(
+                                (double) totalTime * remainDistance / totalDistance);
+                    }
+                }
+            }
+
+            if (remainDistance < 0 || remainTime < 0) return;
+            client.sendState("route",
+                    "{\"remain_distance_m\":" + remainDistance
+                            + ",\"remain_time_sec\":" + remainTime + "}");
+
+            if (loggedRouteSummary.compareAndSet(false, true)) {
+                KakaoHudLog.line("ROUTE summary: remain=" + remainDistance
+                        + "m time=" + remainTime + "s exact=" + exact);
+            }
+        } catch (Throwable t) {
+            KakaoHudLog.ex("routeSummary", t);
         }
     }
 
@@ -247,6 +313,28 @@ final class KakaoBridge {
         Method m = obj.getClass().getMethod(name);
         m.setAccessible(true);
         return m.invoke(obj);
+    }
+
+    private static Object callWithArg(Object obj, String name, Object arg) throws Exception {
+        for (Method m : obj.getClass().getMethods()) {
+            Class<?>[] params = m.getParameterTypes();
+            if (m.getName().equals(name) && params.length == 1
+                    && params[0].isAssignableFrom(arg.getClass())) {
+                m.setAccessible(true);
+                return m.invoke(obj, arg);
+            }
+        }
+        throw new NoSuchMethodException(obj.getClass().getName() + "." + name);
+    }
+
+    private static int getIntWithArg(Object obj, Object arg, String... names) {
+        for (String name : names) {
+            try {
+                Object v = callWithArg(obj, name, arg);
+                if (v instanceof Number) return ((Number) v).intValue();
+            } catch (Throwable ignored) { }
+        }
+        return -1;
     }
 
     private static Object callAny(Object obj, String... names) throws Exception {
