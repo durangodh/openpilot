@@ -33,9 +33,9 @@ final class KakaoBridge {
     void setClassLoader(ClassLoader cl) {
         try {
             Class<?> cs = cl.loadClass("com.kakaomobility.knmsdk.utils.KNMCoordinateSystem");
-            Object inst = cs.getField("INSTANCE").get(null);
+            Object inst = kotlinCompanion(cs);
             this.coordCompanion = inst;
-            this.katecToWgs = cs.getMethod("katecToWGS84", double.class, double.class);
+            this.katecToWgs = inst.getClass().getMethod("katecToWGS84", double.class, double.class);
             KakaoHudLog.line("coord converter ready");
         } catch (Throwable t) {
             KakaoHudLog.ex("coord init", t);
@@ -65,14 +65,14 @@ final class KakaoBridge {
     void onLocationGuide(Object locGuide) {
         if (locGuide == null) return;
         try {
-            Object loc = call(locGuide, "getLocation");
+            Object loc = callAny(locGuide, "getLocation", "c");
             if (loc == null) return;
 
-            Object pos = call(loc, "getPos");     // DoublePoint (KATEC)
-            double kx = getDouble(pos, "getX");
-            double ky = getDouble(pos, "getY");
-            int angle = getInt(loc, "getAngleOrigin");
-            String road = getString(loc, "getRoadName");
+            Object pos = callAny(loc, "getPos", "l");     // DoublePoint (KATEC)
+            double kx = getDouble(pos, "getX", "b");
+            double ky = getDouble(pos, "getY", "c");
+            int angle = getInt(loc, "getAngleOrigin", "e");
+            String road = getString(loc, "getRoadName", "m");
 
             double[] wgs = toWgs(kx, ky);
 
@@ -102,8 +102,8 @@ final class KakaoBridge {
     void onRouteGuide(Object routeGuide) {
         if (routeGuide == null) return;
         try {
-            Object cur = call(routeGuide, "getCurDirection");
-            Object next = call(routeGuide, "getNextDirection");
+            Object cur = callAny(routeGuide, "getCurDirection", "b");
+            Object next = callAny(routeGuide, "getNextDirection", "i");
 
             int curRaw = rgRaw(cur);
             int curDist = dirDist(cur);
@@ -166,7 +166,7 @@ final class KakaoBridge {
     private int rgRaw(Object direction) {
         if (direction == null) return -1;
         try {
-            Object rgCode = call(direction, "getRgCode");
+            Object rgCode = callAny(direction, "getRgCode", "g");
             if (rgCode == null) return -1;
             Object v = tryCall(rgCode, "getValue");
             if (v instanceof Integer) return (Integer) v;
@@ -179,8 +179,8 @@ final class KakaoBridge {
     private int dirDist(Object direction) {
         if (direction == null) return -1;
         try {
-            Object loc = call(direction, "getLocation");
-            return loc == null ? -1 : getInt(loc, "getDistFromS");
+            Object loc = callAny(direction, "getLocation", "e");
+            return loc == null ? -1 : getInt(loc, "getDistFromS", "f");
         } catch (Throwable t) {
             return -1;
         }
@@ -198,33 +198,54 @@ final class KakaoBridge {
         return -1;
     }
 
+    private static Object kotlinCompanion(Class<?> owner) throws Exception {
+        for (String field : new String[]{"Companion", "INSTANCE"}) {
+            try {
+                return owner.getField(field).get(null);
+            } catch (NoSuchFieldException ignored) { }
+        }
+        throw new NoSuchFieldException(owner.getName() + ".Companion");
+    }
+
     private static Object call(Object obj, String name) throws Exception {
         Method m = obj.getClass().getMethod(name);
         m.setAccessible(true);
         return m.invoke(obj);
     }
 
+    private static Object callAny(Object obj, String... names) throws Exception {
+        NoSuchMethodException last = null;
+        for (String name : names) {
+            try {
+                return call(obj, name);
+            } catch (NoSuchMethodException e) {
+                last = e;
+            }
+        }
+        throw last != null ? last : new NoSuchMethodException(obj.getClass().getName());
+    }
+
     private static Object tryCall(Object obj, String name) {
         try { return call(obj, name); } catch (Throwable t) { return null; }
     }
 
-    private static double getDouble(Object obj, String name) {
+    private static double getDouble(Object obj, String... names) {
         try {
-            Object v = call(obj, name);
+            Object v = callAny(obj, names);
             return v instanceof Number ? ((Number) v).doubleValue() : 0;
         } catch (Throwable t) { return 0; }
     }
 
-    private static int getInt(Object obj, String name) {
+    private static int getInt(Object obj, String... names) {
         try {
-            Object v = call(obj, name);
+            Object v = callAny(obj, names);
             return v instanceof Number ? ((Number) v).intValue() : -1;
         } catch (Throwable t) { return -1; }
     }
 
-    private static String getString(Object obj, String name) {
+    private static String getString(Object obj, String... names) {
         try {
-            Object v = call(obj, name);
+            Object v = callAny(obj, names);
             return v == null ? "" : v.toString();
         } catch (Throwable t) { return ""; }
     }
