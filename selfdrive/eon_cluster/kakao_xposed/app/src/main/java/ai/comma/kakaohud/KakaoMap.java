@@ -33,7 +33,15 @@ final class KakaoMap {
     private static final int WIDTH = 720;
     private static final int HEIGHT = 432;
     private static final int JPEG_QUALITY = 72;
-    private static final long INTERVAL_MS = 500;   // 2fps
+    // 2fps(500ms)는 위치 콜백 주기와 겹쳐 지도가 최대 1초 가까이 늦게 보였다.
+    // 3fps 로 올리고, 아래 LEAD_S 만큼 진행 방향으로 앞당겨 그린다.
+    private static final long INTERVAL_MS = 333;   // 3fps
+    // 위치 콜백 주기 + 캡처/인코딩 + EON 중계 + HUD 표시까지의 지연을 보상하는 선행 시간.
+    private static final double LEAD_S = 0.6;
+    // 차량을 화면 가운데보다 아래(세로 68%)에 두어 앞쪽 도로를 더 보여준다.
+    // 카카오 앱 주행 카메라도 anchor 를 써서 차량을 아래쪽에 둔다.
+    private static final float ANCHOR_X = 0.5f;
+    private static final float ANCHOR_Y = 0.68f;
     private static final long STATIONARY_HEARTBEAT_MS = 2000;
     private static final long INIT_RETRY_MS = 5000;
     // 카카오 지도 zoom 은 "작을수록 확대"인 배율값이다(네이버/구글 줌레벨과 반대).
@@ -58,7 +66,7 @@ final class KakaoMap {
     private Method captureMethod;    // capture(int,int) -> Bitmap
     private Method moveCameraMethod; // moveCamera(KNMCameraUpdate)
     private Object cameraCompanion;  // KNMCameraUpdate.Companion (INSTANCE)
-    private Method targetTo, bearingTo, tiltTo, zoomTo;
+    private Method targetTo, bearingTo, tiltTo, zoomTo, anchorTo;
     private Method katecPoint;       // KNMPoint.Companion.katec(double,double)
     private Object pointCompanion;
     private Method setRoutesMethod;   // setRoutes(List<KNMRoute>)
@@ -95,6 +103,39 @@ final class KakaoMap {
         thread.start();
         handler = new Handler(thread.getLooper());
         handler.post(this::loop);
+    }
+
+    private long maxFrameMs = 0;
+    private final android.graphics.Paint markerFill = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.Paint markerEdge = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.Paint markerShadow = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.Path markerPath = new android.graphics.Path();
+
+    /**
+     * 오프스크린 캡처러는 내 위치 마커를 그리지 않는다. 지도는 차량 방위 기준(heading-up)
+     * 이므로 anchor 위치에 위쪽을 향한 화살표를 직접 그린다.
+     */
+    private void drawVehicleMarker(Bitmap bmp) {
+        float cx = bmp.getWidth() * (anchorTo != null ? ANCHOR_X : 0.5f);
+        float cy = bmp.getHeight() * (anchorTo != null ? ANCHOR_Y : 0.5f);
+        float r = bmp.getHeight() * 0.055f;
+        markerPath.reset();
+        markerPath.moveTo(cx, cy - r * 1.25f);
+        markerPath.lineTo(cx + r, cy + r);
+        markerPath.lineTo(cx, cy + r * 0.45f);
+        markerPath.lineTo(cx - r, cy + r);
+        markerPath.close();
+        android.graphics.Canvas c = new android.graphics.Canvas(bmp);
+        markerShadow.setColor(0x55000000);
+        c.drawCircle(cx, cy + r * 0.1f, r * 1.55f, markerShadow);
+        markerEdge.setColor(0xFFFFFFFF);
+        markerEdge.setStyle(android.graphics.Paint.Style.STROKE);
+        markerEdge.setStrokeWidth(r * 0.28f);
+        markerEdge.setStrokeJoin(android.graphics.Paint.Join.ROUND);
+        c.drawPath(markerPath, markerEdge);
+        markerFill.setColor(0xFF2F7BF5);
+        markerFill.setStyle(android.graphics.Paint.Style.FILL);
+        c.drawPath(markerPath, markerFill);
     }
 
     void updatePose(double katecX, double katecY, double bearing) {
@@ -173,8 +214,16 @@ final class KakaoMap {
         try {
             applyRouteIfNeeded();
 
-            Object point = katecPoint.invoke(pointCompanion, curX, curY);
+            // KATEC 은 미터 단위(x 동쪽, y 북쪽), 방위는 북쪽 기준 시계방향이다.
+            double leadM = speedKph >= 3.0 ? speedKph / 3.6 * LEAD_S : 0.0;
+            double rad = Math.toRadians(curBearing);
+            double drawX = curX + leadM * Math.sin(rad);
+            double drawY = curY + leadM * Math.cos(rad);
+            Object point = katecPoint.invoke(pointCompanion, drawX, drawY);
             Object update = targetTo.invoke(cameraCompanion, point);
+            if (anchorTo != null) {
+                update = anchorTo.invoke(update, new android.graphics.PointF(ANCHOR_X, ANCHOR_Y));
+            }
             update = bearingTo.invoke(update, (float) curBearing);
             update = tiltTo.invoke(update, TILT);
             int scale = scaleIndex();
@@ -186,6 +235,7 @@ final class KakaoMap {
             update = zoomTo.invoke(update, DRIVE_ZOOM[scale]);
             moveCameraMethod.invoke(capturer, update);
 
+            long t0 = android.os.SystemClock.elapsedRealtime();
             Object bmpObj = captureMethod.invoke(capturer, WIDTH, HEIGHT);
             if (bmpObj == null) {
                 nullCount++;
@@ -195,10 +245,21 @@ final class KakaoMap {
                 return;
             }
             Bitmap bmp = (Bitmap) bmpObj;
+            if (!bmp.isMutable()) {
+                Bitmap copy = bmp.copy(Bitmap.Config.ARGB_8888, true);
+                bmp.recycle();
+                bmp = copy;
+            }
+            drawVehicleMarker(bmp);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             bmp.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out);
             bmp.recycle();
             byte[] jpeg = out.toByteArray();
+            long frameMs = android.os.SystemClock.elapsedRealtime() - t0;
+            if (frameMs > maxFrameMs) {
+                maxFrameMs = frameMs;
+                KakaoHudLog.status("map frame cost max=" + frameMs + "ms (capture+marker+jpeg)");
+            }
             client.sendMap(jpeg);
             lastX = curX;
             lastY = curY;
@@ -241,6 +302,12 @@ final class KakaoMap {
             bearingTo = updClass.getMethod("bearingTo", float.class);
             tiltTo = updClass.getMethod("tiltTo", float.class);
             zoomTo = updClass.getMethod("zoomTo", float.class);
+            try {
+                anchorTo = updClass.getMethod("anchorTo", android.graphics.PointF.class);
+            } catch (NoSuchMethodException noAnchor) {
+                anchorTo = null;
+                KakaoHudLog.line("anchorTo unsupported, vehicle stays at center");
+            }
             KakaoHudLog.line("map scale mode: Kakao drive zoom table");
 
             pointCompanion = kotlinCompanion(pointClass);

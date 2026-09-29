@@ -23,6 +23,26 @@ final class KakaoBridge {
     private final AtomicBoolean loggedSafety = new AtomicBoolean(false);
     private final AtomicBoolean loggedRouteSummary = new AtomicBoolean(false);
     private volatile int vehicleDistFromS = -1;
+
+    // 안내·카메라는 경로 기준 절대거리(distFromS)로 캐시해 두고, 위치가 갱신될
+    // 때마다 현재 차량 진행거리로 다시 빼서 보낸다. 카카오 앱도 위치 Flow 와
+    // 경로 Flow 를 combine 해서 위치마다 거리를 새로 계산한다
+    // (KNUMapLocationUseCase). 경로안내 콜백은 정지 중에는 거의 오지 않아,
+    // 콜백 때만 계산하면 거리가 그 시점 값으로 멈춰 있었다(정지 중 91m 차이).
+    private final Object guideLock = new Object();
+    private int cachedCurAbs = -1, cachedCurTbt = KakaoCodes.TBT_NONE;
+    // 카카오 배너 거리와 똑같이 맞추기 위해 SDK 위치 객체 자체를 들고 있다가
+    // 카카오 앱과 같은 함수(o60.a.d)로 거리를 구한다.
+    private Object lastVehicleLoc = null;
+    private Object cachedCurLoc = null;
+    private Object cachedSafetyLoc = null;
+    private int cachedNextAbs = -1, cachedNextTbt = KakaoCodes.TBT_NONE;
+    private boolean hasCachedGuide = false;
+    private boolean hasCachedSafety = false;
+    private boolean cachedSafetyEmpty = true;
+    private int cachedSafetyAbs = -1, cachedSafetyType = 0, cachedSafetyLimit = 0;
+    private boolean cachedSafetySection = false;
+    private int cachedSectionRemain = -1, cachedSectionVehicleAt = -1;
     private volatile Object repository;
     private volatile long lastRouteSummaryMs = 0;
 
@@ -87,7 +107,12 @@ final class KakaoBridge {
             int angle = getInt(loc, "getAngleOrigin", "e");
             int distFromS = getInt(loc, "getDistFromS", "f");
             if (distFromS >= 0) vehicleDistFromS = distFromS;
+            synchronized (guideLock) {
+                lastVehicleLoc = loc;
+            }
             sendRouteSummary(loc);
+            publishGuidance();
+            publishSafety();
             String road = getString(loc, "getRoadName", "m");
 
             double[] wgs = toWgs(kx, ky);
@@ -182,32 +207,27 @@ final class KakaoBridge {
             int curDist = dirDist(cur);
             int nextRaw = rgRaw(next);
             int nextDist = dirDist(next);
+            String curName = rgName(cur);
+            String nextName = rgName(next);
+            int curTbt = KakaoCodes.turnType(curName, curRaw, dirAngle(cur));
+            int nextTbt = KakaoCodes.turnType(nextName, nextRaw, dirAngle(next));
 
             if (loggedRouteShape.compareAndSet(false, true)) {
-                KakaoHudLog.line("ROUTE shape: curRgRaw=" + curRaw + " curDist=" + curDist
-                        + " nextRgRaw=" + nextRaw + " nextDist=" + nextDist);
+                KakaoHudLog.line("ROUTE shape: cur=" + curName + "/" + curRaw + "->" + curTbt
+                        + " dist=" + curDist + " next=" + nextName + "/" + nextRaw
+                        + "->" + nextTbt + " dist=" + nextDist);
             }
 
-            if (curRaw >= 0) {
-                int tbt = KakaoCodes.turnType(curRaw);
-                // KNGuide direction distance is measured from the route start.
-                // HUD guidance needs the distance remaining from the vehicle.
-                int remaining = curDist >= 0 && vehicleDistFromS >= 0
-                        ? Math.max(0, curDist - vehicleDistFromS) : curDist;
-                map.updateTurnDistance(remaining);
-                if (remaining >= 0) {
-                    client.sendState("guidance_current",
-                            "{\"turn_type\":" + tbt + ",\"distance_m\":" + remaining + "}");
-                }
-            } else {
-                map.updateTurnDistance(-1);
+            Object curLoc = cur == null ? null : tryCallAny(cur, "getLocation", "e");
+            synchronized (guideLock) {
+                cachedCurLoc = curLoc;
+                cachedCurAbs = curDist;
+                cachedCurTbt = curTbt;
+                cachedNextAbs = nextDist;
+                cachedNextTbt = nextTbt;
+                hasCachedGuide = true;
             }
-            if (nextRaw >= 0) {
-                int tbt = KakaoCodes.turnType(nextRaw);
-                int seg = (nextDist > 0 && curDist > 0) ? Math.max(0, nextDist - curDist) : nextDist;
-                client.sendState("guidance_next",
-                        "{\"turn_type\":" + tbt + ",\"distance_m\":" + seg + "}");
-            }
+            publishGuidance();
             client.sendState("navigation_status", "{\"off_route\":false}");
             KakaoHudLog.status("route cur=" + curRaw + "/" + curDist);
         } catch (Throwable t) {
@@ -225,6 +245,12 @@ final class KakaoBridge {
 
             for (Object item : list) {
                 if (item == null || getBoolean(item, "getPassed", "d")) continue;
+                // 사고다발·급커브처럼 제한속도가 없는 안내가 먼저 잡혀서 뒤의
+                // 과속카메라를 가리지 않도록, 감속 대상(방지턱/제한속도 있음)만 고른다.
+                int itemLimit = getInt(item, "getSpeedLimit", "l");
+                int itemType = KakaoCodes.sdiType(enumName(tryCallAny(item, "getCode", "b")),
+                        enumValue(tryCallAny(item, "getCode", "b")));
+                if (!KakaoCodes.isSpeedRelevant(itemType, itemLimit)) continue;
                 Object location = tryCallAny(item, "getLocation", "c");
                 int absolute = location == null ? -1 : getInt(location, "getDistFromS", "f");
                 int distance = absolute >= 0 && vehicleDistFromS >= 0
@@ -236,33 +262,39 @@ final class KakaoBridge {
             }
 
             if (best == null) {
-                client.sendState("speed", "{}");
+                synchronized (guideLock) {
+                    hasCachedSafety = true;
+                    cachedSafetyEmpty = true;
+                }
+                publishSafety();
                 return;
             }
 
             Object code = callAny(best, "getCode", "b");
-            int rawCode = getInt(code, "getValue");
-            int type = KakaoCodes.sdiType(rawCode);
+            int rawCode = enumValue(code);
+            String codeName = enumName(code);
+            int type = KakaoCodes.sdiType(codeName, rawCode);
             int limit = getInt(best, "getSpeedLimit", "l");
             if (limit < 0) limit = 0;
 
             int sectionDistance = getInt(best, "getRemainDist", "r");
             boolean section = sectionDistance > 0
-                    || type == KakaoCodes.SDI_SECTION_START
-                    || type == KakaoCodes.SDI_SECTION_END;
+                    || KakaoCodes.isSection(type);
 
-            String value;
-            if (section && limit > 0) {
-                int remaining = sectionDistance > 0 ? sectionDistance : bestDistance;
-                value = "{\"section\":{\"active\":true,\"suspended\":false"
-                        + ",\"speed_limit_kph\":" + limit
-                        + ",\"remaining_distance_m\":" + Math.max(0, remaining) + "}}";
-            } else {
-                value = "{\"sdi\":{\"type\":" + type
-                        + ",\"distance_m\":" + bestDistance
-                        + ",\"speed_limit_kph\":" + limit + "}}";
+            Object bestLoc = tryCallAny(best, "getLocation", "c");
+            int bestAbs = bestLoc == null ? -1 : getInt(bestLoc, "getDistFromS", "f");
+            synchronized (guideLock) {
+                hasCachedSafety = true;
+                cachedSafetyEmpty = false;
+                cachedSafetyAbs = bestAbs;
+                cachedSafetyLoc = bestLoc;
+                cachedSafetyType = type;
+                cachedSafetyLimit = limit;
+                cachedSafetySection = section && limit > 0;
+                cachedSectionRemain = sectionDistance;
+                cachedSectionVehicleAt = vehicleDistFromS;
             }
-            client.sendState("speed", value);
+            publishSafety();
 
             if (loggedSafety.compareAndSet(false, true)) {
                 KakaoHudLog.line("SAFETY values: raw=" + rawCode + " type=" + type
@@ -278,6 +310,139 @@ final class KakaoBridge {
     }
 
     // ---- 리플렉션 헬퍼 ----
+    /** 캐시된 안내를 현재 차량 진행거리 기준으로 다시 계산해 보낸다. */
+    private void publishGuidance() {
+        int curAbs, curTbt, nextAbs, nextTbt;
+        Object vehicleLoc, curLoc;
+        synchronized (guideLock) {
+            if (!hasCachedGuide) return;
+            curAbs = cachedCurAbs; curTbt = cachedCurTbt;
+            nextAbs = cachedNextAbs; nextTbt = cachedNextTbt;
+            vehicleLoc = lastVehicleLoc; curLoc = cachedCurLoc;
+        }
+        int vehicle = vehicleDistFromS;
+        if (curTbt != KakaoCodes.TBT_NONE) {
+            int remaining = kakaoDistance(vehicleLoc, curLoc, curAbs, vehicle);
+            map.updateTurnDistance(remaining);
+            if (remaining >= 0) {
+                client.sendState("guidance_current",
+                        "{\"turn_type\":" + curTbt + ",\"distance_m\":" + remaining + "}");
+            }
+        } else {
+            map.updateTurnDistance(-1);
+        }
+        if (nextTbt != KakaoCodes.TBT_NONE) {
+            // 다음 안내는 현재 안내 지점부터의 구간 거리(차량 위치와 무관).
+            int seg = (nextAbs > 0 && curAbs > 0) ? Math.max(0, nextAbs - curAbs) : nextAbs;
+            client.sendState("guidance_next",
+                    "{\"turn_type\":" + nextTbt + ",\"distance_m\":" + seg + "}");
+        }
+    }
+
+    /** 캐시된 카메라/구간을 현재 차량 진행거리 기준으로 다시 계산해 보낸다. */
+    private void publishSafety() {
+        boolean empty, sectionMode;
+        int abs, type, limit, secRemain, secAt;
+        Object vehicleLoc, safetyLoc;
+        synchronized (guideLock) {
+            if (!hasCachedSafety) return;
+            vehicleLoc = lastVehicleLoc; safetyLoc = cachedSafetyLoc;
+            empty = cachedSafetyEmpty; abs = cachedSafetyAbs; type = cachedSafetyType;
+            limit = cachedSafetyLimit; sectionMode = cachedSafetySection;
+            secRemain = cachedSectionRemain; secAt = cachedSectionVehicleAt;
+        }
+        if (empty) {
+            client.sendState("speed", "{}");
+            return;
+        }
+        int vehicle = vehicleDistFromS;
+        int distance = kakaoDistanceSigned(vehicleLoc, safetyLoc, abs, vehicle);
+        if (sectionMode) {
+            int remaining;
+            if (secRemain > 0) {
+                // 구간 잔여거리는 콜백 시점 값이라 그 뒤 진행한 만큼 뺀다.
+                int moved = (secAt >= 0 && vehicle >= secAt) ? vehicle - secAt : 0;
+                remaining = secRemain - moved;
+            } else {
+                remaining = distance;
+            }
+            client.sendState("speed", "{\"section\":{\"active\":true,\"suspended\":false"
+                    + ",\"speed_limit_kph\":" + limit
+                    + ",\"remaining_distance_m\":" + Math.max(0, remaining) + "}}");
+            return;
+        }
+        if (distance < 0) {
+            // 지나친 카메라는 다음 안전 콜백이 올 때까지 보내지 않는다.
+            client.sendState("speed", "{}");
+            return;
+        }
+        client.sendState("speed", "{\"sdi\":{\"type\":" + type
+                + ",\"distance_m\":" + distance
+                + ",\"speed_limit_kph\":" + limit + "}}");
+    }
+
+    private Method sdkDistanceMethod;
+    private boolean sdkDistanceLogged = false;
+
+    /**
+     * 카카오 앱 배너 거리 = C1299h.c(현재위치, 안내위치) = 현재위치.knLocation.d(안내위치).
+     * SDK o60.a.d() 는 같은 경로 객체면 distFromS 차이를, 다르면 직선거리 등을 쓴다.
+     * 우리가 distFromS 차이만 쓰면 이 분기 차이만큼 카카오 화면과 어긋난다(443m vs 534m).
+     * 그래서 같은 함수를 그대로 호출한다. 메서드 이름 "d" 는 4.51.0 dex 에서 확인했다.
+     */
+    private int kakaoDistanceSigned(Object from, Object to, int toAbs, int vehicleAbs) {
+        if (from != null && to != null && from.getClass() == to.getClass()) {
+            try {
+                Method m = sdkDistanceMethod;
+                if (m == null || m.getDeclaringClass() != from.getClass()) {
+                    m = from.getClass().getMethod("d", from.getClass());
+                    m.setAccessible(true);
+                    sdkDistanceMethod = m;
+                }
+                Object v = m.invoke(from, to);
+                if (v instanceof Integer) {
+                    int d = (Integer) v;
+                    // 5초 간격 상태 로그로 SDK 거리와 distFromS 차이를 비교할 수 있게 남긴다.
+                    KakaoHudLog.status("dist sdk=" + d + " fromS=" + (toAbs >= 0 && vehicleAbs >= 0 ? toAbs - vehicleAbs : -1));
+                    return d;
+                }
+            } catch (Throwable t) {
+                if (!sdkDistanceLogged) {
+                    sdkDistanceLogged = true;
+                    KakaoHudLog.ex("sdk distance", t);
+                }
+            }
+        }
+        return toAbs >= 0 && vehicleAbs >= 0 ? toAbs - vehicleAbs : toAbs;
+    }
+
+    private int kakaoDistance(Object from, Object to, int toAbs, int vehicleAbs) {
+        int d = kakaoDistanceSigned(from, to, toAbs, vehicleAbs);
+        return d < 0 && toAbs < 0 ? d : Math.max(0, d);
+    }
+
+    /** 방향 객체의 KNRGCode enum 이름. name() 은 난독화되지 않는다. */
+    private String rgName(Object direction) {
+        if (direction == null) return null;
+        return enumName(tryCallAny(direction, "getRgCode", "g"));
+    }
+
+    /** 방향각(도). getDirectionAng 의 런타임 이름은 "b"(4.51.0 dex 확인). */
+    private int dirAngle(Object direction) {
+        if (direction == null) return -1;
+        return getInt(direction, "getDirectionAng", "b");
+    }
+
+    private static String enumName(Object value) {
+        return value instanceof Enum ? ((Enum<?>) value).name() : null;
+    }
+
+    private static int enumValue(Object value) {
+        if (value == null) return -1;
+        Object v = tryCall(value, "getValue");
+        return v instanceof Number ? ((Number) v).intValue() : -1;
+    }
+
     private int rgRaw(Object direction) {
         if (direction == null) return -1;
         try {
