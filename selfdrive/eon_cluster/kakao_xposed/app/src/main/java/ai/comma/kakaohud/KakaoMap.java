@@ -8,6 +8,8 @@ import android.os.HandlerThread;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * 카카오 SDK 내장 오프스크린 지도 캡처러(KNMMapCapturer)를 앱 밖(모듈)에서
@@ -34,7 +36,9 @@ final class KakaoMap {
     private static final long INTERVAL_MS = 500;   // 2fps
     private static final long STATIONARY_HEARTBEAT_MS = 2000;
     private static final long INIT_RETRY_MS = 5000;
-    private static final float ZOOM = 15.5f;
+    // 기존 15.5는 HUD에서 동탄 전체가 보일 만큼 너무 넓었다.
+    // 실제 주행 화면에 가까운 근거리 축척으로 맞춘다.
+    private static final float ZOOM = 17.5f;
     private static final float TILT = 45f;
 
     private final KakaoNaviClient client;
@@ -48,6 +52,11 @@ final class KakaoMap {
     private Method targetTo, bearingTo, tiltTo, zoomTo;
     private Method katecPoint;       // KNMPoint.Companion.katec(double,double)
     private Object pointCompanion;
+    private Method setRoutesMethod;   // setRoutes(List<KNMRoute>)
+    private Method convertRoutesMethod; // fl0.g.f(List<KNU route>) -> List<KNMRoute>
+
+    private volatile Object pendingSdkRoute;
+    private Object appliedSdkRoute;
 
     private volatile double curX = 0, curY = 0, curBearing = 0;
     private volatile boolean hasPose = false;
@@ -78,6 +87,11 @@ final class KakaoMap {
         curY = katecY;
         curBearing = bearing;
         hasPose = true;
+    }
+
+    /** 안내 중인 KNU 경로를 캡처 지도용 KNMRoute로 변환해 경로선을 표시한다. */
+    void updateRoute(Object sdkRoute) {
+        pendingSdkRoute = sdkRoute;
     }
 
     private void loop() {
@@ -111,6 +125,8 @@ final class KakaoMap {
         }
 
         try {
+            applyRouteIfNeeded();
+
             Object point = katecPoint.invoke(pointCompanion, curX, curY);
             Object update = targetTo.invoke(cameraCompanion, point);
             update = bearingTo.invoke(update, (float) curBearing);
@@ -157,6 +173,11 @@ final class KakaoMap {
             ctor.setAccessible(true);
             capturer = ctor.newInstance(context, density, 1.0f);
             captureMethod = capClass.getMethod("capture", int.class, int.class);
+            setRoutesMethod = capClass.getMethod("setRoutes", List.class);
+
+            // 카카오 앱이 실제 주행 지도에 사용하는 동일 변환기.
+            Class<?> routeConverter = cl.loadClass("com.kakaomobility.knmsdk.fl0.g");
+            convertRoutesMethod = routeConverter.getMethod("f", List.class);
 
             Class<?> updClass = cl.loadClass("com.kakaomobility.knmsdk.camera.KNMCameraUpdate");
             moveCameraMethod = capClass.getMethod("moveCamera", updClass);
@@ -179,6 +200,31 @@ final class KakaoMap {
         } catch (Throwable t) {
             KakaoHudLog.ex("initCapturer", t);
             capturer = null;
+        }
+    }
+
+    private void applyRouteIfNeeded() {
+        if (setRoutesMethod == null || convertRoutesMethod == null) return;
+        Object route = pendingSdkRoute;
+        if (route == appliedSdkRoute) return;
+        try {
+            List<?> mapRoutes;
+            if (route == null) {
+                mapRoutes = Collections.emptyList();
+            } else {
+                Object converted = convertRoutesMethod.invoke(
+                        null, Collections.singletonList(route));
+                if (!(converted instanceof List) || ((List<?>) converted).isEmpty()) {
+                    KakaoHudLog.line("map route conversion returned empty");
+                    return;
+                }
+                mapRoutes = (List<?>) converted;
+            }
+            setRoutesMethod.invoke(capturer, mapRoutes);
+            appliedSdkRoute = route;
+            KakaoHudLog.line("map route applied count=" + mapRoutes.size());
+        } catch (Throwable t) {
+            KakaoHudLog.ex("map route", t);
         }
     }
 
