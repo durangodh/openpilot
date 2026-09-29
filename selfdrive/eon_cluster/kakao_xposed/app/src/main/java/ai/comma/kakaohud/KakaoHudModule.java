@@ -2,6 +2,7 @@ package ai.comma.kakaohud;
 
 import android.app.Application;
 import android.content.Context;
+import android.view.accessibility.AccessibilityNodeInfo;
 
 import java.lang.reflect.Method;
 
@@ -31,6 +32,10 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
     private static final String LOC_GUIDE = "com.kakaomobility.knmsdk.p60.a";
     private static final String ROUTE_GUIDE = "com.kakaomobility.knmsdk.q60.a";
 
+    private static final String KAKAO_VOICE_DESCRIPTION = "음성서비스";
+    private static final String NMIRROR_VOICE_ID =
+            KAKAO_PKG + ":id/btn_speech_recognition";
+
     private static boolean started = false;
 
     @Override
@@ -47,9 +52,43 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         bridge.setClassLoader(lpparam.classLoader);
         new EonDiscovery(client).start();
 
+        hookVoiceAccessibility();
         hookApplicationContext(lpparam, map);
         hookRepository(lpparam, bridge);
         hookGuideCallbacks(lpparam, bridge);
+    }
+
+    /**
+     * nMirror NavigationButtonService 는 화면의 음성 버튼을 resource-id 로 찾아
+     * ACTION_CLICK 한다. 카카오의 Compose 버튼은 ID 없이 "음성서비스" 설명만
+     * 노출하므로, 원래 가상 접근성 노드에 nMirror 가 찾는 ID 를 덧붙인다.
+     * ACTION_CLICK 은 같은 Compose 노드로 전달되어 카카오의 기존 권한/음성 UI를
+     * 그대로 실행한다.
+     */
+    private void hookVoiceAccessibility() {
+        try {
+            Method setter = AccessibilityNodeInfo.class.getMethod(
+                    "setContentDescription", CharSequence.class);
+            XposedBridge.hookMethod(setter, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    try {
+                        CharSequence description = (CharSequence) param.args[0];
+                        if (description == null
+                                || !KAKAO_VOICE_DESCRIPTION.contentEquals(description)) return;
+                        AccessibilityNodeInfo node = (AccessibilityNodeInfo) param.thisObject;
+                        node.setViewIdResourceName(NMIRROR_VOICE_ID);
+                        KakaoHudLog.line("voice accessibility node exposed: "
+                                + NMIRROR_VOICE_ID);
+                    } catch (Throwable t) {
+                        KakaoHudLog.ex("voiceAccessibility", t);
+                    }
+                }
+            });
+            KakaoHudLog.line("voice accessibility hook ready");
+        } catch (Throwable t) {
+            KakaoHudLog.ex("hookVoiceAccessibility", t);
+        }
     }
 
     /** Application.onCreate 를 후킹해 Context 를 얻어 지도 캡처 스레드를 시작한다. */
