@@ -162,14 +162,14 @@ final class KakaoMap {
             moveCameraMethod = capClass.getMethod("moveCamera", updClass);
 
             // KNMCameraUpdate 정적 빌더(Companion). INSTANCE 필드로 접근.
-            cameraCompanion = updClass.getField("INSTANCE").get(null);
+            cameraCompanion = kotlinCompanion(updClass);
             Class<?> pointClass = cl.loadClass("com.kakaomobility.knmsdk.utils.KNMPoint");
             targetTo = cameraCompanion.getClass().getMethod("targetTo", pointClass);
             bearingTo = updClass.getMethod("bearingTo", float.class);
             tiltTo = updClass.getMethod("tiltTo", float.class);
             zoomTo = updClass.getMethod("zoomTo", float.class);
 
-            pointCompanion = pointClass.getField("INSTANCE").get(null);
+            pointCompanion = kotlinCompanion(pointClass);
             katecPoint = pointCompanion.getClass().getMethod("katec", double.class, double.class);
 
             // 테마: 실패해도 무시(기본 테마로 진행).
@@ -180,6 +180,15 @@ final class KakaoMap {
             KakaoHudLog.ex("initCapturer", t);
             capturer = null;
         }
+    }
+
+    private static Object kotlinCompanion(Class<?> owner) throws Exception {
+        for (String field : new String[]{"Companion", "INSTANCE"}) {
+            try {
+                return owner.getField(field).get(null);
+            } catch (NoSuchFieldException ignored) { }
+        }
+        throw new NoSuchFieldException(owner.getName() + ".Companion");
     }
 
     private void tryTheme(Class<?> capClass) {
