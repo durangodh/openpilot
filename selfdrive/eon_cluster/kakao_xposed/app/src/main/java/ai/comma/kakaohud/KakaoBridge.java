@@ -21,6 +21,7 @@ final class KakaoBridge {
     private final AtomicBoolean loggedRouteShape = new AtomicBoolean(false);
     private final AtomicBoolean loggedLocShape = new AtomicBoolean(false);
     private final AtomicBoolean loggedSafety = new AtomicBoolean(false);
+    private volatile int vehicleDistFromS = -1;
 
     private Object coordCompanion;   // KNMCoordinateSystem.INSTANCE
     private Method katecToWgs;       // katecToWGS84(double,double) -> Pair
@@ -72,6 +73,8 @@ final class KakaoBridge {
             double kx = getDouble(pos, "getX", "b");
             double ky = getDouble(pos, "getY", "c");
             int angle = getInt(loc, "getAngleOrigin", "e");
+            int distFromS = getInt(loc, "getDistFromS", "f");
+            if (distFromS >= 0) vehicleDistFromS = distFromS;
             String road = getString(loc, "getRoadName", "m");
 
             double[] wgs = toWgs(kx, ky);
@@ -135,27 +138,60 @@ final class KakaoBridge {
 
     // ---- 안전/카메라 ----
     void onSafeties(Object safetyArg) {
-        if (safetyArg == null) return;
+        if (!(safetyArg instanceof java.util.List)) return;
         try {
-            if (loggedSafety.compareAndSet(false, true)) {
-                StringBuilder sb = new StringBuilder("SAFETY shape: " + safetyArg.getClass().getName());
-                if (safetyArg instanceof java.util.List) {
-                    java.util.List<?> list = (java.util.List<?>) safetyArg;
-                    sb.append(" list.size=").append(list.size());
-                    if (!list.isEmpty()) {
-                        Object e0 = list.get(0);
-                        sb.append(" elem=").append(e0.getClass().getName());
-                        for (Method m : e0.getClass().getMethods()) {
-                            if (m.getParameterTypes().length == 0 && m.getName().startsWith("get")) {
-                                try {
-                                    Object v = m.invoke(e0);
-                                    sb.append(" ").append(m.getName()).append("=").append(v);
-                                } catch (Throwable ignored) { }
-                            }
-                        }
-                    }
+            java.util.List<?> list = (java.util.List<?>) safetyArg;
+            Object best = null;
+            int bestDistance = Integer.MAX_VALUE;
+
+            for (Object item : list) {
+                if (item == null || getBoolean(item, "getPassed", "d")) continue;
+                Object location = tryCallAny(item, "getLocation", "c");
+                int absolute = location == null ? -1 : getInt(location, "getDistFromS", "f");
+                int distance = absolute >= 0 && vehicleDistFromS >= 0
+                        ? Math.max(0, absolute - vehicleDistFromS) : absolute;
+                if (distance >= 0 && distance < bestDistance) {
+                    best = item;
+                    bestDistance = distance;
                 }
-                KakaoHudLog.line(sb.toString());
+            }
+
+            if (best == null) {
+                client.sendState("speed", "{}");
+                return;
+            }
+
+            Object code = callAny(best, "getCode", "b");
+            int rawCode = getInt(code, "getValue");
+            int type = KakaoCodes.sdiType(rawCode);
+            int limit = getInt(best, "getSpeedLimit", "l");
+            if (limit < 0) limit = 0;
+
+            int sectionDistance = getInt(best, "getRemainDist", "r");
+            boolean section = sectionDistance > 0
+                    || type == KakaoCodes.SDI_SECTION_START
+                    || type == KakaoCodes.SDI_SECTION_END;
+
+            String value;
+            if (section && limit > 0) {
+                int remaining = sectionDistance > 0 ? sectionDistance : bestDistance;
+                value = "{\"section\":{\"active\":true,\"suspended\":false"
+                        + ",\"speed_limit_kph\":" + limit
+                        + ",\"remaining_distance_m\":" + Math.max(0, remaining) + "}}";
+            } else {
+                value = "{\"sdi\":{\"type\":" + type
+                        + ",\"distance_m\":" + bestDistance
+                        + ",\"speed_limit_kph\":" + limit + "}}";
+            }
+            client.sendState("speed", value);
+
+            if (loggedSafety.compareAndSet(false, true)) {
+                KakaoHudLog.line("SAFETY values: raw=" + rawCode + " type=" + type
+                        + " distance=" + bestDistance + " limit=" + limit
+                        + " section=" + section + " class=" + best.getClass().getName());
+            } else {
+                KakaoHudLog.status("safety raw=" + rawCode + " dist=" + bestDistance
+                        + " limit=" + limit);
             }
         } catch (Throwable t) {
             KakaoHudLog.ex("onSafeties", t);
@@ -227,6 +263,17 @@ final class KakaoBridge {
 
     private static Object tryCall(Object obj, String name) {
         try { return call(obj, name); } catch (Throwable t) { return null; }
+    }
+
+    private static Object tryCallAny(Object obj, String... names) {
+        try { return callAny(obj, names); } catch (Throwable t) { return null; }
+    }
+
+    private static boolean getBoolean(Object obj, String... names) {
+        try {
+            Object v = callAny(obj, names);
+            return v instanceof Boolean && (Boolean) v;
+        } catch (Throwable t) { return false; }
     }
 
     private static double getDouble(Object obj, String... names) {
