@@ -186,8 +186,14 @@ final class KakaoBridge {
 
             if (curRaw >= 0) {
                 int tbt = KakaoCodes.turnType(curRaw);
-                client.sendState("guidance_current",
-                        "{\"turn_type\":" + tbt + ",\"distance_m\":" + curDist + "}");
+                // KNGuide direction distance is measured from the route start.
+                // HUD guidance needs the distance remaining from the vehicle.
+                int remaining = curDist >= 0 && vehicleDistFromS >= 0
+                        ? Math.max(0, curDist - vehicleDistFromS) : curDist;
+                if (remaining >= 0) {
+                    client.sendState("guidance_current",
+                            "{\"turn_type\":" + tbt + ",\"distance_m\":" + remaining + "}");
+                }
             }
             if (nextRaw >= 0) {
                 int tbt = KakaoCodes.turnType(nextRaw);
