@@ -30,29 +30,49 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-      - name: Sign with permanent Remote HUD key
-        env:
-          REMOTE_HUD_KEYSTORE_BASE64: ${{ secrets.REMOTE_HUD_KEYSTORE_BASE64 }}
-          REMOTE_HUD_KEYSTORE_PASSWORD: ${{ secrets.REMOTE_HUD_KEYSTORE_PASSWORD }}
-          REMOTE_HUD_KEY_ALIAS: ${{ secrets.REMOTE_HUD_KEY_ALIAS }}
-          REMOTE_HUD_KEY_PASSWORD: ${{ secrets.REMOTE_HUD_KEY_PASSWORD }}
+      - name: Set version
         run: |
           echo "KAKAO_HUD_VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
           echo "KAKAO_HUD_VERSION_NAME=0.1-recon-b${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
       - name: Build debug APK
         working-directory: selfdrive/eon_cluster/kakao_xposed
         run: gradle :app:assembleDebug --stacktrace
+      - name: Sign with permanent Remote HUD key
+        env:
+          HUD_KEY_DATA: ${{ secrets.REMOTE_HUD_KEYSTORE_BASE64 }}
+          HUD_STORE_PASSWORD: ${{ secrets.REMOTE_HUD_KEYSTORE_PASSWORD }}
+          HUD_KEY_ALIAS: ${{ secrets.REMOTE_HUD_KEY_ALIAS }}
+          HUD_KEY_PASSWORD: ${{ secrets.REMOTE_HUD_KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import base64, os, pathlib, subprocess
+          for key in ("HUD_KEY_DATA", "HUD_STORE_PASSWORD", "HUD_KEY_ALIAS", "HUD_KEY_PASSWORD"):
+            if not os.environ.get(key):
+              raise RuntimeError(key + " missing")
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          keystore = temp / "kakao-hud-signing.p12"
+          keystore.write_bytes(base64.b64decode(os.environ["HUD_KEY_DATA"], validate=True))
+          keystore.chmod(0o600)
+          tools = pathlib.Path(os.environ["ANDROID_HOME"]) / "build-tools/35.0.0"
+          source = pathlib.Path("selfdrive/eon_cluster/kakao_xposed/app/build/outputs/apk/debug/app-debug.apk")
+          output = temp / "KakaoHud-latest.apk"
+          subprocess.run([str(tools / "apksigner"), "sign", "--ks", str(keystore),
+                          "--ks-key-alias", os.environ["HUD_KEY_ALIAS"],
+                          "--ks-pass", "env:HUD_STORE_PASSWORD", "--key-pass", "env:HUD_KEY_PASSWORD",
+                          "--out", str(output), str(source)], check=True)
+          subprocess.run([str(tools / "apksigner"), "verify", "--verbose", "--print-certs", str(output)], check=True)
+          keystore.unlink()
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: kakao-hud-xposed-debug
-          path: selfdrive/eon_cluster/kakao_xposed/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ runner.temp }}/KakaoHud-latest.apk
       - name: Publish to release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           asset="$RUNNER_TEMP/KakaoHud-latest.apk"
-          cp selfdrive/eon_cluster/kakao_xposed/app/build/outputs/apk/debug/app-debug.apk "$asset"
           if ! gh release view kakao-hud-auto >/dev/null 2>&1; then
             gh release create kakao-hud-auto --title "Kakao HUD Xposed module" \
               --notes "카카오내비 안내/지도 → EON HUD 브릿지 (LSPosed 모듈)"
