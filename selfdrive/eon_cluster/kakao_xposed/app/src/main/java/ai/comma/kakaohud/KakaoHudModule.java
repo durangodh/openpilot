@@ -70,6 +70,8 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
             Method setter = AccessibilityNodeInfo.class.getMethod(
                     "setContentDescription", CharSequence.class);
             XposedBridge.hookMethod(setter, new XC_MethodHook() {
+                private boolean announced = false;
+
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
                     try {
@@ -78,8 +80,11 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
                                 || !KAKAO_VOICE_DESCRIPTION.contentEquals(description)) return;
                         AccessibilityNodeInfo node = (AccessibilityNodeInfo) param.thisObject;
                         node.setViewIdResourceName(NMIRROR_VOICE_ID);
-                        KakaoHudLog.line("voice accessibility node exposed: "
-                                + NMIRROR_VOICE_ID);
+                        if (!announced) {
+                            announced = true;
+                            KakaoHudLog.line("voice accessibility node exposed: "
+                                    + NMIRROR_VOICE_ID);
+                        }
                     } catch (Throwable t) {
                         KakaoHudLog.ex("voiceAccessibility", t);
                     }
