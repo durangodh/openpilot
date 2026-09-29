@@ -39,6 +39,9 @@ final class KakaoMap {
     // 기존 15.5는 HUD에서 동탄 전체가 보일 만큼 너무 넓었다.
     // 실제 주행 화면에 가까운 근거리 축척으로 맞춘다.
     private static final float ZOOM = 17.5f;
+    // 카카오 캡처러는 criterionWorldSize를 지원할 때 이 값을 우선 축척으로 사용한다.
+    // HUD 한 화면에 약 700m 폭을 담아 실제 주행 지도와 비슷한 근거리 축척을 만든다.
+    private static final float CRITERION_WORLD_SIZE_M = 700f;
     private static final float TILT = 45f;
 
     private final KakaoNaviClient client;
@@ -49,7 +52,7 @@ final class KakaoMap {
     private Method captureMethod;    // capture(int,int) -> Bitmap
     private Method moveCameraMethod; // moveCamera(KNMCameraUpdate)
     private Object cameraCompanion;  // KNMCameraUpdate.Companion (INSTANCE)
-    private Method targetTo, bearingTo, tiltTo, zoomTo;
+    private Method targetTo, bearingTo, tiltTo, zoomTo, criterionWorldSizeTo;
     private Method katecPoint;       // KNMPoint.Companion.katec(double,double)
     private Object pointCompanion;
     private Method setRoutesMethod;   // setRoutes(List<KNMRoute>)
@@ -131,7 +134,13 @@ final class KakaoMap {
             Object update = targetTo.invoke(cameraCompanion, point);
             update = bearingTo.invoke(update, (float) curBearing);
             update = tiltTo.invoke(update, TILT);
-            update = zoomTo.invoke(update, ZOOM);
+            // criterionWorldSize와 zoom을 동시에 지정하면 축척 기준이 충돌할 수 있다.
+            // 현재 SDK에서는 실제 거리 기준을 사용하고, 지원하지 않는 버전만 zoom으로 대체한다.
+            if (criterionWorldSizeTo != null) {
+                update = criterionWorldSizeTo.invoke(update, CRITERION_WORLD_SIZE_M);
+            } else {
+                update = zoomTo.invoke(update, ZOOM);
+            }
             moveCameraMethod.invoke(capturer, update);
 
             Object bmpObj = captureMethod.invoke(capturer, WIDTH, HEIGHT);
@@ -189,6 +198,16 @@ final class KakaoMap {
             bearingTo = updClass.getMethod("bearingTo", float.class);
             tiltTo = updClass.getMethod("tiltTo", float.class);
             zoomTo = updClass.getMethod("zoomTo", float.class);
+            try {
+                criterionWorldSizeTo = updClass.getMethod(
+                        "criterionWorldSizeTo", float.class);
+                KakaoHudLog.line("map scale mode: criterionWorldSize="
+                        + CRITERION_WORLD_SIZE_M + "m");
+            } catch (NoSuchMethodException unsupported) {
+                criterionWorldSizeTo = null;
+                KakaoHudLog.line("map scale mode: zoom=" + ZOOM
+                        + " (criterionWorldSize unsupported)");
+            }
 
             pointCompanion = kotlinCompanion(pointClass);
             katecPoint = pointCompanion.getClass().getMethod("katec", double.class, double.class);
