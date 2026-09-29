@@ -48,6 +48,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         new EonDiscovery(client).start();
 
         hookApplicationContext(lpparam, map);
+        hookRepository(lpparam, bridge);
         hookGuideCallbacks(lpparam, bridge);
     }
 
@@ -74,6 +75,22 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
                     });
         } catch (Throwable t) {
             KakaoHudLog.ex("hookApplicationContext", t);
+        }
+    }
+
+    /** 현재 경로와 목적지까지의 남은 거리/시간을 읽기 위해 Repository 인스턴스를 잡는다. */
+    private void hookRepository(LoadPackageParam lpparam, final KakaoBridge bridge) {
+        try {
+            Class<?> repo = lpparam.classLoader.loadClass(REPO_CLASS);
+            XposedBridge.hookAllConstructors(repo, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    bridge.setRepository(param.thisObject);
+                }
+            });
+            KakaoHudLog.line("repository constructors hooked");
+        } catch (Throwable t) {
+            KakaoHudLog.ex("hookRepository", t);
         }
     }
 
