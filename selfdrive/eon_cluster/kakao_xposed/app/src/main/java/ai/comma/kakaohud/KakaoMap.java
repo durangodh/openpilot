@@ -32,6 +32,8 @@ final class KakaoMap {
     private static final int HEIGHT = 432;
     private static final int JPEG_QUALITY = 72;
     private static final long INTERVAL_MS = 500;   // 2fps
+    private static final long STATIONARY_HEARTBEAT_MS = 2000;
+    private static final long INIT_RETRY_MS = 5000;
     private static final float ZOOM = 15.5f;
     private static final float TILT = 45f;
 
@@ -49,12 +51,12 @@ final class KakaoMap {
 
     private volatile double curX = 0, curY = 0, curBearing = 0;
     private volatile boolean hasPose = false;
-    private volatile boolean stationarySkip = false;
     private double lastX = 0, lastY = 0, lastBearing = 0;
+    private long lastFrameMs = 0;
 
     private HandlerThread thread;
     private Handler handler;
-    private boolean initTried = false;
+    private long nextInitAttemptMs = 0;
     private int nullCount = 0;
     private int sentCount = 0;
 
@@ -91,19 +93,22 @@ final class KakaoMap {
     private void tick() {
         if (!client.ready() || !hasPose) return;
 
-        if (!initTried) {
-            initTried = true;
+        long now = System.currentTimeMillis();
+        if (capturer == null) {
+            if (now < nextInitAttemptMs) return;
+            nextInitAttemptMs = now + INIT_RETRY_MS;
             initCapturer();
         }
         if (capturer == null) return;
 
-        // 정차 스킵: 위치·방위가 사실상 안 바뀌면 새 프레임을 안 만든다(부하 절감).
+        // 정차 중에도 서버의 5초 stale watchdog보다 빠르게 새 프레임을 보낸다.
+        // 첫 capture가 실패했을 때는 위치를 소비하지 않아 다음 tick에서 즉시 재시도한다.
         double dx = curX - lastX, dy = curY - lastY, dh = curBearing - lastBearing;
-        if (Math.abs(dx) < 1.0 && Math.abs(dy) < 1.0 && Math.abs(dh) < 1.0 && stationarySkip) {
+        boolean stationary = sentCount > 0
+                && Math.abs(dx) < 1.0 && Math.abs(dy) < 1.0 && Math.abs(dh) < 1.0;
+        if (stationary && now < lastFrameMs + STATIONARY_HEARTBEAT_MS) {
             return;
         }
-        lastX = curX; lastY = curY; lastBearing = curBearing;
-        stationarySkip = true;
 
         try {
             Object point = katecPoint.invoke(pointCompanion, curX, curY);
@@ -127,6 +132,10 @@ final class KakaoMap {
             bmp.recycle();
             byte[] jpeg = out.toByteArray();
             client.sendMap(jpeg);
+            lastX = curX;
+            lastY = curY;
+            lastBearing = curBearing;
+            lastFrameMs = now;
             sentCount++;
             if (sentCount == 1) {
                 KakaoHudLog.line("first map frame sent " + WIDTH + "x" + HEIGHT
