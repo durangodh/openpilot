@@ -11,7 +11,7 @@ from common.conversions import Conversions as CV
 from common.numpy_fast import clip, interp
 from selfdrive.controls.lib import t_follow
 from selfdrive.controls.lib.lead_departure import departure_motion_valid
-from selfdrive.controls.lib.lead_following import get_accel_jerk_scale, get_follow_obstacle_cost
+from selfdrive.controls.lib.lead_following import get_follow_obstacle_cost
 from selfdrive.modeld.constants import index_function
 
 
@@ -28,7 +28,7 @@ class RecordingSolver:
   cost_set = set
 
 
-def load_mpc(comfort=True, jerk=False):
+def load_mpc(comfort=True):
   source = Path(__file__).resolve().parents[1] / 'lib' / 'longitudinal_mpc_lib' / 'long_mpc.py'
   tree = ast.parse(source.read_text(encoding='utf-8'))
   # Leave all real calculations and class methods intact. Only platform
@@ -40,7 +40,6 @@ def load_mpc(comfort=True, jerk=False):
              _LEAD_ACCEL_TAU=1.5, AcadosOcpSolverCython=RecordingSolver,
              departure_motion_valid=departure_motion_valid,
              get_follow_obstacle_cost=get_follow_obstacle_cost if comfort else lambda base, *args: base,
-             get_accel_jerk_scale=get_accel_jerk_scale if jerk else lambda *args: 1.0,
              car=NS(CarState=NS(ButtonEvent=NS(Type=NS(accelCruise=1, resumeCruise=2)))),
              log=NS(LongitudinalPlan=NS(XState=NS(cruise=0, lead=1, softHold=2))))
   exec(compile(tree, str(source), 'exec'), env)
@@ -49,8 +48,8 @@ def load_mpc(comfort=True, jerk=False):
 
 def scenario(comfort=True, speed=100.0 / 3.6, lead_speed=None, distance=90.0,
              lead_accel=0.0, second=False, traffic_stop=False, mode='acc', braking=False,
-             ego_accel=0.2, planned_accel=0.2, jerk=False):
-  env = load_mpc(comfort, jerk)
+             ego_accel=0.2, planned_accel=0.2):
+  env = load_mpc(comfort)
   mpc = env['LongitudinalMpc'](mode)
   mpc.run = lambda: None
   mpc.set_cur_state(speed, -0.3 if braking else planned_accel)
@@ -142,21 +141,3 @@ def test_departure_offset_never_exceeds_original_bonus_or_extends_speed_range():
       assert -1e-12 <= bonus <= old_bonus + 1e-12
       if relative >= 1.0:
         assert bonus == pytest.approx(old_bonus)
-
-
-def test_accel_jerk_scale_changes_only_jerk_weight_while_accelerating():
-  stock, tuned = scenario(False), scenario(False, jerk=True)
-  w_stock, w_tuned = stock.solver.values[0, 'W'], tuned.solver.values[0, 'W']
-  assert w_tuned[5, 5] == pytest.approx(w_stock[5, 5] * 1.15)
-  mask = np.ones_like(w_stock, dtype=bool)
-  mask[5, 5] = False
-  np.testing.assert_array_equal(w_stock[mask], w_tuned[mask])
-  np.testing.assert_array_equal(stock.params, tuned.params)
-
-
-@pytest.mark.parametrize('overrides', [dict(speed=5.0), dict(lead_speed=20.0), dict(lead_accel=-1.0),
-                                     dict(traffic_stop=True), dict(mode='blended'), dict(braking=True)])
-def test_accel_jerk_scale_is_off_for_hazard_and_braking(overrides):
-  stock, tuned = scenario(False, **overrides), scenario(False, jerk=True, **overrides)
-  for stage in range(12):
-    np.testing.assert_array_equal(stock.solver.values[stage, 'W'], tuned.solver.values[stage, 'W'])

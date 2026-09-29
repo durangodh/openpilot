@@ -9,9 +9,6 @@ from common.numpy_fast import interp
 
 APPROACH_ACCEL_LIMIT_FALL = 0.5  # m/s^3, positive throttle lift only
 FOLLOW_COMFORT_FULL_ACCEL = 0.2  # m/s^2, fade out comfort before either acceleration reaches zero
-# 가속 중에만 jerk 비용을 올려 가속 시작/증가를 부드럽게 (StarPilot 가속/감속 분리 방식).
-# 감속·접근·앞차 감속 장면에서는 즉시 1.0 으로 돌아가 제동 반응은 그대로다.
-ACCEL_JERK_COST_SCALE = 1.15
 
 
 def get_follow_obstacle_cost(base_cost, v_ego, a_ego, planned_accel, leads,
@@ -91,22 +88,3 @@ def get_follow_approach_limit(max_accel, v_ego, leads, desired_gap):
   weight = (interp(v_ego * 3.6, [30.0, 40.0], [0.0, 1.0]) *
             interp(closing, [0.35, 0.75], [0.0, 1.0]))
   return max_accel * (1.0 - weight * (1.0 - allowance)), True
-
-
-def get_accel_jerk_scale(v_ego, a_ego, planned_accel, leads):
-  """J_EGO cost multiplier: >1 only while accelerating at road speed with no closing lead."""
-  if not all(math.isfinite(float(x)) for x in (v_ego, a_ego, planned_accel)) or v_ego <= 30.0 / 3.6:
-    return 1.0
-  weight = interp(min(a_ego, planned_accel), [0.0, FOLLOW_COMFORT_FULL_ACCEL], [0.0, 1.0])
-  weight = weight * weight * (3.0 - 2.0 * weight)
-  weight *= interp(v_ego * 3.6, [30.0, 40.0], [0.0, 1.0])
-  for lead in leads:
-    if not lead.status:
-      continue
-    speed, accel = float(lead.vLead), float(lead.aLeadK)
-    if not all(math.isfinite(x) for x in (speed, accel)):
-      return 1.0
-    weight = min(weight,
-                 interp(v_ego - speed, [0.0, 0.5], [1.0, 0.0]),
-                 interp(accel, [-0.2, 0.0], [0.0, 1.0]))
-  return 1.0 + (ACCEL_JERK_COST_SCALE - 1.0) * weight

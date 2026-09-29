@@ -124,43 +124,6 @@ def apply_no_lead_cruise_accel_limit(accel, stopping, cruise_max_accel,
   return float(min(accel, no_lead_cap, rising_cap))
 
 
-# 설정속도 하강 시 "타행 후 제동" (StarPilot SLC coast 방식, 절충값).
-# 설정속도(커브·카메라·수동 하향 포함)보다 조금 빠를 때는 거의 타행만 하고,
-# 초과분이 커질수록 선형으로 A_CRUISE_MIN 까지 제동을 허용한다.
-# 앞차·정지 상황에는 쓰지 않는다(호출부에서 판단). 리드 제동 한도와 무관.
-CRUISE_COAST_SPEED_BP = [0.0, 10.0, 20.0, 35.0]     # m/s
-CRUISE_COAST_WINDOW_V = [0.15, 0.30, 0.45, 0.70]    # m/s, 이 초과분까지는 타행
-CRUISE_COAST_FULL_V = [0.60, 1.20, 2.00, 3.00]      # m/s, 이 초과분에서 전체 감속 허용
-CRUISE_COAST_FLOOR = -0.05                          # m/s^2, 타행 구간 하한
-CRUISE_COAST_MIN_SPEED = 4.0                        # m/s, 이하 저속은 적용 안 함
-# 제동 관련으로 보는 앞차: 접근 중, 감속 중, 또는 가까움
-COAST_LEAD_MIN_CLOSING = 0.5
-COAST_LEAD_MIN_BRAKE = -0.4
-
-
-def lead_blocks_cruise_coast(lead, v_ego):
-  if lead is None or not getattr(lead, "status", False):
-    return False
-  if float(v_ego) - float(getattr(lead, "vLead", 0.0)) > COAST_LEAD_MIN_CLOSING:
-    return True
-  if float(getattr(lead, "aLeadK", 0.0)) < COAST_LEAD_MIN_BRAKE:
-    return True
-  return float(getattr(lead, "dRel", 1e6)) < max(18.0, 2.0 * float(v_ego))
-
-
-def get_cruise_coast_min_accel(v_ego, v_cruise, full_floor, blocked=False):
-  """Return the cruise-deceleration floor, coasting first for small overspeed."""
-  if blocked or v_ego <= CRUISE_COAST_MIN_SPEED or not math.isfinite(v_cruise):
-    return float(full_floor)
-  excess = float(v_ego) - float(v_cruise)
-  window = interp(v_ego, CRUISE_COAST_SPEED_BP, CRUISE_COAST_WINDOW_V)
-  full = max(interp(v_ego, CRUISE_COAST_SPEED_BP, CRUISE_COAST_FULL_V), window + 0.1)
-  if excess <= window:
-    return float(max(full_floor, CRUISE_COAST_FLOOR))
-  t = clip((excess - window) / (full - window), 0.0, 1.0)
-  return float(CRUISE_COAST_FLOOR + t * (full_floor - CRUISE_COAST_FLOOR))
-
-
 def select_auto_driving_mode(initial_mode, current_mode, driving_index):
   """Map AUTO to SAFE/NORMAL while preserving manually selected ECO/FAST."""
   if initial_mode != 5 or driving_index <= 0.0 or current_mode in (2, 4):

@@ -14,10 +14,8 @@ from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDX
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_speed_error
 from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
-                                                        get_cruise_coast_min_accel,
                                                         get_cruise_max_accel,
                                                         get_no_lead_cruise_accel_cap,
-                                                        lead_blocks_cruise_coast,
                                                         limit_accel_in_turns)
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.events import Events
@@ -259,15 +257,9 @@ class LongitudinalPlanner:
       cruise_max_accel = min(cruise_max_accel, get_no_lead_cruise_accel_cap(
         cruise_max_accel, speed_error_kph, self.no_lead_cruise_accel_factor))
     if self.mpc.mode == 'acc':
-      # 설정속도가 내려가면 초과분이 작을 땐 타행, 클수록 A_CRUISE_MIN 까지.
-      # 제동 관련 앞차·신호정지·정차·강제감속이면 종전대로 A_CRUISE_MIN.
-      coast_blocked = (any(lead_blocks_cruise_coast(lead, v_ego)
-                           for lead in (sm['radarState'].leadOne, sm['radarState'].leadTwo)) or
-                       self.mpc.traffic_stop_active or sm['carState'].standstill or force_slow_decel)
-      cruise_min_accel = get_cruise_coast_min_accel(v_ego, v_cruise, A_CRUISE_MIN, coast_blocked)
       accel_limits = limit_accel_in_turns(
         v_ego, sm['carState'].steeringAngleDeg,
-        [cruise_min_accel, cruise_max_accel], self.CP.steerRatio, self.CP.wheelbase)
+        [A_CRUISE_MIN, cruise_max_accel], self.CP.steerRatio, self.CP.wheelbase)
     else:
       # E2E/blended 도 사용자 CruiseMax 상한은 유지(apilot-c2 는 MAX_ACCEL 2.5 고정)
       accel_limits = [MIN_ACCEL, cruise_max_accel]

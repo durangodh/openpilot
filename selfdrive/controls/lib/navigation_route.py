@@ -28,9 +28,6 @@ MAP_CURVE_BP = [0.0, 1./800., 1./670., 1./560., 1./440., 1./360., 1./265.,
 MAP_CURVE_SPEED_KPH = [300.0, 150.0, 120.0, 110.0, 100.0, 90.0, 80.0,
                        70.0, 60.0, 50.0, 40.0, 15.0, 5.0]
 EARTH_RADIUS_M = 6371000.0
-# 회전 전 감속도(m/s²). 기존 1.2 는 늦게 시작해 세게 줄였고, StarPilot 0.45 는
-# 너무 멀리서부터 줄인다. 절충값 0.8 — 감속 시작이 약 1.5배 앞당겨진다.
-NOO_TURN_DECEL = 0.8
 
 
 def _number(value, default=-1.0):
@@ -671,7 +668,7 @@ class NavigationRouteData:
     return max(10.0, base * factor)
 
   @classmethod
-  def speed_limit_kph(cls, state, target_kph=30.0, end_time=6.0, decel=NOO_TURN_DECEL):
+  def speed_limit_kph(cls, state, target_kph=30.0, end_time=6.0, decel=1.2):
     if not state["fresh"] or state["kind"] not in ("turn", "uturn", "rotary"):
       return None
     distance = state["distance"]
@@ -684,7 +681,7 @@ class NavigationRouteData:
     return min(250.0, math.sqrt(target_mps ** 2 + 2.0 * decel * braking_distance) * 3.6)
 
   @classmethod
-  def speed_limits_kph(cls, state, target_kph=30.0, end_time=6.0, decel=NOO_TURN_DECEL):
+  def speed_limits_kph(cls, state, target_kph=30.0, end_time=6.0, decel=1.2):
     """Return current and next-maneuver limits without allowing next guidance to steer."""
     current = cls.speed_limit_kph(state, target_kph, end_time, decel)
     next_state = state.get("next") if isinstance(state, dict) else None
