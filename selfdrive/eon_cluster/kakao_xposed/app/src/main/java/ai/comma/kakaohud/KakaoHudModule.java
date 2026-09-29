@@ -30,6 +30,8 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
     private static final String KAKAO_PKG = "com.locnall.KimGiSa";
     private static final String REPO_CLASS =
             "com.kakaomobility.navi.drive.core.repository.KNUSDKRepository";
+    private static final String CAMERA_STATE_CLASS =
+            "com.kakaomobility.navi.drive.core.common.map.KNUCameraPositionState";
 
     private static final String LOC_GUIDE = "com.kakaomobility.knmsdk.p60.a";
     private static final String ROUTE_GUIDE = "com.kakaomobility.knmsdk.q60.a";
@@ -57,6 +59,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
 
         hookVoiceAccessibility();
         hookApplicationContext(lpparam, map);
+        hookScreenCamera(lpparam, map);
         hookRepository(lpparam, bridge);
         hookGuideCallbacks(lpparam, bridge);
     }
@@ -151,6 +154,26 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
                     });
         } catch (Throwable t) {
             KakaoHudLog.ex("hookApplicationContext", t);
+        }
+    }
+
+    /** Follow the camera attached to Kakao's own driving map when available. */
+    private void hookScreenCamera(LoadPackageParam lpparam, final KakaoMap map) {
+        try {
+            Class<?> stateClass = lpparam.classLoader.loadClass(CAMERA_STATE_CLASS);
+            Class<?> mapApiClass = lpparam.classLoader.loadClass(
+                    "com.kakaomobility.knmsdk.KNMMapApi");
+            Method attach = stateClass.getMethod("A", mapApiClass);
+            XposedBridge.hookMethod(attach, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    if (param.hasThrowable()) return;
+                    map.setScreenCameraSource(param.thisObject, param.args[0] != null);
+                }
+            });
+            KakaoHudLog.line("screen camera hook ready");
+        } catch (Throwable t) {
+            KakaoHudLog.ex("hookScreenCamera", t);
         }
     }
 

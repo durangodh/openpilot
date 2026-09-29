@@ -8,8 +8,12 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.Random;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * carrot_navi_server(7714) 로 카카오 안내/지도 데이터를 보내는 최소 WebSocket
@@ -25,7 +29,8 @@ final class KakaoNaviClient {
     private static final String STATE_PATH = "/api/navi/ws/v2/json/kakao/state";
     private static final String MAP_PATH = "/api/navi/ws/v2/render/kakao/map_main";
 
-    private final Object lock = new Object();
+    private final Object stateLock = new Object();
+    private final Object mapLock = new Object();
     private volatile String host;
     private Socket stateSock;
     private OutputStream stateOut;
@@ -34,7 +39,7 @@ final class KakaoNaviClient {
     private final Random rnd = new Random();
     // Xposed callbacks run on KakaoNavi threads. Never perform socket I/O there:
     // a reconnect or handshake may take seconds and must not stall navigation.
-    private final ThreadPoolExecutor sender = new ThreadPoolExecutor(
+    private final ThreadPoolExecutor stateSender = new ThreadPoolExecutor(
             1, 1, 0L, TimeUnit.MILLISECONDS,
             new ArrayBlockingQueue<Runnable>(16),
             runnable -> {
@@ -43,6 +48,15 @@ final class KakaoNaviClient {
                 return thread;
             },
             new ThreadPoolExecutor.DiscardOldestPolicy());
+    // Map frames are disposable. Keep only the newest one, on a separate worker,
+    // so a slow map socket cannot delay guidance and old frames cannot queue up.
+    private final ExecutorService mapSender = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "kakao-hud-map-sender");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private final AtomicReference<byte[]> pendingMap = new AtomicReference<>();
+    private final AtomicBoolean mapDrainScheduled = new AtomicBoolean(false);
 
     void setHost(String ip) {
         if (ip != null && !ip.isEmpty() && !ip.equals(host)) {
@@ -58,7 +72,7 @@ final class KakaoNaviClient {
 
     /** 안내 상태를 item_update JSON 텍스트 프레임으로 보낸다. */
     void sendState(final String name, final String jsonValue) {
-        sender.execute(() -> sendStateNow(name, jsonValue));
+        stateSender.execute(() -> sendStateNow(name, jsonValue));
     }
 
     private void sendStateNow(String name, String jsonValue) {
@@ -67,7 +81,7 @@ final class KakaoNaviClient {
             if (out == null) return;
             String msg = "{\"type\":\"item_update\",\"name\":\"" + name
                     + "\",\"present\":true,\"value\":" + jsonValue + "}";
-            synchronized (lock) {
+            synchronized (stateLock) {
                 writeFrame(out, msg.getBytes("UTF-8"), 1);
             }
         } catch (Throwable t) {
@@ -79,14 +93,37 @@ final class KakaoNaviClient {
     /** 지도 JPEG 을 opcode 2 바이너리 프레임으로 보낸다(네이버 HUD14 와 동일 수용 경로). */
     void sendMap(final byte[] jpeg) {
         if (jpeg == null || jpeg.length == 0) return;
-        sender.execute(() -> sendMapNow(jpeg));
+        pendingMap.set(jpeg);
+        scheduleMapDrain();
+    }
+
+    private void scheduleMapDrain() {
+        if (mapDrainScheduled.compareAndSet(false, true)) {
+            mapSender.execute(this::drainMap);
+        }
+    }
+
+    private void drainMap() {
+        try {
+            byte[] jpeg;
+            while ((jpeg = pendingMap.getAndSet(null)) != null) {
+                sendMapNow(jpeg);
+            }
+        } finally {
+            mapDrainScheduled.set(false);
+            if (pendingMap.get() != null) scheduleMapDrain();
+        }
     }
 
     private void sendMapNow(byte[] jpeg) {
         try {
             OutputStream out = ensureMap();
             if (out == null) return;
-            synchronized (lock) {
+            // A reconnect can take seconds. Send the latest frame available after
+            // connecting, rather than the frame that triggered the reconnect.
+            byte[] latest = pendingMap.getAndSet(null);
+            if (latest != null) jpeg = latest;
+            synchronized (mapLock) {
                 writeFrame(out, jpeg, 2);
             }
         } catch (Throwable t) {
@@ -210,9 +247,7 @@ final class KakaoNaviClient {
     }
 
     private void closeAll() {
-        synchronized (lock) {
-            closeState();
-            closeMap();
-        }
+        synchronized (stateLock) { closeState(); }
+        synchronized (mapLock) { closeMap(); }
     }
 }

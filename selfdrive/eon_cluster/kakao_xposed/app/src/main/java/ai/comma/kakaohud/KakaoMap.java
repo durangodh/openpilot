@@ -6,6 +6,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 
 import java.io.ByteArrayOutputStream;
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.Collections;
@@ -19,10 +20,10 @@ import java.util.List;
  * 파이프라인:
  *   new KNMMapCapturer(ctx, density, 1.0)
  *   setTheme( KNMSDK.INSTANCE.getTheme("...") )   -- 실패해도 기본 테마로 진행
- *   전용 스레드 2fps:
+ *   전용 스레드 최대 5fps:
  *     moveCamera( KNMCameraUpdate.targetTo(KNMPoint.katec(x,y)).bearingTo(h).tiltTo().zoomTo() )
  *     Bitmap bmp = capture(720, 432)
- *     JPEG q72 -> client.sendMap
+ *     JPEG q65 -> client.sendMap
  *
  * KNMSDK 초기화 전(getInitState != 2)엔 capture 가 null 을 준다. 그때는 조용히
  * 스킵하고 계속 재시도한다. 앱 밖 생성이 GL 프레임을 실제로 내주는지가 유일한
@@ -32,10 +33,10 @@ final class KakaoMap {
 
     private static final int WIDTH = 720;
     private static final int HEIGHT = 432;
-    private static final int JPEG_QUALITY = 72;
-    // 2fps(500ms)는 위치 콜백 주기와 겹쳐 지도가 최대 1초 가까이 늦게 보였다.
-    // 3fps 로 올리고, 아래 LEAD_S 만큼 진행 방향으로 앞당겨 그린다.
-    private static final long INTERVAL_MS = 333;   // 3fps
+    private static final int JPEG_QUALITY = 65;
+    // Match TMAP's default 5fps cadence; latest-frame-only transport prevents
+    // an overloaded link from turning this into a queue of stale pictures.
+    private static final long INTERVAL_MS = 200;   // up to 5fps
     // 위치 콜백 주기 + 캡처/인코딩 + EON 중계 + HUD 표시까지의 지연을 보상하는 선행 시간.
     private static final double LEAD_S = 0.6;
     // 차량을 화면 가운데보다 아래(세로 68%)에 두어 앞쪽 도로를 더 보여준다.
@@ -83,6 +84,11 @@ final class KakaoMap {
     private volatile int turnDistanceM = -1;
     private int lastScaleIndex = -1;
     private volatile boolean hasPose = false;
+    private volatile WeakReference<Object> screenCameraSource;
+    private volatile float markerAnchorX = ANCHOR_X;
+    private volatile float markerAnchorY = ANCHOR_Y;
+    private boolean screenCameraLogged = false;
+    private boolean screenCameraErrorLogged = false;
     private double lastX = 0, lastY = 0, lastBearing = 0;
     private long lastFrameMs = 0;
 
@@ -94,6 +100,21 @@ final class KakaoMap {
 
     KakaoMap(KakaoNaviClient client) {
         this.client = client;
+    }
+
+    void setScreenCameraSource(Object source, boolean attached) {
+        if (attached) {
+            screenCameraSource = new WeakReference<>(source);
+            screenCameraLogged = false;
+            screenCameraErrorLogged = false;
+        } else {
+            WeakReference<Object> current = screenCameraSource;
+            if (current != null && current.get() == source) {
+                screenCameraSource = null;
+                markerAnchorX = ANCHOR_X;
+                markerAnchorY = ANCHOR_Y;
+            }
+        }
     }
 
     void start(ClassLoader cl, Context ctx) {
@@ -116,8 +137,8 @@ final class KakaoMap {
      * 이므로 anchor 위치에 위쪽을 향한 화살표를 직접 그린다.
      */
     private void drawVehicleMarker(Bitmap bmp) {
-        float cx = bmp.getWidth() * (anchorTo != null ? ANCHOR_X : 0.5f);
-        float cy = bmp.getHeight() * (anchorTo != null ? ANCHOR_Y : 0.5f);
+        float cx = bmp.getWidth() * (anchorTo != null ? markerAnchorX : 0.5f);
+        float cy = bmp.getHeight() * (anchorTo != null ? markerAnchorY : 0.5f);
         float r = bmp.getHeight() * 0.055f;
         markerPath.reset();
         markerPath.moveTo(cx, cy - r * 1.25f);
@@ -176,6 +197,55 @@ final class KakaoMap {
         return 6;
     }
 
+    private static final class ScreenCamera {
+        final double x, y;
+        final Float zoom, tilt, bearing;
+        final float anchorX, anchorY;
+
+        ScreenCamera(double x, double y, Float zoom, Float tilt, Float bearing,
+                     float anchorX, float anchorY) {
+            this.x = x; this.y = y; this.zoom = zoom; this.tilt = tilt;
+            this.bearing = bearing; this.anchorX = anchorX; this.anchorY = anchorY;
+        }
+    }
+
+    private ScreenCamera readScreenCamera() {
+        WeakReference<Object> sourceRef = screenCameraSource;
+        Object source = sourceRef == null ? null : sourceRef.get();
+        if (source == null || cl == null) return null;
+        try {
+            Object api = source.getClass().getMethod("q").invoke(source);
+            if (api == null) return null;
+            Class<?> apiClass = cl.loadClass("com.kakaomobility.knmsdk.KNMMapApi");
+            Object coordinate = apiClass.getMethod("getCoordinate").invoke(api);
+            if (coordinate == null) return null;
+            Class<?> pointClass = cl.loadClass("com.kakaomobility.knmsdk.utils.KNMPoint");
+            Object katec = pointClass.getMethod("toKatec").invoke(coordinate);
+            double x = ((Number) pointClass.getMethod("getX").invoke(katec)).doubleValue();
+            double y = ((Number) pointClass.getMethod("getY").invoke(katec)).doubleValue();
+            Float zoom = (Float) apiClass.getMethod("getZoom").invoke(api);
+            Float tilt = (Float) apiClass.getMethod("getTilt").invoke(api);
+            Float bearing = (Float) apiClass.getMethod("getBearing").invoke(api);
+            float ax = ANCHOR_X, ay = ANCHOR_Y;
+            Object anchor = apiClass.getMethod("getAnchor").invoke(api);
+            if (anchor != null) {
+                double rawX = ((Number) pointClass.getMethod("getX").invoke(anchor)).doubleValue();
+                double rawY = ((Number) pointClass.getMethod("getY").invoke(anchor)).doubleValue();
+                if (rawX >= 0.0 && rawX <= 1.0 && rawY >= 0.0 && rawY <= 1.0) {
+                    ax = (float) rawX;
+                    ay = (float) rawY;
+                }
+            }
+            return new ScreenCamera(x, y, zoom, tilt, bearing, ax, ay);
+        } catch (Throwable t) {
+            if (!screenCameraErrorLogged) {
+                screenCameraErrorLogged = true;
+                KakaoHudLog.ex("readScreenCamera", t);
+            }
+            return null;
+        }
+    }
+
     /** 안내 중인 KNU 경로를 캡처 지도용 KNMRoute로 변환해 경로선을 표시한다. */
     void updateRoute(Object sdkRoute) {
         pendingSdkRoute = sdkRoute;
@@ -214,25 +284,48 @@ final class KakaoMap {
         try {
             applyRouteIfNeeded();
 
+            // Prefer Kakao's attached screen camera, as TMAP app_sync does.
+            // A distant camera is likely a preview/search map, not the driving map.
+            ScreenCamera screen = readScreenCamera();
+            boolean screenSync = screen != null && Double.isFinite(screen.x)
+                    && Double.isFinite(screen.y)
+                    && Math.hypot(screen.x - curX, screen.y - curY) < 300.0;
+            if (screenSync && !screenCameraLogged) {
+                screenCameraLogged = true;
+                KakaoHudLog.line("screen camera sync active zoom=" + screen.zoom
+                        + " tilt=" + screen.tilt + " bearing=" + screen.bearing
+                        + " anchor=" + screen.anchorX + "," + screen.anchorY
+                        + " poseDeltaM=" + (int) Math.hypot(screen.x - curX, screen.y - curY));
+            }
+            markerAnchorX = screenSync ? screen.anchorX : ANCHOR_X;
+            markerAnchorY = screenSync ? screen.anchorY : ANCHOR_Y;
+
             // KATEC 은 미터 단위(x 동쪽, y 북쪽), 방위는 북쪽 기준 시계방향이다.
             double leadM = speedKph >= 3.0 ? speedKph / 3.6 * LEAD_S : 0.0;
             double rad = Math.toRadians(curBearing);
-            double drawX = curX + leadM * Math.sin(rad);
-            double drawY = curY + leadM * Math.cos(rad);
+            double drawX = screenSync ? screen.x : curX + leadM * Math.sin(rad);
+            double drawY = screenSync ? screen.y : curY + leadM * Math.cos(rad);
             Object point = katecPoint.invoke(pointCompanion, drawX, drawY);
             Object update = targetTo.invoke(cameraCompanion, point);
             if (anchorTo != null) {
-                update = anchorTo.invoke(update, new android.graphics.PointF(ANCHOR_X, ANCHOR_Y));
+                update = anchorTo.invoke(update,
+                        new android.graphics.PointF(markerAnchorX, markerAnchorY));
             }
-            update = bearingTo.invoke(update, (float) curBearing);
-            update = tiltTo.invoke(update, TILT);
+            float bearing = screenSync && screen.bearing != null
+                    && Float.isFinite(screen.bearing) ? screen.bearing : (float) curBearing;
+            float tilt = screenSync && screen.tilt != null
+                    && Float.isFinite(screen.tilt) ? screen.tilt : TILT;
+            update = bearingTo.invoke(update, bearing);
+            update = tiltTo.invoke(update, tilt);
             int scale = scaleIndex();
             if (scale != lastScaleIndex) {
                 lastScaleIndex = scale;
                 KakaoHudLog.status("map scale idx=" + scale + " zoom=" + DRIVE_ZOOM[scale]
                         + " spd=" + (int) speedKph + " turn=" + turnDistanceM);
             }
-            update = zoomTo.invoke(update, DRIVE_ZOOM[scale]);
+            float zoom = screenSync && screen.zoom != null && Float.isFinite(screen.zoom)
+                    && screen.zoom > 0.0f ? screen.zoom : DRIVE_ZOOM[scale];
+            update = zoomTo.invoke(update, zoom);
             moveCameraMethod.invoke(capturer, update);
 
             long t0 = android.os.SystemClock.elapsedRealtime();
