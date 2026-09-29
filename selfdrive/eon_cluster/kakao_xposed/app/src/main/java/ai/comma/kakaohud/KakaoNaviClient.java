@@ -6,9 +6,10 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.security.MessageDigest;
 import java.util.Random;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * carrot_navi_server(7714) 로 카카오 안내/지도 데이터를 보내는 최소 WebSocket
@@ -31,7 +32,17 @@ final class KakaoNaviClient {
     private Socket mapSock;
     private OutputStream mapOut;
     private final Random rnd = new Random();
-    private final AtomicBoolean connecting = new AtomicBoolean(false);
+    // Xposed callbacks run on KakaoNavi threads. Never perform socket I/O there:
+    // a reconnect or handshake may take seconds and must not stall navigation.
+    private final ThreadPoolExecutor sender = new ThreadPoolExecutor(
+            1, 1, 0L, TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<Runnable>(16),
+            runnable -> {
+                Thread thread = new Thread(runnable, "kakao-hud-sender");
+                thread.setDaemon(true);
+                return thread;
+            },
+            new ThreadPoolExecutor.DiscardOldestPolicy());
 
     void setHost(String ip) {
         if (ip != null && !ip.isEmpty() && !ip.equals(host)) {
@@ -46,7 +57,11 @@ final class KakaoNaviClient {
     }
 
     /** 안내 상태를 item_update JSON 텍스트 프레임으로 보낸다. */
-    void sendState(String name, String jsonValue) {
+    void sendState(final String name, final String jsonValue) {
+        sender.execute(() -> sendStateNow(name, jsonValue));
+    }
+
+    private void sendStateNow(String name, String jsonValue) {
         try {
             OutputStream out = ensureState();
             if (out == null) return;
@@ -62,7 +77,12 @@ final class KakaoNaviClient {
     }
 
     /** 지도 JPEG 을 opcode 2 바이너리 프레임으로 보낸다(네이버 HUD14 와 동일 수용 경로). */
-    void sendMap(byte[] jpeg) {
+    void sendMap(final byte[] jpeg) {
+        if (jpeg == null || jpeg.length == 0) return;
+        sender.execute(() -> sendMapNow(jpeg));
+    }
+
+    private void sendMapNow(byte[] jpeg) {
         try {
             OutputStream out = ensureMap();
             if (out == null) return;
@@ -102,6 +122,7 @@ final class KakaoNaviClient {
         if (h == null) return null;
         Socket s = new Socket();
         s.connect(new InetSocketAddress(h, PORT), 3000);
+        s.setSoTimeout(3000);
         s.setTcpNoDelay(true);
         OutputStream out = s.getOutputStream();
         InputStream in = s.getInputStream();
@@ -136,6 +157,7 @@ final class KakaoNaviClient {
             return null;
         }
         // Accept 검증은 생략(EON 서버는 신뢰 대상). 헤더만 소비하면 프레임 준비 완료.
+        s.setSoTimeout(0);
         return s;
     }
 
@@ -157,8 +179,9 @@ final class KakaoNaviClient {
         } else {
             header = new byte[10];
             header[1] = (byte) (0x80 | 127);
+            long wireLength = len & 0xffffffffL;
             for (int i = 0; i < 8; i++) {
-                header[9 - i] = (byte) ((len >>> (8 * i)) & 0xff);
+                header[9 - i] = (byte) ((wireLength >>> (8 * i)) & 0xff);
             }
             hlen = 10;
         }
