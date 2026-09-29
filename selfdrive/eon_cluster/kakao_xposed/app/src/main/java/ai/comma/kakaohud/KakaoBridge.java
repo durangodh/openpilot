@@ -128,7 +128,10 @@ final class KakaoBridge {
 
         try {
             Object route = callAny(repo, "getCurrentRoute", "currentRoute", "U");
-            if (route == null) return;
+            if (route == null) {
+                map.updateRoute(null);
+                return;
+            }
 
             int remainDistance = -1;
             int remainTime = -1;
@@ -136,6 +139,7 @@ final class KakaoBridge {
 
             Object sdkRoute = tryCallAny(route, "getKnRoute", "d");
             if (sdkRoute != null) {
+                map.updateRoute(sdkRoute);
                 remainDistance = getIntWithArg(sdkRoute, location, "getRemainDist", "d0");
                 remainTime = getIntWithArg(sdkRoute, location, "getRemainTime", "e0");
                 exact = remainDistance >= 0 && remainTime >= 0;
