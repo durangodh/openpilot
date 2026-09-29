@@ -5,10 +5,12 @@ import android.content.Context;
 import android.view.accessibility.AccessibilityNodeInfo;
 
 import java.lang.reflect.Method;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
+import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam;
 
 /**
@@ -37,6 +39,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
             KAKAO_PKG + ":id/btn_speech_recognition";
 
     private static boolean started = false;
+    private final AtomicBoolean voiceNodeLogged = new AtomicBoolean(false);
 
     @Override
     public void handleLoadPackage(LoadPackageParam lpparam) {
@@ -59,40 +62,69 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
     }
 
     /**
-     * nMirror NavigationButtonService 는 화면의 음성 버튼을 resource-id 로 찾아
-     * ACTION_CLICK 한다. 카카오의 Compose 버튼은 ID 없이 "음성서비스" 설명만
-     * 노출하므로, 원래 가상 접근성 노드에 nMirror 가 찾는 ID 를 덧붙인다.
-     * ACTION_CLICK 은 같은 Compose 노드로 전달되어 카카오의 기존 권한/음성 UI를
-     * 그대로 실행한다.
+     * nMirror NavigationButtonService 는 resource-id 로 음성 버튼을 찾아
+     * ACTION_CLICK 한다. 카카오 Compose 의 가상 노드는 ID 없이 "음성서비스"
+     * 설명만 노출한다. 이 기기에서는 setContentDescription 후크가 호출되지
+     * 않아 ID 가 비어 있었으므로, IPC 직전의 parcel 경로에서도 보강한다.
      */
     private void hookVoiceAccessibility() {
         try {
             Method setter = AccessibilityNodeInfo.class.getMethod(
                     "setContentDescription", CharSequence.class);
             XposedBridge.hookMethod(setter, new XC_MethodHook() {
-                private boolean announced = false;
-
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
                     try {
                         CharSequence description = (CharSequence) param.args[0];
                         if (description == null
                                 || !KAKAO_VOICE_DESCRIPTION.contentEquals(description)) return;
-                        AccessibilityNodeInfo node = (AccessibilityNodeInfo) param.thisObject;
-                        node.setViewIdResourceName(NMIRROR_VOICE_ID);
-                        if (!announced) {
-                            announced = true;
-                            KakaoHudLog.line("voice accessibility node exposed: "
-                                    + NMIRROR_VOICE_ID);
-                        }
+                        exposeVoiceNode((AccessibilityNodeInfo) param.thisObject);
                     } catch (Throwable t) {
                         KakaoHudLog.ex("voiceAccessibility", t);
                     }
                 }
             });
-            KakaoHudLog.line("voice accessibility hook ready");
+
+            XC_MethodHook parcelHook = new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    try {
+                        exposeVoiceNode((AccessibilityNodeInfo) param.thisObject);
+                    } catch (Throwable t) {
+                        KakaoHudLog.ex("voiceParcel", t);
+                    }
+                }
+            };
+            int parcelHooks = XposedBridge.hookAllMethods(
+                    AccessibilityNodeInfo.class, "writeToParcel", parcelHook).size();
+            try {
+                parcelHooks += XposedBridge.hookAllMethods(
+                        AccessibilityNodeInfo.class, "writeToParcelNoRecycle", parcelHook).size();
+            } catch (Throwable t) {
+                KakaoHudLog.ex("voiceParcelNoRecycle", t);
+            }
+            KakaoHudLog.line("voice accessibility hook ready, parcel methods=" + parcelHooks);
         } catch (Throwable t) {
             KakaoHudLog.ex("hookVoiceAccessibility", t);
+        }
+    }
+
+    private void exposeVoiceNode(AccessibilityNodeInfo node) {
+        CharSequence description = node.getContentDescription();
+        if (description == null || !KAKAO_VOICE_DESCRIPTION.contentEquals(description)
+                || !node.isClickable() || !node.isEnabled()) return;
+        CharSequence packageName = node.getPackageName();
+        if (packageName != null && !KAKAO_PKG.contentEquals(packageName)) return;
+        String existingId = node.getViewIdResourceName();
+        if (existingId != null && !existingId.isEmpty()) return;
+        try {
+            node.setViewIdResourceName(NMIRROR_VOICE_ID);
+        } catch (IllegalStateException sealed) {
+            // AccessibilityInteractionController may seal the node before IPC.
+            XposedHelpers.setObjectField(node, "mViewIdResourceName", NMIRROR_VOICE_ID);
+        }
+        if (voiceNodeLogged.compareAndSet(false, true)) {
+            KakaoHudLog.line("voice accessibility node exposed: " + NMIRROR_VOICE_ID);
         }
     }
 
