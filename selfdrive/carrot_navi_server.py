@@ -71,6 +71,7 @@ PARAM_MAP_FPS = "EonClusterHudMapFps"
 PARAM_NAV_APP = "EonClusterHudNavApp"
 SOURCE_TMAP = "tmap"
 SOURCE_NAVER = "naver"
+SOURCE_KAKAO = "kakao"
 MAP_RENDER_FPS_DEFAULT = 5
 MAP_RENDER_FPS_MIN = 2
 MAP_RENDER_FPS_MAX = 5
@@ -131,7 +132,15 @@ class NaviState(object):
       if isinstance(raw, bytes):
         raw = raw.decode("utf-8")
       selected = int(raw or 1)
-      return None if selected == 0 else SOURCE_NAVER if selected == 2 else SOURCE_TMAP
+      # 0: 선택 안 함 / 1: 티맵 / 2: 네이버 / 3: 카카오내비. 카카오는 네이버와
+      # 같은 7714 브릿지를 쓰지만 경로 접두 /kakao/ 로 소스를 구분한다.
+      if selected == 0:
+        return None
+      if selected == 2:
+        return SOURCE_NAVER
+      if selected == 3:
+        return SOURCE_KAKAO
+      return SOURCE_TMAP
     except (TypeError, ValueError, UnicodeDecodeError):
       return SOURCE_TMAP
 
@@ -663,7 +672,13 @@ def websocket_handshake(conn):
 
 def client_loop(conn, state):
   path = websocket_handshake(conn)
-  source = SOURCE_NAVER if "/naver/" in path.lower() else SOURCE_TMAP
+  lowered = path.lower()
+  if "/kakao/" in lowered:
+    source = SOURCE_KAKAO
+  elif "/naver/" in lowered:
+    source = SOURCE_NAVER
+  else:
+    source = SOURCE_TMAP
   is_control = "/control/" in path
   stream_name = path.rstrip("/").split("/")[-1] if not is_control else None
   if is_control:
@@ -689,7 +704,7 @@ def client_loop(conn, state):
         # TMAP uses a dedicated map_main render socket. HUD14 sends Naver's
         # JPEG on its existing state socket as a binary frame, avoiding the
         # large Base64 JSON path that could fail without an observable error.
-        if not is_control and (stream_name == "map_main" or source == SOURCE_NAVER):
+        if not is_control and (stream_name == "map_main" or source in (SOURCE_NAVER, SOURCE_KAKAO)):
           state.update_map(source, payload)
         elif not is_control and stream_name in OVERLAY_FILES:
           state.update_overlay(source, stream_name, payload)

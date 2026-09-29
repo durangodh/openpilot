@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Kakao HUD Bridge</string>
+    <string name="xposedmodule">true</string>
+    <string name="xposeddescription">카카오내비 안내/지도를 EON HUD(7714 /kakao/)로 전달</string>
+    <string name="xposedminversion">93</string>
+</resources>

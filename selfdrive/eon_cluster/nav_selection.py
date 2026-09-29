@@ -12,7 +12,7 @@ class NavSelectionSync:
   def selected(self):
     try:
       selected = int(self.params.get("EonClusterHudNavApp") or 1)
-      return selected if 0 <= selected <= 2 else 1
+      return selected if 0 <= selected <= 3 else 1
     except (ValueError, TypeError):
       return 1
 
@@ -24,7 +24,7 @@ class NavSelectionSync:
       kind, session, request, app = data.decode("ascii").split(" ")
     except (UnicodeDecodeError, ValueError):
       return False
-    if (kind != "HUDNAV1" or session != self.session or app not in ("0", "1", "2") or
+    if (kind != "HUDNAV1" or session != self.session or app not in ("0", "1", "2", "3") or
         len(request) != 32 or any(c not in "0123456789abcdef" for c in request)):
       return False
     if request in self.applied:

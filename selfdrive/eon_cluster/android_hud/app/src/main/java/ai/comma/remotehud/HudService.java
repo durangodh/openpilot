@@ -906,6 +906,7 @@ public final class HudService extends Service {
                 // 지금 실행 중인 두 내비도 종료해 선택 상태와 화면을 일치시킨다.
                 forceStopNavApp(1);
                 forceStopNavApp(2);
+                forceStopNavApp(3);
                 return;
             }
             Intent intent = foregroundLaunched ? null :
@@ -935,8 +936,9 @@ public final class HudService extends Service {
                 // 살아있는지 확인한 뒤에만 이전 앱을 종료한다. 재실행도 실패하면
                 // 이전 앱(티맵)을 다시 띄워 검정화면으로 영구히 남는 걸 막는다.
                 monitorNaverAndRecover(context, stop, generation);
-            } else if (stop != 0) {
-                forceStopNavApp(stop);
+            } else {
+                // 티맵/카카오는 즉시 안정적으로 뜨므로 선택 외 앱을 모두 종료한다.
+                stopOtherNavApps(launch);
             }
         } catch (Exception ignored) {
         }
@@ -990,8 +992,9 @@ public final class HudService extends Service {
                         missingChecks = 0;
                         stableChecks++;
                         // 네이버 프로세스가 최소 2초간 유지된 뒤에만 이전 앱을 종료한다.
-                        if (!oldAppStopped && stableChecks >= 2 && appToStop != 0) {
-                            forceStopNavApp(appToStop);
+                        if (!oldAppStopped && stableChecks >= 2) {
+                            // 네이버가 안정되면 네이버 외 나머지(티맵/카카오)를 모두 종료.
+                            stopOtherNavApps(2);
                             oldAppStopped = true;
                         }
                         continue;
@@ -1022,8 +1025,8 @@ public final class HudService extends Service {
             if (appToStop != 0) {
                 launchNavAppOnMirrorDisplay(context, appToStop);
             }
-        } else if (!oldAppStopped && appToStop != 0) {
-            forceStopNavApp(appToStop);
+        } else if (!oldAppStopped) {
+            stopOtherNavApps(2);
         }
     }
 
@@ -1033,6 +1036,15 @@ public final class HudService extends Service {
                     "su", "-c", "am force-stop " + navPackage(navApp)
             }).waitFor();
         } catch (Exception ignored) {
+        }
+    }
+
+    /** 선택한 내비(keep)를 제외한 나머지 내비 앱을 모두 종료한다(1티맵/2네이버/3카카오). */
+    private static void stopOtherNavApps(int keep) {
+        for (int app = 1; app <= 3; app++) {
+            if (app != keep) {
+                forceStopNavApp(app);
+            }
         }
     }
 
@@ -1109,6 +1121,7 @@ public final class HudService extends Service {
                         synchronizeNMirrorSelection(context, 0);
                         stopNavApp(1);
                         stopNavApp(2);
+                        stopNavApp(3);
                         bootNavigationReady.set(true);
                         return;
                     }
@@ -1119,7 +1132,7 @@ public final class HudService extends Service {
                     }
                     if (launchNavAppOnMirrorDisplay(context, selected)) {
                         synchronizeNMirrorSelection(context, selected);
-                        stopNavApp(selected == 2 ? 1 : 2);
+                        stopOtherNavApps(selected);
                     }
                     if (attempt < 7) {
                         SystemClock.sleep(2000L);
@@ -1255,7 +1268,7 @@ public final class HudService extends Service {
     }
 
     static boolean launchNavAppOnMirrorDisplay(Context context, int navApp) {
-        if (navApp != 1 && navApp != 2) return false;
+        if (navApp != 1 && navApp != 2 && navApp != 3) return false;
         try {
             Intent launch = context.getPackageManager().getLaunchIntentForPackage(
                     navPackage(navApp));
@@ -1315,7 +1328,9 @@ public final class HudService extends Service {
     }
 
     private static String navPackage(int navApp) {
-        return navApp == 2 ? "com.nhn.android.nmap" : "com.skt.tmap.ku";
+        if (navApp == 2) return "com.nhn.android.nmap";
+        if (navApp == 3) return "com.locnall.KimGiSa";
+        return "com.skt.tmap.ku";
     }
 
     /**
@@ -1346,7 +1361,7 @@ public final class HudService extends Service {
 
     /** 다른 쪽 내비를 완전 종료(루트 am force-stop). 안내·음성·GPS 전부 멈춘다. */
     static void stopNavApp(int navApp) {
-        if (navApp != 1 && navApp != 2) return;
+        if (navApp != 1 && navApp != 2 && navApp != 3) return;
         try {
             Runtime.getRuntime().exec(new String[] {
                     "su", "-c", "am force-stop " + navPackage(navApp)
@@ -1361,7 +1376,7 @@ public final class HudService extends Service {
      * 제한을 피하려고 Magisk 에서 허용된 루트로 am start 를 실행한다.
      */
     static void launchNavApp(Context context, int navApp) {
-        if (navApp != 1 && navApp != 2) return;
+        if (navApp != 1 && navApp != 2 && navApp != 3) return;
         final String packageName = navPackage(navApp);
         try {
             Intent launch = context.getPackageManager().getLaunchIntentForPackage(packageName);

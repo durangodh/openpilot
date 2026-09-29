@@ -43,6 +43,11 @@ class SelectionTest(unittest.TestCase):
     self.assertTrue(self.send(0))
     self.assertEqual(self.sync.telemetry()["hudNavApp"], 0)
 
+  def test_select_kakao(self):
+    self.assertTrue(self.send(3))
+    self.assertEqual(self.sync.selected(), 3)
+    self.assertEqual(self.sync.telemetry()["hudNavApp"], 3)
+
   def test_lost_ack_retry_does_not_overwrite_later_eon_choice(self):
     self.send()
     self.params.value = b"1"
@@ -52,7 +57,7 @@ class SelectionTest(unittest.TestCase):
     self.assertEqual(self.sync.telemetry()["hudNavRequestAck"], "a" * 32)
 
   def test_reject_invalid_or_previous_session(self):
-    for kwargs in ({"app": -1}, {"app": 3}, {"request": "bad"},
+    for kwargs in ({"app": -1}, {"app": 4}, {"request": "bad"},
                    {"session": "b" * 32}, {"port": 7211}):
       self.assertFalse(self.send(**kwargs))
     for payload in (b"HUD1", b"\xff", b"x" * 129):

@@ -68,18 +68,18 @@ public final class AppPrefs {
      */
     public static int getNavApp(Context context) {
         int selected = prefs(context).getInt(NAV_APP, 1);
-        return selected >= 0 && selected <= 2 ? selected : 1;
+        return selected >= 0 && selected <= 3 ? selected : 1;
     }
 
     public static void setNavApp(Context context, int navApp) {
         prefs(context).edit().putInt(NAV_APP,
-                navApp >= 0 && navApp <= 2 ? navApp : 1).apply();
+                navApp >= 0 && navApp <= 3 ? navApp : 1).apply();
     }
 
     // All request read/ack operations use the AppPrefs.class monitor so an old
     // telemetry reply cannot erase a newer tap from the settings Activity.
     public static synchronized void requestNavApp(Context context, int app) {
-        if (app < 0 || app > 2) return;
+        if (app < 0 || app > 3) return;
         String request = java.util.UUID.randomUUID().toString().replace("-", "");
         prefs(context).edit().putInt(NAV_APP, app).putString(NAV_REQUEST, request).apply();
     }

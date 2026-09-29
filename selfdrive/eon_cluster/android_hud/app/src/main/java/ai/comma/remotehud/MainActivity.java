@@ -58,7 +58,7 @@ public final class MainActivity extends Activity {
     private Button startButton;
     private Button stopButton;
     private TextView usbValue;
-    private Button noneButton, tmapButton, naverButton;
+    private Button noneButton, tmapButton, naverButton, kakaoButton;
     private TextView navValue;
     private Button updateButton;
     private TextView updateValue;
@@ -91,7 +91,8 @@ public final class MainActivity extends Activity {
             AppPrefs.setMirrorDisplayId(this, Display.DEFAULT_DISPLAY);
             int selected = AppPrefs.getNavApp(this);
             String packageName = selected == 0 ? null : selected == 2
-                    ? "com.nhn.android.nmap" : "com.skt.tmap.ku";
+                    ? "com.nhn.android.nmap" : selected == 3
+                    ? "com.locnall.KimGiSa" : "com.skt.tmap.ku";
             Intent launch = packageName == null ? null
                     : getPackageManager().getLaunchIntentForPackage(packageName);
             boolean launchedHere = launch != null && launchNavigationOnCurrentDisplay(launch);
@@ -203,22 +204,27 @@ public final class MainActivity extends Activity {
         navRow.setOrientation(LinearLayout.HORIZONTAL);
         noneButton = button("선택 안 함", NAV_UNSELECTED);
         tmapButton = button("티맵", NAV_UNSELECTED);
-        naverButton = button("네이버지도", NAV_UNSELECTED);
+        naverButton = button("네이버", NAV_UNSELECTED);
+        kakaoButton = button("카카오", NAV_UNSELECTED);
         LinearLayout.LayoutParams noneParams = new LinearLayout.LayoutParams(0, dp(52), 1.0f);
         noneParams.setMargins(0, dp(10), dp(4), dp(8));
         LinearLayout.LayoutParams tmapParams = new LinearLayout.LayoutParams(0, dp(52), 1.0f);
         tmapParams.setMargins(dp(4), dp(10), dp(4), dp(8));
         LinearLayout.LayoutParams naverParams = new LinearLayout.LayoutParams(0, dp(52), 1.0f);
-        naverParams.setMargins(dp(4), dp(10), 0, dp(8));
+        naverParams.setMargins(dp(4), dp(10), dp(4), dp(8));
+        LinearLayout.LayoutParams kakaoParams = new LinearLayout.LayoutParams(0, dp(52), 1.0f);
+        kakaoParams.setMargins(dp(4), dp(10), 0, dp(8));
         navRow.addView(noneButton, noneParams);
         navRow.addView(tmapButton, tmapParams);
         navRow.addView(naverButton, naverParams);
+        navRow.addView(kakaoButton, kakaoParams);
         navCard.addView(navRow);
         navValue = text("", 14.0f, Color.LTGRAY, Typeface.NORMAL);
         navCard.addView(navValue);
         noneButton.setOnClickListener(v -> selectNavApp(0));
         tmapButton.setOnClickListener(v -> selectNavApp(1));
         naverButton.setOnClickListener(v -> selectNavApp(2));
+        kakaoButton.setOnClickListener(v -> selectNavApp(3));
         root.addView(navCard, cardParams());
 
         Button remoteButton = button("무선 리모컨 설정", NAV_UNSELECTED);
@@ -412,10 +418,12 @@ public final class MainActivity extends Activity {
             refreshStatus();
             return;
         }
-        String packageName = app == 2 ? "com.nhn.android.nmap" : "com.skt.tmap.ku";
+        String packageName = app == 2 ? "com.nhn.android.nmap"
+                : app == 3 ? "com.locnall.KimGiSa" : "com.skt.tmap.ku";
         Intent launch = getPackageManager().getLaunchIntentForPackage(packageName);
         if (launch == null) {
-            new AlertDialog.Builder(this).setMessage(app == 2 ? "네이버지도를 먼저 설치해 주세요." : "티맵을 먼저 설치해 주세요.")
+            String missing = app == 2 ? "네이버지도를" : app == 3 ? "카카오내비를" : "티맵을";
+            new AlertDialog.Builder(this).setMessage(missing + " 먼저 설치해 주세요.")
                     .setPositiveButton("확인", null).show();
             return;
         }
@@ -457,13 +465,16 @@ public final class MainActivity extends Activity {
         int navApp = AppPrefs.getNavApp(this);
         noneButton.setText(navApp == 0 ? "✓ 선택 안 함" : "선택 안 함");
         tmapButton.setText(navApp == 1 ? "✓ 티맵" : "티맵");
-        naverButton.setText(navApp == 2 ? "✓ 네이버지도" : "네이버지도");
+        naverButton.setText(navApp == 2 ? "✓ 네이버" : "네이버");
+        kakaoButton.setText(navApp == 3 ? "✓ 카카오" : "카카오");
         noneButton.setBackgroundColor(navApp == 0 ? NAV_SELECTED : NAV_UNSELECTED);
         tmapButton.setBackgroundColor(navApp == 1 ? NAV_SELECTED : NAV_UNSELECTED);
         naverButton.setBackgroundColor(navApp == 2 ? NAV_SELECTED : NAV_UNSELECTED);
+        kakaoButton.setBackgroundColor(navApp == 3 ? NAV_SELECTED : NAV_UNSELECTED);
         noneButton.setTextColor(navApp == 0 ? Color.WHITE : Color.LTGRAY);
         tmapButton.setTextColor(navApp == 1 ? Color.WHITE : Color.LTGRAY);
         naverButton.setTextColor(navApp == 2 ? Color.WHITE : Color.LTGRAY);
+        kakaoButton.setTextColor(navApp == 3 ? Color.WHITE : Color.LTGRAY);
         boolean pending = !AppPrefs.pendingNavRequest(this).isEmpty();
         navValue.setText(pending ? (s.eonConnected ?
                 (HudService.navSelectionSupported ? "EON에 선택 반영 중…" : "EON 코드 업데이트 후 선택이 반영됩니다.") :
@@ -530,7 +541,7 @@ public final class MainActivity extends Activity {
                 .setTitle("최초 실행 안내")
                 .setMessage("1. 알림 권한을 허용합니다.\n\n"
                         + "2. 외부 HUD 를 연결합니다. USB 권한은 루트로 자동 설정됩니다.\n\n"
-                        + "3. 앱 상단에서 티맵 또는 네이버지도를 선택할 수 있습니다. 선택은 EON에도 반영됩니다.\n\n"
+                        + "3. 앱 상단에서 티맵/네이버/카카오를 선택할 수 있습니다. 선택은 EON에도 반영됩니다.\n\n"
                         + "EON과 S9은 같은 네트워크에서 UDP 7210 / TCP 7211 통신이 가능해야 합니다.")
                 .setPositiveButton("권한 확인", new DialogInterface.OnClickListener() {
                     @Override
