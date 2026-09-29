@@ -194,10 +194,13 @@ final class KakaoBridge {
                 // HUD guidance needs the distance remaining from the vehicle.
                 int remaining = curDist >= 0 && vehicleDistFromS >= 0
                         ? Math.max(0, curDist - vehicleDistFromS) : curDist;
+                map.updateTurnDistance(remaining);
                 if (remaining >= 0) {
                     client.sendState("guidance_current",
                             "{\"turn_type\":" + tbt + ",\"distance_m\":" + remaining + "}");
                 }
+            } else {
+                map.updateTurnDistance(-1);
             }
             if (nextRaw >= 0) {
                 int tbt = KakaoCodes.turnType(nextRaw);

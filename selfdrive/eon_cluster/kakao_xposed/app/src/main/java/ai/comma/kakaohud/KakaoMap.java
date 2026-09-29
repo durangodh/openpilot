@@ -36,12 +36,18 @@ final class KakaoMap {
     private static final long INTERVAL_MS = 500;   // 2fps
     private static final long STATIONARY_HEARTBEAT_MS = 2000;
     private static final long INIT_RETRY_MS = 5000;
-    // 기존 15.5는 HUD에서 동탄 전체가 보일 만큼 너무 넓었다.
-    // 실제 주행 화면에 가까운 근거리 축척으로 맞춘다.
-    private static final float ZOOM = 17.5f;
-    // 카카오 캡처러는 criterionWorldSize를 지원할 때 이 값을 우선 축척으로 사용한다.
-    // HUD 한 화면에 약 700m 폭을 담아 실제 주행 지도와 비슷한 근거리 축척을 만든다.
-    private static final float CRITERION_WORLD_SIZE_M = 700f;
+    // 카카오 지도 zoom 은 "작을수록 확대"인 배율값이다(네이버/구글 줌레벨과 반대).
+    // 근거: 카카오 앱 KNUMapComponentKt 확대 = zoom/1.5, 축소 = zoom*1.5.
+    // 앱도 criterionWorldSize 는 쓰지 않고 zoom 만 쓴다.
+    //
+    // 앱 주행 추적 카메라 zoom = KNUCameraScale 표[행][scaleIndex] (4.51.0 실측).
+    // 여기서는 일반도로 DEFAULT 표 첫 행을 쓴다.
+    private static final float[] DRIVE_ZOOM = {1.0f, 1.0f, 1.4f, 2.6f, 3.1f, 3.6f, 4.2f};
+    // scaleIndex 결정(KNUMapLocationUseCase 실측):
+    //  - 다음 안내지점까지 550m 미만: 150/250/350/450/550m 경계로 1~5
+    //  - 그 외: 속도 20/40/60/80/100 km/h 경계로 1~6 (앱은 GPS 속도 사용)
+    private static final int[] TURN_DIST_BOUNDS = {150, 250, 350, 450, 550};
+    private static final int[] SPEED_BOUNDS_KPH = {20, 40, 60, 80, 100};
     private static final float TILT = 45f;
 
     private final KakaoNaviClient client;
@@ -52,7 +58,7 @@ final class KakaoMap {
     private Method captureMethod;    // capture(int,int) -> Bitmap
     private Method moveCameraMethod; // moveCamera(KNMCameraUpdate)
     private Object cameraCompanion;  // KNMCameraUpdate.Companion (INSTANCE)
-    private Method targetTo, bearingTo, tiltTo, zoomTo, criterionWorldSizeTo;
+    private Method targetTo, bearingTo, tiltTo, zoomTo;
     private Method katecPoint;       // KNMPoint.Companion.katec(double,double)
     private Object pointCompanion;
     private Method setRoutesMethod;   // setRoutes(List<KNMRoute>)
@@ -62,6 +68,12 @@ final class KakaoMap {
     private Object appliedSdkRoute;
 
     private volatile double curX = 0, curY = 0, curBearing = 0;
+    // 속도는 KATEC(미터 단위) 위치 변화로 추정한다. SDK 속도 getter 는 난독화라 쓰지 않는다.
+    private volatile double speedKph = 0;
+    private double speedRefX = 0, speedRefY = 0;
+    private long speedRefMs = 0;
+    private volatile int turnDistanceM = -1;
+    private int lastScaleIndex = -1;
     private volatile boolean hasPose = false;
     private double lastX = 0, lastY = 0, lastBearing = 0;
     private long lastFrameMs = 0;
@@ -86,10 +98,41 @@ final class KakaoMap {
     }
 
     void updatePose(double katecX, double katecY, double bearing) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (speedRefMs == 0) {
+            speedRefX = katecX; speedRefY = katecY; speedRefMs = now;
+        } else if (now - speedRefMs >= 1000) {
+            double dist = Math.hypot(katecX - speedRefX, katecY - speedRefY);
+            double kph = dist / ((now - speedRefMs) / 1000.0) * 3.6;
+            if (kph < 250) {
+                // 저역통과로 튐 완화
+                speedKph = speedKph * 0.6 + kph * 0.4;
+            }
+            speedRefX = katecX; speedRefY = katecY; speedRefMs = now;
+        }
         curX = katecX;
         curY = katecY;
         curBearing = bearing;
         hasPose = true;
+    }
+
+    /** 다음 안내지점까지 남은 거리(m). 모르면 음수. */
+    void updateTurnDistance(int meters) {
+        turnDistanceM = meters;
+    }
+
+    private int scaleIndex() {
+        int d = turnDistanceM;
+        if (d >= 0 && d < TURN_DIST_BOUNDS[TURN_DIST_BOUNDS.length - 1]) {
+            for (int i = 0; i < TURN_DIST_BOUNDS.length; i++) {
+                if (d < TURN_DIST_BOUNDS[i]) return i + 1;
+            }
+        }
+        double v = speedKph;
+        for (int i = 0; i < SPEED_BOUNDS_KPH.length; i++) {
+            if (v < SPEED_BOUNDS_KPH[i]) return i + 1;
+        }
+        return 6;
     }
 
     /** 안내 중인 KNU 경로를 캡처 지도용 KNMRoute로 변환해 경로선을 표시한다. */
@@ -134,13 +177,13 @@ final class KakaoMap {
             Object update = targetTo.invoke(cameraCompanion, point);
             update = bearingTo.invoke(update, (float) curBearing);
             update = tiltTo.invoke(update, TILT);
-            // criterionWorldSize와 zoom을 동시에 지정하면 축척 기준이 충돌할 수 있다.
-            // 현재 SDK에서는 실제 거리 기준을 사용하고, 지원하지 않는 버전만 zoom으로 대체한다.
-            if (criterionWorldSizeTo != null) {
-                update = criterionWorldSizeTo.invoke(update, CRITERION_WORLD_SIZE_M);
-            } else {
-                update = zoomTo.invoke(update, ZOOM);
+            int scale = scaleIndex();
+            if (scale != lastScaleIndex) {
+                lastScaleIndex = scale;
+                KakaoHudLog.status("map scale idx=" + scale + " zoom=" + DRIVE_ZOOM[scale]
+                        + " spd=" + (int) speedKph + " turn=" + turnDistanceM);
             }
+            update = zoomTo.invoke(update, DRIVE_ZOOM[scale]);
             moveCameraMethod.invoke(capturer, update);
 
             Object bmpObj = captureMethod.invoke(capturer, WIDTH, HEIGHT);
@@ -198,16 +241,7 @@ final class KakaoMap {
             bearingTo = updClass.getMethod("bearingTo", float.class);
             tiltTo = updClass.getMethod("tiltTo", float.class);
             zoomTo = updClass.getMethod("zoomTo", float.class);
-            try {
-                criterionWorldSizeTo = updClass.getMethod(
-                        "criterionWorldSizeTo", float.class);
-                KakaoHudLog.line("map scale mode: criterionWorldSize="
-                        + CRITERION_WORLD_SIZE_M + "m");
-            } catch (NoSuchMethodException unsupported) {
-                criterionWorldSizeTo = null;
-                KakaoHudLog.line("map scale mode: zoom=" + ZOOM
-                        + " (criterionWorldSize unsupported)");
-            }
+            KakaoHudLog.line("map scale mode: Kakao drive zoom table");
 
             pointCompanion = kotlinCompanion(pointClass);
             katecPoint = pointCompanion.getClass().getMethod("katec", double.class, double.class);
