@@ -28,8 +28,8 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
     private static final String REPO_CLASS =
             "com.kakaomobility.navi.drive.core.repository.KNUSDKRepository";
 
-    private static final String LOC_GUIDE = "com.kakaomobility.knmsdk.p60.KNGuide_Location";
-    private static final String ROUTE_GUIDE = "com.kakaomobility.knmsdk.q60.KNGuide_Route";
+    private static final String LOC_GUIDE = "com.kakaomobility.knmsdk.p60.a";
+    private static final String ROUTE_GUIDE = "com.kakaomobility.knmsdk.q60.a";
 
     private static boolean started = false;
 
