@@ -35,6 +35,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
 
     private static final String LOC_GUIDE = "com.kakaomobility.knmsdk.p60.a";
     private static final String ROUTE_GUIDE = "com.kakaomobility.knmsdk.q60.a";
+    private static final String SAFETY_GUIDE = "com.kakaomobility.knmsdk.s60.a";
 
     private static final String KAKAO_VOICE_DESCRIPTION = "음성서비스";
     private static final String NMIRROR_VOICE_ID =
@@ -58,6 +59,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         new EonDiscovery(client).start();
 
         hookVoiceAccessibility();
+        hookComposeVoiceNode(lpparam);
         hookApplicationContext(lpparam, map);
         hookScreenCamera(lpparam, map);
         hookRepository(lpparam, bridge);
@@ -128,6 +130,32 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         }
         if (voiceNodeLogged.compareAndSet(false, true)) {
             KakaoHudLog.line("voice accessibility node exposed: " + NMIRROR_VOICE_ID);
+        }
+    }
+
+    /** Compose creates virtual nodes after the framework setters have run. */
+    private void hookComposeVoiceNode(LoadPackageParam lpparam) {
+        try {
+            Class<?> delegate = lpparam.classLoader.loadClass(
+                    "androidx.compose.ui.platform.AndroidComposeViewAccessibilityDelegateCompat");
+            Class<?> compat = lpparam.classLoader.loadClass("com.kakaomobility.knmsdk.m8.t");
+            Class<?> semantics = lpparam.classLoader.loadClass("androidx.compose.ui.semantics.SemanticsNode");
+            Method populate = delegate.getMethod("j0", int.class, compat, semantics);
+            XposedBridge.hookMethod(populate, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    try {
+                        AccessibilityNodeInfo node = (AccessibilityNodeInfo)
+                                XposedHelpers.getObjectField(param.args[1], "a");
+                        exposeVoiceNode(node);
+                    } catch (Throwable t) {
+                        KakaoHudLog.ex("composeVoiceNode", t);
+                    }
+                }
+            });
+            KakaoHudLog.line("Compose voice node hook ready");
+        } catch (Throwable t) {
+            KakaoHudLog.ex("hookComposeVoiceNode", t);
         }
     }
 
@@ -210,11 +238,19 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
                     @Override public void extract(Object arg) { bridge.onRouteGuide(arg); }
                 }, "route");
             }
-            // 안전: 인자가 List 인 콜백($e.a). List 를 인자로 받는 KNUSDKRepository
-            // 내부 콜백을 후킹한다(오검출 방지 위해 List 전용).
-            hooked += hookByArgType(cl, java.util.List.class, new Extractor() {
-                @Override public void extract(Object arg) { bridge.onSafeties(arg); }
-            }, "safety");
+            // The screen sign flow also calls $e.b(KNGuide_Safety), which wraps
+            // the list used by the displayed safety sign.
+            Class<?> safetyGuideClass = safeClass(cl, SAFETY_GUIDE);
+            if (safetyGuideClass != null) {
+                hooked += hookByArgType(cl, safetyGuideClass, new Extractor() {
+                    @Override public void extract(Object arg) { bridge.onSafetyGuide(arg); }
+                }, "safety-guide");
+            }
+            if (safetyGuideClass == null) {
+                hooked += hookByArgType(cl, java.util.List.class, new Extractor() {
+                    @Override public void extract(Object arg) { bridge.onSafeties(arg); }
+                }, "safety");
+            }
 
             KakaoHudLog.line("guide callbacks hooked = " + hooked
                     + " (loc=" + (locGuideClass != null) + " route=" + (routeGuideClass != null) + ")");

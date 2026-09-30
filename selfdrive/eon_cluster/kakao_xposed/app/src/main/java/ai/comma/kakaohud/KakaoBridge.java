@@ -236,10 +236,17 @@ final class KakaoBridge {
     }
 
     // ---- 안전/카메라 ----
+    void onSafetyGuide(Object guide) {
+        if (guide == null) return;
+        Object safeties = tryCallAny(guide, "getSafetiesOnGuide", "a");
+        onSafeties(safeties);
+    }
+
     void onSafeties(Object safetyArg) {
         if (!(safetyArg instanceof java.util.List)) return;
         try {
             java.util.List<?> list = (java.util.List<?>) safetyArg;
+            KakaoHudLog.status("safety callback count=" + list.size());
             Object best = null;
             int bestDistance = Integer.MAX_VALUE;
 
