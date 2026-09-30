@@ -26,6 +26,30 @@ final class NaverBridge {
     private String polyline = "[]";
     private long lastMapAt;
 
+    // EON 부하: 250ms 마다 8개 항목을 무조건 보내면 EON 이 초당 32건을 파싱한다.
+    // 특히 route 는 경로 좌표(최대 500점, ~20KB)를 품고 있어 초당 ~80KB 였다.
+    // 값이 바뀌었을 때 + 1초 하트비트로만 보내고, route 는 최대 1Hz 로 제한한다.
+    // 서버는 항목 값을 통째로 바꾸므로 route 에서 좌표를 빼면 안 된다(경로선이 사라짐).
+    private static final long HEARTBEAT_MS = 1000;
+    private static final long ROUTE_MIN_INTERVAL_MS = 1000;
+    private final java.util.HashMap<String, String> lastSent = new java.util.HashMap<>();
+    private final java.util.HashMap<String, Long> lastSentAt = new java.util.HashMap<>();
+    private boolean healthLogged;
+    private int guidingTicks;
+
+    private void send(String name, String value) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        String prev = lastSent.get(name);
+        Long at = lastSentAt.get(name);
+        boolean changed = prev == null || !prev.equals(value);
+        boolean heartbeat = at == null || now - at >= HEARTBEAT_MS;
+        if ("route".equals(name) && at != null && now - at < ROUTE_MIN_INTERVAL_MS) return;
+        if (!changed && !heartbeat) return;
+        lastSent.put(name, value);
+        lastSentAt.put(name, now);
+        client.sendState(name, value);
+    }
+
     void setStore(Object value) {
         store = value;
         if (!started) {
@@ -66,13 +90,13 @@ final class NaverBridge {
     private void publish(Object s) {
         Object mode = value(call(s, "b0"));
         boolean guiding = mode != null && "Guiding".equals(String.valueOf(mode));
-        client.sendState("navigation_status", "{\"source\":\"NAVER\",\"active\":" + guiding
+        send("navigation_status", "{\"source\":\"NAVER\",\"active\":" + guiding
                 + ",\"state\":" + quote(String.valueOf(mode)) + "}");
-        client.sendState("app_status", "{\"source\":\"NAVER\",\"foreground\":true,\"guidance_active\":" + guiding + "}");
+        send("app_status", "{\"source\":\"NAVER\",\"foreground\":true,\"guidance_active\":" + guiding + "}");
 
         Object directions = value(call(s, "z0"));
-        client.sendState("guidance_current", guidance(call(directions, "e")));
-        client.sendState("guidance_next", guidance(call(directions, "f")));
+        send("guidance_current", guidance(call(directions, "e")));
+        send("guidance_next", guidance(call(directions, "f")));
 
         Object route = value(call(s, "o0"));
         Object goal = call(route, "getGoal");
@@ -81,7 +105,7 @@ final class NaverBridge {
             polyline = routePolyline(s);
             lastPolylineAt = now;
         }
-        client.sendState("route", "{\"source\":\"NAVER\",\"remain_distance_m\":"
+        send("route", "{\"source\":\"NAVER\",\"remain_distance_m\":"
                 + NaverCodes.round(NaverCodes.number(call(goal, "distance")))
                 + ",\"remain_time_sec\":" + NaverCodes.remainTimeSec(goal)
                 + ",\"polyline\":" + polyline + "}");
@@ -89,16 +113,26 @@ final class NaverBridge {
         Object position = value(call(s, "P"));
         Object location = call(position, "getLocation");
         Object road = value(call(s, "B"));
-        client.sendState("vehicle", "{\"source\":\"NAVER\",\"lat\":" + decimal(fieldNumber(location, "latitude"))
+        send("vehicle", "{\"source\":\"NAVER\",\"lat\":" + decimal(fieldNumber(location, "latitude"))
                 + ",\"lon\":" + decimal(fieldNumber(location, "longitude"))
                 + ",\"heading_deg\":" + decimal(NaverCodes.number(call(position, "getHeading")))
                 + ",\"speed_kph\":" + decimal(NaverCodes.number(call(position, "getSpeedKmPerHour")))
                 + ",\"road_name\":" + quote(text(call(road, "f"))) + "}");
 
         Object link = call(s, "T");
-        client.sendState("speed", speed(s, (int) NaverCodes.number(call(link, "h"))));
-        client.sendState("lane_current", lane(value(call(s, "S"))));
-        client.sendState("traffic_signal", signal(value(call(s, "B0"))));
+        send("speed", speed(s, (int) NaverCodes.number(call(link, "h"))));
+        send("lane_current", lane(value(call(s, "S"))));
+        send("traffic_signal", signal(value(call(s, "B0"))));
+
+        // 검증 안 된 버전에서 난독화 게터가 비어 있는지 한 번 기록한다.
+        if (guiding && !healthLogged && ++guidingTicks >= 20) {
+            healthLogged = true;
+            NaverHudLog.line("health: directions=" + (directions != null)
+                    + " route=" + (route != null) + " goal=" + (goal != null)
+                    + " position=" + (position != null) + " location=" + (location != null)
+                    + " road=" + (road != null) + " link=" + (link != null)
+                    + " polylinePts=" + (polyline.length() > 2));
+        }
     }
 
     private static String guidance(Object direction) {

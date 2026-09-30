@@ -124,6 +124,33 @@ final class KakaoMap {
         thread.start();
         handler = new Handler(thread.getLooper());
         handler.post(this::loop);
+        mainHandler.post(this::pollScreenCameraOnMain);
+    }
+
+    // 카카오 화면 지도의 카메라 게터(KNMScene.getCoordinate/getZoom/...)는 화면 scene
+    // 핸들로 네이티브를 호출한다. 그 scene 은 카카오 메인/렌더 쪽 소유라, 캡처
+    // 스레드에서 직접 읽으면 렌더와 동시 접근이 된다. 메인 스레드에서만 읽어
+    // 최신값을 volatile 로 넘기고, 캡처 스레드는 그 스냅샷만 쓴다(최대 1주기 지연).
+    private final Handler mainHandler = new Handler(android.os.Looper.getMainLooper());
+    private volatile ScreenCamera latestScreenCamera;
+    private volatile long latestScreenCameraAt;
+
+    private void pollScreenCameraOnMain() {
+        try {
+            latestScreenCamera = readScreenCamera();
+            latestScreenCameraAt = android.os.SystemClock.elapsedRealtime();
+        } catch (Throwable t) {
+            latestScreenCamera = null;
+        } finally {
+            mainHandler.postDelayed(this::pollScreenCameraOnMain, INTERVAL_MS);
+        }
+    }
+
+    private ScreenCamera screenCameraSnapshot() {
+        ScreenCamera c = latestScreenCamera;
+        // 메인 스레드가 막혀 오래된 값이면 쓰지 않고 자체 카메라로 대체한다.
+        if (c == null || android.os.SystemClock.elapsedRealtime() - latestScreenCameraAt > 1000) return null;
+        return c;
     }
 
     private long maxFrameMs = 0;
@@ -286,7 +313,7 @@ final class KakaoMap {
 
             // Prefer Kakao's attached screen camera, as TMAP app_sync does.
             // A distant camera is likely a preview/search map, not the driving map.
-            ScreenCamera screen = readScreenCamera();
+            ScreenCamera screen = screenCameraSnapshot();
             boolean screenSync = screen != null && Double.isFinite(screen.x)
                     && Double.isFinite(screen.y)
                     && Math.hypot(screen.x - curX, screen.y - curY) < 300.0;

@@ -35,33 +35,58 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                         Context app = (Context) param.args[0];
                         try {
                             PackageInfo info = app.getPackageManager().getPackageInfo(NAVER_PACKAGE, 0);
-                            if (!VERIFIED_VERSION.equals(info.versionName)) {
-                                log("unsupported Naver version " + info.versionName
-                                        + "; leaving the app unchanged");
-                                return;
-                            }
+                            boolean verified = VERIFIED_VERSION.equals(info.versionName);
+                            // 버전 제한 없이 동작한다. 단, 역할에 따라 나눈다.
+                            //  - 읽기 전용(안내 상태 폴링, 지도 스냅샷): 모든 버전에서 켠다.
+                            //    클래스 이름(NaviStore/MainActivity/MapProvider)은 난독화되지 않았고,
+                            //    게터가 바뀌면 값이 비어 올 뿐 앱 동작에는 영향이 없다.
+                            //  - 앱 동작을 바꾸는 훅(마커 크기, 음성 버튼): 검증된 버전에서만 켠다.
+                            //    난독화 이름(Q/E/x/t)이 다른 메서드를 가리키면 엉뚱한 콜백이
+                            //    실행되거나 아이콘이 깨질 수 있기 때문이다.
+                            String mode = verified ? "verified" : "UNVERIFIED (read-only features only)";
+                            log("Naver " + info.versionName + " " + mode);
+                            NaverHudLog.line("Naver " + info.versionName + " " + mode);
                             bridge = new NaverBridge();
-                            hookStore(target.classLoader);
-                            hookActivity(target.classLoader);
-                            hookMapProvider(target.classLoader);
-                            try {
-                                NaverMarkerSize.install(target.classLoader);
-                            } catch (Throwable error) {
-                                log("marker size hook unavailable: " + error);
-                            }
-                            try {
-                                hookVoiceButton(target.classLoader, app);
-                            } catch (Throwable error) {
-                                log("voice hook unavailable: " + error);
+                            int hooks = 0;
+                            hooks += safeHook("NaviStore", () -> hookStore(target.classLoader));
+                            hooks += safeHook("MainActivity", () -> hookActivity(target.classLoader));
+                            hooks += safeHook("MapProvider", () -> hookMapProvider(target.classLoader));
+                            if (verified) {
+                                try {
+                                    NaverMarkerSize.install(target.classLoader);
+                                } catch (Throwable error) {
+                                    log("marker size hook unavailable: " + error);
+                                }
+                                try {
+                                    hookVoiceButton(target.classLoader, app);
+                                } catch (Throwable error) {
+                                    log("voice hook unavailable: " + error);
+                                }
+                            } else {
+                                NaverHudLog.line("marker-size/voice hooks skipped on unverified version");
                             }
                             attached.set(true);
-                            log("ready for Naver " + info.versionName);
+                            log("ready for Naver " + info.versionName + " hooks=" + hooks);
                         } catch (Throwable error) {
                             log("attach failed: " + error);
                             XposedBridge.log(error);
                         }
                     }
                 });
+    }
+
+    private interface Hook { void run() throws Throwable; }
+
+    /** 한 훅이 실패해도 나머지는 계속 건다. 성공하면 1. */
+    private static int safeHook(String name, Hook hook) {
+        try {
+            hook.run();
+            return 1;
+        } catch (Throwable error) {
+            log(name + " hook unavailable: " + error);
+            NaverHudLog.line(name + " hook unavailable: " + error);
+            return 0;
+        }
     }
 
     private static void hookStore(ClassLoader appLoader) {

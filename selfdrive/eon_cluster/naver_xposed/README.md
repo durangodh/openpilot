@@ -7,7 +7,7 @@ rendered NaverMap. `NaverBridge`, `NaverMapCapture`, and `NaverNaviClient`
 implement extraction, capture, discovery, and WebSocket delivery in this
 module's own Java source. There is no bundled bridge DEX or runtime dependency
 on the former patched Naver app. Naver Maps' APK is not modified or re-signed.
-The hook deliberately does nothing on other app versions.
+Other app versions run in read-only mode (see Version policy).
 
 The 6.10.0.16 arm64/xxhdpi XAPK used for static analysis has SHA-256
 `9cb184e4827d6bb3b4a6d2a71bf9fc769a0fdfdc4cbd6d540d7207b71123345b2`.
@@ -42,17 +42,11 @@ updated in place with the original package.
   `ai.comma.naverhud` first, then installing the release APK and re-enabling
   its LSPosed scope. Do not uninstall the original Naver Maps app. Subsequent
   release APKs use the same signing key and increasing version codes.
-- The module has an exact 6.10.0.16 version gate. A later Play Store update
-  will leave the Naver app untouched but disable the bridge until retested
-  and updated for that version.
-
-## Build
-
-With Android SDK 35 and Gradle 8.9 available:
-
-```sh
-gradle :app:assembleDebug
-```
-
-Enable the module in LSPosed with Naver Maps as its scope. Install the
-NAVER-signed 6.10.0.16 app separately. The module is inert on other versions.
+- Version policy: there is no hard version gate. On 6.10.0.16 every feature
+  is enabled. On any other version only read-only features run (NaviStore
+  polling and map snapshots); the marker-size and voice-button hooks, which
+  change app behaviour through obfuscated names, stay off. The log records
+  `Naver <version> verified|UNVERIFIED` and, after 20 guiding ticks, a
+  `health:` line showing which obfuscated getters returned values. Turning
+  off Play Store auto-update for Naver Map is still recommended so a new
+  version can be checked before driving.

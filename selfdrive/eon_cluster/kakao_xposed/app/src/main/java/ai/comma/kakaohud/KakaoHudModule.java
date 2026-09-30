@@ -160,6 +160,23 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
     }
 
     /** Application.onCreate 를 후킹해 Context 를 얻어 지도 캡처 스레드를 시작한다. */
+    // 난독화 이름(콜백 getter, Compose j0/m8.t, 카메라 A/q 등)은 4.51.0 기준이다.
+    // 버전 제한은 두지 않지만, 다른 버전에서 기능이 빠지면 원인을 바로 알 수 있게
+    // 시작할 때 버전과 검증 여부를 남긴다.
+    private static final String VERIFIED_KAKAO_VERSION = "4.51.0";
+
+    private static void logAppVersion(Context ctx) {
+        try {
+            android.content.pm.PackageInfo info =
+                    ctx.getPackageManager().getPackageInfo(KAKAO_PKG, 0);
+            boolean verified = VERIFIED_KAKAO_VERSION.equals(info.versionName);
+            KakaoHudLog.line("KakaoNavi version " + info.versionName
+                    + (verified ? " (verified)" : " (UNVERIFIED: 기능 일부가 빠질 수 있음)"));
+        } catch (Throwable t) {
+            KakaoHudLog.ex("appVersion", t);
+        }
+    }
+
     private void hookApplicationContext(final LoadPackageParam lpparam, final KakaoMap map) {
         try {
             XposedBridge.hookMethod(
@@ -175,6 +192,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
                                 done = true;
                                 map.start(lpparam.classLoader, ctx.getApplicationContext());
                                 KakaoHudLog.line("app context ready, map capture started");
+                                logAppVersion(ctx);
                             } catch (Throwable t) {
                                 KakaoHudLog.ex("appContext", t);
                             }
