@@ -115,7 +115,7 @@ class LeadDepartureAssist:
            isfinite(lead.aLeadK) and lead.aLeadK >= 0.0
 
 
-LAUNCH_JERK_UPPER_MAX = 1.5
+LAUNCH_JERK_UPPER_MAX = 1.8
 
 
 def departure_jerk_upper(normal_upper, configured_start, pid_upper, assisted):
