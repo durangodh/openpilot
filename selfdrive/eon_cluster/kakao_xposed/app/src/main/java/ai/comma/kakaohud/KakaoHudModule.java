@@ -2,6 +2,7 @@ package ai.comma.kakaohud;
 
 import android.app.Application;
 import android.content.Context;
+import android.content.res.Resources;
 import android.view.accessibility.AccessibilityNodeInfo;
 
 import java.lang.reflect.Method;
@@ -40,6 +41,13 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
     private static final String KAKAO_VOICE_DESCRIPTION = "음성서비스";
     private static final String NMIRROR_VOICE_ID =
             KAKAO_PKG + ":id/btn_speech_recognition";
+    private static final String NMIRROR_VOICE_ENTRY = "btn_speech_recognition";
+    // 카카오 4.51.0 리소스 테이블엔 btn_speech_recognition 이 없어, nMirror 가
+    // getIdentifier 로 이름→숫자ID 변환하는 단계에서 이미 0(못 찾음)이 된다.
+    // 존재하지 않는 id 공간(0x7f0a0000대 밖)의 고정 숫자를 만들어, getIdentifier
+    // 후킹으로 이 값을 돌려주고 노드의 실제 숫자 id 로도 심는다.
+    private static final int NMIRROR_VOICE_RES_ID = 0x7f0bffff;
+    private volatile Object voiceNodeSource;   // Compose 음성 노드(클릭 위임 대상)
 
     private static boolean started = false;
     private final AtomicBoolean voiceNodeLogged = new AtomicBoolean(false);
@@ -58,6 +66,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         bridge.setClassLoader(lpparam.classLoader);
         new EonDiscovery(client).start();
 
+        hookVoiceResourceId(lpparam);
         hookVoiceAccessibility();
         hookComposeVoiceNode(lpparam);
         hookApplicationContext(lpparam, map);
@@ -72,6 +81,44 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
      * 설명만 노출한다. 이 기기에서는 setContentDescription 후크가 호출되지
      * 않아 ID 가 비어 있었으므로, IPC 직전의 parcel 경로에서도 보강한다.
      */
+    /**
+     * nMirror 가 "com.locnall.KimGiSa:id/btn_speech_recognition" 를 숫자 id 로
+     * 바꾸려고 Resources.getIdentifier 를 부를 때, 실제 리소스에 없어도 우리가
+     * 정한 고정 숫자를 돌려준다. 그래야 findAccessibilityNodeInfosByViewId 검색이
+     * 성립한다. 다른 리소스 조회에는 영향을 주지 않는다.
+     */
+    private void hookVoiceResourceId(LoadPackageParam lpparam) {
+        try {
+            Method getId = Resources.class.getMethod(
+                    "getIdentifier", String.class, String.class, String.class);
+            XposedBridge.hookMethod(getId, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    try {
+                        if (!(param.getResult() instanceof Integer)) return;
+                        if (((Integer) param.getResult()) != 0) return;
+                        String name = (String) param.args[0];
+                        String type = (String) param.args[1];
+                        String pkg = (String) param.args[2];
+                        boolean matchFull = NMIRROR_VOICE_ID.equals(name)
+                                && (type == null || type.isEmpty());
+                        boolean matchEntry = NMIRROR_VOICE_ENTRY.equals(name)
+                                && "id".equals(type)
+                                && (pkg == null || KAKAO_PKG.equals(pkg));
+                        if (matchFull || matchEntry) {
+                            param.setResult(NMIRROR_VOICE_RES_ID);
+                        }
+                    } catch (Throwable t) {
+                        KakaoHudLog.ex("voiceResId", t);
+                    }
+                }
+            });
+            KakaoHudLog.line("voice resource-id hook ready");
+        } catch (Throwable t) {
+            KakaoHudLog.ex("hookVoiceResourceId", t);
+        }
+    }
+
     private void hookVoiceAccessibility() {
         try {
             Method setter = AccessibilityNodeInfo.class.getMethod(
@@ -128,8 +175,19 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
             // AccessibilityInteractionController may seal the node before IPC.
             XposedHelpers.setObjectField(node, "mViewIdResourceName", NMIRROR_VOICE_ID);
         }
+        // nMirror 는 이름을 getIdentifier 로 숫자ID 로 바꾼 뒤, 노드의 숫자 id 와
+        // 비교한다(findAccessibilityNodeInfosByViewId). 이름표만으론 부족하므로
+        // 노드의 실제 숫자 id(mSourceNodeId 하위 32bit)도 맞춘다.
+        try {
+            XposedHelpers.setObjectField(node, "mViewId", NMIRROR_VOICE_RES_ID);
+        } catch (Throwable ignored) {
+            // 일부 안드로이드 버전은 mViewId 필드가 없다. 이름 매칭만으로도
+            // nMirror 의 or.w() 폴백(자식/부모 탐색)이 동작할 수 있다.
+        }
+        voiceNodeSource = node;
         if (voiceNodeLogged.compareAndSet(false, true)) {
-            KakaoHudLog.line("voice accessibility node exposed: " + NMIRROR_VOICE_ID);
+            KakaoHudLog.line("voice accessibility node exposed: " + NMIRROR_VOICE_ID
+                    + " resId=" + Integer.toHexString(NMIRROR_VOICE_RES_ID));
         }
     }
 
