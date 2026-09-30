@@ -1,0 +1,22 @@
+plugins { id "com.android.application" }
+
+android {
+  namespace "ai.comma.naverhud"
+  compileSdk 35
+  buildToolsVersion "35.0.1"
+  defaultConfig {
+    applicationId "ai.comma.naverhud"
+    minSdk 26
+    targetSdk 35
+    versionCode 1
+    versionName "0.1-6.10.0.16"
+  }
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_11
+    targetCompatibility JavaVersion.VERSION_11
+  }
+}
+
+dependencies {
+  compileOnly "de.robv.android.xposed:api:82"
+}
