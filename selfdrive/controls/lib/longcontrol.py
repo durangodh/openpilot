@@ -29,7 +29,7 @@ PID_JERK_LOWER_V = [3.5, 3.5, 3.0]
 # 브레이크에서 발을 떼는 느낌보다 단절되어 보인다. 6 m/s^3이면 기본
 # -1.1 m/s^2 홀드를 약 0.18초에 풀어 반응성과 승차감의 중간값이 된다.
 # 새 제동 요청은 이 램프를 즉시 취소하므로 제동 반응에는 적용되지 않는다.
-START_RELEASE_JERK = 8.0
+START_RELEASE_JERK = 9.0
 
 # Briefly blend a positive starting request into PID after a confirmed lead
 # departure. A new braking request or invalid departure cancels this blend.
