@@ -3,6 +3,10 @@ package ai.comma.kakaohud;
 import android.app.Application;
 import android.content.Context;
 import android.content.res.Resources;
+import android.graphics.Rect;
+import android.os.Bundle;
+import android.view.View;
+import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 
 import java.lang.reflect.Method;
@@ -42,12 +46,13 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
     private static final String NMIRROR_VOICE_ID =
             KAKAO_PKG + ":id/btn_speech_recognition";
     private static final String NMIRROR_VOICE_ENTRY = "btn_speech_recognition";
-    // 카카오 4.51.0 리소스 테이블엔 btn_speech_recognition 이 없어, nMirror 가
-    // getIdentifier 로 이름→숫자ID 변환하는 단계에서 이미 0(못 찾음)이 된다.
-    // 존재하지 않는 id 공간(0x7f0a0000대 밖)의 고정 숫자를 만들어, getIdentifier
-    // 후킹으로 이 값을 돌려주고 노드의 실제 숫자 id 로도 심는다.
+    // AccessibilityInteractionController 는 요청을 받은 카카오 프로세스에서
+    // getIdentifier 로 ID 를 해석하고 실제 View 트리를 검색한다. Compose 가상
+    // 노드에 이름만 붙여서는 findAccessibilityNodeInfosByViewId 에 걸리지 않는다.
     private static final int NMIRROR_VOICE_RES_ID = 0x7f0bffff;
-    private volatile Object voiceNodeSource;   // Compose 음성 노드(클릭 위임 대상)
+    private View voiceProxy;
+    private volatile Object voiceDelegate;
+    private volatile int voiceVirtualId = -1;
 
     private static boolean started = false;
     private final AtomicBoolean voiceNodeLogged = new AtomicBoolean(false);
@@ -76,16 +81,9 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
     }
 
     /**
-     * nMirror NavigationButtonService 는 resource-id 로 음성 버튼을 찾아
-     * ACTION_CLICK 한다. 카카오 Compose 의 가상 노드는 ID 없이 "음성서비스"
-     * 설명만 노출한다. 이 기기에서는 setContentDescription 후크가 호출되지
-     * 않아 ID 가 비어 있었으므로, IPC 직전의 parcel 경로에서도 보강한다.
-     */
-    /**
-     * nMirror 가 "com.locnall.KimGiSa:id/btn_speech_recognition" 를 숫자 id 로
-     * 바꾸려고 Resources.getIdentifier 를 부를 때, 실제 리소스에 없어도 우리가
-     * 정한 고정 숫자를 돌려준다. 그래야 findAccessibilityNodeInfosByViewId 검색이
-     * 성립한다. 다른 리소스 조회에는 영향을 주지 않는다.
+     * nMirror 의 findAccessibilityNodeInfosByViewId 요청은 카카오 프로세스의
+     * AccessibilityInteractionController 에서 숫자 ID 로 변환된다. 실제 View
+     * 프록시의 ID 와 같은 값을 반환한다. 다른 리소스 조회는 변경하지 않는다.
      */
     private void hookVoiceResourceId(LoadPackageParam lpparam) {
         try {
@@ -175,16 +173,6 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
             // AccessibilityInteractionController may seal the node before IPC.
             XposedHelpers.setObjectField(node, "mViewIdResourceName", NMIRROR_VOICE_ID);
         }
-        // nMirror 는 이름을 getIdentifier 로 숫자ID 로 바꾼 뒤, 노드의 숫자 id 와
-        // 비교한다(findAccessibilityNodeInfosByViewId). 이름표만으론 부족하므로
-        // 노드의 실제 숫자 id(mSourceNodeId 하위 32bit)도 맞춘다.
-        try {
-            XposedHelpers.setObjectField(node, "mViewId", NMIRROR_VOICE_RES_ID);
-        } catch (Throwable ignored) {
-            // 일부 안드로이드 버전은 mViewId 필드가 없다. 이름 매칭만으로도
-            // nMirror 의 or.w() 폴백(자식/부모 탐색)이 동작할 수 있다.
-        }
-        voiceNodeSource = node;
         if (voiceNodeLogged.compareAndSet(false, true)) {
             KakaoHudLog.line("voice accessibility node exposed: " + NMIRROR_VOICE_ID
                     + " resId=" + Integer.toHexString(NMIRROR_VOICE_RES_ID));
@@ -206,6 +194,9 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
                         AccessibilityNodeInfo node = (AccessibilityNodeInfo)
                                 XposedHelpers.getObjectField(param.args[1], "a");
                         exposeVoiceNode(node);
+                        if (isVoiceNode(node)) {
+                            bindVoiceProxy(param.thisObject, (Integer) param.args[0], node);
+                        }
                     } catch (Throwable t) {
                         KakaoHudLog.ex("composeVoiceNode", t);
                     }
@@ -215,6 +206,68 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         } catch (Throwable t) {
             KakaoHudLog.ex("hookComposeVoiceNode", t);
         }
+    }
+
+    private static boolean isVoiceNode(AccessibilityNodeInfo node) {
+        CharSequence description = node.getContentDescription();
+        CharSequence packageName = node.getPackageName();
+        return description != null && KAKAO_VOICE_DESCRIPTION.contentEquals(description)
+                && node.isClickable() && node.isEnabled()
+                && (packageName == null || KAKAO_PKG.contentEquals(packageName));
+    }
+
+    /** Real, non-drawing View for nMirror's ID lookup; delegates clicks to Compose. */
+    private void bindVoiceProxy(Object delegate, int virtualId, AccessibilityNodeInfo node) {
+        View host = (View) XposedHelpers.getObjectField(delegate, "a");
+        View root = host.getRootView();
+        if (!(root instanceof ViewGroup) || !host.isAttachedToWindow()) return;
+        ViewGroup container = (ViewGroup) root;
+        voiceDelegate = delegate;
+        voiceVirtualId = virtualId;
+        if (voiceProxy != null && voiceProxy.getParent() == container) {
+            positionVoiceProxy(voiceProxy, root, node);
+            return;
+        }
+        if (voiceProxy != null && voiceProxy.getParent() instanceof ViewGroup) {
+            ((ViewGroup) voiceProxy.getParent()).removeView(voiceProxy);
+        }
+        View proxy = new View(host.getContext());
+        proxy.setId(NMIRROR_VOICE_RES_ID);
+        proxy.setContentDescription(KAKAO_VOICE_DESCRIPTION);
+        proxy.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        proxy.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override
+            public void onInitializeAccessibilityNodeInfo(View view, AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(view, info);
+                info.setViewIdResourceName(NMIRROR_VOICE_ID);
+            }
+        });
+        proxy.setOnClickListener(view -> {
+            try {
+                Object current = voiceDelegate;
+                int id = voiceVirtualId;
+                if (current == null || id < 0 || !host.isShown()) return;
+                boolean clicked = (Boolean) current.getClass()
+                        .getMethod("g0", int.class, int.class, Bundle.class)
+                        .invoke(current, id, AccessibilityNodeInfo.ACTION_CLICK, null);
+                KakaoHudLog.line("voice proxy click: virtualId=" + id + " clicked=" + clicked);
+            } catch (Throwable t) {
+                KakaoHudLog.ex("voiceProxyClick", t);
+            }
+        });
+        container.addView(proxy, new ViewGroup.LayoutParams(2, 2));
+        positionVoiceProxy(proxy, root, node);
+        voiceProxy = proxy;
+        KakaoHudLog.line("voice proxy attached: virtualId=" + virtualId);
+    }
+
+    private static void positionVoiceProxy(View proxy, View root, AccessibilityNodeInfo node) {
+        Rect bounds = new Rect();
+        node.getBoundsInScreen(bounds);
+        int[] rootPosition = new int[2];
+        root.getLocationOnScreen(rootPosition);
+        proxy.setTranslationX(Math.max(0, bounds.left - rootPosition[0] + 4));
+        proxy.setTranslationY(Math.max(0, bounds.top - rootPosition[1] + 4));
     }
 
     /** Application.onCreate 를 후킹해 Context 를 얻어 지도 캡처 스레드를 시작한다. */
