@@ -229,7 +229,12 @@ class NavigationRouteData:
         secondary_type = int(_number(_first(secondary, ("type", "sdi_type", "sdiType")), -1))
         secondary_distance = _number(_first(secondary, ("distance_m", "sdi_distance_m", "sdiDistanceM")), -1.0)
         secondary_limit = _number(_first(secondary, ("speed_limit_kph", "limit_kph", "sdi_speed_limit_kph", "sdiSpeedLimitKph")), 0.0)
-        if secondary_type == 22 and secondary_distance > 0.0:
+        # Naver may send a non-speed safety notice first and a camera second.
+        # Apply the same eligibility check as the primary event so that the
+        # second camera reaches both the HUD and CruiseHelper. Never promote
+        # an informational notice without a limit into a camera.
+        if secondary_type >= 0 and secondary_distance > 0.0 and \
+           (secondary_limit > 0.0 or secondary_type == 22):
           result["camera"] = {"type": secondary_type, "distance": secondary_distance,
                               "limit": secondary_limit}
     return result

@@ -118,12 +118,34 @@ final class NaverBridge {
 
     private static String speed(Object store, int roadLimit) {
         List<?> events = asList(value(call(store, "q0")));
-        Object primary = events.isEmpty() ? value(call(store, "r0")) : events.get(0);
-        Object secondary = events.size() > 1 ? events.get(1) : value(call(store, "s0"));
+        Object primary = null, secondary = null, sectionOwner = null;
+        if (events.isEmpty()) {
+            Object first = value(call(store, "r0"));
+            Object second = value(call(store, "s0"));
+            if (section(first) != null) sectionOwner = first;
+            else if (section(second) != null) sectionOwner = second;
+            if (isDisplayableSafety(first)) primary = first;
+            if (second != first && isDisplayableSafety(second)) {
+                if (primary == null) primary = second;
+                else secondary = second;
+            }
+        } else {
+            int index = 0;
+            for (Object event : events) {
+                // Preserve the existing section scope; a distant section later
+                // in the list must not hide an approaching speed camera.
+                if (index++ < 2 && sectionOwner == null && section(event) != null) {
+                    sectionOwner = event;
+                }
+                if (event == null) continue;
+                if (!isDisplayableSafety(event) || event == primary) continue;
+                if (primary == null) primary = event;
+                else if (secondary == null) secondary = event;
+            }
+        }
         StringBuilder out = new StringBuilder("{\"source\":\"NAVER\",\"road_limit_kph\":").append(Math.max(0, roadLimit));
         if (primary != null) out.append(",\"sdi\":").append(NaverCodes.safetyJson(primary));
         if (secondary != null && secondary != primary) out.append(",\"sdi_secondary\":").append(NaverCodes.safetyJson(secondary));
-        Object sectionOwner = section(primary) != null ? primary : section(secondary) != null ? secondary : null;
         if (sectionOwner != null) {
             Object section = section(sectionOwner);
             out.append(",\"section\":{\"active\":true,\"speed_limit_kph\":")
@@ -135,6 +157,15 @@ final class NaverBridge {
                     .append('}');
         }
         return out.append('}').toString();
+    }
+
+    private static boolean isDisplayableSafety(Object sdi) {
+        if (sdi == null || NaverCodes.number(call(sdi, "distance")) <= 0) return false;
+        Object code = call(sdi, "getCode");
+        int raw = (int) NaverCodes.number(call(code, "getValue"));
+        int type = NaverCodes.sdiType(raw, String.valueOf(code));
+        return type == NaverCodes.SDI_SPEED_BUMP
+                || (NaverCodes.sdiLimitAllowed(type) && NaverCodes.speedLimit(sdi) > 0);
     }
 
     private static Object section(Object sdi) {

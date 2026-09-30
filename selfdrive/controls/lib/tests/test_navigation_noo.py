@@ -113,11 +113,28 @@ def test_7714_explicit_and_block_sections_are_projected():
   assert block["camera"] is None
 
 
-def test_7714_secondary_bump_is_used_only_without_primary_camera():
+def test_7714_secondary_safety_is_used_only_without_primary_camera():
   secondary = NavigationRouteData.speed_events(state_with_speed({
     "sdi_secondary": {"type": 22, "distance_m": 80},
   }))
   assert secondary["camera"] == {"type": 22, "distance": 80.0, "limit": 0.0}
+
+  camera = NavigationRouteData.speed_events(state_with_speed({
+    "sdi": {"type": 99, "distance_m": 40, "speed_limit_kph": 0},
+    "sdi_secondary": {"type": 1, "distance_m": 120, "speed_limit_kph": 50},
+  }))
+  assert camera["camera"] == {"type": 1, "distance": 120.0, "limit": 50.0}
+
+  primary = NavigationRouteData.speed_events(state_with_speed({
+    "sdi": {"type": 1, "distance_m": 80, "speed_limit_kph": 30},
+    "sdi_secondary": {"type": 1, "distance_m": 120, "speed_limit_kph": 50},
+  }))
+  assert primary["camera"] == {"type": 1, "distance": 80.0, "limit": 30.0}
+
+  no_limit = NavigationRouteData.speed_events(state_with_speed({
+    "sdi_secondary": {"type": 99, "distance_m": 120, "speed_limit_kph": 0},
+  }))
+  assert no_limit["camera"] is None
 
 
 def test_off_route_suppresses_all_7714_speed_events():
