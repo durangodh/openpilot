@@ -45,6 +45,11 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                             hookActivity(target.classLoader);
                             hookMapProvider(target.classLoader);
                             try {
+                                NaverMarkerSize.install(target.classLoader);
+                            } catch (Throwable error) {
+                                log("marker size hook unavailable: " + error);
+                            }
+                            try {
                                 hookVoiceButton(target.classLoader, app);
                             } catch (Throwable error) {
                                 log("voice hook unavailable: " + error);
