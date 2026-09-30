@@ -93,7 +93,7 @@ final class NaverBridge {
                 + ",\"lon\":" + decimal(fieldNumber(location, "longitude"))
                 + ",\"heading_deg\":" + decimal(NaverCodes.number(call(position, "getHeading")))
                 + ",\"speed_kph\":" + decimal(NaverCodes.number(call(position, "getSpeedKmPerHour")))
-                + ",\"road_name\":" + quote(String.valueOf(call(road, "f"))) + "}");
+                + ",\"road_name\":" + quote(text(call(road, "f"))) + "}");
 
         Object link = call(s, "T");
         client.sendState("speed", speed(s, (int) NaverCodes.number(call(link, "h"))));
@@ -107,7 +107,10 @@ final class NaverBridge {
         Object turn = call(detail, "s");
         int raw = (int) NaverCodes.number(call(turn, "getValue"));
         int mapped = NaverCodes.turnType(raw, String.valueOf(turn));
-        String name = String.valueOf(call(detail, "v"));
+        // The road name is optional in 6.10 (for example at unnamed turns).
+        // Use the maneuver direction in that case; never render Java's "null".
+        String name = text(call(detail, "v"));
+        if (name.isEmpty()) name = text(call(detail, "n"));
         return "{\"source\":\"NAVER\",\"distance_m\":" + NaverCodes.round(NaverCodes.number(call(direction, "h")))
                 + ",\"turn_type\":" + mapped + ",\"naver_turn_type\":" + raw
                 + ",\"main_text\":" + quote(name) + ",\"road_name\":" + quote(name) + "}";
@@ -224,5 +227,9 @@ final class NaverBridge {
 
     private static String quote(String value) {
         return "\"" + NaverCodes.esc(value) + "\"";
+    }
+
+    private static String text(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
     }
 }
