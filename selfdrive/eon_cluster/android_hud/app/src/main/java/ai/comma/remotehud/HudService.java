@@ -5201,9 +5201,8 @@ public final class HudService extends Service {
                     .format(new Date(System.currentTimeMillis() + remainTime * 1000L));
         }
         String minutes = remainTime > 0 ? Integer.toString(Math.max(1, remainTime / 60)) : "--";
-        String kilometres = remainDist >= 1000
-                ? String.format(Locale.US, "%.0f", remainDist / 1000.0)
-                : (remainDist > 0 ? String.format(Locale.US, "%.1f", remainDist / 1000.0) : "--");
+        String kilometres = remainDist > 0
+                ? String.format(Locale.US, "%.1f", remainDist / 1000.0) : "--";
         int value = Color.rgb(20, 24, 28);
         int label = Color.rgb(82, 90, 98);
         float[] columns = {left + JUNCTION_W * 0.24f, left + JUNCTION_W * 0.55f,
