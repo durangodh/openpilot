@@ -1,43 +1,29 @@
 package ai.comma.naverhud;
 
 import android.app.Application;
+import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageInfo;
-import android.os.Build;
 import android.os.SystemClock;
 import android.view.View;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.lang.reflect.Method;
-import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.WeakHashMap;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 
-import dalvik.system.InMemoryDexClassLoader;
 import de.robv.android.xposed.IXposedHookLoadPackage;
-import de.robv.android.xposed.IXposedHookZygoteInit;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam;
 
 /** Attach the existing HUD bridge to the Play Store-signed Naver Map app. */
-public final class NaverHudModule implements IXposedHookLoadPackage, IXposedHookZygoteInit {
+public final class NaverHudModule implements IXposedHookLoadPackage {
     private static final String NAVER_PACKAGE = "com.nhn.android.nmap";
     private static final String VERIFIED_VERSION = "6.10.0.16";
-    private static volatile String modulePath;
     private static final AtomicBoolean attached = new AtomicBoolean(false);
-    private static volatile Method update;
-    private static volatile Method setActivity;
+    private static volatile NaverBridge bridge;
     private static final ThreadLocal<Object> composingClova = new ThreadLocal<>();
     private static final WeakHashMap<View, VoiceClick> voiceClicks = new WeakHashMap<>();
-
-    @Override public void initZygote(StartupParam startupParam) {
-        modulePath = startupParam.modulePath;
-    }
 
     @Override public void handleLoadPackage(final LoadPackageParam target) {
         if (!NAVER_PACKAGE.equals(target.packageName)
@@ -54,12 +40,10 @@ public final class NaverHudModule implements IXposedHookLoadPackage, IXposedHook
                                         + "; leaving the app unchanged");
                                 return;
                             }
-                            if (Build.VERSION.SDK_INT < 26) return;
-                            Class<?> bridge = loadBridge(target.classLoader);
-                            update = bridge.getMethod("update", Object.class);
-                            setActivity = bridge.getMethod("setActivity", Object.class);
+                            bridge = new NaverBridge();
                             hookStore(target.classLoader);
                             hookActivity(target.classLoader);
+                            hookMapProvider(target.classLoader);
                             try {
                                 hookVoiceButton(target.classLoader, app);
                             } catch (Throwable error) {
@@ -75,32 +59,12 @@ public final class NaverHudModule implements IXposedHookLoadPackage, IXposedHook
                 });
     }
 
-    private static Class<?> loadBridge(ClassLoader appLoader) throws Exception {
-        if (modulePath == null) throw new IllegalStateException("module APK path unavailable");
-        byte[] dex;
-        try (ZipFile apk = new ZipFile(modulePath)) {
-            ZipEntry entry = apk.getEntry("assets/naver_bridge.dex");
-            if (entry == null) throw new IllegalStateException("bridge DEX missing from module APK");
-            try (InputStream stream = apk.getInputStream(entry);
-             ByteArrayOutputStream bytes = new ByteArrayOutputStream(65536)) {
-                byte[] chunk = new byte[8192];
-                int count;
-                while ((count = stream.read(chunk)) != -1) bytes.write(chunk, 0, count);
-                dex = bytes.toByteArray();
-            }
-        }
-        // The bridge refers to Naver's classes through reflection. Parent it to
-        // the target app so those classes remain visible without altering its APK.
-        ClassLoader bridgeLoader = new InMemoryDexClassLoader(ByteBuffer.wrap(dex), appLoader);
-        return Class.forName("com.naver.map.carrot.CarrotNaverBridge", true, bridgeLoader);
-    }
-
     private static void hookStore(ClassLoader appLoader) {
         Class<?> store = XposedHelpers.findClass("com.naver.map.core.navigation.NaviStore", appLoader);
         XposedBridge.hookAllConstructors(store, new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam param) {
                 try {
-                    update.invoke(null, param.thisObject);
+                    bridge.setStore(param.thisObject);
                 } catch (Throwable error) {
                     log("NaviStore update failed: " + error);
                 }
@@ -113,9 +77,22 @@ public final class NaverHudModule implements IXposedHookLoadPackage, IXposedHook
         XposedBridge.hookAllMethods(activity, "onResume", new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam param) {
                 try {
-                    setActivity.invoke(null, param.thisObject);
+                    bridge.setActivity((Activity) param.thisObject);
                 } catch (Throwable error) {
                     log("MainActivity capture attach failed: " + error);
+                }
+            }
+        });
+    }
+
+    private static void hookMapProvider(ClassLoader appLoader) {
+        Class<?> provider = XposedHelpers.findClass("com.naver.map.core.auto.map.MapProvider", appLoader);
+        XposedBridge.hookAllConstructors(provider, new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam param) {
+                try {
+                    bridge.setMapProvider(param.thisObject);
+                } catch (Throwable error) {
+                    log("MapProvider capture failed: " + error);
                 }
             }
         });
