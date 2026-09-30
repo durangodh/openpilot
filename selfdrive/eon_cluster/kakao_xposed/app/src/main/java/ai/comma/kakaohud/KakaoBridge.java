@@ -42,6 +42,8 @@ final class KakaoBridge {
     private boolean cachedSafetyEmpty = true;
     private int cachedSafetyAbs = -1, cachedSafetyType = 0, cachedSafetyLimit = 0;
     private boolean cachedSafetySection = false;
+    private Object cachedSafetyItem = null;   // 통과 재확인용 원본 항목
+    private int lastSafetyDistance = Integer.MAX_VALUE;  // 단조 감소 확인용
     private int cachedSectionRemain = -1, cachedSectionVehicleAt = -1;
     private volatile Object repository;
     private volatile long lastRouteSummaryMs = 0;
@@ -272,6 +274,7 @@ final class KakaoBridge {
                 synchronized (guideLock) {
                     hasCachedSafety = true;
                     cachedSafetyEmpty = true;
+                    cachedSafetyItem = null;
                 }
                 publishSafety();
                 return;
@@ -295,6 +298,8 @@ final class KakaoBridge {
                 cachedSafetyEmpty = false;
                 cachedSafetyAbs = bestAbs;
                 cachedSafetyLoc = bestLoc;
+                cachedSafetyItem = best;
+                lastSafetyDistance = Integer.MAX_VALUE;
                 cachedSafetyType = type;
                 cachedSafetyLimit = limit;
                 cachedSafetySection = section && limit > 0;
@@ -350,20 +355,40 @@ final class KakaoBridge {
     private void publishSafety() {
         boolean empty, sectionMode;
         int abs, type, limit, secRemain, secAt;
-        Object vehicleLoc, safetyLoc;
+        Object vehicleLoc, safetyLoc, item;
         synchronized (guideLock) {
             if (!hasCachedSafety) return;
             vehicleLoc = lastVehicleLoc; safetyLoc = cachedSafetyLoc;
             empty = cachedSafetyEmpty; abs = cachedSafetyAbs; type = cachedSafetyType;
             limit = cachedSafetyLimit; sectionMode = cachedSafetySection;
             secRemain = cachedSectionRemain; secAt = cachedSectionVehicleAt;
+            item = cachedSafetyItem;
         }
         if (empty) {
             client.sendState("speed", "{}");
             return;
         }
+        // 매 프레임 통과 여부를 원본 항목에서 다시 확인한다. SDK 거리함수가 통과
+        // 후에도 양수를 주는 경우가 있어(경로객체 변경시 직선거리), 부호만으론
+        // 지나간 카메라가 남는다. getPassed 가 참이면 즉시 지운다.
+        if (item != null && getBoolean(item, "getPassed", "d")) {
+            synchronized (guideLock) { cachedSafetyEmpty = true; cachedSafetyItem = null; }
+            client.sendState("speed", "{}");
+            return;
+        }
         int vehicle = vehicleDistFromS;
         int distance = kakaoDistanceSigned(vehicleLoc, safetyLoc, abs, vehicle);
+        // 단조 감소 가드: 한 번 가까워진 거리가 갑자기 늘면(경로 재계산·직선거리
+        // 튐) 지나친 것으로 보고 지운다. 800m 넘게 튀면 무시.
+        if (!sectionMode) {
+            if (distance >= 0 && distance <= lastSafetyDistance + 50) {
+                lastSafetyDistance = Math.min(lastSafetyDistance, distance);
+            } else if (distance > lastSafetyDistance + 50 && lastSafetyDistance < 400) {
+                synchronized (guideLock) { cachedSafetyEmpty = true; cachedSafetyItem = null; }
+                client.sendState("speed", "{}");
+                return;
+            }
+        }
         if (sectionMode) {
             int remaining;
             if (secRemain > 0) {

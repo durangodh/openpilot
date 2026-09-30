@@ -71,6 +71,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         bridge.setClassLoader(lpparam.classLoader);
         new EonDiscovery(client).start();
 
+        hookVoiceDiagnostics(lpparam);
         hookVoiceResourceId(lpparam);
         hookVoiceAccessibility();
         hookComposeVoiceNode(lpparam);
@@ -85,6 +86,63 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
      * AccessibilityInteractionController 에서 숫자 ID 로 변환된다. 실제 View
      * 프록시의 ID 와 같은 값을 반환한다. 다른 리소스 조회는 변경하지 않는다.
      */
+    private final AtomicBoolean diagFlag = new AtomicBoolean(false);
+    private int diagByIdCount = 0, diagByTextCount = 0, diagActionCount = 0;
+
+    /**
+     * ADB 로그를 볼 수 없어, nMirror 의 접근성 검색을 카카오 프로세스 안에서
+     * 가로채 kakao_hud.log 에 남긴다. 무엇을(리소스ID·텍스트) 찾고 어떤 액션을
+     * 하는지 기록해, 음성버튼이 왜 안 걸리는지 실기 데이터로 판정한다.
+     * 검색은 매우 자주 오므로 종류별 처음 몇 번만 남긴다.
+     */
+    private void hookVoiceDiagnostics(LoadPackageParam lpparam) {
+        try {
+            Class<?> ctrl = lpparam.classLoader.loadClass(
+                    "android.view.AccessibilityInteractionController");
+            XposedBridge.hookAllMethods(ctrl,
+                    "findAccessibilityNodeInfosByViewIdClientThread", new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam param) {
+                    try {
+                        if (diagByIdCount++ >= 8) return;
+                        StringBuilder sb = new StringBuilder("A11Y byViewId:");
+                        for (Object a : param.args) {
+                            if (a instanceof String) sb.append(" str=").append(a);
+                            else if (a instanceof Integer)
+                                sb.append(" int=0x").append(Integer.toHexString((Integer) a));
+                        }
+                        KakaoHudLog.line(sb.toString());
+                    } catch (Throwable ignored) { }
+                }
+            });
+            XposedBridge.hookAllMethods(ctrl,
+                    "findAccessibilityNodeInfosByTextClientThread", new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam param) {
+                    try {
+                        for (Object a : param.args) {
+                            if (a instanceof String && diagByTextCount++ < 8)
+                                KakaoHudLog.line("A11Y byText: " + a);
+                        }
+                    } catch (Throwable ignored) { }
+                }
+            });
+            XposedBridge.hookAllMethods(ctrl,
+                    "performAccessibilityActionClientThread", new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam param) {
+                    try {
+                        if (diagActionCount++ >= 12) return;
+                        StringBuilder sb = new StringBuilder("A11Y action:");
+                        for (Object a : param.args)
+                            if (a instanceof Integer) sb.append(" i=").append(a);
+                        KakaoHudLog.line(sb.toString());
+                    } catch (Throwable ignored) { }
+                }
+            });
+            KakaoHudLog.line("voice diagnostics hooks ready");
+        } catch (Throwable t) {
+            KakaoHudLog.ex("hookVoiceDiagnostics", t);
+        }
+    }
+
     private void hookVoiceResourceId(LoadPackageParam lpparam) {
         try {
             Method getId = Resources.class.getMethod(
@@ -219,6 +277,15 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
     /** Real, non-drawing View for nMirror's ID lookup; delegates clicks to Compose. */
     private void bindVoiceProxy(Object delegate, int virtualId, AccessibilityNodeInfo node) {
         View host = (View) XposedHelpers.getObjectField(delegate, "a");
+        if (host != null && diagFlag.compareAndSet(false, true)) {
+            try {
+                android.view.Display d = host.getDisplay();
+                KakaoHudLog.line("voice proxy display id="
+                        + (d == null ? -1 : d.getDisplayId())
+                        + " (0=기본화면, 그외=nMirror 가상화면) attached="
+                        + host.isAttachedToWindow());
+            } catch (Throwable ignored) { }
+        }
         View root = host.getRootView();
         if (!(root instanceof ViewGroup) || !host.isAttachedToWindow()) return;
         ViewGroup container = (ViewGroup) root;

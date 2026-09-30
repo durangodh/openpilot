@@ -154,6 +154,7 @@ final class KakaoMap {
     }
 
     private long maxFrameMs = 0;
+    private long copyCount = 0;
     private final android.graphics.Paint markerFill = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
     private final android.graphics.Paint markerEdge = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
     private final android.graphics.Paint markerShadow = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
@@ -279,12 +280,19 @@ final class KakaoMap {
     }
 
     private void loop() {
+        long start = android.os.SystemClock.elapsedRealtime();
         try {
             tick();
         } catch (Throwable t) {
             KakaoHudLog.ex("map loop", t);
         } finally {
-            if (handler != null) handler.postDelayed(this::loop, INTERVAL_MS);
+            if (handler != null) {
+                // 고정 200ms 재귀는 capture 가 200ms 넘게 걸리면 밀려서 끊긴다.
+                // 처리시간을 빼고 남은 시간만 쉬어, 실제 프레임 간격을 고르게 한다.
+                long cost = android.os.SystemClock.elapsedRealtime() - start;
+                long delay = Math.max(33, INTERVAL_MS - cost);   // 최소 33ms(최대 ~30fps 상한)
+                handler.postDelayed(this::loop, delay);
+            }
         }
     }
 
@@ -365,15 +373,21 @@ final class KakaoMap {
                 return;
             }
             Bitmap bmp = (Bitmap) bmpObj;
+            boolean copied = false;
             if (!bmp.isMutable()) {
                 Bitmap copy = bmp.copy(Bitmap.Config.ARGB_8888, true);
                 bmp.recycle();
                 bmp = copy;
+                copied = true;
+                copyCount++;
+                if (copyCount == 1 || copyCount % 100 == 0) {
+                    KakaoHudLog.status("capture immutable, copying each frame x" + copyCount);
+                }
             }
             drawVehicleMarker(bmp);
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             bmp.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out);
-            bmp.recycle();
+            if (copied) bmp.recycle();
             byte[] jpeg = out.toByteArray();
             long frameMs = android.os.SystemClock.elapsedRealtime() - t0;
             if (frameMs > maxFrameMs) {
