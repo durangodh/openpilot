@@ -1,5 +1,8 @@
 plugins { id "com.android.application" }
 
+def hudVersionCode = (System.getenv("NAVER_HUD_VERSION_CODE") ?: "1").toInteger()
+def hudVersionName = System.getenv("NAVER_HUD_VERSION_NAME") ?: "0.1-6.10.0.16"
+
 android {
   namespace "ai.comma.naverhud"
   compileSdk 35
@@ -8,8 +11,8 @@ android {
     applicationId "ai.comma.naverhud"
     minSdk 26
     targetSdk 35
-    versionCode 1
-    versionName "0.1-6.10.0.16"
+    versionCode hudVersionCode
+    versionName hudVersionName
   }
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_11

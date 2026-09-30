@@ -1,0 +1,92 @@
+name: Build Naver HUD Xposed module
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [g_remote]
+    paths:
+      - "selfdrive/eon_cluster/naver_xposed/**"
+      - ".github/workflows/build-naver-hud-module.yml"
+
+concurrency:
+  group: naver-hud-module-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-35 build-tools;35.0.1
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Set version
+        run: |
+          echo "NAVER_HUD_VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          echo "NAVER_HUD_VERSION_NAME=0.1-6.10.0.16-b${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+      - name: Build unsigned release APK
+        working-directory: selfdrive/eon_cluster/naver_xposed
+        run: gradle :app:assembleRelease --stacktrace
+      - name: Sign and verify release APK
+        env:
+          HUD_KEY_DATA: ${{ secrets.REMOTE_HUD_KEYSTORE_BASE64 }}
+          HUD_STORE_PASSWORD: ${{ secrets.REMOTE_HUD_KEYSTORE_PASSWORD }}
+          HUD_KEY_ALIAS: ${{ secrets.REMOTE_HUD_KEY_ALIAS }}
+          HUD_KEY_PASSWORD: ${{ secrets.REMOTE_HUD_KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, os, pathlib, subprocess
+
+          for key in ("HUD_KEY_DATA", "HUD_STORE_PASSWORD", "HUD_KEY_ALIAS", "HUD_KEY_PASSWORD"):
+              if not os.environ.get(key):
+                  raise RuntimeError(key + " missing")
+          temporary = pathlib.Path(os.environ["RUNNER_TEMP"])
+          keystore = temporary / "naver-hud-signing.p12"
+          keystore.write_bytes(base64.b64decode(os.environ["HUD_KEY_DATA"], validate=True))
+          keystore.chmod(0o600)
+          tools = pathlib.Path(os.environ["ANDROID_HOME"]) / "build-tools/35.0.1"
+          source = pathlib.Path("selfdrive/eon_cluster/naver_xposed/app/build/outputs/apk/release/app-release-unsigned.apk")
+          output = temporary / "NaverHud-6.10.0.16-latest.apk"
+          try:
+              subprocess.run([str(tools / "apksigner"), "sign", "--ks", str(keystore),
+                              "--ks-key-alias", os.environ["HUD_KEY_ALIAS"],
+                              "--ks-pass", "env:HUD_STORE_PASSWORD", "--key-pass", "env:HUD_KEY_PASSWORD",
+                              "--out", str(output), str(source)], check=True)
+              subprocess.run([str(tools / "apksigner"), "verify", "--verbose", "--print-certs", str(output)], check=True)
+              badging = subprocess.check_output([str(tools / "aapt"), "dump", "badging", str(output)], text=True)
+              if "name='ai.comma.naverhud'" not in badging or "0.1-6.10.0.16-b" not in badging:
+                  raise RuntimeError("Unexpected APK package or version")
+              digest = hashlib.sha256(output.read_bytes()).hexdigest()
+              (temporary / "NaverHud-6.10.0.16-latest.apk.sha256").write_text(
+                  f"{digest}  {output.name}\n", encoding="utf-8")
+          finally:
+              keystore.unlink(missing_ok=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: naver-hud-xposed-release
+          path: |
+            ${{ runner.temp }}/NaverHud-6.10.0.16-latest.apk
+            ${{ runner.temp }}/NaverHud-6.10.0.16-latest.apk.sha256
+      - name: Publish to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view naver-hud-auto >/dev/null 2>&1; then
+            gh release create naver-hud-auto --target "$GITHUB_SHA" \
+              --title "Naver HUD Xposed module" \
+              --notes "원본 네이버지도 6.10.0.16 전용 LSPosed HUD 모듈입니다. 네이버지도 앱은 포함하지 않습니다. 기존 디버그 서명 모듈에서는 서명이 달라 첫 교체 시 모듈 재설치가 필요합니다."
+          fi
+          gh release upload naver-hud-auto \
+            "$RUNNER_TEMP/NaverHud-6.10.0.16-latest.apk" \
+            "$RUNNER_TEMP/NaverHud-6.10.0.16-latest.apk.sha256" --clobber

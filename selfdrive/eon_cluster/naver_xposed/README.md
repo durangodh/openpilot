@@ -35,10 +35,13 @@ updated in place with the original package.
   `enabled=true`. The vehicle button has not yet been tested in the car.
   Normal on-screen microphone behavior should remain unchanged; a live
   accessibility click is still required to confirm it.
-- This is an experimental debug-signed module, not a release. The former app
-  and app data were backed up before replacing the app. A different module
-  signing key requires uninstalling the module
-  before reinstalling it; keep a stable key for future updates.
+- Local builds are debug-signed; the `naver-hud-auto` release workflow signs
+  the standalone module with the permanent Remote HUD key. The former app
+  and app data were backed up before replacing the app. Moving from a local
+  debug-signed module to the release-signed module requires uninstalling only
+  `ai.comma.naverhud` first, then installing the release APK and re-enabling
+  its LSPosed scope. Do not uninstall the original Naver Maps app. Subsequent
+  release APKs use the same signing key and increasing version codes.
 - The module has an exact 6.10.0.16 version gate. A later Play Store update
   will leave the Naver app untouched but disable the bridge until retested
   and updated for that version.
