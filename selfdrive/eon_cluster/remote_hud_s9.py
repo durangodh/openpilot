@@ -61,6 +61,7 @@ def _apply_naver_speed(packet):
   packet["camera"] = 0
   packet["cameraDist"] = 0
   packet["cameraSection"] = False
+  packet["cameraSectionAvg"] = 0
   packet["bumpDist"] = 0
 
   if isinstance(camera, dict):
@@ -76,6 +77,8 @@ def _apply_naver_speed(packet):
     packet["camera"] = max(0, int(round(float(section.get("limit", 0.0) or 0.0))))
     packet["cameraDist"] = max(0, int(round(float(section.get("distance", 0.0) or 0.0))))
     packet["cameraSection"] = packet["camera"] > 0 and packet["cameraDist"] > 0
+    if packet["cameraSection"]:
+      packet["cameraSectionAvg"] = max(0, int(round(float(section.get("average", 0.0) or 0.0))))
   return packet
 
 def _packet(sm, *args, **kwargs):

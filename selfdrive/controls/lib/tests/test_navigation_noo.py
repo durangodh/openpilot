@@ -101,15 +101,16 @@ def test_7714_primary_camera_and_bump_are_projected():
 
 def test_7714_explicit_and_block_sections_are_projected():
   explicit = NavigationRouteData.speed_events(state_with_speed({
-    "section": {"active": True, "speed_limit_kph": 80, "remaining_distance_m": 2345},
+    "section": {"active": True, "speed_limit_kph": 80, "remaining_distance_m": 2345,
+                "average_speed_kph": 76},
   }))
-  assert explicit["section"] == {"distance": 2345.0, "limit": 80.0}
+  assert explicit["section"] == {"distance": 2345.0, "limit": 80.0, "average": 76.0}
 
   block = NavigationRouteData.speed_events(state_with_speed({
     "sdi": {"type": 1, "speed_limit_kph": 60, "block_type": 2,
             "block_speed_kph": 50, "block_distance_m": 390},
   }))
-  assert block["section"] == {"distance": 390.0, "limit": 50.0}
+  assert block["section"] == {"distance": 390.0, "limit": 50.0, "average": 0.0}
   assert block["camera"] is None
 
 

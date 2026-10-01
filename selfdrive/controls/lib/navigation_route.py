@@ -199,8 +199,12 @@ class NavigationRouteData:
         "speed_limit_kph", "limit_kph", "section_speed_limit_kph", "sectionSpeedLimitKph")), 0.0)
       section_distance = _number(_first(section, (
         "remaining_distance_m", "distance_m", "section_remaining_distance_m", "sectionRemainingDistanceM")), -1.0)
+      # Display only (HUD); 0 when the app does not report it.
+      section_average = max(0.0, _number(_first(section, (
+        "average_speed_kph", "section_average_speed_kph", "sectionAverageSpeedKph")), 0.0))
       if section_active and not section_suspended and not section_off_route and section_limit > 0.0 and section_distance > 0.0:
-        result["section"] = {"distance": section_distance, "limit": section_limit}
+        result["section"] = {"distance": section_distance, "limit": section_limit,
+                             "average": section_average}
 
     primary = speed.get("sdi")
     if not isinstance(primary, dict):
@@ -215,7 +219,7 @@ class NavigationRouteData:
     if result["section"] is None and block_type in (2, 3) and block_distance > 0.0:
       limit = block_limit if block_limit > 0.0 else sdi_limit
       if limit > 0.0:
-        result["section"] = {"distance": block_distance, "limit": limit}
+        result["section"] = {"distance": block_distance, "limit": limit, "average": 0.0}
 
     # An explicit/legacy block section owns the speed event, matching
     # carrot-wip's section-first projection instead of applying it twice as a

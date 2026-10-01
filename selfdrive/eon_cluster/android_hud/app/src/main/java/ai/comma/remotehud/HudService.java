@@ -2298,7 +2298,7 @@ public final class HudService extends Service {
             // remote_hud._packet 에서 이미 EON drawSpeedLimit 과 같은 우선순위로
             // 골라 보낸다. 도로 제한속도(limit) 는 여기에 그리지 않는다.
             drawCamera(c, p, 882f, 171f, s.optInt("camera", 0), s.optInt("cameraDist", 0),
-                    s.optBoolean("cameraSection", false));
+                    s.optBoolean("cameraSection", false), s.optInt("cameraSectionAvg", 0));
         }
         c.restoreToCount(save6);
         skyBand = false;
@@ -3992,7 +3992,8 @@ public final class HudService extends Service {
         text(c, p, distanceText(dist), cx, cy + 60f, 18f, ink(), Paint.Align.CENTER);
     }
 
-    private void drawCamera(Canvas c, Paint p, float cx, float cy, int limit, int dist, boolean section) {
+    private void drawCamera(Canvas c, Paint p, float cx, float cy, int limit, int dist, boolean section,
+                            int sectionAvg) {
         if (limit <= 0) {
             return;
         }
@@ -4008,6 +4009,11 @@ public final class HudService extends Service {
         if (dist > 0) {
             text(c, p, (section ? lang("구간 ", "ZONE ") : "") + distanceText(dist), cx, cy + 60f, 18f,
                     ink(), Paint.Align.CENTER);
+        }
+        if (section && sectionAvg > 0) {
+            // 구간단속 평균속도. 제한속도를 넘으면 빨간색.
+            int color = sectionAvg > limit ? Color.rgb(220, 45, 45) : ink();
+            text(c, p, lang("평균 ", "AVG ") + sectionAvg, cx, cy + 82f, 18f, color, Paint.Align.CENTER);
         }
     }
 
