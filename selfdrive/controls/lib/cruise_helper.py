@@ -23,6 +23,8 @@ from selfdrive.road_speed_limiter import get_road_speed_limiter
 SYNC_MARGIN = 3.0
 NAVI_DISTANCE_HOLD_TIME = 1.0
 NAVI_DISTANCE_MAX_DT = 0.2
+# NOO turn speed profile decel (m/s^2); also published to the planner bound.
+NOO_TURN_DECEL = 1.2
 MIN_SET_SPEED_KPH = V_CRUISE_MIN
 MAX_SET_SPEED_KPH = V_CRUISE_MAX
 
@@ -929,7 +931,7 @@ class CruiseHelper:
 
     if self.noo_enabled and self.noo_mode in (0, 1, 3) and not CS.out.brakePressed:
       limits = self.navigation_route.speed_limits_kph(navi_state, self.noo_turn_speed,
-                                                       self.noo_turn_end_time)
+                                                       self.noo_turn_end_time, NOO_TURN_DECEL)
       limits = [value for value in limits if value is not None]
       if limits:
         noo_speed_clu = self.kph_to_clu(min(limits))
@@ -943,6 +945,8 @@ class CruiseHelper:
       self.apply_decel_rate = self.auto_navi_speed_decel_rate
     elif self.apply_source in ("vturn", "route"):
       self.apply_decel_rate = self.auto_curve_speed_decel_rate
+    elif self.apply_source == "noo":
+      self.apply_decel_rate = NOO_TURN_DECEL
     else:
       self.apply_decel_rate = 0.0
 

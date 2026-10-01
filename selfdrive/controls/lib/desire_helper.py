@@ -368,6 +368,8 @@ class DesireHelper:
        (noo_probe_direction > 0 and carstate.steeringTorque > 0))
     noo_conflicting_blinker = ((noo_probe_direction < 0 and carstate.rightBlinker) or
                                (noo_probe_direction > 0 and carstate.leftBlinker))
+    noo_left_open = not left_road_edge
+    noo_right_open = not right_road_edge
     if noo_lane_change_available:
       # lane_plan already verified the TMAP target and reconciled ego lane.
       # Let a strong adjacent lane line override only a contradictory roadEdge
@@ -405,8 +407,12 @@ class DesireHelper:
     # Driver lane changes retain the original road-edge gate. NOO raises its
     # virtual blinker only after model geometry and matching BSD are clear.
     direction = -1 if left_blinker else 1 if right_blinker else 0
-    if direction == noo_direction and noo_direction != 0:
-      self.road_edge = left_road_edge if direction < 0 else right_road_edge
+    # NOO requests use the same edge verdict (including the adjacent-lane-line
+    # override) the NOO controller used to raise the request. Otherwise the
+    # request opens while the FSM below stays edge-blocked.
+    noo_auto_request = noo_direction != 0 and direction == noo_direction
+    if noo_auto_request:
+      self.road_edge = not (noo_left_open if direction < 0 else noo_right_open)
     else:
       self.road_edge = ((left_road_edge if direction < 0 else right_road_edge)
                         if direction else False)
@@ -426,7 +432,6 @@ class DesireHelper:
       # 토크나 자동타이머 둘 다 "차선변경 시작 의사"로 오인하지 않는다. 반대방향
       # 토크(opposite_torque, turn_direction 계산부에서 이미 처리됨)는 여전히 취소로
       # 작동한다.
-      noo_auto_request = noo_direction != 0 and direction == noo_direction
       if noo_auto_request and self.lane_change_need_torque > 0:
         # carrot "토크필요": NOO가 깜빡이만 세워 준비하고, 운전자가 같은 방향으로
         # 핸들을 살짝 밀어야(steeringPressed + 방향 일치) 차선변경을 시작한다.
@@ -440,8 +445,12 @@ class DesireHelper:
       blindspot_detected = ((carstate.leftBlindspot and self.lane_change_direction == LaneChangeDirection.left) or
                             (carstate.rightBlindspot and self.lane_change_direction == LaneChangeDirection.right))
 
+      # A NOO request holds its virtual blinker on, so it never produces a new
+      # rising edge. Let it (re)enter preLaneChange once the speed gate opens,
+      # e.g. after it was raised below AutoLaneChangeSpeed.
       if self.lane_change_state == LaneChangeState.off and one_blinker and \
-         not self.prev_one_blinker and not below_lane_change_speed and not carstate.brakePressed:
+         (not self.prev_one_blinker or noo_auto_request) and \
+         not below_lane_change_speed and not carstate.brakePressed:
         if left_blinker:
           self.lane_change_direction = LaneChangeDirection.left
         elif right_blinker:
@@ -451,9 +460,11 @@ class DesireHelper:
         self.lane_change_ll_prob = 1.0
         self.lane_change_wait_timer = 0.0
 
-      # preLaneChange: road edge 감지 시 차단
+      # preLaneChange: road edge 감지 시 시작만 막는다. 방향을 지워 버리면 경계가
+      # 풀린 뒤 방향 없이 laneChangeStarting 으로 넘어가 실제로는 넘어가지 않는
+      # "가짜 차선변경"이 됐다.
       elif self.lane_change_state == LaneChangeState.preLaneChange and self.road_edge:
-        self.lane_change_direction = LaneChangeDirection.none
+        pass
 
       # LaneChangeState.preLaneChange
       elif self.lane_change_state == LaneChangeState.preLaneChange:
@@ -469,6 +480,11 @@ class DesireHelper:
 
         elif not torque_applied and self.auto_lane_change_timer == 10.0 and not self.prev_torque_applied:
           self.prev_torque_applied = True
+
+        elif self.lane_change_direction == LaneChangeDirection.none:
+          # e.g. blinker still held after a finished change: never start a
+          # lane change without a direction.
+          pass
 
         elif (torque_applied and (not blindspot_detected or self.prev_torque_applied)) or \
              (lane_change_auto_timer and
