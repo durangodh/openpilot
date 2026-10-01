@@ -46,6 +46,15 @@ MAP_IDLE_JPEG = base64.b64decode(
   "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDz+iiigD//2Q==")
 MAX_TELEMETRY_FPS = 10
 PAUSED_TELEMETRY_FPS = 2
+# Remote key commands authenticate with the ticket in each telemetry packet:
+# S9 needs one within 250 ms and EON accepts it for 400 ms. Below 5 FPS the
+# remote is rejected or reports no answer, so keep this floor while a key is set.
+REMOTE_MIN_TELEMETRY_FPS = 5
+
+
+def _telemetry_fps(configured_fps, remote_key):
+  fps = PAUSED_TELEMETRY_FPS if configured_fps == 0 else min(MAX_TELEMETRY_FPS, configured_fps)
+  return max(fps, REMOTE_MIN_TELEMETRY_FPS) if remote_key else fps
 PARAM_ENABLED = "EonClusterHud"
 PARAM_CONNECTED = "EonClusterHudConnected"
 PARAM_HEARTBEAT = "EonClusterHudHeartbeat"
@@ -1270,7 +1279,7 @@ def main():
   noo_enabled = _param_bool(params, PARAM_NOO_ENABLED)
   path_offset = _path_offset(params)
   configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
-  telemetry_fps = PAUSED_TELEMETRY_FPS if configured_fps == 0 else min(MAX_TELEMETRY_FPS, configured_fps)
+  telemetry_fps = _telemetry_fps(configured_fps, remote_commands.refresh_key())
   # Check for a new map file on every loop tick and forward it at once.
   # carrot_navi_server already limits the write rate to S9 HUD MAP FPS;
   # resampling it here on a second, unsynchronised clock made the map
@@ -1291,7 +1300,7 @@ def main():
       noo_enabled = _param_bool(params, PARAM_NOO_ENABLED)
       path_offset = _path_offset(params)
       configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
-      telemetry_fps = PAUSED_TELEMETRY_FPS if configured_fps == 0 else min(MAX_TELEMETRY_FPS, configured_fps)
+      telemetry_fps = _telemetry_fps(configured_fps, remote_commands.refresh_key())
       map_server.set_poll_fps(telemetry_fps)
       next_param_read = started + 1.0
     sm.update(0)

@@ -10,6 +10,11 @@ from selfdrive.eon_cluster.hud_remote import RemoteLaneChangeSource
 
 AUTO_LCA_START_TIME = 1.0
 ROAD_EDGE_OPEN_CONFIRM_FRAMES = max(1, int(round(0.2 / DT_MDL)))
+# A remote lane request is a single press (0.3 s pulse). It is latched until
+# the lane change finishes, dropped if no change starts within START_TIMEOUT
+# (BSD, road edge, speed gate) and never held longer than MAX_TIME.
+REMOTE_LANE_START_TIMEOUT = 3.0
+REMOTE_LANE_MAX_TIME = 12.0
 
 LaneChangeState = log.LateralPlan.LaneChangeState
 LaneChangeDirection = log.LateralPlan.LaneChangeDirection
@@ -47,6 +52,9 @@ class DesireHelper:
     # HUD 리모컨 차선변경 요청(가상 깜빡이, carrot LANECHANGE). NOO 와 같은 게이트를 탄다.
     self.remote_lane = RemoteLaneChangeSource()
     self.remote_direction = 0
+    self.remote_raw_prev = 0
+    self.remote_timer = 0.0
+    self.remote_started = False
     self.lane_change_ll_prob = 1.0
     self.keep_pulse_timer = 0.0
     self.prev_one_blinker = False
@@ -277,6 +285,43 @@ class DesireHelper:
     else:
       self.turn_disable_count = max(0, self.turn_disable_count - 1)
 
+  def _release_remote_lane(self):
+    self.remote_direction = 0
+    self.remote_timer = 0.0
+    self.remote_started = False
+
+  def _latch_remote_lane(self, raw, carstate, lateral_active):
+    """Hold a one-shot remote lane request through one complete lane change."""
+    rising = raw != 0 and raw != self.remote_raw_prev
+    self.remote_raw_prev = raw
+    direction = self.remote_direction
+    if rising:
+      if direction == 0:
+        self._release_remote_lane()
+        self.remote_direction = raw
+        return raw
+      if raw != direction:
+        # An opposite request cancels instead of reversing mid-change.
+        self._release_remote_lane()
+        return 0
+    if direction == 0:
+      return 0
+
+    in_change = self.lane_change_state in (LaneChangeState.laneChangeStarting,
+                                           LaneChangeState.laneChangeFinishing)
+    self.remote_timer += DT_MDL
+    opposite_torque = carstate.steeringPressed and \
+      ((direction < 0 and carstate.steeringTorque < 0) or (direction > 0 and carstate.steeringTorque > 0))
+    opposite_blinker = (direction < 0 and carstate.rightBlinker) or (direction > 0 and carstate.leftBlinker)
+    done = self.remote_started and not in_change
+    timed_out = (not self.remote_started and self.remote_timer > REMOTE_LANE_START_TIMEOUT) or \
+                self.remote_timer > REMOTE_LANE_MAX_TIME
+    if not lateral_active or carstate.brakePressed or opposite_torque or opposite_blinker or done or timed_out:
+      self._release_remote_lane()
+      return 0
+    self.remote_started = self.remote_started or in_change
+    return direction
+
   def update(self, carstate, lateral_active, lane_change_prob, model_data=None):
     t = time.monotonic()
     if t - self.last_params_update > 1.0:
@@ -394,8 +439,9 @@ class DesireHelper:
     self.noo_target_lane = self.noo_controller.target_lane
 
     # 리모컨 요청은 NOO 요청이 없을 때만, 그리고 자동 차선변경이 켜져 있을 때(LaneChangeNeedTorque >= 0)만.
-    self.remote_direction = self.remote_lane.poll() if (self.lane_change_enabled and
-                                                       self.lane_change_need_torque >= 0) else 0
+    remote_raw = self.remote_lane.poll() if (self.lane_change_enabled and
+                                             self.lane_change_need_torque >= 0) else 0
+    self.remote_direction = self._latch_remote_lane(remote_raw, carstate, lateral_active)
     if noo_direction == 0 and self.remote_direction != 0 and lateral_active and not carstate.brakePressed:
       noo_direction = self.remote_direction
     navigation_lane_direction = noo_direction

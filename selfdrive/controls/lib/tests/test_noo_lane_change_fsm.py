@@ -4,7 +4,7 @@ import unittest
 
 from selfdrive.controls.lib.tests.test_steering_input_regressions import load_planner_module
 
-OFF, PRE, STARTING = 0, 1, 2
+OFF, PRE, STARTING, FINISHING = 0, 1, 2, 3
 NONE, LEFT = 0, 1
 
 
@@ -99,6 +99,58 @@ class TestNooLaneChangeFsm(unittest.TestCase):
     for _ in range(40):
       self.helper.update(c, True, 0.0)
     self.assertEqual(self.helper.lane_change_state, PRE)
+
+
+class FakeRemote:
+  def __init__(self):
+    self.direction = 0
+
+  def poll(self):
+    return self.direction
+
+
+class TestRemoteLaneLatch(TestNooLaneChangeFsm):
+  def setUp(self):
+    super().setUp()
+    self.helper.noo_controller.direction = 0
+    self.remote = FakeRemote()
+    self.helper.remote_lane = self.remote
+
+  def press(self, c, direction=-1):
+    self.remote.direction = direction
+    for _ in range(6):   # 0.3 s pulse at 20 Hz
+      self.helper.update(c, True, 0.0)
+    self.remote.direction = 0
+
+  def test_single_press_holds_through_the_lane_change(self):
+    c = car(60)
+    self.press(c)
+    self.assertEqual(self.helper.lane_change_state, STARTING)
+    for _ in range(10):
+      self.helper.update(c, True, 0.5)
+    self.assertEqual(self.helper.lane_change_state, STARTING)
+    self.assertEqual(self.helper.remote_direction, -1)
+    # Model reports the change done -> finishing -> released, back to off.
+    for _ in range(40):
+      self.helper.update(c, True, 0.0)
+    self.assertEqual(self.helper.remote_direction, 0)
+    self.assertEqual(self.helper.lane_change_state, OFF)
+
+  def test_request_that_never_starts_times_out(self):
+    c = car(60)
+    c.leftBlindspot = True
+    self.press(c)
+    for _ in range(80):
+      self.helper.update(c, True, 0.0)
+    self.assertEqual(self.helper.remote_direction, 0)
+    self.assertNotEqual(self.helper.lane_change_state, STARTING)
+
+  def test_brake_cancels_the_latch(self):
+    c = car(60)
+    self.press(c)
+    c.brakePressed = True
+    self.helper.update(c, True, 0.5)
+    self.assertEqual(self.helper.remote_direction, 0)
 
 
 if __name__ == "__main__":
