@@ -12,6 +12,9 @@ E2E_FAR_STOP_DISTANCE = 40.0
 E2E_VISION_LEAD_DISTANCE = 90.0
 E2E_VISION_LEAD_CONFIRM_TIME = 0.5
 E2E_LEAD_DROPOUT_CONFIRM_TIME = 0.5
+# A lead at least this far beyond the model stop point (e.g. it went through
+# on amber) no longer blocks entering a signal stop.
+E2E_LEAD_BEYOND_STOP_MARGIN = 10.0
 E2E_MODE_RELEASE_HOLD_TIME = 0.0
 TRAFFIC_STOP_SOLVER_COMFORT_BRAKE = 2.5
 TRAFFIC_STOP_APILOT_COMFORT_BRAKE = 2.5
@@ -272,6 +275,13 @@ class ConditionalE2EController:
                                   radar_lead_distance > 0.0 and
                                   radar_lead_distance - filtered_stop_x < 2.0)
 
+    # Any lead used to block entering a signal stop, even one already past the
+    # intersection, so ego followed it through instead of stopping. A lead
+    # well beyond the stop point no longer blocks; it stays an MPC obstacle,
+    # and a lead closer than the stop point still ends the stop (below).
+    lead_beyond_stop = (lead_present and radar_lead_distance >
+                        filtered_stop_x + E2E_LEAD_BEYOND_STOP_MARGIN)
+
     if self.stopping:
       if start_sign or gas_pressed:
         self.stopping = False
@@ -307,7 +317,7 @@ class ConditionalE2EController:
         self.prepare = False
         self.mode_release_hold_count = self.mode_release_hold_frames
 
-    elif (stop_sign and not effective_lead_present and not gas_pressed and
+    elif (stop_sign and (not effective_lead_present or lead_beyond_stop) and not gas_pressed and
           (abs(steering_angle_deg) <= 5.0 or
            (model_v < 3.0 and abs(steering_angle_deg) <= _curve_stop_steer_limit(v_ego_kph)))):
       self.stopping = True

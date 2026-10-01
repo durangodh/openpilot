@@ -1,3 +1,5 @@
+import pytest
+
 from selfdrive.controls.lib.conditional_e2e import (E2E_LEAD_DROPOUT_CONFIRM_TIME,
                                                     E2E_MODE_RELEASE_HOLD_TIME,
                                                     E2E_REASON_ACC,
@@ -159,7 +161,7 @@ def test_confirmed_vision_lead_release_is_hysteretic():
   assert update(controller, lead_present=False, vision_lead_present=False) == 'acc'
 
 
-def test_radar_lead_stays_acc_and_suppresses_new_signal_stop():
+def test_radar_lead_before_the_stop_keeps_acc_and_suppresses_signal_stop():
   controller = ConditionalE2EController(DT_MDL)
   mode = enter_stop(controller, distance=80.0)
   assert mode == 'blended'
@@ -169,11 +171,18 @@ def test_radar_lead_stays_acc_and_suppresses_new_signal_stop():
   assert mode == 'acc'
   assert not controller.stopping
 
+  # A lead within E2E_LEAD_BEYOND_STOP_MARGIN of the stop still blocks it.
   controller.reset()
   mode = update(controller, model_x=80.0, model_v0=10.0, model_v_end=1.0,
-                lead_present=True, radar_lead_present=True, radar_lead_distance=100.0)
+                lead_present=True, radar_lead_present=True, radar_lead_distance=85.0)
   assert mode == 'acc'
   assert not controller.stopping
+
+  # One well beyond the stop point (e.g. through on amber) no longer does.
+  controller.reset()
+  update(controller, model_x=80.0, model_v0=10.0, model_v_end=1.0,
+         lead_present=True, radar_lead_present=True, radar_lead_distance=100.0)
+  assert controller.stopping
 
 
 def test_brief_lead_dropout_does_not_enter_signal_stop():
@@ -295,3 +304,21 @@ def test_invalid_model_falls_back_safely():
   controller = ConditionalE2EController(DT_MDL)
   assert update(controller, model_valid=False) == 'acc'
   assert update(controller, model_valid=False, experimental_mode=True) == 'blended'
+
+
+def test_lead_well_beyond_the_stop_point_does_not_block_signal_stop():
+  # A lead that went through on amber is 70 m ahead; the model stops at 40 m.
+  controller = ConditionalE2EController(DT_MDL)
+  for _ in range(20):
+    update(controller, model_x=40.0, model_v0=10.0, model_v_end=1.0,
+           lead_present=True, radar_lead_present=True, radar_lead_distance=70.0)
+  assert controller.stopping
+
+
+@pytest.mark.parametrize('lead_distance', [25.0, 45.0])
+def test_lead_before_or_near_the_stop_point_still_blocks(lead_distance):
+  controller = ConditionalE2EController(DT_MDL)
+  for _ in range(20):
+    update(controller, model_x=40.0, model_v0=10.0, model_v_end=1.0,
+           lead_present=True, radar_lead_present=True, radar_lead_distance=lead_distance)
+  assert not controller.stopping
