@@ -24,6 +24,12 @@ final class KakaoBridge {
     private final AtomicBoolean loggedSafety = new AtomicBoolean(false);
     private final AtomicBoolean loggedRouteSummary = new AtomicBoolean(false);
     private volatile int vehicleDistFromS = -1;
+    // 도로 제한속도(km/h, 0=모름). 위치 안내 객체의 제한속도 getter 에서 읽는다.
+    private volatile int roadLimitKph = 0;
+    private final AtomicBoolean loggedRoadLimit = new AtomicBoolean(false);
+    private Method roadLimitMethod;
+    private Class<?> roadLimitClass;
+    private boolean roadLimitFromGuide;
 
     // 안내·카메라는 경로 기준 절대거리(distFromS)로 캐시해 두고, 위치가 갱신될
     // 때마다 현재 차량 진행거리로 다시 빼서 보낸다. 카카오 앱도 위치 Flow 와
@@ -112,6 +118,7 @@ final class KakaoBridge {
             int angle = getInt(loc, "getAngleOrigin", "e");
             int distFromS = getInt(loc, "getDistFromS", "f");
             if (distFromS >= 0) vehicleDistFromS = distFromS;
+            roadLimitKph = readRoadLimit(loc, locGuide);
             synchronized (guideLock) {
                 lastVehicleLoc = loc;
             }
@@ -428,15 +435,15 @@ final class KakaoBridge {
         int abs, type, limit, secRemain, secAt;
         Object vehicleLoc, safetyLoc, item;
         synchronized (guideLock) {
-            if (!hasCachedSafety) return;
             vehicleLoc = lastVehicleLoc; safetyLoc = cachedSafetyLoc;
-            empty = cachedSafetyEmpty; abs = cachedSafetyAbs; type = cachedSafetyType;
+            // 안전 콜백 전에도 도로 제한속도는 보낸다.
+            empty = !hasCachedSafety || cachedSafetyEmpty; abs = cachedSafetyAbs; type = cachedSafetyType;
             limit = cachedSafetyLimit; sectionMode = cachedSafetySection;
             secRemain = cachedSectionRemain; secAt = cachedSectionVehicleAt;
             item = cachedSafetyItem;
         }
         if (empty) {
-            client.sendState("speed", "{}");
+            sendSpeed("");
             return;
         }
         // 매 프레임 통과 여부를 원본 항목에서 다시 확인한다. SDK 거리함수가 통과
@@ -444,7 +451,7 @@ final class KakaoBridge {
         // 지나간 카메라가 남는다. getPassed 가 참이면 즉시 지운다.
         if (item != null && getBoolean(item, "getPassed", "d")) {
             synchronized (guideLock) { cachedSafetyEmpty = true; cachedSafetyItem = null; }
-            client.sendState("speed", "{}");
+            sendSpeed("");
             return;
         }
         int vehicle = vehicleDistFromS;
@@ -456,7 +463,7 @@ final class KakaoBridge {
                 lastSafetyDistance = Math.min(lastSafetyDistance, distance);
             } else if (distance > lastSafetyDistance + 50 && lastSafetyDistance < 400) {
                 synchronized (guideLock) { cachedSafetyEmpty = true; cachedSafetyItem = null; }
-                client.sendState("speed", "{}");
+                sendSpeed("");
                 return;
             }
         }
@@ -469,19 +476,106 @@ final class KakaoBridge {
             } else {
                 remaining = distance;
             }
-            client.sendState("speed", "{\"section\":{\"active\":true,\"suspended\":false"
+            sendSpeed(",\"section\":{\"active\":true,\"suspended\":false"
                     + ",\"speed_limit_kph\":" + limit
-                    + ",\"remaining_distance_m\":" + Math.max(0, remaining) + "}}");
+                    + ",\"remaining_distance_m\":" + Math.max(0, remaining) + "}");
             return;
         }
         if (distance < 0) {
             // 지나친 카메라는 다음 안전 콜백이 올 때까지 보내지 않는다.
-            client.sendState("speed", "{}");
+            sendSpeed("");
             return;
         }
-        client.sendState("speed", "{\"sdi\":{\"type\":" + type
+        sendSpeed(",\"sdi\":{\"type\":" + type
                 + ",\"distance_m\":" + distance
-                + ",\"speed_limit_kph\":" + limit + "}}");
+                + ",\"speed_limit_kph\":" + limit + "}");
+    }
+
+    /** speed 스트림은 매번 통째로 바뀌므로 도로 제한속도를 항상 같이 싣는다. */
+    private void sendSpeed(String events) {
+        client.sendState("speed", "{\"source\":\"KAKAO\",\"road_limit_kph\":" + roadLimitKph + events + "}");
+    }
+
+    private static final String[] ROAD_LIMIT_NAMES = {
+            "getSpeedLimit", "getLimitSpeed", "getRoadSpeedLimit", "getRoadLimitSpeed",
+            "getMaxSpeed", "getRoadMaxSpeed", "getLimitSpd", "getSpdLimit"};
+
+    /**
+     * 도로 제한속도 getter 를 위치(KNLocation) → 위치안내(KNGuide_Location) 순으로
+     * 찾는다. 이름 후보가 없으면 인자 없는 정수 getter 중 이름에 limit 과
+     * speed/spd 가 모두 들어간 것을 쓴다. 처음 한 번 결과(또는 후보 목록)를
+     * 로그로 남겨 실제 이름을 확인할 수 있게 한다.
+     */
+    private int readRoadLimit(Object loc, Object guide) {
+        try {
+            Object holder = null;
+            if (roadLimitMethod != null) {
+                holder = roadLimitFromGuide ? guide : loc;
+                if (holder == null || !roadLimitClass.isInstance(holder)) {
+                    roadLimitMethod = null;
+                    holder = null;
+                }
+            }
+            if (roadLimitMethod == null) {
+                Method m = findRoadLimitMethod(loc);
+                boolean fromGuide = false;
+                if (m == null) {
+                    m = findRoadLimitMethod(guide);
+                    fromGuide = m != null;
+                }
+                if (loggedRoadLimit.compareAndSet(false, true)) {
+                    KakaoHudLog.line(m != null
+                            ? "ROAD LIMIT getter " + (fromGuide ? "guide." : "loc.") + m.getName()
+                            : "ROAD LIMIT getter not found; loc ints=" + intGetters(loc)
+                              + " guide ints=" + intGetters(guide));
+                }
+                if (m == null) return 0;
+                roadLimitMethod = m;
+                roadLimitFromGuide = fromGuide;
+                holder = fromGuide ? guide : loc;
+                roadLimitClass = holder.getClass();
+            }
+            Object v = roadLimitMethod.invoke(holder);
+            int kph = v instanceof Number ? ((Number) v).intValue() : 0;
+            // 0/음수/엉뚱한 값(코드값 등)은 표시하지 않는다.
+            return kph >= 10 && kph <= 150 ? kph : 0;
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    private static Method findRoadLimitMethod(Object obj) {
+        if (obj == null) return null;
+        Class<?> c = obj.getClass();
+        for (String name : ROAD_LIMIT_NAMES) {
+            try {
+                Method m = c.getMethod(name);
+                if (isIntLike(m.getReturnType())) return m;
+            } catch (NoSuchMethodException ignored) { }
+        }
+        for (Method m : c.getMethods()) {
+            if (m.getParameterTypes().length != 0 || !isIntLike(m.getReturnType())) continue;
+            String n = m.getName().toLowerCase(java.util.Locale.ROOT);
+            if (n.contains("limit") && (n.contains("speed") || n.contains("spd"))) return m;
+        }
+        return null;
+    }
+
+    private static boolean isIntLike(Class<?> t) {
+        return t == int.class || t == Integer.class || t == short.class || t == Short.class;
+    }
+
+    private static String intGetters(Object obj) {
+        if (obj == null) return "-";
+        StringBuilder b = new StringBuilder();
+        for (Method m : obj.getClass().getMethods()) {
+            if (m.getParameterTypes().length == 0 && isIntLike(m.getReturnType())
+                    && m.getDeclaringClass() != Object.class) {
+                if (b.length() > 0) b.append(',');
+                b.append(m.getName());
+            }
+        }
+        return b.toString();
     }
 
     private Method sdkDistanceMethod;
