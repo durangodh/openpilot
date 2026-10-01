@@ -23,6 +23,9 @@ from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 
 VisualAlert = car.CarControl.HUDControl.VisualAlert
 
+# SCC14 JerkUpperLimit while openpilot is driving (stock openpilot uses 3.0).
+SCC_JERK_UPPER = 3.0
+
 
 def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego):
   """Assert Hyundai StopReq only after the vehicle has actually stopped."""
@@ -318,9 +321,12 @@ class CarController:
     scc_stop_request = should_request_scc_standstill(
       stopping, soft_hold_scc, CS.out.standstill, CS.out.vEgo)
 
-    # aPilot C2 gradually expands the SCC jerk allowance after a stop. This
-    # keeps the brake release and launch acceleration in one continuous step.
-    planned_jerk = float(actuators.jerk)
+    # Smoothing belongs to the planner (MPC jerk cost) and LongControl's PID
+    # jerk clip. SCC14 only gets fixed, generous limits so the ECU follows
+    # the request instead of adding a second, plan-jerk-dependent lag (the old
+    # planned_jerk*2 mapping fell to 0.5/1.0 m/s^3 in steady driving and made
+    # braking start late, then catch up). After a stop the upper limit still
+    # ramps from START JERK LIMIT so launch feel is unchanged.
     jerk_limit = 5.0
     self.jerk_count += DT_CTRL
     jerk_max = interp(self.jerk_count, [0.0, 1.5, 2.5],
@@ -333,8 +339,8 @@ class CarController:
       jerk_lower = jerk_limit
       self.jerk_count = 0.0
     else:
-      jerk_upper = min(float(clip(planned_jerk * 2.0, 0.5, jerk_limit)), jerk_max)
-      jerk_lower = min(float(clip(-planned_jerk * 2.0, 1.0, jerk_limit)), jerk_max)
+      jerk_upper = min(SCC_JERK_UPPER, jerk_max)
+      jerk_lower = jerk_limit
       assisted_launch = (CC.longActive and controls.LoC.departure_assist.active and
                          actuators.accel > 0.0 and not CS.out.brakePressed and not CS.out.gasPressed)
       jerk_upper = departure_jerk_upper(
