@@ -118,6 +118,33 @@ def get_stopped_lead_comfort_brake(configured_comfort_brake, v_ego, v_lead, lead
   return float(base - weight * max(0.0, base - safety_cap))
 
 
+class StoppedLeadComfortBrake(object):
+  """Hold the stopped-lead braking envelope for the whole approach.
+
+  get_stopped_lead_comfort_brake() depends on the current ego speed and
+  closing speed, so recomputing it every frame relaxed the cap as ego slowed
+  (fully released between 36 and 29 km/h). Riding that moving envelope, the
+  planned deceleration eased off mid-approach and then grew again near the
+  end. Keep the lowest value seen while the same slow lead is ahead, so the
+  envelope only gets earlier, never later, until the lead is lost or moves.
+  """
+
+  def __init__(self):
+    self.latched = None
+
+  def reset(self):
+    self.latched = None
+
+  def update(self, configured_comfort_brake, v_ego, v_lead, lead_status):
+    target = get_stopped_lead_comfort_brake(configured_comfort_brake, v_ego, v_lead, lead_status)
+    if not lead_status or v_lead > STOPPED_LEAD_MAX_SPEED + 2.0:
+      self.latched = None
+      return target
+    if target < float(clip(configured_comfort_brake, 1.0, 4.0)):
+      self.latched = target if self.latched is None else min(self.latched, target)
+    return target if self.latched is None else min(self.latched, target)
+
+
 def limit_t_follow_change(tf_target, tf_previous, dt=T_FOLLOW_DT):
   """Rate-limit both directions, with a faster release than safety-gap increase."""
   if tf_previous > 0.0 and tf_target > tf_previous:

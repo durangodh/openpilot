@@ -1,6 +1,7 @@
 import unittest
 
 from selfdrive.controls.lib.t_follow import (
+  StoppedLeadComfortBrake,
   T_FOLLOW_DECEL_RELEASE_RATE, T_FOLLOW_DT,
   CRUISE_GAP_V,
   clamp_desired_follow_distance,
@@ -79,6 +80,38 @@ class TestTFollow(unittest.TestCase):
   def test_desired_distance_cannot_be_negative(self):
     self.assertEqual(clamp_desired_follow_distance(6.0, 180.0), 0.0)
     self.assertAlmostEqual(clamp_desired_follow_distance(45.0, 10.0), 35.0)
+
+
+
+
+class TestStoppedLeadComfortBrake(unittest.TestCase):
+  def ride(self, start_kph):
+    latch, v, decels = StoppedLeadComfortBrake(), start_kph / 3.6, []
+    while v > 5.0 / 3.6:
+      cb = latch.update(2.5, v, 0.0, True)
+      decels.append(v / (v / cb + 1.4))  # deceleration along the MPC gap envelope
+      v -= decels[-1] * 0.05
+    return decels
+
+  def test_planned_decel_never_grows_while_slowing_for_a_stopped_lead(self):
+    for start in (100, 70, 50):
+      decels = self.ride(start)
+      self.assertTrue(all(b <= a + 1e-6 for a, b in zip(decels, decels[1:])), start)
+
+  def test_cap_is_held_but_released_when_lead_moves_or_is_lost(self):
+    latch = StoppedLeadComfortBrake()
+    capped = latch.update(2.5, 70.0 / 3.6, 0.0, True)
+    self.assertLess(capped, 2.0)
+    # Slow ego no longer qualifies on its own, but the approach keeps the cap.
+    self.assertAlmostEqual(latch.update(2.5, 5.0, 0.0, True), capped)
+    self.assertEqual(latch.update(2.5, 5.0, 6.0, True), 2.5)  # lead pulls away
+    latch.update(2.5, 70.0 / 3.6, 0.0, True)
+    self.assertEqual(latch.update(2.5, 5.0, 0.0, False), 2.5)  # lead lost
+
+  def test_never_above_configured_value(self):
+    latch = StoppedLeadComfortBrake()
+    latch.update(2.5, 70.0 / 3.6, 0.0, True)
+    self.assertLessEqual(latch.update(1.2, 5.0, 0.0, True), 1.2)
 
 
 if __name__ == "__main__":

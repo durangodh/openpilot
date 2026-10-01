@@ -12,7 +12,7 @@ from selfdrive.controls.lib.lead_following import get_follow_obstacle_cost
 from selfdrive.controls.lib.lead_departure import departure_motion_valid
 from selfdrive.controls.lib.t_follow import (CRUISE_GAP_BP as _CRUISE_GAP_BP, CRUISE_GAP_V,
                                              clamp_desired_follow_distance,
-                                             get_stopped_lead_comfort_brake,
+                                             StoppedLeadComfortBrake,
                                              get_t_follow_closing_margin)
 from common.conversions import Conversions as CV
 
@@ -272,6 +272,8 @@ class LongitudinalMpc:
     self.traffic_stop_active = False
     self.traffic_stop_distance = 0.0
     self.stop_distance = STOP_DISTANCE
+    self.lead0_comfort_brake = StoppedLeadComfortBrake()
+    self.lead1_comfort_brake = StoppedLeadComfortBrake()
     # ────────────────────────────────────────────────────────────────────
 
     self.reset()
@@ -505,10 +507,11 @@ class LongitudinalMpc:
     # apilot-c2: 안전모드일수록 comfort_brake 를 낮춰(=더 일찍 감속) 정지거리도 늘린다.
     # A confirmed stopped/slow lead with a large closing speed gets an additional
     # safety cap, preventing a high user setting from postponing highway braking.
-    comfort_brake = self.comfort_brake * self.safe_mode_factor
-    comfort_brake = get_stopped_lead_comfort_brake(
-      comfort_brake, v_ego, lead_xv_0[0, 1], lead0_status)
-    lead1_comfort_brake = get_stopped_lead_comfort_brake(
+    # The cap is held for the whole approach (StoppedLeadComfortBrake) so the
+    # planned deceleration does not ease off and then grow again as ego slows.
+    comfort_brake = self.lead0_comfort_brake.update(
+      self.comfort_brake * self.safe_mode_factor, v_ego, lead_xv_0[0, 1], lead0_status)
+    lead1_comfort_brake = self.lead1_comfort_brake.update(
       self.comfort_brake * self.safe_mode_factor, v_ego, lead_xv_1[0, 1], radarstate.leadTwo.status)
     self.stop_dist = self.stop_distance * (2.0 - self.safe_mode_factor)
     lead_v = lead_xv_0[0, 1] if radarstate.leadOne.status else v_ego
