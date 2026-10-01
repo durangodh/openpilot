@@ -152,7 +152,6 @@ def manager_init() -> None:
     ("LateralTorqueKpV", "100"),
     ("LateralTorqueKiV", "10"),
     ("LateralTorqueKf", "100"),
-    ("LateralTorqueKd", "0"),
     ("LatAccelFrictionFactor", "70"),
     ("LatJerkFrictionFactor", "40"),
     ("AutoLaneChangeTimer", "0"),  # controlsd.py 크래시 수정

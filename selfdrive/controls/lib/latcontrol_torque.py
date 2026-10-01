@@ -124,7 +124,6 @@ class LatControlTorque(LatControl):
     self.kp_default = self.torque_params.kp
     self.ki_default = self.torque_params.ki
     self.kf_default = self.torque_params.kf
-    self.kd_default = self.torque_params.kd
 
     # friction 입력 계수 (DH용 안전 시작값)
     self.lat_accel_friction_factor = 0.7
@@ -170,15 +169,12 @@ class LatControlTorque(LatControl):
         "LateralTorqueKiV", round(self.ki_default * 100.0)) * 0.01]]
       self.pid.k_f = self._pget(
         "LateralTorqueKf", round(self.kf_default * 100.0)) * 0.01
-      self.pid._k_d = [[0], [self._pget(
-        "LateralTorqueKd", round(self.kd_default * 100.0)) * 0.01]]
     elif prev_custom > 0 or force:
       self.torque_params.latAccelFactor = self.latAccelFactor_default
       self.torque_params.friction = self.friction_default
       self.pid._k_p = [[0], [self.kp_default]]
       self.pid._k_i = [[0], [self.ki_default]]
       self.pid.k_f = self.kf_default
-      self.pid._k_d = [[0], [self.kd_default]]
     self.lateral_torque_custom = custom
 
     self.lat_accel_friction_factor = self._pget("LatAccelFrictionFactor", 70) * 0.01

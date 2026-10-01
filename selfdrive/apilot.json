@@ -843,16 +843,6 @@
   },
   {
    "group": "횡방향",
-   "name": "LateralTorqueKd",
-   "title": "TORQUE KD",
-   "descr": "급격한 조향변화 억제값(×0.01)입니다. 값 증가(+): 변화가 억제되어 안정적이나 둔해짐 / 값 감소(-): 반응이 빨라짐. 기본값: 0.",
-   "min": 0,
-   "max": 200,
-   "default": 0,
-   "unit": 5
-  },
-  {
-   "group": "횡방향",
    "name": "LatAccelFrictionFactor",
    "title": "LAT ACCEL FRICTION FACTOR",
    "descr": "횡가속도 오차를 마찰보상에 반영하는 비율(×0.01)입니다. 값 증가(+): 커브 조향 반응이 강해짐 / 값 감소(-): 부드러워짐. 기본값: 70.",

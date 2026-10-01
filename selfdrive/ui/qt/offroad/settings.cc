@@ -1848,10 +1848,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "TORQUE KF", "목표 조향토크 반영값(×0.01)입니다. 값 증가(+): 전체 조향 명령이 강해짐 / 값 감소(-): 약해짐. 기본값: 100 (=1.00, 차량 정의값과 동일).",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
 
-  list->addItem(new ParamValueControlF("LateralTorqueKd",
-      "TORQUE KD", "급격한 조향변화 억제값(×0.01)입니다. 값 증가(+): 변화가 억제되어 안정적이나 둔해짐 / 값 감소(-): 반응이 빨라짐. 기본값: 0.",
-      "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 0, this));
-
   list->addItem(new ParamValueControlF("LatAccelFrictionFactor",
       "LAT ACCEL FRICTION FACTOR",
       "횡가속도 오차를 마찰보상에 반영하는 비율(×0.01)입니다. 값 증가(+): 커브 조향 반응이 강해짐 / 값 감소(-): 부드러워짐. 기본값: 70.",
