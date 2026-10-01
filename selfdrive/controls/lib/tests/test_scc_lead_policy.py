@@ -30,8 +30,10 @@ def test_dropout_prediction_never_forces_mismatch_override():
 
 
 def test_farther_scc_does_not_hide_a_nearer_visual_lead():
+  # Only SCC_MISMATCH_MAX_FARTHER_THAN_VISION (3 m) of extra range is allowed.
   assert not preserve(d_rel=60.0, vision_d_rel=40.0)
-  assert preserve(d_rel=47.9, vision_d_rel=40.0)
+  assert not preserve(d_rel=47.9, vision_d_rel=40.0)
+  assert preserve(d_rel=42.9, vision_d_rel=40.0)
 
 
 def test_implausible_lateral_or_backward_scc_is_rejected():

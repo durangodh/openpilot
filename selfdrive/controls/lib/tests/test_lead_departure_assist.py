@@ -2,7 +2,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from selfdrive.controls.lib.lead_departure import (LeadDepartureAssist,
+from selfdrive.controls.lib.lead_departure import (LAUNCH_JERK_UPPER_MAX, LeadDepartureAssist,
                                                    departure_jerk_upper,
                                                    departure_motion_valid,
                                                    lead_is_departing)
@@ -124,7 +124,7 @@ def test_no_positive_floor_when_ego_has_already_exceeded_planned_speed():
 
 def test_scc_jerk_change_is_scoped_and_bounded():
   assert departure_jerk_upper(0.5, 1.0, 2.0, False) == 0.5
-  assert departure_jerk_upper(0.5, 1.0, 2.0, True) == 1.5
+  assert departure_jerk_upper(0.5, 1.0, 2.0, True) == LAUNCH_JERK_UPPER_MAX
   assert departure_jerk_upper(0.5, 1.0, 0.6, True) == 0.6
   assert departure_jerk_upper(0.5, 0.5, 2.0, True) == 1.0
   assert departure_jerk_upper(4.0, 5.0, 6.0, True) == 4.0

@@ -49,7 +49,6 @@ def brake_output(previous, requested, state='pid', v_ego=None, brake_pressed=Fal
            stopping_decel_rate=1.0, standstill_hold_accel=-1.1,
            pid_jerk_accel_mult=1.0, pid_jerk_decel_mult=1.0, start_jerk=5.0,
            low_speed_jerk_boost=boost,
-           stopping_jerk_mult=1.0,
            standstill_hold_active=hold_active,
            start_request_frames=0, standstill_release_speed=0.2,
            standstill_release_frames=10, standstill_lead_latched=False,
@@ -112,7 +111,7 @@ def test_latched_hold_survives_small_wheel_speed_and_respects_driver_brake():
                       brake_pressed=True) == -0.6
 
 
-def _brake_output_entering_stopping(entry_v_ego, requested=0.0, previous=-0.6):
+def _brake_output_entering_stopping(entry_v_ego, requested=0.0, previous=0.0):
   """brake_output() 처럼 격리 실행하되, pid -> stopping 으로 '방금 진입'하는
   경우를 재현한다(기존 mock은 이전 상태와 다음 상태가 항상 같아서 진입 판정
   분기를 못 탔다)."""
@@ -126,8 +125,6 @@ def _brake_output_entering_stopping(entry_v_ego, requested=0.0, previous=-0.6):
              PID_JERK_SPEED_BP=[0.0, 5.0, 20.0],
              PID_JERK_UPPER_V=[2.0, 3.0, 2.0], PID_JERK_LOWER_V=[3.5, 3.5, 3.0],
              LOW_SPEED_JERK_BOOST_SPEED_BP=[0.0, 5.0, 30.0 / 3.6],
-             STOPPING_JERK_ENTRY_SPEED_BP=[0.0, 5.6, 11.1],
-             STOPPING_JERK_ENTRY_MULT_V=[2.5, 1.5, 1.0],
              clip=lambda x, lo, hi: max(lo, min(x, hi)),
              interp=_linear_interp,
              apply_deadzone=lambda x, dz: x,
@@ -144,7 +141,6 @@ def _brake_output_entering_stopping(entry_v_ego, requested=0.0, previous=-0.6):
            stopping_decel_rate=1.0, standstill_hold_accel=-1.1,
            pid_jerk_accel_mult=1.0, pid_jerk_decel_mult=1.0, start_jerk=5.0,
            low_speed_jerk_boost=1.0,
-           stopping_jerk_mult=1.0,
            standstill_hold_active=False,
            start_request_frames=0, standstill_release_speed=0.2,
            standstill_release_frames=10, standstill_lead_latched=False,
@@ -155,12 +151,11 @@ def _brake_output_entering_stopping(entry_v_ego, requested=0.0, previous=-0.6):
           gasPressed=False, buttonEvents=[],
           cruiseState=NS(standstill=False))
   plan = NS(speeds=[10.0, 10.0], accels=[0.0, 0.0], jerks=[0.0])
-  env['update'](obj, True, cs, plan, (-3.5, 2.0), 0.0)
-  return obj.stopping_jerk_mult
+  return env['update'](obj, True, cs, plan, (-3.5, 2.0), 0.0)[0]
 
 
-def test_stopping_jerk_mult_set_from_entry_speed_not_current_speed():
-  # 정체(저속) 진입 -> 배율 크게, 고속 진입 -> 배율 1.0(그대로).
-  assert _brake_output_entering_stopping(0.0) == 2.5
-  assert _brake_output_entering_stopping(11.1) == 1.0
-  assert _brake_output_entering_stopping(2.8) == pytest.approx(2.0, abs=0.01)
+def test_stopping_rate_does_not_depend_on_entry_speed():
+  # 진입 속도별 배율(STOPPING_JERK_ENTRY_*)은 51b03aa에서 제거됐다. 정지
+  # 진입은 속도와 관계없이 StoppingDecelRate 하나만 따른다.
+  for entry_v_ego in (0.0, 2.8, 11.1):
+    assert _brake_output_entering_stopping(entry_v_ego) == pytest.approx(-1.0 * 0.01)

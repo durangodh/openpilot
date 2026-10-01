@@ -7,7 +7,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 from common.numpy_fast import clip, interp
-from selfdrive.controls.lib.lead_departure import departure_jerk_upper
+from selfdrive.controls.lib.lead_departure import LAUNCH_JERK_UPPER_MAX, departure_jerk_upper
 
 
 def scc_limits(assisted=True, state='pid', braking=False, gas=False, soft_hold=False, active=True):
@@ -39,7 +39,7 @@ def scc_limits(assisted=True, state='pid', braking=False, gas=False, soft_hold=F
 def test_only_positive_launch_jerk_changes_not_braking_or_stop_request():
   # Upper starts at START JERK LIMIT after a stop; lower is never plan-limited.
   assert scc_limits(False) == (1.0, 5.0, False)
-  assert scc_limits(True) == (1.8, 5.0, False)
+  assert scc_limits(True) == (LAUNCH_JERK_UPPER_MAX, 5.0, False)
 
 
 @pytest.mark.parametrize('kwargs', [dict(braking=True), dict(gas=True), dict(active=False)])

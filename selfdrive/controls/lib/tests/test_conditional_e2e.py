@@ -214,9 +214,12 @@ def test_turning_and_right_blinker_suppress_new_signal_stop():
   controller = ConditionalE2EController(DT_MDL)
   assert enter_stop(controller, distance=80.0, v_ego=10.0) == 'blended'
 
+  # A real turn suppresses the stop. Gentle curves up to
+  # _curve_stop_steer_limit (about 7 deg at 36 km/h) may still stop when the
+  # model plans a full stop; that relaxation is intentional.
   controller.reset()
   mode = update(controller, model_x=80.0, model_v0=10.0, model_v_end=1.0,
-                steering_angle_deg=6.0)
+                steering_angle_deg=15.0)
   assert mode == 'acc'
   assert not controller.stopping
 

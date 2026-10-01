@@ -1,6 +1,7 @@
 import unittest
 
 from selfdrive.controls.lib.t_follow import (
+  T_FOLLOW_DECEL_RELEASE_RATE, T_FOLLOW_DT,
   CRUISE_GAP_V,
   clamp_desired_follow_distance,
   filter_t_follow_accel,
@@ -24,8 +25,10 @@ class TestTFollow(unittest.TestCase):
     safe = get_t_follow_base(2, CRUISE_GAP_V, 50.0, 1.2, 0.5)
     self.assertAlmostEqual(safe, normal * 1.5)
 
-  def test_deceleration_holds_only_gap_reductions(self):
-    self.assertAlmostEqual(hold_t_follow_while_decelerating(1.2, 1.4, True), 1.4)
+  def test_deceleration_tapers_only_gap_reductions(self):
+    # A shorter target gap is approached gradually while braking, not held.
+    self.assertAlmostEqual(hold_t_follow_while_decelerating(1.2, 1.4, True),
+                           1.4 - T_FOLLOW_DECEL_RELEASE_RATE * T_FOLLOW_DT)
     self.assertAlmostEqual(hold_t_follow_while_decelerating(1.6, 1.4, True), 1.6)
     self.assertAlmostEqual(hold_t_follow_while_decelerating(1.2, 1.4, False), 1.2)
 
