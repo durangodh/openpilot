@@ -28,6 +28,7 @@ final class NaverNaviClient {
     private static final String WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
     private static final String STATE_PATH = "/api/navi/ws/v2/json/naver/state";
     private static final String MAP_PATH = "/api/navi/ws/v2/render/naver/map_main";
+    private static final String SIGNAL_PATH = "/api/navi/ws/v2/render/naver/traffic_signal";
 
     private final Object stateLock = new Object();
     private final Object mapLock = new Object();
@@ -36,6 +37,9 @@ final class NaverNaviClient {
     private OutputStream stateOut;
     private Socket mapSock;
     private OutputStream mapOut;
+    private Socket sigSock;
+    private OutputStream sigOut;
+    private final Object sigLock = new Object();
     private final Random rnd = new Random();
     // Xposed callbacks run on KakaoNavi threads. Never perform socket I/O there:
     // a reconnect or handshake may take seconds and must not stall navigation.
@@ -57,6 +61,9 @@ final class NaverNaviClient {
     });
     private final AtomicReference<byte[]> pendingMap = new AtomicReference<>();
     private final AtomicBoolean mapDrainScheduled = new AtomicBoolean(false);
+    // 신호등 PNG. 지도와 같은 "최신 1장만" 정책.
+    private final AtomicReference<byte[]> pendingSignal = new AtomicReference<>();
+    private final AtomicBoolean signalDrainScheduled = new AtomicBoolean(false);
 
     void setHost(String ip) {
         if (ip != null && !ip.isEmpty() && !ip.equals(host)) {
@@ -113,6 +120,56 @@ final class NaverNaviClient {
             mapDrainScheduled.set(false);
             if (pendingMap.get() != null) scheduleMapDrain();
         }
+    }
+
+    /** 신호등 PNG(CNV2 헤더 포함)를 traffic_signal 오버레이 소켓으로 보낸다. */
+    void sendSignal(final byte[] framed) {
+        if (framed == null || framed.length == 0) return;
+        pendingSignal.set(framed);
+        if (signalDrainScheduled.compareAndSet(false, true)) {
+            mapSender.execute(this::drainSignal);
+        }
+    }
+
+    private void drainSignal() {
+        try {
+            byte[] f;
+            while ((f = pendingSignal.getAndSet(null)) != null) sendSignalNow(f);
+        } finally {
+            signalDrainScheduled.set(false);
+            if (pendingSignal.get() != null && signalDrainScheduled.compareAndSet(false, true)) {
+                mapSender.execute(this::drainSignal);
+            }
+        }
+    }
+
+    private void sendSignalNow(byte[] framed) {
+        try {
+            OutputStream out = ensureSignal();
+            if (out == null) return;
+            synchronized (sigLock) {
+                writeFrame(out, framed, 2);
+            }
+        } catch (Throwable t) {
+            NaverHudLog.ex("sendSignal", t);
+            closeSignal();
+        }
+    }
+
+    private OutputStream ensureSignal() throws Exception {
+        if (sigOut != null) return sigOut;
+        if (host == null) return null;
+        Socket s = connect(SIGNAL_PATH);
+        if (s == null) return null;
+        sigSock = s;
+        sigOut = s.getOutputStream();
+        NaverHudLog.line("signal socket connected");
+        return sigOut;
+    }
+
+    private void closeSignal() {
+        try { if (sigSock != null) sigSock.close(); } catch (Throwable ignored) { }
+        sigSock = null; sigOut = null;
     }
 
     private void sendMapNow(byte[] jpeg) {
@@ -249,5 +306,6 @@ final class NaverNaviClient {
     private void closeAll() {
         synchronized (stateLock) { closeState(); }
         synchronized (mapLock) { closeMap(); }
+        synchronized (sigLock) { closeSignal(); }
     }
 }

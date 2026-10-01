@@ -15,6 +15,8 @@ import java.util.concurrent.TimeUnit;
 final class NaverBridge {
     private final NaverNaviClient client = new NaverNaviClient();
     private final NaverMapCapture map = new NaverMapCapture(client);
+    // HUD 지도 신호등 칸은 PNG 자산이 와야 그려진다. 카카오처럼 직접 그려 보낸다.
+    private final NaverSignal signalImage = new NaverSignal(client);
     private final ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "naver-hud-state");
         t.setDaemon(true);
@@ -118,7 +120,9 @@ final class NaverBridge {
         Object link = call(s, "T");
         send("speed", speed(s, (int) NaverCodes.number(call(link, "h"))));
         send("lane_current", lane(value(call(s, "S"))));
-        send("traffic_signal", signal(value(call(s, "B0"))));
+        Object signalItem = value(call(s, "B0"));
+        send("traffic_signal", signal(signalItem));
+        publishSignalImage(guiding ? signalItem : null);
 
         // 검증 안 된 버전에서 난독화 게터가 비어 있는지 한 번 기록한다.
         if (guiding && !healthLogged && ++guidingTicks >= 20) {
@@ -227,6 +231,44 @@ final class NaverBridge {
                 + ",\"current_lane\":" + current + ",\"distance_m\":" + NaverCodes.round(NaverCodes.number(call(item, "g")))
                 + ",\"lanes\":" + details.append(']') + ",\"turn_info\":" + turns.append(']')
                 + ",\"available\":" + available.append(']') + "}";
+    }
+
+    /** 직진 신호(없으면 유일한 신호)의 색·잔여초를 HUD 신호등 그림으로 보낸다. */
+    private void publishSignalImage(Object item) {
+        try {
+            if (item == null || Boolean.TRUE.equals(call(item, "h"))) {
+                signalImage.clear();
+                return;
+            }
+            List<?> signals = asList(call(item, "k"));
+            Object chosen = signals.size() == 1 ? signals.get(0) : null;
+            for (Object e : signals) {
+                String guide = String.valueOf(call(e, "g")).toLowerCase(java.util.Locale.ROOT);
+                if (guide.contains("straight") || guide.contains("through") || guide.contains("직진")) {
+                    chosen = e;
+                    break;
+                }
+            }
+            int color = chosen == null ? 0 : signalColor(String.valueOf(call(chosen, "j")));
+            if (color == 0) {
+                signalImage.clear();
+            } else {
+                signalImage.publish(color, (int) NaverCodes.number(call(chosen, "i")));
+            }
+        } catch (Throwable error) {
+            NaverHudLog.ex("signal image", error);
+        }
+    }
+
+    /** navigation_route._signal_phase 와 같은 규칙. 1 빨강 / 2 노랑 / 3 초록 / 0 모름. */
+    static int signalColor(String state) {
+        String t = state == null ? "" : state.toLowerCase(java.util.Locale.ROOT);
+        if (t.contains("red") || t.contains("stop") || t.contains("적색") || t.contains("빨")) return 1;
+        if (t.contains("yellow") || t.contains("amber") || t.contains("caution")
+                || t.contains("clearance") || t.contains("황색") || t.contains("노란")) return 2;
+        if (t.contains("green") || t.contains("protected") || t.contains("permissive")
+                || t.contains("녹색") || t.contains("초록")) return 3;
+        return 0;
     }
 
     private static String signal(Object item) {
