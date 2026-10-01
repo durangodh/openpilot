@@ -278,7 +278,7 @@ def main():
     assert "recycleRef(tbtCompactFrame)" in source
     assert "recycleRef(crossroadFrame)" in source
     # Reject decompression bombs and validate even exact-size map databases.
-    replace_asset = source.split("private void replaceAsset", 1)[1].split(
+    replace_asset = source.split("private static Bitmap decodeAsset", 1)[1].split(
         "private static void recycleAndClear", 1)[0]
     assert "inJustDecodeBounds = true" in replace_asset
     assert "pixels > 8_000_000L" in replace_asset
