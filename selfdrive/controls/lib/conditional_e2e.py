@@ -12,6 +12,9 @@ E2E_FAR_STOP_DISTANCE = 40.0
 E2E_VISION_LEAD_DISTANCE = 90.0
 E2E_VISION_LEAD_CONFIRM_TIME = 0.5
 E2E_LEAD_DROPOUT_CONFIRM_TIME = 0.5
+# A departure is only taken back to a stop after the start sign has been
+# missing this long; one dropped model frame must not re-brake a green launch.
+E2E_PREPARE_ABORT_CONFIRM_TIME = 0.5
 # A lead at least this far beyond the model stop point (e.g. it went through
 # on amber) no longer blocks entering a signal stop.
 E2E_LEAD_BEYOND_STOP_MARGIN = 10.0
@@ -115,6 +118,8 @@ class ConditionalE2EController:
     self.vision_lead_count = 0
     self.vision_lead_latched = False
     self.lead_dropout_confirm_frames = max(1, round(E2E_LEAD_DROPOUT_CONFIRM_TIME / self.dt))
+    self.prepare_abort_confirm_frames = max(1, round(E2E_PREPARE_ABORT_CONFIRM_TIME / self.dt))
+    self.prepare_abort_count = 0
     self.lead_missing_count = 0
     self.lead_recent = False
     self.mode_release_hold_count = 0
@@ -286,6 +291,7 @@ class ConditionalE2EController:
       if start_sign or gas_pressed:
         self.stopping = False
         self.prepare = True
+        self.prepare_abort_count = 0
         self.mode_release_hold_count = 0
         self.stop_distance = 0.0
       elif confirmed_lead_before_stop:
@@ -306,9 +312,12 @@ class ConditionalE2EController:
         self.stop_distance = max(0.0, self.stop_distance - v_ego * self.dt)
 
     elif self.prepare:
-      prepare_abort = (v_ego_kph < 2.0 and not start_sign and
-                       not lead_present and not gas_pressed)
+      abort_condition = (v_ego_kph < 2.0 and not start_sign and
+                         not lead_present and not gas_pressed)
+      self.prepare_abort_count = self.prepare_abort_count + 1 if abort_condition else 0
+      prepare_abort = self.prepare_abort_count >= self.prepare_abort_confirm_frames
       if brake_pressed or prepare_abort:
+        self.prepare_abort_count = 0
         self.prepare = False
         self.stopping = True
         self.mode_release_hold_count = self.mode_release_hold_frames

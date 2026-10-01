@@ -1,6 +1,6 @@
 import pytest
 
-from selfdrive.controls.lib.conditional_e2e import (E2E_LEAD_DROPOUT_CONFIRM_TIME,
+from selfdrive.controls.lib.conditional_e2e import (E2E_LEAD_DROPOUT_CONFIRM_TIME, E2E_PREPARE_ABORT_CONFIRM_TIME,
                                                     E2E_MODE_RELEASE_HOLD_TIME,
                                                     E2E_REASON_ACC,
                                                     E2E_REASON_DEPARTURE,
@@ -280,10 +280,18 @@ def test_brake_cancels_departure_prepare():
   assert not controller.prepare
 
 
-def test_departure_prepare_stops_immediately_but_holds_blended_mode():
+def test_departure_prepare_stops_after_confirmation_but_holds_blended_mode():
   controller = ConditionalE2EController(DT_MDL)
   controller.prepare = True
   hold_frames = round(E2E_MODE_RELEASE_HOLD_TIME / DT_MDL)
+  abort_frames = round(E2E_PREPARE_ABORT_CONFIRM_TIME / DT_MDL)
+
+  for _ in range(abort_frames - 1):
+    mode = update(controller, model_x=10.0, model_v0=1.0,
+                  model_v_end=0.0, v_ego=0.1)
+    assert mode == 'blended'
+    assert controller.prepare
+    assert not controller.stopping
 
   mode = update(controller, model_x=10.0, model_v0=1.0,
                 model_v_end=0.0, v_ego=0.1)
@@ -298,6 +306,18 @@ def test_departure_prepare_stops_immediately_but_holds_blended_mode():
 
   assert update(controller, model_x=10.0, model_v0=1.0,
                 model_v_end=0.0, v_ego=0.1) == 'acc'
+
+
+def test_single_dropped_start_frame_does_not_rebrake_a_launch():
+  controller = ConditionalE2EController(DT_MDL)
+  controller.prepare = True
+  abort_frames = round(E2E_PREPARE_ABORT_CONFIRM_TIME / DT_MDL)
+  for frame in range(3 * abort_frames):
+    # Model path length hovers around the 60 m start threshold.
+    model_x = 50.0 if frame % (abort_frames - 1) == 0 else 80.0
+    update(controller, model_x=model_x, model_v0=1.0, model_v_end=8.0, v_ego=0.2)
+    assert controller.prepare
+    assert not controller.stopping
 
 
 def test_invalid_model_falls_back_safely():
