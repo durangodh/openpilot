@@ -25,6 +25,20 @@ TURN_ACCEL_MAX_BP = [20.0, 40.0]
 TURN_ACCEL_MAX_V = [2.5, 3.2]
 
 
+A_CRUISE_MIN = -1.2
+# Camera/section/curve limiters may plan a stronger decel than A_CRUISE_MIN.
+# Widen the cruise bound to that rate (plus a small tracking margin) so the car
+# reaches the target speed where the limiter expects it.
+A_CRUISE_MIN_LIMITER = -2.5
+CRUISE_DECEL_MARGIN = 0.2
+
+
+def get_cruise_min_accel(decel_limit):
+  if decel_limit <= 0.0:
+    return A_CRUISE_MIN
+  return float(clip(-(decel_limit + CRUISE_DECEL_MARGIN), A_CRUISE_MIN_LIMITER, A_CRUISE_MIN))
+
+
 def limit_accel_in_turns(v_ego, steering_angle_deg, accel_limits, steer_ratio, wheelbase):
   """Apply the aPilot C2 steering-angle longitudinal acceleration limit."""
   if steer_ratio <= 0.0 or wheelbase <= 0.0:

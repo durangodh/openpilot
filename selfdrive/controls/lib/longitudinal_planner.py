@@ -13,7 +13,7 @@ from selfdrive.controls.lib.navigation_route import GUIDE_FILE, NavigationRouteD
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, MIN_ACCEL, MAX_ACCEL, N
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_speed_error
-from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
+from selfdrive.controls.lib.longitudinal_limits import (get_cruise_min_accel, CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_cruise_max_accel,
                                                         get_no_lead_cruise_accel_cap,
@@ -26,7 +26,6 @@ from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2
 
 LON_MPC_STEP = 0.2  # first step is 0.2s
 AWARENESS_DECEL = -0.2  # car smoothly decel at .2m/s^2 when user is distracted
-A_CRUISE_MIN = -1.2
 # ── MyDrivingMode (1:SAFE 2:ECO 3:NORM 4:FAST) ────────────────────────────
 # UI 의 모드 박스를 탭하면 1→2→3→4→1 로 순환한다 (onroad.cc).
 # 갭버튼은 순정 SCC 갭 기능 그대로 두고, 모드는 그 위에 배율로만 얹는다.
@@ -269,7 +268,8 @@ class LongitudinalPlanner:
     if self.mpc.mode == 'acc':
       accel_limits = limit_accel_in_turns(
         v_ego, sm['carState'].steeringAngleDeg,
-        [A_CRUISE_MIN, cruise_max_accel], self.CP.steerRatio, self.CP.wheelbase)
+        [get_cruise_min_accel(getattr(sm['controlsState'], 'cruiseDecelLimit', 0.0)), cruise_max_accel],
+        self.CP.steerRatio, self.CP.wheelbase)
     else:
       # E2E/blended 도 사용자 CruiseMax 상한은 유지(apilot-c2 는 MAX_ACCEL 2.5 고정)
       accel_limits = [MIN_ACCEL, cruise_max_accel]

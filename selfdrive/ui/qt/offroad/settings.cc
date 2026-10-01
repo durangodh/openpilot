@@ -1172,8 +1172,8 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "", "감속 시작 거리는 '감속 세기'와 목표속도에서 자동 계산됩니다. 세기를 낮출수록 더 멀리서 부드럽게 시작하고, 높일수록 카메라 가까이에서 급하게 줄입니다."));
   toggleLayout->addWidget(new ParamValueControlF(
       "AutoNaviSpeedDecelRate", "1. 감속 세기 (×0.01m/s²)",
-      "카메라·구간단속 감속 강도입니다(커브는 위 그룹의 '커브 감속 세기'가 0일 때만 이 값을 씀). 값 감소(-): 일찍·부드럽게 시작 / 값 증가(+): 늦게·강하게. 기본값: 120.",
-      "../assets/offroad/icon_speed_limit.png", 10, 300, 10, 0, 120, this));
+      "카메라·구간단속 감속 강도입니다(커브는 위 그룹의 '커브 감속 세기'가 0일 때만 이 값을 씀). 값 감소(-): 일찍·부드럽게 시작 / 값 증가(+): 늦게·강하게. 기본값: 80.",
+      "../assets/offroad/icon_speed_limit.png", 10, 300, 10, 0, 80, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "AutoNaviSpeedCtrlEnd", "2. 감속 완료 지점 (카메라 N초 전)",
       "이 시점(카메라까지 남은 주행시간)에 제한속도 도달을 완료합니다. 값 증가(+): 더 멀리서 완료(감속 시작도 앞당겨짐) / 값 감소(-): 카메라 직전에 완료. 기본값: 7.",

@@ -90,6 +90,7 @@ class CruiseHelper:
     self.vision_curve_speed = VisionCurveSpeed()
     self.curve_update_frame = None
     self.apply_source = ""
+    self.apply_decel_rate = 0.0
     self.active_cam = False
     self.slowing_down = False
     self.slowing_down_alert = False
@@ -881,6 +882,7 @@ class CruiseHelper:
       self.curve_speed_ms = UNLIMITED_SPEED
     cruise_speed_ms = controls.v_cruise_kph * CV.KPH_TO_MS
     self.apply_source = ""
+    self.apply_decel_rate = 0.0
     if self.turn_vision_control and self.curve_speed_ms < cruise_speed_ms:
       max_speed_clu = self.curve_speed_ms * self.speed_conv_to_clu
       self.apply_source = "vturn"
@@ -934,6 +936,15 @@ class CruiseHelper:
         if noo_speed_clu < max_speed_clu:
           max_speed_clu = noo_speed_clu
           self.apply_source = "noo"
+
+    # Tell the planner how hard the active limiter planned to slow down so its
+    # cruise decel bound can follow the user's decel setting.
+    if self.apply_source in ("cam", "bump", "section"):
+      self.apply_decel_rate = self.auto_navi_speed_decel_rate
+    elif self.apply_source in ("vturn", "route"):
+      self.apply_decel_rate = self.auto_curve_speed_decel_rate
+    else:
+      self.apply_decel_rate = 0.0
 
     self.update_max_speed(int(max_speed_clu + 0.5), controls.CP.openpilotLongitudinalControl)
     return normal_road_limit_speed
