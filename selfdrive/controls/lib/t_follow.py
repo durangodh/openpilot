@@ -135,12 +135,23 @@ class StoppedLeadComfortBrake(object):
   def reset(self):
     self.latched = None
 
-  def update(self, configured_comfort_brake, v_ego, v_lead, lead_status):
+  def update(self, configured_comfort_brake, v_ego, v_lead, lead_status,
+             d_rel=None, t_follow=0.0, stop_distance=0.0):
+    base = float(clip(configured_comfort_brake, 1.0, 4.0))
     target = get_stopped_lead_comfort_brake(configured_comfort_brake, v_ego, v_lead, lead_status)
     if not lead_status or v_lead > STOPPED_LEAD_MAX_SPEED + 2.0:
       self.latched = None
       return target
-    if target < float(clip(configured_comfort_brake, 1.0, 4.0)):
+    if target < base and d_rel is not None:
+      # Never let the earlier envelope start behind the car. Applied at once
+      # on detection, the lower value made the desired gap tens of metres
+      # larger than the real distance and the MPC answered with a sudden
+      # brake stab. Only lower ComfortBrake as far as the current distance
+      # still fits; as the approach goes on the cap tightens toward target.
+      room = float(d_rel) - t_follow * v_ego - stop_distance
+      fit = v_ego * v_ego / (2.0 * room) if room > 0.0 else base
+      target = max(target, min(base, fit))
+    if target < base:
       self.latched = target if self.latched is None else min(self.latched, target)
     return target if self.latched is None else min(self.latched, target)
 

@@ -113,6 +113,18 @@ class TestStoppedLeadComfortBrake(unittest.TestCase):
     latch.update(2.5, 70.0 / 3.6, 0.0, True)
     self.assertLessEqual(latch.update(1.2, 5.0, 0.0, True), 1.2)
 
+  def test_detection_does_not_start_behind_the_car(self):
+    # 70 km/h, stopped car first seen 120 m ahead: the earlier envelope must
+    # fit the real distance instead of demanding a sudden brake stab.
+    v, d, tf, stop = 70.0 / 3.6, 120.0, 1.5, 6.0
+    cb = StoppedLeadComfortBrake().update(2.5, v, 0.0, True, d, tf, stop)
+    self.assertLessEqual(v * v / (2 * cb) + tf * v + stop, d + 1e-6)
+    # Far enough away, the full early-braking cap is still used.
+    far = StoppedLeadComfortBrake().update(2.5, v, 0.0, True, 250.0, tf, stop)
+    self.assertAlmostEqual(far, get_stopped_lead_comfort_brake(2.5, v, 0.0, True))
+    # Too close for any cap: never below the configured value's envelope.
+    self.assertEqual(StoppedLeadComfortBrake().update(2.5, v, 0.0, True, 60.0, tf, stop), 2.5)
+
 
 if __name__ == "__main__":
   unittest.main()

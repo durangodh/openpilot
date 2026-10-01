@@ -509,11 +509,15 @@ class LongitudinalMpc:
     # safety cap, preventing a high user setting from postponing highway braking.
     # The cap is held for the whole approach (StoppedLeadComfortBrake) so the
     # planned deceleration does not ease off and then grow again as ego slows.
-    comfort_brake = self.lead0_comfort_brake.update(
-      self.comfort_brake * self.safe_mode_factor, v_ego, lead_xv_0[0, 1], lead0_status)
-    lead1_comfort_brake = self.lead1_comfort_brake.update(
-      self.comfort_brake * self.safe_mode_factor, v_ego, lead_xv_1[0, 1], radarstate.leadTwo.status)
+    # It also never starts behind the car (see StoppedLeadComfortBrake), so
+    # a newly detected stopped lead does not cause a sudden brake stab.
     self.stop_dist = self.stop_distance * (2.0 - self.safe_mode_factor)
+    comfort_brake = self.lead0_comfort_brake.update(
+      self.comfort_brake * self.safe_mode_factor, v_ego, lead_xv_0[0, 1], lead0_status,
+      lead_xv_0[0, 0], self.t_follow, self.stop_dist)
+    lead1_comfort_brake = self.lead1_comfort_brake.update(
+      self.comfort_brake * self.safe_mode_factor, v_ego, lead_xv_1[0, 1], radarstate.leadTwo.status,
+      lead_xv_1[0, 0], self.t_follow, self.stop_dist)
     lead_v = lead_xv_0[0, 1] if radarstate.leadOne.status else v_ego
     self.desired_distance = float(desired_follow_distance(
       v_ego, lead_v, self.t_follow, self.stop_dist, comfort_brake,
