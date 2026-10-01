@@ -42,7 +42,9 @@ final class KakaoMap {
     // 차량을 화면 가운데보다 아래(세로 68%)에 두어 앞쪽 도로를 더 보여준다.
     // 카카오 앱 주행 카메라도 anchor 를 써서 차량을 아래쪽에 둔다.
     private static final float ANCHOR_X = 0.5f;
-    private static final float ANCHOR_Y = 0.68f;
+    // 차량을 화면 더 아래에 둬서 지나온 경로(뒤쪽)가 화면 밖으로 나가게 한다.
+    // 카카오 화면 동기화 중에도 세로 위치만은 이 값으로 강제한다.
+    private static final float ANCHOR_Y = 0.78f;
     private static final long STATIONARY_HEARTBEAT_MS = 2000;
     private static final long INIT_RETRY_MS = 5000;
     // 카카오 지도 zoom 은 "작을수록 확대"인 배율값이다(네이버/구글 줌레벨과 반대).
@@ -333,7 +335,9 @@ final class KakaoMap {
                         + " poseDeltaM=" + (int) Math.hypot(screen.x - curX, screen.y - curY));
             }
             markerAnchorX = screenSync ? screen.anchorX : ANCHOR_X;
-            markerAnchorY = screenSync ? screen.anchorY : ANCHOR_Y;
+            // 세로 anchor 는 항상 우리 값으로 둔다. 카카오 화면 anchor(중앙 근처)를
+            // 그대로 따르면 지나온 경로가 차량 뒤(화면 아래)에 남는다.
+            markerAnchorY = ANCHOR_Y;
 
             // KATEC 은 미터 단위(x 동쪽, y 북쪽), 방위는 북쪽 기준 시계방향이다.
             double leadM = speedKph >= 3.0 ? speedKph / 3.6 * LEAD_S : 0.0;

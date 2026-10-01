@@ -36,6 +36,7 @@ final class KakaoBridge {
     // 카카오 앱과 같은 함수(o60.a.d)로 거리를 구한다.
     private Object lastVehicleLoc = null;
     private Object cachedCurLoc = null;
+    private String cachedCurName = "";   // 방면 이름(getNodeName)
     private Object cachedSafetyLoc = null;
     private int cachedNextAbs = -1, cachedNextTbt = KakaoCodes.TBT_NONE;
     private boolean hasCachedGuide = false;
@@ -223,8 +224,12 @@ final class KakaoBridge {
             }
 
             Object curLoc = cur == null ? null : tryCallAny(cur, "getLocation", "e");
+            // 방면 이름(시범다은마을 방면 등). r60.c.getNodeName(난독화 f).
+            // 카카오 화면 배너와 같은 텍스트. 도로명(getRoadName)이 아니다.
+            String curNodeName = cur == null ? "" : getString(cur, "getNodeName", "f");
             synchronized (guideLock) {
                 cachedCurLoc = curLoc;
+                cachedCurName = curNodeName == null ? "" : curNodeName;
                 cachedCurAbs = curDist;
                 cachedCurTbt = curTbt;
                 cachedNextAbs = nextDist;
@@ -387,19 +392,24 @@ final class KakaoBridge {
     private void publishGuidance() {
         int curAbs, curTbt, nextAbs, nextTbt;
         Object vehicleLoc, curLoc;
+        String curName;
         synchronized (guideLock) {
             if (!hasCachedGuide) return;
             curAbs = cachedCurAbs; curTbt = cachedCurTbt;
             nextAbs = cachedNextAbs; nextTbt = cachedNextTbt;
             vehicleLoc = lastVehicleLoc; curLoc = cachedCurLoc;
+            curName = cachedCurName;
         }
         int vehicle = vehicleDistFromS;
         if (curTbt != KakaoCodes.TBT_NONE) {
             int remaining = kakaoDistance(vehicleLoc, curLoc, curAbs, vehicle);
             map.updateTurnDistance(remaining);
             if (remaining >= 0) {
+                String nm = jsonStr(curName == null ? "" : curName);
                 client.sendState("guidance_current",
-                        "{\"turn_type\":" + curTbt + ",\"distance_m\":" + remaining + "}");
+                        "{\"source\":\"KAKAO\",\"turn_type\":" + curTbt
+                        + ",\"distance_m\":" + remaining
+                        + ",\"main_text\":" + nm + ",\"road_name\":" + nm + "}");
             }
         } else {
             map.updateTurnDistance(-1);
