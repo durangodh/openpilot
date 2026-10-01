@@ -101,6 +101,9 @@ class CarController:
     self.scc_live = not CP.radarOffCan
 
     self.turning_indicator_alert = False
+    # NOO is steering a turn in the same direction as the driver's blinker.
+    # Read by the interface (one frame later) to skip the low-speed blinker cut.
+    self.noo_turn_keep = False
 
     param = Params()
 
@@ -157,6 +160,17 @@ class CarController:
     except Exception:
       pass
 
+  @staticmethod
+  def _noo_turn_matches_blinker(CS, controls):
+    try:
+      noo_turn = int(controls.sm['lateralPlan'].nooTurnDirection)
+    except (AttributeError, KeyError, TypeError, ValueError):
+      return False
+    # Also covers the 0.5 s hold after the blinker goes off; only an opposite
+    # blinker keeps the cut.
+    left, right = CS.out.leftBlinker, CS.out.rightBlinker
+    return (noo_turn < 0 and not right) or (noo_turn > 0 and not left)
+
   def update(self, CC, CS, controls):
     actuators = CC.actuators
     hud_control = CC.hudControl
@@ -172,7 +186,10 @@ class CarController:
     # Disable steering while turning blinker on and speed below 60 kph
     if CS.out.leftBlinker or CS.out.rightBlinker:
       self.turning_signal_timer = 0.5 / DT_CTRL  # Disable for 0.5 Seconds after blinker turned off
-    if self.turning_indicator_alert:  # set and clear by interface
+    # A driver blinker that matches an active NOO turn is the expected turn
+    # signal, not a request to hand the wheel back.
+    self.noo_turn_keep = self._noo_turn_matches_blinker(CS, controls)
+    if self.turning_indicator_alert and not self.noo_turn_keep:  # set and clear by interface
       lkas_active = 0
     if self.turning_signal_timer > 0:
       self.turning_signal_timer -= 1

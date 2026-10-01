@@ -332,7 +332,8 @@ class CarInterface(CarInterfaceBase):
         auto_lc_speed_kph = 50
       self.lane_change_speed_min = auto_lc_speed_kph * CV.KPH_TO_MS
       self._lc_speed_params_t = t
-    if not self.CC.keep_steering_turn_signals and (ret.leftBlinker or ret.rightBlinker or self.CC.turning_signal_timer) and ret.vEgo < self.lane_change_speed_min - 1.2:
+    if not self.CC.keep_steering_turn_signals and not self.CC.noo_turn_keep and \
+       (ret.leftBlinker or ret.rightBlinker or self.CC.turning_signal_timer) and ret.vEgo < self.lane_change_speed_min - 1.2:
       self.CC.turning_indicator_alert = True
     else:
       self.CC.turning_indicator_alert = False
