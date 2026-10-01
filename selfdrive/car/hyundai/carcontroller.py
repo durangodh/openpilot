@@ -23,9 +23,6 @@ from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 
 VisualAlert = car.CarControl.HUDControl.VisualAlert
 
-# SCC14 JerkUpperLimit while openpilot is driving (stock openpilot uses 3.0).
-SCC_JERK_UPPER = 3.0
-
 
 def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego):
   """Assert Hyundai StopReq only after the vehicle has actually stopped."""
@@ -322,11 +319,9 @@ class CarController:
       stopping, soft_hold_scc, CS.out.standstill, CS.out.vEgo)
 
     # Smoothing belongs to the planner (MPC jerk cost) and LongControl's PID
-    # jerk clip. SCC14 only gets fixed, generous limits so the ECU follows
-    # the request instead of adding a second, plan-jerk-dependent lag (the old
-    # planned_jerk*2 mapping fell to 0.5/1.0 m/s^3 in steady driving and made
-    # braking start late, then catch up). After a stop the upper limit still
-    # ramps from START JERK LIMIT so launch feel is unchanged.
+    # jerk clip. SCC14 only gets generous limits so the ECU follows the
+    # request instead of adding a second lag. After a stop the upper limit
+    # ramps from START JERK LIMIT to 5.0 so launch feel is unchanged.
     jerk_limit = 5.0
     self.jerk_count += DT_CTRL
     jerk_max = interp(self.jerk_count, [0.0, 1.5, 2.5],
@@ -339,7 +334,7 @@ class CarController:
       jerk_lower = jerk_limit
       self.jerk_count = 0.0
     else:
-      jerk_upper = min(SCC_JERK_UPPER, jerk_max)
+      jerk_upper = jerk_max
       jerk_lower = jerk_limit
       assisted_launch = (CC.longActive and controls.LoC.departure_assist.active and
                          actuators.accel > 0.0 and not CS.out.brakePressed and not CS.out.gasPressed)
@@ -360,9 +355,8 @@ class CarController:
         set_speed *= CV.MS_TO_MPH if CS.is_set_speed_in_mph else CV.MS_TO_KPH
 
         requested_accel = actuators.accel if (CC.longActive or stopping or soft_hold_scc) else 0.0
-        apply_accel = controls.cruise_helper.get_apply_accel(
-          CS, controls.sm, requested_accel, stopping)
-        apply_accel = clip(apply_accel,
+        # LongControl already applies every positive cap with its jerk limit.
+        apply_accel = clip(requested_accel,
                            CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX)
 
         # Panda rejects any nonzero SCC12 request while the driver brake is

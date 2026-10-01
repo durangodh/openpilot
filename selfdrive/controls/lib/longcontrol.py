@@ -491,6 +491,10 @@ class LongControl:
       jerk_upper *= interp(CS.vEgo, LOW_SPEED_JERK_BOOST_SPEED_BP,
                            [departure_boost, departure_boost, 1.0])
       jerk_lower = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_LOWER_V) * self.pid_jerk_decel_mult
+      # 양의 상한(CruiseMax, 앞차 없을 때 상한, 접근 시 상한)이 내려가도
+      # 출력을 한 번에 자르지 않고 jerk_lower로 따라 내려가게 한다. 그래서
+      # cruise_helper에 따로 있던 '가속 놓기' 완화가 필요 없다.
+      pid_output = min(pid_output, accel_limits[1])
       # 출발 인계(3단계): 양의 요청이 줄어들 때만 완만하게.
       if assisted_departure and not prevent_overshoot and 0.0 < pid_output < output_accel:
         jerk_lower = min(jerk_lower, START_HANDOFF_JERK)
@@ -506,6 +510,10 @@ class LongControl:
                                   output_accel - jerk_lower * DT_CTRL,
                                   output_accel + jerk_upper * DT_CTRL))
 
-    self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
+    pos_limit = accel_limits[1]
+    if self.long_control_state == LongCtrlState.pid:
+      # PID는 위에서 이미 상한을 향해 저크제한으로 내려가는 중이다.
+      pos_limit = max(pos_limit, output_accel)
+    self.last_output_accel = clip(output_accel, accel_limits[0], pos_limit)
 
     return self.last_output_accel, -0.5 if planned_stop else j_target

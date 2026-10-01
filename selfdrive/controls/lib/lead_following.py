@@ -7,7 +7,6 @@ import math
 
 from common.numpy_fast import interp
 
-APPROACH_ACCEL_LIMIT_FALL = 0.5  # m/s^3, positive throttle lift only
 FOLLOW_COMFORT_FULL_ACCEL = 0.2  # m/s^2, fade out comfort before either acceleration reaches zero
 
 

@@ -21,10 +21,7 @@ def scc_limits(assisted=True, state='pid', braking=False, gas=False, soft_hold=F
   update.body = update.body[:boundary] + [ast.parse('return jerk_upper, jerk_lower, scc_stop_request').body[0]]
   gate = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'should_request_scc_standstill')
   module = ast.fix_missing_locations(ast.Module(body=[gate, update], type_ignores=[]))
-  const = next(node for node in tree.body if isinstance(node, ast.Assign) and
-               any(getattr(t, 'id', None) == 'SCC_JERK_UPPER' for t in node.targets))
   env = dict(clip=clip, interp=interp, DT_CTRL=0.01, departure_jerk_upper=departure_jerk_upper,
-             SCC_JERK_UPPER=ast.literal_eval(const.value),
              LongCtrlState=NS(off='off', pid='pid', stopping='stopping', starting='starting'))
   exec(compile(module, str(source), 'exec'), env)
   controller = NS(frame=1, soft_hold_mode=2, jerk_start_limit=1.0, jerk_count=0.0,

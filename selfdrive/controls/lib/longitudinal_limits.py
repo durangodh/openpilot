@@ -52,21 +52,6 @@ def get_cruise_max_accel(v_ego, cruise_max_vals, driving_mode,
   return float(max(0.0, interp(v_ego, CRUISE_MAX_ACCEL_BP, values) * mode_factor))
 
 
-def apply_cruise_max_limit(accel, stopping, cruise_max_accel):
-  """Clamp the final SCC acceleration request to the CruiseMax policy.
-
-  CruiseMax used to bound the planner trajectory only. LongControl runs its PID
-  against CarControllerParams.ACCEL_MIN/MAX, so the error term could add
-  acceleration on top of the already-capped planned feedforward, and the
-  LongCtrlState.starting launch accel bypassed the cap entirely. Applying the
-  same policy to the last value before SCC12 makes the UI setting the real
-  upper bound. Braking and stopping requests are passed through untouched.
-  """
-  if stopping or accel <= 0.0:
-    return float(accel)
-  return float(min(accel, cruise_max_accel))
-
-
 def get_no_lead_cruise_accel_cap(cruise_max_accel, speed_error_kph,
                                   accel_factor=NO_LEAD_CRUISE_ACCEL_FACTOR_DEFAULT):
   """Return a gentler positive-acceleration cap when no lead is present.
@@ -79,23 +64,6 @@ def get_no_lead_cruise_accel_cap(cruise_max_accel, speed_error_kph,
                        [0.0, 5.0, 15.0, 30.0], [0.20, 0.40, 0.70, 1.0])
   factor = clip(accel_factor, 0.30, 1.0)
   return float(max(0.0, cruise_max_accel * factor * error_scale))
-
-
-def apply_no_lead_cruise_accel_limit(accel, stopping, cruise_max_accel,
-                                      speed_error_kph, accel_factor):
-  """Apply the no-lead positive cap.
-
-  Only the size of the drive request is limited here. How fast it rises is
-  LongControl's PID jerk limit (CRUISE JERK ACCEL); a second rise-rate limit
-  at this layer used to override that setting.
-  """
-  accel = apply_cruise_max_limit(accel, stopping, cruise_max_accel)
-  if stopping or accel <= 0.0:
-    return float(accel)
-
-  no_lead_cap = get_no_lead_cruise_accel_cap(cruise_max_accel, speed_error_kph,
-                                              accel_factor)
-  return float(min(accel, no_lead_cap))
 
 
 def select_auto_driving_mode(initial_mode, current_mode, driving_index):

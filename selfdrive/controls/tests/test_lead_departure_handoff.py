@@ -286,11 +286,16 @@ def test_start_handoff_never_slows_braking():
   assert previous - output > 1.6 * 0.01 + 1e-6  # normal PID braking jerk
 
 
-def test_start_handoff_respects_lowered_acceleration_cap():
+def test_lowered_acceleration_cap_is_followed_with_jerk_limit():
+  # A falling positive cap is not cut in one frame; PID eases down to it.
   control, cs, plan, radar = setup_confirmed_start_handoff()
-  output = control.update(True, cs, plan, (-3.5, 0.2), 0.0,
-                          radar_state=radar, radar_state_valid=True, radar_state_updated=True)[0]
-  assert output <= 0.2
+  previous = control.last_output_accel
+  for _ in range(100):
+    output = control.update(True, cs, plan, (-3.5, 0.2), 0.0,
+                            radar_state=radar, radar_state_valid=True, radar_state_updated=True)[0]
+    assert 0.0 <= previous - output <= 3.5 * 1.1 * 0.01 + 1e-6
+    previous = output
+  assert output == pytest.approx(0.2)
 
 
 def test_unconfirmed_pid_motion_never_uses_start_handoff():

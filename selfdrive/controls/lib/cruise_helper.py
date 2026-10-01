@@ -10,12 +10,10 @@ from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.controls.lib.vision_curve_speed import VisionCurveSpeed, UNLIMITED_SPEED
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
 from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software_gap
-from selfdrive.controls.lib.lead_following import APPROACH_ACCEL_LIMIT_FALL, get_follow_approach_limit
+from selfdrive.controls.lib.lead_following import get_follow_approach_limit
 from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_auto_speed_up_target,
-                                                        apply_no_lead_cruise_accel_limit,
-                                                        apply_cruise_max_limit,
                                                         get_cruise_max_accel,
                                                         get_no_lead_cruise_accel_cap,
                                                         select_auto_driving_mode)
@@ -84,7 +82,6 @@ class CruiseHelper:
     self.my_eco_mode_factor = 0.8
     self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
     self.no_lead_cruise_accel_factor = 0.65
-    self.follow_accel_limit = None
     self.current_set_speed_kph = 0.0
 
     self.target_speed = 0.0
@@ -284,7 +281,7 @@ class CruiseHelper:
                                 self.my_eco_mode_factor, self.my_safe_mode_factor)
 
   def get_longitudinal_accel_limit(self, CS, sm, set_speed_kph):
-    """Return the live positive limit shared by LongControl and SCC output."""
+    """Return the live positive acceleration limit for LongControl."""
     cruise_max_accel = self.get_cruise_max_accel(CS.vEgo)
     speed_error_kph = max(0.0, float(set_speed_kph) - CS.vEgo * CV.MS_TO_KPH)
     no_lead_cap = get_no_lead_cruise_accel_cap(
@@ -294,21 +291,12 @@ class CruiseHelper:
     plan = sm['longitudinalPlan']
     comfort_valid = all(sm.valid[s] and sm.alive[s] for s in ('radarState', 'longitudinalPlan'))
     if comfort_valid and has_lead and plan.mpcMode == 0 and not (plan.onStop or plan.fcw):
-      target, comfortable = get_follow_approach_limit(
+      target, _ = get_follow_approach_limit(
         target, CS.vEgo, (sm['radarState'].leadOne, sm['radarState'].leadTwo),
         float(plan.desiredDistance))
-      if comfortable and self.follow_accel_limit is not None:
-        # Ease throttle lift, but never delay an actual MPC/PID braking request
-        # or a lower user-configured acceleration ceiling.
-        target = min(cruise_max_accel, max(target, self.follow_accel_limit - APPROACH_ACCEL_LIMIT_FALL * DT_CTRL))
-    # An MPC source label change is not a new lead or a new acceleration
-    # demand. Preserve the allowance across lead/cruise switches; re-anchoring
-    # it to a small/coasting output repeatedly delayed normal gap recovery.
-    # Actual lead, distance and user-limit changes still set the target above.
-    # The allowance itself is not rate-limited when it rises: LongControl's
-    # PID jerk limit already ramps the actual request.
-    self.follow_accel_limit = max(0.0, float(target))
-    return self.follow_accel_limit
+    # Only the size of the allowance is decided here. LongControl's PID jerk
+    # limit ramps the actual request when this allowance rises or falls.
+    return max(0.0, float(target))
 
   def _resume_longitudinal(self, controls, CS, active_mode=1):
     if self.long_active_user <= 0:
@@ -1045,20 +1033,6 @@ class CruiseHelper:
 
   def reset_scc_target(self):
     self.target_speed = 0.0
-
-  def get_apply_accel(self, CS, sm, accel, stopping):
-    # Match the PID allowance at the final SCC12 boundary, including starts.
-    # Braking/stopping requests bypass this positive-acceleration policy.
-    cruise_max_accel = self.get_cruise_max_accel(CS.out.vEgo)
-    if sm['radarState'].leadOne.status or sm['radarState'].leadTwo.status:
-      cap = cruise_max_accel if self.follow_accel_limit is None else min(cruise_max_accel, self.follow_accel_limit)
-      apply_accel = apply_cruise_max_limit(accel, stopping, cap)
-    else:
-      speed_error_kph = max(0.0, self.current_set_speed_kph - CS.out.vEgo * CV.MS_TO_KPH)
-      apply_accel = apply_no_lead_cruise_accel_limit(
-        accel, stopping, cruise_max_accel, speed_error_kph,
-        self.no_lead_cruise_accel_factor)
-    return float(apply_accel)
 
   def get_stock_cam_accel(self, apply_accel, stock_accel, scc11):
     stock_cam = scc11["Navi_SCC_Camera_Act"] == 2 and scc11["Navi_SCC_Camera_Status"] == 2
