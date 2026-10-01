@@ -298,6 +298,8 @@ final class KakaoNaviClient {
         stateSock = null; stateOut = null;
     }
 
+    private void closeMapAndSignalOnReset() { closeSignal(); }
+
     private void closeMap() {
         try { if (mapSock != null) mapSock.close(); } catch (Throwable ignored) { }
         mapSock = null; mapOut = null;
