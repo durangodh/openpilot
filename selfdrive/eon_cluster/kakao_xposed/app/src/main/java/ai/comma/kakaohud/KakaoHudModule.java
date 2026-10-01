@@ -47,7 +47,11 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
             KAKAO_PKG + ":id/btn_speech_recognition";
     private static final String NMIRROR_VOICE_ENTRY = "btn_speech_recognition";
     private static final int NMIRROR_VOICE_RES_ID = 0x7f0bffff;
-    private static final String VOICE_COMPOSABLE = "com.kakaomobility.knmsdk.g4.C1309j";
+    // 음성 Composable 클래스. "C1309j" 는 jadx 가 이름 충돌을 피하려고 붙인 표시용
+    // 이름(C+번호+원래이름)이라 실제 앱에서는 "j" 일 수 있다. 둘 다 시도한다.
+    private static final String[] VOICE_COMPOSABLES = {
+            "com.kakaomobility.knmsdk.g4.j",
+            "com.kakaomobility.knmsdk.g4.C1309j"};
     private volatile Object voiceCallback;
     private View voiceProxy;
 
@@ -82,7 +86,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
      */
     /**
      * 네이버 hookVoiceButton 과 같은 전략:
-     *  (1) 음성 Composable(C1309j.d)의 onClick 콜백을 잡아 둔다.
+     *  (1) 음성 Composable(g4.j.d)의 onClick 콜백을 잡아 둔다.
      *  (2) getIdentifier 후킹으로 btn_speech_recognition -> 고정 숫자ID.
      *  (3) 카카오 Compose 루트 View 에 그 ID 를 박고 OnClickListener 로 (1)의
      *      콜백을 실행. nMirror 가 ID 로 찾아 클릭하면 카카오 음성이 실행된다.
@@ -120,11 +124,20 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         }
     }
 
-    /** 음성 Composable C1309j.d 의 onClick(Function0) 인자를 캡처한다. */
+    /** 음성 Composable g4.j.d 의 onClick(Function0) 인자를 캡처한다. */
     private void hookVoiceCallback(LoadPackageParam lpparam) {
         try {
-            Class<?> comp = XposedHelpers.findClass(VOICE_COMPOSABLE, lpparam.classLoader);
-            XposedBridge.hookAllMethods(comp, "d", new XC_MethodHook() {
+            Class<?> comp = null;
+            for (String name : VOICE_COMPOSABLES) {
+                comp = XposedHelpers.findClassIfExists(name, lpparam.classLoader);
+                if (comp != null) break;
+            }
+            if (comp == null) {
+                KakaoHudLog.line("voice composable class not found: "
+                        + java.util.Arrays.toString(VOICE_COMPOSABLES));
+                return;
+            }
+            java.util.Set<?> hooks = XposedBridge.hookAllMethods(comp, "d", new XC_MethodHook() {
                 @Override protected void beforeHookedMethod(MethodHookParam param) {
                     try {
                         for (Object a : param.args) {
@@ -137,7 +150,8 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
                     } catch (Throwable ignored) { }
                 }
             });
-            KakaoHudLog.line("voice callback hook ready");
+            KakaoHudLog.line("voice callback hook ready: " + comp.getName()
+                    + ".d x" + hooks.size());
         } catch (Throwable t) {
             KakaoHudLog.ex("hookVoiceCallback", t);
         }
