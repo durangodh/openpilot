@@ -8,7 +8,8 @@ from common.numpy_fast import clip, interp
 from selfdrive.swaglog import cloudlog
 from selfdrive.modeld.constants import index_function
 from selfdrive.controls.lib.radar_helpers import _LEAD_ACCEL_TAU
-from selfdrive.controls.lib.lead_following import get_follow_obstacle_cost
+from selfdrive.controls.lib.lead_following import (NO_LEAD, LeadConfirm, faster_lead_relief,
+                                                   get_follow_obstacle_cost)
 from selfdrive.controls.lib.lead_departure import departure_motion_valid
 from selfdrive.controls.lib.t_follow import (CRUISE_GAP_BP as _CRUISE_GAP_BP, CRUISE_GAP_V,
                                              clamp_desired_follow_distance,
@@ -274,6 +275,8 @@ class LongitudinalMpc:
     self.stop_distance = STOP_DISTANCE
     self.lead0_comfort_brake = StoppedLeadComfortBrake()
     self.lead1_comfort_brake = StoppedLeadComfortBrake()
+    self.lead0_confirm = LeadConfirm()
+    self.lead1_confirm = LeadConfirm()
     # ────────────────────────────────────────────────────────────────────
 
     self.reset()
@@ -466,7 +469,11 @@ class LongitudinalMpc:
     self.prev_accel_constraint = prev_accel_constraint
     v_ego = self.x0[1]
     a_ego = carstate.aEgo
-    self.status = radarstate.leadOne.status or radarstate.leadTwo.status
+    # Far, non-closing new leads must persist briefly before the plan uses
+    # them; close or closing leads are used at once (LeadConfirm).
+    lead_one = radarstate.leadOne if self.lead0_confirm.update(radarstate.leadOne, v_ego, DT_MDL) else NO_LEAD
+    lead_two = radarstate.leadTwo if self.lead1_confirm.update(radarstate.leadTwo, v_ego, DT_MDL) else NO_LEAD
+    self.status = lead_one.status or lead_two.status
     self.safe_mode_factor = float(clip(controls.mySafeModeFactor, 0.5, 1.0))
 
     # aPilot C2 soft hold state is owned by the longitudinal MPC.
@@ -489,8 +496,8 @@ class LongitudinalMpc:
       self.softHoldTimer = 0
       self.xState = XState.lead if self.status else XState.cruise
 
-    lead_xv_0 = self.process_lead(radarstate.leadOne)
-    lead_xv_1 = self.process_lead(radarstate.leadTwo)
+    lead_xv_0 = self.process_lead(lead_one)
+    lead_xv_1 = self.process_lead(lead_two)
 
     # apilot-c2: 갭/속도/안전계수 기반 t_follow (감속 중 유지)
     self.update_gap_tf(controls, v_ego)
@@ -498,10 +505,10 @@ class LongitudinalMpc:
     # Restore a small, bounded approach margin as soon as a confirmed lead is
     # closing. Keep it separate from the held base value so it cannot build up
     # frame after frame while ego is decelerating.
-    lead0_status = radarstate.leadOne.status
+    lead0_status = lead_one.status
     closing_margin = get_t_follow_closing_margin(
       v_ego, lead_xv_0[0, 1], lead0_status,
-      radarstate.leadOne.dRel if lead0_status else None)
+      lead_one.dRel if lead0_status else None)
     self.t_follow = self.t_follow_base + closing_margin
 
     # apilot-c2: 안전모드일수록 comfort_brake 를 낮춰(=더 일찍 감속) 정지거리도 늘린다.
@@ -516,9 +523,9 @@ class LongitudinalMpc:
       self.comfort_brake * self.safe_mode_factor, v_ego, lead_xv_0[0, 1], lead0_status,
       lead_xv_0[0, 0], self.t_follow, self.stop_dist)
     lead1_comfort_brake = self.lead1_comfort_brake.update(
-      self.comfort_brake * self.safe_mode_factor, v_ego, lead_xv_1[0, 1], radarstate.leadTwo.status,
+      self.comfort_brake * self.safe_mode_factor, v_ego, lead_xv_1[0, 1], lead_two.status,
       lead_xv_1[0, 0], self.t_follow, self.stop_dist)
-    lead_v = lead_xv_0[0, 1] if radarstate.leadOne.status else v_ego
+    lead_v = lead_xv_0[0, 1] if lead0_status else v_ego
     self.desired_distance = float(desired_follow_distance(
       v_ego, lead_v, self.t_follow, self.stop_dist, comfort_brake,
       krkeegan=self.applyLongDynamicCost))
@@ -527,12 +534,12 @@ class LongitudinalMpc:
     if self.mode == 'acc' and not (reset_state or self.traffic_stop_active or self.xState == XState.softHold):
       obstacle_cost = get_follow_obstacle_cost(
         obstacle_cost, v_ego, a_ego, self.x0[2],
-        (radarstate.leadOne, radarstate.leadTwo), self.t_follow, self.stop_dist, comfort_brake)
+        (lead_one, lead_two), self.t_follow, self.stop_dist, comfort_brake)
 
     self.set_weights(prev_accel_constraint=self.prev_accel_constraint,
                      v_lead0=lead_xv_0[0, 1],
                      v_lead1=lead_xv_1[0, 1],
-                     a_lead0=radarstate.leadOne.aLeadK if lead0_status else 0.0,
+                     a_lead0=lead_one.aLeadK if lead0_status else 0.0,
                      lead0_status=lead0_status, obstacle_cost=obstacle_cost)
 
     # apilot-c2: 리드 정지환산거리는 기본 comfort_brake/기본 stop_distance 로 계산
@@ -542,6 +549,14 @@ class LongitudinalMpc:
     lead_1_obstacle = lead_xv_1[:,0] + get_stopped_equivalence_factor(
       lead_xv_1[:,1], self.x_sol[:,1], self.t_follow, self.stop_distance,
       krkeegan=self.applyLongDynamicCost, comfort_brake=lead1_comfort_brake)
+
+    # A faster, non-braking cut-in leaves the gap on its own: remove only its
+    # current gap deficit so the MPC coasts instead of stabbing the brake.
+    if self.mode == 'acc' and lead0_status:
+      lead_0_obstacle = lead_0_obstacle + faster_lead_relief(
+        lead_one.dRel, v_ego, lead_xv_0[0, 1], lead_one.aLeadK,
+        get_safe_obstacle_distance(v_ego, self.t_follow, self.stop_dist, comfort_brake),
+        lead_0_obstacle[0], self.stop_dist)
 
     # apilot-c2: 비활성(reset) 상태에서는 현재 aEgo 로 상하한을 고정해 활성 전환시 튀지 않게 한다
     self.params[:,0] = MIN_ACCEL if not reset_state else a_ego

@@ -87,3 +87,86 @@ def get_follow_approach_limit(max_accel, v_ego, leads, desired_gap):
   weight = (interp(v_ego * 3.6, [30.0, 40.0], [0.0, 1.0]) *
             interp(closing, [0.35, 0.75], [0.0, 1.0]))
   return max_accel * (1.0 - weight * (1.0 - allowance)), True
+
+
+# ---- New-lead confirmation (cut-ins, adjacent-lane flicker) ----
+NEW_LEAD_CONFIRM_S = 0.25          # a far, non-closing new lead must persist this long
+NEW_LEAD_URGENT_TTC_S = 4.0        # closing faster than this is used at once
+NEW_LEAD_URGENT_HEADWAY_S = 1.5    # closer than this headway is used at once
+NEW_LEAD_URGENT_MIN_DIST = 25.0    # ... and always closer than this distance
+LEAD_SWITCH_JUMP = 5.0             # m, dRel jump that means a different vehicle
+
+
+class NoLead(object):
+  status = False
+  dRel = 0.0
+  vLead = 0.0
+  vLeadK = 0.0
+  aLeadK = 0.0
+  aLeadTau = 1.5
+  modelProb = 0.0
+  radar = False
+
+
+NO_LEAD = NoLead()
+
+
+class LeadConfirm(object):
+  """Delay only far, non-closing new leads by NEW_LEAD_CONFIRM_S.
+
+  radard publishes a lead from the first frame its probability passes 0.5,
+  so a car in the next lane on a curve, or a cut-in that is already pulling
+  away, was planned against immediately and produced a brake stab. Anything
+  close or closing (TTC/headway/distance) is used at once, so a real
+  hazard is never delayed. Only the MPC sees the delay.
+  """
+
+  def __init__(self):
+    self.reset()
+
+  def reset(self):
+    self.seen_s = 0.0
+    self.prev_d = None
+
+  def update(self, lead, v_ego, dt):
+    if lead is None or not lead.status:
+      self.reset()
+      return False
+    d = float(lead.dRel)
+    if not math.isfinite(d):
+      self.reset()
+      return True
+    if self.prev_d is None or abs(d - self.prev_d) > max(LEAD_SWITCH_JUMP, 0.15 * self.prev_d):
+      self.seen_s = 0.0
+    self.prev_d = d
+    self.seen_s += dt
+    closing = max(0.0, float(v_ego) - float(lead.vLead))
+    urgent = (d < max(NEW_LEAD_URGENT_MIN_DIST, NEW_LEAD_URGENT_HEADWAY_S * float(v_ego)) or
+              (closing > 0.1 and d / closing < NEW_LEAD_URGENT_TTC_S))
+    return urgent or self.seen_s >= NEW_LEAD_CONFIRM_S
+
+
+# ---- Faster cut-in relief ----
+CUT_IN_MIN_HEADWAY_S = 0.4         # never relax closer than this headway
+
+
+def faster_lead_relief(d_rel, v_ego, v_lead, a_lead, desired_gap, obstacle_now, stop_distance):
+  """Metres to add to a faster lead's obstacle so the MPC coasts, not brakes.
+
+  A car that cuts in ahead but is faster than ego and not braking leaves the
+  gap on its own. The MPC still saw a gap deficit and braked briefly. The
+  relief removes only the current deficit, fades in with the lead's
+  relative speed and out as it brakes or gets too close, so a slowing or
+  braking cut-in gets the normal response.
+  """
+  values = (d_rel, v_ego, v_lead, a_lead, desired_gap, obstacle_now, stop_distance)
+  if not all(math.isfinite(float(x)) for x in values):
+    return 0.0
+  deficit = float(desired_gap) - float(obstacle_now)
+  if deficit <= 0.0:
+    return 0.0
+  min_gap = max(float(stop_distance), CUT_IN_MIN_HEADWAY_S * float(v_ego))
+  weight = (interp(float(v_lead) - float(v_ego), [0.3, 1.5], [0.0, 1.0]) *
+            interp(float(a_lead), [-0.5, -0.1], [0.0, 1.0]) *
+            interp(float(d_rel), [min_gap, min_gap + 5.0], [0.0, 1.0]))
+  return float(weight * deficit)
