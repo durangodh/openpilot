@@ -128,7 +128,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
                 @Override protected void beforeHookedMethod(MethodHookParam param) {
                     try {
                         for (Object a : param.args) {
-                            if (a instanceof kotlin.jvm.functions.Function0) {
+                            if (isFunction0(a)) {
                                 if (voiceCallback == null) KakaoHudLog.line("voice onClick captured");
                                 voiceCallback = a;
                                 break;
@@ -165,6 +165,19 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         }
     }
 
+    /** kotlin stdlib 의존 없이 Function0 여부를 판정한다(인터페이스 이름 + invoke()). */
+    private static boolean isFunction0(Object o) {
+        if (o == null) return false;
+        for (Class<?> c = o.getClass(); c != null; c = c.getSuperclass()) {
+            for (Class<?> itf : c.getInterfaces()) {
+                if ("kotlin.jvm.functions.Function0".equals(itf.getName())) return true;
+            }
+        }
+        // 폴백: 인자 없는 invoke() 메서드를 가진 콜백.
+        try { o.getClass().getMethod("invoke"); return true; } catch (Throwable ignored) { }
+        return false;
+    }
+
     private void attachVoiceProxy(final ViewGroup container) {
         if (voiceProxy != null && voiceProxy.getParent() == container) return;
         if (voiceProxy != null && voiceProxy.getParent() instanceof ViewGroup) {
@@ -186,9 +199,9 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         proxy.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 Object cb = voiceCallback;
-                if (cb instanceof kotlin.jvm.functions.Function0) {
+                if (cb != null) {
                     try {
-                        ((kotlin.jvm.functions.Function0<?>) cb).invoke();
+                        cb.getClass().getMethod("invoke").invoke(cb);
                         KakaoHudLog.line("voice callback invoked");
                     } catch (Throwable t) {
                         KakaoHudLog.ex("voice invoke", t);
