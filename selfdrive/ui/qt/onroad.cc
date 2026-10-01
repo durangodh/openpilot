@@ -1475,34 +1475,6 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
       p.drawText(rect, Qt::AlignCenter, str_left_dist);
     }
   }
-  else {
-    auto controls_state = sm["controlsState"].getControlsState();
-    int sccStockCamAct = (int)controls_state.getSccStockCamAct();
-    int sccStockCamStatus = (int)controls_state.getSccStockCamStatus();
-
-    if(sccStockCamAct == 2 && sccStockCamStatus == 2) {
-      int radius_ = 154;  // 기존 192에서 20% 축소
-
-      int x = 30;
-      int y = 270;
-
-      p.setPen(Qt::NoPen);
-
-      p.setBrush(QBrush(QColor(255, 0, 0, 255)));
-      QRect rect = QRect(x, y, radius_, radius_);
-      p.drawEllipse(rect);
-
-      p.setBrush(QBrush(QColor(255, 255, 255, 255)));
-
-      const int tickness = 11;  // 기존 14에서 20% 축소
-      rect.adjust(tickness, tickness, -tickness, -tickness);
-      p.drawEllipse(rect);
-
-      configFont(p, "Open Sans", 56, "Bold");  // 기존 70에서 20% 축소 (원 크기와 비례 유지)
-      p.setPen(QColor(0, 0, 0, 230));
-      p.drawText(rect, Qt::AlignCenter, "CAM");
-    }
-  }
 
   p.restore();
 }

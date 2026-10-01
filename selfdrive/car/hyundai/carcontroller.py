@@ -108,7 +108,6 @@ class CarController:
     param = Params()
 
     self.mad_mode_enabled = param.get_bool('MadModeEnabled')
-    self.stock_navi_decel_enabled = param.get_bool('StockNaviDecelEnabled')
     self.keep_steering_turn_signals = param.get_bool('KeepSteeringTurnSignals')
     self.haptic_feedback_speed_camera = param.get_bool('HapticFeedbackWhenSpeedCamera')
     self.op_params = param
@@ -377,15 +376,6 @@ class CarController:
         if aReqValue > controls.aReqValueMax:
           controls.aReqValueMax = controls.aReqValue
 
-        if self.stock_navi_decel_enabled:
-          controls.sccStockCamAct = CS.scc11["Navi_SCC_Camera_Act"]
-          controls.sccStockCamStatus = CS.scc11["Navi_SCC_Camera_Status"]
-          apply_accel, stock_cam = controls.cruise_helper.get_stock_cam_accel(apply_accel, aReqValue, CS.scc11)
-        else:
-          controls.sccStockCamAct = 0
-          controls.sccStockCamStatus = 0
-          stock_cam = False
-
         lead = controls.cruise_helper.get_lead(controls.sm)
         lead_distance = float(lead.dRel) if lead is not None else 0.0
         lead_relative_speed = float(lead.vRel) if lead is not None else 0.0
@@ -403,7 +393,7 @@ class CarController:
                                       soft_hold_active=soft_hold_scc))
 
         can_sends.append(create_scc11(self.packer, self.frame, CC.enabled, set_speed, hud_control.leadVisible, self.scc_live, CS.scc11,
-                       controls.cruise_helper.active_cam, stock_cam, soft_hold=soft_hold and CC.longActive,
+                       controls.cruise_helper.active_cam, soft_hold=soft_hold and CC.longActive,
                        cruise_gap=controls.cruise_helper.long_cruise_gap,
                        lead_distance=lead_distance, lead_relative_speed=lead_relative_speed))
 

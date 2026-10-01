@@ -1193,12 +1193,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "방지턱까지 남은 주행시간이 이 값일 때 목표속도 도달을 완료합니다. 기본값: 1.",
       "../assets/offroad/icon_speed_limit.png", 1, 50, 1, 0, 1, this));
   toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new ParamControl("StockNaviDecelEnabled",
-                                            "STOCK NAVI DECEL",
-                                            "켜짐: 순정 내비게이션의 제한속도·카메라 정보를 종방향 감속에 사용합니다.",
-                                            "../assets/offroad/icon_road.png",
-                                            this));
-  toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("HapticFeedbackWhenSpeedCamera",
                                             "SPEED CAMERA HAPTIC",
                                             "켜짐: 과속카메라가 감지되면 핸들 진동으로 알립니다.",

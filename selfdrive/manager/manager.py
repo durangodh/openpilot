@@ -84,7 +84,6 @@ def manager_init() -> None:
     ("LanelessOffset", "0"),
 
     ("SccSmootherSyncGasPressed", "0"),
-    ("StockNaviDecelEnabled", "0"),
     ("KeepSteeringTurnSignals", "0"),
     ("HapticFeedbackWhenSpeedCamera", "0"),
     ("NewRadarInterface", "0"),

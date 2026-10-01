@@ -1153,16 +1153,6 @@
   },
   {
    "group": "커브내비",
-   "name": "StockNaviDecelEnabled",
-   "title": "STOCK NAVI DECEL",
-   "descr": "켜짐: 순정 내비게이션의 제한속도·카메라 정보를 종방향 감속에 사용합니다.",
-   "min": 0,
-   "max": 1,
-   "default": 0,
-   "unit": 1
-  },
-  {
-   "group": "커브내비",
    "name": "HapticFeedbackWhenSpeedCamera",
    "title": "SPEED CAMERA HAPTIC",
    "descr": "켜짐: 과속카메라가 감지되면 핸들 진동으로 알립니다.",

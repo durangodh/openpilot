@@ -98,7 +98,6 @@ class CruiseHelper:
     self.slowing_down_alert = False
     self.slowing_down_sound_alert = False
     self.slowing_down_for_bump = False
-    self.stock_weight = 0.0
 
     # c3-wip style navigation distance tracking. This branch has no
     # selfdriveState.distanceTraveled, so integrate actual loop time and vEgo.
@@ -1046,13 +1045,6 @@ class CruiseHelper:
 
   def reset_scc_target(self):
     self.target_speed = 0.0
-
-  def get_stock_cam_accel(self, apply_accel, stock_accel, scc11):
-    stock_cam = scc11["Navi_SCC_Camera_Act"] == 2 and scc11["Navi_SCC_Camera_Status"] == 2
-    self.stock_weight += DT_CTRL / 3.0 if stock_cam else -DT_CTRL / 3.0
-    self.stock_weight = clip(self.stock_weight, 0.0, 1.0)
-    accel = stock_accel * self.stock_weight + apply_accel * (1.0 - self.stock_weight)
-    return min(accel, apply_accel), stock_cam
 
   def get_button(self, current_set_speed):
     if self.target_speed < self.min_set_speed_clu:
