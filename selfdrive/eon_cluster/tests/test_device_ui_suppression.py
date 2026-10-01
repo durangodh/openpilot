@@ -221,13 +221,11 @@ def test_navi_speed_projection_applies_to_both_apps():
   assert 'packet = _original_packet(sm, *args, **kwargs)' in wrapper
   assert 'packet = _apply_naver_speed(packet, _v_ego(sm))' in wrapper
 
-  # Camera/section deceleration: TMAP still prefers the legacy roadLimitSpeed
-  # path when that sender exists, NAVER always uses its own 7714 stream; the
-  # naver_selected gate on the legacy read stays (still correct, just
-  # currently a no-op since nothing feeds UDP 2843 in this fork).
+  # Camera/section deceleration: only TMAP may use the legacy roadLimitSpeed
+  # path when that sender exists; Naver and Kakao always use their own 7714
+  # stream (currently a no-op since nothing feeds UDP 2843 in this fork).
   assert 'self.nav_app_selected = self.params.get_int("EonClusterHudNavApp")' in cruise
-  assert 'naver_selected = self.nav_app_selected == 2' in cruise
-  assert 'if road_data is not None and not naver_selected:' in cruise
+  assert 'if road_data is not None and self.nav_app_selected == 1:' in cruise
 
   # The general (non-camera) road speed limit used for auto speed-up and the
   # RES speed table, though, was excluded for TMAP entirely (elif road_data).

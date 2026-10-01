@@ -47,7 +47,6 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.text.SimpleDateFormat;
-import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -1396,29 +1395,46 @@ public final class HudService extends Service {
                 && h[2] == tag.charAt(2) && h[3] == tag.charAt(3);
     }
 
-    private void replaceAsset(AtomicReference<Bitmap> target, byte[] data) {
-        Bitmap decoded = null;
-        if (data.length > 0) {
-            BitmapFactory.Options bounds = new BitmapFactory.Options();
-            bounds.inJustDecodeBounds = true;
-            BitmapFactory.decodeByteArray(data, 0, data.length, bounds);
-            long pixels = (long) bounds.outWidth * (long) bounds.outHeight;
-            // Transport frames are normally at most 1920x576. Keep generous
-            // headroom while rejecting malformed compressed-image bombs.
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0
-                    || bounds.outWidth > 4096 || bounds.outHeight > 4096
-                    || pixels > 8_000_000L) {
-                return;
-            }
-            decoded = BitmapFactory.decodeByteArray(data, 0, data.length);
+    /**
+     * Decode a transport image without holding assetLock. Returns null for an
+     * empty payload (clear the asset) and for a rejected/undecodable image;
+     * the caller tells the two apart by the payload length.
+     */
+    private static Bitmap decodeAsset(byte[] data) {
+        if (data.length == 0) {
+            return null;
         }
-        if (data.length > 0 && decoded == null) {
-            return;
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(data, 0, data.length, bounds);
+        long pixels = (long) bounds.outWidth * (long) bounds.outHeight;
+        // Transport frames are normally at most 1920x576. Keep generous
+        // headroom while rejecting malformed compressed-image bombs.
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0
+                || bounds.outWidth > 4096 || bounds.outHeight > 4096
+                || pixels > 8_000_000L) {
+            return null;
         }
+        return BitmapFactory.decodeByteArray(data, 0, data.length);
+    }
+
+    /** Swap in a decoded asset. Call under assetLock so rendering never sees a recycled bitmap. */
+    private static void swapAsset(AtomicReference<Bitmap> target, Bitmap decoded) {
         Bitmap old = target.getAndSet(decoded);
         if (old != null && old != decoded) {
             old.recycle();
         }
+    }
+
+    private AtomicReference<Bitmap> assetFor(byte[] header) {
+        if (tagEquals(header, "MAP1")) return mapFrame;
+        if (tagEquals(header, "TBT1")) return tbtCurrentFrame;
+        if (tagEquals(header, "TBT2")) return tbtNextFrame;
+        if (tagEquals(header, "TBT3")) return tbtCompactFrame;
+        if (tagEquals(header, "XRD1")) return crossroadFrame;
+        if (tagEquals(header, "LANE")) return laneFrame;
+        if (tagEquals(header, "SIG1")) return trafficSignalFrame;
+        return null;
     }
 
     private static void recycleAndClear(AtomicReference<Bitmap> target) {
@@ -1470,28 +1486,24 @@ public final class HudService extends Service {
                     if (length > 0) {
                         in.readFully(data);
                     }
+                    AtomicReference<Bitmap> target = assetFor(header);
+                    if (target == null) {
+                        throw new Exception("bad asset tag");
+                    }
+                    // Decode outside assetLock: the render loop holds that lock
+                    // for a whole frame, and decoding under it used to stall
+                    // both the renderer and this socket, making the map uneven.
+                    Bitmap decoded = decodeAsset(data);
+                    if (length > 0 && decoded == null) {
+                        continue;
+                    }
                     synchronized (assetLock) {
-                        if (tagEquals(header, "MAP1")) {
-                            // EON already rate-limits MAP1 to hudMapFps. Accept every
-                            // delivered map frame here so network/scheduler jitter near
-                            // the old 200 ms gate cannot discard a fresh frame and make
-                            // turns look one frame late on the external HUD.
-                            replaceAsset(mapFrame, data);
+                        // EON already rate-limits MAP1 to hudMapFps. Accept every
+                        // delivered map frame here so network/scheduler jitter
+                        // cannot discard a fresh frame.
+                        swapAsset(target, decoded);
+                        if (target == mapFrame) {
                             lastMapAcceptedElapsed = SystemClock.elapsedRealtime();
-                        } else if (tagEquals(header, "TBT1")) {
-                            replaceAsset(tbtCurrentFrame, data);
-                        } else if (tagEquals(header, "TBT2")) {
-                            replaceAsset(tbtNextFrame, data);
-                        } else if (tagEquals(header, "TBT3")) {
-                            replaceAsset(tbtCompactFrame, data);
-                        } else if (tagEquals(header, "XRD1")) {
-                            replaceAsset(crossroadFrame, data);
-                        } else if (tagEquals(header, "LANE")) {
-                            replaceAsset(laneFrame, data);
-                        } else if (tagEquals(header, "SIG1")) {
-                            replaceAsset(trafficSignalFrame, data);
-                        } else {
-                            throw new Exception("bad asset tag");
                         }
                     }
                 }
@@ -4077,7 +4089,7 @@ public final class HudService extends Service {
     private Bitmap turnIcon(int type, String label, boolean current) {
         if (current && tmapIconEnabled) {
             Bitmap tmap = tbtCompactFrame.get();
-            // 자산 교체(replaceAsset)도 assetLock 안에서 일어나므로 렌더 중 재활용되지 않는다.
+            // 자산 교체(swapAsset)도 assetLock 안에서 일어나므로 렌더 중 재활용되지 않는다.
             if (tmap != null && !tmap.isRecycled() && tmap.getWidth() > 0 && tmap.getHeight() > 0) {
                 return tmap;
             }
@@ -4893,8 +4905,8 @@ public final class HudService extends Service {
         if (mapTheme != MapThemePolicy.UNKNOWN) {
             return mapTheme == MapThemePolicy.NIGHT;
         }
-        int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-        return h < 7 || h >= 19;
+        // Fixed 19:00-07:00 was an hour off in summer and winter; follow the sun.
+        return SunTimes.isNight(System.currentTimeMillis());
     }
 
     // Called under assetLock, before any HUD tint/overlay is applied.

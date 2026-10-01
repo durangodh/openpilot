@@ -742,17 +742,15 @@ class CruiseHelper:
     # NOO/curve toggles so 7714 SDI and section data can feed the existing C3
     # navigation limiter. Existing roadLimitSpeed packets retain priority.
     navi_state = self.navigation_route.update()
-    # TMAP prefers the legacy roadLimitSpeed camera/section fields when that
-    # path has an active sender; NAVER always skips it and uses NAVER's 7714
-    # SDI/section stream below instead. In this fork nothing currently sends
-    # to the legacy UDP 2843 path for either app, so cam_dist/section_dist
-    # stay 0 here and the navi_camera/navi_section fallback below (shared,
-    # not naver_selected-gated) is what actually supplies both apps today.
+    # Only TMAP (1) may use the legacy roadLimitSpeed camera/section fields;
+    # Naver (2) and Kakao (3) use their own 7714 SDI/section stream below.
+    # In this fork nothing currently sends to the legacy UDP 2843 path, so
+    # cam_dist/section_dist stay 0 here and the shared navi_camera/
+    # navi_section fallback below is what actually supplies every app today.
     # Params are file reads; refresh the app selection once a second instead of
     # on every 100 Hz control frame (switching still applies within 1 s).
     if frame % 100 == 0 or self.nav_app_selected is None:
       self.nav_app_selected = self.params.get_int("EonClusterHudNavApp")
-    naver_selected = self.nav_app_selected == 2
     if road_data is not None and self.nav_app_selected == 1:
       cam_type = int(road_data.camType)
       cam_dist = float(road_data.camLimitSpeedLeftDist)

@@ -10,10 +10,15 @@ import types
 from pathlib import Path
 
 
-params_module = types.ModuleType("common.params")
-params_module.Params = object
-sys.modules.setdefault("common.params", params_module)
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+try:
+  import common.params  # noqa: F401,E402
+except ImportError:
+  # Only without native Params. Replacing a working module here leaked a
+  # Params=object stub into every test collected after this file.
+  params_module = types.ModuleType("common.params")
+  params_module.Params = object
+  sys.modules["common.params"] = params_module
 
 from selfdrive import carrot_navi_server as server  # noqa: E402
 
