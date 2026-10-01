@@ -396,13 +396,9 @@ class CarController:
         if CS.has_scc14:
           acc_standstill = scc_stop_request
 
-          # apilot-c2 comfort bands: keep the SCC brake-to-accel handoff in
-          # the normal control range instead of switching from 0 to 50.
-          if jerk_stopping:
-            cb_upper = cb_lower = 0.0
-          else:
-            cb_upper = clip(0.9 + apply_accel * 0.2, 0.0, 1.2)
-            cb_lower = clip(0.8 + apply_accel * 0.2, 0.0, 1.2)
+          # Comfort bands stay 0 like stock openpilot: LongControl alone
+          # shapes the request, so the ECU should not add its own tolerance.
+          cb_upper = cb_lower = 0.0
 
           if lead is not None:
             d = lead.dRel
