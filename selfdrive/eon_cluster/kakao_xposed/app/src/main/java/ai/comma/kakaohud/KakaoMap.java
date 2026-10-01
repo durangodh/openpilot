@@ -139,6 +139,9 @@ final class KakaoMap {
     private final Handler mainHandler = new Handler(android.os.Looper.getMainLooper());
     private volatile ScreenCamera latestScreenCamera;
     private volatile long latestScreenCameraAt;
+    // 카카오 화면 지도가 지금 쓰는 테마(KNMTheme). 주/야 자동 전환을 그대로 따른다.
+    private volatile Object latestScreenTheme;
+    private volatile long latestScreenThemeAt;
 
     private void pollScreenCameraOnMain() {
         try {
@@ -146,6 +149,14 @@ final class KakaoMap {
             latestScreenCameraAt = android.os.SystemClock.elapsedRealtime();
         } catch (Throwable t) {
             latestScreenCamera = null;
+        }
+        try {
+            Object theme = readScreenTheme();
+            if (theme != null) {
+                latestScreenTheme = theme;
+                latestScreenThemeAt = android.os.SystemClock.elapsedRealtime();
+            }
+        } catch (Throwable ignored) {
         } finally {
             mainHandler.postDelayed(this::pollScreenCameraOnMain, SCREEN_CAMERA_POLL_MS);
         }
@@ -323,6 +334,7 @@ final class KakaoMap {
 
         try {
             applyRouteIfNeeded();
+            applyThemeIfNeeded();
 
             // Prefer Kakao's attached screen camera, as TMAP app_sync does.
             // A distant camera is likely a preview/search map, not the driving map.
@@ -454,8 +466,8 @@ final class KakaoMap {
             pointCompanion = kotlinCompanion(pointClass);
             katecPoint = pointCompanion.getClass().getMethod("katec", double.class, double.class);
 
-            // 테마: 실패해도 무시(기본 테마로 진행).
-            tryTheme(capClass);
+            // 새 캡처러에는 테마를 다시 적용한다(applyThemeIfNeeded).
+            appliedTheme = null;
 
             KakaoHudLog.line("KNMMapCapturer created (density=" + density + ")");
         } catch (Throwable t) {
@@ -498,23 +510,86 @@ final class KakaoMap {
         throw new NoSuchFieldException(owner.getName() + ".Companion");
     }
 
-    private void tryTheme(Class<?> capClass) {
+    // ---- 주/야 테마 ----
+    // 1) 카카오 화면 지도의 현재 테마 객체를 그대로 캡처러에 적용한다.
+    // 2) 그걸 못 읽으면 해 뜨고 지는 시각으로 day/night 테마를 고른다.
+    //    (예전엔 "day" 테마를 처음 한 번만 넣어 야간에도 낮 지도였다.)
+    private static final long SCREEN_THEME_MAX_AGE_MS = 5000;
+    private Object appliedTheme;
+    private Method setThemeMethod;
+    private Method screenThemeGetter;
+    private boolean screenThemeSearched, themeLogged, nightThemeMissingLogged;
+    private Object dayTheme, nightTheme;
+    private boolean sdkThemesLoaded;
+
+    private Object readScreenTheme() throws Exception {
+        WeakReference<Object> sourceRef = screenCameraSource;
+        Object source = sourceRef == null ? null : sourceRef.get();
+        if (source == null || cl == null) return null;
+        Object api = source.getClass().getMethod("q").invoke(source);
+        if (api == null) return null;
+        if (!screenThemeSearched) {
+            screenThemeSearched = true;
+            Class<?> themeClass = cl.loadClass("com.kakaomobility.knmsdk.configurations.KNMTheme");
+            for (Method m : api.getClass().getMethods()) {
+                if (m.getParameterTypes().length == 0 && themeClass.isAssignableFrom(m.getReturnType())) {
+                    screenThemeGetter = m;
+                    break;
+                }
+            }
+            KakaoHudLog.line(screenThemeGetter != null
+                    ? "theme: screen map getter " + screenThemeGetter.getName()
+                    : "theme: screen map has no KNMTheme getter, using sun times");
+        }
+        return screenThemeGetter == null ? null : screenThemeGetter.invoke(api);
+    }
+
+    private void applyThemeIfNeeded() {
+        try {
+            if (setThemeMethod == null) {
+                Class<?> themeClass = cl.loadClass("com.kakaomobility.knmsdk.configurations.KNMTheme");
+                setThemeMethod = capturer.getClass().getMethod("setTheme", themeClass);
+            }
+            Object screen = latestScreenTheme;
+            boolean fromScreen = screen != null && android.os.SystemClock.elapsedRealtime()
+                    - latestScreenThemeAt <= SCREEN_THEME_MAX_AGE_MS;
+            Object desired;
+            boolean night = false;
+            if (fromScreen) {
+                desired = screen;
+            } else {
+                loadSdkThemes();
+                night = SunTimes.isNight(System.currentTimeMillis());
+                desired = night && nightTheme != null ? nightTheme : dayTheme;
+                if (night && nightTheme == null && !nightThemeMissingLogged) {
+                    nightThemeMissingLogged = true;
+                    KakaoHudLog.line("theme: SDK night theme not found");
+                }
+            }
+            if (desired == null || desired == appliedTheme) return;
+            setThemeMethod.invoke(capturer, desired);
+            appliedTheme = desired;
+            KakaoHudLog.status("theme applied: " + (fromScreen ? "screen" : (night ? "night(sun)" : "day(sun)")));
+        } catch (Throwable t) {
+            if (!themeLogged) {
+                themeLogged = true;
+                KakaoHudLog.ex("theme", t);
+            }
+        }
+    }
+
+    private void loadSdkThemes() {
+        if (sdkThemesLoaded) return;
+        sdkThemesLoaded = true;
         try {
             Class<?> sdkClass = cl.loadClass("com.kakaomobility.knmsdk.KNMSDK");
             Object sdk = sdkClass.getField("INSTANCE").get(null);
             Method getTheme = sdkClass.getMethod("getTheme", String.class, String.class);
-            // 테마/스타일 이름은 SDK 기본값을 모르면 null 이 온다. 그때는 setTheme 생략.
-            Object theme = getTheme.invoke(sdk, "default", "day");
-            if (theme != null) {
-                Class<?> themeClass = cl.loadClass("com.kakaomobility.knmsdk.configurations.KNMTheme");
-                Method setTheme = capClass.getMethod("setTheme", themeClass);
-                setTheme.invoke(capturer, theme);
-                KakaoHudLog.line("theme applied");
-            } else {
-                KakaoHudLog.line("theme null (default used)");
-            }
+            dayTheme = getTheme.invoke(sdk, "default", "day");
+            nightTheme = getTheme.invoke(sdk, "default", "night");
+            KakaoHudLog.line("theme: sdk day=" + (dayTheme != null) + " night=" + (nightTheme != null));
         } catch (Throwable t) {
-            KakaoHudLog.status("theme skip: " + t.getClass().getSimpleName());
+            KakaoHudLog.status("theme sdk skip: " + t.getClass().getSimpleName());
         }
     }
 }

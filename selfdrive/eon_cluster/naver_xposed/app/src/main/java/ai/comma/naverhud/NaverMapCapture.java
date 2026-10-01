@@ -97,7 +97,10 @@ final class NaverMapCapture {
             generation++;
             requestedAt = 0;
             lastFrameAt = 0;
-            if (map != null) NaverHudLog.line("snapshot map selected: " + map.getClass().getName());
+            // 야간 지도 확인용: Android Auto 지도(car)는 앱의 야간 설정이 아니라
+            // 차량 주/야를 따를 수 있다. 화면 지도(phone)는 보이는 그대로다.
+            if (map != null) NaverHudLog.line("snapshot map selected: " + mapSource
+                    + " " + map.getClass().getName());
         }
         if (map == null) {
             if (now - lastStatusAt > 10000) {
@@ -167,10 +170,16 @@ final class NaverMapCapture {
         }
     }
 
+    private String mapSource = "";
+
     private Object chooseMap() {
         Object car = call(provider, "i");
         if (!isNaverMap(car)) car = firstNaverMapGetter(provider);
-        if (car != null) return car;
+        if (car != null) {
+            mapSource = "car";
+            return car;
+        }
+        mapSource = "phone";
         synchronized (activities) {
             for (int i = activities.size() - 1; i >= 0; i--) {
                 Activity activity = activities.get(i).get();
