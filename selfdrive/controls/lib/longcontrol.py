@@ -42,6 +42,15 @@ PID_JERK_LOWER_V = [3.5, 3.5, 3.0]
 LAUNCH_TIME_BP = [0.0, 1.5, 2.5]   # s after leaving stop/off
 LAUNCH_JERK_MAX = 5.0              # m/s^3, same as the SCC14 ceiling
 START_HANDOFF_JERK = 1.6
+# A launch released by a confirmed departing lead follows it at this jerk from
+# the first frame (the lead itself typically pulls away at 1.5~2.5 m/s^2).
+# Launches without a lead (green light, driver) keep START JERK LIMIT.
+LEAD_LAUNCH_JERK = 2.5
+
+# 앞차가 없을 때 양의 가속 허용치가 오르는 속도(m/s^2 per s). 앞차가 사라진
+# 순간 현재 출력에서 시작해 이 속도로만 올라가므로 목표속도까지 몰아서
+# 가속하지 않는다. 내려가는 쪽과 앞차가 있을 때는 그대로 즉시 따른다.
+NO_LEAD_ALLOWANCE_RISE = 0.5
 
 # 저속 앞차출발 추종 전용 저크 부스트 구간. long_mpc.py의 LEAD_DEPARTURE_*
 # (18~30km/h에서 서서히 해제)와 같은 구간을 써서, "계획단계는 빨리 붙으라는데
@@ -131,6 +140,9 @@ class LongControl:
     self.jerk_start_limit = 1.0
     self.launch_time = 0.0
     self.launch_limited = False
+    self.lead_launch = False
+    self.pos_allowance = None
+    self.no_lead_prev = False
     # 저속(0~30km/h) 앞차출발 추종 전용 저크 부스트 배율. 기본 1.0(=부스트 없음).
     self.low_speed_jerk_boost = 1.0
 
@@ -322,8 +334,8 @@ class LongControl:
 
   def _launch_jerk(self, assisted):
     """출발 1·2단계: 정지 후 가속 요청이 오를 수 있는 최대 저크."""
-    limit = interp(self.launch_time, LAUNCH_TIME_BP,
-                   [self.jerk_start_limit, self.jerk_start_limit, LAUNCH_JERK_MAX])
+    start = max(self.jerk_start_limit, LEAD_LAUNCH_JERK) if self.lead_launch else self.jerk_start_limit
+    limit = interp(self.launch_time, LAUNCH_TIME_BP, [start, start, LAUNCH_JERK_MAX])
     return departure_jerk_upper(limit, self.jerk_start_limit,
                                 PID_JERK_UPPER_V[0] * self.pid_jerk_accel_mult, assisted)
 
@@ -399,6 +411,7 @@ class LongControl:
       radar_valid=radar_state_valid, plan_valid=plan_valid and trajectory_valid,
       plan_age=t_since_plan, a_now=a_target_now, a_target=a_target,
       v_target=v_target, v_future=v_target_1sec, soft_hold=soft_hold)
+    prev_state = self.long_control_state
     self.long_control_state, planned_stop = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
       CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now, start_gate,
@@ -406,8 +419,27 @@ class LongControl:
     if self.long_control_state in (LongCtrlState.off, LongCtrlState.stopping):
       self.launch_time = 0.0
       self.launch_limited = False
+      self.lead_launch = False
     else:
+      if prev_state == LongCtrlState.stopping:
+        # Remember why this launch started: a confirmed departing lead.
+        self.lead_launch = lead_release
       self.launch_time += DT_CTRL
+
+    # No-lead positive allowance: start from the current output when the lead
+    # is lost and rise gently; fall and lead-present follow immediately.
+    no_lead = (radar_state is not None and radar_state_valid and
+               not radar_state.leadOne.status and not radar_state.leadTwo.status)
+    cap = float(accel_limits[1])
+    if self.pos_allowance is None or not no_lead:
+      self.pos_allowance = cap
+    else:
+      if not self.no_lead_prev:
+        self.pos_allowance = max(0.0, self.last_output_accel)
+      self.pos_allowance = min(cap, self.pos_allowance + NO_LEAD_ALLOWANCE_RISE * DT_CTRL)
+    self.no_lead_prev = no_lead
+    accel_limits = (accel_limits[0], self.pos_allowance)
+    self.pid.pos_limit = accel_limits[1]
 
     if self.long_control_state != LongCtrlState.stopping:
       self.standstill_hold_active = False
@@ -497,6 +529,8 @@ class LongControl:
       jerk_lower = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_LOWER_V) * self.pid_jerk_decel_mult
       # 출발 저크(1단계): 정지 직후 몇 초 동안만 상승 저크를 더 낮게.
       launch_jerk = self._launch_jerk(assisted_departure and not prevent_overshoot)
+      if self.lead_launch and self.launch_time < LAUNCH_TIME_BP[-1]:
+        jerk_upper = max(jerk_upper, launch_jerk)
       self.launch_limited = launch_jerk < jerk_upper and pid_output > output_accel + launch_jerk * DT_CTRL
       jerk_upper = min(jerk_upper, launch_jerk)
       # 양의 상한(CruiseMax, 앞차 없을 때 상한, 접근 시 상한)이 내려가도

@@ -24,7 +24,8 @@ def brake_output(previous, requested, state='pid', v_ego=None, brake_pressed=Fal
   update = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'update')
   states = NS(off='off', pid='pid', stopping='stopping', starting='starting')
   env = dict(LongCtrlState=states, CONTROL_N=2, T_IDXS=[0, 1], DT_CTRL=0.01,
-             LEAD_DROPOUT_FALLBACK_FRAMES=150,
+             LEAD_DROPOUT_FALLBACK_FRAMES=150, LEAD_LAUNCH_JERK=2.5,
+             NO_LEAD_ALLOWANCE_RISE=0.5, LAUNCH_TIME_BP=[0.0, 1.5, 2.5],
              START_HANDOFF_JERK=1.6,
              PID_JERK_SPEED_BP=[0.0, 5.0, 20.0],
              PID_JERK_UPPER_V=[2.0, 3.0, 2.0], PID_JERK_LOWER_V=[3.5, 3.5, 3.0],
@@ -53,7 +54,7 @@ def brake_output(previous, requested, state='pid', v_ego=None, brake_pressed=Fal
            start_request_frames=0, standstill_release_speed=0.2,
            standstill_release_frames=10, standstill_lead_latched=False,
            lead_missing_frames=0,
-           jerk_start_limit=1.0, launch_time=launch_time, launch_limited=False,
+           jerk_start_limit=1.0, launch_time=launch_time, launch_limited=False, lead_launch=False, pos_allowance=None, no_lead_prev=False,
            reset=lambda *a: None)
   speed = (0.0 if state == 'stopping' else 10.0) if v_ego is None else v_ego
   cs = NS(vEgo=speed, standstill=speed < 0.01, brakePressed=brake_pressed,
@@ -128,7 +129,8 @@ def _brake_output_entering_stopping(entry_v_ego, requested=0.0, previous=0.0):
   update = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'update')
   states = NS(off='off', pid='pid', stopping='stopping', starting='starting')
   env = dict(LongCtrlState=states, CONTROL_N=2, T_IDXS=[0, 1], DT_CTRL=0.01,
-             LEAD_DROPOUT_FALLBACK_FRAMES=150,
+             LEAD_DROPOUT_FALLBACK_FRAMES=150, LEAD_LAUNCH_JERK=2.5,
+             NO_LEAD_ALLOWANCE_RISE=0.5, LAUNCH_TIME_BP=[0.0, 1.5, 2.5],
              PID_JERK_SPEED_BP=[0.0, 5.0, 20.0],
              PID_JERK_UPPER_V=[2.0, 3.0, 2.0], PID_JERK_LOWER_V=[3.5, 3.5, 3.0],
              LOW_SPEED_JERK_BOOST_SPEED_BP=[0.0, 5.0, 30.0 / 3.6],
@@ -151,7 +153,8 @@ def _brake_output_entering_stopping(entry_v_ego, requested=0.0, previous=0.0):
            standstill_hold_active=False,
            start_request_frames=0, standstill_release_speed=0.2,
            standstill_release_frames=10, standstill_lead_latched=False,
-           lead_missing_frames=0,
+           lead_missing_frames=0, lead_launch=False, pos_allowance=None,
+           no_lead_prev=False, launch_time=0.0, launch_limited=False,
            reset=lambda *a: None)
   exec(compile(ast.Module(body=[update], type_ignores=[]), str(source), 'exec'), env)
   cs = NS(vEgo=entry_v_ego, standstill=entry_v_ego < 0.01, brakePressed=False,

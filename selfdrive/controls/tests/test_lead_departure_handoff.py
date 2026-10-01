@@ -9,7 +9,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 from common.numpy_fast import clip, interp
-from selfdrive.controls.lib.lead_departure import (LAUNCH_JERK_UPPER_MAX, LeadDepartureAssist,
+from selfdrive.controls.lib.lead_departure import (LeadDepartureAssist,
                                                    departure_jerk_upper, lead_is_departing)
 from selfdrive.controls.lib.pid import PIDController
 
@@ -28,6 +28,8 @@ def load_control():
              LeadDepartureAssist=LeadDepartureAssist, lead_is_departing=lead_is_departing,
              departure_jerk_upper=departure_jerk_upper)
   exec(compile(tree, str(source), 'exec'), env)
+  global LEAD_LAUNCH_JERK
+  LEAD_LAUNCH_JERK = env['LEAD_LAUNCH_JERK']
   return env['LongControl'], env['long_control_state_trans']
 
 
@@ -70,9 +72,9 @@ def test_confirmed_departure_releases_below_old_speed_threshold(starting):
   accel = step(control, cs, plan, radar)
   assert control.long_control_state == ('starting' if starting else 'pid')
   assert control.departure_assist.active
-  # The hold releases at the launch jerk (assisted: LAUNCH_JERK_UPPER_MAX),
-  # not at the stopping rate.
-  assert accel == pytest.approx(-1.1 + LAUNCH_JERK_UPPER_MAX * 0.01)
+  # A lead-released launch leaves the hold at LEAD_LAUNCH_JERK from the
+  # first frame, not at the stopping rate or the softer START JERK LIMIT.
+  assert accel == pytest.approx(-1.1 + LEAD_LAUNCH_JERK * 0.01)
   for _ in range(5):
     step(control, cs, plan, radar, fresh=False)
   assert control.long_control_state != 'stopping'
@@ -330,3 +332,25 @@ def test_cancelled_assist_does_not_rearm_when_lead_recovers():
   for _ in range(10):
     step(control, cs, plan, radar)
     assert not control.departure_assist.active
+
+
+def test_no_lead_allowance_rises_gently_from_current_output():
+  control, cs, plan, radar = setup_control(False)
+  control.long_control_state = 'pid'
+  cs.vEgo, cs.standstill = 10.0, False
+  plan.speeds, plan.accels = [10.0, 10.0, 10.0], [0.0, 0.0, 0.0]
+  step(control, cs, plan, radar)          # following a lead
+  control.last_output_accel = 0.2
+  radar.leadOne.status = False             # the lead is gone
+  plan.speeds, plan.accels = [10.0, 13.0, 16.0], [2.0, 2.0, 2.0]
+  accel = step(control, cs, plan, radar)
+  # The allowance restarts at the current output, not at the full cap.
+  assert control.pos_allowance == pytest.approx(0.2 + 0.5 * 0.01)
+  assert accel <= control.pos_allowance + 1e-9
+  for _ in range(100):
+    step(control, cs, plan, radar)
+  assert control.pos_allowance == pytest.approx(0.2 + 0.5 * 1.01, abs=1e-6)
+  # A lead reappearing restores the full allowance at once.
+  radar.leadOne.status = True
+  step(control, cs, plan, radar)
+  assert control.pos_allowance == pytest.approx(2.0)
