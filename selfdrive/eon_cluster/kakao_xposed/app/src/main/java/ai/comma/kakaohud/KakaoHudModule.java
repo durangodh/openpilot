@@ -2,21 +2,12 @@ package ai.comma.kakaohud;
 
 import android.app.Application;
 import android.content.Context;
-import android.app.Activity;
-import android.content.res.Resources;
-import android.graphics.Rect;
-import android.os.Bundle;
-import android.view.View;
-import android.view.ViewGroup;
-import android.view.accessibility.AccessibilityNodeInfo;
 
 import java.lang.reflect.Method;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam;
 
 /**
@@ -43,20 +34,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
     private static final String ROUTE_GUIDE = "com.kakaomobility.knmsdk.q60.a";
     private static final String SAFETY_GUIDE = "com.kakaomobility.knmsdk.s60.a";
 
-    private static final String NMIRROR_VOICE_ID =
-            KAKAO_PKG + ":id/btn_speech_recognition";
-    private static final String NMIRROR_VOICE_ENTRY = "btn_speech_recognition";
-    private static final int NMIRROR_VOICE_RES_ID = 0x7f0bffff;
-    // 음성 Composable 클래스. "C1309j" 는 jadx 가 이름 충돌을 피하려고 붙인 표시용
-    // 이름(C+번호+원래이름)이라 실제 앱에서는 "j" 일 수 있다. 둘 다 시도한다.
-    private static final String[] VOICE_COMPOSABLES = {
-            "com.kakaomobility.knmsdk.g4.j",
-            "com.kakaomobility.knmsdk.g4.C1309j"};
-    private volatile Object voiceCallback;
-    private View voiceProxy;
-
     private static boolean started = false;
-    private final AtomicBoolean voiceNodeLogged = new AtomicBoolean(false);
 
     @Override
     public void handleLoadPackage(LoadPackageParam lpparam) {
@@ -72,167 +50,10 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         bridge.setClassLoader(lpparam.classLoader);
         new EonDiscovery(client).start();
 
-        hookVoice(lpparam);
         hookApplicationContext(lpparam, map);
         hookScreenCamera(lpparam, map);
         hookRepository(lpparam, bridge);
         hookGuideCallbacks(lpparam, bridge);
-    }
-
-    /**
-     * nMirror 의 findAccessibilityNodeInfosByViewId 요청은 카카오 프로세스의
-     * AccessibilityInteractionController 에서 숫자 ID 로 변환된다. 실제 View
-     * 프록시의 ID 와 같은 값을 반환한다. 다른 리소스 조회는 변경하지 않는다.
-     */
-    /**
-     * 네이버 hookVoiceButton 과 같은 전략:
-     *  (1) 음성 Composable(g4.j.d)의 onClick 콜백을 잡아 둔다.
-     *  (2) getIdentifier 후킹으로 btn_speech_recognition -> 고정 숫자ID.
-     *  (3) 카카오 Compose 루트 View 에 그 ID 를 박고 OnClickListener 로 (1)의
-     *      콜백을 실행. nMirror 가 ID 로 찾아 클릭하면 카카오 음성이 실행된다.
-     */
-    private void hookVoice(final LoadPackageParam lpparam) {
-        hookVoiceResourceId(lpparam);
-        hookVoiceCallback(lpparam);
-        hookVoiceProxyAttach(lpparam);
-    }
-
-    /** nMirror 의 이름->숫자ID 변환(getIdentifier)이 0 이 되지 않게 고정값을 준다. */
-    private void hookVoiceResourceId(LoadPackageParam lpparam) {
-        try {
-            Method getId = android.content.res.Resources.class.getMethod(
-                    "getIdentifier", String.class, String.class, String.class);
-            XposedBridge.hookMethod(getId, new XC_MethodHook() {
-                @Override protected void afterHookedMethod(MethodHookParam param) {
-                    try {
-                        if (!(param.getResult() instanceof Integer)
-                                || ((Integer) param.getResult()) != 0) return;
-                        String name = (String) param.args[0];
-                        String type = (String) param.args[1];
-                        String pkg = (String) param.args[2];
-                        boolean full = NMIRROR_VOICE_ID.equals(name)
-                                && (type == null || type.isEmpty());
-                        boolean entry = NMIRROR_VOICE_ENTRY.equals(name) && "id".equals(type)
-                                && (pkg == null || KAKAO_PKG.equals(pkg));
-                        if (full || entry) param.setResult(NMIRROR_VOICE_RES_ID);
-                    } catch (Throwable ignored) { }
-                }
-            });
-            KakaoHudLog.line("voice resource-id hook ready");
-        } catch (Throwable t) {
-            KakaoHudLog.ex("hookVoiceResourceId", t);
-        }
-    }
-
-    /** 음성 Composable g4.j.d 의 onClick(Function0) 인자를 캡처한다. */
-    private void hookVoiceCallback(LoadPackageParam lpparam) {
-        try {
-            Class<?> comp = null;
-            for (String name : VOICE_COMPOSABLES) {
-                comp = XposedHelpers.findClassIfExists(name, lpparam.classLoader);
-                if (comp != null) break;
-            }
-            if (comp == null) {
-                KakaoHudLog.line("voice composable class not found: "
-                        + java.util.Arrays.toString(VOICE_COMPOSABLES));
-                return;
-            }
-            java.util.Set<?> hooks = XposedBridge.hookAllMethods(comp, "d", new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    try {
-                        for (Object a : param.args) {
-                            if (isFunction0(a)) {
-                                if (voiceCallback == null) KakaoHudLog.line("voice onClick captured");
-                                voiceCallback = a;
-                                break;
-                            }
-                        }
-                    } catch (Throwable ignored) { }
-                }
-            });
-            KakaoHudLog.line("voice callback hook ready: " + comp.getName()
-                    + ".d x" + hooks.size());
-        } catch (Throwable t) {
-            KakaoHudLog.ex("hookVoiceCallback", t);
-        }
-    }
-
-    /** 카카오 Activity 의 Compose 루트 View 에 프록시를 올린다. */
-    private void hookVoiceProxyAttach(final LoadPackageParam lpparam) {
-        try {
-            XposedHelpers.findAndHookMethod(android.app.Activity.class, "onResume",
-                    new XC_MethodHook() {
-                @Override protected void afterHookedMethod(MethodHookParam param) {
-                    try {
-                        Activity act = (Activity) param.thisObject;
-                        if (!KAKAO_PKG.equals(act.getPackageName())) return;
-                        View root = act.getWindow() == null ? null
-                                : act.getWindow().getDecorView();
-                        if (root instanceof ViewGroup) attachVoiceProxy((ViewGroup) root);
-                    } catch (Throwable t) {
-                        KakaoHudLog.ex("voiceProxyAttach", t);
-                    }
-                }
-            });
-        } catch (Throwable t) {
-            KakaoHudLog.ex("hookVoiceProxyAttach", t);
-        }
-    }
-
-    /** kotlin stdlib 의존 없이 Function0 여부를 판정한다(인터페이스 이름 + invoke()). */
-    private static boolean isFunction0(Object o) {
-        if (o == null) return false;
-        for (Class<?> c = o.getClass(); c != null; c = c.getSuperclass()) {
-            for (Class<?> itf : c.getInterfaces()) {
-                if ("kotlin.jvm.functions.Function0".equals(itf.getName())) return true;
-            }
-        }
-        // 폴백: 인자 없는 invoke() 메서드를 가진 콜백.
-        try { o.getClass().getMethod("invoke"); return true; } catch (Throwable ignored) { }
-        return false;
-    }
-
-    private void attachVoiceProxy(final ViewGroup container) {
-        if (voiceProxy != null && voiceProxy.getParent() == container) return;
-        if (voiceProxy != null && voiceProxy.getParent() instanceof ViewGroup) {
-            ((ViewGroup) voiceProxy.getParent()).removeView(voiceProxy);
-        }
-        final View proxy = new View(container.getContext());
-        proxy.setId(NMIRROR_VOICE_RES_ID);
-        proxy.setContentDescription("음성서비스");
-        proxy.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
-        proxy.setClickable(true);
-        proxy.setFocusable(true);
-        proxy.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-            @Override public void onInitializeAccessibilityNodeInfo(View host,
-                    AccessibilityNodeInfo info) {
-                super.onInitializeAccessibilityNodeInfo(host, info);
-                try { info.setViewIdResourceName(NMIRROR_VOICE_ID); } catch (Throwable ignored) { }
-            }
-        });
-        proxy.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                Object cb = voiceCallback;
-                if (cb != null) {
-                    try {
-                        cb.getClass().getMethod("invoke").invoke(cb);
-                        KakaoHudLog.line("voice callback invoked");
-                    } catch (Throwable t) {
-                        KakaoHudLog.ex("voice invoke", t);
-                    }
-                } else {
-                    KakaoHudLog.line("voice clicked but no callback yet");
-                }
-            }
-        });
-        ViewGroup.LayoutParams lp = new ViewGroup.LayoutParams(1, 1);
-        try {
-            container.addView(proxy, lp);
-            voiceProxy = proxy;
-            KakaoHudLog.line("voice proxy attached id=" + Integer.toHexString(NMIRROR_VOICE_RES_ID));
-        } catch (Throwable t) {
-            KakaoHudLog.ex("addVoiceProxy", t);
-        }
     }
 
     private static final String VERIFIED_KAKAO_VERSION = "4.51.0";
