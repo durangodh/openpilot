@@ -354,3 +354,15 @@ def test_no_lead_allowance_rises_gently_from_current_output():
   radar.leadOne.status = True
   step(control, cs, plan, radar)
   assert control.pos_allowance == pytest.approx(2.0)
+
+
+def test_stopped_ego_latches_near_lead_with_jittery_speed():
+  control, cs, plan, radar = setup_control(False)
+  # Lead speed estimate jitters above 0.3 m/s while it is really stopped, and
+  # the planner asks to close a small gap.
+  radar.leadOne.vLeadK, radar.leadOne.vRel, radar.leadOne.aLeadK = 0.4, -0.05, 0.0
+  plan.speeds, plan.accels = [0.0, 0.3, 0.6], [0.3, 0.3, 0.0]
+  for _ in range(50):
+    assert step(control, cs, plan, radar) < 0
+  assert control.standstill_lead_latched
+  assert control.long_control_state == 'stopping'

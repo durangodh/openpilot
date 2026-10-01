@@ -227,7 +227,8 @@ class LongControl:
     self.lead_measurement_available = False
     self.lead_missing_frames = 0
 
-  def _update_standstill_lead(self, radar_state, radar_state_valid, radar_state_updated):
+  def _update_standstill_lead(self, radar_state, radar_state_valid, radar_state_updated,
+                              ego_standstill=False):
     """Latch a stopped lead and release only after fresh samples confirm it is moving.
 
     A transient missing/stale radar sample never opens the gate. If radar remains
@@ -243,9 +244,14 @@ class LongControl:
       else:
         lead = radar_state.leadOne
         if not self.standstill_lead_latched:
-          stopped_lead = (0.0 < lead.dRel <= STANDSTILL_LEAD_MAX_DISTANCE and
-                          abs(lead.vLeadK) <= STANDSTILL_LEAD_MAX_SPEED and
-                          abs(lead.vRel) <= STANDSTILL_LEAD_MAX_SPEED)
+          near = 0.0 < lead.dRel <= STANDSTILL_LEAD_MAX_DISTANCE
+          stopped_lead = near and abs(lead.vLeadK) <= STANDSTILL_LEAD_MAX_SPEED and \
+                         abs(lead.vRel) <= STANDSTILL_LEAD_MAX_SPEED
+          # Once ego is actually stopped, any near lead that is not pulling
+          # away is the car we wait for, even if its speed estimate jitters
+          # above 0.3 m/s. Otherwise the planner's small gap-closing request
+          # released the hold and re-stopped (brake "tok-tok" / creeping).
+          stopped_lead = stopped_lead or (ego_standstill and near and not lead_is_departing(lead))
           if stopped_lead:
             self.standstill_lead_latched = True
         else:
@@ -389,7 +395,8 @@ class LongControl:
       # there is no confirmed stopped lead. A latched lead still owns release
       # above, so a green signal can never launch into a stationary vehicle.
       traffic_departure = int(getattr(long_plan, 'trafficState', 0)) % 100 == 2
-      lead_release = self._update_standstill_lead(radar_state, radar_state_valid, radar_state_updated)
+      lead_release = self._update_standstill_lead(radar_state, radar_state_valid, radar_state_updated,
+                                                  CS.standstill or CS.vEgo < 0.05)
       radar_fallback = self.lead_missing_frames >= LEAD_DROPOUT_FALLBACK_FRAMES
       if self.standstill_lead_latched and not radar_fallback:
         self.start_request_frames = 0
