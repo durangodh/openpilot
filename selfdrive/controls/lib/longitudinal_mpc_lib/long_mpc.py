@@ -13,7 +13,7 @@ from selfdrive.controls.lib.lead_following import (NO_LEAD, LeadConfirm, faster_
 from selfdrive.controls.lib.lead_departure import departure_motion_valid
 from selfdrive.controls.lib.t_follow import (CRUISE_GAP_BP as _CRUISE_GAP_BP, CRUISE_GAP_V,
                                              clamp_desired_follow_distance,
-                                             StoppedLeadComfortBrake,
+                                             StoppedLeadComfortBrake, release_t_follow,
                                              get_t_follow_closing_margin)
 from common.conversions import Conversions as CV
 
@@ -260,6 +260,7 @@ class LongitudinalMpc:
     self.lead_depart_cost = 0.05       # LeadDepartCost: 저속 출발 추종 코스트 배율(0m/s 기준). apilot-c2 = 0.05
     # apilot-c2 방식 t_follow: 감속 중에는 갱신하지 않고, 가속·정속일 때만 갭/속도/안전계수로 계산
     self.v_ego_kph_prev = 0.0
+    self.cruise_gap_prev = None
     self.t_follow_base = T_FOLLOW
     self.safe_mode_factor = 1.0
     # ────────────────────────────────────────────────────────────────────
@@ -314,6 +315,7 @@ class LongitudinalMpc:
     self.x0 = np.zeros(X_DIM)
 
     self.v_ego_kph_prev = 0.0
+    self.cruise_gap_prev = None
     self.t_follow_base = T_FOLLOW
 
     self.set_weights()
@@ -453,13 +455,19 @@ class LongitudinalMpc:
 
   def update_gap_tf(self, controls, v_ego):
     # apilot-c2 update_gap_tf: 감속 중(v_ego 하강)에는 t_follow 를 갱신하지 않는다.
+    # 단, 갭 버튼을 바꾸면 감속 중이라도 바로 반영한다. 줄어드는 쪽(감속이
+    # 끝났을 때, 갭을 줄였을 때)은 한 번에 당기지 않고 release_t_follow 로 천천히.
     v_ego_kph = v_ego * CV.MS_TO_KPH
     cruise_gap = int(clip(controls.longCruiseGap, 1, 4))
-    if v_ego_kph >= self.v_ego_kph_prev:
+    gap_changed = cruise_gap != self.cruise_gap_prev
+    if v_ego_kph >= self.v_ego_kph_prev or gap_changed:
       gap_values = self.tfollow_gaps if self.tfollow_gaps is not None else CRUISE_GAP_V
       tf = float(interp(cruise_gap, CRUISE_GAP_BP, gap_values))
       cruise_gap_ratio = interp(v_ego_kph, [0, 100], [tf, tf * self.t_follow_speed_ratio])
-      self.t_follow_base = max(0.6, cruise_gap_ratio * (2.0 - self.safe_mode_factor))
+      target = max(0.6, cruise_gap_ratio * (2.0 - self.safe_mode_factor))
+      self.t_follow_base = release_t_follow(
+        target, None if self.cruise_gap_prev is None else self.t_follow_base, DT_MDL)
+    self.cruise_gap_prev = cruise_gap
     self.v_ego_kph_prev = v_ego_kph
 
   def update(self, carstate, radarstate, controls, v_cruise, x, v, a, j, prev_accel_constraint=True,

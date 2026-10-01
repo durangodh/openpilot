@@ -202,3 +202,39 @@ def test_faster_cut_in_relief(v_lead, a_lead, relaxed):
     assert gain > 5.0
   else:
     assert gain == pytest.approx(0.0)
+
+
+def gap_mpc():
+  mpc = load_mpc()['LongitudinalMpc']('acc')
+  mpc.tfollow_gaps = [1.1, 1.2, 1.4, 1.6]
+  mpc.t_follow_speed_ratio = 1.2
+  return mpc
+
+
+def test_gap_button_applies_while_decelerating():
+  mpc = gap_mpc()
+  mpc.update_gap_tf(NS(longCruiseGap=2), 80.0 / 3.6)
+  before = mpc.t_follow_base
+  # Slowing down, user raises the gap: applied at once, not after the decel.
+  mpc.update_gap_tf(NS(longCruiseGap=4), 79.0 / 3.6)
+  assert mpc.t_follow_base > before + 0.3
+  # Slowing down without a gap change: held, as in apilot.
+  held = mpc.t_follow_base
+  mpc.update_gap_tf(NS(longCruiseGap=4), 70.0 / 3.6)
+  assert mpc.t_follow_base == held
+
+
+def test_held_gap_is_released_gradually_after_deceleration():
+  mpc = gap_mpc()
+  mpc.update_gap_tf(NS(longCruiseGap=2), 100.0 / 3.6)
+  high = mpc.t_follow_base
+  for kph in range(99, 29, -1):        # decelerate: base held at the 100 km/h value
+    mpc.update_gap_tf(NS(longCruiseGap=2), kph / 3.6)
+  assert mpc.t_follow_base == pytest.approx(high)
+  values = []
+  for _ in range(20):                  # steady at 30 km/h
+    mpc.update_gap_tf(NS(longCruiseGap=2), 30.0 / 3.6)
+    values.append(mpc.t_follow_base)
+  steps = [a - b for a, b in zip([high] + values, values)]
+  assert max(steps) <= 0.3 * 0.05 + 1e-9
+  assert values[-1] == pytest.approx(1.2 * 1.06)
