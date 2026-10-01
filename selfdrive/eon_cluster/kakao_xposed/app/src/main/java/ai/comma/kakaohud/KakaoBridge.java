@@ -18,6 +18,7 @@ final class KakaoBridge {
 
     private final KakaoNaviClient client;
     private final KakaoMap map;
+    private final KakaoSignal signal;
     private final AtomicBoolean loggedRouteShape = new AtomicBoolean(false);
     private final AtomicBoolean loggedLocShape = new AtomicBoolean(false);
     private final AtomicBoolean loggedSafety = new AtomicBoolean(false);
@@ -54,6 +55,7 @@ final class KakaoBridge {
     KakaoBridge(KakaoNaviClient client, KakaoMap map) {
         this.client = client;
         this.map = map;
+        this.signal = new KakaoSignal(client);
     }
 
     void setRepository(Object repository) {
@@ -238,6 +240,65 @@ final class KakaoBridge {
     }
 
     // ---- 안전/카메라 ----
+    private boolean loggedCits = false;
+
+    /**
+     * C-ITS 신호등 안내. 인자(m60.a)의 a() 가 KNUCitsTrafSignal 리스트다.
+     * 그 중 차량이 향하는(앞쪽) 신호의 가장 임박한 spat(색·잔여초)을 골라 보낸다.
+     */
+    void onCitsGuide(Object guide) {
+        if (guide == null) return;
+        try {
+            Object list = tryCallAny(guide, "a", "getSignals", "getList");
+            if (!(list instanceof java.util.List)) { signal.clear(); return; }
+            java.util.List<?> signals = (java.util.List<?>) list;
+            if (signals.isEmpty()) { signal.clear(); return; }
+
+            int bestColor = 0, bestRemain = -1, bestDist = Integer.MAX_VALUE;
+            for (Object sig : signals) {
+                if (sig == null) continue;
+                // KNUCitsTrafSignal: getLocation()=위치, spats 리스트(e)=색·잔여초.
+                Object loc = tryCallAny(sig, "getLocation", "a");
+                int abs = loc == null ? -1 : getInt(loc, "getDistFromS", "f");
+                int dist = abs >= 0 && vehicleDistFromS >= 0 ? abs - vehicleDistFromS : abs;
+                if (dist < -30) continue;                 // 이미 지난 신호 제외
+                Object spats = tryCallAny(sig, "getSpats", "e");
+                if (!(spats instanceof java.util.List) || ((java.util.List<?>) spats).isEmpty()) continue;
+                // 직진(Straight) spat 우선, 없으면 첫 번째.
+                Object chosen = null;
+                for (Object sp : (java.util.List<?>) spats) {
+                    String t = enumName(tryCallAny(sp, "getSpatType", "c"));
+                    if (t != null && t.contains("Straight")) { chosen = sp; break; }
+                    if (chosen == null) chosen = sp;
+                }
+                if (chosen == null) continue;
+                int color = spatColor(enumName(tryCallAny(chosen, "getSpatState", "b")));
+                if (color == 0) continue;
+                int remain = getInt(chosen, "getRemainTime", "a");
+                int d = dist < 0 ? 0 : dist;
+                if (d < bestDist) { bestDist = d; bestColor = color; bestRemain = remain; }
+            }
+            if (!loggedCits) {
+                loggedCits = true;
+                KakaoHudLog.line("CITS shape: signals=" + signals.size()
+                        + " bestColor=" + bestColor + " remain=" + bestRemain + " dist=" + bestDist);
+            }
+            if (bestColor == 0) signal.clear();
+            else signal.publish(bestColor, bestRemain);
+        } catch (Throwable t) {
+            KakaoHudLog.ex("onCitsGuide", t);
+        }
+    }
+
+    /** KNUCitsSpatState 이름 → 1 빨강 / 2 노랑 / 3 초록 / 0 그 외(Dark·Unknown). */
+    private static int spatColor(String name) {
+        if (name == null) return 0;
+        if (name.contains("Red")) return 1;
+        if (name.contains("Yellow")) return 2;
+        if (name.contains("Green")) return 3;
+        return 0;
+    }
+
     void onSafetyGuide(Object guide) {
         if (guide == null) return;
         Object safeties = tryCallAny(guide, "getSafetiesOnGuide", "a");

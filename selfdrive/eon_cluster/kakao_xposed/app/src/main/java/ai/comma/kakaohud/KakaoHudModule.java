@@ -41,6 +41,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
     private static final String LOC_GUIDE = "com.kakaomobility.knmsdk.p60.a";
     private static final String ROUTE_GUIDE = "com.kakaomobility.knmsdk.q60.a";
     private static final String SAFETY_GUIDE = "com.kakaomobility.knmsdk.s60.a";
+    private static final String CITS_GUIDE = "com.kakaomobility.knmsdk.m60.a";
 
     private static final String KAKAO_VOICE_DESCRIPTION = "음성서비스";
     private static final String NMIRROR_VOICE_ID =
@@ -446,6 +447,14 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
                 hooked += hookByArgType(cl, java.util.List.class, new Extractor() {
                     @Override public void extract(Object arg) { bridge.onSafeties(arg); }
                 }, "safety");
+            }
+
+            // C-ITS 신호등 안내 콜백($x.a(u, m60.a)) — 신호 색·잔여초.
+            Class<?> citsGuideClass = safeClass(cl, CITS_GUIDE);
+            if (citsGuideClass != null) {
+                hooked += hookByArgType(cl, citsGuideClass, new Extractor() {
+                    @Override public void extract(Object arg) { bridge.onCitsGuide(arg); }
+                }, "cits");
             }
 
             KakaoHudLog.line("guide callbacks hooked = " + hooked
