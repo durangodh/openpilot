@@ -46,4 +46,4 @@ carrot_navi_server(7714)로 티맵과 같은 JSON 스트림 + 바이너리 지�
 1. LSPosed 에서 모듈 켜고 스코프를 카카오내비로(scope.xml 기본 지정).
 2. 카카오내비(플레이스토어 4.51.0) 강제 종료 후 재실행.
 3. 안내 시작 후 로그 확인/공유:
-   `/sdcard/Download/kakao_hud.log` (쓰기 실패 시 `/sdcard/Android/data/com.locnall.KimGiSa/files/kakao_hud.log`)
+   `/sdcard/Android/data/com.locnall.KimGiSa/files/kakao_hud.log`
