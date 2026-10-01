@@ -20,11 +20,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Reads Naver's own rendered map via NaverMap.takeSnapshot; never captures a screen. */
 final class NaverMapCapture {
     private static final int WIDTH = 640, HEIGHT = 384, JPEG_QUALITY = 65;
-    private static final long REQUEST_TIMEOUT_MS = 1200;
+    // 스냅샷 요청 간격(5fps = EON 지도 FPS 최대값). 이전 응답이 오면 바로 다음
+    // 요청이 가능하도록 짧은 주기로 확인한다.
+    private static final long FRAME_INTERVAL_MS = 200, CHECK_INTERVAL_MS = 40;
+    // 응답이 안 오는 요청을 포기하는 시간. 길면 그동안 지도가 멈춰 보인다.
+    private static final long REQUEST_TIMEOUT_MS = 600;
 
     private final NaverNaviClient client;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -33,6 +40,13 @@ final class NaverMapCapture {
         t.setDaemon(true);
         return t;
     });
+    private final ScheduledExecutorService ticker = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "naver-hud-map-tick");
+        t.setDaemon(true);
+        return t;
+    });
+    private final AtomicBoolean posted = new AtomicBoolean();
+    private final AtomicBoolean started = new AtomicBoolean();
     private final List<WeakReference<Activity>> activities = new ArrayList<>();
     private volatile Object provider;
     private Object activeMap;
@@ -41,7 +55,7 @@ final class NaverMapCapture {
     // 예전에는 한 번호로 둘 다 처리해서, 인코딩이 다음 요청(200ms)보다 늦으면
     // 멀쩡한 프레임까지 버려져 지도가 계속 안 나올 수 있었다.
     private volatile long generation;
-    private long requestedAt, lastFrameAt, lastStatusAt, requestId;
+    private long requestedAt, lastRequestAt, lastFrameAt, lastStatusAt, requestId;
     private long sent;
 
     NaverMapCapture(NaverNaviClient client) { this.client = client; }
@@ -56,10 +70,23 @@ final class NaverMapCapture {
         }
     }
 
-    /** Called from the bridge's background poller. */
-    void capture() {
+    void start() {
+        if (started.compareAndSet(false, true)) {
+            ticker.scheduleWithFixedDelay(this::capture, 0, CHECK_INTERVAL_MS, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    private void capture() {
         if (!client.ready()) return;
-        main.post(this::captureOnMain);
+        // 메인 스레드가 바쁠 때 요청이 쌓이지 않게 한 번에 하나만 올린다.
+        if (!posted.compareAndSet(false, true)) return;
+        main.post(() -> {
+            try {
+                captureOnMain();
+            } finally {
+                posted.set(false);
+            }
+        });
     }
 
     private void captureOnMain() {
@@ -80,7 +107,9 @@ final class NaverMapCapture {
             return;
         }
         if (requestedAt != 0 && now - requestedAt < REQUEST_TIMEOUT_MS) return;
+        if (now - lastRequestAt < FRAME_INTERVAL_MS) return;
         requestedAt = now;
+        lastRequestAt = now;
         final long gen = generation;
         final long req = ++requestId;
         try {

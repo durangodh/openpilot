@@ -75,6 +75,11 @@ SOURCE_KAKAO = "kakao"
 MAP_RENDER_FPS_DEFAULT = 5
 MAP_RENDER_FPS_MIN = 2
 MAP_RENDER_FPS_MAX = 5
+# Accept a map frame once this fraction of the frame interval has passed.
+# Naver/Kakao send at roughly the configured rate, so a strict 1/fps gate
+# dropped every frame that arrived a few ms early (5 fps became 2.5 fps with
+# uneven gaps, seen as the HUD map pausing and then jumping).
+MAP_WRITE_GATE_RATIO = 0.7
 # 2026-09-09: 0.05(20Hz) → 0.20(5Hz). 전체 route JSON(폴리라인 포함)을 vehicle
 # 스트림이 올 때마다 dump 하던 비용을 1/4 로. 읽는 쪽(remote_hud·navigation_route
 # 0.2s, UI 0.5s)이 원래 5Hz 이하라 잃는 것이 없다. 되돌리기: 0.05
@@ -361,7 +366,7 @@ class NaviState(object):
         self.last_map_sequence = sequence
 
     # A valid rate-limited frame still refreshed last_map_rx above.
-    if now < self.last_map_write + 1.0 / map_render_fps(self.params):
+    if now < self.last_map_write + MAP_WRITE_GATE_RATIO / map_render_fps(self.params):
       return
     image_digest = hashlib.sha1(image).digest()
     with self.lock:

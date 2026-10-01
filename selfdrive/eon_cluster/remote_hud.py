@@ -50,7 +50,6 @@ PARAM_ENABLED = "EonClusterHud"
 PARAM_CONNECTED = "EonClusterHudConnected"
 PARAM_HEARTBEAT = "EonClusterHudHeartbeat"
 PARAM_FPS = "EonClusterHudFps"
-PARAM_MAP_FPS = "EonClusterHudMapFps"
 HEARTBEAT_PERIOD_S = 2.0
 PARAM_NOO_ENABLED = "NavigationOnOpenpilot"
 _NAVI_CACHE = {"signature": None, "state": {}, "scene_sig": None, "scene": None, "parsed_at": 0.0}
@@ -1272,7 +1271,11 @@ def main():
   path_offset = _path_offset(params)
   configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
   telemetry_fps = PAUSED_TELEMETRY_FPS if configured_fps == 0 else min(MAX_TELEMETRY_FPS, configured_fps)
-  map_server.set_poll_fps(_param_int(params, PARAM_MAP_FPS, 3, 2, 5))
+  # Check for a new map file on every loop tick and forward it at once.
+  # carrot_navi_server already limits the write rate to S9 HUD MAP FPS;
+  # resampling it here on a second, unsynchronised clock made the map
+  # alternate between short and long gaps.
+  map_server.set_poll_fps(telemetry_fps)
   next_param_read = 0.0
   while running[0]:
     started = time.monotonic()
@@ -1289,7 +1292,7 @@ def main():
       path_offset = _path_offset(params)
       configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
       telemetry_fps = PAUSED_TELEMETRY_FPS if configured_fps == 0 else min(MAX_TELEMETRY_FPS, configured_fps)
-      map_server.set_poll_fps(_param_int(params, PARAM_MAP_FPS, 3, 2, 5))
+      map_server.set_poll_fps(telemetry_fps)
       next_param_read = started + 1.0
     sm.update(0)
     try:

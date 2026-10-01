@@ -24,7 +24,6 @@ final class NaverBridge {
     private volatile boolean started;
     private long lastPolylineAt;
     private String polyline = "[]";
-    private long lastMapAt;
 
     // EON 부하: 250ms 마다 8개 항목을 무조건 보내면 EON 이 초당 32건을 파싱한다.
     // 특히 route 는 경로 좌표(최대 500점, ~20KB)를 품고 있어 초당 ~80KB 였다.
@@ -58,6 +57,8 @@ final class NaverBridge {
                     started = true;
                     new EonDiscovery(client).start();
                     poller.scheduleWithFixedDelay(this::tick, 0, 250, TimeUnit.MILLISECONDS);
+                    // 지도는 상태 폴링(250ms, 처리시간만큼 더 밀림)과 분리해 자체 주기로 찍는다.
+                    map.start();
                     NaverHudLog.line("NaviStore captured; direct 6.10 state polling started");
                 }
             }
@@ -77,11 +78,6 @@ final class NaverBridge {
         if (current == null || !client.ready()) return;
         try {
             publish(current);
-            long now = android.os.SystemClock.elapsedRealtime();
-            if (now - lastMapAt >= 200) {
-                lastMapAt = now;
-                map.capture();
-            }
         } catch (Throwable error) {
             NaverHudLog.ex("state tick", error);
         }
