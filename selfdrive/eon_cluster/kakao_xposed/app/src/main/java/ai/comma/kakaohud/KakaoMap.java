@@ -37,6 +37,9 @@ final class KakaoMap {
     // Match TMAP's default 5fps cadence; latest-frame-only transport prevents
     // an overloaded link from turning this into a queue of stale pictures.
     private static final long INTERVAL_MS = 200;   // up to 5fps
+    // 화면 카메라(위치·줌·방위)는 캡처보다 자주 읽는다. 캡처와 같은 200ms 로 따로
+    // 돌면 두 주기가 어긋나 최대 0.2초 전 카메라로 찍혀 원본보다 늦게 따라간다.
+    private static final long SCREEN_CAMERA_POLL_MS = 50;
     // 위치 콜백 주기 + 캡처/인코딩 + EON 중계 + HUD 표시까지의 지연을 보상하는 선행 시간.
     private static final double LEAD_S = 0.6;
     // 차량을 화면 가운데보다 아래(세로 68%)에 두어 앞쪽 도로를 더 보여준다.
@@ -144,7 +147,7 @@ final class KakaoMap {
         } catch (Throwable t) {
             latestScreenCamera = null;
         } finally {
-            mainHandler.postDelayed(this::pollScreenCameraOnMain, INTERVAL_MS);
+            mainHandler.postDelayed(this::pollScreenCameraOnMain, SCREEN_CAMERA_POLL_MS);
         }
     }
 

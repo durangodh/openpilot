@@ -219,7 +219,7 @@ def test_navi_speed_projection_applies_to_both_apps():
   # either app, so the wrapper must no longer skip it for TMAP.
   assert 'if _bounded_int("EonClusterHudNavApp", 1, 1, 2) != 2:' not in wrapper
   assert 'packet = _original_packet(sm, *args, **kwargs)' in wrapper
-  assert 'packet = _apply_naver_speed(packet)' in wrapper
+  assert 'packet = _apply_naver_speed(packet, _v_ego(sm))' in wrapper
 
   # Camera/section deceleration: TMAP still prefers the legacy roadLimitSpeed
   # path when that sender exists, NAVER always uses its own 7714 stream; the

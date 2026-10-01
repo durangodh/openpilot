@@ -11,10 +11,12 @@ from common.params import Params, UnknownKeyName
 from selfdrive.eon_cluster import remote_hud as base
 from selfdrive.eon_cluster.hud_geometry import normalize_geometry
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
+from selfdrive.eon_cluster.section_average import SectionAverage
 
 
 _params = Params()
 _nav_route = NavigationRouteData()
+_section_average = SectionAverage()
 _original_packet = base._packet
 _param_cache = {}
 PARAM_CACHE_S = 1.0
@@ -42,7 +44,7 @@ def _apply_path_flip(packet):
   return normalize_geometry(packet, _bounded_int("EonClusterHudPathFlip", 0, 0, 1))
 
 
-def _apply_naver_speed(packet):
+def _apply_naver_speed(packet, v_ego=0.0):
   """Project navi camera/section speed limits into the existing HUD fields.
 
   carrot_navi_server.accepts() already gates /dev/shm/carrot_navi_route.json
@@ -57,6 +59,9 @@ def _apply_naver_speed(packet):
   events = _nav_route.speed_events(state)
   camera = events.get("camera")
   section = events.get("section")
+  # Keep the section average running even while a camera/bump is shown, so
+  # it is right again when the section comes back on screen.
+  section_avg = _section_average.update(section, v_ego, time.monotonic())
   packet["limit"] = max(0, int(round(float(state.get("road_limit_kph", 0.0) or 0.0))))
   packet["camera"] = 0
   packet["cameraDist"] = 0
@@ -78,8 +83,15 @@ def _apply_naver_speed(packet):
     packet["cameraDist"] = max(0, int(round(float(section.get("distance", 0.0) or 0.0))))
     packet["cameraSection"] = packet["camera"] > 0 and packet["cameraDist"] > 0
     if packet["cameraSection"]:
-      packet["cameraSectionAvg"] = max(0, int(round(float(section.get("average", 0.0) or 0.0))))
+      packet["cameraSectionAvg"] = max(0, int(round(section_avg)))
   return packet
+
+def _v_ego(sm):
+  try:
+    return max(0.0, float(sm["carState"].vEgo))
+  except Exception:
+    return 0.0
+
 
 def _packet(sm, *args, **kwargs):
   # base._packet 의 인자가 늘어나도(noo_enabled → +path_offset 등) 그대로
@@ -87,7 +99,7 @@ def _packet(sm, *args, **kwargs):
   # TypeError 로 패킷이 아예 안 나가고 폰에는 "EON 연결 끊김" 만 뜬다.
   packet = _original_packet(sm, *args, **kwargs)
   packet = _apply_path_flip(packet)
-  packet = _apply_naver_speed(packet)
+  packet = _apply_naver_speed(packet, _v_ego(sm))
 
   view_pitch = _bounded_int("EonClusterHudViewPitch", 0, -50, 50)
   calibrated_pitch = float(packet.get("calibPitch", 0.0) or 0.0) + math.radians(view_pitch * 0.1)
