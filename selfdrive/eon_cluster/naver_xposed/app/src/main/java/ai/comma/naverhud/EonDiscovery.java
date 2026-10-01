@@ -51,7 +51,9 @@ final class EonDiscovery {
                 }
             } catch (Throwable t) {
                 NaverHudLog.status("discovery bind retry: " + t.getClass().getSimpleName());
-                try { Thread.sleep(3000L); } catch (InterruptedException ignored) { }
+                // Short retry: during a nav-app switch the old app (or a patched
+                // app without SO_REUSEADDR) can hold the port for a moment.
+                try { Thread.sleep(500L); } catch (InterruptedException ignored) { }
             } finally {
                 if (sock != null) {
                     try { sock.close(); } catch (Throwable ignored) { }
