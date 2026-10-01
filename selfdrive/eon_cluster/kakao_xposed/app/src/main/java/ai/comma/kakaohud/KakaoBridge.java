@@ -262,11 +262,12 @@ final class KakaoBridge {
         if (guide == null) return;
         try {
             Object list = tryCallAny(guide, "a", "getSignals", "getList");
-            if (!(list instanceof java.util.List)) { signal.clear(); return; }
+            if (!(list instanceof java.util.List)) { clearSignal(); return; }
             java.util.List<?> signals = (java.util.List<?>) list;
-            if (signals.isEmpty()) { signal.clear(); return; }
+            if (signals.isEmpty()) { clearSignal(); return; }
 
             int bestColor = 0, bestRemain = -1, bestDist = Integer.MAX_VALUE;
+            java.util.List<?> bestSpats = null;
             for (Object sig : signals) {
                 if (sig == null) continue;
                 // KNUCitsTrafSignal: getLocation()=위치, spats 리스트(e)=색·잔여초.
@@ -288,18 +289,40 @@ final class KakaoBridge {
                 if (color == 0) continue;
                 int remain = getInt(chosen, "getRemainTime", "a");
                 int d = dist < 0 ? 0 : dist;
-                if (d < bestDist) { bestDist = d; bestColor = color; bestRemain = remain; }
+                if (d < bestDist) {
+                    bestDist = d; bestColor = color; bestRemain = remain;
+                    bestSpats = (java.util.List<?>) spats;
+                }
             }
             if (!loggedCits) {
                 loggedCits = true;
                 KakaoHudLog.line("CITS shape: signals=" + signals.size()
                         + " bestColor=" + bestColor + " remain=" + bestRemain + " dist=" + bestDist);
             }
-            if (bestColor == 0) signal.clear();
-            else signal.publish(bestColor, bestRemain);
+            if (bestColor == 0) {
+                clearSignal();
+            } else {
+                signal.publish(bestColor, bestRemain);
+                // Same JSON shape as Naver so EON can use the phase for
+                // traffic-stop detection (every movement of the nearest signal).
+                StringBuilder entries = new StringBuilder("[");
+                for (Object sp : bestSpats) {
+                    if (entries.length() > 1) entries.append(',');
+                    entries.append("{\"guide\":").append(jsonStr(enumName(tryCallAny(sp, "getSpatType", "c"))))
+                            .append(",\"state\":").append(jsonStr(enumName(tryCallAny(sp, "getSpatState", "b"))))
+                            .append(",\"remaining_sec\":").append(getInt(sp, "getRemainTime", "a")).append('}');
+                }
+                client.sendState("traffic_signal", "{\"source\":\"KAKAO\",\"distance_m\":" + bestDist
+                        + ",\"blink\":false,\"signals\":" + entries.append(']') + "}");
+            }
         } catch (Throwable t) {
             KakaoHudLog.ex("onCitsGuide", t);
         }
+    }
+
+    private void clearSignal() {
+        signal.clear();
+        client.sendState("traffic_signal", "{\"source\":\"KAKAO\",\"signals\":[]}");
     }
 
     /** KNUCitsSpatState 이름 → 1 빨강 / 2 노랑 / 3 초록 / 0 그 외(Dark·Unknown). */

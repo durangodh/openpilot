@@ -23,6 +23,35 @@ E2E_CURVE_STOP_STEER_BP = [30.0, 50.0]
 E2E_CURVE_STOP_STEER_V = [5.0, 12.0]
 
 
+# ── C-ITS signal assist (Naver/Kakao) ──────────────────────────────────────
+# The model has no traffic-light output; a stop is inferred from its slowing
+# trajectory, which often stays too weak for far, night or backlit signals.
+# A fresh red (or an amber ego cannot clear) for ego's movement accepts weaker
+# model slowing and a longer range. The stop position is still the model's:
+# the navigation distance may be to the far-side signal head, so it is never
+# used as a stop point.
+SIGNAL_ASSIST_MAX_DISTANCE = 200.0     # m, signal must be at most this far
+SIGNAL_ASSIST_MODEL_MARGIN = 30.0      # m, model stop must lie before signal + margin
+SIGNAL_ASSIST_MODEL_V = 6.0            # m/s, weaker model end speed accepted
+SIGNAL_ASSIST_MODEL_RATIO = 0.85       # or this fraction of the current model speed
+SIGNAL_GREEN_ON_ARRIVAL_MARGIN = 2.0   # s, red that turns green before arrival is ignored
+SIGNAL_AMBER_STOP_DECEL = 3.0          # m/s^2, amber is only a stop if this suffices
+
+
+def signal_requires_stop(phase, distance, remaining, v_ego):
+  """True when a fresh C-ITS signal says ego should stop before it."""
+  if phase not in ("red", "yellow") or not (0.0 < distance <= SIGNAL_ASSIST_MAX_DISTANCE):
+    return False
+  v = max(float(v_ego), 0.0)
+  arrival_s = distance / max(v, 1.0)
+  if phase == "red":
+    return not (remaining > 0.0 and remaining + SIGNAL_GREEN_ON_ARRIVAL_MARGIN < arrival_s)
+  # Amber: stop only if ego cannot clear it before red and can stop comfortably.
+  cannot_clear = remaining < 0.0 or v * remaining < distance
+  can_stop = v * v / (2.0 * SIGNAL_AMBER_STOP_DECEL) < distance
+  return cannot_clear and can_stop
+
+
 def _curve_stop_steer_limit(v_ego_kph):
   lo_v, hi_v = E2E_CURVE_STOP_STEER_BP
   lo_s, hi_s = E2E_CURVE_STOP_STEER_V
@@ -131,7 +160,8 @@ class ConditionalE2EController:
              model_x, model_y, model_v0, model_v_end, v_ego,
              steering_angle_deg, gas_pressed, brake_pressed, right_blinker,
              lead_present, radar_lead_present, radar_lead_distance,
-             vision_lead_present):
+             vision_lead_present, signal_phase=None, signal_distance=-1.0,
+             signal_remaining=-1.0):
     if not available:
       self.reset()
       return 'acc'
@@ -181,9 +211,17 @@ class ConditionalE2EController:
         distance_cap = 150.0
       else:
         distance_cap = 120.0 + (v_ego_kph - 60.0) * 1.5
+      signal_stop = signal_requires_stop(signal_phase, signal_distance, signal_remaining, v_ego)
+      if signal_stop:
+        distance_cap = max(distance_cap, min(SIGNAL_ASSIST_MAX_DISTANCE,
+                                             signal_distance + SIGNAL_ASSIST_MODEL_MARGIN))
       in_range = model_x < lead_distance_guard - 3.0 and model_x < distance_cap
+      if signal_stop:
+        in_range = in_range and model_x < signal_distance + SIGNAL_ASSIST_MODEL_MARGIN
       straight_stop = (abs(model_y) < 5.0 and
-                       (model_v < 3.0 or model_v < model_v0 * 0.7))
+                       (model_v < 3.0 or model_v < model_v0 * 0.7 or
+                        (signal_stop and (model_v < SIGNAL_ASSIST_MODEL_V or
+                                          model_v < model_v0 * SIGNAL_ASSIST_MODEL_RATIO))))
       curve_stop = (model_v < 3.0 and
                     abs(model_y) < max(5.0, E2E_CURVE_STOP_LAT_RATIO * model_x))
       raw_stop_sign = in_range and (straight_stop or curve_stop)

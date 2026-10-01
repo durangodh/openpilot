@@ -9,6 +9,10 @@ STATE_FILE = "/dev/shm/carrot_navi_route.json"
 # 폴리라인 없는 축약본. 지도 곡률(폴리라인)이 필요 없는 쪽은 이걸 읽는다.
 GUIDE_FILE = "/dev/shm/carrot_navi_guide.json"
 STALE_TIMEOUT = 3.0
+# C-ITS signal phase changes every few seconds; never use an older reading.
+SIGNAL_STALE_TIMEOUT = 2.0
+# A turn guidance point this close to the signal decides which signal applies.
+SIGNAL_TURN_MATCH_M = 30.0
 MAP_CURVE_UPDATE_INTERVAL = 0.20
 ROUTE_COARSE_SAMPLE_LIMIT = 256
 ROUTE_WINDOW_POINT_LIMIT = 512
@@ -68,7 +72,65 @@ class NavigationRouteData:
             "lane_fresh": False, "lane_current": None, "lane_ahead_fresh": False,
             "lane_ahead": None,
             "speed_fresh": False, "speed": None, "off_route": False,
-            "road_limit_kph": 0.0}
+            "road_limit_kph": 0.0, "signal": None}
+
+  @staticmethod
+  def _signal_movement(text):
+    t = str(text or "").lower()
+    if any(w in t for w in ("uturn", "u_turn", "u-turn", "유턴")):
+      return "left"
+    if "left" in t or "좌" in t:
+      return "left"
+    if "right" in t or "우" in t:
+      return "right"
+    if any(w in t for w in ("straight", "through", "직진", "직")):
+      return "straight"
+    return None
+
+  @staticmethod
+  def _signal_phase(text):
+    t = str(text or "").lower()
+    if any(w in t for w in ("red", "stop", "적색", "빨")):
+      return "red"
+    # SPaT names: "*-clearance" is the amber phase (checked before "protected").
+    if any(w in t for w in ("yellow", "amber", "caution", "clearance", "황색", "노란")):
+      return "yellow"
+    if any(w in t for w in ("green", "protected", "permissive", "녹색", "초록")):
+      return "green"
+    return None
+
+  @classmethod
+  def signal_state(cls, signal, fresh, guidance=None):
+    """Return {"phase", "distance", "remaining"} for the signal ego will obey.
+
+    The movement is straight unless the current turn guidance point lies at
+    this signal; right turns return no phase (no signal stop is implied).
+    Anything stale, flashing or ambiguous returns None.
+    """
+    if not fresh or not isinstance(signal, dict) or bool(signal.get("blink", False)):
+      return None
+    distance = _number(_first(signal, ("distance_m", "distance")), -1.0)
+    entries = signal.get("signals")
+    if distance <= 0.0 or not isinstance(entries, list) or not entries:
+      return None
+    want = "straight"
+    if isinstance(guidance, dict) and guidance.get("fresh") and \
+       guidance.get("kind") in ("turn", "uturn") and \
+       abs(float(guidance.get("distance", -1.0)) - distance) <= SIGNAL_TURN_MATCH_M:
+      want = "left" if guidance.get("kind") == "uturn" or guidance.get("direction", 0) < 0 else "right"
+    if want == "right":
+      return None
+    chosen = [e for e in entries if isinstance(e, dict) and cls._signal_movement(e.get("guide")) == want]
+    if not chosen and want == "straight" and len(entries) == 1 and isinstance(entries[0], dict) and \
+       cls._signal_movement(entries[0].get("guide")) in (None, "straight"):
+      chosen = entries
+    if len(chosen) != 1:
+      return None
+    phase = cls._signal_phase(chosen[0].get("state"))
+    if phase is None:
+      return None
+    return {"phase": phase, "distance": distance,
+            "remaining": _number(_first(chosen[0], ("remaining_sec", "remain_sec")), -1.0)}
 
   @classmethod
   def guidance_state(cls, guidance, fresh):
@@ -162,6 +224,12 @@ class NavigationRouteData:
                                    isinstance(speed_state, dict) and
                                    not off_route)
       self.state["speed"] = speed_state if self.state["speed_fresh"] else None
+      signal_updated_at = stream_times.get("traffic_signal")
+      signal_age = time.time() - _number(signal_updated_at, 0.0) / 1000.0
+      self.state["signal"] = self.signal_state(
+        root.get("traffic_signal"),
+        signal_updated_at is not None and -5.0 <= signal_age <= SIGNAL_STALE_TIMEOUT and not off_route,
+        self.state)
       self.state["road_limit_kph"] = _number(_first(
         speed_state, ("road_limit_kph", "limit_speed", "roadLimitKph",
                       "section_speed_limit_kph", "sectionSpeedLimitKph")), 0.0)

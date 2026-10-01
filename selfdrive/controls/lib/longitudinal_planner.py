@@ -9,6 +9,7 @@ from common.params import Params
 from common.realtime import DT_MDL
 from selfdrive.modeld.constants import T_IDXS
 from selfdrive.controls.lib.longcontrol import LongCtrlState
+from selfdrive.controls.lib.navigation_route import GUIDE_FILE, NavigationRouteData
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, MIN_ACCEL, MAX_ACCEL, N
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_speed_error
@@ -46,6 +47,8 @@ class LongitudinalPlanner:
     self.experimental_mode_enabled = False
     self.traffic_stop_mode = 2
     self.conditional_e2e = ConditionalE2EController(DT_MDL)
+    # Navigation C-ITS signal (Naver/Kakao) assists traffic-stop detection.
+    self.navigation_route = NavigationRouteData(GUIDE_FILE)
     self.auto_e2e_stopping = False
     self.auto_e2e_prepare = False
     self.e2e_stop_distance = 0.0
@@ -163,6 +166,10 @@ class LongitudinalPlanner:
                            not lead_one.radar)
     path_stop_x = float(model_msg.position.x[-1]) if model_valid else 0.0
     selected_stop_x = path_stop_x
+    try:
+      signal = self.navigation_route.update().get("signal")
+    except Exception:
+      signal = None
 
     mode = self.conditional_e2e.update(
       available=active and self.auto_e2e_enabled,
@@ -182,7 +189,10 @@ class LongitudinalPlanner:
       lead_present=lead_present,
       radar_lead_present=radar_lead_present,
       radar_lead_distance=float(lead_one.dRel) if lead_one.status else 0.0,
-      vision_lead_present=vision_lead_present)
+      vision_lead_present=vision_lead_present,
+      signal_phase=signal["phase"] if signal else None,
+      signal_distance=signal["distance"] if signal else -1.0,
+      signal_remaining=signal["remaining"] if signal else -1.0)
     self.auto_e2e_stopping = self.conditional_e2e.stopping
     self.auto_e2e_prepare = self.conditional_e2e.prepare
     self.e2e_stop_distance = self.conditional_e2e.stop_distance
