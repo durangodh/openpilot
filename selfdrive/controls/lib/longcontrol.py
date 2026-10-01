@@ -6,6 +6,7 @@ from selfdrive.controls.lib.drive_helpers import CONTROL_N, apply_deadzone
 from selfdrive.controls.lib.pid import PIDController
 from selfdrive.modeld.constants import T_IDXS
 from selfdrive.controls.lib.lead_departure import (LeadDepartureAssist,
+                                                   departure_jerk_upper,
                                                    lead_is_departing)
 
 LongCtrlState = car.CarControl.Actuators.LongControlState
@@ -26,18 +27,20 @@ PID_JERK_UPPER_V = [2.0, 3.0, 2.0]
 PID_JERK_LOWER_V = [3.5, 3.5, 3.0]
 
 # ---- 출발(정지 → 주행) ----
-# 출발은 아래 세 단계뿐이고, starting 상태(START ACCEL > 0)를 거치든 바로
-# PID로 가든 같은 규칙을 쓴다. 어느 단계도 새 제동 요청을 늦추지 않는다.
-#  1) 제동 해제: 정지유지 음수 요청을 START_RELEASE_JERK로 0까지 푼다
-#     (-1.1 m/s^2 홀드 기준 약 0.08초). 플래너가 다시 감속을 원하면 즉시
-#     일반 PID 경로로 돌아간다.
+# 출발 가속은 전부 여기서만 다룬다(SCC14는 넉넉한 고정값만 보낸다).
+# starting 상태(START ACCEL > 0)를 거치든 바로 PID로 가든 같은 규칙이다.
+#  1) 출발 저크: 정지(또는 해제) 후 LAUNCH_TIME_BP 동안은 가속 요청이
+#     오르는 속도를 START JERK LIMIT(JerkStartLimit)으로 제한하고, 그 뒤
+#     LAUNCH_JERK_MAX까지 서서히 푼다. 정지유지 제동 해제부터 실제 가속까지
+#     한 저크로 이어진다. 내려가는 쪽(새 제동 요청)에는 적용하지 않는다.
 #  2) 출발 보조: 앞차 출발이 확인된 창(LeadDepartureAssist, 최대 1초) 동안
-#     PID 출력에 작은 하한을 둔다.
+#     PID 출력에 작은 하한을 두고, 출발 저크를 departure_jerk_upper만큼
+#     올려준다.
 #  3) 출발 인계: 같은 창 안에서 양의 가속 요청이 줄어들 때만
-#     START_HANDOFF_JERK로 천천히 줄인다. starting의 startAccel에서 PID로
-#     넘어가는 순간 구동력이 툭 빠지는 것을 막는다. 0 이하 요청은 제외.
-# SCC 쪽 출발 저크는 carcontroller의 START JERK LIMIT 하나로만 조절한다.
-START_RELEASE_JERK = 14.0
+#     START_HANDOFF_JERK로 천천히 줄인다(startAccel → PID 전환 시 구동력이
+#     툭 빠지는 것 방지). 0 이하 요청은 제외.
+LAUNCH_TIME_BP = [0.0, 1.5, 2.5]   # s after leaving stop/off
+LAUNCH_JERK_MAX = 5.0              # m/s^3, same as the SCC14 ceiling
 START_HANDOFF_JERK = 1.6
 
 # 저속 앞차출발 추종 전용 저크 부스트 구간. long_mpc.py의 LEAD_DEPARTURE_*
@@ -124,13 +127,10 @@ class LongControl:
     # 정상주행(PID) 저크상한 배율. 기본 1.0(=코드 기본 속도별 곡선 그대로).
     self.pid_jerk_accel_mult = 1.0
     self.pid_jerk_decel_mult = 1.0
-    # 출발(정지→가속 시작) 전용 저크, m/s^3 — 고정 상수. UI로 따로 안 뺐다:
-    # hyundai/carcontroller.py 의 JerkStartLimit("START JERK LIMIT")이 CAN
-    # 최종값을 이미 더 아래층에서 제한하고 있어서, 여기 계획 단계에 또
-    # UI를 두면 조절할 게 두 개로 갈려 헷갈리기만 한다. 여기 값은 넉넉하게
-    # 둬서 그 아래층 제한이 실질적인 병목이 되게 하고, 출발 체감 조절은
-    # START JERK LIMIT 하나로 통일한다.
-    self.start_jerk = 5.0
+    # START JERK LIMIT (JerkStartLimit, x0.1 m/s^3, 기본 1.0)
+    self.jerk_start_limit = 1.0
+    self.launch_time = 0.0
+    self.launch_limited = False
     # 저속(0~30km/h) 앞차출발 추종 전용 저크 부스트 배율. 기본 1.0(=부스트 없음).
     self.low_speed_jerk_boost = 1.0
 
@@ -145,7 +145,6 @@ class LongControl:
     self.lead_release_samples = 0
     self.lead_measurement_available = False
     self.lead_missing_frames = 0
-    self.departure_release_active = False
     self.departure_assist = LeadDepartureAssist(DT_CTRL)
 
   # ---- 파라미터 (키 이름은 이 포크 것을 유지) ----
@@ -298,6 +297,13 @@ class LongControl:
       boost_mult = 1.0
     self.low_speed_jerk_boost = float(clip(boost_mult, 1.0, 5.0))
 
+    try:
+      start_raw = self.params.get("JerkStartLimit", encoding="utf8")
+      start_jerk = int(start_raw) * 0.1 if start_raw not in (None, "") else 0.0
+    except (TypeError, ValueError):
+      start_jerk = 0.0
+    self.jerk_start_limit = float(clip(start_jerk if start_jerk > 0.0 else 1.0, 0.5, LAUNCH_JERK_MAX))
+
   def _read_params(self):
     self.read_param_count += 1
     if self.read_param_count >= 100:
@@ -314,11 +320,12 @@ class LongControl:
     elif self.read_param_count == 60:
       self._update_pid_jerk()
 
-  def _release_brake(self, output_accel):
-    """출발 1단계: 정지유지 제동을 일정한 저크로 0까지 푼다."""
-    output_accel = min(0.0, output_accel + START_RELEASE_JERK * DT_CTRL)
-    self.departure_release_active = output_accel < 0.0
-    return output_accel
+  def _launch_jerk(self, assisted):
+    """출발 1·2단계: 정지 후 가속 요청이 오를 수 있는 최대 저크."""
+    limit = interp(self.launch_time, LAUNCH_TIME_BP,
+                   [self.jerk_start_limit, self.jerk_start_limit, LAUNCH_JERK_MAX])
+    return departure_jerk_upper(limit, self.jerk_start_limit,
+                                PID_JERK_UPPER_V[0] * self.pid_jerk_accel_mult, assisted)
 
   def reset(self, v_pid=0.0):
     """Reset PID controller and change setpoint"""
@@ -392,18 +399,15 @@ class LongControl:
       radar_valid=radar_state_valid, plan_valid=plan_valid and trajectory_valid,
       plan_age=t_since_plan, a_now=a_target_now, a_target=a_target,
       v_target=v_target, v_future=v_target_1sec, soft_hold=soft_hold)
-    prev_long_control_state = self.long_control_state
     self.long_control_state, planned_stop = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
       CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now, start_gate,
       assisted_departure)
-    departed_stopping = (prev_long_control_state == LongCtrlState.stopping and
-                         self.long_control_state != LongCtrlState.stopping)
-
     if self.long_control_state in (LongCtrlState.off, LongCtrlState.stopping):
-      self.departure_release_active = False
-    elif departed_stopping and output_accel < 0.0:
-      self.departure_release_active = True
+      self.launch_time = 0.0
+      self.launch_limited = False
+    else:
+      self.launch_time += DT_CTRL
 
     if self.long_control_state != LongCtrlState.stopping:
       self.standstill_hold_active = False
@@ -446,14 +450,13 @@ class LongControl:
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:
-      # 제동 해제(1단계) 후 start_jerk로 startAccel까지 올린다.
-      if output_accel < 0.0:
-        output_accel = self._release_brake(output_accel)
-      else:
-        self.departure_release_active = False
-        max_delta = self.start_jerk * DT_CTRL
-        output_accel = float(clip(self.CP.startAccel,
-                                  output_accel - max_delta, output_accel + max_delta))
+      # 정지유지 제동에서 startAccel까지 출발 저크 하나로 올린다.
+      jerk_upper = self._launch_jerk(assisted_departure)
+      jerk_lower = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_LOWER_V) * self.pid_jerk_decel_mult
+      output_accel = float(clip(self.CP.startAccel,
+                                output_accel - jerk_lower * DT_CTRL,
+                                output_accel + jerk_upper * DT_CTRL))
+      self.launch_limited = False
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.pid:
@@ -462,7 +465,8 @@ class LongControl:
       # Freeze the integrator so we don't accelerate to compensate, and don't allow positive acceleration
       prevent_overshoot = not self.CP.stoppingControl and CS.vEgo < 1.5 and v_target_1sec < 0.7 and v_target_1sec < self.v_pid
       deadzone = interp(CS.vEgo, self.CP.longitudinalTuning.deadzoneBP, self.CP.longitudinalTuning.deadzoneV)
-      freeze_integrator = prevent_overshoot
+      # 출발 저크에 막혀 출력이 못 따라가는 동안 적분이 쌓이지 않게 한다.
+      freeze_integrator = prevent_overshoot or self.launch_limited
 
       error = self.v_pid - CS.vEgo
       error_deadzone = apply_deadzone(error, deadzone)
@@ -491,6 +495,10 @@ class LongControl:
       jerk_upper *= interp(CS.vEgo, LOW_SPEED_JERK_BOOST_SPEED_BP,
                            [departure_boost, departure_boost, 1.0])
       jerk_lower = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_LOWER_V) * self.pid_jerk_decel_mult
+      # 출발 저크(1단계): 정지 직후 몇 초 동안만 상승 저크를 더 낮게.
+      launch_jerk = self._launch_jerk(assisted_departure and not prevent_overshoot)
+      self.launch_limited = launch_jerk < jerk_upper and pid_output > output_accel + launch_jerk * DT_CTRL
+      jerk_upper = min(jerk_upper, launch_jerk)
       # 양의 상한(CruiseMax, 앞차 없을 때 상한, 접근 시 상한)이 내려가도
       # 출력을 한 번에 자르지 않고 jerk_lower로 따라 내려가게 한다. 그래서
       # cruise_helper에 따로 있던 '가속 놓기' 완화가 필요 없다.
@@ -498,17 +506,9 @@ class LongControl:
       # 출발 인계(3단계): 양의 요청이 줄어들 때만 완만하게.
       if assisted_departure and not prevent_overshoot and 0.0 < pid_output < output_accel:
         jerk_lower = min(jerk_lower, START_HANDOFF_JERK)
-      # 제동 해제(1단계): START ACCEL=0이면 starting을 건너뛰고 여기로 온다.
-      release = (self.departure_release_active and output_accel < 0.0 and
-                 pid_output > 0.0 and not prevent_overshoot)
-      if release:
-        output_accel = self._release_brake(output_accel)
-        self.reset(CS.vEgo)
-      else:
-        self.departure_release_active = False
-        output_accel = float(clip(pid_output,
-                                  output_accel - jerk_lower * DT_CTRL,
-                                  output_accel + jerk_upper * DT_CTRL))
+      output_accel = float(clip(pid_output,
+                                output_accel - jerk_lower * DT_CTRL,
+                                output_accel + jerk_upper * DT_CTRL))
 
     pos_limit = accel_limits[1]
     if self.long_control_state == LongCtrlState.pid:

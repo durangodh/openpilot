@@ -6,7 +6,7 @@ from random import randint
 
 from cereal import car
 from common.realtime import DT_CTRL
-from common.numpy_fast import clip, interp
+from common.numpy_fast import clip
 from selfdrive.car import apply_std_steer_torque_limits
 from selfdrive.car.hyundai.hyundaican import create_lkas11, create_clu11, \
   create_scc11, create_scc12, create_scc13, create_scc14, \
@@ -18,7 +18,6 @@ from opendbc.can.packer import CANPacker
 from common.conversions import Conversions as CV
 from common.params import Params
 from selfdrive.controls.lib.longcontrol import LongCtrlState
-from selfdrive.controls.lib.lead_departure import departure_jerk_upper
 from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 
 VisualAlert = car.CarControl.HUDControl.VisualAlert
@@ -113,9 +112,6 @@ class CarController:
 
     self.scc_smoother = SccSmoother()
     self.soft_hold_mode = int(clip(param.get_int("SoftHoldMode"), 0, 2))
-    jerk_start_raw = param.get_int("JerkStartLimit")
-    self.jerk_start_limit = float(clip(jerk_start_raw * 0.1 if jerk_start_raw > 0 else 1.0, 0.5, 5.0))
-    self.jerk_count = 0.0
     self.last_blinker_frame = 0
     self.prev_active_cam = False
     self.active_cam_timer = 0
@@ -309,8 +305,6 @@ class CarController:
 
     if self.frame % 100 == 0:
       self.soft_hold_mode = int(clip(self.op_params.get_int("SoftHoldMode"), 0, 2))
-      jerk_start_raw = self.op_params.get_int("JerkStartLimit")
-      self.jerk_start_limit = float(clip(jerk_start_raw * 0.1 if jerk_start_raw > 0 else 1.0, 0.5, 5.0))
     soft_hold = bool(hud_control.softHold)
     soft_hold_scc = soft_hold and self.soft_hold_mode == 2 and CS.out.brakePressed
     stopping = controls.LoC.long_control_state == LongCtrlState.stopping
@@ -318,28 +312,15 @@ class CarController:
     scc_stop_request = should_request_scc_standstill(
       stopping, soft_hold_scc, CS.out.standstill, CS.out.vEgo)
 
-    # Smoothing belongs to the planner (MPC jerk cost) and LongControl's PID
-    # jerk clip. SCC14 only gets generous limits so the ECU follows the
-    # request instead of adding a second lag. After a stop the upper limit
-    # ramps from START JERK LIMIT to 5.0 so launch feel is unchanged.
+    # All smoothing, launch included (START JERK LIMIT), is LongControl's.
+    # SCC14 only gets generous limits so the ECU follows the request instead
+    # of adding a second lag. Stopping keeps the original hold limits.
     jerk_limit = 5.0
-    self.jerk_count += DT_CTRL
-    jerk_max = interp(self.jerk_count, [0.0, 1.5, 2.5],
-                      [self.jerk_start_limit, self.jerk_start_limit, jerk_limit])
-    if actuators.longControlState == LongCtrlState.off:
-      jerk_upper = jerk_lower = jerk_limit
-      self.jerk_count = 0.0
-    elif jerk_stopping:
+    if jerk_stopping:
       jerk_upper = 0.5
       jerk_lower = jerk_limit
-      self.jerk_count = 0.0
     else:
-      jerk_upper = jerk_max
-      jerk_lower = jerk_limit
-      assisted_launch = (CC.longActive and controls.LoC.departure_assist.active and
-                         actuators.accel > 0.0 and not CS.out.brakePressed and not CS.out.gasPressed)
-      jerk_upper = departure_jerk_upper(
-        jerk_upper, self.jerk_start_limit, 2.0 * controls.LoC.pid_jerk_accel_mult, assisted_launch)
+      jerk_upper = jerk_lower = jerk_limit
 
     # Community safety now follows the physical SCC MAIN state independently
     # of stock ACC engagement. Start replacing SCC messages as soon as

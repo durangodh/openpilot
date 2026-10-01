@@ -17,26 +17,26 @@ def _linear_interp(x, bp, values):
 
 
 def brake_output(previous, requested, state='pid', v_ego=None, brake_pressed=False,
-                 hold_active=False, initial_state=None, boost=1.0, lead=None):
+                 hold_active=False, initial_state=None, boost=1.0, lead=None, launch_time=10.0):
   source = Path(__file__).resolve().parents[1] / 'lib' / 'longcontrol.py'
   tree = ast.parse(source.read_text(encoding='utf-8'))
   cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'LongControl')
   update = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'update')
-  release = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == '_release_brake')
   states = NS(off='off', pid='pid', stopping='stopping', starting='starting')
   env = dict(LongCtrlState=states, CONTROL_N=2, T_IDXS=[0, 1], DT_CTRL=0.01,
              LEAD_DROPOUT_FALLBACK_FRAMES=150,
-             START_RELEASE_JERK=6.0, START_HANDOFF_JERK=1.6,
+             START_HANDOFF_JERK=1.6,
              PID_JERK_SPEED_BP=[0.0, 5.0, 20.0],
              PID_JERK_UPPER_V=[2.0, 3.0, 2.0], PID_JERK_LOWER_V=[3.5, 3.5, 3.0],
              LOW_SPEED_JERK_BOOST_SPEED_BP=[0.0, 5.0, 30.0 / 3.6],
              clip=lambda x, lo, hi: max(lo, min(x, hi)),
              interp=lambda x, bp, values: values[0], apply_deadzone=lambda x, dz: x,
              long_control_state_trans=lambda *args: (state, False))
-  exec(compile(ast.Module(body=[update, release], type_ignores=[]), str(source), 'exec'), env)
+  exec(compile(ast.Module(body=[update], type_ignores=[]), str(source), 'exec'), env)
   pid = NS(update=lambda *a, **kw: requested, p=requested, i=0.0, d=0.0, f=0.0)
   obj = NS(_read_params=lambda: None,
-           _release_brake=lambda accel: env['_release_brake'](obj, accel),
+           # Mock interp returns values[0]; model the launch window directly.
+           _launch_jerk=lambda assisted: 1.0 if launch_time < 1.5 else 5.0,
            _reset_standstill_lead=lambda: None,
            _update_standstill_lead=lambda *a: False,
            _lead_is_departing=lambda *a: lead is not None,
@@ -53,7 +53,7 @@ def brake_output(previous, requested, state='pid', v_ego=None, brake_pressed=Fal
            start_request_frames=0, standstill_release_speed=0.2,
            standstill_release_frames=10, standstill_lead_latched=False,
            lead_missing_frames=0,
-           departure_release_active=False,
+           jerk_start_limit=1.0, launch_time=launch_time, launch_limited=False,
            reset=lambda *a: None)
   speed = (0.0 if state == 'stopping' else 10.0) if v_ego is None else v_ego
   cs = NS(vEgo=speed, standstill=speed < 0.01, brakePressed=brake_pressed,
@@ -75,21 +75,28 @@ def test_pid_output_is_jerk_limited_per_cycle():
   assert brake_output(0.0, 0.015) == 0.015
 
 
-def test_default_departure_blends_negative_hold_before_positive_jerk_ramp():
-  # START ACCEL=0 transitions directly from stopping to PID. The brake hold
-  # releases at the dedicated 6.0 m/s³ handoff rate instead of disappearing
-  # in one frame. A normal PID cycle still uses the 2.0 m/s³ positive limit.
+def test_launch_releases_hold_at_start_jerk_limit_then_normal_jerk():
+  # START ACCEL=0 goes straight from stopping to PID. Right after the stop the
+  # hold releases at START JERK LIMIT (1.0 m/s^3); outside the launch window
+  # the normal 2.0 m/s^3 PID limit applies.
   assert brake_output(-1.1, 1.0, state='pid', initial_state='stopping',
-                      v_ego=0.0) == pytest.approx(-1.04)
+                      v_ego=0.0, launch_time=0.0) == pytest.approx(-1.09)
   assert brake_output(-1.1, 1.0, state='pid', initial_state='pid',
                       v_ego=0.0) == pytest.approx(-1.08)
+
+
+def test_launch_jerk_never_slows_braking():
+  assert brake_output(0.5, -3.0, launch_time=0.0) == pytest.approx(0.5 - 0.035)
 
 
 def test_low_speed_departure_boost_requires_a_departing_lead():
   assert brake_output(0.0, 2.0, v_ego=0.0, boost=5.0) == pytest.approx(0.02)
   lead = NS(status=True, dRel=8.0, vLeadK=1.0, vRel=0.8)
+  assert brake_output(0.0, 2.0, v_ego=0.0, boost=2.0,
+                      lead=lead) == pytest.approx(0.04)
+  # Never above the 5.0 m/s^3 ceiling (formerly enforced by SCC14).
   assert brake_output(0.0, 2.0, v_ego=0.0, boost=5.0,
-                      lead=lead) == pytest.approx(0.10)
+                      lead=lead) == pytest.approx(0.05)
 
 
 def test_actuator_limits_still_apply():

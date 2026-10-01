@@ -9,7 +9,8 @@ from types import SimpleNamespace as NS
 import pytest
 
 from common.numpy_fast import clip, interp
-from selfdrive.controls.lib.lead_departure import LeadDepartureAssist, lead_is_departing
+from selfdrive.controls.lib.lead_departure import (LAUNCH_JERK_UPPER_MAX, LeadDepartureAssist,
+                                                   departure_jerk_upper, lead_is_departing)
 from selfdrive.controls.lib.pid import PIDController
 
 
@@ -24,7 +25,8 @@ def load_control():
              Params=lambda: NS(get=lambda *args, **kw: None), DT_CTRL=0.01,
              T_IDXS=[0.0, 0.5, 1.5], CONTROL_N=3,
              apply_deadzone=lambda error, dz: max(error - dz, 0.0) if error > 0 else min(error + dz, 0.0),
-             LeadDepartureAssist=LeadDepartureAssist, lead_is_departing=lead_is_departing)
+             LeadDepartureAssist=LeadDepartureAssist, lead_is_departing=lead_is_departing,
+             departure_jerk_upper=departure_jerk_upper)
   exec(compile(tree, str(source), 'exec'), env)
   return env['LongControl'], env['long_control_state_trans']
 
@@ -68,8 +70,9 @@ def test_confirmed_departure_releases_below_old_speed_threshold(starting):
   accel = step(control, cs, plan, radar)
   assert control.long_control_state == ('starting' if starting else 'pid')
   assert control.departure_assist.active
-  # Brake release uses START_RELEASE_JERK (14 m/s^3), not the stopping rate.
-  assert accel == pytest.approx(-1.1 + 14.0 * 0.01)
+  # The hold releases at the launch jerk (assisted: LAUNCH_JERK_UPPER_MAX),
+  # not at the stopping rate.
+  assert accel == pytest.approx(-1.1 + LAUNCH_JERK_UPPER_MAX * 0.01)
   for _ in range(5):
     step(control, cs, plan, radar, fresh=False)
   assert control.long_control_state != 'stopping'
@@ -206,6 +209,8 @@ def setup_confirmed_start_handoff():
   control.actuator_delay = 0.30
   control.pid_jerk_accel_mult, control.pid_jerk_decel_mult = 1.0, 1.1
   control.low_speed_jerk_boost = 1.4
+  # A brisk START JERK LIMIT so startAccel is reached inside the 1 s window.
+  control.jerk_start_limit = 3.0
   control.pid._k_p, control.pid._k_i = ([0], [0.55]), ([0], [0.10])
   control.pid.k_f = 0.95
   plan.speeds, plan.accels = [0.0, 0.2, 0.6], [0.4]*3
@@ -214,8 +219,9 @@ def setup_confirmed_start_handoff():
   radar.leadOne.aLeadK = 0.2
   step(control, cs, plan, radar)
   step(control, cs, plan, radar)
-  for _ in range(30):
-    step(control, cs, plan, radar)
+  for _ in range(300):
+    if step(control, cs, plan, radar) >= 0.8:
+      break
   assert control.long_control_state == 'starting'
   assert control.last_output_accel == pytest.approx(0.8)
   assert control.departure_assist.active

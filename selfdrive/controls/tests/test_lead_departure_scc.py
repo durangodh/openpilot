@@ -7,7 +7,6 @@ from types import SimpleNamespace as NS
 import pytest
 
 from common.numpy_fast import clip, interp
-from selfdrive.controls.lib.lead_departure import LAUNCH_JERK_UPPER_MAX, departure_jerk_upper
 
 
 def scc_limits(assisted=True, state='pid', braking=False, gas=False, soft_hold=False, active=True):
@@ -21,10 +20,10 @@ def scc_limits(assisted=True, state='pid', braking=False, gas=False, soft_hold=F
   update.body = update.body[:boundary] + [ast.parse('return jerk_upper, jerk_lower, scc_stop_request').body[0]]
   gate = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'should_request_scc_standstill')
   module = ast.fix_missing_locations(ast.Module(body=[gate, update], type_ignores=[]))
-  env = dict(clip=clip, interp=interp, DT_CTRL=0.01, departure_jerk_upper=departure_jerk_upper,
+  env = dict(clip=clip, interp=interp, DT_CTRL=0.01, 
              LongCtrlState=NS(off='off', pid='pid', stopping='stopping', starting='starting'))
   exec(compile(module, str(source), 'exec'), env)
-  controller = NS(frame=1, soft_hold_mode=2, jerk_start_limit=1.0, jerk_count=0.0,
+  controller = NS(frame=1, soft_hold_mode=2,
                   scc_smoother=NS(update=lambda *args: None), packer=None)
   cc = NS(enabled=True, longActive=active)
   cs = NS(out=NS(vEgo=0.0, standstill=True, brakePressed=braking, gasPressed=gas))
@@ -33,15 +32,11 @@ def scc_limits(assisted=True, state='pid', braking=False, gas=False, soft_hold=F
   return env['update_scc'](controller, cc, cs, actuators, controls, NS(softHold=soft_hold), [])
 
 
-def test_only_positive_launch_jerk_changes_not_braking_or_stop_request():
-  # Upper starts at START JERK LIMIT after a stop; lower is never plan-limited.
-  assert scc_limits(False) == (1.0, 5.0, False)
-  assert scc_limits(True) == (LAUNCH_JERK_UPPER_MAX, 5.0, False)
-
-
-@pytest.mark.parametrize('kwargs', [dict(braking=True), dict(gas=True), dict(active=False)])
-def test_no_scc_launch_boost_under_driver_override_or_inactive(kwargs):
-  assert scc_limits(**kwargs) == (1.0, 5.0, False)
+@pytest.mark.parametrize('kwargs', [dict(assisted=False), dict(assisted=True), dict(state='starting'),
+                                    dict(braking=True), dict(gas=True), dict(active=False)])
+def test_driving_and_launch_use_fixed_generous_scc_limits(kwargs):
+  # Launch smoothing (START JERK LIMIT) now lives in LongControl only.
+  assert scc_limits(**kwargs) == (5.0, 5.0, False)
 
 
 def test_stop_and_soft_hold_keep_original_scc_limits():

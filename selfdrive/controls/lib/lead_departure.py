@@ -119,7 +119,7 @@ LAUNCH_JERK_UPPER_MAX = 1.8
 
 
 def departure_jerk_upper(normal_upper, configured_start, pid_upper, assisted):
-  """Remove the SCC startup bottleneck only for a confirmed assisted launch."""
+  """Raise LongControl's launch jerk only for a confirmed assisted launch."""
   if not assisted:
     return normal_upper
   # Retain a deliberately softer user PID setting and all existing hard caps.
