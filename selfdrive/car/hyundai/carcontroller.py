@@ -361,7 +361,7 @@ class CarController:
 
         requested_accel = actuators.accel if (CC.longActive or stopping or soft_hold_scc) else 0.0
         apply_accel = controls.cruise_helper.get_apply_accel(
-          CS, controls.sm, requested_accel, stopping, dt=2 * DT_CTRL)
+          CS, controls.sm, requested_accel, stopping)
         apply_accel = clip(apply_accel,
                            CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX)
 
@@ -394,9 +394,6 @@ class CarController:
           controls.sccStockCamStatus = 0
           stock_cam = False
 
-        # Base the next ramp step on the request actually sent, including brake
-        # override and stock navigation deceleration. SCC12 runs at 50 Hz.
-        controls.cruise_helper.last_apply_accel = float(apply_accel)
         lead = controls.cruise_helper.get_lead(controls.sm)
         lead_distance = float(lead.dRel) if lead is not None else 0.0
         lead_relative_speed = float(lead.vRel) if lead is not None else 0.0

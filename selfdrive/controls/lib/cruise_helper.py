@@ -18,7 +18,6 @@ from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         apply_cruise_max_limit,
                                                         get_cruise_max_accel,
                                                         get_no_lead_cruise_accel_cap,
-                                                        transition_follow_accel_limit,
                                                         select_auto_driving_mode)
 from selfdrive.road_speed_limiter import get_road_speed_limiter
 
@@ -85,8 +84,6 @@ class CruiseHelper:
     self.my_eco_mode_factor = 0.8
     self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
     self.no_lead_cruise_accel_factor = 0.65
-    self.no_lead_cruise_jerk_limit = 0.25
-    self.last_apply_accel = 0.0
     self.follow_accel_limit = None
     self.current_set_speed_kph = 0.0
 
@@ -151,9 +148,6 @@ class CruiseHelper:
     no_lead_factor = self.params.get_int("NoLeadCruiseAccelFactor")
     self.no_lead_cruise_accel_factor = float(clip(
       (no_lead_factor if no_lead_factor > 0 else 65) * 0.01, 0.30, 1.0))
-    no_lead_jerk = self.params.get_int("NoLeadCruiseJerkLimit")
-    self.no_lead_cruise_jerk_limit = float(clip(
-      (no_lead_jerk if no_lead_jerk > 0 else 25) * 0.01, 0.05, 1.0))
 
   def read_curve_params(self):
     self.turn_vision_control = self.params.get_bool("TurnVisionControl")
@@ -311,8 +305,9 @@ class CruiseHelper:
     # demand. Preserve the allowance across lead/cruise switches; re-anchoring
     # it to a small/coasting output repeatedly delayed normal gap recovery.
     # Actual lead, distance and user-limit changes still set the target above.
-    self.follow_accel_limit = transition_follow_accel_limit(
-      target, self.follow_accel_limit, CS.vEgo, DT_CTRL)
+    # The allowance itself is not rate-limited when it rises: LongControl's
+    # PID jerk limit already ramps the actual request.
+    self.follow_accel_limit = max(0.0, float(target))
     return self.follow_accel_limit
 
   def _resume_longitudinal(self, controls, CS, active_mode=1):
@@ -1051,7 +1046,7 @@ class CruiseHelper:
   def reset_scc_target(self):
     self.target_speed = 0.0
 
-  def get_apply_accel(self, CS, sm, accel, stopping, dt=DT_CTRL):
+  def get_apply_accel(self, CS, sm, accel, stopping):
     # Match the PID allowance at the final SCC12 boundary, including starts.
     # Braking/stopping requests bypass this positive-acceleration policy.
     cruise_max_accel = self.get_cruise_max_accel(CS.out.vEgo)
@@ -1062,10 +1057,8 @@ class CruiseHelper:
       speed_error_kph = max(0.0, self.current_set_speed_kph - CS.out.vEgo * CV.MS_TO_KPH)
       apply_accel = apply_no_lead_cruise_accel_limit(
         accel, stopping, cruise_max_accel, speed_error_kph,
-        self.no_lead_cruise_accel_factor, self.last_apply_accel,
-        self.no_lead_cruise_jerk_limit, dt)
-    self.last_apply_accel = float(apply_accel)
-    return self.last_apply_accel
+        self.no_lead_cruise_accel_factor)
+    return float(apply_accel)
 
   def get_stock_cam_accel(self, apply_accel, stock_accel, scc11):
     stock_cam = scc11["Navi_SCC_Camera_Act"] == 2 and scc11["Navi_SCC_Camera_Status"] == 2

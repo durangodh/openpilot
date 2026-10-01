@@ -31,9 +31,7 @@ def setup_policy(v_ego=20.0):
   policy.my_eco_mode_factor = 0.8
   policy.my_safe_mode_factor = 1.0
   policy.no_lead_cruise_accel_factor = 0.65
-  policy.no_lead_cruise_jerk_limit = 0.25
   policy.follow_accel_limit = None
-  policy.last_apply_accel = 0.65
   policy.current_set_speed_kph = v_ego * 3.6 + 40.0
   cs = NS(vEgo=v_ego)
   lead = NS(status=False, dRel=80.0, vLead=v_ego, aLeadK=0.0)
@@ -43,19 +41,16 @@ def setup_policy(v_ego=20.0):
   return policy, cs, sm
 
 
-def test_lead_acquisition_does_not_jump_pid_or_scc_acceleration():
+def test_lead_acquisition_opens_allowance_without_a_second_ramp():
+  # The rise of the actual request is LongControl's PID jerk limit; the cap
+  # itself moves straight to the new allowance.
   policy, cs, sm = setup_policy()
   before = policy.get_longitudinal_accel_limit(cs, sm, policy.current_set_speed_kph)
   assert before == pytest.approx(0.65)
   sm['radarState'].leadOne.status = True
-  previous = before
-  for _ in range(110):
-    cap = policy.get_longitudinal_accel_limit(cs, sm, policy.current_set_speed_kph)
-    output = policy.get_apply_accel(NS(out=cs), sm, 2.0, False, dt=0.02)
-    assert output <= cap <= 1.0
-    assert cap - previous <= limits.FOLLOW_ACCEL_LIMIT_RISE * 0.01 + 1e-9
-    previous = cap
+  cap = policy.get_longitudinal_accel_limit(cs, sm, policy.current_set_speed_kph)
   assert cap == pytest.approx(1.0)
+  assert policy.get_apply_accel(NS(out=cs), sm, 2.0, False) == pytest.approx(1.0)
 
 
 @pytest.mark.parametrize('accel,stopping', [(-3.5, False), (-1.1, True), (0.0, False)])
@@ -92,7 +87,7 @@ def test_second_lead_gets_the_same_pid_and_transport_cap():
   policy.get_longitudinal_accel_limit(cs, sm, policy.current_set_speed_kph)
   sm['radarState'].leadTwo.status = True
   cap = policy.get_longitudinal_accel_limit(cs, sm, policy.current_set_speed_kph)
-  assert cap == pytest.approx(0.6535)
+  assert cap == pytest.approx(1.0)
   assert policy.get_apply_accel(NS(out=cs), sm, 2.0, False) == cap
 
 
@@ -100,9 +95,8 @@ def test_distant_source_switch_preserves_allowance_even_after_coasting():
   policy, cs, sm = setup_policy()
   sm['radarState'].leadOne.status = True
   assert policy.get_longitudinal_accel_limit(cs, sm, policy.current_set_speed_kph) == 1.0
-  for output in [0.2, 0.0, -0.1]:
+  for _ in range(3):
     for source in ['lead0', 'cruise', 'lead1', 'lead0', 'cruise']:
-      policy.last_apply_accel = output
       sm['longitudinalPlan'].longitudinalPlanSource = source
       cap = policy.get_longitudinal_accel_limit(cs, sm, policy.current_set_speed_kph)
       assert cap == 1.0
@@ -119,7 +113,6 @@ def test_source_switch_does_not_bypass_real_approach_limit():
     sm['longitudinalPlan'].longitudinalPlanSource = 'lead0'
     expected = steady.get_longitudinal_accel_limit(cs, sm, steady.current_set_speed_kph)
     sm['longitudinalPlan'].longitudinalPlanSource = 'lead0' if frame % 2 else 'cruise'
-    switching.last_apply_accel = 0.0
     actual = switching.get_longitudinal_accel_limit(cs, sm, switching.current_set_speed_kph)
     assert actual == pytest.approx(expected)
     assert actual == pytest.approx(0.25)
