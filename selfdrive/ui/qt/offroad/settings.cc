@@ -1686,12 +1686,8 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "LongTuningKf", "LONGITUDINAL KF", "목표 가속도 반영값(×0.01)입니다. 값 증가(+): 가감속 명령이 강해짐 / 값 감소(-): 명령이 약해짐.",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
   list->addItem(new ParamValueControlF(
-      "LongitudinalActuatorDelayLowerBound", "LONG ACTUATOR DELAY MIN",
-      "가속·제동의 짧은 지연 보정값(×0.01초)입니다. 값 증가(+): 더 미리 반응 / 값 감소(-): 반응 시점을 늦춤 / 0: 차량 기본값.",
-      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
-  list->addItem(new ParamValueControlF(
-      "LongitudinalActuatorDelayUpperBound", "LONG ACTUATOR DELAY MAX",
-      "가속·제동의 긴 지연 보정값(×0.01초)입니다. 값 증가(+): 더 먼 미래를 보고 일찍 반응 / 값 감소(-): 반응이 늦어짐 / 0: 차량 기본값.",
+      "LongitudinalActuatorDelayLowerBound", "LONG ACTUATOR DELAY",
+      "가속·제동 지연 보정값(×0.01초)입니다. 값 증가(+): 더 미리 반응 / 값 감소(-): 반응 시점을 늦춤 / 0: 차량 기본값.",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
 
   list->addItem(horizontal_line());

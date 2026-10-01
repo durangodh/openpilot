@@ -3,7 +3,6 @@
 This is a controller regression test, not a vehicle or native MPC simulation.
 """
 import ast
-from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -69,8 +68,8 @@ def test_confirmed_departure_releases_below_old_speed_threshold(starting):
   accel = step(control, cs, plan, radar)
   assert control.long_control_state == ('starting' if starting else 'pid')
   assert control.departure_assist.active
-  # Current brake-release ramp is 8 m/s^3, independent of stopping comfort.
-  assert accel == pytest.approx(-1.02)
+  # Brake release uses START_RELEASE_JERK (14 m/s^3), not the stopping rate.
+  assert accel == pytest.approx(-1.1 + 14.0 * 0.01)
   for _ in range(5):
     step(control, cs, plan, radar, fresh=False)
   assert control.long_control_state != 'stopping'
@@ -204,7 +203,7 @@ def test_stop_comfort_does_not_limit_pid_braking():
 def setup_confirmed_start_handoff():
   control, cs, plan, radar = setup_control(True)
   configure_reported_start_stop(control)
-  control.actuator_delay_lower, control.actuator_delay_upper = 0.30, 0.45
+  control.actuator_delay = 0.30
   control.pid_jerk_accel_mult, control.pid_jerk_decel_mult = 1.0, 1.1
   control.low_speed_jerk_boost = 1.4
   control.pid._k_p, control.pid._k_i = ([0], [0.55]), ([0], [0.10])
@@ -226,28 +225,24 @@ def setup_confirmed_start_handoff():
   return control, cs, plan, radar
 
 
-def test_confirmed_start_handoff_does_not_drop_drive_request_in_150ms():
+def test_confirmed_start_handoff_does_not_drop_drive_request():
   control, cs, plan, radar = setup_confirmed_start_handoff()
-  values = [step(control, cs, plan, radar) for _ in range(15)]
+  values = [step(control, cs, plan, radar) for _ in range(40)]
   assert control.long_control_state == 'pid'
-  assert values[0] == pytest.approx(0.788)
-  assert values[-1] == pytest.approx(0.62)
-  assert all(0.38 <= x <= 0.8 for x in values)
-  assert all(b <= a for a, b in zip(values, values[1:]))
-  for _ in range(60):
-    output = step(control, cs, plan, radar)
-  assert output == pytest.approx(0.38)
+  # startAccel (0.8) eases down to the PID request at START_HANDOFF_JERK.
+  assert values[0] == pytest.approx(0.8 - 1.6 * 0.01)
+  assert all(0.38 - 1e-6 <= x <= 0.8 for x in values)
+  assert all(0.0 <= a - b <= 1.6 * 0.01 + 1e-6 for a, b in zip(values, values[1:]))
+  assert values[-1] == pytest.approx(0.38)
 
 
 @pytest.mark.parametrize('veto', ['braking_plan', 'coasting_plan', 'lead_brake',
                                  'lead_loss', 'second_lead', 'stale_plan',
                                  'invalid_plan', 'radar_invalid', 'driver_brake',
                                  'driver_gas', 'traffic_stop', 'fcw', 'short_gap'])
-def test_start_handoff_cancels_on_new_veto_without_slowing_normal_response(veto):
+def test_start_handoff_cancels_on_new_veto(veto):
   control, cs, plan, radar = setup_confirmed_start_handoff()
   step(control, cs, plan, radar)
-  baseline = deepcopy(control)
-  baseline.start_handoff_remaining = 0.0
   age, plan_valid, radar_valid = 0.0, True, True
   if veto == 'braking_plan':
     plan.speeds, plan.accels = [0.21, 0.16, 0.06], [-0.1]*3
@@ -276,13 +271,19 @@ def test_start_handoff_cancels_on_new_veto_without_slowing_normal_response(veto)
   elif veto == 'short_gap':
     radar.leadOne.dRel = 3.0
   for _ in range(20):
-    for controller in (control, baseline):
-      controller.update(True, cs, plan, (-3.5, 2.0), age, radar_state=radar,
-                        radar_state_valid=radar_valid, radar_state_updated=True, plan_valid=plan_valid)
-    assert control.start_handoff_remaining == 0.0
-    # A stopping transition uses its own rate; PID uses the normal braking
-    # jerk. In either case the handoff must add no further delay.
-    assert control.last_output_accel == pytest.approx(baseline.last_output_accel)
+    control.update(True, cs, plan, (-3.5, 2.0), age, radar_state=radar,
+                   radar_state_valid=radar_valid, radar_state_updated=True, plan_valid=plan_valid)
+    # The handoff exists only inside the assisted window; any veto closes it.
+    assert not control.departure_assist.active
+
+
+def test_start_handoff_never_slows_braking():
+  control, cs, plan, radar = setup_confirmed_start_handoff()
+  previous = step(control, cs, plan, radar)
+  plan.speeds, plan.accels = [0.21, 0.0, 0.0], [-1.0]*3
+  output = step(control, cs, plan, radar)
+  assert not control.departure_assist.active
+  assert previous - output > 1.6 * 0.01 + 1e-6  # normal PID braking jerk
 
 
 def test_start_handoff_respects_lowered_acceleration_cap():
@@ -292,28 +293,24 @@ def test_start_handoff_respects_lowered_acceleration_cap():
   assert output <= 0.2
 
 
-def test_unconfirmed_pid_motion_never_arms_start_handoff():
+def test_unconfirmed_pid_motion_never_uses_start_handoff():
   control, cs, plan, radar = setup_confirmed_start_handoff()
   control.departure_assist.reset()
   assert step(control, cs, plan, radar) == pytest.approx(0.7615)
-  assert control.start_handoff_remaining == 0.0
+  assert not control.departure_assist.active
 
 
-def test_start_handoff_expires_even_when_pid_request_changes():
+def test_start_handoff_and_floor_expire_with_assist_window():
   control, cs, plan, radar = setup_confirmed_start_handoff()
-  for frame in range(61):
-    if frame == 30:
-      plan.accels = [0.55]*3  # Lower positive delay-compensated request.
+  plan.accels = [0.05]*3  # Lower than the departure floor.
+  for _ in range(120):
     output = step(control, cs, plan, radar)
-    assert 0.0 < output <= 0.8
-  assert control.start_handoff_remaining == 0.0
-  assert output == pytest.approx(0.25)  # Existing departure floor is still active.
-  for _ in range(20):
-    output = step(control, cs, plan, radar)
-  assert output == pytest.approx(0.25 * 0.95)
+    assert 0.0 <= output <= 0.8
+  assert not control.departure_assist.active
+  assert control.departure_assist.accel_floor == 0.0
 
 
-def test_cancelled_start_handoff_does_not_rearm_when_lead_recovers():
+def test_cancelled_assist_does_not_rearm_when_lead_recovers():
   control, cs, plan, radar = setup_confirmed_start_handoff()
   step(control, cs, plan, radar)
   radar.leadOne.aLeadK = -0.1
@@ -321,4 +318,4 @@ def test_cancelled_start_handoff_does_not_rearm_when_lead_recovers():
   radar.leadOne.aLeadK = 0.2
   for _ in range(10):
     step(control, cs, plan, radar)
-    assert control.start_handoff_remaining == 0.0
+    assert not control.departure_assist.active

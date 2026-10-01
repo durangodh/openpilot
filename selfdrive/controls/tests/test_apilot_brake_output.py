@@ -22,26 +22,28 @@ def brake_output(previous, requested, state='pid', v_ego=None, brake_pressed=Fal
   tree = ast.parse(source.read_text(encoding='utf-8'))
   cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'LongControl')
   update = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'update')
+  release = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == '_release_brake')
   states = NS(off='off', pid='pid', stopping='stopping', starting='starting')
   env = dict(LongCtrlState=states, CONTROL_N=2, T_IDXS=[0, 1], DT_CTRL=0.01,
              LEAD_DROPOUT_FALLBACK_FRAMES=150,
-             START_RELEASE_JERK=6.0,
+             START_RELEASE_JERK=6.0, START_HANDOFF_JERK=1.6,
              PID_JERK_SPEED_BP=[0.0, 5.0, 20.0],
              PID_JERK_UPPER_V=[2.0, 3.0, 2.0], PID_JERK_LOWER_V=[3.5, 3.5, 3.0],
              LOW_SPEED_JERK_BOOST_SPEED_BP=[0.0, 5.0, 30.0 / 3.6],
              clip=lambda x, lo, hi: max(lo, min(x, hi)),
              interp=lambda x, bp, values: values[0], apply_deadzone=lambda x, dz: x,
              long_control_state_trans=lambda *args: (state, False))
-  exec(compile(ast.Module(body=[update], type_ignores=[]), str(source), 'exec'), env)
+  exec(compile(ast.Module(body=[update, release], type_ignores=[]), str(source), 'exec'), env)
   pid = NS(update=lambda *a, **kw: requested, p=requested, i=0.0, d=0.0, f=0.0)
   obj = NS(_read_params=lambda: None,
+           _release_brake=lambda accel: env['_release_brake'](obj, accel),
            _reset_standstill_lead=lambda: None,
            _update_standstill_lead=lambda *a: False,
            _lead_is_departing=lambda *a: lead is not None,
            departure_assist=NS(update=lambda **kw: False, reset=lambda: None),
            CP=NS(stoppingControl=True, openpilotLongitudinalControl=True, stopAccel=-0.6, vEgoStarting=0.3,
                  longitudinalTuning=NS(deadzoneBP=[0], deadzoneV=[0])),
-           actuator_delay_lower=0.2, actuator_delay_upper=0.4, pid=pid,
+           actuator_delay=0.2, pid=pid,
            long_control_state=state if initial_state is None else initial_state,
            last_output_accel=previous,
            stopping_decel_rate=1.0, standstill_hold_accel=-1.1,
@@ -137,7 +139,7 @@ def _brake_output_entering_stopping(entry_v_ego, requested=0.0, previous=-0.6):
            departure_assist=NS(update=lambda **kw: False, reset=lambda: None),
            CP=NS(stoppingControl=True, openpilotLongitudinalControl=True, stopAccel=-0.6, vEgoStarting=0.3,
                  longitudinalTuning=NS(deadzoneBP=[0], deadzoneV=[0])),
-           actuator_delay_lower=0.2, actuator_delay_upper=0.4, pid=pid,
+           actuator_delay=0.2, pid=pid,
            long_control_state='pid', last_output_accel=previous,
            stopping_decel_rate=1.0, standstill_hold_accel=-1.1,
            pid_jerk_accel_mult=1.0, pid_jerk_decel_mult=1.0, start_jerk=5.0,

@@ -554,18 +554,8 @@
   {
    "group": "종방향",
    "name": "LongitudinalActuatorDelayLowerBound",
-   "title": "LONG ACTUATOR DELAY MIN",
-   "descr": "가속·제동의 짧은 지연 보정값(×0.01초)입니다. 값 증가(+): 더 미리 반응 / 값 감소(-): 반응 시점을 늦춤 / 0: 차량 기본값.",
-   "min": 0,
-   "max": 100,
-   "default": 50,
-   "unit": 5
-  },
-  {
-   "group": "종방향",
-   "name": "LongitudinalActuatorDelayUpperBound",
-   "title": "LONG ACTUATOR DELAY MAX",
-   "descr": "가속·제동의 긴 지연 보정값(×0.01초)입니다. 값 증가(+): 더 먼 미래를 보고 일찍 반응 / 값 감소(-): 반응이 늦어짐 / 0: 차량 기본값.",
+   "title": "LONG ACTUATOR DELAY",
+   "descr": "가속·제동 지연 보정값(×0.01초)입니다. 값 증가(+): 더 미리 반응 / 값 감소(-): 반응 시점을 늦춤 / 0: 차량 기본값.",
    "min": 0,
    "max": 100,
    "default": 50,

@@ -25,15 +25,19 @@ PID_JERK_SPEED_BP = [0.0, 5.0, 20.0]
 PID_JERK_UPPER_V = [2.0, 3.0, 2.0]
 PID_JERK_LOWER_V = [3.5, 3.5, 3.0]
 
-# 정지 유지 제동을 한 프레임에 0으로 없애면 출발 판단은 빠르지만 사람이
-# 브레이크에서 발을 떼는 느낌보다 단절되어 보인다. 6 m/s^3이면 기본
-# -1.1 m/s^2 홀드를 약 0.18초에 풀어 반응성과 승차감의 중간값이 된다.
-# 새 제동 요청은 이 램프를 즉시 취소하므로 제동 반응에는 적용되지 않는다.
+# ---- 출발(정지 → 주행) ----
+# 출발은 아래 세 단계뿐이고, starting 상태(START ACCEL > 0)를 거치든 바로
+# PID로 가든 같은 규칙을 쓴다. 어느 단계도 새 제동 요청을 늦추지 않는다.
+#  1) 제동 해제: 정지유지 음수 요청을 START_RELEASE_JERK로 0까지 푼다
+#     (-1.1 m/s^2 홀드 기준 약 0.08초). 플래너가 다시 감속을 원하면 즉시
+#     일반 PID 경로로 돌아간다.
+#  2) 출발 보조: 앞차 출발이 확인된 창(LeadDepartureAssist, 최대 1초) 동안
+#     PID 출력에 작은 하한을 둔다.
+#  3) 출발 인계: 같은 창 안에서 양의 가속 요청이 줄어들 때만
+#     START_HANDOFF_JERK로 천천히 줄인다. starting의 startAccel에서 PID로
+#     넘어가는 순간 구동력이 툭 빠지는 것을 막는다. 0 이하 요청은 제외.
+# SCC 쪽 출발 저크는 carcontroller의 START JERK LIMIT 하나로만 조절한다.
 START_RELEASE_JERK = 14.0
-
-# Briefly blend a positive starting request into PID after a confirmed lead
-# departure. A new braking request or invalid departure cancels this blend.
-START_HANDOFF_TIME = 0.35
 START_HANDOFF_JERK = 1.6
 
 # 저속 앞차출발 추종 전용 저크 부스트 구간. long_mpc.py의 LEAD_DEPARTURE_*
@@ -107,9 +111,8 @@ class LongControl:
     self.v_pid = 0.0
     self.last_output_accel = 0.0
 
-    # apilot-c2: 지연보상 하한/상한 (x100 저장, 기본 0.5/0.5)
-    self.actuator_delay_lower = 0.5
-    self.actuator_delay_upper = 0.5
+    # 지연보상 (LongitudinalActuatorDelayLowerBound, x100 저장, 기본 0.5초)
+    self.actuator_delay = 0.5
     self.start_accel_apply = 0.0
     self.stop_accel_apply = 0.3
     self.stopping_decel_rate = CP.stoppingDecelRate
@@ -143,7 +146,6 @@ class LongControl:
     self.lead_measurement_available = False
     self.lead_missing_frames = 0
     self.departure_release_active = False
-    self.start_handoff_remaining = 0.0
     self.departure_assist = LeadDepartureAssist(DT_CTRL)
 
   # ---- 파라미터 (키 이름은 이 포크 것을 유지) ----
@@ -167,17 +169,15 @@ class LongControl:
       pass
 
   def _update_actuator_delays(self):
+    # 예전 apilot-c2 이중지연(하한/상한 두 예측 중 작은 쪽)은 기본값이 둘 다
+    # 0.5라 같은 계산을 두 번 하고 있었다. 지연 하나로 통일한다.
     try:
-      lower = float(int(self.params.get("LongitudinalActuatorDelayLowerBound", encoding="utf8") or 0)) * 0.01
-      upper = float(int(self.params.get("LongitudinalActuatorDelayUpperBound", encoding="utf8") or 0)) * 0.01
+      delay = float(int(self.params.get("LongitudinalActuatorDelayLowerBound", encoding="utf8") or 0)) * 0.01
     except (TypeError, ValueError):
-      lower = upper = 0.0
-    if lower <= 0.0:
-      lower = self.CP.longitudinalActuatorDelayLowerBound if self.CP.longitudinalActuatorDelayLowerBound > 0.0 else 0.5
-    if upper <= 0.0:
-      upper = self.CP.longitudinalActuatorDelayUpperBound if self.CP.longitudinalActuatorDelayUpperBound > 0.0 else 0.5
-    self.actuator_delay_lower = float(clip(lower, 0.1, 1.0))
-    self.actuator_delay_upper = float(clip(upper, 0.1, 1.0))
+      delay = 0.0
+    if delay <= 0.0:
+      delay = self.CP.longitudinalActuatorDelayLowerBound if self.CP.longitudinalActuatorDelayLowerBound > 0.0 else 0.5
+    self.actuator_delay = float(clip(delay, 0.1, 1.0))
 
   def _update_start_stop_accel(self):
     try:
@@ -314,11 +314,16 @@ class LongControl:
     elif self.read_param_count == 60:
       self._update_pid_jerk()
 
+  def _release_brake(self, output_accel):
+    """출발 1단계: 정지유지 제동을 일정한 저크로 0까지 푼다."""
+    output_accel = min(0.0, output_accel + START_RELEASE_JERK * DT_CTRL)
+    self.departure_release_active = output_accel < 0.0
+    return output_accel
+
   def reset(self, v_pid=0.0):
     """Reset PID controller and change setpoint"""
     self.pid.reset()
     self.v_pid = v_pid
-    self.start_handoff_remaining = 0.0
 
   def update(self, active, CS, long_plan, accel_limits, t_since_plan, soft_hold=False,
              radar_state=None, radar_state_valid=False, radar_state_updated=False,
@@ -334,17 +339,11 @@ class LongControl:
       a_target_now = interp(t_since_plan, T_IDXS[:CONTROL_N], long_plan.accels)
       j_target = long_plan.jerks[0] if len(long_plan.jerks) else 0.0
 
-      # apilot-c2 dual-delay compensation: 하한/상한 두 지연으로 예측한 목표 중 더 보수적인(작은) 쪽을 쓴다
-      v_target_lower = interp(self.actuator_delay_lower + t_since_plan, T_IDXS[:CONTROL_N], speeds)
-      a_target_lower = 2 * (v_target_lower - v_target_now) / self.actuator_delay_lower - a_target_now
+      # 액추에이터 지연만큼 앞의 계획을 목표로 삼는다(원본 openpilot 방식).
+      v_target = interp(self.actuator_delay + t_since_plan, T_IDXS[:CONTROL_N], speeds)
+      a_target = 2 * (v_target - v_target_now) / self.actuator_delay - a_target_now
 
-      v_target_upper = interp(self.actuator_delay_upper + t_since_plan, T_IDXS[:CONTROL_N], speeds)
-      a_target_upper = 2 * (v_target_upper - v_target_now) / self.actuator_delay_upper - a_target_now
-
-      v_target = min(v_target_lower, v_target_upper)
-      a_target = min(a_target_lower, a_target_upper)
-
-      v_target_1sec = interp(self.actuator_delay_lower + t_since_plan + 1.0, T_IDXS[:CONTROL_N], speeds)
+      v_target_1sec = interp(self.actuator_delay + t_since_plan + 1.0, T_IDXS[:CONTROL_N], speeds)
     else:
       v_target = 0.0
       v_target_now = 0.0
@@ -447,19 +446,9 @@ class LongControl:
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:
-      # stopping_decel_rate(정지용, 느림)로 램프하면 정지유지값(-1.1 근처)에서
-      # 양의 가속도까지 올라가는 데 1초 넘게 걸려서, 출발을 체감하기 전에
-      # 사용자가 먼저 수동 개입하는 문제가 있었다. 출발은 부드러움보다
-      # "체감되는 속도"가 우선이라, 정상주행 가속용 저크(PID_JERK_UPPER,
-      # CRUISE JERK ACCEL 슬라이더로 조절)를 대신 쓴다 — 순간점프는 아니되
-      # 눈에 띄게 더 빠르게 startAccel까지 올라간다.
-      #
-      # 음수 유지제동은 짧고 일정한 램프로 풀고, 0→startAccel 구간은 기존
-      # 출발 저크를 사용한다. 출발 판정 시점은 바꾸지 않으면서 제동과
-      # 구동 사이의 한 프레임 단절만 없앤다.
+      # 제동 해제(1단계) 후 start_jerk로 startAccel까지 올린다.
       if output_accel < 0.0:
-        output_accel = min(0.0, output_accel + START_RELEASE_JERK * DT_CTRL)
-        self.departure_release_active = output_accel < 0.0
+        output_accel = self._release_brake(output_accel)
       else:
         self.departure_release_active = False
         max_delta = self.start_jerk * DT_CTRL
@@ -482,6 +471,7 @@ class LongControl:
                                    freeze_integrator=freeze_integrator)
 
 
+      # 출발 보조(2단계)
       if assisted_departure and not prevent_overshoot:
         pid_output = max(pid_output, self.departure_assist.accel_floor)
 
@@ -501,30 +491,14 @@ class LongControl:
       jerk_upper *= interp(CS.vEgo, LOW_SPEED_JERK_BOOST_SPEED_BP,
                            [departure_boost, departure_boost, 1.0])
       jerk_lower = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_LOWER_V) * self.pid_jerk_decel_mult
-      # At vEgoStarting the fixed startAccel can be much higher than PID's
-      # first positive request. Avoid dropping drive torque just as the car
-      # begins rolling, but only inside the confirmed departure window.
-      if prev_long_control_state == LongCtrlState.starting and assisted_departure:
-        self.start_handoff_remaining = min(START_HANDOFF_TIME, self.departure_assist.remaining)
-      if (not assisted_departure or prevent_overshoot or
-          not 0.0 < pid_output < output_accel):
-        self.start_handoff_remaining = 0.0
-      if self.start_handoff_remaining > 0.0:
-        remaining = min(self.start_handoff_remaining, self.departure_assist.remaining)
-        # Converge to the current PID request by the deadline, even if it
-        # changes during the blend. Never slow zero/negative requests.
-        handoff_jerk = max(START_HANDOFF_JERK,
-                           (output_accel - pid_output) / max(remaining, DT_CTRL))
-        jerk_lower = min(jerk_lower, handoff_jerk)
-        self.start_handoff_remaining = max(0.0, remaining - DT_CTRL)
-      # START ACCEL=0은 starting 상태를 건너뛴다. 이 경로도 동일한 짧은
-      # 제동해제 램프를 사용하되, 플래너가 다시 감속을 요구하면 즉시 기존
-      # PID/감속 저크 경로로 돌아가 안전 제동을 지연시키지 않는다.
-      release_handoff = (self.departure_release_active and output_accel < 0.0 and
-                         pid_output > 0.0 and not prevent_overshoot)
-      if release_handoff:
-        output_accel = min(0.0, output_accel + START_RELEASE_JERK * DT_CTRL)
-        self.departure_release_active = output_accel < 0.0
+      # 출발 인계(3단계): 양의 요청이 줄어들 때만 완만하게.
+      if assisted_departure and not prevent_overshoot and 0.0 < pid_output < output_accel:
+        jerk_lower = min(jerk_lower, START_HANDOFF_JERK)
+      # 제동 해제(1단계): START ACCEL=0이면 starting을 건너뛰고 여기로 온다.
+      release = (self.departure_release_active and output_accel < 0.0 and
+                 pid_output > 0.0 and not prevent_overshoot)
+      if release:
+        output_accel = self._release_brake(output_accel)
         self.reset(CS.vEgo)
       else:
         self.departure_release_active = False
