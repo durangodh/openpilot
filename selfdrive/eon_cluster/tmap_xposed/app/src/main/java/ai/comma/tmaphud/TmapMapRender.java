@@ -282,6 +282,7 @@ final class TmapMapRender {
         if (!running) return;
         try {
             syncRouteTraffic(mainEngine());
+            syncNightMode();
             syncCamera();
         } catch (Throwable error) {
             TmapHudLog.status("map render sync: " + error);
@@ -348,6 +349,20 @@ final class TmapMapRender {
             inv(engine, "setShowTrafficInfoOnRouteLine", visible);
             routeTrafficVisible = visible;
         }
+    }
+
+    /**
+     * 메인 스레드. NavigationManager 는 attachMapView 로 붙은 지도에 setNightMode 를 보내지
+     * 않는다(11.8.3: 화면 지도는 MapViewStreaming.setMapStyle 이 따로 바꾼다). 안내 엔진이
+     * 위치마다 갱신하는 naviConfigData.nightMode(자동 주야 포함)를 따라 스타일을 바꾼다.
+     */
+    private void syncNightMode() throws Exception {
+        Object config = inv(navigationManager(), "getNaviConfigData");
+        Object value = inv(config, "getNightMode");
+        if (!(value instanceof Boolean) || (Boolean) value == night) return;
+        night = (Boolean) value;
+        applyMapStyle();
+        TmapHudLog.line("map render: " + (night ? "night" : "day") + " style (TMAP guidance)");
     }
 
     private void applyMapStyle() {
