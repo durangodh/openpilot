@@ -540,6 +540,31 @@ final class KakaoMap {
     private long surfaceFrames;
     private long nextSurfaceAttemptMs;
 
+    private boolean sdkReadyLogged;
+    private long sdkWaitSince;
+
+    /** KNMSDK 초기화 완료 여부. 확인할 방법이 없으면 true(바로 시도). */
+    private boolean sdkReady() {
+        try {
+            Class<?> sdkClass = cl.loadClass("com.kakaomobility.knmsdk.KNMSDK");
+            Object sdk = sdkClass.getField("INSTANCE").get(null);
+            boolean ready;
+            try {
+                ready = Boolean.TRUE.equals(sdkClass.getMethod("isInitialized").invoke(sdk));
+            } catch (NoSuchMethodException noFlag) {
+                Object state = sdkClass.getMethod("getInitState$knmsdk_knmsdkPublicRelease").invoke(sdk);
+                ready = state instanceof Integer && (Integer) state == 2;
+            }
+            if (ready && !sdkReadyLogged) {
+                sdkReadyLogged = true;
+                KakaoHudLog.line("map render: KNMSDK initialized");
+            }
+            return ready;
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
     private Object mapTarget() {
         return surfaceMode ? mapSurface : capturer;
     }
@@ -559,7 +584,10 @@ final class KakaoMap {
         if (!client.ready() || !hasPose) return;
         long now = android.os.SystemClock.elapsedRealtime();
         if (mapSurface == null) {
-            if (now >= nextSurfaceAttemptMs) {
+            // 지도 SDK 초기화 전에 만들면 실패해 캡처러로 영영 넘어가 버린다. 준비를 기다린다.
+            // 초기화 표시를 20초 넘게 못 읽으면(표시 방식이 다를 수 있다) 그냥 시도한다.
+            if (sdkWaitSince == 0) sdkWaitSince = now;
+            if (now >= nextSurfaceAttemptMs && (sdkReady() || now - sdkWaitSince > 20000)) {
                 nextSurfaceAttemptMs = now + INIT_RETRY_MS;
                 initSurface();
             }
