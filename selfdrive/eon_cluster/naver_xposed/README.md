@@ -109,6 +109,14 @@ engine:
 Not yet verified on a device: whether two guidance renderers run side by side
 without side effects, and whether the map style matches the phone screen.
 
+## Lane strip (lane_bottom)
+
+`NaviLaneControlView.a(NaviLaneItem, boolean)` is hooked. While the item has
+lanes, the phone's own lane view (arrows and distance) is drawn to a bitmap
+every 500 ms and sent as PNG on `/api/navi/ws/v2/image/naver/lane_bottom` when
+it changes (and every 5 s). The HUD shows it below the map, where TMAP's lane
+strip goes. An empty item sends a CNV2 clear.
+
 ## Junction view (crossroad_expanded)
 
 The phone's enlarged junction popup comes from the guidance session:

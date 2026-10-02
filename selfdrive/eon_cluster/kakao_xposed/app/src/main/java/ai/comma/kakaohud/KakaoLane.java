@@ -31,6 +31,7 @@ final class KakaoLane {
     private static final int MAX_LANES = 8;
 
     private final KakaoNaviClient client;
+    private final KakaoLaneImage image;
     private final ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "kakao-hud-lane");
         t.setDaemon(true);
@@ -42,9 +43,12 @@ final class KakaoLane {
     private long lastSentAt;
     private boolean shown;
     private boolean loggedFirst, loggedError;
+    /** currentLane() 이 마지막으로 읽은 차로 목록(KNULaneInfo). 그림용. */
+    private List<?> lastInfos;
 
     KakaoLane(KakaoNaviClient client) {
         this.client = client;
+        this.image = new KakaoLaneImage(client);
     }
 
     /** KNULaneViewModel 생성자 후킹에서 호출. 가장 최근 것을 쓴다. */
@@ -63,6 +67,7 @@ final class KakaoLane {
             String json = currentLane();
             long now = SystemClock.elapsedRealtime();
             if (json == null) {
+                image.clear();
                 if (shown) {
                     shown = false;
                     lastJson = null;
@@ -70,6 +75,8 @@ final class KakaoLane {
                 }
                 return;
             }
+            // 그림은 거리와 무관하므로 거리를 뺀 차로 구성으로만 다시 그린다.
+            image.publish(lastInfos, json.replaceFirst(",\"distance_m\":\\d+", ""), now);
             if (json.equals(lastJson) && now - lastSentAt < RESEND_MS) return;
             client.sendState("lane_current", json);
             lastJson = json;
@@ -100,6 +107,7 @@ final class KakaoLane {
         int n = Math.min(MAX_LANES, list.size());
         if (n <= 0) return null;
         int distance = ((Number) field(lane, "b")).intValue();   // KNULane.distance
+        lastInfos = list;
 
         StringBuilder details = new StringBuilder("[");
         StringBuilder turns = new StringBuilder("[");

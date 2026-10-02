@@ -23,6 +23,8 @@ final class NaverBridge {
     // HUD 지도 신호등 칸은 PNG 자산이 와야 그려진다. 카카오처럼 직접 그려 보낸다.
     private final NaverSignal signalImage = new NaverSignal(client);
     private final NaverJunction junction = new NaverJunction(client);
+    // HUD 지도 아래 차로 띠: 폰 차로 표시 뷰를 그대로 떠서 보낸다.
+    private final NaverLaneImage laneImage = new NaverLaneImage(client);
     private final ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "naver-hud-state");
         t.setDaemon(true);
@@ -55,6 +57,11 @@ final class NaverBridge {
         lastSent.put(name, value);
         lastSentAt.put(name, now);
         client.sendState(name, value);
+    }
+
+    /** 메인 스레드: 폰 차로 표시(NaviLaneControlView)가 갱신됐다. */
+    void onLaneView(android.view.View view, Object item) {
+        laneImage.onUpdate(view, item);
     }
 
     void setStore(Object value) {

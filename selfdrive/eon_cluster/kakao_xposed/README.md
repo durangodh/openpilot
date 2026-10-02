@@ -61,6 +61,13 @@ carrot_navi_server(7714)로 티맵과 같은 JSON 스트림 + 바이너리 지�
 3. 안내 시작 후 로그 확인/공유:
    `/sdcard/Android/data/com.locnall.KimGiSa/files/kakao_hud.log`
 
+## 차로 띠(lane_bottom)
+
+KakaoLane 이 읽은 차로 목록(KNULaneInfo)을 카카오의 KNULaneView 에 넣어 그린다(카카오가
+HUD·안드로이드 오토용 차로 그림을 만드는 것과 같은 방법). PNG 로
+`/api/navi/ws/v2/image/kakao/lane_bottom` 에 보내고, HUD 는 티맵 차로 띠 자리(지도 아래)에
+띄운다. 차로 구성이 바뀔 때 + 5초마다 보내고, 사라지면 clear 를 보낸다.
+
 ## 교차로 확대 이미지(crossroad_expanded)
 폰 주행 화면의 JC 팝업과 같은 그림이다(4.51.1 디컴파일, 실기 미검증).
 `KNUJCViewModel` 생성자를 후킹해 잡아 두고, 250ms 마다 `getJcUIState().getValue()` 가

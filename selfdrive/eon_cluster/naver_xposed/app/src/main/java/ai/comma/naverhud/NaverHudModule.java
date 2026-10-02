@@ -52,6 +52,7 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                             hooks += safeHook("NaviStore", () -> hookStore(target.classLoader));
                             hooks += safeHook("MainActivity", () -> hookActivity(target.classLoader));
                             hooks += safeHook("MapProvider", () -> hookMapProvider(target.classLoader));
+                            hooks += safeHook("LaneView", () -> hookLaneView(target.classLoader));
                             if (verified) {
                                 try {
                                     NaverMarkerSize.install(target.classLoader);
@@ -100,6 +101,21 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                     bridge.setStore(param.thisObject);
                 } catch (Throwable error) {
                     log("NaviStore update failed: " + error);
+                }
+            }
+        });
+    }
+
+    /** 폰 차로 표시가 바뀔 때마다 HUD 차로 띠 그림을 다시 뜬다(읽기 전용). */
+    private static void hookLaneView(ClassLoader appLoader) {
+        Class<?> view = XposedHelpers.findClass(NaverLaneImage.VIEW, appLoader);
+        Class<?> item = XposedHelpers.findClass("com.naver.map.core.navigation.lane.NaviLaneItem", appLoader);
+        XposedHelpers.findAndHookMethod(view, "a", item, boolean.class, new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam param) {
+                try {
+                    bridge.onLaneView((View) param.thisObject, param.args[0]);
+                } catch (Throwable error) {
+                    log("lane view update failed: " + error);
                 }
             }
         });
