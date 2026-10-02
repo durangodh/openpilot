@@ -12,6 +12,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
+import android.graphics.BlurMaskFilter;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -22,6 +23,9 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
+import android.graphics.PorterDuffXfermode;
+import android.graphics.LinearGradient;
+import android.graphics.Shader;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
@@ -94,6 +98,15 @@ public final class HudService extends Service {
     private static final long TURN_SIGNAL_BLINK_MS = 500L;
     /** 원래 HUD 크기를 유지한다. */
     private static final float TURN_LAMP_SCALE = 1.00f;
+    // 야간 전조등 불빛: 자차 앞에서 도로 위로 퍼지는 두 줄기(좌/우 램프).
+    private static final float HEADLIGHT_REACH = 112f;      // 차 앞에서 위로 뻗는 길이(px)
+    private static final float HEADLIGHT_NEAR_HALF = 0.26f; // 램프 위치 폭(차폭 비율)
+    private static final float HEADLIGHT_FAR_HALF = 1.15f;  // 끝부분 폭(차폭 비율), 두 줄기가 겹친다
+    private static final float HEADLIGHT_SPREAD = 0.22f;    // 끝부분이 바깥으로 벌어지는 정도(차폭 비율)
+    private static final BlurMaskFilter HEADLIGHT_BLUR =
+            new BlurMaskFilter(14f, BlurMaskFilter.Blur.NORMAL);
+    private static final PorterDuffXfermode HEADLIGHT_BLEND =
+            new PorterDuffXfermode(PorterDuff.Mode.SCREEN);
     private static final int MAP_LEFT = 960;
     private static final int MAP_RIGHT = 1720;
     private static final float MAP_CX = 1340f;
@@ -2224,6 +2237,12 @@ public final class HudService extends Service {
                             Color.argb(210, 255, 205, 120), Paint.Align.LEFT);
                 }
             }
+            if (glDrawn && egoCar != null && !egoCar.isRecycled() && frameDark
+                    && s.optInt("hudHeadlights", 1) != 0) {
+                // 야간에는 자차 전조등 불빛을 도로 위에 깐다. 앞차·자차 그림이 위에 덮인다.
+                float carHeight = egoCar.getHeight() * EGO_CAR_WIDTH / egoCar.getWidth();
+                drawEgoHeadlights(c, p, 433f - carHeight);
+            }
             if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
                 // 앞차도 자차와 같은 그림으로. 먼 차부터 그려 근경이 덮게 한다.
                 for (int leadIndex = 1; leadIndex >= 0; leadIndex--) {
@@ -2937,6 +2956,41 @@ public final class HudService extends Service {
             return "";
         }
         return value.trim().replaceAll("\\s+", " ");
+    }
+
+    /**
+     * 야간 전조등. 자차(뒷모습) 앞쪽 양 끝에서 도로 위로 퍼지며 옅어지는 따뜻한 흰빛
+     * 두 줄기를 SCREEN 으로 겹쳐 그린다. 가장자리는 흐리게 해 실제 빛처럼 보이게 한다.
+     */
+    private void drawEgoHeadlights(Canvas c, Paint p, float carTop) {
+        float width = EGO_CAR_WIDTH;
+        float nearY = carTop + 6f;                   // 차 앞 범퍼 근처(차 그림 뒤에 숨는다)
+        float farY = Math.max(ModelWorldGL.TOP, nearY - HEADLIGHT_REACH);
+        int save = c.save();
+        c.clipRect(0f, ModelWorldGL.TOP, DRIVE_RIGHT, ModelWorldGL.BOTTOM);
+        p.setStyle(Paint.Style.FILL);
+        p.setXfermode(HEADLIGHT_BLEND);
+        p.setMaskFilter(HEADLIGHT_BLUR);
+        p.setShader(new LinearGradient(0f, nearY, 0f, farY,
+                new int[]{Color.argb(135, 255, 243, 213), Color.argb(60, 255, 243, 213),
+                        Color.argb(25, 255, 243, 213), Color.argb(0, 255, 243, 213)},
+                new float[]{0f, 0.35f, 0.70f, 1f}, Shader.TileMode.CLAMP));
+        for (int side = -1; side <= 1; side += 2) {
+            float lamp = DRIVE_CX + side * width * 0.30f;          // 램프 위치
+            float drift = side * width * HEADLIGHT_SPREAD;          // 바깥으로 퍼짐
+            scratchPath.rewind();
+            scratchPath.moveTo(lamp - width * HEADLIGHT_NEAR_HALF * 0.5f, nearY);
+            scratchPath.lineTo(lamp + width * HEADLIGHT_NEAR_HALF * 0.5f, nearY);
+            scratchPath.lineTo(lamp + drift + width * HEADLIGHT_FAR_HALF * 0.5f, farY);
+            scratchPath.lineTo(lamp + drift - width * HEADLIGHT_FAR_HALF * 0.5f, farY);
+            scratchPath.close();
+            c.drawPath(scratchPath, p);
+        }
+        p.setShader(null);
+        p.setMaskFilter(null);
+        p.setXfermode(null);
+        p.setAlpha(255);
+        c.restoreToCount(save);
     }
 
     /** 자차 PNG의 실제 후미등 렌즈 위치에는 브레이크등을 표시한다. */
