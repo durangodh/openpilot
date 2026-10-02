@@ -1,7 +1,6 @@
 package ai.comma.naverhud;
 
 import android.app.Activity;
-import android.content.Context;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -17,9 +16,6 @@ final class NaverBridge {
     private final NaverNaviClient client = new NaverNaviClient();
     private final NaverMapCapture map = new NaverMapCapture(client);
     // 확인한 버전에서만: 화면 스냅샷 대신 지도 엔진으로 직접 그린다.
-    private final NaverMapRender render = new NaverMapRender(client, map);
-    private volatile Context appContext;
-    private volatile boolean renderAllowed;
     // HUD 지도 신호등 칸은 PNG 자산이 와야 그려진다. 카카오처럼 직접 그려 보낸다.
     private final NaverSignal signalImage = new NaverSignal(client);
     private final NaverJunction junction = new NaverJunction(client);
@@ -98,28 +94,6 @@ final class NaverBridge {
         }
     }
 
-    /**
-     * 기본은 화면 지도 스냅샷(예전 브릿지 앱 방식)이다. 엔진 렌더는 같은 S9 의 HUD 앱을
-     * 밀리게 해서 기본에서 뺐다. 이 파일이 있을 때만 엔진 렌더를 켠다.
-     */
-    static final String RENDER_FILE =
-            "/sdcard/Android/data/com.nhn.android.nmap/files/naver_hud_render";
-
-    void enableMapRender(Context app) {
-        appContext = app;
-        if (!new java.io.File(RENDER_FILE).exists()) {
-            NaverHudLog.xposed("map: phone map snapshots (engine render off; create " + RENDER_FILE + " to turn it on)");
-            return;
-        }
-        NaverHudLog.xposed("map: engine render on (" + RENDER_FILE + ")");
-        renderAllowed = true;
-    }
-
-    /** 메인 스레드: 네이버 지도 화면이 보이기 시작/멈춤. */
-    void setPhoneVisible(boolean visible) {
-        render.setPhoneVisible(visible);
-    }
-
     void setActivity(Activity activity) {
         map.addActivity(activity);
     }
@@ -131,7 +105,6 @@ final class NaverBridge {
     private void tick() {
         Object current = store;
         if (current == null || !client.ready()) return;
-        if (renderAllowed) render.maybeStart(appContext, current);
         try {
             publish(current);
         } catch (Throwable error) {

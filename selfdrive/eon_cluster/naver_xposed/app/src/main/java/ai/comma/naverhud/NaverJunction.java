@@ -73,8 +73,8 @@ final class NaverJunction {
 
     private static Bitmap currentImage(Object naviStore) {
         try {
-            Object ui = NaverMapRender.fieldOfType(naviStore, NaverMapRender.NAVI_UI);
-            Object control = NaverMapRender.fieldOfType(ui, GUIDANCE_CONTROL);
+            Object ui = NaverReflect.fieldOfType(naviStore, NaverReflect.NAVI_UI);
+            Object control = NaverReflect.fieldOfType(ui, GUIDANCE_CONTROL);
             if (control == null) return null;
             Object session = get(control, "getCurrentSession");
             Object junction = get(session, "getJunction");

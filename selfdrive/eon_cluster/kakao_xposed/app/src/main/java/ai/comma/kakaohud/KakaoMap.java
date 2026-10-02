@@ -521,7 +521,7 @@ final class KakaoMap {
     // ---- 지도 엔진 직접 렌더(KNMMapSurface) ----
     // 안드로이드 오토 지도(NPMapSurfaceV2)가 쓰는 KNMMapSurface 를 ImageReader 표면에 하나
     // 더 만든다. 엔진이 자기 렌더 스레드에서 계속 그리고, 우리는 카메라·경로·테마만
-    // 넣는다(티맵 TmapMapRender, 네이버 NaverMapRender 와 같은 방식). 매 프레임
+    // 넣는다(티맵 TmapMapRender 와 같은 방식). 매 프레임
     // capture() 로 찍는 캡처러보다 가볍고 끊김이 적다. 실패하면 캡처러로 돌아간다.
     private static final long SURFACE_TICK_MS = 100;
     private static final long SURFACE_FRAME_MS = 200;        // 최대 5fps 전송

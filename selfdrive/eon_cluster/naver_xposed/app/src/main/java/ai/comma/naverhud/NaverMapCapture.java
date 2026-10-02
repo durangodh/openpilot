@@ -51,8 +51,6 @@ final class NaverMapCapture {
     });
     private final AtomicBoolean posted = new AtomicBoolean();
     private final AtomicBoolean started = new AtomicBoolean();
-    // 지도 엔진 렌더(NaverMapRender)가 돌면 스냅샷은 쉰다.
-    private volatile boolean suspended;
     private final List<WeakReference<Activity>> activities = new ArrayList<>();
     private volatile Object provider;
     private volatile Object store;   // NaviStore
@@ -85,12 +83,8 @@ final class NaverMapCapture {
         }
     }
 
-    void setSuspended(boolean value) {
-        suspended = value;
-    }
-
     private void capture() {
-        if (!client.ready() || suspended) return;
+        if (!client.ready()) return;
         // 메인 스레드가 바쁠 때 요청이 쌓이지 않게 한 번에 하나만 올린다.
         if (!posted.compareAndSet(false, true)) return;
         main.post(() -> {
@@ -189,8 +183,8 @@ final class NaverMapCapture {
         // 안내가 실제로 그려지는 지도(NaviStore 의 NaverNaviUI 지도). 폰 화면이든
         // Android Auto 화면이든 이 지도가 차량을 따라간다. MapProvider 의 차량 지도는
         // 안내에 안 쓰이면 SDK 기본 카메라(서울시청)에 멈춰 있을 수 있다.
-        Object guided = NaverMapRender.fieldOfType(
-                NaverMapRender.fieldOfType(store, NaverMapRender.NAVI_UI), NaverMapRender.NAVER_MAP);
+        Object guided = NaverReflect.fieldOfType(
+                NaverReflect.fieldOfType(store, NaverReflect.NAVI_UI), NaverReflect.NAVER_MAP);
         if (guided != null) {
             mapSource = "guidance";
             return guided;

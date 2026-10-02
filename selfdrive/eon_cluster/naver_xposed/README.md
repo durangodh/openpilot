@@ -44,70 +44,19 @@ updated in place with the original package.
   release APKs use the same signing key and increasing version codes.
 - Version policy: there is no hard version gate. On 6.10.0.16 every feature
   is enabled. On any other version only read-only features run (NaviStore
-  polling and map snapshots); the marker-size and voice-button hooks and the
-  map render engine, which change app behaviour through obfuscated names,
-  stay off. The log records
+  polling and map snapshots); the marker-size and voice-button hooks, which
+  change app behaviour through obfuscated names, stay off. The log records
   `Naver <version> verified|UNVERIFIED` and, after 20 guiding ticks, a
   `health:` line showing which obfuscated getters returned values. Turning
   off Play Store auto-update for Naver Map is still recommended so a new
   version can be checked before driving.
 
-## Map render engine (6.10.0.16 only)
+## Map source: phone map snapshots
 
-On the verified version `map_main` no longer comes from `NaverMap` snapshots.
-Snapshots were requested on the main thread every 200 ms, returned a
-full-screen bitmap that then had to be cropped, scaled and encoded, and could
-time out while the UI was busy, which showed up as a HUD map that paused and
-then jumped.
-
-`NaverMapRender` instead does what the patched TMAP did with its own map
-engine:
-
-- It creates a `MapSurface` (the Naver Map SDK class that Android Auto uses to
-  draw into a car surface without a View) with the app's own map options
-  (`NaverMapOptionsUtilsKt` + `AppInfo.getInstance()`), and draws it into a
-  640x384 `ImageReader`. The lifecycle order follows `MapProvider`: onCreate,
-  getMapAsync, onStart, onResume, then surfaceCreated/surfaceChanged.
-- When the map is ready it builds a second `NaverNaviUI` (Naver Navi SDK) on
-  that map with the same `GuidanceControl` as the phone guidance UI and the
-  rendering configuration from `NaviSettingManagerKt`. `NaverNaviUI`
-  subscribes to the guidance session events, so it draws the route line,
-  the vehicle and the following camera on its own.
-- It never calls `NaviStore.w1`/`NaviEngine.q`: `NaviStore` keeps a single
-  guidance UI, and attaching another map there would take the route and the
-  vehicle away from the phone screen.
-- Every 500 ms it copies the phone guidance UI's rendering mode, view mode and
-  carvatar settings, and the phone map's map type and night mode.
-- If the engine draws nothing new (map at rest), the last JPEG is re-sent at
-  the frame rate so EON does not clear the map as stale.
-- First in-car test (S9, 6.10.0.16): the HUD showed the SDK default camera
-  (Seoul City Hall) with no route or vehicle, so the guidance renderer did
-  not take the camera. Since then the camera starts at the phone map's
-  camera; if the route renderer (`NaverNaviUI.f466446h`) is missing 1.5 s
-  after attach, `t(currentSession)` is called once, and if it is still
-  missing after 6 s, or the map never becomes ready within 8 s, it falls back
-  to snapshots. If the camera stays more than 300 m from the phone map's
-  camera for 2 s, it copies the phone camera (`NaverMap.M()` →
-  `CameraUpdate.x()` → `NaverMap.Y0()`) every 250 ms from then on.
-- The b8 build still showed Seoul in the car, which points at the snapshot
-  fallback: it preferred the Android Auto `MapProvider` map, which sits at the
-  default camera when guidance is not drawn on it. Snapshots now take the
-  map that `NaviStore`'s `NaverNaviUI` draws guidance on first, then the
-  `MapProvider` map, then a visible phone `MapView`.
-- Root cause of the Seoul map (found from `naver_hud.log` of the b8 drive:
-  `guidance UI attached`, `first rendered map frame sent`, then nothing):
-  `MapSurface` creates its `NaverMap` only after the surface exists, so the
-  `onStart` (`n`) called before that never reached the map and
-  `NativeMapView.nativeStart` was never called. The engine drew one frame at
-  the SDK default camera and stopped; the repeat loop kept re-sending it.
-  `NaverMap.d1()` (onStart) is now called in `onMapReady`.
-- It starts once the phone guidance UI exists (during guidance). If it fails
-  it falls back to snapshots and retries after 30 s, at most three times.
-  These steps are also written to the LSPosed log (`NaverHud: map render ...`),
-  so `adb logcat | findstr NaverHud` shows them without pulling the file.
-
-Not yet verified on a device: whether two guidance renderers run side by side
-without side effects, and whether the map style matches the phone screen.
+The HUD map is a snapshot of the phone map (guidance map, else the visible
+MapView), as the old bridge app sent. An offscreen engine render was tried
+and removed: it competed with the HUD app on the same S9 and made the HUD
+map stutter.
 
 ## Lane strip (lane_bottom)
 
@@ -140,24 +89,3 @@ disappears or guidance stops.
 `map_main`, so named overlay sockets (this one and `traffic_signal`) never
 reached their overlay files. Overlay socket names are now checked first for
 every source. Not yet verified in the car.
-
-## Render camera follows the phone map (like TMAP/Kakao)
-The HUD render used to let its own NaverNaviUI move the camera (and only
-copied the phone camera once it drifted 300 m away), so it looked different
-from the snapshot. Now carSync is turned off on the HUD NaverNaviUI
-(`C(false)`, what Naver does when the map is dragged), so it only draws the
-route and vehicle, and every 50 ms the camera is set to the area the
-snapshot crop shows: target = `Projection.b()` (fromScreenLocation) of the
-crop centre on the phone map (`L0()` x `f0()` px), same tilt/bearing, zoom
-+ log2(HUD width / crop width).
-
-## Map source: snapshots by default
-
-The HUD map is the phone map snapshot (as the old bridge app sent). The
-engine render is off by default because it competed with the HUD app on the
-same S9. To try it, create an empty file and restart Naver Maps:
-
-    adb shell su -c "touch /sdcard/Android/data/com.nhn.android.nmap/files/naver_hud_render"
-
-Delete the file to go back to snapshots. The render, when on, is capped at
-10 fps (`NaverMap.N1`) and copies the phone camera every 200 ms.

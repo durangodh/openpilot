@@ -65,10 +65,8 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                                 } catch (Throwable error) {
                                     log("voice hook unavailable: " + error);
                                 }
-                                // 지도 엔진 직접 렌더(앱 내부에 안내 렌더러를 하나 더 만든다).
-                                bridge.enableMapRender(app);
                             } else {
-                                NaverHudLog.line("marker-size/voice hooks and map render skipped on unverified version");
+                                NaverHudLog.line("marker-size/voice hooks skipped on unverified version");
                             }
                             attached.set(true);
                             log("ready for Naver " + info.versionName + " hooks=" + hooks);
@@ -146,17 +144,6 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                 } catch (Throwable error) {
                     log("MainActivity capture attach failed: " + error);
                 }
-            }
-        });
-        // 폰 지도가 안 보이면(화면 꺼짐·다른 앱) 렌더 지도는 폰 카메라 대신 차를 따라간다.
-        XposedBridge.hookAllMethods(activity, "onStart", new XC_MethodHook() {
-            @Override protected void afterHookedMethod(MethodHookParam param) {
-                bridge.setPhoneVisible(true);
-            }
-        });
-        XposedBridge.hookAllMethods(activity, "onStop", new XC_MethodHook() {
-            @Override protected void afterHookedMethod(MethodHookParam param) {
-                bridge.setPhoneVisible(false);
             }
         });
     }
