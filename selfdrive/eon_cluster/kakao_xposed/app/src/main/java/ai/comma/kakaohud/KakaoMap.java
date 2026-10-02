@@ -539,6 +539,7 @@ final class KakaoMap {
     private static final long SURFACE_WARMUP_MS = 700L;
     private volatile long surfaceFrameAt;
     private volatile byte[] lastSurfaceJpeg;
+    private volatile byte[] warmSurfaceJpeg;
     private long lastSurfaceEncodeAt;
     private long surfaceFrames;
     private long nextSurfaceAttemptMs;
@@ -670,6 +671,16 @@ final class KakaoMap {
         } catch (Throwable ignored) {
             // resume 은 렌더 루프를 깨우는 보조 호출이다.
         }
+        try {
+            // 안드로이드 오토(NPMapSurfaceV2)처럼 엔진의 내 위치 마커를 숨긴다. 위치를 넣어
+            // 주지 않으므로 보이면 시작 좌표에 남는다. 차량은 drawVehicleMarker 가 그린다.
+            Object userLocation = mapSurface.getClass().getMethod("getUserLocation").invoke(mapSurface);
+            if (userLocation != null) {
+                userLocation.getClass().getMethod("setVisible", boolean.class).invoke(userLocation, false);
+            }
+        } catch (Throwable t) {
+            KakaoHudLog.line("map render: user location marker not hidden: " + t);
+        }
         surfaceReady = true;
         surfaceReadyAt = android.os.SystemClock.elapsedRealtime();
         imageHandler.postDelayed(this::surfaceRepeatLoop, SURFACE_FRAME_MS);
@@ -685,7 +696,8 @@ final class KakaoMap {
             long now = android.os.SystemClock.elapsedRealtime();
             if (now - lastSurfaceEncodeAt < (SURFACE_FRAME_MS * 9) / 10) return;
             long ready = surfaceReadyAt;
-            if (!surfaceReady || ready == 0L || now - ready < SURFACE_WARMUP_MS) return;
+            if (!surfaceReady || ready == 0L) return;
+            boolean warmingUp = now - ready < SURFACE_WARMUP_MS;
             lastSurfaceEncodeAt = now;
             android.media.Image.Plane plane = image.getPlanes()[0];
             int w = image.getWidth(), h = image.getHeight();
@@ -705,14 +717,13 @@ final class KakaoMap {
             if (frame != padded) frame.recycle();
             padded.recycle();
             byte[] jpeg = out.toByteArray();
-            lastSurfaceJpeg = jpeg;
-            surfaceFrameAt = now;
-            if (client.ready()) client.sendMap(jpeg);
-            if (++surfaceFrames == 1) {
-                KakaoHudLog.xposed("first rendered map frame sent " + w + "x" + h + " " + jpeg.length + "B");
-            } else if (surfaceFrames % 300 == 0) {
-                KakaoHudLog.line("rendered map frames: " + surfaceFrames);
+            if (warmingUp) {
+                // 아직 보내지 않는다. 정차 중이면 이후 새 프레임이 없을 수 있어 마지막
+                // 것을 남겨 두고, 워밍업이 끝나면 repeat 루프가 첫 프레임으로 보낸다.
+                warmSurfaceJpeg = jpeg;
+                return;
             }
+            publishSurfaceFrame(jpeg, now, w, h);
         } catch (Throwable t) {
             KakaoHudLog.status("map render frame: " + t);
         } finally {
@@ -720,9 +731,28 @@ final class KakaoMap {
         }
     }
 
+    /** 이미지 스레드. */
+    private void publishSurfaceFrame(byte[] jpeg, long now, int w, int h) {
+        warmSurfaceJpeg = null;
+        lastSurfaceJpeg = jpeg;
+        surfaceFrameAt = now;
+        if (client.ready()) client.sendMap(jpeg);
+        if (++surfaceFrames == 1) {
+            KakaoHudLog.xposed("first rendered map frame sent " + w + "x" + h + " " + jpeg.length + "B");
+        } else if (surfaceFrames % 300 == 0) {
+            KakaoHudLog.line("rendered map frames: " + surfaceFrames);
+        }
+    }
+
     /** 지도가 멈춰 있으면 엔진이 새로 안 그린다. 마지막 프레임을 다시 보내 EON 이 지우지 않게. */
     private void surfaceRepeatLoop() {
         if (!surfaceMode) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        byte[] warm = warmSurfaceJpeg;
+        if (surfaceFrames == 0 && warm != null && surfaceReadyAt != 0L
+                && now - surfaceReadyAt >= SURFACE_WARMUP_MS) {
+            publishSurfaceFrame(warm, now, WIDTH, HEIGHT);
+        }
         byte[] last = lastSurfaceJpeg;
         if (last != null && client.ready()
                 && android.os.SystemClock.elapsedRealtime() - surfaceFrameAt >= SURFACE_FRAME_MS * 2) {
@@ -748,6 +778,7 @@ final class KakaoMap {
         imageThread = null;
         imageHandler = null;
         lastSurfaceJpeg = null;
+        warmSurfaceJpeg = null;
         // 캡처러 쪽 상태를 처음부터 다시 잡는다.
         moveCameraMethod = null;
         setRoutesMethod = null;
