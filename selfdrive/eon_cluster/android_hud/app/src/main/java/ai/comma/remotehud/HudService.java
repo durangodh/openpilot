@@ -5250,8 +5250,13 @@ public final class HudService extends Service {
         drawNaviEta(c, p, s);
         c.restoreToCount(etaSave);
 
-        int save3 = beginElement(c, l, "lane", 1395f, (float) HEIGHT);
-        drawNativeOverlay(c, p, lane, 1130f, 378f, 1660f, (float) HEIGHT, Paint.Align.CENTER);
+        // 차로 띠는 차 마커 바로 아래 가운데에 둔다. 마커의 가로 위치는 네비마다 다르다
+        // (티맵·카카오는 지도 가운데, 네이버 스냅샷은 오른쪽으로 약 2/3 지점).
+        float laneCx = MAP_LEFT + (mapRight() - MAP_LEFT) * laneMarkerFraction(s);
+        laneCx = Math.max(MAP_LEFT + LANE_HALF_W, Math.min(mapRight() - LANE_HALF_W, laneCx));
+        int save3 = beginElement(c, l, "lane", laneCx, (float) HEIGHT);
+        drawNativeOverlay(c, p, lane, laneCx - LANE_HALF_W, 378f, laneCx + LANE_HALF_W,
+                (float) HEIGHT, Paint.Align.CENTER);
         c.restoreToCount(save3);
 
         // The native navigation apps publish the signal lamp/countdown as a
@@ -5270,6 +5275,13 @@ public final class HudService extends Service {
 
         // NOO 안내는 지도 패널이 아니라 주행 패널 중앙에 그린다(drawNooTurn).
         c.restoreToCount(overlaySave);
+    }
+
+    private static final float LANE_HALF_W = 265f;
+
+    /** 지도 폭에서 차 마커가 있는 가로 비율. 네이버(2)는 폰 가로 화면이라 오른쪽에 있다. */
+    private static float laneMarkerFraction(JSONObject s) {
+        return s.optInt("hudNavApp", 1) == 2 ? 0.67f : 0.5f;
     }
 
     private void drawMapSourceBadge(Canvas c, Paint p, JSONObject s) {
