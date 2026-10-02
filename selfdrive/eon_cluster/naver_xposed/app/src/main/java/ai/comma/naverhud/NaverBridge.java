@@ -98,16 +98,20 @@ final class NaverBridge {
         }
     }
 
-    /** 이 파일이 있으면 엔진 렌더를 끄고 화면 지도 스냅샷만 쓴다(예전 브릿지 앱 방식). */
-    static final String NO_RENDER_FILE =
-            "/sdcard/Android/data/com.nhn.android.nmap/files/naver_hud_no_render";
+    /**
+     * 기본은 화면 지도 스냅샷(예전 브릿지 앱 방식)이다. 엔진 렌더는 같은 S9 의 HUD 앱을
+     * 밀리게 해서 기본에서 뺐다. 이 파일이 있을 때만 엔진 렌더를 켠다.
+     */
+    static final String RENDER_FILE =
+            "/sdcard/Android/data/com.nhn.android.nmap/files/naver_hud_render";
 
     void enableMapRender(Context app) {
         appContext = app;
-        if (new java.io.File(NO_RENDER_FILE).exists()) {
-            NaverHudLog.xposed("map render off (" + NO_RENDER_FILE + "); phone map snapshots only");
+        if (!new java.io.File(RENDER_FILE).exists()) {
+            NaverHudLog.xposed("map: phone map snapshots (engine render off; create " + RENDER_FILE + " to turn it on)");
             return;
         }
+        NaverHudLog.xposed("map: engine render on (" + RENDER_FILE + ")");
         renderAllowed = true;
     }
 
