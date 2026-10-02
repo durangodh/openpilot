@@ -26,7 +26,7 @@
 - Xposed 문자열 검사는 광고 SDK(AppLovin) 리포트용뿐이다. 서명 검사·
   `/proc/self/maps`·ptrace 검사는 티맵 코드에 없다. 상용 보안 솔루션도 없다.
 
-## 후킹(전부 읽기 전용, 난독화되지 않은 이름)
+## 후킹(읽기 전용, 난독화되지 않은 이름)
 
 | 후킹 | 얻는 데이터 |
 | --- | --- |
@@ -39,47 +39,58 @@
 도착, 경로 요약)와 `TmapNavigationEngineInterface.getVertexArray()`(경로 좌표)를
 호출만 한다. 후킹 콜백에서는 참조만 저장하고, JSON 생성·전송은 전용 스레드에서 한다.
 
-## 보내는 항목(1차)
+## 보내는 항목(패치판과 같은 형식)
+
+캐롯 패치판 `CarrotNavi_v11.2.3.3740.260721-1.apk`(SHA-256
+`c41f7351e1c07b5669dc7284ef28c13a2605ae4f23b60c005b14e1d23b7ea4fb`)의 추가 코드
+(`com.skt.tmap.engine.navigation.util.Carrot*`, classes21.dex)를 디컴파일해 값의
+이름·조건을 맞췄다. 패치판도 같은 출처를 쓴다: `TmapNavigation`에서 RGData
+(`postOpaKrRgdata`), `NavigationManager`에서 경로 좌표(`postOpaKrvrtx`),
+`TrafficSignalInfoRepository`에서 신호(`postOpaKrSinf/SSinf`).
 
 경로: `/api/navi/ws/v2/json/tmap/state`, `/api/navi/ws/v2/render/tmap/map_main`,
-`/api/navi/ws/v2/image/tmap/traffic_signal`. 서버는 경로에 `/kakao/`·`/naver/`가
-없으면 티맵 소스로 받는다(EON 설정 `EonClusterHudNavApp=1`).
+`/api/navi/ws/v2/image/tmap/<이름>`. 서버는 경로에 `/kakao/`·`/naver/`가 없으면 티맵
+소스로 받는다(EON 설정 `EonClusterHudNavApp=1`). 값이 없는 필드는 빠진다(Jackson NON_NULL).
 
-| 항목 | 출처 |
+| 항목 | 패치판과 같은 내용 |
 | --- | --- |
-| `vehicle` | `vpPosPointLat/Lon`, `nPosAngle`, `nPosSpeed`, `szPosRoadName`, `eVirtualGps` |
-| `guidance_current` | `stGuidePoint`(`nTBTTurnType` 티맵 코드 그대로, `nTBTDist`, `szTBTMainText` …) |
-| `guidance_next` | `stGuidePointNext`. 거리는 티맵 상단 TBT처럼 구간 거리 `nSvcLinkDist`(없으면 두 안내 거리 차) |
-| `lane_current` | `nLaneCount`, `nCurrentLane`, `nLaneTurnInfo`, `nLaneAvailable`, `nLaneEtcInfo`, `nLaneDist`, `roadcate`; `show`는 티맵 `ObservableLaneData.getShowLane()` |
-| `speed` | `nRoadLimitSpeed`, `sdiInfo[0..1]`(`nSdiType` 티맵 코드 그대로), `sectionSpeedInfo`(구간단속) |
-| `traffic_signal` | 직진·좌·우·유턴 신호(보행자·자전거·버스 제외), 잔여초는 수신 후 경과초만큼 감소, 거리는 저장소가 매초 줄이는 `currentScheduledDistance` |
-| `route` | `nTotalDist`, `nTotalTime`, 경로 총거리, 차량 위치부터 목적지까지 좌표(최대 500점, 5초마다 갱신) |
-| `navigation_status` | 주행 모드, 경로 유무, 도착, 이탈(`eRgStatus == 5` 또는 재탐색 중) |
-| `map_main` | `VSMMapView`의 GL 표면을 `PixelCopy`로 640×384 JPEG(q65, 최대 5fps), CNV2 format 2 |
-| 신호등 PNG | 카카오/네이버 모듈과 같은 원형 신호등 그림, CNV2 + PNG |
+| `vehicle` | `lat`, `lon`, `heading_deg`, `speed_kph`, `road_name`, `virtual_gps` |
+| `guidance_current`/`next` | `distance_m`(둘 다 **차량 기준** `nTBTDist`), `time_sec`, `turn_type`(티맵 코드), `road_name`, `main_text`, `near/mid/far_direction`, `point` |
+| `lane_current` | `count`(배열 길이 반영, 최대 16), `distance_m`, `visible`(`bLane`), `lane_play`, `current_lane`, `turn_code`, `turn_info`, `etc_info`, `available`, `guide_line_color`, `road_category` |
+| `lane_ahead` | `aheadLaneInfoData` 최대 4개의 목록 |
+| `speed` | `current_kph`, `road_limit_kph`(200 초과 값은 `(값-20)/10`), `sdi`/`sdi_secondary`(`sdiInfo[0]`,`[1]`, 없으면 SDI+), `section`(구간단속) |
+| `traffic_signal` | `visible`, `source`, `distance_m`, `last_update_age_ms`, `point`, `lights`{red,left,green,right,uturn}, `movements`{straight,left,right,uturn,pedestrian,bicycle,bus}. **`signals` 목록 없음** |
+| `route` | `remain_*`, `moved_*`, `total_distance_m`(`roadLengthAllRoute`), `polyline`(전체 경로 최대 256점, 경로가 바뀔 때만 다시 읽음) |
+| `navigation_status` | `mode`(`off_route`/`guiding`/`idle`), `guidance_active`, `off_route`(구간단속 정보의 이탈만), `route_present` |
 
-값이 바뀌었을 때와 1초 하트비트로만 보낸다. `route`는 최대 1Hz다. RGData가 3초 넘게
-오지 않으면 주행 종료로 보고 안내 항목을 지운 뒤 하트비트를 멈춘다.
+값이 바뀌었을 때와 0.5초 하트비트(서버 manifest의 interval)로 보낸다. `route`는 최대
+1Hz다. RGData가 3초 넘게 오지 않으면 주행 종료로 보고 안내 항목을 지운다.
+
+**EON 동작 영향**: `navigation_route.py`의 C-ITS 신호 보조는 `traffic_signal.signals`를
+읽는다. 패치판은 이 목록을 보내지 않았으므로 티맵에서는 신호 보조가 꺼져 있었고,
+이 모듈도 같게 둔다(네이버·카카오 모듈은 `signals`를 보낸다).
 
 ## 지도
 
-티맵에는 네이버 `takeSnapshot`이나 카카오 `KNMMapCapturer` 같은 오프스크린 캡처
-API가 없다. 대신 지도 엔진이 그리는 SurfaceView(또는 TextureView)만 `PixelCopy`로
-복사한다. 경로선과 차량 아이콘은 같은 GL 화면에 그려지므로 함께 찍히고, 안내 배너
-등 안드로이드 UI는 빠진다. 지도 엔진의 화면 중심(`MapEngine.getScreenCenter`,
-주행 중 차량 위치)을 기준으로 5:3 영역을 잘라 낸다.
+패치판(`CarrotMapRenderStream`)과 같은 방식: 티맵 지도 엔진 `NaviMapEngine`을 하나 더
+만들어 640×384 `ImageReader` 표면에 직접 그리고, `NavigationManager.attachMapView`로
+붙여 경로선(`setDrawRouteData`)과 차량 위치(`ArrayLocationProvider`)를 받는다. 렌더 설정도
+패치판 기본값이다(FOV 40°, 화면 중심 아래 80%, 3D 최대 각도, 차량 아이콘 54, 주/야
+`TMAP_DRIVE:DEFAULT/NIGHT`와 `theme_navi_day/night.json`). 화면 지도가 보이면 그 카메라
+(레벨·기울기·회전·중심·FOV)를 따르고, 티맵이 백그라운드면 엔진 주행 모드로 차량을
+따라간다. **화면이 꺼져도 지도가 나온다.** JPEG q65, 최대 5fps, CNV2 format 2.
 
-**제약**: 티맵 지도가 화면에 보일 때만 프레임이 나온다. 티맵이 백그라운드로 가면
-2초 뒤 CNV2 clear를 한 번 보내 EON에 옛 지도가 남지 않게 한다. HUD 지도의
-확대 수준·주야간은 폰 화면을 그대로 따른다.
+티맵 내부에 지도 보기를 하나 더 등록하므로 확인한 버전에서만 켠다. 다른 버전이거나
+엔진 시작에 실패하면(30초 뒤 다시, 최대 3번) 화면의 지도 표면을 `PixelCopy`로 복사하는
+방식으로 돌아간다(티맵 화면이 보일 때만 프레임이 나옴).
 
 ## 버전 정책
 
 하드 버전 게이트는 없다. 앱 시작 시 로그에 `TMAP <버전> verified|UNVERIFIED`를 남긴다.
 다른 버전에서도 읽기 전용 후킹은 켜고, 이름을 못 찾은 후킹만 빠진다
 (`read-only hooks installed = N/3`, `field missing: …`, `method missing: …`).
-앱 동작을 바꾸는 후킹은 `behaviorHooksAllowed`(확인 버전에서만 true)일 때만
-설치한다. 1차 구현에는 그런 후킹이 없다. 티맵 자동 업데이트는 꺼 두고,
+앱 동작에 끼어드는 기능은 `behaviorHooksAllowed`(확인 버전에서만 true)일 때만 켠다.
+지금은 지도 엔진 렌더(티맵 `NavigationManager`에 지도 보기를 등록)가 여기에 해당한다. 티맵 자동 업데이트는 꺼 두고,
 새 버전은 로그를 확인한 뒤 쓰는 것을 권장한다.
 
 ## 로그
@@ -103,7 +114,10 @@ API가 없다. 대신 지도 엔진이 그리는 SurfaceView(또는 TextureView)
   EON 파일(`carrot_navi_tbt_*`, `lane_bottom`, `crossroad`)로 생기고 주행 종료 시
   지워지는지, 로컬 HTTP로 분기 실사를 받아 그대로 전달하는지 확인했다. 모듈이
   이름으로 찾는 drawable 200개와 스타일 3개가 11.8.3.4061 리소스 테이블에 모두 있다.
-- **실기 미확인**: 후킹 동작, 지도 PixelCopy 화면 중심 좌표계, `nCurrentLane`이
+- 패치판 비교 후: 가짜 티맵 클래스로 돌린 브리지 출력이 패치판 형식과 같고, EON
+  `navigation_route.py`가 같은 결과(신호 보조 없음, 다음 안내 차량 기준 거리)를 낸다.
+- **실기 미확인**: 후킹 동작, 지도 엔진 렌더(엔진 생성 시점, 경로선·차량 표시),
+  PixelCopy 대체 경로의 화면 중심 좌표계, `nCurrentLane`이
   1부터 시작하는지(EON HUD는 1..n을 기대), SDI·구간단속 실제 값, 신호 상태 코드,
   실제 그림 모양(테마 색 적용), 분기 실사 URL이 인증 없이 받아지는지.
 

@@ -61,6 +61,8 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
         final TmapImages images = new TmapImages(client);
         final TmapBridge bridge = new TmapBridge(client, signal, images);
         final TmapMapCapture map = new TmapMapCapture(client);
+        final TmapMapRender render = new TmapMapRender(client, map);
+        final ClassLoader loader = lpparam.classLoader;
         new EonDiscovery(client).start();
 
         ClassLoader cl = lpparam.classLoader;
@@ -68,12 +70,13 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
         hooks += hookRGData(cl, bridge);
         hooks += hookTrafficSignal(cl, bridge);
         hooks += hookMapViews(cl, map);
-        hookApplication(bridge, map, images);
+        hookApplication(bridge, map, images, render, loader);
         TmapHudLog.line("read-only hooks installed = " + hooks + "/3");
     }
 
     private static void hookApplication(final TmapBridge bridge, final TmapMapCapture map,
-                                        final TmapImages images) {
+                                        final TmapImages images, final TmapMapRender render,
+                                        final ClassLoader loader) {
         try {
             XposedBridge.hookMethod(Application.class.getMethod("onCreate"), new XC_MethodHook() {
                 private boolean done = false;
@@ -86,7 +89,15 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
                         if (!TMAP_PKG.equals(ctx.getPackageName())) return;
                         done = true;
                         checkVersion(ctx);
-                        images.setContext(ctx.getApplicationContext());
+                        final Context app = ctx.getApplicationContext();
+                        images.setContext(app);
+                        // 패치판처럼 지도 엔진을 하나 더 만들어 그린다. 티맵 내부에 지도 보기를
+                        // 등록하므로 확인한 버전에서만. 그 외에는 화면 캡처(PixelCopy).
+                        if (behaviorHooksAllowed) {
+                            bridge.setOnLive(() -> render.maybeStart(app, loader));
+                        } else {
+                            TmapHudLog.line("map render engine off on unverified version; screen capture only");
+                        }
                         bridge.start();
                         map.start();
                     } catch (Throwable t) {

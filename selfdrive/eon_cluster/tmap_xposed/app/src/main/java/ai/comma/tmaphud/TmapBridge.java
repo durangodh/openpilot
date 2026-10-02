@@ -2,7 +2,6 @@ package ai.comma.tmaphud;
 
 import android.os.SystemClock;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.HashMap;
@@ -15,32 +14,29 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * 후킹으로 받은 티맵 내비 엔진 데이터를 carrot_navi_server JSON 항목으로 보낸다.
+ * 값과 조건은 캐롯 패치판(CarrotNavi v11.2.3.3740 CarrotUiStateData/CarrotUtilj)과 같다.
  *
  * 출처(11.8.3.4061 디컴파일 기준, com.skt.tmap.engine.navigation 은 난독화 없음):
- *  - NavigationManager.setLastRGData(RGData): 위치가 처리될 때마다 최종 RGData.
+ *  - NavigationManager.setLastRGData(RGData): 패치판 postOpaKrRgdata 와 같은 RGData.
  *    RGData 필드는 네이티브 엔진이 이름으로 채우므로 이름이 유지된다.
- *    차량(vpPosPoint*, nPosAngle, nPosSpeed), 안내(stGuidePoint, stGuidePointNext),
- *    차로(nLane*), 제한속도·SDI(nRoadLimitSpeed, sdiInfo[]), 구간단속(sectionSpeedInfo),
- *    남은 거리/시간(nTotalDist, nTotalTime), 이탈(eRgStatus == 5).
- *  - NavigationManager 공개 getter: 주행 모드, 경로 유무, 재탐색 중, 도착.
- *  - TmapNavigationEngineInterface.getVertexArray(): 경로 좌표.
- *  - TrafficSignalInfoRepository.onSignalInfoChanged(TrafficSignalStateInfo): C-ITS 신호.
+ *  - TmapNavigationEngineInterface.getVertexArray(): 경로 좌표(패치판 postOpaKrvrtx).
+ *  - TrafficSignalInfoRepository.onSignalInfoChanged(TrafficSignalStateInfo):
+ *    방향별 신호(패치판 postOpaKrSSinf)와 저장소가 계산한 currentTrafficSignalInfo
+ *    (패치판 postOpaKrSinf).
  *
  * 후킹 콜백에서는 참조만 저장하고, 문자열 만들기·전송은 전용 스레드(250ms)에서 한다.
  */
 final class TmapBridge {
     private static final long TICK_MS = 250;
-    // 값이 바뀌었을 때 + 1초 하트비트로만 보낸다(네이버 모듈과 같은 정책).
-    private static final long HEARTBEAT_MS = 1000;
+    // 서버 manifest: on_change_with_heartbeat, interval_ms 500.
+    private static final long HEARTBEAT_MS = 500;
     private static final long ROUTE_MIN_INTERVAL_MS = 1000;
-    private static final long POLYLINE_REFRESH_MS = 5000;
     // 이 시간 동안 RGData 가 안 오면 주행이 끝난 것으로 본다(EON STALE_TIMEOUT 3초와 같음).
     private static final long RG_STALE_MS = 3000;
-    private static final int POLYLINE_MAX_POINTS = 500;
-    private static final int RG_STATUS_BREAKAWAY = 5;
+    private static final int MAX_AHEAD_LANES = 4;
 
     private static final String[] ITEMS = {
-            "vehicle", "guidance_current", "guidance_next", "lane_current", "speed",
+            "vehicle", "guidance_current", "guidance_next", "lane_current", "lane_ahead", "speed",
             "traffic_signal", "route", "navigation_status",
     };
 
@@ -53,11 +49,12 @@ final class TmapBridge {
         return t;
     });
 
+    private volatile Runnable onLive;
     private volatile Object manager;
     private volatile Object rgData;
     private volatile long rgAt;
-    private volatile Object signalRepository;
     private volatile Object signalInfo;
+    private volatile Object signalLights;   // TrafficSignalInfo(저장소 계산 결과)
     private volatile long signalAt;
     private boolean started;
 
@@ -65,8 +62,7 @@ final class TmapBridge {
     private final Map<String, Long> lastSentAt = new HashMap<>();
     private boolean wasActive;
     private Object polylineRoute;
-    private long polylineAt;
-    private String polyline = "[]";
+    private String polyline;
     private boolean loggedFirstRg, loggedFirstSignal, loggedPolyline;
 
     TmapBridge(TmapNaviClient client, TmapSignal signalImage, TmapImages images) {
@@ -82,6 +78,15 @@ final class TmapBridge {
         TmapHudLog.line("state polling started");
     }
 
+    Object navigationManager() {
+        return manager;
+    }
+
+    /** 주행 데이터가 살아 있는 틱마다 부른다(지도 렌더 시작용). */
+    void setOnLive(Runnable callback) {
+        onLive = callback;
+    }
+
     /** 후킹 스레드(티맵 위치 처리 스레드). 참조만 저장한다. */
     void onRGData(Object navigationManager, Object rg) {
         if (rg == null) return;
@@ -94,10 +99,10 @@ final class TmapBridge {
         }
     }
 
-    /** 후킹 스레드(신호 저장소 단일 스레드). 참조만 저장한다. */
+    /** 후킹 스레드(신호 저장소 단일 스레드, 원래 메서드 실행 뒤). 참조만 저장한다. */
     void onSignalInfo(Object repository, Object info) {
-        signalRepository = repository;
         signalInfo = info;
+        signalLights = field(repository, "currentTrafficSignalInfo");
         signalAt = SystemClock.elapsedRealtime();
         if (!loggedFirstSignal && info != null) {
             loggedFirstSignal = true;
@@ -120,157 +125,158 @@ final class TmapBridge {
         Object nav = manager;
         boolean live = rg != null && now - rgAt <= RG_STALE_MS;
 
-        String mode = enumName(call(nav, "getDriveMode"));
-        Object routeResult = call(nav, "getRouteResult");
-        boolean routePresent = routeResult != null;
-        boolean naviPlaying = "REAL_DRIVE".equals(mode) || "SIMULATION_DRIVE".equals(mode);
-        boolean arrived = Boolean.TRUE.equals(call(nav, "getArrived"));
-        boolean guiding = live && naviPlaying && routePresent && !arrived;
-        int rgStatus = live ? intField(rg, "eRgStatus") : -1;
-        boolean offRoute = guiding && (rgStatus == RG_STATUS_BREAKAWAY
-                || Boolean.TRUE.equals(call(nav, "getRequestingReRoute")));
-
-        send("navigation_status", TmapJson.status(guiding, routePresent,
-                live ? (mode.isEmpty() ? "unknown" : mode.toLowerCase(java.util.Locale.ROOT)) : "idle",
-                offRoute, arrived, rgStatus));
-
         if (!live) {
             if (wasActive) {
                 // 주행이 끝났다: 남은 안내를 지우고 하트비트를 멈춘다.
                 wasActive = false;
                 for (String name : ITEMS) {
                     if ("navigation_status".equals(name)) continue;
-                    // 서버는 traffic_signal 의 null 을 신호등 이미지 지우기로만 처리한다.
-                    // JSON 신호 상태는 빈 목록으로 지운다.
-                    sendNow(name, "traffic_signal".equals(name) ? TmapJson.emptySignal() : null);
+                    sendNow(name, null);
                 }
                 signalImage.clear();
                 images.clearAll();
                 polylineRoute = null;
-                polyline = "[]";
+                polyline = null;
                 TmapHudLog.line("RGData stale; guidance cleared");
             }
+            send("navigation_status", TmapJson.status(false, false, false));
             return;
         }
         wasActive = true;
+        Runnable liveHook = onLive;
+        if (liveHook != null) liveHook.run();
 
         double lat = doubleField(rg, "vpPosPointLat");
         double lon = doubleField(rg, "vpPosPointLon");
-        if (lat != 0.0 && lon != 0.0) {
-            send("vehicle", TmapJson.vehicle(lat, lon, intField(rg, "nPosAngle"),
-                    intField(rg, "nPosSpeed"), stringField(rg, "szPosRoadName"),
-                    intField(rg, "eVirtualGps") != 0));
-        }
+        int speedKph = intField(rg, "nPosSpeed");
+        String vehicle = TmapJson.vehicle(lat, lon, intField(rg, "nPosAngle"), speedKph,
+                stringField(rg, "szPosRoadName"), intField(rg, "eVirtualGps") != 0);
+        send("vehicle", vehicle);
 
-        Object cur = guiding ? field(rg, "stGuidePoint") : null;
-        Object next = guiding ? field(rg, "stGuidePointNext") : null;
-        String current = guidance(cur, -1);
+        // Guidance.from: 현재/다음 안내·차로·앞 차로가 모두 없으면 안내 없음.
+        String current = guidePoint(field(rg, "stGuidePoint"));
+        String next = guidePoint(field(rg, "stGuidePointNext"));
+        String lane = TmapJson.lane(intField(rg, "nLaneCount"), intField(rg, "nLaneDist"),
+                booleanField(rg, "bLane"), booleanField(rg, "bLanePlay"), intField(rg, "nCurrentLane"),
+                intField(rg, "nLaneTurnCode"), intArrayField(rg, "nLaneTurnInfo"),
+                intArrayField(rg, "nLaneEtcInfo"), intArrayField(rg, "nLaneAvailable"),
+                intField(rg, "guideLineColor"), intField(rg, "roadcate"));
+        String ahead = aheadLanes(objectArrayField(rg, "aheadLaneInfoData"));
+        boolean guidance = current != null || next != null || lane != null || ahead != null;
         send("guidance_current", current);
-        send("guidance_next", current == null ? null
-                : guidance(next, TmapJson.nextSegmentDistance(intField(next, "nSvcLinkDist"),
-                        intField(next, "nTBTDist"), intField(cur, "nTBTDist"))));
+        send("guidance_next", next);
+        send("lane_current", lane);
+        send("lane_ahead", ahead);
 
-        send("lane_current", TmapJson.lane(intField(rg, "nLaneCount"), intField(rg, "nCurrentLane"),
-                intField(rg, "nLaneDist"), intArrayField(rg, "nLaneTurnInfo"),
-                intArrayField(rg, "nLaneAvailable"), intArrayField(rg, "nLaneEtcInfo"),
-                intField(rg, "nLaneTurnCode"), intField(rg, "roadcate"), showLane(rg)));
+        String speed = speed(rg, lat, lon, speedKph);
+        send("speed", speed);
 
-        send("speed", speed(rg));
-        publishSignal(now);
+        Object routeResult = call(nav, "getRouteResult");
+        refreshPolyline(nav, routeResult);
+        String route = TmapJson.route(intField(rg, "nTotalDist"), intField(rg, "nTotalTime"),
+                intField(rg, "nAccDist"), intField(rg, "nAccTime"),
+                intField(rg, "roadLengthAllRoute"), polyline);
+        send("route", route);
+
+        // getV2JsonSnapshot: 이탈은 구간단속 정보의 off_route 로만 판단한다.
+        Object sec = field(rg, "sectionSpeedInfo");
+        boolean offRoute = sec != null && booleanField(sec, "isOffRoute");
+        boolean guiding = route != null || guidance;
+        send("navigation_status", TmapJson.status(guiding, offRoute, route != null));
+
+        publishSignal(now, lat, lon, speedKph);
         images.update(rg, guiding,
                 Boolean.TRUE.equals(call(call(nav, "getNaviConfigData"), "getNightMode")));
-
-        if (guiding) {
-            refreshPolyline(nav, routeResult, lat, lon, now);
-            Object summary = call(nav, "getRouteSummaryInfo");
-            send("route", TmapJson.route(intField(rg, "nTotalDist"), intField(rg, "nTotalTime"),
-                    intField(summary, "nTotalDist"), polyline));
-        } else {
-            send("route", null);
-        }
     }
 
-    private static String guidance(Object tbt, int distanceOverride) {
+    private static String guidePoint(Object tbt) {
         if (tbt == null) return null;
-        int distance = distanceOverride >= 0 ? distanceOverride : intField(tbt, "nTBTDist");
-        return TmapJson.guidance(intField(tbt, "nTBTTurnType"), distance, intField(tbt, "nTBTTime"),
-                stringField(tbt, "szTBTMainText"), stringField(tbt, "szRoadName"),
-                stringField(tbt, "szCrossName"), stringField(tbt, "szNearDirName"),
+        return TmapJson.guidePoint(intField(tbt, "nTBTDist"), intField(tbt, "nTBTTime"),
+                intField(tbt, "nTBTTurnType"), stringField(tbt, "szRoadName"),
+                stringField(tbt, "szTBTMainText"), stringField(tbt, "szNearDirName"),
                 stringField(tbt, "szMidDirName"), stringField(tbt, "szFarDirName"),
-                doubleField(tbt, "vpTBTPointLat"), doubleField(tbt, "vpTBTPointLon"),
-                booleanField(tbt, "isUnprotectedTurn"));
+                doubleField(tbt, "vpTBTPointLat"), doubleField(tbt, "vpTBTPointLon"));
     }
 
-    private static String speed(Object rg) {
+    /** Lane.fromAhead: 앞 차로 최대 4개(LaneInfoData 의 Kotlin getter). */
+    private static String aheadLanes(Object[] data) {
+        if (data == null || data.length == 0) return null;
+        int n = Math.min(data.length, MAX_AHEAD_LANES);
+        String[] lanes = new String[n];
+        for (int i = 0; i < n; i++) {
+            Object d = data[i];
+            if (d == null) continue;
+            lanes[i] = TmapJson.aheadLane(number(call(d, "getNLaneCount")), number(call(d, "getNLaneDist")),
+                    Boolean.TRUE.equals(call(d, "getBLanePlay")), number(call(d, "getNLaneTurnCode")),
+                    ints(call(d, "getNLaneTurnInfo")), ints(call(d, "getNLaneEtcInfo")),
+                    ints(call(d, "getNLaneAvailable")), number(call(d, "getGuideLineColor")),
+                    number(call(d, "getRoadCate")), number(call(d, "getVoiceCode")));
+        }
+        return TmapJson.array(lanes);
+    }
+
+    /** Speed.from: sdiInfo[0]/[1], 없으면 SDI+ 로 대신. */
+    private static String speed(Object rg, double lat, double lon, int speedKph) {
         Object[] sdis = objectArrayField(rg, "sdiInfo");
-        int count = Math.min(sdis == null ? 0 : sdis.length, Math.max(0, intField(rg, "sdiCount")));
-        String primary = null, secondary = null;
-        for (int i = 0; i < count && secondary == null; i++) {
-            Object s = sdis[i];
-            if (s == null) continue;
-            String json = TmapJson.sdi(intField(s, "nSdiType"), intField(s, "nSdiDist"),
-                    intField(s, "nSdiSpeedLimit"), intField(s, "nSdiBlockType"),
-                    intField(s, "nSdiBlockDist"), intField(s, "nSdiBlockSpeed"),
-                    intField(s, "nSdiBlockAverageSpeed"), booleanField(s, "bIsInSchoolZone"),
-                    doubleField(s, "vpSdiPointLat"), doubleField(s, "vpSdiPointLon"));
-            if (primary == null) primary = json;
-            else secondary = json;
-        }
+        String first = sdi(sdis, 0);
+        String second = sdi(sdis, 1);
+        String plus = booleanField(rg, "bSDIPlus") ? TmapJson.sdi(intField(rg, "nSdiPlusType"),
+                intField(rg, "nSdiPlusDist"), intField(rg, "nSdiPlusSpeedLimit"),
+                intField(rg, "nSdiPlusSection"), intField(rg, "nSdiPlusBlockType"),
+                intField(rg, "nSdiPlusBlockSpeed"), intField(rg, "nSdiPlusBlockDist"),
+                intField(rg, "nSdiPlusBlockAverageSpeed"), intField(rg, "nSdiPlusBlockTime"),
+                doubleField(rg, "vpSdiPlusPointLat"), doubleField(rg, "vpSdiPlusPointLon")) : null;
+        String primary = first != null ? first : plus;
+        String secondary = second != null ? second : (first != null ? plus : null);
         Object sec = field(rg, "sectionSpeedInfo");
-        String section = null;
-        if (sec != null && booleanField(sec, "isInSection")) {
-            section = TmapJson.section(true, booleanField(sec, "isSuspended"),
-                    booleanField(sec, "isOffRoute"), intField(sec, "speedLimit"),
-                    doubleField(sec, "remainingDistance"), doubleField(sec, "averageSpeed"),
-                    intField(sec, "remainingTime"));
-        }
-        return TmapJson.speed(intField(rg, "nRoadLimitSpeed"), primary, secondary, section);
+        String section = sec == null ? null : TmapJson.section(booleanField(sec, "isInSection"),
+                booleanField(sec, "isSuspended"), booleanField(sec, "isOffRoute"),
+                intField(sec, "speedLimit"), doubleField(sec, "averageSpeed"),
+                doubleField(sec, "overallAverageSpeed"), doubleField(sec, "remainingDistance"),
+                intField(sec, "remainingTime"), doubleField(sec, "sectionProgress"));
+        boolean hasPosition = !(lat == 0.0 && lon == 0.0);
+        Integer current = hasPosition || speedKph > 0 ? Integer.valueOf(Math.max(0, speedKph)) : null;
+        return TmapJson.speed(current, TmapJson.validRoadLimitKph(intField(rg, "nRoadLimitSpeed")),
+                primary, secondary, section);
     }
 
-    // ---- 차로 표시 여부: 티맵 화면과 같은 판단(ObservableLaneData.getShowLane) ----
-
-    private Constructor<?> laneDataCtor;
-    private Method laneShow;
-    private boolean laneShowResolved;
-
-    private boolean showLane(Object rg) {
-        if (!laneShowResolved) {
-            laneShowResolved = true;
-            try {
-                ClassLoader loader = rg.getClass().getClassLoader();
-                Class<?> type = loader.loadClass("com.skt.tmap.engine.navigation.livedata.ObservableLaneData");
-                laneDataCtor = type.getConstructor(rg.getClass());
-                laneShow = type.getMethod("getShowLane");
-            } catch (Throwable error) {
-                TmapHudLog.ex("lane show resolve", error);
-            }
-        }
-        if (laneDataCtor != null && laneShow != null) {
-            try {
-                return Boolean.TRUE.equals(laneShow.invoke(laneDataCtor.newInstance(rg)));
-            } catch (Throwable ignored) {
-                // 아래 bLane 으로.
-            }
-        }
-        return booleanField(rg, "bLane");
+    private static String sdi(Object[] sdis, int index) {
+        if (sdis == null || sdis.length <= index || sdis[index] == null) return null;
+        Object s = sdis[index];
+        return TmapJson.sdi(intField(s, "nSdiType"), intField(s, "nSdiDist"),
+                intField(s, "nSdiSpeedLimit"), intField(s, "nSdiSection"),
+                intField(s, "nSdiBlockType"), intField(s, "nSdiBlockSpeed"),
+                intField(s, "nSdiBlockDist"), intField(s, "nSdiBlockAverageSpeed"),
+                intField(s, "nSdiBlockTime"), doubleField(s, "vpSdiPointLat"),
+                doubleField(s, "vpSdiPointLon"));
     }
 
     // ---- 신호등 ----
 
-    private void publishSignal(long now) {
+    private static final String[] LIGHT_FIELDS = {"Red", "Left", "Green", "Right", "UTurn"};
+
+    private void publishSignal(long now, double vehicleLat, double vehicleLon, int speedKph) {
         Object info = signalInfo;
-        Object repo = signalRepository;
-        Object observable = call(call(repo, "getObservableTrafficSignalData"), "getValue");
-        // Kotlin getter 실제 이름은 isTrafficSignalVisible()(jadx 는 getIs… 로 보여 준다).
-        // 같은 이름의 필드를 바로 읽는다.
-        boolean visible = booleanField(observable, "isTrafficSignalVisible");
+        Object sinf = signalLights;
+        long ageMs = now - signalAt;
         List<?> states = info == null ? null : asList(call(info, "getStates"));
-        if (!visible || states == null || states.isEmpty()) {
-            send("traffic_signal", TmapJson.emptySignal());
+        if (info == null && sinf == null) {
+            send("traffic_signal", null);
             signalImage.clear();
             return;
         }
-        int n = states.size();
+        boolean[] on = null;
+        int[] onRemain = null;
+        if (sinf != null) {
+            on = new boolean[LIGHT_FIELDS.length];
+            onRemain = new int[LIGHT_FIELDS.length];
+            for (int i = 0; i < LIGHT_FIELDS.length; i++) {
+                on[i] = booleanField(sinf, "is" + LIGHT_FIELDS[i] + "LightOn");
+                String remain = LIGHT_FIELDS[i].equals("UTurn") ? "uTurn" : LIGHT_FIELDS[i].toLowerCase(java.util.Locale.ROOT);
+                onRemain[i] = intField(sinf, remain + "LightRemainTime");
+            }
+        }
+        int n = states == null ? 0 : states.size();
         int[] movements = new int[n], lights = new int[n], remains = new int[n];
         for (int i = 0; i < n; i++) {
             Object s = states.get(i);
@@ -278,17 +284,25 @@ final class TmapBridge {
             lights[i] = number(call(s, "getLightState"));
             remains[i] = number(call(s, "getRemainTime"));
         }
-        int elapsed = (int) ((now - signalAt) / 1000L);
-        // 저장소가 1초마다 차량 속도만큼 줄이는 거리. 없으면 수신 당시 거리.
-        int distance = repo != null && hasField(repo, "currentScheduledDistance")
-                ? intField(repo, "currentScheduledDistance") : number(call(info, "getDistance"));
-        send("traffic_signal", TmapJson.signal(distance, movements, lights, remains, elapsed));
+        // 패치판 TrafficSignal: 기준 거리(수신 당시)와 신호 위치까지 거리 중 작은 값.
+        Object location = sinf != null ? field(sinf, "location") : null;
+        if (location == null && info != null) location = field(info, "location");
+        double sLat = location == null ? 0.0 : doubleValue(call(location, "getLatitude"));
+        double sLon = location == null ? 0.0 : doubleValue(call(location, "getLongitude"));
+        int base = sinf != null ? intField(sinf, "distance") : number(call(info, "getDistance"));
+        int elapsed = (int) (Math.max(0L, ageMs) / 1000L);
+        int byTime = TmapJson.distanceAfterElapsed(base, speedKph, elapsed);
+        int byPoint = TmapJson.distanceMeters(vehicleLat, vehicleLon, sLat, sLon);
+        int distance = byPoint >= 0 ? Math.min(byPoint, byTime) : byTime;
+        String json = TmapJson.signal(on, onRemain, n > 0 ? movements : null, lights, remains,
+                distance, sLat, sLon, ageMs);
+        send("traffic_signal", json);
 
-        int idx = TmapJson.displayIndex(movements);
+        int idx = json == null ? -1 : TmapJson.displayIndex(movements);
         if (idx < 0) {
             signalImage.clear();
         } else {
-            signalImage.publish(TmapJson.lightColor(lights[idx]), Math.max(0, remains[idx] - elapsed));
+            signalImage.publish(TmapJson.lightColor(lights[idx]), TmapJson.subtractElapsed(remains[idx], elapsed));
         }
     }
 
@@ -297,15 +311,20 @@ final class TmapBridge {
     private Method convertTo;
     private Field pointX, pointY;
 
-    private void refreshPolyline(Object nav, Object routeResult, double lat, double lon, long now) {
-        if (routeResult == polylineRoute && now - polylineAt < POLYLINE_REFRESH_MS) return;
+    /** 경로가 바뀔 때만 다시 읽는다(패치판 postOpaKrvrtx/ensureRoutePolyline). */
+    private void refreshPolyline(Object nav, Object routeResult) {
+        if (routeResult == null) {
+            polylineRoute = null;
+            polyline = null;
+            return;
+        }
+        if (routeResult == polylineRoute && polyline != null) return;
         polylineRoute = routeResult;
-        polylineAt = now;
         try {
             Object engine = call(nav, "getTmapNavigationEngineInterface");
             Object raw = call(engine, "getVertexArray");
             if (!(raw instanceof Object[]) || ((Object[]) raw).length == 0) {
-                polyline = "[]";
+                polyline = null;
                 return;
             }
             Object[] points = (Object[]) raw;
@@ -319,56 +338,21 @@ final class TmapBridge {
                     pointX = p.getClass().getField("x");
                     pointY = p.getClass().getField("y");
                 }
-                Object w = convertTo.invoke(p, 0);  // COORDTYPE.WGS84
+                Object w = convertTo.invoke(p, 0);  // COORDTYPE.WGS84: x=경도, y=위도
+                if (w == null) w = p;
                 double x = pointX.getDouble(w), y = pointY.getDouble(w);
-                if (x == 0.0 || y == 0.0) continue;
-                // 한국 경도(124~132)가 위도(33~39)보다 127 에 가깝다.
-                boolean xIsLon = Math.abs(x - 127.0) < Math.abs(y - 127.0);
-                lons[valid] = xIsLon ? x : y;
-                lats[valid] = xIsLon ? y : x;
+                if (x == 0.0 && y == 0.0) continue;
+                lons[valid] = x;
+                lats[valid] = y;
                 valid++;
             }
-            if (valid == 0) {
-                polyline = "[]";
-                return;
-            }
-            // 지나온 구간은 뺀다: 차량에서 가장 가까운 점 직전부터 목적지까지.
-            int start = 0;
-            if (lat != 0.0 && lon != 0.0) {
-                double best = Double.MAX_VALUE;
-                double k = Math.cos(Math.toRadians(lat));
-                for (int i = 0; i < valid; i++) {
-                    double dy = lats[i] - lat, dx = (lons[i] - lon) * k;
-                    double d = dx * dx + dy * dy;
-                    if (d < best) {
-                        best = d;
-                        start = i;
-                    }
-                }
-                start = Math.max(0, start - 2);
-            }
-            int remain = valid - start;
-            int stride = Math.max(1, (remain + POLYLINE_MAX_POINTS - 2) / (POLYLINE_MAX_POINTS - 1));
-            double[] outLat = new double[POLYLINE_MAX_POINTS + 1], outLon = new double[POLYLINE_MAX_POINTS + 1];
-            int out = 0;
-            for (int i = start; i < valid && out < POLYLINE_MAX_POINTS; i += stride) {
-                outLat[out] = lats[i];
-                outLon[out] = lons[i];
-                out++;
-            }
-            // 목적지(마지막 점)는 항상 넣는다. 서버가 경로 변경 판단에 쓴다.
-            if (outLat[out - 1] != lats[valid - 1] || outLon[out - 1] != lons[valid - 1]) {
-                outLat[out] = lats[valid - 1];
-                outLon[out] = lons[valid - 1];
-                out++;
-            }
-            polyline = TmapJson.polyline(outLat, outLon, out);
-            if (!loggedPolyline) {
+            polyline = TmapJson.polyline(lats, lons, valid);
+            if (!loggedPolyline && valid > 0) {
                 loggedPolyline = true;
-                TmapHudLog.line("route vertices=" + total + " sent=" + out + " first=("
-                        + lats[0] + "," + lons[0] + ")");
+                TmapHudLog.line("route vertices=" + total + " first=(" + lats[0] + "," + lons[0] + ")");
             }
         } catch (Throwable error) {
+            polyline = null;
             TmapHudLog.ex("polyline", error);
         }
     }
@@ -429,10 +413,6 @@ final class TmapBridge {
         return found;
     }
 
-    private static boolean hasField(Object target, String name) {
-        return target != null && findField(target.getClass(), name) != null;
-    }
-
     static Object field(Object target, String name) {
         if (target == null) return null;
         Field f = findField(target.getClass(), name);
@@ -470,6 +450,14 @@ final class TmapBridge {
     static Object[] objectArrayField(Object target, String name) {
         Object v = field(target, name);
         return v instanceof Object[] ? (Object[]) v : null;
+    }
+
+    static double doubleValue(Object v) {
+        return v instanceof Number ? ((Number) v).doubleValue() : 0.0;
+    }
+
+    static int[] ints(Object v) {
+        return v instanceof int[] ? (int[]) v : null;
     }
 
     static int number(Object v) {

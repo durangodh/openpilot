@@ -61,6 +61,8 @@ final class TmapMapCapture {
     private final AtomicBoolean posted = new AtomicBoolean();
     private final AtomicBoolean started = new AtomicBoolean();
     private final AtomicBoolean encoding = new AtomicBoolean();
+    // 지도 엔진 렌더(TmapMapRender)가 돌면 화면 캡처는 쉰다.
+    private volatile boolean suspended;
     private final List<WeakReference<View>> views = new ArrayList<>();
 
     // 아래 값은 메인 스레드에서만 바꾼다.
@@ -94,8 +96,12 @@ final class TmapMapCapture {
         }
     }
 
+    void setSuspended(boolean value) {
+        suspended = value;
+    }
+
     private void tick() {
-        if (!client.ready()) return;
+        if (!client.ready() || suspended) return;
         if (!posted.compareAndSet(false, true)) return;
         main.post(() -> {
             try {
@@ -198,6 +204,29 @@ final class TmapMapCapture {
                 encoding.set(false);
             }
         });
+    }
+
+    /** 메인 스레드. 붙어 있는 VSMMapView 중 가장 큰 것(보이지 않아도 됨, requireShown=false). */
+    View largestMapView(boolean requireShown) {
+        View best = null;
+        long bestArea = 0;
+        synchronized (views) {
+            for (int i = views.size() - 1; i >= 0; i--) {
+                View v = views.get(i).get();
+                if (v == null) {
+                    views.remove(i);
+                    continue;
+                }
+                if (!v.isAttachedToWindow()) continue;
+                if (requireShown && (!v.isShown() || v.getWindowVisibility() != View.VISIBLE)) continue;
+                long area = (long) v.getWidth() * v.getHeight();
+                if (best == null || area > bestArea) {
+                    bestArea = area;
+                    best = v;
+                }
+            }
+        }
+        return best;
     }
 
     /** 화면에 보이는 VSMMapView 중 가장 큰 것(주행 지도). 작은 미리보기 지도는 무시된다. */

@@ -3,153 +3,285 @@ package ai.comma.tmaphud;
 import java.util.Locale;
 
 /**
- * carrot_navi_server 의 JSON 항목 값을 만든다. Android/Xposed 에 의존하지 않아
- * 호스트에서 검사할 수 있다(tests/ai/comma/tmaphud/TmapJsonCheck.java).
+ * carrot_navi_server 의 JSON 항목 값을 캐롯 패치판(CarrotNavi v11.2.3.3740,
+ * CarrotUiStateData)과 같은 이름·조건으로 만든다. 패치판은 Jackson NON_NULL 이라
+ * 값이 없는 필드는 빠진다. 여기서도 null 은 넣지 않는다.
  *
- * 필드 이름은 EON 소비측(navigation_route.py, navigation_noo.py, remote_hud.py)이
- * 읽는 이름이다. turn_type·sdi type 은 티맵 원래 코드라 변환하지 않는다
- * (네이버/카카오 모듈은 자기 코드를 이 티맵 코드로 바꿔서 보낸다).
+ * Android/Xposed 에 의존하지 않아 호스트에서 검사한다(tests/.../TmapJsonCheck.java).
+ * turn_type·sdi type 은 티맵 원래 코드다.
  */
 final class TmapJson {
-    static final String SOURCE = "TMAP";
     // HUD 신호등 그림 색(TmapSignal 이 그린다).
     static final int COLOR_NONE = 0, COLOR_RED = 1, COLOR_YELLOW = 2, COLOR_GREEN = 3;
+    // CarrotUiStateData 상수
+    static final int MAX_LANE_COUNT = 16;
+    static final int MAX_ROAD_LIMIT_KPH = 200;
+    static final int ENCODED_ROAD_LIMIT_SCALE = 10;
+    static final long MAX_TRAFFIC_SIGNAL_AGE_MS = 60000;
+    static final int TRAFFIC_SIGNAL_PASS_DISTANCE_M = 5;
+    static final int ROUTE_MAX_POINTS = 256;
 
     private TmapJson() {
     }
 
-    static String vehicle(double lat, double lon, double headingDeg, int speedKph,
+    /** null 값을 건너뛰는 작은 JSON 객체 빌더(Jackson NON_NULL 과 같은 결과). */
+    static final class Obj {
+        private final StringBuilder sb = new StringBuilder("{");
+        private boolean empty = true;
+
+        private Obj key(String name) {
+            if (!empty) sb.append(',');
+            empty = false;
+            sb.append('"').append(name).append("\":");
+            return this;
+        }
+
+        Obj num(String name, Integer value) {
+            if (value != null) key(name).sb.append(value.intValue());
+            return this;
+        }
+
+        Obj num(String name, Long value) {
+            if (value != null) key(name).sb.append(value.longValue());
+            return this;
+        }
+
+        Obj dbl(String name, Double value) {
+            if (value != null) key(name).sb.append(decimal(value));
+            return this;
+        }
+
+        Obj bool(String name, Boolean value) {
+            if (value != null) key(name).sb.append(value.booleanValue());
+            return this;
+        }
+
+        Obj str(String name, String value) {
+            if (value != null) key(name).sb.append(quote(value));
+            return this;
+        }
+
+        Obj raw(String name, String json) {
+            if (json != null) key(name).sb.append(json);
+            return this;
+        }
+
+        Obj ints(String name, int[] values) {
+            if (values != null) key(name).sb.append(TmapJson.ints(values, values.length));
+            return this;
+        }
+
+        boolean isEmpty() {
+            return empty;
+        }
+
+        String build() {
+            return sb.toString() + "}";
+        }
+    }
+
+    static Integer positive(int value) {
+        return value > 0 ? Integer.valueOf(value) : null;
+    }
+
+    static Integer nonZero(int value) {
+        return value != 0 ? Integer.valueOf(value) : null;
+    }
+
+    static String nullIfEmpty(String value) {
+        return value == null || value.isEmpty() ? null : value;
+    }
+
+    /** Point.from: 위경도가 둘 다 0 이면 없음. */
+    static String point(double lat, double lon) {
+        if (lat == 0.0 && lon == 0.0) return null;
+        return new Obj().dbl("lat", lat).dbl("lon", lon).build();
+    }
+
+    static String vehicle(double lat, double lon, int headingDeg, int speedKph,
                           String roadName, boolean virtualGps) {
-        return "{\"source\":\"TMAP\",\"lat\":" + decimal(lat) + ",\"lon\":" + decimal(lon)
-                + ",\"heading_deg\":" + decimal(headingDeg)
-                + ",\"speed_kph\":" + speedKph
-                + ",\"road_name\":" + quote(roadName)
-                + ",\"virtual_gps\":" + virtualGps + "}";
+        if (lat == 0.0 && lon == 0.0) return null;
+        return new Obj().dbl("lat", lat).dbl("lon", lon)
+                .num("heading_deg", headingDeg)
+                .num("speed_kph", Math.max(0, speedKph))
+                .str("road_name", nullIfEmpty(roadName))
+                .bool("virtual_gps", virtualGps).build();
     }
 
-    /** 회전 코드가 0 이면 안내 없음(티맵 ObservableTBTData.hasTbtInfo 와 같은 기준). */
-    static String guidance(int turnType, int distanceM, int timeSec, String mainText,
-                           String roadName, String crossName, String nearDir,
-                           String midDir, String farDir, double lat, double lon,
-                           boolean unprotected) {
-        if (turnType <= 0) return null;
-        String main = text(mainText);
-        String road = text(roadName);
-        if (main.isEmpty()) main = road;
-        if (road.isEmpty()) road = main;
-        return "{\"source\":\"TMAP\",\"turn_type\":" + turnType
-                + ",\"distance_m\":" + Math.max(0, distanceM)
-                + ",\"time_sec\":" + Math.max(0, timeSec)
-                + ",\"main_text\":" + quote(main)
-                + ",\"road_name\":" + quote(road)
-                + ",\"cross_name\":" + quote(crossName)
-                + ",\"near_dir\":" + quote(nearDir)
-                + ",\"mid_dir\":" + quote(midDir)
-                + ",\"far_dir\":" + quote(farDir)
-                + ",\"lat\":" + decimal(lat) + ",\"lon\":" + decimal(lon)
-                + ",\"unprotected_turn\":" + unprotected + "}";
+    /** GuidePoint.from(TBTInfo). 모든 값이 비면 null. distance_m 은 차량 기준 nTBTDist. */
+    static String guidePoint(int distanceM, int timeSec, int turnType, String roadName,
+                             String mainText, String nearDir, String midDir, String farDir,
+                             double lat, double lon) {
+        String pt = point(lat, lon);
+        Integer dist = positive(distanceM), time = positive(timeSec);
+        String road = nullIfEmpty(roadName), main = nullIfEmpty(mainText);
+        String near = nullIfEmpty(nearDir), mid = nullIfEmpty(midDir), far = nullIfEmpty(farDir);
+        if (dist == null && time == null && turnType == 0 && road == null && main == null
+                && near == null && mid == null && far == null && pt == null) {
+            return null;
+        }
+        return new Obj().num("distance_m", dist).num("time_sec", time).num("turn_type", turnType)
+                .str("road_name", road).str("main_text", main)
+                .str("near_direction", near).str("mid_direction", mid).str("far_direction", far)
+                .raw("point", pt).build();
     }
 
-    /**
-     * 티맵 상단 TBT 의 두 번째 안내는 nSvcLinkDist(첫 안내→다음 안내 구간 거리)를
-     * 보여 준다. 값이 없으면 차량 기준 거리 차이로 구한다(TBTPopUpService 와 같은 계산).
-     */
-    static int nextSegmentDistance(int svcLinkDist, int nextFromVehicle, int currentFromVehicle) {
-        if (svcLinkDist > 0) return svcLinkDist;
-        return Math.max(0, nextFromVehicle - currentFromVehicle);
+    /** Lane.laneCount: 요청 개수와 배열 길이 중 큰 값, 최대 16. */
+    static int laneCount(int requested, int[] turnInfo, int[] available) {
+        int count = Math.max(0, requested);
+        if (turnInfo != null) count = Math.max(count, turnInfo.length);
+        if (available != null) count = Math.max(count, available.length);
+        return Math.min(count, MAX_LANE_COUNT);
     }
 
-    static String lane(int count, int currentLane, int distanceM, int[] turnInfo,
-                       int[] available, int[] etcInfo, int turnCode, int roadCategory,
-                       boolean show) {
+    static int[] copyLane(int[] values, int count) {
+        if (values == null) return null;
+        int[] out = new int[count];
+        System.arraycopy(values, 0, out, 0, Math.min(count, values.length));
+        return out;
+    }
+
+    /** Lane.from(RGData): 현재 차로. */
+    static String lane(int laneCount, int distanceM, boolean visible, boolean lanePlay,
+                       int currentLane, int turnCode, int[] turnInfo, int[] etcInfo,
+                       int[] available, int guideLineColor, int roadCategory) {
+        int count = laneCount(laneCount, turnInfo, available);
         if (count <= 0) return null;
-        int n = Math.min(count, 16);
-        return "{\"source\":\"TMAP\",\"count\":" + n
-                + ",\"current_lane\":" + currentLane
-                + ",\"distance_m\":" + Math.max(0, distanceM)
-                + ",\"turn_info\":" + ints(turnInfo, n)
-                + ",\"available\":" + ints(available, n)
-                + ",\"etc_info\":" + ints(etcInfo, n)
-                + ",\"turn_code\":" + turnCode
-                + ",\"road_category\":" + roadCategory
-                + ",\"show\":" + show + "}";
+        return new Obj().num("count", count).num("distance_m", distanceM)
+                .bool("visible", visible).bool("lane_play", lanePlay)
+                .num("current_lane", positive(currentLane)).num("turn_code", nonZero(turnCode))
+                .ints("turn_info", copyLane(turnInfo, count)).ints("etc_info", copyLane(etcInfo, count))
+                .ints("available", copyLane(available, count))
+                .num("guide_line_color", nonZero(guideLineColor))
+                .num("road_category", roadCategory).build();
     }
 
-    static String sdi(int type, int distanceM, int speedLimitKph, int blockType,
-                      int blockDistanceM, int blockSpeedKph, int blockAverageKph,
-                      boolean schoolZone, double lat, double lon) {
-        return "{\"type\":" + type + ",\"distance_m\":" + distanceM
-                + ",\"speed_limit_kph\":" + Math.max(0, speedLimitKph)
-                + ",\"block_type\":" + blockType
-                + ",\"block_distance_m\":" + blockDistanceM
-                + ",\"block_speed_kph\":" + Math.max(0, blockSpeedKph)
-                + ",\"block_average_kph\":" + Math.max(0, blockAverageKph)
-                + ",\"school_zone\":" + schoolZone
-                + ",\"lat\":" + decimal(lat) + ",\"lon\":" + decimal(lon) + "}";
+    /** Lane.from(LaneInfoData): 앞 차로(lane_ahead 원소). */
+    static String aheadLane(int laneCount, int distanceM, boolean lanePlay, int turnCode,
+                            int[] turnInfo, int[] etcInfo, int[] available, int guideLineColor,
+                            int roadCategory, int voiceCode) {
+        int count = laneCount(laneCount, turnInfo, available);
+        if (count <= 0) return null;
+        return new Obj().num("count", count).num("distance_m", distanceM)
+                .bool("lane_play", lanePlay).num("turn_code", nonZero(turnCode))
+                .ints("turn_info", copyLane(turnInfo, count)).ints("etc_info", copyLane(etcInfo, count))
+                .ints("available", copyLane(available, count))
+                .num("guide_line_color", nonZero(guideLineColor))
+                .num("road_category", nonZero(roadCategory))
+                .num("voice_code", nonZero(voiceCode)).build();
     }
 
-    static String section(boolean active, boolean suspended, boolean offRoute,
-                          int speedLimitKph, double remainingDistanceM,
-                          double averageSpeedKph, int remainingTimeSec) {
-        return "{\"active\":" + active + ",\"suspended\":" + suspended
-                + ",\"off_route\":" + offRoute
-                + ",\"speed_limit_kph\":" + Math.max(0, speedLimitKph)
-                + ",\"remaining_distance_m\":" + Math.max(0, Math.round(remainingDistanceM))
-                + ",\"average_speed_kph\":" + Math.max(0, Math.round(averageSpeedKph))
-                + ",\"remaining_time_sec\":" + Math.max(0, remainingTimeSec) + "}";
+    /** 앞 차로 목록(최대 4개). 비면 null. */
+    static String array(String[] items) {
+        if (items == null) return null;
+        StringBuilder out = new StringBuilder("[");
+        int n = 0;
+        for (String item : items) {
+            if (item == null) continue;
+            if (n++ > 0) out.append(',');
+            out.append(item);
+        }
+        return n == 0 ? null : out.append(']').toString();
     }
 
-    /** sdiPrimary/sdiSecondary/section 은 위 함수가 만든 JSON 또는 null. */
-    static String speed(int roadLimitKph, String sdiPrimary, String sdiSecondary, String section) {
-        StringBuilder out = new StringBuilder("{\"source\":\"TMAP\",\"road_limit_kph\":")
-                .append(Math.max(0, roadLimitKph));
-        if (sdiPrimary != null) out.append(",\"sdi\":").append(sdiPrimary);
-        if (sdiSecondary != null) out.append(",\"sdi_secondary\":").append(sdiSecondary);
-        if (section != null) out.append(",\"section\":").append(section);
-        return out.append('}').toString();
+    /** Sdi.from(SDIInfo) / fromSdiPlus. 모든 값이 비면 null. */
+    static String sdi(int type, int distanceM, int speedLimitKph, int sectionType, int blockType,
+                      int blockSpeedKph, int blockDistanceM, int blockAverageKph, int blockTimeSec,
+                      double lat, double lon) {
+        Obj o = new Obj().num("type", type >= 0 ? Integer.valueOf(type) : null)
+                .num("distance_m", positive(distanceM))
+                .num("speed_limit_kph", positive(speedLimitKph))
+                .num("section_type", positive(sectionType))
+                .num("block_type", positive(blockType))
+                .num("block_speed_kph", positive(blockSpeedKph))
+                .num("block_distance_m", positive(blockDistanceM))
+                .num("block_average_kph", positive(blockAverageKph))
+                .num("block_time_sec", positive(blockTimeSec))
+                .raw("point", point(lat, lon));
+        return o.isEmpty() ? null : o.build();
     }
 
-    static String route(int remainDistanceM, int remainTimeSec, int totalDistanceM,
-                        String polylineJson) {
-        return "{\"source\":\"TMAP\",\"remain_distance_m\":" + Math.max(0, remainDistanceM)
-                + ",\"remain_time_sec\":" + Math.max(0, remainTimeSec)
-                + ",\"total_distance_m\":" + Math.max(0, totalDistanceM)
-                + ",\"polyline\":" + (polylineJson == null ? "[]" : polylineJson) + "}";
+    /** Section.from(SectionSpeedInfo). 값이 하나도 없으면 null. */
+    static String section(boolean inSection, boolean suspended, boolean offRoute, int speedLimit,
+                          double averageSpeed, double overallAverageSpeed, double remainingDistance,
+                          int remainingTime, double progress) {
+        boolean hasData = inSection || suspended || offRoute || speedLimit > 0 || averageSpeed > 0
+                || overallAverageSpeed > 0 || remainingDistance > 0 || remainingTime > 0 || progress > 0;
+        if (!hasData) return null;
+        return new Obj().bool("active", inSection).num("speed_limit_kph", speedLimit)
+                .dbl("average_kph", averageSpeed).dbl("overall_average_kph", overallAverageSpeed)
+                .dbl("remaining_distance_m", remainingDistance).num("remaining_time_sec", remainingTime)
+                .dbl("progress", progress).bool("suspended", suspended).bool("off_route", offRoute).build();
     }
 
-    static String status(boolean guidanceActive, boolean routePresent, String mode,
-                         boolean offRoute, boolean arrived, int rgStatus) {
-        return "{\"source\":\"TMAP\",\"guidance_active\":" + guidanceActive
-                + ",\"active\":" + guidanceActive
-                + ",\"route_present\":" + routePresent
-                + ",\"mode\":" + quote(mode)
-                + ",\"state\":" + quote(guidanceActive ? "guiding" : "idle")
-                + ",\"off_route\":" + offRoute
-                + ",\"arrived\":" + arrived
-                + ",\"rg_status\":" + rgStatus + "}";
+    /** CarrotUiStateData.validRoadLimitKph: 200 초과 값은 (값-20)/10 으로 푼다. */
+    static Integer validRoadLimitKph(int raw) {
+        if (raw <= 0) return null;
+        int kph = raw;
+        if (raw > MAX_ROAD_LIMIT_KPH) {
+            int encoded = raw - 20;
+            if (encoded <= 0 || encoded % ENCODED_ROAD_LIMIT_SCALE != 0) return null;
+            kph = encoded / ENCODED_ROAD_LIMIT_SCALE;
+        }
+        if (kph <= 0 || kph > MAX_ROAD_LIMIT_KPH || kph % ENCODED_ROAD_LIMIT_SCALE != 0) return null;
+        return kph;
     }
 
-    // ---- 신호등 ---------------------------------------------------------------
+    /** Speed.from(RGData). 모두 없으면 null. */
+    static String speed(Integer currentKph, Integer roadLimitKph, String sdi, String sdiSecondary,
+                        String section) {
+        if (currentKph == null && roadLimitKph == null && sdi == null && sdiSecondary == null && section == null) {
+            return null;
+        }
+        return new Obj().num("current_kph", currentKph).num("road_limit_kph", roadLimitKph)
+                .raw("sdi", sdi).raw("sdi_secondary", sdiSecondary).raw("section", section).build();
+    }
+
+    /** Route.from(RGData) + 경로 좌표. 모두 없으면 null. */
+    static String route(int remainDistanceM, int remainTimeSec, int movedDistanceM, int movedTimeSec,
+                        int totalDistanceM, String polylineJson) {
+        Obj o = new Obj().num("remain_distance_m", positive(remainDistanceM))
+                .num("remain_time_sec", positive(remainTimeSec))
+                .num("moved_distance_m", positive(movedDistanceM))
+                .num("moved_time_sec", positive(movedTimeSec))
+                .num("total_distance_m", positive(totalDistanceM))
+                .raw("polyline", polylineJson);
+        return o.isEmpty() ? null : o.build();
+    }
+
+    /** CarrotUtilj.getV2JsonSnapshot 의 navigation_status. */
+    static String status(boolean guiding, boolean offRoute, boolean routePresent) {
+        return new Obj().str("mode", offRoute ? "off_route" : guiding ? "guiding" : "idle")
+                .bool("guidance_active", guiding).bool("off_route", offRoute)
+                .bool("route_present", routePresent).build();
+    }
+
+    // ---- 신호등(TrafficSignal) ------------------------------------------------
 
     // TrafficSignalInfo.MOVEMENT_* (티맵 C-ITS)
     static final int MOVE_STRAIGHT = 1, MOVE_LEFT = 2, MOVE_PEDESTRIAN = 3, MOVE_BICYCLE = 4,
             MOVE_RIGHT = 5, MOVE_BUS = 6, MOVE_UTURN = 7;
 
-    /** 차량이 따르는 진행 방향만 보낸다(보행자·자전거·버스 신호 제외). */
+    /** 패치판 Movements 필드 이름. */
     static String movementName(int movement) {
         switch (movement) {
             case MOVE_STRAIGHT: return "straight";
             case MOVE_LEFT: return "left";
+            case MOVE_PEDESTRIAN: return "pedestrian";
+            case MOVE_BICYCLE: return "bicycle";
             case MOVE_RIGHT: return "right";
+            case MOVE_BUS: return "bus";
             case MOVE_UTURN: return "uturn";
             default: return null;
         }
     }
 
-    /**
-     * TrafficSignalInfo.EVENT_STATE_* 를 navigation_route._signal_phase 가 읽는
-     * 이름으로 바꾼다. 티맵 isGreenLight(5|6), isRedLight(2|3) 와 같은 구분.
-     */
+    static boolean isVehicleMovement(int movement) {
+        return movement == MOVE_STRAIGHT || movement == MOVE_LEFT || movement == MOVE_RIGHT
+                || movement == MOVE_UTURN;
+    }
+
+    /** TrafficSignalInfo.EVENT_STATE_* 이름. */
     static String lightStateName(int state) {
         switch (state) {
             case 1: return "dark";
@@ -164,7 +296,7 @@ final class TmapJson {
         }
     }
 
-    /** HUD 신호등 그림 색. COLOR_RED/YELLOW/GREEN, 모르면 COLOR_NONE. */
+    /** HUD 신호등 그림 색. 티맵 isGreenLight(5|6), isRedLight(2|3). */
     static int lightColor(int state) {
         switch (state) {
             case 2: case 3: return COLOR_RED;
@@ -174,50 +306,13 @@ final class TmapJson {
         }
     }
 
-    static boolean isFlashingOrDark(int state) {
-        return state == 1 || state == 2 || state == 7;
-    }
-
-    /**
-     * movements/states/remains 는 같은 길이. elapsedSec 만큼 잔여초를 줄인다
-     * (티맵도 수신 뒤 1초마다 줄여서 표시한다).
-     */
-    static String signal(int distanceM, int[] movements, int[] states, int[] remains, int elapsedSec) {
-        StringBuilder entries = new StringBuilder("[");
-        boolean blink = true;
-        int count = 0;
-        int n = movements == null ? 0 : movements.length;
-        for (int i = 0; i < n; i++) {
-            String guide = movementName(movements[i]);
-            if (guide == null) continue;
-            int state = states[i];
-            if (!isFlashingOrDark(state)) blink = false;
-            if (count++ > 0) entries.append(',');
-            entries.append("{\"guide\":").append(quote(guide))
-                    .append(",\"state\":").append(quote(lightStateName(state)))
-                    .append(",\"remaining_sec\":").append(Math.max(0, remains[i] - Math.max(0, elapsedSec)))
-                    .append(",\"movement\":").append(movements[i])
-                    .append(",\"light_state\":").append(state).append('}');
-        }
-        if (count == 0) return emptySignal();
-        return "{\"source\":\"TMAP\",\"distance_m\":" + Math.max(0, distanceM)
-                + ",\"blink\":" + blink + ",\"signals\":" + entries.append(']') + "}";
-    }
-
-    static String emptySignal() {
-        return "{\"source\":\"TMAP\",\"signals\":[]}";
-    }
-
-    /**
-     * HUD 신호등 그림에 쓸 방향: 직진, 없으면 진행 방향이 하나뿐일 때 그것.
-     * 반환값은 배열 인덱스, 없으면 -1.
-     */
+    /** HUD 신호등 그림에 쓸 방향: 직진, 없으면 차량 진행 방향이 하나뿐일 때 그것. 없으면 -1. */
     static int displayIndex(int[] movements) {
         int only = -1, vehicleMoves = 0;
         int n = movements == null ? 0 : movements.length;
         for (int i = 0; i < n; i++) {
             if (movements[i] == MOVE_STRAIGHT) return i;
-            if (movementName(movements[i]) != null) {
+            if (isVehicleMovement(movements[i])) {
                 vehicleMoves++;
                 only = i;
             }
@@ -225,16 +320,100 @@ final class TmapJson {
         return vehicleMoves == 1 ? only : -1;
     }
 
+    static int subtractElapsed(int value, int elapsedSec) {
+        return Math.max(0, value - Math.max(0, elapsedSec));
+    }
+
+    /** CarrotUiStateData.distanceAfterElapsed: 수신 뒤 차량 속도로 간 거리를 뺀다. */
+    static int distanceAfterElapsed(int baseDistanceM, int speedKph, int elapsedSec) {
+        int moved = (int) Math.round((Math.max(0, speedKph) / 3.6) * Math.max(0, elapsedSec));
+        return Math.max(0, baseDistanceM - moved);
+    }
+
+    /** 두 점 사이 거리(m). 하나라도 없으면 -1. */
+    static int distanceMeters(double lat1, double lon1, double lat2, double lon2) {
+        if ((lat1 == 0.0 && lon1 == 0.0) || (lat2 == 0.0 && lon2 == 0.0)) return -1;
+        double r = 6371000.0;
+        double p1 = Math.toRadians(lat1), p2 = Math.toRadians(lat2);
+        double dp = p2 - p1, dl = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(dp / 2) * Math.sin(dp / 2)
+                + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+        return (int) Math.round(2 * r * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+    }
+
+    /**
+     * TrafficSignal(source "signal_event") 를 만든다. lights 는 {red,left,green,right,uturn}
+     * 순서의 켜짐·잔여초(TrafficSignalInfo), movements 는 SignalState 목록. elapsedSec 만큼
+     * 잔여초를 줄인다. distanceM 은 이미 계산한 현재 거리. 표시할 수 없으면 null
+     * (패치판 prepareForSend: 60초 경과·5m 이내 통과·남은 초 없음).
+     */
+    static String signal(boolean[] lightsOn, int[] lightsRemain, int[] movements, int[] states,
+                         int[] remains, int distanceM, double lat, double lon, long ageMs) {
+        int elapsed = (int) (Math.max(0L, ageMs) / 1000L);
+        boolean anyRemaining = false;
+        String lights = null;
+        if (lightsOn != null) {
+            String[] names = {"red", "left", "green", "right", "uturn"};
+            Obj o = new Obj();
+            for (int i = 0; i < names.length; i++) {
+                int remain = subtractElapsed(lightsRemain[i], elapsed);
+                anyRemaining |= remain > 0;
+                o.raw(names[i], new Obj().bool("on", lightsOn[i]).num("remain_sec", remain).build());
+            }
+            lights = o.build();
+        }
+        String movementJson = null;
+        if (movements != null && movements.length > 0) {
+            Obj o = new Obj();
+            for (int i = 0; i < movements.length; i++) {
+                String name = movementName(movements[i]);
+                if (name == null) continue;
+                int remain = subtractElapsed(remains[i], elapsed);
+                anyRemaining |= remain > 0;
+                o.raw(name, new Obj().str("state", lightStateName(states[i])).num("code", states[i])
+                        .num("remain_sec", remain).build());
+            }
+            if (!o.isEmpty()) movementJson = o.build();
+        }
+        if (lights == null && movementJson == null) return null;
+        boolean expired = ageMs > MAX_TRAFFIC_SIGNAL_AGE_MS;
+        boolean passed = distanceM >= 0 && distanceM <= TRAFFIC_SIGNAL_PASS_DISTANCE_M;
+        if (expired || passed || !anyRemaining) return null;
+        return new Obj().bool("visible", true).str("source", "signal_event")
+                .num("distance_m", distanceM >= 0 ? Integer.valueOf(distanceM) : null)
+                .num("last_update_age_ms", Long.valueOf(Math.max(0L, ageMs)))
+                .raw("point", point(lat, lon)).raw("lights", lights).raw("movements", movementJson)
+                .build();
+    }
+
     // ---- 공통 -----------------------------------------------------------------
 
+    /**
+     * 패치판 compactRoutePoints: 전체 경로를 ceil(n/256) 간격으로 고르고 마지막 점을 더한다.
+     */
     static String polyline(double[] lats, double[] lons, int count) {
-        StringBuilder out = new StringBuilder(count * 40 + 2).append('[');
-        for (int i = 0; i < count; i++) {
-            if (i > 0) out.append(',');
-            out.append("{\"lat\":").append(decimal(lats[i]))
-                    .append(",\"lon\":").append(decimal(lons[i])).append('}');
+        if (count <= 0) return null;
+        int step = Math.max(1, (int) Math.ceil(count / (double) ROUTE_MAX_POINTS));
+        StringBuilder out = new StringBuilder(64 * (count / step + 2)).append('[');
+        int n = 0;
+        for (int i = 0; i < count; i += step) {
+            if (n++ > 0) out.append(',');
+            out.append("{\"lat\":").append(decimal(lats[i])).append(",\"lon\":").append(decimal(lons[i])).append('}');
+        }
+        int last = count - 1;
+        if (last % step != 0) {
+            out.append(",{\"lat\":").append(decimal(lats[last])).append(",\"lon\":").append(decimal(lons[last])).append('}');
         }
         return out.append(']').toString();
+    }
+
+    /**
+     * 티맵 상단 TBT 의 두 번째 안내 거리(nSvcLinkDist, 없으면 두 안내 거리 차).
+     * TBT 그림(tbt_next)에만 쓴다. JSON 의 guidance_next 는 패치판처럼 nTBTDist 그대로다.
+     */
+    static int nextSegmentDistance(int svcLinkDist, int nextFromVehicle, int currentFromVehicle) {
+        if (svcLinkDist > 0) return svcLinkDist;
+        return Math.max(0, nextFromVehicle - currentFromVehicle);
     }
 
     static String ints(int[] values, int n) {
@@ -247,7 +426,12 @@ final class TmapJson {
     }
 
     static String decimal(double value) {
-        return Double.isFinite(value) ? String.format(Locale.US, "%.7f", value) : "0";
+        if (!Double.isFinite(value)) return "0";
+        String s = String.format(Locale.US, "%.7f", value);
+        // 불필요한 0 을 줄인다(1.5000000 → 1.5, 3.0000000 → 3.0).
+        int end = s.length();
+        while (end > 0 && s.charAt(end - 1) == '0' && s.indexOf('.') >= 0 && end - 1 > s.indexOf('.') + 1) end--;
+        return s.substring(0, end);
     }
 
     static String text(String value) {
@@ -255,7 +439,7 @@ final class TmapJson {
     }
 
     static String quote(String value) {
-        String s = text(value);
+        String s = value == null ? "" : value;
         StringBuilder out = new StringBuilder(s.length() + 2).append('"');
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
