@@ -22,6 +22,19 @@ EON vehicle 스트림엔 `KNMCoordinateSystem.INSTANCE.katecToWGS84(x,y)` 로 �
 WGS84 lat/lon 을 싣는다.
 
 ## 지도
+### 지도 엔진 직접 렌더(KNMMapSurface, 기본)
+티맵(TmapMapRender)·네이버(NaverMapRender)와 같은 방식이다. 안드로이드 오토 지도
+(`NPMapSurfaceV2`)가 쓰는 `KNMMapSurface(Surface, Context, KNMScene)` 를 720×432
+`ImageReader` 표면에 하나 더 만들고 `init(KNMPoint, KNMTheme?, Float?, Function1)` 으로
+초기화한다. 엔진이 자기 렌더 스레드에서 계속 그리고, 모듈은 메인 스레드 100ms 마다
+카메라(`moveCamera(update, false)`)·경로(`setRoutes`)·테마(`setTheme`)만 넣는다. 들어온
+프레임은 최대 5fps 로 JPEG 전송하고, 지도가 멈춰 새 프레임이 없으면 마지막 프레임을
+다시 보낸다. 카메라·경로·테마·차량 화살표 계산은 아래 캡처러 방식과 같다.
+4.51.1 디컴파일로 이름을 확인했다(실기 미검증). 생성 실패, 8초 안에 init 콜백이 없거나
+첫 프레임이 없으면 아래 캡처러로 자동 전환한다. 단계는 LSPosed 로그에도
+`KakaoHud: map render ...` 로 남는다.
+
+### 캡처러(KNMMapCapturer, 예비)
 카카오 SDK 내장 **오프스크린 캡처러 KNMMapCapturer** 를 모듈이 직접 생성한다.
 카카오 4.51.0의 주행 화면에 연결된 `KNUCameraPositionState`에서 실제 카메라의
 위치·확대·방향·기울기를 읽어 캡처러에 우선 적용한다. 화면 카메라가 없거나 차량

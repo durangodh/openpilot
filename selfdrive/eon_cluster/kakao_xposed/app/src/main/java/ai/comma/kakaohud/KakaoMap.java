@@ -130,6 +130,7 @@ final class KakaoMap {
         handler = new Handler(thread.getLooper());
         handler.post(this::loop);
         mainHandler.post(this::pollScreenCameraOnMain);
+        mainHandler.post(this::surfaceLoop);
     }
 
     // 카카오 화면 지도의 카메라 게터(KNMScene.getCoordinate/getZoom/...)는 화면 scene
@@ -313,6 +314,7 @@ final class KakaoMap {
     }
 
     private void tick() {
+        if (surfaceMode) return;   // KNMMapSurface 렌더러가 담당(실패하면 false 로 바뀐다)
         if (!client.ready() || !hasPose) return;
 
         long now = System.currentTimeMillis();
@@ -336,50 +338,7 @@ final class KakaoMap {
             applyRouteIfNeeded();
             applyThemeIfNeeded();
 
-            // Prefer Kakao's attached screen camera, as TMAP app_sync does.
-            // A distant camera is likely a preview/search map, not the driving map.
-            ScreenCamera screen = screenCameraSnapshot();
-            boolean screenSync = screen != null && Double.isFinite(screen.x)
-                    && Double.isFinite(screen.y)
-                    && Math.hypot(screen.x - curX, screen.y - curY) < 300.0;
-            if (screenSync && !screenCameraLogged) {
-                screenCameraLogged = true;
-                KakaoHudLog.line("screen camera sync active zoom=" + screen.zoom
-                        + " tilt=" + screen.tilt + " bearing=" + screen.bearing
-                        + " anchor=" + screen.anchorX + "," + screen.anchorY
-                        + " poseDeltaM=" + (int) Math.hypot(screen.x - curX, screen.y - curY));
-            }
-            markerAnchorX = screenSync ? screen.anchorX : ANCHOR_X;
-            // 세로 anchor 는 항상 우리 값으로 둔다. 카카오 화면 anchor(중앙 근처)를
-            // 그대로 따르면 지나온 경로가 차량 뒤(화면 아래)에 남는다.
-            markerAnchorY = ANCHOR_Y;
-
-            // KATEC 은 미터 단위(x 동쪽, y 북쪽), 방위는 북쪽 기준 시계방향이다.
-            double leadM = speedKph >= 3.0 ? speedKph / 3.6 * LEAD_S : 0.0;
-            double rad = Math.toRadians(curBearing);
-            double drawX = screenSync ? screen.x : curX + leadM * Math.sin(rad);
-            double drawY = screenSync ? screen.y : curY + leadM * Math.cos(rad);
-            Object point = katecPoint.invoke(pointCompanion, drawX, drawY);
-            Object update = targetTo.invoke(cameraCompanion, point);
-            if (anchorTo != null) {
-                update = anchorTo.invoke(update,
-                        new android.graphics.PointF(markerAnchorX, markerAnchorY));
-            }
-            float bearing = screenSync && screen.bearing != null
-                    && Float.isFinite(screen.bearing) ? screen.bearing : (float) curBearing;
-            float tilt = screenSync && screen.tilt != null
-                    && Float.isFinite(screen.tilt) ? screen.tilt : TILT;
-            update = bearingTo.invoke(update, bearing);
-            update = tiltTo.invoke(update, tilt);
-            int scale = scaleIndex();
-            if (scale != lastScaleIndex) {
-                lastScaleIndex = scale;
-                KakaoHudLog.status("map scale idx=" + scale + " zoom=" + DRIVE_ZOOM[scale]
-                        + " spd=" + (int) speedKph + " turn=" + turnDistanceM);
-            }
-            float zoom = screenSync && screen.zoom != null && Float.isFinite(screen.zoom)
-                    && screen.zoom > 0.0f ? screen.zoom : DRIVE_ZOOM[scale];
-            update = zoomTo.invoke(update, zoom);
+            Object update = buildCameraUpdate();
             moveCameraMethod.invoke(capturer, update);
 
             long t0 = android.os.SystemClock.elapsedRealtime();
@@ -430,6 +389,55 @@ final class KakaoMap {
         }
     }
 
+    /** 화면 카메라(가까우면) 또는 위치·속도 추정으로 이번 프레임의 카메라를 만든다. */
+    private Object buildCameraUpdate() throws Exception {
+        // Prefer Kakao's attached screen camera, as TMAP app_sync does.
+        // A distant camera is likely a preview/search map, not the driving map.
+        ScreenCamera screen = screenCameraSnapshot();
+        boolean screenSync = screen != null && Double.isFinite(screen.x)
+                && Double.isFinite(screen.y)
+                && Math.hypot(screen.x - curX, screen.y - curY) < 300.0;
+        if (screenSync && !screenCameraLogged) {
+            screenCameraLogged = true;
+            KakaoHudLog.line("screen camera sync active zoom=" + screen.zoom
+                    + " tilt=" + screen.tilt + " bearing=" + screen.bearing
+                    + " anchor=" + screen.anchorX + "," + screen.anchorY
+                    + " poseDeltaM=" + (int) Math.hypot(screen.x - curX, screen.y - curY));
+        }
+        markerAnchorX = screenSync ? screen.anchorX : ANCHOR_X;
+        // 세로 anchor 는 항상 우리 값으로 둔다. 카카오 화면 anchor(중앙 근처)를
+        // 그대로 따르면 지나온 경로가 차량 뒤(화면 아래)에 남는다.
+        markerAnchorY = ANCHOR_Y;
+
+        // KATEC 은 미터 단위(x 동쪽, y 북쪽), 방위는 북쪽 기준 시계방향이다.
+        double leadM = speedKph >= 3.0 ? speedKph / 3.6 * LEAD_S : 0.0;
+        double rad = Math.toRadians(curBearing);
+        double drawX = screenSync ? screen.x : curX + leadM * Math.sin(rad);
+        double drawY = screenSync ? screen.y : curY + leadM * Math.cos(rad);
+        Object point = katecPoint.invoke(pointCompanion, drawX, drawY);
+        Object update = targetTo.invoke(cameraCompanion, point);
+        if (anchorTo != null) {
+            update = anchorTo.invoke(update,
+                    new android.graphics.PointF(markerAnchorX, markerAnchorY));
+        }
+        float bearing = screenSync && screen.bearing != null
+                && Float.isFinite(screen.bearing) ? screen.bearing : (float) curBearing;
+        float tilt = screenSync && screen.tilt != null
+                && Float.isFinite(screen.tilt) ? screen.tilt : TILT;
+        update = bearingTo.invoke(update, bearing);
+        update = tiltTo.invoke(update, tilt);
+        int scale = scaleIndex();
+        if (scale != lastScaleIndex) {
+            lastScaleIndex = scale;
+            KakaoHudLog.status("map scale idx=" + scale + " zoom=" + DRIVE_ZOOM[scale]
+                    + " spd=" + (int) speedKph + " turn=" + turnDistanceM);
+        }
+        float zoom = screenSync && screen.zoom != null && Float.isFinite(screen.zoom)
+                && screen.zoom > 0.0f ? screen.zoom : DRIVE_ZOOM[scale];
+        update = zoomTo.invoke(update, zoom);
+        return update;
+    }
+
     private void initCapturer() {
         try {
             float density = context.getResources().getDisplayMetrics().density;
@@ -440,13 +448,30 @@ final class KakaoMap {
             capturer = ctor.newInstance(context, density, 1.0f);
             captureMethod = capClass.getMethod("capture", int.class, int.class);
             setRoutesMethod = capClass.getMethod("setRoutes", List.class);
+            initCameraReflection();
+            Class<?> updClass = cl.loadClass("com.kakaomobility.knmsdk.camera.KNMCameraUpdate");
+            moveCameraMethod = capClass.getMethod("moveCamera", updClass);
+            setThemeMethod = null;
+            appliedSdkRoute = null;
 
+            // 새 캡처러에는 테마를 다시 적용한다(applyThemeIfNeeded).
+            appliedTheme = null;
+
+            KakaoHudLog.line("KNMMapCapturer created (density=" + density + ")");
+        } catch (Throwable t) {
+            KakaoHudLog.ex("initCapturer", t);
+            capturer = null;
+        }
+    }
+
+    /** 카메라·좌표·경로 변환 리플렉션(캡처러·서피스 공용). */
+    private void initCameraReflection() throws Exception {
+        {
             // 카카오 앱이 실제 주행 지도에 사용하는 동일 변환기.
             Class<?> routeConverter = cl.loadClass("com.kakaomobility.knmsdk.fl0.g");
             convertRoutesMethod = routeConverter.getMethod("f", List.class);
 
             Class<?> updClass = cl.loadClass("com.kakaomobility.knmsdk.camera.KNMCameraUpdate");
-            moveCameraMethod = capClass.getMethod("moveCamera", updClass);
 
             // KNMCameraUpdate 정적 빌더(Companion). INSTANCE 필드로 접근.
             cameraCompanion = kotlinCompanion(updClass);
@@ -465,14 +490,6 @@ final class KakaoMap {
 
             pointCompanion = kotlinCompanion(pointClass);
             katecPoint = pointCompanion.getClass().getMethod("katec", double.class, double.class);
-
-            // 새 캡처러에는 테마를 다시 적용한다(applyThemeIfNeeded).
-            appliedTheme = null;
-
-            KakaoHudLog.line("KNMMapCapturer created (density=" + density + ")");
-        } catch (Throwable t) {
-            KakaoHudLog.ex("initCapturer", t);
-            capturer = null;
         }
     }
 
@@ -493,11 +510,224 @@ final class KakaoMap {
                 }
                 mapRoutes = (List<?>) converted;
             }
-            setRoutesMethod.invoke(capturer, mapRoutes);
+            setRoutesMethod.invoke(mapTarget(), mapRoutes);
             appliedSdkRoute = route;
             KakaoHudLog.line("map route applied count=" + mapRoutes.size());
         } catch (Throwable t) {
             KakaoHudLog.ex("map route", t);
+        }
+    }
+
+    // ---- 지도 엔진 직접 렌더(KNMMapSurface) ----
+    // 안드로이드 오토 지도(NPMapSurfaceV2)가 쓰는 KNMMapSurface 를 ImageReader 표면에 하나
+    // 더 만든다. 엔진이 자기 렌더 스레드에서 계속 그리고, 우리는 카메라·경로·테마만
+    // 넣는다(티맵 TmapMapRender, 네이버 NaverMapRender 와 같은 방식). 매 프레임
+    // capture() 로 찍는 캡처러보다 가볍고 끊김이 적다. 실패하면 캡처러로 돌아간다.
+    private static final long SURFACE_TICK_MS = 100;
+    private static final long SURFACE_FRAME_MS = 200;        // 최대 5fps 전송
+    private static final long SURFACE_READY_TIMEOUT_MS = 8000;
+    private static final long SURFACE_FRAME_TIMEOUT_MS = 8000;
+    private volatile boolean surfaceMode = true;
+    private Object mapSurface;                 // KNMMapSurface
+    private android.media.ImageReader reader;
+    private HandlerThread imageThread;
+    private Handler imageHandler;
+    private volatile boolean surfaceReady;
+    private long surfaceCreatedAt, surfaceReadyAt;
+    private volatile long surfaceFrameAt;
+    private volatile byte[] lastSurfaceJpeg;
+    private long lastSurfaceEncodeAt;
+    private long surfaceFrames;
+    private long nextSurfaceAttemptMs;
+
+    private Object mapTarget() {
+        return surfaceMode ? mapSurface : capturer;
+    }
+
+    /** 메인 스레드 100ms 주기: 서피스 생성·카메라·경로·테마. */
+    private void surfaceLoop() {
+        if (!surfaceMode) return;   // 캡처러로 넘어갔다
+        try {
+            surfaceTick();
+        } catch (Throwable t) {
+            failSurface("tick", t);
+        }
+        if (surfaceMode) mainHandler.postDelayed(this::surfaceLoop, SURFACE_TICK_MS);
+    }
+
+    private void surfaceTick() throws Exception {
+        if (!client.ready() || !hasPose) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (mapSurface == null) {
+            if (now >= nextSurfaceAttemptMs) {
+                nextSurfaceAttemptMs = now + INIT_RETRY_MS;
+                initSurface();
+            }
+            return;
+        }
+        if (!surfaceReady) {
+            if (now - surfaceCreatedAt > SURFACE_READY_TIMEOUT_MS) {
+                failSurface("init timeout", null);
+            }
+            return;
+        }
+        applyRouteIfNeeded();
+        applyThemeIfNeeded();
+        moveCameraMethod.invoke(mapSurface, buildCameraUpdate(), false);
+        if (surfaceFrames == 0 && now - surfaceReadyAt > SURFACE_FRAME_TIMEOUT_MS) {
+            failSurface("no frames", null);
+        }
+    }
+
+    private void initSurface() throws Exception {
+        if (cl == null || context == null) return;
+        initCameraReflection();
+        Class<?> surfaceClass = cl.loadClass("com.kakaomobility.knmsdk.KNMMapSurface");
+        Class<?> sceneClass = cl.loadClass("com.kakaomobility.knmsdk.scene.KNMScene");
+        Class<?> pointClass = cl.loadClass("com.kakaomobility.knmsdk.utils.KNMPoint");
+        Class<?> themeClass = cl.loadClass("com.kakaomobility.knmsdk.configurations.KNMTheme");
+        Class<?> updClass = cl.loadClass("com.kakaomobility.knmsdk.camera.KNMCameraUpdate");
+        Class<?> function1 = cl.loadClass("kotlin.jvm.functions.Function1");
+
+        imageThread = new HandlerThread("kakao-hud-map-render");
+        imageThread.start();
+        imageHandler = new Handler(imageThread.getLooper());
+        reader = android.media.ImageReader.newInstance(WIDTH, HEIGHT,
+                android.graphics.PixelFormat.RGBA_8888, 3);
+        reader.setOnImageAvailableListener(this::onSurfaceImage, imageHandler);
+
+        Object scene = sceneClass.getConstructor(Context.class, boolean.class).newInstance(context, true);
+        mapSurface = surfaceClass.getConstructor(android.view.Surface.class, Context.class, sceneClass)
+                .newInstance(reader.getSurface(), context, scene);
+        surfaceCreatedAt = android.os.SystemClock.elapsedRealtime();
+        surfaceReady = false;
+        surfaceFrames = 0;
+        moveCameraMethod = surfaceClass.getMethod("moveCamera", updClass, boolean.class);
+        setRoutesMethod = surfaceClass.getMethod("setRoutes", List.class);
+        setThemeMethod = null;
+        appliedTheme = null;
+        appliedSdkRoute = null;
+
+        final Object target = mapSurface;
+        Object complete = java.lang.reflect.Proxy.newProxyInstance(cl, new Class<?>[]{function1},
+                (proxy, method, args) -> {
+                    if ("invoke".equals(method.getName())) {
+                        final Object error = args == null || args.length == 0 ? null : args[0];
+                        mainHandler.post(() -> onSurfaceInit(target, error));
+                        return kotlinUnit();
+                    }
+                    switch (method.getName()) {
+                        case "hashCode": return System.identityHashCode(proxy);
+                        case "equals": return args != null && args.length == 1 && proxy == args[0];
+                        default: return "KakaoHudSurfaceInit";
+                    }
+                });
+        Object start = katecPoint.invoke(pointCompanion, curX, curY);
+        surfaceClass.getMethod("init", pointClass, themeClass, Float.class, function1)
+                .invoke(mapSurface, start, null, null, complete);
+        KakaoHudLog.xposed("map render surface created " + WIDTH + "x" + HEIGHT);
+    }
+
+    private void onSurfaceInit(Object target, Object error) {
+        if (target != mapSurface || !surfaceMode) return;
+        if (error != null) {
+            failSurface("init error " + error, null);
+            return;
+        }
+        try {
+            mapSurface.getClass().getMethod("resume").invoke(mapSurface);
+        } catch (Throwable ignored) {
+            // resume 은 렌더 루프를 깨우는 보조 호출이다.
+        }
+        surfaceReady = true;
+        surfaceReadyAt = android.os.SystemClock.elapsedRealtime();
+        imageHandler.postDelayed(this::surfaceRepeatLoop, SURFACE_FRAME_MS);
+        KakaoHudLog.xposed("map render surface ready");
+    }
+
+    /** ImageReader 스레드. 최대 5fps 로 JPEG 인코딩·전송. */
+    private void onSurfaceImage(android.media.ImageReader r) {
+        android.media.Image image = null;
+        try {
+            image = r.acquireLatestImage();
+            if (image == null || !surfaceMode) return;
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (now - lastSurfaceEncodeAt < (SURFACE_FRAME_MS * 9) / 10) return;
+            lastSurfaceEncodeAt = now;
+            android.media.Image.Plane plane = image.getPlanes()[0];
+            int w = image.getWidth(), h = image.getHeight();
+            Bitmap padded = Bitmap.createBitmap(plane.getRowStride() / plane.getPixelStride(), h,
+                    Bitmap.Config.ARGB_8888);
+            padded.copyPixelsFromBuffer(plane.getBuffer());
+            Bitmap frame = padded.getWidth() == w ? padded : Bitmap.createBitmap(padded, 0, 0, w, h);
+            if (frame == padded) {
+                // 차량 표시는 캡처러 때와 같이 anchor 위치에 화살표로 그린다.
+                drawVehicleMarker(frame);
+            } else {
+                frame = frame.copy(Bitmap.Config.ARGB_8888, true);
+                drawVehicleMarker(frame);
+            }
+            ByteArrayOutputStream out = new ByteArrayOutputStream(80000);
+            frame.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out);
+            if (frame != padded) frame.recycle();
+            padded.recycle();
+            byte[] jpeg = out.toByteArray();
+            lastSurfaceJpeg = jpeg;
+            surfaceFrameAt = now;
+            if (client.ready()) client.sendMap(jpeg);
+            if (++surfaceFrames == 1) {
+                KakaoHudLog.xposed("first rendered map frame sent " + w + "x" + h + " " + jpeg.length + "B");
+            } else if (surfaceFrames % 300 == 0) {
+                KakaoHudLog.line("rendered map frames: " + surfaceFrames);
+            }
+        } catch (Throwable t) {
+            KakaoHudLog.status("map render frame: " + t);
+        } finally {
+            if (image != null) image.close();
+        }
+    }
+
+    /** 지도가 멈춰 있으면 엔진이 새로 안 그린다. 마지막 프레임을 다시 보내 EON 이 지우지 않게. */
+    private void surfaceRepeatLoop() {
+        if (!surfaceMode) return;
+        byte[] last = lastSurfaceJpeg;
+        if (last != null && client.ready()
+                && android.os.SystemClock.elapsedRealtime() - surfaceFrameAt >= SURFACE_FRAME_MS * 2) {
+            client.sendMap(last);
+        }
+        Handler h = imageHandler;
+        if (h != null) h.postDelayed(this::surfaceRepeatLoop, SURFACE_FRAME_MS);
+    }
+
+    /** 서피스 렌더를 접고 캡처러(기존 방식)로 넘긴다. 메인 스레드. */
+    private void failSurface(String where, Throwable error) {
+        KakaoHudLog.xposed("map render " + where + " failed (falling back to KNMMapCapturer)"
+                + (error == null ? "" : ": " + error));
+        surfaceMode = false;
+        surfaceReady = false;
+        Object surface = mapSurface;
+        mapSurface = null;
+        try { if (surface != null) surface.getClass().getMethod("destroySurface").invoke(surface); } catch (Throwable ignored) { }
+        try { if (surface != null) surface.getClass().getMethod("destroy").invoke(surface); } catch (Throwable ignored) { }
+        try { if (reader != null) reader.close(); } catch (Throwable ignored) { }
+        try { if (imageThread != null) imageThread.quitSafely(); } catch (Throwable ignored) { }
+        reader = null;
+        imageThread = null;
+        imageHandler = null;
+        lastSurfaceJpeg = null;
+        // 캡처러 쪽 상태를 처음부터 다시 잡는다.
+        moveCameraMethod = null;
+        setRoutesMethod = null;
+        setThemeMethod = null;
+        appliedTheme = null;
+        appliedSdkRoute = null;
+    }
+
+    private Object kotlinUnit() {
+        try {
+            return cl.loadClass("kotlin.Unit").getField("INSTANCE").get(null);
+        } catch (Throwable t) {
+            return null;
         }
     }
 
@@ -548,7 +778,7 @@ final class KakaoMap {
         try {
             if (setThemeMethod == null) {
                 Class<?> themeClass = cl.loadClass("com.kakaomobility.knmsdk.configurations.KNMTheme");
-                setThemeMethod = capturer.getClass().getMethod("setTheme", themeClass);
+                setThemeMethod = mapTarget().getClass().getMethod("setTheme", themeClass);
             }
             Object screen = latestScreenTheme;
             boolean fromScreen = screen != null && android.os.SystemClock.elapsedRealtime()
@@ -567,7 +797,7 @@ final class KakaoMap {
                 }
             }
             if (desired == null || desired == appliedTheme) return;
-            setThemeMethod.invoke(capturer, desired);
+            setThemeMethod.invoke(mapTarget(), desired);
             appliedTheme = desired;
             KakaoHudLog.status("theme applied: " + (fromScreen ? "screen" : (night ? "night(sun)" : "day(sun)")));
         } catch (Throwable t) {
