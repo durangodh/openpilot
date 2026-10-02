@@ -155,13 +155,16 @@ final class NaverBridge {
         Object turn = call(detail, "s");
         int raw = (int) NaverCodes.number(call(turn, "getValue"));
         int mapped = NaverCodes.turnType(raw, String.valueOf(turn));
-        // The road name is optional in 6.10 (for example at unnamed turns).
-        // Use the maneuver direction in that case; never render Java's "null".
-        String name = text(call(detail, "v"));
-        if (name.isEmpty()) name = text(call(detail, "n"));
+        // TbtDataItem (6.10): n() = direction (방면, comma separated), v() = roadName.
+        // Naver's own TBT banner (TbtComponent) shows n(), so main_text follows it like
+        // TMAP's szTBTMainText and Kakao's node name; the road name is the fallback.
+        // Never render Java's "null".
+        String road = text(call(detail, "v"));
+        String towards = text(call(detail, "n")).replaceAll("\\s*,\\s*", ", ").trim();
+        String main = towards.isEmpty() ? road : towards;
         return "{\"source\":\"NAVER\",\"distance_m\":" + NaverCodes.round(NaverCodes.number(call(direction, "h")))
                 + ",\"turn_type\":" + mapped + ",\"naver_turn_type\":" + raw
-                + ",\"main_text\":" + quote(name) + ",\"road_name\":" + quote(name) + "}";
+                + ",\"main_text\":" + quote(main) + ",\"road_name\":" + quote(road.isEmpty() ? main : road) + "}";
     }
 
     private static String speed(Object store, int roadLimit) {

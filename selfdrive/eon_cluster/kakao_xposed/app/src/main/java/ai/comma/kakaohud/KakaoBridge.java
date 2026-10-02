@@ -43,6 +43,7 @@ final class KakaoBridge {
     private Object lastVehicleLoc = null;
     private Object cachedCurLoc = null;
     private String cachedCurName = "";   // 방면 이름(getNodeName)
+    private String cachedNextName = "";
     private Object cachedSafetyLoc = null;
     private int cachedNextAbs = -1, cachedNextTbt = KakaoCodes.TBT_NONE;
     private boolean hasCachedGuide = false;
@@ -234,9 +235,11 @@ final class KakaoBridge {
             // 방면 이름(시범다은마을 방면 등). r60.c.getNodeName(난독화 f).
             // 카카오 화면 배너와 같은 텍스트. 도로명(getRoadName)이 아니다.
             String curNodeName = cur == null ? "" : getString(cur, "getNodeName", "f");
+            String nextNodeName = next == null ? "" : getString(next, "getNodeName", "f");
             synchronized (guideLock) {
                 cachedCurLoc = curLoc;
                 cachedCurName = curNodeName == null ? "" : curNodeName;
+                cachedNextName = nextNodeName == null ? "" : nextNodeName;
                 cachedCurAbs = curDist;
                 cachedCurTbt = curTbt;
                 cachedNextAbs = nextDist;
@@ -422,13 +425,14 @@ final class KakaoBridge {
     private void publishGuidance() {
         int curAbs, curTbt, nextAbs, nextTbt;
         Object vehicleLoc, curLoc;
-        String curName;
+        String curName, nextName;
         synchronized (guideLock) {
             if (!hasCachedGuide) return;
             curAbs = cachedCurAbs; curTbt = cachedCurTbt;
             nextAbs = cachedNextAbs; nextTbt = cachedNextTbt;
             vehicleLoc = lastVehicleLoc; curLoc = cachedCurLoc;
             curName = cachedCurName;
+            nextName = cachedNextName;
         }
         int vehicle = vehicleDistFromS;
         if (curTbt != KakaoCodes.TBT_NONE) {
@@ -447,8 +451,10 @@ final class KakaoBridge {
         if (nextTbt != KakaoCodes.TBT_NONE) {
             // 다음 안내는 현재 안내 지점부터의 구간 거리(차량 위치와 무관).
             int seg = (nextAbs > 0 && curAbs > 0) ? Math.max(0, nextAbs - curAbs) : nextAbs;
+            String nn = jsonStr(nextName == null ? "" : nextName);
             client.sendState("guidance_next",
-                    "{\"turn_type\":" + nextTbt + ",\"distance_m\":" + seg + "}");
+                    "{\"source\":\"KAKAO\",\"turn_type\":" + nextTbt + ",\"distance_m\":" + seg
+                    + ",\"main_text\":" + nn + ",\"road_name\":" + nn + "}");
         }
     }
 

@@ -837,7 +837,11 @@ def _read_navi_summary():
   next_summary = None
   if next_guide:
     try:
-      next_distance = int(round(float(next_guide.get("distance_m", 0) or 0)))
+      # display_distance_m: the phone's segment distance (TMAP); otherwise
+      # distance_m already is the segment distance (NAVER after the server
+      # correction, Kakao).
+      next_distance = int(round(float(next_guide.get(
+        "display_distance_m", next_guide.get("distance_m", 0)) or 0)))
     except (TypeError, ValueError):
       next_distance = -1
     if next_distance >= 0:

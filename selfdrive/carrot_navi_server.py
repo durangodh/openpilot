@@ -267,8 +267,8 @@ class NaviState(object):
         # NAVER's bridge reports guidance_next.distance_m as the absolute
         # distance from the vehicle (matching its internal SDK field), while
         # NAVER's own on-screen "next" banner shows the segment distance from
-        # the current turn to the next one. TMAP already sends the segment
-        # distance directly, so only NAVER needs this correction. Example:
+        # the current turn to the next one. Kakao already sends the segment
+        # distance; TMAP is handled below without changing distance_m. Example:
         # vehicle->turn1 622m, vehicle->turn2 1502m (raw) -> on-screen banner
         # shows 1502 - 622 = 880m for turn1->turn2.
         current = self.values.get("guidance_current")
@@ -281,6 +281,23 @@ class NaviState(object):
         if next_distance is not None and current_distance is not None:
           value = dict(value)
           value["distance_m"] = max(0, round(next_distance - current_distance))
+
+      if name == "guidance_next" and source == SOURCE_TMAP and isinstance(value, dict):
+        # TMAP's stGuidePointNext.nTBTDist is measured from the vehicle as well:
+        # TMAP's own second-TBT popup shows next.nTBTDist - first.nTBTDist
+        # (activity/uk.java in 11.8.3). Keep distance_m for control, which wants
+        # the distance from the vehicle, and add the on-screen segment distance
+        # for the HUD's next-turn row.
+        current = self.values.get("guidance_current")
+        try:
+          next_distance = float(value.get("distance_m"))
+          current_distance = float(current.get("distance_m")) if isinstance(current, dict) else None
+        except (TypeError, ValueError):
+          next_distance = None
+          current_distance = None
+        if next_distance is not None and current_distance is not None:
+          value = dict(value)
+          value["display_distance_m"] = max(0, round(next_distance - current_distance))
 
       self.values[name] = value
       now_ms = int(time.time() * 1000)
