@@ -82,6 +82,7 @@ def manager_init() -> None:
     ("TrafficStopMode", "2"),
     ("MixRadarInfo", "0"),
     ("LongTraceEnabled", "0"),
+    ("LatTraceEnabled", "0"),
     ("LanelessOffset", "0"),
 
     ("SccSmootherSyncGasPressed", "0"),

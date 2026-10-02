@@ -49,6 +49,8 @@ procs = [
   PythonProcess("radard", "selfdrive.controls.radard"),
   # 가벼운 가감속 기록기. LongTraceEnabled 가 꺼져 있으면 1초마다 설정만 본다.
   PythonProcess("long_trace", "selfdrive.controls.long_trace"),
+  # 가벼운 조향 기록기. LatTraceEnabled 가 꺼져 있으면 1초마다 설정만 본다.
+  PythonProcess("lat_trace", "selfdrive.controls.lat_trace"),
   PythonProcess("thermald", "selfdrive.thermald.thermald", persistent=True),
   PythonProcess("timezoned", "selfdrive.timezoned", enabled=(EON or TICI), persistent=True),
   #PythonProcess("tombstoned", "selfdrive.tombstoned", enabled=not PC, persistent=True),
