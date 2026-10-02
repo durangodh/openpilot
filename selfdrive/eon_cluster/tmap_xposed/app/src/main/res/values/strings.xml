@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TMAP HUD Bridge</string>
+    <string name="xposedmodule">true</string>
+    <string name="xposeddescription">원본 티맵 안내/지도를 EON HUD(7714)로 전달</string>
+    <string name="xposedminversion">93</string>
+</resources>

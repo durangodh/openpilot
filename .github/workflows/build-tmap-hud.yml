@@ -1,0 +1,90 @@
+name: Build TMAP HUD Xposed module
+
+concurrency:
+  group: tmap-hud-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [g_remote, g_hud, g_abcd]
+    paths:
+      - "selfdrive/eon_cluster/tmap_xposed/**"
+      - ".github/workflows/build-tmap-hud.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Host check of 7714 JSON values
+        working-directory: selfdrive/eon_cluster/tmap_xposed
+        run: |
+          javac -encoding UTF-8 -d "$RUNNER_TEMP/tmapcheck" \
+            app/src/main/java/ai/comma/tmaphud/TmapJson.java \
+            tests/ai/comma/tmaphud/TmapJsonCheck.java
+          java -Dstdout.encoding=UTF-8 -cp "$RUNNER_TEMP/tmapcheck" ai.comma.tmaphud.TmapJsonCheck
+      - name: Set version
+        run: |
+          # 확인 기준 티맵 버전. TmapHudModule.VERIFIED_VERSION 과 같아야 한다.
+          verified=$(grep -oP 'VERIFIED_VERSION = "\K[^"]+' selfdrive/eon_cluster/tmap_xposed/app/src/main/java/ai/comma/tmaphud/TmapHudModule.java)
+          echo "TMAP_HUD_VERIFIED=$verified" >> "$GITHUB_ENV"
+          echo "TMAP_HUD_VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          echo "TMAP_HUD_VERSION_NAME=0.1-tmap${verified}-b${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+      - name: Build debug APK
+        working-directory: selfdrive/eon_cluster/tmap_xposed
+        run: gradle :app:assembleDebug --stacktrace
+      - name: Sign with permanent Remote HUD key
+        env:
+          HUD_KEY_DATA: ${{ secrets.REMOTE_HUD_KEYSTORE_BASE64 }}
+          HUD_STORE_PASSWORD: ${{ secrets.REMOTE_HUD_KEYSTORE_PASSWORD }}
+          HUD_KEY_ALIAS: ${{ secrets.REMOTE_HUD_KEY_ALIAS }}
+          HUD_KEY_PASSWORD: ${{ secrets.REMOTE_HUD_KEY_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import base64, os, pathlib, subprocess
+          for key in ("HUD_KEY_DATA", "HUD_STORE_PASSWORD", "HUD_KEY_ALIAS", "HUD_KEY_PASSWORD"):
+            if not os.environ.get(key):
+              raise RuntimeError(key + " missing")
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          keystore = temp / "tmap-hud-signing.p12"
+          keystore.write_bytes(base64.b64decode(os.environ["HUD_KEY_DATA"], validate=True))
+          keystore.chmod(0o600)
+          tools = pathlib.Path(os.environ["ANDROID_HOME"]) / "build-tools/35.0.0"
+          source = pathlib.Path("selfdrive/eon_cluster/tmap_xposed/app/build/outputs/apk/debug/app-debug.apk")
+          output = temp / "TmapHud-latest.apk"
+          subprocess.run([str(tools / "apksigner"), "sign", "--ks", str(keystore),
+                          "--ks-key-alias", os.environ["HUD_KEY_ALIAS"],
+                          "--ks-pass", "env:HUD_STORE_PASSWORD", "--key-pass", "env:HUD_KEY_PASSWORD",
+                          "--out", str(output), str(source)], check=True)
+          subprocess.run([str(tools / "apksigner"), "verify", "--verbose", "--print-certs", str(output)], check=True)
+          keystore.unlink()
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tmap-hud-xposed-debug
+          path: ${{ runner.temp }}/TmapHud-latest.apk
+      - name: Publish to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset="$RUNNER_TEMP/TmapHud-latest.apk"
+          if ! gh release view tmap-hud-auto >/dev/null 2>&1; then
+            gh release create tmap-hud-auto --title "TMAP HUD Xposed module" \
+              --notes "원본 티맵 안내/지도 → EON HUD 브릿지 (LSPosed 모듈). 확인 기준 티맵 $TMAP_HUD_VERIFIED"
+          fi
+          gh release upload tmap-hud-auto "$asset" --clobber

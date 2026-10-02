@@ -1,0 +1,28 @@
+plugins { id "com.android.application" }
+
+def hudVersionCode = (System.getenv("TMAP_HUD_VERSION_CODE") ?: "1").toInteger()
+def hudVersionName = System.getenv("TMAP_HUD_VERSION_NAME") ?: "0.1"
+
+android {
+  namespace "ai.comma.tmaphud"
+  compileSdk 35
+  defaultConfig {
+    applicationId "ai.comma.tmaphud"
+    minSdk 26
+    targetSdk 35
+    versionCode hudVersionCode
+    versionName hudVersionName
+  }
+  buildTypes {
+    debug { }
+  }
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_11
+    targetCompatibility JavaVersion.VERSION_11
+  }
+}
+
+dependencies {
+  // Xposed API 는 컴파일 전용(런타임은 LSPosed 가 제공).
+  compileOnly "de.robv.android.xposed:api:82"
+}
