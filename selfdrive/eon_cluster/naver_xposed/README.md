@@ -44,9 +44,46 @@ updated in place with the original package.
   release APKs use the same signing key and increasing version codes.
 - Version policy: there is no hard version gate. On 6.10.0.16 every feature
   is enabled. On any other version only read-only features run (NaviStore
-  polling and map snapshots); the marker-size and voice-button hooks, which
-  change app behaviour through obfuscated names, stay off. The log records
+  polling and map snapshots); the marker-size and voice-button hooks and the
+  map render engine, which change app behaviour through obfuscated names,
+  stay off. The log records
   `Naver <version> verified|UNVERIFIED` and, after 20 guiding ticks, a
   `health:` line showing which obfuscated getters returned values. Turning
   off Play Store auto-update for Naver Map is still recommended so a new
   version can be checked before driving.
+
+## Map render engine (6.10.0.16 only)
+
+On the verified version `map_main` no longer comes from `NaverMap` snapshots.
+Snapshots were requested on the main thread every 200 ms, returned a
+full-screen bitmap that then had to be cropped, scaled and encoded, and could
+time out while the UI was busy, which showed up as a HUD map that paused and
+then jumped.
+
+`NaverMapRender` instead does what the patched TMAP did with its own map
+engine:
+
+- It creates a `MapSurface` (the Naver Map SDK class that Android Auto uses to
+  draw into a car surface without a View) with the app's own map options
+  (`NaverMapOptionsUtilsKt` + `AppInfo.getInstance()`), and draws it into a
+  640x384 `ImageReader`. The lifecycle order follows `MapProvider`: onCreate,
+  getMapAsync, onStart, onResume, then surfaceCreated/surfaceChanged.
+- When the map is ready it builds a second `NaverNaviUI` (Naver Navi SDK) on
+  that map with the same `GuidanceControl` as the phone guidance UI and the
+  rendering configuration from `NaviSettingManagerKt`. `NaverNaviUI`
+  subscribes to the guidance session events, so it draws the route line,
+  the vehicle and the following camera on its own.
+- It never calls `NaviStore.w1`/`NaviEngine.q`: `NaviStore` keeps a single
+  guidance UI, and attaching another map there would take the route and the
+  vehicle away from the phone screen.
+- Every 500 ms it copies the phone guidance UI's rendering mode, view mode and
+  carvatar settings, and the phone map's map type and night mode.
+- If the engine draws nothing new (map at rest), the last JPEG is re-sent at
+  the frame rate so EON does not clear the map as stale.
+- It starts once the phone guidance UI exists (during guidance). If it fails
+  it falls back to snapshots and retries after 30 s, at most three times. The
+  log shows `map render surface started`, `guidance renderer attached` and
+  `first rendered map frame sent`, or `falling back to snapshots`.
+
+Not yet verified on a device: whether two guidance renderers run side by side
+without side effects, and whether the map style matches the phone screen.

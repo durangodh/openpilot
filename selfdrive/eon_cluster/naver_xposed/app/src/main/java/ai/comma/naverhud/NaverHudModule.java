@@ -62,8 +62,10 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                                 } catch (Throwable error) {
                                     log("voice hook unavailable: " + error);
                                 }
+                                // 지도 엔진 직접 렌더(앱 내부에 안내 렌더러를 하나 더 만든다).
+                                bridge.enableMapRender(app);
                             } else {
-                                NaverHudLog.line("marker-size/voice hooks skipped on unverified version");
+                                NaverHudLog.line("marker-size/voice hooks and map render skipped on unverified version");
                             }
                             attached.set(true);
                             log("ready for Naver " + info.versionName + " hooks=" + hooks);

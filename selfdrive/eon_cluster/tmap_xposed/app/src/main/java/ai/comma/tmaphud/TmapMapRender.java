@@ -61,6 +61,9 @@ final class TmapMapRender {
     private boolean background = true;
     private long lastLocationAt;
     private long lastEncodeAt;
+    private volatile byte[] lastFrame;
+    private volatile long lastFrameAt;
+    private Handler imageHandler;
     private long sequence;
     private long frames;
     private volatile boolean night;
@@ -106,7 +109,7 @@ final class TmapMapRender {
         context = ctx;
         imageThread = new HandlerThread("tmap-hud-map-render");
         imageThread.start();
-        Handler imageHandler = new Handler(imageThread.getLooper());
+        imageHandler = new Handler(imageThread.getLooper());
         reader = ImageReader.newInstance(WIDTH, HEIGHT, PixelFormat.RGBA_8888, 3);
         reader.setOnImageAvailableListener(this::onImageAvailable, imageHandler);
 
@@ -158,6 +161,21 @@ final class TmapMapRender {
 
         syncCamera();
         main.postDelayed(this::syncLoop, 1000 / FPS);
+        imageHandler.postDelayed(this::repeatLoop, 1000 / FPS);
+    }
+
+    /**
+     * 지도가 멈춰 있으면 엔진이 새 프레임을 그리지 않을 수 있다. 패치판(emitFrameLoop)처럼
+     * 마지막 프레임을 같은 간격으로 다시 보내 EON 이 지도를 오래된 것으로 지우지 않게 한다.
+     */
+    private void repeatLoop() {
+        if (!running) return;
+        byte[] last = lastFrame;
+        if (last != null && client.ready() && SystemClock.elapsedRealtime() - lastFrameAt >= 2000L / FPS) {
+            client.sendMap(Cnv2.frame(Cnv2.TYPE_IMAGE, Cnv2.FORMAT_JPEG, sequence++, last, WIDTH, HEIGHT));
+        }
+        Handler h = imageHandler;
+        if (h != null) h.postDelayed(this::repeatLoop, 1000 / FPS);
     }
 
     // ---- MapViewInterface(NavigationManager 콜백) ----
@@ -382,7 +400,10 @@ final class TmapMapRender {
             frame.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, jpeg);
             if (frame != padded) frame.recycle();
             padded.recycle();
-            client.sendMap(Cnv2.frame(Cnv2.TYPE_IMAGE, Cnv2.FORMAT_JPEG, sequence++, jpeg.toByteArray(), w, h));
+            byte[] bytes = jpeg.toByteArray();
+            lastFrame = bytes;
+            lastFrameAt = now;
+            client.sendMap(Cnv2.frame(Cnv2.TYPE_IMAGE, Cnv2.FORMAT_JPEG, sequence++, bytes, w, h));
             if (++frames == 1) TmapHudLog.line("first rendered map frame sent");
         } catch (Throwable error) {
             TmapHudLog.status("map render frame: " + error);
@@ -396,7 +417,9 @@ final class TmapMapRender {
         try { if (imageThread != null) imageThread.quitSafely(); } catch (Throwable ignored) { }
         reader = null;
         imageThread = null;
+        imageHandler = null;
         engine = null;
+        lastFrame = null;
     }
 
     // ---- 리플렉션 ----

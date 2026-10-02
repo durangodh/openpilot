@@ -1,6 +1,7 @@
 package ai.comma.naverhud;
 
 import android.app.Activity;
+import android.content.Context;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -15,6 +16,10 @@ import java.util.concurrent.TimeUnit;
 final class NaverBridge {
     private final NaverNaviClient client = new NaverNaviClient();
     private final NaverMapCapture map = new NaverMapCapture(client);
+    // 확인한 버전에서만: 화면 스냅샷 대신 지도 엔진으로 직접 그린다.
+    private final NaverMapRender render = new NaverMapRender(client, map);
+    private volatile Context appContext;
+    private volatile boolean renderAllowed;
     // HUD 지도 신호등 칸은 PNG 자산이 와야 그려진다. 카카오처럼 직접 그려 보낸다.
     private final NaverSignal signalImage = new NaverSignal(client);
     private final ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -67,6 +72,11 @@ final class NaverBridge {
         }
     }
 
+    void enableMapRender(Context app) {
+        appContext = app;
+        renderAllowed = true;
+    }
+
     void setActivity(Activity activity) {
         map.addActivity(activity);
     }
@@ -78,6 +88,7 @@ final class NaverBridge {
     private void tick() {
         Object current = store;
         if (current == null || !client.ready()) return;
+        if (renderAllowed) render.maybeStart(appContext, current);
         try {
             publish(current);
         } catch (Throwable error) {

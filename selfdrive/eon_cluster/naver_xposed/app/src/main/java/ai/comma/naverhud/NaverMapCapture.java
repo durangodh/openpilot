@@ -47,6 +47,8 @@ final class NaverMapCapture {
     });
     private final AtomicBoolean posted = new AtomicBoolean();
     private final AtomicBoolean started = new AtomicBoolean();
+    // 지도 엔진 렌더(NaverMapRender)가 돌면 스냅샷은 쉰다.
+    private volatile boolean suspended;
     private final List<WeakReference<Activity>> activities = new ArrayList<>();
     private volatile Object provider;
     private Object activeMap;
@@ -76,8 +78,12 @@ final class NaverMapCapture {
         }
     }
 
+    void setSuspended(boolean value) {
+        suspended = value;
+    }
+
     private void capture() {
-        if (!client.ready()) return;
+        if (!client.ready() || suspended) return;
         // 메인 스레드가 바쁠 때 요청이 쌓이지 않게 한 번에 하나만 올린다.
         if (!posted.compareAndSet(false, true)) return;
         main.post(() -> {
