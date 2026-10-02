@@ -26,12 +26,13 @@ from selfdrive import carrot_navi_server as server  # noqa: E402
 class State(object):
   def __init__(self):
     self.maps = []
+    self.overlays = []
 
   def update_map(self, source, payload):
     self.maps.append((source, payload))
 
   def update_overlay(self, *args):
-    raise AssertionError(args)
+    self.overlays.append(args)
 
   def update(self, *args):
     pass
@@ -89,7 +90,27 @@ def main():
 
   assert not thread.is_alive()
   assert state.maps == [(server.SOURCE_NAVER, jpeg), (server.SOURCE_NAVER, jpeg)]
+  assert state.overlays == []
   print("PASS: HUD14 binary and legacy Base64 Naver map frames")
+
+  # Named overlay sockets are overlays for NAVER too, never map frames.
+  for path, name in ((b"/api/navi/ws/v2/image/naver/crossroad_expanded", "crossroad_expanded"),
+                     (b"/api/navi/ws/v2/render/naver/traffic_signal", "traffic_signal")):
+    receiver, client = socket.socketpair()
+    state = State()
+    thread = threading.Thread(target=server.client_loop, args=(receiver, state))
+    thread.start()
+    client.sendall(b"GET " + path + b" HTTP/1.1\r\n"
+                   b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")
+    assert client.recv(4096).startswith(b"HTTP/1.1 101")
+    client.sendall(masked_frame(2, jpeg))
+    client.sendall(masked_frame(8, b""))
+    thread.join(5)
+    client.close()
+    assert not thread.is_alive()
+    assert state.maps == []
+    assert state.overlays == [(server.SOURCE_NAVER, name, jpeg)]
+  print("PASS: NAVER overlay sockets go to overlays, not map_main")
 
 
 if __name__ == "__main__":

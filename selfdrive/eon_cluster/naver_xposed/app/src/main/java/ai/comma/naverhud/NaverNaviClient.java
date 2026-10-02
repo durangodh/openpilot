@@ -29,6 +29,7 @@ final class NaverNaviClient {
     private static final String STATE_PATH = "/api/navi/ws/v2/json/naver/state";
     private static final String MAP_PATH = "/api/navi/ws/v2/render/naver/map_main";
     private static final String SIGNAL_PATH = "/api/navi/ws/v2/render/naver/traffic_signal";
+    private static final String IMAGE_PATH = "/api/navi/ws/v2/image/naver/";
 
     private final Object stateLock = new Object();
     private final Object mapLock = new Object();
@@ -64,6 +65,10 @@ final class NaverNaviClient {
     // 신호등 PNG. 지도와 같은 "최신 1장만" 정책.
     private final AtomicReference<byte[]> pendingSignal = new AtomicReference<>();
     private final AtomicBoolean signalDrainScheduled = new AtomicBoolean(false);
+
+    // 교차로 확대 이미지처럼 드물게 바뀌는 그림. 이름마다 소켓 하나, 최신 1장만.
+    private final java.util.concurrent.ConcurrentHashMap<String, ImageChannel> images =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     void setHost(String ip) {
         if (ip != null && !ip.isEmpty() && !ip.equals(host)) {
@@ -307,5 +312,68 @@ final class NaverNaviClient {
         synchronized (stateLock) { closeState(); }
         synchronized (mapLock) { closeMap(); }
         synchronized (sigLock) { closeSignal(); }
+        for (ImageChannel channel : images.values()) channel.close();
+    }
+
+    /** CNV2 프레임을 /api/navi/ws/v2/image/naver/{name} 오버레이 소켓으로 보낸다. */
+    void sendImage(String name, byte[] framed) {
+        if (name == null || framed == null || framed.length == 0) return;
+        ImageChannel channel = images.get(name);
+        if (channel == null) {
+            ImageChannel created = new ImageChannel(name);
+            channel = images.putIfAbsent(name, created);
+            if (channel == null) channel = created;
+        }
+        channel.pending.set(framed);
+        channel.schedule();
+    }
+
+    private final class ImageChannel {
+        final String name;
+        final AtomicReference<byte[]> pending = new AtomicReference<>();
+        final AtomicBoolean scheduled = new AtomicBoolean(false);
+        Socket sock;
+        OutputStream out;
+
+        ImageChannel(String name) {
+            this.name = name;
+        }
+
+        void schedule() {
+            if (scheduled.compareAndSet(false, true)) mapSender.execute(this::drain);
+        }
+
+        void drain() {
+            try {
+                byte[] framed;
+                while ((framed = pending.getAndSet(null)) != null) sendNow(framed);
+            } finally {
+                scheduled.set(false);
+                if (pending.get() != null) schedule();
+            }
+        }
+
+        synchronized void sendNow(byte[] framed) {
+            try {
+                if (out == null) {
+                    if (host == null) return;
+                    Socket s = connect(IMAGE_PATH + name);
+                    if (s == null) return;
+                    sock = s;
+                    out = s.getOutputStream();
+                    NaverHudLog.line(name + " socket connected");
+                }
+                writeFrame(out, framed, 2);
+            } catch (Throwable t) {
+                NaverHudLog.ex("sendImage " + name, t);
+                close();
+            }
+        }
+
+        synchronized void close() {
+            try { if (sock != null) sock.close(); } catch (Throwable ignored) { }
+            sock = null;
+            out = null;
+        }
     }
 }

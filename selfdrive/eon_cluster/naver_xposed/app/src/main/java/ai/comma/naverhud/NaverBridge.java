@@ -22,6 +22,7 @@ final class NaverBridge {
     private volatile boolean renderAllowed;
     // HUD 지도 신호등 칸은 PNG 자산이 와야 그려진다. 카카오처럼 직접 그려 보낸다.
     private final NaverSignal signalImage = new NaverSignal(client);
+    private final NaverJunction junction = new NaverJunction(client);
     private final ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "naver-hud-state");
         t.setDaemon(true);
@@ -135,6 +136,7 @@ final class NaverBridge {
         Object signalItem = value(call(s, "B0"));
         send("traffic_signal", signal(signalItem));
         publishSignalImage(guiding ? signalItem : null);
+        junction.publish(s, guiding);
 
         // 검증 안 된 버전에서 난독화 게터가 비어 있는지 한 번 기록한다.
         if (guiding && !healthLogged && ++guidingTicks >= 20) {

@@ -108,3 +108,18 @@ engine:
 
 Not yet verified on a device: whether two guidance renderers run side by side
 without side effects, and whether the map style matches the phone screen.
+
+## Junction view (crossroad_expanded)
+
+The phone's enlarged junction popup comes from the guidance session:
+`GuidanceSession.getJunction().getInfo().getImage()` (public, unobfuscated
+API; `NaviStore` builds its popup `JunctionData` from the same `Bitmap` and
+clears it when `getJunction()` is null). `NaverJunction` sends it as a JPEG
+CNV2 frame on `/api/navi/ws/v2/image/naver/crossroad_expanded` when the
+bitmap changes, re-sends it every 5 s while shown, and sends a clear when it
+disappears or guidance stops.
+
+`carrot_navi_server.py` used to route every NAVER/Kakao binary frame to
+`map_main`, so named overlay sockets (this one and `traffic_signal`) never
+reached their overlay files. Overlay socket names are now checked first for
+every source. Not yet verified in the car.

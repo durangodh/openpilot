@@ -246,7 +246,7 @@ final class NaverMapRender {
             try {
                 Object control = fieldOfType(naviUi, GUIDANCE_CONTROL);
                 Object session = control == null ? null
-                        : control.getClass().getMethod("getCurrentSession").invoke(control);
+                        : must(control, "getCurrentSession", new Class<?>[0]);
                 if (session != null) {
                     must(naviUi, "t", new Class<?>[]{cl.loadClass(GUIDANCE_SESSION)}, session);
                 }
