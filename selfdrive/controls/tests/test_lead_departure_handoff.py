@@ -366,3 +366,31 @@ def test_stopped_ego_latches_near_lead_with_jittery_speed():
     assert step(control, cs, plan, radar) < 0
   assert control.standstill_lead_latched
   assert control.long_control_state == 'stopping'
+
+
+def test_no_lead_accel_release_is_eased_but_braking_is_not():
+  def run(lead_status, plan_accel):
+    control, cs, plan, radar = setup_control(False)
+    radar.leadOne.status = lead_status
+    if lead_status:
+      radar.leadOne.dRel, radar.leadOne.vLeadK, radar.leadOne.vRel = 60.0, 15.0, 0.0
+    control.long_control_state = 'pid'
+    control.launch_time = 10.0
+    control.last_output_accel = 0.5
+    control.pid.k_f = 1.0
+    cs.vEgo, cs.standstill = 15.0, False
+    plan.speeds, plan.accels = [15.0, 15.0, 15.0], [plan_accel]*3
+    first = step(control, cs, plan, radar)
+    return 0.5 - first
+  # Positive output easing down: no lead uses the softer release jerk.
+  assert run(False, 0.0) == pytest.approx(1.2 * 0.01)
+  assert run(True, 0.0) > 1.2 * 0.01 + 1e-6
+  # Below zero the normal braking jerk returns on the next frame.
+  control, cs, plan, radar = setup_control(False)
+  radar.leadOne.status = False
+  control.long_control_state, control.launch_time = 'pid', 10.0
+  control.last_output_accel, control.pid.k_f = 0.005, 1.0
+  cs.vEgo, cs.standstill = 15.0, False
+  plan.speeds, plan.accels = [15.0, 14.0, 12.0], [-2.0]*3
+  assert step(control, cs, plan, radar) == pytest.approx(0.0)
+  assert step(control, cs, plan, radar) < -0.03

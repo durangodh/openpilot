@@ -51,6 +51,10 @@ LEAD_LAUNCH_JERK = 2.5
 # 순간 현재 출력에서 시작해 이 속도로만 올라가므로 목표속도까지 몰아서
 # 가속하지 않는다. 내려가는 쪽과 앞차가 있을 때는 그대로 즉시 따른다.
 NO_LEAD_ALLOWANCE_RISE = 0.5
+# 앞차 없을 때 '가속을 덜 하는' 쪽(양의 출력이 줄어드는 것)만 이 저크로 완만하게.
+# 2026-10-02 영상: 상한에 막혀 평평하던 출력이 목표가 내려가자 3.5 m/s^3 로
+# 툭 떨어졌다. 0 아래(실제 제동)는 기존 PID 감속 저크 그대로라 제동은 늦추지 않는다.
+NO_LEAD_RELEASE_JERK = 1.2
 
 # 저속 앞차출발 추종 전용 저크 부스트 구간. long_mpc.py의 LEAD_DEPARTURE_*
 # (18~30km/h에서 서서히 해제)와 같은 구간을 써서, "계획단계는 빨리 붙으라는데
@@ -547,6 +551,10 @@ class LongControl:
       # 출발 인계(3단계): 양의 요청이 줄어들 때만 완만하게.
       if assisted_departure and not prevent_overshoot and 0.0 < pid_output < output_accel:
         jerk_lower = min(jerk_lower, START_HANDOFF_JERK)
+      elif no_lead and output_accel > 0.0 and pid_output < output_accel:
+        # 가속 줄이기만 완만하게: 0 까지만 이 저크로, 그 아래는 다음 프레임부터 원래 저크.
+        eased_step = min(NO_LEAD_RELEASE_JERK * DT_CTRL, output_accel)
+        jerk_lower = min(jerk_lower, eased_step / DT_CTRL)
       output_accel = float(clip(pid_output,
                                 output_accel - jerk_lower * DT_CTRL,
                                 output_accel + jerk_upper * DT_CTRL))

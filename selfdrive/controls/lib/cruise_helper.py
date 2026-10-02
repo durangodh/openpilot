@@ -22,6 +22,30 @@ from selfdrive.road_speed_limiter import get_road_speed_limiter
 
 SYNC_MARGIN = 3.0
 NAVI_DISTANCE_HOLD_TIME = 1.0
+# 과속방지턱(SDI 22) 2026-10-02 영상: 바닥에서 V자로 바로 가속하던 문제.
+# 통과 직후 이 거리만큼 방지턱 속도를 유지(뒷바퀴까지 넘을 여유)하고,
+# 감속 완료 시점은 최소 이 시간 앞으로 당겨 늦고 깊은 감속을 줄인다.
+# 방지턱에는 AutoNaviSpeedReleaseDist(카메라 조기 해제)를 적용하지 않는다.
+BUMP_PASS_HOLD_DIST = 12.0   # m
+BUMP_MIN_SAFE_TIME = 2.0     # s
+BUMP_LOST_ARM_DIST = 30.0    # m, 이 안에서 안내가 끊기면 남은 거리+유지거리로 처리
+
+
+class SpeedBumpHold:
+  """방지턱 통과 직후 일정 거리 동안 방지턱 속도를 유지한다."""
+  def __init__(self):
+    self.remaining = 0.0
+
+  def reset(self):
+    self.remaining = 0.0
+
+  def arm(self, extra=0.0):
+    self.remaining = BUMP_PASS_HOLD_DIST + max(0.0, float(extra))
+
+  def update(self, traveled):
+    if self.remaining > 0.0:
+      self.remaining = max(0.0, self.remaining - max(0.0, float(traveled)))
+    return self.remaining > 0.0
 NAVI_DISTANCE_MAX_DT = 0.2
 # NOO turn speed profile decel (m/s^2); also published to the planner bound.
 NOO_TURN_DECEL = 1.2
@@ -103,6 +127,7 @@ class CruiseHelper:
     # selfdriveState.distanceTraveled, so integrate actual loop time and vEgo.
     self.navi_distance_time = sec_since_boot()
     self.cam_dist_est = 0.0
+    self.bump_hold = SpeedBumpHold()
     self.cam_raw_dist = 0.0
     self.cam_limit_est = 0.0
     self.cam_type_est = -1
@@ -784,12 +809,19 @@ class CruiseHelper:
     navi_dt = float(clip(now - self.navi_distance_time, 0.0, NAVI_DISTANCE_MAX_DT))
     self.navi_distance_time = now
     traveled = max(float(CS.out.vEgo), 0.0) * navi_dt
+    bump_holding = self.bump_hold.update(traveled)
 
     if self.cam_dist_est > 0.0 and not self.cam_passed:
       self.cam_dist_est = max(0.0, self.cam_dist_est - traveled)
       # AutoNaviSpeedReleaseDist: 카메라 앞 N m 에서 미리 "지난 것"으로 보고 가속을 허용.
-      if self.cam_dist_est <= self.auto_navi_speed_release_dist:
+      # 방지턱은 미리 풀면 턱 위에서 가속하므로 실제 위치(0 m)까지 간다.
+      is_bump = self.cam_type_est == 22
+      release_dist = 0.0 if is_bump else self.auto_navi_speed_release_dist
+      if self.cam_dist_est <= release_dist:
         self.cam_passed = True
+        if is_bump:
+          self.bump_hold.arm()
+          bump_holding = True
 
     if cam_dist > 0.0 and cam_limit > 0.0:
       new_cam = self.cam_type_est < 0 or cam_type != self.cam_type_est or \
@@ -813,6 +845,11 @@ class CruiseHelper:
       cam_limit = self.cam_limit_est
       cam_type = self.cam_type_est
     else:
+      # 방지턱 바로 앞에서 안내가 끊겨도 남은 거리 + 유지거리만큼은 방지턱 속도 유지.
+      if self.cam_type_est == 22 and not self.cam_passed and \
+         0.0 < self.cam_dist_est <= BUMP_LOST_ARM_DIST:
+        self.bump_hold.arm(self.cam_dist_est)
+        bump_holding = True
       self.cam_dist_est = 0.0
       self.cam_raw_dist = 0.0
       self.cam_limit_est = 0.0
@@ -860,7 +897,7 @@ class CruiseHelper:
       if cam_type == 22:
         navi_source = "bump"
         navi_target_kph = self.auto_navi_speed_bump_speed
-        safe_time = self.auto_navi_speed_bump_time
+        safe_time = max(self.auto_navi_speed_bump_time, BUMP_MIN_SAFE_TIME)
       else:
         navi_source = "cam"
         navi_target_kph = cam_limit * self.auto_navi_speed_safety_factor
@@ -868,6 +905,12 @@ class CruiseHelper:
       apply_kph = self.calculate_navi_speed(left_dist, navi_target_kph, safe_time,
                                             self.auto_navi_speed_decel_rate)
       apply_limit_speed = self.kph_to_clu(apply_kph)
+    elif bump_holding:
+      # 방지턱 통과 직후: 유지거리 동안 방지턱 속도 그대로.
+      road_limit_speed = self.auto_navi_speed_bump_speed
+      navi_source = "bump"
+      navi_target_kph = self.auto_navi_speed_bump_speed
+      apply_limit_speed = self.kph_to_clu(navi_target_kph)
     elif section_dist > 0.0 and section_limit > 0.0:
       left_dist = section_dist
       road_limit_speed = section_limit
@@ -917,7 +960,7 @@ class CruiseHelper:
         max_speed_clu = apply_limit_speed
         self.apply_source = navi_source
       if clu11_speed > apply_limit_speed:
-        self.slowing_down_for_bump = cam_type == 22 and cam_dist > 0.0
+        self.slowing_down_for_bump = (cam_type == 22 and cam_dist > 0.0) or bump_holding
         if not self.slowing_down_alert and not self.slowing_down:
           self.slowing_down_sound_alert = True
           self.slowing_down = True
