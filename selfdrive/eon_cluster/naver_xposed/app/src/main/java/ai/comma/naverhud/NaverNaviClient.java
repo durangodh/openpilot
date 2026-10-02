@@ -132,9 +132,16 @@ final class NaverNaviClient {
         if (framed == null || framed.length == 0) return;
         pendingSignal.set(framed);
         if (signalDrainScheduled.compareAndSet(false, true)) {
-            mapSender.execute(this::drainSignal);
+            signalSender.execute(this::drainSignal);
         }
     }
+
+    // 신호등은 지도와 따로 보낸다. 같은 스레드면 지도 재연결(최대 3초)마다 신호 숫자가 멈췄다.
+    private final ExecutorService signalSender = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "naver-hud-signal-sender");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private void drainSignal() {
         try {
@@ -143,7 +150,7 @@ final class NaverNaviClient {
         } finally {
             signalDrainScheduled.set(false);
             if (pendingSignal.get() != null && signalDrainScheduled.compareAndSet(false, true)) {
-                mapSender.execute(this::drainSignal);
+                signalSender.execute(this::drainSignal);
             }
         }
     }
@@ -332,15 +339,22 @@ final class NaverNaviClient {
         final String name;
         final AtomicReference<byte[]> pending = new AtomicReference<>();
         final AtomicBoolean scheduled = new AtomicBoolean(false);
+        // 그림마다 따로 보낸다. 지도 전송 스레드를 같이 쓰면 큰 PNG·재연결 동안 지도가 멈췄다.
+        final ExecutorService sender;
         Socket sock;
         OutputStream out;
 
         ImageChannel(String name) {
             this.name = name;
+            this.sender = Executors.newSingleThreadExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "naver-hud-image-" + name);
+                thread.setDaemon(true);
+                return thread;
+            });
         }
 
         void schedule() {
-            if (scheduled.compareAndSet(false, true)) mapSender.execute(this::drain);
+            if (scheduled.compareAndSet(false, true)) sender.execute(this::drain);
         }
 
         void drain() {

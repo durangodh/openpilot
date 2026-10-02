@@ -34,10 +34,14 @@ final class NaverViewImage {
     static final String SIGNAL_VIEW = "com.naver.map.core.navigation.view.NaviTrafficSignalView";
     private static final long TICK_MS = 500;
     private static final long RESEND_MS = 5000;
-    private static final int MAX_W = 640;
 
     private final NaverNaviClient client;
     private final String name;
+    // HUD 가 그리는 칸 크기(차로 530x84, 신호등 302x192)에 맞춰 줄여 보낸다. 폰 해상도
+    // 그대로면 PNG 가 커서 EON·HUD 로 넘기는 동안 지도까지 밀렸다.
+    private final int maxW, maxH;
+    // 같은 그림이 아니어도 이 간격보다 자주는 안 보낸다(차로 띠는 거리 숫자가 자주 바뀐다).
+    private final long minIntervalMs;
     private volatile boolean used;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService encoder = Executors.newSingleThreadExecutor(r -> {
@@ -52,9 +56,12 @@ final class NaverViewImage {
     private long lastSentAt;
     private long seq;
 
-    NaverViewImage(NaverNaviClient client, String name) {
+    NaverViewImage(NaverNaviClient client, String name, int maxW, int maxH, long minIntervalMs) {
         this.client = client;
         this.name = name;
+        this.maxW = maxW;
+        this.maxH = maxH;
+        this.minIntervalMs = minIntervalMs;
     }
 
     /** 폰 뷰가 한 번이라도 갱신됐으면 true(이후 이 그림만 쓴다). */
@@ -97,7 +104,11 @@ final class NaverViewImage {
         }
         try {
             long now = SystemClock.elapsedRealtime();
-            Bitmap bmp = draw(v);
+            if (lastBitmap != null && now - lastSentAt < minIntervalMs) {
+                main.postDelayed(this::tick, TICK_MS);
+                return;
+            }
+            Bitmap bmp = draw(v, maxW, maxH);
             if (bmp != null) {
                 boolean same = lastBitmap != null && lastBitmap.sameAs(bmp);
                 if (!same || now - lastSentAt >= RESEND_MS) {
@@ -120,10 +131,10 @@ final class NaverViewImage {
         main.postDelayed(this::tick, TICK_MS);
     }
 
-    private static Bitmap draw(View v) {
+    private static Bitmap draw(View v, int maxW, int maxH) {
         int w = v.getWidth(), h = v.getHeight();
         if (w <= 0 || h <= 0) return null;
-        float scale = w > MAX_W ? MAX_W / (float) w : 1f;
+        float scale = Math.min(1f, Math.min(maxW / (float) w, maxH / (float) h));
         Bitmap bmp = Bitmap.createBitmap(Math.max(1, Math.round(w * scale)),
                 Math.max(1, Math.round(h * scale)), Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);

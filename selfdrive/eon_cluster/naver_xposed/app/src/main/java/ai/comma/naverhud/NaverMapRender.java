@@ -48,7 +48,9 @@ final class NaverMapRender {
     // 안내 렌더러가 이 시간 안에 안 생기면 스냅샷으로 돌아간다(경로·차량 없는 지도 방지).
     private static final long RENDERER_TIMEOUT_MS = 6000;
     // 우리 지도 카메라가 폰 지도와 이만큼 떨어진 채 이 시간 이상 지나면 폰 카메라를 따라간다.
-    private static final long CAMERA_MS = 50;   // 폰 카메라 복사 주기(티맵·카카오처럼 매 프레임보다 촘촘히)
+    // 폰 카메라 복사 주기. 렌더는 5fps 라 100ms(10Hz)면 충분하다. 50ms 는 메인 스레드와
+    // 지도 엔진을 두 배로 돌려 같은 S9 의 HUD 앱까지 느려졌다.
+    private static final long CAMERA_MS = 100;
 
     private final NaverNaviClient client;
     private final NaverMapCapture snapshot;

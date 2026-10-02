@@ -24,8 +24,9 @@ final class NaverBridge {
     private final NaverSignal signalImage = new NaverSignal(client);
     private final NaverJunction junction = new NaverJunction(client);
     // HUD 지도 아래 차로 띠와 신호등: 폰 표시 뷰를 그대로 떠서 보낸다.
-    private final NaverViewImage laneImage = new NaverViewImage(client, "lane_bottom");
-    private final NaverViewImage signalView = new NaverViewImage(client, "traffic_signal");
+    private final NaverViewImage laneImage = new NaverViewImage(client, "lane_bottom", 530, 84, 1000);
+    // 신호등은 잔여초가 매초 바뀌므로 간격 제한 없이 바뀔 때마다 보낸다.
+    private final NaverViewImage signalView = new NaverViewImage(client, "traffic_signal", 302, 192, 0);
     private final ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "naver-hud-state");
         t.setDaemon(true);

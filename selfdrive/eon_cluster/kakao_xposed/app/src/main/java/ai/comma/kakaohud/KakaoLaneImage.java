@@ -31,7 +31,8 @@ final class KakaoLaneImage {
     private static final String NAME = "lane_bottom";
     private static final String VIEW = "com.kakaomobility.navi.drive.core.feature.lane.KNULaneView";
     private static final long RESEND_MS = 5000;
-    private static final int MAX_W = 640;
+    // HUD 차로 칸(530x84)에 맞춰 줄여 보낸다(큰 PNG 는 EON·HUD 전송을 밀리게 한다).
+    private static final int MAX_W = 530, MAX_H = 84;
 
     private final KakaoNaviClient client;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -131,7 +132,7 @@ final class KakaoLaneImage {
         int w = view.getMeasuredWidth(), h = view.getMeasuredHeight();
         if (w <= 0 || h <= 0) return null;
         view.layout(0, 0, w, h);
-        float scale = w > MAX_W ? MAX_W / (float) w : 1f;
+        float scale = Math.min(1f, Math.min(MAX_W / (float) w, MAX_H / (float) h));
         Bitmap bmp = Bitmap.createBitmap(Math.max(1, Math.round(w * scale)),
                 Math.max(1, Math.round(h * scale)), Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);
