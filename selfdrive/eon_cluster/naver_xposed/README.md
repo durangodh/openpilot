@@ -80,10 +80,19 @@ engine:
   carvatar settings, and the phone map's map type and night mode.
 - If the engine draws nothing new (map at rest), the last JPEG is re-sent at
   the frame rate so EON does not clear the map as stale.
+- First in-car test (S9, 6.10.0.16): the HUD showed the SDK default camera
+  (Seoul City Hall) with no route or vehicle, so the guidance renderer did
+  not take the camera. Since then the camera starts at the phone map's
+  camera; if the route renderer (`NaverNaviUI.f466446h`) is missing 1.5 s
+  after attach, `t(currentSession)` is called once, and if it is still
+  missing after 6 s, or the map never becomes ready within 8 s, it falls back
+  to snapshots. If the camera stays more than 300 m from the phone map's
+  camera for 2 s, it copies the phone camera (`NaverMap.M()` →
+  `CameraUpdate.x()` → `NaverMap.Y0()`) every 250 ms from then on.
 - It starts once the phone guidance UI exists (during guidance). If it fails
-  it falls back to snapshots and retries after 30 s, at most three times. The
-  log shows `map render surface started`, `guidance renderer attached` and
-  `first rendered map frame sent`, or `falling back to snapshots`.
+  it falls back to snapshots and retries after 30 s, at most three times.
+  These steps are also written to the LSPosed log (`NaverHud: map render ...`),
+  so `adb logcat | findstr NaverHud` shows them without pulling the file.
 
 Not yet verified on a device: whether two guidance renderers run side by side
 without side effects, and whether the map style matches the phone screen.

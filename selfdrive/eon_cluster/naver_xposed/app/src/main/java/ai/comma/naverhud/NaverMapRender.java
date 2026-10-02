@@ -42,6 +42,14 @@ final class NaverMapRender {
     private static final String GUIDANCE_CONTROL = "com.naver.maps.navi.v2.api.guidance.control.GuidanceControl";
     private static final String RENDER_CONFIG = "com.naver.maps.navi.ui.map.config.GuidanceRenderingConfiguration";
     private static final String NAVER_MAP = "com.naver.maps.map.NaverMap";
+    private static final String RENDERER = "com.naver.maps.navi.ui.map.renderer.Renderer";
+    private static final String GUIDANCE_SESSION = "com.naver.maps.navi.v2.api.GuidanceSession";
+    private static final long SYNC_MS = 250;
+    // 안내 렌더러가 이 시간 안에 안 생기면 스냅샷으로 돌아간다(경로·차량 없는 지도 방지).
+    private static final long RENDERER_TIMEOUT_MS = 6000;
+    // 우리 지도 카메라가 폰 지도와 이만큼 떨어진 채 이 시간 이상 지나면 폰 카메라를 따라간다.
+    private static final double FAR_METERS = 300;
+    private static final long FAR_MS = 2000;
 
     private final NaverNaviClient client;
     private final NaverMapCapture snapshot;
@@ -64,6 +72,9 @@ final class NaverMapRender {
     private long frames;
     private Boolean night;
     private Object mapType;
+    private long readyAt, farSince;
+    private boolean rendererKicked, followPhone;
+    private int syncTicks;
 
     NaverMapRender(NaverNaviClient client, NaverMapCapture snapshot) {
         this.client = client;
@@ -90,7 +101,7 @@ final class NaverMapRender {
         failures++;
         nextRetryAt = SystemClock.elapsedRealtime() + 30000;
         snapshot.setSuspended(false);
-        NaverHudLog.ex("map render " + where + " (falling back to snapshots)", error);
+        NaverHudLog.xposed("map render " + where + " failed (falling back to snapshots): " + error);
         release();
     }
 
@@ -130,7 +141,14 @@ final class NaverMapRender {
         must(surface, "q", new Class<?>[]{Surface.class, int.class, int.class}, reader.getSurface(), WIDTH, HEIGHT);
         snapshot.setSuspended(true);
         imageHandler.postDelayed(this::repeatLoop, FRAME_MS);
-        NaverHudLog.line("map render surface started " + WIDTH + "x" + HEIGHT);
+        // 지도 준비 신호가 오지 않으면 기본 카메라(서울) 지도만 나간다. 그때는 스냅샷으로.
+        final Object startedSurface = surface;
+        main.postDelayed(() -> {
+            if (running && surface == startedSurface && naviUi == null) {
+                fail("map ready timeout", new IllegalStateException("OnMapReadyCallback was not called"));
+            }
+        }, 8000);
+        NaverHudLog.xposed("map render surface started " + WIDTH + "x" + HEIGHT);
     }
 
     /** NaverMapOptionsUtilsKt.a(Context, AppInfo): 폰·Android Auto 지도와 같은 스타일. */
@@ -168,10 +186,16 @@ final class NaverMapRender {
             Class<?> uiType = cl.loadClass(NAVI_UI);
             Constructor<?> ctor = uiType.getConstructor(cl.loadClass(NAVER_MAP),
                     cl.loadClass(GUIDANCE_CONTROL), cl.loadClass(RENDER_CONFIG));
+            // 첫 프레임부터 폰과 같은 곳을 보여 준다(SDK 기본 카메라는 서울시청).
+            mirrorPhoneCamera();
             naviUi = ctor.newInstance(naverMap, control, config);
+            readyAt = SystemClock.elapsedRealtime();
+            farSince = 0;
+            rendererKicked = false;
+            followPhone = false;
             syncFromPhone();
-            main.postDelayed(this::syncLoop, 500);
-            NaverHudLog.line("map render: guidance renderer attached");
+            main.postDelayed(this::syncLoop, SYNC_MS);
+            NaverHudLog.xposed("map render: guidance UI attached");
         } catch (Throwable error) {
             fail("map ready", error);
         }
@@ -196,11 +220,112 @@ final class NaverMapRender {
     private void syncLoop() {
         if (!running || naviUi == null) return;
         try {
-            syncFromPhone();
+            if (!checkGuidanceRenderer()) return;   // 스냅샷으로 돌아갔다
+            followCamera();
+            if (++syncTicks % 2 == 0) syncFromPhone();
         } catch (Throwable error) {
             NaverHudLog.status("map render sync: " + error);
         }
-        main.postDelayed(this::syncLoop, 500);
+        main.postDelayed(this::syncLoop, SYNC_MS);
+    }
+
+    /**
+     * NaverNaviUI 는 생성될 때와 Started 이벤트 때 경로·차량 렌더러를 만든다. 안 생겼으면
+     * 현재 안내 세션으로 한 번 직접 만들어 보고, 그래도 없으면 스냅샷으로 돌아간다.
+     * false 면 멈췄다.
+     */
+    private boolean checkGuidanceRenderer() {
+        if (fieldOfType(naviUi, RENDERER) != null) return true;
+        long since = SystemClock.elapsedRealtime() - readyAt;
+        if (!rendererKicked && since > 1500) {
+            rendererKicked = true;
+            try {
+                Object control = fieldOfType(naviUi, GUIDANCE_CONTROL);
+                Object session = control == null ? null
+                        : control.getClass().getMethod("getCurrentSession").invoke(control);
+                if (session != null) {
+                    must(naviUi, "t", new Class<?>[]{cl.loadClass(GUIDANCE_SESSION)}, session);
+                }
+                NaverHudLog.xposed("map render: guidance renderer missing, started it from the current session"
+                        + (fieldOfType(naviUi, RENDERER) != null ? " (ok)" : " (still missing)"));
+            } catch (Throwable error) {
+                NaverHudLog.xposed("map render: guidance renderer start failed: " + error);
+            }
+        }
+        if (fieldOfType(naviUi, RENDERER) == null && since > RENDERER_TIMEOUT_MS) {
+            fail("no guidance renderer", new IllegalStateException("route renderer was not created"));
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * 안내 렌더러가 우리 지도 카메라를 차량에 맞춰 움직여야 한다. 폰 지도와 멀리 떨어진
+     * 채로 있으면(카메라 추적이 안 붙음) 그때부터는 폰 지도 카메라를 그대로 따라간다.
+     */
+    private void followCamera() {
+        if (followPhone) {
+            mirrorPhoneCamera();
+            return;
+        }
+        double meters = distanceMeters(cameraTarget(phoneMap()), cameraTarget(map));
+        long now = SystemClock.elapsedRealtime();
+        if (Double.isNaN(meters) || meters < FAR_METERS) {
+            farSince = 0;
+            return;
+        }
+        if (farSince == 0) {
+            farSince = now;
+        } else if (now - farSince >= FAR_MS) {
+            followPhone = true;
+            mirrorPhoneCamera();
+            NaverHudLog.xposed("map render: camera " + Math.round(meters)
+                    + " m away from the phone map; following the phone camera");
+        }
+    }
+
+    private Object phoneMap() {
+        return fieldOfType(fieldOfType(store, NAVI_UI), NAVER_MAP);
+    }
+
+    /** 폰 지도의 카메라(위치·줌·기울기·방향)를 우리 지도에 그대로 옮긴다. 메인 스레드. */
+    private void mirrorPhoneCamera() {
+        Object phone = phoneMap();
+        if (phone == null || map == null) return;
+        Object position = call(phone, "M", new Class<?>[0]);                 // getCameraPosition
+        if (position == null || position.equals(call(map, "M", new Class<?>[0]))) return;
+        try {
+            Class<?> updateType = cl.loadClass("com.naver.maps.map.CameraUpdate");
+            Object update = updateType.getMethod("x", position.getClass()).invoke(null, position);  // toCameraPosition
+            call(map, "Y0", new Class<?>[]{updateType}, update);            // moveCamera
+        } catch (Throwable error) {
+            NaverHudLog.status("map render camera: " + error);
+        }
+    }
+
+    private static Object cameraTarget(Object naverMap) {
+        Object position = call(naverMap, "M", new Class<?>[0]);
+        if (position == null) return null;
+        try {
+            return position.getClass().getField("target").get(position);
+        } catch (Throwable error) {
+            return null;
+        }
+    }
+
+    private static double distanceMeters(Object a, Object b) {
+        if (a == null || b == null) return Double.NaN;
+        try {
+            double lat1 = a.getClass().getField("latitude").getDouble(a);
+            double lon1 = a.getClass().getField("longitude").getDouble(a);
+            double lat2 = b.getClass().getField("latitude").getDouble(b);
+            double lon2 = b.getClass().getField("longitude").getDouble(b);
+            double x = Math.toRadians(lon2 - lon1) * Math.cos(Math.toRadians((lat1 + lat2) / 2));
+            double y = Math.toRadians(lat2 - lat1);
+            return Math.sqrt(x * x + y * y) * 6371000.0;
+        } catch (Throwable error) {
+            return Double.NaN;
+        }
     }
 
     /**

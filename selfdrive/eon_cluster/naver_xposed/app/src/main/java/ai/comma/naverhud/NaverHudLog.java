@@ -25,6 +25,16 @@ final class NaverHudLog {
     private NaverHudLog() {
     }
 
+    /** 파일 로그와 함께 LSPosed 로그(logcat)에도 남긴다. 파일을 꺼내기 어려울 때 확인용. */
+    static void xposed(String message) {
+        try {
+            de.robv.android.xposed.XposedBridge.log("NaverHud: " + message);
+        } catch (Throwable ignored) {
+            // Xposed 밖
+        }
+        line(message);
+    }
+
     static void line(String message) {
         synchronized (LOCK) {
             try {
