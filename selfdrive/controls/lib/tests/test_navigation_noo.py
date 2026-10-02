@@ -106,6 +106,13 @@ def test_7714_explicit_and_block_sections_are_projected():
   }))
   assert explicit["section"] == {"distance": 2345.0, "limit": 80.0, "average": 76.0}
 
+  # TMAP (patched app and tmap_xposed) reports the section average as average_kph.
+  tmap = NavigationRouteData.speed_events(state_with_speed({
+    "section": {"active": True, "speed_limit_kph": 100, "remaining_distance_m": 5000,
+                "average_kph": 94.5},
+  }))
+  assert tmap["section"] == {"distance": 5000.0, "limit": 100.0, "average": 94.5}
+
   block = NavigationRouteData.speed_events(state_with_speed({
     "sdi": {"type": 1, "speed_limit_kph": 60, "block_type": 2,
             "block_speed_kph": 50, "block_distance_m": 390},

@@ -499,9 +499,14 @@ final class KakaoBridge {
             } else {
                 remaining = distance;
             }
+            // 카카오 앱 구간단속 표지판의 평균속도. SDK 가 같은 Section 객체를 주행 중에
+            // 갱신하므로(y(): 통과거리·진입시각·GPS 평균) 보낼 때마다 다시 읽는다.
+            // 4.51.1: Section(t60.e).getSectionAvrSpeed() 의 실제 이름은 t.
+            int average = item == null ? -1 : getInt(item, "getSectionAvrSpeed", "t");
             sendSpeed(",\"section\":{\"active\":true,\"suspended\":false"
                     + ",\"speed_limit_kph\":" + limit
-                    + ",\"remaining_distance_m\":" + Math.max(0, remaining) + "}");
+                    + ",\"remaining_distance_m\":" + Math.max(0, remaining)
+                    + (average > 0 ? ",\"average_speed_kph\":" + average : "") + "}");
             return;
         }
         if (distance < 0) {

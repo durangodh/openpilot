@@ -269,7 +269,9 @@ class NavigationRouteData:
         "remaining_distance_m", "distance_m", "section_remaining_distance_m", "sectionRemainingDistanceM")), -1.0)
       # Display only (HUD); 0 when the app does not report it.
       section_average = max(0.0, _number(_first(section, (
-        "average_speed_kph", "section_average_speed_kph", "sectionAverageSpeedKph")), 0.0))
+        "average_speed_kph", "section_average_speed_kph", "sectionAverageSpeedKph",
+        # TMAP (patched CarrotUiStateData and the tmap_xposed module) names it average_kph.
+        "average_kph")), 0.0))
       if section_active and not section_suspended and not section_off_route and section_limit > 0.0 and section_distance > 0.0:
         result["section"] = {"distance": section_distance, "limit": section_limit,
                              "average": section_average}
