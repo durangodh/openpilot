@@ -60,3 +60,12 @@ carrot_navi_server(7714)로 티맵과 같은 JSON 스트림 + 바이너리 지�
 2. 카카오내비(플레이스토어 4.51.0) 강제 종료 후 재실행.
 3. 안내 시작 후 로그 확인/공유:
    `/sdcard/Android/data/com.locnall.KimGiSa/files/kakao_hud.log`
+
+## 교차로 확대 이미지(crossroad_expanded)
+폰 주행 화면의 JC 팝업과 같은 그림이다(4.51.1 디컴파일, 실기 미검증).
+`KNUJCViewModel` 생성자를 후킹해 잡아 두고, 250ms 마다 `getJcUIState().getValue()` 가
+`KNUJCUIState.Data`(`navi.drive.core.feature.jc.c$a`)이면 그 안의 `KNUJC`(`knmsdk.hi0.a`,
+필드 `a`)의 `a()` Bitmap 을 JPEG CNV2 프레임으로
+`/api/navi/ws/v2/image/kakao/crossroad_expanded` 에 보낸다. 바뀔 때 보내고 떠 있는 동안
+5초마다 다시 보내며, 닫히면 clear 를 보낸다. EON `carrot_navi_server.py` 는 오버레이
+소켓 이름을 소스와 관계없이 먼저 확인한다.

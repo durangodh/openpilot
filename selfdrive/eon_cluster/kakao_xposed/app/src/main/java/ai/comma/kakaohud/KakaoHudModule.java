@@ -52,6 +52,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
 
         hookApplicationContext(lpparam, map);
         hookScreenCamera(lpparam, map);
+        hookJunction(lpparam, new KakaoJunction(client));
         hookRepository(lpparam, bridge);
         hookGuideCallbacks(lpparam, bridge);
     }
@@ -113,6 +114,23 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
             KakaoHudLog.line("screen camera hook ready");
         } catch (Throwable t) {
             KakaoHudLog.ex("hookScreenCamera", t);
+        }
+    }
+
+    /** 교차로 확대 이미지: 주행 화면의 KNUJCViewModel 을 잡아 둔다(읽기 전용). */
+    private void hookJunction(LoadPackageParam lpparam, final KakaoJunction junction) {
+        try {
+            Class<?> vm = lpparam.classLoader.loadClass(KakaoJunction.VIEW_MODEL);
+            XposedBridge.hookAllConstructors(vm, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    if (param.hasThrowable()) return;
+                    junction.setViewModel(param.thisObject);
+                }
+            });
+            KakaoHudLog.line("junction hook ready");
+        } catch (Throwable t) {
+            KakaoHudLog.ex("hookJunction", t);
         }
     }
 
