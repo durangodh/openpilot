@@ -71,7 +71,27 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
         hooks += hookTrafficSignal(cl, bridge);
         hooks += hookMapViews(cl, map);
         hookApplication(bridge, map, images, render, loader);
+        hookAutoSafeDrive(new TmapAutoSafeDrive(bridge));
         TmapHudLog.xposed("read-only hooks installed = " + hooks + "/3");
+    }
+
+    /** 앱 실행 후 메인 화면에서 안심주행 자동 시작(확인한 버전에서만 동작). */
+    private static void hookAutoSafeDrive(final TmapAutoSafeDrive auto) {
+        try {
+            XposedBridge.hookMethod(android.app.Activity.class.getDeclaredMethod("onResume"),
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                auto.onResumed((android.app.Activity) param.thisObject);
+                            } catch (Throwable t) {
+                                TmapHudLog.ex("autoSafeDrive", t);
+                            }
+                        }
+                    });
+        } catch (Throwable t) {
+            TmapHudLog.ex("hookAutoSafeDrive", t);
+        }
     }
 
     private static void hookApplication(final TmapBridge bridge, final TmapMapCapture map,

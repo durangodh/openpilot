@@ -53,6 +53,11 @@ final class TmapBridge {
     private volatile Object manager;
     private volatile Object rgData;
     private volatile long rgAt;
+
+    /** 안내(경로 안내 또는 안심주행) 데이터가 최근에 들어왔는지. */
+    boolean guidanceLive() {
+        return rgData != null && SystemClock.elapsedRealtime() - rgAt <= RG_STALE_MS;
+    }
     private volatile Object signalInfo;
     private volatile Object signalLights;   // TrafficSignalInfo(저장소 계산 결과)
     private volatile long signalAt;

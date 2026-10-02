@@ -158,3 +158,11 @@
 `.github/workflows/build-tmap-hud.yml`이 `g_remote`/`g_hud`/`g_abcd` 푸시 때
 호스트 검사 → 디버그 빌드 → Remote HUD 키 서명 후 릴리스 `tmap-hud-auto`에
 `TmapHud-latest.apk`로 올린다.
+
+## 안심주행 자동 시작
+티맵을 켜면 메인 화면(`TmapNewMainActivity`)이 뜬 뒤 3초 후 안심주행을 시작한다.
+메인 화면의 "안심주행" 버튼과 같은 `com.skt.tmap.util.i.h(Activity)`(AppUtil.StartSafeDrive,
+11.8.3.4061)를 부른다. 외부 연동 명령(EDC 204)은 차량 연동 인증이 필요해 쓰지 않는다.
+확인한 버전에서만, 앱 실행마다 한 번만 동작한다. 팝업(이전 경로 안내 등)이 떠 있으면
+2초마다 최대 10번 다시 보고, 이미 안내 중이면 건너뛴다. 끄려면
+`/sdcard/Android/data/com.skt.tmap.ku/files/tmap_hud_no_safedrive` 파일을 만든다.
