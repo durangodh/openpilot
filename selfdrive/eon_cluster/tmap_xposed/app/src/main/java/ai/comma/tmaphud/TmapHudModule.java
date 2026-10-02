@@ -58,7 +58,8 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
 
         final TmapNaviClient client = new TmapNaviClient();
         final TmapSignal signal = new TmapSignal(client);
-        final TmapBridge bridge = new TmapBridge(client, signal);
+        final TmapImages images = new TmapImages(client);
+        final TmapBridge bridge = new TmapBridge(client, signal, images);
         final TmapMapCapture map = new TmapMapCapture(client);
         new EonDiscovery(client).start();
 
@@ -67,11 +68,12 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
         hooks += hookRGData(cl, bridge);
         hooks += hookTrafficSignal(cl, bridge);
         hooks += hookMapViews(cl, map);
-        hookApplication(bridge, map);
+        hookApplication(bridge, map, images);
         TmapHudLog.line("read-only hooks installed = " + hooks + "/3");
     }
 
-    private static void hookApplication(final TmapBridge bridge, final TmapMapCapture map) {
+    private static void hookApplication(final TmapBridge bridge, final TmapMapCapture map,
+                                        final TmapImages images) {
         try {
             XposedBridge.hookMethod(Application.class.getMethod("onCreate"), new XC_MethodHook() {
                 private boolean done = false;
@@ -84,6 +86,7 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
                         if (!TMAP_PKG.equals(ctx.getPackageName())) return;
                         done = true;
                         checkVersion(ctx);
+                        images.setContext(ctx.getApplicationContext());
                         bridge.start();
                         map.start();
                     } catch (Throwable t) {

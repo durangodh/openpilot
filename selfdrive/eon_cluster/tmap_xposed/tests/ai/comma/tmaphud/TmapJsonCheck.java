@@ -5,7 +5,7 @@ package ai.comma.tmaphud;
  * item so a Python harness can feed them to the EON consumers.
  *
  *   javac -d /tmp/tmapcheck app/src/main/java/ai/comma/tmaphud/TmapJson.java \
- *       tests/ai/comma/tmaphud/TmapJsonCheck.java
+ *       app/src/main/java/ai/comma/tmaphud/TmapAssets.java tests/ai/comma/tmaphud/TmapJsonCheck.java
  *   java -Dstdout.encoding=UTF-8 -cp /tmp/tmapcheck ai.comma.tmaphud.TmapJsonCheck
  */
 public final class TmapJsonCheck {
@@ -58,6 +58,28 @@ public final class TmapJsonCheck {
         double[] lons = {126.9780, 126.9790, 126.9800};
         emit("route", TmapJson.route(4200, 600, 5100, TmapJson.polyline(lats, lons, 3)));
         emit("navigation_status", TmapJson.status(true, true, "real_drive", false, false, 1));
+
+        // 2차 그림 규칙(티맵 디컴파일 표와 같아야 한다).
+        check("navigation_tbt_arrow_02_icon".equals(TmapAssets.tbtIcon(12)), "left turn icon");
+        check("navigation_tbt_arrow_01_icon".equals(TmapAssets.tbtIcon(11)), "straight icon");
+        check("navigation_tbt_rotary_01_icon".equals(TmapAssets.tbtIcon(142)), "rotary icon");
+        check(TmapAssets.tbtIcon(999) == null, "unknown turn has no icon");
+        check("navigation_lane_laneguid_12_10".equals(TmapAssets.laneArrow(3, 2, 0)), "lane 0302");
+        check("navigation_lane_laneguid_1_1".equals(TmapAssets.laneArrow(1, 1, 0)), "lane 0101");
+        check("navigation_lane_laneguid_4_0".equals(TmapAssets.laneArrow(99, 99, 0)), "lane default");
+        check("navigation_lane_under_a".equals(TmapAssets.laneArrow(1, 1, TmapAssets.LANE_UNDERPASS)), "underpass");
+        check("navigation_lane_high_b".equals(TmapAssets.laneArrow(1, 0, TmapAssets.LANE_OVERPASS)), "overpass");
+        check("navigation_lane_bus_b".equals(TmapAssets.laneArrow(1, 0, TmapAssets.LANE_BUS_ONLY)), "bus lane");
+        check("navigation_lane_left_pocket_1".equals(TmapAssets.lanePocket(1, TmapAssets.LANE_LEFT_POCKET)), "pocket");
+        check(TmapAssets.lanePocket(1, 0) == null, "no pocket");
+        check("c_15".equals(TmapAssets.safetyIcons(3, false)[0]), "section camera icon");
+        check("c_01".equals(TmapAssets.safetyIcons(3, true)[0]), "changed limit uses camera icon");
+        check(TmapAssets.safetyIcons(22, false) == null, "no icon for speed bump");
+        check(TmapAssets.safetyLimit(2, false, 50, 80) == 80, "block speed");
+        check(TmapAssets.safetyLimit(1, false, 50, 80) == 50, "camera limit");
+        check(TmapAssets.distanceText(320).equals("320m"), "meters");
+        check(TmapAssets.distanceText(1500).equals("1km"), "TMAP truncates km");
+        check(TmapAssets.distanceText(12345).equals("12km"), "km");
 
         check(TmapJson.quote(" a\"b\\c\nd ").equals("\"a\\\"b\\\\c\\nd\""), "json escaping, trimmed");
         check(TmapJson.decimal(Double.NaN).equals("0"), "NaN guarded");

@@ -35,6 +35,7 @@ jobs:
         run: |
           javac -encoding UTF-8 -d "$RUNNER_TEMP/tmapcheck" \
             app/src/main/java/ai/comma/tmaphud/TmapJson.java \
+            app/src/main/java/ai/comma/tmaphud/TmapAssets.java \
             tests/ai/comma/tmaphud/TmapJsonCheck.java
           java -Dstdout.encoding=UTF-8 -cp "$RUNNER_TEMP/tmapcheck" ai.comma.tmaphud.TmapJsonCheck
       - name: Set version

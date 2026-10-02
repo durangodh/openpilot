@@ -46,6 +46,7 @@ final class TmapBridge {
 
     private final TmapNaviClient client;
     private final TmapSignal signalImage;
+    private final TmapImages images;
     private final ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "tmap-hud-state");
         t.setDaemon(true);
@@ -68,9 +69,10 @@ final class TmapBridge {
     private String polyline = "[]";
     private boolean loggedFirstRg, loggedFirstSignal, loggedPolyline;
 
-    TmapBridge(TmapNaviClient client, TmapSignal signalImage) {
+    TmapBridge(TmapNaviClient client, TmapSignal signalImage, TmapImages images) {
         this.client = client;
         this.signalImage = signalImage;
+        this.images = images;
     }
 
     synchronized void start() {
@@ -143,6 +145,7 @@ final class TmapBridge {
                     sendNow(name, "traffic_signal".equals(name) ? TmapJson.emptySignal() : null);
                 }
                 signalImage.clear();
+                images.clearAll();
                 polylineRoute = null;
                 polyline = "[]";
                 TmapHudLog.line("RGData stale; guidance cleared");
@@ -174,6 +177,8 @@ final class TmapBridge {
 
         send("speed", speed(rg));
         publishSignal(now);
+        images.update(rg, guiding,
+                Boolean.TRUE.equals(call(call(nav, "getNaviConfigData"), "getNightMode")));
 
         if (guiding) {
             refreshPolyline(nav, routeResult, lat, lon, now);

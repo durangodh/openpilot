@@ -8,6 +8,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.Random;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -19,8 +20,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * carrot_navi_server(7714) 로 티맵 안내/지도 데이터를 보내는 최소 WebSocket
  * 클라이언트. 서버는 경로에 "/kakao/"·"/naver/" 가 없으면 티맵 소스로 받는다.
  *
- * - 상태(JSON)·지도(map_main)·신호등(traffic_signal) 스트림 각각 소켓 1개.
- *   서버는 바이너리 프레임을 경로 마지막 이름(map_main/traffic_signal)으로 나눈다.
+ * - 상태(JSON)·지도(map_main)·그림(traffic_signal, tbt_*, lane_*, safety_*, crossroad_*)
+ *   스트림마다 소켓 1개. 서버는 바이너리 프레임을 경로 마지막 이름으로 나눈다.
  * - EON IP 는 7705 UDP 디스커버리 브로드캐스트({"ip":...})로 받는다.
  * - 서버 프로토콜: 텍스트 item_update JSON, 이미지는 CNV2 헤더가 붙은 opcode 2 프레임.
  */
@@ -29,7 +30,7 @@ final class TmapNaviClient {
     private static final String WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
     private static final String STATE_PATH = "/api/navi/ws/v2/json/tmap/state";
     private static final String MAP_PATH = "/api/navi/ws/v2/render/tmap/map_main";
-    private static final String SIGNAL_PATH = "/api/navi/ws/v2/image/tmap/traffic_signal";
+    private static final String IMAGE_PATH = "/api/navi/ws/v2/image/tmap/";
 
     private final Object stateLock = new Object();
     private final Object mapLock = new Object();
@@ -38,9 +39,6 @@ final class TmapNaviClient {
     private OutputStream stateOut;
     private Socket mapSock;
     private OutputStream mapOut;
-    private Socket sigSock;
-    private OutputStream sigOut;
-    private final Object sigLock = new Object();
     private final Random rnd = new Random();
     // Xposed callbacks run on TMAP threads. Never perform socket I/O there:
     // a reconnect or handshake may take seconds and must not stall navigation.
@@ -62,9 +60,14 @@ final class TmapNaviClient {
     });
     private final AtomicReference<byte[]> pendingMap = new AtomicReference<>();
     private final AtomicBoolean mapDrainScheduled = new AtomicBoolean(false);
-    // 신호등 PNG. 지도와 같은 "최신 1장만" 정책.
-    private final AtomicReference<byte[]> pendingSignal = new AtomicReference<>();
-    private final AtomicBoolean signalDrainScheduled = new AtomicBoolean(false);
+    // 그림 스트림(신호등·TBT·차로·안전·교차로). 이름마다 소켓 하나, 지도와 같은
+    // "최신 1장만" 정책. 지도 전송이 밀려도 그림이 늦지 않게 별도 스레드를 쓴다.
+    private final ExecutorService imageSender = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "tmap-hud-image-sender");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private final ConcurrentHashMap<String, ImageChannel> images = new ConcurrentHashMap<>();
 
     void setHost(String ip) {
         if (ip != null && !ip.isEmpty() && !ip.equals(host)) {
@@ -125,54 +128,74 @@ final class TmapNaviClient {
         }
     }
 
-    /** 신호등 PNG(CNV2 헤더 포함)를 traffic_signal 오버레이 소켓으로 보낸다. */
+    /** CNV2 헤더가 붙은 PNG/JPEG 를 그림 이름(traffic_signal, tbt_next …) 소켓으로 보낸다. */
+    void sendImage(final String name, final byte[] framed) {
+        if (name == null || framed == null || framed.length == 0) return;
+        ImageChannel channel = images.get(name);
+        if (channel == null) {
+            ImageChannel created = new ImageChannel(name);
+            channel = images.putIfAbsent(name, created);
+            if (channel == null) channel = created;
+        }
+        channel.pending.set(framed);
+        channel.schedule();
+    }
+
+    /** 신호등 PNG(CNV2 헤더 포함). */
     void sendSignal(final byte[] framed) {
-        if (framed == null || framed.length == 0) return;
-        pendingSignal.set(framed);
-        if (signalDrainScheduled.compareAndSet(false, true)) {
-            mapSender.execute(this::drainSignal);
-        }
+        sendImage("traffic_signal", framed);
     }
 
-    private void drainSignal() {
-        try {
-            byte[] f;
-            while ((f = pendingSignal.getAndSet(null)) != null) sendSignalNow(f);
-        } finally {
-            signalDrainScheduled.set(false);
-            if (pendingSignal.get() != null && signalDrainScheduled.compareAndSet(false, true)) {
-                mapSender.execute(this::drainSignal);
+    private final class ImageChannel {
+        final String name;
+        final Object lock = new Object();
+        final AtomicReference<byte[]> pending = new AtomicReference<>();
+        final AtomicBoolean scheduled = new AtomicBoolean(false);
+        Socket sock;
+        OutputStream out;
+
+        ImageChannel(String name) {
+            this.name = name;
+        }
+
+        void schedule() {
+            if (scheduled.compareAndSet(false, true)) imageSender.execute(this::drain);
+        }
+
+        void drain() {
+            try {
+                byte[] framed;
+                while ((framed = pending.getAndSet(null)) != null) sendNow(framed);
+            } finally {
+                scheduled.set(false);
+                if (pending.get() != null) schedule();
             }
         }
-    }
 
-    private void sendSignalNow(byte[] framed) {
-        try {
-            OutputStream out = ensureSignal();
-            if (out == null) return;
-            synchronized (sigLock) {
-                writeFrame(out, framed, 2);
+        void sendNow(byte[] framed) {
+            try {
+                if (out == null) {
+                    if (host == null) return;
+                    Socket s = connect(IMAGE_PATH + name);
+                    if (s == null) return;
+                    sock = s;
+                    out = s.getOutputStream();
+                    TmapHudLog.line(name + " socket connected");
+                }
+                synchronized (lock) {
+                    writeFrame(out, framed, 2);
+                }
+            } catch (Throwable t) {
+                TmapHudLog.ex("send " + name, t);
+                close();
             }
-        } catch (Throwable t) {
-            TmapHudLog.ex("sendSignal", t);
-            closeSignal();
         }
-    }
 
-    private OutputStream ensureSignal() throws Exception {
-        if (sigOut != null) return sigOut;
-        if (host == null) return null;
-        Socket s = connect(SIGNAL_PATH);
-        if (s == null) return null;
-        sigSock = s;
-        sigOut = s.getOutputStream();
-        TmapHudLog.line("signal socket connected");
-        return sigOut;
-    }
-
-    private void closeSignal() {
-        try { if (sigSock != null) sigSock.close(); } catch (Throwable ignored) { }
-        sigSock = null; sigOut = null;
+        void close() {
+            try { if (sock != null) sock.close(); } catch (Throwable ignored) { }
+            sock = null;
+            out = null;
+        }
     }
 
     private void sendMapNow(byte[] jpeg) {
@@ -304,11 +327,14 @@ final class TmapNaviClient {
     private void closeMap() {
         try { if (mapSock != null) mapSock.close(); } catch (Throwable ignored) { }
         mapSock = null; mapOut = null;
-        closeSignal();
     }
 
     private void closeAll() {
         synchronized (stateLock) { closeState(); }
         synchronized (mapLock) { closeMap(); }
+        // 그림 소켓은 각자의 전송 스레드에서 닫는다(쓰는 중인 소켓을 건드리지 않게).
+        for (final ImageChannel channel : images.values()) {
+            imageSender.execute(channel::close);
+        }
     }
 }

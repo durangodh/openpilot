@@ -1,4 +1,4 @@
-# TMAP HUD Xposed 모듈 (1차)
+# TMAP HUD Xposed 모듈
 
 플레이스토어 원본 티맵(`com.skt.tmap.ku`)에 LSPosed 모듈로 붙어, 캐롯 패치판
 (CarrotNavi v11.2.3.3740)이 EON `carrot_navi_server`(7714)로 보내던 데이터를
@@ -99,15 +99,43 @@ API가 없다. 대신 지도 엔진이 그리는 SurfaceView(또는 TextureView)
   `ObservableTrafficSignalData`의 getter 실제 이름은 `isTrafficSignalVisible()`이라
   같은 이름의 필드를 직접 읽는다.
 - 모듈 APK는 `gradle :app:assembleDebug`로 빌드된다.
+- 2차 그림: Android 스텁으로 `TmapImages`를 돌려, 그림 스트림이 서버를 거쳐
+  EON 파일(`carrot_navi_tbt_*`, `lane_bottom`, `crossroad`)로 생기고 주행 종료 시
+  지워지는지, 로컬 HTTP로 분기 실사를 받아 그대로 전달하는지 확인했다. 모듈이
+  이름으로 찾는 drawable 200개와 스타일 3개가 11.8.3.4061 리소스 테이블에 모두 있다.
 - **실기 미확인**: 후킹 동작, 지도 PixelCopy 화면 중심 좌표계, `nCurrentLane`이
-  1부터 시작하는지(EON HUD는 1..n을 기대), SDI·구간단속 실제 값, 신호 상태 코드.
+  1부터 시작하는지(EON HUD는 1..n을 기대), SDI·구간단속 실제 값, 신호 상태 코드,
+  실제 그림 모양(테마 색 적용), 분기 실사 URL이 인증 없이 받아지는지.
 
-## 2차(예정): 티맵 자체 그림
+## 2차: 티맵 자체 그림
 
-`tbt_*`, `lane_*`, `safety_*`, `crossroad_*`. 후보 출처:
-`TmapNavigation.getCrossImageBuffer`/`getDirImageBuffer`(네이티브 교차로·방면 이미지),
-`ObservableTBTData`/`ObservableLaneData`/`ObservableSDIData` LiveData를 그리는
-티맵 UI 뷰.
+경로 `/api/navi/ws/v2/image/tmap/<이름>`, CNV2 + PNG(교차로 실사는 받은 PNG/JPEG 그대로).
+값이 바뀔 때만, 이름마다 최대 2fps로 보낸다. 표시할 것이 없어지면 CNV2 clear를 보낸다.
+
+| 이름 | 내용 | EON/HUD 사용 |
+| --- | --- | --- |
+| `tbt_current_compact` | 현재 회전 아이콘만(흰색, 투명 배경, 120px) | HUD 회전 아이콘(`EonClusterHudTmapIcon=1`일 때) |
+| `tbt_current_full` | 녹색 배너: 아이콘 + 거리 + 안내 문구 | 서버 저장, HUD는 배너를 직접 그림 |
+| `tbt_next` | 다음 회전 아이콘 + 구간 거리 | 서버 저장, HUD는 직접 그림 |
+| `lane_bottom` | 차로 안내 띠(티맵 차로 화살표·포켓 차로, 추천 차로 주황) | HUD 지도 하단 |
+| `crossroad_expanded` | 분기 실사 이미지(티맵과 같은 URL에서 받음) | HUD 분기 이미지 |
+| `crossroad_minimized` | 같은 이미지 절반 크기 | 현재 서버가 받지 않음 |
+| `safety_primary`/`secondary` | 단속 표지(티맵 `c_XX` 아이콘 + 제한속도 + 거리) | 현재 서버가 받지 않음 |
+| `safety_section` | 구간단속(제한속도·평균속도·남은 거리) | 현재 서버가 받지 않음 |
+
+- 아이콘은 티맵 리소스를 **이름으로** 꺼내 티맵 스타일을 입힌 테마로 그린다:
+  TBT `NavigationTbtIcon.Top`(흰 화살표), 차로 `NavigationLaneBubbleMarkerIcon.Night`
+  (활성 흰색·비활성 회색) / `.Night.Suggested`(추천 주황). 리소스 이름은 난독화되지
+  않으므로 코드 난독화 이름이 바뀌어도 견딘다. 시작 시 로그 `image resources: …`에
+  찾은 리소스 ID가 남는다(0이면 해당 그림 없음).
+- 회전 코드→아이콘(`NavigationTbtIcon`), 차로 코드 `"%02d%02d"`(방향, 가능 비트)→
+  그림 140개(`NavigationLaneArrowResIdGetter`, `L2508`→`"2518"` 같은 원본 특이값 포함),
+  안전 종류→아이콘(`SDISpeedView.l`), 거리 표기(1km 이상은 정수 km, 1,500m → "1km")는
+  디컴파일 표를 `TmapAssets`에 그대로 옮겼다.
+- 분기 실사: `RGData.bExtcImage`일 때 `szImageBaseUrl` + `szImageDayUri`/`szImageNightUri`
+  (야간은 `NaviConfigData.getNightMode()`). 티맵 화면과 같은 이미지다. 480KB를 넘으면
+  가로 800px JPEG로 줄인다.
+- 그리지 않는 것: `lane_top`, `center_tbt_*`(EON이 쓰지 않고 패치판 의미가 불분명).
 
 ## 빌드
 

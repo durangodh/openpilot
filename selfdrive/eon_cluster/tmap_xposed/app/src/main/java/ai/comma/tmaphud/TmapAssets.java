@@ -1,0 +1,226 @@
+package ai.comma.tmaphud;
+
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+
+/**
+ * 티맵 자체 그림(2차)을 고르는 규칙과 표. Android 에 의존하지 않아 호스트에서
+ * 검사한다(tests/ai/comma/tmaphud/TmapJsonCheck.java).
+ *
+ * 표와 규칙은 11.8.3.4061 디컴파일에서 그대로 옮겼다. 리소스는 이름으로 찾으므로
+ * (티맵 리소스 이름은 난독화되지 않는다) 코드 난독화 이름이 바뀌어도 견딘다.
+ *  - TBT 아이콘: com.tmapmobility.navigation.tbt.data.model.icon.NavigationTbtIcon
+ *  - 차로: com.tmapmobility.navigation.lane.data.icon.a(NavigationLaneArrowResIdGetter),
+ *          NavigationLaneBubbleIconDrawableCache(포켓 차로)
+ *  - 안전: com.skt.tmap.view.SDISpeedView.l(SDIInfo, SDIInfo)
+ */
+final class TmapAssets {
+    private TmapAssets() {
+    }
+
+    // ObservableLaneData.LaneEtcInfo 비트
+    static final int LANE_LEFT_POCKET = 1, LANE_RIGHT_POCKET = 2, LANE_OVERPASS = 4,
+            LANE_UNDERPASS = 8, LANE_BUS_ONLY = 64, LANE_SUGGESTED = 128;
+
+    /** "%02d%02d"(방향 코드, 가능 비트) → navigation_lane_laneguid_* 접미사. */
+    private static final String[] LANE_CODES = {
+            "0100", "1_0", "0101", "1_1",
+            "0200", "2_0", "0202", "2_1",
+            "0300", "12_00", "0301", "12_01",
+            "0302", "12_10", "0303", "12_11",
+            "0400", "3_0", "0404", "3_1",
+            "0500", "13_00", "0501", "13_01",
+            "0504", "13_10", "0505", "13_11",
+            "0600", "23_00", "0602", "23_01",
+            "0604", "23_10", "0606", "23_11",
+            "0700", "123_000", "0701", "123_001",
+            "0702", "123_010", "0704", "123_100",
+            "0707", "123_111", "1200", "34_00",
+            "1204", "34_01", "1208", "34_10",
+            "1212", "34_11", "1300", "134_000",
+            "1301", "134_001", "1304", "134_010",
+            "1308", "134_100", "1313", "134_111",
+            "1400", "234_000", "1402", "234_001",
+            "1404", "234_010", "1408", "234_100",
+            "1414", "234_111", "1500", "1234_0000",
+            "1501", "1234_0001", "1502", "1234_0010",
+            "1504", "1234_0100", "1508", "1234_1000",
+            "1515", "1234_1111", "1600", "5_0",
+            "1616", "5_1", "1700", "15_00",
+            "1701", "15_01", "1716", "15_10",
+            "1717", "15_11", "1800", "25_00",
+            "1802", "25_01", "1816", "25_10",
+            "1818", "25_11", "2000", "35_00",
+            "2004", "35_01", "2016", "35_10",
+            "2020", "35_11", "2200", "235_000",
+            "2202", "235_001", "2204", "235_010",
+            "2216", "235_100", "2222", "235_111",
+            "2400", "45_00", "2408", "45_01",
+            "2416", "45_10", "2424", "45_11",
+            "2500", "145_000", "2501", "145_001",
+            "2518", "145_010", "2516", "145_100",
+            "2525", "145_111", "2600", "245_000",
+            "2602", "245_001", "2608", "245_010",
+            "2616", "245_100", "2626", "245_111",
+            "3200", "6_0", "3232", "6_1",
+            "3300", "16_00", "3301", "16_01",
+            "3332", "16_10", "3333", "16_11",
+            "3600", "36_00", "3632", "36_10",
+            "3900", "1236_0000", "3901", "1236_0001",
+            "3902", "1236_0010", "3904", "1236_0100",
+            "3932", "1236_1000", "3939", "1236_1111",
+            "4100", "146_000", "4101", "146_001",
+            "4108", "146_010", "4132", "146_100",
+            "4141", "146_111", "4200", "246_000",
+            "4202", "246_001", "4208", "246_010",
+            "4232", "246_100", "4300", "1246_0000",
+            "4301", "1246_0001", "4302", "1246_0010",
+            "4308", "1246_0100", "4332", "1246_1000",
+            "4343", "1246_1111", "4400", "346_000",
+            "4404", "346_001", "4408", "346_010",
+            "4432", "346_100", "4444", "346_111",
+            "4800", "56_00", "4816", "56_01",
+            "4832", "56_10", "4848", "56_11",
+            "4900", "156_000", "4901", "156_001",
+            "4916", "156_010", "4932", "156_100",
+            "4949", "156_111", "5000", "256_000",
+            "5002", "256_001", "5016", "256_010",
+            "5032", "256_100", "5050", "256_111",
+            "5200", "356_000", "5204", "356_001",
+            "5216", "356_010", "5232", "356_100",
+            "5252", "356_111", "5600", "456_000",
+            "5608", "456_001", "5616", "456_010",
+            "5632", "456_100", "5656", "456_111",
+            "5800", "2456_0000", "5802", "2456_0001",
+            "5808", "2456_0010", "5816", "2456_0100",
+            "5832", "2456_1000", "5858", "2456_1111",
+    };
+    private static final Map<String, String> LANE = new HashMap<>();
+
+    /** navigation_tbt_*_icon → 티맵 회전 코드들. */
+    private static final String[][] TBT_ICONS = {
+            {"arrow_01", "11,54,51,53,55,52,248,3,4,5,170,171"},
+            {"arrow_06", "16"},
+            {"arrow_02", "12"},
+            {"arrow_04", "17"},
+            {"arrow_05", "18"},
+            {"arrow_03", "13"},
+            {"arrow_07", "19"},
+            {"arrow_12", "14"},
+            {"arrow_13", "15"},
+            {"arrow_09", "6,43,73,74,117"},
+            {"arrow_08", "7,44,75,76,118"},
+            {"road_01", "103,113"},
+            {"road_02", "102,112"},
+            {"road_03", "101,111,195,196"},
+            {"road_04", "106,116"},
+            {"road_05", "105,115"},
+            {"road_06", "104,114"},
+            {"road_10", "119"},
+            {"road_07", "120"},
+            {"road_09", "121"},
+            {"road_11", "123"},
+            {"road_08", "124"},
+            {"road_12", "175"},
+            {"rotary_02", "131,132"},
+            {"rotary_03", "133"},
+            {"rotary_04", "134,135"},
+            {"rotary_05", "136"},
+            {"rotary_06", "137,138"},
+            {"rotary_07", "139"},
+            {"rotary_08", "140,141"},
+            {"rotary_01", "142"},
+            {"sign_06", "151,152"},
+            {"sign_07", "153,154,249"},
+            {"marker_01", "200"},
+            {"sign_01", "185"},
+            {"sign_02", "186"},
+            {"sign_03", "187"},
+            {"sign_04", "188"},
+            {"sign_05", "189"},
+            {"marker_02", "201"},
+    };
+    private static final Map<Integer, String> TBT = new HashMap<>();
+
+    static {
+        for (int i = 0; i < LANE_CODES.length; i += 2) {
+            LANE.put(LANE_CODES[i], "navigation_lane_laneguid_" + LANE_CODES[i + 1]);
+        }
+        for (String[] row : TBT_ICONS) {
+            for (String code : row[1].split(",")) {
+                TBT.put(Integer.parseInt(code), "navigation_tbt_" + row[0] + "_icon");
+            }
+        }
+    }
+
+    /** 회전 코드의 티맵 TBT 아이콘 이름. 티맵에 그림이 없는 코드는 null. */
+    static String tbtIcon(int turnType) {
+        return TBT.get(turnType);
+    }
+
+    /** 차로 화살표 그림 이름(NavigationLaneArrowResIdGetter.a 와 같은 순서). */
+    static String laneArrow(int turn, int available, int etc) {
+        if ((etc & LANE_UNDERPASS) != 0) {
+            return available == 0 ? "navigation_lane_under_b" : "navigation_lane_under_a";
+        }
+        if ((etc & LANE_OVERPASS) != 0) {
+            return available == 0 ? "navigation_lane_high_b" : "navigation_lane_high_a";
+        }
+        if ((turn == 0 || available == 0) && (etc & LANE_BUS_ONLY) != 0) {
+            return "navigation_lane_bus_b";
+        }
+        String name = LANE.get(String.format(Locale.US, "%02d%02d", turn, available));
+        return name != null ? name : "navigation_lane_laneguid_4_0";
+    }
+
+    /** 포켓 차로 덧그림(없으면 null). */
+    static String lanePocket(int available, int etc) {
+        if ((etc & LANE_LEFT_POCKET) != 0) {
+            return available != 0 ? "navigation_lane_left_pocket_1" : "navigation_lane_left_pocket_0";
+        }
+        if ((etc & LANE_RIGHT_POCKET) != 0) {
+            return available != 0 ? "navigation_lane_right_pocket_1" : "navigation_lane_right_pocket_0";
+        }
+        return null;
+    }
+
+    /** 추천 차로(주황) 여부: 어떤 차로에든 SUGGESTED 가 있으면 그 차로만. */
+    static boolean laneSuggested(int etc) {
+        return (etc & LANE_SUGGESTED) != 0;
+    }
+
+    /**
+     * 안전 표지 그림(SDISpeedView.l). 반환: {종류 아이콘, 표지판 배경} 이름, 그림이 없는
+     * 종류는 null. limitChanged 는 SDIInfo.bIsLimitSpeedSignChanged.
+     */
+    static String[] safetyIcons(int type, boolean limitChanged) {
+        switch (type) {
+            case 1: return new String[]{"c_01", "tmap_speed_sign"};
+            case 2: case 3: case 4:
+                return new String[]{limitChanged ? "c_01" : "c_15", "tmap_speed_sign"};
+            case 7: return new String[]{"c_05", "tmap_speed_sign_blue"};
+            case 8: return new String[]{"c_16", "tmap_speed_sign"};
+            case 72: return new String[]{"c_31", "tmap_speed_sign"};
+            case 73: return new String[]{"c_30", "tmap_speed_sign"};
+            case 74: return new String[]{"c_32", "tmap_speed_sign"};
+            case 76: return new String[]{"c_02", "tmap_speed_sign"};
+            default: return null;
+        }
+    }
+
+    /** 구간단속 계열(2·3·4)에서 단속 구간 제한속도는 nSdiBlockSpeed 를 표시한다. */
+    static int safetyLimit(int type, boolean limitChanged, int speedLimit, int blockSpeed) {
+        if ((type == 2 || type == 3 || type == 4) && !limitChanged) return blockSpeed;
+        return speedLimit;
+    }
+
+    /**
+     * 티맵 TBT 거리 표기(NavigationTbtDistanceState): 1km 미만은 m, 그 이상은
+     * 미터를 정수 나눗셈한 km(1,500m → "1km"). 티맵 화면과 같게 둔다.
+     */
+    static String distanceText(int meters) {
+        if (meters < 1000) return Math.max(0, meters) + "m";
+        return String.format(Locale.US, "%,dkm", meters / 1000);
+    }
+}
