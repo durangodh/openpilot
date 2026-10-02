@@ -53,6 +53,7 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                             hooks += safeHook("MainActivity", () -> hookActivity(target.classLoader));
                             hooks += safeHook("MapProvider", () -> hookMapProvider(target.classLoader));
                             hooks += safeHook("LaneView", () -> hookLaneView(target.classLoader));
+                            hooks += safeHook("SignalView", () -> hookSignalView(target.classLoader));
                             if (verified) {
                                 try {
                                     NaverMarkerSize.install(target.classLoader);
@@ -108,7 +109,7 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
 
     /** 폰 차로 표시가 바뀔 때마다 HUD 차로 띠 그림을 다시 뜬다(읽기 전용). */
     private static void hookLaneView(ClassLoader appLoader) {
-        Class<?> view = XposedHelpers.findClass(NaverLaneImage.VIEW, appLoader);
+        Class<?> view = XposedHelpers.findClass(NaverViewImage.LANE_VIEW, appLoader);
         Class<?> item = XposedHelpers.findClass("com.naver.map.core.navigation.lane.NaviLaneItem", appLoader);
         XposedHelpers.findAndHookMethod(view, "a", item, boolean.class, new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam param) {
@@ -116,6 +117,21 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                     bridge.onLaneView((View) param.thisObject, param.args[0]);
                 } catch (Throwable error) {
                     log("lane view update failed: " + error);
+                }
+            }
+        });
+    }
+
+    /** 폰 신호등 표시가 바뀔 때마다 HUD 신호등 그림을 다시 뜬다(읽기 전용). */
+    private static void hookSignalView(ClassLoader appLoader) {
+        Class<?> view = XposedHelpers.findClass(NaverViewImage.SIGNAL_VIEW, appLoader);
+        Class<?> info = XposedHelpers.findClass("com.naver.map.core.navigation.model.TrafficSignalInfo", appLoader);
+        XposedHelpers.findAndHookMethod(view, "a", boolean.class, info, new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam param) {
+                try {
+                    bridge.onSignalView((View) param.thisObject, (Boolean) param.args[0], param.args[1]);
+                } catch (Throwable error) {
+                    log("signal view update failed: " + error);
                 }
             }
         });

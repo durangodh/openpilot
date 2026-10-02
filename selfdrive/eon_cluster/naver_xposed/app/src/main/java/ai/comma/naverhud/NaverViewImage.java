@@ -16,27 +16,32 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * 네이버 폰 안내 화면의 차로 표시(NaviLaneControlView: 차로 화살표 + 거리)를 그대로
- * 그림으로 떠서 HUD 지도 아래 차로 띠(lane_bottom, 티맵과 같은 자리)로 보낸다.
+ * 네이버 폰 안내 화면의 작은 표시 뷰를 그대로 그림으로 떠서 HUD 오버레이로 보낸다.
  *
- * 출처(6.10.0.16 디컴파일): LaneComponent 가 차로가 바뀔 때마다
- * NaviLaneControlView.a(NaviLaneItem, boolean) 을 부른다. 항목의 k()(차로 단위 목록)가
- * 비면 폰도 차로 표시를 숨긴다. 이름은 난독화되지 않았다(a/k 는 실제 이름).
+ *  lane_bottom     NaviLaneControlView(차로 화살표 + 거리). LaneComponent 가
+ *                  a(NaviLaneItem, boolean) 으로 갱신한다. k()(차로 목록)가 비면 숨김.
+ *  traffic_signal  NaviTrafficSignalView(방향별 신호 아이콘 + 잔여초).
+ *                  NaviTrafficSignalComponent 가 a(boolean, TrafficSignalInfo) 로 갱신한다.
+ *                  첫 인자가 false 거나 k()(신호 목록)가 비면 숨김.
+ * (6.10.0.16 디컴파일. 클래스·메서드 이름은 난독화되지 않은 실제 이름이다.)
  *
- * 차로 그림은 서버에서 나중에 받아 오기도 하므로, 떠 있는 동안 500ms 마다 뷰를 다시
- * 그려 그림이 바뀌었을 때만(+5초 재전송) 보낸다. 작은 뷰라 메인 스레드 부담은 작다.
+ * 그림(차로 그림은 서버에서 나중에 받아 오기도 하고, 잔여초는 매초 바뀐다)이 바뀌는지
+ * 떠 있는 동안 500ms 마다 뷰를 다시 그려 보고, 바뀌었을 때만(+5초 재전송) 보낸다.
+ * 작은 뷰라 메인 스레드 부담은 작다.
  */
-final class NaverLaneImage {
-    static final String VIEW = "com.naver.map.feature.navigation.view.lane.NaviLaneControlView";
-    private static final String NAME = "lane_bottom";
+final class NaverViewImage {
+    static final String LANE_VIEW = "com.naver.map.feature.navigation.view.lane.NaviLaneControlView";
+    static final String SIGNAL_VIEW = "com.naver.map.core.navigation.view.NaviTrafficSignalView";
     private static final long TICK_MS = 500;
     private static final long RESEND_MS = 5000;
     private static final int MAX_W = 640;
 
     private final NaverNaviClient client;
+    private final String name;
+    private volatile boolean used;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService encoder = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "naver-hud-lane");
+        Thread t = new Thread(r, "naver-hud-view");
         t.setDaemon(true);
         t.setPriority(Thread.MIN_PRIORITY);
         return t;
@@ -47,14 +52,21 @@ final class NaverLaneImage {
     private long lastSentAt;
     private long seq;
 
-    NaverLaneImage(NaverNaviClient client) {
+    NaverViewImage(NaverNaviClient client, String name) {
         this.client = client;
+        this.name = name;
     }
 
-    /** 메인 스레드: NaviLaneControlView.a(item, z) 가 끝난 뒤. */
-    void onUpdate(View laneView, Object item) {
-        view = new WeakReference<>(laneView);
-        visible = hasLanes(item);
+    /** 폰 뷰가 한 번이라도 갱신됐으면 true(이후 이 그림만 쓴다). */
+    boolean used() {
+        return used;
+    }
+
+    /** 메인 스레드: 폰 뷰의 갱신 메서드가 끝난 뒤. */
+    void onUpdate(View phoneView, boolean show) {
+        used = true;
+        view = new WeakReference<>(phoneView);
+        visible = show;
         if (!visible) {
             clear();
             return;
@@ -65,7 +77,8 @@ final class NaverLaneImage {
         }
     }
 
-    private static boolean hasLanes(Object item) {
+    /** 항목의 k() 목록이 비어 있지 않으면 true(차로·신호 둘 다 k()). */
+    static boolean hasItems(Object item) {
         if (item == null) return false;
         try {
             Object units = item.getClass().getMethod("k").invoke(item);
@@ -101,7 +114,7 @@ final class NaverLaneImage {
         } catch (Throwable t) {
             if (!loggedError) {
                 loggedError = true;
-                NaverHudLog.ex("lane image", t);
+                NaverHudLog.ex(name + " image", t);
             }
         }
         main.postDelayed(this::tick, TICK_MS);
@@ -124,14 +137,14 @@ final class NaverLaneImage {
             ByteArrayOutputStream png = new ByteArrayOutputStream(16384);
             bmp.compress(Bitmap.CompressFormat.PNG, 100, png);
             byte[] body = png.toByteArray();
-            client.sendImage(NAME, frame(1, body, bmp.getWidth(), bmp.getHeight()));
+            client.sendImage(name, frame(1, body, bmp.getWidth(), bmp.getHeight()));
             if (!loggedFirst) {
                 loggedFirst = true;
-                NaverHudLog.xposed("lane image sent " + bmp.getWidth() + "x" + bmp.getHeight()
+                NaverHudLog.xposed(name + " image sent " + bmp.getWidth() + "x" + bmp.getHeight()
                         + " (" + body.length + " bytes)");
             }
         } catch (Throwable t) {
-            NaverHudLog.ex("lane encode", t);
+            NaverHudLog.ex(name + " encode", t);
         } finally {
             bmp.recycle();
         }
@@ -145,7 +158,7 @@ final class NaverLaneImage {
         }
         if (!shown) return;
         shown = false;
-        encoder.execute(() -> client.sendImage(NAME, frame(4, null, 0, 0)));
+        encoder.execute(() -> client.sendImage(name, frame(4, null, 0, 0)));
     }
 
     /** 40바이트 CNV2 헤더(서버 BINARY_HEADER ">4sBBBBIIQQIHH") + PNG(format 0). */

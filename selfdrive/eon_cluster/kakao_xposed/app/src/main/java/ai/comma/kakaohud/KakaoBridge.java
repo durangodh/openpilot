@@ -19,6 +19,8 @@ final class KakaoBridge {
     private final KakaoNaviClient client;
     private final KakaoMap map;
     private final KakaoSignal signal;
+    /** 폰 신호등 표시(뷰모델)를 읽는 동안에는 그림을 그쪽에서만 그린다. */
+    final KakaoCits cits;
     private final AtomicBoolean loggedRouteShape = new AtomicBoolean(false);
     private final AtomicBoolean loggedLocShape = new AtomicBoolean(false);
     private final AtomicBoolean loggedSafety = new AtomicBoolean(false);
@@ -64,6 +66,7 @@ final class KakaoBridge {
         this.client = client;
         this.map = map;
         this.signal = new KakaoSignal(client);
+        this.cits = new KakaoCits(signal);
     }
 
     void setRepository(Object repository) {
@@ -305,7 +308,7 @@ final class KakaoBridge {
             if (bestColor == 0) {
                 clearSignal();
             } else {
-                signal.publish(bestColor, bestRemain);
+                if (!cits.active()) signal.publish(bestColor, bestRemain);
                 // Same JSON shape as Naver so EON can use the phase for
                 // traffic-stop detection (every movement of the nearest signal).
                 StringBuilder entries = new StringBuilder("[");
@@ -324,7 +327,7 @@ final class KakaoBridge {
     }
 
     private void clearSignal() {
-        signal.clear();
+        if (!cits.active()) signal.clear();
         client.sendState("traffic_signal", "{\"source\":\"KAKAO\",\"signals\":[]}");
     }
 

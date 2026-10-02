@@ -23,8 +23,9 @@ final class NaverBridge {
     // HUD 지도 신호등 칸은 PNG 자산이 와야 그려진다. 카카오처럼 직접 그려 보낸다.
     private final NaverSignal signalImage = new NaverSignal(client);
     private final NaverJunction junction = new NaverJunction(client);
-    // HUD 지도 아래 차로 띠: 폰 차로 표시 뷰를 그대로 떠서 보낸다.
-    private final NaverLaneImage laneImage = new NaverLaneImage(client);
+    // HUD 지도 아래 차로 띠와 신호등: 폰 표시 뷰를 그대로 떠서 보낸다.
+    private final NaverViewImage laneImage = new NaverViewImage(client, "lane_bottom");
+    private final NaverViewImage signalView = new NaverViewImage(client, "traffic_signal");
     private final ScheduledExecutorService poller = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "naver-hud-state");
         t.setDaemon(true);
@@ -61,7 +62,12 @@ final class NaverBridge {
 
     /** 메인 스레드: 폰 차로 표시(NaviLaneControlView)가 갱신됐다. */
     void onLaneView(android.view.View view, Object item) {
-        laneImage.onUpdate(view, item);
+        laneImage.onUpdate(view, NaverViewImage.hasItems(item));
+    }
+
+    /** 메인 스레드: 폰 신호등 표시(NaviTrafficSignalView)가 갱신됐다. */
+    void onSignalView(android.view.View view, boolean enabled, Object info) {
+        signalView.onUpdate(view, enabled && NaverViewImage.hasItems(info));
     }
 
     void setStore(Object value) {
@@ -269,6 +275,8 @@ final class NaverBridge {
 
     /** 직진 신호(없으면 유일한 신호)의 색·잔여초를 HUD 신호등 그림으로 보낸다. */
     private void publishSignalImage(Object item) {
+        // 폰 신호등 뷰를 뜨고 있으면 그 그림(폰과 같은 신호·잔여초)만 쓴다.
+        if (signalView.used()) return;
         try {
             if (item == null || Boolean.TRUE.equals(call(item, "h"))) {
                 signalImage.clear();

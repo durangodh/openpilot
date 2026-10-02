@@ -54,6 +54,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         hookScreenCamera(lpparam, map);
         hookJunction(lpparam, new KakaoJunction(client));
         hookLane(lpparam, new KakaoLane(client));
+        hookCits(lpparam, bridge.cits);
         hookRepository(lpparam, bridge);
         hookGuideCallbacks(lpparam, bridge);
     }
@@ -132,6 +133,23 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
             KakaoHudLog.line("junction hook ready");
         } catch (Throwable t) {
             KakaoHudLog.ex("hookJunction", t);
+        }
+    }
+
+    /** 신호등: 폰 신호등 표시의 KNUCitsViewModel 을 잡아 둔다(읽기 전용). */
+    private void hookCits(LoadPackageParam lpparam, final KakaoCits cits) {
+        try {
+            Class<?> vm = lpparam.classLoader.loadClass(KakaoCits.VIEW_MODEL);
+            XposedBridge.hookAllConstructors(vm, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    if (param.hasThrowable()) return;
+                    cits.setViewModel(param.thisObject);
+                }
+            });
+            KakaoHudLog.line("cits hook ready");
+        } catch (Throwable t) {
+            KakaoHudLog.ex("hookCits", t);
         }
     }
 

@@ -117,6 +117,15 @@ every 500 ms and sent as PNG on `/api/navi/ws/v2/image/naver/lane_bottom` when
 it changes (and every 5 s). The HUD shows it below the map, where TMAP's lane
 strip goes. An empty item sends a CNV2 clear.
 
+## Traffic signal (traffic_signal)
+
+`NaviTrafficSignalView.a(boolean, TrafficSignalInfo)` is hooked the same way:
+the phone's own signal view (per-direction lamps and countdown) is drawn and
+sent on `/api/navi/ws/v2/image/naver/traffic_signal`, so the HUD shows the
+same signals as the phone and hides them when the phone does. Until that view
+has been updated once, the module falls back to drawing its own lamp from the
+straight (or only) signal.
+
 ## Junction view (crossroad_expanded)
 
 The phone's enlarged junction popup comes from the guidance session:

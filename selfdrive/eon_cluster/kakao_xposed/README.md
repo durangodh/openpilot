@@ -68,6 +68,14 @@ HUD·안드로이드 오토용 차로 그림을 만드는 것과 같은 방법).
 `/api/navi/ws/v2/image/kakao/lane_bottom` 에 보내고, HUD 는 티맵 차로 띠 자리(지도 아래)에
 띄운다. 차로 구성이 바뀔 때 + 5초마다 보내고, 사라지면 clear 를 보낸다.
 
+## 신호등(traffic_signal 그림)
+
+폰 신호등 표시의 KNUCitsViewModel.getCitsUIState() 를 250ms 마다 읽는다. Data(c$a) 이면
+KNUCits 의 잔여초(f)·잔여초 색(g, Default 면 앞 신호 색 a)으로 신호등 그림을 그린다.
+카카오가 300m 안의 첫 신호에서 좌회전·직진을 합쳐 고른 값과 매초 줄어드는 잔여초를 그대로
+쓰므로 폰과 같은 신호가 뜬다. 뷰모델을 읽는 동안에는 onCitsGuide 의 자체 선택이 그림을
+건드리지 않는다(EON 용 traffic_signal JSON 은 그대로).
+
 ## 교차로 확대 이미지(crossroad_expanded)
 폰 주행 화면의 JC 팝업과 같은 그림이다(4.51.1 디컴파일, 실기 미검증).
 `KNUJCViewModel` 생성자를 후킹해 잡아 두고, 250ms 마다 `getJcUIState().getValue()` 가

@@ -42,7 +42,7 @@ final class KakaoSignal {
     }
 
     /** color: 0 없음/어두움, 1 빨강, 2 노랑, 3 초록. remainSec<0 이면 숫자 숨김. */
-    void publish(int color, int remainSec) {
+    synchronized void publish(int color, int remainSec) {
         if (color <= 0) {
             clear();
             return;
@@ -59,7 +59,7 @@ final class KakaoSignal {
         }
     }
 
-    void clear() {
+    synchronized void clear() {
         if (lastWasClear) return;
         lastWasClear = true;
         lastKey = "";
