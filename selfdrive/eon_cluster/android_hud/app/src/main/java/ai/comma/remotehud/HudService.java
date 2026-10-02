@@ -270,6 +270,13 @@ public final class HudService extends Service {
     private long frameIntervalMs = 125L;
     private volatile long mapFrameIntervalMs = 200L;
     private long lastMapAcceptedElapsed = 0L;
+    // 네비 전환·안내 종료 때 지도가 뚝 끊기지 않게: 사라지는 지도는 MAP_FADE_MS 동안
+    // 검게 어두워지고, 새 지도는 첫 프레임부터 MAP_FADE_MS 동안 밝아진다.
+    // 아래 세 값은 assetLock 안에서만 읽고 쓴다.
+    private static final long MAP_FADE_MS = 300L;
+    private Bitmap fadingMap;
+    private long fadingMapSince;
+    private long mapShownSince;
     private final MapThemePolicy mapThemePolicy = new MapThemePolicy();
     // 야간 테마에서 지도 영역에 덮는 남청색 마스크 알파.
     // DAY: 밤인데 주간(흰) 지도가 들어올 때 / NIGHT: 지도 자체가 야간 지도일 때.
@@ -1444,10 +1451,20 @@ public final class HudService extends Service {
         }
     }
 
+    /** assetLock 안. 사라지는 지도를 페이드아웃용으로 넘겨받는다. */
+    private void retireMap(Bitmap old) {
+        if (old == null || old.isRecycled()) return;
+        if (fadingMap != null && fadingMap != old && !fadingMap.isRecycled()) fadingMap.recycle();
+        fadingMap = old;
+        fadingMapSince = SystemClock.elapsedRealtime();
+        mapShownSince = 0L;
+    }
+
     /** Remove the old app's map/TBT immediately while the new source connects. */
     private void clearNavigationAssets() {
         synchronized (assetLock) {
-            recycleAndClear(mapFrame);
+            // 지도만은 바로 버리지 않고 짧게 어두워지며 사라지게 한다.
+            retireMap(mapFrame.getAndSet(null));
             recycleAndClear(tbtCurrentFrame);
             recycleAndClear(tbtNextFrame);
             recycleAndClear(tbtCompactFrame);
@@ -1501,7 +1518,11 @@ public final class HudService extends Service {
                         // EON already rate-limits MAP1 to hudMapFps. Accept every
                         // delivered map frame here so network/scheduler jitter
                         // cannot discard a fresh frame.
-                        swapAsset(target, decoded);
+                        if (target == mapFrame && decoded == null) {
+                            retireMap(mapFrame.getAndSet(null));
+                        } else {
+                            swapAsset(target, decoded);
+                        }
                         if (target == mapFrame) {
                             lastMapAcceptedElapsed = SystemClock.elapsedRealtime();
                         }
@@ -5046,20 +5067,52 @@ public final class HudService extends Service {
                          Bitmap tbtNext, Bitmap lane, Bitmap trafficSignal) {
         scratchIRect.set(MAP_LEFT, 0, mapRight(), HEIGHT);
         final boolean mapAvailable = map != null && !map.isRecycled();
+        final long fadeNow = SystemClock.elapsedRealtime();
         if (!mapAvailable) {
+            mapShownSince = 0L;
             p.setShader(null);
             p.setStyle(Paint.Style.FILL);
             p.setColor(Color.BLACK);
             c.drawRect(scratchIRect, p);
-            JSONObject l = layout(s);
-            int waitSave = beginElement(c, l, "mapWait", mapCenterX(), 240f);
-            text(c, p, lang("지도 화면 대기", "WAITING FOR MAP"), mapCenterX(), 240f, 34f,
-                    Color.GRAY, Paint.Align.CENTER);
-            c.restoreToCount(waitSave);
+            long fadeAge = fadeNow - fadingMapSince;
+            if (fadingMap != null && !fadingMap.isRecycled() && fadeAge < MAP_FADE_MS) {
+                // 이전 지도가 검게 어두워지며 사라진다.
+                p.setFilterBitmap(true);
+                p.setAlpha(Math.round(255f * (1f - fadeAge / (float) MAP_FADE_MS)));
+                c.drawBitmap(fadingMap, null, scratchIRect, p);
+                p.setAlpha(255);
+            } else {
+                if (fadingMap != null) {
+                    if (!fadingMap.isRecycled()) fadingMap.recycle();
+                    fadingMap = null;
+                }
+                JSONObject l = layout(s);
+                int waitSave = beginElement(c, l, "mapWait", mapCenterX(), 240f);
+                text(c, p, lang("지도 화면 대기", "WAITING FOR MAP"), mapCenterX(), 240f, 34f,
+                        Color.GRAY, Paint.Align.CENTER);
+                c.restoreToCount(waitSave);
+            }
         } else {
+            if (fadingMap != null) {
+                if (!fadingMap.isRecycled()) fadingMap.recycle();
+                fadingMap = null;
+            }
+            if (mapShownSince == 0L) mapShownSince = fadeNow;
+            long shownAge = fadeNow - mapShownSince;
             p.setFilterBitmap(true);
             int mapSave = c.save();
-            c.drawBitmap(map, null, scratchIRect, p);
+            if (shownAge < MAP_FADE_MS) {
+                // 새 지도가 검은 화면에서 밝아지며 나타난다.
+                p.setShader(null);
+                p.setStyle(Paint.Style.FILL);
+                p.setColor(Color.BLACK);
+                c.drawRect(scratchIRect, p);
+                p.setAlpha(Math.round(255f * shownAge / (float) MAP_FADE_MS));
+                c.drawBitmap(map, null, scratchIRect, p);
+                p.setAlpha(255);
+            } else {
+                c.drawBitmap(map, null, scratchIRect, p);
+            }
             c.restoreToCount(mapSave);
         }
 
@@ -5387,6 +5440,8 @@ public final class HudService extends Service {
         }
         synchronized (assetLock) {
             recycleRef(mapFrame);
+            if (fadingMap != null && !fadingMap.isRecycled()) fadingMap.recycle();
+            fadingMap = null;
             recycleRef(tbtCurrentFrame);
             recycleRef(tbtNextFrame);
             recycleRef(tbtCompactFrame);

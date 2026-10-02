@@ -18,25 +18,29 @@ public class NavigationRenderCheck {
     int optInt(String key,int fallback){ return values.containsKey(key)?(Integer)values.get(key):fallback; }
     String optString(String key,String fallback){ return values.containsKey(key)?(String)values.get(key):fallback; }
   }
-  static class Bitmap { boolean recycled; boolean isRecycled(){return recycled;} }
+  static class Bitmap { boolean recycled; boolean isRecycled(){return recycled;} void recycle(){recycled=true;} }
+  static class SystemClock { static long now=100000L; static long elapsedRealtime(){return now;} }
   static class Rect { void set(int a,int b,int c,int d){} }
   static class RectF { void set(float a,float b,float c,float d){} }
   static class Color { static int BLACK=0,GRAY=1,WHITE=2; static int argb(int a,int r,int g,int b){return 3;} }
   static class Paint {
     enum Style { FILL } enum Align { CENTER,LEFT,RIGHT }
+    int alpha=255, lastBitmapAlpha=-1;
     void setShader(Object x){} void setStyle(Style x){} void setColor(int x){} void setFilterBitmap(boolean x){}
+    void setAlpha(int x){alpha=x;}
   }
   static class Canvas {
     int banners, maps, markers, nextCalls, etaCalls, sourceBadges, nativeOverlays;
     int save(){return 1;} void restoreToCount(int x){}
     void drawRect(Rect r,Paint p){}
     void drawBitmap(Bitmap b,Object src,Rect dst,Paint p){
-      if(b==null||b.isRecycled())throw new AssertionError("invalid map drawn"); maps++;
+      if(b==null||b.isRecycled())throw new AssertionError("invalid map drawn"); maps++; p.lastBitmapAlpha=p.alpha;
     }
     void drawRoundRect(RectF r,float x,float y,Paint p){banners++;}
   }
   static final int MAP_LEFT=960,HEIGHT=576,TBT_GREEN=4,TBT_GREEN_DARK=5;
   final Rect scratchIRect=new Rect(); final RectF scratchRect=new RectF(); boolean frameDark;
+  static final long MAP_FADE_MS=300L; Bitmap fadingMap; long fadingMapSince, mapShownSince;
   int mapRight(){return 1920;} float mapCenterX(){return 1440f;}
   String lang(String ko,String en){return en;}
   JSONObject layout(JSONObject s){return new JSONObject();}
@@ -75,7 +79,25 @@ public class NavigationRenderCheck {
     hud.check("ended without map",state(false,1000,200),null,null,0,0,0);
     hud.check("arrived without map",state(true,0,-1),null,null,0,0,0);
     hud.check("no navigation",new JSONObject(),null,null,0,0,0);
-    System.out.println("9 navigation rendering cases passed, including traffic signal overlay");
+    // Navigation switch: the old map fades out, then the new one fades in.
+    Bitmap old=new Bitmap(); hud.fadingMap=old; hud.fadingMapSince=SystemClock.now; hud.mapShownSince=0L;
+    SystemClock.now+=150L; Paint p=new Paint(); Canvas c=new Canvas();
+    hud.drawMap(c,p,state(true,1000,200),null,null,null,null,null);
+    if(c.maps!=1||p.lastBitmapAlpha<100||p.lastBitmapAlpha>155||p.alpha!=255)
+      throw new AssertionError("fade-out midway: maps="+c.maps+" alpha="+p.lastBitmapAlpha+" after="+p.alpha);
+    SystemClock.now+=200L; c=new Canvas();
+    hud.drawMap(c,new Paint(),state(true,1000,200),null,null,null,null,null);
+    if(c.maps!=0||!old.isRecycled()||hud.fadingMap!=null) throw new AssertionError("fade-out did not finish");
+    Bitmap fresh=new Bitmap(); p=new Paint(); c=new Canvas();
+    hud.drawMap(c,p,state(true,1000,200),fresh,null,null,null,null);
+    if(c.maps!=1||p.lastBitmapAlpha!=0||p.alpha!=255) throw new AssertionError("fade-in start alpha="+p.lastBitmapAlpha);
+    SystemClock.now+=150L; p=new Paint();
+    hud.drawMap(new Canvas(),p,state(true,1000,200),fresh,null,null,null,null);
+    if(p.lastBitmapAlpha<100||p.lastBitmapAlpha>155) throw new AssertionError("fade-in midway alpha="+p.lastBitmapAlpha);
+    SystemClock.now+=200L; p=new Paint();
+    hud.drawMap(new Canvas(),p,state(true,1000,200),fresh,null,null,null,null);
+    if(p.lastBitmapAlpha!=255) throw new AssertionError("fade-in end alpha="+p.lastBitmapAlpha);
+    System.out.println("9 navigation rendering cases and map switch fades passed, including traffic signal overlay");
   }
 }
 '''
