@@ -131,16 +131,53 @@ final class NaverViewImage {
         main.postDelayed(this::tick, TICK_MS);
     }
 
+    /**
+     * 뷰를 그린 뒤 투명 여백을 잘라내고 HUD 칸 크기로 줄인다. 폰 차로 뷰는 화면 폭만큼
+     * 넓고 그림은 가운데에 작게 있어서, 여백째 줄이면 HUD 에서 차로가 아주 작게 보였다.
+     */
     private static Bitmap draw(View v, int maxW, int maxH) {
         int w = v.getWidth(), h = v.getHeight();
         if (w <= 0 || h <= 0) return null;
-        float scale = Math.min(1f, Math.min(maxW / (float) w, maxH / (float) h));
-        Bitmap bmp = Bitmap.createBitmap(Math.max(1, Math.round(w * scale)),
-                Math.max(1, Math.round(h * scale)), Bitmap.Config.ARGB_8888);
-        Canvas c = new Canvas(bmp);
-        c.scale(scale, scale);
+        float s0 = Math.min(1f, 1080f / w);   // 여백 찾기용으로 너무 크지 않게만
+        int fw = Math.max(1, Math.round(w * s0)), fh = Math.max(1, Math.round(h * s0));
+        Bitmap full = Bitmap.createBitmap(fw, fh, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(full);
+        c.scale(s0, s0);
         v.draw(c);
-        return bmp;
+
+        int[] px = new int[fw * fh];
+        full.getPixels(px, 0, fw, 0, 0, fw, fh);
+        int left = fw, top = fh, right = -1, bottom = -1;
+        for (int y = 0; y < fh; y++) {
+            int row = y * fw;
+            for (int x = 0; x < fw; x++) {
+                if ((px[row + x] >>> 24) > 16) {
+                    if (x < left) left = x;
+                    if (x > right) right = x;
+                    if (y < top) top = y;
+                    if (y > bottom) bottom = y;
+                }
+            }
+        }
+        if (right < left || bottom < top) {   // 아직 아무것도 안 그려짐
+            full.recycle();
+            return null;
+        }
+        int pad = 2;
+        left = Math.max(0, left - pad);
+        top = Math.max(0, top - pad);
+        right = Math.min(fw - 1, right + pad);
+        bottom = Math.min(fh - 1, bottom + pad);
+        int cw = right - left + 1, ch = bottom - top + 1;
+        float scale = Math.min(1f, Math.min(maxW / (float) cw, maxH / (float) ch));
+        int ow = Math.max(1, Math.round(cw * scale)), oh = Math.max(1, Math.round(ch * scale));
+        Bitmap out = Bitmap.createBitmap(ow, oh, Bitmap.Config.ARGB_8888);
+        Canvas oc = new Canvas(out);
+        android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+        oc.drawBitmap(full, new android.graphics.Rect(left, top, right + 1, bottom + 1),
+                new android.graphics.Rect(0, 0, ow, oh), paint);
+        full.recycle();
+        return out;
     }
 
     private void send(Bitmap bmp) {
