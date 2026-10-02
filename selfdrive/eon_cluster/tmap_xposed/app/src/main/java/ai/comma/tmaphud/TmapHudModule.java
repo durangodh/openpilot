@@ -54,7 +54,7 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
         // 티맵은 보조 프로세스를 쓴다. 내비 엔진과 지도가 있는 주 프로세스만.
         if (lpparam.processName != null && !TMAP_PKG.equals(lpparam.processName)) return;
         loaded = true;
-        TmapHudLog.line("=== TmapHudModule loaded in " + lpparam.processName + " ===");
+        TmapHudLog.xposed("=== TmapHudModule loaded in " + lpparam.processName + " ===");
 
         final TmapNaviClient client = new TmapNaviClient();
         final TmapSignal signal = new TmapSignal(client);
@@ -71,7 +71,7 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
         hooks += hookTrafficSignal(cl, bridge);
         hooks += hookMapViews(cl, map);
         hookApplication(bridge, map, images, render, loader);
-        TmapHudLog.line("read-only hooks installed = " + hooks + "/3");
+        TmapHudLog.xposed("read-only hooks installed = " + hooks + "/3");
     }
 
     private static void hookApplication(final TmapBridge bridge, final TmapMapCapture map,
@@ -115,7 +115,7 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
             android.content.pm.PackageInfo info = ctx.getPackageManager().getPackageInfo(TMAP_PKG, 0);
             boolean verified = VERIFIED_VERSION.equals(info.versionName);
             behaviorHooksAllowed = verified;
-            TmapHudLog.line("TMAP " + info.versionName + (verified
+            TmapHudLog.xposed("TMAP " + info.versionName + (verified
                     ? " verified"
                     : " UNVERIFIED (read-only features only; behavior hooks stay off)"));
         } catch (Throwable t) {

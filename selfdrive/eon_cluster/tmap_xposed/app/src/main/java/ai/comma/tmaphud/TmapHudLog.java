@@ -22,8 +22,19 @@ final class TmapHudLog {
             new SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US);
     private static final Object LOCK = new Object();
     private static long lastStatusMs = 0L;
+    private static boolean writeFailureReported;
 
     private TmapHudLog() {
+    }
+
+    /** 파일 로그와 함께 LSPosed 로그 탭에도 남긴다(파일이 안 보일 때 확인용). */
+    static void xposed(String message) {
+        try {
+            de.robv.android.xposed.XposedBridge.log("TmapHud: " + message);
+        } catch (Throwable ignored) {
+            // 호스트 검사 등 Xposed 밖에서는 무시.
+        }
+        line(message);
     }
 
     static void line(String message) {
@@ -45,8 +56,16 @@ final class TmapHudLog {
                     writer.write(message);
                     writer.write('\n');
                 }
-            } catch (Throwable ignored) {
-                // 로그 실패는 절대 앱에 영향 주지 않는다.
+            } catch (Throwable error) {
+                // 로그 실패는 절대 앱에 영향 주지 않는다. 처음 한 번만 LSPosed 로그에 알린다.
+                if (!writeFailureReported) {
+                    writeFailureReported = true;
+                    try {
+                        de.robv.android.xposed.XposedBridge.log("TmapHud: log file write failed: " + error);
+                    } catch (Throwable ignored) {
+                        // Xposed 밖
+                    }
+                }
             }
         }
     }

@@ -92,13 +92,13 @@ final class TmapMapRender {
             try {
                 initialize(ctx.getApplicationContext(), loader);
                 screen.setSuspended(true);
-                TmapHudLog.line("map render engine started " + WIDTH + "x" + HEIGHT + "@" + FPS);
+                TmapHudLog.xposed("map render engine started " + WIDTH + "x" + HEIGHT + "@" + FPS);
             } catch (Throwable error) {
                 running = false;
                 failures++;
                 nextRetryAt = SystemClock.elapsedRealtime() + 30000;
                 screen.setSuspended(false);
-                TmapHudLog.ex("map render engine (falling back to screen capture)", error);
+                TmapHudLog.xposed("map render engine failed (falling back to screen capture): " + error);
                 release();
             }
         });

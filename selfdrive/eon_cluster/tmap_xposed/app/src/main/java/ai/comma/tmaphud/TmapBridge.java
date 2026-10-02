@@ -95,7 +95,7 @@ final class TmapBridge {
         rgAt = SystemClock.elapsedRealtime();
         if (!loggedFirstRg) {
             loggedFirstRg = true;
-            TmapHudLog.line("first RGData: " + rg);
+            TmapHudLog.xposed("first RGData: " + rg);
         }
     }
 
