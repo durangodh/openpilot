@@ -30,6 +30,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
+      - name: Host check (KNRGCode turn mapping)
+        working-directory: selfdrive/eon_cluster/kakao_xposed
+        run: |
+          mkdir -p "$RUNNER_TEMP/kakaocheck"
+          javac -encoding UTF-8 -d "$RUNNER_TEMP/kakaocheck" \
+            app/src/main/java/ai/comma/kakaohud/KakaoCodes.java \
+            tests/ai/comma/kakaohud/KakaoTurnCodesCheck.java
+          java -Dstdout.encoding=UTF-8 -cp "$RUNNER_TEMP/kakaocheck" ai.comma.kakaohud.KakaoTurnCodesCheck
       - name: Set version
         run: |
           echo "KAKAO_HUD_VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"

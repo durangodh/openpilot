@@ -10,7 +10,9 @@ package ai.comma.kakaohud;
  * 회전 코드(EON navigation_route / onroad_navi 기준):
  *   11 직진 / 12 좌회전 / 13 우회전 / 14 유턴 / 16 급좌회전 / 17 좌측방향
  *   18 우측방향 / 19 급우회전 / 2 목적지 / 131..142 로터리
- *   Direction_1..12 는 방향각(directionAngle)으로 판정한다(TmapNda 방식).
+ *   Direction_1..12 는 "N시 방향"이다. 카카오 앱도 RotaryDirection_N 과 같은 "N시 방향"
+ *   음성으로 안내한다(4.51.1 l60.u). 시계 방향을 그대로 회전 코드로 바꾼다
+ *   (네이버 Direction1/3/4/8/9/11 과 같은 규칙).
  *
  * 카메라 코드: TMAP nSdiType 체계(TmapNda / carrot 와 동일).
  *   1 과속 / 2 구간시작 / 3 구간끝 / 4 구간중 / 6 신호 / 7 이동식 / 8 박스형
@@ -59,7 +61,7 @@ final class KakaoCodes {
     /**
      * @param rgName  KNRGCode enum name() (예: "KNRGCode_LeftTurn"). null 이면 raw 사용.
      * @param rgRaw   KNRGCode raw 값(getValue). 모르면 -1.
-     * @param angle   방향각(도). 모르면 음수.
+     * @param angle   방향각(도). Direction_N 은 시계 방향 이름으로 판정해 지금은 쓰지 않는다.
      */
     static int turnType(String rgName, int rgRaw, int angle) {
         if (rgName != null && !rgName.isEmpty()) {
@@ -72,7 +74,7 @@ final class KakaoCodes {
     private static int turnByName(String n, int angle) {
         if (n.startsWith("RotaryDirection_")) return rotary(suffixIndex(n));
         if (n.startsWith("RoundaboutDirection_")) return rotary(suffixIndex(n));
-        if (n.startsWith("Direction_")) return angle >= 0 ? fromAngle(angle) : TBT_STRAIGHT;
+        if (n.startsWith("Direction_")) return clock(suffixIndex(n) + 1);
         switch (n) {
             case "Goal":
                 return TBT_ARRIVE;
@@ -105,30 +107,35 @@ final class KakaoCodes {
             case 1: case 63: return TBT_LEFT;       // 63 = UnprotectedLeftTurn
             case 2: return TBT_RIGHT;
             case 3: return TBT_UTURN;
+            // 이름 판정(Left*/Right*)과 같게: 진출입·차로변경·좌우 직진·터널·고가·지하 옆길.
             case 5: case 8: case 11: case 43: case 46: case 48: case 82:
+            case 66: case 67: case 87: case 88: case 91: case 92:
                 return TBT_LEFT_DIR;
             case 6: case 9: case 12: case 44: case 47: case 49: case 83:
+            case 68: case 69: case 89: case 90: case 93: case 94:
                 return TBT_RIGHT_DIR;
             default:
                 break;
         }
-        if (rgRaw >= 18 && rgRaw <= 29) return angle >= 0 ? fromAngle(angle) : TBT_STRAIGHT;
+        if (rgRaw >= 18 && rgRaw <= 29) return clock(rgRaw - 17);
         if (rgRaw >= 30 && rgRaw <= 41) return rotary(rgRaw - 30);
         if (rgRaw >= 70 && rgRaw <= 81) return rotary(rgRaw - 70);
         return rgRaw < 0 ? TBT_NONE : TBT_STRAIGHT;
     }
 
-    /** 방향각 → 회전 코드. TmapNda KakaoToTmapTurn.fromAngle 과 같은 구간. */
-    static int fromAngle(int rawAngle) {
-        int a = ((rawAngle % 360) + 360) % 360;
-        if (a <= 20 || a >= 340) return TBT_STRAIGHT;
-        if (a <= 60) return TBT_RIGHT_DIR;
-        if (a <= 120) return TBT_RIGHT;
-        if (a < 180) return TBT_SHARP_RIGHT;
-        if (a == 180) return TBT_UTURN;
-        if (a < 240) return TBT_SHARP_LEFT;
-        if (a < 300) return TBT_LEFT;
-        return TBT_LEFT_DIR;
+    /** "N시 방향" → 회전 코드. 12 직진, 1·2 우측방향, 3 우회전, 4·5 급우회전, 6 유턴,
+     *  7·8 급좌회전, 9 좌회전, 10·11 좌측방향. */
+    static int clock(int hour) {
+        switch (hour) {
+            case 1: case 2: return TBT_RIGHT_DIR;
+            case 3: return TBT_RIGHT;
+            case 4: case 5: return TBT_SHARP_RIGHT;
+            case 6: return TBT_UTURN;
+            case 7: case 8: return TBT_SHARP_LEFT;
+            case 9: return TBT_LEFT;
+            case 10: case 11: return TBT_LEFT_DIR;
+            default: return TBT_STRAIGHT;
+        }
     }
 
     private static int rotary(int index) {

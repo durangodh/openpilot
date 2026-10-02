@@ -78,3 +78,12 @@ b=남은 거리)과 각 `KNULaneInfo`(`knmsdk.ji0.m`: 필드 a=`KNULaneTurnType`
 티맵·네이버와 같은 형식(count/current_lane/distance_m/lanes/turn_info/available)을 만든다.
 회전 종류는 이름(STRAIGHT/TURNLEFT/BEARRIGHT/UTURN 조합)을 네이버와 같은 HUD 코드로 바꾼다.
 바뀔 때와 1초마다 보내고, 사라지면 null 을 보낸다.
+
+## 회전 코드(KNRGCode → TMAP TBT)
+`KakaoCodes.turnType` 은 enum 이름(name())을 먼저, 못 읽으면 값(getValue)으로 바꾼다.
+`Direction_N` 은 "N시 방향"이다(카카오 앱이 RotaryDirection_N 과 같은 음성으로 안내).
+12 직진, 1·2 우측방향(18), 3 우회전(13), 4·5 급우회전(19), 6 유턴(14), 7·8 급좌회전(16),
+9 좌회전(12), 10·11 좌측방향(17). 회전교차로 N시는 130+N. `Left*`/`Right*` 진출입·터널·고가·
+지하 옆길은 17/18, 나머지 직진류는 11, 목적지는 2.
+`tests/ai/comma/kakaohud/KakaoTurnCodesCheck.java` 가 4.51.1 의 KNRGCode 92개 전부를 이름·값
+양쪽으로 넣어 같은 결과와 EON(navigation_route.classify) 분류를 확인한다. CI 에서도 돈다.
