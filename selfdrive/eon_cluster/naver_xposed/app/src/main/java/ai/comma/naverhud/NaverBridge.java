@@ -102,6 +102,11 @@ final class NaverBridge {
         renderAllowed = true;
     }
 
+    /** 메인 스레드: 네이버 지도 화면이 보이기 시작/멈춤. */
+    void setPhoneVisible(boolean visible) {
+        render.setPhoneVisible(visible);
+    }
+
     void setActivity(Activity activity) {
         map.addActivity(activity);
     }

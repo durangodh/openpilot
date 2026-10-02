@@ -148,6 +148,17 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                 }
             }
         });
+        // 폰 지도가 안 보이면(화면 꺼짐·다른 앱) 렌더 지도는 폰 카메라 대신 차를 따라간다.
+        XposedBridge.hookAllMethods(activity, "onStart", new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam param) {
+                bridge.setPhoneVisible(true);
+            }
+        });
+        XposedBridge.hookAllMethods(activity, "onStop", new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam param) {
+                bridge.setPhoneVisible(false);
+            }
+        });
     }
 
     private static void hookMapProvider(ClassLoader appLoader) {

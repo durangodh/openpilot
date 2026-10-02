@@ -76,6 +76,10 @@ final class NaverMapRender {
     // 그 뒤 첫 엔진 프레임을 보내는 순간 스냅샷을 멈춘다(반쯤 그려진 지도 방지).
     private static final long WARMUP_MS = 700L;
     private boolean rendererKicked;
+    // 폰 지도 화면(MainActivity)이 보이는지. 안 보이면(화면 꺼짐·다른 앱) 폰 지도 카메라가
+    // 멈추므로 복사를 쉬고 안내 렌더러의 차량 따라가기(carSync)로 차를 따라간다.
+    private volatile boolean phoneVisible = true;
+    private Boolean carSyncApplied;
     private int syncTicks;
 
     // 네이버 앱과 HUD 앱(USB 패널 전송)이 같은 S9 에서 돈다. 앱이 막 켜졌을 때 두 번째
@@ -212,7 +216,8 @@ final class NaverMapRender {
             // 카메라는 티맵·카카오처럼 폰 지도를 그대로 따른다. 안내 렌더러의 차량 따라가기
             // (NaverNaviUI.C = carSync, 폰 앱도 지도를 손으로 움직이면 끈다)를 꺼서 렌더러는
             // 경로선·차량만 그리고 카메라를 건드리지 않게 한다. 둘이 같이 움직이면 떨린다.
-            call(naviUi, "C", new Class<?>[]{boolean.class}, false);
+            carSyncApplied = null;
+            applyCarSync();
             readyAt = SystemClock.elapsedRealtime();
             rendererKicked = false;
             syncFromPhone();
@@ -244,7 +249,8 @@ final class NaverMapRender {
         if (!running || naviUi == null) return;
         try {
             if (!checkGuidanceRenderer()) return;   // 스냅샷으로 돌아갔다
-            call(naviUi, "C", new Class<?>[]{boolean.class}, false);   // 차량 따라가기는 계속 끈 채로
+            carSyncApplied = null;   // 앱이 바꿨을 수 있으니 주기적으로 다시 건다
+            applyCarSync();
             if (++syncTicks % 2 == 0) syncFromPhone();
         } catch (Throwable error) {
             NaverHudLog.status("map render sync: " + error);
@@ -284,8 +290,22 @@ final class NaverMapRender {
 
     private void cameraLoop() {
         if (!running || naviUi == null) return;
-        mirrorPhoneCamera();
+        applyCarSync();
+        if (phoneVisible) mirrorPhoneCamera();
         main.postDelayed(this::cameraLoop, CAMERA_MS);
+    }
+
+    /** 메인 스레드: MainActivity onStart/onStop. */
+    void setPhoneVisible(boolean visible) {
+        phoneVisible = visible;
+    }
+
+    /** 폰 지도가 보이면 carSync 끔(폰 카메라 복사), 안 보이면 켬(렌더러가 차를 따라감). */
+    private void applyCarSync() {
+        boolean want = !phoneVisible;
+        if (naviUi == null || Boolean.valueOf(want).equals(carSyncApplied)) return;
+        call(naviUi, "C", new Class<?>[]{boolean.class}, want);
+        carSyncApplied = want;
     }
 
     private Object phoneMap() {

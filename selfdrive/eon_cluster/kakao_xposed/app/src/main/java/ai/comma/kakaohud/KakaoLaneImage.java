@@ -40,7 +40,8 @@ final class KakaoLaneImage {
     private String lastKey;
     private byte[] lastFrame;
     private long lastSentAt;
-    private boolean shown, disabled, loggedFirst;
+    private boolean shown, loggedFirst;
+    private volatile boolean disabled;   // 메인 스레드에서 쓰고 차로 스레드에서 읽는다
     private long seq;
 
     KakaoLaneImage(KakaoNaviClient client) {
