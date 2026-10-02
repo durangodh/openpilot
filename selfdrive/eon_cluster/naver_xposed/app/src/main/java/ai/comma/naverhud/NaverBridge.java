@@ -98,8 +98,16 @@ final class NaverBridge {
         }
     }
 
+    /** 이 파일이 있으면 엔진 렌더를 끄고 화면 지도 스냅샷만 쓴다(예전 브릿지 앱 방식). */
+    static final String NO_RENDER_FILE =
+            "/sdcard/Android/data/com.nhn.android.nmap/files/naver_hud_no_render";
+
     void enableMapRender(Context app) {
         appContext = app;
+        if (new java.io.File(NO_RENDER_FILE).exists()) {
+            NaverHudLog.xposed("map render off (" + NO_RENDER_FILE + "); phone map snapshots only");
+            return;
+        }
         renderAllowed = true;
     }
 

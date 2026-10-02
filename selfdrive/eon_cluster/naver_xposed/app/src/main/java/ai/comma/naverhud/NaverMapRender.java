@@ -48,9 +48,10 @@ final class NaverMapRender {
     // 안내 렌더러가 이 시간 안에 안 생기면 스냅샷으로 돌아간다(경로·차량 없는 지도 방지).
     private static final long RENDERER_TIMEOUT_MS = 6000;
     // 우리 지도 카메라가 폰 지도와 이만큼 떨어진 채 이 시간 이상 지나면 폰 카메라를 따라간다.
-    // 폰 카메라 복사 주기. 렌더는 5fps 라 100ms(10Hz)면 충분하다. 50ms 는 메인 스레드와
-    // 지도 엔진을 두 배로 돌려 같은 S9 의 HUD 앱까지 느려졌다.
-    private static final long CAMERA_MS = 100;
+    // 폰 카메라 복사 주기. HUD 로 보내는 지도는 5fps(200ms)라 그 간격이면 충분하다.
+    // 더 촘촘하면 메인 스레드와 지도 엔진만 더 돌려 같은 S9 의 HUD 앱까지 느려졌다.
+    private static final long CAMERA_MS = 200;
+    private static final int RENDER_FPS_LIMIT = 10;
 
     private final NaverNaviClient client;
     private final NaverMapCapture snapshot;
@@ -205,6 +206,10 @@ final class NaverMapRender {
             // 지도에 닿지 않아 엔진이 정지 상태(nativeStart 안 됨)로 남고, 첫 프레임(SDK 기본
             // 카메라, 서울시청) 한 장만 그린다. 지도에 직접 onStart 를 건다.
             must(naverMap, "d1", new Class<?>[0]);   // NaverMap.onStart → NativeMapView.nativeStart
+            // 숨은 지도의 GL 그리기를 초당 10장으로 제한한다(NaverMap.N1 = setFpsLimit →
+            // NativeMapView.E0). 없으면 화면에 안 보이는데도 최대 60fps 로 그려 같은 S9 의
+            // HUD 앱이 밀렸다. 예전 네이버 HUD 브릿지 앱(CarrotOffscreenMap)도 12 로 제한했다.
+            call(naverMap, "N1", new Class<?>[]{int.class}, RENDER_FPS_LIMIT);
             Object phoneUi = fieldOfType(store, NAVI_UI);
             Object control = fieldOfType(phoneUi, GUIDANCE_CONTROL);
             if (control == null) throw new IllegalStateException("GuidanceControl not found");

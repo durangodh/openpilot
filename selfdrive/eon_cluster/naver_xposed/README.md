@@ -150,3 +150,13 @@ route and vehicle, and every 50 ms the camera is set to the area the
 snapshot crop shows: target = `Projection.b()` (fromScreenLocation) of the
 crop centre on the phone map (`L0()` x `f0()` px), same tilt/bearing, zoom
 + log2(HUD width / crop width).
+
+## Turning the engine render off
+
+The offscreen map is capped at 10 fps (`NaverMap.N1`, as the old bridge app
+did with 12) and copies the phone camera every 200 ms. To go back to phone
+map snapshots only, create an empty file and restart Naver Maps:
+
+    adb shell su -c "touch /sdcard/Android/data/com.nhn.android.nmap/files/naver_hud_no_render"
+
+Delete the file to turn the render back on.
