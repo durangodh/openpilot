@@ -7,6 +7,10 @@
         <package android:name="com.nhn.android.nmap" />
         <package android:name="com.locnall.KimGiSa" />
         <package android:name="com.aa.nmirror" />
+        <!-- 모듈 버전 확인(설치된 versionCode 를 읽는다) -->
+        <package android:name="ai.comma.tmaphud" />
+        <package android:name="ai.comma.naverhud" />
+        <package android:name="ai.comma.kakaohud" />
     </queries>
 
     <uses-feature

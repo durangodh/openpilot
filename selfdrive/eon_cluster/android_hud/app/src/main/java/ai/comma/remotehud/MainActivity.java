@@ -24,6 +24,8 @@ import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.io.File;
 
@@ -61,6 +63,8 @@ public final class MainActivity extends Activity {
     private Button noneButton, tmapButton, naverButton, kakaoButton;
     private TextView navValue;
     private Button updateButton;
+    private Button moduleButton;
+    private TextView moduleValue;
     private TextView updateValue;
     private File pendingUpdateApk;
 
@@ -342,6 +346,18 @@ public final class MainActivity extends Activity {
         updateButton.setOnClickListener(v -> checkForUpdate());
         updateCard.addView(updateButton, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
+        // 네비 모듈 APK 는 열면 같은 버전이어도 설치 화면이 "업데이트"를 띄우므로
+        // 받기 전에 여기서 최신인지 확인한다.
+        moduleValue = text("네비 모듈(티맵·네이버·카카오)이 최신인지 확인합니다.", 14.0f,
+                Color.rgb(190, 200, 210), Typeface.NORMAL);
+        LinearLayout.LayoutParams moduleStatusParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        moduleStatusParams.setMargins(0, dp(14), 0, dp(10));
+        updateCard.addView(moduleValue, moduleStatusParams);
+        moduleButton = button("네비 모듈 버전 확인", Color.rgb(40, 92, 132));
+        moduleButton.setOnClickListener(v -> checkModules());
+        updateCard.addView(moduleButton, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48)));
         root.addView(updateCard, cardParams());
 
         TextView footer = text(
@@ -387,6 +403,40 @@ public final class MainActivity extends Activity {
                 updateButton.setEnabled(true);
                 updateValue.setText(message);
             }
+        });
+    }
+
+    private void checkModules() {
+        moduleButton.setEnabled(false);
+        moduleValue.setText("GitHub에서 네비 모듈 최신 버전을 확인하는 중…");
+        new ModuleVersionChecker(this).check(results -> {
+            moduleButton.setEnabled(true);
+            StringBuilder text = new StringBuilder();
+            List<ModuleVersionChecker.Result> outdated = new ArrayList<>();
+            for (ModuleVersionChecker.Result r : results) {
+                if (text.length() > 0) text.append('\n');
+                text.append(r.module.label).append(": ").append(r.status);
+                if (r.downloadUrl != null) outdated.add(r);
+            }
+            moduleValue.setText(text);
+            if (outdated.isEmpty()) {
+                new AlertDialog.Builder(this)
+                        .setTitle("네비 모듈")
+                        .setMessage("설치된 네비 모듈이 모두 최신 버전입니다.\n다시 받을 필요가 없습니다.")
+                        .setPositiveButton("확인", null)
+                        .show();
+                return;
+            }
+            String[] items = new String[outdated.size()];
+            for (int i = 0; i < items.length; i++) {
+                items[i] = outdated.get(i).module.label + " 받기 — " + outdated.get(i).status;
+            }
+            new AlertDialog.Builder(this)
+                    .setTitle("새 버전이 있는 네비 모듈")
+                    .setItems(items, (dialog, which) -> startActivity(new Intent(Intent.ACTION_VIEW,
+                            Uri.parse(outdated.get(which).downloadUrl))))
+                    .setNegativeButton("닫기", null)
+                    .show();
         });
     }
 

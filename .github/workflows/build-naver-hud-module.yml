@@ -88,5 +88,5 @@ jobs:
               --notes "원본 네이버지도 6.10.0.16 전용 LSPosed HUD 모듈입니다. 네이버지도 앱은 포함하지 않습니다. 기존 디버그 서명 모듈에서는 서명이 달라 첫 교체 시 모듈 재설치가 필요합니다."
           fi
           gh release upload naver-hud-auto \
-            "$RUNNER_TEMP/NaverHud-6.10.0.16-latest.apk" \
+            "$RUNNER_TEMP/NaverHud-6.10.0.16-latest.apk#NaverHud-6.10.0.16-latest.apk (b${GITHUB_RUN_NUMBER})" \
             "$RUNNER_TEMP/NaverHud-6.10.0.16-latest.apk.sha256" --clobber

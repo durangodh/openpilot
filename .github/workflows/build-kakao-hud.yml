@@ -85,4 +85,5 @@ jobs:
             gh release create kakao-hud-auto --title "Kakao HUD Xposed module" \
               --notes "카카오내비 안내/지도 → EON HUD 브릿지 (LSPosed 모듈)"
           fi
-          gh release upload kakao-hud-auto "$asset" --clobber
+          # 라벨의 빌드 번호(b<run>)를 HUD 앱 "모듈 버전 확인"이 설치본 versionCode 와 비교한다.
+          gh release upload kakao-hud-auto "$asset#KakaoHud-latest.apk (b${GITHUB_RUN_NUMBER})" --clobber

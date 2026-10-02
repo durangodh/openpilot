@@ -88,4 +88,5 @@ jobs:
             gh release create tmap-hud-auto --title "TMAP HUD Xposed module" \
               --notes "원본 티맵 안내/지도 → EON HUD 브릿지 (LSPosed 모듈). 확인 기준 티맵 $TMAP_HUD_VERIFIED"
           fi
-          gh release upload tmap-hud-auto "$asset" --clobber
+          # 라벨의 빌드 번호(b<run>)를 HUD 앱 "모듈 버전 확인"이 설치본 versionCode 와 비교한다.
+          gh release upload tmap-hud-auto "$asset#TmapHud-latest.apk (b${GITHUB_RUN_NUMBER})" --clobber
