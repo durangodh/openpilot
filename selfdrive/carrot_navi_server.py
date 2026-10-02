@@ -116,6 +116,8 @@ class NaviState(object):
     self.last_map_rx = 0.0
     self.last_map_sequence = -1
     self.last_map_digest = None
+    self.written_map_digest = None
+    self.overlay_digests = {}
     self.map_seen = False
     self.map_stale_cleared = False
     self.last_resync_request = 0.0
@@ -387,6 +389,7 @@ class NaviState(object):
       return
     image_digest = hashlib.sha1(image).digest()
     with self.lock:
+      previous_written = self.written_map_digest
       self.last_map_digest = image_digest
       if self.route_change_pending:
         baseline = self.route_change_baseline_digest
@@ -402,6 +405,12 @@ class NaviState(object):
     # TMAP packet may have passed accepts() just before the user selected Naver.
     # Without this guard it can recreate the deleted TMAP JPEG after the source
     # switch and leave that stale map on the HUD indefinitely.
+    # The phone renderers re-send the last frame while the map is at rest. An
+    # identical JPEG must not rewrite MAP_FILE: remote_hud forwards every
+    # rewrite to the S9 on the loop that also carries the driving telemetry.
+    # remote_hud's own keepalive still refreshes the S9 copy.
+    if image_digest == previous_written and os.path.exists(MAP_FILE):
+      return
     tmp = MAP_FILE + ".tmp." + source
     try:
       with open(tmp, "wb") as f:
@@ -412,6 +421,7 @@ class NaviState(object):
           return
         os.rename(tmp, MAP_FILE)
         self.last_map_write = now
+        self.written_map_digest = image_digest
     except IOError:
       try:
         os.unlink(tmp)
@@ -451,11 +461,17 @@ class NaviState(object):
       image = image_payload[jpg_start:jpg_end + 2]
     else:
       return
+    # Junction images are re-sent every few seconds while shown; skip identical
+    # rewrites so remote_hud does not forward the same large image again.
+    digest = hashlib.sha1(image).digest()
+    if self.overlay_digests.get(name) == digest and os.path.exists(target):
+      return
     tmp = target + ".tmp"
     try:
       with open(tmp, "wb") as f:
         f.write(image)
       os.rename(tmp, target)
+      self.overlay_digests[name] = digest
     except IOError:
       try:
         os.unlink(tmp)

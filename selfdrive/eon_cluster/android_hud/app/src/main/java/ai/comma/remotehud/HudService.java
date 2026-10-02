@@ -105,6 +105,8 @@ public final class HudService extends Service {
     private static final float HEADLIGHT_SPREAD = 0.22f;    // 끝부분이 바깥으로 벌어지는 정도(차폭 비율)
     private static final BlurMaskFilter HEADLIGHT_BLUR =
             new BlurMaskFilter(14f, BlurMaskFilter.Blur.NORMAL);
+    private Bitmap headlightBitmap;               // 렌더 스레드 전용
+    private float headlightLeft, headlightTop, headlightCarTop = Float.NaN;
     private static final PorterDuffXfermode HEADLIGHT_BLEND =
             new PorterDuffXfermode(PorterDuff.Mode.SCREEN);
     private static final int MAP_LEFT = 960;
@@ -2963,34 +2965,64 @@ public final class HudService extends Service {
      * 두 줄기를 SCREEN 으로 겹쳐 그린다. 가장자리는 흐리게 해 실제 빛처럼 보이게 한다.
      */
     private void drawEgoHeadlights(Canvas c, Paint p, float carTop) {
+        // 모양은 차 위치만으로 정해져 바뀌지 않는다. 흐림(BlurMaskFilter)은 소프트웨어
+        // 캔버스에서 비싸므로 한 번만 비트맵에 그려 두고, 매 프레임은 그 비트맵만 얹는다.
+        if (headlightBitmap == null || headlightBitmap.isRecycled() || headlightCarTop != carTop) {
+            buildHeadlightBitmap(carTop);
+        }
+        if (headlightBitmap == null) return;
+        int save = c.save();
+        c.clipRect(0f, ModelWorldGL.TOP, DRIVE_RIGHT, ModelWorldGL.BOTTOM);
+        p.setShader(null);
+        p.setXfermode(HEADLIGHT_BLEND);
+        p.setAlpha(255);
+        p.setFilterBitmap(false);
+        c.drawBitmap(headlightBitmap, headlightLeft, headlightTop, p);
+        p.setXfermode(null);
+        c.restoreToCount(save);
+    }
+
+    private void buildHeadlightBitmap(float carTop) {
+        if (headlightBitmap != null && !headlightBitmap.isRecycled()) headlightBitmap.recycle();
+        headlightBitmap = null;
         float width = EGO_CAR_WIDTH;
         float nearY = carTop + 6f;                   // 차 앞 범퍼 근처(차 그림 뒤에 숨는다)
         float farY = Math.max(ModelWorldGL.TOP, nearY - HEADLIGHT_REACH);
-        int save = c.save();
-        c.clipRect(0f, ModelWorldGL.TOP, DRIVE_RIGHT, ModelWorldGL.BOTTOM);
-        p.setStyle(Paint.Style.FILL);
-        p.setXfermode(HEADLIGHT_BLEND);
-        p.setMaskFilter(HEADLIGHT_BLUR);
-        p.setShader(new LinearGradient(0f, nearY, 0f, farY,
+        float pad = 28f;                              // 흐림이 번지는 여백
+        float halfSpan = width * (0.30f + HEADLIGHT_SPREAD + HEADLIGHT_FAR_HALF * 0.5f) + pad;
+        headlightLeft = (float) Math.floor(DRIVE_CX - halfSpan);
+        headlightTop = (float) Math.floor(farY - pad);
+        int bw = (int) Math.ceil(2f * halfSpan) + 2;
+        int bh = (int) Math.ceil(nearY + pad - headlightTop) + 2;
+        Bitmap bitmap;
+        try {
+            bitmap = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
+        } catch (Throwable t) {
+            return;
+        }
+        Canvas bc = new Canvas(bitmap);
+        bc.translate(-headlightLeft, -headlightTop);
+        Paint bp = new Paint(Paint.ANTI_ALIAS_FLAG);
+        bp.setStyle(Paint.Style.FILL);
+        bp.setMaskFilter(HEADLIGHT_BLUR);
+        bp.setShader(new LinearGradient(0f, nearY, 0f, farY,
                 new int[]{Color.argb(135, 255, 243, 213), Color.argb(60, 255, 243, 213),
                         Color.argb(25, 255, 243, 213), Color.argb(0, 255, 243, 213)},
                 new float[]{0f, 0.35f, 0.70f, 1f}, Shader.TileMode.CLAMP));
+        Path path = new Path();
         for (int side = -1; side <= 1; side += 2) {
             float lamp = DRIVE_CX + side * width * 0.30f;          // 램프 위치
             float drift = side * width * HEADLIGHT_SPREAD;          // 바깥으로 퍼짐
-            scratchPath.rewind();
-            scratchPath.moveTo(lamp - width * HEADLIGHT_NEAR_HALF * 0.5f, nearY);
-            scratchPath.lineTo(lamp + width * HEADLIGHT_NEAR_HALF * 0.5f, nearY);
-            scratchPath.lineTo(lamp + drift + width * HEADLIGHT_FAR_HALF * 0.5f, farY);
-            scratchPath.lineTo(lamp + drift - width * HEADLIGHT_FAR_HALF * 0.5f, farY);
-            scratchPath.close();
-            c.drawPath(scratchPath, p);
+            path.rewind();
+            path.moveTo(lamp - width * HEADLIGHT_NEAR_HALF * 0.5f, nearY);
+            path.lineTo(lamp + width * HEADLIGHT_NEAR_HALF * 0.5f, nearY);
+            path.lineTo(lamp + drift + width * HEADLIGHT_FAR_HALF * 0.5f, farY);
+            path.lineTo(lamp + drift - width * HEADLIGHT_FAR_HALF * 0.5f, farY);
+            path.close();
+            bc.drawPath(path, bp);
         }
-        p.setShader(null);
-        p.setMaskFilter(null);
-        p.setXfermode(null);
-        p.setAlpha(255);
-        c.restoreToCount(save);
+        headlightBitmap = bitmap;
+        headlightCarTop = carTop;
     }
 
     /** 자차 PNG의 실제 후미등 렌즈 위치에는 브레이크등을 표시한다. */
@@ -5494,6 +5526,8 @@ public final class HudService extends Service {
         }
         synchronized (assetLock) {
             recycleRef(mapFrame);
+            if (headlightBitmap != null && !headlightBitmap.isRecycled()) headlightBitmap.recycle();
+            headlightBitmap = null;
             if (fadingMap != null && !fadingMap.isRecycled()) fadingMap.recycle();
             fadingMap = null;
             recycleRef(tbtCurrentFrame);

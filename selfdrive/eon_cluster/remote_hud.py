@@ -12,6 +12,7 @@ import os
 import signal
 import socket
 import struct
+import threading
 import time
 
 import cereal.messaging as messaging
@@ -255,6 +256,27 @@ class MapFrameServer(object):
   def close(self):
     self._drop_client()
     self.listener.close()
+
+  def run(self, running, active, lock):
+    """Forward assets on their own thread.
+
+    _send_asset() blocks for up to the 0.5 s socket timeout when the S9 link
+    is slow or a large image (map, junction) is in flight. On the telemetry
+    loop that delayed the steering wheel, engagement colour and the rest of
+    the driving scene by a whole tick or more.
+    """
+    while running[0]:
+      if active[0]:
+        try:
+          with lock:
+            if active[0]:
+              self.poll()
+        except Exception as exc:  # keep forwarding after an unexpected error
+          print("remote HUD asset forward failed: %s" % exc, flush=True)
+          with lock:
+            self._drop_client()
+          time.sleep(0.25)
+      time.sleep(0.01)
 
   def set_inactive(self):
     self._drop_client()
@@ -1280,14 +1302,19 @@ def main():
   connected = False
   published = [None, 0.0]
   map_server = MapFrameServer()
+  map_lock = threading.Lock()
+  map_active = [False]
+  map_thread = threading.Thread(target=map_server.run, args=(running, map_active, map_lock),
+                                name="remote-hud-assets", daemon=True)
+  map_thread.start()
   noo_enabled = _param_bool(params, PARAM_NOO_ENABLED)
   path_offset = _path_offset(params)
   configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
   telemetry_fps = _telemetry_fps(configured_fps, remote_commands.refresh_key())
-  # Check for a new map file on every loop tick and forward it at once.
-  # carrot_navi_server already limits the write rate to S9 HUD MAP FPS;
-  # resampling it here on a second, unsynchronised clock made the map
-  # alternate between short and long gaps.
+  # The asset thread checks for a new map file at the telemetry rate and
+  # forwards it at once. carrot_navi_server already limits the write rate to
+  # S9 HUD MAP FPS; a slower second clock made the map alternate between short
+  # and long gaps.
   map_server.set_poll_fps(telemetry_fps)
   next_param_read = 0.0
   while running[0]:
@@ -1296,9 +1323,12 @@ def main():
       connected = False
       last_ack = 0.0
       _publish_connected(params, published, False)
-      map_server.set_inactive()
+      map_active[0] = False
+      with map_lock:
+        map_server.set_inactive()
       time.sleep(0.25)
       continue
+    map_active[0] = True
     _publish_heartbeat(params, published)
     if started >= next_param_read:
       noo_enabled = _param_bool(params, PARAM_NOO_ENABLED)
@@ -1332,14 +1362,16 @@ def main():
         pass
       connected = time.monotonic() - last_ack < 2.0
       _publish_connected(params, published, connected)
-      map_server.poll()
     except Exception as exc:
       connected = False
       _publish_connected(params, published, False)
       print("remote HUD send failed: %s" % exc, flush=True)
     time.sleep(max(0.0, 1.0 / telemetry_fps - (time.monotonic() - started)))
   _publish_connected(params, published, False)
-  map_server.close()
+  map_active[0] = False
+  map_thread.join(1.0)
+  with map_lock:
+    map_server.close()
   sock.close()
 
 
