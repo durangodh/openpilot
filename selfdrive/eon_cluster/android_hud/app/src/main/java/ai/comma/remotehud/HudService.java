@@ -4301,6 +4301,8 @@ public final class HudService extends Service {
     private static final float JUNCTION_BOTTOM_MAX = 400f;
     /** 도착정보 바는 실사 이미지와 같은 폭·같은 왼쪽 기준. */
     private static final float ETA_H = 58f;
+    /** HUD 지도 아래 차로 띠 칸 높이. */
+    private static final float LANE_H = 130f;
     /** 패널 아래끝(462)에 딱 붙인다. */
     private static final float ETA_TOP = HEIGHT - ETA_H;
 
@@ -5250,8 +5252,13 @@ public final class HudService extends Service {
         drawNaviEta(c, p, s);
         c.restoreToCount(etaSave);
 
-        int save3 = beginElement(c, l, "lane", 1395f, (float) HEIGHT);
-        drawNativeOverlay(c, p, lane, 1130f, 378f, 1660f, (float) HEIGHT, Paint.Align.CENTER);
+        // 차로 띠: 예전 칸(530x84)은 패널 높이의 1/5 도 안 돼 차로가 작게 보였다.
+        // 높이를 130 으로 키우고, 도착정보 바(왼쪽 962~1302) 오른쪽에 둔다.
+        float laneLeft = JUNCTION_LEFT + JUNCTION_W + 8f;
+        float laneRight = Math.min(mapRight() - 10f, laneLeft + 600f);
+        int save3 = beginElement(c, l, "lane", (laneLeft + laneRight) * 0.5f, (float) HEIGHT);
+        drawNativeOverlay(c, p, lane, laneLeft, HEIGHT - LANE_H, laneRight, (float) HEIGHT,
+                Paint.Align.CENTER);
         c.restoreToCount(save3);
 
         // The native navigation apps publish the signal lamp/countdown as a
