@@ -62,6 +62,13 @@ public final class TmapJsonCheck {
         check(TmapJson.displayIndex(new int[]{2, 1}) == 1, "straight shown");
         check(TmapJson.displayIndex(new int[]{2, 3}) == 0, "single vehicle movement shown");
         check(TmapJson.displayIndex(new int[]{2, 5}) == -1, "ambiguous movements hidden");
+        boolean[] leftGreen = {false, true, true, false, false};
+        int[] remains = {0, 12, 20, 0, 0};
+        int[] pl = TmapJson.phoneLight(leftGreen, remains);
+        check(pl != null && pl[0] == TmapJson.COLOR_GREEN && pl[1] == 12, "phone light green+left shortest");
+        pl = TmapJson.phoneLight(new boolean[]{true, false, false, false, false}, new int[]{30, 0, 0, 0, 0});
+        check(pl != null && pl[0] == TmapJson.COLOR_RED && pl[1] == 30, "phone light red");
+        check(TmapJson.phoneLight(new boolean[5], new int[5]) == null, "phone light off hidden");
         check(TmapJson.lightColor(3) == TmapJson.COLOR_RED, "red");
         check(TmapJson.lightColor(8) == TmapJson.COLOR_YELLOW, "yellow");
         check(TmapJson.lightColor(5) == TmapJson.COLOR_GREEN, "permissive green");
@@ -87,6 +94,11 @@ public final class TmapJsonCheck {
         check("navigation_lane_laneguid_12_10".equals(TmapAssets.laneArrow(3, 2, 0)), "lane 0302");
         check("navigation_lane_laneguid_1_1".equals(TmapAssets.laneArrow(1, 1, 0)), "lane 0101");
         check("navigation_lane_laneguid_4_0".equals(TmapAssets.laneArrow(99, 99, 0)), "lane default");
+        // 직진(08) 계열: 예전 표에서 빠져 직진 차로가 꺼진 화살표로 나왔다.
+        check("navigation_lane_laneguid_4_1".equals(TmapAssets.laneArrow(8, 8, 0)), "lane 0808 straight lit");
+        check("navigation_lane_laneguid_45_01".equals(TmapAssets.laneArrow(24, 8, 0)), "lane 2408");
+        check("navigation_lane_laneguid_145_010".equals(TmapAssets.laneArrow(25, 8, 0)), "lane 2508");
+        check("navigation_lane_laneguid_36_01".equals(TmapAssets.laneArrow(36, 4, 0)), "lane 3604");
         check("navigation_lane_under_a".equals(TmapAssets.laneArrow(1, 1, TmapAssets.LANE_UNDERPASS)), "underpass");
         check("navigation_lane_high_b".equals(TmapAssets.laneArrow(1, 0, TmapAssets.LANE_OVERPASS)), "overpass");
         check("navigation_lane_bus_b".equals(TmapAssets.laneArrow(1, 0, TmapAssets.LANE_BUS_ONLY)), "bus lane");

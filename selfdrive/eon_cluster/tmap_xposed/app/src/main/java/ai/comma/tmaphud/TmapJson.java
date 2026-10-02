@@ -320,6 +320,19 @@ final class TmapJson {
         return vehicleMoves == 1 ? only : -1;
     }
 
+    /**
+     * 폰 신호등(TrafficSignalInfoRepository)과 같은 색·잔여초. on/remain 순서는
+     * red, left, green, right, uturn. 초록·좌회전이 켜져 있으면 초록(둘 다면 짧은 쪽),
+     * 아니면 빨강. 아무것도 안 켜졌으면 폰도 숨기므로 null.
+     */
+    static int[] phoneLight(boolean[] on, int[] remain) {
+        if (on == null || remain == null || on.length < 3 || remain.length < 3) return null;
+        if (on[2]) return new int[]{COLOR_GREEN, on[1] ? Math.min(remain[2], remain[1]) : remain[2]};
+        if (on[1]) return new int[]{COLOR_GREEN, remain[1]};
+        if (on[0]) return new int[]{COLOR_RED, remain[0]};
+        return null;
+    }
+
     static int subtractElapsed(int value, int elapsedSec) {
         return Math.max(0, value - Math.max(0, elapsedSec));
     }

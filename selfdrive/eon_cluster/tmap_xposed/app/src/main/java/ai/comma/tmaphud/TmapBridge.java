@@ -304,10 +304,20 @@ final class TmapBridge {
         send("traffic_signal", json);
 
         int idx = json == null ? -1 : TmapJson.displayIndex(movements);
-        if (idx < 0) {
-            signalImage.clear();
+        int color = idx < 0 ? TmapJson.COLOR_NONE : TmapJson.lightColor(lights[idx]);
+        if (color != TmapJson.COLOR_NONE) {
+            signalImage.publish(color, TmapJson.subtractElapsed(remains[idx], elapsed));
+        } else if (json != null && on != null && distance > 5) {
+            // 직진 신호가 없거나 방향이 여럿인 교차로: 폰 신호등과 같은 규칙
+            // (TrafficSignalInfoRepository.getCurrentRemainTime)으로 저장소의 합친 값을 쓴다.
+            int[] phone = TmapJson.phoneLight(on, onRemain);
+            if (phone == null) {
+                signalImage.clear();
+            } else {
+                signalImage.publish(phone[0], TmapJson.subtractElapsed(phone[1], elapsed));
+            }
         } else {
-            signalImage.publish(TmapJson.lightColor(lights[idx]), TmapJson.subtractElapsed(remains[idx], elapsed));
+            signalImage.clear();
         }
     }
 

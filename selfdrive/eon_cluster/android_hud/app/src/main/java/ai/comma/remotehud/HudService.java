@@ -4270,6 +4270,11 @@ public final class HudService extends Service {
         if (!guidance) {
             return lang("안내 없음", "NO ROUTE");
         }
+        // 인게이지 전에는 NOO 가 네비 차로를 읽지 않아 cam/map 이 0 이다. 네비에
+        // 차로가 떠 있어도 "차로안내 없음"으로 보이지 않게 대기로 쓴다.
+        if (!s.optBoolean("enabled", false) && cur == 0 && cam == 0 && map == 0) {
+            return lang("NOO 대기", "NOO STANDBY");
+        }
         // 3) 계획은 섰지만 아직 실행 전 — 어느 차로로 갈지.
         if (cur > 0 && tgt > 0 && cur != tgt) {
             return cur + "→" + tgt + lang("차로 ", "L ") + nooSide(tgt - cur);
