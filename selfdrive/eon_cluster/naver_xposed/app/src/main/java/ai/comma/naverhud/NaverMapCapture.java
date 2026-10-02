@@ -191,13 +191,23 @@ final class NaverMapCapture {
             mapSource = "guidance";
             return guided;
         }
+        // 안내 전에는 보이는 화면 지도를 먼저 쓴다. MapProvider 의 차량 지도는 안드로이드
+        // 오토 화면에 안 쓰이면 SDK 기본 카메라(서울시청)에 멈춰 있다.
+        Object phone = visiblePhoneMap();
+        if (phone != null) {
+            mapSource = "phone";
+            return phone;
+        }
         Object car = call(provider, "i");
         if (!isNaverMap(car)) car = firstNaverMapGetter(provider);
         if (car != null) {
             mapSource = "car";
             return car;
         }
-        mapSource = "phone";
+        return null;
+    }
+
+    private Object visiblePhoneMap() {
         synchronized (activities) {
             for (int i = activities.size() - 1; i >= 0; i--) {
                 Activity activity = activities.get(i).get();

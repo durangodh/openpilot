@@ -60,17 +60,27 @@ final class NaverBridge {
     void setStore(Object value) {
         store = value;
         map.setStore(value);
-        if (!started) {
-            synchronized (this) {
-                if (!started) {
-                    started = true;
-                    new EonDiscovery(client).start();
-                    poller.scheduleWithFixedDelay(this::tick, 0, 250, TimeUnit.MILLISECONDS);
-                    // 지도는 상태 폴링(250ms, 처리시간만큼 더 밀림)과 분리해 자체 주기로 찍는다.
-                    map.start();
-                    NaverHudLog.line("NaviStore captured; direct 6.10 state polling started");
-                }
-            }
+        start();
+        NaverHudLog.line("NaviStore captured; direct 6.10 state polling active");
+    }
+
+    /**
+     * EON 찾기·상태 폴링·지도 스냅샷을 시작한다(한 번만). 앱이 붙자마자 부른다.
+     * 예전에는 NaviStore 가 생길 때까지 미뤘는데, 네이버는 NaviStore 를 길안내 엔진
+     * (NaviEngine)이 처음 쓰일 때 만들어서, 네비 전환 뒤 HUD 지도가 티맵·카카오보다
+     * 한참 늦게 떴다. 상태 항목은 NaviStore 가 생긴 뒤부터(tick 이 store 를 기다림),
+     * 지도는 그 전에도 화면 지도(MapView) 스냅샷으로 보낸다.
+     */
+    void start() {
+        if (started) return;
+        synchronized (this) {
+            if (started) return;
+            started = true;
+            new EonDiscovery(client).start();
+            poller.scheduleWithFixedDelay(this::tick, 0, 250, TimeUnit.MILLISECONDS);
+            // 지도는 상태 폴링(250ms, 처리시간만큼 더 밀림)과 분리해 자체 주기로 찍는다.
+            map.start();
+            NaverHudLog.xposed("EON discovery, state polling and map capture started");
         }
     }
 
