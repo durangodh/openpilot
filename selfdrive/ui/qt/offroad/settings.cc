@@ -1193,6 +1193,12 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "방지턱까지 남은 주행시간이 이 값일 때 목표속도 도달을 완료합니다. 기본값: 1.",
       "../assets/offroad/icon_speed_limit.png", 1, 50, 1, 0, 1, this));
   toggleLayout->addWidget(horizontal_line());
+  toggleLayout->addWidget(new ParamControl("LongTraceEnabled",
+                                            "LONG TRACE LOG",
+                                            "켜짐: 앞차 반응 분석용으로 레이더·계획·명령·차량 가감속 숫자만 /sdcard/long_trace 에 CSV 로 기록합니다(분당 약 100KB, 30개 넘으면 오래된 것부터 삭제). 분석이 끝나면 꺼 주세요.",
+                                            "../assets/offroad/icon_openpilot.png",
+                                            this));
+  toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("HapticFeedbackWhenSpeedCamera",
                                             "SPEED CAMERA HAPTIC",
                                             "켜짐: 과속카메라가 감지되면 핸들 진동으로 알립니다.",

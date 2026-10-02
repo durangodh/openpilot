@@ -342,6 +342,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EnableSpeedTF", PERSISTENT},
     {"LeadDepartCost", PERSISTENT},            // 저속 출발 추종 코스트 배율 (x100, default 20, apilot=5 기존=45)
     {"NoLeadCruiseAccelFactor", PERSISTENT},  // No-lead CruiseMax percentage
+    {"LongTraceEnabled", PERSISTENT},         // 가벼운 가감속 기록기(long_trace) 켜기, 기본 0
     {"NoLeadCruiseJerkLimit", PERSISTENT},    // No-lead accel rise rate (x100 m/s^3)
     {"StartAccelApply", PERSISTENT},
     {"StopAccelApply", PERSISTENT},
