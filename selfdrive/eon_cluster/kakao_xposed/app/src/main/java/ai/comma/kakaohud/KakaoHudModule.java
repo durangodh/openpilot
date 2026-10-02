@@ -53,6 +53,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         hookApplicationContext(lpparam, map);
         hookScreenCamera(lpparam, map);
         hookJunction(lpparam, new KakaoJunction(client));
+        hookLane(lpparam, new KakaoLane(client));
         hookRepository(lpparam, bridge);
         hookGuideCallbacks(lpparam, bridge);
     }
@@ -131,6 +132,23 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
             KakaoHudLog.line("junction hook ready");
         } catch (Throwable t) {
             KakaoHudLog.ex("hookJunction", t);
+        }
+    }
+
+    /** 차로 안내: 주행 화면의 KNULaneViewModel 을 잡아 둔다(읽기 전용). */
+    private void hookLane(LoadPackageParam lpparam, final KakaoLane lane) {
+        try {
+            Class<?> vm = lpparam.classLoader.loadClass(KakaoLane.VIEW_MODEL);
+            XposedBridge.hookAllConstructors(vm, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    if (param.hasThrowable()) return;
+                    lane.setViewModel(param.thisObject);
+                }
+            });
+            KakaoHudLog.line("lane hook ready");
+        } catch (Throwable t) {
+            KakaoHudLog.ex("hookLane", t);
         }
     }
 

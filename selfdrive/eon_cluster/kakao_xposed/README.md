@@ -69,3 +69,12 @@ carrot_navi_server(7714)로 티맵과 같은 JSON 스트림 + 바이너리 지�
 `/api/navi/ws/v2/image/kakao/crossroad_expanded` 에 보낸다. 바뀔 때 보내고 떠 있는 동안
 5초마다 다시 보내며, 닫히면 clear 를 보낸다. EON `carrot_navi_server.py` 는 오버레이
 소켓 이름을 소스와 관계없이 먼저 확인한다.
+
+## 차로 안내(lane_current)
+폰 주행 화면의 차로 표시와 같은 값이다(4.51.1 디컴파일, 실기 미검증).
+`KNULaneViewModel` 생성자를 후킹해 잡아 두고, 250ms 마다 `getLaneUIState().getValue()` 가
+`Data`(`navi.drive.core.feature.lane.e$a`)이면 `KNULane`(`knmsdk.ji0.a`: 필드 a=차로 목록,
+b=남은 거리)과 각 `KNULaneInfo`(`knmsdk.ji0.m`: 필드 a=`KNULaneTurnType`, f=추천)로
+티맵·네이버와 같은 형식(count/current_lane/distance_m/lanes/turn_info/available)을 만든다.
+회전 종류는 이름(STRAIGHT/TURNLEFT/BEARRIGHT/UTURN 조합)을 네이버와 같은 HUD 코드로 바꾼다.
+바뀔 때와 1초마다 보내고, 사라지면 null 을 보낸다.
