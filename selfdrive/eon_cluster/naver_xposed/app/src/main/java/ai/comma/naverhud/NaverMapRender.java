@@ -48,8 +48,7 @@ final class NaverMapRender {
     // 안내 렌더러가 이 시간 안에 안 생기면 스냅샷으로 돌아간다(경로·차량 없는 지도 방지).
     private static final long RENDERER_TIMEOUT_MS = 6000;
     // 우리 지도 카메라가 폰 지도와 이만큼 떨어진 채 이 시간 이상 지나면 폰 카메라를 따라간다.
-    private static final double FAR_METERS = 300;
-    private static final long FAR_MS = 2000;
+    private static final long CAMERA_MS = 50;   // 폰 카메라 복사 주기(티맵·카카오처럼 매 프레임보다 촘촘히)
 
     private final NaverNaviClient client;
     private final NaverMapCapture snapshot;
@@ -73,11 +72,10 @@ final class NaverMapRender {
     private Boolean night;
     private Object mapType;
     private volatile long readyAt;
-    private long farSince;
     // 안내 렌더러가 붙고 카메라가 폰 지도에 맞춰질 때까지는 스냅샷을 계속 보낸다.
     // 그 뒤 첫 엔진 프레임을 보내는 순간 스냅샷을 멈춘다(반쯤 그려진 지도 방지).
     private static final long WARMUP_MS = 700L;
-    private boolean rendererKicked, followPhone;
+    private boolean rendererKicked;
     private int syncTicks;
 
     // 네이버 앱과 HUD 앱(USB 패널 전송)이 같은 S9 에서 돈다. 앱이 막 켜졌을 때 두 번째
@@ -211,12 +209,15 @@ final class NaverMapRender {
             // 첫 프레임부터 폰과 같은 곳을 보여 준다(SDK 기본 카메라는 서울시청).
             mirrorPhoneCamera();
             naviUi = ctor.newInstance(naverMap, control, config);
+            // 카메라는 티맵·카카오처럼 폰 지도를 그대로 따른다. 안내 렌더러의 차량 따라가기
+            // (NaverNaviUI.C = carSync, 폰 앱도 지도를 손으로 움직이면 끈다)를 꺼서 렌더러는
+            // 경로선·차량만 그리고 카메라를 건드리지 않게 한다. 둘이 같이 움직이면 떨린다.
+            call(naviUi, "C", new Class<?>[]{boolean.class}, false);
             readyAt = SystemClock.elapsedRealtime();
-            farSince = 0;
             rendererKicked = false;
-            followPhone = false;
             syncFromPhone();
             main.postDelayed(this::syncLoop, SYNC_MS);
+            main.postDelayed(this::cameraLoop, CAMERA_MS);
             NaverHudLog.xposed("map render: guidance UI attached");
         } catch (Throwable error) {
             fail("map ready", error);
@@ -243,7 +244,7 @@ final class NaverMapRender {
         if (!running || naviUi == null) return;
         try {
             if (!checkGuidanceRenderer()) return;   // 스냅샷으로 돌아갔다
-            followCamera();
+            call(naviUi, "C", new Class<?>[]{boolean.class}, false);   // 차량 따라가기는 계속 끈 채로
             if (++syncTicks % 2 == 0) syncFromPhone();
         } catch (Throwable error) {
             NaverHudLog.status("map render sync: " + error);
@@ -281,72 +282,51 @@ final class NaverMapRender {
         return true;
     }
 
-    /**
-     * 안내 렌더러가 우리 지도 카메라를 차량에 맞춰 움직여야 한다. 폰 지도와 멀리 떨어진
-     * 채로 있으면(카메라 추적이 안 붙음) 그때부터는 폰 지도 카메라를 그대로 따라간다.
-     */
-    private void followCamera() {
-        if (followPhone) {
-            mirrorPhoneCamera();
-            return;
-        }
-        double meters = distanceMeters(cameraTarget(phoneMap()), cameraTarget(map));
-        long now = SystemClock.elapsedRealtime();
-        if (Double.isNaN(meters) || meters < FAR_METERS) {
-            farSince = 0;
-            return;
-        }
-        if (farSince == 0) {
-            farSince = now;
-        } else if (now - farSince >= FAR_MS) {
-            followPhone = true;
-            mirrorPhoneCamera();
-            NaverHudLog.xposed("map render: camera " + Math.round(meters)
-                    + " m away from the phone map; following the phone camera");
-        }
+    private void cameraLoop() {
+        if (!running || naviUi == null) return;
+        mirrorPhoneCamera();
+        main.postDelayed(this::cameraLoop, CAMERA_MS);
     }
 
     private Object phoneMap() {
         return fieldOfType(fieldOfType(store, NAVI_UI), NAVER_MAP);
     }
 
-    /** 폰 지도의 카메라(위치·줌·기울기·방향)를 우리 지도에 그대로 옮긴다. 메인 스레드. */
+    /**
+     * 메인 스레드. 폰 지도에서 스냅샷(NaverMapCapture.fitCenterCrop)이 잘라 쓰는 영역과
+     * 같은 땅이 보이게 카메라를 맞춘다. 중심은 그 영역 가운데 화면점의 좌표
+     * (Projection.b = fromScreenLocation), 기울기·방향은 폰과 같게, 줌은 폰 지도에서 잘린
+     * 폭(px)이 우리 지도 폭(px)에 맞도록 log2(우리 폭 / 잘린 폭) 만큼 더한다(같은 기기라
+     * 밀도가 같다). 그래서 렌더 화면이 스냅샷 화면과 같은 모습이 된다.
+     */
     private void mirrorPhoneCamera() {
         Object phone = phoneMap();
         if (phone == null || map == null) return;
-        Object position = call(phone, "M", new Class<?>[0]);                 // getCameraPosition
-        if (position == null || position.equals(call(map, "M", new Class<?>[0]))) return;
         try {
+            int pw = ((Number) must(phone, "L0", new Class<?>[0])).intValue();   // 폰 지도 폭(px)
+            int ph = ((Number) must(phone, "f0", new Class<?>[0])).intValue();   // 폰 지도 높이(px)
+            int ow = ((Number) must(map, "L0", new Class<?>[0])).intValue();     // 우리 지도 폭(px)
+            Object position = must(phone, "M", new Class<?>[0]);                 // getCameraPosition
+            if (pw <= 0 || ph <= 0 || ow <= 0 || position == null) return;
+            float scale = Math.max(WIDTH / (float) pw, HEIGHT / (float) ph);
+            float cropW = Math.min(pw, WIDTH / scale), cropH = Math.min(ph, HEIGHT / scale);
+            float top = ph > pw ? ph * 0.62f - cropH / 2f : (ph - cropH) / 2f;
+            top = Math.max(0f, Math.min(ph - cropH, top));
+            android.graphics.PointF center = new android.graphics.PointF(pw / 2f, top + cropH / 2f);
+            Object projection = must(phone, "A0", new Class<?>[0]);              // getProjection
+            Object target = must(projection, "b", new Class<?>[]{android.graphics.PointF.class}, center);
+            Class<?> pos = position.getClass();
+            double zoom = pos.getField("zoom").getDouble(position) + Math.log(ow / cropW) / Math.log(2);
+            double tilt = pos.getField("tilt").getDouble(position);
+            double bearing = pos.getField("bearing").getDouble(position);
+            Object camera = pos.getConstructor(target.getClass(), double.class, double.class, double.class)
+                    .newInstance(target, zoom, tilt, bearing);
+            if (camera.equals(call(map, "M", new Class<?>[0]))) return;
             Class<?> updateType = cl.loadClass("com.naver.maps.map.CameraUpdate");
-            Object update = updateType.getMethod("x", position.getClass()).invoke(null, position);  // toCameraPosition
+            Object update = updateType.getMethod("x", pos).invoke(null, camera);  // toCameraPosition
             call(map, "Y0", new Class<?>[]{updateType}, update);            // moveCamera
         } catch (Throwable error) {
             NaverHudLog.status("map render camera: " + error);
-        }
-    }
-
-    private static Object cameraTarget(Object naverMap) {
-        Object position = call(naverMap, "M", new Class<?>[0]);
-        if (position == null) return null;
-        try {
-            return position.getClass().getField("target").get(position);
-        } catch (Throwable error) {
-            return null;
-        }
-    }
-
-    private static double distanceMeters(Object a, Object b) {
-        if (a == null || b == null) return Double.NaN;
-        try {
-            double lat1 = a.getClass().getField("latitude").getDouble(a);
-            double lon1 = a.getClass().getField("longitude").getDouble(a);
-            double lat2 = b.getClass().getField("latitude").getDouble(b);
-            double lon2 = b.getClass().getField("longitude").getDouble(b);
-            double x = Math.toRadians(lon2 - lon1) * Math.cos(Math.toRadians((lat1 + lat2) / 2));
-            double y = Math.toRadians(lat2 - lat1);
-            return Math.sqrt(x * x + y * y) * 6371000.0;
-        } catch (Throwable error) {
-            return Double.NaN;
         }
     }
 

@@ -123,3 +123,13 @@ disappears or guidance stops.
 `map_main`, so named overlay sockets (this one and `traffic_signal`) never
 reached their overlay files. Overlay socket names are now checked first for
 every source. Not yet verified in the car.
+
+## Render camera follows the phone map (like TMAP/Kakao)
+The HUD render used to let its own NaverNaviUI move the camera (and only
+copied the phone camera once it drifted 300 m away), so it looked different
+from the snapshot. Now carSync is turned off on the HUD NaverNaviUI
+(`C(false)`, what Naver does when the map is dragged), so it only draws the
+route and vehicle, and every 50 ms the camera is set to the area the
+snapshot crop shows: target = `Projection.b()` (fromScreenLocation) of the
+crop centre on the phone map (`L0()` x `f0()` px), same tilt/bearing, zoom
++ log2(HUD width / crop width).
