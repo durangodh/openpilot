@@ -80,6 +80,14 @@ final class NaverMapRender {
     private boolean rendererKicked, followPhone;
     private int syncTicks;
 
+    // 네이버 앱과 HUD 앱(USB 패널 전송)이 같은 S9 에서 돈다. 앱이 막 켜졌을 때 두 번째
+    // 지도(GL)까지 만들면 순간 부하로 HUD 의 USB 전송이 끊겨 패널이 "연결중..."으로
+    // 재초기화됐다. 앱이 자리 잡을 때까지는 스냅샷으로 보내고 엔진 렌더는 늦게 시작한다.
+    private static final long START_AFTER_LAUNCH_MS = 8000;
+    private static final long START_AFTER_UI_MS = 3000;
+    private final long createdAt = SystemClock.elapsedRealtime();
+    private long uiSeenAt;
+
     NaverMapRender(NaverNaviClient client, NaverMapCapture snapshot) {
         this.client = client;
         this.snapshot = snapshot;
@@ -89,7 +97,13 @@ final class NaverMapRender {
     void maybeStart(final Context app, final Object naviStore) {
         if (running || app == null || naviStore == null || failures >= 3) return;
         if (SystemClock.elapsedRealtime() < nextRetryAt) return;
-        if (fieldOfType(naviStore, NAVI_UI) == null) return;   // 아직 안내 UI 없음
+        if (fieldOfType(naviStore, NAVI_UI) == null) {   // 아직 안내 UI 없음
+            uiSeenAt = 0;
+            return;
+        }
+        long now = SystemClock.elapsedRealtime();
+        if (uiSeenAt == 0) uiSeenAt = now;
+        if (now - createdAt < START_AFTER_LAUNCH_MS || now - uiSeenAt < START_AFTER_UI_MS) return;
         running = true;
         main.post(() -> {
             try {
@@ -135,7 +149,8 @@ final class NaverMapRender {
         must(surface, "n", new Class<?>[0]);
         must(surface, "l", new Class<?>[0]);
 
-        imageThread = new HandlerThread("naver-hud-map-render");
+        imageThread = new HandlerThread("naver-hud-map-render",
+                android.os.Process.THREAD_PRIORITY_BACKGROUND);   // HUD 앱이 CPU 를 먼저 쓰게
         imageThread.start();
         imageHandler = new Handler(imageThread.getLooper());
         reader = ImageReader.newInstance(WIDTH, HEIGHT, PixelFormat.RGBA_8888, 3);

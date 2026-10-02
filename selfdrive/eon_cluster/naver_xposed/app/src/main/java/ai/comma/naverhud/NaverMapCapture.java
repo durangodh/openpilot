@@ -36,7 +36,11 @@ final class NaverMapCapture {
     private final NaverNaviClient client;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService encoder = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "naver-hud-map-encode");
+        Thread t = new Thread(() -> {
+            // JPEG 인코딩은 HUD 앱(같은 S9)의 그리기·USB 전송보다 뒤로.
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+            r.run();
+        }, "naver-hud-map-encode");
         t.setDaemon(true);
         return t;
     });
