@@ -533,7 +533,10 @@ final class KakaoMap {
     private HandlerThread imageThread;
     private Handler imageHandler;
     private volatile boolean surfaceReady;
-    private long surfaceCreatedAt, surfaceReadyAt;
+    private long surfaceCreatedAt;
+    private volatile long surfaceReadyAt;
+    // 초기화 직후 프레임은 기본 카메라·덜 받은 타일일 수 있어 보내지 않는다.
+    private static final long SURFACE_WARMUP_MS = 700L;
     private volatile long surfaceFrameAt;
     private volatile byte[] lastSurfaceJpeg;
     private long lastSurfaceEncodeAt;
@@ -602,7 +605,7 @@ final class KakaoMap {
         applyRouteIfNeeded();
         applyThemeIfNeeded();
         moveCameraMethod.invoke(mapSurface, buildCameraUpdate(), false);
-        if (surfaceFrames == 0 && now - surfaceReadyAt > SURFACE_FRAME_TIMEOUT_MS) {
+        if (surfaceFrames == 0 && now - surfaceReadyAt > SURFACE_WARMUP_MS + SURFACE_FRAME_TIMEOUT_MS) {
             failSurface("no frames", null);
         }
     }
@@ -681,6 +684,8 @@ final class KakaoMap {
             if (image == null || !surfaceMode) return;
             long now = android.os.SystemClock.elapsedRealtime();
             if (now - lastSurfaceEncodeAt < (SURFACE_FRAME_MS * 9) / 10) return;
+            long ready = surfaceReadyAt;
+            if (!surfaceReady || ready == 0L || now - ready < SURFACE_WARMUP_MS) return;
             lastSurfaceEncodeAt = now;
             android.media.Image.Plane plane = image.getPlanes()[0];
             int w = image.getWidth(), h = image.getHeight();

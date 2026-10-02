@@ -72,7 +72,11 @@ final class NaverMapRender {
     private long frames;
     private Boolean night;
     private Object mapType;
-    private long readyAt, farSince;
+    private volatile long readyAt;
+    private long farSince;
+    // 안내 렌더러가 붙고 카메라가 폰 지도에 맞춰질 때까지는 스냅샷을 계속 보낸다.
+    // 그 뒤 첫 엔진 프레임을 보내는 순간 스냅샷을 멈춘다(반쯤 그려진 지도 방지).
+    private static final long WARMUP_MS = 700L;
     private boolean rendererKicked, followPhone;
     private int syncTicks;
 
@@ -139,7 +143,6 @@ final class NaverMapRender {
         // SurfaceCallback.onSurfaceAvailable 과 같은 순서: surfaceCreated(r) → surfaceChanged(q)
         must(surface, "r", new Class<?>[]{Surface.class}, reader.getSurface());
         must(surface, "q", new Class<?>[]{Surface.class, int.class, int.class}, reader.getSurface(), WIDTH, HEIGHT);
-        snapshot.setSuspended(true);
         imageHandler.postDelayed(this::repeatLoop, FRAME_MS);
         // 지도 준비 신호가 오지 않으면 기본 카메라(서울) 지도만 나간다. 그때는 스냅샷으로.
         final Object startedSurface = surface;
@@ -369,6 +372,8 @@ final class NaverMapRender {
             if (image == null || !running) return;
             long now = SystemClock.elapsedRealtime();
             if (now - lastEncodeAt < (FRAME_MS * 9) / 10) return;
+            long ready = readyAt;
+            if (ready == 0L || naviUi == null || now - ready < WARMUP_MS) return;   // 스냅샷이 아직 담당
             lastEncodeAt = now;
             Image.Plane plane = image.getPlanes()[0];
             int w = image.getWidth(), h = image.getHeight();
@@ -383,7 +388,10 @@ final class NaverMapRender {
             lastJpeg = bytes;
             lastFrameAt = now;
             if (client.ready()) client.sendMap(bytes);
-            if (++frames == 1) NaverHudLog.xposed("first rendered map frame sent");
+            if (++frames == 1) {
+                snapshot.setSuspended(true);   // 이제부터 엔진 프레임만
+                NaverHudLog.xposed("first rendered map frame sent; snapshots stopped");
+            }
             if (frames % 300 == 0) NaverHudLog.line("rendered map frames: " + frames);
         } catch (Throwable error) {
             NaverHudLog.status("map render frame: " + error);
@@ -407,6 +415,8 @@ final class NaverMapRender {
     }
 
     private void release() {
+        readyAt = 0L;
+        frames = 0;
         try { if (naviUi != null) call(naviUi, "v", new Class<?>[0]); } catch (Throwable ignored) { }
         // s = surfaceDestroyed, o = onStop, i = onDestroy
         try { if (surface != null) call(surface, "s", new Class<?>[0]); } catch (Throwable ignored) { }

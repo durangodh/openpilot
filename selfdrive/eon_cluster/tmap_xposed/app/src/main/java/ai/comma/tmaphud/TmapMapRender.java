@@ -66,6 +66,11 @@ final class TmapMapRender {
     private Handler imageHandler;
     private long sequence;
     private long frames;
+    // 엔진 지도가 타일을 받고 카메라를 맞출 때까지는 화면 캡처를 계속 보낸다.
+    // 그 뒤 첫 엔진 프레임을 보내는 순간 캡처를 멈춰, 반쯤 그려진 지도나 기본
+    // 카메라 장면이 HUD 에 끼어들지 않게 한다.
+    private static final long WARMUP_MS = 700L;
+    private volatile long startedAt;
     private volatile boolean night;
 
     TmapMapRender(TmapNaviClient client, TmapMapCapture screen) {
@@ -91,7 +96,7 @@ final class TmapMapRender {
         main.post(() -> {
             try {
                 initialize(ctx.getApplicationContext(), loader);
-                screen.setSuspended(true);
+                startedAt = SystemClock.elapsedRealtime();
                 TmapHudLog.xposed("map render engine started " + WIDTH + "x" + HEIGHT + "@" + FPS);
             } catch (Throwable error) {
                 running = false;
@@ -389,6 +394,7 @@ final class TmapMapRender {
             if (image == null || !running) return;
             long now = SystemClock.elapsedRealtime();
             if (now - lastEncodeAt < 900L / FPS || !client.ready()) return;
+            if (startedAt == 0L || now - startedAt < WARMUP_MS) return;   // 캡처가 아직 담당
             lastEncodeAt = now;
             Image.Plane plane = image.getPlanes()[0];
             int pixelStride = plane.getPixelStride(), rowStride = plane.getRowStride();
@@ -404,7 +410,10 @@ final class TmapMapRender {
             lastFrame = bytes;
             lastFrameAt = now;
             client.sendMap(Cnv2.frame(Cnv2.TYPE_IMAGE, Cnv2.FORMAT_JPEG, sequence++, bytes, w, h));
-            if (++frames == 1) TmapHudLog.line("first rendered map frame sent");
+            if (++frames == 1) {
+                screen.setSuspended(true);   // 이제부터 엔진 프레임만
+                TmapHudLog.line("first rendered map frame sent; screen capture stopped");
+            }
         } catch (Throwable error) {
             TmapHudLog.status("map render frame: " + error);
         } finally {
@@ -413,6 +422,8 @@ final class TmapMapRender {
     }
 
     private void release() {
+        startedAt = 0L;
+        frames = 0;
         try { if (reader != null) reader.close(); } catch (Throwable ignored) { }
         try { if (imageThread != null) imageThread.quitSafely(); } catch (Throwable ignored) { }
         reader = null;
