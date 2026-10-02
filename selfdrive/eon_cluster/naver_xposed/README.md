@@ -94,6 +94,13 @@ engine:
   default camera when guidance is not drawn on it. Snapshots now take the
   map that `NaviStore`'s `NaverNaviUI` draws guidance on first, then the
   `MapProvider` map, then a visible phone `MapView`.
+- Root cause of the Seoul map (found from `naver_hud.log` of the b8 drive:
+  `guidance UI attached`, `first rendered map frame sent`, then nothing):
+  `MapSurface` creates its `NaverMap` only after the surface exists, so the
+  `onStart` (`n`) called before that never reached the map and
+  `NativeMapView.nativeStart` was never called. The engine drew one frame at
+  the SDK default camera and stopped; the repeat loop kept re-sending it.
+  `NaverMap.d1()` (onStart) is now called in `onMapReady`.
 - It starts once the phone guidance UI exists (during guidance). If it fails
   it falls back to snapshots and retries after 30 s, at most three times.
   These steps are also written to the LSPosed log (`NaverHud: map render ...`),

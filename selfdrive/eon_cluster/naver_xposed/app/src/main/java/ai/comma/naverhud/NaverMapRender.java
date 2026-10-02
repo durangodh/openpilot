@@ -179,6 +179,10 @@ final class NaverMapRender {
     private void onMapReady(Object naverMap) {
         try {
             map = naverMap;
+            // MapSurface 는 표면이 생긴 뒤에야 NaverMap 을 만든다. 그 전에 부른 onStart(n)는
+            // 지도에 닿지 않아 엔진이 정지 상태(nativeStart 안 됨)로 남고, 첫 프레임(SDK 기본
+            // 카메라, 서울시청) 한 장만 그린다. 지도에 직접 onStart 를 건다.
+            must(naverMap, "d1", new Class<?>[0]);   // NaverMap.onStart → NativeMapView.nativeStart
             Object phoneUi = fieldOfType(store, NAVI_UI);
             Object control = fieldOfType(phoneUi, GUIDANCE_CONTROL);
             if (control == null) throw new IllegalStateException("GuidanceControl not found");
@@ -379,7 +383,8 @@ final class NaverMapRender {
             lastJpeg = bytes;
             lastFrameAt = now;
             if (client.ready()) client.sendMap(bytes);
-            if (++frames == 1) NaverHudLog.line("first rendered map frame sent");
+            if (++frames == 1) NaverHudLog.xposed("first rendered map frame sent");
+            if (frames % 300 == 0) NaverHudLog.line("rendered map frames: " + frames);
         } catch (Throwable error) {
             NaverHudLog.status("map render frame: " + error);
         } finally {
@@ -403,7 +408,10 @@ final class NaverMapRender {
 
     private void release() {
         try { if (naviUi != null) call(naviUi, "v", new Class<?>[0]); } catch (Throwable ignored) { }
+        // s = surfaceDestroyed, o = onStop, i = onDestroy
         try { if (surface != null) call(surface, "s", new Class<?>[0]); } catch (Throwable ignored) { }
+        try { if (surface != null) call(surface, "o", new Class<?>[0]); } catch (Throwable ignored) { }
+        try { if (surface != null) call(surface, "i", new Class<?>[0]); } catch (Throwable ignored) { }
         try { if (reader != null) reader.close(); } catch (Throwable ignored) { }
         try { if (imageThread != null) imageThread.quitSafely(); } catch (Throwable ignored) { }
         naviUi = null;
