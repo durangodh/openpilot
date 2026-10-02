@@ -40,6 +40,7 @@ public class NavigationRenderCheck {
   }
   static final int MAP_LEFT=960,HEIGHT=576,TBT_GREEN=4,TBT_GREEN_DARK=5;
   final Rect scratchIRect=new Rect(); final RectF scratchRect=new RectF(); boolean frameDark;
+  static final float JUNCTION_LEFT=962f, JUNCTION_W=340f;
   static final long MAP_FADE_MS=300L; Bitmap fadingMap; long fadingMapSince, mapShownSince;
   int mapRight(){return 1920;} float mapCenterX(){return 1440f;}
   String lang(String ko,String en){return en;}
