@@ -58,6 +58,7 @@ final class NaverBridge {
 
     void setStore(Object value) {
         store = value;
+        map.setStore(value);
         if (!started) {
             synchronized (this) {
                 if (!started) {

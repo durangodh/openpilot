@@ -89,6 +89,11 @@ engine:
   to snapshots. If the camera stays more than 300 m from the phone map's
   camera for 2 s, it copies the phone camera (`NaverMap.M()` →
   `CameraUpdate.x()` → `NaverMap.Y0()`) every 250 ms from then on.
+- The b8 build still showed Seoul in the car, which points at the snapshot
+  fallback: it preferred the Android Auto `MapProvider` map, which sits at the
+  default camera when guidance is not drawn on it. Snapshots now take the
+  map that `NaviStore`'s `NaverNaviUI` draws guidance on first, then the
+  `MapProvider` map, then a visible phone `MapView`.
 - It starts once the phone guidance UI exists (during guidance). If it fails
   it falls back to snapshots and retries after 30 s, at most three times.
   These steps are also written to the LSPosed log (`NaverHud: map render ...`),

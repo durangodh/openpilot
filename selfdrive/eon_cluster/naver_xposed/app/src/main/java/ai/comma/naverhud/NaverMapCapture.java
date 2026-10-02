@@ -51,6 +51,7 @@ final class NaverMapCapture {
     private volatile boolean suspended;
     private final List<WeakReference<Activity>> activities = new ArrayList<>();
     private volatile Object provider;
+    private volatile Object store;   // NaviStore
     private Object activeMap;
     // generation: 지도(NaverMap 객체)가 바뀔 때만 올린다. 이전 지도의 프레임만 버린다.
     // requestId  : 스냅샷 요청마다 올린다. 요청 중복 판단용이며 프레임 폐기 기준이 아니다.
@@ -63,6 +64,8 @@ final class NaverMapCapture {
     NaverMapCapture(NaverNaviClient client) { this.client = client; }
 
     void setMapProvider(Object value) { provider = value; }
+
+    void setStore(Object value) { store = value; }
 
     void addActivity(Activity activity) {
         if (activity == null) return;
@@ -105,7 +108,7 @@ final class NaverMapCapture {
             lastFrameAt = 0;
             // 야간 지도 확인용: Android Auto 지도(car)는 앱의 야간 설정이 아니라
             // 차량 주/야를 따를 수 있다. 화면 지도(phone)는 보이는 그대로다.
-            if (map != null) NaverHudLog.line("snapshot map selected: " + mapSource
+            if (map != null) NaverHudLog.xposed("snapshot map selected: " + mapSource
                     + " " + map.getClass().getName());
         }
         if (map == null) {
@@ -179,6 +182,15 @@ final class NaverMapCapture {
     private String mapSource = "";
 
     private Object chooseMap() {
+        // 안내가 실제로 그려지는 지도(NaviStore 의 NaverNaviUI 지도). 폰 화면이든
+        // Android Auto 화면이든 이 지도가 차량을 따라간다. MapProvider 의 차량 지도는
+        // 안내에 안 쓰이면 SDK 기본 카메라(서울시청)에 멈춰 있을 수 있다.
+        Object guided = NaverMapRender.fieldOfType(
+                NaverMapRender.fieldOfType(store, NaverMapRender.NAVI_UI), NaverMapRender.NAVER_MAP);
+        if (guided != null) {
+            mapSource = "guidance";
+            return guided;
+        }
         Object car = call(provider, "i");
         if (!isNaverMap(car)) car = firstNaverMapGetter(provider);
         if (car != null) {

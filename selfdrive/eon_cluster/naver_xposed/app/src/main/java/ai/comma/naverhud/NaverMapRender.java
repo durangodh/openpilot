@@ -38,10 +38,10 @@ import java.lang.reflect.Proxy;
 final class NaverMapRender {
     private static final int WIDTH = 640, HEIGHT = 384, FPS = 5, JPEG_QUALITY = 65;
     private static final long FRAME_MS = 1000 / FPS;
-    private static final String NAVI_UI = "com.naver.maps.navi.ui.map.NaverNaviUI";
+    static final String NAVI_UI = "com.naver.maps.navi.ui.map.NaverNaviUI";
     private static final String GUIDANCE_CONTROL = "com.naver.maps.navi.v2.api.guidance.control.GuidanceControl";
     private static final String RENDER_CONFIG = "com.naver.maps.navi.ui.map.config.GuidanceRenderingConfiguration";
-    private static final String NAVER_MAP = "com.naver.maps.map.NaverMap";
+    static final String NAVER_MAP = "com.naver.maps.map.NaverMap";
     private static final String RENDERER = "com.naver.maps.navi.ui.map.renderer.Renderer";
     private static final String GUIDANCE_SESSION = "com.naver.maps.navi.v2.api.GuidanceSession";
     private static final long SYNC_MS = 250;
