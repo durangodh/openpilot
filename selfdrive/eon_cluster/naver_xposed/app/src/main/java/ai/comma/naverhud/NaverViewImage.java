@@ -42,6 +42,9 @@ final class NaverViewImage {
     private final int maxW, maxH;
     // 같은 그림이 아니어도 이 간격보다 자주는 안 보낸다(차로 띠는 거리 숫자가 자주 바뀐다).
     private final long minIntervalMs;
+    // 내용이 그림 높이에서 차지하는 비율. HUD 는 그림을 칸에 꽉 맞춰 키우므로, 위쪽에
+    // 투명 여백을 두어 실제 크기를 정한다(차로 띠는 거리 숫자까지 있어 꽉 채우면 너무 컸다).
+    private final float fill;
     private volatile boolean used;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService encoder = Executors.newSingleThreadExecutor(r -> {
@@ -56,12 +59,13 @@ final class NaverViewImage {
     private long lastSentAt;
     private long seq;
 
-    NaverViewImage(NaverNaviClient client, String name, int maxW, int maxH, long minIntervalMs) {
+    NaverViewImage(NaverNaviClient client, String name, int maxW, int maxH, long minIntervalMs, float fill) {
         this.client = client;
         this.name = name;
         this.maxW = maxW;
         this.maxH = maxH;
         this.minIntervalMs = minIntervalMs;
+        this.fill = Math.max(0.3f, Math.min(1f, fill));
     }
 
     /** 폰 뷰가 한 번이라도 갱신됐으면 true(이후 이 그림만 쓴다). */
@@ -108,7 +112,7 @@ final class NaverViewImage {
                 main.postDelayed(this::tick, TICK_MS);
                 return;
             }
-            Bitmap bmp = draw(v, maxW, maxH);
+            Bitmap bmp = draw(v, maxW, maxH, fill);
             if (bmp != null) {
                 boolean same = lastBitmap != null && lastBitmap.sameAs(bmp);
                 if (!same || now - lastSentAt >= RESEND_MS) {
@@ -135,7 +139,7 @@ final class NaverViewImage {
      * 뷰를 그린 뒤 투명 여백을 잘라내고 HUD 칸 크기로 줄인다. 폰 차로 뷰는 화면 폭만큼
      * 넓고 그림은 가운데에 작게 있어서, 여백째 줄이면 HUD 에서 차로가 아주 작게 보였다.
      */
-    private static Bitmap draw(View v, int maxW, int maxH) {
+    private static Bitmap draw(View v, int maxW, int maxH, float fill) {
         int w = v.getWidth(), h = v.getHeight();
         if (w <= 0 || h <= 0) return null;
         float s0 = Math.min(1f, 1080f / w);   // 여백 찾기용으로 너무 크지 않게만
@@ -169,13 +173,14 @@ final class NaverViewImage {
         right = Math.min(fw - 1, right + pad);
         bottom = Math.min(fh - 1, bottom + pad);
         int cw = right - left + 1, ch = bottom - top + 1;
-        float scale = Math.min(1f, Math.min(maxW / (float) cw, maxH / (float) ch));
+        float scale = Math.min(1f, Math.min(maxW / (float) cw, maxH * fill / (float) ch));
         int ow = Math.max(1, Math.round(cw * scale)), oh = Math.max(1, Math.round(ch * scale));
-        Bitmap out = Bitmap.createBitmap(ow, oh, Bitmap.Config.ARGB_8888);
+        int padTop = Math.round(oh / fill) - oh;   // 위쪽 여백: 내용은 아래에 붙는다
+        Bitmap out = Bitmap.createBitmap(ow, oh + padTop, Bitmap.Config.ARGB_8888);
         Canvas oc = new Canvas(out);
         android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
         oc.drawBitmap(full, new android.graphics.Rect(left, top, right + 1, bottom + 1),
-                new android.graphics.Rect(0, 0, ow, oh), paint);
+                new android.graphics.Rect(0, padTop, ow, padTop + oh), paint);
         full.recycle();
         return out;
     }
