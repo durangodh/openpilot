@@ -84,10 +84,13 @@ def serve(conn, path):
               "Content-Disposition: attachment; filename=\"%s\"\r\n"
               "Cache-Control: no-store\r\nConnection: close\r\n\r\n") % (size, download)
       conn.sendall(head.encode("ascii"))
-      while True:
-        chunk = f.read(CHUNK)
+      # 기록 중인 파일은 보내는 동안에도 커진다. 머리에 적은 크기만큼만 보낸다.
+      left = size
+      while left > 0:
+        chunk = f.read(min(CHUNK, left))
         if not chunk:
           break
         conn.sendall(chunk)
+        left -= len(chunk)
     return
   _send(conn, "404 Not Found", "text/plain; charset=utf-8", "없는 주소입니다.".encode("utf-8"))

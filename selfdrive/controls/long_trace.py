@@ -13,7 +13,7 @@ import time
 
 import cereal.messaging as messaging
 from common.params import Params
-from common.realtime import Ratekeeper
+from common.realtime import Ratekeeper, sec_since_boot
 
 TRACE_DIR = "/data/media/0/long_trace"
 RATE_HZ = 20
@@ -21,9 +21,10 @@ PARAM_POLL_S = 1.0
 FLUSH_S = 2.0
 MAX_FILES = 30
 MAX_TOTAL_BYTES = 100 * 1024 * 1024
+ERROR_RETRY_S = 5.0
 
 COLUMNS = [
-  # 각 메시지가 만들어진 시각(초, monotonic). 단계별 지연을 잴 때 쓴다.
+  # 각 메시지가 만들어진 시각(초, 부팅 후). 단계별 지연을 잴 때 쓴다.
   "t", "radar_t", "plan_t", "cc_t", "cs_t",
   # ① ② 레이더·앞차 추정
   "lead", "lead_radar", "d_rel", "v_rel", "v_lead", "v_lead_k", "a_lead_k", "a_lead_tau",
@@ -52,6 +53,25 @@ def _rotate(directory):
       pass
 
 
+def _close(out):
+  """파일을 닫고 None 을 돌려준다. 닫다가 난 오류(저장 공간 부족 등)는 무시한다."""
+  if out is not None:
+    try:
+      out.close()
+    except OSError:
+      pass
+  return None
+
+
+def _new_path(directory):
+  """YYYYmmdd-HHMMSS.csv. 같은 초에 다시 켜도 앞 파일을 덮어쓰지 않게 뒤에 번호를 붙인다."""
+  base = os.path.join(directory, time.strftime("%Y%m%d-%H%M%S"))
+  path, n = base + ".csv", 1
+  while os.path.exists(path):
+    path, n = "%s_%d.csv" % (base, n), n + 1
+  return path
+
+
 def _f(value, digits=3):
   try:
     return f"{float(value):.{digits}f}"
@@ -75,7 +95,7 @@ def _row(sm):
   accels = list(plan.accels)
   mono = sm.logMonoTime
   return [
-    _f(time.monotonic()),
+    _f(sec_since_boot()),   # logMonoTime 과 같은 시계(time.monotonic 은 절전 시간을 빼서 어긋난다)
     _f(mono['radarState'] * 1e-9), _f(mono['longitudinalPlan'] * 1e-9),
     _f(mono['carControl'] * 1e-9), _f(mono['carState'] * 1e-9),
     _i(lead.status), _i(lead.radar),
@@ -94,7 +114,7 @@ def main():
   services = ['radarState', 'longitudinalPlan', 'carControl', 'carState', 'controlsState']
   # 소켓은 기록할 때만 연다. 꺼진 채 열어 두면 읽지 않아 "Reader was evicted" 가 난다.
   sm = None
-  rk = Ratekeeper(RATE_HZ, print_delay_threshold=None)
+  rk = None
   enabled = False
   next_param = 0.0
   next_flush = 0.0
@@ -106,9 +126,7 @@ def main():
         next_param = now + PARAM_POLL_S
         enabled = params.get_bool("LongTraceEnabled")
         if not enabled:
-          if out is not None:
-            out.close()
-            out = None
+          out = _close(out)
           sm = None
 
       if not enabled:
@@ -117,23 +135,30 @@ def main():
 
       if sm is None:
         sm = messaging.SubMaster(services, ignore_avg_freq=services)
+        # 켤 때마다 새로 만든다. 꺼져 있던 동안 밀린 주기를 따라잡느라 쉬지 않고
+        # 같은 줄을 몰아 쓰는 일이 없게 한다.
+        rk = Ratekeeper(RATE_HZ, print_delay_threshold=None)
       sm.update(0)
-      if out is None:
-        os.makedirs(TRACE_DIR, exist_ok=True)
-        _rotate(TRACE_DIR)
-        path = os.path.join(TRACE_DIR, time.strftime("%Y%m%d-%H%M%S") + ".csv")
-        out = open(path, "w", buffering=1 << 16)
-        out.write(",".join(COLUMNS) + "\n")
-
-      if sm.all_alive(['carState']):
-        out.write(",".join(_row(sm)) + "\n")
-      if now >= next_flush:
-        next_flush = now + FLUSH_S
-        out.flush()
+      try:
+        if out is None:
+          os.makedirs(TRACE_DIR, exist_ok=True)
+          _rotate(TRACE_DIR)
+          out = open(_new_path(TRACE_DIR), "w", buffering=1 << 16)
+          out.write(",".join(COLUMNS) + "\n")
+        if sm.all_alive(['carState']):
+          out.write(",".join(_row(sm)) + "\n")
+        if now >= next_flush:
+          next_flush = now + FLUSH_S
+          out.flush()
+      except OSError:
+        # 저장 공간 부족 등: 죽지 않고 파일을 닫은 뒤 잠시 쉬었다 새 파일로 다시 시도한다.
+        out = _close(out)
+        sm = None   # 다시 켤 때처럼 소켓·주기를 새로 시작한다(쉰 동안 밀린 주기 몰아 쓰기 방지)
+        time.sleep(ERROR_RETRY_S)
+        continue
       rk.keep_time()
   finally:
-    if out is not None:
-      out.close()
+    _close(out)
 
 
 if __name__ == "__main__":

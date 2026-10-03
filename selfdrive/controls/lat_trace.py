@@ -14,7 +14,7 @@ import time
 import cereal.messaging as messaging
 from common.params import Params
 from common.realtime import Ratekeeper, sec_since_boot
-from selfdrive.controls.long_trace import FLUSH_S, PARAM_POLL_S, RATE_HZ, _f, _i, _rotate
+from selfdrive.controls.long_trace import ERROR_RETRY_S, FLUSH_S, PARAM_POLL_S, RATE_HZ, _close, _f, _i, _new_path, _rotate
 
 TRACE_DIR = "/data/media/0/lat_trace"
 
@@ -76,7 +76,7 @@ def main():
   services = ['lateralPlan', 'controlsState', 'carControl', 'carState']
   # 소켓은 기록할 때만 연다. 꺼진 채 열어 두면 읽지 않아 "Reader was evicted" 가 난다.
   sm = None
-  rk = Ratekeeper(RATE_HZ, print_delay_threshold=None)
+  rk = None
   enabled = False
   next_param = 0.0
   next_flush = 0.0
@@ -88,9 +88,7 @@ def main():
         next_param = now + PARAM_POLL_S
         enabled = params.get_bool("LatTraceEnabled")
         if not enabled:
-          if out is not None:
-            out.close()
-            out = None
+          out = _close(out)
           sm = None
 
       if not enabled:
@@ -99,23 +97,30 @@ def main():
 
       if sm is None:
         sm = messaging.SubMaster(services, ignore_avg_freq=services)
+        # 켤 때마다 새로 만든다. 꺼져 있던 동안 밀린 주기를 따라잡느라 쉬지 않고
+        # 같은 줄을 몰아 쓰는 일이 없게 한다.
+        rk = Ratekeeper(RATE_HZ, print_delay_threshold=None)
       sm.update(0)
-      if out is None:
-        os.makedirs(TRACE_DIR, exist_ok=True)
-        _rotate(TRACE_DIR)
-        path = os.path.join(TRACE_DIR, time.strftime("%Y%m%d-%H%M%S") + ".csv")
-        out = open(path, "w", buffering=1 << 16)
-        out.write(",".join(COLUMNS) + "\n")
-
-      if sm.all_alive(['carState']):
-        out.write(",".join(_row(sm)) + "\n")
-      if now >= next_flush:
-        next_flush = now + FLUSH_S
-        out.flush()
+      try:
+        if out is None:
+          os.makedirs(TRACE_DIR, exist_ok=True)
+          _rotate(TRACE_DIR)
+          out = open(_new_path(TRACE_DIR), "w", buffering=1 << 16)
+          out.write(",".join(COLUMNS) + "\n")
+        if sm.all_alive(['carState']):
+          out.write(",".join(_row(sm)) + "\n")
+        if now >= next_flush:
+          next_flush = now + FLUSH_S
+          out.flush()
+      except OSError:
+        # 저장 공간 부족 등: 죽지 않고 파일을 닫은 뒤 잠시 쉬었다 새 파일로 다시 시도한다.
+        out = _close(out)
+        sm = None   # 다시 켤 때처럼 소켓·주기를 새로 시작한다(쉰 동안 밀린 주기 몰아 쓰기 방지)
+        time.sleep(ERROR_RETRY_S)
+        continue
       rk.keep_time()
   finally:
-    if out is not None:
-      out.close()
+    _close(out)
 
 
 if __name__ == "__main__":
