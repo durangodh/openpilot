@@ -59,6 +59,14 @@ def _f(value, digits=3):
     return ""
 
 
+def _i(value):
+  """Bool/숫자/capnp enum 을 정수 문자열로. capnp enum 은 int() 가 안 돼 .raw 를 쓴다."""
+  try:
+    return str(int(value))
+  except TypeError:
+    return str(int(getattr(value, "raw", 0)))
+
+
 def _row(sm):
   lead = sm['radarState'].leadOne
   plan = sm['longitudinalPlan']
@@ -70,21 +78,22 @@ def _row(sm):
     _f(time.monotonic()),
     _f(mono['radarState'] * 1e-9), _f(mono['longitudinalPlan'] * 1e-9),
     _f(mono['carControl'] * 1e-9), _f(mono['carState'] * 1e-9),
-    str(int(lead.status)), str(int(lead.radar)),
+    _i(lead.status), _i(lead.radar),
     _f(lead.dRel, 2), _f(lead.vRel), _f(lead.vLead), _f(lead.vLeadK), _f(lead.aLeadK), _f(lead.aLeadTau, 2),
     _f(plan.aTarget), _f(plan.vTargetNow), _f(accels[0] if accels else 0.0),
     # T_IDXS 10번째 근처가 약 1초 뒤(계획이 앞으로 무엇을 하려는지)
     _f(accels[10] if len(accels) > 10 else 0.0),
-    str(int(plan.mpcMode)), str(int(plan.e2eReason)), str(int(plan.shouldStop)),
-    _f(sm['carControl'].actuators.accel), str(int(ctl.longControlState)), str(int(ctl.enabled)),
-    _f(cs.vEgo), _f(cs.aEgo), str(int(cs.gasPressed)), str(int(cs.brakePressed)),
+    _i(plan.mpcMode), _i(plan.e2eReason), _i(plan.shouldStop),
+    _f(sm['carControl'].actuators.accel), _i(ctl.longControlState), _i(ctl.enabled),
+    _f(cs.vEgo), _f(cs.aEgo), _i(cs.gasPressed), _i(cs.brakePressed),
   ]
 
 
 def main():
   params = Params()
-  sm = messaging.SubMaster(['radarState', 'longitudinalPlan', 'carControl', 'carState', 'controlsState'],
-                           ignore_avg_freq=['radarState', 'longitudinalPlan', 'carControl', 'carState', 'controlsState'])
+  services = ['radarState', 'longitudinalPlan', 'carControl', 'carState', 'controlsState']
+  # 소켓은 기록할 때만 연다. 꺼진 채 열어 두면 읽지 않아 "Reader was evicted" 가 난다.
+  sm = None
   rk = Ratekeeper(RATE_HZ, print_delay_threshold=None)
   enabled = False
   next_param = 0.0
@@ -96,14 +105,18 @@ def main():
       if now >= next_param:
         next_param = now + PARAM_POLL_S
         enabled = params.get_bool("LongTraceEnabled")
-        if not enabled and out is not None:
-          out.close()
-          out = None
+        if not enabled:
+          if out is not None:
+            out.close()
+            out = None
+          sm = None
 
       if not enabled:
         time.sleep(PARAM_POLL_S)
         continue
 
+      if sm is None:
+        sm = messaging.SubMaster(services, ignore_avg_freq=services)
       sm.update(0)
       if out is None:
         os.makedirs(TRACE_DIR, exist_ok=True)

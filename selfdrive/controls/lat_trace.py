@@ -14,7 +14,7 @@ import time
 import cereal.messaging as messaging
 from common.params import Params
 from common.realtime import Ratekeeper, sec_since_boot
-from selfdrive.controls.long_trace import FLUSH_S, PARAM_POLL_S, RATE_HZ, _f, _rotate
+from selfdrive.controls.long_trace import FLUSH_S, PARAM_POLL_S, RATE_HZ, _f, _i, _rotate
 
 TRACE_DIR = "/data/media/0/lat_trace"
 
@@ -58,12 +58,12 @@ def _row(sm):
     _f(sec_since_boot()),   # logMonoTime 과 같은 시계
     _f(mono['lateralPlan'] * 1e-9), _f(mono['controlsState'] * 1e-9),
     _f(mono['carControl'] * 1e-9), _f(mono['carState'] * 1e-9),
-    _f(cs.vEgo), str(int(cc.latActive)), str(int(ctl.enabled)), str(int(cs.steeringPressed)),
-    str(int(plan.laneChangeState)), str(int(plan.desire)),
+    _f(cs.vEgo), _i(cc.latActive), _i(ctl.enabled), _i(cs.steeringPressed),
+    _i(plan.laneChangeState), _i(plan.desire),
     _f(curvs[0] if curvs else 0.0, 5), _f(ctl.desiredCurvature, 5), _f(ctl.desiredCurvatureRate, 5),
-    (str(int(torque.active)) if torque is not None else ""),
+    (_i(torque.active) if torque is not None else ""),
     tq("desiredLateralAccel"), tq("actualLateralAccel"), tq("error"), tq("p"), tq("i"), tq("f"),
-    tq("output"), (str(int(torque.saturated)) if torque is not None else ""),
+    tq("output"), (_i(torque.saturated) if torque is not None else ""),
     _f(cc.actuators.steer, 4), _f(cc.actuatorsOutput.steer, 4),
     _f(ctl.curvature, 5), _f(cs.steeringAngleDeg, 2), _f(cs.steeringRateDeg, 2), _f(cs.yawRate, 4),
     _f(cs.steeringTorque, 1), _f(cs.steeringTorqueEps, 1),
@@ -74,7 +74,8 @@ def _row(sm):
 def main():
   params = Params()
   services = ['lateralPlan', 'controlsState', 'carControl', 'carState']
-  sm = messaging.SubMaster(services, ignore_avg_freq=services)
+  # 소켓은 기록할 때만 연다. 꺼진 채 열어 두면 읽지 않아 "Reader was evicted" 가 난다.
+  sm = None
   rk = Ratekeeper(RATE_HZ, print_delay_threshold=None)
   enabled = False
   next_param = 0.0
@@ -86,14 +87,18 @@ def main():
       if now >= next_param:
         next_param = now + PARAM_POLL_S
         enabled = params.get_bool("LatTraceEnabled")
-        if not enabled and out is not None:
-          out.close()
-          out = None
+        if not enabled:
+          if out is not None:
+            out.close()
+            out = None
+          sm = None
 
       if not enabled:
         time.sleep(PARAM_POLL_S)
         continue
 
+      if sm is None:
+        sm = messaging.SubMaster(services, ignore_avg_freq=services)
       sm.update(0)
       if out is None:
         os.makedirs(TRACE_DIR, exist_ok=True)
