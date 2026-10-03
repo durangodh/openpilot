@@ -34,6 +34,7 @@ final class TmapNaviClient {
 
     private final Object stateLock = new Object();
     private final Object mapLock = new Object();
+    private final LocalHudMap localMap = new LocalHudMap(1);
     private volatile String host;
     private Socket stateSock;
     private OutputStream stateOut;
@@ -106,6 +107,14 @@ final class TmapNaviClient {
     /** CNV2 헤더가 붙은 지도 JPEG 을 map_main 소켓에 opcode 2 바이너리 프레임으로 보낸다. */
     void sendMap(final byte[] framed) {
         if (framed == null || framed.length == 0) return;
+        // 같은 S9 의 HUD 앱으로도 바로 보낸다(와이파이 왕복 없음). CNV2 헤더 다음이 JPEG.
+        if (framed.length >= Cnv2.HEADER_BYTES) {
+            if (framed[5] == Cnv2.TYPE_CLEAR) {
+                localMap.offerClear();
+            } else if (framed[5] == Cnv2.TYPE_IMAGE && framed.length > Cnv2.HEADER_BYTES) {
+                localMap.offer(java.util.Arrays.copyOfRange(framed, Cnv2.HEADER_BYTES, framed.length));
+            }
+        }
         pendingMap.set(framed);
         scheduleMapDrain();
     }

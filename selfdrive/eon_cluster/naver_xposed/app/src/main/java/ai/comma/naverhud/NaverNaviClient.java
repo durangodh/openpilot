@@ -33,6 +33,7 @@ final class NaverNaviClient {
 
     private final Object stateLock = new Object();
     private final Object mapLock = new Object();
+    private final LocalHudMap localMap = new LocalHudMap(2);
     private volatile String host;
     private Socket stateSock;
     private OutputStream stateOut;
@@ -105,6 +106,7 @@ final class NaverNaviClient {
     /** 지도 JPEG 을 opcode 2 바이너리 프레임으로 보낸다(네이버 HUD14 와 동일 수용 경로). */
     void sendMap(final byte[] jpeg) {
         if (jpeg == null || jpeg.length == 0) return;
+        localMap.offer(jpeg);   // 같은 S9 의 HUD 앱으로도 바로 보낸다(와이파이 왕복 없음)
         pendingMap.set(jpeg);
         scheduleMapDrain();
     }

@@ -257,6 +257,13 @@ public final class HudService extends Service {
     private volatile Thread usbRecoveryThread;
     private volatile DatagramSocket receiverSocket;
     private volatile Socket assetSocket;
+    // 같은 S9 의 네비 모듈이 지도를 바로 보내는 로컬 경로(127.0.0.1:7213, LocalHudMap).
+    // 이 지도가 LOCAL_MAP_FRESH_MS 안에 들어오고 있으면 EON 이 되돌려 주는 지도는 무시한다.
+    private static final int LOCAL_MAP_PORT = 7213;
+    private static final long LOCAL_MAP_FRESH_MS = 3000L;
+    private Thread localMapThread;
+    private volatile java.net.ServerSocket localMapServer;
+    private volatile long lastLocalMapElapsed = 0L;
     private int usbErrorStreak;
     private boolean usbReceiverRegistered;
     private android.hardware.display.DisplayManager mirrorDisplays;
@@ -698,8 +705,10 @@ public final class HudService extends Service {
                 statsLoop();
             }
         }, "hud-stats");
+        localMapThread = new Thread(this::localMapLoop, "hud-local-map");
         receiverThread.start();
         mapThread.start();
+        localMapThread.start();
         renderThread.start();
         statsThread.start();
 
@@ -1487,6 +1496,7 @@ public final class HudService extends Service {
             recycleAndClear(laneFrame);
             recycleAndClear(trafficSignalFrame);
             lastMapAcceptedElapsed = 0L;
+            lastLocalMapElapsed = 0L;   // 새 네비의 로컬 지도가 올 때까지 EON 지도도 받는다
             mapThemePolicy.reset();
             lastThemeMapElapsed = lastThemeSampleElapsed = 0L;
         }
@@ -1521,6 +1531,11 @@ public final class HudService extends Service {
                     AtomicReference<Bitmap> target = assetFor(header);
                     if (target == null) {
                         throw new Exception("bad asset tag");
+                    }
+                    // 로컬(같은 S9) 지도가 들어오는 중이면 EON 이 되돌려 준 지도는 쓰지 않는다.
+                    // EON 의 1초 keepalive 재전송이 더 새 로컬 지도를 덮어쓰지 않게 하기 위함.
+                    if (target == mapFrame && localMapFresh()) {
+                        continue;
                     }
                     // Decode outside assetLock: the render loop holds that lock
                     // for a whole frame, and decoding under it used to stall
@@ -1557,6 +1572,85 @@ public final class HudService extends Service {
             }
         }
         mapConnected = false;
+    }
+
+    private boolean localMapFresh() {
+        long at = lastLocalMapElapsed;
+        return at != 0L && SystemClock.elapsedRealtime() - at < LOCAL_MAP_FRESH_MS;
+    }
+
+    /** 같은 S9 의 네비 모듈(LocalHudMap)에서 오는 지도를 받는다. 와이파이를 거치지 않는다. */
+    private void localMapLoop() {
+        while (running.get()) {
+            java.net.ServerSocket server = null;
+            try {
+                server = new java.net.ServerSocket();
+                server.setReuseAddress(true);
+                server.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), LOCAL_MAP_PORT));
+                server.setSoTimeout(1000);
+                localMapServer = server;
+                while (running.get()) {
+                    final Socket client;
+                    try {
+                        client = server.accept();
+                    } catch (SocketTimeoutException timeout) {
+                        continue;
+                    }
+                    Thread reader = new Thread(() -> readLocalMap(client), "hud-local-map-client");
+                    reader.setDaemon(true);
+                    reader.start();
+                }
+            } catch (Exception e) {
+                SystemClock.sleep(1000);
+            } finally {
+                if (localMapServer == server) localMapServer = null;
+                if (server != null) {
+                    try {
+                        server.close();
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        }
+    }
+
+    private void readLocalMap(Socket client) {
+        try {
+            client.setSoTimeout(0);
+            DataInputStream in = new DataInputStream(client.getInputStream());
+            byte[] tag = new byte[4];
+            while (running.get()) {
+                in.readFully(tag);
+                if (!tagEquals(tag, "MAPL")) throw new Exception("bad local map tag");
+                int app = in.readUnsignedByte();
+                int length = in.readInt();
+                if (length < 0 || length > 2097152) throw new Exception("bad local map size");
+                byte[] data = new byte[length];
+                if (length > 0) in.readFully(data);
+                // 지금 HUD 가 고른 네비의 지도만 쓴다(다른 네비가 뒤에서 돌고 있어도 섞이지 않게).
+                int selected = state.get().optInt("hudNavApp", app);
+                if (app != selected) continue;
+                Bitmap decoded = length > 0 ? decodeAsset(data) : null;
+                if (length > 0 && decoded == null) continue;
+                synchronized (assetLock) {
+                    if (decoded == null) {
+                        retireMap(mapFrame.getAndSet(null));
+                    } else {
+                        swapAsset(mapFrame, decoded);
+                    }
+                    long now = SystemClock.elapsedRealtime();
+                    lastMapAcceptedElapsed = now;
+                    lastLocalMapElapsed = now;
+                }
+            }
+        } catch (Exception ignored) {
+            // 모듈이 끊기면 LOCAL_MAP_FRESH_MS 뒤 EON 지도로 돌아간다.
+        } finally {
+            try {
+                client.close();
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     /** Low-rate CPU inference on S9. Results are render-only JSON boxes. */
@@ -5498,8 +5592,16 @@ public final class HudService extends Service {
             } catch (Exception ignored) {
             }
         }
+        java.net.ServerSocket local = localMapServer;
+        if (local != null) {
+            try {
+                local.close();
+            } catch (Exception ignored) {
+            }
+        }
         interrupt(receiverThread);
         interrupt(mapThread);
+        interrupt(localMapThread);
         interrupt(renderThread);
         interrupt(statsThread);
         interrupt(bootNavigationThread);
