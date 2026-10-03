@@ -5,7 +5,7 @@
 
 단계(앞 단계 신호가 바뀐 뒤 다음 단계가 따라 바뀌기까지 걸린 시간):
   ② 앞차 가속 추정   a_lead_k        ← 레이더 앞차 속도 v_lead 의 실제 변화
-  ④ 계획             plan_a_target   ← a_lead_k
+  ④ 계획             plan_a_target   ← a_lead_k   (비어 있으면 plan_a0)
   ⑤ 명령             cmd_accel       ← plan_a_target
   ⑥ 차량             a_ego           ← cmd_accel
   전체               a_ego           ← 레이더 앞차 속도 변화
@@ -96,11 +96,17 @@ def main():
   if lead.sum() < 100:
     raise SystemExit("분석할 구간이 너무 짧습니다. 정체 구간을 더 주행해 주세요.")
 
-  a_lead_true = centered_derivative(c["v_lead"], dt)
+  # 레이더 속도는 들쭉날쭉해 0.5초 폭(앞뒤 대칭이라 지연 없음)으로 미분한다.
+  a_lead_true = centered_derivative(c["v_lead"], dt, half_window=5)
+  # 일부 버전의 계획기는 aTarget 을 채우지 않는다(항상 0). 그때는 계획 첫 가속도를 쓴다.
+  plan = c["plan_a_target"]
+  if np.nanstd(plan[lead]) < 1e-6:
+    plan = c["plan_a0"]
+    print("  (plan_a_target 이 비어 있어 계획 단계는 plan_a0 = 계획 첫 가속도로 계산)")
   stages = [
     ("② 앞차 가속 추정 (a_lead_k ← 레이더 속도 변화)", a_lead_true, c["a_lead_k"]),
-    ("④ 계획 (plan_a_target ← a_lead_k)", c["a_lead_k"], c["plan_a_target"]),
-    ("⑤ 명령 (cmd_accel ← plan_a_target)", c["plan_a_target"], c["cmd_accel"]),
+    ("④ 계획 (계획 가속도 ← a_lead_k)", c["a_lead_k"], plan),
+    ("⑤ 명령 (cmd_accel ← 계획 가속도)", plan, c["cmd_accel"]),
     ("⑥ 차량 (a_ego ← cmd_accel)", c["cmd_accel"], c["a_ego"]),
     ("전체 (a_ego ← 레이더 속도 변화)", a_lead_true, c["a_ego"]),
   ]
@@ -119,13 +125,13 @@ def main():
     if lead[i] and np.isfinite(a_lead_true[i]) and a_lead_true[i] <= -0.8 and \
        np.isfinite(a_lead_true[i - 1]) and a_lead_true[i - 1] > -0.8 and i >= 20 and \
        np.all(np.nan_to_num(a_lead_true[i - 20:i - 5], nan=0.0) > -0.3):
-      base_plan = c["plan_a_target"][i]
+      base_plan = plan[i]
       base_cmd = c["cmd_accel"][i]
       base_ego = c["a_ego"][i]
       ev = {
         "t": i * dt,
         "a_lead_k": first_cross(c["a_lead_k"], i, -0.5, True, limit),
-        "plan": first_cross(c["plan_a_target"], i, base_plan - 0.3, True, limit),
+        "plan": first_cross(plan, i, base_plan - 0.3, True, limit),
         "cmd": first_cross(c["cmd_accel"], i, base_cmd - 0.3, True, limit),
         "ego": first_cross(c["a_ego"], i, base_ego - 0.3, True, limit),
       }
