@@ -39,6 +39,10 @@ final class LocalHudMap {
     private OutputStream out;
     private long retryAt;
     private boolean loggedConnect;
+    // 10초마다 지도 프레임이 나온 개수와 가장 긴 공백을 로그에 남긴다. 공백이 크면
+    // 네비 앱에서 지도를 찍는 단계가 멈춘 것이다(전송 경로와 무관).
+    private static final long STATS_MS = 10000;
+    private long statsAt, lastFrameAt, frames, maxGapMs, localSent, localFail;
 
     LocalHudMap(int app) {
         this.app = (byte) app;
@@ -46,12 +50,34 @@ final class LocalHudMap {
 
     void offer(byte[] jpeg) {
         if (jpeg == null) return;
+        stats(jpeg.length > 0);
         pending.set(jpeg);
         if (scheduled.compareAndSet(false, true)) sender.execute(this::drain);
     }
 
     void offerClear() {
         offer(new byte[0]);
+    }
+
+    private synchronized void stats(boolean frame) {
+        long now = SystemClock.elapsedRealtime();
+        if (statsAt == 0) statsAt = now;
+        if (frame) {
+            if (lastFrameAt != 0) maxGapMs = Math.max(maxGapMs, now - lastFrameAt);
+            lastFrameAt = now;
+            frames++;
+        }
+        if (now - statsAt >= STATS_MS) {
+            long gap = lastFrameAt != 0 ? Math.max(maxGapMs, now - lastFrameAt) : 0;
+            TmapHudLog.line("map frames " + ((now - statsAt) / 1000) + "s: " + frames + " (max gap " + gap
+                    + "ms) | local HUD sent " + localSent + " fail " + localFail
+                    + (out != null ? " (connected)" : " (not connected)"));
+            statsAt = now;
+            frames = 0;
+            maxGapMs = 0;
+            localSent = 0;
+            localFail = 0;
+        }
     }
 
     private void drain() {
@@ -92,7 +118,9 @@ final class LocalHudMap {
             out.write(head.array());
             out.write(jpeg);
             out.flush();
+            localSent++;
         } catch (Throwable t) {
+            localFail++;
             close();
             retryAt = now + 500;
         }
