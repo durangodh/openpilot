@@ -132,18 +132,39 @@ final class TmapImages {
             a[i] = avail != null && i < avail.length ? avail[i] : 0;
             e[i] = etc != null && i < etc.length ? etc[i] : 0;
         }
-        String key = n + "|" + TmapJson.ints(t, n) + TmapJson.ints(a, n) + TmapJson.ints(e, n);
-        publish("lane_bottom", key, () -> renderLanes(t, a, e));
+        // 폰 주행 화면처럼 차로 상자 위에 남은 거리(nLaneDist)를 붙인다. 이름마다 최대 2fps.
+        final int dist = Math.max(0, TmapBridge.intField(rg, "nLaneDist"));
+        String key = n + "|" + TmapJson.ints(t, n) + TmapJson.ints(a, n) + TmapJson.ints(e, n) + "|" + dist;
+        publish("lane_bottom", key, () -> renderLanes(t, a, e, dist));
     }
 
-    private Bitmap renderLanes(int[] turns, int[] avail, int[] etc) {
+    private Bitmap renderLanes(int[] turns, int[] avail, int[] etc, int distanceM) {
         int n = turns.length, cell = 72, pad = 8;
         boolean anySuggested = false;
         for (int v : etc) anySuggested |= TmapAssets.laneSuggested(v);
-        Bitmap bmp = Bitmap.createBitmap(n * cell + pad * 2, cell + pad * 2, Bitmap.Config.ARGB_8888);
+        int boxW = n * cell + pad * 2, boxH = cell + pad * 2;
+        // 위쪽 거리 글자: 티맵처럼 흰 테두리의 검은 굵은 글씨.
+        String label = distanceM > 0 ? TmapAssets.distanceText(distanceM) : "";
+        float textSize = 34f;
+        text.setTextSize(textSize);
+        text.setTextAlign(Paint.Align.CENTER);
+        int labelH = label.isEmpty() ? 0 : Math.round(textSize * 1.2f);
+        int w = Math.max(boxW, Math.round(text.measureText(label) + 12));
+        Bitmap bmp = Bitmap.createBitmap(w, labelH + boxH, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);
+        if (!label.isEmpty()) {
+            float baseline = textSize;
+            text.setStyle(Paint.Style.STROKE);
+            text.setStrokeWidth(6f);
+            text.setColor(Color.WHITE);
+            c.drawText(label, w / 2f, baseline, text);
+            text.setStyle(Paint.Style.FILL);
+            text.setColor(0xFF111111);
+            c.drawText(label, w / 2f, baseline, text);
+        }
+        c.translate((w - boxW) / 2f, labelH);
         paint.setColor(PANEL);
-        c.drawRoundRect(new RectF(0, 0, bmp.getWidth(), bmp.getHeight()), 14, 14, paint);
+        c.drawRoundRect(new RectF(0, 0, boxW, boxH), 14, 14, paint);
         for (int i = 0; i < n; i++) {
             Resources.Theme theme = anySuggested && TmapAssets.laneSuggested(etc[i]) ? laneSuggestedTheme : laneTheme;
             int left = pad + i * cell;

@@ -4303,6 +4303,7 @@ public final class HudService extends Service {
     private static final float ETA_H = 58f;
     /** 카카오 차로 상자: 마커 가로 위치(지도 폭 비율), 칸 높이·반폭. */
     private static final float KAKAO_MARKER_X = 0.78f;
+    private static final float TMAP_MARKER_X = 0.5f;
     private static final float KAKAO_LANE_H = 54f;
     private static final float KAKAO_LANE_HALF_W = 150f;
     /** 패널 아래끝(462)에 딱 붙인다. */
@@ -5256,10 +5257,11 @@ public final class HudService extends Service {
 
         // 차로 띠는 왼쪽 아래, 도착정보 바(JUNCTION_LEFT~+JUNCTION_W) 바로 오른쪽에
         // 왼쪽 정렬로 붙인다. 크기(530x84 칸)는 그대로다.
-        if (s.optInt("hudNavApp", 1) == 3) {
-            // 카카오: 폰 주행 화면처럼 차 마커 바로 아래, 지도 높이의 약 11% 크기.
-            // HUD 카카오 지도에서 마커는 가로 약 78% 지점, 아래 끝에서 약 70px 위에 있다.
-            float cx = MAP_LEFT + (mapRight() - MAP_LEFT) * KAKAO_MARKER_X;
+        int navApp = s.optInt("hudNavApp", 1);
+        if (navApp == 3 || navApp == 1) {
+            // 카카오·티맵: 폰 주행 화면처럼 차 마커 바로 아래(위에 남은 거리), 지도 높이의
+            // 약 11% 크기. HUD 지도에서 마커는 카카오 가로 약 78%, 티맵 가운데(50%)에 있다.
+            float cx = MAP_LEFT + (mapRight() - MAP_LEFT) * (navApp == 3 ? KAKAO_MARKER_X : TMAP_MARKER_X);
             cx = Math.max(MAP_LEFT + KAKAO_LANE_HALF_W, Math.min(mapRight() - KAKAO_LANE_HALF_W, cx));
             int save3 = beginElement(c, l, "lane", cx, (float) HEIGHT);
             drawNativeOverlay(c, p, lane, cx - KAKAO_LANE_HALF_W, HEIGHT - KAKAO_LANE_H,
