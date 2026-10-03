@@ -72,7 +72,12 @@ def main():
   if yaw_ok:
     stages.insert(2, ("차체 반응 (요레이트 곡률 ← 실제 곡률)", c["curv_actual"], yaw_curv))
   for label, src, dst in stages:
+    # 차종에 따라 조향 명령·요레이트 부호가 곡률과 반대다. 반대면 뒤집어서 잰다.
     lag, r = best_lag(src, dst, mask, dt)
+    lag_n, r_n = best_lag(src, -dst, mask, dt)
+    if r_n > r:
+      lag, r = lag_n, r_n
+      label += " [부호 반대]"
     note = "" if r >= 0.5 else "  (상관 낮음: 참고만)"
     print(f"  {label}: {lag * 1000:4.0f} ms, r={r:.2f}{note}")
   if not yaw_ok:
