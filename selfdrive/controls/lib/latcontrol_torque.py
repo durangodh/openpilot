@@ -100,6 +100,15 @@ ERR_FREEZE_DEADZONE_V = [0.005, 0.02]
 CURVE_I_DEADZONE_DEFAULT = 20      # x0.001, 예전 값 70
 I_LEAK_FACTOR_V = [0.99975, 0.999]      # @100Hz τ≈[40s, 10s]. [직진, 커브]
 
+# ── 실제 회전량을 자이로(요레이트)로도 잰다 (LatYawMeasureBlend, %) ──────────
+# DH 는 핸들각으로 실제 곡률을 계산한다. 이 계산은 핸들 영점과 도로 기울기(roll)
+# 보정에 기대는데, EON 은 GPS 가 없어 locationd 의 roll 이 무효라 도로 기울기를
+# 모른다. 2026-10-03 lat_trace: 차체(요레이트)가 핸들각 계산보다 늘 약 0.06 m/s²
+# 오른쪽으로 더 돌아 오른쪽 긴 커브에서 인코스로 파고들었다. 보정된 자이로
+# 요레이트(liveLocationKalman, 원본 openpilot 이 대부분 차종에 쓰는 값)를 이 비율만큼
+# 섞으면 영점·기울기와 무관하게 실제 회전을 맞춘다. 저속은 핸들각만(8→12 m/s 점증).
+YAW_MEASURE_SPEED_BP = [8.0, 12.0]
+
 # 커브 판정 필터: 올라갈 때는 빠르게(0.3s), 내려올 때는 느리게(2.0s) 따라간다.
 # 커브 도중 잠깐 곡률이 펴져도 데드존이 풀렸다 걸렸다 하지 않게 하고, 커브를
 # 빠져나온 뒤에는 2초 정도 여유를 두고 직진 설정으로 되돌아가게 하기 위한 것.
@@ -184,6 +193,7 @@ class LatControlTorque(LatControl):
     self.lateral_torque_custom = custom
 
     self.curve_i_deadzone = max(0.0, min(0.2, self._pget("LatCurveIDeadzone", CURVE_I_DEADZONE_DEFAULT) * 0.001))
+    self.yaw_measure_blend = max(0.0, min(1.0, self._pget("LatYawMeasureBlend", 0) * 0.01))
     self.lat_accel_friction_factor = self._pget("LatAccelFrictionFactor", 70) * 0.01
     self.lat_jerk_friction_factor = self._pget("LatJerkFrictionFactor", 20) * 0.01
     self.low_speed_curv_tau = max(0.0, min(1.0, self._pget("LatLowSpeedCurvTauMs", 300) * 0.001))
@@ -222,6 +232,14 @@ class LatControlTorque(LatControl):
       if self.use_steering_angle:
         actual_curvature = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
         curvature_deadzone = abs(VM.calc_curvature(math.radians(self.steering_angle_deadzone_deg), CS.vEgo, 0.0))
+        blend = getattr(self, 'yaw_measure_blend', 0.0) * interp(CS.vEgo, YAW_MEASURE_SPEED_BP, [0.0, 1.0])
+        if blend > 0.0:
+          try:
+            yaw = llk.angularVelocityCalibrated
+            if yaw.valid and len(yaw.value) > 2 and math.isfinite(yaw.value[2]):
+              actual_curvature = (1.0 - blend) * actual_curvature + blend * (yaw.value[2] / CS.vEgo)
+          except (AttributeError, IndexError, TypeError):
+            pass
       else:
         actual_curvature_vm = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
         actual_curvature_llk = llk.angularVelocityCalibrated.value[2] / CS.vEgo

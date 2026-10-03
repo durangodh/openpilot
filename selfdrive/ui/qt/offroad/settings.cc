@@ -1879,6 +1879,11 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "커브에서 이 값보다 작은 조향 오차는 적분(I)이 바로잡지 않습니다(토크 ×0.001). 값 감소(-): 긴 커브에서 더 돌거나 덜 도는 것을 적분이 서서히 바로잡음 / 값 증가(+): 적분 개입 줄임. 긴 커브에서 인코스로 파고들면 낮추고, 커브 중 핸들이 서서히 출렁이면 올리세요. 기본값: 20 (예전 70).",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 20, this));
 
+  list->addItem(new ParamValueControlF("LatYawMeasureBlend",
+      "YAW MEASURE BLEND (%)",
+      "실제 회전량을 핸들각 대신 자이로(요레이트)로 재는 비율입니다(시속 30~43km 에서 점증, 그 아래는 핸들각만). EON 은 GPS 가 없어 도로 기울기를 몰라 한쪽(주로 오른쪽) 커브에서 인코스로 파고들 수 있는데, 이 값을 올리면 실제 차체 회전 기준으로 맞춥니다. 권장 시작값 50, 직진에서 핸들이 잘게 흔들리면 낮추세요. 0: 사용 안 함(기존). 기본값: 0.",
+      "../assets/offroad/icon_openpilot.png", 0, 100, 10, 0, 0, this));
+
   list->addItem(new ParamValueControlF("LatLowSpeedCurvTauMs",
       "LOW SPEED JITTER FILTER (ms)",
       "5 km/h 이하, 거의 직진(반경 50 m 이상)일 때만 목표 곡률의 잔떨림을 걸러냅니다(9 km/h 까지 점감, 회전 중엔 자동 우회). 앞차 뒤 출발 시 핸들이 좌우로 잘게 흔들리면 올리세요(300~500). 0: 사용 안 함. 기본값: 300.",
