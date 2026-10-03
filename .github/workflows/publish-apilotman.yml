@@ -1,6 +1,7 @@
 name: Publish APilotMan APK
 
-# apk/APilotMan*.apk 를 그대로(수정 없이) 릴리즈에 올린다. 빌드하지 않는다.
+# apk/APilotMan*.apk, apk/APM*.apk 를 그대로(수정 없이) 파일별 릴리즈에 올린다. 빌드하지 않는다.
+# 태그는 파일 이름에서 만든다: APilotMan0.65_6.apk -> apilotman-0.65_6, APM0.983_1.apk -> apm-0.983_1
 # 두 브랜치 푸시가 동시에 릴리즈를 만들다 한쪽이 실패하지 않게 한 번에 하나씩 실행한다.
 concurrency:
   group: publish-apilotman
@@ -15,6 +16,7 @@ on:
     branches: [g_remote, claude/charming-galileo-wzem1z]
     paths:
       - "apk/APilotMan*.apk"
+      - "apk/APM*.apk"
       - ".github/workflows/publish-apilotman.yml"
 
 jobs:
@@ -22,19 +24,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Upload to release
+      - name: Upload to releases
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          tag="apilotman-0.65_6"
-          asset="apk/APilotMan0.65_6.apk"
-          sha=$(sha256sum "$asset" | cut -d' ' -f1)
-          if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --target "$GITHUB_SHA" \
-              --title "APilotMan 0.65_6 (원본 APK)" \
-              --notes "APM(APilotMan) 원본 APK, 패키지 com.ajouatom.apilotman. 수정하지 않은 파일입니다. SHA-256: $sha" \
-              || gh release view "$tag" >/dev/null
-          fi
-          gh release upload "$tag" "$asset" --clobber
+          shopt -s nullglob
+          for asset in apk/APilotMan*.apk apk/APM*.apk; do
+            base=$(basename "$asset" .apk)
+            prefix=$(printf '%s' "$base" | sed -E 's/^([A-Za-z]+).*/\1/' | tr 'A-Z' 'a-z')
+            version=${base#"$(printf '%s' "$base" | sed -E 's/^([A-Za-z]+).*/\1/')"}
+            tag="${prefix}-${version}"
+            sha=$(sha256sum "$asset" | cut -d' ' -f1)
+            echo "$asset -> $tag"
+            if ! gh release view "$tag" >/dev/null 2>&1; then
+              gh release create "$tag" --target "$GITHUB_SHA" \
+                --title "$base (원본 APK)" \
+                --notes "APM(APilotMan) 원본 APK, 패키지 com.ajouatom.apilotman. 수정하지 않은 파일입니다. SHA-256: $sha" \
+                || gh release view "$tag" >/dev/null
+            fi
+            gh release upload "$tag" "$asset" --clobber
+          done
