@@ -118,6 +118,35 @@ def main():
       print(f"  {vname:12s}  {aname:12s} {m.sum() * dt:5.0f}s   {ratio:5.2f} {tag}   "
             f"{signed:+.2f}     {np.sqrt(np.mean(err * err)):.2f}  m/s²")
 
+  print("\n[2-1] 방향별·실제 차체 회전(요레이트) 기준 (긴 커브 인코스 파고듦 확인용)")
+  if yaw_ok:
+    # yaw_rate 는 deg/s 이고 차종에 따라 부호가 반대다. 핸들각 기준 곡률과 같은 쪽으로 맞춘다.
+    yaw_lat = np.radians(c["yaw_rate"]) * v
+    ok = mask & np.isfinite(yaw_lat) & np.isfinite(act_lat)
+    if np.sum(yaw_lat[ok] * act_lat[ok]) < 0:
+      yaw_lat = -yaw_lat
+    slope, offset = np.polyfit(act_lat[ok], yaw_lat[ok], 1)
+    print(f"  요레이트 기준 = {slope:.3f} × 핸들각 기준 {offset:+.3f} m/s²"
+          "  (상수항이 0 에서 멀면 핸들 영점이 어긋났거나 도로가 기울어진 것)")
+    print("  방향   곡선 정도      시간   핸들각 기준   요레이트 기준")
+    for sign, dname in ((1.0, "왼쪽"), (-1.0, "오른쪽")):
+      for alo, ahi, aname in lat_bins:
+        m = ok & (sign * des_lat >= alo) & (sign * des_lat < ahi)
+        if m.sum() < 20:
+          continue
+        r_ang = np.mean(act_lat[m]) / np.mean(des_lat[m])
+        r_yaw = np.mean(yaw_lat[m]) / np.mean(des_lat[m])
+        print(f"  {dname:4s}  {aname:12s} {m.sum() * dt:5.0f}s     {r_ang:5.2f}         {r_yaw:5.2f}")
+    print("  (1.0 이 정확, 1.1 이상이면 그쪽 커브에서 인코스로 파고드는 편)")
+  else:
+    print("  요레이트 신호가 없어 생략합니다.")
+  for key, name, unit in (("angle_offset", "학습된 핸들 영점", "°"), ("roll", "도로 기울기", " rad"),
+                          ("live_sr", "학습된 조향비", "")):
+    if key in c:
+      vals = c[key][mask & np.isfinite(c[key])]
+      if vals.size:
+        print(f"  {name} 중앙값 {np.median(vals):+.3f}{unit}")
+
   print("\n[3] 직진 흔들림 (목표 횡가속 |0.15| m/s² 미만, 3초 이상 이어진 구간)")
   straight = mask & (np.abs(des_lat) < 0.15)
   segs = [(a, b) for a, b in segments(straight) if (b - a) * dt >= 3.0]

@@ -1874,6 +1874,11 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "예측 횡저크 반영비율(×0.01)입니다. 값 증가(+): 커브 진입 조향이 빨라짐 / 값 감소(-): 진입 반응이 느려짐 / 0: 사용 안 함. 기본값: 40.",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 40, this));
 
+  list->addItem(new ParamValueControlF("LatCurveIDeadzone",
+      "CURVE I DEADZONE (x0.001)",
+      "커브에서 이 값보다 작은 조향 오차는 적분(I)이 바로잡지 않습니다(토크 ×0.001). 값 감소(-): 긴 커브에서 더 돌거나 덜 도는 것을 적분이 서서히 바로잡음 / 값 증가(+): 적분 개입 줄임. 긴 커브에서 인코스로 파고들면 낮추고, 커브 중 핸들이 서서히 출렁이면 올리세요. 기본값: 20 (예전 70).",
+      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 20, this));
+
   list->addItem(new ParamValueControlF("LatLowSpeedCurvTauMs",
       "LOW SPEED JITTER FILTER (ms)",
       "5 km/h 이하, 거의 직진(반경 50 m 이상)일 때만 목표 곡률의 잔떨림을 걸러냅니다(9 km/h 까지 점감, 회전 중엔 자동 우회). 앞차 뒤 출발 시 핸들이 좌우로 잘게 흔들리면 올리세요(300~500). 0: 사용 안 함. 기본값: 300.",

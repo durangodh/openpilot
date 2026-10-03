@@ -91,7 +91,13 @@ def get_center_jerk_deadzone(v_ego, desired_lateral_accel):
 #     0.999 → τ≈10s, 0.99975 → τ≈40s. 즉 누설은 원래 의도보다 훨씬 약하게
 #     걸려 있었고, 실제로 적분을 막고 있던 주범은 데드존 쪽이다.
 CURVE_CURV_BP = [0.0015, 0.0060]   # 1/m. 0.0015≈R667m(완만) / 0.0060≈R167m(뚜렷한 커브)
-ERR_FREEZE_DEADZONE_V = [0.005, 0.07]   # 토크 단위(0~1). [직진, 커브]
+# [직진, 커브] 토크 단위(0~1). 커브 값은 LatCurveIDeadzone(x0.001)으로 바꾼다.
+# ★ 2026-10-03 lat_trace: 긴 완만~중간 커브에서 목표보다 10~20% 더 도는데(인코스
+#   파고듦) 그 오차가 토크 0.02~0.05 라 커브 데드존 0.07 안에 들어가 적분이 전혀
+#   바로잡지 못했다(I≈±0.03). 기본을 0.02 로 낮춰 남는 과회전을 적분이 서서히 빼게
+#   한다. 쌓인 적분은 누설(τ≈10s)로 계속 빠지므로 예전 와인드업도 막힌다.
+ERR_FREEZE_DEADZONE_V = [0.005, 0.02]
+CURVE_I_DEADZONE_DEFAULT = 20      # x0.001, 예전 값 70
 I_LEAK_FACTOR_V = [0.99975, 0.999]      # @100Hz τ≈[40s, 10s]. [직진, 커브]
 
 # 커브 판정 필터: 올라갈 때는 빠르게(0.3s), 내려올 때는 느리게(2.0s) 따라간다.
@@ -177,6 +183,7 @@ class LatControlTorque(LatControl):
       self.pid.k_f = self.kf_default
     self.lateral_torque_custom = custom
 
+    self.curve_i_deadzone = max(0.0, min(0.2, self._pget("LatCurveIDeadzone", CURVE_I_DEADZONE_DEFAULT) * 0.001))
     self.lat_accel_friction_factor = self._pget("LatAccelFrictionFactor", 70) * 0.01
     self.lat_jerk_friction_factor = self._pget("LatJerkFrictionFactor", 20) * 0.01
     self.low_speed_curv_tau = max(0.0, min(1.0, self._pget("LatLowSpeedCurvTauMs", 300) * 0.001))
@@ -291,7 +298,8 @@ class LatControlTorque(LatControl):
       #   누설 시간상수를 길게 두어 정상상태 편차(캠버·얼라인먼트)를 적분이
       #   메울 수 있게 한다. 커브에서는 종전 값 그대로 유지.
       curve_ratio = self._update_curve_state(desired_curvature)
-      err_freeze_deadzone = interp(curve_ratio, [0.0, 1.0], ERR_FREEZE_DEADZONE_V)
+      err_freeze_deadzone = interp(curve_ratio, [0.0, 1.0],
+                                   [ERR_FREEZE_DEADZONE_V[0], getattr(self, 'curve_i_deadzone', ERR_FREEZE_DEADZONE_V[1])])
       self.pid.i_leak_factor = interp(curve_ratio, [0.0, 1.0], I_LEAK_FACTOR_V)
 
       low_error = abs(pid_log.error) < err_freeze_deadzone

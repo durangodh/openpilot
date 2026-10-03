@@ -34,6 +34,8 @@ COLUMNS = [
   "curv_actual", "angle_deg", "rate_deg", "yaw_rate", "steer_torque", "steer_torque_eps",
   # 사용 중인 조향 상수
   "steer_ratio", "steer_delay",
+  # 학습된 핸들 영점·도로 기울기·조향비(liveParameters)와 커브 적분 기준
+  "angle_offset", "roll", "live_sr",
 ]
 
 
@@ -42,6 +44,7 @@ def _row(sm):
   ctl = sm['controlsState']
   cc = sm['carControl']
   cs = sm['carState']
+  lp = sm['liveParameters']
   curvs = list(plan.curvatures)
   torque = None
   try:
@@ -68,12 +71,13 @@ def _row(sm):
     _f(ctl.curvature, 5), _f(cs.steeringAngleDeg, 2), _f(cs.steeringRateDeg, 2), _f(cs.yawRate, 4),
     _f(cs.steeringTorque, 1), _f(cs.steeringTorqueEps, 1),
     _f(ctl.steerRatio, 2), _f(ctl.steerActuatorDelay, 3),
+    _f(lp.angleOffsetDeg, 3), _f(lp.roll, 4), _f(lp.steerRatio, 2),
   ]
 
 
 def main():
   params = Params()
-  services = ['lateralPlan', 'controlsState', 'carControl', 'carState']
+  services = ['lateralPlan', 'controlsState', 'carControl', 'carState', 'liveParameters']
   # 소켓은 기록할 때만 연다. 꺼진 채 열어 두면 읽지 않아 "Reader was evicted" 가 난다.
   sm = None
   rk = None
