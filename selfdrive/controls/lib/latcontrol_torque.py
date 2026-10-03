@@ -109,6 +109,14 @@ I_LEAK_FACTOR_V = [0.99975, 0.999]      # @100Hz τ≈[40s, 10s]. [직진, 커�
 # 섞으면 영점·기울기와 무관하게 실제 회전을 맞춘다. 저속은 핸들각만(8→12 m/s 점증).
 YAW_MEASURE_SPEED_BP = [8.0, 12.0]
 
+# ── 피드포워드는 출력 한계 바로 아래까지만 ─────────────────────────────────
+# 2026-10-03 lat_trace: 급한 커브(목표 3 m/s²)에서 피드포워드만 1.18 로 출력 한계(1.0)를
+# 넘었다. 커브 후반에 차가 목표보다 더 돌아 P 가 -0.1~-0.4 로 빼려 해도 합이 여전히 1 이상이라
+# 출력이 한계에 붙은 채 핸들이 계속 감겨 인코스로 파고들었다(LAT ACCEL FACTOR 3.0 은 진입이
+# 모자라 실차에서 기각). 피드포워드를 한계 바로 아래로 자르면 덜 돌 때는 어차피 한계라 같고,
+# 더 돌 때만 P/I 가 바로 토크를 줄일 수 있다.
+FF_HEADROOM = 0.05
+
 # 커브 판정 필터: 올라갈 때는 빠르게(0.3s), 내려올 때는 느리게(2.0s) 따라간다.
 # 커브 도중 잠깐 곡률이 펴져도 데드존이 풀렸다 걸렸다 하지 않게 하고, 커브를
 # 빠져나온 뒤에는 2초 정도 여유를 두고 직진 설정으로 되돌아가게 하기 위한 것.
@@ -306,6 +314,9 @@ class LatControlTorque(LatControl):
       ff = self.torque_from_lateral_accel(gravity_adjusted_lateral_accel, self.torque_params,
                                           friction_input,
                                           lateral_accel_deadzone, friction_compensation=True)
+      # pid.f = ff * k_f 이므로 k_f(TORQUE KF) 를 반영해 자른다.
+      ff_limit = (self.steer_max - FF_HEADROOM) / max(abs(self.pid.k_f), 1e-3)
+      ff = max(-ff_limit, min(ff_limit, ff))
 
       # 소오차 구간 적분 동결(anti-windup): 추종이 거의 맞은 뒤에도 미세 +오차가
       # 긴 커브 내내 적분에 쌓여 서서히 안쪽으로 파고드는 현상을 차단한다.

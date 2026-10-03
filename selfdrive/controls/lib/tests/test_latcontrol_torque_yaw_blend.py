@@ -68,3 +68,28 @@ def test_blend_fades_out_at_low_speed_and_ignores_invalid_gyro():
 def test_curve_integrator_deadzone_param():
   assert make_controller({}).curve_i_deadzone == pytest.approx(0.02)
   assert make_controller({"LatCurveIDeadzone": "70"}).curve_i_deadzone == pytest.approx(0.07)
+
+
+def run_output(desired_curv, angle_deg, v=12.5):
+  ctl = make_controller({})
+  cs = NS(vEgo=v, steeringAngleDeg=angle_deg, steeringPressed=False)
+  llk = NS(angularVelocityCalibrated=NS(valid=False, value=[0.0, 0.0, 0.0]))
+  params = NS(angleOffsetDeg=0.0, roll=0.0)
+  out, _, log = ctl.update(True, cs, FakeVM(), params, None, False, desired_curv, 0.0, llk, None)
+  return -out, log
+
+
+def test_feedforward_capped_below_limit_so_overshoot_can_reduce_torque():
+  # 목표 3.1 m/s^2 (ff = 3.1/2.5 = 1.24 > 1). 실제가 목표보다 더 돌면(P 음수) 출력이 1 아래로 내려가야 한다.
+  desired = 3.1 / 12.5 ** 2
+  over_angle = -(3.4 / 12.5 ** 2) / 0.01 * 57.29578   # FakeVM: curvature = -0.01*rad → 3.4 m/s^2
+  out, log = run_output(desired, over_angle)
+  assert log.f == pytest.approx(0.95)
+  assert out < 0.95
+
+
+def test_feedforward_cap_keeps_full_output_when_under_turning():
+  desired = 3.1 / 12.5 ** 2
+  under_angle = -(2.6 / 12.5 ** 2) / 0.01 * 57.29578
+  out, _ = run_output(desired, under_angle)
+  assert out == pytest.approx(1.0)
