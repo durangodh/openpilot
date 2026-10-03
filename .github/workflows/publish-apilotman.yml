@@ -1,0 +1,34 @@
+name: Publish APilotMan APK
+
+# apk/APilotMan*.apk 를 그대로(수정 없이) 릴리즈에 올린다. 빌드하지 않는다.
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [g_remote, claude/charming-galileo-wzem1z]
+    paths:
+      - "apk/APilotMan*.apk"
+      - ".github/workflows/publish-apilotman.yml"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upload to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          tag="apilotman-0.65_6"
+          asset="apk/APilotMan0.65_6.apk"
+          sha=$(sha256sum "$asset" | cut -d' ' -f1)
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --target "$GITHUB_SHA" \
+              --title "APilotMan 0.65_6 (원본 APK)" \
+              --notes "APM(APilotMan) 원본 APK, 패키지 com.ajouatom.apilotman. 수정하지 않은 파일입니다. SHA-256: $sha"
+          fi
+          gh release upload "$tag" "$asset" --clobber
