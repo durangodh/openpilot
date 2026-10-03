@@ -18,6 +18,7 @@ import time
 import cereal.messaging as messaging
 from common.params import Params
 from selfdrive.eon_cluster.nav_selection import NavSelectionSync
+from selfdrive.eon_cluster.hud_stats import StatsLog
 from selfdrive.eon_cluster.hud_remote import RemoteCommandSync, allowed_commands
 
 
@@ -163,12 +164,16 @@ class MapFrameServer(object):
     self.last_send = 0.0
     self.poll_interval = 1.0 / 5.0
     self.next_poll = 0.0
+    # EON → S9 지도 전송 통계(10초마다 /data/media/0/hud_trace/hud_*.log).
+    self.stats = StatsLog("hud")
+    self.map_fresh = False
 
   def set_poll_fps(self, fps):
     self.poll_interval = 1.0 / max(1.0, float(fps))
 
   def _drop_client(self):
     if self.client is not None:
+      self.stats.add("drop")
       try:
         self.client.close()
       except Exception:
@@ -210,15 +215,28 @@ class MapFrameServer(object):
     self.signatures[tag] = signature
     self.cached[tag] = data
     self.pending.add(tag)
+    if tag == b"MAP1":
+      self.map_fresh = True
+      self.stats.mark("map_file")
 
   def _send_asset(self, tag):
     payload = self.cached.get(tag, b"")
+    started = time.monotonic()
     self.client.sendall(tag + struct.pack(">I", len(payload)) + payload)
+    if tag == b"MAP1":
+      # 새 지도 프레임만 센다(1초 keepalive 재전송은 keepalive 로 따로).
+      if self.map_fresh:
+        self.stats.mark("map_send", time.monotonic() - started)
+        self.map_fresh = False
+      else:
+        self.stats.add("keepalive")
 
   def poll(self):
     now = time.monotonic()
     if now < self.next_poll:
       return
+    self.stats.mark("poll")
+    self.stats.maybe_flush("client %s" % ("on" if self.client is not None else "off"))
     # Advance from the previous deadline instead of from `now`. This avoids
     # quantizing a 3 Hz map stream down to 2.3-2.5 Hz when telemetry runs at
     # 7 or 10 Hz. If the process was stalled, skip the missed polls rather

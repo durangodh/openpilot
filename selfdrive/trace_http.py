@@ -14,8 +14,10 @@ TRACE_DIRS = {
   # long_trace.TRACE_DIR / lat_trace.TRACE_DIR 와 같아야 한다.
   "long": ("가감속 (LONG TRACE)", "/data/media/0/long_trace"),
   "lat": ("조향 (LAT TRACE)", "/data/media/0/lat_trace"),
+  # hud_stats.STATS_DIR 와 같아야 한다(항상 기록, 10초에 한 줄).
+  "hud": ("HUD 지도 통계 (navi=폰→EON 수신, hud=EON→S9 전송)", "/data/media/0/hud_trace"),
 }
-NAME_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}\.csv$")
+NAME_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}\.(csv|log)$")
 CHUNK = 64 * 1024
 
 
@@ -80,9 +82,10 @@ def serve(conn, path):
       return
     with f:
       download = "%s_%s" % (parts[2], parts[3])
-      head = ("HTTP/1.1 200 OK\r\nContent-Type: text/csv; charset=utf-8\r\nContent-Length: %d\r\n"
+      ctype = "text/csv" if parts[3].endswith(".csv") else "text/plain"
+      head = ("HTTP/1.1 200 OK\r\nContent-Type: %s; charset=utf-8\r\nContent-Length: %d\r\n"
               "Content-Disposition: attachment; filename=\"%s\"\r\n"
-              "Cache-Control: no-store\r\nConnection: close\r\n\r\n") % (size, download)
+              "Cache-Control: no-store\r\nConnection: close\r\n\r\n") % (ctype, size, download)
       conn.sendall(head.encode("ascii"))
       # 기록 중인 파일은 보내는 동안에도 커진다. 머리에 적은 크기만큼만 보낸다.
       left = size
