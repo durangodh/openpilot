@@ -93,6 +93,17 @@ def main():
 
   lead = (c["lead"] > 0.5) & (c["enabled"] > 0.5) & (c["gas"] < 0.5) & (c["brake"] < 0.5)
   print(f"분석 구간(앞차 있음·크루즈 켜짐·페달 안 밟음): {lead.sum() * dt:.0f}초")
+  # 카메라로만 잡은 앞차는 속도가 들쭉날쭉하고, 앞차가 바뀌는 순간(거리 급변)은 속도가
+  # 계단처럼 튄다. 둘 다 미분하면 잡음뿐이라 레이더 앞차·바뀜 앞뒤 1초 제외 구간만 쓴다.
+  radar = np.nan_to_num(c["lead_radar"]) > 0.5
+  jump = np.zeros(n, dtype=bool)
+  jump[1:] = np.abs(np.diff(np.nan_to_num(c["d_rel"]))) > 3.0
+  near_jump = np.convolve(jump.astype(float), np.ones(int(2.0 / dt) + 1), mode="same") > 0
+  clean = lead & radar & ~near_jump
+  print(f"  그중 레이더 앞차·앞차 바뀜 제외: {clean.sum() * dt:.0f}초 "
+        f"(카메라 전용 {(lead & ~radar).sum() * dt:.0f}초, 앞차 바뀜 {int((jump & lead).sum())}번)")
+  if clean.sum() >= 100:
+    lead = clean
   if lead.sum() < 100:
     raise SystemExit("분석할 구간이 너무 짧습니다. 정체 구간을 더 주행해 주세요.")
 
