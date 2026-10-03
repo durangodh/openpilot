@@ -1,6 +1,11 @@
 name: Publish APilotMan APK
 
 # apk/APilotMan*.apk 를 그대로(수정 없이) 릴리즈에 올린다. 빌드하지 않는다.
+# 두 브랜치 푸시가 동시에 릴리즈를 만들다 한쪽이 실패하지 않게 한 번에 하나씩 실행한다.
+concurrency:
+  group: publish-apilotman
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -29,6 +34,7 @@ jobs:
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" --target "$GITHUB_SHA" \
               --title "APilotMan 0.65_6 (원본 APK)" \
-              --notes "APM(APilotMan) 원본 APK, 패키지 com.ajouatom.apilotman. 수정하지 않은 파일입니다. SHA-256: $sha"
+              --notes "APM(APilotMan) 원본 APK, 패키지 com.ajouatom.apilotman. 수정하지 않은 파일입니다. SHA-256: $sha" \
+              || gh release view "$tag" >/dev/null
           fi
           gh release upload "$tag" "$asset" --clobber
