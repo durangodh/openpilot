@@ -14,7 +14,7 @@ import time
 import cereal.messaging as messaging
 from common.params import Params
 from common.realtime import Ratekeeper, sec_since_boot
-from selfdrive.controls.long_trace import ERROR_RETRY_S, FLUSH_S, PARAM_POLL_S, RATE_HZ, _close, _f, _i, _new_path, _rotate
+from selfdrive.controls.long_trace import ERROR_RETRY_S, FLUSH_S, PARAM_POLL_S, RATE_HZ, _close, _f, _i, _new_path, _rotate, _safe_row
 
 TRACE_DIR = "/data/media/0/lat_trace"
 
@@ -108,7 +108,9 @@ def main():
           out = open(_new_path(TRACE_DIR), "w", buffering=1 << 16)
           out.write(",".join(COLUMNS) + "\n")
         if sm.all_alive(['carState']):
-          out.write(",".join(_row(sm)) + "\n")
+          row = _safe_row(_row, sm)
+          if row is not None:
+            out.write(row)
         if now >= next_flush:
           next_flush = now + FLUSH_S
           out.flush()

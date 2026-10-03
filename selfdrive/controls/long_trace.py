@@ -72,6 +72,21 @@ def _new_path(directory):
   return path
 
 
+_row_error_logged = False
+
+
+def _safe_row(row_fn, sm):
+  """한 줄을 CSV 문자열로. 값을 못 읽는 줄은 건너뛰고(처음 한 번만 출력) 기록기는 계속 돈다."""
+  global _row_error_logged
+  try:
+    return ",".join(row_fn(sm)) + "\n"
+  except Exception as e:  # pylint: disable=broad-except
+    if not _row_error_logged:
+      _row_error_logged = True
+      print("trace row skipped:", repr(e))
+    return None
+
+
 def _f(value, digits=3):
   try:
     return f"{float(value):.{digits}f}"
@@ -83,8 +98,11 @@ def _i(value):
   """Bool/숫자/capnp enum 을 정수 문자열로. capnp enum 은 int() 가 안 돼 .raw 를 쓴다."""
   try:
     return str(int(value))
-  except TypeError:
-    return str(int(getattr(value, "raw", 0)))
+  except (TypeError, ValueError):
+    try:
+      return str(int(getattr(value, "raw", 0)))
+    except (TypeError, ValueError):
+      return ""
 
 
 def _row(sm):
@@ -146,7 +164,9 @@ def main():
           out = open(_new_path(TRACE_DIR), "w", buffering=1 << 16)
           out.write(",".join(COLUMNS) + "\n")
         if sm.all_alive(['carState']):
-          out.write(",".join(_row(sm)) + "\n")
+          row = _safe_row(_row, sm)
+          if row is not None:
+            out.write(row)
         if now >= next_flush:
           next_flush = now + FLUSH_S
           out.flush()
