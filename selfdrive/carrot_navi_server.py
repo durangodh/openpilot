@@ -11,6 +11,7 @@ import time
 import uuid
 
 from common.params import Params
+from selfdrive import trace_http
 
 try:
   import numpy as np
@@ -698,6 +699,10 @@ def websocket_handshake(conn):
       key, value = line.split(":", 1)
       headers[key.strip().lower()] = value.strip()
   key = headers.get("sec-websocket-key", "")
+  if not key and lines[0].startswith("GET ") and trace_http.is_trace_path(path):
+    # 폰 브라우저용 기록 파일 내려받기 페이지(일반 HTTP). 답한 뒤 연결을 닫는다.
+    trace_http.serve(conn, path)
+    raise EOFError()
   if not key:
     raise ValueError("missing websocket key")
   accept = base64.b64encode(hashlib.sha1((key + WS_GUID).encode("ascii")).digest()).decode("ascii")
