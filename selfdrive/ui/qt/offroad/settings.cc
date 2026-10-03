@@ -1602,7 +1602,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamControl(
       "EarlyHoldRelax", "EARLY HOLD RELAX",
-      "켜짐: 정지한 앞차가 움직이기 시작하는 기미가 보이면 출발 판정 전부터 정지유지 제동을 정차 접근 수준(STOPPING ACCEL)으로 미리 줄여 출발이 약 0.2초 빨라집니다. 정지유지 신호는 계속 보내므로 차는 움직이지 않으며, 0.5초 안에 출발이 이어지지 않으면 원래 유지 제동으로 돌아갑니다.",
+      "켜짐: 정지한 앞차가 움직이기 시작하는 기미가 보이면 출발 판정 전부터 정지유지 제동을 정차 접근 수준(STOPPING ACCEL)과의 중간까지 미리 줄여 출발이 조금 빨라집니다. 완전히 선 뒤 1초가 지나야 동작하고, 0.5초 안에 출발이 이어지지 않으면 원래 유지 제동으로 돌아갑니다. 정지 중 차가 찔끔 움직이면 끄세요.",
       "../assets/offroad/icon_openpilot.png", this));
 
   list->addItem(new ParamControl(

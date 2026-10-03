@@ -31,6 +31,12 @@ HOLD_RELAX_KEEP_FRAMES = round(0.5 / DT_CTRL)
 HOLD_RELAX_MAX_FRAMES = round(2.0 / DT_CTRL)
 HOLD_RELAX_TARGET_MAX = -0.5   # stopAccel 이 0(끔)이어도 이만큼은 제동을 남긴다
 HOLD_RELAX_JERK = 2.5          # m/s^3, 유지 제동을 줄이는 속도(다시 늘릴 때는 stopping_decel_rate)
+# 2026-10-03 사용자: 정지 시 브레이크가 조금씩 풀려 찔끔찔끔 나간다. 기록에서 차가
+# 완전히 서기 직전(0.04 m/s)에 앞차가 꿈틀하자 유지 제동을 바로 풀어 더 굴러갔다.
+#  - 완전히 선 뒤 1초가 지나야(유지 제동이 걸린 뒤에만) 미리 풀기를 허용한다.
+#  - 정차 접근 수준(stopAccel)까지 다 풀지 않고 유지 제동과의 중간까지만 푼다.
+HOLD_RELAX_SETTLE_FRAMES = round(1.0 / DT_CTRL)
+HOLD_RELAX_FRACTION = 0.5
 
 # 정상주행(PID) 중 속도별 저크상한, m/s^3 (sunnypilot 참고). 정지/출발 전환의
 # stopping_decel_rate 와는 별도 값 — 그쪽은 부드러움이 목적이라 낮고, 여긴
@@ -181,6 +187,7 @@ class LongControl:
     self.fast_lead_release = True
     self.hold_relax_left = 0
     self.hold_relax_used = 0
+    self.standstill_frames = 0
     self._update_early_start()
 
   # ---- 파라미터 (키 이름은 이 포크 것을 유지) ----
@@ -264,6 +271,7 @@ class LongControl:
   def _hold_relax_active(self):
     """A) 정지 앞차가 꿈틀하는 동안 정지유지 제동을 미리 줄일지."""
     return (getattr(self, 'early_hold_relax', False) and self.standstill_lead_latched and
+            getattr(self, 'standstill_frames', 0) >= HOLD_RELAX_SETTLE_FRAMES and
             getattr(self, 'hold_relax_left', 0) > 0 and
             getattr(self, 'hold_relax_used', 0) < HOLD_RELAX_MAX_FRAMES)
 
@@ -499,6 +507,7 @@ class LongControl:
 
     if self.long_control_state != LongCtrlState.stopping:
       self.standstill_hold_active = False
+      self.standstill_frames = 0
 
     if self.long_control_state == LongCtrlState.off:
       self.reset(CS.vEgo)
@@ -513,6 +522,11 @@ class LongControl:
       # a genuine departure.
       if CS.standstill or CS.vEgo < 0.05:
         self.standstill_hold_active = True
+      # 실제로 서 있는 시간(미리 풀기 허용 조건). 조금이라도 구르면 다시 센다.
+      if CS.standstill or CS.vEgo < 0.01:
+        self.standstill_frames = getattr(self, 'standstill_frames', 0) + 1
+      else:
+        self.standstill_frames = 0
 
       # sunnypilot 의 저크제한 적분기를 참고: 접근 중엔 목표를 stopAccel로
       # 유지(예전과 동일 — 이 값이 제동을 계속 단단히 유지시켜 밀림을 막는
@@ -528,7 +542,8 @@ class LongControl:
         target = min(self.CP.stopAccel, self.standstill_hold_accel)
         # A) 앞차가 꿈틀하면 유지 제동을 정차 접근 수준으로 미리 줄인다(StopReq 유지).
         if self._hold_relax_active():
-          target = min(self.CP.stopAccel, HOLD_RELAX_TARGET_MAX)
+          relaxed = min(self.CP.stopAccel, HOLD_RELAX_TARGET_MAX)
+          target = target + (relaxed - target) * HOLD_RELAX_FRACTION
           hold_relax = True
       else:
         target = self.CP.stopAccel

@@ -406,20 +406,26 @@ def _latch(control, cs, plan, radar):
   assert control.standstill_lead_latched
 
 
+def _settle(control, cs, plan, radar, frames=100):
+  for _ in range(frames):
+    step(control, cs, plan, radar, fresh=False)
+
+
 def test_early_hold_relax_eases_hold_before_release_and_restores_it():
   control, cs, plan, radar = setup_control()
   _latch(control, cs, plan, radar)
+  _settle(control, cs, plan, radar)   # 완전히 선 뒤 1초
   # 꿈틀(원래 속도만 오름, 필터 속도 0): 출발 판정은 아니고 제동만 줄인다.
   radar.leadOne.vLead, radar.leadOne.vRel = 0.3, 0.2
   out = step(control, cs, plan, radar)
-  for _ in range(9):
+  for _ in range(5):
     out = step(control, cs, plan, radar, fresh=False)
     assert control.long_control_state == 'stopping'
-  assert out == pytest.approx(-1.1 + 10 * 2.5 * 0.01)        # 2.5 m/s^3 로 줄인다
+  assert out == pytest.approx(-1.1 + 6 * 2.5 * 0.01)         # 2.5 m/s^3 로 줄인다
   for _ in range(30):
     out = step(control, cs, plan, radar, fresh=False)
     assert control.long_control_state == 'stopping'
-  assert out == pytest.approx(-0.6)                           # 정차 접근 제동(stopAccel)까지만
+  assert out == pytest.approx(-0.85)                          # 유지(-1.1)와 stopAccel(-0.6)의 중간까지만
   # 0.5초 동안 새 꿈틀 신호가 없으면 원래 유지 제동으로 천천히 돌아간다.
   radar.leadOne.vLead = radar.leadOne.vRel = 0.0
   for _ in range(200):
@@ -430,9 +436,25 @@ def test_early_hold_relax_eases_hold_before_release_and_restores_it():
   assert control.long_control_state == 'stopping'
 
 
+def test_early_hold_relax_waits_until_settled():
+  control, cs, plan, radar = setup_control()
+  _latch(control, cs, plan, radar)
+  radar.leadOne.vLead, radar.leadOne.vRel = 0.3, 0.2
+  for _ in range(50):   # 선 지 0.5초: 아직 풀지 않는다
+    out = step(control, cs, plan, radar)
+  assert out == pytest.approx(-1.1)
+  cs.vEgo, cs.standstill = 0.03, False   # 조금 구르면 다시 센다
+  step(control, cs, plan, radar)
+  cs.vEgo, cs.standstill = 0.0, True
+  for _ in range(90):
+    out = step(control, cs, plan, radar)
+  assert out == pytest.approx(-1.1)
+
+
 def test_early_hold_relax_gives_up_after_two_seconds():
   control, cs, plan, radar = setup_control()
   _latch(control, cs, plan, radar)
+  _settle(control, cs, plan, radar)
   radar.leadOne.vLead, radar.leadOne.vRel = 0.3, 0.2
   for _ in range(400):   # 꿈틀만 4초 이어지고 출발은 안 됨
     out = step(control, cs, plan, radar)
@@ -444,6 +466,7 @@ def test_early_hold_relax_off_keeps_hold():
   control, cs, plan, radar = setup_control()
   control.early_hold_relax = False
   _latch(control, cs, plan, radar)
+  _settle(control, cs, plan, radar)
   radar.leadOne.vLead, radar.leadOne.vRel = 0.3, 0.2
   for _ in range(50):
     out = step(control, cs, plan, radar)
