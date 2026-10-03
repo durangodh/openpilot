@@ -1600,6 +1600,16 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "플래너 출발 요구가 이어져야 하는 시간(ms)입니다. 정지 선행차가 확인되면 새 레이더 샘플 2회로 실제 이동을 확인하며, 레이더가 1.5초 이상 끊기면 이 지연값으로 자동 출발합니다. 기본값: 100.",
       "../assets/offroad/icon_openpilot.png", 50, 2000, 50, 0, 100, this));
 
+  list->addItem(new ParamControl(
+      "EarlyHoldRelax", "EARLY HOLD RELAX",
+      "켜짐: 정지한 앞차가 움직이기 시작하는 기미가 보이면 출발 판정 전부터 정지유지 제동을 정차 접근 수준(STOPPING ACCEL)으로 미리 줄여 출발이 약 0.2초 빨라집니다. 정지유지 신호는 계속 보내므로 차는 움직이지 않으며, 0.5초 안에 출발이 이어지지 않으면 원래 유지 제동으로 돌아갑니다.",
+      "../assets/offroad/icon_openpilot.png", this));
+
+  list->addItem(new ParamControl(
+      "FastLeadRelease", "FAST LEAD RELEASE",
+      "켜짐: 정지 앞차의 출발을 필터 속도보다 0.1~0.25초 빠른 레이더 원래 속도로도 확인합니다(레이더 앞차·새 샘플 2회 연속 확인은 그대로). 잘못 출발하는 느낌이 있으면 끄세요.",
+      "../assets/offroad/icon_openpilot.png", this));
+
   list->addItem(new ParamValueControlF(
       "SoftHoldMode", "SOFT HOLD MODE",
       "0: 끔, 1: 브레이크를 놓은 뒤 정지 유지, 2: aPilot SCC 호환 모드(일부 차량은 오토홀드/EPB가 작동할 수 있음). 가속페달 또는 RES/+로 해제합니다.",

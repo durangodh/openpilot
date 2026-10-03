@@ -10,7 +10,8 @@ import pytest
 
 from common.numpy_fast import clip, interp
 from selfdrive.controls.lib.lead_departure import (LeadDepartureAssist,
-                                                   departure_jerk_upper, lead_is_departing)
+                                                   departure_jerk_upper, lead_is_creeping,
+                                                   lead_is_departing, lead_raw_departing)
 from selfdrive.controls.lib.pid import PIDController
 
 
@@ -26,7 +27,8 @@ def load_control():
              T_IDXS=[0.0, 0.5, 1.5], CONTROL_N=3,
              apply_deadzone=lambda error, dz: max(error - dz, 0.0) if error > 0 else min(error + dz, 0.0),
              LeadDepartureAssist=LeadDepartureAssist, lead_is_departing=lead_is_departing,
-             departure_jerk_upper=departure_jerk_upper)
+             departure_jerk_upper=departure_jerk_upper,
+             lead_raw_departing=lead_raw_departing, lead_is_creeping=lead_is_creeping)
   exec(compile(tree, str(source), 'exec'), env)
   global LEAD_LAUNCH_JERK
   LEAD_LAUNCH_JERK = env['LEAD_LAUNCH_JERK']
@@ -64,6 +66,7 @@ def step(control, cs, plan, radar, fresh=True, **kw):
 @pytest.mark.parametrize('starting', [False, True])
 def test_confirmed_departure_releases_below_old_speed_threshold(starting):
   control, cs, plan, radar = setup_control(starting)
+  control.early_hold_relax = False   # 아래 출발 저크 검증은 미리 풀기 없이(별도 테스트 참고)
   assert step(control, cs, plan, radar) < 0  # latch stationary lead
   radar.leadOne.vLeadK = radar.leadOne.vRel = 0.8
   radar.leadOne.aLeadK = 0.2
@@ -394,3 +397,80 @@ def test_no_lead_accel_release_is_eased_but_braking_is_not():
   plan.speeds, plan.accels = [15.0, 14.0, 12.0], [-2.0]*3
   assert step(control, cs, plan, radar) == pytest.approx(0.0)
   assert step(control, cs, plan, radar) < -0.03
+
+
+# ---- EarlyHoldRelax / FastLeadRelease ----
+
+def _latch(control, cs, plan, radar):
+  assert step(control, cs, plan, radar) < 0
+  assert control.standstill_lead_latched
+
+
+def test_early_hold_relax_eases_hold_before_release_and_restores_it():
+  control, cs, plan, radar = setup_control()
+  _latch(control, cs, plan, radar)
+  # 꿈틀(원래 속도만 오름, 필터 속도 0): 출발 판정은 아니고 제동만 줄인다.
+  radar.leadOne.vLead, radar.leadOne.vRel = 0.3, 0.2
+  out = step(control, cs, plan, radar)
+  for _ in range(9):
+    out = step(control, cs, plan, radar, fresh=False)
+    assert control.long_control_state == 'stopping'
+  assert out == pytest.approx(-1.1 + 10 * 2.5 * 0.01)        # 2.5 m/s^3 로 줄인다
+  for _ in range(30):
+    out = step(control, cs, plan, radar, fresh=False)
+    assert control.long_control_state == 'stopping'
+  assert out == pytest.approx(-0.6)                           # 정차 접근 제동(stopAccel)까지만
+  # 0.5초 동안 새 꿈틀 신호가 없으면 원래 유지 제동으로 천천히 돌아간다.
+  radar.leadOne.vLead = radar.leadOne.vRel = 0.0
+  for _ in range(200):
+    prev = out
+    out = step(control, cs, plan, radar, fresh=False)
+    assert prev - out <= 1.0 * 0.01 + 1e-9                  # stopping_decel_rate 로만 내려간다
+  assert out == pytest.approx(-1.1)
+  assert control.long_control_state == 'stopping'
+
+
+def test_early_hold_relax_gives_up_after_two_seconds():
+  control, cs, plan, radar = setup_control()
+  _latch(control, cs, plan, radar)
+  radar.leadOne.vLead, radar.leadOne.vRel = 0.3, 0.2
+  for _ in range(400):   # 꿈틀만 4초 이어지고 출발은 안 됨
+    out = step(control, cs, plan, radar)
+    assert control.long_control_state == 'stopping'
+  assert out == pytest.approx(-1.1)
+
+
+def test_early_hold_relax_off_keeps_hold():
+  control, cs, plan, radar = setup_control()
+  control.early_hold_relax = False
+  _latch(control, cs, plan, radar)
+  radar.leadOne.vLead, radar.leadOne.vRel = 0.3, 0.2
+  for _ in range(50):
+    out = step(control, cs, plan, radar)
+  assert out == pytest.approx(-1.1)
+
+
+@pytest.mark.parametrize('fast', [True, False])
+def test_fast_lead_release_uses_raw_radar_speed(fast):
+  control, cs, plan, radar = setup_control()
+  control.fast_lead_release = fast
+  _latch(control, cs, plan, radar)
+  # 필터 속도(0.15)는 기존 기준(0.25) 미만, 원래 속도는 출발 중.
+  radar.leadOne.vLead, radar.leadOne.vLeadK, radar.leadOne.vRel = 0.5, 0.15, 0.5
+  radar.leadOne.aLeadK = 0.2
+  step(control, cs, plan, radar)
+  step(control, cs, plan, radar)
+  assert (control.long_control_state != 'stopping') == fast
+
+
+def test_fast_lead_release_ignores_vision_only_lead_and_filtered_spike():
+  control, cs, plan, radar = setup_control()
+  _latch(control, cs, plan, radar)
+  radar.leadOne.vLead, radar.leadOne.vLeadK, radar.leadOne.vRel = 0.5, 0.05, 0.5
+  for _ in range(3):   # 필터 속도가 아직 0 근처: 튀는 원래 속도 하나로는 출발하지 않는다
+    step(control, cs, plan, radar)
+  assert control.long_control_state == 'stopping'
+  radar.leadOne.vLeadK, radar.leadOne.radar = 0.15, False
+  for _ in range(3):   # 카메라 전용 앞차는 원래 속도로 출발 판정하지 않는다
+    step(control, cs, plan, radar)
+  assert control.long_control_state == 'stopping'

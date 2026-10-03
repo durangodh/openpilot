@@ -7,7 +7,9 @@ from selfdrive.controls.lib.pid import PIDController
 from selfdrive.modeld.constants import T_IDXS
 from selfdrive.controls.lib.lead_departure import (LeadDepartureAssist,
                                                    departure_jerk_upper,
-                                                   lead_is_departing)
+                                                   lead_is_creeping,
+                                                   lead_is_departing,
+                                                   lead_raw_departing)
 
 LongCtrlState = car.CarControl.Actuators.LongControlState
 ButtonType = car.CarState.ButtonEvent.Type
@@ -16,6 +18,19 @@ STANDSTILL_LEAD_MAX_DISTANCE = 20.0
 STANDSTILL_LEAD_MAX_SPEED = 0.3
 LEAD_RELEASE_CONFIRM_SAMPLES = 2
 LEAD_DROPOUT_FALLBACK_FRAMES = round(1.5 / DT_CTRL)
+
+# ---- 앞차 출발 대기 중 빨리 출발하기 (2026-10-03 long_trace 분석) ----
+# 앞차가 움직인 뒤 우리 차가 구르기까지 약 2초: 출발 판정 0.35초 + 정지유지
+# 제동(-1.2) 풀기 0.33초 + 차량 SCC 해제 1.3초. 앞의 두 단계를 줄인다.
+# A) EarlyHoldRelax: 앞차가 꿈틀하는 첫 신호부터 정지유지 제동을 정차 접근
+#    수준(stopAccel)으로 미리 줄인다. StopReq 는 계속 1 이라 차는 서 있다.
+#    신호가 0.5초 끊기거나 2초가 지나도 출발이 안 되면 원래 유지 제동으로 돌아간다.
+# B) FastLeadRelease: 반응이 느린 필터 속도(vLeadK) 대신 레이더 원래 속도로도
+#    앞차 출발을 확인한다(레이더 앞차·새 샘플 2회 연속은 그대로).
+HOLD_RELAX_KEEP_FRAMES = round(0.5 / DT_CTRL)
+HOLD_RELAX_MAX_FRAMES = round(2.0 / DT_CTRL)
+HOLD_RELAX_TARGET_MAX = -0.5   # stopAccel 이 0(끔)이어도 이만큼은 제동을 남긴다
+HOLD_RELAX_JERK = 2.5          # m/s^3, 유지 제동을 줄이는 속도(다시 늘릴 때는 stopping_decel_rate)
 
 # 정상주행(PID) 중 속도별 저크상한, m/s^3 (sunnypilot 참고). 정지/출발 전환의
 # stopping_decel_rate 와는 별도 값 — 그쪽은 부드러움이 목적이라 낮고, 여긴
@@ -162,6 +177,11 @@ class LongControl:
     self.lead_measurement_available = False
     self.lead_missing_frames = 0
     self.departure_assist = LeadDepartureAssist(DT_CTRL)
+    self.early_hold_relax = True
+    self.fast_lead_release = True
+    self.hold_relax_left = 0
+    self.hold_relax_used = 0
+    self._update_early_start()
 
   # ---- 파라미터 (키 이름은 이 포크 것을 유지) ----
   def _update_pid_gains(self):
@@ -225,11 +245,27 @@ class LongControl:
     self.standstill_release_speed = float(clip(speed, 0.0, 2.0))
     self.standstill_release_frames = int(clip(ms, 50, 2000) / 10)
 
+  def _update_early_start(self):
+    """EarlyHoldRelax / FastLeadRelease (기본 켜짐)."""
+    try:
+      self.early_hold_relax = self.params.get("EarlyHoldRelax", encoding="utf8") != "0"
+      self.fast_lead_release = self.params.get("FastLeadRelease", encoding="utf8") != "0"
+    except Exception:
+      pass
+
   def _reset_standstill_lead(self):
     self.standstill_lead_latched = False
     self.lead_release_samples = 0
     self.lead_measurement_available = False
     self.lead_missing_frames = 0
+    self.hold_relax_left = 0
+    self.hold_relax_used = 0
+
+  def _hold_relax_active(self):
+    """A) 정지 앞차가 꿈틀하는 동안 정지유지 제동을 미리 줄일지."""
+    return (getattr(self, 'early_hold_relax', False) and self.standstill_lead_latched and
+            getattr(self, 'hold_relax_left', 0) > 0 and
+            getattr(self, 'hold_relax_used', 0) < HOLD_RELAX_MAX_FRAMES)
 
   def _update_standstill_lead(self, radar_state, radar_state_valid, radar_state_updated,
                               ego_standstill=False):
@@ -239,6 +275,10 @@ class LongControl:
     unavailable for 1.5 seconds, the caller falls back to the sustained planner
     request so a permanent radar outage cannot disable automatic launch.
     """
+    # A) 꿈틀 신호 유지 시간은 매 프레임 줄고, 줄인 상태로 머문 시간은 누적한다.
+    if getattr(self, 'hold_relax_left', 0) > 0:
+      self.hold_relax_left -= 1
+      self.hold_relax_used = getattr(self, 'hold_relax_used', 0) + 1
     if radar_state_updated:
       lead_valid = (radar_state is not None and radar_state_valid and
                     len(radar_state.radarErrors) == 0 and radar_state.leadOne.status)
@@ -259,8 +299,11 @@ class LongControl:
           if stopped_lead:
             self.standstill_lead_latched = True
         else:
-          lead_moving = lead_is_departing(lead)
+          lead_moving = lead_is_departing(lead) or \
+                        (getattr(self, 'fast_lead_release', False) and lead_raw_departing(lead))
           self.lead_release_samples = self.lead_release_samples + 1 if lead_moving else 0
+          if lead_moving or lead_is_creeping(lead):
+            self.hold_relax_left = HOLD_RELAX_KEEP_FRAMES
     elif not radar_state_valid:
       self.lead_measurement_available = False
       self.lead_release_samples = 0
@@ -337,6 +380,7 @@ class LongControl:
       self._update_actuator_delays()
     elif self.read_param_count == 40:
       self._update_start_stop_accel()
+      self._update_early_start()
       self._update_stopping_decel_rate()
       self._update_standstill_hold()
     elif self.read_param_count == 60:
@@ -421,7 +465,8 @@ class LongControl:
       confirmed=lead_release, cs=CS, plan=long_plan, radar=radar_state,
       radar_valid=radar_state_valid, plan_valid=plan_valid and trajectory_valid,
       plan_age=t_since_plan, a_now=a_target_now, a_target=a_target,
-      v_target=v_target, v_future=v_target_1sec, soft_hold=soft_hold)
+      v_target=v_target, v_future=v_target_1sec, soft_hold=soft_hold,
+      fast_raw=getattr(self, 'fast_lead_release', False))
     prev_state = self.long_control_state
     self.long_control_state, planned_stop = long_control_state_trans(
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
@@ -478,18 +523,25 @@ class LongControl:
       # 켜지는 순간 추가로 한 번 더 밟는 계단현상이 생기지 않는다.
       # (기존 2단 구조: 접근램프 따로 + 정지 후 hold램프 따로 — 이 둘의
       # 속도/목표가 어긋나 있으면 경계에서 겹쳐 밟혔다.)
+      hold_relax = False
       if self.standstill_hold_active and not CS.brakePressed:
         target = min(self.CP.stopAccel, self.standstill_hold_accel)
+        # A) 앞차가 꿈틀하면 유지 제동을 정차 접근 수준으로 미리 줄인다(StopReq 유지).
+        if self._hold_relax_active():
+          target = min(self.CP.stopAccel, HOLD_RELAX_TARGET_MAX)
+          hold_relax = True
       else:
         target = self.CP.stopAccel
       if soft_hold:
         target = self.CP.stopAccel
+        hold_relax = False
       # Honor the configured stopping rate through both approach and hold.
       # The old low-speed multiplier turned a UI value of 1.2 into nearly
       # 3.0 m/s^3 precisely at the final stop. Normal PID braking and the
       # separate brake-release ramp retain their existing response.
       max_delta = self.stopping_decel_rate * DT_CTRL
-      output_accel = float(clip(target, output_accel - max_delta, output_accel + max_delta))
+      max_rise = max(max_delta, HOLD_RELAX_JERK * DT_CTRL) if hold_relax else max_delta
+      output_accel = float(clip(target, output_accel - max_delta, output_accel + max_rise))
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:

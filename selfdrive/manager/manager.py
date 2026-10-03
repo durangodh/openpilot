@@ -173,6 +173,8 @@ def manager_init() -> None:
     ("PidJerkDecel", "100"),
     ("LowSpeedJerkBoost", "100"),
     ("StandstillHoldApply", "55"),
+    ("EarlyHoldRelax", "1"),
+    ("FastLeadRelease", "1"),
     ("TrafficStopAccel", "80"),
     ("TrafficStopDistanceAdjust", "400"),
     ("StopDistance", "600"),

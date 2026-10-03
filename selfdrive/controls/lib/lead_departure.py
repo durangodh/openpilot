@@ -52,6 +52,38 @@ def lead_is_departing(lead, *, require_radar=False, min_distance=None, max_dista
     min_speed=min_speed, min_vrel=min_vrel, min_accel=min_accel)
 
 
+# 레이더 원래 속도(vLead)는 필터 속도(vLeadK)보다 0.1~0.25초 빨리 오른다.
+RAW_RELEASE_MIN_SPEED = 0.25
+RAW_RELEASE_MIN_VREL = 0.1
+RAW_RELEASE_MIN_FILTERED = 0.1   # 필터 속도도 움직이는 쪽이어야 한다(튀는 값 하나로 출발 방지)
+CREEP_MIN_SPEED = 0.15
+CREEP_MIN_VREL = 0.05
+
+
+def lead_raw_departing(lead):
+  """레이더로 잡은 앞차가 원래 속도로 출발 중인지(FastLeadRelease)."""
+  if lead is None or not getattr(lead, 'status', False) or not getattr(lead, 'radar', False):
+    return False
+  v_lead = getattr(lead, 'vLead', float('nan'))
+  v_rel = getattr(lead, 'vRel', float('nan'))
+  v_lead_k = getattr(lead, 'vLeadK', float('nan'))
+  if not all(isfinite(x) for x in (v_lead, v_rel, v_lead_k)):
+    return False
+  return v_lead > RAW_RELEASE_MIN_SPEED and v_rel > RAW_RELEASE_MIN_VREL and \
+         v_lead_k > RAW_RELEASE_MIN_FILTERED
+
+
+def lead_is_creeping(lead):
+  """앞차가 막 움직이기 시작한 기미(EarlyHoldRelax). 출발 판정이 아니라 제동을 조금 줄이는 데만 쓴다."""
+  if lead is None or not getattr(lead, 'status', False):
+    return False
+  v_lead = getattr(lead, 'vLead', float('nan'))
+  v_rel = getattr(lead, 'vRel', float('nan'))
+  if not (isfinite(v_lead) and isfinite(v_rel)):
+    return False
+  return v_lead > CREEP_MIN_SPEED and v_rel > CREEP_MIN_VREL
+
+
 class LeadDepartureAssist:
   def __init__(self, dt):
     self.dt = dt
@@ -66,7 +98,7 @@ class LeadDepartureAssist:
 
   def update(self, *, enabled, stopping, confirmed, cs, plan, radar,
              radar_valid, plan_valid, plan_age, a_now, a_target,
-             v_target, v_future, soft_hold):
+             v_target, v_future, soft_hold, fast_raw=False):
     # This is only an adapter for a positive, fresh MPC departure request.
     # No stored acceleration survives a stop/brake request or a sensor failure.
     values = (cs.vEgo, plan_age, a_now, a_target, v_target, v_future)
@@ -83,12 +115,12 @@ class LeadDepartureAssist:
       desired_gap = float(getattr(plan, 'desiredDistance', float('nan')))
       min_gap = max(3.5, desired_gap - 0.5)
       safe = (isfinite(desired_gap) and desired_gap > 0.0 and
-              self._moving_lead(lead, min_gap))
+              self._moving_lead(lead, min_gap, fast_raw))
       # A closer second obstacle must agree with departure too.
       second = getattr(radar, 'leadTwo', None)
       if second is not None and second.status:
         safe = safe and isfinite(second.dRel) and (
-          second.dRel > lead.dRel + 2.0 or self._moving_lead(second, min_gap))
+          second.dRel > lead.dRel + 2.0 or self._moving_lead(second, min_gap, fast_raw))
     if not safe:
       self.reset()
       return False
@@ -109,10 +141,13 @@ class LeadDepartureAssist:
     return self.active
 
   @staticmethod
-  def _moving_lead(lead, min_gap):
-    return lead_is_departing(lead, require_radar=True, min_distance=min_gap,
-                             max_distance=20.0) and \
-           isfinite(lead.aLeadK) and lead.aLeadK >= 0.0
+  def _moving_lead(lead, min_gap, fast_raw=False):
+    moving = lead_is_departing(lead, require_radar=True, min_distance=min_gap, max_distance=20.0)
+    if not moving and fast_raw:
+      # FastLeadRelease: 레이더 원래 속도로도 출발 확인(거리 조건은 같다).
+      d = getattr(lead, 'dRel', float('nan'))
+      moving = lead_raw_departing(lead) and isfinite(d) and min_gap <= d <= 20.0
+    return moving and isfinite(lead.aLeadK) and lead.aLeadK >= 0.0
 
 
 LAUNCH_JERK_UPPER_MAX = 1.8

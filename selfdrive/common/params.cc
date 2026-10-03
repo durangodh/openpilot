@@ -230,6 +230,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"StandstillHoldApply", PERSISTENT},      // 완전정지 유지 제동값 (x-0.02 m/s^2)
     {"StandstillReleaseSpeed", PERSISTENT},   // 정차 후 자동출발 임계 목표속도 (x0.1 m/s, default 2)
     {"StandstillReleaseMs", PERSISTENT},      // 자동출발 요구 지속시간 ms (default 100)
+    {"EarlyHoldRelax", PERSISTENT},           // 앞차 꿈틀 시 정지유지 제동 미리 줄이기 (default 1)
+    {"FastLeadRelease", PERSISTENT},          // 레이더 원래 속도로 앞차 출발 빨리 확인 (default 1)
 
     {"DynamicLaneProfile", PERSISTENT},
     {"MpcPathCost", PERSISTENT},
