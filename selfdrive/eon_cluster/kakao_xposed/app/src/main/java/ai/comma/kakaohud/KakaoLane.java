@@ -45,6 +45,7 @@ final class KakaoLane {
     private boolean loggedFirst, loggedError;
     /** currentLane() 이 마지막으로 읽은 차로 목록(KNULaneInfo). 그림용. */
     private List<?> lastInfos;
+    private int lastDistance;
 
     KakaoLane(KakaoNaviClient client) {
         this.client = client;
@@ -76,7 +77,7 @@ final class KakaoLane {
                 return;
             }
             // 그림은 거리와 무관하므로 거리를 뺀 차로 구성으로만 다시 그린다.
-            image.publish(lastInfos, json.replaceFirst(",\"distance_m\":\\d+", ""), now);
+            image.publish(lastInfos, json.replaceFirst(",\"distance_m\":\\d+", ""), lastDistance, now);
             if (json.equals(lastJson) && now - lastSentAt < RESEND_MS) return;
             client.sendState("lane_current", json);
             lastJson = json;
@@ -108,6 +109,7 @@ final class KakaoLane {
         if (n <= 0) return null;
         int distance = ((Number) field(lane, "b")).intValue();   // KNULane.distance
         lastInfos = list;
+        lastDistance = Math.max(0, distance);
 
         StringBuilder details = new StringBuilder("[");
         StringBuilder turns = new StringBuilder("[");
