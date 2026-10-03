@@ -287,10 +287,10 @@ def build():
                                                    if p["group"] in order else 99))
 
     doc = {"apilot": VERSION, "params": items}
-    # Keep Korean labels readable in GitHub and local editors. UTF-8 JSON is
-    # equivalent for parsers, and future generated diffs remain localized.
-    with io.open(OUT, "w", encoding="utf-8") as f:
-        json.dump(doc, f, ensure_ascii=False, indent=1)
+    # 반드시 ASCII(\uXXXX). APM 의 SshSession.exec() 는 응답을 EUC-KR 로 디코딩해서
+    # UTF-8 한글을 그대로 쓰면 앱 화면에서 깨진다(README_APM.md, 맨 위 주의 참고).
+    with io.open(OUT, "w", encoding="ascii") as f:
+        json.dump(doc, f, ensure_ascii=True, indent=1)
         f.write("\n")
     return items
 

@@ -9,7 +9,7 @@ APK 는 수정하지 않는다. APM 은 EON 의 아래 두 파일만 읽는다.
 | 값 변경 | `echo -n <값> > /data/params/d/<이름>` |
 
 ## 포함 파일
-- `selfdrive/apilot.json` — 파라미터 정의 128개 (g_abcd settings.cc 기준, 순수 ASCII)
+- `selfdrive/apilot.json` — 파라미터 정의 158개 (g_abcd settings.cc 기준, 순수 ASCII)
 - `selfdrive/apilot.py` — 값 덤프 (실행권한 필요)
 - `selfdrive/apilot_gen.py` — settings.cc → apilot.json 재생성기
 
@@ -48,7 +48,7 @@ settings.cc 에 ParamValueControlF / ParamControl 을 추가한 뒤 EON 에서
 5. 앱의 백업 메뉴는 **현재 선택된 그룹만** 저장한다(전체 백업 아님).
 
 ## 그룹 구성
-기본 8 / 크루즈 25 / 종방향 35 / 횡방향 24 / 커브내비 13 / S9HUD 17 / 화면 6
+기본 8 / 크루즈 26 / 종방향 46 / 횡방향 28 / 커브내비 18 / S9HUD 26 / 화면 6
 
 ## 원본(ajouatom/apilot c2-master)과의 차이
 - 원본 `selfdrive/apilot.json` 은 **EUC-KR 인코딩** (109개, "apilot":"20220111").
