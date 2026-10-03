@@ -451,6 +451,25 @@ def test_early_hold_relax_waits_until_settled():
   assert out == pytest.approx(-1.1)
 
 
+def test_early_hold_relax_creep_restores_hold_and_disables_relax():
+  control, cs, plan, radar = setup_control()
+  _latch(control, cs, plan, radar)
+  _settle(control, cs, plan, radar)
+  radar.leadOne.vLead, radar.leadOne.vRel = 0.3, 0.2
+  for _ in range(20):
+    out = step(control, cs, plan, radar)
+  assert out > -1.0                                     # 줄이는 중
+  cs.vEgo, cs.standstill = 0.03, False                  # 크립
+  prev = out
+  out = step(control, cs, plan, radar)
+  assert prev - out == pytest.approx(3.0 * 0.01)        # 빠르게 유지 제동으로
+  cs.vEgo, cs.standstill = 0.0, True
+  for _ in range(300):                                  # 꿈틀이 계속돼도 다시 풀지 않는다
+    out = step(control, cs, plan, radar)
+  assert out == pytest.approx(-1.1)
+  assert control.long_control_state == 'stopping'
+
+
 def test_early_hold_relax_gives_up_after_two_seconds():
   control, cs, plan, radar = setup_control()
   _latch(control, cs, plan, radar)

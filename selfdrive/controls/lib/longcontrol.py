@@ -37,6 +37,10 @@ HOLD_RELAX_JERK = 2.5          # m/s^3, 유지 제동을 줄이는 속도(다시
 #  - 정차 접근 수준(stopAccel)까지 다 풀지 않고 유지 제동과의 중간까지만 푼다.
 HOLD_RELAX_SETTLE_FRAMES = round(1.0 / DT_CTRL)
 HOLD_RELAX_FRACTION = 0.5
+# 줄인 동안 차가 조금이라도 움직이면(크립) 즉시 유지 제동으로 빠르게 돌아가고, 그 정지
+# 동안에는 다시 풀지 않는다. 앞차 레이더 속도가 튈 때마다 풀렸다 잡혔다 하며 찔끔찔끔
+# 나가는 것을 막는다.
+HOLD_RESTORE_JERK = 3.0
 
 # 정상주행(PID) 중 속도별 저크상한, m/s^3 (sunnypilot 참고). 정지/출발 전환의
 # stopping_decel_rate 와는 별도 값 — 그쪽은 부드러움이 목적이라 낮고, 여긴
@@ -188,6 +192,8 @@ class LongControl:
     self.hold_relax_left = 0
     self.hold_relax_used = 0
     self.standstill_frames = 0
+    self.hold_relaxing = False
+    self.hold_restore_fast = False
     self._update_early_start()
 
   # ---- 파라미터 (키 이름은 이 포크 것을 유지) ----
@@ -508,6 +514,8 @@ class LongControl:
     if self.long_control_state != LongCtrlState.stopping:
       self.standstill_hold_active = False
       self.standstill_frames = 0
+      self.hold_relaxing = False
+      self.hold_restore_fast = False
 
     if self.long_control_state == LongCtrlState.off:
       self.reset(CS.vEgo)
@@ -526,6 +534,9 @@ class LongControl:
       if CS.standstill or CS.vEgo < 0.01:
         self.standstill_frames = getattr(self, 'standstill_frames', 0) + 1
       else:
+        if getattr(self, 'hold_relaxing', False):
+          self.hold_relax_used = HOLD_RELAX_MAX_FRAMES   # 이번 정지 동안 미리 풀기 금지
+          self.hold_restore_fast = True
         self.standstill_frames = 0
 
       # sunnypilot 의 저크제한 적분기를 참고: 접근 중엔 목표를 stopAccel로
@@ -556,7 +567,13 @@ class LongControl:
       # separate brake-release ramp retain their existing response.
       max_delta = self.stopping_decel_rate * DT_CTRL
       max_rise = max(max_delta, HOLD_RELAX_JERK * DT_CTRL) if hold_relax else max_delta
-      output_accel = float(clip(target, output_accel - max_delta, output_accel + max_rise))
+      max_fall = max_delta
+      if getattr(self, 'hold_restore_fast', False):
+        max_fall = max(max_delta, HOLD_RESTORE_JERK * DT_CTRL)
+        if output_accel <= target + 1e-6:
+          self.hold_restore_fast = False
+      self.hold_relaxing = hold_relax
+      output_accel = float(clip(target, output_accel - max_fall, output_accel + max_rise))
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:
