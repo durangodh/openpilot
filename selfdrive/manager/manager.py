@@ -177,6 +177,7 @@ def manager_init() -> None:
     ("StandstillHoldApply", "55"),
     ("EarlyHoldRelax", "1"),
     ("FastLeadRelease", "1"),
+    ("EarlyStopReqRelease", "0"),
     ("TrafficStopAccel", "80"),
     ("TrafficStopDistanceAdjust", "400"),
     ("StopDistance", "600"),

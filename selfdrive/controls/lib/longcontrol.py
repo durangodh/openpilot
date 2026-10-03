@@ -37,6 +37,13 @@ HOLD_RELAX_JERK = 2.5          # m/s^3, 유지 제동을 줄이는 속도(다시
 #  - 정차 접근 수준(stopAccel)까지 다 풀지 않고 유지 제동과의 중간까지만 푼다.
 HOLD_RELAX_SETTLE_FRAMES = round(1.0 / DT_CTRL)
 HOLD_RELAX_FRACTION = 0.5
+# C) EarlyStopReqRelease (실험, 기본 꺼짐): 앞차가 꿈틀하면 브레이크 명령(음수)은 그대로
+#    두고 Hyundai StopReq 만 먼저 내린다. 2026-10-03 기록에서 정지유지(StopReq)가 걸린
+#    상태의 출발은 명령 후 약 1.25초, 걸리기 전에는 0.8초였다. 0.8초 안에 실제 출발이
+#    이어지지 않거나 차가 조금이라도 움직이면 StopReq 를 다시 올리고, 그 정지 동안은
+#    다시 시도하지 않는다(움직였을 때). 완전히 선 뒤 1초가 지나야 동작한다.
+STOPREQ_RELEASE_KEEP_FRAMES = round(0.8 / DT_CTRL)
+
 # 줄인 동안 차가 조금이라도 움직이면(크립) 즉시 유지 제동으로 빠르게 돌아가고, 그 정지
 # 동안에는 다시 풀지 않는다. 앞차 레이더 속도가 튈 때마다 풀렸다 잡혔다 하며 찔끔찔끔
 # 나가는 것을 막는다.
@@ -194,6 +201,10 @@ class LongControl:
     self.standstill_frames = 0
     self.hold_relaxing = False
     self.hold_restore_fast = False
+    self.early_stopreq_release = False
+    self.stopreq_release_left = 0
+    self.stopreq_release_blocked = False
+    self.stopreq_release_active = False
     self._update_early_start()
 
   # ---- 파라미터 (키 이름은 이 포크 것을 유지) ----
@@ -263,6 +274,7 @@ class LongControl:
     try:
       self.early_hold_relax = self.params.get("EarlyHoldRelax", encoding="utf8") != "0"
       self.fast_lead_release = self.params.get("FastLeadRelease", encoding="utf8") != "0"
+      self.early_stopreq_release = self.params.get("EarlyStopReqRelease", encoding="utf8") == "1"
     except Exception:
       pass
 
@@ -273,6 +285,9 @@ class LongControl:
     self.lead_missing_frames = 0
     self.hold_relax_left = 0
     self.hold_relax_used = 0
+    self.stopreq_release_left = 0
+    self.stopreq_release_blocked = False
+    self.stopreq_release_active = False
 
   def _hold_relax_active(self):
     """A) 정지 앞차가 꿈틀하는 동안 정지유지 제동을 미리 줄일지."""
@@ -293,6 +308,8 @@ class LongControl:
     if getattr(self, 'hold_relax_left', 0) > 0:
       self.hold_relax_left -= 1
       self.hold_relax_used = getattr(self, 'hold_relax_used', 0) + 1
+    if getattr(self, 'stopreq_release_left', 0) > 0:
+      self.stopreq_release_left -= 1
     if radar_state_updated:
       lead_valid = (radar_state is not None and radar_state_valid and
                     len(radar_state.radarErrors) == 0 and radar_state.leadOne.status)
@@ -318,6 +335,11 @@ class LongControl:
           self.lead_release_samples = self.lead_release_samples + 1 if lead_moving else 0
           if lead_moving or lead_is_creeping(lead):
             self.hold_relax_left = HOLD_RELAX_KEEP_FRAMES
+            # C) 완전히 선 뒤 1초가 지났고, 이번 정지에서 막히지 않았으면 StopReq 를 먼저 내린다.
+            if (getattr(self, 'early_stopreq_release', False) and
+                not getattr(self, 'stopreq_release_blocked', False) and
+                getattr(self, 'standstill_frames', 0) >= HOLD_RELAX_SETTLE_FRAMES):
+              self.stopreq_release_left = STOPREQ_RELEASE_KEEP_FRAMES
     elif not radar_state_valid:
       self.lead_measurement_available = False
       self.lead_release_samples = 0
@@ -516,6 +538,7 @@ class LongControl:
       self.standstill_frames = 0
       self.hold_relaxing = False
       self.hold_restore_fast = False
+      self.stopreq_release_active = False
 
     if self.long_control_state == LongCtrlState.off:
       self.reset(CS.vEgo)
@@ -537,7 +560,12 @@ class LongControl:
         if getattr(self, 'hold_relaxing', False):
           self.hold_relax_used = HOLD_RELAX_MAX_FRAMES   # 이번 정지 동안 미리 풀기 금지
           self.hold_restore_fast = True
+        if getattr(self, 'stopreq_release_active', False):
+          self.stopreq_release_blocked = True             # 움직였으면 이번 정지 동안 C 금지
+          self.stopreq_release_left = 0
         self.standstill_frames = 0
+      self.stopreq_release_active = (self.standstill_lead_latched and not CS.brakePressed and
+                                     not soft_hold and getattr(self, 'stopreq_release_left', 0) > 0)
 
       # sunnypilot 의 저크제한 적분기를 참고: 접근 중엔 목표를 stopAccel로
       # 유지(예전과 동일 — 이 값이 제동을 계속 단단히 유지시켜 밀림을 막는

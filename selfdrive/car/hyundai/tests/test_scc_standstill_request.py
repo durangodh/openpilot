@@ -34,3 +34,14 @@ def test_soft_hold_uses_the_same_actual_standstill_gate():
 def test_inactive_state_never_requests_stop():
   gate = load_stop_request_gate()
   assert not gate(False, False, True, 0.0)
+
+
+def test_early_stopreq_release_drops_stop_request_only_when_stopping():
+  gate = load_stop_request_gate()
+  assert not gate(True, False, True, 0.0, pre_release=True)
+  assert gate(True, False, True, 0.0, pre_release=False)
+
+
+def test_soft_hold_keeps_stop_request_even_with_pre_release():
+  gate = load_stop_request_gate()
+  assert gate(True, True, True, 0.0, pre_release=True)

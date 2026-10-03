@@ -516,3 +516,71 @@ def test_fast_lead_release_ignores_vision_only_lead_and_filtered_spike():
   for _ in range(3):   # 카메라 전용 앞차는 원래 속도로 출발 판정하지 않는다
     step(control, cs, plan, radar)
   assert control.long_control_state == 'stopping'
+
+
+# ---- EarlyStopReqRelease (C) ----
+
+def test_early_stopreq_release_off_by_default():
+  control, cs, plan, radar = setup_control()
+  _latch(control, cs, plan, radar)
+  _settle(control, cs, plan, radar)
+  radar.leadOne.vLead, radar.leadOne.vRel = 0.3, 0.2
+  step(control, cs, plan, radar)
+  assert not control.stopreq_release_active
+
+
+def test_early_stopreq_release_window_keeps_brake_and_times_out():
+  control, cs, plan, radar = setup_control()
+  control.early_stopreq_release = True
+  control.early_hold_relax = False
+  _latch(control, cs, plan, radar)
+  radar.leadOne.vLead, radar.leadOne.vRel = 0.3, 0.2
+  step(control, cs, plan, radar)
+  assert not control.stopreq_release_active          # 선 지 1초 전에는 안 한다
+  radar.leadOne.vLead = radar.leadOne.vRel = 0.0
+  _settle(control, cs, plan, radar)
+  radar.leadOne.vLead, radar.leadOne.vRel = 0.3, 0.2
+  out = step(control, cs, plan, radar)
+  assert control.stopreq_release_active
+  assert out == pytest.approx(-1.1)                  # 브레이크 명령은 그대로
+  radar.leadOne.vLead = radar.leadOne.vRel = 0.0
+  for _ in range(80):
+    step(control, cs, plan, radar, fresh=False)
+  assert not control.stopreq_release_active          # 0.8초 안에 출발 안 하면 StopReq 복귀
+  assert control.long_control_state == 'stopping'
+
+
+def test_early_stopreq_release_movement_blocks_it_for_this_stop():
+  control, cs, plan, radar = setup_control()
+  control.early_stopreq_release = True
+  _latch(control, cs, plan, radar)
+  _settle(control, cs, plan, radar)
+  radar.leadOne.vLead, radar.leadOne.vRel = 0.3, 0.2
+  step(control, cs, plan, radar)
+  assert control.stopreq_release_active
+  cs.vEgo, cs.standstill = 0.03, False
+  step(control, cs, plan, radar)
+  assert not control.stopreq_release_active
+  cs.vEgo, cs.standstill = 0.0, True
+  for _ in range(300):
+    step(control, cs, plan, radar)
+  assert not control.stopreq_release_active
+
+
+def test_early_stopreq_release_ends_with_brake_or_launch():
+  control, cs, plan, radar = setup_control()
+  control.early_stopreq_release = True
+  _latch(control, cs, plan, radar)
+  _settle(control, cs, plan, radar)
+  radar.leadOne.vLead, radar.leadOne.vRel = 0.3, 0.2
+  step(control, cs, plan, radar)
+  cs.brakePressed = True
+  step(control, cs, plan, radar)
+  assert not control.stopreq_release_active
+  cs.brakePressed = False
+  # 실제 출발: 상태가 stopping 을 벗어나면 꺼진다.
+  radar.leadOne.vLead, radar.leadOne.vLeadK, radar.leadOne.vRel, radar.leadOne.aLeadK = 0.8, 0.8, 0.8, 0.2
+  for _ in range(3):
+    step(control, cs, plan, radar)
+  assert control.long_control_state != 'stopping'
+  assert not control.stopreq_release_active
