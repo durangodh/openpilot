@@ -23,6 +23,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Reads Naver's own rendered map via NaverMap.takeSnapshot; never captures a screen. */
 final class NaverMapCapture {
@@ -37,8 +38,9 @@ final class NaverMapCapture {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService encoder = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(() -> {
-            // JPEG 인코딩은 HUD 앱(같은 S9)의 그리기·USB 전송보다 뒤로.
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+            // JPEG 인코딩은 HUD 앱(같은 S9)보다 조금만 뒤로. BACKGROUND 는 안드로이드가
+            // CPU 를 크게 제한하는 그룹에 넣어, S9 이 바쁠 때 인코딩이 수백 ms 씩 밀렸다.
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_LESS_FAVORABLE);
             r.run();
         }, "naver-hud-map-encode");
         t.setDaemon(true);
@@ -50,6 +52,21 @@ final class NaverMapCapture {
         return t;
     });
     private final AtomicBoolean posted = new AtomicBoolean();
+    // 인코딩 대기는 최신 한 장만 둔다. 예전에는 인코더 큐가 무제한이라 S9 이 바쁘면
+    // (HUD 그리기·USB 전송) 200ms 마다 쌓인 프레임을 차례로 인코딩하느라 HUD 지도가
+    // 점점 늦어지고(밀림) 한꺼번에 몰려 갔다.
+    private final AtomicReference<Frame> pendingFrame = new AtomicReference<>();
+    private final AtomicBoolean encodeScheduled = new AtomicBoolean();
+
+    private static final class Frame {
+        final Bitmap image; final long gen; final long snapAt;
+        Frame(Bitmap image, long gen, long snapAt) { this.image = image; this.gen = gen; this.snapAt = snapAt; }
+    }
+
+    // 10초마다 naver_hud.log 에 남기는 지도 경로 통계(멈춤·밀림 원인 확인용).
+    private static final long STATS_INTERVAL_MS = 10000;
+    private long statsAt, statReq, statOk, statTimeout, statDropped, statSent;
+    private long statSnapMsSum, statSnapMsMax, statEncMsSum, statEncMsMax, statAgeMsMax;
     private final AtomicBoolean started = new AtomicBoolean();
     private final List<WeakReference<Activity>> activities = new ArrayList<>();
     private volatile Object provider;
@@ -116,10 +133,13 @@ final class NaverMapCapture {
             }
             return;
         }
+        logStats(now);
         if (requestedAt != 0 && now - requestedAt < REQUEST_TIMEOUT_MS) return;
+        if (requestedAt != 0) statTimeout++;   // 응답 없이 시간 초과
         if (now - lastRequestAt < FRAME_INTERVAL_MS) return;
         requestedAt = now;
         lastRequestAt = now;
+        statReq++;
         final long gen = generation;
         final long req = ++requestId;
         try {
@@ -151,30 +171,79 @@ final class NaverMapCapture {
     private void onSnapshot(Bitmap source, long gen, long req) {
         if (source == null || source.isRecycled()) return;
         // 최신 요청의 응답일 때만 다음 요청을 허용한다(늦게 온 옛 응답이 요청 흐름을 흔들지 않게).
-        if (req == requestId) requestedAt = 0;
+        long now = SystemClock.elapsedRealtime();
+        if (req == requestId) {
+            if (requestedAt != 0) {
+                long ms = now - requestedAt;
+                statOk++;
+                statSnapMsSum += ms;
+                statSnapMsMax = Math.max(statSnapMsMax, ms);
+            }
+            requestedAt = 0;
+        }
         if (gen != generation) return;
-        lastFrameAt = SystemClock.elapsedRealtime();
+        lastFrameAt = now;
         try {
-            Bitmap image = fitCenterCrop(source);
-            encoder.execute(() -> {
-                try {
-                    // 지도가 바뀐 경우만 버린다. 새 요청이 나갔다고 버리지 않는다.
-                    if (gen != generation) return;
-                    ByteArrayOutputStream bytes = new ByteArrayOutputStream(100000);
-                    image.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, bytes);
-                    if (gen == generation) {
-                        client.sendMap(bytes.toByteArray());
-                        if (++sent == 1) NaverHudLog.line("first direct map frame sent");
-                    }
-                } catch (Throwable error) {
-                    NaverHudLog.ex("snapshot encode", error);
-                } finally {
-                    image.recycle();
-                }
-            });
+            Frame old = pendingFrame.getAndSet(new Frame(fitCenterCrop(source), gen, now));
+            if (old != null) {   // 아직 인코딩 못 한 옛 프레임은 버린다(최신만 보낸다)
+                old.image.recycle();
+                statDropped++;
+            }
+            if (encodeScheduled.compareAndSet(false, true)) encoder.execute(this::drainEncode);
         } catch (Throwable error) {
             NaverHudLog.ex("snapshot crop", error);
         }
+    }
+
+    private void drainEncode() {
+        try {
+            Frame frame;
+            while ((frame = pendingFrame.getAndSet(null)) != null) encode(frame);
+        } finally {
+            encodeScheduled.set(false);
+            if (pendingFrame.get() != null && encodeScheduled.compareAndSet(false, true)) {
+                encoder.execute(this::drainEncode);
+            }
+        }
+    }
+
+    private void encode(Frame frame) {
+        try {
+            // 지도가 바뀐 경우만 버린다. 새 요청이 나갔다고 버리지 않는다.
+            if (frame.gen != generation) return;
+            long start = SystemClock.elapsedRealtime();
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream(100000);
+            frame.image.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, bytes);
+            if (frame.gen == generation) {
+                client.sendMap(bytes.toByteArray());
+                long end = SystemClock.elapsedRealtime();
+                statEncMsSum += end - start;
+                statEncMsMax = Math.max(statEncMsMax, end - start);
+                statAgeMsMax = Math.max(statAgeMsMax, end - frame.snapAt);
+                statSent++;
+                if (++sent == 1) NaverHudLog.line("first direct map frame sent");
+            }
+        } catch (Throwable error) {
+            NaverHudLog.ex("snapshot encode", error);
+        } finally {
+            frame.image.recycle();
+        }
+    }
+
+    /** 메인 스레드에서 호출. 인코더 통계 필드는 다른 스레드가 쓰지만 대략값이면 충분하다. */
+    private void logStats(long now) {
+        if (statsAt == 0) { statsAt = now; return; }
+        if (now - statsAt < STATS_INTERVAL_MS) return;
+        long sentNow = statSent;
+        NaverHudLog.line(String.format(java.util.Locale.US,
+                "map stats %ds: req %d ok %d timeout %d dropped %d sent %d | snapshot avg %dms max %dms"
+                        + " | encode avg %dms max %dms | frame age max %dms | src %s",
+                (now - statsAt) / 1000, statReq, statOk, statTimeout, statDropped, sentNow,
+                statOk > 0 ? statSnapMsSum / statOk : 0, statSnapMsMax,
+                sentNow > 0 ? statEncMsSum / sentNow : 0, statEncMsMax, statAgeMsMax, mapSource));
+        statsAt = now;
+        statReq = statOk = statTimeout = statDropped = statSent = 0;
+        statSnapMsSum = statSnapMsMax = statEncMsSum = statEncMsMax = statAgeMsMax = 0;
     }
 
     private String mapSource = "";
