@@ -37,6 +37,17 @@ def segments(mask):
   return out
 
 
+def _corr_at(src, dst, mask, lag_s, dt):
+  """lag_s 초 지연에서의 상관계수."""
+  k = int(round(lag_s / dt))
+  a = src[:len(src) - k] if k else src
+  b = dst[k:]
+  m = mask[:len(mask) - k] & mask[k:] & np.isfinite(a) & np.isfinite(b)
+  if m.sum() < 40:
+    return np.nan
+  return float(np.corrcoef(a[m], b[m])[0, 1])
+
+
 def main():
   if len(sys.argv) < 2:
     raise SystemExit(__doc__)
@@ -79,6 +90,13 @@ def main():
       lag, r = lag_n, r_n
       label += " [부호 반대]"
     note = "" if r >= 0.5 else "  (상관 낮음: 참고만)"
+    # 지연을 0.5초 줄여도 상관이 거의 같으면 봉우리가 넓어 그 지연값은 믿기 어렵다
+    # (예: 토크 명령은 피드포워드가 섞여 실제 곡률과 정확한 시차가 없다).
+    if not note and lag >= 0.5:
+      sign = -1.0 if "[부호 반대]" in label else 1.0
+      r_early = _corr_at(src, sign * dst, mask, lag - 0.5, dt)
+      if np.isfinite(r_early) and r - r_early < 0.03:
+        note = f"  (봉우리 넓음: {lag - 0.5:.1f}초에서도 r={r_early:.2f}, 지연값은 참고만)"
     print(f"  {label}: {lag * 1000:4.0f} ms, r={r:.2f}{note}")
   if not yaw_ok:
     print("  (요레이트 신호가 없어 차체 반응 단계는 뺐습니다)")
