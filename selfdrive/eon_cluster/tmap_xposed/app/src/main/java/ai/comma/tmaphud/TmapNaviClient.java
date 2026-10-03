@@ -35,6 +35,19 @@ final class TmapNaviClient {
     private final Object stateLock = new Object();
     private final Object mapLock = new Object();
     private final LocalHudMap localMap = new LocalHudMap(1);
+    // HUD 가 지도를 S9 안에서 직접 받는 동안에는 EON 으로 가는 지도를 초당 1장으로 줄인다.
+    // EON 은 이 지도를 HUD 로 되돌려 주기만 하고(직접 받는 동안 HUD 는 무시), 초당 5장이
+    // 와이파이를 두 번 지나가며 핫스팟을 막아 지도가 멈췄다 한 번에 따라잡는 원인이었다.
+    // 1장은 직접 경로가 끊길 때를 위한 예비이자 EON 의 지도 끊김 판정(3초)용이다.
+    private static final long EON_MAP_BACKUP_MS = 1000;
+    private long lastEonMapAt;
+
+    private boolean skipEonMap() {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (localMap.delivering() && now - lastEonMapAt < EON_MAP_BACKUP_MS) return true;
+        lastEonMapAt = now;
+        return false;
+    }
     private volatile String host;
     private Socket stateSock;
     private OutputStream stateOut;
@@ -113,6 +126,7 @@ final class TmapNaviClient {
                 localMap.offerClear();
             } else if (framed[5] == Cnv2.TYPE_IMAGE && framed.length > Cnv2.HEADER_BYTES) {
                 localMap.offer(java.util.Arrays.copyOfRange(framed, Cnv2.HEADER_BYTES, framed.length));
+                if (skipEonMap()) return;
             }
         }
         pendingMap.set(framed);

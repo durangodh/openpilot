@@ -39,6 +39,7 @@ final class LocalHudMap {
     private OutputStream out;
     private long retryAt;
     private boolean loggedConnect;
+    private volatile long lastOkAt;   // 마지막으로 HUD 에 지도를 보낸 시각
 
     LocalHudMap(int app) {
         this.app = (byte) app;
@@ -48,6 +49,12 @@ final class LocalHudMap {
         if (jpeg == null) return;
         pending.set(jpeg);
         if (scheduled.compareAndSet(false, true)) sender.execute(this::drain);
+    }
+
+    /** 최근 1.5초 안에 HUD 로 직접 보내졌으면 true. 이때는 EON 쪽 지도는 예비로만 드물게 보낸다. */
+    boolean delivering() {
+        long at = lastOkAt;
+        return at != 0 && SystemClock.elapsedRealtime() - at < 1500;
     }
 
     void offerClear() {
@@ -92,6 +99,7 @@ final class LocalHudMap {
             out.write(head.array());
             out.write(jpeg);
             out.flush();
+            lastOkAt = SystemClock.elapsedRealtime();
         } catch (Throwable t) {
             close();
             retryAt = now + 500;

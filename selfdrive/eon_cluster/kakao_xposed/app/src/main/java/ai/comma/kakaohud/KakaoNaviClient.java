@@ -34,6 +34,19 @@ final class KakaoNaviClient {
     private final Object stateLock = new Object();
     private final Object mapLock = new Object();
     private final LocalHudMap localMap = new LocalHudMap(3);
+    // HUD 가 지도를 S9 안에서 직접 받는 동안에는 EON 으로 가는 지도를 초당 1장으로 줄인다.
+    // EON 은 이 지도를 HUD 로 되돌려 주기만 하고(직접 받는 동안 HUD 는 무시), 초당 5장이
+    // 와이파이를 두 번 지나가며 핫스팟을 막아 지도가 멈췄다 한 번에 따라잡는 원인이었다.
+    // 1장은 직접 경로가 끊길 때를 위한 예비이자 EON 의 지도 끊김 판정(3초)용이다.
+    private static final long EON_MAP_BACKUP_MS = 1000;
+    private long lastEonMapAt;
+
+    private boolean skipEonMap() {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (localMap.delivering() && now - lastEonMapAt < EON_MAP_BACKUP_MS) return true;
+        lastEonMapAt = now;
+        return false;
+    }
     private volatile String host;
     private Socket stateSock;
     private OutputStream stateOut;
@@ -107,6 +120,7 @@ final class KakaoNaviClient {
     void sendMap(final byte[] jpeg) {
         if (jpeg == null || jpeg.length == 0) return;
         localMap.offer(jpeg);   // 같은 S9 의 HUD 앱으로도 바로 보낸다(와이파이 왕복 없음)
+        if (skipEonMap()) return;
         pendingMap.set(jpeg);
         scheduleMapDrain();
     }
