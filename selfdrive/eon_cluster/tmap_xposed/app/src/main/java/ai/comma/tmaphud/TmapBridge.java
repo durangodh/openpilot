@@ -304,19 +304,20 @@ final class TmapBridge {
                 distance, sLat, sLon, ageMs);
         send("traffic_signal", json);
 
-        int idx = json == null ? -1 : TmapJson.displayIndex(movements);
+        // HUD 신호등 그림은 폰 신호등과 같게 그린다(네이버 모듈이 폰 신호등 뷰를 그대로 쓰는 것과
+        // 같은 결과). 예전에는 위 JSON 의 거리 조건(5m 이내면 통과)에 묶여 있어서, 저장소 거리가
+        // 0 이거나 콜백 뒤 차량 속도로 뺀 거리가 먼저 0 이 되면 폰에는 보이는 신호가 HUD 에서
+        // 계속 지워졌다. 거리는 쓰지 않고, 60초 넘게 갱신이 없을 때만 지운다.
+        boolean stale = ageMs > TmapJson.MAX_TRAFFIC_SIGNAL_AGE_MS;
+        int[] phone = stale ? null : TmapJson.phoneLight(on, onRemain);
+        int idx = stale ? -1 : TmapJson.displayIndex(movements);
         int color = idx < 0 ? TmapJson.COLOR_NONE : TmapJson.lightColor(lights[idx]);
-        if (color != TmapJson.COLOR_NONE) {
+        if (phone != null) {
+            // 폰 규칙(TrafficSignalInfoRepository): 초록·좌회전이면 초록, 아니면 빨강.
+            signalImage.publish(phone[0], TmapJson.subtractElapsed(phone[1], elapsed));
+        } else if (color != TmapJson.COLOR_NONE) {
+            // 저장소 값이 없을 때만 방향별 신호(직진, 없으면 유일한 차량 방향)를 쓴다.
             signalImage.publish(color, TmapJson.subtractElapsed(remains[idx], elapsed));
-        } else if (json != null && on != null && distance > 5) {
-            // 직진 신호가 없거나 방향이 여럿인 교차로: 폰 신호등과 같은 규칙
-            // (TrafficSignalInfoRepository.getCurrentRemainTime)으로 저장소의 합친 값을 쓴다.
-            int[] phone = TmapJson.phoneLight(on, onRemain);
-            if (phone == null) {
-                signalImage.clear();
-            } else {
-                signalImage.publish(phone[0], TmapJson.subtractElapsed(phone[1], elapsed));
-            }
         } else {
             signalImage.clear();
         }
