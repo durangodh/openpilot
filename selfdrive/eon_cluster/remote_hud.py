@@ -38,7 +38,15 @@ TRAFFIC_SIGNAL_FILE = "/dev/shm/carrot_navi_traffic_signal.png"
 NAVI_STATE = "/dev/shm/carrot_navi_route.json"
 MAP_MAX_BYTES = 2 * 1024 * 1024
 OVERLAY_MAX_BYTES = 512 * 1024
-MAP_KEEPALIVE_S = 1.0
+# 바뀐 게 없을 때 지도 JPEG(수십 KB)를 다시 보내는 주기. S9 은 4초 동안 아무것도
+# 못 받으면 연결을 끊으므로 그보다 짧게. 1초마다 보내던 것은 무선 안드로이드 오토와
+# 같은 핫스팟을 쓸 때 와이파이를 계속 차지해 연결 끊김을 부추겼다.
+MAP_KEEPALIVE_S = 2.5
+# S9 로 그림 하나를 보내다 이 시간 안에 못 보내면 연결을 끊는다. 0.5초는 핫스팟이 잠깐만
+# 붐벼도 끊겼고(2026-10-04 hud 로그: 20~30초마다 drop, 그때마다 지도·차로·신호등 그림이
+# 멈춤), 다시 붙을 때 모든 그림을 한꺼번에 보내다 또 끊기는 일이 반복됐다. 이 전송은
+# 주행 정보와 다른 스레드라 오래 기다려도 속도·방향 표시는 늦어지지 않는다.
+ASSET_SEND_TIMEOUT_S = 3.0
 NAVI_MAX_AGE_MS = 35000
 NAVI_GUIDANCE_MAX_AGE_MS = 3000
 NAVI_STREAM_MAX_AGE_MS = 3000
@@ -248,7 +256,7 @@ class MapFrameServer(object):
     if self.client is None:
       try:
         self.client, _ = self.listener.accept()
-        self.client.settimeout(0.5)
+        self.client.settimeout(ASSET_SEND_TIMEOUT_S)
         self.last_send = 0.0
         self.pending = set(tag for tag, _, _, _ in self.ASSETS)
       except BlockingIOError:
@@ -278,7 +286,7 @@ class MapFrameServer(object):
   def run(self, running, active, lock):
     """Forward assets on their own thread.
 
-    _send_asset() blocks for up to the 0.5 s socket timeout when the S9 link
+    _send_asset() blocks for up to ASSET_SEND_TIMEOUT_S when the S9 link
     is slow or a large image (map, junction) is in flight. On the telemetry
     loop that delayed the steering wheel, engagement colour and the rest of
     the driving scene by a whole tick or more.
