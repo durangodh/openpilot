@@ -1,6 +1,7 @@
 name: Publish APilotMan APK
 
-# apk/APilotMan*.apk, apk/APM*.apk 를 그대로(수정 없이) 파일별 릴리즈에 올린다. 빌드하지 않는다.
+# release_apk/APilotMan*.apk, release_apk/APM*.apk 를 그대로(수정 없이) 파일별 릴리즈에 올린다. 빌드하지 않는다.
+# apk/ 폴더에 두면 안 된다: EON 의 apk.py 가 apk/*.apk 를 EON 에 설치하려다 실패해 빌드가 멈춘다.
 # 태그는 파일 이름에서 만든다: APilotMan0.65_6.apk -> apilotman-0.65_6, APM0.983_1.apk -> apm-0.983_1
 # 두 브랜치 푸시가 동시에 릴리즈를 만들다 한쪽이 실패하지 않게 한 번에 하나씩 실행한다.
 concurrency:
@@ -15,8 +16,8 @@ on:
   push:
     branches: [g_remote, claude/charming-galileo-wzem1z]
     paths:
-      - "apk/APilotMan*.apk"
-      - "apk/APM*.apk"
+      - "release_apk/APilotMan*.apk"
+      - "release_apk/APM*.apk"
       - ".github/workflows/publish-apilotman.yml"
 
 jobs:
@@ -31,7 +32,7 @@ jobs:
         run: |
           set -e
           shopt -s nullglob
-          for asset in apk/APilotMan*.apk apk/APM*.apk; do
+          for asset in release_apk/APilotMan*.apk release_apk/APM*.apk; do
             base=$(basename "$asset" .apk)
             prefix=$(printf '%s' "$base" | sed -E 's/^([A-Za-z]+).*/\1/' | tr 'A-Z' 'a-z')
             version=${base#"$(printf '%s' "$base" | sed -E 's/^([A-Za-z]+).*/\1/')"}
