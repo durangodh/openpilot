@@ -82,6 +82,11 @@ final class TmapNaviClient {
         return thread;
     });
     private final ConcurrentHashMap<String, ImageChannel> images = new ConcurrentHashMap<>();
+    // EON(carrot_navi_server)은 45초 동안 아무것도 오지 않는 소켓을 닫는다. 그림은 바뀔
+    // 때만 보내므로 신호 없는 구간 뒤 첫 그림(신호등 등)이 닫힌 소켓으로 사라지고, 같은
+    // 그림은 다시 보내지 않아 HUD 에 안 나왔다. 조용한 채널은 마지막 프레임을 10초마다
+    // 다시 보낸다(EON 은 같은 그림이면 파일을 다시 쓰지 않는다).
+    private static final long IMAGE_RESEND_MS = 10_000;
 
     void setHost(String ip) {
         if (ip != null && !ip.isEmpty() && !ip.equals(host)) {
@@ -160,8 +165,23 @@ final class TmapNaviClient {
             channel = images.putIfAbsent(name, created);
             if (channel == null) channel = created;
         }
+        channel.last = framed;
+        channel.lastQueuedAt = android.os.SystemClock.elapsedRealtime();
         channel.pending.set(framed);
         channel.schedule();
+    }
+
+    /** 조용한 그림 채널에 마지막 프레임을 다시 보낸다. 안내 틱에서 부른다. */
+    void refreshIdleImages() {
+        long now = android.os.SystemClock.elapsedRealtime();
+        for (ImageChannel channel : images.values()) {
+            byte[] last = channel.last;
+            if (last == null || now - channel.lastQueuedAt < IMAGE_RESEND_MS) continue;
+            if (channel.pending.compareAndSet(null, last)) {
+                channel.lastQueuedAt = now;
+                channel.schedule();
+            }
+        }
     }
 
     /** 신호등 PNG(CNV2 헤더 포함). */
@@ -174,6 +194,8 @@ final class TmapNaviClient {
         final Object lock = new Object();
         final AtomicReference<byte[]> pending = new AtomicReference<>();
         final AtomicBoolean scheduled = new AtomicBoolean(false);
+        volatile byte[] last;
+        volatile long lastQueuedAt;
         Socket sock;
         OutputStream out;
 

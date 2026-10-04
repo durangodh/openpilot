@@ -122,6 +122,7 @@ final class TmapBridge {
         } catch (Throwable error) {
             TmapHudLog.ex("state tick", error);
         }
+        client.refreshIdleImages();
     }
 
     private void publish() {
