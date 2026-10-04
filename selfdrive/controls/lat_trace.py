@@ -36,6 +36,8 @@ COLUMNS = [
   "steer_ratio", "steer_delay",
   # 학습된 핸들 영점·도로 기울기·조향비(liveParameters)와 커브 적분 기준
   "angle_offset", "roll", "live_sr",
+  # LatYawMeasureBlend 가 섞는 EON 자이로 요레이트(liveLocationKalman, rad/s, +=왼쪽)
+  "yaw_llk", "yaw_llk_valid",
 ]
 
 
@@ -45,6 +47,13 @@ def _row(sm):
   cc = sm['carControl']
   cs = sm['carState']
   lp = sm['liveParameters']
+  yaw_llk, yaw_llk_valid = "", _i(0)
+  try:
+    av = sm['liveLocationKalman'].angularVelocityCalibrated
+    if len(av.value) > 2:
+      yaw_llk, yaw_llk_valid = _f(av.value[2], 5), _i(av.valid)
+  except Exception:
+    pass
   curvs = list(plan.curvatures)
   torque = None
   try:
@@ -72,12 +81,13 @@ def _row(sm):
     _f(cs.steeringTorque, 1), _f(cs.steeringTorqueEps, 1),
     _f(ctl.steerRatio, 2), _f(ctl.steerActuatorDelay, 3),
     _f(lp.angleOffsetDeg, 3), _f(lp.roll, 4), _f(lp.steerRatio, 2),
+    yaw_llk, yaw_llk_valid,
   ]
 
 
 def main():
   params = Params()
-  services = ['lateralPlan', 'controlsState', 'carControl', 'carState', 'liveParameters']
+  services = ['lateralPlan', 'controlsState', 'carControl', 'carState', 'liveParameters', 'liveLocationKalman']
   # 소켓은 기록할 때만 연다. 꺼진 채 열어 두면 읽지 않아 "Reader was evicted" 가 난다.
   sm = None
   rk = None

@@ -147,6 +147,36 @@ def main():
       if vals.size:
         print(f"  {name} 중앙값 {np.median(vals):+.3f}{unit}")
 
+  print("\n[2-2] 직진 영점: EON 자이로(LatYawMeasureBlend 가 섞는 값) vs 핸들각")
+  if "yaw_llk" in c and np.isfinite(c["yaw_llk"]).sum() > 100:
+    with np.errstate(divide="ignore", invalid="ignore"):
+      gyro_curv = np.where(v > 1.0, c["yaw_llk"] / v, np.nan)
+      esp_curv = np.where(v > 1.0, np.radians(c["yaw_rate"]) / v, np.nan)
+    st = (mask & (v > 12.0) & (np.abs(des_lat) < 0.15) & np.isfinite(gyro_curv) &
+          np.isfinite(c["curv_actual"]) & (np.nan_to_num(c["yaw_llk_valid"]) > 0.5))
+    if st.sum() * dt < 20:
+      print("  직진 구간(43km/h 이상)이 20초 미만이라 생략합니다.")
+    else:
+      diff = np.median(gyro_curv[st] - c["curv_actual"][st])
+      vref = 18.0   # 65 km/h
+      print(f"  직진 {st.sum() * dt:.0f}초: 자이로 - 핸들각 곡률 {diff * 1e4:+.2f}e-4 1/m "
+            f"(65km/h 에서 {diff * vref * vref:+.3f} m/s², +=자이로가 더 왼쪽으로 돈다고 봄)")
+      esp = esp_curv[st]
+      if np.isfinite(esp).sum() > 100:
+        # ESP 요레이트는 부호가 차종마다 다를 수 있어 자이로와 같은 쪽으로 맞춘다.
+        if np.nansum(esp * gyro_curv[st]) < 0:
+          esp = -esp
+        print(f"  참고: 차량 ESP 요레이트 - 핸들각 {np.nanmedian(esp - c['curv_actual'][st]) * vref * vref:+.3f} m/s², "
+              f"자이로 - ESP {np.nanmedian(gyro_curv[st] - esp) * vref * vref:+.3f} m/s²")
+      for blend in (0.3, 0.5):
+        shift = blend * diff * vref * vref
+        side = "오른쪽" if shift > 0 else "왼쪽"
+        print(f"  LatYawMeasureBlend {int(blend * 100)}: 직진 측정에 {shift:+.3f} m/s² 가 더해져 "
+              f"제어가 {side}으로 그만큼 더 돌린다")
+      print("  (|값| 0.02 m/s² 이하면 무시할 수준, 0.05 이상이면 직진에서 한쪽으로 붙는 원인이 될 수 있음)")
+  else:
+    print("  yaw_llk 열이 없는 예전 기록이라 생략합니다.")
+
   print("\n[3] 직진 흔들림 (목표 횡가속 |0.15| m/s² 미만, 3초 이상 이어진 구간)")
   straight = mask & (np.abs(des_lat) < 0.15)
   segs = [(a, b) for a, b in segments(straight) if (b - a) * dt >= 3.0]
