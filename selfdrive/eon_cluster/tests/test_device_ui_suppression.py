@@ -74,6 +74,7 @@ def test_s9_hud_params_are_exposed_in_settings():
       "EonClusterHudLanguage",
       "EonClusterHudRadarInfo",
       "EonClusterHudNavRoute",
+      "EonClusterHudMapLayers",
   )
   for key in exposed:
     assert '"%s"' % key in settings, key

@@ -899,11 +899,19 @@ final class ModelWorldGL {
 
     /** "" while the vector map context is drawing; otherwise why it is not. */
     String mapStatus() {
+        if (mapLayers == MAP_LAYERS_OFF) return "";
         if (!mapPoseValid || !mapPoseFrameValid) return "내비 위치 없음";
         return mapStore.statusText();
     }
 
+    // S9 HUD MAP LAYERS(hudMapLayers): 0 끄기 / 1 도로만(기본) / 2 전체.
+    private static final int MAP_LAYERS_OFF = 0, MAP_LAYERS_ROADS = 1;
+    private int mapLayers = MAP_LAYERS_ROADS;
+
     private void drawMapContext(JSONObject scene, Line roadHeight, boolean dark) {
+        mapLayers = Math.max(0, Math.min(2, scene.optInt("hudMapLayers", MAP_LAYERS_ROADS)));
+        if (mapLayers == MAP_LAYERS_OFF) return;   // 지도 파일을 읽지도 받지도 않는다
+        boolean roadsOnly = mapLayers == MAP_LAYERS_ROADS;
         double[] pose = mapPoseScratch;
         if (!resolveMapPose(scene, pose)) {
             return;
@@ -911,7 +919,7 @@ final class ModelWorldGL {
         double lat = pose[0];
         double lon = pose[1];
         double heading = pose[2];
-        mapStore.update(lat, lon);
+        mapStore.update(lat, lon, roadsOnly);
         HudMapStore.Snapshot snapshot = mapStore.snapshot();
         if (snapshot == HudMapStore.Snapshot.EMPTY) {
             return;
@@ -923,12 +931,14 @@ final class ModelWorldGL {
         double metersLon = metersLat * Math.max(0.1, Math.cos(Math.toRadians(lat)));
 
         // Draw green first so lakes and rivers remain visible inside parks.
-        drawMapAreas(snapshot.greens, lat, lon, metersLat, metersLon,
-                sinHeading, cosHeading, roadHeight,
-                dark ? Color.rgb(45, 76, 60) : Color.rgb(128, 167, 133), 0.68f);
-        drawMapAreas(snapshot.waters, lat, lon, metersLat, metersLon,
-                sinHeading, cosHeading, roadHeight,
-                dark ? Color.rgb(40, 73, 91) : Color.rgb(117, 166, 187), 0.76f);
+        if (!roadsOnly) {
+            drawMapAreas(snapshot.greens, lat, lon, metersLat, metersLon,
+                    sinHeading, cosHeading, roadHeight,
+                    dark ? Color.rgb(45, 76, 60) : Color.rgb(128, 167, 133), 0.68f);
+            drawMapAreas(snapshot.waters, lat, lon, metersLat, metersLon,
+                    sinHeading, cosHeading, roadHeight,
+                    dark ? Color.rgb(40, 73, 91) : Color.rgb(117, 166, 187), 0.76f);
+        }
 
         int roadColor = dark ? Color.rgb(64, 74, 84) : Color.rgb(126, 138, 148);
         for (HudMapStore.Road road : snapshot.roads) {
@@ -940,6 +950,7 @@ final class ModelWorldGL {
                     clamp(road.width * 0.5f, 1.25f, 9f), dark ? 0.34f : 0.52f, 0.008f);
         }
 
+        if (roadsOnly) return;
         int walls = dark ? Color.rgb(80, 92, 105) : Color.rgb(112, 126, 140);
         int roofs = dark ? Color.rgb(104, 116, 130) : Color.rgb(150, 164, 176);
         int visible = 0;

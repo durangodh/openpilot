@@ -1503,6 +1503,16 @@
   },
   {
    "group": "S9HUD",
+   "name": "EonClusterHudMapLayers",
+   "title": "S9 HUD MAP LAYERS",
+   "descr": "\uc8fc\ud589\ud654\uba74 \ubc14\ub2e5\uc758 \uacbd\uae30\ub3c4 \uc9c0\ub3c4 \ubc30\uacbd. 0: \ub044\uae30 / 1(\uae30\ubcf8): \ub3c4\ub85c\ub9cc / 2: \uc804\uccb4(\ub3c4\ub85c+\uac74\ubb3c+\ub179\uc9c0+\ubb3c). \uac74\ubb3c\u00b7\ub179\uc9c0\u00b7\ubb3c\uc744 \ube7c\uba74 S9 \ubd80\ub2f4\uacfc \ubc1c\uc5f4\uc774 \uc904\uc5b4\ub4ed\ub2c8\ub2e4.",
+   "min": 0,
+   "max": 2,
+   "default": 1,
+   "unit": 1
+  },
+  {
+   "group": "S9HUD",
    "name": "EonClusterHud",
    "title": "S9 EXTERNAL HUD",
    "descr": "EON \uc8fc\ud589 \ub370\uc774\ud130\ub97c S9 \uc571\uc73c\ub85c \uc804\uc1a1\ud569\ub2c8\ub2e4. \uc544\ub798 \ucd9c\ub825 \ub300\uc0c1\uc5d0\uc11c \uc678\ubd80 HUD\uc640 S9 \ud654\uba74\uc744 \uc120\ud0dd\ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4.",

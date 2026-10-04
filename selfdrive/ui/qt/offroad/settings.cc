@@ -1341,6 +1341,10 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "EonClusterHudNavRoute", "S9 HUD NAV ROUTE",
       "1(기본): 근거리에서 modelV2 와 일치할 때만 티맵 경로 의도를 반투명 선으로 표시 / 0: 숨김",
       "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudMapLayers", "S9 HUD MAP LAYERS",
+      "주행화면 바닥의 경기도 지도 배경. 0: 끄기 / 1(기본): 도로만 / 2: 전체(도로+건물+녹지+물). 건물·녹지·물을 빼면 S9 부담과 발열이 줄어듭니다.",
+      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 1, this));
 }
 
 SelectCar::SelectCar(QWidget* parent): QWidget(parent) {

@@ -298,6 +298,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudLanguage", PERSISTENT},
     {"EonClusterHudRadarInfo", PERSISTENT},
     {"EonClusterHudNavRoute", PERSISTENT},      // 1=티맵 경로 의도 반투명 표시, 0=숨김
+    {"EonClusterHudMapLayers", PERSISTENT},     // 주행화면 경기도 지도 배경: 0=끄기, 1=도로만, 2=전체
     {"ShowMapboxMap", PERSISTENT},              // 1=Mapbox/NOO Tmap 지도 이미지 표시, 0=모든 지도 이미지 숨김
     {"ShowRouteMapAlways", PERSISTENT},         // 1=목적지 경로 동안 Tmap 지도 이미지 상시 표시
     {"ShowPathWidth", PERSISTENT},               // 경로 반폭 cm (90=0.90m)

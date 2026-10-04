@@ -187,6 +187,7 @@ final class HudMapStore {
     private volatile double loadedLon = Double.NaN;
     private volatile int loadedTileX = Integer.MIN_VALUE;
     private volatile int loadedTileY = Integer.MIN_VALUE;
+    private volatile boolean loadedRoadsOnly;
 
     HudMapStore(Context context) {
         File directory = context.getExternalFilesDir(null);
@@ -208,7 +209,8 @@ final class HudMapStore {
         return status.isEmpty() ? "타일 없음" : status;
     }
 
-    void update(double lat, double lon) {
+    /** roadsOnly: 건물·녹지·물은 읽지 않는다(S9 설정 hudMapLayers 1 = 도로만). */
+    void update(double lat, double lon, boolean roadsOnly) {
         if (closed || !validPosition(lat, lon)) {
             status = "위치 없음";
             return;
@@ -248,14 +250,16 @@ final class HudMapStore {
         boolean tileChanged = tileX != loadedTileX || tileY != loadedTileY;
         boolean moved = !Double.isFinite(loadedLat)
                 || distanceSqMeters(lat, lon, loadedLat, loadedLon) >= RELOAD_METERS * RELOAD_METERS;
-        if ((!tileChanged && !moved) || !loading.compareAndSet(false, true)) {
+        boolean layersChanged = roadsOnly != loadedRoadsOnly;
+        if ((!tileChanged && !moved && !layersChanged) || !loading.compareAndSet(false, true)) {
             return;
         }
         executor.execute(() -> {
             try {
-                Snapshot loaded = load(mapFile, lat, lon, tileX, tileY);
+                Snapshot loaded = load(mapFile, lat, lon, tileX, tileY, roadsOnly);
                 if (!closed && mapFile.equals(activeDatabaseFile)) {
                     snapshot = loaded;
+                    loadedRoadsOnly = roadsOnly;
                     loadedLat = lat;
                     loadedLon = lon;
                     loadedTileX = tileX;
@@ -762,7 +766,7 @@ final class HudMapStore {
     }
 
     private Snapshot load(File mapFile, double lat, double lon,
-                          int tileX, int tileY) throws Exception {
+                          int tileX, int tileY, boolean roadsOnly) throws Exception {
         List<Building> buildings = new ArrayList<>();
         List<Road> roads = new ArrayList<>();
         List<Area> greens = new ArrayList<>();
@@ -780,8 +784,9 @@ final class HudMapStore {
                         String.valueOf(tileY + 1)})) {
             while (cursor.moveToNext()) {
                 JSONObject payload = new JSONObject(cursor.getString(0));
-                decodeBuildings(payload.optJSONArray("b"), buildingIds, buildings, lat, lon);
                 decodeRoads(payload.optJSONArray("r"), roadIds, roads, lat, lon);
+                if (roadsOnly) continue;
+                decodeBuildings(payload.optJSONArray("b"), buildingIds, buildings, lat, lon);
                 decodeAreas(payload.optJSONArray("g"), greenIds, greens, lat, lon, "g");
                 decodeAreas(payload.optJSONArray("w"), waterIds, waters, lat, lon, "w");
             }
