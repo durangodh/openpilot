@@ -10,7 +10,8 @@ from common.realtime import DT_MDL
 from selfdrive.modeld.constants import T_IDXS
 from selfdrive.controls.lib.longcontrol import LongCtrlState
 from selfdrive.controls.lib.navigation_route import GUIDE_FILE, NavigationRouteData
-from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, MIN_ACCEL, MAX_ACCEL, N
+from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, MIN_ACCEL, MAX_ACCEL, N, XState
+from selfdrive.controls.lib.stop_const_decel import ConstDecelStop
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_speed_error
 from selfdrive.controls.lib.longitudinal_limits import (get_cruise_min_accel, CRUISE_MAX_VAL_DEFAULTS,
@@ -39,6 +40,8 @@ class LongitudinalPlanner:
     self.param_read_counter = 0
 
     self.mpc = LongitudinalMpc()
+    self.const_stop = ConstDecelStop()
+    self.const_stop_decel = 0.0
 
     # Match aPilot selection: ExperimentalMode forces E2E, while
     # TrafficStopMode selects ACC or conditional ACC/E2E operation.
@@ -307,6 +310,23 @@ class LongitudinalPlanner:
     self.a_desired_trajectory = np.interp(T_IDXS[:CONTROL_N], T_IDXS_MPC, self.mpc.a_solution)
     self.j_desired_trajectory = np.interp(T_IDXS[:CONTROL_N], T_IDXS_MPC[:-1], self.mpc.j_solution)
 
+    # Stopping behind a stopping/stopped lead: one steady deceleration instead
+    # of the MPC's early hard braking and slow final crawl (stop_const_decel).
+    lead = sm['radarState'].leadOne
+    const_allowed = (sm['controlsState'].enabled and not reset_state and
+                     not self.mpc.traffic_stop_active and self.mpc.xState != XState.softHold)
+    const_plan = self.const_stop.update(const_allowed, v_ego, lead.status, lead.dRel, lead.vLead,
+                                        lead.aLeadK, self.a_desired, DT_MDL)
+    self.const_stop_decel = 0.0
+    if const_plan is not None:
+      decel_now, target = const_plan
+      self.const_stop_decel = float(target)
+      v_plan, a_plan, j_plan = ConstDecelStop.trajectory(
+        self.v_desired_filter.x, decel_now, target, T_IDXS[:CONTROL_N])
+      self.v_desired_trajectory = v_plan
+      self.a_desired_trajectory = a_plan
+      self.j_desired_trajectory = j_plan
+
     # TODO counter is only needed because radar is glitchy, remove once radar is gone
     self.fcw = self.mpc.crash_cnt > 2 and not sm['carState'].standstill and not reset_state
     if self.fcw:
@@ -346,6 +366,7 @@ class LongitudinalPlanner:
     longitudinalPlan.onStop = bool(e2e_state_active and self.auto_e2e_stopping)
     longitudinalPlan.eventsDEPRECATED = self.events.to_msg()
     longitudinalPlan.fcw = self.fcw
+    longitudinalPlan.constStopDecel = self.const_stop_decel
 
     longitudinalPlan.solverExecutionTime = self.mpc.solve_time
 

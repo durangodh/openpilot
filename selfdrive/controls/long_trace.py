@@ -30,6 +30,8 @@ COLUMNS = [
   "lead", "lead_radar", "d_rel", "v_rel", "v_lead", "v_lead_k", "a_lead_k", "a_lead_tau",
   # ④ 계획
   "plan_a_target", "plan_v_target", "plan_a0", "plan_a1s", "mpc_mode", "e2e_reason", "should_stop",
+  # 정지차 일정 감속 목표(m/s², 0 이면 MPC 계획 그대로)
+  "const_stop",
   # ⑤ 명령
   "cmd_accel", "long_state", "enabled",
   # ⑥ 실제 차량
@@ -122,6 +124,7 @@ def _row(sm):
     # T_IDXS 10번째 근처가 약 1초 뒤(계획이 앞으로 무엇을 하려는지)
     _f(accels[10] if len(accels) > 10 else 0.0),
     _i(plan.mpcMode), _i(plan.e2eReason), _i(plan.shouldStop),
+    _f(plan.constStopDecel),
     _f(sm['carControl'].actuators.accel), _i(ctl.longControlState), _i(ctl.enabled),
     _f(cs.vEgo), _f(cs.aEgo), _i(cs.gasPressed), _i(cs.brakePressed),
   ]
