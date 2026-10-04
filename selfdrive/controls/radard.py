@@ -53,6 +53,12 @@ SCC_STRONG_MATCH_DIST_RATIO = 0.15
 SCC_STRONG_MATCH_DIST_MIN = 3.0
 SCC_STRONG_MATCH_LAT = 1.5
 
+# Closing on the vision lead: a radar point well beyond the vision distance is
+# another object (curve, next lane, a car further ahead), not this lead.
+RADAR_FAR_MATCH_RATIO = 0.15
+RADAR_FAR_MATCH_MIN = 5.0
+RADAR_FAR_MATCH_CLOSING = 2.0
+
 def laplacian_cdf(x, mu, b):
   b = max(b, 1e-4)
   return math.exp(-abs(x-mu)/b)
@@ -74,7 +80,10 @@ def match_vision_to_cluster(v_ego, lead, clusters, scc_only=False):
 
   # if no 'sane' match is found return -1
   # stationary radar points can be false positives
-  dist_sane = abs(cluster.dRel - offset_vision_dist) < max([(offset_vision_dist)*.35, 5.0])
+  dist_err = cluster.dRel - offset_vision_dist
+  dist_sane = abs(dist_err) < max([(offset_vision_dist)*.35, 5.0])
+  if dist_err > 0 and v_ego - lead.v[0] > RADAR_FAR_MATCH_CLOSING:
+    dist_sane = dist_sane and dist_err < max(offset_vision_dist * RADAR_FAR_MATCH_RATIO, RADAR_FAR_MATCH_MIN)
   vel_sane = (abs(cluster.vRel + v_ego - lead.v[0]) < 10) or (v_ego + cluster.vRel > 3)
   strong_scc = (scc_only and
                 abs(cluster.dRel - offset_vision_dist) < max(offset_vision_dist * SCC_STRONG_MATCH_DIST_RATIO,
