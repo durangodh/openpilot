@@ -12,7 +12,10 @@ android {
     targetSdk 35
     versionCode hudVersionCode
     versionName hudVersionName
+    // 로그에 모듈 빌드 번호를 남겨, 새 빌드가 실제로 적용됐는지 바로 알 수 있게 한다.
+    buildConfigField "int", "HUD_BUILD", "${hudVersionCode}"
   }
+  buildFeatures { buildConfig true }
   buildTypes {
     debug { }
   }

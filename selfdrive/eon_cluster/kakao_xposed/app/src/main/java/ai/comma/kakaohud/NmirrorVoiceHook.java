@@ -85,7 +85,7 @@ final class NmirrorVoiceHook {
         } else if (msInMinute < MINUTE_TICK_WINDOW_MS) {
             notifyKakao("minute tick ignored" + how + " via " + callers());
         } else {
-            notifyKakao(PRESS + how + " via " + callers());
+            notifyKakao(PRESS + " b" + BuildConfig.HUD_BUILD + how + " via " + callers());
         }
     }
 
