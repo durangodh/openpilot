@@ -58,6 +58,11 @@ final class KakaoBridge {
     private int cachedSectionRemain = -1, cachedSectionVehicleAt = -1;
     private volatile Object repository;
     private volatile long lastRouteSummaryMs = 0;
+    // 목적지 안내 중인지. 안내를 끄면(안전운행 전환 등) 현재 경로가 null 이 되는데,
+    // 예전에는 아무것도 지우지 않아 마지막 회전·남은거리가 HUD 에 계속 남았다.
+    private volatile boolean routeActive = false;
+    private int routeMissing = 0;
+    private static final int ROUTE_END_CHECKS = 2;   // 1초 간격 2번 연속 없으면 종료(재탐색 순간 제외)
 
     private Object coordCompanion;   // KNMCoordinateSystem.INSTANCE
     private Method katecToWgs;       // katecToWGS84(double,double) -> Pair
@@ -170,8 +175,14 @@ final class KakaoBridge {
         try {
             Object route = callAny(repo, "getCurrentRoute", "currentRoute", "U");
             if (route == null) {
-                map.updateRoute(null);
+                if (routeActive && ++routeMissing >= ROUTE_END_CHECKS) endRoute();
+                if (!routeActive) map.updateRoute(null);
                 return;
+            }
+            routeMissing = 0;
+            if (!routeActive) {
+                routeActive = true;
+                KakaoHudLog.line("ROUTE started");
             }
 
             int remainDistance = -1;
@@ -212,9 +223,32 @@ final class KakaoBridge {
         }
     }
 
+    /** 목적지 안내가 끝났다: 남은 안내를 지운다(티맵 모듈과 같은 방식). */
+    private void endRoute() {
+        routeActive = false;
+        routeMissing = 0;
+        synchronized (guideLock) {
+            hasCachedGuide = false;
+            cachedCurLoc = null;
+        }
+        map.updateRoute(null);
+        map.updateTurnDistance(-1);
+        for (String name : new String[]{"route", "guidance_current", "guidance_next", "lane_current"}) {
+            client.sendState(name, null);
+        }
+        client.sendState("navigation_status", navStatus(false));
+        KakaoHudLog.line("ROUTE ended; guidance cleared");
+    }
+
+    private static String navStatus(boolean guiding) {
+        return "{\"source\":\"KAKAO\",\"mode\":\"" + (guiding ? "guiding" : "idle")
+                + "\",\"guidance_active\":" + guiding + ",\"route_present\":" + guiding
+                + ",\"off_route\":false}";
+    }
+
     // ---- 경로 안내 ----
     void onRouteGuide(Object routeGuide) {
-        if (routeGuide == null) return;
+        if (routeGuide == null || !routeActive) return;
         try {
             Object cur = callAny(routeGuide, "getCurDirection", "b");
             Object next = callAny(routeGuide, "getNextDirection", "i");
@@ -250,7 +284,7 @@ final class KakaoBridge {
                 hasCachedGuide = true;
             }
             publishGuidance();
-            client.sendState("navigation_status", "{\"off_route\":false}");
+            client.sendState("navigation_status", navStatus(true));
             KakaoHudLog.status("route cur=" + curRaw + "/" + curDist);
         } catch (Throwable t) {
             KakaoHudLog.ex("onRouteGuide", t);
@@ -429,6 +463,7 @@ final class KakaoBridge {
         int curAbs, curTbt, nextAbs, nextTbt;
         Object vehicleLoc, curLoc;
         String curName, nextName;
+        if (!routeActive) return;
         synchronized (guideLock) {
             if (!hasCachedGuide) return;
             curAbs = cachedCurAbs; curTbt = cachedCurTbt;
