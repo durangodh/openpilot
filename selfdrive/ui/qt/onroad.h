@@ -190,7 +190,6 @@ private:
   OnroadAlerts *alerts;
   NvgWindow *nvg;
   QColor bg = bg_colors[STATUS_DISENGAGED];
-  bool brake_lights = false;
   bool left_blindspot = false;
   bool right_blindspot = false;
   float steering_angle_deg = 0.0f;

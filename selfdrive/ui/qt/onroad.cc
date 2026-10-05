@@ -99,10 +99,16 @@ void OnroadWindow::updateState(const UIState &s) {
   }
 
   const auto car_state = (*s.sm)["carState"].getCarState();
-  brake_lights = car_state.getBrakeLights();
-  left_blindspot = car_state.getLeftBlindspot();
-  right_blindspot = car_state.getRightBlindspot();
-  steering_angle_deg = car_state.getSteeringAngleDeg();
+  const bool left_bsd = car_state.getLeftBlindspot();
+  const bool right_bsd = car_state.getRightBlindspot();
+  const float steer_deg = car_state.getSteeringAngleDeg();
+  // 테두리(후측방·조향 띠)는 이 위젯이 직접 그리므로 값이 바뀌면 다시 그려야 한다.
+  // 예전에는 상태색이 바뀔 때만 다시 그려서 후측방 띠가 늦게 켜지거나 꺼지지 않았다.
+  bool border_changed = left_bsd != left_blindspot || right_bsd != right_blindspot ||
+                        std::abs(steer_deg - steering_angle_deg) >= 1.0f;
+  left_blindspot = left_bsd;
+  right_blindspot = right_bsd;
+  if (border_changed) steering_angle_deg = steer_deg;
 
   QColor bgColor = bg_colors[s.status];
   Alert alert = Alert::get(*(s.sm), s.scene.started_frame);
@@ -121,9 +127,9 @@ void OnroadWindow::updateState(const UIState &s) {
     split->setDirection(QBoxLayout::RightToLeft);
   }
 
-  // 2026-09-09: 테두리색이 바뀔 때만 다시 그린다. 도로화면·알림은 각자
+  // 2026-09-09: 테두리색·후측방·조향 띠가 바뀔 때만 다시 그린다. 도로화면·알림은 각자
   // 카메라 프레임/updateAlert 로 갱신되므로 20Hz 무조건 repaint 는 낭비.
-  if (bg != bgColor) {
+  if (bg != bgColor || border_changed) {
     // repaint border
     bg = bgColor;
     update();
@@ -230,10 +236,6 @@ void OnroadWindow::paintEvent(QPaintEvent *event) {
   QPainter p(this);
   const QColor state_color(bg.red(), bg.green(), bg.blue(), 255);
   p.fillRect(rect(), state_color);
-
-  if (brake_lights) {
-    p.fillRect(QRect(0, height() - bdr_s, width(), bdr_s), QColor(255, 105, 105));
-  }
 
   const QColor bsd_color(255, 215, 0);
   if (left_blindspot) {
