@@ -19,6 +19,12 @@ final class TmapSignal {
     private static final int NONE = TmapJson.COLOR_NONE, GREEN = TmapJson.COLOR_GREEN;
     private static final int W = 132;   // 신호등 셀 3개 + 여백
     private static final int H = 96;
+    // HUD 는 신호등 그림을 302x192 칸에 비율을 지켜 꽉 채운다. 132x96 그대로 보내면 2배
+    // (264x192)로 커져 지도를 크게 가렸다(2026-10-06, 카카오와 같은 문제). 칸과 같은 크기의
+    // 투명 캔버스에 CONTENT_SCALE 배로 오른쪽·세로 가운데에 그려, HUD 에서 그대로 보이게 한다.
+    private static final int CANVAS_W = 302;
+    private static final int CANVAS_H = 192;
+    private static final float CONTENT_SCALE = 1.25f;   // HUD 에서 약 165x120
 
     private final TmapNaviClient client;
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -47,7 +53,7 @@ final class TmapSignal {
         lastKey = key;
         try {
             byte[] png = render(color, remainSec);
-            client.sendSignal(Cnv2.frame(Cnv2.TYPE_IMAGE, Cnv2.FORMAT_PNG, seq++, png, W, H));
+            client.sendSignal(Cnv2.frame(Cnv2.TYPE_IMAGE, Cnv2.FORMAT_PNG, seq++, png, CANVAS_W, CANVAS_H));
             lastWasClear = false;
         } catch (Throwable t) {
             TmapHudLog.ex("signal render", t);
@@ -62,8 +68,10 @@ final class TmapSignal {
     }
 
     private byte[] render(int color, int remainSec) {
-        Bitmap bmp = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
+        Bitmap bmp = Bitmap.createBitmap(CANVAS_W, CANVAS_H, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);
+        c.translate(CANVAS_W - W * CONTENT_SCALE, (CANVAS_H - H * CONTENT_SCALE) / 2f);
+        c.scale(CONTENT_SCALE, CONTENT_SCALE);
         // 둥근 검정 배경(가로형 신호등)
         c.drawRoundRect(new RectF(2, 2, W - 2, H - 2), 18, 18, bg);
 
