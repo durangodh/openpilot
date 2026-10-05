@@ -12,7 +12,7 @@ import uuid
 
 from common.params import Params
 from selfdrive import trace_http
-from selfdrive.eon_cluster.hud_stats import StatsLog
+from selfdrive.eon_cluster.hud_stats import StatsLog, append_module_log
 
 # 폰 → EON 지도 수신 통계(10초마다 /data/media/0/hud_trace/navi_*.log).
 MAP_STATS = StatsLog("navi")
@@ -778,6 +778,10 @@ def client_loop(conn, state):
         state.send_control(state.get_manifest())
       elif not is_control and message.get("type") == "item_update":
         name = message.get("name", stream_name)
+        if name == "module_log":
+          # Diagnostics from the phone module (Kakao voice button etc.), /trace 에서 받는다.
+          append_module_log(source, message.get("value"))
+          continue
         value = message.get("value") if message.get("present", True) else None
         is_encoded_image = (isinstance(value, str) or
                             (isinstance(value, dict) and isinstance(value.get("data"), str)))

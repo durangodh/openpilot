@@ -45,6 +45,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         KakaoHudLog.line("=== KakaoHudModule loaded in " + lpparam.packageName + " ===");
 
         final KakaoNaviClient client = new KakaoNaviClient();
+        KakaoHudLog.forwardTo(client);
         final KakaoMap map = new KakaoMap(client);
         final KakaoBridge bridge = new KakaoBridge(client, map);
         bridge.setClassLoader(lpparam.classLoader);

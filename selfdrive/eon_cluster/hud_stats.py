@@ -99,3 +99,27 @@ def _rotate():
       os.remove(oldest)
   except OSError:
     pass
+
+
+MODULE_LOG_SOURCES = ("kakao", "naver", "tmap")
+
+
+def append_module_log(source, text):
+  """Navigation module log line sent over the state socket (e.g. Kakao voice button).
+
+  Written to STATS_DIR/<source>_YYYYMMDD.log so the /trace page lists it next to
+  the HUD stats. Only known sources, one line, at most 500 characters.
+  """
+  if source not in MODULE_LOG_SOURCES or not isinstance(text, str):
+    return
+  text = text.replace("\r", " ").replace("\n", " ")[:500]
+  try:
+    os.makedirs(STATS_DIR, exist_ok=True)
+    path = os.path.join(STATS_DIR, "%s_%s.log" % (source, time.strftime("%Y%m%d")))
+    new_file = not os.path.exists(path)
+    with open(path, "a") as f:
+      f.write("%s %s\n" % (time.strftime("%H:%M:%S"), text))
+    if new_file:
+      _rotate()
+  except (IOError, OSError):
+    pass

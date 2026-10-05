@@ -15,7 +15,8 @@ TRACE_DIRS = {
   "long": ("가감속 (LONG TRACE)", "/data/media/0/long_trace"),
   "lat": ("조향 (LAT TRACE)", "/data/media/0/lat_trace"),
   # hud_stats.STATS_DIR 와 같아야 한다(항상 기록, 10초에 한 줄).
-  "hud": ("HUD 지도 통계 (navi=폰→EON 수신, hud=EON→S9 전송)", "/data/media/0/hud_trace"),
+  "hud": ("HUD 통계·네비 모듈 로그 (navi=폰→EON 수신, hud=EON→S9 전송, kakao=카카오 모듈)",
+          "/data/media/0/hud_trace"),
 }
 NAME_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}\.(csv|log)$")
 CHUNK = 64 * 1024
