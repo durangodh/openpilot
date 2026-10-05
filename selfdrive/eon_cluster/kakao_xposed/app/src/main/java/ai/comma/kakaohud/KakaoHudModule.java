@@ -63,7 +63,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         hookCits(lpparam, bridge.cits);
         hookRepository(lpparam, bridge);
         hookGuideCallbacks(lpparam, bridge);
-        new KakaoVoice().install(lpparam);
+        new KakaoVoice().install();
     }
 
     private static final String VERIFIED_KAKAO_VERSION = "4.51.0";

@@ -1,108 +1,71 @@
 package ai.comma.kakaohud;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
-import android.view.KeyEvent;
+import android.content.IntentFilter;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityNodeProvider;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
-import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam;
 
 /**
  * 핸들 음성 버튼 → 카카오 음성 검색.
  *
- * nMirror 는 핸들 음성 버튼을 누르면 접근성 서비스로 포커스된 네비 앱 화면에서
- * 정해진 리소스 ID(네이버 btn_speech_recognition 등)의 노드를 찾아 ACTION_CLICK 한다.
- * 카카오 마이크는 Compose 라 그런 ID 가 없다. 예전 시도(b89d48b 에서 제거)는 기기
- * 로그가 없어 어느 단계에서 실패했는지 알 수 없었으므로, 이번에는:
- *
- *  1) 진단: nMirror 가 카카오 프로세스에 보내는 접근성 요청(찾는 ID/글자, 실행한
- *     동작), 카카오가 받은 키 이벤트와 인텐트를 kakao_hud.log 에 남긴다. nMirror 가
- *     카카오에 아무것도 묻지 않는다면 그것도 로그로 드러난다.
- *  2) 연결: nMirror 가 찾는 이름이 음성 관련(speech/voice/clova/stt/mic)이면 그
- *     이름을 프록시 View 의 ID 로 응답한다(getIdentifier + viewIdResourceName).
- *  3) 실행: 프록시가 눌리면 카카오 화면의 Compose 접근성 노드 중 음성 검색 버튼
- *     (설명에 "음성" 등, "안내/볼륨/소리" 제외)을 찾아 그 노드를 클릭한다. 화면을
- *     직접 누르는 것과 같은 경로라 카카오 내부 클래스 이름에 기대지 않는다.
+ * nMirror 는 핸들 음성 버튼을 누르면 네비 화면의 음성 버튼을 리소스 ID 로 찾아
+ * 클릭하는데, 카카오 음성 버튼(Compose)에는 ID 가 없다. nMirror 프로세스 쪽
+ * NmirrorVoiceHook 이 그 요청을 가로채 "press" 브로드캐스트를 보내면, 여기서 카카오
+ * 화면의 Compose 접근성 노드 중 음성 버튼("음성서비스" 등)을 찾아 클릭한다. 화면을
+ * 직접 누르는 것과 같은 경로라 카카오 내부 클래스 이름에 기대지 않는다.
+ * (2026-10-05 b59~b68 기기 로그로 확인한 경로. 진단용 훅은 b69 에서 정리.)
  */
 final class KakaoVoice {
     private static final String KAKAO_PKG = "com.locnall.KimGiSa";
-    private static final int PROXY_ID = 0x7f0bffff;
-    private static final String[] VOICE_ID_WORDS = {"speech", "voice", "clova", "stt", "mic", "record"};
     private static final String[] VOICE_DESC_WORDS = {"음성", "마이크", "voice", "speech", "말하기"};
     private static final String[] VOICE_DESC_PREFERRED = {"검색", "명령", "인식", "말하기", "search"};
     private static final String[] VOICE_DESC_EXCLUDE = {"안내", "볼륨", "음량", "소리", "mute", "끄기", "켜기"};
     private static final int MAX_VIRTUAL_ID = 3000;
-    // 2026-10-05 기기 로그: 핸들 음성 버튼을 누르면 nMirror 가 카카오 화면에서
-    // adot_*_wake_up_button, nugu_*, *kakaoi*, btn_speech_recognition, v_clova_button
-    // 등을 차례로 찾고, 못 찾으면 약 30초 동안 1~3초마다 다시 찾는다. 버튼을 누를
-    // 때만 오는 요청이므로, 조용하다가 시작된 요청 묶음을 버튼 누름으로 본다.
-    private static final String[] NMIRROR_VOICE_ID_WORDS = {
-            "wake_up", "nugu", "kakaoi", "speech", "voice", "clova"};
-    private static final long QUERY_BURST_GAP_MS = 5000;
-    // nMirror 는 핸들 버튼 없이도 매분 정각(ACTION_TIME_TICK) 같은 조회를 한다
-    // (10:31:00, 10:32:00, 10:33:00). 정각 직후에 시작한 조회 묶음은 누름으로 보지 않는다.
-    private static final long MINUTE_TICK_WINDOW_MS = 2500;
     private static final long CLICK_DEBOUNCE_MS = 3000;
-    private static final int LOG_LIMIT = 5;   // 같은 줄 반복 제한(nMirror 는 초당 수 회 다시 찾는다)
 
-    private final Map<String, Integer> logged = new HashMap<>();
-    private volatile String proxyName = KAKAO_PKG + ":id/btn_speech_recognition";
     private volatile Activity resumed;
-    private View proxy;
-    private boolean candidatesLogged;
-    private volatile long lastVoiceQueryMs;
     private volatile long lastClickMs;
     private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
 
-    private int nmirrorLines;
-
-    void install(LoadPackageParam lpparam) {
-        hookNmirrorReport();
-        hookAccessibilityRequests();
-        hookResourceIds();
-        hookActivities();
-        KakaoHudLog.line("voice: diagnostics + proxy hooks installed");
+    void install() {
+        hookPressReceiver();
+        hookResumedActivity();
     }
 
-    /** nMirror 쪽 훅(NmirrorVoiceHook)이 보낸 호출 기록을 받아 kakao_hud.log 에 남긴다. */
-    private void hookNmirrorReport() {
+    /** nMirror 쪽 훅(NmirrorVoiceHook)이 보낸 누름/무시 알림을 받는다. */
+    private void hookPressReceiver() {
         try {
             XposedHelpers.findAndHookMethod(android.app.Application.class, "onCreate", new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
-                    android.content.Context ctx = (android.content.Context) param.thisObject;
+                    Context ctx = (Context) param.thisObject;
                     if (!KAKAO_PKG.equals(ctx.getPackageName())) return;
-                    android.content.BroadcastReceiver r = new android.content.BroadcastReceiver() {
-                        @Override public void onReceive(android.content.Context c, Intent i) {
+                    BroadcastReceiver r = new BroadcastReceiver() {
+                        @Override public void onReceive(Context c, Intent i) {
                             String call = String.valueOf(i.getStringExtra("call"));
-                            long wall = i.getLongExtra("wall", 0L);
-                            boolean press = call.startsWith(NmirrorVoiceHook.PRESS);
-                            if (press || nmirrorLines++ < 300) {
-                                KakaoHudLog.line("voice: nMirror " + call
-                                        + " (+" + (wall % 60000L) + "ms in minute)");
+                            KakaoHudLog.line("voice: nMirror " + call);
+                            if (call.startsWith(NmirrorVoiceHook.PRESS)) {
+                                main.post(() -> clickVoice());
                             }
-                            if (press) main.post(() -> clickVoice("steering button (nMirror)"));
                         }
                     };
-                    android.content.IntentFilter f = new android.content.IntentFilter(NmirrorVoiceHook.ACTION_VOICE);
+                    IntentFilter f = new IntentFilter(NmirrorVoiceHook.ACTION_VOICE);
                     if (android.os.Build.VERSION.SDK_INT >= 33) {
-                        ctx.registerReceiver(r, f, android.content.Context.RECEIVER_EXPORTED);
+                        ctx.registerReceiver(r, f, Context.RECEIVER_EXPORTED);
                     } else {
                         ctx.registerReceiver(r, f);
                     }
-                    KakaoHudLog.line("voice: waiting for nMirror reports");
                 }
             });
         } catch (Throwable t) {
@@ -110,268 +73,25 @@ final class KakaoVoice {
         }
     }
 
-    /** 같은 내용은 LOG_LIMIT 번까지만 남긴다. */
-    private void once(String key, String message) {
-        synchronized (logged) {
-            int n = logged.containsKey(key) ? logged.get(key) : 0;
-            if (n >= LOG_LIMIT) return;
-            logged.put(key, n + 1);
-        }
-        KakaoHudLog.line(message);
-    }
-
-    private static boolean voiceLike(String name) {
-        if (name == null) return false;
-        String n = name.toLowerCase(Locale.ROOT);
-        int slash = n.lastIndexOf('/');
-        if (slash >= 0) n = n.substring(slash + 1);
-        for (String w : VOICE_ID_WORDS) if (n.contains(w)) return true;
-        return false;
-    }
-
-    // ---- 1) nMirror 접근성 요청 기록 ----
-
-    private void hookAccessibilityRequests() {
-        try {
-            Class<?> aic = XposedHelpers.findClass("android.view.AccessibilityInteractionController", null);
-            int n = 0;
-            n += XposedBridge.hookAllMethods(aic, "findAccessibilityNodeInfosByViewIdClientThread", new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    String id = firstString(param.args);
-                    once("q:" + id, "voice: a11y find by id \"" + id + "\"" + (voiceLike(id) ? " (voice-like → proxy)" : ""));
-                    if (voiceLike(id)) proxyName = id.contains(":") ? id : KAKAO_PKG + ":id/" + id;
-                    if (voiceLike(id)) ensureProxyIn(param.thisObject, param.args.length > 0 && param.args[0] instanceof Long ? (Long) param.args[0] : -1L);
-                    onVoiceQuery(id);
-                }
-            }).size();
-            n += XposedBridge.hookAllMethods(aic, "findAccessibilityNodeInfosByTextClientThread", new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    String text = firstString(param.args);
-                    once("t:" + text, "voice: a11y find by text \"" + text + "\"");
-                }
-            }).size();
-            n += XposedBridge.hookAllMethods(aic, "performAccessibilityActionClientThread", new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    long node = param.args.length > 0 && param.args[0] instanceof Long ? (Long) param.args[0] : -1L;
-                    int action = param.args.length > 1 && param.args[1] instanceof Integer ? (Integer) param.args[1] : -1;
-                    once("a:" + action, "voice: a11y perform action=" + action + " node=0x" + Long.toHexString(node));
-                }
-            }).size();
-            n += XposedBridge.hookAllMethods(aic, "findAccessibilityNodeInfoByAccessibilityIdClientThread", new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    once("byid", "voice: a11y tree read (service is inspecting Kakao windows)");
-                }
-            }).size();
-            KakaoHudLog.line("voice: a11y request hooks x" + n);
-        } catch (Throwable t) {
-            KakaoHudLog.ex("voice a11y hooks", t);
-        }
-    }
-
-    /**
-     * 2026-10-05 기기 로그: 프록시 노드가 한 번도 만들어지지 않았다(nMirror 는 포커스된
-     * 창에서 찾는데 프록시는 다른 창의 DecorView 에 있었다). 그래서 nMirror 가 클릭하지
-     * 못하고 계속 다시 찾아, 두 번째 누름부터 감지되지 않았다. 질의가 들어온 창(이
-     * AccessibilityInteractionController 의 ViewRootImpl)에 프록시를 옮겨 붙인다.
-     */
-    private void ensureProxyIn(Object controller, long queryNodeId) {
-        try {
-            Object vri = XposedHelpers.getObjectField(controller, "mViewRootImpl");
-            Object rootObj = vri == null ? null : XposedHelpers.getObjectField(vri, "mView");
-            if (!(rootObj instanceof ViewGroup)) {
-                once("root-not-group", "voice: lookup window root is " + (rootObj == null ? "null" : rootObj.getClass().getName()));
-                return;
-            }
-            final ViewGroup windowRoot = (ViewGroup) rootObj;
-            // nMirror 가 창 전체가 아니라 그 안의 노드 아래에서 찾을 수도 있다. 질의 기준 노드의
-            // View(접근성 ID = 노드 ID 하위 32비트)를 찾아 그 아래에 프록시를 둔다.
-            int a11yViewId = (int) queryNodeId;
-            View queryRoot = (a11yViewId == Integer.MAX_VALUE - 1 || a11yViewId == Integer.MAX_VALUE || queryNodeId < 0)
-                    ? windowRoot : findByA11yId(windowRoot, a11yViewId);
-            if (queryRoot == null) queryRoot = windowRoot;
-            final ViewGroup target = queryRoot instanceof ViewGroup ? (ViewGroup) queryRoot : windowRoot;
-            View p = proxy;
-            boolean inside = p != null && isDescendant(p, target);
-            once("root:" + target.getClass().getName() + inside, "voice: lookup root=" + target.getClass().getSimpleName()
-                    + (target == windowRoot ? " (window)" : " (inside window " + windowRoot.getClass().getSimpleName() + ")")
-                    + " a11yId=" + a11yViewId + " proxyInside=" + inside);
-            if (p != null) {
-                once("pstate", "voice: proxy state id=0x" + Integer.toHexString(p.getId())
-                        + " attached=" + p.isAttachedToWindow() + " shown=" + p.isShown()
-                        + " winVis=" + p.getWindowVisibility() + " size=" + p.getWidth() + "x" + p.getHeight()
-                        + " findById=" + (windowRoot.findViewById(PROXY_ID) == p)
-                        + " a11yImportant=" + p.isImportantForAccessibility());
-            }
-            if (!inside) main.post(() -> {
-                try {
-                    attachProxy(target);
-                } catch (Throwable t) {
-                    KakaoHudLog.ex("voice proxy move", t);
-                }
-            });
-        } catch (Throwable t) {
-            once("root-ex", "voice: lookup window root unavailable: " + t);
-        }
-    }
-
-    private static boolean isDescendant(View v, View ancestor) {
-        for (Object cur = v; cur instanceof View; cur = ((View) cur).getParent()) {
-            if (cur == ancestor) return true;
-        }
-        return false;
-    }
-
-    private static View findByA11yId(View v, int id) {
-        try {
-            Object own = XposedHelpers.callMethod(v, "getAccessibilityViewId");
-            if (own instanceof Integer && (Integer) own == id) return v;
-        } catch (Throwable ignored) {
-            return null;
-        }
-        if (v instanceof ViewGroup) {
-            ViewGroup g = (ViewGroup) v;
-            for (int i = 0; i < g.getChildCount(); i++) {
-                View found = findByA11yId(g.getChildAt(i), id);
-                if (found != null) return found;
-            }
-        }
-        return null;
-    }
-
-    /** nMirror 가 음성 버튼을 찾기 시작하면(= 핸들 음성 버튼 누름) 카카오 음성 버튼을 누른다. */
-    private void onVoiceQuery(String id) {
-        if (id == null) return;
-        String l = id.toLowerCase(Locale.ROOT);
-        boolean voice = false;
-        for (String w : NMIRROR_VOICE_ID_WORDS) if (l.contains(w)) voice = true;
-        if (!voice) return;
-        long now = android.os.SystemClock.elapsedRealtime();
-        boolean burstStart = now - lastVoiceQueryMs > QUERY_BURST_GAP_MS;
-        lastVoiceQueryMs = now;
-        if (burstStart) {
-            // 2026-10-05 b64 로그: nMirror 가 조회하는 카카오 창은 화면에 없는 창이다
-            // (프록시 attached=false, windowVisibility=GONE). 안드로이드는 보이지 않는 창의
-            // 노드를 돌려주지 않으므로 nMirror 는 어떤 프록시도 클릭할 수 없다. 그래서
-            // 조회 묶음의 시작을 버튼 누름으로 보되, 매분 정각 조회는 거른다.
-            long msInMinute = System.currentTimeMillis() % 60000L;
-            if (msInMinute < MINUTE_TICK_WINDOW_MS) {
-                KakaoHudLog.line("voice: lookup at minute tick ignored (\"" + id + "\", +" + msInMinute + "ms)");
-            } else {
-                KakaoHudLog.line("voice: steering button press (lookup \"" + id + "\", +" + msInMinute + "ms)");
-                main.post(() -> clickVoice("steering button"));
-            }
-        }
-    }
-
-    private static String firstString(Object[] args) {
-        for (Object a : args) if (a instanceof String) return (String) a;
-        return null;
-    }
-
-    // ---- 2) 음성 ID → 프록시 ----
-
-    private void hookResourceIds() {
-        try {
-            Method getId = android.content.res.Resources.class.getMethod(
-                    "getIdentifier", String.class, String.class, String.class);
-            XposedBridge.hookMethod(getId, new XC_MethodHook() {
-                @Override protected void afterHookedMethod(MethodHookParam param) {
-                    Object r = param.getResult();
-                    if (!(r instanceof Integer) || (Integer) r != 0) return;
-                    String name = (String) param.args[0];
-                    String type = (String) param.args[1];
-                    String pkg = (String) param.args[2];
-                    boolean full = name != null && name.startsWith(KAKAO_PKG + ":id/");
-                    boolean entry = "id".equals(type) && (pkg == null || KAKAO_PKG.equals(pkg));
-                    if ((full || entry) && voiceLike(name)) {
-                        param.setResult(PROXY_ID);
-                        once("rid:" + name, "voice: resolved \"" + name + "\" to proxy");
-                    }
-                }
-            });
-        } catch (Throwable t) {
-            KakaoHudLog.ex("voice getIdentifier hook", t);
-        }
-    }
-
-    // ---- 키/인텐트 기록 + 프록시 부착 ----
-
-    private void hookActivities() {
+    private void hookResumedActivity() {
         try {
             XposedHelpers.findAndHookMethod(Activity.class, "onResume", new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
                     Activity act = (Activity) param.thisObject;
-                    if (!KAKAO_PKG.equals(act.getPackageName())) return;
-                    resumed = act;
-                    try {
-                        View root = act.getWindow() == null ? null : act.getWindow().getDecorView();
-                        if (root instanceof ViewGroup) attachProxy((ViewGroup) root);
-                    } catch (Throwable t) {
-                        KakaoHudLog.ex("voice proxy attach", t);
-                    }
-                }
-            });
-            XposedHelpers.findAndHookMethod(Activity.class, "dispatchKeyEvent", KeyEvent.class, new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    KeyEvent e = (KeyEvent) param.args[0];
-                    int code = e.getKeyCode();
-                    if (e.getAction() != KeyEvent.ACTION_DOWN || code == KeyEvent.KEYCODE_VOLUME_UP
-                            || code == KeyEvent.KEYCODE_VOLUME_DOWN) return;
-                    once("k:" + code, "voice: key " + KeyEvent.keyCodeToString(code) + " in "
-                            + param.thisObject.getClass().getSimpleName());
-                }
-            });
-            XposedHelpers.findAndHookMethod(Activity.class, "onNewIntent", Intent.class, new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    Intent i = (Intent) param.args[0];
-                    if (i == null) return;
-                    once("i:" + i.getAction() + i.getDataString(), "voice: new intent action=" + i.getAction()
-                            + " data=" + i.getDataString() + " extras=" + (i.getExtras() == null ? "-" : i.getExtras().keySet()));
+                    if (KAKAO_PKG.equals(act.getPackageName())) resumed = act;
                 }
             });
         } catch (Throwable t) {
-            KakaoHudLog.ex("voice activity hooks", t);
+            KakaoHudLog.ex("voice activity hook", t);
         }
     }
 
-    private void attachProxy(ViewGroup root) {
-        if (proxy != null && proxy.getParent() == root) return;
-        if (proxy != null && proxy.getParent() instanceof ViewGroup) {
-            ((ViewGroup) proxy.getParent()).removeView(proxy);
-        }
-        View p = new View(root.getContext());
-        p.setId(PROXY_ID);
-        p.setContentDescription("음성 검색");
-        p.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
-        p.setClickable(true);
-        p.setFocusable(true);
-        p.setAccessibilityDelegate(new View.AccessibilityDelegate() {
-            @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
-                super.onInitializeAccessibilityNodeInfo(host, info);
-                try { info.setViewIdResourceName(proxyName); } catch (Throwable ignored) { }
-                android.graphics.Rect r = new android.graphics.Rect();
-                info.getBoundsInScreen(r);
-                once("node", "voice: proxy node built visible=" + info.isVisibleToUser()
-                        + " clickable=" + info.isClickable() + " enabled=" + info.isEnabled()
-                        + " bounds=" + r.toShortString());
-            }
-        });
-        p.setOnClickListener(v -> {
-            KakaoHudLog.line("voice: proxy clicked (as " + proxyName + ")");
-            clickVoice("proxy");
-        });
-        root.addView(p, new ViewGroup.LayoutParams(8, 8));
-        proxy = p;
-        once("attach:" + root.getClass().getSimpleName(), "voice: proxy attached to "
-                + root.getClass().getSimpleName() + " / " + root.getContext().getClass().getSimpleName());
-    }
+    // ---- 카카오 화면의 음성 버튼 클릭 ----
 
-    // ---- 3) 카카오 화면의 음성 버튼 클릭 ----
-
-    private void clickVoice(String why) {
+    private void clickVoice() {
         long now = android.os.SystemClock.elapsedRealtime();
         if (now - lastClickMs < CLICK_DEBOUNCE_MS) {
-            KakaoHudLog.line("voice: " + why + " ignored (just clicked)");
+            KakaoHudLog.line("voice: press ignored (just clicked)");
             return;
         }
         lastClickMs = now;
@@ -384,7 +104,6 @@ final class KakaoVoice {
         List<View> hosts = new ArrayList<>();
         collectProviders(root, hosts);
         Candidate best = null;
-        List<String> seen = new ArrayList<>();
         List<String> all = new ArrayList<>();
         for (View host : hosts) {
             AccessibilityNodeProvider provider = host.getAccessibilityNodeProvider();
@@ -399,22 +118,17 @@ final class KakaoVoice {
                 if (info == null) continue;
                 String label = label(info);
                 if (label.isEmpty()) continue;
-                int score = score(label, info);
                 if (all.size() < 80) all.add(label + (info.isClickable() ? "*" : "") + "#" + id);
-                if (score > 0) seen.add(label + "#" + id + "(" + score + ")");
+                int score = score(label, info);
                 if (score > 0 && (best == null || score > best.score)) best = new Candidate(provider, id, label, score);
             }
-        }
-        if (!candidatesLogged || best == null) {
-            candidatesLogged = true;
-            KakaoHudLog.line("voice: compose hosts=" + hosts.size() + " candidates=" + seen);
         }
         if (best == null) {
             KakaoHudLog.line("voice: no voice button on the current Kakao screen; labels(*=clickable)=" + all);
             return;
         }
         boolean ok = best.provider.performAction(best.id, AccessibilityNodeInfo.ACTION_CLICK, null);
-        KakaoHudLog.line("voice: clicked \"" + best.label + "\" id=" + best.id + " ok=" + ok);
+        KakaoHudLog.line("voice: clicked \"" + best.label + "\" ok=" + ok);
     }
 
     private static final class Candidate {

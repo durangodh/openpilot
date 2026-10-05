@@ -24,13 +24,10 @@ final class NmirrorVoiceHook {
     static final String ACTION_VOICE = "ai.comma.kakaohud.VOICE";
     private static final String KAKAO_PKG = "com.locnall.KimGiSa";
     private static final String SERVICE = "com.legendn.nmirror.car.NavigationButtonService";
-    private static long lastSent;
 
     static boolean isNmirror(String pkg) {
         return pkg != null && pkg.toLowerCase(Locale.ROOT).contains("nmirror");
     }
-
-    private static long lastStackMs;
 
     // 2026-10-05 b66 로그: 누를 때마다 a(카카오, voice=true, reroute=false) 가 불리는데,
     // 카카오 음성 버튼(Compose)에 리소스 ID 가 없어 못 찾으면 "Waiting for navigation
@@ -44,7 +41,6 @@ final class NmirrorVoiceHook {
     private static long lastCallMs = -REPEAT_GAP_MS;
 
     static void install(LoadPackageParam lpparam) {
-        hookLookupStacks();
         Class<?> service = XposedHelpers.findClassIfExists(SERVICE, lpparam.classLoader);
         if (service == null) {
             XposedBridge.log("KakaoHud: nMirror " + lpparam.packageName + " has no " + SERVICE
@@ -66,7 +62,6 @@ final class NmirrorVoiceHook {
         }
         XposedBridge.log("KakaoHud: nMirror " + lpparam.packageName + " voice hook on "
                 + SERVICE + " x" + hooked);
-        notifyKakao("hook ready x" + hooked);
     }
 
     private static void onKakaoVoiceCall(XC_MethodHook.MethodHookParam param, Class<?> ret) {
@@ -80,70 +75,15 @@ final class NmirrorVoiceHook {
         else if (ret == void.class) param.setResult(null);
         else skipped = false;   // 모르는 반환형: 원래대로 두고 기록만
         String how = (skipped ? "" : " (not skipped, returns " + ret.getSimpleName() + ")");
-        if (gap < REPEAT_GAP_MS) {
-            notifyKakao("repeat +" + gap + "ms" + how);
-        } else if (msInMinute < MINUTE_TICK_WINDOW_MS) {
-            notifyKakao("minute tick ignored" + how + " via " + callers());
+        if (gap < REPEAT_GAP_MS) return;   // 같은 누름의 반복 호출
+        if (msInMinute < MINUTE_TICK_WINDOW_MS) {
+            notifyKakao("minute tick ignored" + how);
         } else {
-            notifyKakao(PRESS + " b" + BuildConfig.HUD_BUILD + how + " via " + callers());
+            notifyKakao(PRESS + " b" + BuildConfig.HUD_BUILD + how);
         }
     }
-
-    private static String callers() {
-        StringBuilder sb = new StringBuilder();
-        int n = 0;
-        for (StackTraceElement e : new Throwable().getStackTrace()) {
-            String c = e.getClassName();
-            if (c.startsWith("de.robv") || c.startsWith("ai.comma") || c.startsWith("LSPHooker")
-                    || c.startsWith("org.lsposed") || c.startsWith("P.") || c.startsWith("java.lang.reflect")) continue;
-            if (n > 0) sb.append(" < ");
-            sb.append(c.substring(c.lastIndexOf('.') + 1)).append('.').append(e.getMethodName()).append(':').append(e.getLineNumber());
-            if (++n >= 6) break;
-        }
-        return sb.toString();
-    }
-
-    /**
-     * nMirror 버전과 무관하게: 음성 버튼 ID 조회가 어느 nMirror 함수에서 불리는지 호출
-     * 경로를 남긴다(5초에 한 번). 매분 조회와 실제 누름의 경로가 다르면 그걸로 구분한다.
-     */
-    private static void hookLookupStacks() {
-        try {
-            XposedHelpers.findAndHookMethod(android.view.accessibility.AccessibilityNodeInfo.class,
-                    "findAccessibilityNodeInfosByViewId", String.class, new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    String id = (String) param.args[0];
-                    if (id == null || !id.startsWith(KAKAO_PKG)) return;
-                    long now = android.os.SystemClock.elapsedRealtime();
-                    if (now - lastStackMs < 5000L) return;
-                    lastStackMs = now;
-                    StringBuilder sb = new StringBuilder("lookup ").append(id.substring(id.indexOf('/') + 1)).append(" via ");
-                    int n = 0;
-                    for (StackTraceElement e : new Throwable().getStackTrace()) {
-                        String c = e.getClassName();
-                        if (c.startsWith("android.") || c.startsWith("java.") || c.startsWith("de.robv")
-                                || c.startsWith("ai.comma") || c.startsWith("LSPHooker") || c.startsWith("org.lsposed")) continue;
-                        sb.append(c).append('.').append(e.getMethodName()).append(':').append(e.getLineNumber()).append(" < ");
-                        if (++n >= 8) break;
-                    }
-                    notifyKakao(sb.toString());
-                }
-            });
-            XposedBridge.log("KakaoHud: nMirror lookup stack hook ready");
-        } catch (Throwable t) {
-            XposedBridge.log("KakaoHud: nMirror lookup stack hook failed: " + t);
-        }
-    }
-
-    private static int sentInWindow;
 
     private static void notifyKakao(String where) {
-        long now = android.os.SystemClock.elapsedRealtime();
-        if (now - lastSent >= 1000L) {
-            lastSent = now;
-            sentInWindow = 0;
-        }
-        if (++sentInWindow > 10) return;   // 초당 10건까지
         try {
             Context ctx = AndroidAppHelper.currentApplication();
             if (ctx == null) {
