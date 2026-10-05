@@ -53,7 +53,7 @@ final class KakaoVoice {
             "wake_up", "nugu", "kakaoi", "speech", "voice", "clova"};
     private static final long QUERY_BURST_GAP_MS = 8000;
     private static final long CLICK_DEBOUNCE_MS = 3000;
-    private static final int LOG_LIMIT = 40;
+    private static final int LOG_LIMIT = 5;   // 같은 줄 반복 제한(nMirror 는 초당 수 회 다시 찾는다)
 
     private final Map<String, Integer> logged = new HashMap<>();
     private volatile String proxyName = KAKAO_PKG + ":id/btn_speech_recognition";
@@ -101,6 +101,7 @@ final class KakaoVoice {
                     String id = firstString(param.args);
                     once("q:" + id, "voice: a11y find by id \"" + id + "\"" + (voiceLike(id) ? " (voice-like → proxy)" : ""));
                     if (voiceLike(id)) proxyName = id.contains(":") ? id : KAKAO_PKG + ":id/" + id;
+                    if (voiceLike(id)) ensureProxyIn(param.thisObject);
                     onVoiceQuery(id);
                 }
             }).size();
@@ -125,6 +126,37 @@ final class KakaoVoice {
             KakaoHudLog.line("voice: a11y request hooks x" + n);
         } catch (Throwable t) {
             KakaoHudLog.ex("voice a11y hooks", t);
+        }
+    }
+
+    /**
+     * 2026-10-05 기기 로그: 프록시 노드가 한 번도 만들어지지 않았다(nMirror 는 포커스된
+     * 창에서 찾는데 프록시는 다른 창의 DecorView 에 있었다). 그래서 nMirror 가 클릭하지
+     * 못하고 계속 다시 찾아, 두 번째 누름부터 감지되지 않았다. 질의가 들어온 창(이
+     * AccessibilityInteractionController 의 ViewRootImpl)에 프록시를 옮겨 붙인다.
+     */
+    private void ensureProxyIn(Object controller) {
+        try {
+            Object vri = XposedHelpers.getObjectField(controller, "mViewRootImpl");
+            Object rootObj = vri == null ? null : XposedHelpers.getObjectField(vri, "mView");
+            if (!(rootObj instanceof ViewGroup)) {
+                once("root-not-group", "voice: lookup window root is " + (rootObj == null ? "null" : rootObj.getClass().getName()));
+                return;
+            }
+            final ViewGroup root = (ViewGroup) rootObj;
+            View p = proxy;
+            boolean inside = p != null && p.getRootView() == root;
+            once("root:" + root.getClass().getName() + inside, "voice: lookup window root=" + root.getClass().getSimpleName()
+                    + " proxyInside=" + inside);
+            if (!inside) main.post(() -> {
+                try {
+                    attachProxy(root);
+                } catch (Throwable t) {
+                    KakaoHudLog.ex("voice proxy move", t);
+                }
+            });
+        } catch (Throwable t) {
+            once("root-ex", "voice: lookup window root unavailable: " + t);
         }
     }
 
@@ -241,9 +273,10 @@ final class KakaoVoice {
             KakaoHudLog.line("voice: proxy clicked (as " + proxyName + ")");
             clickVoice("proxy");
         });
-        root.addView(p, new ViewGroup.LayoutParams(2, 2));
+        root.addView(p, new ViewGroup.LayoutParams(8, 8));
         proxy = p;
-        once("attach", "voice: proxy attached to " + root.getContext().getClass().getSimpleName());
+        once("attach:" + root.getClass().getSimpleName(), "voice: proxy attached to "
+                + root.getClass().getSimpleName() + " / " + root.getContext().getClass().getSimpleName());
     }
 
     // ---- 3) 카카오 화면의 음성 버튼 클릭 ----
