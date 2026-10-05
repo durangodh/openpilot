@@ -303,7 +303,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"ShowRouteMapAlways", PERSISTENT},         // 1=목적지 경로 동안 Tmap 지도 이미지 상시 표시
     {"ShowPathWidth", PERSISTENT},               // 경로 반폭 cm (90=0.90m)
     {"ShowPathStatusColor", PERSISTENT},         // 가감속 상태에 따른 경로 색상
-    {"ShowPlotMode", PERSISTENT},                // 0=off, 1..8=C3 driving analysis plot
     {"CustomSteerRatio", PERSISTENT},          // 고정 조향비 x100
     {"UseLiveSteerRatio", PERSISTENT},         // 1=liveParameters 학습 조향비 사용
     {"SteerActuatorDelay", PERSISTENT},        // 조향 지연 보상 x100 (초)

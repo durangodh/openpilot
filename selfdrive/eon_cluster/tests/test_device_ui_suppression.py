@@ -23,7 +23,7 @@ def test_s9_connection_does_not_hide_eon_driving_ui():
   assert "eon_cluster_hud_connected" not in onroad
   assert "eon_cluster_hud_connected" not in header
   assert "drawLaneLines(p, s);" in onroad
-  assert "drawCarrotPlot(p);" in onroad
+  assert "drawCarrotPlot" not in onroad   # 주행 그래프는 제거됨(2026-10-05)
   assert "drawCarrotLead(p);" in onroad
   # 내비 이미지 로드는 외부 HUD 생존 여부로만 가른다(현재는 s9HudActive).
   # 인자가 무엇으로 바뀌든 폰 ACK 파라미터에 묶이면 안 된다.

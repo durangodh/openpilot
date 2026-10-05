@@ -1544,11 +1544,6 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "0 ACC: 신호정지 끔 / 1 AUTO: 원거리 신호정지·출발준비에서 E2E / 2 APILOT: AUTO 조건과 비전 앞차까지 E2E.",
       "../assets/img_experimental_white.svg", 0, 2, 1, 0, 2, this));
 
-  list->addItem(new ParamValueControlF(
-      "ShowPlotMode", "DRIVING ANALYSIS GRAPH",
-      "0 끔 / 1 가속도 / 2 속도·가속도 / 3 모델 / 4 앞차 / 5 앞차 저크 / 6 조향토크 / 7 조향각 / 8 곡률. EON에서는 선택한 그래프 하나만 10Hz로 표시합니다.",
-      "../assets/offroad/icon_openpilot.png", 0, 8, 1, 0, 0, this));
-
   list->addItem(new ParamControl(
       "MixRadarInfo", "RADAR / VISION ACCEL BLEND",
       "켜짐(apilot-c2 방식): 비전 모델의 앞차 가속도가 레이더보다 크면 비전 값을 사용합니다. / 꺼짐: 레이더 가속도만 사용합니다. 앞차 첫 인식 때 제동이 툭 들어가면 끄세요.",

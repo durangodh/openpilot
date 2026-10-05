@@ -102,7 +102,6 @@ protected:
   void drawCarrotBottomContent(QPainter &p);
   void drawCarrotDeviceState(QPainter &p);
   void drawCarrotNavi(QPainter &p);
-  void drawCarrotPlot(QPainter &p);
   void updateCarrotNavi(bool load_images = true);
 
   QPixmap ic_speed_bg;
@@ -147,23 +146,6 @@ protected:
   int carrot_navi_lane_scaled_height = 0;
   qint64 carrot_navi_lane_image_mtime = 0;
   float lead_box_w = 0.0f, lead_box_x = 0.0f, lead_box_y = 0.0f;   // 리드박스 EMA
-
-  // EON-friendly C3 plot: one selected mode, 10 Hz, 20 seconds of history.
-  static constexpr int CARROT_PLOT_SAMPLES = 200;
-  std::array<std::array<float, CARROT_PLOT_SAMPLES>, 3> carrot_plot_samples = {};
-  int carrot_plot_mode = 0;
-  int carrot_plot_mode_prev = -1;
-  int carrot_plot_count = 0;
-  int carrot_plot_next = 0;
-  bool carrot_plot_param_initialized = false;
-  uint64_t carrot_plot_last_param_read = 0;
-  uint64_t carrot_plot_last_sample = 0;
-  float carrot_plot_prev_lead_accel = 0.0f;
-  float carrot_plot_lead_jerk = 0.0f;
-  bool carrot_plot_lead_accel_valid = false;
-  QString carrot_plot_title;
-  QImage carrot_plot_cache;
-  QSize carrot_plot_cache_size;
 
   // Low-frequency text/status layers. Driving-critical overlays stay at UI_FREQ.
   QImage carrot_info_cache;

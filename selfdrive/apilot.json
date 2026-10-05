@@ -353,16 +353,6 @@
   },
   {
    "group": "\uc885\ubc29\ud5a5",
-   "name": "ShowPlotMode",
-   "title": "DRIVING ANALYSIS GRAPH",
-   "descr": "0 \ub054 / 1 \uac00\uc18d\ub3c4 / 2 \uc18d\ub3c4\u00b7\uac00\uc18d\ub3c4 / 3 \ubaa8\ub378 / 4 \uc55e\ucc28 / 5 \uc55e\ucc28 \uc800\ud06c / 6 \uc870\ud5a5\ud1a0\ud06c / 7 \uc870\ud5a5\uac01 / 8 \uace1\ub960. EON\uc5d0\uc11c\ub294 \uc120\ud0dd\ud55c \uadf8\ub798\ud504 \ud558\ub098\ub9cc 10Hz\ub85c \ud45c\uc2dc\ud569\ub2c8\ub2e4.",
-   "min": 0,
-   "max": 8,
-   "default": 0,
-   "unit": 1
-  },
-  {
-   "group": "\uc885\ubc29\ud5a5",
    "name": "StartAccelApply",
    "title": "START ACCEL",
    "descr": "\uc815\uc9c0 \ud6c4 \ucd9c\ubc1c \uac00\uc18d\ub3c4(\u00d70.02m/s\u00b2)\uc785\ub2c8\ub2e4. \uac12 \uc99d\uac00(+): \ub354 \ube60\ub974\uace0 \uac15\ud558\uac8c \ucd9c\ubc1c / \uac12 \uac10\uc18c(-): \ucc9c\ucc9c\ud788 \ucd9c\ubc1c / 0: \ucd94\uac00 \ucd9c\ubc1c\uac00\uc18d \ub054.",

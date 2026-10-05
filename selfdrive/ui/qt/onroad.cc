@@ -601,7 +601,6 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
   const bool s9_hud = s9HudActive() && !s9_show_own_map;
 
   drawLaneLines(p, s);
-  drawCarrotPlot(p);
   drawCarrotLead(p);
   // 이미지 로드만 건너뛰고 JSON 파싱은 계속한다 —
   // drawCarrotHud 의 MAP/NDA/HDA 표시가 이 상태를 쓴다.
@@ -632,7 +631,6 @@ void NvgWindow::drawHud(QPainter &p, const cereal::ModelDataV2::Reader &model) {
 }
 
 #include "selfdrive/ui/qt/onroad_navi.inc"
-#include "selfdrive/ui/qt/onroad_plot.inc"
 
 static const QColor get_tpms_color(float tpms) {
     if(tpms < 5 || tpms > 60) // N/A
