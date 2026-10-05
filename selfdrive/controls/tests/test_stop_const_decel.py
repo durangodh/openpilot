@@ -52,6 +52,8 @@ def test_releases_when_lead_pulls_away_or_is_lost():
   assert _approach(ctl, v, d, v_lead=v + 1.0) is None
   assert not ctl.active
   assert _approach(ctl, v, d) is not None
+  for _ in range(int(1.5 / DT)):   # brief dropouts are held (see below)
+    assert ctl.update(True, v, False, d, 0.0, 0.0, 0.0, DT) is not None
   assert ctl.update(True, v, False, d, 0.0, 0.0, 0.0, DT) is None
   assert not ctl.active
 
@@ -69,3 +71,39 @@ def test_trajectory_is_constant_to_a_stop():
   assert v[-1] == 0.0 and a[-1] == 0.0
   assert np.all(np.diff(v) <= 1e-9)
   assert len(j) == len(t) - 1
+
+
+def test_brief_lead_dropout_keeps_braking():
+  ctl = ConstDecelStop()
+  v = 50 / 3.6
+  d = STOP_GAP + v * v / (2 * 1.2)
+  for _ in range(40):
+    decel, target = _approach(ctl, v, d)
+  held = None
+  for _ in range(int(1.5 / DT)):
+    held = ctl.update(True, v, False, 0.0, 0.0, 0.0, -decel, DT)
+    assert held is not None
+  assert abs(held[1] - target) < 1e-6
+  assert ctl.update(True, v, False, 0.0, 0.0, 0.0, -decel, DT) is None   # past the hold
+  assert not ctl.active
+
+
+def test_dropout_hold_resumes_with_lead():
+  ctl = ConstDecelStop()
+  v = 50 / 3.6
+  d = STOP_GAP + v * v / (2 * 1.2)
+  for _ in range(40):
+    _approach(ctl, v, d)
+  for _ in range(10):
+    assert ctl.update(True, v, False, 0.0, 0.0, 0.0, -1.2, DT) is not None
+  assert _approach(ctl, v, d) is not None
+  assert ctl.lost_time == 0.0
+
+
+def test_no_hold_when_disengaged():
+  ctl = ConstDecelStop()
+  v = 50 / 3.6
+  d = STOP_GAP + v * v / (2 * 1.2)
+  _approach(ctl, v, d)
+  assert ctl.update(False, v, False, 0.0, 0.0, 0.0, 0.0, DT) is None
+  assert not ctl.active

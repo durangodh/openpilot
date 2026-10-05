@@ -34,6 +34,10 @@ SLOWING_LEAD_ACCEL = -0.3     # m/s^2, a faster lead must be decelerating
 V_STOPPING = 0.8        # m/s, finish with STOPPING_DECEL
 STOPPING_DECEL = 0.6
 MAX_DECEL = 3.5
+# The lead can drop out for a moment (vision-only lead, 2026-10-05: 2 s at
+# 70 m). Resetting released the brake to ~0 and the stop then needed up to
+# 2.2 m/s^2. Keep the last target this long instead.
+LEAD_LOST_HOLD = 1.5    # s
 
 
 def required_decel(v_ego, d_rel, v_lead):
@@ -49,19 +53,37 @@ class ConstDecelStop:
   def __init__(self):
     self.active = False
     self.decel = 0.0        # current planned decel (positive), rate limited
+    self.target = 0.0
+    self.lost_time = 0.0
 
   def reset(self):
     self.active = False
     self.decel = 0.0
+    self.target = 0.0
+    self.lost_time = 0.0
+
+  def _ramp(self, target, dt):
+    self.target = target
+    step = JERK * dt
+    self.decel += max(-step, min(step, target - self.decel))
+    return self.decel, target
 
   def update(self, allowed, v_ego, lead_status, d_rel, v_lead, a_lead, a_now, dt):
     """Returns (planned decel now, target decel), both positive m/s^2, or None
     to keep the MPC plan.  a_now is the accel currently being planned; the
     override starts from it and returns to it on fallback, so switching
     between the two never steps the command."""
-    if not allowed or not lead_status or not math.isfinite(d_rel) or not math.isfinite(v_lead):
+    if not allowed or v_ego < 0.1:
       self.reset()
       return None
+    if not lead_status or not math.isfinite(d_rel) or not math.isfinite(v_lead):
+      # Brief dropout while stopping: keep braking toward the last target.
+      if self.active and self.target > 0.0 and self.lost_time + dt <= LEAD_LOST_HOLD + 1e-6:
+        self.lost_time += dt
+        return self._ramp(self.target, dt)
+      self.reset()
+      return None
+    self.lost_time = 0.0
 
     a_req = required_decel(v_ego, d_rel, v_lead)
     closing = v_lead < v_ego - 0.5
@@ -72,7 +94,7 @@ class ConstDecelStop:
           START_DECEL <= a_req <= FALLBACK_DECEL and d_rel > STOP_GAP):
         self.active = True
         self.decel = max(0.0, -a_now)
-    elif a_req < RELEASE_DECEL or v_lead > v_ego + 0.5 or v_ego < 0.1:
+    elif a_req < RELEASE_DECEL or v_lead > v_ego + 0.5:
       self.reset()
 
     if not self.active:
@@ -80,14 +102,13 @@ class ConstDecelStop:
     # Late detection or a cut-in: the MPC handles it; resume from its plan.
     if a_req > FALLBACK_DECEL or d_rel <= STOP_GAP:
       self.decel = max(0.0, -a_now)
+      self.target = 0.0
       return None
 
     target = min(MAX_DECEL, a_req)
     if v_ego < V_STOPPING:
       target = max(target, STOPPING_DECEL)
-    step = JERK * dt
-    self.decel += max(-step, min(step, target - self.decel))
-    return self.decel, target
+    return self._ramp(target, dt)
 
   @staticmethod
   def trajectory(v0, decel_now, target, t_idxs):
