@@ -51,7 +51,10 @@ final class KakaoVoice {
     // 때만 오는 요청이므로, 조용하다가 시작된 요청 묶음을 버튼 누름으로 본다.
     private static final String[] NMIRROR_VOICE_ID_WORDS = {
             "wake_up", "nugu", "kakaoi", "speech", "voice", "clova"};
-    private static final long QUERY_BURST_GAP_MS = 8000;
+    private static final long QUERY_BURST_GAP_MS = 5000;
+    // nMirror 는 핸들 버튼 없이도 매분 정각(ACTION_TIME_TICK) 같은 조회를 한다
+    // (10:31:00, 10:32:00, 10:33:00). 정각 직후에 시작한 조회 묶음은 누름으로 보지 않는다.
+    private static final long MINUTE_TICK_WINDOW_MS = 2500;
     private static final long CLICK_DEBOUNCE_MS = 3000;
     private static final int LOG_LIMIT = 5;   // 같은 줄 반복 제한(nMirror 는 초당 수 회 다시 찾는다)
 
@@ -210,9 +213,17 @@ final class KakaoVoice {
         boolean burstStart = now - lastVoiceQueryMs > QUERY_BURST_GAP_MS;
         lastVoiceQueryMs = now;
         if (burstStart) {
-            // 2026-10-05: 이 조회는 핸들 버튼 없이도 온다(혼자 음성이 켜짐). 조회만으로는
-            // 누르지 않고 기록만 한다. 실행은 nMirror 가 프록시를 실제로 클릭할 때만.
-            KakaoHudLog.line("voice: nMirror voice lookup started (\"" + id + "\")");
+            // 2026-10-05 b64 로그: nMirror 가 조회하는 카카오 창은 화면에 없는 창이다
+            // (프록시 attached=false, windowVisibility=GONE). 안드로이드는 보이지 않는 창의
+            // 노드를 돌려주지 않으므로 nMirror 는 어떤 프록시도 클릭할 수 없다. 그래서
+            // 조회 묶음의 시작을 버튼 누름으로 보되, 매분 정각 조회는 거른다.
+            long msInMinute = System.currentTimeMillis() % 60000L;
+            if (msInMinute < MINUTE_TICK_WINDOW_MS) {
+                KakaoHudLog.line("voice: lookup at minute tick ignored (\"" + id + "\", +" + msInMinute + "ms)");
+            } else {
+                KakaoHudLog.line("voice: steering button press (lookup \"" + id + "\", +" + msInMinute + "ms)");
+                main.post(() -> clickVoice("steering button"));
+            }
         }
     }
 
