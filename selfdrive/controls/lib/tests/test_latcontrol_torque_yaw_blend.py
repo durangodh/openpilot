@@ -93,3 +93,22 @@ def test_feedforward_cap_keeps_full_output_when_under_turning():
   under_angle = -(2.6 / 12.5 ** 2) / 0.01 * 57.29578
   out, _ = run_output(desired, under_angle)
   assert out == pytest.approx(1.0)
+
+
+def test_blend_filters_gyro_jitter():
+  # A steady gyro offset is applied in full; a one-sample spike is averaged away (tau 1 s).
+  ctl = make_controller({"LatYawMeasureBlend": "50"})
+  v = 20.0
+  cs = NS(vEgo=v, steeringAngleDeg=0.0, steeringPressed=False)
+  params = NS(angleOffsetDeg=0.0, roll=0.0)
+
+  def step(yaw_curv):
+    llk = NS(angularVelocityCalibrated=NS(valid=True, value=[0.0, 0.0, yaw_curv * v]))
+    _, _, log = ctl.update(True, cs, FakeVM(), params, None, False, 0.0, 0.0, llk, None)
+    return log.actualLateralAccel / v ** 2
+
+  for _ in range(300):
+    steady = step(0.002)
+  assert steady == pytest.approx(0.001, rel=1e-3)
+  spike = step(0.012)                  # gyro jumps 5x for one 10 ms sample
+  assert abs(spike - steady) < 0.0001  # unfiltered blend would move it by 0.005

@@ -108,6 +108,11 @@ I_LEAK_FACTOR_V = [0.99975, 0.999]      # @100Hz τ≈[40s, 10s]. [직진, 커�
 # 요레이트(liveLocationKalman, 원본 openpilot 이 대부분 차종에 쓰는 값)를 이 비율만큼
 # 섞으면 영점·기울기와 무관하게 실제 회전을 맞춘다. 저속은 핸들각만(8→12 m/s 점증).
 YAW_MEASURE_SPEED_BP = [8.0, 12.0]
+# ★ 2026-10-05 lat_trace: 자이로 요레이트는 노면 진동으로 핸들각보다 2~4배 떨려, 그대로
+#   섞으면 실제 횡가속 측정이 0.05초 사이 ±0.15 m/s² 씩 튀고 그게 P 를 거쳐 중고속에서
+#   핸들을 "툭" 쳤다. 자이로-핸들각 차이(=영점·기울기 오차)는 천천히 변하는 값이므로
+#   그 차이만 이 시간상수로 걸러 더한다: 측정 = 핸들각 + 비율 × LPF(자이로 - 핸들각).
+YAW_DIFF_TAU = 1.0   # s
 
 # ── 피드포워드는 출력 한계 바로 아래까지만 ─────────────────────────────────
 # 2026-10-03 lat_trace: 급한 커브(목표 3 m/s²)에서 피드포워드만 1.18 로 출력 한계(1.0)를
@@ -241,13 +246,21 @@ class LatControlTorque(LatControl):
         actual_curvature = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
         curvature_deadzone = abs(VM.calc_curvature(math.radians(self.steering_angle_deadzone_deg), CS.vEgo, 0.0))
         blend = getattr(self, 'yaw_measure_blend', 0.0) * interp(CS.vEgo, YAW_MEASURE_SPEED_BP, [0.0, 1.0])
+        yaw_diff = None
         if blend > 0.0:
           try:
             yaw = llk.angularVelocityCalibrated
             if yaw.valid and len(yaw.value) > 2 and math.isfinite(yaw.value[2]):
-              actual_curvature = (1.0 - blend) * actual_curvature + blend * (yaw.value[2] / CS.vEgo)
+              yaw_diff = yaw.value[2] / CS.vEgo - actual_curvature
           except (AttributeError, IndexError, TypeError):
-            pass
+            yaw_diff = None
+        if yaw_diff is None:
+          self.yaw_diff_filtered = None
+        else:
+          prev = getattr(self, 'yaw_diff_filtered', None)
+          alpha = DT_CTRL / (YAW_DIFF_TAU + DT_CTRL)
+          self.yaw_diff_filtered = yaw_diff if prev is None else prev + alpha * (yaw_diff - prev)
+          actual_curvature += blend * self.yaw_diff_filtered
       else:
         actual_curvature_vm = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
         actual_curvature_llk = llk.angularVelocityCalibrated.value[2] / CS.vEgo
