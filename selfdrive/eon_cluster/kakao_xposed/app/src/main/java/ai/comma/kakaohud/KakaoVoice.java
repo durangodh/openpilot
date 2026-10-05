@@ -67,11 +67,43 @@ final class KakaoVoice {
     private volatile long lastClickMs;
     private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
 
+    private int nmirrorLines;
+
     void install(LoadPackageParam lpparam) {
+        hookNmirrorReport();
         hookAccessibilityRequests();
         hookResourceIds();
         hookActivities();
         KakaoHudLog.line("voice: diagnostics + proxy hooks installed");
+    }
+
+    /** nMirror 쪽 훅(NmirrorVoiceHook)이 보낸 호출 기록을 받아 kakao_hud.log 에 남긴다. */
+    private void hookNmirrorReport() {
+        try {
+            XposedHelpers.findAndHookMethod(android.app.Application.class, "onCreate", new XC_MethodHook() {
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    android.content.Context ctx = (android.content.Context) param.thisObject;
+                    if (!KAKAO_PKG.equals(ctx.getPackageName())) return;
+                    android.content.BroadcastReceiver r = new android.content.BroadcastReceiver() {
+                        @Override public void onReceive(android.content.Context c, Intent i) {
+                            if (nmirrorLines++ >= 300) return;
+                            long wall = i.getLongExtra("wall", 0L);
+                            KakaoHudLog.line("voice: nMirror " + i.getStringExtra("call")
+                                    + " (+" + (wall % 60000L) + "ms in minute)");
+                        }
+                    };
+                    android.content.IntentFilter f = new android.content.IntentFilter(NmirrorVoiceHook.ACTION_VOICE);
+                    if (android.os.Build.VERSION.SDK_INT >= 33) {
+                        ctx.registerReceiver(r, f, android.content.Context.RECEIVER_EXPORTED);
+                    } else {
+                        ctx.registerReceiver(r, f);
+                    }
+                    KakaoHudLog.line("voice: waiting for nMirror reports");
+                }
+            });
+        } catch (Throwable t) {
+            KakaoHudLog.ex("voice nMirror receiver", t);
+        }
     }
 
     /** 같은 내용은 LOG_LIMIT 번까지만 남긴다. */
