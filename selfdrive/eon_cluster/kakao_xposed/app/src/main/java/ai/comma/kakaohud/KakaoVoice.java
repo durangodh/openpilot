@@ -86,10 +86,14 @@ final class KakaoVoice {
                     if (!KAKAO_PKG.equals(ctx.getPackageName())) return;
                     android.content.BroadcastReceiver r = new android.content.BroadcastReceiver() {
                         @Override public void onReceive(android.content.Context c, Intent i) {
-                            if (nmirrorLines++ >= 300) return;
+                            String call = String.valueOf(i.getStringExtra("call"));
                             long wall = i.getLongExtra("wall", 0L);
-                            KakaoHudLog.line("voice: nMirror " + i.getStringExtra("call")
-                                    + " (+" + (wall % 60000L) + "ms in minute)");
+                            boolean press = call.startsWith(NmirrorVoiceHook.PRESS);
+                            if (press || nmirrorLines++ < 300) {
+                                KakaoHudLog.line("voice: nMirror " + call
+                                        + " (+" + (wall % 60000L) + "ms in minute)");
+                            }
+                            if (press) main.post(() -> clickVoice("steering button (nMirror)"));
                         }
                     };
                     android.content.IntentFilter f = new android.content.IntentFilter(NmirrorVoiceHook.ACTION_VOICE);

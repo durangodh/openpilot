@@ -13,13 +13,12 @@ import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam;
 
 /**
- * nMirror 프로세스 쪽: 핸들 음성 버튼 동작을 잡아 카카오 모듈에 알린다.
+ * nMirror 프로세스 쪽: 핸들 음성 버튼 누름을 잡아 카카오 모듈에 알린다.
  *
- * 카카오 쪽에서는 nMirror 의 음성 버튼 ID 조회만 보이는데, 그 조회는 매분 정각에도
- * 오고 한 번 누르면 쉬지 않고 반복돼(2026-10-05 b61/b65 로그) 두 번째 누름부터 구분할
- * 수 없었다. nMirror 의 NavigationButtonService(nMirrorOS 20260926 분석: a(String,
- * boolean, boolean) 가 버튼 동작 이름으로 노드를 찾아 클릭)를 후킹해, 음성 동작이
- * 실행될 때마다 카카오에 브로드캐스트를 보낸다. 로그는 LSPosed 로그(KakaoHud: nMirror ...).
+ * nMirror 는 누를 때마다 NavigationButtonService.a(패키지, voice, reroute) 로 내비 화면의
+ * 음성 버튼을 리소스 ID 로 찾아 클릭한다. 카카오 음성 버튼은 ID 가 없어 찾지 못하고,
+ * 그러면 nMirror 가 3초마다 끝없이 다시 찾는다(2026-10-05 b66 로그). 카카오 음성 호출만
+ * 가로채 성공으로 돌려주고, 카카오 모듈에 "press" 브로드캐스트를 보낸다.
  */
 final class NmirrorVoiceHook {
     static final String ACTION_VOICE = "ai.comma.kakaohud.VOICE";
@@ -33,6 +32,17 @@ final class NmirrorVoiceHook {
 
     private static long lastStackMs;
 
+    // 2026-10-05 b66 로그: 누를 때마다 a(카카오, voice=true, reroute=false) 가 불리는데,
+    // 카카오 음성 버튼(Compose)에 리소스 ID 가 없어 못 찾으면 "Waiting for navigation
+    // button" 을 남기고 약 3초마다(50ms 간격 2회씩) 끝없이 다시 부른다. 그래서 두 번째
+    // 누름부터는 반복 호출과 구분할 수 없었다.
+    // 이제 카카오 음성 호출은 nMirror 가 찾지 않게 하고(성공으로 반환 → 반복 끝),
+    // 대신 카카오 모듈에 "press" 를 보내 카카오가 직접 음성 버튼을 누른다.
+    static final String PRESS = "press";
+    private static final long REPEAT_GAP_MS = 4000;      // 이보다 가까운 호출은 같은 누름(반복)
+    private static final long MINUTE_TICK_WINDOW_MS = 2500;
+    private static long lastCallMs = -REPEAT_GAP_MS;
+
     static void install(LoadPackageParam lpparam) {
         hookLookupStacks();
         Class<?> service = XposedHelpers.findClassIfExists(SERVICE, lpparam.classLoader);
@@ -44,27 +54,53 @@ final class NmirrorVoiceHook {
         int hooked = 0;
         for (Method m : service.getDeclaredMethods()) {
             Class<?>[] p = m.getParameterTypes();
-            boolean hasString = false;
-            for (Class<?> c : p) if (c == String.class) hasString = true;
-            if (!hasString) continue;
+            if (p.length != 3 || p[0] != String.class || p[1] != boolean.class || p[2] != boolean.class) continue;
+            final Class<?> ret = m.getReturnType();
             XposedBridge.hookMethod(m, new XC_MethodHook() {
                 @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    // 1단계(진단): 모든 호출을 인자와 함께 카카오 로그로 보낸다. 매분 반복
-                    // 조회와 실제 누름이 어떤 인자로 구분되는지 확인한 뒤 실행 규칙을 정한다.
-                    StringBuilder sb = new StringBuilder(param.method.getName()).append('(');
-                    for (int i = 0; i < param.args.length; i++) {
-                        if (i > 0) sb.append(',');
-                        Object a = param.args[i];
-                        sb.append(a instanceof String || a instanceof Boolean || a instanceof Number
-                                ? String.valueOf(a) : (a == null ? "null" : a.getClass().getSimpleName()));
-                    }
-                    notifyKakao(sb.append(')').toString());
+                    if (!KAKAO_PKG.equals(param.args[0]) || !Boolean.TRUE.equals(param.args[1])) return;
+                    onKakaoVoiceCall(param, ret);
                 }
             });
             hooked++;
         }
         XposedBridge.log("KakaoHud: nMirror " + lpparam.packageName + " voice hook on "
                 + SERVICE + " x" + hooked);
+        notifyKakao("hook ready x" + hooked);
+    }
+
+    private static void onKakaoVoiceCall(XC_MethodHook.MethodHookParam param, Class<?> ret) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        long gap = now - lastCallMs;
+        lastCallMs = now;
+        long msInMinute = System.currentTimeMillis() % 60000L;
+        // 원래 함수를 건너뛰고 "찾았다"로 돌려준다: nMirror 의 재시도 반복이 끝난다.
+        boolean skipped = true;
+        if (ret == boolean.class || ret == Boolean.class) param.setResult(Boolean.TRUE);
+        else if (ret == void.class) param.setResult(null);
+        else skipped = false;   // 모르는 반환형: 원래대로 두고 기록만
+        String how = (skipped ? "" : " (not skipped, returns " + ret.getSimpleName() + ")");
+        if (gap < REPEAT_GAP_MS) {
+            notifyKakao("repeat +" + gap + "ms" + how);
+        } else if (msInMinute < MINUTE_TICK_WINDOW_MS) {
+            notifyKakao("minute tick ignored" + how + " via " + callers());
+        } else {
+            notifyKakao(PRESS + how + " via " + callers());
+        }
+    }
+
+    private static String callers() {
+        StringBuilder sb = new StringBuilder();
+        int n = 0;
+        for (StackTraceElement e : new Throwable().getStackTrace()) {
+            String c = e.getClassName();
+            if (c.startsWith("de.robv") || c.startsWith("ai.comma") || c.startsWith("LSPHooker")
+                    || c.startsWith("org.lsposed") || c.startsWith("P.") || c.startsWith("java.lang.reflect")) continue;
+            if (n > 0) sb.append(" < ");
+            sb.append(c.substring(c.lastIndexOf('.') + 1)).append('.').append(e.getMethodName()).append(':').append(e.getLineNumber());
+            if (++n >= 6) break;
+        }
+        return sb.toString();
     }
 
     /**
