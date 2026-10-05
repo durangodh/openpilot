@@ -171,8 +171,9 @@ final class KakaoVoice {
         boolean burstStart = now - lastVoiceQueryMs > QUERY_BURST_GAP_MS;
         lastVoiceQueryMs = now;
         if (burstStart) {
-            KakaoHudLog.line("voice: steering button detected (nMirror lookup \"" + id + "\")");
-            main.post(() -> clickVoice("steering button"));
+            // 2026-10-05: 이 조회는 핸들 버튼 없이도 온다(혼자 음성이 켜짐). 조회만으로는
+            // 누르지 않고 기록만 한다. 실행은 nMirror 가 프록시를 실제로 클릭할 때만.
+            KakaoHudLog.line("voice: nMirror voice lookup started (\"" + id + "\")");
         }
     }
 
