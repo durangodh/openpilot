@@ -305,11 +305,15 @@ public final class HudService extends Service {
     private static final int DAY_MAP_MASK_ALPHA = 155;
     private static final int NIGHT_MAP_MASK_ALPHA = 40;
     // 주/야 전환(터널 등) 부드럽게: 마스크 알파 변화 속도, 화면 크로스페이드 시간,
-    // 패널 백라이트 단계 간격·최소 폭(남은 차이의 1/4 씩 줄어드는 감속형).
+    // 패널 백라이트: 원하는 밝기가 BRIGHTNESS_SETTLE_MS 동안 그대로일 때만 한 번에 바꾼다.
+    // 예전에는 0.1초마다 단계적으로(65→35 에 8번 안팎) 밝기 명령을 프레임 사이에 끼워
+    // 보냈다. 터널을 드나들 때마다 그게 반복되면 패널이 응답을 멈춰, HUD 가 멈췄다가
+    // "연결중..."(USB 재초기화) 후 다시 나오는 증상이 반복됐다. 화면 자체의 주/야
+    // 전환은 THEME_FADE_MS 크로스페이드가 부드럽게 해 준다.
     private static final float MAP_MASK_FADE_PER_SEC = 160f;
     private static final long THEME_FADE_MS = 800L;
-    private static final long BRIGHTNESS_STEP_MS = 100L;
-    private static final int BRIGHTNESS_MIN_STEP = 3;
+    private static final long BRIGHTNESS_SETTLE_MS = 1500L;
+    private static final long BRIGHTNESS_CMD_GAP_MS = 1000L;
     private float mapMaskAlphaNow = 0f;
     private long mapMaskElapsed = 0L;
     private Bitmap themeFadeFrame;
@@ -318,6 +322,8 @@ public final class HudService extends Service {
     private long themeFadeStartElapsed = 0L;
     private int lastRenderedDark = -1;
     private long lastBrightnessStepElapsed = 0L;
+    private int pendingBrightness = -1;
+    private long pendingBrightnessSince = 0L;
     private final int[] mapThemePixels = new int[16 * 12];
     private long lastThemeSampleElapsed = 0L;
     private long lastThemeMapElapsed = 0L;
@@ -2012,19 +2018,19 @@ public final class HudService extends Service {
                 requestedBrightness = darkTheme()
                         ? configuredNightBrightness : configuredDayBrightness;
             }
+            long now = SystemClock.elapsedRealtime();
+            if (requestedBrightness != pendingBrightness) {
+                pendingBrightness = requestedBrightness;
+                pendingBrightnessSince = now;
+            }
             if (requestedBrightness != appliedBrightness) {
-                long now = SystemClock.elapsedRealtime();
-                if (appliedBrightness < 1) {
+                // 연결 직후(appliedBrightness < 1)는 바로, 그 뒤에는 터널 출입처럼 짧게
+                // 오가는 변화는 무시하고 자리 잡은 값만 한 번의 명령으로 보낸다.
+                boolean settled = now - pendingBrightnessSince >= BRIGHTNESS_SETTLE_MS;
+                boolean gapOk = now - lastBrightnessStepElapsed >= BRIGHTNESS_CMD_GAP_MS;
+                if (appliedBrightness < 1 || (settled && gapOk)) {
                     display.setBrightness(requestedBrightness);
                     appliedBrightness = requestedBrightness;
-                    lastBrightnessStepElapsed = now;
-                } else if (now - lastBrightnessStepElapsed >= BRIGHTNESS_STEP_MS) {
-                    int diff = requestedBrightness - appliedBrightness;
-                    int step = Math.max(BRIGHTNESS_MIN_STEP, Math.abs(diff) / 4);
-                    int next = Math.abs(diff) <= step ? requestedBrightness
-                            : appliedBrightness + (diff > 0 ? step : -step);
-                    display.setBrightness(next);
-                    appliedBrightness = next;
                     lastBrightnessStepElapsed = now;
                 }
             }

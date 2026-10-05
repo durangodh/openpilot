@@ -348,6 +348,8 @@ public final class TurzxDisplay {
             throw new Exception("display closed");
         }
         exchange(command(14, 8, Math.max(1, Math.min(100, value))), false);
+        // 패널이 보내는 응답을 바로 비운다. 쌓이면 다음 프레임 쓰기가 막힐 수 있다.
+        drainInput(4, 5);
     }
 
     public synchronized void sendJpeg(byte[] jpeg) throws Exception {
