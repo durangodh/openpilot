@@ -101,7 +101,7 @@ final class KakaoVoice {
                     String id = firstString(param.args);
                     once("q:" + id, "voice: a11y find by id \"" + id + "\"" + (voiceLike(id) ? " (voice-like → proxy)" : ""));
                     if (voiceLike(id)) proxyName = id.contains(":") ? id : KAKAO_PKG + ":id/" + id;
-                    if (voiceLike(id)) ensureProxyIn(param.thisObject);
+                    if (voiceLike(id)) ensureProxyIn(param.thisObject, param.args.length > 0 && param.args[0] instanceof Long ? (Long) param.args[0] : -1L);
                     onVoiceQuery(id);
                 }
             }).size();
@@ -135,7 +135,7 @@ final class KakaoVoice {
      * 못하고 계속 다시 찾아, 두 번째 누름부터 감지되지 않았다. 질의가 들어온 창(이
      * AccessibilityInteractionController 의 ViewRootImpl)에 프록시를 옮겨 붙인다.
      */
-    private void ensureProxyIn(Object controller) {
+    private void ensureProxyIn(Object controller, long queryNodeId) {
         try {
             Object vri = XposedHelpers.getObjectField(controller, "mViewRootImpl");
             Object rootObj = vri == null ? null : XposedHelpers.getObjectField(vri, "mView");
@@ -143,14 +143,29 @@ final class KakaoVoice {
                 once("root-not-group", "voice: lookup window root is " + (rootObj == null ? "null" : rootObj.getClass().getName()));
                 return;
             }
-            final ViewGroup root = (ViewGroup) rootObj;
+            final ViewGroup windowRoot = (ViewGroup) rootObj;
+            // nMirror 가 창 전체가 아니라 그 안의 노드 아래에서 찾을 수도 있다. 질의 기준 노드의
+            // View(접근성 ID = 노드 ID 하위 32비트)를 찾아 그 아래에 프록시를 둔다.
+            int a11yViewId = (int) queryNodeId;
+            View queryRoot = (a11yViewId == Integer.MAX_VALUE - 1 || a11yViewId == Integer.MAX_VALUE || queryNodeId < 0)
+                    ? windowRoot : findByA11yId(windowRoot, a11yViewId);
+            if (queryRoot == null) queryRoot = windowRoot;
+            final ViewGroup target = queryRoot instanceof ViewGroup ? (ViewGroup) queryRoot : windowRoot;
             View p = proxy;
-            boolean inside = p != null && p.getRootView() == root;
-            once("root:" + root.getClass().getName() + inside, "voice: lookup window root=" + root.getClass().getSimpleName()
-                    + " proxyInside=" + inside);
+            boolean inside = p != null && isDescendant(p, target);
+            once("root:" + target.getClass().getName() + inside, "voice: lookup root=" + target.getClass().getSimpleName()
+                    + (target == windowRoot ? " (window)" : " (inside window " + windowRoot.getClass().getSimpleName() + ")")
+                    + " a11yId=" + a11yViewId + " proxyInside=" + inside);
+            if (p != null) {
+                once("pstate", "voice: proxy state id=0x" + Integer.toHexString(p.getId())
+                        + " attached=" + p.isAttachedToWindow() + " shown=" + p.isShown()
+                        + " winVis=" + p.getWindowVisibility() + " size=" + p.getWidth() + "x" + p.getHeight()
+                        + " findById=" + (windowRoot.findViewById(PROXY_ID) == p)
+                        + " a11yImportant=" + p.isImportantForAccessibility());
+            }
             if (!inside) main.post(() -> {
                 try {
-                    attachProxy(root);
+                    attachProxy(target);
                 } catch (Throwable t) {
                     KakaoHudLog.ex("voice proxy move", t);
                 }
@@ -158,6 +173,30 @@ final class KakaoVoice {
         } catch (Throwable t) {
             once("root-ex", "voice: lookup window root unavailable: " + t);
         }
+    }
+
+    private static boolean isDescendant(View v, View ancestor) {
+        for (Object cur = v; cur instanceof View; cur = ((View) cur).getParent()) {
+            if (cur == ancestor) return true;
+        }
+        return false;
+    }
+
+    private static View findByA11yId(View v, int id) {
+        try {
+            Object own = XposedHelpers.callMethod(v, "getAccessibilityViewId");
+            if (own instanceof Integer && (Integer) own == id) return v;
+        } catch (Throwable ignored) {
+            return null;
+        }
+        if (v instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                View found = findByA11yId(g.getChildAt(i), id);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     /** nMirror 가 음성 버튼을 찾기 시작하면(= 핸들 음성 버튼 누름) 카카오 음성 버튼을 누른다. */
