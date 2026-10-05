@@ -45,6 +45,14 @@ final class KakaoVoice {
     private static final String[] VOICE_DESC_PREFERRED = {"검색", "명령", "인식", "말하기", "search"};
     private static final String[] VOICE_DESC_EXCLUDE = {"안내", "볼륨", "음량", "소리", "mute", "끄기", "켜기"};
     private static final int MAX_VIRTUAL_ID = 3000;
+    // 2026-10-05 기기 로그: 핸들 음성 버튼을 누르면 nMirror 가 카카오 화면에서
+    // adot_*_wake_up_button, nugu_*, *kakaoi*, btn_speech_recognition, v_clova_button
+    // 등을 차례로 찾고, 못 찾으면 약 30초 동안 1~3초마다 다시 찾는다. 버튼을 누를
+    // 때만 오는 요청이므로, 조용하다가 시작된 요청 묶음을 버튼 누름으로 본다.
+    private static final String[] NMIRROR_VOICE_ID_WORDS = {
+            "wake_up", "nugu", "kakaoi", "speech", "voice", "clova"};
+    private static final long QUERY_BURST_GAP_MS = 8000;
+    private static final long CLICK_DEBOUNCE_MS = 3000;
     private static final int LOG_LIMIT = 40;
 
     private final Map<String, Integer> logged = new HashMap<>();
@@ -52,6 +60,9 @@ final class KakaoVoice {
     private volatile Activity resumed;
     private View proxy;
     private boolean candidatesLogged;
+    private volatile long lastVoiceQueryMs;
+    private volatile long lastClickMs;
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
 
     void install(LoadPackageParam lpparam) {
         hookAccessibilityRequests();
@@ -90,6 +101,7 @@ final class KakaoVoice {
                     String id = firstString(param.args);
                     once("q:" + id, "voice: a11y find by id \"" + id + "\"" + (voiceLike(id) ? " (voice-like → proxy)" : ""));
                     if (voiceLike(id)) proxyName = id.contains(":") ? id : KAKAO_PKG + ":id/" + id;
+                    onVoiceQuery(id);
                 }
             }).size();
             n += XposedBridge.hookAllMethods(aic, "findAccessibilityNodeInfosByTextClientThread", new XC_MethodHook() {
@@ -113,6 +125,22 @@ final class KakaoVoice {
             KakaoHudLog.line("voice: a11y request hooks x" + n);
         } catch (Throwable t) {
             KakaoHudLog.ex("voice a11y hooks", t);
+        }
+    }
+
+    /** nMirror 가 음성 버튼을 찾기 시작하면(= 핸들 음성 버튼 누름) 카카오 음성 버튼을 누른다. */
+    private void onVoiceQuery(String id) {
+        if (id == null) return;
+        String l = id.toLowerCase(Locale.ROOT);
+        boolean voice = false;
+        for (String w : NMIRROR_VOICE_ID_WORDS) if (l.contains(w)) voice = true;
+        if (!voice) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        boolean burstStart = now - lastVoiceQueryMs > QUERY_BURST_GAP_MS;
+        lastVoiceQueryMs = now;
+        if (burstStart) {
+            KakaoHudLog.line("voice: steering button detected (nMirror lookup \"" + id + "\")");
+            main.post(() -> clickVoice("steering button"));
         }
     }
 
@@ -202,11 +230,16 @@ final class KakaoVoice {
             @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
                 super.onInitializeAccessibilityNodeInfo(host, info);
                 try { info.setViewIdResourceName(proxyName); } catch (Throwable ignored) { }
+                android.graphics.Rect r = new android.graphics.Rect();
+                info.getBoundsInScreen(r);
+                once("node", "voice: proxy node built visible=" + info.isVisibleToUser()
+                        + " clickable=" + info.isClickable() + " enabled=" + info.isEnabled()
+                        + " bounds=" + r.toShortString());
             }
         });
         p.setOnClickListener(v -> {
             KakaoHudLog.line("voice: proxy clicked (as " + proxyName + ")");
-            clickVoice();
+            clickVoice("proxy");
         });
         root.addView(p, new ViewGroup.LayoutParams(2, 2));
         proxy = p;
@@ -215,7 +248,13 @@ final class KakaoVoice {
 
     // ---- 3) 카카오 화면의 음성 버튼 클릭 ----
 
-    private void clickVoice() {
+    private void clickVoice(String why) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - lastClickMs < CLICK_DEBOUNCE_MS) {
+            KakaoHudLog.line("voice: " + why + " ignored (just clicked)");
+            return;
+        }
+        lastClickMs = now;
         Activity act = resumed;
         View root = act == null || act.getWindow() == null ? null : act.getWindow().getDecorView();
         if (root == null) {
@@ -226,6 +265,7 @@ final class KakaoVoice {
         collectProviders(root, hosts);
         Candidate best = null;
         List<String> seen = new ArrayList<>();
+        List<String> all = new ArrayList<>();
         for (View host : hosts) {
             AccessibilityNodeProvider provider = host.getAccessibilityNodeProvider();
             if (provider == null) continue;
@@ -240,6 +280,7 @@ final class KakaoVoice {
                 String label = label(info);
                 if (label.isEmpty()) continue;
                 int score = score(label, info);
+                if (all.size() < 80) all.add(label + (info.isClickable() ? "*" : "") + "#" + id);
                 if (score > 0) seen.add(label + "#" + id + "(" + score + ")");
                 if (score > 0 && (best == null || score > best.score)) best = new Candidate(provider, id, label, score);
             }
@@ -249,7 +290,7 @@ final class KakaoVoice {
             KakaoHudLog.line("voice: compose hosts=" + hosts.size() + " candidates=" + seen);
         }
         if (best == null) {
-            KakaoHudLog.line("voice: no voice button on the current Kakao screen");
+            KakaoHudLog.line("voice: no voice button on the current Kakao screen; labels(*=clickable)=" + all);
             return;
         }
         boolean ok = best.provider.performAction(best.id, AccessibilityNodeInfo.ACTION_CLICK, null);
