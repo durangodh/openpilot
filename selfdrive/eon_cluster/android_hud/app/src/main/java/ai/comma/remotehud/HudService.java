@@ -4401,12 +4401,10 @@ public final class HudService extends Service {
     private static final float JUNCTION_BOTTOM_MAX = 400f;
     /** 도착정보 바는 실사 이미지와 같은 폭·같은 왼쪽 기준. */
     private static final float ETA_H = 58f;
-    /** 카카오 차로 상자: 마커 가로 위치(지도 폭 비율), 칸 높이·반폭. */
+    /** 차로 상자: 마커 가로 위치(지도 폭 비율). 높이는 도착정보 바(ETA_H)와 같다. */
     private static final float KAKAO_MARKER_X = 0.78f;
     private static final float TMAP_MARKER_X = 0.5f;
     private static final float NAVER_MARKER_X = 0.63f;
-    private static final float KAKAO_LANE_H = 54f;
-    private static final float KAKAO_LANE_HALF_W = 150f;
     /** 패널 아래끝(462)에 딱 붙인다. */
     private static final float ETA_TOP = HEIGHT - ETA_H;
 
@@ -5356,25 +5354,31 @@ public final class HudService extends Service {
         drawNaviEta(c, p, s);
         c.restoreToCount(etaSave);
 
-        // 차로 띠는 왼쪽 아래, 도착정보 바(JUNCTION_LEFT~+JUNCTION_W) 바로 오른쪽에
-        // 왼쪽 정렬로 붙인다. 크기(530x84 칸)는 그대로다.
-        int navApp = s.optInt("hudNavApp", 1);
-        if (navApp == 1 || navApp == 2 || navApp == 3) {
-            // 세 네비 모두 폰 주행 화면처럼 차 마커 바로 아래, 지도 높이의 약 11% 크기.
-            // HUD 지도에서 마커 가로 위치: 티맵 가운데(50%), 네이버 약 63%, 카카오 약 78%.
-            float frac = navApp == 3 ? KAKAO_MARKER_X : (navApp == 2 ? NAVER_MARKER_X : TMAP_MARKER_X);
-            float cx = MAP_LEFT + (mapRight() - MAP_LEFT) * frac;
-            cx = Math.max(MAP_LEFT + KAKAO_LANE_HALF_W, Math.min(mapRight() - KAKAO_LANE_HALF_W, cx));
-            int save3 = beginElement(c, l, "lane", cx, (float) HEIGHT);
-            drawNativeOverlay(c, p, lane, cx - KAKAO_LANE_HALF_W, HEIGHT - KAKAO_LANE_H,
-                    cx + KAKAO_LANE_HALF_W, (float) HEIGHT, Paint.Align.CENTER);
-            c.restoreToCount(save3);
-        } else {
-            float laneLeft = JUNCTION_LEFT + JUNCTION_W + 8f;
-            int save3 = beginElement(c, l, "lane", laneLeft, (float) HEIGHT);
-            drawNativeOverlay(c, p, lane, laneLeft, 378f, laneLeft + 530f, (float) HEIGHT,
-                    Paint.Align.LEFT);
-            c.restoreToCount(save3);
+        // 차로 정보는 목적지 안내 중일 때만, 도착정보 바와 같은 높이(ETA_H)로 패널
+        // 아래끝에 붙인다. 앱 그림의 투명 여백을 잘라내 실제 그림이 바 높이를 채우고,
+        // 가로는 그 배율만큼 같이 늘어난다(2026-10-05 요청, 세 네비 공통).
+        if (naviGuiding(s)) {
+            Bitmap laneShown = trimmedLane(lane);
+            int navApp = s.optInt("hudNavApp", 1);
+            if (laneShown != null && (navApp == 1 || navApp == 2 || navApp == 3)) {
+                // 폰 주행 화면처럼 차 마커 바로 아래. HUD 지도에서 마커 가로 위치:
+                // 티맵 가운데(50%), 네이버 약 63%, 카카오 약 78%.
+                float frac = navApp == 3 ? KAKAO_MARKER_X : (navApp == 2 ? NAVER_MARKER_X : TMAP_MARKER_X);
+                float w = ETA_H * laneShown.getWidth() / (float) laneShown.getHeight();
+                float halfW = Math.min(w / 2f, (mapRight() - MAP_LEFT) / 2f);
+                float cx = MAP_LEFT + (mapRight() - MAP_LEFT) * frac;
+                cx = Math.max(MAP_LEFT + halfW, Math.min(mapRight() - halfW, cx));
+                int save3 = beginElement(c, l, "lane", cx, (float) HEIGHT);
+                drawNativeOverlay(c, p, laneShown, cx - halfW, ETA_TOP, cx + halfW, (float) HEIGHT,
+                        Paint.Align.CENTER);
+                c.restoreToCount(save3);
+            } else if (laneShown != null) {
+                float laneLeft = JUNCTION_LEFT + JUNCTION_W + 8f;
+                int save3 = beginElement(c, l, "lane", laneLeft, (float) HEIGHT);
+                drawNativeOverlay(c, p, laneShown, laneLeft, ETA_TOP, mapRight() - 8f, (float) HEIGHT,
+                        Paint.Align.LEFT);
+                c.restoreToCount(save3);
+            }
         }
 
         // The native navigation apps publish the signal lamp/countdown as a
@@ -5499,6 +5503,55 @@ public final class HudService extends Service {
             text(c, p, cells[i][0], columns[i], top + 30f, 30f, value, Paint.Align.CENTER);
             text(c, p, cells[i][1], columns[i], top + 52f, 21f, label, Paint.Align.CENTER);
         }
+    }
+
+    /** 목적지 안내 중인지: 내비가 켜져 있고 남은 거리·시간이 있다. */
+    private static boolean naviGuiding(JSONObject s) {
+        JSONObject navi = s == null ? null : s.optJSONObject("navi");
+        return navi != null && navi.optBoolean("active", false)
+                && (navi.optInt("remainDist", 0) > 0 || navi.optInt("remainTime", 0) > 0);
+    }
+
+    private Bitmap laneTrimSource;
+    private Bitmap laneTrimmed;
+
+    /** 차로 그림의 투명 여백을 잘라낸 사본(같은 그림이면 캐시). */
+    private Bitmap trimmedLane(Bitmap src) {
+        if (src == null || src.isRecycled() || src.getWidth() <= 0 || src.getHeight() <= 0) {
+            return null;
+        }
+        if (src == laneTrimSource) {
+            return laneTrimmed;
+        }
+        int w = src.getWidth();
+        int h = src.getHeight();
+        int[] px = new int[w * h];
+        src.getPixels(px, 0, w, 0, 0, w, h);
+        int minX = w, minY = h, maxX = -1, maxY = -1;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                if ((px[y * w + x] >>> 24) > 16) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+        Bitmap out;
+        if (maxX < 0) {
+            out = null;   // 완전히 투명: 표시할 차로 없음
+        } else if (minX == 0 && minY == 0 && maxX == w - 1 && maxY == h - 1) {
+            out = src;
+        } else {
+            out = Bitmap.createBitmap(src, minX, minY, maxX - minX + 1, maxY - minY + 1);
+        }
+        if (laneTrimmed != null && laneTrimmed != laneTrimSource && !laneTrimmed.isRecycled()) {
+            laneTrimmed.recycle();
+        }
+        laneTrimSource = src;
+        laneTrimmed = out;
+        return out;
     }
 
     private void drawNativeOverlay(Canvas c, Paint p, Bitmap bitmap,

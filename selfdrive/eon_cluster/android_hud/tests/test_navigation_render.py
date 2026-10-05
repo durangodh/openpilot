@@ -18,7 +18,7 @@ public class NavigationRenderCheck {
     int optInt(String key,int fallback){ return values.containsKey(key)?(Integer)values.get(key):fallback; }
     String optString(String key,String fallback){ return values.containsKey(key)?(String)values.get(key):fallback; }
   }
-  static class Bitmap { boolean recycled; boolean isRecycled(){return recycled;} void recycle(){recycled=true;} }
+  static class Bitmap { boolean recycled; boolean isRecycled(){return recycled;} void recycle(){recycled=true;} int getWidth(){return 200;} int getHeight(){return 100;} }
   static class SystemClock { static long now=100000L; static long elapsedRealtime(){return now;} }
   static class Rect { void set(int a,int b,int c,int d){} }
   static class RectF { void set(float a,float b,float c,float d){} }
@@ -40,8 +40,9 @@ public class NavigationRenderCheck {
   }
   static final int MAP_LEFT=960,HEIGHT=576,TBT_GREEN=4,TBT_GREEN_DARK=5;
   final Rect scratchIRect=new Rect(); final RectF scratchRect=new RectF(); boolean frameDark;
-  static final float JUNCTION_LEFT=962f, JUNCTION_W=340f, KAKAO_MARKER_X=0.78f, TMAP_MARKER_X=0.5f, NAVER_MARKER_X=0.63f, KAKAO_LANE_H=54f, KAKAO_LANE_HALF_W=150f;
+  static final float JUNCTION_LEFT=962f, JUNCTION_W=340f, KAKAO_MARKER_X=0.78f, TMAP_MARKER_X=0.5f, NAVER_MARKER_X=0.63f, ETA_H=58f, ETA_TOP=HEIGHT-58f;
   static final long MAP_FADE_MS=300L; Bitmap fadingMap; long fadingMapSince, mapShownSince;
+  Bitmap trimmedLane(Bitmap b){return b==null||b.isRecycled()?null:b;}
   int mapRight(){return 1920;} float mapCenterX(){return 1440f;}
   String lang(String ko,String en){return en;}
   JSONObject layout(JSONObject s){return new JSONObject();}
@@ -98,6 +99,14 @@ public class NavigationRenderCheck {
     SystemClock.now+=200L; p=new Paint();
     hud.drawMap(new Canvas(),p,state(true,1000,200),fresh,null,null,null,null);
     if(p.lastBitmapAlpha!=255) throw new AssertionError("fade-in end alpha="+p.lastBitmapAlpha);
+    // Lane guidance is shown only while a destination is being guided.
+    Bitmap lane=new Bitmap(); c=new Canvas();
+    hud.drawMap(c,new Paint(),state(true,1000,200),null,null,null,lane,null);
+    if(c.nativeOverlays!=1) throw new AssertionError("lane hidden during guidance");
+    for(JSONObject idle:new JSONObject[]{new JSONObject(),state(false,1000,200),state(true,0,-1)}){
+      c=new Canvas(); hud.drawMap(c,new Paint(),idle,null,null,null,lane,null);
+      if(c.nativeOverlays!=0) throw new AssertionError("lane shown without a destination");
+    }
     System.out.println("9 navigation rendering cases and map switch fades passed, including traffic signal overlay");
   }
 }
@@ -312,7 +321,8 @@ def main():
     # Use complete source methods, so restoring the old early return fails this test.
     methods = []
     for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),
-                       ("    private float drawTbtBanner(", "    private float drawTbtImage(")):
+                       ("    private float drawTbtBanner(", "    private float drawTbtImage("),
+                       ("    private static boolean naviGuiding(", "    private Bitmap laneTrimSource;")):
         methods.append(source[source.index(start):source.index(end)])
     args.work.mkdir(parents=True, exist_ok=True)
     java_file = args.work / "NavigationRenderCheck.java"
