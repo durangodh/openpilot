@@ -22,6 +22,12 @@ final class KakaoSignal {
 
     private static final int W = 132;   // 신호등 셀 3개 + 여백
     private static final int H = 96;
+    // HUD 는 신호등 그림을 302x192 칸에 비율을 지켜 꽉 채운다. 132x96 그대로 보내면 2배
+    // (264x192)로 커져 지도를 크게 가렸다(2026-10-06). 칸과 같은 크기의 투명 캔버스에
+    // CONTENT_SCALE 배로 오른쪽·세로 가운데에 그려, HUD 에서 그 크기 그대로 보이게 한다.
+    private static final int CANVAS_W = 302;
+    private static final int CANVAS_H = 192;
+    private static final float CONTENT_SCALE = 1.25f;   // HUD 에서 약 165x120
     private static final int PROTOCOL_VERSION = 2;
 
     private final KakaoNaviClient client;
@@ -52,7 +58,7 @@ final class KakaoSignal {
         lastKey = key;
         try {
             byte[] png = render(color, remainSec);
-            client.sendSignal(frame(1, png, W, H));
+            client.sendSignal(frame(1, png, CANVAS_W, CANVAS_H));
             lastWasClear = false;
         } catch (Throwable t) {
             KakaoHudLog.ex("signal render", t);
@@ -67,8 +73,10 @@ final class KakaoSignal {
     }
 
     private byte[] render(int color, int remainSec) {
-        Bitmap bmp = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
+        Bitmap bmp = Bitmap.createBitmap(CANVAS_W, CANVAS_H, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);
+        c.translate(CANVAS_W - W * CONTENT_SCALE, (CANVAS_H - H * CONTENT_SCALE) / 2f);
+        c.scale(CONTENT_SCALE, CONTENT_SCALE);
         // 둥근 검정 배경(가로형 신호등)
         android.graphics.RectF box = new android.graphics.RectF(2, 2, W - 2, H - 2);
         c.drawRoundRect(box, 18, 18, bg);
