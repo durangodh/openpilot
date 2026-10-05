@@ -101,14 +101,11 @@ void OnroadWindow::updateState(const UIState &s) {
   const auto car_state = (*s.sm)["carState"].getCarState();
   const bool left_bsd = car_state.getLeftBlindspot();
   const bool right_bsd = car_state.getRightBlindspot();
-  const float steer_deg = car_state.getSteeringAngleDeg();
-  // 테두리(후측방·조향 띠)는 이 위젯이 직접 그리므로 값이 바뀌면 다시 그려야 한다.
+  // 테두리(후측방 띠)는 이 위젯이 직접 그리므로 값이 바뀌면 다시 그려야 한다.
   // 예전에는 상태색이 바뀔 때만 다시 그려서 후측방 띠가 늦게 켜지거나 꺼지지 않았다.
-  bool border_changed = left_bsd != left_blindspot || right_bsd != right_blindspot ||
-                        std::abs(steer_deg - steering_angle_deg) >= 1.0f;
+  const bool border_changed = left_bsd != left_blindspot || right_bsd != right_blindspot;
   left_blindspot = left_bsd;
   right_blindspot = right_bsd;
-  if (border_changed) steering_angle_deg = steer_deg;
 
   QColor bgColor = bg_colors[s.status];
   Alert alert = Alert::get(*(s.sm), s.scene.started_frame);
@@ -127,7 +124,7 @@ void OnroadWindow::updateState(const UIState &s) {
     split->setDirection(QBoxLayout::RightToLeft);
   }
 
-  // 2026-09-09: 테두리색·후측방·조향 띠가 바뀔 때만 다시 그린다. 도로화면·알림은 각자
+  // 2026-09-09: 테두리색·후측방 띠가 바뀔 때만 다시 그린다. 도로화면·알림은 각자
   // 카메라 프레임/updateAlert 로 갱신되므로 20Hz 무조건 repaint 는 낭비.
   if (bg != bgColor || border_changed) {
     // repaint border
@@ -244,27 +241,6 @@ void OnroadWindow::paintEvent(QPaintEvent *event) {
   if (right_blindspot) {
     p.fillRect(QRect(width() - bdr_s, 0, bdr_s, height()), bsd_color);
   }
-
-  constexpr int steer_axis_width = 8;
-  const float steer = std::clamp(steering_angle_deg, -90.0f, 90.0f);
-  const float center_x = width() / 2.0f;
-  const float steer_end_x = std::clamp(center_x - center_x * steer / 90.0f, 0.0f, (float)width());
-  const QColor steer_orange(255, 145, 40);
-
-  if (std::abs(steer) > 0.1f) {
-    QColor faded_orange = steer_orange;
-    faded_orange.setAlpha(20);
-
-    // Keep the center vivid and fade toward the steering direction.
-    QLinearGradient steer_gradient(center_x, 0.0f, steer_end_x, 0.0f);
-    steer_gradient.setColorAt(0.0, steer_orange);
-    steer_gradient.setColorAt(1.0, faded_orange);
-    p.fillRect(QRectF(std::min(center_x, steer_end_x), 0.0f,
-                      std::abs(steer_end_x - center_x), bdr_s), steer_gradient);
-  }
-
-  // Fixed center axis makes the neutral point visible at every steering angle.
-  p.fillRect(QRectF(center_x - steer_axis_width / 2.0f, 0.0f, steer_axis_width, bdr_s), steer_orange);
 }
 
 // ***** onroad widgets *****

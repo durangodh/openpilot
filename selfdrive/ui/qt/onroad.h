@@ -192,7 +192,6 @@ private:
   QColor bg = bg_colors[STATUS_DISENGAGED];
   bool left_blindspot = false;
   bool right_blindspot = false;
-  float steering_angle_deg = 0.0f;
   QWidget *map = nullptr;
   QHBoxLayout *split;
   bool mapbox_enabled = true;
