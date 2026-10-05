@@ -22,11 +22,13 @@ import math
 import numpy as np
 
 STOP_GAP = 4.0          # m, radar distance to keep at standstill
-START_DECEL = 0.8       # m/s^2, begin once the required decel reaches this
+START_DECEL = 0.6       # m/s^2, begin once the required decel reaches this
 RELEASE_DECEL = 0.3     # m/s^2, lead pulled away: hand back to the MPC
 FALLBACK_DECEL = 2.5    # m/s^2, above this the MPC plan is used as is
 LEAD_DECEL = 2.0        # m/s^2, assumed lead decel to predict where it stops
-JERK = 2.0              # m/s^3, onset/offset rate of the planned decel
+# 2026-10-05: 2.0 felt like the brake being stamped on at the start of a stop;
+# a driver presses at ~0.5-1 m/s^3. Starting earlier (0.6) keeps the peak.
+JERK = 1.0              # m/s^3, onset/offset rate of the planned decel
 MIN_EGO_SPEED = 2.0     # m/s, below this the normal stop-and-go logic stays
 MAX_LEAD_SPEED = 30.0 / 3.6   # only leads that are slow or slowing down
 SLOW_LEAD_SPEED = 3.0   # m/s, a lead this slow counts as stopping
