@@ -38,11 +38,6 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
 
     @Override
     public void handleLoadPackage(LoadPackageParam lpparam) {
-        if (NmirrorVoiceHook.isNmirror(lpparam.packageName)
-                && lpparam.packageName.equals(lpparam.processName)) {
-            NmirrorVoiceHook.install(lpparam);
-            return;
-        }
         if (!KAKAO_PKG.equals(lpparam.packageName) || started) {
             return;
         }
