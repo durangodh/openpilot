@@ -59,6 +59,14 @@ RADAR_FAR_MATCH_RATIO = 0.15
 RADAR_FAR_MATCH_MIN = 5.0
 RADAR_FAR_MATCH_CLOSING = 2.0
 
+# Cut-out: the SCC radar keeps the car that is pulling away / leaving the lane
+# while vision already sees the much slower car behind it (2026-10-06 long_trace
+# 1426 s: radar lead 24 km/h accelerating at 17 m, vision lead 3 km/h; the plan
+# accelerated for 0.5 s toward a nearly stopped car). While closing on the
+# vision lead, a radar object clearly faster than it is a different car.
+CUTOUT_V_DIFF = 4.0      # m/s, radar lead faster than the vision lead by more than this
+CUTOUT_CLOSING = 2.0     # m/s, only while ego is closing on the vision lead
+
 def laplacian_cdf(x, mu, b):
   b = max(b, 1e-4)
   return math.exp(-abs(x-mu)/b)
@@ -89,7 +97,10 @@ def match_vision_to_cluster(v_ego, lead, clusters, scc_only=False):
                 abs(cluster.dRel - offset_vision_dist) < max(offset_vision_dist * SCC_STRONG_MATCH_DIST_RATIO,
                                                              SCC_STRONG_MATCH_DIST_MIN) and
                 abs(cluster.yRel + lead.y[0]) < SCC_STRONG_MATCH_LAT)
-  if dist_sane and (vel_sane or strong_scc):
+  cluster_v = cluster.vRel + v_ego
+  cut_out = (v_ego - lead.v[0] > CUTOUT_CLOSING and
+             cluster_v - lead.v[0] > max(CUTOUT_V_DIFF, 2.0 * lead.vStd[0]))
+  if dist_sane and (vel_sane or strong_scc) and not cut_out:
     return cluster
   else:
     return None

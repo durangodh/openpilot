@@ -51,3 +51,19 @@ def test_steady_following_keeps_wide_tolerance():
   v_ego = 20.0
   c = _cluster(60.0, 20.0, v_ego)
   assert match_vision_to_cluster(v_ego, _lead(48.5, 20.0), [c], scc_only=True) is c
+
+
+def test_cut_out_radar_car_rejected_for_slower_vision_lead():
+  # 2026-10-06 drive (1426 s): radar on a car pulling away (24 km/h, 17 m) while
+  # vision already saw a nearly stopped car (3 km/h); ego at 22 km/h.
+  v_ego = 22.4 / 3.6
+  lead = _lead(20.0, 3.3 / 3.6)
+  assert match_vision_to_cluster(v_ego, lead, [_cluster(16.9, 24.3 / 3.6, v_ego)], scc_only=True) is None
+
+
+def test_radar_lead_kept_when_speeds_agree_or_not_closing():
+  v_ego = 15.0
+  c = _cluster(30.0, 12.5, v_ego)
+  assert match_vision_to_cluster(v_ego, _lead(30.0, 10.0), [c], scc_only=True) is c   # 2.5 m/s apart
+  c2 = _cluster(30.0, 20.0, v_ego)
+  assert match_vision_to_cluster(v_ego, _lead(30.0, 14.0), [c2], scc_only=True) is c2  # not closing
