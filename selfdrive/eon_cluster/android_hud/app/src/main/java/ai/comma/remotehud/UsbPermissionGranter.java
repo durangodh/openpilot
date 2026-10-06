@@ -13,7 +13,6 @@ import java.util.concurrent.TimeUnit;
 public final class UsbPermissionGranter {
 
     private static final int VID = 0x1CBE;
-    private static final int PID = 0x0092;
 
     private UsbPermissionGranter() {
     }
@@ -24,7 +23,7 @@ public final class UsbPermissionGranter {
      * modal dialog. A failure is harmless; TurzxDisplay retries after Magisk is
      * ready instead of falling back to a visible requestPermission().
      */
-    static boolean grantSilently(Context context) {
+    static boolean grantSilently(Context context, int productId) {
         Process process = null;
         try {
             String apk = context.getApplicationInfo().sourceDir;
@@ -33,7 +32,8 @@ public final class UsbPermissionGranter {
                     + UsbPermissionGranter.class.getName() + " "
                     + shellQuote(context.getPackageName()) + " "
                     + context.getApplicationInfo().uid + " "
-                    + (context.getApplicationInfo().uid / 100000);
+                    + (context.getApplicationInfo().uid / 100000) + " "
+                    + productId;
             process = Runtime.getRuntime().exec(new String[]{"su", "-c", command});
             if (!process.waitFor(4L, TimeUnit.SECONDS)) {
                 process.destroy();
@@ -51,12 +51,13 @@ public final class UsbPermissionGranter {
 
     /** Entry point used by the root app_process above. */
     public static void main(String[] args) throws Exception {
-        if (args.length != 3) {
-            throw new IllegalArgumentException("package uid userId required");
+        if (args.length != 4) {
+            throw new IllegalArgumentException("package uid userId productId required");
         }
         String packageName = args[0];
         int uid = Integer.parseInt(args[1]);
         int userId = Integer.parseInt(args[2]);
+        int productId = Integer.parseInt(args[3]);
 
         allowHiddenApis();
 
@@ -81,7 +82,8 @@ public final class UsbPermissionGranter {
             Object value = devices.get(key);
             if (value instanceof UsbDevice) {
                 UsbDevice candidate = (UsbDevice) value;
-                if (candidate.getVendorId() == VID && candidate.getProductId() == PID) {
+                if (candidate.getVendorId() == VID
+                        && candidate.getProductId() == productId) {
                     target = candidate;
                     break;
                 }

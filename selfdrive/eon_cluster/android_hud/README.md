@@ -164,7 +164,9 @@ background remains in use.
 > 아래 v0.31 이하 절은 당시 기록이므로 현재 코드와 다를 수 있다.
 
 This optional companion moves the 1920x462 HUD render, JPEG compression and
-TURZX `1cbe:0092` USB upload from the EON to an Android phone. The EON sends a
+TURZX USB upload from the EON to an Android phone. It supports the existing
+9.7-inch `1cbe:0092` panel and the 12.3-inch `1cbe:0123` 1920x720 panel at the
+same time. The EON sends a
 small UDP JSON telemetry packet at 10 Hz. When camera-vehicle boxes are enabled,
 it additionally resizes/JPEG-encodes one 320x240 preview at no more than 3 FPS.
 The already-compressed TMAP JPEG received from the existing phone sender is
@@ -219,9 +221,18 @@ prevent short model dropouts and sharp curves from lifting lane marks off the
 road or collapsing the road polygon.
 
 USB access is registered through the rooted Android USB service for
-`1cbe:0092`; the app does not register an attach Activity or call
+`1cbe:0092` and `1cbe:0123`; the app does not register an attach Activity or call
 `requestPermission()`. This prevents the modal USB approval/default-app popup
 both after a cable reconnection and after an S9 reboot.
+
+### 9.7-inch + 12.3-inch simultaneous output
+
+`TurzxDisplays` keeps an independent USB connection for each product ID, so
+attaching or removing one panel does not disable the other. The existing
+1920x462 HUD is sent unchanged to the 9.7-inch panel. On the 12.3-inch panel it
+is centered vertically in a native 1920x720 black frame, preserving the current
+layout and aspect ratio. When the 9.7-inch panel is removed, the 12.3-inch
+connection continues by itself without a mode change.
 
 Vehicle control and CAN messages are never accepted from the phone.
 
@@ -515,7 +526,8 @@ Catmull-Rom 보간이 실제 곡률을 못 따라간다. 이제 전부 보낸다
 * 부팅 경로의 30초 지연은 유지한다. TMAP이 먼저 실행된 뒤 포커스를 받지 않는
   `TYPE_APPLICATION_OVERLAY` HUD가 올라오므로 TMAP task를 다시 실행하거나
   백그라운드로 밀어내지 않는다.
-* 휴대폰 화면 렌더와 TURZX USB 출력을 분리했다. USB `1cbe:0092`가 없어도
+* 휴대폰 화면 렌더와 TURZX USB 출력을 분리했다. USB `1cbe:0092` 또는
+  `1cbe:0123`가 없어도
   UDP 7210 / TCP 7211을 받아 HUD와 원본 TMAP `map_main`을 계속 그린다.
 * 우상단 **TMAP** 버튼은 HUD 프레임과 별도 overlay window다. 누르면 HUD만
   숨겨 이미 실행 중인 TMAP의 검색·키보드 화면을 드러내고, 남은 **HUD** 버튼을
