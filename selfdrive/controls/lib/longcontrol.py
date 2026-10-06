@@ -582,6 +582,10 @@ class LongControl:
         # A) 앞차가 꿈틀하면 유지 제동을 정차 접근 수준으로 미리 줄인다(StopReq 유지).
         if self._hold_relax_active():
           relaxed = min(self.CP.stopAccel, HOLD_RELAX_TARGET_MAX)
+          # 2026-10-06 long_trace: STOP ACCEL 이 유지 제동만큼 세면(둘 다 -1.4) 줄일 곳이
+          # 없어 앞차가 꿈틀해도 -1.4 그대로였다. 그때는 HOLD_RELAX_TARGET_MAX 쪽으로 줄인다.
+          if relaxed <= target + 0.05:
+            relaxed = HOLD_RELAX_TARGET_MAX
           target = target + (relaxed - target) * HOLD_RELAX_FRACTION
           hold_relax = True
       else:

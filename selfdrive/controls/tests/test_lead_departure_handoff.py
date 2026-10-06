@@ -481,6 +481,22 @@ def test_early_hold_relax_gives_up_after_two_seconds():
   assert out == pytest.approx(-1.1)
 
 
+def test_early_hold_relax_works_when_stop_accel_equals_hold():
+  # STOP ACCEL 과 유지 제동이 같을 때(-1.4)도 꿈틀하면 제동을 줄인다.
+  control, cs, plan, radar = setup_control()
+  control.CP.stopAccel = -1.4
+  control.standstill_hold_accel = -1.4
+  control.last_output_accel = -1.4
+  _latch(control, cs, plan, radar)
+  _settle(control, cs, plan, radar)
+  radar.leadOne.vLead, radar.leadOne.vRel = 0.3, 0.2
+  out = step(control, cs, plan, radar)
+  for _ in range(40):
+    out = step(control, cs, plan, radar, fresh=False)
+    assert control.long_control_state == 'stopping'
+  assert out == pytest.approx(-1.4 + (-0.5 + 1.4) * 0.5)   # 유지(-1.4)와 -0.5 의 중간
+
+
 def test_early_hold_relax_off_keeps_hold():
   control, cs, plan, radar = setup_control()
   control.early_hold_relax = False
