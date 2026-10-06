@@ -382,6 +382,10 @@ class CruiseHelper:
 
     if not self.auto_resume_from_brake_release or abs(CS.steeringAngleDeg) >= 20.0:
       return
+    # 2026-10-06: AUTO RESUME FROM BRAKE CAR SPEED 는 앞차 유무와 관계없는 최저 속도다.
+    # 예전에는 앞차가 10 m 안에 있으면 정지 상태에서도 브레이크를 놓자마자 재개했다.
+    if v_ego_kph < self.auto_resume_from_brake_car_speed:
+      return
 
     gas_time = (self.param_read_counter - self.gas_pressed_frame) * DT_CTRL
     # c3-wip gates this on AutoGasTokSpeed rather than a hardcoded 20 km/h, so

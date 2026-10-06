@@ -1511,7 +1511,7 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamValueControlF(
       "AutoResumeFromBrakeCarSpeed", "AUTO RESUME FROM BRAKE CAR SPEED (km/h)",
-      "앞차가 없을 때 필요한 최저 재개속도입니다. 값 증가(+): 더 높은 속도에서만 재개 / 값 감소(-): 저속에서도 재개.",
+      "브레이크 해제 재개가 동작하는 최저 속도입니다(앞차 유무와 관계없음). 이 속도 미만(정지 포함)에서는 브레이크를 놓아도 재개하지 않습니다. 값 증가(+): 더 높은 속도에서만 재개 / 값 감소(-): 저속에서도 재개.",
       "../assets/offroad/icon_road.png", 5, 60, 1, 0, 30, this));
 
   list->addItem(new ParamValueControlF(
