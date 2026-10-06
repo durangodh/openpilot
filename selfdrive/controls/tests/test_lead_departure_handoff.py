@@ -75,9 +75,15 @@ def test_confirmed_departure_releases_below_old_speed_threshold(starting):
   accel = step(control, cs, plan, radar)
   assert control.long_control_state == ('starting' if starting else 'pid')
   assert control.departure_assist.active
-  # A lead-released launch leaves the hold at LEAD_LAUNCH_JERK from the
-  # first frame, not at the stopping rate or the softer START JERK LIMIT.
-  assert accel == pytest.approx(-1.1 + LEAD_LAUNCH_JERK * 0.01)
+  if starting:
+    # apilot-c2: the starting state steps straight to startAccel; the launch
+    # jerk goes to SCC14 instead (LEAD_LAUNCH_JERK for a departing lead).
+    assert accel == pytest.approx(0.25)
+    assert control.scc_launch_jerk() == pytest.approx(LEAD_LAUNCH_JERK)
+  else:
+    # Without a starting state the PID launch still leaves the hold at
+    # LEAD_LAUNCH_JERK from the first frame.
+    assert accel == pytest.approx(-1.1 + LEAD_LAUNCH_JERK * 0.01)
   for _ in range(5):
     step(control, cs, plan, radar, fresh=False)
   assert control.long_control_state != 'stopping'
@@ -600,3 +606,15 @@ def test_early_stopreq_release_ends_with_brake_or_launch():
     step(control, cs, plan, radar)
   assert control.long_control_state != 'stopping'
   assert not control.stopreq_release_active
+
+
+def test_scc_launch_jerk_only_while_launching():
+  control, cs, plan, radar = setup_control(starting=True)
+  control.jerk_start_limit = 1.0
+  assert control.scc_launch_jerk() is None              # stopping: SCC14 keeps hold limits
+  control.long_control_state, control.lead_launch, control.launch_time = 'starting', False, 0.01
+  assert control.scc_launch_jerk() == pytest.approx(1.0)
+  control.long_control_state, control.launch_time = 'pid', 2.0
+  assert control.scc_launch_jerk() == pytest.approx(1.0 + (5.0 - 1.0) * 0.5)
+  control.launch_time = 3.0
+  assert control.scc_launch_jerk() is None              # launch over: generous limits again

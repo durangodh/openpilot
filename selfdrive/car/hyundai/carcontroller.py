@@ -337,15 +337,21 @@ class CarController:
     scc_stop_request = should_request_scc_standstill(
       stopping, soft_hold_scc, CS.out.standstill, CS.out.vEgo, pre_release)
 
-    # All smoothing, launch included (START JERK LIMIT), is LongControl's.
-    # SCC14 only gets generous limits so the ECU follows the request instead
-    # of adding a second lag. Stopping keeps the original hold limits.
+    # Smoothing is LongControl's, except the launch: since 2026-10-06 the
+    # starting request steps to startAccel and SCC14 carries the launch jerk
+    # (START JERK LIMIT, lead launch >= 2.5, 5.0 after 2.5 s) like apilot-c2.
+    # Otherwise SCC14 gets generous limits; stopping keeps the hold limits.
     jerk_limit = 5.0
     if jerk_stopping:
       jerk_upper = 0.5
       jerk_lower = jerk_limit
     else:
       jerk_upper = jerk_lower = jerk_limit
+      # apilot-c2 방식: 출발 순간 명령은 한 번에 올리고(LongControl starting), 실제
+      # 가속이 오르는 속도는 출발 저크로 차량 ECU 가 제한한다.
+      launch_jerk = controls.LoC.scc_launch_jerk() if hasattr(controls.LoC, 'scc_launch_jerk') else None
+      if launch_jerk is not None:
+        jerk_upper = clip(launch_jerk, 0.5, jerk_limit)
 
     # Community safety now follows the physical SCC MAIN state independently
     # of stock ACC engagement. Start replacing SCC messages as soon as

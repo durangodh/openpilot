@@ -429,6 +429,15 @@ class LongControl:
     return departure_jerk_upper(limit, self.jerk_start_limit,
                                 PID_JERK_UPPER_V[0] * self.pid_jerk_accel_mult, assisted)
 
+  def scc_launch_jerk(self):
+    """출발 중(starting, 또는 정지/해제 후 LAUNCH_TIME_BP 안의 PID)이면 SCC14 JerkUpperLimit 로
+    보낼 출발 저크, 아니면 None. 앞차 출발이면 LEAD_LAUNCH_JERK 이상, 2.5초에 걸쳐 5.0 까지 푼다."""
+    if self.long_control_state == LongCtrlState.starting or \
+       (self.long_control_state == LongCtrlState.pid and 0.0 < self.launch_time < LAUNCH_TIME_BP[-1]):
+      start = max(self.jerk_start_limit, LEAD_LAUNCH_JERK) if self.lead_launch else self.jerk_start_limit
+      return float(interp(self.launch_time, LAUNCH_TIME_BP, [start, start, LAUNCH_JERK_MAX]))
+    return None
+
   def reset(self, v_pid=0.0):
     """Reset PID controller and change setpoint"""
     self.pid.reset()
@@ -609,12 +618,11 @@ class LongControl:
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:
-      # 정지유지 제동에서 startAccel까지 출발 저크 하나로 올린다.
-      jerk_upper = self._launch_jerk(assisted_departure)
-      jerk_lower = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_LOWER_V) * self.pid_jerk_decel_mult
-      output_accel = float(clip(self.CP.startAccel,
-                                output_accel - jerk_lower * DT_CTRL,
-                                output_accel + jerk_upper * DT_CTRL))
+      # apilot-c2 방식(2026-10-06): 출발 판정 순간 명령을 바로 startAccel 로 올린다.
+      # 예전에는 정지유지 제동(-1.4)에서 출발 저크로 올려 명령이 양수가 되기까지
+      # 약 0.35초, startAccel 까지 0.6초가 걸렸고, 그 뒤에야 차량이 정지유지를 풀었다.
+      # 실제 가속의 부드러움은 SCC14 JerkUpperLimit(scc_launch_jerk)으로 차량 ECU 가 맡는다.
+      output_accel = float(self.CP.startAccel)
       self.launch_limited = False
       self.reset(CS.vEgo)
 
