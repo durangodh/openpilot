@@ -6,7 +6,8 @@ from common.realtime import DT_MDL
 from selfdrive.swaglog import cloudlog
 from common.params import Params
 from selfdrive.controls.lib.lane_path_validation import (valid_samples, valid_lane_path,
-                                                       valid_lane_times, lane_horizon_weights)
+                                                       valid_lane_times, lane_horizon_weights,
+                                                       curve_centering_weight)
 
 TRAJECTORY_SIZE = 33
 ADJUST_OFFSET_LIMIT = 0.4   # 여유공간 보정 최대치(m)
@@ -181,6 +182,12 @@ class LanePlanner:
     l_prob *= l_std_mod
     r_prob *= r_std_mod
 
+    curve_weight = curve_centering_weight(curve_speed)
+    # Save validated confidence before the legacy width heuristic weakens only
+    # the right line. A reliable pair defines its own centre, even if learned
+    # lane width is slow to catch up on a ramp.
+    center_strength = curve_weight * interp(min(l_prob, r_prob), [0.5, 0.7], [0.0, 1.0])
+
     if ENABLE_ZORROBYTE:
       if l_prob > 0.5 and r_prob > 0.5:
         self.frame += 1
@@ -237,6 +244,9 @@ class LanePlanner:
     else:
       lane_path_y = (l_prob * path_from_left_lane + r_prob * path_from_right_lane) / (l_prob + r_prob + 0.0001)
 
+    lane_path_y = ((1.0 - center_strength) * lane_path_y +
+                   center_strength * (self.lll_y + self.rll_y) / 2.0)
+
     # ── carrot 이식 2 : 여유공간 비대칭 시 경로 오프셋 ────────────────────
     #   AdjustLaneOffset (cm 단위 정수 파라미터). 0 이면 동작 안함.
     #   양쪽 다 여유(>2.2m) 또는 양쪽 다 빡빡(<2.0m) 하면 보정하지 않고,
@@ -255,15 +265,10 @@ class LanePlanner:
         offset_lane = interp(self.lane_width, [2.5, 2.9], [0.0, self.adjust_lane_offset])
       else:
         offset_lane = interp(self.lane_width, [2.5, 2.9], [0.0, -self.adjust_lane_offset])
-    # carrot c3: 커브 안쪽 보정. 낮은 권장 속도의 커브일수록
-    # AdjustLaneOffset을 많이 쓰고 200 km/h에서 0으로 감쇠한다.
-    offset_curve = interp(abs(curve_speed), [50.0, 200.0],
-                          [self.adjust_lane_offset, 0.0]) * np.sign(curve_speed)
-    if offset_curve * offset_lane < 0.0:
-      offset_total = offset_curve + offset_lane
-    else:
-      offset_total = max(offset_curve, offset_lane, key=abs)
-    offset_total = clip(offset_total, -ADJUST_OFFSET_LIMIT, ADJUST_OFFSET_LIMIT)
+    # Automatic space offsets are for straight travel. On bends, keep the
+    # lane centre rather than adding an offset in the direction of the curve.
+    offset_total = clip(offset_lane * (1.0 - curve_weight),
+                        -ADJUST_OFFSET_LIMIT, ADJUST_OFFSET_LIMIT)
 
     # d_prob 가 낮으면 오프셋도 서서히 0 으로 (2초 필터)
     self.lane_offset_filtered.update(interp(self.d_prob, [0.0, 0.3], [0.0, offset_total]))
@@ -272,11 +277,13 @@ class LanePlanner:
     safe_idxs = np.isfinite(self.ll_t)
     effective_d_prob = 0.0
     if safe_idxs[0] and lane_line_blend > 0.0:
-      # Preserve C2's normal NaN-padded lane times and input lead compensation.
+      # Preserve NaN-padded lane times. Input lead remains available on
+      # entry but fades on bends: advancing y while keeping x fixed otherwise
+      # tightens a constant-curvature path throughout the bend.
       # If lanes cover less than the full model horizon, fade their authority
       # over the last measured second rather than extending the endpoint.
       horizon_weights = lane_horizon_weights(self.ll_t, np.asarray(path_t))
-      preview_t = np.minimum(path_t * (1.0 + self.lat_mpc_input_offset), self.ll_t[safe_idxs][-1])
+      preview_t = np.minimum(path_t * (1.0 + self.lat_mpc_input_offset * (1.0 - curve_weight)), self.ll_t[safe_idxs][-1])
       lane_path_y_interp = np.interp(preview_t,
                                      self.ll_t[safe_idxs], lane_path_y[safe_idxs])
       effective_d_prob = self.d_prob * lane_line_blend * horizon_weights
