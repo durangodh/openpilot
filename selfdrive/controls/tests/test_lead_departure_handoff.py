@@ -618,3 +618,34 @@ def test_scc_launch_jerk_only_while_launching():
   assert control.scc_launch_jerk() == pytest.approx(1.0 + (5.0 - 1.0) * 0.5)
   control.launch_time = 3.0
   assert control.scc_launch_jerk() is None              # launch over: generous limits again
+
+
+def test_delayed_scc_release_keeps_full_rolling_launch_window():
+  control, cs, plan, radar = setup_confirmed_start_handoff()
+  cs.vEgo, cs.standstill = 0.0, True
+  control.jerk_start_limit = 1.0
+  for _ in range(130):  # recorded SCC release delay: about 1.3 seconds
+    step(control, cs, plan, radar)
+  assert control.launch_time == pytest.approx(0.01)
+  assert not control.launch_motion_started
+  assert control.scc_launch_jerk() == pytest.approx(LEAD_LAUNCH_JERK)
+  cs.vEgo, cs.standstill = 0.21, False
+  plan.speeds, plan.accels = [0.21, 1.0, 2.0], [1.6]*3
+  previous = control.last_output_accel
+  for _ in range(100):
+    output = step(control, cs, plan, radar)
+    assert output - previous <= 1.0 * 0.01 + 1e-9
+    previous = output
+  assert control.launch_motion_started
+  assert control.launch_time < 1.5
+  assert control.scc_launch_jerk() == pytest.approx(1.0)
+
+
+def test_starting_respects_approach_acceleration_cap():
+  control, cs, plan, radar = setup_confirmed_start_handoff()
+  cs.vEgo, cs.standstill = 0.0, True
+  for cap in (0.2, 0.0):
+    result = control.update(True, cs, plan, (-3.5, cap), 0.0,
+                            radar_state=radar, radar_state_valid=True,
+                            radar_state_updated=True)[0]
+    assert result <= cap

@@ -175,6 +175,7 @@ class LongControl:
     # START JERK LIMIT (JerkStartLimit, x0.1 m/s^3, 기본 1.0)
     self.jerk_start_limit = 1.0
     self.launch_time = 0.0
+    self.launch_motion_started = False
     self.launch_limited = False
     self.lead_launch = False
     self.pos_allowance = None
@@ -424,17 +425,23 @@ class LongControl:
 
   def _launch_jerk(self, assisted):
     """출발 1·2단계: 정지 후 가속 요청이 오를 수 있는 최대 저크."""
-    start = max(self.jerk_start_limit, LEAD_LAUNCH_JERK) if self.lead_launch else self.jerk_start_limit
+    releasing = self.lead_launch and not self.launch_motion_started
+    start = max(self.jerk_start_limit, LEAD_LAUNCH_JERK) if releasing else self.jerk_start_limit
     limit = interp(self.launch_time, LAUNCH_TIME_BP, [start, start, LAUNCH_JERK_MAX])
+    if self.lead_launch and self.launch_motion_started:
+      return limit
     return departure_jerk_upper(limit, self.jerk_start_limit,
                                 PID_JERK_UPPER_V[0] * self.pid_jerk_accel_mult, assisted)
 
   def scc_launch_jerk(self):
-    """출발 중(starting, 또는 정지/해제 후 LAUNCH_TIME_BP 안의 PID)이면 SCC14 JerkUpperLimit 로
-    보낼 출발 저크, 아니면 None. 앞차 출발이면 LEAD_LAUNCH_JERK 이상, 2.5초에 걸쳐 5.0 까지 푼다."""
+    """SCC release uses the lead-launch floor; rolling uses START JERK LIMIT.
+
+    The 2.5-second ramp begins with actual motion, not the release command.
+    """
     if self.long_control_state == LongCtrlState.starting or \
        (self.long_control_state == LongCtrlState.pid and 0.0 < self.launch_time < LAUNCH_TIME_BP[-1]):
-      start = max(self.jerk_start_limit, LEAD_LAUNCH_JERK) if self.lead_launch else self.jerk_start_limit
+      releasing = self.lead_launch and not self.launch_motion_started
+      start = max(self.jerk_start_limit, LEAD_LAUNCH_JERK) if releasing else self.jerk_start_limit
       return float(interp(self.launch_time, LAUNCH_TIME_BP, [start, start, LAUNCH_JERK_MAX]))
     return None
 
@@ -519,13 +526,21 @@ class LongControl:
       assisted_departure)
     if self.long_control_state in (LongCtrlState.off, LongCtrlState.stopping):
       self.launch_time = 0.0
+      self.launch_motion_started = False
       self.launch_limited = False
       self.lead_launch = False
     else:
       if prev_state == LongCtrlState.stopping:
         # Remember why this launch started: a confirmed departing lead.
         self.lead_launch = lead_release
-      self.launch_time += DT_CTRL
+      # SCC can take over a second to release its standstill latch. Do not
+      # spend the launch protection window while the car is still stationary.
+      if not CS.standstill and CS.vEgo > self.CP.vEgoStarting:
+        self.launch_motion_started = True
+      if self.launch_motion_started:
+        self.launch_time += DT_CTRL
+      else:
+        self.launch_time = DT_CTRL
 
     # No-lead positive allowance: start from the current output when the lead
     # is lost and rise gently; fall and lead-present follow immediately.
@@ -622,7 +637,7 @@ class LongControl:
       # 예전에는 정지유지 제동(-1.4)에서 출발 저크로 올려 명령이 양수가 되기까지
       # 약 0.35초, startAccel 까지 0.6초가 걸렸고, 그 뒤에야 차량이 정지유지를 풀었다.
       # 실제 가속의 부드러움은 SCC14 JerkUpperLimit(scc_launch_jerk)으로 차량 ECU 가 맡는다.
-      output_accel = float(self.CP.startAccel)
+      output_accel = float(clip(self.CP.startAccel, accel_limits[0], accel_limits[1]))
       self.launch_limited = False
       self.reset(CS.vEgo)
 

@@ -2,7 +2,8 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from selfdrive.controls.lib.lead_following import get_follow_obstacle_cost, get_follow_approach_limit
+from selfdrive.controls.lib.lead_following import (get_follow_obstacle_cost, get_follow_approach_limit,
+                                                 get_closing_lead_accel_limit)
 
 
 def lead(v_ego=20.0, **kwargs):
@@ -88,3 +89,21 @@ def test_approach_comfort_rejects_hazardous_or_invalid_secondary_lead(kwargs):
 def test_approach_preserves_low_speed_and_invalid_target_gap():
   assert get_follow_approach_limit(1.0, 5.0, (lead(),), 6.0) == (1.0, False)
   assert get_follow_approach_limit(1.0, 20.0, (lead(),), float('nan')) == (1.0, False)
+
+
+@pytest.mark.parametrize('speed,distance', [(0.0, 77.6), (7.8, 41.8), (10.37, 5.8)])
+def test_closing_or_stopped_lead_does_not_keep_positive_allowance(speed, distance):
+  assert get_closing_lead_accel_limit(1.6, 13.3, (lead(vLead=speed, dRel=distance),), 30.0) == 0.0
+
+
+def test_closing_throttle_cap_is_progressive_and_checks_second_lead():
+  caps = [get_closing_lead_accel_limit(1.0, 20.0, (lead(vLead=18.0, dRel=d),), 50.0)
+          for d in (70.0, 66.0, 62.0, 58.0)]
+  assert caps == pytest.approx([1.0, 1.0, 0.5, 0.0])
+  assert get_closing_lead_accel_limit(1.0, 20.0, (lead(vLead=22.0), lead(vLead=0.0)), 50.0) == 0.0
+
+
+def test_closing_cap_preserves_departure_and_negative_requests():
+  assert get_closing_lead_accel_limit(1.6, 2.0, (lead(vLead=3.0, dRel=7.0),), 6.0) == 1.6
+  assert get_closing_lead_accel_limit(-2.0, 20.0, (lead(vLead=0.0),), 50.0) == -2.0
+  assert get_closing_lead_accel_limit(1.0, 20.0, (lead(),), float('nan')) == 1.0

@@ -10,6 +10,32 @@ from common.numpy_fast import interp
 FOLLOW_COMFORT_FULL_ACCEL = 0.2  # m/s^2, fade out comfort before either acceleration reaches zero
 
 
+def get_closing_lead_accel_limit(max_accel, v_ego, leads, desired_gap):
+  """Lift positive acceleration as a measured closing lead consumes spare gap.
+
+  Unlike the comfort policy, stopped/braking/near leads must not bypass this
+  cap. It only removes throttle; the planner still owns all braking requests.
+  """
+  if (not all(math.isfinite(x) for x in (max_accel, v_ego, desired_gap)) or
+      max_accel <= 0.0 or v_ego < 5.0 or desired_gap <= 0.0):
+    return max_accel
+  cap = max_accel
+  for lead in leads:
+    if not lead.status:
+      continue
+    distance, speed = float(lead.dRel), float(lead.vLead)
+    if not all(math.isfinite(x) for x in (distance, speed)) or distance <= 0.0:
+      continue
+    closing = v_ego - speed
+    if closing <= 0.35:
+      continue
+    time_to_gap = max(0.0, distance - desired_gap) / closing
+    allowance = interp(time_to_gap, [4.0, 8.0], [0.0, 1.0])
+    weight = interp(closing, [0.35, 0.75], [0.0, 1.0])
+    cap = min(cap, max_accel * (1.0 - weight * (1.0 - allowance)))
+  return cap
+
+
 def get_follow_obstacle_cost(base_cost, v_ego, a_ego, planned_accel, leads,
                              t_follow, stop_distance, comfort_brake):
   """Ease gap recovery at road speed only while every lead has spare distance."""
