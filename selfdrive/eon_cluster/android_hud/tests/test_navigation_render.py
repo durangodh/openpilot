@@ -142,6 +142,8 @@ def main():
                    "app/src/main/java/ai/comma/remotehud/ModelWorldGL.java").read_text(encoding="utf-8")
     turzx = (Path(__file__).resolve().parents[1] /
              "app/src/main/java/ai/comma/remotehud/TurzxDisplay.java").read_text(encoding="utf-8")
+    turzx_displays = (Path(__file__).resolve().parents[1] /
+                      "app/src/main/java/ai/comma/remotehud/TurzxDisplays.java").read_text(encoding="utf-8")
     activity = (Path(__file__).resolve().parents[1] /
                 "app/src/main/java/ai/comma/remotehud/MainActivity.java").read_text(encoding="utf-8")
     manifest = (Path(__file__).resolve().parents[1] /
@@ -192,8 +194,10 @@ def main():
     assert 'mirrorDisplays.registerDisplayListener' in source
     assert 'mirrorDisplays.unregisterDisplayListener' in source
     assert 'HudPixelBuffer.create(HEIGHT, WIDTH)' in source
+    assert 'HudPixelBuffer.create(HEIGHT_123, WIDTH)' in source
     assert 'HudPixelBuffer.create(WIDTH, HEIGHT)' in source
     assert 'HudPixelBuffer.copy(c, phoneFrame, usbLogicalFrameBounds, phonePreviewPaint)' in source
+    assert 'HudPixelBuffer.copy(c, phoneFrame, usb123LogicalFrameBounds, phonePreviewPaint)' in source
     assert 'c.drawBitmap(phoneFrame, 0f, 0f' not in source
     # A tap must open the selected navigation Activity on the display where
     # the settings screen is currently visible, not only update preferences.
@@ -240,16 +244,21 @@ def main():
     assert "grantDevicePermission" in usb_granter
     assert "setDevicePersistentPermission" in usb_granter
     assert "setDevicePackage" in usb_granter
+    assert "PID_97 = 0x0092" in turzx
+    assert "PID_123 = 0x0123" in turzx
+    assert "new TurzxDisplay(context, TurzxDisplay.PID_97" in turzx_displays
+    assert "new TurzxDisplay(context, TurzxDisplay.PID_123" in turzx_displays
+    assert "void sendJpegs(byte[] legacyJpeg, byte[] wideJpeg)" in turzx_displays
     assert 'xml.contains(appName)' in usb_approver
     assert 'xml.contains("TURZX1.00")' in usb_approver
     assert 'attributeIsTrue(checkNode, "checked")' in usb_approver
-    # Every new session primes the native 462x1920 JPEG surface before live HUD.
+    # Every new session primes both native JPEG surfaces before live HUD.
     assert "usbNeedsPrimeFrame = true;" in source
     assert "sendUsbPrimerFrame();" in source
     primer = source.split("private void sendUsbPrimerFrame()", 1)[1].split(
         "private void handleUsbError", 1)[0]
     assert "c.drawColor(Color.BLACK)" in primer
-    assert primer.count("display.sendJpeg") == 2
+    assert primer.count("display.sendJpegs") == 2
     assert "SystemClock.sleep(USB_PRIMER_WARMUP_MS)" in primer
     assert "SystemClock.sleep(USB_PRIMER_SETTLE_MS)" in primer
     # An S9-only reboot leaves the powered TURZX decoder in its previous USB

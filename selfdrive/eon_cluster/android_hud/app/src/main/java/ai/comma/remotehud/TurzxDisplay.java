@@ -19,7 +19,7 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * TURZX 1CBE:0092 USB 패널 드라이버.
+ * 단일 TURZX USB 패널 드라이버.
  *
  * v0.19 에서 고친 것
  * ------------------
@@ -59,8 +59,9 @@ import javax.crypto.spec.SecretKeySpec;
 public final class TurzxDisplay {
 
     static final String ACTION_PERMISSION = "ai.comma.remotehud.USB_PERMISSION";
-    static final int VID = 0x1CBE;   // 7358
-    static final int PID = 0x0092;   // 146
+    static final int VID = 0x1CBE;        // 7358
+    static final int PID_97 = 0x0092;     // 기존 9.7인치
+    static final int PID_123 = 0x0123;    // 12.3인치 (1920x720)
 
     private static final int CHUNK_BYTES = 16384;
     private static final long COMMAND_GAP_MS = 200L;
@@ -70,6 +71,8 @@ public final class TurzxDisplay {
     private static final long PERMISSION_RETRY_MS = 3_000L;
 
     private final Context context;
+    private final int productId;
+    private final String panelName;
     private UsbManager manager;
     private UsbDevice device;
     private UsbDeviceConnection connection;
@@ -94,7 +97,13 @@ public final class TurzxDisplay {
     private int openFailureStreak;
 
     public TurzxDisplay(Context context) {
+        this(context, PID_97, "9.7인치");
+    }
+
+    TurzxDisplay(Context context, int productId, String panelName) {
         this.context = context;
+        this.productId = productId;
+        this.panelName = panelName;
     }
 
     boolean isOpen() {
@@ -105,17 +114,17 @@ public final class TurzxDisplay {
         manager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
         UsbDevice target = findTargetDevice();
         if (target == null) {
-            return "미연결 · 1CBE:0092";
+            return panelName + " 미연결 · " + hardwareId();
         }
         if (!manager.hasPermission(target)) {
-            return "연결됨 · USB 권한 자동 설정 중";
+            return panelName + " 연결됨 · USB 권한 자동 설정 중";
         }
         if (isOpen()) {
-            return "연결됨 · USB 권한 허용";
+            return panelName + " 연결됨 · USB 권한 허용";
         }
         return lastOpenFailure.length() == 0
-                ? "연결됨 · 여는 중"
-                : "연결됨 · " + lastOpenFailure + " x" + openFailureStreak;
+                ? panelName + " 연결됨 · 여는 중"
+                : panelName + " 연결됨 · " + lastOpenFailure + " x" + openFailureStreak;
     }
 
     /** openDevice/claimInterface 가 조용히 실패한 연속 횟수. */
@@ -175,7 +184,7 @@ public final class TurzxDisplay {
                 }
                 permissionRequestedDeviceId = device.getDeviceId();
                 lastPermissionRequestElapsed = now;
-                UsbPermissionGranter.grantSilently(context);
+                UsbPermissionGranter.grantSilently(context, productId);
                 // Binder permission state normally changes immediately. Give a
                 // vendor USB service a brief moment before counting a failure.
                 SystemClock.sleep(100L);
@@ -291,7 +300,7 @@ public final class TurzxDisplay {
             manager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
         }
         for (UsbDevice candidate : manager.getDeviceList().values()) {
-            if (isTarget(candidate)) {
+            if (candidate.getVendorId() == VID && candidate.getProductId() == productId) {
                 return candidate;
             }
         }
@@ -299,7 +308,23 @@ public final class TurzxDisplay {
     }
 
     public static boolean isTarget(UsbDevice device) {
-        return device != null && device.getVendorId() == VID && device.getProductId() == PID;
+        if (device == null || device.getVendorId() != VID) {
+            return false;
+        }
+        int pid = device.getProductId();
+        return pid == PID_97 || pid == PID_123;
+    }
+
+    int productId() {
+        return productId;
+    }
+
+    String panelName() {
+        return panelName;
+    }
+
+    private String hardwareId() {
+        return String.format("1CBE:%04X", productId);
     }
 
     public synchronized void reset() {

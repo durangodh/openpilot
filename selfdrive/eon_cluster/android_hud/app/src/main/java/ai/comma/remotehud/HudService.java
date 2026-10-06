@@ -89,6 +89,8 @@ public final class HudService extends Service {
 
     private static final int WIDTH = 1920;
     private static final int HEIGHT = 462;
+    private static final int HEIGHT_123 = 720;
+    private static final int HUD_123_TOP = (HEIGHT_123 - HEIGHT) / 2;
     // 패널 폭 비율 5 : 4 : 1  (주행 : TMAP : SYSTEM)
     private static final int DRIVE_RIGHT = 952;
     private static final float DRIVE_CX = 476f;
@@ -208,11 +210,11 @@ public final class HudService extends Service {
     private static volatile int udpLastRawBytes;
     private static volatile long udpLastRawRxElapsed;
     private static volatile String udpReceiverError = "";
-    private static volatile String usbStatus = "미연결 · 1CBE:0092";
+    private static volatile String usbStatus = "미연결 · 1CBE:0092 / 1CBE:0123";
     // 재검색 시 장치가 안 보일 때 루트로 읽은 sysfs 진단 문자열 (동작 변경 없음, 표시용)
     private static volatile String usbDiag = "";
 
-    private TurzxDisplay display;
+    private TurzxDisplays display;
     private Bitmap egoCar;
     private final float[] leadSpriteInfo = new float[3];
     // 채도 0 + 밝기 0.82. 자차 그림을 앞차로 재사용할 때만 적용한다.
@@ -397,8 +399,12 @@ public final class HudService extends Service {
     private ColorMatrixColorFilter wheelGray;
     private Bitmap outFrame;
     private Canvas outCanvas;
+    private Bitmap outFrame123;
+    private Canvas outCanvas123;
     private Bitmap phoneFrame;
     private final Rect usbLogicalFrameBounds = new Rect(0, 0, WIDTH, HEIGHT);
+    private final Rect usb123LogicalFrameBounds = new Rect(
+            0, HUD_123_TOP, WIDTH, HUD_123_TOP + HEIGHT);
     private Canvas phoneCanvas;
     /** Written by USB recovery workers and consumed by the render thread. */
     private volatile boolean usbNeedsPrimeFrame = true;
@@ -425,6 +431,7 @@ public final class HudService extends Service {
     /** Lazy-created on the render thread. */
     private ModelWorldGL modelWorldGl;
     private final ByteArrayOutputStream jpegOut = new ByteArrayOutputStream(180000);
+    private final ByteArrayOutputStream jpegOut123 = new ByteArrayOutputStream(260000);
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean bootNavigationSyncRunning = new AtomicBoolean(false);
@@ -685,7 +692,7 @@ public final class HudService extends Service {
         if (nextUsbAttemptElapsed <= SystemClock.elapsedRealtime()) {
             usbStatus = "휴대폰 HUD 실행 · 외부 USB 검색 중";
         }
-        display = new TurzxDisplay(this);
+        display = new TurzxDisplays(this);
 
         receiverThread = new Thread(new Runnable() {
             @Override
@@ -1295,8 +1302,7 @@ public final class HudService extends Service {
         UsbManager manager = (UsbManager) getSystemService(Context.USB_SERVICE);
         if (manager == null) return false;
         for (UsbDevice device : manager.getDeviceList().values()) {
-            if (device.getVendorId() == TurzxDisplay.VID
-                    && device.getProductId() == TurzxDisplay.PID) {
+            if (TurzxDisplay.isTarget(device)) {
                 return true;
             }
         }
@@ -1709,6 +1715,7 @@ public final class HudService extends Service {
 
             boolean usbReady = ensureUsbReady(now);
             Bitmap usbFrame = null;
+            Bitmap usbFrame123 = null;
             synchronized (assetLock) {
                 Bitmap map = mapFrame.get();
                 updateMapTheme(map, now);
@@ -1722,7 +1729,12 @@ public final class HudService extends Service {
                     renderPhone(currentState, map, tbtCurrent, tbtNext, lane,
                             trafficSignal);
                     if (usbReady) {
-                        usbFrame = renderUsbFromPhone();
+                        if (display.isLegacyOpen()) {
+                            usbFrame = renderUsbFromPhone();
+                        }
+                        if (display.isWideOpen()) {
+                            usbFrame123 = renderUsb123FromPhone();
+                        }
                     }
                 }
             }
@@ -1735,8 +1747,8 @@ public final class HudService extends Service {
                 frames = 0;
             }
 
-            if (usbFrame != null) {
-                sendUsbFrame(usbFrame, currentState);
+            if (usbFrame != null || usbFrame123 != null) {
+                sendUsbFrame(usbFrame, usbFrame123, currentState);
             }
             nextFrame = due;
         }
@@ -1784,14 +1796,12 @@ public final class HudService extends Service {
         if (bootUsbHostRecoveryRunning.get() && !bootUsbPreparationDone.get()) {
             return false;
         }
-        if (display.isOpen()) {
-            return true;
-        }
         if (now < nextUsbAttemptElapsed) {
-            return false;
+            return display.isOpen();
         }
         nextUsbAttemptElapsed = now + 1000L;
         try {
+            int openBefore = display.openCount();
             if (!display.openOrRequestPermission()) {
                 usbStatus = "휴대폰 HUD 실행 · " + display.describeStatus()
                         + (usbDiag.isEmpty() ? "" : " · " + usbDiag);
@@ -1800,15 +1810,20 @@ public final class HudService extends Service {
                 recoverStalledOpen(now);
                 return false;
             }
+            int openAfter = display.openCount();
             lastReconnectElapsed = SystemClock.elapsedRealtime();
-            usbStatus = "휴대폰 HUD + 외부 USB 연결됨";
+            usbStatus = "휴대폰 HUD + 외부 USB " + openAfter + "대 연결됨 · "
+                    + display.describeStatus();
             usbDiag = "";
             usbConnected = true;
             usbError = false;
             usbErrorStreak = 0;
             // Clear any incomplete/stale decoder surface before the first HUD
             // frame of every newly opened USB session.
-            usbNeedsPrimeFrame = true;
+            if (openAfter > openBefore) {
+                usbNeedsPrimeFrame = true;
+                appliedBrightness = -1;
+            }
             HudDiagnostics.log("usb-open device=" + display.deviceNameOrNull());
             return true;
         } catch (Exception e) {
@@ -1999,18 +2014,18 @@ public final class HudService extends Service {
         p.setAlpha(255);
     }
 
-    private void sendUsbFrame(Bitmap frame, JSONObject currentState) {
+    private void sendUsbFrame(Bitmap frame, Bitmap frame123, JSONObject currentState) {
         synchronized (usbSessionGate) {
             // Recheck at the final output boundary. A late boot broadcast can
             // start preparation after the render loop passed ensureUsbReady().
             if (bootUsbHostRecoveryRunning.get() && !bootUsbPreparationDone.get()) {
                 return;
             }
-            sendUsbFrameUnderGate(frame, currentState);
+            sendUsbFrameUnderGate(frame, frame123, currentState);
         }
     }
 
-    private void sendUsbFrameUnderGate(Bitmap frame, JSONObject currentState) {
+    private void sendUsbFrameUnderGate(Bitmap frame, Bitmap frame123, JSONObject currentState) {
         try {
             int requestedBrightness = Math.max(0,
                     Math.min(100, currentState.optInt("hudBrightness", 0)));
@@ -2036,29 +2051,30 @@ public final class HudService extends Service {
             }
 
             if (usbNeedsPrimeFrame) {
-                HudDiagnostics.log("usb-primer bitmap=" + frame.getWidth() + "x" + frame.getHeight()
-                        + " density=" + frame.getDensity());
+                Bitmap primerLogFrame = frame != null ? frame : frame123;
+                HudDiagnostics.log("usb-primer bitmap=" + primerLogFrame.getWidth() + "x"
+                        + primerLogFrame.getHeight() + " density=" + primerLogFrame.getDensity());
                 sendUsbPrimerFrame();
                 usbNeedsPrimeFrame = false;
                 HudDiagnostics.log("usb-primer complete");
-                // The primer intentionally overwrites outFrame. Restore the
-                // current logical HUD before encoding the normal frame below.
-                renderUsbFromPhone();
+                // The primer intentionally overwrites both physical buffers.
+                // Restore only the panels which are currently open.
+                if (display.isLegacyOpen()) frame = renderUsbFromPhone();
+                if (display.isWideOpen()) frame123 = renderUsb123FromPhone();
             }
 
-            jpegOut.reset();
-            frame.compress(Bitmap.CompressFormat.JPEG, jpegQuality, jpegOut);
-            byte[] jpeg = jpegOut.toByteArray();
-            display.sendJpeg(jpeg);
-            lastJpegBytes = jpeg.length;
+            byte[] jpeg = encodeJpeg(frame, jpegOut, jpegQuality);
+            byte[] jpeg123 = encodeJpeg(frame123, jpegOut123, jpegQuality);
+            display.sendJpegs(jpeg, jpeg123);
+            lastJpegBytes = (jpeg == null ? 0 : jpeg.length)
+                    + (jpeg123 == null ? 0 : jpeg123.length);
             lastJpegSentElapsed = SystemClock.elapsedRealtime();
             usbConnected = true;
             usbError = false;
             usbErrorStreak = 0;
 
-            if (display.isUnresponsive(15000L)) {
+            if (display.closeUnresponsive(15000L)) {
                 usbStatus = "패널 무응답 · 재초기화 (휴대폰 HUD 정상)";
-                display.close();
                 appliedBrightness = -1;
                 usbErrorStreak++;
                 nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + 600L;
@@ -2066,6 +2082,13 @@ public final class HudService extends Service {
         } catch (Exception e) {
             handleUsbError(e);
         }
+    }
+
+    private static byte[] encodeJpeg(Bitmap frame, ByteArrayOutputStream output, int quality) {
+        if (frame == null) return null;
+        output.reset();
+        frame.compress(Bitmap.CompressFormat.JPEG, quality, output);
+        return output.toByteArray();
     }
 
     /** Reset the panel's JPEG surface at its exact native portrait size. */
@@ -2076,25 +2099,34 @@ public final class HudService extends Service {
         Canvas c = beginUsbFrame();
         c.setMatrix(null);
         c.drawColor(Color.BLACK);
-        jpegOut.reset();
-        outFrame.compress(Bitmap.CompressFormat.JPEG, 40, jpegOut);
-        display.sendJpeg(jpegOut.toByteArray());
+        Canvas c123 = beginUsbFrame123();
+        c123.setMatrix(null);
+        c123.drawColor(Color.BLACK);
+        display.sendJpegs(
+                display.isLegacyOpen() ? encodeJpeg(outFrame, jpegOut, 40) : null,
+                display.isWideOpen() ? encodeJpeg(outFrame123, jpegOut123, 40) : null);
         SystemClock.sleep(USB_PRIMER_WARMUP_MS);
 
-        // Clear the physical backing bitmap explicitly, then restore the normal
-        // logical 1920x462 transform before drawing the user-visible message.
+        // Clear both native backing bitmaps explicitly, then restore each
+        // panel's logical transform before drawing the user-visible message.
         c = beginUsbFrame();
         c.setMatrix(null);
         c.drawColor(Color.BLACK);
         c = beginUsbFrame();
+        c123 = beginUsbFrame123();
+        c123.setMatrix(null);
+        c123.drawColor(Color.BLACK);
+        c123 = beginUsbFrame123();
         Paint primerPaint = paint;
         primerPaint.reset();
         primerPaint.setAntiAlias(true);
         text(c, primerPaint, "연결중...", WIDTH / 2f, HEIGHT / 2f + 8f, 36f,
                 Color.rgb(150, 160, 170), Paint.Align.CENTER);
-        jpegOut.reset();
-        outFrame.compress(Bitmap.CompressFormat.JPEG, 40, jpegOut);
-        display.sendJpeg(jpegOut.toByteArray());
+        text(c123, primerPaint, "연결중...", WIDTH / 2f, HEIGHT_123 / 2f + 8f, 36f,
+                Color.rgb(150, 160, 170), Paint.Align.CENTER);
+        display.sendJpegs(
+                display.isLegacyOpen() ? encodeJpeg(outFrame, jpegOut, 40) : null,
+                display.isWideOpen() ? encodeJpeg(outFrame123, jpegOut123, 40) : null);
         // "첫 연결만 길게" 로 했다가, 부팅 초반(네비 동기화·GL 재시도 등이
         // 몰리는 구간)에 두 번째 재연결이 한 번 더 일어나면서 그 재연결엔
         // 0.2초로는 부족해 다시 화면이 구석에 박히는 게 재현됐다. 재연결
@@ -2186,6 +2218,24 @@ public final class HudService extends Service {
         return outCanvas;
     }
 
+    /** 12.3인치 패널의 네이티브 720x1920 세로 전송 버퍼. */
+    private Canvas beginUsbFrame123() {
+        if (outFrame123 == null || outFrame123.isRecycled()) {
+            outFrame123 = HudPixelBuffer.create(HEIGHT_123, WIDTH);
+            outCanvas123 = new Canvas(outFrame123);
+            HudDiagnostics.log("usb-12.3-buffer=" + HEIGHT_123 + "x" + WIDTH
+                    + " density=" + outFrame123.getDensity());
+        }
+        outMatrix.reset();
+        outMatrix.setScale(configuredMirror ? -1f : 1f, 1f);
+        outMatrix.postRotate(configuredOrientation == 2 ? 90f : -90f);
+        scratchRect.set(0f, 0f, WIDTH, HEIGHT_123);
+        outMatrix.mapRect(scratchRect);
+        outMatrix.postTranslate(-scratchRect.left, -scratchRect.top);
+        outCanvas123.setMatrix(outMatrix);
+        return outCanvas123;
+    }
+
     /** USB 회전 전의 논리 가로 프레임. 화면 출력용이 아니다. */
     private Canvas beginPhoneFrame() {
         if (phoneFrame == null || phoneFrame.isRecycled()) {
@@ -2209,18 +2259,32 @@ public final class HudService extends Service {
     /** 패널을 끌 때 보내는 검은 프레임 한 장. */
     private void sendBlankFrame() throws Exception {
         Canvas c = beginUsbFrame();
+        c.setMatrix(null);
         c.drawColor(Color.BLACK);
-        jpegOut.reset();
-        outFrame.compress(Bitmap.CompressFormat.JPEG, 40, jpegOut);
-        byte[] jpeg = jpegOut.toByteArray();
-        display.sendJpeg(jpeg);
-        lastJpegBytes = jpeg.length;
+        Canvas c123 = beginUsbFrame123();
+        c123.setMatrix(null);
+        c123.drawColor(Color.BLACK);
+        byte[] jpeg = display.isLegacyOpen() ? encodeJpeg(outFrame, jpegOut, 40) : null;
+        byte[] jpeg123 = display.isWideOpen() ? encodeJpeg(outFrame123, jpegOut123, 40) : null;
+        display.sendJpegs(jpeg, jpeg123);
+        lastJpegBytes = (jpeg == null ? 0 : jpeg.length)
+                + (jpeg123 == null ? 0 : jpeg123.length);
     }
 
     private Bitmap renderUsbFromPhone() {
         Canvas c = beginUsbFrame();
         HudPixelBuffer.copy(c, phoneFrame, usbLogicalFrameBounds, phonePreviewPaint);
         return outFrame;
+    }
+
+    /** 기존 HUD 비율을 보존해 1920x720 중앙에 배치한다. */
+    private Bitmap renderUsb123FromPhone() {
+        Canvas c = beginUsbFrame123();
+        c.setMatrix(null);
+        c.drawColor(Color.BLACK);
+        c = beginUsbFrame123();
+        HudPixelBuffer.copy(c, phoneFrame, usb123LogicalFrameBounds, phonePreviewPaint);
+        return outFrame123;
     }
 
     private void renderPhone(JSONObject s, Bitmap map, Bitmap tbtCurrent,
@@ -5708,6 +5772,9 @@ public final class HudService extends Service {
         if (outFrame != null && !outFrame.isRecycled()) outFrame.recycle();
         outFrame = null;
         outCanvas = null;
+        if (outFrame123 != null && !outFrame123.isRecycled()) outFrame123.recycle();
+        outFrame123 = null;
+        outCanvas123 = null;
         synchronized (phoneFrameLock) {
             if (phoneFrame != null && !phoneFrame.isRecycled()) phoneFrame.recycle();
             phoneFrame = null;

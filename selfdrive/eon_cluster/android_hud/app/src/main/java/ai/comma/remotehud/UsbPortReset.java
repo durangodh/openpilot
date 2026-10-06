@@ -29,20 +29,20 @@ final class UsbPortReset {
      * @return 재바인딩 명령을 실제로 실행했으면 true
      */
     static boolean resetPort(String deviceName) {
-        String port = findPort();
-        if (port == null) {
+        String ports = findPorts();
+        if (ports == null) {
             return false;
         }
         String script =
-                "if echo " + port + " > /sys/bus/usb/drivers/usb/unbind 2>/dev/null; then " +
-                "  sleep 2; " +
-                "  ok=0; for n in 1 2 3; do " +
-                "    if echo " + port + " > /sys/bus/usb/drivers/usb/bind 2>/dev/null; then " +
-                "      ok=1; break; " +
-                "    fi; sleep 1; " +
-                "  done; " +
-                "  [ \"$ok\" = 1 ] && echo RESET_OK || echo RESET_FAILED; " +
-                "else echo RESET_FAILED; fi";
+                "all_ok=1; for port in " + ports + "; do " +
+                "  if echo $port > /sys/bus/usb/drivers/usb/unbind 2>/dev/null; then " +
+                "    sleep 2; ok=0; for n in 1 2 3; do " +
+                "      if echo $port > /sys/bus/usb/drivers/usb/bind 2>/dev/null; then " +
+                "        ok=1; break; " +
+                "      fi; sleep 1; " +
+                "    done; [ \"$ok\" = 1 ] || all_ok=0; " +
+                "  else all_ok=0; fi; " +
+                "done; [ \"$all_ok\" = 1 ] && echo RESET_OK || echo RESET_FAILED";
         String out = runAsRoot(script);
         if (out == null) {
             return false;
@@ -157,25 +157,27 @@ final class UsbPortReset {
         return "role=" + role + " · dev: " + dev + " · 1cbe " + found;
     }
 
-    /** /sys/bus/usb/devices 를 훑어 1CBE:0092 가 붙은 포트 이름을 찾는다. */
-    private static String findPort() {
+    /** /sys/bus/usb/devices 에서 지원하는 9.7/12.3인치 포트를 모두 찾는다. */
+    private static String findPorts() {
         String out = runAsRoot(
                 "for d in /sys/bus/usb/devices/*; do " +
                 "  [ -f \"$d/idVendor\" ] || continue; " +
                 "  v=$(cat \"$d/idVendor\"); p=$(cat \"$d/idProduct\"); " +
-                "  if [ \"$v\" = \"1cbe\" ] && [ \"$p\" = \"0092\" ]; then basename \"$d\"; fi; " +
+                "  if [ \"$v\" = \"1cbe\" ] && { [ \"$p\" = \"0092\" ] || [ \"$p\" = \"0123\" ]; }; then basename \"$d\"; fi; " +
                 "done");
         if (out == null) {
             return null;
         }
+        StringBuilder ports = new StringBuilder();
         for (String line : out.split("\n")) {
             String trimmed = line.trim();
             // "1-1" 형태만 받는다. "1-1:1.0" 같은 인터페이스 노드는 제외.
-            if (!trimmed.isEmpty() && !trimmed.contains(":") && trimmed.contains("-")) {
-                return trimmed;
+            if (trimmed.matches("[0-9]+-[0-9]+(?:\\.[0-9]+)*")) {
+                if (ports.length() > 0) ports.append(' ');
+                ports.append(trimmed);
             }
         }
-        return null;
+        return ports.length() == 0 ? null : ports.toString();
     }
 
     private static String runAsRoot(String script) {
