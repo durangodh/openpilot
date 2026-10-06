@@ -32,6 +32,8 @@ def load_control():
   exec(compile(tree, str(source), 'exec'), env)
   global LEAD_LAUNCH_JERK
   LEAD_LAUNCH_JERK = env['LEAD_LAUNCH_JERK']
+  global LAUNCH_ABORT_DECEL_JERK
+  LAUNCH_ABORT_DECEL_JERK = env['LAUNCH_ABORT_DECEL_JERK']
   return env['LongControl'], env['long_control_state_trans']
 
 
@@ -251,6 +253,32 @@ def test_confirmed_start_handoff_does_not_drop_drive_request():
   assert all(0.38 - 1e-6 <= x <= 0.8 for x in values)
   assert all(0.0 <= a - b <= 1.6 * 0.01 + 1e-6 for a, b in zip(values, values[1:]))
   assert values[-1] == pytest.approx(0.38)
+
+
+def test_lead_restop_during_start_drops_drive_and_builds_brake_quickly():
+  """Regression for a lead that creeps, releases standstill, then stops."""
+  control, cs, plan, radar = setup_confirmed_start_handoff()
+  assert control.long_control_state == 'starting'
+  assert control.last_output_accel == pytest.approx(0.8)
+
+  # Before ego has properly launched, the lead stops and the planner requests
+  # another stop. The old comfort ramp returned 0.788 here and stayed positive
+  # for roughly 0.7 s; propulsion must now be gone in the first control frame.
+  cs.vEgo, cs.standstill = 0.12, False
+  radar.leadOne.vLeadK = radar.leadOne.vRel = 0.0
+  radar.leadOne.aLeadK = -0.2
+  plan.speeds, plan.accels = [0.0]*3, [-0.1]*3
+  output = step(control, cs, plan, radar)
+  assert control.long_control_state == 'stopping'
+  assert output == pytest.approx(-LAUNCH_ABORT_DECEL_JERK * 0.01)
+  assert not control.departure_assist.active
+
+  previous = output
+  for _ in range(20):
+    output = step(control, cs, plan, radar)
+    assert 0.0 <= previous - output <= LAUNCH_ABORT_DECEL_JERK * 0.01 + 1e-9
+    previous = output
+  assert output == pytest.approx(control.CP.stopAccel)
 
 
 @pytest.mark.parametrize('veto', ['braking_plan', 'coasting_plan', 'lead_brake',

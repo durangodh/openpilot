@@ -79,6 +79,15 @@ START_HANDOFF_JERK = 1.6
 # Launches without a lead (green light, driver) keep START JERK LIMIT.
 LEAD_LAUNCH_JERK = 2.5
 
+# A lead can move just far enough to release standstill and then stop again.
+# In that case the starting state has already stepped the request to
+# startAccel, so the normal comfort stop ramp would keep positive drive torque
+# for well over a second.  Drop propulsion immediately and use the normal PID
+# braking response to rebuild the stop request.  This applies only to an
+# aborted starting -> stopping transition; ordinary approaches keep the
+# configured stopping_decel_rate.
+LAUNCH_ABORT_DECEL_JERK = PID_JERK_LOWER_V[0]
+
 # 앞차가 없을 때 양의 가속 허용치가 오르는 속도(m/s^2 per s). 앞차가 사라진
 # 순간 현재 출력에서 시작해 이 속도로만 올라가므로 목표속도까지 몰아서
 # 가속하지 않는다. 내려가는 상한은 즉시 따른다.
@@ -181,6 +190,7 @@ class LongControl:
     self.launch_motion_started = False
     self.launch_limited = False
     self.lead_launch = False
+    self.launch_abort_active = False
     self.pos_allowance = None
     self.no_lead_prev = False
     # 저속(0~30km/h) 앞차출발 추종 전용 저크 부스트 배율. 기본 1.0(=부스트 없음).
@@ -527,6 +537,12 @@ class LongControl:
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
       CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now, start_gate,
       assisted_departure)
+    launch_abort = (prev_state == LongCtrlState.starting and
+                    self.long_control_state == LongCtrlState.stopping)
+    if launch_abort:
+      self.launch_abort_active = True
+    elif self.long_control_state != LongCtrlState.stopping:
+      self.launch_abort_active = False
     if self.long_control_state in (LongCtrlState.off, LongCtrlState.stopping):
       self.launch_time = 0.0
       self.launch_motion_started = False
@@ -580,6 +596,12 @@ class LongControl:
     elif self.long_control_state == LongCtrlState.stopping:
       # A blocked state transition must not advertise a launch to the CAN layer.
       self.departure_assist.reset()
+      # If a departing lead immediately stops again, do not spend the comfort
+      # stopping ramp continuing to request positive acceleration.  Remove
+      # drive torque in this frame, then build braking at the regular low-speed
+      # PID deceleration jerk.  SCC14 still applies its stopping jerk limits.
+      if launch_abort:
+        output_accel = min(output_accel, 0.0)
       # Arm only after an actual stop, then keep the stronger request latched
       # through tiny wheel-speed fluctuations.  This does not change braking
       # on the approach and it is cleared as soon as the state machine accepts
@@ -632,13 +654,16 @@ class LongControl:
       # separate brake-release ramp retain their existing response.
       max_delta = self.stopping_decel_rate * DT_CTRL
       max_rise = max(max_delta, HOLD_RELAX_JERK * DT_CTRL) if hold_relax else max_delta
-      max_fall = max_delta
+      launch_abort_active = getattr(self, 'launch_abort_active', False)
+      max_fall = max(max_delta, LAUNCH_ABORT_DECEL_JERK * DT_CTRL) if launch_abort_active else max_delta
       if getattr(self, 'hold_restore_fast', False):
-        max_fall = max(max_delta, HOLD_RESTORE_JERK * DT_CTRL)
+        max_fall = max(max_fall, HOLD_RESTORE_JERK * DT_CTRL)
         if output_accel <= target + 1e-6:
           self.hold_restore_fast = False
       self.hold_relaxing = hold_relax
       output_accel = float(clip(target, output_accel - max_fall, output_accel + max_rise))
+      if launch_abort_active and output_accel <= target + 1e-6:
+        self.launch_abort_active = False
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:
