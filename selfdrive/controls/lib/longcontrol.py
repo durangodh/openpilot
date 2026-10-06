@@ -81,8 +81,11 @@ LEAD_LAUNCH_JERK = 2.5
 
 # 앞차가 없을 때 양의 가속 허용치가 오르는 속도(m/s^2 per s). 앞차가 사라진
 # 순간 현재 출력에서 시작해 이 속도로만 올라가므로 목표속도까지 몰아서
-# 가속하지 않는다. 내려가는 쪽과 앞차가 있을 때는 그대로 즉시 따른다.
+# 가속하지 않는다. 내려가는 상한은 즉시 따른다.
 NO_LEAD_ALLOWANCE_RISE = 0.5
+# Do not jump back to full throttle when spare gap reappears or lead selection
+# changes. Only a rising positive allowance is eased; reductions stay immediate.
+FOLLOW_ALLOWANCE_RISE = 1.0
 # 앞차 없을 때 '가속을 덜 하는' 쪽(양의 출력이 줄어드는 것)만 이 저크로 완만하게.
 # 2026-10-02 영상: 상한에 막혀 평평하던 출력이 목표가 내려가자 3.5 m/s^3 로
 # 툭 떨어졌다. 0 아래(실제 제동)는 기존 PID 감속 저크 그대로라 제동은 늦추지 않는다.
@@ -542,17 +545,23 @@ class LongControl:
       else:
         self.launch_time = DT_CTRL
 
-    # No-lead positive allowance: start from the current output when the lead
-    # is lost and rise gently; fall and lead-present follow immediately.
+    # Positive allowance: a lead dropout starts at current output. At road
+    # speed, recovering spare gap also restores throttle progressively.
     no_lead = (radar_state is not None and radar_state_valid and
                not radar_state.leadOne.status and not radar_state.leadTwo.status)
     cap = float(accel_limits[1])
-    if self.pos_allowance is None or not no_lead:
+    if self.pos_allowance is None:
       self.pos_allowance = cap
-    else:
+    elif no_lead:
       if not self.no_lead_prev:
         self.pos_allowance = max(0.0, self.last_output_accel)
       self.pos_allowance = min(cap, self.pos_allowance + NO_LEAD_ALLOWANCE_RISE * DT_CTRL)
+    elif (radar_state is not None and radar_state_valid and
+          not radar_state.radarErrors and CS.vEgo >= 5.0 and
+          self.long_control_state == LongCtrlState.pid):
+      self.pos_allowance = min(cap, self.pos_allowance + FOLLOW_ALLOWANCE_RISE * DT_CTRL)
+    else:
+      self.pos_allowance = cap
     self.no_lead_prev = no_lead
     accel_limits = (accel_limits[0], self.pos_allowance)
     self.pid.pos_limit = accel_limits[1]

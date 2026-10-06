@@ -107,3 +107,24 @@ def test_closing_cap_preserves_departure_and_negative_requests():
   assert get_closing_lead_accel_limit(1.6, 2.0, (lead(vLead=3.0, dRel=7.0),), 6.0) == 1.6
   assert get_closing_lead_accel_limit(-2.0, 20.0, (lead(vLead=0.0),), 50.0) == -2.0
   assert get_closing_lead_accel_limit(1.0, 20.0, (lead(),), float('nan')) == 1.0
+
+
+def test_throttle_lifts_before_speed_difference_when_lead_slows():
+  steady = lead(vLead=20.0, dRel=52.0)
+  slowing = lead(vLead=20.0, dRel=52.0, aLeadK=-0.5)
+  assert get_closing_lead_accel_limit(1.0, 20.0, (steady,), 50.0) == 1.0
+  assert get_closing_lead_accel_limit(1.0, 20.0, (slowing,), 50.0) < 0.6
+  assert get_closing_lead_accel_limit(1.0, 20.0, (steady,), 50.0, a_ego=0.5) < 0.6
+  # Equal acceleration/pulling away should not be mistaken for closure.
+  steady.aLeadK = 0.5
+  assert get_closing_lead_accel_limit(1.0, 20.0, (steady,), 50.0, a_ego=0.5) == 1.0
+
+
+def test_preview_ignores_small_acceleration_noise_and_low_speed_entry_is_continuous():
+  for accel in (-0.1, 0.0, 0.1):
+    assert get_closing_lead_accel_limit(1.0, 20.0,
+                                      (lead(vLead=20.0, dRel=52.0, aLeadK=accel),), 50.0) == 1.0
+  stopped = lead(vLead=0.0, dRel=10.0)
+  caps = [get_closing_lead_accel_limit(1.0, speed, (stopped,), 6.0)
+          for speed in (2.99, 3.0, 3.01, 4.0, 4.99, 5.0, 5.01)]
+  assert caps == pytest.approx([1.0, 1.0, 0.995, 0.5, 0.005, 0.0, 0.0])

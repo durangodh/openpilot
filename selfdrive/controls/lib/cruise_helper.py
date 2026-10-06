@@ -320,7 +320,7 @@ class CruiseHelper:
     if comfort_valid and has_lead and plan.mpcMode == 0:
       target = get_closing_lead_accel_limit(
         target, CS.vEgo, (sm['radarState'].leadOne, sm['radarState'].leadTwo),
-        float(plan.desiredDistance))
+        float(plan.desiredDistance), CS.aEgo)
     if comfort_valid and has_lead and plan.mpcMode == 0 and not (plan.onStop or plan.fcw):
       target, _ = get_follow_approach_limit(
         target, CS.vEgo, (sm['radarState'].leadOne, sm['radarState'].leadTwo),

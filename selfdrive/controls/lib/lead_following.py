@@ -8,16 +8,17 @@ import math
 from common.numpy_fast import interp
 
 FOLLOW_COMFORT_FULL_ACCEL = 0.2  # m/s^2, fade out comfort before either acceleration reaches zero
+CLOSING_PREVIEW_S = 1.5
 
 
-def get_closing_lead_accel_limit(max_accel, v_ego, leads, desired_gap):
+def get_closing_lead_accel_limit(max_accel, v_ego, leads, desired_gap, a_ego=0.0):
   """Lift positive acceleration as a measured closing lead consumes spare gap.
 
   Unlike the comfort policy, stopped/braking/near leads must not bypass this
   cap. It only removes throttle; the planner still owns all braking requests.
   """
-  if (not all(math.isfinite(x) for x in (max_accel, v_ego, desired_gap)) or
-      max_accel <= 0.0 or v_ego < 5.0 or desired_gap <= 0.0):
+  if (not all(math.isfinite(x) for x in (max_accel, v_ego, desired_gap, a_ego)) or
+      max_accel <= 0.0 or v_ego <= 3.0 or desired_gap <= 0.0):
     return max_accel
   cap = max_accel
   for lead in leads:
@@ -27,11 +28,19 @@ def get_closing_lead_accel_limit(max_accel, v_ego, leads, desired_gap):
     if not all(math.isfinite(x) for x in (distance, speed)) or distance <= 0.0:
       continue
     closing = v_ego - speed
+    # A driver lifts before the gap visibly shrinks: anticipate only the
+    # extra closure caused by ego acceleration or a slowing lead. Bound the
+    # short prediction and ignore small acceleration-estimate noise.
+    lead_accel = float(getattr(lead, 'aLeadK', 0.0))
+    if math.isfinite(lead_accel):
+      relative_accel = max(-2.0, min(2.0, a_ego)) - max(-2.0, min(2.0, lead_accel))
+      closing += CLOSING_PREVIEW_S * max(0.0, relative_accel - 0.15)
     if closing <= 0.35:
       continue
     time_to_gap = max(0.0, distance - desired_gap) / closing
     allowance = interp(time_to_gap, [4.0, 8.0], [0.0, 1.0])
-    weight = interp(closing, [0.35, 0.75], [0.0, 1.0])
+    weight = (interp(closing, [0.35, 0.75], [0.0, 1.0]) *
+              interp(v_ego, [3.0, 5.0], [0.0, 1.0]))
     cap = min(cap, max_accel * (1.0 - weight * (1.0 - allowance)))
   return cap
 

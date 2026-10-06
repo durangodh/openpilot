@@ -359,10 +359,10 @@ def test_no_lead_allowance_rises_gently_from_current_output():
   for _ in range(100):
     step(control, cs, plan, radar)
   assert control.pos_allowance == pytest.approx(0.2 + 0.5 * 1.01, abs=1e-6)
-  # A lead reappearing restores the full allowance at once.
+  # A reappearing lead must not restore full throttle in one frame.
   radar.leadOne.status = True
   step(control, cs, plan, radar)
-  assert control.pos_allowance == pytest.approx(2.0)
+  assert control.pos_allowance == pytest.approx(0.715)
 
 
 def test_stopped_ego_latches_near_lead_with_jittery_speed():
@@ -649,3 +649,27 @@ def test_starting_respects_approach_acceleration_cap():
                             radar_state=radar, radar_state_valid=True,
                             radar_state_updated=True)[0]
     assert result <= cap
+
+
+def test_following_cap_recovers_gently_and_braking_keeps_original_response():
+  control, cs, plan, radar = setup_control(False)
+  control.long_control_state = 'pid'
+  cs.vEgo, cs.standstill = 10.0, False
+  control.pid.k_f = 1.0
+  plan.speeds, plan.accels = [10.0, 11.0, 12.0], [1.5]*3
+  control.pos_allowance = 0.0
+  control.launch_time, control.launch_motion_started = 10.0, True
+  for _ in range(100):
+    previous = control.pos_allowance
+    step(control, cs, plan, radar)
+    assert control.pos_allowance - previous <= 0.01 + 1e-9
+  assert control.pos_allowance == pytest.approx(1.0)
+  # A renewed closing cap takes effect immediately; it is never filtered.
+  control.update(True, cs, plan, (-3.5, 0.0), 0.0,
+                 radar_state=radar, radar_state_valid=True)
+  assert control.pos_allowance == 0.0
+  # Negative plans still use the normal deceleration jerk, not the rise rate.
+  control.last_output_accel = -0.2
+  plan.speeds, plan.accels = [10.0, 9.0, 8.0], [-2.0]*3
+  output = step(control, cs, plan, radar)
+  assert output < -0.23
