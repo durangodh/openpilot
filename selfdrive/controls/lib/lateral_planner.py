@@ -2,6 +2,7 @@ import numpy as np
 from common.conversions import Conversions as CV
 from common.realtime import sec_since_boot, DT_MDL
 from common.numpy_fast import interp
+from selfdrive.controls.lib.lateral_response import LateralResponse
 from selfdrive.controls.lib.lane_planner import LanePlanner
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import LateralMpc
@@ -83,6 +84,7 @@ class LateralPlanner:
 
     self.debug_mode = debug
 
+    self.lateral_response = LateralResponse()
     self.lat_mpc = LateralMpc()
     self.reset_mpc(np.zeros(4))
 
@@ -234,9 +236,6 @@ class LateralPlanner:
       sm['carState'].vEgo, [5.0, 10.0], [1.0, self.lateral_motion_cost])
     heading_cost = (self.lane_line_blend * self.lateral_motion_cost +
                     (1.0 - self.lane_line_blend) * laneless_heading_cost)
-    self.lat_mpc.set_weights(self.path_cost, heading_cost,
-                             self.lateral_accel_cost, self.lateral_jerk_cost,
-                             self.steering_rate_cost)
 
     # offset_total 을 최종 결정된 path_xyz 에 적용 (레인모드/레인리스 공통)
     self.path_xyz[:, 1] += self.offset_total
@@ -323,6 +322,19 @@ class LateralPlanner:
                       self.noo_map_blend * map_yaw_rate)
     self.y_pts = y_pts
 
+    # Use the final lane/model/map reference, including lane-centre shifts.
+    # Remove the user offset so a fixed calibration cannot trigger the boost.
+    preview_y = float(np.interp(0.8, self.t_idxs[:LAT_MPC_N + 1], y_pts)) - self.offset_total
+    response_active = (sm['carControl'].latActive and not sm['carState'].steeringPressed and
+                       sm.valid['modelV2'] and len(md.position.x) == TRAJECTORY_SIZE and
+                       len(md.orientation.x) == TRAJECTORY_SIZE)
+    effective_rate_cost = self.lateral_response.update(
+      self.steering_rate_cost, preview_y, measured_curvature,
+      self.v_ego, response_active, DT_MDL)
+    self.lat_mpc.set_weights(self.path_cost, heading_cost,
+                             self.lateral_accel_cost, self.lateral_jerk_cost,
+                             effective_rate_cost)
+
     assert len(y_pts) == LAT_MPC_N + 1
     assert len(heading_pts) == LAT_MPC_N + 1
     assert len(yaw_rate_pts) == LAT_MPC_N + 1
@@ -338,6 +350,7 @@ class LateralPlanner:
     mpc_nans = np.isnan(self.lat_mpc.x_sol[:, 3]).any()
     t = sec_since_boot()
     if mpc_nans or self.lat_mpc.solution_status != 0:
+      self.lateral_response = LateralResponse()
       self.reset_mpc()
       self.x0[3] = measured_curvature * self.v_ego
       if t > self.last_cloudlog_t + 5.0:
