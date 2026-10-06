@@ -24,7 +24,8 @@ import de.robv.android.xposed.XposedHelpers;
  *     붙이고, 접근성 클릭이 오면 화면의 "음성서비스" 버튼을 누른다. nMirror 가 찾아서
  *     누르면 재시도도 멈추므로 누를 때마다 동작한다.
  *  2) 예비: nMirror 가 그 ID 를 못 찾는 경우(예전 로그: 숨은 창을 조회), 조용하다가
- *     시작된 첫 ID 조회 묶음을 누름으로 본다(첫 누름만 동작).
+ *     시작된 첫 ID 조회 묶음을 누름으로 본다. 두 경로가 같은 누름에 겹치면 3초 안의
+ *     두 번째 클릭은 무시된다.
  *
  * 2026-10-06: nMirror 프로세스 후킹(b66~b68)은 S9 부팅 때 핫스팟 자동설정을 꺼뜨려
  * 제거했다. LSPosed 범위에는 카카오내비만 둔다.
@@ -122,7 +123,7 @@ final class KakaoVoice {
             int n = XposedBridge.hookAllMethods(aic, "findAccessibilityNodeInfosByViewIdClientThread", new XC_MethodHook() {
                 @Override protected void beforeHookedMethod(MethodHookParam param) {
                     for (Object a : param.args) {
-                        if (a instanceof String) { onVoiceQuery((String) a, param.thisObject); break; }
+                        if (a instanceof String) { onVoiceQuery((String) a); break; }
                     }
                 }
             }).size();
@@ -132,7 +133,7 @@ final class KakaoVoice {
         }
     }
 
-    private void onVoiceQuery(String id, Object controller) {
+    private void onVoiceQuery(String id) {
         String l = id.toLowerCase(Locale.ROOT);
         boolean voice = false;
         for (String w : NMIRROR_VOICE_ID_WORDS) if (l.contains(w)) voice = true;
@@ -141,31 +142,12 @@ final class KakaoVoice {
         boolean burstStart = now - lastVoiceQueryMs > QUERY_BURST_GAP_MS;
         lastVoiceQueryMs = now;
         if (!burstStart) return;
-        logQueriedWindow(controller);
         long msInMinute = System.currentTimeMillis() % 60000L;
         if (msInMinute < MINUTE_TICK_WINDOW_MS) {
             KakaoHudLog.line("voice: lookup at minute tick ignored (+" + msInMinute + "ms)");
         } else {
             KakaoHudLog.line("voice: steering button press (+" + msInMinute + "ms)");
             main.post(this::clickVoice);
-        }
-    }
-
-    /** 조회가 들어온 창이 보이는 주행 화면인지(ID 를 붙인 곳인지) 남긴다. */
-    private void logQueriedWindow(Object controller) {
-        try {
-            Object vri = XposedHelpers.getObjectField(controller, "mViewRootImpl");
-            Object v = vri == null ? null : XposedHelpers.getObjectField(vri, "mView");
-            Activity act = resumed;
-            View resumedRoot = act == null || act.getWindow() == null ? null : act.getWindow().getDecorView();
-            if (v instanceof View) {
-                View root = (View) v;
-                KakaoHudLog.line("voice: lookup window shown=" + root.isShown()
-                        + " vis=" + root.getWindowVisibility() + " resumedWindow=" + (root == resumedRoot)
-                        + " hasBoundId=" + (voiceViewId > 0 && root.findViewById(voiceViewId) != null));
-            }
-        } catch (Throwable t) {
-            KakaoHudLog.line("voice: lookup window unknown: " + t);
         }
     }
 
