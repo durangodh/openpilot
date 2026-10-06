@@ -203,6 +203,48 @@ def test_reported_stop_rate_applies_at_low_speed_and_through_hold():
   assert output == pytest.approx(-1.1)
 
 
+def test_final_rolling_stop_eases_without_weakening_standstill_hold():
+  control, cs, plan, radar = setup_control()
+  control.CP.stopAccel = -1.4
+  control.standstill_hold_accel = -1.4
+  control.stopping_decel_rate = 1.0
+  control.last_output_accel = -0.8
+  cs.vEgo, cs.standstill = 0.2, False
+  plan.speeds, plan.accels = [0.0]*3, [-0.1]*3
+  rolling = step(control, cs, plan, radar)
+  assert rolling == pytest.approx(-0.79)
+  assert not control.standstill_hold_active
+
+  cs.vEgo, cs.standstill = 0.0, True
+  held = [step(control, cs, plan, radar) for _ in range(100)]
+  assert held[0] == pytest.approx(-0.8)
+  assert held[-1] == pytest.approx(-1.4)
+  assert control.standstill_hold_active
+
+
+def test_strong_confirmed_lead_uses_configured_start_request():
+  control, cs, plan, radar = setup_control(starting=True)
+  control.CP.startAccel = 1.2
+  step(control, cs, plan, radar)  # latch the stationary lead
+  radar.leadOne.vLeadK = radar.leadOne.vRel = 1.2
+  radar.leadOne.aLeadK = 0.2
+  step(control, cs, plan, radar)  # first fresh moving sample
+  result = step(control, cs, plan, radar)
+  assert control.long_control_state == 'starting'
+  assert result == pytest.approx(1.2)
+
+  control.CP.startAccel = 1.4
+  assert step(control, cs, plan, radar) == pytest.approx(1.4)
+
+  # A reduced planner/vehicle cap still wins, and a re-stop drops propulsion.
+  assert control.update(True, cs, plan, (-3.5, 1.3), 0.0, radar_state=radar,
+                        radar_state_valid=True, radar_state_updated=True)[0] == pytest.approx(1.3)
+  radar.leadOne.vLeadK = radar.leadOne.vRel = 0.0
+  plan.speeds, plan.accels = [0.0]*3, [-0.1]*3
+  assert step(control, cs, plan, radar) <= 0.0
+  assert control.long_control_state == 'stopping'
+
+
 def test_stop_comfort_does_not_limit_pid_braking():
   control, cs, plan, radar = setup_control()
   configure_reported_start_stop(control)

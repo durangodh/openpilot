@@ -359,6 +359,7 @@ class CarController:
     if self.longcontrol and (CS.scc_bus or not self.scc_live):
 
       if self.frame % 2 == 0:
+        controls.scc_stop_request = scc_stop_request
 
         set_speed = hud_control.setSpeed
         min_set_speed = controls.cruise_helper.cruise_speed_min * CV.KPH_TO_MS
@@ -436,3 +437,4 @@ class CarController:
                          soft_hold_active=soft_hold_scc))
     else:
       self.scc12_cnt = -1
+      controls.scc_stop_request = False

@@ -96,6 +96,8 @@ def test_hold_expires_without_rearming_in_pid_and_cannot_survive_braking():
   assist, args = LeadDepartureAssist(0.01), inputs()
   assert assist.update(**args)
   args.update(stopping=False, confirmed=False)
+  args['cs'].vEgo = 0.2
+  args['v_future'] = 0.5
   for _ in range(99):
     assert assist.update(**args)
   for _ in range(20):
@@ -106,6 +108,27 @@ def test_hold_expires_without_rearming_in_pid_and_cannot_survive_braking():
   assert not assist.update(**args)
   args['a_now'] = 0.0
   assert not assist.update(**args)
+
+
+def test_scc_release_delay_preserves_rolling_assist_but_times_out():
+  assist, args = LeadDepartureAssist(0.01), inputs()
+  assert assist.update(**args)
+  args.update(stopping=False, confirmed=False)
+  for _ in range(140):
+    assert assist.update(**args)
+  assert assist.remaining == 1.0
+  args['cs'].vEgo = 0.2
+  args['v_future'] = 0.5
+  assert assist.update(**args)
+  assert assist.remaining < 1.0
+
+  assist, args = LeadDepartureAssist(0.01), inputs()
+  assert assist.update(**args)
+  args.update(stopping=False, confirmed=False)
+  for _ in range(180):
+    assist.update(**args)
+  assert not assist.active
+  assert assist.remaining == 0.0
 
 
 def test_positive_plan_alone_cannot_arm_assist_while_driving():

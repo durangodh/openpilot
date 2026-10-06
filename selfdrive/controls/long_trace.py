@@ -33,9 +33,9 @@ COLUMNS = [
   # 정지차 일정 감속 목표(m/s², 0 이면 MPC 계획 그대로)
   "const_stop",
   # ⑤ 명령
-  "cmd_accel", "long_state", "enabled",
+  "cmd_accel", "long_state", "enabled", "long_active", "scc_apply_accel", "scc_areq_value", "scc_stop_req",
   # ⑥ 실제 차량
-  "v_ego", "a_ego", "gas", "brake",
+  "v_ego", "a_ego", "gas", "brake", "standstill",
 ]
 
 
@@ -126,7 +126,9 @@ def _row(sm):
     _i(plan.mpcMode), _i(plan.e2eReason), _i(plan.shouldStop),
     _f(plan.constStopDecel),
     _f(sm['carControl'].actuators.accel), _i(ctl.longControlState), _i(ctl.enabled),
-    _f(cs.vEgo), _f(cs.aEgo), _i(cs.gasPressed), _i(cs.brakePressed),
+    _i(sm['carControl'].longActive),
+    _f(ctl.applyAccel), _f(ctl.aReqValue), _i(ctl.sccStopRequest),
+    _f(cs.vEgo), _f(cs.aEgo), _i(cs.gasPressed), _i(cs.brakePressed), _i(cs.standstill),
   ]
 
 

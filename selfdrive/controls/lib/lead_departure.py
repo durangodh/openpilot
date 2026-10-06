@@ -3,6 +3,7 @@ from math import isfinite
 
 
 DEPARTURE_WINDOW = 1.0
+DEPARTURE_WAIT_MAX = 1.8  # Hyundai SCC may take ~1.4 s to release standstill
 DEPARTURE_MAX_SPEED = 1.5
 DEPARTURE_MIN_ACCEL = 0.15
 LEAD_RELEASE_MIN_SPEED = 0.25
@@ -88,11 +89,13 @@ class LeadDepartureAssist:
   def __init__(self, dt):
     self.dt = dt
     self.remaining = 0.0
+    self.waiting = 0.0
     self.active = False
     self.accel_floor = 0.0
 
   def reset(self):
     self.remaining = 0.0
+    self.waiting = 0.0
     self.active = False
     self.accel_floor = 0.0
 
@@ -131,8 +134,15 @@ class LeadDepartureAssist:
         self.reset()
         return False
       self.remaining = DEPARTURE_WINDOW
+      self.waiting = 0.0
     else:
-      self.remaining = max(0.0, self.remaining - self.dt)
+      if cs.vEgo < 0.2:
+        self.waiting += self.dt
+        if self.waiting >= DEPARTURE_WAIT_MAX:
+          self.reset()
+          return False
+      else:
+        self.remaining = max(0.0, self.remaining - self.dt)
 
     self.active = self.remaining > 0.0
     # Unlike StarPilot's planner override, never exceed the acceleration that

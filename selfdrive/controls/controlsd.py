@@ -255,6 +255,7 @@ class Controls:
     # CruiseHelper outputs shared with Hyundai SCC transport and UI
     self.applyMaxSpeed = 0
     self.apply_accel = 0.
+    self.scc_stop_request = False
     self.fused_accel = 0.
     self.lead_drel = 0.
     self.aReqValue = 0.
@@ -1021,6 +1022,7 @@ class Controls:
 
     controlsState.angleSteers = steer_angle_without_offset * CV.RAD_TO_DEG
     controlsState.applyAccel = self.apply_accel
+    controlsState.sccStopRequest = self.scc_stop_request
     controlsState.aReqValue = self.aReqValue
     controlsState.aReqValueMin = self.aReqValueMin
     controlsState.aReqValueMax = self.aReqValueMax

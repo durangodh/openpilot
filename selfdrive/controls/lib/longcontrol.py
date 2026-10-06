@@ -79,6 +79,11 @@ START_HANDOFF_JERK = 1.6
 # Launches without a lead (green light, driver) keep START JERK LIMIT.
 LEAD_LAUNCH_JERK = 2.5
 
+# Ease only the final rolling approach. The original stop/hold targets and
+# StopReq behavior remain unchanged once standstill is detected.
+FINAL_STOP_TAPER_SPEED = 0.3
+FINAL_STOP_TAPER_ACCEL = -0.6
+
 # A lead can move just far enough to release standstill and then stop again.
 # In that case the starting state has already stepped the request to
 # startAccel, so the normal comfort stop ramp would keep positive drive torque
@@ -648,6 +653,12 @@ class LongControl:
       if soft_hold:
         target = self.CP.stopAccel
         hold_relax = False
+      elif (not self.standstill_hold_active and not CS.brakePressed and
+            0.05 < CS.vEgo < FINAL_STOP_TAPER_SPEED and
+            not getattr(self, 'launch_abort_active', False)):
+        # Avoid building stronger brake just before zero speed; the existing
+        # standstill hold ramp takes over after the car actually stops.
+        target = max(target, FINAL_STOP_TAPER_ACCEL)
       # Honor the configured stopping rate through both approach and hold.
       # The old low-speed multiplier turned a UI value of 1.2 into nearly
       # 3.0 m/s^3 precisely at the final stop. Normal PID braking and the
