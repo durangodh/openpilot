@@ -10,7 +10,8 @@ from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.controls.lib.vision_curve_speed import VisionCurveSpeed, UNLIMITED_SPEED
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
 from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software_gap
-from selfdrive.controls.lib.lead_following import get_follow_approach_limit, get_closing_lead_accel_limit
+from selfdrive.controls.lib.lead_following import (get_follow_approach_limit, get_closing_lead_accel_limit,
+                                                 get_traffic_accel_limit)
 from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_auto_speed_up_target,
@@ -318,6 +319,8 @@ class CruiseHelper:
     plan = sm['longitudinalPlan']
     comfort_valid = all(sm.valid[s] and sm.alive[s] for s in ('radarState', 'longitudinalPlan'))
     if comfort_valid and has_lead and plan.mpcMode == 0:
+      target = get_traffic_accel_limit(
+        target, CS.vEgo, sm['radarState'].leadOne, float(plan.desiredDistance))
       target = get_closing_lead_accel_limit(
         target, CS.vEgo, (sm['radarState'].leadOne, sm['radarState'].leadTwo),
         float(plan.desiredDistance), CS.aEgo)

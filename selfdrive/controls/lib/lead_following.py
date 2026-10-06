@@ -11,6 +11,28 @@ FOLLOW_COMFORT_FULL_ACCEL = 0.2  # m/s^2, fade out comfort before either acceler
 CLOSING_PREVIEW_S = 1.5
 
 
+def get_traffic_accel_limit(max_accel, v_ego, lead, desired_gap):
+  """Bound traffic gap recovery by lead acceleration, with modest catch-up.
+
+  This is an upper allowance, never an acceleration floor. It adds no delay
+  to departure confirmation and fades out between 18 and 30 km/h.
+  """
+  if lead is None or not lead.status:
+    return max_accel
+  distance, speed, accel = float(lead.dRel), float(lead.vLead), float(lead.aLeadK)
+  if (not all(math.isfinite(x) for x in (max_accel, v_ego, desired_gap, distance, speed, accel)) or
+      max_accel <= 0.0 or v_ego <= 0.3 or v_ego >= 30.0 / 3.6 or
+      not 0.0 < distance <= 25.0 or desired_gap <= 0.0):
+    return max_accel
+  catch_up = min(0.3, max(0.0, distance - desired_gap) * 0.05)
+  traffic_cap = min(1.4, max(0.6, accel + 0.3 + catch_up))
+  # Keep the SCC standstill-release request intact, then blend the rolling
+  # cap in. Reducing startAccel while still latched would delay departure.
+  weight = (interp(v_ego, [0.3, 1.0], [0.0, 1.0]) *
+            interp(v_ego, [5.0, 30.0 / 3.6], [1.0, 0.0]))
+  return max_accel - weight * (max_accel - min(max_accel, traffic_cap))
+
+
 def get_closing_lead_accel_limit(max_accel, v_ego, leads, desired_gap, a_ego=0.0):
   """Lift positive acceleration as a measured closing lead consumes spare gap.
 
@@ -18,7 +40,7 @@ def get_closing_lead_accel_limit(max_accel, v_ego, leads, desired_gap, a_ego=0.0
   cap. It only removes throttle; the planner still owns all braking requests.
   """
   if (not all(math.isfinite(x) for x in (max_accel, v_ego, desired_gap, a_ego)) or
-      max_accel <= 0.0 or v_ego <= 3.0 or desired_gap <= 0.0):
+      max_accel <= 0.0 or v_ego <= 0.5 or desired_gap <= 0.0):
     return max_accel
   cap = max_accel
   for lead in leads:
@@ -40,7 +62,7 @@ def get_closing_lead_accel_limit(max_accel, v_ego, leads, desired_gap, a_ego=0.0
     time_to_gap = max(0.0, distance - desired_gap) / closing
     allowance = interp(time_to_gap, [4.0, 8.0], [0.0, 1.0])
     weight = (interp(closing, [0.35, 0.75], [0.0, 1.0]) *
-              interp(v_ego, [3.0, 5.0], [0.0, 1.0]))
+              interp(v_ego, [0.5, 3.0], [0.0, 1.0]))
     cap = min(cap, max_accel * (1.0 - weight * (1.0 - allowance)))
   return cap
 

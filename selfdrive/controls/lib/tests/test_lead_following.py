@@ -3,7 +3,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 from selfdrive.controls.lib.lead_following import (get_follow_obstacle_cost, get_follow_approach_limit,
-                                                 get_closing_lead_accel_limit)
+                                                 get_closing_lead_accel_limit, get_traffic_accel_limit)
 
 
 def lead(v_ego=20.0, **kwargs):
@@ -126,5 +126,39 @@ def test_preview_ignores_small_acceleration_noise_and_low_speed_entry_is_continu
                                       (lead(vLead=20.0, dRel=52.0, aLeadK=accel),), 50.0) == 1.0
   stopped = lead(vLead=0.0, dRel=10.0)
   caps = [get_closing_lead_accel_limit(1.0, speed, (stopped,), 6.0)
-          for speed in (2.99, 3.0, 3.01, 4.0, 4.99, 5.0, 5.01)]
-  assert caps == pytest.approx([1.0, 1.0, 0.995, 0.5, 0.005, 0.0, 0.0])
+          for speed in (0.49, 0.5, 0.51, 1.75, 2.99, 3.0, 3.01)]
+  assert caps[:2] == [1.0, 1.0]
+  assert 0.99 < caps[2] <= 1.0
+  assert caps[3:] == pytest.approx([0.5, 0.004, 0.0, 0.0])
+  assert all(a >= b for a, b in zip(caps, caps[1:]))
+
+
+def test_traffic_launch_tracks_lead_without_large_gap_recovery_surge():
+  brisk = lead(vLead=2.0, aLeadK=1.6, dRel=7.0)
+  gentle = lead(vLead=1.0, aLeadK=0.4, dRel=7.0)
+  assert get_traffic_accel_limit(2.0, 0.0, brisk, 6.0) == 2.0  # release is not slowed
+  assert get_traffic_accel_limit(2.0, 1.0, brisk, 6.0) == pytest.approx(1.4)
+  assert get_traffic_accel_limit(2.0, 1.0, gentle, 6.0) == pytest.approx(0.75)
+  # A lower configured cap is respected; this never commands acceleration.
+  assert get_traffic_accel_limit(0.4, 1.0, brisk, 6.0) == pytest.approx(0.4)
+  assert get_traffic_accel_limit(-2.0, 1.0, brisk, 6.0) == -2.0
+
+
+def test_traffic_catch_up_is_bounded_and_fades_at_road_speed():
+  gentle = lead(vLead=2.0, aLeadK=0.4, dRel=20.0)
+  assert get_traffic_accel_limit(2.0, 3.0, gentle, 6.0) == pytest.approx(1.0)
+  caps = [get_traffic_accel_limit(2.0, speed, gentle, 6.0)
+          for speed in (5.0, 6.0, 7.0, 30.0 / 3.6)]
+  assert caps[0] == 1.0 and caps[-1] == 2.0
+  assert all(a < b for a, b in zip(caps, caps[1:]))
+  assert get_traffic_accel_limit(2.0, 0.0, NS(status=False), 6.0) == 2.0
+  assert get_traffic_accel_limit(2.0, 0.0, lead(dRel=float('nan')), 6.0) == 2.0
+
+
+def test_traffic_restop_lifts_throttle_but_departing_lead_is_not_delayed():
+  stopped = lead(vLead=0.0, aLeadK=0.0, dRel=7.0)
+  assert get_closing_lead_accel_limit(1.4, 3.0, (stopped,), 6.0) == 0.0
+  departing = lead(vLead=3.0, aLeadK=1.0, dRel=7.0)
+  cap = get_traffic_accel_limit(2.0, 1.0, departing, 6.0)
+  assert cap == pytest.approx(1.35)
+  assert get_closing_lead_accel_limit(cap, 1.0, (departing,), 6.0, a_ego=0.5) == cap
