@@ -74,7 +74,7 @@ from selfdrive.boardd.boardd import can_list_to_can_capnp
 from selfdrive.car.car_helpers import get_car, get_startup_event, get_one_can
 from selfdrive.controls.lib.lane_planner import CAMERA_OFFSET
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_INITIAL, initialize_v_cruise
-from selfdrive.controls.lib.drive_helpers import get_lag_adjusted_curvature
+from selfdrive.controls.lib.drive_helpers import get_lag_adjusted_curvature, PlanPairAverage
 from selfdrive.controls.lib.latcontrol import LatControl
 from selfdrive.controls.lib.longcontrol import LongControl
 from selfdrive.controls.lib.latcontrol_pid import LatControlPID
@@ -250,6 +250,7 @@ class Controls:
     self.steer_limited = False
     self.desired_curvature = 0.0
     self.desired_curvature_rate = 0.0
+    self.curvature_pair_avg = PlanPairAverage()
     self.reverse_reengage_pending = False
 
     # CruiseHelper outputs shared with Hyundai SCC transport and UI
@@ -773,10 +774,12 @@ class Controls:
         plan_valid=self.sm.valid['longitudinalPlan'] and self.sm.alive['longitudinalPlan'])
 
       # Steering PID loop and lateral MPC
-      self.desired_curvature, self.desired_curvature_rate = get_lag_adjusted_curvature(self.CP, CS.vEgo,
-                                                                                       lat_plan.psis,
-                                                                                       lat_plan.curvatures,
-                                                                                       lat_plan.curvatureRates)
+      raw_curvature, raw_curvature_rate = get_lag_adjusted_curvature(self.CP, CS.vEgo,
+                                                                     lat_plan.psis,
+                                                                     lat_plan.curvatures,
+                                                                     lat_plan.curvatureRates)
+      self.desired_curvature, self.desired_curvature_rate = self.curvature_pair_avg.update(
+        raw_curvature, raw_curvature_rate, self.sm.updated['lateralPlan'], CC.latActive)
       actuators.steer, actuators.steeringAngleDeg, lac_log = self.LaC.update(CC.latActive, CS, self.VM, params,
                                                                              self.last_actuators, self.steer_limited, self.desired_curvature,
                                                                              self.desired_curvature_rate, self.sm['liveLocationKalman'],
