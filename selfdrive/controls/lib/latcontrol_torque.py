@@ -3,6 +3,7 @@ import math
 from cereal import log
 from common.numpy_fast import interp
 from common.realtime import DT_CTRL
+from selfdrive.controls.lib import live_tune
 from selfdrive.controls.lib.latcontrol import LatControl, MIN_STEER_SPEED
 from selfdrive.controls.lib.pid import PIDController
 from selfdrive.controls.lib.vehicle_model import ACCELERATION_DUE_TO_GRAVITY
@@ -210,8 +211,7 @@ class LatControlTorque(LatControl):
     self.lat_accel_friction_factor = self._pget("LatAccelFrictionFactor", 70) * 0.01
     self.lat_jerk_friction_factor = self._pget("LatJerkFrictionFactor", 20) * 0.01
     self.low_speed_curv_tau = max(0.0, min(1.0, self._pget("LatLowSpeedCurvTauMs", 300) * 0.001))
-    self.desired_lat_jerk_time = max(
-      0.1, self._pget("SteerActuatorDelay", 10) * 0.01 + 0.3)
+    self.desired_lat_jerk_time = max(0.1, live_tune.steer_actuator_delay() + 0.3)
     self.friction_upper_idx = next(
       (i for i, t in enumerate(T_IDXS) if t > max(self.desired_lat_jerk_time, 0.1)),
       len(T_IDXS))
@@ -234,16 +234,14 @@ class LatControlTorque(LatControl):
       output_torque = 0.0
       pid_log.active = False
       angle_steers_des = 0.0
-      pid_log.latAccelFactor = self.torque_params.latAccelFactor
-      pid_log.latAccelOffset = self.torque_params.latAccelOffset
-      pid_log.friction = self.torque_params.friction
       # 비활성 구간에서 커브 상태를 들고 있으면 재인게이지 직후 직진에서도
       # 커브용 강한 데드존이 걸린다.
       self.curve_mag = 0.0
       self.low_speed_curv_filtered = desired_curvature
     else:
+      steer_curvature = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
       if self.use_steering_angle:
-        actual_curvature = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
+        actual_curvature = steer_curvature
         curvature_deadzone = abs(VM.calc_curvature(math.radians(self.steering_angle_deadzone_deg), CS.vEgo, 0.0))
         blend = getattr(self, 'yaw_measure_blend', 0.0) * interp(CS.vEgo, YAW_MEASURE_SPEED_BP, [0.0, 1.0])
         yaw_diff = None
@@ -262,9 +260,8 @@ class LatControlTorque(LatControl):
           self.yaw_diff_filtered = yaw_diff if prev is None else prev + alpha * (yaw_diff - prev)
           actual_curvature += blend * self.yaw_diff_filtered
       else:
-        actual_curvature_vm = -VM.calc_curvature(math.radians(CS.steeringAngleDeg - params.angleOffsetDeg), CS.vEgo, params.roll)
         actual_curvature_llk = llk.angularVelocityCalibrated.value[2] / CS.vEgo
-        actual_curvature = interp(CS.vEgo, [2.0, 5.0], [actual_curvature_vm, actual_curvature_llk])
+        actual_curvature = interp(CS.vEgo, [2.0, 5.0], [steer_curvature, actual_curvature_llk])
         curvature_deadzone = 0.0
       desired_lateral_accel = desired_curvature * CS.vEgo ** 2
 
@@ -361,11 +358,11 @@ class LatControlTorque(LatControl):
       pid_log.desiredLateralAccel = desired_lateral_accel
       pid_log.saturated = self._check_saturation(self.steer_max - abs(output_torque) < 1e-3, CS, steer_limited)
 
-      pid_log.latAccelFactor = self.torque_params.latAccelFactor
-      pid_log.latAccelOffset = self.torque_params.latAccelOffset
-      pid_log.friction = self.torque_params.friction
-
       angle_steers_des = math.degrees(VM.get_steer_from_curvature(-desired_curvature, CS.vEgo, params.roll)) + params.angleOffsetDeg
+
+    pid_log.latAccelFactor = self.torque_params.latAccelFactor
+    pid_log.latAccelOffset = self.torque_params.latAccelOffset
+    pid_log.friction = self.torque_params.friction
 
     #TODO left is positive in this convention
     return -output_torque, angle_steers_des, pid_log
