@@ -16,6 +16,11 @@ def test_pid_executes_one_direct_acceleration_request():
   assert "NO_LEAD_ALLOWANCE_RISE" not in TEXT
 
 
+def test_pid_does_not_keep_previous_launch_limiter_frozen():
+  assert "freeze_integrator = prevent_overshoot" in TEXT
+  assert "prevent_overshoot or self.launch_limited" not in TEXT
+
+
 def test_output_has_one_final_vehicle_limit_clip():
   assert "self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])" in TEXT
 
