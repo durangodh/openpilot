@@ -258,6 +258,7 @@ public final class HudService extends Service {
     private volatile Thread bootUsbThread;
     private volatile Thread usbRecoveryThread;
     private volatile DatagramSocket receiverSocket;
+    private long lastGpsReportAt;
     private volatile Socket assetSocket;
     // 같은 S9 의 네비 모듈이 지도를 바로 보내는 로컬 경로(127.0.0.1:7213, LocalHudMap).
     // 이 지도가 LOCAL_MAP_FRESH_MS 안에 들어오고 있으면 EON 이 되돌려 주는 지도는 무시한다.
@@ -840,6 +841,18 @@ public final class HudService extends Service {
                         lastEonAddress = packet.getAddress().getHostAddress();
                         byte[] ack = "HUD1".getBytes("US-ASCII");
                         socket.send(new DatagramPacket(ack, ack.length, packet.getAddress(), packet.getPort()));
+                        // GPS 전달 지연을 1초마다 EON 에 보내 /trace/hud/gps_*.log 로 남긴다.
+                        long gpsNow = SystemClock.elapsedRealtime();
+                        GpsSourceMonitor gps = gpsSourceMonitor;
+                        if (gps != null && gpsNow - lastGpsReportAt >= 1000L) {
+                            lastGpsReportAt = gpsNow;
+                            String line = gps.reportLine();
+                            if (!line.isEmpty()) {
+                                byte[] report = ("GPSL" + line).getBytes("US-ASCII");
+                                socket.send(new DatagramPacket(report, report.length,
+                                        packet.getAddress(), packet.getPort()));
+                            }
+                        }
                     } catch (SocketTimeoutException ignored) {
                     }
                 }

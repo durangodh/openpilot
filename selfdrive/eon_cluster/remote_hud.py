@@ -18,7 +18,7 @@ import time
 import cereal.messaging as messaging
 from common.params import Params
 from selfdrive.eon_cluster.nav_selection import NavSelectionSync
-from selfdrive.eon_cluster.hud_stats import StatsLog
+from selfdrive.eon_cluster.hud_stats import StatsLog, append_module_log
 from selfdrive.eon_cluster.hud_remote import RemoteCommandSync, allowed_commands
 
 
@@ -1412,6 +1412,10 @@ def main():
           reply, address = sock.recvfrom(256)
           if reply == b"HUD1":
             last_ack = time.monotonic()
+          elif reply.startswith(b"GPSL"):
+            # S9 GPS delivery delay (fix UTC time -> phone), 1/s, for /trace.
+            v_ego = _finite(_field(sm["carState"], "vEgo", 0.0)) if sm.alive["carState"] else -1.0
+            append_module_log("gps", "%s v_ego=%.1f" % (reply[4:].decode("ascii", "replace"), v_ego))
           elif nav_selection.receive(reply, address):
             last_ack = time.monotonic()
           elif remote_commands.receive(reply, address, remote_allowed):

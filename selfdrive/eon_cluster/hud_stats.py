@@ -101,7 +101,7 @@ def _rotate():
     pass
 
 
-MODULE_LOG_SOURCES = ("kakao", "naver", "tmap")
+MODULE_LOG_SOURCES = ("kakao", "naver", "tmap", "gps")
 
 
 def append_module_log(source, text):

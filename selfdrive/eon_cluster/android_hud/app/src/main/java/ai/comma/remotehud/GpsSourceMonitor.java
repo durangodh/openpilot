@@ -65,12 +65,14 @@ final class GpsSourceMonitor implements LocationListener {
     private static final int LAG_SAMPLES = 15;
     private final long[] lagMs = new long[LAG_SAMPLES];
     private int lagCount, lagNext;
+    private long lastLagMs = -1L;
 
     @Override public void onLocationChanged(Location location) {
         if (!LocationManager.GPS_PROVIDER.equals(location.getProvider())) return;
         if (location.getTime() > 0L) {
             synchronized (lagMs) {
-                lagMs[lagNext] = System.currentTimeMillis() - location.getTime();
+                lastLagMs = System.currentTimeMillis() - location.getTime();
+                lagMs[lagNext] = lastLagMs;
                 lagNext = (lagNext + 1) % LAG_SAMPLES;
                 if (lagCount < LAG_SAMPLES) lagCount++;
             }
@@ -113,6 +115,23 @@ final class GpsSourceMonitor implements LocationListener {
         return new Reading(kind, kind == GpsSourcePolicy.VEHICLE && extras != null
                 && extras.getBoolean("predicted", false), accuracy);
     }
+    /** EON trace 용 한 줄(1초마다). 위치가 3초 넘게 없으면 빈 문자열. */
+    String reportLine() {
+        Location location = lastGps;
+        if (location == null || !allowed || !enabled) return "";
+        Reading reading = snapshot();
+        if (reading.kind == GpsSourcePolicy.WAITING) return "";
+        long last, median;
+        synchronized (lagMs) {
+            last = lastLagMs;
+            median = GpsSourcePolicy.median(lagMs, lagCount);
+        }
+        return String.format(java.util.Locale.US, "src=%d pred=%d acc=%.1f lag_ms=%d med_ms=%d gps_v=%.1f",
+                reading.kind, reading.predicted ? 1 : 0,
+                location.hasAccuracy() ? location.getAccuracy() : -1f, last, median,
+                location.hasSpeed() ? location.getSpeed() : -1f);
+    }
+
     String label() {
         Reading reading = snapshot();
         int kind = reading.kind;
