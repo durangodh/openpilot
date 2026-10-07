@@ -35,6 +35,17 @@ def test_signal_stream_enabled_and_forwarded():
   assert "drawNativeOverlay(c, p, trafficSignal" in hud
 
 
+def test_kakao_signal_uses_native_hud_size():
+  signal = (ROOT / "selfdrive/eon_cluster/kakao_xposed/app/src/main/java/ai/comma/kakaohud/KakaoSignal.java").read_text(
+      encoding="utf-8")
+  # Keep the 302x192 transport canvas (shared HUD placement) but render Kakao's
+  # actual signal at 132x96 instead of enlarging it inside that canvas.
+  assert "private static final int CANVAS_W = 302;" in signal
+  assert "private static final int CANVAS_H = 192;" in signal
+  assert "private static final float CONTENT_SCALE = 1.0f;" in signal
+
+
 if __name__ == "__main__":
   test_signal_stream_enabled_and_forwarded()
+  test_kakao_signal_uses_native_hud_size()
   print("traffic signal transport test passed")

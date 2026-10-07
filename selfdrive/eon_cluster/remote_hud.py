@@ -1078,6 +1078,13 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     cam_speed = int(_finite(_field(road, "sectionLimitSpeed", 0)))
     cam_dist = int(_finite(_field(road, "sectionLeftDist", 0)))
     camera_section = cam_speed > 0 and cam_dist > 0
+  # A limit without a positive remaining distance is an already-passed or
+  # partially-cleared event.  onroad.cc requires both fields; make the remote
+  # packet obey the same invariant so an old speed sign cannot linger.
+  if cam_speed <= 0 or cam_dist <= 0:
+    cam_speed = 0
+    cam_dist = 0
+    camera_section = False
   cpu = list(_field(device, "cpuUsagePercent", []) or [])
   temps = list(_field(device, "cpuTempC", []) or [])
   cpu_avg = (sum(float(v) for v in cpu) / len(cpu)) if cpu else 0.0

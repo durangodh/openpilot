@@ -4277,7 +4277,10 @@ public final class HudService extends Service {
 
     private void drawCamera(Canvas c, Paint p, float cx, float cy, int limit, int dist, boolean section,
                             int sectionAvg) {
-        if (limit <= 0) {
+        // Match EON onroad.cc: a camera is valid only while both the limit and
+        // positive remaining distance are present.  This also fails closed if
+        // an older sender leaves only camLimitSpeed behind after passing it.
+        if (limit <= 0 || dist <= 0) {
             return;
         }
         p.setShader(null);

@@ -27,7 +27,7 @@ final class KakaoSignal {
     // CONTENT_SCALE 배로 오른쪽·세로 가운데에 그려, HUD 에서 그 크기 그대로 보이게 한다.
     private static final int CANVAS_W = 302;
     private static final int CANVAS_H = 192;
-    private static final float CONTENT_SCALE = 1.25f;   // HUD 에서 약 165x120
+    private static final float CONTENT_SCALE = 1.0f;    // HUD 에서 원본 크기 132x96
     private static final int PROTOCOL_VERSION = 2;
 
     private final KakaoNaviClient client;
