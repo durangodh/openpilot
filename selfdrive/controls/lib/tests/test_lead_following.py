@@ -2,7 +2,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from selfdrive.controls.lib.lead_following import (accelerating_lead_relief, get_follow_obstacle_cost, get_follow_approach_limit,
+from selfdrive.controls.lib.lead_following import (faster_lead_relief, get_follow_obstacle_cost, get_follow_approach_limit,
                                                  get_closing_lead_accel_limit, get_traffic_accel_limit)
 
 
@@ -167,7 +167,7 @@ def test_traffic_restop_lifts_throttle_but_departing_lead_is_not_delayed():
 def test_accelerating_lead_releases_part_of_virtual_gap_deficit():
   # Log-like rolling traffic: ego is still faster now, but a strongly
   # accelerating radar lead will catch it within the 1.5 s preview.
-  relief = accelerating_lead_relief(
+  relief = faster_lead_relief(
     d_rel=20.0, v_ego=5.9, v_lead=3.9, a_lead=1.55,
     desired_gap=13.0, obstacle_now=9.0, stop_distance=5.0, radar=True)
   assert relief == pytest.approx(2.8)
@@ -178,10 +178,10 @@ def test_accelerating_lead_relief_waits_for_speed_recovery_and_spare_gap():
   args = dict(d_rel=20.0, v_ego=7.4, v_lead=2.2, a_lead=1.9,
               desired_gap=13.0, obstacle_now=9.0, stop_distance=5.0, radar=True)
   # Early in the lead's acceleration it is still projected well below ego.
-  assert accelerating_lead_relief(**args) == 0.0
+  assert faster_lead_relief(**args) == 0.0
   # A close physical gap never borrows from the virtual obstacle.
   args.update(d_rel=13.5, v_ego=5.9, v_lead=3.9, a_lead=1.55)
-  assert accelerating_lead_relief(**args) == 0.0
+  assert faster_lead_relief(**args) == 0.0
 
 
 @pytest.mark.parametrize('changes', [
@@ -192,4 +192,4 @@ def test_accelerating_lead_relief_restores_normal_obstacle_on_invalid_or_unsafe_
   args = dict(d_rel=20.0, v_ego=5.9, v_lead=3.9, a_lead=1.55,
               desired_gap=13.0, obstacle_now=9.0, stop_distance=5.0, radar=True)
   args.update(changes)
-  assert accelerating_lead_relief(**args) == 0.0
+  assert faster_lead_relief(**args) == 0.0

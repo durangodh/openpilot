@@ -209,8 +209,9 @@ LEAD_ACCEL_PREVIEW_S = 1.5
 LEAD_ACCEL_RELIEF_MAX = 0.70
 
 
-def faster_lead_relief(d_rel, v_ego, v_lead, a_lead, desired_gap, obstacle_now, stop_distance):
-  """Metres to add to a faster lead's obstacle so the MPC coasts, not brakes.
+def faster_lead_relief(d_rel, v_ego, v_lead, a_lead, desired_gap, obstacle_now,
+                       stop_distance, radar=False):
+  """Metres of bounded MPC obstacle relief for a lead moving away.
 
   A car that cuts in ahead but is faster than ego and not braking leaves the
   gap on its own. The MPC still saw a gap deficit and braked briefly. The
@@ -225,38 +226,24 @@ def faster_lead_relief(d_rel, v_ego, v_lead, a_lead, desired_gap, obstacle_now, 
   if deficit <= 0.0:
     return 0.0
   min_gap = max(float(stop_distance), CUT_IN_MIN_HEADWAY_S * float(v_ego))
-  weight = (interp(float(v_lead) - float(v_ego), [0.3, 1.5], [0.0, 1.0]) *
-            interp(float(a_lead), [-0.5, -0.1], [0.0, 1.0]) *
-            interp(float(d_rel), [min_gap, min_gap + 5.0], [0.0, 1.0]))
-  return float(weight * deficit)
+  # Existing cut-in case: the lead is already moving away.
+  faster_weight = (interp(float(v_lead) - float(v_ego), [0.3, 1.5], [0.0, 1.0]) *
+                   interp(float(a_lead), [-0.5, -0.1], [0.0, 1.0]) *
+                   interp(float(d_rel), [min_gap, min_gap + 5.0], [0.0, 1.0]))
 
-
-def accelerating_lead_relief(d_rel, v_ego, v_lead, a_lead, desired_gap,
-                             obstacle_now, stop_distance, radar=True):
-  """Ease residual braking when a radar lead is clearly accelerating away.
-
-  The stopped-equivalence obstacle can remain behind the lead's physical
-  position until its current speed catches ego. In traffic this kept braking
-  for roughly two seconds after the lead had begun a strong acceleration.
-  Remove only part of that virtual deficit when the physical gap has spare
-  room and a short speed projection says the lead will catch ego. The normal
-  obstacle returns immediately if lead acceleration falls or the gap closes.
-  """
-  values = (d_rel, v_ego, v_lead, a_lead, desired_gap, obstacle_now, stop_distance)
-  if not radar or not all(math.isfinite(float(x)) for x in values):
-    return 0.0
-  deficit = float(desired_gap) - float(obstacle_now)
+  # Rolling traffic case: a confirmed radar lead is still slower now, but is
+  # projected to catch ego shortly. Keep this in the same relief calculation
+  # so the two qualifications cannot accumulate.
   spare_gap = float(d_rel) - float(desired_gap)
-  if deficit <= 0.0 or spare_gap <= 1.5 or float(a_lead) <= 0.3:
-    return 0.0
-
-  min_gap = max(float(stop_distance), 0.6 * float(v_ego))
-  if float(d_rel) <= min_gap + 2.0:
-    return 0.0
-  projected_rel_speed = (float(v_lead) + LEAD_ACCEL_PREVIEW_S * float(a_lead) -
-                         float(v_ego))
-  weight = (interp(float(a_lead), [0.3, 1.2], [0.0, 1.0]) *
-            interp(projected_rel_speed, [-0.75, 0.25], [0.0, 1.0]) *
-            interp(spare_gap, [1.5, 6.0], [0.0, 1.0]) *
-            interp(float(d_rel), [min_gap + 2.0, min_gap + 7.0], [0.0, 1.0]))
-  return float(min(deficit, LEAD_ACCEL_RELIEF_MAX * weight * deficit))
+  preview_min_gap = max(float(stop_distance), 0.6 * float(v_ego))
+  preview_weight = 0.0
+  if (radar and spare_gap > 1.5 and float(a_lead) > 0.3 and
+      float(d_rel) > preview_min_gap + 2.0):
+    projected_rel_speed = (float(v_lead) + LEAD_ACCEL_PREVIEW_S * float(a_lead) -
+                           float(v_ego))
+    preview_weight = LEAD_ACCEL_RELIEF_MAX * (
+      interp(float(a_lead), [0.3, 1.2], [0.0, 1.0]) *
+      interp(projected_rel_speed, [-0.75, 0.25], [0.0, 1.0]) *
+      interp(spare_gap, [1.5, 6.0], [0.0, 1.0]) *
+      interp(float(d_rel), [preview_min_gap + 2.0, preview_min_gap + 7.0], [0.0, 1.0]))
+  return float(min(deficit, max(faster_weight, preview_weight) * deficit))
