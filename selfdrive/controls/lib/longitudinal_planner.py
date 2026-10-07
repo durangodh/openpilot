@@ -79,6 +79,12 @@ class LongitudinalPlanner:
     self.events = Events()
 
   def read_param(self):
+    def scaled(key, default, lo=None, hi=None):
+      # x100 정수 저장값: 0 이하(미설정)는 기본값, 그 뒤 0.01배 후 범위 제한
+      raw = self.params.get_int(key)
+      value = (raw if raw > 0 else default) * 0.01
+      return float(clip(value, lo, hi)) if lo is not None else value
+
     self.mpc.applyLongDynamicCost = self.params.get_bool("ApplyLongDynamicCost")
     self.mpc.softHoldMode = int(clip(self.params.get_int("SoftHoldMode"), 0, 2))
     self.auto_e2e_enabled = self.CP.openpilotLongitudinalControl
@@ -94,17 +100,14 @@ class LongitudinalPlanner:
     except (TypeError, ValueError):
       self.traffic_stop_mode = 2
     self.traffic_stop_mode = int(clip(self.traffic_stop_mode, 0, 2))
-    traffic_stop_accel = self.params.get_int('TrafficStopAccel')
-    self.traffic_stop_accel_factor = float(clip((traffic_stop_accel if traffic_stop_accel > 0 else 80) * 0.01,
-                                                0.1, 1.2))
+    self.traffic_stop_accel_factor = scaled('TrafficStopAccel', 80, 0.1, 1.2)
     traffic_stop_distance_adjust = self.params.get_int('TrafficStopDistanceAdjust')
     self.traffic_stop_distance_adjust = float(clip(traffic_stop_distance_adjust * 0.01, -10.0, 10.0))
     if not self.auto_e2e_enabled:
       self.mpc.mode = 'acc'
     # aPilot uses one standstill distance for ACC and E2E. Params are stored
     # in centimetres to match its StopDistance setting (default 600 cm).
-    stop_distance = self.params.get_int('StopDistance')
-    self.mpc.stop_distance = float(clip((stop_distance if stop_distance > 0 else 600) * 0.01, 2.0, 10.0))
+    self.mpc.stop_distance = scaled('StopDistance', 600, 2.0, 10.0)
 
     # ── MyDrivingMode ──
     mode = self.params.get("MyDrivingMode", encoding='utf8')
@@ -115,30 +118,21 @@ class LongitudinalPlanner:
     if not 1 <= mode <= 4:
       mode = 3
     self.my_driving_mode = mode
-    eco_factor = self.params.get_int("MyEcoModeFactor")
-    self.my_eco_mode_factor = float(clip((eco_factor if eco_factor > 0 else 80) * 0.01, 0.1, 0.95))
+    self.my_eco_mode_factor = scaled("MyEcoModeFactor", 80, 0.1, 0.95)
 
     self.cruise_max_vals = []
     for key, default in zip(CRUISE_MAX_VAL_KEYS, CRUISE_MAX_VAL_DEFAULTS):
       raw = self.params.get_int(key)
       self.cruise_max_vals.append(float(raw * 0.01 if raw > 0 else default))
-    no_lead_factor = self.params.get_int("NoLeadCruiseAccelFactor")
-    self.no_lead_cruise_accel_factor = float(clip(
-      (no_lead_factor if no_lead_factor > 0 else 65) * 0.01, 0.30, 1.0))
+    self.no_lead_cruise_accel_factor = scaled("NoLeadCruiseAccelFactor", 65, 0.30, 1.0)
 
-    gap_defaults = [110, 120, 140, 160]
-    gap_values = []
-    for key, default in zip(["TFollowGap1", "TFollowGap2", "TFollowGap3", "TFollowGap4"], gap_defaults):
-      value = self.params.get_int(key)
-      gap_values.append((value if value > 0 else default) * 0.01)
-    self.mpc.tfollow_gaps = gap_values
+    self.mpc.tfollow_gaps = [scaled(f"TFollowGap{i + 1}", default)
+                             for i, default in enumerate([110, 120, 140, 160])]
     speed_ratio = self.params.get_int("TFollowSpeedRatio")
     self.mpc.t_follow_speed_ratio = (speed_ratio if speed_ratio >= 100 else 120) * 0.01
     # 앞차 접근 제동 튜닝 (x100 정수 저장)
-    comfort_brake = self.params.get_int("ComfortBrake")
-    self.mpc.comfort_brake = float(clip((comfort_brake if comfort_brake > 0 else 250) * 0.01, 1.5, 4.0))
-    x_obstacle_cost = self.params.get_int("XEgoObstacleCost")
-    self.mpc.x_ego_obstacle_cost = float(clip((x_obstacle_cost if x_obstacle_cost > 0 else 600) * 0.01, 1.0, 12.0))
+    self.mpc.comfort_brake = scaled("ComfortBrake", 250, 1.5, 4.0)
+    self.mpc.x_ego_obstacle_cost = scaled("XEgoObstacleCost", 600, 1.0, 12.0)
     # ───────────────────
 
   def reset_auto_e2e(self):
