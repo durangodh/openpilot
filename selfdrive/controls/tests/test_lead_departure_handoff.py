@@ -10,7 +10,8 @@ import pytest
 
 from common.numpy_fast import clip, interp
 from selfdrive.controls.lib.lead_departure import (LeadDepartureAssist,
-                                                   departure_jerk_upper, lead_is_creeping,
+                                                   departure_jerk_upper, lead_departure_jerk,
+                                                   lead_is_creeping,
                                                    lead_is_departing, lead_raw_departing)
 from selfdrive.controls.lib.pid import PIDController
 
@@ -26,8 +27,9 @@ def load_control():
              Params=lambda: NS(get=lambda *args, **kw: None), DT_CTRL=0.01,
              T_IDXS=[0.0, 0.5, 1.5], CONTROL_N=3,
              apply_deadzone=lambda error, dz: max(error - dz, 0.0) if error > 0 else min(error + dz, 0.0),
-             LeadDepartureAssist=LeadDepartureAssist, lead_is_departing=lead_is_departing,
-             departure_jerk_upper=departure_jerk_upper,
+              LeadDepartureAssist=LeadDepartureAssist, lead_is_departing=lead_is_departing,
+              departure_jerk_upper=departure_jerk_upper,
+              lead_departure_jerk=lead_departure_jerk,
              lead_raw_departing=lead_raw_departing, lead_is_creeping=lead_is_creeping)
   exec(compile(tree, str(source), 'exec'), env)
   global LEAD_LAUNCH_JERK
@@ -82,11 +84,12 @@ def test_confirmed_departure_releases_below_old_speed_threshold(starting):
     # apilot-c2: the starting state steps straight to startAccel; the launch
     # jerk goes to SCC14 instead (LEAD_LAUNCH_JERK for a departing lead).
     assert accel == pytest.approx(0.25)
-    assert control.scc_launch_jerk() == pytest.approx(LEAD_LAUNCH_JERK)
+    expected = lead_departure_jerk(radar.leadOne, control.jerk_start_limit, plan.desiredDistance)
+    assert control.scc_launch_jerk() == pytest.approx(expected)
   else:
-    # Without a starting state the PID launch still leaves the hold at
-    # LEAD_LAUNCH_JERK from the first frame.
-    assert accel == pytest.approx(-1.1 + LEAD_LAUNCH_JERK * 0.01)
+    # Without a starting state the PID launch uses the same lead-aware jerk.
+    expected = lead_departure_jerk(radar.leadOne, control.jerk_start_limit, plan.desiredDistance)
+    assert accel == pytest.approx(-1.1 + expected * 0.01)
   for _ in range(5):
     step(control, cs, plan, radar, fresh=False)
   assert control.long_control_state != 'stopping'
@@ -257,7 +260,8 @@ def test_starting_without_scc14_rate_limits_positive_drive():
   step(control, cs, plan, radar)  # first moving sample
   result = step(control, cs, plan, radar)
   assert control.long_control_state == 'starting'
-  assert result == pytest.approx(4.0 * 0.01)
+  expected = lead_departure_jerk(radar.leadOne, 4.0, plan.desiredDistance)
+  assert result == pytest.approx(expected * 0.01)
   assert control.launch_limited
 
 
@@ -726,7 +730,7 @@ def test_delayed_scc_release_keeps_full_rolling_launch_window():
     step(control, cs, plan, radar)
   assert control.launch_time == pytest.approx(0.01)
   assert not control.launch_motion_started
-  assert control.scc_launch_jerk() == pytest.approx(LEAD_LAUNCH_JERK)
+  assert control.scc_launch_jerk() == pytest.approx(1.0)
   cs.vEgo, cs.standstill = 0.21, False
   plan.speeds, plan.accels = [0.21, 1.0, 2.0], [1.6]*3
   previous = control.last_output_accel

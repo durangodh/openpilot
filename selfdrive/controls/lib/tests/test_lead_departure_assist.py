@@ -5,6 +5,7 @@ import pytest
 from selfdrive.controls.lib.lead_departure import (LAUNCH_JERK_UPPER_MAX, LeadDepartureAssist,
                                                    departure_jerk_upper,
                                                    departure_motion_valid,
+                                                   lead_departure_jerk,
                                                    lead_is_departing)
 
 
@@ -151,3 +152,14 @@ def test_scc_jerk_change_is_scoped_and_bounded():
   assert departure_jerk_upper(0.5, 1.0, 0.6, True) == 0.6
   assert departure_jerk_upper(0.5, 0.5, 2.0, True) == 1.0
   assert departure_jerk_upper(4.0, 5.0, 6.0, True) == 4.0
+
+
+def test_launch_jerk_tracks_lead_motion_and_respects_user_limit():
+  gentle = NS(status=True, dRel=6.5, vLeadK=0.3, vRel=0.25, aLeadK=0.0)
+  normal = NS(status=True, dRel=7.0, vLeadK=0.8, vRel=0.7, aLeadK=0.2)
+  brisk = NS(status=True, dRel=9.0, vLeadK=1.8, vRel=1.6, aLeadK=0.8)
+  jerks = [lead_departure_jerk(lead, 4.0, 6.0) for lead in (gentle, normal, brisk)]
+  assert 0.8 <= jerks[0] < jerks[1] < jerks[2] <= 4.0
+  assert lead_departure_jerk(brisk, 1.0, 6.0) == pytest.approx(1.0)
+  assert lead_departure_jerk(brisk, 0.5, 6.0) == pytest.approx(0.5)
+  assert lead_departure_jerk(None, 4.0, 6.0) is None

@@ -7,6 +7,7 @@ from selfdrive.controls.lib.pid import PIDController
 from selfdrive.modeld.constants import T_IDXS
 from selfdrive.controls.lib.lead_departure import (LeadDepartureAssist,
                                                    departure_jerk_upper,
+                                                   lead_departure_jerk,
                                                    lead_is_creeping,
                                                    lead_is_departing,
                                                    lead_raw_departing)
@@ -74,8 +75,10 @@ PID_JERK_LOWER_V = [3.5, 3.5, 3.0]
 LAUNCH_TIME_BP = [0.0, 1.5, 2.5]   # s after leaving stop/off
 LAUNCH_JERK_MAX = 5.0              # m/s^3, same as the SCC14 ceiling
 START_HANDOFF_JERK = 1.6
-# A launch released by a confirmed departing lead follows it at this jerk from
-# the first frame (the lead itself typically pulls away at 1.5~2.5 m/s^2).
+LEAD_JERK_RISE_RATE = 2.0          # m/s^4, make stronger launches progressively
+LEAD_JERK_FALL_RATE = 4.0          # m/s^4, lift faster when the lead eases
+# This remains a release ceiling for compatibility; confirmed lead launches
+# are capped further from live lead speed, acceleration and available gap.
 # Launches without a lead (green light, driver) keep START JERK LIMIT.
 LEAD_LAUNCH_JERK = 2.5
 
@@ -195,6 +198,7 @@ class LongControl:
     self.launch_motion_started = False
     self.launch_limited = False
     self.lead_launch = False
+    self.lead_launch_jerk = None
     self.launch_abort_active = False
     self.pos_allowance = None
     self.no_lead_prev = False
@@ -447,12 +451,16 @@ class LongControl:
     start = max(self.jerk_start_limit, LEAD_LAUNCH_JERK) if releasing else self.jerk_start_limit
     limit = interp(self.launch_time, LAUNCH_TIME_BP, [start, start, LAUNCH_JERK_MAX])
     if self.lead_launch and self.launch_motion_started:
-      return limit
-    return departure_jerk_upper(limit, self.jerk_start_limit,
-                                PID_JERK_UPPER_V[0] * self.pid_jerk_accel_mult, assisted)
+      result = limit
+    else:
+      result = departure_jerk_upper(limit, self.jerk_start_limit,
+                                    PID_JERK_UPPER_V[0] * self.pid_jerk_accel_mult, assisted)
+    if self.lead_launch and self.lead_launch_jerk is not None:
+      result = min(result, self.lead_launch_jerk)
+    return result
 
   def scc_launch_jerk(self):
-    """SCC release uses the lead-launch floor; rolling uses START JERK LIMIT.
+    """SCC release follows live lead motion; other launches use START JERK LIMIT.
 
     The 2.5-second ramp begins with actual motion, not the release command.
     """
@@ -460,7 +468,10 @@ class LongControl:
        (self.long_control_state == LongCtrlState.pid and 0.0 < self.launch_time < LAUNCH_TIME_BP[-1]):
       releasing = self.lead_launch and not self.launch_motion_started
       start = max(self.jerk_start_limit, LEAD_LAUNCH_JERK) if releasing else self.jerk_start_limit
-      return float(interp(self.launch_time, LAUNCH_TIME_BP, [start, start, LAUNCH_JERK_MAX]))
+      limit = float(interp(self.launch_time, LAUNCH_TIME_BP, [start, start, LAUNCH_JERK_MAX]))
+      if self.lead_launch and self.lead_launch_jerk is not None:
+        limit = min(limit, self.lead_launch_jerk)
+      return limit
     return None
 
   def reset(self, v_pid=0.0):
@@ -553,6 +564,7 @@ class LongControl:
       self.launch_motion_started = False
       self.launch_limited = False
       self.lead_launch = False
+      self.lead_launch_jerk = None
     else:
       if prev_state == LongCtrlState.stopping:
         # Remember why this launch started: a confirmed departing lead.
@@ -565,6 +577,24 @@ class LongControl:
         self.launch_time += DT_CTRL
       else:
         self.launch_time = DT_CTRL
+
+      # Match a human driver's launch pressure to what the lead is actually
+      # doing. Rising response is deliberately gradual; reductions happen
+      # faster so a lead that eases off never leaves stale launch aggression.
+      if self.lead_launch:
+        lead = radar_state.leadOne if (radar_state is not None and radar_state_valid and
+                                       not radar_state.radarErrors) else None
+        target_jerk = lead_departure_jerk(
+          lead, self.jerk_start_limit, float(getattr(long_plan, 'desiredDistance', 0.0)))
+        if target_jerk is None:
+          target_jerk = min(self.jerk_start_limit, 1.0)
+        if self.lead_launch_jerk is None:
+          self.lead_launch_jerk = target_jerk
+        else:
+          self.lead_launch_jerk = float(clip(
+            target_jerk,
+            self.lead_launch_jerk - LEAD_JERK_FALL_RATE * DT_CTRL,
+            self.lead_launch_jerk + LEAD_JERK_RISE_RATE * DT_CTRL))
 
     # Positive allowance: a lead dropout starts at current output. At road
     # speed, recovering spare gap also restores throttle progressively.

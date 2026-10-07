@@ -8,6 +8,7 @@ DEPARTURE_MAX_SPEED = 1.5
 DEPARTURE_MIN_ACCEL = 0.15
 LEAD_RELEASE_MIN_SPEED = 0.25
 LEAD_RELEASE_MIN_VREL = 0.1
+LEAD_JERK_MIN = 0.8
 
 
 def departure_motion_valid(v_lead, v_rel, *, a_lead=None, min_speed=LEAD_RELEASE_MIN_SPEED,
@@ -83,6 +84,31 @@ def lead_is_creeping(lead):
   if not (isfinite(v_lead) and isfinite(v_rel)):
     return False
   return v_lead > CREEP_MIN_SPEED and v_rel > CREEP_MIN_VREL
+
+
+def lead_departure_jerk(lead, configured_start, desired_gap):
+  """Shape launch jerk from the lead's measured departure.
+
+  A creeping lead gets a gentle release, while a lead that is clearly pulling
+  away can use the configured start jerk. The result is only an upper limit;
+  planner acceleration, following caps and all stop vetoes still win.
+  """
+  if lead is None or not getattr(lead, 'status', False):
+    return None
+  values = (getattr(lead, 'dRel', float('nan')),
+            getattr(lead, 'vLeadK', float('nan')),
+            getattr(lead, 'vRel', float('nan')),
+            getattr(lead, 'aLeadK', float('nan')), desired_gap, configured_start)
+  if not all(isfinite(x) for x in values) or desired_gap <= 0.0 or configured_start <= 0.0:
+    return None
+
+  distance, v_lead, v_rel, a_lead = values[:4]
+  motion = max(0.0, min(v_lead, v_rel))
+  motion_weight = max(0.0, min(1.0, (motion - 0.2) / 1.3))
+  accel_weight = max(-1.0, min(1.0, a_lead))
+  gap_weight = max(0.0, min(1.0, (distance - desired_gap) / 3.0))
+  natural_jerk = 1.4 + 2.2 * motion_weight + 0.4 * accel_weight + 0.3 * gap_weight
+  return min(configured_start, max(LEAD_JERK_MIN, natural_jerk))
 
 
 class LeadDepartureAssist:
