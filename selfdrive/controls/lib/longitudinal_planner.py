@@ -74,7 +74,7 @@ class LongitudinalPlanner:
     self.j_desired_trajectory = np.zeros(CONTROL_N)
     self.solverExecutionTime = 0.0
 
-    self.use_cluster_speed = Params().get_bool('UseClusterSpeed')
+    self.use_cluster_speed = self.params.get_bool('UseClusterSpeed')
     self.cruise_source = 'cruise'
     self.events = Events()
 
@@ -210,13 +210,11 @@ class LongitudinalPlanner:
       x = np.interp(T_IDXS_MPC, T_IDXS, model_msg.position.x) - model_error * T_IDXS_MPC
       v = np.interp(T_IDXS_MPC, T_IDXS, model_msg.velocity.x) - model_error
       a = np.interp(T_IDXS_MPC, T_IDXS, model_msg.acceleration.x)
-      j = np.zeros(len(T_IDXS_MPC))
     else:
       x = np.zeros(len(T_IDXS_MPC))
       v = np.zeros(len(T_IDXS_MPC))
       a = np.zeros(len(T_IDXS_MPC))
-      j = np.zeros(len(T_IDXS_MPC))
-    return x, v, a, j
+    return x, v, a, np.zeros(len(T_IDXS_MPC))
 
   def update(self, sm, read=True):
     if read:
@@ -228,9 +226,9 @@ class LongitudinalPlanner:
 
     driving_mode = int(clip(sm['controlsState'].myDrivingMode, 1, 4))
     self.my_driving_mode = driving_mode
+    safe_mode_factor = float(clip(sm['controlsState'].mySafeModeFactor, 0.5, 1.0))
     self.mpc.mode = self.update_auto_e2e_mode(sm['carState'], sm['radarState'], sm['modelV2'],
-                                              sm['controlsState'].enabled, driving_mode,
-                                              sm['controlsState'].mySafeModeFactor)
+                                              sm['controlsState'].enabled, driving_mode, safe_mode_factor)
 
     v_cruise_kph = sm['controlsState'].vCruise
     v_cruise_kph = min(v_cruise_kph, V_CRUISE_MAX)
@@ -254,8 +252,7 @@ class LongitudinalPlanner:
 
     # apilot-c2: the speed/mode CruiseMax table is the only positive-accel cap.
     cruise_max_accel = float(clip(get_cruise_max_accel(
-      v_ego, self.cruise_max_vals, driving_mode, self.my_eco_mode_factor,
-      float(clip(sm['controlsState'].mySafeModeFactor, 0.5, 1.0))), 0.0, MAX_ACCEL))
+      v_ego, self.cruise_max_vals, driving_mode, self.my_eco_mode_factor, safe_mode_factor), 0.0, MAX_ACCEL))
     if self.mpc.mode == 'acc':
       accel_limits = limit_accel_in_turns(
         v_ego, sm['carState'].steeringAngleDeg,

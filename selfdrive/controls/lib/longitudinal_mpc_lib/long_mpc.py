@@ -69,8 +69,9 @@ STOP_DISTANCE = 6.0
 
 def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, krkeegan=False,
                                    comfort_brake=COMFORT_BRAKE):
+  distance = (v_lead**2) / (2 * comfort_brake)
   if not krkeegan:
-    return (v_lead**2) / (2 * comfort_brake)
+    return distance
 
   # KRKeegan: lead 거리값을 고의로 늘려 solver가 더 빠른 가속을 유발하도록 함
   v_diff_offset = 0
@@ -80,8 +81,7 @@ def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dis
     v_diff_offset = np.clip(v_diff_offset, 0, stop_dist / 2)
     v_diff_offset = np.maximum(v_diff_offset * ((10 - v_ego) / 10), 0)
 
-  distance = (v_lead**2) / (2 * comfort_brake) + v_diff_offset
-  return distance
+  return distance + v_diff_offset
 
 
 def get_safe_obstacle_distance(v_ego, t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, comfort_brake=COMFORT_BRAKE):
@@ -224,8 +224,6 @@ class LongitudinalMpc:
     self.mode = mode
     self.applyLongDynamicCost = False
     self.softHoldMode = 1
-    self.softHoldTimer = 0
-    self.xState = XState.cruise
     self.prev_accel_constraint = True
     self.solver = AcadosOcpSolverCython(MODEL_NAME, ACADOS_SOLVER_TYPE, N)
 
@@ -234,9 +232,7 @@ class LongitudinalMpc:
     self.tfollow_gaps = None
     self.t_follow_speed_ratio = 1.2
     # apilot-c2 방식 t_follow: 감속 중에는 갱신하지 않고, 가속·정속일 때만 갭/속도/안전계수로 계산
-    self.v_ego_kph_prev = 0.0
-    self.cruise_gap_prev = None
-    self.t_follow_base = T_FOLLOW
+    # (v_ego_kph_prev / cruise_gap_prev / t_follow_base 는 reset()에서 초기화)
     self.safe_mode_factor = 1.0
     # ────────────────────────────────────────────────────────────────────
 
@@ -414,8 +410,7 @@ class LongitudinalMpc:
   def update(self, carstate, radarstate, controls, v_cruise, x, v, a, j, prev_accel_constraint=True,
              reset_state=False):
     # engage 직후에는 직전 가속도 유지 비용(A_CHANGE_COST)을 빼서
-    # 필요한 감속으로 곧바로 갈 수 있게 한다. (upstream 동작 복원)
-    self.prev_accel_constraint = prev_accel_constraint
+    # 필요한 감속으로 곧바로 갈 수 있게 한다. (upstream 동작 복원, set_weights 에서 저장)
     v_ego = self.x0[1]
     a_ego = carstate.aEgo
     # Far, non-closing new leads must persist briefly before the plan uses
@@ -462,18 +457,19 @@ class LongitudinalMpc:
     # It also never starts behind the car (see StoppedLeadComfortBrake), so
     # a newly detected stopped lead does not cause a sudden brake stab.
     self.stop_dist = self.stop_distance * (2.0 - self.safe_mode_factor)
+    base_comfort_brake = self.comfort_brake * self.safe_mode_factor
     comfort_brake = self.lead0_comfort_brake.update(
-      self.comfort_brake * self.safe_mode_factor, v_ego, lead_xv_0[0, 1], lead0_status,
+      base_comfort_brake, v_ego, lead_xv_0[0, 1], lead0_status,
       lead_xv_0[0, 0], self.t_follow, self.stop_dist)
     lead1_comfort_brake = self.lead1_comfort_brake.update(
-      self.comfort_brake * self.safe_mode_factor, v_ego, lead_xv_1[0, 1], lead_two.status,
+      base_comfort_brake, v_ego, lead_xv_1[0, 1], lead_two.status,
       lead_xv_1[0, 0], self.t_follow, self.stop_dist)
     lead_v = lead_xv_0[0, 1] if lead0_status else v_ego
     self.desired_distance = float(desired_follow_distance(
       v_ego, lead_v, self.t_follow, self.stop_dist, comfort_brake,
       krkeegan=self.applyLongDynamicCost))
 
-    self.set_weights(prev_accel_constraint=self.prev_accel_constraint,
+    self.set_weights(prev_accel_constraint=prev_accel_constraint,
                      v_lead0=lead_xv_0[0, 1],
                      v_lead1=lead_xv_1[0, 1])
 
@@ -489,6 +485,7 @@ class LongitudinalMpc:
     self.params[:,0] = MIN_ACCEL if not reset_state else a_ego
     self.params[:,1] = self.max_a if not reset_state else a_ego
 
+    traffic_stop_obstacle = [np.full(N+1, max(0.0, self.traffic_stop_distance))] if self.traffic_stop_active else []
     if self.mode == 'acc':
       self.params[:,5] = LEAD_DANGER_FACTOR
 
@@ -498,10 +495,7 @@ class LongitudinalMpc:
                                  v_lower,
                                  v_upper)
       cruise_obstacle = np.cumsum(T_DIFFS * v_cruise_clipped) + get_safe_obstacle_distance(v_cruise_clipped, self.t_follow, self.stop_dist, comfort_brake)
-      obstacles = [lead_0_obstacle, lead_1_obstacle, cruise_obstacle]
-      if self.traffic_stop_active:
-        obstacles.append(np.full(N+1, max(0.0, self.traffic_stop_distance)))
-      x_obstacles = np.column_stack(obstacles)
+      x_obstacles = np.column_stack([lead_0_obstacle, lead_1_obstacle, cruise_obstacle] + traffic_stop_obstacle)
       self.source = SOURCES[np.argmin(x_obstacles[0])]
 
       # aPilot C2 ACC is obstacle-based. Do not feed the model's E2E
@@ -512,10 +506,7 @@ class LongitudinalMpc:
 
       self.params[:,5] = 1.0
 
-      obstacles = [lead_0_obstacle, lead_1_obstacle]
-      if self.traffic_stop_active:
-        obstacles.append(np.full(N+1, max(0.0, self.traffic_stop_distance)))
-      x_obstacles = np.column_stack(obstacles)
+      x_obstacles = np.column_stack([lead_0_obstacle, lead_1_obstacle] + traffic_stop_obstacle)
       cruise_target = T_IDXS * np.clip(v_cruise, v_ego - 2.0, 1e3) + x[0]
       xforward = ((v[1:] + v[:-1]) / 2) * (T_IDXS[1:] - T_IDXS[:-1])
       x = np.cumsum(np.insert(xforward, 0, x[0]))
@@ -550,9 +541,10 @@ class LongitudinalMpc:
       self.crash_cnt = 0
 
     if self.mode == 'blended':
-      if any((lead_0_obstacle - get_safe_obstacle_distance(self.x_sol[:,1], self.t_follow, self.stop_distance, comfort_brake)) - self.x_sol[:, 0] < 0.0):
+      safe_x = get_safe_obstacle_distance(self.x_sol[:,1], self.t_follow, self.stop_distance, comfort_brake) + self.x_sol[:, 0]
+      if any(lead_0_obstacle - safe_x < 0.0):
         self.source = 'lead0'
-      if any((lead_1_obstacle - get_safe_obstacle_distance(self.x_sol[:,1], self.t_follow, self.stop_distance, comfort_brake)) - self.x_sol[:, 0] < 0.0) and \
+      if any(lead_1_obstacle - safe_x < 0.0) and \
          (lead_1_obstacle[0] - lead_0_obstacle[0]):
         self.source = 'lead1'
 

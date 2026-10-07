@@ -366,6 +366,7 @@ class CarController:
           set_speed = max(CS.out.vEgo, min_set_speed)
         set_speed *= CV.MS_TO_MPH if CS.is_set_speed_in_mph else CV.MS_TO_KPH
 
+        driver_braking = CS.out.brakePressed and not soft_hold_scc
         requested_accel = actuators.accel if (CC.longActive or stopping or soft_hold_scc) else 0.0
         apply_accel = clip(requested_accel,
                            CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX)
@@ -375,7 +376,7 @@ class CarController:
         # ownership of the SCC12 stream for one cycle and lets the stock SCC12
         # back onto the bus, which the cluster reports as a fault chime. Zero
         # the request here so the frame is always accepted.
-        if CS.out.brakePressed and not soft_hold_scc:
+        if driver_braking:
           apply_accel = 0.0
 
         self.accel = apply_accel
@@ -384,11 +385,8 @@ class CarController:
         aReqValue = CS.scc12["aReqValue"]
         controls.aReqValue = aReqValue
 
-        if aReqValue < controls.aReqValueMin:
-          controls.aReqValueMin = controls.aReqValue
-
-        if aReqValue > controls.aReqValueMax:
-          controls.aReqValueMax = controls.aReqValue
+        controls.aReqValueMin = min(controls.aReqValueMin, aReqValue)
+        controls.aReqValueMax = max(controls.aReqValueMax, aReqValue)
 
         lead = controls.cruise_helper.get_lead(controls.sm)
         lead_distance = float(lead.dRel) if lead is not None else 0.0
@@ -401,7 +399,7 @@ class CarController:
         self.scc12_cnt %= 0xF
 
         can_sends.append(create_scc12(self.packer, apply_accel, CC.enabled, self.scc12_cnt, self.scc_live, CS.scc12,
-                                      CS.out.gasPressed, CS.out.brakePressed and not soft_hold_scc,
+                                      CS.out.gasPressed, driver_braking,
                                       scc_stop_request,
                                       self.car_fingerprint, long_active=CC.longActive,
                                       soft_hold_active=soft_hold_scc))
@@ -415,8 +413,6 @@ class CarController:
           can_sends.append(create_scc13(self.packer, CS.scc13))
 
         if CS.has_scc14:
-          acc_standstill = scc_stop_request
-
           cb_upper = clip(0.9 + apply_accel * 0.2, 0.0, 1.2)
           cb_lower = clip(0.8 + apply_accel * 0.2, 0.0, 1.2)
 
@@ -428,7 +424,7 @@ class CarController:
             obj_gap = 0
 
           can_sends.append(
-            create_scc14(self.packer, CC.enabled, CS.out.vEgo, acc_standstill, apply_accel, CS.out.gasPressed,
+            create_scc14(self.packer, CC.enabled, CS.out.vEgo, scc_stop_request, apply_accel, CS.out.gasPressed,
                          obj_gap, CS.scc14, jerk_upper, jerk_lower, cb_upper, cb_lower,
                          long_active=CC.longActive, brakepressed=CS.out.brakePressed,
                          soft_hold_active=soft_hold_scc))
