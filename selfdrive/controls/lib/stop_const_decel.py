@@ -42,10 +42,11 @@ MAX_DECEL = 3.5
 LEAD_LOST_HOLD = 1.5    # s
 
 
-def required_decel(v_ego, d_rel, v_lead):
+def required_decel(v_ego, d_rel, v_lead, lead_decel=LEAD_DECEL):
   """Deceleration (positive) that stops STOP_GAP behind the lead's stop point."""
   v_lead = max(0.0, v_lead)
-  room = d_rel + v_lead * v_lead / (2.0 * LEAD_DECEL) - STOP_GAP
+  lead_decel = max(LEAD_DECEL, lead_decel)
+  room = d_rel + v_lead * v_lead / (2.0 * lead_decel) - STOP_GAP
   if room <= 0.3:
     return float('inf')
   return v_ego * v_ego / (2.0 * room)
@@ -70,7 +71,9 @@ class ConstDecelStop:
     self.decel += max(-step, min(step, target - self.decel))
     return self.decel, target
 
-  def update(self, allowed, v_ego, lead_status, d_rel, v_lead, a_lead, a_now, dt):
+  def update(self, allowed, v_ego, lead_status, d_rel, v_lead, a_lead, a_now, dt,
+             secondary_status=False, secondary_d_rel=0.0, secondary_v_lead=0.0,
+             secondary_a_lead=0.0):
     """Returns (planned decel now, target decel), both positive m/s^2, or None
     to keep the MPC plan.  a_now is the accel currently being planned; the
     override starts from it and returns to it on fallback, so switching
@@ -87,7 +90,26 @@ class ConstDecelStop:
       return None
     self.lost_time = 0.0
 
-    a_req = required_decel(v_ego, d_rel, v_lead)
+    # A lead braking harder than the nominal prediction will stop sooner. Use
+    # that measured deceleration so this comfort override cannot assume room
+    # that is no longer available.
+    lead_decel = max(LEAD_DECEL, min(6.0, -a_lead)) if math.isfinite(a_lead) else LEAD_DECEL
+    a_req = required_decel(v_ego, d_rel, v_lead, lead_decel)
+
+    # The MPC plans against both radar leads. This override used to replace the
+    # complete MPC trajectory using leadOne alone, potentially hiding a closer
+    # or faster-closing leadTwo. Hand control back to the MPC whenever the
+    # secondary target needs more braking, or its measurements are invalid.
+    if secondary_status:
+      secondary_values = (secondary_d_rel, secondary_v_lead, secondary_a_lead)
+      if not all(math.isfinite(x) for x in secondary_values) or secondary_d_rel <= 0.0:
+        self.reset()
+        return None
+      secondary_decel = max(LEAD_DECEL, min(6.0, -secondary_a_lead))
+      secondary_req = required_decel(v_ego, secondary_d_rel, secondary_v_lead, secondary_decel)
+      if secondary_req > a_req + 1e-6:
+        self.reset()
+        return None
     closing = v_lead < v_ego - 0.5
     stopping_lead = v_lead < SLOW_LEAD_SPEED or (v_lead < MAX_LEAD_SPEED and a_lead < SLOWING_LEAD_ACCEL)
 

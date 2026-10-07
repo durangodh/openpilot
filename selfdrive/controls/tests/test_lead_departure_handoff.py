@@ -40,6 +40,7 @@ def load_control():
 def setup_control(starting=False):
   cls, _ = load_control()
   cp = NS(enableGasInterceptor=False, openpilotLongitudinalControl=True,
+          hasScc14=True,
           vEgoStopping=0.3, vEgoStarting=0.2, startingState=starting,
           stoppingControl=True, stoppingDecelRate=1.0,
           longitudinalActuatorDelayLowerBound=0.5, longitudinalActuatorDelayUpperBound=0.5,
@@ -243,6 +244,33 @@ def test_strong_confirmed_lead_uses_configured_start_request():
   plan.speeds, plan.accels = [0.0]*3, [-0.1]*3
   assert step(control, cs, plan, radar) <= 0.0
   assert control.long_control_state == 'stopping'
+
+
+def test_starting_without_scc14_rate_limits_positive_drive():
+  control, cs, plan, radar = setup_control(starting=True)
+  control.CP.hasScc14 = False
+  control.CP.startAccel = 1.2
+  control.jerk_start_limit = 4.0
+  step(control, cs, plan, radar)  # latch stationary lead
+  radar.leadOne.vLeadK = radar.leadOne.vRel = 1.2
+  radar.leadOne.aLeadK = 0.2
+  step(control, cs, plan, radar)  # first moving sample
+  result = step(control, cs, plan, radar)
+  assert control.long_control_state == 'starting'
+  assert result == pytest.approx(4.0 * 0.01)
+  assert control.launch_limited
+
+
+def test_disengagement_clears_stale_positive_allowance():
+  control, cs, plan, radar = setup_control(False)
+  control.long_control_state = 'pid'
+  control.pos_allowance = 0.2
+  control.no_lead_prev = True
+  radar.leadOne.status = False
+  control.update(False, cs, plan, (-3.5, 1.2), 0.0,
+                 radar_state=radar, radar_state_valid=True)
+  assert control.pos_allowance is None
+  assert not control.no_lead_prev
 
 
 def test_stop_comfort_does_not_limit_pid_braking():

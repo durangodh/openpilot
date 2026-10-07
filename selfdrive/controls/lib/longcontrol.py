@@ -597,6 +597,11 @@ class LongControl:
     if self.long_control_state == LongCtrlState.off:
       self.reset(CS.vEgo)
       output_accel = 0.
+      # A lead-dropout/following cap belongs only to the active control
+      # session. Keeping it through a disengagement can unexpectedly suppress
+      # acceleration immediately after re-engagement.
+      self.pos_allowance = None
+      self.no_lead_prev = False
 
     elif self.long_control_state == LongCtrlState.stopping:
       # A blocked state transition must not advertise a launch to the CAN layer.
@@ -678,12 +683,19 @@ class LongControl:
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:
-      # apilot-c2 방식(2026-10-06): 출발 판정 순간 명령을 바로 startAccel 로 올린다.
-      # 예전에는 정지유지 제동(-1.4)에서 출발 저크로 올려 명령이 양수가 되기까지
-      # 약 0.35초, startAccel 까지 0.6초가 걸렸고, 그 뒤에야 차량이 정지유지를 풀었다.
-      # 실제 가속의 부드러움은 SCC14 JerkUpperLimit(scc_launch_jerk)으로 차량 ECU 가 맡는다.
-      output_accel = float(clip(self.CP.startAccel, accel_limits[0], accel_limits[1]))
-      self.launch_limited = False
+      start_target = float(clip(self.CP.startAccel, accel_limits[0], accel_limits[1]))
+      if getattr(self.CP, 'hasScc14', False):
+        # SCC14-capable cars receive the launch jerk separately, so release the
+        # hold immediately and let the vehicle ECU shape positive acceleration.
+        output_accel = start_target
+        self.launch_limited = False
+      else:
+        # SCC12 has no jerk fields. Drop the braking request immediately to
+        # release standstill, but rate-limit positive drive locally instead of
+        # stepping straight to StartAccel in one control frame.
+        launch_jerk = self._launch_jerk(assisted_departure)
+        output_accel = min(start_target, max(0.0, output_accel) + launch_jerk * DT_CTRL)
+        self.launch_limited = output_accel + 1e-6 < start_target
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.pid:

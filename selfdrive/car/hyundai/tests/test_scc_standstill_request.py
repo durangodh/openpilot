@@ -5,7 +5,7 @@ from pathlib import Path
 
 def load_stop_request_gate():
   source = Path(__file__).resolve().parents[1] / 'carcontroller.py'
-  tree = ast.parse(source.read_text())
+  tree = ast.parse(source.read_text(encoding='utf-8'))
   function = next(node for node in tree.body
                   if isinstance(node, ast.FunctionDef) and node.name == 'should_request_scc_standstill')
   env = {}

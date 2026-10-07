@@ -7,8 +7,8 @@ from selfdrive.controls.lib.stop_const_decel import (ConstDecelStop, FALLBACK_DE
 DT = 0.05
 
 
-def _approach(ctl, v, d, v_lead=0.0, a_lead=0.0, a_now=0.0):
-  return ctl.update(True, v, True, d, v_lead, a_lead, a_now, DT)
+def _approach(ctl, v, d, v_lead=0.0, a_lead=0.0, a_now=0.0, **secondary):
+  return ctl.update(True, v, True, d, v_lead, a_lead, a_now, DT, **secondary)
 
 
 def test_waits_until_required_decel_reaches_start():
@@ -107,3 +107,28 @@ def test_no_hold_when_disengaged():
   _approach(ctl, v, d)
   assert ctl.update(False, v, False, 0.0, 0.0, 0.0, 0.0, DT) is None
   assert not ctl.active
+
+
+def test_more_demanding_second_lead_keeps_mpc_plan():
+  ctl = ConstDecelStop()
+  v = 15.0
+  # leadOne permits the comfort trajectory, but a stopped leadTwo is much
+  # closer and needs braking beyond the fallback threshold.
+  assert _approach(ctl, v, 70.0, v_lead=5.0,
+                   secondary_status=True, secondary_d_rel=25.0,
+                   secondary_v_lead=0.0, secondary_a_lead=0.0) is None
+  assert not ctl.active
+
+
+def test_harder_measured_lead_braking_shortens_predicted_stop():
+  v = 10.0
+  d = 30.0
+  v_lead = 5.0
+  nominal = required_decel(v, d, v_lead)
+  hard_braking = required_decel(v, d, v_lead, 5.0)
+  assert hard_braking > nominal
+
+  ctl = ConstDecelStop()
+  result = _approach(ctl, v, d, v_lead=v_lead, a_lead=-5.0)
+  assert result is not None
+  assert abs(result[1] - hard_braking) < 1e-6

@@ -313,10 +313,16 @@ class LongitudinalPlanner:
     # Stopping behind a stopping/stopped lead: one steady deceleration instead
     # of the MPC's early hard braking and slow final crawl (stop_const_decel).
     lead = sm['radarState'].leadOne
+    lead_two = sm['radarState'].leadTwo
     const_allowed = (sm['controlsState'].enabled and not reset_state and
-                     not self.mpc.traffic_stop_active and self.mpc.xState != XState.softHold)
+                     not self.mpc.traffic_stop_active and self.mpc.xState != XState.softHold and
+                     self.mpc.crash_cnt == 0)
     const_plan = self.const_stop.update(const_allowed, v_ego, lead.status, lead.dRel, lead.vLead,
-                                        lead.aLeadK, self.a_desired, DT_MDL)
+                                        lead.aLeadK, self.a_desired, DT_MDL,
+                                        secondary_status=lead_two.status,
+                                        secondary_d_rel=lead_two.dRel,
+                                        secondary_v_lead=lead_two.vLead,
+                                        secondary_a_lead=lead_two.aLeadK)
     self.const_stop_decel = 0.0
     if const_plan is not None:
       decel_now, target = const_plan
