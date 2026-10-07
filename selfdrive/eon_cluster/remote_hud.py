@@ -315,6 +315,14 @@ def _field(obj, name, default=0):
     return default
 
 
+def _stream_ok(sm, name):
+  """True when a cereal source is alive and its latest sample is valid."""
+  try:
+    return bool(sm.alive[name] and sm.valid[name])
+  except (AttributeError, KeyError, TypeError):
+    return False
+
+
 def _finite(value, default=0.0):
   try:
     value = float(value)
@@ -534,6 +542,7 @@ def _lead(radar_state, name):
     # radar=False means RadarD is publishing an unmatched camera-model lead.
     # Keep this display-only provenance out of the control decision itself.
     "src": "R" if bool(_field(lead, "radar", False)) else "V",
+    # Retained on protocol v6 for older APKs that used probability for alpha.
     "p": round(max(0.0, min(1.0, _finite(_field(lead, "modelProb", 0.0)))), 2),
   }
 
@@ -1061,12 +1070,19 @@ def _compensate_navi_pose(navi, v_ego):
 
 
 def _packet(sm, noo_enabled, path_offset=0.0):
+  car_valid = _stream_ok(sm, "carState")
+  car_control_valid = _stream_ok(sm, "carControl")
+  controls_valid = _stream_ok(sm, "controlsState")
+  model_valid = _stream_ok(sm, "modelV2")
+  lateral_valid = _stream_ok(sm, "lateralPlan")
+  radar_valid = _stream_ok(sm, "radarState")
+  longitudinal_valid = _stream_ok(sm, "longitudinalPlan")
   car = sm["carState"]
   controls = sm["controlsState"]
   road = sm["roadLimitSpeed"]
   device = sm["deviceState"]
   plan = sm["longitudinalPlan"]
-  accels = list(_field(plan, "accels", []) or [])
+  accels = list(_field(plan, "accels", []) or []) if longitudinal_valid else []
   cam_type = int(_finite(_field(road, "camType", 0)))
   cam_speed = int(_finite(_field(road, "camLimitSpeed", 0)))
   cam_dist = int(_finite(_field(road, "camLimitSpeedLeftDist", 0)))
@@ -1168,21 +1184,25 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     hud_current_lane = int((lane_position or {}).get("cur", 0))
     hud_target_lane = hud_current_lane
 
-  apply_speed, apply_source = _apply_speed(sm["carControl"])
-  hud_path = final_lateral_path(sm["lateralPlan"], sm["modelV2"], T_IDXS)
+  apply_speed, apply_source = _apply_speed(sm["carControl"]) if car_control_valid else (0, "")
+  hud_path = (final_lateral_path(sm["lateralPlan"], sm["modelV2"], T_IDXS)
+              if model_valid and lateral_valid else [])
   path_final = len(hud_path) >= 2
-  if not path_final:
+  if not path_final and model_valid:
     hud_path = _line_points(_field(sm["modelV2"], "position", None), with_z=True)
-  hud_lanes = _model_lines(sm["modelV2"], "laneLines", "laneLineProbs", 0.0,
-                           preserve_slots=True)
+  hud_lanes = (_model_lines(sm["modelV2"], "laneLines", "laneLineProbs", 0.0,
+                            preserve_slots=True) if model_valid else [])
   hud_lanes = _limit_lane_visibility(hud_lanes, lane_position)
-  hud_edges = _model_lines(sm["modelV2"], "roadEdges", "roadEdgeStds", 1.0, True)
+  hud_edges = (_model_lines(sm["modelV2"], "roadEdges", "roadEdgeStds", 1.0, True)
+               if model_valid else [])
   # Keep camera-observed lane lines and road edges in their original modelV2
   # coordinates.  The MPC ribbon is a separate control prediction and must
   # never drag the perceived road sideways on the HUD.
   return {
     "v": 6,
     "t": int(time.time() * 1000),
+    "drivingValid": car_valid and car_control_valid and controls_valid,
+    "worldValid": model_valid,
     "mapPose": map_pose,
     "gpsState": gps_state,
     "gpsInfo": gps_info,
@@ -1191,7 +1211,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "set": _set_speed(controls, sm["carControl"]),
     "applySpeed": apply_speed,
     "applySource": apply_source,
-    "enabled": bool(_field(controls, "enabled", False)),
+    "enabled": controls_valid and bool(_field(controls, "enabled", False)),
     "gear": _gear(car),
     "gearStep": _gear_step(car),
     "gap": gap if 1 <= gap <= 4 else 0,
@@ -1203,10 +1223,14 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "bumpDist": bump_dist,
     "leftBsd": bool(_field(car, "leftBlindspot", False)),
     "rightBsd": bool(_field(car, "rightBlindspot", False)),
-    "steer": round(_finite(_field(car, "steeringAngleDeg", 0.0)), 1),
-    "accel": round(_finite(accels[0] if accels else 0.0), 2),
+    "steer": round(_finite(_field(car, "steeringAngleDeg", 0.0)), 1) if car_valid else 0.0,
+    # HUD ACCEL is the command that reached the Hyundai SCC transport. Keep
+    # the planner's first sample separately so diagnostics do not conflate it.
+    "accel": (round(_finite(_field(controls, "applyAccel", 0.0)), 2)
+              if controls_valid else None),
+    "planAccel": (round(_finite(accels[0]), 2) if accels else None),
     "desiredDistance": round(max(0.0, min(150.0,
-        _finite(_field(sm["longitudinalPlan"], "desiredDistance", 0.0)))), 1),
+        _finite(_field(sm["longitudinalPlan"], "desiredDistance", 0.0)))), 1) if longitudinal_valid else 0.0,
     "cpu": int(round(cpu_avg)),
     "temp": round(temp_avg, 1),
     "system": {
@@ -1289,7 +1313,8 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     # The optimized MPC state follows a reference that already contains
     # OffsetTotal. Keep the old offset only when falling back to the raw model
     # path so old and new APKs both avoid adding it twice.
-    "pathOffset": 0.0 if path_final else float(path_offset),
+    "pathOffset": 0.0 if path_final or not model_valid else float(path_offset),
+    # Protocol-v6 compatibility for APKs that gated route blending on this bit.
     "pathFinal": path_final,
     # 현재 차량 자세 pitch(rad). liveCalibration 의 정적 보정과 달리 주행 중
     # 가감속·요철로 실시간 변한다. 앱은 여기에 게인을 곱해 수평선을 움직인다.
@@ -1297,8 +1322,8 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "calibPitch": _calib_pitch(sm["liveCalibration"]),
     # E2E 궤적으로 추정한 신호 상태. 0=없음, 1=정지(빨강), 2=출발(초록).
     # 실제 신호등 색상 인식값이 아니므로 노란불 상태는 만들지 않는다.
-    "trafficState": max(0, min(2, int(_finite(
-        _field(sm["longitudinalPlan"], "trafficState", 0))))),
+    "trafficState": (max(0, min(2, int(_finite(
+        _field(sm["longitudinalPlan"], "trafficState", 0))))) if longitudinal_valid else 0),
     # 모델이 추정한 자기 차로 폭(m). 앱의 폴백 도로폭 계산에 쓴다.
     "laneWidth": round(_finite(_field(sm["lateralPlan"], "laneWidth", 0.0)), 2),
     # 카메라 roadEdges/laneLines 로 추정한 도로 내 자차 위치. 화면 배치에만
@@ -1312,8 +1337,8 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "path": hud_path,
     "lanes": hud_lanes,
     "edges": hud_edges,
-    "lead": _lead(sm["radarState"], "leadOne"),
-    "lead2": _lead(sm["radarState"], "leadTwo"),
+    "lead": _lead(sm["radarState"], "leadOne") if radar_valid else None,
+    "lead2": _lead(sm["radarState"], "leadTwo") if radar_valid else None,
     # UI only: controls continue to consume radarState exactly as before.
   }
 

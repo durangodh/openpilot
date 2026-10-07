@@ -655,7 +655,7 @@ class LongControl:
         hold_relax = False
       elif (not self.standstill_hold_active and not CS.brakePressed and
             0.05 < CS.vEgo < FINAL_STOP_TAPER_SPEED and
-            not getattr(self, 'launch_abort_active', False)):
+            not self.launch_abort_active):
         # Avoid building stronger brake just before zero speed; the existing
         # standstill hold ramp takes over after the car actually stops.
         target = max(target, FINAL_STOP_TAPER_ACCEL)
@@ -665,7 +665,7 @@ class LongControl:
       # separate brake-release ramp retain their existing response.
       max_delta = self.stopping_decel_rate * DT_CTRL
       max_rise = max(max_delta, HOLD_RELAX_JERK * DT_CTRL) if hold_relax else max_delta
-      launch_abort_active = getattr(self, 'launch_abort_active', False)
+      launch_abort_active = self.launch_abort_active
       max_fall = max(max_delta, LAUNCH_ABORT_DECEL_JERK * DT_CTRL) if launch_abort_active else max_delta
       if getattr(self, 'hold_restore_fast', False):
         max_fall = max(max_fall, HOLD_RESTORE_JERK * DT_CTRL)

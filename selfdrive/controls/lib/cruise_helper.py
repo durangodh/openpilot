@@ -352,16 +352,21 @@ class CruiseHelper:
       self.auto_cruise_control = False
       self.brake_gas_resume_pending = False
 
-  def _resume_guard_ok(self, CS):
+  def _resume_path_clear(self, CS, d_rel, require_lead=False):
     if abs(CS.steeringAngleDeg) >= 20.0:
       return False
-    if self.auto_gas_resume_guard:
+    if require_lead or self.auto_gas_resume_guard:
       if CS.leftBlinker or CS.rightBlinker:
         return False
       danger_dist = max(5.0, CS.vEgo * 0.8)
-      if 0.0 < self.d_rel < danger_dist:
+      if require_lead:
+        return danger_dist < d_rel <= 60.0
+      if 0.0 < d_rel < danger_dist:
         return False
     return True
+
+  def _resume_guard_ok(self, CS):
+    return self._resume_path_clear(CS, self.d_rel)
 
   def _select_resume_speed(self, controls, CS):
     current_kph = float(clip(CS.vEgoCluster * CV.MS_TO_KPH,
@@ -402,11 +407,9 @@ class CruiseHelper:
       radar_valid = False
     valid_lead = radar_valid and lead is not None and bool(getattr(lead, 'radar', False))
     d_rel = float(getattr(lead, 'dRel', 0.0)) if valid_lead else 0.0
-    danger_dist = max(5.0, CS.vEgo * 0.8)
-    safe_path = (abs(CS.steeringAngleDeg) < 20.0 and
-                 not CS.leftBlinker and not CS.rightBlinker and
-                 d_rel > danger_dist and d_rel <= 60.0)
-    if not (controls.enabled and temporary_pause and not CS.brakePressed and
+    resume_configured = self.auto_resume_from_gas > 0 or self.auto_resume_from_brake_release
+    safe_path = self._resume_path_clear(CS, d_rel, require_lead=True)
+    if not (resume_configured and controls.enabled and temporary_pause and not CS.brakePressed and
             0.0 <= pause_age <= BRAKE_GAS_RESUME_WINDOW and safe_path):
       return False
 
