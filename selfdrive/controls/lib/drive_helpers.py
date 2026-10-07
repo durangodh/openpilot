@@ -7,6 +7,7 @@ from common.realtime import DT_MDL
 from selfdrive.modeld.constants import T_IDXS
 from selfdrive.controls.lib import live_tune
 from selfdrive.controls.lib.longitudinal_limits import MAX_SET_SPEED_KPH
+from selfdrive.controls.lib.lateral_curve_response import curve_entry_extra_delay
 
 # WARNING: this value was determined based on the model's training distribution,
 #          model predictions above this speed can be unpredictable
@@ -119,6 +120,11 @@ def get_lag_adjusted_curvature(CP, v_ego, psis, curvatures, curvature_rates):
   
   # TODO this needs more thought, use .2s extra for now to estimate other delays
   delay = live_tune.steer_actuator_delay() + .2
+  # The Genesis command ramp measured in lat_trace takes about 0.8 s to reach
+  # a sharp-curve request. Look farther ahead only while a coherent bend is
+  # rapidly tightening; keep steady curves, S bends and highway travel on the
+  # normal actuator-delay compensation. Torque and Panda limits are unchanged.
+  delay += curve_entry_extra_delay(v_ego, curvatures, T_IDXS[:CONTROL_N])
 
   # MPC can plan to turn the wheel and turn back before t_delay. This means
   # in high delay cases some corrections never even get commanded. So just use
