@@ -205,6 +205,8 @@ class LeadConfirm(object):
 
 # ---- Faster cut-in relief ----
 CUT_IN_MIN_HEADWAY_S = 0.4         # never relax closer than this headway
+LEAD_ACCEL_PREVIEW_S = 1.5
+LEAD_ACCEL_RELIEF_MAX = 0.70
 
 
 def faster_lead_relief(d_rel, v_ego, v_lead, a_lead, desired_gap, obstacle_now, stop_distance):
@@ -227,3 +229,34 @@ def faster_lead_relief(d_rel, v_ego, v_lead, a_lead, desired_gap, obstacle_now, 
             interp(float(a_lead), [-0.5, -0.1], [0.0, 1.0]) *
             interp(float(d_rel), [min_gap, min_gap + 5.0], [0.0, 1.0]))
   return float(weight * deficit)
+
+
+def accelerating_lead_relief(d_rel, v_ego, v_lead, a_lead, desired_gap,
+                             obstacle_now, stop_distance, radar=True):
+  """Ease residual braking when a radar lead is clearly accelerating away.
+
+  The stopped-equivalence obstacle can remain behind the lead's physical
+  position until its current speed catches ego. In traffic this kept braking
+  for roughly two seconds after the lead had begun a strong acceleration.
+  Remove only part of that virtual deficit when the physical gap has spare
+  room and a short speed projection says the lead will catch ego. The normal
+  obstacle returns immediately if lead acceleration falls or the gap closes.
+  """
+  values = (d_rel, v_ego, v_lead, a_lead, desired_gap, obstacle_now, stop_distance)
+  if not radar or not all(math.isfinite(float(x)) for x in values):
+    return 0.0
+  deficit = float(desired_gap) - float(obstacle_now)
+  spare_gap = float(d_rel) - float(desired_gap)
+  if deficit <= 0.0 or spare_gap <= 1.5 or float(a_lead) <= 0.3:
+    return 0.0
+
+  min_gap = max(float(stop_distance), 0.6 * float(v_ego))
+  if float(d_rel) <= min_gap + 2.0:
+    return 0.0
+  projected_rel_speed = (float(v_lead) + LEAD_ACCEL_PREVIEW_S * float(a_lead) -
+                         float(v_ego))
+  weight = (interp(float(a_lead), [0.3, 1.2], [0.0, 1.0]) *
+            interp(projected_rel_speed, [-0.75, 0.25], [0.0, 1.0]) *
+            interp(spare_gap, [1.5, 6.0], [0.0, 1.0]) *
+            interp(float(d_rel), [min_gap + 2.0, min_gap + 7.0], [0.0, 1.0]))
+  return float(min(deficit, LEAD_ACCEL_RELIEF_MAX * weight * deficit))

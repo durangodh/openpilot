@@ -8,7 +8,8 @@ from common.numpy_fast import clip, interp
 from selfdrive.swaglog import cloudlog
 from selfdrive.modeld.constants import index_function
 from selfdrive.controls.lib.radar_helpers import _LEAD_ACCEL_TAU
-from selfdrive.controls.lib.lead_following import (NO_LEAD, LeadConfirm, faster_lead_relief,
+from selfdrive.controls.lib.lead_following import (NO_LEAD, LeadConfirm, accelerating_lead_relief,
+                                             faster_lead_relief,
                                                    get_follow_obstacle_cost)
 from selfdrive.controls.lib.lead_departure import departure_motion_valid
 from selfdrive.controls.lib.t_follow import (CRUISE_GAP_BP as _CRUISE_GAP_BP, CRUISE_GAP_V,
@@ -561,10 +562,17 @@ class LongitudinalMpc:
     # A faster, non-braking cut-in leaves the gap on its own: remove only its
     # current gap deficit so the MPC coasts instead of stabbing the brake.
     if self.mode == 'acc' and lead0_status:
-      lead_0_obstacle = lead_0_obstacle + faster_lead_relief(
+      faster_relief = faster_lead_relief(
         lead_one.dRel, v_ego, lead_xv_0[0, 1], lead_one.aLeadK,
         get_safe_obstacle_distance(v_ego, self.t_follow, self.stop_dist, comfort_brake),
         lead_0_obstacle[0], self.stop_dist)
+      accelerating_relief = accelerating_lead_relief(
+        lead_one.dRel, v_ego, lead_xv_0[0, 1], lead_one.aLeadK,
+        get_safe_obstacle_distance(v_ego, self.t_follow, self.stop_dist, comfort_brake),
+        lead_0_obstacle[0], self.stop_dist, bool(getattr(lead_one, 'radar', False)))
+      # The same lead can be both faster and accelerating. Use the stronger
+      # qualification without adding the two reliefs past the gap deficit.
+      lead_0_obstacle = lead_0_obstacle + max(faster_relief, accelerating_relief)
 
     # apilot-c2: 비활성(reset) 상태에서는 현재 aEgo 로 상하한을 고정해 활성 전환시 튀지 않게 한다
     self.params[:,0] = MIN_ACCEL if not reset_state else a_ego
