@@ -177,32 +177,3 @@ def get_lag_adjusted_curvature(CP, v_ego, psis, curvatures, curvature_rates):
                                      current_curvature_desired + max_curvature_rate * DT_MDL)
 
   return safe_desired_curvature, safe_desired_curvature_rate
-
-
-class PlanPairAverage:
-  """Average the desired curvature of the current and the previous lateralPlan.
-
-  2026-10-06 lat_trace: the plan path is smooth (curvatures[0]) but the
-  lag-adjusted desired curvature alternated from one plan to the next (e.g.
-  -0.00071, -0.00004, -0.00095, -0.00003 at 50 km/h, 18 spikes > 0.1 m/s^2 in
-  148 s), which flipped the torque command within 0.05 s ("tok" in the wheel).
-  psi at the delay differs slightly between consecutive MPC solutions and
-  2*psi/(v*delay) amplifies it, more at low speed. Averaging two plans cancels
-  the alternation with half a plan period (~0.025 s) of delay, instead of a
-  low-pass filter that would also slow the response to real lane changes.
-  """
-  def __init__(self):
-    self.prev = None   # (curvature, rate) of the previous plan
-    self.last = None   # latest (curvature, rate) from the current plan
-
-  def update(self, curvature, rate, plan_updated, active=True):
-    if not active:
-      self.prev = None
-      self.last = (curvature, rate)
-      return curvature, rate
-    if plan_updated and self.last is not None:
-      self.prev = self.last
-    self.last = (curvature, rate)
-    if self.prev is None:
-      return curvature, rate
-    return 0.5 * (curvature + self.prev[0]), 0.5 * (rate + self.prev[1])
