@@ -41,5 +41,11 @@ public final class GpsSourcePolicyCheck {
             check(GpsSourcePolicy.accuracyLabel(1, true, value).isEmpty());
         check(GpsSourcePolicy.accuracyLabel(1, false, 5f).isEmpty());
         System.out.println("GPS source: 51 checks passed");
+        check(GpsSourcePolicy.latencyLabel(700).equals("0.7s"));
+        check(GpsSourcePolicy.latencyLabel(0).equals("0.0s"));
+        check(GpsSourcePolicy.latencyLabel(-20).isEmpty());
+        check(GpsSourcePolicy.latencyLabel(6000).isEmpty());
+        check(GpsSourcePolicy.median(new long[]{900, 600, 700, 0, 0}, 3) == 700);
+        check(GpsSourcePolicy.median(new long[5], 0) == -1);
     }
 }

@@ -27,6 +27,25 @@ final class GpsSourcePolicy {
         if (meters > 9999f) return ">9999m";
         return String.format(Locale.US, "%.1fm", meters);
     }
+    /**
+     * 위치 전달 지연(초) 표시. 2026-10-07: 차량 GPS(nMirror)의 정확도 3.0m 와 달리 실제로는
+     * 약 10m 늦게 잡혔다. 정확도에는 전달 지연이 들어 있지 않으므로, 측정 시각(getTime, UTC)과
+     * 받은 시각의 차이 중앙값을 따로 보여 준다. 0~5초 밖이면 폰 시계가 맞지 않거나 nMirror 가
+     * 측정 시각을 넘기지 않는 것이라 표시하지 않는다.
+     */
+    static String latencyLabel(long medianMs) {
+        if (medianMs < 0L || medianMs > 5000L) return "";
+        return String.format(java.util.Locale.US, "%.1fs", medianMs / 1000.0);
+    }
+
+    /** 최근 지연 표본의 중앙값(ms). 표본이 없으면 -1. */
+    static long median(long[] samples, int count) {
+        if (count <= 0) return -1L;
+        long[] copy = java.util.Arrays.copyOf(samples, count);
+        java.util.Arrays.sort(copy);
+        return copy[count / 2];
+    }
+
     static int classify(String provider, String source, int satellites, boolean mock) {
         if (!"gps".equals(provider)) return WAITING;
         if (mock) return MOCK;

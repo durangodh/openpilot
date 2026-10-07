@@ -62,8 +62,19 @@ final class GpsSourceMonitor implements LocationListener {
             registered = false;
         }
     }
+    private static final int LAG_SAMPLES = 15;
+    private final long[] lagMs = new long[LAG_SAMPLES];
+    private int lagCount, lagNext;
+
     @Override public void onLocationChanged(Location location) {
         if (!LocationManager.GPS_PROVIDER.equals(location.getProvider())) return;
+        if (location.getTime() > 0L) {
+            synchronized (lagMs) {
+                lagMs[lagNext] = System.currentTimeMillis() - location.getTime();
+                lagNext = (lagNext + 1) % LAG_SAMPLES;
+                if (lagCount < LAG_SAMPLES) lagCount++;
+            }
+        }
         Location previous = lastGps;
         if (previous == null || location.getElapsedRealtimeNanos() > previous.getElapsedRealtimeNanos()) {
             lastGps = new Location(location);
@@ -92,9 +103,15 @@ final class GpsSourceMonitor implements LocationListener {
         int kind = GpsSourcePolicy.current(GpsSourcePolicy.classify(location.getProvider(),
                 source, satellites, location.isFromMockProvider()),
                 location.getElapsedRealtimeNanos() / 1000000L, SystemClock.elapsedRealtime());
+        String accuracy = GpsSourcePolicy.accuracyLabel(kind, location.hasAccuracy(), location.getAccuracy());
+        if (!accuracy.isEmpty()) {
+            long median;
+            synchronized (lagMs) { median = GpsSourcePolicy.median(lagMs, lagCount); }
+            String lag = GpsSourcePolicy.latencyLabel(median);
+            if (!lag.isEmpty()) accuracy += " " + lag;
+        }
         return new Reading(kind, kind == GpsSourcePolicy.VEHICLE && extras != null
-                && extras.getBoolean("predicted", false),
-                GpsSourcePolicy.accuracyLabel(kind, location.hasAccuracy(), location.getAccuracy()));
+                && extras.getBoolean("predicted", false), accuracy);
     }
     String label() {
         Reading reading = snapshot();
