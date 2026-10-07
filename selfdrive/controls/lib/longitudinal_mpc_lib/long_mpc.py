@@ -8,13 +8,10 @@ from common.numpy_fast import clip, interp
 from selfdrive.swaglog import cloudlog
 from selfdrive.modeld.constants import index_function
 from selfdrive.controls.lib.radar_helpers import _LEAD_ACCEL_TAU
-from selfdrive.controls.lib.lead_following import (NO_LEAD, LeadConfirm, faster_lead_relief,
-                                                   get_follow_obstacle_cost)
-from selfdrive.controls.lib.lead_departure import departure_motion_valid
+from selfdrive.controls.lib.lead_following import NO_LEAD, LeadConfirm
 from selfdrive.controls.lib.t_follow import (CRUISE_GAP_BP as _CRUISE_GAP_BP, CRUISE_GAP_V,
                                              clamp_desired_follow_distance,
-                                             StoppedLeadComfortBrake, release_t_follow,
-                                             get_t_follow_closing_margin)
+                                             StoppedLeadComfortBrake, release_t_follow)
 from common.conversions import Conversions as CV
 
 if __name__ == '__main__':  # generating code
@@ -70,14 +67,6 @@ T_FOLLOW = 1.45
 COMFORT_BRAKE = 2.5
 STOP_DISTANCE = 6.0
 
-# Apply the low-cost lead departure response only during an actual low-speed
-# pull-away.  Without these gates, merely acquiring a faster lead can drop the
-# acceleration/jerk costs and make the ego car chase the lead aggressively.
-LEAD_DEPARTURE_FULL_EGO_SPEED = 5.0          # 18 km/h
-LEAD_DEPARTURE_MAX_EGO_SPEED = 30.0 / 3.6   # fade out completely at 30 km/h
-LEAD_DEPARTURE_MIN_VREL = 0.3
-LEAD_DEPARTURE_MIN_ALEAD = -0.2
-
 def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, krkeegan=False,
                                    comfort_brake=COMFORT_BRAKE):
   if not krkeegan:
@@ -89,20 +78,7 @@ def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dis
   if np.all(relative_speed > 0):
     v_diff_offset = relative_speed * 1.
     v_diff_offset = np.clip(v_diff_offset, 0, stop_dist / 2)
-    # Keep the quicker pull-away response through 18 km/h, then fade it out
-    # smoothly by 30 km/h.  The former 10 m/s (36 km/h) tail made ego keep
-    # chasing a departing lead into medium speed.
-    dynamic_weight = np.interp(
-      v_ego,
-      [LEAD_DEPARTURE_FULL_EGO_SPEED, LEAD_DEPARTURE_MAX_EGO_SPEED],
-      [1.0, 0.0],
-    )
-    # A single prediction stage crossing zero used to remove the bonus from
-    # every stage at once. Fade it before that boundary, without retaining
-    # any bonus when a stage is closing. This only reduces the old offset.
-    departure_weight = np.interp(np.min(relative_speed), [0.0, 1.0], [0.0, 1.0])
-    v_diff_offset = np.maximum(
-      v_diff_offset * dynamic_weight * departure_weight, 0)
+    v_diff_offset = np.maximum(v_diff_offset * ((10 - v_ego) / 10), 0)
 
   distance = (v_lead**2) / (2 * comfort_brake) + v_diff_offset
   return distance
@@ -257,7 +233,6 @@ class LongitudinalMpc:
     # longitudinal_planner.read_param() refreshes these values periodically.
     self.tfollow_gaps = None
     self.t_follow_speed_ratio = 1.2
-    self.lead_depart_cost = 0.05       # LeadDepartCost: 저속 출발 추종 코스트 배율(0m/s 기준). apilot-c2 = 0.05
     # apilot-c2 방식 t_follow: 감속 중에는 갱신하지 않고, 가속·정속일 때만 갭/속도/안전계수로 계산
     self.v_ego_kph_prev = 0.0
     self.cruise_gap_prev = None
@@ -332,74 +307,40 @@ class LongitudinalMpc:
     for i in range(N):
       self.solver.cost_set(i, 'Zl', Zl)
 
-  def get_cost_multipliers(self, v_lead0, v_lead1, a_lead0=0.0, lead0_status=False):
-    # apilot-c2 (KRKeegan) cost multipliers
+  def get_cost_multipliers(self, v_lead0, v_lead1):
+    # Original apilot-c2 (KRKeegan) cost multipliers.
     v_ego = self.x0[1]
+    v_ego_bps = [0, 10]
     TFs = [1.2, 1.45, 1.8]
-    # TF에 의한 a, j, d cost 변경
-    # Dynamic response is useful for pulling away from rest, but leaving the
-    # reduced costs active at medium/high speed makes ego chase every lead
-    # acceleration. Keep the low-speed response through 18 km/h, then fade
-    # every multiplier back to normal by 30 km/h while retaining t-follow.
-    dynamic_weight = interp(
-      v_ego,
-      [LEAD_DEPARTURE_FULL_EGO_SPEED, LEAD_DEPARTURE_MAX_EGO_SPEED],
-      [1.0, 0.0])
-    a_change_tf_raw = interp(self.t_follow, TFs, [.8, 1., 1.1])
-    j_ego_tf_raw = interp(self.t_follow, TFs, [.8, 1., 1.1])
-    d_zone_tf_raw = interp(self.t_follow, TFs, [1.3, 1., 1.])
-    a_change_tf = 1.0 + (a_change_tf_raw - 1.0) * dynamic_weight
-    j_ego_tf = 1.0 + (j_ego_tf_raw - 1.0) * dynamic_weight
-    d_zone_tf = 1.0 + (d_zone_tf_raw - 1.0) * dynamic_weight
+    a_change_tf = interp(self.t_follow, TFs, [.8, 1., 1.1])
+    j_ego_tf = interp(self.t_follow, TFs, [.8, 1., 1.1])
+    d_zone_tf = interp(self.t_follow, TFs, [1.3, 1., 1.])
 
-    # KRKeegan adjustments to improve sluggish acceleration. do not apply to deceleration
-    j_ego_v_ego    = 1
+    j_ego_v_ego = 1
     a_change_v_ego = 1
-    lead_departing = (lead0_status and
-                      v_ego < LEAD_DEPARTURE_MAX_EGO_SPEED and
-                      departure_motion_valid(
-                        v_lead0, v_lead0 - v_ego, a_lead=a_lead0,
-                        min_speed=None, min_vrel=LEAD_DEPARTURE_MIN_VREL,
-                        min_accel=LEAD_DEPARTURE_MIN_ALEAD))
-    if lead_departing:
-      # Keep the configured quick response at standstill, then restore more
-      # accel/jerk smoothing once ego is rolling behind the departing lead.
-      # The old 0.05 multiplier persisted to 18 km/h and felt too forceful.
-      rolling_floor = interp(v_ego, [0.0, 2.0, LEAD_DEPARTURE_FULL_EGO_SPEED],
-                             [self.lead_depart_cost, max(self.lead_depart_cost, 0.35),
-                              max(self.lead_depart_cost, 0.55)])
-      # Blend near the motion gates instead of switching the full configured
-      # cost reduction on/off in one frame. Restore normal costs as the lead
-      # slows or relative speed closes, with no time filter on braking data.
-      motion_weight = (
-        interp(v_lead0 - v_ego, [LEAD_DEPARTURE_MIN_VREL, 1.0], [0.0, 1.0]) *
-        interp(a_lead0, [LEAD_DEPARTURE_MIN_ALEAD, 0.0], [0.0, 1.0]))
-      departure_cost = 1.0 + (rolling_floor - 1.0) * dynamic_weight * motion_weight
-      j_ego_v_ego = departure_cost
-      a_change_v_ego = departure_cost
+    if (v_lead0 - v_ego >= 0) and (v_lead1 - v_ego >= 0):
+      j_ego_v_ego = interp(v_ego, v_ego_bps, [.05, 1.])
+      a_change_v_ego = interp(v_ego, v_ego_bps, [.05, 1.])
 
     j_ego    = min(j_ego_tf, j_ego_v_ego)
     a_change = min(a_change_tf, a_change_v_ego)
     return (a_change, j_ego, d_zone_tf)
 
-  def set_weights(self, prev_accel_constraint=True, v_lead0=0, v_lead1=0,
-                  a_lead0=0.0, lead0_status=False, obstacle_cost=None):
+  def set_weights(self, prev_accel_constraint=True, v_lead0=0, v_lead1=0):
     # apilot-c2 set_weights
     self.prev_accel_constraint = prev_accel_constraint
-    obstacle_cost = self.x_ego_obstacle_cost if obstacle_cost is None else obstacle_cost
-
     if self.mode == 'acc':
       a_change_cost = A_CHANGE_COST if prev_accel_constraint else 40
 
       if self.applyLongDynamicCost:
-        cost_multipliers = self.get_cost_multipliers(v_lead0, v_lead1, a_lead0, lead0_status)
-        cost_weights = [obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
+        cost_multipliers = self.get_cost_multipliers(v_lead0, v_lead1)
+        cost_weights = [self.x_ego_obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
                         a_change_cost * cost_multipliers[0],
                         J_EGO_COST * cost_multipliers[1]]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST,
                                    DANGER_ZONE_COST * cost_multipliers[2]]
       else:
-        cost_weights = [obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
+        cost_weights = [self.x_ego_obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
                         a_change_cost, J_EGO_COST]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, DANGER_ZONE_COST]
 
@@ -510,14 +451,8 @@ class LongitudinalMpc:
     # apilot-c2: 갭/속도/안전계수 기반 t_follow (감속 중 유지)
     self.update_gap_tf(controls, v_ego)
 
-    # Restore a small, bounded approach margin as soon as a confirmed lead is
-    # closing. Keep it separate from the held base value so it cannot build up
-    # frame after frame while ego is decelerating.
     lead0_status = lead_one.status
-    closing_margin = get_t_follow_closing_margin(
-      v_ego, lead_xv_0[0, 1], lead0_status,
-      lead_one.dRel if lead0_status else None)
-    self.t_follow = self.t_follow_base + closing_margin
+    self.t_follow = self.t_follow_base
 
     # apilot-c2: 안전모드일수록 comfort_brake 를 낮춰(=더 일찍 감속) 정지거리도 늘린다.
     # A confirmed stopped/slow lead with a large closing speed gets an additional
@@ -538,17 +473,9 @@ class LongitudinalMpc:
       v_ego, lead_v, self.t_follow, self.stop_dist, comfort_brake,
       krkeegan=self.applyLongDynamicCost))
 
-    obstacle_cost = self.x_ego_obstacle_cost
-    if self.mode == 'acc' and not (reset_state or self.traffic_stop_active or self.xState == XState.softHold):
-      obstacle_cost = get_follow_obstacle_cost(
-        obstacle_cost, v_ego, a_ego, self.x0[2],
-        (lead_one, lead_two), self.t_follow, self.stop_dist, comfort_brake)
-
     self.set_weights(prev_accel_constraint=self.prev_accel_constraint,
                      v_lead0=lead_xv_0[0, 1],
-                     v_lead1=lead_xv_1[0, 1],
-                     a_lead0=lead_one.aLeadK if lead0_status else 0.0,
-                     lead0_status=lead0_status, obstacle_cost=obstacle_cost)
+                     v_lead1=lead_xv_1[0, 1])
 
     # apilot-c2: 리드 정지환산거리는 기본 comfort_brake/기본 stop_distance 로 계산
     lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(
@@ -557,14 +484,6 @@ class LongitudinalMpc:
     lead_1_obstacle = lead_xv_1[:,0] + get_stopped_equivalence_factor(
       lead_xv_1[:,1], self.x_sol[:,1], self.t_follow, self.stop_distance,
       krkeegan=self.applyLongDynamicCost, comfort_brake=lead1_comfort_brake)
-
-    # A faster, non-braking cut-in leaves the gap on its own: remove only its
-    # current gap deficit so the MPC coasts instead of stabbing the brake.
-    if self.mode == 'acc' and lead0_status:
-      lead_0_obstacle = lead_0_obstacle + faster_lead_relief(
-        lead_one.dRel, v_ego, lead_xv_0[0, 1], lead_one.aLeadK,
-        get_safe_obstacle_distance(v_ego, self.t_follow, self.stop_dist, comfort_brake),
-        lead_0_obstacle[0], self.stop_dist)
 
     # apilot-c2: 비활성(reset) 상태에서는 현재 aEgo 로 상하한을 고정해 활성 전환시 튀지 않게 한다
     self.params[:,0] = MIN_ACCEL if not reset_state else a_ego

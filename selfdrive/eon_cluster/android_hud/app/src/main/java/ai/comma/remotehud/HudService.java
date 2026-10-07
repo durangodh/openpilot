@@ -2360,7 +2360,11 @@ public final class HudService extends Service {
 
     private void drawDriving(Canvas c, Paint p, JSONObject s) {
         JSONObject l = layout(s);
-        boolean stale = eonStale();
+        // A fresh UDP packet is not enough: remote_hud can remain alive while
+        // carState/controlsState producers have stopped and rebroadcast their
+        // last sample. Treat that condition like a disconnected EON.
+        boolean stale = eonStale() || !s.optBoolean("drivingValid", true);
+        boolean worldValid = s.optBoolean("worldValid", true);
         boolean enabled = !stale && s.optBoolean("enabled", false);
 
         p.setShader(null);
@@ -2369,7 +2373,7 @@ public final class HudService extends Service {
         p.setColor(driveBg);
         c.drawRect(0f, 0f, DRIVE_RIGHT, 462f, p);
 
-        if (!stale && modelWorldGl == null) {
+        if (!stale && worldValid && modelWorldGl == null) {
             modelWorldGl = new ModelWorldGL(this);
         }
         int roadTop = lc(l, "roadTop",
@@ -2383,7 +2387,7 @@ public final class HudService extends Service {
         // Canvas 렌더러가 없어졌으므로 GL 을 끄는 스위치도 없앴다. 끌 수 있게
         // 두면 주행 패널이 배경색만 남는다.
         boolean glDrawn = false;
-        if (!stale) {
+        if (!stale && worldValid) {
             glDrawn = modelWorldGl.draw(c, p, s, enabled, driveBg, roadTop,
                     roadBottom, pathColor, frameDark,
                     (float) s.optDouble("hudRoadZ", 100d),
@@ -4103,9 +4107,7 @@ public final class HudService extends Service {
         }
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        int wheelBg = steerWarning >= 2 ? Color.rgb(210, 42, 52)
-                : (steerWarning == 1 ? Color.rgb(242, 177, 38)
-                : (enabled ? Color.rgb(18, 95, 225) : Color.rgb(92, 101, 107)));
+        int wheelBg = wheelStatusColor(enabled, steerWarning);
         p.setColor(wheelBg);
         c.drawCircle(cx, cy, 36f, p);
         p.setStyle(Paint.Style.STROKE);
@@ -4147,9 +4149,7 @@ public final class HudService extends Service {
         p.setColorFilter(null);
         p.setAlpha(255);
         p.setStyle(Paint.Style.FILL);
-        int wheelBg = steerWarning >= 2 ? Color.rgb(210, 42, 52)
-                : (steerWarning == 1 ? Color.rgb(242, 177, 38)
-                : (enabled ? Color.rgb(18, 95, 225) : Color.rgb(92, 101, 107)));
+        int wheelBg = wheelStatusColor(enabled, steerWarning);
         p.setColor(wheelBg);
         c.drawCircle(cx, cy, 34f, p);
 
@@ -4165,6 +4165,12 @@ public final class HudService extends Service {
         p.setStrokeWidth(3f);
         p.setColor(wheelBg);
         c.drawCircle(cx, cy, 36f, p);
+    }
+
+    private static int wheelStatusColor(boolean enabled, int steerWarning) {
+        return steerWarning >= 2 ? Color.rgb(210, 42, 52)
+                : (steerWarning == 1 ? Color.rgb(242, 177, 38)
+                : (enabled ? Color.rgb(18, 95, 225) : Color.rgb(92, 101, 107)));
     }
 
     private ColorMatrixColorFilter wheelGrayFilter() {
@@ -4277,7 +4283,10 @@ public final class HudService extends Service {
 
     private void drawCamera(Canvas c, Paint p, float cx, float cy, int limit, int dist, boolean section,
                             int sectionAvg) {
-        if (limit <= 0) {
+        // Match EON onroad.cc: a camera is valid only while both the limit and
+        // positive remaining distance are present.  This also fails closed if
+        // an older sender leaves only camLimitSpeed behind after passing it.
+        if (limit <= 0 || dist <= 0) {
             return;
         }
         p.setShader(null);
@@ -4879,8 +4888,13 @@ public final class HudService extends Service {
 
         double accel = s.optDouble("accel", Double.NaN);
         if (Double.isFinite(accel)) {
-            text(c, p, "ACCEL", 1824f, 424f, 13f, Color.rgb(120, 132, 142), Paint.Align.CENTER);
-            text(c, p, String.format(Locale.US, "%+.2f", accel), 1824f, 448f, 20f,
+            double planAccel = s.optDouble("planAccel", Double.NaN);
+            String label = Double.isFinite(planAccel) ? "SCC / PLAN" : "SCC ACCEL";
+            String value = Double.isFinite(planAccel)
+                    ? String.format(Locale.US, "%+.2f / %+.2f", accel, planAccel)
+                    : String.format(Locale.US, "%+.2f", accel);
+            text(c, p, label, 1824f, 424f, 13f, Color.rgb(120, 132, 142), Paint.Align.CENTER);
+            text(c, p, value, 1824f, 448f, Double.isFinite(planAccel) ? 17f : 20f,
                     Color.rgb(173, 184, 192), Paint.Align.CENTER);
         }
     }

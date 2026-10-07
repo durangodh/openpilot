@@ -5,6 +5,7 @@ import pytest
 from selfdrive.controls.lib.lead_departure import (LAUNCH_JERK_UPPER_MAX, LeadDepartureAssist,
                                                    departure_jerk_upper,
                                                    departure_motion_valid,
+                                                   lead_departure_jerk,
                                                    lead_is_departing)
 
 
@@ -96,6 +97,8 @@ def test_hold_expires_without_rearming_in_pid_and_cannot_survive_braking():
   assist, args = LeadDepartureAssist(0.01), inputs()
   assert assist.update(**args)
   args.update(stopping=False, confirmed=False)
+  args['cs'].vEgo = 0.2
+  args['v_future'] = 0.5
   for _ in range(99):
     assert assist.update(**args)
   for _ in range(20):
@@ -106,6 +109,27 @@ def test_hold_expires_without_rearming_in_pid_and_cannot_survive_braking():
   assert not assist.update(**args)
   args['a_now'] = 0.0
   assert not assist.update(**args)
+
+
+def test_scc_release_delay_preserves_rolling_assist_but_times_out():
+  assist, args = LeadDepartureAssist(0.01), inputs()
+  assert assist.update(**args)
+  args.update(stopping=False, confirmed=False)
+  for _ in range(140):
+    assert assist.update(**args)
+  assert assist.remaining == 1.0
+  args['cs'].vEgo = 0.2
+  args['v_future'] = 0.5
+  assert assist.update(**args)
+  assert assist.remaining < 1.0
+
+  assist, args = LeadDepartureAssist(0.01), inputs()
+  assert assist.update(**args)
+  args.update(stopping=False, confirmed=False)
+  for _ in range(180):
+    assist.update(**args)
+  assert not assist.active
+  assert assist.remaining == 0.0
 
 
 def test_positive_plan_alone_cannot_arm_assist_while_driving():
@@ -128,3 +152,14 @@ def test_scc_jerk_change_is_scoped_and_bounded():
   assert departure_jerk_upper(0.5, 1.0, 0.6, True) == 0.6
   assert departure_jerk_upper(0.5, 0.5, 2.0, True) == 1.0
   assert departure_jerk_upper(4.0, 5.0, 6.0, True) == 4.0
+
+
+def test_launch_jerk_tracks_lead_motion_and_respects_user_limit():
+  gentle = NS(status=True, dRel=6.5, vLeadK=0.3, vRel=0.25, aLeadK=0.0)
+  normal = NS(status=True, dRel=7.0, vLeadK=0.8, vRel=0.7, aLeadK=0.2)
+  brisk = NS(status=True, dRel=9.0, vLeadK=1.8, vRel=1.6, aLeadK=0.8)
+  jerks = [lead_departure_jerk(lead, 4.0, 6.0) for lead in (gentle, normal, brisk)]
+  assert 0.8 <= jerks[0] < jerks[1] < jerks[2] <= 4.0
+  assert lead_departure_jerk(brisk, 1.0, 6.0) == pytest.approx(1.0)
+  assert lead_departure_jerk(brisk, 0.5, 6.0) == pytest.approx(0.5)
+  assert lead_departure_jerk(None, 4.0, 6.0) is None

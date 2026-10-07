@@ -45,6 +45,7 @@ final class ModelWorldGL {
     private static final float CAM_BACK = 13.0f;
     private static final float HORIZON = 249f;
     private static final float NEAR_DEPTH = 11.4f;
+    private static final float LEAD_BRAKE_ACCEL = -0.45f;
     private static final float[] ROAD_EDGE_SAMPLE_XS = {12f, 25f, 45f};
     // Area clipping can add up to four viewport-edge intersections to the
     // converter's 80-point polygons.
@@ -141,7 +142,6 @@ final class ModelWorldGL {
     private final boolean[] leadSpriteValid = new boolean[2];
     private final boolean[] leadSpriteBraking = new boolean[2];
     private final boolean[] leadSpriteVision = new boolean[2];
-    private final float[] leadSpriteProbability = new float[2];
 
     private final float[] worldQuad = new float[8];
     private final Bitmap frame = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
@@ -403,6 +403,12 @@ final class ModelWorldGL {
         Line rawPath = decode(scene.optJSONArray("path"), 1f);
         if (rawPath.count < 2) {
             return false;
+        }
+        // The optimized MPC path already contains OffsetTotal and is sent with
+        // zero offset. A raw-model fallback carries the separate offset here.
+        float pathOffset = clamp((float) scene.optDouble("pathOffset", 0d), -1f, 1f);
+        for (int i = 0; i < rawPath.count; i++) {
+            rawPath.y[i] += pathOffset;
         }
         Line path = smoothLine(smoothedPath, rawPath, geometryAlpha);
 
@@ -736,8 +742,6 @@ final class ModelWorldGL {
             }
             leadAcceleration[index] = (float) lead.optDouble("a", 0d);
             leadSpriteVision[index] = "V".equals(lead.optString("src", "R"));
-            leadSpriteProbability[index] = clamp(
-                    (float) lead.optDouble("p", 0d), 0f, 1f);
             leadLastSeenTimestamp[index] = timestamp;
         } else {
             long age = timestamp - leadLastSeenTimestamp[index];
@@ -800,7 +804,7 @@ final class ModelWorldGL {
             // 1.34 배는 근거리에서 자차(78px)와 거의 같은 크기가 되어 과했다.
             leadSpriteW[index] = width * 1.05f;
             leadSpriteAlpha[index] = (secondary ? 0.72f : 1f) * holdAlpha;
-            leadSpriteBraking[index] = leadAcceleration[index] < -0.45f;
+            leadSpriteBraking[index] = leadAcceleration[index] < LEAD_BRAKE_ACCEL;
             leadSpriteValid[index] = true;
             return;
         }
@@ -811,7 +815,7 @@ final class ModelWorldGL {
                 sx + width * 0.28f, sy - height * 0.48f,
                 dark ? Color.rgb(29, 40, 51) : Color.rgb(53, 66, 78),
                 (secondary ? 0.55f : 0.90f) * holdAlpha);
-        if (leadAcceleration[index] < -0.45f) {
+        if (leadAcceleration[index] < LEAD_BRAKE_ACCEL) {
             int brake = Color.rgb(255, 55, 62);
             drawScreenRect(sx - width * 0.40f, sy - height * 0.25f,
                     sx - width * 0.18f, sy - height * 0.05f,
@@ -1489,11 +1493,6 @@ final class ModelWorldGL {
 
     boolean leadSpriteVision(int index) {
         return index >= 0 && index < leadSpriteVision.length && leadSpriteVision[index];
-    }
-
-    float leadSpriteProbability(int index) {
-        return index >= 0 && index < leadSpriteProbability.length
-                ? leadSpriteProbability[index] : 0f;
     }
 
     /**

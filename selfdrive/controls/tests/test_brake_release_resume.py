@@ -41,6 +41,21 @@ def test_no_resume_below_brake_car_speed_even_behind_close_lead():
   assert h.resumed == []
 
 
+@pytest.mark.parametrize('enabled', [False, True])
+def test_soft_hold_does_not_bypass_setting_or_minimum_speed(enabled):
+  h = _helper(x_state='softHold', auto_resume_from_brake_release=enabled)
+  _resume(h, NS(), _cs(0.0))
+  assert h.resumed == []
+
+
+@pytest.mark.parametrize(('d_rel', 'expected'), [(5.0, []), (9.9, []), (10.0, [3]), (30.0, [3])])
+def test_low_speed_lead_must_meet_configured_distance(d_rel, expected):
+  h = _helper(d_rel=d_rel, auto_resume_from_brake_car_speed=5.0,
+              auto_resume_from_gas_speed=20.0, auto_resume_from_brake_release_dist=10.0)
+  _resume(h, NS(), _cs(10.0))
+  assert h.resumed == expected
+
+
 @pytest.mark.parametrize('d_rel', [0.0, 30.0])
 def test_resume_above_brake_car_speed(d_rel):
   h = _helper(d_rel=d_rel, auto_resume_from_brake_release_dist=10.0)

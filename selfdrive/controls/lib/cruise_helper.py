@@ -10,12 +10,10 @@ from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.controls.lib.vision_curve_speed import VisionCurveSpeed, UNLIMITED_SPEED
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
 from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software_gap
-from selfdrive.controls.lib.lead_following import get_follow_approach_limit
 from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_auto_speed_up_target,
                                                         get_cruise_max_accel,
-                                                        get_no_lead_cruise_accel_cap,
                                                         select_auto_driving_mode)
 from selfdrive.road_speed_limiter import get_road_speed_limiter
 
@@ -29,6 +27,7 @@ NAVI_DISTANCE_HOLD_TIME = 1.0
 BUMP_PASS_HOLD_DIST = 12.0   # m
 BUMP_MIN_SAFE_TIME = 2.0     # s
 BUMP_LOST_ARM_DIST = 30.0    # m, 이 안에서 안내가 끊기면 남은 거리+유지거리로 처리
+BRAKE_GAS_RESUME_WINDOW = 15.0  # s, brake pause followed by a deliberate gas handoff
 
 
 class SpeedBumpHold:
@@ -86,6 +85,8 @@ class CruiseHelper:
     self.gas_tap_cruise_active = False
     self.gas_tap_set_speed_kph = 0.0
     self.gas_pressed_frame = 0
+    self.brake_gas_resume_pending = False
+    self.brake_gas_resume_frame = 0
     self.slow_speed_frame_count = 0
     self.x_state = XState.cruise
     self.x_stop = 0.0
@@ -292,7 +293,14 @@ class CruiseHelper:
 
   @staticmethod
   def get_lead(sm):
-    lead = sm['radarState'].leadOne
+    try:
+      radar_state = sm['radarState']
+      radar_valid = bool(sm.valid['radarState'] and sm.alive['radarState'])
+    except (AttributeError, KeyError, TypeError):
+      return None
+    if not radar_valid or len(getattr(radar_state, 'radarErrors', [])) > 0:
+      return None
+    lead = radar_state.leadOne
     return lead if lead.status else None
 
   def update_safe_mode_factor(self):
@@ -308,22 +316,8 @@ class CruiseHelper:
                                 self.my_eco_mode_factor, self.my_safe_mode_factor)
 
   def get_longitudinal_accel_limit(self, CS, sm, set_speed_kph):
-    """Return the live positive acceleration limit for LongControl."""
-    cruise_max_accel = self.get_cruise_max_accel(CS.vEgo)
-    speed_error_kph = max(0.0, float(set_speed_kph) - CS.vEgo * CV.MS_TO_KPH)
-    no_lead_cap = get_no_lead_cruise_accel_cap(
-      cruise_max_accel, speed_error_kph, self.no_lead_cruise_accel_factor)
-    has_lead = sm['radarState'].leadOne.status or sm['radarState'].leadTwo.status
-    target = cruise_max_accel if has_lead else no_lead_cap
-    plan = sm['longitudinalPlan']
-    comfort_valid = all(sm.valid[s] and sm.alive[s] for s in ('radarState', 'longitudinalPlan'))
-    if comfort_valid and has_lead and plan.mpcMode == 0 and not (plan.onStop or plan.fcw):
-      target, _ = get_follow_approach_limit(
-        target, CS.vEgo, (sm['radarState'].leadOne, sm['radarState'].leadTwo),
-        float(plan.desiredDistance))
-    # Only the size of the allowance is decided here. LongControl's PID jerk
-    # limit ramps the actual request when this allowance rises or falls.
-    return max(0.0, float(target))
+    """Use the apilot-c2 speed/mode acceleration table without extra lead caps."""
+    return max(0.0, float(self.get_cruise_max_accel(CS.vEgo)))
 
   def _resume_longitudinal(self, controls, CS, active_mode=1):
     if self.long_active_user <= 0:
@@ -331,6 +325,7 @@ class CruiseHelper:
     self.long_active_user = active_mode
     self.user_cruise_paused = False
     self.auto_cruise_control = True
+    self.brake_gas_resume_pending = False
 
   def pause_longitudinal(self, controls, user_cancel=False):
     if self.long_active_user > 0 and self.cruise_speed_min <= controls.v_cruise_kph <= MAX_SET_SPEED_KPH:
@@ -339,17 +334,23 @@ class CruiseHelper:
     if user_cancel:
       self.user_cruise_paused = True
       self.auto_cruise_control = False
+      self.brake_gas_resume_pending = False
 
-  def _resume_guard_ok(self, CS):
+  def _resume_path_clear(self, CS, d_rel, require_lead=False):
     if abs(CS.steeringAngleDeg) >= 20.0:
       return False
-    if self.auto_gas_resume_guard:
+    if require_lead or self.auto_gas_resume_guard:
       if CS.leftBlinker or CS.rightBlinker:
         return False
       danger_dist = max(5.0, CS.vEgo * 0.8)
-      if 0.0 < self.d_rel < danger_dist:
+      if require_lead:
+        return danger_dist < d_rel <= 60.0
+      if 0.0 < d_rel < danger_dist:
         return False
     return True
+
+  def _resume_guard_ok(self, CS):
+    return self._resume_path_clear(CS, self.d_rel)
 
   def _select_resume_speed(self, controls, CS):
     current_kph = float(clip(CS.vEgoCluster * CV.MS_TO_KPH,
@@ -370,15 +371,39 @@ class CruiseHelper:
     if selected == backup_kph:
       self._clear_speed_backup()
 
+  def _resume_after_brake_gas_release(self, controls, CS, lead):
+    """Resume a temporary brake pause after the driver finishes a gas handoff.
+
+    This is intentionally narrower than the configurable gas-resume path. It
+    applies only when longitudinal control was active before the brake, and it
+    requires a fresh radar lead with enough stopping room. The pending request
+    is one-shot so an unsafe release cannot arm a later, unrelated launch.
+    """
+    if not self.brake_gas_resume_pending:
+      return False
+    self.brake_gas_resume_pending = False
+
+    pause_age = (self.param_read_counter - self.brake_gas_resume_frame) * DT_CTRL
+    temporary_pause = self.long_active_user == -2 and self.auto_cruise_control and not self.user_cruise_paused
+    try:
+      radar_valid = bool(controls.sm.valid['radarState'] and controls.sm.alive['radarState'])
+    except (AttributeError, KeyError, TypeError):
+      radar_valid = False
+    valid_lead = radar_valid and lead is not None and bool(getattr(lead, 'radar', False))
+    d_rel = float(getattr(lead, 'dRel', 0.0)) if valid_lead else 0.0
+    resume_configured = self.auto_resume_from_gas > 0 or self.auto_resume_from_brake_release
+    safe_path = self._resume_path_clear(CS, d_rel, require_lead=True)
+    if not (resume_configured and controls.enabled and temporary_pause and not CS.brakePressed and
+            0.0 <= pause_age <= BRAKE_GAS_RESUME_WINDOW and safe_path):
+      return False
+
+    self._resume_longitudinal(controls, CS, 3)
+    return True
+
   def _brake_release_resume(self, controls, CS):
     if not self.auto_cruise_control:
       return
     v_ego_kph = CS.vEgoCluster * CV.MS_TO_KPH
-
-    # C2 soft-hold release path.
-    if v_ego_kph < 5.0 and self.x_state == XState.softHold:
-      self._resume_longitudinal(controls, CS, 3)
-      return
 
     if not self.auto_resume_from_brake_release or abs(CS.steeringAngleDeg) >= 20.0:
       return
@@ -396,7 +421,7 @@ class CruiseHelper:
         return
       if 0.0 < self.d_rel < 20.0 and (CS.leftBlinker or CS.rightBlinker):
         return
-      if 0.0 < self.d_rel <= max(10.0, self.auto_resume_from_brake_release_dist):
+      if self.d_rel >= self.auto_resume_from_brake_release_dist > 0.0:
         self._resume_longitudinal(controls, CS, 3)
       elif self.d_rel <= 0.0 and self.traffic_state == 1 and not (CS.leftBlinker or CS.rightBlinker):
         self._resume_longitudinal(controls, CS, 3)
@@ -444,10 +469,16 @@ class CruiseHelper:
       self.pre_gas_pressed_max = 0.0
       self.gas_tap_cruise_active = False
       self.gas_tap_set_speed_kph = 0.0
+      self.brake_gas_resume_pending = False
     elif brake_pressed:
       # Match aPilot C2 pedal priority: brake input owns this control cycle.
       if not self.prev_brake_pressed:
+        resume_after_gas = self.long_active_user > 0 and self.auto_cruise_control
+        self.brake_gas_resume_pending = False
         self.pause_longitudinal(controls)
+        if resume_after_gas:
+          self.brake_gas_resume_pending = True
+          self.brake_gas_resume_frame = self.param_read_counter
       self.gas_tap_cruise_active = False
       self.gas_tap_set_speed_kph = 0.0
     elif CS.gasPressed:
@@ -485,6 +516,8 @@ class CruiseHelper:
          self.auto_cruise_control and v_ego_kph >= self.auto_resume_from_gas_speed and self._resume_guard_ok(CS):
         self._select_resume_speed(controls, CS)
         self._resume_longitudinal(controls, CS, 3)
+      elif self.long_active_user <= 0:
+        self._resume_after_brake_gas_release(controls, CS, lead)
       self.gas_pressed_count = 0
       self.pre_gas_pressed_max = 0.0
       self.gas_tap_cruise_active = False

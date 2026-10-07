@@ -13,39 +13,6 @@ STOPPED_LEAD_MIN_EGO_SPEED = 10.0
 STOPPED_LEAD_MIN_CLOSING_SPEED = 5.0
 
 
-def get_t_follow_closing_margin(v_ego, v_lead, lead_status, d_rel=None):
-  """Ease off progressively using closing speed and time-to-close.
-
-  The old margin only looked at relative speed. That can leave the MPC relaxed
-  while the lead is still far away, then ask for a noticeably stronger brake
-  once the normal following envelope is reached. A small TTC preview grows the
-  desired gap earlier, encouraging coast/light decel before that point without
-  changing the physical accel limits or the close-range safety constraint.
-  """
-  if not lead_status:
-    return 0.0
-
-  closing_speed = max(0.0, float(v_ego - v_lead))
-  if closing_speed <= 0.0:
-    return 0.0
-
-  speed_margin = float(interp(closing_speed, [0.0, 1.5, 4.0, 8.0],
-                              [0.0, 0.03, 0.10, 0.18]))
-
-  preview_margin = 0.0
-  if d_rel is not None and d_rel > 0.0:
-    ttc = float(d_rel) / max(closing_speed, 0.1)
-    # Begin a gentle preview around 8 s TTC, peak through the normal approach
-    # window, then let the existing speed margin/safety envelope own close range.
-    preview_margin = float(interp(ttc, [2.0, 3.5, 6.0, 8.0, 10.0],
-                                  [0.0, 0.04, 0.06, 0.03, 0.0]))
-    # Tiny relative-speed differences should not create long-range hunting.
-    preview_margin *= float(interp(closing_speed, [0.5, 1.5, 3.0],
-                                   [0.0, 0.5, 1.0]))
-
-  return speed_margin + preview_margin
-
-
 def get_stopped_lead_comfort_brake(configured_comfort_brake, v_ego, v_lead, lead_status):
   """Use an earlier braking envelope for a confirmed slow lead at road speed.
 

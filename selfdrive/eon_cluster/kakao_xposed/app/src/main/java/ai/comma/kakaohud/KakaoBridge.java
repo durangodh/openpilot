@@ -400,7 +400,9 @@ final class KakaoBridge {
                 int absolute = location == null ? -1 : getInt(location, "getDistFromS", "f");
                 int distance = absolute >= 0 && vehicleDistFromS >= 0
                         ? Math.max(0, absolute - vehicleDistFromS) : absolute;
-                if (distance >= 0 && distance < bestDistance) {
+                // 0m 안내는 SDK의 getPassed 갱신이 늦은 한 프레임에서
+                // 이미 통과한 카메라일 수 있다. 표시 대상에 다시 캐시하지 않는다.
+                if (distance > 0 && distance < bestDistance) {
                     best = item;
                     bestDistance = distance;
                 }
@@ -543,18 +545,24 @@ final class KakaoBridge {
             } else {
                 remaining = distance;
             }
+            if (remaining <= 0) {
+                synchronized (guideLock) { cachedSafetyEmpty = true; cachedSafetyItem = null; }
+                sendSpeed("");
+                return;
+            }
             // 카카오 앱 구간단속 표지판의 평균속도. SDK 가 같은 Section 객체를 주행 중에
             // 갱신하므로(y(): 통과거리·진입시각·GPS 평균) 보낼 때마다 다시 읽는다.
             // 4.51.1: Section(t60.e).getSectionAvrSpeed() 의 실제 이름은 t.
             int average = item == null ? -1 : getInt(item, "getSectionAvrSpeed", "t");
             sendSpeed(",\"section\":{\"active\":true,\"suspended\":false"
                     + ",\"speed_limit_kph\":" + limit
-                    + ",\"remaining_distance_m\":" + Math.max(0, remaining)
+                    + ",\"remaining_distance_m\":" + remaining
                     + (average > 0 ? ",\"average_speed_kph\":" + average : "") + "}");
             return;
         }
-        if (distance < 0) {
+        if (distance <= 0) {
             // 지나친 카메라는 다음 안전 콜백이 올 때까지 보내지 않는다.
+            synchronized (guideLock) { cachedSafetyEmpty = true; cachedSafetyItem = null; }
             sendSpeed("");
             return;
         }

@@ -599,6 +599,7 @@ struct ControlsState @0x97ff69c53601abf1 {
   aReqValue @66 :Float32;
   aReqValueMin @67 :Float32;
   aReqValueMax @68 :Float32;
+  sccStopRequest @81 :Bool;  # StopReq bit in the last openpilot SCC12 request
 
   steerRatio @69 :Float32;
   steerActuatorDelay @70 :Float32;

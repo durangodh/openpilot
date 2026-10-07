@@ -293,6 +293,35 @@ def test_s9_v6_visual_layers_and_local_map_context():
   assert (java / "HudMapStore.java").exists()
 
 
+def test_hud_rejects_stale_sources_and_applies_fallback_path_offset():
+  java = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+          "main" / "java" / "ai" / "comma" / "remotehud")
+  renderer = (java / "ModelWorldGL.java").read_text(encoding="utf-8")
+  service = (java / "HudService.java").read_text(encoding="utf-8")
+  sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(
+      encoding="utf-8")
+
+  assert '"drivingValid": car_valid and car_control_valid and controls_valid' in sender
+  assert '"worldValid": model_valid' in sender
+  assert '!s.optBoolean("drivingValid", true)' in service
+  assert 's.optBoolean("worldValid", true)' in service
+  assert 'scene.optDouble("pathOffset", 0d)' in renderer
+  assert 'rawPath.y[i] += pathOffset' in renderer
+  assert '"pathFinal": path_final' in sender
+  assert 'leadSpriteProbability' not in renderer
+
+
+def test_hud_accel_is_scc_command_not_planner_sample():
+  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
+             "main" / "java" / "ai" / "comma" / "remotehud" /
+             "HudService.java").read_text(encoding="utf-8")
+  sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(
+      encoding="utf-8")
+  assert '"applyAccel"' in sender
+  assert '"planAccel"' in sender
+  assert '"SCC ACCEL"' in service
+
+
 def test_stop_line_overlay_removed_from_eon_and_hud():
   ui = (ROOT / "selfdrive" / "ui" / "ui.cc").read_text(encoding="utf-8")
   onroad = (ROOT / "selfdrive" / "ui" / "qt" / "onroad.cc").read_text(encoding="utf-8")

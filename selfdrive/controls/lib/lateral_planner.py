@@ -2,6 +2,8 @@ import numpy as np
 from common.conversions import Conversions as CV
 from common.realtime import sec_since_boot, DT_MDL
 from common.numpy_fast import interp
+from selfdrive.controls.lib.lateral_response import LateralResponse
+from selfdrive.controls.lib.lane_path_validation import curve_lane_center_blend, valid_lane_path
 from selfdrive.controls.lib.lane_planner import LanePlanner
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import LateralMpc
@@ -83,6 +85,7 @@ class LateralPlanner:
 
     self.debug_mode = debug
 
+    self.lateral_response = LateralResponse()
     self.lat_mpc = LateralMpc()
     self.reset_mpc(np.zeros(4))
 
@@ -188,6 +191,13 @@ class LateralPlanner:
     # pre-intersection lane line.
     noo_turn_active = (self.DH.noo_turn_direction != 0 and
                        not self.DH.noo_driver_cancel)
+    # carrot c3 vTurnSpeed와 같은 의미의 부호 있는 커브 속도.
+    # 이 포크에는 carrotMan 필드가 없으므로 현재 곡률에서 같은 단위로 산출한다.
+    if abs(measured_curvature) > 1e-4:
+      curve_speed = np.sign(measured_curvature) * np.clip(
+        np.sqrt(2.5 / abs(measured_curvature)) * CV.MS_TO_KPH, 50.0, 200.0)
+    else:
+      curve_speed = 200.0
     if noo_turn_active:
       # Do not let pre-intersection lane lines fight the navigation turn.
       lane_line_blend_target = 0.0
@@ -202,6 +212,15 @@ class LateralPlanner:
         [LANELESS_LANE_PROB_MIN, LANELESS_LANE_PROB_FULL],
         [0.0, LANELESS_LANE_CENTER_BLEND],
       )
+      # On a visible bend, prefer the measured lane centre to a model path
+      # cutting the corner. Keep the existing 1.5 s mode blend and never
+      # override navigation turns or an active lane change.
+      if (self.DH.lane_change_state == LaneChangeState.off and
+          valid_lane_path(self.LP.ll_t, self.LP.ll_x, self.LP.lll_y, self.LP.rll_y)):
+        width = np.abs(self.LP.rll_y - self.LP.lll_y)
+        lane_line_blend_target = curve_lane_center_blend(
+          lane_line_blend_target, curve_speed, lane_confidence,
+          max(self.LP.lll_std, self.LP.rll_std), float(np.max(width)))
     else:
       lane_line_blend_target = 1.0
     if self.lane_line_blend is None:
@@ -212,13 +231,6 @@ class LateralPlanner:
       max_blend_step = DT_MDL / LANE_MODE_BLEND_TIME
       self.lane_line_blend += np.clip(lane_line_blend_target - self.lane_line_blend,
                                       -max_blend_step, max_blend_step)
-    # carrot c3 vTurnSpeed와 같은 의미의 부호 있는 커브 속도.
-    # 이 포크에는 carrotMan 필드가 없으므로 현재 곡률에서 같은 단위로 산출한다.
-    if abs(measured_curvature) > 1e-4:
-      curve_speed = np.sign(measured_curvature) * np.clip(
-        np.sqrt(2.5 / abs(measured_curvature)) * CV.MS_TO_KPH, 50.0, 200.0)
-    else:
-      curve_speed = 200.0
     self.d_path_w_lines_xyz = self.LP.get_d_path(
       self.v_ego, self.t_idxs, self.path_xyz, self.lane_line_blend, curve_speed)
     # Feed the selected lane/model blend into MPC. Previously this result was
@@ -234,9 +246,6 @@ class LateralPlanner:
       sm['carState'].vEgo, [5.0, 10.0], [1.0, self.lateral_motion_cost])
     heading_cost = (self.lane_line_blend * self.lateral_motion_cost +
                     (1.0 - self.lane_line_blend) * laneless_heading_cost)
-    self.lat_mpc.set_weights(self.path_cost, heading_cost,
-                             self.lateral_accel_cost, self.lateral_jerk_cost,
-                             self.steering_rate_cost)
 
     # offset_total 을 최종 결정된 path_xyz 에 적용 (레인모드/레인리스 공통)
     self.path_xyz[:, 1] += self.offset_total
@@ -323,6 +332,19 @@ class LateralPlanner:
                       self.noo_map_blend * map_yaw_rate)
     self.y_pts = y_pts
 
+    # Use the final lane/model/map reference, including lane-centre shifts.
+    # Remove the user offset so a fixed calibration cannot trigger the boost.
+    preview_y = float(np.interp(0.8, self.t_idxs[:LAT_MPC_N + 1], y_pts)) - self.offset_total
+    response_active = (sm['carControl'].latActive and not sm['carState'].steeringPressed and
+                       sm.valid['modelV2'] and len(md.position.x) == TRAJECTORY_SIZE and
+                       len(md.orientation.x) == TRAJECTORY_SIZE)
+    effective_rate_cost = self.lateral_response.update(
+      self.steering_rate_cost, preview_y, measured_curvature,
+      self.v_ego, response_active, DT_MDL)
+    self.lat_mpc.set_weights(self.path_cost, heading_cost,
+                             self.lateral_accel_cost, self.lateral_jerk_cost,
+                             effective_rate_cost)
+
     assert len(y_pts) == LAT_MPC_N + 1
     assert len(heading_pts) == LAT_MPC_N + 1
     assert len(yaw_rate_pts) == LAT_MPC_N + 1
@@ -338,6 +360,7 @@ class LateralPlanner:
     mpc_nans = np.isnan(self.lat_mpc.x_sol[:, 3]).any()
     t = sec_since_boot()
     if mpc_nans or self.lat_mpc.solution_status != 0:
+      self.lateral_response = LateralResponse()
       self.reset_mpc()
       self.x0[3] = measured_curvature * self.v_ego
       if t > self.last_cloudlog_t + 5.0:

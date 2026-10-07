@@ -1920,6 +1920,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "좌우 여유공간이 비대칭일 때 여유 있는 쪽으로 경로를 옮깁니다.\n"
       "좁은 도로에서 대형차 옆을 지날 때 효과가 있습니다.\n"
       "양쪽 다 여유가 있거나 양쪽 다 좁으면 동작하지 않습니다.\n"
+      "커브에서는 자동 이동을 줄여 차선 중앙을 우선합니다.\n"
       "값 증가(+): 여유 있는 쪽으로 더 많이 이동 / 값 감소(-): 이동량이 줄어듭니다.\n"
       "범위: 0 ~ 40cm (5cm 단위)  /  기본값: OFF",
       "../assets/offroad/icon_road.png",
@@ -1934,6 +1935,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "LATMPC INPUT OFFSET",
       "차선 경로를 MPC에 앞서 입력하는 보상값입니다.\n"
       "값 증가(+): 커브에 더 일찍 진입 / 값 감소(-): 더 늦게 진입.\n"
+      "커브 진행 중에는 선행 입력을 줄여 안쪽으로 당겨지는 경로를 억제합니다.\n"
       "범위: 0 ~ 20  /  기본값: 4 (=0.04)",
       "../assets/offroad/icon_road.png", 0, 20, 1, 0, 4, this));
 

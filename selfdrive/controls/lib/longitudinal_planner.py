@@ -11,13 +11,11 @@ from selfdrive.modeld.constants import T_IDXS
 from selfdrive.controls.lib.longcontrol import LongCtrlState
 from selfdrive.controls.lib.navigation_route import GUIDE_FILE, NavigationRouteData
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, MIN_ACCEL, MAX_ACCEL, N, XState
-from selfdrive.controls.lib.stop_const_decel import ConstDecelStop
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_speed_error
 from selfdrive.controls.lib.longitudinal_limits import (get_cruise_min_accel, CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_cruise_max_accel,
-                                                        get_no_lead_cruise_accel_cap,
                                                         limit_accel_in_turns)
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.events import Events
@@ -40,7 +38,6 @@ class LongitudinalPlanner:
     self.param_read_counter = 0
 
     self.mpc = LongitudinalMpc()
-    self.const_stop = ConstDecelStop()
     self.const_stop_decel = 0.0
 
     # Match aPilot selection: ExperimentalMode forces E2E, while
@@ -137,11 +134,6 @@ class LongitudinalPlanner:
     self.mpc.tfollow_gaps = gap_values
     speed_ratio = self.params.get_int("TFollowSpeedRatio")
     self.mpc.t_follow_speed_ratio = (speed_ratio if speed_ratio >= 100 else 120) * 0.01
-    # apilot-c2 저속 출발 코스트 배율은 0.05 고정. LeadDepartCost=5 가 apilot-c2 와 동일.
-    # (TFollowDecelBoost / TFollowClosingMargin 은 apilot-c2 에 없는 항목이라 더 이상 읽지 않음)
-    depart_cost = self.params.get_int("LeadDepartCost")
-    self.mpc.lead_depart_cost = float(clip((depart_cost if depart_cost > 0 else 5) * 0.01, 0.05, 1.0))
-
     # 앞차 접근 제동 튜닝 (x100 정수 저장)
     comfort_brake = self.params.get_int("ComfortBrake")
     self.mpc.comfort_brake = float(clip((comfort_brake if comfort_brake > 0 else 250) * 0.01, 1.5, 4.0))
@@ -260,14 +252,10 @@ class LongitudinalPlanner:
     # No change cost when user is controlling the speed, or when standstill
     prev_accel_constraint = not (reset_state or sm['carState'].standstill)
 
-    # Apply the restored no-lead policy on top of the speed/mode CruiseMax table.
+    # apilot-c2: the speed/mode CruiseMax table is the only positive-accel cap.
     cruise_max_accel = float(clip(get_cruise_max_accel(
       v_ego, self.cruise_max_vals, driving_mode, self.my_eco_mode_factor,
       float(clip(sm['controlsState'].mySafeModeFactor, 0.5, 1.0))), 0.0, MAX_ACCEL))
-    if not (sm['radarState'].leadOne.status or sm['radarState'].leadTwo.status):
-      speed_error_kph = max(0.0, (v_cruise - v_ego) * CV.MS_TO_KPH)
-      cruise_max_accel = min(cruise_max_accel, get_no_lead_cruise_accel_cap(
-        cruise_max_accel, speed_error_kph, self.no_lead_cruise_accel_factor))
     if self.mpc.mode == 'acc':
       accel_limits = limit_accel_in_turns(
         v_ego, sm['carState'].steeringAngleDeg,
@@ -310,22 +298,9 @@ class LongitudinalPlanner:
     self.a_desired_trajectory = np.interp(T_IDXS[:CONTROL_N], T_IDXS_MPC, self.mpc.a_solution)
     self.j_desired_trajectory = np.interp(T_IDXS[:CONTROL_N], T_IDXS_MPC[:-1], self.mpc.j_solution)
 
-    # Stopping behind a stopping/stopped lead: one steady deceleration instead
-    # of the MPC's early hard braking and slow final crawl (stop_const_decel).
-    lead = sm['radarState'].leadOne
-    const_allowed = (sm['controlsState'].enabled and not reset_state and
-                     not self.mpc.traffic_stop_active and self.mpc.xState != XState.softHold)
-    const_plan = self.const_stop.update(const_allowed, v_ego, lead.status, lead.dRel, lead.vLead,
-                                        lead.aLeadK, self.a_desired, DT_MDL)
+    # Keep one planner in authority. The former ConstDecelStop override could
+    # replace an already smooth MPC trajectory with a second stop trajectory.
     self.const_stop_decel = 0.0
-    if const_plan is not None:
-      decel_now, target = const_plan
-      self.const_stop_decel = float(target)
-      v_plan, a_plan, j_plan = ConstDecelStop.trajectory(
-        self.v_desired_filter.x, decel_now, target, T_IDXS[:CONTROL_N])
-      self.v_desired_trajectory = v_plan
-      self.a_desired_trajectory = a_plan
-      self.j_desired_trajectory = j_plan
 
     # TODO counter is only needed because radar is glitchy, remove once radar is gone
     self.fcw = self.mpc.crash_cnt > 2 and not sm['carState'].standstill and not reset_state

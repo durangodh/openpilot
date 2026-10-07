@@ -497,11 +497,13 @@ Catmull-Rom 보간이 실제 곡률을 못 따라간다. 이제 전부 보낸다
 * EON이 `modelV2.position`이나 MPC 입력 기준값인 `dPathPoints` 대신,
   `lateralPlan.mpcPathX/mpcPathY`에 발행된 MPC 최적화 상태 경로를 전송한다.
   Z축은 같은 shooting-node 인덱스의 `modelV2.position.z`를 사용한다.
-* 패킷의 `pathFinal`이 참이면 최종 MPC 경로 유효구간 안에서는 TMAP 원거리
-  곡선을 다시 혼합하지 않는다. NOO 지도 곡률이 HUD에서 이중 적용되지 않는다.
-* 최종 경로에는 `OffsetTotal`이 이미 포함되어 있으므로 이 경우 패킷
-  `pathOffset`은 0으로 보낸다. MPC가 무효이면 기존 모델 경로와 별도 오프셋
-  방식으로 자동 폴백한다.
+* 최종 MPC 경로에는 `OffsetTotal`이 이미 포함되어 있으므로 패킷
+  `pathOffset`은 0으로 보낸다. MPC가 무효이면 기존 모델 경로와 별도 오프셋을
+  보내며 Android 렌더러가 경로 Y 좌표에 적용한다.
+* `pathFinal`은 이전 v6 APK와의 호환을 위해 계속 전송하지만 현재 렌더러는
+  `pathOffset` 값만으로 최종 경로와 폴백 경로를 동일하게 처리한다.
+* `modelV2`가 끊기거나 무효이면 마지막 경로를 새 패킷처럼 반복 표시하지 않고
+  주행 월드 렌더링을 숨긴다.
 
 ## v0.28 (OSM 도로환경 + 장거리 안정화)
 

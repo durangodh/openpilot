@@ -45,9 +45,11 @@ final class KakaoMap {
     // 차량을 화면 가운데보다 아래(세로 68%)에 두어 앞쪽 도로를 더 보여준다.
     // 카카오 앱 주행 카메라도 anchor 를 써서 차량을 아래쪽에 둔다.
     private static final float ANCHOR_X = 0.5f;
-    // 차량을 화면 더 아래에 둬서 지나온 경로(뒤쪽)가 화면 밖으로 나가게 한다.
-    // 카카오 화면 동기화 중에도 세로 위치만은 이 값으로 강제한다.
+    // 원본 화면 카메라를 읽지 못할 때만 쓰는 안전 기본 위치.
     private static final float ANCHOR_Y = 0.78f;
+    // 720x432 지도가 HUD에서 확대되어도 카카오 원본과 같은 비율이 되도록
+    // SDK 순정 마커를 쓰지 못할 때의 화살표를 기존보다 작게 그린다.
+    private static final float FALLBACK_MARKER_RADIUS_HEIGHT = 0.035f;
     private static final long STATIONARY_HEARTBEAT_MS = 2000;
     private static final long INIT_RETRY_MS = 5000;
     // 카카오 지도 zoom 은 "작을수록 확대"인 배율값이다(네이버/구글 줌레벨과 반대).
@@ -80,6 +82,10 @@ final class KakaoMap {
 
     private volatile Object pendingSdkRoute;
     private Object appliedSdkRoute;
+    // KNU route 객체는 같은 인스턴스 안에서 경로를 갱신하므로 참조 비교만으로는
+    // 파란 경로선 갱신을 놓칠 수 있다.
+    private volatile long pendingRouteRevision;
+    private long appliedRouteRevision = -1;
 
     private volatile double curX = 0, curY = 0, curBearing = 0;
     // 속도는 KATEC(미터 단위) 위치 변화로 추정한다. SDK 속도 getter 는 난독화라 쓰지 않는다.
@@ -176,6 +182,13 @@ final class KakaoMap {
     private final android.graphics.Paint markerEdge = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
     private final android.graphics.Paint markerShadow = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
     private final android.graphics.Path markerPath = new android.graphics.Path();
+    private Object nativeUserLocation;
+    private Method nativeLocationPointMethod;
+    private Method nativeLocationBearingMethod;
+    private Method nativeLocationCombinedMethod;
+    private Method nativeLocationVisibleMethod;
+    private volatile boolean nativeMarkerActive;
+    private boolean nativeMarkerErrorLogged;
 
     /**
      * 오프스크린 캡처러는 내 위치 마커를 그리지 않는다. 지도는 차량 방위 기준(heading-up)
@@ -184,7 +197,7 @@ final class KakaoMap {
     private void drawVehicleMarker(Bitmap bmp) {
         float cx = bmp.getWidth() * (anchorTo != null ? markerAnchorX : 0.5f);
         float cy = bmp.getHeight() * (anchorTo != null ? markerAnchorY : 0.5f);
-        float r = bmp.getHeight() * 0.055f;
+        float r = bmp.getHeight() * FALLBACK_MARKER_RADIUS_HEIGHT;
         markerPath.reset();
         markerPath.moveTo(cx, cy - r * 1.25f);
         markerPath.lineTo(cx + r, cy + r);
@@ -294,6 +307,7 @@ final class KakaoMap {
     /** 안내 중인 KNU 경로를 캡처 지도용 KNMRoute로 변환해 경로선을 표시한다. */
     void updateRoute(Object sdkRoute) {
         pendingSdkRoute = sdkRoute;
+        pendingRouteRevision++;
     }
 
     private void loop() {
@@ -405,9 +419,9 @@ final class KakaoMap {
                     + " poseDeltaM=" + (int) Math.hypot(screen.x - curX, screen.y - curY));
         }
         markerAnchorX = screenSync ? screen.anchorX : ANCHOR_X;
-        // 세로 anchor 는 항상 우리 값으로 둔다. 카카오 화면 anchor(중앙 근처)를
-        // 그대로 따르면 지나온 경로가 차량 뒤(화면 아래)에 남는다.
-        markerAnchorY = ANCHOR_Y;
+        // 카카오 원본 주행 화면을 잡았을 때는 X/Y anchor 모두 그대로 따른다.
+        // 이전에 Y만 0.78로 강제해 원본과 차량 위치·앞쪽 시야가 달라졌다.
+        markerAnchorY = screenSync ? screen.anchorY : ANCHOR_Y;
 
         // KATEC 은 미터 단위(x 동쪽, y 북쪽), 방위는 북쪽 기준 시계방향이다.
         double leadM = speedKph >= 3.0 ? speedKph / 3.6 * LEAD_S : 0.0;
@@ -453,6 +467,7 @@ final class KakaoMap {
             moveCameraMethod = capClass.getMethod("moveCamera", updClass);
             setThemeMethod = null;
             appliedSdkRoute = null;
+            appliedRouteRevision = -1;
 
             // 새 캡처러에는 테마를 다시 적용한다(applyThemeIfNeeded).
             appliedTheme = null;
@@ -496,7 +511,9 @@ final class KakaoMap {
     private void applyRouteIfNeeded() {
         if (setRoutesMethod == null || convertRoutesMethod == null) return;
         Object route = pendingSdkRoute;
-        if (route == appliedSdkRoute) return;
+        long revision = pendingRouteRevision;
+        if (route == appliedSdkRoute && revision == appliedRouteRevision) return;
+        boolean identityChanged = route != appliedSdkRoute;
         try {
             List<?> mapRoutes;
             if (route == null) {
@@ -512,7 +529,12 @@ final class KakaoMap {
             }
             setRoutesMethod.invoke(mapTarget(), mapRoutes);
             appliedSdkRoute = route;
-            KakaoHudLog.line("map route applied count=" + mapRoutes.size());
+            appliedRouteRevision = revision;
+            if (identityChanged) {
+                KakaoHudLog.line("map route applied count=" + mapRoutes.size());
+            } else {
+                KakaoHudLog.status("map route refreshed count=" + mapRoutes.size());
+            }
         } catch (Throwable t) {
             KakaoHudLog.ex("map route", t);
         }
@@ -606,6 +628,7 @@ final class KakaoMap {
         applyRouteIfNeeded();
         applyThemeIfNeeded();
         moveCameraMethod.invoke(mapSurface, buildCameraUpdate(), false);
+        updateNativeUserMarker();
         if (surfaceFrames == 0 && now - surfaceReadyAt > SURFACE_WARMUP_MS + SURFACE_FRAME_TIMEOUT_MS) {
             failSurface("no frames", null);
         }
@@ -639,6 +662,7 @@ final class KakaoMap {
         setThemeMethod = null;
         appliedTheme = null;
         appliedSdkRoute = null;
+        appliedRouteRevision = -1;
 
         final Object target = mapSurface;
         Object complete = java.lang.reflect.Proxy.newProxyInstance(cl, new Class<?>[]{function1},
@@ -671,16 +695,7 @@ final class KakaoMap {
         } catch (Throwable ignored) {
             // resume 은 렌더 루프를 깨우는 보조 호출이다.
         }
-        try {
-            // 안드로이드 오토(NPMapSurfaceV2)처럼 엔진의 내 위치 마커를 숨긴다. 위치를 넣어
-            // 주지 않으므로 보이면 시작 좌표에 남는다. 차량은 drawVehicleMarker 가 그린다.
-            Object userLocation = mapSurface.getClass().getMethod("getUserLocation").invoke(mapSurface);
-            if (userLocation != null) {
-                userLocation.getClass().getMethod("setVisible", boolean.class).invoke(userLocation, false);
-            }
-        } catch (Throwable t) {
-            KakaoHudLog.line("map render: user location marker not hidden: " + t);
-        }
+        prepareNativeUserMarker();
         surfaceReady = true;
         surfaceReadyAt = android.os.SystemClock.elapsedRealtime();
         imageHandler.postDelayed(this::surfaceRepeatLoop, SURFACE_FRAME_MS);
@@ -706,11 +721,10 @@ final class KakaoMap {
             padded.copyPixelsFromBuffer(plane.getBuffer());
             Bitmap frame = padded.getWidth() == w ? padded : Bitmap.createBitmap(padded, 0, 0, w, h);
             if (frame == padded) {
-                // 차량 표시는 캡처러 때와 같이 anchor 위치에 화살표로 그린다.
-                drawVehicleMarker(frame);
+                if (!nativeMarkerActive) drawVehicleMarker(frame);
             } else {
                 frame = frame.copy(Bitmap.Config.ARGB_8888, true);
-                drawVehicleMarker(frame);
+                if (!nativeMarkerActive) drawVehicleMarker(frame);
             }
             ByteArrayOutputStream out = new ByteArrayOutputStream(80000);
             frame.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out);
@@ -785,6 +799,105 @@ final class KakaoMap {
         setThemeMethod = null;
         appliedTheme = null;
         appliedSdkRoute = null;
+        appliedRouteRevision = -1;
+        nativeUserLocation = null;
+        nativeLocationPointMethod = null;
+        nativeLocationBearingMethod = null;
+        nativeLocationCombinedMethod = null;
+        nativeLocationVisibleMethod = null;
+        nativeMarkerActive = false;
+    }
+
+    /**
+     * KNMMapSurface의 순정 내 위치 마커를 쓸 수 있는 SDK에서는 원본 표시를 쓴다.
+     * 카카오 SDK 버전별로 난독화 메서드가 달라지므로, 위치와 방위 setter를 둘 다
+     * 안전하게 찾은 경우에만 켠다. 하나라도 부족하면 축소한 자체 마커로 폴백한다.
+     */
+    private void prepareNativeUserMarker() {
+        nativeMarkerActive = false;
+        try {
+            Object user = mapSurface.getClass().getMethod("getUserLocation").invoke(mapSurface);
+            if (user == null) return;
+            Class<?> pointClass = cl.loadClass("com.kakaomobility.knmsdk.utils.KNMPoint");
+            Method visible = user.getClass().getMethod("setVisible", boolean.class);
+            Method point = null, bearing = null, combined = null;
+            for (Method method : user.getClass().getMethods()) {
+                String name = method.getName().toLowerCase(java.util.Locale.US);
+                Class<?>[] args = method.getParameterTypes();
+                boolean locationName = name.contains("location") || name.contains("position")
+                        || name.contains("coordinate") || name.contains("point");
+                boolean bearingName = name.contains("bearing") || name.contains("heading")
+                        || name.contains("direction") || name.contains("angle");
+                if (locationName && args.length == 1 && args[0].isAssignableFrom(pointClass)) {
+                    point = method;
+                } else if (bearingName && args.length == 1 && isAngleType(args[0])) {
+                    bearing = method;
+                } else if (locationName && args.length == 2
+                        && args[0].isAssignableFrom(pointClass)
+                        && isAngleType(args[1])) {
+                    combined = method;
+                }
+            }
+            nativeUserLocation = user;
+            nativeLocationVisibleMethod = visible;
+            nativeLocationPointMethod = point;
+            nativeLocationBearingMethod = bearing;
+            nativeLocationCombinedMethod = combined;
+            if (combined == null && (point == null || bearing == null)) {
+                visible.invoke(user, false);
+                KakaoHudLog.line("map render: native user marker setters unavailable; using fallback");
+                return;
+            }
+            updateNativeUserMarker();
+            if (nativeMarkerActive) KakaoHudLog.line("map render: native user marker active");
+        } catch (Throwable t) {
+            hideNativeUserMarker();
+            KakaoHudLog.line("map render: native user marker unavailable: " + t);
+        }
+    }
+
+    private void updateNativeUserMarker() {
+        Object user = nativeUserLocation;
+        if (user == null || nativeLocationVisibleMethod == null) return;
+        try {
+            Object point = katecPoint.invoke(pointCompanion, curX, curY);
+            float bearing = (float) curBearing;
+            if (nativeLocationCombinedMethod != null) {
+                Class<?> angleType = nativeLocationCombinedMethod.getParameterTypes()[1];
+                nativeLocationCombinedMethod.invoke(user, point, angleValue(angleType, bearing));
+            } else {
+                nativeLocationPointMethod.invoke(user, point);
+                Class<?> angleType = nativeLocationBearingMethod.getParameterTypes()[0];
+                nativeLocationBearingMethod.invoke(user, angleValue(angleType, bearing));
+            }
+            nativeLocationVisibleMethod.invoke(user, true);
+            nativeMarkerActive = true;
+        } catch (Throwable t) {
+            hideNativeUserMarker();
+            if (!nativeMarkerErrorLogged) {
+                nativeMarkerErrorLogged = true;
+                KakaoHudLog.ex("native user marker", t);
+            }
+        }
+    }
+
+    private void hideNativeUserMarker() {
+        nativeMarkerActive = false;
+        try {
+            if (nativeUserLocation != null && nativeLocationVisibleMethod != null) {
+                nativeLocationVisibleMethod.invoke(nativeUserLocation, false);
+            }
+        } catch (Throwable ignored) { }
+    }
+
+    private static boolean isAngleType(Class<?> type) {
+        return type == float.class || type == Float.class
+                || type == double.class || type == Double.class;
+    }
+
+    private static Object angleValue(Class<?> type, float value) {
+        if (type == double.class || type == Double.class) return Double.valueOf(value);
+        return Float.valueOf(value);
     }
 
     private Object kotlinUnit() {

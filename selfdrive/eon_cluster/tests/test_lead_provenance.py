@@ -16,3 +16,11 @@ def test_radar_lead_wire_keeps_sensor_provenance():
   assert remote_hud._lead(radar, "leadOne")["src"] == "R"
   assert remote_hud._lead(vision, "leadOne")["src"] == "V"
 
+
+def test_stream_health_requires_alive_and_valid():
+  sm = SimpleNamespace(alive={"carState": True}, valid={"carState": True})
+  assert remote_hud._stream_ok(sm, "carState")
+  sm.valid["carState"] = False
+  assert not remote_hud._stream_ok(sm, "carState")
+  assert not remote_hud._stream_ok(sm, "missing")
+

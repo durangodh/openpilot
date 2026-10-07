@@ -50,3 +50,21 @@ def lane_horizon_weights(t, query_t):
   weights = np.interp(query_t, [start, end], [1.0, 0.0])
   weights[np.asarray(query_t) < finite_t[0]] = 0.0
   return weights
+
+
+def curve_centering_weight(curve_speed):
+  """Signed curve speed is derived from measured curvature, in km/h.
+
+  Retain input lead near straight travel; fade it away as curvature grows.
+  The weight has no timer, so the same geometry works on short and long bends.
+  """
+  return float(np.interp(abs(curve_speed), [150.0, 200.0], [1.0, 0.0]))
+
+
+def curve_lane_center_blend(base_blend, curve_speed, lane_prob, lane_std, lane_width_max):
+  width_confidence = np.interp(lane_width_max, [4.5, 6.0], [1.0, 0.0])
+  std_confidence = np.interp(lane_std, [.15, .3], [1.0, 0.0])
+  confidence = np.interp(lane_prob * width_confidence * std_confidence,
+                         [0.5, 0.7], [0.0, 1.0])
+  weight = curve_centering_weight(curve_speed) * confidence
+  return float(base_blend + weight * (1.0 - base_blend))
