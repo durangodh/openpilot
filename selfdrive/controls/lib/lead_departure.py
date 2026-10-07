@@ -66,24 +66,19 @@ def lead_raw_departing(lead):
   """레이더로 잡은 앞차가 원래 속도로 출발 중인지(FastLeadRelease)."""
   if lead is None or not getattr(lead, 'status', False) or not getattr(lead, 'radar', False):
     return False
-  v_lead = getattr(lead, 'vLead', float('nan'))
-  v_rel = getattr(lead, 'vRel', float('nan'))
   v_lead_k = getattr(lead, 'vLeadK', float('nan'))
-  if not all(isfinite(x) for x in (v_lead, v_rel, v_lead_k)):
-    return False
-  return v_lead > RAW_RELEASE_MIN_SPEED and v_rel > RAW_RELEASE_MIN_VREL and \
-         v_lead_k > RAW_RELEASE_MIN_FILTERED
+  return isfinite(v_lead_k) and v_lead_k > RAW_RELEASE_MIN_FILTERED and departure_motion_valid(
+    getattr(lead, 'vLead', float('nan')), getattr(lead, 'vRel', float('nan')),
+    min_speed=RAW_RELEASE_MIN_SPEED, min_vrel=RAW_RELEASE_MIN_VREL)
 
 
 def lead_is_creeping(lead):
   """앞차가 막 움직이기 시작한 기미(EarlyHoldRelax). 출발 판정이 아니라 제동을 조금 줄이는 데만 쓴다."""
   if lead is None or not getattr(lead, 'status', False):
     return False
-  v_lead = getattr(lead, 'vLead', float('nan'))
-  v_rel = getattr(lead, 'vRel', float('nan'))
-  if not (isfinite(v_lead) and isfinite(v_rel)):
-    return False
-  return v_lead > CREEP_MIN_SPEED and v_rel > CREEP_MIN_VREL
+  return departure_motion_valid(
+    getattr(lead, 'vLead', float('nan')), getattr(lead, 'vRel', float('nan')),
+    min_speed=CREEP_MIN_SPEED, min_vrel=CREEP_MIN_VREL)
 
 
 def lead_departure_jerk(lead, configured_start, desired_gap):

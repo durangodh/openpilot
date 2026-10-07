@@ -387,11 +387,9 @@ class LongControl:
     releasing = self.lead_launch and not self.launch_motion_started
     start = max(self.jerk_start_limit, LEAD_LAUNCH_JERK) if releasing else self.jerk_start_limit
     limit = interp(self.launch_time, LAUNCH_TIME_BP, [start, start, LAUNCH_JERK_MAX])
-    if self.lead_launch and self.launch_motion_started:
-      result = limit
-    else:
-      result = departure_jerk_upper(limit, self.jerk_start_limit,
-                                    2.0, assisted)
+    # 앞차 출발로 이미 움직이기 시작했으면 출발 보조 상향은 쓰지 않는다.
+    result = departure_jerk_upper(limit, self.jerk_start_limit, 2.0,
+                                  assisted and not (self.lead_launch and self.launch_motion_started))
     if self.lead_launch and self.lead_launch_jerk is not None:
       result = min(result, self.lead_launch_jerk)
     return result
@@ -403,12 +401,7 @@ class LongControl:
     """
     if self.long_control_state == LongCtrlState.starting or \
        (self.long_control_state == LongCtrlState.pid and 0.0 < self.launch_time < LAUNCH_TIME_BP[-1]):
-      releasing = self.lead_launch and not self.launch_motion_started
-      start = max(self.jerk_start_limit, LEAD_LAUNCH_JERK) if releasing else self.jerk_start_limit
-      limit = float(interp(self.launch_time, LAUNCH_TIME_BP, [start, start, LAUNCH_JERK_MAX]))
-      if self.lead_launch and self.lead_launch_jerk is not None:
-        limit = min(limit, self.lead_launch_jerk)
-      return limit
+      return float(self._launch_jerk(False))
     return None
 
   def reset(self, v_pid=0.0):
