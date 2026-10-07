@@ -337,18 +337,17 @@ class CarController:
     scc_stop_request = should_request_scc_standstill(
       stopping, soft_hold_scc, CS.out.standstill, CS.out.vEgo, pre_release)
 
-    # Smoothing is LongControl's, except the launch: since 2026-10-06 the
-    # starting request steps to startAccel and SCC14 carries the launch jerk
-    # (START JERK LIMIT, lead launch >= 2.5, 5.0 after 2.5 s) like apilot-c2.
-    # Otherwise SCC14 gets generous limits; stopping keeps the hold limits.
+    # apilot-c2: MPC/PID chooses acceleration once; SCC14 is the sole
+    # command-side jerk owner. Follow planned jerk in normal driving and keep
+    # the dedicated stop/launch bounds only at those state transitions.
     jerk_limit = 5.0
+    planned_jerk = float(actuators.jerk)
     if jerk_stopping:
       jerk_upper = 0.5
       jerk_lower = jerk_limit
     else:
-      jerk_upper = jerk_lower = jerk_limit
-      # apilot-c2 방식: 출발 순간 명령은 한 번에 올리고(LongControl starting), 실제
-      # 가속이 오르는 속도는 출발 저크로 차량 ECU 가 제한한다.
+      jerk_upper = min(max(0.5, planned_jerk * 2.0), jerk_limit)
+      jerk_lower = min(max(1.0, -planned_jerk * 2.0), jerk_limit)
       launch_jerk = controls.LoC.scc_launch_jerk() if hasattr(controls.LoC, 'scc_launch_jerk') else None
       if launch_jerk is not None:
         jerk_upper = clip(launch_jerk, 0.5, jerk_limit)
@@ -368,7 +367,6 @@ class CarController:
         set_speed *= CV.MS_TO_MPH if CS.is_set_speed_in_mph else CV.MS_TO_KPH
 
         requested_accel = actuators.accel if (CC.longActive or stopping or soft_hold_scc) else 0.0
-        # LongControl already applies every positive cap with its jerk limit.
         apply_accel = clip(requested_accel,
                            CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX)
 
@@ -419,9 +417,8 @@ class CarController:
         if CS.has_scc14:
           acc_standstill = scc_stop_request
 
-          # Comfort bands stay 0 like stock openpilot: LongControl alone
-          # shapes the request, so the ECU should not add its own tolerance.
-          cb_upper = cb_lower = 0.0
+          cb_upper = clip(0.9 + apply_accel * 0.2, 0.0, 1.2)
+          cb_lower = clip(0.8 + apply_accel * 0.2, 0.0, 1.2)
 
           if lead is not None:
             d = lead.dRel

@@ -10,7 +10,7 @@ from common.numpy_fast import clip, interp
 
 
 def scc_limits(assisted=True, state='pid', braking=False, gas=False, soft_hold=False, active=True,
-               pre_release=False):
+               pre_release=False, planned_jerk=0.2, launch_jerk=None):
   source = Path(__file__).resolve().parents[2] / 'car' / 'hyundai' / 'carcontroller.py'
   tree = ast.parse(source.read_text(encoding='utf-8'))
   cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'CarController')
@@ -28,29 +28,38 @@ def scc_limits(assisted=True, state='pid', braking=False, gas=False, soft_hold=F
                   scc_smoother=NS(update=lambda *args: None), packer=None)
   cc = NS(enabled=True, longActive=active)
   cs = NS(out=NS(vEgo=0.0, standstill=True, brakePressed=braking, gasPressed=gas))
-  actuators = NS(jerk=0.2, accel=0.1, longControlState=state)
-  controls = NS(LoC=NS(long_control_state=state, departure_assist=NS(active=assisted), pid_jerk_accel_mult=1.0,
-                       stopreq_release_active=pre_release))
+  actuators = NS(jerk=planned_jerk, accel=0.1, longControlState=state)
+  loc = NS(long_control_state=state, departure_assist=NS(active=assisted),
+           stopreq_release_active=pre_release)
+  if launch_jerk is not None:
+    loc.scc_launch_jerk = lambda: launch_jerk
+  controls = NS(LoC=loc)
   return env['update_scc'](controller, cc, cs, actuators, controls, NS(softHold=soft_hold), [])
 
 
-@pytest.mark.parametrize('kwargs', [dict(assisted=False), dict(assisted=True), dict(state='starting'),
-                                    dict(braking=True), dict(gas=True), dict(active=False)])
-def test_driving_and_launch_use_fixed_generous_scc_limits(kwargs):
-  # Launch smoothing (START JERK LIMIT) now lives in LongControl only.
-  assert scc_limits(**kwargs) == (5.0, 5.0, False)
+@pytest.mark.parametrize('planned,expected', [
+  (0.2, (0.5, 1.0, False)),
+  (1.0, (2.0, 1.0, False)),
+  (-1.5, (0.5, 3.0, False)),
+])
+def test_normal_driving_uses_planned_jerk(planned, expected):
+  assert scc_limits(planned_jerk=planned) == expected
+
+
+def test_launch_jerk_temporarily_owns_the_upper_limit():
+  assert scc_limits(state='starting', launch_jerk=1.2) == (1.2, 1.0, False)
 
 
 def test_stop_and_soft_hold_keep_original_scc_limits():
   assert scc_limits(state='stopping') == (0.5, 5.0, True)
   assert scc_limits(soft_hold=True, braking=True) == (0.5, 5.0, True)
-  assert scc_limits(state='off') == (5.0, 5.0, False)
+  assert scc_limits(state='off') == (0.5, 1.0, False)
 
 
 def test_early_stopreq_release_clears_stop_request_but_keeps_stop_jerk():
   assert scc_limits(state='stopping', pre_release=True) == (0.5, 5.0, False)
   # A stale flag outside stopping never matters.
-  assert scc_limits(state='pid', pre_release=True) == (5.0, 5.0, False)
+  assert scc_limits(state='pid', pre_release=True) == (0.5, 1.0, False)
 
 
 def test_original_scc_stop_request_regressions():

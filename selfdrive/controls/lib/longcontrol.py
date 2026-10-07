@@ -50,15 +50,6 @@ STOPREQ_RELEASE_KEEP_FRAMES = round(0.8 / DT_CTRL)
 # 나가는 것을 막는다.
 HOLD_RESTORE_JERK = 3.0
 
-# 정상주행(PID) 중 속도별 저크상한, m/s^3 (sunnypilot 참고). 정지/출발 전환의
-# stopping_decel_rate 와는 별도 값 — 그쪽은 부드러움이 목적이라 낮고, 여긴
-# 반응성도 같이 필요해서 훨씬 크다. 감속(LOWER)을 가속(UPPER)보다 크게 둬서
-# 급제동 상황도 약 1초 안에 최대제동에 도달하게 한다(즉시반응보다는 느리지만
-# 완전 무제한이던 예전보다 부드럽다 — 2026-09-20 사용자 확인 후 반영).
-PID_JERK_SPEED_BP = [0.0, 5.0, 20.0]
-PID_JERK_UPPER_V = [2.0, 3.0, 2.0]
-PID_JERK_LOWER_V = [3.5, 3.5, 3.0]
-
 # ---- 출발(정지 → 주행) ----
 # 출발 가속은 전부 여기서만 다룬다(SCC14는 넉넉한 고정값만 보낸다).
 # starting 상태(START ACCEL > 0)를 거치든 바로 PID로 가든 같은 규칙이다.
@@ -74,7 +65,6 @@ PID_JERK_LOWER_V = [3.5, 3.5, 3.0]
 #     툭 빠지는 것 방지). 0 이하 요청은 제외.
 LAUNCH_TIME_BP = [0.0, 1.5, 2.5]   # s after leaving stop/off
 LAUNCH_JERK_MAX = 5.0              # m/s^3, same as the SCC14 ceiling
-START_HANDOFF_JERK = 1.6
 LEAD_JERK_RISE_RATE = 2.0          # m/s^4, make stronger launches progressively
 LEAD_JERK_FALL_RATE = 4.0          # m/s^4, lift faster when the lead eases
 # This remains a release ceiling for compatibility; confirmed lead launches
@@ -94,25 +84,7 @@ FINAL_STOP_TAPER_ACCEL = -0.6
 # braking response to rebuild the stop request.  This applies only to an
 # aborted starting -> stopping transition; ordinary approaches keep the
 # configured stopping_decel_rate.
-LAUNCH_ABORT_DECEL_JERK = PID_JERK_LOWER_V[0]
-
-# 앞차가 없을 때 양의 가속 허용치가 오르는 속도(m/s^2 per s). 앞차가 사라진
-# 순간 현재 출력에서 시작해 이 속도로만 올라가므로 목표속도까지 몰아서
-# 가속하지 않는다. 내려가는 상한은 즉시 따른다.
-NO_LEAD_ALLOWANCE_RISE = 0.5
-# Do not jump back to full throttle when spare gap reappears or lead selection
-# changes. Only a rising positive allowance is eased; reductions stay immediate.
-FOLLOW_ALLOWANCE_RISE = 1.0
-# 앞차 없을 때 '가속을 덜 하는' 쪽(양의 출력이 줄어드는 것)만 이 저크로 완만하게.
-# 2026-10-02 영상: 상한에 막혀 평평하던 출력이 목표가 내려가자 3.5 m/s^3 로
-# 툭 떨어졌다. 0 아래(실제 제동)는 기존 PID 감속 저크 그대로라 제동은 늦추지 않는다.
-NO_LEAD_RELEASE_JERK = 1.2
-
-# 저속 앞차출발 추종 전용 저크 부스트 구간. long_mpc.py의 LEAD_DEPARTURE_*
-# (18~30km/h에서 서서히 해제)와 같은 구간을 써서, "계획단계는 빨리 붙으라는데
-# 실행단계가 못 따라가는" 문제를 이 저속 구간에서만 별도로 풀어준다 —
-# CRUISE JERK ACCEL(정상주행 전반)과는 무관하게 독립 조절.
-LOW_SPEED_JERK_BOOST_SPEED_BP = [0.0, 5.0, 30.0 / 3.6]  # 0, 18, 30 km/h
+LAUNCH_ABORT_DECEL_JERK = 3.5
 
 # apilot-c2 상태전이.
 # planned_stop 조건인데 accel 이 이미 stopAccel 보다 낮은 상태로 stopping 에 들어가면 너무 급하게 서므로
@@ -189,9 +161,6 @@ class LongControl:
     # slowly lose hydraulic hold during a long wait.
     self.standstill_hold_accel = -1.1
     self.standstill_hold_active = False
-    # 정상주행(PID) 저크상한 배율. 기본 1.0(=코드 기본 속도별 곡선 그대로).
-    self.pid_jerk_accel_mult = 1.0
-    self.pid_jerk_decel_mult = 1.0
     # START JERK LIMIT (JerkStartLimit, x0.1 m/s^3, 기본 1.0)
     self.jerk_start_limit = 1.0
     self.launch_time = 0.0
@@ -200,10 +169,6 @@ class LongControl:
     self.lead_launch = False
     self.lead_launch_jerk = None
     self.launch_abort_active = False
-    self.pos_allowance = None
-    self.no_lead_prev = False
-    # 저속(0~30km/h) 앞차출발 추종 전용 저크 부스트 배율. 기본 1.0(=부스트 없음).
-    self.low_speed_jerk_boost = 1.0
 
     self._update_pid_gains()
     self._update_actuator_delays()
@@ -374,14 +339,6 @@ class LongControl:
         self.lead_missing_frames += 1
     return self.lead_release_samples >= LEAD_RELEASE_CONFIRM_SAMPLES
 
-  @staticmethod
-  def _lead_is_departing(radar_state, radar_state_valid):
-    """True only while a valid lead is measurably pulling away from ego."""
-    if (radar_state is None or not radar_state_valid or
-        len(radar_state.radarErrors) != 0 or not radar_state.leadOne.status):
-      return False
-    return lead_is_departing(radar_state.leadOne)
-
   def _update_stopping_decel_rate(self):
     try:
       rate_raw = self.params.get("StoppingDecelRate", encoding="utf8")
@@ -399,34 +356,14 @@ class LongControl:
 
     self.standstill_hold_accel = -2.0 * float(clip(hold_apply * 0.01, 0.1, 1.0))
 
-  def _update_pid_jerk(self):
-    try:
-      accel_raw = self.params.get("PidJerkAccel", encoding="utf8")
-      accel_mult = int(accel_raw) * 0.01 if accel_raw not in (None, "") else 1.0
-    except (TypeError, ValueError):
-      accel_mult = 1.0
-    try:
-      decel_raw = self.params.get("PidJerkDecel", encoding="utf8")
-      decel_mult = int(decel_raw) * 0.01 if decel_raw not in (None, "") else 1.0
-    except (TypeError, ValueError):
-      decel_mult = 1.0
-
-    self.pid_jerk_accel_mult = float(clip(accel_mult, 0.3, 3.0))
-    self.pid_jerk_decel_mult = float(clip(decel_mult, 0.3, 3.0))
-
-    try:
-      boost_raw = self.params.get("LowSpeedJerkBoost", encoding="utf8")
-      boost_mult = int(boost_raw) * 0.01 if boost_raw not in (None, "") else 1.0
-    except (TypeError, ValueError):
-      boost_mult = 1.0
-    self.low_speed_jerk_boost = float(clip(boost_mult, 1.0, 5.0))
-
+  def _update_launch_jerk(self):
     try:
       start_raw = self.params.get("JerkStartLimit", encoding="utf8")
       start_jerk = int(start_raw) * 0.1 if start_raw not in (None, "") else 0.0
     except (TypeError, ValueError):
       start_jerk = 0.0
-    self.jerk_start_limit = float(clip(start_jerk if start_jerk > 0.0 else 1.0, 0.5, LAUNCH_JERK_MAX))
+    self.jerk_start_limit = float(clip(
+      start_jerk if start_jerk > 0.0 else 1.0, 0.5, LAUNCH_JERK_MAX))
 
   def _read_params(self):
     self.read_param_count += 1
@@ -443,7 +380,7 @@ class LongControl:
       self._update_stopping_decel_rate()
       self._update_standstill_hold()
     elif self.read_param_count == 60:
-      self._update_pid_jerk()
+      self._update_launch_jerk()
 
   def _launch_jerk(self, assisted):
     """출발 1·2단계: 정지 후 가속 요청이 오를 수 있는 최대 저크."""
@@ -454,7 +391,7 @@ class LongControl:
       result = limit
     else:
       result = departure_jerk_upper(limit, self.jerk_start_limit,
-                                    PID_JERK_UPPER_V[0] * self.pid_jerk_accel_mult, assisted)
+                                    2.0, assisted)
     if self.lead_launch and self.lead_launch_jerk is not None:
       result = min(result, self.lead_launch_jerk)
     return result
@@ -596,27 +533,6 @@ class LongControl:
             self.lead_launch_jerk - LEAD_JERK_FALL_RATE * DT_CTRL,
             self.lead_launch_jerk + LEAD_JERK_RISE_RATE * DT_CTRL))
 
-    # Positive allowance: a lead dropout starts at current output. At road
-    # speed, recovering spare gap also restores throttle progressively.
-    no_lead = (radar_state is not None and radar_state_valid and
-               not radar_state.leadOne.status and not radar_state.leadTwo.status)
-    cap = float(accel_limits[1])
-    if self.pos_allowance is None:
-      self.pos_allowance = cap
-    elif no_lead:
-      if not self.no_lead_prev:
-        self.pos_allowance = max(0.0, self.last_output_accel)
-      self.pos_allowance = min(cap, self.pos_allowance + NO_LEAD_ALLOWANCE_RISE * DT_CTRL)
-    elif (radar_state is not None and radar_state_valid and
-          not radar_state.radarErrors and CS.vEgo >= 5.0 and
-          self.long_control_state == LongCtrlState.pid):
-      self.pos_allowance = min(cap, self.pos_allowance + FOLLOW_ALLOWANCE_RISE * DT_CTRL)
-    else:
-      self.pos_allowance = cap
-    self.no_lead_prev = no_lead
-    accel_limits = (accel_limits[0], self.pos_allowance)
-    self.pid.pos_limit = accel_limits[1]
-
     if self.long_control_state != LongCtrlState.stopping:
       self.standstill_hold_active = False
       self.standstill_frames = 0
@@ -627,11 +543,6 @@ class LongControl:
     if self.long_control_state == LongCtrlState.off:
       self.reset(CS.vEgo)
       output_accel = 0.
-      # A lead-dropout/following cap belongs only to the active control
-      # session. Keeping it through a disengagement can unexpectedly suppress
-      # acceleration immediately after re-engagement.
-      self.pos_allowance = None
-      self.no_lead_prev = False
 
     elif self.long_control_state == LongCtrlState.stopping:
       # A blocked state transition must not advertise a launch to the CAN layer.
@@ -744,51 +655,11 @@ class LongControl:
                                    freeze_integrator=freeze_integrator)
 
 
-      # 출발 보조(2단계)
-      if assisted_departure and not prevent_overshoot:
-        pid_output = max(pid_output, self.departure_assist.accel_floor)
+      # apilot-c2: execute the PID result directly. The MPC already prices
+      # acceleration and jerk; SCC14 remains the single command-side jerk owner.
+      self.launch_limited = False
+      output_accel = pid_output
 
-      # sunnypilot 참고, 정상주행 전용 저크상한(정지/출발용 stopping_decel_rate
-      # 와는 별도). 감속(jerk_lower)을 가속(jerk_upper)보다 크게 열어둬서
-      # 급제동에도 어느 정도는 빠르게 반응하되, 완전 무제한(한 사이클 순간
-      # 점프)은 아니게 한다.
-      jerk_upper = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_UPPER_V) * self.pid_jerk_accel_mult
-      # 저속 앞차출발 추종 전용 부스트(long_mpc.py의 LEAD_DEPARTURE_* 와 같은
-      # 저속 구간). CRUISE JERK ACCEL과는 별개로, 이 구간에서만 추가로
-      # 곱해진다 — 정상주행(중~고속) 가속 체감엔 영향 없음.
-      # Do not change unrelated low-speed acceleration. The extra multiplier
-      # is active only while a valid lead is actually pulling away.
-      departure_boost = (self.low_speed_jerk_boost
-                         if self._lead_is_departing(radar_state, radar_state_valid)
-                         else 1.0)
-      jerk_upper *= interp(CS.vEgo, LOW_SPEED_JERK_BOOST_SPEED_BP,
-                           [departure_boost, departure_boost, 1.0])
-      jerk_lower = interp(CS.vEgo, PID_JERK_SPEED_BP, PID_JERK_LOWER_V) * self.pid_jerk_decel_mult
-      # 출발 저크(1단계): 정지 직후 몇 초 동안만 상승 저크를 더 낮게.
-      launch_jerk = self._launch_jerk(assisted_departure and not prevent_overshoot)
-      if self.lead_launch and self.launch_time < LAUNCH_TIME_BP[-1]:
-        jerk_upper = max(jerk_upper, launch_jerk)
-      self.launch_limited = launch_jerk < jerk_upper and pid_output > output_accel + launch_jerk * DT_CTRL
-      jerk_upper = min(jerk_upper, launch_jerk)
-      # 양의 상한(CruiseMax, 앞차 없을 때 상한, 접근 시 상한)이 내려가도
-      # 출력을 한 번에 자르지 않고 jerk_lower로 따라 내려가게 한다. 그래서
-      # cruise_helper에 따로 있던 '가속 놓기' 완화가 필요 없다.
-      pid_output = min(pid_output, accel_limits[1])
-      # 출발 인계(3단계): 양의 요청이 줄어들 때만 완만하게.
-      if assisted_departure and not prevent_overshoot and 0.0 < pid_output < output_accel:
-        jerk_lower = min(jerk_lower, START_HANDOFF_JERK)
-      elif no_lead and output_accel > 0.0 and pid_output < output_accel:
-        # 가속 줄이기만 완만하게: 0 까지만 이 저크로, 그 아래는 다음 프레임부터 원래 저크.
-        eased_step = min(NO_LEAD_RELEASE_JERK * DT_CTRL, output_accel)
-        jerk_lower = min(jerk_lower, eased_step / DT_CTRL)
-      output_accel = float(clip(pid_output,
-                                output_accel - jerk_lower * DT_CTRL,
-                                output_accel + jerk_upper * DT_CTRL))
-
-    pos_limit = accel_limits[1]
-    if self.long_control_state == LongCtrlState.pid:
-      # PID는 위에서 이미 상한을 향해 저크제한으로 내려가는 중이다.
-      pos_limit = max(pos_limit, output_accel)
-    self.last_output_accel = clip(output_accel, accel_limits[0], pos_limit)
+    self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
 
     return self.last_output_accel, -0.5 if planned_stop else j_target

@@ -10,13 +10,10 @@ from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.controls.lib.vision_curve_speed import VisionCurveSpeed, UNLIMITED_SPEED
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
 from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software_gap
-from selfdrive.controls.lib.lead_following import (get_follow_approach_limit, get_closing_lead_accel_limit,
-                                                 get_traffic_accel_limit)
 from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_auto_speed_up_target,
                                                         get_cruise_max_accel,
-                                                        get_no_lead_cruise_accel_cap,
                                                         select_auto_driving_mode)
 from selfdrive.road_speed_limiter import get_road_speed_limiter
 
@@ -319,37 +316,8 @@ class CruiseHelper:
                                 self.my_eco_mode_factor, self.my_safe_mode_factor)
 
   def get_longitudinal_accel_limit(self, CS, sm, set_speed_kph):
-    """Return the live positive acceleration limit for LongControl."""
-    cruise_max_accel = self.get_cruise_max_accel(CS.vEgo)
-    speed_error_kph = max(0.0, float(set_speed_kph) - CS.vEgo * CV.MS_TO_KPH)
-    no_lead_cap = get_no_lead_cruise_accel_cap(
-      cruise_max_accel, speed_error_kph, self.no_lead_cruise_accel_factor)
-    radar_state = sm['radarState']
-    radar_valid = (sm.valid['radarState'] and sm.alive['radarState'] and
-                   len(getattr(radar_state, 'radarErrors', [])) == 0)
-    has_lead = radar_valid and (radar_state.leadOne.status or radar_state.leadTwo.status)
-    target = cruise_max_accel if has_lead else no_lead_cap
-    plan = sm['longitudinalPlan']
-    comfort_valid = radar_valid and sm.valid['longitudinalPlan'] and sm.alive['longitudinalPlan']
-    if comfort_valid and has_lead and plan.mpcMode == 0:
-      target = get_traffic_accel_limit(
-        target, CS.vEgo, radar_state.leadOne, float(plan.desiredDistance))
-      closing_target = get_closing_lead_accel_limit(
-        target, CS.vEgo, (radar_state.leadOne, radar_state.leadTwo),
-        float(plan.desiredDistance), CS.aEgo)
-      if not (plan.onStop or plan.fcw):
-        approach_target, _ = get_follow_approach_limit(
-          target, CS.vEgo, (radar_state.leadOne, radar_state.leadTwo),
-          float(plan.desiredDistance))
-        # Both policies look ahead to the same shrinking gap. Applying them
-        # serially compounds their ratios (for example 0.25 -> 0.0625), so use
-        # the safer independent bound without suppressing throttle twice.
-        target = min(closing_target, approach_target)
-      else:
-        target = closing_target
-    # Only the size of the allowance is decided here. LongControl's PID jerk
-    # limit ramps the actual request when this allowance rises or falls.
-    return max(0.0, float(target))
+    """Use the apilot-c2 speed/mode acceleration table without extra lead caps."""
+    return max(0.0, float(self.get_cruise_max_accel(CS.vEgo)))
 
   def _resume_longitudinal(self, controls, CS, active_mode=1):
     if self.long_active_user <= 0:
