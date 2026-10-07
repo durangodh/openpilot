@@ -7,7 +7,9 @@ import pytest
 
 from common.conversions import Conversions as CV
 from selfdrive.controls.lib import longitudinal_limits as limits
-from selfdrive.controls.lib.lead_following import get_follow_approach_limit
+from selfdrive.controls.lib.lead_following import (get_closing_lead_accel_limit,
+                                                   get_follow_approach_limit,
+                                                   get_traffic_accel_limit)
 
 
 class Messages(dict):
@@ -19,10 +21,13 @@ def setup_policy(v_ego=20.0):
   source = Path(__file__).resolve().parents[1] / 'lib' / 'cruise_helper.py'
   tree = ast.parse(source.read_text(encoding='utf-8'))
   cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'CruiseHelper')
-  methods = {'get_cruise_max_accel', 'get_longitudinal_accel_limit'}
+  methods = {'get_lead', 'get_cruise_max_accel', 'get_longitudinal_accel_limit'}
   cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name in methods]
   env = {name: getattr(limits, name) for name in dir(limits) if not name.startswith('__')}
-  env.update(CV=CV, DT_CTRL=0.01, get_follow_approach_limit=get_follow_approach_limit)
+  env.update(CV=CV, DT_CTRL=0.01,
+             get_closing_lead_accel_limit=get_closing_lead_accel_limit,
+             get_follow_approach_limit=get_follow_approach_limit,
+             get_traffic_accel_limit=get_traffic_accel_limit)
   exec(compile(ast.Module(body=[cls], type_ignores=[]), str(source), 'exec'), env)
   policy = env['CruiseHelper']()
   policy.cruise_max_vals = [1.0] * 7
@@ -31,9 +36,9 @@ def setup_policy(v_ego=20.0):
   policy.my_safe_mode_factor = 1.0
   policy.no_lead_cruise_accel_factor = 0.65
   policy.current_set_speed_kph = v_ego * 3.6 + 40.0
-  cs = NS(vEgo=v_ego)
+  cs = NS(vEgo=v_ego, aEgo=0.0)
   lead = NS(status=False, dRel=80.0, vLead=v_ego, aLeadK=0.0)
-  sm = Messages({'radarState': NS(leadOne=lead, leadTwo=NS(status=False)),
+  sm = Messages({'radarState': NS(leadOne=lead, leadTwo=NS(status=False, dRel=0.0, vLead=0.0, aLeadK=0.0)),
         'longitudinalPlan': NS(longitudinalPlanSource='cruise', desiredDistance=35.0,
                                mpcMode=0, onStop=False, fcw=False)})
   return policy, cs, sm
@@ -109,6 +114,32 @@ def test_stale_plans_cannot_apply_approach_limit():
   assert limit(policy, cs, sm) == 1.0
 
 
+@pytest.mark.parametrize('failure', ['invalid', 'dead', 'radar_error'])
+def test_unusable_radar_cannot_open_lead_allowance(failure):
+  policy, cs, sm = setup_policy()
+  sm['radarState'].leadOne.status = True
+  if failure == 'invalid':
+    sm.valid = dict(sm.valid, radarState=False)
+  elif failure == 'dead':
+    sm.alive = dict(sm.alive, radarState=False)
+  else:
+    sm['radarState'].radarErrors = ['canError']
+  assert limit(policy, cs, sm) == pytest.approx(0.65)
+
+
+@pytest.mark.parametrize('failure', ['invalid', 'dead', 'radar_error'])
+def test_unusable_radar_cannot_feed_stale_lead_to_resume_logic(failure):
+  policy, _, sm = setup_policy()
+  sm['radarState'].leadOne.status = True
+  if failure == 'invalid':
+    sm.valid = dict(sm.valid, radarState=False)
+  elif failure == 'dead':
+    sm.alive = dict(sm.alive, radarState=False)
+  else:
+    sm['radarState'].radarErrors = ['canError']
+  assert policy.get_lead(sm) is None
+
+
 @pytest.mark.parametrize('guard', ['stop', 'fcw', 'blended', 'stopped_lead', 'braking_lead'])
 def test_approach_policy_is_not_applied_to_stop_or_hazard_scenes(guard):
   policy, cs, sm = setup_policy()
@@ -125,4 +156,11 @@ def test_approach_policy_is_not_applied_to_stop_or_hazard_scenes(guard):
     sm['radarState'].leadOne.vLead = 0.0
   elif guard == 'braking_lead':
     sm['radarState'].leadOne.aLeadK = -1.0
-  assert limit(policy, cs, sm) == 1.0
+  expected = 1.0
+  if plan.mpcMode == 0:
+    expected = get_traffic_accel_limit(
+      expected, cs.vEgo, sm['radarState'].leadOne, plan.desiredDistance)
+    expected = get_closing_lead_accel_limit(
+      expected, cs.vEgo, (sm['radarState'].leadOne, sm['radarState'].leadTwo),
+      plan.desiredDistance, cs.aEgo)
+  assert limit(policy, cs, sm) == pytest.approx(expected)

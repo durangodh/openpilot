@@ -296,7 +296,14 @@ class CruiseHelper:
 
   @staticmethod
   def get_lead(sm):
-    lead = sm['radarState'].leadOne
+    try:
+      radar_state = sm['radarState']
+      radar_valid = bool(sm.valid['radarState'] and sm.alive['radarState'])
+    except (AttributeError, KeyError, TypeError):
+      return None
+    if not radar_valid or len(getattr(radar_state, 'radarErrors', [])) > 0:
+      return None
+    lead = radar_state.leadOne
     return lead if lead.status else None
 
   def update_safe_mode_factor(self):
@@ -317,20 +324,29 @@ class CruiseHelper:
     speed_error_kph = max(0.0, float(set_speed_kph) - CS.vEgo * CV.MS_TO_KPH)
     no_lead_cap = get_no_lead_cruise_accel_cap(
       cruise_max_accel, speed_error_kph, self.no_lead_cruise_accel_factor)
-    has_lead = sm['radarState'].leadOne.status or sm['radarState'].leadTwo.status
+    radar_state = sm['radarState']
+    radar_valid = (sm.valid['radarState'] and sm.alive['radarState'] and
+                   len(getattr(radar_state, 'radarErrors', [])) == 0)
+    has_lead = radar_valid and (radar_state.leadOne.status or radar_state.leadTwo.status)
     target = cruise_max_accel if has_lead else no_lead_cap
     plan = sm['longitudinalPlan']
-    comfort_valid = all(sm.valid[s] and sm.alive[s] for s in ('radarState', 'longitudinalPlan'))
+    comfort_valid = radar_valid and sm.valid['longitudinalPlan'] and sm.alive['longitudinalPlan']
     if comfort_valid and has_lead and plan.mpcMode == 0:
       target = get_traffic_accel_limit(
-        target, CS.vEgo, sm['radarState'].leadOne, float(plan.desiredDistance))
-      target = get_closing_lead_accel_limit(
-        target, CS.vEgo, (sm['radarState'].leadOne, sm['radarState'].leadTwo),
+        target, CS.vEgo, radar_state.leadOne, float(plan.desiredDistance))
+      closing_target = get_closing_lead_accel_limit(
+        target, CS.vEgo, (radar_state.leadOne, radar_state.leadTwo),
         float(plan.desiredDistance), CS.aEgo)
-    if comfort_valid and has_lead and plan.mpcMode == 0 and not (plan.onStop or plan.fcw):
-      target, _ = get_follow_approach_limit(
-        target, CS.vEgo, (sm['radarState'].leadOne, sm['radarState'].leadTwo),
-        float(plan.desiredDistance))
+      if not (plan.onStop or plan.fcw):
+        approach_target, _ = get_follow_approach_limit(
+          target, CS.vEgo, (radar_state.leadOne, radar_state.leadTwo),
+          float(plan.desiredDistance))
+        # Both policies look ahead to the same shrinking gap. Applying them
+        # serially compounds their ratios (for example 0.25 -> 0.0625), so use
+        # the safer independent bound without suppressing throttle twice.
+        target = min(closing_target, approach_target)
+      else:
+        target = closing_target
     # Only the size of the allowance is decided here. LongControl's PID jerk
     # limit ramps the actual request when this allowance rises or falls.
     return max(0.0, float(target))
@@ -421,11 +437,6 @@ class CruiseHelper:
       return
     v_ego_kph = CS.vEgoCluster * CV.MS_TO_KPH
 
-    # C2 soft-hold release path.
-    if v_ego_kph < 5.0 and self.x_state == XState.softHold:
-      self._resume_longitudinal(controls, CS, 3)
-      return
-
     if not self.auto_resume_from_brake_release or abs(CS.steeringAngleDeg) >= 20.0:
       return
     # 2026-10-06: AUTO RESUME FROM BRAKE CAR SPEED 는 앞차 유무와 관계없는 최저 속도다.
@@ -442,7 +453,7 @@ class CruiseHelper:
         return
       if 0.0 < self.d_rel < 20.0 and (CS.leftBlinker or CS.rightBlinker):
         return
-      if 0.0 < self.d_rel <= max(10.0, self.auto_resume_from_brake_release_dist):
+      if self.d_rel >= self.auto_resume_from_brake_release_dist > 0.0:
         self._resume_longitudinal(controls, CS, 3)
       elif self.d_rel <= 0.0 and self.traffic_state == 1 and not (CS.leftBlinker or CS.rightBlinker):
         self._resume_longitudinal(controls, CS, 3)
