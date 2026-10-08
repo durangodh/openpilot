@@ -144,7 +144,7 @@ class ConditionalE2EController:
       self.reason = E2E_REASON_ACC
       return 'acc'
     far_stop = self.stopping and self.stop_distance > E2E_FAR_STOP_DISTANCE
-    apilot_vision_lead = traffic_stop_mode == 2 and self.vision_lead_confirmed
+    apilot_vision_lead = traffic_stop_mode in (2, 3) and self.vision_lead_confirmed
     hold_blended = self.mode_release_hold_count > 0
     if self.prepare:
       self.reason = E2E_REASON_DEPARTURE
@@ -174,7 +174,7 @@ class ConditionalE2EController:
       self.reset()
       return 'acc'
 
-    traffic_stop_mode = max(0, min(2, traffic_stop_mode))
+    traffic_stop_mode = max(0, min(3, traffic_stop_mode))
     if traffic_stop_mode == 0:
       self.reset()
       return self.select_mode(experimental_mode, traffic_stop_mode)
@@ -234,6 +234,10 @@ class ConditionalE2EController:
                     abs(model_y) < max(5.0, E2E_CURVE_STOP_LAT_RATIO * model_x))
       raw_stop_sign = in_range and (straight_stop or curve_stop)
     else:
+      raw_stop_sign = False
+    # 3 VISION: ACC plus E2E only for a confirmed vision-only lead. No signal
+    # stop, so stopping/prepare (and their launch) never start.
+    if traffic_stop_mode == 3:
       raw_stop_sign = False
 
     # Keep the aPilot start alternatives, with the existing distance guard and

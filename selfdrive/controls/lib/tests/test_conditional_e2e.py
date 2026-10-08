@@ -148,6 +148,18 @@ def test_confirmed_vision_lead_selects_e2e():
   assert mode == 'acc'
 
 
+def test_vision_mode_uses_e2e_only_for_vision_lead():
+  controller = ConditionalE2EController(DT_MDL)
+  # A clear model stop (signal) never starts a traffic stop in mode 3.
+  for _ in range(40):
+    assert update(controller, traffic_stop_mode=3, model_x=30.0, model_v_end=1.0, v_ego=15.0) == 'acc'
+  assert not controller.stopping
+  for _ in range(9):
+    assert update(controller, traffic_stop_mode=3, lead_present=True, vision_lead_present=True) == 'acc'
+  assert update(controller, traffic_stop_mode=3, lead_present=True, vision_lead_present=True) == 'blended'
+  assert controller.reason == E2E_REASON_VISION_LEAD
+
+
 def test_confirmed_vision_lead_release_is_hysteretic():
   controller = ConditionalE2EController(DT_MDL)
   confirm_frames = round(E2E_VISION_LEAD_CONFIRM_TIME / DT_MDL)

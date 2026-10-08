@@ -99,7 +99,7 @@ class LongitudinalPlanner:
         self.traffic_stop_mode = int(traffic_mode_raw)
     except (TypeError, ValueError):
       self.traffic_stop_mode = 2
-    self.traffic_stop_mode = int(clip(self.traffic_stop_mode, 0, 2))
+    self.traffic_stop_mode = int(clip(self.traffic_stop_mode, 0, 3))
     self.traffic_stop_accel_factor = scaled('TrafficStopAccel', 80, 0.1, 1.2)
     traffic_stop_distance_adjust = self.params.get_int('TrafficStopDistanceAdjust')
     self.traffic_stop_distance_adjust = float(clip(traffic_stop_distance_adjust * 0.01, -10.0, 10.0))
