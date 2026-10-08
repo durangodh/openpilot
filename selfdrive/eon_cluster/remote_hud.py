@@ -244,7 +244,7 @@ class MapFrameServer(object):
     if now < self.next_poll:
       return
     self.stats.mark("poll")
-    self.stats.maybe_flush("client %s" % ("on" if self.client is not None else "off"))
+    self.stats.maybe_flush("client %s%s" % ("on" if self.client is not None else "off", _wifi_status()))
     # Advance from the previous deadline instead of from `now`. This avoids
     # quantizing a 3 Hz map stream down to 2.3-2.5 Hz when telemetry runs at
     # 7 or 10 Hz. If the process was stalled, skip the missed polls rather
@@ -313,6 +313,19 @@ def _field(obj, name, default=0):
     return getattr(obj, name)
   except Exception:
     return default
+
+
+def _wifi_status():
+  """EON wlan0 signal level and failed-retry counter from /proc/net/wireless (for hud_*.log)."""
+  try:
+    with open("/proc/net/wireless") as f:
+      for line in f:
+        if line.strip().startswith("wlan0:"):
+          cols = line.split()
+          return " | wifi %s dBm retryfail %s" % (cols[3].rstrip("."), cols[8])
+  except (IOError, OSError, IndexError):
+    pass
+  return ""
 
 
 def _stream_alive(sm, name, max_updates=10):
