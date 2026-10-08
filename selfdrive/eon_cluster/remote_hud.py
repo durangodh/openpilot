@@ -315,6 +315,14 @@ def _field(obj, name, default=0):
     return default
 
 
+def _stream_alive(sm, name):
+  """True while a cereal source keeps publishing (independent of its valid flag)."""
+  try:
+    return bool(sm.alive[name])
+  except (AttributeError, KeyError, TypeError):
+    return False
+
+
 def _stream_ok(sm, name):
   """True when a cereal source is alive and its latest sample is valid."""
   try:
@@ -1201,7 +1209,10 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   return {
     "v": 6,
     "t": int(time.time() * 1000),
-    "drivingValid": car_valid and car_control_valid and controls_valid,
+    # 주행 패널은 메시지가 "살아 있는지(alive)"로만 판단한다. valid 플래그는
+    # 정상 주행 중에도 다른 서비스 지연(commIssue 등)으로 자주 False 가 되어
+    # 2026-10-08 주행 중 HUD 가 계속 "EON 연결 끊김"을 띄웠다.
+    "drivingValid": all(_stream_alive(sm, name) for name in ("carState", "carControl", "controlsState")),
     "worldValid": model_valid,
     "mapPose": map_pose,
     "gpsState": gps_state,

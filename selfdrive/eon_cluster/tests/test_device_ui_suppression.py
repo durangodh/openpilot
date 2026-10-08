@@ -301,9 +301,9 @@ def test_hud_rejects_stale_sources_and_applies_fallback_path_offset():
   sender = (ROOT / "selfdrive" / "eon_cluster" / "remote_hud.py").read_text(
       encoding="utf-8")
 
-  assert '"drivingValid": car_valid and car_control_valid and controls_valid' in sender
+  assert '"drivingValid": all(_stream_alive(sm, name) for name in ("carState", "carControl", "controlsState"))' in sender
   assert '"worldValid": model_valid' in sender
-  assert '!s.optBoolean("drivingValid", true)' in service
+  assert 'boolean drivingValid = s.optBoolean("drivingValid", true);' in service
   assert 's.optBoolean("worldValid", true)' in service
   assert 'scene.optDouble("pathOffset", 0d)' in renderer
   assert 'rawPath.y[i] += pathOffset' in renderer
