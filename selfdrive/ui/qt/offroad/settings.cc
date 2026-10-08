@@ -1935,7 +1935,7 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "LATMPC INPUT OFFSET",
       "차선 경로를 MPC에 앞서 입력하는 보상값입니다.\n"
       "값 증가(+): 커브에 더 일찍 진입 / 값 감소(-): 더 늦게 진입.\n"
-      "커브 진행 중에는 선행 입력을 줄여 안쪽으로 당겨지는 경로를 억제합니다.\n"
+      "커브 중에도 그대로 적용합니다(짧은 커브 진입용).\n"
       "범위: 0 ~ 20  /  기본값: 4 (=0.04)",
       "../assets/offroad/icon_road.png", 0, 20, 1, 0, 4, this));
 
