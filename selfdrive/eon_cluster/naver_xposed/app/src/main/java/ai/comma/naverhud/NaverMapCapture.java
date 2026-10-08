@@ -27,11 +27,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Reads Naver's own rendered map via NaverMap.takeSnapshot; never captures a screen. */
 final class NaverMapCapture {
-    // 12.3인치 HUD 6:4 지도칸. 안내 중에는 원본 지도의 넓은 화각을 유지해
-    // 가운데 760x720 크롭으로 글자와 마커가 커지지 않게 한다.
-    private static final int WIDTH = NaverMapGeometry.PANEL_WIDTH;
-    private static final int HEIGHT = NaverMapGeometry.PANEL_HEIGHT;
-    private static final int JPEG_QUALITY = 65;
+    // 12.3인치 HUD 6:4 지도칸(760x720)과 1:1. 더 넓은 범위가 같은 글자 크기로 보인다.
+    private static final int WIDTH = 760, HEIGHT = 720, JPEG_QUALITY = 65;
     // 스냅샷 요청 간격(5fps = EON 지도 FPS 최대값). 이전 응답이 오면 바로 다음
     // 요청이 가능하도록 짧은 주기로 확인한다.
     private static final long FRAME_INTERVAL_MS = 200, CHECK_INTERVAL_MS = 40;
@@ -75,7 +72,6 @@ final class NaverMapCapture {
     private final List<WeakReference<Activity>> activities = new ArrayList<>();
     private volatile Object provider;
     private volatile Object store;   // NaviStore
-    private volatile boolean guiding;
     private Object activeMap;
     // generation: 지도(NaverMap 객체)가 바뀔 때만 올린다. 이전 지도의 프레임만 버린다.
     // requestId  : 스냅샷 요청마다 올린다. 요청 중복 판단용이며 프레임 폐기 기준이 아니다.
@@ -90,8 +86,6 @@ final class NaverMapCapture {
     void setMapProvider(Object value) { provider = value; }
 
     void setStore(Object value) { store = value; }
-
-    void setGuiding(boolean value) { guiding = value; }
 
     void addActivity(Activity activity) {
         if (activity == null) return;
@@ -149,14 +143,13 @@ final class NaverMapCapture {
         statReq++;
         final long gen = generation;
         final long req = ++requestId;
-        final boolean guidanceFrame = NaverMapGeometry.useInset(guiding, mapSource);
         try {
             ClassLoader loader = map.getClass().getClassLoader();
             Class<?> callbackType = loader.loadClass("com.naver.maps.map.NaverMap$SnapshotReadyCallback");
             Object callback = Proxy.newProxyInstance(loader, new Class<?>[]{callbackType}, (proxy, method, args) -> {
                 // 콜백 메서드 이름은 난독화("a")라 버전마다 바뀔 수 있다. Bitmap 한 개를 받는 호출이면 스냅샷이다.
                 if (args != null && args.length == 1 && args[0] instanceof Bitmap) {
-                    onSnapshot((Bitmap) args[0], gen, req, guidanceFrame);
+                    onSnapshot((Bitmap) args[0], gen, req);
                 } else if ("hashCode".equals(method.getName())) {
                     return System.identityHashCode(proxy);
                 } else if ("equals".equals(method.getName())) {
@@ -176,7 +169,7 @@ final class NaverMapCapture {
         }
     }
 
-    private void onSnapshot(Bitmap source, long gen, long req, boolean guidanceFrame) {
+    private void onSnapshot(Bitmap source, long gen, long req) {
         if (source == null || source.isRecycled()) return;
         // 최신 요청의 응답일 때만 다음 요청을 허용한다(늦게 온 옛 응답이 요청 흐름을 흔들지 않게).
         long now = SystemClock.elapsedRealtime();
@@ -192,9 +185,7 @@ final class NaverMapCapture {
         if (gen != generation) return;
         lastFrameAt = now;
         try {
-            Frame old = pendingFrame.getAndSet(new Frame(
-                    guidanceFrame ? fitGuidancePanel(source) : fitCenterCrop(source),
-                    gen, now));
+            Frame old = pendingFrame.getAndSet(new Frame(fitCenterCrop(source), gen, now));
             if (old != null) {   // 아직 인코딩 못 한 옛 프레임은 버린다(최신만 보낸다)
                 old.image.recycle();
                 statDropped++;
@@ -417,24 +408,6 @@ final class NaverMapCapture {
         new Canvas(out).drawBitmap(source,
                 new Rect(left, top, left + cropW, top + cropH),
                 new Rect(0, 0, WIDTH, HEIGHT), new Paint(Paint.FILTER_BITMAP_FLAG));
-        return out;
-    }
-
-    /**
-     * Keep the phone navigation map's wide field of view instead of cropping it to the
-     * nearly-square 760x720 panel.  The 132 px above the map sits behind NAVER's turn
-     * banner and the 58 px below it sits behind the HUD ETA bar, so no extra renderer,
-     * camera change or nMirror change is needed.
-     */
-    private static Bitmap fitGuidancePanel(Bitmap source) {
-        int sw = source.getWidth(), sh = source.getHeight();
-        int[] src = NaverMapGeometry.sourceCrop(sw, sh);
-        Bitmap out = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
-        out.eraseColor(0xff000000);
-        new Canvas(out).drawBitmap(source,
-                new Rect(src[0], src[1], src[2], src[3]),
-                new Rect(0, NaverMapGeometry.MAP_TOP, WIDTH, NaverMapGeometry.MAP_BOTTOM),
-                new Paint(Paint.FILTER_BITMAP_FLAG));
         return out;
     }
 }

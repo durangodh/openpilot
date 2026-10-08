@@ -115,10 +115,6 @@ final class NaverBridge {
     private void publish(Object s) {
         Object mode = value(call(s, "b0"));
         boolean guiding = mode != null && "Guiding".equals(String.valueOf(mode));
-        // NaviStore always owns a guidance-map object, even before route guidance starts.
-        // Tell the snapshot path the real state so the inset layout is not used on the
-        // ordinary browsing map (where its reserved banner/ETA bands would be visible).
-        map.setGuiding(guiding);
         send("navigation_status", "{\"source\":\"NAVER\",\"active\":" + guiding
                 + ",\"state\":" + quote(String.valueOf(mode)) + "}");
         send("app_status", "{\"source\":\"NAVER\",\"foreground\":true,\"guidance_active\":" + guiding + "}");
