@@ -841,27 +841,45 @@ public final class HudService extends Service {
                             udpReceiverError = "JSON 오류";
                             continue;
                         }
-                        synchronizeNavigation(decoded, socket, packet);
-                        byte[] remoteCommand = RemoteControl.packet(this, decoded);
-                        if (remoteCommand != null) socket.send(new DatagramPacket(remoteCommand,
-                                remoteCommand.length, packet.getAddress(), packet.getPort()));
+                        // Navigation and remote replies are auxiliary: their failures must not
+                        // discard a valid telemetry packet or close the UDP listener.
+                        try {
+                            synchronizeNavigation(decoded, socket, packet);
+                        } catch (Exception auxiliaryError) {
+                            android.util.Log.w("RemoteHudRx", "Navigation reply failed", auxiliaryError);
+                        }
                         state.set(decoded);
                         udpReceiverError = "";
                         eonAddress.set(packet.getAddress());
                         lastEonRxElapsed = SystemClock.elapsedRealtime();
                         lastEonAddress = packet.getAddress().getHostAddress();
                         byte[] ack = "HUD1".getBytes("US-ASCII");
-                        socket.send(new DatagramPacket(ack, ack.length, packet.getAddress(), packet.getPort()));
+                        try {
+                            socket.send(new DatagramPacket(ack, ack.length, packet.getAddress(), packet.getPort()));
+                        } catch (java.io.IOException auxiliaryError) {
+                            android.util.Log.w("RemoteHudRx", "HUD acknowledgement failed", auxiliaryError);
+                        }
+                        try {
+                            byte[] remoteCommand = RemoteControl.packet(this, decoded);
+                            if (remoteCommand != null) socket.send(new DatagramPacket(remoteCommand,
+                                    remoteCommand.length, packet.getAddress(), packet.getPort()));
+                        } catch (Exception auxiliaryError) {
+                            android.util.Log.w("RemoteHudRx", "Remote reply failed", auxiliaryError);
+                        }
                         // GPS 전달 지연을 1초마다 EON 에 보내 /trace/hud/gps_*.log 로 남긴다.
                         long gpsNow = SystemClock.elapsedRealtime();
                         GpsSourceMonitor gps = gpsSourceMonitor;
                         if (gps != null && gpsNow - lastGpsReportAt >= 1000L) {
                             lastGpsReportAt = gpsNow;
-                            String line = gps.reportLine();
-                            if (!line.isEmpty()) {
-                                byte[] report = ("GPSL" + line).getBytes("US-ASCII");
-                                socket.send(new DatagramPacket(report, report.length,
-                                        packet.getAddress(), packet.getPort()));
+                            try {
+                                String line = gps.reportLine();
+                                if (!line.isEmpty()) {
+                                    byte[] report = ("GPSL" + line).getBytes("US-ASCII");
+                                    socket.send(new DatagramPacket(report, report.length,
+                                            packet.getAddress(), packet.getPort()));
+                                }
+                            } catch (Exception auxiliaryError) {
+                                android.util.Log.w("RemoteHudRx", "GPS report failed", auxiliaryError);
                             }
                         }
                     } catch (SocketTimeoutException ignored) {
