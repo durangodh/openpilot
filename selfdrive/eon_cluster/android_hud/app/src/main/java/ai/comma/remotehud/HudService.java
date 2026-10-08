@@ -2384,10 +2384,14 @@ public final class HudService extends Service {
 
     private void drawDriving(Canvas c, Paint p, JSONObject s) {
         JSONObject l = layout(s);
-        // A fresh UDP packet is not enough: remote_hud can remain alive while
-        // carState/controlsState producers have stopped and rebroadcast their
-        // last sample. Treat that condition like a disconnected EON.
-        boolean stale = eonStale() || !s.optBoolean("drivingValid", true);
+        // Keep transport health separate from vehicle-data health. The EON can
+        // remain reachable and continue serving the map while it is outside the
+        // vehicle and carState/controlsState are unavailable. In that case the
+        // driving panel must stay suppressed, but reporting a lost EON link is
+        // misleading because UDP and the map connection are still healthy.
+        boolean linkStale = eonStale();
+        boolean drivingValid = s.optBoolean("drivingValid", true);
+        boolean stale = linkStale || !drivingValid;
         boolean worldValid = s.optBoolean("worldValid", true);
         boolean enabled = !stale && s.optBoolean("enabled", false);
 
@@ -2581,7 +2585,10 @@ public final class HudService extends Service {
             p.setColor(Color.argb(210, 26, 30, 34));
             scratchRect.set(307f, 296f, 645f, 356f);
             c.drawRoundRect(scratchRect, 10f, 10f, p);
-            text(c, p, lang("EON 연결 끊김", "EON LINK LOST"), DRIVE_CX, 322f, 24f,
+            String statusText = linkStale
+                    ? lang("EON 연결 끊김", "EON LINK LOST")
+                    : lang("차량 데이터 대기", "WAITING FOR VEHICLE");
+            text(c, p, statusText, DRIVE_CX, 322f, 24f,
                     Color.rgb(255, 148, 118), Paint.Align.CENTER);
             text(c, p, lastEonAddress, DRIVE_CX, 345f, 15f, Color.rgb(186, 194, 200), Paint.Align.CENTER);
         }

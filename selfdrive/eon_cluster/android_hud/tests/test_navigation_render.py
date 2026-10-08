@@ -130,6 +130,16 @@ def main():
         "/** Low-rate CPU inference", 1)[0]
     assert "SystemClock.sleep(MAP_ADDRESS_WAIT_MS)" in map_loop
     assert "SystemClock.sleep(MAP_RETRY_WAIT_MS)" in map_loop
+    # Outside the vehicle, EON still sends UDP and serves map frames while
+    # carState/controlsState are unavailable. Keep that state distinct from an
+    # actual link timeout so the HUD does not claim that EON disconnected.
+    driving = source.split("private void drawDriving(", 1)[1].split(
+        "/**\n     * openpilot", 1)[0]
+    assert "boolean linkStale = eonStale();" in driving
+    assert 'boolean drivingValid = s.optBoolean("drivingValid", true);' in driving
+    assert "boolean stale = linkStale || !drivingValid;" in driving
+    assert 'lang("차량 데이터 대기", "WAITING FOR VEHICLE")' in driving
+    assert 'boolean stale = eonStale() || !s.optBoolean("drivingValid", true);' not in driving
     # GPS source replaces the old health badge, in its original top-row slot.
     badges = source.split("private void drawMapSourceBadge(", 1)[1].split(
         "private void drawJunction(", 1)[0]
