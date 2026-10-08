@@ -35,6 +35,9 @@ final class KakaoMap {
     private static final int WIDTH = 760;
     private static final int HEIGHT = 720;
     private static final int JPEG_QUALITY = 65;
+    // 지도 엔진에 넘기는 화면 밀도. 폰 밀도(약 2.6~4)를 그대로 쓰면 760x720 지도에
+    // 글자·도로가 2~3배 크게 그려진다. 티맵 HUD 지도(DPI 160)와 같은 크기로 맞춘다.
+    private static final int MAP_DPI = 160;
     // Match TMAP's default 5fps cadence; latest-frame-only transport prevents
     // an overloaded link from turning this into a queue of stale pictures.
     private static final long INTERVAL_MS = 200;   // up to 5fps
@@ -453,9 +456,22 @@ final class KakaoMap {
         return update;
     }
 
+    /** 지도 엔진만 MAP_DPI 로 그리게 한 Context(앱 화면 밀도는 그대로 둔다). */
+    private Context mapDensityContext() {
+        try {
+            android.content.res.Configuration config =
+                    new android.content.res.Configuration(context.getResources().getConfiguration());
+            config.densityDpi = MAP_DPI;
+            return context.createConfigurationContext(config);
+        } catch (Throwable t) {
+            KakaoHudLog.ex("map density context", t);
+            return context;
+        }
+    }
+
     private void initCapturer() {
         try {
-            float density = context.getResources().getDisplayMetrics().density;
+            float density = MAP_DPI / 160f;
 
             Class<?> capClass = cl.loadClass("com.kakaomobility.knmsdk.capturer.KNMMapCapturer");
             Constructor<?> ctor = capClass.getConstructor(Context.class, float.class, float.class);
@@ -652,9 +668,10 @@ final class KakaoMap {
                 android.graphics.PixelFormat.RGBA_8888, 3);
         reader.setOnImageAvailableListener(this::onSurfaceImage, imageHandler);
 
-        Object scene = sceneClass.getConstructor(Context.class, boolean.class).newInstance(context, true);
+        Context mapContext = mapDensityContext();
+        Object scene = sceneClass.getConstructor(Context.class, boolean.class).newInstance(mapContext, true);
         mapSurface = surfaceClass.getConstructor(android.view.Surface.class, Context.class, sceneClass)
-                .newInstance(reader.getSurface(), context, scene);
+                .newInstance(reader.getSurface(), mapContext, scene);
         surfaceCreatedAt = android.os.SystemClock.elapsedRealtime();
         surfaceReady = false;
         surfaceFrames = 0;
