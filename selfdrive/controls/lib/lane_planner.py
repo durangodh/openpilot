@@ -11,6 +11,9 @@ from selfdrive.controls.lib.lane_path_validation import (valid_samples, valid_la
 
 TRAJECTORY_SIZE = 33
 ADJUST_OFFSET_LIMIT = 0.4   # 여유공간 보정 최대치(m)
+# 커브 차선중앙 유지는 커브가 이어질 때만: 처음 1초는 모델 라인, 3초에 완전 적용.
+# 짧은 커브는 모델의 자연스러운 라인을, 긴 커브는 차선 중앙을 따른다(2026-10-08).
+CURVE_CENTER_DELAY_BP = [1.0, 3.0]
 
 # CAMERA_OFFSET, PATH_OFFSET 하드코딩 제거
 # → lateral_planner.py에서 Params 기반으로 주입됨
@@ -73,6 +76,9 @@ class LanePlanner:
     # 주행에는 영향이 없다.
     self.laneless_offset = 0.0
     self.param_read_frame = 0
+    self.curve_time = 0.0
+    self.curve_sign = 0.0
+    self.curve_center_weight = 0.0
 
   def parse_model(self, md):
     # Clear validity EVERY frame: malformed samples must not retain the previous
@@ -159,6 +165,15 @@ class LanePlanner:
         self.lat_mpc_input_offset = 0.04
       self.lat_mpc_input_offset = float(clip(self.lat_mpc_input_offset, 0.0, 0.20))
 
+    # 같은 방향 커브가 이어진 시간. 직선이 되거나 방향이 바뀌면(S커브) 바로 0.
+    curve_weight = curve_centering_weight(curve_speed)
+    if curve_weight > 0.5 and np.sign(curve_speed) == self.curve_sign:
+      self.curve_time += DT_MDL
+    else:
+      self.curve_time = 0.0
+    self.curve_sign = np.sign(curve_speed) if curve_weight > 0.5 else 0.0
+    self.curve_center_weight = curve_weight * interp(self.curve_time, CURVE_CENTER_DELAY_BP, [0.0, 1.0])
+
     lane_valid = (valid_lane_path(self.ll_t, self.ll_x, self.lll_y, self.rll_y) and
                   valid_samples(path_t) and np.all(np.diff(path_t) > 0.0))
     if not lane_valid:
@@ -182,11 +197,10 @@ class LanePlanner:
     l_prob *= l_std_mod
     r_prob *= r_std_mod
 
-    curve_weight = curve_centering_weight(curve_speed)
     # Save validated confidence before the legacy width heuristic weakens only
     # the right line. A reliable pair defines its own centre, even if learned
     # lane width is slow to catch up on a ramp.
-    center_strength = curve_weight * interp(min(l_prob, r_prob), [0.5, 0.7], [0.0, 1.0])
+    center_strength = self.curve_center_weight * interp(min(l_prob, r_prob), [0.5, 0.7], [0.0, 1.0])
 
     if ENABLE_ZORROBYTE:
       if l_prob > 0.5 and r_prob > 0.5:

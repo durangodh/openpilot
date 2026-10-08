@@ -212,14 +212,15 @@ class LateralPlanner:
         [LANELESS_LANE_PROB_MIN, LANELESS_LANE_PROB_FULL],
         [0.0, LANELESS_LANE_CENTER_BLEND],
       )
-      # On a visible bend, prefer the measured lane centre to a model path
-      # cutting the corner. Keep the existing 1.5 s mode blend and never
+      # On a sustained visible bend (LanePlanner.curve_center_weight), prefer
+      # the measured lane centre to a model path cutting the corner. Keep the
+      # existing 1.5 s mode blend and never
       # override navigation turns or an active lane change.
       if (self.DH.lane_change_state == LaneChangeState.off and
           valid_lane_path(self.LP.ll_t, self.LP.ll_x, self.LP.lll_y, self.LP.rll_y)):
         width = np.abs(self.LP.rll_y - self.LP.lll_y)
         lane_line_blend_target = curve_lane_center_blend(
-          lane_line_blend_target, curve_speed, lane_confidence,
+          lane_line_blend_target, self.LP.curve_center_weight, lane_confidence,
           max(self.LP.lll_std, self.LP.rll_std), float(np.max(width)))
     else:
       lane_line_blend_target = 1.0
