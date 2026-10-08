@@ -22,6 +22,9 @@ DEFAULT_CAMERA_OFFSET = -0.06
 
 ENABLE_ZORROBYTE = True
 ENABLE_INC_LANE_PROB = True
+# 차선변경 중 d_prob 0<->1 에 걸리는 최소 시간. 차선변경 페이드가 양쪽 차선 0.5 경계를 지날 때
+# d_prob 가 1.0 -> 0.45 로 한 프레임에 떨어져 시작 순간 핸들이 꺾였다(2026-10-08).
+D_PROB_BLEND_TIME = 0.5
 
 class LanePlanner:
   def __init__(self, wide_camera=False):
@@ -79,6 +82,8 @@ class LanePlanner:
     self.curve_time = 0.0
     self.curve_sign = 0.0
     self.curve_center_weight = 0.0
+    # lateral_planner 가 차선변경 페이드(lll/rll_prob 축소) 중에만 켠다.
+    self.lane_change_fade = False
 
   def parse_model(self, md):
     # Clear validity EVERY frame: malformed samples must not retain the previous
@@ -231,11 +236,15 @@ class LanePlanner:
     path_from_left_lane = self.lll_y + clipped_lane_width / 2.0
     path_from_right_lane = self.rll_y - clipped_lane_width / 2.0
 
+    prev_d_prob = self.d_prob
     both_lane_available = l_prob > 0.5 and r_prob > 0.5
     self.d_prob = max(l_prob, r_prob) if not both_lane_available else 1.0
 
     if ENABLE_INC_LANE_PROB and self.d_prob > 0.65:
       self.d_prob = min(self.d_prob * 1.3, 1.0)
+    if self.lane_change_fade:
+      d_prob_step = DT_MDL / D_PROB_BLEND_TIME
+      self.d_prob = float(clip(self.d_prob, prev_d_prob - d_prob_step, prev_d_prob + d_prob_step))
 
     # carrot c3: 좌/우 여유폭을 먼저 필터링한 뒤 좁은 차로의
     # 기준 차선과 오프셋 방향을 결정한다.

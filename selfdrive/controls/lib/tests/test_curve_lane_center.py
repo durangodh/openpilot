@@ -19,7 +19,7 @@ namespace = dict(np=np, clip=np.clip, interp=np.interp, mean=np.mean,
                  ADJUST_OFFSET_LIMIT=.4, valid_lane_path=valid_lane_path,
                  valid_samples=valid_samples, lane_horizon_weights=lane_horizon_weights,
                  curve_centering_weight=curve_centering_weight,
-                 DT_MDL=.05, CURVE_CENTER_DELAY_BP=[1.0, 3.0])
+                 DT_MDL=.05, CURVE_CENTER_DELAY_BP=[1.0, 3.0], D_PROB_BLEND_TIME=0.5)
 exec(compile(ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[])),
              'lane_planner.py', 'exec'), namespace)
 
@@ -37,7 +37,7 @@ def scenario(curvature, width=3.7, adjust=.1, advance=.01, confidence=.99):
   x = 15 * t
   center = .5 * curvature * x ** 2
   lp = NS(param_read_frame=5, lat_mpc_input_offset=advance,
-          curve_time=0.0, curve_sign=0.0, curve_center_weight=0.0,
+          curve_time=0.0, curve_sign=0.0, curve_center_weight=0.0, d_prob=0.0, lane_change_fade=False,
           adjust_lane_offset=adjust, laneless_offset=0, ll_t=t.copy(), ll_x=x,
           lll_y=center - width / 2, rll_y=center + width / 2,
           lll_prob=confidence, rll_prob=confidence, lll_std=.1, rll_std=.1,
@@ -86,6 +86,22 @@ def test_unreliable_lanes_keep_model_fallback():
   model[:, 1] += .3
   out = namespace['get_d_path'](lp, 15, t, model, 1.0, speed)
   np.testing.assert_allclose(out, model)
+
+
+def test_lane_change_fade_does_not_step_d_prob():
+  # Both lanes crossing 0.5 during the lane-change fade used to drop d_prob
+  # 1.0 -> 0.45 in one frame (steering snap at lane-change start).
+  lp, t, path, speed = scenario(0.0, width=3.4, confidence=.55)
+  namespace['get_d_path'](lp, 15, t, path.copy(), 1.0, speed)
+  assert lp.d_prob == 1.0
+  lp.lll_prob = lp.rll_prob = .45
+  lp.lane_change_fade = True
+  namespace['get_d_path'](lp, 15, t, path.copy(), 1.0, speed)
+  assert lp.d_prob == pytest.approx(.9)
+  lp.lane_change_fade = False
+  lp.d_prob = 1.0
+  namespace['get_d_path'](lp, 15, t, path.copy(), 1.0, speed)
+  assert lp.d_prob == pytest.approx(.45)
 
 
 def test_nan_padded_lane_horizon_preserves_model_beyond_coverage():

@@ -170,7 +170,9 @@ class LateralPlanner:
     lane_change_prob = self.LP.l_lane_change_prob + self.LP.r_lane_change_prob
     self.DH.update(sm['carState'], sm['carControl'].latActive, lane_change_prob, md)
 
-    if self.DH.desire == log.LateralPlan.Desire.laneChangeRight or self.DH.desire == log.LateralPlan.Desire.laneChangeLeft:
+    self.LP.lane_change_fade = self.DH.desire in (log.LateralPlan.Desire.laneChangeRight,
+                                                  log.LateralPlan.Desire.laneChangeLeft)
+    if self.LP.lane_change_fade:
       self.LP.lll_prob *= self.DH.lane_change_ll_prob
       self.LP.rll_prob *= self.DH.lane_change_ll_prob
 
