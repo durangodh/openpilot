@@ -52,9 +52,11 @@ def scenario(curvature, width=3.7, adjust=.1, advance=.01, confidence=.99):
 def test_short_and_long_curves_follow_midpoint_without_inside_offset(curvature, width):
   lp, t, path, speed = scenario(curvature, width=width)
   before = path.copy()
+  # The saved input lead is kept on bends; only the inward offset is gone.
+  expected = np.interp(np.minimum(t * 1.01, t[-1]), t, path[:, 1])
   for _ in range(600):  # first frame, width learning, and 30-second sustained bend
     out = namespace['get_d_path'](lp, 15, t, path, 1.0, speed)
-    np.testing.assert_allclose(out[:, 1], path[:, 1], atol=1e-8)
+    np.testing.assert_allclose(out[:, 1], expected, atol=1e-8)
     lp.param_read_frame = 5  # keep the supplied runtime Params for this fixture
   np.testing.assert_array_equal(path, before)
   assert lp.lat_mpc_input_offset == .01

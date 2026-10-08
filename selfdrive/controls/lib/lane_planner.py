@@ -277,13 +277,13 @@ class LanePlanner:
     safe_idxs = np.isfinite(self.ll_t)
     effective_d_prob = 0.0
     if safe_idxs[0] and lane_line_blend > 0.0:
-      # Preserve NaN-padded lane times. Input lead remains available on
-      # entry but fades on bends: advancing y while keeping x fixed otherwise
-      # tightens a constant-curvature path throughout the bend.
+      # Preserve NaN-padded lane times. Input lead stays on bends too: fading
+      # it with measured curvature delayed turn-in on short curves (exit went
+      # wide, 2026-10-08). Bend centring and the removed inward offset remain.
       # If lanes cover less than the full model horizon, fade their authority
       # over the last measured second rather than extending the endpoint.
       horizon_weights = lane_horizon_weights(self.ll_t, np.asarray(path_t))
-      preview_t = np.minimum(path_t * (1.0 + self.lat_mpc_input_offset * (1.0 - curve_weight)), self.ll_t[safe_idxs][-1])
+      preview_t = np.minimum(path_t * (1.0 + self.lat_mpc_input_offset), self.ll_t[safe_idxs][-1])
       lane_path_y_interp = np.interp(preview_t,
                                      self.ll_t[safe_idxs], lane_path_y[safe_idxs])
       effective_d_prob = self.d_prob * lane_line_blend * horizon_weights
