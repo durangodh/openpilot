@@ -70,8 +70,8 @@ OVERLAY_FILES = {
   # map_main, while patched/newer builds may publish the dedicated asset instead.
   "traffic_signal": TRAFFIC_SIGNAL_FILE,
 }
-MAP_RENDER_WIDTH = 640
-MAP_RENDER_HEIGHT = 384
+MAP_RENDER_WIDTH = 760   # 12.3인치 HUD 6:4 지도칸
+MAP_RENDER_HEIGHT = 720
 PARAM_MAP_FPS = "EonClusterHudMapFps"
 PARAM_NAV_APP = "EonClusterHudNavApp"
 SOURCE_TMAP = "tmap"

@@ -38,7 +38,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 그때는 CNV2 clear 를 한 번 보내 EON 이 옛 지도를 남기지 않게 한다.
  */
 final class TmapMapCapture {
-    private static final int WIDTH = 640, HEIGHT = 384, JPEG_QUALITY = 65;
+    // 12.3인치 HUD 6:4 지도칸(760x720)과 1:1.
+    private static final int WIDTH = 760, HEIGHT = 720, JPEG_QUALITY = 65;
     private static final long FRAME_INTERVAL_MS = 200, CHECK_INTERVAL_MS = 40;
     private static final long REQUEST_TIMEOUT_MS = 600;
     private static final long CLEAR_AFTER_MS = 2000;

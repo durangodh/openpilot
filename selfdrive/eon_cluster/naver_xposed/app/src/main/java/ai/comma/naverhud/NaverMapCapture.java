@@ -27,7 +27,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Reads Naver's own rendered map via NaverMap.takeSnapshot; never captures a screen. */
 final class NaverMapCapture {
-    private static final int WIDTH = 640, HEIGHT = 384, JPEG_QUALITY = 65;
+    // 12.3인치 HUD 6:4 지도칸(760x720)과 1:1. 더 넓은 범위가 같은 글자 크기로 보인다.
+    private static final int WIDTH = 760, HEIGHT = 720, JPEG_QUALITY = 65;
     // 스냅샷 요청 간격(5fps = EON 지도 FPS 최대값). 이전 응답이 오면 바로 다음
     // 요청이 가능하도록 짧은 주기로 확인한다.
     private static final long FRAME_INTERVAL_MS = 200, CHECK_INTERVAL_MS = 40;

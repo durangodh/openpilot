@@ -31,8 +31,9 @@ import java.util.List;
  */
 final class KakaoMap {
 
-    private static final int WIDTH = 720;
-    private static final int HEIGHT = 432;
+    // 12.3인치 HUD 6:4 지도칸(760x720)과 1:1.
+    private static final int WIDTH = 760;
+    private static final int HEIGHT = 720;
     private static final int JPEG_QUALITY = 65;
     // Match TMAP's default 5fps cadence; latest-frame-only transport prevents
     // an overloaded link from turning this into a queue of stale pictures.

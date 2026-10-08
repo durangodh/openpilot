@@ -38,7 +38,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 final class TmapMapRender {
     // carrot_navi_server manifest(map_main) + CarrotStreamConfig 기본값
-    private static final int WIDTH = 640, HEIGHT = 384, DPI = 160, FPS = 5, JPEG_QUALITY = 65;
+    // 12.3인치 HUD 6:4 지도칸(760x720)과 1:1. DPI 는 그대로라 글자·차 아이콘 크기는 같다.
+    private static final int WIDTH = 760, HEIGHT = 720, DPI = 160, FPS = 5, JPEG_QUALITY = 65;
     private static final float FOV = 40f, SCREEN_CENTER_Y = 0.8f;
     private static final int OBJECT_THEME_DAY = 5, OBJECT_THEME_NIGHT = 6;
     private static final int ROUTE_LINE_WIDTH = 166;
@@ -394,9 +395,9 @@ final class TmapMapRender {
         return type.getMethod("getInstance").invoke(null);
     }
 
-    /** CarrotMapRenderStream.calculateVehicleIconSize(640, 384, 160) = 54. */
+    /** CarrotMapRenderStream.calculateVehicleIconSize(640, 384, 160) = 54 (지도 크기를 키워도 아이콘은 그대로). */
     private static float vehicleIconSize() {
-        int maxPixels = Math.max(1, Math.min(Math.round(HEIGHT * 0.14f), Math.round(WIDTH * 0.12f)));
+        int maxPixels = Math.max(1, Math.min(Math.round(384 * 0.14f), Math.round(640 * 0.12f)));
         return maxPixels * 160f / DPI;
     }
 

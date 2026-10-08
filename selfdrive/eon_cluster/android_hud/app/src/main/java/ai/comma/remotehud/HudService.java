@@ -88,12 +88,24 @@ public final class HudService extends Service {
     private static final String CHANNEL = "remote_hud";
 
     private static final int WIDTH = 1920;
-    private static final int HEIGHT = 462;
+    // 12.3인치(1920x720) 전용 논리 화면. 위젯은 예전 462 높이·952 폭 기준
+    // 좌표로 그리고 beginElement 가 새 화면으로 옮긴다(글자 크기 그대로).
+    private static final int HEIGHT = 720;
     private static final int HEIGHT_123 = 720;
-    private static final int HUD_123_TOP = (HEIGHT_123 - HEIGHT) / 2;
-    // 패널 폭 비율 5 : 4 : 1  (주행 : TMAP : SYSTEM)
+    /** 예전 1920x462 패널 출력 버퍼 높이(12.3인치 전용이 되면서 축소 출력만). */
+    private static final int LEGACY_HEIGHT = 462;
+    private static final int DESIGN_HEIGHT = 462;
+    private static final float EXTRA_HEIGHT = HEIGHT - DESIGN_HEIGHT;
+    /** 이 높이 아래에 기준점이 있는 위젯(카드·경고·NOO)은 화면 아래로 내린다. */
+    private static final float BOTTOM_ANCHOR_Y = 280f;
+    // 위젯 배치 기준(예전 주행패널 952 폭). 실제 주행패널은 6:4 의 1152 폭.
     private static final int DRIVE_RIGHT = 952;
     private static final float DRIVE_CX = 476f;
+    private static final int DRIVE_W = 1152;
+    private static final float DRIVE_MID = DRIVE_W / 2f;
+    private static final float DRIVE_SCALE_X = DRIVE_W / (float) DRIVE_RIGHT;
+    /** 자차 접지선(ModelWorldGL.EGO_BASELINE 과 같다). */
+    private static final float EGO_Y = 433f + EXTRA_HEIGHT;
     /** 현재 HUD 자차 폭을 유지한다. */
     private static final float EGO_CAR_WIDTH = 94f;
     /** 자차 후미등 아래 방향지시등을 같은 주기로 점멸한다. */
@@ -111,7 +123,7 @@ public final class HudService extends Service {
     private float headlightLeft, headlightTop, headlightCarTop = Float.NaN;
     private static final PorterDuffXfermode HEADLIGHT_BLEND =
             new PorterDuffXfermode(PorterDuff.Mode.SCREEN);
-    private static final int MAP_LEFT = 960;
+    private static final int MAP_LEFT = DRIVE_W + 8;
     private static final int MAP_RIGHT = 1720;
     private static final float MAP_CX = 1340f;
     private static final int SYSTEM_LEFT = 1728;
@@ -403,9 +415,8 @@ public final class HudService extends Service {
     private Bitmap outFrame123;
     private Canvas outCanvas123;
     private Bitmap phoneFrame;
-    private final Rect usbLogicalFrameBounds = new Rect(0, 0, WIDTH, HEIGHT);
-    private final Rect usb123LogicalFrameBounds = new Rect(
-            0, HUD_123_TOP, WIDTH, HUD_123_TOP + HEIGHT);
+    private final Rect usbLogicalFrameBounds = new Rect(0, 0, WIDTH, LEGACY_HEIGHT);
+    private final Rect usb123LogicalFrameBounds = new Rect(0, 0, WIDTH, HEIGHT_123);
     private Canvas phoneCanvas;
     /** Written by USB recovery workers and consumed by the render thread. */
     private volatile boolean usbNeedsPrimeFrame = true;
@@ -1981,7 +1992,7 @@ public final class HudService extends Service {
         float carLeft = info[0] - width * 0.5f;
         float carRight = info[0] + width * 0.5f;
         float sideGap = Math.max(26f, width * 0.50f);
-        boolean placeRight = carRight + sideGap + labelWidth <= DRIVE_RIGHT - 7f;
+        boolean placeRight = carRight + sideGap + labelWidth <= DRIVE_W - 7f;
         float textX = placeRight ? carRight + sideGap : carLeft - sideGap - labelWidth;
         p.setTextAlign(Paint.Align.LEFT);
         float distanceBaseline = Math.max(textSize + 3f, carTop + textSize);
@@ -2133,7 +2144,7 @@ public final class HudService extends Service {
         Paint primerPaint = paint;
         primerPaint.reset();
         primerPaint.setAntiAlias(true);
-        text(c, primerPaint, "연결중...", WIDTH / 2f, HEIGHT / 2f + 8f, 36f,
+        text(c, primerPaint, "연결중...", WIDTH / 2f, LEGACY_HEIGHT / 2f + 8f, 36f,
                 Color.rgb(150, 160, 170), Paint.Align.CENTER);
         text(c123, primerPaint, "연결중...", WIDTH / 2f, HEIGHT_123 / 2f + 8f, 36f,
                 Color.rgb(150, 160, 170), Paint.Align.CENTER);
@@ -2217,14 +2228,14 @@ public final class HudService extends Service {
      */
     private Canvas beginUsbFrame() {
         if (outFrame == null || outFrame.isRecycled()) {
-            outFrame = HudPixelBuffer.create(HEIGHT, WIDTH);
+            outFrame = HudPixelBuffer.create(LEGACY_HEIGHT, WIDTH);
             outCanvas = new Canvas(outFrame);
-            HudDiagnostics.log("usb-buffer=" + HEIGHT + "x" + WIDTH + " density=" + outFrame.getDensity());
+            HudDiagnostics.log("usb-buffer=" + LEGACY_HEIGHT + "x" + WIDTH + " density=" + outFrame.getDensity());
         }
         outMatrix.reset();
         outMatrix.setScale(configuredMirror ? -1f : 1f, 1f);
         outMatrix.postRotate(configuredOrientation == 2 ? 90f : -90f);
-        scratchRect.set(0f, 0f, WIDTH, HEIGHT);
+        scratchRect.set(0f, 0f, WIDTH, LEGACY_HEIGHT);
         outMatrix.mapRect(scratchRect);
         outMatrix.postTranslate(-scratchRect.left, -scratchRect.top);
         outCanvas.setMatrix(outMatrix);
@@ -2290,7 +2301,7 @@ public final class HudService extends Service {
         return outFrame;
     }
 
-    /** 기존 HUD 비율을 보존해 1920x720 중앙에 배치한다. */
+    /** 1920x720 논리 화면을 그대로 보낸다. */
     private Bitmap renderUsb123FromPhone() {
         Canvas c = beginUsbFrame123();
         c.setMatrix(null);
@@ -2384,7 +2395,7 @@ public final class HudService extends Service {
         p.setStyle(Paint.Style.FILL);
         int driveBg = lc(l, "driveBg", frameDark ? Color.rgb(22, 28, 36) : Color.rgb(226, 229, 231));
         p.setColor(driveBg);
-        c.drawRect(0f, 0f, DRIVE_RIGHT, 462f, p);
+        c.drawRect(0f, 0f, DRIVE_W, HEIGHT, p);
 
         if (!stale && worldValid && modelWorldGl == null) {
             modelWorldGl = new ModelWorldGL(this);
@@ -2424,7 +2435,7 @@ public final class HudService extends Service {
                     && s.optInt("hudHeadlights", 1) != 0) {
                 // 야간에는 자차 전조등 불빛을 도로 위에 깐다. 앞차·자차 그림이 위에 덮인다.
                 float carHeight = egoCar.getHeight() * EGO_CAR_WIDTH / egoCar.getWidth();
-                drawEgoHeadlights(c, p, 433f - carHeight);
+                drawEgoHeadlights(c, p, EGO_Y - carHeight);
             }
             if (glDrawn && egoCar != null && !egoCar.isRecycled()) {
                 // 앞차도 자차와 같은 그림으로. 먼 차부터 그려 근경이 덮게 한다.
@@ -2437,7 +2448,7 @@ public final class HudService extends Service {
                     leadSpriteInfo[1] = LeadDisplayPolicy.separatedBottom(
                             leadSpriteInfo[0], leadSpriteInfo[1], leadSpriteInfo[2],
                             (float) egoCar.getHeight() / egoCar.getWidth(),
-                            DRIVE_CX, 433f, EGO_CAR_WIDTH, 8f);
+                            DRIVE_MID, EGO_Y, EGO_CAR_WIDTH, 8f);
                     float leadAlpha = modelWorldGl.leadSpriteAlpha(leadIndex);
                     boolean visionLead = modelWorldGl.leadSpriteVision(leadIndex);
                     drawLeadSprite(c, p, leadSpriteInfo,
@@ -2453,8 +2464,8 @@ public final class HudService extends Service {
                 // Preserve the approved ego-car artwork in the GL preview.
                 float carWidth = EGO_CAR_WIDTH;
                 float carHeight = egoCar.getHeight() * carWidth / egoCar.getWidth();
-                scratchRect.set(DRIVE_CX - carWidth * 0.5f, 433f - carHeight,
-                        DRIVE_CX + carWidth * 0.5f, 433f);
+                scratchRect.set(DRIVE_MID - carWidth * 0.5f, EGO_Y - carHeight,
+                        DRIVE_MID + carWidth * 0.5f, EGO_Y);
                 p.setAlpha(255);
                 p.setFilterBitmap(true);
                 c.drawBitmap(egoCar, null, scratchRect, p);
@@ -2472,7 +2483,7 @@ public final class HudService extends Service {
             p.setAlpha(255);
             p.setColor(ModelWorldGL.blend(driveBg, Color.BLACK,
                     frameDark ? 0.15f : 0.10f));
-            c.drawRect(0f, ModelWorldGL.TOP, DRIVE_RIGHT, ModelWorldGL.BOTTOM, p);
+            c.drawRect(0f, ModelWorldGL.TOP, DRIVE_W, ModelWorldGL.BOTTOM, p);
         }
         c.restoreToCount(worldSave);
 
@@ -2508,7 +2519,7 @@ public final class HudService extends Service {
         p.setStyle(Paint.Style.STROKE);
         p.setColor(hairline());
         p.setStrokeWidth(1f);
-        c.drawLine(18f, 129f, 934f, 129f, p);
+        c.drawLine(18f, 129f, DRIVE_W - 18f, 129f, p);
 
         int save4 = beginElement(c, l, "wheel", 70f, 171f);
         int steerWarning = s.optBoolean("steerFaultPermanent", false) ? 2
@@ -2579,7 +2590,7 @@ public final class HudService extends Service {
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(2f);
         p.setColor(cardEdge());
-        scratchRect.set(2f, 2f, DRIVE_RIGHT - 2f, 458f);
+        scratchRect.set(2f, 2f, DRIVE_W - 2f, HEIGHT - 4f);
         c.drawRoundRect(scratchRect, 18f, 18f, p);
 
     }
@@ -2660,6 +2671,14 @@ public final class HudService extends Service {
         if (eonStale()) {
             return;
         }
+        // 팝업 좌표는 462 높이 기준이라 720 화면에서는 가운데로 내린다.
+        int popupSave = c.save();
+        c.translate(0f, EXTRA_HEIGHT / 2f);
+        drawOemWarningPopupBody(c, p, s);
+        c.restoreToCount(popupSave);
+    }
+
+    private void drawOemWarningPopupBody(Canvas c, Paint p, JSONObject s) {
         if (s.optBoolean("aebSystemFault", false)) {
             drawAebSystemPopup(c, p);
             return;
@@ -3153,7 +3172,7 @@ public final class HudService extends Service {
         }
         if (headlightBitmap == null) return;
         int save = c.save();
-        c.clipRect(0f, ModelWorldGL.TOP, DRIVE_RIGHT, ModelWorldGL.BOTTOM);
+        c.clipRect(0f, ModelWorldGL.TOP, DRIVE_W, ModelWorldGL.BOTTOM);
         p.setShader(null);
         p.setXfermode(HEADLIGHT_BLEND);
         p.setAlpha(255);
@@ -3171,7 +3190,7 @@ public final class HudService extends Service {
         float farY = Math.max(ModelWorldGL.TOP, nearY - HEADLIGHT_REACH);
         float pad = 28f;                              // 흐림이 번지는 여백
         float halfSpan = width * (0.30f + HEADLIGHT_SPREAD + HEADLIGHT_FAR_HALF * 0.5f) + pad;
-        headlightLeft = (float) Math.floor(DRIVE_CX - halfSpan);
+        headlightLeft = (float) Math.floor(DRIVE_MID - halfSpan);
         headlightTop = (float) Math.floor(farY - pad);
         int bw = (int) Math.ceil(2f * halfSpan) + 2;
         int bh = (int) Math.ceil(nearY + pad - headlightTop) + 2;
@@ -3192,7 +3211,7 @@ public final class HudService extends Service {
                 new float[]{0f, 0.35f, 0.70f, 1f}, Shader.TileMode.CLAMP));
         Path path = new Path();
         for (int side = -1; side <= 1; side += 2) {
-            float lamp = DRIVE_CX + side * width * 0.30f;          // 램프 위치
+            float lamp = DRIVE_MID + side * width * 0.30f;          // 램프 위치
             float drift = side * width * HEADLIGHT_SPREAD;          // 바깥으로 퍼짐
             path.rewind();
             path.moveTo(lamp - width * HEADLIGHT_NEAR_HALF * 0.5f, nearY);
@@ -3632,7 +3651,7 @@ public final class HudService extends Service {
             return;
         }
         SkyBackground.Sky sky = SkyBackground.get(icon, weather.isDay(),
-                weather.cloudPercent(), DRIVE_RIGHT, ModelWorldGL.TOP);
+                weather.cloudPercent(), DRIVE_W, ModelWorldGL.TOP);
         if (sky == null || sky.bitmap == null || sky.bitmap.isRecycled()) {
             return;
         }
@@ -4484,14 +4503,14 @@ public final class HudService extends Service {
     private static final float JUNCTION_W = 340f;
     private static final float JUNCTION_LEFT = MAP_LEFT + 2f;
     /** 도착정보 바(위끝 396) 바로 위까지. */
-    private static final float JUNCTION_BOTTOM_MAX = 400f;
+    private static final float JUNCTION_BOTTOM_MAX = HEIGHT - 62f;
     /** 도착정보 바는 실사 이미지와 같은 폭·같은 왼쪽 기준. */
     private static final float ETA_H = 58f;
     /** 차로 상자: 마커 가로 위치(지도 폭 비율). 높이는 도착정보 바(ETA_H)와 같다. */
     private static final float KAKAO_MARKER_X = 0.78f;
     private static final float TMAP_MARKER_X = 0.5f;
     private static final float NAVER_MARKER_X = 0.63f;
-    /** 패널 아래끝(462)에 딱 붙인다. */
+    /** 패널 아래끝(HEIGHT)에 딱 붙인다. */
     private static final float ETA_TOP = HEIGHT - ETA_H;
 
     /**
@@ -5289,26 +5308,26 @@ public final class HudService extends Service {
 
         float y = 95f;
         text(c, p, String.format(Locale.US, "CPU %.0f%%   TEMP %.0f°C",
-                sys.optDouble("cpu", 0d), sys.optDouble("temp", 0d)), 1000f, y, 25f, fg, Paint.Align.LEFT);
+                sys.optDouble("cpu", 0d), sys.optDouble("temp", 0d)), MAP_LEFT + 40f, y, 25f, fg, Paint.Align.LEFT);
         y += 52f;
         text(c, p, String.format(Locale.US, "SPEED %d   SET %d   GAP %d",
                 s.optInt("speed", 0), s.optInt("set", 0), s.optInt("gap", 0)),
-                1000f, y, 23f, fg, Paint.Align.LEFT);
+                MAP_LEFT + 40f, y, 23f, fg, Paint.Align.LEFT);
         y += 52f;
         JSONObject lead = s.optJSONObject("lead");
         if (lead != null) {
             text(c, p, String.format(Locale.US, "LEAD %.0fm  %+.0fkm/h",
-                    lead.optDouble("d", 0d), lead.optDouble("v", 0d)), 1000f, y, 23f, fg, Paint.Align.LEFT);
+                    lead.optDouble("d", 0d), lead.optDouble("v", 0d)), MAP_LEFT + 40f, y, 23f, fg, Paint.Align.LEFT);
         } else {
-            text(c, p, "LEAD --", 1000f, y, 23f, sub, Paint.Align.LEFT);
+            text(c, p, "LEAD --", MAP_LEFT + 40f, y, 23f, sub, Paint.Align.LEFT);
         }
         y += 52f;
         text(c, p, String.format(Locale.US, "FPS %d   MAP %dfps   JPEG %d",
                 configuredFps, Math.max(2, Math.min(5, s.optInt("hudMapFps", 5))), jpegQuality),
-                1000f, y, 22f, fg, Paint.Align.LEFT);
+                MAP_LEFT + 40f, y, 22f, fg, Paint.Align.LEFT);
         y += 52f;
         text(c, p, lang("S9 렌더링 / USB 출력", "S9 RENDER / USB OUTPUT"),
-                1000f, y, 20f, sub, Paint.Align.LEFT);
+                MAP_LEFT + 40f, y, 20f, sub, Paint.Align.LEFT);
     }
 
     private void drawTripRight(Canvas c, Paint p, JSONObject s) {
@@ -5373,8 +5392,8 @@ public final class HudService extends Service {
                     fadingMap = null;
                 }
                 JSONObject l = layout(s);
-                int waitSave = beginElement(c, l, "mapWait", mapCenterX(), 240f);
-                text(c, p, lang("지도 화면 대기", "WAITING FOR MAP"), mapCenterX(), 240f, 34f,
+                int waitSave = beginElement(c, l, "mapWait", mapCenterX(), HEIGHT / 2f);
+                text(c, p, lang("지도 화면 대기", "WAITING FOR MAP"), mapCenterX(), HEIGHT / 2f, 34f,
                         Color.GRAY, Paint.Align.CENTER);
                 c.restoreToCount(waitSave);
             }
@@ -5422,8 +5441,8 @@ public final class HudService extends Service {
         JSONObject l = layout(s);
         // 배너 위끝(0)이 곧 기준점이어야 패널 최상단에 딱 붙는다. 기준점이 71 이면
         // 배율이 1 이 아닐 때 71x(1-배율) 만큼 아래로 밀린다.
-        int save = beginElement(c, l, "tbt1", 1139f, 0f);
-        float tbtBottom = drawTbtBanner(c, p, s.optJSONObject("navi"), 962f, 0f);
+        int save = beginElement(c, l, "tbt1", MAP_LEFT + 179f, 0f);
+        float tbtBottom = drawTbtBanner(c, p, s.optJSONObject("navi"), MAP_LEFT + 2f, 0f);
         c.restoreToCount(save);
         // 세로 기준점(py)을 1행과 같은 71 로 맞춘다. 순정 화면에서는
         // beginElement 가 py 를 중심으로 위젯 배율을 역보정하는데, 1행(71)과
@@ -5431,8 +5450,8 @@ public final class HudService extends Service {
         // 그 차이만큼(119 x (1-배율)) 두 배너 사이가 벌어졌다.
         // 기준점을 1행과 같은 0 으로 맞춘 뒤로는 별도 보정이 필요 없다.
         // 예전 보정(-18px)이 남아 있으면 1행 아래끝을 파고들어 겹친다.
-        int save2 = beginElement(c, l, "tbt2", 1144f, 0f);
-        drawTbtNext(c, p, s.optJSONObject("navi"), 962f, tbtBottom);
+        int save2 = beginElement(c, l, "tbt2", MAP_LEFT + 184f, 0f);
+        drawTbtNext(c, p, s.optJSONObject("navi"), MAP_LEFT + 2f, tbtBottom);
         c.restoreToCount(save2);
         // 분기 실사도 1행 바로 아래에 붙어야 하므로 같은 기준점을 쓴다.
         int junctionSave = beginElement(c, l, "junction", MAP_LEFT + 172f, 0f);
@@ -5512,7 +5531,7 @@ public final class HudService extends Service {
     private void drawGpsSourceBadge(Canvas c, Paint p, float right, float top, float height) {
         if (gpsSourceIcons == null || gpsSourceMonitor == null) return;
         GpsSourceMonitor.Reading reading = gpsSourceMonitor.snapshot();
-        if (right - 1316f < gpsSourceIcons.width(reading)) return;
+        if (right - (MAP_LEFT + 356f) < gpsSourceIcons.width(reading)) return;
         gpsSourceIcons.draw(c, right, top, reading);
     }
 
@@ -5691,6 +5710,12 @@ public final class HudService extends Service {
         int save = c.save();
         float dx = lv(l, name + "Dx", 0f);
         float dy = lv(l, name + "Dy", 0f);
+        if (px <= DRIVE_RIGHT) {
+            // 주행패널 위젯: 예전 952x462 기준점을 1152x720 으로 통째로 옮긴다.
+            // 크기는 그대로 두고 가로는 폭 비율만큼, 아래쪽 위젯은 늘어난 높이만큼.
+            dx += px * (DRIVE_SCALE_X - 1f);
+            if (py >= BOTTOM_ANCHOR_Y) dy += EXTRA_HEIGHT;
+        }
         float scale = Math.max(0.5f, Math.min(2f, lv(l, name + "Scale", 1f)));
         c.translate(dx, dy);
         c.scale(scale, scale, px, py);

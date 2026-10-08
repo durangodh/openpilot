@@ -193,7 +193,7 @@ def main():
     assert 'mResumedActivity:' in source
     assert 'mirrorDisplays.registerDisplayListener' in source
     assert 'mirrorDisplays.unregisterDisplayListener' in source
-    assert 'HudPixelBuffer.create(HEIGHT, WIDTH)' in source
+    assert 'HudPixelBuffer.create(LEGACY_HEIGHT, WIDTH)' in source
     assert 'HudPixelBuffer.create(HEIGHT_123, WIDTH)' in source
     assert 'HudPixelBuffer.create(WIDTH, HEIGHT)' in source
     assert 'HudPixelBuffer.copy(c, phoneFrame, usbLogicalFrameBounds, phonePreviewPaint)' in source

@@ -35,15 +35,19 @@ import java.nio.IntBuffer;
  */
 final class ModelWorldGL {
     private static final String TAG = "ModelWorldGL";
-    private static final int WIDTH = 952;
+    // 12.3인치(1920x720) 6:4 주행패널: 폭 1152, 도로 영역은 아래로 258px 늘었다.
+    // 원근 배율(FOCAL/CAM_BACK)은 그대로 두어 차선·차 크기는 예전과 같고,
+    // 카메라를 높여(CAM_H) 늘어난 세로를 도로가 채운다. 자차 접지선 691 =
+    // HORIZON + CAM_H * FOCAL / CAM_BACK.
+    private static final int WIDTH = 1152;
     static final int TOP = 217;
-    static final int BOTTOM = 454;
+    static final int BOTTOM = 712;
     private static final int HEIGHT = BOTTOM - TOP;
-    private static final float CX = 476f;
+    private static final float CX = 576f;
     private static final float FOCAL = 520f;
-    private static final float CAM_H = 4.6f;
     private static final float CAM_BACK = 13.0f;
-    private static final float HORIZON = 249f;
+    private static final float HORIZON = 270f;
+    private static final float CAM_H = (691f - HORIZON) * CAM_BACK / FOCAL;
     private static final float NEAR_DEPTH = 11.4f;
     private static final float LEAD_BRAKE_ACCEL = -0.45f;
     private static final float[] ROAD_EDGE_SAMPLE_XS = {12f, 25f, 45f};
@@ -60,7 +64,7 @@ final class ModelWorldGL {
      * (NEAR_DEPTH)에 잘리지 않는다.
      */
     private static final float EGO_SPRITE_W = 94f;   // HudService 와 같은 현재 자차 폭
-    private static final float EGO_BASELINE = 433f;  // 자차 접지선(패널 좌표)
+    private static final float EGO_BASELINE = 691f;  // 자차 접지선(패널 좌표, HudService.EGO_Y)
     private static final float BSD_CORNER_DY = 32f;  // 접지선 위로 올린 아크 중심
     private static final float[] BSD_ARC_RADII = {42f, 64f, 86f};
     private static final float BSD_ARC_SQUASH = 0.62f;   // 원근으로 눌린 세로비
