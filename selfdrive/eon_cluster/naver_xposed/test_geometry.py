@@ -22,6 +22,9 @@ public final class NaverMapGeometryCheck {
     check(NaverMapGeometry.PANEL_HEIGHT == 720, "panel height");
     check(NaverMapGeometry.MAP_TOP == 132, "turn-banner reserve");
     check(NaverMapGeometry.MAP_BOTTOM == 662, "ETA reserve");
+    check(!NaverMapGeometry.useInset(false, "guidance"), "browsing map fills panel");
+    check(!NaverMapGeometry.useInset(true, "phone"), "phone map fills panel");
+    check(NaverMapGeometry.useInset(true, "guidance"), "active guidance uses inset");
 
     int[] landscape = NaverMapGeometry.sourceCrop(1034, 720);
     check(landscape[0] == 1 && landscape[1] == 0, "landscape origin");

@@ -15,6 +15,10 @@ final class NaverMapGeometry {
     private NaverMapGeometry() {
     }
 
+    static boolean useInset(boolean guiding, String mapSource) {
+        return guiding && "guidance".equals(mapSource);
+    }
+
     /** Source rectangle with PANEL_WIDTH:MAP_HEIGHT aspect, centred on the navigation camera. */
     static int[] sourceCrop(int width, int height) {
         if (width <= 0 || height <= 0) return new int[]{0, 0, 0, 0};

@@ -75,6 +75,7 @@ final class NaverMapCapture {
     private final List<WeakReference<Activity>> activities = new ArrayList<>();
     private volatile Object provider;
     private volatile Object store;   // NaviStore
+    private volatile boolean guiding;
     private Object activeMap;
     // generation: 지도(NaverMap 객체)가 바뀔 때만 올린다. 이전 지도의 프레임만 버린다.
     // requestId  : 스냅샷 요청마다 올린다. 요청 중복 판단용이며 프레임 폐기 기준이 아니다.
@@ -89,6 +90,8 @@ final class NaverMapCapture {
     void setMapProvider(Object value) { provider = value; }
 
     void setStore(Object value) { store = value; }
+
+    void setGuiding(boolean value) { guiding = value; }
 
     void addActivity(Activity activity) {
         if (activity == null) return;
@@ -146,7 +149,7 @@ final class NaverMapCapture {
         statReq++;
         final long gen = generation;
         final long req = ++requestId;
-        final boolean guidanceFrame = "guidance".equals(mapSource);
+        final boolean guidanceFrame = NaverMapGeometry.useInset(guiding, mapSource);
         try {
             ClassLoader loader = map.getClass().getClassLoader();
             Class<?> callbackType = loader.loadClass("com.naver.maps.map.NaverMap$SnapshotReadyCallback");
