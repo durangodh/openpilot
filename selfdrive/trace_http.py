@@ -17,6 +17,8 @@ TRACE_DIRS = {
   # hud_stats.STATS_DIR 와 같아야 한다(항상 기록, 10초에 한 줄).
   "hud": ("HUD 통계·네비 모듈 로그 (navi=폰→EON 수신, hud=EON→S9 전송, kakao=카카오 모듈)",
           "/data/media/0/hud_trace"),
+  # hyundai/carcontroller.FAULT_LOG_DIR 와 같아야 한다(MDPS 폴트 순간 전후 7초).
+  "fault": ("MDPS 조향 폴트 (폴트 6초 전 ~ 1초 후, 100Hz)", "/data/steer_fault_logs"),
 }
 NAME_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}\.(csv|log)$")
 CHUNK = 64 * 1024
