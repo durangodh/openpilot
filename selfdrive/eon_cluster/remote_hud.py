@@ -1421,6 +1421,9 @@ def main():
         sm.alive["carState"] and sm.valid["carState"] and sm["carState"].canValid,
         sm["carState"].gearShifter == "drive", sm["carState"].brakePressed, sm["carState"].gasPressed)
       packet["hudCmdDriveAllowed"] = "res" in remote_allowed
+      if not packet.get("drivingValid", True):
+        # HUD 가 "차량 데이터 대기"를 띄우는 패킷 수(10초 통계 줄에 nodrive 로 남는다).
+        map_server.stats.add("nodrive")
       sock.sendto(json.dumps(packet, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
                   ("255.255.255.255", PORT))
       try:
@@ -1428,6 +1431,8 @@ def main():
           reply, address = sock.recvfrom(256)
           if reply == b"HUD1":
             last_ack = time.monotonic()
+            # S9 응답 간격(ack gapmax). 3초를 넘으면 S9 HUD 가 "EON 연결 끊김"을 띄운다.
+            map_server.stats.mark("ack")
           elif reply.startswith(b"GPSL"):
             # S9 GPS delivery delay (fix UTC time -> phone), 1/s, for /trace.
             v_ego = _finite(_field(sm["carState"], "vEgo", 0.0)) if sm.alive["carState"] else -1.0
