@@ -29,7 +29,7 @@ COLUMNS = [
   # ① ② 레이더·앞차 추정
   "lead", "lead_radar", "d_rel", "v_rel", "v_lead", "v_lead_k", "a_lead_k", "a_lead_tau",
   # ④ 계획
-  "plan_a_target", "plan_v_target", "plan_a0", "plan_a1s", "mpc_mode", "e2e_reason", "should_stop",
+  "plan_a0", "plan_a1s", "mpc_mode", "e2e_reason", "should_stop",
   # 정지차 일정 감속 목표(m/s², 0 이면 MPC 계획 그대로)
   "const_stop",
   # ⑤ 명령
@@ -122,7 +122,7 @@ def _row(sm):
     _f(mono['carControl'] * 1e-9), _f(mono['carState'] * 1e-9),
     _i(lead.status), _i(lead.radar),
     _f(lead.dRel, 2), _f(lead.vRel), _f(lead.vLead), _f(lead.vLeadK), _f(lead.aLeadK), _f(lead.aLeadTau, 2),
-    _f(plan.aTarget), _f(plan.vTargetNow), _f(accels[0] if accels else 0.0),
+    _f(accels[0] if accels else 0.0),
     # T_IDXS 10번째 근처가 약 1초 뒤(계획이 앞으로 무엇을 하려는지)
     _f(accels[10] if len(accels) > 10 else 0.0),
     _i(plan.mpcMode), _i(plan.e2eReason), _i(plan.shouldStop),

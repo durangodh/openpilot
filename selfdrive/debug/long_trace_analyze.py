@@ -5,8 +5,8 @@
 
 단계(앞 단계 신호가 바뀐 뒤 다음 단계가 따라 바뀌기까지 걸린 시간):
   ② 앞차 가속 추정   a_lead_k        ← 레이더 앞차 속도 v_lead 의 실제 변화
-  ④ 계획             plan_a_target   ← a_lead_k   (비어 있으면 plan_a0)
-  ⑤ 명령             cmd_accel       ← plan_a_target
+  ④ 계획             plan_a0         ← a_lead_k
+  ⑤ 명령             cmd_accel       ← plan_a0
   ⑥ 차량             a_ego           ← cmd_accel
   전체               a_ego           ← 레이더 앞차 속도 변화
 
@@ -109,11 +109,8 @@ def main():
 
   # 레이더 속도는 들쭉날쭉해 0.5초 폭(앞뒤 대칭이라 지연 없음)으로 미분한다.
   a_lead_true = centered_derivative(c["v_lead"], dt, half_window=5)
-  # 일부 버전의 계획기는 aTarget 을 채우지 않는다(항상 0). 그때는 계획 첫 가속도를 쓴다.
-  plan = c["plan_a_target"]
-  if np.nanstd(plan[lead]) < 1e-6:
-    plan = c["plan_a0"]
-    print("  (plan_a_target 이 비어 있어 계획 단계는 plan_a0 = 계획 첫 가속도로 계산)")
+  # 계획 단계는 계획 첫 가속도(plan_a0). aTarget 은 계획기가 채우지 않아 로그에서 뺐다.
+  plan = c["plan_a0"]
   stages = [
     ("② 앞차 가속 추정 (a_lead_k ← 레이더 속도 변화)", a_lead_true, c["a_lead_k"]),
     ("④ 계획 (계획 가속도 ← a_lead_k)", c["a_lead_k"], plan),
