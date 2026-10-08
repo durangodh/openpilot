@@ -1373,6 +1373,7 @@ def main():
   sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
   sock.setblocking(False)
   last_ack = 0.0
+  hud_ip = None
   connected = False
   published = [None, 0.0]
   map_server = MapFrameServer()
@@ -1424,13 +1425,19 @@ def main():
       if not packet.get("drivingValid", True):
         # HUD 가 "차량 데이터 대기"를 띄우는 패킷 수(10초 통계 줄에 nodrive 로 남는다).
         map_server.stats.add("nodrive")
+      # S9 가 응답하는 동안은 그 주소로 직접(유니캐스트) 보낸다. 와이파이 브로드캐스트는
+      # 재전송 없이 최저 속도로 나가 여러 조각으로 나뉜 큰 패킷이 자주 통째로 사라졌다
+      # (2026-10-08: S9 응답 절반, 5~10초 공백 -> HUD "EON 연결 끊김"). 응답이 1.5초 끊기면
+      # 다시 브로드캐스트로 S9 를 찾는다.
+      unicast = hud_ip is not None and time.monotonic() - last_ack < 1.5
       sock.sendto(json.dumps(packet, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
-                  ("255.255.255.255", PORT))
+                  (hud_ip if unicast else "255.255.255.255", PORT))
       try:
         for _ in range(64):
           reply, address = sock.recvfrom(256)
           if reply == b"HUD1":
             last_ack = time.monotonic()
+            hud_ip = address[0]
             # S9 응답 간격(ack gapmax). 3초를 넘으면 S9 HUD 가 "EON 연결 끊김"을 띄운다.
             map_server.stats.mark("ack")
           elif reply.startswith(b"GPSL"):
