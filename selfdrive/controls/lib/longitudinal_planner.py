@@ -59,6 +59,7 @@ class LongitudinalPlanner:
     self.my_eco_mode_factor = 0.8
     self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
     self.no_lead_cruise_accel_factor = 0.65
+    self.human_acceleration = False
 
     self.read_param()
     self.param_read_counter = 1
@@ -86,6 +87,7 @@ class LongitudinalPlanner:
       return float(clip(value, lo, hi)) if lo is not None else value
 
     self.mpc.applyLongDynamicCost = self.params.get_bool("ApplyLongDynamicCost")
+    self.human_acceleration = self.params.get_bool("HumanAcceleration")
     self.mpc.softHoldMode = int(clip(self.params.get_int("SoftHoldMode"), 0, 2))
     self.auto_e2e_enabled = self.CP.openpilotLongitudinalControl
     self.experimental_mode_enabled = self.params.get_bool('ExperimentalMode')
@@ -247,6 +249,12 @@ class LongitudinalPlanner:
     # apilot-c2: the speed/mode CruiseMax table is the only positive-accel cap.
     cruise_max_accel = float(clip(get_cruise_max_accel(
       v_ego, self.cruise_max_vals, driving_mode, self.my_eco_mode_factor, safe_mode_factor), 0.0, MAX_ACCEL))
+    if self.human_acceleration:
+      # FrogPilot Human-Like Acceleration (ramp-off only): ease off the cap as
+      # v_ego nears the applied target speed, 0 at the target, 0.5 at 1 m/s
+      # below, the full CruiseMax cap from 5 m/s (18 km/h) below.
+      cruise_max_accel = min(cruise_max_accel, float(interp(v_cruise - v_ego, [0., 1., 5.],
+                                                           [0., 0.5, cruise_max_accel])))
     if self.mpc.mode == 'acc':
       accel_limits = limit_accel_in_turns(
         v_ego, sm['carState'].steeringAngleDeg,

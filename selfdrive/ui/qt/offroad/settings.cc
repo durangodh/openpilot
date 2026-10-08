@@ -1408,6 +1408,11 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 5, 30, 1, 0, 30, this));
 
   list->addItem(new ParamControl(
+      "HumanAcceleration", "HUMAN-LIKE ACCELERATION",
+      "켜짐: 목표 속도(커브·네비·카메라 제한 포함)에 가까워질수록 가속을 줄입니다. 18km/h 이내부터 줄이기 시작해 3.6km/h 차이에서 0.5m/s², 목표 속도에서 0. FrogPilot 방식.",
+      "../assets/offroad/icon_road.png", this));
+
+  list->addItem(new ParamControl(
       "ApplyLongDynamicCost", "DYNAMIC FOLLOWING RESPONSE",
       "켜짐: 18km/h까지 앞차 출발 반응을 동적으로 조정하고, 18~30km/h에서 점차 줄여 30km/h부터 일반 추종으로 복귀합니다.",
       "../assets/offroad/icon_road.png", this));
