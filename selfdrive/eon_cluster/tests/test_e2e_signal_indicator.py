@@ -10,7 +10,7 @@ def main():
   sender = (ROOT / "selfdrive/eon_cluster/remote_hud.py").read_text(encoding="utf-8")
   hud = (ROOT / "selfdrive/eon_cluster/android_hud/app/src/main/java/ai/comma/remotehud/HudService.java").read_text(encoding="utf-8")
 
-  assert '"trafficState": max(0, min(2, int(_finite(' in sender
+  assert '"trafficState": (max(0, min(2, int(_finite(' in sender
   start = hud.index("    private void drawModeAndEta(")
   end = hud.index("    private void drawRange(", start)
   mode_area = hud[start:end]
