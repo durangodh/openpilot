@@ -36,6 +36,8 @@ COLUMNS = [
   "cmd_accel", "long_state", "enabled", "long_active", "scc_apply_accel", "scc_areq_value", "scc_stop_req",
   # ⑥ 실제 차량
   "v_ego", "a_ego", "gas", "brake", "standstill",
+  # ⑦ 속도 제한(km/h): 적용 최고속도(카메라·커브 반영), 설정속도, 제한 원인(cam/bump/section/vturn/route/noo)
+  "v_cruise", "set_speed", "apply_source",
 ]
 
 
@@ -129,6 +131,8 @@ def _row(sm):
     _i(sm['carControl'].longActive),
     _f(ctl.applyAccel), _f(ctl.aReqValue), _i(ctl.sccStopRequest),
     _f(cs.vEgo), _f(cs.aEgo), _i(cs.gasPressed), _i(cs.brakePressed), _i(cs.standstill),
+    _f(ctl.vCruise, 1), _f(ctl.vCruiseCluster, 1),
+    str(sm['carControl'].sccSmoother.applySource).replace(",", " ") or "-",
   ]
 
 

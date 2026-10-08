@@ -383,6 +383,12 @@ class LongitudinalMpc:
     x_lead = clip(x_lead, min_x_lead, 1e8)
     v_lead = clip(v_lead, 0.0, 1e8)
     a_lead = clip(a_lead, -10., 5.)
+    # 거의 선 앞차에 빠르게 다가가는 중에는 앞차 가속 예측을 쓰지 않는다.
+    # 레이더가 새로 잡은 기어가는 정지차에 +0.8 m/s^2 가속(tau 0)이 붙자 MPC 가
+    # "앞차가 떠난다"고 보고 정지 직전 감속을 -3.0 -> -1.45 로 풀어 1.2 m 에 섰다
+    # (long 2026-10-08 10:29). 정지 후 출발(차이 1 m/s 이하)은 그대로 쓴다.
+    if v_lead < 2.0 and v_ego - v_lead > 1.0:
+      a_lead = min(a_lead, 0.0)
     lead_xv = self.extrapolate_lead(x_lead, v_lead, a_lead, a_lead_tau)
     return lead_xv
 
