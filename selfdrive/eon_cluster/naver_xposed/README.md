@@ -58,6 +58,13 @@ MapView), as the old bridge app sent. An offscreen engine render was tried
 and removed: it competed with the HUD app on the same S9 and made the HUD
 map stutter.
 
+On the 12.3-inch 760x720 map panel, active-guidance snapshots keep NAVER's
+wide phone-map field of view in a 760x530 region. The region ends above the
+58-pixel ETA bar; its 132-pixel top offset is behind the turn banner. This
+avoids the apparent zoom caused by centre-cropping a roughly 1034x720 map to
+760x720, without changing NAVER's camera, the nMirror screen, or starting a
+second map renderer. Non-guidance snapshots retain the full-panel crop.
+
 ## Lane strip (lane_bottom)
 
 `NaviLaneControlView.a(NaviLaneItem, boolean)` is hooked. While the item has
