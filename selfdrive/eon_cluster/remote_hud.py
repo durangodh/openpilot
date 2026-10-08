@@ -315,10 +315,14 @@ def _field(obj, name, default=0):
     return default
 
 
-def _stream_alive(sm, name):
-  """True while a cereal source keeps publishing (independent of its valid flag)."""
+def _stream_alive(sm, name, max_updates=10):
+  """True if the source was received in the last max_updates loops (~1 s at 10 Hz).
+
+  SubMaster.alive allows only 10 periods (0.1 s for 100 Hz carState), shorter than
+  this 10 Hz loop's own jitter, so it flickered and the HUD panel blinked.
+  """
   try:
-    return bool(sm.alive[name])
+    return sm.rcv_frame[name] > 0 and sm.frame - sm.rcv_frame[name] <= max_updates
   except (AttributeError, KeyError, TypeError):
     return False
 
@@ -326,7 +330,8 @@ def _stream_alive(sm, name):
 def _stream_ok(sm, name):
   """True when a cereal source is alive and its latest sample is valid."""
   try:
-    return bool(sm.alive[name] and sm.valid[name])
+    # 수신 여부는 _stream_alive(약 1초)로 본다. sm.alive 는 100 Hz carState 에서 깜빡인다.
+    return bool(_stream_alive(sm, name) and sm.valid[name])
   except (AttributeError, KeyError, TypeError):
     return False
 
