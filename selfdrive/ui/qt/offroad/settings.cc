@@ -1231,8 +1231,9 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
         return;
       }
     }
-    ConfirmationDialog::alert("S9 HUD → 무선 리모컨 → EON 연결 키에 입력\n\n" +
-                              QString::fromStdString(key), this);
+    // 키를 맨 위에 둔다. 안내문이 먼저 오면 작은 EON 화면에서 키가 창 밖으로 잘린다.
+    QString shown = QString::fromStdString(key);
+    ConfirmationDialog::alert(shown.left(16) + "\n" + shown.mid(16) + "\n\nS9 HUD 무선 리모컨 연결 키", this);
   });
   auto remoteForget = new ButtonControl("REMOTE UNPAIR", "DELETE", "등록한 S9 리모컨 연결 키를 삭제합니다.");
   toggleLayout->addWidget(remoteForget);
