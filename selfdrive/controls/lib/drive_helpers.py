@@ -1,5 +1,4 @@
 import math
-import numpy as np
 
 from cereal import car, log
 from common.conversions import Conversions as CV
@@ -26,10 +25,6 @@ CAR_ROTATION_RADIUS = 0.0
 # EU guidelines
 MAX_LATERAL_JERK = 10.0
 MAX_VEL_ERR = 5.0
-CURVE_ENTRY_EXTRA_DELAY_MAX = 0.30
-CURVE_ENTRY_MIN_SPEED = 4.0
-CURVE_ENTRY_FULL_SPEED = 13.0
-CURVE_ENTRY_ZERO_SPEED = 17.0
 
 ButtonType = car.CarState.ButtonEvent.Type
 CRUISE_LONG_PRESS = 50
@@ -115,34 +110,6 @@ def initialize_v_cruise(v_ego, buttonEvents, v_cruise_last, v_cruise_min=V_CRUIS
   return int(round(clip(v_ego * CV.MS_TO_KPH, v_cruise_min, V_CRUISE_MAX)))
 
 
-def _curve_entry_extra_delay(v_ego, curvatures, t_idxs):
-  """Extra existing-delay compensation while a coherent bend tightens."""
-  try:
-    c = np.asarray(curvatures, dtype=float)
-    t = np.asarray(t_idxs, dtype=float)
-  except (TypeError, ValueError):
-    return 0.0
-  if (c.ndim != 1 or t.shape != c.shape or len(c) < 2 or
-      not np.isfinite(c).all() or not np.isfinite(t).all() or
-      not np.isfinite(v_ego) or v_ego < CURVE_ENTRY_MIN_SPEED or
-      v_ego >= CURVE_ENTRY_ZERO_SPEED):
-    return 0.0
-
-  future = c[(t >= 0.20) & (t <= 1.00)]
-  if future.size == 0:
-    return 0.0
-  peak = float(future[np.argmax(np.abs(future))])
-  if abs(peak) < 1e-6 or np.any(future * peak < -0.25 * peak * peak):
-    return 0.0
-
-  tightening = (abs(peak) - abs(float(c[0]))) * v_ego * v_ego
-  if abs(peak) * v_ego * v_ego < 1.2 or tightening <= 0.6:
-    return 0.0
-  demand = interp(tightening, [0.6, 1.5], [0.0, CURVE_ENTRY_EXTRA_DELAY_MAX])
-  speed_weight = interp(v_ego, [CURVE_ENTRY_FULL_SPEED, CURVE_ENTRY_ZERO_SPEED], [1.0, 0.0])
-  return float(demand * speed_weight)
-
-
 def get_lag_adjusted_curvature(CP, v_ego, psis, curvatures, curvature_rates):
   if len(psis) != CONTROL_N:
     psis = [0.0]*CONTROL_N
@@ -152,11 +119,6 @@ def get_lag_adjusted_curvature(CP, v_ego, psis, curvatures, curvature_rates):
   
   # TODO this needs more thought, use .2s extra for now to estimate other delays
   delay = live_tune.steer_actuator_delay() + .2
-  # The Genesis command ramp measured in lat_trace takes about 0.8 s to reach
-  # a sharp-curve request. Look farther ahead only while a coherent bend is
-  # rapidly tightening; keep steady curves, S bends and highway travel on the
-  # normal actuator-delay compensation. Torque and Panda limits are unchanged.
-  delay += _curve_entry_extra_delay(v_ego, curvatures, T_IDXS[:CONTROL_N])
 
   # MPC can plan to turn the wheel and turn back before t_delay. This means
   # in high delay cases some corrections never even get commanded. So just use
