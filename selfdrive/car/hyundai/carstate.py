@@ -44,6 +44,7 @@ class CarState(CarStateBase):
     self.engine_rpm_seen = False
     self.distance_to_empty_seen = False
     self.odometer_seen = False
+    self.fuel_level_seen = False
     self.outside_temp_seen = False
     self.outside_temp_c = -1000.
     self.parking_sensor_age = 10000
@@ -108,6 +109,10 @@ class CarState(CarStateBase):
     if cp.vl_all["CLU12"]["CF_Clu_Odometer"]:
       self.odometer_seen = True
     ret.odometerKm = cp.vl["CLU12"]["CF_Clu_Odometer"] if self.odometer_seen else -1.
+    # Fuel gauge level as the cluster shows it (raw 0..31; HUD maps it to the bar).
+    if cp.vl_all["CLU13"]["CF_Clu_FuelDispLvl"]:
+      self.fuel_level_seen = True
+    ret.fuelDispLevel = cp.vl["CLU13"]["CF_Clu_FuelDispLvl"] if self.fuel_level_seen else -1.
 
     # Genesis DH's cluster displays DATC11.CR_Datc_OutTempC.  FATC11 and
     # mirror-sensor values can be several degrees hotter after heat soak, so
@@ -463,6 +468,7 @@ class CarState(CarStateBase):
 
       ("CF_Clu_DTE", "CLU13"),
       ("CF_Clu_LowfuelWarn", "CLU13"),
+      ("CF_Clu_FuelDispLvl", "CLU13"),
       # Total distance (remote HUD). No frequency check.
       ("CF_Clu_Odometer", "CLU12"),
 

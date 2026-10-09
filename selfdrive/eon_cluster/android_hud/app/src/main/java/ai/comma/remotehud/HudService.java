@@ -2537,7 +2537,10 @@ public final class HudService extends Service {
         // NOO 안내는 EON HUD 박스 바로 위(가운데 맞춤).
         if (!stale) {
             int nooSave = c.save();
-            c.translate(EON_BOX_CX - NOO_CX, 165f - NOO_CY);
+            // 박스 위 132~208 칸에 들어가도록 60% 로 줄인다(화살표 위 끝 ~ 상태 글자 아래 끝 약 125).
+            c.translate(EON_BOX_CX, 132f);
+            c.scale(0.6f, 0.6f);
+            c.translate(-NOO_CX, -(NOO_CY - 31f));
             drawNooTurn(c, p, s);
             c.restoreToCount(nooSave);
         }
@@ -3323,9 +3326,7 @@ public final class HudService extends Service {
     private static final float RING_BAND = 60f;    // 링 띠 두께
     private static final float RING_START = 135f;
     private static final float RING_SWEEP = 270f;
-    // 도로 왼쪽 제한속도 표지, 그 위로 과속카메라·방지턱(4번), 맨 위 인게이지 휠(3번). 셋 다 반지름 36.
-    private static final float SIGN_X = 505f;
-    private static final float SIGN_Y = 300f;
+    // 도로 왼쪽: 인게이지 휠(3번) 아래 과속카메라·방지턱(4번). 둘 다 반지름 36.
     private static final float CAM_X = 420f;
     private static final float CAM_Y = 220f;
     private static final float WHEEL_X = 420f;
@@ -3338,11 +3339,17 @@ public final class HudService extends Service {
     private static final float INFO_Y = 702f;
     // 연료량 신호가 없어 주행가능거리로 연료 막대를 추정한다(만충 약 650 km).
     private static final float FULL_RANGE_KM = 650f;
+    // CF_Clu_FuelDispLvl 최댓값(5비트). 만충에서 실제 값이 다르면 이 값만 맞추면 된다.
+    private static final double FUEL_DISP_MAX = 31d;
     // 오른쪽 EON HUD 박스: EON onroad.cc drawCarrotHud 의 475x495 패널을 그 좌표 그대로 축소해 그린다.
     private static final float EON_BOX_LEFT = 835f;
-    private static final float EON_BOX_TOP = 300f;
+    private static final float EON_BOX_TOP = 212f;
     private static final float EON_BOX_W = 300f;
     private static final float EON_BOX_SCALE = EON_BOX_W / 475f;
+    // 박스는 아래 정보줄 바로 위(640)까지 늘이고, 늘어난 높이는 가운데·아랫줄 사이에 나눈다(EON 좌표).
+    private static final float EON_BOX_BOTTOM = 640f;
+    private static final float EON_BOX_H = (EON_BOX_BOTTOM - EON_BOX_TOP) / EON_BOX_SCALE;
+    private static final float EON_BOX_GAP = (EON_BOX_H - 495f) / 2f;
     private static final float EON_BOX_CX = EON_BOX_LEFT + EON_BOX_W / 2f;
     // 경고 팝업(폭 360)은 주행패널 안에 들어오도록 EON 박스와 별도로 오른쪽 끝에 맞춘다.
     private static final float WARNING_CX = 960f;
@@ -3406,7 +3413,7 @@ public final class HudService extends Service {
         }
     }
 
-    /** 도로 왼쪽 표지: 도로 제한속도(없으면 ---). 위에 방지턱/과속카메라, 맨 위 인게이지 휠. */
+    /** 도로 왼쪽: 인게이지 휠, 그 아래 방지턱/과속카메라. 게이지 아래: SET 원과 감속(적용)속도. */
     private void drawLimitSign(Canvas c, Paint p, JSONObject s, boolean stale, boolean enabled) {
         int steerWarning = s.optBoolean("steerFaultPermanent", false) ? 2
                 : (s.optBoolean("steerFaultTemporary", false) ? 1 : 0);
@@ -3429,17 +3436,7 @@ public final class HudService extends Service {
                         Paint.Align.CENTER);
             }
         }
-        int limit = stale ? 0 : s.optInt("limit", 0);
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.rgb(250, 250, 250));
-        c.drawCircle(SIGN_X, SIGN_Y, 38f, p);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(7f);
-        p.setColor(Color.rgb(200, 40, 50));
-        c.drawCircle(SIGN_X, SIGN_Y, 38f, p);
-        text(c, p, limit > 0 ? Integer.toString(limit) : "---", SIGN_X, SIGN_Y + 10f,
-                limit >= 100 ? 26f : 30f, Color.rgb(30, 30, 30), Paint.Align.CENTER);
+        // 도로 제한속도는 EON 박스 LIMIT 칸에만 표시한다.
     }
 
     private void drawInfoGauge(Canvas c, Paint p, float left, float right, float frac,
@@ -3472,7 +3469,11 @@ public final class HudService extends Service {
         float w = p.measureText(hasRange ? String.format(Locale.US, "%.0f", km) : "--");
         textNormal(c, p, "km", 66f + w, INFO_Y, 20f, ink(), Paint.Align.LEFT);
 
-        float fuelFrac = hasRange ? (float) (km / FULL_RANGE_KM) : 0f;
+        // 계기판 연료 표시값(CLU13, 0~FUEL_DISP_MAX). 없으면 주행가능거리로 추정.
+        double fuelLevel = s.optDouble("fuelLevel", -1d);
+        float fuelFrac = Double.isFinite(fuelLevel) && fuelLevel >= 0d
+                ? (float) Math.min(1d, fuelLevel / FUEL_DISP_MAX)
+                : (hasRange ? (float) (km / FULL_RANGE_KM) : 0f);
         drawInfoGauge(c, p, 200f, 330f, fuelFrac, "E", "F",
                 fuelFrac < 0.15f ? Color.rgb(220, 50, 50) : (frameDark ? Color.rgb(230, 236, 242) : Color.rgb(70, 80, 90)));
         drawFuelIcon(c, p, 257f, INFO_Y - 24f, 18f);
@@ -3481,9 +3482,9 @@ public final class HudService extends Service {
         double coolant = system == null ? Double.NaN : system.optDouble("coolantTemp", Double.NaN);
         float coolFrac = (Double.isFinite(coolant) && coolant > -50d && coolant < 200d)
                 ? (float) Math.max(0d, Math.min(1d, (coolant - 50d) / 70d)) : 0f;
-        drawInfoGauge(c, p, 700f, 830f, coolFrac, "C", "H",
+        drawInfoGauge(c, p, 850f, 950f, coolFrac, "C", "H",
                 coolFrac > 0.9f ? Color.rgb(220, 50, 50) : (frameDark ? Color.rgb(230, 236, 242) : Color.rgb(70, 80, 90)));
-        drawCoolantThermometer(c, p, 765f, INFO_Y - 34f);
+        drawCoolantThermometer(c, p, 900f, INFO_Y - 34f);
 
         // 총주행거리(계기판 CLU12 적산거리)
         double odo = s.optDouble("odometer", -1d);
@@ -3528,7 +3529,7 @@ public final class HudService extends Service {
         int save = c.save();
         c.translate(EON_BOX_LEFT, EON_BOX_TOP);
         c.scale(EON_BOX_SCALE, EON_BOX_SCALE);
-        eonBoxRect(c, p, 0f, 0f, 475f, 495f, Color.argb(frameDark ? 90 : 120, 0, 0, 0), 2f, Color.WHITE);
+        eonBoxRect(c, p, 0f, 0f, 475f, EON_BOX_H, Color.argb(frameDark ? 90 : 120, 0, 0, 0), 2f, Color.WHITE);
         if (stale) {
             c.restoreToCount(save);
             return;
@@ -3562,6 +3563,7 @@ public final class HudService extends Service {
         eonTextIn(c, p, "CPU", 320f, 32f, 130f, 34f, 25f, white);
         eonTextIn(c, p, String.format(Locale.US, "%.0f%%", cpuUse), 320f, 66f, 130f, 56f, 40f, white);
 
+        c.translate(0f, EON_BOX_GAP);
         // 1번: S9 CPU 온도, 2번: S9 CPU 사용률 (EON 박스의 현재속도·설정속도 자리)
         long statsNow = SystemClock.elapsedRealtime();
         float phoneTemp = freshStat(this.s9TempC, s9TempSampleElapsed, statsNow);
@@ -3584,6 +3586,7 @@ public final class HudService extends Service {
         eonBoxRect(c, p, 390f, 260f, 70f, 80f, Color.argb(210, 0, 203, 0), 3f, white);
         eonTextIn(c, p, gear, 390f, 260f, 70f, 80f, 70f, white);
 
+        c.translate(0f, EON_BOX_GAP);
         // 주행모드
         int mode = s.optInt("drivingMode", 3);
         String modeText = mode == 1 ? "SAFE" : mode == 2 ? "ECO" : mode == 4 ? "FAST" : "NORM";

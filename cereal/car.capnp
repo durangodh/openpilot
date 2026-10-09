@@ -249,6 +249,7 @@ struct CarState {
   rearLeftWindowOpen @69 :Bool;
   rearRightWindowOpen @70 :Bool;
   odometerKm @71 :Float32;        # cluster total distance (CLU12), -1 if not seen
+  fuelDispLevel @72 :Float32;     # cluster fuel display level raw (CLU13 CF_Clu_FuelDispLvl), -1 if not seen
 
   # button presses
   buttonEvents @11 :List(ButtonEvent);
