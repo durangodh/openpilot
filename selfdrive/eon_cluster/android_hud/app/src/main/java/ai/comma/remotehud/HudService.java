@@ -2520,29 +2520,13 @@ public final class HudService extends Service {
         // 12.3인치 순정 계기판 배치: 왼쪽 큰 원형 속도·RPM 게이지, 오른쪽 EON HUD 박스.
         // 상단 속도·SET·기어·온도·주행가능거리·시계, 하단 상태카드·TPMS·NOO 는
         // EON HUD 박스와 원형 게이지로 옮겼다(2026-10-09).
+        // 하늘 띠 글자색 반전은 위쪽 등화 줄까지만 쓴다.
+        skyBand = false;
         drawSpeedRing(c, p, stale ? -1 : s.optInt("speed", 0),
                 stale ? -1 : s.optInt("rpm", -1), lv(l, "rpmRedline", 6500f));
 
-        p.setStyle(Paint.Style.STROKE);
-        p.setColor(hairline());
-        p.setStrokeWidth(1f);
-        c.drawLine(18f, 129f, DRIVE_W - 18f, 129f, p);
-
-        int save6 = beginElement(c, l, "camera", 882f, 171f);
-        int bumpDist = stale ? 0 : (int) Math.round(s.optDouble("bumpDist", 0d));
-        if (bumpDist > 0) {
-            // EON onroad.cc drawSpeedLimit 과 같은 규칙: 방지턱이 있으면
-            // 과속카메라 대신 이 자리를 쓴다.
-            drawBumpIcon(c, p, 882f, 171f, bumpDist);
-        } else if (!stale) {
-            // packet 의 camera(=camLimitSpeed 또는 sectionLimitSpeed) 는
-            // remote_hud._packet 에서 이미 EON drawSpeedLimit 과 같은 우선순위로
-            // 골라 보낸다. 도로 제한속도(limit) 는 여기에 그리지 않는다.
-            drawCamera(c, p, 882f, 171f, s.optInt("camera", 0), s.optInt("cameraDist", 0),
-                    s.optBoolean("cameraSection", false), s.optInt("cameraSectionAvg", 0));
-        }
-        c.restoreToCount(save6);
-        skyBand = false;
+        drawLimitSign(c, p, s, stale);
+        drawInfoRow(c, p, s);
 
         drawEonHudBox(c, p, s, stale, enabled);
 
@@ -3319,16 +3303,24 @@ public final class HudService extends Service {
     /** 속도 숫자. 기준선을 84 -> SPEED_BASELINE(118, 예전 KM 라벨 자리)까지 내려서
      *  위쪽에 RPM 아크가 잘리지 않고 들어갈 공간을 만든다. 단위(KM) 라벨은 쓰지
      *  않는다. 세 자리(100km/h 이상)에서는 72px 로 줄여 아크 안쪽에 들어가게 한다. */
-    // 왼쪽 원형 속도·RPM 게이지(순정 12.3인치 계기판 배치).
-    private static final float RING_CX = 190f;
-    private static final float RING_CY = 390f;
-    private static final float RING_R = 140f;
+    // 왼쪽 원형 속도·RPM 게이지(순정 12.3인치 계기판 배치): 두꺼운 흰 링, 아래가 열린 270°.
+    private static final float RING_CX = 235f;
+    private static final float RING_CY = 380f;
+    private static final float RING_R = 165f;      // 링 띠 중심 반지름
+    private static final float RING_BAND = 70f;    // 링 띠 두께
     private static final float RING_START = 135f;
     private static final float RING_SWEEP = 270f;
+    // 도로 왼쪽 제한속도 표지(카메라·방지턱도 이 자리)
+    private static final float SIGN_X = 505f;
+    private static final float SIGN_Y = 300f;
+    // 아래 정보줄 기준선
+    private static final float INFO_Y = 702f;
+    // 연료량 신호가 없어 주행가능거리로 연료 막대를 추정한다(만충 약 650 km).
+    private static final float FULL_RANGE_KM = 650f;
     // 오른쪽 EON HUD 박스: EON onroad.cc drawCarrotHud 의 475x495 패널을 그 좌표 그대로 축소해 그린다.
-    private static final float EON_BOX_LEFT = 790f;
-    private static final float EON_BOX_TOP = 240f;
-    private static final float EON_BOX_W = 340f;
+    private static final float EON_BOX_LEFT = 775f;
+    private static final float EON_BOX_TOP = 200f;
+    private static final float EON_BOX_W = 360f;
     private static final float EON_BOX_SCALE = EON_BOX_W / 475f;
     private static final float EON_BOX_CX = EON_BOX_LEFT + EON_BOX_W / 2f;
     private static final int EON_GREEN = Color.rgb(0, 203, 0);
@@ -3337,35 +3329,141 @@ public final class HudService extends Service {
         float limit = redline > 100f ? redline : 6500f;
         float frac = rpm < 0 ? 0f : Math.max(0f, Math.min(1f, rpm / limit));
         float redFrac = Math.max(0f, Math.min(1f, 5000f / limit));
+        float outer = RING_R + RING_BAND / 2f;
+        float inner = RING_R - RING_BAND / 2f;
         p.setShader(null);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeCap(Paint.Cap.BUTT);
+        // 그림자 -> 흰 띠 -> 바깥/안쪽 테두리 순서로 순정 링처럼 입체감을 준다.
+        p.setStrokeWidth(RING_BAND + 6f);
+        p.setColor(frameDark ? Color.argb(120, 0, 0, 0) : Color.argb(40, 40, 50, 60));
+        scratchRect.set(RING_CX - RING_R, RING_CY - RING_R + 4f, RING_CX + RING_R, RING_CY + RING_R + 4f);
+        c.drawArc(scratchRect, RING_START, RING_SWEEP, false, p);
+        p.setStrokeWidth(RING_BAND);
+        p.setColor(frameDark ? Color.rgb(52, 60, 70) : Color.rgb(250, 250, 252));
         scratchRect.set(RING_CX - RING_R, RING_CY - RING_R, RING_CX + RING_R, RING_CY + RING_R);
-        p.setStrokeWidth(26f);
-        p.setColor(frameDark ? Color.argb(150, 10, 14, 20) : Color.argb(170, 250, 251, 252));
         c.drawArc(scratchRect, RING_START, RING_SWEEP, false, p);
-        p.setStrokeWidth(4f);
-        p.setColor(frameDark ? Color.rgb(120, 133, 146) : Color.rgb(160, 168, 175));
-        float ro = RING_R + 15f;
-        scratchRect.set(RING_CX - ro, RING_CY - ro, RING_CX + ro, RING_CY + ro);
+        p.setStrokeWidth(3f);
+        p.setColor(frameDark ? Color.rgb(96, 106, 118) : Color.rgb(206, 209, 214));
+        scratchRect.set(RING_CX - outer, RING_CY - outer, RING_CX + outer, RING_CY + outer);
         c.drawArc(scratchRect, RING_START, RING_SWEEP, false, p);
-        p.setColor(Color.rgb(226, 72, 77));
-        c.drawArc(scratchRect, RING_START + RING_SWEEP * redFrac, RING_SWEEP * (1f - redFrac), false, p);
+        p.setColor(frameDark ? Color.rgb(82, 92, 104) : Color.rgb(186, 190, 196));
+        scratchRect.set(RING_CX - inner, RING_CY - inner, RING_CX + inner, RING_CY + inner);
+        c.drawArc(scratchRect, RING_START, RING_SWEEP, false, p);
+        // 띠 양 끝 마감선
+        for (float deg : new float[]{RING_START, RING_START + RING_SWEEP}) {
+            double r = Math.toRadians(deg);
+            float cos = (float) Math.cos(r), sin = (float) Math.sin(r);
+            c.drawLine(RING_CX + inner * cos, RING_CY + inner * sin,
+                    RING_CX + outer * cos, RING_CY + outer * sin, p);
+        }
+        // RPM: 띠 안쪽 가장자리를 따라 가는 선. 5000rpm 이후는 빨강.
         if (frac > 0f) {
-            scratchRect.set(RING_CX - RING_R, RING_CY - RING_R, RING_CX + RING_R, RING_CY + RING_R);
-            p.setStrokeWidth(18f);
-            p.setColor(frac >= redFrac ? Color.rgb(255, 90, 80)
-                    : (frameDark ? Color.rgb(248, 250, 252) : Color.rgb(40, 150, 255)));
-            c.drawArc(scratchRect, RING_START, RING_SWEEP * frac, false, p);
+            float rr = inner + 7f;
+            scratchRect.set(RING_CX - rr, RING_CY - rr, RING_CX + rr, RING_CY + rr);
+            p.setStrokeWidth(8f);
+            p.setStrokeCap(Paint.Cap.ROUND);
+            p.setColor(frameDark ? Color.rgb(230, 236, 242) : Color.rgb(40, 150, 255));
+            c.drawArc(scratchRect, RING_START, RING_SWEEP * Math.min(frac, redFrac), false, p);
+            if (frac > redFrac) {
+                p.setColor(Color.rgb(235, 70, 70));
+                c.drawArc(scratchRect, RING_START + RING_SWEEP * redFrac,
+                        RING_SWEEP * (frac - redFrac), false, p);
+            }
+            p.setStrokeCap(Paint.Cap.BUTT);
         }
+        int numberInk = frameDark ? Color.rgb(236, 240, 243) : Color.rgb(40, 44, 48);
         String value = speed < 0 ? "--" : Integer.toString(speed);
-        text(c, p, value, RING_CX, RING_CY + 34f, value.length() < 3 ? 108f : 92f, ink(), Paint.Align.CENTER);
-        textNormal(c, p, "km/h", RING_CX, RING_CY + 72f, 24f, dim(), Paint.Align.CENTER);
+        text(c, p, value, RING_CX, RING_CY + 40f, value.length() < 3 ? 140f : 118f, numberInk, Paint.Align.CENTER);
+        textNormal(c, p, "km/h", RING_CX, RING_CY + 90f, 30f, numberInk, Paint.Align.CENTER);
         if (rpm >= 0) {
-            text(c, p, String.format(Locale.US, "%.1f", rpm / 1000f), RING_CX, RING_CY + RING_R + 8f,
-                    40f, ink(), Paint.Align.CENTER);
-            textNormal(c, p, "x1000rpm", RING_CX, RING_CY + RING_R + 34f, 18f, dim(), Paint.Align.CENTER);
+            text(c, p, String.format(Locale.US, "%.1f", rpm / 1000f), RING_CX, RING_CY + 172f,
+                    52f, numberInk, Paint.Align.CENTER);
+            textNormal(c, p, "x1000rpm", RING_CX, RING_CY + 200f, 22f, numberInk, Paint.Align.CENTER);
         }
+    }
+
+    /** 도로 왼쪽 표지: 방지턱 > 과속카메라 > 도로 제한속도(없으면 ---). */
+    private void drawLimitSign(Canvas c, Paint p, JSONObject s, boolean stale) {
+        int bumpDist = stale ? 0 : (int) Math.round(s.optDouble("bumpDist", 0d));
+        int camera = stale ? 0 : s.optInt("camera", 0);
+        int cameraDist = s.optInt("cameraDist", 0);
+        if (bumpDist > 0) {
+            drawBumpIcon(c, p, SIGN_X, SIGN_Y, bumpDist);
+            return;
+        }
+        if (camera > 0 && cameraDist > 0) {
+            drawCamera(c, p, SIGN_X, SIGN_Y, camera, cameraDist,
+                    s.optBoolean("cameraSection", false), s.optInt("cameraSectionAvg", 0));
+            return;
+        }
+        int limit = stale ? 0 : s.optInt("limit", 0);
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(250, 250, 250));
+        c.drawCircle(SIGN_X, SIGN_Y, 38f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(7f);
+        p.setColor(Color.rgb(200, 40, 50));
+        c.drawCircle(SIGN_X, SIGN_Y, 38f, p);
+        text(c, p, limit > 0 ? Integer.toString(limit) : "---", SIGN_X, SIGN_Y + 10f,
+                limit >= 100 ? 26f : 30f, Color.rgb(30, 30, 30), Paint.Align.CENTER);
+    }
+
+    private void drawInfoGauge(Canvas c, Paint p, float left, float right, float frac,
+                               String lo, String hi, int fill) {
+        float y = INFO_Y - 4f;
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(6f);
+        p.setColor(frameDark ? Color.rgb(84, 94, 106) : Color.rgb(205, 209, 214));
+        c.drawLine(left, y, right, y, p);
+        if (frac > 0f) {
+            p.setColor(fill);
+            c.drawLine(left, y, left + (right - left) * Math.min(1f, frac), y, p);
+        }
+        p.setStrokeCap(Paint.Cap.BUTT);
+        text(c, p, lo, left, y - 14f, 20f, ink(), Paint.Align.CENTER);
+        text(c, p, hi, right, y - 14f, 20f, ink(), Paint.Align.CENTER);
+    }
+
+    /** 아래 정보줄: 주행가능거리·연료 막대·외기온도 | 냉각수 막대·주행거리. */
+    private void drawInfoRow(Canvas c, Paint p, JSONObject s) {
+        feedWeather(s);
+        double km = s.optDouble("distanceToEmpty", -1d);
+        boolean hasRange = Double.isFinite(km) && km >= 0d;
+        drawFuelIcon(c, p, 30f, INFO_Y, 26f);
+        text(c, p, hasRange ? String.format(Locale.US, "%.0f", km) : "--", 60f, INFO_Y, 34f, ink(),
+                Paint.Align.LEFT);
+        p.setTextSize(34f);
+        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        float w = p.measureText(hasRange ? String.format(Locale.US, "%.0f", km) : "--");
+        textNormal(c, p, "km", 66f + w, INFO_Y, 20f, ink(), Paint.Align.LEFT);
+
+        float fuelFrac = hasRange ? (float) (km / FULL_RANGE_KM) : 0f;
+        drawInfoGauge(c, p, 200f, 330f, fuelFrac, "E", "F",
+                fuelFrac < 0.15f ? Color.rgb(220, 50, 50) : (frameDark ? Color.rgb(230, 236, 242) : Color.rgb(70, 80, 90)));
+        drawFuelIcon(c, p, 257f, INFO_Y - 24f, 18f);
+
+        double temp = s.optDouble("outsideTemp", -1000d);
+        if (Double.isFinite(temp) && temp >= -50d && temp <= 80d) {
+            text(c, p, String.format(Locale.US, "%.0f\u00B0C", temp), 400f, INFO_Y, 30f, ink(), Paint.Align.LEFT);
+        }
+
+        JSONObject system = s.optJSONObject("system");
+        double coolant = system == null ? Double.NaN : system.optDouble("coolantTemp", Double.NaN);
+        float coolFrac = (Double.isFinite(coolant) && coolant > -50d && coolant < 200d)
+                ? (float) Math.max(0d, Math.min(1d, (coolant - 50d) / 70d)) : 0f;
+        drawInfoGauge(c, p, 860f, 990f, coolFrac, "C", "H",
+                coolFrac > 0.9f ? Color.rgb(220, 50, 50) : (frameDark ? Color.rgb(230, 236, 242) : Color.rgb(70, 80, 90)));
+        drawCoolantThermometer(c, p, 925f, INFO_Y - 34f);
+
+        String trip = String.format(Locale.US, "%.0f", tripDistanceKm);
+        textNormal(c, p, "km", 1128f, INFO_Y, 20f, ink(), Paint.Align.RIGHT);
+        p.setTextSize(20f);
+        p.setTypeface(Typeface.create("sans", Typeface.NORMAL));
+        text(c, p, trip, 1124f - p.measureText("km"), INFO_Y, 34f, ink(), Paint.Align.RIGHT);
     }
 
     private void eonBoxRect(Canvas c, Paint p, float x, float y, float w, float h, int fill,
