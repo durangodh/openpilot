@@ -3331,10 +3331,10 @@ public final class HudService extends Service {
     private static final float CAM_Y = 220f;
     private static final float WHEEL_X = 420f;
     private static final float WHEEL_Y = 135f;
-    // 게이지 아래: 왼쪽 감속(적용)속도, 오른쪽 크루즈 설정속도(SET)
-    private static final float SET_X = 300f;
+    // 게이지 바로 아래 가운데 크루즈 설정속도(SET), 그 오른쪽 감속(적용)속도
+    private static final float SET_X = 215f;
     private static final float SET_Y = 600f;
-    private static final float APPLY_X = 130f;
+    private static final float APPLY_X = 310f;
     // 아래 정보줄 기준선
     private static final float INFO_Y = 702f;
     // 연료량 신호가 없어 주행가능거리로 연료 막대를 추정한다(만충 약 650 km).
