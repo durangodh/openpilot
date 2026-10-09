@@ -2520,7 +2520,13 @@ public final class HudService extends Service {
         // 12.3인치 순정 계기판 배치: 왼쪽 큰 원형 속도·RPM 게이지, 오른쪽 EON HUD 박스.
         // 상단 속도·SET·기어·온도·주행가능거리·시계, 하단 상태카드·TPMS·NOO 는
         // EON HUD 박스와 원형 게이지로 옮겼다(2026-10-09).
-        // 하늘 띠 글자색 반전은 위쪽 등화 줄까지만 쓴다.
+        // 오른쪽 위: 날씨 그림 + 외기온도. 원래 주행가능거리가 있던 자리(932)에 오른쪽을 맞춘다.
+        int tempSave = beginElement(c, l, "range", 932f, 44f);
+        c.translate(932f - 790f, 0f);
+        drawOutsideTemp(c, p, s);
+        c.restoreToCount(tempSave);
+
+        // 하늘 띠 글자색 반전은 위쪽 등화 줄·날씨까지만 쓴다.
         skyBand = false;
         drawSpeedRing(c, p, stale ? -1 : s.optInt("speed", 0),
                 stale ? -1 : s.optInt("rpm", -1), lv(l, "rpmRedline", 6500f));
@@ -3430,9 +3436,8 @@ public final class HudService extends Service {
         text(c, p, hi, right, y - 14f, 20f, ink(), Paint.Align.CENTER);
     }
 
-    /** 아래 정보줄: 주행가능거리·연료 막대·외기온도 | 냉각수 막대·주행거리. */
+    /** 아래 정보줄: 주유 아이콘·주행가능거리·연료 막대 | 냉각수 막대·총주행거리. */
     private void drawInfoRow(Canvas c, Paint p, JSONObject s) {
-        feedWeather(s);
         double km = s.optDouble("distanceToEmpty", -1d);
         boolean hasRange = Double.isFinite(km) && km >= 0d;
         drawFuelIcon(c, p, 30f, INFO_Y, 26f);
@@ -3448,24 +3453,21 @@ public final class HudService extends Service {
                 fuelFrac < 0.15f ? Color.rgb(220, 50, 50) : (frameDark ? Color.rgb(230, 236, 242) : Color.rgb(70, 80, 90)));
         drawFuelIcon(c, p, 257f, INFO_Y - 24f, 18f);
 
-        double temp = s.optDouble("outsideTemp", -1000d);
-        if (Double.isFinite(temp) && temp >= -50d && temp <= 80d) {
-            text(c, p, String.format(Locale.US, "%.0f\u00B0C", temp), 400f, INFO_Y, 30f, ink(), Paint.Align.LEFT);
-        }
-
         JSONObject system = s.optJSONObject("system");
         double coolant = system == null ? Double.NaN : system.optDouble("coolantTemp", Double.NaN);
         float coolFrac = (Double.isFinite(coolant) && coolant > -50d && coolant < 200d)
                 ? (float) Math.max(0d, Math.min(1d, (coolant - 50d) / 70d)) : 0f;
-        drawInfoGauge(c, p, 860f, 990f, coolFrac, "C", "H",
+        drawInfoGauge(c, p, 760f, 890f, coolFrac, "C", "H",
                 coolFrac > 0.9f ? Color.rgb(220, 50, 50) : (frameDark ? Color.rgb(230, 236, 242) : Color.rgb(70, 80, 90)));
-        drawCoolantThermometer(c, p, 925f, INFO_Y - 34f);
+        drawCoolantThermometer(c, p, 825f, INFO_Y - 34f);
 
-        String trip = String.format(Locale.US, "%.0f", tripDistanceKm);
+        // 총주행거리(계기판 CLU12 적산거리)
+        double odo = s.optDouble("odometer", -1d);
+        String total = Double.isFinite(odo) && odo >= 0d ? String.format(Locale.US, "%,.0f", odo) : "--";
         textNormal(c, p, "km", 1128f, INFO_Y, 20f, ink(), Paint.Align.RIGHT);
         p.setTextSize(20f);
         p.setTypeface(Typeface.create("sans", Typeface.NORMAL));
-        text(c, p, trip, 1124f - p.measureText("km"), INFO_Y, 34f, ink(), Paint.Align.RIGHT);
+        text(c, p, total, 1124f - p.measureText("km"), INFO_Y, 34f, ink(), Paint.Align.RIGHT);
     }
 
     private void eonBoxRect(Canvas c, Paint p, float x, float y, float w, float h, int fill,

@@ -248,6 +248,7 @@ struct CarState {
   frontRightWindowOpen @68 :Bool;
   rearLeftWindowOpen @69 :Bool;
   rearRightWindowOpen @70 :Bool;
+  odometerKm @71 :Float32;        # cluster total distance (CLU12), -1 if not seen
 
   # button presses
   buttonEvents @11 :List(ButtonEvent);

@@ -43,6 +43,7 @@ class CarState(CarStateBase):
     self.engine_coolant_temp_seen = False
     self.engine_rpm_seen = False
     self.distance_to_empty_seen = False
+    self.odometer_seen = False
     self.outside_temp_seen = False
     self.outside_temp_c = -1000.
     self.parking_sensor_age = 10000
@@ -103,6 +104,10 @@ class CarState(CarStateBase):
       self.distance_to_empty_seen = True
     ret.distanceToEmptyKm = cp.vl["CLU13"]["CF_Clu_DTE"] if self.distance_to_empty_seen else -1.
     ret.lowFuelWarning = int(cp.vl["CLU13"]["CF_Clu_LowfuelWarn"]) != 0
+    # Total distance for the remote HUD. CLU12 is optional (no frequency check).
+    if cp.vl_all["CLU12"]["CF_Clu_Odometer"]:
+      self.odometer_seen = True
+    ret.odometerKm = cp.vl["CLU12"]["CF_Clu_Odometer"] if self.odometer_seen else -1.
 
     # Genesis DH's cluster displays DATC11.CR_Datc_OutTempC.  FATC11 and
     # mirror-sensor values can be several degrees hotter after heat soak, so
@@ -458,6 +463,8 @@ class CarState(CarStateBase):
 
       ("CF_Clu_DTE", "CLU13"),
       ("CF_Clu_LowfuelWarn", "CLU13"),
+      # Total distance (remote HUD). No frequency check.
+      ("CF_Clu_Odometer", "CLU12"),
 
       # DH exterior ambient temperature.  No frequency checks: model years
       # use different climate/gateway frames and an absent variant must not

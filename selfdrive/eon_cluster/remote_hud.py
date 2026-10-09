@@ -1312,6 +1312,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     },
     "outsideTemp": round(_finite(_field(car, "outsideTempC", -1000.0), -1000.0), 1),
     "distanceToEmpty": round(_finite(_field(car, "distanceToEmptyKm", -1.0)), 1),
+    "odometer": round(_finite(_field(car, "odometerKm", -1.0), -1.0), 1),
     "rpm": _engine_rpm(car),
     "tpms": {
       "fl": _finite(_field(tpms, "fl", -1.0), -1.0),
