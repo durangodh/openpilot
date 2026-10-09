@@ -2689,7 +2689,7 @@ public final class HudService extends Service {
 
     /** Factory-cluster AEB/FCA failure message (not an active braking event). */
     private void drawAebSystemPopup(Canvas c, Paint p) {
-        final float cx = EON_BOX_CX;
+        final float cx = WARNING_CX;
         drawWhiteWarningPanel(c, p, cx);
         drawWarningTriangle(c, p, cx, 165f, 27f);
         text(c, p, lang("긴급제동 시스템을", "CHECK EMERGENCY"),
@@ -2714,7 +2714,7 @@ public final class HudService extends Service {
 
     /** Factory blind-spot/LCA failure message and rear-radar pictogram. */
     private void drawBlindSpotSystemPopup(Canvas c, Paint p) {
-        final float cx = EON_BOX_CX;
+        final float cx = WARNING_CX;
         drawWhiteWarningPanel(c, p, cx);
         drawWarningTriangle(c, p, cx, 158f, 25f);
         text(c, p, lang("후측방 경보 시스템을", "CHECK BLIND-SPOT"),
@@ -2748,7 +2748,7 @@ public final class HudService extends Service {
     /** Show every open door, window, hood and trunk in the large TMAP warning area. */
     private void drawVehicleOpenPopup(Canvas c, Paint p, JSONObject doors,
                                       JSONObject windows) {
-        final float cx = EON_BOX_CX;
+        final float cx = WARNING_CX;
         final float cy = 288f;
         drawWhiteWarningPanel(c, p, cx);
         boolean sideDoorOpen = hasOpenDoor(doors);
@@ -2854,7 +2854,7 @@ public final class HudService extends Service {
 
     /** Factory low-fuel warning, retaining the cluster's remaining range. */
     private void drawLowFuelPopup(Canvas c, Paint p, double distanceToEmpty) {
-        final float cx = EON_BOX_CX;
+        final float cx = WARNING_CX;
         final int amber = Color.rgb(232, 158, 18);
         drawWhiteWarningPanel(c, p, cx);
         drawWarningTriangle(c, p, cx, 158f, 25f);
@@ -2935,7 +2935,7 @@ public final class HudService extends Service {
             return false;
         }
 
-        final float cx = EON_BOX_CX;
+        final float cx = WARNING_CX;
         final float cy = 270f;
         drawWhiteWarningPanel(c, p, cx);
         text(c, p, lang("주차 거리 경고", "PARKING DISTANCE WARNING"),
@@ -3304,10 +3304,10 @@ public final class HudService extends Service {
      *  위쪽에 RPM 아크가 잘리지 않고 들어갈 공간을 만든다. 단위(KM) 라벨은 쓰지
      *  않는다. 세 자리(100km/h 이상)에서는 72px 로 줄여 아크 안쪽에 들어가게 한다. */
     // 왼쪽 원형 속도·RPM 게이지(순정 12.3인치 계기판 배치): 두꺼운 흰 링, 아래가 열린 270°.
-    private static final float RING_CX = 235f;
+    private static final float RING_CX = 215f;
     private static final float RING_CY = 380f;
-    private static final float RING_R = 165f;      // 링 띠 중심 반지름
-    private static final float RING_BAND = 70f;    // 링 띠 두께
+    private static final float RING_R = 140f;      // 링 띠 중심 반지름
+    private static final float RING_BAND = 60f;    // 링 띠 두께
     private static final float RING_START = 135f;
     private static final float RING_SWEEP = 270f;
     // 도로 왼쪽 제한속도 표지(카메라·방지턱도 이 자리)
@@ -3318,11 +3318,13 @@ public final class HudService extends Service {
     // 연료량 신호가 없어 주행가능거리로 연료 막대를 추정한다(만충 약 650 km).
     private static final float FULL_RANGE_KM = 650f;
     // 오른쪽 EON HUD 박스: EON onroad.cc drawCarrotHud 의 475x495 패널을 그 좌표 그대로 축소해 그린다.
-    private static final float EON_BOX_LEFT = 775f;
-    private static final float EON_BOX_TOP = 200f;
-    private static final float EON_BOX_W = 360f;
+    private static final float EON_BOX_LEFT = 835f;
+    private static final float EON_BOX_TOP = 220f;
+    private static final float EON_BOX_W = 300f;
     private static final float EON_BOX_SCALE = EON_BOX_W / 475f;
     private static final float EON_BOX_CX = EON_BOX_LEFT + EON_BOX_W / 2f;
+    // 경고 팝업(폭 360)은 주행패널 안에 들어오도록 EON 박스와 별도로 오른쪽 끝에 맞춘다.
+    private static final float WARNING_CX = 960f;
     private static final int EON_GREEN = Color.rgb(0, 203, 0);
 
     private void drawSpeedRing(Canvas c, Paint p, int speed, int rpm, float redline) {
@@ -3374,12 +3376,12 @@ public final class HudService extends Service {
         }
         int numberInk = frameDark ? Color.rgb(236, 240, 243) : Color.rgb(40, 44, 48);
         String value = speed < 0 ? "--" : Integer.toString(speed);
-        text(c, p, value, RING_CX, RING_CY + 40f, value.length() < 3 ? 140f : 118f, numberInk, Paint.Align.CENTER);
-        textNormal(c, p, "km/h", RING_CX, RING_CY + 90f, 30f, numberInk, Paint.Align.CENTER);
+        text(c, p, value, RING_CX, RING_CY + 34f, value.length() < 3 ? 120f : 100f, numberInk, Paint.Align.CENTER);
+        textNormal(c, p, "km/h", RING_CX, RING_CY + 77f, 26f, numberInk, Paint.Align.CENTER);
         if (rpm >= 0) {
-            text(c, p, String.format(Locale.US, "%.1f", rpm / 1000f), RING_CX, RING_CY + 172f,
-                    52f, numberInk, Paint.Align.CENTER);
-            textNormal(c, p, "x1000rpm", RING_CX, RING_CY + 200f, 22f, numberInk, Paint.Align.CENTER);
+            text(c, p, String.format(Locale.US, "%.1f", rpm / 1000f), RING_CX, RING_CY + 148f,
+                    44f, numberInk, Paint.Align.CENTER);
+            textNormal(c, p, "x1000rpm", RING_CX, RING_CY + 172f, 19f, numberInk, Paint.Align.CENTER);
         }
     }
 

@@ -421,7 +421,7 @@ def test_driving_panel_uses_speed_ring_and_eon_hud_box():
   for item in ('"CPU"', '"LIMIT"', '"NORM"', '"OFF"', '"e2eReason"', 'optInt("gap"', 'tpmsText(v)'):
     assert item in box
   # OEM warning popups now cover the EON HUD box instead of the map.
-  assert service.count("final float cx = EON_BOX_CX;") == 5
+  assert service.count("final float cx = WARNING_CX;") == 5
 
 def test_genesis_cluster_warnings_reach_external_hud():
   schema = (ROOT / "cereal" / "car.capnp").read_text(encoding="utf-8")
