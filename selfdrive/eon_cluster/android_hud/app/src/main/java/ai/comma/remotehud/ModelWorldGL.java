@@ -64,7 +64,7 @@ final class ModelWorldGL {
      * (NEAR_DEPTH)에 잘리지 않는다.
      */
     private static final float EGO_SPRITE_W = 94f;   // HudService 와 같은 현재 자차 폭
-    private static final float EGO_BASELINE = 691f;  // 자차 접지선(패널 좌표, HudService.EGO_Y)
+    private static final float EGO_BASELINE = 661f;  // 자차 접지선(패널 좌표, HudService.EGO_Y)
     private static final float BSD_CORNER_DY = 32f;  // 접지선 위로 올린 아크 중심
     private static final float[] BSD_ARC_RADII = {42f, 64f, 86f};
     private static final float BSD_ARC_SQUASH = 0.62f;   // 원근으로 눌린 세로비

@@ -414,16 +414,21 @@ def test_driving_panel_uses_speed_ring_and_eon_hud_box():
       "private void drawAlert", 1)[0]
   assert "drawSpeedRing(c, p" in driving
   assert "drawEonHudBox(c, p, s, stale, enabled)" in driving
-  # NOO guidance is drawn centred above the EON HUD box.
+  # NOO guidance is drawn right-aligned above the EON HUD box.
+  assert "c.translate(EON_BOX_LEFT + EON_BOX_W, 110f);" in driving
   assert "c.translate(-NOO_CX, -(NOO_CY - 31f));" in driving and "c.scale(0.8f, 0.8f);" in driving
   for removed in ("drawC2S9StatusCard(", "drawTpms(", "drawRpm(", "drawSpeed(c",
                   "drawSetSpeed(", "drawGearAndCoolant(", "drawModeAndEta(", "drawRange("):
     assert removed not in driving
   box = service.split("private void drawEonHudBox", 1)[1].split("private void drawSpeed(", 1)[0]
-  for item in ('"CPU"', '"S9 CPU"', 's9TempC', '"LIMIT"', '"NORM"', '"OFF"', '"e2eReason"', 'optInt("gap"', 'tpmsText(v)'):
+  for item in ('"C2 CPU"', '"S9 CPU"', 's9TempC', '"LIMIT"', '"NORM"', '"OFF"', '"e2eReason"',
+               'optInt("gap"', 'tpmsText(fl)', '"TPMS"', 'drawCard(c, p, scratchRect)', '"HH:mm"'):
     assert item in box
-  # OEM warning popups now cover the EON HUD box instead of the map.
+  # OEM warning popups cover the EON HUD box at the same size.
   assert service.count("final float cx = WARNING_CX;") == 5
+  popup = service.split("private void drawOemWarningPopup(", 1)[1].split("private void drawOemWarningPopupBody", 1)[0]
+  assert "beginWarningBox(c)" in popup
+  assert "c.scale(WARNING_SCALE, WARNING_SCALE);" in service
 
 def test_genesis_cluster_warnings_reach_external_hud():
   schema = (ROOT / "cereal" / "car.capnp").read_text(encoding="utf-8")
