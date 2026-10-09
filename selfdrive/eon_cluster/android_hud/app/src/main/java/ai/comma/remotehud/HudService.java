@@ -2537,9 +2537,9 @@ public final class HudService extends Service {
         // NOO 안내는 EON HUD 박스 바로 위(가운데 맞춤).
         if (!stale) {
             int nooSave = c.save();
-            // 박스 위 132~208 칸에 들어가도록 60% 로 줄인다(화살표 위 끝 ~ 상태 글자 아래 끝 약 125).
-            c.translate(EON_BOX_CX, 132f);
-            c.scale(0.6f, 0.6f);
+            // 박스 위 110~210 칸에 들어가도록 80% 로 줄인다(화살표 위 끝 ~ 상태 글자 아래 끝 약 125).
+            c.translate(EON_BOX_CX, 110f);
+            c.scale(0.8f, 0.8f);
             c.translate(-NOO_CX, -(NOO_CY - 31f));
             drawNooTurn(c, p, s);
             c.restoreToCount(nooSave);
@@ -3346,8 +3346,8 @@ public final class HudService extends Service {
     private static final float EON_BOX_TOP = 212f;
     private static final float EON_BOX_W = 300f;
     private static final float EON_BOX_SCALE = EON_BOX_W / 475f;
-    // 박스는 아래 정보줄 바로 위(640)까지 늘이고, 늘어난 높이는 가운데·아랫줄 사이에 나눈다(EON 좌표).
-    private static final float EON_BOX_BOTTOM = 640f;
+    // 박스 아래 끝(게이지 RPM 높이). 남는 높이는 가운데·아랫줄 사이에 나눈다(EON 좌표).
+    private static final float EON_BOX_BOTTOM = 525f;
     private static final float EON_BOX_H = (EON_BOX_BOTTOM - EON_BOX_TOP) / EON_BOX_SCALE;
     private static final float EON_BOX_GAP = (EON_BOX_H - 495f) / 2f;
     private static final float EON_BOX_CX = EON_BOX_LEFT + EON_BOX_W / 2f;

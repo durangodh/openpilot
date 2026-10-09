@@ -415,7 +415,7 @@ def test_driving_panel_uses_speed_ring_and_eon_hud_box():
   assert "drawSpeedRing(c, p" in driving
   assert "drawEonHudBox(c, p, s, stale, enabled)" in driving
   # NOO guidance is drawn centred above the EON HUD box.
-  assert "c.translate(-NOO_CX, -(NOO_CY - 31f));" in driving
+  assert "c.translate(-NOO_CX, -(NOO_CY - 31f));" in driving and "c.scale(0.8f, 0.8f);" in driving
   for removed in ("drawC2S9StatusCard(", "drawTpms(", "drawRpm(", "drawSpeed(c",
                   "drawSetSpeed(", "drawGearAndCoolant(", "drawModeAndEta(", "drawRange("):
     assert removed not in driving
