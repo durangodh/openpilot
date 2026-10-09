@@ -38,7 +38,24 @@ COLUMNS = [
   "angle_offset", "roll", "live_sr",
   # LatYawMeasureBlend 가 섞는 EON 자이로 요레이트(liveLocationKalman, rad/s, +=왼쪽)
   "yaw_llk", "yaw_llk_valid",
+  # 경로 좌우 위치(m, +=왼쪽): 모델 원본(modelV2.position)과 차선/레인리스 혼합 후 경로
+  # (dPathWLines, 사용자 오프셋 전)의 20 m·40 m 지점, 차선 신뢰도, 레인리스 여부
+  "model_y20", "model_y40", "path_y20", "path_y40", "l_prob", "r_prob", "laneless",
 ]
+
+
+def _y_at(xs, ys, dist):
+  try:
+    xs, ys = list(xs), list(ys)
+    if len(xs) < 2 or len(xs) != len(ys) or xs[-1] < dist:
+      return ""
+    for i in range(1, len(xs)):
+      if xs[i] >= dist:
+        k = (dist - xs[i - 1]) / max(xs[i] - xs[i - 1], 1e-6)
+        return _f(ys[i - 1] + k * (ys[i] - ys[i - 1]), 3)
+  except Exception:
+    pass
+  return ""
 
 
 def _row(sm):
@@ -47,6 +64,7 @@ def _row(sm):
   cc = sm['carControl']
   cs = sm['carState']
   lp = sm['liveParameters']
+  md = sm['modelV2']
   yaw_llk, yaw_llk_valid = "", _i(0)
   try:
     av = sm['liveLocationKalman'].angularVelocityCalibrated
@@ -82,12 +100,16 @@ def _row(sm):
     _f(ctl.steerRatio, 2), _f(ctl.steerActuatorDelay, 3),
     _f(lp.angleOffsetDeg, 3), _f(lp.roll, 4), _f(lp.steerRatio, 2),
     yaw_llk, yaw_llk_valid,
+    _y_at(md.position.x, md.position.y, 20.0), _y_at(md.position.x, md.position.y, 40.0),
+    _y_at(plan.dPathWLinesX, plan.dPathWLinesY, 20.0), _y_at(plan.dPathWLinesX, plan.dPathWLinesY, 40.0),
+    _f(plan.lProb, 2), _f(plan.rProb, 2), _i(not plan.useLaneLines),
   ]
 
 
 def main():
   params = Params()
-  services = ['lateralPlan', 'controlsState', 'carControl', 'carState', 'liveParameters', 'liveLocationKalman']
+  services = ['lateralPlan', 'controlsState', 'carControl', 'carState', 'liveParameters', 'liveLocationKalman',
+              'modelV2']
   # 소켓은 기록할 때만 연다. 꺼진 채 열어 두면 읽지 않아 "Reader was evicted" 가 난다.
   sm = None
   rk = None
