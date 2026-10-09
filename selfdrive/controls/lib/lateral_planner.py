@@ -5,6 +5,7 @@ from common.numpy_fast import interp
 from selfdrive.controls.lib.lateral_response import LateralResponse
 from selfdrive.controls.lib.lane_path_validation import curve_lane_center_blend, valid_lane_path
 from selfdrive.controls.lib.lane_planner import LanePlanner
+from selfdrive.controls.lib.lane_center_hold import LaneCenterHold, STORE_PROB, LOST_PROB
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import LateralMpc
 from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import N as LAT_MPC_N
@@ -93,6 +94,7 @@ class LateralPlanner:
     self.dynamic_lane_profile_status = True
     self.dynamic_lane_profile_status_buffer = True
     self.lane_line_blend = None
+    self.lane_center_hold = LaneCenterHold()
     self.noo_map_blend = 0.0
     self.noo_map_profile_cache = None
     self.noo_map_path_cache = None
@@ -249,6 +251,17 @@ class LateralPlanner:
       sm['carState'].vEgo, [5.0, 10.0], [1.0, self.lateral_motion_cost])
     heading_cost = (self.lane_line_blend * self.lateral_motion_cost +
                     (1.0 - self.lane_line_blend) * laneless_heading_cost)
+
+    # 차선 없는 교차로 직진: 차선이 사라지기 직전의 차로 중앙을 몇 초간 이어 쓴다.
+    lanes_valid = valid_lane_path(self.LP.ll_t, self.LP.ll_x, self.LP.lll_y, self.LP.rll_y)
+    lane_conf = min(self.LP.lll_prob, self.LP.rll_prob)
+    cs = sm['carState']
+    self.lane_center_hold.update(
+      self.DH.lane_change_state == LaneChangeState.off and not noo_turn_active and
+      not cs.leftBlinker and not cs.rightBlinker,
+      lanes_valid and lane_conf >= STORE_PROB, cs.vEgo, measured_curvature,
+      self.LP.ll_x, (self.LP.lll_y + self.LP.rll_y) / 2.0, DT_MDL)
+    self.path_xyz = self.lane_center_hold.apply(self.path_xyz, not lanes_valid or lane_conf < LOST_PROB)
 
     # offset_total 을 최종 결정된 path_xyz 에 적용 (레인모드/레인리스 공통)
     self.path_xyz[:, 1] += self.offset_total
