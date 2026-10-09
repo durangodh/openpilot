@@ -405,32 +405,23 @@ def test_primary_lead_distance_uses_source_colored_connector():
   assert "Color.rgb(0, 82, 255)" in renderer
 
 
-def test_c2_s9_status_card_restores_the_bottom_left_slot():
+def test_driving_panel_uses_speed_ring_and_eon_hud_box():
   service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
              "main" / "java" / "ai" / "comma" / "remotehud" /
              "HudService.java").read_text(encoding="utf-8")
 
-  assert "drawC2S9StatusCard(c, p, s, stale)" in service
-  assert "scratchRect.set(8f, 376f, 156f, 454f)" in service
-  assert 'textNormal(c, p, "C2", 82f, 417f, 14f' in service
-  assert 'textNormal(c, p, "S9", 82f, 443f, 14f' in service
-  assert 'systemValue(system, "temp", "°C")' in service
-  assert 'systemValue(system, "cpu", "%")' in service
-  assert 'String.format(Locale.US, "%.0f°C", s9TempC)' in service
-  assert 'String.format(Locale.US, "%.0f%%", s9CpuPercent)' in service
-  assert '16f, c2TempColor, Paint.Align.CENTER' in service
-  assert '16f, c2CpuColor, Paint.Align.CENTER' in service
-  assert '16f, phoneTempColor, Paint.Align.CENTER' in service
-  assert '16f, phoneCpuColor, Paint.Align.CENTER' in service
-  assert "c2TempValue >= 70d" in service
-  assert "c2CpuValue >= 90d" in service
-  assert "s9TempC >= 70f" in service
-  assert "s9CpuPercent >= 90f" in service
-  assert "Color.rgb(255, 58, 68)" in service
-  assert 'textNormal(c, p, "온도", 40f, 394f, 12f' in service
-  assert 'textNormal(c, p, "CPU", 126f, 394f, 12f' in service
-  assert "Color.rgb(95, 102, 107)" in service
-
+  driving = service.split("private void drawDriving", 1)[1].split(
+      "private void drawAlert", 1)[0]
+  assert "drawSpeedRing(c, p" in driving
+  assert "drawEonHudBox(c, p, s, stale, enabled)" in driving
+  for removed in ("drawC2S9StatusCard(", "drawTpms(", "drawNooTurn(", "drawRpm(", "drawSpeed(c",
+                  "drawSetSpeed(", "drawGearAndCoolant(", "drawModeAndEta(", "drawRange("):
+    assert removed not in driving
+  box = service.split("private void drawEonHudBox", 1)[1].split("private void drawSpeed(", 1)[0]
+  for item in ('"CPU"', '"LIMIT"', '"NORM"', '"OFF"', '"e2eReason"', 'optInt("gap"', 'tpmsText(v)'):
+    assert item in box
+  # OEM warning popups now cover the EON HUD box instead of the map.
+  assert service.count("final float cx = EON_BOX_CX;") == 5
 
 def test_genesis_cluster_warnings_reach_external_hud():
   schema = (ROOT / "cereal" / "car.capnp").read_text(encoding="utf-8")
@@ -455,27 +446,6 @@ def test_genesis_cluster_warnings_reach_external_hud():
   assert "drawAebSystemPopup(c, p)" in service
   assert "drawParkingSensorPopup(c, p, s)" in service
   assert "drawWhiteWarningPanel(c, p, cx)" in service
-
-
-def test_rpm_arc_keeps_contrast_over_day_and_night_sky():
-  service = (ROOT / "selfdrive" / "eon_cluster" / "android_hud" / "app" / "src" /
-             "main" / "java" / "ai" / "comma" / "remotehud" /
-             "HudService.java").read_text(encoding="utf-8")
-
-  driving = service.split("private void drawDriving", 1)[1].split(
-      "private void drawAlert", 1)[0]
-  assert driving.index("drawRpm(c, p") < driving.index("drawSpeed(c, p")
-  rpm = service.split("private void drawRpm", 1)[1].split(
-      "private static int mixColor", 1)[0]
-  assert "float backdropR = r - 4f" in rpm
-  assert "Color.argb(148, 7, 17, 26)" in rpm
-  assert "Color.rgb(248, 250, 252)" in rpm
-  assert "Color.rgb(0, 240, 224)" in rpm
-  assert "Color.rgb(120, 133, 146)" in rpm
-  assert "Color.rgb(52, 73, 88)" in rpm
-  assert "RPM_BAR_W + 4f" in rpm
-  assert "Color.rgb(255, 159, 50)" in rpm
-  assert "Color.rgb(255, 63, 79)" in rpm
 
 
 def test_wiper_mode_is_shown_in_the_status_icon_row():

@@ -2390,7 +2390,7 @@ public final class HudService extends Service {
             drawMap(c, p, s, map, tbtCurrent, tbtNext, lane, trafficSignal);
         }
         applyThemeOverlay(c, p);
-        // 순정 계기판 경고는 우측 TMAP 위에 독립된 흰색 팝업으로 표시한다.
+        // 순정 계기판 경고는 주행패널 오른쪽 EON HUD 박스 자리에 흰색 팝업으로 덮는다.
         // 야간 지도 마스크 뒤에 그려 항상 선명한 흰색을 유지한다.
         drawOemWarningPopup(c, p, s);
     }
@@ -2517,43 +2517,16 @@ public final class HudService extends Service {
         drawLights(c, p, s);
         c.restoreToCount(save);
 
-        int save2 = beginElement(c, l, "prnd", 90f, 116f);
-        drawGearAndCoolant(c, p, s);
-        c.restoreToCount(save2);
-
-        int saveRpm = beginElement(c, l, "rpm", DRIVE_CX, 118f);
-        drawRpm(c, p, stale ? -1 : s.optInt("rpm", -1), lv(l, "rpmRedline", 6500f));
-        c.restoreToCount(saveRpm);
-
-        // RPM 대비용 배경띠/외곽선이 속도 숫자를 덮지 않도록 속도는 마지막에 그린다.
-        int save3 = beginElement(c, l, "speed", DRIVE_CX, SPEED_BASELINE);
-        drawSpeed(c, p, stale ? -1 : s.optInt("speed", 0));
-        c.restoreToCount(save3);
-
-        int modeSave = beginElement(c, l, "mode", 938f, 116f);
-        drawModeAndEta(c, p, s);
-        c.restoreToCount(modeSave);
-        int rangeSave = beginElement(c, l, "range", 932f, 44f);
-        drawRange(c, p, s);
-        drawOutsideTemp(c, p, s);
-        c.restoreToCount(rangeSave);
+        // 12.3인치 순정 계기판 배치: 왼쪽 큰 원형 속도·RPM 게이지, 오른쪽 EON HUD 박스.
+        // 상단 속도·SET·기어·온도·주행가능거리·시계, 하단 상태카드·TPMS·NOO 는
+        // EON HUD 박스와 원형 게이지로 옮겼다(2026-10-09).
+        drawSpeedRing(c, p, stale ? -1 : s.optInt("speed", 0),
+                stale ? -1 : s.optInt("rpm", -1), lv(l, "rpmRedline", 6500f));
 
         p.setStyle(Paint.Style.STROKE);
         p.setColor(hairline());
         p.setStrokeWidth(1f);
         c.drawLine(18f, 129f, DRIVE_W - 18f, 129f, p);
-
-        int save4 = beginElement(c, l, "wheel", 70f, 171f);
-        int steerWarning = s.optBoolean("steerFaultPermanent", false) ? 2
-                : (s.optBoolean("steerFaultTemporary", false) ? 1 : 0);
-        drawSteeringWheel(c, p, 70f, 171f, (float) s.optDouble("steer", 0d),
-                enabled, steerWarning);
-        c.restoreToCount(save4);
-
-        int save5 = beginElement(c, l, "set", DRIVE_CX, 171f);
-        drawSetSpeed(c, p, DRIVE_CX, 171f, s.optInt("set", 0), enabled, s);
-        drawApplySpeed(c, p, s);
-        c.restoreToCount(save5);
 
         int save6 = beginElement(c, l, "camera", 882f, 171f);
         int bumpDist = stale ? 0 : (int) Math.round(s.optDouble("bumpDist", 0d));
@@ -2571,21 +2544,7 @@ public final class HudService extends Service {
         c.restoreToCount(save6);
         skyBand = false;
 
-        // 세로 기준점을 TPMS 카드와 같은 415 로 맞춘다. 서로 다른 기준점을 쓰면
-        // 순정 화면의 위젯 배율 역보정에서 그 차이만큼 사이가 벌어진다.
-        int nooSave = beginElement(c, l, "noo", NOO_CX, 415f);
-        if (!stale) {
-            drawNooTurn(c, p, s);
-        }
-        c.restoreToCount(nooSave);
-
-        int statusSave = beginElement(c, l, "lead", 82f, 415f);
-        drawC2S9StatusCard(c, p, s, stale);
-        c.restoreToCount(statusSave);
-
-        int save8 = beginElement(c, l, "tpms", 865f, 415f);
-        drawTpms(c, p, s);
-        c.restoreToCount(save8);
+        drawEonHudBox(c, p, s, stale, enabled);
 
         int alertSave = beginElement(c, l, "alert", DRIVE_CX, 336f);
         JSONObject alertBox = stale ? null : s.optJSONObject("alert");
@@ -2746,7 +2705,7 @@ public final class HudService extends Service {
 
     /** Factory-cluster AEB/FCA failure message (not an active braking event). */
     private void drawAebSystemPopup(Canvas c, Paint p) {
-        final float cx = mapCenterX();
+        final float cx = EON_BOX_CX;
         drawWhiteWarningPanel(c, p, cx);
         drawWarningTriangle(c, p, cx, 165f, 27f);
         text(c, p, lang("긴급제동 시스템을", "CHECK EMERGENCY"),
@@ -2771,7 +2730,7 @@ public final class HudService extends Service {
 
     /** Factory blind-spot/LCA failure message and rear-radar pictogram. */
     private void drawBlindSpotSystemPopup(Canvas c, Paint p) {
-        final float cx = mapCenterX();
+        final float cx = EON_BOX_CX;
         drawWhiteWarningPanel(c, p, cx);
         drawWarningTriangle(c, p, cx, 158f, 25f);
         text(c, p, lang("후측방 경보 시스템을", "CHECK BLIND-SPOT"),
@@ -2805,7 +2764,7 @@ public final class HudService extends Service {
     /** Show every open door, window, hood and trunk in the large TMAP warning area. */
     private void drawVehicleOpenPopup(Canvas c, Paint p, JSONObject doors,
                                       JSONObject windows) {
-        final float cx = mapCenterX();
+        final float cx = EON_BOX_CX;
         final float cy = 288f;
         drawWhiteWarningPanel(c, p, cx);
         boolean sideDoorOpen = hasOpenDoor(doors);
@@ -2911,7 +2870,7 @@ public final class HudService extends Service {
 
     /** Factory low-fuel warning, retaining the cluster's remaining range. */
     private void drawLowFuelPopup(Canvas c, Paint p, double distanceToEmpty) {
-        final float cx = mapCenterX();
+        final float cx = EON_BOX_CX;
         final int amber = Color.rgb(232, 158, 18);
         drawWhiteWarningPanel(c, p, cx);
         drawWarningTriangle(c, p, cx, 158f, 25f);
@@ -2992,7 +2951,7 @@ public final class HudService extends Service {
             return false;
         }
 
-        final float cx = mapCenterX();
+        final float cx = EON_BOX_CX;
         final float cy = 270f;
         drawWhiteWarningPanel(c, p, cx);
         text(c, p, lang("주차 거리 경고", "PARKING DISTANCE WARNING"),
@@ -3360,6 +3319,206 @@ public final class HudService extends Service {
     /** 속도 숫자. 기준선을 84 -> SPEED_BASELINE(118, 예전 KM 라벨 자리)까지 내려서
      *  위쪽에 RPM 아크가 잘리지 않고 들어갈 공간을 만든다. 단위(KM) 라벨은 쓰지
      *  않는다. 세 자리(100km/h 이상)에서는 72px 로 줄여 아크 안쪽에 들어가게 한다. */
+    // 왼쪽 원형 속도·RPM 게이지(순정 12.3인치 계기판 배치).
+    private static final float RING_CX = 190f;
+    private static final float RING_CY = 390f;
+    private static final float RING_R = 140f;
+    private static final float RING_START = 135f;
+    private static final float RING_SWEEP = 270f;
+    // 오른쪽 EON HUD 박스: EON onroad.cc drawCarrotHud 의 475x495 패널을 그 좌표 그대로 축소해 그린다.
+    private static final float EON_BOX_LEFT = 790f;
+    private static final float EON_BOX_TOP = 240f;
+    private static final float EON_BOX_W = 340f;
+    private static final float EON_BOX_SCALE = EON_BOX_W / 475f;
+    private static final float EON_BOX_CX = EON_BOX_LEFT + EON_BOX_W / 2f;
+    private static final int EON_GREEN = Color.rgb(0, 203, 0);
+
+    private void drawSpeedRing(Canvas c, Paint p, int speed, int rpm, float redline) {
+        float limit = redline > 100f ? redline : 6500f;
+        float frac = rpm < 0 ? 0f : Math.max(0f, Math.min(1f, rpm / limit));
+        float redFrac = Math.max(0f, Math.min(1f, 5000f / limit));
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.BUTT);
+        scratchRect.set(RING_CX - RING_R, RING_CY - RING_R, RING_CX + RING_R, RING_CY + RING_R);
+        p.setStrokeWidth(26f);
+        p.setColor(frameDark ? Color.argb(150, 10, 14, 20) : Color.argb(170, 250, 251, 252));
+        c.drawArc(scratchRect, RING_START, RING_SWEEP, false, p);
+        p.setStrokeWidth(4f);
+        p.setColor(frameDark ? Color.rgb(120, 133, 146) : Color.rgb(160, 168, 175));
+        float ro = RING_R + 15f;
+        scratchRect.set(RING_CX - ro, RING_CY - ro, RING_CX + ro, RING_CY + ro);
+        c.drawArc(scratchRect, RING_START, RING_SWEEP, false, p);
+        p.setColor(Color.rgb(226, 72, 77));
+        c.drawArc(scratchRect, RING_START + RING_SWEEP * redFrac, RING_SWEEP * (1f - redFrac), false, p);
+        if (frac > 0f) {
+            scratchRect.set(RING_CX - RING_R, RING_CY - RING_R, RING_CX + RING_R, RING_CY + RING_R);
+            p.setStrokeWidth(18f);
+            p.setColor(frac >= redFrac ? Color.rgb(255, 90, 80)
+                    : (frameDark ? Color.rgb(248, 250, 252) : Color.rgb(40, 150, 255)));
+            c.drawArc(scratchRect, RING_START, RING_SWEEP * frac, false, p);
+        }
+        String value = speed < 0 ? "--" : Integer.toString(speed);
+        text(c, p, value, RING_CX, RING_CY + 34f, value.length() < 3 ? 108f : 92f, ink(), Paint.Align.CENTER);
+        textNormal(c, p, "km/h", RING_CX, RING_CY + 72f, 24f, dim(), Paint.Align.CENTER);
+        if (rpm >= 0) {
+            text(c, p, String.format(Locale.US, "%.1f", rpm / 1000f), RING_CX, RING_CY + RING_R + 8f,
+                    40f, ink(), Paint.Align.CENTER);
+            textNormal(c, p, "x1000rpm", RING_CX, RING_CY + RING_R + 34f, 18f, dim(), Paint.Align.CENTER);
+        }
+    }
+
+    private void eonBoxRect(Canvas c, Paint p, float x, float y, float w, float h, int fill,
+                            float stroke, int edge) {
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(fill);
+        scratchRect.set(x, y, x + w, y + h);
+        c.drawRoundRect(scratchRect, 15f, 15f, p);
+        if (stroke > 0f) {
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(stroke);
+            p.setColor(edge);
+            c.drawRoundRect(scratchRect, 15f, 15f, p);
+        }
+    }
+
+    /** EON ctText: 가로 가운데, y 는 글자 상자 아래쪽. 기준선은 그보다 약 0.22 글자 위. */
+    private void eonText(Canvas c, Paint p, String value, float x, float y, float size, int color) {
+        text(c, p, value, x, y - size * 0.22f, size, color, Paint.Align.CENTER);
+    }
+
+    /** EON ctTextIn: 상자 가운데. */
+    private void eonTextIn(Canvas c, Paint p, String value, float x, float y, float w, float h,
+                           float size, int color) {
+        text(c, p, value, x + w / 2f, y + h / 2f + size * 0.36f, size, color, Paint.Align.CENTER);
+    }
+
+    /**
+     * EON onroad.cc drawCarrotHud / drawCarrotDeviceState 와 같은 구성:
+     * CPU온도·TPMS·CPU사용률, 현재속도·설정속도·적용속도, 기어, 주행모드·LIMIT·E2E 사유·차간거리.
+     */
+    private void drawEonHudBox(Canvas c, Paint p, JSONObject s, boolean stale, boolean enabled) {
+        int save = c.save();
+        c.translate(EON_BOX_LEFT, EON_BOX_TOP);
+        c.scale(EON_BOX_SCALE, EON_BOX_SCALE);
+        eonBoxRect(c, p, 0f, 0f, 475f, 495f, Color.argb(frameDark ? 90 : 120, 0, 0, 0), 2f, Color.WHITE);
+        if (stale) {
+            c.restoreToCount(save);
+            return;
+        }
+        int white = Color.WHITE;
+        JSONObject sys = s.optJSONObject("system");
+        double cpuTemp = sys != null ? sys.optDouble("temp", s.optDouble("temp", 0d)) : s.optDouble("temp", 0d);
+        double cpuUse = sys != null ? sys.optDouble("cpu", s.optDouble("cpu", 0d)) : s.optDouble("cpu", 0d);
+        int green190 = Color.argb(190, 0, 203, 0);
+        int red = Color.argb(255, 201, 34, 49);
+        eonBoxRect(c, p, 20f, 32f, 130f, 90f, cpuTemp > 80d ? red : green190, 2f, white);
+        eonTextIn(c, p, "CPU", 20f, 32f, 130f, 34f, 25f, white);
+        eonTextIn(c, p, String.format(Locale.US, "%.0f\u00B0C", cpuTemp), 20f, 66f, 130f, 56f, 40f, white);
+
+        JSONObject tpms = s.optJSONObject("tpms");
+        eonBoxRect(c, p, 170f, 32f, 130f, 90f, Color.argb(220, 0, 0, 0), 2f, Color.argb(170, 255, 255, 255));
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(1f);
+        p.setColor(Color.argb(120, 255, 255, 255));
+        c.drawLine(235f, 35f, 235f, 119f, p);
+        c.drawLine(173f, 77f, 297f, 77f, p);
+        String[] keys = {"fl", "fr", "rl", "rr"};
+        for (int i = 0; i < 4; i++) {
+            float v = tpmsValue(tpms, keys[i]);
+            int color = (v >= 5f && v <= 60f && v < 31f) ? Color.argb(220, 255, 90, 90)
+                    : Color.argb(220, 255, 255, 255);
+            eonTextIn(c, p, tpmsText(v), 170f + (i % 2) * 65f, 32f + (i / 2) * 45f, 65f, 45f, 40f, color);
+        }
+
+        eonBoxRect(c, p, 320f, 32f, 130f, 90f, cpuUse > 90d ? red : green190, 2f, white);
+        eonTextIn(c, p, "CPU", 320f, 32f, 130f, 34f, 25f, white);
+        eonTextIn(c, p, String.format(Locale.US, "%.0f%%", cpuUse), 320f, 66f, 130f, 56f, 40f, white);
+
+        // 현재 속도 / 설정 속도 / 적용 속도
+        eonText(c, p, Integer.toString(Math.max(0, s.optInt("speed", 0))), 120f, 320f, 120f, white);
+        int set = s.optInt("set", 0);
+        eonText(c, p, enabled && set >= 10 && set < 255 ? Integer.toString(set) : "--",
+                290f, 290f, 60f, EON_GREEN);
+        int apply = s.optInt("applySpeed", 0);
+        if (enabled && apply > 0 && Math.abs(apply - set) > 0) {
+            int ochre = Color.rgb(218, 111, 37);
+            eonText(c, p, Integer.toString(apply), 370f, 220f, 50f, ochre);
+            String source = s.optString("applySource", "");
+            if (!source.isEmpty()) {
+                eonText(c, p, source, 370f, 170f, 30f, ochre);
+            }
+        }
+
+        // 기어 (D 에서는 변속 단수)
+        String gear = s.optString("gear", "--");
+        int gearStep = s.optInt("gearStep", 0);
+        if ("D".equals(gear) && gearStep > 0) {
+            gear = Integer.toString(gearStep);
+        }
+        eonBoxRect(c, p, 390f, 260f, 70f, 80f, Color.argb(210, 0, 203, 0), 3f, white);
+        eonTextIn(c, p, gear, 390f, 260f, 70f, 80f, 70f, white);
+
+        // 주행모드
+        int mode = s.optInt("drivingMode", 3);
+        String modeText = mode == 1 ? "SAFE" : mode == 2 ? "ECO" : mode == 4 ? "FAST" : "NORM";
+        int modeColor = mode == 1 ? Color.argb(210, 255, 175, 3) : mode == 2 ? Color.argb(210, 0, 203, 0)
+                : mode == 4 ? Color.argb(210, 201, 34, 49) : Color.argb(210, 191, 191, 191);
+        eonBoxRect(c, p, 15f, 407f, 110f, 48f, modeColor, 2f, white);
+        eonTextIn(c, p, modeText, 15f, 407f, 110f, 48f, 32f, white);
+
+        // LIMIT / CAM / BUMP
+        int camera = s.optInt("camera", 0);
+        int bumpDist = (int) Math.round(s.optDouble("bumpDist", 0d));
+        int limit = s.optInt("limit", 0);
+        String label;
+        String limitText;
+        int limitFill;
+        int limitInk = white;
+        if (bumpDist > 0) {
+            label = "BUMP";
+            limitText = bumpDist + "m";
+            limitFill = Color.argb(210, 218, 202, 37);
+            limitInk = Color.argb(230, 0, 0, 0);
+        } else if (camera > 0) {
+            label = "CAM";
+            limitText = Integer.toString(camera);
+            limitFill = Color.argb(210, 201, 34, 49);
+        } else {
+            label = "LIMIT";
+            limitText = Integer.toString(limit);
+            boolean over = limit > 0 && s.optInt("speed", 0) > limit + 2;
+            limitFill = over ? Color.argb(210, 201, 34, 49) : Color.argb(210, 255, 255, 255);
+            if (!over) limitInk = Color.argb(230, 0, 0, 0);
+        }
+        eonText(c, p, label, 195f, 400f, 30f, white);
+        eonBoxRect(c, p, 140f, 407f, 110f, 48f, limitFill, 2f, white);
+        eonTextIn(c, p, limitText, 140f, 407f, 110f, 48f, 40f, limitInk);
+
+        // Conditional E2E 사유
+        int reason = s.optInt("e2eReason", 0);
+        String reasonText = "OFF";
+        int reasonColor = Color.argb(150, 191, 191, 191);
+        switch (reason) {
+            case 1: reasonText = "ACC"; reasonColor = Color.argb(210, 191, 191, 191); break;
+            case 2: reasonText = "SIG"; reasonColor = Color.argb(210, 201, 34, 49); break;
+            case 3: reasonText = "VIS"; reasonColor = Color.argb(210, 0, 0, 255); break;
+            case 4: reasonText = "GO"; reasonColor = Color.argb(210, 0, 203, 0); break;
+            case 5: reasonText = "E2E"; reasonColor = Color.argb(210, 255, 175, 3); break;
+            default: break;
+        }
+        eonBoxRect(c, p, 265f, 407f, 110f, 48f, reasonColor, 2f, white);
+        eonTextIn(c, p, reasonText, 265f, 407f, 110f, 48f, 40f, white);
+
+        // 차간거리(GAP) 막대
+        int gap = Math.max(0, Math.min(4, s.optInt("gap", 0)));
+        for (int i = 0; i < gap; i++) {
+            eonBoxRect(c, p, 390f, 455f - 20f * (i + 1) + 2f, 70f, 18f, Color.argb(210, 0, 203, 0), 3f, white);
+        }
+        c.restoreToCount(save);
+    }
+
     private void drawSpeed(Canvas c, Paint p, int speed) {
         String value = speed < 0 ? "--" : Integer.toString(speed);
         text(c, p, value, DRIVE_CX, SPEED_BASELINE, value.length() < 3 ? 88f : 72f,

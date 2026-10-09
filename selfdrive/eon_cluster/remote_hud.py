@@ -1245,6 +1245,8 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "gearStep": _gear_step(car),
     "gap": gap if 1 <= gap <= 4 else 0,
     "drivingMode": mode,
+    # Conditional E2E 사유(0 꺼짐, 1 ACC, 2 신호, 3 비전앞차, 4 출발, 5 수동) — HUD EON 박스용.
+    "e2eReason": int(_finite(_field(plan, "e2eReason", 0))) if longitudinal_valid else 0,
     "limit": max(0, int(_finite(_field(road, "roadLimitSpeed", 0)))),
     "camera": max(0, cam_speed),
     "cameraDist": max(0, cam_dist),
