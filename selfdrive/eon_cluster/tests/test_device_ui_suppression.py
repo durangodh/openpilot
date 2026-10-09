@@ -414,11 +414,13 @@ def test_driving_panel_uses_speed_ring_and_eon_hud_box():
       "private void drawAlert", 1)[0]
   assert "drawSpeedRing(c, p" in driving
   assert "drawEonHudBox(c, p, s, stale, enabled)" in driving
-  for removed in ("drawC2S9StatusCard(", "drawTpms(", "drawNooTurn(", "drawRpm(", "drawSpeed(c",
+  # NOO guidance is drawn centred above the EON HUD box.
+  assert "c.translate(EON_BOX_CX - NOO_CX, 165f - NOO_CY);" in driving
+  for removed in ("drawC2S9StatusCard(", "drawTpms(", "drawRpm(", "drawSpeed(c",
                   "drawSetSpeed(", "drawGearAndCoolant(", "drawModeAndEta(", "drawRange("):
     assert removed not in driving
   box = service.split("private void drawEonHudBox", 1)[1].split("private void drawSpeed(", 1)[0]
-  for item in ('"CPU"', '"LIMIT"', '"NORM"', '"OFF"', '"e2eReason"', 'optInt("gap"', 'tpmsText(v)'):
+  for item in ('"CPU"', '"S9 CPU"', 's9TempC', '"LIMIT"', '"NORM"', '"OFF"', '"e2eReason"', 'optInt("gap"', 'tpmsText(v)'):
     assert item in box
   # OEM warning popups now cover the EON HUD box instead of the map.
   assert service.count("final float cx = WARNING_CX;") == 5
