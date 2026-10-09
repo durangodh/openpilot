@@ -2531,9 +2531,16 @@ public final class HudService extends Service {
         drawSpeedRing(c, p, stale ? -1 : s.optInt("speed", 0),
                 stale ? -1 : s.optInt("rpm", -1), lv(l, "rpmRedline", 6500f));
 
-        drawLimitSign(c, p, s, stale);
+        drawLimitSign(c, p, s, stale, enabled);
         drawInfoRow(c, p, s);
 
+        // NOO 안내는 EON HUD 박스 바로 위(가운데 맞춤).
+        if (!stale) {
+            int nooSave = c.save();
+            c.translate(EON_BOX_CX - NOO_CX, 165f - NOO_CY);
+            drawNooTurn(c, p, s);
+            c.restoreToCount(nooSave);
+        }
         drawEonHudBox(c, p, s, stale, enabled);
 
         int alertSave = beginElement(c, l, "alert", DRIVE_CX, 336f);
@@ -3316,16 +3323,24 @@ public final class HudService extends Service {
     private static final float RING_BAND = 60f;    // 링 띠 두께
     private static final float RING_START = 135f;
     private static final float RING_SWEEP = 270f;
-    // 도로 왼쪽 제한속도 표지(카메라·방지턱도 이 자리)
+    // 도로 왼쪽 제한속도 표지, 그 위로 과속카메라·방지턱(4번), 맨 위 인게이지 휠(3번). 셋 다 반지름 36.
     private static final float SIGN_X = 505f;
     private static final float SIGN_Y = 300f;
+    private static final float CAM_X = 420f;
+    private static final float CAM_Y = 220f;
+    private static final float WHEEL_X = 420f;
+    private static final float WHEEL_Y = 135f;
+    // 게이지 아래: 크루즈 설정속도(5번)와 감속(적용)속도(6번)
+    private static final float SET_X = 130f;
+    private static final float SET_Y = 600f;
+    private static final float APPLY_X = 300f;
     // 아래 정보줄 기준선
     private static final float INFO_Y = 702f;
     // 연료량 신호가 없어 주행가능거리로 연료 막대를 추정한다(만충 약 650 km).
     private static final float FULL_RANGE_KM = 650f;
     // 오른쪽 EON HUD 박스: EON onroad.cc drawCarrotHud 의 475x495 패널을 그 좌표 그대로 축소해 그린다.
     private static final float EON_BOX_LEFT = 835f;
-    private static final float EON_BOX_TOP = 220f;
+    private static final float EON_BOX_TOP = 300f;
     private static final float EON_BOX_W = 300f;
     private static final float EON_BOX_SCALE = EON_BOX_W / 475f;
     private static final float EON_BOX_CX = EON_BOX_LEFT + EON_BOX_W / 2f;
@@ -3391,19 +3406,28 @@ public final class HudService extends Service {
         }
     }
 
-    /** 도로 왼쪽 표지: 방지턱 > 과속카메라 > 도로 제한속도(없으면 ---). */
-    private void drawLimitSign(Canvas c, Paint p, JSONObject s, boolean stale) {
+    /** 도로 왼쪽 표지: 도로 제한속도(없으면 ---). 위에 방지턱/과속카메라, 맨 위 인게이지 휠. */
+    private void drawLimitSign(Canvas c, Paint p, JSONObject s, boolean stale, boolean enabled) {
+        int steerWarning = s.optBoolean("steerFaultPermanent", false) ? 2
+                : (s.optBoolean("steerFaultTemporary", false) ? 1 : 0);
+        drawSteeringWheel(c, p, WHEEL_X, WHEEL_Y, (float) s.optDouble("steer", 0d), enabled, steerWarning);
         int bumpDist = stale ? 0 : (int) Math.round(s.optDouble("bumpDist", 0d));
-        int camera = stale ? 0 : s.optInt("camera", 0);
-        int cameraDist = s.optInt("cameraDist", 0);
         if (bumpDist > 0) {
-            drawBumpIcon(c, p, SIGN_X, SIGN_Y, bumpDist);
-            return;
-        }
-        if (camera > 0 && cameraDist > 0) {
-            drawCamera(c, p, SIGN_X, SIGN_Y, camera, cameraDist,
+            drawBumpIcon(c, p, CAM_X, CAM_Y, bumpDist);
+        } else if (!stale) {
+            drawCamera(c, p, CAM_X, CAM_Y, s.optInt("camera", 0), s.optInt("cameraDist", 0),
                     s.optBoolean("cameraSection", false), s.optInt("cameraSectionAvg", 0));
-            return;
+        }
+        // 게이지 아래 5번: 크루즈 설정속도(기존 SET 원), 6번: 감속(적용)속도
+        drawSetSpeed(c, p, SET_X, SET_Y, s.optInt("set", 0), enabled, s);
+        int apply = s.optInt("applySpeed", 0);
+        if (!stale && enabled && apply > 0) {
+            text(c, p, Integer.toString(apply), APPLY_X, SET_Y + 12f, 40f, APPLY_OCHRE, Paint.Align.CENTER);
+            String source = s.optString("applySource", "");
+            if (!source.isEmpty()) {
+                text(c, p, source.toUpperCase(Locale.US), APPLY_X, SET_Y + 36f, 18f, APPLY_OCHRE,
+                        Paint.Align.CENTER);
+            }
         }
         int limit = stale ? 0 : s.optInt("limit", 0);
         p.setShader(null);
@@ -3457,9 +3481,9 @@ public final class HudService extends Service {
         double coolant = system == null ? Double.NaN : system.optDouble("coolantTemp", Double.NaN);
         float coolFrac = (Double.isFinite(coolant) && coolant > -50d && coolant < 200d)
                 ? (float) Math.max(0d, Math.min(1d, (coolant - 50d) / 70d)) : 0f;
-        drawInfoGauge(c, p, 760f, 890f, coolFrac, "C", "H",
+        drawInfoGauge(c, p, 700f, 830f, coolFrac, "C", "H",
                 coolFrac > 0.9f ? Color.rgb(220, 50, 50) : (frameDark ? Color.rgb(230, 236, 242) : Color.rgb(70, 80, 90)));
-        drawCoolantThermometer(c, p, 825f, INFO_Y - 34f);
+        drawCoolantThermometer(c, p, 765f, INFO_Y - 34f);
 
         // 총주행거리(계기판 CLU12 적산거리)
         double odo = s.optDouble("odometer", -1d);
@@ -3467,7 +3491,7 @@ public final class HudService extends Service {
         textNormal(c, p, "km", 1128f, INFO_Y, 20f, ink(), Paint.Align.RIGHT);
         p.setTextSize(20f);
         p.setTypeface(Typeface.create("sans", Typeface.NORMAL));
-        text(c, p, total, 1124f - p.measureText("km"), INFO_Y, 34f, ink(), Paint.Align.RIGHT);
+        text(c, p, total, 1124f - p.measureText("km"), INFO_Y, 30f, ink(), Paint.Align.RIGHT);
     }
 
     private void eonBoxRect(Canvas c, Paint p, float x, float y, float w, float h, int fill,
@@ -3538,20 +3562,18 @@ public final class HudService extends Service {
         eonTextIn(c, p, "CPU", 320f, 32f, 130f, 34f, 25f, white);
         eonTextIn(c, p, String.format(Locale.US, "%.0f%%", cpuUse), 320f, 66f, 130f, 56f, 40f, white);
 
-        // 현재 속도 / 설정 속도 / 적용 속도
-        eonText(c, p, Integer.toString(Math.max(0, s.optInt("speed", 0))), 120f, 320f, 120f, white);
-        int set = s.optInt("set", 0);
-        eonText(c, p, enabled && set >= 10 && set < 255 ? Integer.toString(set) : "--",
-                290f, 290f, 60f, EON_GREEN);
-        int apply = s.optInt("applySpeed", 0);
-        if (enabled && apply > 0 && Math.abs(apply - set) > 0) {
-            int ochre = Color.rgb(218, 111, 37);
-            eonText(c, p, Integer.toString(apply), 370f, 220f, 50f, ochre);
-            String source = s.optString("applySource", "");
-            if (!source.isEmpty()) {
-                eonText(c, p, source, 370f, 170f, 30f, ochre);
-            }
-        }
+        // 1번: S9 CPU 온도, 2번: S9 CPU 사용률 (EON 박스의 현재속도·설정속도 자리)
+        long statsNow = SystemClock.elapsedRealtime();
+        float phoneTemp = freshStat(this.s9TempC, s9TempSampleElapsed, statsNow);
+        float phoneCpu = freshStat(this.s9CpuPercent, s9CpuSampleElapsed, statsNow);
+        eonBoxRect(c, p, 40f, 225f, 150f, 110f, phoneTemp >= 70f ? red : green190, 2f, white);
+        eonTextIn(c, p, "S9 \u00B0C", 40f, 225f, 150f, 40f, 26f, white);
+        eonTextIn(c, p, phoneTemp < 0f ? "--" : String.format(Locale.US, "%.0f\u00B0C", phoneTemp),
+                40f, 265f, 150f, 70f, 46f, white);
+        eonBoxRect(c, p, 210f, 225f, 150f, 110f, phoneCpu >= 90f ? red : green190, 2f, white);
+        eonTextIn(c, p, "S9 CPU", 210f, 225f, 150f, 40f, 26f, white);
+        eonTextIn(c, p, phoneCpu < 0f ? "--" : String.format(Locale.US, "%.0f%%", phoneCpu),
+                210f, 265f, 150f, 70f, 46f, white);
 
         // 기어 (D 에서는 변속 단수)
         String gear = s.optString("gear", "--");
