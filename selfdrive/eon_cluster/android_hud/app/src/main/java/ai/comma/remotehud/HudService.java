@@ -3486,8 +3486,13 @@ public final class HudService extends Service {
 
         JSONObject system = s.optJSONObject("system");
         double coolant = system == null ? Double.NaN : system.optDouble("coolantTemp", Double.NaN);
-        float coolFrac = (Double.isFinite(coolant) && coolant > -50d && coolant < 200d)
-                ? (float) Math.max(0d, Math.min(1d, (coolant - 50d) / 70d)) : 0f;
+        // 순정 계기판처럼: 50~75°C 예열 구간만 올라오고, 75~105°C 는 가운데 고정, 105~120°C 에서 H 로.
+        float coolFrac = 0f;
+        if (Double.isFinite(coolant) && coolant > -50d && coolant < 200d) {
+            coolFrac = coolant < 75d ? (float) Math.max(0d, (coolant - 50d) / 50d)
+                    : coolant <= 105d ? 0.5f
+                    : (float) Math.min(1d, 0.5d + (coolant - 105d) / 30d);
+        }
         drawInfoGauge(c, p, 850f, 950f, coolFrac, "C", "H",
                 coolFrac > 0.9f ? Color.rgb(220, 50, 50) : (frameDark ? Color.rgb(230, 236, 242) : Color.rgb(70, 80, 90)));
         drawCoolantThermometer(c, p, 900f, INFO_Y - 34f);
