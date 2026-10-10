@@ -3973,19 +3973,8 @@ public final class HudService extends Service {
     private void drawOutsideTemp(Canvas c, Paint p, JSONObject s) {
         feedWeather(s);
         double temp = s.optDouble("outsideTemp", -1000d);
-        // 왼쪽부터 날씨 그림 → 외기온도 → 배터리 전압. 오른쪽 끝(790)에서 거꾸로 쌓는다.
+        // 왼쪽부터 날씨 그림 → 외기온도. 오른쪽 끝(790)에 맞춘다.
         float right = 790f;
-        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        p.setTextSize(22f);
-        double volt = s.optDouble("batteryVoltage", -1d);
-        if (Double.isFinite(volt) && volt > 5d && volt < 20d) {
-            // 시동 중 정상 13.2~14.8V, 꺼진 상태 12.2V 이상. 범위를 벗어나면 빨강.
-            int vColor = (volt < 11.8d || volt > 15.5d) ? Color.rgb(230, 48, 58) : ink();
-            String vLabel = String.format(Locale.US, "%.1fV", volt);
-            float vWidth = p.measureText(vLabel);
-            text(c, p, vLabel, right, 44f, 22f, vColor, Paint.Align.RIGHT);
-            right -= vWidth + 24f;
-        }
         if (Double.isFinite(temp) && temp >= -50d && temp <= 80d) {
             String label = String.format(Locale.US, "%.0f°C", temp);
             p.setTypeface(Typeface.create("sans", Typeface.BOLD));

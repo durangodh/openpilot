@@ -253,7 +253,7 @@ struct CarState {
   engineWarning @73 :Bool;        # check-engine lamp (EMS14 L_MIL)
   airbagWarning @74 :Bool;        # airbag fault (ACU11 CF_Acu_FltStat != 0)
   batteryWarning @75 :Bool;       # charging warning lamp (EMS19 BAT_LAMP_STAT)
-  batteryVoltage @76 :Float32;    # battery voltage (EMS14 VB), -1 if not seen
+  batteryVoltage @76 :Float32;    # unused: EMS14 VB is not on the Genesis DH bus
   oilPressureWarning @77 :Bool;   # oil pressure switch lamp (EMS19 CF_Ems_OPSFail)
   absWarning @78 :Bool;           # ABS warning lamp (TCS15 ABS_W_LAMP)
 
