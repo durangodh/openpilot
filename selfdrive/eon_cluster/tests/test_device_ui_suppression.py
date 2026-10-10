@@ -414,6 +414,8 @@ def test_driving_panel_uses_speed_ring_and_eon_hud_box():
       "private void drawAlert", 1)[0]
   assert "drawSpeedRing(c, p" in driving
   assert "drawEonHudBox(c, p, s, stale, enabled)" in driving
+  # Date and time sit at the top centre of the driving panel, without a box.
+  assert "drawTopClock(c, p);" in driving
   # NOO guidance is drawn right-aligned above the EON HUD box.
   assert "c.translate(EON_BOX_LEFT + EON_BOX_W, 110f);" in driving
   assert "c.translate(-NOO_CX, -(NOO_CY - 31f));" in driving and "c.scale(0.8f, 0.8f);" in driving
@@ -422,7 +424,7 @@ def test_driving_panel_uses_speed_ring_and_eon_hud_box():
     assert removed not in driving
   box = service.split("private void drawEonHudBox", 1)[1].split("private void drawSpeed(", 1)[0]
   for item in ('"C2 CPU"', '"S9 CPU"', 's9TempC', '"LIMIT"', '"NORM"', '"OFF"', '"e2eReason"',
-               'optInt("gap"', 'tpmsText(fl)', '"TPMS"', 'drawCard(c, p, scratchRect)', '"HH:mm"',
+               'optInt("gap"', 'tpmsText(fl)', '"TPMS"', 'drawCard(c, p, scratchRect)',
                '"latAccelFactor"', '"latFriction"', '"steerRatio"'):
     assert item in box
   # OEM warning popups cover the EON HUD box at the same size.

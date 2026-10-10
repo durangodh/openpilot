@@ -2528,6 +2528,7 @@ public final class HudService extends Service {
         c.scale(TOP_ROW_SCALE, TOP_ROW_SCALE, 790f, 36f);
         drawOutsideTemp(c, p, s);
         c.restoreToCount(tempSave);
+        drawTopClock(c, p);
 
         // 하늘 띠 글자색 반전은 위쪽 등화 줄·날씨까지만 쓴다.
         skyBand = false;
@@ -3540,6 +3541,22 @@ public final class HudService extends Service {
         text(c, p, total, 1124f - p.measureText("km"), INFO_Y, 30f, ink(), Paint.Align.RIGHT);
     }
 
+    /** 주행패널 맨 위 가운데: 날짜(작게)·시간(크게), 상자 없이. 하늘 띠 글자색(ink)을 따른다. */
+    private void drawTopClock(Canvas c, Paint p) {
+        java.util.Date now = new java.util.Date();
+        String date = new SimpleDateFormat("MM.dd (E)", Locale.KOREA).format(now);
+        String time = new SimpleDateFormat("HH:mm", Locale.KOREA).format(now);
+        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        p.setTextSize(24f);
+        float dateW = p.measureText(date);
+        p.setTextSize(36f);
+        float timeW = p.measureText(time);
+        float gap = 14f;
+        float left = DRIVE_MID - (dateW + gap + timeW) / 2f;
+        text(c, p, date, left, 46f, 24f, ink(), Paint.Align.LEFT);
+        text(c, p, time, left + dateW + gap, 48f, 36f, ink(), Paint.Align.LEFT);
+    }
+
     private void eonBoxRect(Canvas c, Paint p, float x, float y, float w, float h, int fill,
                             float stroke, int edge) {
         p.setShader(null);
@@ -3575,14 +3592,6 @@ public final class HudService extends Service {
         c.translate(EON_BOX_LEFT, EON_BOX_TOP);
         c.scale(EON_BOX_SCALE, EON_BOX_SCALE);
         eonBoxRect(c, p, 0f, 0f, 475f, EON_BOX_H, Color.argb(frameDark ? 90 : 120, 0, 0, 0), 2f, Color.WHITE);
-        // 박스 아래 따로: 날짜·시간
-        java.util.Date today = new java.util.Date();
-        float dateTop = EON_BOX_H + 14f;
-        eonBoxRect(c, p, 0f, dateTop, 475f, 90f, Color.argb(frameDark ? 90 : 120, 0, 0, 0), 2f, Color.WHITE);
-        eonTextIn(c, p, new SimpleDateFormat("MM.dd (E)", Locale.KOREA).format(today),
-                10f, dateTop, 200f, 90f, 36f, Color.WHITE);
-        eonTextIn(c, p, new SimpleDateFormat("HH:mm", Locale.KOREA).format(today),
-                200f, dateTop, 265f, 90f, 62f, Color.WHITE);
         if (stale) {
             c.restoreToCount(save);
             return;
