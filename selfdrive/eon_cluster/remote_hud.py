@@ -1216,6 +1216,12 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "drivingMode": mode,
     # Conditional E2E 사유(0 꺼짐, 1 ACC, 2 신호, 3 비전앞차, 4 출발, 5 수동) — HUD EON 박스용.
     "e2eReason": int(_finite(_field(plan, "e2eReason", 0))) if longitudinal_valid else 0,
+    # 조향 튜닝 값(EON 설정을 바꾸면 그대로 따라온다): LatAccelFactor / Friction / 적용 조향비
+    "latAccelFactor": round(_finite(_field(_field(_field(controls, "lateralControlState", None),
+                                                  "torqueState", None), "latAccelFactor", -1.0), -1.0), 3),
+    "latFriction": round(_finite(_field(_field(_field(controls, "lateralControlState", None),
+                                               "torqueState", None), "friction", -1.0), -1.0), 3),
+    "steerRatio": round(_finite(_field(controls, "steerRatio", -1.0), -1.0), 2),
     "limit": max(0, int(_finite(_field(road, "roadLimitSpeed", 0)))),
     "camera": max(0, cam_speed),
     "cameraDist": max(0, cam_dist),

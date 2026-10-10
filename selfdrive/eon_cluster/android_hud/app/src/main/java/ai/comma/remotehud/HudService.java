@@ -3574,6 +3574,14 @@ public final class HudService extends Service {
         c.translate(EON_BOX_LEFT, EON_BOX_TOP);
         c.scale(EON_BOX_SCALE, EON_BOX_SCALE);
         eonBoxRect(c, p, 0f, 0f, 475f, EON_BOX_H, Color.argb(frameDark ? 90 : 120, 0, 0, 0), 2f, Color.WHITE);
+        // 박스 아래 따로: 날짜·시간
+        java.util.Date today = new java.util.Date();
+        float dateTop = EON_BOX_H + 14f;
+        eonBoxRect(c, p, 0f, dateTop, 475f, 90f, Color.argb(frameDark ? 90 : 120, 0, 0, 0), 2f, Color.WHITE);
+        eonTextIn(c, p, new SimpleDateFormat("MM.dd (E)", Locale.KOREA).format(today),
+                10f, dateTop, 200f, 90f, 36f, Color.WHITE);
+        eonTextIn(c, p, new SimpleDateFormat("HH:mm", Locale.KOREA).format(today),
+                200f, dateTop, 265f, 90f, 62f, Color.WHITE);
         if (stale) {
             c.restoreToCount(save);
             return;
@@ -3625,13 +3633,16 @@ public final class HudService extends Service {
         text(c, p, tpmsText(rl), 356f, 192f, 30f, tpmsLow(rl) ? lowText : ink(), Paint.Align.RIGHT);
         text(c, p, tpmsText(rr), 409f, 192f, 30f, tpmsLow(rr) ? lowText : ink(), Paint.Align.LEFT);
 
-        // 3줄: 날짜·시간, 오른쪽 기어 (D 에서는 변속 단수)
-        java.util.Date today = new java.util.Date();
+        // 3줄: 조향 튜닝(LatAccelFactor / Friction / 적용 조향비), 오른쪽 기어 (D 에서는 변속 단수)
+        double laf = s.optDouble("latAccelFactor", -1d);
+        double fric = s.optDouble("latFriction", -1d);
+        double sr = s.optDouble("steerRatio", -1d);
         eonBoxRect(c, p, 15f, 245f, 345f, 100f, Color.argb(170, 30, 30, 30), 2f, white);
-        eonTextIn(c, p, new SimpleDateFormat("MM.dd (E)", Locale.KOREA).format(today),
-                20f, 245f, 145f, 100f, 28f, white);
-        eonTextIn(c, p, new SimpleDateFormat("HH:mm", Locale.KOREA).format(today),
-                165f, 245f, 195f, 100f, 58f, white);
+        eonTextIn(c, p, "LT  /  FRIC  /  SR", 15f, 245f, 345f, 40f, 24f, Color.argb(200, 255, 255, 255));
+        eonTextIn(c, p, (laf > 0d ? String.format(Locale.US, "%.2f", laf) : "--") + " / "
+                        + (fric >= 0d ? String.format(Locale.US, "%.3f", fric) : "--") + " / "
+                        + (sr > 0d ? String.format(Locale.US, "%.2f", sr) : "--"),
+                15f, 283f, 345f, 62f, 32f, white);
         String gear = s.optString("gear", "--");
         int gearStep = s.optInt("gearStep", 0);
         if ("D".equals(gear) && gearStep > 0) {
