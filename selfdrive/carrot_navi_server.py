@@ -12,10 +12,6 @@ import uuid
 
 from common.params import Params
 from selfdrive import trace_http
-from selfdrive.eon_cluster.hud_stats import StatsLog, append_module_log
-
-# 폰 → EON 지도 수신 통계(10초마다 /data/media/0/hud_trace/navi_*.log).
-MAP_STATS = StatsLog("navi")
 
 try:
   import numpy as np
@@ -380,7 +376,6 @@ class NaviState(object):
       return
     image = image_payload[start:end + 2]
 
-    MAP_STATS.mark("rx_" + str(source))
     # Only a validated JPEG counts as map activity. Otherwise malformed packets
     # could keep an old destination alive forever by refreshing last_map_rx.
     with self.lock:
@@ -392,7 +387,6 @@ class NaviState(object):
 
     # A valid rate-limited frame still refreshed last_map_rx above.
     if now < self.last_map_write + MAP_WRITE_GATE_RATIO / map_render_fps(self.params):
-      MAP_STATS.add("gated")
       return
     image_digest = hashlib.sha1(image).digest()
     with self.lock:
@@ -417,7 +411,6 @@ class NaviState(object):
     # rewrite to the S9 on the loop that also carries the driving telemetry.
     # remote_hud's own keepalive still refreshes the S9 copy.
     if image_digest == previous_written and os.path.exists(MAP_FILE):
-      MAP_STATS.add("same")
       return
     tmp = MAP_FILE + ".tmp." + source
     try:
@@ -428,7 +421,6 @@ class NaviState(object):
           os.unlink(tmp)
           return
         os.rename(tmp, MAP_FILE)
-        MAP_STATS.mark("write")
         self.last_map_write = now
         self.written_map_digest = image_digest
     except IOError:
@@ -556,7 +548,6 @@ class NaviState(object):
   def _map_watchdog_loop(self):
     while True:
       time.sleep(0.5)
-      MAP_STATS.maybe_flush("src %s" % self.active_source)
       selected_tmap = self.accepts(SOURCE_TMAP)
       now = time.monotonic()
       with self.lock:
@@ -779,8 +770,7 @@ def client_loop(conn, state):
       elif not is_control and message.get("type") == "item_update":
         name = message.get("name", stream_name)
         if name == "module_log":
-          # Diagnostics from the phone module (Kakao voice button etc.), /trace 에서 받는다.
-          append_module_log(source, message.get("value"))
+          # 폰 모듈 진단 로그는 더 이상 기록하지 않는다.
           continue
         value = message.get("value") if message.get("present", True) else None
         is_encoded_image = (isinstance(value, str) or

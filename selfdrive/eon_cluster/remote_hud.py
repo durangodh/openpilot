@@ -18,7 +18,6 @@ import time
 import cereal.messaging as messaging
 from common.params import Params
 from selfdrive.eon_cluster.nav_selection import NavSelectionSync
-from selfdrive.eon_cluster.hud_stats import StatsLog, append_module_log
 from selfdrive.eon_cluster.hud_remote import RemoteCommandSync, allowed_commands
 
 
@@ -172,16 +171,12 @@ class MapFrameServer(object):
     self.last_send = 0.0
     self.poll_interval = 1.0 / 5.0
     self.next_poll = 0.0
-    # EON → S9 지도 전송 통계(10초마다 /data/media/0/hud_trace/hud_*.log).
-    self.stats = StatsLog("hud")
-    self.map_fresh = False
 
   def set_poll_fps(self, fps):
     self.poll_interval = 1.0 / max(1.0, float(fps))
 
   def _drop_client(self):
     if self.client is not None:
-      self.stats.add("drop")
       try:
         self.client.close()
       except Exception:
@@ -223,28 +218,15 @@ class MapFrameServer(object):
     self.signatures[tag] = signature
     self.cached[tag] = data
     self.pending.add(tag)
-    if tag == b"MAP1":
-      self.map_fresh = True
-      self.stats.mark("map_file")
 
   def _send_asset(self, tag):
     payload = self.cached.get(tag, b"")
-    started = time.monotonic()
     self.client.sendall(tag + struct.pack(">I", len(payload)) + payload)
-    if tag == b"MAP1":
-      # 새 지도 프레임만 센다(1초 keepalive 재전송은 keepalive 로 따로).
-      if self.map_fresh:
-        self.stats.mark("map_send", time.monotonic() - started)
-        self.map_fresh = False
-      else:
-        self.stats.add("keepalive")
 
   def poll(self):
     now = time.monotonic()
     if now < self.next_poll:
       return
-    self.stats.mark("poll")
-    self.stats.maybe_flush("client %s%s" % ("on" if self.client is not None else "off", _wifi_status()))
     # Advance from the previous deadline instead of from `now`. This avoids
     # quantizing a 3 Hz map stream down to 2.3-2.5 Hz when telemetry runs at
     # 7 or 10 Hz. If the process was stalled, skip the missed polls rather
@@ -313,19 +295,6 @@ def _field(obj, name, default=0):
     return getattr(obj, name)
   except Exception:
     return default
-
-
-def _wifi_status():
-  """EON wlan0 signal level and failed-retry counter from /proc/net/wireless (for hud_*.log)."""
-  try:
-    with open("/proc/net/wireless") as f:
-      for line in f:
-        if line.strip().startswith("wlan0:"):
-          cols = line.split()
-          return " | wifi %s dBm retryfail %s" % (cols[3].rstrip("."), cols[8])
-  except (IOError, OSError, IndexError):
-    pass
-  return ""
 
 
 def _stream_alive(sm, name, max_updates=10):
@@ -1444,9 +1413,6 @@ def main():
         sm.alive["carState"] and sm.valid["carState"] and sm["carState"].canValid,
         sm["carState"].gearShifter == "drive", sm["carState"].brakePressed, sm["carState"].gasPressed)
       packet["hudCmdDriveAllowed"] = "res" in remote_allowed
-      if not packet.get("drivingValid", True):
-        # HUD 가 "차량 데이터 대기"를 띄우는 패킷 수(10초 통계 줄에 nodrive 로 남는다).
-        map_server.stats.add("nodrive")
       # S9 가 응답하는 동안은 그 주소로 직접(유니캐스트) 보낸다. 와이파이 브로드캐스트는
       # 재전송 없이 최저 속도로 나가 여러 조각으로 나뉜 큰 패킷이 자주 통째로 사라졌다
       # (2026-10-08: S9 응답 절반, 5~10초 공백 -> HUD "EON 연결 끊김"). 응답이 1.5초 끊기면
@@ -1460,12 +1426,8 @@ def main():
           if reply == b"HUD1":
             last_ack = time.monotonic()
             hud_ip = address[0]
-            # S9 응답 간격(ack gapmax). 3초를 넘으면 S9 HUD 가 "EON 연결 끊김"을 띄운다.
-            map_server.stats.mark("ack")
           elif reply.startswith(b"GPSL"):
-            # S9 GPS delivery delay (fix UTC time -> phone), 1/s, for /trace.
-            v_ego = _finite(_field(sm["carState"], "vEgo", 0.0)) if sm.alive["carState"] else -1.0
-            append_module_log("gps", "%s v_ego=%.1f" % (reply[4:].decode("ascii", "replace"), v_ego))
+            pass  # S9 GPS 지연 보고. 기록하지 않는다.
           elif nav_selection.receive(reply, address):
             last_ack = time.monotonic()
           elif remote_commands.receive(reply, address, remote_allowed):
