@@ -122,20 +122,14 @@ final class SkyBackground {
         }
 
         int count = cloudCount(icon, cloudPct);
-        if (count > 0) {
+        // 안개 속에서는 구름 윤곽이 보이지 않는다. 안개층이 대신 질감을 만든다.
+        if (count > 0 && icon != WeatherService.ICON_FOG) {
             drawClouds(c, p, width, height, count, cloudColor(icon, day),
                     seedFor(icon));
         }
 
         if (icon == WeatherService.ICON_FOG) {
-            p.setStyle(Paint.Style.STROKE);
-            p.setStrokeCap(Paint.Cap.ROUND);
-            p.setStrokeWidth(height * 0.030f);
-            p.setColor(day ? Color.argb(120, 255, 255, 255)
-                    : Color.argb(90, 190, 198, 210));
-            c.drawLine(width * 0.06f, height * 0.62f, width * 0.34f, height * 0.62f, p);
-            c.drawLine(width * 0.62f, height * 0.74f, width * 0.94f, height * 0.74f, p);
-            p.setStyle(Paint.Style.FILL);
+            drawFog(c, p, width, height, day ? Color.rgb(226, 229, 231) : Color.rgb(104, 110, 120));
         } else if (icon == WeatherService.ICON_RAIN) {
             drawStreaks(c, p, width, height, 200,
                     day ? Color.argb(160, 232, 240, 248) : Color.argb(140, 170, 196, 226));
@@ -559,6 +553,48 @@ final class SkyBackground {
             p.setColor(color);
             p.setAlpha(Math.round(baseAlpha * strength * (0.6f + rnd.nextFloat() * 0.4f)));
             c.drawCircle(x, y, r * sizeScale, p);
+        }
+        p.setMaskFilter(null);
+        p.setAlpha(255);
+    }
+
+    /**
+     * 안개. 아래로 갈수록 짙어지는 뿌연 막 위에, 가로로 길게 퍼진 흐릿한 안개
+     * 띠 여러 겹과 얇은 안개 자락을 겹쳐 고르지 않은 실제 안개처럼 보이게 한다.
+     */
+    private static void drawFog(Canvas c, Paint p, int w, int h, int color) {
+        Random rnd = new Random(23);
+        int rgb = color & 0x00FFFFFF;
+        p.setStyle(Paint.Style.FILL);
+
+        // 아래로 갈수록 짙어지는 막
+        p.setShader(new LinearGradient(0f, 0f, 0f, h,
+                (40 << 24) | rgb, (175 << 24) | rgb, Shader.TileMode.CLAMP));
+        c.drawRect(0f, 0f, w, h * 1.2f, p);
+        p.setShader(null);
+
+        // 가로로 길게 퍼진 안개 띠(먼 띠는 위쪽·옅게, 가까운 띠는 아래쪽·짙게)
+        p.setMaskFilter(new BlurMaskFilter(Math.max(12f, h * 0.12f), BlurMaskFilter.Blur.NORMAL));
+        for (int i = 0; i < 9; i++) {
+            float depth = (i + rnd.nextFloat()) / 9f;
+            float y = h * (0.25f + depth * 0.75f);
+            float bw = w * (0.45f + rnd.nextFloat() * 0.55f);
+            float bh = h * (0.08f + depth * 0.12f + rnd.nextFloat() * 0.06f);
+            float x = -bw * 0.3f + rnd.nextFloat() * (w + bw * 0.6f);
+            p.setColor(color);
+            p.setAlpha(45 + Math.round(depth * 55f) + rnd.nextInt(25));
+            c.drawOval(x - bw * 0.5f, y - bh * 0.5f, x + bw * 0.5f, y + bh * 0.5f, p);
+        }
+
+        // 얇은 안개 자락
+        p.setMaskFilter(new BlurMaskFilter(Math.max(5f, h * 0.035f), BlurMaskFilter.Blur.NORMAL));
+        for (int i = 0; i < 7; i++) {
+            float y = h * (0.30f + rnd.nextFloat() * 0.60f);
+            float bw = w * (0.20f + rnd.nextFloat() * 0.30f);
+            float x = rnd.nextFloat() * w;
+            p.setColor(color);
+            p.setAlpha(35 + rnd.nextInt(30));
+            c.drawOval(x - bw * 0.5f, y - h * 0.018f, x + bw * 0.5f, y + h * 0.018f, p);
         }
         p.setMaskFilter(null);
         p.setAlpha(255);
