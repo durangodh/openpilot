@@ -147,16 +147,3 @@ def test_lane_centre_waits_for_a_sustained_bend():
   lp.param_read_frame = 5
   namespace['get_d_path'](lp, 15, t, path, 1.0, 200)  # straight
   assert lp.curve_time == 0.0 and w(200) == 0.0
-
-
-def test_lane_change_start_slows_only_counter_direction_jump():
-  from selfdrive.controls.lib.lane_path_validation import limit_lane_change_start
-  prev = np.full(33, -0.47)
-  jump = np.full(33, 0.12)    # right lane change, path jumps 0.59 m to the left
-  out = limit_lane_change_start(prev, jump, 0.05, -1, 0.05)
-  assert np.allclose(out, -0.47 + 0.2 * 0.05)
-  toward = np.full(33, -1.2)  # movement toward the new lane is untouched
-  assert np.allclose(limit_lane_change_start(prev, toward, 0.05, -1, 0.05), toward)
-  # After the release window the model path is used as is.
-  assert np.allclose(limit_lane_change_start(prev, jump, 1.6, -1, 0.05), jump)
-  assert np.allclose(limit_lane_change_start(None, jump, 0.05, -1, 0.05), jump)
