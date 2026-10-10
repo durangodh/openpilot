@@ -303,26 +303,6 @@
   },
   {
    "group": "\ud06c\ub8e8\uc988",
-   "name": "HumanAcceleration",
-   "title": "HUMAN-LIKE ACCELERATION",
-   "descr": "\ucf1c\uc9d0: \ubaa9\ud45c \uc18d\ub3c4(\ucee4\ube0c\u00b7\ub124\ube44\u00b7\uce74\uba54\ub77c \uc81c\ud55c \ud3ec\ud568)\uc5d0 \uac00\uae4c\uc6cc\uc9c8\uc218\ub85d \uac00\uc18d\uc744 \uc904\uc785\ub2c8\ub2e4. 18km/h \uc774\ub0b4\ubd80\ud130 \uc904\uc774\uae30 \uc2dc\uc791\ud574 3.6km/h \ucc28\uc774\uc5d0\uc11c 0.5m/s\u00b2, \ubaa9\ud45c \uc18d\ub3c4\uc5d0\uc11c 0. FrogPilot \ubc29\uc2dd.",
-   "min": 0,
-   "max": 1,
-   "default": 0,
-   "unit": 1
-  },
-  {
-   "group": "\ud06c\ub8e8\uc988",
-   "name": "HumanFollowing",
-   "title": "HUMAN-LIKE FOLLOWING",
-   "descr": "\ucf1c\uc9d0: \uc55e\ucc28\uc758 \uc55e\uc73c\ub85c \uc6c0\uc9c1\uc784\uc744 \ub808\uc774\ub354 \uac00\uc18d\ub3c4 \ud55c \uac12\uc774 \uc544\ub2c8\ub77c \uc8fc\ud589 \ubaa8\ub378\uc774 \uc608\uce21\ud55c \uada4\uc801\uc73c\ub85c \uacc4\uc0b0\ud574, \uc55e\ucc28 \ub530\ub77c\uac08 \ub54c \uae09\uac00\uc18d\u00b7\uae09\uac10\uc18d\uc744 \uc904\uc785\ub2c8\ub2e4. FrogPilot \ubc29\uc2dd.",
-   "min": 0,
-   "max": 1,
-   "default": 1,
-   "unit": 1
-  },
-  {
-   "group": "\ud06c\ub8e8\uc988",
    "name": "ApplyLongDynamicCost",
    "title": "DYNAMIC FOLLOWING RESPONSE",
    "descr": "\ucf1c\uc9d0: 18km/h\uae4c\uc9c0 \uc55e\ucc28 \ucd9c\ubc1c \ubc18\uc751\uc744 \ub3d9\uc801\uc73c\ub85c \uc870\uc815\ud558\uace0, 18~30km/h\uc5d0\uc11c \uc810\ucc28 \uc904\uc5ec 30km/h\ubd80\ud130 \uc77c\ubc18 \ucd94\uc885\uc73c\ub85c \ubcf5\uadc0\ud569\ub2c8\ub2e4.",
@@ -779,6 +759,26 @@
    "min": 0,
    "max": 1,
    "default": 0,
+   "unit": 1
+  },
+  {
+   "group": "\uc885\ubc29\ud5a5",
+   "name": "HumanAcceleration",
+   "title": "HUMAN-LIKE ACCELERATION",
+   "descr": "\ucf1c\uc9d0: \ubaa9\ud45c \uc18d\ub3c4(\ucee4\ube0c\u00b7\ub124\ube44\u00b7\uce74\uba54\ub77c \uc81c\ud55c \ud3ec\ud568)\uc5d0 \uac00\uae4c\uc6cc\uc9c8\uc218\ub85d \uac00\uc18d\uc744 \uc904\uc785\ub2c8\ub2e4. 18km/h \uc774\ub0b4\ubd80\ud130 \uc904\uc774\uae30 \uc2dc\uc791\ud574 3.6km/h \ucc28\uc774\uc5d0\uc11c 0.5m/s\u00b2, \ubaa9\ud45c \uc18d\ub3c4\uc5d0\uc11c 0. FrogPilot \ubc29\uc2dd.",
+   "min": 0,
+   "max": 1,
+   "default": 0,
+   "unit": 1
+  },
+  {
+   "group": "\uc885\ubc29\ud5a5",
+   "name": "HumanFollowing",
+   "title": "HUMAN-LIKE FOLLOWING",
+   "descr": "\ucf1c\uc9d0: \uc55e\ucc28\uc758 \uc55e\uc73c\ub85c \uc6c0\uc9c1\uc784\uc744 \ub808\uc774\ub354 \uac00\uc18d\ub3c4 \ud55c \uac12\uc774 \uc544\ub2c8\ub77c \uc8fc\ud589 \ubaa8\ub378\uc774 \uc608\uce21\ud55c \uada4\uc801\uc73c\ub85c \uacc4\uc0b0\ud574, \uc55e\ucc28 \ub530\ub77c\uac08 \ub54c \uae09\uac00\uc18d\u00b7\uae09\uac10\uc18d\uc744 \uc904\uc785\ub2c8\ub2e4. FrogPilot \ubc29\uc2dd.",
+   "min": 0,
+   "max": 1,
+   "default": 1,
    "unit": 1
   },
   {

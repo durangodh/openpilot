@@ -1408,16 +1408,6 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 5, 30, 1, 0, 30, this));
 
   list->addItem(new ParamControl(
-      "HumanAcceleration", "HUMAN-LIKE ACCELERATION",
-      "켜짐: 목표 속도(커브·네비·카메라 제한 포함)에 가까워질수록 가속을 줄입니다. 18km/h 이내부터 줄이기 시작해 3.6km/h 차이에서 0.5m/s², 목표 속도에서 0. FrogPilot 방식.",
-      "../assets/offroad/icon_road.png", this));
-
-  list->addItem(new ParamControl(
-      "HumanFollowing", "HUMAN-LIKE FOLLOWING",
-      "켜짐: 앞차의 앞으로 움직임을 레이더 가속도 한 값이 아니라 주행 모델이 예측한 궤적으로 계산해, 앞차 따라갈 때 급가속·급감속을 줄입니다. FrogPilot 방식.",
-      "../assets/offroad/icon_road.png", this));
-
-  list->addItem(new ParamControl(
       "ApplyLongDynamicCost", "DYNAMIC FOLLOWING RESPONSE",
       "켜짐: 18km/h까지 앞차 출발 반응을 동적으로 조정하고, 18~30km/h에서 점차 줄여 30km/h부터 일반 추종으로 복귀합니다.",
       "../assets/offroad/icon_road.png", this));
@@ -1657,6 +1647,16 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "LeadCruiseAccelFactor", "LEAD CRUISE ACCEL (%)",
       "앞차가 있을 때 CRUISE MAX 가속 상한에 곱하는 비율입니다. 100%는 CRUISE MAX 그대로, 95%는 전 구간 5% 낮게, 105%는 전 구간 5% 높게 가속합니다. 감속과 차간거리 유지에는 영향이 없습니다. 기본값: 100%.",
       "../assets/offroad/icon_openpilot.png", 50, 150, 5, 0, 100, this));
+
+  list->addItem(new ParamControl(
+      "HumanAcceleration", "HUMAN-LIKE ACCELERATION",
+      "켜짐: 목표 속도(커브·네비·카메라 제한 포함)에 가까워질수록 가속을 줄입니다. 18km/h 이내부터 줄이기 시작해 3.6km/h 차이에서 0.5m/s², 목표 속도에서 0. FrogPilot 방식.",
+      "../assets/offroad/icon_road.png", this));
+
+  list->addItem(new ParamControl(
+      "HumanFollowing", "HUMAN-LIKE FOLLOWING",
+      "켜짐: 앞차의 앞으로 움직임을 레이더 가속도 한 값이 아니라 주행 모델이 예측한 궤적으로 계산해, 앞차 따라갈 때 급가속·급감속을 줄입니다. FrogPilot 방식.",
+      "../assets/offroad/icon_road.png", this));
 
   const std::array<std::tuple<const char*, const char*, int>, 4> gap_controls = {{
     {"TFollowGap1", "T-FOLLOW GAP1", 110},
