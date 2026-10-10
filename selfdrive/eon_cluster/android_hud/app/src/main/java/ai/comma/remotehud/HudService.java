@@ -3413,12 +3413,12 @@ public final class HudService extends Service {
             c.drawLine(RING_CX + inner * cos, RING_CY + inner * sin,
                     RING_CX + outer * cos, RING_CY + outer * sin, p);
         }
-        // RPM: 띠 안쪽 가장자리를 따라 가는 선. 5000rpm 이후는 빨강.
+        // RPM: 두꺼운 띠 안을 채운다(테두리 안쪽까지). 5000rpm 이후는 빨강.
         if (frac > 0f) {
-            float rr = inner + 7f;
+            float rr = RING_R;
             scratchRect.set(RING_CX - rr, RING_CY - rr, RING_CX + rr, RING_CY + rr);
-            p.setStrokeWidth(8f);
-            p.setStrokeCap(Paint.Cap.ROUND);
+            p.setStrokeWidth(RING_BAND - 6f);
+            p.setStrokeCap(Paint.Cap.BUTT);
             p.setColor(frameDark ? Color.rgb(230, 236, 242) : Color.rgb(40, 150, 255));
             c.drawArc(scratchRect, RING_START, RING_SWEEP * Math.min(frac, redFrac), false, p);
             if (frac > redFrac) {
