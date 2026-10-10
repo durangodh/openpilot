@@ -58,7 +58,6 @@ class LongitudinalPlanner:
     self.my_driving_mode = 3
     self.my_eco_mode_factor = 0.8
     self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
-    self.no_lead_cruise_accel_factor = 0.65
     self.human_acceleration = False
 
     self.read_param()
@@ -127,7 +126,6 @@ class LongitudinalPlanner:
     for key, default in zip(CRUISE_MAX_VAL_KEYS, CRUISE_MAX_VAL_DEFAULTS):
       raw = self.params.get_int(key)
       self.cruise_max_vals.append(float(raw * 0.01 if raw > 0 else default))
-    self.no_lead_cruise_accel_factor = scaled("NoLeadCruiseAccelFactor", 65, 0.30, 1.0)
 
     self.mpc.tfollow_gaps = [scaled(f"TFollowGap{i + 1}", default)
                              for i, default in enumerate([110, 120, 140, 160])]

@@ -108,7 +108,6 @@ class CruiseHelper:
     self.my_safe_mode_factor = 1.0
     self.my_eco_mode_factor = 0.8
     self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
-    self.no_lead_cruise_accel_factor = 0.65
     self.current_set_speed_kph = 0.0
 
     self.target_speed = 0.0
@@ -170,9 +169,6 @@ class CruiseHelper:
     for key, default in zip(CRUISE_MAX_VAL_KEYS, CRUISE_MAX_VAL_DEFAULTS):
       raw = self.params.get_int(key)
       self.cruise_max_vals.append(float(raw * 0.01 if raw > 0 else default))
-    no_lead_factor = self.params.get_int("NoLeadCruiseAccelFactor")
-    self.no_lead_cruise_accel_factor = float(clip(
-      (no_lead_factor if no_lead_factor > 0 else 65) * 0.01, 0.30, 1.0))
 
   def _param_or_default(self, key, default, lo, hi):
     # 0 이하(미설정)는 기본값, 그 뒤 범위 제한

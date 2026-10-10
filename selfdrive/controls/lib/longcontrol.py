@@ -62,11 +62,9 @@ HOLD_RESTORE_JERK = 3.0
 #     LAUNCH_JERK_MAX까지 서서히 푼다. 정지유지 제동 해제부터 실제 가속까지
 #     한 저크로 이어진다. 내려가는 쪽(새 제동 요청)에는 적용하지 않는다.
 #  2) 출발 보조: 앞차 출발이 확인된 창(LeadDepartureAssist, 최대 1초) 동안
-#     PID 출력에 작은 하한을 두고, 출발 저크를 departure_jerk_upper만큼
-#     올려준다.
-#  3) 출발 인계: 같은 창 안에서 양의 가속 요청이 줄어들 때만
-#     START_HANDOFF_JERK로 천천히 줄인다(startAccel → PID 전환 시 구동력이
-#     툭 빠지는 것 방지). 0 이하 요청은 제외.
+#     정지 상태에서 출발 상태로 넘어가게 하고(SCC12 차량은 출발 저크도
+#     departure_jerk_upper만큼 올린다). PID 출력 하한·출발 인계 저크는
+#     2026-10-08(d0ffd8c)에 apilot-c2 흐름으로 정리하며 없앴다.
 LAUNCH_TIME_BP = [0.0, 1.5, 2.5]   # s after leaving stop/off
 LAUNCH_JERK_MAX = 5.0              # m/s^3, same as the SCC14 ceiling
 LEAD_JERK_RISE_RATE = 2.0          # m/s^4, make stronger launches progressively
@@ -173,7 +171,6 @@ class LongControl:
     self.jerk_start_limit = 1.0
     self.launch_time = 0.0
     self.launch_motion_started = False
-    self.launch_limited = False
     self.lead_launch = False
     self.lead_launch_jerk = None
     self.launch_abort_active = False
@@ -513,7 +510,6 @@ class LongControl:
     if self.long_control_state in (LongCtrlState.off, LongCtrlState.stopping):
       self.launch_time = 0.0
       self.launch_motion_started = False
-      self.launch_limited = False
       self.lead_launch = False
       self.lead_launch_jerk = None
     else:
@@ -647,14 +643,12 @@ class LongControl:
         # SCC14-capable cars receive the launch jerk separately, so release the
         # hold immediately and let the vehicle ECU shape positive acceleration.
         output_accel = start_target
-        self.launch_limited = False
       else:
         # SCC12 has no jerk fields. Drop the braking request immediately to
         # release standstill, but rate-limit positive drive locally instead of
         # stepping straight to StartAccel in one control frame.
         launch_jerk = self._launch_jerk(assisted_departure)
         output_accel = min(start_target, max(0.0, output_accel) + launch_jerk * DT_CTRL)
-        self.launch_limited = output_accel + 1e-6 < start_target
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.pid:
@@ -675,7 +669,6 @@ class LongControl:
 
       # apilot-c2: execute the PID result directly. The MPC already prices
       # acceleration and jerk; SCC14 remains the single command-side jerk owner.
-      self.launch_limited = False
       output_accel = pid_output
 
     self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])

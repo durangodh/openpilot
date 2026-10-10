@@ -112,13 +112,11 @@ class LeadDepartureAssist:
     self.remaining = 0.0
     self.waiting = 0.0
     self.active = False
-    self.accel_floor = 0.0
 
   def reset(self):
     self.remaining = 0.0
     self.waiting = 0.0
     self.active = False
-    self.accel_floor = 0.0
 
   def update(self, *, enabled, stopping, confirmed, cs, plan, radar,
              radar_valid, plan_valid, plan_age, a_now, a_target,
@@ -166,9 +164,6 @@ class LeadDepartureAssist:
         self.remaining = max(0.0, self.remaining - self.dt)
 
     self.active = self.remaining > 0.0
-    # Unlike StarPilot's planner override, never exceed the acceleration that
-    # this fork's MPC already permits (including mode and cornering limits).
-    self.accel_floor = min(a_target, 0.35 if lead.vLeadK >= 0.6 else 0.18) if self.active else 0.0
     return self.active
 
   @staticmethod

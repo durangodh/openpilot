@@ -133,7 +133,6 @@ def manager_init() -> None:
     ("CruiseMaxVals4", "80"),
     ("CruiseMaxVals5", "70"),
     ("CruiseMaxVals6", "60"),
-    ("NoLeadCruiseAccelFactor", "65"),
     # 조향 기본값은 차량 공식값 기준으로 맞춘다 (2026-08-19, 학습 제거 후 정리)
     #  - CustomSteerRatio 1650  = hyundai/interface.py ret.steerRatio 16.5
     #  - SteerActuatorDelay 25  = 동 파일 ret.steerActuatorDelay 0.25s
@@ -173,8 +172,6 @@ def manager_init() -> None:
     ("StartAccelApply", "0"),
     ("StopAccelApply", "30"),
     ("StoppingDecelRate", "120"),
-    ("PidJerkAccel", "100"),
-    ("PidJerkDecel", "100"),
     ("LowSpeedJerkBoost", "100"),
     ("StandstillHoldApply", "55"),
     ("EarlyHoldRelax", "1"),
@@ -187,7 +184,6 @@ def manager_init() -> None:
     ("LongTuningKiV", "200"),
     ("LongTuningKf", "100"),
     ("LongitudinalActuatorDelayLowerBound", "50"),
-    ("LongitudinalActuatorDelayUpperBound", "50"),
     ("SoftHoldMode", "1"),
   ]
   if not PC:
@@ -270,11 +266,21 @@ def manager_init() -> None:
     midpoint = int(round((vals1 + vals2) / 10.0) * 5)
     params.put("CruiseMaxVals20", str(max(10, min(250, midpoint))))
 
+  # 더 이상 어떤 코드도 읽지 않는 종제어 파라미터 파일을 지운다(2026-10-10 정리).
+  # 키 목록에서 빠졌으므로 Params 로는 지울 수 없고 파일을 직접 지운다. 없으면 무시.
+  for dead_key in ("PidJerkAccel", "PidJerkDecel", "LeadDepartCost", "NoLeadCruiseAccelFactor",
+                   "LongCoastBand", "LongitudinalActuatorDelayUpperBound", "StoppingAccel",
+                   "NoLeadCruiseJerkLimit", "EnableSpeedTF", "StockNaviDecelEnabled",
+                   "VisionRadarToggle", "SccSmootherState"):
+    try:
+      os.remove(os.path.join("/data/params/d", dead_key))
+    except OSError:
+      pass
+
   # apilot-c2 종제어 이식(2026-09) 1회 이관: 저속 출발 코스트를 C2 기본값(5)으로 맞추고,
   # 더 이상 읽지 않는 옛 파라미터 파일을 지운다.
   if params.get("ApilotC2LongMigrated") is None:
     try:
-      params.put("LeadDepartCost", "5")
       for legacy_key in ("TFollowDecelBoost", "TFollowClosingMargin",
                          "RadarReactionFactor", "SccVisionMismatchFallback"):
         try:

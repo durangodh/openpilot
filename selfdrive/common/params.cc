@@ -195,7 +195,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"UpdateAvailable", CLEAR_ON_MANAGER_START},
     {"UpdateFailedCount", CLEAR_ON_MANAGER_START},
     {"Version", PERSISTENT},
-    {"VisionRadarToggle", PERSISTENT},
     {"MixRadarInfo", PERSISTENT},
     {"LanelessOffset", PERSISTENT},
     {"ApiCache_Device", PERSISTENT},
@@ -224,8 +223,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"CruiseSpeedMin", PERSISTENT},
     {"JerkStartLimit", PERSISTENT},
     {"StoppingDecelRate", PERSISTENT},
-    {"PidJerkAccel", PERSISTENT},              // 정상주행 가속 저크 배율 (%, default 100)
-    {"PidJerkDecel", PERSISTENT},              // 정상주행 감속 저크 배율 (%, default 100)
     {"LowSpeedJerkBoost", PERSISTENT},         // 저속(18km/h↓) 앞차출발 전용 부스트 (%, default 100)
     {"StandstillHoldApply", PERSISTENT},      // 완전정지 유지 제동값 (x-0.02 m/s^2)
     {"StandstillReleaseSpeed", PERSISTENT},   // 정차 후 자동출발 임계 목표속도 (x0.1 m/s, default 2)
@@ -245,9 +242,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LaneChangeNeedTorque", PERSISTENT},   // NOO 차선변경: -1 끔 / 0 즉시 / 1 토크필요 (carrot)
     {"OffsetTotal", PERSISTENT},
     {"AdjustLaneOffset", PERSISTENT},          // 좌우 여유공간 비대칭 보정 (cm, 0=off)     // 통합 오프셋(offset_total). 전 모드 공통, Auto-Tuner Phase2 학습 대상
-    {"SccSmootherState", PERSISTENT},
     {"SccSmootherSyncGasPressed", PERSISTENT},
-    {"StockNaviDecelEnabled", PERSISTENT},
     {"NewRadarInterface", PERSISTENT},
     {"WideCameraOnly", PERSISTENT},
     {"AutoLaneChangeTimer", PERSISTENT},
@@ -331,14 +326,11 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"AutoNaviSpeedDecelRate", PERSISTENT},     // map curve deceleration, x100 m/s^2
     {"SoftRestartTriggered", CLEAR_ON_MANAGER_START},
     // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──────────────────
-    {"LongCoastBand", PERSISTENT},             // 코스팅 데드밴드 (x100 정수, m/s², 기본 0=off; commit 10fa725 Phase9 추천·longcontrol 라이브 반영)
     {"LongTuningKpV", PERSISTENT},
     {"LongTuningKiV", PERSISTENT},
     {"LongTuningKf", PERSISTENT},
     {"LongActuatorDelay", PERSISTENT},
     {"LongitudinalActuatorDelayLowerBound", PERSISTENT},
-    {"LongitudinalActuatorDelayUpperBound", PERSISTENT},
-    {"StoppingAccel", PERSISTENT},
     // 학습 대상 파라미터 (x100 정수 저장)
     {"TFollowGap1", PERSISTENT},               // GAP1 (default 110 = 1.10s)
     {"TFollowGap2", PERSISTENT},               // GAP2 (default 120 = 1.20s)
@@ -346,12 +338,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"TFollowGap4", PERSISTENT},               // GAP4 (default 160 = 1.60s)
     {"ComfortBrake", PERSISTENT},              // 접근 감속 기준 (x100, default 250 = 2.50m/s^2)
     {"XEgoObstacleCost", PERSISTENT},          // 차간거리 추종 강도 (x100, default 600 = 6.0)
-    {"EnableSpeedTF", PERSISTENT},
-    {"LeadDepartCost", PERSISTENT},            // 저속 출발 추종 코스트 배율 (x100, default 20, apilot=5 기존=45)
-    {"NoLeadCruiseAccelFactor", PERSISTENT},  // No-lead CruiseMax percentage
     {"LongTraceEnabled", PERSISTENT},         // 가벼운 가감속 기록기(long_trace) 켜기, 기본 0
     {"LatTraceEnabled", PERSISTENT},          // 가벼운 조향 기록기(lat_trace) 켜기, 기본 0
-    {"NoLeadCruiseJerkLimit", PERSISTENT},    // No-lead accel rise rate (x100 m/s^3)
     {"StartAccelApply", PERSISTENT},
     {"StopAccelApply", PERSISTENT},
     {"SoftHoldMode", PERSISTENT},

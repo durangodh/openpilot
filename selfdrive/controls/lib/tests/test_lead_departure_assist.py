@@ -30,18 +30,6 @@ def test_shared_departure_motion_predicate_rejects_boundaries_and_nonfinite_valu
   assert not lead_is_departing(lead)
 
 
-def test_floor_never_exceeds_planner_and_distinguishes_creep():
-  assist, args = LeadDepartureAssist(0.01), inputs()
-  assert assist.update(**args)
-  assert assist.accel_floor == 0.25
-  args['a_target'] = 0.8
-  assert assist.update(**args)
-  assert assist.accel_floor == 0.35
-  args['radar'].leadOne.vLeadK = 0.4
-  assert assist.update(**args)
-  assert assist.accel_floor == 0.18
-
-
 @pytest.mark.parametrize('key,value', [
   ('enabled', False), ('confirmed', False), ('radar_valid', False),
   ('plan_valid', False), ('plan_age', 0.21), ('plan_age', -0.01),
@@ -53,7 +41,7 @@ def test_rejected_requests_clear_all_assistance(key, value):
   assert assist.update(**args)
   args[key] = value
   assert not assist.update(**args)
-  assert assist.remaining == assist.accel_floor == 0.0
+  assert assist.remaining == 0.0 and not assist.active
 
 
 @pytest.mark.parametrize('key,value', [
