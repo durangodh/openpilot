@@ -132,6 +132,7 @@ def manager_init() -> None:
     ("CruiseMaxVals4", "80"),
     ("CruiseMaxVals5", "70"),
     ("CruiseMaxVals6", "60"),
+    ("NoLeadCruiseAccelFactor", "65"),
     # 조향 기본값은 차량 공식값 기준으로 맞춘다 (2026-08-19, 학습 제거 후 정리)
     #  - CustomSteerRatio 1650  = hyundai/interface.py ret.steerRatio 16.5
     #  - SteerActuatorDelay 25  = 동 파일 ret.steerActuatorDelay 0.25s
@@ -267,7 +268,7 @@ def manager_init() -> None:
 
   # 더 이상 어떤 코드도 읽지 않는 파라미터 파일을 지운다(2026-10-10 정리).
   # 키 목록에서 빠졌으므로 Params 로는 지울 수 없고 파일을 직접 지운다. 없으면 무시.
-  for dead_key in ("PidJerkAccel", "PidJerkDecel", "LeadDepartCost", "NoLeadCruiseAccelFactor",
+  for dead_key in ("PidJerkAccel", "PidJerkDecel", "LeadDepartCost",
                    "LongCoastBand", "LongitudinalActuatorDelayUpperBound", "StoppingAccel",
                    "NoLeadCruiseJerkLimit", "EnableSpeedTF", "StockNaviDecelEnabled",
                    "VisionRadarToggle", "SccSmootherState",

@@ -7,6 +7,7 @@ from selfdrive.controls.lib.longitudinal_limits import (AUTO_SPEED_UP_RATE_KPH_S
                                                         CRUISE_MAX_VAL_DEFAULTS,
                                                         get_auto_speed_up_target,
                                                         get_cruise_max_accel,
+                                                        get_no_lead_cruise_accel_cap,
                                                         limit_accel_in_turns,
                                                         select_auto_driving_mode)
 
@@ -47,6 +48,12 @@ def test_cruise_max_tracks_the_live_slider_and_driving_mode():
   assert get_cruise_max_accel(v_ego, vals, 3) == pytest.approx(0.60)
   # ECO multiplies the same table by MyEcoModeFactor.
   assert get_cruise_max_accel(v_ego, vals, 2, 0.8) == pytest.approx(0.48)
+
+
+def test_no_lead_cap_is_lower_and_tapers_near_set_speed():
+  assert get_no_lead_cruise_accel_cap(1.0, 30.0, 0.65) == pytest.approx(0.65)
+  assert get_no_lead_cruise_accel_cap(1.0, 15.0, 0.65) == pytest.approx(0.455)
+  assert get_no_lead_cruise_accel_cap(1.0, 5.0, 0.65) == pytest.approx(0.26)
 
 
 def test_turn_limit_preserves_straight_road_acceleration():
