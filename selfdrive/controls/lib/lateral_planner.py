@@ -3,7 +3,8 @@ from common.conversions import Conversions as CV
 from common.realtime import sec_since_boot, DT_MDL
 from common.numpy_fast import interp
 from selfdrive.controls.lib.lateral_response import LateralResponse
-from selfdrive.controls.lib.lane_path_validation import curve_lane_center_blend, valid_lane_path
+from selfdrive.controls.lib.lane_path_validation import (curve_lane_center_blend, valid_lane_path,
+                                                        limit_lane_change_start)
 from selfdrive.controls.lib.lane_planner import LanePlanner
 from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.lateral_mpc_lib.lat_mpc import LateralMpc
@@ -82,6 +83,7 @@ class LateralPlanner:
     self.r_lane_change_prob = 0.0
     self.d_path_w_lines_xyz = np.zeros((TRAJECTORY_SIZE, 3))
     self.d_path_xyz = np.zeros((TRAJECTORY_SIZE, 3))  # 방어용 초기화
+    self.lc_prev_path_y = None
 
     self.debug_mode = debug
 
@@ -239,6 +241,14 @@ class LateralPlanner:
     # Feed the selected lane/model blend into MPC. Previously this result was
     # only published for display while MPC kept following the raw model path.
     self.path_xyz = self.d_path_w_lines_xyz.copy()
+    # 차로변경 시작 직후 경로가 변경 방향의 반대쪽으로 튀는 것만 느리게 따라간다.
+    lc_dir = 0
+    if self.DH.lane_change_state == LaneChangeState.laneChangeStarting:
+      lc_dir = 1 if self.DH.lane_change_direction == log.LateralPlan.LaneChangeDirection.left else \
+               -1 if self.DH.lane_change_direction == log.LateralPlan.LaneChangeDirection.right else 0
+    self.path_xyz[:, 1] = limit_lane_change_start(self.lc_prev_path_y, self.path_xyz[:, 1],
+                                                  self.DH.lane_change_timer, lc_dir, DT_MDL)
+    self.lc_prev_path_y = self.path_xyz[:, 1].copy()
 
     # Hold the model heading strongly at lower speeds.  At higher speeds keep
     # the same small heading floor used by lane mode instead of dropping to

@@ -69,3 +69,33 @@ def curve_lane_center_blend(base_blend, curve_weight, lane_prob, lane_std, lane_
   # curve_weight: LanePlanner.curve_center_weight (커브가 이어질 때만 커진다)
   weight = curve_weight * confidence
   return float(base_blend + weight * (1.0 - base_blend))
+
+
+# 차로변경 시작 직후, 모델 경로가 잠깐 반대쪽(현재 차로 쪽)으로 튀었다
+# (2026-10-10 lat_trace 54.0 s, 레인리스, 오른쪽 변경: 0.2초에 왼쪽으로 0.6 m).
+# 변경 방향 쪽 움직임은 그대로 두고, 반대쪽 움직임만 처음 1초는 아주 느리게,
+# 그 뒤 0.5초 동안 서서히 풀어 준다(풀 때 경로가 툭 따라붙지 않게).
+LC_START_COUNTER_RATE = 0.2       # m/s, 반대쪽으로 움직일 수 있는 속도(처음 1초)
+LC_START_HOLD_TIME = 1.0          # s
+LC_START_RELEASE_TIME = 1.5       # s, 이때까지 반대쪽 제한을 RELEASE_RATE 로 풀고 이후 해제
+LC_START_RELEASE_RATE = 3.0       # m/s
+
+
+def limit_lane_change_start(prev_y, new_y, timer, direction, dt):
+  """direction: +1 왼쪽 변경(y 증가), -1 오른쪽 변경(y 감소), 0 이면 그대로."""
+  if prev_y is None or direction == 0 or timer > LC_START_RELEASE_TIME:
+    return new_y
+  prev_y = np.asarray(prev_y, dtype=float)
+  new_y = np.asarray(new_y, dtype=float)
+  if prev_y.shape != new_y.shape or not (np.all(np.isfinite(prev_y)) and np.all(np.isfinite(new_y))):
+    return new_y
+  if timer <= LC_START_HOLD_TIME:
+    rate = LC_START_COUNTER_RATE
+  else:
+    frac = (timer - LC_START_HOLD_TIME) / (LC_START_RELEASE_TIME - LC_START_HOLD_TIME)
+    rate = LC_START_COUNTER_RATE + frac * (LC_START_RELEASE_RATE - LC_START_COUNTER_RATE)
+  step = new_y - prev_y
+  counter = step * direction < 0.0
+  limited = np.where(counter, np.sign(step) * np.minimum(np.abs(step), rate * dt), step)
+  return prev_y + limited
+
