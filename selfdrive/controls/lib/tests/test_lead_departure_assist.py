@@ -163,3 +163,24 @@ def test_launch_jerk_tracks_lead_motion_and_respects_user_limit():
   assert lead_departure_jerk(brisk, 1.0, 6.0) == pytest.approx(1.0)
   assert lead_departure_jerk(brisk, 0.5, 6.0) == pytest.approx(0.5)
   assert lead_departure_jerk(None, 4.0, 6.0) is None
+
+
+def test_lead_dropout_hold_keeps_close_closing_lead_briefly():
+  from selfdrive.controls.lib.lead_departure import LeadDropoutHold, LEAD_HOLD_S
+  hold = LeadDropoutHold()
+  lead = {'status': True, 'dRel': 16.6, 'vRel': -1.4, 'vLead': 5.6, 'fcw': False}
+  assert hold.update(lead, 0.0) is lead
+  held = hold.update({'status': False}, 0.5)
+  assert held['status'] and abs(held['dRel'] - (16.6 - 0.7)) < 1e-6
+  assert hold.update({'status': False}, LEAD_HOLD_S - 0.01)['status']
+  assert not hold.update({'status': False}, LEAD_HOLD_S + 0.1)['status']
+
+
+def test_lead_dropout_hold_ignores_far_or_opening_leads():
+  from selfdrive.controls.lib.lead_departure import LeadDropoutHold
+  hold = LeadDropoutHold()
+  hold.update({'status': True, 'dRel': 60.0, 'vRel': -2.0}, 0.0)
+  assert not hold.update({'status': False}, 0.1)['status']
+  hold.update({'status': True, 'dRel': 20.0, 'vRel': 0.5}, 1.0)
+  assert not hold.update({'status': False}, 1.1)['status']
+

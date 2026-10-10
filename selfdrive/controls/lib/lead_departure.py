@@ -192,3 +192,50 @@ def departure_jerk_upper(normal_upper, configured_start, pid_upper, assisted):
   # Partially bypass the C2 startup ramp only (was 2.0); keeps a human-like launch.
   launch_upper = min(LAUNCH_JERK_UPPER_MAX, max(0.0, pid_upper), max(0.0, configured_start) * 2.0)
   return min(5.0, max(normal_upper, launch_upper))
+
+
+# 주행 중 앞차 놓침 유지(radard). 가까이서 다가가던 앞차를 레이더·카메라가 잠깐 둘 다
+# 놓치면, 플래너는 앞차가 없다고 보고 바로 설정속도로 가속했다(2026-10-10 long_trace
+# 59.8 s 41 m, 68.5 s 16.6 m: 놓친 직후 가속 → 운전자 브레이크). 짧은 끊김 동안은
+# 마지막 상대속도로 거리를 이어 계산해 같은 앞차로 유지한다.
+LEAD_HOLD_S = 1.2
+LEAD_HOLD_MAX_DIST = 40.0
+LEAD_HOLD_MIN_CLOSING = 0.3   # m/s, 다가가는 중일 때만(멀어지는 차는 그냥 놓는다)
+
+
+class LeadDropoutHold:
+  def __init__(self):
+    self.held = None
+    self.lost_at = None
+    self.last_t = None
+    self.seen_at = None
+
+  def update(self, lead, now):
+    """lead: radard 의 leadOne dict. 끊김이면 이어 계산한 dict 를 돌려준다."""
+    if lead.get('status', False):
+      self.held = dict(lead)
+      self.lost_at = None
+      self.last_t = now
+      self.seen_at = now
+      return lead
+    held = self.held
+    if held is None or self.last_t is None or self.seen_at is None:
+      return lead
+    if self.lost_at is None:
+      d0, v_rel = held.get('dRel', float('nan')), held.get('vRel', float('nan'))
+      if not (isfinite(d0) and isfinite(v_rel) and 0.0 < d0 <= LEAD_HOLD_MAX_DIST and
+              v_rel <= -LEAD_HOLD_MIN_CLOSING):
+        self.held = None
+        return lead
+      self.lost_at = now
+    # 마지막으로 실제로 본 때부터 LEAD_HOLD_S 까지만.
+    if now - self.seen_at > LEAD_HOLD_S:
+      self.held = None
+      self.lost_at = None
+      return lead
+    dt = max(0.0, now - self.last_t)
+    self.last_t = now
+    held['dRel'] = max(0.5, held['dRel'] + held['vRel'] * dt)
+    held['fcw'] = False
+    return dict(held)
+

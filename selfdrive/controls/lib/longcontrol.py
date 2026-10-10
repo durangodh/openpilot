@@ -18,6 +18,10 @@ ButtonType = car.CarState.ButtonEvent.Type
 STANDSTILL_LEAD_MAX_DISTANCE = 20.0
 STANDSTILL_LEAD_MAX_SPEED = 0.3
 LEAD_RELEASE_CONFIRM_SAMPLES = 2
+# 정차 중 앞차가 살짝 움찔했다 다시 서면(속도 0.3 m/s 남짓, 0.1~0.3초) 출발했다가 급제동했다.
+# 앞차가 정차 때보다 실제로 이만큼 멀어졌거나, 분명히 출발하는 속도일 때만 출발로 본다.
+LEAD_RELEASE_MIN_GAIN = 0.7      # m
+LEAD_RELEASE_CLEAR_SPEED = 1.0   # m/s
 LEAD_DROPOUT_FALLBACK_FRAMES = round(1.5 / DT_CTRL)
 
 # ---- 앞차 출발 대기 중 빨리 출발하기 (2026-10-03 long_trace 분석) ----
@@ -268,6 +272,7 @@ class LongControl:
 
   def _reset_standstill_lead(self):
     self.standstill_lead_latched = False
+    self.standstill_lead_d0 = 0.0
     self.lead_release_samples = 0
     self.lead_measurement_available = False
     self.lead_missing_frames = 0
@@ -317,9 +322,15 @@ class LongControl:
           stopped_lead = stopped_lead or (ego_standstill and near and not lead_is_departing(lead))
           if stopped_lead:
             self.standstill_lead_latched = True
+            self.standstill_lead_d0 = lead.dRel
         else:
-          lead_moving = lead_is_departing(lead) or \
-                        (getattr(self, 'fast_lead_release', False) and lead_raw_departing(lead))
+          # 정차 기준 거리는 가장 가까웠던 값으로(측정 흔들림에 출발하지 않게).
+          self.standstill_lead_d0 = min(getattr(self, 'standstill_lead_d0', lead.dRel), lead.dRel)
+          really_moving = (lead.dRel - self.standstill_lead_d0 >= LEAD_RELEASE_MIN_GAIN or
+                           lead.vLeadK >= LEAD_RELEASE_CLEAR_SPEED)
+          lead_moving = really_moving and (
+                        lead_is_departing(lead) or
+                        (getattr(self, 'fast_lead_release', False) and lead_raw_departing(lead)))
           self.lead_release_samples = self.lead_release_samples + 1 if lead_moving else 0
           if lead_moving or lead_is_creeping(lead):
             self.hold_relax_left = HOLD_RELAX_KEEP_FRAMES

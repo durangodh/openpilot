@@ -11,6 +11,7 @@ from common.params import Params
 from common.realtime import Ratekeeper, Priority, config_realtime_process
 from selfdrive.controls.lib.cluster.fastcluster_py import cluster_points_centroid
 from selfdrive.controls.lib.radar_helpers import Cluster, Track, RADAR_TO_CAMERA
+from selfdrive.controls.lib.lead_departure import LeadDropoutHold
 from selfdrive.swaglog import cloudlog
 from selfdrive.hardware import TICI
 
@@ -151,6 +152,7 @@ class RadarD():
 
     self.stopped_vision_since = None
     self.stopped_vision_active = False
+    self.lead_hold = LeadDropoutHold()
 
   def _stopped_vision_threshold(self, lead_msg, now):
     try:
@@ -264,9 +266,11 @@ class RadarD():
     if len(leads_v3) > 1:
       model_v_ego = sm['modelV2'].velocity.x[0] if len(sm['modelV2'].velocity.x) else self.v_ego
       lead0_threshold = self._stopped_vision_threshold(leads_v3[0], now)
-      radarState.leadOne = get_lead(self.v_ego, self.ready, clusters, leads_v3[0], model_v_ego,
-                                    low_speed_override=True, mixRadarInfo=self.mix_radar_info,
-                                    prob_threshold=lead0_threshold, scc_only=self.scc_only)
+      lead_one = get_lead(self.v_ego, self.ready, clusters, leads_v3[0], model_v_ego,
+                          low_speed_override=True, mixRadarInfo=self.mix_radar_info,
+                          prob_threshold=lead0_threshold, scc_only=self.scc_only)
+      # 가까이서 다가가던 앞차를 잠깐 놓쳐도 최대 1.2초는 같은 앞차로 이어 간다.
+      radarState.leadOne = self.lead_hold.update(lead_one, now)
       radarState.leadTwo = get_lead(self.v_ego, self.ready, clusters, leads_v3[1], model_v_ego,
                                     low_speed_override=False, mixRadarInfo=self.mix_radar_info,
                                     scc_only=self.scc_only)
