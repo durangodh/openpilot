@@ -3528,9 +3528,10 @@ public final class HudService extends Service {
                     : coolant <= 105d ? 0.5f
                     : (float) Math.min(1d, 0.5d + (coolant - 105d) / 30d);
         }
-        drawInfoGauge(c, p, 850f, 950f, coolFrac, "C", "H",
+        // 냉각수 게이지 왼쪽 끝(C)을 EON 박스 왼쪽 끝(EON_BOX_LEFT)에 맞춘다.
+        drawInfoGauge(c, p, EON_BOX_LEFT, EON_BOX_LEFT + 100f, coolFrac, "C", "H",
                 coolFrac > 0.9f ? Color.rgb(220, 50, 50) : (frameDark ? Color.rgb(230, 236, 242) : Color.rgb(70, 80, 90)));
-        drawCoolantThermometer(c, p, 900f, INFO_Y - 34f);
+        drawCoolantThermometer(c, p, EON_BOX_LEFT + 50f, INFO_Y - 34f);
 
         // 총주행거리(계기판 CLU12 적산거리)
         double odo = s.optDouble("odometer", -1d);
@@ -3538,7 +3539,7 @@ public final class HudService extends Service {
         textNormal(c, p, "km", 1128f, INFO_Y, 20f, ink(), Paint.Align.RIGHT);
         p.setTextSize(20f);
         p.setTypeface(Typeface.create("sans", Typeface.NORMAL));
-        text(c, p, total, 1124f - p.measureText("km"), INFO_Y, 30f, ink(), Paint.Align.RIGHT);
+        text(c, p, total, 1124f - p.measureText("km"), INFO_Y, 24f, ink(), Paint.Align.RIGHT);
     }
 
     /** 주행패널 맨 위 가운데: 날짜(작게)·시간(크게), 상자 없이. 하늘 띠 글자색(ink)을 따른다. */
@@ -3549,12 +3550,12 @@ public final class HudService extends Service {
         p.setTypeface(Typeface.create("sans", Typeface.BOLD));
         p.setTextSize(24f);
         float dateW = p.measureText(date);
-        p.setTextSize(36f);
+        p.setTextSize(42f);
         float timeW = p.measureText(time);
         float gap = 14f;
         float left = DRIVE_MID - (dateW + gap + timeW) / 2f;
         text(c, p, date, left, 46f, 24f, ink(), Paint.Align.LEFT);
-        text(c, p, time, left + dateW + gap, 48f, 36f, ink(), Paint.Align.LEFT);
+        text(c, p, time, left + dateW + gap, 50f, 42f, ink(), Paint.Align.LEFT);
     }
 
     private void eonBoxRect(Canvas c, Paint p, float x, float y, float w, float h, int fill,
