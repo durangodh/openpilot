@@ -292,27 +292,159 @@ final class SkyBackground {
         return 11 + icon * 10;
     }
 
+    /**
+     * 자연스러운 구름. 한 덩이는 큰 몸통 봉우리 몇 개 위에 작은 봉우리를 가장자리를
+     * 따라 여러 겹 붙여 윤곽을 불규칙하게 만들고, 봉우리마다 밝기를 조금씩 달리한다.
+     * 아래는 그늘색, 위쪽은 은은한 빛, 밑면은 평평하되 부드럽게 흐린다.
+     * 흐린 날(덩이가 많을 때)은 넓고 납작한 층구름으로 그린다. 덩이마다 별도
+     * 레이어에 그려 겹친 부분이 진해지지 않게 하고, 멀리(위쪽) 있는 구름일수록
+     * 작고 옅다. 날씨가 바뀔 때만 다시 그리므로 프레임 비용은 없다.
+     */
     private static void drawClouds(Canvas c, Paint p, int w, int h, int count,
                                    int color, int seed) {
         Random rnd = new Random(seed);
+        boolean layered = count >= 14;
+        int clusters = layered ? Math.max(5, Math.round(count * 0.40f))
+                : Math.max(2, Math.round(count * 0.55f));
+        float[] depths = new float[clusters];
+        for (int i = 0; i < clusters; i++) {
+            depths[i] = rnd.nextFloat();
+        }
+        java.util.Arrays.sort(depths);   // 먼 구름부터 그려 가까운 구름이 위에 온다
+        int[] slots = new int[clusters];  // 가로로 고르게 흩어 놓는다
+        for (int i = 0; i < clusters; i++) {
+            slots[i] = i;
+        }
+        for (int i = clusters - 1; i > 0; i--) {
+            int k = rnd.nextInt(i + 1);
+            int t = slots[i];
+            slots[i] = slots[k];
+            slots[k] = t;
+        }
+
+        boolean bright = luma(color) > 200f;
+        int shade = mix(color, Color.rgb(40, 48, 64), bright ? 0.24f : 0.32f);
+        int light = mix(color, Color.WHITE, bright ? 0.40f : 0.14f);
+        BlurMaskFilter fine = new BlurMaskFilter(Math.max(3f, h * 0.020f),
+                BlurMaskFilter.Blur.NORMAL);
+        BlurMaskFilter soft = new BlurMaskFilter(Math.max(5f, h * 0.040f),
+                BlurMaskFilter.Blur.NORMAL);
+        BlurMaskFilter haze = new BlurMaskFilter(Math.max(8f, h * 0.085f),
+                BlurMaskFilter.Blur.NORMAL);
         p.setStyle(Paint.Style.FILL);
-        p.setMaskFilter(new BlurMaskFilter(Math.max(6f, h * 0.075f),
-                BlurMaskFilter.Blur.NORMAL));
-        for (int i = 0; i < count; i++) {
-            float x = -60f + rnd.nextFloat() * (w + 120f);
-            float y = h * 0.03f + rnd.nextFloat() * h * 0.86f;
-            float rx = w * (0.070f + rnd.nextFloat() * 0.145f);
-            float ry = rx * (0.16f + rnd.nextFloat() * 0.14f);
+
+        if (layered) {
+            // 하늘 전체에 옅게 깔린 구름층
+            p.setMaskFilter(haze);
             p.setColor(color);
-            p.setAlpha(60 + rnd.nextInt(70));
-            c.save();
-            c.translate(x, y);
-            c.scale(1f, ry / rx);
-            c.drawCircle(0f, 0f, rx, p);
+            for (int k = 0; k < 5; k++) {
+                float y = h * (0.15f + 0.16f * k);
+                p.setAlpha(45 + rnd.nextInt(30));
+                c.drawOval(-w * 0.1f + rnd.nextFloat() * w * 0.3f, y - h * 0.07f,
+                        w * 0.8f + rnd.nextFloat() * w * 0.3f, y + h * 0.07f, p);
+            }
+        }
+
+        float[] px = new float[40];
+        float[] py = new float[40];
+        float[] pr = new float[40];
+        int[] pc = new int[40];
+        for (int i = 0; i < clusters; i++) {
+            float depth = depths[i];
+            float cw = layered ? w * (0.12f + depth * 0.10f + rnd.nextFloat() * 0.08f)
+                    : w * (0.06f + depth * 0.08f + rnd.nextFloat() * 0.06f);
+            float ch = cw * (layered ? 0.13f + rnd.nextFloat() * 0.06f
+                    : 0.20f + rnd.nextFloat() * 0.09f);
+            float cx = (slots[i] + 0.15f + rnd.nextFloat() * 0.7f) / clusters * w;
+            float base = h * (0.20f + depth * 0.50f) + ch * 0.30f;   // 평평한 밑면
+            int alpha = Math.min(215, (layered ? 80 : 75) + Math.round(depth * 85f)
+                    + rnd.nextInt(30));
+
+            // 덩이 옆으로 얇게 퍼진 새털구름 띠
+            if (rnd.nextFloat() < 0.5f) {
+                float sx = cx + (rnd.nextFloat() - 0.5f) * cw;
+                float sy = base - ch * (0.2f + rnd.nextFloat() * 0.6f);
+                p.setMaskFilter(haze);
+                p.setColor(color);
+                p.setAlpha(Math.round(alpha * 0.30f));
+                c.drawOval(sx - cw * 0.95f, sy - ch * 0.14f, sx + cw * 0.95f, sy + ch * 0.14f, p);
+            }
+
+            // 큰 몸통 봉우리, 그다음 가장자리를 따라 붙는 작은 봉우리
+            int body = 4 + rnd.nextInt(3);
+            int n = 0;
+            for (int j = 0; j < body; j++) {
+                float t = -0.85f + 1.7f * (j + rnd.nextFloat()) / body;
+                float dome = (float) Math.pow(Math.max(0f, 1f - t * t), 0.7f);
+                pr[n] = ch * (0.40f + 0.55f * dome) * (0.80f + rnd.nextFloat() * 0.40f);
+                px[n] = cx + t * cw * 0.48f;
+                py[n] = base - pr[n] * (0.55f + rnd.nextFloat() * 0.30f);
+                pc[n] = mix(color, shade, rnd.nextFloat() * 0.12f);
+                n++;
+            }
+            int detail = Math.min(40 - n, 10 + rnd.nextInt(10));
+            for (int j = 0; j < detail; j++) {
+                int parent = rnd.nextInt(n);
+                double ang = Math.toRadians(-175 + rnd.nextFloat() * 170);   // 윗쪽 반원
+                float rr = pr[parent] * (0.22f + rnd.nextFloat() * 0.30f);
+                float dist = pr[parent] * (0.70f + rnd.nextFloat() * 0.25f);
+                px[n] = px[parent] + (float) Math.cos(ang) * dist;
+                py[n] = Math.min(base - rr * 0.6f, py[parent] + (float) Math.sin(ang) * dist);
+                pr[n] = rr;
+                pc[n] = mix(color, rnd.nextBoolean() ? shade : light, rnd.nextFloat() * 0.18f);
+                n++;
+            }
+
+            c.saveLayerAlpha(cx - cw * 1.2f, base - ch * 3.6f, cx + cw * 1.2f, base + ch * 1.6f, alpha);
+
+            // 밑에 깔리는 옅은 안개
+            p.setMaskFilter(haze);
+            p.setColor(color);
+            p.setAlpha(75);
+            c.drawOval(cx - cw * 0.85f, base - ch * 0.60f, cx + cw * 0.85f, base + ch * 0.30f, p);
+
+            // 그늘(아래쪽) → 몸통 → 은은한 빛(위쪽) 순서
+            p.setMaskFilter(soft);
+            p.setColor(shade);
+            for (int j = 0; j < n; j++) {
+                c.drawCircle(px[j], py[j] + pr[j] * 0.25f, pr[j], p);
+            }
+            for (int j = 0; j < n; j++) {
+                p.setMaskFilter(j < body ? soft : fine);
+                p.setColor(pc[j]);
+                c.drawCircle(px[j], py[j], pr[j] * 0.90f, p);
+            }
+            p.setMaskFilter(soft);
+            p.setColor(light);
+            for (int j = 0; j < n; j++) {
+                p.setAlpha(60 + rnd.nextInt(60));
+                c.drawCircle(px[j] - pr[j] * 0.10f, py[j] - pr[j] * 0.30f, pr[j] * 0.50f, p);
+            }
+
+            // 밑면을 평평하되 부드럽게 지운다(칼로 자른 직선이 보이지 않게)
+            p.setMaskFilter(null);
+            p.setAlpha(255);
+            p.setShader(new LinearGradient(0f, base - ch * 0.15f, 0f, base + ch * 0.60f,
+                    Color.TRANSPARENT, Color.BLACK, Shader.TileMode.CLAMP));
+            p.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_OUT));
+            c.drawRect(cx - cw * 1.2f, base - ch * 0.15f, cx + cw * 1.2f, base + ch * 1.6f, p);
+            p.setXfermode(null);
+            p.setShader(null);
             c.restore();
         }
         p.setMaskFilter(null);
         p.setAlpha(255);
+    }
+
+    private static float luma(int color) {
+        return 0.299f * Color.red(color) + 0.587f * Color.green(color) + 0.114f * Color.blue(color);
+    }
+
+    private static int mix(int a, int b, float t) {
+        return Color.rgb(
+                Math.round(Color.red(a) + (Color.red(b) - Color.red(a)) * t),
+                Math.round(Color.green(a) + (Color.green(b) - Color.green(a)) * t),
+                Math.round(Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t));
     }
 
     private static void drawStars(Canvas c, Paint p, int w, int h, int count) {
