@@ -59,7 +59,6 @@ class SCCLeadTracker:
     self.y_rel = 0.0
     self.v_rel = 0.0
     self.a_rel = float('nan')
-    self.last_raw_d_rel = 0.0
     self.last_raw_y_rel = 0.0
     self.last_raw_v_rel = 0.0
     self.missed_frames = 0
@@ -72,7 +71,6 @@ class SCCLeadTracker:
     self.y_rel = float(y_rel)
     self.v_rel = float(v_rel)
     self.a_rel = float('nan')
-    self.last_raw_d_rel = float(d_rel)
     self.last_raw_y_rel = float(y_rel)
     self.last_raw_v_rel = float(v_rel)
     self.missed_frames = 0
@@ -110,7 +108,6 @@ class SCCLeadTracker:
     else:
       self.a_rel = raw_accel
 
-    self.last_raw_d_rel = float(d_rel)
     self.last_raw_y_rel = float(y_rel)
     self.last_raw_v_rel = float(v_rel)
     self.missed_frames = 0

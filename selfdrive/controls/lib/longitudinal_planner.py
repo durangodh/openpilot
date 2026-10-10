@@ -23,7 +23,6 @@ from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2
                                                     E2E_VISION_LEAD_DISTANCE,
                                                     adjust_stop_distance_for_decel)
 
-LON_MPC_STEP = 0.2  # first step is 0.2s
 AWARENESS_DECEL = -0.2  # car smoothly decel at .2m/s^2 when user is distracted
 # ── MyDrivingMode (1:SAFE 2:ECO 3:NORM 4:FAST) ────────────────────────────
 # UI 의 모드 박스를 탭하면 1→2→3→4→1 로 순환한다 (onroad.cc).
@@ -135,14 +134,6 @@ class LongitudinalPlanner:
     self.mpc.comfort_brake = scaled("ComfortBrake", 250, 1.5, 4.0)
     self.mpc.x_ego_obstacle_cost = scaled("XEgoObstacleCost", 600, 1.0, 12.0)
     # ───────────────────
-
-  def reset_auto_e2e(self):
-    self.conditional_e2e.reset()
-    self.auto_e2e_stopping = False
-    self.auto_e2e_prepare = False
-    self.e2e_stop_distance = 0.0
-    self.mpc.traffic_stop_active = False
-    self.mpc.traffic_stop_distance = 0.0
 
   def update_auto_e2e_mode(self, car_state, radar_state, model_msg, active, driving_mode, safe_mode_factor):
     model_valid = (len(model_msg.position.x) == 33 and

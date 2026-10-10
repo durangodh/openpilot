@@ -32,8 +32,6 @@ class CarState(CarStateBase):
     self.has_scc13 = CP.hasScc13 or CP.carFingerprint in FEATURES["has_scc13"]
     self.has_scc14 = CP.hasScc14 or CP.carFingerprint in FEATURES["has_scc14"]
     self.has_lfa_hda = CP.hasLfaHda
-    self.leftBlinker = False
-    self.rightBlinker = False
     self.cruise_main_button = 0
     self.cruise_button_samples = []
     self.cruise_main_button_samples = []
@@ -66,7 +64,6 @@ class CarState(CarStateBase):
     self.obj_valid = 0
 
     self.use_cluster_speed = Params().get_bool('UseClusterSpeed')
-    self.long_control_enabled = Params().get_bool('LongControlEnabled')
 
   def update(self, cp, cp2, cp_cam):
     cp_mdps = cp2 if self.mdps_bus else cp
@@ -75,8 +72,6 @@ class CarState(CarStateBase):
 
     self.prev_cruise_buttons = self.cruise_buttons
     self.prev_cruise_main_button = self.cruise_main_button
-    self.prev_left_blinker = self.leftBlinker
-    self.prev_right_blinker = self.rightBlinker
 
     ret = car.CarState.new_message()
 
@@ -373,7 +368,6 @@ class CarState(CarStateBase):
     self.scc12 = cp_scc.vl["SCC12"]
     self.mdps12 = cp_mdps.vl["MDPS12"]
     self.lfahda_mfc = cp_cam.vl["LFAHDA_MFC"]
-    self.steer_state = cp_mdps.vl["MDPS12"]["CF_Mdps_ToiActive"] #0 NOT ACTIVE, 1 ACTIVE
     self.cruise_unavail_cnt += 1 if cp.vl["TCS13"]["CF_VSM_Avail"] != 1 and cp.vl["TCS13"]["ACCEnable"] != 0 else -self.cruise_unavail_cnt
     self.cruise_unavail = self.cruise_unavail_cnt > 100
 

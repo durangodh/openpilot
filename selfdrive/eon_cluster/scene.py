@@ -17,17 +17,6 @@ def _finite_float(value, default=0.0):
   return number if math.isfinite(number) else default
 
 
-def _near_line_y(line, maximum_x=30.0):
-  """Robust near-field lateral position for HUD-only lane placement."""
-  xs = list(_field(line, "x", []) or [])
-  ys = list(_field(line, "y", []) or [])
-  values = [_finite_float(y, float("nan")) for x, y in zip(xs, ys)
-            if math.isfinite(_finite_float(x, float("nan"))) and
-            0.0 <= _finite_float(x) <= maximum_x and
-            math.isfinite(_finite_float(y, float("nan")))]
-  return statistics.median(values) if len(values) >= 2 else None
-
-
 LANE_SAMPLE_XS = (5.0, 10.0, 15.0, 20.0, 25.0)
 LANE_GEOMETRY_MAD_MAX = 0.35
 

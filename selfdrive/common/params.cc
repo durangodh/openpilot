@@ -214,7 +214,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"Offroad_TemperatureTooHigh", CLEAR_ON_MANAGER_START},
     {"Offroad_UnofficialHardware", CLEAR_ON_MANAGER_START},
     {"Offroad_UpdateFailed", CLEAR_ON_MANAGER_START},
-    {"OPKRTimeZone", PERSISTENT},
 
     {"SelectedCar", PERSISTENT},
     {"UseClusterSpeed", PERSISTENT},
@@ -290,7 +289,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudOrientation", PERSISTENT},
     {"EonClusterHudMirror", PERSISTENT},
     {"EonClusterHudPathFlip", PERSISTENT},       // S9 주행 장면 전체 좌우반전 (0=정상, 1=반전)
-    {"EonClusterHudPathFlipV2Migrated", PERSISTENT},
     {"EonClusterHudLanguage", PERSISTENT},
     {"EonClusterHudRadarInfo", PERSISTENT},
     {"EonClusterHudNavRoute", PERSISTENT},      // 1=티맵 경로 의도 반투명 표시, 0=숨김
@@ -314,7 +312,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LatYawMeasureBlend", PERSISTENT},        // 실제 곡률에 자이로 요레이트 섞는 비율 % (default 0)         // 커브 구간 적분 정지 기준 토크 x0.001 (default 20, 예전 70)
     {"LatLowSpeedCurvTauMs", PERSISTENT},      // 극저속(<2m/s) 목표곡률 저역통과 시간상수 ms (0=끔)
     // ── LiveTorque self-learning (backport from ajouatom/openpilot hoya/c3-atune) ──
-    {"ShowBlindSpotAlways", PERSISTENT},       // BSD 벽 상시표시 (진단용, 0=감지시만)         // 기어 변경 팝업 애니메이션
     {"KeepSteeringTurnSignals", PERSISTENT},
     {"HapticFeedbackWhenSpeedCamera", PERSISTENT},
     {"TurnVisionControl", PERSISTENT},

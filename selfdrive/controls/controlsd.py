@@ -211,7 +211,6 @@ class Controls:
       params.remove("ExperimentalMode")
 
     self.CC = car.CarControl.new_message()
-    self.CS_prev = car.CarState.new_message()
     self.AM = AlertManager()
     self.events = Events()
 
@@ -239,7 +238,6 @@ class Controls:
     self.cruise_mismatch_counter = 0
     self.can_rcv_error_counter = 0
     self.last_blinker_frame = 0
-    self.distance_traveled = 0
     self.last_functional_fan_frame = 0
     self.events_prev = []
     self.current_alert_types = [ET.PERMANENT]
@@ -256,8 +254,6 @@ class Controls:
     self.applyMaxSpeed = 0
     self.apply_accel = 0.
     self.scc_stop_request = False
-    self.fused_accel = 0.
-    self.lead_drel = 0.
     self.aReqValue = 0.
     self.aReqValueMin = 0.
     self.aReqValueMax = 0.
@@ -598,8 +594,6 @@ class Controls:
       self.mismatch_counter = 0
     else:
       self.mismatch_counter += 1
-
-    self.distance_traveled += CS.vEgo * DT_CTRL
 
     return CS
 
@@ -1076,7 +1070,6 @@ class Controls:
     self.prof.checkpoint("Sent")
 
     self.update_button_timers(CS.buttonEvents)
-    self.CS_prev = CS
 
   def controlsd_thread(self):
     while True:

@@ -1,6 +1,6 @@
 import numpy as np
 
-from cereal import car, log
+from cereal import car
 from common.conversions import Conversions as CV
 from common.numpy_fast import clip, interp
 from common.params import Params, put_nonblocking
@@ -57,7 +57,6 @@ MAX_SET_SPEED_KPH = V_CRUISE_MAX
 NAV_TOGGLE_HOLD_FRAMES = 150   # 1.5 s
 ButtonType = car.CarState.ButtonEvent.Type
 EventName = car.CarEvent.EventName
-XState = log.LongitudinalPlan.XState
 
 
 class CruiseHelper:
@@ -88,7 +87,6 @@ class CruiseHelper:
     self.brake_gas_resume_pending = False
     self.brake_gas_resume_frame = 0
     self.slow_speed_frame_count = 0
-    self.x_state = XState.cruise
     self.x_stop = 0.0
     self.traffic_state = 0
     self.traffic_state_prev = 0
@@ -108,7 +106,6 @@ class CruiseHelper:
     self.my_safe_mode_factor = 1.0
     self.my_eco_mode_factor = 0.8
     self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
-    self.current_set_speed_kph = 0.0
 
     self.target_speed = 0.0
     self.max_speed_clu = 0.0
@@ -431,11 +428,9 @@ class CruiseHelper:
     self.traffic_state_prev = self.traffic_state
     try:
       plan = controls.sm['longitudinalPlan']
-      self.x_state = plan.xState
       self.x_stop = float(getattr(plan, 'xStop', 0.0))
       self.traffic_state = int(getattr(plan, 'trafficState', 0)) % 100
     except Exception:
-      self.x_state = XState.cruise
       self.x_stop = 0.0
       self.traffic_state = 0
 
@@ -1087,7 +1082,6 @@ class CruiseHelper:
     cruise_set_speed = controls.v_cruise_kph if longcontrol else CS.cruiseState_speed * CV.MS_TO_KPH
     controls.applyMaxSpeed = float(clip(cruise_set_speed, self.cruise_speed_min,
                                        self.max_speed_clu * self.speed_conv_to_ms * CV.MS_TO_KPH))
-    self.current_set_speed_kph = controls.applyMaxSpeed
     CC.sccSmoother.longControl = longcontrol
     CC.sccSmoother.applyMaxSpeed = controls.applyMaxSpeed
     # In C2 mode MAIN engages lateral control before SET/RES activates

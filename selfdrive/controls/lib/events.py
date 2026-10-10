@@ -1,4 +1,3 @@
-import os
 from enum import IntEnum
 from typing import Dict, Union, Callable, List, Optional
 
@@ -7,7 +6,6 @@ import cereal.messaging as messaging
 from common.conversions import Conversions as CV
 from common.realtime import DT_CTRL
 from selfdrive.locationd.calibrationd import MIN_SPEED_FILTER
-from selfdrive.version import get_short_branch
 
 AlertSize = log.ControlsState.AlertSize
 AlertStatus = log.ControlsState.AlertStatus
@@ -221,13 +219,6 @@ def user_soft_disable_alert(alert_text_2: str) -> AlertCallbackType:
     #  return ImmediateDisableAlert(alert_text_2)
     return UserSoftDisableAlert(alert_text_2)
   return func
-
-def startup_master_alert(CP: car.CarParams, sm: messaging.SubMaster, metric: bool, soft_disable_time: int) -> Alert:
-  branch = get_short_branch("")
-  if "REPLAY" in os.environ:
-    branch = "replay"
-
-  return StartupAlert("WARNING: This branch is not tested", branch, alert_status=AlertStatus.userPrompt)
 
 def below_engage_speed_alert(CP: car.CarParams, sm: messaging.SubMaster, metric: bool, soft_disable_time: int) -> Alert:
   return NoEntryAlert(f"Speed Below {get_display_speed(CP.minEnableSpeed, metric)}")
