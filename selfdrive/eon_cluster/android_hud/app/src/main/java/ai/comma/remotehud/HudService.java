@@ -2775,52 +2775,59 @@ public final class HudService extends Service {
     private void drawVehicleOpenPopup(Canvas c, Paint p, JSONObject doors,
                                       JSONObject windows) {
         final float cx = WARNING_CX;
-        final float cy = 288f;
+        // 순정(신형 계기판)처럼 글자 없이 큰 흰 차량 그림만 보인다. 패널 가운데(257)에 1.7배.
+        final float cy = 257f;
         drawWhiteWarningPanel(c, p, cx);
-        boolean sideDoorOpen = hasOpenDoor(doors);
-        boolean windowOpen = hasOpenWindow(windows);
         boolean hoodOpen = doors != null && doors.optBoolean("hood", false);
         boolean trunkOpen = doors != null && doors.optBoolean("trunk", false);
-        int typeCount = (sideDoorOpen ? 1 : 0) + (windowOpen ? 1 : 0)
-                + (hoodOpen ? 1 : 0) + (trunkOpen ? 1 : 0);
-        String titleKo;
-        String titleEn;
-        if (typeCount > 1) {
-            titleKo = "열림 상태를 확인하십시오";
-            titleEn = "CHECK OPENINGS";
-        } else if (sideDoorOpen) {
-            titleKo = "문이 열려 있습니다";
-            titleEn = "DOOR OPEN";
-        } else if (windowOpen) {
-            titleKo = "창문이 열려 있습니다";
-            titleEn = "WINDOW OPEN";
-        } else if (hoodOpen) {
-            titleKo = "보닛이 열려 있습니다";
-            titleEn = "HOOD OPEN";
-        } else {
-            titleKo = "트렁크가 열려 있습니다";
-            titleEn = "TRUNK OPEN";
-        }
-        text(c, p, lang(titleKo, titleEn),
-                cx, 163f, 29f, Color.rgb(35, 39, 43), Paint.Align.CENTER);
+        int carSave = c.save();
+        c.translate(cx, cy);
+        c.scale(1.7f, 1.7f);
+        c.translate(-cx, -cy);
 
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.rgb(204, 211, 217));
+        p.setColor(Color.argb(45, 0, 0, 0));
+        scratchRect.set(cx - 31f, cy - 62f, cx + 39f, cy + 77f);
+        c.drawRoundRect(scratchRect, 16f, 16f, p);
+        p.setColor(Color.rgb(252, 252, 253));
         scratchRect.set(cx - 34f, cy - 67f, cx + 34f, cy + 70f);
         c.drawRoundRect(scratchRect, 15f, 15f, p);
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(3f);
-        p.setColor(Color.rgb(71, 79, 86));
+        p.setStrokeWidth(2.5f);
+        p.setColor(Color.rgb(150, 156, 162));
         c.drawRoundRect(scratchRect, 15f, 15f, p);
-        scratchRect.set(cx - 25f, cy - 43f, cx + 25f, cy + 35f);
-        c.drawRoundRect(scratchRect, 10f, 10f, p);
-        c.drawLine(cx - 29f, cy - 20f, cx + 29f, cy - 20f, p);
-        c.drawLine(cx - 29f, cy + 26f, cx + 29f, cy + 26f, p);
+        // 사이드미러
+        p.setStyle(Paint.Style.FILL);
+        scratchRect.set(cx - 42f, cy - 34f, cx - 33f, cy - 27f);
+        c.drawOval(scratchRect, p);
+        scratchRect.set(cx + 33f, cy - 34f, cx + 42f, cy - 27f);
+        c.drawOval(scratchRect, p);
+        // 앞유리·지붕·뒷유리(검은 유리)
+        p.setColor(Color.rgb(44, 49, 55));
+        scratchPath.rewind();
+        scratchPath.moveTo(cx - 27f, cy - 40f);
+        scratchPath.lineTo(cx + 27f, cy - 40f);
+        scratchPath.lineTo(cx + 24f, cy - 21f);
+        scratchPath.lineTo(cx - 24f, cy - 21f);
+        scratchPath.close();
+        c.drawPath(scratchPath, p);
+        p.setColor(Color.rgb(78, 85, 93));
+        scratchRect.set(cx - 23f, cy - 17f, cx + 23f, cy + 21f);
+        c.drawRoundRect(scratchRect, 5f, 5f, p);
+        p.setColor(Color.rgb(44, 49, 55));
+        scratchPath.rewind();
+        scratchPath.moveTo(cx - 24f, cy + 25f);
+        scratchPath.lineTo(cx + 24f, cy + 25f);
+        scratchPath.lineTo(cx + 26f, cy + 40f);
+        scratchPath.lineTo(cx - 26f, cy + 40f);
+        scratchPath.close();
+        c.drawPath(scratchPath, p);
 
         // The front of the vehicle points upward.  Hood and trunk panels
         // hinge away from the body so their position stays unmistakable.
-        p.setColor(Color.rgb(232, 48, 58));
+        // 열린 문·보닛·트렁크는 순정처럼 짙은 회색 판으로 벌어진다.
+        p.setColor(Color.rgb(58, 63, 69));
         p.setStyle(Paint.Style.FILL);
         if (hoodOpen) {
             scratchPath.rewind();
@@ -2876,6 +2883,7 @@ public final class HudService extends Service {
             c.drawLine(cx + 25f, cy + 7f, cx + 25f, cy + 32f, p);
         }
         p.setStrokeCap(Paint.Cap.BUTT);
+        c.restoreToCount(carSave);
     }
 
     /** Factory low-fuel warning, retaining the cluster's remaining range. */
