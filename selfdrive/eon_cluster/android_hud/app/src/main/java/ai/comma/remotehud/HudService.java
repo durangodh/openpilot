@@ -3550,12 +3550,12 @@ public final class HudService extends Service {
         p.setTypeface(Typeface.create("sans", Typeface.BOLD));
         p.setTextSize(24f);
         float dateW = p.measureText(date);
-        p.setTextSize(42f);
+        p.setTextSize(36f);
         float timeW = p.measureText(time);
         float gap = 14f;
         float left = DRIVE_MID - (dateW + gap + timeW) / 2f;
         text(c, p, date, left, 46f, 24f, ink(), Paint.Align.LEFT);
-        text(c, p, time, left + dateW + gap, 50f, 42f, ink(), Paint.Align.LEFT);
+        text(c, p, time, left + dateW + gap, 48f, 36f, ink(), Paint.Align.LEFT);
     }
 
     private void eonBoxRect(Canvas c, Paint p, float x, float y, float w, float h, int fill,
