@@ -45,6 +45,7 @@ class CarState(CarStateBase):
     self.distance_to_empty_seen = False
     self.odometer_seen = False
     self.fuel_level_seen = False
+    self.battery_voltage_seen = False
     self.outside_temp_seen = False
     self.outside_temp_c = -1000.
     self.parking_sensor_age = 10000
@@ -113,6 +114,8 @@ class CarState(CarStateBase):
     if cp.vl_all["CLU13"]["CF_Clu_FuelDispLvl"]:
       self.fuel_level_seen = True
     ret.fuelDispLevel = cp.vl["CLU13"]["CF_Clu_FuelDispLvl"] if self.fuel_level_seen else -1.
+    # Airbag fault for the remote HUD lamp row. ACU11 is optional (no frequency check).
+    ret.airbagWarning = int(cp.vl["ACU11"]["CF_Acu_FltStat"]) != 0
 
     # Genesis DH's cluster displays DATC11.CR_Datc_OutTempC.  FATC11 and
     # mirror-sensor values can be several degrees hotter after heat soak, so
@@ -286,6 +289,12 @@ class CarState(CarStateBase):
         self.engine_oil_temp_seen = True
       ret.engineCoolantTempC = cp.vl["EMS12"]["TEMP_ENG"] if self.engine_coolant_temp_seen else -1000.
       ret.engineOilTempC = cp.vl["EMS19"]["CR_Ems_EngOilTemp"] if self.engine_oil_temp_seen else -1000.
+      # 원격 HUD 경고등·배터리 전압. EMS14 는 checks 에 없어 안 와도 canValid 는 안 깨진다.
+      ret.engineWarning = bool(cp.vl["EMS14"]["L_MIL"])
+      ret.batteryWarning = bool(cp.vl["EMS19"]["BAT_LAMP_STAT"])
+      if cp.vl_all["EMS14"]["VB"]:
+        self.battery_voltage_seen = True
+      ret.batteryVoltage = cp.vl["EMS14"]["VB"] if self.battery_voltage_seen else -1.
       # 엔진 회전수. DH(GENESIS 2015-2016)는 EMS11(0x316)을 아예 보내지 않고
       # EMS_366(0x366)의 'N' 으로 올린다 — can_printer 실측에서 0x366 데이터
       # 1cbe09... 의 바이트1~2 가 0x09BE, x0.25 = 623.5rpm(공회전)로 확인됨.
@@ -471,6 +480,8 @@ class CarState(CarStateBase):
       ("CF_Clu_FuelDispLvl", "CLU13"),
       # Total distance (remote HUD). No frequency check.
       ("CF_Clu_Odometer", "CLU12"),
+      # Airbag fault (remote HUD). No frequency check.
+      ("CF_Acu_FltStat", "ACU11"),
 
       # DH exterior ambient temperature.  No frequency checks: model years
       # use different climate/gateway frames and an absent variant must not
@@ -644,6 +655,9 @@ class CarState(CarStateBase):
         ("TEMP_ENG", "EMS12"),
         ("CF_Ems_AclAct", "EMS16"),
         ("CR_Ems_EngOilTemp", "EMS19"),
+        ("BAT_LAMP_STAT", "EMS19"),
+        ("L_MIL", "EMS14"),
+        ("VB", "EMS14"),
         ("N", "EMS_366"),                 # 엔진 회전수 (rpm) — DH 는 이쪽
         ("N", "EMS11"),                   # 엔진 회전수 (rpm) — 다른 차종 대비. 둘 다 checks 에는 안 넣는다
       ]

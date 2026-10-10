@@ -250,6 +250,10 @@ struct CarState {
   rearRightWindowOpen @70 :Bool;
   odometerKm @71 :Float32;        # cluster total distance (CLU12), -1 if not seen
   fuelDispLevel @72 :Float32;     # cluster fuel display level raw (CLU13 CF_Clu_FuelDispLvl), -1 if not seen
+  engineWarning @73 :Bool;        # check-engine lamp (EMS14 L_MIL)
+  airbagWarning @74 :Bool;        # airbag fault (ACU11 CF_Acu_FltStat != 0)
+  batteryWarning @75 :Bool;       # charging warning lamp (EMS19 BAT_LAMP_STAT)
+  batteryVoltage @76 :Float32;    # battery voltage (EMS14 VB), -1 if not seen
 
   # button presses
   buttonEvents @11 :List(ButtonEvent);

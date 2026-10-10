@@ -3973,21 +3973,30 @@ public final class HudService extends Service {
     private void drawOutsideTemp(Canvas c, Paint p, JSONObject s) {
         feedWeather(s);
         double temp = s.optDouble("outsideTemp", -1000d);
-        if (!Double.isFinite(temp) || temp < -50d || temp > 80d) {
-            return;
+        // 오른쪽 끝 790 에서 왼쪽으로: 외기온도 → 날씨 그림 → 배터리 전압.
+        float left = 790f;
+        if (Double.isFinite(temp) && temp >= -50d && temp <= 80d) {
+            String label = String.format(Locale.US, "%.0f°C", temp);
+            text(c, p, label, 790f, 44f, 22f, ink(), Paint.Align.RIGHT);
+            p.setTextSize(22f);
+            p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+            left -= p.measureText(label) + 10f;
+            int icon = weather == null ? WeatherService.ICON_NONE : weather.icon();
+            if (icon != WeatherService.ICON_NONE) {
+                drawWeatherIcon(c, p, left - 13f, 36f, 26f, icon, weather.isDay());
+                left -= 26f + 12f;
+            }
         }
-        String label = String.format(Locale.US, "%.0f°C", temp);
-        // 우측 끝 790 — 오른쪽 주유기 아이콘(932 기준 유동)과 40px 를 남긴다.
-        text(c, p, label, 790f, 44f, 22f, ink(), Paint.Align.RIGHT);
-        int icon = weather == null ? WeatherService.ICON_NONE : weather.icon();
-        if (icon == WeatherService.ICON_NONE) {
-            return;
+        double volt = s.optDouble("batteryVoltage", -1d);
+        if (Double.isFinite(volt) && volt > 5d && volt < 20d) {
+            // 시동 중 정상 13.2~14.8V, 꺼진 상태 12.2V 이상. 범위를 벗어나면 빨강.
+            int vColor = (volt < 11.8d || volt > 15.5d) ? Color.rgb(230, 48, 58) : ink();
+            String vLabel = String.format(Locale.US, "%.1fV", volt);
+            text(c, p, vLabel, left, 44f, 22f, vColor, Paint.Align.RIGHT);
+            p.setTextSize(22f);
+            p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+            drawWarnLamp(c, p, left - p.measureText(vLabel) - 36f, 37f, 2, vColor);
         }
-        p.setTextSize(22f);
-        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        float labelWidth = p.measureText(label);
-        drawWeatherIcon(c, p, 790f - labelWidth - 10f - 13f, 36f, 26f,
-                icon, weather.isDay());
     }
 
     /**
@@ -4239,6 +4248,15 @@ public final class HudService extends Service {
             // Keep the wiper badge visually separate from the red seatbelt icon.
             x += 48f;
         }
+        // 순정 경고등: 주차브레이크·에어백·배터리 충전(빨강), 엔진(주황). 켜졌을 때만.
+        int lampRed = Color.rgb(230, 48, 58);
+        if (s.optBoolean("parkingBrake", false)) { drawWarnLamp(c, p, x, y, 0, lampRed); x += 40f; }
+        if (s.optBoolean("airbagWarning", false)) { drawWarnLamp(c, p, x, y, 1, lampRed); x += 40f; }
+        if (s.optBoolean("batteryWarning", false)) { drawWarnLamp(c, p, x, y, 2, lampRed); x += 40f; }
+        if (s.optBoolean("engineWarning", false)) {
+            drawWarnLamp(c, p, x, y, 3, Color.rgb(240, 160, 20));
+            x += 40f;
+        }
         int wiperMode = visibleWiperMode(s.optInt("wiperMode", 0));
         if (wiperMode != 0) {
             boolean highlighted = SystemClock.elapsedRealtime() - wiperModeChangedElapsed
@@ -4408,6 +4426,61 @@ public final class HudService extends Service {
         return windows != null && (windows.optBoolean("fl", false)
                 || windows.optBoolean("fr", false) || windows.optBoolean("rl", false)
                 || windows.optBoolean("rr", false));
+    }
+
+    /** 경고등 벡터(왼쪽 끝 x, 가운데 y, 폭 약 32). 0 주차브레이크, 1 에어백, 2 배터리, 3 엔진. */
+    private void drawWarnLamp(Canvas c, Paint p, float x, float y, int type, int color) {
+        float cx = x + 16f;
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(3f);
+        p.setColor(color);
+        if (type == 0) {
+            c.drawCircle(cx, y, 10f, p);
+            scratchRect.set(cx - 16f, y - 13f, cx + 16f, y + 13f);
+            c.drawArc(scratchRect, 125f, 110f, false, p);
+            c.drawArc(scratchRect, -55f, 110f, false, p);
+            text(c, p, "P", cx, y + 6f, 16f, color, Paint.Align.CENTER);
+        } else if (type == 1) {
+            c.drawCircle(cx - 8f, y - 10f, 3.5f, p);
+            scratchPath.rewind();
+            scratchPath.moveTo(cx - 10f, y - 4f);
+            scratchPath.lineTo(cx - 8f, y + 6f);
+            scratchPath.lineTo(cx + 2f, y + 6f);
+            scratchPath.lineTo(cx + 4f, y + 13f);
+            c.drawPath(scratchPath, p);
+            p.setStyle(Paint.Style.FILL);
+            c.drawCircle(cx + 9f, y - 3f, 7f, p);
+        } else if (type == 2) {
+            scratchRect.set(cx - 14f, y - 8f, cx + 14f, y + 11f);
+            c.drawRoundRect(scratchRect, 2f, 2f, p);
+            c.drawLine(cx - 9f, y - 11f, cx - 5f, y - 11f, p);
+            c.drawLine(cx + 5f, y - 11f, cx + 9f, y - 11f, p);
+            c.drawLine(cx - 10f, y + 2f, cx - 4f, y + 2f, p);
+            c.drawLine(cx + 4f, y + 2f, cx + 10f, y + 2f, p);
+            c.drawLine(cx + 7f, y - 1f, cx + 7f, y + 5f, p);
+        } else {
+            scratchPath.rewind();
+            scratchPath.moveTo(cx - 10f, y - 6f);
+            scratchPath.lineTo(cx + 8f, y - 6f);
+            scratchPath.lineTo(cx + 12f, y - 2f);
+            scratchPath.lineTo(cx + 15f, y - 2f);
+            scratchPath.lineTo(cx + 15f, y + 6f);
+            scratchPath.lineTo(cx + 12f, y + 6f);
+            scratchPath.lineTo(cx + 8f, y + 10f);
+            scratchPath.lineTo(cx - 6f, y + 10f);
+            scratchPath.lineTo(cx - 10f, y + 6f);
+            scratchPath.lineTo(cx - 14f, y + 6f);
+            scratchPath.lineTo(cx - 14f, y - 2f);
+            scratchPath.lineTo(cx - 10f, y - 2f);
+            scratchPath.lineTo(cx - 10f, y - 6f);
+            c.drawPath(scratchPath, p);
+            c.drawLine(cx - 4f, y - 6f, cx - 4f, y - 11f, p);
+            c.drawLine(cx - 8f, y - 11f, cx + 2f, y - 11f, p);
+        }
+        p.setStyle(Paint.Style.FILL);
+        p.setStrokeCap(Paint.Cap.BUTT);
     }
 
     private boolean hasVehicleOpening(JSONObject doors, JSONObject windows) {
