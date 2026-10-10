@@ -6,6 +6,12 @@ import numpy as np
 from common.kalman.simple_kalman import KF1D
 from common.kalman.simple_kalman_old import KF1D as KF1D_old
 
+try:
+  import common.kalman.simple_kalman_impl  # noqa: F401  # pylint: disable=unused-import
+  HAS_COMPILED_KF = True
+except ImportError:
+  HAS_COMPILED_KF = False
+
 
 class TestSimpleKalman(unittest.TestCase):
   def setUp(self):
@@ -50,6 +56,7 @@ class TestSimpleKalman(unittest.TestCase):
       np.testing.assert_almost_equal(x_old[0], x[0])
       np.testing.assert_almost_equal(x_old[1], x[1])
 
+  @unittest.skipUnless(HAS_COMPILED_KF, "compiled simple_kalman_impl not built (no speed to compare)")
   def test_new_is_faster(self):
     setup = """
 import numpy as np
