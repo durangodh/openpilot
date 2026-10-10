@@ -4464,13 +4464,22 @@ public final class HudService extends Service {
         p.setStyle(Paint.Style.FILL);
     }
 
-    /** 비율 좌표 네 점(x1,y1 … x4,y4)으로 채운 판과 테두리. */
+    /** 비율 좌표 네 점(x1,y1 … x4,y4)으로 채운 판과 테두리. 모서리는 둥글게 깎는다. */
     private void drawCarPanel(Canvas c, Paint p, float left, float top, float w, float h,
                               int fill, int edge, float... xy) {
+        int n = xy.length / 2;
+        float[] px = new float[n], py = new float[n];
+        for (int i = 0; i < n; i++) {
+            px[i] = left + w * xy[2 * i];
+            py[i] = top + h * xy[2 * i + 1];
+        }
         scratchPath.rewind();
-        for (int i = 0; i + 1 < xy.length; i += 2) {
-            float x = left + w * xy[i], y = top + h * xy[i + 1];
-            if (i == 0) scratchPath.moveTo(x, y); else scratchPath.lineTo(x, y);
+        for (int i = 0; i < n; i++) {
+            int a = (i + n - 1) % n, b = (i + 1) % n;
+            float[] in = cornerPoint(px[i], py[i], px[a], py[a]);
+            float[] out = cornerPoint(px[i], py[i], px[b], py[b]);
+            if (i == 0) scratchPath.moveTo(in[0], in[1]); else scratchPath.lineTo(in[0], in[1]);
+            scratchPath.quadTo(px[i], py[i], out[0], out[1]);
         }
         scratchPath.close();
         p.setShader(null);
@@ -4482,6 +4491,14 @@ public final class HudService extends Service {
         p.setColor(edge);
         c.drawPath(scratchPath, p);
         p.setStyle(Paint.Style.FILL);
+    }
+
+    /** 모서리(x,y)에서 이웃 점 쪽으로 반경만큼(변 길이의 40% 이하) 들어간 점. */
+    private static float[] cornerPoint(float x, float y, float toX, float toY) {
+        float dx = toX - x, dy = toY - y;
+        float len = (float) Math.hypot(dx, dy);
+        float r = Math.min(9f, len * 0.4f);
+        return len <= 0f ? new float[]{x, y} : new float[]{x + dx / len * r, y + dy / len * r};
     }
 
     private void drawOpenDoorLeaf(Canvas c, Paint p, float hingeX, float hingeTop,
