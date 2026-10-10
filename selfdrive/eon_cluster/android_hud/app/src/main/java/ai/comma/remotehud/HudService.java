@@ -3364,8 +3364,9 @@ public final class HudService extends Service {
     private static final float INFO_Y = 702f;
     // 연료량 신호가 없어 주행가능거리로 연료 막대를 추정한다(만충 약 650 km).
     private static final float FULL_RANGE_KM = 650f;
-    // CF_Clu_FuelDispLvl 최댓값(5비트). 만충에서 실제 값이 다르면 이 값만 맞추면 된다.
-    private static final double FUEL_DISP_MAX = 31d;
+    // CF_Clu_FuelDispLvl 는 계기판 연료 칸 수(DH 는 약 20칸)다. 5비트 최댓값 31 로 나누면
+    // 계기판이 4/5 일 때 HUD 막대가 절반에 머물렀다(2026-10-10 사진: 계기판 약 16/20, 주행가능 525 km).
+    private static final double FUEL_DISP_MAX = 20d;
     // 오른쪽 EON HUD 박스: EON onroad.cc drawCarrotHud 의 475x495 패널을 그 좌표 그대로 축소해 그린다.
     private static final float EON_BOX_LEFT = 865f;
     private static final float EON_BOX_TOP = 225f;
