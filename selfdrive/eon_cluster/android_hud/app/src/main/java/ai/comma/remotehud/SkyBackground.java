@@ -137,7 +137,7 @@ final class SkyBackground {
             c.drawLine(width * 0.62f, height * 0.74f, width * 0.94f, height * 0.74f, p);
             p.setStyle(Paint.Style.FILL);
         } else if (icon == WeatherService.ICON_RAIN) {
-            drawStreaks(c, p, width, height, 120,
+            drawStreaks(c, p, width, height, 200,
                     day ? Color.argb(110, 216, 230, 244) : Color.argb(140, 170, 196, 226));
         } else if (icon == WeatherService.ICON_SNOW) {
             // 낮에는 흰 눈송이가 글자 주변을 어지럽혀서 회백색으로 낮추고
@@ -146,9 +146,9 @@ final class SkyBackground {
                     day ? Color.argb(200, 214, 222, 230)
                             : Color.argb(210, 236, 242, 248));
         } else if (icon == WeatherService.ICON_THUNDER) {
-            drawStreaks(c, p, width, height, 60,
+            drawStreaks(c, p, width, height, 110,
                     day ? Color.argb(90, 200, 214, 232) : Color.argb(110, 176, 196, 222));
-            drawBolt(c, p, width * 0.315f, height);
+            drawBolt(c, p, width * 0.26f, height);
         }
 
         // 투명 마스크를 씌우기 전에 색 자체의 휘도를 잰다. 투명 영역의 RGB 0이
@@ -460,38 +460,109 @@ final class SkyBackground {
         p.setAlpha(255);
     }
 
+    /**
+     * 빗줄기. 먼 비(가늘고 짧고 옅음)·중간·가까운 비(굵고 길고 약간 흐림) 세 겹을
+     * 같은 바람 방향으로 기울여 뿌리고, 줄기마다 꼬리는 투명→머리는 진하게 해서
+     * 떨어지는 느낌을 준다. 구름 아래쪽일수록 촘촘하고, 군데군데 흐린 빗줄기
+     * 기둥(비 커튼)을 깐다.
+     */
     private static void drawStreaks(Canvas c, Paint p, int w, int h, int count,
                                     int color) {
         Random rnd = new Random(5);
+        int baseAlpha = Color.alpha(color);
+        int rgb = color | 0xFF000000;
+        float slant = -0.20f;   // 바람: 오른쪽 위 → 왼쪽 아래
+
+        // 비 커튼: 구름 밑으로 늘어진 옅은 기둥
+        p.setStyle(Paint.Style.FILL);
+        p.setMaskFilter(new BlurMaskFilter(Math.max(10f, h * 0.10f), BlurMaskFilter.Blur.NORMAL));
+        for (int i = 0; i < 4; i++) {
+            float x = w * (0.08f + 0.24f * i) + rnd.nextFloat() * w * 0.10f;
+            float top = h * (0.35f + rnd.nextFloat() * 0.15f);
+            p.setColor(rgb);
+            p.setAlpha(Math.round(baseAlpha * 0.30f));
+            Path shaft = new Path();
+            float sw = w * (0.05f + rnd.nextFloat() * 0.05f);
+            shaft.moveTo(x - sw, top);
+            shaft.lineTo(x + sw, top);
+            shaft.lineTo(x + sw + slant * h, h * 1.05f);
+            shaft.lineTo(x - sw * 1.4f + slant * h, h * 1.05f);
+            shaft.close();
+            c.drawPath(shaft, p);
+        }
+        p.setMaskFilter(null);
+
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(2f);
         p.setStrokeCap(Paint.Cap.ROUND);
-        p.setColor(color);
+        BlurMaskFilter nearBlur = new BlurMaskFilter(1.2f, BlurMaskFilter.Blur.NORMAL);
         for (int i = 0; i < count; i++) {
-            float x = rnd.nextFloat() * w;
-            float y = rnd.nextFloat() * h;
-            if (blocked(x, y)) {
+            float layer = rnd.nextFloat();          // 0 먼 비 ~ 1 가까운 비
+            boolean near = layer > 0.85f;
+            float len = near ? 26f + rnd.nextFloat() * 18f
+                    : layer > 0.5f ? 14f + rnd.nextFloat() * 10f : 7f + rnd.nextFloat() * 7f;
+            float x = rnd.nextFloat() * (w + h * 0.3f);
+            // 위쪽(구름 속)은 드물게: y 를 아래로 몰아준다
+            float y = h * (0.12f + 0.88f * (float) Math.sqrt(rnd.nextFloat())) - len;
+            if (blocked(x, y) || blocked(x + slant * len, y + len)) {
                 continue;
             }
-            float len = 14f + rnd.nextFloat() * 12f;
-            c.drawLine(x, y, x - len * 0.32f, y + len, p);
+            float strength = near ? 0.95f : layer > 0.5f ? 0.70f : 0.42f;
+            int a = Math.round(baseAlpha * strength * (0.75f + rnd.nextFloat() * 0.25f));
+            float x2 = x + slant * len * (0.9f + rnd.nextFloat() * 0.2f);
+            float y2 = y + len;
+            p.setStrokeWidth(near ? 2.2f : layer > 0.5f ? 1.4f : 1.0f);
+            p.setMaskFilter(near ? nearBlur : null);
+            p.setShader(new LinearGradient(x, y, x2, y2,
+                    rgb & 0x00FFFFFF, (Math.min(255, a) << 24) | (rgb & 0x00FFFFFF),
+                    Shader.TileMode.CLAMP));
+            c.drawLine(x, y, x2, y2, p);
         }
+        p.setShader(null);
+        p.setMaskFilter(null);
         p.setStyle(Paint.Style.FILL);
+        p.setAlpha(255);
     }
 
+    /**
+     * 눈. 먼 눈(작고 또렷)·중간(살짝 흐림)·가까운 눈(크고 흐린 보케) 세 겹.
+     * 송이마다 크기·투명도를 달리하고, 가까운 송이는 드물게만 둔다.
+     */
     private static void drawSnow(Canvas c, Paint p, int w, int h, int count,
                                  int color) {
         Random rnd = new Random(9);
+        int baseAlpha = Color.alpha(color);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(color);
-        for (int i = 0; i < count; i++) {
+        BlurMaskFilter midBlur = new BlurMaskFilter(1.0f, BlurMaskFilter.Blur.NORMAL);
+        BlurMaskFilter nearBlur = new BlurMaskFilter(3.2f, BlurMaskFilter.Blur.NORMAL);
+        int total = Math.round(count * 1.6f);
+        for (int i = 0; i < total; i++) {
+            float layer = rnd.nextFloat();
             float x = rnd.nextFloat() * w;
-            float y = rnd.nextFloat() * h;
+            float y = h * (0.06f + 0.94f * (float) Math.sqrt(rnd.nextFloat()));
             if (blocked(x, y)) {
                 continue;
             }
-            c.drawCircle(x, y, 1.2f + rnd.nextFloat() * 1.2f, p);
+            float r;
+            float strength;
+            if (layer > 0.93f) {          // 가까운 큰 송이(보케)
+                r = 3.2f + rnd.nextFloat() * 2.4f;
+                strength = 0.55f;
+                p.setMaskFilter(nearBlur);
+            } else if (layer > 0.60f) {   // 중간
+                r = 1.5f + rnd.nextFloat() * 1.0f;
+                strength = 0.85f;
+                p.setMaskFilter(midBlur);
+            } else {                      // 먼 작은 송이
+                r = 0.7f + rnd.nextFloat() * 0.7f;
+                strength = 0.65f;
+                p.setMaskFilter(null);
+            }
+            p.setColor(color);
+            p.setAlpha(Math.round(baseAlpha * strength * (0.6f + rnd.nextFloat() * 0.4f)));
+            c.drawCircle(x, y, r, p);
         }
+        p.setMaskFilter(null);
+        p.setAlpha(255);
     }
 
     /** 속도 숫자 자리인지. 여기엔 아무것도 뿌리지 않는다. */
@@ -499,18 +570,69 @@ final class SkyBackground {
         return x > CLEAR_LEFT && x < CLEAR_RIGHT && y > CLEAR_TOP && y < CLEAR_BOTTOM;
     }
 
+    /**
+     * 번개. 구름 속에서 아래로 지그재그로 갈라지며 내려오는 줄기와 잔가지를
+     * 바깥 번짐(넓고 흐림) → 안쪽 빛 → 흰 심 순서로 그리고, 시작점 둘레의
+     * 구름을 은은하게 밝힌다. 속도 숫자 자리는 피한다.
+     */
     private static void drawBolt(Canvas c, Paint p, float cx, float h) {
-        Path path = new Path();
-        path.moveTo(cx, h * 0.04f);
-        path.lineTo(cx - h * 0.065f, h * 0.29f);
-        path.lineTo(cx + h * 0.028f, h * 0.29f);
-        path.lineTo(cx - h * 0.056f, h * 0.56f);
-        path.lineTo(cx + h * 0.085f, h * 0.24f);
-        path.lineTo(cx - h * 0.005f, h * 0.24f);
-        path.close();
+        Random rnd = new Random(17);
+        // 구름 속 섬광
         p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(235, 255, 238, 176));
-        c.drawPath(path, p);
+        p.setShader(new RadialGradient(cx, h * 0.12f, h * 0.55f,
+                Color.argb(90, 214, 222, 255), Color.TRANSPARENT, Shader.TileMode.CLAMP));
+        c.drawCircle(cx, h * 0.12f, h * 0.55f, p);
+        p.setShader(null);
+
+        Path main = new Path();
+        Path branches = new Path();
+        float x = cx;
+        float y = h * 0.10f;
+        main.moveTo(x, y);
+        float maxX = CLEAR_LEFT - 6f;
+        while (y < h * 0.92f) {
+            float ny = y + h * (0.04f + rnd.nextFloat() * 0.05f);
+            float nx = Math.min(maxX, x + (rnd.nextFloat() - 0.62f) * h * 0.09f);
+            main.lineTo(nx, ny);
+            if (rnd.nextFloat() < 0.28f && ny < h * 0.75f) {
+                // 잔가지: 짧게 2~4 마디
+                float bx = nx;
+                float by = ny;
+                branches.moveTo(bx, by);
+                float dir = rnd.nextBoolean() ? 1f : -1f;
+                int segs = 2 + rnd.nextInt(3);
+                for (int k = 0; k < segs; k++) {
+                    by += h * (0.03f + rnd.nextFloat() * 0.04f);
+                    bx = Math.min(maxX, bx + dir * h * (0.02f + rnd.nextFloat() * 0.05f));
+                    branches.lineTo(bx, by);
+                }
+            }
+            x = nx;
+            y = ny;
+        }
+
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setMaskFilter(new BlurMaskFilter(Math.max(6f, h * 0.05f), BlurMaskFilter.Blur.NORMAL));
+        p.setColor(Color.argb(150, 170, 190, 255));
+        p.setStrokeWidth(h * 0.035f);
+        c.drawPath(main, p);
+        p.setStrokeWidth(h * 0.018f);
+        c.drawPath(branches, p);
+        p.setMaskFilter(new BlurMaskFilter(2f, BlurMaskFilter.Blur.NORMAL));
+        p.setColor(Color.argb(220, 214, 226, 255));
+        p.setStrokeWidth(3.2f);
+        c.drawPath(main, p);
+        p.setStrokeWidth(1.6f);
+        c.drawPath(branches, p);
+        p.setMaskFilter(null);
+        p.setColor(Color.argb(255, 255, 255, 255));
+        p.setStrokeWidth(1.4f);
+        c.drawPath(main, p);
+        p.setStrokeWidth(0.8f);
+        c.drawPath(branches, p);
+        p.setStyle(Paint.Style.FILL);
     }
 
     /** 글자색 판단용 평균 휘도. 24x8 로 줄여서 잰다. */
