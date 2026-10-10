@@ -3590,7 +3590,8 @@ public final class HudService extends Service {
         JSONObject sys = s.optJSONObject("system");
         double cpuTemp = sys != null ? sys.optDouble("temp", s.optDouble("temp", 0d)) : s.optDouble("temp", 0d);
         double cpuUse = sys != null ? sys.optDouble("cpu", s.optDouble("cpu", 0d)) : s.optDouble("cpu", 0d);
-        int green190 = Color.argb(190, 0, 203, 0);
+        // 평소에는 눈에 띄지 않는 연한 녹색, 한계를 넘으면 빨강.
+        int green190 = Color.argb(120, 110, 170, 120);
         int red = Color.argb(255, 201, 34, 49);
         // 1줄: C2 온도·C2 사용률, 2줄: S9 온도·S9 사용률, 오른쪽에 두 줄 높이 TPMS 카드
         eonBoxRect(c, p, 15f, 15f, 135f, 100f, cpuTemp > 80d ? red : green190, 2f, white);
