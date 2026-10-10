@@ -1407,11 +1407,6 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "롱컨의 최저 설정속도입니다. 값 증가(+): 처음 설정되는 속도가 높아짐 / 값 감소(-): 더 낮은 속도로 설정 가능.",
       "../assets/offroad/icon_road.png", 5, 30, 1, 0, 30, this));
 
-  list->addItem(new ParamControl(
-      "ApplyLongDynamicCost", "DYNAMIC FOLLOWING RESPONSE",
-      "켜짐: 18km/h까지 앞차 출발 반응을 동적으로 조정하고, 18~30km/h에서 점차 줄여 30km/h부터 일반 추종으로 복귀합니다.",
-      "../assets/offroad/icon_road.png", this));
-
   list->addItem(new ParamValueControlF(
       "SpeedFromPCM", "SPEED FROM PCM",
       "1: 순정 SCC 설정속도 사용 / 2: 오픈파일럿 설정속도와 사용자 크루즈 버튼 설정 사용.",
@@ -1656,6 +1651,11 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(new ParamControl(
       "HumanFollowing", "HUMAN-LIKE FOLLOWING",
       "켜짐: 앞차의 앞으로 움직임을 레이더 가속도 한 값이 아니라 주행 모델이 예측한 궤적으로 계산해, 앞차 따라갈 때 급가속·급감속을 줄입니다. FrogPilot 방식.",
+      "../assets/offroad/icon_road.png", this));
+
+  list->addItem(new ParamControl(
+      "ApplyLongDynamicCost", "DYNAMIC FOLLOWING RESPONSE",
+      "켜짐: 18km/h까지 앞차 출발 반응을 동적으로 조정하고, 18~30km/h에서 점차 줄여 30km/h부터 일반 추종으로 복귀합니다.",
       "../assets/offroad/icon_road.png", this));
 
   const std::array<std::tuple<const char*, const char*, int>, 4> gap_controls = {{
