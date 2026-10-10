@@ -1581,18 +1581,8 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_openpilot.png", 20, 200, 1, 0, 120, this));
 
   list->addItem(new ParamValueControlF(
-      "PidJerkAccel", "CRUISE JERK ACCEL (%)",
-      "출발 이후 정상주행 중 가속 반응 속도 배율입니다. 값 증가(+): 더 즉각적으로 가속 / 값 감소(-): 더 부드럽게. 기본값: 100(=코드 기본 곡선 그대로).",
-      "../assets/offroad/icon_openpilot.png", 30, 300, 5, 0, 100, this));
-
-  list->addItem(new ParamValueControlF(
-      "PidJerkDecel", "CRUISE JERK DECEL (%)",
-      "출발 이후 정상주행 중 감속(제동) 반응 속도 배율입니다. 값 증가(+): 급제동 등에 더 빠르게 반응(반응 지연 감소) / 값 감소(-): 더 부드럽지만 반응이 늦어짐 — 낮출수록 안전 여유가 줄 수 있으니 주의. 기본값: 100.",
-      "../assets/offroad/icon_openpilot.png", 30, 300, 5, 0, 100, this));
-
-  list->addItem(new ParamValueControlF(
       "LowSpeedJerkBoost", "LOW SPEED DEPART BOOST (%)",
-      "시속 18km/h 이하에서 앞차 출발 추종 시에만 추가로 곱해지는 가속 반응 배율입니다(30km/h까지 서서히 해제, CRUISE JERK ACCEL과 무관). 값 증가(+): 정체구간 앞차 출발에 더 즉각 반응. 기본값: 100(=부스트 없음).",
+      "앞차를 따라 출발할 때 출발 가속이 올라가는 속도 배율입니다(18km/h까지 적용, 30km/h에서 해제, START JERK LIMIT을 넘지 않음). 값 증가(+): 정체구간 앞차 출발에 더 빨리 따라붙음. 기본값: 100(=부스트 없음).",
       "../assets/offroad/icon_openpilot.png", 100, 500, 10, 0, 100, this));
 
   list->addItem(new ParamValueControlF(
@@ -1680,10 +1670,6 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "TFollowSpeedRatio", "HIGH-SPEED T-FOLLOW RATIO (%)",
       "속도가 높아질 때 차간시간을 늘리는 비율입니다. 값 증가(+): 고속에서 차간거리 증가 / 값 감소(-): 고속 차간거리 감소.",
       "../assets/offroad/icon_openpilot.png", 100, 300, 5, 0, 120, this));
-  list->addItem(new ParamValueControlF(
-      "LeadDepartCost", "LEAD DEPART COST (X0.01)",
-      "18km/h까지 앞차 출발 추종 강도를 조정하고 18~30km/h에서 점차 해제합니다. 값 감소(-): 빠르게 따라붙음 / 값 증가(+): 부드럽지만 굼뜸. ApplyLongDynamicCost 켜야 동작. apilot-c2 기본값: 5.",
-      "../assets/offroad/icon_openpilot.png", 5, 100, 5, 0, 5, this));
   list->addItem(new ParamValueControlF(
       "PrevCruiseGap", "PREVIOUS CRUISE GAP",
       "마지막 GAP을 저장·복원합니다. 값 증가(+): 더 먼 GAP / 값 감소(-): 더 가까운 GAP.",

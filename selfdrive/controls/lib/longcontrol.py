@@ -75,6 +75,10 @@ LEAD_JERK_FALL_RATE = 4.0          # m/s^4, lift faster when the lead eases
 # are capped further from live lead speed, acceleration and available gap.
 # Launches without a lead (green light, driver) keep START JERK LIMIT.
 LEAD_LAUNCH_JERK = 2.5
+# LowSpeedJerkBoost(%): 앞차를 따라 출발할 때(확인된 앞차 출발) 앞차 움직임에 맞춘 출발
+# 저크에 곱한다. 18 km/h 까지 그대로, 30 km/h 에서 1배로 풀린다. START JERK LIMIT 을
+# 넘지는 않는다(10-08 에 빠졌던 저속 출발 부스트를 출발 저크에만 되살림).
+LOW_SPEED_JERK_BOOST_SPEED_BP = [0.0, 5.0, 30.0 / 3.6]
 
 # Ease only the final rolling approach. The original stop/hold targets and
 # StopReq behavior remain unchanged once standstill is detected.
@@ -375,6 +379,12 @@ class LongControl:
       start_jerk = 0.0
     self.jerk_start_limit = float(clip(
       start_jerk if start_jerk > 0.0 else 1.0, 0.5, LAUNCH_JERK_MAX))
+    try:
+      boost_raw = self.params.get("LowSpeedJerkBoost", encoding="utf8")
+      boost = int(boost_raw) * 0.01 if boost_raw not in (None, "") else 1.0
+    except (TypeError, ValueError):
+      boost = 1.0
+    self.low_speed_jerk_boost = float(clip(boost, 1.0, 3.0))
 
   def _read_params(self):
     self.read_param_count += 1
@@ -529,6 +539,10 @@ class LongControl:
           lead, self.jerk_start_limit, float(getattr(long_plan, 'desiredDistance', 0.0)))
         if target_jerk is None:
           target_jerk = min(self.jerk_start_limit, 1.0)
+        else:
+          boost = getattr(self, 'low_speed_jerk_boost', 1.0)
+          target_jerk = min(self.jerk_start_limit, target_jerk * interp(
+            CS.vEgo, LOW_SPEED_JERK_BOOST_SPEED_BP, [boost, boost, 1.0]))
         if self.lead_launch_jerk is None:
           self.lead_launch_jerk = target_jerk
         else:

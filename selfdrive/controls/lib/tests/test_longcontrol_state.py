@@ -152,3 +152,15 @@ def test_long_radar_dropout_enables_planner_fallback():
 
   # The state machine combines this timeout with the normal sustained planner
   # request; the timeout alone is not an acceleration command.
+
+
+def test_low_speed_jerk_boost_param_is_read_and_bounded():
+  control = LongControl.__new__(LongControl)
+  values = {"JerkStartLimit": "40", "LowSpeedJerkBoost": "150"}
+  control.params = SimpleNamespace(get=lambda key, encoding=None: values.get(key))
+  control._update_launch_jerk()
+  assert control.jerk_start_limit == 4.0
+  assert control.low_speed_jerk_boost == 1.5
+  values["LowSpeedJerkBoost"] = "900"
+  control._update_launch_jerk()
+  assert control.low_speed_jerk_boost == 3.0
