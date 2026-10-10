@@ -138,12 +138,11 @@ final class SkyBackground {
             p.setStyle(Paint.Style.FILL);
         } else if (icon == WeatherService.ICON_RAIN) {
             drawStreaks(c, p, width, height, 200,
-                    day ? Color.argb(110, 216, 230, 244) : Color.argb(140, 170, 196, 226));
+                    day ? Color.argb(160, 232, 240, 248) : Color.argb(140, 170, 196, 226));
         } else if (icon == WeatherService.ICON_SNOW) {
-            // 낮에는 흰 눈송이가 글자 주변을 어지럽혀서 회백색으로 낮추고
-            // 밀도도 절반만 쓴다.
+            // 낮 하늘이 밝은 회색이라 눈송이는 거의 흰색으로 둬야 보인다.
             drawSnow(c, p, width, height, 65,
-                    day ? Color.argb(200, 214, 222, 230)
+                    day ? Color.argb(240, 252, 253, 255)
                             : Color.argb(210, 236, 242, 248));
         } else if (icon == WeatherService.ICON_THUNDER) {
             drawStreaks(c, p, width, height, 110,
