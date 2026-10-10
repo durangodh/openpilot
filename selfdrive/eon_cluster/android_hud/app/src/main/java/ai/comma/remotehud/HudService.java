@@ -3335,13 +3335,15 @@ public final class HudService extends Service {
     private static final float RING_SWEEP = 270f;
     // 도로 왼쪽: 인게이지 휠 아래 과속카메라·방지턱. 둘 다 반지름 36.
     private static final float CAM_X = 435f;
-    private static final float CAM_Y = 290f;
+    private static final float CAM_Y = 310f;
     private static final float WHEEL_X = 435f;
     private static final float WHEEL_Y = 195f;
     // 게이지 바로 아래 가운데 크루즈 설정속도(SET), 그 오른쪽 감속(적용)속도
     private static final float SET_X = 215f;
     private static final float SET_Y = 600f;
-    private static final float APPLY_X = 310f;
+    private static final float APPLY_X = 295f;
+    // 휠·과속카메라·SET 원은 원래 그림(반지름 36)의 85% 로 그린다.
+    private static final float SIGN_SCALE = 0.85f;
     // 아래 정보줄 기준선
     private static final float INFO_Y = 702f;
     // 연료량 신호가 없어 주행가능거리로 연료 막대를 추정한다(만충 약 650 km).
@@ -3419,26 +3421,41 @@ public final class HudService extends Service {
         }
     }
 
+    private int scaleAbout(Canvas c, float x, float y) {
+        int save = c.save();
+        c.translate(x, y);
+        c.scale(SIGN_SCALE, SIGN_SCALE);
+        c.translate(-x, -y);
+        return save;
+    }
+
     /** 도로 왼쪽: 인게이지 휠, 그 아래 방지턱/과속카메라. 게이지 아래: SET 원과 감속(적용)속도. */
     private void drawLimitSign(Canvas c, Paint p, JSONObject s, boolean stale, boolean enabled) {
         int steerWarning = s.optBoolean("steerFaultPermanent", false) ? 2
                 : (s.optBoolean("steerFaultTemporary", false) ? 1 : 0);
+        int signSave = scaleAbout(c, WHEEL_X, WHEEL_Y);
         drawSteeringWheel(c, p, WHEEL_X, WHEEL_Y, (float) s.optDouble("steer", 0d), enabled, steerWarning);
+        c.restoreToCount(signSave);
         int bumpDist = stale ? 0 : (int) Math.round(s.optDouble("bumpDist", 0d));
+        signSave = scaleAbout(c, CAM_X, CAM_Y);
         if (bumpDist > 0) {
             drawBumpIcon(c, p, CAM_X, CAM_Y, bumpDist);
         } else if (!stale) {
             drawCamera(c, p, CAM_X, CAM_Y, s.optInt("camera", 0), s.optInt("cameraDist", 0),
                     s.optBoolean("cameraSection", false), s.optInt("cameraSectionAvg", 0));
         }
-        // 게이지 아래 5번: 크루즈 설정속도(기존 SET 원), 6번: 감속(적용)속도
+        c.restoreToCount(signSave);
+        // 게이지 아래: 크루즈 설정속도(SET 원), 그 오른쪽 감속(적용)속도(빨강)
+        signSave = scaleAbout(c, SET_X, SET_Y);
         drawSetSpeed(c, p, SET_X, SET_Y, s.optInt("set", 0), enabled, s);
+        c.restoreToCount(signSave);
         int apply = s.optInt("applySpeed", 0);
         if (!stale && enabled && apply > 0) {
-            text(c, p, Integer.toString(apply), APPLY_X, SET_Y + 12f, 40f, APPLY_OCHRE, Paint.Align.CENTER);
+            int applyRed = Color.rgb(220, 45, 45);
+            text(c, p, Integer.toString(apply), APPLY_X, SET_Y + 9f, 28f, applyRed, Paint.Align.CENTER);
             String source = s.optString("applySource", "");
             if (!source.isEmpty()) {
-                text(c, p, source.toUpperCase(Locale.US), APPLY_X, SET_Y + 36f, 18f, APPLY_OCHRE,
+                text(c, p, source.toUpperCase(Locale.US), APPLY_X, SET_Y + 26f, 13f, applyRed,
                         Paint.Align.CENTER);
             }
         }
