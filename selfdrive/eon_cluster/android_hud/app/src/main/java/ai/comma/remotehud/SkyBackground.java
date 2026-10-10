@@ -140,10 +140,10 @@ final class SkyBackground {
             drawStreaks(c, p, width, height, 200,
                     day ? Color.argb(160, 232, 240, 248) : Color.argb(140, 170, 196, 226));
         } else if (icon == WeatherService.ICON_SNOW) {
-            // 낮 하늘이 밝은 회색이라 눈송이는 거의 흰색으로 둬야 보인다.
-            drawSnow(c, p, width, height, 65,
+            // 낮 하늘이 밝은 회색이라 눈송이는 거의 흰색으로, 더 크고 많게 해야 보인다.
+            drawSnow(c, p, width, height, day ? 110 : 65,
                     day ? Color.argb(240, 252, 253, 255)
-                            : Color.argb(210, 236, 242, 248));
+                            : Color.argb(210, 236, 242, 248), day ? 1.4f : 1.0f);
         } else if (icon == WeatherService.ICON_THUNDER) {
             drawStreaks(c, p, width, height, 110,
                     day ? Color.argb(90, 200, 214, 232) : Color.argb(110, 176, 196, 222));
@@ -527,7 +527,7 @@ final class SkyBackground {
      * 송이마다 크기·투명도를 달리하고, 가까운 송이는 드물게만 둔다.
      */
     private static void drawSnow(Canvas c, Paint p, int w, int h, int count,
-                                 int color) {
+                                 int color, float sizeScale) {
         Random rnd = new Random(9);
         int baseAlpha = Color.alpha(color);
         p.setStyle(Paint.Style.FILL);
@@ -558,7 +558,7 @@ final class SkyBackground {
             }
             p.setColor(color);
             p.setAlpha(Math.round(baseAlpha * strength * (0.6f + rnd.nextFloat() * 0.4f)));
-            c.drawCircle(x, y, r, p);
+            c.drawCircle(x, y, r * sizeScale, p);
         }
         p.setMaskFilter(null);
         p.setAlpha(255);
