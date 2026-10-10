@@ -1653,6 +1653,10 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "NoLeadCruiseAccelFactor", "NO-LEAD CRUISE ACCEL (%)",
       "앞차가 없을 때 CRUISE MAX 가속 상한에 곱하는 비율입니다. 100%는 CRUISE MAX 그대로, 95%는 전 구간 5% 낮게, 105%는 전 구간 5% 높게 가속합니다. 감속에는 영향이 없습니다. 기본값: 100%.",
       "../assets/offroad/icon_openpilot.png", 50, 150, 5, 0, 100, this));
+  list->addItem(new ParamValueControlF(
+      "LeadCruiseAccelFactor", "LEAD CRUISE ACCEL (%)",
+      "앞차가 있을 때 CRUISE MAX 가속 상한에 곱하는 비율입니다. 100%는 CRUISE MAX 그대로, 95%는 전 구간 5% 낮게, 105%는 전 구간 5% 높게 가속합니다. 감속과 차간거리 유지에는 영향이 없습니다. 기본값: 100%.",
+      "../assets/offroad/icon_openpilot.png", 50, 150, 5, 0, 100, this));
 
   const std::array<std::tuple<const char*, const char*, int>, 4> gap_controls = {{
     {"TFollowGap1", "T-FOLLOW GAP1", 110},

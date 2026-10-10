@@ -1,4 +1,4 @@
-"""CruiseHelper: apilot-c2 speed/mode table, x NO-LEAD CRUISE ACCEL only when there is no lead."""
+"""CruiseHelper: apilot-c2 speed/mode table x LEAD / NO-LEAD CRUISE ACCEL."""
 import ast
 from pathlib import Path
 from types import SimpleNamespace as NS
@@ -22,6 +22,7 @@ def setup_policy(v_ego=20.0):
   policy.my_eco_mode_factor = 0.8
   policy.my_safe_mode_factor = 1.0
   policy.no_lead_cruise_accel_factor = 1.0
+  policy.lead_cruise_accel_factor = 1.0
   return policy, NS(vEgo=v_ego)
 
 
@@ -42,6 +43,15 @@ def test_no_lead_factor_scales_only_without_a_lead():
   assert policy.get_longitudinal_accel_limit(cs, WITH_LEAD, 100.0) == pytest.approx(1.0)
   policy.no_lead_cruise_accel_factor = 1.05
   assert policy.get_longitudinal_accel_limit(cs, NO_LEAD, 100.0) == pytest.approx(1.05)
+
+
+def test_lead_factor_scales_only_with_a_lead():
+  policy, cs = setup_policy()
+  policy.lead_cruise_accel_factor = 0.9
+  assert policy.get_longitudinal_accel_limit(cs, WITH_LEAD, 100.0) == pytest.approx(0.9)
+  assert policy.get_longitudinal_accel_limit(cs, NO_LEAD, 100.0) == pytest.approx(1.0)
+  policy.lead_cruise_accel_factor = 1.1
+  assert policy.get_longitudinal_accel_limit(cs, WITH_LEAD, 100.0) == pytest.approx(1.1)
 
 
 def test_live_cruise_table_is_the_single_positive_limit():

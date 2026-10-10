@@ -133,6 +133,7 @@ def manager_init() -> None:
     ("CruiseMaxVals5", "70"),
     ("CruiseMaxVals6", "60"),
     ("NoLeadCruiseAccelFactor", "100"),
+    ("LeadCruiseAccelFactor", "100"),
     # 조향 기본값은 차량 공식값 기준으로 맞춘다 (2026-08-19, 학습 제거 후 정리)
     #  - CustomSteerRatio 1650  = hyundai/interface.py ret.steerRatio 16.5
     #  - SteerActuatorDelay 25  = 동 파일 ret.steerActuatorDelay 0.25s

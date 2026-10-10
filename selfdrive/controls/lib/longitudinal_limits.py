@@ -17,7 +17,7 @@ CRUISE_MAX_VAL_KEYS = ["CruiseMaxVals1", "CruiseMaxVals20", "CruiseMaxVals2", "C
 # Keep the emergency fallback identical to manager.py and apilot.json. These
 # values are used only when the persisted table is unavailable or malformed.
 CRUISE_MAX_VAL_DEFAULTS = [1.60, 1.00, 1.20, 1.00, 0.80, 0.70, 0.60]
-NO_LEAD_CRUISE_ACCEL_FACTOR_DEFAULT = 1.0
+CRUISE_ACCEL_FACTOR_DEFAULT = 1.0
 
 # aPilot C2 total-acceleration envelope. Longitudinal acceleration is reduced
 # when the estimated lateral acceleration consumes the available tire force.
@@ -66,8 +66,8 @@ def get_cruise_max_accel(v_ego, cruise_max_vals, driving_mode,
   return float(max(0.0, interp(v_ego, CRUISE_MAX_ACCEL_BP, values) * mode_factor))
 
 
-def get_no_lead_cruise_accel_cap(cruise_max_accel, accel_factor=NO_LEAD_CRUISE_ACCEL_FACTOR_DEFAULT):
-  """Positive-acceleration cap with no lead: CruiseMax x the NO-LEAD percentage.
+def scale_cruise_max_accel(cruise_max_accel, accel_factor=CRUISE_ACCEL_FACTOR_DEFAULT):
+  """Positive-acceleration cap: CruiseMax x the LEAD / NO-LEAD CRUISE ACCEL ratio.
 
   100% keeps CruiseMax unchanged; the same ratio applies over the whole speed
   range (95% = 5% lower, 105% = 5% higher). Braking is never affected.
