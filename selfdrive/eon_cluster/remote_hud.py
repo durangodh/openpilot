@@ -1297,6 +1297,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "engineWarning": bool(_field(car, "engineWarning", False)),
     "airbagWarning": bool(_field(car, "airbagWarning", False)),
     "batteryWarning": bool(_field(car, "batteryWarning", False)),
+    "oilPressureWarning": bool(_field(car, "oilPressureWarning", False)),
     "batteryVoltage": round(_finite(_field(car, "batteryVoltage", -1.0), -1.0), 1),
     "steerFaultTemporary": bool(_field(car, "steerFaultTemporary", False)),
     "steerFaultPermanent": bool(_field(car, "steerFaultPermanent", False)),

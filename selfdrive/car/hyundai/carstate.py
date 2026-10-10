@@ -292,6 +292,7 @@ class CarState(CarStateBase):
       # 원격 HUD 경고등·배터리 전압. EMS14 는 checks 에 없어 안 와도 canValid 는 안 깨진다.
       ret.engineWarning = bool(cp.vl["EMS14"]["L_MIL"])
       ret.batteryWarning = bool(cp.vl["EMS19"]["BAT_LAMP_STAT"])
+      ret.oilPressureWarning = bool(cp.vl["EMS19"]["CF_Ems_OPSFail"])
       if cp.vl_all["EMS14"]["VB"]:
         self.battery_voltage_seen = True
       ret.batteryVoltage = cp.vl["EMS14"]["VB"] if self.battery_voltage_seen else -1.
@@ -656,6 +657,7 @@ class CarState(CarStateBase):
         ("CF_Ems_AclAct", "EMS16"),
         ("CR_Ems_EngOilTemp", "EMS19"),
         ("BAT_LAMP_STAT", "EMS19"),
+        ("CF_Ems_OPSFail", "EMS19"),
         ("L_MIL", "EMS14"),
         ("VB", "EMS14"),
         ("N", "EMS_366"),                 # 엔진 회전수 (rpm) — DH 는 이쪽

@@ -4253,6 +4253,7 @@ public final class HudService extends Service {
         if (s.optBoolean("parkingBrake", false)) { drawWarnLamp(c, p, x, y, 0, lampRed); x += 50f; }
         if (s.optBoolean("airbagWarning", false)) { drawWarnLamp(c, p, x, y, 1, lampRed); x += 50f; }
         if (s.optBoolean("batteryWarning", false)) { drawWarnLamp(c, p, x, y, 2, lampRed); x += 50f; }
+        if (s.optBoolean("oilPressureWarning", false)) { drawWarnLamp(c, p, x, y, 4, lampRed); x += 50f; }
         if (s.optBoolean("engineWarning", false)) {
             drawWarnLamp(c, p, x, y, 3, Color.rgb(240, 160, 20));
             x += 50f;
@@ -4428,7 +4429,7 @@ public final class HudService extends Service {
                 || windows.optBoolean("rr", false));
     }
 
-    /** 경고등 벡터(왼쪽 끝 x, 가운데 y, 폭 약 32). 0 주차브레이크, 1 에어백, 2 배터리, 3 엔진. */
+    /** 경고등 벡터(왼쪽 끝 x, 가운데 y, 폭 약 32). 0 주차브레이크, 1 에어백, 2 배터리, 3 엔진, 4 오일압력. */
     private void drawWarnLamp(Canvas c, Paint p, float x, float y, int type, int color) {
         float cx = x + 16f;
         p.setShader(null);
@@ -4471,6 +4472,27 @@ public final class HudService extends Service {
             c.drawLine(cx - 10f, y + 2f, cx - 4f, y + 2f, p);
             c.drawLine(cx + 4f, y + 2f, cx + 10f, y + 2f, p);
             c.drawLine(cx + 7f, y - 1f, cx + 7f, y + 5f, p);
+        } else if (type == 4) {
+            // 순정 엔진오일 압력 경고: 오일통(왼쪽 손잡이, 오른쪽 주둥이)과 떨어지는 방울
+            p.setStrokeJoin(Paint.Join.ROUND);
+            scratchPath.rewind();
+            scratchPath.moveTo(cx - 9f, y - 2f);
+            scratchPath.lineTo(cx - 5f, y - 6f);
+            scratchPath.lineTo(cx + 2f, y - 6f);
+            scratchPath.lineTo(cx + 5f, y - 3f);
+            scratchPath.lineTo(cx + 15f, y - 7f);
+            scratchPath.lineTo(cx + 5f, y + 7f);
+            scratchPath.lineTo(cx - 9f, y + 7f);
+            scratchPath.close();
+            c.drawPath(scratchPath, p);
+            c.drawLine(cx - 9f, y - 1f, cx - 16f, y - 5f, p);
+            c.drawLine(cx - 16f, y - 5f, cx - 15f, y - 9f, p);
+            c.drawLine(cx - 4f, y - 6f, cx - 4f, y - 10f, p);
+            c.drawLine(cx - 7f, y - 10f, cx - 1f, y - 10f, p);
+            p.setStyle(Paint.Style.FILL);
+            c.drawCircle(cx + 15f, y + 6f, 2.2f, p);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeJoin(Paint.Join.MITER);
         } else {
             // 순정 엔진 경고: 엔진 블록 옆모습(위 흡기, 왼쪽 마운트, 오른쪽 팬)
             p.setStrokeJoin(Paint.Join.ROUND);

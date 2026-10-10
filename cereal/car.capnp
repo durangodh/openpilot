@@ -254,6 +254,7 @@ struct CarState {
   airbagWarning @74 :Bool;        # airbag fault (ACU11 CF_Acu_FltStat != 0)
   batteryWarning @75 :Bool;       # charging warning lamp (EMS19 BAT_LAMP_STAT)
   batteryVoltage @76 :Float32;    # battery voltage (EMS14 VB), -1 if not seen
+  oilPressureWarning @77 :Bool;   # oil pressure switch lamp (EMS19 CF_Ems_OPSFail)
 
   # button presses
   buttonEvents @11 :List(ButtonEvent);
