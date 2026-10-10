@@ -3984,8 +3984,7 @@ public final class HudService extends Service {
             String vLabel = String.format(Locale.US, "%.1fV", volt);
             float vWidth = p.measureText(vLabel);
             text(c, p, vLabel, right, 44f, 22f, vColor, Paint.Align.RIGHT);
-            drawWarnLamp(c, p, right - vWidth - 36f, 37f, 2, vColor);
-            right -= vWidth + 36f + 16f;
+            right -= vWidth + 24f;
         }
         if (Double.isFinite(temp) && temp >= -50d && temp <= 80d) {
             String label = String.format(Locale.US, "%.0f°C", temp);
@@ -4251,12 +4250,12 @@ public final class HudService extends Service {
         }
         // 순정 경고등: 주차브레이크·에어백·배터리 충전(빨강), 엔진(주황). 켜졌을 때만.
         int lampRed = Color.rgb(230, 48, 58);
-        if (s.optBoolean("parkingBrake", false)) { drawWarnLamp(c, p, x, y, 0, lampRed); x += 44f; }
-        if (s.optBoolean("airbagWarning", false)) { drawWarnLamp(c, p, x, y, 1, lampRed); x += 44f; }
-        if (s.optBoolean("batteryWarning", false)) { drawWarnLamp(c, p, x, y, 2, lampRed); x += 44f; }
+        if (s.optBoolean("parkingBrake", false)) { drawWarnLamp(c, p, x, y, 0, lampRed); x += 50f; }
+        if (s.optBoolean("airbagWarning", false)) { drawWarnLamp(c, p, x, y, 1, lampRed); x += 50f; }
+        if (s.optBoolean("batteryWarning", false)) { drawWarnLamp(c, p, x, y, 2, lampRed); x += 50f; }
         if (s.optBoolean("engineWarning", false)) {
             drawWarnLamp(c, p, x, y, 3, Color.rgb(240, 160, 20));
-            x += 44f;
+            x += 50f;
         }
         int wiperMode = visibleWiperMode(s.optInt("wiperMode", 0));
         if (wiperMode != 0) {
@@ -4435,7 +4434,7 @@ public final class HudService extends Service {
         p.setShader(null);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeCap(Paint.Cap.ROUND);
-        p.setStrokeWidth(3f);
+        p.setStrokeWidth(3.5f);
         p.setColor(color);
         if (type == 0) {
             c.drawCircle(cx, y, 10f, p);
@@ -4444,23 +4443,31 @@ public final class HudService extends Service {
             c.drawArc(scratchRect, -55f, 110f, false, p);
             text(c, p, "P", cx, y + 6f, 16f, color, Paint.Align.CENTER);
         } else if (type == 1) {
-            // 순정 에어백 경고: 앉은 사람(오른쪽) 앞에 펼쳐진 에어백(왼쪽 원)
+            // 순정 에어백 경고: 앉은 사람(왼쪽, 굵은 몸통) 앞에 펼쳐진 에어백(오른쪽 원)
             p.setStyle(Paint.Style.FILL);
-            c.drawCircle(cx + 7f, y - 11f, 3.5f, p);
-            c.drawCircle(cx - 7f, y - 2f, 7.5f, p);
+            c.drawCircle(cx - 6f, y - 11f, 4f, p);
+            c.drawCircle(cx + 9f, y - 5f, 6.5f, p);
             p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(5f);
+            p.setStrokeJoin(Paint.Join.ROUND);
             scratchPath.rewind();
-            scratchPath.moveTo(cx + 7f, y - 5f);
-            scratchPath.lineTo(cx + 9f, y + 5f);
-            scratchPath.lineTo(cx + 2f, y + 6f);
-            scratchPath.lineTo(cx + 1f, y + 13f);
+            scratchPath.moveTo(cx - 5f, y - 4f);
+            scratchPath.lineTo(cx - 8f, y + 5f);
+            scratchPath.lineTo(cx + 1f, y + 6f);
+            scratchPath.lineTo(cx + 3f, y + 13f);
             c.drawPath(scratchPath, p);
-            c.drawLine(cx + 13f, y - 6f, cx + 14f, y + 9f, p);
+            p.setStrokeWidth(3f);
+            c.drawLine(cx - 4f, y - 2f, cx + 3f, y + 1f, p);
+            p.setStrokeJoin(Paint.Join.MITER);
         } else if (type == 2) {
             scratchRect.set(cx - 14f, y - 8f, cx + 14f, y + 11f);
             c.drawRoundRect(scratchRect, 2f, 2f, p);
-            c.drawLine(cx - 9f, y - 11f, cx - 5f, y - 11f, p);
-            c.drawLine(cx + 5f, y - 11f, cx + 9f, y - 11f, p);
+            p.setStyle(Paint.Style.FILL);
+            scratchRect.set(cx - 11f, y - 12f, cx - 5f, y - 8f);
+            c.drawRect(scratchRect, p);
+            scratchRect.set(cx + 5f, y - 12f, cx + 11f, y - 8f);
+            c.drawRect(scratchRect, p);
+            p.setStyle(Paint.Style.STROKE);
             c.drawLine(cx - 10f, y + 2f, cx - 4f, y + 2f, p);
             c.drawLine(cx + 4f, y + 2f, cx + 10f, y + 2f, p);
             c.drawLine(cx + 7f, y - 1f, cx + 7f, y + 5f, p);
