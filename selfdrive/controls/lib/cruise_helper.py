@@ -14,6 +14,7 @@ from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_auto_speed_up_target,
                                                         get_cruise_max_accel,
+                                                        get_no_lead_cruise_accel_cap,
                                                         select_auto_driving_mode)
 from selfdrive.road_speed_limiter import get_road_speed_limiter
 
@@ -106,6 +107,7 @@ class CruiseHelper:
     self.my_safe_mode_factor = 1.0
     self.my_eco_mode_factor = 0.8
     self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
+    self.no_lead_cruise_accel_factor = 1.0
 
     self.target_speed = 0.0
     self.max_speed_clu = 0.0
@@ -166,6 +168,9 @@ class CruiseHelper:
     for key, default in zip(CRUISE_MAX_VAL_KEYS, CRUISE_MAX_VAL_DEFAULTS):
       raw = self.params.get_int(key)
       self.cruise_max_vals.append(float(raw * 0.01 if raw > 0 else default))
+    no_lead_factor = self.params.get_int("NoLeadCruiseAccelFactor")
+    self.no_lead_cruise_accel_factor = float(clip(
+      (no_lead_factor if no_lead_factor > 0 else 100) * 0.01, 0.50, 1.50))
 
   def _param_or_default(self, key, default, lo, hi):
     # 0 이하(미설정)는 기본값, 그 뒤 범위 제한
@@ -307,8 +312,12 @@ class CruiseHelper:
                                 self.my_eco_mode_factor, self.my_safe_mode_factor)
 
   def get_longitudinal_accel_limit(self, CS, sm, set_speed_kph):
-    """Use the apilot-c2 speed/mode acceleration table without extra lead caps."""
-    return max(0.0, float(self.get_cruise_max_accel(CS.vEgo)))
+    """apilot-c2 speed/mode CruiseMax table; with no lead, x NO-LEAD CRUISE ACCEL (planner 와 동일)."""
+    cruise_max_accel = max(0.0, float(self.get_cruise_max_accel(CS.vEgo)))
+    radar_state = sm['radarState']
+    if not (radar_state.leadOne.status or radar_state.leadTwo.status):
+      cruise_max_accel = get_no_lead_cruise_accel_cap(cruise_max_accel, self.no_lead_cruise_accel_factor)
+    return cruise_max_accel
 
   def _resume_longitudinal(self, controls, CS, active_mode=1):
     if self.long_active_user <= 0:

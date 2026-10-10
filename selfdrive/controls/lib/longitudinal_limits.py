@@ -17,7 +17,7 @@ CRUISE_MAX_VAL_KEYS = ["CruiseMaxVals1", "CruiseMaxVals20", "CruiseMaxVals2", "C
 # Keep the emergency fallback identical to manager.py and apilot.json. These
 # values are used only when the persisted table is unavailable or malformed.
 CRUISE_MAX_VAL_DEFAULTS = [1.60, 1.00, 1.20, 1.00, 0.80, 0.70, 0.60]
-NO_LEAD_CRUISE_ACCEL_FACTOR_DEFAULT = 0.65
+NO_LEAD_CRUISE_ACCEL_FACTOR_DEFAULT = 1.0
 
 # aPilot C2 total-acceleration envelope. Longitudinal acceleration is reduced
 # when the estimated lateral acceleration consumes the available tire force.
@@ -66,18 +66,13 @@ def get_cruise_max_accel(v_ego, cruise_max_vals, driving_mode,
   return float(max(0.0, interp(v_ego, CRUISE_MAX_ACCEL_BP, values) * mode_factor))
 
 
-def get_no_lead_cruise_accel_cap(cruise_max_accel, speed_error_kph,
-                                  accel_factor=NO_LEAD_CRUISE_ACCEL_FACTOR_DEFAULT):
-  """Return a gentler positive-acceleration cap when no lead is present.
+def get_no_lead_cruise_accel_cap(cruise_max_accel, accel_factor=NO_LEAD_CRUISE_ACCEL_FACTOR_DEFAULT):
+  """Positive-acceleration cap with no lead: CruiseMax x the NO-LEAD percentage.
 
-  A large set-speed error may use the configured fraction of CruiseMax, while
-  the allowance tapers further near the set speed. Braking is handled outside
-  this helper and is never weakened by the no-lead policy.
+  100% keeps CruiseMax unchanged; the same ratio applies over the whole speed
+  range (95% = 5% lower, 105% = 5% higher). Braking is never affected.
   """
-  error_scale = interp(clip(speed_error_kph, 0.0, 30.0),
-                       [0.0, 5.0, 15.0, 30.0], [0.20, 0.40, 0.70, 1.0])
-  factor = clip(accel_factor, 0.30, 1.0)
-  return float(max(0.0, cruise_max_accel * factor * error_scale))
+  return float(max(0.0, cruise_max_accel * clip(accel_factor, 0.50, 1.50)))
 
 
 def select_auto_driving_mode(initial_mode, current_mode, driving_index):

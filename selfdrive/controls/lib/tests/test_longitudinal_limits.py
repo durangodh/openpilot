@@ -50,10 +50,11 @@ def test_cruise_max_tracks_the_live_slider_and_driving_mode():
   assert get_cruise_max_accel(v_ego, vals, 2, 0.8) == pytest.approx(0.48)
 
 
-def test_no_lead_cap_is_lower_and_tapers_near_set_speed():
-  assert get_no_lead_cruise_accel_cap(1.0, 30.0, 0.65) == pytest.approx(0.65)
-  assert get_no_lead_cruise_accel_cap(1.0, 15.0, 0.65) == pytest.approx(0.455)
-  assert get_no_lead_cruise_accel_cap(1.0, 5.0, 0.65) == pytest.approx(0.26)
+def test_no_lead_cap_scales_cruise_max_over_the_whole_range():
+  assert get_no_lead_cruise_accel_cap(1.2) == pytest.approx(1.2)  # 100% = unchanged
+  assert get_no_lead_cruise_accel_cap(1.0, 0.95) == pytest.approx(0.95)
+  assert get_no_lead_cruise_accel_cap(1.0, 1.05) == pytest.approx(1.05)
+  assert get_no_lead_cruise_accel_cap(1.0, 3.0) == pytest.approx(1.5)  # clipped
 
 
 def test_turn_limit_preserves_straight_road_acceleration():

@@ -58,7 +58,7 @@ class LongitudinalPlanner:
     self.my_driving_mode = 3
     self.my_eco_mode_factor = 0.8
     self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
-    self.no_lead_cruise_accel_factor = 0.65
+    self.no_lead_cruise_accel_factor = 1.0
     self.human_acceleration = False
 
     self.read_param()
@@ -127,7 +127,7 @@ class LongitudinalPlanner:
     for key, default in zip(CRUISE_MAX_VAL_KEYS, CRUISE_MAX_VAL_DEFAULTS):
       raw = self.params.get_int(key)
       self.cruise_max_vals.append(float(raw * 0.01 if raw > 0 else default))
-    self.no_lead_cruise_accel_factor = scaled("NoLeadCruiseAccelFactor", 65, 0.30, 1.0)
+    self.no_lead_cruise_accel_factor = scaled("NoLeadCruiseAccelFactor", 100, 0.50, 1.50)
 
     self.mpc.tfollow_gaps = [scaled(f"TFollowGap{i + 1}", default)
                              for i, default in enumerate([110, 120, 140, 160])]
@@ -239,14 +239,13 @@ class LongitudinalPlanner:
     # No change cost when user is controlling the speed, or when standstill
     prev_accel_constraint = not (reset_state or sm['carState'].standstill)
 
-    # apilot-c2: the speed/mode CruiseMax table is the only positive-accel cap.
+    # apilot-c2: the speed/mode CruiseMax table is the positive-accel cap (x NO-LEAD below).
     cruise_max_accel = float(clip(get_cruise_max_accel(
       v_ego, self.cruise_max_vals, driving_mode, self.my_eco_mode_factor, safe_mode_factor), 0.0, MAX_ACCEL))
-    # 앞차 없음: CruiseMax 에 NO-LEAD CRUISE ACCEL 비율을 곱하고 설정속도에 가까울수록 더 낮춘다.
+    # 앞차 없음: CruiseMax 에 NO-LEAD CRUISE ACCEL 비율을 전 구간 그대로 곱한다(100% = 그대로).
     if not (sm['radarState'].leadOne.status or sm['radarState'].leadTwo.status):
-      speed_error_kph = max(0.0, (v_cruise - v_ego) * CV.MS_TO_KPH)
-      cruise_max_accel = min(cruise_max_accel, get_no_lead_cruise_accel_cap(
-        cruise_max_accel, speed_error_kph, self.no_lead_cruise_accel_factor))
+      cruise_max_accel = float(clip(get_no_lead_cruise_accel_cap(
+        cruise_max_accel, self.no_lead_cruise_accel_factor), 0.0, MAX_ACCEL))
     if self.human_acceleration:
       # FrogPilot Human-Like Acceleration (ramp-off only): ease off the cap as
       # v_ego nears the applied target speed, 0 at the target, 0.5 at 1 m/s
