@@ -267,6 +267,7 @@ class CarState(CarStateBase):
     ret.brake = 0
     ret.brakePressed = cp.vl["TCS13"]["DriverBraking"] != 0
     ret.brakeHoldActive = cp.vl["TCS15"]["AVH_LAMP"] == 2  # 0 OFF, 1 ERROR, 2 ACTIVE, 3 READY
+    ret.absWarning = bool(cp.vl["TCS15"]["ABS_W_LAMP"])
     ret.parkingBrake = cp.vl["TCS13"]["PBRAKE_ACT"] == 1
     #ret.parkingBrake = cp.vl["CGW1"]["CF_Gway_ParkBrakeSw"]
 
@@ -502,6 +503,7 @@ class CarState(CarStateBase):
 
       ("ESC_Off_Step", "TCS15"),
       ("AVH_LAMP", "TCS15"),
+      ("ABS_W_LAMP", "TCS15"),
 
       #("CF_Lvr_GearInf", "LVR11"),        # Transmission Gear (0 = N or P, 1-8 = Fwd, 14 = Rev)
 

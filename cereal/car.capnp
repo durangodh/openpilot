@@ -255,6 +255,7 @@ struct CarState {
   batteryWarning @75 :Bool;       # charging warning lamp (EMS19 BAT_LAMP_STAT)
   batteryVoltage @76 :Float32;    # battery voltage (EMS14 VB), -1 if not seen
   oilPressureWarning @77 :Bool;   # oil pressure switch lamp (EMS19 CF_Ems_OPSFail)
+  absWarning @78 :Bool;           # ABS warning lamp (TCS15 ABS_W_LAMP)
 
   # button presses
   buttonEvents @11 :List(ButtonEvent);

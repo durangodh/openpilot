@@ -4254,6 +4254,10 @@ public final class HudService extends Service {
         if (s.optBoolean("airbagWarning", false)) { drawWarnLamp(c, p, x, y, 1, lampRed); x += 50f; }
         if (s.optBoolean("batteryWarning", false)) { drawWarnLamp(c, p, x, y, 2, lampRed); x += 50f; }
         if (s.optBoolean("oilPressureWarning", false)) { drawWarnLamp(c, p, x, y, 4, lampRed); x += 50f; }
+        if (s.optBoolean("absWarning", false)) {
+            drawWarnLamp(c, p, x, y, 5, Color.rgb(240, 160, 20));
+            x += 50f;
+        }
         if (s.optBoolean("engineWarning", false)) {
             drawWarnLamp(c, p, x, y, 3, Color.rgb(240, 160, 20));
             x += 50f;
@@ -4429,7 +4433,7 @@ public final class HudService extends Service {
                 || windows.optBoolean("rr", false));
     }
 
-    /** 경고등 벡터(왼쪽 끝 x, 가운데 y, 폭 약 32). 0 주차브레이크, 1 에어백, 2 배터리, 3 엔진, 4 오일압력. */
+    /** 경고등 벡터(왼쪽 끝 x, 가운데 y, 폭 약 32). 0 주차브레이크, 1 에어백, 2 배터리, 3 엔진, 4 오일압력, 5 ABS. */
     private void drawWarnLamp(Canvas c, Paint p, float x, float y, int type, int color) {
         float cx = x + 16f;
         p.setShader(null);
@@ -4472,6 +4476,13 @@ public final class HudService extends Service {
             c.drawLine(cx - 10f, y + 2f, cx - 4f, y + 2f, p);
             c.drawLine(cx + 4f, y + 2f, cx + 10f, y + 2f, p);
             c.drawLine(cx + 7f, y - 1f, cx + 7f, y + 5f, p);
+        } else if (type == 5) {
+            // 순정 ABS 경고: 원 안의 ABS 글자, 양옆 괄호
+            c.drawCircle(cx, y, 11f, p);
+            scratchRect.set(cx - 17f, y - 14f, cx + 17f, y + 14f);
+            c.drawArc(scratchRect, 125f, 110f, false, p);
+            c.drawArc(scratchRect, -55f, 110f, false, p);
+            text(c, p, "ABS", cx, y + 3.5f, 9.5f, color, Paint.Align.CENTER);
         } else if (type == 4) {
             // 순정 엔진오일 압력 경고: 오일통(왼쪽 손잡이, 오른쪽 주둥이)과 떨어지는 방울
             p.setStrokeJoin(Paint.Join.ROUND);

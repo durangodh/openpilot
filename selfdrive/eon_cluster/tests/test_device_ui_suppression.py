@@ -467,16 +467,16 @@ def test_warning_lamps_and_battery_voltage_reach_external_hud():
 
   for field in ("engineWarning @73 :Bool", "airbagWarning @74 :Bool",
                 "batteryWarning @75 :Bool", "batteryVoltage @76 :Float32",
-                "oilPressureWarning @77 :Bool"):
+                "oilPressureWarning @77 :Bool", "absWarning @78 :Bool"):
     assert field in schema
   for signal in ('("L_MIL", "EMS14")', '("VB", "EMS14")', '("BAT_LAMP_STAT", "EMS19")',
-                 '("CF_Acu_FltStat", "ACU11")', '("CF_Ems_OPSFail", "EMS19")'):
+                 '("CF_Acu_FltStat", "ACU11")', '("CF_Ems_OPSFail", "EMS19")', '("ABS_W_LAMP", "TCS15")'):
     assert signal in carstate
   for key in ('"engineWarning":', '"airbagWarning":', '"batteryWarning":', '"batteryVoltage":'):
     assert key in sender
   lights = service.split("private void drawLights", 1)[1].split(
       "private int visibleWiperMode", 1)[0]
-  for key in ("parkingBrake", "airbagWarning", "batteryWarning", "oilPressureWarning", "engineWarning"):
+  for key in ("parkingBrake", "airbagWarning", "batteryWarning", "oilPressureWarning", "absWarning", "engineWarning"):
     assert 's.optBoolean("%s", false)' % key in lights
   temp = service.split("private void drawOutsideTemp", 1)[1].split("private void drawSkyBand", 1)[0]
   assert 's.optDouble("batteryVoltage", -1d)' in temp
