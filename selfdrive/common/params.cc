@@ -270,7 +270,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudNightBrightness", PERSISTENT},
     {"EonClusterHudGuardrail", PERSISTENT},     // 도로경계 위 가드레일 0=끔 1=켬
     {"EonClusterHudHaze", PERSISTENT},          // 원경 헤이즈 강도 % (0..100)
-    {"CarrotLearnFrictionBase", PERSISTENT},   // friction 학습 기준선(사용자 수동값)   // 노면 표시 0:끔 1:제한속도 2:방지턱 3:둘다
     {"EonClusterHudTmapIcon", PERSISTENT},
     {"EonClusterHudJunction", PERSISTENT},
     {"EonClusterHudRoadZ", PERSISTENT},         // 노면 높낮이 배율 % (-300..300, 100=원본)
@@ -309,7 +308,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LateralTorqueKpV", PERSISTENT},          // kp x100
     {"LateralTorqueKiV", PERSISTENT},          // ki x100
     {"LateralTorqueKf", PERSISTENT},           // kf x100
-    {"LateralTorqueKd", PERSISTENT},           // kd x100
     {"LatAccelFrictionFactor", PERSISTENT},    // friction 입력 횡가속 비율 x100
     {"LatJerkFrictionFactor", PERSISTENT},     // friction 입력 횡저크 비율 x100
     {"LatCurveIDeadzone", PERSISTENT},

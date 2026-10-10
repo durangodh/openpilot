@@ -266,12 +266,13 @@ def manager_init() -> None:
     midpoint = int(round((vals1 + vals2) / 10.0) * 5)
     params.put("CruiseMaxVals20", str(max(10, min(250, midpoint))))
 
-  # 더 이상 어떤 코드도 읽지 않는 종제어 파라미터 파일을 지운다(2026-10-10 정리).
+  # 더 이상 어떤 코드도 읽지 않는 종·횡제어 파라미터 파일을 지운다(2026-10-10 정리).
   # 키 목록에서 빠졌으므로 Params 로는 지울 수 없고 파일을 직접 지운다. 없으면 무시.
   for dead_key in ("PidJerkAccel", "PidJerkDecel", "LeadDepartCost", "NoLeadCruiseAccelFactor",
                    "LongCoastBand", "LongitudinalActuatorDelayUpperBound", "StoppingAccel",
                    "NoLeadCruiseJerkLimit", "EnableSpeedTF", "StockNaviDecelEnabled",
-                   "VisionRadarToggle", "SccSmootherState"):
+                   "VisionRadarToggle", "SccSmootherState",
+                   "LateralTorqueKd", "CarrotLearnFrictionBase"):
     try:
       os.remove(os.path.join("/data/params/d", dead_key))
     except OSError:

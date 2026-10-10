@@ -43,7 +43,6 @@ NOO_MAP_MAX_LAT_ACCEL = 2.0
 NOO_MAP_MAX_CURVATURE = 0.06
 
 # 기본값 상수
-DEFAULT_CAMERA_OFFSET = -0.06
 DEFAULT_OFFSET_TOTAL = 0.0
 
 
@@ -81,7 +80,6 @@ class LateralPlanner:
     self.l_lane_change_prob = 0.0
     self.r_lane_change_prob = 0.0
     self.d_path_w_lines_xyz = np.zeros((TRAJECTORY_SIZE, 3))
-    self.d_path_xyz = np.zeros((TRAJECTORY_SIZE, 3))  # 방어용 초기화
 
     self.debug_mode = debug
 
