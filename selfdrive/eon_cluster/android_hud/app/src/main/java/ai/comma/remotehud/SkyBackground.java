@@ -573,7 +573,10 @@ final class SkyBackground {
         c.drawRect(0f, 0f, w, h * 1.2f, p);
         p.setShader(null);
 
-        // 가로로 길게 퍼진 안개 띠(먼 띠는 위쪽·옅게, 가까운 띠는 아래쪽·짙게)
+        // 가로로 길게 퍼진 안개 띠(먼 띠는 위쪽·옅게, 가까운 띠는 아래쪽·짙게).
+        // 띠마다 조금 밝거나 어두운 톤을 섞어 고르지 않게 한다.
+        int lightTone = mix(color, Color.WHITE, 0.35f);
+        int darkTone = mix(color, Color.rgb(60, 66, 76), 0.22f);
         p.setMaskFilter(new BlurMaskFilter(Math.max(12f, h * 0.12f), BlurMaskFilter.Blur.NORMAL));
         for (int i = 0; i < 9; i++) {
             float depth = (i + rnd.nextFloat()) / 9f;
@@ -581,9 +584,20 @@ final class SkyBackground {
             float bw = w * (0.45f + rnd.nextFloat() * 0.55f);
             float bh = h * (0.08f + depth * 0.12f + rnd.nextFloat() * 0.06f);
             float x = -bw * 0.3f + rnd.nextFloat() * (w + bw * 0.6f);
-            p.setColor(color);
-            p.setAlpha(45 + Math.round(depth * 55f) + rnd.nextInt(25));
+            p.setColor(i % 3 == 1 ? darkTone : lightTone);
+            p.setAlpha(60 + Math.round(depth * 70f) + rnd.nextInt(30));
             c.drawOval(x - bw * 0.5f, y - bh * 0.5f, x + bw * 0.5f, y + bh * 0.5f, p);
+        }
+
+        // 띠를 따라 뭉게뭉게 흘러가는 안개 덩이(질감)
+        p.setMaskFilter(new BlurMaskFilter(Math.max(9f, h * 0.075f), BlurMaskFilter.Blur.NORMAL));
+        for (int i = 0; i < 26; i++) {
+            float y = h * (0.30f + 0.70f * (float) Math.sqrt(rnd.nextFloat()));
+            float r = h * (0.07f + rnd.nextFloat() * 0.10f);
+            float x = rnd.nextFloat() * w;
+            p.setColor(rnd.nextFloat() < 0.65f ? lightTone : darkTone);
+            p.setAlpha(40 + rnd.nextInt(50));
+            c.drawOval(x - r * 2.2f, y - r * 0.6f, x + r * 2.2f, y + r * 0.6f, p);
         }
 
         // 얇은 안개 자락
