@@ -2514,6 +2514,8 @@ public final class HudService extends Service {
         // Existing lamp art stays unchanged; move the complete row inside
         // the panel, centred on the outside-temperature/range row.
         int save = beginElement(c, l, "lights", 70f, 36f);
+        // 왼쪽 위 등화 줄과 오른쪽 위 날씨·온도는 원래 그림보다 10% 크게(각각 왼쪽·오른쪽 끝 기준).
+        c.scale(TOP_ROW_SCALE, TOP_ROW_SCALE, 21f, 36f);
         drawLights(c, p, s);
         c.restoreToCount(save);
 
@@ -2523,6 +2525,7 @@ public final class HudService extends Service {
         // 오른쪽 위: 날씨 그림 + 외기온도. 원래 주행가능거리가 있던 자리(932)에 오른쪽을 맞춘다.
         int tempSave = beginElement(c, l, "range", 932f, 44f);
         c.translate(932f - 790f, 0f);
+        c.scale(TOP_ROW_SCALE, TOP_ROW_SCALE, 790f, 36f);
         drawOutsideTemp(c, p, s);
         c.restoreToCount(tempSave);
 
@@ -3344,6 +3347,7 @@ public final class HudService extends Service {
     private static final float APPLY_X = 295f;
     // 휠·과속카메라·SET 원은 원래 그림(반지름 36)의 85% 로 그린다.
     private static final float SIGN_SCALE = 0.85f;
+    private static final float TOP_ROW_SCALE = 1.1f;
     // 아래 정보줄 기준선
     private static final float INFO_Y = 702f;
     // 연료량 신호가 없어 주행가능거리로 연료 막대를 추정한다(만충 약 650 km).
