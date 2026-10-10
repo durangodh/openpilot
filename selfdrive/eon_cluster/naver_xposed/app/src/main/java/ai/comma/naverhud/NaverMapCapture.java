@@ -397,17 +397,67 @@ final class NaverMapCapture {
     }
 
     private static Bitmap fitCenterCrop(Bitmap source) {
-        int sw = source.getWidth(), sh = source.getHeight();
+        // 안내(3D) 지도 스냅샷은 하늘·가장자리가 투명(JPEG 에서 검정)으로 온다.
+        // 지도가 실제로 그려진 범위만 골라 그 안에서 꽉 차게 자른다.
+        Rect content = contentBounds(source);
+        int sw = content.width(), sh = content.height();
         float scale = Math.max(WIDTH / (float) sw, HEIGHT / (float) sh);
         int cropW = Math.min(sw, Math.round(WIDTH / scale));
         int cropH = Math.min(sh, Math.round(HEIGHT / scale));
-        int left = (sw - cropW) / 2;
+        int left = content.left + (sw - cropW) / 2;
         int top = sh > sw ? Math.round(sh * 0.62f - cropH / 2f) : (sh - cropH) / 2;
-        top = Math.max(0, Math.min(sh - cropH, top));
+        top = content.top + Math.max(0, Math.min(sh - cropH, top));
         Bitmap out = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
         new Canvas(out).drawBitmap(source,
                 new Rect(left, top, left + cropW, top + cropH),
                 new Rect(0, 0, WIDTH, HEIGHT), new Paint(Paint.FILTER_BITMAP_FLAG));
         return out;
+    }
+
+    /** 투명(또는 완전 검정) 테두리를 뺀 지도 범위. 1/8 축소본으로 줄·칸 단위로 본다. */
+    private static Rect contentBounds(Bitmap source) {
+        int sw = source.getWidth(), sh = source.getHeight();
+        Rect full = new Rect(0, 0, sw, sh);
+        int w = Math.max(1, sw / 8), h = Math.max(1, sh / 8);
+        Bitmap small;
+        try {
+            small = Bitmap.createScaledBitmap(source, w, h, false);
+        } catch (Throwable error) {
+            return full;
+        }
+        int[] px = new int[w * h];
+        small.getPixels(px, 0, w, 0, 0, w, h);
+        if (small != source) small.recycle();
+        int top = -1, bottom = -1, left = w, right = -1;
+        for (int y = 0; y < h; y++) {
+            int filled = 0, first = -1, last = -1;
+            for (int x = 0; x < w; x++) {
+                if (!empty(px[y * w + x])) {
+                    filled++;
+                    if (first < 0) first = x;
+                    last = x;
+                }
+            }
+            // 거의 다(90%) 지도인 줄만 지도로 본다. 휘어진 지평선 줄의 검은 귀퉁이가 남지 않는다.
+            if (filled * 10 >= w * 9) {
+                if (top < 0) top = y;
+                bottom = y;
+                left = Math.min(left, first);
+                right = Math.max(right, last);
+            }
+        }
+        if (top < 0 || right <= left) return full;
+        Rect r = new Rect(left * sw / w, top * sh / h, (right + 1) * sw / w, (bottom + 1) * sh / h);
+        // 너무 작게 잡히면(지도 로딩 중 등) 원래대로 쓴다.
+        if (r.width() < sw / 3 || r.height() < sh / 3) return full;
+        // 경계의 반투명 줄이 남지 않게 한 칸 안쪽으로.
+        r.inset(Math.min(8, r.width() / 50), Math.min(8, r.height() / 50));
+        return r;
+    }
+
+    private static boolean empty(int argb) {
+        if ((argb >>> 24) < 32) return true;
+        int r = (argb >> 16) & 0xff, g = (argb >> 8) & 0xff, b = argb & 0xff;
+        return r < 10 && g < 10 && b < 10;
     }
 }
