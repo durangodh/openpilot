@@ -3973,29 +3973,30 @@ public final class HudService extends Service {
     private void drawOutsideTemp(Canvas c, Paint p, JSONObject s) {
         feedWeather(s);
         double temp = s.optDouble("outsideTemp", -1000d);
-        // 오른쪽 끝 790 에서 왼쪽으로: 외기온도 → 날씨 그림 → 배터리 전압.
-        float left = 790f;
-        if (Double.isFinite(temp) && temp >= -50d && temp <= 80d) {
-            String label = String.format(Locale.US, "%.0f°C", temp);
-            text(c, p, label, 790f, 44f, 22f, ink(), Paint.Align.RIGHT);
-            p.setTextSize(22f);
-            p.setTypeface(Typeface.create("sans", Typeface.BOLD));
-            left -= p.measureText(label) + 10f;
-            int icon = weather == null ? WeatherService.ICON_NONE : weather.icon();
-            if (icon != WeatherService.ICON_NONE) {
-                drawWeatherIcon(c, p, left - 13f, 36f, 26f, icon, weather.isDay());
-                left -= 26f + 12f;
-            }
-        }
+        // 왼쪽부터 날씨 그림 → 외기온도 → 배터리 전압. 오른쪽 끝(790)에서 거꾸로 쌓는다.
+        float right = 790f;
+        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        p.setTextSize(22f);
         double volt = s.optDouble("batteryVoltage", -1d);
         if (Double.isFinite(volt) && volt > 5d && volt < 20d) {
             // 시동 중 정상 13.2~14.8V, 꺼진 상태 12.2V 이상. 범위를 벗어나면 빨강.
             int vColor = (volt < 11.8d || volt > 15.5d) ? Color.rgb(230, 48, 58) : ink();
             String vLabel = String.format(Locale.US, "%.1fV", volt);
-            text(c, p, vLabel, left, 44f, 22f, vColor, Paint.Align.RIGHT);
-            p.setTextSize(22f);
+            float vWidth = p.measureText(vLabel);
+            text(c, p, vLabel, right, 44f, 22f, vColor, Paint.Align.RIGHT);
+            drawWarnLamp(c, p, right - vWidth - 36f, 37f, 2, vColor);
+            right -= vWidth + 36f + 16f;
+        }
+        if (Double.isFinite(temp) && temp >= -50d && temp <= 80d) {
+            String label = String.format(Locale.US, "%.0f°C", temp);
             p.setTypeface(Typeface.create("sans", Typeface.BOLD));
-            drawWarnLamp(c, p, left - p.measureText(vLabel) - 36f, 37f, 2, vColor);
+            p.setTextSize(22f);
+            float labelWidth = p.measureText(label);
+            text(c, p, label, right, 44f, 22f, ink(), Paint.Align.RIGHT);
+            int icon = weather == null ? WeatherService.ICON_NONE : weather.icon();
+            if (icon != WeatherService.ICON_NONE) {
+                drawWeatherIcon(c, p, right - labelWidth - 10f - 13f, 36f, 26f, icon, weather.isDay());
+            }
         }
     }
 
@@ -4250,12 +4251,12 @@ public final class HudService extends Service {
         }
         // 순정 경고등: 주차브레이크·에어백·배터리 충전(빨강), 엔진(주황). 켜졌을 때만.
         int lampRed = Color.rgb(230, 48, 58);
-        if (s.optBoolean("parkingBrake", false)) { drawWarnLamp(c, p, x, y, 0, lampRed); x += 40f; }
-        if (s.optBoolean("airbagWarning", false)) { drawWarnLamp(c, p, x, y, 1, lampRed); x += 40f; }
-        if (s.optBoolean("batteryWarning", false)) { drawWarnLamp(c, p, x, y, 2, lampRed); x += 40f; }
+        if (s.optBoolean("parkingBrake", false)) { drawWarnLamp(c, p, x, y, 0, lampRed); x += 44f; }
+        if (s.optBoolean("airbagWarning", false)) { drawWarnLamp(c, p, x, y, 1, lampRed); x += 44f; }
+        if (s.optBoolean("batteryWarning", false)) { drawWarnLamp(c, p, x, y, 2, lampRed); x += 44f; }
         if (s.optBoolean("engineWarning", false)) {
             drawWarnLamp(c, p, x, y, 3, Color.rgb(240, 160, 20));
-            x += 40f;
+            x += 44f;
         }
         int wiperMode = visibleWiperMode(s.optInt("wiperMode", 0));
         if (wiperMode != 0) {
@@ -4443,15 +4444,18 @@ public final class HudService extends Service {
             c.drawArc(scratchRect, -55f, 110f, false, p);
             text(c, p, "P", cx, y + 6f, 16f, color, Paint.Align.CENTER);
         } else if (type == 1) {
-            c.drawCircle(cx - 8f, y - 10f, 3.5f, p);
-            scratchPath.rewind();
-            scratchPath.moveTo(cx - 10f, y - 4f);
-            scratchPath.lineTo(cx - 8f, y + 6f);
-            scratchPath.lineTo(cx + 2f, y + 6f);
-            scratchPath.lineTo(cx + 4f, y + 13f);
-            c.drawPath(scratchPath, p);
+            // 순정 에어백 경고: 앉은 사람(오른쪽) 앞에 펼쳐진 에어백(왼쪽 원)
             p.setStyle(Paint.Style.FILL);
-            c.drawCircle(cx + 9f, y - 3f, 7f, p);
+            c.drawCircle(cx + 7f, y - 11f, 3.5f, p);
+            c.drawCircle(cx - 7f, y - 2f, 7.5f, p);
+            p.setStyle(Paint.Style.STROKE);
+            scratchPath.rewind();
+            scratchPath.moveTo(cx + 7f, y - 5f);
+            scratchPath.lineTo(cx + 9f, y + 5f);
+            scratchPath.lineTo(cx + 2f, y + 6f);
+            scratchPath.lineTo(cx + 1f, y + 13f);
+            c.drawPath(scratchPath, p);
+            c.drawLine(cx + 13f, y - 6f, cx + 14f, y + 9f, p);
         } else if (type == 2) {
             scratchRect.set(cx - 14f, y - 8f, cx + 14f, y + 11f);
             c.drawRoundRect(scratchRect, 2f, 2f, p);
@@ -4461,23 +4465,34 @@ public final class HudService extends Service {
             c.drawLine(cx + 4f, y + 2f, cx + 10f, y + 2f, p);
             c.drawLine(cx + 7f, y - 1f, cx + 7f, y + 5f, p);
         } else {
+            // 순정 엔진 경고: 엔진 블록 옆모습(위 흡기, 왼쪽 마운트, 오른쪽 팬)
+            p.setStrokeJoin(Paint.Join.ROUND);
             scratchPath.rewind();
-            scratchPath.moveTo(cx - 10f, y - 6f);
-            scratchPath.lineTo(cx + 8f, y - 6f);
-            scratchPath.lineTo(cx + 12f, y - 2f);
-            scratchPath.lineTo(cx + 15f, y - 2f);
-            scratchPath.lineTo(cx + 15f, y + 6f);
+            scratchPath.moveTo(cx - 9f, y - 5f);
+            scratchPath.lineTo(cx + 6f, y - 5f);
+            scratchPath.lineTo(cx + 9f, y - 1f);
+            scratchPath.lineTo(cx + 12f, y - 1f);
+            scratchPath.lineTo(cx + 12f, y - 5f);
+            scratchPath.lineTo(cx + 15f, y - 5f);
+            scratchPath.lineTo(cx + 15f, y + 9f);
+            scratchPath.lineTo(cx + 12f, y + 9f);
             scratchPath.lineTo(cx + 12f, y + 6f);
-            scratchPath.lineTo(cx + 8f, y + 10f);
-            scratchPath.lineTo(cx - 6f, y + 10f);
-            scratchPath.lineTo(cx - 10f, y + 6f);
-            scratchPath.lineTo(cx - 14f, y + 6f);
-            scratchPath.lineTo(cx - 14f, y - 2f);
-            scratchPath.lineTo(cx - 10f, y - 2f);
-            scratchPath.lineTo(cx - 10f, y - 6f);
+            scratchPath.lineTo(cx + 8f, y + 11f);
+            scratchPath.lineTo(cx - 5f, y + 11f);
+            scratchPath.lineTo(cx - 9f, y + 7f);
+            scratchPath.lineTo(cx - 9f, y + 4f);
+            scratchPath.lineTo(cx - 13f, y + 4f);
+            scratchPath.lineTo(cx - 13f, y + 9f);
+            scratchPath.lineTo(cx - 16f, y + 9f);
+            scratchPath.lineTo(cx - 16f, y - 3f);
+            scratchPath.lineTo(cx - 13f, y - 3f);
+            scratchPath.lineTo(cx - 13f, y + 1f);
+            scratchPath.lineTo(cx - 9f, y + 1f);
+            scratchPath.close();
             c.drawPath(scratchPath, p);
-            c.drawLine(cx - 4f, y - 6f, cx - 4f, y - 11f, p);
-            c.drawLine(cx - 8f, y - 11f, cx + 2f, y - 11f, p);
+            c.drawLine(cx - 2f, y - 5f, cx - 2f, y - 10f, p);
+            c.drawLine(cx - 7f, y - 10f, cx + 3f, y - 10f, p);
+            p.setStrokeJoin(Paint.Join.MITER);
         }
         p.setStyle(Paint.Style.FILL);
         p.setStrokeCap(Paint.Cap.BUTT);
