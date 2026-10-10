@@ -88,6 +88,7 @@ class LongitudinalPlanner:
 
     self.mpc.applyLongDynamicCost = self.params.get_bool("ApplyLongDynamicCost")
     self.human_acceleration = self.params.get_bool("HumanAcceleration")
+    self.mpc.human_following = self.params.get_bool("HumanFollowing")
     self.mpc.softHoldMode = int(clip(self.params.get_int("SoftHoldMode"), 0, 2))
     self.auto_e2e_enabled = self.CP.openpilotLongitudinalControl
     self.experimental_mode_enabled = self.params.get_bool('ExperimentalMode')
@@ -291,7 +292,8 @@ class LongitudinalPlanner:
     self.mpc.set_cur_state(self.v_desired_filter.x, self.a_desired)
     x, v, a, j = self.parse_model(sm['modelV2'], self.v_model_error)
     self.mpc.update(sm['carState'], sm['radarState'], sm['controlsState'], v_cruise_sol, x, v, a, j,
-                    prev_accel_constraint=prev_accel_constraint, reset_state=reset_state)
+                    prev_accel_constraint=prev_accel_constraint, reset_state=reset_state,
+                    model_leads=sm['modelV2'].leadsV3)
 
     self.v_desired_trajectory = np.interp(T_IDXS[:CONTROL_N], T_IDXS_MPC, self.mpc.v_solution)
     self.a_desired_trajectory = np.interp(T_IDXS[:CONTROL_N], T_IDXS_MPC, self.mpc.a_solution)

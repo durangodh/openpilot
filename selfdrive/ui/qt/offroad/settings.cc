@@ -1413,6 +1413,11 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", this));
 
   list->addItem(new ParamControl(
+      "HumanFollowing", "HUMAN-LIKE FOLLOWING",
+      "켜짐: 앞차의 앞으로 움직임을 레이더 가속도 한 값이 아니라 주행 모델이 예측한 궤적으로 계산해, 앞차 따라갈 때 급가속·급감속을 줄입니다. FrogPilot 방식.",
+      "../assets/offroad/icon_road.png", this));
+
+  list->addItem(new ParamControl(
       "ApplyLongDynamicCost", "DYNAMIC FOLLOWING RESPONSE",
       "켜짐: 18km/h까지 앞차 출발 반응을 동적으로 조정하고, 18~30km/h에서 점차 줄여 30km/h부터 일반 추종으로 복귀합니다.",
       "../assets/offroad/icon_road.png", this));

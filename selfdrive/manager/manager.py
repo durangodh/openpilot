@@ -122,6 +122,7 @@ def manager_init() -> None:
     ("PrevCruiseGap", "4"),
     ("ApplyLongDynamicCost", "0"),
     ("HumanAcceleration", "0"),
+    ("HumanFollowing", "1"),
     ("MyDrivingMode", "3"),
     ("InitMyDrivingMode", "3"),
     ("MyEcoModeFactor", "80"),

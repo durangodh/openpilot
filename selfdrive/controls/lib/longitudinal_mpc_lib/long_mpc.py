@@ -61,6 +61,11 @@ T_IDXS_LST = [index_function(idx, max_val=MAX_T, max_idx=N) for idx in range(N+1
 T_IDXS = np.array(T_IDXS_LST)
 FCW_IDXS = T_IDXS < 5.0
 T_DIFFS = np.diff(T_IDXS, prepend=[0.])
+# FrogPilot Human-Like Following: modelV2.leadsV3 예측 시각과, 즉시 충돌이 예상될 때
+# MPC 가 수렴하도록 첫 거리를 제동 가능한 거리로 올리는 비율.
+LEAD_T_IDXS_MODEL = np.array([0., 2., 4., 6., 8., 10.])
+MIN_X_LEAD_FACTOR = 0.5
+HUMAN_FOLLOW_MIN_PROB = 0.5
 MIN_ACCEL = -4.0
 MAX_ACCEL = 2.5
 T_FOLLOW = 1.45
@@ -221,6 +226,7 @@ def gen_long_ocp():
 
 class LongitudinalMpc:
   def __init__(self, mode='acc'):
+    self.human_following = False
     self.mode = mode
     self.applyLongDynamicCost = False
     self.softHoldMode = 1
@@ -366,8 +372,30 @@ class LongitudinalMpc:
     lead_xv = np.column_stack((x_lead_traj, v_lead_traj))
     return lead_xv
 
-  def process_lead(self, lead):
+  def process_lead(self, lead, model_lead=None):
     v_ego = self.x0[1]
+    # FrogPilot Human-Like Following: 레이더가 잰 지금 거리·속도에 모델이 예측한 앞차의
+    # 앞으로 10초 움직임(감속·가속 모양)을 붙인다. 앞차 가속도(aLeadK) 하나로 지수 외삽하면
+    # 그 값이 튈 때마다 계획이 급가속·급감속으로 흔들렸다.
+    if (self.human_following and lead is not None and lead.status and model_lead is not None and
+        float(getattr(model_lead, 'prob', 0.0)) > HUMAN_FOLLOW_MIN_PROB and
+        len(model_lead.x) == len(LEAD_T_IDXS_MODEL) and len(model_lead.v) == len(LEAD_T_IDXS_MODEL)):
+      model_x = np.asarray(model_lead.x, dtype=np.float64)
+      model_v = np.asarray(model_lead.v, dtype=np.float64)
+      if np.all(np.isfinite(model_x)) and np.all(np.isfinite(model_v)):
+        x_lead_traj = float(lead.dRel) + (model_x - model_x[0])
+        v_lead_traj = float(lead.vLead) + (model_v - model_v[0])
+        v_lead_0 = v_lead_traj[0]
+        min_x_lead = MIN_X_LEAD_FACTOR * (v_ego + v_lead_0) * (v_ego - v_lead_0) / (-MIN_ACCEL * 2)
+        x_lead_traj[0] = max(x_lead_traj[0], min_x_lead)
+        v_lead_traj = np.clip(v_lead_traj, 0.0, 1e8)
+        x_lead_mpc = np.maximum.accumulate(np.interp(T_IDXS, LEAD_T_IDXS_MODEL, x_lead_traj))
+        v_lead_mpc = np.interp(T_IDXS, LEAD_T_IDXS_MODEL, v_lead_traj)
+        # 앞으로 간 거리는 보정한 속도로 갈 수 있는 거리를 넘지 않는다.
+        x_lead_max = x_lead_mpc[0] + np.cumsum(T_DIFFS[1:] * (v_lead_mpc[:-1] + v_lead_mpc[1:]) / 2)
+        x_lead_mpc[1:] = np.minimum(x_lead_mpc[1:], x_lead_max)
+        return np.column_stack((x_lead_mpc, v_lead_mpc))
+
     if lead is not None and lead.status:
       x_lead = lead.dRel
       v_lead = lead.vLead
@@ -408,7 +436,7 @@ class LongitudinalMpc:
     self.v_ego_kph_prev = v_ego_kph
 
   def update(self, carstate, radarstate, controls, v_cruise, x, v, a, j, prev_accel_constraint=True,
-             reset_state=False):
+             reset_state=False, model_leads=None):
     # engage 직후에는 직전 가속도 유지 비용(A_CHANGE_COST)을 빼서
     # 필요한 감속으로 곧바로 갈 수 있게 한다. (upstream 동작 복원, set_weights 에서 저장)
     v_ego = self.x0[1]
@@ -440,8 +468,10 @@ class LongitudinalMpc:
       self.softHoldTimer = 0
       self.xState = XState.lead if self.status else XState.cruise
 
-    lead_xv_0 = self.process_lead(lead_one)
-    lead_xv_1 = self.process_lead(lead_two)
+    model_lead_0 = model_leads[0] if model_leads is not None and len(model_leads) > 0 else None
+    model_lead_1 = model_leads[1] if model_leads is not None and len(model_leads) > 1 else None
+    lead_xv_0 = self.process_lead(lead_one, model_lead_0)
+    lead_xv_1 = self.process_lead(lead_two, model_lead_1)
 
     # apilot-c2: 갭/속도/안전계수 기반 t_follow (감속 중 유지)
     self.update_gap_tf(controls, v_ego)

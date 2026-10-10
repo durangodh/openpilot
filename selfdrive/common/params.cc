@@ -258,7 +258,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"NooMode", PERSISTENT},
     {"NooTurnEndTime", PERSISTENT},
     {"StopDistance", PERSISTENT},                // shared ACC/E2E standstill distance (cm), default 600
-    {"HumanAcceleration", PERSISTENT},           // 목표속도 근접 시 가속 상한 감소 (FrogPilot)
+    {"HumanAcceleration", PERSISTENT},
+    {"HumanFollowing", PERSISTENT},              // 모델 예측 앞차 궤적으로 추종 (FrogPilot)           // 목표속도 근접 시 가속 상한 감소 (FrogPilot)
     {"ApplyLongDynamicCost", PERSISTENT},        // 동적 longitudinal MPC cost 적용
     {"MyDrivingMode", PERSISTENT},             // 주행모드 1:SAFE 2:ECO 3:NORM 4:FAST
     {"InitMyDrivingMode", PERSISTENT},         // 부팅모드 1~4, 5=AUTO
