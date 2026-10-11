@@ -41,3 +41,18 @@ def test_stream_health_requires_alive_and_valid():
   assert not remote_hud._stream_ok(sm, "carState")
   assert not remote_hud._stream_ok(sm, "missing")
 
+
+
+class _FakeSM(dict):
+  pass
+
+
+def test_battery_voltage_comes_from_panda_supply_measurement():
+  sm = _FakeSM(peripheralState=SimpleNamespace(voltage=14230))
+  sm.frame, sm.rcv_frame = 100, {"peripheralState": 95}
+  assert remote_hud._battery_voltage(sm) == 14.2
+  sm.rcv_frame["peripheralState"] = 50   # stale (> ~3 s at 10 Hz)
+  assert remote_hud._battery_voltage(sm) == -1.0
+  sm.rcv_frame["peripheralState"] = 95
+  sm["peripheralState"] = SimpleNamespace(voltage=0)   # no measurement
+  assert remote_hud._battery_voltage(sm) == -1.0

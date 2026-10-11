@@ -1064,6 +1064,19 @@ def _compensate_navi_pose(navi, v_ego):
   scene["posAgeMs"] = 0
 
 
+def _battery_voltage(sm):
+  """Car 12 V measured by the panda through the harness (peripheralState, mV).
+
+  The Genesis DH does not put a battery voltage on CAN (EMS14 VB never
+  arrives), but the panda measures its supply directly. -1 when unavailable.
+  peripheralState is 2 Hz, so allow ~3 s between samples.
+  """
+  if not _stream_alive(sm, "peripheralState", max_updates=30):
+    return -1.0
+  millivolts = _finite(_field(sm["peripheralState"], "voltage", 0), 0.0)
+  return round(millivolts / 1000.0, 1) if 5000.0 < millivolts < 20000.0 else -1.0
+
+
 def _packet(sm, noo_enabled, path_offset=0.0):
   car_valid = _stream_ok(sm, "carState")
   car_control_valid = _stream_ok(sm, "carControl")
@@ -1272,6 +1285,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "engineWarning": bool(_field(car, "engineWarning", False)),
     "airbagWarning": bool(_field(car, "airbagWarning", False)),
     "batteryWarning": bool(_field(car, "batteryWarning", False)),
+    "batteryVoltage": _battery_voltage(sm),
     "oilPressureWarning": bool(_field(car, "oilPressureWarning", False)),
     "absWarning": bool(_field(car, "absWarning", False)),
     "steerFaultTemporary": bool(_field(car, "steerFaultTemporary", False)),
@@ -1365,7 +1379,8 @@ def main():
   signal.signal(signal.SIGTERM, lambda *_: running.__setitem__(0, False))
   sm = messaging.SubMaster(["carState", "carControl", "controlsState", "deviceState",
                             "modelV2", "radarState", "longitudinalPlan", "roadLimitSpeed",
-                            "liveCalibration", "lateralPlan", "gpsLocationExternal"])
+                            "liveCalibration", "lateralPlan", "gpsLocationExternal",
+                            "peripheralState"])
   sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
   sock.setblocking(False)
