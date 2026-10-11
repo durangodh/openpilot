@@ -419,6 +419,9 @@ final class NaverMapCapture {
         top = content.top + Math.max(0, Math.min(sh - cropH, top));
         int dw = Math.min(WIDTH, Math.round(cropW * scale));
         int dh = Math.min(HEIGHT, Math.round(cropH * scale));
+        // 반올림 오차(1~2px)로 가장자리에 검은 줄이 생기지 않게 거의 꽉 찬 쪽은 칸 전체로.
+        if (dw >= WIDTH - 2) dw = WIDTH;
+        if (dh >= HEIGHT - 2) dh = HEIGHT;
         int dx = (WIDTH - dw) / 2, dy = (HEIGHT - dh) / 2;
         Bitmap out = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
         new Canvas(out).drawBitmap(source,
