@@ -26,6 +26,7 @@ import android.graphics.PorterDuffColorFilter;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.LinearGradient;
 import android.graphics.Shader;
+import android.graphics.SweepGradient;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
@@ -3380,6 +3381,12 @@ public final class HudService extends Service {
     private static final float WARNING_SCALE = EON_BOX_W / 360f;
     private static final float WARNING_TOP = 257f - (EON_BOX_BOTTOM - EON_BOX_TOP) / WARNING_SCALE / 2f;
     private static final int EON_GREEN = Color.rgb(0, 203, 0);
+    // 제네시스 순정 계기판처럼 RPM·연료·냉각수 게이지를 짙은 청록 → 밝은 하늘색으로 채운다.
+    private static final int GAUGE_DEEP = Color.rgb(0, 92, 118);
+    private static final int GAUGE_BRIGHT = Color.rgb(96, 232, 255);
+    private static final int GAUGE_RED_DEEP = Color.rgb(150, 24, 30);
+    private static final int GAUGE_RED = Color.rgb(255, 84, 84);
+    private static final BlurMaskFilter GAUGE_GLOW = new BlurMaskFilter(9f, BlurMaskFilter.Blur.NORMAL);
 
     private void drawSpeedRing(Canvas c, Paint p, int speed, int rpm, float redline) {
         float limit = redline > 100f ? redline : 6500f;
@@ -3413,19 +3420,48 @@ public final class HudService extends Service {
             c.drawLine(RING_CX + inner * cos, RING_CY + inner * sin,
                     RING_CX + outer * cos, RING_CY + outer * sin, p);
         }
-        // RPM: 두꺼운 띠 안을 채운다(테두리 안쪽까지). 5000rpm 이후는 빨강.
+        // RPM: 두꺼운 띠 안을 채운다(테두리 안쪽까지). 제네시스 순정처럼 시작은 짙은 청록,
+        // 바늘 쪽 끝은 밝은 하늘색 그라데이션에 은은한 빛을 두르고, 5000rpm 이후는 빨강으로 이어진다.
         if (frac > 0f) {
             float rr = RING_R;
             scratchRect.set(RING_CX - rr, RING_CY - rr, RING_CX + rr, RING_CY + rr);
-            p.setStrokeWidth(RING_BAND - 6f);
-            p.setStrokeCap(Paint.Cap.BUTT);
-            p.setColor(frameDark ? Color.rgb(230, 236, 242) : Color.rgb(40, 150, 255));
-            c.drawArc(scratchRect, RING_START, RING_SWEEP * Math.min(frac, redFrac), false, p);
+            float sweep = RING_SWEEP * frac;
+            // 그라데이션 이음매(0°)가 호 시작에 걸리지 않게 4° 앞에서 시작한다.
+            float off = 4f / 360f;
+            float end = off + sweep / 360f;
+            int[] colors;
+            float[] stops;
             if (frac > redFrac) {
-                p.setColor(Color.rgb(235, 70, 70));
-                c.drawArc(scratchRect, RING_START + RING_SWEEP * redFrac,
-                        RING_SWEEP * (frac - redFrac), false, p);
+                float red = off + RING_SWEEP * redFrac / 360f;
+                colors = new int[]{GAUGE_DEEP, GAUGE_DEEP, GAUGE_BRIGHT, GAUGE_RED_DEEP, GAUGE_RED};
+                stops = new float[]{0f, off, red, Math.min(end, red + 0.002f), end};
+            } else {
+                colors = new int[]{GAUGE_DEEP, GAUGE_DEEP, GAUGE_BRIGHT};
+                stops = new float[]{0f, off, Math.max(end, off + 0.002f)};
             }
+            SweepGradient gradient = new SweepGradient(RING_CX, RING_CY, colors, stops);
+            Matrix rotate = new Matrix();
+            rotate.setRotate(RING_START - 4f, RING_CX, RING_CY);
+            gradient.setLocalMatrix(rotate);
+            p.setShader(gradient);
+            p.setStrokeCap(Paint.Cap.BUTT);
+            // 은은한 빛: 같은 호를 흐리게 먼저 깐다
+            p.setMaskFilter(GAUGE_GLOW);
+            p.setAlpha(150);
+            p.setStrokeWidth(RING_BAND - 2f);
+            c.drawArc(scratchRect, RING_START, sweep, false, p);
+            p.setMaskFilter(null);
+            p.setAlpha(255);
+            p.setStrokeWidth(RING_BAND - 6f);
+            c.drawArc(scratchRect, RING_START, sweep, false, p);
+            p.setShader(null);
+            // 끝(바늘 자리)에 밝은 선
+            double tip = Math.toRadians(RING_START + sweep);
+            float cos = (float) Math.cos(tip), sin = (float) Math.sin(tip);
+            p.setStrokeWidth(3f);
+            p.setColor(frac > redFrac ? Color.rgb(255, 214, 214) : Color.rgb(214, 250, 255));
+            c.drawLine(RING_CX + (inner + 3f) * cos, RING_CY + (inner + 3f) * sin,
+                    RING_CX + (outer - 3f) * cos, RING_CY + (outer - 3f) * sin, p);
             p.setStrokeCap(Paint.Cap.BUTT);
         }
         int numberInk = frameDark ? Color.rgb(236, 240, 243) : Color.rgb(40, 44, 48);
@@ -3481,7 +3517,7 @@ public final class HudService extends Service {
     }
 
     private void drawInfoGauge(Canvas c, Paint p, float left, float right, float frac,
-                               String lo, String hi, int fill) {
+                               String lo, String hi, boolean warn) {
         float y = INFO_Y - 4f;
         p.setShader(null);
         p.setStyle(Paint.Style.STROKE);
@@ -3490,8 +3526,13 @@ public final class HudService extends Service {
         p.setColor(frameDark ? Color.rgb(84, 94, 106) : Color.rgb(205, 209, 214));
         c.drawLine(left, y, right, y, p);
         if (frac > 0f) {
-            p.setColor(fill);
-            c.drawLine(left, y, left + (right - left) * Math.min(1f, frac), y, p);
+            // RPM 링과 같은 청록 → 하늘색 그라데이션(경고 시 빨강)
+            float x2 = left + (right - left) * Math.min(1f, frac);
+            p.setShader(new LinearGradient(left, y, Math.max(left + 1f, x2), y,
+                    warn ? GAUGE_RED_DEEP : GAUGE_DEEP, warn ? GAUGE_RED : GAUGE_BRIGHT,
+                    Shader.TileMode.CLAMP));
+            c.drawLine(left, y, x2, y, p);
+            p.setShader(null);
         }
         p.setStrokeCap(Paint.Cap.BUTT);
         text(c, p, lo, left, y - 14f, 20f, ink(), Paint.Align.CENTER);
@@ -3515,8 +3556,7 @@ public final class HudService extends Service {
         float fuelFrac = Double.isFinite(fuelLevel) && fuelLevel >= 0d
                 ? (float) Math.min(1d, fuelLevel / FUEL_DISP_MAX)
                 : (hasRange ? (float) (km / FULL_RANGE_KM) : 0f);
-        drawInfoGauge(c, p, 200f, 330f, fuelFrac, "E", "F",
-                fuelFrac < 0.15f ? Color.rgb(220, 50, 50) : (frameDark ? Color.rgb(230, 236, 242) : Color.rgb(70, 80, 90)));
+        drawInfoGauge(c, p, 200f, 330f, fuelFrac, "E", "F", fuelFrac < 0.15f);
         drawFuelIcon(c, p, 257f, INFO_Y - 24f, 18f);
 
         JSONObject system = s.optJSONObject("system");
@@ -3529,8 +3569,7 @@ public final class HudService extends Service {
                     : (float) Math.min(1d, 0.5d + (coolant - 105d) / 30d);
         }
         // 냉각수 게이지 왼쪽 끝(C)을 EON 박스 왼쪽 끝(EON_BOX_LEFT)에 맞춘다.
-        drawInfoGauge(c, p, EON_BOX_LEFT, EON_BOX_LEFT + 100f, coolFrac, "C", "H",
-                coolFrac > 0.9f ? Color.rgb(220, 50, 50) : (frameDark ? Color.rgb(230, 236, 242) : Color.rgb(70, 80, 90)));
+        drawInfoGauge(c, p, EON_BOX_LEFT, EON_BOX_LEFT + 100f, coolFrac, "C", "H", coolFrac > 0.9f);
         drawCoolantThermometer(c, p, EON_BOX_LEFT + 50f, INFO_Y - 34f);
 
         // 총주행거리(계기판 CLU12 적산거리)
