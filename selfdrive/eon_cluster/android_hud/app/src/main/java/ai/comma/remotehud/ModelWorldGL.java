@@ -1280,14 +1280,15 @@ final class ModelWorldGL {
         drawVertices(GLES20.GL_TRIANGLES, v / 2, roofColor, 0.90f);
     }
 
-    // 주행 경로: RPM 게이지와 같은 청록 → 하늘색 그라데이션(자차 쪽 짙게, 멀리 밝게).
-    private static final int PATH_DEEP = Color.rgb(0, 92, 118);
+    // 주행 경로: RPM 게이지와 같은 청록 → 하늘색 그라데이션(자차 쪽 진하게, 멀리 연하게).
+    private static final int PATH_DEEP = Color.rgb(0, 156, 206);
     private static final int PATH_BRIGHT = Color.rgb(96, 232, 255);
 
     /**
      * 경로는 자차 뒤쪽(접지선 아래)은 그리지 않고 자차 접지선에서 시작한다.
      * 폭은 접지선에서 자차 그림 폭(EGO_SPRITE_W)과 같게, 먼 곳은 원근대로 좁아진다.
-     * 가운데 흰 줄은 넣지 않는다. 색은 화면 높이에 따라 짙은 청록 → 밝은 하늘색.
+     * 가운데 흰 줄은 넣지 않는다. 색은 화면 높이에 따라 선명한 청록 → 옅은 하늘색으로,
+     * 투명도도 가까운 곳 진하게 → 먼 곳 연하게.
      */
     private void drawPathLayers(Line path, int color, float maxX) {
         float groundPx = EGO_BASELINE - HORIZON - horizonShift;
@@ -1297,14 +1298,15 @@ final class ModelWorldGL {
         float scaleAtCar = groundPx / CAM_H;              // 접지선 깊이의 m 당 픽셀
         float half = EGO_SPRITE_W * 0.5f / scaleAtCar;    // 자차 그림 폭의 절반(m)
         float startX = FOCAL / scaleAtCar - CAM_BACK;     // 접지선에 해당하는 전방 거리(m)
-        drawPathStrip(path, startX, maxX, half + 0.10f, 0.015f, 0.50f,
-                blend(PATH_DEEP, Color.BLACK, 0.55f), blend(PATH_DEEP, Color.BLACK, 0.55f));
-        drawPathStrip(path, startX, maxX, half, 0.040f, 0.88f, PATH_DEEP, PATH_BRIGHT);
+        // 가까운 곳은 진하고(짙은 색·불투명) 멀어질수록 연하게(옅은 색·투명하게).
+        drawPathStrip(path, startX, maxX, half + 0.10f, 0.015f, 0.50f, 0.05f,
+                blend(PATH_DEEP, Color.BLACK, 0.65f), blend(PATH_DEEP, Color.BLACK, 0.65f));
+        drawPathStrip(path, startX, maxX, half, 0.040f, 0.95f, 0.18f, PATH_DEEP, PATH_BRIGHT);
     }
 
-    /** startX~maxX 구간을 마디마다 색을 달리한 띠로 그린다(근경 nearColor → 원경 farColor). */
+    /** startX~maxX 구간을 마디마다 색·투명도를 달리한 띠로 그린다(근경 → 원경). */
     private void drawPathStrip(Line path, float startX, float maxX, float half, float zOffset,
-                               float alpha, int nearColor, int farColor) {
+                               float nearAlpha, float farAlpha, int nearColor, int farColor) {
         int n = 0;
         float[] lx = pathLx, ly = pathLy, rx = pathRx, ry = pathRy;
         for (int i = -1; i < path.count && n < lx.length; i++) {
@@ -1358,7 +1360,8 @@ final class ModelWorldGL {
                 vertices[v++] = ndcY(ay1 - TOP);
                 vertices[v++] = ndcX(bx1);
                 vertices[v++] = ndcY(by1 - TOP);
-                drawVertices(GLES20.GL_TRIANGLE_STRIP, 4, blend(nearColor, farColor, t), alpha);
+                drawVertices(GLES20.GL_TRIANGLE_STRIP, 4, blend(nearColor, farColor, t),
+                        nearAlpha + (farAlpha - nearAlpha) * t);
             }
         }
     }
