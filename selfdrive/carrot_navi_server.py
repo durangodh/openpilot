@@ -817,16 +817,28 @@ def handle_client(conn, state):
       pass
 
 
+def naver_map_zoom_out(params):
+  """NaverMapZoomOut 0~100 %: 0 = HUD 지도칸 꽉 채움(잘라냄), 100 = 지도 전체 축소."""
+  try:
+    value = int(params.get("NaverMapZoomOut") or 0)
+  except (TypeError, ValueError):
+    value = 0
+  return max(0, min(100, value))
+
+
 def discovery_loop():
   sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+  params = Params()
   payload_ip = None
   while True:
     ip = local_ip()
     if ip != "127.0.0.1":
       payload_ip = ip
     if payload_ip:
-      payload = json.dumps({"ip": payload_ip, "navi_debug": 0},
+      # 네이버 모듈은 이 브로드캐스트로 EON IP 와 지도 축소 비율을 함께 받는다.
+      payload = json.dumps({"ip": payload_ip, "navi_debug": 0,
+                            "naver_map_zoom_out": naver_map_zoom_out(params)},
                            separators=(",", ":")).encode("utf-8")
       try:
         sock.sendto(payload, ("255.255.255.255", DISCOVERY_PORT))

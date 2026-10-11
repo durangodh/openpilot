@@ -34,6 +34,12 @@ final class NaverMapCapture {
     private static final long FRAME_INTERVAL_MS = 200, CHECK_INTERVAL_MS = 40;
     // 응답이 안 오는 요청을 포기하는 시간. 길면 그동안 지도가 멈춰 보인다.
     private static final long REQUEST_TIMEOUT_MS = 600;
+    // EON 설정 NaverMapZoomOut(0~1). 0 = 칸을 꽉 채움(잘라냄), 1 = 지도 전체를 축소해 넣음.
+    private static volatile float zoomOut = 0f;
+
+    static void setZoomOut(float value) {
+        zoomOut = Math.max(0f, Math.min(1f, value));
+    }
 
     private final NaverNaviClient client;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -399,18 +405,25 @@ final class NaverMapCapture {
     private static Bitmap fitCenterCrop(Bitmap source) {
         // 안내(3D) 지도 스냅샷은 하늘·가장자리가 투명(JPEG 에서 검정)으로 온다.
         // 지도가 실제로 그려진 범위만 골라 그 안에서 꽉 차게 자른다.
+        // 축소 비율(zoomOut)에 따라 "꽉 채움(fill)"과 "전체 보임(fit)" 사이 배율을 쓴다.
+        // 남는 곳은 검은 여백(JPEG 에서 투명 → 검정)으로 가운데 정렬한다.
         Rect content = contentBounds(source);
         int sw = content.width(), sh = content.height();
-        float scale = Math.max(WIDTH / (float) sw, HEIGHT / (float) sh);
+        float fill = Math.max(WIDTH / (float) sw, HEIGHT / (float) sh);
+        float fit = Math.min(WIDTH / (float) sw, HEIGHT / (float) sh);
+        float scale = fill + (fit - fill) * zoomOut;
         int cropW = Math.min(sw, Math.round(WIDTH / scale));
         int cropH = Math.min(sh, Math.round(HEIGHT / scale));
         int left = content.left + (sw - cropW) / 2;
         int top = sh > sw ? Math.round(sh * 0.62f - cropH / 2f) : (sh - cropH) / 2;
         top = content.top + Math.max(0, Math.min(sh - cropH, top));
+        int dw = Math.min(WIDTH, Math.round(cropW * scale));
+        int dh = Math.min(HEIGHT, Math.round(cropH * scale));
+        int dx = (WIDTH - dw) / 2, dy = (HEIGHT - dh) / 2;
         Bitmap out = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
         new Canvas(out).drawBitmap(source,
                 new Rect(left, top, left + cropW, top + cropH),
-                new Rect(0, 0, WIDTH, HEIGHT), new Paint(Paint.FILTER_BITMAP_FLAG));
+                new Rect(dx, dy, dx + dw, dy + dh), new Paint(Paint.FILTER_BITMAP_FLAG));
         return out;
     }
 
