@@ -125,6 +125,8 @@ final class ModelWorldGL {
             .allocateDirect(MAX_VERTEX_FLOATS * 4)
             .order(ByteOrder.nativeOrder()).asFloatBuffer();
     private final float[] vertices = new float[MAX_VERTEX_FLOATS];
+    private final float[] pathLx = new float[MAX_POINTS + 1], pathLy = new float[MAX_POINTS + 1];
+    private final float[] pathRx = new float[MAX_POINTS + 1], pathRy = new float[MAX_POINTS + 1];
     private final IntBuffer readBuffer = ByteBuffer
             .allocateDirect(WIDTH * HEIGHT * 4)
             .order(ByteOrder.nativeOrder()).asIntBuffer();
@@ -1278,35 +1280,87 @@ final class ModelWorldGL {
         drawVertices(GLES20.GL_TRIANGLES, v / 2, roofColor, 0.90f);
     }
 
+    // 주행 경로: RPM 게이지와 같은 청록 → 하늘색 그라데이션(자차 쪽 짙게, 멀리 밝게).
+    private static final int PATH_DEEP = Color.rgb(0, 92, 118);
+    private static final int PATH_BRIGHT = Color.rgb(96, 232, 255);
+
+    /**
+     * 경로는 자차 뒤쪽(접지선 아래)은 그리지 않고 자차 접지선에서 시작한다.
+     * 폭은 접지선에서 자차 그림 폭(EGO_SPRITE_W)과 같게, 먼 곳은 원근대로 좁아진다.
+     * 가운데 흰 줄은 넣지 않는다. 색은 화면 높이에 따라 짙은 청록 → 밝은 하늘색.
+     */
     private void drawPathLayers(Line path, int color, float maxX) {
-        drawPathLayer(path, blend(color, Color.BLACK, 0.58f), 0.70f,
-                0.015f, 0.52f, 0.18f, maxX);
-        drawPathLayer(path, color, 0.52f, 0.040f, 0.88f, 0.16f, maxX);
-        drawPathLayer(path, blend(color, Color.WHITE, 0.52f), 0.12f,
-                0.070f, 0.94f, 0.04f, maxX);
+        float groundPx = EGO_BASELINE - HORIZON - horizonShift;
+        if (path.count < 2 || groundPx < 10f) {
+            return;
+        }
+        float scaleAtCar = groundPx / CAM_H;              // 접지선 깊이의 m 당 픽셀
+        float half = EGO_SPRITE_W * 0.5f / scaleAtCar;    // 자차 그림 폭의 절반(m)
+        float startX = FOCAL / scaleAtCar - CAM_BACK;     // 접지선에 해당하는 전방 거리(m)
+        drawPathStrip(path, startX, maxX, half + 0.10f, 0.015f, 0.50f,
+                blend(PATH_DEEP, Color.BLACK, 0.55f), blend(PATH_DEEP, Color.BLACK, 0.55f));
+        drawPathStrip(path, startX, maxX, half, 0.040f, 0.88f, PATH_DEEP, PATH_BRIGHT);
     }
 
-    private void drawPathLayer(Line path, int color, float baseHalfWidth,
-                               float zOffset, float alpha, float farGrowth,
-                               float maxX) {
-        int v = 0;
-        for (int i = 0; i < path.count && v + 4 <= vertices.length; i++) {
-            if (path.x[i] > maxX) {
-                break;
+    /** startX~maxX 구간을 마디마다 색을 달리한 띠로 그린다(근경 nearColor → 원경 farColor). */
+    private void drawPathStrip(Line path, float startX, float maxX, float half, float zOffset,
+                               float alpha, int nearColor, int farColor) {
+        int n = 0;
+        float[] lx = pathLx, ly = pathLy, rx = pathRx, ry = pathRy;
+        for (int i = -1; i < path.count && n < lx.length; i++) {
+            float x;
+            float y;
+            float z;
+            if (i < 0) {   // 접지선 위치에 보간한 첫 점
+                if (startX <= path.x[0]) continue;
+                x = startX;
+                y = yAt(path, x);
+                z = zAt(path, x);
+            } else {
+                x = path.x[i];
+                if (x <= startX) continue;
+                y = path.y[i];
+                z = path.z[i];
             }
-            float half = baseHalfWidth + Math.min(farGrowth, path.x[i] * 0.002f);
-            float z = path.z[i] * roadZGain + zOffset;
-            if (!project(path.x[i], path.y[i] + half, z, projected)) continue;
-            vertices[v++] = ndcX(projected[0]);
-            vertices[v++] = ndcY(projected[1] - TOP);
-            if (!project(path.x[i], path.y[i] - half, z, projected)) {
-                v -= 2;
-                continue;
-            }
-            vertices[v++] = ndcX(projected[0]);
-            vertices[v++] = ndcY(projected[1] - TOP);
+            if (x > maxX) break;
+            float zz = z * roadZGain + zOffset;
+            if (!project(x, y + half, zz, projected)) continue;
+            float ax = projected[0], ay = projected[1];
+            if (!project(x, y - half, zz, projected)) continue;
+            lx[n] = ax;
+            ly[n] = ay;
+            rx[n] = projected[0];
+            ry[n] = projected[1];
+            n++;
         }
-        drawVertices(GLES20.GL_TRIANGLE_STRIP, v / 2, color, alpha);
+        if (n < 2) return;
+        float yNear = (ly[0] + ry[0]) * 0.5f;
+        float yFar = (ly[n - 1] + ry[n - 1]) * 0.5f;
+        float span = Math.max(1f, yNear - yFar);
+        // 경로 점 간격이 넓어 색이 계단처럼 끊기지 않게 마디마다 4조각으로 나눠 칠한다.
+        final int sub = 4;
+        for (int k = 0; k + 1 < n; k++) {
+            for (int j = 0; j < sub; j++) {
+                float a = j / (float) sub;
+                float b = (j + 1) / (float) sub;
+                float ax0 = lx[k] + (lx[k + 1] - lx[k]) * a, ay0 = ly[k] + (ly[k + 1] - ly[k]) * a;
+                float bx0 = rx[k] + (rx[k + 1] - rx[k]) * a, by0 = ry[k] + (ry[k + 1] - ry[k]) * a;
+                float ax1 = lx[k] + (lx[k + 1] - lx[k]) * b, ay1 = ly[k] + (ly[k + 1] - ly[k]) * b;
+                float bx1 = rx[k] + (rx[k + 1] - rx[k]) * b, by1 = ry[k] + (ry[k + 1] - ry[k]) * b;
+                float mid = (ay0 + by0 + ay1 + by1) * 0.25f;
+                float t = clamp((yNear - mid) / span, 0f, 1f);
+                int v = 0;
+                vertices[v++] = ndcX(ax0);
+                vertices[v++] = ndcY(ay0 - TOP);
+                vertices[v++] = ndcX(bx0);
+                vertices[v++] = ndcY(by0 - TOP);
+                vertices[v++] = ndcX(ax1);
+                vertices[v++] = ndcY(ay1 - TOP);
+                vertices[v++] = ndcX(bx1);
+                vertices[v++] = ndcY(by1 - TOP);
+                drawVertices(GLES20.GL_TRIANGLE_STRIP, 4, blend(nearColor, farColor, t), alpha);
+            }
+        }
     }
 
     private void drawDesiredDistance(JSONObject scene, Line path, boolean dark) {

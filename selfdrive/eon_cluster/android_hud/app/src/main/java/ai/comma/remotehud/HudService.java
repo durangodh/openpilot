@@ -3499,17 +3499,17 @@ public final class HudService extends Service {
                     s.optBoolean("cameraSection", false), s.optInt("cameraSectionAvg", 0));
         }
         c.restoreToCount(signSave);
-        // 게이지 아래: 크루즈 설정속도(SET 원), 그 오른쪽 감속(적용)속도(빨강)
+        // 게이지 아래: 크루즈 설정속도(SET 원), 그 오른쪽 감속(적용)속도(진한 주황)
         signSave = scaleAbout(c, SET_X, SET_Y);
         drawSetSpeed(c, p, SET_X, SET_Y, s.optInt("set", 0), enabled, s);
         c.restoreToCount(signSave);
         int apply = s.optInt("applySpeed", 0);
         if (!stale && enabled && apply > 0) {
-            int applyRed = Color.rgb(220, 45, 45);
-            text(c, p, Integer.toString(apply), APPLY_X, SET_Y + 9f, 28f, applyRed, Paint.Align.CENTER);
+            int applyOrange = Color.rgb(236, 104, 12);
+            text(c, p, Integer.toString(apply), APPLY_X, SET_Y + 9f, 28f, applyOrange, Paint.Align.CENTER);
             String source = s.optString("applySource", "");
             if (!source.isEmpty()) {
-                text(c, p, source.toUpperCase(Locale.US), APPLY_X, SET_Y + 26f, 13f, applyRed,
+                text(c, p, source.toUpperCase(Locale.US), APPLY_X, SET_Y + 26f, 13f, applyOrange,
                         Paint.Align.CENTER);
             }
         }
@@ -3730,8 +3730,9 @@ public final class HudService extends Service {
         } else {
             label = "LIMIT";
             limitText = Integer.toString(limit);
-            boolean over = limit > 0 && s.optInt("speed", 0) > limit + 2;
-            limitFill = over ? Color.argb(210, 201, 34, 49) : Color.argb(210, 255, 255, 255);
+            // 제한속도를 넘으면 파란 칸(흰 글자), 아니면 흰 칸(검은 글자)
+            boolean over = limit > 0 && s.optInt("speed", 0) > limit;
+            limitFill = over ? Color.argb(220, 24, 104, 230) : Color.argb(210, 255, 255, 255);
             if (!over) limitInk = Color.argb(230, 0, 0, 0);
         }
         eonText(c, p, label, 183f, 395f, 28f, white);
