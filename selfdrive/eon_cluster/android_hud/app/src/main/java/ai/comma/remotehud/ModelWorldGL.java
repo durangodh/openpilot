@@ -180,6 +180,8 @@ final class ModelWorldGL {
     private final Line[] smoothedEdges = {new Line(), new Line()};
     private final Line[] fittedEdges = {new Line(), new Line()};
     private final Line[] fittedLanes = {new Line(), new Line(), new Line(), new Line()};
+    private final Line[] drawnLanes = new Line[4];   // 이번 프레임에 그린 차선(없으면 null)
+    private final Line virtualLane = new Line();
     private final Line smoothedRoute = new Line();
     private final Line mapLine = new Line();
     private final HudMapStore mapStore;
@@ -523,6 +525,7 @@ final class ModelWorldGL {
             Line lane = smoothedLanes[i].count >= 2
                     ? fitLine(fittedLanes[i], smoothedLanes[i]) : smoothedLanes[i];
 
+            drawnLanes[i] = null;
             boolean allowed = laneAllowed(scene, i)
                     && laneInsideRoadEdges(lane, leftEdge, rightEdge);
             if (!allowed) {
@@ -535,6 +538,7 @@ final class ModelWorldGL {
             if (!laneVisible[i] || lane.count < 2) {
                 continue;
             }
+            drawnLanes[i] = lane;
 
             int laneColor = (i == 1 || i == 2)
                     ? (dark ? Color.rgb(246, 206, 92) : Color.rgb(238, 196, 70))
@@ -568,6 +572,7 @@ final class ModelWorldGL {
             naviLaneCount = -1;
             naviLanePosition = -1;
         }
+        drawVirtualLanes(scene, path, leftEdge, rightEdge, dark);
 
         if (enabled) {
             // Use the already-rendered lead state to taper the path before the
@@ -746,6 +751,55 @@ final class ModelWorldGL {
             target.confidence *= 0.68f;
         }
         return target.count >= 2 && target.confidence >= minimumConfidence ? target : null;
+    }
+
+    /**
+     * 가상 차선. 카메라 모델은 내 차로 좌우 각 1개 차선까지만 보므로, 내비(티맵·네이버)
+     * 안내 중에 실제 총 차선수가 더 많으면 보이지 않는 차선을 내 차로 선 모양 그대로
+     * 차로 폭만큼 옆으로 이어서 옅게 그린다. 화면 표시 전용이며 제어에는 쓰지 않는다.
+     * 카메라가 이미 그린 옆 차선 자리는 건너뛰고, 카메라 도로경계 밖으로 나가는 선은
+     * 그리지 않는다.
+     */
+    private void drawVirtualLanes(JSONObject scene, Line path, Line leftEdge, Line rightEdge,
+                                  boolean dark) {
+        if (naviLaneCount < 2 || naviLanePosition < 1) {
+            return;
+        }
+        Line egoLeft = drawnLanes[1];
+        Line egoRight = drawnLanes[2];
+        if (egoLeft == null || egoRight == null) {
+            return;
+        }
+        float width = yAt(egoLeft, 10f) - yAt(egoRight, 10f);
+        if (!(width > 2.4f && width < 4.6f)) {
+            width = (float) scene.optDouble("laneWidth", 3.5d);
+        }
+        width = clamp(width, 2.8f, 4.2f);
+        int color = dark ? Color.rgb(220, 226, 232) : Color.rgb(249, 250, 250);
+        int leftLanes = naviLanePosition - 1;
+        int rightLanes = naviLaneCount - naviLanePosition;
+        for (int side = 0; side < 2; side++) {
+            Line base = side == 0 ? egoLeft : egoRight;
+            float sign = side == 0 ? 1f : -1f;
+            int lanesOnSide = side == 0 ? leftLanes : rightLanes;
+            boolean cameraAdjacent = side == 0 ? drawnLanes[0] != null : drawnLanes[3] != null;
+            for (int k = 1; k <= lanesOnSide; k++) {
+                if (k == 1 && cameraAdjacent) {
+                    continue;   // 카메라가 본 옆 차선이 이미 있다
+                }
+                virtualLane.count = base.count;
+                virtualLane.confidence = 1f;
+                for (int i = 0; i < base.count; i++) {
+                    virtualLane.x[i] = base.x[i];
+                    virtualLane.y[i] = base.y[i] + sign * k * width;
+                    virtualLane.z[i] = base.z[i];
+                }
+                if (!laneInsideRoadEdges(virtualLane, leftEdge, rightEdge)) {
+                    break;      // 카메라 도로경계 밖: 더 바깥 차선도 그리지 않는다
+                }
+                drawLaneMarking(virtualLane, path, color, 2.0f, 0.45f, dark);
+            }
+        }
     }
 
     private static boolean laneAllowed(JSONObject scene, int index) {
