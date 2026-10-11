@@ -2777,119 +2777,169 @@ public final class HudService extends Service {
     private void drawVehicleOpenPopup(Canvas c, Paint p, JSONObject doors,
                                       JSONObject windows) {
         final float cx = WARNING_CX;
-        // 순정(신형 계기판)처럼 글자 없이 큰 흰 차량 그림만 보인다. 패널 가운데(257)에 1.7배.
-        final float cy = 257f;
-        drawWhiteWarningPanel(c, p, cx);
         boolean hoodOpen = doors != null && doors.optBoolean("hood", false);
         boolean trunkOpen = doors != null && doors.optBoolean("trunk", false);
-        if (egoCar != null && !egoCar.isRecycled()) {
-            drawRealCarOpenings(c, p, cx, cy, doors, windows, hoodOpen, trunkOpen);
-            return;
+        boolean sideDoorOpen = hasOpenDoor(doors);
+        boolean windowOpen = hasOpenWindow(windows);
+        int typeCount = (sideDoorOpen ? 1 : 0) + (windowOpen ? 1 : 0)
+                + (hoodOpen ? 1 : 0) + (trunkOpen ? 1 : 0);
+        String titleKo;
+        String titleEn;
+        if (typeCount > 1) {
+            titleKo = "열림 상태를 확인하십시오";
+            titleEn = "CHECK OPENINGS";
+        } else if (sideDoorOpen) {
+            titleKo = "문이 열려 있습니다";
+            titleEn = "DOOR OPEN";
+        } else if (windowOpen) {
+            titleKo = "창문이 열려 있습니다";
+            titleEn = "WINDOW OPEN";
+        } else if (hoodOpen) {
+            titleKo = "보닛이 열려 있습니다";
+            titleEn = "HOOD OPEN";
+        } else {
+            titleKo = "트렁크가 열려 있습니다";
+            titleEn = "TRUNK OPEN";
         }
-        int carSave = c.save();
-        c.translate(cx, cy);
-        c.scale(1.7f, 1.7f);
-        c.translate(-cx, -cy);
 
+        // 순정 계기판처럼 어두운 판 위에 위에서 본 흰 차량. 열린 곳은 파랗게 깜빡인다.
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(45, 0, 0, 0));
-        scratchRect.set(cx - 31f, cy - 62f, cx + 39f, cy + 77f);
-        c.drawRoundRect(scratchRect, 16f, 16f, p);
-        p.setColor(Color.rgb(252, 252, 253));
-        scratchRect.set(cx - 34f, cy - 67f, cx + 34f, cy + 70f);
-        c.drawRoundRect(scratchRect, 15f, 15f, p);
+        p.setColor(Color.argb(110, 0, 0, 0));
+        scratchRect.set(cx - 176f, WARNING_TOP + 6f, cx + 184f, 520f - WARNING_TOP);
+        c.drawRoundRect(scratchRect, 13f, 13f, p);
+        p.setColor(Color.rgb(30, 34, 41));
+        scratchRect.set(cx - 180f, WARNING_TOP, cx + 180f, 514f - WARNING_TOP);
+        c.drawRoundRect(scratchRect, 13f, 13f, p);
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(2.5f);
-        p.setColor(Color.rgb(150, 156, 162));
-        c.drawRoundRect(scratchRect, 15f, 15f, p);
-        // 사이드미러
+        p.setStrokeWidth(4f);
+        p.setColor(Color.rgb(96, 106, 118));
+        c.drawRoundRect(scratchRect, 13f, 13f, p);
+        text(c, p, lang(titleKo, titleEn), cx, WARNING_TOP + 52f, 27f,
+                Color.rgb(240, 243, 246), Paint.Align.CENTER);
+
+        boolean blinkOn = SystemClock.uptimeMillis() % 1000L < 600L;
+        drawTopViewCar(c, p, cx, (WARNING_TOP + 70f + 514f - WARNING_TOP) / 2f + 4f, 1.15f,
+                blinkOn ? doors : null, blinkOn ? windows : null,
+                blinkOn && hoodOpen, blinkOn && trunkOpen);
+    }
+
+    /**
+     * 위에서 본 흰 세단(앞이 위쪽). 기준 크기 폭 118 x 길이 250 을 scale 배로 그린다.
+     * 열린 문·창문·보닛·트렁크 영역은 차체 윤곽 안에서 파랗게 칠한다.
+     */
+    private void drawTopViewCar(Canvas c, Paint p, float cx, float cy, float scale,
+                                JSONObject doors, JSONObject windows,
+                                boolean hood, boolean trunk) {
+        int save = c.save();
+        c.translate(cx, cy);
+        c.scale(scale, scale);
+        Path body = new Path();
+        body.moveTo(0f, -125f);
+        body.cubicTo(26f, -125f, 42f, -122f, 50f, -110f);
+        body.cubicTo(56f, -100f, 58f, -84f, 58f, -66f);
+        body.lineTo(57f, 70f);
+        body.cubicTo(57f, 92f, 56f, 108f, 50f, 116f);
+        body.cubicTo(44f, 124f, 26f, 125f, 0f, 125f);
+        body.cubicTo(-26f, 125f, -44f, 124f, -50f, 116f);
+        body.cubicTo(-56f, 108f, -57f, 92f, -57f, 70f);
+        body.lineTo(-58f, -66f);
+        body.cubicTo(-58f, -84f, -56f, -100f, -50f, -110f);
+        body.cubicTo(-42f, -122f, -26f, -125f, 0f, -125f);
+        body.close();
+
+        // 그림자 → 사이드미러 → 흰 차체
+        p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        scratchRect.set(cx - 42f, cy - 34f, cx - 33f, cy - 27f);
-        c.drawOval(scratchRect, p);
-        scratchRect.set(cx + 33f, cy - 34f, cx + 42f, cy - 27f);
-        c.drawOval(scratchRect, p);
-        // 앞유리·지붕·뒷유리(검은 유리)
-        p.setColor(Color.rgb(44, 49, 55));
-        scratchPath.rewind();
-        scratchPath.moveTo(cx - 27f, cy - 40f);
-        scratchPath.lineTo(cx + 27f, cy - 40f);
-        scratchPath.lineTo(cx + 24f, cy - 21f);
-        scratchPath.lineTo(cx - 24f, cy - 21f);
-        scratchPath.close();
-        c.drawPath(scratchPath, p);
-        p.setColor(Color.rgb(78, 85, 93));
-        scratchRect.set(cx - 23f, cy - 17f, cx + 23f, cy + 21f);
+        p.setColor(Color.argb(90, 0, 0, 0));
+        c.save();
+        c.translate(3f, 5f);
+        c.drawPath(body, p);
+        c.restore();
+        int white = Color.rgb(246, 247, 249);
+        int outline = Color.rgb(150, 158, 167);
+        p.setColor(white);
+        scratchRect.set(-69f, -54f, -54f, -44f);
         c.drawRoundRect(scratchRect, 5f, 5f, p);
-        p.setColor(Color.rgb(44, 49, 55));
-        scratchPath.rewind();
-        scratchPath.moveTo(cx - 24f, cy + 25f);
-        scratchPath.lineTo(cx + 24f, cy + 25f);
-        scratchPath.lineTo(cx + 26f, cy + 40f);
-        scratchPath.lineTo(cx - 26f, cy + 40f);
-        scratchPath.close();
-        c.drawPath(scratchPath, p);
+        scratchRect.set(54f, -54f, 69f, -44f);
+        c.drawRoundRect(scratchRect, 5f, 5f, p);
+        c.drawPath(body, p);
 
-        // The front of the vehicle points upward.  Hood and trunk panels
-        // hinge away from the body so their position stays unmistakable.
-        // 열린 문·보닛·트렁크는 순정처럼 짙은 회색 판으로 벌어진다.
-        p.setColor(Color.rgb(58, 63, 69));
-        p.setStyle(Paint.Style.FILL);
-        if (hoodOpen) {
-            scratchPath.rewind();
-            scratchPath.moveTo(cx - 31f, cy - 56f);
-            scratchPath.lineTo(cx - 42f, cy - 94f);
-            scratchPath.lineTo(cx + 42f, cy - 94f);
-            scratchPath.lineTo(cx + 31f, cy - 56f);
-            scratchPath.close();
-            c.drawPath(scratchPath, p);
+        // 열린 곳(파랑): 차체 윤곽 안으로만 칠한다.
+        int blue = Color.argb(225, 36, 150, 236);
+        c.save();
+        c.clipPath(body);
+        p.setColor(blue);
+        if (hood) c.drawRect(-60f, -130f, 60f, -54f, p);
+        if (trunk) c.drawRect(-60f, 66f, 60f, 130f, p);
+        c.restore();
+
+        // 유리(앞유리·뒷유리·옆유리)
+        int glass = Color.rgb(46, 52, 60);
+        p.setColor(glass);
+        Path windshield = new Path();
+        windshield.moveTo(-44f, -50f);
+        windshield.quadTo(0f, -60f, 44f, -50f);
+        windshield.lineTo(38f, -22f);
+        windshield.quadTo(0f, -27f, -38f, -22f);
+        windshield.close();
+        c.drawPath(windshield, p);
+        Path rear = new Path();
+        rear.moveTo(-38f, 40f);
+        rear.quadTo(0f, 36f, 38f, 40f);
+        rear.lineTo(42f, 62f);
+        rear.quadTo(0f, 68f, -42f, 62f);
+        rear.close();
+        c.drawPath(rear, p);
+        for (int side = -1; side <= 1; side += 2) {
+            Path sideGlass = new Path();
+            sideGlass.moveTo(side * 45f, -46f);
+            sideGlass.lineTo(side * 49f, -18f);
+            sideGlass.lineTo(side * 49f, 40f);
+            sideGlass.lineTo(side * 45f, 60f);
+            sideGlass.lineTo(side * 42f, 60f);
+            sideGlass.lineTo(side * 44f, 40f);
+            sideGlass.lineTo(side * 44f, -18f);
+            sideGlass.lineTo(side * 41f, -46f);
+            sideGlass.close();
+            c.drawPath(sideGlass, p);
         }
-        if (trunkOpen) {
-            scratchPath.rewind();
-            scratchPath.moveTo(cx - 31f, cy + 56f);
-            scratchPath.lineTo(cx - 42f, cy + 94f);
-            scratchPath.lineTo(cx + 42f, cy + 94f);
-            scratchPath.lineTo(cx + 31f, cy + 56f);
-            scratchPath.close();
-            c.drawPath(scratchPath, p);
+        // 열린 문(파랑): 옆유리까지 포함한 문짝 전체(유리 위에 칠한다)
+        if (doors != null) {
+            c.save();
+            c.clipPath(body);
+            p.setColor(blue);
+            if (doors.optBoolean("fl", false)) c.drawRect(-60f, -46f, -36f, 8f, p);
+            if (doors.optBoolean("fr", false)) c.drawRect(36f, -46f, 60f, 8f, p);
+            if (doors.optBoolean("rl", false)) c.drawRect(-60f, 10f, -36f, 62f, p);
+            if (doors.optBoolean("rr", false)) c.drawRect(36f, 10f, 60f, 62f, p);
+            c.restore();
         }
-        if (doors != null && doors.optBoolean("fl", false)) {
-            drawOpenDoorLeaf(c, p, cx - 31f, cy - 43f, cy - 13f,
-                    cx - 78f, cy - 57f, cy - 23f);
-        }
-        if (doors != null && doors.optBoolean("fr", false)) {
-            drawOpenDoorLeaf(c, p, cx + 31f, cy - 43f, cy - 13f,
-                    cx + 78f, cy - 57f, cy - 23f);
-        }
-        if (doors != null && doors.optBoolean("rl", false)) {
-            drawOpenDoorLeaf(c, p, cx - 31f, cy + 8f, cy + 38f,
-                    cx - 78f, cy + 22f, cy + 56f);
-        }
-        if (doors != null && doors.optBoolean("rr", false)) {
-            drawOpenDoorLeaf(c, p, cx + 31f, cy + 8f, cy + 38f,
-                    cx + 78f, cy + 22f, cy + 56f);
+        // 열린 창문(파랑): 해당 옆유리 칸
+        if (windows != null) {
+            p.setColor(blue);
+            if (windows.optBoolean("fl", false)) c.drawRect(-50f, -44f, -41f, 8f, p);
+            if (windows.optBoolean("fr", false)) c.drawRect(41f, -44f, 50f, 8f, p);
+            if (windows.optBoolean("rl", false)) c.drawRect(-50f, 10f, -41f, 58f, p);
+            if (windows.optBoolean("rr", false)) c.drawRect(41f, 10f, 50f, 58f, p);
         }
 
-        // Open glass is blue and remains visible even when its door is also
-        // open.  Each bar follows the matching FL/FR/RL/RR side window.
+        // 윤곽선·문 틈·보닛/트렁크 선
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeCap(Paint.Cap.ROUND);
-        p.setStrokeWidth(8f);
-        p.setColor(Color.rgb(36, 160, 224));
-        if (windows != null && windows.optBoolean("fl", false)) {
-            c.drawLine(cx - 25f, cy - 40f, cx - 25f, cy - 16f, p);
-        }
-        if (windows != null && windows.optBoolean("fr", false)) {
-            c.drawLine(cx + 25f, cy - 40f, cx + 25f, cy - 16f, p);
-        }
-        if (windows != null && windows.optBoolean("rl", false)) {
-            c.drawLine(cx - 25f, cy + 7f, cx - 25f, cy + 32f, p);
-        }
-        if (windows != null && windows.optBoolean("rr", false)) {
-            c.drawLine(cx + 25f, cy + 7f, cx + 25f, cy + 32f, p);
-        }
-        p.setStrokeCap(Paint.Cap.BUTT);
-        c.restoreToCount(carSave);
+        p.setStrokeWidth(2f);
+        p.setColor(outline);
+        c.drawPath(body, p);
+        c.drawLine(-57f, 9f, -50f, 9f, p);
+        c.drawLine(50f, 9f, 57f, 9f, p);
+        c.drawLine(-57f, -46f, -46f, -46f, p);
+        c.drawLine(46f, -46f, 57f, -46f, p);
+        c.drawLine(-57f, 62f, -45f, 62f, p);
+        c.drawLine(45f, 62f, 57f, 62f, p);
+        p.setStrokeWidth(1.5f);
+        c.drawLine(-22f, -112f, -18f, -62f, p);
+        c.drawLine(22f, -112f, 18f, -62f, p);
+        p.setStyle(Paint.Style.FILL);
+        c.restoreToCount(save);
     }
 
     /** Factory low-fuel warning, retaining the cluster's remaining range. */
@@ -4475,95 +4525,6 @@ public final class HudService extends Service {
      * 실제 차량(주행화면 자차 그림, 뒤에서 내려다본 모습) 위에 열린 문·트렁크·보닛을
      * 짙은 판으로 그린다. 좌표는 그림 폭·높이에 대한 비율(0~1)이다.
      */
-    private void drawRealCarOpenings(Canvas c, Paint p, float cx, float cy, JSONObject doors,
-                                     JSONObject windows, boolean hoodOpen, boolean trunkOpen) {
-        float w = 250f;
-        float h = w * egoCar.getHeight() / egoCar.getWidth();
-        float left = cx - w / 2f;
-        float top = cy - h / 2f + 12f;
-        int dark = Color.rgb(52, 57, 63);
-        int edge = Color.rgb(110, 117, 124);
-        // 보닛은 지붕 너머로 솟아 보이므로 차 그림보다 먼저(뒤에) 그린다.
-        if (hoodOpen) {
-            drawCarPanel(c, p, left, top, w, h, dark, edge,
-                    0.30f, 0.06f, 0.70f, 0.06f, 0.74f, -0.16f, 0.26f, -0.16f);
-        }
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setAlpha(255);
-        p.setFilterBitmap(true);
-        scratchRect.set(left, top, left + w, top + h);
-        c.drawBitmap(egoCar, null, scratchRect, p);
-        boolean fl = doors != null && doors.optBoolean("fl", false);
-        boolean fr = doors != null && doors.optBoolean("fr", false);
-        boolean rl = doors != null && doors.optBoolean("rl", false);
-        boolean rr = doors != null && doors.optBoolean("rr", false);
-        // 앞문은 멀리(위쪽, 작게), 뒷문은 가까이(아래쪽, 크게) 옆으로 벌어진다.
-        if (fl) drawCarPanel(c, p, left, top, w, h, dark, edge,
-                0.17f, 0.20f, 0.14f, 0.40f, -0.10f, 0.36f, -0.08f, 0.14f);
-        if (fr) drawCarPanel(c, p, left, top, w, h, dark, edge,
-                0.83f, 0.20f, 0.86f, 0.40f, 1.10f, 0.36f, 1.08f, 0.14f);
-        if (rl) drawCarPanel(c, p, left, top, w, h, dark, edge,
-                0.13f, 0.40f, 0.10f, 0.62f, -0.18f, 0.60f, -0.15f, 0.34f);
-        if (rr) drawCarPanel(c, p, left, top, w, h, dark, edge,
-                0.87f, 0.40f, 0.90f, 0.62f, 1.18f, 0.60f, 1.15f, 0.34f);
-        // 트렁크 덮개가 들려 뒷유리를 가린다.
-        if (trunkOpen) drawCarPanel(c, p, left, top, w, h, dark, edge,
-                0.20f, 0.42f, 0.80f, 0.42f, 0.76f, 0.02f, 0.24f, 0.02f);
-        // 열린 창문: 해당 쪽 옆유리 위치에 파란 막대.
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeCap(Paint.Cap.ROUND);
-        p.setStrokeWidth(7f);
-        p.setColor(Color.rgb(36, 160, 224));
-        if (windows != null && windows.optBoolean("fl", false))
-            c.drawLine(left + w * 0.22f, top + h * 0.13f, left + w * 0.19f, top + h * 0.27f, p);
-        if (windows != null && windows.optBoolean("fr", false))
-            c.drawLine(left + w * 0.78f, top + h * 0.13f, left + w * 0.81f, top + h * 0.27f, p);
-        if (windows != null && windows.optBoolean("rl", false))
-            c.drawLine(left + w * 0.18f, top + h * 0.29f, left + w * 0.15f, top + h * 0.40f, p);
-        if (windows != null && windows.optBoolean("rr", false))
-            c.drawLine(left + w * 0.82f, top + h * 0.29f, left + w * 0.85f, top + h * 0.40f, p);
-        p.setStrokeCap(Paint.Cap.BUTT);
-        p.setStyle(Paint.Style.FILL);
-    }
-
-    /** 비율 좌표 네 점(x1,y1 … x4,y4)으로 채운 판과 테두리. 모서리는 둥글게 깎는다. */
-    private void drawCarPanel(Canvas c, Paint p, float left, float top, float w, float h,
-                              int fill, int edge, float... xy) {
-        int n = xy.length / 2;
-        float[] px = new float[n], py = new float[n];
-        for (int i = 0; i < n; i++) {
-            px[i] = left + w * xy[2 * i];
-            py[i] = top + h * xy[2 * i + 1];
-        }
-        scratchPath.rewind();
-        for (int i = 0; i < n; i++) {
-            int a = (i + n - 1) % n, b = (i + 1) % n;
-            float[] in = cornerPoint(px[i], py[i], px[a], py[a]);
-            float[] out = cornerPoint(px[i], py[i], px[b], py[b]);
-            if (i == 0) scratchPath.moveTo(in[0], in[1]); else scratchPath.lineTo(in[0], in[1]);
-            scratchPath.quadTo(px[i], py[i], out[0], out[1]);
-        }
-        scratchPath.close();
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(fill);
-        c.drawPath(scratchPath, p);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(2f);
-        p.setColor(edge);
-        c.drawPath(scratchPath, p);
-        p.setStyle(Paint.Style.FILL);
-    }
-
-    /** 모서리(x,y)에서 이웃 점 쪽으로 반경만큼(변 길이의 40% 이하) 들어간 점. */
-    private static float[] cornerPoint(float x, float y, float toX, float toY) {
-        float dx = toX - x, dy = toY - y;
-        float len = (float) Math.hypot(dx, dy);
-        float r = Math.min(9f, len * 0.4f);
-        return len <= 0f ? new float[]{x, y} : new float[]{x + dx / len * r, y + dy / len * r};
-    }
-
     private void drawOpenDoorLeaf(Canvas c, Paint p, float hingeX, float hingeTop,
                                   float hingeBottom, float outerX, float outerTop,
                                   float outerBottom) {
