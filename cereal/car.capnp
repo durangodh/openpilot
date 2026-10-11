@@ -298,6 +298,7 @@ struct CarState {
     rearLeft @4 :UInt8;
     rearCenter @5 :UInt8;
     rearRight @6 :UInt8;
+    checkWarning @7 :Bool;   # PAS11 CF_Gway_PASCheckSound != 0 (sensor check, display only)
   }
 
   struct WheelSpeeds {
