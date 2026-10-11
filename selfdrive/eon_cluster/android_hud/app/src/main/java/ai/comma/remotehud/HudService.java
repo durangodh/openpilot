@@ -2740,37 +2740,89 @@ public final class HudService extends Service {
         drawCollisionStar(c, p, cx, 311f, 14f);
     }
 
-    /** Factory blind-spot/LCA failure message and rear-radar pictogram. */
+    /**
+     * 후측방 경보 시스템 점검 팝업. 순정 계기판처럼 어두운 판에 흰 문구, 그 아래
+     * 노란 그림(위에서 본 내 차 + 뒤에서 본 후측방 차 + 그 사이 레이더 파형).
+     */
     private void drawBlindSpotSystemPopup(Canvas c, Paint p) {
         final float cx = WARNING_CX;
-        drawWhiteWarningPanel(c, p, cx);
-        drawWarningTriangle(c, p, cx, 158f, 25f);
+        drawDarkWarningPanel(c, p, cx);
         text(c, p, lang("후측방 경보 시스템을", "CHECK BLIND-SPOT"),
-                cx, 225f, 28f, Color.rgb(35, 39, 43), Paint.Align.CENTER);
+                cx, 165f, 30f, Color.rgb(240, 243, 246), Paint.Align.CENTER);
         text(c, p, lang("점검하십시오", "WARNING SYSTEM"),
-                cx, 261f, 28f, Color.rgb(35, 39, 43), Paint.Align.CENTER);
+                cx, 205f, 30f, Color.rgb(240, 243, 246), Paint.Align.CENTER);
 
-        final int amber = Color.rgb(226, 146, 17);
-        final float cy = 330f;
+        final int amber = Color.rgb(246, 186, 46);
+        final int hole = Color.rgb(30, 34, 41);   // 판 색으로 유리를 뚫어 보이게
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
+
+        // 위에서 본 내 차(오른쪽 위, 앞이 위)
+        float ax = cx + 34f, ay = 300f;
         p.setColor(amber);
-        scratchRect.set(cx - 19f, cy - 31f, cx + 19f, cy + 33f);
-        c.drawRoundRect(scratchRect, 9f, 9f, p);
+        scratchRect.set(ax - 21f, ay - 46f, ax + 21f, ay + 46f);
+        c.drawRoundRect(scratchRect, 18f, 18f, p);
+        scratchRect.set(ax - 27f, ay - 20f, ax - 19f, ay - 14f);
+        c.drawRoundRect(scratchRect, 3f, 3f, p);
+        scratchRect.set(ax + 19f, ay - 20f, ax + 27f, ay - 14f);
+        c.drawRoundRect(scratchRect, 3f, 3f, p);
+        p.setColor(hole);
+        scratchPath.rewind();
+        scratchPath.moveTo(ax - 15f, ay - 22f);
+        scratchPath.quadTo(ax, ay - 30f, ax + 15f, ay - 22f);
+        scratchPath.lineTo(ax + 12f, ay - 9f);
+        scratchPath.quadTo(ax, ay - 13f, ax - 12f, ay - 9f);
+        scratchPath.close();
+        c.drawPath(scratchPath, p);
+        scratchPath.rewind();
+        scratchPath.moveTo(ax - 12f, ay + 22f);
+        scratchPath.quadTo(ax, ay + 19f, ax + 12f, ay + 22f);
+        scratchPath.lineTo(ax + 14f, ay + 32f);
+        scratchPath.quadTo(ax, ay + 36f, ax - 14f, ay + 32f);
+        scratchPath.close();
+        c.drawPath(scratchPath, p);
+
+        // 뒤에서 본 후측방 차(왼쪽 아래)
+        float bx = cx - 52f, by = 352f;
+        p.setColor(amber);
+        scratchPath.rewind();
+        scratchPath.moveTo(bx - 17f, by - 12f);
+        scratchPath.lineTo(bx - 12f, by - 30f);
+        scratchPath.quadTo(bx, by - 34f, bx + 12f, by - 30f);
+        scratchPath.lineTo(bx + 17f, by - 12f);
+        scratchPath.close();
+        c.drawPath(scratchPath, p);
+        scratchRect.set(bx - 26f, by - 14f, bx + 26f, by + 14f);
+        c.drawRoundRect(scratchRect, 7f, 7f, p);
+        scratchRect.set(bx - 32f, by - 13f, bx - 25f, by - 8f);
+        c.drawRoundRect(scratchRect, 2f, 2f, p);
+        scratchRect.set(bx + 25f, by - 13f, bx + 32f, by - 8f);
+        c.drawRoundRect(scratchRect, 2f, 2f, p);
+        scratchRect.set(bx - 22f, by + 12f, bx - 12f, by + 24f);
+        c.drawRoundRect(scratchRect, 3f, 3f, p);
+        scratchRect.set(bx + 12f, by + 12f, bx + 22f, by + 24f);
+        c.drawRoundRect(scratchRect, 3f, 3f, p);
+        p.setColor(hole);
+        scratchPath.rewind();
+        scratchPath.moveTo(bx - 11f, by - 15f);
+        scratchPath.lineTo(bx - 8f, by - 26f);
+        scratchPath.lineTo(bx + 8f, by - 26f);
+        scratchPath.lineTo(bx + 11f, by - 15f);
+        scratchPath.close();
+        c.drawPath(scratchPath, p);
+
+        // 레이더 파형: 내 차 왼쪽 뒤에서 후측방 차 쪽으로
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(5f);
         p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(5f);
         p.setColor(amber);
-        scratchRect.set(cx - 69f, cy - 29f, cx - 13f, cy + 29f);
-        c.drawArc(scratchRect, 102f, 156f, false, p);
-        scratchRect.set(cx + 13f, cy - 29f, cx + 69f, cy + 29f);
-        c.drawArc(scratchRect, 282f, 156f, false, p);
-        p.setStrokeWidth(3f);
-        scratchRect.set(cx - 88f, cy - 43f, cx - 4f, cy + 43f);
-        c.drawArc(scratchRect, 112f, 136f, false, p);
-        scratchRect.set(cx + 4f, cy - 43f, cx + 88f, cy + 43f);
-        c.drawArc(scratchRect, 292f, 136f, false, p);
+        float wx = ax - 26f, wy = ay + 34f;
+        scratchRect.set(wx - 12f, wy - 12f, wx + 12f, wy + 12f);
+        c.drawArc(scratchRect, 100f, 60f, false, p);
+        scratchRect.set(wx - 22f, wy - 22f, wx + 22f, wy + 22f);
+        c.drawArc(scratchRect, 100f, 60f, false, p);
         p.setStrokeCap(Paint.Cap.BUTT);
+        p.setStyle(Paint.Style.FILL);
     }
 
     /** Show every open door, window, hood and trunk in the large TMAP warning area. */
