@@ -178,6 +178,7 @@ final class ModelWorldGL {
     private final Line smoothedPath = new Line();
     private final Line[] smoothedLanes = {new Line(), new Line(), new Line(), new Line()};
     private final Line[] smoothedEdges = {new Line(), new Line()};
+    private final Line[] fittedEdges = {new Line(), new Line()};
     private final Line smoothedRoute = new Line();
     private final Line mapLine = new Line();
     private final HudMapStore mapStore;
@@ -467,10 +468,12 @@ final class ModelWorldGL {
                 }
             }
         }
-        Line leftEdge = smoothOptional(smoothedEdges[0], rawLeftEdge,
-                geometryAlpha, 0.28f);
-        Line rightEdge = smoothOptional(smoothedEdges[1], rawRightEdge,
-                geometryAlpha, 0.28f);
+        // 모델 도로경계 점은 좌우로 잘게 떨린다. 시간 평활 뒤 선 전체에 매끈한 곡선을
+        // 맞춰 직선 구간은 반듯하게, 커브는 자연스럽게 그린다(도로 면·연석·가드레일 공통).
+        Line leftEdge = fitEdge(fittedEdges[0], smoothOptional(smoothedEdges[0], rawLeftEdge,
+                geometryAlpha, 0.28f));
+        Line rightEdge = fitEdge(fittedEdges[1], smoothOptional(smoothedEdges[1], rawRightEdge,
+                geometryAlpha, 0.28f));
 
         drawRoad(path, leftEdge, rightEdge, scene, blend(roadTop, roadBottom, 0.55f));
         if (leftEdge != null) {
@@ -655,6 +658,76 @@ final class ModelWorldGL {
         }
         target.confidence = sample.confidence;
         return target;
+    }
+
+    /**
+     * 도로경계를 3차 곡선 y = a + b·x + c·x² + d·x³ 로 맞춘다(가까운 점에 더 큰 가중치).
+     * 맞춘 곡선이 원래 점에서 너무 벗어나면(복잡한 모양) 5점 이동평균으로만 다듬는다.
+     */
+    private static Line fitEdge(Line target, Line source) {
+        if (source == null || source.count < 5) {
+            return source;
+        }
+        int n = source.count;
+        double scale = Math.max(1.0, source.x[n - 1]);
+        double[][] m = new double[4][5];
+        for (int i = 0; i < n; i++) {
+            double u = source.x[i] / scale;
+            double w = 1.0 / (1.0 + Math.max(0.0, source.x[i]) / 30.0);
+            double[] b = {1.0, u, u * u, u * u * u};
+            for (int r = 0; r < 4; r++) {
+                for (int c = 0; c < 4; c++) m[r][c] += w * b[r] * b[c];
+                m[r][4] += w * b[r] * source.y[i];
+            }
+        }
+        double[] coef = solve4(m);
+        target.count = n;
+        target.confidence = source.confidence;
+        boolean fitted = coef != null;
+        float worst = 0f;
+        for (int i = 0; i < n; i++) {
+            target.x[i] = source.x[i];
+            target.z[i] = source.z[i];
+            if (fitted) {
+                double u = source.x[i] / scale;
+                target.y[i] = (float) (coef[0] + u * (coef[1] + u * (coef[2] + u * coef[3])));
+                if (source.x[i] < 60f) {
+                    worst = Math.max(worst, Math.abs(target.y[i] - source.y[i]));
+                }
+            }
+        }
+        if (!fitted || worst > 0.6f) {
+            for (int i = 0; i < n; i++) {
+                int a = Math.max(0, i - 2);
+                int b = Math.min(n - 1, i + 2);
+                float sum = 0f;
+                for (int k = a; k <= b; k++) sum += source.y[k];
+                target.y[i] = sum / (b - a + 1);
+            }
+        }
+        return target;
+    }
+
+    /** 4x4 연립방정식(확장 행렬)을 부분 피벗 가우스 소거로 푼다. 특이하면 null. */
+    private static double[] solve4(double[][] m) {
+        for (int col = 0; col < 4; col++) {
+            int pivot = col;
+            for (int r = col + 1; r < 4; r++) {
+                if (Math.abs(m[r][col]) > Math.abs(m[pivot][col])) pivot = r;
+            }
+            if (Math.abs(m[pivot][col]) < 1e-9) return null;
+            double[] t = m[col];
+            m[col] = m[pivot];
+            m[pivot] = t;
+            for (int r = 0; r < 4; r++) {
+                if (r == col) continue;
+                double f = m[r][col] / m[col][col];
+                for (int c = col; c < 5; c++) m[r][c] -= f * m[col][c];
+            }
+        }
+        double[] out = new double[4];
+        for (int r = 0; r < 4; r++) out[r] = m[r][4] / m[r][r];
+        return out;
     }
 
     private static Line smoothOptional(Line target, Line sample, float alpha,
