@@ -179,6 +179,7 @@ final class ModelWorldGL {
     private final Line[] smoothedLanes = {new Line(), new Line(), new Line(), new Line()};
     private final Line[] smoothedEdges = {new Line(), new Line()};
     private final Line[] fittedEdges = {new Line(), new Line()};
+    private final Line[] fittedLanes = {new Line(), new Line(), new Line(), new Line()};
     private final Line smoothedRoute = new Line();
     private final Line mapLine = new Line();
     private final HudMapStore mapStore;
@@ -470,9 +471,9 @@ final class ModelWorldGL {
         }
         // 모델 도로경계 점은 좌우로 잘게 떨린다. 시간 평활 뒤 선 전체에 매끈한 곡선을
         // 맞춰 직선 구간은 반듯하게, 커브는 자연스럽게 그린다(도로 면·연석·가드레일 공통).
-        Line leftEdge = fitEdge(fittedEdges[0], smoothOptional(smoothedEdges[0], rawLeftEdge,
+        Line leftEdge = fitLine(fittedEdges[0], smoothOptional(smoothedEdges[0], rawLeftEdge,
                 geometryAlpha, 0.28f));
-        Line rightEdge = fitEdge(fittedEdges[1], smoothOptional(smoothedEdges[1], rawRightEdge,
+        Line rightEdge = fitLine(fittedEdges[1], smoothOptional(smoothedEdges[1], rawRightEdge,
                 geometryAlpha, 0.28f));
 
         drawRoad(path, leftEdge, rightEdge, scene, blend(roadTop, roadBottom, 0.55f));
@@ -518,9 +519,12 @@ final class ModelWorldGL {
             }
             laneConfidence[i] = fresh ? rawConfidence
                     : laneConfidence[i] * 0.68f + rawConfidence * 0.32f;
+            // 도로경계와 같은 방식으로 차선도 매끈한 곡선으로 다듬어 그린다.
+            Line lane = smoothedLanes[i].count >= 2
+                    ? fitLine(fittedLanes[i], smoothedLanes[i]) : smoothedLanes[i];
 
             boolean allowed = laneAllowed(scene, i)
-                    && laneInsideRoadEdges(smoothedLanes[i], leftEdge, rightEdge);
+                    && laneInsideRoadEdges(lane, leftEdge, rightEdge);
             if (!allowed) {
                 laneVisible[i] = false;
             } else if (laneVisible[i]) {
@@ -528,14 +532,14 @@ final class ModelWorldGL {
             } else {
                 laneVisible[i] = laneConfidence[i] >= 0.56f;
             }
-            if (!laneVisible[i] || smoothedLanes[i].count < 2) {
+            if (!laneVisible[i] || lane.count < 2) {
                 continue;
             }
 
             int laneColor = (i == 1 || i == 2)
                     ? (dark ? Color.rgb(246, 206, 92) : Color.rgb(238, 196, 70))
                     : (dark ? Color.rgb(220, 226, 232) : Color.rgb(249, 250, 250));
-            drawLaneMarking(smoothedLanes[i], path, laneColor,
+            drawLaneMarking(lane, path, laneColor,
                     i == 1 || i == 2 ? 3.0f : 2.2f,
                     clamp(0.22f + laneConfidence[i] * 0.78f, 0f, 1f), dark);
         }
@@ -661,10 +665,10 @@ final class ModelWorldGL {
     }
 
     /**
-     * 도로경계를 3차 곡선 y = a + b·x + c·x² + d·x³ 로 맞춘다(가까운 점에 더 큰 가중치).
+     * 도로경계·차선을 3차 곡선 y = a + b·x + c·x² + d·x³ 로 맞춘다(가까운 점에 더 큰 가중치).
      * 맞춘 곡선이 원래 점에서 너무 벗어나면(복잡한 모양) 5점 이동평균으로만 다듬는다.
      */
-    private static Line fitEdge(Line target, Line source) {
+    private static Line fitLine(Line target, Line source) {
         if (source == null || source.count < 5) {
             return source;
         }
