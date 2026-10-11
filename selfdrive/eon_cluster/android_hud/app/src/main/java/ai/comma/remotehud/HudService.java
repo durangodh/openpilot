@@ -2802,7 +2802,19 @@ public final class HudService extends Service {
             titleEn = "TRUNK OPEN";
         }
 
-        // 순정 계기판처럼 어두운 판 위에 위에서 본 흰 차량. 열린 곳은 파랗게 깜빡인다.
+        // 순정 계기판처럼 어두운 판 위에 위에서 본 흰 차량. 열린 곳은 파랗게 깜빡이고,
+        // 열린 문은 문짝이 바깥으로 벌어진다.
+        drawDarkWarningPanel(c, p, cx);
+        text(c, p, lang(titleKo, titleEn), cx, WARNING_TOP + 52f, 27f,
+                Color.rgb(240, 243, 246), Paint.Align.CENTER);
+
+        boolean blinkOn = SystemClock.uptimeMillis() % 1000L < 600L;
+        drawTopViewCar(c, p, cx, (WARNING_TOP + 70f + 514f - WARNING_TOP) / 2f + 4f, 1.15f,
+                doors, windows, hoodOpen, trunkOpen, blinkOn);
+    }
+
+    /** 순정 계기판 같은 어두운 경고 판(흰 차량 그림용). 크기·위치는 흰 판과 같다. */
+    private void drawDarkWarningPanel(Canvas c, Paint p, float cx) {
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(Color.argb(110, 0, 0, 0));
@@ -2815,22 +2827,18 @@ public final class HudService extends Service {
         p.setStrokeWidth(4f);
         p.setColor(Color.rgb(96, 106, 118));
         c.drawRoundRect(scratchRect, 13f, 13f, p);
-        text(c, p, lang(titleKo, titleEn), cx, WARNING_TOP + 52f, 27f,
-                Color.rgb(240, 243, 246), Paint.Align.CENTER);
-
-        boolean blinkOn = SystemClock.uptimeMillis() % 1000L < 600L;
-        drawTopViewCar(c, p, cx, (WARNING_TOP + 70f + 514f - WARNING_TOP) / 2f + 4f, 1.15f,
-                blinkOn ? doors : null, blinkOn ? windows : null,
-                blinkOn && hoodOpen, blinkOn && trunkOpen);
+        p.setStyle(Paint.Style.FILL);
     }
 
     /**
      * 위에서 본 흰 세단(앞이 위쪽). 기준 크기 폭 118 x 길이 250 을 scale 배로 그린다.
-     * 열린 문·창문·보닛·트렁크 영역은 차체 윤곽 안에서 파랗게 칠한다.
+     * 열린 보닛·트렁크·창문은 blinkOn 일 때 파랗게 칠하고, 열린 문은 문짝이 바깥으로
+     * 벌어진 모양(깜빡임에 따라 파랑/흰색)으로 그린다. doors/windows/hood/trunk 가 없으면
+     * 흰 차량만 그린다(주차 경고용).
      */
     private void drawTopViewCar(Canvas c, Paint p, float cx, float cy, float scale,
                                 JSONObject doors, JSONObject windows,
-                                boolean hood, boolean trunk) {
+                                boolean hood, boolean trunk, boolean blinkOn) {
         int save = c.save();
         c.translate(cx, cy);
         c.scale(scale, scale);
@@ -2870,8 +2878,8 @@ public final class HudService extends Service {
         c.save();
         c.clipPath(body);
         p.setColor(blue);
-        if (hood) c.drawRect(-60f, -130f, 60f, -54f, p);
-        if (trunk) c.drawRect(-60f, 66f, 60f, 130f, p);
+        if (blinkOn && hood) c.drawRect(-60f, -130f, 60f, -54f, p);
+        if (blinkOn && trunk) c.drawRect(-60f, 66f, 60f, 130f, p);
         c.restore();
 
         // 유리(앞유리·뒷유리·옆유리)
@@ -2904,19 +2912,25 @@ public final class HudService extends Service {
             sideGlass.close();
             c.drawPath(sideGlass, p);
         }
-        // 열린 문(파랑): 옆유리까지 포함한 문짝 전체(유리 위에 칠한다)
+        // 열린 문: 문짝이 앞쪽 경첩을 축으로 바깥으로 35° 벌어진다. 차체엔 빈 문틀(어두운 띠).
         if (doors != null) {
-            c.save();
-            c.clipPath(body);
-            p.setColor(blue);
-            if (doors.optBoolean("fl", false)) c.drawRect(-60f, -46f, -36f, 8f, p);
-            if (doors.optBoolean("fr", false)) c.drawRect(36f, -46f, 60f, 8f, p);
-            if (doors.optBoolean("rl", false)) c.drawRect(-60f, 10f, -36f, 62f, p);
-            if (doors.optBoolean("rr", false)) c.drawRect(36f, 10f, 60f, 62f, p);
-            c.restore();
+            String[] keys = {"fl", "fr", "rl", "rr"};
+            for (int k = 0; k < 4; k++) {
+                if (!doors.optBoolean(keys[k], false)) continue;
+                float side = (k % 2 == 0) ? -1f : 1f;
+                float hingeY = k < 2 ? -46f : 9f;
+                float length = k < 2 ? 54f : 52f;
+                c.save();
+                c.clipPath(body);
+                p.setColor(Color.rgb(70, 77, 86));
+                c.drawRect(side < 0 ? -60f : 52f, hingeY, side < 0 ? -52f : 60f, hingeY + length, p);
+                c.restore();
+                drawOpenDoorPanel(c, p, side * 57f, hingeY, side, length,
+                        blinkOn ? blue : Color.rgb(236, 239, 242), outline);
+            }
         }
         // 열린 창문(파랑): 해당 옆유리 칸
-        if (windows != null) {
+        if (blinkOn && windows != null) {
             p.setColor(blue);
             if (windows.optBoolean("fl", false)) c.drawRect(-50f, -44f, -41f, 8f, p);
             if (windows.optBoolean("fr", false)) c.drawRect(41f, -44f, 50f, 8f, p);
@@ -3026,25 +3040,13 @@ public final class HudService extends Service {
         }
 
         final float cx = WARNING_CX;
-        final float cy = 270f;
-        drawWhiteWarningPanel(c, p, cx);
+        final float cy = 290f;
+        drawDarkWarningPanel(c, p, cx);
         text(c, p, lang("주차 거리 경고", "PARKING DISTANCE WARNING"),
-                cx, 153f, 22f, Color.rgb(48, 53, 57), Paint.Align.CENTER);
+                cx, WARNING_TOP + 52f, 27f, Color.rgb(240, 243, 246), Paint.Align.CENTER);
 
-        // Simplified top view keeps the six PAS sectors immediately legible.
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.rgb(210, 216, 221));
-        scratchRect.set(cx - 25f, cy - 39f, cx + 25f, cy + 48f);
-        c.drawRoundRect(scratchRect, 13f, 13f, p);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(2f);
-        p.setColor(Color.rgb(82, 91, 98));
-        c.drawRoundRect(scratchRect, 13f, 13f, p);
-        scratchRect.set(cx - 17f, cy - 23f, cx + 17f, cy + 22f);
-        c.drawRoundRect(scratchRect, 8f, 8f, p);
-        p.setStrokeWidth(4f);
-        c.drawLine(cx - 22f, cy - 19f, cx - 29f, cy - 12f, p);
-        c.drawLine(cx + 22f, cy - 19f, cx + 29f, cy - 12f, p);
+        // 순정 계기판과 같은 위에서 본 흰 차량. 여섯 감지 구역 호가 둘레에 뜬다.
+        drawTopViewCar(c, p, cx, cy, 0.62f, null, null, false, false, false);
 
         // Android arc angles: 270 degrees is forward/up, 90 is rear/down.
         drawParkingSector(c, p, cx, cy, 207f, 37f, fl);
@@ -3069,12 +3071,12 @@ public final class HudService extends Service {
                 : (level >= 3 ? Color.rgb(255, 183, 48) : Color.rgb(98, 207, 112));
         // Bring high urgency closer to the vehicle while retaining a larger,
         // easy-to-see stroke on the small external panel.
-        float radius = level >= 5 ? 54f : (level >= 3 ? 63f : 72f);
+        float radius = level >= 5 ? 86f : (level >= 3 ? 99f : 112f);
         scratchRect.set(cx - radius, cy - radius, cx + radius, cy + radius);
         p.setShader(null);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeCap(Paint.Cap.ROUND);
-        p.setStrokeWidth(level >= 5 ? 9f : 7f);
+        p.setStrokeWidth(level >= 5 ? 14f : 11f);
         p.setColor(color);
         c.drawArc(scratchRect, start, sweep, false, p);
         p.setStrokeCap(Paint.Cap.BUTT);
@@ -4525,6 +4527,30 @@ public final class HudService extends Service {
      * 실제 차량(주행화면 자차 그림, 뒤에서 내려다본 모습) 위에 열린 문·트렁크·보닛을
      * 짙은 판으로 그린다. 좌표는 그림 폭·높이에 대한 비율(0~1)이다.
      */
+    /** 위에서 본 열린 문짝: 경첩(hx,hy)에서 뒤·바깥쪽으로 35° 벌어진 두께 11 의 판. */
+    private void drawOpenDoorPanel(Canvas c, Paint p, float hx, float hy, float side,
+                                   float length, int fill, int edge) {
+        double a = Math.toRadians(35);
+        float dx = (float) Math.sin(a) * length * side;
+        float dy = (float) Math.cos(a) * length;
+        float nx = (float) Math.cos(a) * 11f * -side;   // 두께 방향(차체 쪽)
+        float ny = (float) Math.sin(a) * 11f;
+        Path leaf = new Path();
+        leaf.moveTo(hx, hy);
+        leaf.lineTo(hx + dx, hy + dy);
+        leaf.lineTo(hx + dx + nx, hy + dy + ny);
+        leaf.lineTo(hx + nx, hy + ny);
+        leaf.close();
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(fill);
+        c.drawPath(leaf, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2f);
+        p.setColor(edge);
+        c.drawPath(leaf, p);
+        p.setStyle(Paint.Style.FILL);
+    }
+
     private void drawOpenDoorLeaf(Canvas c, Paint p, float hingeX, float hingeTop,
                                   float hingeBottom, float outerX, float outerTop,
                                   float outerBottom) {
