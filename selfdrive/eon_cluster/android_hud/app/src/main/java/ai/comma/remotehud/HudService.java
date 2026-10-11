@@ -2674,13 +2674,6 @@ public final class HudService extends Service {
             drawBlindSpotSystemPopup(c, p);
             return;
         }
-        // 후측방 경고: 그쪽 사각지대에 차가 있는데 그쪽으로 방향지시등을 켠 경우.
-        boolean bsdLeft = s.optBoolean("leftBsd", false) && s.optBoolean("leftBlinker", false);
-        boolean bsdRight = s.optBoolean("rightBsd", false) && s.optBoolean("rightBlinker", false);
-        if (bsdLeft || bsdRight) {
-            drawBlindSpotWarningPopup(c, p, bsdLeft, bsdRight);
-            return;
-        }
         JSONObject doors = s.optJSONObject("doors");
         JSONObject windows = s.optJSONObject("windows");
         // The factory cluster only reminds the driver about open glass while
@@ -2691,95 +2684,11 @@ public final class HudService extends Service {
             drawVehicleOpenPopup(c, p, doors, visibleWindows);
             return;
         }
-        if (tpmsPopupActive(s)) {
-            drawTpmsPopup(c, p, s.optJSONObject("tpms"));
-            return;
-        }
         if (s.optBoolean("lowFuelWarning", false)) {
             drawLowFuelPopup(c, p, s.optDouble("distanceToEmpty", -1d));
             return;
         }
         drawParkingSensorPopup(c, p, s);
-    }
-
-    /** 후측방 경고 팝업: 위에서 본 흰 차량 뒤 옆으로 주황 경고 구역이 깜빡인다. */
-    private void drawBlindSpotWarningPopup(Canvas c, Paint p, boolean left, boolean right) {
-        final float cx = WARNING_CX;
-        final float cy = 292f;
-        final float scale = 0.72f;
-        drawDarkWarningPanel(c, p, cx);
-        text(c, p, lang("후측방 차량 주의", "CHECK BLIND SPOT"), cx, WARNING_TOP + 52f, 27f,
-                Color.rgb(240, 243, 246), Paint.Align.CENTER);
-        boolean blinkOn = SystemClock.uptimeMillis() % 700L < 420L;
-        for (int side = -1; side <= 1; side += 2) {
-            if ((side < 0 && !left) || (side > 0 && !right)) continue;
-            // 차 옆 뒤쪽(뒷문~트렁크 옆)에서 뒤로 퍼지는 경고 구역
-            Path zone = new Path();
-            zone.moveTo(cx + side * 62f * scale, cy + 0f * scale);
-            zone.lineTo(cx + side * 150f * scale, cy + 30f * scale);
-            zone.lineTo(cx + side * 170f * scale, cy + 175f * scale);
-            zone.lineTo(cx + side * 64f * scale, cy + 150f * scale);
-            zone.close();
-            p.setShader(new LinearGradient(cx, cy, cx, cy + 175f * scale,
-                    Color.argb(blinkOn ? 230 : 110, 255, 150, 20),
-                    Color.argb(blinkOn ? 70 : 30, 255, 150, 20), Shader.TileMode.CLAMP));
-            p.setStyle(Paint.Style.FILL);
-            c.drawPath(zone, p);
-            p.setShader(null);
-        }
-        drawTopViewCar(c, p, cx, cy, scale, null, null, false, false, false);
-        for (int side = -1; side <= 1; side += 2) {
-            if ((side < 0 && !left) || (side > 0 && !right)) continue;
-            drawWarningTriangle(c, p, cx + side * 118f, cy - 70f, 20f);
-        }
-    }
-
-    private boolean tpmsWarnPrev = false;
-    private long tpmsPopupUntil = 0L;
-    private static final long TPMS_POPUP_MS = 10000L;
-
-    /** 공기압 경고가 새로 생기면(꺼짐→켜짐) 10초 동안만 팝업을 띄운다. 이후엔 TPMS 칸 빨간 숫자. */
-    private boolean tpmsPopupActive(JSONObject s) {
-        JSONObject tpms = s.optJSONObject("tpms");
-        boolean warn = tpmsLow(tpmsValue(tpms, "fl")) || tpmsLow(tpmsValue(tpms, "fr"))
-                || tpmsLow(tpmsValue(tpms, "rl")) || tpmsLow(tpmsValue(tpms, "rr"));
-        long now = SystemClock.uptimeMillis();
-        if (warn && !tpmsWarnPrev) {
-            tpmsPopupUntil = now + TPMS_POPUP_MS;
-        }
-        tpmsWarnPrev = warn;
-        return warn && now < tpmsPopupUntil;
-    }
-
-    /** 타이어 공기압 경고 팝업: 흰 차량 네 바퀴 옆에 공기압, 낮은 바퀴는 주황으로 깜빡인다. */
-    private void drawTpmsPopup(Canvas c, Paint p, JSONObject tpms) {
-        final float cx = WARNING_CX;
-        final float cy = 292f;
-        final float scale = 0.78f;
-        drawDarkWarningPanel(c, p, cx);
-        text(c, p, lang("타이어 공기압이 낮습니다", "LOW TIRE PRESSURE"), cx, WARNING_TOP + 52f, 27f,
-                Color.rgb(240, 243, 246), Paint.Align.CENTER);
-        drawTopViewCar(c, p, cx, cy, scale, null, null, false, false, false);
-        boolean blinkOn = SystemClock.uptimeMillis() % 1000L < 600L;
-        int amber = Color.rgb(255, 170, 30);
-        String[] keys = {"fl", "fr", "rl", "rr"};
-        for (int k = 0; k < 4; k++) {
-            float side = (k % 2 == 0) ? -1f : 1f;
-            float wy = k < 2 ? -80f : 78f;
-            float value = tpmsValue(tpms, keys[k]);
-            boolean low = tpmsLow(value);
-            // 바퀴(차체 밖으로 조금 나온 짙은 타이어)
-            p.setShader(null);
-            p.setStyle(Paint.Style.FILL);
-            p.setColor(low && blinkOn ? amber : Color.rgb(58, 64, 72));
-            scratchRect.set(cx + (side < 0 ? -66f : 52f) * scale, cy + (wy - 17f) * scale,
-                    cx + (side < 0 ? -52f : 66f) * scale, cy + (wy + 17f) * scale);
-            c.drawRoundRect(scratchRect, 4f, 4f, p);
-            text(c, p, tpmsText(value), cx + side * 108f, cy + wy * scale + 11f, 30f,
-                    low ? amber : Color.rgb(226, 231, 236), Paint.Align.CENTER);
-        }
-        textNormal(c, p, "psi", cx, cy + 128f * scale + 26f, 18f, Color.rgb(160, 170, 180),
-                Paint.Align.CENTER);
     }
 
     /** 경고 팝업 좌표(cx=WARNING_CX, 가운데 y=257)를 EON HUD 박스 자리·크기로 옮긴다. */
