@@ -2715,29 +2715,57 @@ public final class HudService extends Service {
         c.drawRoundRect(scratchRect, 13f, 13f, p);
     }
 
-    /** Factory-cluster AEB/FCA failure message (not an active braking event). */
+    /**
+     * 긴급제동 시스템 점검 팝업(AEB/FCA 고장, 실제 제동 상황 아님). 순정 계기판처럼
+     * 어두운 판에 흰 문구, 그 아래 주황 그림(충돌 별 + 앞쪽 차 옆모습 + 다가가는 선 + 왼쪽 화살표).
+     */
     private void drawAebSystemPopup(Canvas c, Paint p) {
         final float cx = WARNING_CX;
-        drawWhiteWarningPanel(c, p, cx);
-        drawWarningTriangle(c, p, cx, 165f, 27f);
+        drawDarkWarningPanel(c, p, cx);
         text(c, p, lang("긴급제동 시스템을", "CHECK EMERGENCY"),
-                cx, 235f, 29f, Color.rgb(35, 39, 43), Paint.Align.CENTER);
+                cx, 165f, 30f, Color.rgb(240, 243, 246), Paint.Align.CENTER);
         text(c, p, lang("점검하십시오", "BRAKING SYSTEM"),
-                cx, 272f, 29f, Color.rgb(35, 39, 43), Paint.Align.CENTER);
+                cx, 205f, 30f, Color.rgb(240, 243, 246), Paint.Align.CENTER);
 
-        // 순정 경고의 충돌 차량 표식을 작은 벡터로 재현한다.
+        final int amber = Color.rgb(226, 159, 22);
         p.setShader(null);
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(7f);
+        p.setStrokeWidth(6f);
         p.setStrokeCap(Paint.Cap.ROUND);
-        p.setColor(Color.rgb(226, 159, 22));
-        scratchRect.set(cx - 72f, 318f, cx - 14f, 353f);
-        c.drawRoundRect(scratchRect, 9f, 9f, p);
-        scratchRect.set(cx + 14f, 318f, cx + 72f, 353f);
-        c.drawRoundRect(scratchRect, 9f, 9f, p);
-        c.drawLine(cx - 18f, 335f, cx + 18f, 335f, p);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setColor(amber);
+        // 다가가는 차의 앞부분(⊃ 모양 두 줄)
+        scratchPath.rewind();
+        scratchPath.moveTo(cx - 80f, 318f);
+        scratchPath.lineTo(cx - 40f, 318f);
+        scratchPath.quadTo(cx - 24f, 318f, cx - 24f, 331f);
+        scratchPath.moveTo(cx - 80f, 344f);
+        scratchPath.lineTo(cx - 40f, 344f);
+        scratchPath.quadTo(cx - 24f, 344f, cx - 24f, 331f);
+        c.drawPath(scratchPath, p);
+        // 앞쪽 차(옆모습, 앞이 왼쪽)
+        scratchPath.rewind();
+        scratchPath.moveTo(cx - 6f, 346f);
+        scratchPath.lineTo(cx - 6f, 336f);
+        scratchPath.quadTo(cx - 4f, 329f, cx + 8f, 328f);
+        scratchPath.quadTo(cx + 22f, 311f, cx + 44f, 312f);
+        scratchPath.quadTo(cx + 62f, 313f, cx + 72f, 327f);
+        scratchPath.quadTo(cx + 82f, 329f, cx + 82f, 337f);
+        scratchPath.lineTo(cx + 82f, 346f);
+        scratchPath.close();
+        c.drawPath(scratchPath, p);
+        // 아래 왼쪽 화살표
+        c.drawLine(cx + 46f, 378f, cx + 4f, 378f, p);
+        p.setStyle(Paint.Style.FILL);
+        scratchPath.rewind();
+        scratchPath.moveTo(cx - 16f, 378f);
+        scratchPath.lineTo(cx + 6f, 365f);
+        scratchPath.lineTo(cx + 6f, 391f);
+        scratchPath.close();
+        c.drawPath(scratchPath, p);
         p.setStrokeCap(Paint.Cap.BUTT);
-        drawCollisionStar(c, p, cx, 311f, 14f);
+        // 충돌 별(두 차 사이 위쪽)
+        drawCollisionStar(c, p, cx - 12f, 296f, 30f);
     }
 
     /**
@@ -3060,9 +3088,10 @@ public final class HudService extends Service {
         p.setStyle(Paint.Style.FILL);
         p.setColor(Color.rgb(226, 159, 22));
         scratchPath.rewind();
-        for (int i = 0; i < 16; i++) {
-            double a = -Math.PI / 2d + i * Math.PI / 8d;
-            float r = (i & 1) == 0 ? radius : radius * 0.42f;
+        // 순정 그림처럼 굵은 다섯 꼭짓점 별
+        for (int i = 0; i < 10; i++) {
+            double a = -Math.PI / 2d + i * Math.PI / 5d;
+            float r = (i & 1) == 0 ? radius : radius * 0.45f;
             float x = cx + (float) Math.cos(a) * r;
             float y = cy + (float) Math.sin(a) * r;
             if (i == 0) scratchPath.moveTo(x, y); else scratchPath.lineTo(x, y);
