@@ -2889,7 +2889,8 @@ public final class HudService extends Service {
                 Color.rgb(240, 243, 246), Paint.Align.CENTER);
 
         boolean blinkOn = SystemClock.uptimeMillis() % 1000L < 600L;
-        drawTopViewCar(c, p, cx, (WARNING_TOP + 70f + 514f - WARNING_TOP) / 2f + 4f, 1.15f,
+        // 주차 거리 경고와 같은 차 크기(0.62)
+        drawTopViewCar(c, p, cx, (WARNING_TOP + 70f + 514f - WARNING_TOP) / 2f + 4f, 0.62f,
                 doors, windows, hoodOpen, trunkOpen, blinkOn);
     }
 
