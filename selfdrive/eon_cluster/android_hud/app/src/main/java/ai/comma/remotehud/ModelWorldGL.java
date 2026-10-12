@@ -1087,15 +1087,23 @@ final class ModelWorldGL {
                     dark ? Color.rgb(40, 73, 91) : Color.rgb(117, 166, 187), 0.76f);
         }
 
-        int roadColor = dark ? Color.rgb(64, 74, 84) : Color.rgb(126, 138, 148);
-        for (HudMapStore.Road road : snapshot.roads) {
-            if (!fillLocalLine(road.lat, road.lon, lat, lon, metersLat, metersLon,
-                    sinHeading, cosHeading, 2)) {
-                continue;
-            }
-            drawWorldRibbon(mapLine, roadHeight, roadColor,
-                    clamp(road.width * 0.5f, 1.25f, 9f), dark ? 0.34f : 0.52f, 0.008f);
-        }
+        // Render the local road network in three vector passes.  Drawing every
+        // casing first and every surface last keeps intersections connected
+        // instead of leaving dark seams where individual road strips cross.
+        // These are context roads only; camera/model lanes are drawn later and
+        // remain brighter and visually dominant.
+        int roadCasing = dark ? Color.rgb(20, 25, 31) : Color.rgb(66, 73, 80);
+        int roadShoulder = dark ? Color.rgb(75, 84, 92) : Color.rgb(126, 134, 141);
+        int roadSurface = dark ? Color.rgb(43, 50, 57) : Color.rgb(88, 97, 105);
+        drawMapRoadLayer(snapshot.roads, lat, lon, metersLat, metersLon,
+                sinHeading, cosHeading, roadHeight, roadCasing,
+                0.78f, dark ? 0.54f : 0.60f, 0.004f);
+        drawMapRoadLayer(snapshot.roads, lat, lon, metersLat, metersLon,
+                sinHeading, cosHeading, roadHeight, roadShoulder,
+                0.26f, dark ? 0.60f : 0.68f, 0.007f);
+        drawMapRoadLayer(snapshot.roads, lat, lon, metersLat, metersLon,
+                sinHeading, cosHeading, roadHeight, roadSurface,
+                0f, dark ? 0.68f : 0.74f, 0.011f);
 
         if (roadsOnly) return;
         int walls = dark ? Color.rgb(80, 92, 105) : Color.rgb(112, 126, 140);
@@ -1121,6 +1129,27 @@ final class ModelWorldGL {
                 continue;
             }
             drawMapBuilding(mapLine, roadHeight, building.height, walls, roofs);
+        }
+    }
+
+    private void drawMapRoadLayer(HudMapStore.Road[] roads,
+                                  double lat, double lon,
+                                  double metersLat, double metersLon,
+                                  double sinHeading, double cosHeading,
+                                  Line roadHeight, int color,
+                                  float widthExtra, float alpha, float zOffset) {
+        for (HudMapStore.Road road : roads) {
+            if (!fillLocalLine(road.lat, road.lon, lat, lon, metersLat, metersLon,
+                    sinHeading, cosHeading, 2)) {
+                continue;
+            }
+            // Fade distant context so it does not compete with the live camera
+            // road and lanes near the vehicle.
+            float distance = (float) Math.sqrt(Math.max(0d, road.distanceSq));
+            float visibility = clamp(1f - (distance - 30f) / 180f, 0.22f, 1f);
+            float halfWidth = clamp(road.width * 0.5f, 1.25f, 9f) + widthExtra;
+            drawWorldRibbon(mapLine, roadHeight, color, halfWidth,
+                    alpha * visibility, zOffset);
         }
     }
 
