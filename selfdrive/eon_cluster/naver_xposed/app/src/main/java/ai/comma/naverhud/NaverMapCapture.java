@@ -11,6 +11,9 @@ import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
 
+import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XposedBridge;
+
 import java.io.ByteArrayOutputStream;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
@@ -383,43 +386,55 @@ final class NaverMapCapture {
     private static Method cachedSnapshot;
     private static Method cachedCameraPositionGetter;
     private static Method cachedCameraPositionSetter;
+    private static volatile Method hookedCameraPositionSetter;
+    private static final ThreadLocal<Boolean> bypassCameraZoomHook = new ThreadLocal<>();
 
     /**
-     * Keep NAVER's rendered map 0.7 zoom levels wider for the HUD. The last
-     * value is remembered so the 5 fps capture loop never subtracts the
-     * offset cumulatively. When NAVER updates its guidance camera, the new
-     * value differs from our last applied value and is adjusted once again.
+     * Install the zoom offset in NAVER's own camera-position setter.  The old
+     * capture loop changed the live map after NAVER had already rendered its
+     * guidance camera; NAVER then restored that camera and the two zoom values
+     * alternated on screen.  Adjusting the incoming position before it renders
+     * produces one stable camera update instead.
+     *
+     * A direct update is made only when the map instance or the user setting
+     * changes.  The 5 fps snapshot loop never writes the camera repeatedly.
      */
     private void applyHudZoomOut(Object map) {
         try {
             Method getter = cameraPositionGetter(map.getClass());
             Object current = getter.invoke(map);
             if (current == null) return;
+            Method setter = cameraPositionSetter(map.getClass(), current.getClass());
+            ensureCameraZoomHook(setter);
+
+            double levels = hudZoomOutLevels;
+            boolean mapChanged = map != zoomAdjustedMap;
+            boolean levelChanged = Double.compare(levels, appliedZoomOutLevels) != 0;
+            if (!mapChanged && !levelChanged) return;
 
             Field zoomField = current.getClass().getField("zoom");
             double currentZoom = zoomField.getDouble(current);
-            double levels = hudZoomOutLevels;
-            boolean untouched = map == zoomAdjustedMap && !Double.isNaN(lastAppliedHudZoom)
+            // When only the setting changes, restore the base zoom before
+            // applying the new offset.  A new map starts from its current zoom.
+            boolean stillAtOurZoom = !mapChanged && !Double.isNaN(lastAppliedHudZoom)
                     && Math.abs(currentZoom - lastAppliedHudZoom) < APPLIED_ZOOM_EPSILON;
-            if (untouched && levels == appliedZoomOutLevels) return;
-            if (!untouched && levels <= 0d) return;
-            // 설정만 바뀐 경우: 이전에 뺀 만큼 되돌린 원래 줌에서 새 값을 뺀다.
-            double baseZoom = untouched ? currentZoom + appliedZoomOutLevels : currentZoom;
-
-            Object target = current.getClass().getField("target").get(current);
-            double tilt = current.getClass().getField("tilt").getDouble(current);
-            double bearing = current.getClass().getField("bearing").getDouble(current);
+            double baseZoom = stillAtOurZoom
+                    ? currentZoom + appliedZoomOutLevels : currentZoom;
             double hudZoom = Math.max(0d, baseZoom - levels);
-            Object adjusted = current.getClass()
-                    .getConstructor(target.getClass(), double.class, double.class, double.class)
-                    .newInstance(target, hudZoom, tilt, bearing);
-            cameraPositionSetter(map.getClass(), current.getClass()).invoke(map, adjusted);
+            Object adjusted = cameraPositionAtZoom(current, hudZoom);
+
+            bypassCameraZoomHook.set(Boolean.TRUE);
+            try {
+                setter.invoke(map, adjusted);
+            } finally {
+                bypassCameraZoomHook.remove();
+            }
 
             zoomAdjustedMap = map;
             lastAppliedHudZoom = hudZoom;
-            if (!zoomAppliedLogged || levels != appliedZoomOutLevels) {
+            if (!zoomAppliedLogged || levelChanged) {
                 zoomAppliedLogged = true;
-                NaverHudLog.line("HUD map zoom offset applied: -" + levels);
+                NaverHudLog.line("HUD map zoom offset applied stably: -" + levels);
             }
             appliedZoomOutLevels = levels;
         } catch (Throwable error) {
@@ -428,6 +443,38 @@ final class NaverMapCapture {
                 NaverHudLog.ex("HUD map zoom offset", error);
             }
         }
+    }
+
+    private static void ensureCameraZoomHook(Method setter) {
+        if (hookedCameraPositionSetter == setter) return;
+        synchronized (NaverMapCapture.class) {
+            if (hookedCameraPositionSetter == setter) return;
+            XposedBridge.hookMethod(setter, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    if (Boolean.TRUE.equals(bypassCameraZoomHook.get())
+                            || param.args == null || param.args.length != 1
+                            || param.args[0] == null) {
+                        return;
+                    }
+                    double levels = hudZoomOutLevels;
+                    if (levels <= 0d) return;
+                    Object position = param.args[0];
+                    double zoom = position.getClass().getField("zoom").getDouble(position);
+                    param.args[0] = cameraPositionAtZoom(position, Math.max(0d, zoom - levels));
+                }
+            });
+            hookedCameraPositionSetter = setter;
+        }
+    }
+
+    private static Object cameraPositionAtZoom(Object position, double zoom) throws Exception {
+        Object target = position.getClass().getField("target").get(position);
+        double tilt = position.getClass().getField("tilt").getDouble(position);
+        double bearing = position.getClass().getField("bearing").getDouble(position);
+        return position.getClass()
+                .getConstructor(target.getClass(), double.class, double.class, double.class)
+                .newInstance(target, zoom, tilt, bearing);
     }
 
     private static Method cameraPositionGetter(Class<?> mapClass) throws NoSuchMethodException {
