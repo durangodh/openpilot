@@ -33,18 +33,17 @@ final class NaverMapCapture {
     // slightly enlarged. Apply a small camera offset instead of shrinking the
     // captured bitmap, so the map still fills the HUD without borders and the
     // existing snapshot/encode cadence stays unchanged.
-    private static final double HUD_ZOOM_OUT_LEVELS = 0.7d;
+    // EON 설정 NaverMapZoomOutLevel(0.1 단위)로 바뀐다. 브로드캐스트 전에는 0.7.
+    private static volatile double hudZoomOutLevels = 0.7d;
     private static final double APPLIED_ZOOM_EPSILON = 0.03d;
     // 스냅샷 요청 간격(5fps = EON 지도 FPS 최대값). 이전 응답이 오면 바로 다음
     // 요청이 가능하도록 짧은 주기로 확인한다.
     private static final long FRAME_INTERVAL_MS = 200, CHECK_INTERVAL_MS = 40;
     // 응답이 안 오는 요청을 포기하는 시간. 길면 그동안 지도가 멈춰 보인다.
     private static final long REQUEST_TIMEOUT_MS = 600;
-    // EON 설정 NaverMapZoomOut(0~1). 0 = 칸을 꽉 채움(잘라냄), 1 = 지도 전체를 축소해 넣음.
-    private static volatile float zoomOut = 0f;
 
-    static void setZoomOut(float value) {
-        zoomOut = Math.max(0f, Math.min(1f, value));
+    static void setZoomOutLevels(double value) {
+        hudZoomOutLevels = Math.max(0d, Math.min(2d, value));
     }
 
     private final NaverNaviClient client;
@@ -87,6 +86,7 @@ final class NaverMapCapture {
     private Object activeMap;
     private Object zoomAdjustedMap;
     private double lastAppliedHudZoom = Double.NaN;
+    private double appliedZoomOutLevels;
     private boolean zoomAppliedLogged;
     private boolean zoomFailureLogged;
     // generation: 지도(NaverMap 객체)가 바뀔 때만 올린다. 이전 지도의 프레임만 버린다.
@@ -398,15 +398,18 @@ final class NaverMapCapture {
 
             Field zoomField = current.getClass().getField("zoom");
             double currentZoom = zoomField.getDouble(current);
-            if (map == zoomAdjustedMap && !Double.isNaN(lastAppliedHudZoom)
-                    && Math.abs(currentZoom - lastAppliedHudZoom) < APPLIED_ZOOM_EPSILON) {
-                return;
-            }
+            double levels = hudZoomOutLevels;
+            boolean untouched = map == zoomAdjustedMap && !Double.isNaN(lastAppliedHudZoom)
+                    && Math.abs(currentZoom - lastAppliedHudZoom) < APPLIED_ZOOM_EPSILON;
+            if (untouched && levels == appliedZoomOutLevels) return;
+            if (!untouched && levels <= 0d) return;
+            // 설정만 바뀐 경우: 이전에 뺀 만큼 되돌린 원래 줌에서 새 값을 뺀다.
+            double baseZoom = untouched ? currentZoom + appliedZoomOutLevels : currentZoom;
 
             Object target = current.getClass().getField("target").get(current);
             double tilt = current.getClass().getField("tilt").getDouble(current);
             double bearing = current.getClass().getField("bearing").getDouble(current);
-            double hudZoom = Math.max(0d, currentZoom - HUD_ZOOM_OUT_LEVELS);
+            double hudZoom = Math.max(0d, baseZoom - levels);
             Object adjusted = current.getClass()
                     .getConstructor(target.getClass(), double.class, double.class, double.class)
                     .newInstance(target, hudZoom, tilt, bearing);
@@ -414,10 +417,11 @@ final class NaverMapCapture {
 
             zoomAdjustedMap = map;
             lastAppliedHudZoom = hudZoom;
-            if (!zoomAppliedLogged) {
+            if (!zoomAppliedLogged || levels != appliedZoomOutLevels) {
                 zoomAppliedLogged = true;
-                NaverHudLog.line("HUD map zoom offset applied: -" + HUD_ZOOM_OUT_LEVELS);
+                NaverHudLog.line("HUD map zoom offset applied: -" + levels);
             }
+            appliedZoomOutLevels = levels;
         } catch (Throwable error) {
             if (!zoomFailureLogged) {
                 zoomFailureLogged = true;
@@ -490,28 +494,18 @@ final class NaverMapCapture {
     private static Bitmap fitCenterCrop(Bitmap source) {
         // 안내(3D) 지도 스냅샷은 하늘·가장자리가 투명(JPEG 에서 검정)으로 온다.
         // 지도가 실제로 그려진 범위만 골라 그 안에서 꽉 차게 자른다.
-        // 축소 비율(zoomOut)에 따라 "꽉 채움(fill)"과 "전체 보임(fit)" 사이 배율을 쓴다.
-        // 남는 곳은 검은 여백(JPEG 에서 투명 → 검정)으로 가운데 정렬한다.
         Rect content = contentBounds(source);
         int sw = content.width(), sh = content.height();
-        float fill = Math.max(WIDTH / (float) sw, HEIGHT / (float) sh);
-        float fit = Math.min(WIDTH / (float) sw, HEIGHT / (float) sh);
-        float scale = fill + (fit - fill) * zoomOut;
+        float scale = Math.max(WIDTH / (float) sw, HEIGHT / (float) sh);
         int cropW = Math.min(sw, Math.round(WIDTH / scale));
         int cropH = Math.min(sh, Math.round(HEIGHT / scale));
         int left = content.left + (sw - cropW) / 2;
         int top = sh > sw ? Math.round(sh * 0.62f - cropH / 2f) : (sh - cropH) / 2;
         top = content.top + Math.max(0, Math.min(sh - cropH, top));
-        int dw = Math.min(WIDTH, Math.round(cropW * scale));
-        int dh = Math.min(HEIGHT, Math.round(cropH * scale));
-        // 반올림 오차(1~2px)로 가장자리에 검은 줄이 생기지 않게 거의 꽉 찬 쪽은 칸 전체로.
-        if (dw >= WIDTH - 2) dw = WIDTH;
-        if (dh >= HEIGHT - 2) dh = HEIGHT;
-        int dx = (WIDTH - dw) / 2, dy = (HEIGHT - dh) / 2;
         Bitmap out = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
         new Canvas(out).drawBitmap(source,
                 new Rect(left, top, left + cropW, top + cropH),
-                new Rect(dx, dy, dx + dw, dy + dh), new Paint(Paint.FILTER_BITMAP_FLAG));
+                new Rect(0, 0, WIDTH, HEIGHT), new Paint(Paint.FILTER_BITMAP_FLAG));
         return out;
     }
 
