@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SCC re-enable while braked-paused must keep pedal/brake auto-resume armed."""
+"""SCC re-enable must keep pedal/brake auto-resume armed (C2: only CANCEL clears it)."""
 import ast
 from pathlib import Path
 from types import SimpleNamespace as NS
@@ -34,6 +34,14 @@ def test_brake_pause_keeps_auto_resume_armed():
   assert h.resumed == []          # no immediate re-engage; pedal/brake paths decide
 
 
-def test_user_cancel_and_fresh_start_still_clear_it():
-  assert not _run(-2, True).auto_cruise_control   # CANCEL button
-  assert not _run(0, False).auto_cruise_control   # cruise newly started
+def test_scc_reenable_never_clears_it_like_c2():
+  # C2: only the CANCEL button clears it (pause_longitudinal); SCC state changes do not.
+  assert _run(-2, True).auto_cruise_control
+  h = _run(0, False)
+  assert h.auto_cruise_control
+  assert h.resumed == [1]         # fresh SCC start engages longitudinal like C2's SET
+
+
+def test_cruise_helper_starts_armed_like_c2():
+  source = Path(__file__).resolve().parents[1] / 'lib' / 'cruise_helper.py'
+  assert 'self.auto_cruise_control = True\n    self.long_active_user = 0' in source.read_text(encoding='utf-8')

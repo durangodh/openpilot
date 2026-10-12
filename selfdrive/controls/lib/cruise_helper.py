@@ -75,7 +75,8 @@ class CruiseHelper:
     self.is_cruise_enabled = False
     # aPilot C2 separates lateral engagement from longitudinal readiness.
     # CANCEL/brake can pause longitudinal control while steering remains enabled.
-    self.auto_cruise_control = False
+    # Like C2, pedal/brake auto-resume is armed from start; only CANCEL clears it.
+    self.auto_cruise_control = True
     self.long_active_user = 0
     self.user_cruise_paused = False
     self.v_cruise_kph_backup = 0.0
@@ -679,11 +680,8 @@ class CruiseHelper:
 
       if not self.is_cruise_enabled:
         self.is_cruise_enabled = True
-        # 브레이크로 잠시 멈춘 상태(-2, CANCEL 아님)에서 SCC 상태가 다시 켜지는 건
-        # 새 크루즈 시작이 아니다(회전 중 정지·소프트홀드). 이때 자동 재개 허용을
-        # 지우면 페달·브레이크 재개가 막히고 RES/SET 으로만 재개된다.
-        if not (self.long_active_user == -2 and not self.user_cruise_paused):
-          self.auto_cruise_control = False
+        # C2 와 같이 SCC 상태 변화로는 자동 재개 허용을 지우지 않는다(CANCEL 만 지움).
+        # 지우면 회전 중 정지·소프트홀드 뒤 페달·브레이크 재개가 막히고 RES/SET 으로만 재개된다.
       if controls.enabled and self.long_active_user == 0 and self.auto_cruise_control and not self.user_cruise_paused:
         self._resume_longitudinal(controls, CS, 1)
     elif self.is_cruise_enabled:
