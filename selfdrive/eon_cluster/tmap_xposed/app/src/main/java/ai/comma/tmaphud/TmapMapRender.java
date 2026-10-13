@@ -111,6 +111,9 @@ final class TmapMapRender {
     void maybeStart(final Context ctx, final ClassLoader loader) {
         if (running || ctx == null || loader == null || failures >= 3) return;
         if (SystemClock.elapsedRealtime() < nextRetryAt) return;
+        // EON 방송(1초 주기)을 받기 전에 시작하면 HUD 네비모드를 모른 채 주행모드 크기·밀도로
+        // 엔진이 만들어진다. 이 엔진은 시작 뒤 밀도 변경을 무시해 네비모드 지도가 크게 나왔다.
+        if (!EonDiscovery.received) return;
         start(ctx, loader);
     }
 
