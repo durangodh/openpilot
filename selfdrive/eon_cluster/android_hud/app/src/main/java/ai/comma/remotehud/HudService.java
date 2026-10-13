@@ -162,7 +162,7 @@ public final class HudService extends Service {
     /** 네비모드 양옆 지도 연하게: 왼쪽 게이지 칸 끝, 오른쪽 칸 시작, 경계 번짐 폭, 덮는 진하기. */
     private static final float NAVI_LEFT_FADE_END = 390f;
     private static final float NAVI_RIGHT_FADE_START = NAVI_COL_LEFT - 8f;
-    private static final float NAVI_FADE_EDGE = 60f;
+    private static final float NAVI_FADE_EDGE = 160f;
     // 2026-10-13 실차: 110 은 낮 지도(밝은 회색 위 밝은 회색)에서 거의 티가 안 났다.
     private static final int NAVI_SIDE_FADE_ALPHA = 175;
     private static final int SYSTEM_RIGHT = 1920;
@@ -6402,17 +6402,31 @@ public final class HudService extends Service {
      * 네비모드: 게이지 칸(왼쪽)과 회전 안내·팝업 칸(오른쪽) 뒤의 지도를 배경색으로 살짝
      * 덮어 연하게 한다. 가운데 쪽 경계는 부드럽게 풀어 지도와 자연스럽게 이어진다.
      */
+    private final int[] naviFadeColors = new int[9];
+    private final float[] naviFadePositions = new float[9];
+
     private void drawNaviSideFade(Canvas c, Paint p) {
         int base = frameDark ? Color.rgb(22, 28, 36) : Color.rgb(226, 229, 231);
-        int solid = (NAVI_SIDE_FADE_ALPHA << 24) | (base & 0x00FFFFFF);
-        int clear = base & 0x00FFFFFF;
+        int rgb = base & 0x00FFFFFF;
+        // 진하기가 일정하게 줄면 경계에 띠가 보인다. smoothstep 곡선(양 끝이 완만)으로
+        // 넓게(NAVI_FADE_EDGE) 풀어 지도와 이어지게 한다. 경계 가운데는 칸 끝에 둔다.
+        int n = naviFadeColors.length;
+        for (int i = 0; i < n; i++) {
+            float t = i / (float) (n - 1);
+            float smooth = t * t * (3f - 2f * t);
+            naviFadeColors[i] = (Math.round(NAVI_SIDE_FADE_ALPHA * (1f - smooth)) << 24) | rgb;
+            naviFadePositions[i] = t;
+        }
+        float half = NAVI_FADE_EDGE / 2f;
         p.setStyle(Paint.Style.FILL);
-        p.setShader(new LinearGradient(NAVI_LEFT_FADE_END, 0f, NAVI_LEFT_FADE_END + NAVI_FADE_EDGE, 0f,
-                solid, clear, Shader.TileMode.CLAMP));
-        c.drawRect(0f, 0f, NAVI_LEFT_FADE_END + NAVI_FADE_EDGE, HEIGHT, p);
-        p.setShader(new LinearGradient(NAVI_RIGHT_FADE_START - NAVI_FADE_EDGE, 0f, NAVI_RIGHT_FADE_START, 0f,
-                clear, solid, Shader.TileMode.CLAMP));
-        c.drawRect(NAVI_RIGHT_FADE_START - NAVI_FADE_EDGE, 0f, NAVI_MAP_RIGHT, HEIGHT, p);
+        float leftEnd = NAVI_LEFT_FADE_END + half;
+        p.setShader(new LinearGradient(NAVI_LEFT_FADE_END - half, 0f, leftEnd, 0f,
+                naviFadeColors, naviFadePositions, Shader.TileMode.CLAMP));
+        c.drawRect(0f, 0f, leftEnd, HEIGHT, p);
+        float rightStart = NAVI_RIGHT_FADE_START - half;
+        p.setShader(new LinearGradient(NAVI_RIGHT_FADE_START + half, 0f, rightStart, 0f,
+                naviFadeColors, naviFadePositions, Shader.TileMode.CLAMP));
+        c.drawRect(rightStart, 0f, NAVI_MAP_RIGHT, HEIGHT, p);
         p.setShader(null);
     }
 
