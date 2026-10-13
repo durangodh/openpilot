@@ -2420,6 +2420,7 @@ public final class HudService extends Service {
             drawDriving(c, p, s);
             c.restoreToCount(drivingSave);
             drawMapOverlays(c, p, s, lane, trafficSignal);
+            drawNaviNoo(c, p, s);
             applyThemeOverlay(c, p);
             drawOemWarningPopup(c, p, s);
             return;
@@ -2456,6 +2457,18 @@ public final class HudService extends Service {
     private boolean eonStale() {
         long last = lastEonRxElapsed;
         return last == 0L || SystemClock.elapsedRealtime() - last > EON_STALE_MS;
+    }
+
+    private void drawNaviNoo(Canvas c, Paint p, JSONObject s) {
+        if (eonStale() || !s.optBoolean("drivingValid", true)) return;
+        int save = c.save();
+        // Right-align at photo position 2; the status baseline follows the
+        // coolant/fuel gauge's bottom line. Arrow and distance stay above it.
+        c.translate(NAVI_COL_LEFT - 80f, INFO_Y - 4f);
+        c.scale(0.8f, 0.8f);
+        c.translate(-NOO_CX, -(NOO_CY + NOO_LANE_DY));
+        drawNooTurn(c, p, s);
+        c.restoreToCount(save);
     }
 
     private void drawDriving(Canvas c, Paint p, JSONObject s) {
@@ -2625,16 +2638,11 @@ public final class HudService extends Service {
         drawLimitSign(c, p, s, stale, enabled);
         drawInfoRow(c, p, s);
 
-        // NOO 안내는 EON HUD 박스 바로 위, 오른쪽 끝 맞춤.
-        if (!stale) {
+        // Driving layout keeps NOO above the EON box. The navi layout
+        // renders NOO separately at the map's bottom edge, after map overlays.
+        if (!stale && !naviLayout) {
             int nooSave = c.save();
-            // 박스 위 110~220 칸에 들어가도록 80% 로 줄인다(화살표 위 끝 ~ 상태 글자 아래 끝 약 125).
-            if (naviLayout) {
-                // 네비모드: 오른쪽 주행 칸, 핸들 아이콘 아래.
-                c.translate(NAVI_DRIVE_CX, 250f);
-            } else {
-                c.translate(EON_BOX_LEFT + EON_BOX_W, 110f);
-            }
+            c.translate(EON_BOX_LEFT + EON_BOX_W, 110f);
             c.scale(0.8f, 0.8f);
             c.translate(-NOO_CX, -(NOO_CY - 31f));
             drawNooTurn(c, p, s);
@@ -6358,8 +6366,13 @@ public final class HudService extends Service {
                     fadingMap = null;
                 }
                 JSONObject l = layout(s);
-                int waitSave = beginElement(c, l, "mapWait", mapCenterX(), HEIGHT / 2f);
-                text(c, p, lang("지도 화면 대기", "WAITING FOR MAP"), mapCenterX(), HEIGHT / 2f, 34f,
+                // Navi map coordinates already use the 720px frame. Applying
+                // legacy driving-widget offsets added EXTRA_HEIGHT here and
+                // pushed the message from the centre to the bottom.
+                int waitSave = naviLayout ? c.save()
+                        : beginElement(c, l, "mapWait", mapCenterX(), HEIGHT / 2f);
+                float waitY = HEIGHT / 2f + (naviLayout ? 12f : 0f);
+                text(c, p, lang("지도 화면 대기", "WAITING FOR MAP"), mapCenterX(), waitY, 34f,
                         Color.GRAY, Paint.Align.CENTER);
                 c.restoreToCount(waitSave);
             }
