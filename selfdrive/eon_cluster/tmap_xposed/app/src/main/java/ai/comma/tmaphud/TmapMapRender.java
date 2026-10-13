@@ -46,6 +46,14 @@ final class TmapMapRender {
     private int renderW = WIDTH, renderH = HEIGHT;
     private volatile int frameW = WIDTH, frameH = HEIGHT;
 
+    /**
+     * HUD 네비모드: 엔진 밀도를 160 → 128 로 낮춰 같은 화면에 20% 넓은 범위를 그린다
+     * (도로·글자·아이콘이 20% 작게). 주행모드는 그대로 160.
+     */
+    private static int mapDpi() {
+        return EonDiscovery.wideMap ? 128 : DPI;
+    }
+
     private static int targetWidth() {
         return EonDiscovery.wideMap ? WIDE_WIDTH : WIDTH;
     }
@@ -158,7 +166,7 @@ final class TmapMapRender {
         Object settings = inv(engine, "getViewSetting");
         if (settings != null) {
             inv(settings, "setFov", FOV);
-            inv(settings, "setDensityDpi", DPI);
+            inv(settings, "setDensityDpi", mapDpi());
             Object camera = cl.loadClass("com.skt.tmap.vsm.map.CameraConfig").getConstructor().newInstance();
             float[] angles = new float[25];
             for (int i = 0; i < angles.length; i++) angles[i] = i < 6 ? 30f : 64f;
@@ -328,6 +336,7 @@ final class TmapMapRender {
         renderW = w;
         renderH = h;
         inv(engine, "setScreenCenter", new Point(w / 2, Math.round(h * SCREEN_CENTER_Y)));
+        inv(inv(engine, "getViewSetting"), "setDensityDpi", mapDpi());
         try { if (old != null) old.close(); } catch (Throwable ignored) { }
     }
 
@@ -379,7 +388,7 @@ final class TmapMapRender {
         Object from = inv(source, "getViewSetting"), to = inv(engine, "getViewSetting");
         if (from != null && to != null) {
             inv(to, "setFov", floatValue(inv(from, "getFov")));
-            inv(to, "setDensityDpi", DPI);
+            inv(to, "setDensityDpi", mapDpi());
         }
     }
 
