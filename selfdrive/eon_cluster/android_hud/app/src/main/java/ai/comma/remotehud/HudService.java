@@ -141,6 +141,11 @@ public final class HudService extends Service {
     private static final float NAVI_INFO_DX = 400f - 865f;
     /** 네비모드 차로 안내 가운데(총주행거리 오른쪽 ~ 오른쪽 칸 사이). */
     private static final float NAVI_LANE_CX = (680f + MAP_LEFT) / 2f;
+    /** 네비모드 양옆 지도 연하게: 왼쪽 게이지 칸 끝, 오른쪽 칸 시작, 경계 번짐 폭, 덮는 진하기. */
+    private static final float NAVI_LEFT_FADE_END = 390f;
+    private static final float NAVI_RIGHT_FADE_START = MAP_LEFT - 6f;
+    private static final float NAVI_FADE_EDGE = 60f;
+    private static final int NAVI_SIDE_FADE_ALPHA = 110;
     private static final int SYSTEM_RIGHT = 1920;
 
     /**
@@ -6316,7 +6321,27 @@ public final class HudService extends Service {
             p.setColor(Color.argb(maskAlpha, 2, 9, 20));
             c.drawRect(scratchIRect, p);
         }
+        if (naviLayout) {
+            drawNaviSideFade(c, p);
+        }
+    }
 
+    /**
+     * 네비모드: 게이지 칸(왼쪽)과 회전 안내·팝업 칸(오른쪽) 뒤의 지도를 배경색으로 살짝
+     * 덮어 연하게 한다. 가운데 쪽 경계는 부드럽게 풀어 지도와 자연스럽게 이어진다.
+     */
+    private void drawNaviSideFade(Canvas c, Paint p) {
+        int base = frameDark ? Color.rgb(22, 28, 36) : Color.rgb(226, 229, 231);
+        int solid = (NAVI_SIDE_FADE_ALPHA << 24) | (base & 0x00FFFFFF);
+        int clear = base & 0x00FFFFFF;
+        p.setStyle(Paint.Style.FILL);
+        p.setShader(new LinearGradient(NAVI_LEFT_FADE_END, 0f, NAVI_LEFT_FADE_END + NAVI_FADE_EDGE, 0f,
+                solid, clear, Shader.TileMode.CLAMP));
+        c.drawRect(0f, 0f, NAVI_LEFT_FADE_END + NAVI_FADE_EDGE, HEIGHT, p);
+        p.setShader(new LinearGradient(NAVI_RIGHT_FADE_START - NAVI_FADE_EDGE, 0f, NAVI_RIGHT_FADE_START, 0f,
+                clear, solid, Shader.TileMode.CLAMP));
+        c.drawRect(NAVI_RIGHT_FADE_START - NAVI_FADE_EDGE, 0f, NAVI_MAP_RIGHT, HEIGHT, p);
+        p.setShader(null);
     }
 
     private void drawMapOverlays(Canvas c, Paint p, JSONObject s, Bitmap lane, Bitmap trafficSignal) {

@@ -22,7 +22,7 @@ public class NavigationRenderCheck {
   static class SystemClock { static long now=100000L; static long elapsedRealtime(){return now;} }
   static class Rect { void set(int a,int b,int c,int d){} }
   static class RectF { void set(float a,float b,float c,float d){} }
-  static class Color { static int BLACK=0,GRAY=1,WHITE=2; static int argb(int a,int r,int g,int b){return 3;} }
+  static class Color { static int BLACK=0,GRAY=1,WHITE=2; static int argb(int a,int r,int g,int b){return 3;} static int rgb(int r,int g,int b){return 6;} }
   static class Paint {
     enum Style { FILL } enum Align { CENTER,LEFT,RIGHT }
     int alpha=255, lastBitmapAlpha=-1;
@@ -32,7 +32,9 @@ public class NavigationRenderCheck {
   static class Canvas {
     int banners, maps, markers, nextCalls, etaCalls, sourceBadges, nativeOverlays;
     int save(){return 1;} void restoreToCount(int x){}
+    int fades;
     void drawRect(Rect r,Paint p){}
+    void drawRect(float a,float b,float c,float d,Paint p){fades++;}
     void drawBitmap(Bitmap b,Object src,Rect dst,Paint p){
       if(b==null||b.isRecycled())throw new AssertionError("invalid map drawn"); maps++; p.lastBitmapAlpha=p.alpha;
     }
@@ -45,6 +47,9 @@ public class NavigationRenderCheck {
   Bitmap trimmedLane(Bitmap b){return b==null||b.isRecycled()?null:b;}
   int mapRight(){return 1920;} float mapCenterX(){return 1440f;}
   boolean naviLayout; static final int NAVI_MAP_RIGHT=1536; static final float NAVI_LANE_CX=920f;
+  static final float NAVI_LEFT_FADE_END=390f, NAVI_RIGHT_FADE_START=MAP_LEFT-6f, NAVI_FADE_EDGE=60f; static final int NAVI_SIDE_FADE_ALPHA=110;
+  static class Shader { enum TileMode { CLAMP } }
+  static class LinearGradient { LinearGradient(float a,float b,float c,float d,int e,int f,Shader.TileMode m){} }
   float overlayRight(){return naviLayout?MAP_LEFT-12f:mapRight();}
   String lang(String ko,String en){return en;}
   JSONObject layout(JSONObject s){return new JSONObject();}
@@ -112,6 +117,8 @@ public class NavigationRenderCheck {
     // Navi layout (map 8 : drive 2) draws the same map, guidance and overlays.
     hud.naviLayout=true; SystemClock.now+=1000L;
     hud.check("navi layout",state(true,1000,200),new Bitmap(),signal,1,1,1);
+    Canvas fade=new Canvas(); hud.drawMap(fade,new Paint(),state(true,1000,200),new Bitmap(),null,null,null,null);
+    if(fade.fades!=2) throw new AssertionError("navi side fade count="+fade.fades);
     hud.naviLayout=false;
     System.out.println("9 navigation rendering cases and map switch fades passed, including traffic signal overlay");
   }
