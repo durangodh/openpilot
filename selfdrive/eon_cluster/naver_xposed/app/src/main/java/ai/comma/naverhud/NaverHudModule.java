@@ -61,6 +61,11 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                                     log("marker size hook unavailable: " + error);
                                 }
                                 try {
+                                    NaverZoomOffset.install(target.classLoader);
+                                } catch (Throwable error) {
+                                    log("HUD zoom offset hook unavailable: " + error);
+                                }
+                                try {
                                     hookVoiceButton(target.classLoader, app);
                                 } catch (Throwable error) {
                                     log("voice hook unavailable: " + error);

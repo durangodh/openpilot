@@ -1,0 +1,121 @@
+package ai.comma.naverhud;
+
+import android.graphics.PointF;
+
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+
+import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XposedHelpers;
+
+/**
+ * S9 HUD 네비모드에서 HUD 로 찍는 네이버 지도를 30% 넓게(축소) 보이게 한다.
+ *
+ * 예전 방식(e79d704)은 앱 카메라를 직접 0.7단계 빼서 다시 설정했다. 네이버 안내가 줌을 계속
+ * 다시 맞추므로 서로 줌을 고치다 지도가 깜빡였다. 여기서는 SDK 의 모든 카메라 이동이 지나가는
+ * NativeMapView.h0(moveCamera) 에서 실제로 그릴 줌만 OFFSET 만큼 낮추고, 카메라를 읽는
+ * NativeMapView.p(getCameraPosition) 에서는 그만큼 다시 더해 돌려준다. 앱(안내·제스처)은 늘
+ * 원래 줌을 보고 원래 줌을 요청하므로 되먹임이 없다. 같은 NaverMap 을 쓰는 폰 화면도 같이
+ * 넓게 보인다. 클래스·메서드 이름은 6.10.0.16 기준이라 검증 버전에서만 설치한다.
+ */
+final class NaverZoomOffset {
+    /** log2(1/0.7): 지물이 30% 작게 보이는 줌 단계. */
+    static final double WIDE_LEVELS = Math.log(1d / 0.7d) / Math.log(2d);
+
+    private static volatile Object target;        // 줌을 바꿀 NativeMapView(HUD 로 찍는 지도)
+    private static volatile double offset;        // 지금 적용 중인 단계(0 = 끔)
+    private static volatile boolean installed;
+    private static Constructor<?> positionCtor;
+    private static Field nativeField;
+    private static Method getCamera;
+    private static Method setCamera;
+    private static boolean failureLogged;
+
+    private NaverZoomOffset() { }
+
+    static void install(ClassLoader cl) throws Exception {
+        Class<?> nativeView = cl.loadClass("com.naver.maps.map.NativeMapView");
+        Class<?> latLng = cl.loadClass("com.naver.maps.geometry.LatLng");
+        Class<?> animation = cl.loadClass("com.naver.maps.map.CameraAnimation");
+        Class<?> position = cl.loadClass("com.naver.maps.map.CameraPosition");
+        Class<?> naverMap = cl.loadClass("com.naver.maps.map.NaverMap");
+        positionCtor = position.getConstructor(latLng, double.class, double.class, double.class);
+        getCamera = naverMap.getMethod("M");
+        setCamera = naverMap.getMethod("C1", position);
+        if (getCamera.getReturnType() != position) {
+            throw new NoSuchMethodException("NaverMap.M is not getCameraPosition");
+        }
+        for (Field field : naverMap.getDeclaredFields()) {
+            if (field.getType() == nativeView) {
+                field.setAccessible(true);
+                nativeField = field;
+                break;
+            }
+        }
+        if (nativeField == null) {
+            throw new NoSuchFieldException("NaverMap NativeMapView field");
+        }
+        XposedHelpers.findAndHookMethod(nativeView, "h0", latLng, double.class, double.class,
+                double.class, PointF.class, int.class, animation, long.class, boolean.class,
+                new XC_MethodHook() {
+                    @Override protected void beforeHookedMethod(MethodHookParam param) {
+                        double levels = offset;
+                        if (levels == 0d || param.thisObject != target) return;
+                        double zoom = (Double) param.args[1];
+                        if (!Double.isNaN(zoom)) {
+                            param.args[1] = Math.max(0d, zoom - levels);
+                        }
+                    }
+                });
+        XposedHelpers.findAndHookMethod(nativeView, "p", new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam param) {
+                double levels = offset;
+                Object result = param.getResult();
+                if (levels == 0d || result == null || param.thisObject != target) return;
+                try {
+                    double zoom = result.getClass().getField("zoom").getDouble(result);
+                    if (Double.isNaN(zoom)) return;   // CameraPosition.INVALID
+                    Object latLngValue = result.getClass().getField("target").get(result);
+                    double tilt = result.getClass().getField("tilt").getDouble(result);
+                    double bearing = result.getClass().getField("bearing").getDouble(result);
+                    param.setResult(positionCtor.newInstance(latLngValue, zoom + levels, tilt, bearing));
+                } catch (Throwable error) {
+                    logOnce("read", error);
+                }
+            }
+        });
+        installed = true;
+        NaverHudLog.line("HUD map zoom offset hook ready (" + String.format(java.util.Locale.US,
+                "%.2f", WIDE_LEVELS) + " levels in navi layout)");
+    }
+
+    /**
+     * 메인 스레드(캡처 틱). HUD 모드나 찍는 지도가 바뀌면, 앱이 보던 카메라를 그대로 다시
+     * 설정해 새 OFFSET 으로 한 번 다시 그리게 한다(이후에는 앱이 움직일 때마다 자동 적용).
+     */
+    static void update(Object map) {
+        if (!installed || map == null) return;
+        try {
+            Object nativeView = nativeField.get(map);
+            double wanted = EonDiscovery.wideMap ? WIDE_LEVELS : 0d;
+            if (nativeView == target && wanted == offset) return;
+            Object seen = getCamera.invoke(map);      // 이전 OFFSET 기준, 앱이 보던 카메라
+            target = nativeView;
+            offset = wanted;
+            if (seen != null) {
+                double zoom = seen.getClass().getField("zoom").getDouble(seen);
+                if (!Double.isNaN(zoom)) setCamera.invoke(map, seen);
+            }
+            NaverHudLog.line("HUD map zoom offset " + (wanted == 0d ? "off" : "on"));
+        } catch (Throwable error) {
+            logOnce("update", error);
+        }
+    }
+
+    private static void logOnce(String where, Throwable error) {
+        if (failureLogged) return;
+        failureLogged = true;
+        NaverHudLog.ex("HUD map zoom offset " + where, error);
+    }
+}

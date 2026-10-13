@@ -136,6 +136,8 @@ final class NaverMapCapture {
             }
             return;
         }
+        // HUD 네비모드: 이 지도만 30% 넓게(검증 버전에서만 동작, 아니면 아무것도 안 함).
+        NaverZoomOffset.update(map);
         logStats(now);
         if (requestedAt != 0 && now - requestedAt < REQUEST_TIMEOUT_MS) return;
         if (requestedAt != 0) statTimeout++;   // 응답 없이 시간 초과
