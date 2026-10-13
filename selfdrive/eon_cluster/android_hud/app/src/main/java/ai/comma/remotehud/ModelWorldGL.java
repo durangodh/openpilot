@@ -1054,9 +1054,16 @@ final class ModelWorldGL {
     // S9 HUD MAP LAYERS(hudMapLayers): 0 끄기 / 1 도로만(기본) / 2 전체.
     private static final int MAP_LAYERS_OFF = 0, MAP_LAYERS_ROADS = 1;
     private int mapLayers = MAP_LAYERS_ROADS;
+    /** HUD 네비모드: 좁은 주행 칸에는 바닥 지도(경기도 도로·건물)를 그리지 않는다. */
+    private boolean mapLayersSuppressed;
+
+    void setMapLayersSuppressed(boolean suppressed) {
+        mapLayersSuppressed = suppressed;
+    }
 
     private void drawMapContext(JSONObject scene, Line roadHeight, boolean dark) {
-        mapLayers = Math.max(0, Math.min(2, scene.optInt("hudMapLayers", MAP_LAYERS_ROADS)));
+        mapLayers = mapLayersSuppressed ? MAP_LAYERS_OFF
+                : Math.max(0, Math.min(2, scene.optInt("hudMapLayers", MAP_LAYERS_ROADS)));
         if (mapLayers == MAP_LAYERS_OFF) return;   // 지도 파일을 읽지도 받지도 않는다
         boolean roadsOnly = mapLayers == MAP_LAYERS_ROADS;
         double[] pose = mapPoseScratch;

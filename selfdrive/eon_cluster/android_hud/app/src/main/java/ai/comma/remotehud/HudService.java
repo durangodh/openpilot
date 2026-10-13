@@ -150,9 +150,9 @@ public final class HudService extends Service {
     /** 네비모드 도착정보 바 아래끝: EON 박스 아래(507)와 냉각수 줄 위(약 659) 가운데에 오게. */
     private static final float NAVI_ETA_BOTTOM = (507f + 659f) / 2f + 58f * NAVI_GUIDE_SCALE / 2f;
     /** 네비모드: 주행 장면(도로·차)을 위로 올려 맨 아래 이벤트 표시와 자차가 겹치지 않게. */
-    private static final float NAVI_WORLD_LIFT = 60f;
-    /** 네비모드 이벤트 표시(경고 문구·차량 데이터 대기) 가운데 높이. */
-    private static final float NAVI_ALERT_CY = 670f;
+    private static final float NAVI_WORLD_LIFT = 40f;
+    /** 네비모드 이벤트 표시(경고 문구·차량 데이터 대기) 가운데 높이. 자차 아래끝(약 621) 바로 밑. */
+    private static final float NAVI_ALERT_CY = 656f;
     /** 네비모드 차로 안내 범위: 게이지 칸 오른쪽 ~ 오른쪽 칸 사이, 그 가운데. */
     private static final float NAVI_LANE_LEFT = 400f;
     private static final float NAVI_LANE_CX = (NAVI_LANE_LEFT + NAVI_COL_LEFT) / 2f;
@@ -2494,6 +2494,7 @@ public final class HudService extends Service {
         // 두면 주행 패널이 배경색만 남는다.
         boolean glDrawn = false;
         if (!stale && worldValid) {
+            modelWorldGl.setMapLayersSuppressed(naviLayout);
             glDrawn = modelWorldGl.draw(c, p, s, enabled, driveBg, roadTop,
                     roadBottom, pathColor, frameDark,
                     (float) s.optDouble("hudRoadZ", 100d),
@@ -2586,15 +2587,19 @@ public final class HudService extends Service {
         // 상단 속도·SET·기어·온도·주행가능거리·시계, 하단 상태카드·TPMS·NOO 는
         // EON HUD 박스와 원형 게이지로 옮겼다(2026-10-09).
         // 오른쪽 위: 날씨 그림 + 외기온도. 원래 주행가능거리가 있던 자리(932)에 오른쪽을 맞춘다.
-        int tempSave = beginElement(c, l, "range", 932f, 44f);
         if (naviLayout) {
-            // 오른쪽 주행 칸 위 오른쪽 끝(원래 오른쪽 끝 약 1128).
-            c.translate(WIDTH - 14f - 1128f, 0f);
+            // 네비모드: 주행 칸 위 왼쪽에 날씨 그림·외기온도, 오른쪽 끝에 전압.
+            int naviTempSave = c.save();
+            c.scale(TOP_ROW_SCALE, TOP_ROW_SCALE, NAVI_DRIVE_LEFT, 36f);
+            drawNaviTopRow(c, p, s);
+            c.restoreToCount(naviTempSave);
+        } else {
+            int tempSave = beginElement(c, l, "range", 932f, 44f);
+            c.translate(932f - 790f, 0f);
+            c.scale(TOP_ROW_SCALE, TOP_ROW_SCALE, 790f, 36f);
+            drawOutsideTemp(c, p, s);
+            c.restoreToCount(tempSave);
         }
-        c.translate(932f - 790f, 0f);
-        c.scale(TOP_ROW_SCALE, TOP_ROW_SCALE, 790f, 36f);
-        drawOutsideTemp(c, p, s);
-        c.restoreToCount(tempSave);
         int clockSave = c.save();
         if (naviLayout) {
             // 네비모드: 지도 위 가운데(차로 안내와 같은 가운데).
@@ -4351,6 +4356,31 @@ public final class HudService extends Service {
             if (icon != WeatherService.ICON_NONE) {
                 drawWeatherIcon(c, p, right - labelWidth - 10f - 13f, 36f, 26f, icon, weather.isDay());
             }
+        }
+    }
+
+    /**
+     * 네비모드 주행 칸 맨 위: 왼쪽부터 날씨 그림 → 외기온도, 오른쪽 끝에 배터리 전압.
+     * 그림·글자·색은 drawOutsideTemp 와 같다. TOP_ROW_SCALE 은 NAVI_DRIVE_LEFT 기준으로 건다.
+     */
+    private void drawNaviTopRow(Canvas c, Paint p, JSONObject s) {
+        feedWeather(s);
+        float left = NAVI_DRIVE_LEFT + 20f;
+        int icon = weather == null ? WeatherService.ICON_NONE : weather.icon();
+        if (icon != WeatherService.ICON_NONE) {
+            drawWeatherIcon(c, p, left + 13f, 36f, 26f, icon, weather.isDay());
+            left += 36f;
+        }
+        double temp = s.optDouble("outsideTemp", -1000d);
+        if (Double.isFinite(temp) && temp >= -50d && temp <= 80d) {
+            text(c, p, String.format(Locale.US, "%.0f°C", temp), left, 44f, 22f, ink(), Paint.Align.LEFT);
+        }
+        double volt = s.optDouble("batteryVoltage", -1d);
+        if (Double.isFinite(volt) && volt > 5d && volt < 20d) {
+            int vColor = (volt < 11.8d || volt > 15.5d) ? Color.rgb(230, 48, 58) : ink();
+            // 오른쪽 끝은 배율(TOP_ROW_SCALE) 뒤에도 칸 안(WIDTH - 14)에 오게 거꾸로 계산한다.
+            float right = NAVI_DRIVE_LEFT + (WIDTH - 14f - NAVI_DRIVE_LEFT) / TOP_ROW_SCALE;
+            text(c, p, String.format(Locale.US, "%.1fV", volt), right, 44f, 22f, vColor, Paint.Align.RIGHT);
         }
     }
 
