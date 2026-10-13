@@ -167,6 +167,9 @@ public final class HudService extends Service {
     private static final float NAVI_BOTTOM_FADE_H = 220f;
     /** 네비모드 지도 위 하늘: 하늘 그림을 이만큼 올려 아래쪽 번짐만 지도 꼭대기에 얹는다. */
     private static final float NAVI_SKY_LIFT = 70f;
+    /** 지도 쪽 하늘 올림을 주행 칸 왼쪽 끝까지 0 으로 풀어 주는 폭과 그 띠 폭. */
+    private static final float NAVI_SKY_BLEND = 320f;
+    private static final float NAVI_SKY_STRIP = 16f;
     // 2026-10-13 실차: 110 은 낮 지도(밝은 회색 위 밝은 회색)에서 거의 티가 안 났다.
     private static final int NAVI_SIDE_FADE_ALPHA = 175;
     private static final int SYSTEM_RIGHT = 1920;
@@ -4422,10 +4425,21 @@ public final class HudService extends Service {
             c.restoreToCount(skySave);
             // 지도 위쪽: 순정 계기판처럼 하늘이 지도로 자연스럽게 번지게, 위로 올려 아랫부분
             // (곡선으로 사라지는 부분)만 지도 꼭대기에 얹는다.
+            // 주행 칸 쪽으로 갈수록 올림을 0 으로 줄여(가는 띠로 나눠 그림) 두 하늘이 칸 경계
+            // (사이 틈 포함)에서 같은 높이로 이어진다.
+            float blendStart = NAVI_DRIVE_LEFT - NAVI_SKY_BLEND;
             skySave = c.save();
-            c.clipRect(0f, 0f, NAVI_MAP_RIGHT, HEIGHT);
+            c.clipRect(0f, 0f, blendStart, HEIGHT);
             c.drawBitmap(sky.bitmap, 0f, -NAVI_SKY_LIFT, p);
             c.restoreToCount(skySave);
+            for (float x = blendStart; x < NAVI_DRIVE_LEFT; x += NAVI_SKY_STRIP) {
+                float t = Math.min(1f, (x + NAVI_SKY_STRIP * 0.5f - blendStart) / NAVI_SKY_BLEND);
+                float lift = NAVI_SKY_LIFT * (1f - t * t * (3f - 2f * t));
+                skySave = c.save();
+                c.clipRect(x, 0f, Math.min(NAVI_DRIVE_LEFT, x + NAVI_SKY_STRIP), HEIGHT);
+                c.drawBitmap(sky.bitmap, 0f, -lift, p);
+                c.restoreToCount(skySave);
+            }
         } else {
             c.drawBitmap(sky.bitmap, 0f, 0f, p);
         }
