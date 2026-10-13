@@ -57,7 +57,12 @@ final class NaverZoomOffset {
     private static Method setCamera;
     private static Method getSymbolScale;
     private static Method setSymbolScale;
+    private static Method destroyedCheck;    // NativeMapView 해제 확인(c0)
     private static boolean failureLogged;
+    /** 이 스레드의 moveCamera 를 래퍼(h0) 훅이 이미 보정했으면 네이티브 훅은 건너뛴다. */
+    private static final ThreadLocal<Boolean> MOVE_ADJUSTED = new ThreadLocal<>();
+    /** 네이티브 getCameraPosition 훅이 이미 보정했으면 래퍼(p) 훅은 건너뛴다. */
+    private static final ThreadLocal<Boolean> READ_ADJUSTED = new ThreadLocal<>();
 
     private NaverZoomOffset() { }
 
@@ -65,7 +70,7 @@ final class NaverZoomOffset {
      * verified=false(확인하지 않은 네이버 버전): 난독화 이름(h0/p/M/C1)이 바뀌어도 되도록
      * 메서드를 이름이 아니라 모양(반환·인자 타입)으로 찾는다. 6.10.0.16 에서 각 모양은
      * 클래스 안에 하나뿐이었다. 둘 이상이거나 없으면 설치하지 않는다(엉뚱한 메서드를 후킹하지
-     * 않게). 글자 배율(a1/V)은 float 메서드가 많아 모양으로 가릴 수 없어 확인한 버전에서만.
+     * 않게). 글자 배율은 이름이 그대로인 JNI 메서드로 건다(verified 와 무관).
      */
     static void install(ClassLoader cl, boolean verified) throws Exception {
         Class<?> nativeView = cl.loadClass("com.naver.maps.map.NativeMapView");
@@ -93,6 +98,11 @@ final class NaverZoomOffset {
         }
         NaverHudLog.line("HUD map zoom methods: " + getCamera.getName() + "/" + setCamera.getName()
                 + "/" + moveCamera.getName() + "/" + readCamera.getName());
+        // 2026-10-14 실차(6.11.1.2): h0/p 훅은 설치되고 "zoom offset on" 까지 찍혔는데 지도는
+        // 그대로였다. h0/p 는 네이티브 호출 한 줄짜리라 ART 가 호출하는 쪽(Transform)에 끼워 넣어
+        // (인라인) 컴파일하면 훅을 건너뛴다. 인라인될 수 없는 JNI 메서드(nativeMoveCamera,
+        // nativeGetCameraPosition; 이름은 난독화되지 않는다)에도 같은 보정을 건다. 둘 다 걸려도
+        // 한 번만 적용되게 스레드별 표시로 겹침을 막는다.
         XposedBridge.hookMethod(moveCamera,
                 new XC_MethodHook() {
                     @Override protected void beforeHookedMethod(MethodHookParam param) {
@@ -101,46 +111,72 @@ final class NaverZoomOffset {
                         double zoom = (Double) param.args[1];
                         if (!Double.isNaN(zoom)) {
                             param.args[1] = Math.max(0d, zoom - levels);
+                            MOVE_ADJUSTED.set(Boolean.TRUE);
                         }
+                    }
+
+                    @Override protected void afterHookedMethod(MethodHookParam param) {
+                        MOVE_ADJUSTED.remove();
                     }
                 });
         XposedBridge.hookMethod(readCamera, new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam param) {
+                READ_ADJUSTED.remove();
+            }
+
             @Override protected void afterHookedMethod(MethodHookParam param) {
-                double levels = offset;
-                Object result = param.getResult();
-                if (levels == 0d || result == null || param.thisObject != target) return;
-                try {
-                    double zoom = result.getClass().getField("zoom").getDouble(result);
-                    if (Double.isNaN(zoom)) return;   // CameraPosition.INVALID
-                    Object latLngValue = result.getClass().getField("target").get(result);
-                    double tilt = result.getClass().getField("tilt").getDouble(result);
-                    double bearing = result.getClass().getField("bearing").getDouble(result);
-                    param.setResult(positionCtor.newInstance(latLngValue, zoom + levels, tilt, bearing));
-                } catch (Throwable error) {
-                    logOnce("read", error);
-                }
+                boolean done = READ_ADJUSTED.get() != null;
+                READ_ADJUSTED.remove();
+                if (!done) addOffset(param);
             }
         });
+        String nativeHooks = "none";
+        try {
+            Method nativeMove = nativeView.getDeclaredMethod("nativeMoveCamera", double.class,
+                    double.class, double.class, double.class, double.class, double.class,
+                    double.class, int.class, int.class, long.class, boolean.class);
+            Method nativeRead = nativeView.getDeclaredMethod("nativeGetCameraPosition");
+            if (nativeRead.getReturnType() != position) {
+                throw new NoSuchMethodException("nativeGetCameraPosition return type");
+            }
+            XposedBridge.hookMethod(nativeMove, new XC_MethodHook() {
+                @Override protected void beforeHookedMethod(MethodHookParam param) {
+                    double levels = offset;
+                    if (levels == 0d || param.thisObject != target
+                            || MOVE_ADJUSTED.get() != null) return;
+                    double zoom = (Double) param.args[2];
+                    if (!Double.isNaN(zoom)) param.args[2] = Math.max(0d, zoom - levels);
+                }
+            });
+            XposedBridge.hookMethod(nativeRead, new XC_MethodHook() {
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    if (addOffset(param)) READ_ADJUSTED.set(Boolean.TRUE);
+                }
+            });
+            nativeHooks = "camera";
+        } catch (Throwable error) {
+            NaverHudLog.ex("HUD native camera hook unavailable", error);
+        }
         // Camera hooks are sufficient for zoom. Optional symbol/overlay hooks
         // must not leave update() disabled if one SDK method is unavailable.
         installed = true;
+        // 글자·지명·POI 아이콘(심볼 배율): setSymbolScale 에 비율을 곱하고 getSymbolScale 에서는
+        // 나눠 돌려준다. 앱(글자 크기 설정)은 원래 값만 본다. 이름이 난독화되지 않는 JNI
+        // 메서드(nativeSet/GetSymbolScale)를 쓰므로 버전에 상관없다. 짝으로만 건다.
         XC_MethodHook.Unhook symbolWriteHook = null;
         try {
-            if (!verified) throw new NoSuchMethodException("symbol scale names unverified on this version");
-            Method symbolGetter = XposedHelpers.findMethodExact(nativeView, "V");
-            Method symbolSetter = XposedHelpers.findMethodExact(nativeView, "a1", float.class);
+            Method symbolSetter = nativeView.getDeclaredMethod("nativeSetSymbolScale", float.class);
+            Method symbolGetter = nativeView.getDeclaredMethod("nativeGetSymbolScale");
             if (symbolGetter.getReturnType() != float.class) {
-                throw new NoSuchMethodException("NativeMapView.V is not getSymbolScale");
+                throw new NoSuchMethodException("nativeGetSymbolScale return type");
             }
-            // 글자·지명·POI 아이콘(심볼 배율): NativeMapView.a1(setSymbolScale) 에 WIDE_SCALE 을 곱하고
-            // V(getSymbolScale) 에서는 나눠 돌려준다. 앱(글자 크기 설정)은 원래 값만 본다.
-            symbolWriteHook = XposedHelpers.findAndHookMethod(nativeView, "a1", float.class, new XC_MethodHook() {
+            symbolWriteHook = XposedBridge.hookMethod(symbolSetter, new XC_MethodHook() {
                 @Override protected void beforeHookedMethod(MethodHookParam param) {
                     if (offset == 0d || param.thisObject != target) return;
                     param.args[0] = (Float) param.args[0] * appliedScale;
                 }
             });
-            XposedHelpers.findAndHookMethod(nativeView, "V", new XC_MethodHook() {
+            XposedBridge.hookMethod(symbolGetter, new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
                     Object result = param.getResult();
                     if (offset == 0d || param.thisObject != target || !(result instanceof Float)) return;
@@ -148,14 +184,22 @@ final class NaverZoomOffset {
                     if (value > 0f) param.setResult(value / appliedScale);
                 }
             });
+            symbolGetter.setAccessible(true);
+            symbolSetter.setAccessible(true);
+            // 지도가 해제된 뒤 JNI 를 직접 부르지 않도록, NativeMapView 의 해제 확인
+            // (6.10.0.16: c0(String), 해제됐으면 true)을 모양으로 찾아 먼저 부른다.
+            destroyedCheck = byShape(nativeView, boolean.class, String.class);
             getSymbolScale = symbolGetter;
             setSymbolScale = symbolSetter;
+            nativeHooks += "+symbol";
         } catch (Throwable error) {
             // A setter without its matching getter would repeatedly shrink the
             // application's own symbol value. Keep this pair all-or-nothing.
             if (symbolWriteHook != null) symbolWriteHook.unhook();
+            getSymbolScale = setSymbolScale = null;
             NaverHudLog.ex("HUD symbol scale hook unavailable (zoom remains enabled)", error);
         }
+        NaverHudLog.line("HUD map native hooks: " + nativeHooks);
         // 경로선 굵기: 앱이 넣는 값(픽셀)을 기억해 두고, 네비모드에서는 WIDE_SCALE 을 곱한다.
         for (String name : PATH_CLASSES) {
             try {
@@ -174,6 +218,25 @@ final class NaverZoomOffset {
         }
         NaverHudLog.line("HUD map zoom offset hook ready (" + String.format(java.util.Locale.US,
                 "%.2f", WIDE_LEVELS) + " levels in navi layout)");
+    }
+
+    /** 읽은 카메라 줌에 offset 을 더해 앱에는 원래 줌으로 보이게 한다. 바꿨으면 true. */
+    private static boolean addOffset(XC_MethodHook.MethodHookParam param) {
+        double levels = offset;
+        Object result = param.getResult();
+        if (levels == 0d || result == null || param.thisObject != target) return false;
+        try {
+            double zoom = result.getClass().getField("zoom").getDouble(result);
+            if (Double.isNaN(zoom)) return false;   // CameraPosition.INVALID
+            Object latLngValue = result.getClass().getField("target").get(result);
+            double tilt = result.getClass().getField("tilt").getDouble(result);
+            double bearing = result.getClass().getField("bearing").getDouble(result);
+            param.setResult(positionCtor.newInstance(latLngValue, zoom + levels, tilt, bearing));
+            return true;
+        } catch (Throwable error) {
+            logOnce("read", error);
+            return false;
+        }
     }
 
     /** 공개·비정적 메서드 중 반환·인자 타입이 정확히 같은 것 하나. 없거나 여럿이면 예외. */
@@ -268,7 +331,9 @@ final class NaverZoomOffset {
             if (nativeView == target && wanted == offset) return;
             Object seen = getCamera.invoke(map);      // 이전 OFFSET 기준, 앱이 보던 카메라
             Object symbols = null;
-            if (getSymbolScale != null) {
+            boolean symbolsUsable = getSymbolScale != null && setSymbolScale != null
+                    && !Boolean.TRUE.equals(destroyedCheck.invoke(nativeView, "setSymbolScale"));
+            if (symbolsUsable) {
                 try {
                     symbols = getSymbolScale.invoke(nativeView);
                 } catch (Throwable error) {
@@ -283,7 +348,7 @@ final class NaverZoomOffset {
                 double zoom = seen.getClass().getField("zoom").getDouble(seen);
                 if (!Double.isNaN(zoom)) setCamera.invoke(map, seen);
             }
-            if (symbols instanceof Float && (Float) symbols > 0f && setSymbolScale != null) {
+            if (symbolsUsable && symbols instanceof Float && (Float) symbols > 0f) {
                 try {
                     setSymbolScale.invoke(nativeView, symbols);
                 } catch (Throwable error) {
