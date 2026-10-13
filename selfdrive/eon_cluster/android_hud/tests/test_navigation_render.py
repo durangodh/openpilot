@@ -27,10 +27,11 @@ public class NavigationRenderCheck {
     enum Style { FILL } enum Align { CENTER,LEFT,RIGHT }
     int alpha=255, lastBitmapAlpha=-1;
     void setShader(Object x){} void setStyle(Style x){} void setColor(int x){} void setFilterBitmap(boolean x){}
-    void setAlpha(int x){alpha=x;}
+    void setAlpha(int x){alpha=x;} void reset(){alpha=255;} void setAntiAlias(boolean b){}
   }
   static class Canvas {
     int banners, maps, markers, nextCalls, etaCalls, sourceBadges, nativeOverlays;
+    List<String> events=new ArrayList<>();
     int save(){return 1;} void restoreToCount(int x){}
     int fades;
     void drawRect(Rect r,Paint p){}
@@ -57,14 +58,13 @@ public class NavigationRenderCheck {
   String lang(String ko,String en){return en;}
   JSONObject layout(JSONObject s){return new JSONObject();}
   int beginElement(Canvas c,JSONObject l,String k,float x,float y){return c.save();}
-  void text(Canvas c,Paint p,String t,float x,float y,float size,int color,Paint.Align a){}
+  void text(Canvas c,Paint p,String t,float x,float y,float size,int color,Paint.Align a){if(t.equals("729")){c.nextCalls++;c.events.add("next");}}
   void drawTmapVehicleMarker(Canvas c,Paint p,float x,float y){c.markers++;}
-  void drawTbtNext(Canvas c,Paint p,JSONObject n,float x,float y){c.nextCalls++;}
-  void drawJunction(Canvas c,Paint p,float y){}
+  void drawJunction(Canvas c,Paint p,float y){c.events.add("junction");}
   void drawNaviEta(Canvas c,Paint p,JSONObject s){c.etaCalls++;}
-  void drawMapSourceBadge(Canvas c,Paint p,JSONObject s){c.sourceBadges++;}
+  void drawMapSourceBadge(Canvas c,Paint p,JSONObject s){c.sourceBadges++;c.events.add("source");}
   void drawNativeOverlay(Canvas c,Paint p,Bitmap b,float x,float y,float w,float h,Paint.Align a){
-    if(b!=null&&!b.isRecycled())c.nativeOverlays++;
+    if(b!=null&&!b.isRecycled()){c.nativeOverlays++;c.events.add("asset");}
   }
   boolean drawTurnIcon(Canvas c,Paint p,float x,float y,float size,int type,String title,int color,boolean b){return false;}
   void drawScaledArrow(Canvas c,Paint p,float x,float y,int type,float size,String title){}
@@ -76,7 +76,7 @@ public class NavigationRenderCheck {
   void check(String name,JSONObject state,Bitmap map,Bitmap signal,int banners,int maps,int overlays){
     Canvas c=new Canvas(); drawMap(c,new Paint(),state,map,null,null,null,signal);
     // The native map supplies its own marker; the HUD must not draw another.
-    if(c.banners!=banners||c.maps!=maps||c.nativeOverlays!=overlays||c.markers!=0||c.nextCalls!=1||c.etaCalls!=1||c.sourceBadges!=1)
+    if(c.banners!=banners||c.maps!=maps||c.nativeOverlays!=overlays||c.markers!=0||c.nextCalls!=0||c.etaCalls!=1||c.sourceBadges!=1)
       throw new AssertionError(name+": banners="+c.banners+" maps="+c.maps+" overlays="+c.nativeOverlays+" markers="+c.markers+" next="+c.nextCalls+" eta="+c.etaCalls+" badge="+c.sourceBadges);
   }
   public static void main(String[] args){
@@ -122,6 +122,15 @@ public class NavigationRenderCheck {
     hud.check("navi layout",state(true,1000,200),new Bitmap(),signal,1,1,1);
     Canvas fade=new Canvas(); hud.drawMap(fade,new Paint(),state(true,1000,200),new Bitmap(),null,null,null,null);
     if(fade.fades!=3) throw new AssertionError("navi side/bottom fade count="+fade.fades);
+    for(int app:new int[]{1,2,3}){
+      JSONObject fixture=state(true,6400,0).put("hudNavApp",app);
+      fixture.optJSONObject("navi").put("next",new JSONObject().put("turnType",12).put("turnDist",729));
+      Canvas order=new Canvas(); hud.drawMap(order,new Paint(),fixture,new Bitmap(),null,null,null,signal);
+      if(order.nextCalls!=1||order.events.indexOf("next")<order.events.indexOf("junction")
+          ||order.events.indexOf("next")<order.events.indexOf("asset")
+          ||order.events.indexOf("next")<order.events.indexOf("source"))
+        throw new AssertionError("navi next maneuver obscured for app="+app+": "+order.events);
+    }
     hud.naviLayout=false;
     System.out.println("9 navigation rendering cases and map switch fades passed, including traffic signal overlay");
   }
@@ -357,6 +366,7 @@ def main():
     methods = []
     for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),
                        ("    private float drawTbtBanner(", "    private float drawTbtImage("),
+                       ("    private void drawTbtNext(", "    // 회전 방향 종류."),
                        ("    private static boolean naviGuiding(", "    private Bitmap laneTrimSource;")):
         methods.append(source[source.index(start):source.index(end)])
     args.work.mkdir(parents=True, exist_ok=True)

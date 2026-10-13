@@ -2421,7 +2421,9 @@ public final class HudService extends Service {
         if (naviLayout) {
             // 지도가 맨 아래, 그 위에 게이지·EON 박스, 그 위에 회전 안내·도착정보.
             drawMapImage(c, p, s, map);
+            int drivingSave = c.save();
             drawDriving(c, p, s);
+            c.restoreToCount(drivingSave);
             drawMapOverlays(c, p, s, lane, trafficSignal);
             applyThemeOverlay(c, p);
             drawOemWarningPopup(c, p, s);
@@ -6473,35 +6475,7 @@ public final class HudService extends Service {
         // existing active/distance checks still hide ended navigation.
         int overlaySave = c.save();
         JSONObject l = layout(s);
-        // 배너 위끝(0)이 곧 기준점이어야 패널 최상단에 딱 붙는다. 기준점이 71 이면
-        // 배율이 1 이 아닐 때 71x(1-배율) 만큼 아래로 밀린다.
-        int guideSave = beginNaviGuide(c, NAVI_TBT_TOP, 0f);
-        int save = beginElement(c, l, "tbt1", MAP_LEFT + 179f, 0f);
-        float tbtBottom = drawTbtBanner(c, p, s.optJSONObject("navi"), MAP_LEFT + 2f, 0f);
-        c.restoreToCount(save);
-        // 세로 기준점(py)을 1행과 같은 71 로 맞춘다. 순정 화면에서는
-        // beginElement 가 py 를 중심으로 위젯 배율을 역보정하는데, 1행(71)과
-        // 2행(190)의 기준점이 119px 떨어져 있어서 배율이 1 이 아닌 순간
-        // 그 차이만큼(119 x (1-배율)) 두 배너 사이가 벌어졌다.
-        // 기준점을 1행과 같은 0 으로 맞춘 뒤로는 별도 보정이 필요 없다.
-        // 예전 보정(-18px)이 남아 있으면 1행 아래끝을 파고들어 겹친다.
-        int save2 = beginElement(c, l, "tbt2", MAP_LEFT + 184f, 0f);
-        drawTbtNext(c, p, s.optJSONObject("navi"), MAP_LEFT + 2f, tbtBottom);
-        c.restoreToCount(save2);
-        // 분기 실사도 1행 바로 아래에 붙어야 하므로 같은 기준점을 쓴다.
-        int junctionSave = beginElement(c, l, "junction", MAP_LEFT + 172f, 0f);
-        // 분기 실사는 1행 배너 바로 아래에서 시작해 2행(다음 회전) 배너를 덮는다.
-        // 그리기 순서상 2행보다 뒤라 별도 처리 없이 위에 얹힌다.
-        drawJunction(c, p, tbtBottom);
-        c.restoreToCount(junctionSave);
-        c.restoreToCount(guideSave);
-        // 기준점을 패널 아래끝으로 두면 배율이 어떻든 아래끝에 붙은 채로 남는다.
-        // 도착정보 바는 원래 폭이 340 이라 칸 폭(270)에 딱 맞게 따로 줄인다.
-        int etaGuideSave = beginNaviGuide(c, NAVI_ETA_BOTTOM, HEIGHT, NAVI_COL_W / JUNCTION_W);
-        int etaSave = beginElement(c, l, "eta", MAP_LEFT + 172f, (float) HEIGHT);
-        drawNaviEta(c, p, s);
-        c.restoreToCount(etaSave);
-        c.restoreToCount(etaGuideSave);
+        if (!naviLayout) drawNavigationGuidance(c, p, s, l);
 
         // 차로 정보는 목적지 안내 중일 때만, 도착정보 바와 같은 높이(ETA_H)로 패널
         // 아래끝에 붙인다. 앱 그림의 투명 여백을 잘라내 실제 그림이 바 높이를 채우고,
@@ -6550,8 +6524,59 @@ public final class HudService extends Service {
         // independent of map/guidance availability during an app transition.
         drawMapSourceBadge(c, p, s);
 
+        // The navi column has fixed anchors. Render its guidance last so map
+        // assets cannot cover the turn rows or the ETA, and discard paint state
+        // inherited from the driving scene and native image overlays.
+        if (naviLayout) {
+            p.reset();
+            p.setAntiAlias(true);
+            drawNavigationGuidance(c, p, s, l);
+        }
+
         // NOO 안내는 지도 패널이 아니라 주행 패널 중앙에 그린다(drawNooTurn).
         c.restoreToCount(overlaySave);
+    }
+
+    private int beginGuideElement(Canvas c, JSONObject l, String name, float x, float y) {
+        return naviLayout ? c.save() : beginElement(c, l, name, x, y);
+    }
+
+    private void drawNavigationGuidance(Canvas c, Paint p, JSONObject s, JSONObject l) {
+        // 배너 위끝(0)이 곧 기준점이어야 패널 최상단에 딱 붙는다. 기준점이 71 이면
+        // 배율이 1 이 아닐 때 71x(1-배율) 만큼 아래로 밀린다.
+        int guideSave = beginNaviGuide(c, NAVI_TBT_TOP, 0f);
+        int save = beginGuideElement(c, l, "tbt1", MAP_LEFT + 179f, 0f);
+        float tbtBottom = drawTbtBanner(c, p, s.optJSONObject("navi"), MAP_LEFT + 2f, 0f);
+        c.restoreToCount(save);
+        // 세로 기준점(py)을 1행과 같은 71 로 맞춘다. 순정 화면에서는
+        // beginElement 가 py 를 중심으로 위젯 배율을 역보정하는데, 1행(71)과
+        // 2행(190)의 기준점이 119px 떨어져 있어서 배율이 1 이 아닌 순간
+        // 그 차이만큼(119 x (1-배율)) 두 배너 사이가 벌어졌다.
+        // 기준점을 1행과 같은 0 으로 맞춘 뒤로는 별도 보정이 필요 없다.
+        // 예전 보정(-18px)이 남아 있으면 1행 아래끝을 파고들어 겹친다.
+        int save2 = beginGuideElement(c, l, "tbt2", MAP_LEFT + 184f, 0f);
+        if (!naviLayout) drawTbtNext(c, p, s.optJSONObject("navi"), MAP_LEFT + 2f, tbtBottom);
+        c.restoreToCount(save2);
+        // 분기 실사도 1행 바로 아래에 붙어야 하므로 같은 기준점을 쓴다.
+        int junctionSave = beginGuideElement(c, l, "junction", MAP_LEFT + 172f, 0f);
+        // 분기 실사는 1행 배너 바로 아래에서 시작해 2행(다음 회전) 배너를 덮는다.
+        // 그리기 순서상 2행보다 뒤라 별도 처리 없이 위에 얹힌다.
+        drawJunction(c, p, tbtBottom);
+        c.restoreToCount(junctionSave);
+        if (naviLayout) {
+            // Junction imagery occupies the same area as row 2. Keep the next
+            // maneuver visible above it in the navi column.
+            drawTbtNext(c, p, s.optJSONObject("navi"), MAP_LEFT + 2f, tbtBottom);
+        }
+        c.restoreToCount(guideSave);
+        // 기준점을 패널 아래끝으로 두면 배율이 어떻든 아래끝에 붙은 채로 남는다.
+        // 도착정보 바는 원래 폭이 340 이라 칸 폭(270)에 딱 맞게 따로 줄인다.
+        int etaGuideSave = beginNaviGuide(c, NAVI_ETA_BOTTOM, HEIGHT, NAVI_COL_W / JUNCTION_W);
+        int etaSave = beginGuideElement(c, l, "eta", MAP_LEFT + 172f, (float) HEIGHT);
+        drawNaviEta(c, p, s);
+        c.restoreToCount(etaSave);
+        c.restoreToCount(etaGuideSave);
+
     }
 
     private void drawMapSourceBadge(Canvas c, Paint p, JSONObject s) {
