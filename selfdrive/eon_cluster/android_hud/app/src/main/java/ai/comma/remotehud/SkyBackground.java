@@ -221,7 +221,8 @@ final class SkyBackground {
                 return day ? new int[]{Color.rgb(78, 90, 102), Color.rgb(140, 152, 163)}
                         : new int[]{Color.rgb(16, 24, 34), Color.rgb(44, 54, 68)};
             case WeatherService.ICON_SNOW:
-                return day ? new int[]{Color.rgb(150, 160, 170), Color.rgb(214, 221, 227)}
+                // 낮 눈: 흰 송이가 보이도록 하늘은 한 톤 어두운 눈구름 회색.
+                return day ? new int[]{Color.rgb(112, 122, 134), Color.rgb(170, 178, 187)}
                         : new int[]{Color.rgb(30, 38, 52), Color.rgb(66, 76, 92)};
             case WeatherService.ICON_THUNDER:
                 return day ? new int[]{Color.rgb(52, 58, 70), Color.rgb(104, 112, 126)}
@@ -241,7 +242,7 @@ final class SkyBackground {
             case WeatherService.ICON_RAIN:
                 return day ? Color.rgb(206, 214, 222) : Color.rgb(78, 88, 104);
             case WeatherService.ICON_SNOW:
-                return day ? Color.rgb(245, 248, 251) : Color.rgb(104, 114, 130);
+                return day ? Color.rgb(214, 220, 226) : Color.rgb(104, 114, 130);
             case WeatherService.ICON_THUNDER:
                 return day ? Color.rgb(150, 158, 172) : Color.rgb(62, 70, 86);
             default:
@@ -526,8 +527,9 @@ final class SkyBackground {
         Random rnd = new Random(9);
         int baseAlpha = Color.alpha(color);
         p.setStyle(Paint.Style.FILL);
-        BlurMaskFilter midBlur = new BlurMaskFilter(1.0f, BlurMaskFilter.Blur.NORMAL);
-        BlurMaskFilter nearBlur = new BlurMaskFilter(3.2f, BlurMaskFilter.Blur.NORMAL);
+        // 실제 12.3인치 화면에서는 1~2px 송이가 보이지 않는다(2026-10-13, 비와 같은 이유).
+        BlurMaskFilter midBlur = new BlurMaskFilter(1.6f, BlurMaskFilter.Blur.NORMAL);
+        BlurMaskFilter nearBlur = new BlurMaskFilter(4.5f, BlurMaskFilter.Blur.NORMAL);
         int total = Math.round(count * 1.6f);
         for (int i = 0; i < total; i++) {
             float layer = rnd.nextFloat();
@@ -539,16 +541,16 @@ final class SkyBackground {
             float r;
             float strength;
             if (layer > 0.93f) {          // 가까운 큰 송이(보케)
-                r = 3.2f + rnd.nextFloat() * 2.4f;
-                strength = 0.55f;
+                r = 6.0f + rnd.nextFloat() * 4.0f;
+                strength = 0.70f;
                 p.setMaskFilter(nearBlur);
             } else if (layer > 0.60f) {   // 중간
-                r = 1.5f + rnd.nextFloat() * 1.0f;
-                strength = 0.85f;
+                r = 3.0f + rnd.nextFloat() * 1.8f;
+                strength = 0.95f;
                 p.setMaskFilter(midBlur);
             } else {                      // 먼 작은 송이
-                r = 0.7f + rnd.nextFloat() * 0.7f;
-                strength = 0.65f;
+                r = 1.6f + rnd.nextFloat() * 1.0f;
+                strength = 0.80f;
                 p.setMaskFilter(null);
             }
             p.setColor(color);
