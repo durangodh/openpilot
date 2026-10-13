@@ -2679,15 +2679,14 @@ public final class HudService extends Service {
         }
         c.restoreToCount(alertSave);
 
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(2f);
-        p.setColor(cardEdge());
-        if (naviLayout) {
-            scratchRect.set(NAVI_DRIVE_LEFT + 2f, 2f, WIDTH - 2f, HEIGHT - 4f);
-        } else {
+        // 네비모드는 하늘·지도가 주행 칸과 이어지므로 칸 테두리를 그리지 않는다.
+        if (!naviLayout) {
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(2f);
+            p.setColor(cardEdge());
             scratchRect.set(2f, 2f, DRIVE_W - 2f, HEIGHT - 4f);
+            c.drawRoundRect(scratchRect, 18f, 18f, p);
         }
-        c.drawRoundRect(scratchRect, 18f, 18f, p);
 
     }
 

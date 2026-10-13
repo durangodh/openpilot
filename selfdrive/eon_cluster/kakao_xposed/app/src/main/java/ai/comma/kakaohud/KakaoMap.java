@@ -77,8 +77,8 @@ final class KakaoMap {
     // 앱 주행 추적 카메라 zoom = KNUCameraScale 표[행][scaleIndex] (4.51.0 실측).
     // 여기서는 일반도로 DEFAULT 표 첫 행을 쓴다.
     private static final float[] DRIVE_ZOOM = {1.0f, 1.0f, 1.4f, 2.6f, 3.1f, 3.6f, 4.2f};
-    // HUD 네비모드 지도 축소: 1/0.8 = 지물이 20% 작게 보인다.
-    private static final float WIDE_ZOOM_OUT = 1.25f;
+    // HUD 네비모드 지도 축소: 1/0.7 = 지물이 30% 작게 보인다.
+    private static final float WIDE_ZOOM_OUT = 1f / 0.7f;
     // scaleIndex 결정(KNUMapLocationUseCase 실측):
     //  - 다음 안내지점까지 550m 미만: 150/250/350/450/550m 경계로 1~5
     //  - 그 외: 속도 20/40/60/80/100 km/h 경계로 1~6 (앱은 GPS 속도 사용)
@@ -470,7 +470,7 @@ final class KakaoMap {
         float zoom = screenSync && screen.zoom != null && Float.isFinite(screen.zoom)
                 && screen.zoom > 0.0f ? screen.zoom : DRIVE_ZOOM[scale];
         if (EonDiscovery.wideMap) {
-            // HUD 네비모드: 같은 장면보다 20% 작게(넓게) 보이게 한다. 카카오 zoom 은 클수록 축소.
+            // HUD 네비모드: 같은 장면보다 30% 작게(넓게) 보이게 한다. 카카오 zoom 은 클수록 축소.
             zoom *= WIDE_ZOOM_OUT;
         }
         update = zoomTo.invoke(update, zoom);
