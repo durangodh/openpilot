@@ -145,8 +145,11 @@ public final class HudService extends Service {
     private static final float NAVI_TBT_TOP = 62f;
     private static final float NAVI_BOX_CX = NAVI_COL_LEFT + NAVI_COL_W / 2f;
     private static final float NAVI_BOX_CY = (225f + 507f) / 2f;
-    /** 네비모드 냉각수·총주행거리: 오른쪽 칸 맨 아래, 총주행거리 오른쪽 끝(원래 1128)을 칸 끝에. */
-    private static final float NAVI_INFO_DX = NAVI_COL_RIGHT - 1128f;
+    /**
+     * 네비모드 냉각수·총주행거리: 오른쪽 칸 맨 아래. 'C' 글자 왼쪽 끝(원래 약 859)을 칸 왼쪽에
+     * 맞추면 총주행거리 오른쪽 끝(원래 1128)도 칸 오른쪽(±1px)에 온다.
+     */
+    private static final float NAVI_INFO_DX = NAVI_COL_LEFT - 859f;
     /** 네비모드 도착정보 바 아래끝: EON 박스 아래(507)와 냉각수 줄 위(약 659) 가운데에 오게. */
     private static final float NAVI_ETA_BOTTOM = (507f + 659f) / 2f + 58f * NAVI_GUIDE_SCALE / 2f;
     /** 네비모드: 주행 장면(도로·차)을 위로 올려 맨 아래 이벤트 표시와 자차가 겹치지 않게. */
@@ -6194,10 +6197,14 @@ public final class HudService extends Service {
      * 오른쪽 칸(NAVI_COL_LEFT, 폭 270)으로 줄여 옮긴다. anchorY 의 원래 높이가 y 로 간다.
      */
     private int beginNaviGuide(Canvas c, float y, float anchorY) {
+        return beginNaviGuide(c, y, anchorY, NAVI_GUIDE_SCALE);
+    }
+
+    private int beginNaviGuide(Canvas c, float y, float anchorY, float scale) {
         int save = c.save();
         if (naviLayout) {
             c.translate(NAVI_COL_LEFT, y);
-            c.scale(NAVI_GUIDE_SCALE, NAVI_GUIDE_SCALE);
+            c.scale(scale, scale);
             c.translate(-(MAP_LEFT + 2f), -anchorY);
         }
         return save;
@@ -6438,7 +6445,8 @@ public final class HudService extends Service {
         c.restoreToCount(junctionSave);
         c.restoreToCount(guideSave);
         // 기준점을 패널 아래끝으로 두면 배율이 어떻든 아래끝에 붙은 채로 남는다.
-        int etaGuideSave = beginNaviGuide(c, NAVI_ETA_BOTTOM, HEIGHT);
+        // 도착정보 바는 원래 폭이 340 이라 칸 폭(270)에 딱 맞게 따로 줄인다.
+        int etaGuideSave = beginNaviGuide(c, NAVI_ETA_BOTTOM, HEIGHT, NAVI_COL_W / JUNCTION_W);
         int etaSave = beginElement(c, l, "eta", MAP_LEFT + 172f, (float) HEIGHT);
         drawNaviEta(c, p, s);
         c.restoreToCount(etaSave);
