@@ -47,7 +47,7 @@ public class NavigationRenderCheck {
   Bitmap trimmedLane(Bitmap b){return b==null||b.isRecycled()?null:b;}
   int mapRight(){return 1920;} float mapCenterX(){return 1440f;}
   boolean naviLayout; static final int NAVI_MAP_RIGHT=1536; static final float NAVI_LANE_CX=920f;
-  static final float NAVI_LEFT_FADE_END=390f, NAVI_RIGHT_FADE_START=1238f, NAVI_FADE_EDGE=60f; static final int NAVI_SIDE_FADE_ALPHA=110;
+  static final float NAVI_BOTTOM_FADE_H=220f, NAVI_LEFT_FADE_END=390f, NAVI_RIGHT_FADE_START=1238f, NAVI_FADE_EDGE=60f; static final int NAVI_SIDE_FADE_ALPHA=110;
   static class Shader { enum TileMode { CLAMP } }
   static class LinearGradient { LinearGradient(float a,float b,float c,float d,int e,int f,Shader.TileMode m){} LinearGradient(float a,float b,float c,float d,int[] e,float[] f,Shader.TileMode m){} }
   static final float NAVI_COL_W=270f, NAVI_COL_LEFT=1246f, NAVI_TBT_TOP=62f, NAVI_ETA_BOTTOM=648f, NAVI_LANE_LEFT=400f;
@@ -121,7 +121,7 @@ public class NavigationRenderCheck {
     hud.naviLayout=true; SystemClock.now+=1000L;
     hud.check("navi layout",state(true,1000,200),new Bitmap(),signal,1,1,1);
     Canvas fade=new Canvas(); hud.drawMap(fade,new Paint(),state(true,1000,200),new Bitmap(),null,null,null,null);
-    if(fade.fades!=2) throw new AssertionError("navi side fade count="+fade.fades);
+    if(fade.fades!=3) throw new AssertionError("navi side/bottom fade count="+fade.fades);
     hud.naviLayout=false;
     System.out.println("9 navigation rendering cases and map switch fades passed, including traffic signal overlay");
   }

@@ -163,6 +163,10 @@ public final class HudService extends Service {
     private static final float NAVI_LEFT_FADE_END = 390f;
     private static final float NAVI_RIGHT_FADE_START = NAVI_COL_LEFT - 8f;
     private static final float NAVI_FADE_EDGE = 160f;
+    /** 네비모드 지도 아래쪽 연하게(순정 계기판처럼): 위에서 이 높이만큼 서서히 진해진다. */
+    private static final float NAVI_BOTTOM_FADE_H = 220f;
+    /** 네비모드 지도 위 하늘: 하늘 그림을 이만큼 올려 아래쪽 번짐만 지도 꼭대기에 얹는다. */
+    private static final float NAVI_SKY_LIFT = 70f;
     // 2026-10-13 실차: 110 은 낮 지도(밝은 회색 위 밝은 회색)에서 거의 티가 안 났다.
     private static final int NAVI_SIDE_FADE_ALPHA = 175;
     private static final int SYSTEM_RIGHT = 1920;
@@ -2574,10 +2578,11 @@ public final class HudService extends Service {
         }
         c.restoreToCount(worldSave);
 
-        drawSkyBand(c, p);
         if (columnSave >= 0) {
             c.restoreToCount(columnSave);
         }
+        // 네비모드 하늘은 주행 칸 이동(translate) 밖에서 화면 좌표 그대로 그린다.
+        drawSkyBand(c, p);
 
         // Existing lamp art stays unchanged; move the complete row inside
         // the panel, centred on the outside-temperature/range row.
@@ -4401,15 +4406,29 @@ public final class HudService extends Service {
         if (icon == WeatherService.ICON_NONE) {
             return;
         }
+        // 네비모드는 화면 전체 폭 하늘 한 장을 주행 칸과 지도 위쪽에 함께 쓴다(캐시 한 장).
         SkyBackground.Sky sky = SkyBackground.get(icon, weather.isDay(),
-                weather.cloudPercent(), DRIVE_W, ModelWorldGL.TOP);
+                weather.cloudPercent(), naviLayout ? WIDTH : DRIVE_W, ModelWorldGL.TOP);
         if (sky == null || sky.bitmap == null || sky.bitmap.isRecycled()) {
             return;
         }
         p.setShader(null);
         p.setColorFilter(null);
         p.setAlpha(255);
-        c.drawBitmap(sky.bitmap, 0f, 0f, p);
+        if (naviLayout) {
+            int skySave = c.save();
+            c.clipRect(NAVI_DRIVE_LEFT, 0f, WIDTH, HEIGHT);
+            c.drawBitmap(sky.bitmap, 0f, 0f, p);
+            c.restoreToCount(skySave);
+            // 지도 위쪽: 순정 계기판처럼 하늘이 지도로 자연스럽게 번지게, 위로 올려 아랫부분
+            // (곡선으로 사라지는 부분)만 지도 꼭대기에 얹는다.
+            skySave = c.save();
+            c.clipRect(0f, 0f, NAVI_MAP_RIGHT, HEIGHT);
+            c.drawBitmap(sky.bitmap, 0f, -NAVI_SKY_LIFT, p);
+            c.restoreToCount(skySave);
+        } else {
+            c.drawBitmap(sky.bitmap, 0f, 0f, p);
+        }
         skyBand = true;
         skyLightInk = sky.lightInk;
     }
@@ -6427,6 +6446,10 @@ public final class HudService extends Service {
         p.setShader(new LinearGradient(NAVI_RIGHT_FADE_START + half, 0f, rightStart, 0f,
                 naviFadeColors, naviFadePositions, Shader.TileMode.CLAMP));
         c.drawRect(rightStart, 0f, NAVI_MAP_RIGHT, HEIGHT, p);
+        // 아래쪽도 같은 곡선으로 연하게. 양옆과 겹치는 모서리는 더 연해져 비네트처럼 보인다.
+        p.setShader(new LinearGradient(0f, HEIGHT, 0f, HEIGHT - NAVI_BOTTOM_FADE_H,
+                naviFadeColors, naviFadePositions, Shader.TileMode.CLAMP));
+        c.drawRect(0f, HEIGHT - NAVI_BOTTOM_FADE_H, NAVI_MAP_RIGHT, HEIGHT, p);
         p.setShader(null);
     }
 
