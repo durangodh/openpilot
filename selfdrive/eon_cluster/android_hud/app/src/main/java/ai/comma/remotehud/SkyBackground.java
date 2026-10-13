@@ -131,8 +131,9 @@ final class SkyBackground {
         if (icon == WeatherService.ICON_FOG) {
             drawFog(c, p, width, height, day ? Color.rgb(226, 229, 231) : Color.rgb(104, 110, 120));
         } else if (icon == WeatherService.ICON_RAIN) {
-            drawStreaks(c, p, width, height, 200,
-                    day ? Color.argb(160, 232, 240, 248) : Color.argb(140, 170, 196, 226));
+            // 실제 12.3인치 화면에서는 1px 빗줄기가 보이지 않는다(2026-10-13 사진).
+            drawStreaks(c, p, width, height, 240,
+                    day ? Color.argb(235, 244, 248, 252) : Color.argb(210, 184, 206, 232));
         } else if (icon == WeatherService.ICON_SNOW) {
             // 낮 하늘이 밝은 회색이라 눈송이는 거의 흰색으로, 더 크고 많게 해야 보인다.
             drawSnow(c, p, width, height, day ? 110 : 65,
@@ -491,19 +492,19 @@ final class SkyBackground {
         for (int i = 0; i < count; i++) {
             float layer = rnd.nextFloat();          // 0 먼 비 ~ 1 가까운 비
             boolean near = layer > 0.85f;
-            float len = near ? 26f + rnd.nextFloat() * 18f
-                    : layer > 0.5f ? 14f + rnd.nextFloat() * 10f : 7f + rnd.nextFloat() * 7f;
+            float len = near ? 40f + rnd.nextFloat() * 24f
+                    : layer > 0.5f ? 24f + rnd.nextFloat() * 14f : 13f + rnd.nextFloat() * 9f;
             float x = rnd.nextFloat() * (w + h * 0.3f);
             // 위쪽(구름 속)은 드물게: y 를 아래로 몰아준다
             float y = h * (0.12f + 0.88f * (float) Math.sqrt(rnd.nextFloat())) - len;
             if (blocked(x, y) || blocked(x + slant * len, y + len)) {
                 continue;
             }
-            float strength = near ? 0.95f : layer > 0.5f ? 0.70f : 0.42f;
+            float strength = near ? 1.0f : layer > 0.5f ? 0.80f : 0.55f;
             int a = Math.round(baseAlpha * strength * (0.75f + rnd.nextFloat() * 0.25f));
             float x2 = x + slant * len * (0.9f + rnd.nextFloat() * 0.2f);
             float y2 = y + len;
-            p.setStrokeWidth(near ? 2.2f : layer > 0.5f ? 1.4f : 1.0f);
+            p.setStrokeWidth(near ? 4.0f : layer > 0.5f ? 2.8f : 1.9f);
             p.setMaskFilter(near ? nearBlur : null);
             p.setShader(new LinearGradient(x, y, x2, y2,
                     rgb & 0x00FFFFFF, (Math.min(255, a) << 24) | (rgb & 0x00FFFFFF),
