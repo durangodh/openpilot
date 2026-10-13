@@ -47,11 +47,12 @@ final class TmapMapRender {
     private volatile int frameW = WIDTH, frameH = HEIGHT;
 
     /**
-     * HUD 네비모드: 엔진 밀도를 160 → 112 로 낮춰 같은 화면에 더 넓은 범위를 그린다
-     * (도로·글자·아이콘이 30% 작게). 주행모드는 그대로 160.
+     * HUD 네비모드: 엔진 밀도를 낮춰 같은 화면에 더 넓은 범위를 그린다. HUD 가 1080 폭 지도를
+     * 1536 폭으로 1.42배 늘려 그리므로 그만큼 더 낮춰, HUD 에서 주행모드보다 30% 작게 보이게 한다
+     * (160 × 0.7 / 1.42 ≈ 79). 주행모드는 그대로 160.
      */
     private static int mapDpi() {
-        return EonDiscovery.wideMap ? 112 : DPI;
+        return EonDiscovery.wideMap ? Math.round(DPI * 0.7f * WIDE_WIDTH / 1536f) : DPI;
     }
 
     private static int targetWidth() {
