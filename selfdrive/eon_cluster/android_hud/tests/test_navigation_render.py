@@ -50,7 +50,7 @@ public class NavigationRenderCheck {
   static final float NAVI_LEFT_FADE_END=390f, NAVI_RIGHT_FADE_START=1238f, NAVI_FADE_EDGE=60f; static final int NAVI_SIDE_FADE_ALPHA=110;
   static class Shader { enum TileMode { CLAMP } }
   static class LinearGradient { LinearGradient(float a,float b,float c,float d,int e,int f,Shader.TileMode m){} }
-  static final float NAVI_COL_LEFT=1246f, NAVI_TBT_TOP=62f;
+  static final float NAVI_COL_LEFT=1246f, NAVI_TBT_TOP=62f, NAVI_ETA_BOTTOM=648f, NAVI_LANE_LEFT=400f;
   float overlayRight(){return naviLayout?NAVI_COL_LEFT-12f:mapRight();}
   int beginNaviGuide(Canvas c,float y,float anchor){return c.save();}
   String lang(String ko,String en){return en;}

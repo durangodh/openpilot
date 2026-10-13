@@ -145,10 +145,13 @@ public final class HudService extends Service {
     private static final float NAVI_TBT_TOP = 62f;
     private static final float NAVI_BOX_CX = NAVI_COL_LEFT + NAVI_COL_W / 2f;
     private static final float NAVI_BOX_CY = (225f + 507f) / 2f;
-    /** 네비모드 냉각수·총주행거리: 연료 줄 오른쪽(지도 왼쪽 아래)으로 옮기는 거리. */
-    private static final float NAVI_INFO_DX = 400f - 865f;
-    /** 네비모드 차로 안내 가운데(총주행거리 오른쪽 ~ 오른쪽 칸 사이). */
-    private static final float NAVI_LANE_CX = (680f + NAVI_COL_LEFT) / 2f;
+    /** 네비모드 냉각수·총주행거리: 오른쪽 칸 맨 아래, 총주행거리 오른쪽 끝(원래 1128)을 칸 끝에. */
+    private static final float NAVI_INFO_DX = NAVI_COL_RIGHT - 1128f;
+    /** 네비모드 도착정보 바 아래끝: 냉각수 줄(온도계 위끝 약 659) 바로 위. */
+    private static final float NAVI_ETA_BOTTOM = 648f;
+    /** 네비모드 차로 안내 범위: 게이지 칸 오른쪽 ~ 오른쪽 칸 사이, 그 가운데. */
+    private static final float NAVI_LANE_LEFT = 400f;
+    private static final float NAVI_LANE_CX = (NAVI_LANE_LEFT + NAVI_COL_LEFT) / 2f;
     /** 네비모드 양옆 지도 연하게: 왼쪽 게이지 칸 끝, 오른쪽 칸 시작, 경계 번짐 폭, 덮는 진하기. */
     private static final float NAVI_LEFT_FADE_END = 390f;
     private static final float NAVI_RIGHT_FADE_START = NAVI_COL_LEFT - 8f;
@@ -3832,7 +3835,7 @@ public final class HudService extends Service {
                     : (float) Math.min(1d, 0.5d + (coolant - 105d) / 30d);
         }
         // 냉각수 게이지 왼쪽 끝(C)을 EON 박스 왼쪽 끝(EON_BOX_LEFT)에 맞춘다.
-        // 네비모드에서는 그 자리가 지도 오른쪽 칸이라 연료 줄 오른쪽으로 옮긴다.
+        // 네비모드에서는 오른쪽 칸 맨 아래로 옮긴다(그 위에 도착정보).
         int coolSave = c.save();
         if (naviLayout) {
             c.translate(NAVI_INFO_DX, 0f);
@@ -6397,7 +6400,7 @@ public final class HudService extends Service {
         c.restoreToCount(junctionSave);
         c.restoreToCount(guideSave);
         // 기준점을 패널 아래끝으로 두면 배율이 어떻든 아래끝에 붙은 채로 남는다.
-        int etaGuideSave = beginNaviGuide(c, HEIGHT, HEIGHT);
+        int etaGuideSave = beginNaviGuide(c, NAVI_ETA_BOTTOM, HEIGHT);
         int etaSave = beginElement(c, l, "eta", MAP_LEFT + 172f, (float) HEIGHT);
         drawNaviEta(c, p, s);
         c.restoreToCount(etaSave);
@@ -6419,7 +6422,7 @@ public final class HudService extends Service {
                 cx = Math.max(MAP_LEFT + halfW, Math.min(mapRight() - halfW, cx));
                 if (naviLayout) {
                     // 네비모드: 아래 가운데(총주행거리와 오른쪽 칸 사이).
-                    halfW = Math.min(w / 2f, (NAVI_COL_LEFT - 690f) / 2f);
+                    halfW = Math.min(w / 2f, (NAVI_COL_LEFT - 8f - NAVI_LANE_LEFT) / 2f);
                     cx = NAVI_LANE_CX;
                 }
                 int save3 = beginElement(c, l, "lane", cx, (float) HEIGHT);
@@ -6427,7 +6430,7 @@ public final class HudService extends Service {
                         Paint.Align.CENTER);
                 c.restoreToCount(save3);
             } else if (laneShown != null) {
-                float laneLeft = naviLayout ? 690f : JUNCTION_LEFT + JUNCTION_W + 8f;
+                float laneLeft = naviLayout ? NAVI_LANE_LEFT : JUNCTION_LEFT + JUNCTION_W + 8f;
                 float laneRight = naviLayout ? NAVI_COL_LEFT - 8f : mapRight() - 8f;
                 int save3 = beginElement(c, l, "lane", laneLeft, (float) HEIGHT);
                 drawNativeOverlay(c, p, laneShown, laneLeft, ETA_TOP, laneRight, (float) HEIGHT,
