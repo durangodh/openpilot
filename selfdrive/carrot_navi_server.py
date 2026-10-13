@@ -12,6 +12,7 @@ import uuid
 
 from common.params import Params
 from selfdrive import trace_http
+from selfdrive.eon_cluster.navi_layout import read_wide_map
 
 try:
   import numpy as np
@@ -826,7 +827,8 @@ def discovery_loop():
     if ip != "127.0.0.1":
       payload_ip = ip
     if payload_ip:
-      payload = json.dumps({"ip": payload_ip, "navi_debug": 0},
+      # hud_wide_map: S9 HUD 가 네비모드면 1. 휴대폰 모듈이 지도를 가로로 넓게 캡처한다.
+      payload = json.dumps({"ip": payload_ip, "navi_debug": 0, "hud_wide_map": read_wide_map()},
                            separators=(",", ":")).encode("utf-8")
       try:
         sock.sendto(payload, ("255.255.255.255", DISCOVERY_PORT))

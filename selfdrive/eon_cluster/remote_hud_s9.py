@@ -12,11 +12,13 @@ from selfdrive.eon_cluster import remote_hud as base
 from selfdrive.eon_cluster.hud_geometry import normalize_geometry
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.eon_cluster.section_average import SectionAverage
+from selfdrive.eon_cluster.navi_layout import NaviLayout
 
 
 _params = Params()
 _nav_route = NavigationRouteData()
 _section_average = SectionAverage()
+_navi_layout = NaviLayout()
 _original_packet = base._packet
 _param_cache = {}
 PARAM_CACHE_S = 1.0
@@ -131,6 +133,12 @@ def _packet(sm, *args, **kwargs):
   packet["hudPitchDyn"] = _bounded_int("EonClusterHudPitchDyn", 60, 0, 200)
   packet["hudOutputMode"] = _bounded_int("EonClusterHudOutputMode", 1, 1, 3)
   packet["hudLayoutMode"] = _bounded_int("EonClusterHudLayoutMode", 1, 1, 2)
+  # 네비모드(지도 8 : 주행 2). 자동이면 길안내 중에만. 같은 값을 휴대폰 지도 캡처에도 알린다.
+  navi = packet.get("navi")
+  guiding = isinstance(navi, dict) and bool(navi.get("active", False))
+  packet["hudNaviLayout"] = _navi_layout.update(
+    _bounded_int("EonClusterHudNaviLayout", 0, 0, 2), guiding)
+  _navi_layout.publish(packet["hudNaviLayout"])
   # EON에서 선택한 내비를 S9 Remote HUD가 실행한다. nMirror 본체는 원본
   # 서명을 유지하므로 재패키징 뒤 종료되는 문제를 만들지 않는다.
   packet["hudNavApp"] = _bounded_int("EonClusterHudNavApp", 1, 0, 3)

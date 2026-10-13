@@ -103,6 +103,7 @@ def manager_init() -> None:
     ("EonClusterHudNightBrightness", "35"),
     ("EonClusterHudJpegQuality", "55"),
     ("EonClusterHudLayoutMode", "1"),
+    ("EonClusterHudNaviLayout", "0"),
     ("EonClusterHudNavApp", "1"),
     ("EonClusterHudScreenMode", "1"),
     ("EonClusterHudTheme", "0"),

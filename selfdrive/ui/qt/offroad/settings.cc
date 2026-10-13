@@ -1285,6 +1285,10 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "1: 주행 + 티맵 + 시스템 정보 / 2: 주행 + 티맵만(우측 정보판 숨김, 티맵 폭 확장)",
       "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudNaviLayout", "S9 HUD NAVI LAYOUT",
+      "0: 주행모드(위 LAYOUT MODE 배치) / 1: 네비모드(지도 8 : 주행 2) / 2: 자동(길안내 중에는 네비모드, 안내가 끝나고 5초 뒤 주행모드). 휴대폰 지도도 네비모드에서는 가로로 넓게 보냅니다.",
+      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudNavApp", "NAVIGATION APP",
       "EON에서 휴대폰 내비를 선택합니다. 0: 선택 안 함 / 1: 티맵 / 2: 네이버지도 / 3: 카카오내비. 변경하면 S9에서 선택한 앱이 자동 실행됩니다.",
       "../assets/offroad/icon_road.png", 0, 3, 1, 0, 1, this));

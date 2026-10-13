@@ -67,6 +67,7 @@ def test_s9_hud_params_are_exposed_in_settings():
       "EonClusterHudJpegQuality",
       "EonClusterHudOutputMode",
       "EonClusterHudLayoutMode",
+      "EonClusterHudNaviLayout",
       "EonClusterHudScreenMode",
       "EonClusterHudTheme",
       "EonClusterHudOrientation",
