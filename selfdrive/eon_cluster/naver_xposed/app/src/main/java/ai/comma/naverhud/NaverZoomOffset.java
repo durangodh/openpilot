@@ -5,6 +5,10 @@ import android.graphics.PointF;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Map;
+import java.util.WeakHashMap;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedHelpers;
@@ -20,8 +24,17 @@ import de.robv.android.xposed.XposedHelpers;
  * 넓게 보인다. 클래스·메서드 이름은 6.10.0.16 기준이라 검증 버전에서만 설치한다.
  */
 final class NaverZoomOffset {
+    /** 네비모드 축소 비율: 지물·경로선·내 차 마커 모두 이만큼(30% 작게). */
+    static final float WIDE_SCALE = 0.7f;
     /** log2(1/0.7): 지물이 30% 작게 보이는 줌 단계. */
-    static final double WIDE_LEVELS = Math.log(1d / 0.7d) / Math.log(2d);
+    static final double WIDE_LEVELS = Math.log(1d / WIDE_SCALE) / Math.log(2d);
+    private static final String[] PATH_CLASSES = {
+            "com.naver.maps.map.overlay.PathOverlay",
+            "com.naver.maps.map.overlay.MultipartPathOverlay",
+            "com.naver.maps.map.overlay.ArrowheadPathOverlay"};
+    /** 경로선마다 앱이 요청한 원래 굵기 {width, outline}. 모드가 바뀌면 다시 넣어 비율을 바꾼다. */
+    private static final Map<Object, int[]> pathWidths =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     private static volatile Object target;        // 줌을 바꿀 NativeMapView(HUD 로 찍는 지도)
     private static volatile double offset;        // 지금 적용 중인 단계(0 = 끔)
@@ -85,9 +98,55 @@ final class NaverZoomOffset {
                 }
             }
         });
+        // 경로선 굵기: 앱이 넣는 값(픽셀)을 기억해 두고, 네비모드에서는 WIDE_SCALE 을 곱한다.
+        for (String name : PATH_CLASSES) {
+            Class<?> path = cl.loadClass(name);
+            XposedHelpers.findAndHookMethod(path, "setWidth", int.class, pathWidthHook(0));
+            XposedHelpers.findAndHookMethod(path, "setOutlineWidth", int.class, pathWidthHook(1));
+        }
         installed = true;
         NaverHudLog.line("HUD map zoom offset hook ready (" + String.format(java.util.Locale.US,
                 "%.2f", WIDE_LEVELS) + " levels in navi layout)");
+    }
+
+    /** 지금 경로선·마커에 곱할 비율. 네비모드면 WIDE_SCALE, 아니면 1. */
+    static float scale() {
+        return offset != 0d ? WIDE_SCALE : 1f;
+    }
+
+    private static XC_MethodHook pathWidthHook(final int slot) {
+        return new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam param) {
+                int requested = (Integer) param.args[0];
+                int[] widths = pathWidths.get(param.thisObject);
+                if (widths == null) {
+                    widths = new int[]{-1, -1};
+                    pathWidths.put(param.thisObject, widths);
+                }
+                widths[slot] = requested;
+                float k = scale();
+                if (k != 1f && requested > 0) {
+                    param.args[0] = Math.max(1, Math.round(requested * k));
+                }
+            }
+        };
+    }
+
+    /** 모드가 바뀐 뒤: 기억한 원래 굵기를 다시 넣어 새 비율로 그리게 한다(메인 스레드). */
+    private static void reapplyPathWidths() {
+        ArrayList<Map.Entry<Object, int[]>> entries;
+        synchronized (pathWidths) {
+            entries = new ArrayList<>(pathWidths.entrySet());
+        }
+        for (Map.Entry<Object, int[]> entry : entries) {
+            try {
+                int[] widths = entry.getValue();
+                if (widths[0] >= 0) XposedHelpers.callMethod(entry.getKey(), "setWidth", widths[0]);
+                if (widths[1] >= 0) XposedHelpers.callMethod(entry.getKey(), "setOutlineWidth", widths[1]);
+            } catch (Throwable ignored) {
+                // 지워진 경로선은 건너뛴다.
+            }
+        }
     }
 
     /**
@@ -101,8 +160,10 @@ final class NaverZoomOffset {
             double wanted = EonDiscovery.wideMap ? WIDE_LEVELS : 0d;
             if (nativeView == target && wanted == offset) return;
             Object seen = getCamera.invoke(map);      // 이전 OFFSET 기준, 앱이 보던 카메라
+            boolean modeChanged = wanted != offset;
             target = nativeView;
             offset = wanted;
+            if (modeChanged) reapplyPathWidths();
             if (seen != null) {
                 double zoom = seen.getClass().getField("zoom").getDouble(seen);
                 if (!Double.isNaN(zoom)) setCamera.invoke(map, seen);

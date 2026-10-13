@@ -20,11 +20,13 @@ final class NaverMarkerSize {
     private static final class State {
         final Object icon;
         final float density;
+        final float scale;
         final int width, height;
 
-        State(Object icon, float density, int width, int height) {
+        State(Object icon, float density, float scale, int width, int height) {
             this.icon = icon;
             this.density = density;
+            this.scale = scale;
             this.width = width;
             this.height = height;
         }
@@ -94,13 +96,16 @@ final class NaverMarkerSize {
         if (!valid(current)) return;
         int existingWidth = (Integer) XposedHelpers.callMethod(overlay, "getIconWidth");
         int existingHeight = (Integer) XposedHelpers.callMethod(overlay, "getIconHeight");
+        // S9 HUD 네비모드면 내 차 아이콘도 지도와 같이 30% 작게(NaverZoomOffset).
+        float hudScale = NaverZoomOffset.scale();
         State previous = states.get(overlay);
         if (previous != null && previous.icon == icon && previous.density == current
+                && previous.scale == hudScale
                 && existingWidth == previous.width && existingHeight == previous.height) return;
 
         Float source = sources.get(icon);
         boolean resource = isResource(icon);
-        if (source == null && !resource) {
+        if (source == null && !resource && hudScale == 1f) {
             if (previous != null) {
                 XposedHelpers.callMethod(overlay, "setIconWidth", 0);
                 XposedHelpers.callMethod(overlay, "setIconHeight", 0);
@@ -114,10 +119,14 @@ final class NaverMarkerSize {
             width = pixels(width, source, current);
             height = pixels(height, source, current);
         }
+        if (hudScale != 1f) {
+            width = Math.max(1, Math.round(width * hudScale));
+            height = Math.max(1, Math.round(height * hudScale));
+        }
         if (width <= 0 || height <= 0) return;
         if (existingWidth != width) XposedHelpers.callMethod(overlay, "setIconWidth", width);
         if (existingHeight != height) XposedHelpers.callMethod(overlay, "setIconHeight", height);
-        states.put(overlay, new State(icon, current, width, height));
+        states.put(overlay, new State(icon, current, hudScale, width, height));
         if (source != null && Math.abs(source - current) > 0.01f
                 && (previous == null || previous.icon != icon || previous.density != current)) {
             NaverHudLog.line("position icon density " + source + " -> " + current

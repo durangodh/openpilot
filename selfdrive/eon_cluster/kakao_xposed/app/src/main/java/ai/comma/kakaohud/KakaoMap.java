@@ -469,8 +469,9 @@ final class KakaoMap {
         }
         float zoom = screenSync && screen.zoom != null && Float.isFinite(screen.zoom)
                 && screen.zoom > 0.0f ? screen.zoom : DRIVE_ZOOM[scale];
-        if (EonDiscovery.wideMap) {
-            // HUD 네비모드: 같은 장면보다 30% 작게(넓게) 보이게 한다. 카카오 zoom 은 클수록 축소.
+        if (EonDiscovery.wideMap && !surfaceMode) {
+            // HUD 네비모드(캡처러 폴백): 밀도를 바꿀 수 없어 줌으로만 30% 넓힌다(마커·경로선 그대로).
+            // 서피스 렌더는 mapDensityContext 의 밀도로 지도·경로선·마커를 함께 30% 작게 그린다.
             zoom *= WIDE_ZOOM_OUT;
         }
         update = zoomTo.invoke(update, zoom);
@@ -482,7 +483,9 @@ final class KakaoMap {
         try {
             android.content.res.Configuration config =
                     new android.content.res.Configuration(context.getResources().getConfiguration());
-            config.densityDpi = MAP_DPI;
+            // HUD 네비모드: 밀도를 0.7배로 낮춰 지도·글자·경로선·마커를 모두 30% 작게(넓게) 그린다.
+            // 모드가 바뀌면 크기도 바뀌어 서피스를 다시 만들므로 그때 새 밀도가 들어간다.
+            config.densityDpi = EonDiscovery.wideMap ? Math.round(MAP_DPI * 0.7f) : MAP_DPI;
             return context.createConfigurationContext(config);
         } catch (Throwable t) {
             KakaoHudLog.ex("map density context", t);
