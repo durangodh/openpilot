@@ -4392,12 +4392,15 @@ public final class HudService extends Service {
             text(c, p, String.format(Locale.US, "%.0f°C", temp), left, 44f, 22f, ink(), Paint.Align.LEFT);
         }
         double volt = s.optDouble("batteryVoltage", -1d);
-        if (Double.isFinite(volt) && volt > 5d && volt < 20d) {
-            int vColor = (volt < 11.8d || volt > 15.5d) ? Color.rgb(230, 48, 58) : ink();
-            // 오른쪽 끝은 배율(TOP_ROW_SCALE) 뒤에도 칸 안(WIDTH - 14)에 오게 거꾸로 계산한다.
-            float right = NAVI_DRIVE_LEFT + (WIDTH - 14f - NAVI_DRIVE_LEFT) / TOP_ROW_SCALE;
-            text(c, p, String.format(Locale.US, "%.1fV", volt), right, 44f, 22f, vColor, Paint.Align.RIGHT);
-        }
+        boolean voltageAvailable = Double.isFinite(volt) && volt > 5d && volt < 20d;
+        int vColor = voltageAvailable
+                ? ((volt < 11.8d || volt > 15.5d) ? Color.rgb(230, 48, 58) : ink())
+                : dim();
+        // Keep the voltage slot visible even when the EON/panda has no sample.
+        // Missing telemetry must not be confused with a missing layout element.
+        String vLabel = voltageAvailable ? String.format(Locale.US, "%.1fV", volt) : "--.-V";
+        float right = NAVI_DRIVE_LEFT + (WIDTH - 14f - NAVI_DRIVE_LEFT) / TOP_ROW_SCALE;
+        text(c, p, vLabel, right, 44f, 22f, vColor, Paint.Align.RIGHT);
     }
 
     /**
