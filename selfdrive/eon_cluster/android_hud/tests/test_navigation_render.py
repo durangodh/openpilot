@@ -22,26 +22,26 @@ public class NavigationRenderCheck {
   static class SystemClock { static long now=100000L; static long elapsedRealtime(){return now;} }
   static class Rect { void set(int a,int b,int c,int d){} }
   static class RectF { void set(float a,float b,float c,float d){} }
-  static class Color { static int BLACK=0,GRAY=1,WHITE=2; static int argb(int a,int r,int g,int b){return 3;} static int rgb(int r,int g,int b){return 6;} }
+  static class Color { static int BLACK=0xff000000,GRAY=0xff888888,WHITE=0xffffffff; static int argb(int a,int r,int g,int b){return (a<<24)|(r<<16)|(g<<8)|b;} static int rgb(int r,int g,int b){return argb(255,r,g,b);} }
   static class Paint {
     enum Style { FILL } enum Align { CENTER,LEFT,RIGHT }
-    int alpha=255, lastBitmapAlpha=-1;
-    void setShader(Object x){} void setStyle(Style x){} void setColor(int x){} void setFilterBitmap(boolean x){}
+    int alpha=255, lastBitmapAlpha=-1; Object shader;
+    void setShader(Object x){shader=x;} void setStyle(Style x){} void setColor(int x){alpha=x>>>24;} void setFilterBitmap(boolean x){}
     void setAlpha(int x){alpha=x;} void reset(){alpha=255;} void setAntiAlias(boolean b){}
   }
   static class Canvas {
     int banners, maps, markers, nextCalls, etaCalls, sourceBadges, nativeOverlays;
     List<String> events=new ArrayList<>();
     int save(){return 1;} void restoreToCount(int x){}
-    int fades;
+    int fades, minimumFadeAlpha=255;
     void drawRect(Rect r,Paint p){}
-    void drawRect(float a,float b,float c,float d,Paint p){fades++;}
+    void drawRect(float a,float b,float c,float d,Paint p){fades++;if(p.shader!=null)minimumFadeAlpha=Math.min(minimumFadeAlpha,p.alpha);}
     void drawBitmap(Bitmap b,Object src,Rect dst,Paint p){
       if(b==null||b.isRecycled())throw new AssertionError("invalid map drawn"); maps++; p.lastBitmapAlpha=p.alpha;
     }
     void drawRoundRect(RectF r,float x,float y,Paint p){banners++;}
   }
-  static final int MAP_LEFT=960,HEIGHT=576,TBT_GREEN=4,TBT_GREEN_DARK=5;
+  static final int MAP_LEFT=960,HEIGHT=576,TBT_GREEN=0xff1f7a48,TBT_GREEN_DARK=0xff146239;
   final Rect scratchIRect=new Rect(); final RectF scratchRect=new RectF(); boolean frameDark;
   static final float JUNCTION_LEFT=962f, JUNCTION_W=340f, KAKAO_MARKER_X=0.78f, TMAP_MARKER_X=0.5f, NAVER_MARKER_X=0.63f, ETA_H=58f, ETA_TOP=HEIGHT-58f;
   static final long MAP_FADE_MS=300L; Bitmap fadingMap; long fadingMapSince, mapShownSince;
@@ -122,6 +122,7 @@ public class NavigationRenderCheck {
     hud.check("navi layout",state(true,1000,200),new Bitmap(),signal,1,1,1);
     Canvas fade=new Canvas(); hud.drawMap(fade,new Paint(),state(true,1000,200),new Bitmap(),null,null,null,null);
     if(fade.fades!=3) throw new AssertionError("navi side/bottom fade count="+fade.fades);
+    if(fade.minimumFadeAlpha!=255) throw new AssertionError("night mask weakened navi fade: "+fade.minimumFadeAlpha);
     for(int app:new int[]{1,2,3}){
       JSONObject fixture=state(true,6400,0).put("hudNavApp",app);
       fixture.optJSONObject("navi").put("next",new JSONObject().put("turnType",12).put("turnDist",729));

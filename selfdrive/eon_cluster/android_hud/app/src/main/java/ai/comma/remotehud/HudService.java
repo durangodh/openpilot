@@ -6439,6 +6439,9 @@ public final class HudService extends Service {
             naviFadePositions[i] = t;
         }
         float half = NAVI_FADE_EDGE / 2f;
+        // Shader colours already contain the fade alpha. Do not multiply them
+        // by the preceding night-map mask's alpha (40/155) left in Paint.
+        p.setAlpha(255);
         p.setStyle(Paint.Style.FILL);
         float leftEnd = NAVI_LEFT_FADE_END + half;
         p.setShader(new LinearGradient(NAVI_LEFT_FADE_END - half, 0f, leftEnd, 0f,
