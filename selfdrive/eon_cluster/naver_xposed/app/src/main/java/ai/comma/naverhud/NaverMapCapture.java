@@ -408,6 +408,12 @@ final class NaverMapCapture {
         boolean wide = EonDiscovery.wideMap;
         int outW = wide ? WIDE_WIDTH : WIDTH, outH = wide ? WIDE_HEIGHT : HEIGHT;
         float scale = Math.max(outW / (float) sw, outH / (float) sh);
+        if (wide) {
+            // HUD 는 네비모드 지도(WIDE_WIDTH)를 1536 폭으로, 주행모드 지도(WIDTH)를 거의 그대로
+            // 그린다. 같은 폰 화면이 HUD 에서 주행모드보다 몇 배 크게 보이는지 알려 준다.
+            float driveScale = Math.max(WIDTH / (float) sw, HEIGHT / (float) sh);
+            NaverZoomOffset.reportCaptureRatio(scale * (1536f / WIDE_WIDTH) / driveScale);
+        }
         int cropW = Math.min(sw, Math.round(outW / scale));
         int cropH = Math.min(sh, Math.round(outH / scale));
         int left = content.left + (sw - cropW) / 2;

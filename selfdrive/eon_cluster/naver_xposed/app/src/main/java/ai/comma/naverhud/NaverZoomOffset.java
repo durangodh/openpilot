@@ -27,6 +27,14 @@ import de.robv.android.xposed.XposedHelpers;
 final class NaverZoomOffset {
     /** 네비모드 축소 비율: 지물·경로선·내 차 마커 모두 이만큼(30% 작게). */
     static final float WIDE_SCALE = 0.7f;
+    /**
+     * 네비모드에서 실제로 쓰는 비율. 세로 폰 화면은 HUD 네비 칸(1536)에 맞추느라 주행모드보다
+     * 약 2배 크게 늘어나므로(NaverMapCapture.reportCaptureRatio) 그만큼 더 줄여 주행모드 대비
+     * WIDE_SCALE 이 되게 한다.
+     */
+    private static volatile float wideScale = WIDE_SCALE;
+    /** 지금 훅에 적용 중인 비율(offset 과 함께 바뀐다). */
+    private static volatile float appliedScale = 1f;
     /** log2(1/0.7): 지물이 30% 작게 보이는 줌 단계. */
     static final double WIDE_LEVELS = Math.log(1d / WIDE_SCALE) / Math.log(2d);
     private static final String[] PATH_CLASSES = {
@@ -106,7 +114,7 @@ final class NaverZoomOffset {
         XposedHelpers.findAndHookMethod(nativeView, "a1", float.class, new XC_MethodHook() {
             @Override protected void beforeHookedMethod(MethodHookParam param) {
                 if (offset == 0d || param.thisObject != target) return;
-                param.args[0] = (Float) param.args[0] * WIDE_SCALE;
+                param.args[0] = (Float) param.args[0] * appliedScale;
             }
         });
         XposedHelpers.findAndHookMethod(nativeView, "V", new XC_MethodHook() {
@@ -114,7 +122,7 @@ final class NaverZoomOffset {
                 Object result = param.getResult();
                 if (offset == 0d || param.thisObject != target || !(result instanceof Float)) return;
                 float value = (Float) result;
-                if (value > 0f) param.setResult(value / WIDE_SCALE);
+                if (value > 0f) param.setResult(value / appliedScale);
             }
         });
         getSymbolScale = nativeView.getMethod("V");
@@ -132,7 +140,22 @@ final class NaverZoomOffset {
 
     /** 지금 경로선·마커에 곱할 비율. 네비모드면 WIDE_SCALE, 아니면 1. */
     static float scale() {
-        return offset != 0d ? WIDE_SCALE : 1f;
+        return offset != 0d ? appliedScale : 1f;
+    }
+
+    /**
+     * 캡처 쪽에서: 네비모드 HUD 에 지도가 주행모드보다 몇 배 크게 그려지는지(ratio).
+     * 0.05 단위로 맞춰 자잘한 변화로 지도를 다시 그리지 않는다.
+     */
+    static void reportCaptureRatio(float ratio) {
+        if (!(ratio > 0f)) return;
+        float wanted = Math.max(0.25f, Math.min(1f, WIDE_SCALE / ratio));
+        wanted = Math.round(wanted * 20f) / 20f;
+        if (Math.abs(wanted - wideScale) >= 0.049f) {
+            wideScale = wanted;
+            NaverHudLog.line("HUD map scale " + wanted + " (capture ratio "
+                    + String.format(java.util.Locale.US, "%.2f", ratio) + ")");
+        }
     }
 
     private static XC_MethodHook pathWidthHook(final int slot) {
@@ -178,13 +201,15 @@ final class NaverZoomOffset {
         if (!installed || map == null) return;
         try {
             Object nativeView = nativeField.get(map);
-            double wanted = EonDiscovery.wideMap ? WIDE_LEVELS : 0d;
+            float k = wideScale;
+            double wanted = EonDiscovery.wideMap ? Math.log(1d / k) / Math.log(2d) : 0d;
             if (nativeView == target && wanted == offset) return;
             Object seen = getCamera.invoke(map);      // 이전 OFFSET 기준, 앱이 보던 카메라
             Object symbols = getSymbolScale.invoke(nativeView);   // 앱이 보던 심볼 배율
             boolean modeChanged = wanted != offset;
             target = nativeView;
             offset = wanted;
+            appliedScale = wanted != 0d ? k : 1f;
             if (symbols instanceof Float && (Float) symbols > 0f) {
                 setSymbolScale.invoke(nativeView, symbols);   // 새 비율로 다시 적용(훅이 곱함)
             }
