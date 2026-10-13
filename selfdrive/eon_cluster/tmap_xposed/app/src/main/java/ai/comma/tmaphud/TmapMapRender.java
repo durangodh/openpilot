@@ -329,6 +329,9 @@ final class TmapMapRender {
         ImageReader next = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 3);
         next.setOnImageAvailableListener(this::onImageAvailable, imageHandler);
         inv(surface, "surfaceDestroyed");
+        // 밀도는 새 화면을 만들기 전에 바꾼다. 엔진이 화면 생성 때 밀도를 다시 읽는 경우에도
+        // 주행/네비모드 전환이 시작 시와 똑같이 적용되게 한다(실차: 시작 때는 작게 나왔다).
+        inv(inv(engine, "getViewSetting"), "setDensityDpi", mapDpi());
         invTyped(surface, "surfaceCreated", new Class<?>[]{Surface.class}, next.getSurface());
         inv(surface, "surfaceChanged", w, h);
         reader = next;
