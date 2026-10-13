@@ -14,7 +14,8 @@ import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedHelpers;
 
 /**
- * S9 HUD 네비모드에서 HUD 로 찍는 네이버 지도를 30% 넓게(축소) 보이게 한다.
+ * S9 HUD 네비모드에서 HUD 로 찍는 네이버 지도를 티맵처럼 전부 30% 작게 그린다:
+ * 지도 범위(줌), 글자·지명(심볼 배율), 경로선 굵기, 내 차 아이콘(NaverMarkerSize).
  *
  * 예전 방식(e79d704)은 앱 카메라를 직접 0.7단계 빼서 다시 설정했다. 네이버 안내가 줌을 계속
  * 다시 맞추므로 서로 줌을 고치다 지도가 깜빡였다. 여기서는 SDK 의 모든 카메라 이동이 지나가는
@@ -43,6 +44,8 @@ final class NaverZoomOffset {
     private static Field nativeField;
     private static Method getCamera;
     private static Method setCamera;
+    private static Method getSymbolScale;
+    private static Method setSymbolScale;
     private static boolean failureLogged;
 
     private NaverZoomOffset() { }
@@ -98,6 +101,24 @@ final class NaverZoomOffset {
                 }
             }
         });
+        // 글자·지명·POI 아이콘(심볼 배율): NativeMapView.a1(setSymbolScale) 에 WIDE_SCALE 을 곱하고
+        // V(getSymbolScale) 에서는 나눠 돌려준다. 앱(글자 크기 설정)은 원래 값만 본다.
+        XposedHelpers.findAndHookMethod(nativeView, "a1", float.class, new XC_MethodHook() {
+            @Override protected void beforeHookedMethod(MethodHookParam param) {
+                if (offset == 0d || param.thisObject != target) return;
+                param.args[0] = (Float) param.args[0] * WIDE_SCALE;
+            }
+        });
+        XposedHelpers.findAndHookMethod(nativeView, "V", new XC_MethodHook() {
+            @Override protected void afterHookedMethod(MethodHookParam param) {
+                Object result = param.getResult();
+                if (offset == 0d || param.thisObject != target || !(result instanceof Float)) return;
+                float value = (Float) result;
+                if (value > 0f) param.setResult(value / WIDE_SCALE);
+            }
+        });
+        getSymbolScale = nativeView.getMethod("V");
+        setSymbolScale = nativeView.getMethod("a1", float.class);
         // 경로선 굵기: 앱이 넣는 값(픽셀)을 기억해 두고, 네비모드에서는 WIDE_SCALE 을 곱한다.
         for (String name : PATH_CLASSES) {
             Class<?> path = cl.loadClass(name);
@@ -160,9 +181,13 @@ final class NaverZoomOffset {
             double wanted = EonDiscovery.wideMap ? WIDE_LEVELS : 0d;
             if (nativeView == target && wanted == offset) return;
             Object seen = getCamera.invoke(map);      // 이전 OFFSET 기준, 앱이 보던 카메라
+            Object symbols = getSymbolScale.invoke(nativeView);   // 앱이 보던 심볼 배율
             boolean modeChanged = wanted != offset;
             target = nativeView;
             offset = wanted;
+            if (symbols instanceof Float && (Float) symbols > 0f) {
+                setSymbolScale.invoke(nativeView, symbols);   // 새 비율로 다시 적용(훅이 곱함)
+            }
             if (modeChanged) reapplyPathWidths();
             if (seen != null) {
                 double zoom = seen.getClass().getField("zoom").getDouble(seen);
