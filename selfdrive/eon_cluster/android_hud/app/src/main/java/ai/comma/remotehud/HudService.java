@@ -147,8 +147,12 @@ public final class HudService extends Service {
     private static final float NAVI_BOX_CY = (225f + 507f) / 2f;
     /** 네비모드 냉각수·총주행거리: 오른쪽 칸 맨 아래, 총주행거리 오른쪽 끝(원래 1128)을 칸 끝에. */
     private static final float NAVI_INFO_DX = NAVI_COL_RIGHT - 1128f;
-    /** 네비모드 도착정보 바 아래끝: 냉각수 줄(온도계 위끝 약 659) 바로 위. */
-    private static final float NAVI_ETA_BOTTOM = 648f;
+    /** 네비모드 도착정보 바 아래끝: EON 박스 아래(507)와 냉각수 줄 위(약 659) 가운데에 오게. */
+    private static final float NAVI_ETA_BOTTOM = (507f + 659f) / 2f + 58f * NAVI_GUIDE_SCALE / 2f;
+    /** 네비모드: 주행 장면(도로·차)을 위로 올려 맨 아래 이벤트 표시와 자차가 겹치지 않게. */
+    private static final float NAVI_WORLD_LIFT = 60f;
+    /** 네비모드 이벤트 표시(경고 문구·차량 데이터 대기) 가운데 높이. */
+    private static final float NAVI_ALERT_CY = 670f;
     /** 네비모드 차로 안내 범위: 게이지 칸 오른쪽 ~ 오른쪽 칸 사이, 그 가운데. */
     private static final float NAVI_LANE_LEFT = 400f;
     private static final float NAVI_LANE_CX = (NAVI_LANE_LEFT + NAVI_COL_LEFT) / 2f;
@@ -2483,6 +2487,9 @@ public final class HudService extends Service {
                 frameDark ? Color.rgb(40, 150, 255) : Color.rgb(24, 126, 224));
 
         int worldSave = c.save();
+        if (naviLayout) {
+            c.translate(0f, -NAVI_WORLD_LIFT);
+        }
         // Canvas 렌더러가 없어졌으므로 GL 을 끄는 스위치도 없앴다. 끌 수 있게
         // 두면 주행 패널이 배경색만 남는다.
         boolean glDrawn = false;
@@ -2590,7 +2597,8 @@ public final class HudService extends Service {
         c.restoreToCount(tempSave);
         int clockSave = c.save();
         if (naviLayout) {
-            c.translate(NAVI_DRIVE_CX - DRIVE_MID, 52f);
+            // 네비모드: 지도 위 가운데(차로 안내와 같은 가운데).
+            c.translate(NAVI_LANE_CX - DRIVE_MID, 0f);
         }
         drawTopClock(c, p);
         c.restoreToCount(clockSave);
@@ -2626,7 +2634,7 @@ public final class HudService extends Service {
         if (naviLayout) {
             // 네비모드: 오른쪽 주행 칸 맨 아래(이벤트 표시).
             alertSave = c.save();
-            c.translate(NAVI_DRIVE_CX - DRIVE_CX, 646f - 336f);
+            c.translate(NAVI_DRIVE_CX - DRIVE_CX, NAVI_ALERT_CY - 326f);
         } else {
             alertSave = beginElement(c, l, "alert", DRIVE_CX, 336f);
         }
@@ -6458,11 +6466,25 @@ public final class HudService extends Service {
     }
 
     private void drawMapSourceBadge(Canvas c, Paint p, JSONObject s) {
-        // 네비모드: 오른쪽 칸 맨 위(회전 안내 위), 칸 오른쪽 끝에 맞춘다.
+        // 네비모드: 오른쪽 칸 맨 위(회전 안내 위). GPS 와 내비 이름을 합친 줄이 칸 폭과 같도록
+        // 이름 배지 폭을 맞추고(왼쪽 끝이 회전 안내·박스·도착정보와 한 줄), 모자라면 줄을 줄인다.
         final float right = naviLayout ? NAVI_COL_RIGHT : mapRight() - 18f;
         final float top = naviLayout ? NAVI_BADGE_TOP : 12f;
-        final float width = 146f;
+        float width = 146f;
         final float height = 48f;
+        int rowSave = c.save();
+        if (naviLayout) {
+            float gpsW = 0f;
+            if (gpsSourceIcons != null && gpsSourceMonitor != null) {
+                gpsW = gpsSourceIcons.width(gpsSourceMonitor.snapshot()) + 12f;
+            }
+            width = Math.max(100f, NAVI_COL_W - gpsW);
+            float row = width + gpsW;
+            if (row > NAVI_COL_W) {
+                float scale = NAVI_COL_W / row;
+                c.scale(scale, scale, right, top);
+            }
+        }
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(Color.argb(190, 28, 34, 40));
@@ -6471,6 +6493,7 @@ public final class HudService extends Service {
         text(c, p, NavSelectionProtocol.appLabel(s.optInt("hudNavApp", 1)),
                 right - width * 0.5f, top + 34f, 25f, Color.WHITE, Paint.Align.CENTER);
         drawGpsSourceBadge(c, p, right - width - 12f, top, height);
+        c.restoreToCount(rowSave);
     }
 
     /**
