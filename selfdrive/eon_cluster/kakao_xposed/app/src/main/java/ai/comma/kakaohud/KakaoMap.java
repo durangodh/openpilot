@@ -34,6 +34,20 @@ final class KakaoMap {
     // 12.3인치 HUD 6:4 지도칸(760x720)과 1:1.
     private static final int WIDTH = 760;
     private static final int HEIGHT = 720;
+    // HUD 네비모드(지도 1536x720 칸): 같은 화소 수로 가로를 넓힌다(EON 전송량 그대로).
+    private static final int WIDE_WIDTH = 1080;
+    private static final int WIDE_HEIGHT = 506;
+
+    private static int mapWidth() {
+        return EonDiscovery.wideMap ? WIDE_WIDTH : WIDTH;
+    }
+
+    private static int mapHeight() {
+        return EonDiscovery.wideMap ? WIDE_HEIGHT : HEIGHT;
+    }
+
+    /** 지금 서피스(ImageReader)가 만들어진 크기. 모드가 바뀌면 다시 만든다. */
+    private int surfaceW = WIDTH, surfaceH = HEIGHT;
     private static final int JPEG_QUALITY = 65;
     // 지도 엔진에 넘기는 화면 밀도. 폰 밀도(약 2.6~4)를 그대로 쓰면 760x720 지도에
     // 글자·도로가 2~3배 크게 그려진다. 티맵 HUD 지도(DPI 160)와 같은 크기로 맞춘다.
@@ -360,7 +374,8 @@ final class KakaoMap {
             moveCameraMethod.invoke(capturer, update);
 
             long t0 = android.os.SystemClock.elapsedRealtime();
-            Object bmpObj = captureMethod.invoke(capturer, WIDTH, HEIGHT);
+            int captureW = mapWidth(), captureH = mapHeight();
+            Object bmpObj = captureMethod.invoke(capturer, captureW, captureH);
             if (bmpObj == null) {
                 nullCount++;
                 if (nullCount == 1 || nullCount % 20 == 0) {
@@ -397,7 +412,7 @@ final class KakaoMap {
             lastFrameMs = now;
             sentCount++;
             if (sentCount == 1) {
-                KakaoHudLog.line("first map frame sent " + WIDTH + "x" + HEIGHT
+                KakaoHudLog.line("first map frame sent " + captureW + "x" + captureH
                         + " " + jpeg.length + "B");
             } else {
                 KakaoHudLog.status("map frames sent=" + sentCount);
@@ -636,6 +651,14 @@ final class KakaoMap {
             }
             return;
         }
+        if (surfaceW != mapWidth() || surfaceH != mapHeight()) {
+            // HUD 주행/네비모드가 바뀌었다. 서피스를 새 크기로 다시 만든다(다음 tick).
+            KakaoHudLog.line("map render size change " + surfaceW + "x" + surfaceH
+                    + " -> " + mapWidth() + "x" + mapHeight());
+            releaseSurface();
+            nextSurfaceAttemptMs = 0;
+            return;
+        }
         if (!surfaceReady) {
             if (now - surfaceCreatedAt > SURFACE_READY_TIMEOUT_MS) {
                 failSurface("init timeout", null);
@@ -664,7 +687,9 @@ final class KakaoMap {
         imageThread = new HandlerThread("kakao-hud-map-render");
         imageThread.start();
         imageHandler = new Handler(imageThread.getLooper());
-        reader = android.media.ImageReader.newInstance(WIDTH, HEIGHT,
+        surfaceW = mapWidth();
+        surfaceH = mapHeight();
+        reader = android.media.ImageReader.newInstance(surfaceW, surfaceH,
                 android.graphics.PixelFormat.RGBA_8888, 3);
         reader.setOnImageAvailableListener(this::onSurfaceImage, imageHandler);
 
@@ -699,7 +724,7 @@ final class KakaoMap {
         Object start = katecPoint.invoke(pointCompanion, curX, curY);
         surfaceClass.getMethod("init", pointClass, themeClass, Float.class, function1)
                 .invoke(mapSurface, start, null, null, complete);
-        KakaoHudLog.xposed("map render surface created " + WIDTH + "x" + HEIGHT);
+        KakaoHudLog.xposed("map render surface created " + surfaceW + "x" + surfaceH);
     }
 
     private void onSurfaceInit(Object target, Object error) {
@@ -783,7 +808,7 @@ final class KakaoMap {
         byte[] warm = warmSurfaceJpeg;
         if (surfaceFrames == 0 && warm != null && surfaceReadyAt != 0L
                 && now - surfaceReadyAt >= SURFACE_WARMUP_MS) {
-            publishSurfaceFrame(warm, now, WIDTH, HEIGHT);
+            publishSurfaceFrame(warm, now, surfaceW, surfaceH);
         }
         byte[] last = lastSurfaceJpeg;
         if (last != null && client.ready()
@@ -799,6 +824,11 @@ final class KakaoMap {
         KakaoHudLog.xposed("map render " + where + " failed (falling back to KNMMapCapturer)"
                 + (error == null ? "" : ": " + error));
         surfaceMode = false;
+        releaseSurface();
+    }
+
+    /** 서피스·ImageReader 를 정리한다. 메인 스레드. */
+    private void releaseSurface() {
         surfaceReady = false;
         Object surface = mapSurface;
         mapSurface = null;

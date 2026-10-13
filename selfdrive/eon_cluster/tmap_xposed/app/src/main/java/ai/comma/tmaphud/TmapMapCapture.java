@@ -40,6 +40,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class TmapMapCapture {
     // 12.3인치 HUD 6:4 지도칸(760x720)과 1:1.
     private static final int WIDTH = 760, HEIGHT = 720, JPEG_QUALITY = 65;
+    // HUD 네비모드(지도 1536x720 칸): 같은 화소 수로 가로를 넓힌다(EON 전송량 그대로).
+    private static final int WIDE_WIDTH = 1080, WIDE_HEIGHT = 506;
     private static final long FRAME_INTERVAL_MS = 200, CHECK_INTERVAL_MS = 40;
     private static final long REQUEST_TIMEOUT_MS = 600;
     private static final long CLEAR_AFTER_MS = 2000;
@@ -145,13 +147,15 @@ final class TmapMapCapture {
         TextureView texture = (TextureView) fieldValue(view, "mTextureView");
         SurfaceView surface = (SurfaceView) fieldValue(view, "mSurfaceView");
         Point center = screenCenter(view);
+        boolean wide = EonDiscovery.wideMap;
+        final int outW = wide ? WIDE_WIDTH : WIDTH, outH = wide ? WIDE_HEIGHT : HEIGHT;
         if (texture != null && texture.isAvailable() && texture.isShown()) {
             lastRequestAt = now;
             Bitmap full = texture.getBitmap();
             if (full != null) {
-                Rect src = cropRect(full.getWidth(), full.getHeight(), center);
-                Bitmap out = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
-                new Canvas(out).drawBitmap(full, src, new Rect(0, 0, WIDTH, HEIGHT),
+                Rect src = cropRect(full.getWidth(), full.getHeight(), center, outW, outH);
+                Bitmap out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
+                new Canvas(out).drawBitmap(full, src, new Rect(0, 0, outW, outH),
                         new Paint(Paint.FILTER_BITMAP_FLAG));
                 full.recycle();
                 encode(out);
@@ -161,8 +165,8 @@ final class TmapMapCapture {
         if (surface == null || !surface.getHolder().getSurface().isValid()) return;
         Rect frame = surface.getHolder().getSurfaceFrame();
         if (frame.width() <= 0 || frame.height() <= 0) return;
-        Rect src = cropRect(frame.width(), frame.height(), center);
-        final Bitmap out = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
+        Rect src = cropRect(frame.width(), frame.height(), center, outW, outH);
+        final Bitmap out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
         requestedAt = now;
         lastRequestAt = now;
         try {
@@ -192,7 +196,7 @@ final class TmapMapCapture {
                 ByteArrayOutputStream bytes = new ByteArrayOutputStream(80000);
                 image.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, bytes);
                 client.sendMap(Cnv2.frame(Cnv2.TYPE_IMAGE, Cnv2.FORMAT_JPEG, sequence++,
-                        bytes.toByteArray(), WIDTH, HEIGHT));
+                        bytes.toByteArray(), image.getWidth(), image.getHeight()));
                 main.post(() -> {
                     lastFrameAt = SystemClock.elapsedRealtime();
                     cleared = false;
@@ -263,12 +267,12 @@ final class TmapMapCapture {
         }
     }
 
-    /** 표면(w×h)에서 화면 중심을 기준으로 5:3 영역을 고른다. */
-    static Rect cropRect(int w, int h, Point center) {
-        int cropW = w, cropH = Math.round(w * HEIGHT / (float) WIDTH);
+    /** 표면(w×h)에서 화면 중심을 기준으로 출력(outW×outH) 비율의 영역을 고른다. */
+    static Rect cropRect(int w, int h, Point center, int outW, int outH) {
+        int cropW = w, cropH = Math.round(w * outH / (float) outW);
         if (cropH > h) {
             cropH = h;
-            cropW = Math.min(w, Math.round(h * WIDTH / (float) HEIGHT));
+            cropW = Math.min(w, Math.round(h * outW / (float) outH));
         }
         int cx = w / 2;
         int cy = Math.round(h * (h > w ? FALLBACK_CENTER_Y : 0.5f));

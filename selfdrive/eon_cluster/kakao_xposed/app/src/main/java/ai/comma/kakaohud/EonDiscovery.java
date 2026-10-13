@@ -12,6 +12,9 @@ import java.net.InetSocketAddress;
  * 네이버 브릿지도 같은 채널을 쓴다.
  */
 final class EonDiscovery {
+    /** EON 이 알려 준 HUD 네비모드(지도 가로 넓게 캡처) 여부. */
+    static volatile boolean wideMap;
+
     private static final int DISCOVERY_PORT = 7705;
 
     private final KakaoNaviClient client;
@@ -49,6 +52,8 @@ final class EonDiscovery {
                         if (!ip.isEmpty()) {
                             client.setHost(ip);
                         }
+                        // S9 HUD 네비모드(지도 8 : 주행 2)면 지도를 가로로 넓게 캡처한다.
+                        wideMap = obj.optInt("hud_wide_map", 0) == 1;
                     } catch (Throwable ignored) {
                         // 다른 브로드캐스트는 무시.
                     }

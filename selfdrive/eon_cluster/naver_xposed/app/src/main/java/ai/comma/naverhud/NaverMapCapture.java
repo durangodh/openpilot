@@ -29,6 +29,8 @@ import java.util.concurrent.atomic.AtomicReference;
 final class NaverMapCapture {
     // 12.3인치 HUD 6:4 지도칸(760x720)과 1:1. 더 넓은 범위가 같은 글자 크기로 보인다.
     private static final int WIDTH = 760, HEIGHT = 720, JPEG_QUALITY = 65;
+    // HUD 네비모드(지도 1536x720 칸): 같은 화소 수로 가로를 넓힌다(EON 전송량 그대로).
+    private static final int WIDE_WIDTH = 1080, WIDE_HEIGHT = 506;
     // 스냅샷 요청 간격(5fps = EON 지도 FPS 최대값). 이전 응답이 오면 바로 다음
     // 요청이 가능하도록 짧은 주기로 확인한다.
     private static final long FRAME_INTERVAL_MS = 200, CHECK_INTERVAL_MS = 40;
@@ -401,16 +403,18 @@ final class NaverMapCapture {
         // 지도가 실제로 그려진 범위만 골라 그 안에서 꽉 차게 자른다.
         Rect content = contentBounds(source);
         int sw = content.width(), sh = content.height();
-        float scale = Math.max(WIDTH / (float) sw, HEIGHT / (float) sh);
-        int cropW = Math.min(sw, Math.round(WIDTH / scale));
-        int cropH = Math.min(sh, Math.round(HEIGHT / scale));
+        boolean wide = EonDiscovery.wideMap;
+        int outW = wide ? WIDE_WIDTH : WIDTH, outH = wide ? WIDE_HEIGHT : HEIGHT;
+        float scale = Math.max(outW / (float) sw, outH / (float) sh);
+        int cropW = Math.min(sw, Math.round(outW / scale));
+        int cropH = Math.min(sh, Math.round(outH / scale));
         int left = content.left + (sw - cropW) / 2;
         int top = sh > sw ? Math.round(sh * 0.62f - cropH / 2f) : (sh - cropH) / 2;
         top = content.top + Math.max(0, Math.min(sh - cropH, top));
-        Bitmap out = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
+        Bitmap out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
         new Canvas(out).drawBitmap(source,
                 new Rect(left, top, left + cropW, top + cropH),
-                new Rect(0, 0, WIDTH, HEIGHT), new Paint(Paint.FILTER_BITMAP_FLAG));
+                new Rect(0, 0, outW, outH), new Paint(Paint.FILTER_BITMAP_FLAG));
         return out;
     }
 

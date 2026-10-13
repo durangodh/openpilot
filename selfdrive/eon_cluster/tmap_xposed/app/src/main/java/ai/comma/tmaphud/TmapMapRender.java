@@ -40,6 +40,19 @@ final class TmapMapRender {
     // carrot_navi_server manifest(map_main) + CarrotStreamConfig 기본값
     // 12.3인치 HUD 6:4 지도칸(760x720)과 1:1. DPI 는 그대로라 글자·차 아이콘 크기는 같다.
     private static final int WIDTH = 760, HEIGHT = 720, DPI = 160, FPS = 5, JPEG_QUALITY = 65;
+    // HUD 네비모드(지도 1536x720 칸): 같은 화소 수로 가로를 넓힌다(EON 전송량 그대로).
+    private static final int WIDE_WIDTH = 1080, WIDE_HEIGHT = 506;
+    /** 엔진이 지금 그리는 크기. EON 이 알려 준 HUD 모드가 바뀌면 syncSize 가 바꾼다. */
+    private int renderW = WIDTH, renderH = HEIGHT;
+    private volatile int frameW = WIDTH, frameH = HEIGHT;
+
+    private static int targetWidth() {
+        return EonDiscovery.wideMap ? WIDE_WIDTH : WIDTH;
+    }
+
+    private static int targetHeight() {
+        return EonDiscovery.wideMap ? WIDE_HEIGHT : HEIGHT;
+    }
     private static final float FOV = 40f, SCREEN_CENTER_Y = 0.8f;
     private static final int OBJECT_THEME_DAY = 5, OBJECT_THEME_NIGHT = 6;
     private static final int ROUTE_LINE_WIDTH = 166;
@@ -98,7 +111,7 @@ final class TmapMapRender {
             try {
                 initialize(ctx.getApplicationContext(), loader);
                 startedAt = SystemClock.elapsedRealtime();
-                TmapHudLog.xposed("map render engine started " + WIDTH + "x" + HEIGHT + "@" + FPS);
+                TmapHudLog.xposed("map render engine started " + renderW + "x" + renderH + "@" + FPS);
             } catch (Throwable error) {
                 running = false;
                 failures++;
@@ -116,7 +129,9 @@ final class TmapMapRender {
         imageThread = new HandlerThread("tmap-hud-map-render");
         imageThread.start();
         imageHandler = new Handler(imageThread.getLooper());
-        reader = ImageReader.newInstance(WIDTH, HEIGHT, PixelFormat.RGBA_8888, 3);
+        renderW = targetWidth();
+        renderH = targetHeight();
+        reader = ImageReader.newInstance(renderW, renderH, PixelFormat.RGBA_8888, 3);
         reader.setOnImageAvailableListener(this::onImageAvailable, imageHandler);
 
         engine = cl.loadClass("com.skt.tmap.vsm.map.NaviMapEngine").getConstructor(Context.class).newInstance(ctx);
@@ -152,8 +167,8 @@ final class TmapMapRender {
         }
         Object surface = inv(engine, "getSurface");
         invTyped(surface, "surfaceCreated", new Class<?>[]{Surface.class}, reader.getSurface());
-        inv(surface, "surfaceChanged", WIDTH, HEIGHT);
-        inv(engine, "setScreenCenter", new Point(WIDTH / 2, Math.round(HEIGHT * SCREEN_CENTER_Y)));
+        inv(surface, "surfaceChanged", renderW, renderH);
+        inv(engine, "setScreenCenter", new Point(renderW / 2, Math.round(renderH * SCREEN_CENTER_Y)));
         invTyped(engine, "onResume", new Class<?>[0]);
 
         Object nav = navigationManager();
@@ -178,7 +193,7 @@ final class TmapMapRender {
         if (!running) return;
         byte[] last = lastFrame;
         if (last != null && client.ready() && SystemClock.elapsedRealtime() - lastFrameAt >= 2000L / FPS) {
-            client.sendMap(Cnv2.frame(Cnv2.TYPE_IMAGE, Cnv2.FORMAT_JPEG, sequence++, last, WIDTH, HEIGHT));
+            client.sendMap(Cnv2.frame(Cnv2.TYPE_IMAGE, Cnv2.FORMAT_JPEG, sequence++, last, frameW, frameH));
         }
         Handler h = imageHandler;
         if (h != null) h.postDelayed(this::repeatLoop, 1000 / FPS);
@@ -282,6 +297,7 @@ final class TmapMapRender {
     private void syncLoop() {
         if (!running) return;
         try {
+            syncSize();
             syncRouteTraffic(mainEngine());
             syncNightMode();
             syncCamera();
@@ -289,6 +305,30 @@ final class TmapMapRender {
             TmapHudLog.status("map render sync: " + error);
         }
         main.postDelayed(this::syncLoop, 1000 / FPS);
+    }
+
+    /**
+     * 메인 스레드. HUD 주행/네비모드가 바뀌면 엔진 화면을 새 크기의 ImageReader 로 옮긴다
+     * (GLSurfaceView 와 같은 destroyed → created → changed 순서).
+     */
+    private void syncSize() {
+        int w = targetWidth(), h = targetHeight();
+        if (engine == null || imageHandler == null || (w == renderW && h == renderH)) return;
+        Object surface = inv(engine, "getSurface");
+        if (surface == null) return;
+        ImageReader old = reader;
+        ImageReader next = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 3);
+        next.setOnImageAvailableListener(this::onImageAvailable, imageHandler);
+        inv(surface, "surfaceDestroyed");
+        invTyped(surface, "surfaceCreated", new Class<?>[]{Surface.class}, next.getSurface());
+        inv(surface, "surfaceChanged", w, h);
+        reader = next;
+        lastFrame = null;   // 예전 크기 프레임을 새 크기로 다시 보내지 않는다.
+        TmapHudLog.line("map render size " + renderW + "x" + renderH + " -> " + w + "x" + h);
+        renderW = w;
+        renderH = h;
+        inv(engine, "setScreenCenter", new Point(w / 2, Math.round(h * SCREEN_CENTER_Y)));
+        try { if (old != null) old.close(); } catch (Throwable ignored) { }
     }
 
     /** 메인 스레드. 화면 지도가 보이면 그 카메라를, 아니면 엔진 주행 모드를 쓴다. */
@@ -333,8 +373,8 @@ final class TmapMapRender {
         Object pt = inv(source, "getScreenCenter");
         if (pt instanceof Point && sourceView.getWidth() > 0 && sourceView.getHeight() > 0) {
             Point p = (Point) pt;
-            inv(engine, "setScreenCenter", new Point(Math.round(WIDTH * p.x / (float) sourceView.getWidth()),
-                    Math.round(HEIGHT * p.y / (float) sourceView.getHeight())));
+            inv(engine, "setScreenCenter", new Point(Math.round(renderW * p.x / (float) sourceView.getWidth()),
+                    Math.round(renderH * p.y / (float) sourceView.getHeight())));
         }
         Object from = inv(source, "getViewSetting"), to = inv(engine, "getViewSetting");
         if (from != null && to != null) {
@@ -423,6 +463,8 @@ final class TmapMapRender {
             if (frame != padded) frame.recycle();
             padded.recycle();
             byte[] bytes = jpeg.toByteArray();
+            frameW = w;
+            frameH = h;
             lastFrame = bytes;
             lastFrameAt = now;
             client.sendMap(Cnv2.frame(Cnv2.TYPE_IMAGE, Cnv2.FORMAT_JPEG, sequence++, bytes, w, h));
