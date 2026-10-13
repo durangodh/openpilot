@@ -34,7 +34,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 따라간다. 화면이 꺼져도 지도가 나온다.
  *
  * 모든 호출은 리플렉션이다(난독화되지 않은 VSM/엔진 공개 API). 티맵 내부에 지도
- * 보기를 하나 더 등록하므로 확인한 버전에서만 켠다(TmapHudModule.behaviorHooksAllowed).
+ * 보기를 하나 더 등록하므로 확인한 11.8 계열에서만 켠다(TmapHudModule.mapRenderAllowed).
  * 시작에 실패하면 TmapMapCapture(PixelCopy)로 돌아간다.
  */
 final class TmapMapRender {

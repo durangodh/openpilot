@@ -45,6 +45,13 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
 
     /** 확인한 버전에서만 true. 앱 동작을 바꾸는 후킹은 이 값이 true 일 때만 설치한다. */
     static volatile boolean behaviorHooksAllowed = false;
+    /**
+     * 지도 엔진 렌더(TmapMapRender). 난독화되지 않은 VSM/NavigationManager 공개 이름만
+     * 리플렉션으로 부르고, 시작에 실패하면 화면 캡처로 돌아간다. 그래서 확인한 버전과 같은
+     * 11.8 계열이면 켠다(플레이스토어가 11.8.4 로 자동 업데이트해 HUD 지도 축소가 꺼졌었다).
+     */
+    static volatile boolean mapRenderAllowed = false;
+    private static final String RENDER_VERSION_PREFIX = "11.8.";
 
     private static boolean loaded = false;
 
@@ -113,10 +120,10 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
                         images.setContext(app);
                         // 패치판처럼 지도 엔진을 하나 더 만들어 그린다. 티맵 내부에 지도 보기를
                         // 등록하므로 확인한 버전에서만. 그 외에는 화면 캡처(PixelCopy).
-                        if (behaviorHooksAllowed) {
+                        if (mapRenderAllowed) {
                             bridge.setOnLive(() -> render.maybeStart(app, loader));
                         } else {
-                            TmapHudLog.line("map render engine off on unverified version; screen capture only");
+                            TmapHudLog.line("map render engine off on this version; screen capture only");
                         }
                         bridge.start();
                         map.start();
@@ -135,11 +142,15 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
             android.content.pm.PackageInfo info = ctx.getPackageManager().getPackageInfo(TMAP_PKG, 0);
             boolean verified = VERIFIED_VERSION.equals(info.versionName);
             behaviorHooksAllowed = verified;
+            mapRenderAllowed = verified || (info.versionName != null
+                    && info.versionName.startsWith(RENDER_VERSION_PREFIX));
             TmapHudLog.xposed("TMAP " + info.versionName + (verified
                     ? " verified"
-                    : " UNVERIFIED (read-only features only; behavior hooks stay off)"));
+                    : " UNVERIFIED (read-only features only; behavior hooks stay off)")
+                    + (mapRenderAllowed ? "; map render engine allowed" : ""));
         } catch (Throwable t) {
             behaviorHooksAllowed = false;
+            mapRenderAllowed = false;
             TmapHudLog.ex("appVersion", t);
         }
     }

@@ -5,12 +5,15 @@ import android.graphics.PointF;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 import java.util.WeakHashMap;
 
 import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 
 /**
@@ -22,7 +25,7 @@ import de.robv.android.xposed.XposedHelpers;
  * NativeMapView.h0(moveCamera) 에서 실제로 그릴 줌만 OFFSET 만큼 낮추고, 카메라를 읽는
  * NativeMapView.p(getCameraPosition) 에서는 그만큼 다시 더해 돌려준다. 앱(안내·제스처)은 늘
  * 원래 줌을 보고 원래 줌을 요청하므로 되먹임이 없다. 같은 NaverMap 을 쓰는 폰 화면도 같이
- * 넓게 보인다. 클래스·메서드 이름은 6.10.0.16 기준이라 검증 버전에서만 설치한다.
+ * 넓게 보인다. 메서드 이름은 6.10.0.16 기준이고, 다른 버전에서는 모양으로 찾는다(install).
  */
 final class NaverZoomOffset {
     /** 네비모드 축소 비율: 지물·경로선·내 차 마커 모두 이만큼(30% 작게). */
@@ -58,30 +61,39 @@ final class NaverZoomOffset {
 
     private NaverZoomOffset() { }
 
-    static void install(ClassLoader cl) throws Exception {
+    /**
+     * verified=false(확인하지 않은 네이버 버전): 난독화 이름(h0/p/M/C1)이 바뀌어도 되도록
+     * 메서드를 이름이 아니라 모양(반환·인자 타입)으로 찾는다. 6.10.0.16 에서 각 모양은
+     * 클래스 안에 하나뿐이었다. 둘 이상이거나 없으면 설치하지 않는다(엉뚱한 메서드를 후킹하지
+     * 않게). 글자 배율(a1/V)은 float 메서드가 많아 모양으로 가릴 수 없어 확인한 버전에서만.
+     */
+    static void install(ClassLoader cl, boolean verified) throws Exception {
         Class<?> nativeView = cl.loadClass("com.naver.maps.map.NativeMapView");
         Class<?> latLng = cl.loadClass("com.naver.maps.geometry.LatLng");
         Class<?> animation = cl.loadClass("com.naver.maps.map.CameraAnimation");
         Class<?> position = cl.loadClass("com.naver.maps.map.CameraPosition");
         Class<?> naverMap = cl.loadClass("com.naver.maps.map.NaverMap");
         positionCtor = position.getConstructor(latLng, double.class, double.class, double.class);
-        getCamera = XposedHelpers.findMethodExact(naverMap, "M");
-        setCamera = XposedHelpers.findMethodExact(naverMap, "C1", position);
-        if (getCamera.getReturnType() != position) {
-            throw new NoSuchMethodException("NaverMap.M is not getCameraPosition");
-        }
+        // NaverMap.getCameraPosition / setCameraPosition, NativeMapView.moveCamera /
+        // getCameraPosition (6.10.0.16: M, C1, h0, p).
+        getCamera = byShape(naverMap, position);
+        setCamera = byShape(naverMap, void.class, position);
+        Method moveCamera = byShape(nativeView, void.class, latLng, double.class, double.class,
+                double.class, PointF.class, int.class, animation, long.class, boolean.class);
+        Method readCamera = byShape(nativeView, position);
         for (Field field : naverMap.getDeclaredFields()) {
             if (field.getType() == nativeView) {
+                if (nativeField != null) throw new NoSuchFieldException("two NativeMapView fields");
                 field.setAccessible(true);
                 nativeField = field;
-                break;
             }
         }
         if (nativeField == null) {
             throw new NoSuchFieldException("NaverMap NativeMapView field");
         }
-        XposedHelpers.findAndHookMethod(nativeView, "h0", latLng, double.class, double.class,
-                double.class, PointF.class, int.class, animation, long.class, boolean.class,
+        NaverHudLog.line("HUD map zoom methods: " + getCamera.getName() + "/" + setCamera.getName()
+                + "/" + moveCamera.getName() + "/" + readCamera.getName());
+        XposedBridge.hookMethod(moveCamera,
                 new XC_MethodHook() {
                     @Override protected void beforeHookedMethod(MethodHookParam param) {
                         double levels = offset;
@@ -92,7 +104,7 @@ final class NaverZoomOffset {
                         }
                     }
                 });
-        XposedHelpers.findAndHookMethod(nativeView, "p", new XC_MethodHook() {
+        XposedBridge.hookMethod(readCamera, new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam param) {
                 double levels = offset;
                 Object result = param.getResult();
@@ -114,6 +126,7 @@ final class NaverZoomOffset {
         installed = true;
         XC_MethodHook.Unhook symbolWriteHook = null;
         try {
+            if (!verified) throw new NoSuchMethodException("symbol scale names unverified on this version");
             Method symbolGetter = XposedHelpers.findMethodExact(nativeView, "V");
             Method symbolSetter = XposedHelpers.findMethodExact(nativeView, "a1", float.class);
             if (symbolGetter.getReturnType() != float.class) {
@@ -161,6 +174,30 @@ final class NaverZoomOffset {
         }
         NaverHudLog.line("HUD map zoom offset hook ready (" + String.format(java.util.Locale.US,
                 "%.2f", WIDE_LEVELS) + " levels in navi layout)");
+    }
+
+    /** 공개·비정적 메서드 중 반환·인자 타입이 정확히 같은 것 하나. 없거나 여럿이면 예외. */
+    private static Method byShape(Class<?> owner, Class<?> returns, Class<?>... params)
+            throws NoSuchMethodException {
+        Method found = null;
+        for (Method m : owner.getDeclaredMethods()) {
+            int mod = m.getModifiers();
+            if (!Modifier.isPublic(mod) || Modifier.isStatic(mod) || m.isSynthetic()
+                    || m.getReturnType() != returns
+                    || !Arrays.equals(m.getParameterTypes(), params)) continue;
+            if (found != null) {
+                throw new NoSuchMethodException(owner.getSimpleName() + " has several "
+                        + returns.getSimpleName() + Arrays.toString(params) + ": "
+                        + found.getName() + ", " + m.getName());
+            }
+            found = m;
+        }
+        if (found == null) {
+            throw new NoSuchMethodException(owner.getSimpleName() + " has no "
+                    + returns.getSimpleName() + Arrays.toString(params));
+        }
+        found.setAccessible(true);
+        return found;
     }
 
     /** 지금 경로선·마커에 곱할 비율. 네비모드면 WIDE_SCALE, 아니면 1. */
