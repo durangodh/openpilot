@@ -98,7 +98,6 @@ def manager_init() -> None:
     ("EonClusterHudViewPitch", "0"),
     ("EonClusterHudFps", "10"),
     ("EonClusterHudMapFps", "3"),
-    ("NaverMapZoomOutLevel", "7"),
     ("EonClusterHudBrightness", "0"),
     ("EonClusterHudDayBrightness", "65"),
     ("EonClusterHudNightBrightness", "35"),

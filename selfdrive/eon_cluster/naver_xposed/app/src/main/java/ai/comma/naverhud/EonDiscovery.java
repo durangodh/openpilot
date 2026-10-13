@@ -8,8 +8,7 @@ import java.net.InetSocketAddress;
 
 /**
  * carrot_navi_server.discovery_loop 이 1초마다 255.255.255.255:7705 로 쏘는
- * {"ip":...,"navi_debug":0,"naver_map_zoom_out_level":0~20} 브로드캐스트를 받아
- * EON IP 와 지도 축소 비율을 알아낸다.
+ * {"ip":...,"navi_debug":0} 브로드캐스트를 받아 EON IP 를 알아낸다.
  * 네이버 모듈도 같은 채널을 쓴다.
  */
 final class EonDiscovery {
@@ -45,10 +44,6 @@ final class EonDiscovery {
                         String ip = obj.optString("ip", "");
                         if (!ip.isEmpty()) {
                             client.setHost(ip);
-                        }
-                        if (obj.has("naver_map_zoom_out_level")) {
-                            NaverMapCapture.setZoomOutLevels(
-                                    obj.optInt("naver_map_zoom_out_level", 7) / 10d);
                         }
                     } catch (Throwable ignored) {
                         // 다른 브로드캐스트는 무시.

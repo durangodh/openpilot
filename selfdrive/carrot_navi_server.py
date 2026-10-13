@@ -817,28 +817,16 @@ def handle_client(conn, state):
       pass
 
 
-def naver_map_zoom_out_level(params):
-  """NaverMapZoomOutLevel 0~20: 네이버 지도 카메라 축소 단계(0.1 단위, 7 = 0.7단계)."""
-  try:
-    value = int(params.get("NaverMapZoomOutLevel") or 7)
-  except (TypeError, ValueError):
-    value = 7
-  return max(0, min(20, value))
-
-
 def discovery_loop():
   sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-  params = Params()
   payload_ip = None
   while True:
     ip = local_ip()
     if ip != "127.0.0.1":
       payload_ip = ip
     if payload_ip:
-      # 네이버 모듈은 이 브로드캐스트로 EON IP 와 지도 카메라 축소 단계를 함께 받는다.
-      payload = json.dumps({"ip": payload_ip, "navi_debug": 0,
-                            "naver_map_zoom_out_level": naver_map_zoom_out_level(params)},
+      payload = json.dumps({"ip": payload_ip, "navi_debug": 0},
                            separators=(",", ":")).encode("utf-8")
       try:
         sock.sendto(payload, ("255.255.255.255", DISCOVERY_PORT))

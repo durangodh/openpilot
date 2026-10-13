@@ -807,13 +807,19 @@ final class ModelWorldGL {
             return true;
         }
         JSONObject position = scene.optJSONObject("lanePosition");
+        // The model lane itself is the primary evidence for rendering.  The
+        // road-edge based position estimate can temporarily disappear on
+        // curves, merges, shadows, or noisy edges; failing closed here hid a
+        // camera-visible adjacent lane that remained visible on the EON.
+        // Keep that lane unless a valid, confident position estimate
+        // explicitly says that no lane exists on this side.
         if (position == null || position.optDouble("confidence", 0d) < 0.40d) {
-            return false;
+            return true;
         }
         int count = position.optInt("n", 0);
         int current = position.optInt("cur", 0);
         if (count < 1 || current < 1 || current > count) {
-            return false;
+            return true;
         }
         return index == 0 ? current > 1 : index == 3 && current < count;
     }

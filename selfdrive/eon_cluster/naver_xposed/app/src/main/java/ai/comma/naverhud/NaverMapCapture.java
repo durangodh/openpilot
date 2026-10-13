@@ -29,22 +29,11 @@ import java.util.concurrent.atomic.AtomicReference;
 final class NaverMapCapture {
     // 12.3인치 HUD 6:4 지도칸(760x720)과 1:1. 더 넓은 범위가 같은 글자 크기로 보인다.
     private static final int WIDTH = 760, HEIGHT = 720, JPEG_QUALITY = 65;
-    // The 12.3-inch HUD makes NAVER's phone-oriented guidance camera look
-    // slightly enlarged. Apply a small camera offset instead of shrinking the
-    // captured bitmap, so the map still fills the HUD without borders and the
-    // existing snapshot/encode cadence stays unchanged.
-    // EON 설정 NaverMapZoomOutLevel(0.1 단위)로 바뀐다. 브로드캐스트 전에는 0.7.
-    private static volatile double hudZoomOutLevels = 0.7d;
-    private static final double APPLIED_ZOOM_EPSILON = 0.03d;
     // 스냅샷 요청 간격(5fps = EON 지도 FPS 최대값). 이전 응답이 오면 바로 다음
     // 요청이 가능하도록 짧은 주기로 확인한다.
     private static final long FRAME_INTERVAL_MS = 200, CHECK_INTERVAL_MS = 40;
     // 응답이 안 오는 요청을 포기하는 시간. 길면 그동안 지도가 멈춰 보인다.
     private static final long REQUEST_TIMEOUT_MS = 600;
-
-    static void setZoomOutLevels(double value) {
-        hudZoomOutLevels = Math.max(0d, Math.min(2d, value));
-    }
 
     private final NaverNaviClient client;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -84,11 +73,6 @@ final class NaverMapCapture {
     private volatile Object provider;
     private volatile Object store;   // NaviStore
     private Object activeMap;
-    private Object zoomAdjustedMap;
-    private double lastAppliedHudZoom = Double.NaN;
-    private double appliedZoomOutLevels;
-    private boolean zoomAppliedLogged;
-    private boolean zoomFailureLogged;
     // generation: 지도(NaverMap 객체)가 바뀔 때만 올린다. 이전 지도의 프레임만 버린다.
     // requestId  : 스냅샷 요청마다 올린다. 요청 중복 판단용이며 프레임 폐기 기준이 아니다.
     // 예전에는 한 번호로 둘 다 처리해서, 인코딩이 다음 요청(200ms)보다 늦으면
@@ -138,8 +122,6 @@ final class NaverMapCapture {
             generation++;
             requestedAt = 0;
             lastFrameAt = 0;
-            zoomAdjustedMap = null;
-            lastAppliedHudZoom = Double.NaN;
             // 야간 지도 확인용: Android Auto 지도(car)는 앱의 야간 설정이 아니라
             // 차량 주/야를 따를 수 있다. 화면 지도(phone)는 보이는 그대로다.
             if (map != null) NaverHudLog.xposed("snapshot map selected: " + mapSource
@@ -152,7 +134,6 @@ final class NaverMapCapture {
             }
             return;
         }
-        applyHudZoomOut(map);
         logStats(now);
         if (requestedAt != 0 && now - requestedAt < REQUEST_TIMEOUT_MS) return;
         if (requestedAt != 0) statTimeout++;   // 응답 없이 시간 초과
@@ -381,82 +362,6 @@ final class NaverMapCapture {
     }
 
     private static Method cachedSnapshot;
-    private static Method cachedCameraPositionGetter;
-    private static Method cachedCameraPositionSetter;
-
-    /**
-     * Keep NAVER's rendered map 0.7 zoom levels wider for the HUD. The last
-     * value is remembered so the 5 fps capture loop never subtracts the
-     * offset cumulatively. When NAVER updates its guidance camera, the new
-     * value differs from our last applied value and is adjusted once again.
-     */
-    private void applyHudZoomOut(Object map) {
-        try {
-            Method getter = cameraPositionGetter(map.getClass());
-            Object current = getter.invoke(map);
-            if (current == null) return;
-
-            Field zoomField = current.getClass().getField("zoom");
-            double currentZoom = zoomField.getDouble(current);
-            double levels = hudZoomOutLevels;
-            boolean untouched = map == zoomAdjustedMap && !Double.isNaN(lastAppliedHudZoom)
-                    && Math.abs(currentZoom - lastAppliedHudZoom) < APPLIED_ZOOM_EPSILON;
-            if (untouched && levels == appliedZoomOutLevels) return;
-            if (!untouched && levels <= 0d) return;
-            // 설정만 바뀐 경우: 이전에 뺀 만큼 되돌린 원래 줌에서 새 값을 뺀다.
-            double baseZoom = untouched ? currentZoom + appliedZoomOutLevels : currentZoom;
-
-            Object target = current.getClass().getField("target").get(current);
-            double tilt = current.getClass().getField("tilt").getDouble(current);
-            double bearing = current.getClass().getField("bearing").getDouble(current);
-            double hudZoom = Math.max(0d, baseZoom - levels);
-            Object adjusted = current.getClass()
-                    .getConstructor(target.getClass(), double.class, double.class, double.class)
-                    .newInstance(target, hudZoom, tilt, bearing);
-            cameraPositionSetter(map.getClass(), current.getClass()).invoke(map, adjusted);
-
-            zoomAdjustedMap = map;
-            lastAppliedHudZoom = hudZoom;
-            if (!zoomAppliedLogged || levels != appliedZoomOutLevels) {
-                zoomAppliedLogged = true;
-                NaverHudLog.line("HUD map zoom offset applied: -" + levels);
-            }
-            appliedZoomOutLevels = levels;
-        } catch (Throwable error) {
-            if (!zoomFailureLogged) {
-                zoomFailureLogged = true;
-                NaverHudLog.ex("HUD map zoom offset", error);
-            }
-        }
-    }
-
-    private static Method cameraPositionGetter(Class<?> mapClass) throws NoSuchMethodException {
-        Method method = cachedCameraPositionGetter;
-        if (method != null && method.getDeclaringClass().isAssignableFrom(mapClass)) return method;
-        for (Method candidate : mapClass.getMethods()) {
-            if (candidate.getParameterTypes().length == 0
-                    && "com.naver.maps.map.CameraPosition".equals(candidate.getReturnType().getName())) {
-                cachedCameraPositionGetter = candidate;
-                return candidate;
-            }
-        }
-        throw new NoSuchMethodException("NaverMap camera position getter");
-    }
-
-    private static Method cameraPositionSetter(Class<?> mapClass, Class<?> positionClass)
-            throws NoSuchMethodException {
-        Method method = cachedCameraPositionSetter;
-        if (method != null && method.getDeclaringClass().isAssignableFrom(mapClass)) return method;
-        for (Method candidate : mapClass.getMethods()) {
-            Class<?>[] params = candidate.getParameterTypes();
-            if (params.length == 1 && params[0] == positionClass
-                    && candidate.getReturnType() == void.class) {
-                cachedCameraPositionSetter = candidate;
-                return candidate;
-            }
-        }
-        throw new NoSuchMethodException("NaverMap camera position setter");
-    }
 
     /** 이름("p2")이 아니라 시그니처로 스냅샷 메서드를 찾는다. */
     private static Method snapshotMethod(Class<?> mapClass, Class<?> callbackType) {
