@@ -128,6 +128,19 @@ public final class HudService extends Service {
     private static final int MAP_RIGHT = 1720;
     private static final float MAP_CX = 1340f;
     private static final int SYSTEM_LEFT = 1728;
+    // 네비모드(hudNaviLayout=1): 지도가 왼쪽 0~1536 전체, 주행 화면은 오른쪽 좁은 칸.
+    // 게이지·과속카메라는 지금 좌표 그대로 지도 위에, 회전 안내·EON 박스·도착정보는
+    // 지금 TBT 자리(MAP_LEFT+2, 폭 342)를 오른쪽 칸으로 삼아 세로로 쌓는다.
+    private static final int NAVI_MAP_RIGHT = 1536;
+    private static final int NAVI_DRIVE_LEFT = NAVI_MAP_RIGHT + 8;
+    private static final float NAVI_DRIVE_CX = (NAVI_DRIVE_LEFT + WIDTH) / 2f;
+    private static final float NAVI_COL_W = 342f;
+    private static final float NAVI_BOX_CX = MAP_LEFT + 2f + NAVI_COL_W / 2f;
+    private static final float NAVI_BOX_CY = 427f;
+    /** 네비모드 냉각수·총주행거리: 연료 줄 오른쪽(지도 왼쪽 아래)으로 옮기는 거리. */
+    private static final float NAVI_INFO_DX = 400f - 865f;
+    /** 네비모드 차로 안내 가운데(총주행거리 오른쪽 ~ 오른쪽 칸 사이). */
+    private static final float NAVI_LANE_CX = (680f + MAP_LEFT) / 2f;
     private static final int SYSTEM_RIGHT = 1920;
 
     /**
@@ -369,6 +382,9 @@ public final class HudService extends Service {
     private volatile int junctionMode = 2;
     /** 화면 구성 1: 주행·티맵·시스템, 2: 주행·티맵만 */
     private int configuredLayoutMode = 1;
+    /** EON 이 정한 실제 배치: true 면 네비모드(지도 8 : 주행 2). */
+    private boolean naviLayout;
+    private boolean configuredNaviLayout;
     /** EON 선택 내비: 1=티맵, 2=네이버지도. */
     private volatile int configuredNavApp = 0;
     /** 출력 대상 1: 외부 USB HUD, 2: S9 화면, 3: 동시 출력 */
@@ -1829,6 +1845,7 @@ public final class HudService extends Service {
         tmapIconEnabled = currentState.optInt("hudTmapIcon", 0) != 0;
         junctionMode = Math.max(0, Math.min(2, currentState.optInt("hudJunction", 2)));
         configuredLayoutMode = Math.max(1, Math.min(2, currentState.optInt("hudLayoutMode", 1)));
+        configuredNaviLayout = currentState.optInt("hudNaviLayout", 0) == 1;
     }
 
     private boolean ensureUsbReady(long now) {
@@ -2368,6 +2385,18 @@ public final class HudService extends Service {
         frameDark = darkTheme();
         c.drawColor(Color.rgb(5, 8, 12));
 
+        // 네비모드는 지도 화면(SCREEN MODE 1)일 때만. 디버그·주행리포트는 기존 배치.
+        naviLayout = configuredNaviLayout && configuredScreenMode != 2 && configuredScreenMode != 3;
+        if (naviLayout) {
+            // 지도가 맨 아래, 그 위에 게이지·EON 박스, 그 위에 회전 안내·도착정보.
+            drawMapImage(c, p, s, map);
+            drawDriving(c, p, s);
+            drawMapOverlays(c, p, s, lane, trafficSignal);
+            applyThemeOverlay(c, p);
+            drawOemWarningPopup(c, p, s);
+            return;
+        }
+
         drawDriving(c, p, s);
 
         if (configuredLayoutMode == 1) {
@@ -2417,6 +2446,13 @@ public final class HudService extends Service {
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         int driveBg = lc(l, "driveBg", frameDark ? Color.rgb(22, 28, 36) : Color.rgb(226, 229, 231));
+        // 네비모드: 주행 장면(배경·도로·차·하늘)을 오른쪽 좁은 칸 가운데로 옮겨 자른다.
+        int columnSave = -1;
+        if (naviLayout) {
+            columnSave = c.save();
+            c.clipRect(NAVI_DRIVE_LEFT, 0f, WIDTH, HEIGHT);
+            c.translate(NAVI_DRIVE_CX - DRIVE_MID, 0f);
+        }
         p.setColor(driveBg);
         c.drawRect(0f, 0f, DRIVE_W, HEIGHT, p);
 
@@ -2511,6 +2547,9 @@ public final class HudService extends Service {
         c.restoreToCount(worldSave);
 
         drawSkyBand(c, p);
+        if (columnSave >= 0) {
+            c.restoreToCount(columnSave);
+        }
 
         // Existing lamp art stays unchanged; move the complete row inside
         // the panel, centred on the outside-temperature/range row.
@@ -2525,11 +2564,20 @@ public final class HudService extends Service {
         // EON HUD 박스와 원형 게이지로 옮겼다(2026-10-09).
         // 오른쪽 위: 날씨 그림 + 외기온도. 원래 주행가능거리가 있던 자리(932)에 오른쪽을 맞춘다.
         int tempSave = beginElement(c, l, "range", 932f, 44f);
+        if (naviLayout) {
+            // 오른쪽 주행 칸 위 오른쪽 끝(원래 오른쪽 끝 약 1128).
+            c.translate(WIDTH - 14f - 1128f, 0f);
+        }
         c.translate(932f - 790f, 0f);
         c.scale(TOP_ROW_SCALE, TOP_ROW_SCALE, 790f, 36f);
         drawOutsideTemp(c, p, s);
         c.restoreToCount(tempSave);
+        int clockSave = c.save();
+        if (naviLayout) {
+            c.translate(NAVI_DRIVE_CX - DRIVE_MID, 52f);
+        }
         drawTopClock(c, p);
+        c.restoreToCount(clockSave);
 
         // 하늘 띠 글자색 반전은 위쪽 등화 줄·날씨까지만 쓴다.
         skyBand = false;
@@ -2543,15 +2591,29 @@ public final class HudService extends Service {
         if (!stale) {
             int nooSave = c.save();
             // 박스 위 110~220 칸에 들어가도록 80% 로 줄인다(화살표 위 끝 ~ 상태 글자 아래 끝 약 125).
-            c.translate(EON_BOX_LEFT + EON_BOX_W, 110f);
+            if (naviLayout) {
+                // 네비모드: 오른쪽 주행 칸, 핸들 아이콘 아래.
+                c.translate(NAVI_DRIVE_CX, 250f);
+            } else {
+                c.translate(EON_BOX_LEFT + EON_BOX_W, 110f);
+            }
             c.scale(0.8f, 0.8f);
             c.translate(-NOO_CX, -(NOO_CY - 31f));
             drawNooTurn(c, p, s);
             c.restoreToCount(nooSave);
         }
+        int boxSave = beginNaviBox(c);
         drawEonHudBox(c, p, s, stale, enabled);
+        c.restoreToCount(boxSave);
 
-        int alertSave = beginElement(c, l, "alert", DRIVE_CX, 336f);
+        int alertSave;
+        if (naviLayout) {
+            // 네비모드: 오른쪽 주행 칸 맨 아래(이벤트 표시).
+            alertSave = c.save();
+            c.translate(NAVI_DRIVE_CX - DRIVE_CX, 646f - 336f);
+        } else {
+            alertSave = beginElement(c, l, "alert", DRIVE_CX, 336f);
+        }
         JSONObject alertBox = stale ? null : s.optJSONObject("alert");
         if (stale) {
             resetCountdown();
@@ -2579,9 +2641,28 @@ public final class HudService extends Service {
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(2f);
         p.setColor(cardEdge());
-        scratchRect.set(2f, 2f, DRIVE_W - 2f, HEIGHT - 4f);
+        if (naviLayout) {
+            scratchRect.set(NAVI_DRIVE_LEFT + 2f, 2f, WIDTH - 2f, HEIGHT - 4f);
+        } else {
+            scratchRect.set(2f, 2f, DRIVE_W - 2f, HEIGHT - 4f);
+        }
         c.drawRoundRect(scratchRect, 18f, 18f, p);
 
+    }
+
+    /**
+     * 네비모드: EON 박스(와 그 자리에 덮이는 경고 팝업)를 오른쪽 칸 폭(회전 안내와 같은
+     * 342)으로 키워 회전 안내와 도착정보 사이에 둔다. 주행모드에서는 아무것도 하지 않는다.
+     */
+    private int beginNaviBox(Canvas c) {
+        int save = c.save();
+        if (naviLayout) {
+            float scale = NAVI_COL_W / EON_BOX_W;
+            c.translate(NAVI_BOX_CX, NAVI_BOX_CY);
+            c.scale(scale, scale);
+            c.translate(-(EON_BOX_LEFT + EON_BOX_W / 2f), -(EON_BOX_TOP + EON_BOX_BOTTOM) / 2f);
+        }
+        return save;
     }
 
     /**
@@ -2611,7 +2692,8 @@ public final class HudService extends Service {
                 : prompt ? Color.rgb(255, 174, 82) : Color.WHITE;
 
         boolean full = alert.optString("size", "").toLowerCase(Locale.US).contains("full");
-        float maxWidth = 860f;
+        // 네비모드의 주행 칸은 376 폭이다.
+        float maxWidth = naviLayout ? 316f : 860f;
         float titleSize = full ? 38f : 30f;
         p.setTypeface(Typeface.create("sans", Typeface.BOLD));
         p.setTextSize(titleSize);
@@ -2631,7 +2713,7 @@ public final class HudService extends Service {
             detailWidth = p.measureText(text2);
         }
 
-        float boxWidth = Math.min(920f, Math.max(titleWidth, detailWidth) + 56f);
+        float boxWidth = Math.min(naviLayout ? 352f : 920f, Math.max(titleWidth, detailWidth) + 56f);
         float boxHeight = text2.length() > 0 ? titleSize + detailSize + 44f : titleSize + 34f;
         float cx = DRIVE_CX;
         float cy = 336f;
@@ -2660,9 +2742,11 @@ public final class HudService extends Service {
         if (eonStale()) {
             return;
         }
+        int naviSave = beginNaviBox(c);
         int popupSave = beginWarningBox(c);
         drawOemWarningPopupBody(c, p, s);
         c.restoreToCount(popupSave);
+        c.restoreToCount(naviSave);
     }
 
     private void drawOemWarningPopupBody(Canvas c, Paint p, JSONObject s) {
@@ -3646,9 +3730,15 @@ public final class HudService extends Service {
     private void drawLimitSign(Canvas c, Paint p, JSONObject s, boolean stale, boolean enabled) {
         int steerWarning = s.optBoolean("steerFaultPermanent", false) ? 2
                 : (s.optBoolean("steerFaultTemporary", false) ? 1 : 0);
+        int wheelSave = c.save();
+        if (naviLayout) {
+            // 네비모드: 핸들(인게이지) 표시는 오른쪽 주행 칸 왼쪽 위.
+            c.translate(NAVI_DRIVE_LEFT + 52f - WHEEL_X, 178f - WHEEL_Y);
+        }
         int signSave = scaleAbout(c, WHEEL_X, WHEEL_Y);
         drawSteeringWheel(c, p, WHEEL_X, WHEEL_Y, (float) s.optDouble("steer", 0d), enabled, steerWarning);
         c.restoreToCount(signSave);
+        c.restoreToCount(wheelSave);
         int bumpDist = stale ? 0 : (int) Math.round(s.optDouble("bumpDist", 0d));
         signSave = scaleAbout(c, CAM_X, CAM_Y);
         if (bumpDist > 0) {
@@ -3728,6 +3818,11 @@ public final class HudService extends Service {
                     : (float) Math.min(1d, 0.5d + (coolant - 105d) / 30d);
         }
         // 냉각수 게이지 왼쪽 끝(C)을 EON 박스 왼쪽 끝(EON_BOX_LEFT)에 맞춘다.
+        // 네비모드에서는 그 자리가 지도 오른쪽 칸이라 연료 줄 오른쪽으로 옮긴다.
+        int coolSave = c.save();
+        if (naviLayout) {
+            c.translate(NAVI_INFO_DX, 0f);
+        }
         drawInfoGauge(c, p, EON_BOX_LEFT, EON_BOX_LEFT + 100f, coolFrac, "C", "H", coolFrac > 0.9f);
         drawCoolantThermometer(c, p, EON_BOX_LEFT + 50f, INFO_Y - 34f);
 
@@ -3738,6 +3833,7 @@ public final class HudService extends Service {
         p.setTextSize(20f);
         p.setTypeface(Typeface.create("sans", Typeface.NORMAL));
         text(c, p, total, 1124f - p.measureText("km"), INFO_Y, 24f, ink(), Paint.Align.RIGHT);
+        c.restoreToCount(coolSave);
     }
 
     /** 주행패널 맨 위 가운데: 날짜(작게)·시간(크게), 상자 없이. 하늘 띠 글자색(ink)을 따른다. */
@@ -6029,7 +6125,13 @@ public final class HudService extends Service {
     }
 
     private float mapCenterX() {
-        return (MAP_LEFT + mapRight()) * 0.5f;
+        // 네비모드: 게이지 칸과 오른쪽 칸 사이(지도가 가려지지 않은 가운데).
+        return naviLayout ? (400f + MAP_LEFT) * 0.5f : (MAP_LEFT + mapRight()) * 0.5f;
+    }
+
+    /** 신호등·지도출처 배지의 오른쪽 끝. 네비모드는 오른쪽 칸(회전 안내) 왼쪽. */
+    private float overlayRight() {
+        return naviLayout ? MAP_LEFT - 12f : mapRight();
     }
 
     private void drawRightBase(Canvas c, Paint p, String title) {
@@ -6115,7 +6217,44 @@ public final class HudService extends Service {
 
     private void drawMap(Canvas c, Paint p, JSONObject s, Bitmap map, Bitmap tbtCurrent,
                          Bitmap tbtNext, Bitmap lane, Bitmap trafficSignal) {
-        scratchIRect.set(MAP_LEFT, 0, mapRight(), HEIGHT);
+        drawMapImage(c, p, s, map);
+        drawMapOverlays(c, p, s, lane, trafficSignal);
+    }
+
+    /**
+     * 지도 그림을 칸에 맞춘다. 주행모드는 예전처럼 칸에 그대로, 네비모드는 0~1536 칸을
+     * 비율을 지켜 꽉 채운다(넘치는 쪽은 가운데 기준으로 잘라냄). 휴대폰이 네비모드에서
+     * 가로로 넓게 보내면 거의 자르지 않고, 예전 760x720 이 오면 위아래를 자른다.
+     */
+    private Rect mapSource(Bitmap map) {
+        if (!naviLayout) {
+            return null;
+        }
+        int bw = map.getWidth(), bh = map.getHeight();
+        float dest = NAVI_MAP_RIGHT / (float) HEIGHT;
+        if (bw <= 0 || bh <= 0) {
+            return null;
+        }
+        if (bw / (float) bh < dest) {
+            int h = Math.max(1, Math.round(bw / dest));
+            int top = (bh - h) / 2;
+            mapSourceRect.set(0, top, bw, top + h);
+        } else {
+            int w = Math.max(1, Math.round(bh * dest));
+            int left = (bw - w) / 2;
+            mapSourceRect.set(left, 0, left + w, bh);
+        }
+        return mapSourceRect;
+    }
+
+    private final Rect mapSourceRect = new Rect();
+
+    private void drawMapImage(Canvas c, Paint p, JSONObject s, Bitmap map) {
+        if (naviLayout) {
+            scratchIRect.set(0, 0, NAVI_MAP_RIGHT, HEIGHT);
+        } else {
+            scratchIRect.set(MAP_LEFT, 0, mapRight(), HEIGHT);
+        }
         final boolean mapAvailable = map != null && !map.isRecycled();
         final long fadeNow = SystemClock.elapsedRealtime();
         if (!mapAvailable) {
@@ -6129,7 +6268,7 @@ public final class HudService extends Service {
                 // 이전 지도가 검게 어두워지며 사라진다.
                 p.setFilterBitmap(true);
                 p.setAlpha(Math.round(255f * (1f - fadeAge / (float) MAP_FADE_MS)));
-                c.drawBitmap(fadingMap, null, scratchIRect, p);
+                c.drawBitmap(fadingMap, mapSource(fadingMap), scratchIRect, p);
                 p.setAlpha(255);
             } else {
                 if (fadingMap != null) {
@@ -6158,10 +6297,10 @@ public final class HudService extends Service {
                 p.setColor(Color.BLACK);
                 c.drawRect(scratchIRect, p);
                 p.setAlpha(Math.round(255f * shownAge / (float) MAP_FADE_MS));
-                c.drawBitmap(map, null, scratchIRect, p);
+                c.drawBitmap(map, mapSource(map), scratchIRect, p);
                 p.setAlpha(255);
             } else {
-                c.drawBitmap(map, null, scratchIRect, p);
+                c.drawBitmap(map, mapSource(map), scratchIRect, p);
             }
             c.restoreToCount(mapSave);
         }
@@ -6178,6 +6317,9 @@ public final class HudService extends Service {
             c.drawRect(scratchIRect, p);
         }
 
+    }
+
+    private void drawMapOverlays(Canvas c, Paint p, JSONObject s, Bitmap lane, Bitmap trafficSignal) {
         // Navigation JSON is independent of map capture. In particular, NAVER
         // clears map_main while its Activity changes orientation or surfaces.
         // Keep valid guidance/ETA visible on the waiting background; their
@@ -6223,14 +6365,20 @@ public final class HudService extends Service {
                 float halfW = Math.min(w / 2f, (mapRight() - MAP_LEFT) / 2f);
                 float cx = MAP_LEFT + (mapRight() - MAP_LEFT) * frac;
                 cx = Math.max(MAP_LEFT + halfW, Math.min(mapRight() - halfW, cx));
+                if (naviLayout) {
+                    // 네비모드: 아래 가운데(총주행거리와 오른쪽 칸 사이).
+                    halfW = Math.min(w / 2f, (MAP_LEFT - 690f) / 2f);
+                    cx = NAVI_LANE_CX;
+                }
                 int save3 = beginElement(c, l, "lane", cx, (float) HEIGHT);
                 drawNativeOverlay(c, p, laneShown, cx - halfW, ETA_TOP, cx + halfW, (float) HEIGHT,
                         Paint.Align.CENTER);
                 c.restoreToCount(save3);
             } else if (laneShown != null) {
-                float laneLeft = JUNCTION_LEFT + JUNCTION_W + 8f;
+                float laneLeft = naviLayout ? 690f : JUNCTION_LEFT + JUNCTION_W + 8f;
+                float laneRight = naviLayout ? MAP_LEFT - 8f : mapRight() - 8f;
                 int save3 = beginElement(c, l, "lane", laneLeft, (float) HEIGHT);
-                drawNativeOverlay(c, p, laneShown, laneLeft, ETA_TOP, mapRight() - 8f, (float) HEIGHT,
+                drawNativeOverlay(c, p, laneShown, laneLeft, ETA_TOP, laneRight, (float) HEIGHT,
                         Paint.Align.LEFT);
                 c.restoreToCount(save3);
             }
@@ -6240,9 +6388,9 @@ public final class HudService extends Service {
         // separate transparent bitmap.  Render it after the night mask so red,
         // amber and green remain distinguishable.  NAVER versions which paint
         // the signal directly into map_main simply leave this asset absent.
-        int signalSave = beginElement(c, l, "signal", mapRight() - 169f, 164f);
+        int signalSave = beginElement(c, l, "signal", overlayRight() - 169f, 164f);
         drawNativeOverlay(c, p, trafficSignal,
-                mapRight() - 320f, 68f, mapRight() - 18f, 260f, Paint.Align.RIGHT);
+                overlayRight() - 320f, 68f, overlayRight() - 18f, 260f, Paint.Align.RIGHT);
         c.restoreToCount(signalSave);
 
         // Always keep the selected map source visible above native map labels.
@@ -6255,7 +6403,7 @@ public final class HudService extends Service {
     }
 
     private void drawMapSourceBadge(Canvas c, Paint p, JSONObject s) {
-        final float right = mapRight() - 18f;
+        final float right = overlayRight() - 18f;
         final float top = 12f;
         final float width = 146f;
         final float height = 48f;
@@ -6276,7 +6424,8 @@ public final class HudService extends Service {
     private void drawGpsSourceBadge(Canvas c, Paint p, float right, float top, float height) {
         if (gpsSourceIcons == null || gpsSourceMonitor == null) return;
         GpsSourceMonitor.Reading reading = gpsSourceMonitor.snapshot();
-        if (right - (MAP_LEFT + 356f) < gpsSourceIcons.width(reading)) return;
+        float leftLimit = naviLayout ? 400f : MAP_LEFT + 356f;
+        if (right - leftLimit < gpsSourceIcons.width(reading)) return;
         gpsSourceIcons.draw(c, right, top, reading);
     }
 

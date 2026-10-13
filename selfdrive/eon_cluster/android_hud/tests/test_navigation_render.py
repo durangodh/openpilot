@@ -44,6 +44,8 @@ public class NavigationRenderCheck {
   static final long MAP_FADE_MS=300L; Bitmap fadingMap; long fadingMapSince, mapShownSince;
   Bitmap trimmedLane(Bitmap b){return b==null||b.isRecycled()?null:b;}
   int mapRight(){return 1920;} float mapCenterX(){return 1440f;}
+  boolean naviLayout; static final int NAVI_MAP_RIGHT=1536; static final float NAVI_LANE_CX=920f;
+  float overlayRight(){return naviLayout?MAP_LEFT-12f:mapRight();}
   String lang(String ko,String en){return en;}
   JSONObject layout(JSONObject s){return new JSONObject();}
   int beginElement(Canvas c,JSONObject l,String k,float x,float y){return c.save();}
@@ -107,6 +109,10 @@ public class NavigationRenderCheck {
       c=new Canvas(); hud.drawMap(c,new Paint(),idle,null,null,null,lane,null);
       if(c.nativeOverlays!=0) throw new AssertionError("lane shown without a destination");
     }
+    // Navi layout (map 8 : drive 2) draws the same map, guidance and overlays.
+    hud.naviLayout=true; SystemClock.now+=1000L;
+    hud.check("navi layout",state(true,1000,200),new Bitmap(),signal,1,1,1);
+    hud.naviLayout=false;
     System.out.println("9 navigation rendering cases and map switch fades passed, including traffic signal overlay");
   }
 }
