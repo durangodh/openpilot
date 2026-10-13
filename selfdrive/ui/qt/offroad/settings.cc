@@ -1262,9 +1262,9 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "티맵 지도 수신·파일검사·S9 전송 속도입니다. 권장값 3 / 부하 최소 2 / 움직임 우선 5.",
       "../assets/offroad/icon_road.png", 2, 5, 1, 0, 3, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "NaverMapZoomOutLevel", "NAVER MAP ZOOM OUT (x0.1)",
-      "네이버 지도 카메라를 HUD 용으로 얼마나 멀리 볼지 정합니다(0.1 단계 단위). 0: 네이버 원래 줌 / 7: 0.7단계 축소(기본) / 20: 2단계 축소. 빈칸 없이 더 넓게 보이며 폰 지도도 같이 축소됩니다. 약 1초 안에 반영됩니다.",
-      "../assets/offroad/icon_road.png", 0, 20, 1, 0, 7, this));
+      "NaverMapZoomOut", "NAVER MAP ZOOM OUT (%)",
+      "네이버 지도를 HUD 지도칸에 넣을 때 얼마나 축소할지 정합니다. 0%: 지금처럼 칸을 꽉 채움(가장자리 잘림) / 100%: 지도 전체가 보이게 축소(남는 곳은 검은 여백) / 그 사이: 덜 잘리고 여백도 적은 절충. 약 1초 안에 반영됩니다.",
+      "../assets/offroad/icon_road.png", 0, 100, 10, 0, 0, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudBrightness", "S9 HUD BRIGHTNESS", "S9 외부 HUD 밝기: 0 주야간 자동 / 1~100 고정",
       "../assets/offroad/icon_road.png", 0, 100, 5, 0, 0, this));

@@ -11,9 +11,6 @@ import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
 
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-
 import java.io.ByteArrayOutputStream;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
@@ -32,21 +29,16 @@ import java.util.concurrent.atomic.AtomicReference;
 final class NaverMapCapture {
     // 12.3인치 HUD 6:4 지도칸(760x720)과 1:1. 더 넓은 범위가 같은 글자 크기로 보인다.
     private static final int WIDTH = 760, HEIGHT = 720, JPEG_QUALITY = 65;
-    // The 12.3-inch HUD makes NAVER's phone-oriented guidance camera look
-    // slightly enlarged. Apply a small camera offset instead of shrinking the
-    // captured bitmap, so the map still fills the HUD without borders and the
-    // existing snapshot/encode cadence stays unchanged.
-    // EON 설정 NaverMapZoomOutLevel(0.1 단위)로 바뀐다. 브로드캐스트 전에는 0.7.
-    private static volatile double hudZoomOutLevels = 0.7d;
-    private static final double APPLIED_ZOOM_EPSILON = 0.03d;
     // 스냅샷 요청 간격(5fps = EON 지도 FPS 최대값). 이전 응답이 오면 바로 다음
     // 요청이 가능하도록 짧은 주기로 확인한다.
     private static final long FRAME_INTERVAL_MS = 200, CHECK_INTERVAL_MS = 40;
     // 응답이 안 오는 요청을 포기하는 시간. 길면 그동안 지도가 멈춰 보인다.
     private static final long REQUEST_TIMEOUT_MS = 600;
+    // EON 설정 NaverMapZoomOut(0~1). 0 = 칸을 꽉 채움(잘라냄), 1 = 지도 전체를 축소해 넣음.
+    private static volatile float zoomOut = 0f;
 
-    static void setZoomOutLevels(double value) {
-        hudZoomOutLevels = Math.max(0d, Math.min(2d, value));
+    static void setZoomOut(float value) {
+        zoomOut = Math.max(0f, Math.min(1f, value));
     }
 
     private final NaverNaviClient client;
@@ -87,11 +79,6 @@ final class NaverMapCapture {
     private volatile Object provider;
     private volatile Object store;   // NaviStore
     private Object activeMap;
-    private Object zoomAdjustedMap;
-    private double lastAppliedHudZoom = Double.NaN;
-    private double appliedZoomOutLevels;
-    private boolean zoomAppliedLogged;
-    private boolean zoomFailureLogged;
     // generation: 지도(NaverMap 객체)가 바뀔 때만 올린다. 이전 지도의 프레임만 버린다.
     // requestId  : 스냅샷 요청마다 올린다. 요청 중복 판단용이며 프레임 폐기 기준이 아니다.
     // 예전에는 한 번호로 둘 다 처리해서, 인코딩이 다음 요청(200ms)보다 늦으면
@@ -141,8 +128,6 @@ final class NaverMapCapture {
             generation++;
             requestedAt = 0;
             lastFrameAt = 0;
-            zoomAdjustedMap = null;
-            lastAppliedHudZoom = Double.NaN;
             // 야간 지도 확인용: Android Auto 지도(car)는 앱의 야간 설정이 아니라
             // 차량 주/야를 따를 수 있다. 화면 지도(phone)는 보이는 그대로다.
             if (map != null) NaverHudLog.xposed("snapshot map selected: " + mapSource
@@ -155,7 +140,6 @@ final class NaverMapCapture {
             }
             return;
         }
-        applyHudZoomOut(map);
         logStats(now);
         if (requestedAt != 0 && now - requestedAt < REQUEST_TIMEOUT_MS) return;
         if (requestedAt != 0) statTimeout++;   // 응답 없이 시간 초과
@@ -384,126 +368,6 @@ final class NaverMapCapture {
     }
 
     private static Method cachedSnapshot;
-    private static Method cachedCameraPositionGetter;
-    private static Method cachedCameraPositionSetter;
-    private static volatile Method hookedCameraPositionSetter;
-    private static final ThreadLocal<Boolean> bypassCameraZoomHook = new ThreadLocal<>();
-
-    /**
-     * Install the zoom offset in NAVER's own camera-position setter.  The old
-     * capture loop changed the live map after NAVER had already rendered its
-     * guidance camera; NAVER then restored that camera and the two zoom values
-     * alternated on screen.  Adjusting the incoming position before it renders
-     * produces one stable camera update instead.
-     *
-     * A direct update is made only when the map instance or the user setting
-     * changes.  The 5 fps snapshot loop never writes the camera repeatedly.
-     */
-    private void applyHudZoomOut(Object map) {
-        try {
-            Method getter = cameraPositionGetter(map.getClass());
-            Object current = getter.invoke(map);
-            if (current == null) return;
-            Method setter = cameraPositionSetter(map.getClass(), current.getClass());
-            ensureCameraZoomHook(setter);
-
-            double levels = hudZoomOutLevels;
-            boolean mapChanged = map != zoomAdjustedMap;
-            boolean levelChanged = Double.compare(levels, appliedZoomOutLevels) != 0;
-            if (!mapChanged && !levelChanged) return;
-
-            Field zoomField = current.getClass().getField("zoom");
-            double currentZoom = zoomField.getDouble(current);
-            // When only the setting changes, restore the base zoom before
-            // applying the new offset.  A new map starts from its current zoom.
-            boolean stillAtOurZoom = !mapChanged && !Double.isNaN(lastAppliedHudZoom)
-                    && Math.abs(currentZoom - lastAppliedHudZoom) < APPLIED_ZOOM_EPSILON;
-            double baseZoom = stillAtOurZoom
-                    ? currentZoom + appliedZoomOutLevels : currentZoom;
-            double hudZoom = Math.max(0d, baseZoom - levels);
-            Object adjusted = cameraPositionAtZoom(current, hudZoom);
-
-            bypassCameraZoomHook.set(Boolean.TRUE);
-            try {
-                setter.invoke(map, adjusted);
-            } finally {
-                bypassCameraZoomHook.remove();
-            }
-
-            zoomAdjustedMap = map;
-            lastAppliedHudZoom = hudZoom;
-            if (!zoomAppliedLogged || levelChanged) {
-                zoomAppliedLogged = true;
-                NaverHudLog.line("HUD map zoom offset applied stably: -" + levels);
-            }
-            appliedZoomOutLevels = levels;
-        } catch (Throwable error) {
-            if (!zoomFailureLogged) {
-                zoomFailureLogged = true;
-                NaverHudLog.ex("HUD map zoom offset", error);
-            }
-        }
-    }
-
-    private static void ensureCameraZoomHook(Method setter) {
-        if (hookedCameraPositionSetter == setter) return;
-        synchronized (NaverMapCapture.class) {
-            if (hookedCameraPositionSetter == setter) return;
-            XposedBridge.hookMethod(setter, new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                    if (Boolean.TRUE.equals(bypassCameraZoomHook.get())
-                            || param.args == null || param.args.length != 1
-                            || param.args[0] == null) {
-                        return;
-                    }
-                    double levels = hudZoomOutLevels;
-                    if (levels <= 0d) return;
-                    Object position = param.args[0];
-                    double zoom = position.getClass().getField("zoom").getDouble(position);
-                    param.args[0] = cameraPositionAtZoom(position, Math.max(0d, zoom - levels));
-                }
-            });
-            hookedCameraPositionSetter = setter;
-        }
-    }
-
-    private static Object cameraPositionAtZoom(Object position, double zoom) throws Exception {
-        Object target = position.getClass().getField("target").get(position);
-        double tilt = position.getClass().getField("tilt").getDouble(position);
-        double bearing = position.getClass().getField("bearing").getDouble(position);
-        return position.getClass()
-                .getConstructor(target.getClass(), double.class, double.class, double.class)
-                .newInstance(target, zoom, tilt, bearing);
-    }
-
-    private static Method cameraPositionGetter(Class<?> mapClass) throws NoSuchMethodException {
-        Method method = cachedCameraPositionGetter;
-        if (method != null && method.getDeclaringClass().isAssignableFrom(mapClass)) return method;
-        for (Method candidate : mapClass.getMethods()) {
-            if (candidate.getParameterTypes().length == 0
-                    && "com.naver.maps.map.CameraPosition".equals(candidate.getReturnType().getName())) {
-                cachedCameraPositionGetter = candidate;
-                return candidate;
-            }
-        }
-        throw new NoSuchMethodException("NaverMap camera position getter");
-    }
-
-    private static Method cameraPositionSetter(Class<?> mapClass, Class<?> positionClass)
-            throws NoSuchMethodException {
-        Method method = cachedCameraPositionSetter;
-        if (method != null && method.getDeclaringClass().isAssignableFrom(mapClass)) return method;
-        for (Method candidate : mapClass.getMethods()) {
-            Class<?>[] params = candidate.getParameterTypes();
-            if (params.length == 1 && params[0] == positionClass
-                    && candidate.getReturnType() == void.class) {
-                cachedCameraPositionSetter = candidate;
-                return candidate;
-            }
-        }
-        throw new NoSuchMethodException("NaverMap camera position setter");
-    }
 
     /** 이름("p2")이 아니라 시그니처로 스냅샷 메서드를 찾는다. */
     private static Method snapshotMethod(Class<?> mapClass, Class<?> callbackType) {
@@ -541,18 +405,28 @@ final class NaverMapCapture {
     private static Bitmap fitCenterCrop(Bitmap source) {
         // 안내(3D) 지도 스냅샷은 하늘·가장자리가 투명(JPEG 에서 검정)으로 온다.
         // 지도가 실제로 그려진 범위만 골라 그 안에서 꽉 차게 자른다.
+        // 축소 비율(zoomOut)에 따라 "꽉 채움(fill)"과 "전체 보임(fit)" 사이 배율을 쓴다.
+        // 남는 곳은 검은 여백(JPEG 에서 투명 → 검정)으로 가운데 정렬한다.
         Rect content = contentBounds(source);
         int sw = content.width(), sh = content.height();
-        float scale = Math.max(WIDTH / (float) sw, HEIGHT / (float) sh);
+        float fill = Math.max(WIDTH / (float) sw, HEIGHT / (float) sh);
+        float fit = Math.min(WIDTH / (float) sw, HEIGHT / (float) sh);
+        float scale = fill + (fit - fill) * zoomOut;
         int cropW = Math.min(sw, Math.round(WIDTH / scale));
         int cropH = Math.min(sh, Math.round(HEIGHT / scale));
         int left = content.left + (sw - cropW) / 2;
         int top = sh > sw ? Math.round(sh * 0.62f - cropH / 2f) : (sh - cropH) / 2;
         top = content.top + Math.max(0, Math.min(sh - cropH, top));
+        int dw = Math.min(WIDTH, Math.round(cropW * scale));
+        int dh = Math.min(HEIGHT, Math.round(cropH * scale));
+        // 반올림 오차(1~2px)로 가장자리에 검은 줄이 생기지 않게 거의 꽉 찬 쪽은 칸 전체로.
+        if (dw >= WIDTH - 2) dw = WIDTH;
+        if (dh >= HEIGHT - 2) dh = HEIGHT;
+        int dx = (WIDTH - dw) / 2, dy = (HEIGHT - dh) / 2;
         Bitmap out = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888);
         new Canvas(out).drawBitmap(source,
                 new Rect(left, top, left + cropW, top + cropH),
-                new Rect(0, 0, WIDTH, HEIGHT), new Paint(Paint.FILTER_BITMAP_FLAG));
+                new Rect(dx, dy, dx + dw, dy + dh), new Paint(Paint.FILTER_BITMAP_FLAG));
         return out;
     }
 

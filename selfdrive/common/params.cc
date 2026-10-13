@@ -283,7 +283,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudFps", PERSISTENT},
     {"EonClusterHudGeometryV2Migrated", PERSISTENT},
     {"EonClusterHudMapFps", PERSISTENT},
-    {"NaverMapZoomOutLevel", PERSISTENT},    // 네이버 HUD 지도 카메라 축소 단계 0~20 (0.1 단위, 7=0.7)
+    {"NaverMapZoomOut", PERSISTENT},         // 네이버 HUD 지도 축소 비율 0~100 (0=꽉 채움)
     {"EonClusterHudJpegQuality", PERSISTENT},
     {"EonClusterHudScreenMode", PERSISTENT},
     {"EonClusterHudTheme", PERSISTENT},
