@@ -1,6 +1,7 @@
 package ai.comma.tmaphud;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
 import android.graphics.Point;
@@ -72,6 +73,7 @@ final class TmapMapRender {
     private volatile boolean running;
     private ClassLoader cl;
     private Context context;
+    private Context engineContext;
 
     private Object engine;              // NaviMapEngine
     private Object provider;            // ArrayLocationProvider<MatchedLocation>
@@ -146,7 +148,13 @@ final class TmapMapRender {
         reader = ImageReader.newInstance(renderW, renderH, PixelFormat.RGBA_8888, 3);
         reader.setOnImageAvailableListener(this::onImageAvailable, imageHandler);
 
-        engine = cl.loadClass("com.skt.tmap.vsm.map.NaviMapEngine").getConstructor(Context.class).newInstance(ctx);
+        // The native renderer may cache density in its constructor. Changing only
+        // ViewSetting afterwards is too late for those versions of the engine.
+        Configuration config = new Configuration(ctx.getResources().getConfiguration());
+        config.densityDpi = mapDpi();
+        engineContext = ctx.createConfigurationContext(config);
+        engine = cl.loadClass("com.skt.tmap.vsm.map.NaviMapEngine").getConstructor(Context.class)
+                .newInstance(engineContext);
         initializeObjectThemes(ctx);
         inv(engine, "setNaviMoveMode", 0);
         inv(engine, "setNaviViewMode", 3);
@@ -332,6 +340,14 @@ final class TmapMapRender {
         ImageReader next = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 3);
         next.setOnImageAvailableListener(this::onImageAvailable, imageHandler);
         inv(surface, "surfaceDestroyed");
+        // Keep the renderer's private resources in sync when the layout changes;
+        // never change the phone application's resources.
+        if (engineContext != null) {
+            Configuration config = new Configuration(engineContext.getResources().getConfiguration());
+            config.densityDpi = mapDpi();
+            engineContext.getResources().updateConfiguration(config,
+                    engineContext.getResources().getDisplayMetrics());
+        }
         // 밀도는 새 화면을 만들기 전에 바꾼다. 엔진이 화면 생성 때 밀도를 다시 읽는 경우에도
         // 주행/네비모드 전환이 시작 시와 똑같이 적용되게 한다(실차: 시작 때는 작게 나왔다).
         inv(inv(engine, "getViewSetting"), "setDensityDpi", mapDpi());
@@ -504,6 +520,7 @@ final class TmapMapRender {
         imageThread = null;
         imageHandler = null;
         engine = null;
+        engineContext = null;
         lastFrame = null;
     }
 
