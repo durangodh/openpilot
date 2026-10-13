@@ -163,7 +163,8 @@ public final class HudService extends Service {
     private static final float NAVI_LEFT_FADE_END = 390f;
     private static final float NAVI_RIGHT_FADE_START = NAVI_COL_LEFT - 8f;
     private static final float NAVI_FADE_EDGE = 60f;
-    private static final int NAVI_SIDE_FADE_ALPHA = 110;
+    // 2026-10-13 실차: 110 은 낮 지도(밝은 회색 위 밝은 회색)에서 거의 티가 안 났다.
+    private static final int NAVI_SIDE_FADE_ALPHA = 175;
     private static final int SYSTEM_RIGHT = 1920;
 
     /**
