@@ -196,6 +196,14 @@ def departure_jerk_upper(normal_upper, configured_start, pid_upper, assisted):
 LEAD_HOLD_S = 1.2
 LEAD_HOLD_MAX_DIST = 40.0
 LEAD_HOLD_MIN_CLOSING = 0.3   # m/s, 다가가는 중일 때만(멀어지는 차는 그냥 놓는다)
+# 거의 선 차에 빠르게 다가가다 놓친 경우만 더 멀리·더 오래 유지한다
+# (2026-10-14 long 1347.8 s: 61 m 앞 5 km/h 차를 36 km/h 차이로 다가가다 2.9초 놓침 →
+# 그사이 +0.5 가속 → 38 m 에서 다시 잡고 -2.5 급감속). 이 동안은 앞차 속도를 고정하고
+# 지금 내 속도로 상대속도를 다시 계산한다(내가 감속하면 다가가는 속도도 줄어든다).
+LEAD_HOLD_LONG_S = 3.5
+LEAD_HOLD_LONG_MAX_DIST = 80.0
+LEAD_HOLD_LONG_MAX_V_LEAD = 5.0     # m/s, 이보다 느린 앞차만
+LEAD_HOLD_LONG_MIN_CLOSING = 3.0    # m/s
 
 
 class LeadDropoutHold:
@@ -204,8 +212,20 @@ class LeadDropoutHold:
     self.lost_at = None
     self.last_t = None
     self.seen_at = None
+    self.hold_s = LEAD_HOLD_S
 
-  def update(self, lead, now):
+  def _hold_window(self, held):
+    """놓친 앞차를 유지할 시간(s). 유지 대상이 아니면 None."""
+    d0, v_rel = held.get('dRel', float('nan')), held.get('vRel', float('nan'))
+    if not (isfinite(d0) and isfinite(v_rel) and d0 > 0.0 and v_rel <= -LEAD_HOLD_MIN_CLOSING):
+      return None
+    v_lead = held.get('vLead', float('nan'))
+    if (isfinite(v_lead) and v_lead < LEAD_HOLD_LONG_MAX_V_LEAD and
+        v_rel <= -LEAD_HOLD_LONG_MIN_CLOSING and d0 <= LEAD_HOLD_LONG_MAX_DIST):
+      return LEAD_HOLD_LONG_S
+    return LEAD_HOLD_S if d0 <= LEAD_HOLD_MAX_DIST else None
+
+  def update(self, lead, now, v_ego=None):
     """lead: radard 의 leadOne dict. 끊김이면 이어 계산한 dict 를 돌려준다."""
     if lead.get('status', False):
       self.held = dict(lead)
@@ -217,20 +237,21 @@ class LeadDropoutHold:
     if held is None or self.last_t is None or self.seen_at is None:
       return lead
     if self.lost_at is None:
-      d0, v_rel = held.get('dRel', float('nan')), held.get('vRel', float('nan'))
-      if not (isfinite(d0) and isfinite(v_rel) and 0.0 < d0 <= LEAD_HOLD_MAX_DIST and
-              v_rel <= -LEAD_HOLD_MIN_CLOSING):
+      hold_s = self._hold_window(held)
+      if hold_s is None:
         self.held = None
         return lead
+      self.hold_s = hold_s
       self.lost_at = now
-    # 마지막으로 실제로 본 때부터 LEAD_HOLD_S 까지만.
-    if now - self.seen_at > LEAD_HOLD_S:
+    # 마지막으로 실제로 본 때부터 hold_s 까지만.
+    if now - self.seen_at > self.hold_s:
       self.held = None
       self.lost_at = None
       return lead
     dt = max(0.0, now - self.last_t)
     self.last_t = now
+    if self.hold_s > LEAD_HOLD_S and v_ego is not None and isfinite(v_ego) and 'vLead' in held:
+      held['vRel'] = held['vLead'] - v_ego
     held['dRel'] = max(0.5, held['dRel'] + held['vRel'] * dt)
     held['fcw'] = False
     return dict(held)
-

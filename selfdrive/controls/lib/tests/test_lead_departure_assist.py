@@ -172,3 +172,27 @@ def test_lead_dropout_hold_ignores_far_or_opening_leads():
   hold.update({'status': True, 'dRel': 20.0, 'vRel': 0.5}, 1.0)
   assert not hold.update({'status': False}, 1.1)['status']
 
+
+def test_lead_dropout_hold_long_keeps_far_slow_lead_longer():
+  from selfdrive.controls.lib.lead_departure import LeadDropoutHold, LEAD_HOLD_LONG_S
+  # 2026-10-14 long 1347.8 s: 61 m 앞 1.4 m/s 차에 10 m/s 로 다가가다 놓침.
+  lead = {'status': True, 'dRel': 60.7, 'vRel': -10.0, 'vLead': 1.4, 'fcw': False}
+  hold = LeadDropoutHold()
+  hold.update(lead, 0.0)
+  held = hold.update({'status': False}, 1.0, 10.4)
+  assert held['status'] and abs(held['vRel'] - (1.4 - 10.4)) < 1e-6
+  assert abs(held['dRel'] - (60.7 - 9.0)) < 1e-6
+  assert hold.update({'status': False}, LEAD_HOLD_LONG_S - 0.01, 10.4)['status']
+  assert not hold.update({'status': False}, LEAD_HOLD_LONG_S + 0.1, 10.4)['status']
+
+
+def test_lead_dropout_hold_long_ignores_moving_or_slowly_closed_leads():
+  from selfdrive.controls.lib.lead_departure import LeadDropoutHold
+  hold = LeadDropoutHold()
+  # 앞차가 빠르면(> 5 m/s) 기존 규칙: 40 m 넘으면 유지하지 않는다.
+  hold.update({'status': True, 'dRel': 60.0, 'vRel': -5.0, 'vLead': 8.0}, 0.0)
+  assert not hold.update({'status': False}, 0.1, 13.0)['status']
+  # 느린 앞차라도 천천히 다가가면(< 3 m/s) 기존 1.2초만.
+  hold.update({'status': True, 'dRel': 30.0, 'vRel': -1.0, 'vLead': 2.0}, 1.0)
+  assert hold.update({'status': False}, 2.1, 3.0)['status']
+  assert not hold.update({'status': False}, 2.3, 3.0)['status']

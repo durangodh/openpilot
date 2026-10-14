@@ -269,8 +269,9 @@ class RadarD():
       lead_one = get_lead(self.v_ego, self.ready, clusters, leads_v3[0], model_v_ego,
                           low_speed_override=True, mixRadarInfo=self.mix_radar_info,
                           prob_threshold=lead0_threshold, scc_only=self.scc_only)
-      # 가까이서 다가가던 앞차를 잠깐 놓쳐도 최대 1.2초는 같은 앞차로 이어 간다.
-      radarState.leadOne = self.lead_hold.update(lead_one, now)
+      # 가까이서 다가가던 앞차를 잠깐 놓쳐도 최대 1.2초(거의 선 차는 80 m·3.5초)는
+      # 같은 앞차로 이어 간다.
+      radarState.leadOne = self.lead_hold.update(lead_one, now, self.v_ego)
       radarState.leadTwo = get_lead(self.v_ego, self.ready, clusters, leads_v3[1], model_v_ego,
                                     low_speed_override=False, mixRadarInfo=self.mix_radar_info,
                                     scc_only=self.scc_only)
