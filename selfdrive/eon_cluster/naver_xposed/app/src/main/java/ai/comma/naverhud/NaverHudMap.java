@@ -166,6 +166,12 @@ final class NaverHudMap {
             return null;
         }
         Bitmap b = latest.getAndSet(null);
+        if (b != null && !active && blank(b)) {
+            // 지도 타일이 아직 안 그려진 첫 프레임(투명·한 색)은 JPEG 에서 검정이 되어 HUD 가운데가
+            // 까맣게 보였다(2026-10-14 실차). 지도가 그려질 때까지 보내지 않는다.
+            b.recycle();
+            return null;
+        }
         if (b != null && !active) {
             active = true;
             NaverHudLog.line("HUD map first frame " + b.getWidth() + "x" + b.getHeight());
@@ -284,6 +290,20 @@ final class NaverHudMap {
             }
         }
         call(hudMap, "C1", new Class<?>[]{positionType}, camera);
+    }
+
+    /** 8x8 표본이 거의 다 투명하거나 한 색이면 아직 지도가 안 그려진 프레임이다. */
+    private static boolean blank(Bitmap b) {
+        int w = b.getWidth(), h = b.getHeight();
+        int transparent = 0, same = 0, first = b.getPixel(w / 16, h / 16);
+        for (int y = 0; y < 8; y++) {
+            for (int x = 0; x < 8; x++) {
+                int c = b.getPixel(w * (2 * x + 1) / 16, h * (2 * y + 1) / 16);
+                if ((c >>> 24) < 16) transparent++;
+                if (c == first) same++;
+            }
+        }
+        return transparent > 48 || same > 60;
     }
 
     private void copyLocation(Object guided) {

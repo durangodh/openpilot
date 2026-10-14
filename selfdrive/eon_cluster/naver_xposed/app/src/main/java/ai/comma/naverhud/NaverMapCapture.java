@@ -183,6 +183,15 @@ final class NaverMapCapture {
                 }
                 return;
             }
+            if (hudMap.started() && lastHud != null) {
+                // HUD 지도를 다시 만드는 중(앱 전환·크기 설정 변경): 빈 화면이나 큰 폰 화면 대신
+                // 마지막 HUD 지도를 1초마다 다시 보낸다. 15초 안에 안 되면 NaverHudMap 이 포기한다.
+                if (now - lastHudAt >= 1000) {
+                    lastHudAt = now;
+                    queueFrame(lastHud.copy(Bitmap.Config.ARGB_8888, false), now);
+                }
+                return;
+            }
         }
         if (requestedAt != 0 && now - requestedAt < REQUEST_TIMEOUT_MS) return;
         if (requestedAt != 0) statTimeout++;   // 응답 없이 시간 초과
