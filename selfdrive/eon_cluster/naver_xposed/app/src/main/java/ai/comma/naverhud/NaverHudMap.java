@@ -133,12 +133,25 @@ final class NaverHudMap {
         return failed;
     }
 
+    // 시작 실패 뒤 다시 만들어 보기까지 기다리는 시간. 예전에는 한 번 실패하면 앱을 다시 켤 때까지
+    // 폰 화면 캡처(큰 지도)로 남았다.
+    private static final long RETRY_MS = 30000;
+    private long failedAt;
+    // 빈(투명·한 색) 첫 프레임은 이 시간 동안만 건너뛴다. 네이버 지도는 화면이 바뀔 때만 다시 그려서
+    // 서 있으면 다음 프레임이 안 온다: 계속 건너뛰면 15초 뒤 실패로 큰 폰 화면이 됐다(2026-10-14).
+    private static final long BLANK_SKIP_MS = 3000;
+    private Bitmap skippedBlank;
+
     boolean started() {
         return surface != null;
     }
 
     /** 메인 스레드. 필요하면 만들고, 안내 지도(guided)를 따라 그린다. 새 프레임이 있으면 돌려준다. */
     Bitmap frame(Context app, Object guided) {
+        if (failed && SystemClock.elapsedRealtime() - failedAt >= RETRY_MS) {
+            failed = false;
+            NaverHudLog.line("HUD map retry");
+        }
         if (failed || guided == null || app == null) return null;
         boolean wide = EonDiscovery.wideMap;
         float scale = EonDiscovery.mapScale;
@@ -166,12 +179,20 @@ final class NaverHudMap {
             return null;
         }
         Bitmap b = latest.getAndSet(null);
-        if (b != null && !active && blank(b)) {
+        boolean skipping = SystemClock.elapsedRealtime() - createdAt < BLANK_SKIP_MS;
+        if (b != null && !active && skipping && blank(b)) {
             // 지도 타일이 아직 안 그려진 첫 프레임(투명·한 색)은 JPEG 에서 검정이 되어 HUD 가운데가
-            // 까맣게 보였다(2026-10-14 실차). 지도가 그려질 때까지 보내지 않는다.
-            b.recycle();
+            // 까맣게 보였다(2026-10-14 실차). 처음 BLANK_SKIP_MS 동안은 보내지 않고 들고만 있는다.
+            if (skippedBlank != null) skippedBlank.recycle();
+            skippedBlank = b;
             return null;
         }
+        if (b == null && !active && !skipping && skippedBlank != null) {
+            b = skippedBlank;   // 그 뒤로 새 프레임이 없으면(정차) 들고 있던 프레임으로 시작한다.
+        } else if (skippedBlank != null && b != null) {
+            skippedBlank.recycle();
+        }
+        if (b != null) skippedBlank = null;
         if (b != null && !active) {
             active = true;
             NaverHudLog.line("HUD map first frame " + b.getWidth() + "x" + b.getHeight());
@@ -446,11 +467,16 @@ final class NaverHudMap {
         layersOn.clear();
         Bitmap b = latest.getAndSet(null);
         if (b != null) b.recycle();
+        if (skippedBlank != null) {
+            skippedBlank.recycle();
+            skippedBlank = null;
+        }
     }
 
     private void fail(String where, Throwable error) {
         NaverHudLog.ex("HUD map " + where + " failed (back to snapshot)", error);
         failed = true;
+        failedAt = SystemClock.elapsedRealtime();
         release();
     }
 
