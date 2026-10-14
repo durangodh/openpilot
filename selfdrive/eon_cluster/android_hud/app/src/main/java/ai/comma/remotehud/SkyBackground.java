@@ -136,7 +136,12 @@ final class SkyBackground {
         // 맑은 밤은 별과 달빛 번짐이 잘 보이도록 구름 없이 유지한다.
         if (icon == WeatherService.ICON_CLEAR && !day) count = 0;
         // 안개 속에서는 구름 윤곽이 보이지 않는다. 안개층이 대신 질감을 만든다.
-        if (count > 0 && icon != WeatherService.ICON_FOG) {
+        if (isNightOvercast(icon, day)) {
+            // 흐린 밤에는 햇빛 받은 뭉게구름이 보일 수 없다. 덩이 대신 낮게 깔린
+            // 층운(넓고 납작한 저대비 층 + 은은한 얼룩 + 도시광)으로 그린다.
+            drawNightStratus(c, p, width, height, bitmapHeight,
+                    cloudColor(icon, false), band[1], cloudPct, seedFor(icon));
+        } else if (count > 0 && icon != WeatherService.ICON_FOG) {
             if (icon == WeatherService.ICON_CLEAR && day) {
                 drawClearDayClouds(c, p, width, height, cloudColor(icon, true));
             } else {
@@ -250,7 +255,7 @@ final class SkyBackground {
                         : new int[]{Color.rgb(10, 14, 24), Color.rgb(34, 40, 54)};
             default:
                 return day ? new int[]{Color.rgb(132, 142, 152), Color.rgb(198, 205, 211)}
-                        : new int[]{Color.rgb(28, 34, 44), Color.rgb(58, 66, 78)};
+                        : new int[]{Color.rgb(22, 27, 36), Color.rgb(46, 52, 62)};
         }
     }
 
@@ -303,6 +308,107 @@ final class SkyBackground {
             return icon == WeatherService.ICON_FEW ? 7 : floor + 6;
         }
         return Math.max(floor, 2 + Math.round(cloudPct * 0.28f));
+    }
+
+    /** 흐림·비·눈·뇌우의 밤. 구름 덩이 대신 층운으로 그리는 상태. */
+    static boolean isNightOvercast(int icon, boolean day) {
+        if (day) {
+            return false;
+        }
+        return icon == WeatherService.ICON_OVERCAST || icon == WeatherService.ICON_RAIN
+                || icon == WeatherService.ICON_SNOW || icon == WeatherService.ICON_THUNDER;
+    }
+
+    /**
+     * 흐린 밤의 층운. 윗면 하이라이트·둥근 봉우리 없이
+     * ① 하늘 폭을 덮는 넓은 저대비 층 4겹 ② 길고 납작한 층적운 롤 3줄
+     * ③ 작은 난수 비트맵을 확대한 명암 얼룩(OVERLAY) ④ 가로 결 몇 줄
+     * ⑤ 밴드 아래쪽 아주 약한 도시광 순서로 깐다. 날씨가 바뀔 때만 그린다.
+     */
+    private static void drawNightStratus(Canvas c, Paint p, int w, int h, int bh,
+                                         int cloud, int bandBottom, int cloudPct, int seed) {
+        Random rnd = new Random(seed);
+        float cover = cloudPct < 0 ? 0.85f : Math.max(0.4f, Math.min(1f, cloudPct / 100f));
+        int deck = mix(cloud, bandBottom, 0.5f);
+        int rollTone = Color.rgb(128, 134, 146);
+        p.setStyle(Paint.Style.FILL);
+        p.setShader(null);
+
+        // ① 넓은 층
+        p.setMaskFilter(new BlurMaskFilter(Math.max(12f, h * 0.30f), BlurMaskFilter.Blur.NORMAL));
+        for (int k = 0; k < 4; k++) {
+            float y = h * (0.18f + 0.20f * k) + (rnd.nextFloat() - 0.5f) * h * 0.08f;
+            float hh = h * (0.16f + rnd.nextFloat() * 0.08f);
+            float x0 = -w * 0.15f + rnd.nextFloat() * w * 0.25f;
+            float x1 = w * 0.75f + rnd.nextFloat() * w * 0.40f;
+            p.setColor(mix(deck, bandBottom, 0.15f * k));
+            p.setAlpha(Math.round((40 + 18 * k) * (0.5f + 0.5f * cover)));
+            c.drawOval(x0, y - hh, x1, y + hh, p);
+        }
+
+        // ② 층적운 롤: 가로로 이어진 길쭉한 덩이, 크게 흐려 윤곽을 없앤다
+        float rowScale = h / 150f;
+        for (int row = 0; row < 3; row++) {
+            p.setMaskFilter(new BlurMaskFilter((16f + row * 3f) * rowScale,
+                    BlurMaskFilter.Blur.NORMAL));
+            float ry = h * (0.22f + 0.26f * row);
+            float x = -80f + rnd.nextFloat() * 120f;
+            while (x < w + 80f) {
+                float bw = (110f + rnd.nextFloat() * 170f + row * 30f) * rowScale;
+                float bhh = (20f + rnd.nextFloat() * 14f + row * 5f) * rowScale;
+                float yy = ry + (rnd.nextFloat() - 0.5f) * h * 0.10f;
+                p.setColor(mix(deck, rollTone, 0.25f + rnd.nextFloat() * 0.35f));
+                p.setAlpha(Math.round((55 + rnd.nextInt(40)) * (0.4f + 0.6f * cover)));
+                c.drawOval(x, yy - bhh, x + bw, yy + bhh, p);
+                x += bw * (0.55f + rnd.nextFloat() * 0.5f);
+            }
+        }
+        p.setMaskFilter(null);
+
+        // ③ 명암 얼룩: 회색 128 기준 OVERLAY 라 밝은 곳은 밝게, 어두운 곳은 어둡게
+        drawOverlayNoise(c, p, w, bh, 28, 5, rnd, Math.round(44 * (0.6f + 0.4f * cover)));
+        drawOverlayNoise(c, p, w, bh, 90, 9, rnd, Math.round(18 * (0.6f + 0.4f * cover)));
+
+        // ④ 층 가장자리의 가로 결
+        p.setMaskFilter(new BlurMaskFilter(10f, BlurMaskFilter.Blur.NORMAL));
+        for (int k = 0; k < 5; k++) {
+            float y = h * (0.12f + rnd.nextFloat() * 0.70f);
+            float cx = rnd.nextFloat() * w;
+            float lw = w * (0.18f + rnd.nextFloat() * 0.20f);
+            p.setColor(mix(deck, Color.WHITE, 0.10f));
+            p.setAlpha(22 + rnd.nextInt(14));
+            c.drawOval(cx - lw, y - 4f, cx + lw, y + 4f, p);
+        }
+        p.setMaskFilter(null);
+
+        // ⑤ 구름 밑을 비추는 도시 불빛 (따뜻한 색을 아주 조금 더한다)
+        p.setAlpha(255);
+        p.setShader(new LinearGradient(0f, h * 0.45f, 0f, h * 1.15f,
+                Color.BLACK, Color.rgb(16, 10, 4), Shader.TileMode.CLAMP));
+        p.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.ADD));
+        c.drawRect(0f, h * 0.45f, w, bh, p);
+        p.setXfermode(null);
+        p.setShader(null);
+    }
+
+    private static void drawOverlayNoise(Canvas c, Paint p, int w, int h,
+                                         int gw, int gh, Random rnd, int amp) {
+        Bitmap noise;
+        try {
+            noise = Bitmap.createBitmap(gw, gh, Bitmap.Config.ARGB_8888);
+        } catch (Throwable t) {
+            return;
+        }
+        int[] px = new int[gw * gh];
+        for (int i = 0; i < px.length; i++) {
+            int v = 128 + Math.round((rnd.nextFloat() * 2f - 1f) * amp);
+            px[i] = Color.rgb(v, v, v);
+        }
+        noise.setPixels(px, 0, gw, 0, 0, gw, gh);
+        Paint np = new Paint(Paint.FILTER_BITMAP_FLAG);
+        np.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.OVERLAY));
+        c.drawBitmap(noise, null, new android.graphics.RectF(0f, 0f, w, h), np);
+        noise.recycle();
     }
 
     private static int seedFor(int icon) {

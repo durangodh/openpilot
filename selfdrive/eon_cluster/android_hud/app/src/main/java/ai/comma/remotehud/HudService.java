@@ -151,6 +151,7 @@ public final class HudService extends Service {
     private static final int NAVI_SKY_HEIGHT = 150;
     private static final int NAVI_SKY_FADE_DEPTH = 80;
     private static final int NAVI_SKY_ALPHA = 165;
+    private static final int NAVI_SKY_ALPHA_OVERCAST_NIGHT = 215;
     private static final float NAVI_TBT_TOP = 62f;
     private static final float NAVI_BOX_CX = NAVI_COL_LEFT + NAVI_COL_W / 2f;
     private static final float NAVI_BOX_CY = (225f + 507f) / 2f;
@@ -4452,7 +4453,9 @@ public final class HudService extends Service {
         p.setColorFilter(null);
         // 네비에서는 지도의 지명과 오른쪽 주행 장면이 아주 옅게 비치게 해
         // 별도 사진을 붙인 느낌을 줄인다. 주행모드는 기존 농도를 유지한다.
-        p.setAlpha(naviLayout ? NAVI_SKY_ALPHA : 255);
+        // 흐린 밤 층운은 지도 지명이 구름 사이로 비치면 스티커처럼 보여 더 덮는다.
+        boolean nightOvercast = SkyBackground.isNightOvercast(icon, weather.isDay());
+        p.setAlpha(naviLayout ? (nightOvercast ? NAVI_SKY_ALPHA_OVERCAST_NIGHT : NAVI_SKY_ALPHA) : 255);
         c.drawBitmap(sky.bitmap, 0f, 0f, p);
         p.setAlpha(255);
         skyBand = true;
