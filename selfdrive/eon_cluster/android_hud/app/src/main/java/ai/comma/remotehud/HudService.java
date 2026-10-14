@@ -2644,8 +2644,15 @@ public final class HudService extends Service {
 
         // 하늘 띠 글자색 반전은 위쪽 등화 줄·날씨까지만 쓴다.
         skyBand = false;
-        drawSpeedRing(c, p, stale ? -1 : s.optInt("speed", 0),
-                stale ? -1 : s.optInt("rpm", -1), lv(l, "rpmRedline", 6500f));
+        int speed = stale ? -1 : s.optInt("speed", 0);
+        int cameraLimit = stale ? 0 : s.optInt("camera", 0);
+        int cameraDistance = stale ? 0 : s.optInt("cameraDist", 0);
+        boolean cameraOverspeed = cameraLimit > 0 && cameraDistance > 0
+                && speed >= cameraLimit + CAMERA_OVERSPEED_MARGIN_KPH;
+        boolean cameraWarningOn = cameraOverspeed
+                && (SystemClock.uptimeMillis() / CAMERA_WARNING_BLINK_MS & 1L) == 0L;
+        drawSpeedRing(c, p, speed, stale ? -1 : s.optInt("rpm", -1),
+                lv(l, "rpmRedline", 6500f), cameraWarningOn);
 
         drawLimitSign(c, p, s, stale, enabled);
         drawInfoRow(c, p, s);
@@ -3688,8 +3695,11 @@ public final class HudService extends Service {
     private static final int GAUGE_RED_DEEP = Color.rgb(150, 24, 30);
     private static final int GAUGE_RED = Color.rgb(255, 84, 84);
     private static final BlurMaskFilter GAUGE_GLOW = new BlurMaskFilter(9f, BlurMaskFilter.Blur.NORMAL);
+    private static final int CAMERA_OVERSPEED_MARGIN_KPH = 5;
+    private static final long CAMERA_WARNING_BLINK_MS = 500L;
 
-    private void drawSpeedRing(Canvas c, Paint p, int speed, int rpm, float redline) {
+    private void drawSpeedRing(Canvas c, Paint p, int speed, int rpm, float redline,
+                               boolean cameraWarningOn) {
         float limit = redline > 100f ? redline : 6500f;
         float frac = rpm < 0 ? 0f : Math.max(0f, Math.min(1f, rpm / limit));
         float redFrac = Math.max(0f, Math.min(1f, 5000f / limit));
@@ -3764,6 +3774,24 @@ public final class HudService extends Service {
             c.drawLine(RING_CX + (inner + 3f) * cos, RING_CY + (inner + 3f) * sin,
                     RING_CX + (outer - 3f) * cos, RING_CY + (outer - 3f) * sin, p);
             p.setStrokeCap(Paint.Cap.BUTT);
+        }
+        // 과속카메라 제한속도보다 5 km/h 이상 빠를 때는 전체 속도계 링을
+        // 0.5초 간격으로 빨갛게 점멸한다. 숫자는 그대로 유지해 즉시 읽을 수 있게 한다.
+        if (cameraWarningOn) {
+            p.setShader(null);
+            p.setMaskFilter(GAUGE_GLOW);
+            p.setAlpha(155);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(RING_BAND + 5f);
+            p.setColor(Color.rgb(255, 36, 42));
+            scratchRect.set(RING_CX - RING_R, RING_CY - RING_R,
+                    RING_CX + RING_R, RING_CY + RING_R);
+            c.drawArc(scratchRect, RING_START, RING_SWEEP, false, p);
+            p.setMaskFilter(null);
+            p.setAlpha(255);
+            p.setStrokeWidth(RING_BAND - 3f);
+            p.setColor(Color.rgb(235, 24, 32));
+            c.drawArc(scratchRect, RING_START, RING_SWEEP, false, p);
         }
         int numberInk = frameDark ? Color.rgb(236, 240, 243) : Color.rgb(40, 44, 48);
         String value = speed < 0 ? "--" : Integer.toString(speed);
