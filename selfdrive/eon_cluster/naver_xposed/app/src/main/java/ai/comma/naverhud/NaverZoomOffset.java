@@ -31,6 +31,11 @@ final class NaverZoomOffset {
     /** 네비모드 축소 비율: 지물·경로선·내 차 마커 모두 이만큼(30% 작게). */
     static final float WIDE_SCALE = 0.7f;
     /**
+     * 네이버 안내 지도는 주행모드에서부터 티맵·카카오보다 가깝게(크게) 보인다. 주행모드 대비
+     * 30% 만으로는 네비모드에서 다른 지도보다 커 보였다(2026-10-14 실차) → 20% 더 줄인다.
+     */
+    static final float NAVER_EXTRA = 0.8f;
+    /**
      * 네비모드에서 실제로 쓰는 비율. 세로 폰 화면은 HUD 네비 칸(1536)에 맞추느라 주행모드보다
      * 약 2배 크게 늘어나므로(NaverMapCapture.reportCaptureRatio) 그만큼 더 줄여 주행모드 대비
      * WIDE_SCALE 이 되게 한다.
@@ -274,7 +279,7 @@ final class NaverZoomOffset {
      */
     static void reportCaptureRatio(float ratio) {
         if (!(ratio > 0f)) return;
-        float wanted = Math.max(0.25f, Math.min(1f, WIDE_SCALE / ratio));
+        float wanted = Math.max(0.2f, Math.min(1f, WIDE_SCALE * NAVER_EXTRA / ratio));
         wanted = Math.round(wanted * 20f) / 20f;
         if (Math.abs(wanted - wideScale) >= 0.049f) {
             wideScale = wanted;
