@@ -14,7 +14,7 @@ import java.net.InetSocketAddress;
 final class EonDiscovery {
     /** EON 이 알려 준 HUD 네비모드(지도 가로 넓게 캡처) 여부. */
     static volatile boolean wideMap;
-    /** 네비모드 HUD 지도 크기(주행모드 대비 비율, EON 설정 hud_map_scale_tmap). */
+    /** 네비모드 HUD 지도 크기(휴대폰 앱 원본 축척 대비 비율, EON 설정 hud_map_scale_tmap). */
     static volatile float mapScale = 0.70f;
     /** EON 방송을 한 번이라도 받았는지. 받기 전에는 HUD 모드(wideMap)를 모른다. */
     static volatile boolean received;

@@ -49,14 +49,17 @@ final class TmapMapRender {
     private int renderDpi = DPI;
     private volatile int frameW = WIDTH, frameH = HEIGHT;
 
+    /** 휴대폰 화면 밀도(dpi). 티맵 앱 원본 지도(MapViewStreaming)가 이 밀도로 그려진다. */
+    private static volatile int phoneDpi = 420;
+
     /**
-     * HUD 네비모드: 엔진 밀도를 낮춰 같은 화면에 더 넓은 범위를 그린다. HUD 가 1080 폭 지도를
-     * 1536 폭으로 1.42배 늘려 그리므로 그만큼 더 낮춰, HUD 에서 주행모드보다 30% 작게 보이게 한다
-     * (160 × 0.7 / 1.42 ≈ 79). 0.7 은 EON 설정(EonClusterHudMapScaleTmap). 주행모드는 그대로 160.
+     * HUD 지도 엔진 밀도. 주행모드는 DPI(160) 그대로. 네비모드는 EON 설정
+     * (EonClusterHudMapScaleTmap, 휴대폰 앱 원본 축척 대비 %)이고, HUD 가 1080 폭 프레임을
+     * 1536 폭으로 늘리는 것까지 뺀다. 예: 420dpi 폰, 70% → 420 × 0.7 × 1080/1536 ≈ 207dpi.
      */
     private static int mapDpi() {
         return EonDiscovery.wideMap
-                ? Math.round(DPI * EonDiscovery.mapScale * WIDE_WIDTH / 1536f) : DPI;
+                ? Math.round(phoneDpi * EonDiscovery.mapScale * WIDE_WIDTH / 1536f) : DPI;
     }
 
     private static int targetWidth() {
@@ -122,6 +125,12 @@ final class TmapMapRender {
         // EON 방송(1초 주기)을 받기 전에 시작하면 HUD 네비모드를 모른 채 주행모드 크기·밀도로
         // 엔진이 만들어진다. 이 엔진은 시작 뒤 밀도 변경을 무시해 네비모드 지도가 크게 나왔다.
         if (!EonDiscovery.received) return;
+        try {
+            int dpi = ctx.getResources().getDisplayMetrics().densityDpi;
+            if (dpi > 0) phoneDpi = dpi;
+        } catch (Throwable ignored) {
+            // 기본값(420) 사용
+        }
         start(ctx, loader);
     }
 

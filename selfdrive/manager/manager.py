@@ -106,7 +106,7 @@ def manager_init() -> None:
     ("EonClusterHudNaviLayout", "0"),
     ("EonClusterHudMapScaleTmap", "70"),
     ("EonClusterHudMapScaleKakao", "70"),
-    ("EonClusterHudMapScaleNaver", "55"),
+    ("EonClusterHudMapScaleNaver", "70"),
     ("EonClusterHudNavApp", "1"),
     ("EonClusterHudScreenMode", "1"),
     ("EonClusterHudTheme", "0"),

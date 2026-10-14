@@ -14,8 +14,8 @@ import java.net.InetSocketAddress;
 final class EonDiscovery {
     /** EON 이 알려 준 HUD 네비모드(지도 가로 넓게 캡처) 여부. */
     static volatile boolean wideMap;
-    /** 네비모드 HUD 지도 크기(주행모드 대비 비율, EON 설정 hud_map_scale_naver). */
-    static volatile float mapScale = 0.55f;
+    /** 네비모드 HUD 지도 크기(휴대폰 앱 원본 축척 대비 비율, EON 설정 hud_map_scale_naver). */
+    static volatile float mapScale = 0.70f;
 
     private static final int DISCOVERY_PORT = 7705;
 
@@ -52,7 +52,7 @@ final class EonDiscovery {
                         }
                         // S9 HUD 네비모드(지도 8 : 주행 2)면 지도를 가로로 넓게 캡처한다.
                         wideMap = obj.optInt("hud_wide_map", 0) == 1;
-                        int scale = obj.optInt("hud_map_scale_naver", 55);
+                        int scale = obj.optInt("hud_map_scale_naver", 70);
                         mapScale = Math.max(30, Math.min(100, scale)) / 100f;
                     } catch (Throwable ignored) {
                         // 다른 브로드캐스트는 무시.

@@ -151,6 +151,12 @@ final class KakaoMap {
     void start(ClassLoader cl, Context ctx) {
         this.cl = cl;
         this.context = ctx;
+        try {
+            int dpi = ctx.getResources().getDisplayMetrics().densityDpi;
+            if (dpi > 0) phoneDpi = dpi;
+        } catch (Throwable ignored) {
+            // 기본값(420) 사용
+        }
         thread = new HandlerThread("kakao-map-capture");
         thread.start();
         handler = new Handler(thread.getLooper());
@@ -472,16 +478,23 @@ final class KakaoMap {
         if (EonDiscovery.wideMap && !surfaceMode) {
             // HUD 네비모드(캡처러 폴백): 밀도를 바꿀 수 없어 줌으로만 30% 넓힌다(마커·경로선 그대로).
             // 서피스 렌더는 mapDensityContext 의 밀도로 지도·경로선·마커를 함께 30% 작게 그린다.
-            zoom *= 1536f / 1080f / EonDiscovery.mapScale;
+            zoom *= 1536f / 1080f / EonDiscovery.mapScale * MAP_DPI / phoneDpi;
         }
         update = zoomTo.invoke(update, zoom);
         return update;
     }
 
-    /** HUD 지도 밀도. 네비모드 비율 0.7 은 EON 설정(EonClusterHudMapScaleKakao). */
+    /** 휴대폰 화면 밀도(dpi). 카카오 앱 원본 지도가 이 밀도로 그려진다. */
+    private static volatile int phoneDpi = 420;
+
+    /**
+     * HUD 지도 밀도. 주행모드는 MAP_DPI 그대로. 네비모드는 EON 설정(EonClusterHudMapScaleKakao,
+     * 휴대폰 앱 원본 축척 대비 %)이고, HUD 가 1080 폭 프레임을 1536 폭으로 늘리는 것까지 뺀다.
+     * 예: 420dpi 폰, 70% → 420 × 0.7 × 1080/1536 ≈ 207dpi.
+     */
     private static int mapDpi() {
         return EonDiscovery.wideMap
-                ? Math.round(MAP_DPI * EonDiscovery.mapScale * WIDE_WIDTH / 1536f) : MAP_DPI;
+                ? Math.round(phoneDpi * EonDiscovery.mapScale * WIDE_WIDTH / 1536f) : MAP_DPI;
     }
 
     /** 지도 엔진만 MAP_DPI 로 그리게 한 Context(앱 화면 밀도는 그대로 둔다). */

@@ -179,17 +179,14 @@ final class NaverHudMap {
         float phoneDensity = base.getResources().getDisplayMetrics().density;
         int phoneWidth = Math.min(base.getResources().getDisplayMetrics().widthPixels,
                 base.getResources().getDisplayMetrics().heightPixels);
-        // 주행모드 HUD 는 폰 지도 폭(phoneWidth)을 760 으로 줄여 1:1 로 그린다. 네비모드에서는
-        // 그보다 30%(네이버는 20% 더) 작게, HUD 가 1080 폭 프레임을 1536 으로 늘리는 것까지 뺀다.
         builtWide = EonDiscovery.wideMap;
         builtScale = EonDiscovery.mapScale;
         width = builtWide ? WIDE_WIDTH : DRIVE_WIDTH;
         height = builtWide ? WIDE_HEIGHT : DRIVE_HEIGHT;
-        // 예전 주행모드 HUD 는 폰 지도 폭(phoneWidth)을 760 으로 줄여 1:1 로 그렸다(그 크기를 그대로
-        // 둔다). 네비모드는 그 크기의 EON 설정 비율(EonClusterHudMapScaleNaver, 기본 55%)이고,
+        // 주행모드: 예전 HUD 처럼 폰 지도 폭(phoneWidth)을 760 으로 줄인 크기(그대로 둔다).
+        // 네비모드: 휴대폰 앱 원본 축척의 EON 설정 비율(EonClusterHudMapScaleNaver, 기본 70%)이고,
         // HUD 가 1080 폭 프레임을 1536 으로 늘리는 것까지 뺀다.
-        ratio = (DRIVE_WIDTH / (float) phoneWidth)
-                * (builtWide ? builtScale * WIDE_WIDTH / 1536f : 1f);
+        ratio = builtWide ? builtScale * WIDE_WIDTH / 1536f : DRIVE_WIDTH / (float) phoneWidth;
         Configuration config = new Configuration(base.getResources().getConfiguration());
         config.densityDpi = Math.max(60, Math.round(phoneDensity * ratio * 160f));
         ratio = config.densityDpi / 160f / phoneDensity;

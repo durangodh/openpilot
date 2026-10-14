@@ -29,9 +29,9 @@ def test_read_map_scales_defaults_and_bounds():
       return self.values.get(key)
 
   assert read_map_scales(FakeParams({})) == {
-    "hud_map_scale_tmap": 70, "hud_map_scale_kakao": 70, "hud_map_scale_naver": 55}
+    "hud_map_scale_tmap": 70, "hud_map_scale_kakao": 70, "hud_map_scale_naver": 70}
   scales = read_map_scales(FakeParams({
     "EonClusterHudMapScaleTmap": b"10",
     "EonClusterHudMapScaleKakao": b"85",
     "EonClusterHudMapScaleNaver": b"bad"}))
-  assert scales == {"hud_map_scale_tmap": 30, "hud_map_scale_kakao": 85, "hud_map_scale_naver": 55}
+  assert scales == {"hud_map_scale_tmap": 30, "hud_map_scale_kakao": 85, "hud_map_scale_naver": 70}

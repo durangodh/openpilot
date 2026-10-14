@@ -14,7 +14,7 @@ import java.net.InetSocketAddress;
 final class EonDiscovery {
     /** EON 이 알려 준 HUD 네비모드(지도 가로 넓게 캡처) 여부. */
     static volatile boolean wideMap;
-    /** 네비모드 HUD 지도 크기(주행모드 대비 비율, EON 설정 hud_map_scale_kakao). */
+    /** 네비모드 HUD 지도 크기(휴대폰 앱 원본 축척 대비 비율, EON 설정 hud_map_scale_kakao). */
     static volatile float mapScale = 0.70f;
 
     private static final int DISCOVERY_PORT = 7705;

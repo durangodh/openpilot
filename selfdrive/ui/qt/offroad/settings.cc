@@ -1290,16 +1290,16 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudMapScaleTmap", "S9 HUD NAVI MAP SIZE TMAP",
-      "네비모드에서 티맵 지도 크기(%). 주행모드 지도를 100으로 볼 때의 크기입니다. 작을수록 더 넓게 보입니다. 기본 70.",
+      "네비모드에서 티맵 지도 크기(%). 휴대폰 앱 원본 지도를 100으로 볼 때의 크기입니다. 작을수록 더 넓게 보입니다. 기본 70.",
       "../assets/offroad/icon_road.png", 30, 100, 5, 0, 70, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudMapScaleKakao", "S9 HUD NAVI MAP SIZE KAKAO",
-      "네비모드에서 카카오 지도 크기(%). 주행모드 지도를 100으로 볼 때의 크기입니다. 작을수록 더 넓게 보입니다. 기본 70.",
+      "네비모드에서 카카오 지도 크기(%). 휴대폰 앱 원본 지도를 100으로 볼 때의 크기입니다. 작을수록 더 넓게 보입니다. 기본 70.",
       "../assets/offroad/icon_road.png", 30, 100, 5, 0, 70, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudMapScaleNaver", "S9 HUD NAVI MAP SIZE NAVER",
-      "네비모드에서 네이버 지도 크기(%). 주행모드 지도를 100으로 볼 때의 크기입니다. 작을수록 더 넓게 보입니다. 기본 55.",
-      "../assets/offroad/icon_road.png", 30, 100, 5, 0, 55, this));
+      "네비모드에서 네이버 지도 크기(%). 휴대폰 앱 원본 지도를 100으로 볼 때의 크기입니다. 작을수록 더 넓게 보입니다. 기본 70.",
+      "../assets/offroad/icon_road.png", 30, 100, 5, 0, 70, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudNavApp", "NAVIGATION APP",
       "EON에서 휴대폰 내비를 선택합니다. 0: 선택 안 함 / 1: 티맵 / 2: 네이버지도 / 3: 카카오내비. 변경하면 S9에서 선택한 앱이 자동 실행됩니다.",

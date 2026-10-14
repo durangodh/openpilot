@@ -829,7 +829,7 @@ def discovery_loop():
       payload_ip = ip
     if payload_ip:
       # hud_wide_map: S9 HUD 가 네비모드면 1. 휴대폰 모듈이 지도를 가로로 넓게 캡처한다.
-      # hud_map_scale_*: 네비모드 HUD 지도 크기(주행모드 대비 %), 앱별 설정값.
+      # hud_map_scale_*: 네비모드 HUD 지도 크기(휴대폰 앱 원본 축척 대비 %), 앱별 설정값.
       message = {"ip": payload_ip, "navi_debug": 0, "hud_wide_map": read_wide_map()}
       message.update(read_map_scales(params))
       payload = json.dumps(message, separators=(",", ":")).encode("utf-8")
