@@ -132,6 +132,9 @@ final class SkyBackground {
         }
 
         int count = cloudCount(icon, cloudPct);
+        // 맑은 낮은 완전히 비워 두기보다 옅은 구름 두 덩이로 자연스럽게 보이게 한다.
+        // 맑은 밤은 별과 달빛 번짐이 잘 보이도록 구름 없이 유지한다.
+        if (icon == WeatherService.ICON_CLEAR && !day) count = 0;
         // 안개 속에서는 구름 윤곽이 보이지 않는다. 안개층이 대신 질감을 만든다.
         if (count > 0 && icon != WeatherService.ICON_FOG) {
             drawClouds(c, p, width, height, count, cloudColor(icon, day),
@@ -270,8 +273,8 @@ final class SkyBackground {
      */
     private static int cloudCount(int icon, int cloudPct) {
         if (icon == WeatherService.ICON_CLEAR) {
-            // '맑음' 아이콘일 때는 cloud_cover 잔여값이 있어도 깨끗한 하늘로 표현한다.
-            return 0;
+            // cloud_cover 잔여값 때문에 많아지지는 않게 하고, 낮에 쓸 최소 구름만 만든다.
+            return 2;
         }
         int floor;
         switch (icon) {
