@@ -1022,7 +1022,9 @@ public final class HudService extends Service {
         // A button tap is explicit: stop the opposite app even when this service
         // has just loaded the newly saved preference and sees no value change.
         // Telemetry synchronization remains edge-triggered to avoid force-stop at 10 Hz.
-        clearNavigationAssets();
+        // 네이버는 새 MapSurface 준비가 늦으므로 첫 정상 프레임이 올 때까지
+        // 현재 지도만 유지한다. 새 프레임은 기존 swap 경로에서 즉시 교체된다.
+        clearNavigationAssets(selected == 2);
         // Process work goes to its own thread, outside the AppPrefs lock the
         // telemetry loop also takes: two blocking `su` round trips used to stall
         // the HUD for seconds on every switch. One su invocation starts the new
@@ -1592,11 +1594,13 @@ public final class HudService extends Service {
         mapShownSince = 0L;
     }
 
-    /** Remove the old app's map/TBT immediately while the new source connects. */
-    private void clearNavigationAssets() {
+    /** Remove the old app's overlays while the new source connects. */
+    private void clearNavigationAssets(boolean preserveMap) {
         synchronized (assetLock) {
-            // 지도만은 바로 버리지 않고 짧게 어두워지며 사라지게 한다.
-            retireMap(mapFrame.getAndSet(null));
+            if (!preserveMap) {
+                // 네이버 이외의 전환은 기존 동작을 그대로 유지한다.
+                retireMap(mapFrame.getAndSet(null));
+            }
             recycleAndClear(tbtCurrentFrame);
             recycleAndClear(tbtNextFrame);
             recycleAndClear(tbtCompactFrame);
