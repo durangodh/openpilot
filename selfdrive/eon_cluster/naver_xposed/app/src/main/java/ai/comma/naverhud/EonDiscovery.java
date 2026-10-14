@@ -53,7 +53,7 @@ final class EonDiscovery {
                         // S9 HUD 네비모드(지도 8 : 주행 2)면 지도를 가로로 넓게 캡처한다.
                         wideMap = obj.optInt("hud_wide_map", 0) == 1;
                         int scale = obj.optInt("hud_map_scale_naver", 70);
-                        mapScale = Math.max(30, Math.min(100, scale)) / 100f;
+                        mapScale = Math.max(30, Math.min(200, scale)) / 100f;
                     } catch (Throwable ignored) {
                         // 다른 브로드캐스트는 무시.
                     }

@@ -63,7 +63,7 @@ def read_wide_map():
     return 0
 
 
-# 키 → (방송 이름, 기본 %). 범위는 30~100.
+# 키 → (방송 이름, 기본 %). 범위는 30~200(100 = 휴대폰 앱 원본 축척).
 MAP_SCALE_KEYS = (
   ("EonClusterHudMapScaleTmap", "hud_map_scale_tmap", 70),
   ("EonClusterHudMapScaleKakao", "hud_map_scale_kakao", 70),
@@ -79,5 +79,5 @@ def read_map_scales(params):
       value = int(float((params.get(key) or b"").decode() or default))
     except (ValueError, AttributeError):
       value = default
-    out[field] = max(30, min(100, value))
+    out[field] = max(30, min(200, value))
   return out
