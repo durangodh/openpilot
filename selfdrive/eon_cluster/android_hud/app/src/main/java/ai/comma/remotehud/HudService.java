@@ -2731,8 +2731,8 @@ public final class HudService extends Service {
     /**
      * openpilot 이벤트 알림. EON 직접모드 renderer.py `_draw_alert` 와 같은
      * 소스(controlsState alertText1/2 · alertStatus · alertSize)를 쓴다.
-     * 다만 이쪽 주행패널은 배경이 밝아서 흰 글씨가 안 읽히므로,
-     * 어두운 반투명 박스를 깔고 그 위에 얹는다.
+     * 주행모드는 밝은 배경에서도 읽히도록 반투명 박스를 사용하고,
+     * 네비모드의 우측 하단은 지도 위에 글자만 표시한다.
      */
     private void drawAlert(Canvas c, Paint p, JSONObject alert) {
         if (alert == null) {
@@ -2780,16 +2780,18 @@ public final class HudService extends Service {
         float boxHeight = text2.length() > 0 ? titleSize + detailSize + 44f : titleSize + 34f;
         float cx = DRIVE_CX;
         float cy = 336f;
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(226, 20, 24, 28));
-        scratchRect.set(cx - boxWidth / 2f, cy - boxHeight / 2f,
-                cx + boxWidth / 2f, cy + boxHeight / 2f);
-        c.drawRoundRect(scratchRect, 12f, 12f, p);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(2f);
-        p.setColor(titleColor);
-        c.drawRoundRect(scratchRect, 12f, 12f, p);
+        if (!naviLayout) {
+            p.setShader(null);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.argb(226, 20, 24, 28));
+            scratchRect.set(cx - boxWidth / 2f, cy - boxHeight / 2f,
+                    cx + boxWidth / 2f, cy + boxHeight / 2f);
+            c.drawRoundRect(scratchRect, 12f, 12f, p);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(2f);
+            p.setColor(titleColor);
+            c.drawRoundRect(scratchRect, 12f, 12f, p);
+        }
 
         if (text2.length() > 0) {
             text(c, p, text1, cx, cy - 4f, titleSize, titleColor, Paint.Align.CENTER);
