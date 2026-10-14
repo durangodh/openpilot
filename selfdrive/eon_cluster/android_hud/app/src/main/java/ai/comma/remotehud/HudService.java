@@ -159,6 +159,8 @@ public final class HudService extends Service {
     /** 네비모드 차로 안내 범위: 게이지 칸 오른쪽 ~ 오른쪽 칸 사이, 그 가운데. */
     private static final float NAVI_LANE_LEFT = 400f;
     private static final float NAVI_LANE_CX = (NAVI_LANE_LEFT + NAVI_COL_LEFT) / 2f;
+    /** 네비모드 차로 띠 높이: 도착정보 바(58)의 1.5배. */
+    private static final float NAVI_LANE_H = 87f;
     /** 네비모드 양옆 지도 연하게: 왼쪽 게이지 칸 끝, 오른쪽 칸 시작, 경계 번짐 폭, 덮는 진하기. */
     private static final float NAVI_LEFT_FADE_END = 390f;
     private static final float NAVI_RIGHT_FADE_START = NAVI_COL_LEFT - 8f;
@@ -6480,7 +6482,9 @@ public final class HudService extends Service {
                 // 폰 주행 화면처럼 차 마커 바로 아래. HUD 지도에서 마커 가로 위치:
                 // 티맵 가운데(50%), 네이버 약 63%, 카카오 약 78%.
                 float frac = navApp == 3 ? KAKAO_MARKER_X : (navApp == 2 ? NAVER_MARKER_X : TMAP_MARKER_X);
-                float w = ETA_H * laneShown.getWidth() / (float) laneShown.getHeight();
+                // 네비모드는 도착정보 바 높이의 1.5배(2026-10-14 요청: 50% 크게).
+                float laneH = naviLayout ? NAVI_LANE_H : ETA_H;
+                float w = laneH * laneShown.getWidth() / (float) laneShown.getHeight();
                 float halfW = Math.min(w / 2f, (mapRight() - MAP_LEFT) / 2f);
                 float cx = MAP_LEFT + (mapRight() - MAP_LEFT) * frac;
                 cx = Math.max(MAP_LEFT + halfW, Math.min(mapRight() - halfW, cx));
@@ -6492,15 +6496,15 @@ public final class HudService extends Service {
                 // 네비모드에서 beginElement 를 쓰면 기준점(x 823)이 주행패널 범위(≤952)라 주행패널
                 // 보정(아래 위젯 +258px)까지 받아 화면 밖으로 밀려 안 보였다. 네비모드는 그대로 둔다.
                 int save3 = beginGuideElement(c, l, "lane", cx, (float) HEIGHT);
-                drawNativeOverlay(c, p, laneShown, cx - halfW, ETA_TOP, cx + halfW, (float) HEIGHT,
+                drawNativeOverlay(c, p, laneShown, cx - halfW, HEIGHT - laneH, cx + halfW, (float) HEIGHT,
                         Paint.Align.CENTER);
                 c.restoreToCount(save3);
             } else if (laneShown != null) {
                 float laneLeft = naviLayout ? NAVI_LANE_LEFT : JUNCTION_LEFT + JUNCTION_W + 8f;
                 float laneRight = naviLayout ? NAVI_COL_LEFT - 8f : mapRight() - 8f;
                 int save3 = beginGuideElement(c, l, "lane", laneLeft, (float) HEIGHT);
-                drawNativeOverlay(c, p, laneShown, laneLeft, ETA_TOP, laneRight, (float) HEIGHT,
-                        Paint.Align.LEFT);
+                drawNativeOverlay(c, p, laneShown, laneLeft, naviLayout ? HEIGHT - NAVI_LANE_H : ETA_TOP,
+                        laneRight, (float) HEIGHT, Paint.Align.LEFT);
                 c.restoreToCount(save3);
             }
         }
