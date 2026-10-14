@@ -2,7 +2,8 @@
 
 carrot_navi_server(포트 7714)가 WebSocket 이 아닌 일반 GET /trace 요청을 여기로 넘긴다.
 폰 브라우저에서 http://EON_IP:7714/trace 를 열면 목록이 나오고, 누르면 받는다.
-읽기 전용이며 두 기록 폴더의 *.csv 만 내려준다(경로 이동 불가).
+두 기록 폴더의 *.csv 만 내려준다(경로 이동 불가). '전체 삭제' 버튼(/trace?delete=all)은
+같은 파일들을 지우되, 지금 기록 중인 파일(최근 RECORDING_S 초 안에 바뀐 것)은 남긴다.
 """
 import html
 import os
@@ -17,6 +18,7 @@ TRACE_DIRS = {
 }
 NAME_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}\.(csv|log)$")
 CHUNK = 64 * 1024
+RECORDING_S = 10.0
 
 
 def is_trace_path(path):
@@ -29,7 +31,7 @@ def _send(conn, status, ctype, body, extra=""):
   conn.sendall(head.encode("utf-8") + body)
 
 
-def _listing():
+def _listing(deleted=None):
   parts = ["<!doctype html><meta charset=utf-8>",
            "<meta name=viewport content='width=device-width,initial-scale=1'>",
            "<title>EON 기록 파일</title>",
@@ -37,9 +39,14 @@ def _listing():
            "h2{margin-top:24px}a{display:block;padding:12px;margin:6px 0;border:1px solid #ccc;"
            "border-radius:8px;text-decoration:none;color:#0645ad}span{color:#555;font-size:90%}"
            "@media(prefers-color-scheme:dark){body{background:#111;color:#eee}a{color:#8ab4f8;border-color:#444}"
-           "span{color:#aaa}}</style>",
+           "span{color:#aaa}}button{padding:12px 16px;font-size:100%;border-radius:8px;"
+           "border:1px solid #c00;background:#fee;color:#c00}</style>",
            "<h1>EON 기록 파일</h1>",
-           "<p>파일을 누르면 폰의 다운로드 폴더에 저장됩니다.</p>"]
+           "<p>파일을 누르면 폰의 다운로드 폴더에 저장됩니다.</p>",
+           "<button onclick=\"if(confirm('기록 파일을 모두 지울까요? 지금 기록 중인 파일은 남습니다.'))"
+           "location.href='/trace?delete=all'\">전체 삭제</button>"]
+  if deleted is not None:
+    parts.append("<p>%d개 삭제했습니다.</p>" % deleted)
   for key, (title, directory) in TRACE_DIRS.items():
     parts.append("<h2>%s</h2>" % html.escape(title))
     try:
@@ -63,10 +70,38 @@ def _listing():
   return "".join(parts).encode("utf-8")
 
 
+def _delete_all():
+  """두 기록 폴더의 기록 파일을 지운다. 지금 기록 중인 파일은 남긴다."""
+  now = time.time()
+  count = 0
+  for _, directory in TRACE_DIRS.values():
+    try:
+      names = [n for n in os.listdir(directory) if NAME_RE.match(n)]
+    except OSError:
+      continue
+    for n in names:
+      full = os.path.join(directory, n)
+      try:
+        if now - os.path.getmtime(full) < RECORDING_S:
+          continue
+        os.remove(full)
+        count += 1
+      except OSError:
+        pass
+  return count
+
+
 def serve(conn, path):
-  """GET /trace 또는 /trace/<long|lat>/<이름>.csv 에 답한다."""
+  """GET /trace, /trace?delete=all 또는 /trace/<long|lat>/<이름>.csv 에 답한다."""
+  query = path.split("?", 1)[1] if "?" in path else ""
   path = unquote(path.split("?", 1)[0]).rstrip("/")
   if path == "/trace":
+    if query == "delete=all":
+      deleted = _delete_all()
+      # 새로고침으로 다시 지우지 않게 결과만 보여 주고 주소는 /trace 로 되돌린다.
+      body = _listing(deleted) + b"<script>history.replaceState(null,'','/trace')</script>"
+      _send(conn, "200 OK", "text/html; charset=utf-8", body)
+      return
     _send(conn, "200 OK", "text/html; charset=utf-8", _listing())
     return
   parts = path.split("/")   # ['', 'trace', kind, name]
