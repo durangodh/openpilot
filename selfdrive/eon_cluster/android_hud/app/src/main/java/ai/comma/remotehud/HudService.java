@@ -6354,7 +6354,7 @@ public final class HudService extends Service {
             mapShownSince = 0L;
             p.setShader(null);
             p.setStyle(Paint.Style.FILL);
-            p.setColor(Color.BLACK);
+            p.setColor(mapEmptyColor());
             c.drawRect(scratchIRect, p);
             long fadeAge = fadeNow - fadingMapSince;
             if (fadingMap != null && !fadingMap.isRecycled() && fadeAge < MAP_FADE_MS) {
@@ -6392,7 +6392,7 @@ public final class HudService extends Service {
                 // 새 지도가 검은 화면에서 밝아지며 나타난다.
                 p.setShader(null);
                 p.setStyle(Paint.Style.FILL);
-                p.setColor(Color.BLACK);
+                p.setColor(mapEmptyColor());
                 c.drawRect(scratchIRect, p);
                 p.setAlpha(Math.round(255f * shownAge / (float) MAP_FADE_MS));
                 c.drawBitmap(map, mapSource(map), scratchIRect, p);
@@ -6426,8 +6426,21 @@ public final class HudService extends Service {
     private final int[] naviFadeColors = new int[9];
     private final float[] naviFadePositions = new float[9];
 
+    /** 네비모드 지도 칸 바탕색(양옆 연하게 덮는 색과 같다). */
+    private int naviBaseColor() {
+        return frameDark ? Color.rgb(22, 28, 36) : Color.rgb(226, 229, 231);
+    }
+
+    /**
+     * 지도가 없을 때 지도 칸 바탕. 네비모드는 화면 대부분이 지도 칸이라 검정이면 양옆의 연한
+     * 덮개와 섞여 가운데만 검은 상자로 보였다(2026-10-14 실차) → 계기판 바탕색으로 채운다.
+     */
+    private int mapEmptyColor() {
+        return naviLayout ? naviBaseColor() : Color.BLACK;
+    }
+
     private void drawNaviSideFade(Canvas c, Paint p) {
-        int base = frameDark ? Color.rgb(22, 28, 36) : Color.rgb(226, 229, 231);
+        int base = naviBaseColor();
         int rgb = base & 0x00FFFFFF;
         // 진하기가 일정하게 줄면 경계에 띠가 보인다. smoothstep 곡선(양 끝이 완만)으로
         // 넓게(NAVI_FADE_EDGE) 풀어 지도와 이어지게 한다. 경계 가운데는 칸 끝에 둔다.
