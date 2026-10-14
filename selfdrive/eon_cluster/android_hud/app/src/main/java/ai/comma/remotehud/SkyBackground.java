@@ -45,7 +45,7 @@ final class SkyBackground {
     private static final float CLEAR_TOP = 18f;
     private static final float CLEAR_BOTTOM = 130f;
     /** 주행 화면 위로 내려오는 곡선형 하늘 페이드 깊이. */
-    private static final int CURVE_FADE_DEPTH = 34;
+    static final int DEFAULT_FADE_DEPTH = 34;
 
     private static Sky cached;
     private static long cachedKey = Long.MIN_VALUE;
@@ -58,13 +58,23 @@ final class SkyBackground {
      * @return 배경. 그릴 수 없으면 null.
      */
     static Sky get(int icon, boolean day, int cloudPct, int width, int height) {
+        return get(icon, day, cloudPct, width, height, DEFAULT_FADE_DEPTH);
+    }
+
+    /**
+     * @param fadeDepth 하늘 아래쪽을 원래 화면에 섞는 깊이. 네비모드는 넓게 잡아
+     *                  지도와 맞닿는 경계가 띠처럼 보이지 않게 한다.
+     */
+    static Sky get(int icon, boolean day, int cloudPct, int width, int height, int fadeDepth) {
         if (icon == WeatherService.ICON_NONE || width <= 0 || height <= 0) {
             return null;
         }
+        fadeDepth = Math.max(1, Math.min(255, fadeDepth));
         int quantized = cloudPct < 0 ? -1 : Math.min(100, cloudPct / 10 * 10);
-        int bitmapHeight = height + CURVE_FADE_DEPTH;
+        int bitmapHeight = height + fadeDepth;
         long key = ((long) icon << 56) | ((day ? 1L : 0L) << 55)
                 | ((long) (quantized + 1) << 48)
+                | ((long) (fadeDepth & 0xFF) << 40)
                 | ((long) (width & 0xFFFF) << 16) | (height & 0xFFFFL);
         if (cached != null && key == cachedKey
                 && cached.bitmap != null && !cached.bitmap.isRecycled()
@@ -72,7 +82,7 @@ final class SkyBackground {
                 && cached.bitmap.getHeight() == bitmapHeight) {
             return cached;
         }
-        Sky sky = render(icon, day, quantized, width, height);
+        Sky sky = render(icon, day, quantized, width, height, fadeDepth);
         if (sky != null) {
             if (cached != null && cached.bitmap != null && !cached.bitmap.isRecycled()
                     && cached.bitmap != sky.bitmap) {
@@ -85,8 +95,8 @@ final class SkyBackground {
     }
 
     private static Sky render(int icon, boolean day, int cloudPct,
-                              int width, int height) {
-        int bitmapHeight = height + CURVE_FADE_DEPTH;
+                              int width, int height, int fadeDepth) {
+        int bitmapHeight = height + fadeDepth;
         Bitmap bitmap;
         try {
             bitmap = Bitmap.createBitmap(width, bitmapHeight, Bitmap.Config.ARGB_8888);
@@ -147,7 +157,7 @@ final class SkyBackground {
         // 투명 마스크를 씌우기 전에 색 자체의 휘도를 잰다. 투명 영역의 RGB 0이
         // 평균에 섞이면 밝은 낮 하늘에서도 글자를 흰색으로 잘못 뒤집을 수 있다.
         boolean lightInk = luminance(bitmap) < INK_FLIP_LUMA;
-        applyCurvedBottomFade(bitmap, width, height);
+        applyCurvedBottomFade(bitmap, width, height, fadeDepth);
         return new Sky(bitmap, lightInk);
     }
 
@@ -155,7 +165,7 @@ final class SkyBackground {
      * 직선이던 하늘 밴드 하단을 완만한 곡선으로 자르고, 같은 곡선을 아래로
      * 조금씩 내려 그린 알파 마스크로 주행 화면과 자연스럽게 섞는다.
      */
-    private static void applyCurvedBottomFade(Bitmap bitmap, int width, int horizon) {
+    private static void applyCurvedBottomFade(Bitmap bitmap, int width, int horizon, int fadeDepth) {
         Bitmap mask = null;
         try {
             mask = Bitmap.createBitmap(width, bitmap.getHeight(), Bitmap.Config.ARGB_8888);
@@ -163,14 +173,19 @@ final class SkyBackground {
             Paint mp = new Paint(Paint.ANTI_ALIAS_FLAG);
             mp.setStyle(Paint.Style.FILL);
 
-            // 큰(아래쪽) 곡선부터 낮은 알파로 겹치면 경계와 평행한 부드러운
-            // 그라데이션이 만들어진다. 상태 변경 때만 계산하므로 프레임 비용은 없다.
-            int[] offsets = {34, 27, 21, 16, 11, 7, 4, 2, 0};
-            int[] alphas = {12, 18, 26, 38, 54, 76, 105, 145, 255};
-            for (int i = 0; i < offsets.length; i++) {
-                mp.setColor(Color.argb(alphas[i], 255, 255, 255));
-                mc.drawPath(curvedHorizon(width, horizon, offsets[i]), mp);
+            // 큰(아래쪽) 곡선부터 낮은 알파로 그리고, 작은 곡선이 위쪽을 더 높은
+            // 알파로 교체한다. 네비의 긴 페이드도 띠 없이 매끈하도록 17단계로 만든다.
+            mp.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.SRC));
+            final int steps = 17;
+            for (int i = 0; i < steps; i++) {
+                float t = i / (float) (steps - 1);
+                float smooth = t * t * (3f - 2f * t);
+                int offset = Math.round(fadeDepth * (1f - t));
+                int alpha = Math.round(8f + 247f * smooth);
+                mp.setColor(Color.argb(alpha, 255, 255, 255));
+                mc.drawPath(curvedHorizon(width, horizon, offset), mp);
             }
+            mp.setXfermode(null);
 
             Paint apply = new Paint(Paint.ANTI_ALIAS_FLAG);
             apply.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));

@@ -147,6 +147,10 @@ public final class HudService extends Service {
     /** 네비모드 핸들 상태: 내비 이름 배지 바로 오른쪽 상단. */
     private static final float NAVI_WHEEL_X = NAVI_MAP_RIGHT + 24f;
     private static final float NAVI_WHEEL_Y = NAVI_BADGE_TOP + 24f;
+    /** 네비모드 하늘은 지도 공간을 가리지 않도록 낮고 옅게, 경계는 길게 푼다. */
+    private static final int NAVI_SKY_HEIGHT = 150;
+    private static final int NAVI_SKY_FADE_DEPTH = 80;
+    private static final int NAVI_SKY_ALPHA = 165;
     private static final float NAVI_TBT_TOP = 62f;
     private static final float NAVI_BOX_CX = NAVI_COL_LEFT + NAVI_COL_W / 2f;
     private static final float NAVI_BOX_CY = (225f + 507f) / 2f;
@@ -4417,8 +4421,10 @@ public final class HudService extends Service {
         // 주행모드는 기존 주행 패널 폭, 네비모드는 지도와 주행 화면을 가르는
         // 경계가 생기지 않도록 1920 전체 폭에 하나의 하늘을 만든다.
         int skyWidth = naviLayout ? WIDTH : DRIVE_W;
+        int skyHeight = naviLayout ? NAVI_SKY_HEIGHT : ModelWorldGL.TOP;
+        int fadeDepth = naviLayout ? NAVI_SKY_FADE_DEPTH : SkyBackground.DEFAULT_FADE_DEPTH;
         SkyBackground.Sky sky = SkyBackground.get(icon, weather.isDay(),
-                weather.cloudPercent(), skyWidth, ModelWorldGL.TOP);
+                weather.cloudPercent(), skyWidth, skyHeight, fadeDepth);
         if (sky == null || sky.bitmap == null || sky.bitmap.isRecycled()) {
             return;
         }
@@ -4426,11 +4432,13 @@ public final class HudService extends Service {
         p.setColorFilter(null);
         // 네비에서는 지도의 지명과 오른쪽 주행 장면이 아주 옅게 비치게 해
         // 별도 사진을 붙인 느낌을 줄인다. 주행모드는 기존 농도를 유지한다.
-        p.setAlpha(naviLayout ? 218 : 255);
+        p.setAlpha(naviLayout ? NAVI_SKY_ALPHA : 255);
         c.drawBitmap(sky.bitmap, 0f, 0f, p);
         p.setAlpha(255);
         skyBand = true;
-        skyLightInk = sky.lightInk;
+        // 옅은 내비 하늘은 낮에 검은 글자, 야간에 밝은 글자를 써 시안과 같은
+        // 대비를 유지한다. 주행모드는 하늘 자체의 휘도 판정을 그대로 쓴다.
+        skyLightInk = naviLayout ? frameDark : sky.lightInk;
     }
 
     /** 티맵이 주는 좌표를 날씨 조회에 넘긴다. 실제 요청은 서비스가 판단한다. */
