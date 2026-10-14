@@ -132,7 +132,9 @@ public final class HudService extends Service {
     // 게이지·과속카메라는 지금 좌표 그대로 지도 위에, 회전 안내·EON 박스·도착정보는
     // 지금 TBT 자리(MAP_LEFT+2, 폭 342)를 오른쪽 칸으로 삼아 세로로 쌓는다.
     private static final int NAVI_MAP_RIGHT = 1536;
-    private static final int NAVI_DRIVE_LEFT = NAVI_MAP_RIGHT + 8;
+    // 지도와 주행 화면 사이에 검은 8px 띠를 두지 않는다. 지도 오른쪽의 기존
+    // smoothstep 페이드와 주행 배경이 같은 바탕색으로 바로 만나 자연스럽게 이어진다.
+    private static final int NAVI_DRIVE_LEFT = NAVI_MAP_RIGHT;
     private static final float NAVI_DRIVE_CX = (NAVI_DRIVE_LEFT + WIDTH) / 2f;
     // 오른쪽 칸 = EON 박스 원래 크기(270 폭, 위아래 225~507 이 왼쪽 게이지 위·아래 선과 같다).
     // 위에서부터 GPS·내비 이름 → 회전 안내(1·2행) → EON 박스, 맨 아래 도착정보.
@@ -142,6 +144,9 @@ public final class HudService extends Service {
     private static final float NAVI_COL_LEFT = NAVI_COL_RIGHT - NAVI_COL_W;
     private static final float NAVI_GUIDE_SCALE = NAVI_COL_W / 342f;
     private static final float NAVI_BADGE_TOP = 8f;
+    /** 네비모드 핸들 상태: 내비 이름 배지 바로 오른쪽 상단. */
+    private static final float NAVI_WHEEL_X = NAVI_MAP_RIGHT + 24f;
+    private static final float NAVI_WHEEL_Y = NAVI_BADGE_TOP + 24f;
     private static final float NAVI_TBT_TOP = 62f;
     private static final float NAVI_BOX_CX = NAVI_COL_LEFT + NAVI_COL_W / 2f;
     private static final float NAVI_BOX_CY = (225f + 507f) / 2f;
@@ -2596,7 +2601,8 @@ public final class HudService extends Service {
         if (columnSave >= 0) {
             c.restoreToCount(columnSave);
         }
-        // drawSkyBand skips sky imagery entirely in the navi layout.
+        // 네비모드에서는 복원된 전체 화면 좌표에 하늘을 한 번 얹어 지도와
+        // 오른쪽 주행 장면의 상단이 끊기지 않고 같은 하늘로 이어지게 한다.
         drawSkyBand(c, p);
 
         // Existing lamp art stays unchanged; move the complete row inside
@@ -3780,8 +3786,8 @@ public final class HudService extends Service {
                 : (s.optBoolean("steerFaultTemporary", false) ? 1 : 0);
         int wheelSave = c.save();
         if (naviLayout) {
-            // 네비모드: 핸들(인게이지) 표시는 오른쪽 주행 칸 왼쪽 위.
-            c.translate(NAVI_DRIVE_LEFT + 52f - WHEEL_X, 178f - WHEEL_Y);
+            // 네비모드: 핸들(인게이지) 표시는 내비 이름 배지 바로 오른쪽.
+            c.translate(NAVI_WHEEL_X - WHEEL_X, NAVI_WHEEL_Y - WHEEL_Y);
         }
         int signSave = scaleAbout(c, WHEEL_X, WHEEL_Y);
         drawSteeringWheel(c, p, WHEEL_X, WHEEL_Y, (float) s.optDouble("steer", 0d), enabled, steerWarning);
@@ -4401,23 +4407,28 @@ public final class HudService extends Service {
      */
     private void drawSkyBand(Canvas c, Paint p) {
         skyBand = false;
-        if (naviLayout || weather == null) {
+        if (weather == null) {
             return;
         }
         int icon = weather.icon();
         if (icon == WeatherService.ICON_NONE) {
             return;
         }
-        // Sky imagery is only rendered in the driving layout.
+        // 주행모드는 기존 주행 패널 폭, 네비모드는 지도와 주행 화면을 가르는
+        // 경계가 생기지 않도록 1920 전체 폭에 하나의 하늘을 만든다.
+        int skyWidth = naviLayout ? WIDTH : DRIVE_W;
         SkyBackground.Sky sky = SkyBackground.get(icon, weather.isDay(),
-                weather.cloudPercent(), DRIVE_W, ModelWorldGL.TOP);
+                weather.cloudPercent(), skyWidth, ModelWorldGL.TOP);
         if (sky == null || sky.bitmap == null || sky.bitmap.isRecycled()) {
             return;
         }
         p.setShader(null);
         p.setColorFilter(null);
-        p.setAlpha(255);
+        // 네비에서는 지도의 지명과 오른쪽 주행 장면이 아주 옅게 비치게 해
+        // 별도 사진을 붙인 느낌을 줄인다. 주행모드는 기존 농도를 유지한다.
+        p.setAlpha(naviLayout ? 218 : 255);
         c.drawBitmap(sky.bitmap, 0f, 0f, p);
+        p.setAlpha(255);
         skyBand = true;
         skyLightInk = sky.lightInk;
     }

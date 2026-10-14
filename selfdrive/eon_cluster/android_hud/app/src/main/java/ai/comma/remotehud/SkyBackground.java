@@ -131,14 +131,13 @@ final class SkyBackground {
         if (icon == WeatherService.ICON_FOG) {
             drawFog(c, p, width, height, day ? Color.rgb(226, 229, 231) : Color.rgb(104, 110, 120));
         } else if (icon == WeatherService.ICON_RAIN) {
-            // 실제 12.3인치 화면에서는 1px 빗줄기가 보이지 않는다(2026-10-13 사진).
-            drawStreaks(c, p, width, height, 240,
-                    day ? Color.argb(235, 244, 248, 252) : Color.argb(210, 184, 206, 232));
+            // 날씨는 알아볼 수 있되 지도·안내 글자를 방해하지 않게 약하게만 보인다.
+            drawStreaks(c, p, width, height, 84,
+                    day ? Color.argb(125, 244, 248, 252) : Color.argb(115, 184, 206, 232));
         } else if (icon == WeatherService.ICON_SNOW) {
-            // 낮 하늘이 밝은 회색이라 눈송이는 거의 흰색으로, 더 크고 많게 해야 보인다.
-            drawSnow(c, p, width, height, day ? 110 : 65,
-                    day ? Color.argb(240, 252, 253, 255)
-                            : Color.argb(210, 236, 242, 248), day ? 1.4f : 1.0f);
+            drawSnow(c, p, width, height, day ? 36 : 28,
+                    day ? Color.argb(150, 252, 253, 255)
+                            : Color.argb(135, 236, 242, 248), day ? 0.95f : 0.85f);
         } else if (icon == WeatherService.ICON_THUNDER) {
             drawStreaks(c, p, width, height, 110,
                     day ? Color.argb(90, 200, 214, 232) : Color.argb(110, 176, 196, 222));
@@ -256,7 +255,8 @@ final class SkyBackground {
      */
     private static int cloudCount(int icon, int cloudPct) {
         if (icon == WeatherService.ICON_CLEAR) {
-            return cloudPct <= 0 ? 0 : Math.min(6, cloudPct / 12);
+            // '맑음' 아이콘일 때는 cloud_cover 잔여값이 있어도 깨끗한 하늘로 표현한다.
+            return 0;
         }
         int floor;
         switch (icon) {
