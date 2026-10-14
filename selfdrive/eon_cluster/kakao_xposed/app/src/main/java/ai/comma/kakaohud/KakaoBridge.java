@@ -285,7 +285,9 @@ final class KakaoBridge {
             }
             publishGuidance();
             client.sendState("navigation_status", navStatus(true));
-            KakaoHudLog.status("route cur=" + curRaw + "/" + curDist);
+            // 다음 안내(HUD 2행)가 빠지는 원인 확인용: 카카오가 다음 안내를 줬는지도 남긴다.
+            KakaoHudLog.status("route cur=" + curRaw + "/" + curDist
+                    + " next=" + (next == null ? "null" : nextName + "/" + nextRaw + "->" + nextTbt + "/" + nextDist));
         } catch (Throwable t) {
             KakaoHudLog.ex("onRouteGuide", t);
         }
