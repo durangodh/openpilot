@@ -71,7 +71,7 @@ final class NaverBridge {
         store = value;
         map.setStore(value);
         start();
-        NaverHudLog.line("NaviStore captured; direct 6.10 state polling active");
+        NaverHudLog.line("NaviStore captured; state polling active");
     }
 
     /**
@@ -113,17 +113,17 @@ final class NaverBridge {
     }
 
     private void publish(Object s) {
-        Object mode = value(call(s, "b0"));
+        Object mode = value(NaverStore.get(s, "NaviState"));
         boolean guiding = mode != null && "Guiding".equals(String.valueOf(mode));
         send("navigation_status", "{\"source\":\"NAVER\",\"active\":" + guiding
                 + ",\"state\":" + quote(String.valueOf(mode)) + "}");
         send("app_status", "{\"source\":\"NAVER\",\"foreground\":true,\"guidance_active\":" + guiding + "}");
 
-        Object directions = value(call(s, "z0"));
+        Object directions = value(NaverStore.get(s, "TbtData"));
         send("guidance_current", guidance(call(directions, "e")));
         send("guidance_next", guidance(call(directions, "f")));
 
-        Object route = value(call(s, "o0"));
+        Object route = value(NaverStore.get(s, "GuidanceRemaining"));
         Object goal = call(route, "getGoal");
         long now = android.os.SystemClock.elapsedRealtime();
         if (now - lastPolylineAt >= 5000) {
@@ -135,19 +135,19 @@ final class NaverBridge {
                 + ",\"remain_time_sec\":" + NaverCodes.remainTimeSec(goal)
                 + ",\"polyline\":" + polyline + "}");
 
-        Object position = value(call(s, "P"));
+        Object position = value(NaverStore.get(s, "GuidePoint"));
         Object location = call(position, "getLocation");
-        Object road = value(call(s, "B"));
+        Object road = value(NaverStore.get(s, "AddressAndRoadNameData"));
         send("vehicle", "{\"source\":\"NAVER\",\"lat\":" + decimal(fieldNumber(location, "latitude"))
                 + ",\"lon\":" + decimal(fieldNumber(location, "longitude"))
                 + ",\"heading_deg\":" + decimal(NaverCodes.number(call(position, "getHeading")))
                 + ",\"speed_kph\":" + decimal(NaverCodes.number(call(position, "getSpeedKmPerHour")))
                 + ",\"road_name\":" + quote(text(call(road, "f"))) + "}");
 
-        Object link = call(s, "T");
+        Object link = NaverStore.get(s, "MatchedLinkInfo");
         send("speed", speed(s, (int) NaverCodes.number(call(link, "h"))));
-        send("lane_current", lane(value(call(s, "S"))));
-        Object signalItem = value(call(s, "B0"));
+        send("lane_current", lane(value(NaverStore.get(s, "NaviLaneItem"))));
+        Object signalItem = value(NaverStore.get(s, "TrafficSignalInfo"));
         send("traffic_signal", signal(signalItem));
         publishSignalImage(guiding ? signalItem : null);
         junction.publish(s, guiding);
@@ -182,11 +182,11 @@ final class NaverBridge {
     }
 
     private static String speed(Object store, int roadLimit) {
-        List<?> events = asList(value(call(store, "q0")));
+        List<?> events = asList(value(NaverStore.get(store, "List<GuidanceSafety>")));
         Object primary = null, secondary = null, sectionOwner = null;
         if (events.isEmpty()) {
-            Object first = value(call(store, "r0"));
-            Object second = value(call(store, "s0"));
+            Object first = value(NaverStore.get(store, "GuidanceSafety#0"));
+            Object second = value(NaverStore.get(store, "GuidanceSafety#1"));
             if (section(first) != null) sectionOwner = first;
             else if (section(second) != null) sectionOwner = second;
             if (isDisplayableSafety(first)) primary = first;
@@ -320,7 +320,7 @@ final class NaverBridge {
     }
 
     private static String routePolyline(Object store) {
-        List<?> points = asList(call(call(call(value(call(store, "K")), "e"), "j"), "getPathPoints"));
+        List<?> points = asList(call(call(call(value(NaverStore.get(store, "CurrentRoute")), "e"), "j"), "getPathPoints"));
         if (points.isEmpty()) return "[]";
         int stride = Math.max(1, points.size() / 500);
         StringBuilder out = new StringBuilder("[");

@@ -115,7 +115,8 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
 
     /** 폰 차로 표시가 바뀔 때마다 HUD 차로 띠 그림을 다시 뜬다(읽기 전용). */
     private static void hookLaneView(ClassLoader appLoader) {
-        Class<?> view = XposedHelpers.findClass(NaverViewImage.LANE_VIEW, appLoader);
+        Class<?> view = XposedHelpers.findClassIfExists(NaverViewImage.LANE_VIEW_611, appLoader);
+        if (view == null) view = XposedHelpers.findClass(NaverViewImage.LANE_VIEW, appLoader);
         Class<?> item = XposedHelpers.findClass("com.naver.map.core.navigation.lane.NaviLaneItem", appLoader);
         XposedHelpers.findAndHookMethod(view, "a", item, boolean.class, new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam param) {

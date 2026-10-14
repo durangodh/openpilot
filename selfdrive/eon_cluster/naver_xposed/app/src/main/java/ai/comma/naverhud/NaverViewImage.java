@@ -31,6 +31,8 @@ import java.util.concurrent.Executors;
  */
 final class NaverViewImage {
     static final String LANE_VIEW = "com.naver.map.feature.navigation.view.lane.NaviLaneControlView";
+    /** 6.11.1.2: 같은 클래스가 core 패키지로 옮겨졌다(a(NaviLaneItem, boolean) 그대로). */
+    static final String LANE_VIEW_611 = "com.naver.map.core.navigation.view.NaviLaneControlView";
     static final String SIGNAL_VIEW = "com.naver.map.core.navigation.view.NaviTrafficSignalView";
     private static final long TICK_MS = 500;
     private static final long RESEND_MS = 5000;
