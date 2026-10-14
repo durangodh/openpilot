@@ -18,7 +18,7 @@ public class NavigationRenderCheck {
     int optInt(String key,int fallback){ return values.containsKey(key)?(Integer)values.get(key):fallback; }
     String optString(String key,String fallback){ return values.containsKey(key)?(String)values.get(key):fallback; }
   }
-  static class Bitmap { boolean recycled; boolean isRecycled(){return recycled;} void recycle(){recycled=true;} int getWidth(){return 200;} int getHeight(){return 100;} }
+  static class Bitmap { boolean recycled; boolean isRecycled(){return recycled;} void recycle(){recycled=true;} int getWidth(){return 200;} static int mapH=150; int getHeight(){return mapH;} }
   static class SystemClock { static long now=100000L; static long elapsedRealtime(){return now;} }
   static class Rect { void set(int a,int b,int c,int d){} }
   static class RectF { void set(float a,float b,float c,float d){} }
@@ -135,7 +135,7 @@ public class NavigationRenderCheck {
       if(c.nativeOverlays!=0) throw new AssertionError("lane shown without a destination");
     }
     // Navi layout (map 8 : drive 2) draws the same map, guidance and overlays.
-    hud.naviLayout=true; SystemClock.now+=1000L;
+    hud.naviLayout=true; Bitmap.mapH=100; SystemClock.now+=1000L;
     hud.check("navi layout",state(true,1000,200),new Bitmap(),signal,1,1,1);
     Canvas fade=new Canvas(); hud.drawMap(fade,new Paint(),state(true,1000,200),new Bitmap(),null,null,null,null);
     if(fade.fades!=3) throw new AssertionError("navi side/bottom fade count="+fade.fades);
@@ -149,7 +149,15 @@ public class NavigationRenderCheck {
           ||order.events.indexOf("next")<order.events.indexOf("source"))
         throw new AssertionError("navi next maneuver obscured for app="+app+": "+order.events);
     }
-    hud.naviLayout=false;
+    // Switching to the navi layout while the phone still sends a drive-shaped
+    // frame must not stretch it: hide it, then draw it after the wait.
+    Bitmap.mapH=150; SystemClock.now+=1000L;
+    Canvas narrow=new Canvas(); hud.drawMap(narrow,new Paint(),state(true,1000,200),new Bitmap(),null,null,null,null);
+    if(narrow.maps!=0) throw new AssertionError("drive-shaped frame drawn in navi layout");
+    SystemClock.now+=10001L;
+    narrow=new Canvas(); hud.drawMap(narrow,new Paint(),state(true,1000,200),new Bitmap(),null,null,null,null);
+    if(narrow.maps!=1) throw new AssertionError("drive-shaped frame never drawn after the wait");
+    hud.naviLayout=false; Bitmap.mapH=150;
     System.out.println("9 navigation rendering cases and map switch fades passed, including traffic signal overlay");
   }
 }

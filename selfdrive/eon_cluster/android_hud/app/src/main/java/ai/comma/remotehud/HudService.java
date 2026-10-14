@@ -6376,7 +6376,29 @@ public final class HudService extends Service {
 
     private final Rect mapSourceRect = new Rect();
 
+    // 주행/네비모드가 막 바뀌었을 때 휴대폰이 아직 이전 모드 크기의 지도를 보내면(주행 760x720 ↔
+    // 네비 1080x506) 그 지도를 새 칸에 맞춰 늘려 아주 크게(또는 찌그러지게) 보였다. 모양이 안 맞는
+    // 지도는 MAP_SHAPE_WAIT_MS 동안 그리지 않고 기다린다(그 뒤에도 안 바뀌면 그대로 그린다).
+    private static final float MAP_WIDE_MIN_ASPECT = 1.6f;
+    private static final long MAP_SHAPE_WAIT_MS = 10000L;
+    private long mapShapeMismatchSince;
+
+    private Bitmap mapForLayout(Bitmap map) {
+        if (map == null || map.isRecycled() || map.getHeight() <= 0) {
+            return map;
+        }
+        boolean wideFrame = map.getWidth() >= map.getHeight() * MAP_WIDE_MIN_ASPECT;
+        if (wideFrame == naviLayout) {
+            mapShapeMismatchSince = 0L;
+            return map;
+        }
+        long now = SystemClock.elapsedRealtime();
+        if (mapShapeMismatchSince == 0L) mapShapeMismatchSince = now;
+        return now - mapShapeMismatchSince < MAP_SHAPE_WAIT_MS ? null : map;
+    }
+
     private void drawMapImage(Canvas c, Paint p, JSONObject s, Bitmap map) {
+        map = mapForLayout(map);
         if (naviLayout) {
             scratchIRect.set(0, 0, NAVI_MAP_RIGHT, HEIGHT);
         } else {
