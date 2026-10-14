@@ -47,7 +47,7 @@ public class NavigationRenderCheck {
   static final long MAP_FADE_MS=300L; Bitmap fadingMap; long fadingMapSince, mapShownSince;
   Bitmap trimmedLane(Bitmap b){return b==null||b.isRecycled()?null:b;}
   int mapRight(){return 1920;} float mapCenterX(){return 1440f;}
-  boolean naviLayout; static final int NAVI_MAP_RIGHT=1536; static final float NAVI_LANE_CX=920f, NAVI_LANE_H=87f;
+  boolean naviLayout; static final int NAVI_MAP_RIGHT=1536; static final float NAVI_LANE_CX=920f, NAVI_LANE_H=87f, NAVI_LANE_MARKER_CX=768f, NAVI_LANE_BOTTOM=702f;
   static final float NAVI_BOTTOM_FADE_H=220f, NAVI_LEFT_FADE_END=390f, NAVI_RIGHT_FADE_START=1238f, NAVI_FADE_EDGE=60f; static final int NAVI_SIDE_FADE_ALPHA=110;
   static class Shader { enum TileMode { CLAMP } }
   static class LinearGradient { LinearGradient(float a,float b,float c,float d,int e,int f,Shader.TileMode m){} LinearGradient(float a,float b,float c,float d,int[] e,float[] f,Shader.TileMode m){} }
