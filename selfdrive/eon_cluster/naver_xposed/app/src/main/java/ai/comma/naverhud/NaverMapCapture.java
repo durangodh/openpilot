@@ -418,6 +418,14 @@ final class NaverMapCapture {
         int cropH = Math.min(sh, Math.round(outH / scale));
         int left = content.left + (sw - cropW) / 2;
         int top = sh > sw ? Math.round(sh * 0.62f - cropH / 2f) : (sh - cropH) / 2;
+        if (wide && sh > sw) {
+            // 세로 폰 화면에서 62% 중심은 주행모드(세로로 긴 760x720 영역)에 맞춘 값이다. 네비모드
+            // 영역은 높이가 절반 이하라 같은 중심이면 아래쪽 내 차 마커가 잘렸다(2026-10-14 실차).
+            // 주행모드 영역의 아래 끝선에 맞춰 마커 아래 여백을 주행모드와 같게 둔다.
+            float driveScale = Math.max(WIDTH / (float) sw, HEIGHT / (float) sh);
+            int driveCropH = Math.min(sh, Math.round(HEIGHT / driveScale));
+            top = Math.round(sh * 0.62f + driveCropH / 2f) - cropH;
+        }
         top = content.top + Math.max(0, Math.min(sh - cropH, top));
         Bitmap out = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888);
         new Canvas(out).drawBitmap(source,
