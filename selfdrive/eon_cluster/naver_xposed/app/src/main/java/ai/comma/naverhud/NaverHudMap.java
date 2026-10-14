@@ -33,15 +33,15 @@ import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 
 /**
- * S9 HUD 네비모드 전용 네이버 지도(티맵 TmapMapRender 와 같은 방식).
+ * S9 HUD 전용 네이버 지도(티맵 TmapMapRender 와 같은 방식). 주행모드 760x720, 네비모드 1080x506.
  *
  * 폰 화면 지도를 찍어 쓰면(세로 화면의 가로 띠 하나) HUD 를 줄이려고 폰 지도까지 크게 줄여야
  * 했다. 대신 네이버 SDK 의 MapSurface(안드로이드 오토가 쓰는 화면 밖 지도)를 하나 더 만들어
- * 1080x506 ImageReader 에 그린다. 밀도를 낮춘 Context 로 만들어 글자·도로·아이콘이 모두
+ * ImageReader 에 그린다. 밀도를 낮춘 Context 로 만들어 글자·도로·아이콘이 모두
  * 함께 작아지고, 폰 화면 지도는 건드리지 않는다.
  *
  * 매 캡처 틱(메인 스레드)마다 안내 지도에서 복사한다:
- *  - 카메라(위치·줌·기울기·방향): NaverMap.M() → C1()
+ *  - 카메라(줌·기울기·방향, 중심은 내 차를 화면 78% 에): NaverMap.M() → Y0(CameraUpdate.x().q())
  *  - 경로선(Path/MultipartPath/ArrowheadPathOverlay): Overlay.o(setMap) 훅으로 안내 지도에 붙은
  *    것을 기억해 같은 종류를 HUD 지도에 하나씩 만들어 속성을 복사(굵기는 밀도 비율만큼)
  *  - 내 차 아이콘(LocationOverlay): 위치·방향·아이콘·크기
@@ -50,7 +50,10 @@ import de.robv.android.xposed.XposedHelpers;
  * Overlay.o, NaverMap.M/C1/m0). 하나라도 없으면 쓰지 않고 예전 스냅샷 방식으로 돌아간다.
  */
 final class NaverHudMap {
-    static final int WIDTH = 1080, HEIGHT = 506;
+    /** 주행모드(HUD 지도칸 760x720, 1:1)와 네비모드(1080x506, HUD 가 1536 폭으로 늘림) 크기. */
+    static final int DRIVE_WIDTH = 760, DRIVE_HEIGHT = 720, WIDE_WIDTH = 1080, WIDE_HEIGHT = 506;
+    /** 내 차를 화면 세로 78% 에 둔다(앞쪽 도로를 더 보이게, 카카오 HUD 지도와 같은 값). */
+    private static final float PIVOT_Y = 0.78f;
     /** 지금 HUD 지도가 프레임을 내고 있으면 true(NaverZoomOffset 은 폰 지도를 줄이지 않는다). */
     static volatile boolean active;
 
@@ -79,6 +82,9 @@ final class NaverHudMap {
     private Object hudNative;        // NativeMapView
     private ImageReader reader;
     private float ratio = 1f;        // HUD 밀도 / 폰 밀도
+    private int width, height;       // 지금 만든 화면 크기
+    private boolean builtWide;
+    private float builtScale;
     private boolean failed;
     private long lastStyleAt;
     private long createdAt;
@@ -134,6 +140,12 @@ final class NaverHudMap {
     /** 메인 스레드. 필요하면 만들고, 안내 지도(guided)를 따라 그린다. 새 프레임이 있으면 돌려준다. */
     Bitmap frame(Context app, Object guided) {
         if (failed || guided == null || app == null) return null;
+        boolean wide = EonDiscovery.wideMap;
+        float scale = EonDiscovery.mapScale;
+        if (surface != null && (wide != builtWide || (wide && scale != builtScale))) {
+            // 주행/네비모드나 지도 크기 설정이 바뀌었다: 새 크기·밀도로 다시 만든다.
+            release();
+        }
         if (surface == null) {
             try {
                 create(app, guided.getClass().getClassLoader());
@@ -169,8 +181,15 @@ final class NaverHudMap {
                 base.getResources().getDisplayMetrics().heightPixels);
         // 주행모드 HUD 는 폰 지도 폭(phoneWidth)을 760 으로 줄여 1:1 로 그린다. 네비모드에서는
         // 그보다 30%(네이버는 20% 더) 작게, HUD 가 1080 폭 프레임을 1536 으로 늘리는 것까지 뺀다.
-        ratio = (760f / phoneWidth) * NaverZoomOffset.WIDE_SCALE * NaverZoomOffset.NAVER_EXTRA
-                * (WIDTH / 1536f);
+        builtWide = EonDiscovery.wideMap;
+        builtScale = EonDiscovery.mapScale;
+        width = builtWide ? WIDE_WIDTH : DRIVE_WIDTH;
+        height = builtWide ? WIDE_HEIGHT : DRIVE_HEIGHT;
+        // 예전 주행모드 HUD 는 폰 지도 폭(phoneWidth)을 760 으로 줄여 1:1 로 그렸다(그 크기를 그대로
+        // 둔다). 네비모드는 그 크기의 EON 설정 비율(EonClusterHudMapScaleNaver, 기본 55%)이고,
+        // HUD 가 1080 폭 프레임을 1536 으로 늘리는 것까지 뺀다.
+        ratio = (DRIVE_WIDTH / (float) phoneWidth)
+                * (builtWide ? builtScale * WIDE_WIDTH / 1536f : 1f);
         Configuration config = new Configuration(base.getResources().getConfiguration());
         config.densityDpi = Math.max(60, Math.round(phoneDensity * ratio * 160f));
         ratio = config.densityDpi / 160f / phoneDensity;
@@ -198,12 +217,12 @@ final class NaverHudMap {
         call(surface, "f", new Class<?>[]{readyType}, ready);   // getMapAsync
         call(surface, "n", new Class<?>[0]);                    // onStart
         call(surface, "l", new Class<?>[0]);                    // onResume
-        reader = ImageReader.newInstance(WIDTH, HEIGHT, PixelFormat.RGBA_8888, 3);
+        reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3);
         reader.setOnImageAvailableListener(this::onImage, imageHandler);
         Surface s = reader.getSurface();
         call(surface, "r", new Class<?>[]{Surface.class}, s);                           // created
-        call(surface, "q", new Class<?>[]{Surface.class, int.class, int.class}, s, WIDTH, HEIGHT);
-        NaverHudLog.line("HUD map surface " + WIDTH + "x" + HEIGHT + " started");
+        call(surface, "q", new Class<?>[]{Surface.class, int.class, int.class}, s, width, height);
+        NaverHudLog.line("HUD map surface " + width + "x" + height + " started");
     }
 
     /** ImageReader 스레드: 최신 프레임만 Bitmap 으로 남긴다. */
@@ -231,7 +250,7 @@ final class NaverHudMap {
     private void sync(Object guided) throws Exception {
         Object camera = invoke(guided, "M");
         if (camera != null && !Double.isNaN(camera.getClass().getField("zoom").getDouble(camera))) {
-            call(hudMap, "C1", new Class<?>[]{camera.getClass()}, camera);
+            moveCamera(guided, camera);
         }
         copyLocation(guided);
         copyPaths(guided);
@@ -240,6 +259,34 @@ final class NaverHudMap {
             lastStyleAt = now;
             copyStyle(guided);
         }
+    }
+
+    /**
+     * 안내 지도의 줌·기울기·방향을 쓰되, 중심은 내 차 위치로 하고 화면 세로 PIVOT_Y 에 둔다.
+     * 안내 지도의 중심(폰 화면 기준)을 그대로 쓰면 화면 비율이 다른 HUD 에서 차가 화면 밖으로 나갔다
+     * (주행모드 760x720 은 폰보다 세로가 짧다). 내 차 위치를 못 읽으면 카메라를 그대로 복사한다.
+     */
+    private void moveCamera(Object guided, Object camera) throws Exception {
+        Object location = invoke(invoke(guided, "m0"), "getPosition");
+        Class<?> positionType = camera.getClass();
+        if (location != null) {
+            try {
+                Class<?> updateType = positionType.getClassLoader().loadClass("com.naver.maps.map.CameraUpdate");
+                Object position = positionType.getConstructor(location.getClass(), double.class,
+                        double.class, double.class).newInstance(location,
+                        positionType.getField("zoom").getDouble(camera),
+                        positionType.getField("tilt").getDouble(camera),
+                        positionType.getField("bearing").getDouble(camera));
+                Object update = updateType.getMethod("x", positionType).invoke(null, position);
+                update = updateType.getMethod("q", android.graphics.PointF.class)
+                        .invoke(update, new android.graphics.PointF(0.5f, PIVOT_Y));
+                call(hudMap, "Y0", new Class<?>[]{updateType}, update);
+                return;
+            } catch (Throwable error) {
+                NaverHudLog.status("HUD map pivot camera: " + error);
+            }
+        }
+        call(hudMap, "C1", new Class<?>[]{positionType}, camera);
     }
 
     private void copyLocation(Object guided) {

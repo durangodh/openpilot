@@ -48,6 +48,8 @@ final class KakaoMap {
 
     /** 지금 서피스(ImageReader)가 만들어진 크기. 모드가 바뀌면 다시 만든다. */
     private int surfaceW = WIDTH, surfaceH = HEIGHT;
+    /** 서피스를 만들 때 쓴 밀도. 지도 크기 설정이 바뀌면 다시 만든다. */
+    private int surfaceDpi = MAP_DPI;
     private static final int JPEG_QUALITY = 65;
     // 지도 엔진에 넘기는 화면 밀도. 폰 밀도(약 2.6~4)를 그대로 쓰면 760x720 지도에
     // 글자·도로가 2~3배 크게 그려진다. 티맵 HUD 지도(DPI 160)와 같은 크기로 맞춘다.
@@ -77,8 +79,6 @@ final class KakaoMap {
     // 앱 주행 추적 카메라 zoom = KNUCameraScale 표[행][scaleIndex] (4.51.0 실측).
     // 여기서는 일반도로 DEFAULT 표 첫 행을 쓴다.
     private static final float[] DRIVE_ZOOM = {1.0f, 1.0f, 1.4f, 2.6f, 3.1f, 3.6f, 4.2f};
-    // HUD 네비모드 지도 축소: HUD 의 1.42배 확대(1536/1080)까지 상쇄하고 30% 더 작게.
-    private static final float WIDE_ZOOM_OUT = 1536f / 1080f / 0.7f;
     // scaleIndex 결정(KNUMapLocationUseCase 실측):
     //  - 다음 안내지점까지 550m 미만: 150/250/350/450/550m 경계로 1~5
     //  - 그 외: 속도 20/40/60/80/100 km/h 경계로 1~6 (앱은 GPS 속도 사용)
@@ -472,10 +472,16 @@ final class KakaoMap {
         if (EonDiscovery.wideMap && !surfaceMode) {
             // HUD 네비모드(캡처러 폴백): 밀도를 바꿀 수 없어 줌으로만 30% 넓힌다(마커·경로선 그대로).
             // 서피스 렌더는 mapDensityContext 의 밀도로 지도·경로선·마커를 함께 30% 작게 그린다.
-            zoom *= WIDE_ZOOM_OUT;
+            zoom *= 1536f / 1080f / EonDiscovery.mapScale;
         }
         update = zoomTo.invoke(update, zoom);
         return update;
+    }
+
+    /** HUD 지도 밀도. 네비모드 비율 0.7 은 EON 설정(EonClusterHudMapScaleKakao). */
+    private static int mapDpi() {
+        return EonDiscovery.wideMap
+                ? Math.round(MAP_DPI * EonDiscovery.mapScale * WIDE_WIDTH / 1536f) : MAP_DPI;
     }
 
     /** 지도 엔진만 MAP_DPI 로 그리게 한 Context(앱 화면 밀도는 그대로 둔다). */
@@ -486,8 +492,7 @@ final class KakaoMap {
             // HUD 네비모드: 밀도를 0.7배로 낮춰 지도·글자·경로선·마커를 모두 30% 작게(넓게) 그린다.
             // 모드가 바뀌면 크기도 바뀌어 서피스를 다시 만들므로 그때 새 밀도가 들어간다.
             // HUD 는 1080 폭 네비모드 지도를 1536 폭으로 1.42배 늘려 그리므로 그만큼 더 낮춘다.
-            config.densityDpi = EonDiscovery.wideMap
-                    ? Math.round(MAP_DPI * 0.7f * WIDE_WIDTH / 1536f) : MAP_DPI;
+            config.densityDpi = mapDpi();
             return context.createConfigurationContext(config);
         } catch (Throwable t) {
             KakaoHudLog.ex("map density context", t);
@@ -662,10 +667,10 @@ final class KakaoMap {
             }
             return;
         }
-        if (surfaceW != mapWidth() || surfaceH != mapHeight()) {
-            // HUD 주행/네비모드가 바뀌었다. 서피스를 새 크기로 다시 만든다(다음 tick).
-            KakaoHudLog.line("map render size change " + surfaceW + "x" + surfaceH
-                    + " -> " + mapWidth() + "x" + mapHeight());
+        if (surfaceW != mapWidth() || surfaceH != mapHeight() || surfaceDpi != mapDpi()) {
+            // HUD 주행/네비모드나 지도 크기 설정이 바뀌었다. 서피스를 다시 만든다(다음 tick).
+            KakaoHudLog.line("map render size change " + surfaceW + "x" + surfaceH + "@" + surfaceDpi
+                    + " -> " + mapWidth() + "x" + mapHeight() + "@" + mapDpi());
             releaseSurface();
             nextSurfaceAttemptMs = 0;
             return;
@@ -700,6 +705,7 @@ final class KakaoMap {
         imageHandler = new Handler(imageThread.getLooper());
         surfaceW = mapWidth();
         surfaceH = mapHeight();
+        surfaceDpi = mapDpi();
         reader = android.media.ImageReader.newInstance(surfaceW, surfaceH,
                 android.graphics.PixelFormat.RGBA_8888, 3);
         reader.setOnImageAvailableListener(this::onSurfaceImage, imageHandler);

@@ -1343,6 +1343,36 @@
   },
   {
    "group": "S9HUD",
+   "name": "EonClusterHudMapScaleTmap",
+   "title": "S9 HUD NAVI MAP SIZE TMAP",
+   "descr": "\ub124\ube44\ubaa8\ub4dc\uc5d0\uc11c \ud2f0\ub9f5 \uc9c0\ub3c4 \ud06c\uae30(%). \uc8fc\ud589\ubaa8\ub4dc \uc9c0\ub3c4\ub97c 100\uc73c\ub85c \ubcfc \ub54c\uc758 \ud06c\uae30\uc785\ub2c8\ub2e4. \uc791\uc744\uc218\ub85d \ub354 \ub113\uac8c \ubcf4\uc785\ub2c8\ub2e4. \uae30\ubcf8 70.",
+   "min": 30,
+   "max": 100,
+   "default": 70,
+   "unit": 5
+  },
+  {
+   "group": "S9HUD",
+   "name": "EonClusterHudMapScaleKakao",
+   "title": "S9 HUD NAVI MAP SIZE KAKAO",
+   "descr": "\ub124\ube44\ubaa8\ub4dc\uc5d0\uc11c \uce74\uce74\uc624 \uc9c0\ub3c4 \ud06c\uae30(%). \uc8fc\ud589\ubaa8\ub4dc \uc9c0\ub3c4\ub97c 100\uc73c\ub85c \ubcfc \ub54c\uc758 \ud06c\uae30\uc785\ub2c8\ub2e4. \uc791\uc744\uc218\ub85d \ub354 \ub113\uac8c \ubcf4\uc785\ub2c8\ub2e4. \uae30\ubcf8 70.",
+   "min": 30,
+   "max": 100,
+   "default": 70,
+   "unit": 5
+  },
+  {
+   "group": "S9HUD",
+   "name": "EonClusterHudMapScaleNaver",
+   "title": "S9 HUD NAVI MAP SIZE NAVER",
+   "descr": "\ub124\ube44\ubaa8\ub4dc\uc5d0\uc11c \ub124\uc774\ubc84 \uc9c0\ub3c4 \ud06c\uae30(%). \uc8fc\ud589\ubaa8\ub4dc \uc9c0\ub3c4\ub97c 100\uc73c\ub85c \ubcfc \ub54c\uc758 \ud06c\uae30\uc785\ub2c8\ub2e4. \uc791\uc744\uc218\ub85d \ub354 \ub113\uac8c \ubcf4\uc785\ub2c8\ub2e4. \uae30\ubcf8 55.",
+   "min": 30,
+   "max": 100,
+   "default": 55,
+   "unit": 5
+  },
+  {
+   "group": "S9HUD",
    "name": "EonClusterHudNavApp",
    "title": "NAVIGATION APP",
    "descr": "EON\uc5d0\uc11c \ud734\ub300\ud3f0 \ub0b4\ube44\ub97c \uc120\ud0dd\ud569\ub2c8\ub2e4. 0: \uc120\ud0dd \uc548 \ud568 / 1: \ud2f0\ub9f5 / 2: \ub124\uc774\ubc84\uc9c0\ub3c4 / 3: \uce74\uce74\uc624\ub0b4\ube44. \ubcc0\uacbd\ud558\uba74 S9\uc5d0\uc11c \uc120\ud0dd\ud55c \uc571\uc774 \uc790\ub3d9 \uc2e4\ud589\ub429\ub2c8\ub2e4.",

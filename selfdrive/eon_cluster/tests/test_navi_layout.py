@@ -16,3 +16,22 @@ def test_auto_follows_guidance_with_release_delay():
   assert layout.update(2, False, now=1.0 + AUTO_RELEASE_S + 0.1) == 0
   # 한 번 내려간 뒤에는 안내가 다시 올 때까지 주행모드
   assert layout.update(2, False, now=20.0) == 0
+
+
+def test_read_map_scales_defaults_and_bounds():
+  from selfdrive.eon_cluster.navi_layout import read_map_scales
+
+  class FakeParams:
+    def __init__(self, values):
+      self.values = values
+
+    def get(self, key):
+      return self.values.get(key)
+
+  assert read_map_scales(FakeParams({})) == {
+    "hud_map_scale_tmap": 70, "hud_map_scale_kakao": 70, "hud_map_scale_naver": 55}
+  scales = read_map_scales(FakeParams({
+    "EonClusterHudMapScaleTmap": b"10",
+    "EonClusterHudMapScaleKakao": b"85",
+    "EonClusterHudMapScaleNaver": b"bad"}))
+  assert scales == {"hud_map_scale_tmap": 30, "hud_map_scale_kakao": 85, "hud_map_scale_naver": 55}

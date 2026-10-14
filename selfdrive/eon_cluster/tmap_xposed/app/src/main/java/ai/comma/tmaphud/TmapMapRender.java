@@ -45,15 +45,18 @@ final class TmapMapRender {
     private static final int WIDE_WIDTH = 1080, WIDE_HEIGHT = 506;
     /** 엔진이 지금 그리는 크기. EON 이 알려 준 HUD 모드가 바뀌면 syncSize 가 바꾼다. */
     private int renderW = WIDTH, renderH = HEIGHT;
+    /** 엔진에 넣은 밀도. EON 설정(지도 크기)이 바뀌면 syncSize 가 화면을 다시 만든다. */
+    private int renderDpi = DPI;
     private volatile int frameW = WIDTH, frameH = HEIGHT;
 
     /**
      * HUD 네비모드: 엔진 밀도를 낮춰 같은 화면에 더 넓은 범위를 그린다. HUD 가 1080 폭 지도를
      * 1536 폭으로 1.42배 늘려 그리므로 그만큼 더 낮춰, HUD 에서 주행모드보다 30% 작게 보이게 한다
-     * (160 × 0.7 / 1.42 ≈ 79). 주행모드는 그대로 160.
+     * (160 × 0.7 / 1.42 ≈ 79). 0.7 은 EON 설정(EonClusterHudMapScaleTmap). 주행모드는 그대로 160.
      */
     private static int mapDpi() {
-        return EonDiscovery.wideMap ? Math.round(DPI * 0.7f * WIDE_WIDTH / 1536f) : DPI;
+        return EonDiscovery.wideMap
+                ? Math.round(DPI * EonDiscovery.mapScale * WIDE_WIDTH / 1536f) : DPI;
     }
 
     private static int targetWidth() {
@@ -145,6 +148,7 @@ final class TmapMapRender {
         imageHandler = new Handler(imageThread.getLooper());
         renderW = targetWidth();
         renderH = targetHeight();
+        renderDpi = mapDpi();
         reader = ImageReader.newInstance(renderW, renderH, PixelFormat.RGBA_8888, 3);
         reader.setOnImageAvailableListener(this::onImageAvailable, imageHandler);
 
@@ -333,7 +337,8 @@ final class TmapMapRender {
      */
     private void syncSize() {
         int w = targetWidth(), h = targetHeight();
-        if (engine == null || imageHandler == null || (w == renderW && h == renderH)) return;
+        int dpi = mapDpi();
+        if (engine == null || imageHandler == null || (w == renderW && h == renderH && dpi == renderDpi)) return;
         Object surface = inv(engine, "getSurface");
         if (surface == null) return;
         ImageReader old = reader;
@@ -355,9 +360,11 @@ final class TmapMapRender {
         inv(surface, "surfaceChanged", w, h);
         reader = next;
         lastFrame = null;   // 예전 크기 프레임을 새 크기로 다시 보내지 않는다.
-        TmapHudLog.line("map render size " + renderW + "x" + renderH + " -> " + w + "x" + h);
+        TmapHudLog.line("map render size " + renderW + "x" + renderH + "@" + renderDpi
+                + " -> " + w + "x" + h + "@" + dpi);
         renderW = w;
         renderH = h;
+        renderDpi = dpi;
         inv(engine, "setScreenCenter", new Point(w / 2, Math.round(h * SCREEN_CENTER_Y)));
         inv(inv(engine, "getViewSetting"), "setDensityDpi", mapDpi());
         try { if (old != null) old.close(); } catch (Throwable ignored) { }

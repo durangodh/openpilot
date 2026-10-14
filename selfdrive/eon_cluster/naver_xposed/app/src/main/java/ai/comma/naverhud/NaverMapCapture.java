@@ -166,9 +166,9 @@ final class NaverMapCapture {
         // HUD 네비모드: 이 지도만 30% 넓게(검증 버전에서만 동작, 아니면 아무것도 안 함).
         NaverZoomOffset.update(map);
         logStats(now);
-        // HUD 네비모드는 화면 밖 HUD 전용 지도(NaverHudMap)를 쓴다. 준비 전이거나 실패하면
-        // 아래 스냅샷 방식이 그대로 이어서 보낸다.
-        if (EonDiscovery.wideMap && !hudMap.failed()) {
+        // HUD 는 주행·네비모드 모두 화면 밖 HUD 전용 지도(NaverHudMap)를 쓴다. 준비 전이거나
+        // 실패하면 아래 스냅샷 방식이 그대로 이어서 보낸다.
+        if (!hudMap.failed()) {
             Bitmap hud = hudMap.frame(appContext(), map);
             if (NaverHudMap.active) {
                 if (hud != null) {
@@ -183,9 +183,6 @@ final class NaverMapCapture {
                 }
                 return;
             }
-        } else if (!EonDiscovery.wideMap && hudMap.started()) {
-            hudMap.release();
-            if (lastHud != null) { lastHud.recycle(); lastHud = null; }
         }
         if (requestedAt != 0 && now - requestedAt < REQUEST_TIMEOUT_MS) return;
         if (requestedAt != 0) statTimeout++;   // 응답 없이 시간 초과

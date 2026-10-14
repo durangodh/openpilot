@@ -4,6 +4,9 @@ EonClusterHudNaviLayout 0=주행모드, 1=네비모드, 2=자동(길안내 중 �
 remote_hud_s9 가 실제로 쓸 배치를 정해 HUD 패킷(hudNaviLayout)에 싣고 같은 값을
 STATE_FILE 에 남긴다. carrot_navi_server 는 그 값을 1초 탐색 방송(hud_wide_map)으로
 휴대폰 모듈에 알려, 네비모드에서는 지도를 가로로 넓게 캡처하게 한다.
+
+EonClusterHudMapScale{Tmap,Kakao,Naver}: 네비모드 HUD 지도 크기(주행모드 대비 %).
+같은 방송(hud_map_scale_tmap/kakao/naver)으로 각 휴대폰 모듈에 알린다.
 """
 import os
 import time
@@ -58,3 +61,23 @@ def read_wide_map():
       return 1 if f.read().strip() == "1" else 0
   except (OSError, ValueError):
     return 0
+
+
+# 키 → (방송 이름, 기본 %). 범위는 30~100.
+MAP_SCALE_KEYS = (
+  ("EonClusterHudMapScaleTmap", "hud_map_scale_tmap", 70),
+  ("EonClusterHudMapScaleKakao", "hud_map_scale_kakao", 70),
+  ("EonClusterHudMapScaleNaver", "hud_map_scale_naver", 55),
+)
+
+
+def read_map_scales(params):
+  """방송에 실을 앱별 네비모드 지도 크기(%). 읽지 못하면 기본값."""
+  out = {}
+  for key, field, default in MAP_SCALE_KEYS:
+    try:
+      value = int(float((params.get(key) or b"").decode() or default))
+    except (ValueError, AttributeError):
+      value = default
+    out[field] = max(30, min(100, value))
+  return out
