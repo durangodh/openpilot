@@ -59,7 +59,58 @@ final class NaverBridge {
 
     /** 메인 스레드: 폰 차로 표시(NaviLaneControlView)가 갱신됐다. */
     void onLaneView(android.view.View view, Object item) {
+        if (view != offscreenLane) phoneLaneSeen = true;
         laneImage.onUpdate(view, NaverViewImage.hasItems(item));
+    }
+
+    // 네이버 6.11: 폰 화면 차로 표시가 Compose 로 바뀌어 NaviLaneControlView 는 안드로이드 오토
+    // (auto.control.LaneControl)에서만 쓰인다. 폰 뷰가 한 번도 갱신되지 않으면 같은 뷰를 화면 밖에
+    // 하나 만들어 안드로이드 오토처럼 a(차로, false) 로 채우고, 그 그림을 HUD 차로 띠로 보낸다.
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private volatile boolean phoneLaneSeen;
+    private boolean offscreenLaneFailed;
+    private android.view.View offscreenLane;
+    private Method offscreenLaneSet;
+    private Object lastLaneItem;
+
+    /** 폴링 스레드. 차로 항목이 바뀌었을 때만 메인 스레드에서 다시 그린다. */
+    private void laneFallback(Object item, boolean guiding) {
+        if (phoneLaneSeen || offscreenLaneFailed) return;
+        final Object shown = guiding ? item : null;
+        if (shown == lastLaneItem || (shown != null && shown.equals(lastLaneItem))) return;
+        lastLaneItem = shown;
+        mainHandler.post(() -> drawLaneOffscreen(shown));
+    }
+
+    private void drawLaneOffscreen(Object item) {
+        if (phoneLaneSeen || offscreenLaneFailed) return;
+        try {
+            if (item == null) {
+                if (offscreenLane != null) laneImage.onUpdate(offscreenLane, false);
+                return;
+            }
+            if (offscreenLane == null) {
+                android.app.Application app = (android.app.Application) Class.forName("android.app.ActivityThread")
+                        .getMethod("currentApplication").invoke(null);
+                android.content.Context ctx = new android.view.ContextThemeWrapper(app, app.getApplicationInfo().theme);
+                ClassLoader cl = item.getClass().getClassLoader();
+                Class<?> view = cl.loadClass(NaverViewImage.LANE_VIEW_611);
+                offscreenLane = (android.view.View) view.getConstructor(android.content.Context.class).newInstance(ctx);
+                offscreenLaneSet = view.getMethod("a",
+                        cl.loadClass("com.naver.map.core.navigation.lane.NaviLaneItem"), boolean.class);
+                NaverHudLog.line("lane view: drawing NaviLaneControlView off screen (phone lane view unused)");
+            }
+            offscreenLaneSet.invoke(offscreenLane, item, false);   // 훅이 onLaneView 로 그림을 뜬다
+            int w = offscreenLane.getResources().getDisplayMetrics().widthPixels;
+            offscreenLane.measure(
+                    android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
+            offscreenLane.layout(0, 0, offscreenLane.getMeasuredWidth(), offscreenLane.getMeasuredHeight());
+            laneImage.onUpdate(offscreenLane, NaverViewImage.hasItems(item));
+        } catch (Throwable error) {
+            offscreenLaneFailed = true;
+            NaverHudLog.ex("lane view off screen", error);
+        }
     }
 
     /** 메인 스레드: 폰 신호등 표시(NaviTrafficSignalView)가 갱신됐다. */
@@ -146,7 +197,9 @@ final class NaverBridge {
 
         Object link = NaverStore.get(s, "MatchedLinkInfo");
         send("speed", speed(s, (int) NaverCodes.number(call(link, "h"))));
-        send("lane_current", lane(value(NaverStore.get(s, "NaviLaneItem"))));
+        Object laneItem = value(NaverStore.get(s, "NaviLaneItem"));
+        send("lane_current", lane(laneItem));
+        laneFallback(laneItem, guiding);
         Object signalItem = value(NaverStore.get(s, "TrafficSignalInfo"));
         send("traffic_signal", signal(signalItem));
         publishSignalImage(guiding ? signalItem : null);
