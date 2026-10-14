@@ -29,6 +29,9 @@ final class UpdateManager {
     private static final String RELEASES_API =
             "https://api.github.com/repos/durangodh/openpilot/releases?per_page=30";
     private static final String ASSET_PREFIX = "EON-Remote-HUD-fixed-";
+    // .github/workflows/build-remote-hud.yml 이 remote-hud-auto 릴리스에 올리는 파일.
+    private static final String DIRECT_APK = "https://github.com/durangodh/openpilot/releases/download/"
+            + "remote-hud-auto/EON-Remote-HUD-fixed-latest.apk";
     private static final long MAX_APK_BYTES = 50L * 1024L * 1024L;
 
     interface Callback {
@@ -103,8 +106,14 @@ final class UpdateManager {
         HttpURLConnection connection = open(RELEASES_API);
         String body;
         try {
-            if (connection.getResponseCode() != 200) {
-                throw new IllegalStateException("GitHub 응답 " + connection.getResponseCode());
+            int code = connection.getResponseCode();
+            if (code == 403 || code == 429) {
+                // 로그인 없는 GitHub API 는 같은 IP 에서 시간당 60회까지라 자주 확인하면 403 이 났다.
+                // 빌드가 매번 같은 이름으로 올리는 파일을 API 없이 바로 받는다(버전은 받은 뒤 비교).
+                return new JSONObject().put("browser_download_url", DIRECT_APK);
+            }
+            if (code != 200) {
+                throw new IllegalStateException("GitHub 응답 " + code);
             }
             body = readText(connection);
         } finally {
