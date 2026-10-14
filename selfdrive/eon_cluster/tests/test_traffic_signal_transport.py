@@ -45,7 +45,20 @@ def test_kakao_signal_uses_native_hud_size():
   assert "private static final float CONTENT_SCALE = 1.0f;" in signal
 
 
+def test_tmap_and_naver_signal_match_kakao_size():
+  # 세 네비 모두 302x192 캔버스에 132x96 원본 크기로 그린다(HUD 에서 같은 크기).
+  tmap = (ROOT / "selfdrive/eon_cluster/tmap_xposed/app/src/main/java/ai/comma/tmaphud/TmapSignal.java").read_text(
+      encoding="utf-8")
+  assert "private static final float CONTENT_SCALE = 1.0f;" in tmap
+  naver = (ROOT / "selfdrive/eon_cluster/naver_xposed/app/src/main/java/ai/comma/naverhud/NaverSignal.java").read_text(
+      encoding="utf-8")
+  assert "private static final int CANVAS_W = 302;" in naver
+  assert "private static final int CANVAS_H = 192;" in naver
+  assert "frame(1, png, CANVAS_W, CANVAS_H)" in naver
+
+
 if __name__ == "__main__":
   test_signal_stream_enabled_and_forwarded()
   test_kakao_signal_uses_native_hud_size()
+  test_tmap_and_naver_signal_match_kakao_size()
   print("traffic signal transport test passed")
