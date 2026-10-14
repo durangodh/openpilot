@@ -99,6 +99,17 @@ final class NaverMapCapture {
         return null;
     }
 
+    /** 가장 최근에 붙은 네이버 화면(Activity). 화면 밖 뷰를 그 화면 테마로 만들 때 쓴다. */
+    Activity latestActivity() {
+        synchronized (activities) {
+            for (int i = activities.size() - 1; i >= 0; i--) {
+                Activity a = activities.get(i).get();
+                if (a != null && !a.isFinishing()) return a;
+            }
+        }
+        return null;
+    }
+
     /** 메인 스레드: HUD 전용 지도 프레임(이미 1080x506)을 인코더로 넘긴다. */
     private void queueFrame(Bitmap image, long now) {
         statReq++;

@@ -68,7 +68,7 @@ final class NaverBridge {
     // 하나 만들어 안드로이드 오토처럼 a(차로, false) 로 채우고, 그 그림을 HUD 차로 띠로 보낸다.
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private volatile boolean phoneLaneSeen;
-    private boolean offscreenLaneFailed;
+    private boolean offscreenLaneFailed, offscreenLaneLogged;
     private android.view.View offscreenLane;
     private Method offscreenLaneSet;
     private Object lastLaneItem;
@@ -90,9 +90,13 @@ final class NaverBridge {
                 return;
             }
             if (offscreenLane == null) {
-                android.app.Application app = (android.app.Application) Class.forName("android.app.ActivityThread")
-                        .getMethod("currentApplication").invoke(null);
-                android.content.Context ctx = new android.view.ContextThemeWrapper(app, app.getApplicationInfo().theme);
+                // 차로 뷰 레이아웃은 네이버 주행 화면 테마의 속성을 쓴다. 앱 기본 테마로 만들면 inflate 가
+                // 실패할 수 있어, 붙어 있는 네이버 화면(Activity)으로 만든다. 아직 없으면 다음 변화 때 다시.
+                android.content.Context ctx = map.latestActivity();
+                if (ctx == null) {
+                    lastLaneItem = null;
+                    return;
+                }
                 ClassLoader cl = item.getClass().getClassLoader();
                 Class<?> view = cl.loadClass(NaverViewImage.LANE_VIEW_611);
                 offscreenLane = (android.view.View) view.getConstructor(android.content.Context.class).newInstance(ctx);
@@ -106,6 +110,11 @@ final class NaverBridge {
                     android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
                     android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
             offscreenLane.layout(0, 0, offscreenLane.getMeasuredWidth(), offscreenLane.getMeasuredHeight());
+            if (!offscreenLaneLogged) {
+                offscreenLaneLogged = true;
+                NaverHudLog.line("lane view off screen " + offscreenLane.getMeasuredWidth() + "x"
+                        + offscreenLane.getMeasuredHeight() + " lanes=" + NaverViewImage.hasItems(item));
+            }
             laneImage.onUpdate(offscreenLane, NaverViewImage.hasItems(item));
         } catch (Throwable error) {
             offscreenLaneFailed = true;
