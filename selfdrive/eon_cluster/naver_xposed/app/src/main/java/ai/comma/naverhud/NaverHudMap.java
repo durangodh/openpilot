@@ -306,7 +306,11 @@ final class NaverHudMap {
             Object prev = last.get(prop);
             if (Objects.equals(prev, value)) return;
             Object put = value;
-            if (scale != 1f && value instanceof Integer) put = Math.max(1, Math.round((Integer) value * scale));
+            // 0·음수는 SDK 의 "자동 크기"다(내 차 아이콘이 그랬다). 비율을 곱해 1px 로 만들면 아이콘이
+            // 사라졌다(2026-10-14 실차). 자동 크기는 HUD 지도의 낮은 밀도에 맞춰 SDK 가 줄인다.
+            if (scale != 1f && value instanceof Integer && (Integer) value > 0) {
+                put = Math.max(1, Math.round((Integer) value * scale));
+            }
             Method setter = setter(dst.getClass(), prop, getter.getReturnType());
             if (setter == null) return;
             if (value instanceof List && ((List<?>) value).isEmpty()) return;   // SDK 는 빈 좌표를 거부
