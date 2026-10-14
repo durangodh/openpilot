@@ -70,6 +70,8 @@ public class NavigationRenderCheck {
   void drawScaledArrow(Canvas c,Paint p,float x,float y,int type,float size,String title){}
   String distanceText(int n){return Integer.toString(n);}
   int nightMapMaskAlpha(){return frameDark?155:0;}
+  static final int CAMERA_OVERSPEED_MARGIN_KPH=5;
+  static final long CAMERA_WARNING_BLINK_MS=500L;
   /* PRODUCTION_METHODS */
   static JSONObject state(boolean active,int remain,int turn){return new JSONObject().put("navi",
     new JSONObject().put("active",active).put("remainDist",remain).put("turnDist",turn));}
@@ -80,6 +82,21 @@ public class NavigationRenderCheck {
       throw new AssertionError(name+": banners="+c.banners+" maps="+c.maps+" overlays="+c.nativeOverlays+" markers="+c.markers+" next="+c.nextCalls+" eta="+c.etaCalls+" badge="+c.sourceBadges);
   }
   public static void main(String[] args){
+    // Camera warning must work identically with cruise on and off.
+    for(boolean cruise:new boolean[]{false,true}) {
+      JSONObject warning=new JSONObject().put("enabled",cruise).put("speed",65).put("camera",60).put("cameraDist",400);
+      if(!cameraWarningOn(warning,true,0L)||!cameraWarningOn(warning,true,499L)
+          ||cameraWarningOn(warning,true,500L)||!cameraWarningOn(warning,true,1000L))
+        throw new AssertionError("camera blink timing, cruise="+cruise);
+      warning.put("speed",64);
+      if(cameraWarningOn(warning,true,0L))throw new AssertionError("below +5 km/h threshold");
+      warning.put("speed",65).put("cameraDist",0);
+      if(cameraWarningOn(warning,true,0L))throw new AssertionError("passed camera warning");
+      warning.put("cameraDist",400).put("camera",0);
+      if(cameraWarningOn(warning,true,0L))throw new AssertionError("missing camera limit");
+      warning.put("camera",60);
+      if(cameraWarningOn(warning,false,0L))throw new AssertionError("stale vehicle warning");
+    }
     NavigationRenderCheck hud=new NavigationRenderCheck(); Bitmap map=new Bitmap();
     Bitmap signal=new Bitmap();
     hud.check("map and signal available",state(true,1000,200),map,signal,1,1,1);
@@ -366,6 +383,7 @@ def main():
     # Use complete source methods, so restoring the old early return fails this test.
     methods = []
     for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),
+                       ("    private static boolean cameraWarningOn(", "    private void drawSpeedRing("),
                        ("    private float drawTbtBanner(", "    private float drawTbtImage("),
                        ("    private void drawTbtNext(", "    // 회전 방향 종류."),
                        ("    private static boolean naviGuiding(", "    private Bitmap laneTrimSource;")):

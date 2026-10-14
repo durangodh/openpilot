@@ -1213,6 +1213,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     # 정상 주행 중에도 다른 서비스 지연(commIssue 등)으로 자주 False 가 되어
     # 2026-10-08 주행 중 HUD 가 계속 "EON 연결 끊김"을 띄웠다.
     "drivingValid": all(_stream_alive(sm, name) for name in ("carState", "carControl", "controlsState")),
+    "speedValid": car_valid,
     "worldValid": model_valid,
     "mapPose": map_pose,
     "gpsState": gps_state,
