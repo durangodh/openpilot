@@ -52,6 +52,8 @@ def test_wide_map_fixed_navi_setting_without_hud():
   try:
     assert navi_layout.read_wide_map(FakeParams(b"1")) == 1
     assert navi_layout.read_wide_map(FakeParams(b"2")) == 0
+    assert navi_layout.read_wide_map(FakeParams(b"2"), True) == 1
+    assert navi_layout.read_wide_map(FakeParams(b"0"), True) == 0
     assert navi_layout.read_wide_map(FakeParams(None)) == 0
     assert navi_layout.read_wide_map() == 0
   finally:

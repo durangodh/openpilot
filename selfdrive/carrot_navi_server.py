@@ -153,6 +153,17 @@ class NaviState(object):
     except (TypeError, ValueError, UnicodeDecodeError):
       return SOURCE_TMAP
 
+  def route_guiding(self, max_age_ms=5000):
+    """선택한 네비가 최근 5초 안에 남은 거리가 있는 경로를 보냈으면 True(네비모드 자동 판단용)."""
+    with self.lock:
+      route = self.values.get("route")
+      updated = self.updated_at.get("route", 0)
+    try:
+      remain = float(route.get("remain_distance_m", 0) or 0) if isinstance(route, dict) else 0.0
+    except (TypeError, ValueError):
+      remain = 0.0
+    return remain > 0 and 0 <= int(time.time() * 1000) - updated <= max_age_ms
+
   def accepts(self, source):
     """Accept data only from the navigation app selected in EON settings."""
     selected = self._configured_source()
@@ -818,7 +829,7 @@ def handle_client(conn, state):
       pass
 
 
-def discovery_loop():
+def discovery_loop(state=None):
   sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
   payload_ip = None
@@ -830,7 +841,7 @@ def discovery_loop():
     if payload_ip:
       # hud_wide_map: S9 HUD 가 네비모드면 1. 휴대폰 모듈이 지도를 가로로 넓게 캡처한다.
       # hud_map_scale_*: 네비모드 HUD 지도 크기(휴대폰 앱 원본 축척 대비 %), 앱별 설정값.
-      message = {"ip": payload_ip, "navi_debug": 0, "hud_wide_map": read_wide_map(params)}
+      message = {"ip": payload_ip, "navi_debug": 0, "hud_wide_map": read_wide_map(params, state is not None and state.route_guiding())}
       message.update(read_map_scales(params))
       payload = json.dumps(message, separators=(",", ":")).encode("utf-8")
       try:
@@ -843,7 +854,7 @@ def discovery_loop():
 
 def main():
   state = NaviState()
-  threading.Thread(target=discovery_loop, name="carrot-navi-discovery", daemon=True).start()
+  threading.Thread(target=discovery_loop, args=(state,), name="carrot-navi-discovery", daemon=True).start()
   server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
   server.bind(("0.0.0.0", PORT))
