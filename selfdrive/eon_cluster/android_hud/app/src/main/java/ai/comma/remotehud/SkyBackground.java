@@ -137,8 +137,12 @@ final class SkyBackground {
         if (icon == WeatherService.ICON_CLEAR && !day) count = 0;
         // 안개 속에서는 구름 윤곽이 보이지 않는다. 안개층이 대신 질감을 만든다.
         if (count > 0 && icon != WeatherService.ICON_FOG) {
-            drawClouds(c, p, width, height, count, cloudColor(icon, day),
-                    seedFor(icon));
+            if (icon == WeatherService.ICON_CLEAR && day) {
+                drawClearDayClouds(c, p, width, height, cloudColor(icon, true));
+            } else {
+                drawClouds(c, p, width, height, count, cloudColor(icon, day),
+                        seedFor(icon));
+            }
         }
 
         if (icon == WeatherService.ICON_FOG) {
@@ -303,6 +307,17 @@ final class SkyBackground {
 
     private static int seedFor(int icon) {
         return 11 + icon * 10;
+    }
+
+    /** 맑은 낮의 작은 구름은 중앙 안내를 가리지 않도록 화면 왼쪽 절반에만 둔다. */
+    private static void drawClearDayClouds(Canvas c, Paint p, int w, int h, int color) {
+        int save = c.save();
+        c.clipRect(0f, 0f, w * 0.56f, h);
+        c.translate(w * 0.02f, h * 0.03f);
+        // 기존 자연 구름을 축소해 질감은 유지하면서 위치와 크기만 맑은 날에 맞춘다.
+        c.scale(0.58f, 0.58f);
+        drawClouds(c, p, Math.round(w * 0.88f), h, 2, color, seedFor(WeatherService.ICON_CLEAR));
+        c.restoreToCount(save);
     }
 
     /**
