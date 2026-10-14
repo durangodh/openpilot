@@ -99,6 +99,11 @@ final class KakaoMap {
     private Object pointCompanion;
     private Method setRoutesMethod;   // setRoutes(List<KNMRoute>)
     private Method convertRoutesMethod; // fl0.g.f(List<KNU route>) -> List<KNMRoute>
+    // 카카오 화면 지도의 안내 경로선 색(교통 상황별). fl0.g.f 변환은 SDK 기본색(서행 구간이
+    // 노랑)이라, 앱이 안내 경로에 쓰는 KNUMapStateHolderKt.f() 색을 그대로 입힌다
+    // (원활 #066AEB 파랑, 서행 #FFA620 주황, 지체 #EC6114, 정체 #D60009).
+    private Object appRouteLineColors;
+    private boolean routeColorLogged;
 
     private volatile Object pendingSdkRoute;
     private Object appliedSdkRoute;
@@ -546,6 +551,14 @@ final class KakaoMap {
             // 카카오 앱이 실제 주행 지도에 사용하는 동일 변환기.
             Class<?> routeConverter = cl.loadClass("com.kakaomobility.knmsdk.fl0.g");
             convertRoutesMethod = routeConverter.getMethod("f", List.class);
+            try {
+                // KNUMapStateHolderKt.f(): 안내 중 주 경로선 색(4.51.1 dex 확인).
+                appRouteLineColors = cl.loadClass("com.kakaomobility.navi.drive.core.feature.map.k")
+                        .getMethod("f").invoke(null);
+            } catch (Throwable noColors) {
+                appRouteLineColors = null;
+                KakaoHudLog.line("app route colors unavailable: " + noColors);
+            }
 
             Class<?> updClass = cl.loadClass("com.kakaomobility.knmsdk.camera.KNMCameraUpdate");
 
@@ -569,6 +582,24 @@ final class KakaoMap {
         }
     }
 
+    private void applyAppRouteColors(List<?> mapRoutes) {
+        Object colors = appRouteLineColors;
+        if (colors == null) return;
+        try {
+            for (Object r : mapRoutes) {
+                if (r == null) continue;
+                r.getClass().getMethod("setLineColor", colors.getClass()).invoke(r, colors);
+            }
+            if (!routeColorLogged) {
+                routeColorLogged = true;
+                KakaoHudLog.line("map route colors: app " + colors);
+            }
+        } catch (Throwable t) {
+            appRouteLineColors = null;
+            KakaoHudLog.ex("map route colors", t);
+        }
+    }
+
     private void applyRouteIfNeeded() {
         if (setRoutesMethod == null || convertRoutesMethod == null) return;
         Object route = pendingSdkRoute;
@@ -587,6 +618,7 @@ final class KakaoMap {
                     return;
                 }
                 mapRoutes = (List<?>) converted;
+                applyAppRouteColors(mapRoutes);
             }
             setRoutesMethod.invoke(mapTarget(), mapRoutes);
             appliedSdkRoute = route;
