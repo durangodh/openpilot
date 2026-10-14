@@ -77,6 +77,9 @@ final class TmapMapRender {
     private ClassLoader cl;
     private Context context;
     private Context engineContext;
+    private Object mapProxy;             // NavigationManager 에 붙인 MapViewInterface
+    private Class<?> mapViewInterfaceClass;
+    private int loopGeneration;
 
     private Object engine;              // NaviMapEngine
     private Object provider;            // ArrayLocationProvider<MatchedLocation>
@@ -203,24 +206,28 @@ final class TmapMapRender {
         Object proxy = Proxy.newProxyInstance(cl, new Class<?>[]{mapViewInterface},
                 (p, method, args) -> onMapViewCall(p, method, args));
         invTyped(nav, "attachMapView", new Class<?>[]{mapViewInterface, boolean.class}, proxy, false);
+        mapProxy = proxy;
+        mapViewInterfaceClass = mapViewInterface;
 
         syncCamera();
-        main.postDelayed(this::syncLoop, 1000 / FPS);
-        imageHandler.postDelayed(this::repeatLoop, 1000 / FPS);
+        // 엔진을 다시 만들면 예전 주기 작업은 세대 번호가 달라 스스로 멈춘다.
+        final int gen = ++loopGeneration;
+        main.postDelayed(() -> syncLoop(gen), 1000 / FPS);
+        final Handler h = imageHandler;
+        h.postDelayed(() -> repeatLoop(gen, h), 1000 / FPS);
     }
 
     /**
      * 지도가 멈춰 있으면 엔진이 새 프레임을 그리지 않을 수 있다. 패치판(emitFrameLoop)처럼
      * 마지막 프레임을 같은 간격으로 다시 보내 EON 이 지도를 오래된 것으로 지우지 않게 한다.
      */
-    private void repeatLoop() {
-        if (!running) return;
+    private void repeatLoop(int gen, Handler h) {
+        if (!running || gen != loopGeneration) return;
         byte[] last = lastFrame;
         if (last != null && client.ready() && SystemClock.elapsedRealtime() - lastFrameAt >= 2000L / FPS) {
             client.sendMap(Cnv2.frame(Cnv2.TYPE_IMAGE, Cnv2.FORMAT_JPEG, sequence++, last, frameW, frameH));
         }
-        Handler h = imageHandler;
-        if (h != null) h.postDelayed(this::repeatLoop, 1000 / FPS);
+        h.postDelayed(() -> repeatLoop(gen, h), 1000 / FPS);
     }
 
     // ---- MapViewInterface(NavigationManager 콜백) ----
@@ -318,8 +325,8 @@ final class TmapMapRender {
 
     // ---- 카메라 ----
 
-    private void syncLoop() {
-        if (!running) return;
+    private void syncLoop(int gen) {
+        if (!running || gen != loopGeneration) return;
         try {
             syncSize();
             syncRouteTraffic(mainEngine());
@@ -328,46 +335,51 @@ final class TmapMapRender {
         } catch (Throwable error) {
             TmapHudLog.status("map render sync: " + error);
         }
-        main.postDelayed(this::syncLoop, 1000 / FPS);
+        if (gen == loopGeneration) main.postDelayed(() -> syncLoop(gen), 1000 / FPS);
     }
 
     /**
-     * 메인 스레드. HUD 주행/네비모드가 바뀌면 엔진 화면을 새 크기의 ImageReader 로 옮긴다
-     * (GLSurfaceView 와 같은 destroyed → created → changed 순서).
+     * 메인 스레드. HUD 주행/네비모드나 지도 크기 설정(밀도)이 바뀌면 엔진을 새로 만든다.
+     * VSM 엔진은 만들어진 뒤에는 밀도 변경을 무시해서(2026-10-14 실차: 크기 설정을 키워도 그대로,
+     * 예전에는 "시작할 때만 작게 나왔다"), 화면(ImageReader)만 바꿔서는 크기가 바뀌지 않았다.
      */
     private void syncSize() {
         int w = targetWidth(), h = targetHeight();
         int dpi = mapDpi();
-        if (engine == null || imageHandler == null || (w == renderW && h == renderH && dpi == renderDpi)) return;
-        Object surface = inv(engine, "getSurface");
-        if (surface == null) return;
-        ImageReader old = reader;
-        ImageReader next = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 3);
-        next.setOnImageAvailableListener(this::onImageAvailable, imageHandler);
-        inv(surface, "surfaceDestroyed");
-        // Keep the renderer's private resources in sync when the layout changes;
-        // never change the phone application's resources.
-        if (engineContext != null) {
-            Configuration config = new Configuration(engineContext.getResources().getConfiguration());
-            config.densityDpi = mapDpi();
-            engineContext.getResources().updateConfiguration(config,
-                    engineContext.getResources().getDisplayMetrics());
-        }
-        // 밀도는 새 화면을 만들기 전에 바꾼다. 엔진이 화면 생성 때 밀도를 다시 읽는 경우에도
-        // 주행/네비모드 전환이 시작 시와 똑같이 적용되게 한다(실차: 시작 때는 작게 나왔다).
-        inv(inv(engine, "getViewSetting"), "setDensityDpi", mapDpi());
-        invTyped(surface, "surfaceCreated", new Class<?>[]{Surface.class}, next.getSurface());
-        inv(surface, "surfaceChanged", w, h);
-        reader = next;
-        lastFrame = null;   // 예전 크기 프레임을 새 크기로 다시 보내지 않는다.
-        TmapHudLog.line("map render size " + renderW + "x" + renderH + "@" + renderDpi
+        if (engine == null || (w == renderW && h == renderH && dpi == renderDpi)) return;
+        TmapHudLog.line("map render rebuild " + renderW + "x" + renderH + "@" + renderDpi
                 + " -> " + w + "x" + h + "@" + dpi);
-        renderW = w;
-        renderH = h;
-        renderDpi = dpi;
-        inv(engine, "setScreenCenter", new Point(w / 2, Math.round(h * SCREEN_CENTER_Y)));
-        inv(inv(engine, "getViewSetting"), "setDensityDpi", mapDpi());
-        try { if (old != null) old.close(); } catch (Throwable ignored) { }
+        teardown();
+        try {
+            initialize(context, cl);
+            startedAt = SystemClock.elapsedRealtime();
+        } catch (Throwable error) {
+            running = false;
+            failures++;
+            nextRetryAt = SystemClock.elapsedRealtime() + 30000;
+            screen.setSuspended(false);
+            TmapHudLog.xposed("map render rebuild failed (falling back to screen capture): " + error);
+            release();
+        }
+    }
+
+    /** 메인 스레드. 지금 엔진을 안내에서 떼고 정리한다(이 엔진 하나만, 티맵 화면 지도는 그대로). */
+    private void teardown() {
+        try {
+            if (mapProxy != null) {
+                invTyped(navigationManager(), "detachMapView", new Class<?>[]{mapViewInterfaceClass}, mapProxy);
+            }
+        } catch (Throwable error) {
+            TmapHudLog.status("map render detach: " + error);
+        }
+        mapProxy = null;
+        Object e = engine;
+        if (e != null) {
+            inv(inv(e, "getSurface"), "surfaceDestroyed");
+            invTyped(e, "onPause", new Class<?>[0]);
+            invTyped(e, "onDestroy", new Class<?>[0]);
+        }
+        release();
     }
 
     /** 메인 스레드. 화면 지도가 보이면 그 카메라를, 아니면 엔진 주행 모드를 쓴다. */
