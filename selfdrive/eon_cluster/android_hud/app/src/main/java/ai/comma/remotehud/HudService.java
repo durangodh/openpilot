@@ -4376,21 +4376,11 @@ public final class HudService extends Service {
     }
 
     /**
-     * 네비모드 주행 칸 맨 위: 왼쪽부터 날씨 그림 → 외기온도, 오른쪽 끝에 배터리 전압.
-     * 그림·글자·색은 drawOutsideTemp 와 같다. TOP_ROW_SCALE 은 NAVI_DRIVE_LEFT 기준으로 건다.
+     * 네비모드 주행 칸 맨 위: 오른쪽 끝에 배터리 전압. 날씨·외기온도는 drawNaviWeatherBadge.
+     * TOP_ROW_SCALE 은 NAVI_DRIVE_LEFT 기준으로 건다.
      */
     private void drawNaviTopRow(Canvas c, Paint p, JSONObject s) {
-        feedWeather(s);
-        float left = NAVI_DRIVE_LEFT + 20f;
-        int icon = weather == null ? WeatherService.ICON_NONE : weather.icon();
-        if (icon != WeatherService.ICON_NONE) {
-            drawWeatherIcon(c, p, left + 13f, 36f, 26f, icon, weather.isDay());
-            left += 36f;
-        }
-        double temp = s.optDouble("outsideTemp", -1000d);
-        if (Double.isFinite(temp) && temp >= -50d && temp <= 80d) {
-            text(c, p, String.format(Locale.US, "%.0f°C", temp), left, 44f, 22f, ink(), Paint.Align.LEFT);
-        }
+        // 날씨 그림·외기온도는 지도 쪽 GPS 표시 앞으로 옮겼다(drawNaviWeatherBadge).
         double volt = s.optDouble("batteryVoltage", -1d);
         boolean voltageAvailable = Double.isFinite(volt) && volt > 5d && volt < 20d;
         int vColor = voltageAvailable
@@ -6610,7 +6600,49 @@ public final class HudService extends Service {
         text(c, p, NavSelectionProtocol.appLabel(s.optInt("hudNavApp", 1)),
                 right - width * 0.5f, top + 34f, 25f, Color.WHITE, Paint.Align.CENTER);
         drawGpsSourceBadge(c, p, right - width - 12f, top, height);
+        if (naviLayout) {
+            // 날씨 그림·외기온도는 네비모드에서 GPS 표시 바로 앞(왼쪽)에 같은 높이 배지로 둔다.
+            float gpsLeft = right - width;
+            if (gpsSourceIcons != null && gpsSourceMonitor != null) {
+                gpsLeft -= 12f + gpsSourceIcons.width(gpsSourceMonitor.snapshot());
+            }
+            drawNaviWeatherBadge(c, p, s, gpsLeft - 12f, top, height);
+        }
         c.restoreToCount(rowSave);
+    }
+
+    /** 네비모드 날씨 배지: 오른쪽 끝(right)에서 왼쪽으로 날씨 그림 → 외기온도. 지도 위라 어두운 배지에 밝은 글자. */
+    private void drawNaviWeatherBadge(Canvas c, Paint p, JSONObject s, float right, float top, float height) {
+        feedWeather(s);
+        int icon = weather == null ? WeatherService.ICON_NONE : weather.icon();
+        double temp = s.optDouble("outsideTemp", -1000d);
+        boolean hasTemp = Double.isFinite(temp) && temp >= -50d && temp <= 80d;
+        if (icon == WeatherService.ICON_NONE && !hasTemp) return;
+        String label = hasTemp ? String.format(Locale.US, "%.0f°C", temp) : "";
+        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        p.setTextSize(25f);
+        float textW = hasTemp ? p.measureText(label) : 0f;
+        float iconW = icon != WeatherService.ICON_NONE ? 34f : 0f;
+        float gap = iconW > 0f && hasTemp ? 8f : 0f;
+        float width = 16f + iconW + gap + textW + 16f;
+        float left = right - width;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(190, 28, 34, 40));
+        scratchRect.set(left, top, right, top + height);
+        c.drawRoundRect(scratchRect, 10f, 10f, p);
+        if (icon != WeatherService.ICON_NONE) {
+            // 날씨 그림의 구름색(ink/dim)이 어두운 배지 위에서 밝게 나오도록 어두운 테마 색으로 그린다.
+            boolean savedDark = frameDark, savedSky = skyBand;
+            frameDark = true;
+            skyBand = false;
+            drawWeatherIcon(c, p, left + 16f + 17f, top + height * 0.5f - 2f, 30f, icon, weather.isDay());
+            frameDark = savedDark;
+            skyBand = savedSky;
+        }
+        if (hasTemp) {
+            text(c, p, label, right - 16f, top + 34f, 25f, Color.WHITE, Paint.Align.RIGHT);
+        }
     }
 
     /**
