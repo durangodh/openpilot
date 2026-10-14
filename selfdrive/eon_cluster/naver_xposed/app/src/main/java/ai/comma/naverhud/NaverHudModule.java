@@ -54,6 +54,8 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                             hooks += safeHook("MapProvider", () -> hookMapProvider(target.classLoader));
                             hooks += safeHook("LaneView", () -> hookLaneView(target.classLoader));
                             hooks += safeHook("SignalView", () -> hookSignalView(target.classLoader));
+                            // HUD 전용 지도(NaverHudMap)가 안내 지도의 경로선을 복사할 수 있게 기억한다.
+                            NaverHudMap.installOverlayTracking(target.classLoader);
                             // HUD 네비모드 지도 축소: 메서드를 모양으로 찾으므로 모든 버전에서 시도한다
                             // (플레이스토어가 6.11 로 자동 업데이트해 축소가 꺼졌었다).
                             try {

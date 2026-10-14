@@ -83,7 +83,34 @@ final class NaverMapCapture {
     private long requestedAt, lastRequestAt, lastFrameAt, lastStatusAt, requestId;
     private long sent;
 
+    private final NaverHudMap hudMap = new NaverHudMap();
+    private Bitmap lastHud;
+    private long lastHudAt;
+
     NaverMapCapture(NaverNaviClient client) { this.client = client; }
+
+    private android.content.Context appContext() {
+        synchronized (activities) {
+            for (int i = activities.size() - 1; i >= 0; i--) {
+                Activity a = activities.get(i).get();
+                if (a != null) return a.getApplicationContext();
+            }
+        }
+        return null;
+    }
+
+    /** 메인 스레드: HUD 전용 지도 프레임(이미 1080x506)을 인코더로 넘긴다. */
+    private void queueFrame(Bitmap image, long now) {
+        statReq++;
+        statOk++;
+        lastFrameAt = now;
+        Frame old = pendingFrame.getAndSet(new Frame(image, generation, now));
+        if (old != null) {
+            old.image.recycle();
+            statDropped++;
+        }
+        if (encodeScheduled.compareAndSet(false, true)) encoder.execute(this::drainEncode);
+    }
 
     void setMapProvider(Object value) { provider = value; }
 
@@ -139,6 +166,27 @@ final class NaverMapCapture {
         // HUD 네비모드: 이 지도만 30% 넓게(검증 버전에서만 동작, 아니면 아무것도 안 함).
         NaverZoomOffset.update(map);
         logStats(now);
+        // HUD 네비모드는 화면 밖 HUD 전용 지도(NaverHudMap)를 쓴다. 준비 전이거나 실패하면
+        // 아래 스냅샷 방식이 그대로 이어서 보낸다.
+        if (EonDiscovery.wideMap && !hudMap.failed()) {
+            Bitmap hud = hudMap.frame(appContext(), map);
+            if (NaverHudMap.active) {
+                if (hud != null) {
+                    if (lastHud != null) lastHud.recycle();
+                    lastHud = hud.copy(Bitmap.Config.ARGB_8888, false);
+                    lastHudAt = now;
+                    queueFrame(hud, now);
+                } else if (lastHud != null && now - lastHudAt >= 1000) {
+                    // 지도가 멈춰 있으면 새 프레임이 없다. 1초마다 마지막 그림을 다시 보낸다.
+                    lastHudAt = now;
+                    queueFrame(lastHud.copy(Bitmap.Config.ARGB_8888, false), now);
+                }
+                return;
+            }
+        } else if (!EonDiscovery.wideMap && hudMap.started()) {
+            hudMap.release();
+            if (lastHud != null) { lastHud.recycle(); lastHud = null; }
+        }
         if (requestedAt != 0 && now - requestedAt < REQUEST_TIMEOUT_MS) return;
         if (requestedAt != 0) statTimeout++;   // 응답 없이 시간 초과
         if (now - lastRequestAt < FRAME_INTERVAL_MS) return;

@@ -332,7 +332,9 @@ final class NaverZoomOffset {
         try {
             Object nativeView = nativeField.get(map);
             float k = wideScale;
-            double wanted = EonDiscovery.wideMap ? Math.log(1d / k) / Math.log(2d) : 0d;
+            // HUD 전용 지도(NaverHudMap)가 돌면 폰 지도는 줄이지 않는다.
+            double wanted = EonDiscovery.wideMap && !NaverHudMap.active
+                    ? Math.log(1d / k) / Math.log(2d) : 0d;
             if (nativeView == target && wanted == offset) return;
             Object seen = getCamera.invoke(map);      // 이전 OFFSET 기준, 앱이 보던 카메라
             Object symbols = null;
