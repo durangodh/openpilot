@@ -183,6 +183,7 @@ final class KakaoBridge {
             if (!routeActive) {
                 routeActive = true;
                 KakaoHudLog.line("ROUTE started");
+                publishGuidance();   // 경로 시작 전에 받아 둔 회전 안내를 바로 보낸다.
             }
 
             int remainDistance = -1;
@@ -248,7 +249,10 @@ final class KakaoBridge {
 
     // ---- 경로 안내 ----
     void onRouteGuide(Object routeGuide) {
-        if (routeGuide == null || !routeActive) return;
+        // 카카오는 회전 안내를 방향이 바뀔 때만 준다. 경로 시작 판정(routeActive) 전에 온 첫 안내를
+        // 버리면 다음 회전 지점까지 HUD 회전 안내 1·2행이 비었다(2026-10-14 실차: 폰 258m·1.1km,
+        // HUD 0 m). 항상 캐시하고, 보내는 것만 경로가 있을 때 한다.
+        if (routeGuide == null) return;
         try {
             Object cur = callAny(routeGuide, "getCurDirection", "b");
             Object next = callAny(routeGuide, "getNextDirection", "i");
@@ -283,6 +287,7 @@ final class KakaoBridge {
                 cachedNextTbt = nextTbt;
                 hasCachedGuide = true;
             }
+            if (!routeActive) return;
             publishGuidance();
             client.sendState("navigation_status", navStatus(true));
             // 다음 안내(HUD 2행)가 빠지는 원인 확인용: 카카오가 다음 안내를 줬는지도 남긴다.
