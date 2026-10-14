@@ -144,9 +144,9 @@ public final class HudService extends Service {
     private static final float NAVI_COL_LEFT = NAVI_COL_RIGHT - NAVI_COL_W;
     private static final float NAVI_GUIDE_SCALE = NAVI_COL_W / 342f;
     private static final float NAVI_BADGE_TOP = 8f;
-    /** 네비모드 핸들 상태: 내비 이름 배지 바로 오른쪽 상단. */
-    private static final float NAVI_WHEEL_X = NAVI_MAP_RIGHT + 24f;
-    private static final float NAVI_WHEEL_Y = NAVI_BADGE_TOP + 24f;
+    /** 네비모드 핸들 상태: 팝업 오른쪽 경계 옆, 상단선(225) 바로 아래. */
+    private static final float NAVI_WHEEL_X = NAVI_COL_RIGHT + 48f;
+    private static final float NAVI_WHEEL_Y = 269f;
     /** 네비모드 하늘은 지도 공간을 가리지 않도록 낮고 옅게, 경계는 길게 푼다. */
     private static final int NAVI_SKY_HEIGHT = 150;
     private static final int NAVI_SKY_FADE_DEPTH = 80;
@@ -3827,7 +3827,7 @@ public final class HudService extends Service {
                 : (s.optBoolean("steerFaultTemporary", false) ? 1 : 0);
         int wheelSave = c.save();
         if (naviLayout) {
-            // 네비모드: 핸들(인게이지) 표시는 내비 이름 배지 바로 오른쪽.
+            // 네비모드: 핸들(인게이지) 표시는 팝업 오른쪽 상단 옆.
             c.translate(NAVI_WHEEL_X - WHEEL_X, NAVI_WHEEL_Y - WHEEL_Y);
         }
         int signSave = scaleAbout(c, WHEEL_X, WHEEL_Y);
