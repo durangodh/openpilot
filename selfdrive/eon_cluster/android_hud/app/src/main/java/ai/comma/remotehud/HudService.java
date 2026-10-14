@@ -2621,13 +2621,7 @@ public final class HudService extends Service {
         // 상단 속도·SET·기어·온도·주행가능거리·시계, 하단 상태카드·TPMS·NOO 는
         // EON HUD 박스와 원형 게이지로 옮겼다(2026-10-09).
         // 오른쪽 위: 날씨 그림 + 외기온도. 원래 주행가능거리가 있던 자리(932)에 오른쪽을 맞춘다.
-        if (naviLayout) {
-            // 네비모드: 주행 칸 위 왼쪽에 날씨 그림·외기온도, 오른쪽 끝에 전압.
-            int naviTempSave = c.save();
-            c.scale(TOP_ROW_SCALE, TOP_ROW_SCALE, NAVI_DRIVE_LEFT, 36f);
-            drawNaviTopRow(c, p, s);
-            c.restoreToCount(naviTempSave);
-        } else {
+        if (!naviLayout) {
             int tempSave = beginElement(c, l, "range", 932f, 44f);
             c.translate(932f - 790f, 0f);
             c.scale(TOP_ROW_SCALE, TOP_ROW_SCALE, 790f, 36f);
@@ -4413,24 +4407,6 @@ public final class HudService extends Service {
                 drawWeatherIcon(c, p, right - labelWidth - 10f - 13f, 36f, 26f, icon, weather.isDay());
             }
         }
-    }
-
-    /**
-     * 네비모드 주행 칸 맨 위: 오른쪽 끝에 배터리 전압. 날씨·외기온도는 drawNaviWeatherBadge.
-     * TOP_ROW_SCALE 은 NAVI_DRIVE_LEFT 기준으로 건다.
-     */
-    private void drawNaviTopRow(Canvas c, Paint p, JSONObject s) {
-        // 날씨 그림·외기온도는 지도 쪽 GPS 표시 앞으로 옮겼다(drawNaviWeatherBadge).
-        double volt = s.optDouble("batteryVoltage", -1d);
-        boolean voltageAvailable = Double.isFinite(volt) && volt > 5d && volt < 20d;
-        int vColor = voltageAvailable
-                ? ((volt < 11.8d || volt > 15.5d) ? Color.rgb(230, 48, 58) : ink())
-                : dim();
-        // Keep the voltage slot visible even when the EON/panda has no sample.
-        // Missing telemetry must not be confused with a missing layout element.
-        String vLabel = voltageAvailable ? String.format(Locale.US, "%.1fV", volt) : "--.-V";
-        float right = NAVI_DRIVE_LEFT + (WIDTH - 14f - NAVI_DRIVE_LEFT) / TOP_ROW_SCALE;
-        text(c, p, vLabel, right, 44f, 22f, vColor, Paint.Align.RIGHT);
     }
 
     /**
