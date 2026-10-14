@@ -6489,14 +6489,16 @@ public final class HudService extends Service {
                     halfW = Math.min(w / 2f, (NAVI_COL_LEFT - 8f - NAVI_LANE_LEFT) / 2f);
                     cx = NAVI_LANE_CX;
                 }
-                int save3 = beginElement(c, l, "lane", cx, (float) HEIGHT);
+                // 네비모드에서 beginElement 를 쓰면 기준점(x 823)이 주행패널 범위(≤952)라 주행패널
+                // 보정(아래 위젯 +258px)까지 받아 화면 밖으로 밀려 안 보였다. 네비모드는 그대로 둔다.
+                int save3 = beginGuideElement(c, l, "lane", cx, (float) HEIGHT);
                 drawNativeOverlay(c, p, laneShown, cx - halfW, ETA_TOP, cx + halfW, (float) HEIGHT,
                         Paint.Align.CENTER);
                 c.restoreToCount(save3);
             } else if (laneShown != null) {
                 float laneLeft = naviLayout ? NAVI_LANE_LEFT : JUNCTION_LEFT + JUNCTION_W + 8f;
                 float laneRight = naviLayout ? NAVI_COL_LEFT - 8f : mapRight() - 8f;
-                int save3 = beginElement(c, l, "lane", laneLeft, (float) HEIGHT);
+                int save3 = beginGuideElement(c, l, "lane", laneLeft, (float) HEIGHT);
                 drawNativeOverlay(c, p, laneShown, laneLeft, ETA_TOP, laneRight, (float) HEIGHT,
                         Paint.Align.LEFT);
                 c.restoreToCount(save3);
