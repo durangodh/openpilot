@@ -52,8 +52,19 @@ class NaviLayout:
       pass
 
 
-def read_wide_map():
-  """휴대폰 모듈에 알릴 값. 파일이 없거나 오래되면 0(기본 캡처)."""
+def read_wide_map(params=None):
+  """휴대폰 모듈에 알릴 값. 파일이 없거나 오래되면 0(기본 캡처).
+
+  설정이 1(네비모드 고정)이면 HUD 연결 전에도 1. 부팅 직후 remote_hud_s9 가 STATE_FILE 을
+  쓰기 전에 휴대폰 앱이 먼저 떠서 주행모드 크기 지도로 시작했고, HUD 가 그걸 늘려 첫 화면이
+  아주 크게 보였다(2026-10-14, 다른 네비를 고르면 정상).
+  """
+  if params is not None:
+    try:
+      if int((params.get("EonClusterHudNaviLayout") or b"0").decode() or 0) == 1:
+        return 1
+    except (ValueError, AttributeError):
+      pass
   try:
     if time.time() - os.path.getmtime(STATE_FILE) > STATE_MAX_AGE_S:
       return 0
