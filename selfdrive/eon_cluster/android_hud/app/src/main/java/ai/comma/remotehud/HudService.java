@@ -3870,13 +3870,11 @@ public final class HudService extends Service {
         p.setColor(frameDark ? Color.rgb(84, 94, 106) : Color.rgb(205, 209, 214));
         c.drawLine(left, y, right, y, p);
         if (frac > 0f) {
-            // RPM 링과 같은 색, 방향은 반대: 왼쪽 밝은 하늘색 → 끝 짙은 청록(경고 시 빨강)
+            // Fuel/coolant bars use an opaque, saturated solid colour.
+            // Keep the existing warning colour and indicated fill length.
             float x2 = left + (right - left) * Math.min(1f, frac);
-            p.setShader(new LinearGradient(left, y, Math.max(left + 1f, x2), y,
-                    warn ? GAUGE_RED : GAUGE_BRIGHT, warn ? GAUGE_RED_DEEP : GAUGE_DEEP,
-                    Shader.TileMode.CLAMP));
+            p.setColor(warn ? GAUGE_RED : Color.rgb(0, 160, 190));
             c.drawLine(left, y, x2, y, p);
-            p.setShader(null);
         }
         p.setStrokeCap(Paint.Cap.BUTT);
         text(c, p, lo, left, y - 14f, 20f, ink(), Paint.Align.CENTER);
