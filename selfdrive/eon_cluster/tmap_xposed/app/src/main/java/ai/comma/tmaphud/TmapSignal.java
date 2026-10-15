@@ -17,14 +17,12 @@ import java.io.ByteArrayOutputStream;
 final class TmapSignal {
 
     private static final int NONE = TmapJson.COLOR_NONE, GREEN = TmapJson.COLOR_GREEN;
-    private static final int W = 132;   // 신호등 셀 3개 + 여백
-    private static final int H = 96;
-    // HUD 는 신호등 그림을 302x192 칸에 비율을 지켜 꽉 채운다. 132x96 그대로 보내면 2배
-    // (264x192)로 커져 지도를 크게 가렸다(2026-10-06, 카카오와 같은 문제). 칸과 같은 크기의
-    // 투명 캔버스에 CONTENT_SCALE 배로 오른쪽·세로 가운데에 그려, HUD 에서 그대로 보이게 한다.
+    private static final int W = 250;   // 가로 알약(등 2개 + 화살표 + 잔여초)
+    private static final int H = 72;
+    // HUD 는 신호등 그림을 302x192 칸에 비율을 지켜 꽉 채우므로, 칸과 같은 크기의 투명
+    // 캔버스 오른쪽·세로 가운데에 원본 크기로 그려 HUD 에서 그 크기 그대로 보이게 한다.
     private static final int CANVAS_W = 302;
     private static final int CANVAS_H = 192;
-    private static final float CONTENT_SCALE = 1.0f;    // HUD 에서 원본 크기 132x96(카카오·네이버와 같음)
 
     private final TmapNaviClient client;
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -44,15 +42,20 @@ final class TmapSignal {
 
     /** color: TmapJson.COLOR_*(1 빨강·2 노랑·3 초록). remainSec<0 이면 숫자 숨김. */
     synchronized void publish(int color, int remainSec) {
+        publish(color, remainSec, false);
+    }
+
+    /** leftGo: 좌회전 신호가 초록이면 화살표를 초록으로. */
+    synchronized void publish(int color, int remainSec, boolean leftGo) {
         if (color <= NONE || color > GREEN) {
             clear();
             return;
         }
-        String key = color + ":" + remainSec;
+        String key = color + ":" + remainSec + ":" + leftGo;
         if (key.equals(lastKey)) return;   // 바뀔 때만 보냄(부하 절감)
         lastKey = key;
         try {
-            byte[] png = render(color, remainSec);
+            byte[] png = render(color, remainSec, leftGo);
             client.sendSignal(Cnv2.frame(Cnv2.TYPE_IMAGE, Cnv2.FORMAT_PNG, seq++, png, CANVAS_W, CANVAS_H));
             lastWasClear = false;
         } catch (Throwable t) {
@@ -67,33 +70,36 @@ final class TmapSignal {
         client.sendSignal(Cnv2.frame(Cnv2.TYPE_CLEAR, Cnv2.FORMAT_PNG, seq++, null, 0, 0));
     }
 
-    private byte[] render(int color, int remainSec) {
+    private byte[] render(int color, int remainSec, boolean leftGo) {
         Bitmap bmp = Bitmap.createBitmap(CANVAS_W, CANVAS_H, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);
-        c.translate(CANVAS_W - W * CONTENT_SCALE, (CANVAS_H - H * CONTENT_SCALE) / 2f);
-        c.scale(CONTENT_SCALE, CONTENT_SCALE);
-        // 둥근 검정 배경(가로형 신호등)
-        c.drawRoundRect(new RectF(2, 2, W - 2, H - 2), 18, 18, bg);
-
-        int r = 20;
-        int cy = 34;
-        int[] cx = {34, 66, 98};               // 빨강·노랑·초록 위치
+        // 카카오 원본처럼 가로 알약: [빨강/노랑 등] [좌회전 화살표] [초록 등] 잔여초.
+        c.translate(CANVAS_W - W, (CANVAS_H - H) / 2f);
+        c.drawRoundRect(new RectF(0, 0, W, H), H / 2f, H / 2f, bg);
         int[] on = {0xFFFF3B30, 0xFFFFCC00, 0xFF34C759};
-        int[] off = {0xFF3A1412, 0xFF3A3410, 0xFF123A1C};
-        for (int i = 0; i < 3; i++) {
-            boolean active = (i == color - 1);
-            fill.setColor(active ? on[i] : off[i]);
-            c.drawCircle(cx[i], cy, r, fill);
-            if (active) {
-                fill.setColor(0x55FFFFFF);
-                c.drawCircle(cx[i] - 5, cy - 6, 5, fill);  // 작은 하이라이트
-            }
-        }
-        // 잔여초: 현재 켜진 색으로 크게
-        if (remainSec >= 0 && remainSec < 200) {
+        int offColor = 0xFF4A4D52;
+        float cy = H / 2f, r = 24;
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(color == 1 || color == 2 ? on[color - 1] : offColor);
+        c.drawCircle(40, cy, r, fill);
+        // 좌회전 화살표(좌회전 신호가 초록일 때만 초록)
+        fill.setColor(leftGo ? on[2] : offColor);
+        android.graphics.Path arrow = new android.graphics.Path();
+        arrow.moveTo(72, cy);
+        arrow.lineTo(88, cy - 15);
+        arrow.lineTo(88, cy - 6);
+        arrow.lineTo(110, cy - 6);
+        arrow.lineTo(110, cy + 6);
+        arrow.lineTo(88, cy + 6);
+        arrow.lineTo(88, cy + 15);
+        arrow.close();
+        c.drawPath(arrow, fill);
+        fill.setColor(color == 3 ? on[2] : offColor);
+        c.drawCircle(142, cy, r, fill);
+        if (remainSec >= 0 && remainSec < 1000) {
             text.setColor(on[color - 1]);
-            text.setTextSize(34);
-            c.drawText(String.valueOf(remainSec), W / 2f, H - 12, text);
+            text.setTextSize(40);
+            c.drawText(String.valueOf(remainSec), 210, cy + 14, text);
         }
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         bmp.compress(Bitmap.CompressFormat.PNG, 100, out);

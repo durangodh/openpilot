@@ -380,7 +380,9 @@ final class NaverBridge {
                 + ",\"available\":" + available.append(']') + "}";
     }
 
-    /** 직진 신호(없으면 유일한 신호)의 색·잔여초를 HUD 신호등 그림으로 보낸다. */
+    private boolean signalLogged;
+
+    /** 폰이 표시하는 신호(없으면 직진·유일한 신호)의 색·잔여초를 HUD 신호등 그림으로 보낸다. */
     private void publishSignalImage(Object item) {
         // 폰 신호등 뷰를 뜨고 있으면 그 그림(폰과 같은 신호·잔여초)만 쓴다.
         if (signalView.used()) return;
@@ -390,19 +392,34 @@ final class NaverBridge {
                 return;
             }
             List<?> signals = asList(call(item, "k"));
-            Object chosen = signals.size() == 1 ? signals.get(0) : null;
+            // 폰이 표시하는 신호(TrafficSignalInfoKt.d: 우선순위가 가장 높은 신호)를 그대로 쓴다.
+            Object chosen = null;
+            try {
+                chosen = de.robv.android.xposed.XposedHelpers.callStaticMethod(
+                        de.robv.android.xposed.XposedHelpers.findClass(
+                                "com.naver.map.core.navigation.model.TrafficSignalInfoKt",
+                                item.getClass().getClassLoader()), "d", item);
+            } catch (Throwable ignored) {
+            }
+            if (chosen == null && signals.size() == 1) chosen = signals.get(0);
+            boolean leftGo = false;
             for (Object e : signals) {
                 String guide = String.valueOf(call(e, "g")).toLowerCase(java.util.Locale.ROOT);
-                if (guide.contains("straight") || guide.contains("through") || guide.contains("직진")) {
+                if (chosen == null && (guide.contains("straight") || guide.contains("through") || guide.contains("직진"))) {
                     chosen = e;
-                    break;
                 }
+                if (guide.contains("left") && signalColor(String.valueOf(call(e, "j"))) == 3) leftGo = true;
             }
             int color = chosen == null ? 0 : signalColor(String.valueOf(call(chosen, "j")));
+            if (!signalLogged && !signals.isEmpty()) {
+                signalLogged = true;
+                NaverHudLog.line("signal image: n=" + signals.size() + " chosen=" + (chosen == null ? "-"
+                        : call(chosen, "g") + "/" + call(chosen, "j") + "/" + call(chosen, "i")) + " color=" + color);
+            }
             if (color == 0) {
                 signalImage.clear();
             } else {
-                signalImage.publish(color, (int) NaverCodes.number(call(chosen, "i")));
+                signalImage.publish(color, (int) NaverCodes.number(call(chosen, "i")), leftGo);
             }
         } catch (Throwable error) {
             NaverHudLog.ex("signal image", error);

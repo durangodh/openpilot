@@ -349,7 +349,13 @@ final class KakaoBridge {
             if (bestColor == 0) {
                 clearSignal();
             } else {
-                if (!cits.active()) signal.publish(bestColor, bestRemain);
+                boolean leftGo = false;   // 좌회전 spat 이 초록이면 알약의 화살표를 초록으로
+                for (Object sp : bestSpats) {
+                    String t = enumName(tryCallAny(sp, "getSpatType", "c"));
+                    if (t != null && t.contains("Left")
+                            && spatColor(enumName(tryCallAny(sp, "getSpatState", "b"))) == 3) leftGo = true;
+                }
+                if (!cits.active()) signal.publish(bestColor, bestRemain, leftGo);
                 // Same JSON shape as Naver so EON can use the phase for
                 // traffic-stop detection (every movement of the nearest signal).
                 StringBuilder entries = new StringBuilder("[");

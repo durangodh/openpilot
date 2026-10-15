@@ -38,23 +38,26 @@ def test_signal_stream_enabled_and_forwarded():
 def test_kakao_signal_uses_native_hud_size():
   signal = (ROOT / "selfdrive/eon_cluster/kakao_xposed/app/src/main/java/ai/comma/kakaohud/KakaoSignal.java").read_text(
       encoding="utf-8")
-  # Keep the 302x192 transport canvas (shared HUD placement) but render Kakao's
-  # actual signal at 132x96 instead of enlarging it inside that canvas.
+  # Keep the 302x192 transport canvas (shared HUD placement) and draw the
+  # Kakao-style 250x72 pill at native size inside it.
   assert "private static final int CANVAS_W = 302;" in signal
   assert "private static final int CANVAS_H = 192;" in signal
-  assert "private static final float CONTENT_SCALE = 1.0f;" in signal
+  assert "private static final int W = 250;" in signal
+  assert "private static final int H = 72;" in signal
 
 
 def test_tmap_and_naver_signal_match_kakao_size():
-  # 세 네비 모두 302x192 캔버스에 132x96 원본 크기로 그린다(HUD 에서 같은 크기).
+  # 세 네비 모두 302x192 캔버스에 250x72 알약을 원본 크기로 그린다(HUD 에서 같은 크기).
   tmap = (ROOT / "selfdrive/eon_cluster/tmap_xposed/app/src/main/java/ai/comma/tmaphud/TmapSignal.java").read_text(
       encoding="utf-8")
-  assert "private static final float CONTENT_SCALE = 1.0f;" in tmap
+  assert "private static final int W = 250;" in tmap
+  assert "private static final int H = 72;" in tmap
   naver = (ROOT / "selfdrive/eon_cluster/naver_xposed/app/src/main/java/ai/comma/naverhud/NaverSignal.java").read_text(
       encoding="utf-8")
   assert "private static final int CANVAS_W = 302;" in naver
   assert "private static final int CANVAS_H = 192;" in naver
   assert "frame(1, png, CANVAS_W, CANVAS_H)" in naver
+  assert "private static final int W = 250;" in naver
 
 
 if __name__ == "__main__":
