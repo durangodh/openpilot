@@ -483,7 +483,11 @@ class Controls:
       #  if not self.sm['liveLocationKalman'].gpsOK and (self.distance_traveled > 1000):
       #    # Not show in first 1 km to allow for driving out of garage. This event shows after 5 minutes
       #    self.events.add(EventName.noGps)
-      if not self.sm.all_alive(self.camera_packets):
+      # 시동을 끄면 thermald 가 started=False 로 바꾸고 manager 가 camerad 를 먼저 끄는 동안
+      # controlsd 가 잠시 살아 있어 "Camera Frame Rate Low" 가 남았다. 시동 중에만 확인한다.
+      if not self.sm['deviceState'].started:
+        pass
+      elif not self.sm.all_alive(self.camera_packets):
         self.events.add(EventName.cameraMalfunction)
       elif not self.sm.all_freq_ok(self.camera_packets):
         self.events.add(EventName.cameraFrameRate)
