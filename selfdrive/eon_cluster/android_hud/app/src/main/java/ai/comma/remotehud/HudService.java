@@ -26,6 +26,7 @@ import android.graphics.PorterDuffColorFilter;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.LinearGradient;
 import android.graphics.Shader;
+import android.graphics.RadialGradient;
 import android.graphics.SweepGradient;
 import android.graphics.Rect;
 import android.graphics.RectF;
@@ -3756,6 +3757,9 @@ public final class HudService extends Service {
     private static final BlurMaskFilter GAUGE_GLOW = new BlurMaskFilter(9f, BlurMaskFilter.Blur.NORMAL);
     private static final int CAMERA_OVERSPEED_MARGIN_KPH = 5;
     private static final long CAMERA_WARNING_BLINK_MS = 500L;
+    /** 과속카메라 번짐이 안쪽 테두리 안으로 들어가는 깊이(px). */
+    private static final float CAMERA_GLOW_DEPTH = 45f;
+    private Shader cameraGlowShader;
 
     private static boolean cameraWarningOn(JSONObject s, boolean speedLive, long now) {
         int limit = s.optInt("camera", 0);
@@ -3844,26 +3848,35 @@ public final class HudService extends Service {
                     RING_CX + (outer - 3f) * cos, RING_CY + (outer - 3f) * sin, p);
             p.setStrokeCap(Paint.Cap.BUTT);
         }
-        // Camera overspeed flashes only the ring outlines. Keep the RPM
-        // band, its gradient, the speed text and the background unchanged.
+        // 과속카메라: 바깥 테두리는 진한 빨강, 안쪽으로 갈수록(링 띠 → 안쪽 테두리 안쪽
+        // CAMERA_GLOW_DEPTH 까지) 연해지는 빨간 번짐. 속도 숫자는 그 위에 그대로 그린다.
         if (cameraWarningOn) {
-            p.setShader(null);
+            float fadeEnd = inner - CAMERA_GLOW_DEPTH;
+            if (cameraGlowShader == null) {
+                float start = fadeEnd / outer;
+                // 바깥으로 갈수록 빠르게 진해지게(대략 거듭제곱 1.6) 중간 색을 몇 개 둔다.
+                cameraGlowShader = new RadialGradient(RING_CX, RING_CY, outer,
+                        new int[]{Color.argb(0, 235, 24, 32), Color.argb(0, 235, 24, 32),
+                                Color.argb(36, 235, 24, 32), Color.argb(105, 235, 24, 32),
+                                Color.argb(217, 235, 24, 32)},
+                        new float[]{0f, start, start + (1f - start) * 0.4f,
+                                start + (1f - start) * 0.7f, 1f},
+                        Shader.TileMode.CLAMP);
+            }
             p.setMaskFilter(null);
             p.setStyle(Paint.Style.STROKE);
+            p.setStrokeCap(Paint.Cap.BUTT);
+            p.setShader(cameraGlowShader);
+            p.setStrokeWidth(outer - fadeEnd);
+            float mid = (outer + fadeEnd) / 2f;
+            scratchRect.set(RING_CX - mid, RING_CY - mid, RING_CX + mid, RING_CY + mid);
+            c.drawArc(scratchRect, RING_START, RING_SWEEP, false, p);
+            p.setShader(null);
             p.setStrokeWidth(4f);
             p.setColor(Color.rgb(235, 24, 32));
             scratchRect.set(RING_CX - outer, RING_CY - outer,
                     RING_CX + outer, RING_CY + outer);
             c.drawArc(scratchRect, RING_START, RING_SWEEP, false, p);
-            scratchRect.set(RING_CX - inner, RING_CY - inner,
-                    RING_CX + inner, RING_CY + inner);
-            c.drawArc(scratchRect, RING_START, RING_SWEEP, false, p);
-            for (float deg : new float[]{RING_START, RING_START + RING_SWEEP}) {
-                double angle = Math.toRadians(deg);
-                float cos = (float) Math.cos(angle), sin = (float) Math.sin(angle);
-                c.drawLine(RING_CX + inner * cos, RING_CY + inner * sin,
-                        RING_CX + outer * cos, RING_CY + outer * sin, p);
-            }
         }
         int numberInk = frameDark ? Color.rgb(236, 240, 243) : Color.rgb(40, 44, 48);
         String value = speed < 0 ? "--" : Integer.toString(speed);
