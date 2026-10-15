@@ -64,19 +64,23 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                                 log("HUD zoom offset hook unavailable: " + error);
                                 NaverHudLog.line("HUD zoom offset hook unavailable: " + error);
                             }
+                            // 내 차 아이콘 크기 보정: 아이콘 설정 메서드를 모양으로 찾으므로 모든 버전에서
+                            // 시도한다. 6.11 에서 꺼져 있어 첫 실행 때 내려받은 아이콘이 폰·HUD 모두 아주
+                            // 크게 보였다(2026-10-15 실차).
+                            try {
+                                NaverMarkerSize.install(target.classLoader);
+                            } catch (Throwable error) {
+                                log("marker size hook unavailable: " + error);
+                                NaverHudLog.line("marker size hook unavailable: " + error);
+                            }
                             if (verified) {
-                                try {
-                                    NaverMarkerSize.install(target.classLoader);
-                                } catch (Throwable error) {
-                                    log("marker size hook unavailable: " + error);
-                                }
                                 try {
                                     hookVoiceButton(target.classLoader, app);
                                 } catch (Throwable error) {
                                     log("voice hook unavailable: " + error);
                                 }
                             } else {
-                                NaverHudLog.line("marker-size/voice hooks skipped on unverified version");
+                                NaverHudLog.line("voice hook skipped on unverified version");
                             }
                             attached.set(true);
                             log("ready for Naver " + info.versionName + " hooks=" + hooks);

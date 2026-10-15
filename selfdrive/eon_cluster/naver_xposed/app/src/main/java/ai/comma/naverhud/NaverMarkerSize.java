@@ -47,7 +47,24 @@ final class NaverMarkerSize {
                 }
             }
         });
-        XposedBridge.hookAllMethods(wrapper, "t", new XC_MethodHook() {
+        // 위치 아이콘을 넣는 메서드: 6.10 은 t(OverlayImage), 6.11 은 A(OverlayImage)(6.11 의 t 는
+        // t(LatLng, double)). 이름 대신 OverlayImage 하나를 받는 void 메서드로 찾는다(하나일 때만).
+        Class<?> overlayImage = XposedHelpers.findClass("com.naver.maps.map.overlay.OverlayImage", loader);
+        java.lang.reflect.Method iconSetter = null;
+        try {
+            iconSetter = wrapper.getDeclaredMethod("t", overlayImage);   // 6.10.0.16
+        } catch (NoSuchMethodException notTen) {
+            for (java.lang.reflect.Method m : wrapper.getDeclaredMethods()) {
+                Class<?>[] types = m.getParameterTypes();
+                if (m.getReturnType() == void.class && types.length == 1 && types[0] == overlayImage) {
+                    if (iconSetter != null) throw new IllegalStateException("several icon setters");
+                    iconSetter = m;
+                }
+            }
+        }
+        if (iconSetter == null) throw new IllegalStateException("no icon setter");
+        NaverHudLog.line("marker size: icon setter " + iconSetter.getName());
+        XposedBridge.hookMethod(iconSetter, new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam param) {
                 if (param.hasThrowable()) return;
                 try {
