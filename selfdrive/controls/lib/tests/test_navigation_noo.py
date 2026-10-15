@@ -771,3 +771,23 @@ def test_ambiguous_symmetric_extra_lane_still_fails_closed():
   ego = NavigationRouteData.camera_lane_position(shoulder_model(7.0, -7.0))
   assert ego["count"] == 3
   assert NavigationLaneChangeController.lane_plan(noo_state([0, 1]), ego) is None
+
+
+def test_turn_start_distance_follows_next_road_width_like_carrot():
+  base = {"fresh": True, "kind": "turn", "direction": -1}
+  # Width known (TMAP): 5 m -> 43 m, 10 m -> 60 m, regardless of speed.
+  narrow = dict(base, next_road_width=5.0)
+  assert NavigationRouteData.steering_request(dict(narrow, distance=43.0), 10.0) == -1
+  assert NavigationRouteData.steering_request(dict(narrow, distance=44.0), 10.0) == 0
+  wide = dict(base, next_road_width=10.0)
+  assert NavigationRouteData.steering_request(dict(wide, distance=60.0), 5.0) == -1
+  # Width unknown (Naver/Kakao): unchanged speed-based 45-60 m window.
+  assert NavigationRouteData.steering_request(dict(base, distance=45.0), 5.0) == -1
+  assert NavigationRouteData.steering_request(dict(base, distance=50.0), 5.0) == 0
+
+
+def test_guidance_state_reads_tmap_next_road_width():
+  state = NavigationRouteData.guidance_state(
+    {"turn_type": 12, "distance_m": 80, "next_road_width_m": 8}, True)
+  assert state["next_road_width"] == 8.0
+  assert NavigationRouteData.guidance_state({"turn_type": 12, "distance_m": 80}, True)["next_road_width"] == 0.0

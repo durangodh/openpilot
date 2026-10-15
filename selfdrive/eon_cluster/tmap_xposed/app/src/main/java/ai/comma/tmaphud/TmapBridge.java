@@ -201,7 +201,8 @@ final class TmapBridge {
                 intField(tbt, "nTBTTurnType"), stringField(tbt, "szRoadName"),
                 stringField(tbt, "szTBTMainText"), stringField(tbt, "szNearDirName"),
                 stringField(tbt, "szMidDirName"), stringField(tbt, "szFarDirName"),
-                doubleField(tbt, "vpTBTPointLat"), doubleField(tbt, "vpTBTPointLon"));
+                doubleField(tbt, "vpTBTPointLat"), doubleField(tbt, "vpTBTPointLon"),
+                intField(tbt, "nTBTNextRoadWidth"));
     }
 
     /** Lane.fromAhead: 앞 차로 최대 4개(LaneInfoData 의 Kotlin getter). */

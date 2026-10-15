@@ -146,9 +146,13 @@ class NavigationRouteData:
     sharp_turn = kind == "turn" and (modifier in ("sharpLeft", "sharpRight") or
                                     any(word in text.lower() for word in
                                         ("급좌회전", "급우회전", "sharp left", "sharp right")))
+    # 회전 후 도로 폭(m, 티맵만). 없으면 0 → 회전 시작 거리는 속도 기준.
+    road_width = _number(_first(guidance, ("next_road_width_m", "nTBTNextRoadWidth")), 0.0)
     return {"fresh": fresh and kind != "none" and distance >= 0.0,
             "kind": kind, "direction": direction, "distance": distance,
-            "turn_type": turn_type, "text": text, "sharp_turn": sharp_turn, "next": None}
+            "turn_type": turn_type, "text": text, "sharp_turn": sharp_turn,
+            "next_road_width": road_width if math.isfinite(road_width) and road_width > 0.0 else 0.0,
+            "next": None}
 
   def update(self):
     now = time.monotonic()
@@ -727,7 +731,12 @@ class NavigationRouteData:
   def steering_request(state, v_ego):
     if not state["fresh"] or state["kind"] not in ("turn", "uturn"):
       return 0
-    trigger_distance = max(45.0, min(60.0, v_ego * 4.0))
+    # carrot-wip: 들어갈 도로 폭 5→10 m 에 43→60 m. 폭을 모르면(네이버·카카오) 속도 기준.
+    road_width = float(state.get("next_road_width", 0.0) or 0.0)
+    if road_width > 0.0:
+      trigger_distance = 43.0 + (60.0 - 43.0) * min(1.0, max(0.0, (road_width - 5.0) / 5.0))
+    else:
+      trigger_distance = max(45.0, min(60.0, v_ego * 4.0))
     if 3.0 <= state["distance"] <= trigger_distance and v_ego <= 60.0 / 3.6:
       return state["direction"]
     return 0

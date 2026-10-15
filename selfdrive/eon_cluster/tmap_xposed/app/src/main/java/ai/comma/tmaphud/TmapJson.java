@@ -112,6 +112,14 @@ final class TmapJson {
     static String guidePoint(int distanceM, int timeSec, int turnType, String roadName,
                              String mainText, String nearDir, String midDir, String farDir,
                              double lat, double lon) {
+        return guidePoint(distanceM, timeSec, turnType, roadName, mainText, nearDir, midDir, farDir,
+                lat, lon, 0);
+    }
+
+    /** nextRoadWidth: 회전 후 들어갈 도로 폭(TBTInfo.nTBTNextRoadWidth, m). 0 이하면 넣지 않는다. */
+    static String guidePoint(int distanceM, int timeSec, int turnType, String roadName,
+                             String mainText, String nearDir, String midDir, String farDir,
+                             double lat, double lon, int nextRoadWidth) {
         String pt = point(lat, lon);
         Integer dist = positive(distanceM), time = positive(timeSec);
         String road = nullIfEmpty(roadName), main = nullIfEmpty(mainText);
@@ -123,7 +131,7 @@ final class TmapJson {
         return new Obj().num("distance_m", dist).num("time_sec", time).num("turn_type", turnType)
                 .str("road_name", road).str("main_text", main)
                 .str("near_direction", near).str("mid_direction", mid).str("far_direction", far)
-                .raw("point", pt).build();
+                .raw("point", pt).num("next_road_width_m", positive(nextRoadWidth)).build();
     }
 
     /** Lane.laneCount: 요청 개수와 배열 길이 중 큰 값, 최대 16. */
