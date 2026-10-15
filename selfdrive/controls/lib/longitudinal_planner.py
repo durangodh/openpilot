@@ -349,6 +349,7 @@ class LongitudinalPlanner:
     longitudinalPlan.eventsDEPRECATED = self.events.to_msg()
     longitudinalPlan.fcw = self.fcw
     longitudinalPlan.constStopDecel = self.const_stop_decel
+    longitudinalPlan.gapExtraTf = float(self.mpc.gap_extra_tf)
 
     longitudinalPlan.solverExecutionTime = self.mpc.solve_time
 

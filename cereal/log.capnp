@@ -914,6 +914,7 @@ struct LongitudinalPlan @0xe00b5b3eba12876c {
   xState @64 :XState;
   e2eReason @65 :UInt8;         # 0: OFF, 1: ACC, 2: signal, 3: vision lead, 4: departure, 5: manual E2E
   constStopDecel @66 :Float32;  # m/s^2 > 0 while stopping behind a lead with one steady decel
+  gapExtraTf @67 :Float32;      # s of gap-recovery headroom already included in tFollow
 
   distToTurn @43 :Float32;
   turnSpeed @44 :Float32;
