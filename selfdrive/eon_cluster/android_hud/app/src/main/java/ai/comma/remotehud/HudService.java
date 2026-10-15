@@ -2632,7 +2632,13 @@ public final class HudService extends Service {
         // 두면 주행 패널이 배경색만 남는다.
         boolean glDrawn = false;
         if (!stale && worldValid) {
-            modelWorldGl.setMapLayersSuppressed(naviLayout);
+            if (naviLayout) {
+                // 네비모드는 주행 장면 중 오른쪽 칸(NAVI_DRIVE_LEFT..WIDTH)에 옮겨진 부분만 보인다.
+                int shift = Math.round(NAVI_DRIVE_CX - DRIVE_MID);
+                modelWorldGl.setVisibleColumns(NAVI_DRIVE_LEFT - shift - 8, WIDTH - NAVI_DRIVE_LEFT + 16);
+            } else {
+                modelWorldGl.setVisibleColumns(0, DRIVE_W);
+            }
             glDrawn = modelWorldGl.draw(c, p, s, enabled, driveBg, roadTop,
                     roadBottom, pathColor, frameDark,
                     (float) s.optDouble("hudRoadZ", 100d),
@@ -2642,16 +2648,6 @@ public final class HudService extends Service {
                     egoCar != null && !egoCar.isRecycled(),
                     s.optInt("hudGuardrail", 1) != 0,
                     Math.max(0, Math.min(100, s.optInt("hudHaze", 55))));
-            if (glDrawn) {
-                String mapStatus = modelWorldGl.mapStatus();
-                if (!mapStatus.isEmpty()) {
-                    // Small note why the road/building context is missing (DB download, out of region, ...).
-                    p.setShader(null);
-                    p.setStyle(Paint.Style.FILL);
-                    text(c, p, lang("배경 ", "MAP ") + mapStatus, 14f, roadBottom - 12f, 18f,
-                            Color.argb(210, 255, 205, 120), Paint.Align.LEFT);
-                }
-            }
             if (glDrawn && egoCar != null && !egoCar.isRecycled() && frameDark
                     && s.optInt("hudHeadlights", 1) != 0) {
                 // 야간에는 자차 전조등 불빛을 도로 위에 깐다. 앞차·자차 그림이 위에 덮인다.

@@ -134,11 +134,6 @@ final class ModelWorldGL {
     private final float[] projected = new float[2];
     private final float[] lineScreenX = new float[MAX_POINTS];
     private final float[] lineScreenY = new float[MAX_POINTS];
-    private final float[] mapBaseX = new float[MAX_POINTS];
-    private final float[] mapBaseY = new float[MAX_POINTS];
-    private final int[] visibleMapBuildings = new int[70];
-    private final int[] visibleMapAreas = new int[50];
-    private final int[] mapIndices = new int[MAX_POINTS];
     // 앞차를 자차와 같은 그림으로 그리기 위한 화면 좌표. GL 은 텍스처를 쓰지
     // 않으므로 위치만 계산해 두고 비트맵은 HudService 가 Canvas 로 얹는다.
     private final float[] leadSpriteX = new float[2];
@@ -160,12 +155,6 @@ final class ModelWorldGL {
     private long nextRenderNanos;
     private float horizonShift;
     private float roadZGain = 1f;
-    private boolean mapPoseValid;
-    private boolean mapPoseFrameValid;
-    private long lastMapPoseTimestamp = Long.MIN_VALUE;
-    private double mapLat;
-    private double mapLon;
-    private double mapHeading;
 
     private static final class Line {
         final float[] x = new float[MAX_POINTS];
@@ -183,8 +172,6 @@ final class ModelWorldGL {
     private final Line[] drawnLanes = new Line[4];   // 이번 프레임에 그린 차선(없으면 null)
     private final Line virtualLane = new Line();
     private final Line smoothedRoute = new Line();
-    private final Line mapLine = new Line();
-    private final HudMapStore mapStore;
     private final float[] laneConfidence = new float[4];
     private final boolean[] laneVisible = new boolean[4];
     // 카메라만으로 셀 수 있는 최대치(내 차로 좌우 각 1개씩)와, 안내 중일 때
@@ -200,7 +187,18 @@ final class ModelWorldGL {
     private final boolean[] leadSeen = new boolean[2];
 
     ModelWorldGL(Context context) {
-        mapStore = new HudMapStore(context.getApplicationContext());
+    }
+
+    // HUD 네비모드는 주행 장면의 가운데 좁은 칸만 보인다. 그 칸만 그리고 읽어 와
+    // GPU 그리기와 픽셀 읽기를 줄인다(주행모드는 전체 0..WIDTH 그대로).
+    private int columnLeft = 0;
+    private int columnWidth = WIDTH;
+    private int lastColumnKey = -1;
+
+    void setVisibleColumns(int left, int width) {
+        left = Math.max(0, Math.min(WIDTH - 1, left));
+        columnLeft = left;
+        columnWidth = Math.max(1, Math.min(WIDTH - left, width));
     }
 
     boolean draw(Canvas canvas, Paint paint, JSONObject scene, boolean enabled,
@@ -227,8 +225,11 @@ final class ModelWorldGL {
                     ^ (guardrail ? 1 << 8 : 0) ^ (haze << 9)
                     ^ (scene.optBoolean("leftBsd", false) ? 1 << 6 : 0)
                     ^ (scene.optBoolean("rightBsd", false) ? 1 << 7 : 0);
+            // 칸이 바뀌면(네비모드 ↔ 주행모드) 직전 그림을 다시 쓰지 않는다.
+            int columnKey = columnLeft * 4096 + columnWidth;
             boolean styleChanged = style != lastStyle
-                    || sceneFlip != (scene.optInt("hudPathFlip", 0) != 0);
+                    || sceneFlip != (scene.optInt("hudPathFlip", 0) != 0)
+                    || columnKey != lastColumnKey;
             // Source/visibility changes must bypass expensive-frame reuse.
             int leadState = leadDisplayState(scene.optJSONObject("lead"))
                     | (leadDisplayState(scene.optJSONObject("lead2")) << 2);
@@ -249,6 +250,7 @@ final class ModelWorldGL {
                             ? 180_000_000L : 0L);
                     lastTimestamp = timestamp;
                     lastStyle = style;
+                    lastColumnKey = columnKey;
                     lastLeadDisplayState = leadState;
                 }
             }
@@ -265,14 +267,11 @@ final class ModelWorldGL {
         }
     }
 
-    /** ensureGl()의 fail()과 draw()의 catch 양쪽에서 공유하는 재시도 카운터.
-     * 재시도 여지가 남아있는 동안은 mapStore 는 안 건드린다 — 진짜로
-     * 포기할 때만(failed=true) 같이 닫는다. */
+    /** ensureGl()의 fail()과 draw()의 catch 양쪽에서 공유하는 재시도 카운터. */
     private void registerGlFailure() {
         glFailCount++;
         if (glFailCount >= GL_MAX_RETRIES) {
             failed = true;
-            mapStore.close();
             Log.e(TAG, "OpenGL renderer disabled after " + glFailCount
                     + " failed attempts; falling back to Canvas model world");
         } else {
@@ -429,6 +428,12 @@ final class ModelWorldGL {
         horizonShift = clamp(FOCAL * (float) Math.tan(pitch), -46f, 46f);
 
         GLES20.glViewport(0, 0, WIDTH, HEIGHT);
+        if (columnWidth < WIDTH) {
+            GLES20.glEnable(GLES20.GL_SCISSOR_TEST);
+            GLES20.glScissor(columnLeft, 0, columnWidth, HEIGHT);
+        } else {
+            GLES20.glDisable(GLES20.GL_SCISSOR_TEST);
+        }
         // HudService may place a clean NAVER Static Map below this frame. Keep
         // the untouched pixels transparent so that map stays
         // visible, while all local-map and model geometry below is composited
@@ -444,11 +449,6 @@ final class ModelWorldGL {
         drawRect(0f, 0f, WIDTH, Math.max(0f, HORIZON + horizonShift - TOP), sky, 1f);
         drawRect(0f, Math.max(0f, HORIZON + horizonShift - TOP), WIDTH, HEIGHT,
                 ground, 1f);
-
-        // The local vector context is deliberately below the camera-observed
-        // model road, lanes, route and cars. GPS error therefore cannot move
-        // any driving-critical overlay.
-        drawMapContext(scene, path, dark);
 
         Line rawLeftEdge = null;
         Line rawRightEdge = null;
@@ -1044,386 +1044,6 @@ final class ModelWorldGL {
         drawVertices(GLES20.GL_TRIANGLE_STRIP, v / 2, color, 1f);
     }
 
-    /** "" while the vector map context is drawing; otherwise why it is not. */
-    String mapStatus() {
-        if (mapLayers == MAP_LAYERS_OFF) return "";
-        if (!mapPoseValid || !mapPoseFrameValid) return "내비 위치 없음";
-        return mapStore.statusText();
-    }
-
-    // S9 HUD MAP LAYERS(hudMapLayers): 0 끄기 / 1 도로만(기본) / 2 전체.
-    private static final int MAP_LAYERS_OFF = 0, MAP_LAYERS_ROADS = 1;
-    private int mapLayers = MAP_LAYERS_ROADS;
-    /** HUD 네비모드: 좁은 주행 칸에는 바닥 지도(경기도 도로·건물)를 그리지 않는다. */
-    private boolean mapLayersSuppressed;
-
-    void setMapLayersSuppressed(boolean suppressed) {
-        mapLayersSuppressed = suppressed;
-    }
-
-    private void drawMapContext(JSONObject scene, Line roadHeight, boolean dark) {
-        mapLayers = mapLayersSuppressed ? MAP_LAYERS_OFF
-                : Math.max(0, Math.min(2, scene.optInt("hudMapLayers", MAP_LAYERS_ROADS)));
-        if (mapLayers == MAP_LAYERS_OFF) return;   // 지도 파일을 읽지도 받지도 않는다
-        boolean roadsOnly = mapLayers == MAP_LAYERS_ROADS;
-        double[] pose = mapPoseScratch;
-        if (!resolveMapPose(scene, pose)) {
-            return;
-        }
-        double lat = pose[0];
-        double lon = pose[1];
-        double heading = pose[2];
-        mapStore.update(lat, lon, roadsOnly);
-        HudMapStore.Snapshot snapshot = mapStore.snapshot();
-        if (snapshot == HudMapStore.Snapshot.EMPTY) {
-            return;
-        }
-        double headingRad = Math.toRadians(heading);
-        double sinHeading = Math.sin(headingRad);
-        double cosHeading = Math.cos(headingRad);
-        double metersLat = 111320.0;
-        double metersLon = metersLat * Math.max(0.1, Math.cos(Math.toRadians(lat)));
-
-        // Draw green first so lakes and rivers remain visible inside parks.
-        if (!roadsOnly) {
-            drawMapAreas(snapshot.greens, lat, lon, metersLat, metersLon,
-                    sinHeading, cosHeading, roadHeight,
-                    dark ? Color.rgb(45, 76, 60) : Color.rgb(128, 167, 133), 0.68f);
-            drawMapAreas(snapshot.waters, lat, lon, metersLat, metersLon,
-                    sinHeading, cosHeading, roadHeight,
-                    dark ? Color.rgb(40, 73, 91) : Color.rgb(117, 166, 187), 0.76f);
-        }
-
-        int roadColor = dark ? Color.rgb(64, 74, 84) : Color.rgb(126, 138, 148);
-        for (HudMapStore.Road road : snapshot.roads) {
-            if (!fillLocalLine(road.lat, road.lon, lat, lon, metersLat, metersLon,
-                    sinHeading, cosHeading, 2)) {
-                continue;
-            }
-            drawWorldRibbon(mapLine, roadHeight, roadColor,
-                    clamp(road.width * 0.5f, 1.25f, 9f), dark ? 0.34f : 0.52f, 0.008f);
-        }
-
-        if (roadsOnly) return;
-        int walls = dark ? Color.rgb(80, 92, 105) : Color.rgb(112, 126, 140);
-        int roofs = dark ? Color.rgb(104, 116, 130) : Color.rgb(150, 164, 176);
-        int visible = 0;
-        // The loader sorts near-to-far. Select the nearest visible blocks first;
-        // selecting from the array tail would discard the buildings around the car.
-        for (int i = 0; i < snapshot.buildings.length
-                && visible < visibleMapBuildings.length; i++) {
-            HudMapStore.Building building = snapshot.buildings[i];
-            if (!fillLocalLine(building.lat, building.lon, lat, lon, metersLat, metersLon,
-                    sinHeading, cosHeading, 3) || !mapFeatureVisible(mapLine)) {
-                continue;
-            }
-            visibleMapBuildings[visible++] = i;
-        }
-        // Draw the selected near set far-to-near so nearer blocks cover distant
-        // ones without allocating a depth buffer or per-frame collections.
-        for (int selected = visible - 1; selected >= 0; selected--) {
-            HudMapStore.Building building = snapshot.buildings[visibleMapBuildings[selected]];
-            if (!fillLocalLine(building.lat, building.lon, lat, lon, metersLat, metersLon,
-                    sinHeading, cosHeading, 3)) {
-                continue;
-            }
-            drawMapBuilding(mapLine, roadHeight, building.height, walls, roofs);
-        }
-    }
-
-    private final double[] mapPoseScratch = new double[3];
-
-    /**
-     * Resolve the one filtered pose shared by the Static Map ground image and
-     * the local Gyeonggi vector layer. Repeated calls for the same telemetry
-     * timestamp return the same pose and never advance the filter twice.
-     */
-    boolean resolveMapPose(JSONObject scene, double[] output) {
-        if (scene == null || output == null || output.length < 3) return false;
-        long timestamp = scene.optLong("t", 0L);
-        if (timestamp != lastMapPoseTimestamp) {
-            lastMapPoseTimestamp = timestamp;
-            mapPoseFrameValid = updateMapPose(scene);
-        }
-        if (!mapPoseFrameValid) return false;
-        output[0] = mapLat;
-        output[1] = mapLon;
-        output[2] = mapHeading;
-        return true;
-    }
-
-    private boolean updateMapPose(JSONObject scene) {
-        JSONArray pose = scene.optJSONArray("mapPose");
-        if (pose == null || pose.length() < 3) {
-            mapPoseValid = false;
-            return false;
-        }
-        double rawLat = pose.optDouble(0, Double.NaN);
-        double rawLon = pose.optDouble(1, Double.NaN);
-        double rawHeading = pose.optDouble(2, Double.NaN);
-        if (!Double.isFinite(rawLat) || !Double.isFinite(rawLon) || !Double.isFinite(rawHeading)
-                || rawLat < -85.0 || rawLat > 85.0 || rawLon < -180.0 || rawLon > 180.0
-                || (Math.abs(rawLat) < 0.5 && Math.abs(rawLon) < 0.5)) {
-            // (0,0) is what a navigation app reports before its first GPS fix.
-            // Anchoring the vector context there and crawling 9,000 km back at
-            // 12 m/frame is why the background "sometimes never comes back".
-            return false;
-        }
-        if (mapPoseValid) {
-            double jumpCheck = Math.hypot((rawLat - mapLat) * 111320.0,
-                    (rawLon - mapLon) * 111320.0 * Math.max(0.1, Math.cos(Math.toRadians(mapLat))));
-            if (jumpCheck > 1500.0) {
-                // Real relocation (app switch, GPS source change, tunnel exit):
-                // snap instead of smoothing, otherwise the layer is drawn off-screen for minutes.
-                mapPoseValid = false;
-            }
-        }
-        if (!mapPoseValid) {
-            mapLat = rawLat;
-            mapLon = rawLon;
-            mapHeading = rawHeading;
-            mapPoseValid = true;
-        } else {
-            // Move the vector context toward each fresh GPS pose over several
-            // HUD frames. Cap a single step so one noisy fix cannot throw the
-            // complete road/building layer across the display.
-            double metresLat = 111320.0;
-            double metresLon = metresLat * Math.max(0.1, Math.cos(Math.toRadians(mapLat)));
-            double north = (rawLat - mapLat) * metresLat;
-            double east = (rawLon - mapLon) * metresLon;
-            double jump = Math.hypot(north, east);
-            double positionAlpha = Math.min(0.28, 12.0 / Math.max(1.0, jump));
-            mapLat += (rawLat - mapLat) * positionAlpha;
-            mapLon += (rawLon - mapLon) * positionAlpha;
-            double headingError = ((rawHeading - mapHeading + 540.0) % 360.0) - 180.0;
-            // 작은 오차(정차·저속 중 GPS 헤딩 노이즈)는 기존처럼 천천히
-            // 따라간다. 하지만 실제 회전은 한 GPS 주기 안에 오차가 크게
-            // 튀므로, 오차가 클수록 더 빠르게 따라잡아 배경이 이미 돌아간
-            // 차로 자리에 겹쳐 보이는(회전 중 지연) 문제를 줄인다.
-            double headingAlpha = Math.min(0.55,
-                    0.22 + Math.abs(headingError) / 45.0 * 0.33);
-            mapHeading = (mapHeading + headingError * headingAlpha + 360.0) % 360.0;
-        }
-        return true;
-    }
-
-    private void drawMapAreas(HudMapStore.Area[] areas,
-                              double lat, double lon, double metersLat, double metersLon,
-                              double sinHeading, double cosHeading, Line roadHeight,
-                              int color, float alpha) {
-        int visible = 0;
-        // Areas are sorted near-to-far. Select the nearest visible set first.
-        for (int i = 0; i < areas.length && visible < visibleMapAreas.length; i++) {
-            HudMapStore.Area area = areas[i];
-            if (!fillLocalLine(area.lat, area.lon, lat, lon, metersLat, metersLon,
-                    sinHeading, cosHeading, 3) || !mapFeatureVisible(mapLine)) {
-                continue;
-            }
-            visibleMapAreas[visible++] = i;
-        }
-        // Paint the selected near set far-to-near for stable overlap.
-        for (int selected = visible - 1; selected >= 0; selected--) {
-            HudMapStore.Area area = areas[visibleMapAreas[selected]];
-            if (!fillLocalLine(area.lat, area.lon, lat, lon, metersLat, metersLon,
-                    sinHeading, cosHeading, 3)) {
-                continue;
-            }
-            Line clipped = clipMapArea(mapLine);
-            if (clipped.count >= 3) drawMapArea(clipped, roadHeight, color, alpha);
-        }
-    }
-
-    private final Line mapClipA = new Line();
-    private final Line mapClipB = new Line();
-
-    /** Clip large polygons to the forward HUD viewport before projection. */
-    private Line clipMapArea(Line source) {
-        clipMapBoundary(source, mapClipA, true, -1.5f, true);
-        clipMapBoundary(mapClipA, mapClipB, true, 175f, false);
-        clipMapBoundary(mapClipB, mapClipA, false, -72f, true);
-        clipMapBoundary(mapClipA, mapClipB, false, 72f, false);
-        return mapClipB;
-    }
-
-    private static void clipMapBoundary(Line source, Line output, boolean useX,
-                                        float boundary, boolean keepGreater) {
-        output.count = 0;
-        if (source.count < 3) return;
-        int previous = source.count - 1;
-        boolean previousInside = mapPointInside(source, previous, useX, boundary, keepGreater);
-        for (int current = 0; current < source.count; current++) {
-            boolean currentInside = mapPointInside(source, current, useX, boundary, keepGreater);
-            if (currentInside != previousInside) {
-                float previousValue = useX ? source.x[previous] : source.y[previous];
-                float currentValue = useX ? source.x[current] : source.y[current];
-                float denominator = currentValue - previousValue;
-                float ratio = Math.abs(denominator) < 1e-6f
-                        ? 0f : (boundary - previousValue) / denominator;
-                appendMapPoint(output,
-                        source.x[previous] + ratio * (source.x[current] - source.x[previous]),
-                        source.y[previous] + ratio * (source.y[current] - source.y[previous]));
-            }
-            if (currentInside) appendMapPoint(output, source.x[current], source.y[current]);
-            previous = current;
-            previousInside = currentInside;
-        }
-    }
-
-    private static boolean mapPointInside(Line line, int index, boolean useX,
-                                          float boundary, boolean keepGreater) {
-        float value = useX ? line.x[index] : line.y[index];
-        return keepGreater ? value >= boundary : value <= boundary;
-    }
-
-    private static void appendMapPoint(Line line, float x, float y) {
-        if (line.count >= MAX_POINTS) return;
-        int index = line.count++;
-        line.x[index] = x;
-        line.y[index] = y;
-        line.z[index] = 0f;
-    }
-
-    private boolean fillLocalLine(double[] latitudes, double[] longitudes,
-                                  double lat0, double lon0,
-                                  double metersLat, double metersLon,
-                                  double sinHeading, double cosHeading,
-                                  int minimum) {
-        mapLine.count = 0;
-        int count = Math.min(Math.min(latitudes.length, longitudes.length), MAX_POINTS);
-        for (int i = 0; i < count; i++) {
-            double east = (longitudes[i] - lon0) * metersLon;
-            double north = (latitudes[i] - lat0) * metersLat;
-            float forward = (float) (east * sinHeading + north * cosHeading);
-            float lateral = (float) (north * sinHeading - east * cosHeading);
-            if (!Float.isFinite(forward) || !Float.isFinite(lateral)) {
-                continue;
-            }
-            int n = mapLine.count++;
-            mapLine.x[n] = forward;
-            mapLine.y[n] = lateral;
-            mapLine.z[n] = 0f;
-        }
-        return mapLine.count >= minimum;
-    }
-
-    private static boolean mapFeatureVisible(Line line) {
-        float minX = Float.POSITIVE_INFINITY;
-        float maxX = Float.NEGATIVE_INFINITY;
-        float minY = Float.POSITIVE_INFINITY;
-        float maxY = Float.NEGATIVE_INFINITY;
-        for (int i = 0; i < line.count; i++) {
-            minX = Math.min(minX, line.x[i]);
-            maxX = Math.max(maxX, line.x[i]);
-            minY = Math.min(minY, line.y[i]);
-            maxY = Math.max(maxY, line.y[i]);
-        }
-        return maxX >= -14f && minX <= 175f && maxY >= -72f && minY <= 72f;
-    }
-
-    private void drawMapArea(Line area, Line roadHeight, int color, float alpha) {
-        int count = area.count;
-        if (count < 3) return;
-        for (int i = 0; i < count; i++) {
-            float z = zAt(roadHeight, Math.max(0f, area.x[i])) * roadZGain + 0.004f;
-            if (!project(area.x[i], area.y[i], z, projected)) return;
-            mapBaseX[i] = projected[0];
-            mapBaseY[i] = projected[1] - TOP;
-            mapIndices[i] = i;
-        }
-
-        float signedArea = 0f;
-        for (int i = 0; i < count; i++) {
-            int next = (i + 1) % count;
-            signedArea += area.x[i] * area.y[next] - area.x[next] * area.y[i];
-        }
-        float orientation = signedArea >= 0f ? 1f : -1f;
-        int remaining = count;
-        int vertex = 0;
-        int guard = count * count;
-        while (remaining > 2 && guard-- > 0 && vertex + 6 <= vertices.length) {
-            boolean clipped = false;
-            for (int position = 0; position < remaining; position++) {
-                int previous = mapIndices[(position + remaining - 1) % remaining];
-                int current = mapIndices[position];
-                int next = mapIndices[(position + 1) % remaining];
-                float cross = triangleCross(area.x[previous], area.y[previous],
-                        area.x[current], area.y[current], area.x[next], area.y[next]);
-                if (cross * orientation <= 0.0001f) continue;
-                boolean contains = false;
-                for (int testPosition = 0; testPosition < remaining; testPosition++) {
-                    int test = mapIndices[testPosition];
-                    if (test == previous || test == current || test == next) continue;
-                    if (pointInTriangle(area.x[test], area.y[test],
-                            area.x[previous], area.y[previous], area.x[current], area.y[current],
-                            area.x[next], area.y[next])) {
-                        contains = true;
-                        break;
-                    }
-                }
-                if (contains) continue;
-                vertex = addTriangle(vertex, mapBaseX[previous], mapBaseY[previous],
-                        mapBaseX[current], mapBaseY[current], mapBaseX[next], mapBaseY[next]);
-                for (int shift = position; shift + 1 < remaining; shift++) {
-                    mapIndices[shift] = mapIndices[shift + 1];
-                }
-                remaining--;
-                clipped = true;
-                break;
-            }
-            if (!clipped) break;
-        }
-        if (vertex > 0) drawVertices(GLES20.GL_TRIANGLES, vertex / 2, color, alpha);
-    }
-
-    private static float triangleCross(float ax, float ay, float bx, float by,
-                                       float cx, float cy) {
-        return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-    }
-
-    private static boolean pointInTriangle(float px, float py,
-                                           float ax, float ay, float bx, float by,
-                                           float cx, float cy) {
-        float ab = triangleCross(ax, ay, bx, by, px, py);
-        float bc = triangleCross(bx, by, cx, cy, px, py);
-        float ca = triangleCross(cx, cy, ax, ay, px, py);
-        boolean negative = ab < 0f || bc < 0f || ca < 0f;
-        boolean positive = ab > 0f || bc > 0f || ca > 0f;
-        return !(negative && positive);
-    }
-
-    private void drawMapBuilding(Line footprint, Line roadHeight, float height,
-                                 int wallColor, int roofColor) {
-        int count = footprint.count;
-        if (count < 3) return;
-        for (int i = 0; i < count; i++) {
-            float baseZ = zAt(roadHeight, Math.max(0f, footprint.x[i])) * roadZGain;
-            if (!project(footprint.x[i], footprint.y[i], baseZ, projected)) return;
-            mapBaseX[i] = projected[0];
-            mapBaseY[i] = projected[1] - TOP;
-            if (!project(footprint.x[i], footprint.y[i], baseZ + height, projected)) return;
-            lineScreenX[i] = projected[0];
-            lineScreenY[i] = projected[1] - TOP;
-        }
-
-        int v = 0;
-        for (int i = 0; i < count && v + 12 <= vertices.length; i++) {
-            int next = (i + 1) % count;
-            v = addTriangle(v, mapBaseX[i], mapBaseY[i], mapBaseX[next], mapBaseY[next],
-                    lineScreenX[i], lineScreenY[i]);
-            v = addTriangle(v, lineScreenX[i], lineScreenY[i], mapBaseX[next], mapBaseY[next],
-                    lineScreenX[next], lineScreenY[next]);
-        }
-        drawVertices(GLES20.GL_TRIANGLES, v / 2, wallColor, 0.84f);
-
-        v = 0;
-        for (int i = 1; i + 1 < count && v + 6 <= vertices.length; i++) {
-            v = addTriangle(v, lineScreenX[0], lineScreenY[0],
-                    lineScreenX[i], lineScreenY[i],
-                    lineScreenX[i + 1], lineScreenY[i + 1]);
-        }
-        drawVertices(GLES20.GL_TRIANGLES, v / 2, roofColor, 0.90f);
-    }
-
     // 주행 경로: RPM 게이지와 같은 청록 → 하늘색 그라데이션(자차 쪽 진하게, 멀리 연하게).
     private static final int PATH_DEEP = Color.rgb(0, 156, 206);
     private static final int PATH_BRIGHT = Color.rgb(96, 232, 255);
@@ -2002,12 +1622,14 @@ final class ModelWorldGL {
 
     private void copyPixels() {
         readBuffer.position(0);
-        GLES20.glReadPixels(0, 0, WIDTH, HEIGHT, GLES20.GL_RGBA,
+        int left = columnLeft;
+        int width = columnWidth;
+        GLES20.glReadPixels(left, 0, width, HEIGHT, GLES20.GL_RGBA,
                 GLES20.GL_UNSIGNED_BYTE, readBuffer);
         for (int y = 0; y < HEIGHT; y++) {
-            int source = (HEIGHT - 1 - y) * WIDTH;
-            int target = y * WIDTH;
-            for (int x = 0; x < WIDTH; x++) {
+            int source = (HEIGHT - 1 - y) * width;
+            int target = y * WIDTH + left;
+            for (int x = 0; x < width; x++) {
                 int abgr = readBuffer.get(source + x);
                 int alpha = (abgr >>> 24) & 0xff;
                 int red = abgr & 0xff;
@@ -2024,7 +1646,7 @@ final class ModelWorldGL {
                 pixels[target + x] = (alpha << 24) | (red << 16) | (green << 8) | blue;
             }
         }
-        frame.setPixels(pixels, 0, WIDTH, 0, 0, WIDTH, HEIGHT);
+        frame.setPixels(pixels, left, WIDTH, left, 0, width, HEIGHT);
     }
 
     private static float ndcX(float pixel) {
@@ -2054,13 +1676,10 @@ final class ModelWorldGL {
     }
 
     void release() {
-        mapStore.close();
         releaseGl();
     }
 
-    /** EGL/GL 자원만 정리한다. 재시도 가능한 일시적 실패 경로에서 쓴다 —
-     * mapStore 는 GL과 무관하게 계속 살려둬서, 재시도가 성공하면 지도
-     * 배경도 처음부터 다시 받을 필요 없이 그대로 이어 쓴다. */
+    /** EGL/GL 자원만 정리한다. 재시도 가능한 일시적 실패 경로에서 쓴다. */
     private void releaseGl() {
         if (display != EGL14.EGL_NO_DISPLAY) {
             EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE,

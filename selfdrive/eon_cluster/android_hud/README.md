@@ -104,49 +104,13 @@ Camera-model leads (`VISION`, blue) and radar-backed leads (`RADAR`, orange)
 retain their normal vehicle sprites. No additional vehicle detector or road
 camera preview runs on the EON or S9.
 
-> **v1.06 local map context** — `ModelWorldGL` keeps the modelV2 road
-> authoritative and draws an optional S9-local SQLite road/building layer
-> underneath it. The legacy database path is
-> `/sdcard/Android/data/ai.comma.remotehud/files/hud_map.sqlite`. The app also
-> supports four checksummed Gyeonggi assets (`south`, `north`, `west`, `east`)
-> and automatically selects/downloads the current `mapPose` region. If the
-> regional manifest is not published yet, it safely retains the verified
-> `hud-map-v1` fallback. The HUD remains model-only until a required download
-> completes.
->
-> Build the database directly from WGS84 GeoJSON or VWorld/NGII SHP ZIPs:
->
-> ```sh
-> python selfdrive/eon_cluster/tools/build_hud_map_db.py \
->   --building-shp-zip F_FAC_BUILDING_경기_오산시.zip \
->   --building-shp-zip F_FAC_BUILDING_경기_화성시_효행구.zip \
->   --building-shp-zip F_FAC_BUILDING_경기_화성시_만세구.zip \
->   --building-shp-zip F_FAC_BUILDING_경기_화성시_병점구.zip \
->   --building-shp-zip F_FAC_BUILDING_경기_화성시_동탄구.zip \
->   --road-shp-zip '(연속수치지형도)도로중심선_경기.zip' \
->   --output hud_map.sqlite
-> adb push hud_map.sqlite \
->   /sdcard/Android/data/ai.comma.remotehud/files/hud_map.sqlite
-> ```
->
-> A complete Gyeonggi database is split for Release deployment with:
->
-> ```sh
-> python selfdrive/eon_cluster/tools/split_hud_map_db.py \
->   --input hud_map_gyeonggi.sqlite \
->   --output-dir hud-map-gyeonggi-v1
-> ```
->
-> Tile loading and JSON decoding run outside the render thread. At most 70
-> visible buildings are drawn, with no facade textures, shadows or trees.
-
 The driving panel can download a clean NAVER Static Map `basic` image directly
 on the S9. Its Client ID and Client Secret are entered in the Remote HUD app and
 remain in app-private storage; they are never committed or sent to EON. The
 `주행화면 지도 사용` switch disables both map display and network requests.
 The 1024x1024 image is cached, refreshed only after roughly 50 m of movement (and
 never repeatedly while stopped), rotated heading-up without allocating a new
-bitmap, and drawn below the local Gyeonggi roads/buildings and every
+bitmap, and drawn below every
 model-derived road edge, lane, guardrail, path, lead and stop-line overlay. If
 credentials, position or network are unavailable, the existing solid/vector
 background remains in use.

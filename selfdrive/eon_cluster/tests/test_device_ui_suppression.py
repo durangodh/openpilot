@@ -7,7 +7,7 @@ UI_DIR = ROOT / "selfdrive" / "ui" / "qt"
 # OSM/OpenGL 전환으로 사라진 파라미터. 어느 층에도 남아 있으면 안 된다.
 DEAD_PARAMS = ("EonClusterHudWorldWidth", "EonClusterHudBuildings",
                "EonClusterHudCarStyle", "EonClusterHudRoadSigns",
-               "EonClusterHudGl", "EonClusterHudOutputTarget")
+               "EonClusterHudGl", "EonClusterHudOutputTarget", "EonClusterHudMapLayers")
 
 
 def _code_only(source):
@@ -78,7 +78,6 @@ def test_s9_hud_params_are_exposed_in_settings():
       "EonClusterHudLanguage",
       "EonClusterHudRadarInfo",
       "EonClusterHudNavRoute",
-      "EonClusterHudMapLayers",
   )
   for key in exposed:
     assert '"%s"' % key in settings, key
@@ -287,14 +286,9 @@ def test_s9_v6_visual_layers_and_local_map_context():
   assert "drawBsd" in renderer and "bsdWarning" in renderer and "bsdArcChunk" in renderer
   assert "BSD_CORE_ALPHA = 190f / 255f" in renderer
   assert "BSD_TRI_ALPHA = 225f / 255f" in renderer
-  assert "drawMapContext" in renderer
-  assert "HudMapStore" in renderer
-  assert "visibleMapBuildings" in renderer
-  assert "visibleMapBuildings[visible++] = i" in renderer
-  assert "visibleMapAreas[visible++] = i" in renderer
-  assert "clipMapArea" in renderer and "clipMapBoundary" in renderer
-  assert renderer.index("drawMapAreas(snapshot.greens") < renderer.index("drawMapAreas(snapshot.waters")
-  assert (java / "HudMapStore.java").exists()
+  # 경기도 지도 배경은 2026-10-15 요청으로 뺐다.
+  assert "HudMapStore" not in renderer and "drawMapContext" not in renderer
+  assert not (java / "HudMapStore.java").exists()
 
 
 def test_hud_rejects_stale_sources_and_applies_fallback_path_offset():

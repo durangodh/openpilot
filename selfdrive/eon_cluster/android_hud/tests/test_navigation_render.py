@@ -222,8 +222,6 @@ def main():
                     "app/src/main/java/ai/comma/remotehud/UsbPermissionAutoApprover.java").read_text(encoding="utf-8")
     usb_reset = (Path(__file__).resolve().parents[1] /
                  "app/src/main/java/ai/comma/remotehud/UsbPortReset.java").read_text(encoding="utf-8")
-    map_store = (Path(__file__).resolve().parents[1] /
-                 "app/src/main/java/ai/comma/remotehud/HudMapStore.java").read_text(encoding="utf-8")
     # A navigation button request must never suspend the TCP map stream. An
     # unacknowledged request previously left both the S9 and external HUD map
     # blank indefinitely.
@@ -391,10 +389,6 @@ def main():
         "private static void recycleAndClear", 1)[0]
     assert "inJustDecodeBounds = true" in replace_asset
     assert "pixels > 8_000_000L" in replace_asset
-    accept_database = map_store.split("private boolean acceptDatabase", 1)[1].split(
-        "private void activate", 1)[0]
-    assert "validateDatabase(file)" in accept_database
-    assert "if (length == expectedBytes)" not in accept_database
     # Use complete source methods, so restoring the old early return fails this test.
     methods = []
     for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),
