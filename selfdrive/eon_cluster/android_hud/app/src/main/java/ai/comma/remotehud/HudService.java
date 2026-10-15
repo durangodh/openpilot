@@ -2758,8 +2758,10 @@ public final class HudService extends Service {
         String status = alert.optString("status", "").toLowerCase(Locale.US);
         boolean critical = status.contains("critical");
         boolean prompt = status.contains("prompt") || status.contains("warning");
+        // 네비모드는 배경 상자 없이 주행 칸 위에 바로 쓰므로 주간 검정·야간 흰색(ink).
+        int plain = naviLayout ? ink() : Color.WHITE;
         int titleColor = critical ? Color.rgb(255, 82, 96)
-                : prompt ? Color.rgb(255, 174, 82) : Color.WHITE;
+                : prompt ? Color.rgb(255, 174, 82) : plain;
 
         boolean full = alert.optString("size", "").toLowerCase(Locale.US).contains("full");
         // 네비모드의 주행 칸은 376 폭이다.
@@ -2803,7 +2805,7 @@ public final class HudService extends Service {
         if (text2.length() > 0) {
             text(c, p, text1, cx, cy - 4f, titleSize, titleColor, Paint.Align.CENTER);
             text(c, p, text2, cx, cy + detailSize + 12f, detailSize,
-                    Color.rgb(228, 233, 237), Paint.Align.CENTER);
+                    naviLayout ? plain : Color.rgb(228, 233, 237), Paint.Align.CENTER);
         } else {
             text(c, p, text1, cx, cy + titleSize * 0.36f, titleSize, titleColor, Paint.Align.CENTER);
         }
