@@ -5299,6 +5299,10 @@ public final class HudService extends Service {
         }
     }
 
+    /** SET 원 크기 배율(원래 반지름 36). */
+    private static final float SET_SCALE = 1.15f;
+    private static final float SET_R = 36f * SET_SCALE;
+
     /** SET 원이 전방충돌 경고도 함께 표시한다. AEB(빨강)가 FCW(노랑)보다 우선한다. */
     private void drawSetSpeed(Canvas c, Paint p, float cx, float cy, int set,
                               boolean enabled, JSONObject s) {
@@ -5318,15 +5322,16 @@ public final class HudService extends Service {
         int valueColor = aeb ? Color.WHITE : (fcw ? Color.rgb(28, 30, 32)
                 : (frameDark ? Color.rgb(238, 242, 246) : Color.rgb(18, 18, 18)));
 
+        // 2026-10-15 요청: 원·테두리·숫자를 15% 크게(SET_SCALE). 아래 "SET" 글자는 그대로.
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(fill);
-        c.drawCircle(cx, cy, 36f, p);
+        c.drawCircle(cx, cy, SET_R, p);
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(6f);
+        p.setStrokeWidth(6f * SET_SCALE);
         p.setColor(accent);
-        c.drawCircle(cx, cy, 36f, p);
-        text(c, p, valid ? Integer.toString(set) : "--", cx, cy + 9f, 29f,
+        c.drawCircle(cx, cy, SET_R, p);
+        text(c, p, valid ? Integer.toString(set) : "--", cx, cy + 9f * SET_SCALE, 29f * SET_SCALE,
                 valueColor, Paint.Align.CENTER);
         text(c, p, "SET", cx, cy + 55f, 14f, accent, Paint.Align.CENTER);
     }
