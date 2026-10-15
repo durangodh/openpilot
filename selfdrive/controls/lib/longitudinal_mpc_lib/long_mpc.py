@@ -9,6 +9,7 @@ from selfdrive.swaglog import cloudlog
 from selfdrive.modeld.constants import index_function
 from selfdrive.controls.lib.radar_helpers import _LEAD_ACCEL_TAU
 from selfdrive.controls.lib.lead_following import NO_LEAD, LeadConfirm
+from selfdrive.controls.lib.stopping_lead import HeldLead, StoppingLeadFilter
 from selfdrive.controls.lib.t_follow import (CRUISE_GAP_BP as _CRUISE_GAP_BP, CRUISE_GAP_V,
                                              clamp_desired_follow_distance,
                                              StoppedLeadComfortBrake, release_t_follow)
@@ -255,6 +256,8 @@ class LongitudinalMpc:
     self.lead1_comfort_brake = StoppedLeadComfortBrake()
     self.lead0_confirm = LeadConfirm()
     self.lead1_confirm = LeadConfirm()
+    self.stopping_lead0 = StoppingLeadFilter()
+    self.stopping_lead1 = StoppingLeadFilter()
     # ────────────────────────────────────────────────────────────────────
 
     self.reset()
@@ -470,6 +473,12 @@ class LongitudinalMpc:
 
     model_lead_0 = model_leads[0] if model_leads is not None and len(model_leads) > 0 else None
     model_lead_1 = model_leads[1] if model_leads is not None and len(model_leads) > 1 else None
+    # carrot-wip: while both cars are stopped, plan with a stopped lead until
+    # the radar range really opens (no creep on speed noise or model guesses).
+    if self.stopping_lead0.held(lead_one, v_ego, DT_MDL):
+      lead_one, model_lead_0 = HeldLead(lead_one), None
+    if self.stopping_lead1.held(lead_two, v_ego, DT_MDL):
+      lead_two, model_lead_1 = HeldLead(lead_two), None
     lead_xv_0 = self.process_lead(lead_one, model_lead_0)
     lead_xv_1 = self.process_lead(lead_two, model_lead_1)
 
