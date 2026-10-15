@@ -127,10 +127,13 @@ final class NaverBridge {
         return f.get(owner);
     }
 
-    /** 폴링 스레드. 차로 항목이 바뀌었을 때만 메인 스레드에서 다시 그린다. */
-    private void laneFallback(Object item, boolean guiding) {
+    /**
+     * 폴링 스레드. 차로 항목이 바뀌었을 때만 메인 스레드에서 다시 그린다.
+     * driving: 길안내 또는 안심주행(목적지 없음, 2026-10-15 요청). 끝나면 차로 그림을 지운다.
+     */
+    private void laneFallback(Object item, boolean driving) {
         if (phoneLaneSeen || offscreenLaneFailed) return;
-        final Object shown = guiding ? item : null;
+        final Object shown = driving ? item : null;
         if (shown == lastLaneItem || (shown != null && shown.equals(lastLaneItem))) return;
         lastLaneItem = shown;
         mainHandler.post(() -> drawLaneOffscreen(shown));
@@ -266,7 +269,7 @@ final class NaverBridge {
         send("speed", speed(s, (int) NaverCodes.number(call(link, "h"))));
         Object laneItem = value(NaverStore.get(s, "NaviLaneItem"));
         send("lane_current", lane(laneItem));
-        laneFallback(laneItem, guiding);
+        laneFallback(laneItem, guiding || (mode != null && "SafeDriving".equals(String.valueOf(mode))));
         Object signalItem = value(NaverStore.get(s, "TrafficSignalInfo"));
         send("traffic_signal", signal(signalItem));
         publishSignalImage(guiding ? signalItem : null);

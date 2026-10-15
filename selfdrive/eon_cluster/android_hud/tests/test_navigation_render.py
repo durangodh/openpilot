@@ -57,6 +57,7 @@ public class NavigationRenderCheck {
   int beginNaviGuide(Canvas c,float y,float anchor,float scale){return c.save();}
   int beginNaviGuide(Canvas c,float x,float y,float anchor,float scale){return c.save();}
   String lang(String ko,String en){return en;}
+  boolean eonStaleForTest; boolean eonStale(){return eonStaleForTest;}
   JSONObject layout(JSONObject s){return new JSONObject();}
   int beginElement(Canvas c,JSONObject l,String k,float x,float y){return c.save();}
   void text(Canvas c,Paint p,String t,float x,float y,float size,int color,Paint.Align a){if(t.equals("729")){c.nextCalls++;c.events.add("next");}}
@@ -127,14 +128,19 @@ public class NavigationRenderCheck {
     SystemClock.now+=200L; p=new Paint();
     hud.drawMap(new Canvas(),p,state(true,1000,200),fresh,null,null,null,null);
     if(p.lastBitmapAlpha!=255) throw new AssertionError("fade-in end alpha="+p.lastBitmapAlpha);
-    // Lane guidance is shown only while a destination is being guided.
+    // Lane guidance follows the phone's lane image: shown during guidance and
+    // also in free driving without a destination; the phone clears it when gone.
     Bitmap lane=new Bitmap(); c=new Canvas();
     hud.drawMap(c,new Paint(),state(true,1000,200),null,null,null,lane,null);
     if(c.nativeOverlays!=1) throw new AssertionError("lane hidden during guidance");
     for(JSONObject idle:new JSONObject[]{new JSONObject(),state(false,1000,200),state(true,0,-1)}){
       c=new Canvas(); hud.drawMap(c,new Paint(),idle,null,null,null,lane,null);
-      if(c.nativeOverlays!=0) throw new AssertionError("lane shown without a destination");
+      if(c.nativeOverlays!=1) throw new AssertionError("lane hidden in free driving");
     }
+    hud.eonStaleForTest=true; c=new Canvas();
+    hud.drawMap(c,new Paint(),state(true,1000,200),null,null,null,lane,null);
+    if(c.nativeOverlays!=0) throw new AssertionError("lane shown while EON link is stale");
+    hud.eonStaleForTest=false;
     // Navi layout (map 8 : drive 2) draws the same map, guidance and overlays.
     hud.naviLayout=true; Bitmap.mapH=100; SystemClock.now+=1000L;
     hud.check("navi layout",state(true,1000,200),new Bitmap(),signal,1,1,1);

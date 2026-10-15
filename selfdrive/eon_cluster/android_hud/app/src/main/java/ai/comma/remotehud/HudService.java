@@ -6625,10 +6625,11 @@ public final class HudService extends Service {
         JSONObject l = layout(s);
         if (!naviLayout) drawNavigationGuidance(c, p, s, l);
 
-        // 차로 정보는 목적지 안내 중일 때만, 도착정보 바와 같은 높이(ETA_H)로 패널
-        // 아래끝에 붙인다. 앱 그림의 투명 여백을 잘라내 실제 그림이 바 높이를 채우고,
-        // 가로는 그 배율만큼 같이 늘어난다(2026-10-05 요청, 세 네비 공통).
-        if (naviGuiding(s)) {
+        // 차로 정보는 도착정보 바와 같은 높이(ETA_H)로 패널 아래끝에 붙인다. 앱 그림의 투명
+        // 여백을 잘라내 실제 그림이 바 높이를 채우고, 가로는 그 배율만큼 같이 늘어난다
+        // (2026-10-05 요청, 세 네비 공통). 목적지 없는 안심주행에서도 폰 앱이 차로를 보여 주면
+        // 그대로 띄운다(2026-10-15 요청). 폰 모듈이 차로가 사라지면 그림을 지운다.
+        if (!eonStale()) {
             Bitmap laneShown = trimmedLane(lane);
             int navApp = s.optInt("hudNavApp", 1);
             if (laneShown != null && (navApp == 1 || navApp == 2 || navApp == 3)) {
