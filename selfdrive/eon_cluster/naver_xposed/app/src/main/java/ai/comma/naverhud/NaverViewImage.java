@@ -48,6 +48,9 @@ final class NaverViewImage {
     // 투명 여백을 두어 실제 크기를 정한다(차로 띠는 거리 숫자까지 있어 꽉 채우면 너무 컸다).
     private final float fill;
     private volatile boolean used;
+    // 내용 왼쪽·위에 붙일 투명 여백(뷰 픽셀). 네이버 차로 띠에서 화살표 박스를 가운데에 두고
+    // 높이를 거리-위 배치와 같게 맞출 때 쓴다(NaverBridge.laneLayoutPadding).
+    volatile int padLeft, padTop;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService encoder = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "naver-hud-view");
@@ -114,7 +117,7 @@ final class NaverViewImage {
                 main.postDelayed(this::tick, TICK_MS);
                 return;
             }
-            Bitmap bmp = draw(v, maxW, maxH, fill);
+            Bitmap bmp = draw(v, maxW, maxH, fill, padLeft, padTop);
             if (bmp != null) {
                 boolean same = lastBitmap != null && lastBitmap.sameAs(bmp);
                 if (!same || now - lastSentAt >= RESEND_MS) {
@@ -141,7 +144,7 @@ final class NaverViewImage {
      * 뷰를 그린 뒤 투명 여백을 잘라내고 HUD 칸 크기로 줄인다. 폰 차로 뷰는 화면 폭만큼
      * 넓고 그림은 가운데에 작게 있어서, 여백째 줄이면 HUD 에서 차로가 아주 작게 보였다.
      */
-    private static Bitmap draw(View v, int maxW, int maxH, float fill) {
+    private static Bitmap draw(View v, int maxW, int maxH, float fill, int padLeftPx, int padTopPx) {
         int w = v.getWidth(), h = v.getHeight();
         if (w <= 0 || h <= 0) return null;
         float s0 = Math.min(1f, 1080f / w);   // 여백 찾기용으로 너무 크지 않게만
@@ -175,14 +178,20 @@ final class NaverViewImage {
         right = Math.min(fw - 1, right + pad);
         bottom = Math.min(fh - 1, bottom + pad);
         int cw = right - left + 1, ch = bottom - top + 1;
-        float scale = Math.min(1f, Math.min(maxW / (float) cw, maxH * fill / (float) ch));
+        int extraL = Math.max(0, Math.round(padLeftPx * s0)), extraT = Math.max(0, Math.round(padTopPx * s0));
+        float scale = Math.min(1f, Math.min(maxW / (float) (cw + extraL), maxH * fill / (float) (ch + extraT)));
         int ow = Math.max(1, Math.round(cw * scale)), oh = Math.max(1, Math.round(ch * scale));
-        int padTop = Math.round(oh / fill) - oh;   // 위쪽 여백: 내용은 아래에 붙는다
-        Bitmap out = Bitmap.createBitmap(ow, oh + padTop, Bitmap.Config.ARGB_8888);
+        int ol = Math.round(extraL * scale), ot = Math.round(extraT * scale);
+        int padTop = Math.round((oh + ot) / fill) - (oh + ot);   // 위쪽 여백: 내용은 아래에 붙는다
+        Bitmap out = Bitmap.createBitmap(ol + ow, padTop + ot + oh, Bitmap.Config.ARGB_8888);
         Canvas oc = new Canvas(out);
         android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
         oc.drawBitmap(full, new android.graphics.Rect(left, top, right + 1, bottom + 1),
-                new android.graphics.Rect(0, padTop, ow, padTop + oh), paint);
+                new android.graphics.Rect(ol, padTop + ot, ol + ow, padTop + ot + oh), paint);
+        if (ol > 0 || ot > 0) {
+            // HUD 는 투명 여백을 잘라 낸다(알파 16 이하). 여백이 남도록 왼쪽 위에 거의 안 보이는 점 하나.
+            out.setPixel(0, padTop, 0x14202020);
+        }
         full.recycle();
         return out;
     }

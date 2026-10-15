@@ -73,42 +73,51 @@ final class NaverBridge {
     private Method offscreenLaneSet;
     private Object lastLaneItem;
 
-    private boolean distanceOnTopLogged;
+    private boolean laneLayoutLogged;
 
     /**
-     * NaviLaneControlView 는 5차로 이상이면 거리를 차로 위(c0), 그보다 적으면 오른쪽(d0)에 둔다.
-     * 오른쪽이면 그림이 가로로 길고 낮아져 HUD 가 같은 높이로 키울 때 화살표가 크고 가운데가
-     * 어긋났다(2026-10-15 실차, 2차로). 티맵·카카오처럼 항상 위에 두도록 바꾼다. 거리 글자는
-     * 네이버 형식(DisplayDistance.getDistanceString)으로 만든다. 못 바꾸면 원래 모양 그대로.
+     * 네이버는 4차로 이하면 거리를 차로 오른쪽(d0), 5차로 이상이면 위(c0)에 둔다(원본 그대로 둔다).
+     * HUD 는 그림 전체를 같은 높이로 키우고 가운데에 두므로, 오른쪽 배치면 화살표가 커지고 박스가
+     * 마커보다 왼쪽에 왔다(2026-10-15 실차). 오른쪽 배치일 때 그림 왼쪽에 오른쪽 글자 폭만큼,
+     * 위에 글자 높이만큼 투명 여백을 더해 박스가 가운데·같은 크기가 되게 한다.
      */
-    private void distanceOnTop(Object item) {
+    private void laneLayoutPadding() {
+        int left = 0, top = 0;
         try {
-            android.view.View top = (android.view.View) fieldValue(offscreenLane, "c0");
+            android.view.View lanes = (android.view.View) fieldValue(offscreenLane, "b0");
             android.view.View side = (android.view.View) fieldValue(offscreenLane, "d0");
-            if (top == null || side == null || side.getVisibility() != android.view.View.VISIBLE) return;
-            double meters = ((Number) item.getClass().getMethod("h").invoke(item)).doubleValue();
-            Class<?> dd = item.getClass().getClassLoader().loadClass("com.naver.map.core.common.model.DisplayDistance");
-            Method format = dd.getMethod("getDistanceString", android.content.Context.class, double.class);
-            Object owner = java.lang.reflect.Modifier.isStatic(format.getModifiers()) ? null : dd.getField("Companion").get(null);
-            if (owner != null) {
-                format = owner.getClass().getMethod("getDistanceString", android.content.Context.class, double.class);
+            if (lanes != null && side != null && side.getVisibility() == android.view.View.VISIBLE) {
+                int boxRight = absLeft(lanes) + lanes.getWidth();
+                int contentRight = absLeft(side) + side.getWidth();
+                android.view.View hipass = (android.view.View) fieldValue(offscreenLane, "f0");
+                if (hipass != null && hipass.getVisibility() == android.view.View.VISIBLE) {
+                    contentRight = Math.max(contentRight, absLeft(hipass) + hipass.getWidth());
+                }
+                left = Math.max(0, contentRight - boxRight);
+                top = side.getHeight();
             }
-            Object text = format.invoke(owner, offscreenLane.getContext(), meters);
-            top.getClass().getMethod("setText", CharSequence.class).invoke(top, (CharSequence) text);
-            top.setVisibility(android.view.View.VISIBLE);
-            side.setVisibility(android.view.View.GONE);
-            android.view.View hipassTop = (android.view.View) fieldValue(offscreenLane, "e0");
-            android.view.View hipassSide = (android.view.View) fieldValue(offscreenLane, "f0");
-            if (hipassTop != null && hipassSide != null) {
-                hipassTop.setVisibility(hipassSide.getVisibility());
-                hipassSide.setVisibility(android.view.View.GONE);
+            if (!laneLayoutLogged) {
+                laneLayoutLogged = true;
+                NaverHudLog.line("lane view padding left=" + left + " top=" + top);
             }
         } catch (Throwable error) {
-            if (!distanceOnTopLogged) {
-                distanceOnTopLogged = true;
-                NaverHudLog.ex("lane distance on top", error);
+            if (!laneLayoutLogged) {
+                laneLayoutLogged = true;
+                NaverHudLog.ex("lane view padding", error);
             }
         }
+        laneImage.padLeft = left;
+        laneImage.padTop = top;
+    }
+
+    private int absLeft(android.view.View v) {
+        int x = 0;
+        for (android.view.View cur = v; cur != null && cur != offscreenLane; ) {
+            x += cur.getLeft();
+            android.view.ViewParent parent = cur.getParent();
+            cur = parent instanceof android.view.View ? (android.view.View) parent : null;
+        }
+        return x;
     }
 
     private static Object fieldValue(Object owner, String name) throws Exception {
@@ -149,12 +158,12 @@ final class NaverBridge {
                 NaverHudLog.line("lane view: drawing NaviLaneControlView off screen (phone lane view unused)");
             }
             offscreenLaneSet.invoke(offscreenLane, item, false);   // 훅이 onLaneView 로 그림을 뜬다
-            distanceOnTop(item);
             int w = offscreenLane.getResources().getDisplayMetrics().widthPixels;
             offscreenLane.measure(
                     android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
                     android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED));
             offscreenLane.layout(0, 0, offscreenLane.getMeasuredWidth(), offscreenLane.getMeasuredHeight());
+            laneLayoutPadding();
             if (!offscreenLaneLogged) {
                 offscreenLaneLogged = true;
                 NaverHudLog.line("lane view off screen " + offscreenLane.getMeasuredWidth() + "x"
