@@ -19,6 +19,7 @@ from selfdrive.controls.lib.longitudinal_limits import (get_cruise_min_accel, CR
                                                         scale_cruise_max_accel,
                                                         limit_accel_in_turns)
 from selfdrive.swaglog import cloudlog
+from selfdrive.controls.lib.turn_accel import get_future_curvature, limit_accel_in_future_turns
 from selfdrive.controls.lib.events import Events
 from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_REASON_OFF,
                                                     E2E_VISION_LEAD_DISTANCE,
@@ -259,6 +260,13 @@ class LongitudinalPlanner:
         v_ego, sm['carState'].steeringAngleDeg,
         [get_cruise_min_accel(getattr(sm['controlsState'], 'cruiseDecelLimit', 0.0)), cruise_max_accel],
         self.CP.steerRatio, self.CP.wheelbase)
+      # carrot-wip: also respect the curve the model predicts within ~3 s, so
+      # acceleration is not built up just before/inside a turn. Tighten only.
+      future_limits = limit_accel_in_future_turns(
+        v_ego, get_future_curvature(sm['modelV2'], sm['controlsState'].desiredCurvature),
+        accel_limits, 3.0, model_msg=sm['modelV2'], v_cruise=v_cruise,
+        current_curvature=sm['controlsState'].curvature)
+      accel_limits[1] = min(accel_limits[1], future_limits[1])
     else:
       # E2E/blended 도 사용자 CruiseMax 상한은 유지(apilot-c2 는 MAX_ACCEL 2.5 고정)
       accel_limits = [MIN_ACCEL, cruise_max_accel]
