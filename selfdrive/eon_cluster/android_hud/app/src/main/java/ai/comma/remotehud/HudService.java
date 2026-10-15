@@ -137,7 +137,7 @@ public final class HudService extends Service {
     private static final int NAVI_DRIVE_LEFT = NAVI_MAP_RIGHT;
     private static final float NAVI_DRIVE_CX = (NAVI_DRIVE_LEFT + WIDTH) / 2f;
     // 오른쪽 칸 = EON 박스 원래 크기(270 폭, 위아래 225~507 이 왼쪽 게이지 위·아래 선과 같다).
-    // 위에서부터 GPS·내비 이름 → 회전 안내(1·2행) → EON 박스, 맨 아래 도착정보.
+    // 위에서부터 GPS·내비 이름 → 회전 안내(1·2행) → EON 박스 → NOO. 도착정보는 칸 왼쪽 아래.
     // 회전 안내·도착정보는 원래 342 폭 그림을 이 폭으로 줄여 그린다.
     private static final float NAVI_COL_W = 270f;
     private static final float NAVI_COL_RIGHT = NAVI_MAP_RIGHT - 20f;
@@ -160,8 +160,10 @@ public final class HudService extends Service {
      * 맞추면 총주행거리 오른쪽 끝(원래 1128)도 칸 오른쪽(±1px)에 온다.
      */
     private static final float NAVI_INFO_DX = NAVI_COL_LEFT - 859f;
-    /** 네비모드 도착정보 바 아래끝: EON 박스 아래(507)와 냉각수 줄 위(약 659) 가운데에 오게. */
-    private static final float NAVI_ETA_BOTTOM = (507f + 659f) / 2f + 58f * NAVI_GUIDE_SCALE / 2f;
+    /** 네비모드 NOO 상태줄 기준선(오른쪽 칸 오른쪽 맞춤): EON 박스 아래(507)와 냉각수 줄 위(약 659) 사이. */
+    private static final float NAVI_NOO_Y = (507f + 659f) / 2f + 58f * NAVI_GUIDE_SCALE / 2f;
+    /** 네비모드 도착정보 바: 오른쪽 칸 왼쪽에 오른쪽 끝을 두고, 아래끝은 INFO_Y(702). */
+    private static final float NAVI_ETA_RIGHT = NAVI_COL_LEFT - 16f;
     /** 네비모드: 주행 장면(도로·차)을 위로 올려 맨 아래 이벤트 표시와 자차가 겹치지 않게. */
     private static final float NAVI_WORLD_LIFT = 40f;
     /** 네비모드 이벤트 표시(경고 문구·차량 데이터 대기) 가운데 높이. 자차 아래끝(약 621) 바로 밑. */
@@ -2487,9 +2489,8 @@ public final class HudService extends Service {
     private void drawNaviNoo(Canvas c, Paint p, JSONObject s) {
         if (eonStale() || !s.optBoolean("drivingValid", true)) return;
         int save = c.save();
-        // Right-align at photo position 2; the status baseline follows the
-        // coolant/fuel gauge's bottom line. Arrow and distance stay above it.
-        c.translate(NAVI_COL_LEFT - 80f, INFO_Y - 4f);
+        // 오른쪽 칸 EON 박스 아래(도착정보와 자리 바꿈). 화살표·거리는 상태줄 위.
+        c.translate(NAVI_COL_RIGHT, NAVI_NOO_Y);
         c.scale(0.8f, 0.8f);
         c.translate(-NOO_CX, -(NOO_CY + NOO_LANE_DY));
         drawNooTurn(c, p, s);
@@ -6271,9 +6272,13 @@ public final class HudService extends Service {
     }
 
     private int beginNaviGuide(Canvas c, float y, float anchorY, float scale) {
+        return beginNaviGuide(c, NAVI_COL_LEFT, y, anchorY, scale);
+    }
+
+    private int beginNaviGuide(Canvas c, float x, float y, float anchorY, float scale) {
         int save = c.save();
         if (naviLayout) {
-            c.translate(NAVI_COL_LEFT, y);
+            c.translate(x, y);
             c.scale(scale, scale);
             c.translate(-(MAP_LEFT + 2f), -anchorY);
         }
@@ -6656,7 +6661,8 @@ public final class HudService extends Service {
         c.restoreToCount(guideSave);
         // 기준점을 패널 아래끝으로 두면 배율이 어떻든 아래끝에 붙은 채로 남는다.
         // 도착정보 바는 원래 폭이 340 이라 칸 폭(270)에 딱 맞게 따로 줄인다.
-        int etaGuideSave = beginNaviGuide(c, NAVI_ETA_BOTTOM, HEIGHT, NAVI_COL_W / JUNCTION_W);
+        int etaGuideSave = beginNaviGuide(c, NAVI_ETA_RIGHT - NAVI_COL_W, INFO_Y, HEIGHT,
+                NAVI_COL_W / JUNCTION_W);
         int etaSave = beginGuideElement(c, l, "eta", MAP_LEFT + 172f, (float) HEIGHT);
         drawNaviEta(c, p, s);
         c.restoreToCount(etaSave);
