@@ -5323,15 +5323,17 @@ public final class HudService extends Service {
                 : (frameDark ? Color.rgb(238, 242, 246) : Color.rgb(18, 18, 18)));
 
         // 2026-10-15 요청: 원·테두리·숫자를 15% 크게(SET_SCALE). 아래 "SET" 글자는 그대로.
+        // 커진 만큼 원을 위로 올려 아래 "SET" 글자와의 간격을 원래대로 둔다.
+        float ccy = cy - (SET_R - 36f);
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(fill);
-        c.drawCircle(cx, cy, SET_R, p);
+        c.drawCircle(cx, ccy, SET_R, p);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(6f * SET_SCALE);
         p.setColor(accent);
-        c.drawCircle(cx, cy, SET_R, p);
-        text(c, p, valid ? Integer.toString(set) : "--", cx, cy + 9f * SET_SCALE, 29f * SET_SCALE,
+        c.drawCircle(cx, ccy, SET_R, p);
+        text(c, p, valid ? Integer.toString(set) : "--", cx, ccy + 9f * SET_SCALE, 29f * SET_SCALE,
                 valueColor, Paint.Align.CENTER);
         text(c, p, "SET", cx, cy + 55f, 14f, accent, Paint.Align.CENTER);
     }
