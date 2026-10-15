@@ -249,7 +249,9 @@ final class NaverBridge {
         send("route", "{\"source\":\"NAVER\",\"remain_distance_m\":"
                 + NaverCodes.round(NaverCodes.number(call(goal, "distance")))
                 + ",\"remain_time_sec\":" + NaverCodes.remainTimeSec(goal)
-                + ",\"polyline\":" + polyline + ",\"congestion\":" + congestion + "}");
+                + ",\"polyline\":" + polyline + ",\"congestion\":" + congestion
+                + ",\"congestion_progress\":" + decimal(congestionProgress(
+                        value(NaverStore.get(s, "GuidanceTrafficStatus")), route)) + "}");
 
         Object position = value(NaverStore.get(s, "GuidePoint"));
         Object location = call(position, "getLocation");
@@ -483,6 +485,20 @@ final class NaverBridge {
             if (out.length() >= 200) break;
         }
         return quote(out.toString());
+    }
+
+    /** 교통정보 바에서 차 위치(0~100, 아래끝 0). 네이버처럼 경로가 잘렸으면 normalize 로 보정한다. */
+    private static double congestionProgress(Object status, Object remaining) {
+        double progress = NaverCodes.number(call(remaining, "getProgressPercent"));
+        if (status != null && Boolean.TRUE.equals(call(status, "getTrimPassed"))) {
+            try {
+                Method normalize = status.getClass().getMethod("normalize", double.class);
+                normalize.setAccessible(true);
+                progress = ((Number) normalize.invoke(status, progress)).doubleValue();
+            } catch (Throwable ignored) {
+            }
+        }
+        return Math.max(0, Math.min(100, progress));
     }
 
     private static List<?> asList(Object value) {

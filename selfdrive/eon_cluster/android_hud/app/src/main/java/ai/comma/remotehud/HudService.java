@@ -2517,7 +2517,17 @@ public final class HudService extends Service {
             float bottom = NAVI_CONGESTION_BOTTOM - cell * i;
             c.drawRect(left, bottom - cell - 0.5f, right, bottom, p);   // 0.5px 겹쳐 칸 사이 틈 방지
         }
+        // 지나온 구간(아래끝 ~ 차 위치)은 네이버처럼 회색으로 덮는다.
+        float progress = (float) Math.max(0d, Math.min(100d, navi.optDouble("congestionProgress", 0d)));
+        float carY = NAVI_CONGESTION_BOTTOM - (NAVI_CONGESTION_BOTTOM - NAVI_CONGESTION_TOP) * progress / 100f;
+        p.setColor(Color.rgb(196, 200, 204));
+        c.drawRect(left, carY, right, NAVI_CONGESTION_BOTTOM, p);
         c.restoreToCount(save);
+        // 현재 위치: 흰 테두리 파란 점.
+        p.setColor(Color.WHITE);
+        c.drawCircle(NAVI_CONGESTION_CX, carY, 10f, p);
+        p.setColor(Color.rgb(36, 110, 235));
+        c.drawCircle(NAVI_CONGESTION_CX, carY, 7f, p);
     }
 
     private void drawNaviNoo(Canvas c, Paint p, JSONObject s) {

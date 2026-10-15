@@ -919,6 +919,10 @@ def _read_navi_summary():
   congestion = _congestion_bar(route) if route_live else None
   if congestion:
     summary["congestion"] = congestion
+    try:
+      summary["congestionProgress"] = round(min(100.0, max(0.0, float(route.get("congestion_progress", 0) or 0))), 1)
+    except (TypeError, ValueError):
+      pass
   if scene:
     summary["scene"] = scene
   return summary
