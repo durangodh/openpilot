@@ -421,7 +421,9 @@ class Controls:
       self.events.add(EventName.radarFault)
     elif not self.sm.valid["pandaStates"]:
       self.events.add(EventName.usbError)
-    elif not self.sm.all_checks() or self.can_rcv_error:
+    # 시동을 끄면(started=False) manager 가 프로세스를 차례로 끄는 사이 "Communication Issue
+    # between Processes" 가 가끔 남았다. 카메라 경고처럼 시동 중에만 확인한다.
+    elif self.sm['deviceState'].started and (not self.sm.all_checks() or self.can_rcv_error):
 
       if not self.sm.all_alive():
         self.events.add(EventName.commIssue)
