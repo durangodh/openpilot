@@ -40,3 +40,9 @@ def test_disabled_or_new_lead_resets():
 def test_close_lead_gets_no_headroom():
   s = LeadGapState()
   assert max(step(s, d=30.0, desired=40.0) for _ in range(40)) == 0.0
+
+
+def test_new_lead_far_away_starts_without_headroom():
+  s = LeadGapState()
+  assert step(s, d=80.0) == 0.0
+  assert s.extra_tf == 0.0

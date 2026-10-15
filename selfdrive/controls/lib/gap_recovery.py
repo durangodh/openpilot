@@ -3,8 +3,10 @@
 Ported from carrot-wip longitudinal_gap_recovery.py (2026-10-15). When the lead
 pulls away, part of the extra gap is kept as additional following time so ego
 does not lunge to close it, then released smoothly (two first-order stages,
-RECOVERY_TAU). The headroom is released once the gap reaches 1.2-1.5x the normal
-following distance, and recovery is slow while the lead is (nearly) stopped.
+RECOVERY_TAU). Only a quarter of the excess gap is held, and nothing at
+acquisition (carrot holds half, also at acquisition). The headroom is released
+once the gap reaches 1.2-1.5x the normal following distance, and recovery is
+slow while the lead is (nearly) stopped.
 
 This fork applies the result as one additive t_follow for the current MPC
 solve instead of carrot's per-horizon margins. The lead "track" is a counter
@@ -16,7 +18,7 @@ import math
 RECOVERY_TAU = (5.0, 4.0, 3.0, 2.0, 1.0)
 DEFAULT_LEVEL = 2                # 3 s, carrot's middle level
 MAX_TOTAL_TF = 2.5
-CAPTURE_FRACTION = 0.5
+CAPTURE_FRACTION = 0.25  # carrot 0.5; half the excess gap kept following noticeably too far back
 MIN_CAPTURE_SPEED = 1.0
 STOPPED_SPEED = 0.3
 FULL_RECOVERY_SPEED = 5.0
@@ -50,8 +52,10 @@ class LeadGapState:
     key = (level, track_id)
     acquired = key != self.key
     if acquired:
-      self.key, self.extra_tf, self.strength = key, candidate, 0.0
-      self.recovery_tf = candidate
+      # A newly acquired lead (or a range jump) starts with no headroom: the
+      # gap it was found at is not a gap that opened, so it is not held.
+      self.key, self.extra_tf, self.strength = key, 0.0, 0.0
+      self.recovery_tf = 0.0
       self.filtered_relative_speed = relative_speed
 
     # Measured relative speed: opening can continue through a lead accel lull.
