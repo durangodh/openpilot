@@ -925,18 +925,12 @@ def _read_navi_summary():
 
 
 def _congestion_bar(route):
-  """네이버 교통정보 바: [[앞으로 시작 m, 끝 m, 등급 0~3], ...] 를 검증해 최대 60개만 넘긴다."""
-  out = []
-  for item in route.get("congestion") or []:
-    try:
-      start, end, level = int(item[0]), int(item[1]), int(item[2])
-    except (TypeError, ValueError, IndexError):
-      continue
-    if 0 <= start < end and 0 <= level <= 3:
-      out.append([start, end, level])
-    if len(out) >= 60:
-      break
-  return out
+  """네이버 교통정보 바: 현재 위치→목적지 순 혼잡도 숫자 문자열("0"~"3"), 최대 200칸."""
+  levels = route.get("congestion")
+  if not isinstance(levels, str):
+    return None
+  levels = "".join(ch for ch in levels[:200] if ch in "0123")
+  return levels or None
 
 
 # GPS badge for the HUD navi panel. The phone lives in the console box, so

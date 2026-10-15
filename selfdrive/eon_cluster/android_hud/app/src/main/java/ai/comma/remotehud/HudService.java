@@ -2492,33 +2492,30 @@ public final class HudService extends Service {
         return last == 0L || SystemClock.elapsedRealtime() - last > EON_STALE_MS;
     }
 
-    /** 네이버 교통정보 바. navi.congestion = [[앞으로 시작 m, 끝 m, 0 정보없음·1 원활·2 서행·3 정체], ...]. */
+    /**
+     * 네이버 교통정보 바. navi.congestion = "0123..." (현재 위치 → 목적지 순 혼잡도).
+     * 네이버 앱처럼 같은 높이로 나눠, 첫 칸을 아래(현재 위치)에 그린다.
+     */
     private void drawNaviCongestion(Canvas c, Paint p, JSONObject s) {
         JSONObject navi = s.optJSONObject("navi");
-        JSONArray bar = navi == null ? null : navi.optJSONArray("congestion");
-        int remain = navi == null ? 0 : navi.optInt("remainDist", 0);
-        if (bar == null || bar.length() == 0 || remain <= 0 || eonStale()) return;
+        String bar = navi == null ? "" : navi.optString("congestion", "");
+        if (bar.isEmpty() || eonStale()) return;
         float left = NAVI_CONGESTION_CX - NAVI_CONGESTION_W / 2f;
         float right = NAVI_CONGESTION_CX + NAVI_CONGESTION_W / 2f;
-        float span = NAVI_CONGESTION_BOTTOM - NAVI_CONGESTION_TOP;
+        float cell = (NAVI_CONGESTION_BOTTOM - NAVI_CONGESTION_TOP) / bar.length();
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(200, 150, 156, 162));   // 정보 없는 구간
-        scratchRect.set(left, NAVI_CONGESTION_TOP, right, NAVI_CONGESTION_BOTTOM);
-        c.drawRoundRect(scratchRect, NAVI_CONGESTION_W / 2f, NAVI_CONGESTION_W / 2f, p);
         int save = c.save();
-        c.clipRect(left, NAVI_CONGESTION_TOP, right, NAVI_CONGESTION_BOTTOM);
+        scratchRect.set(left, NAVI_CONGESTION_TOP, right, NAVI_CONGESTION_BOTTOM);
+        Path clip = new Path();
+        clip.addRoundRect(scratchRect, NAVI_CONGESTION_W / 2f, NAVI_CONGESTION_W / 2f, Path.Direction.CW);
+        c.clipPath(clip);
         for (int i = 0; i < bar.length(); i++) {
-            JSONArray seg = bar.optJSONArray(i);
-            if (seg == null || seg.length() < 3) continue;
-            int level = seg.optInt(2, 0);
-            if (level <= 0) continue;
-            p.setColor(level == 1 ? Color.rgb(52, 199, 89)
-                    : level == 2 ? Color.rgb(255, 170, 30) : Color.rgb(255, 59, 48));
-            float y0 = NAVI_CONGESTION_BOTTOM - span * Math.min(1f, seg.optInt(1, 0) / (float) remain);
-            float y1 = NAVI_CONGESTION_BOTTOM - span * Math.min(1f, seg.optInt(0, 0) / (float) remain);
-            if (y1 - y0 < 2f) y0 = y1 - 2f;   // 아주 짧은 정체도 보이게
-            c.drawRect(left, y0, right, y1, p);
+            char level = bar.charAt(i);
+            p.setColor(level == '1' ? Color.rgb(52, 199, 89) : level == '2' ? Color.rgb(255, 170, 30)
+                    : level == '3' ? Color.rgb(255, 59, 48) : Color.argb(200, 150, 156, 162));
+            float bottom = NAVI_CONGESTION_BOTTOM - cell * i;
+            c.drawRect(left, bottom - cell - 0.5f, right, bottom, p);   // 0.5px 겹쳐 칸 사이 틈 방지
         }
         c.restoreToCount(save);
     }

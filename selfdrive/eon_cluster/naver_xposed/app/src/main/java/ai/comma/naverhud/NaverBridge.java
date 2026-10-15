@@ -32,7 +32,7 @@ final class NaverBridge {
     private volatile boolean started;
     private long lastPolylineAt;
     private String polyline = "[]";
-    private String congestion = "[]";
+    private String congestion = "\"\"";
 
     // EON 부하: 250ms 마다 8개 항목을 무조건 보내면 EON 이 초당 32건을 파싱한다.
     // 특히 route 는 경로 좌표(최대 500점, ~20KB)를 품고 있어 초당 ~80KB 였다.
@@ -243,8 +243,7 @@ final class NaverBridge {
         long now = android.os.SystemClock.elapsedRealtime();
         if (now - lastPolylineAt >= 5000) {
             polyline = routePolyline(s);
-            congestion = congestion(value(NaverStore.get(s, "GuidanceTrafficStatus")),
-                    NaverCodes.number(call(goal, "distance")));
+            congestion = congestion(value(NaverStore.get(s, "GuidanceTrafficStatus")));
             lastPolylineAt = now;
         }
         send("route", "{\"source\":\"NAVER\",\"remain_distance_m\":"
@@ -278,7 +277,8 @@ final class NaverBridge {
                     + " route=" + (route != null) + " goal=" + (goal != null)
                     + " position=" + (position != null) + " location=" + (location != null)
                     + " road=" + (road != null) + " link=" + (link != null)
-                    + " polylinePts=" + (polyline.length() > 2));
+                    + " polylinePts=" + (polyline.length() > 2)
+                    + " congestion=" + (congestion.length() - 2));
         }
     }
 
@@ -470,40 +470,19 @@ final class NaverBridge {
     }
 
     /**
-     * 네이버 교통정보 바: 차 위치부터 목적지까지 구간별 혼잡도.
-     * [[앞으로 시작 m, 끝 m, 0 정보없음·1 원활·2 서행·3 정체], ...] (이어지는 같은 등급은 합친다).
+     * 네이버 교통정보 바: getCongestionList()(현재 위치 → 목적지 순 혼잡도)를 "0123" 숫자 문자열로.
+     * 네이버 앱도 이 목록을 같은 높이로 나눠 그린다(목적지가 위). 0 정보없음·1 원활·2 서행·3 정체.
      * GuidanceTrafficStatus 는 SDK 공개 인터페이스라 메서드 이름이 난독화되지 않는다.
      */
-    private static String congestion(Object status, double remain) {
-        List<?> sections = asList(call(status, "getSectionList"));
-        if (sections.isEmpty() || remain <= 0) return "[]";
-        double total = NaverCodes.number(call(status, "getTotalDistance-Y4BO_gI"));
-        for (Object section : sections) {
-            total = Math.max(total, NaverCodes.number(call(section, "getOffset"))
-                    + NaverCodes.number(call(section, "distance")));
+    private static String congestion(Object status) {
+        List<?> list = asList(call(status, "getCongestionList"));
+        StringBuilder out = new StringBuilder();
+        for (Object item : list) {
+            String type = String.valueOf(item);
+            out.append("Good".equals(type) ? '1' : "Bad".equals(type) ? '2' : "VeryBad".equals(type) ? '3' : '0');
+            if (out.length() >= 200) break;
         }
-        double passed = Math.max(0, total - remain);
-        List<long[]> merged = new java.util.ArrayList<>();
-        for (Object section : sections) {
-            double start = NaverCodes.number(call(section, "getOffset")) - passed;
-            double end = start + NaverCodes.number(call(section, "distance"));
-            long from = Math.round(Math.max(0, start)), to = Math.round(Math.min(remain, end));
-            if (to <= from) continue;
-            String type = String.valueOf(call(section, "getCongestionType"));
-            long level = "Good".equals(type) ? 1 : "Bad".equals(type) ? 2 : "VeryBad".equals(type) ? 3 : 0;
-            long[] last = merged.isEmpty() ? null : merged.get(merged.size() - 1);
-            if (last != null && last[2] == level && from <= last[1] + 1) {
-                last[1] = Math.max(last[1], to);
-            } else if (merged.size() < 60) {
-                merged.add(new long[] {from, to, level});
-            }
-        }
-        StringBuilder out = new StringBuilder("[");
-        for (long[] m : merged) {
-            if (out.length() > 1) out.append(',');
-            out.append('[').append(m[0]).append(',').append(m[1]).append(',').append(m[2]).append(']');
-        }
-        return out.append(']').toString();
+        return quote(out.toString());
     }
 
     private static List<?> asList(Object value) {
