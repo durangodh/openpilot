@@ -27,6 +27,8 @@ final class NaverStore {
             {"AddressAndRoadNameData", "B"},
             {"NaviLaneItem", "S"},
             {"TrafficSignalInfo", "B0"},
+            // 6.10 이름은 모른다(6.11 은 H0). 반환 타입으로만 찾는다.
+            {"GuidanceTrafficStatus", "-"},
             {"CurrentRoute", "K"},
             {"List<GuidanceSafety>", "q0"},
             {"MatchedLinkInfo", "T"},

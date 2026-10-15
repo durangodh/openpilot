@@ -916,9 +916,27 @@ def _read_navi_summary():
   }
   if next_summary is not None:
     summary["next"] = next_summary
+  congestion = _congestion_bar(route) if route_live else None
+  if congestion:
+    summary["congestion"] = congestion
   if scene:
     summary["scene"] = scene
   return summary
+
+
+def _congestion_bar(route):
+  """네이버 교통정보 바: [[앞으로 시작 m, 끝 m, 등급 0~3], ...] 를 검증해 최대 60개만 넘긴다."""
+  out = []
+  for item in route.get("congestion") or []:
+    try:
+      start, end, level = int(item[0]), int(item[1]), int(item[2])
+    except (TypeError, ValueError, IndexError):
+      continue
+    if 0 <= start < end and 0 <= level <= 3:
+      out.append([start, end, level])
+    if len(out) >= 60:
+      break
+  return out
 
 
 # GPS badge for the HUD navi panel. The phone lives in the console box, so

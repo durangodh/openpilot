@@ -162,8 +162,13 @@ public final class HudService extends Service {
     private static final float NAVI_INFO_DX = NAVI_COL_LEFT - 859f;
     /** 네비모드 NOO 상태줄 기준선(오른쪽 칸 가운데): EON 박스 아래(507)와 냉각수 줄 위(약 659) 사이. */
     private static final float NAVI_NOO_Y = (507f + 659f) / 2f + 58f * NAVI_GUIDE_SCALE / 2f;
-    /** 네비모드 도착정보 바: 오른쪽 칸 왼쪽에 오른쪽 끝을 두고, 아래끝은 INFO_Y(702). */
-    private static final float NAVI_ETA_RIGHT = NAVI_COL_LEFT - 16f;
+    /** 네비모드 교통정보 바(네이버): 오른쪽 칸 바로 왼쪽 세로 띠. 아래끝 = 현재 위치, 위끝 = 목적지. */
+    private static final float NAVI_CONGESTION_CX = NAVI_COL_LEFT - 14f;
+    private static final float NAVI_CONGESTION_W = 10f;
+    private static final float NAVI_CONGESTION_TOP = 62f;
+    private static final float NAVI_CONGESTION_BOTTOM = 708f;
+    /** 네비모드 도착정보 바: 교통정보 바 왼쪽에 오른쪽 끝을 두고, 아래끝은 INFO_Y(702). */
+    private static final float NAVI_ETA_RIGHT = NAVI_CONGESTION_CX - NAVI_CONGESTION_W / 2f - 10f;
     /** 네비모드: 주행 장면(도로·차)을 위로 올려 맨 아래 이벤트 표시와 자차가 겹치지 않게. */
     private static final float NAVI_WORLD_LIFT = 40f;
     /** 네비모드 이벤트 표시(경고 문구·차량 데이터 대기) 가운데 높이. 자차 아래끝(약 621) 바로 밑. */
@@ -2447,6 +2452,7 @@ public final class HudService extends Service {
             drawDriving(c, p, s);
             c.restoreToCount(drivingSave);
             drawMapOverlays(c, p, s, lane, trafficSignal);
+            drawNaviCongestion(c, p, s);
             drawNaviNoo(c, p, s);
             applyThemeOverlay(c, p);
             drawOemWarningPopup(c, p, s);
@@ -2484,6 +2490,37 @@ public final class HudService extends Service {
     private boolean eonStale() {
         long last = lastEonRxElapsed;
         return last == 0L || SystemClock.elapsedRealtime() - last > EON_STALE_MS;
+    }
+
+    /** 네이버 교통정보 바. navi.congestion = [[앞으로 시작 m, 끝 m, 0 정보없음·1 원활·2 서행·3 정체], ...]. */
+    private void drawNaviCongestion(Canvas c, Paint p, JSONObject s) {
+        JSONObject navi = s.optJSONObject("navi");
+        JSONArray bar = navi == null ? null : navi.optJSONArray("congestion");
+        int remain = navi == null ? 0 : navi.optInt("remainDist", 0);
+        if (bar == null || bar.length() == 0 || remain <= 0 || eonStale()) return;
+        float left = NAVI_CONGESTION_CX - NAVI_CONGESTION_W / 2f;
+        float right = NAVI_CONGESTION_CX + NAVI_CONGESTION_W / 2f;
+        float span = NAVI_CONGESTION_BOTTOM - NAVI_CONGESTION_TOP;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(200, 150, 156, 162));   // 정보 없는 구간
+        scratchRect.set(left, NAVI_CONGESTION_TOP, right, NAVI_CONGESTION_BOTTOM);
+        c.drawRoundRect(scratchRect, NAVI_CONGESTION_W / 2f, NAVI_CONGESTION_W / 2f, p);
+        int save = c.save();
+        c.clipRect(left, NAVI_CONGESTION_TOP, right, NAVI_CONGESTION_BOTTOM);
+        for (int i = 0; i < bar.length(); i++) {
+            JSONArray seg = bar.optJSONArray(i);
+            if (seg == null || seg.length() < 3) continue;
+            int level = seg.optInt(2, 0);
+            if (level <= 0) continue;
+            p.setColor(level == 1 ? Color.rgb(52, 199, 89)
+                    : level == 2 ? Color.rgb(255, 170, 30) : Color.rgb(255, 59, 48));
+            float y0 = NAVI_CONGESTION_BOTTOM - span * Math.min(1f, seg.optInt(1, 0) / (float) remain);
+            float y1 = NAVI_CONGESTION_BOTTOM - span * Math.min(1f, seg.optInt(0, 0) / (float) remain);
+            if (y1 - y0 < 2f) y0 = y1 - 2f;   // 아주 짧은 정체도 보이게
+            c.drawRect(left, y0, right, y1, p);
+        }
+        c.restoreToCount(save);
     }
 
     private void drawNaviNoo(Canvas c, Paint p, JSONObject s) {
