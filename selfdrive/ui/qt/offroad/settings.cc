@@ -678,6 +678,26 @@ DevicePanel::DevicePanel(SettingsWindow *parent) : ListWidget(parent) {
   });
   addItem(resetCalibBtn);
 
+  // 핸들 영점(paramsd 의 angleOffsetAverageDeg)만 0 으로 되돌린다. 조향비 등 다른 학습값과
+  // 카메라 보정은 그대로 둔다. 얼라인먼트 뒤 다시 학습시킬 때 쓴다.
+  auto resetSteerZeroBtn = new ButtonControl("핸들 영점 초기화", "RESET",
+      "학습된 핸들 영점(angle offset)만 0 으로 되돌립니다. 조향비·카메라 보정은 유지합니다. "
+      "휠 얼라인먼트 후 사용하세요. 직진 위주로 몇 분 달리면 다시 학습됩니다.");
+  connect(resetSteerZeroBtn, &ButtonControl::clicked, [=]() {
+    if (!ConfirmationDialog::confirm("핸들 영점만 초기화하고 오파를 다시 시작할까요?", this)) return;
+    Params p;
+    QJsonObject live = QJsonDocument::fromJson(QByteArray::fromStdString(p.get("LiveParameters"))).object();
+    if (live.isEmpty()) return;   // 학습값이 없으면 이미 0 에서 시작한다.
+    live["angleOffsetAverageDeg"] = 0.0;
+    p.put("LiveParameters", QJsonDocument(live).toJson(QJsonDocument::Compact).toStdString());
+    // paramsd 가 메모리의 값을 1분마다 다시 저장하므로 다시 시작해 0 부터 학습하게 한다.
+    emit closeSettings();
+    QTimer::singleShot(1000, []() {
+      Params().putBool("SoftRestartTriggered", true);
+    });
+  });
+  addItem(resetSteerZeroBtn);
+
   if (!params.getBool("Passive")) {
     auto retrainingBtn = new ButtonControl("Review Training Guide", "REVIEW", "Review the rules, features, and limitations of openpilot");
     connect(retrainingBtn, &ButtonControl::clicked, [=]() {
