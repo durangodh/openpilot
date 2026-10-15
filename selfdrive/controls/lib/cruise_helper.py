@@ -754,18 +754,20 @@ class CruiseHelper:
     elif self.slowing_down_alert:
       events.add(EventName.speedBump if self.slowing_down_for_bump else EventName.slowingDownSpeed)
 
-  def cal_curve_speed(self, sm, v_ego, frame):
-    # Retain the existing 5 Hz cadence on EON. Never smooth a stricter cap;
-    # only debounce and ramp its release after a curve or a brief model dropout.
-    if frame % 20 != 0:
+  def cal_curve_speed(self, sm, v_ego, frame, a_ego=0.0):
+    # carrot-wip: evaluate every new model frame (20 Hz) so a release can be
+    # confirmed by consecutive fresh frames. Never smooth a stricter cap.
+    updated = getattr(sm, 'updated', None)
+    new_frame = updated.get('modelV2', False) if isinstance(updated, dict) else frame % 5 == 0
+    if not new_frame:
       return
-    dt = 20 * DT_CTRL if self.curve_update_frame is None else max(0, frame - self.curve_update_frame) * DT_CTRL
+    dt = 5 * DT_CTRL if self.curve_update_frame is None else max(0, frame - self.curve_update_frame) * DT_CTRL
     self.curve_update_frame = frame
     valid = getattr(sm, 'valid', {}).get('modelV2', True) and getattr(sm, 'alive', {}).get('modelV2', True)
     self.curve_speed_ms = self.vision_curve_speed.update(
       sm['modelV2'] if valid else None, self.auto_curve_speed_factor,
       self.auto_curve_speed_lower_limit * CV.KPH_TO_MS,
-      self.auto_curve_speed_decel_rate, dt)
+      self.auto_curve_speed_decel_rate, dt, v_ego=v_ego, a_ego=a_ego)
 
   def update_max_speed(self, max_speed, longcontrol):
     # c3-wip applies the selected navigation target directly. The old 0.01
@@ -951,7 +953,7 @@ class CruiseHelper:
       # C3 holds the section target directly while inside the section.
       apply_limit_speed = self.kph_to_clu(navi_target_kph)
     if self.turn_vision_control:
-      self.cal_curve_speed(sm, CS.out.vEgo, frame)
+      self.cal_curve_speed(sm, CS.out.vEgo, frame, CS.out.aEgo)
     else:
       self.vision_curve_speed.reset()
       self.curve_update_frame = None
