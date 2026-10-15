@@ -455,21 +455,11 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
     ET.WARNING: below_steer_speed_alert,
   },
 
-  EventName.preLaneChangeLeft: {
-    ET.WARNING: Alert(
-      "Steer Left to Start Lane Change Once Safe",
-      "",
-      AlertStatus.normal, AlertSize.small,
-      Priority.LOW, VisualAlert.none, AudibleAlert.none, .1, alert_rate=0.75),
-  },
+  # 차선변경 준비 안내("Steer Left to Start Lane Change Once Safe")는 띄우지 않는다(사용자 요청).
+  EventName.preLaneChangeLeft: {},
 
-  EventName.preLaneChangeRight: {
-    ET.WARNING: Alert(
-      "Steer Right to Start Lane Change Once Safe",
-      "",
-      AlertStatus.normal, AlertSize.small,
-      Priority.LOW, VisualAlert.none, AudibleAlert.none, .1, alert_rate=0.75),
-  },
+  # 차선변경 준비 안내("Steer Right to Start Lane Change Once Safe")는 띄우지 않는다(사용자 요청).
+  EventName.preLaneChangeRight: {},
 
   EventName.laneChangeBlocked: {
     ET.WARNING: Alert(
