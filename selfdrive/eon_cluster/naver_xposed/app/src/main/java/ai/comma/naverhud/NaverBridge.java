@@ -139,6 +139,17 @@ final class NaverBridge {
         mainHandler.post(() -> drawLaneOffscreen(shown));
     }
 
+    private String lastLaneState;
+
+    /** 안심주행에서 차로가 안 나올 때 원인 확인용: 상태·차로 유무가 바뀔 때만 한 줄 남긴다. */
+    private void logLaneState(Object mode, Object item) {
+        String state = "lane state mode=" + mode + " item=" + (item != null) + " lanes=" + NaverViewImage.hasItems(item)
+                + " phoneView=" + phoneLaneSeen + " offscreenFailed=" + offscreenLaneFailed;
+        if (state.equals(lastLaneState)) return;
+        lastLaneState = state;
+        NaverHudLog.line(state);
+    }
+
     private void drawLaneOffscreen(Object item) {
         if (phoneLaneSeen || offscreenLaneFailed) return;
         try {
@@ -270,6 +281,7 @@ final class NaverBridge {
         Object laneItem = value(NaverStore.get(s, "NaviLaneItem"));
         send("lane_current", lane(laneItem));
         laneFallback(laneItem, guiding || (mode != null && "SafeDriving".equals(String.valueOf(mode))));
+        logLaneState(mode, laneItem);
         Object signalItem = value(NaverStore.get(s, "TrafficSignalInfo"));
         send("traffic_signal", signal(signalItem));
         publishSignalImage(guiding ? signalItem : null);
