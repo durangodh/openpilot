@@ -638,6 +638,7 @@ public final class HudService extends Service {
         // EON 이 붙기 전 첫 프레임부터 올바른 방향으로 그리기 위해 마지막 값을 복원한다.
         configuredOrientation = AppPrefs.getOrientation(this);
         configuredMirror = AppPrefs.isMirror(this);
+        configuredNaviLayout = AppPrefs.isNaviLayout(this);
         // 부팅 시 BootReceiver 가 이미 이 값으로 내비를 띄웠으므로, EON 이 같은 값을
         // 보내오면 다시 띄우지 않는다(0 이면 서비스 시작마다 재실행됐음).
         configuredNavApp = AppPrefs.getNavApp(this);
@@ -1890,7 +1891,12 @@ public final class HudService extends Service {
         tmapIconEnabled = currentState.optInt("hudTmapIcon", 0) != 0;
         junctionMode = Math.max(0, Math.min(2, currentState.optInt("hudJunction", 2)));
         configuredLayoutMode = Math.max(1, Math.min(2, currentState.optInt("hudLayoutMode", 1)));
-        configuredNaviLayout = currentState.optInt("hudNaviLayout", 0) == 1;
+        // EON 패킷 전(키 없음)에는 마지막 값을 유지한다(부팅 직후 주행모드가 잠깐 보이던 문제).
+        boolean requestedNavi = currentState.optInt("hudNaviLayout", configuredNaviLayout ? 1 : 0) == 1;
+        if (requestedNavi != configuredNaviLayout) {
+            configuredNaviLayout = requestedNavi;
+            AppPrefs.setNaviLayout(this, requestedNavi);
+        }
     }
 
     private boolean ensureUsbReady(long now) {

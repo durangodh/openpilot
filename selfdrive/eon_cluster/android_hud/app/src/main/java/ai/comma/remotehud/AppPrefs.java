@@ -10,6 +10,7 @@ public final class AppPrefs {
     private static final String GUIDE_SHOWN = "guide_shown_v37";
     private static final String ORIENTATION = "hud_orientation";
     private static final String MIRROR = "hud_mirror";
+    private static final String NAVI_LAYOUT = "hud_navi_layout";
     private static final String NAV_APP = "hud_nav_app";
     private static final String NAV_REQUEST = "hud_nav_request";
     private static final String NAV_MIRROR_DISPLAY_ID = "hud_nav_mirror_display_id";
@@ -59,6 +60,15 @@ public final class AppPrefs {
 
     public static void setMirror(Context context, boolean mirror) {
         prefs(context).edit().putBoolean(MIRROR, mirror).apply();
+    }
+
+    /** 마지막으로 받은 네비모드 여부. 부팅 직후 EON 패킷 전에 주행모드가 잠깐 보이지 않게 한다. */
+    public static boolean isNaviLayout(Context context) {
+        return prefs(context).getBoolean(NAVI_LAYOUT, false);
+    }
+
+    public static void setNaviLayout(Context context, boolean navi) {
+        prefs(context).edit().putBoolean(NAVI_LAYOUT, navi).apply();
     }
 
     /**
