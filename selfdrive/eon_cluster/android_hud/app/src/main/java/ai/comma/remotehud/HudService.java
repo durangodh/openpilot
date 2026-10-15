@@ -166,7 +166,8 @@ public final class HudService extends Service {
     private static final float NAVI_CONGESTION_CX = NAVI_COL_LEFT - 14f;
     private static final float NAVI_CONGESTION_W = 10f;
     private static final float NAVI_CONGESTION_TOP = 62f;
-    private static final float NAVI_CONGESTION_BOTTOM = 708f;
+    // 아래끝: 도착정보 바 위끝(INFO_Y 702 - 58x270/340 = 656) 바로 위.
+    private static final float NAVI_CONGESTION_BOTTOM = 650f;
     /** 네비모드 도착정보 바: 교통정보 바 왼쪽에 오른쪽 끝을 두고, 아래끝은 INFO_Y(702). */
     private static final float NAVI_ETA_RIGHT = NAVI_CONGESTION_CX - NAVI_CONGESTION_W / 2f - 10f;
     /** 네비모드: 주행 장면(도로·차)을 위로 올려 맨 아래 이벤트 표시와 자차가 겹치지 않게. */
