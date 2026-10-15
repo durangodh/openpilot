@@ -22,7 +22,8 @@ LEAD_RELEASE_CONFIRM_SAMPLES = 2
 # 정차 중 앞차가 살짝 움찔했다 다시 서면(속도 0.3 m/s 남짓, 0.1~0.3초) 출발했다가 급제동했다.
 # 앞차가 정차 때보다 실제로 이만큼 멀어졌거나, 분명히 출발하는 속도일 때만 출발로 본다.
 LEAD_RELEASE_MIN_GAIN = 0.7      # m
-LEAD_RELEASE_CLEAR_SPEED = 1.0   # m/s
+# 0.6~0.7 m/s는 4 m 앞 정지 노이즈 타깃(속도 0.3~0.74 m/s 튐)에서 로그상 오출발 판정이 나서 0.8로 둔다.
+LEAD_RELEASE_CLEAR_SPEED = 0.8   # m/s
 LEAD_DROPOUT_FALLBACK_FRAMES = round(1.5 / DT_CTRL)
 
 # ---- 앞차 출발 대기 중 빨리 출발하기 (2026-10-03 long_trace 분석) ----
