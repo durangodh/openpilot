@@ -3661,6 +3661,11 @@ public final class HudService extends Service {
     // 도로 왼쪽: 인게이지 휠 아래 과속카메라·방지턱. 둘 다 반지름 36.
     private static final float CAM_X = 435f;
     private static final float CAM_Y = 310f;
+    // 과속카메라·방지턱: 그림은 1.15배, 아래 거리(·구간 평균) 글자는 1.2배(2026-10-15 요청).
+    // 그림이 커진 만큼 글자를 아래로 내린다.
+    private static final float CAM_ICON_SCALE = 1.15f;
+    private static final float CAM_TEXT_SIZE = 18f * 1.2f;
+    private static final float CAM_TEXT_DY = 60f + 36f * (CAM_ICON_SCALE - 1f) + 18f * 0.2f;
     private static final float WHEEL_X = 435f;
     private static final float WHEEL_Y = 195f;
     // 게이지 바로 아래 가운데 크루즈 설정속도(SET), 그 오른쪽 감속(적용)속도
@@ -5224,7 +5229,7 @@ public final class HudService extends Service {
     private void drawBumpIcon(Canvas c, Paint p, float cx, float cy, int dist) {
         p.setShader(null);
         if (speedBumpImage != null && !speedBumpImage.isRecycled()) {
-            float h = 86f;
+            float h = 86f * CAM_ICON_SCALE;
             float w = h * speedBumpImage.getWidth() / (float) speedBumpImage.getHeight();
             scratchRect.set(cx - w / 2f, cy - h / 2f + 2f, cx + w / 2f, cy + h / 2f + 2f);
             p.setStyle(Paint.Style.FILL);
@@ -5232,9 +5237,12 @@ public final class HudService extends Service {
             p.setFilterBitmap(true);
             c.drawBitmap(speedBumpImage, null, scratchRect, p);
             // 남은거리는 테마색(낮 검정 / 밤 흰색)
-            text(c, p, distanceText(dist), cx, cy + 66f, 18f, ink(), Paint.Align.CENTER);
+            text(c, p, distanceText(dist), cx, cy + 66f + 43f * (CAM_ICON_SCALE - 1f) + 18f * 0.2f,
+                    CAM_TEXT_SIZE, ink(), Paint.Align.CENTER);
             return;
         }
+        int iconSave = c.save();
+        c.scale(CAM_ICON_SCALE, CAM_ICON_SCALE, cx, cy);
         p.setStyle(Paint.Style.FILL);
         p.setColor(Color.rgb(250, 250, 250));
         c.drawCircle(cx, cy, 36f, p);
@@ -5257,8 +5265,9 @@ public final class HudService extends Service {
             float h = 19f * (float) Math.sqrt(Math.max(0f, 1f - t * t));
             c.drawRect(bx - 2.5f, cy + 11f - h, bx + 2.5f, cy + 11f, p);
         }
+        c.restoreToCount(iconSave);
 
-        text(c, p, distanceText(dist), cx, cy + 60f, 18f, ink(), Paint.Align.CENTER);
+        text(c, p, distanceText(dist), cx, cy + CAM_TEXT_DY, CAM_TEXT_SIZE, ink(), Paint.Align.CENTER);
     }
 
     private void drawCamera(Canvas c, Paint p, float cx, float cy, int limit, int dist, boolean section,
@@ -5270,6 +5279,8 @@ public final class HudService extends Service {
             return;
         }
         p.setShader(null);
+        int iconSave = c.save();
+        c.scale(CAM_ICON_SCALE, CAM_ICON_SCALE, cx, cy);
         p.setStyle(Paint.Style.FILL);
         p.setColor(Color.rgb(250, 250, 250));
         c.drawCircle(cx, cy, 36f, p);
@@ -5278,14 +5289,16 @@ public final class HudService extends Service {
         p.setColor(Color.rgb(220, 45, 45));
         c.drawCircle(cx, cy, 36f, p);
         text(c, p, Integer.toString(limit), cx, cy + 9f, 29f, Color.rgb(20, 20, 20), Paint.Align.CENTER);
+        c.restoreToCount(iconSave);
         if (dist > 0) {
-            text(c, p, (section ? lang("구간 ", "ZONE ") : "") + distanceText(dist), cx, cy + 60f, 18f,
-                    ink(), Paint.Align.CENTER);
+            text(c, p, (section ? lang("구간 ", "ZONE ") : "") + distanceText(dist), cx, cy + CAM_TEXT_DY,
+                    CAM_TEXT_SIZE, ink(), Paint.Align.CENTER);
         }
         if (section && sectionAvg > 0) {
             // 구간단속 평균속도. 제한속도를 넘으면 빨간색.
             int color = sectionAvg > limit ? Color.rgb(220, 45, 45) : ink();
-            text(c, p, lang("평균 ", "AVG ") + sectionAvg, cx, cy + 82f, 18f, color, Paint.Align.CENTER);
+            text(c, p, lang("평균 ", "AVG ") + sectionAvg, cx, cy + CAM_TEXT_DY + 22f * 1.2f,
+                    CAM_TEXT_SIZE, color, Paint.Align.CENTER);
         }
     }
 
