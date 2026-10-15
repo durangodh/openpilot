@@ -280,7 +280,10 @@ final class NaverBridge {
                     + " position=" + (position != null) + " location=" + (location != null)
                     + " road=" + (road != null) + " link=" + (link != null)
                     + " polylinePts=" + (polyline.length() > 2)
-                    + " congestion=" + (congestion.length() - 2));
+                    + " congestion=" + (congestion.length() - 2)
+                    + " progress=" + NaverCodes.number(call(route, "getProgressPercent"))
+                    + " trafficTotal=" + NaverCodes.number(call(value(NaverStore.get(s, "GuidanceTrafficStatus")),
+                            "getTotalDistance-Y4BO_gI")));
         }
     }
 
@@ -490,6 +493,14 @@ final class NaverBridge {
     /** 교통정보 바에서 차 위치(0~100, 아래끝 0). 네이버처럼 경로가 잘렸으면 normalize 로 보정한다. */
     private static double congestionProgress(Object status, Object remaining) {
         double progress = NaverCodes.number(call(remaining, "getProgressPercent"));
+        // 네이버 진행률은 거칠게(약 1% 단위) 바뀌어 HUD 바에서 뚝뚝 끊겨 보였다. 남은 거리/전체
+        // 거리로 더 촘촘히 계산하고, 네이버 값과 1.5% 넘게 다르면(전체 거리 기준이 다른 경우) 버린다.
+        double total = NaverCodes.number(call(status, "getTotalDistance-Y4BO_gI"));
+        double remain = NaverCodes.number(call(call(remaining, "getGoal"), "distance"));
+        if (total > 0 && remain >= 0 && remain <= total) {
+            double fine = 100.0 * (1.0 - remain / total);
+            if (Math.abs(fine - progress) <= 1.5) progress = fine;
+        }
         if (status != null && Boolean.TRUE.equals(call(status, "getTrimPassed"))) {
             try {
                 Method normalize = status.getClass().getMethod("normalize", double.class);
