@@ -10,6 +10,7 @@ from selfdrive.modeld.constants import index_function
 from selfdrive.controls.lib.radar_helpers import _LEAD_ACCEL_TAU
 from selfdrive.controls.lib.lead_following import NO_LEAD, LeadConfirm
 from selfdrive.controls.lib.stopping_lead import HeldLead, StoppingLeadFilter
+from selfdrive.controls.lib.gap_recovery import DEFAULT_LEVEL as GAP_RECOVERY_LEVEL, LeadGapState
 from selfdrive.controls.lib.t_follow import (CRUISE_GAP_BP as _CRUISE_GAP_BP, CRUISE_GAP_V,
                                              clamp_desired_follow_distance,
                                              StoppedLeadComfortBrake, release_t_follow)
@@ -258,6 +259,10 @@ class LongitudinalMpc:
     self.lead1_confirm = LeadConfirm()
     self.stopping_lead0 = StoppingLeadFilter()
     self.stopping_lead1 = StoppingLeadFilter()
+    self.lead0_gap = LeadGapState()
+    self.lead0_gap_track = 0
+    self.lead0_gap_prev_d = None
+    self.gap_extra_tf = 0.0
     # ────────────────────────────────────────────────────────────────────
 
     self.reset()
@@ -507,6 +512,22 @@ class LongitudinalMpc:
     self.desired_distance = float(desired_follow_distance(
       v_ego, lead_v, self.t_follow, self.stop_dist, comfort_brake,
       krkeegan=self.applyLongDynamicCost))
+
+    # carrot-wip gap recovery: when the lead pulls away, keep part of the new
+    # gap as extra following time and give it back smoothly, instead of
+    # lunging to close it. A lost lead or a range jump counts as a new lead.
+    d_rel = float(lead_one.dRel) if lead0_status else None
+    if d_rel is None or self.lead0_gap_prev_d is None or abs(d_rel - self.lead0_gap_prev_d) > 3.0:
+      self.lead0_gap_track += 1
+    self.lead0_gap_prev_d = d_rel
+    self.gap_extra_tf = self.lead0_gap.update(
+      level=GAP_RECOVERY_LEVEL, track_id=self.lead0_gap_track,
+      enabled=bool(lead0_status) and self.mode == 'acc' and not reset_state,
+      dt=DT_MDL, ego_speed=v_ego, lead_speed=float(lead_xv_0[0, 1]),
+      relative_speed=float(lead_one.vRel) if lead0_status else 0.0,
+      distance=d_rel if d_rel is not None else 0.0,
+      desired_distance=self.desired_distance, base_tf=self.t_follow, stop_distance=self.stop_dist)
+    self.t_follow += self.gap_extra_tf
 
     self.set_weights(prev_accel_constraint=prev_accel_constraint,
                      v_lead0=lead_xv_0[0, 1],
