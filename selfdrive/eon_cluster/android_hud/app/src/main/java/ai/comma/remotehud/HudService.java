@@ -144,9 +144,9 @@ public final class HudService extends Service {
     private static final float NAVI_COL_LEFT = NAVI_COL_RIGHT - NAVI_COL_W;
     private static final float NAVI_GUIDE_SCALE = NAVI_COL_W / 342f;
     private static final float NAVI_BADGE_TOP = 8f;
-    /** 네비모드 핸들 상태: 팝업 오른쪽 경계 옆, 상단선(225) 바로 아래. */
-    private static final float NAVI_WHEEL_X = NAVI_COL_RIGHT + 48f;
-    private static final float NAVI_WHEEL_Y = 269f;
+    /** 네비모드 핸들 상태: 팝업 오른쪽 경계 옆. 바깥 원 위끝(반지름 36 x SIGN_SCALE 0.85)을 팝업 상단선(225)에 맞춘다. */
+    private static final float NAVI_WHEEL_X = NAVI_COL_RIGHT + 60f;
+    private static final float NAVI_WHEEL_Y = 225f + 36f * 0.85f;
     /** 네비모드 하늘은 지도 공간을 가리지 않도록 낮고 옅게, 경계는 길게 푼다. */
     private static final int NAVI_SKY_HEIGHT = 150;
     private static final int NAVI_SKY_FADE_DEPTH = 80;
