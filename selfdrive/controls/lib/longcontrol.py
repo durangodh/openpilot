@@ -4,6 +4,7 @@ from common.params import Params
 from common.realtime import DT_CTRL
 from selfdrive.controls.lib.drive_helpers import CONTROL_N, apply_deadzone
 from selfdrive.controls.lib.pid import PIDController
+from selfdrive.controls.lib.lead_preview import LeadDecelPreview, action_time, apply_preview_target
 from selfdrive.modeld.constants import T_IDXS
 from selfdrive.controls.lib.lead_departure import (LeadDepartureAssist,
                                                    departure_jerk_upper,
@@ -148,6 +149,7 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
 class LongControl:
   def __init__(self, CP):
     self.CP = CP
+    self.decel_preview = LeadDecelPreview()
     self.long_control_state = LongCtrlState.off  # initialized to off
     self.pid = PIDController((CP.longitudinalTuning.kpBP, CP.longitudinalTuning.kpV),
                              (CP.longitudinalTuning.kiBP, CP.longitudinalTuning.kiV),
@@ -508,6 +510,7 @@ class LongControl:
     elif self.long_control_state != LongCtrlState.stopping:
       self.launch_abort_active = False
     if self.long_control_state in (LongCtrlState.off, LongCtrlState.stopping):
+      self.decel_preview.reset()
       self.launch_time = 0.0
       self.launch_motion_started = False
       self.lead_launch = False
@@ -653,6 +656,17 @@ class LongControl:
 
     elif self.long_control_state == LongCtrlState.pid:
       self.v_pid = v_target_now
+
+      # carrot-wip lead decel preview: when the radar lead starts braking
+      # relative to ego, read the MPC plan up to 1.5 s later so braking starts
+      # earlier. Bounded and only ever lowers the feedforward target.
+      lead = radar_state.leadOne if (radar_state is not None and radar_state_valid) else None
+      preview_s = self.decel_preview.update(lead, CS.aEgo, DT_CTRL)
+      if preview_s > 0.0 and trajectory_valid:
+        preview_t = action_time(self.actuator_delay, preview_s)
+        v_preview = interp(preview_t + t_since_plan, T_IDXS[:CONTROL_N], speeds)
+        a_preview = 2 * (v_preview - v_target_now) / preview_t - a_target_now
+        a_target = apply_preview_target(a_target, a_preview)
 
       # Freeze the integrator so we don't accelerate to compensate, and don't allow positive acceleration
       prevent_overshoot = not self.CP.stoppingControl and CS.vEgo < 1.5 and v_target_1sec < 0.7 and v_target_1sec < self.v_pid
