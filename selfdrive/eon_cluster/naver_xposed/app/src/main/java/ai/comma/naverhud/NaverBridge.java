@@ -73,6 +73,50 @@ final class NaverBridge {
     private Method offscreenLaneSet;
     private Object lastLaneItem;
 
+    private boolean distanceOnTopLogged;
+
+    /**
+     * NaviLaneControlView 는 5차로 이상이면 거리를 차로 위(c0), 그보다 적으면 오른쪽(d0)에 둔다.
+     * 오른쪽이면 그림이 가로로 길고 낮아져 HUD 가 같은 높이로 키울 때 화살표가 크고 가운데가
+     * 어긋났다(2026-10-15 실차, 2차로). 티맵·카카오처럼 항상 위에 두도록 바꾼다. 거리 글자는
+     * 네이버 형식(DisplayDistance.getDistanceString)으로 만든다. 못 바꾸면 원래 모양 그대로.
+     */
+    private void distanceOnTop(Object item) {
+        try {
+            android.view.View top = (android.view.View) fieldValue(offscreenLane, "c0");
+            android.view.View side = (android.view.View) fieldValue(offscreenLane, "d0");
+            if (top == null || side == null || side.getVisibility() != android.view.View.VISIBLE) return;
+            double meters = ((Number) item.getClass().getMethod("h").invoke(item)).doubleValue();
+            Class<?> dd = item.getClass().getClassLoader().loadClass("com.naver.map.core.common.model.DisplayDistance");
+            Method format = dd.getMethod("getDistanceString", android.content.Context.class, double.class);
+            Object owner = java.lang.reflect.Modifier.isStatic(format.getModifiers()) ? null : dd.getField("Companion").get(null);
+            if (owner != null) {
+                format = owner.getClass().getMethod("getDistanceString", android.content.Context.class, double.class);
+            }
+            Object text = format.invoke(owner, offscreenLane.getContext(), meters);
+            top.getClass().getMethod("setText", CharSequence.class).invoke(top, (CharSequence) text);
+            top.setVisibility(android.view.View.VISIBLE);
+            side.setVisibility(android.view.View.GONE);
+            android.view.View hipassTop = (android.view.View) fieldValue(offscreenLane, "e0");
+            android.view.View hipassSide = (android.view.View) fieldValue(offscreenLane, "f0");
+            if (hipassTop != null && hipassSide != null) {
+                hipassTop.setVisibility(hipassSide.getVisibility());
+                hipassSide.setVisibility(android.view.View.GONE);
+            }
+        } catch (Throwable error) {
+            if (!distanceOnTopLogged) {
+                distanceOnTopLogged = true;
+                NaverHudLog.ex("lane distance on top", error);
+            }
+        }
+    }
+
+    private static Object fieldValue(Object owner, String name) throws Exception {
+        Field f = owner.getClass().getDeclaredField(name);
+        f.setAccessible(true);
+        return f.get(owner);
+    }
+
     /** 폴링 스레드. 차로 항목이 바뀌었을 때만 메인 스레드에서 다시 그린다. */
     private void laneFallback(Object item, boolean guiding) {
         if (phoneLaneSeen || offscreenLaneFailed) return;
@@ -105,6 +149,7 @@ final class NaverBridge {
                 NaverHudLog.line("lane view: drawing NaviLaneControlView off screen (phone lane view unused)");
             }
             offscreenLaneSet.invoke(offscreenLane, item, false);   // 훅이 onLaneView 로 그림을 뜬다
+            distanceOnTop(item);
             int w = offscreenLane.getResources().getDisplayMetrics().widthPixels;
             offscreenLane.measure(
                     android.view.View.MeasureSpec.makeMeasureSpec(w, android.view.View.MeasureSpec.EXACTLY),
