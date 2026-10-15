@@ -513,16 +513,24 @@ def test_collapsed_edges_still_fail_closed_when_outer_lines_are_ambiguous():
   assert NavigationLaneChangeController.lane_plan(two_lane, ego) is None
 
 
-def test_fork_lane_change_requires_noo_lane_guidance():
-  controller = NavigationLaneChangeController()
+def test_fork_without_lane_guidance_prepares_like_carrot():
   ego = {"count": 3, "current": 2, "confidence": 0.9}
   state = noo_state([0, 0, 1])
   state["lane_fresh"] = False
   state["lane_current"] = None
-  # A bare fork direction must not guess which lane the vehicle occupies.
-  assert confirm_noo(controller, state, ego) == 0
-  state = noo_state([0, 0, 1])
-  assert confirm_noo(controller, state, ego) == 1
+  # 400 m is outside the 90 km/h preparation window (about 320 m): no request yet.
+  assert confirm_noo(NavigationLaneChangeController(), state, ego) == 0
+  # Inside the window a bare fork direction moves one lane toward the branch.
+  state["distance"] = 200.0
+  plan = NavigationLaneChangeController.lane_plan(state, ego, 25.0, proactive=True)
+  assert plan["source"] == "carrot_prepare"
+  assert (plan["current"], plan["target"], plan["direction"]) == (2, 3, 1)
+  assert confirm_noo(NavigationLaneChangeController(), state, ego) == 1
+  # Already in the branch-side edge lane: stay.
+  edge = {"count": 3, "current": 3, "confidence": 0.9}
+  assert NavigationLaneChangeController.lane_plan(state, edge, 25.0, proactive=True)["direction"] == 0
+  # Explicit lane guidance still wins.
+  assert confirm_noo(NavigationLaneChangeController(), noo_state([0, 0, 1]), ego) == 1
 
 
 def test_carrot_prepare_distance_matches_original_active_windows():

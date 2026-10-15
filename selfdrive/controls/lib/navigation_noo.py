@@ -147,15 +147,15 @@ class NavigationLaneChangeController:
 
   @classmethod
   def _carrot_direction_plan(cls, state, ego_lane, v_ego):
-    """Fallback lane preparation using carrot's maneuver direction.
+    """Fallback lane preparation using carrot's maneuver direction (turn, U-turn, fork).
 
     This is intentionally available only when TMAP supplied no lane guidance.
     Camera geometry still owns ego-lane position, and DesireHelper still gates
     the request with road edge, BSD and a continuous-open confirmation.
     """
-    # A fork direction describes the road branch, not a required lane change.
-    # Without lane guidance, staying in the current lane may already follow it.
-    if not state.get("fresh", False) or state.get("kind") not in ("turn", "uturn"):
+    # carrot-wip 처럼 분기(fork)도 차로 안내가 없으면 분기 방향으로 한 차선씩 미리 옮긴다
+    # (2026-10-15 요청). 이미 그쪽 끝 차선이면 아래에서 direction 0 으로 머문다.
+    if not state.get("fresh", False) or state.get("kind") not in ("turn", "uturn", "fork"):
       return None
     try:
       direction = int(state.get("direction", 0))
