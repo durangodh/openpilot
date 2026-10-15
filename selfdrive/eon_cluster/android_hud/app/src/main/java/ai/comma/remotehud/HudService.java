@@ -2456,6 +2456,7 @@ public final class HudService extends Service {
             drawMapOverlays(c, p, s, lane, trafficSignal);
             drawNaviCongestion(c, p, s);
             drawNaviNoo(c, p, s);
+            drawNaviJunctionPopup(c, p, s);
             applyThemeOverlay(c, p);
             drawOemWarningPopup(c, p, s);
             return;
@@ -2530,6 +2531,50 @@ public final class HudService extends Service {
         c.drawCircle(NAVI_CONGESTION_CX, carY, 10f, p);
         p.setColor(Color.rgb(36, 110, 235));
         c.drawCircle(NAVI_CONGESTION_CX, carY, 7f, p);
+    }
+
+    /**
+     * 네비모드 분기 실사 팝업: 폰 네비가 분기점·교차로 실사를 띄운 동안 EON 박스 자리(오른쪽 칸
+     * 225~507)에 흰 테두리 팝업으로 원본 그림을 비율 그대로 얹고, 왼쪽 아래에 남은 거리를 붙인다.
+     * 차량 경고 팝업(drawOemWarningPopup)은 이 뒤에 그려 그쪽이 우선이다(2026-10-15 요청).
+     */
+    private void drawNaviJunctionPopup(Canvas c, Paint p, JSONObject s) {
+        if (junctionMode == 0 || eonStale()) return;
+        Bitmap image = crossroadFrame.get();
+        if (image == null || image.isRecycled() || image.getWidth() <= 0 || image.getHeight() <= 0) return;
+        float boxW = NAVI_COL_W - 12f, boxH = (507f - 225f) - 12f;
+        float scale = Math.min(boxW / image.getWidth(), boxH / image.getHeight());
+        float w = image.getWidth() * scale, h = image.getHeight() * scale;
+        float left = NAVI_BOX_CX - w / 2f, top = NAVI_BOX_CY - h / 2f;
+        p.reset();
+        p.setAntiAlias(true);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(92, 0, 0, 0));   // 그림자
+        scratchRect.set(left - 4f, top + 2f, left + w + 8f, top + h + 12f);
+        c.drawRoundRect(scratchRect, 16f, 16f, p);
+        p.setColor(Color.rgb(250, 251, 252));   // 흰 테두리
+        scratchRect.set(left - 6f, top - 6f, left + w + 6f, top + h + 6f);
+        c.drawRoundRect(scratchRect, 16f, 16f, p);
+        int save = c.save();
+        scratchRect.set(left, top, left + w, top + h);
+        Path clip = new Path();
+        clip.addRoundRect(scratchRect, 12f, 12f, Path.Direction.CW);
+        c.clipPath(clip);
+        p.setFilterBitmap(true);
+        c.drawBitmap(image, null, scratchRect, p);
+        c.restoreToCount(save);
+        JSONObject navi = s.optJSONObject("navi");
+        int dist = navi == null || !navi.optBoolean("active", false) ? -1 : navi.optInt("turnDist", -1);
+        if (dist >= 0) {
+            String label = distanceText(dist);
+            p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+            p.setTextSize(26f);
+            float tw = p.measureText(label);
+            p.setColor(Color.argb(220, 0, 0, 0));
+            scratchRect.set(left + 8f, top + h - 44f, left + 8f + tw + 24f, top + h - 8f);
+            c.drawRoundRect(scratchRect, 8f, 8f, p);
+            text(c, p, label, left + 20f, top + h - 17f, 26f, Color.WHITE, Paint.Align.LEFT);
+        }
     }
 
     private void drawNaviNoo(Canvas c, Paint p, JSONObject s) {
@@ -6717,7 +6762,8 @@ public final class HudService extends Service {
         int junctionSave = beginGuideElement(c, l, "junction", MAP_LEFT + 172f, 0f);
         // 분기 실사는 1행 배너 바로 아래에서 시작해 2행(다음 회전) 배너를 덮는다.
         // 그리기 순서상 2행보다 뒤라 별도 처리 없이 위에 얹힌다.
-        drawJunction(c, p, tbtBottom);
+        // 네비모드는 분기 실사를 EON 박스 자리 팝업으로 띄운다(drawNaviJunctionPopup).
+        if (!naviLayout) drawJunction(c, p, tbtBottom);
         c.restoreToCount(junctionSave);
         if (naviLayout) {
             // Junction imagery occupies the same area as row 2. Keep the next
