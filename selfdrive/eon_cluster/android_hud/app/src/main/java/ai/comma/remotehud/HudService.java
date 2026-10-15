@@ -160,7 +160,7 @@ public final class HudService extends Service {
      * 맞추면 총주행거리 오른쪽 끝(원래 1128)도 칸 오른쪽(±1px)에 온다.
      */
     private static final float NAVI_INFO_DX = NAVI_COL_LEFT - 859f;
-    /** 네비모드 NOO 상태줄 기준선(오른쪽 칸 오른쪽 맞춤): EON 박스 아래(507)와 냉각수 줄 위(약 659) 사이. */
+    /** 네비모드 NOO 상태줄 기준선(오른쪽 칸 가운데): EON 박스 아래(507)와 냉각수 줄 위(약 659) 사이. */
     private static final float NAVI_NOO_Y = (507f + 659f) / 2f + 58f * NAVI_GUIDE_SCALE / 2f;
     /** 네비모드 도착정보 바: 오른쪽 칸 왼쪽에 오른쪽 끝을 두고, 아래끝은 INFO_Y(702). */
     private static final float NAVI_ETA_RIGHT = NAVI_COL_LEFT - 16f;
@@ -2489,11 +2489,11 @@ public final class HudService extends Service {
     private void drawNaviNoo(Canvas c, Paint p, JSONObject s) {
         if (eonStale() || !s.optBoolean("drivingValid", true)) return;
         int save = c.save();
-        // 오른쪽 칸 EON 박스 아래(도착정보와 자리 바꿈). 화살표·거리는 상태줄 위.
-        c.translate(NAVI_COL_RIGHT, NAVI_NOO_Y);
+        // 오른쪽 칸 EON 박스 아래 가운데(도착정보와 자리 바꿈). 화살표·거리는 상태줄 위.
+        c.translate(NAVI_BOX_CX, NAVI_NOO_Y);
         c.scale(0.8f, 0.8f);
         c.translate(-NOO_CX, -(NOO_CY + NOO_LANE_DY));
-        drawNooTurn(c, p, s);
+        drawNooTurn(c, p, s, true);
         c.restoreToCount(save);
     }
 
@@ -5385,6 +5385,11 @@ public final class HudService extends Service {
      * 색은 동작 중이면 테마색(낮 검정 / 밤 흰색), 대기 중이면 흐린색.
      */
     private void drawNooTurn(Canvas c, Paint p, JSONObject s) {
+        drawNooTurn(c, p, s, false);
+    }
+
+    /** center: NOO_CX 를 가운데로 삼아 화살표·거리·상태줄을 모두 가운데 맞춘다(네비모드). */
+    private void drawNooTurn(Canvas c, Paint p, JSONObject s, boolean center) {
         JSONObject navi = s.optJSONObject("navi");
         int nooMode = s.optInt("nooMode", s.optInt("atcMode", 0));  // legacy wire key fallback
         boolean guidance = navi != null && navi.optBoolean("active", false)
@@ -5397,7 +5402,7 @@ public final class HudService extends Service {
         // 화살표는 안내가 살아 있을 때만, 깜박이지 않고 계속 떠 있는다.
         if (armed) {
             // NOO_CX 는 오른쪽 끝. 화살표·남은거리는 그 왼쪽 열에 가운데 맞춘다.
-            float arrowX = NOO_CX - NOO_ICON_H * 0.75f;
+            float arrowX = center ? NOO_CX : NOO_CX - NOO_ICON_H * 0.75f;
             if (!drawTurnIcon(c, p, arrowX, NOO_CY, NOO_ICON_H, navi.optInt("turnType", 0),
                     navi.optString("title", ""), color, true)) {
                 drawScaledArrow(c, p, arrowX, NOO_CY, navi.optInt("turnType", 0),
@@ -5409,7 +5414,7 @@ public final class HudService extends Service {
         // 상태 줄은 안내가 없어도 항상 뜬다. NOO 가 무엇을 할 참인지(몇 m 앞
         // 어느 방향) 또는 왜 못 하는지를 한 줄로 알려준다.
         text(c, p, nooEventText(s, nooMode, guidance, dist), NOO_CX, NOO_CY + NOO_LANE_DY,
-                NOO_LANE_SIZE, color, Paint.Align.RIGHT);
+                NOO_LANE_SIZE, color, center ? Paint.Align.CENTER : Paint.Align.RIGHT);
     }
 
     private String nooSide(int direction) {
