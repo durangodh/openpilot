@@ -89,6 +89,9 @@ final class GpsSourceIcons {
             canvas.drawRoundRect(rect, 10f, 10f, paint);
             paint.setStyle(Paint.Style.FILL);
         }
+        // The icons are drawn with this paint next: leaving the outline's alpha 70
+        // made them almost invisible at night (2026-10-16).
+        paint.setColor(Color.WHITE);
     }
 
     void draw(Canvas canvas, float right, float top, GpsSourceMonitor.Reading reading, boolean night) {
