@@ -426,7 +426,7 @@ def test_driving_panel_uses_speed_ring_and_eon_hud_box():
                '"latAccelFactor"', '"latFriction"', '"steerRatio"'):
     assert item in box
   # OEM warning popups cover the EON HUD box at the same size.
-  assert service.count("final float cx = WARNING_CX;") == 6
+  assert service.count("final float cx = WARNING_CX;") == 5
   popup = service.split("private void drawOemWarningPopup(", 1)[1].split("private void drawOemWarningPopupBody", 1)[0]
   assert "beginWarningBox(c)" in popup
   assert "c.scale(WARNING_SCALE, WARNING_SCALE);" in service
@@ -475,7 +475,7 @@ def test_warning_lamps_and_battery_voltage_reach_external_hud():
     assert signal in carstate
   for key in ('"engineWarning":', '"airbagWarning":', '"batteryWarning":', '"batteryVoltage":'):
     assert key in sender
-  lights = service.split("private void drawLights", 1)[1].split(
+  lights = service.split("private float drawLights", 1)[1].split(
       "private int visibleWiperMode", 1)[0]
   for key in ("parkingBrake", "airbagWarning", "batteryWarning", "oilPressureWarning", "absWarning", "engineWarning"):
     assert 's.optBoolean("%s", false)' % key in lights
@@ -499,7 +499,7 @@ def test_wiper_mode_is_shown_in_the_status_icon_row():
                  "CF_Gway_WiperMistSw"):
     assert '("%s", "CGW1")' % signal in carstate
   assert '"wiperMode":' in sender
-  lights = service.split("private void drawLights", 1)[1].split(
+  lights = service.split("private float drawLights", 1)[1].split(
       "private int visibleWiperMode", 1)[0]
   assert lights.index('s.optBoolean("seatbeltUnlatched", false)') < lights.index("drawWiperStatus")
   assert "WIPER_MODE_HIGHLIGHT_MS = 2500L" in service
