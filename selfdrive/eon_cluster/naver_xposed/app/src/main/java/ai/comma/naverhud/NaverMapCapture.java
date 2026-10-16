@@ -175,7 +175,9 @@ final class NaverMapCapture {
             return;
         }
         // HUD 네비모드: 이 지도만 30% 넓게(검증 버전에서만 동작, 아니면 아무것도 안 함).
-        NaverZoomOffset.update(map);
+        // HUD 전용 지도를 만드는 중에는 건드리지 않는다. 부팅 때 폰 지도 줌을 줄였다가 HUD 지도가
+        // 뜨면 되돌려, 네비모드에서만 엔미러 지도 타일이 두 번 다시 그려져 늦게 떴다(2026-10-16).
+        if (hudMap.failed() || NaverHudMap.active) NaverZoomOffset.update(map);
         logStats(now);
         // HUD 는 주행·네비모드 모두 화면 밖 HUD 전용 지도(NaverHudMap)를 쓴다. 준비 전이거나
         // 실패하면 아래 스냅샷 방식이 그대로 이어서 보낸다.
