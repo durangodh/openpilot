@@ -167,8 +167,11 @@ public final class HudService extends Service {
      * 맞추면 총주행거리 오른쪽 끝(원래 1128)도 칸 오른쪽(±1px)에 온다.
      */
     private static final float NAVI_INFO_DX = NAVI_COL_LEFT - 859f;
-    /** 네비모드 NOO 상태줄 기준선(오른쪽 칸 가운데): EON 박스 아래(507)와 냉각수 줄 위(약 659) 사이. */
-    private static final float NAVI_NOO_Y = (507f + 659f) / 2f + 58f * NAVI_GUIDE_SCALE / 2f;
+    /**
+     * 네비모드 NOO 상태줄 기준선. 화살표 위끝~상태줄(125 x 0.8 = 100px) 묶음을 EON 박스 아래(507)와
+     * 냉각수 줄 위(약 655) 사이 세로 가운데에 둔다(2026-10-16: 박스에 붙어 보였다).
+     */
+    private static final float NAVI_NOO_Y = (507f + 655f) / 2f + 50f;
     /** 네비모드 교통정보 바(네이버): 오른쪽 칸 바로 왼쪽 세로 띠. 아래끝 = 현재 위치, 위끝 = 목적지. */
     private static final float NAVI_CONGESTION_CX = NAVI_COL_LEFT - 14f;
     private static final float NAVI_CONGESTION_W = 10f;
@@ -6753,9 +6756,16 @@ public final class HudService extends Service {
         // separate transparent bitmap.  Render it after the night mask so red,
         // amber and green remain distinguishable.  NAVER versions which paint
         // the signal directly into map_main simply leave this asset absent.
-        int signalSave = beginElement(c, l, "signal", overlayRight() - 169f, 164f);
-        drawNativeOverlay(c, p, trafficSignal,
-                overlayRight() - 320f, 68f, overlayRight() - 18f, 260f, Paint.Align.RIGHT);
+        // 네비모드: 시계(오른쪽 끝 약 930)와 GPS 배지(NAVI_COL_LEFT) 사이 윗줄 가운데에
+        // 배지 높이 정도(약 48px)로 줄여 그린다. 칸은 원래 302x192 의 0.7배.
+        int signalSave = naviLayout ? c.save()
+                : beginElement(c, l, "signal", overlayRight() - 169f, 164f);
+        if (naviLayout) {
+            drawNativeOverlay(c, p, trafficSignal, 967f, -36f, 1178f, 98f, Paint.Align.RIGHT);
+        } else {
+            drawNativeOverlay(c, p, trafficSignal,
+                    overlayRight() - 320f, 68f, overlayRight() - 18f, 260f, Paint.Align.RIGHT);
+        }
         c.restoreToCount(signalSave);
 
         // Always keep the selected map source visible above native map labels.
