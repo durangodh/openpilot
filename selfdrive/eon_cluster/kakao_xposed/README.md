@@ -33,6 +33,9 @@ WGS84 lat/lon 을 싣는다.
 4.51.1 디컴파일로 이름을 확인했다(실기 미검증). 생성 실패, 8초 안에 init 콜백이 없거나
 첫 프레임이 없으면 아래 캡처러로 자동 전환한다. 단계는 LSPosed 로그에도
 `KakaoHud: map render ...` 로 남는다.
+부팅 직후에는 SDK 가 늦어 이 전환이 자주 일어난다. 캡처러는 폰 밀도 글자와 확대된 줌으로
+그려 HUD 지도가 아주 크게 보였으므로, 실패 20초 뒤 직접 렌더를 다시 시도한다(최대 3번,
+로그 `map render retry N`).
 
 ### 캡처러(KNMMapCapturer, 예비)
 카카오 SDK 내장 **오프스크린 캡처러 KNMMapCapturer** 를 모듈이 직접 생성한다.
@@ -48,6 +51,15 @@ KNMSDK 초기화 전에는 capture 가 null 을 주므로 조용히 재시도한
 ## 전송
 carrot_navi_server(7714)로 티맵과 같은 JSON 스트림 + 바이너리 지도를 보낸다.
 서버는 경로 `/kakao/` 로 소스를 구분(EON 설정 EonClusterHudNavApp=3).
+
+- `vehicle.address`: 현재 위치 "시도 시군구 동". SDK 역지오코딩(`knmsdk.m50.i.S.M0(KATEC,
+  false, (err, ?, 시도, 시군구, 동))`)을 150 m 이동 또는 30초마다 부른다. EON 이 읍면동만
+  뽑아 HUD 네비모드 날씨 칸 맨 위에 쓴다.
+- `route.congestion` / `route.congestion_progress`: HUD 네비모드 교통정보 바(네이버와 같은
+  형식). 카카오 경로 진행 막대가 쓰는 `wrapper.route.e.p(KNURoute)` 구간 목록
+  (`knmsdk.wi0.s`: a 교통상태, d 출발점부터 구간 끝 거리)을 5초마다 읽어 전체 경로를 같은 거리
+  100칸으로 나누고 0 모름 / 1 원활 / 2 서행·지체 / 3 정체로 적는다. 차 위치는 출발점부터
+  달린 거리(`getDistFromS`) 비율이다.
 
 ## 미검증(실기 로그로 확인)
 - 지도: 앱 밖 KNMMapCapturer 가 실제 GL 프레임을 내주는지 (로그 `first map frame sent`)
