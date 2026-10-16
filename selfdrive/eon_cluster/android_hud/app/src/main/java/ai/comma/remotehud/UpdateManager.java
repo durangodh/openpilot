@@ -92,6 +92,48 @@ final class UpdateManager {
         }, "hud-update-check").start();
     }
 
+    interface ModuleCallback {
+        void onProgress(String message);
+        void onReady(File apk);
+        void onError(String message);
+    }
+
+    /**
+     * 네비 모듈(티맵·네이버·카카오) APK 를 받아 패키지명과 서명을 확인한다. 서명은 설치된 모듈과,
+     * 아직 없으면 이 HUD 앱과 같아야 한다(모두 같은 Remote HUD 키로 서명된다).
+     */
+    void downloadModule(String url, String packageName, ModuleCallback callback) {
+        new Thread(() -> {
+            try {
+                post(() -> callback.onProgress("모듈 APK를 내려받는 중…"));
+                File apk = download(url);
+                PackageInfo candidate = archiveInfo(apk);
+                if (candidate == null || !packageName.equals(candidate.packageName)) {
+                    apk.delete();
+                    throw new SecurityException("패키지명이 다른 APK입니다.");
+                }
+                PackageInfo reference;
+                try {
+                    reference = packageInfo(packageName);
+                } catch (PackageManager.NameNotFoundException notInstalled) {
+                    reference = installedInfo();
+                }
+                if (!signers(candidate).equals(signers(reference))) {
+                    apk.delete();
+                    throw new SecurityException("서명이 다른 APK라서 차단했습니다.");
+                }
+                post(() -> callback.onReady(apk));
+            } catch (Exception error) {
+                String message = error.getMessage();
+                if (message == null || message.trim().isEmpty()) {
+                    message = error.getClass().getSimpleName();
+                }
+                String finalMessage = message;
+                post(() -> callback.onError("모듈 받기 실패: " + finalMessage));
+            }
+        }, "hud-module-download").start();
+    }
+
     void launchInstaller(File apk) {
         Uri uri = Uri.parse("content://" + context.getPackageName()
                 + ".updateprovider/update.apk");
@@ -208,11 +250,15 @@ final class UpdateManager {
         return context.getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(), flags);
     }
 
-    @SuppressWarnings("deprecation")
     private PackageInfo installedInfo() throws Exception {
+        return packageInfo(context.getPackageName());
+    }
+
+    @SuppressWarnings("deprecation")
+    private PackageInfo packageInfo(String packageName) throws PackageManager.NameNotFoundException {
         int flags = Build.VERSION.SDK_INT >= 28
                 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
-        return context.getPackageManager().getPackageInfo(context.getPackageName(), flags);
+        return context.getPackageManager().getPackageInfo(packageName, flags);
     }
 
     @SuppressWarnings("deprecation")

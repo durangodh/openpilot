@@ -163,6 +163,11 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (moduleInstallerShown) {
+            // 모듈 설치 화면에서 돌아왔다: 남은 모듈을 이어서 받는다.
+            moduleInstallerShown = false;
+            installNextModule();
+        }
         if (AppPrefs.isAutoStart(this)) {
             startHudService();
         }
@@ -430,15 +435,82 @@ public final class MainActivity extends Activity {
             }
             String[] items = new String[outdated.size()];
             for (int i = 0; i < items.length; i++) {
-                items[i] = outdated.get(i).module.label + " 받기 — " + outdated.get(i).status;
+                items[i] = outdated.get(i).module.label + " 업데이트 — " + outdated.get(i).status;
             }
             new AlertDialog.Builder(this)
                     .setTitle("새 버전이 있는 네비 모듈")
-                    .setItems(items, (dialog, which) -> startActivity(new Intent(Intent.ACTION_VIEW,
-                            Uri.parse(outdated.get(which).downloadUrl))))
+                    .setItems(items, (dialog, which) -> {
+                        moduleQueue.clear();
+                        moduleQueue.add(outdated.get(which));
+                        installNextModule();
+                    })
+                    .setPositiveButton("모두 업데이트", (dialog, which) -> {
+                        moduleQueue.clear();
+                        moduleQueue.addAll(outdated);
+                        installNextModule();
+                    })
                     .setNegativeButton("닫기", null)
                     .show();
         });
+    }
+
+    // 네비 모듈 업데이트: HUD 앱 업데이트처럼 앱 안에서 받아 패키지명·서명을 확인하고 설치 화면을
+    // 띄운다(릴리스 페이지에 들어갈 필요 없음). 여러 개면 설치 화면에서 돌아올 때 다음 것을 받는다.
+    private final List<ModuleVersionChecker.Result> moduleQueue = new ArrayList<>();
+    private boolean moduleInstallerShown;
+    private final List<String> updatedModules = new ArrayList<>();
+
+    private void installNextModule() {
+        if (moduleQueue.isEmpty()) {
+            moduleInstallerShown = false;
+            if (!updatedModules.isEmpty()) {
+                new AlertDialog.Builder(this)
+                        .setTitle("네비 모듈 업데이트")
+                        .setMessage(String.join(", ", updatedModules) + " 설치 화면을 띄웠습니다.\n"
+                                + "설치했다면 해당 네비 앱을 강제 종료한 뒤 다시 켜야 새 모듈이 적용됩니다.")
+                        .setPositiveButton("확인", null)
+                        .show();
+                updatedModules.clear();
+            }
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+            moduleQueue.clear();
+            new AlertDialog.Builder(this)
+                    .setTitle("앱 설치 권한 필요")
+                    .setMessage("처음 한 번만 EON Remote HUD의 ‘이 출처 허용’을 켠 뒤 다시 눌러 주세요.")
+                    .setPositiveButton("설정 열기", (dialog, which) -> startActivity(
+                            new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                    Uri.parse("package:" + getPackageName()))))
+                    .setNegativeButton("취소", null)
+                    .show();
+            return;
+        }
+        ModuleVersionChecker.Result next = moduleQueue.remove(0);
+        moduleButton.setEnabled(false);
+        new UpdateManager(this).downloadModule(next.downloadUrl, next.module.packageName,
+                new UpdateManager.ModuleCallback() {
+                    @Override
+                    public void onProgress(String message) {
+                        moduleValue.setText(next.module.label + ": " + message);
+                    }
+
+                    @Override
+                    public void onReady(File apk) {
+                        moduleButton.setEnabled(true);
+                        moduleValue.setText(next.module.label + ": 서명 확인 완료, 설치 화면을 엽니다");
+                        updatedModules.add(next.module.label);
+                        moduleInstallerShown = true;
+                        new UpdateManager(MainActivity.this).launchInstaller(apk);
+                    }
+
+                    @Override
+                    public void onError(String message) {
+                        moduleButton.setEnabled(true);
+                        moduleValue.setText(next.module.label + ": " + message);
+                        installNextModule();
+                    }
+                });
     }
 
     private void installPendingUpdate() {
