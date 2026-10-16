@@ -4592,6 +4592,7 @@ public final class HudService extends Service {
             pos = scene == null ? null : scene.optJSONArray("pos");
         }
         if (pos == null || pos.length() < 2) {
+            weather.onStartup();
             return;
         }
         weather.onPosition(pos.optDouble(0, Double.NaN), pos.optDouble(1, Double.NaN));

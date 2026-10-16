@@ -37,6 +37,7 @@ final class WeatherService {
     private static final String PREFS = "hud_weather";
     private static final long REFRESH_MS = 15L * 60L * 1000L;
     private static final long COOLDOWN_MS = 120L * 1000L;
+    private static final long RETRY_EMPTY_MS = 15L * 1000L;
     /** 이보다 오래된 값은 표시하지 않는다. */
     private static final long MAX_AGE_MS = 3L * 60L * 60L * 1000L;
     /** 이만큼 움직이면 갱신 주기를 기다리지 않는다. */
@@ -98,7 +99,7 @@ final class WeatherService {
                 || distanceM(lat, lon, fetchedLat, fetchedLon) >= MOVE_M;
         // 상세값(기온·예보·미세먼지)이 없으면 바로 받는다. 앱 업데이트 직후에는 예전 아이콘 값만
         // 저장돼 있어 15분 동안 네비모드 날씨 칸이 비었다(2026-10-16).
-        if (!aged && !moved && detail != null) {
+        if (!aged && !moved && detail() != null) {
             return;
         }
         busy = true;
@@ -112,6 +113,13 @@ final class WeatherService {
         }, "hud-weather");
         worker.setDaemon(true);
         worker.start();
+    }
+
+    /** 내비 좌표가 아직 없을 때(시동 직후) 마지막으로 조회한 위치로 먼저 받는다. */
+    void onStartup() {
+        if (detail() == null && isFinite(fetchedLat) && isFinite(fetchedLon)) {
+            onPosition(fetchedLat, fetchedLon);
+        }
     }
 
     /** 표시할 아이콘. 값이 없거나 너무 오래됐으면 ICON_NONE. */
@@ -286,7 +294,9 @@ final class WeatherService {
 
     private void fail(String reason) {
         lastError = reason;
-        cooldownUntil = System.currentTimeMillis() + COOLDOWN_MS;
+        // 표시할 값이 없을 때(시동 직후 핫스팟이 아직 안 붙음 등)는 짧게 쉬고 다시 시도한다.
+        // 2분씩 쉬면 시동 후 날씨 칸이 5분 가까이 비었다(2026-10-16).
+        cooldownUntil = System.currentTimeMillis() + (detail() == null ? RETRY_EMPTY_MS : COOLDOWN_MS);
     }
 
     private static String readAll(InputStream in) throws Exception {
