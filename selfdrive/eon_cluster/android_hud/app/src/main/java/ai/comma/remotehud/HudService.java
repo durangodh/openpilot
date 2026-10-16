@@ -6865,9 +6865,9 @@ public final class HudService extends Service {
         for (int i = 0; i < 3; i++) {
             if (d.dayOfWeek[i] <= 0 || !Double.isFinite(d.dayMax[i]) || !Double.isFinite(d.dayMin[i])) continue;
             float cx = left + slot * (i + 0.5f);
-            textNormal(c, p, WEEKDAYS[d.dayOfWeek[i]], cx - 50f, 166f, 18f, ink, Paint.Align.LEFT);
-            drawWeatherIcon(c, p, cx - 18f, 159f, 20f, d.dayIcon[i], true);
-            textNormal(c, p, degree(d.dayMax[i]) + "/" + degree(d.dayMin[i]), cx + 2f, 166f, 18f, ink,
+            textNormal(c, p, WEEKDAYS[d.dayOfWeek[i]], cx - 54f, 166f, 18f, ink, Paint.Align.LEFT);
+            drawWeatherIcon(c, p, cx - 24f, 159f, 18f, d.dayIcon[i], true);
+            textNormal(c, p, degree(d.dayMax[i]) + "/" + degree(d.dayMin[i]), cx - 8f, 166f, 17f, ink,
                     Paint.Align.LEFT);
         }
     }
