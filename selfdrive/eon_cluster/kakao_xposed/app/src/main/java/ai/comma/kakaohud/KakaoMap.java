@@ -361,6 +361,20 @@ final class KakaoMap {
     private void tick() {
         if (surfaceMode) return;   // KNMMapSurface 렌더러가 담당(실패하면 false 로 바뀐다)
         if (!client.ready() || !hasPose) return;
+        long elapsed = android.os.SystemClock.elapsedRealtime();
+        if (surfaceRetries < SURFACE_MAX_RETRIES && elapsed - surfaceFailedAt >= SURFACE_RETRY_MS) {
+            // 부팅 직후 SDK 가 늦어 서피스가 실패하면 그 주행 내내 캡처러(폰 밀도 글자, 확대된 줌)로
+            // 남아 HUD 지도가 아주 크게 보였다(2026-10-16). 잠시 뒤 서피스를 다시 시도한다.
+            // 캡처러는 서피스와 카메라 메서드를 같이 쓰므로, 다시 넘어오면 새로 만든다.
+            surfaceRetries++;
+            KakaoHudLog.line("map render retry " + surfaceRetries);
+            capturer = null;
+            sdkWaitSince = 0;
+            nextSurfaceAttemptMs = 0;
+            surfaceMode = true;
+            mainHandler.post(this::surfaceLoop);
+            return;
+        }
 
         long now = System.currentTimeMillis();
         if (capturer == null) {
@@ -643,6 +657,10 @@ final class KakaoMap {
     private static final long SURFACE_READY_TIMEOUT_MS = 8000;
     private static final long SURFACE_FRAME_TIMEOUT_MS = 8000;
     private volatile boolean surfaceMode = true;
+    private static final long SURFACE_RETRY_MS = 20000L;
+    private static final int SURFACE_MAX_RETRIES = 3;
+    private volatile long surfaceFailedAt;
+    private int surfaceRetries;
     private Object mapSurface;                 // KNMMapSurface
     private android.media.ImageReader reader;
     private HandlerThread imageThread;
@@ -885,6 +903,7 @@ final class KakaoMap {
     private void failSurface(String where, Throwable error) {
         KakaoHudLog.xposed("map render " + where + " failed (falling back to KNMMapCapturer)"
                 + (error == null ? "" : ": " + error));
+        surfaceFailedAt = android.os.SystemClock.elapsedRealtime();
         surfaceMode = false;
         releaseSurface();
     }
