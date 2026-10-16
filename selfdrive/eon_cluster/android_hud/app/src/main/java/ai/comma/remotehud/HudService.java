@@ -3413,6 +3413,10 @@ public final class HudService extends Service {
         int rl = parkingLevel(sensors, "rl");
         int rc = parkingLevel(sensors, "rc");
         int rr = parkingLevel(sensors, "rr");
+        if (sensors.optBoolean("check", false)) {
+            drawParkingSensorCheckPopup(c, p);
+            return true;
+        }
         if ((fl | fc | fr | rl | rc | rr) == 0) {
             return false;
         }
@@ -3434,6 +3438,27 @@ public final class HudService extends Service {
         drawParkingSector(c, p, cx, cy, 71.5f, 37f, rc);
         drawParkingSector(c, p, cx, cy, 116f, 37f, rl);
         return true;
+    }
+
+    /**
+     * 주차센서 점검(이상) 표시. 순정 계기판처럼 흰 차량 앞뒤에 회색 감지 띠와 노란
+     * 경고 삼각형만 그린다(문구 없음). PAS11 CF_Gway_PASCheckSound 가 0 이 아닐 때.
+     */
+    private void drawParkingSensorCheckPopup(Canvas c, Paint p) {
+        final float cx = WARNING_CX;
+        final float cy = 272f;
+        drawDarkWarningPanel(c, p, cx);
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.BUTT);
+        p.setStrokeWidth(24f);
+        p.setColor(Color.rgb(112, 118, 126));
+        scratchRect.set(cx - 96f, cy - 96f, cx + 96f, cy + 96f);
+        c.drawArc(scratchRect, 222f, 96f, false, p);   // 앞
+        c.drawArc(scratchRect, 42f, 96f, false, p);    // 뒤
+        drawTopViewCar(c, p, cx, cy, 0.62f, null, null, false, false, false);
+        drawWarningTriangle(c, p, cx, cy - 136f, 22f);
+        drawWarningTriangle(c, p, cx, cy + 126f, 22f);
     }
 
     private int parkingLevel(JSONObject sensors, String key) {

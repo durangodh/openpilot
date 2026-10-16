@@ -14,6 +14,7 @@ GearShifter = car.CarState.GearShifter
 class CarState(CarStateBase):
   def __init__(self, CP):
     super().__init__(CP)
+    self.pas_check_frames = 0
 
     can_define = CANDefine(DBC[CP.carFingerprint]["pt"])
 
@@ -347,8 +348,12 @@ class CarState(CarStateBase):
     ret.parkingSensors.rearLeft = int(pas["CF_Gway_PASDisplayRLH"])
     ret.parkingSensors.rearCenter = int(pas["CF_Gway_PASDisplayRCTR"])
     ret.parkingSensors.rearRight = int(pas["CF_Gway_PASDisplayRRH"])
-    # 센서 점검(이상) 경고음 신호. 값 뜻은 미확인이라 원격 HUD 표시 전용으로만 쓴다.
-    ret.parkingSensors.checkWarning = int(pas["CF_Gway_PASCheckSound"]) != 0
+    # 센서 점검음 신호(원격 HUD 표시 전용). 후진 때 '삐삐'에도 0 이 아니어서(2026-10-16),
+    # 고장·폭우의 '띠릭 띠릭'으로 추정되는 값 2 이상이거나 0 아닌 값이 3 초 넘게 이어질 때만.
+    # 값 뜻은 실차 고장으로 확인되지 않았다.
+    pas_check = int(pas["CF_Gway_PASCheckSound"])
+    self.pas_check_frames = self.pas_check_frames + 1 if pas_check else 0
+    ret.parkingSensors.checkWarning = pas_check >= 2 or self.pas_check_frames > 300
 
     # Blind Spot Detection and Lane Change Assist signals
     if self.CP.enableBsm:

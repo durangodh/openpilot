@@ -426,7 +426,7 @@ def test_driving_panel_uses_speed_ring_and_eon_hud_box():
                '"latAccelFactor"', '"latFriction"', '"steerRatio"'):
     assert item in box
   # OEM warning popups cover the EON HUD box at the same size.
-  assert service.count("final float cx = WARNING_CX;") == 5
+  assert service.count("final float cx = WARNING_CX;") == 6
   popup = service.split("private void drawOemWarningPopup(", 1)[1].split("private void drawOemWarningPopupBody", 1)[0]
   assert "beginWarningBox(c)" in popup
   assert "c.scale(WARNING_SCALE, WARNING_SCALE);" in service
