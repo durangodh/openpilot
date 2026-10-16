@@ -99,13 +99,14 @@ final class TmapJson {
     }
 
     static String vehicle(double lat, double lon, int headingDeg, int speedKph,
-                          String roadName, boolean virtualGps) {
+                          String roadName, boolean virtualGps, String address) {
         if (lat == 0.0 && lon == 0.0) return null;
         return new Obj().dbl("lat", lat).dbl("lon", lon)
                 .num("heading_deg", headingDeg)
                 .num("speed_kph", Math.max(0, speedKph))
                 .str("road_name", nullIfEmpty(roadName))
-                .bool("virtual_gps", virtualGps).build();
+                .bool("virtual_gps", virtualGps)
+                .str("address", nullIfEmpty(address)).build();
     }
 
     /** GuidePoint.from(TBTInfo). 모든 값이 비면 null. distance_m 은 차량 기준 nTBTDist. */

@@ -95,6 +95,54 @@ final class KakaoBridge {
         }
     }
 
+    // 현재 위치 주소(시도 시군구 읍면동). 카카오 SDK 의 역지오코딩
+    // (KNUSDKRepository.U0 가 쓰는 knmsdk.m50.i.S.M0(KATEC, inUiThread, (err, ?, 시도, 시군구, 동)))을
+    // 콜백으로 직접 부른다. EON 이 읍면동만 뽑아 HUD 날씨 칸에 쓴다. 150 m 이동 또는 30초마다.
+    private volatile String address = "";
+    private double addressX = Double.NaN, addressY = Double.NaN;
+    private long addressAt;
+    private boolean addressFailed;
+
+    private void requestAddress(Object katec, double x, double y) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (addressFailed || (!Double.isNaN(addressX) && now - addressAt < 30000
+                && Math.hypot(x - addressX, y - addressY) < 150.0)) {
+            return;
+        }
+        addressX = x;
+        addressY = y;
+        addressAt = now;
+        try {
+            ClassLoader cl = katec.getClass().getClassLoader();
+            Object sdk = Class.forName("com.kakaomobility.knmsdk.m50.i", false, cl).getField("S").get(null);
+            Class<?> fn5 = Class.forName("kotlin.jvm.functions.Function5", false, cl);
+            final Object unit = Class.forName("kotlin.Unit", false, cl).getField("INSTANCE").get(null);
+            Object callback = java.lang.reflect.Proxy.newProxyInstance(cl, new Class<?>[]{fn5}, (proxy, m, args) -> {
+                if ("invoke".equals(m.getName()) && args != null && args.length == 5) {
+                    if (args[0] == null) {
+                        StringBuilder b = new StringBuilder();
+                        for (int i = 2; i < 5; i++) {
+                            if (args[i] != null && !args[i].toString().trim().isEmpty()) {
+                                if (b.length() > 0) b.append(' ');
+                                b.append(args[i].toString().trim());
+                            }
+                        }
+                        if (b.length() > 0) address = b.toString();
+                    }
+                    return unit;
+                }
+                if ("equals".equals(m.getName())) return proxy == args[0];
+                if ("hashCode".equals(m.getName())) return System.identityHashCode(proxy);
+                return "KakaoHudAddress";
+            });
+            Method geocode = sdk.getClass().getMethod("M0", katec.getClass(), boolean.class, fn5);
+            geocode.invoke(sdk, katec, false, callback);
+        } catch (Throwable t) {
+            addressFailed = true;
+            KakaoHudLog.ex("address", t);
+        }
+    }
+
     /** KATEC (x,y) -> [lon, lat]. 실패하면 null. */
     private double[] toWgs(double x, double y) {
         if (katecToWgs == null || coordCompanion == null) return null;
@@ -145,11 +193,13 @@ final class KakaoBridge {
             }
 
             if (kx != 0 && ky != 0) {
+                requestAddress(pos, kx, ky);
                 map.updatePose(kx, ky, angle);
                 if (wgs != null) {
                     String vehicle = "{\"lat\":" + wgs[1] + ",\"lon\":" + wgs[0]
                             + ",\"heading_deg\":" + angle
                             + ",\"road_name\":" + jsonStr(road)
+                            + ",\"address\":" + jsonStr(address)
                             + ",\"virtual_gps\":false}";
                     client.sendState("vehicle", vehicle);
                 }

@@ -56,3 +56,13 @@ def test_battery_voltage_comes_from_panda_supply_measurement():
   sm.rcv_frame["peripheralState"] = 95
   sm["peripheralState"] = SimpleNamespace(voltage=0)   # no measurement
   assert remote_hud._battery_voltage(sm) == -1.0
+
+
+def test_weather_area_keeps_only_eup_myeon_dong():
+  assert remote_hud.area_name("경기도 오산시 궐동 123-4") == "궐동"
+  assert remote_hud.area_name("경기 화성시 동탄1동") == "동탄1동"
+  assert remote_hud.area_name("경기도 화성시 봉담읍 와우리") == "봉담읍"
+  assert remote_hud.area_name("경기도 양평군 서종면") == "서종면"
+  assert remote_hud.area_name("경기 오산시 경기동로 59") == ""
+  assert remote_hud.area_name("서울 송파구 잠실동 아파트 101동") == "잠실동"
+  assert remote_hud.area_name(None) == ""

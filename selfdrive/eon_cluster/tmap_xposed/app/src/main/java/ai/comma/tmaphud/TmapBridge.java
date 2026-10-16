@@ -125,6 +125,48 @@ final class TmapBridge {
         client.refreshIdleImages();
     }
 
+    // 현재 위치 주소(시도 시군구 읍면동). 티맵 지도 엔진의 오프라인 행정구역 조회
+    // VSMCoordinates.getDetailedAddressOffline(경도, 위도)를 쓴다(티맵 자체 호출부와 같은 순서).
+    // EON 이 읍면동만 뽑아 HUD 날씨 칸에 쓴다. 150 m 이동 또는 30초마다 다시 조회한다.
+    private String address = "";
+    private double addressLat = Double.NaN, addressLon = Double.NaN;
+    private long addressAt;
+    private boolean addressFailed;
+
+    private String address(Object rg, double lat, double lon) {
+        if (addressFailed || (lat == 0.0 && lon == 0.0)) return address;
+        long now = SystemClock.elapsedRealtime();
+        if (!Double.isNaN(addressLat) && now - addressAt < 30000
+                && Math.abs(lat - addressLat) * 111000.0 < 150.0
+                && Math.abs(lon - addressLon) * 88000.0 < 150.0) {
+            return address;
+        }
+        addressLat = lat;
+        addressLon = lon;
+        addressAt = now;
+        try {
+            Class<?> coords = Class.forName("com.skt.tmap.vsm.coordinates.VSMCoordinates", false,
+                    rg.getClass().getClassLoader());
+            Object detail = coords.getMethod("getDetailedAddressOffline", double.class, double.class)
+                    .invoke(null, lon, lat);
+            if (detail != null) {
+                StringBuilder b = new StringBuilder();
+                for (String name : new String[]{"sido", "gu", "detail"}) {
+                    Object part = detail.getClass().getField(name).get(detail);
+                    if (part != null && !part.toString().trim().isEmpty()) {
+                        if (b.length() > 0) b.append(' ');
+                        b.append(part.toString().trim());
+                    }
+                }
+                address = b.toString();
+            }
+        } catch (Throwable error) {
+            addressFailed = true;
+            TmapHudLog.ex("address", error);
+        }
+        return address;
+    }
+
     private void publish() {
         long now = SystemClock.elapsedRealtime();
         Object rg = rgData;
@@ -156,7 +198,7 @@ final class TmapBridge {
         double lon = doubleField(rg, "vpPosPointLon");
         int speedKph = intField(rg, "nPosSpeed");
         String vehicle = TmapJson.vehicle(lat, lon, intField(rg, "nPosAngle"), speedKph,
-                stringField(rg, "szPosRoadName"), intField(rg, "eVirtualGps") != 0);
+                stringField(rg, "szPosRoadName"), intField(rg, "eVirtualGps") != 0, address(rg, lat, lon));
         send("vehicle", vehicle);
 
         // Guidance.from: 현재/다음 안내·차로·앞 차로가 모두 없으면 안내 없음.

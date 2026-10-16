@@ -2456,6 +2456,7 @@ public final class HudService extends Service {
             drawMapOverlays(c, p, s, lane, trafficSignal);
             drawNaviCongestion(c, p, s);
             drawNaviNoo(c, p, s);
+            drawNaviWeatherPanel(c, p, s);
             drawNaviJunctionPopup(c, p, s);
             applyThemeOverlay(c, p);
             drawOemWarningPopup(c, p, s);
@@ -6813,49 +6814,94 @@ public final class HudService extends Service {
         text(c, p, NavSelectionProtocol.appLabel(s.optInt("hudNavApp", 1)),
                 right - width * 0.5f, top + 34f, 25f, Color.WHITE, Paint.Align.CENTER);
         drawGpsSourceBadge(c, p, right - width - 12f, top, height);
-        if (naviLayout) {
-            // 날씨 그림·외기온도는 네비모드에서 GPS 표시 바로 앞(왼쪽)에 같은 높이 배지로 둔다.
-            float gpsLeft = right - width;
-            if (gpsSourceIcons != null && gpsSourceMonitor != null) {
-                gpsLeft -= 12f + gpsSourceIcons.width(gpsSourceMonitor.snapshot());
-            }
-            drawNaviWeatherBadge(c, p, s, gpsLeft - 12f, top, height);
-        }
         c.restoreToCount(rowSave);
     }
 
-    /** 네비모드 날씨 배지: 오른쪽 끝(right)에서 왼쪽으로 날씨 그림 → 외기온도. 지도 위라 어두운 배지에 밝은 글자. */
-    private void drawNaviWeatherBadge(Canvas c, Paint p, JSONObject s, float right, float top, float height) {
+    private static final String[] WEEKDAYS = {"", "일", "월", "화", "수", "목", "금", "토"};
+
+    /**
+     * 네비모드 날씨 칸: 주행 장면 칸 위쪽 빈 곳(NAVI_DRIVE_LEFT..WIDTH, 위 0~177).
+     * 읍면동(폰 내비가 준 주소), 날씨 그림·현재기온·최고/최저·체감, 미세먼지, 3일 예보.
+     * 2026-10-16 요청: 지도 위 날씨 배지를 없애고 여기로 옮겼다.
+     */
+    private void drawNaviWeatherPanel(Canvas c, Paint p, JSONObject s) {
         feedWeather(s);
+        WeatherService.Detail d = weather == null ? null : weather.detail();
         int icon = weather == null ? WeatherService.ICON_NONE : weather.icon();
-        double temp = s.optDouble("outsideTemp", -1000d);
-        boolean hasTemp = Double.isFinite(temp) && temp >= -50d && temp <= 80d;
-        if (icon == WeatherService.ICON_NONE && !hasTemp) return;
-        String label = hasTemp ? String.format(Locale.US, "%.0f°C", temp) : "";
-        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        p.setTextSize(25f);
-        float textW = hasTemp ? p.measureText(label) : 0f;
-        float iconW = icon != WeatherService.ICON_NONE ? 34f : 0f;
-        float gap = iconW > 0f && hasTemp ? 8f : 0f;
-        float width = 16f + iconW + gap + textW + 16f;
-        float left = right - width;
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(190, 28, 34, 40));
-        scratchRect.set(left, top, right, top + height);
-        c.drawRoundRect(scratchRect, 10f, 10f, p);
-        if (icon != WeatherService.ICON_NONE) {
-            // 날씨 그림의 구름색(ink/dim)이 어두운 배지 위에서 밝게 나오도록 어두운 테마 색으로 그린다.
-            boolean savedDark = frameDark, savedSky = skyBand;
-            frameDark = true;
-            skyBand = false;
-            drawWeatherIcon(c, p, left + 16f + 17f, top + height * 0.5f - 2f, 30f, icon, weather.isDay());
-            frameDark = savedDark;
-            skyBand = savedSky;
+        if (d == null || icon == WeatherService.ICON_NONE || eonStale()) return;
+        int ink = frameDark ? Color.WHITE : Color.rgb(17, 20, 24);
+        int sub = frameDark ? Color.rgb(207, 214, 222) : Color.rgb(52, 58, 64);
+        float left = NAVI_DRIVE_LEFT + 16f;
+        float right = WIDTH - 16f;
+
+        String area = s.optString("wxArea", "");
+        if (!area.isEmpty()) {
+            text(c, p, area, left, 30f, 22f, ink, Paint.Align.LEFT);
         }
-        if (hasTemp) {
-            text(c, p, label, right - 16f, top + 34f, 25f, Color.WHITE, Paint.Align.RIGHT);
+        // 날씨 그림은 칸 배경(하늘)에 맞춘 기존 색을 그대로 쓴다.
+        drawWeatherIcon(c, p, left + 30f, 72f, 50f, icon, weather.isDay());
+        if (Double.isFinite(d.temp)) {
+            textNormal(c, p, degree(d.temp), left + 70f, 96f, 58f, ink, Paint.Align.LEFT);
         }
+        if (Double.isFinite(d.max) && Double.isFinite(d.min)) {
+            textNormal(c, p, degree(d.max) + "/" + degree(d.min), right, 70f, 25f, ink, Paint.Align.RIGHT);
+        }
+        if (Double.isFinite(d.feels)) {
+            textNormal(c, p, "체감 " + degree(d.feels), right, 97f, 19f, sub, Paint.Align.RIGHT);
+        }
+
+        // 미세먼지: 등급(환경부 기준) 색 글자와 수치.
+        float x = left;
+        x = drawDust(c, p, "미세 ", d.pm10, pm10Grade(d.pm10), x, 127f, sub);
+        if (Double.isFinite(d.pm10) && Double.isFinite(d.pm25)) {
+            textNormal(c, p, " · ", x, 127f, 18f, sub, Paint.Align.LEFT);
+            x += p.measureText(" · ");
+        }
+        drawDust(c, p, "초미세 ", d.pm25, pm25Grade(d.pm25), x, 127f, sub);
+
+        p.setColor(frameDark ? Color.argb(70, 255, 255, 255) : Color.argb(70, 0, 0, 0));
+        c.drawRect(left, 138f, right, 139.5f, p);
+        float slot = (right - left) / 3f;
+        for (int i = 0; i < 3; i++) {
+            if (d.dayOfWeek[i] <= 0 || !Double.isFinite(d.dayMax[i]) || !Double.isFinite(d.dayMin[i])) continue;
+            float cx = left + slot * (i + 0.5f);
+            textNormal(c, p, WEEKDAYS[d.dayOfWeek[i]], cx - 50f, 166f, 18f, ink, Paint.Align.LEFT);
+            drawWeatherIcon(c, p, cx - 18f, 159f, 20f, d.dayIcon[i], true);
+            textNormal(c, p, degree(d.dayMax[i]) + "/" + degree(d.dayMin[i]), cx + 2f, 166f, 18f, ink,
+                    Paint.Align.LEFT);
+        }
+    }
+
+    private static String degree(double value) {
+        return String.format(Locale.US, "%.0f°", value);
+    }
+
+    /** 라벨 + 색 등급 + (수치). 그린 오른쪽 끝 x 를 돌려준다. 값이 없으면 그리지 않는다. */
+    private float drawDust(Canvas c, Paint p, String label, double value, int grade, float x, float y, int sub) {
+        if (!Double.isFinite(value) || grade < 0) return x;
+        textNormal(c, p, label, x, y, 18f, sub, Paint.Align.LEFT);
+        x += p.measureText(label);
+        String[] names = {"좋음", "보통", "나쁨", "매우나쁨"};
+        int[] colors = frameDark
+                ? new int[]{Color.rgb(79, 195, 247), Color.rgb(102, 220, 120), Color.rgb(255, 170, 40), Color.rgb(255, 82, 82)}
+                : new int[]{Color.rgb(2, 119, 189), Color.rgb(46, 125, 50), Color.rgb(196, 110, 0), Color.rgb(198, 40, 40)};
+        text(c, p, names[grade], x, y, 18f, colors[grade], Paint.Align.LEFT);
+        x += p.measureText(names[grade]);
+        String num = String.format(Locale.US, "(%.0f)", value);
+        textNormal(c, p, num, x, y, 18f, sub, Paint.Align.LEFT);
+        return x + p.measureText(num);
+    }
+
+    /** 환경부 예보 등급: 좋음 ~30, 보통 ~80, 나쁨 ~150, 매우나쁨. 값이 없으면 -1. */
+    static int pm10Grade(double v) {
+        if (!Double.isFinite(v) || v < 0) return -1;
+        return v <= 30 ? 0 : v <= 80 ? 1 : v <= 150 ? 2 : 3;
+    }
+
+    /** 초미세먼지: 좋음 ~15, 보통 ~35, 나쁨 ~75, 매우나쁨. */
+    static int pm25Grade(double v) {
+        if (!Double.isFinite(v) || v < 0) return -1;
+        return v <= 15 ? 0 : v <= 35 ? 1 : v <= 75 ? 2 : 3;
     }
 
     /**

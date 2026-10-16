@@ -19,8 +19,11 @@ public final class TmapJsonCheck {
 
     public static void main(String[] args) {
         // 값과 조건은 캐롯 패치판(CarrotUiStateData)과 같아야 한다.
-        emit("vehicle", TmapJson.vehicle(37.5665, 126.9780, 92, 43, "세종대로", false));
-        check(TmapJson.vehicle(0, 0, 0, 0, "", false) == null, "no position, no vehicle");
+        String vehicle = TmapJson.vehicle(37.5665, 126.9780, 92, 43, "세종대로", false, "서울특별시 중구 명동");
+        emit("vehicle", vehicle);
+        check(vehicle.contains("\"address\":\"서울특별시 중구 명동\""), "address for the HUD weather area");
+        check(!TmapJson.vehicle(37.5665, 126.9780, 92, 43, "", false, "").contains("address"), "empty address omitted");
+        check(TmapJson.vehicle(0, 0, 0, 0, "", false, "") == null, "no position, no vehicle");
         String current = TmapJson.guidePoint(320, 40, 12, "세종대로", "시청 방면", "시청", "", "",
                 37.5670, 126.9790);
         emit("guidance_current", current);

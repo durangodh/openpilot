@@ -263,7 +263,9 @@ final class NaverBridge {
                 + ",\"lon\":" + decimal(fieldNumber(location, "longitude"))
                 + ",\"heading_deg\":" + decimal(NaverCodes.number(call(position, "getHeading")))
                 + ",\"speed_kph\":" + decimal(NaverCodes.number(call(position, "getSpeedKmPerHour")))
-                + ",\"road_name\":" + quote(text(call(road, "f"))) + "}");
+                + ",\"road_name\":" + quote(text(call(road, "f")))
+                // 현재 위치 주소(AddressAndRoadNameData.address). EON 이 읍면동만 뽑아 HUD 날씨 칸에 쓴다.
+                + ",\"address\":" + quote(text(call(road, "a"))) + "}");
 
         Object link = NaverStore.get(s, "MatchedLinkInfo");
         send("speed", speed(s, (int) NaverCodes.number(call(link, "h"))));

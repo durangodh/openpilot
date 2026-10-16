@@ -75,7 +75,21 @@ _NAVI_CACHE = {"signature": None, "state": {}, "scene_sig": None, "scene": None,
 # 날씨 조회용 마지막 좌표. 3초 신선도(NAVI_STREAM_MAX_AGE_MS)를 적용하지 않는다.
 # 날씨는 15분 주기라 몇 분 지난 좌표여도 무의미한 차이다. 정밀 GPS 는 여전히
 # 전송하지 않으며, 소수점 2자리(약 1.1km)로 뭉개서 내보낸다.
-_WX_POS = {"lat": None, "lon": None}
+_WX_POS = {"lat": None, "lon": None, "area": ""}
+
+
+def area_name(address):
+  """주소 문자열에서 읍·면·동 이름만 뽑는다. "경기도 오산시 궐동 123-4" -> "궐동".
+
+  폰 내비(티맵·카카오·네이버)가 vehicle.address 로 보낸다. 뒤에서부터 찾아 "동탄1동"처럼
+  숫자가 섞인 행정동도 받는다. 번지·건물명은 건너뛴다. 없으면 "".
+  """
+  if not isinstance(address, str):
+    return ""
+  for token in reversed(address.split()):
+    if len(token) >= 2 and token[-1] in "읍면동" and not token[0].isdigit():
+      return token
+  return ""
 
 
 def _remember_weather_position(state):
@@ -92,6 +106,7 @@ def _remember_weather_position(state):
     return
   if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
     return
+  _WX_POS["area"] = area_name(vehicle.get("address")) or _WX_POS["area"]
   _WX_POS["lat"] = lat
   _WX_POS["lon"] = lon
 
@@ -1379,6 +1394,8 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     # 날씨 조회 전용 저정밀 좌표(소수점 2자리). navi.scene.pos 는 위에서 제거되고
     # TMAP 안내가 꺼져 있으면 navi 자체가 비므로, 별도 최상위 키로 내보낸다.
     "wxPos": _wx_pos(),
+    # 네비모드 날씨 칸 맨 위 읍·면·동 이름(폰 내비 주소에서).
+    "wxArea": _WX_POS["area"],
     "path": hud_path,
     "lanes": hud_lanes,
     "edges": hud_edges,

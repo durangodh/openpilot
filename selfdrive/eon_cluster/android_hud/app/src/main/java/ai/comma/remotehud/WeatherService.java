@@ -3,12 +3,14 @@ package ai.comma.remotehud;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.Calendar;
 import java.util.Locale;
 
 /**
@@ -51,6 +53,17 @@ final class WeatherService {
     private volatile long cooldownUntil = 0L;
     private volatile boolean busy = false;
     private volatile String lastError = "";
+    /** 네비모드 날씨 칸용 상세값(기온·예보·미세먼지). 없으면 null. */
+    private volatile Detail detail;
+
+    /** 기온은 °C, 미세먼지는 µg/m³. 값이 없으면 NaN. days 는 내일부터 3일. */
+    static final class Detail {
+        double temp = Double.NaN, feels = Double.NaN, max = Double.NaN, min = Double.NaN;
+        double pm10 = Double.NaN, pm25 = Double.NaN;
+        final int[] dayOfWeek = new int[3];        // Calendar.SUNDAY..SATURDAY, 0 이면 없음
+        final int[] dayIcon = new int[3];
+        final double[] dayMax = new double[3], dayMin = new double[3];
+    }
 
     WeatherService(Context context) {
         prefs = context.getApplicationContext()
@@ -63,6 +76,12 @@ final class WeatherService {
                 prefs.getLong("lat", Double.doubleToLongBits(Double.NaN)));
         fetchedLon = Double.longBitsToDouble(
                 prefs.getLong("lon", Double.doubleToLongBits(Double.NaN)));
+        try {
+            detail = parseDetail(new JSONObject(prefs.getString("body", "{}")),
+                    new JSONObject(prefs.getString("aq", "{}")));
+        } catch (Throwable ignored) {
+            detail = null;
+        }
     }
 
     /** 매 프레임 호출해도 된다. 실제 요청은 조건이 맞을 때만 나간다. */
@@ -113,6 +132,14 @@ final class WeatherService {
         return cloudPct;
     }
 
+    /** 상세값. 아직 못 받았거나 너무 오래됐으면 null. */
+    Detail detail() {
+        if (code < 0 || System.currentTimeMillis() - fetchedAt > MAX_AGE_MS) {
+            return null;
+        }
+        return detail;
+    }
+
     /** 출력모드 3 상태표용. */
     String status() {
         if (!lastError.isEmpty()) {
@@ -131,7 +158,9 @@ final class WeatherService {
             String url = String.format(Locale.US,
                     "https://api.open-meteo.com/v1/forecast"
                             + "?latitude=%.4f&longitude=%.4f"
-                            + "&current=weather_code,is_day,cloud_cover", lat, lon);
+                            + "&current=weather_code,is_day,cloud_cover,temperature_2m,apparent_temperature"
+                            + "&daily=weather_code,temperature_2m_max,temperature_2m_min"
+                            + "&timezone=Asia%%2FSeoul&forecast_days=4", lat, lon);
             conn = (HttpURLConnection) new URL(url).openConnection();
             conn.setConnectTimeout(4000);
             conn.setReadTimeout(6000);
@@ -142,7 +171,8 @@ final class WeatherService {
                 return;
             }
             String body = readAll(conn.getInputStream());
-            JSONObject current = new JSONObject(body).optJSONObject("current");
+            JSONObject root = new JSONObject(body);
+            JSONObject current = root.optJSONObject("current");
             if (current == null) {
                 fail("json");
                 return;
@@ -160,7 +190,12 @@ final class WeatherService {
             fetchedLat = lat;
             fetchedLon = lon;
             lastError = "";
+            // 미세먼지는 별도 주소. 실패해도 날씨는 그대로 쓴다.
+            String aq = fetchAirQuality(lat, lon);
+            detail = parseDetail(root, new JSONObject(aq));
             prefs.edit()
+                    .putString("body", body)
+                    .putString("aq", aq)
                     .putInt("code", code)
                     .putBoolean("day", day)
                     .putInt("cloud", cloudPct)
@@ -175,6 +210,75 @@ final class WeatherService {
                 conn.disconnect();
             }
             busy = false;
+        }
+    }
+
+    private static String fetchAirQuality(double lat, double lon) {
+        HttpURLConnection conn = null;
+        try {
+            String url = String.format(Locale.US,
+                    "https://air-quality-api.open-meteo.com/v1/air-quality"
+                            + "?latitude=%.4f&longitude=%.4f&current=pm10,pm2_5", lat, lon);
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(4000);
+            conn.setReadTimeout(6000);
+            conn.setRequestProperty("Accept", "application/json");
+            if (conn.getResponseCode() != 200) {
+                return "{}";
+            }
+            String body = readAll(conn.getInputStream());
+            new JSONObject(body);
+            return body;
+        } catch (Throwable t) {
+            return "{}";
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+
+    static Detail parseDetail(JSONObject forecast, JSONObject air) {
+        JSONObject current = forecast.optJSONObject("current");
+        if (current == null) {
+            return null;
+        }
+        Detail d = new Detail();
+        d.temp = current.optDouble("temperature_2m", Double.NaN);
+        d.feels = current.optDouble("apparent_temperature", Double.NaN);
+        JSONObject daily = forecast.optJSONObject("daily");
+        JSONArray dates = daily == null ? null : daily.optJSONArray("time");
+        JSONArray codes = daily == null ? null : daily.optJSONArray("weather_code");
+        JSONArray maxs = daily == null ? null : daily.optJSONArray("temperature_2m_max");
+        JSONArray mins = daily == null ? null : daily.optJSONArray("temperature_2m_min");
+        if (dates != null && codes != null && maxs != null && mins != null) {
+            d.max = maxs.optDouble(0, Double.NaN);
+            d.min = mins.optDouble(0, Double.NaN);
+            for (int i = 0; i < 3 && i + 1 < dates.length(); i++) {
+                d.dayOfWeek[i] = dayOfWeek(dates.optString(i + 1, ""));
+                d.dayIcon[i] = iconFor(codes.optInt(i + 1, 3));
+                d.dayMax[i] = maxs.optDouble(i + 1, Double.NaN);
+                d.dayMin[i] = mins.optDouble(i + 1, Double.NaN);
+            }
+        }
+        JSONObject aq = air == null ? null : air.optJSONObject("current");
+        if (aq != null) {
+            d.pm10 = aq.optDouble("pm10", Double.NaN);
+            d.pm25 = aq.optDouble("pm2_5", Double.NaN);
+        }
+        return d;
+    }
+
+    /** "2026-10-16" → Calendar.FRIDAY. 형식이 틀리면 0. */
+    static int dayOfWeek(String date) {
+        try {
+            String[] ymd = date.split("-");
+            Calendar cal = Calendar.getInstance();
+            cal.clear();
+            cal.set(Integer.parseInt(ymd[0]), Integer.parseInt(ymd[1]) - 1, Integer.parseInt(ymd[2]));
+            return cal.get(Calendar.DAY_OF_WEEK);
+        } catch (Throwable t) {
+            return 0;
         }
     }
 
@@ -197,7 +301,7 @@ final class WeatherService {
     }
 
     /** WMO 코드 → 아이콘 7종. */
-    private static int iconFor(int wmo) {
+    static int iconFor(int wmo) {
         if (wmo == 0) {
             return ICON_CLEAR;
         }
