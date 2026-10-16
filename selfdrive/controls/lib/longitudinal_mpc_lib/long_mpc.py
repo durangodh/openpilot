@@ -522,7 +522,8 @@ class LongitudinalMpc:
     self.lead0_gap_prev_d = d_rel
     self.gap_extra_tf = self.lead0_gap.update(
       level=GAP_RECOVERY_LEVEL, track_id=self.lead0_gap_track,
-      enabled=bool(lead0_status) and self.mode == 'acc' and not reset_state,
+      # Off (2026-10-16): testing whether the held gap causes the far following.
+      enabled=False,
       dt=DT_MDL, ego_speed=v_ego, lead_speed=float(lead_xv_0[0, 1]),
       relative_speed=float(lead_one.vRel) if lead0_status else 0.0,
       distance=d_rel if d_rel is not None else 0.0,
