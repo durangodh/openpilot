@@ -52,6 +52,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         new EonDiscovery(client).start();
 
         hookApplicationContext(lpparam, map);
+        hookForeground();
         hookScreenCamera(lpparam, map);
         hookJunction(lpparam, new KakaoJunction(client));
         hookLane(lpparam, new KakaoLane(client));
@@ -72,6 +73,36 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
                     + (verified ? " (verified)" : " (UNVERIFIED: 기능 일부가 빠질 수 있음)"));
         } catch (Throwable t) {
             KakaoHudLog.ex("appVersion", t);
+        }
+    }
+
+    // 이 앱 화면이 앞으로 나오면(엔미러 바탕화면에서 누름 등) HUD 앱에 알려 HUD·EON 내비 선택을
+    // 이 앱으로 바꾸게 한다. 이미 선택된 앱이면 HUD 앱이 무시한다.
+    private static long hudNotifiedAt;
+
+    static void notifyHudForeground(android.app.Activity activity, int app) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - hudNotifiedAt < 1000) return;
+        hudNotifiedAt = now;
+        activity.sendBroadcast(new android.content.Intent("ai.comma.remotehud.NAV_FOREGROUND")
+                .setPackage("ai.comma.remotehud").putExtra("app", app));
+    }
+
+    private void hookForeground() {
+        try {
+            XposedBridge.hookMethod(android.app.Activity.class.getDeclaredMethod("onResume"),
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                notifyHudForeground((android.app.Activity) param.thisObject, 3);
+                            } catch (Throwable t) {
+                                KakaoHudLog.ex("notifyHud", t);
+                            }
+                        }
+                    });
+        } catch (Throwable t) {
+            KakaoHudLog.ex("hookForeground", t);
         }
     }
 

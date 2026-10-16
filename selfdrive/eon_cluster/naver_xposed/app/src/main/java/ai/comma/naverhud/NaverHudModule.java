@@ -150,10 +150,27 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
         });
     }
 
+    // 이 앱 화면이 앞으로 나오면(엔미러 바탕화면에서 누름 등) HUD 앱에 알려 HUD·EON 내비 선택을
+    // 이 앱으로 바꾸게 한다. 이미 선택된 앱이면 HUD 앱이 무시한다.
+    private static long hudNotifiedAt;
+
+    static void notifyHudForeground(android.app.Activity activity, int app) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - hudNotifiedAt < 1000) return;
+        hudNotifiedAt = now;
+        activity.sendBroadcast(new android.content.Intent("ai.comma.remotehud.NAV_FOREGROUND")
+                .setPackage("ai.comma.remotehud").putExtra("app", app));
+    }
+
     private static void hookActivity(ClassLoader appLoader) {
         Class<?> activity = XposedHelpers.findClass("com.naver.map.MainActivity", appLoader);
         XposedBridge.hookAllMethods(activity, "onResume", new XC_MethodHook() {
             @Override protected void afterHookedMethod(MethodHookParam param) {
+                try {
+                    notifyHudForeground((Activity) param.thisObject, 2);
+                } catch (Throwable error) {
+                    log("HUD foreground notify failed: " + error);
+                }
                 try {
                     bridge.setActivity((Activity) param.thisObject);
                 } catch (Throwable error) {

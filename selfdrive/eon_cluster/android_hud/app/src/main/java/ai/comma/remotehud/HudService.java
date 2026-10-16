@@ -80,6 +80,12 @@ public final class HudService extends Service {
 
     static final String ACTION_RESCAN_USB = "ai.comma.remotehud.RESCAN_USB";
     static final String ACTION_SELECT_NAV = "ai.comma.remotehud.SELECT_NAV";
+    /**
+     * 폰 내비 모듈(티맵·네이버·카카오)이 자기 앱 화면이 앞으로 나왔을 때 보낸다(extra "app" 1~3).
+     * 엔미러는 S9 기본 화면을 차량에 비추므로, 엔미러 바탕화면에서 내비를 누르면 HUD 앱에 들어가지
+     * 않아도 HUD·EON 선택이 그 내비로 바뀌고 이전 내비는 종료된다(2026-10-16 요청).
+     */
+    static final String ACTION_NAV_FOREGROUND = "ai.comma.remotehud.NAV_FOREGROUND";
     static final String EXTRA_NAV_FOREGROUND_LAUNCHED =
             "ai.comma.remotehud.NAV_FOREGROUND_LAUNCHED";
     static volatile boolean navSelectionSupported;
@@ -700,6 +706,13 @@ public final class HudService extends Service {
             registerReceiver(usbReceiver, filter);
         }
         usbReceiverRegistered = true;
+        IntentFilter navFilter = new IntentFilter(ACTION_NAV_FOREGROUND);
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(navForegroundReceiver, navFilter, Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(navForegroundReceiver, navFilter);
+        }
+        navForegroundReceiverRegistered = true;
     }
 
     @Override
@@ -1015,6 +1028,24 @@ public final class HudService extends Service {
      * Android 13의 백그라운드 Activity 실행 제한을 피하기 위해, 사용자가 이미
      * Magisk에서 허용한 Remote HUD 루트 권한으로 launcher Activity를 실행한다.
      */
+    private boolean navForegroundReceiverRegistered;
+
+    /** 선택 안 된 내비가 앞으로 나오면 HUD 앱 내비 버튼을 누른 것처럼 바꾼다(앱은 이미 떠 있어 다시 띄우지 않음). */
+    private final BroadcastReceiver navForegroundReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            final int app = intent.getIntExtra("app", 0);
+            if (app < 1 || app > 3) return;
+            new Thread(() -> {
+                synchronized (AppPrefs.class) {
+                    if (AppPrefs.getNavApp(HudService.this) == app) return;
+                    AppPrefs.requestNavApp(HudService.this, app);
+                    applyNavigationSelection(app, true, true);
+                }
+            }, "hud-nav-foreground").start();
+        }
+    };
+
     private void applyNavigationSelection(int requested) {
         applyNavigationSelection(requested, false, false);
     }
@@ -7256,6 +7287,13 @@ public final class HudService extends Service {
             } catch (Exception ignored) {
             }
             usbReceiverRegistered = false;
+        }
+        if (navForegroundReceiverRegistered) {
+            try {
+                unregisterReceiver(navForegroundReceiver);
+            } catch (Exception ignored) {
+            }
+            navForegroundReceiverRegistered = false;
         }
         releaseWakeLock();
         super.onDestroy();
