@@ -187,8 +187,11 @@ final class NaverHudMap {
             skippedBlank = b;
             return null;
         }
-        if (b == null && !active && !skipping && skippedBlank != null) {
-            b = skippedBlank;   // 그 뒤로 새 프레임이 없으면(정차) 들고 있던 프레임으로 시작한다.
+        if (b == null && !active && !skipping && skippedBlank != null && !transparent(skippedBlank)) {
+            // 그 뒤로 새 프레임이 없으면(정차) 들고 있던 프레임으로 시작한다. 단 투명한 프레임(타일이
+            // 아직 하나도 안 그려짐)은 JPEG 에서 검정이 되어 부팅 때 가운데가 까맣게 나왔다(2026-10-16).
+            // 타일이 그려지면 새 프레임이 오므로 그때까지 기다린다.
+            b = skippedBlank;
         } else if (skippedBlank != null && b != null) {
             skippedBlank.recycle();
         }
@@ -311,6 +314,17 @@ final class NaverHudMap {
             }
         }
         call(hudMap, "C1", new Class<?>[]{positionType}, camera);
+    }
+
+    /** 8x8 표본이 거의 다 투명하면 지도 타일이 하나도 안 그려진 프레임이다. */
+    private static boolean transparent(Bitmap b) {
+        int w = b.getWidth(), h = b.getHeight(), count = 0;
+        for (int y = 0; y < 8; y++) {
+            for (int x = 0; x < 8; x++) {
+                if ((b.getPixel(w * (2 * x + 1) / 16, h * (2 * y + 1) / 16) >>> 24) < 16) count++;
+            }
+        }
+        return count > 48;
     }
 
     /** 8x8 표본이 거의 다 투명하거나 한 색이면 아직 지도가 안 그려진 프레임이다. */

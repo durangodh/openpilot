@@ -194,6 +194,12 @@ final class NaverMapCapture {
                 }
                 return;
             }
+            if (hudMap.started() && lastHud == null) {
+                // HUD 지도를 처음 만드는 중(부팅·앱 시작): 폰·엔미러 화면 지도는 축척·범위가 달라
+                // 잠깐 이상한 지도가 보였다(2026-10-16). 첫 프레임까지 보내지 않고 HUD 대기 화면을 둔다.
+                // 15초 안에 안 되면 NaverHudMap 이 포기(failed)하고 아래 스냅샷 방식으로 넘어간다.
+                return;
+            }
             if (hudMap.started() && lastHud != null) {
                 // HUD 지도를 다시 만드는 중(앱 전환·크기 설정 변경): 빈 화면이나 큰 폰 화면 대신
                 // 마지막 HUD 지도를 1초마다 다시 보낸다. 15초 안에 안 되면 NaverHudMap 이 포기한다.
