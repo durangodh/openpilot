@@ -96,7 +96,9 @@ final class WeatherService {
         boolean aged = now - fetchedAt >= REFRESH_MS;
         boolean moved = !isFinite(fetchedLat) || !isFinite(fetchedLon)
                 || distanceM(lat, lon, fetchedLat, fetchedLon) >= MOVE_M;
-        if (!aged && !moved) {
+        // 상세값(기온·예보·미세먼지)이 없으면 바로 받는다. 앱 업데이트 직후에는 예전 아이콘 값만
+        // 저장돼 있어 15분 동안 네비모드 날씨 칸이 비었다(2026-10-16).
+        if (!aged && !moved && detail != null) {
             return;
         }
         busy = true;
