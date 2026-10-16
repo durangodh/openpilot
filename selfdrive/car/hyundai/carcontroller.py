@@ -108,6 +108,11 @@ class CarController:
       noo_turn = int(controls.sm['lateralPlan'].nooTurnDirection)
     except (AttributeError, KeyError, TypeError, ValueError):
       return False
+    # The DH MDPS faulted when steering stayed active past ~90 deg while the
+    # driver turned the wheel against it in an intersection turn (2026-10-16).
+    # Beyond 80 deg or with the driver steering, the normal blinker cut applies.
+    if abs(CS.out.steeringAngleDeg) >= 80.0 or CS.out.steeringPressed:
+      return False
     # Also covers the 0.5 s hold after the blinker goes off; only an opposite
     # blinker keeps the cut.
     left, right = CS.out.leftBlinker, CS.out.rightBlinker

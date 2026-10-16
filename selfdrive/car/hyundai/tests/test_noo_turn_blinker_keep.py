@@ -16,8 +16,8 @@ def load_gate():
   return env['_noo_turn_matches_blinker']
 
 
-def state(left=False, right=False):
-  return NS(out=NS(leftBlinker=left, rightBlinker=right))
+def state(left=False, right=False, angle=0.0, pressed=False):
+  return NS(out=NS(leftBlinker=left, rightBlinker=right, steeringAngleDeg=angle, steeringPressed=pressed))
 
 
 def controls(noo_turn):
@@ -43,3 +43,11 @@ def test_opposite_blinker_or_no_noo_turn_keeps_the_cut():
 
 def test_missing_lateral_plan_fails_closed():
   assert not load_gate()(state(left=True), NS(sm={}))
+
+
+def test_large_angle_or_driver_steering_releases_noo_turn():
+  gate = load_gate()
+  assert gate(state(right=True, angle=-79.0), controls(1))
+  assert not gate(state(right=True, angle=-100.0), controls(1))
+  assert not gate(state(left=True, angle=95.0), controls(-1))
+  assert not gate(state(right=True, angle=-30.0, pressed=True), controls(1))
