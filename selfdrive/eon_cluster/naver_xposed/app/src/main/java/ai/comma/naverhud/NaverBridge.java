@@ -271,10 +271,13 @@ final class NaverBridge {
         send("speed", speed(s, (int) NaverCodes.number(call(link, "h"))));
         Object laneItem = value(NaverStore.get(s, "NaviLaneItem"));
         send("lane_current", lane(laneItem));
-        laneFallback(laneItem, guiding || (mode != null && "SafeDriving".equals(String.valueOf(mode))));
+        boolean driving = guiding || (mode != null && "SafeDriving".equals(String.valueOf(mode)));
+        laneFallback(laneItem, driving);
         Object signalItem = value(NaverStore.get(s, "TrafficSignalInfo"));
         send("traffic_signal", signal(signalItem));
-        publishSignalImage(guiding ? signalItem : null);
+        // 네이버는 안심주행(목적지 없음)에도 신호 정보를 갱신한다. 예전에는 길안내 중에만 보내
+        // 안심주행에서 HUD 신호등이 안 떴다(2026-10-16).
+        publishSignalImage(driving ? signalItem : null);
         junction.publish(s, guiding);
 
         // 검증 안 된 버전에서 난독화 게터가 비어 있는지 한 번 기록한다.
