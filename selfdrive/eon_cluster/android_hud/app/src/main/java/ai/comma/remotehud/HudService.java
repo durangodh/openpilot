@@ -21,6 +21,7 @@ import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.Picture;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.PorterDuffXfermode;
@@ -429,6 +430,8 @@ public final class HudService extends Service {
     /** 차량 표현 1: 사진 스프라이트 / 2: 3D 박스 */
     /** 이번 프레임의 테마 (매 프레임 render() 에서 갱신) */
     private boolean frameDark = false;
+    /** 왼쪽 위 표시등을 검은 박스 위에 그리는 동안: 낮에도 밝은 글자. */
+    private boolean lightsOnBadge = false;
     private WeatherService weather;
     /** 상단 밴드에 하늘을 깐 동안만 true. 이때 글자색을 하늘 밝기에 맞춘다. */
     private boolean skyBand = false;
@@ -2753,7 +2756,18 @@ public final class HudService extends Service {
         int save = beginElement(c, l, "lights", 70f, 36f);
         // 왼쪽 위 등화 줄과 오른쪽 위 날씨·온도는 원래 그림보다 10% 크게(각각 왼쪽·오른쪽 끝 기준).
         c.scale(TOP_ROW_SCALE, TOP_ROW_SCALE, 21f, 36f);
-        drawLights(c, p, s);
+        // 2026-10-16: 켜진 표시등만큼 오른쪽 위 배지와 같은 검은 박스를 깐다. 줄 끝을 알아야
+        // 하므로 먼저 Picture 에 그려 끝 x 를 얻고, 박스 위에서는 낮에도 밝은 글자를 쓴다.
+        lightsOnBadge = true;
+        Picture lights = new Picture();
+        float lightsEnd = drawLights(lights.beginRecording(WIDTH, HEIGHT), p, s);
+        lights.endRecording();
+        lightsOnBadge = false;
+        if (lightsEnd > 21f) {
+            scratchRect.set(11f, 12f, lightsEnd + 10f, 60f);
+            GpsSourceIcons.badge(c, p, scratchRect, frameDark);
+            c.drawPicture(lights);
+        }
         c.restoreToCount(save);
 
         // 12.3인치 순정 계기판 배치: 왼쪽 큰 원형 속도·RPM 게이지, 오른쪽 EON HUD 박스.
@@ -3745,6 +3759,7 @@ public final class HudService extends Service {
     }
 
     private int ink() {
+        if (lightsOnBadge) return Color.rgb(245, 248, 250);
         if (skyBand) {
             return skyLightInk ? Color.rgb(245, 248, 250) : Color.rgb(18, 18, 18);
         }
@@ -3752,6 +3767,7 @@ public final class HudService extends Service {
     }
 
     private int dim() {
+        if (lightsOnBadge) return Color.rgb(196, 206, 214);
         if (skyBand) {
             return skyLightInk ? Color.rgb(196, 206, 214) : Color.rgb(86, 92, 98);
         }
@@ -4811,7 +4827,8 @@ public final class HudService extends Service {
         c.drawLine(x - h * 0.05f, baseline, x + bodyW + h * 0.05f, baseline, p);
     }
 
-    private void drawLights(Canvas c, Paint p, JSONObject s) {
+    /** 반환값: 마지막 표시등의 오른쪽 끝 x(아무것도 없으면 시작 x 21). */
+    private float drawLights(Canvas c, Paint p, JSONObject s) {
         // 상태 아이콘 줄의 원래 시작 위치는 유지한다. 순정 계기판 사진과 같은
         // 래스터 자산을 축소해 그리며, 자산 누락 때만 기존 벡터를 사용한다.
         final float y = 36f;
@@ -4857,7 +4874,9 @@ public final class HudService extends Service {
             boolean highlighted = SystemClock.elapsedRealtime() - wiperModeChangedElapsed
                     <= WIPER_MODE_HIGHLIGHT_MS;
             drawWiperStatus(c, p, x, y, wiperMode, highlighted);
+            return x + (wiperMode == 4 ? 83f : 77f);
         }
+        return x;
     }
 
     /**
@@ -4904,7 +4923,7 @@ public final class HudService extends Service {
         if (highlighted) {
             p.setShader(null);
             p.setStyle(Paint.Style.FILL);
-            p.setColor(frameDark ? Color.rgb(47, 56, 66) : Color.rgb(222, 229, 234));
+            p.setColor(frameDark || lightsOnBadge ? Color.rgb(47, 56, 66) : Color.rgb(222, 229, 234));
             scratchRect.set(left - 5f, cy - 20f, right, cy + 20f);
             c.drawRoundRect(scratchRect, 8f, 8f, p);
         }
@@ -6850,11 +6869,8 @@ public final class HudService extends Service {
                 c.scale(scale, scale, right, top);
             }
         }
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(190, 28, 34, 40));
         scratchRect.set(right - width, top, right, top + height);
-        c.drawRoundRect(scratchRect, 10f, 10f, p);
+        GpsSourceIcons.badge(c, p, scratchRect, frameDark);
         text(c, p, NavSelectionProtocol.appLabel(s.optInt("hudNavApp", 1)),
                 right - width * 0.5f, top + 34f, 25f, Color.WHITE, Paint.Align.CENTER);
         drawGpsSourceBadge(c, p, right - width - 12f, top, height);
@@ -6957,7 +6973,7 @@ public final class HudService extends Service {
         GpsSourceMonitor.Reading reading = gpsSourceMonitor.snapshot();
         float leftLimit = naviLayout ? 400f : MAP_LEFT + 356f;
         if (right - leftLimit < gpsSourceIcons.width(reading)) return;
-        gpsSourceIcons.draw(c, right, top, reading);
+        gpsSourceIcons.draw(c, right, top, reading, frameDark);
     }
 
     /**

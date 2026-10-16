@@ -73,15 +73,32 @@ final class GpsSourceIcons {
         return GpsSourcePolicy.badgeWidth(reading.kind)
                 + (reading.accuracy.isEmpty() ? 0f : paint.measureText(reading.accuracy) + 16f);
     }
-    void draw(Canvas canvas, float right, float top, GpsSourceMonitor.Reading reading) {
+    /**
+     * Dark badge background shared by the top-row badges. At night the day grey
+     * almost vanished on the dark frame, so it is darker with a faint outline.
+     */
+    static void badge(Canvas canvas, Paint paint, RectF rect, boolean night) {
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(night ? Color.argb(215, 6, 8, 10) : Color.argb(190, 28, 34, 40));
+        canvas.drawRoundRect(rect, 10f, 10f, paint);
+        if (night) {
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(1.5f);
+            paint.setColor(Color.argb(70, 255, 255, 255));
+            canvas.drawRoundRect(rect, 10f, 10f, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
+    }
+
+    void draw(Canvas canvas, float right, float top, GpsSourceMonitor.Reading reading, boolean night) {
         int kind = reading.kind;
         boolean predicted = reading.predicted;
         String status = GpsSourcePolicy.symbol(kind);
         float width = width(reading);
         float left = right - width;
-        paint.setColor(Color.argb(210, 28, 34, 40));
         rect.set(left, top, right, top + 48f);
-        canvas.drawRoundRect(rect, 10f, 10f, paint);
+        badge(canvas, paint, rect, night);
         long now = SystemClock.elapsedRealtime();
         icon(canvas, car, carBounds, left + 29f, top,
                 tone(GpsSourcePolicy.iconTone(kind, predicted, true, now)));
