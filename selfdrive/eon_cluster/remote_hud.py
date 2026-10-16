@@ -1335,7 +1335,6 @@ def _packet(sm, noo_enabled, path_offset=0.0):
       "rl": int(_finite(_field(parking_sensors, "rearLeft", 0))),
       "rc": int(_finite(_field(parking_sensors, "rearCenter", 0))),
       "rr": int(_finite(_field(parking_sensors, "rearRight", 0))),
-      "check": bool(_field(parking_sensors, "checkWarning", False)),
     },
     "outsideTemp": round(_finite(_field(car, "outsideTempC", -1000.0), -1000.0), 1),
     "distanceToEmpty": round(_finite(_field(car, "distanceToEmptyKm", -1.0)), 1),

@@ -347,8 +347,6 @@ class CarState(CarStateBase):
     ret.parkingSensors.rearLeft = int(pas["CF_Gway_PASDisplayRLH"])
     ret.parkingSensors.rearCenter = int(pas["CF_Gway_PASDisplayRCTR"])
     ret.parkingSensors.rearRight = int(pas["CF_Gway_PASDisplayRRH"])
-    # 센서 점검(이상) 경고음 신호. 값 뜻은 미확인이라 원격 HUD 표시 전용으로만 쓴다.
-    ret.parkingSensors.checkWarning = int(pas["CF_Gway_PASCheckSound"]) != 0
 
     # Blind Spot Detection and Lane Change Assist signals
     if self.CP.enableBsm:
@@ -562,7 +560,6 @@ class CarState(CarStateBase):
       ("CF_Gway_PASDisplayRCTR", "PAS11"),
       ("CF_Gway_PASDisplayRRH", "PAS11"),
       ("CF_Gway_PASSystemOn", "PAS11"),
-      ("CF_Gway_PASCheckSound", "PAS11"),
     ]
 
     checks = [
