@@ -201,12 +201,15 @@ final class ModelWorldGL {
         columnWidth = Math.max(1, Math.min(WIDTH - left, width));
     }
 
-    // 네비모드: 하늘/땅 경계를 지평선 대신 화면의 고정 높이(프레임 y)에 둔다. 지평선은 차량 피치로
-    // 오르내려 옆 알림창 위쪽 선과 어긋났다(2026-10-16 요청). NaN 이면 지평선 그대로(주행모드).
-    private float groundTop = Float.NaN;
+    // 네비모드: 좁은 주행 칸에서 하늘/땅 경계와 프레임 위끝이 선으로 보였다(2026-10-16). 하늘은
+    // 프레임 위끝에서 투명 → 지평선에서 불투명으로, 지평선 아래는 하늘색이 길게 옅어지게 그려
+    // 경계가 드러나지 않게 잇는다. 지평선 위치는 그대로(차량 피치를 따른다).
+    private boolean softHorizon;
+    private static final int SOFT_BANDS = 16;
+    private static final float SOFT_GROUND_FADE_PX = 110f;
 
-    void setGroundTop(float frameY) {
-        groundTop = frameY;
+    void setSoftHorizon(boolean soft) {
+        softHorizon = soft;
     }
 
     boolean draw(Canvas canvas, Paint paint, JSONObject scene, boolean enabled,
@@ -234,7 +237,7 @@ final class ModelWorldGL {
                     ^ (scene.optBoolean("leftBsd", false) ? 1 << 6 : 0)
                     ^ (scene.optBoolean("rightBsd", false) ? 1 << 7 : 0);
             // 칸이 바뀌면(네비모드 ↔ 주행모드) 직전 그림을 다시 쓰지 않는다.
-            int columnKey = columnLeft * 4096 + columnWidth + (Float.isNaN(groundTop) ? 0 : 1 << 30);
+            int columnKey = columnLeft * 4096 + columnWidth + (softHorizon ? 1 << 30 : 0);
             boolean styleChanged = style != lastStyle
                     || sceneFlip != (scene.optInt("hudPathFlip", 0) != 0)
                     || columnKey != lastColumnKey;
@@ -454,9 +457,25 @@ final class ModelWorldGL {
         // 비전 차량 접지감을 위해 지평선 아래를 더 어둡게(아스팔트 톤) 깐다.
         int ground = dark ? blend(driveBg, Color.BLACK, 0.35f)
                 : blend(driveBg, Color.BLACK, 0.22f);
-        float groundY = Float.isNaN(groundTop) ? HORIZON + horizonShift - TOP : groundTop;
-        drawRect(0f, 0f, WIDTH, Math.max(0f, groundY), sky, 1f);
-        drawRect(0f, Math.max(0f, groundY), WIDTH, HEIGHT, ground, 1f);
+        float groundY = Math.max(0f, HORIZON + horizonShift - TOP);
+        if (softHorizon) {
+            for (int i = 0; i < SOFT_BANDS; i++) {
+                drawRect(0f, groundY * i / SOFT_BANDS, WIDTH, groundY * (i + 1) / SOFT_BANDS,
+                        sky, (i + 0.5f) / SOFT_BANDS);
+            }
+        } else {
+            drawRect(0f, 0f, WIDTH, groundY, sky, 1f);
+        }
+        drawRect(0f, groundY, WIDTH, HEIGHT, ground, 1f);
+        if (softHorizon) {
+            // 지평선에서 하늘색 그대로 시작해 아래로 길게 옅어진다. 도로·차선은 이 위에 그린다.
+            float soft = SOFT_GROUND_FADE_PX / SOFT_BANDS;
+            for (int i = 0; i < SOFT_BANDS; i++) {
+                float top = groundY + i * soft;
+                if (top >= HEIGHT) break;
+                drawRect(0f, top, WIDTH, Math.min(HEIGHT, top + soft), sky, 1f - (i + 0.5f) / SOFT_BANDS);
+            }
+        }
 
         Line rawLeftEdge = null;
         Line rawRightEdge = null;
@@ -1414,7 +1433,7 @@ final class ModelWorldGL {
         if (strength <= 0.01f) {
             return;
         }
-        float horizon = Float.isNaN(groundTop) ? HORIZON + horizonShift - TOP : groundTop;
+        float horizon = HORIZON + horizonShift - TOP;
         float band = HAZE_DEPTH_PX / HAZE_BANDS;
         for (int i = 0; i < HAZE_BANDS; i++) {
             float top = horizon + i * band;

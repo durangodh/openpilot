@@ -2668,11 +2668,10 @@ public final class HudService extends Service {
                 // 네비모드는 주행 장면 중 오른쪽 칸(NAVI_DRIVE_LEFT..WIDTH)에 옮겨진 부분만 보인다.
                 int shift = Math.round(NAVI_DRIVE_CX - DRIVE_MID);
                 modelWorldGl.setVisibleColumns(NAVI_DRIVE_LEFT - shift - 8, WIDTH - NAVI_DRIVE_LEFT + 16);
-                // 하늘/땅 경계를 옆 알림창(EON 박스) 위쪽 선(화면 y 225)에 맞춘다.
-                modelWorldGl.setGroundTop(225f + NAVI_WORLD_LIFT - ModelWorldGL.TOP);
+                modelWorldGl.setSoftHorizon(true);
             } else {
                 modelWorldGl.setVisibleColumns(0, DRIVE_W);
-                modelWorldGl.setGroundTop(Float.NaN);
+                modelWorldGl.setSoftHorizon(false);
             }
             glDrawn = modelWorldGl.draw(c, p, s, enabled, driveBg, roadTop,
                     roadBottom, pathColor, frameDark,
