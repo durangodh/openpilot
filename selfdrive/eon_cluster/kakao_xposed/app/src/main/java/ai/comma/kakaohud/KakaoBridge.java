@@ -263,7 +263,7 @@ final class KakaoBridge {
             if (remainDistance < 0 || remainTime < 0) return;
             client.sendState("route",
                     "{\"remain_distance_m\":" + remainDistance
-                            + ",\"remain_time_sec\":" + remainTime + "}");
+                            + ",\"remain_time_sec\":" + remainTime + congestion(route) + "}");
 
             if (loggedRouteSummary.compareAndSet(false, true)) {
                 KakaoHudLog.line("ROUTE summary: remain=" + remainDistance
@@ -274,10 +274,71 @@ final class KakaoBridge {
         }
     }
 
+    // HUD 네비모드 교통정보 바(네이버와 같은 형식). 카카오 경로 진행 막대가 쓰는
+    // wrapper.route.e.p(KNURoute) = List<KNURouteLinkWithTraffic(knmsdk.wi0.s)>:
+    // a 교통상태(KNUTrafficState), b 구간 거리, d 출발점부터 구간 끝까지 거리.
+    // 전체 경로를 같은 거리 칸으로 나눠 칸마다 상태 숫자(0 모름, 1 원활, 2 서행·지체, 3 정체)를 둔다.
+    private static final int CONGESTION_CELLS = 100;
+    private static final long CONGESTION_INTERVAL_MS = 5000;
+    private long congestionAt;
+    private String congestionCells = "";
+    private int congestionTotal;
+    private boolean congestionFailed;
+
+    private String congestion(Object route) {
+        if (congestionFailed) return "";
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - congestionAt >= CONGESTION_INTERVAL_MS) {
+            congestionAt = now;
+            try {
+                Method links = null;
+                for (Method m : route.getClass().getClassLoader()
+                        .loadClass("com.kakaomobility.navi.drive.core.wrapper.route.e").getMethods()) {
+                    if ("p".equals(m.getName()) && m.getParameterTypes().length == 1
+                            && m.getParameterTypes()[0].isInstance(route)) {
+                        links = m;
+                        break;
+                    }
+                }
+                if (links == null) throw new NoSuchMethodException("route.e.p(KNURoute)");
+                java.util.List<?> list = (java.util.List<?>) links.invoke(null, route);
+                int n = list == null ? 0 : list.size();
+                int[] end = new int[n];
+                char[] level = new char[n];
+                for (int i = 0; i < n; i++) {
+                    Object link = list.get(i);
+                    end[i] = link.getClass().getField("d").getInt(link);
+                    String state = String.valueOf(link.getClass().getField("a").get(link));
+                    level[i] = state.endsWith("Blue") ? '1'
+                            : state.endsWith("Yellow") || state.endsWith("Orange") ? '2'
+                            : state.endsWith("Red") || state.endsWith("Blocked") ? '3' : '0';
+                }
+                congestionTotal = n > 0 ? end[n - 1] : 0;
+                StringBuilder cells = new StringBuilder();
+                for (int c = 0, i = 0; c < CONGESTION_CELLS && congestionTotal > 0; c++) {
+                    double at = (c + 0.5) * congestionTotal / CONGESTION_CELLS;
+                    while (i < n - 1 && end[i] < at) i++;
+                    cells.append(level[i]);
+                }
+                congestionCells = cells.toString();
+            } catch (Throwable t) {
+                congestionFailed = true;
+                KakaoHudLog.ex("congestion", t);
+                return "";
+            }
+        }
+        if (congestionCells.isEmpty() || congestionTotal <= 0 || vehicleDistFromS < 0) return "";
+        double progress = Math.max(0.0, Math.min(100.0, 100.0 * vehicleDistFromS / congestionTotal));
+        return ",\"congestion\":\"" + congestionCells + "\",\"congestion_progress\":"
+                + String.format(java.util.Locale.US, "%.1f", progress);
+    }
+
     /** 목적지 안내가 끝났다: 남은 안내를 지운다(티맵 모듈과 같은 방식). */
     private void endRoute() {
         routeActive = false;
         routeMissing = 0;
+        congestionAt = 0;
+        congestionCells = "";
         synchronized (guideLock) {
             hasCachedGuide = false;
             cachedCurLoc = null;
