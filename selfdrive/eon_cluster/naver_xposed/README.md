@@ -58,6 +58,21 @@ MapView), as the old bridge app sent. An offscreen engine render was tried
 and removed: it competed with the HUD app on the same S9 and made the HUD
 map stutter.
 
+## HUD map startup
+
+The HUD map is drawn by an offscreen HUD-sized map (`NaverHudMap`) that follows
+the guidance map. Until its first real frame arrives, nothing is sent and the
+HUD keeps its waiting screen: the phone/nMirror map snapshot used to show
+briefly at a different scale, and a still fully transparent first frame (no
+tiles yet) turned black in JPEG, leaving the centre of the HUD map black at
+boot (2026-10-16). Snapshots remain the fallback if the HUD map gives up.
+
+## Current address (vehicle.address)
+
+`vehicle.address` is Naver's own current address
+(`AddressAndRoadNameData.address`). EON keeps only the 읍/면/동 token for the
+area name at the top of the HUD navi-layout weather panel.
+
 ## Lane strip (lane_bottom)
 
 `NaviLaneControlView.a(NaviLaneItem, boolean)` is hooked. While the item has
