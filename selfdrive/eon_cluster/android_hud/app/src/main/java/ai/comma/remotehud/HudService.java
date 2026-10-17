@@ -173,6 +173,19 @@ public final class HudService extends Service {
      * 냉각수 줄 위(약 655) 사이 세로 가운데에 둔다(2026-10-16: 박스에 붙어 보였다).
      */
     private static final float NAVI_NOO_Y = (507f + 655f) / 2f + 50f;
+    /**
+     * 네비모드 accel·steer 게이지(carrot-wip 클러스터 방식): EON 박스 아래 오른쪽 끝에 두 칸.
+     * NOO 는 교통정보 바부터 게이지 왼쪽까지의 가운데(2026-10-17 요청).
+     */
+    private static final float NAVI_GAUGE_W = 40f;
+    private static final float NAVI_GAUGE_TOP = 537f;
+    private static final float NAVI_GAUGE_BOTTOM = 617f;
+    private static final float NAVI_STEER_CX = NAVI_COL_RIGHT - NAVI_GAUGE_W / 2f;
+    private static final float NAVI_ACCEL_CX = NAVI_STEER_CX - NAVI_GAUGE_W - 12f;
+    private static final float NAVI_NOO_CX =
+            (NAVI_CONGESTION_CX + NAVI_ACCEL_CX - NAVI_GAUGE_W / 2f) / 2f;
+    /** accel 게이지가 꽉 차는 명령 가속도(m/s²). */
+    private static final float NAVI_ACCEL_FULL = 2.5f;
     /** 네비모드 교통정보 바(네이버): 오른쪽 칸 바로 왼쪽 세로 띠. 아래끝 = 현재 위치, 위끝 = 목적지. */
     private static final float NAVI_CONGESTION_CX = NAVI_COL_LEFT - 14f;
     private static final float NAVI_CONGESTION_W = 10f;
@@ -2619,11 +2632,57 @@ public final class HudService extends Service {
         if (eonStale() || !s.optBoolean("drivingValid", true)) return;
         int save = c.save();
         // 오른쪽 칸 EON 박스 아래 가운데(도착정보와 자리 바꿈). 화살표·거리는 상태줄 위.
-        c.translate(NAVI_BOX_CX, NAVI_NOO_Y);
+        c.translate(NAVI_NOO_CX, NAVI_NOO_Y);
         c.scale(0.8f, 0.8f);
         c.translate(-NOO_CX, -(NOO_CY + NOO_LANE_DY));
         drawNooTurn(c, p, s, true);
         c.restoreToCount(save);
+
+        double accel = s.optDouble("accel", Double.NaN);
+        double steer = s.optDouble("steerOut", Double.NaN);
+        if (Double.isFinite(accel)) {
+            float v = (float) Math.max(-1d, Math.min(1d, accel / NAVI_ACCEL_FULL));
+            int color = accel > 0.005 ? Color.rgb(40, 220, 90)
+                    : accel < -0.005 ? Color.rgb(235, 70, 70) : Color.rgb(150, 160, 170);
+            drawNaviGauge(c, p, NAVI_ACCEL_CX, v, color,
+                    String.format(Locale.US, "%+.2f", accel), "accel");
+        }
+        if (Double.isFinite(steer)) {
+            float v = (float) Math.max(-1d, Math.min(1d, steer));
+            int color = v > 0.005f ? Color.rgb(70, 150, 255)
+                    : v < -0.005f ? Color.rgb(255, 176, 40) : Color.rgb(150, 160, 170);
+            drawNaviGauge(c, p, NAVI_STEER_CX, v, color,
+                    String.format(Locale.US, "%+.0f%%", v * 100f), "steer");
+        }
+    }
+
+    /** 가운데 선 기준 위(+)·아래(-)로 채우는 세로 게이지. 값은 위, 이름은 아래. */
+    private void drawNaviGauge(Canvas c, Paint p, float cx, float value, int color,
+                               String valueText, String label) {
+        float left = cx - NAVI_GAUGE_W / 2f;
+        float right = cx + NAVI_GAUGE_W / 2f;
+        float mid = (NAVI_GAUGE_TOP + NAVI_GAUGE_BOTTOM) / 2f;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(170, 10, 14, 24));
+        scratchRect.set(left, NAVI_GAUGE_TOP, right, NAVI_GAUGE_BOTTOM);
+        c.drawRoundRect(scratchRect, 10f, 10f, p);
+        float h = Math.abs(value) * ((NAVI_GAUGE_BOTTOM - NAVI_GAUGE_TOP) / 2f - 5f);
+        if (h > 0.5f) {
+            p.setColor(color);
+            scratchRect.set(left + 5f, value > 0f ? mid - h : mid, right - 5f, value > 0f ? mid : mid + h);
+            c.drawRoundRect(scratchRect, 6f, 6f, p);
+        }
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2f);
+        p.setColor(Color.argb(210, 240, 244, 248));
+        scratchRect.set(left, NAVI_GAUGE_TOP, right, NAVI_GAUGE_BOTTOM);
+        c.drawRoundRect(scratchRect, 10f, 10f, p);
+        p.setColor(Color.rgb(160, 190, 220));
+        c.drawLine(left, mid, right, mid, p);
+        p.setStyle(Paint.Style.FILL);
+        text(c, p, valueText, cx, NAVI_GAUGE_TOP - 7f, 15f, color, Paint.Align.CENTER);
+        text(c, p, label, cx, NAVI_GAUGE_BOTTOM + 17f, 15f, Color.WHITE, Paint.Align.CENTER);
     }
 
     private void drawDriving(Canvas c, Paint p, JSONObject s) {

@@ -1280,6 +1280,10 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "accel": (round(_finite(_field(controls, "applyAccel", 0.0)), 2)
               if controls_valid else None),
     "planAccel": (round(_finite(accels[0]), 2) if accels else None),
+    # Steering command (-1..1, + = left) for the navi-layout steer gauge.
+    "steerOut": (round(_finite(_field(_field(_field(controls, "lateralControlState", None),
+                                              "torqueState", None), "output", 0.0)), 3)
+                 if controls_valid else None),
     "desiredDistance": round(max(0.0, min(150.0,
         _finite(_field(sm["longitudinalPlan"], "desiredDistance", 0.0)))), 1) if longitudinal_valid else 0.0,
     "cpu": int(round(cpu_avg)),
