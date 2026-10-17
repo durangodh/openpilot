@@ -329,6 +329,13 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LongTuningKf", PERSISTENT},
     {"LongActuatorDelay", PERSISTENT},
     {"LongitudinalActuatorDelayLowerBound", PERSISTENT},
+    {"LongitudinalActuatorDelayUpperBound", PERSISTENT},
+    {"LongitudinalTuningKpV", PERSISTENT},
+    {"LongitudinalTuningKiV", PERSISTENT},
+    {"LongitudinalTuningKf", PERSISTENT},
+    {"TrafficStopModelSpeed", PERSISTENT},
+    {"ApplyModelDistOrder", PERSISTENT},
+    {"TrafficStopAdjustRatio", PERSISTENT},
     // 학습 대상 파라미터 (x100 정수 저장)
     {"TFollowGap1", PERSISTENT},               // GAP1 (default 110 = 1.10s)
     {"TFollowGap2", PERSISTENT},               // GAP2 (default 120 = 1.20s)

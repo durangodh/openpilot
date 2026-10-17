@@ -104,7 +104,7 @@ class Plant():
           'carState': car_state.carState,
           'controlsState': control.controlsState,
           'modelV2': model.modelV2}
-    self.planner.update(sm, read=False)
+    self.planner.update(sm)
     self.speed = self.planner.v_desired_filter.x
     self.acceleration = self.planner.a_desired
     fcw = self.planner.fcw

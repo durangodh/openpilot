@@ -600,6 +600,8 @@ struct ControlsState @0x97ff69c53601abf1 {
   aReqValueMin @67 :Float32;
   aReqValueMax @68 :Float32;
   sccStopRequest @81 :Bool;  # StopReq bit in the last openpilot SCC12 request
+  longActiveUser @82 :Int32;       # cruise_helper long_active_user (aPilot long_mpc)
+  cruiseButtonCounter @83 :Int32;  # +1 accel / -1 decel short press (aPilot long_mpc)
 
   steerRatio @69 :Float32;
   steerActuatorDelay @70 :Float32;

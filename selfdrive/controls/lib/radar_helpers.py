@@ -1,9 +1,9 @@
 from common.numpy_fast import mean
 from common.kalman.simple_kalman import KF1D
+from common.filter_simple import StreamingMovingAverage
 
 
-# the longer lead decels, the more likely it will keep decelerating
-# TODO is this a good default?
+# Default lead acceleration decay set to 50% at 1s
 _LEAD_ACCEL_TAU = 1.5
 
 # radar tracks
@@ -12,8 +12,8 @@ SPEED, ACCEL = 0, 1   # Kalman filter states enum
 # stationary qualification parameters
 v_ego_stationary = 4.   # no stationary object flag below this speed
 
+RADAR_TO_CENTER = 2.7   # (deprecated) RADAR is ~ 2.7m ahead from center of car
 RADAR_TO_CAMERA = 1.52   # RADAR is ~ 1.5m ahead from center of mesh frame
-
 
 class Track():
   def __init__(self, v_lead, kalman_params):
@@ -23,11 +23,11 @@ class Track():
     self.K_C = kalman_params.C
     self.K_K = kalman_params.K
     self.kf = KF1D([[v_lead], [0.0]], self.K_A, self.K_C, self.K_K)
-    self.vLead = v_lead
+    self.dRel = 0.0
 
   def update(self, d_rel, y_rel, v_rel, v_lead, measured):
     #apilot: changed radar target
-    if abs(self.vLead - v_lead) > 0.5:
+    if abs(self.dRel - d_rel) > 3.0:
       self.cnt = 0
       self.kf = KF1D([[v_lead], [0.0]], self.K_A, self.K_C, self.K_K)
 
@@ -66,6 +66,7 @@ class Track():
 class Cluster():
   def __init__(self):
     self.tracks = set()
+    self.aLeadKFilter = StreamingMovingAverage(5)
 
   def add(self, t):
     # add the first track
@@ -122,25 +123,39 @@ class Cluster():
   def measured(self):
     return any(t.measured for t in self.tracks)
 
+  def get_RadarState(self, model_prob=0.0):
+    return {
+      "dRel": float(self.dRel),
+      "yRel": float(self.yRel),
+      "vRel": float(self.vRel),
+      "vLead": float(self.vLead),
+      "vLeadK": float(self.vLeadK),
+      "aLeadK": float(self.aLeadK),
+      "status": True,
+      "fcw": self.is_potential_fcw(model_prob),
+      "modelProb": model_prob,
+      "radar": True,
+      "aLeadTau": float(self.aLeadTau)
+    }
+
   def get_RadarState2(self, model_prob, lead_msg, mixRadarInfo):
-    # ajouatom/apilot c3-master 원본: MixRadarInfo 켜짐 + 비전 prob>0.5 + |비전a| > |레이더a| 이면 비전 가속도를 그대로 사용.
-    # aLeadTau는 useVisionMix 여부와 무관하게 레이더로 추적·학습된 self.aLeadTau를 그대로 씀 (0.3 강제 없음 — 원본 반영)
     useVisionMix = False
-    if mixRadarInfo > 0 and float(lead_msg.prob) > 0.5 and abs(float(self.aLeadK)) < abs(float(lead_msg.a[0])):
+    if mixRadarInfo>0 and float(lead_msg.prob) > 0.5 and abs(float(self.aLeadK)) < abs(float(lead_msg.a[0])):
       useVisionMix = True
-    aLeadK = float(lead_msg.a[0]) if useVisionMix else float(self.aLeadK)
+
+    aLeadK = self.aLeadKFilter.process(float(lead_msg.a[0]) if useVisionMix else float(self.aLeadK))
     return {
       "dRel": float(self.dRel),
       "yRel": float(self.yRel) if mixRadarInfo == 0 or self.yRel != 0 else float(-lead_msg.y[0]),
       "vRel": float(self.vRel),
       "vLead": float(self.vLead),
       "vLeadK": float(self.vLeadK),
-      "aLeadK": float(aLeadK),
+      "aLeadK": aLeadK,
       "status": True,
       "fcw": self.is_potential_fcw(model_prob),
       "modelProb": model_prob,
       "radar": True,
-      "aLeadTau": float(self.aLeadTau)
+      "aLeadTau": 0.3 if useVisionMix else float(self.aLeadTau)
     }
 
   def get_RadarState_from_vision(self, lead_msg, v_ego, model_v_ego):

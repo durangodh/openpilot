@@ -179,6 +179,8 @@ class Controls:
     # read params
     self.is_metric = params.get_bool("IsMetric")
     self.cruise_helper = CruiseHelper(params)
+    # aPilot: +1 / -1 per short accel(resume) / decel(set) press, read by long_mpc (softHold, traffic stop).
+    self.cruise_button_counter = 0
     self.is_ldw_enabled = params.get_bool("IsLdwEnabled")
     openpilot_enabled_toggle = params.get_bool("OpenpilotEnabledToggle")
     passive = params.get_bool("Passive") or not openpilot_enabled_toggle
@@ -760,18 +762,8 @@ class Controls:
     if not self.joystick_mode:
       # accel PID loop
       pid_accel_limits = self.CI.get_pid_accel_limits(self.CP, CS.vEgo, self.v_cruise_kph * CV.KPH_TO_MS)
-      # Positive allowance (CruiseMax / no-lead / approach). LongControl is
-      # the only place that applies it; its PID jerk limit ramps to it.
-      set_speed_kph = self.applyMaxSpeed if self.applyMaxSpeed > 0.0 else self.v_cruise_kph
-      cruise_max_accel = self.cruise_helper.get_longitudinal_accel_limit(CS, self.sm, set_speed_kph)
-      pid_accel_limits = (pid_accel_limits[0], min(pid_accel_limits[1], cruise_max_accel))
       t_since_plan = (self.sm.frame - self.sm.rcv_frame['longitudinalPlan']) * DT_CTRL
-      actuators.accel, actuators.jerk = self.LoC.update(
-        CC.longActive,
-        CS, long_plan, pid_accel_limits, t_since_plan, CC.hudControl.softHold,
-        self.sm['radarState'], self.sm.valid['radarState'] and self.sm.alive['radarState'],
-        self.sm.updated['radarState'],
-        plan_valid=self.sm.valid['longitudinalPlan'] and self.sm.alive['longitudinalPlan'])
+      actuators.accel, actuators.jerk = self.LoC.update(CC.longActive, CS, long_plan, pid_accel_limits, t_since_plan, CC)
 
       # Steering PID loop and lateral MPC
       self.desired_curvature, self.desired_curvature_rate = get_lag_adjusted_curvature(self.CP, CS.vEgo,
@@ -843,6 +835,11 @@ class Controls:
     for b in buttonEvents:
       if b.type.raw in self.button_timers:
         self.button_timers[b.type.raw] = 1 if b.pressed else 0
+      if not b.pressed:
+        if b.type in (ButtonType.accelCruise, ButtonType.resumeCruise):
+          self.cruise_button_counter += 1
+        elif b.type in (ButtonType.decelCruise, ButtonType.setCruise):
+          self.cruise_button_counter -= 1
 
   def publish_logs(self, CS, start_time, CC, lac_log):
     """Send actuators and hud commands to the car, send controlsstate and MPC logging"""
@@ -1017,6 +1014,8 @@ class Controls:
 
     controlsState.longCruiseGap = self.cruise_helper.long_cruise_gap
     controlsState.myDrivingMode = self.cruise_helper.my_driving_mode
+    controlsState.longActiveUser = int(self.cruise_helper.long_active_user)
+    controlsState.cruiseButtonCounter = int(self.cruise_button_counter)
     controlsState.mySafeModeFactor = self.cruise_helper.my_safe_mode_factor
     controlsState.cruiseDecelLimit = float(self.cruise_helper.apply_decel_rate)
 

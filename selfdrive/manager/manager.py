@@ -188,6 +188,13 @@ def manager_init() -> None:
     ("LongTuningKiV", "200"),
     ("LongTuningKf", "100"),
     ("LongitudinalActuatorDelayLowerBound", "50"),
+    ("LongitudinalActuatorDelayUpperBound", "50"),
+    ("LongitudinalTuningKpV", "100"),
+    ("LongitudinalTuningKiV", "200"),
+    ("LongitudinalTuningKf", "100"),
+    ("TrafficStopModelSpeed", "0"),
+    ("ApplyModelDistOrder", "30"),
+    ("TrafficStopAdjustRatio", "90"),
     ("SoftHoldMode", "1"),
   ]
   if not PC:
