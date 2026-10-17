@@ -170,7 +170,6 @@ def manager_init() -> None:
     ("AutoNaviSpeedDecelRate", "80"),
     ("StartAccelApply", "0"),
     ("StopAccelApply", "30"),
-    ("EarlyStopReqRelease", "0"),
     ("TrafficStopAccel", "80"),
     ("TrafficStopDistanceAdjust", "400"),
     ("StopDistance", "600"),

@@ -220,7 +220,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LongControlEnabled", PERSISTENT},
     {"MadModeEnabled", PERSISTENT},
     {"CruiseSpeedMin", PERSISTENT},
-    {"EarlyStopReqRelease", PERSISTENT},      // 앞차 꿈틀 시 StopReq 먼저 해제(실험, default 0)          // 레이더 원래 속도로 앞차 출발 빨리 확인 (default 1)
 
     {"DynamicLaneProfile", PERSISTENT},
     {"MpcPathCost", PERSISTENT},

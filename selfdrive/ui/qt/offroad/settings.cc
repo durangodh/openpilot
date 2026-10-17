@@ -1604,11 +1604,6 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
 
 
-  list->addItem(new ParamControl(
-      "EarlyStopReqRelease", "EARLY STOPREQ RELEASE (실험)",
-      "켜짐: 정지한 앞차가 움직이기 시작하면 브레이크 명령은 유지한 채 차량 정지유지 신호(StopReq)만 먼저 해제해, 차량이 정지유지를 푸는 시간(약 1.2초)을 앞당깁니다. 완전히 선 뒤 1초가 지나야 동작하고, 0.8초 안에 출발이 이어지지 않으면 다시 정지유지 신호를 보냅니다. 그 사이 차가 조금이라도 움직이면 즉시 되돌리고 그 정지 동안은 다시 시도하지 않습니다. 제동이 덜컥하거나 밀리면 끄세요. 기본값: 꺼짐.",
-      "../assets/offroad/icon_openpilot.png", this));
-
   list->addItem(new ParamValueControlF(
       "SoftHoldMode", "SOFT HOLD MODE",
       "0: 끔, 1: 브레이크를 놓은 뒤 정지 유지, 2: aPilot SCC 호환 모드(일부 차량은 오토홀드/EPB가 작동할 수 있음). 가속페달 또는 RES/+로 해제합니다.",
