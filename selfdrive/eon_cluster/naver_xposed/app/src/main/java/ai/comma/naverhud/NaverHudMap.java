@@ -144,8 +144,14 @@ final class NaverHudMap {
     private static final long BLANK_SKIP_MS = 10000;
     private Bitmap skippedBlank;
 
+    // 네비모드 HUD 지도는 넓어서 받을 타일이 많다. 앱 시작과 같이 만들면 원본(폰·엔미러) 지도가
+    // 안심주행 카운트 뒤에도 한동안 회색이었다(주행모드는 바로 뜸, 2026-10-17). 처음 한 번만
+    // 원본 지도가 먼저 타일을 받도록 이만큼 늦게 만든다. 그동안 HUD 는 대기 화면.
+    private static final long WIDE_START_DELAY_MS = 5000;
+    private long firstGuidedAt;
+
     boolean started() {
-        return surface != null;
+        return surface != null || firstGuidedAt != 0;
     }
 
     /** 메인 스레드. 필요하면 만들고, 안내 지도(guided)를 따라 그린다. 새 프레임이 있으면 돌려준다. */
@@ -160,6 +166,11 @@ final class NaverHudMap {
         if (surface != null && (wide != builtWide || (wide && scale != builtScale))) {
             // 주행/네비모드나 지도 크기 설정이 바뀌었다: 새 크기·밀도로 다시 만든다.
             release();
+        }
+        if (surface == null && wide) {
+            long now = SystemClock.elapsedRealtime();
+            if (firstGuidedAt == 0) firstGuidedAt = now;
+            if (now - firstGuidedAt < WIDE_START_DELAY_MS) return null;
         }
         if (surface == null) {
             try {
