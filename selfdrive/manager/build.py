@@ -13,14 +13,14 @@ from common.text_window import TextWindow
 from selfdrive.hardware import TICI, EON
 from selfdrive.hardware.eon.apk import update_apks, appops_set
 from selfdrive.swaglog import cloudlog, add_file_handler
-from selfdrive.version import is_dirty
+from selfdrive.version import get_commit, is_dirty, is_prebuilt
 
 MAX_CACHE_SIZE = 4e9 if "CI" in os.environ else 2e9
 CACHE_DIR = Path("/data/scons_cache" if TICI else "/tmp/scons_cache")
 
 TOTAL_SCONS_NODES = 2405
 MAX_BUILD_PROGRESS = 100
-PREBUILT = os.path.exists(os.path.join(BASEDIR, 'prebuilt'))
+PREBUILT = is_prebuilt()
 
 
 def build(spinner: Spinner, dirty: bool = False) -> None:
@@ -108,3 +108,9 @@ if __name__ == "__main__" and not PREBUILT:
     os.chmod(os.path.join(BASEDIR, "cereal"), 0o755)
     os.chmod(os.path.join(BASEDIR, "cereal", "libmessaging_shared.so"), 0o755)
     appops_set("com.neokii.optool", "SU", "allow")
+
+  # 다음 부팅부터는 이 커밋 그대로면 빌드를 건너뛴다(is_prebuilt).
+  commit = get_commit()
+  if commit:
+    with open(os.path.join(BASEDIR, 'prebuilt'), 'w') as f:
+      f.write(commit)

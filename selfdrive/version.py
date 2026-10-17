@@ -78,7 +78,14 @@ def get_short_version() -> str:
 
 @cache
 def is_prebuilt() -> bool:
-  return os.path.exists(os.path.join(BASEDIR, 'prebuilt'))
+  # build.py 가 빌드를 마치면 그 커밋을 적어 둔다. 업데이트로 커밋이 바뀌면 다시 빌드한다.
+  # 비어 있는 파일(release, 직접 touch)은 예전처럼 항상 prebuilt.
+  path = os.path.join(BASEDIR, 'prebuilt')
+  if not os.path.exists(path):
+    return False
+  with open(path) as f:
+    built = f.read().strip()
+  return built == "" or built == get_commit(default="")
 
 
 @cache

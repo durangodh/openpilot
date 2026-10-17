@@ -3,7 +3,6 @@ import subprocess
 from common.basedir import BASEDIR
 
 
-PREBUILT = os.path.exists(os.path.join(BASEDIR, 'prebuilt'))
 
 class Spinner():
   def __init__(self):
@@ -47,7 +46,8 @@ class Spinner():
 
 if __name__ == "__main__":
   import time
-  if PREBUILT:
+  from selfdrive.version import is_prebuilt
+  if is_prebuilt():
     with Spinner() as s:
       # opkr
       s.update("G")
@@ -68,9 +68,4 @@ if __name__ == "__main__":
       time.sleep(1.0)
       s.update("Prebuilt Booting...")
       time.sleep(3.0)
-  else:
-    with Spinner() as s:
-      s.update("Spinner text")
-      time.sleep(5.0)
-    print("gone")
-    time.sleep(5.0)
+  # 커밋이 바뀌어 다시 빌드하는 부팅이면 build.py 의 진행률 스피너만 띄운다.

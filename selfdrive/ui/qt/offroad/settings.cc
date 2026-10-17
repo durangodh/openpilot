@@ -698,15 +698,6 @@ DevicePanel::DevicePanel(SettingsWindow *parent) : ListWidget(parent) {
   });
   addItem(resetSteerZeroBtn);
 
-  // 켜면 /data/openpilot/prebuilt 를 만들어 부팅 때 빌드(scons)를 건너뛴다.
-  auto prebuiltToggle = new ToggleControl("PREBUILT",
-      "켜짐: 부팅 때 빌드 검사를 건너뛰어 부팅이 빨라집니다. "
-      "켜 둔 채 업데이트하면 새 코드가 빌드되지 않으니, 업데이트 전에 끄고 재부팅해 빌드한 뒤 다시 켜세요.",
-      "", util::file_exists("/data/openpilot/prebuilt"));
-  connect(prebuiltToggle, &ToggleControl::toggleFlipped, [=](bool on) {
-    std::system(on ? "touch /data/openpilot/prebuilt" : "rm -f /data/openpilot/prebuilt");
-  });
-  addItem(prebuiltToggle);
 
   if (!params.getBool("Passive")) {
     auto retrainingBtn = new ButtonControl("Review Training Guide", "REVIEW", "Review the rules, features, and limitations of openpilot");
