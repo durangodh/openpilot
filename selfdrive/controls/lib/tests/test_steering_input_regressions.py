@@ -186,13 +186,15 @@ class TestTurnInputRegression(unittest.TestCase):
 
 
 class TestNavigationInputRegression(unittest.TestCase):
-  def test_fork_without_lane_guidance_does_not_guess_a_lane_change(self):
+  def test_fork_without_lane_guidance_prepares_only_inside_carrot_window(self):
+    # 5422d19: a bare fork moves one lane toward the branch inside carrot's
+    # preparation window (350 m at a 100 km/h road limit), and not before it.
     ego = {"count": 3, "current": 2, "confidence": 0.9}
-    for distance in (50.0, 100.0, 175.0, 300.0):
+    for distance, expected in ((50.0, 1), (100.0, 1), (175.0, 1), (300.0, 1), (400.0, 0), (800.0, 0)):
       with self.subTest(distance=distance):
         state = noo_state([0, 0, 1], distance=distance, road_limit=100.0)
         state.update(lane_fresh=False, lane_current=None)
-        self.assertEqual(confirm_noo(NavigationLaneChangeController(), state, ego), 0)
+        self.assertEqual(confirm_noo(NavigationLaneChangeController(), state, ego), expected)
 
   def test_current_fork_takes_priority_over_next_maneuver(self):
     state = noo_state([0, 1, 1], distance=180.0)
