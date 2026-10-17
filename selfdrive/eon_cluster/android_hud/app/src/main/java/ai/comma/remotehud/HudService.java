@@ -173,6 +173,12 @@ public final class HudService extends Service {
      * 냉각수 줄 위(약 655) 사이 세로 가운데에 둔다(2026-10-16: 박스에 붙어 보였다).
      */
     private static final float NAVI_NOO_Y = (507f + 655f) / 2f + 50f;
+    /** 네비모드 교통정보 바(네이버): 오른쪽 칸 바로 왼쪽 세로 띠. 아래끝 = 현재 위치, 위끝 = 목적지. */
+    private static final float NAVI_CONGESTION_CX = NAVI_COL_LEFT - 14f;
+    private static final float NAVI_CONGESTION_W = 10f;
+    private static final float NAVI_CONGESTION_TOP = 62f;
+    // 아래끝: 도착정보 바 위끝(INFO_Y 702 - 58x270/340 = 656) 바로 위.
+    private static final float NAVI_CONGESTION_BOTTOM = 650f;
     /**
      * 네비모드 accel·steer 게이지(carrot-wip 클러스터 방식): EON 박스 아래 오른쪽 끝에 두 칸.
      * NOO 는 교통정보 바부터 게이지 왼쪽까지의 가운데(2026-10-17 요청).
@@ -186,12 +192,6 @@ public final class HudService extends Service {
             (NAVI_CONGESTION_CX + NAVI_ACCEL_CX - NAVI_GAUGE_W / 2f) / 2f;
     /** accel 게이지가 꽉 차는 명령 가속도(m/s²). */
     private static final float NAVI_ACCEL_FULL = 2.5f;
-    /** 네비모드 교통정보 바(네이버): 오른쪽 칸 바로 왼쪽 세로 띠. 아래끝 = 현재 위치, 위끝 = 목적지. */
-    private static final float NAVI_CONGESTION_CX = NAVI_COL_LEFT - 14f;
-    private static final float NAVI_CONGESTION_W = 10f;
-    private static final float NAVI_CONGESTION_TOP = 62f;
-    // 아래끝: 도착정보 바 위끝(INFO_Y 702 - 58x270/340 = 656) 바로 위.
-    private static final float NAVI_CONGESTION_BOTTOM = 650f;
     /** 네비모드 도착정보 바: 교통정보 바 왼쪽에 오른쪽 끝을 두고, 아래끝은 INFO_Y(702). */
     private static final float NAVI_ETA_RIGHT = NAVI_CONGESTION_CX - NAVI_CONGESTION_W / 2f - 10f;
     /** 네비모드: 주행 장면(도로·차)을 위로 올려 맨 아래 이벤트 표시와 자차가 겹치지 않게. */
