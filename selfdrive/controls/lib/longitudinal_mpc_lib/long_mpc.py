@@ -92,7 +92,8 @@ def get_stopped_equivalence_factor(v_lead, v_ego, t_follow=T_FOLLOW, stop_distan
     v_diff_offset = ((v_lead - v_ego) * 1.)
     v_diff_offset = np.clip(v_diff_offset, 0, stop_distance / 2)
     v_diff_offset = np.maximum(v_diff_offset * ((10 - v_ego)/10), 0)
-  distance = (v_lead**2) / (2 * COMFORT_BRAKE) + v_diff_offset
+  # krkeegan: DYNAMIC FOLLOWING RESPONSE 세기(0~1, MID=0.5)
+  distance = (v_lead**2) / (2 * COMFORT_BRAKE) + v_diff_offset * krkeegan
   return distance
 
 def get_safe_obstacle_distance(v_ego, t_follow=T_FOLLOW, comfort_brake=COMFORT_BRAKE, stop_distance=STOP_DISTANCE):
@@ -242,7 +243,7 @@ class LongitudinalMpc:
     self.debugLongText2 = ""
     self.trafficState = 0
     self.trafficStopDistanceAdjust = 0.
-    self.applyLongDynamicCost = False
+    self.applyLongDynamicCost = 0.0   # 0 OFF / 0.5 MID / 1 ON
     self.trafficStopAccel = 1.
     self.trafficStopModelSpeed = True
     self.trafficStopMode = 1
@@ -369,7 +370,8 @@ class LongitudinalMpc:
     if self.mode == 'acc':
       a_change_cost = A_CHANGE_COST if prev_accel_constraint else 40
       if self.applyLongDynamicCost:
-        cost_mulitpliers = self.get_cost_multipliers(v_lead0, v_lead1)
+        # MID 는 켰을 때 배율과 1 사이의 중간
+        cost_mulitpliers = [1. + self.applyLongDynamicCost * (m - 1.) for m in self.get_cost_multipliers(v_lead0, v_lead1)]
         cost_weights = [X_EGO_OBSTACLE_COST, X_EGO_COST, V_EGO_COST, A_EGO_COST, a_change_cost * cost_mulitpliers[0], J_EGO_COST * cost_mulitpliers[1]]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, DANGER_ZONE_COST * cost_mulitpliers[2]]
       else:
@@ -596,7 +598,7 @@ class LongitudinalMpc:
     elif self.lo_timer == 40:
       self.trafficStopDistanceAdjust = float(_param_int("TrafficStopDistanceAdjust", 400)) / 100.
     elif self.lo_timer == 60:
-      self.applyLongDynamicCost = Params().get_bool("ApplyLongDynamicCost")
+      self.applyLongDynamicCost = min(max(_param_int("ApplyLongDynamicCost", 0), 0), 2) / 2.
       self.trafficStopAccel = float(_param_int("TrafficStopAccel", 80)) / 100.
     elif self.lo_timer == 80:
       self.trafficStopModelSpeed = Params().get_bool("TrafficStopModelSpeed")

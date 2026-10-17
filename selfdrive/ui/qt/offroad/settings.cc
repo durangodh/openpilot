@@ -406,6 +406,9 @@ void ParamValueControlF::refresh() {
   if (param_ == "TrafficStopMode") {
     static const QStringList modes = {"ACC", "AUTO", "APILOT", "VISION"};
     value_label->setText(modes[v]);
+  } else if (param_ == "ApplyLongDynamicCost") {
+    static const QStringList modes = {"OFF", "MID", "ON"};
+    value_label->setText(modes[v]);
   } else if (param_ == "InitMyDrivingMode") {
     static const QStringList modes = {"SAFE", "ECO", "NORMAL", "FAST", "AUTO"};
     value_label->setText(modes[v - 1]);
@@ -1647,10 +1650,11 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "앞차(레이더·카메라)가 없을 때만 CRUISE MAX 가속 상한에 곱하는 비율입니다. 앞차를 따라갈 때와 감속에는 영향이 없습니다. 값 감소(-): 앞차 없을 때 가속이 부드러워짐. 기본값: 100%.",
       "../assets/offroad/icon_openpilot.png", 30, 150, 5, 0, 100, this));
 
-  list->addItem(new ParamControl(
+  list->addItem(new ParamValueControlF(
       "ApplyLongDynamicCost", "DYNAMIC FOLLOWING RESPONSE",
-      "켜짐(aPilot·KRKeegan): 앞차가 더 빠를 때 36km/h 이하에서 가속 반응을 빠르게 하고, 차간시간에 따라 가감속 비용을 조정합니다.",
-      "../assets/offroad/icon_road.png", this));
+      "aPilot·KRKeegan: 앞차가 더 빠를 때 36km/h 이하에서 가속 반응을 빠르게 하고, 차간시간에 따라 가감속 비용을 조정합니다. "
+      "OFF: 사용 안 함 / MID: ON 의 절반 세기 / ON: 전체 적용.",
+      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
 
   const std::array<std::tuple<const char*, const char*, int>, 4> gap_controls = {{
     {"TFollowGap1", "T-FOLLOW GAP1", 110},
