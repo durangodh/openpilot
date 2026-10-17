@@ -220,14 +220,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LongControlEnabled", PERSISTENT},
     {"MadModeEnabled", PERSISTENT},
     {"CruiseSpeedMin", PERSISTENT},
-    {"JerkStartLimit", PERSISTENT},
-    {"StoppingDecelRate", PERSISTENT},
-    {"LowSpeedJerkBoost", PERSISTENT},         // 저속(18km/h↓) 앞차출발 전용 부스트 (%, default 100)
-    {"StandstillHoldApply", PERSISTENT},      // 완전정지 유지 제동값 (x-0.02 m/s^2)
-    {"StandstillReleaseSpeed", PERSISTENT},   // 정차 후 자동출발 임계 목표속도 (x0.1 m/s, default 2)
-    {"StandstillReleaseMs", PERSISTENT},      // 자동출발 요구 지속시간 ms (default 100)
-    {"EarlyHoldRelax", PERSISTENT},           // 앞차 꿈틀 시 정지유지 제동 미리 줄이기 (default 1)
-    {"FastLeadRelease", PERSISTENT},
     {"EarlyStopReqRelease", PERSISTENT},      // 앞차 꿈틀 시 StopReq 먼저 해제(실험, default 0)          // 레이더 원래 속도로 앞차 출발 빨리 확인 (default 1)
 
     {"DynamicLaneProfile", PERSISTENT},
@@ -252,8 +244,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"NooMode", PERSISTENT},
     {"NooTurnEndTime", PERSISTENT},
     {"StopDistance", PERSISTENT},                // shared ACC/E2E standstill distance (cm), default 600
-    {"HumanAcceleration", PERSISTENT},
-    {"HumanFollowing", PERSISTENT},              // 모델 예측 앞차 궤적으로 추종 (FrogPilot)           // 목표속도 근접 시 가속 상한 감소 (FrogPilot)
     {"ApplyLongDynamicCost", PERSISTENT},        // 동적 longitudinal MPC cost 적용
     {"MyDrivingMode", PERSISTENT},             // 주행모드 1:SAFE 2:ECO 3:NORM 4:FAST
     {"InitMyDrivingMode", PERSISTENT},         // 부팅모드 1~4, 5=AUTO
@@ -324,9 +314,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"AutoNaviSpeedDecelRate", PERSISTENT},     // map curve deceleration, x100 m/s^2
     {"SoftRestartTriggered", CLEAR_ON_MANAGER_START},
     // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──────────────────
-    {"LongTuningKpV", PERSISTENT},
-    {"LongTuningKiV", PERSISTENT},
-    {"LongTuningKf", PERSISTENT},
     {"LongActuatorDelay", PERSISTENT},
     {"LongitudinalActuatorDelayLowerBound", PERSISTENT},
     {"LongitudinalActuatorDelayUpperBound", PERSISTENT},
@@ -341,10 +328,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"TFollowGap2", PERSISTENT},               // GAP2 (default 120 = 1.20s)
     {"TFollowGap3", PERSISTENT},               // GAP3 (default 140 = 1.40s)
     {"TFollowGap4", PERSISTENT},               // GAP4 (default 160 = 1.60s)
-    {"ComfortBrake", PERSISTENT},              // 접근 감속 기준 (x100, default 250 = 2.50m/s^2)
-    {"XEgoObstacleCost", PERSISTENT},          // 차간거리 추종 강도 (x100, default 600 = 6.0)
-    {"NoLeadCruiseAccelFactor", PERSISTENT},  // No-lead CruiseMax percentage
-    {"LeadCruiseAccelFactor", PERSISTENT},    // With-lead CruiseMax percentage
     {"LongTraceEnabled", PERSISTENT},         // 가벼운 가감속 기록기(long_trace) 켜기, 기본 0
     {"LatTraceEnabled", PERSISTENT},          // 가벼운 조향 기록기(lat_trace) 켜기, 기본 0
     {"StartAccelApply", PERSISTENT},
