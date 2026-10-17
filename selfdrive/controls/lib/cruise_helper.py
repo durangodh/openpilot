@@ -89,6 +89,8 @@ class CruiseHelper:
     self.x_stop = 0.0
     self.traffic_state = 0
     self.traffic_state_prev = 0
+    self.mpc_event_prev = 0
+    self.mpc_event_frame = -10000
     self.d_rel = 0.0
     self.v_rel = 0.0
     self.lead_car_speed_kph = 0.0
@@ -420,15 +422,18 @@ class CruiseHelper:
       self.x_stop = 0.0
       self.traffic_state = 0
 
-    # C2-style traffic events: publish only on a state edge so there is no
-    # per-frame UI work. A pedal-assisted departure is a driver action, not a
-    # detected green signal, and must not show the automatic-depart message.
-    if controls.enabled and self.long_active_user > 0:
-      if self.traffic_state == 1 and self.traffic_state_prev != 1:
-        controls.events.add(EventName.trafficStopping)
-      elif self.traffic_state_prev == 1 and self.traffic_state == 2 and \
-           not CS.gasPressed and not CS.brakePressed:
-        controls.events.add(EventName.trafficSignGreen)
+    # aPilot c2-master: alert only on a new long_mpc event (it enters a traffic
+    # stop, sees green while stopped ...), at most once per 5 s. The raw model
+    # trafficState flips while driving and is not an alert by itself.
+    try:
+      mpc_event = int(getattr(plan, 'mpcEvent', 0))
+    except Exception:
+      mpc_event = 0
+    if controls.enabled and self.long_active_user > 0 and mpc_event != self.mpc_event_prev and mpc_event > 0 and \
+       (controls.sm.frame - self.mpc_event_frame) * DT_CTRL > 5.0:
+      controls.events.add(mpc_event)
+      self.mpc_event_frame = controls.sm.frame
+    self.mpc_event_prev = mpc_event
 
     lead = self.get_lead(controls.sm)
     self.d_rel = lead.dRel if lead is not None else 0.0

@@ -23,6 +23,12 @@ from common.filter_simple import StreamingMovingAverage
 from cereal import log, car
 EventName = car.CarEvent.EventName
 
+
+def _event(name):
+  # aPilot event names this fork's cereal may lack (autoHold, trafficSignChanged).
+  # mpcEvent is not published here; it only marks aPilot's state.
+  return getattr(EventName, name, 0)
+
 XState = log.LongitudinalPlan.XState
 
 if __name__ == '__main__':  # generating code
@@ -717,7 +723,7 @@ class LongitudinalMpc:
       self.softHoldTimer += 1
       if self.softHoldTimer*DT_MDL >= 0.7: 
         self.xState = XState.softHold
-        self.mpcEvent = EventName.autoHold
+        self.mpcEvent = _event('autoHold')
     else:
       self.softHoldTimer = 0
 
@@ -728,14 +734,14 @@ class LongitudinalMpc:
       if carstate.gasPressed:
         self.xState = XState.e2eCruisePrepare
       elif self.trafficState == 2:
-        self.mpcEvent = getattr(EventName, 'trafficSignChanged', 0)
+        self.mpcEvent = _event('trafficSignChanged')
 
       if cruiseButtonCounterDiff > 0:
         if self.trafficState == 1:
           self.xState = XState.e2eStop
         else:
           self.xState = XState.e2eCruise
-          self.mpcEvent = EventName.trafficSignGreen
+          self.mpcEvent = _event('trafficSignGreen')
     #고속모드 또는 신호감지 일시정지: 신호정지 사용안함.
     elif controls.myDrivingMode == 4 or self.trafficStopMode==0: 
       if self.status:
@@ -755,16 +761,16 @@ class LongitudinalMpc:
       #    if v_ego_kph > 30:
       #       self.xState = XState.e2eCruise
       #    elif True:#carstate.aEgo > 1.0:
-      #      self.mpcEvent = EventName.trafficSignGreen
+      #      self.mpcEvent = _event('trafficSignGreen')
       else:
         if v_ego < 0.1:
           if self.trafficState == 2  and (not self.trafficError or (self.trafficError and cruiseButtonCounterDiff > 0)):
               self.xState = XState.e2eCruisePrepare
               self.e2eCruiseCount = 3 * DT_MDL
-              self.mpcEvent = EventName.trafficSignGreen
+              self.mpcEvent = _event('trafficSignGreen')
           else:
             if self.trafficState == 2 and self.trafficError:
-              self.mpcEvent = getattr(EventName, 'trafficSignChanged', 0)
+              self.mpcEvent = _event('trafficSignChanged')
             if self.trafficError and cruiseButtonCounterDiff > 0:
               self.trafficError = False
             elif not self.trafficError and cruiseButtonCounterDiff < 0:
@@ -825,7 +831,7 @@ class LongitudinalMpc:
         pass
       elif self.trafficState == 1 and not carstate.gasPressed:
         self.xState = XState.e2eStop
-        self.mpcEvent = EventName.trafficStopping
+        self.mpcEvent = _event('trafficStopping')
         self.stopDist = self.xStop
       else:
         self.xState = XState.e2eCruise

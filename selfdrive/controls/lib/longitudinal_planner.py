@@ -261,5 +261,6 @@ class LongitudinalPlanner:
     longitudinalPlan.desiredDistance = float(self.mpc.desired_distance)
     longitudinalPlan.mpcMode = 1 if self.mpc.mode == 'blended' else 0
     longitudinalPlan.e2eReason = self.e2e_reason(sm)
+    longitudinalPlan.mpcEvent = int(self.mpc.mpcEvent)
 
     pm.send('longitudinalPlan', plan_send)
