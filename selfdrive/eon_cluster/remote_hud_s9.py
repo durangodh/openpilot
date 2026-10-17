@@ -13,12 +13,14 @@ from selfdrive.eon_cluster.hud_geometry import normalize_geometry
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.eon_cluster.section_average import SectionAverage
 from selfdrive.eon_cluster.navi_layout import NaviLayout
+from selfdrive.eon_cluster.trip_report import TripReport
 
 
 _params = Params()
 _nav_route = NavigationRouteData()
 _section_average = SectionAverage()
 _navi_layout = NaviLayout()
+_trip_report = TripReport()
 _original_packet = base._packet
 _param_cache = {}
 PARAM_CACHE_S = 1.0
@@ -88,6 +90,16 @@ def _apply_naver_speed(packet, v_ego=0.0):
       packet["cameraSectionAvg"] = max(0, int(round(section_avg)))
   return packet
 
+def _update_trip(sm):
+  try:
+    car = sm["carState"]
+    _trip_report.update(time.monotonic(), bool(sm["deviceState"].started), float(car.vEgo),
+                        float(car.aEgo), bool(sm["controlsState"].enabled),
+                        float(sm["controlsState"].curvature))
+  except Exception:
+    pass
+
+
 def _v_ego(sm):
   try:
     return max(0.0, float(sm["carState"].vEgo))
@@ -116,6 +128,10 @@ def _packet(sm, *args, **kwargs):
   packet["hudNightBrightness"] = _bounded_int("EonClusterHudNightBrightness", 35, 1, 100)
   packet["hudJpegQuality"] = _bounded_int("EonClusterHudJpegQuality", 55, 20, 95)
   packet["hudScreenMode"] = _bounded_int("EonClusterHudScreenMode", 1, 1, 3)
+  # EON 박스 자리: 1 HUD 정보(기존), 2 주행요약. 경고 팝업은 어느 쪽이든 그 위에 덮는다.
+  packet["hudInfoBox"] = _bounded_int("EonClusterHudInfoBox", 1, 1, 2)
+  _update_trip(sm)
+  packet["trip"] = _trip_report.snapshot()
   packet["hudTheme"] = _bounded_int("EonClusterHudTheme", 0, 0, 2)
   packet["hudOrientation"] = _bounded_int("EonClusterHudOrientation", 0, 0, 2)
   packet["hudMirror"] = _bounded_int("EonClusterHudMirror", 0, 0, 1)

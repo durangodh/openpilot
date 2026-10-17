@@ -278,6 +278,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudMapFps", PERSISTENT},
     {"EonClusterHudJpegQuality", PERSISTENT},
     {"EonClusterHudScreenMode", PERSISTENT},
+    {"EonClusterHudInfoBox", PERSISTENT},
     {"EonClusterHudTheme", PERSISTENT},
     {"EonClusterHudOrientation", PERSISTENT},
     {"EonClusterHudMirror", PERSISTENT},

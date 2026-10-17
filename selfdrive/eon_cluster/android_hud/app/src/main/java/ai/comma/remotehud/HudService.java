@@ -438,6 +438,8 @@ public final class HudService extends Service {
     private int configuredLanguage = 0;
     private int configuredRadarInfo = 4;
     private int configuredScreenMode = 1;
+    /** EON 박스 자리: 1 HUD 정보, 2 주행요약(EonClusterHudInfoBox). */
+    private int configuredInfoBox = 1;
     /** 도로변 건물 표시 여부 (장식이므로 끌 수 있다) */
     /** BSD 표시 방식 1: 막대만 / 2: 옅은 면 / 3: 진한 면 */
     /** 차량 표현 1: 사진 스프라이트 / 2: 3D 박스 */
@@ -1936,6 +1938,7 @@ public final class HudService extends Service {
         configuredLanguage = Math.max(0, Math.min(1, currentState.optInt("hudLanguage", 0)));
         configuredRadarInfo = Math.max(0, Math.min(4, currentState.optInt("hudRadarInfo", 4)));
         configuredScreenMode = Math.max(1, Math.min(3, currentState.optInt("hudScreenMode", 1)));
+        configuredInfoBox = Math.max(1, Math.min(2, currentState.optInt("hudInfoBox", 1)));
         int requestedOrientation = currentState.optInt("hudOrientation", configuredOrientation) == 2 ? 2 : 0;
         boolean requestedMirror = currentState.optInt("hudMirror", configuredMirror ? 1 : 0) != 0;
         if (requestedOrientation != configuredOrientation) {
@@ -4179,12 +4182,67 @@ public final class HudService extends Service {
      * EON onroad.cc drawCarrotHud 좌표계(475 폭)로 그린다:
      * C2 온도·사용률 / S9 온도·사용률 + TPMS 카드, 날짜·시간 + 기어, 주행모드·LIMIT·E2E 사유 + 차간거리.
      */
+    /** 주행요약(carrot-wip 클러스터 TRIP SUMMARY): EON 박스 안(475 x EON_BOX_H). */
+    private void drawTripSummaryBox(Canvas c, Paint p, JSONObject t) {
+        int muted = Color.rgb(150, 170, 215);
+        int white = Color.rgb(240, 244, 250);
+        float w = 475f;
+        text(c, p, lang("주행 요약", "TRIP SUMMARY"), 18f, 42f, 27f, muted, Paint.Align.LEFT);
+        textNormal(c, p, lang("시간", "TIME"), 18f, 96f, 22f, muted, Paint.Align.LEFT);
+        int sec = Math.max(0, t.optInt("time", 0));
+        text(c, p, String.format(Locale.US, "%02d:%02d:%02d", sec / 3600, (sec / 60) % 60, sec % 60),
+                w - 18f, 100f, 46f, Color.rgb(250, 200, 140), Paint.Align.RIGHT);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2f);
+        p.setColor(Color.rgb(90, 105, 140));
+        c.drawLine(18f, 120f, w - 18f, 120f, p);
+        p.setStyle(Paint.Style.FILL);
+
+        double dist = t.optDouble("dist", 0d);
+        String[][] cells = {
+            {lang("거리", "DISTANCE"), dist >= 1000d ? String.format(Locale.US, "%.1f", dist / 1000d)
+                    : String.format(Locale.US, "%.0f", dist), dist >= 1000d ? "km" : "m"},
+            {lang("평균속도", "AVG SPEED"), String.format(Locale.US, "%.1f", t.optDouble("avg", 0d)), "km/h"},
+            {lang("최고속도", "MAX SPEED"), String.format(Locale.US, "%.1f", t.optDouble("max", 0d)), "km/h"},
+            {lang("자동주행", "AUTO"), String.valueOf(t.optInt("auto", 0)), "%"},
+            {lang("최대가속", "MAX ACCEL"), String.format(Locale.US, "%+.2f", t.optDouble("maxAccel", 0d)), "m/s\u00B2"},
+            {lang("최대감속", "MAX DECEL"), String.format(Locale.US, "%+.2f", t.optDouble("maxDecel", 0d)), "m/s\u00B2"},
+        };
+        float cw = (w - 36f) / 2f;
+        for (int i = 0; i < cells.length; i++) {
+            float x = 18f + (i % 2) * cw;
+            float y = 134f + (i / 2) * 93f;
+            textNormal(c, p, cells[i][0], x, y + 21f, 21f, muted, Paint.Align.LEFT);
+            text(c, p, cells[i][1], x, y + 62f, 37f, white, Paint.Align.LEFT);
+            textNormal(c, p, cells[i][2], x + cw - 12f, y + 60f, 18f, muted, Paint.Align.RIGHT);
+        }
+
+        String[] chipLabels = {lang("급가속", "HARD ACC"), lang("급감속", "HARD BRK"), lang("급코너", "CORNER")};
+        int[] chipValues = {t.optInt("hardAccel", 0), t.optInt("hardBrake", 0), t.optInt("hardCorner", 0)};
+        int[] chipColors = {Color.rgb(240, 190, 110), Color.rgb(240, 110, 120), Color.rgb(110, 160, 250)};
+        float chipW = (w - 36f - 16f) / 3f;
+        float chipTop = EON_BOX_H - 68f;
+        for (int i = 0; i < 3; i++) {
+            float x = 18f + i * (chipW + 8f);
+            eonBoxRect(c, p, x, chipTop, chipW, 50f, Color.rgb(14, 22, 44), 2.5f, chipColors[i]);
+            textNormal(c, p, chipLabels[i], x + 10f, chipTop + 33f, 19f, muted, Paint.Align.LEFT);
+            text(c, p, String.valueOf(chipValues[i]), x + chipW - 10f, chipTop + 35f, 26f, chipColors[i],
+                    Paint.Align.RIGHT);
+        }
+    }
+
     private void drawEonHudBox(Canvas c, Paint p, JSONObject s, boolean stale, boolean enabled) {
         int save = c.save();
         c.translate(EON_BOX_LEFT, EON_BOX_TOP);
         c.scale(EON_BOX_SCALE, EON_BOX_SCALE);
         eonBoxRect(c, p, 0f, 0f, 475f, EON_BOX_H, Color.argb(frameDark ? 90 : 120, 0, 0, 0), 2f, Color.WHITE);
         if (stale) {
+            c.restoreToCount(save);
+            return;
+        }
+        JSONObject trip = s.optJSONObject("trip");
+        if (configuredInfoBox == 2 && trip != null) {
+            drawTripSummaryBox(c, p, trip);
             c.restoreToCount(save);
             return;
         }

@@ -72,6 +72,7 @@ def test_s9_hud_params_are_exposed_in_settings():
       "EonClusterHudMapScaleKakao",
       "EonClusterHudMapScaleNaver",
       "EonClusterHudScreenMode",
+      "EonClusterHudInfoBox",
       "EonClusterHudTheme",
       "EonClusterHudOrientation",
       "EonClusterHudMirror",
