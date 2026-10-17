@@ -139,6 +139,8 @@ final class NaverHudMap {
     private long failedAt;
     // 빈(투명·한 색) 첫 프레임은 이 시간 동안만 건너뛴다. 네이버 지도는 화면이 바뀔 때만 다시 그려서
     // 서 있으면 다음 프레임이 안 온다: 계속 건너뛰면 15초 뒤 실패로 큰 폰 화면이 됐다(2026-10-14).
+    private static final long BLANK_SKIP_MS = 3000;
+    private Bitmap skippedBlank;
 
     boolean started() {
         return surface != null;
@@ -177,13 +179,23 @@ final class NaverHudMap {
             return null;
         }
         Bitmap b = latest.getAndSet(null);
-        if (b != null && !active && blank(b)) {
-            // 지도 타일이 아직 안 그려진 프레임(투명·한 색)은 보내지 않는다. 투명은 JPEG 에서 검정이
-            // 되고(2026-10-14), 한 색은 배경과 위치 아이콘만 있는 화면이 잠깐 보였다(2026-10-17).
-            // 타일이 그려진 첫 프레임까지 HUD 는 대기 화면을 유지한다(15초 넘으면 스냅샷으로).
-            b.recycle();
+        boolean skipping = SystemClock.elapsedRealtime() - createdAt < BLANK_SKIP_MS;
+        if (b != null && !active && skipping && blank(b)) {
+            // 지도 타일이 아직 안 그려진 첫 프레임(투명·한 색)은 JPEG 에서 검정이 되어 HUD 가운데가
+            // 까맣게 보였다(2026-10-14 실차). 처음 BLANK_SKIP_MS 동안은 보내지 않고 들고만 있는다.
+            if (skippedBlank != null) skippedBlank.recycle();
+            skippedBlank = b;
             return null;
         }
+        if (b == null && !active && !skipping && skippedBlank != null && !transparent(skippedBlank)) {
+            // 그 뒤로 새 프레임이 없으면(정차) 들고 있던 프레임으로 시작한다. 단 투명한 프레임(타일이
+            // 아직 하나도 안 그려짐)은 JPEG 에서 검정이 되어 부팅 때 가운데가 까맣게 나왔다(2026-10-16).
+            // 타일이 그려지면 새 프레임이 오므로 그때까지 기다린다.
+            b = skippedBlank;
+        } else if (skippedBlank != null && b != null) {
+            skippedBlank.recycle();
+        }
+        if (b != null) skippedBlank = null;
         if (b != null && !active) {
             active = true;
             NaverHudLog.line("HUD map first frame " + b.getWidth() + "x" + b.getHeight());
@@ -302,6 +314,17 @@ final class NaverHudMap {
             }
         }
         call(hudMap, "C1", new Class<?>[]{positionType}, camera);
+    }
+
+    /** 8x8 표본이 거의 다 투명하면 지도 타일이 하나도 안 그려진 프레임이다. */
+    private static boolean transparent(Bitmap b) {
+        int w = b.getWidth(), h = b.getHeight(), count = 0;
+        for (int y = 0; y < 8; y++) {
+            for (int x = 0; x < 8; x++) {
+                if ((b.getPixel(w * (2 * x + 1) / 16, h * (2 * y + 1) / 16) >>> 24) < 16) count++;
+            }
+        }
+        return count > 48;
     }
 
     /** 8x8 표본이 거의 다 투명하거나 한 색이면 아직 지도가 안 그려진 프레임이다. */
@@ -458,6 +481,10 @@ final class NaverHudMap {
         layersOn.clear();
         Bitmap b = latest.getAndSet(null);
         if (b != null) b.recycle();
+        if (skippedBlank != null) {
+            skippedBlank.recycle();
+            skippedBlank = null;
+        }
     }
 
     private void fail(String where, Throwable error) {
