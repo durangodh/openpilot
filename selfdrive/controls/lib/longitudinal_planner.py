@@ -62,6 +62,7 @@ class LongitudinalPlanner:
     self.no_lead_cruise_accel_factor = 1.0
     self.lead_cruise_accel_factor = 1.0
     self.human_acceleration = False
+    self.vision_lead_moving_acc = False
 
     self.read_param()
     self.param_read_counter = 1
@@ -90,6 +91,7 @@ class LongitudinalPlanner:
 
     self.mpc.applyLongDynamicCost = self.params.get_bool("ApplyLongDynamicCost")
     self.human_acceleration = self.params.get_bool("HumanAcceleration")
+    self.vision_lead_moving_acc = self.params.get_bool("VisionLeadMovingAcc")
     self.mpc.human_following = self.params.get_bool("HumanFollowing")
     self.mpc.softHoldMode = int(clip(self.params.get_int("SoftHoldMode"), 0, 2))
     self.auto_e2e_enabled = self.CP.openpilotLongitudinalControl
@@ -150,6 +152,11 @@ class LongitudinalPlanner:
     radar_lead_present = lead_one.status and lead_one.radar
     vision_lead_present = (lead_one.status and lead_one.dRel < E2E_VISION_LEAD_DISTANCE and
                            not lead_one.radar)
+    # 토글(기본 꺼짐): 40 m 밖에서 15 km/h 이상 달리는 카메라 앞차는 ACC 가 따라간다.
+    # E2E 가 그 차를 보고 25 km/h 까지 감속만 했다(2026-10-16). 서 있거나 느린 차는 그대로 E2E.
+    if (vision_lead_present and self.vision_lead_moving_acc and
+        lead_one.dRel > 40.0 and lead_one.vLead > 15.0 / 3.6):
+      vision_lead_present = False
     path_stop_x = float(model_msg.position.x[-1]) if model_valid else 0.0
     selected_stop_x = path_stop_x
     try:
