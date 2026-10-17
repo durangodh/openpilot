@@ -1569,7 +1569,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamValueControlF(
       "TrafficStopMode", "E2E / ACC MODE",
-      "aPilot 신호정지 모드. 0: 신호정지 끔(ACC) / 1: 신호정지, 40m 넘는 정지·출발준비에서 E2E / 2: 신호정지, 출발준비에서만 E2E / 3: 2 + 레이더 없이 카메라로만 잡힌 앞차(90m 이내)에서 E2E. 고속(FAST) 모드에서는 신호정지를 쓰지 않습니다.",
+      "aPilot 신호정지 모드. 0: 신호정지 끔(ACC) / 1: 신호정지, 40m 넘는 정지·출발준비에서 E2E / 2: 신호정지, 출발준비에서만 E2E / 3 VISION: 신호정지 끔, 레이더 없이 카메라로만 잡힌 앞차(90m 이내)에서만 E2E. 고속(FAST) 모드에서는 신호정지를 쓰지 않습니다.",
       "../assets/img_experimental_white.svg", 0, 3, 1, 0, 2, this));
 
   list->addItem(new ParamControl(
@@ -1640,6 +1640,11 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
 
 
+
+  list->addItem(new ParamValueControlF(
+      "NoLeadCruiseAccelFactor", "NO-LEAD CRUISE ACCEL (%)",
+      "앞차(레이더·카메라)가 없을 때만 CRUISE MAX 가속 상한에 곱하는 비율입니다. 앞차를 따라갈 때와 감속에는 영향이 없습니다. 값 감소(-): 앞차 없을 때 가속이 부드러워짐. 기본값: 100%.",
+      "../assets/offroad/icon_openpilot.png", 30, 150, 5, 0, 100, this));
 
   list->addItem(new ParamControl(
       "ApplyLongDynamicCost", "DYNAMIC FOLLOWING RESPONSE",

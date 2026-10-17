@@ -178,6 +178,7 @@ def manager_init() -> None:
     ("LongitudinalActuatorDelayUpperBound", "50"),
     ("LongitudinalTuningKpV", "100"),
     ("JerkStartLimit", "10"),
+    ("NoLeadCruiseAccelFactor", "100"),
     ("LongitudinalTuningKiV", "200"),
     ("LongitudinalTuningKf", "100"),
     ("TrafficStopModelSpeed", "0"),

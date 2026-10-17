@@ -95,6 +95,8 @@ class LongitudinalPlanner:
     #  self.personality = log.LongitudinalPersonality.standard
 
     self.myEcoModeFactor = float(_param_int("MyEcoModeFactor", 80)) / 100.
+    # 이 포크 추가: 앞차가 없을 때 ACC 가속 상한에만 곱하는 비율(앞차 추종·감속에는 영향 없음).
+    self.noLeadAccelFactor = clip(float(_param_int("NoLeadCruiseAccelFactor", 100)) / 100., 0.3, 1.5)
     self.cruiseMaxVals1 = float(_param_int("CruiseMaxVals1", 160)) / 100.
     self.cruiseMaxVals2 = float(_param_int("CruiseMaxVals2", 120)) / 100.
     self.cruiseMaxVals3 = float(_param_int("CruiseMaxVals3", 100)) / 100.
@@ -173,6 +175,8 @@ class LongitudinalPlanner:
         myMaxAccel = clip(self.get_max_accel(v_ego), 0, MAX_ACCEL)
       else:
         myMaxAccel = self.get_max_accel(v_ego)
+      if not (sm['radarState'].leadOne.status or sm['radarState'].leadTwo.status):
+        myMaxAccel *= self.noLeadAccelFactor
       accel_limits = [A_CRUISE_MIN, myMaxAccel]
       accel_limits_turns = limit_accel_in_turns(v_ego, sm['carState'].steeringAngleDeg, accel_limits, self.CP)
     else:

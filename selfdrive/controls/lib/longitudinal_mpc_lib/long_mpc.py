@@ -284,6 +284,12 @@ class LongitudinalMpc:
     self.desired_distance = 0.0  # UI 표시용 목표 차간거리(m)
     self.openpilotLongitudinalControl = False
     self.experimentalMode = False
+    # 이 포크: aPilot 은 설정값을 200 프레임에 걸쳐 나눠 읽어, 켜진 직후 몇 초는 기본값
+    # (TrafficStopMode 1 등)으로 돌았다. 시작할 때 한 번 모두 읽는다.
+    for timer in (39, 59, 79, 99, 139, 159):
+      self.lo_timer = timer
+      self.update_params()
+    self.lo_timer = 0
 
   def reset(self):
     # self.solver = AcadosOcpSolverCython(MODEL_NAME, ACADOS_SOLVER_TYPE, N)
@@ -743,7 +749,8 @@ class LongitudinalMpc:
           self.xState = XState.e2eCruise
           self.mpcEvent = _event('trafficSignGreen')
     #고속모드 또는 신호감지 일시정지: 신호정지 사용안함.
-    elif controls.myDrivingMode == 4 or self.trafficStopMode==0: 
+    # 이 포크: 3(VISION) 은 신호정지 없이 카메라 앞차 E2E 만 쓴다(아래 mode 선택은 그대로).
+    elif controls.myDrivingMode == 4 or self.trafficStopMode in (0, 3): 
       if self.status:
         self.xState = XState.lead
       else:
@@ -843,7 +850,7 @@ class LongitudinalMpc:
     if self.trafficStopMode > 0:
       if self.trafficStopMode == 3:
         vision_detected = radarstate.leadOne.dRel < 90 and radarstate.leadOne.status and not radarstate.leadOne.radar
-        mode = 'blended' if self.xState in [XState.e2eCruisePrepare] or vision_detected else 'acc'
+        mode = 'blended' if vision_detected else 'acc'  # 이 포크: 3 은 신호정지·출발준비 E2E 없음
       elif self.trafficStopMode == 2:
         mode = 'blended' if self.xState in [XState.e2eCruisePrepare] else 'acc'
       else:
