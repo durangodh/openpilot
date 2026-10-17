@@ -139,7 +139,9 @@ final class NaverHudMap {
     private long failedAt;
     // 빈(투명·한 색) 첫 프레임은 이 시간 동안만 건너뛴다. 네이버 지도는 화면이 바뀔 때만 다시 그려서
     // 서 있으면 다음 프레임이 안 온다: 계속 건너뛰면 15초 뒤 실패로 큰 폰 화면이 됐다(2026-10-14).
-    private static final long BLANK_SKIP_MS = 3000;
+    // 부팅 때 타일이 3초 넘게 늦어 배경색과 위치 아이콘만 있는 화면이 잠깐 보였다(2026-10-17).
+    // 15초 시작 제한보다 짧게 10초까지 기다린다(그 뒤엔 들고 있던 프레임으로 시작).
+    private static final long BLANK_SKIP_MS = 10000;
     private Bitmap skippedBlank;
 
     boolean started() {
