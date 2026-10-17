@@ -21,6 +21,8 @@ CACHE_DIR = Path("/data/scons_cache" if TICI else "/tmp/scons_cache")
 TOTAL_SCONS_NODES = 2405
 MAX_BUILD_PROGRESS = 100
 PREBUILT = is_prebuilt()
+# prebuilt 파일은 있는데 커밋이 바뀌어 다시 빌드하는 부팅이면 진행률 앞에 표시한다.
+PREFIX = "Prebuilt " if os.path.exists(os.path.join(BASEDIR, 'prebuilt')) else ""
 
 
 def build(spinner: Spinner, dirty: bool = False) -> None:
@@ -46,7 +48,7 @@ def build(spinner: Spinner, dirty: bool = False) -> None:
         prefix = b'progress: '
         if line.startswith(prefix):
           i = int(line[len(prefix):])
-          spinner.update(f"openpilot booting {round(MAX_BUILD_PROGRESS * ( i /  TOTAL_SCONS_NODES))}%")
+          spinner.update(f"{PREFIX}openpilot booting {round(MAX_BUILD_PROGRESS * ( i /  TOTAL_SCONS_NODES))}%")
         elif len(line):
           compile_output.append(line)
           print(line.decode('utf8', 'replace'))
