@@ -3,6 +3,8 @@ import importlib
 import math
 from collections import defaultdict, deque
 
+import numpy as np
+
 import cereal.messaging as messaging
 from cereal import car
 from common.numpy_fast import interp
@@ -26,6 +28,42 @@ from selfdrive.hardware import TICI
 #LEAD_PLUS_ONE_MIN_REL_DIST_V = [3.0, 6.0] # [m] min distance between lead+1 and lead at low and high distance
 #LEAD_PLUS_ONE_MIN_REL_DIST_BP = [0., 100.] # [m] min distance between lead+1 and lead at low and high distance
 #LEAD_PLUS_ONE_MAX_YREL_TO_LEAD = 3.0 # [m]
+
+# 레이더 없이 카메라로만 잡힌 앞차는 모델의 속도 추정이 정지차를 20~50 km/h 로 보는 일이
+# 많다(2026-10-17 long 1846 s: 100 m 앞 정지차를 24 km/h 로 보다 35 m 에서야 정지로 바꿔
+# 마지막에 -3.0 으로 몰아 감속). 같은 카메라의 거리 변화(1.5 초 회귀)로 구한 속도가 더 느리면
+# 그 값을 쓴다. 거리가 들쭉날쭉하면(잔차 3 m 이상) 쓰지 않고, 속도를 낮추는 쪽으로만 쓴다.
+VISION_SPEED_WINDOW = 1.5   # s
+VISION_SPEED_MIN_SPAN = 1.2  # s
+VISION_SPEED_MAX_RESID = 3.0  # m
+
+
+class VisionLeadSpeed():
+  def __init__(self):
+    self.hist = deque()
+
+  def update(self, lead, t, v_ego):
+    if not lead.get('status') or lead.get('radar', True):
+      self.hist.clear()
+      return lead
+    self.hist.append((t, lead['dRel'], v_ego))
+    while t - self.hist[0][0] > VISION_SPEED_WINDOW:
+      self.hist.popleft()
+    if len(self.hist) < 8 or self.hist[-1][0] - self.hist[0][0] < VISION_SPEED_MIN_SPAN:
+      return lead
+    ts = np.array([h[0] for h in self.hist])
+    ds = np.array([h[1] for h in self.hist])
+    ts = ts - ts.mean()
+    slope = float(np.dot(ts, ds - ds.mean()) / np.dot(ts, ts))
+    resid = float(np.sqrt(np.mean((ds - ds.mean() - slope * ts) ** 2)))
+    if resid >= VISION_SPEED_MAX_RESID:
+      return lead
+    v_from_dist = max(float(np.mean([h[2] for h in self.hist])) + slope, 0.)
+    if v_from_dist < lead['vLead']:
+      lead['vLead'] = lead['vLeadK'] = v_from_dist
+      lead['vRel'] = v_from_dist - v_ego
+    return lead
+
 
 class KalmanParams():
   def __init__(self, dt):
@@ -117,6 +155,7 @@ class RadarD():
     self.ready = False
     self.showRadarInfo = False
     self.mixRadarInfo = 0
+    self.vision_lead_speed = VisionLeadSpeed()
 
   def update(self, sm, rr):
     self.mixRadarInfo = _param_int("MixRadarInfo", 0)
@@ -192,7 +231,8 @@ class RadarD():
       model_v_ego = self.v_ego
     leads_v3 = sm['modelV2'].leadsV3
     if len(leads_v3) > 1:
-      radarState.leadOne = get_lead(self.v_ego, self.ready, clusters, leads_v3[0], model_v_ego, low_speed_override=True, mixRadarInfo=self.mixRadarInfo)
+      lead_one = get_lead(self.v_ego, self.ready, clusters, leads_v3[0], model_v_ego, low_speed_override=True, mixRadarInfo=self.mixRadarInfo)
+      radarState.leadOne = self.vision_lead_speed.update(lead_one, self.current_time, self.v_ego)
       radarState.leadTwo = get_lead(self.v_ego, self.ready, clusters, leads_v3[1], model_v_ego, low_speed_override=False, mixRadarInfo=self.mixRadarInfo)
 
 
