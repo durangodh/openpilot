@@ -10,6 +10,10 @@ E2E_START_CONFIRM_TIME = 0.2
 E2E_START_MIN_DISTANCE = 60.0
 E2E_FAR_STOP_DISTANCE = 40.0
 E2E_VISION_LEAD_DISTANCE = 90.0
+# 이 거리 밖에서 이 속도 이상 달리는 카메라 앞차는 ACC 가 따라간다(E2E 가 그 차를 보고
+# 25 km/h 까지 감속만 했다, 2026-10-16). 서 있거나 느린 차는 90 m 안에서 그대로 E2E.
+E2E_VISION_LEAD_MOVING_DISTANCE = 40.0
+E2E_VISION_LEAD_MOVING_SPEED = 15.0 / 3.6
 E2E_VISION_LEAD_CONFIRM_TIME = 0.5
 E2E_LEAD_DROPOUT_CONFIRM_TIME = 0.5
 # A departure is only taken back to a stop after the start sign has been
@@ -75,6 +79,12 @@ E2E_REASON_SIGNAL = 2
 E2E_REASON_VISION_LEAD = 3
 E2E_REASON_DEPARTURE = 4
 E2E_REASON_MANUAL = 5
+
+
+def vision_lead_selects_e2e(lead):
+  """A vision-only (non-radar) lead that should hand longitudinal control to E2E."""
+  return (bool(lead.status) and not lead.radar and lead.dRel < E2E_VISION_LEAD_DISTANCE and
+          not (lead.dRel > E2E_VISION_LEAD_MOVING_DISTANCE and lead.vLead > E2E_VISION_LEAD_MOVING_SPEED))
 
 
 def adjust_stop_distance_for_decel(stop_distance, v_ego, decel_factor, distance_adjust=0.0):

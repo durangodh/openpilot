@@ -22,7 +22,7 @@ from selfdrive.swaglog import cloudlog
 from selfdrive.controls.lib.turn_accel import get_future_curvature, limit_accel_in_future_turns
 from selfdrive.controls.lib.events import Events
 from selfdrive.controls.lib.conditional_e2e import (ConditionalE2EController, E2E_REASON_OFF,
-                                                    E2E_VISION_LEAD_DISTANCE,
+                                                    vision_lead_selects_e2e,
                                                     adjust_stop_distance_for_decel)
 
 AWARENESS_DECEL = -0.2  # car smoothly decel at .2m/s^2 when user is distracted
@@ -148,11 +148,7 @@ class LongitudinalPlanner:
     lead_one = radar_state.leadOne
     lead_present = lead_one.status or radar_state.leadTwo.status
     radar_lead_present = lead_one.status and lead_one.radar
-    # 카메라로만 보이는 앞차는 90 m 안에서 E2E. 단 40 m 밖에서 15 km/h 이상 달리는 차는 ACC 가
-    # 따라간다(E2E 가 그 차를 보고 25 km/h 까지 감속만 했다, 2026-10-16). 서 있거나 느린 차는 E2E.
-    vision_lead_present = (lead_one.status and lead_one.dRel < E2E_VISION_LEAD_DISTANCE and
-                           not lead_one.radar and
-                           not (lead_one.dRel > 40.0 and lead_one.vLead > 15.0 / 3.6))
+    vision_lead_present = vision_lead_selects_e2e(lead_one)
     path_stop_x = float(model_msg.position.x[-1]) if model_valid else 0.0
     selected_stop_x = path_stop_x
     try:
