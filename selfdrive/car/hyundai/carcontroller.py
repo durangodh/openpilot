@@ -2,7 +2,7 @@ from random import randint
 
 from cereal import car
 from common.realtime import DT_CTRL
-from common.numpy_fast import clip
+from common.numpy_fast import clip, interp
 from selfdrive.car import apply_std_steer_torque_limits
 from selfdrive.car.hyundai.hyundaican import create_lkas11, create_clu11, \
   create_scc11, create_scc12, create_scc13, create_scc14, \
@@ -87,6 +87,8 @@ class CarController:
     self.keep_steering_turn_signals = param.get_bool('KeepSteeringTurnSignals')
     self.haptic_feedback_speed_camera = param.get_bool('HapticFeedbackWhenSpeedCamera')
     self.op_params = param
+    self.jerk_start_limit = 1.0
+    self.jerk_count = 0.0
 
     self.scc_smoother = SccSmoother()
     self.soft_hold_mode = int(clip(param.get_int("SoftHoldMode"), 0, 2))
@@ -268,6 +270,8 @@ class CarController:
 
     if self.frame % 100 == 0:
       self.soft_hold_mode = int(clip(self.op_params.get_int("SoftHoldMode"), 0, 2))
+      start_limit = self.op_params.get_int("JerkStartLimit")
+      self.jerk_start_limit = (start_limit if start_limit > 0 else 10) * 0.1
     soft_hold = bool(hud_control.softHold)
     soft_hold_scc = soft_hold and self.soft_hold_mode == 2 and CS.out.brakePressed
     stopping = controls.LoC.long_control_state == LongCtrlState.stopping
@@ -276,20 +280,30 @@ class CarController:
     scc_stop_request = should_request_scc_standstill(
       stopping, soft_hold_scc, CS.out.standstill, CS.out.vEgo, pre_release)
 
-    # apilot-c2: MPC/PID chooses acceleration once; SCC14 is the sole
-    # command-side jerk owner. Follow planned jerk in normal driving and keep
-    # the dedicated stop/launch bounds only at those state transitions.
+    # aPilot c2-master SCC14 jerk: 5.0 while off, 0.5 up / 5.0 down while
+    # stopping or soft hold, otherwise twice the planned jerk, capped by
+    # JerkStartLimit for the first 1.5 counts after a stop and ramping to 5.0
+    # by 2.5 (counted on SCC frames, as aPilot does). Comfort band only in pid.
     jerk_limit = 5.0
     planned_jerk = float(actuators.jerk)
-    if jerk_stopping:
+    long_off = controls.LoC.long_control_state == LongCtrlState.off
+    if self.frame % 2 == 0:
+      self.jerk_count += DT_CTRL
+    jerk_max = interp(self.jerk_count, [0, 1.5, 2.5], [self.jerk_start_limit, self.jerk_start_limit, jerk_limit])
+    comfort_band = True
+    if long_off:
+      jerk_upper = jerk_limit
+      jerk_lower = jerk_limit
+      self.jerk_count = 0.0
+      comfort_band = False
+    elif jerk_stopping:
       jerk_upper = 0.5
       jerk_lower = jerk_limit
+      self.jerk_count = 0.0
+      comfort_band = False
     else:
-      jerk_upper = min(max(0.5, planned_jerk * 2.0), jerk_limit)
-      jerk_lower = min(max(1.0, -planned_jerk * 2.0), jerk_limit)
-      launch_jerk = controls.LoC.scc_launch_jerk() if hasattr(controls.LoC, 'scc_launch_jerk') else None
-      if launch_jerk is not None:
-        jerk_upper = clip(launch_jerk, 0.5, jerk_limit)
+      jerk_upper = min(max(0.5, planned_jerk * 2.0), jerk_max)
+      jerk_lower = min(max(1.0, -planned_jerk * 2.0), jerk_max)
 
     # Community safety now follows the physical SCC MAIN state independently
     # of stock ACC engagement. Start replacing SCC messages as soon as
@@ -352,8 +366,8 @@ class CarController:
           can_sends.append(create_scc13(self.packer, CS.scc13))
 
         if CS.has_scc14:
-          cb_upper = clip(0.9 + apply_accel * 0.2, 0.0, 1.2)
-          cb_lower = clip(0.8 + apply_accel * 0.2, 0.0, 1.2)
+          cb_upper = clip(0.9 + apply_accel * 0.2, 0.0, 1.2) if comfort_band else 0.0
+          cb_lower = clip(0.8 + apply_accel * 0.2, 0.0, 1.2) if comfort_band else 0.0
 
           if lead is not None:
             d = lead.dRel

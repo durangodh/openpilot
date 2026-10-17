@@ -1584,6 +1584,11 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
 
   list->addItem(new ParamValueControlF(
+      "JerkStartLimit", "START JERK LIMIT",
+      "정지(또는 롱컨 해제) 뒤 출발 초기 SCC 저크 상한(×0.1m/s³)입니다. 약 3초 유지 후 2초에 걸쳐 5.0까지 올라갑니다(aPilot). 값 증가(+): 출발 반응이 빨라짐 / 값 감소(-): 출발이 부드러워짐. aPilot 기본값: 10.",
+      "../assets/offroad/icon_openpilot.png", 5, 50, 1, 0, 10, this));
+
+  list->addItem(new ParamValueControlF(
       "StopAccelApply", "STOPPING ACCEL",
       "정지 마무리 제동값(×-0.02m/s²)입니다. 값 증가(+): 정지 직전 제동이 강해짐 / 값 감소(-): 부드러워짐 / 0: 추가 제동 끔.",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 30, this));
