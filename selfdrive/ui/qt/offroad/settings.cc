@@ -1213,12 +1213,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "방지턱까지 남은 주행시간이 이 값일 때 목표속도 도달을 완료합니다. 기본값: 1.",
       "../assets/offroad/icon_speed_limit.png", 1, 50, 1, 0, 1, this));
   toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new ParamControl("VisionLeadMovingAcc",
-                                            "카메라 앞차 달리면 ACC",
-                                            "켜짐: 레이더 없이 카메라로만 보이는 앞차가 40m보다 멀리서 15km/h 이상으로 달리면 E2E 대신 ACC 로 따라갑니다(멀리 달리는 차 때문에 계속 감속만 하는 현상). 서 있거나 느린 차는 그대로 E2E 가 감속합니다.",
-                                            "../assets/offroad/icon_openpilot.png",
-                                            this));
-  toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("LongTraceEnabled",
                                             "LONG TRACE LOG",
                                             "켜짐: 앞차 반응 분석용으로 레이더·계획·명령·차량 가감속 숫자만 /sdcard/long_trace 에 CSV 로 기록합니다(분당 약 100KB, 30개 넘으면 오래된 것부터 삭제). 분석이 끝나면 꺼 주세요.",
