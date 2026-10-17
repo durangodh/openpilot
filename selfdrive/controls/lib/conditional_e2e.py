@@ -9,9 +9,7 @@ from statistics import fmean, median
 E2E_START_CONFIRM_TIME = 0.2
 E2E_START_MIN_DISTANCE = 60.0
 E2E_FAR_STOP_DISTANCE = 40.0
-# A far vision-only lead (47-50 m, 2026-10-16) kept blended E2E coasting
-# down at 25 km/h; beyond this distance ACC follows it instead.
-E2E_VISION_LEAD_DISTANCE = 40.0
+E2E_VISION_LEAD_DISTANCE = 90.0
 E2E_VISION_LEAD_CONFIRM_TIME = 0.5
 E2E_LEAD_DROPOUT_CONFIRM_TIME = 0.5
 # A departure is only taken back to a stop after the start sign has been
