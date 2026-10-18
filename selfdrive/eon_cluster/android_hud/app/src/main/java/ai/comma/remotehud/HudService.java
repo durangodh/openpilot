@@ -3492,6 +3492,17 @@ public final class HudService extends Service {
         if ((fl | fc | fr | rl | rc | rr) == 0) {
             return false;
         }
+        // 2026-10-18 실차 can_printer: 계기판 앞 주차센서 고장 경고 중 PAS11 = 24 04 00 01
+        // (앞 세 구역 모두 4, SystemOn 1), 정상은 00 00 00 00. 한쪽 세 구역이 모두
+        // PARKING_FAULT_LEVEL 이면 거리 경고 대신 고장 표시. 뒤쪽은 같은 규칙을 가정.
+        boolean frontFault = fl == PARKING_FAULT_LEVEL && fc == PARKING_FAULT_LEVEL
+                && fr == PARKING_FAULT_LEVEL;
+        boolean rearFault = rl == PARKING_FAULT_LEVEL && rc == PARKING_FAULT_LEVEL
+                && rr == PARKING_FAULT_LEVEL;
+        if (frontFault || rearFault) {
+            drawParkingSensorFaultPopup(c, p, frontFault, rearFault);
+            return true;
+        }
 
         final float cx = WARNING_CX;
         final float cy = 290f;
@@ -3510,6 +3521,29 @@ public final class HudService extends Service {
         drawParkingSector(c, p, cx, cy, 71.5f, 37f, rc);
         drawParkingSector(c, p, cx, cy, 116f, 37f, rl);
         return true;
+    }
+
+    private static final int PARKING_FAULT_LEVEL = 4;
+
+    /**
+     * 주차센서 고장 표시. 순정 계기판처럼 흰 차량 앞(뒤)에 회색 감지 띠와 노란
+     * 경고 삼각형만 그린다(문구 없음). 그림은 94eb4cc 의 점검 표시와 같다.
+     */
+    private void drawParkingSensorFaultPopup(Canvas c, Paint p, boolean front, boolean rear) {
+        final float cx = WARNING_CX;
+        final float cy = 272f;
+        drawDarkWarningPanel(c, p, cx);
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.BUTT);
+        p.setStrokeWidth(24f);
+        p.setColor(Color.rgb(112, 118, 126));
+        scratchRect.set(cx - 96f, cy - 96f, cx + 96f, cy + 96f);
+        if (front) c.drawArc(scratchRect, 222f, 96f, false, p);
+        if (rear) c.drawArc(scratchRect, 42f, 96f, false, p);
+        drawTopViewCar(c, p, cx, cy, 0.62f, null, null, false, false, false);
+        if (front) drawWarningTriangle(c, p, cx, cy - 136f, 22f);
+        if (rear) drawWarningTriangle(c, p, cx, cy + 126f, 22f);
     }
 
     private int parkingLevel(JSONObject sensors, String key) {
