@@ -524,13 +524,12 @@ final class ModelWorldGL {
         // diverges from the model path.
         Line route = navigationRoute(scene, path, geometryAlpha);
         if (route != null) {
-            int routeColor = dark ? Color.rgb(54, 218, 178)
-                    : Color.rgb(0, 153, 123);
-            int routeShadow = dark ? Color.rgb(18, 30, 29)
-                    : Color.rgb(65, 92, 86);
-            // 목적지 경로: 가는 선 대신 차로 폭(m) 띠로 길게 그린다(2026-10-18 요청, 색은 그대로).
-            drawWorldRibbon(route, path, routeShadow, 1.75f, 0.30f, 0.028f);
-            drawWorldRibbon(route, path, routeColor, 1.35f, 0.50f, 0.065f);
+            // 목적지 경로: 주행 경로와 같은 모양(자차 폭, 가까우면 진하고 멀수록 옅은 파란 띠)으로
+            // 받은 경로 끝까지 길게 그린다(2026-10-18 요청). 높이는 모델 도로 높이를 따른다.
+            for (int i = 0; i < route.count; i++) {
+                route.z[i] = zAt(path, route.x[i]);
+            }
+            drawPathLayers(route, pathColor, Float.POSITIVE_INFINITY);
         }
 
         JSONArray lanes = scene.optJSONArray("lanes");
