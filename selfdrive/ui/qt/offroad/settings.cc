@@ -1361,7 +1361,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 1, 3, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudInfoBox", "S9 HUD INFO BOX",
-      "주행패널 오른쪽 정보 박스.\n1: HUD 정보(온도·CPU·TPMS·LIMIT) / 2: 주행요약(시간·거리·속도·자동주행·급가감속). 경고 팝업은 어느 쪽이든 그 위에 표시됩니다.",
+      "주행패널 오른쪽 정보 박스.\n1: HUD 정보(온도·CPU·TPMS·LIMIT) / 2: 주행요약(시간·거리·속도·자동주행·급가감속). 경고 팝업은 어느 쪽이든 그 위에 표시됩니다. 주행 중 GAP 버튼을 길게 눌러도 바뀝니다.",
       "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "EonClusterHudTheme", "S9 HUD THEME", "0: 지도 밝기 자동 / 1: 다크 / 2: 라이트. 자동은 네이버·티맵 지도 배경 밝기에 맞춰 주행화면을 전환합니다. 판별 불가·지도 끊김 시 시간 기준을 사용합니다.",

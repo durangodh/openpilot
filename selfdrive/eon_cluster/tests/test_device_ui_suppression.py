@@ -279,7 +279,7 @@ def test_s9_v6_visual_layers_and_local_map_context():
   assert "drawRoadEdge" in renderer
   assert "drawLaneMarking" in renderer
   assert "drawDesiredDistance" in renderer
-  assert "routeShadow" in renderer
+  assert "drawPathLayers(route, pathColor" in renderer and "densify(denseRoute" in renderer
   assert "lineScreenX" in renderer and "lineScreenY" in renderer
   # 개수를 못 박으면 렌더러에 버퍼가 하나 늘 때마다 깨진다. 화면좌표 버퍼가
   # MAX_POINTS 로 한계 지어져 있다는 사실만 확인한다.

@@ -602,7 +602,7 @@ class CruiseHelper:
     short_gap_release = False
     navigation_gap_release = False
 
-    # ── GAP 길게 누르기 → 내비 앱 전환 ──
+    # ── GAP 길게 누르기 → S9 HUD 정보 박스 전환(1 HUD 정보 ↔ 2 주행요약, 2026-10-18) ──
     # carState(capnp)에는 현재 눌린 버튼 필드가 없으므로 buttonEvents 의
     # 누름/뗌으로 유지시간을 잰다. 짧은 누름인지 긴 누름인지 알기 전에는
     # PrevCruiseGap을 바꾸지 않는다.
@@ -624,19 +624,19 @@ class CruiseHelper:
       if self.gap_hold_frames >= NAV_TOGGLE_HOLD_FRAMES and not self.nav_toggle_done:
         self.nav_toggle_done = True
         try:
-          current = self.params.get_int("EonClusterHudNavApp")
-          put_nonblocking("EonClusterHudNavApp", "2" if current == 1 else "1")
+          current = self.params.get_int("EonClusterHudInfoBox")
+          put_nonblocking("EonClusterHudInfoBox", "1" if current == 2 else "2")
         except (TypeError, ValueError):
           pass
 
     if longcontrol:
       # The stock SCC can restart at gap 4 even when PrevCruiseGap is 2. Cycle
       # from the persisted value only after a completed short press. A long
-      # press belongs exclusively to navigation selection.
+      # press belongs exclusively to the HUD info box toggle.
       gap, changed = select_software_gap(self.long_cruise_gap, short_gap_release)
     else:
       # With stock SCC the physical GAP button really changes TauGapSet even
-      # when its long press is also used for navigation. Reflect that actual
+      # when its long press is also used for the HUD info box. Reflect that actual
       # value in software on release so the HUD and persisted gap cannot drift
       # apart. Openpilot longitudinal control keeps its saved gap above.
       gap, changed = select_physical_gap(self.long_cruise_gap, CS.cruiseGap,
