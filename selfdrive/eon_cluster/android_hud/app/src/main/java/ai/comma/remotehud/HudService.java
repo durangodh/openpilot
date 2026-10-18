@@ -4184,11 +4184,14 @@ public final class HudService extends Service {
      */
     /** 주행요약(carrot-wip 클러스터 TRIP SUMMARY): EON 박스 안(475 x EON_BOX_H). */
     private void drawTripSummaryBox(Canvas c, Paint p, JSONObject t) {
-        int muted = Color.rgb(150, 170, 215);
-        int white = Color.rgb(240, 244, 250);
+        // 지도 위에 반투명으로 겹쳐 낮에 글자가 안 보였다(2026-10-18). 불투명한 어두운 카드에
+        // 굵고 밝은 글자로 그린다.
+        int muted = Color.rgb(190, 205, 235);
+        int white = Color.WHITE;
         float w = 475f;
-        text(c, p, lang("주행 요약", "TRIP SUMMARY"), 18f, 42f, 27f, muted, Paint.Align.LEFT);
-        textNormal(c, p, lang("시간", "TIME"), 18f, 96f, 22f, muted, Paint.Align.LEFT);
+        eonBoxRect(c, p, 0f, 0f, w, EON_BOX_H, Color.argb(240, 16, 22, 40), 2f, Color.WHITE);
+        text(c, p, lang("주행 요약", "TRIP SUMMARY"), 18f, 42f, 28f, muted, Paint.Align.LEFT);
+        text(c, p, lang("시간", "TIME"), 18f, 96f, 24f, muted, Paint.Align.LEFT);
         int sec = Math.max(0, t.optInt("time", 0));
         text(c, p, String.format(Locale.US, "%02d:%02d:%02d", sec / 3600, (sec / 60) % 60, sec % 60),
                 w - 18f, 100f, 46f, Color.rgb(250, 200, 140), Paint.Align.RIGHT);
@@ -4212,9 +4215,9 @@ public final class HudService extends Service {
         for (int i = 0; i < cells.length; i++) {
             float x = 18f + (i % 2) * cw;
             float y = 134f + (i / 2) * 93f;
-            textNormal(c, p, cells[i][0], x, y + 21f, 21f, muted, Paint.Align.LEFT);
-            text(c, p, cells[i][1], x, y + 62f, 37f, white, Paint.Align.LEFT);
-            textNormal(c, p, cells[i][2], x + cw - 12f, y + 60f, 18f, muted, Paint.Align.RIGHT);
+            text(c, p, cells[i][0], x, y + 22f, 23f, muted, Paint.Align.LEFT);
+            text(c, p, cells[i][1], x, y + 64f, 40f, white, Paint.Align.LEFT);
+            text(c, p, cells[i][2], x + cw - 12f, y + 62f, 21f, muted, Paint.Align.RIGHT);
         }
 
         String[] chipLabels = {lang("급가속", "HARD ACC"), lang("급감속", "HARD BRK"), lang("급코너", "CORNER")};
@@ -4224,9 +4227,9 @@ public final class HudService extends Service {
         float chipTop = EON_BOX_H - 68f;
         for (int i = 0; i < 3; i++) {
             float x = 18f + i * (chipW + 8f);
-            eonBoxRect(c, p, x, chipTop, chipW, 50f, Color.rgb(14, 22, 44), 2.5f, chipColors[i]);
-            textNormal(c, p, chipLabels[i], x + 10f, chipTop + 33f, 19f, muted, Paint.Align.LEFT);
-            text(c, p, String.valueOf(chipValues[i]), x + chipW - 10f, chipTop + 35f, 26f, chipColors[i],
+            eonBoxRect(c, p, x, chipTop, chipW, 50f, Color.rgb(10, 14, 28), 3f, chipColors[i]);
+            text(c, p, chipLabels[i], x + 10f, chipTop + 34f, 21f, white, Paint.Align.LEFT);
+            text(c, p, String.valueOf(chipValues[i]), x + chipW - 10f, chipTop + 36f, 28f, chipColors[i],
                     Paint.Align.RIGHT);
         }
     }
