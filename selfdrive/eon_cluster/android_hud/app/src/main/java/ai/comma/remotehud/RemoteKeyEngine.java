@@ -48,7 +48,8 @@ final class RemoteKeyEngine {
         }
     }
     private static boolean driving(String action) {
-        return action != null && (action.equals("res") || action.equals("set") || action.equals("gap") || action.startsWith("lane_"));
+        return action != null && (action.equals("res") || action.equals("set") || action.equals("gap")
+                || action.endsWith("_long") || action.startsWith("lane_"));
     }
     void blockDrivingHolds() {
         for (Map.Entry<Integer, Hold> entry : down.entrySet())

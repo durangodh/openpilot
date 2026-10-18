@@ -359,9 +359,9 @@ class CarInterface(CarInterfaceBase):
       be.pressed = pressed
       buttonEvents.append(be)
     # Presses from the HUD remote look exactly like wheel-button transitions.
+    # Gear and pedals are judged by the cruise logic exactly as for wheel buttons.
     buttonEvents.extend(self.hud_remote.button_events(
-      allowed=ret.canValid and ret.gearShifter == GearShifter.drive and
-      not ret.brakePressed and not ret.gasPressed and not buttonEvents))
+      allowed=ret.canValid and not buttonEvents))
     ret.buttonEvents = buttonEvents
 
     events = self.create_common_events(ret)

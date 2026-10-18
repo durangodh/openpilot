@@ -9,8 +9,10 @@ import android.view.KeyEvent;
 import org.json.JSONObject;
 
 final class RemoteControl {
-    static final String[] ACTIONS = {"none", "res", "set", "gap", "cancel", "nav_toggle", "lane_left", "lane_right"};
-    static final String[] LABELS = {"사용 안 함", "RES / 속도 +1", "SET / 속도 −1", "차간거리", "ACC 취소 (조향 유지)", "티맵 ↔ 네이버", "왼쪽 차선변경 요청", "오른쪽 차선변경 요청"};
+    static final String[] ACTIONS = {"none", "res", "set", "gap", "cancel", "nav_toggle", "lane_left", "lane_right",
+            "res_long", "set_long", "gap_long"};
+    static final String[] LABELS = {"사용 안 함", "RES / 속도 +1", "SET / 속도 −1", "차간거리", "ACC 취소 (조향 유지)", "티맵 ↔ 네이버", "왼쪽 차선변경 요청", "오른쪽 차선변경 요청",
+            "RES 길게 (속도 +10)", "SET 길게 (속도 −10)", "GAP 길게 (HUD 정보 박스 전환)"};
     static volatile boolean configuring = false, connected = false, drivingAllowed = false;
     static volatile int learnedKey = -1;
     static volatile String lastInput = "버튼 입력 대기";

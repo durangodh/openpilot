@@ -129,13 +129,40 @@ class RemoteTest(unittest.TestCase):
 
   def test_vehicle_gates(self):
     self.assertEqual(r.allowed_commands(False, True, True, False, False), set(r.PARAM_COMMANDS))
-    for flags in [(True, False, True, False, False), (True, True, False, False, False),
-                  (True, True, True, True, False), (True, True, True, False, True)]:
-      self.assertNotIn('res', r.allowed_commands(*flags))
-      self.assertNotIn('lane_left', r.allowed_commands(*flags))
-    self.assertIn('cancel', r.allowed_commands(True, True, True, True, False))
+    self.assertEqual(r.allowed_commands(True, False, True, False, False), set(r.PARAM_COMMANDS))
+    # Cruise buttons only need ignition and valid car data; the cruise logic judges gear/pedals.
+    for flags in [(True, True, False, False, False), (True, True, True, True, False), (True, True, True, False, True)]:
+      allowed = r.allowed_commands(*flags)
+      for command in ('res', 'set', 'gap', 'cancel', 'res_long', 'set_long', 'gap_long'):
+        self.assertIn(command, allowed)
+      self.assertNotIn('lane_left', allowed)
+      self.assertNotIn('lane_right', allowed)
     self.assertEqual(r.allowed_commands(True, True, True, False, False), set(r.ALL_COMMANDS))
 
+  def test_long_press_holds_then_releases(self):
+    self.src = r.RemoteButtonSource(self.path, lambda: self.now, long_delay=40)
+    self.send('res_long')
+    first = [event for _ in range(5) for event in self.src.poll(True)]
+    self.assertEqual(first, [('accelCruise', True)])
+    held = [self.src.poll(True) for _ in range(41)]
+    self.assertTrue(all(events == [] for events in held))
+    self.assertEqual(self.src.poll(True), [('accelCruise', False)])
+    self.assertEqual(self.events(), [])
+
+  def test_gap_long_hold_covers_info_box_toggle(self):
+    self.src = r.RemoteButtonSource(self.path, lambda: self.now, long_delay=40)
+    self.send('gap_long')
+    frames = [self.src.poll(True) for _ in range(200)]
+    pressed = next(i for i, e in enumerate(frames) if e == [('gapAdjustCruise', True)])
+    released = next(i for i, e in enumerate(frames) if e == [('gapAdjustCruise', False)])
+    self.assertGreater(released - pressed, 150)
+
+  def test_long_press_released_when_blocked(self):
+    self.src = r.RemoteButtonSource(self.path, lambda: self.now, long_delay=40)
+    self.send('set_long')
+    self.assertEqual([event for _ in range(5) for event in self.src.poll(True)], [('decelCruise', True)])
+    self.assertEqual(self.src.poll(True), [])
+    self.assertEqual(self.src.poll(False), [('decelCruise', False)])
 
 if __name__ == '__main__':
   unittest.main()
