@@ -210,6 +210,19 @@ public final class HudService extends Service {
     private static final float NAVI_LEFT_FADE_END = 390f;
     private static final float NAVI_RIGHT_FADE_START = NAVI_COL_LEFT - 8f;
     private static final float NAVI_FADE_EDGE = 160f;
+    /**
+     * 네비모드 비 내리는 효과(날씨 비·뇌우일 때만, 2026-10-18 요청). 오른쪽 주행 칸은 날씨
+     * 패널 아래~도로 위 하늘, 지도는 위쪽만. 둘 다 아래로 갈수록 옅어져 사라진다.
+     */
+    private static final float NAVI_RAIN_DRIVE_TOP = 185f;
+    private static final float NAVI_RAIN_DRIVE_BOTTOM = 480f;
+    private static final float NAVI_RAIN_MAP_TOP = 0f;
+    private static final float NAVI_RAIN_MAP_BOTTOM = 270f;
+    private static final int NAVI_RAIN_DRIVE_DROPS = 90;
+    private static final int NAVI_RAIN_MAP_DROPS = 110;
+    /** 빗줄기가 칸 높이만큼 떨어지는 시간(ms). */
+    private static final long NAVI_RAIN_FALL_MS = 1400L;
+    private static final float NAVI_RAIN_SLANT = 0.22f;
     /** 네비모드 지도 아래쪽 연하게(순정 계기판처럼): 위에서 이 높이만큼 서서히 진해진다. */
     private static final float NAVI_BOTTOM_FADE_H = 220f;
     // 2026-10-13 실차: 110 은 낮 지도(밝은 회색 위 밝은 회색)에서 거의 티가 안 났다.
@@ -2506,6 +2519,7 @@ public final class HudService extends Service {
             int drivingSave = c.save();
             drawDriving(c, p, s);
             c.restoreToCount(drivingSave);
+            drawNaviRain(c, p);
             drawMapOverlays(c, p, s, lane, trafficSignal);
             drawNaviCongestion(c, p, s);
             drawNaviNoo(c, p, s);
@@ -7025,6 +7039,73 @@ public final class HudService extends Service {
             textNormal(c, p, degree(d.dayMax[i]) + "/" + degree(d.dayMin[i]), cx - 8f, 166f, 17f, ink,
                     Paint.Align.LEFT);
         }
+    }
+
+    /** 빗줄기 시작 위치(0~1)·길이·굵기 비율. 한 번만 만들어 매 프레임 떨어뜨리기만 한다. */
+    private static final float[] RAIN_DROPS = rainDrops(Math.max(NAVI_RAIN_DRIVE_DROPS, NAVI_RAIN_MAP_DROPS));
+
+    private static float[] rainDrops(int count) {
+        java.util.Random rnd = new java.util.Random(11);
+        float[] d = new float[count * 4];
+        for (int i = 0; i < count; i++) {
+            d[i * 4] = rnd.nextFloat();
+            d[i * 4 + 1] = rnd.nextFloat();
+            d[i * 4 + 2] = rnd.nextFloat();
+            d[i * 4 + 3] = 0.8f + rnd.nextFloat() * 0.4f;
+        }
+        return d;
+    }
+
+    private void drawNaviRain(Canvas c, Paint p) {
+        if (weather == null || eonStale()) return;
+        int icon = weather.icon();
+        if (icon != WeatherService.ICON_RAIN && icon != WeatherService.ICON_THUNDER) return;
+        float phase = (SystemClock.uptimeMillis() % NAVI_RAIN_FALL_MS) / (float) NAVI_RAIN_FALL_MS;
+        int rgb = frameDark ? Color.rgb(184, 206, 232) : Color.rgb(225, 235, 250);
+
+        // 오른쪽 주행 칸 하늘: 살짝 어둡게 한 뒤 빗줄기.
+        p.setStyle(Paint.Style.FILL);
+        p.setShader(new LinearGradient(0f, NAVI_RAIN_DRIVE_TOP, 0f, NAVI_RAIN_DRIVE_BOTTOM,
+                Color.argb(55, 60, 72, 90), Color.argb(0, 60, 72, 90), Shader.TileMode.CLAMP));
+        c.drawRect(NAVI_DRIVE_LEFT, NAVI_RAIN_DRIVE_TOP, WIDTH, NAVI_RAIN_DRIVE_BOTTOM, p);
+        p.setShader(null);
+        drawRainDrops(c, p, NAVI_DRIVE_LEFT, WIDTH, NAVI_RAIN_DRIVE_TOP, NAVI_RAIN_DRIVE_BOTTOM,
+                NAVI_RAIN_DRIVE_DROPS, phase, rgb, 170, 0.6f);
+        // 지도 위쪽: 지명이 읽히도록 더 옅게.
+        drawRainDrops(c, p, 0f, NAVI_MAP_RIGHT, NAVI_RAIN_MAP_TOP, NAVI_RAIN_MAP_BOTTOM,
+                NAVI_RAIN_MAP_DROPS, phase, rgb, 140, 1f);
+        p.setStyle(Paint.Style.FILL);
+        p.setAlpha(255);
+    }
+
+    private void drawRainDrops(Canvas c, Paint p, float left, float right, float top, float bottom,
+                               int count, float phase, int rgb, int maxAlpha, float fade) {
+        float h = bottom - top;
+        float w = right - left + h * NAVI_RAIN_SLANT;
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        int save = c.save();
+        c.clipRect(left, top, right, bottom);
+        for (int i = 0; i < count; i++) {
+            float x0 = RAIN_DROPS[i * 4];
+            float y0 = RAIN_DROPS[i * 4 + 1];
+            float layer = RAIN_DROPS[i * 4 + 2];
+            float speed = RAIN_DROPS[i * 4 + 3];
+            float len = 14f + layer * 20f;
+            // 위에서 아래로 떨어지며 바람 방향(오른쪽 → 왼쪽 아래)으로 함께 흐른다.
+            float t = (y0 + phase * speed) % 1f;
+            float y = top - len + t * (h + len);
+            float x = left + x0 * w - t * h * NAVI_RAIN_SLANT;
+            float depth = Math.max(0f, Math.min(1f, (y - top) / h));
+            int a = Math.round(maxAlpha * (0.55f + 0.45f * layer) * (1f - fade * depth));
+            if (a <= 0) continue;
+            p.setColor(rgb);
+            p.setAlpha(Math.min(255, a));
+            p.setStrokeWidth(1.5f + layer * 1.5f);
+            c.drawLine(x, y, x - len * NAVI_RAIN_SLANT, y + len, p);
+        }
+        c.restoreToCount(save);
+        p.setStyle(Paint.Style.FILL);
     }
 
     private static String degree(double value) {
