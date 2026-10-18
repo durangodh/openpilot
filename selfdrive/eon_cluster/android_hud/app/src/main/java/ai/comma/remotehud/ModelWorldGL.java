@@ -172,6 +172,7 @@ final class ModelWorldGL {
     private final Line[] drawnLanes = new Line[4];   // 이번 프레임에 그린 차선(없으면 null)
     private final Line virtualLane = new Line();
     private final Line smoothedRoute = new Line();
+    private final Line denseRoute = new Line();
     private final float[] laneConfidence = new float[4];
     private final boolean[] laneVisible = new boolean[4];
     // 카메라만으로 셀 수 있는 최대치(내 차로 좌우 각 1개씩)와, 안내 중일 때
@@ -527,8 +528,9 @@ final class ModelWorldGL {
                     : Color.rgb(0, 153, 123);
             int routeShadow = dark ? Color.rgb(18, 30, 29)
                     : Color.rgb(65, 92, 86);
-            drawWorldLine(route, path, routeShadow, 7.0f, 0.38f, 0.028f);
-            drawWorldLine(route, path, routeColor, 3.4f, 0.66f, 0.065f);
+            // 목적지 경로: 가는 선 대신 차로 폭(m) 띠로 길게 그린다(2026-10-18 요청, 색은 그대로).
+            drawWorldRibbon(route, path, routeShadow, 1.75f, 0.30f, 0.028f);
+            drawWorldRibbon(route, path, routeColor, 1.35f, 0.50f, 0.065f);
         }
 
         JSONArray lanes = scene.optJSONArray("lanes");
@@ -652,7 +654,42 @@ final class ModelWorldGL {
             smoothedRoute.count = 0;
             return null;
         }
-        return smoothLine(smoothedRoute, raw, clamp(alpha, 0.28f, 0.55f));
+        return densify(denseRoute, smoothLine(smoothedRoute, raw, clamp(alpha, 0.28f, 0.55f)));
+    }
+
+    /**
+     * 경로 점은 12 m 간격이라 이어 그리면 커브가 꺾여 보인다. Catmull-Rom 곡선으로 점 사이를
+     * 채워(최대 MAX_POINTS) 부드럽게 만든다. 원래 점은 그대로 지난다.
+     */
+    private static Line densify(Line target, Line source) {
+        int n = source.count;
+        if (n < 3) {
+            return source;
+        }
+        int sub = Math.max(1, (MAX_POINTS - 1) / (n - 1));
+        int k = 0;
+        for (int i = 0; i + 1 < n && k < MAX_POINTS - 1; i++) {
+            int i0 = Math.max(0, i - 1), i3 = Math.min(n - 1, i + 2);
+            for (int j = 0; j < sub && k < MAX_POINTS - 1; j++) {
+                float t = j / (float) sub;
+                target.x[k] = catmullRom(source.x[i0], source.x[i], source.x[i + 1], source.x[i3], t);
+                target.y[k] = catmullRom(source.y[i0], source.y[i], source.y[i + 1], source.y[i3], t);
+                target.z[k] = source.z[i] + (source.z[i + 1] - source.z[i]) * t;
+                k++;
+            }
+        }
+        target.x[k] = source.x[n - 1];
+        target.y[k] = source.y[n - 1];
+        target.z[k] = source.z[n - 1];
+        target.count = k + 1;
+        target.confidence = source.confidence;
+        return target;
+    }
+
+    private static float catmullRom(float p0, float p1, float p2, float p3, float t) {
+        float t2 = t * t, t3 = t2 * t;
+        return 0.5f * (2f * p1 + (p2 - p0) * t + (2f * p0 - 5f * p1 + 4f * p2 - p3) * t2
+                + (3f * p1 - p0 - 3f * p2 + p3) * t3);
     }
 
     private float smoothingAlpha(long timestamp) {
@@ -1501,8 +1538,8 @@ final class ModelWorldGL {
     }
 
     /**
-     * Draws a ribbon with a width measured in world meters. Map roads depend on
-     * this helper even though the navigation route uses pixel-width lines again.
+     * Draws a ribbon with a width measured in world meters (map roads and the
+     * navigation route).
      */
     private void drawWorldRibbon(Line line, Line roadHeight, int color,
                                  float halfWidth, float alpha, float zOffset) {
