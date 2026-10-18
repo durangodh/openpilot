@@ -1240,11 +1240,15 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   // ── S9 외부 클러스터 HUD ──────────────────────────────────
 
   auto remotePair = new ButtonControl("REMOTE PAIR", "PAIR",
-      "S9 HUD 앱의 무선 리모컨 설정에 입력할 연결 키입니다. 시동을 끈 상태에서 확인하세요.");
+      "S9 HUD 앱의 무선 리모컨 설정에 입력할 연결 키입니다. 시동을 끄거나 P단에서 확인하세요.");
   toggleLayout->addWidget(remotePair);
   connect(remotePair, &ButtonControl::clicked, [=]() {
-    if (!Params().getBool("IsOffroad")) {
-      ConfirmationDialog::alert("시동을 끈 상태에서 연결 키를 확인하세요.", this);
+    // 주행 중에는 키 창을 띄우지 않는다. 시동이 켜져 있어도 P단이면 허용(2026-10-18 요청).
+    const SubMaster &sm = *(uiState()->sm);
+    bool parked = sm.alive("carState") &&
+                  sm["carState"].getCarState().getGearShifter() == cereal::CarState::GearShifter::PARK;
+    if (!Params().getBool("IsOffroad") && !parked) {
+      ConfirmationDialog::alert("시동을 끄거나 P단에서 연결 키를 확인하세요.", this);
       return;
     }
     auto key = Params().get("HudRemoteKey");
