@@ -65,6 +65,16 @@ class RemoteTest(unittest.TestCase):
       self.assertFalse(self.sync.receive(payload, ('s9', port), r.ALL_COMMANDS))
     self.assertEqual(self.events(), [])
 
+  def test_short_key(self):
+    short = 'a1b2c3d4'
+    self.params.values['HudRemoteKey'] = short
+    self.packet = self.sync.telemetry()
+    self.assertFalse(self.sync.receive(self.request(key=KEY), ('s9', 7210), r.ALL_COMMANDS))
+    self.assertTrue(self.sync.receive(self.request(number=2, key=short), ('s9', 7210), r.ALL_COMMANDS))
+    for bad in ('a1b2c3d', 'a1b2c3d4e', 'A1B2C3D4', 'g1b2c3d4'):
+      self.params.values['HudRemoteKey'] = bad
+      self.assertEqual(self.sync.refresh_key(), '')
+
   def test_reused_id_cannot_change_action(self):
     self.send()
     self.assertFalse(self.send('cancel'))

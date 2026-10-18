@@ -83,10 +83,10 @@ public final class RemoteSettingsActivity extends Activity {
         root.addView(text("4. EON 설정 → REMOTE PAIR에 표시되는 연결 키 입력"));
         EditText secret = new EditText(this);
         secret.setSingleLine(true); secret.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        secret.setHint("32자리 연결 키"); secret.setText(RemoteControl.prefs(this).getString("secret", "")); root.addView(secret);
+        secret.setHint("8자리 연결 키"); secret.setText(RemoteControl.prefs(this).getString("secret", "")); root.addView(secret);
         button(root, "연결 키 저장", () -> {
             String key = secret.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
-            if (!RemoteCommandProtocol.hex(key, 32)) { secret.setError("32자리 영문 a–f / 숫자를 입력하세요"); return; }
+            if (!RemoteCommandProtocol.key(key)) { secret.setError("8자리 영문 a–f / 숫자를 입력하세요"); return; }
             RemoteControl.prefs(this).edit().putString("secret", key).apply();
             Toast.makeText(this, "연결 키 저장됨", Toast.LENGTH_SHORT).show();
         });

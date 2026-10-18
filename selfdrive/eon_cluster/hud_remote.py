@@ -29,6 +29,14 @@ def valid_hex(value, length=32):
   return isinstance(value, str) and len(value) == length and all(c in "0123456789abcdef" for c in value)
 
 
+# 연결 키: 8자리(2026-10-18 요청, 입력 편의). 이전에 받은 32자리 키도 계속 받는다.
+KEY_LENGTHS = (8, 32)
+
+
+def valid_key(value):
+  return any(valid_hex(value, n) for n in KEY_LENGTHS)
+
+
 def atomic_json(path, payload):
   temporary = path + ".tmp"
   with open(temporary, "w") as f:
@@ -56,7 +64,7 @@ class RemoteCommandSync:
   def refresh_key(self):
     raw = self.params.get("HudRemoteKey") or b""
     key = raw.decode("ascii", errors="ignore") if isinstance(raw, bytes) else raw
-    key = key if valid_hex(key) else ""
+    key = key if valid_key(key) else ""
     if key != self.key:
       self.key = key
       self.session = uuid.uuid4().hex

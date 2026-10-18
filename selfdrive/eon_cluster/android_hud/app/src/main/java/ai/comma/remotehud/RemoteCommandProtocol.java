@@ -14,6 +14,8 @@ final class RemoteCommandProtocol {
     static boolean hex(String value, int length) {
         return value != null && value.length() == length && value.matches("[0-9a-f]+");
     }
+    /** 연결 키: 8자리(2026-10-18). 이전에 받은 32자리 키도 그대로 쓴다. EON hud_remote.KEY_LENGTHS 와 같다. */
+    static boolean key(String value) { return hex(value, 8) || hex(value, 32); }
     static String sign(String key, String body) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
@@ -37,7 +39,7 @@ final class RemoteCommandProtocol {
     boolean fresh(long now) { return hex(session, 32) && hex(ticket, 16) && now >= receivedAt && now - receivedAt <= 250; }
     boolean submit(String action, String key, long now) {
         expire(now);
-        if (!hex(key, 32)) { result = "S9에 EON 연결 키 입력 필요"; return false; }
+        if (!key(key)) { result = "S9에 EON 연결 키 입력 필요"; return false; }
         if (!fresh(now)) {
             result = "EON 연결 끊김 · 명령 전송 안 함"; return false;
         }

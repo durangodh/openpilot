@@ -1253,7 +1253,8 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     }
     auto key = Params().get("HudRemoteKey");
     if (key.empty()) {
-      key = QUuid::createUuid().toString(QUuid::WithoutBraces).remove('-').toStdString();
+      // 8자리(입력 편의, 2026-10-18). 예전 32자리 키는 지우기 전까지 그대로 쓴다.
+      key = QUuid::createUuid().toString(QUuid::WithoutBraces).remove('-').left(8).toStdString();
       if (Params().put("HudRemoteKey", key) != 0) {
         ConfirmationDialog::alert("연결 키 저장 실패", this);
         return;
@@ -1261,7 +1262,8 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     }
     // 키를 맨 위에 둔다. 안내문이 먼저 오면 작은 EON 화면에서 키가 창 밖으로 잘린다.
     QString shown = QString::fromStdString(key);
-    ConfirmationDialog::alert(shown.left(16) + "\n" + shown.mid(16) + "\n\nS9 HUD 무선 리모컨 연결 키", this);
+    if (shown.size() > 16) shown = shown.left(16) + "\n" + shown.mid(16);
+    ConfirmationDialog::alert(shown + "\n\nS9 HUD 무선 리모컨 연결 키", this);
   });
   auto remoteForget = new ButtonControl("REMOTE UNPAIR", "DELETE", "등록한 S9 리모컨 연결 키를 삭제합니다.");
   toggleLayout->addWidget(remoteForget);
