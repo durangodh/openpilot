@@ -3501,6 +3501,18 @@ public final class HudService extends Service {
                 && rr == PARKING_FAULT_LEVEL;
         if (frontFault || rearFault) {
             drawParkingSensorFaultPopup(c, p, frontFault, rearFault);
+            // 순정 계기판처럼 고장 아닌 쪽의 거리 경고는 같은 그림에 함께 보인다.
+            final float fcy = PARKING_FAULT_CY;
+            if (!frontFault) {
+                drawParkingSector(c, p, WARNING_CX, fcy, 207f, 37f, fl);
+                drawParkingSector(c, p, WARNING_CX, fcy, 251.5f, 37f, fc);
+                drawParkingSector(c, p, WARNING_CX, fcy, 296f, 37f, fr);
+            }
+            if (!rearFault) {
+                drawParkingSector(c, p, WARNING_CX, fcy, 27f, 37f, rr);
+                drawParkingSector(c, p, WARNING_CX, fcy, 71.5f, 37f, rc);
+                drawParkingSector(c, p, WARNING_CX, fcy, 116f, 37f, rl);
+            }
             return true;
         }
 
@@ -3524,6 +3536,7 @@ public final class HudService extends Service {
     }
 
     private static final int PARKING_FAULT_LEVEL = 4;
+    private static final float PARKING_FAULT_CY = 272f;
 
     /**
      * 주차센서 고장 표시. 순정 계기판처럼 흰 차량 앞(뒤)에 회색 감지 띠와 노란
@@ -3531,7 +3544,7 @@ public final class HudService extends Service {
      */
     private void drawParkingSensorFaultPopup(Canvas c, Paint p, boolean front, boolean rear) {
         final float cx = WARNING_CX;
-        final float cy = 272f;
+        final float cy = PARKING_FAULT_CY;
         drawDarkWarningPanel(c, p, cx);
         p.setShader(null);
         p.setStyle(Paint.Style.STROKE);
