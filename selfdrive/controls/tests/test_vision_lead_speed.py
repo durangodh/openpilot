@@ -35,6 +35,25 @@ def test_stopped_car_seen_as_moving_is_slowed_down():
   assert abs(out['vRel'] + 15.5 - out['vLead']) < 1e-6
 
 
+def test_clear_stopped_car_is_corrected_before_full_history():
+  vls = VisionLeadSpeed()
+  out = None
+  for i in range(15):  # 0.7 s at 20 Hz; the legacy path waits 1.2 s
+    t = i * 0.05
+    out = vls.update(_vision(90. - 15.5 * t, 6.5, 15.5), t, 15.5)
+  assert out['vLead'] < 1.0
+
+
+def test_fast_path_rejects_noisy_short_history():
+  vls = VisionLeadSpeed()
+  out = None
+  noise = [0.0, 1.2, -1.0, 0.8, -1.1, 1.0, -0.9, 1.1, -1.2, 0.7, -0.8, 1.0, -1.0, 0.9, -0.7]
+  for i, offset in enumerate(noise):
+    t = i * 0.05
+    out = vls.update(_vision(90. - 15.5 * t + offset, 6.5, 15.5), t, 15.5)
+  assert out['vLead'] == 6.5
+
+
 def test_moving_lead_with_noisy_distance_is_left_alone():
   # 2026-10-17 2275 s: lead at 17 m/s, vision distance jumping +-5 m
   vls = VisionLeadSpeed()
