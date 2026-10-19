@@ -91,3 +91,75 @@ def get_auto_speed_up_target(set_speed_kph, road_limit_kph, dt=0.01):
   bounded_limit = float(clip(road_limit_kph, 0.0, MAX_SET_SPEED_KPH))
   return min(set_speed_kph + AUTO_SPEED_UP_RATE_KPH_S * dt,
              bounded_limit, float(MAX_SET_SPEED_KPH))
+
+
+# Cut-in gap relief. A car that cuts in closer than the following distance but is not
+# closing on us (similar or faster) does not need a hard brake to restore the gap.
+# The missing distance is lent back to the MPC as an obstacle offset that is returned
+# at CUT_IN_RELIEF_DECAY m/s, so the gap reopens gradually and acceleration resumes as
+# soon as the lead pulls away. 2026-10-20 long 857 s: 13 m cut-in at 48 km/h, -2.4 brake,
+# then still -1.4 while the lead pulled away at +1.4 m/s.
+CUT_IN_DREL_JUMP = 5.0       # m, lead distance drop in one plan step that marks a cut-in
+CUT_IN_WINDOW = 3.0          # s, time after the cut-in in which relief may be armed
+CUT_IN_MIN_VREL = -1.0       # m/s, lead at most this much slower than us
+CUT_IN_MIN_ALEAD = -2.0      # m/s^2, no relief while the lead is braking harder
+CUT_IN_MIN_GAP_T = 0.6       # s, never relieve below this time gap (+ CUT_IN_MIN_GAP_D)
+CUT_IN_MIN_GAP_D = 3.0       # m
+CUT_IN_RELIEF_DECAY = 1.0    # m/s
+
+
+class CutInGapRelief:
+  def __init__(self):
+    self.reset()
+
+  def reset(self):
+    self.relief = 0.0
+    self.since_cut_in = CUT_IN_WINDOW + 1.0
+    self.prev_d_rel = None
+
+  def update(self, enabled, lead_status, d_rel, v_rel, a_lead, v_ego, deficit, dt):
+    """Return the obstacle offset (m) to add to the lead obstacle this plan step."""
+    if not enabled or not lead_status:
+      self.reset()
+      return 0.0
+
+    if self.prev_d_rel is None or self.prev_d_rel - d_rel > CUT_IN_DREL_JUMP:
+      self.since_cut_in = 0.0
+      self.relief = 0.0
+    else:
+      self.since_cut_in += dt
+    self.prev_d_rel = d_rel
+
+    safe = (v_rel > CUT_IN_MIN_VREL and a_lead > CUT_IN_MIN_ALEAD and
+            d_rel > v_ego * CUT_IN_MIN_GAP_T + CUT_IN_MIN_GAP_D)
+    if not safe:
+      # Once a cut-in turned unsafe, wait for the next cut-in before lending distance again.
+      if self.relief > 0.0:
+        self.since_cut_in = CUT_IN_WINDOW + 1.0
+      self.relief = 0.0
+      return 0.0
+
+    deficit = max(0.0, float(deficit))
+    if self.relief <= 0.0 and self.since_cut_in <= CUT_IN_WINDOW:
+      self.relief = deficit
+    else:
+      self.relief = max(0.0, self.relief - CUT_IN_RELIEF_DECAY * dt)
+    self.relief = min(self.relief, deficit)
+    return self.relief
+
+
+# The lead acceleration estimate (aLeadK) trails the real lead by about a second. When
+# the gap is already sufficient and the lead is pulling away, a stale negative aLeadK
+# keeps the plan braking after the lead has stopped slowing (2026-10-20 long 859.5 s:
+# lead flat at 41 km/h and +1.1 m/s faster than us, aLeadK still -1.4, plan -1.4).
+# Fade the predicted lead deceleration out as the lead pulls away. A lead that keeps
+# braking closes the speed difference again, and the full value returns.
+PULL_AWAY_VREL_BP = [0.0, 2.0]   # m/s, lead faster than us
+PULL_AWAY_FACTOR_V = [1.0, 0.0]
+PULL_AWAY_MIN_ALEAD = -2.5       # m/s^2, never fade a harder lead brake
+
+
+def pull_away_lead_accel(a_lead, v_rel, gap_sufficient):
+  if not gap_sufficient or a_lead >= 0.0 or a_lead < PULL_AWAY_MIN_ALEAD:
+    return float(a_lead)
+  return float(a_lead * interp(v_rel, PULL_AWAY_VREL_BP, PULL_AWAY_FACTOR_V))
