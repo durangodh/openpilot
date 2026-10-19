@@ -36,13 +36,6 @@ from selfdrive.hardware import TICI
 VISION_SPEED_WINDOW = 1.5   # s
 VISION_SPEED_MIN_SPAN = 1.2  # s
 VISION_SPEED_MAX_RESID = 3.0  # m
-# A clearly stationary lead should not have to wait the full 1.2 s.  The fast
-# path is intentionally strict; ambiguous/noisy tracks still use the original
-# long-window estimator below.
-VISION_SPEED_FAST_MIN_SPAN = 0.6  # s
-VISION_SPEED_FAST_MAX_RESID = 0.6  # m
-VISION_SPEED_FAST_MAX_LEAD_SPEED = 3.0  # m/s
-VISION_SPEED_FAST_MIN_DROP = 3.0  # m
 
 
 class VisionLeadSpeed():
@@ -56,29 +49,16 @@ class VisionLeadSpeed():
     self.hist.append((t, lead['dRel'], v_ego))
     while t - self.hist[0][0] > VISION_SPEED_WINDOW:
       self.hist.popleft()
-    if len(self.hist) < 8:
+    if len(self.hist) < 8 or self.hist[-1][0] - self.hist[0][0] < VISION_SPEED_MIN_SPAN:
       return lead
     ts = np.array([h[0] for h in self.hist])
     ds = np.array([h[1] for h in self.hist])
-    span = float(ts[-1] - ts[0])
-    if span < VISION_SPEED_FAST_MIN_SPAN:
-      return lead
     ts = ts - ts.mean()
     slope = float(np.dot(ts, ds - ds.mean()) / np.dot(ts, ts))
     resid = float(np.sqrt(np.mean((ds - ds.mean() - slope * ts) ** 2)))
-    v_from_dist = max(float(np.mean([h[2] for h in self.hist])) + slope, 0.)
-
-    if span < VISION_SPEED_MIN_SPAN:
-      distance_drop = float(ds[0] - ds[-1])
-      min_drop = max(VISION_SPEED_FAST_MIN_DROP, 0.35 * max(v_ego, 0.0) * span)
-      clearly_stationary = (resid < VISION_SPEED_FAST_MAX_RESID and
-                            distance_drop > min_drop and
-                            v_from_dist < min(VISION_SPEED_FAST_MAX_LEAD_SPEED, 0.25 * max(v_ego, 0.0)))
-      if not clearly_stationary:
-        return lead
-    elif resid >= VISION_SPEED_MAX_RESID:
+    if resid >= VISION_SPEED_MAX_RESID:
       return lead
-
+    v_from_dist = max(float(np.mean([h[2] for h in self.hist])) + slope, 0.)
     if v_from_dist < lead['vLead']:
       lead['vLead'] = lead['vLeadK'] = v_from_dist
       lead['vRel'] = v_from_dist - v_ego

@@ -56,28 +56,6 @@ def limit_accel_in_turns(v_ego, angle_steers, a_target, CP):
   return [a_target[0], min(a_target[1], a_x_allowed)]
 
 
-def get_accel_from_plan(speeds, accels, action_t=DT_MDL, v_ego_stopping=0.05):
-  """Convert the MPC velocity trajectory into the command used by LongControl.
-
-  This is the compatibility bridge used by current StarPilot/openpilot: the
-  planner owns the stop decision and LongControl follows one delay-compensated
-  acceleration target instead of independently reconstructing intent.
-  """
-  if len(speeds) == CONTROL_N and len(accels) == CONTROL_N and action_t > 0.0:
-    v_now = speeds[0]
-    a_now = accels[0]
-    v_target = interp(action_t, T_IDXS[:CONTROL_N], speeds)
-    a_target = 2.0 * (v_target - v_now) / action_t - a_now
-    v_target_1sec = interp(action_t + 1.0, T_IDXS[:CONTROL_N], speeds)
-  else:
-    v_target = 0.0
-    v_target_1sec = 0.0
-    a_target = 0.0
-
-  should_stop = v_target < v_ego_stopping and v_target_1sec < v_ego_stopping
-  return float(a_target), bool(should_stop)
-
-
 class LongitudinalPlanner:
   def __init__(self, CP, init_v=0.0, init_a=0.0):
     self.CP = CP
@@ -91,8 +69,6 @@ class LongitudinalPlanner:
     self.v_desired_trajectory = np.zeros(CONTROL_N)
     self.a_desired_trajectory = np.zeros(CONTROL_N)
     self.j_desired_trajectory = np.zeros(CONTROL_N)
-    self.output_a_target = 0.0
-    self.output_should_stop = True
     self.solverExecutionTime = 0.0
     self.params = Params()
     self.param_read_counter = 0
@@ -237,9 +213,6 @@ class LongitudinalPlanner:
     self.v_desired_trajectory = self.v_desired_trajectory_full[:CONTROL_N]
     self.a_desired_trajectory = self.a_desired_trajectory_full[:CONTROL_N]
     self.j_desired_trajectory = np.interp(T_IDXS[:CONTROL_N], T_IDXS_MPC[:-1], self.mpc.j_solution)
-    self.output_a_target, self.output_should_stop = get_accel_from_plan(
-      self.v_desired_trajectory, self.a_desired_trajectory, v_ego_stopping=self.CP.vEgoStopping,
-    )
 
     # TODO counter is only needed because radar is glitchy, remove once radar is gone
     self.fcw = self.mpc.crash_cnt > 2 and not sm['carState'].standstill and not reset_state
@@ -277,10 +250,6 @@ class LongitudinalPlanner:
     longitudinalPlan.speeds = self.v_desired_trajectory.tolist()
     longitudinalPlan.accels = self.a_desired_trajectory.tolist()
     longitudinalPlan.jerks = self.j_desired_trajectory.tolist()
-    longitudinalPlan.aTarget = self.output_a_target
-    longitudinalPlan.shouldStop = self.output_should_stop
-    longitudinalPlan.vTargetNow = float(self.v_desired_trajectory[0])
-    longitudinalPlan.jTargetNow = float(self.j_desired_trajectory[0])
 
     longitudinalPlan.hasLead = sm['radarState'].leadOne.status
     longitudinalPlan.longitudinalPlanSource = self.mpc.source

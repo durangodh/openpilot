@@ -7,11 +7,6 @@ from selfdrive.modeld.constants import T_IDXS
 from common.params import Params
 
 
-MOVING_STOP_FOLLOW_MIN_GAP = 0.25
-NEGATIVE_TARGET_CREEP_GUARD_SPEED = 0.35
-NEGATIVE_TARGET_CREEP_GUARD_DECEL = 0.40
-
-
 def _param_int(key, default):
   """aPilot reads int(Params().get(key)); use aPilot's manager default when the key is unset."""
   try:
@@ -27,15 +22,13 @@ LongCtrlState = car.CarControl.Actuators.LongControlState
 # planned_stop조건인데..... accel은 이미 stoppingAccel보다 낮은상태... 이상태로 stopping으로 진입하면.. 너무 많은 -accel로 정지하게 됨.
 # accel이 -값에서 0에 가까와질때까지 기다릴 필요가 있음.... 20230911
 def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
-                             v_target_1sec, brake_pressed, cruise_standstill, softHold, a_target_now,
-                             planner_should_stop=None):
+                             v_target_1sec, brake_pressed, cruise_standstill, softHold, a_target_now):
   # Ignore cruise standstill if car has a gas interceptor
   cruise_standstill = cruise_standstill and not CP.enableGasInterceptor
   accelerating = v_target_1sec > (v_target + 0.01)
-  inferred_stop = (v_target < CP.vEgoStopping and ## apilot: 내리막, 신호정지시 질질 가는 현상... v_target으로 보면.. 급정지, v_ego를 보면 질질감..
-                   v_target_1sec < CP.vEgoStopping and
-                   not accelerating)
-  planned_stop = inferred_stop if planner_should_stop is None else bool(planner_should_stop)
+  planned_stop = (v_target < CP.vEgoStopping and ## apilot: 내리막, 신호정지시 질질 가는 현상... v_target으로 보면.. 급정지, v_ego를 보면 질질감..
+                  v_target_1sec < CP.vEgoStopping and
+                  not accelerating)
   stay_stopped = (v_ego < CP.vEgoStopping and
                   (brake_pressed or cruise_standstill))
   stopping_condition = planned_stop or stay_stopped
@@ -96,47 +89,14 @@ class LongControl:
     self.pid.reset()
     self.v_pid = v_pid
 
-  def _trim_positive_overshoot_integrator(self, a_target, accel_error, CS):
-    if self.pid.i <= 0.0 or a_target >= -0.05 or accel_error >= -0.25:
-      return
-    if CS.vEgo <= NEGATIVE_TARGET_CREEP_GUARD_SPEED and a_target > -NEGATIVE_TARGET_CREEP_GUARD_DECEL:
-      return
-
-    # The MPC has crossed into deceleration but the car is still accelerating.
-    # Bleed stale positive I so the command can cross zero without a throttle tail.
-    bleed = interp(abs(accel_error), [0.25, 0.75, 1.5], [0.55, 0.25, 0.0])
-    self.pid.i *= bleed
-
-  @staticmethod
-  def _cap_positive_output_on_negative_target(output_accel, a_target, accel_error, CS):
-    if output_accel <= 0.0 or a_target >= -0.10 or accel_error >= -0.35:
-      return output_accel
-    if CS.vEgo <= NEGATIVE_TARGET_CREEP_GUARD_SPEED and a_target > -NEGATIVE_TARGET_CREEP_GUARD_DECEL:
-      return output_accel
-
-    positive_cap = interp(a_target, [-1.5, -0.6, -0.1], [0.0, 0.0, 0.05])
-    return min(output_accel, float(positive_cap))
-
   @staticmethod
   def _relax_stop_overbrake(output_accel, stop_accel, decel_rate, CS, v_ego_stopping):
     # 정지 모드에 들어올 때 PID 출력이 STOPPING ACCEL 보다 이미 세면 그 값을 끝까지 들고 갔다.
     # 2026-10-19 로그: STOPPING ACCEL 15(-0.30)인데 2 km/h 에서 -0.52 를 유지해 서기 직전
     # 실제 감속이 -0.6 까지 올라 "꾹". 움직이는 동안만 STOPPING ACCEL 쪽으로 같은 속도로 푼다.
-    # 그보다 빠를 때는 _apply_moving_stop_target_follow 가 MPC 목표를 따르므로 건드리지 않는다.
     if CS.standstill or output_accel >= stop_accel or CS.vEgo > max(1.5, v_ego_stopping + 1.0):
       return output_accel
     return min(stop_accel, output_accel + decel_rate * DT_CTRL)
-
-  @staticmethod
-  def _apply_moving_stop_target_follow(output_accel, a_target, should_stop, CS, v_ego_stopping):
-    follow_min_speed = max(1.5, v_ego_stopping + 1.0)
-    if not should_stop or CS.brakePressed or CS.vEgo <= follow_min_speed:
-      return output_accel
-    if a_target >= output_accel - MOVING_STOP_FOLLOW_MIN_GAP:
-      return output_accel
-
-    follow_step = interp(CS.vEgo, [follow_min_speed, 3.0, 6.0, 10.0], [0.02, 0.03, 0.05, 0.07])
-    return max(float(a_target), output_accel - float(follow_step))
 
   def update(self, active, CS, long_plan, accel_limits, t_since_plan, CC):
     self.readParamCount += 1
@@ -190,9 +150,6 @@ class LongControl:
       #v_target_1sec = interp(self.CP.longitudinalActuatorDelayUpperBound + t_since_plan + 1.0, T_IDXS[:CONTROL_N], speeds)
       #v_target_1sec = interp(self.longitudinalActuatorDelayUpperBound + t_since_plan + 1.0, T_IDXS[:CONTROL_N], speeds)
       v_target_1sec = interp(self.longitudinalActuatorDelayLowerBound + t_since_plan + 1.0, T_IDXS[:CONTROL_N], speeds)
-
-      planner_should_stop = bool(long_plan.shouldStop)
-      a_target = float(long_plan.aTarget)
     else:
       v_target = 0.0
       v_target_now = 0.0
@@ -200,9 +157,6 @@ class LongControl:
       a_target = 0.0
       j_target = 0.0
       a_target_lower = a_target_upper = 0.0
-      # No valid planner trajectory: retain the legacy fail-safe inference from
-      # the zero targets instead of turning a missing plan into a launch request.
-      planner_should_stop = None
 
     self.pid.neg_limit = accel_limits[0]
     self.pid.pos_limit = accel_limits[1]
@@ -215,8 +169,7 @@ class LongControl:
 
     self.long_control_state, planned_stop = long_control_state_trans(self.CP, active, self.long_control_state, CS.vEgo,
                                                        v_target, v_target_1sec, CS.brakePressed,
-                                                       CS.cruiseState.standstill, CC.hudControl.softHold, a_target_now,
-                                                       planner_should_stop=planner_should_stop)
+                                                       CS.cruiseState.standstill, CC.hudControl.softHold, a_target_now)
 
     if self.long_control_state == LongCtrlState.off:
       self.reset(CS.vEgo)
@@ -232,9 +185,6 @@ class LongControl:
         output_accel = self._relax_stop_overbrake(
           output_accel, self.CP.stopAccel, self.CP.stoppingDecelRate, CS, self.CP.vEgoStopping,
         )
-      output_accel = self._apply_moving_stop_target_follow(
-        output_accel, a_target, planned_stop, CS, self.CP.vEgoStopping,
-      )
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:
@@ -253,12 +203,9 @@ class LongControl:
 
       error = self.v_pid - CS.vEgo
       error_deadzone = apply_deadzone(error, deadzone)
-      accel_error = a_target - CS.aEgo
-      self._trim_positive_overshoot_integrator(a_target, accel_error, CS)
       output_accel = self.pid.update(error_deadzone, speed=CS.vEgo,
                                      feedforward=a_target,
                                      freeze_integrator=freeze_integrator)
-      output_accel = self._cap_positive_output_on_negative_target(output_accel, a_target, accel_error, CS)
 
     self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
 
