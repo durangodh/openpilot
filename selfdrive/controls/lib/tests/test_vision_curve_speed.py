@@ -141,7 +141,7 @@ def test_cruise_helper_wiring_cadence_units_and_invalid_messages():
   method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'cal_curve_speed')
   env = {'DT_CTRL': 0.01, 'CV': NS(KPH_TO_MS=1 / 3.6)}
   exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), 'exec'), env)
-  helper = NS(curve_update_frame=None, vision_curve_speed=VisionCurveSpeed(),
+  helper = NS(curve_update_frame=None, auto_curve_speed_mode=0, vision_curve_speed=VisionCurveSpeed(),
               curve_speed_ms=UNLIMITED_SPEED, auto_curve_speed_factor=1.2,
               auto_curve_speed_lower_limit=30, auto_curve_speed_decel_rate=1.2)
   class Messages(dict):

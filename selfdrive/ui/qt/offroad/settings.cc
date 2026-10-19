@@ -1180,6 +1180,14 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "카메라 모델이 본 커브의 곡률을 얼마나 크게 볼지입니다. 값 증가(+): 같은 커브에서 더 많이 감속 / 값 감소(-): 덜 감속. 기본값: 120.",
       "../assets/offroad/icon_road.png", 50, 300, 5, 0, 120, this));
   toggleLayout->addWidget(new ParamValueControlF(
+      "AutoCurveSpeedMode", "1-1. 비전 커브 방식",
+      "0: 기존 방식(곡률 미리보기 + 감속 세기로 미리 감속) / 1: aPilot 방식(1.4~3.5초 앞 회전율로 도로설계기준 표에서 통과속도를 고름, 감속 세기 설정은 쓰지 않음). 1번 민감도는 두 방식 모두 적용됩니다(aPilot 기본값은 100). 기본값: 0.",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoCurveSpeedFactorIn", "1-2. aPilot 커브 진입 감속 (%)",
+      "비전 커브 방식 1에서만 씁니다. 현재 속도가 커브 통과속도보다 빠른 만큼에 이 비율을 곱해 목표속도를 더 낮춥니다. 값 증가(+): 진입 전에 더 줄임 / 값 감소(-): 덜 줄임. 기본값: 10.",
+      "../assets/offroad/icon_road.png", 0, 300, 5, 0, 10, this));
+  toggleLayout->addWidget(new ParamValueControlF(
       "MapTurnSpeedFactor", "2. 경로 커브 속도 비율 (%)",
       "내비 경로(티맵·네이버) 곡률로 계산한 커브 통과 속도에 곱하는 비율입니다. 값 증가(+): 더 빠르게 통과(감속 줄어듦) / 값 감소(-): 더 느리게. 기본값: 90.",
       "../assets/offroad/icon_road.png", 50, 150, 5, 0, 90, this));
@@ -1510,6 +1518,16 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "AutoSpeedUptoRoadSpeedLimit", "AUTO SPEED UPTO ROAD SPEED LIMIT (%)",
       "앞차를 따라 설정속도를 올릴 수 있는 도로 제한속도 비율입니다. 값 증가(+): 더 높은 속도까지 증속 / 값 감소(-): 증속 상한이 낮아짐 / 0: 끔.",
       "../assets/offroad/icon_road.png", 0, 120, 5, 0, 0, this));
+
+  list->addItem(new ParamValueControlF(
+      "AutoSpeedUpMode", "AUTO SPEED UP MODE",
+      "앞차를 따라 설정속도를 올리는 방식입니다(위 비율이 0이면 작동 안 함). 0: 앞차가 설정속도+5km/h 이상, 60m 이내일 때 조금씩 증속 / 1: aPilot 방식 — 앞차가 설정속도보다 빠르면 앞차 속도로 바로 올림. 기본값: 1.",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
+
+  list->addItem(new ParamValueControlF(
+      "CruiseControlMode", "CRUISE ECO CONTROL (km/h)",
+      "aPilot 크루즈 연비제어(가상 초과속도)입니다. 설정속도보다 3km/h 넘게 느려지면 목표를 설정속도+이 값으로 올려 끝까지 가속하고, 설정속도를 넘으면 원래 설정속도로 돌아갑니다. 값 증가(+): 설정속도까지 더 힘있게 가속 / 0: 끔. 커브·카메라 제한은 그대로 우선합니다. 기본값: 4.",
+      "../assets/offroad/icon_road.png", 0, 10, 1, 0, 4, this));
 
   list->addItem(new ParamValueControlF(
       "AutoRoadSpeedAdjust", "AUTO ROAD SPEED ADJUST (%)",

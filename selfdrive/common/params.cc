@@ -92,6 +92,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"AutoGasTapSpeedIncrement", PERSISTENT},
     {"SpeedFromPCM", PERSISTENT},
     {"AutoSpeedUptoRoadSpeedLimit", PERSISTENT},
+    {"AutoSpeedUpMode", PERSISTENT},            // 0: 단계식 증속, 1: aPilot 앞차 속도로 바로
+    {"CruiseControlMode", PERSISTENT},          // aPilot 크루즈 연비제어 가상 초과속도 km/h
     {"AutoRoadSpeedAdjust", PERSISTENT},
     {"AutoRoadSpeedLimitOffset", PERSISTENT},
     {"AutoNaviSpeedCtrlEnd", PERSISTENT},
@@ -310,6 +312,8 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"TurnVisionControl", PERSISTENT},
     {"AutoCurveSpeedFactor", PERSISTENT},       // vision curvature multiplier, x100
     {"AutoCurveSpeedLowerLimit", PERSISTENT},   // minimum vision/map curve speed, km/h
+    {"AutoCurveSpeedMode", PERSISTENT},         // 0: carrot 비전 커브, 1: aPilot 회전율 표
+    {"AutoCurveSpeedFactorIn", PERSISTENT},     // aPilot 커브 진입 추가감속 비율 x0.01
     {"MapTurnSpeedFactor", PERSISTENT},         // Tmap route curve speed multiplier, x100
     {"AutoNaviSpeedDecelRate", PERSISTENT},     // map curve deceleration, x100 m/s^2
     {"SoftRestartTriggered", CLEAR_ON_MANAGER_START},

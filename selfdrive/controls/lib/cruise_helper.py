@@ -3,6 +3,7 @@ import numpy as np
 from cereal import car
 from common.conversions import Conversions as CV
 from common.numpy_fast import clip, interp
+from common.filter_simple import StreamingMovingAverage
 from common.params import Params, put_nonblocking
 from common.realtime import DT_CTRL, sec_since_boot
 from selfdrive.car.hyundai.values import Buttons
@@ -52,6 +53,11 @@ MAX_SET_SPEED_KPH = V_CRUISE_MAX
 # 짧게 누르면 종전대로 차간 단계가 바뀌고, 이 시간을 넘기면 전환만 하고
 # 차간 변경은 취소한다. 100 Hz 기준 프레임 수.
 NAV_TOGGLE_HOLD_FRAMES = 150   # 1.5 s
+
+# aPilot c2-master apilot_curve(): 도로설계기준 곡률 -> 통과속도(km/h) 표.
+AP_CURVE_LOOKUP_BP = [0., 1./800., 1./670., 1./560., 1./440., 1./360., 1./265., 1./190., 1./135., 1./85., 1./55., 1./30., 1./15.]
+AP_CURVE_LOOKUP_V = [300, 150, 120, 110, 100, 90, 80, 70, 60, 50, 45, 35, 30]
+AP_CURVE_UNLIMITED_KPH = 255.
 ButtonType = car.CarState.ButtonEvent.Type
 EventName = car.CarEvent.EventName
 
@@ -140,6 +146,11 @@ class CruiseHelper:
     self.nav_app_selected = None
     self.last_road_limit_speed = 0.0
     self.pause_auto_speed_up = False
+    # aPilot c2-master cruise_control_speed(): 연비제어 중인 설정속도(0 = 꺼짐).
+    self.cruise_speed_target = 0.0
+    self.lead_speed_up_active = False
+    self.ap_curve_filter = StreamingMovingAverage(20)
+    self.ap_turn_speed_prev = 300.
 
     self.read_params()
 
@@ -162,6 +173,7 @@ class CruiseHelper:
     self.cruise_speed_table_raw = [self.params.get_int(f"CruiseSpeed{i}") for i in range(1, 6)]
     self.cruise_speed_table = self.build_cruise_speed_table()
     self.sync_set_speed_while_gas_pressed = self.params.get_bool("SccSmootherSyncGasPressed")
+    self.cruise_control_mode = float(clip(self.params.get_int("CruiseControlMode"), 0, 10))
 
   def _param_or_default(self, key, default, lo, hi):
     # 0 이하(미설정)는 기본값, 그 뒤 범위 제한
@@ -170,6 +182,8 @@ class CruiseHelper:
 
   def read_curve_params(self):
     self.turn_vision_control = self.params.get_bool("TurnVisionControl")
+    self.auto_curve_speed_mode = int(clip(self.params.get_int("AutoCurveSpeedMode"), 0, 1))
+    self.auto_curve_speed_factor_in = float(clip(self.params.get_int("AutoCurveSpeedFactorIn"), 0, 300)) * 0.01
     self.auto_curve_speed_factor = self._param_or_default("AutoCurveSpeedFactor", 120, 50, 300) * 0.01
     self.auto_curve_speed_lower_limit = self._param_or_default("AutoCurveSpeedLowerLimit", 30, 5, 80)
     self.map_turn_speed_factor = self._param_or_default("MapTurnSpeedFactor", 90, 50, 150) * 0.01
@@ -194,6 +208,7 @@ class CruiseHelper:
 
   def read_navigation_params(self):
     self.auto_speed_up_ratio = float(self.params.get_int("AutoSpeedUptoRoadSpeedLimit")) * 0.01
+    self.auto_speed_up_mode = int(clip(self.params.get_int("AutoSpeedUpMode"), 0, 1))
     self.auto_road_speed_adjust = float(clip(self.params.get_int("AutoRoadSpeedAdjust"), -100, 100)) * 0.01
     self.auto_road_speed_limit_offset = float(clip(self.params.get_int("AutoRoadSpeedLimitOffset"), -30, 30))
     # 카메라 이 거리(m) 앞에서 감속 유지를 끝내고 원래 속도로 복귀. 0 = 카메라를 지난 뒤.
@@ -730,7 +745,32 @@ class CruiseHelper:
     elif self.slowing_down_alert:
       events.add(EventName.speedBump if self.slowing_down_for_bump else EventName.slowingDownSpeed)
 
+  def cal_curve_speed_apilot(self, sm, v_ego):
+    # aPilot c2-master apilot_curve(): 1.4~3.5 s 앞 회전율 최대값 / 속도 = 곡률,
+    # 0.2 s(20 프레임) 이동평균 후 표에서 통과속도를 고르고, 현재 속도가 그보다
+    # 빠른 만큼 FactorIn 비율로 더 낮춰 진입속도를 줄인다. 매 제어 프레임 실행.
+    rates = np.abs(np.array(sm['modelV2'].orientationRate.z, dtype=np.float32))[12:20]
+    if len(rates) == 0:
+      self.ap_curve_filter.set(0.0)
+      self.ap_turn_speed_prev = 300.
+      return UNLIMITED_SPEED
+    speed = min(self.ap_turn_speed_prev / 3.6, clip(v_ego, 0.5, 100.0))
+    curvature = self.ap_curve_filter.process(float(np.max(rates)) / speed) * self.auto_curve_speed_factor
+    if abs(curvature) > 0.0001:
+      turn_speed = float(clip(interp(curvature, AP_CURVE_LOOKUP_BP, AP_CURVE_LOOKUP_V), 0., AP_CURVE_UNLIMITED_KPH))
+    else:
+      turn_speed = 300.
+    self.ap_turn_speed_prev = turn_speed
+    if turn_speed >= AP_CURVE_UNLIMITED_KPH:
+      return UNLIMITED_SPEED
+    turn_speed -= max(0.0, v_ego * 3.6 - turn_speed) * self.auto_curve_speed_factor_in
+    return max(turn_speed, self.auto_curve_speed_lower_limit) * CV.KPH_TO_MS
+
   def cal_curve_speed(self, sm, v_ego, frame, a_ego=0.0):
+    if self.auto_curve_speed_mode == 1:
+      valid = getattr(sm, 'valid', {}).get('modelV2', True) and getattr(sm, 'alive', {}).get('modelV2', True)
+      self.curve_speed_ms = self.cal_curve_speed_apilot(sm, v_ego) if valid else UNLIMITED_SPEED
+      return
     # carrot-wip: evaluate every new model frame (20 Hz) so a release can be
     # confirmed by consecutive fresh frames. Never smooth a stricter cap.
     updated = getattr(sm, 'updated', None)
@@ -934,6 +974,8 @@ class CruiseHelper:
       self.vision_curve_speed.reset()
       self.curve_update_frame = None
       self.curve_speed_ms = UNLIMITED_SPEED
+      self.ap_curve_filter.set(0.0)
+      self.ap_turn_speed_prev = 300.
     cruise_speed_ms = controls.v_cruise_kph * CV.KPH_TO_MS
     self.apply_source = ""
     self.apply_decel_rate = 0.0
@@ -995,6 +1037,9 @@ class CruiseHelper:
     # cruise decel bound can follow the user's decel setting.
     if self.apply_source in ("cam", "bump", "section"):
       self.apply_decel_rate = self.auto_navi_speed_decel_rate
+    elif self.apply_source == "vturn" and self.auto_curve_speed_mode == 1:
+      # aPilot 커브는 감속 세기 없이 목표속도만 내고, 감속은 플래너 기본 한계를 쓴다.
+      self.apply_decel_rate = 0.0
     elif self.apply_source in ("vturn", "route"):
       self.apply_decel_rate = self.auto_curve_speed_decel_rate
     elif self.apply_source == "noo":
@@ -1004,6 +1049,30 @@ class CruiseHelper:
 
     self.update_max_speed(int(max_speed_clu + 0.5), controls.CP.openpilotLongitudinalControl)
     return normal_road_limit_speed
+
+  def cruise_control_speed(self, v_cruise_kph, v_ego_kph):
+    """aPilot c2-master 크루즈 연비제어(가상 초과속도).
+
+    설정속도보다 3 km/h 넘게 느려지면 목표를 설정속도 + CruiseControlMode 로
+    올려 끝까지 가속하고, 설정속도를 넘으면 원래 설정속도로 돌아간다.
+    """
+    if self.cruise_control_mode <= 0 or self.long_active_user <= 0:
+      self.cruise_speed_target = 0.0
+      return v_cruise_kph
+    if self.cruise_speed_target > 0:
+      if self.cruise_speed_target < v_cruise_kph:
+        self.cruise_speed_target = v_cruise_kph
+      elif self.cruise_speed_target > v_cruise_kph:
+        self.cruise_speed_target = 0.0
+    elif v_ego_kph + 3 < v_cruise_kph and v_cruise_kph > 20.0:
+      self.cruise_speed_target = v_cruise_kph
+
+    if self.cruise_speed_target > 0:
+      if v_ego_kph > self.cruise_speed_target:
+        self.cruise_speed_target = 0.0
+      elif not self.lead_speed_up_active:
+        return self.cruise_speed_target + self.cruise_control_mode
+    return v_cruise_kph
 
   def sync_gas_speed(self, CS, clu11_speed, controls, longcontrol):
     if not (CS.gas_pressed and self.sync_set_speed_while_gas_pressed and CS.cruise_buttons == Buttons.NONE):
@@ -1063,6 +1132,18 @@ class CruiseHelper:
     lead = self.get_lead(controls.sm)
     if lead is None:
       return
+    if self.auto_speed_up_mode == 1:
+      # aPilot c2-master: 앞차가 설정속도보다 빠르면 설정속도를 앞차 속도(도로 제한 비율까지)로 바로 올린다.
+      lead_kph = float(CS.clu11["CF_Clu_Vanz"]) * self.speed_conv_to_ms * CV.MS_TO_KPH + lead.vRel * CV.MS_TO_KPH
+      if set_speed_kph < road_limit_kph and lead_kph > set_speed_kph:
+        new_speed = float(min(max(set_speed_kph, min(lead_kph, road_limit_kph)), MAX_SET_SPEED_KPH))
+        self.lead_speed_up_active = True
+        if longcontrol:
+          controls.v_cruise_kph = new_speed
+          controls.v_cruise_cluster_kph = new_speed
+        else:
+          self.target_speed = max(self.target_speed, self.kph_to_clu(new_speed))
+      return
     if lead.vLeadK * CV.MS_TO_KPH + 5 > set_speed_kph and set_speed_kph < road_limit_kph and lead.dRel < 60:
       new_speed = get_auto_speed_up_target(set_speed_kph, road_limit_kph)
       if longcontrol:
@@ -1076,10 +1157,20 @@ class CruiseHelper:
     road_limit_speed = self.cal_max_speed(frame, CS, controls.sm, clu11_speed, controls)
 
     cruise_set_speed = controls.v_cruise_kph if longcontrol else CS.cruiseState_speed * CV.MS_TO_KPH
-    controls.applyMaxSpeed = float(clip(cruise_set_speed, self.cruise_speed_min,
-                                       self.max_speed_clu * self.speed_conv_to_ms * CV.MS_TO_KPH))
+    max_speed_kph = self.max_speed_clu * self.speed_conv_to_ms * CV.MS_TO_KPH
+    limiter_speed = float(clip(cruise_set_speed, self.cruise_speed_min, max_speed_kph))
+    if longcontrol:
+      # 연비제어 가상 초과속도는 플래너 목표에만 넣고, 커브·내비 제한은 그대로 우선한다.
+      v_ego_kph = int(clu11_speed * self.speed_conv_to_ms * CV.MS_TO_KPH + 0.5)
+      eco_speed = self.cruise_control_speed(cruise_set_speed, v_ego_kph)
+      controls.applyMaxSpeed = float(min(max(eco_speed, self.cruise_speed_min), max_speed_kph)
+                                     if self.apply_source else max(eco_speed, self.cruise_speed_min))
+    else:
+      controls.applyMaxSpeed = limiter_speed
+    self.lead_speed_up_active = False
     CC.sccSmoother.longControl = longcontrol
-    CC.sccSmoother.applyMaxSpeed = controls.applyMaxSpeed
+    # HUD 의 '적용 속도' 표시는 실제 제한(커브·내비)만 보여 준다.
+    CC.sccSmoother.applyMaxSpeed = limiter_speed
     # In C2 mode MAIN engages lateral control before SET/RES activates
     # longitudinal control. Publish no set speed until longitudinal is active
     # so the on-road HUD matches the cluster before SET/RES and after CANCEL.

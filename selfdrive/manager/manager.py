@@ -46,6 +46,8 @@ def manager_init() -> None:
     ("AutoGasTapSpeedIncrement", "5"),
     ("SpeedFromPCM", "2"),
     ("AutoSpeedUptoRoadSpeedLimit", "0"),
+    ("AutoSpeedUpMode", "1"),
+    ("CruiseControlMode", "4"),
     ("AutoRoadSpeedAdjust", "0"),          # -100=limit immediately, 0=retain, 1..100=blend on limit drop
     ("AutoRoadSpeedLimitOffset", "0"),
     ("AutoNaviSpeedCtrlEnd", "7"),
@@ -167,6 +169,8 @@ def manager_init() -> None:
     ("TurnVisionControl", "0"),
     ("AutoCurveSpeedFactor", "120"),
     ("AutoCurveSpeedLowerLimit", "30"),
+    ("AutoCurveSpeedMode", "0"),
+    ("AutoCurveSpeedFactorIn", "10"),
     ("MapTurnSpeedFactor", "90"),
     ("AutoNaviSpeedDecelRate", "80"),
     ("StartAccelApply", "0"),
