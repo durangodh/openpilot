@@ -36,6 +36,10 @@ from selfdrive.hardware import TICI
 VISION_SPEED_WINDOW = 1.5   # s
 VISION_SPEED_MIN_SPAN = 1.2  # s
 VISION_SPEED_MAX_RESID = 3.0  # m
+# 가까운 카메라 앞차에는 쓰지 않는다. 2026-10-20 long 857 s: 끼어드는 차의 카메라 거리가
+# 1.3 초 동안 27 -> 15 m 로 줄어(모델이 비스듬한 차 거리를 수렴하는 중) 47 km/h 차를
+# 19 km/h 로 낮춰 -2.4 로 제동했다. 원래 문제(정지차를 달리는 차로 봄)는 100 m~35 m 구간이었다.
+VISION_SPEED_MIN_DIST = 35.0  # m
 
 
 class VisionLeadSpeed():
@@ -43,7 +47,7 @@ class VisionLeadSpeed():
     self.hist = deque()
 
   def update(self, lead, t, v_ego):
-    if not lead.get('status') or lead.get('radar', True):
+    if not lead.get('status') or lead.get('radar', True) or lead['dRel'] < VISION_SPEED_MIN_DIST:
       self.hist.clear()
       return lead
     self.hist.append((t, lead['dRel'], v_ego))

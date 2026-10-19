@@ -61,3 +61,13 @@ def test_never_raises_the_lead_speed():
   for i in range(40):
     out = vls.update(_vision(40. + 10. * i * 0.05, 5., 10.), i * 0.05, 10.)  # pulling away fast
   assert out['vLead'] == 5.
+
+
+def test_close_cut_in_is_left_alone():
+  # 2026-10-20 857 s: cut-in car, camera distance converging 27 -> 15 m while it drives ~13 m/s
+  vls = VisionLeadSpeed()
+  out = None
+  for i in range(30):
+    t = i * 0.05
+    out = vls.update(_vision(27. - 9. * t, 12.2, 14.9), t, 14.9)
+  assert out['vLead'] == 12.2
