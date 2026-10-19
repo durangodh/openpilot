@@ -14,6 +14,37 @@ def valid_lane_path(t, x, left, right):
           bool(np.all(np.diff(x) > 0.0)))
 
 
+# C2 modeld (driving.cc fill_model) back-solves lane t from the plan x. When
+# the predicted x[0] sits slightly ahead of 0 the first sample comes out a
+# few hundredths of a second negative (2026-10-19 lat trace: t[1] median
+# -0.02 s, 67% of frames), and the strict order check below dropped the whole
+# lane frame. Upstream openpilot uses these t as-is. Repair only such small
+# backsteps in the first few samples (X_IDXS up to 1.7 m); anything larger or
+# further out stays invalid.
+LANE_T_REPAIR_S = 0.2
+LANE_T_REPAIR_STEP = 1e-3
+LANE_T_REPAIR_SAMPLES = 4
+
+
+def repair_lane_times(t):
+  try:
+    t = np.array(t, dtype=float)
+  except (TypeError, ValueError):
+    return t
+  if t.shape != (33,):
+    return t
+  count = int(np.isfinite(t).sum())
+  if count < 2 or not np.isfinite(t[:count]).all():
+    return t
+  repaired = t.copy()
+  for i in range(1, min(count, LANE_T_REPAIR_SAMPLES)):
+    if repaired[i] <= repaired[i - 1]:
+      if repaired[i - 1] - repaired[i] > LANE_T_REPAIR_S:
+        return t
+      repaired[i] = repaired[i - 1] + LANE_T_REPAIR_STEP
+  return repaired
+
+
 def valid_lane_times(t):
   # C2 modeld emits a finite prefix ending at 10s and NaN padding when the
   # position plan does not reach all 192m lane samples. This is NORMAL at low

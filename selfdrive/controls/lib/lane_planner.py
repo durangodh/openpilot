@@ -7,7 +7,7 @@ from selfdrive.swaglog import cloudlog
 from common.params import Params
 from selfdrive.controls.lib.lane_path_validation import (valid_samples, valid_lane_path,
                                                        valid_lane_times, lane_horizon_weights,
-                                                       curve_centering_weight)
+                                                       curve_centering_weight, repair_lane_times)
 
 TRAJECTORY_SIZE = 33
 ADJUST_OFFSET_LIMIT = 0.4   # 여유공간 보정 최대치(m)
@@ -102,7 +102,7 @@ class LanePlanner:
       stds = np.asarray(md.laneLineStds, dtype=float)
       if len(lanes) == 4 and len(probs) == 4 and len(stds) == 4:
         left, right = lanes[1], lanes[2]
-        left_t, right_t = np.asarray(left.t), np.asarray(right.t)
+        left_t, right_t = repair_lane_times(left.t), repair_lane_times(right.t)
         left_x, right_x = np.asarray(left.x), np.asarray(right.x)
         left_y, right_y = np.asarray(left.y), np.asarray(right.y)
         lanes_valid = (valid_lane_path(left_t, left_x, left_y, right_y) and
@@ -126,7 +126,8 @@ class LanePlanner:
       stds = np.asarray(md.roadEdgeStds, dtype=float)
       if lanes_valid and len(edges) >= 2 and len(stds) >= 2:
         edges_valid = (valid_samples(edges[0].y, edges[1].y) and
-                       valid_lane_times(edges[0].t) and valid_lane_times(edges[1].t) and
+                       valid_lane_times(repair_lane_times(edges[0].t)) and
+                       valid_lane_times(repair_lane_times(edges[1].t)) and
                        np.isfinite(stds[:2]).all() and np.all(stds[:2] >= 0.0))
         if edges_valid:
           self.le_y = np.asarray(edges[0].y) + stds[0] * 0.4 + self.camera_offset

@@ -16,6 +16,7 @@ import numpy as np
 import cereal.messaging as messaging
 from common.params import Params
 from common.realtime import Ratekeeper, sec_since_boot
+from selfdrive.controls.lib.lane_path_validation import repair_lane_times
 from selfdrive.controls.long_trace import ERROR_RETRY_S, FLUSH_S, PARAM_POLL_S, RATE_HZ, _close, _f, _i, _new_path, _rotate, _safe_row
 
 TRACE_DIR = "/data/media/0/lat_trace"
@@ -43,8 +44,8 @@ COLUMNS = [
   # 경로 좌우 위치(m, +=왼쪽): 모델 원본(modelV2.position)과 차선/레인리스 혼합 후 경로
   # (dPathWLines, 사용자 오프셋 전)의 20 m·40 m 지점, 차선 신뢰도, 레인리스 여부
   "model_y20", "model_y40", "path_y20", "path_y40", "l_prob", "r_prob", "laneless",
-  # 차선 검사(lane_planner.parse_model 의 valid_lane_path)에서 떨어진 이유와, 그 판단에 쓰인
-  # 왼쪽 차선 시간값(t[0], t[1], 유효 개수). 2026-10-19: 차선 확률이 프레임의 약 70% 에서 0.
+  # 차선 검사(lane_planner.parse_model 의 valid_lane_path)에서 떨어진 이유와, 모델이 준 그대로의
+  # 왼쪽 차선 시간값(t[0], t[1], 유효 개수). 검사는 lane_planner 처럼 repair_lane_times 뒤에 한다.
   "lane_fail", "lane_t0", "lane_t1", "lane_tn",
 ]
 
@@ -80,7 +81,7 @@ def _lane_fail(md):
     x = np.asarray(lane.x, dtype=float)
     if any(a.shape != (33,) or not np.isfinite(a).all() for a in (x, ly, ry)):
       return (side + ":samples",) + extra
-    reason = _lane_t_reason(lane.t)
+    reason = _lane_t_reason(repair_lane_times(lane.t))
     if reason:
       return (side + ":" + reason,) + extra
     if not np.all(np.diff(x) > 0.0):
