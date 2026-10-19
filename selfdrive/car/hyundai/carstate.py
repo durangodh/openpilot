@@ -1,5 +1,4 @@
 from cereal import car
-from common.numpy_fast import interp
 from selfdrive.car.hyundai.values import DBC, FEATURES, CAR, HYBRID_CAR, EV_HYBRID_CAR, Buttons, CarControllerParams
 from selfdrive.car.interfaces import CarStateBase
 from opendbc.can.parser import CANParser
@@ -155,8 +154,10 @@ class CarState(CarStateBase):
     vEgoRawClu = cluSpeed * self.speed_conv_to_ms
     vEgoClu, aEgoClu = self.update_clu_speed_kf(vEgoRawClu)
 
+    # aPilot c2-master: vEgo/aEgo come from the wheel speeds only. The old low-speed blend
+    # with the 1 km/h-quantized cluster speed made vEgo/aEgo step below 36 km/h and read
+    # about half the real speed near a stop.
     vEgoRawWheel = (ret.wheelSpeeds.fl + ret.wheelSpeeds.fr + ret.wheelSpeeds.rl + ret.wheelSpeeds.rr) / 4.
-    vEgoRawWheel = interp(vEgoRawWheel, [0., 10.], [(vEgoRawWheel + vEgoRawClu) / 2., vEgoRawWheel])
     vEgoWheel, aEgoWheel = self.update_speed_kf(vEgoRawWheel)
 
     if self.use_cluster_speed:
