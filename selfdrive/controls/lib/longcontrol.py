@@ -118,6 +118,16 @@ class LongControl:
     return min(output_accel, float(positive_cap))
 
   @staticmethod
+  def _relax_stop_overbrake(output_accel, stop_accel, decel_rate, CS, v_ego_stopping):
+    # 정지 모드에 들어올 때 PID 출력이 STOPPING ACCEL 보다 이미 세면 그 값을 끝까지 들고 갔다.
+    # 2026-10-19 로그: STOPPING ACCEL 15(-0.30)인데 2 km/h 에서 -0.52 를 유지해 서기 직전
+    # 실제 감속이 -0.6 까지 올라 "꾹". 움직이는 동안만 STOPPING ACCEL 쪽으로 같은 속도로 푼다.
+    # 그보다 빠를 때는 _apply_moving_stop_target_follow 가 MPC 목표를 따르므로 건드리지 않는다.
+    if CS.standstill or output_accel >= stop_accel or CS.vEgo > max(1.5, v_ego_stopping + 1.0):
+      return output_accel
+    return min(stop_accel, output_accel + decel_rate * DT_CTRL)
+
+  @staticmethod
   def _apply_moving_stop_target_follow(output_accel, a_target, should_stop, CS, v_ego_stopping):
     follow_min_speed = max(1.5, v_ego_stopping + 1.0)
     if not should_stop or CS.brakePressed or CS.vEgo <= follow_min_speed:
@@ -218,6 +228,10 @@ class LongControl:
         output_accel -= self.CP.stoppingDecelRate * DT_CTRL
         if CC.hudControl.softHold:
           output_accel = self.CP.stopAccel
+      else:
+        output_accel = self._relax_stop_overbrake(
+          output_accel, self.CP.stopAccel, self.CP.stoppingDecelRate, CS, self.CP.vEgoStopping,
+        )
       output_accel = self._apply_moving_stop_target_follow(
         output_accel, a_target, planned_stop, CS, self.CP.vEgoStopping,
       )

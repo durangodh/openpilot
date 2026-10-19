@@ -32,6 +32,7 @@ def _load_longcontrol_guards():
     '_trim_positive_overshoot_integrator',
     '_cap_positive_output_on_negative_target',
     '_apply_moving_stop_target_follow',
+    '_relax_stop_overbrake',
   }
   methods = []
   for node in cls.body:
@@ -40,6 +41,7 @@ def _load_longcontrol_guards():
       methods.append(node)
   env = {
     'interp': np.interp,
+    'DT_CTRL': 0.01,
     'MOVING_STOP_FOLLOW_MIN_GAP': 0.25,
     'NEGATIVE_TARGET_CREEP_GUARD_SPEED': 0.35,
     'NEGATIVE_TARGET_CREEP_GUARD_DECEL': 0.40,
@@ -95,3 +97,23 @@ def test_moving_stop_follows_mpc_gradually():
   # The helper must not inject this extra ramp after the driver presses brake.
   cs.brakePressed = True
   assert guards['_apply_moving_stop_target_follow'](0.0, -1.0, True, cs, 0.1) == 0.0
+
+
+def test_stopping_relaxes_overbrake_toward_stop_accel_while_rolling():
+  # 2026-10-19: STOPPING ACCEL 15 (-0.30) but stopping held -0.52 below 2 km/h.
+  relax = guards['_relax_stop_overbrake']
+  cs = NS(vEgo=0.5, standstill=False)
+  out = -0.52
+  for _ in range(10):
+    out = relax(out, -0.30, 1.2, cs, 0.3)
+  assert abs(out - (-0.40)) < 1e-6
+  for _ in range(100):
+    out = relax(out, -0.30, 1.2, cs, 0.3)
+  assert out == -0.30
+
+
+def test_stopping_relax_leaves_weaker_standstill_and_fast_cases():
+  relax = guards['_relax_stop_overbrake']
+  assert relax(-0.20, -0.30, 1.2, NS(vEgo=0.5, standstill=False), 0.3) == -0.20
+  assert relax(-0.52, -0.30, 1.2, NS(vEgo=0.0, standstill=True), 0.3) == -0.52
+  assert relax(-0.90, -0.30, 1.2, NS(vEgo=3.0, standstill=False), 0.3) == -0.90
