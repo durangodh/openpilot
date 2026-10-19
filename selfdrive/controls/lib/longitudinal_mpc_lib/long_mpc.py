@@ -286,7 +286,6 @@ class LongitudinalMpc:
     self.desired_distance = 0.0  # UI 표시용 목표 차간거리(m)
     # 이 포크: 끼어든 차가 비슷하거나 빠르면 부족한 차간거리를 천천히 회복(급제동 없음).
     self.cut_in_relief = CutInGapRelief()
-    self.cutInGapRelief = True
     self.openpilotLongitudinalControl = False
     self.experimentalMode = False
     # 이 포크: aPilot 은 설정값을 200 프레임에 걸쳐 나눠 읽어, 켜진 직후 몇 초는 기본값
@@ -464,12 +463,12 @@ class LongitudinalMpc:
     lead_1_obstacle = lead_xv_1[:,0] + get_stopped_equivalence_factor(lead_xv_1[:,1], self.x_sol[:,1], self.t_follow, self.stopDistance, krkeegan=self.applyLongDynamicCost)
     lead_one = radarstate.leadOne
     lead_deficit = get_safe_obstacle_distance(v_ego, self.t_follow, self.comfort_brake, applyStopDistance) - lead_0_obstacle[0]
-    if self.cutInGapRelief and lead_one.status:
+    if lead_one.status:
       a_lead = pull_away_lead_accel(lead_one.aLeadK, lead_one.vRel, lead_deficit <= 0.0)
       if a_lead != lead_one.aLeadK:
         lead_xv_0 = self.process_lead(lead_one, a_lead)
         lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(lead_xv_0[:,1], self.x_sol[:,1], self.t_follow, self.stopDistance, krkeegan=self.applyLongDynamicCost)
-    relief = self.cut_in_relief.update(self.cutInGapRelief and not reset_state, lead_one.status, lead_one.dRel,
+    relief = self.cut_in_relief.update(not reset_state, lead_one.status, lead_one.dRel,
                                        lead_one.vRel, lead_one.aLeadK, v_ego, lead_deficit, DT_MDL)
     lead_0_obstacle = lead_0_obstacle + relief
     self.params[:,0] = MIN_ACCEL if not reset_state else a_ego
@@ -626,7 +625,7 @@ class LongitudinalMpc:
       self.tFollowGap3 = float(_param_int("TFollowGap3", 140)) / 100.
       self.tFollowGap4 = float(_param_int("TFollowGap4", 160)) / 100.
     elif self.lo_timer == 120:
-      self.cutInGapRelief = _param_int("CutInGapRelief", 1) > 0
+      pass
     elif self.lo_timer == 140:
       self.softHoldMode = _param_int("SoftHoldMode", 1)
     elif self.lo_timer == 160:

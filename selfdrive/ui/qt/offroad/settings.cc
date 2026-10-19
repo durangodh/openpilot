@@ -1679,13 +1679,6 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "OFF: 사용 안 함 / MID: ON 의 절반 세기 / ON: 전체 적용.",
       "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
 
-  list->addItem(new ParamValueControlF(
-      "CutInGapRelief", "CUT-IN GAP RELIEF",
-      "끼어든 차가 우리보다 빠르거나 비슷하면(1m/s 이내로 느림) 부족한 차간거리를 급제동으로 벌리지 않고 초당 1m 씩 천천히 회복합니다. "
-      "또 차간거리가 충분하고 앞차가 우리보다 빠르면, 늦게 따라오는 앞차 감속 추정을 줄여 앞차가 감속을 끝내자마자 가속합니다. "
-      "앞차가 세게 감속하거나(-2m/s² 이하) 0.6초 차간보다 가까우면 작동하지 않습니다. 0: 끔 / 1: 켬. 기본값: 1.",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
-
   const std::array<std::tuple<const char*, const char*, int>, 4> gap_controls = {{
     {"TFollowGap1", "T-FOLLOW GAP1", 110},
     {"TFollowGap2", "T-FOLLOW GAP2", 120},

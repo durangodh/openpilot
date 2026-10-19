@@ -126,7 +126,6 @@ def manager_init() -> None:
     ("ShowPathStatusColor", "1"),
     ("PrevCruiseGap", "4"),
     ("ApplyLongDynamicCost", "0"),
-    ("CutInGapRelief", "1"),
     ("MyDrivingMode", "3"),
     ("InitMyDrivingMode", "3"),
     ("MyEcoModeFactor", "80"),
