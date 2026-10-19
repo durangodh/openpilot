@@ -11,6 +11,8 @@ selfdrive/debug/lat_trace_analyze.py 로 한다.
 import os
 import time
 
+import numpy as np
+
 import cereal.messaging as messaging
 from common.params import Params
 from common.realtime import Ratekeeper, sec_since_boot
@@ -41,7 +43,52 @@ COLUMNS = [
   # 경로 좌우 위치(m, +=왼쪽): 모델 원본(modelV2.position)과 차선/레인리스 혼합 후 경로
   # (dPathWLines, 사용자 오프셋 전)의 20 m·40 m 지점, 차선 신뢰도, 레인리스 여부
   "model_y20", "model_y40", "path_y20", "path_y40", "l_prob", "r_prob", "laneless",
+  # 차선 검사(lane_planner.parse_model 의 valid_lane_path)에서 떨어진 이유와, 그 판단에 쓰인
+  # 왼쪽 차선 시간값(t[0], t[1], 유효 개수). 2026-10-19: 차선 확률이 프레임의 약 70% 에서 0.
+  "lane_fail", "lane_t0", "lane_t1", "lane_tn",
 ]
+
+
+def _lane_t_reason(t):
+  t = np.asarray(t, dtype=float)
+  if t.shape != (33,):
+    return "t_shape"
+  if np.isinf(t).any():
+    return "t_inf"
+  count = int(np.isfinite(t).sum())
+  if count < 2:
+    return "t_count"
+  if not np.isfinite(t[:count]).all() or not np.isnan(t[count:]).all():
+    return "t_hole"
+  if t[0] < 0.0:
+    return "t0_neg"
+  if not np.all(np.diff(t[:count]) > 0.0):
+    return "t_order"
+  return ""
+
+
+def _lane_fail(md):
+  """lane_planner.parse_model 과 같은 순서로 검사하고 처음 걸린 조건을 돌려준다. 통과면 "ok"."""
+  lanes, probs, stds = md.laneLines, list(md.laneLineProbs), list(md.laneLineStds)
+  if len(lanes) != 4 or len(probs) != 4 or len(stds) != 4:
+    return "count", "", "", ""
+  left, right = lanes[1], lanes[2]
+  lt = np.asarray(left.t, dtype=float)
+  extra = (_f(lt[0], 4) if len(lt) else "", _f(lt[1], 4) if len(lt) > 1 else "", _i(np.isfinite(lt).sum()))
+  ly, ry = np.asarray(left.y, dtype=float), np.asarray(right.y, dtype=float)
+  for side, lane in (("L", left), ("R", right)):
+    x = np.asarray(lane.x, dtype=float)
+    if any(a.shape != (33,) or not np.isfinite(a).all() for a in (x, ly, ry)):
+      return (side + ":samples",) + extra
+    reason = _lane_t_reason(lane.t)
+    if reason:
+      return (side + ":" + reason,) + extra
+    if not np.all(np.diff(x) > 0.0):
+      return (side + ":x_order",) + extra
+  p, s = np.asarray(probs[1:3], dtype=float), np.asarray(stds[1:3], dtype=float)
+  if not (np.isfinite(p).all() and np.isfinite(s).all() and np.all((p >= 0.0) & (p <= 1.0)) and np.all(s >= 0.0)):
+    return ("prob",) + extra
+  return ("ok",) + extra
 
 
 def _y_at(xs, ys, dist):
@@ -81,6 +128,11 @@ def _row(sm):
     torque = None
   mono = sm.logMonoTime
 
+  try:
+    lane_diag = _lane_fail(md)
+  except Exception:
+    lane_diag = ("error", "", "", "")
+
   def tq(name, digits=4):
     return _f(getattr(torque, name), digits) if torque is not None else ""
 
@@ -103,6 +155,7 @@ def _row(sm):
     _y_at(md.position.x, md.position.y, 20.0), _y_at(md.position.x, md.position.y, 40.0),
     _y_at(plan.dPathWLinesX, plan.dPathWLinesY, 20.0), _y_at(plan.dPathWLinesX, plan.dPathWLinesY, 40.0),
     _f(plan.lProb, 2), _f(plan.rProb, 2), _i(not plan.useLaneLines),
+    *lane_diag,
   ]
 
 
