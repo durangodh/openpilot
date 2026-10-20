@@ -43,6 +43,7 @@ public final class RemoteSettingsActivity extends Activity {
         LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(20, 16, 20, 24);
         scroll.addView(root); setContentView(scroll);
         root.addView(text("무선 리모컨 · 오픈파일럿"));
+        root.addView(text("이 화면은 리모컨을 S9에 연결하는 기존 방식입니다. EON에 직접 Bluetooth로 연결할 때는 EON 설정의 EON DIRECT REMOTE에서 버튼을 학습하세요. 두 방식의 버튼 배정은 공유되지 않습니다. 직접 연결 사용 중에는 이 화면의 '리모컨 조작 사용'을 끄고 S9의 리모컨 페어링을 해제하세요."));
         root.addView(text("이 화면에서는 버튼 확인만 하며 차량 명령은 보내지 않습니다.\nS9에 블루투스 키보드/미디어 버튼으로 연결되는 리모컨을 사용하세요. KEY1 배선형·터치 전용 리모컨은 지원하지 않습니다."));
         button(root, "1. 블루투스 연결", () -> startActivity(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS)));
         button(root, "2. 접근성 → EON 리모컨 입력 켜기", () -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));

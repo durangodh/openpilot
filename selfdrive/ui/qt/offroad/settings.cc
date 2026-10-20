@@ -43,6 +43,10 @@
 #include <QStringList>
 #include <QFile>
 #include <QDir>
+#include <QDialog>
+#include <QPushButton>
+#include <QTimer>
+#include <QProcess>
 
 namespace {
 
@@ -1247,7 +1251,122 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
 
   // ── S9 외부 클러스터 HUD ──────────────────────────────────
 
-  auto remotePair = new ButtonControl("REMOTE PAIR", "PAIR",
+  auto directRemoteToggle = new ParamControl("HudRemoteDirectEnabled", "EON DIRECT REMOTE",
+      "리모컨을 EON에 Bluetooth로 연결합니다. EON에서 버튼을 학습한 뒤 켜세요. 리모컨 명령은 S9나 Wi-Fi를 거치지 않습니다.",
+      "../assets/offroad/icon_openpilot.png", this);
+  toggleLayout->addWidget(directRemoteToggle);
+  auto directRemotePair = new ButtonControl("EON Bluetooth 페어링", "OPEN",
+      "EON의 Android Bluetooth 설정을 엽니다. 정차 상태에서 리모컨을 EON에 페어링하세요.");
+  toggleLayout->addWidget(directRemotePair);
+  connect(directRemotePair, &ButtonControl::clicked, [=]() {
+    if (!Params().getBool("IsOffroad")) {
+      ConfirmationDialog::alert("시동을 끈 상태에서 Bluetooth 설정을 여세요.", this);
+      return;
+    }
+    if (!QProcess::startDetached("/system/bin/am", {"start", "-a", "android.settings.BLUETOOTH_SETTINGS"})) {
+      ConfirmationDialog::alert("EON Android Bluetooth 설정을 열지 못했습니다.", this);
+    }
+  });
+  auto directRemoteSetup = new ButtonControl("EON 리모컨 버튼 설정", "LEARN",
+      "EON에 페어링된 Bluetooth 입력 장치의 버튼을 학습합니다. 정차 상태에서만 설정할 수 있습니다.");
+  toggleLayout->addWidget(directRemoteSetup);
+  connect(directRemoteSetup, &ButtonControl::clicked, [=]() {
+    if (!Params().getBool("IsOffroad")) {
+      ConfirmationDialog::alert("시동을 끈 상태에서 버튼을 학습하세요.", this);
+      return;
+    }
+    QDialog dialog(this);
+    dialog.setWindowTitle("EON Bluetooth 리모컨");
+    auto layout = new QVBoxLayout(&dialog);
+    auto instructions = new QLabel("리모컨을 EON의 Android Bluetooth 설정에서 먼저 페어링하세요.\n"
+                                   "동작과 누르기 방식을 선택한 다음 LEARN을 누르고 해당 버튼을 누르세요.\n"
+                                   "첫 학습 버튼의 Bluetooth 장치만 이후 명령을 보낼 수 있습니다.");
+    instructions->setWordWrap(true);
+    layout->addWidget(instructions);
+    auto actions = new QComboBox(&dialog);
+    const std::array<std::pair<const char *, const char *>, 10> remoteActions = {{{"RES / 속도 +1", "res"},
+      {"SET / 속도 -1", "set"}, {"차간거리", "gap"}, {"ACC 취소", "cancel"},
+      {"티맵 / 네이버 전환", "nav_toggle"}, {"왼쪽 차선변경 요청", "lane_left"},
+      {"오른쪽 차선변경 요청", "lane_right"}, {"RES 길게 / +10", "res_long"},
+      {"SET 길게 / -10", "set_long"}, {"GAP 길게 / HUD 정보", "gap_long"}}};
+    for (const auto &[label, command] : remoteActions) actions->addItem(label, command);
+    layout->addWidget(actions);
+    auto gestures = new QComboBox(&dialog);
+    gestures->addItem("짧게 누르기", "short");
+    gestures->addItem("길게 누르기", "long");
+    gestures->addItem("두 번 누르기", "double");
+    layout->addWidget(gestures);
+    auto status = new QLabel("LEARN을 누르면 15초 동안 입력을 기다립니다.", &dialog);
+    status->setWordWrap(true);
+    layout->addWidget(status);
+    auto saved = new QLabel(&dialog);
+    saved->setWordWrap(true);
+    layout->addWidget(saved);
+    auto showSaved = [&]() {
+      auto json = QJsonDocument::fromJson(QByteArray::fromStdString(Params().get("HudRemoteDirectMapping")));
+      auto object = json.object();
+      QStringList rows;
+      for (auto it = object.begin(); it != object.end(); ++it) {
+        rows << it.key() + " → " + it.value().toString();
+      }
+      saved->setText(rows.isEmpty() ? "저장된 버튼 없음" : "저장된 버튼:\n" + rows.join("\n"));
+    };
+    showSaved();
+    auto learn = new QPushButton("LEARN", &dialog);
+    layout->addWidget(learn);
+    auto clear = new QPushButton("기기와 버튼 배정 초기화", &dialog);
+    layout->addWidget(clear);
+    auto close = new QPushButton("닫기", &dialog);
+    layout->addWidget(close);
+    connect(close, &QPushButton::clicked, &dialog, &QDialog::accept);
+    QString request;
+    QDateTime started;
+    connect(clear, &QPushButton::clicked, &dialog, [&]() {
+      if (!ConfirmationDialog::confirm("EON 리모컨의 기기 선택과 모든 버튼 배정을 지울까요?", &dialog)) return;
+      Params().putBool("HudRemoteDirectEnabled", false);
+      Params().remove("HudRemoteDirectLearn");
+      Params().remove("HudRemoteDirectDevice");
+      Params().remove("HudRemoteDirectMapping");
+      request.clear();
+      learn->setEnabled(true);
+      status->setText("배정을 지웠습니다. 다시 학습한 뒤 EON DIRECT REMOTE를 켜세요.");
+      showSaved();
+    });
+    connect(learn, &QPushButton::clicked, &dialog, [&]() {
+      request = actions->currentData().toString() + "|" + gestures->currentData().toString() + "|" +
+                QUuid::createUuid().toString(QUuid::WithoutBraces).remove('-');
+      if (Params().put("HudRemoteDirectLearn", request.toStdString()) != 0) {
+        status->setText("학습 요청을 저장하지 못했습니다.");
+        request.clear();
+        return;
+      }
+      started = QDateTime::currentDateTimeUtc();
+      status->setText("리모컨 버튼을 누르세요. 마우스 커서 이동은 학습하지 않습니다.");
+      learn->setEnabled(false);
+    });
+    QTimer poll(&dialog);
+    connect(&poll, &QTimer::timeout, &dialog, [&]() {
+      if (request.isEmpty()) return;
+      auto pending = QString::fromStdString(Params().get("HudRemoteDirectLearn"));
+      if (pending.isEmpty()) {
+        status->setText(QString::fromStdString(Params().get("HudRemoteDirectStatus")));
+        showSaved();
+        request.clear();
+        learn->setEnabled(true);
+      } else if (started.secsTo(QDateTime::currentDateTimeUtc()) >= 15) {
+        Params().remove("HudRemoteDirectLearn");
+        status->setText("입력 대기 시간이 지났습니다. 다시 학습하세요.");
+        request.clear();
+        learn->setEnabled(true);
+      }
+    });
+    poll.start(250);
+    dialog.exec();
+    if (!request.isEmpty()) Params().remove("HudRemoteDirectLearn");
+    directRemoteToggle->refresh();
+  });
+
+  auto remotePair = new ButtonControl("S9 REMOTE PAIR (기존 방식)", "PAIR",
       "S9 HUD 앱의 무선 리모컨 설정에 입력할 연결 키입니다. 시동을 끄거나 P단에서 확인하세요.");
   toggleLayout->addWidget(remotePair);
   connect(remotePair, &ButtonControl::clicked, [=]() {

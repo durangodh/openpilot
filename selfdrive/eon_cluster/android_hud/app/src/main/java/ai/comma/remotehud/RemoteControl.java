@@ -48,6 +48,10 @@ final class RemoteControl {
     static byte[] packet(Context c, JSONObject data) {
         synchronized (protocol) {
             long now = SystemClock.uptimeMillis();
+            if (data.optBoolean("hudRemoteDirect", false)) {
+                protocol.reset();
+                return null;
+            }
             boolean allowed = data.optBoolean("hudCmdDriveAllowed", false);
             if (drivingAllowed && !allowed) protocol.reset();
             drivingAllowed = allowed;

@@ -1467,6 +1467,7 @@ def main():
       packet = _packet(sm, noo_enabled, path_offset)
       packet.update(nav_selection.telemetry())
       packet.update(remote_commands.telemetry())
+      packet["hudRemoteDirect"] = params.get_bool("HudRemoteDirectEnabled")
       remote_allowed = allowed_commands(
         sm.alive["deviceState"] and sm["deviceState"].started,
         sm.alive["carState"] and sm.valid["carState"] and sm["carState"].canValid,

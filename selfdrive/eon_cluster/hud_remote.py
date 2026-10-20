@@ -83,6 +83,9 @@ class RemoteCommandSync:
     return key
 
   def receive(self, data, address, allowed=()):
+    # Direct EON input is the sole writer of the command journal in this mode.
+    if self.params.get("HudRemoteDirectEnabled") in (b"1", "1"):
+      return False
     if address[1] != 7210 or len(data) > 256 or not self.refresh_key():
       return False
     try:
@@ -115,6 +118,12 @@ class RemoteCommandSync:
       self.applied[request] = (command, result)
     self.ack, self.result = request, result
     return True
+
+  def apply_local(self, command, allowed):
+    """Accept an already-filtered local HID event without a network ticket."""
+    if command not in ALL_COMMANDS or command not in allowed:
+      return False
+    return self._apply(command, uuid.uuid4().hex, self.clock())
 
   def _apply(self, command, request, now):
     try:

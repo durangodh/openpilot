@@ -272,6 +272,11 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudMapScaleKakao", PERSISTENT},
     {"EonClusterHudMapScaleNaver", PERSISTENT},
     {"HudRemoteKey", PERSISTENT | DONT_LOG},           // S9 remote HMAC pairing key; never sent in telemetry
+    {"HudRemoteDirectEnabled", PERSISTENT},
+    {"HudRemoteDirectDevice", PERSISTENT},
+    {"HudRemoteDirectMapping", PERSISTENT},
+    {"HudRemoteDirectLearn", CLEAR_ON_MANAGER_START},
+    {"HudRemoteDirectStatus", CLEAR_ON_MANAGER_START},
     {"EonClusterHudNavApp", PERSISTENT},      // 0=선택 안 함, 1=티맵, 2=네이버지도
     {"EonClusterHudConnected", CLEAR_ON_MANAGER_START},
     {"EonClusterHudHeartbeat", CLEAR_ON_MANAGER_START},

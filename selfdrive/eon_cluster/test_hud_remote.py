@@ -97,6 +97,13 @@ class RemoteTest(unittest.TestCase):
     self.assertTrue(self.send())
     self.assertEqual(self.events(), [])
 
+  def test_direct_mode_rejects_s9_command_and_accepts_local_event(self):
+    self.params.values['HudRemoteDirectEnabled'] = '1'
+    self.assertFalse(self.send())
+    self.assertTrue(self.sync.apply_local('res', r.ALL_COMMANDS))
+    self.assertEqual(self.events(), [('accelCruise', True), ('accelCruise', False)])
+    self.assertFalse(self.sync.apply_local('res', ()))
+
   def test_stale_and_startup_files(self):
     self.send()
     self.now += .401

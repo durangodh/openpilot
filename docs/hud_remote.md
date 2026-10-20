@@ -1,5 +1,9 @@
 # S9 key remote → EON
 
+EON에 리모컨을 직접 Bluetooth로 연결하는 새 경로는
+[EON 직접 Bluetooth 리모컨](eon_direct_remote.md)을 참고하세요. 이 문서의
+S9 페어링·연결 키 절차는 기존 S9 경유 방식입니다.
+
 Implemented on `g_remote` for the rooted S9 / Lineage GSI Android 16 setup.
 Reference: [carrot-wip 962d4484](https://github.com/ajouatom/openpilot/tree/962d4484e737bcc98fcbffdfdfd1697600685962/openpilot/selfdrive/carrot/bluetooth),
 particularly `model.py` and `daemon.py`. This is an adaptation, not a complete
