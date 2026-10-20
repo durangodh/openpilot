@@ -11,6 +11,7 @@ import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothManager;
 import android.bluetooth.BluetoothProfile;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -47,7 +48,20 @@ public final class BleService extends Service {
   private String current = "";
   private long leaseUntil;
   private boolean scanning;
+  private boolean discovering;
   private boolean subscribing;
+  private final Runnable gattTimeout = () -> {
+    if (gatt != null && (discovering || subscribing)) {
+      status(discovering ? "BLE 서비스 검색 시간 초과" : "BLE 알림 구독 시간 초과");
+      disconnect();
+      retry();
+    }
+  };
+
+  private void armGattTimeout() {
+    handler.removeCallbacks(gattTimeout);
+    handler.postDelayed(gattTimeout, 10000);
+  }
 
   @Override public IBinder onBind(Intent intent) { return null; }
 
@@ -114,7 +128,14 @@ public final class BleService extends Service {
       stopScan();
       current = address;
       status("R1 BLE 연결 중");
-      try { gatt = device.connectGatt(this, false, callback); }
+      try {
+        // Android 6 can select BR/EDR for a dual-mode R1 with the 3-argument
+        // overload. The HID report we need is on the LE GATT transport.
+        gatt = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+            ? device.connectGatt(this, false, callback, BluetoothDevice.TRANSPORT_LE)
+            : device.connectGatt(this, false, callback);
+        if (gatt == null) { status("BLE 연결 실패"); retry(); }
+      }
       catch (Exception e) { status("BLE 연결 실패"); retry(); }
     };
     try {
@@ -141,7 +162,9 @@ public final class BleService extends Service {
 
   private void disconnect() {
     stopScan();
+    handler.removeCallbacks(gattTimeout);
     descriptors.clear();
+    discovering = false;
     subscribing = false;
     if (gatt != null) { gatt.disconnect(); gatt.close(); gatt = null; }
     current = "";
@@ -155,7 +178,9 @@ public final class BleService extends Service {
         if (source != gatt) return;
         if (statusCode == BluetoothGatt.GATT_SUCCESS && state == BluetoothProfile.STATE_CONNECTED) {
           status("R1 BLE 서비스 검색 중");
+          discovering = true;
           if (!source.discoverServices()) { status("BLE 서비스 검색 실패"); disconnect(); retry(); }
+          else armGattTimeout();
         } else {
           status("R1 BLE 연결 끊김 (" + statusCode + ")");
           disconnect(); retry();
@@ -164,30 +189,39 @@ public final class BleService extends Service {
     }
 
     @Override public void onServicesDiscovered(BluetoothGatt source, int statusCode) {
-      if (source != gatt || statusCode != BluetoothGatt.GATT_SUCCESS) {
-        status("BLE 서비스 검색 실패"); disconnect(); retry(); return;
-      }
-      BluetoothGattService hid = source.getService(HID_SERVICE);
-      if (hid == null) { status("R1 HID BLE 서비스 없음: M+B 확인"); disconnect(); retry(); return; }
-      descriptors.clear();
-      for (BluetoothGattCharacteristic characteristic : hid.getCharacteristics()) {
-        if (!HID_REPORT.equals(characteristic.getUuid())) continue;
-        if ((characteristic.getProperties() & BluetoothGattCharacteristic.PROPERTY_NOTIFY) == 0) continue;
-        BluetoothGattDescriptor descriptor = characteristic.getDescriptor(CCCD);
-        if (descriptor == null || !source.setCharacteristicNotification(characteristic, true)) continue;
-        descriptors.add(descriptor);
-      }
-      if (descriptors.isEmpty()) { status("R1 BLE 알림 특성 없음"); disconnect(); retry(); return; }
-      subscribing = true;
-      subscribeNext(source);
+      handler.post(() -> {
+        if (source != gatt) return;
+        discovering = false;
+        handler.removeCallbacks(gattTimeout);
+        if (statusCode != BluetoothGatt.GATT_SUCCESS) {
+          status("BLE 서비스 검색 실패 (" + statusCode + ")"); disconnect(); retry(); return;
+        }
+        BluetoothGattService hid = source.getService(HID_SERVICE);
+        if (hid == null) { status("R1 HID BLE 서비스 없음: M+B 확인"); disconnect(); retry(); return; }
+        descriptors.clear();
+        for (BluetoothGattCharacteristic characteristic : hid.getCharacteristics()) {
+          if (!HID_REPORT.equals(characteristic.getUuid())) continue;
+          if ((characteristic.getProperties() & BluetoothGattCharacteristic.PROPERTY_NOTIFY) == 0) continue;
+          BluetoothGattDescriptor descriptor = characteristic.getDescriptor(CCCD);
+          if (descriptor == null || !source.setCharacteristicNotification(characteristic, true)) continue;
+          descriptors.add(descriptor);
+        }
+        if (descriptors.isEmpty()) { status("R1 BLE 알림 특성 없음"); disconnect(); retry(); return; }
+        subscribing = true;
+        armGattTimeout();
+        subscribeNext(source);
+      });
     }
 
     @Override public void onDescriptorWrite(BluetoothGatt source, BluetoothGattDescriptor descriptor, int statusCode) {
-      if (source != gatt) return;
-      if (statusCode != BluetoothGatt.GATT_SUCCESS) {
-        status("R1 BLE 알림 구독 실패"); disconnect(); retry(); return;
-      }
-      subscribeNext(source);
+      handler.post(() -> {
+        if (source != gatt) return;
+        if (statusCode != BluetoothGatt.GATT_SUCCESS) {
+          status("R1 BLE 알림 구독 실패 (" + statusCode + ")"); disconnect(); retry(); return;
+        }
+        armGattTimeout();
+        subscribeNext(source);
+      });
     }
 
     @Override public void onCharacteristicChanged(BluetoothGatt source, BluetoothGattCharacteristic characteristic) {
@@ -201,7 +235,12 @@ public final class BleService extends Service {
 
   private void subscribeNext(BluetoothGatt source) {
     if (!subscribing || source != gatt) return;
-    if (descriptors.isEmpty()) { subscribing = false; status("R1 BLE 입력 대기"); return; }
+    if (descriptors.isEmpty()) {
+      subscribing = false;
+      handler.removeCallbacks(gattTimeout);
+      status("R1 BLE 입력 대기");
+      return;
+    }
     BluetoothGattDescriptor descriptor = descriptors.remove(0);
     descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
     if (!source.writeDescriptor(descriptor)) {
