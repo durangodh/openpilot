@@ -98,6 +98,16 @@ def update_apks():
 
       assert success
 
+  # Android 6 revokes runtime permissions when a differently signed BLE APK
+  # must be uninstalled before reinstalling it. Without location permission,
+  # BLE scanning starts but delivers no advertisements.
+  if "ai.comma.eonbleremote" in get_installed_apks():
+    try:
+      subprocess.check_call(["pm", "grant", "ai.comma.eonbleremote",
+                             "android.permission.ACCESS_COARSE_LOCATION"])
+    except subprocess.CalledProcessError:
+      print("EON BLE remote location permission grant failed")
+
 def pm_apply_packages(cmd):
   for p in android_packages:
     system("pm %s %s" % (cmd, p))
