@@ -8,7 +8,7 @@ import uuid
 
 
 def receiver():
-  source = Path(__file__).parents[2] / "carrot_navi_server.py"
+  source = Path(__file__).resolve().parents[2] / "carrot_navi_server.py"
   tree = ast.parse(source.read_text())
   names = {"JSON_NAMES", "PROTOCOL_VERSION", "SOURCE_TMAP", "SOURCE_NAVER"}
   nodes = [node for node in tree.body if
