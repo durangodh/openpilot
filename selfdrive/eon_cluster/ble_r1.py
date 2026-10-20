@@ -17,9 +17,14 @@ JOYSTICK = {
   0x00: {'up', 'left'}, 0x40: {'left'}, 0x90: {'down'},
   0x50: set(),
 }
+# Measured single-byte direction reports, normalized to JOYSTICK values.
+SHORT_JOYSTICK = {0x00: 0x50, 0x01: 0x10, 0x02: 0x90, 0x10: 0x40, 0x20: 0x60}
+
 
 def report_fields(report):
-  """Decode legacy frames and the two-byte states verified on the EON R1."""
+  """Decode legacy frames and short states verified on the EON R1."""
+  if len(report) == 1 and report[0] in SHORT_JOYSTICK:
+    return 0, SHORT_JOYSTICK[report[0]]
   if len(report) >= 5 and report[0] == 0x1b:
     return report[3], report[4]
   # Other two-byte states stay visible as diagnostics until measured.

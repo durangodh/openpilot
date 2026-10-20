@@ -6,6 +6,22 @@ from selfdrive.eon_cluster.ble_r1 import R1Report, authenticated_packet, report_
 
 
 class TestBleR1(unittest.TestCase):
+  def test_observed_single_byte_directions_and_release(self):
+    decoder = R1Report()
+    self.assertEqual(decoder.transitions(b'\x00'), [])
+    for raw, direction in (('01', 'up'), ('02', 'down'), ('10', 'left'), ('20', 'right')):
+      report = bytes.fromhex(raw)
+      token = 'blejoy:' + direction
+      self.assertEqual(decoder.transitions(report), [(token, 1)])
+      self.assertEqual(decoder.transitions(report), [])
+      self.assertEqual(decoder.transitions(b'\x00'), [(token, 0)])
+      self.assertEqual(decoder.transitions(b'\x00'), [])
+    self.assertEqual(decoder.transitions(b'\x01'), [('blejoy:up', 1)])
+    self.assertEqual(decoder.transitions(b'\x20'), [('blejoy:up', 0), ('blejoy:right', 1)])
+    self.assertEqual(decoder.transitions(b'\x00'), [('blejoy:right', 0)])
+    self.assertIsNone(report_fields(b'\x03'))
+    self.assertIsNone(report_fields(b'\xff'))
+
   def test_observed_two_byte_jog_and_neutral(self):
     decoder = R1Report()
     self.assertEqual(decoder.transitions(bytes.fromhex('0050')), [])
@@ -13,7 +29,7 @@ class TestBleR1(unittest.TestCase):
     self.assertEqual(decoder.transitions(bytes.fromhex('0010')), [])
     self.assertEqual(decoder.transitions(bytes.fromhex('0050')), [('blejoy:up', 0)])
     self.assertEqual(decoder.transitions(bytes.fromhex('0050')), [])
-    for raw in ('', '00', '1050', '0060', '001000'):
+    for raw in ('', '03', '1050', '0060', '001000'):
       self.assertIsNone(report_fields(bytes.fromhex(raw)))
       self.assertEqual(decoder.transitions(bytes.fromhex(raw)), [])
 
