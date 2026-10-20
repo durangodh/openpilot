@@ -1,12 +1,5 @@
-"""S9 key remote -> authenticated, short-lived EON button requests.
-
-Adapted from carrot-wip bluetooth/model.py policies (962d4484): explicit
-mapping, monotonic expiry, bounded journals, startup/replay rejection.
-Android owns Bluetooth on S9; BlueZ/evdev is not transplanted onto EON.
-"""
+"""Local EON Bluetooth button requests with bounded journals and expiry."""
 from collections import deque
-import hashlib
-import hmac
 import json
 import math
 import os
@@ -33,18 +26,6 @@ LONG_DELAY_DEFAULT = 40
 GAP_LONG_HOLD_FRAMES = 152
 
 
-def valid_hex(value, length=32):
-  return isinstance(value, str) and len(value) == length and all(c in "0123456789abcdef" for c in value)
-
-
-# 연결 키: 8자리(2026-10-18 요청, 입력 편의). 이전에 받은 32자리 키도 계속 받는다.
-KEY_LENGTHS = (8, 32)
-
-
-def valid_key(value):
-  return any(valid_hex(value, n) for n in KEY_LENGTHS)
-
-
 def atomic_json(path, payload):
   temporary = path + ".tmp"
   with open(temporary, "w") as f:
@@ -62,65 +43,10 @@ class RemoteCommandSync:
     self.params, self.command_file, self.lane_file = params, command_file, lane_file
     self.clock = clock
     self.session = uuid.uuid4().hex
-    self.ack = self.result = self.last_command = ""
-    self.applied = {}
     self.events = []
-    self.tickets = {}
-    self.key = ""
-    self.last_command_at = None
-
-  def refresh_key(self):
-    raw = self.params.get("HudRemoteKey") or b""
-    key = raw.decode("ascii", errors="ignore") if isinstance(raw, bytes) else raw
-    key = key if valid_key(key) else ""
-    if key != self.key:
-      self.key = key
-      self.session = uuid.uuid4().hex
-      self.tickets.clear()
-      self.applied.clear()
-      self.events.clear()
-      self.ack = self.result = ""
-    return key
-
-  def receive(self, data, address, allowed=()):
-    # Direct EON input is the sole writer of the command journal in this mode.
-    if self.params.get("HudRemoteDirectEnabled") in (b"1", "1"):
-      return False
-    if address[1] != 7210 or len(data) > 256 or not self.refresh_key():
-      return False
-    try:
-      body, signature = data.decode("ascii").rsplit(" ", 1)
-      kind, session, request, ticket, command = body.split(" ")
-    except (UnicodeDecodeError, ValueError):
-      return False
-    if (kind != "HUDCMD2" or session != self.session or command not in ALL_COMMANDS or
-        not valid_hex(request) or not valid_hex(signature, 64)):
-      return False
-    digest = hmac.new(self.key.encode("ascii"), body.encode("ascii"), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(signature, digest):
-      return False
-    now = self.clock()
-    created = self.tickets.get(ticket)
-    if created is None or not fresh(created, 0.0, now):
-      return False
-    if request in self.applied:
-      old_command, result = self.applied[request]
-      if old_command != command:
-        return False
-    else:
-      result = "blocked"
-      if command in allowed:
-        if not self._apply(command, request, now):
-          return False
-        result = "accepted"
-      if len(self.applied) >= 128:
-        del self.applied[next(iter(self.applied))]
-      self.applied[request] = (command, result)
-    self.ack, self.result = request, result
-    return True
 
   def apply_local(self, command, allowed):
-    """Accept an already-filtered local HID event without a network ticket."""
+    """Accept a local EON Bluetooth event after vehicle-state filtering."""
     if command not in ALL_COMMANDS or command not in allowed:
       return False
     return self._apply(command, uuid.uuid4().hex, self.clock())
@@ -143,20 +69,7 @@ class RemoteCommandSync:
         self.params.put("EonClusterHudNavApp", str(target))
     except OSError:
       return False
-    self.last_command, self.last_command_at = command, now
     return True
-
-  def telemetry(self):
-    self.refresh_key()
-    now = self.clock()
-    self.tickets = {t: ts for t, ts in self.tickets.items() if fresh(ts, 0.0, now)}
-    ticket = uuid.uuid4().hex[:16] if self.key else ""
-    if ticket:
-      self.tickets[ticket] = now
-    return {"hudCmdSession": self.session, "hudCmdTicket": ticket,
-            "hudCmdAck": self.ack, "hudCmdResult": self.result,
-            "hudCmdLast": self.last_command,
-            "hudCmdAgeMs": int((now - self.last_command_at) * 1000) if self.last_command_at is not None else -1}
 
 
 class RemoteButtonSource:

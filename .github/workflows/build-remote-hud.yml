@@ -73,12 +73,11 @@ jobs:
           python3 ../tests/test_naver_guidance.py
           python3 ../tests/test_traffic_signal_transport.py
           python3 ../tests/test_e2e_signal_indicator.py
-      - name: Check remote input and authenticated transport
-        working-directory: selfdrive/eon_cluster/android_hud
+      - name: Check direct EON Bluetooth button handling
         run: |
-          python3 ../test_hud_remote.py
-          javac -d "$RUNNER_TEMP/hud-remote-check" app/src/main/java/ai/comma/remotehud/RemoteKeyEngine.java app/src/main/java/ai/comma/remotehud/RemoteCommandProtocol.java tests/RemoteInputCheck.java
-          java -cp "$RUNNER_TEMP/hud-remote-check" ai.comma.remotehud.RemoteInputCheck
+          python3 -m unittest selfdrive.eon_cluster.test_hud_remote
+          python3 -m unittest selfdrive.eon_cluster.test_direct_remote_core
+          python3 -m unittest selfdrive.eon_cluster.test_ble_r1
       - name: Check navigation selection
         # Exercise retransmission and old acknowledgements before packaging.
         working-directory: selfdrive/eon_cluster/android_hud

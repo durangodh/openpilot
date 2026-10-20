@@ -956,7 +956,7 @@ public final class HudService extends Service {
                             udpReceiverError = "JSON 오류";
                             continue;
                         }
-                        // Navigation and remote replies are auxiliary: their failures must not
+                        // Navigation replies are auxiliary: their failures must not
                         // discard a valid telemetry packet or close the UDP listener.
                         try {
                             synchronizeNavigation(decoded, socket, packet);
@@ -973,13 +973,6 @@ public final class HudService extends Service {
                             socket.send(new DatagramPacket(ack, ack.length, packet.getAddress(), packet.getPort()));
                         } catch (java.io.IOException auxiliaryError) {
                             android.util.Log.w("RemoteHudRx", "HUD acknowledgement failed", auxiliaryError);
-                        }
-                        try {
-                            byte[] remoteCommand = RemoteControl.packet(this, decoded);
-                            if (remoteCommand != null) socket.send(new DatagramPacket(remoteCommand,
-                                    remoteCommand.length, packet.getAddress(), packet.getPort()));
-                        } catch (Exception auxiliaryError) {
-                            android.util.Log.w("RemoteHudRx", "Remote reply failed", auxiliaryError);
                         }
                         // GPS 전달 지연을 1초마다 EON 에 보내 /trace/hud/gps_*.log 로 남긴다.
                         long gpsNow = SystemClock.elapsedRealtime();
@@ -7513,7 +7506,6 @@ public final class HudService extends Service {
 
     @Override
     public void onDestroy() {
-        RemoteControl.reset();
         if (gpsSourceMonitor != null) gpsSourceMonitor.stop();
         if (mirrorDisplays != null) mirrorDisplays.unregisterDisplayListener(mirrorDisplayListener);
         running.set(false);

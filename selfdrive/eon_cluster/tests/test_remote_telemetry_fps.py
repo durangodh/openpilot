@@ -1,9 +1,9 @@
-"""Remote key commands need telemetry tickets at >= 5 FPS (no messaging imports)."""
+"""HUD telemetry respects the configured FPS without S9 remote tickets."""
 import ast
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parents[1] / "remote_hud.py"
-NAMES = {"MAX_TELEMETRY_FPS", "PAUSED_TELEMETRY_FPS", "REMOTE_MIN_TELEMETRY_FPS", "_telemetry_fps"}
+NAMES = {"MAX_TELEMETRY_FPS", "PAUSED_TELEMETRY_FPS", "_telemetry_fps"}
 
 
 def load():
@@ -19,16 +19,9 @@ def load():
   return env["_telemetry_fps"]
 
 
-def test_configured_fps_is_kept_without_a_remote_key():
+def test_configured_fps_is_kept():
   fps = load()
-  assert fps(0, "") == 2
-  assert fps(3, "") == 3
-  assert fps(15, "") == 10
-
-
-def test_remote_key_keeps_a_five_fps_floor():
-  fps = load()
-  key = "0" * 32
-  assert fps(0, key) == 5
-  assert fps(3, key) == 5
-  assert fps(8, key) == 8
+  assert fps(0) == 2
+  assert fps(3) == 3
+  assert fps(8) == 8
+  assert fps(15) == 10

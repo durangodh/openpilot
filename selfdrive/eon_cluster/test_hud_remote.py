@@ -1,6 +1,4 @@
 """Run on a development host without cereal; integration still needs the car."""
-import hashlib
-import hmac
 import importlib.util
 import json
 from pathlib import Path
@@ -10,12 +8,11 @@ import unittest
 spec = importlib.util.spec_from_file_location('hud_remote', Path(__file__).with_name('hud_remote.py'))
 r = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(r)
-KEY = '0123456789abcdef' * 2
 
 
 class Params:
   def __init__(self):
-    self.values = {'HudRemoteKey': KEY, 'EonClusterHudNavApp': '1'}
+    self.values = {'EonClusterHudNavApp': '1'}
 
   def get(self, key):
     return self.values.get(key)
@@ -36,70 +33,24 @@ class RemoteTest(unittest.TestCase):
     self.sync = r.RemoteCommandSync(self.params, self.path, self.lane_path, clock)
     self.src = r.RemoteButtonSource(self.path, clock)
     self.lane = r.RemoteLaneChangeSource(self.lane_path, clock)
-    self.packet = self.sync.telemetry()
 
-  def request(self, command='res', number=1, key=KEY):
-    body = 'HUDCMD2 %s %032x %s %s' % (self.packet['hudCmdSession'], number, self.packet['hudCmdTicket'], command)
-    return (body + ' ' + hmac.new(key.encode(), body.encode(), hashlib.sha256).hexdigest()).encode()
-
-  def send(self, command='res', number=1, allowed=r.ALL_COMMANDS):
-    return self.sync.receive(self.request(command, number), ('s9', 7210), allowed)
+  def send(self, command='res', allowed=r.ALL_COMMANDS):
+    return self.sync.apply_local(command, allowed)
 
   def events(self, allowed=True):
     return [event for _ in range(30) for event in self.src.poll(allowed)]
 
   def test_press_release_and_duplicate(self):
     self.assertTrue(self.send())
-    self.assertTrue(self.send())
     self.assertEqual(self.events(), [('accelCruise', True), ('accelCruise', False)])
     self.assertEqual(self.events(), [])
 
   def test_journal_preserves_quick_distinct_commands(self):
-    self.send('res', 1)
-    self.send('set', 2)
+    self.send('res')
+    self.send('set')
     self.assertEqual(self.events(), [('accelCruise', True), ('accelCruise', False), ('decelCruise', True), ('decelCruise', False)])
 
-  def test_auth_and_protocol(self):
-    for payload, port in [(self.request(key='f' * 32), 7210), (b'HUDCMD1 old', 7210),
-                          (self.request(), 7211), (b'x' * 257, 7210), (b'\xff', 7210)]:
-      self.assertFalse(self.sync.receive(payload, ('s9', port), r.ALL_COMMANDS))
-    self.assertEqual(self.events(), [])
-
-  def test_short_key(self):
-    short = 'a1b2c3d4'
-    self.params.values['HudRemoteKey'] = short
-    self.packet = self.sync.telemetry()
-    self.assertFalse(self.sync.receive(self.request(key=KEY), ('s9', 7210), r.ALL_COMMANDS))
-    self.assertTrue(self.sync.receive(self.request(number=2, key=short), ('s9', 7210), r.ALL_COMMANDS))
-    for bad in ('a1b2c3d', 'a1b2c3d4e', 'A1B2C3D4', 'g1b2c3d4'):
-      self.params.values['HudRemoteKey'] = bad
-      self.assertEqual(self.sync.refresh_key(), '')
-
-  def test_reused_id_cannot_change_action(self):
-    self.send()
-    self.assertFalse(self.send('cancel'))
-
-  def test_expired_network_packet_rejected(self):
-    self.now += .401
-    self.assertFalse(self.send())
-
-  def test_key_revocation_and_restart_reject_old_session(self):
-    payload = self.request()
-    self.params.values['HudRemoteKey'] = 'f' * 32
-    self.assertFalse(self.sync.receive(payload, ('s9', 7210), r.ALL_COMMANDS))
-    self.params.values['HudRemoteKey'] = ''
-    self.assertFalse(self.send())
-    self.assertEqual(self.sync.telemetry()['hudCmdTicket'], '')
-
-  def test_blocked_command_never_runs_on_retry(self):
-    self.assertTrue(self.send(allowed=()))
-    self.assertEqual(self.sync.result, 'blocked')
-    self.assertTrue(self.send())
-    self.assertEqual(self.events(), [])
-
-  def test_direct_mode_rejects_s9_command_and_accepts_local_event(self):
-    self.params.values['HudRemoteDirectEnabled'] = '1'
-    self.assertFalse(self.send())
+  def test_local_event_respects_allowed_commands(self):
     self.assertTrue(self.sync.apply_local('res', r.ALL_COMMANDS))
     self.assertEqual(self.events(), [('accelCruise', True), ('accelCruise', False)])
     self.assertFalse(self.sync.apply_local('res', ()))
@@ -123,13 +74,13 @@ class RemoteTest(unittest.TestCase):
     self.send()
     self.assertEqual(self.events(False), [])
     self.assertEqual(self.events(True), [])
-    self.send('cancel', 2)
+    self.send('cancel')
     self.assertEqual(self.events(False), [('cancel', True), ('cancel', False)])
 
   def test_nav_and_lane_expiry(self):
     self.send('nav_toggle')
     self.assertEqual(self.params.get('EonClusterHudNavApp'), '2')
-    self.send('lane_left', 2)
+    self.send('lane_left')
     self.assertEqual(self.lane.poll(), -1)
     self.now += .31
     self.assertEqual(self.lane.poll(), 0)

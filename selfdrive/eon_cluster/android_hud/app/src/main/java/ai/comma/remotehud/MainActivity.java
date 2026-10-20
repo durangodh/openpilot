@@ -237,9 +237,6 @@ public final class MainActivity extends Activity {
         kakaoButton.setOnClickListener(v -> selectNavApp(3));
         root.addView(navCard, cardParams());
 
-        Button remoteButton = button("S9 무선 리모컨 설정 (기존 방식)", NAV_UNSELECTED);
-        remoteButton.setOnClickListener(v -> startActivity(new Intent(this, RemoteSettingsActivity.class)));
-        root.addView(remoteButton, cardParams());
 
         LinearLayout controlCard = card();
         controlCard.addView(text("서비스 제어", 18.0f, Color.WHITE, Typeface.BOLD));

@@ -1,3 +1,9 @@
+## 리모컨 연결
+
+리모컨은 이온에 직접 Bluetooth로 연결하고 이온의 EON DIRECT REMOTE에서 버튼을 설정합니다.
+S9 HUD의 무선 리모컨 설정·접근성 입력 서비스·명령 전송과 이온의 S9 연결 키 메뉴는 제거했습니다.
+HUD 주행 정보·지도 전송과 내비 전환은 계속 지원합니다. 업데이트는 기존 앱의 업데이트 버튼을 사용합니다.
+
 # Android remote HUD (experimental)
 
 ## S9 telemetry freshness

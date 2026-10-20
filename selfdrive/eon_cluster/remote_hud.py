@@ -18,7 +18,6 @@ import time
 import cereal.messaging as messaging
 from common.params import Params
 from selfdrive.eon_cluster.nav_selection import NavSelectionSync
-from selfdrive.eon_cluster.hud_remote import RemoteCommandSync, allowed_commands
 
 
 from selfdrive.modeld.constants import T_IDXS
@@ -55,15 +54,10 @@ MAP_IDLE_JPEG = base64.b64decode(
   "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDz+iiigD//2Q==")
 MAX_TELEMETRY_FPS = 10
 PAUSED_TELEMETRY_FPS = 2
-# Remote key commands authenticate with the ticket in each telemetry packet:
-# S9 needs one within 250 ms and EON accepts it for 400 ms. Below 5 FPS the
-# remote is rejected or reports no answer, so keep this floor while a key is set.
-REMOTE_MIN_TELEMETRY_FPS = 5
+def _telemetry_fps(configured_fps):
+  return PAUSED_TELEMETRY_FPS if configured_fps == 0 else min(MAX_TELEMETRY_FPS, configured_fps)
 
 
-def _telemetry_fps(configured_fps, remote_key):
-  fps = PAUSED_TELEMETRY_FPS if configured_fps == 0 else min(MAX_TELEMETRY_FPS, configured_fps)
-  return max(fps, REMOTE_MIN_TELEMETRY_FPS) if remote_key else fps
 PARAM_ENABLED = "EonClusterHud"
 PARAM_CONNECTED = "EonClusterHudConnected"
 PARAM_HEARTBEAT = "EonClusterHudHeartbeat"
@@ -1411,7 +1405,6 @@ def _packet(sm, noo_enabled, path_offset=0.0):
 def main():
   params = Params()
   nav_selection = NavSelectionSync(params)
-  remote_commands = RemoteCommandSync(params)
   running = [True]
   signal.signal(signal.SIGINT, lambda *_: running.__setitem__(0, False))
   signal.signal(signal.SIGTERM, lambda *_: running.__setitem__(0, False))
@@ -1435,7 +1428,7 @@ def main():
   noo_enabled = _param_bool(params, PARAM_NOO_ENABLED)
   path_offset = _path_offset(params)
   configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
-  telemetry_fps = _telemetry_fps(configured_fps, remote_commands.refresh_key())
+  telemetry_fps = _telemetry_fps(configured_fps)
   # The asset thread checks for a new map file at the telemetry rate and
   # forwards it at once. carrot_navi_server already limits the write rate to
   # S9 HUD MAP FPS; a slower second clock made the map alternate between short
@@ -1459,21 +1452,13 @@ def main():
       noo_enabled = _param_bool(params, PARAM_NOO_ENABLED)
       path_offset = _path_offset(params)
       configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
-      telemetry_fps = _telemetry_fps(configured_fps, remote_commands.refresh_key())
+      telemetry_fps = _telemetry_fps(configured_fps)
       map_server.set_poll_fps(telemetry_fps)
       next_param_read = started + 1.0
     sm.update(0)
     try:
       packet = _packet(sm, noo_enabled, path_offset)
       packet.update(nav_selection.telemetry())
-      packet.update(remote_commands.telemetry())
-      packet["hudRemoteDirect"] = params.get_bool("HudRemoteDirectEnabled")
-      remote_allowed = allowed_commands(
-        sm.alive["deviceState"] and sm["deviceState"].started,
-        sm.alive["carState"] and sm.valid["carState"] and sm["carState"].canValid,
-        sm["carState"].gearShifter == "drive", sm["carState"].brakePressed, sm["carState"].gasPressed)
-      # S9 의 길게 누름 반복(속도 ±, 차선변경)은 D단·페달 없음일 때만 이어 간다.
-      packet["hudCmdDriveAllowed"] = "lane_left" in remote_allowed
       # S9 가 응답하는 동안은 그 주소로 직접(유니캐스트) 보낸다. 와이파이 브로드캐스트는
       # 재전송 없이 최저 속도로 나가 여러 조각으로 나뉜 큰 패킷이 자주 통째로 사라졌다
       # (2026-10-08: S9 응답 절반, 5~10초 공백 -> HUD "EON 연결 끊김"). 응답이 1.5초 끊기면
@@ -1490,8 +1475,6 @@ def main():
           elif reply.startswith(b"GPSL"):
             pass  # S9 GPS 지연 보고. 기록하지 않는다.
           elif nav_selection.receive(reply, address):
-            last_ack = time.monotonic()
-          elif remote_commands.receive(reply, address, remote_allowed):
             last_ack = time.monotonic()
       except (BlockingIOError, socket.error):
         pass
