@@ -1256,20 +1256,23 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_openpilot.png", this);
   toggleLayout->addWidget(directRemoteToggle);
   auto directRemotePair = new ButtonControl("EON Bluetooth 페어링", "OPEN",
-      "EON의 Android Bluetooth 설정을 엽니다. 화면의 뒤로 버튼으로 EON 설정에 돌아옵니다.");
+      "EON의 Android Bluetooth 설정을 엽니다. 설정 화면은 3분 후 자동으로 닫힙니다. Android BACK은 누르지 마세요.");
   toggleLayout->addWidget(directRemotePair);
   connect(directRemotePair, &ButtonControl::clicked, [=]() {
     if (!Params().getBool("IsOffroad")) {
       ConfirmationDialog::alert("시동을 끈 상태에서 Bluetooth 설정을 여세요.", this);
       return;
     }
-    // Android SettingsActivity supports a visible Back button bar when started
-    // with these extras. NEOS hides the system navigation keys in landscape.
-    if (!QProcess::startDetached("/system/bin/am", {"start", "-a", "android.settings.BLUETOOTH_SETTINGS",
-                                                   "--ez", "extra_prefs_show_button_bar", "true",
-                                                   "--es", "extra_prefs_set_back_text", "BACK",
-                                                   "--es", "extra_prefs_set_next_text", ""})) {
+    // Android Settings is a separate activity from openpilot's native Qt UI.
+    // Its Back button may reveal the NEOS setup launcher instead of returning
+    // here. Close Settings ourselves after pairing, as the original EON
+    // 30-second timeout did, with enough time to complete the pairing flow.
+    if (!QProcess::startDetached("/system/bin/am", {"start", "-a", "android.settings.BLUETOOTH_SETTINGS"})) {
       ConfirmationDialog::alert("EON Android Bluetooth 설정을 열지 못했습니다.", this);
+    } else {
+      QTimer::singleShot(180000, this, []() {
+        QProcess::startDetached("/system/bin/am", {"force-stop", "com.android.settings"});
+      });
     }
   });
   auto directRemoteSetup = new ButtonControl("EON 리모컨 버튼 설정", "LEARN",
