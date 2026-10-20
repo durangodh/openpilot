@@ -149,14 +149,18 @@ public final class BleService extends Service {
 
   private final BluetoothGattCallback callback = new BluetoothGattCallback() {
     @Override public void onConnectionStateChange(BluetoothGatt source, int statusCode, int state) {
-      if (source != gatt) return;
-      if (statusCode == BluetoothGatt.GATT_SUCCESS && state == BluetoothProfile.STATE_CONNECTED) {
-        status("R1 BLE 서비스 검색 중");
-        if (!source.discoverServices()) { status("BLE 서비스 검색 실패"); disconnect(); retry(); }
-      } else {
-        status("R1 BLE 연결 끊김 (" + statusCode + ")");
-        disconnect(); retry();
-      }
+      // connectGatt can call back before it returns. Run on the scan thread's
+      // looper so gatt has been assigned before comparing the connection.
+      handler.post(() -> {
+        if (source != gatt) return;
+        if (statusCode == BluetoothGatt.GATT_SUCCESS && state == BluetoothProfile.STATE_CONNECTED) {
+          status("R1 BLE 서비스 검색 중");
+          if (!source.discoverServices()) { status("BLE 서비스 검색 실패"); disconnect(); retry(); }
+        } else {
+          status("R1 BLE 연결 끊김 (" + statusCode + ")");
+          disconnect(); retry();
+        }
+      });
     }
 
     @Override public void onServicesDiscovered(BluetoothGatt source, int statusCode) {
