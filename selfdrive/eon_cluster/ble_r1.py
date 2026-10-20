@@ -18,6 +18,16 @@ JOYSTICK = {
   0x50: set(),
 }
 
+def report_fields(report):
+  """Decode legacy frames and the two-byte states verified on the EON R1."""
+  if len(report) >= 5 and report[0] == 0x1b:
+    return report[3], report[4]
+  # Other two-byte states stay visible as diagnostics until measured.
+  # Do not assume that their button bits match the legacy layout.
+  if report in (b'\x00\x10', b'\x00\x50'):
+    return 0, report[1]
+  return None
+
 
 def authenticated_packet(raw, secret, counters):
   """Return (MAC or STATUS, payload) only for a fresh, authenticated frame."""
@@ -52,9 +62,10 @@ class R1Report:
     self.pressed.clear()
 
   def transitions(self, report):
-    if len(report) < 5 or report[0] != 0x1b:
+    fields = report_fields(report)
+    if fields is None:
       return []
-    buttons, joystick = report[3], report[4]
+    buttons, joystick = fields
     active = {'blebtn:' + name for name, bit in BUTTON_BITS.items() if buttons & (1 << bit)}
     active.update('blejoy:' + direction for direction in JOYSTICK.get(joystick, set()))
     changes = [(token, 0) for token in sorted(self.pressed - active)]

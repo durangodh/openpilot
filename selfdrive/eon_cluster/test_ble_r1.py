@@ -2,10 +2,21 @@ import hashlib
 import hmac
 import unittest
 
-from selfdrive.eon_cluster.ble_r1 import R1Report, authenticated_packet
+from selfdrive.eon_cluster.ble_r1 import R1Report, authenticated_packet, report_fields
 
 
 class TestBleR1(unittest.TestCase):
+  def test_observed_two_byte_jog_and_neutral(self):
+    decoder = R1Report()
+    self.assertEqual(decoder.transitions(bytes.fromhex('0050')), [])
+    self.assertEqual(decoder.transitions(bytes.fromhex('0010')), [('blejoy:up', 1)])
+    self.assertEqual(decoder.transitions(bytes.fromhex('0010')), [])
+    self.assertEqual(decoder.transitions(bytes.fromhex('0050')), [('blejoy:up', 0)])
+    self.assertEqual(decoder.transitions(bytes.fromhex('0050')), [])
+    for raw in ('', '00', '1050', '0060', '001000'):
+      self.assertIsNone(report_fields(bytes.fromhex(raw)))
+      self.assertEqual(decoder.transitions(bytes.fromhex(raw)), [])
+
   def test_report_edges_and_releases(self):
     decoder = R1Report()
     self.assertEqual(decoder.transitions(bytes.fromhex('1b00001050')), [('blebtn:A', 1)])

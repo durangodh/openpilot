@@ -18,7 +18,7 @@ import time
 
 from common.params import Params
 from cereal import messaging
-from selfdrive.eon_cluster.ble_r1 import BLE_PORT, R1Report, authenticated_packet
+from selfdrive.eon_cluster.ble_r1 import BLE_PORT, R1Report, authenticated_packet, report_fields
 from selfdrive.eon_cluster.direct_remote_core import DirectRemoteGestures, axis_direction
 from selfdrive.eon_cluster.hud_remote import ALL_COMMANDS, RemoteCommandSync, allowed_commands
 
@@ -199,7 +199,7 @@ class BleInputNode:
 
   def read(self, data, now):
     changes = self.report.transitions(data)
-    if len(data) >= 5 and data[0] == 0x1b:
+    if report_fields(data) is not None:
       self.last_report = now
     for token, state in changes:
       self.observe(self, token, state)
@@ -311,7 +311,7 @@ class BleBridge:
         if any(word in self.status for word in ('끊김', '실패', '없음')) and self.node:
           self.node.reset()
         continue
-      if len(data) < 5 or data[0] != 0x1b:
+      if report_fields(data) is None:
         self.status = 'R1 미해석 알림: ' + data[:16].hex()
         self.last_status = now
         continue
