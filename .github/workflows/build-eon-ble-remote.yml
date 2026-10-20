@@ -28,6 +28,11 @@ jobs:
       - name: Build APK
         working-directory: selfdrive/eon_cluster/eon_ble_remote
         run: gradle :app:assembleDebug --no-daemon
+      - name: Check APK minimum Android API
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging \
+            selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk \
+            | grep -F "sdkVersion:'21'"
       - uses: actions/upload-artifact@v4
         with:
           name: eon-ble-remote-apk
