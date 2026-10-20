@@ -44,3 +44,18 @@ jobs:
         with:
           name: eon-ble-remote-apk
           path: selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk
+      - name: Build separate diagnostic package
+        working-directory: selfdrive/eon_cluster/eon_ble_remote
+        run: gradle :app:assembleDebug -PremotePackage=ai.comma.eonbleremote.probe --no-daemon
+      - name: Check diagnostic APK identity and permissions
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging \
+            selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk \
+            | grep -F "package: name='ai.comma.eonbleremote.probe'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions \
+            selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk \
+            | grep -F 'android.permission.BLUETOOTH_PRIVILEGED'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eon-ble-remote-probe-apk
+          path: selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk

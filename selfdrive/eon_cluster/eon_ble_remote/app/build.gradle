@@ -4,7 +4,7 @@ android {
   namespace "ai.comma.eonbleremote"
   compileSdk 35
   defaultConfig {
-    applicationId "ai.comma.eonbleremote"
+    applicationId project.findProperty("remotePackage") ?: "ai.comma.eonbleremote"
     minSdk 21
     targetSdk 25
     versionCode 1

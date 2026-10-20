@@ -7,6 +7,16 @@ package=ai.comma.eonbleremote
 source_apk=/data/openpilot/apk/ai.comma.eonbleremote.apk
 dest_dir=/system/priv-app/EonBleRemote
 dest_apk="$dest_dir/EonBleRemote.apk"
+case "${1:-}" in
+  '') ;;
+  probe)
+    package=ai.comma.eonbleremote.probe
+    source_apk=/data/openpilot/apk-probe/ai.comma.eonbleremote.probe.apk
+    dest_dir=/system/priv-app/EonBleRemoteProbe
+    dest_apk="$dest_dir/EonBleRemoteProbe.apk"
+    ;;
+  *) echo 'Usage: install_privileged_eon.sh [probe]' >&2; exit 1 ;;
+esac
 
 if [ "$(id -u)" != 0 ] || [ "$(getprop ro.build.version.sdk)" != 23 ]; then
   echo 'Android 6 EON root shell required' >&2

@@ -240,7 +240,9 @@ public final class BleService extends Service {
     @Override public void onCharacteristicChanged(BluetoothGatt source, BluetoothGattCharacteristic characteristic) {
       if (source != gatt || !HID_REPORT.equals(characteristic.getUuid())) return;
       byte[] report = characteristic.getValue();
-      if (report != null && report.length >= 5 && (report[0] & 255) == 0x1b) {
+      if (report != null && report.length > 0) {
+        // Forward every HID report. The Python bridge validates the layout
+        // before turning any bytes into driving controls.
         transmit(current, toHex(report));
       }
     }

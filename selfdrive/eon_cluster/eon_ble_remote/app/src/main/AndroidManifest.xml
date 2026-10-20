@@ -7,6 +7,6 @@
   <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
   <uses-permission android:name="android.permission.INTERNET" />
   <application android:label="EON R1 BLE" android:allowBackup="false">
-    <service android:name=".BleService" android:exported="true" />
+    <service android:name="ai.comma.eonbleremote.BleService" android:exported="true" />
   </application>
 </manifest>

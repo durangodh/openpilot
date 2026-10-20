@@ -211,7 +211,8 @@ class BleInputNode:
 
 
 class BleBridge:
-  SERVICE = 'ai.comma.eonbleremote/.BleService'
+  DEFAULT_PACKAGE = 'ai.comma.eonbleremote'
+  PROBE_PACKAGE = 'ai.comma.eonbleremote.probe'
 
   def __init__(self, emit, observe):
     self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -227,6 +228,17 @@ class BleBridge:
     self.last_status = 0.0
     self.permission_granted = False
     self.am_error = ''
+    self.package = self.DEFAULT_PACKAGE
+    self.service = self.DEFAULT_PACKAGE + '/ai.comma.eonbleremote.BleService'
+    try:
+      installed = subprocess.run(['/system/bin/pm', 'path', self.PROBE_PACKAGE],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                 timeout=8, check=False, env=self._android_env())
+      if installed.returncode == 0 and b'package:/system/priv-app/' in installed.stdout:
+        self.package = self.PROBE_PACKAGE
+        self.service = self.PROBE_PACKAGE + '/ai.comma.eonbleremote.BleService'
+    except (OSError, subprocess.TimeoutExpired):
+      pass
 
   @staticmethod
   def _android_env():
@@ -255,13 +267,13 @@ class BleBridge:
       return
     self.next_renew = now + 8.0
     if not self.permission_granted:
-      grant = subprocess.run(['/system/bin/pm', 'grant', 'ai.comma.eonbleremote',
+      grant = subprocess.run(['/system/bin/pm', 'grant', self.package,
                               'android.permission.ACCESS_COARSE_LOCATION'],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                              timeout=8, check=False, env=self._android_env())
       self.permission_granted = grant.returncode == 0
     target = selected[4:] if selected.startswith('ble:') else ''
-    if not self._am('startservice', '-n', self.SERVICE, '--es', 'key', self.secret,
+    if not self._am('startservice', '-n', self.service, '--es', 'key', self.secret,
                     '--es', 'target', target):
       self.status = 'BLE 앱 시작 오류: ' + self.am_error
       return
@@ -272,7 +284,7 @@ class BleBridge:
   def stop(self):
     if self.running:
       try:
-        self._am('stopservice', '-n', self.SERVICE)
+        self._am('stopservice', '-n', self.service)
       except (OSError, subprocess.TimeoutExpired):
         pass
       self.secret = secrets.token_hex(16)
@@ -298,6 +310,10 @@ class BleBridge:
         self.last_status = now
         if any(word in self.status for word in ('끊김', '실패', '없음')) and self.node:
           self.node.reset()
+        continue
+      if len(data) < 5 or data[0] != 0x1b:
+        self.status = 'R1 미해석 알림: ' + data[:16].hex()
+        self.last_status = now
         continue
       if not self.node or self.node.identity != 'ble:' + address:
         if self.node:
