@@ -1252,11 +1252,11 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   // ── S9 외부 클러스터 HUD ──────────────────────────────────
 
   auto directRemoteToggle = new ParamControl("HudRemoteDirectEnabled", "EON DIRECT REMOTE",
-      "리모컨을 EON에 Bluetooth로 연결합니다. EON에서 버튼을 학습한 뒤 켜세요. 리모컨 명령은 S9나 Wi-Fi를 거치지 않습니다.",
+      "R1을 EON BLE로 직접 연결합니다. Android의 R1 페어링을 해제하고 M+B 게임 모드에서 버튼을 학습한 뒤 켜세요. S9나 Wi-Fi를 거치지 않습니다.",
       "../assets/offroad/icon_openpilot.png", this);
   toggleLayout->addWidget(directRemoteToggle);
-  auto directRemotePair = new ButtonControl("EON Bluetooth 페어링", "OPEN",
-      "EON의 Android Bluetooth 설정을 엽니다. 설정 화면은 3분 후 자동으로 닫힙니다. Android BACK은 누르지 마세요.");
+  auto directRemotePair = new ButtonControl("EON Bluetooth 설정 / R1 페어링 해제", "OPEN",
+      "BLE 직접 연결은 Android의 Magicsee R1 페어링 기록을 지워야 합니다. 설정은 3분 후 닫힙니다. Android BACK은 누르지 마세요.");
   toggleLayout->addWidget(directRemotePair);
   connect(directRemotePair, &ButtonControl::clicked, [=]() {
     if (!Params().getBool("IsOffroad")) {
@@ -1276,7 +1276,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     }
   });
   auto directRemoteSetup = new ButtonControl("EON 리모컨 버튼 설정", "LEARN",
-      "EON에 페어링된 Bluetooth 입력 장치의 버튼을 학습합니다. 정차 상태에서만 설정할 수 있습니다.");
+      "R1의 M+B 게임 모드 BLE 입력 또는 Android Bluetooth HID 입력을 학습합니다. 정차 상태에서만 설정할 수 있습니다.");
   toggleLayout->addWidget(directRemoteSetup);
   connect(directRemoteSetup, &ButtonControl::clicked, [=]() {
     if (!Params().getBool("IsOffroad")) {
@@ -1286,7 +1286,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     QDialog dialog(this);
     dialog.setWindowTitle("EON Bluetooth 리모컨");
     auto layout = new QVBoxLayout(&dialog);
-    auto instructions = new QLabel("리모컨을 EON의 Android Bluetooth 설정에서 먼저 페어링하세요.\n"
+    auto instructions = new QLabel("Magicsee R1 BLE: Android의 R1 페어링을 해제한 뒤 전원을 켜고 M+B를 누르세요.\n"
                                    "동작과 누르기 방식을 선택한 다음 LEARN을 누르고 해당 버튼을 누르세요.\n"
                                    "첫 학습 버튼의 Bluetooth 장치만 이후 명령을 보낼 수 있습니다.");
     instructions->setWordWrap(true);

@@ -1,4 +1,4 @@
-"""EON Bluetooth HID -> local command journal. No Wi-Fi command transport.
+"""EON Bluetooth HID or R1 BLE -> local command journal. No Wi-Fi commands.
 
 Only kernel input nodes with Bluetooth bus type 0005 are considered. A learned
 device identity and explicit mapping are required before any command is sent.
@@ -10,18 +10,22 @@ import os
 from pathlib import Path
 import re
 import select
+import secrets
+import socket
 import struct
+import subprocess
 import time
 
 from common.params import Params
 from cereal import messaging
+from selfdrive.eon_cluster.ble_r1 import BLE_PORT, R1Report, authenticated_packet
 from selfdrive.eon_cluster.direct_remote_core import DirectRemoteGestures, axis_direction
 from selfdrive.eon_cluster.hud_remote import ALL_COMMANDS, RemoteCommandSync, allowed_commands
 
 EVENT = struct.Struct('@llHHi')
 EVIOCGRAB = 0x40044590
 EVIOCSCLOCKID = 0x400445A0
-TOKEN = re.compile(r'^(?:key:(?:[0-9]{1,3})|(?:hat|axis):[xy]:[+-])@(short|long|double)$')
+TOKEN = re.compile(r'^(?:key:(?:[0-9]{1,3})|(?:hat|axis):[xy]:[+-]|blebtn:(?:A|B|C|D|OK|BACK)|blejoy:(?:up|down|left|right))@(short|long|double)$')
 SCAN_S = 1.0
 
 
@@ -184,6 +188,115 @@ class InputNode:
           self.axes[axis] = new
 
 
+class BleInputNode:
+  def __init__(self, address, emit, observe):
+    self.identity = 'ble:' + address
+    self.name = 'Magicsee R1 BLE'
+    self.observe = observe
+    self.report = R1Report()
+    self.gestures = DirectRemoteGestures({}, lambda token, gesture: emit(self, token, gesture))
+    self.last_report = 0.0
+
+  def read(self, data, now):
+    changes = self.report.transitions(data)
+    if len(data) >= 5 and data[0] == 0x1b:
+      self.last_report = now
+    for token, state in changes:
+      self.observe(self, token, state)
+      self.gestures.key(token, state, now)
+
+  def reset(self):
+    self.report.reset()
+    self.gestures.reset()
+
+
+class BleBridge:
+  SERVICE = 'ai.comma.eonbleremote/.BleService'
+
+  def __init__(self, emit, observe):
+    self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    self.sock.bind(('127.0.0.1', BLE_PORT))
+    self.sock.setblocking(False)
+    self.secret = secrets.token_hex(16)
+    self.counters = {}
+    self.node = None
+    self.emit, self.observe = emit, observe
+    self.next_renew = 0.0
+    self.running = False
+    self.status = 'BLE 수신기 대기'
+    self.last_status = 0.0
+    self.permission_granted = False
+
+  def _am(self, *args):
+    return subprocess.run(['/system/bin/am', *args], stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL, timeout=3, check=False).returncode == 0
+
+  def start(self, now, selected):
+    if now < self.next_renew:
+      return
+    self.next_renew = now + 8.0
+    if not self.permission_granted:
+      grant = subprocess.run(['pm', 'grant', 'ai.comma.eonbleremote',
+                              'android.permission.ACCESS_COARSE_LOCATION'],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             timeout=3, check=False)
+      self.permission_granted = grant.returncode == 0
+    target = selected[4:] if selected.startswith('ble:') else ''
+    if not self._am('startservice', '-n', self.SERVICE, '--es', 'key', self.secret,
+                    '--es', 'target', target):
+      self.status = 'EON R1 BLE 앱 미설치 또는 시작 실패'
+      return
+    self.running = True
+    if not self.last_status:
+      self.status = 'R1 BLE 검색 중 (Android 페어링 해제 필요)'
+
+  def stop(self):
+    if self.running:
+      try:
+        self._am('stopservice', '-n', self.SERVICE)
+      except (OSError, subprocess.TimeoutExpired):
+        pass
+      self.secret = secrets.token_hex(16)
+      self.counters.clear()
+    self.running = False
+    self.next_renew = 0.0
+    if self.node:
+      self.node.reset()
+      self.node = None
+
+  def poll(self, now, selected, mapping, request):
+    for _ in range(64):
+      try:
+        raw, _address = self.sock.recvfrom(513)
+      except BlockingIOError:
+        break
+      authenticated = authenticated_packet(raw, self.secret, self.counters)
+      if not authenticated:
+        continue
+      address, data = authenticated
+      if address == 'STATUS':
+        self.status = 'BLE: ' + data.decode('utf-8', 'replace')
+        self.last_status = now
+        if any(word in self.status for word in ('끊김', '실패', '없음')) and self.node:
+          self.node.reset()
+        continue
+      if not self.node or self.node.identity != 'ble:' + address:
+        if self.node:
+          self.node.reset()
+        self.node = BleInputNode(address, self.emit, self.observe)
+      self.node.gestures.mapping = mapping if self.node.identity == selected else {}
+      self.node.gestures.learn_gesture = request[1] if request and (not selected or self.node.identity == selected) else None
+      self.node.read(data, now)
+      self.status = 'BLE 입력 감지: Magicsee R1'
+      self.last_status = now
+    if self.node and self.node.last_report and now - self.node.last_report > 1.2:
+      self.node.reset()  # Never keep a driving button held after BLE reports stop.
+
+  def close(self):
+    self.stop()
+    self.sock.close()
+
+
 def vehicle_allowed(sm):
   started = sm.alive['deviceState'] and sm['deviceState'].started
   valid = sm.alive['carState'] and sm.valid['carState'] and sm['carState'].canValid
@@ -203,6 +316,7 @@ def main():
   status = 'Bluetooth 입력 장치 대기'
   published_status = None
   last_emitted = {}
+  ble = BleBridge(emit=None, observe=None)
 
   def observe(node, token, state):
     nonlocal status
@@ -243,6 +357,8 @@ def main():
       last_emitted[key] = now
       status = f'{node.name}: {action}'
 
+  ble.emit, ble.observe = emit, observe
+
   try:
     while True:
       now = time.monotonic()
@@ -255,6 +371,8 @@ def main():
         mapping = mappings(mapping_raw)
         for node in nodes.values():
           node.gestures.reset()
+        if ble.node:
+          ble.node.reset()
         if learn_request(request_raw):
           status = '학습 요청 확인: Bluetooth 입력 장치 검색 중'
       request = learn_request(request_raw)
@@ -262,6 +380,7 @@ def main():
         for node in nodes.values():
           node.close()
         nodes.clear()
+        ble.stop()
         next_scan = 0.0
         status = 'EON 직접 리모컨 사용 안 함'
         if status != published_status:
@@ -270,10 +389,21 @@ def main():
         time.sleep(.25)
         continue
       sm.update(0)
+      try:
+        ble.start(now, selected)
+        ble.poll(now, selected, mapping, request)
+      except (OSError, subprocess.TimeoutExpired):
+        ble.status = 'BLE 앱 통신 실패'
+      if ble.node:
+        ble.node.gestures.mapping = mapping if ble.node.identity == selected else {}
+        ble.node.gestures.learn_gesture = request[1] if request and (not selected or ble.node.identity == selected) else None
+        if enabled and not request:
+          ble.node.gestures.cancel_disallowed(vehicle_allowed(sm))
+        ble.node.gestures.tick(now)
       if now >= next_scan:
         available, scan_summary = bluetooth_nodes()
         if request and not available:
-          status = '인식 가능한 Bluetooth 입력 장치 없음: ' + scan_summary
+          status = ble.status + ' / ' + scan_summary
         for path, node in list(nodes.items()):
           if path not in available or available[path] != (node.identity, node.name, node.joystick):
             node.close()
@@ -327,3 +457,4 @@ def main():
   finally:
     for node in nodes.values():
       node.close()
+    ble.close()
