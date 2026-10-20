@@ -83,8 +83,9 @@ def bluetooth_nodes(root=Path('/sys/class/input')):
 
 
 class InputNode:
-  def __init__(self, path, identity, name, joystick, emit):
+  def __init__(self, path, identity, name, joystick, emit, observe):
     self.path, self.identity, self.name, self.joystick = path, identity, name, joystick
+    self.observe = observe
     self.fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
     try:
       fcntl.ioctl(self.fd, EVIOCSCLOCKID, struct.pack('i', 1))  # CLOCK_MONOTONIC
@@ -140,11 +141,13 @@ class InputNode:
         self.gestures.reset()
         continue
       if kind == 1 and (0 < code < 256 or 304 <= code <= 318 or 352 <= code <= 767) and state in (0, 1):
+        self.observe(self, f'key:{code}', state)
         self.gestures.key(f'key:{code}', state, stamp)
       elif kind == 3 and code in (16, 17):  # Standard HID D-pad hat.
         axis = 'x' if code == 16 else 'y'
         old, new = self.hats[axis], max(-1, min(1, state))
         if old != new:
+          self.observe(self, f'hat:{axis}', new)
           if old:
             self.gestures.key(f'hat:{axis}:{"+" if old > 0 else "-"}', 0, stamp)
           if new:
@@ -161,6 +164,7 @@ class InputNode:
         old = self.axes[axis]
         new = axis_direction(position, old)
         if old != new:
+          self.observe(self, f'axis:{axis}', new)
           if old:
             self.gestures.key(f'axis:{axis}:{"+" if old > 0 else "-"}', 0, stamp)
           if new:
@@ -187,6 +191,11 @@ def main():
   status = 'Bluetooth 입력 장치 대기'
   published_status = None
   last_emitted = {}
+
+  def observe(node, token, state):
+    nonlocal status
+    if learn_request(request_raw):
+      status = f'입력 감지: {node.name} / {token} / {state}'
 
   def emit(node, token, gesture):
     nonlocal status, published_status, selected, mapping, mapping_raw, request_raw
@@ -234,6 +243,8 @@ def main():
         mapping = mappings(mapping_raw)
         for node in nodes.values():
           node.gestures.reset()
+        if learn_request(request_raw):
+          status = '학습 요청 확인: Bluetooth 입력 장치 검색 중'
       request = learn_request(request_raw)
       if not enabled and not request:
         for node in nodes.values():
@@ -249,6 +260,8 @@ def main():
       sm.update(0)
       if now >= next_scan:
         available = bluetooth_nodes()
+        if request and not available:
+          status = 'Bluetooth HID 입력 장치 없음: 연결 상태와 리모컨 모드를 확인하세요'
         for path, node in list(nodes.items()):
           if path not in available or available[path] != (node.identity, node.name, node.joystick):
             node.close()
@@ -257,9 +270,11 @@ def main():
         for path, (identity, name, joystick) in available.items():
           if path not in nodes:
             try:
-              nodes[path] = InputNode(path, identity, name, joystick, emit)
-            except OSError:
-              status = f'입력 장치 열기 실패: {name}'
+              nodes[path] = InputNode(path, identity, name, joystick, emit, observe)
+            except OSError as error:
+              status = f'입력 장치 열기 실패: {name} (errno {error.errno})'
+        if request and nodes and status.startswith(('학습 요청', 'Bluetooth HID 입력 장치 없음')):
+          status = 'Bluetooth HID 입력 대기: ' + ', '.join(node.name for node in nodes.values())
         next_scan = now + SCAN_S
       for node in list(nodes.values()):
         should_grab = (bool(request) and params.get_bool('IsOffroad') and
@@ -268,8 +283,8 @@ def main():
           node.grab(should_grab)
           node.gestures.mapping = mapping if node.identity == selected else {}
           node.gestures.learn_gesture = request[1] if request and (not selected or node.identity == selected) else None
-        except OSError:
-          status = f'입력 장치 독점 실패: {node.name}'
+        except OSError as error:
+          status = f'입력 장치 독점 실패: {node.name} (errno {error.errno})'
           node.close()
           del nodes[node.path]
       try:

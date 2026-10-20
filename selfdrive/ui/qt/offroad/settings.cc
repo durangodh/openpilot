@@ -1341,6 +1341,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     connect(learn, &QPushButton::clicked, &dialog, [&]() {
       request = actions->currentData().toString() + "|" + gestures->currentData().toString() + "|" +
                 QUuid::createUuid().toString(QUuid::WithoutBraces).remove('-');
+      Params().remove("HudRemoteDirectStatus");
       if (Params().put("HudRemoteDirectLearn", request.toStdString()) != 0) {
         status->setText("학습 요청을 저장하지 못했습니다.");
         request.clear();
@@ -1354,16 +1355,21 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     connect(&poll, &QTimer::timeout, &dialog, [&]() {
       if (request.isEmpty()) return;
       auto pending = QString::fromStdString(Params().get("HudRemoteDirectLearn"));
+      auto detail = QString::fromStdString(Params().get("HudRemoteDirectStatus"));
       if (pending.isEmpty()) {
-        status->setText(QString::fromStdString(Params().get("HudRemoteDirectStatus")));
+        status->setText(detail);
         showSaved();
         request.clear();
         learn->setEnabled(true);
       } else if (started.secsTo(QDateTime::currentDateTimeUtc()) >= 15) {
         Params().remove("HudRemoteDirectLearn");
-        status->setText("입력 대기 시간이 지났습니다. 다시 학습하세요.");
+        status->setText("입력 대기 시간이 지났습니다. 마지막 상태: " + detail);
         request.clear();
         learn->setEnabled(true);
+      } else if (!detail.isEmpty()) {
+        status->setText(detail);
+      } else if (started.secsTo(QDateTime::currentDateTimeUtc()) >= 2) {
+        status->setText("EON 리모컨 입력 프로세스 응답 없음");
       }
     });
     poll.start(250);
