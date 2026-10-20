@@ -267,7 +267,7 @@ class BleBridge:
       return
     self.running = True
     if not self.last_status:
-      self.status = 'R1 BLE 검색 중 (Android 페어링 해제 필요)'
+      self.status = 'R1 BLE 검색 중 (EON Android 페어링 필요)'
 
   def stop(self):
     if self.running:
