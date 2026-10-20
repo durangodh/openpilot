@@ -4416,14 +4416,10 @@ public final class HudService extends Service {
             case 3: reasonText = "VIS"; reasonColor = Color.argb(210, 0, 0, 255); break;
             case 4: reasonText = "GO"; reasonColor = Color.argb(210, 0, 203, 0); break;
             case 5: reasonText = "E2E"; reasonColor = Color.argb(210, 255, 175, 3); break;
-            case 6: reasonText = "CRV"; reasonColor = Color.argb(210, 255, 175, 3); break;
-            case 7: reasonText = "LEAD"; reasonColor = Color.argb(210, 255, 175, 3); break;
-            case 8: reasonText = "LOW"; reasonColor = Color.argb(210, 255, 175, 3); break;
-            case 9: reasonText = "NAV"; reasonColor = Color.argb(210, 255, 175, 3); break;
             default: break;
         }
         eonBoxRect(c, p, 246f, 400f, 114f, 70f, reasonColor, 2f, white);
-        eonTextIn(c, p, reasonText, 246f, 400f, 114f, 70f, reasonText.length() > 3 ? 36f : 46f, white);
+        eonTextIn(c, p, reasonText, 246f, 400f, 114f, 70f, 46f, white);
 
         // 차간거리(GAP) 막대: 기어 아래 칸
         eonBoxRect(c, p, 370f, 360f, 90f, 110f, Color.argb(120, 0, 0, 0), 2f, white);

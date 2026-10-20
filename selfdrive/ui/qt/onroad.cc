@@ -1305,14 +1305,10 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
       case 3: reason_text = "VIS"; reason_color = CT_BLUE_A(210); break;
       case 4: reason_text = "GO";  reason_color = CT_GREEN_A(210); break;
       case 5: reason_text = "E2E"; reason_color = CT_ORANGE_A(210); break;
-      case 6: reason_text = "CRV"; reason_color = CT_ORANGE_A(210); break;
-      case 7: reason_text = "LEAD"; reason_color = CT_ORANGE_A(210); break;
-      case 8: reason_text = "LOW"; reason_color = CT_ORANGE_A(210); break;
-      case 9: reason_text = "NAV"; reason_color = CT_ORANGE_A(210); break;
       default: break;
     }
     ctRect(p, reason_box, reason_color, 15, 2);
-    ctTextIn(p, reason_box, reason_text, reason_text.size() > 3 ? 32 : 40, CT_WHITE);
+    ctTextIn(p, reason_box, reason_text, 40, CT_WHITE);
   }
 
   // ---- LIMIT / CAM ----

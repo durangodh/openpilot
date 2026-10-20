@@ -18,10 +18,6 @@ on:
       - "selfdrive/eon_cluster/test_hud_remote.py"
       - "selfdrive/eon_cluster/remote_hud_s9.py"
       - "selfdrive/controls/lib/cruise_helper.py"
-      - "selfdrive/controls/lib/conditional_experimental_mode.py"
-      - "selfdrive/controls/lib/longitudinal_planner.py"
-      - "selfdrive/controls/lib/longitudinal_mpc_lib/long_mpc.py"
-      - "selfdrive/controls/lib/tests/test_conditional_experimental_mode.py"
       - "selfdrive/eon_cluster/tests/test_traffic_signal_transport.py"
       - "selfdrive/eon_cluster/tests/test_e2e_signal_indicator.py"
       - "selfdrive/eon_cluster/tests/test_navi_envelope.py"
@@ -84,8 +80,6 @@ jobs:
           python3 -m unittest selfdrive.eon_cluster.test_hud_remote
           python3 -m unittest selfdrive.eon_cluster.test_direct_remote_core
           python3 -m unittest selfdrive.eon_cluster.test_ble_r1
-      - name: Check conditional longitudinal mode
-        run: python3 -m unittest selfdrive.controls.lib.tests.test_conditional_experimental_mode
       - name: Check navigation selection
         # Exercise retransmission and old acknowledgements before packaging.
         working-directory: selfdrive/eon_cluster/android_hud

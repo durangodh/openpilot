@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import math
-import time
 import numpy as np
 from common.numpy_fast import clip, interp
 
@@ -15,8 +14,6 @@ from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDX
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_speed_error
 from selfdrive.swaglog import cloudlog
 from common.params import Params
-from selfdrive.controls.lib.conditional_experimental_mode import ConditionalExperimentalMode
-from selfdrive.controls.lib.navigation_route import NavigationRouteData
 
 
 def _param_int(key, default):
@@ -75,8 +72,6 @@ class LongitudinalPlanner:
     self.solverExecutionTime = 0.0
     self.params = Params()
     self.param_read_counter = 0
-    self.conditional_e2e = ConditionalExperimentalMode()
-    self.conditional_navigation = NavigationRouteData()
     self.read_param()
 
     self.vCluRatio = 1.0
@@ -109,7 +104,6 @@ class LongitudinalPlanner:
     self.cruiseMaxVals5 = float(_param_int("CruiseMaxVals5", 70)) / 100.
     self.cruiseMaxVals6 = float(_param_int("CruiseMaxVals6", 60)) / 100.
     self.autoTurnControl = _param_int("AutoTurnControl", 0)
-    self.conditional_e2e_enabled = self.params.get_bool("ConditionalExperimentalMode")
 
     
   def get_max_accel(self, v_ego):
@@ -212,23 +206,7 @@ class LongitudinalPlanner:
     self.mpc.set_cur_state(self.v_desired_filter.x, self.a_desired)
     x, v, a, j, y = self.parse_model(sm['modelV2'], self.v_model_error, v_ego, self.autoTurnControl)
 
-    # Reuse the planner's subscriptions and the small 7714 guide file.
-    # Keep aPilot's stop/hold path and FAST driving mode authoritative.
-    conditional_available = (self.conditional_e2e_enabled and self.CP.openpilotLongitudinalControl and
-                             not reset_state and
-                             sm['controlsState'].enabled and sm['controlsState'].longActiveUser > 0 and
-                             myDrivingMode != 4 and not force_slow_decel and
-                             not sm['carState'].gasPressed and not sm['carState'].brakePressed and
-                             self.mpc.xState not in (XState.e2eStop, XState.softHold) and
-                             sm.all_checks(service_list=['carState', 'controlsState', 'radarState', 'modelV2']))
-    navigation = (self.conditional_navigation.update()
-                  if self.conditional_e2e_enabled and conditional_available else None)
-    conditional_reason = self.conditional_e2e.update(
-      time.monotonic(), self.conditional_e2e_enabled, conditional_available,
-      sm['carState'], sm['radarState'], sm['modelV2'], navigation)
-    self.mpc.update(sm['carState'], sm['radarState'], sm['modelV2'], sm['controlsState'],
-                    v_cruise, x, v, a, j, y, prev_accel_constraint, reset_state,
-                    conditional_reason=conditional_reason)
+    self.mpc.update(sm['carState'], sm['radarState'], sm['modelV2'], sm['controlsState'], v_cruise, x, v, a, j, y, prev_accel_constraint, reset_state)
 
     self.v_desired_trajectory_full = np.interp(T_IDXS, T_IDXS_MPC, self.mpc.v_solution)
     self.a_desired_trajectory_full = np.interp(T_IDXS, T_IDXS_MPC, self.mpc.a_solution)
@@ -254,8 +232,6 @@ class LongitudinalPlanner:
       return 1
     if self.mpc.experimentalMode:
       return 5
-    if self.mpc.conditionalActive:
-      return self.conditional_e2e.reason
     if self.mpc.xState == XState.e2eCruisePrepare:
       return 4
     if self.mpc.xState == XState.e2eStop:
