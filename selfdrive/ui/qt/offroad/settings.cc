@@ -1256,7 +1256,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_openpilot.png", this);
   toggleLayout->addWidget(directRemoteToggle);
   auto directRemotePair = new ButtonControl("EON Bluetooth 페어링", "OPEN",
-      "EON의 Android Bluetooth 설정을 엽니다. 정차 상태에서 리모컨을 EON에 페어링하세요.");
+      "EON의 Android Bluetooth 설정을 엽니다. 정차 상태에서 페어링하세요. 설정 화면은 30초 후 자동으로 닫힙니다.");
   toggleLayout->addWidget(directRemotePair);
   connect(directRemotePair, &ButtonControl::clicked, [=]() {
     if (!Params().getBool("IsOffroad")) {
@@ -1265,6 +1265,12 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     }
     if (!QProcess::startDetached("/system/bin/am", {"start", "-a", "android.settings.BLUETOOTH_SETTINGS"})) {
       ConfirmationDialog::alert("EON Android Bluetooth 설정을 열지 못했습니다.", this);
+    } else {
+      // NEOS can hide Android's navigation buttons while Settings is in front.
+      // Return to openpilot even when no Back key is available on the remote.
+      QTimer::singleShot(30000, this, []() {
+        QProcess::startDetached("/system/bin/am", {"force-stop", "com.android.settings"});
+      });
     }
   });
   auto directRemoteSetup = new ButtonControl("EON 리모컨 버튼 설정", "LEARN",
