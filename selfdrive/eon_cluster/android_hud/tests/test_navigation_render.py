@@ -48,7 +48,7 @@ public class NavigationRenderCheck {
   static final long MAP_FADE_MS=300L; Bitmap fadingMap; long fadingMapSince, mapShownSince;
   Bitmap trimmedLane(Bitmap b){return b==null||b.isRecycled()?null:b;}
   int mapRight(){return 1920;} float mapCenterX(){return 1440f;}
-  boolean naviLayout; static final int NAVI_MAP_RIGHT=1536; static final float NAVI_LANE_CX=920f, NAVI_LANE_H=87f, NAVI_LANE_MARKER_CX=768f, NAVI_LANE_BOTTOM=702f;
+  boolean naviLayout; int configuredNavApp=1; static final int NAVI_MAP_RIGHT=1536; static final float NAVI_LANE_CX=920f, NAVI_LANE_H=87f, NAVI_LANE_MARKER_CX=768f, NAVI_LANE_BOTTOM=702f;
   static final float NAVI_BOTTOM_FADE_H=220f, NAVI_LEFT_FADE_END=390f, NAVI_RIGHT_FADE_START=1238f, NAVI_FADE_EDGE=60f; static final int NAVI_SIDE_FADE_ALPHA=110;
   static class Shader { enum TileMode { CLAMP } }
   static class LinearGradient { LinearGradient(float a,float b,float c,float d,int e,int f,Shader.TileMode m){} LinearGradient(float a,float b,float c,float d,int[] e,float[] f,Shader.TileMode m){} }
@@ -179,6 +179,14 @@ public class NavigationRenderCheck {
     SystemClock.now+=10001L;
     narrow=new Canvas(); hud.drawMap(narrow,new Paint(),state(true,1000,200),new Bitmap(),null,null,null,null);
     if(narrow.maps!=1) throw new AssertionError("drive-shaped frame never drawn after the wait");
+    // Naver's HUD-sized map may arrive more than ten seconds after boot.
+    // Keep its old drive-shaped frame hidden until a wide frame arrives.
+    hud.configuredNavApp=2;
+    narrow=new Canvas(); hud.drawMap(narrow,new Paint(),state(true,1000,200),new Bitmap(),null,null,null,null);
+    if(narrow.maps!=0) throw new AssertionError("Naver drive-shaped boot map stretched after timeout");
+    Bitmap.mapH=100;
+    Canvas corrected=new Canvas(); hud.drawMap(corrected,new Paint(),state(true,1000,200),new Bitmap(),null,null,null,null);
+    if(corrected.maps!=1) throw new AssertionError("wide Naver map did not recover");
     hud.naviLayout=false; Bitmap.mapH=150;
     System.out.println("9 navigation rendering cases and map switch fades passed, including traffic signal overlay");
   }
