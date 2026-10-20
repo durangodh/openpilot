@@ -339,8 +339,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"TFollowGap2", PERSISTENT},               // GAP2 (default 120 = 1.20s)
     {"TFollowGap3", PERSISTENT},               // GAP3 (default 140 = 1.40s)
     {"TFollowGap4", PERSISTENT},               // GAP4 (default 160 = 1.60s)
-    {"LongTraceEnabled", PERSISTENT},         // 가벼운 가감속 기록기(long_trace) 켜기, 기본 0
-    {"LatTraceEnabled", PERSISTENT},          // 가벼운 조향 기록기(lat_trace) 켜기, 기본 0
     {"StartAccelApply", PERSISTENT},
     {"StopAccelApply", PERSISTENT},
     {"SoftHoldMode", PERSISTENT},
