@@ -50,6 +50,7 @@ public final class BleService extends Service {
   private boolean scanning;
   private boolean discovering;
   private boolean subscribing;
+  private boolean privilegedDenied;
   private final Runnable gattTimeout = () -> {
     if (gatt != null && (discovering || subscribing)) {
       status(discovering ? "BLE 서비스 검색 시간 초과" : "BLE 알림 구독 시간 초과");
@@ -89,7 +90,9 @@ public final class BleService extends Service {
     leaseUntil = SystemClock.elapsedRealtime() + 18000;
     handler.removeCallbacks(leaseCheck);
     handler.postDelayed(leaseCheck, 19000);
-    if (adapter == null || !adapter.isEnabled()) {
+    if (privilegedDenied) {
+      status("Android HID 접근 차단: BLE 앱에 시스템 권한 필요");
+    } else if (adapter == null || !adapter.isEnabled()) {
       status("Bluetooth 꺼짐");
     } else if (gatt == null && !scanning) {
       scan();
@@ -203,7 +206,17 @@ public final class BleService extends Service {
           if (!HID_REPORT.equals(characteristic.getUuid())) continue;
           if ((characteristic.getProperties() & BluetoothGattCharacteristic.PROPERTY_NOTIFY) == 0) continue;
           BluetoothGattDescriptor descriptor = characteristic.getDescriptor(CCCD);
-          if (descriptor == null || !source.setCharacteristicNotification(characteristic, true)) continue;
+          if (descriptor == null) continue;
+          try {
+            if (!source.setCharacteristicNotification(characteristic, true)) continue;
+          } catch (SecurityException e) {
+            // Marshmallow restricts HID report UUIDs to BLUETOOTH_PRIVILEGED.
+            // A normal APK cannot receive this permission through pm grant.
+            privilegedDenied = true;
+            status("Android HID 접근 차단: BLE 앱에 시스템 권한 필요");
+            disconnect();
+            return;
+          }
           descriptors.add(descriptor);
         }
         if (descriptors.isEmpty()) { status("R1 BLE 알림 특성 없음"); disconnect(); retry(); return; }
@@ -243,8 +256,14 @@ public final class BleService extends Service {
     }
     BluetoothGattDescriptor descriptor = descriptors.remove(0);
     descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-    if (!source.writeDescriptor(descriptor)) {
-      status("R1 BLE 알림 구독 실패"); disconnect(); retry();
+    try {
+      if (!source.writeDescriptor(descriptor)) {
+        status("R1 BLE 알림 구독 실패"); disconnect(); retry();
+      }
+    } catch (SecurityException e) {
+      privilegedDenied = true;
+      status("Android HID 접근 차단: BLE 앱에 시스템 권한 필요");
+      disconnect();
     }
   }
 
