@@ -19,6 +19,7 @@ import time
 from common.params import Params
 from cereal import messaging
 from selfdrive.eon_cluster.ble_r1 import BLE_PORT, R1Report, authenticated_packet, report_fields
+from selfdrive.eon_cluster.bluetooth_policy import BluetoothPolicy
 from selfdrive.eon_cluster.direct_remote_core import DirectRemoteGestures, axis_direction
 from selfdrive.eon_cluster.hud_remote import ALL_COMMANDS, RemoteCommandSync, allowed_commands
 
@@ -365,6 +366,7 @@ def main():
   published_status = None
   last_emitted = {}
   ble = BleBridge(emit=None, observe=None)
+  policy = BluetoothPolicy()
 
   def observe(node, token, state):
     nonlocal status
@@ -429,6 +431,7 @@ def main():
           node.close()
         nodes.clear()
         ble.stop()
+        policy.stop()
         next_scan = 0.0
         status = 'EON 직접 리모컨 사용 안 함'
         if status != published_status:
@@ -436,6 +439,7 @@ def main():
           published_status = status
         time.sleep(.25)
         continue
+      policy.renew(now, selected)
       sm.update(0)
       try:
         ble.start(now, selected)
@@ -498,11 +502,13 @@ def main():
           if enabled and not request:
             node.gestures.cancel_disallowed(vehicle_allowed(sm))
           node.gestures.tick(time.monotonic())
-      if now >= next_status and status != published_status:
-        params.put('HudRemoteDirectStatus', status)
-        published_status = status
+      display_status = status + (' / R1 전용 정책 오류: ' + policy.error if policy.error else '')
+      if now >= next_status and display_status != published_status:
+        params.put('HudRemoteDirectStatus', display_status)
+        published_status = display_status
         next_status = now + 1.0
   finally:
     for node in nodes.values():
       node.close()
     ble.close()
+    policy.stop()

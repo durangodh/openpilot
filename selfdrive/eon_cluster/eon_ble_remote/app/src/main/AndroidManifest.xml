@@ -8,5 +8,7 @@
   <uses-permission android:name="android.permission.INTERNET" />
   <application android:label="EON R1 BLE" android:allowBackup="false">
     <service android:name="ai.comma.eonbleremote.BleService" android:exported="true" />
+    <service android:name="ai.comma.eonbleremote.BluetoothPolicyService"
+        android:permission="android.permission.DUMP" android:exported="true" />
   </application>
 </manifest>

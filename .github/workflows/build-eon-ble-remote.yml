@@ -25,9 +25,13 @@ jobs:
           gradle-version: '8.9'
       - name: Check R1 BLE report and bridge authentication
         run: |
-          python3 -m unittest selfdrive.eon_cluster.test_ble_r1
+          python3 -m unittest selfdrive.eon_cluster.test_ble_r1 selfdrive.eon_cluster.test_bluetooth_policy
           python3 -m py_compile selfdrive/eon_cluster/direct_remote.py
           python3 -m py_compile selfdrive/hardware/eon/apk.py
+      - name: Check exact R1 pairing allowlist
+        run: |
+          javac -d "$RUNNER_TEMP/r1-policy-check" selfdrive/eon_cluster/eon_ble_remote/app/src/main/java/ai/comma/eonbleremote/R1OnlyPolicy.java selfdrive/eon_cluster/eon_ble_remote/tests/R1OnlyPolicyCheck.java
+          java -cp "$RUNNER_TEMP/r1-policy-check" ai.comma.eonbleremote.R1OnlyPolicyCheck
       - name: Build APK
         working-directory: selfdrive/eon_cluster/eon_ble_remote
         run: gradle :app:assembleDebug --no-daemon
@@ -58,4 +62,14 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: eon-ble-remote-probe-apk
+          path: selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk
+      - name: Build standalone Bluetooth policy package
+        working-directory: selfdrive/eon_cluster/eon_ble_remote
+        run: gradle :app:assembleDebug -PremotePackage=ai.comma.eonbtpolicy --no-daemon
+      - name: Check Bluetooth policy package
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk | grep -F "package: name='ai.comma.eonbtpolicy'"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eon-bluetooth-policy-apk
           path: selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk

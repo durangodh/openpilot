@@ -5,6 +5,8 @@ import hashlib
 import shutil
 from common.basedir import BASEDIR
 
+OPTIONAL_REMOTE_APPS = ("ai.comma.eonbleremote", "ai.comma.eonbtpolicy")
+
 android_packages = ("com.neokii.optool", )
 
 def get_installed_apks():
@@ -93,13 +95,13 @@ def update_apks():
 
       success = install_apk(apk_path)
       if not success:
-        if app == "ai.comma.eonbleremote" and installed[app] is None:
+        if app in OPTIONAL_REMOTE_APPS and installed[app] is None:
           print("optional EON BLE remote APK install failed; continuing openpilot startup")
           continue
         print("needing to uninstall %s" % app)
         system("pm uninstall %s" % app)
         success = install_apk(apk_path)
-        if not success and app == "ai.comma.eonbleremote":
+        if not success and app in OPTIONAL_REMOTE_APPS:
           print("optional EON BLE remote APK install failed; continuing openpilot startup")
           continue
 

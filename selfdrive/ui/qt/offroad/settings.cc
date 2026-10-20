@@ -1240,7 +1240,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   // ── S9 외부 클러스터 HUD ──────────────────────────────────
 
   auto directRemoteToggle = new ParamControl("HudRemoteDirectEnabled", "EON DIRECT REMOTE",
-      "기본값은 켜짐입니다. R1을 EON Android에서 페어링하고 M+B 게임 모드에서 버튼을 학습하세요. 켜짐/꺼짐 선택은 재부팅 후에도 유지됩니다.",
+      "기본값은 켜짐입니다. R1을 페어링하고 M+B 게임 모드에서 버튼을 학습하세요. 켜져 있으면 Bluetooth를 자동으로 켜고, 학습한 R1 외 기기의 페어링은 해제·차단합니다. 선택은 재부팅 후에도 유지됩니다.",
       "../assets/offroad/icon_openpilot.png", this);
   toggleLayout->addWidget(directRemoteToggle);
   auto directRemotePair = new ButtonControl("EON Bluetooth 설정 / R1 페어링", "OPEN",
