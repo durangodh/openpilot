@@ -34,6 +34,8 @@ def report_fields(report):
   if report == b'\x02\x50':
     # Observed Return key; normalize to the internal BACK button bit.
     return 1 << BUTTON_BITS['BACK'], 0x50
+  if report == b'\x40\x50':
+    return 1 << BUTTON_BITS['OK'], 0x50
   return None
 
 

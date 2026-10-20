@@ -6,6 +6,15 @@ from selfdrive.eon_cluster.ble_r1 import R1Report, authenticated_packet, report_
 
 
 class TestBleR1(unittest.TestCase):
+  def test_observed_ok_press_and_release(self):
+    decoder = R1Report()
+    self.assertEqual(decoder.transitions(bytes.fromhex('4050')), [('blebtn:OK', 1)])
+    self.assertEqual(decoder.transitions(bytes.fromhex('4050')), [])
+    self.assertEqual(decoder.transitions(bytes.fromhex('0050')), [('blebtn:OK', 0)])
+    self.assertEqual(decoder.transitions(bytes.fromhex('0050')), [])
+    self.assertEqual(decoder.transitions(bytes.fromhex('0250')), [('blebtn:BACK', 1)])
+    self.assertEqual(decoder.transitions(bytes.fromhex('0050')), [('blebtn:BACK', 0)])
+
   def test_observed_return_key_is_distinct_from_jog_down(self):
     decoder = R1Report()
     self.assertEqual(decoder.transitions(bytes.fromhex('0250')), [('blebtn:BACK', 1)])
