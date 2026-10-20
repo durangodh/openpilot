@@ -439,6 +439,7 @@ class LateralPlanner:
     lateralPlan.nooLaneChangeDirection = int(self.DH.noo_direction)
     lateralPlan.nooCameraLaneCount = int(self.DH.noo_camera_lane_count)
     lateralPlan.nooRouteLaneCount = int(self.DH.noo_route_lane_count)
+    lateralPlan.nooLaneChangeReason = self.DH.noo_reason
 
     plan_send.lateralPlan.dPathWLinesX = [float(x) for x in self.d_path_w_lines_xyz[:, 0]]
     plan_send.lateralPlan.dPathWLinesY = [float(y) for y in self.d_path_w_lines_xyz[:, 1]]

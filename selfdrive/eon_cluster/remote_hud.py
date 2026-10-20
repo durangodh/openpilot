@@ -1366,6 +1366,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
       "cur": noo_current_lane,
       "tgt": noo_target_lane,
       "dir": noo_lane_direction,
+      "reason": str(_field(sm["lateralPlan"], "nooLaneChangeReason", "")),
     },
     # The optimized MPC state follows a reference that already contains
     # OffsetTotal. Keep the old offset only when falling back to the raw model

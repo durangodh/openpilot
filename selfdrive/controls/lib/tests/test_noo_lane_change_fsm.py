@@ -11,6 +11,7 @@ NONE, LEFT = 0, 1
 class FakeNoo:
   def __init__(self):
     self.direction = 0
+    self.reason = "changing"
     self.requested_direction = 0
     self.current_lane = 2
     self.target_lane = 1
@@ -69,6 +70,7 @@ class TestNooLaneChangeFsm(unittest.TestCase):
     self.helper.noo_controller.direction = -1
     self.helper.update(car(40), True, 0.0)
     self.assertEqual(self.helper.lane_change_state, OFF)
+    self.assertEqual(self.helper.noo_reason, "low_speed")
     self.helper.update(car(55), True, 0.0)
     self.assertEqual(self.helper.lane_change_state, PRE)
     self.helper.update(car(55), True, 0.0)

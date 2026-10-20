@@ -73,6 +73,7 @@ jobs:
           python3 ../tests/test_naver_guidance.py
           python3 ../tests/test_traffic_signal_transport.py
           python3 ../tests/test_e2e_signal_indicator.py
+          python3 ../tests/test_navi_envelope.py
       - name: Check direct EON Bluetooth button handling
         run: |
           python3 -m unittest selfdrive.eon_cluster.test_hud_remote

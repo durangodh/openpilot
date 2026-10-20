@@ -15,6 +15,7 @@ public class NavigationRenderCheck {
     JSONObject put(String key,Object value){ values.put(key,value); return this; }
     JSONObject optJSONObject(String key){ return (JSONObject)values.get(key); }
     boolean optBoolean(String key,boolean fallback){ return values.containsKey(key)?(Boolean)values.get(key):fallback; }
+    double optDouble(String key,double fallback){ return values.containsKey(key)?((Number)values.get(key)).doubleValue():fallback; }
     int optInt(String key,int fallback){ return values.containsKey(key)?(Integer)values.get(key):fallback; }
     String optString(String key,String fallback){ return values.containsKey(key)?(String)values.get(key):fallback; }
   }
@@ -84,6 +85,20 @@ public class NavigationRenderCheck {
       throw new AssertionError(name+": banners="+c.banners+" maps="+c.maps+" overlays="+c.nativeOverlays+" markers="+c.markers+" next="+c.nextCalls+" eta="+c.etaCalls+" badge="+c.sourceBadges);
   }
   public static void main(String[] args){
+    NavigationRenderCheck nooHud = new NavigationRenderCheck();
+    JSONObject noo = new JSONObject().put("dir",0).put("cur",2).put("tgt",3).put("reason","blindspot");
+    JSONObject nooState = new JSONObject().put("noo",noo).put("enabled",true);
+    if(!"BLIND SPOT".equals(nooHud.nooEventText(nooState,1,true,400)))
+      throw new AssertionError("NOO target hides blocking reason");
+    noo.put("dir",1).put("reason","low_speed");
+    if(!"WAIT SPEED".equals(nooHud.nooEventText(nooState,1,true,400)))
+      throw new AssertionError("NOO request hides speed gate");
+    nooState.put("atcDirection",1);
+    if(!"R LANE CHG".equals(nooHud.nooEventText(nooState,1,true,400)))
+      throw new AssertionError("active NOO must retain priority");
+    noo.put("dir",0);
+    if(!"R TURN".equals(nooHud.nooEventText(nooState,1,true,400)))
+      throw new AssertionError("lane wait must not hide active turn");
     // Camera warning must work identically with cruise on and off.
     for(boolean cruise:new boolean[]{false,true}) {
       JSONObject warning=new JSONObject().put("enabled",cruise).put("speed",65).put("camera",60).put("cameraDist",400);
@@ -397,6 +412,7 @@ def main():
                        ("    private void drawTbtNext(", "    // 회전 방향 종류."),
                        ("    private static boolean naviGuiding(", "    private Bitmap laneTrimSource;")):
         methods.append(source[source.index(start):source.index(end)])
+    methods.append(source[source.index("    private String nooSide("):source.index("    private static final int TBT_GREEN")])
     args.work.mkdir(parents=True, exist_ok=True)
     java_file = args.work / "NavigationRenderCheck.java"
     java_file.write_text(HARNESS.replace("/* PRODUCTION_METHODS */", "\n".join(methods)), encoding="utf-8")

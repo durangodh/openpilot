@@ -104,6 +104,7 @@ class DesireHelper:
     self.noo_turn_state = 0
     self.noo_driver_cancel = True
     self.noo_direction = 0
+    self.noo_reason = ""
     self.noo_current_lane = 0
     self.noo_target_lane = 0
     # Diagnostics: what the camera counted vs what TMAP reported. A permanent
@@ -435,6 +436,16 @@ class DesireHelper:
       self.noo_controller.reset()
       noo_direction = 0
     self.noo_direction = noo_direction
+    # Diagnostics only: keep every lane-change gate and request unchanged.
+    self.noo_reason = self.noo_controller.reason if noo_lane_change_available else ""
+    if self.noo_reason == "lane_blocked":
+      blocked_left = self.noo_controller.target_lane < self.noo_controller.current_lane
+      blindspot = carstate.leftBlindspot if blocked_left else carstate.rightBlindspot
+      self.noo_reason = "blindspot" if blindspot else "road_edge"
+    if noo_direction and v_ego < self.lane_change_speed_min:
+      self.noo_reason = "low_speed"
+    if self.noo_enabled and not lateral_active:
+      self.noo_reason = "standby"
     self.noo_current_lane = self.noo_controller.current_lane
     self.noo_target_lane = self.noo_controller.target_lane
 

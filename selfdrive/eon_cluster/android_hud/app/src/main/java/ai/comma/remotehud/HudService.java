@@ -5753,6 +5753,11 @@ public final class HudService extends Service {
         double blend = s.optDouble("atcBlend", 0d);
         // 거리는 바로 윗줄에 크게 떠 있으므로 여기서는 방향과 사유만 짧게 쓴다.
         // 주행패널 오른쪽 끝(952)까지 여유가 70px 뿐이라 길면 잘린다.
+        String reason = noo == null ? "" : noo.optString("reason", "");
+        // A request may still be waiting at the regular lane-change speed gate.
+        if (turnDir == 0 && blend <= 0.005d && "low_speed".equals(reason)) {
+            return lang("차선변경 속도 대기", "WAIT SPEED");
+        }
         // 1) 차선변경을 이미 요청한 상태.
         if (laneDir != 0) {
             return nooSide(laneDir) + lang(" 차선변경", " LANE CHG");
@@ -5768,6 +5773,19 @@ public final class HudService extends Service {
         // 차로가 떠 있어도 "차로안내 없음"으로 보이지 않게 대기로 쓴다.
         if (!s.optBoolean("enabled", false) && cur == 0 && cam == 0 && map == 0) {
             return lang("NOO 대기", "NOO STANDBY");
+        }
+        // Show the planner's actual gate before the intended target lane.
+        switch (reason) {
+            case "blindspot": return lang("옆 차량 감지", "BLIND SPOT");
+            case "road_edge": return lang("옆 차로 공간 부족", "LANE BLOCKED");
+            case "confirm_open": return lang("옆 차로 확인 중", "CHECKING LANE");
+            case "confirm_lane": return lang("변경 차로 확인 중", "CONFIRMING LANE");
+            case "canceled": return lang("운전자 취소", "DRIVER CANCEL");
+            case "too_close": return lang("분기·회전 임박", "TOO CLOSE");
+            case "too_far": return lang("차선변경 거리 대기", "WAIT DISTANCE");
+            case "stale": return lang("최신 안내 대기", "WAIT NAV DATA");
+            case "off_route": return lang("경로 재탐색 중", "OFF ROUTE");
+            default: break;
         }
         // 3) 계획은 섰지만 아직 실행 전 — 어느 차로로 갈지.
         if (cur > 0 && tgt > 0 && cur != tgt) {

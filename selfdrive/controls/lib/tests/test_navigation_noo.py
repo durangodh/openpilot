@@ -791,3 +791,30 @@ def test_guidance_state_reads_tmap_next_road_width():
     {"turn_type": 12, "distance_m": 80, "next_road_width_m": 8}, True)
   assert state["next_road_width"] == 8.0
   assert NavigationRouteData.guidance_state({"turn_type": 12, "distance_m": 80}, True)["next_road_width"] == 0.0
+
+
+def test_noo_wait_reasons_follow_existing_gates():
+  c = NavigationLaneChangeController()
+  ego = {"count": 3, "current": 2, "confidence": 0.9}
+  state = noo_state([0, 0, 1])
+  assert c.update(state, ego, 25.0, True, False) == 0
+  assert c.reason == "lane_blocked"
+  assert c.update(state, ego, 25.0, True, True) == 0
+  assert c.reason == "confirm_open"
+  assert confirm_noo(c, state, ego) == 1
+  assert c.reason == "changing"
+  assert c.update(state, ego, 25.0, True, True, driver_cancel=True) == 0
+  assert c.reason == "canceled"
+  # Clear space cannot release the existing driver cancellation latch.
+  assert confirm_noo(c, state, ego) == 0
+  assert c.reason == "canceled"
+  for distance, expected in ((10, "too_close"), (3000, "too_far")):
+    c.reset()
+    assert confirm_noo(c, noo_state([0, 0, 1], distance), ego) == 0
+    assert c.reason == expected
+  c.reset()
+  assert c.update(dict(state, off_route=True), ego, 25.0, True, True) == 0
+  assert c.reason == "off_route"
+  c.reset()
+  assert c.update({}, ego, 25.0, True, True) == 0
+  assert c.reason == "stale"

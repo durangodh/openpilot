@@ -41,6 +41,7 @@ class NavigationLaneChangeController:
     self.target_lane = 0
     self.lane_count = 0
     self.plan_missing_frames = 0
+    self.reason = "no_plan"
 
   @staticmethod
   def _ints(value, count):
@@ -268,18 +269,26 @@ class NavigationLaneChangeController:
   def update(self, state, ego_lane, v_ego, left_open, right_open,
              driver_cancel=False, lane_change_started=False,
              lane_change_finished=False):
+    self.reason = "no_plan"
     # Keep the virtual blinker asserted through both lane-change phases.  The
     # regular DesireHelper FSM needs it to finish fading lane lines back in.
     if self.requested_direction and (lane_change_started or lane_change_finished):
       if driver_cancel:
         self.canceled = True
         self.requested_direction = 0
+        self.reason = "canceled"
         return 0
       self.finishing_seen = self.finishing_seen or lane_change_finished
+      self.reason = "changing"
       return self.requested_direction
 
     plan = self.lane_plan(state, ego_lane, v_ego, proactive=True)
     if plan is None:
+      data = state if isinstance(state, dict) else {}
+      self.reason = ("canceled" if self.canceled or driver_cancel else
+                     "off_route" if data.get("off_route") else
+                     "stale" if not any(data.get(key) for key in
+                                        ("fresh", "lane_fresh", "route_fresh")) else "no_plan")
       self.plan_missing_frames += 1
       self.open_count[-1] = 0
       self.open_count[1] = 0
@@ -325,6 +334,7 @@ class NavigationLaneChangeController:
     if driver_cancel:
       self.canceled = True
     if self.canceled:
+      self.reason = "canceled"
       return 0
 
     if self.requested_direction and self.finishing_seen:
@@ -337,6 +347,7 @@ class NavigationLaneChangeController:
     self.target_lane = plan["target"]
     self.lane_count = plan["count"]
     if self.waiting_from_lane:
+      self.reason = "confirm_lane"
       moved = ((self.current_lane < self.waiting_from_lane) if self.target_lane < self.waiting_from_lane
                else (self.current_lane > self.waiting_from_lane))
       if moved:
@@ -354,9 +365,11 @@ class NavigationLaneChangeController:
 
     direction = plan["direction"]
     if direction == 0:
+      self.reason = "keep_lane"
       self.completed = True
       return 0
     if self.completed:
+      self.reason = "completed"
       return 0
 
     distance = plan["distance"]
@@ -371,13 +384,17 @@ class NavigationLaneChangeController:
     if not math.isfinite(distance) or distance < minimum_distance or distance > action_distance:
       self.open_count[-1] = 0
       self.open_count[1] = 0
+      self.reason = ("no_plan" if not math.isfinite(distance) else
+                     "too_close" if distance < minimum_distance else "too_far")
       return 0
 
     lane_open = left_open if direction < 0 else right_open
     self.open_count[direction] = self.open_count[direction] + 1 if lane_open else 0
     self.open_count[-direction] = 0
     if self.open_count[direction] < self.CONFIRM_FRAMES:
+      self.reason = "confirm_open" if lane_open else "lane_blocked"
       return 0
 
     self.requested_direction = direction
+    self.reason = "changing"
     return direction

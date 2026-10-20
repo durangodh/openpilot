@@ -105,6 +105,43 @@ def map_render_fps(params):
   return max(MAP_RENDER_FPS_MIN, min(MAP_RENDER_FPS_MAX, value))
 
 
+def accept_json_envelope(message, name, session_id, revision, sequences, legacy_sequences):
+  """Validate v2 ordering; keep installed metadata-free phone bridges working.
+
+  Called under NaviState.lock so a new control session and a state update cannot
+  race. Strict sequences live for the negotiated session; legacy sequences, if
+  provided, live only for one TCP connection (phone reconnects may restart at 0).
+  """
+  if not isinstance(message, dict) or name not in JSON_NAMES:
+    return False
+  if message.get("kind", "json") != "json":
+    return False
+  strict = any(key in message for key in ("session_id", "manifest_revision", "stream_handle"))
+  if strict:
+    handle = JSON_NAMES.index(name) + 1
+    if (not session_id or message.get("session_id") != session_id or
+        type(message.get("manifest_revision")) is not int or message["manifest_revision"] != revision or
+        type(message.get("stream_handle")) is not int or message["stream_handle"] != handle or
+        message.get("protocol_version", PROTOCOL_VERSION) != PROTOCOL_VERSION or
+        message.get("schema_version", 1) != 1):
+      return False
+    target = sequences
+  else:
+    # A negotiated sender cannot silently bypass validation on the same socket.
+    if legacy_sequences.get("_strict"):
+      return False
+    if "sequence" not in message:
+      return True
+    target = legacy_sequences
+  sequence = message.get("sequence")
+  if type(sequence) is not int or sequence < 0 or sequence <= target.get(name, -1):
+    return False
+  target[name] = sequence
+  if strict:
+    legacy_sequences["_strict"] = True
+  return True
+
+
 class NaviState(object):
   def __init__(self):
     self.params = Params()
@@ -131,6 +168,7 @@ class NaviState(object):
     self.control_send_lock = threading.Lock()
     self.session_id = uuid.uuid4().hex
     self.manifest_revision = 1
+    self.json_sequences = {}
     self.active_source = None
     threading.Thread(target=self._writer_loop, name="carrot-navi-state", daemon=True).start()
     threading.Thread(target=self._map_watchdog_loop, name="carrot-navi-map-watchdog", daemon=True).start()
@@ -262,12 +300,17 @@ class NaviState(object):
       return None
     return destination, distance_bucket
 
-  def update(self, source, name, value):
+  def update(self, source, name, value, envelope=None, legacy_sequences=None):
     if not self.accepts(source) or name not in JSON_NAMES:
       return
 
     route_changed = False
     with self.lock:
+      if envelope is not None and not accept_json_envelope(
+          envelope, name, self.session_id if self.control_conn is not None else None,
+          self.manifest_revision, self.json_sequences,
+          legacy_sequences if legacy_sequences is not None else {}):
+        return
       if name == "route":
         signature = self._route_signature(value)
         if signature is not None:
@@ -514,6 +557,7 @@ class NaviState(object):
       # TMAP does not see a different session every second.
       self.session_id = uuid.uuid4().hex
       self.manifest_revision = 1
+      self.json_sequences.clear()
       self.last_resync_request = 0.0
 
   def control_disconnected(self, conn):
@@ -738,6 +782,7 @@ def client_loop(conn, state):
   stream_name = path.rstrip("/").split("/")[-1] if not is_control else None
   if is_control:
     state.control_connected(conn)
+  legacy_sequences = {}
   try:
     while True:
       opcode, payload = recv_frame(conn)
@@ -772,6 +817,8 @@ def client_loop(conn, state):
       try:
         message = json.loads(payload.decode("utf-8"))
       except (ValueError, UnicodeDecodeError):
+        continue
+      if not isinstance(message, dict):
         continue
       if is_control and message.get("type") == "requirements_query":
         state.send_control(state.get_manifest())
@@ -809,7 +856,7 @@ def client_loop(conn, state):
             except (TypeError, ValueError):
               pass
         else:
-          state.update(source, name, value)
+          state.update(source, name, value, message, legacy_sequences)
   finally:
     if is_control:
       state.control_disconnected(conn)
