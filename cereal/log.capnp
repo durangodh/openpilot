@@ -914,7 +914,7 @@ struct LongitudinalPlan @0xe00b5b3eba12876c {
   vTargetNow @62 :Float32;       # current velocity target for longitudinal PID
   jTargetNow @63 :Float32;       # current jerk target for logging/controller output
   xState @64 :XState;
-  e2eReason @65 :UInt8;         # 0: OFF, 1: ACC, 2: signal, 3: vision lead, 4: departure, 5: manual E2E
+  e2eReason @65 :UInt8;         # 0: OFF, 1: ACC, 2: signal, 3: vision lead, 4: departure, 5: manual E2E; 6: curve, 7: lead, 8: low speed, 9: navigation
   constStopDecel @66 :Float32;  # m/s^2 > 0 while stopping behind a lead with one steady decel
   gapExtraTf @67 :Float32;      # s of gap-recovery headroom already included in tFollow
   mpcEvent @68 :Int32;          # aPilot long_mpc event (CarEvent.EventName raw), 0 = none

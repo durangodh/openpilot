@@ -1746,6 +1746,11 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/img_experimental_white.svg", 0, 3, 1, 0, 2, this));
 
   list->addItem(new ParamControl(
+      "ConditionalExperimentalMode", "CONDITIONAL E2E / 조건부 E2E",
+      "켜짐: 커브(40km/h 이하), 80m 안의 느린·정지 앞차, 저속(앞차 있음 20 / 없음 30km/h 미만), 내비 회전·분기 200m 이내에서 조건부 E2E를 사용합니다. 기존 신호정지·정지유지 우선, FAST 미적용. 데이터 끊김·페달 조작 시 추가 전환 해제. 기본 꺼짐.",
+      "../assets/img_experimental_white.svg", this));
+
+  list->addItem(new ParamControl(
       "MixRadarInfo", "RADAR / VISION ACCEL BLEND",
       "켜짐(aPilot): 비전 모델의 앞차 가속도가 레이더보다 크면 비전 값(5회 평균)을 사용합니다. / 꺼짐: 레이더 가속도만 사용합니다.",
       "../assets/offroad/icon_road.png"));

@@ -342,6 +342,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"StartAccelApply", PERSISTENT},
     {"StopAccelApply", PERSISTENT},
     {"SoftHoldMode", PERSISTENT},
+    {"ConditionalExperimentalMode", PERSISTENT},
     {"TrafficStopMode", PERSISTENT},         // 0: off/ACC, 1: conditional, 2: aPilot conditional, 3: ACC + vision-lead E2E
     {"TrafficStopAccel", PERSISTENT},        // traffic-signal deceleration factor, percent
     {"TrafficStopDistanceAdjust", PERSISTENT}, // traffic-stop line adjustment (cm), default +400

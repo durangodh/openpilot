@@ -9,6 +9,7 @@ from selfdrive.modeld.constants import index_function
 from selfdrive.controls.lib.radar_helpers import _LEAD_ACCEL_TAU
 from common.conversions import Conversions as CV
 from common.params import Params
+from selfdrive.controls.lib.conditional_experimental_mode import select_longitudinal_mode
 
 
 def _param_int(key, default):
@@ -240,6 +241,8 @@ def gen_long_ocp():
 class LongitudinalMpc:
   def __init__(self, mode='acc'):
     self.mode = mode
+    self.apilot_mode = mode
+    self.conditionalActive = False
     self.debugLongText1 = ""
     self.debugLongText2 = ""
     self.trafficState = 0
@@ -433,7 +436,7 @@ class LongitudinalMpc:
     self.cruise_min_a = min_a
     self.max_a = max_a
 
-  def update(self, carstate, radarstate, model, controls, v_cruise, x, v, a, j, y, prev_accel_constraint, reset_state):
+  def update(self, carstate, radarstate, model, controls, v_cruise, x, v, a, j, y, prev_accel_constraint, reset_state, conditional_reason=0):
 
     self.update_params()
     v_ego = self.x0[1]
@@ -474,8 +477,13 @@ class LongitudinalMpc:
     self.params[:,0] = MIN_ACCEL if not reset_state else a_ego
     self.params[:,1] = self.max_a if not reset_state else a_ego
 
-    v_cruise, stop_x, self.mode = self.update_apilot(controls, carstate, radarstate, model, v_cruise, self.mode)
-    self.mode = 'blended' if self.experimentalMode else self.mode
+    v_cruise, stop_x, self.apilot_mode = self.update_apilot(
+      controls, carstate, radarstate, model, v_cruise, self.apilot_mode)
+    preserve_stop = (reset_state or self.xState in (XState.e2eStop, XState.softHold) or
+                     carstate.gasPressed or carstate.brakePressed or
+                     not controls.enabled or controls.longActiveUser <= 0 or controls.myDrivingMode == 4)
+    self.mode, self.conditionalActive = select_longitudinal_mode(
+      self.apilot_mode, self.experimentalMode, conditional_reason, preserve_stop)
     self.set_weights(prev_accel_constraint=prev_accel_constraint, v_lead0=lead_xv_0[0,1], v_lead1=lead_xv_1[0,1])
 
     # Update in ACC mode or ACC/e2e blend
