@@ -30,6 +30,8 @@ C/D 볼륨 버튼과 Android 게임 모드(M+B)의 방향 입력이 표시되어
 직접 모드가 켜진 동안 S9에서 오는 원격
 명령은 EON에서 거부됩니다. 명령을 쓰는 프로세스는 하나만 활성화됩니다.
 설정은 기본적으로 꺼져 있고 버튼은 자동 배정되지 않습니다.
+EON의 Android Bluetooth 전원 상태는 부팅 시 강제로 끄지 않으므로,
+페어링 전에 켠 Bluetooth가 재부팅 후에도 유지됩니다.
 
 입력 장치 탐색은 `/sys/class/input/event*/device/id/bustype=0005`와
 `/dev/input/event*`를 사용합니다. 장치 고유 식별자(`uniq` 또는 `phys`)가
