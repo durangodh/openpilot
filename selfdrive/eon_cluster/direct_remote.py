@@ -226,6 +226,9 @@ class BleBridge:
     self.running = False
     self.status = 'BLE 수신기 대기'
     self.last_status = 0.0
+    self.recent_reports = []
+    self.report_count = 0
+    self.history_request = None
     self.permission_granted = False
     self.am_error = ''
     self.package = self.DEFAULT_PACKAGE
@@ -296,6 +299,10 @@ class BleBridge:
       self.node = None
 
   def poll(self, now, selected, mapping, request):
+    if request != self.history_request:
+      self.recent_reports.clear()
+      self.report_count = 0
+      self.history_request = request
     for _ in range(64):
       try:
         raw, _address = self.sock.recvfrom(513)
@@ -311,8 +318,14 @@ class BleBridge:
         if any(word in self.status for word in ('끊김', '실패', '없음')) and self.node:
           self.node.reset()
         continue
+      self.report_count += 1
+      report_hex = data[:16].hex() or '(빈 값)'
+      if not self.recent_reports or self.recent_reports[-1] != report_hex:
+        self.recent_reports.append(report_hex)
+        self.recent_reports = self.recent_reports[-4:]
+      history = '\n최근 수신 %d회 (이전 → 최신): %s' % (self.report_count, ' → '.join(self.recent_reports))
       if report_fields(data) is None:
-        self.status = 'R1 미해석 알림: ' + data[:16].hex()
+        self.status = 'R1 미해석 알림: ' + report_hex + history
         self.last_status = now
         continue
       if not self.node or self.node.identity != 'ble:' + address:
@@ -322,7 +335,7 @@ class BleBridge:
       self.node.gestures.mapping = mapping if self.node.identity == selected else {}
       self.node.gestures.learn_gesture = request[1] if request and (not selected or self.node.identity == selected) else None
       self.node.read(data, now)
-      self.status = 'BLE 입력 감지: Magicsee R1'
+      self.status = 'BLE 입력 감지: Magicsee R1' + history
       self.last_status = now
     if self.node and self.node.last_report and now - self.node.last_report > 1.2:
       self.node.reset()  # Never keep a driving button held after BLE reports stop.
