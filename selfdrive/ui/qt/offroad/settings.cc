@@ -1252,7 +1252,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   // ── S9 외부 클러스터 HUD ──────────────────────────────────
 
   auto directRemoteToggle = new ParamControl("HudRemoteDirectEnabled", "EON DIRECT REMOTE",
-      "R1을 EON BLE로 직접 연결합니다. EON Android에서 R1을 페어링하고 M+B 게임 모드에서 버튼을 학습한 뒤 켜세요. S9나 Wi-Fi를 거치지 않습니다.",
+      "기본값은 켜짐입니다. R1을 EON Android에서 페어링하고 M+B 게임 모드에서 버튼을 학습하세요. 켜짐/꺼짐 선택은 재부팅 후에도 유지됩니다.",
       "../assets/offroad/icon_openpilot.png", this);
   toggleLayout->addWidget(directRemoteToggle);
   auto directRemotePair = new ButtonControl("EON Bluetooth 설정 / R1 페어링", "OPEN",
@@ -1360,13 +1360,12 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     QDateTime started;
     connect(clear, &QPushButton::clicked, &dialog, [&]() {
       if (!ConfirmationDialog::confirm("EON 리모컨의 기기 선택과 모든 버튼 배정을 지울까요?", &dialog)) return;
-      Params().putBool("HudRemoteDirectEnabled", false);
       Params().remove("HudRemoteDirectLearn");
       Params().remove("HudRemoteDirectDevice");
       Params().remove("HudRemoteDirectMapping");
       request.clear();
       learn->setEnabled(true);
-      status->setText("배정을 지웠습니다. 다시 학습한 뒤 EON DIRECT REMOTE를 켜세요.");
+      status->setText("배정을 지웠습니다. 기능을 선택하고 다시 학습하세요.");
       showSaved();
     });
     connect(learn, &QPushButton::clicked, &dialog, [&]() {

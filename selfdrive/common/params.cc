@@ -273,6 +273,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudMapScaleNaver", PERSISTENT},
     {"HudRemoteKey", PERSISTENT | DONT_LOG},           // S9 remote HMAC pairing key; never sent in telemetry
     {"HudRemoteDirectEnabled", PERSISTENT},
+    {"HudRemoteDirectDefaultOnMigrated", PERSISTENT},
     {"HudRemoteDirectDevice", PERSISTENT},
     {"HudRemoteDirectMapping", PERSISTENT},
     {"HudRemoteDirectLearn", CLEAR_ON_MANAGER_START},

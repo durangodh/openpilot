@@ -95,6 +95,7 @@ def manager_init() -> None:
     ("ShowGearAnimation", "1"),
     ("ShowCarrotHud", "1"),
     ("EonClusterHud", "0"),
+    ("HudRemoteDirectEnabled", "1"),
     ("EonClusterHudRoadZ", "100"),
     ("EonClusterHudPitchDyn", "60"),
     ("EonClusterHudViewPitch", "0"),
@@ -260,6 +261,12 @@ def manager_init() -> None:
   for k, v in default_params:
     if params.get(k) is None:
       params.put(k, v)
+
+  # Enable direct remote once for existing installations; later manual OFF
+  # choices remain persistent across restarts.
+  if not params.get_bool("HudRemoteDirectDefaultOnMigrated"):
+    params.put_bool("HudRemoteDirectEnabled", True)
+    params.put_bool("HudRemoteDirectDefaultOnMigrated", True)
 
   # Preserve the existing 0~40 km/h curve when introducing the 20 km/h point.
   # Devices with custom end points receive their actual midpoint rather than
