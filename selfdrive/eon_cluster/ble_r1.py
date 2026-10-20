@@ -31,6 +31,9 @@ def report_fields(report):
   # Do not assume that their button bits match the legacy layout.
   if report in (b'\x00\x10', b'\x00\x50'):
     return 0, report[1]
+  if report == b'\x02\x50':
+    # Observed Return key; normalize to the internal BACK button bit.
+    return 1 << BUTTON_BITS['BACK'], 0x50
   return None
 
 
