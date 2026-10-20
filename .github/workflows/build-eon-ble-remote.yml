@@ -36,6 +36,10 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging \
             selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk \
             | grep -F "sdkVersion:'21'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions \
+            selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk \
+            | grep -F 'android.permission.BLUETOOTH_PRIVILEGED'
+          sh -n selfdrive/eon_cluster/eon_ble_remote/install_privileged_eon.sh
       - uses: actions/upload-artifact@v4
         with:
           name: eon-ble-remote-apk

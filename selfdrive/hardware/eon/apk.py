@@ -75,6 +75,13 @@ def update_apks():
     if not os.path.exists(apk_path):
       continue
 
+    if app == "ai.comma.eonbleremote" and installed[app] is not None and \
+        installed[app].startswith("/system/priv-app/"):
+      # Android 6 protects HID reports with BLUETOOTH_PRIVILEGED. A regular
+      # package update can replace the privileged system installation.
+      print("keeping privileged EON BLE remote system APK")
+      continue
+
     h1 = hashlib.sha1(open(apk_path, 'rb').read()).hexdigest()
     h2 = None
     if installed[app] is not None:
