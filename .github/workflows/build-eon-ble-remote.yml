@@ -27,6 +27,7 @@ jobs:
         run: |
           python3 -m unittest selfdrive.eon_cluster.test_ble_r1
           python3 -m py_compile selfdrive/eon_cluster/direct_remote.py
+          python3 -m py_compile selfdrive/hardware/eon/apk.py
       - name: Build APK
         working-directory: selfdrive/eon_cluster/eon_ble_remote
         run: gradle :app:assembleDebug --no-daemon
