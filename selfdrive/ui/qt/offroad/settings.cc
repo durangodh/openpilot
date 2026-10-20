@@ -1304,7 +1304,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     gestures->addItem("길게 누르기", "long");
     gestures->addItem("두 번 누르기", "double");
     layout->addWidget(gestures);
-    auto status = new QLabel("LEARN을 누르면 15초 동안 입력을 기다립니다.", &dialog);
+    auto status = new QLabel("LEARN을 누르면 45초 동안 BLE 연결과 입력을 기다립니다.", &dialog);
     status->setWordWrap(true);
     layout->addWidget(status);
     auto saved = new QLabel(&dialog);
@@ -1363,7 +1363,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
         showSaved();
         request.clear();
         learn->setEnabled(true);
-      } else if (started.secsTo(QDateTime::currentDateTimeUtc()) >= 15) {
+      } else if (started.secsTo(QDateTime::currentDateTimeUtc()) >= 45) {
         Params().remove("HudRemoteDirectLearn");
         status->setText("입력 대기 시간이 지났습니다. 마지막 상태: " + detail);
         request.clear();
