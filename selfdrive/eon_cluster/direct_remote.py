@@ -50,21 +50,30 @@ def learn_request(raw):
 
 def bluetooth_nodes(root=Path('/sys/class/input')):
   found = {}
+  entries = list(root.glob('event*'))
+  bluetooth_count = 0
+  missing_identity = 0
+  candidates = []
   def optional(path):
     try:
       return path.read_text().strip()
     except OSError:
       return ''
-  for entry in root.glob('event*'):
+  for entry in entries:
     device = entry / 'device'
     try:
-      if (device / 'id/bustype').read_text().strip().lower() != '0005':
-        continue
+      bus = (device / 'id/bustype').read_text().strip().lower()
       name = (device / 'name').read_text().strip()
+      if 'magicsee' in name.lower() or name.lower() == 'r1':
+        candidates.append(f'{name}:bus={bus}')
+      if bus != '0005':
+        continue
+      bluetooth_count += 1
       uniq = optional(device / 'uniq')
       phys = re.sub(r'/input[0-9]+$', '', optional(device / 'phys'))
       identity = uniq or phys
       if not identity:
+        missing_identity += 1
         continue  # A model name alone cannot distinguish another identical remote.
       try:
         properties = int(''.join((device / 'properties').read_text().split()) or '0', 16)
@@ -79,7 +88,10 @@ def bluetooth_nodes(root=Path('/sys/class/input')):
       found[str(Path('/dev/input') / entry.name)] = (identity, name, joystick)
     except OSError:
       continue
-  return found
+  summary = f'입력 {len(entries)}개 / Bluetooth HID {bluetooth_count}개 / 고유 ID 없음 {missing_identity}개'
+  if candidates:
+    summary += ' / R1 후보 ' + ', '.join(candidates[:2])
+  return found, summary
 
 
 class InputNode:
@@ -259,9 +271,9 @@ def main():
         continue
       sm.update(0)
       if now >= next_scan:
-        available = bluetooth_nodes()
+        available, scan_summary = bluetooth_nodes()
         if request and not available:
-          status = 'Bluetooth HID 입력 장치 없음: 연결 상태와 리모컨 모드를 확인하세요'
+          status = '인식 가능한 Bluetooth 입력 장치 없음: ' + scan_summary
         for path, node in list(nodes.items()):
           if path not in available or available[path] != (node.identity, node.name, node.joystick):
             node.close()
@@ -273,7 +285,7 @@ def main():
               nodes[path] = InputNode(path, identity, name, joystick, emit, observe)
             except OSError as error:
               status = f'입력 장치 열기 실패: {name} (errno {error.errno})'
-        if request and nodes and status.startswith(('학습 요청', 'Bluetooth HID 입력 장치 없음')):
+        if request and nodes and status.startswith(('학습 요청', '인식 가능한 Bluetooth 입력 장치 없음')):
           status = 'Bluetooth HID 입력 대기: ' + ', '.join(node.name for node in nodes.values())
         next_scan = now + SCAN_S
       for node in list(nodes.values()):
