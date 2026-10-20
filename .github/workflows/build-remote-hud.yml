@@ -20,6 +20,7 @@ on:
       - "selfdrive/controls/lib/cruise_helper.py"
       - "selfdrive/eon_cluster/tests/test_traffic_signal_transport.py"
       - "selfdrive/eon_cluster/tests/test_e2e_signal_indicator.py"
+      - "selfdrive/eon_cluster/tests/test_navi_envelope.py"
       - "selfdrive/eon_cluster/android_hud/**"
       - "selfdrive/eon_cluster/naver_bridge/**"
       - ".github/workflows/build-remote-hud.yml"
