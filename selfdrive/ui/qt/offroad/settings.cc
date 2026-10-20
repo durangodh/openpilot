@@ -1263,12 +1263,20 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       });
     }
   });
+  auto remoteLearningAllowed = []() {
+    if (Params().getBool("IsOffroad")) return true;
+    const SubMaster &sm = *(uiState()->sm);
+    if (!sm.alive("carState") || !sm.valid("carState")) return false;
+    const auto car = sm["carState"].getCarState();
+    return car.getCanValid() && car.getStandstill() &&
+           car.getGearShifter() == cereal::CarState::GearShifter::PARK;
+  };
   auto directRemoteSetup = new ButtonControl("EON 리모컨 버튼 설정", "LEARN",
-      "R1의 M+B 게임 모드 BLE 입력 또는 Android Bluetooth HID 입력을 학습합니다. 정차 상태에서만 설정할 수 있습니다.");
+      "R1의 M+B 게임 모드 BLE 입력 또는 Android Bluetooth HID 입력을 학습합니다. 시동이 켜져 있어도 P단 정차 중에는 설정할 수 있습니다.");
   toggleLayout->addWidget(directRemoteSetup);
   connect(directRemoteSetup, &ButtonControl::clicked, [=]() {
-    if (!Params().getBool("IsOffroad")) {
-      ConfirmationDialog::alert("시동을 끈 상태에서 버튼을 학습하세요.", this);
+    if (!remoteLearningAllowed()) {
+      ConfirmationDialog::alert("P단에 놓고 정차한 상태에서 버튼을 학습하세요.", this);
       return;
     }
     QDialog dialog(this);
@@ -1348,6 +1356,10 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     QDateTime started;
     connect(clear, &QPushButton::clicked, &dialog, [&]() {
       if (!ConfirmationDialog::confirm("EON 리모컨의 기기 선택과 모든 버튼 배정을 지울까요?", &dialog)) return;
+      if (!remoteLearningAllowed()) {
+        status->setText("P단 정차 중에만 배정을 초기화할 수 있습니다.");
+        return;
+      }
       Params().remove("HudRemoteDirectLearn");
       Params().remove("HudRemoteDirectDevice");
       Params().remove("HudRemoteDirectMapping");
@@ -1357,6 +1369,10 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       showSaved();
     });
     connect(learn, &QPushButton::clicked, &dialog, [&]() {
+      if (!remoteLearningAllowed()) {
+        status->setText("P단에 놓고 정차한 뒤 LEARN을 누르세요.");
+        return;
+      }
       request = actions->currentData().toString() + "|" + gestures->currentData().toString() + "|" +
                 QUuid::createUuid().toString(QUuid::WithoutBraces).remove('-');
       Params().remove("HudRemoteDirectStatus");
@@ -1371,6 +1387,17 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     });
     QTimer poll(&dialog);
     connect(&poll, &QTimer::timeout, &dialog, [&]() {
+      const bool allowed = remoteLearningAllowed();
+      learn->setEnabled(allowed && request.isEmpty());
+      clear->setEnabled(allowed);
+      if (!allowed) {
+        if (!request.isEmpty()) {
+          Params().remove("HudRemoteDirectLearn");
+          request.clear();
+        }
+        status->setText("학습 중지: P단에 놓고 정차한 뒤 LEARN을 누르세요.");
+        return;
+      }
       if (request.isEmpty()) return;
       auto pending = QString::fromStdString(Params().get("HudRemoteDirectLearn"));
       auto detail = QString::fromStdString(Params().get("HudRemoteDirectStatus"));

@@ -20,7 +20,7 @@ from common.params import Params
 from cereal import messaging
 from selfdrive.eon_cluster.ble_r1 import BLE_PORT, R1Report, authenticated_packet, report_fields
 from selfdrive.eon_cluster.bluetooth_policy import BluetoothPolicy
-from selfdrive.eon_cluster.direct_remote_core import DirectRemoteGestures, axis_direction
+from selfdrive.eon_cluster.direct_remote_core import DirectRemoteGestures, axis_direction, learning_allowed
 from selfdrive.eon_cluster.hud_remote import ALL_COMMANDS, RemoteCommandSync, allowed_commands
 
 EVENT = struct.Struct('@llHHi')
@@ -353,6 +353,14 @@ def vehicle_allowed(sm):
   return allowed_commands(started, valid, car.gearShifter == 'drive', car.brakePressed, car.gasPressed)
 
 
+def remote_learning_allowed(sm, params):
+  if params.get_bool('IsOffroad'):
+    return True
+  car = sm['carState']
+  return learning_allowed(False, sm.alive['carState'], sm.valid['carState'],
+                          car.canValid, car.standstill, car.gearShifter == 'park')
+
+
 def main():
   params = Params()
   sm = messaging.SubMaster(['carState', 'deviceState'])
@@ -378,7 +386,8 @@ def main():
     request = learn_request(request_raw)
     if request:
       action, expected, _nonce = request
-      if gesture != expected or not params.get_bool('IsOffroad'):
+      sm.update(0)
+      if gesture != expected or not remote_learning_allowed(sm, params):
         return
       # The first learned button fixes the exact device identity. Other paired
       # Bluetooth keyboards cannot inject commands thereafter.
@@ -471,7 +480,7 @@ def main():
           status = 'Bluetooth HID 입력 대기: ' + ', '.join(node.name for node in nodes.values())
         next_scan = now + SCAN_S
       for node in list(nodes.values()):
-        should_grab = (bool(request) and params.get_bool('IsOffroad') and
+        should_grab = (bool(request) and remote_learning_allowed(sm, params) and
                        (not selected or node.identity == selected)) or (enabled and not request and node.identity == selected and bool(mapping))
         try:
           node.grab(should_grab)

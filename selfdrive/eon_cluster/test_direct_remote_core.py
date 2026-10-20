@@ -71,5 +71,24 @@ class GestureTest(unittest.TestCase):
     self.assertEqual(self.events, [])
 
 
+class LearningGateTest(unittest.TestCase):
+  def test_engine_off_can_learn_without_car_messages(self):
+    self.assertTrue(core.learning_allowed(True))
+
+  def test_engine_on_stationary_park_can_learn(self):
+    self.assertTrue(core.learning_allowed(False, True, True, True, True, True))
+
+  def test_moving_or_not_parked_cannot_learn(self):
+    self.assertFalse(core.learning_allowed(False, True, True, True, False, True))
+    self.assertFalse(core.learning_allowed(False, True, True, True, True, False))
+
+  def test_stale_or_invalid_car_data_cannot_learn(self):
+    for i in range(3):
+      flags = [True] * 5
+      flags[i] = False
+      self.assertFalse(core.learning_allowed(False, *flags))
+    self.assertFalse(core.learning_allowed(False))
+
+
 if __name__ == '__main__':
   unittest.main()

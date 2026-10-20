@@ -6,6 +6,11 @@ MAX_HOLD_S = 10.0
 MAX_STALL_S = .4
 
 
+def learning_allowed(offroad, alive=False, valid=False, can_valid=False, standstill=False, parked=False):
+  """Engine-on learning requires fresh vehicle data and a stationary car in P."""
+  return bool(offroad or (alive and valid and can_valid and standstill and parked))
+
+
 def axis_direction(position, previous):
   """Joystick dead zone with separate enter and exit thresholds."""
   if abs(position) >= .55:
