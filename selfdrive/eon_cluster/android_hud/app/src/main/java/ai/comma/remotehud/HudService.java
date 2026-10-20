@@ -6739,28 +6739,20 @@ public final class HudService extends Service {
 
     // 주행/네비모드가 막 바뀌었을 때 휴대폰이 아직 이전 모드 크기의 지도를 보내면(주행 760x720 ↔
     // 네비 1080x506) 그 지도를 새 칸에 맞춰 늘려 아주 크게(또는 찌그러지게) 보였다.
-    // 네이버는 부팅 직후 HUD 전용 지도가 늦게 준비될 수 있으므로 잘못된 모양의 프레임을
-    // 시간이 지났다는 이유로 확대하지 않는다. 다른 내비의 기존 대기 제한은 유지한다.
+    // 부팅 직후 모든 내비의 HUD 전용 지도가 늦게 준비될 수 있다. 시간이 지났다는
+    // 이유로 잘못된 모양의 프레임을 확대하지 않고, 맞는 프레임이 올 때까지 기다린다.
     private static final float MAP_WIDE_MIN_ASPECT = 1.6f;
-    private static final long MAP_SHAPE_WAIT_MS = 10000L;
-    private long mapShapeMismatchSince;
 
-    private Bitmap mapForLayout(Bitmap map, int navApp) {
+    private Bitmap mapForLayout(Bitmap map) {
         if (map == null || map.isRecycled() || map.getHeight() <= 0) {
             return map;
         }
         boolean wideFrame = map.getWidth() >= map.getHeight() * MAP_WIDE_MIN_ASPECT;
-        if (wideFrame == naviLayout) {
-            mapShapeMismatchSince = 0L;
-            return map;
-        }
-        long now = SystemClock.elapsedRealtime();
-        if (mapShapeMismatchSince == 0L) mapShapeMismatchSince = now;
-        return navApp == 2 || now - mapShapeMismatchSince < MAP_SHAPE_WAIT_MS ? null : map;
+        return wideFrame == naviLayout ? map : null;
     }
 
     private void drawMapImage(Canvas c, Paint p, JSONObject s, Bitmap map) {
-        map = mapForLayout(map, s.optInt("hudNavApp", configuredNavApp));
+        map = mapForLayout(map);
         if (naviLayout) {
             scratchIRect.set(0, 0, NAVI_MAP_RIGHT, HEIGHT);
         } else {

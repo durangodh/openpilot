@@ -171,23 +171,28 @@ public class NavigationRenderCheck {
           ||order.events.indexOf("next")<order.events.indexOf("source"))
         throw new AssertionError("navi next maneuver obscured for app="+app+": "+order.events);
     }
-    // Switching to the navi layout while the phone still sends a drive-shaped
-    // frame must not stretch it: hide it, then draw it after the wait.
+    // All navigation apps must wait for the correctly shaped map, even after
+    // the old ten-second timeout. Switching back must reject the wide frame.
     Bitmap.mapH=150; SystemClock.now+=1000L;
-    Canvas narrow=new Canvas(); hud.drawMap(narrow,new Paint(),state(true,1000,200),new Bitmap(),null,null,null,null);
-    if(narrow.maps!=0) throw new AssertionError("drive-shaped frame drawn in navi layout");
-    SystemClock.now+=10001L;
-    narrow=new Canvas(); hud.drawMap(narrow,new Paint(),state(true,1000,200),new Bitmap(),null,null,null,null);
-    if(narrow.maps!=1) throw new AssertionError("drive-shaped frame never drawn after the wait");
-    // Naver's HUD-sized map may arrive more than ten seconds after boot.
-    // Keep its old drive-shaped frame hidden until a wide frame arrives.
-    hud.configuredNavApp=2;
-    narrow=new Canvas(); hud.drawMap(narrow,new Paint(),state(true,1000,200),new Bitmap(),null,null,null,null);
-    if(narrow.maps!=0) throw new AssertionError("Naver drive-shaped boot map stretched after timeout");
-    Bitmap.mapH=100;
-    Canvas corrected=new Canvas(); hud.drawMap(corrected,new Paint(),state(true,1000,200),new Bitmap(),null,null,null,null);
-    if(corrected.maps!=1) throw new AssertionError("wide Naver map did not recover");
-    hud.naviLayout=false; Bitmap.mapH=150;
+    for(int app:new int[]{1,2,3}){
+      JSONObject fixture=state(true,1000,200).put("hudNavApp",app);
+      Canvas narrow=new Canvas(); hud.drawMap(narrow,new Paint(),fixture,new Bitmap(),null,null,null,null);
+      if(narrow.maps!=0) throw new AssertionError("drive-shaped frame stretched in navi layout, app="+app);
+      SystemClock.now+=10001L;
+      narrow=new Canvas(); hud.drawMap(narrow,new Paint(),fixture,new Bitmap(),null,null,null,null);
+      if(narrow.maps!=0) throw new AssertionError("drive-shaped frame stretched after timeout, app="+app);
+      Bitmap.mapH=100;
+      Canvas corrected=new Canvas(); hud.drawMap(corrected,new Paint(),fixture,new Bitmap(),null,null,null,null);
+      if(corrected.maps!=1) throw new AssertionError("wide map did not recover, app="+app);
+      hud.naviLayout=false;
+      corrected=new Canvas(); hud.drawMap(corrected,new Paint(),fixture,new Bitmap(),null,null,null,null);
+      if(corrected.maps!=0) throw new AssertionError("wide frame stretched in drive layout, app="+app);
+      Bitmap.mapH=150;
+      corrected=new Canvas(); hud.drawMap(corrected,new Paint(),fixture,new Bitmap(),null,null,null,null);
+      if(corrected.maps!=1) throw new AssertionError("drive map did not recover, app="+app);
+      hud.naviLayout=true;
+    }
+    hud.naviLayout=false;
     System.out.println("9 navigation rendering cases and map switch fades passed, including traffic signal overlay");
   }
 }
