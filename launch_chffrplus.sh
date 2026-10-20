@@ -82,8 +82,10 @@ function two_init {
   # the flippening!
   LD_LIBRARY_PATH="" content insert --uri content://settings/system --bind name:s:user_rotation --bind value:i:1
 
-  # disable bluetooth
-  service call bluetooth_manager 8
+  # Keep a paired HID remote connected after reboot when EON direct mode is on.
+  if [ "$(cat /data/params/d/HudRemoteDirectEnabled 2>/dev/null)" != "1" ]; then
+    service call bluetooth_manager 8
+  fi
 
   # wifi scan
   wpa_cli IFNAME=wlan0 SCAN
