@@ -226,25 +226,44 @@ class BleBridge:
     self.status = 'BLE 수신기 대기'
     self.last_status = 0.0
     self.permission_granted = False
+    self.am_error = ''
+
+  @staticmethod
+  def _android_env():
+    env = os.environ.copy()
+    # EON's Android command wrappers must load system libraries, not the
+    # openpilot native libraries inherited from manager.py.
+    env['LD_LIBRARY_PATH'] = ''
+    return env
 
   def _am(self, *args):
-    return subprocess.run(['/system/bin/am', *args], stdout=subprocess.DEVNULL,
-                          stderr=subprocess.DEVNULL, timeout=3, check=False).returncode == 0
+    try:
+      result = subprocess.run(['/system/bin/am', *args], stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, timeout=8, check=False,
+                              env=self._android_env())
+      output = result.stdout.decode('utf-8', 'replace').strip().replace('\n', ' ')
+      self.am_error = output[-140:] if result.returncode else ''
+      if result.returncode and not self.am_error:
+        self.am_error = '종료 코드 %d' % result.returncode
+      return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired) as error:
+      self.am_error = str(error)[-140:]
+      return False
 
   def start(self, now, selected):
     if now < self.next_renew:
       return
     self.next_renew = now + 8.0
     if not self.permission_granted:
-      grant = subprocess.run(['pm', 'grant', 'ai.comma.eonbleremote',
+      grant = subprocess.run(['/system/bin/pm', 'grant', 'ai.comma.eonbleremote',
                               'android.permission.ACCESS_COARSE_LOCATION'],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             timeout=3, check=False)
+                             timeout=8, check=False, env=self._android_env())
       self.permission_granted = grant.returncode == 0
     target = selected[4:] if selected.startswith('ble:') else ''
     if not self._am('startservice', '-n', self.SERVICE, '--es', 'key', self.secret,
                     '--es', 'target', target):
-      self.status = 'EON R1 BLE 앱 미설치 또는 시작 실패'
+      self.status = 'BLE 앱 시작 오류: ' + self.am_error
       return
     self.running = True
     if not self.last_status:
