@@ -1285,12 +1285,31 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     }
     QDialog dialog(this);
     dialog.setWindowTitle("EON Bluetooth 리모컨");
+    dialog.setStyleSheet(
+        "QDialog { background-color: #202020; }"
+        "QLabel, QComboBox, QPushButton { color: white; font-size: 42px; }"
+        "QComboBox { min-height: 90px; padding: 8px; background-color: #333333; }"
+        "QPushButton { border-radius: 12px; background-color: #333333; }"
+        "QPushButton:pressed { background-color: #555555; }"
+        "QPushButton:disabled { color: #888888; }");
     auto layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(30, 30, 30, 30);
+    layout->setSpacing(20);
+    auto content = new QWidget(&dialog);
+    auto contentLayout = new QVBoxLayout(content);
+    contentLayout->setContentsMargins(10, 10, 30, 20);
+    contentLayout->setSpacing(24);
+    contentLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
+    auto scroll = new ScrollView(content, &dialog);
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    layout->addWidget(scroll, 1);
     auto instructions = new QLabel("Magicsee R1 BLE: EON Android에서 R1을 페어링한 뒤 전원을 켜고 M+B를 누르세요.\n"
                                    "동작과 누르기 방식을 선택한 다음 LEARN을 누르고 해당 버튼을 누르세요.\n"
-                                   "첫 학습 버튼의 Bluetooth 장치만 이후 명령을 보낼 수 있습니다.");
+                                   "첫 학습 버튼의 Bluetooth 장치만 이후 명령을 보낼 수 있습니다.\n"
+                                   "아래 내용은 화면을 위로 밀어 확인하세요.");
     instructions->setWordWrap(true);
-    layout->addWidget(instructions);
+    instructions->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    contentLayout->addWidget(instructions);
     auto actions = new QComboBox(&dialog);
     const std::array<std::pair<const char *, const char *>, 10> remoteActions = {{{"RES / 속도 +1", "res"},
       {"SET / 속도 -1", "set"}, {"차간거리", "gap"}, {"ACC 취소", "cancel"},
@@ -1298,18 +1317,21 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       {"오른쪽 차선변경 요청", "lane_right"}, {"RES 길게 / +10", "res_long"},
       {"SET 길게 / -10", "set_long"}, {"GAP 길게 / HUD 정보", "gap_long"}}};
     for (const auto &[label, command] : remoteActions) actions->addItem(label, command);
-    layout->addWidget(actions);
+    contentLayout->addWidget(actions);
     auto gestures = new QComboBox(&dialog);
     gestures->addItem("짧게 누르기", "short");
     gestures->addItem("길게 누르기", "long");
     gestures->addItem("두 번 누르기", "double");
-    layout->addWidget(gestures);
+    contentLayout->addWidget(gestures);
     auto status = new QLabel("LEARN을 누르면 45초 동안 BLE 연결과 입력을 기다립니다.", &dialog);
     status->setWordWrap(true);
-    layout->addWidget(status);
+    status->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    contentLayout->addWidget(status);
     auto saved = new QLabel(&dialog);
     saved->setWordWrap(true);
-    layout->addWidget(saved);
+    saved->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    contentLayout->addWidget(saved);
+    contentLayout->addStretch();
     auto showSaved = [&]() {
       auto json = QJsonDocument::fromJson(QByteArray::fromStdString(Params().get("HudRemoteDirectMapping")));
       auto object = json.object();
@@ -1320,12 +1342,19 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       saved->setText(rows.isEmpty() ? "저장된 버튼 없음" : "저장된 버튼:\n" + rows.join("\n"));
     };
     showSaved();
+    // Keep these controls visible even when mappings and status span many lines.
+    auto buttons = new QHBoxLayout();
+    buttons->setSpacing(20);
+    layout->addLayout(buttons);
     auto learn = new QPushButton("LEARN", &dialog);
-    layout->addWidget(learn);
-    auto clear = new QPushButton("기기와 버튼 배정 초기화", &dialog);
-    layout->addWidget(clear);
+    learn->setFixedHeight(110);
+    buttons->addWidget(learn, 1);
+    auto clear = new QPushButton("기기·배정 초기화", &dialog);
+    clear->setFixedHeight(110);
+    buttons->addWidget(clear, 1);
     auto close = new QPushButton("닫기", &dialog);
-    layout->addWidget(close);
+    close->setFixedHeight(110);
+    buttons->addWidget(close, 1);
     connect(close, &QPushButton::clicked, &dialog, &QDialog::accept);
     QString request;
     QDateTime started;
@@ -1375,6 +1404,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       }
     });
     poll.start(250);
+    setMainWindow(&dialog);
     dialog.exec();
     if (!request.isEmpty()) Params().remove("HudRemoteDirectLearn");
     directRemoteToggle->refresh();
