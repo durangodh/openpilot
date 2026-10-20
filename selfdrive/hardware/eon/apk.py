@@ -86,6 +86,9 @@ def update_apks():
 
       success = install_apk(apk_path)
       if not success:
+        if app == "ai.comma.eonbleremote":
+          print("optional EON BLE remote APK install failed; continuing openpilot startup")
+          continue
         print("needing to uninstall %s" % app)
         system("pm uninstall %s" % app)
         success = install_apk(apk_path)
