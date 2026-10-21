@@ -186,7 +186,7 @@ def create_scc13(packer, scc13):
   return packer.make_can_msg("SCC13", 0, values)
 
 
-def create_scc14(packer, enabled, e_vgo, standstill, accel, gaspressed, objgap, scc14,
+def create_scc14(packer, enabled, e_vgo, standstill, accel, gaspressed, objgap, objgap2, scc14,
                  jerk_upper=5.0, jerk_lower=5.0, cb_upper=0.0, cb_lower=0.0,
                  long_active=False, brakepressed=False, soft_hold_active=False):
   values = copy.copy(scc14)
@@ -206,6 +206,7 @@ def create_scc14(packer, enabled, e_vgo, standstill, accel, gaspressed, objgap, 
 
   values["ACCMode"] = acc_mode
   values["ObjGap"] = objgap if enabled else 0
+  values["ObjGap2"] = objgap2 if enabled else 0
   values["JerkUpperLimit"] = max(0.0, min(12.7, jerk_upper))
   values["JerkLowerLimit"] = max(0.0, min(12.7, jerk_lower))
   values["ComfortBandUpper"] = cb_upper if enabled else 0.0

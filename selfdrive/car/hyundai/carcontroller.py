@@ -365,14 +365,15 @@ class CarController:
 
           if lead is not None:
             d = lead.dRel
-            # aPilot C2 ObjGap scale. ObjGap2 intentionally remains untouched.
             obj_gap = 2 if d < 25 else 3 if d < 40 else 4 if d < 70 else 5
+            obj_gap2 = 2 if lead.vRel < -0.2 else 1
           else:
             obj_gap = 0
+            obj_gap2 = 0
 
           can_sends.append(
             create_scc14(self.packer, CC.enabled, CS.out.vEgo, scc_stop_request, apply_accel, CS.out.gasPressed,
-                         obj_gap, CS.scc14, jerk_upper, jerk_lower, cb_upper, cb_lower,
+                         obj_gap, obj_gap2, CS.scc14, jerk_upper, jerk_lower, cb_upper, cb_lower,
                          long_active=CC.longActive, brakepressed=CS.out.brakePressed,
                          soft_hold_active=soft_hold_scc))
     else:

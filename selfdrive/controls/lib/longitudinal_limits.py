@@ -162,20 +162,3 @@ class CutInGapRelief:
       self.relief = max(0.0, self.relief - CUT_IN_RELIEF_DECAY * dt)
     self.relief = min(self.relief, deficit)
     return self.relief
-
-
-# The lead acceleration estimate (aLeadK) trails the real lead by about a second. When
-# the gap is already sufficient and the lead is pulling away, a stale negative aLeadK
-# keeps the plan braking after the lead has stopped slowing (2026-10-20 long 859.5 s:
-# lead flat at 41 km/h and +1.1 m/s faster than us, aLeadK still -1.4, plan -1.4).
-# Fade the predicted lead deceleration out as the lead pulls away. A lead that keeps
-# braking closes the speed difference again, and the full value returns.
-PULL_AWAY_VREL_BP = [0.0, 2.0]   # m/s, lead faster than us
-PULL_AWAY_FACTOR_V = [1.0, 0.0]
-PULL_AWAY_MIN_ALEAD = -2.5       # m/s^2, never fade a harder lead brake
-
-
-def pull_away_lead_accel(a_lead, v_rel, gap_sufficient):
-  if not gap_sufficient or a_lead >= 0.0 or a_lead < PULL_AWAY_MIN_ALEAD:
-    return float(a_lead)
-  return float(a_lead * interp(v_rel, PULL_AWAY_VREL_BP, PULL_AWAY_FACTOR_V))

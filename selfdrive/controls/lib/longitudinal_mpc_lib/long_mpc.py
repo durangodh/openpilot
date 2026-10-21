@@ -19,7 +19,7 @@ def _param_int(key, default):
   except Exception:
     return default
 from common.realtime import DT_MDL
-from selfdrive.controls.lib.longitudinal_limits import CutInGapRelief, pull_away_lead_accel
+from selfdrive.controls.lib.longitudinal_limits import CutInGapRelief
 from common.filter_simple import StreamingMovingAverage
 from cereal import log, car
 EventName = car.CarEvent.EventName
@@ -463,11 +463,6 @@ class LongitudinalMpc:
     lead_1_obstacle = lead_xv_1[:,0] + get_stopped_equivalence_factor(lead_xv_1[:,1], self.x_sol[:,1], self.t_follow, self.stopDistance, krkeegan=self.applyLongDynamicCost)
     lead_one = radarstate.leadOne
     lead_deficit = get_safe_obstacle_distance(v_ego, self.t_follow, self.comfort_brake, applyStopDistance) - lead_0_obstacle[0]
-    if lead_one.status:
-      a_lead = pull_away_lead_accel(lead_one.aLeadK, lead_one.vRel, lead_deficit <= 0.0)
-      if a_lead != lead_one.aLeadK:
-        lead_xv_0 = self.process_lead(lead_one, a_lead)
-        lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(lead_xv_0[:,1], self.x_sol[:,1], self.t_follow, self.stopDistance, krkeegan=self.applyLongDynamicCost)
     relief = self.cut_in_relief.update(not reset_state, lead_one.status, lead_one.dRel,
                                        lead_one.vRel, lead_one.aLeadK, v_ego, lead_deficit, DT_MDL)
     lead_0_obstacle = lead_0_obstacle + relief

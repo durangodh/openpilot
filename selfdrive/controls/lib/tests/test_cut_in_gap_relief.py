@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-from selfdrive.controls.lib.longitudinal_limits import (CUT_IN_RELIEF_DECAY, CutInGapRelief,
-                                                        pull_away_lead_accel)
+from selfdrive.controls.lib.longitudinal_limits import CUT_IN_RELIEF_DECAY, CutInGapRelief
 
 DT = 0.05
 
@@ -59,13 +58,3 @@ def test_disabled_never_relieves():
   r = CutInGapRelief()
   _step(r, 40., enabled=False)
   assert _step(r, 13., enabled=False) == 0.0
-
-
-def test_pull_away_fades_stale_lead_decel_only_when_gap_is_sufficient():
-  assert pull_away_lead_accel(-1.4, 1.1, True) < -0.5
-  assert abs(pull_away_lead_accel(-1.4, 1.1, True) - (-1.4 * (1 - 1.1 / 2.0))) < 1e-6
-  assert pull_away_lead_accel(-0.9, 2.5, True) == 0.0
-  assert pull_away_lead_accel(-1.4, 1.1, False) == -1.4   # gap short: keep full decel
-  assert pull_away_lead_accel(-1.4, -0.5, True) == -1.4   # lead slower: keep
-  assert pull_away_lead_accel(-3.0, 1.5, True) == -3.0    # hard brake: keep
-  assert pull_away_lead_accel(0.5, 1.5, True) == 0.5
