@@ -77,6 +77,7 @@ from selfdrive.controls.lib.drive_helpers import V_CRUISE_INITIAL, initialize_v_
 from selfdrive.controls.lib.drive_helpers import get_lag_adjusted_curvature
 from selfdrive.controls.lib.latcontrol import LatControl
 from selfdrive.controls.lib.longcontrol import LongControl
+from selfdrive.controls.lib.longitudinal_limits import cap_pid_accel_limits
 from selfdrive.controls.lib.latcontrol_pid import LatControlPID
 from selfdrive.controls.lib.latcontrol_angle import LatControlAngle
 from selfdrive.controls.lib.events import Events, ET
@@ -762,6 +763,13 @@ class Controls:
     if not self.joystick_mode:
       # accel PID loop
       pid_accel_limits = self.CI.get_pid_accel_limits(self.CP, CS.vEgo, self.v_cruise_kph * CV.KPH_TO_MS)
+      if self.CP.openpilotLongitudinalControl and long_plan.e2eReason == 1:
+        has_lead = self.sm['radarState'].leadOne.status or self.sm['radarState'].leadTwo.status
+        accel_factor = 1.0 if has_lead else self.cruise_helper.no_lead_accel_factor
+        pid_accel_limits = cap_pid_accel_limits(
+          pid_accel_limits, CS.vEgo, self.cruise_helper.cruise_max_vals,
+          self.cruise_helper.my_driving_mode, self.cruise_helper.my_eco_mode_factor,
+          self.cruise_helper.my_safe_mode_factor, accel_factor)
       t_since_plan = (self.sm.frame - self.sm.rcv_frame['longitudinalPlan']) * DT_CTRL
       actuators.accel, actuators.jerk = self.LoC.update(CC.longActive, CS, long_plan, pid_accel_limits, t_since_plan, CC)
 

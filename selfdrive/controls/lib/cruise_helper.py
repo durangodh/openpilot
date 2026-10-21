@@ -11,7 +11,9 @@ from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.controls.lib.vision_curve_speed import VisionCurveSpeed, UNLIMITED_SPEED
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
 from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software_gap
-from selfdrive.controls.lib.longitudinal_limits import (get_auto_speed_up_target,
+from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
+                                                        CRUISE_MAX_VAL_KEYS,
+                                                        get_auto_speed_up_target,
                                                         select_auto_driving_mode)
 from selfdrive.road_speed_limiter import get_road_speed_limiter
 
@@ -174,6 +176,13 @@ class CruiseHelper:
     self.cruise_speed_table = self.build_cruise_speed_table()
     self.sync_set_speed_while_gas_pressed = self.params.get_bool("SccSmootherSyncGasPressed")
     self.cruise_control_mode = float(clip(self.params.get_int("CruiseControlMode"), 0, 10))
+    self.cruise_max_vals = []
+    for key, default in zip(CRUISE_MAX_VAL_KEYS, CRUISE_MAX_VAL_DEFAULTS):
+      raw = self.params.get_int(key)
+      self.cruise_max_vals.append(float(raw) * 0.01 if raw > 0 else default)
+    no_lead_factor = self.params.get_int("NoLeadCruiseAccelFactor")
+    self.no_lead_accel_factor = float(clip(no_lead_factor if no_lead_factor > 0 else 100,
+                                           30, 150)) * 0.01
 
   def _param_or_default(self, key, default, lo, hi):
     # 0 이하(미설정)는 기본값, 그 뒤 범위 제한
