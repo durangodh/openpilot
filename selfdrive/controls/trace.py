@@ -21,6 +21,8 @@ from selfdrive.controls import lat_trace, long_trace
 from selfdrive.controls.long_trace import (ERROR_RETRY_S, FLUSH_S, PARAM_POLL_S, RATE_HZ,
                                            _close, _new_path, _rotate, _safe_row)
 
+CLEANUP_S = 3600.0  # 기록을 꺼 둔 날에도 하루 지난 파일을 지우도록 한 시간마다 정리
+
 LONG_SERVICES = ['radarState', 'longitudinalPlan', 'carControl', 'carState', 'controlsState']
 LAT_SERVICES = ['lateralPlan', 'controlsState', 'carControl', 'carState', 'liveParameters',
                 'liveLocationKalman', 'modelV2']
@@ -71,9 +73,14 @@ def main():
   rk = None
   next_param = 0.0
   next_flush = 0.0
+  next_cleanup = 0.0
   try:
     while True:
       now = time.monotonic()
+      if now >= next_cleanup:
+        next_cleanup = now + CLEANUP_S
+        for f in files:
+          _rotate(f.directory)
       if now >= next_param:
         next_param = now + PARAM_POLL_S
         for f in files:

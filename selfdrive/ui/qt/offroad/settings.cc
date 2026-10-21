@@ -1230,13 +1230,13 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("LongTraceEnabled",
                                             "LONG TRACE LOG",
-                                            "켜짐: 앞차 반응 분석용으로 레이더·계획·명령·차량 가감속 숫자만 /sdcard/long_trace 에 CSV 로 기록합니다(분당 약 100KB, 30개 넘으면 오래된 것부터 삭제). 분석이 끝나면 꺼 주세요.",
+                                            "켜짐: 앞차 반응 분석용으로 레이더·계획·명령·차량 가감속 숫자만 /sdcard/long_trace 에 CSV 로 기록합니다(분당 약 100KB, 하루 지나거나 30개 넘으면 오래된 것부터 삭제). 분석이 끝나면 꺼 주세요.",
                                             "../assets/offroad/icon_openpilot.png",
                                             this));
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("LatTraceEnabled",
                                             "LAT TRACE LOG",
-                                            "켜짐: 조향 분석용으로 목표 곡률·토크 제어기·조향 명령·핸들 각도 숫자만 /sdcard/lat_trace 에 CSV 로 기록합니다(분당 약 150KB, 30개 넘으면 오래된 것부터 삭제). 분석이 끝나면 꺼 주세요.",
+                                            "켜짐: 조향 분석용으로 목표 곡률·토크 제어기·조향 명령·핸들 각도 숫자만 /sdcard/lat_trace 에 CSV 로 기록합니다(분당 약 150KB, 하루 지나거나 30개 넘으면 오래된 것부터 삭제). 분석이 끝나면 꺼 주세요.",
                                             "../assets/offroad/icon_openpilot.png",
                                             this));
   toggleLayout->addWidget(horizontal_line());

@@ -6,7 +6,7 @@ loggerd 없이 앞차 반응 지연을 분석하려고, 레이더 → 계획 →
 selfdrive/debug/long_trace_analyze.py 로 한다.
 
 파일: /data/media/0/long_trace/YYYYmmdd-HHMMSS.csv  (adb 로는 /sdcard/long_trace)
-오래된 파일은 MAX_FILES 개 / MAX_TOTAL_BYTES 를 넘으면 지운다.
+오래된 파일은 MAX_FILES 개 / MAX_TOTAL_BYTES 를 넘거나 MAX_AGE_S(하루)가 지나면 지운다.
 """
 import os
 import time
@@ -19,6 +19,10 @@ PARAM_POLL_S = 1.0
 FLUSH_S = 2.0
 MAX_FILES = 30
 MAX_TOTAL_BYTES = 100 * 1024 * 1024
+MAX_AGE_S = 24 * 3600
+# EON 은 시계가 맞기 전에 만든 파일의 시각이 1970 년이다. 시계가 맞은 뒤 '하루 지남'으로
+# 바로 지워지지 않게, 이보다 이른 시각의 파일은 나이로 지우지 않는다(개수·용량 제한만).
+VALID_MTIME_MIN = 1577836800  # 2020-01-01
 ERROR_RETRY_S = 5.0
 
 COLUMNS = [
@@ -47,6 +51,16 @@ def _rotate(directory):
                    key=os.path.getmtime)
   except OSError:
     return
+  now = time.time()
+  if now > VALID_MTIME_MIN:
+    for f in list(files):
+      try:
+        mtime = os.path.getmtime(f)
+        if VALID_MTIME_MIN <= mtime < now - MAX_AGE_S:
+          os.remove(f)
+          files.remove(f)
+      except OSError:
+        pass
   total = sum(os.path.getsize(f) for f in files)
   while files and (len(files) > MAX_FILES or total > MAX_TOTAL_BYTES):
     oldest = files.pop(0)
