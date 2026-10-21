@@ -60,10 +60,17 @@ final class NaverMapCapture {
     // 점점 늦어지고(밀림) 한꺼번에 몰려 갔다.
     private final AtomicReference<Frame> pendingFrame = new AtomicReference<>();
     private final AtomicBoolean encodeScheduled = new AtomicBoolean();
+    // Owned only by the single encoder thread. Keep immutable JPEG bytes, not a
+    // second full-size bitmap, for the existing one-second map heartbeat.
+    private final ByteArrayOutputStream jpegBytes = new ByteArrayOutputStream(100000);
+    private byte[] lastHudJpeg;
 
     private static final class Frame {
-        final Bitmap image; final long gen; final long snapAt;
-        Frame(Bitmap image, long gen, long snapAt) { this.image = image; this.gen = gen; this.snapAt = snapAt; }
+        final Bitmap image; final long gen; final long snapAt; final boolean hud;
+        Frame(Bitmap image, long gen, long snapAt, boolean hud) {
+            this.image = image; this.gen = gen; this.snapAt = snapAt; this.hud = hud;
+        }
+        void recycle() { if (image != null) image.recycle(); }
     }
 
     // 10초마다 naver_hud.log 에 남기는 지도 경로 통계(멈춤·밀림 원인 확인용).
@@ -84,7 +91,7 @@ final class NaverMapCapture {
     private long sent;
 
     private final NaverHudMap hudMap = new NaverHudMap();
-    private Bitmap lastHud;
+    private boolean hasHudFrame;
     private long lastHudAt;
 
     NaverMapCapture(NaverNaviClient client) { this.client = client; }
@@ -115,11 +122,17 @@ final class NaverMapCapture {
         statReq++;
         statOk++;
         lastFrameAt = now;
-        Frame old = pendingFrame.getAndSet(new Frame(image, generation, now));
+        Frame old = pendingFrame.getAndSet(new Frame(image, generation, now, true));
         if (old != null) {
-            old.image.recycle();
+            old.recycle();
             statDropped++;
         }
+        if (encodeScheduled.compareAndSet(false, true)) encoder.execute(this::drainEncode);
+    }
+
+    /** A heartbeat must never replace a fresh bitmap waiting to be encoded. */
+    private void queueHudHeartbeat(long now) {
+        if (!pendingFrame.compareAndSet(null, new Frame(null, generation, now, true))) return;
         if (encodeScheduled.compareAndSet(false, true)) encoder.execute(this::drainEncode);
     }
 
@@ -185,29 +198,28 @@ final class NaverMapCapture {
             Bitmap hud = hudMap.frame(appContext(), map);
             if (NaverHudMap.active) {
                 if (hud != null) {
-                    if (lastHud != null) lastHud.recycle();
-                    lastHud = hud.copy(Bitmap.Config.ARGB_8888, false);
+                    hasHudFrame = true;
                     lastHudAt = now;
                     queueFrame(hud, now);
-                } else if (lastHud != null && now - lastHudAt >= 1000) {
+                } else if (hasHudFrame && now - lastHudAt >= 1000) {
                     // 지도가 멈춰 있으면 새 프레임이 없다. 1초마다 마지막 그림을 다시 보낸다.
                     lastHudAt = now;
-                    queueFrame(lastHud.copy(Bitmap.Config.ARGB_8888, false), now);
+                    queueHudHeartbeat(now);
                 }
                 return;
             }
-            if (hudMap.started() && lastHud == null) {
+            if (hudMap.started() && !hasHudFrame) {
                 // HUD 지도를 처음 만드는 중(부팅·앱 시작): 폰·엔미러 화면 지도는 축척·범위가 달라
                 // 잠깐 이상한 지도가 보였다(2026-10-16). 첫 프레임까지 보내지 않고 HUD 대기 화면을 둔다.
                 // 15초 안에 안 되면 NaverHudMap 이 포기(failed)하고 아래 스냅샷 방식으로 넘어간다.
                 return;
             }
-            if (hudMap.started() && lastHud != null) {
+            if (hudMap.started() && hasHudFrame) {
                 // HUD 지도를 다시 만드는 중(앱 전환·크기 설정 변경): 빈 화면이나 큰 폰 화면 대신
                 // 마지막 HUD 지도를 1초마다 다시 보낸다. 15초 안에 안 되면 NaverHudMap 이 포기한다.
                 if (now - lastHudAt >= 1000) {
                     lastHudAt = now;
-                    queueFrame(lastHud.copy(Bitmap.Config.ARGB_8888, false), now);
+                    queueHudHeartbeat(now);
                 }
                 return;
             }
@@ -262,9 +274,9 @@ final class NaverMapCapture {
         if (gen != generation) return;
         lastFrameAt = now;
         try {
-            Frame old = pendingFrame.getAndSet(new Frame(fitCenterCrop(source), gen, now));
+            Frame old = pendingFrame.getAndSet(new Frame(fitCenterCrop(source), gen, now, false));
             if (old != null) {   // 아직 인코딩 못 한 옛 프레임은 버린다(최신만 보낸다)
-                old.image.recycle();
+                old.recycle();
                 statDropped++;
             }
             if (encodeScheduled.compareAndSet(false, true)) encoder.execute(this::drainEncode);
@@ -289,11 +301,19 @@ final class NaverMapCapture {
         try {
             // 지도가 바뀐 경우만 버린다. 새 요청이 나갔다고 버리지 않는다.
             if (frame.gen != generation) return;
+            if (frame.image == null) {
+                // The last successfully encoded HUD frame is already immutable.
+                // Preserve keepalive/rebuild behavior without copying or JPEG work.
+                if (lastHudJpeg != null) client.sendMap(lastHudJpeg);
+                return;
+            }
             long start = SystemClock.elapsedRealtime();
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream(100000);
-            frame.image.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, bytes);
+            jpegBytes.reset();
+            if (!frame.image.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, jpegBytes)) return;
             if (frame.gen == generation) {
-                client.sendMap(bytes.toByteArray());
+                byte[] jpeg = jpegBytes.toByteArray();
+                if (frame.hud) lastHudJpeg = jpeg;
+                client.sendMap(jpeg);
                 long end = SystemClock.elapsedRealtime();
                 statEncMsSum += end - start;
                 statEncMsMax = Math.max(statEncMsMax, end - start);
@@ -304,7 +324,7 @@ final class NaverMapCapture {
         } catch (Throwable error) {
             NaverHudLog.ex("snapshot encode", error);
         } finally {
-            frame.image.recycle();
+            frame.recycle();
         }
     }
 
