@@ -269,7 +269,9 @@ class BleBridge:
   def start(self, now, selected):
     if now < self.next_renew:
       return
-    self.next_renew = now + 8.0
+    # The installed receiver lease is 18 seconds. Keep a 6-second margin
+    # without launching Android's am command every 8 seconds.
+    self.next_renew = now + 12.0
     if not self.permission_granted:
       grant = subprocess.run(['/system/bin/pm', 'grant', self.package,
                               'android.permission.ACCESS_COARSE_LOCATION'],
@@ -324,7 +326,8 @@ class BleBridge:
       if not self.recent_reports or self.recent_reports[-1] != report_hex:
         self.recent_reports.append(report_hex)
         self.recent_reports = self.recent_reports[-4:]
-      history = '\n최근 수신 %d회 (이전 → 최신): %s' % (self.report_count, ' → '.join(self.recent_reports))
+      history = ('\n최근 수신 %d회 (이전 → 최신): %s' %
+                 (self.report_count, ' → '.join(self.recent_reports))) if request else ''
       if report_fields(data) is None:
         self.status = 'R1 미해석 알림: ' + report_hex + history
         self.last_status = now
@@ -367,6 +370,7 @@ def main():
   writer = RemoteCommandSync(params)
   nodes = {}
   next_scan = next_status = 0.0
+  next_settings = 0.0
   selected = mapping_raw = request_raw = ''
   mapping = {}
   enabled = False
@@ -421,10 +425,13 @@ def main():
   try:
     while True:
       now = time.monotonic()
-      enabled = params.get_bool('HudRemoteDirectEnabled')
-      new_selected = value(params, 'HudRemoteDirectDevice')
-      new_mapping_raw = value(params, 'HudRemoteDirectMapping')
-      new_request_raw = value(params, 'HudRemoteDirectLearn')
+      new_selected, new_mapping_raw, new_request_raw = selected, mapping_raw, request_raw
+      if now >= next_settings:
+        enabled = params.get_bool('HudRemoteDirectEnabled')
+        new_selected = value(params, 'HudRemoteDirectDevice')
+        new_mapping_raw = value(params, 'HudRemoteDirectMapping')
+        new_request_raw = value(params, 'HudRemoteDirectLearn')
+        next_settings = now + .5
       if new_selected != selected or new_mapping_raw != mapping_raw or new_request_raw != request_raw:
         selected, mapping_raw, request_raw = new_selected, new_mapping_raw, new_request_raw
         mapping = mappings(mapping_raw)
@@ -462,7 +469,12 @@ def main():
           ble.node.gestures.cancel_disallowed(vehicle_allowed(sm))
         ble.node.gestures.tick(now)
       if now >= next_scan:
-        available, scan_summary = bluetooth_nodes()
+        # A selected BLE receiver does not use Linux HID nodes. Continue
+        # polling its authenticated packets without rescanning sysfs.
+        if selected.startswith('ble:'):
+          available, scan_summary = {}, '등록된 BLE 리모컨'
+        else:
+          available, scan_summary = bluetooth_nodes()
         if request and not available:
           status = ble.status + ' / ' + scan_summary
         for path, node in list(nodes.items()):
