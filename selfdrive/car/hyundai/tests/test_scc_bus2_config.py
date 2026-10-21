@@ -2,10 +2,14 @@
 import unittest
 
 from selfdrive.car import gen_empty_fingerprint
-from selfdrive.car.hyundai.interface import resolve_scc_bus_and_long_control
+from selfdrive.car.hyundai.interface import resolve_scc_bus_and_long_control, use_scc_bus2
+from selfdrive.car.hyundai.values import CAR
 
 
 class TestSccBus2Config(unittest.TestCase):
+  def test_genesis_existing_long_control_switch_selects_bus2(self):
+    self.assertTrue(use_scc_bus2(CAR.GENESIS, False, True))
+
   def test_harness_forces_bus2_and_long_control_without_fingerprint(self):
     fingerprint = gen_empty_fingerprint()
     scc_bus, openpilot_long = resolve_scc_bus_and_long_control(fingerprint, True, False)

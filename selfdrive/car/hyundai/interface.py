@@ -31,6 +31,10 @@ def resolve_scc_bus_and_long_control(fingerprint, scc_connected_bus2, long_contr
   openpilot_long = bool(scc_connected_bus2 or long_control_enabled)
   return scc_bus, openpilot_long
 
+
+def use_scc_bus2(candidate, configured_bus2, long_control_enabled):
+  return bool(configured_bus2 or (candidate == CAR.GENESIS and long_control_enabled))
+
 class CarInterface(CarInterfaceBase):
   def __init__(self, CP, CarController, CarState):
     super().__init__(CP, CarController, CarState)
@@ -52,7 +56,11 @@ class CarInterface(CarInterfaceBase):
 
     params = Params()
     long_control_enabled = params.get_bool('LongControlEnabled')
-    scc_connected_bus2 = params.get_bool('SccConnectedBus2')
+    # This branch targets the Genesis DH SCC-harness installation. Keep the
+    # existing LONGITUDINAL CONTROL switch as the single user-facing control:
+    # enabling it on Genesis 2015-2016 means the factory SCC is wired to CAN2.
+    scc_connected_bus2 = use_scc_bus2(
+      candidate, params.get_bool('SccConnectedBus2'), long_control_enabled)
     ret.openpilotLongitudinalControl = False
 
     ret.carName = "hyundai"
