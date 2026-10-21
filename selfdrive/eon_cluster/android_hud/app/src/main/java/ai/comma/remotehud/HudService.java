@@ -666,6 +666,17 @@ public final class HudService extends Service {
                 ? "GPS 서비스 대기" : instance.gpsSourceMonitor.label();
     }
 
+    static String phoneStatsLabel() {
+        HudService instance = activeInstance;
+        if (instance == null) return "통계 서비스 대기";
+        long now = SystemClock.elapsedRealtime();
+        float cpu = freshStat(instance.s9CpuPercent, instance.s9CpuSampleElapsed, now);
+        float temp = freshStat(instance.s9TempC, instance.s9TempSampleElapsed, now);
+        return PhoneStatsCommand.deviceLabel(Build.MODEL) + " · CPU "
+                + (cpu < 0f ? "수집 대기" : String.format(Locale.US, "%.0f%%", cpu))
+                + " · SoC " + (temp < 0f ? "수집 대기" : String.format(Locale.US, "%.0f°C", temp));
+    }
+
     // ── 라이프사이클 ──────────────────────────────────────────────────────
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
