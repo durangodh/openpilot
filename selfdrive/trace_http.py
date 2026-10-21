@@ -1,6 +1,4 @@
-"""기존 기록 파일(long_trace / lat_trace CSV) 내려받기 페이지.
-
-CSV 기록 프로세스는 제거되었으며 이 페이지는 과거 파일만 제공합니다.
+"""기록 파일(long_trace / lat_trace CSV) 내려받기 페이지.
 
 carrot_navi_server(포트 7714)가 WebSocket 이 아닌 일반 GET /trace 요청을 여기로 넘긴다.
 폰 브라우저에서 http://EON_IP:7714/trace 를 열면 목록이 나오고, 누르면 받는다.
@@ -14,7 +12,7 @@ import time
 from urllib.parse import unquote
 
 TRACE_DIRS = {
-  # 제거된 기록기가 사용했던 경로. 기존 CSV 다운로드를 위해 유지한다.
+  # long_trace.TRACE_DIR / lat_trace.TRACE_DIR 와 같아야 한다.
   "long": ("가감속 (LONG TRACE)", "/data/media/0/long_trace"),
   "lat": ("조향 (LAT TRACE)", "/data/media/0/lat_trace"),
 }
@@ -63,7 +61,7 @@ def _listing(deleted=None):
       except OSError:
         pass
     if not files:
-      parts.append("<p>저장된 기록 파일이 없습니다.</p>")
+      parts.append("<p>파일이 없습니다. 설정에서 기록을 켜고 주행하면 생깁니다.</p>")
       continue
     for mtime, size, n in sorted(files, reverse=True):
       when = time.strftime("%m-%d %H:%M", time.localtime(mtime))

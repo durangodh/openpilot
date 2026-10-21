@@ -47,6 +47,8 @@ procs = [
   PythonProcess("paramsd", "selfdrive.locationd.paramsd"),
   PythonProcess("plannerd", "selfdrive.controls.plannerd"),
   PythonProcess("radard", "selfdrive.controls.radard"),
+  # 가감속·조향 통합 기록기(carState 구독 1개). 둘 다 꺼져 있으면 소켓을 열지 않는다.
+  PythonProcess("trace", "selfdrive.controls.trace"),
   PythonProcess("thermald", "selfdrive.thermald.thermald", persistent=True),
   PythonProcess("timezoned", "selfdrive.timezoned", enabled=(EON or TICI), persistent=True),
   #PythonProcess("tombstoned", "selfdrive.tombstoned", enabled=not PC, persistent=True),

@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""가감속 기록 열과 한 줄 만들기(LongTraceEnabled). 실행은 selfdrive/controls/trace.py.
+
+loggerd 없이 앞차 반응 지연을 분석하려고, 레이더 → 계획 → 명령 → 실제 차량
+단계의 숫자만 20Hz CSV 로 남긴다(분당 약 100KB). 분석은
+selfdrive/debug/long_trace_analyze.py 로 한다.
+
+파일: /data/media/0/long_trace/YYYYmmdd-HHMMSS.csv  (adb 로는 /sdcard/long_trace)
+오래된 파일은 MAX_FILES 개 / MAX_TOTAL_BYTES 를 넘으면 지운다.
+"""
+import os
+import time
+
+from common.realtime import sec_since_boot
+
+TRACE_DIR = "/data/media/0/long_trace"
+RATE_HZ = 20
+PARAM_POLL_S = 1.0
+FLUSH_S = 2.0
+MAX_FILES = 30
+MAX_TOTAL_BYTES = 100 * 1024 * 1024
+ERROR_RETRY_S = 5.0
+
+COLUMNS = [
+  # 각 메시지가 만들어진 시각(초, 부팅 후). 단계별 지연을 잴 때 쓴다.
+  "t", "radar_t", "plan_t", "cc_t", "cs_t",
+  # ① ② 레이더·앞차 추정
+  "lead", "lead_radar", "d_rel", "v_rel", "v_lead", "v_lead_k", "a_lead_k", "a_lead_tau",
+  # ④ 계획
+  "plan_a0", "plan_a1s", "mpc_mode", "e2e_reason", "should_stop",
+  # 정지차 일정 감속 목표(m/s², 0 이면 MPC 계획 그대로)
+  "const_stop",
+  # ⑤ 명령
+  "cmd_accel", "long_state", "enabled", "long_active", "scc_apply_accel", "scc_areq_value", "scc_stop_req",
+  # ⑥ 실제 차량
+  "v_ego", "a_ego", "gas", "brake", "standstill",
+  # ⑦ 속도 제한(km/h): 적용 최고속도(카메라·커브 반영), 설정속도, 제한 원인(cam/bump/section/vturn/route/noo)
+  "v_cruise", "set_speed", "apply_source",
+  # ⑧ 차간시간(초): MPC 추종시간(간격 회복 여유 포함), 그중 간격 회복 여유
+  "t_follow", "gap_extra_tf",
+]
+
+
+def _rotate(directory):
+  try:
+    files = sorted((os.path.join(directory, f) for f in os.listdir(directory) if f.endswith(".csv")),
+                   key=os.path.getmtime)
+  except OSError:
+    return
+  total = sum(os.path.getsize(f) for f in files)
+  while files and (len(files) > MAX_FILES or total > MAX_TOTAL_BYTES):
+    oldest = files.pop(0)
+    try:
+      total -= os.path.getsize(oldest)
+      os.remove(oldest)
+    except OSError:
+      pass
+
+
+def _close(out):
+  """파일을 닫고 None 을 돌려준다. 닫다가 난 오류(저장 공간 부족 등)는 무시한다."""
+  if out is not None:
+    try:
+      out.close()
+    except OSError:
+      pass
+  return None
+
+
+def _new_path(directory):
+  """YYYYmmdd-HHMMSS.csv. 같은 초에 다시 켜도 앞 파일을 덮어쓰지 않게 뒤에 번호를 붙인다."""
+  base = os.path.join(directory, time.strftime("%Y%m%d-%H%M%S"))
+  path, n = base + ".csv", 1
+  while os.path.exists(path):
+    path, n = "%s_%d.csv" % (base, n), n + 1
+  return path
+
+
+_row_error_logged = False
+
+
+def _safe_row(row_fn, sm):
+  """한 줄을 CSV 문자열로. 값을 못 읽는 줄은 건너뛰고(처음 한 번만 출력) 기록기는 계속 돈다."""
+  global _row_error_logged
+  try:
+    return ",".join(row_fn(sm)) + "\n"
+  except Exception as e:  # pylint: disable=broad-except
+    if not _row_error_logged:
+      _row_error_logged = True
+      print("trace row skipped:", repr(e))
+    return None
+
+
+def _f(value, digits=3):
+  try:
+    return f"{float(value):.{digits}f}"
+  except (TypeError, ValueError):
+    return ""
+
+
+def _i(value):
+  """Bool/숫자/capnp enum 을 정수 문자열로. capnp enum 은 int() 가 안 돼 .raw 를 쓴다."""
+  try:
+    return str(int(value))
+  except (TypeError, ValueError):
+    try:
+      return str(int(getattr(value, "raw", 0)))
+    except (TypeError, ValueError):
+      return ""
+
+
+def _row(sm):
+  lead = sm['radarState'].leadOne
+  plan = sm['longitudinalPlan']
+  cs = sm['carState']
+  ctl = sm['controlsState']
+  accels = list(plan.accels)
+  mono = sm.logMonoTime
+  return [
+    _f(sec_since_boot()),   # logMonoTime 과 같은 시계(time.monotonic 은 절전 시간을 빼서 어긋난다)
+    _f(mono['radarState'] * 1e-9), _f(mono['longitudinalPlan'] * 1e-9),
+    _f(mono['carControl'] * 1e-9), _f(mono['carState'] * 1e-9),
+    _i(lead.status), _i(lead.radar),
+    _f(lead.dRel, 2), _f(lead.vRel), _f(lead.vLead), _f(lead.vLeadK), _f(lead.aLeadK), _f(lead.aLeadTau, 2),
+    _f(accels[0] if accels else 0.0),
+    # T_IDXS 10번째 근처가 약 1초 뒤(계획이 앞으로 무엇을 하려는지)
+    _f(accels[10] if len(accels) > 10 else 0.0),
+    _i(plan.mpcMode), _i(plan.e2eReason), _i(plan.shouldStop),
+    _f(plan.constStopDecel),
+    _f(sm['carControl'].actuators.accel), _i(ctl.longControlState), _i(ctl.enabled),
+    _i(sm['carControl'].longActive),
+    _f(ctl.applyAccel), _f(ctl.aReqValue), _i(ctl.sccStopRequest),
+    _f(cs.vEgo), _f(cs.aEgo), _i(cs.gasPressed), _i(cs.brakePressed), _i(cs.standstill),
+    _f(ctl.vCruise, 1), _f(ctl.vCruiseCluster, 1),
+    str(sm['carControl'].sccSmoother.applySource).replace(",", " ") or "-",
+    _f(plan.tFollow), _f(plan.gapExtraTf),
+  ]
