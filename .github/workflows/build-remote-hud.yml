@@ -71,6 +71,8 @@ jobs:
         run: |
           python3 tests/test_navigation_render.py --java-home "$JAVA_HOME" --work "$RUNNER_TEMP/hud-navigation-check"
           python3 tests/test_s9_stats.py --java-home "$JAVA_HOME" --work "$RUNNER_TEMP/hud-stats-check"
+          javac -d "$RUNNER_TEMP/hud-phone-stats-check" app/src/main/java/ai/comma/remotehud/PhoneStatsCommand.java tests/PhoneStatsCommandCheck.java
+          java -cp "$RUNNER_TEMP/hud-phone-stats-check" ai.comma.remotehud.PhoneStatsCommandCheck
           python3 ../tests/test_naver_guidance.py
           python3 ../tests/test_traffic_signal_transport.py
           python3 ../tests/test_e2e_signal_indicator.py

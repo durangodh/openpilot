@@ -11,6 +11,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.util.Log;
 
 /** Passive only: does not turn on GPS, inject positions, or change navigation. */
 final class GpsSourceMonitor implements LocationListener {
@@ -22,25 +23,44 @@ final class GpsSourceMonitor implements LocationListener {
     private volatile boolean allowed;
     private volatile boolean enabled;
     private volatile boolean failed;
+    private volatile String failureDetail = "";
     private final Runnable refresh = new Runnable() {
         @Override public void run() {
-            allowed = hasPermissions(context);
-            enabled = manager != null && (Build.VERSION.SDK_INT >= 28
-                    ? manager.isLocationEnabled() : manager.isProviderEnabled(LocationManager.GPS_PROVIDER));
-            if (!allowed || !enabled) {
-                unregister();
-                lastGps = null;
-            } else if (!registered) {
-                try {
+            try {
+                allowed = hasPermissions(context);
+                enabled = manager != null && (Build.VERSION.SDK_INT >= 28
+                        ? manager.isLocationEnabled() : manager.isProviderEnabled(LocationManager.GPS_PROVIDER));
+                if (!allowed || !enabled) {
+                    unregister();
+                    lastGps = null;
+                    failed = false;
+                    failureDetail = "";
+                } else if (!registered) {
                     manager.requestLocationUpdates(LocationManager.PASSIVE_PROVIDER,
                             0L, 0f, GpsSourceMonitor.this, Looper.getMainLooper());
                     registered = true;
                     failed = false;
-                } catch (RuntimeException e) {
-                    failed = true;
+                    failureDetail = "";
+                    // Fresh cached fixes are useful after APK updates or a service
+                    // restart. Snapshot still rejects fixes older than 3 seconds.
+                    try {
+                        Location cached = manager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+                        if (cached != null) onLocationChanged(cached);
+                    } catch (RuntimeException ignored) {
+                        // A cache lookup failure must not discard a working listener.
+                    }
                 }
+            } catch (RuntimeException e) {
+                unregister();
+                String detail = e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage());
+                if (detail.length() > 180) detail = detail.substring(0, 180);
+                if (!detail.equals(failureDetail)) Log.w("HudGpsSource", detail);
+                failureDetail = detail;
+                failed = true;
+            } finally {
+                // An Android location-service exception must not stop recovery.
+                handler.postDelayed(this, 2000L);
             }
-            handler.postDelayed(this, 2000L);
         }
     };
 
@@ -69,6 +89,8 @@ final class GpsSourceMonitor implements LocationListener {
 
     @Override public void onLocationChanged(Location location) {
         if (!LocationManager.GPS_PROVIDER.equals(location.getProvider())) return;
+        failed = false;
+        failureDetail = "";
         if (location.getTime() > 0L) {
             synchronized (lagMs) {
                 lastLagMs = System.currentTimeMillis() - location.getTime();
@@ -135,9 +157,11 @@ final class GpsSourceMonitor implements LocationListener {
     String label() {
         Reading reading = snapshot();
         int kind = reading.kind;
-        if (kind == -1) return "GPS 위치 권한 필요";
+        if (kind == -1) return context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED
+                ? "GPS 위치 '항상 허용' 필요" : "GPS 정확한 위치 권한 필요";
         if (kind == -2) return "GPS 위치 꺼짐";
-        if (kind == -3) return "GPS 확인 오류";
+        if (kind == -3) return "GPS 확인 오류 · 자동 재시도 중 · " + failureDetail;
         String label = GpsSourcePolicy.label(kind);
         if (reading.predicted) {
             label += " · 보간";
@@ -146,6 +170,8 @@ final class GpsSourceMonitor implements LocationListener {
         return label;
     }
     @Override public void onProviderEnabled(String provider) { }
-    @Override public void onProviderDisabled(String provider) { lastGps = null; }
+    @Override public void onProviderDisabled(String provider) {
+        if (LocationManager.GPS_PROVIDER.equals(provider)) lastGps = null;
+    }
     @Override public void onStatusChanged(String provider, int status, Bundle extras) { }
 }

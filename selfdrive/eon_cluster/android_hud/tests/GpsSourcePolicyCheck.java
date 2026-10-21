@@ -26,12 +26,12 @@ public final class GpsSourcePolicyCheck {
         check(GpsSourcePolicy.iconTone(1, false, true, 500) == GpsSourcePolicy.GREEN);
         check(GpsSourcePolicy.iconTone(1, true, false, 500) == GpsSourcePolicy.GREY);
         check(GpsSourcePolicy.iconTone(2, true, false, 500) == GpsSourcePolicy.GREEN);
-        check(GpsSourcePolicy.symbol(-1).isEmpty());
-        check(GpsSourcePolicy.symbol(-3).isEmpty());
+        check(GpsSourcePolicy.symbol(-1).equals("권한"));
+        check(GpsSourcePolicy.symbol(-3).equals("오류"));
         check(GpsSourcePolicy.symbol(1).isEmpty());
         check(GpsSourcePolicy.symbol(3).isEmpty());
-        for (int source : new int[]{-1, -3, 1, 2, 3}) check(GpsSourcePolicy.badgeWidth(source) == 106);
-        for (int source : new int[]{0, -2, 4}) check(GpsSourcePolicy.badgeWidth(source) == 154);
+        for (int source : new int[]{1, 2, 3}) check(GpsSourcePolicy.badgeWidth(source) == 106);
+        for (int source : new int[]{-1, -3, 0, -2, 4}) check(GpsSourcePolicy.badgeWidth(source) == 154);
         check(GpsSourcePolicy.accuracyLabel(1, true, 4.14f).equals("4.1m"));
         check(GpsSourcePolicy.accuracyLabel(2, true, 5f).equals("5.0m"));
         check(GpsSourcePolicy.accuracyLabel(3, true, 0.26f).equals("0.3m"));
