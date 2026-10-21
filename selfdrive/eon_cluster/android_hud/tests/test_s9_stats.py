@@ -43,6 +43,9 @@ public class S9StatsCheck {
     s.applyThermal(null); check(s.s9TempC == -1 && s.s9TempSampleElapsed == 0);
     s.applyThermal("BIG:NaN\nCPU:Infinity\nbattery:-20000"); check(s.s9TempC == -1);
     s.applyThermal("BIG:33000"); check(s.s9TempC == 33);
+    s.applyThermal("cpu-1-0-usr:45000\ncpuss-0-usr:44000\nsoc:92\npm8150b-ibat-lvl0:6000\nxo-therm:38000"); check(s.s9TempC == 45);
+    s.applyThermal("soc:95\npm8150b-vbat-lvl0:3200\nskin-therm:39000"); check(s.s9TempC == 39);
+    s.applyThermal("MID:41000\nBIG:47000\nbattery:35000"); check(s.s9TempC == 47);
     s.applyThermal("broken"); check(s.s9TempC == -1);
     check(freshStat(32, 1000, 9999) == 32);
     check(freshStat(32, 1000, 10000) == -1);
