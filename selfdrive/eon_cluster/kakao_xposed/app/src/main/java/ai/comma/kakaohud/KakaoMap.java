@@ -59,7 +59,8 @@ final class KakaoMap {
     private static final long INTERVAL_MS = 200;   // up to 5fps
     // 화면 카메라(위치·줌·방위)는 캡처보다 자주 읽는다. 캡처와 같은 200ms 로 따로
     // 돌면 두 주기가 어긋나 최대 0.2초 전 카메라로 찍혀 원본보다 늦게 따라간다.
-    private static final long SCREEN_CAMERA_POLL_MS = 50;
+    // 화면 카메라 읽기(메인 스레드 리플렉션). 쓰는 쪽(서피스 틱)이 100ms 라 같은 간격이면 충분하다.
+    private static final long SCREEN_CAMERA_POLL_MS = 100;
     // 위치 콜백 주기 + 캡처/인코딩 + EON 중계 + HUD 표시까지의 지연을 보상하는 선행 시간.
     private static final double LEAD_S = 0.6;
     // 차량을 화면 가운데보다 아래(세로 68%)에 두어 앞쪽 도로를 더 보여준다.
@@ -501,6 +502,8 @@ final class KakaoMap {
             zoom *= 1536f / 1080f / EonDiscovery.mapScale * MAP_DPI / phoneDpi;
         }
         update = zoomTo.invoke(update, zoom);
+        pendingCameraKey = new double[]{drawX, drawY, markerAnchorX, markerAnchorY, bearing, tilt, zoom,
+                curX, curY, curBearing};
         return update;
     }
 
@@ -654,6 +657,15 @@ final class KakaoMap {
     // 넣는다(티맵 TmapMapRender 와 같은 방식). 매 프레임
     // capture() 로 찍는 캡처러보다 가볍고 끊김이 적다. 실패하면 캡처러로 돌아간다.
     private static final long SURFACE_TICK_MS = 100;
+    private static final long CAMERA_REFRESH_MS = 1000;
+    private Bitmap surfacePadded, surfaceCropped;   // onSurfaceImage 재사용 버퍼(이미지 스레드)
+    private final android.graphics.Paint surfaceCopyPaint = new android.graphics.Paint();
+    {
+        surfaceCopyPaint.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC));
+    }
+    private double[] pendingCameraKey;    // buildCameraUpdate 가 마지막으로 만든 카메라·마커 값
+    private double[] appliedCameraKey;    // 서피스에 마지막으로 넣은 값(서피스를 새로 만들면 null)
+    private long appliedCameraAt;
     private static final long SURFACE_FRAME_MS = 200;        // 최대 5fps 전송
     private static final long SURFACE_READY_TIMEOUT_MS = 8000;
     private static final long SURFACE_FRAME_TIMEOUT_MS = 8000;
@@ -747,8 +759,18 @@ final class KakaoMap {
         }
         applyRouteIfNeeded();
         applyThemeIfNeeded();
-        moveCameraMethod.invoke(mapSurface, buildCameraUpdate(), false);
-        updateNativeUserMarker();
+        Object cameraUpdate = buildCameraUpdate();
+        double[] cameraKey = pendingCameraKey;
+        // 정차 중에도 100ms 마다 같은 카메라·마커를 다시 넣어 엔진이 초당 10장을 새로 그렸다(전송은 5장).
+        // 값이 그대로면 건너뛴다. 정차 화면은 surfaceRepeatLoop 가 마지막 JPEG 로 유지하고,
+        // 혹시 모를 엔진 쪽 변화에 대비해 CAMERA_REFRESH_MS 마다는 다시 넣는다.
+        if (cameraKey == null || !java.util.Arrays.equals(cameraKey, appliedCameraKey)
+                || now - appliedCameraAt >= CAMERA_REFRESH_MS) {
+            moveCameraMethod.invoke(mapSurface, cameraUpdate, false);
+            updateNativeUserMarker();
+            appliedCameraKey = cameraKey;
+            appliedCameraAt = now;
+        }
         if (surfaceFrames == 0 && now - surfaceReadyAt > SURFACE_WARMUP_MS + SURFACE_FRAME_TIMEOUT_MS) {
             failSurface("no frames", null);
         }
@@ -787,6 +809,7 @@ final class KakaoMap {
         appliedTheme = null;
         appliedSdkRoute = null;
         appliedRouteRevision = -1;
+        appliedCameraKey = null;
 
         final Object target = mapSurface;
         Object complete = java.lang.reflect.Proxy.newProxyInstance(cl, new Class<?>[]{function1},
@@ -840,20 +863,26 @@ final class KakaoMap {
             lastSurfaceEncodeAt = now;
             android.media.Image.Plane plane = image.getPlanes()[0];
             int w = image.getWidth(), h = image.getHeight();
-            Bitmap padded = Bitmap.createBitmap(plane.getRowStride() / plane.getPixelStride(), h,
-                    Bitmap.Config.ARGB_8888);
-            padded.copyPixelsFromBuffer(plane.getBuffer());
-            Bitmap frame = padded.getWidth() == w ? padded : Bitmap.createBitmap(padded, 0, 0, w, h);
-            if (frame == padded) {
-                if (!nativeMarkerActive) drawVehicleMarker(frame);
-            } else {
-                frame = frame.copy(Bitmap.Config.ARGB_8888, true);
-                if (!nativeMarkerActive) drawVehicleMarker(frame);
+            // 프레임마다 2.2MB 비트맵을 2~3장 새로 만들던 것을 재사용한다. 크기가 바뀌면 새로 만들고
+            // 옛 것은 recycle 하지 않는다(서피스를 다시 만들 때 옛 이미지 스레드가 아직 쓰고 있을 수 있다).
+            int stride = plane.getRowStride() / plane.getPixelStride();
+            Bitmap padded = surfacePadded;
+            if (padded == null || padded.getWidth() != stride || padded.getHeight() != h) {
+                padded = surfacePadded = Bitmap.createBitmap(stride, h, Bitmap.Config.ARGB_8888);
             }
+            padded.copyPixelsFromBuffer(plane.getBuffer());
+            Bitmap frame = padded;
+            if (stride != w) {
+                frame = surfaceCropped;
+                if (frame == null || frame.getWidth() != w || frame.getHeight() != h) {
+                    frame = surfaceCropped = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                }
+                // 오른쪽 패딩은 캔버스 밖이라 잘린다. SRC 로 덮어써 이전 프레임이 섞이지 않게 한다.
+                new android.graphics.Canvas(frame).drawBitmap(padded, 0f, 0f, surfaceCopyPaint);
+            }
+            if (!nativeMarkerActive) drawVehicleMarker(frame);
             ByteArrayOutputStream out = new ByteArrayOutputStream(80000);
             frame.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out);
-            if (frame != padded) frame.recycle();
-            padded.recycle();
             byte[] jpeg = out.toByteArray();
             if (warmingUp) {
                 // 아직 보내지 않는다. 정차 중이면 이후 새 프레임이 없을 수 있어 마지막
@@ -930,6 +959,7 @@ final class KakaoMap {
         appliedTheme = null;
         appliedSdkRoute = null;
         appliedRouteRevision = -1;
+        appliedCameraKey = null;
         nativeUserLocation = null;
         nativeLocationPointMethod = null;
         nativeLocationBearingMethod = null;

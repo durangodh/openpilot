@@ -104,6 +104,11 @@ final class TmapMapRender {
     // 그 뒤 첫 엔진 프레임을 보내는 순간 캡처를 멈춰, 반쯤 그려진 지도나 기본
     // 카메라 장면이 HUD 에 끼어들지 않게 한다.
     private static final long WARMUP_MS = 700L;
+    private Bitmap framePadded, frameCropped;   // onImageAvailable 재사용 버퍼
+    private final android.graphics.Paint frameCopyPaint = new android.graphics.Paint();
+    {
+        frameCopyPaint.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC));
+    }
     private volatile long startedAt;
     private volatile boolean night;
 
@@ -515,13 +520,24 @@ final class TmapMapRender {
             Image.Plane plane = image.getPlanes()[0];
             int pixelStride = plane.getPixelStride(), rowStride = plane.getRowStride();
             int w = image.getWidth(), h = image.getHeight();
-            Bitmap padded = Bitmap.createBitmap(rowStride / pixelStride, h, Bitmap.Config.ARGB_8888);
+            // 프레임마다 2.2MB 비트맵을 1~2장 새로 만들던 것을 재사용한다(이미지 스레드 전용).
+            // 크기가 바뀌면 새로 만들고 옛 것은 recycle 하지 않는다(엔진 재생성 중 옛 스레드가 쓸 수 있다).
+            int stride = rowStride / pixelStride;
+            Bitmap padded = framePadded;
+            if (padded == null || padded.getWidth() != stride || padded.getHeight() != h) {
+                padded = framePadded = Bitmap.createBitmap(stride, h, Bitmap.Config.ARGB_8888);
+            }
             padded.copyPixelsFromBuffer(plane.getBuffer());
-            Bitmap frame = padded.getWidth() == w ? padded : Bitmap.createBitmap(padded, 0, 0, w, h);
+            Bitmap frame = padded;
+            if (stride != w) {
+                frame = frameCropped;
+                if (frame == null || frame.getWidth() != w || frame.getHeight() != h) {
+                    frame = frameCropped = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                }
+                new android.graphics.Canvas(frame).drawBitmap(padded, 0f, 0f, frameCopyPaint);
+            }
             ByteArrayOutputStream jpeg = new ByteArrayOutputStream(80000);
             frame.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, jpeg);
-            if (frame != padded) frame.recycle();
-            padded.recycle();
             byte[] bytes = jpeg.toByteArray();
             frameW = w;
             frameH = h;

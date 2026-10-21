@@ -44,6 +44,9 @@ final class TmapMapCapture {
     private static final int WIDE_WIDTH = 1080, WIDE_HEIGHT = 506;
     private static final long FRAME_INTERVAL_MS = 200, CHECK_INTERVAL_MS = 40;
     private static final long REQUEST_TIMEOUT_MS = 600;
+    // 렌더 엔진이 지도를 맡은 동안(suspended)에는 40ms 마다 깨어날 필요가 없다. 엔진이 실패해
+    // 캡처로 돌아오는 시점만 1초 안에 알아채면 된다(지도 지우기 판정은 2초).
+    private static final long SUSPENDED_CHECK_MS = 1000;
     private static final long CLEAR_AFTER_MS = 2000;
     // 화면 중심을 못 읽을 때: 세로 화면은 차량이 아래쪽에 있다.
     private static final float FALLBACK_CENTER_Y = 0.62f;
@@ -94,13 +97,24 @@ final class TmapMapCapture {
 
     void start() {
         if (started.compareAndSet(false, true)) {
-            ticker.scheduleWithFixedDelay(this::tick, 0, CHECK_INTERVAL_MS, TimeUnit.MILLISECONDS);
+            ticker.execute(this::tickLoop);
             TmapHudLog.line("map capture started");
         }
     }
 
     void setSuspended(boolean value) {
         suspended = value;
+    }
+
+    private void tickLoop() {
+        try {
+            tick();
+        } catch (Throwable error) {
+            TmapHudLog.ex("map capture tick", error);
+        } finally {
+            ticker.schedule(this::tickLoop, suspended ? SUSPENDED_CHECK_MS : CHECK_INTERVAL_MS,
+                    TimeUnit.MILLISECONDS);
+        }
     }
 
     private void tick() {

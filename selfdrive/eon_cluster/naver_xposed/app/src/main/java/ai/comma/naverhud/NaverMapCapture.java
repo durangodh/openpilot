@@ -62,8 +62,11 @@ final class NaverMapCapture {
     private final AtomicBoolean encodeScheduled = new AtomicBoolean();
 
     private static final class Frame {
-        final Bitmap image; final long gen; final long snapAt;
-        Frame(Bitmap image, long gen, long snapAt) { this.image = image; this.gen = gen; this.snapAt = snapAt; }
+        final Bitmap image; final long gen; final long snapAt; final boolean hud;
+        Frame(Bitmap image, long gen, long snapAt) { this(image, gen, snapAt, false); }
+        Frame(Bitmap image, long gen, long snapAt, boolean hud) {
+            this.image = image; this.gen = gen; this.snapAt = snapAt; this.hud = hud;
+        }
     }
 
     // 10초마다 naver_hud.log 에 남기는 지도 경로 통계(멈춤·밀림 원인 확인용).
@@ -84,7 +87,9 @@ final class NaverMapCapture {
     private long sent;
 
     private final NaverHudMap hudMap = new NaverHudMap();
-    private Bitmap lastHud;
+    // 마지막 HUD 지도는 비트맵이 아니라 인코딩한 JPEG 로 들고 있는다. 예전에는 프레임마다 메인스레드에서
+    // 2.2MB 비트맵을 복사해 두고, 정차 중 1초마다 그 복사본을 다시 JPEG 로 인코딩했다(티맵·카카오는 바이트 재전송).
+    private volatile byte[] lastHudJpeg;
     private long lastHudAt;
 
     NaverMapCapture(NaverNaviClient client) { this.client = client; }
@@ -111,11 +116,19 @@ final class NaverMapCapture {
     }
 
     /** 메인 스레드: HUD 전용 지도 프레임(이미 1080x506)을 인코더로 넘긴다. */
+    /** 마지막 HUD 지도 JPEG 를 그대로 다시 보낸다(재인코딩 없음). 메인 스레드. */
+    private void resendLastHud(long now) {
+        byte[] jpeg = lastHudJpeg;
+        if (jpeg == null) return;
+        lastFrameAt = now;
+        client.sendMap(jpeg);
+    }
+
     private void queueFrame(Bitmap image, long now) {
         statReq++;
         statOk++;
         lastFrameAt = now;
-        Frame old = pendingFrame.getAndSet(new Frame(image, generation, now));
+        Frame old = pendingFrame.getAndSet(new Frame(image, generation, now, true));
         if (old != null) {
             old.image.recycle();
             statDropped++;
@@ -185,29 +198,27 @@ final class NaverMapCapture {
             Bitmap hud = hudMap.frame(appContext(), map);
             if (NaverHudMap.active) {
                 if (hud != null) {
-                    if (lastHud != null) lastHud.recycle();
-                    lastHud = hud.copy(Bitmap.Config.ARGB_8888, false);
                     lastHudAt = now;
                     queueFrame(hud, now);
-                } else if (lastHud != null && now - lastHudAt >= 1000) {
+                } else if (lastHudJpeg != null && now - lastHudAt >= 1000) {
                     // 지도가 멈춰 있으면 새 프레임이 없다. 1초마다 마지막 그림을 다시 보낸다.
                     lastHudAt = now;
-                    queueFrame(lastHud.copy(Bitmap.Config.ARGB_8888, false), now);
+                    resendLastHud(now);
                 }
                 return;
             }
-            if (hudMap.started() && lastHud == null) {
+            if (hudMap.started() && lastHudJpeg == null) {
                 // HUD 지도를 처음 만드는 중(부팅·앱 시작): 폰·엔미러 화면 지도는 축척·범위가 달라
                 // 잠깐 이상한 지도가 보였다(2026-10-16). 첫 프레임까지 보내지 않고 HUD 대기 화면을 둔다.
                 // 15초 안에 안 되면 NaverHudMap 이 포기(failed)하고 아래 스냅샷 방식으로 넘어간다.
                 return;
             }
-            if (hudMap.started() && lastHud != null) {
+            if (hudMap.started() && lastHudJpeg != null) {
                 // HUD 지도를 다시 만드는 중(앱 전환·크기 설정 변경): 빈 화면이나 큰 폰 화면 대신
                 // 마지막 HUD 지도를 1초마다 다시 보낸다. 15초 안에 안 되면 NaverHudMap 이 포기한다.
                 if (now - lastHudAt >= 1000) {
                     lastHudAt = now;
-                    queueFrame(lastHud.copy(Bitmap.Config.ARGB_8888, false), now);
+                    resendLastHud(now);
                 }
                 return;
             }
@@ -293,7 +304,9 @@ final class NaverMapCapture {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(100000);
             frame.image.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, bytes);
             if (frame.gen == generation) {
-                client.sendMap(bytes.toByteArray());
+                byte[] jpeg = bytes.toByteArray();
+                if (frame.hud) lastHudJpeg = jpeg;
+                client.sendMap(jpeg);
                 long end = SystemClock.elapsedRealtime();
                 statEncMsSum += end - start;
                 statEncMsMax = Math.max(statEncMsMax, end - start);
