@@ -6,6 +6,7 @@ on:
     branches: [g_remote]
     paths:
       - "selfdrive/eon_cluster/naver_xposed/**"
+      - "selfdrive/eon_cluster/android_common/**"
       - ".github/workflows/build-naver-hud-module.yml"
 
 concurrency:

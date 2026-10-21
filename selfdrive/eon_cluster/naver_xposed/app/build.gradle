@@ -6,6 +6,7 @@ def hudVersionName = System.getenv("NAVER_HUD_VERSION_NAME") ?: "0.1-6.10.0.16"
 android {
   namespace "ai.comma.naverhud"
   compileSdk 35
+  sourceSets.main.java.srcDir("../../android_common/src")
   buildToolsVersion "35.0.1"
   defaultConfig {
     applicationId "ai.comma.naverhud"

@@ -1077,6 +1077,8 @@ public final class HudService extends Service {
             new Thread(() -> {
                 synchronized (AppPrefs.class) {
                     if (AppPrefs.getNavApp(HudService.this) == app) return;
+                    HudDiagnostics.log("nav-foreground app=" + app + " event="
+                            + intent.getStringExtra("event"));
                     AppPrefs.requestNavApp(HudService.this, app);
                     applyNavigationSelection(app, true, true);
                 }

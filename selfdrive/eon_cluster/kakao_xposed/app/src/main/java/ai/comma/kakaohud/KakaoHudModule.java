@@ -42,6 +42,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
             return;
         }
         started = true;
+        ai.comma.hudcommon.NavigationForeground.install(KAKAO_PKG, 3);
         KakaoHudLog.line("=== KakaoHudModule b" + BuildConfig.HUD_BUILD + " loaded in " + lpparam.packageName + " ===");
 
         final KakaoNaviClient client = new KakaoNaviClient();
@@ -81,6 +82,7 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
     private static long hudNotifiedAt;
 
     static void notifyHudForeground(android.app.Activity activity, int app) {
+        if (!activity.hasWindowFocus()) return;
         long now = android.os.SystemClock.elapsedRealtime();
         if (now - hudNotifiedAt < 1000) return;
         hudNotifiedAt = now;
@@ -106,29 +108,43 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         }
     }
 
-    private void hookApplicationContext(final LoadPackageParam lpparam, final KakaoMap map) {
+
+    private boolean mapStarted;
+
+    private void startMap(LoadPackageParam target, KakaoMap map, Context context) {
+        if (!KAKAO_PKG.equals(context.getPackageName())) return;
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            if (mapStarted) return;
+            try {
+                Context app = context.getApplicationContext();
+                map.start(target.classLoader, app == null ? context : app);
+                mapStarted = true;
+                KakaoHudLog.line("app context ready, map capture started");
+                logAppVersion(context);
+            } catch (Throwable error) {
+                KakaoHudLog.ex("appContext", error);
+            }
+        });
+    }
+
+    private void hookApplicationContext(final LoadPackageParam target, final KakaoMap map) {
         try {
-            XposedBridge.hookMethod(
-                    Application.class.getMethod("onCreate"),
-                    new XC_MethodHook() {
-                        private boolean done = false;
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) {
-                            if (done) return;
-                            try {
-                                Context ctx = (Context) param.thisObject;
-                                if (!KAKAO_PKG.equals(ctx.getPackageName())) return;
-                                done = true;
-                                map.start(lpparam.classLoader, ctx.getApplicationContext());
-                                KakaoHudLog.line("app context ready, map capture started");
-                                logAppVersion(ctx);
-                            } catch (Throwable t) {
-                                KakaoHudLog.ex("appContext", t);
-                            }
-                        }
-                    });
-        } catch (Throwable t) {
-            KakaoHudLog.ex("hookApplicationContext", t);
+            // AppSuit/Application overrides can bypass the base Application.onCreate.
+            // Instrumentation still dispatches both lifecycle methods.
+            XposedBridge.hookMethod(android.app.Instrumentation.class.getDeclaredMethod(
+                    "callApplicationOnCreate", Application.class), new XC_MethodHook() {
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    if (!param.hasThrowable()) startMap(target, map, (Application) param.args[0]);
+                }
+            });
+            XposedBridge.hookMethod(android.app.Instrumentation.class.getDeclaredMethod(
+                    "callActivityOnResume", android.app.Activity.class), new XC_MethodHook() {
+                @Override protected void afterHookedMethod(MethodHookParam param) {
+                    if (!param.hasThrowable()) startMap(target, map, (Context) param.args[0]);
+                }
+            });
+        } catch (Throwable error) {
+            KakaoHudLog.ex("hookApplicationContext", error);
         }
     }
 

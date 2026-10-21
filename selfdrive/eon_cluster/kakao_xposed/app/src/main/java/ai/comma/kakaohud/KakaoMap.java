@@ -153,7 +153,8 @@ final class KakaoMap {
         }
     }
 
-    void start(ClassLoader cl, Context ctx) {
+    synchronized void start(ClassLoader cl, Context ctx) {
+        if (handler != null) return;
         this.cl = cl;
         this.context = ctx;
         try {
@@ -360,7 +361,7 @@ final class KakaoMap {
 
     private void tick() {
         if (surfaceMode) return;   // KNMMapSurface 렌더러가 담당(실패하면 false 로 바뀐다)
-        if (!client.ready() || !hasPose) return;
+        if (!hasPose) return;
         long elapsed = android.os.SystemClock.elapsedRealtime();
         if (surfaceRetries < SURFACE_MAX_RETRIES && elapsed - surfaceFailedAt >= SURFACE_RETRY_MS) {
             // 부팅 직후 SDK 가 늦어 서피스가 실패하면 그 주행 내내 캡처러(폰 밀도 글자, 확대된 줌)로
@@ -718,7 +719,7 @@ final class KakaoMap {
     }
 
     private void surfaceTick() throws Exception {
-        if (!client.ready() || !hasPose) return;
+        if (!hasPose) return;
         long now = android.os.SystemClock.elapsedRealtime();
         if (mapSurface == null) {
             // 지도 SDK 초기화 전에 만들면 실패해 캡처러로 영영 넘어가 버린다. 준비를 기다린다.
@@ -873,7 +874,7 @@ final class KakaoMap {
         warmSurfaceJpeg = null;
         lastSurfaceJpeg = jpeg;
         surfaceFrameAt = now;
-        if (client.ready()) client.sendMap(jpeg);
+        client.sendMap(jpeg);
         if (++surfaceFrames == 1) {
             KakaoHudLog.xposed("first rendered map frame sent " + w + "x" + h + " " + jpeg.length + "B");
         } else if (surfaceFrames % 300 == 0) {
@@ -891,7 +892,7 @@ final class KakaoMap {
             publishSurfaceFrame(warm, now, surfaceW, surfaceH);
         }
         byte[] last = lastSurfaceJpeg;
-        if (last != null && client.ready()
+        if (last != null
                 && android.os.SystemClock.elapsedRealtime() - surfaceFrameAt >= SURFACE_FRAME_MS * 2) {
             client.sendMap(last);
         }

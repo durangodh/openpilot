@@ -6,6 +6,7 @@ def hudVersionName = System.getenv("TMAP_HUD_VERSION_NAME") ?: "0.1"
 android {
   namespace "ai.comma.tmaphud"
   compileSdk 35
+  sourceSets.main.java.srcDir("../../android_common/src")
   defaultConfig {
     applicationId "ai.comma.tmaphud"
     minSdk 26

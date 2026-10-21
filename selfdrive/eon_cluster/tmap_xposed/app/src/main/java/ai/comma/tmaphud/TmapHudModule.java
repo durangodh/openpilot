@@ -61,6 +61,7 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
         // 티맵은 보조 프로세스를 쓴다. 내비 엔진과 지도가 있는 주 프로세스만.
         if (lpparam.processName != null && !TMAP_PKG.equals(lpparam.processName)) return;
         loaded = true;
+        ai.comma.hudcommon.NavigationForeground.install(TMAP_PKG, 1);
         TmapHudLog.xposed("=== TmapHudModule loaded in " + lpparam.processName + " ===");
 
         final TmapNaviClient client = new TmapNaviClient();
@@ -87,6 +88,7 @@ public final class TmapHudModule implements IXposedHookLoadPackage {
     private static long hudNotifiedAt;
 
     static void notifyHudForeground(android.app.Activity activity, int app) {
+        if (!activity.hasWindowFocus()) return;
         long now = android.os.SystemClock.elapsedRealtime();
         if (now - hudNotifiedAt < 1000) return;
         hudNotifiedAt = now;

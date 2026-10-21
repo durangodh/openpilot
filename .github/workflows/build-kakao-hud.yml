@@ -13,6 +13,7 @@ on:
     branches: [g_remote, g_hud, g_abcd]
     paths:
       - "selfdrive/eon_cluster/kakao_xposed/**"
+      - "selfdrive/eon_cluster/android_common/**"
       - ".github/workflows/build-kakao-hud.yml"
 
 jobs:

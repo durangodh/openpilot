@@ -6,6 +6,7 @@ def hudVersionName = System.getenv("KAKAO_HUD_VERSION_NAME") ?: "0.1-recon"
 android {
   namespace "ai.comma.kakaohud"
   compileSdk 35
+  sourceSets.main.java.srcDir("../../android_common/src")
   defaultConfig {
     applicationId "ai.comma.kakaohud"
     minSdk 26

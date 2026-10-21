@@ -28,6 +28,7 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
     @Override public void handleLoadPackage(final LoadPackageParam target) {
         if (!NAVER_PACKAGE.equals(target.packageName)
                 || !NAVER_PACKAGE.equals(target.processName)) return;
+        ai.comma.hudcommon.NavigationForeground.install(NAVER_PACKAGE, 2);
         XposedHelpers.findAndHookMethod(Application.class, "attach", Context.class,
                 new XC_MethodHook() {
                     @Override protected void afterHookedMethod(MethodHookParam param) {
@@ -155,6 +156,7 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
     private static long hudNotifiedAt;
 
     static void notifyHudForeground(android.app.Activity activity, int app) {
+        if (!activity.hasWindowFocus()) return;
         long now = android.os.SystemClock.elapsedRealtime();
         if (now - hudNotifiedAt < 1000) return;
         hudNotifiedAt = now;
