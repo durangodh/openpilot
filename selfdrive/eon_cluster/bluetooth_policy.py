@@ -30,7 +30,9 @@ class BluetoothPolicy:
   def renew(self, now, selected):
     if now < self.next_renew and selected == self.target:
       return
-    self.next_renew = now + 8.0
+    # Offset the first renewal from the BLE receiver's 12-second cycle.
+    # Both installed Android services expire after 18 seconds without renewal.
+    self.next_renew = now + (12.0 if self.running else 6.0)
     self.target = selected
     if self._am('startservice', '-n', SERVICE, '--es', 'target', selected):
       self.running = True

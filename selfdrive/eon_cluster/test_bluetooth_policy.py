@@ -18,10 +18,14 @@ class PolicyLifecycleTest(unittest.TestCase):
     self.assertEqual(self.calls[0][0], ['/system/bin/am', 'startservice', '-n', SERVICE,
                                      '--es', 'target', 'ble:AA:BB:CC:11:22:33'])
     self.assertEqual(self.calls[0][1]['env']['LD_LIBRARY_PATH'], '')
-    self.policy.renew(7.9, 'ble:AA:BB:CC:11:22:33')
+    self.policy.renew(5.9, 'ble:AA:BB:CC:11:22:33')
     self.assertEqual(len(self.calls), 1)
-    self.policy.renew(8., 'ble:AA:BB:CC:11:22:33')
+    self.policy.renew(6., 'ble:AA:BB:CC:11:22:33')
     self.assertEqual(len(self.calls), 2)
+    self.policy.renew(12., 'ble:AA:BB:CC:11:22:33')
+    self.assertEqual(len(self.calls), 2)
+    self.policy.renew(18., 'ble:AA:BB:CC:11:22:33')
+    self.assertEqual(len(self.calls), 3)
 
   def test_new_selection_applies_immediately(self):
     self.policy.renew(0., 'ble:AA:BB:CC:11:22:33')
