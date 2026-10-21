@@ -3911,20 +3911,39 @@ public final class HudService extends Service {
     private static final float RING_BAND = 54f;    // 링 띠 두께
     private static final float RING_START = 135f;
     private static final float RING_SWEEP = 270f;
-    // 도로 왼쪽: 인게이지 휠 아래 과속카메라·방지턱. 둘 다 반지름 36.
-    private static final float CAM_X = 435f;
-    private static final float CAM_Y = 310f;
+    // 2026-10-22 배치: 게이지 오른쪽 한 줄(x=SIGN_COL_X)에 위에서부터 방지턱 → 과속카메라 →
+    // 도로 제한속도(LIMIT) → 크루즈 설정속도(SET), SET 오른쪽에 감속(적용)속도 작은 원.
+    // 아래 기준선(SIGN_BASELINE)은 x1000rpm 글자 밑선(RING_CY+155)이고 "SET"·감속 출처 글자가 여기 맞는다.
+    // 방지턱·과속카메라 남은거리는 그림 오른쪽에 그림 아래선에 맞춰 쓴다. 좌표는 화면 기준이고
+    // 각 그림은 scaleAbout(SIGN_SCALE) 로 기준점을 중심으로 85% 로 그린다.
+    private static final float SIGN_COL_X = 427f;
+    private static final float SIGN_BASELINE = 535f;
+    private static final float SIGN_GAP = 14f;          // LIMIT 글자 밑선 ~ SET 원 윗선
+    private static final float CAM_X = SIGN_COL_X;
+    private static final float CAM_Y = 298f;
+    /** 방지턱 그림의 기준점. 보이는 아래선이 과속카메라 원 윗선보다 10px 위에 온다. */
+    private static final float BUMP_Y = 221.4f;
+    /** hud_speed_bump.png(120x150)에서 그림이 실제로 끝나는 세로 위치(아래 투명 여백 제외). */
+    private static final float BUMP_VISIBLE_BOTTOM = 128f / 150f;
     // 과속카메라·방지턱: 그림은 1.15배, 아래 거리(·구간 평균) 글자는 1.2배(2026-10-15 요청).
     // 그림이 커진 만큼 글자를 아래로 내린다.
     private static final float CAM_ICON_SCALE = 1.15f;
     private static final float CAM_TEXT_SIZE = 18f * 1.2f;
-    private static final float CAM_TEXT_DY = 60f + 36f * (CAM_ICON_SCALE - 1f) + 18f * 0.2f;
-    private static final float WHEEL_X = 435f;
-    private static final float WHEEL_Y = 195f;
-    // 게이지 바로 아래 가운데 크루즈 설정속도(SET), 그 오른쪽 감속(적용)속도
-    private static final float SET_X = 215f;
-    private static final float SET_Y = 600f;
-    private static final float APPLY_X = 295f;
+    /** 그림 옆 남은거리 글자(예전 아래 글자의 1.7배, 2026-10-22). */
+    private static final float CAM_SIDE_TEXT_SIZE = CAM_TEXT_SIZE * 1.7f;
+    // 주행모드 핸들(인게이지) 표시: 방지턱 자리 위. 네비모드는 NAVI_WHEEL_X/Y 로 옮긴다.
+    private static final float WHEEL_X = SIGN_COL_X;
+    private static final float WHEEL_Y = 130f;
+    // 크루즈 설정속도(SET): "SET" 글자 밑선이 SIGN_BASELINE 에 온다(글자는 기준점 아래 55 x 0.85).
+    private static final float SET_X = SIGN_COL_X;
+    private static final float SET_Y = SIGN_BASELINE - 55f * 0.85f;
+    /** 도로 제한속도 원: SET 과 같은 크기. "LIMIT" 글자 밑선이 SET 원 윗선보다 SIGN_GAP 위. */
+    private static final float LIMIT_Y = SET_Y - (36f * 1.15f - 36f) * 0.85f - 36f * 1.15f * 0.85f
+            - SIGN_GAP - 55f * 0.85f;
+    /** 감속(적용)속도 원: SET 원의 2/3 크기, SET 오른쪽. 출처 글자 밑선이 SIGN_BASELINE. */
+    private static final float APPLY_R = 36f * 1.15f * 0.85f * 2f / 3f;
+    private static final float APPLY_X = SIGN_COL_X + 36f * 1.15f * 0.85f + 12f + APPLY_R;
+    private static final float APPLY_Y = SIGN_BASELINE - 14f * 0.85f - 6f - APPLY_R;
     // 휠·과속카메라·SET 원은 원래 그림(반지름 36)의 85% 로 그린다.
     private static final float SIGN_SCALE = 0.85f;
     private static final float TOP_ROW_SCALE = 1.1f;
@@ -4108,30 +4127,34 @@ public final class HudService extends Service {
         drawSteeringWheel(c, p, WHEEL_X, WHEEL_Y, (float) s.optDouble("steer", 0d), enabled, steerWarning);
         c.restoreToCount(signSave);
         c.restoreToCount(wheelSave);
+        // 방지턱은 과속카메라와 따로(위) 그려 둘이 동시에 보일 수 있다.
         int bumpDist = stale ? 0 : (int) Math.round(s.optDouble("bumpDist", 0d));
-        signSave = scaleAbout(c, CAM_X, CAM_Y);
         if (bumpDist > 0) {
-            drawBumpIcon(c, p, CAM_X, CAM_Y, bumpDist);
-        } else if (!stale) {
+            signSave = scaleAbout(c, CAM_X, BUMP_Y);
+            drawBumpIcon(c, p, CAM_X, BUMP_Y, bumpDist);
+            c.restoreToCount(signSave);
+        }
+        if (!stale) {
+            signSave = scaleAbout(c, CAM_X, CAM_Y);
             drawCamera(c, p, CAM_X, CAM_Y, s.optInt("camera", 0), s.optInt("cameraDist", 0),
                     s.optBoolean("cameraSection", false), s.optInt("cameraSectionAvg", 0));
+            c.restoreToCount(signSave);
         }
-        c.restoreToCount(signSave);
-        // 게이지 아래: 크루즈 설정속도(SET 원), 그 오른쪽 감속(적용)속도(진한 주황)
+        // 도로 제한속도(파란 원 + LIMIT). EON 박스 LIMIT 칸은 그대로 둔다.
+        int roadLimit = stale ? 0 : s.optInt("limit", 0);
+        if (roadLimit > 0 && roadLimit < 255) {
+            signSave = scaleAbout(c, SET_X, LIMIT_Y);
+            drawRoadLimit(c, p, SET_X, LIMIT_Y, roadLimit);
+            c.restoreToCount(signSave);
+        }
+        // 크루즈 설정속도(SET 원), 그 오른쪽 감속(적용)속도(주황 테두리 작은 원)
         signSave = scaleAbout(c, SET_X, SET_Y);
         drawSetSpeed(c, p, SET_X, SET_Y, s.optInt("set", 0), enabled, s);
         c.restoreToCount(signSave);
         int apply = s.optInt("applySpeed", 0);
         if (!stale && enabled && apply > 0) {
-            int applyOrange = Color.rgb(236, 104, 12);
-            text(c, p, Integer.toString(apply), APPLY_X, SET_Y + 9f, 28f, applyOrange, Paint.Align.CENTER);
-            String source = s.optString("applySource", "");
-            if (!source.isEmpty()) {
-                text(c, p, source.toUpperCase(Locale.US), APPLY_X, SET_Y + 26f, 13f, applyOrange,
-                        Paint.Align.CENTER);
-            }
+            drawApplySpeed(c, p, apply, s.optString("applySource", ""));
         }
-        // 도로 제한속도는 EON 박스 LIMIT 칸에만 표시한다.
     }
 
     private void drawInfoGauge(Canvas c, Paint p, float left, float right, float frac,
@@ -5553,6 +5576,44 @@ public final class HudService extends Service {
         text(c, p, "SET", cx, cy + 55f, 14f, accent, Paint.Align.CENTER);
     }
 
+    /** 도로 제한속도: SET 원과 같은 크기의 파란 원(흰 테두리·어두운 가장자리), 흰 숫자, 아래 "LIMIT". */
+    private void drawRoadLimit(Canvas c, Paint p, float cx, float cy, int limit) {
+        float ccy = cy - (SET_R - 36f);
+        int blue = Color.rgb(28, 108, 200);
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.rgb(40, 44, 50));
+        c.drawCircle(cx, ccy, SET_R + 1.8f, p);
+        p.setColor(Color.rgb(246, 248, 250));
+        c.drawCircle(cx, ccy, SET_R, p);
+        p.setColor(blue);
+        c.drawCircle(cx, ccy, SET_R - 6.5f, p);
+        text(c, p, Integer.toString(limit), cx, ccy + 9f * SET_SCALE, 29f * SET_SCALE,
+                Color.WHITE, Paint.Align.CENTER);
+        text(c, p, "LIMIT", cx, cy + 55f, 14f,
+                frameDark ? Color.rgb(120, 176, 240) : blue, Paint.Align.CENTER);
+    }
+
+    /** 감속(적용)속도: SET 원 2/3 크기의 주황 테두리 원, 숫자는 SET 숫자색, 아래 출처(CAM/SEC…). 화면 좌표. */
+    private void drawApplySpeed(Canvas c, Paint p, int apply, String source) {
+        float k = SIGN_SCALE * 2f / 3f;
+        int orange = Color.rgb(236, 104, 12);
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(frameDark ? Color.rgb(26, 32, 40) : Color.rgb(232, 235, 237));
+        c.drawCircle(APPLY_X, APPLY_Y, APPLY_R, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(6f * SET_SCALE * k);
+        p.setColor(orange);
+        c.drawCircle(APPLY_X, APPLY_Y, APPLY_R, p);
+        text(c, p, Integer.toString(apply), APPLY_X, APPLY_Y + 9f * SET_SCALE * k, 29f * SET_SCALE * k,
+                frameDark ? Color.rgb(238, 242, 246) : Color.rgb(18, 18, 18), Paint.Align.CENTER);
+        if (source != null && !source.isEmpty()) {
+            text(c, p, source.toUpperCase(Locale.US), APPLY_X, SIGN_BASELINE, 14f * SIGN_SCALE, orange,
+                    Paint.Align.CENTER);
+        }
+    }
+
     /**
      * 과속방지턱 아이콘.
      *
@@ -5570,9 +5631,10 @@ public final class HudService extends Service {
             p.setAlpha(255);
             p.setFilterBitmap(true);
             c.drawBitmap(speedBumpImage, null, scratchRect, p);
-            // 남은거리는 테마색(낮 검정 / 밤 흰색)
-            text(c, p, distanceText(dist), cx, cy + 66f + 43f * (CAM_ICON_SCALE - 1f) + 18f * 0.2f,
-                    CAM_TEXT_SIZE, ink(), Paint.Align.CENTER);
+            // 남은거리는 그림 오른쪽, 그림이 보이는 아래선에 맞춘다. 테마색(낮 검정 / 밤 흰색)
+            float bottom = scratchRect.top + h * BUMP_VISIBLE_BOTTOM;
+            text(c, p, distanceText(dist), cx + w / 2f + 8f / SIGN_SCALE, bottom - 3f / SIGN_SCALE,
+                    CAM_SIDE_TEXT_SIZE, ink(), Paint.Align.LEFT);
             return;
         }
         int iconSave = c.save();
@@ -5601,7 +5663,9 @@ public final class HudService extends Service {
         }
         c.restoreToCount(iconSave);
 
-        text(c, p, distanceText(dist), cx, cy + CAM_TEXT_DY, CAM_TEXT_SIZE, ink(), Paint.Align.CENTER);
+        float r = 36f * CAM_ICON_SCALE;
+        text(c, p, distanceText(dist), cx + r + 10f / SIGN_SCALE, cy + r - 3f / SIGN_SCALE,
+                CAM_SIDE_TEXT_SIZE, ink(), Paint.Align.LEFT);
     }
 
     private void drawCamera(Canvas c, Paint p, float cx, float cy, int limit, int dist, boolean section,
@@ -5624,16 +5688,19 @@ public final class HudService extends Service {
         c.drawCircle(cx, cy, 36f, p);
         text(c, p, Integer.toString(limit), cx, cy + 9f, 29f, Color.rgb(20, 20, 20), Paint.Align.CENTER);
         c.restoreToCount(iconSave);
-        if (dist > 0) {
-            text(c, p, (section ? lang("구간 ", "ZONE ") : "") + distanceText(dist), cx, cy + CAM_TEXT_DY,
-                    CAM_TEXT_SIZE, ink(), Paint.Align.CENTER);
-        }
+        // 남은거리는 원 오른쪽, 아랫줄이 원 아래선에 맞는다. 구간단속은 "구간 거리" 위, "평균 속도" 아래.
+        float r = 36f * CAM_ICON_SCALE;
+        float tx = cx + r + 10f / SIGN_SCALE;
+        float base = cy + r - 3f / SIGN_SCALE;
+        String distText = (section ? lang("구간 ", "ZONE ") : "") + distanceText(dist);
         if (section && sectionAvg > 0) {
             // 구간단속 평균속도. 제한속도를 넘으면 빨간색.
             int color = sectionAvg > limit ? Color.rgb(220, 45, 45) : ink();
-            text(c, p, lang("평균 ", "AVG ") + sectionAvg, cx, cy + CAM_TEXT_DY + 22f * 1.2f,
-                    CAM_TEXT_SIZE, color, Paint.Align.CENTER);
+            text(c, p, lang("평균 ", "AVG ") + sectionAvg, tx, base, CAM_SIDE_TEXT_SIZE, color,
+                    Paint.Align.LEFT);
+            base -= CAM_SIDE_TEXT_SIZE * 1.05f;
         }
+        text(c, p, distText, tx, base, CAM_SIDE_TEXT_SIZE, ink(), Paint.Align.LEFT);
     }
 
     private static final float TPMS_LOW_PSI = 30f;
