@@ -1735,8 +1735,8 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   list->setSpacing(0);
 
   list->addItem(new ParamControl(
-      "LongControlEnabled", "LONGITUDINAL CONTROL",
-      "켜짐: 배선 개조가 완료된 현대·기아 차량에서 오픈파일럿이 가속과 제동을 제어합니다. 배선 개조가 안 된 차량에서는 켜지 마십시오.",
+      "SccConnectedBus2", "SCC HARNESS CAN2 / LONGITUDINAL CONTROL",
+      "SCC 하네스로 순정 SCC CAN을 Panda CAN2에 연결한 차량에서 켜십시오. 켜면 aPilot c2-master 방식으로 CAN2의 SCC를 읽고 오픈파일럿 롱컨을 자동 활성화합니다.",
       "../assets/offroad/icon_road.png", this));
   list->addItem(horizontal_line());
 

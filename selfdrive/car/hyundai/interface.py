@@ -22,6 +22,15 @@ BUTTONS_DICT = {
   Buttons.CANCEL: ButtonType.cancel,
 }
 
+
+def resolve_scc_bus_and_long_control(fingerprint, scc_connected_bus2, long_control_enabled):
+  detected_scc_bus = 0 if 1056 in fingerprint[0] else 1 if 1056 in fingerprint[1] and 1296 not in fingerprint[1] \
+                                                        else 2 if 1056 in fingerprint[2] else -1
+  scc_bus = 2 if scc_connected_bus2 else detected_scc_bus
+  # c2-master treats the CAN2 SCC harness itself as longitudinal enablement.
+  openpilot_long = bool(scc_connected_bus2 or long_control_enabled)
+  return scc_bus, openpilot_long
+
 class CarInterface(CarInterfaceBase):
   def __init__(self, CP, CarController, CarState):
     super().__init__(CP, CarController, CarState)
@@ -41,7 +50,10 @@ class CarInterface(CarInterfaceBase):
   def get_params(candidate, fingerprint=gen_empty_fingerprint(), car_fw=[], disable_radar=False):  # pylint: disable=dangerous-default-value
     ret = CarInterfaceBase.get_std_params(candidate, fingerprint)
 
-    ret.openpilotLongitudinalControl = Params().get_bool('LongControlEnabled')
+    params = Params()
+    long_control_enabled = params.get_bool('LongControlEnabled')
+    scc_connected_bus2 = params.get_bool('SccConnectedBus2')
+    ret.openpilotLongitudinalControl = False
 
     ret.carName = "hyundai"
     ret.safetyConfigs = [get_safety_config(car.CarParams.SafetyModel.hyundaiLegacy, 0)]
@@ -79,7 +91,7 @@ class CarInterface(CarInterfaceBase):
     ret.longitudinalTuning.kiV = [0.0]
     ret.longitudinalTuning.kf = 1.0
 
-    long_delay = Params().get_int("LongActuatorDelay")
+    long_delay = params.get_int("LongActuatorDelay")
     ret.longitudinalActuatorDelay = (long_delay * 0.01) if long_delay > 0 else 0.5
     ret.longitudinalActuatorDelayLowerBound = 0.5
     ret.longitudinalActuatorDelayUpperBound = 0.5
@@ -279,8 +291,11 @@ class CarInterface(CarInterfaceBase):
 
     ret.mdpsBus = 1 if 593 in fingerprint[1] and 1296 not in fingerprint[1] else 0
     ret.sasBus = 1 if 688 in fingerprint[1] and 1296 not in fingerprint[1] else 0
-    ret.sccBus = 0 if 1056 in fingerprint[0] else 1 if 1056 in fingerprint[1] and 1296 not in fingerprint[1] \
-                                                                     else 2 if 1056 in fingerprint[2] else -1
+    # aPilot c2-master SCC harness layout: the harness moves the factory SCC
+    # stream to panda CAN2.  Use the explicit installation setting instead of
+    # relying on a startup fingerprint which can miss the first SCC frames.
+    ret.sccBus, ret.openpilotLongitudinalControl = resolve_scc_bus_and_long_control(
+      fingerprint, scc_connected_bus2, long_control_enabled)
 
     if ret.sccBus >= 0:
       ret.hasScc13 = 1290 in fingerprint[ret.sccBus]
@@ -290,7 +305,10 @@ class CarInterface(CarInterfaceBase):
     ret.hasLfaHda = 1157 in fingerprint[0]
 
     ret.radarOffCan = ret.sccBus == -1
-    ret.pcmCruise = not ret.radarOffCan
+    # c2-master enables openpilot longitudinal automatically for the CAN2 SCC
+    # harness.  Keep the old LongControlEnabled switch for non-CAN2 installs.
+    ret.experimentalLongitudinalAvailable = True
+    ret.pcmCruise = not ret.openpilotLongitudinalControl
 
     # apilot-c2 engagement: lateral control is always available from the cruise
     # MAIN switch, so community safety must always be active for this model.
@@ -314,10 +332,14 @@ class CarInterface(CarInterfaceBase):
     ret.canValid = self.cp.can_valid and self.cp2.can_valid and self.cp_cam.can_valid
     ret.canTimeout = any(cp.bus_timeout for cp in self.can_parsers if cp is not None)
 
-    if self.CP.pcmCruise and not self.CC.scc_live:
-      self.CP.pcmCruise = False
-    elif self.CC.scc_live and not self.CP.pcmCruise:
-      self.CP.pcmCruise = True
+    # Openpilot owns longitudinal state for the complete drive when configured.
+    # Re-enabling pcmCruise after live SCC frames arrive makes controls switch
+    # back to the stock ACC engagement model on an SCC-bus2 harness.
+    if not self.CC.longcontrol:
+      if self.CP.pcmCruise and not self.CC.scc_live:
+        self.CP.pcmCruise = False
+      elif self.CC.scc_live and not self.CP.pcmCruise:
+        self.CP.pcmCruise = True
 
     # apilot-c2 engagement model: do NOT touch ret.cruiseState.enabled here.
     # It stays the raw stock SCC state; engagement is driven by the MAIN switch
