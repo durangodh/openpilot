@@ -666,17 +666,6 @@ public final class HudService extends Service {
                 ? "GPS 서비스 대기" : instance.gpsSourceMonitor.label();
     }
 
-    static String phoneStatsLabel() {
-        HudService instance = activeInstance;
-        if (instance == null) return "통계 서비스 대기";
-        long now = SystemClock.elapsedRealtime();
-        float cpu = freshStat(instance.s9CpuPercent, instance.s9CpuSampleElapsed, now);
-        float temp = freshStat(instance.s9TempC, instance.s9TempSampleElapsed, now);
-        return PhoneStatsCommand.deviceLabel(Build.MODEL) + " · CPU "
-                + (cpu < 0f ? "수집 대기" : String.format(Locale.US, "%.0f%%", cpu))
-                + " · SoC " + (temp < 0f ? "수집 대기" : String.format(Locale.US, "%.0f°C", temp));
-    }
-
     // ── 라이프사이클 ──────────────────────────────────────────────────────
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -4358,11 +4347,11 @@ public final class HudService extends Service {
         float phoneTemp = freshStat(this.s9TempC, s9TempSampleElapsed, statsNow);
         float phoneCpu = freshStat(this.s9CpuPercent, s9CpuSampleElapsed, statsNow);
         eonBoxRect(c, p, 15f, 125f, 135f, 100f, phoneTemp >= 70f ? red : green190, 2f, white);
-        eonTextIn(c, p, PhoneStatsCommand.deviceLabel(Build.MODEL) + " \u00B0C", 15f, 125f, 135f, 38f, 26f, white);
+        eonTextIn(c, p, "S9 \u00B0C", 15f, 125f, 135f, 38f, 26f, white);
         eonTextIn(c, p, phoneTemp < 0f ? "--" : String.format(Locale.US, "%.0f\u00B0C", phoneTemp),
                 15f, 163f, 135f, 62f, 46f, white);
         eonBoxRect(c, p, 160f, 125f, 135f, 100f, phoneCpu >= 90f ? red : green190, 2f, white);
-        eonTextIn(c, p, PhoneStatsCommand.deviceLabel(Build.MODEL) + " CPU", 160f, 125f, 135f, 38f, 26f, white);
+        eonTextIn(c, p, "S9 CPU", 160f, 125f, 135f, 38f, 26f, white);
         eonTextIn(c, p, phoneCpu < 0f ? "--" : String.format(Locale.US, "%.0f%%", phoneCpu),
                 160f, 163f, 135f, 62f, 46f, white);
 
@@ -6217,7 +6206,7 @@ public final class HudService extends Service {
         scratchRect.set(68f, 401f, 96f, 449f);
         c.drawRoundRect(scratchRect, 4f, 4f, p);
         textNormal(c, p, "C2", 82f, 417f, 14f, Color.rgb(238, 242, 246), Paint.Align.CENTER);
-        textNormal(c, p, PhoneStatsCommand.deviceLabel(Build.MODEL), 82f, 443f, 14f, Color.rgb(238, 242, 246), Paint.Align.CENTER);
+        textNormal(c, p, "S9", 82f, 443f, 14f, Color.rgb(238, 242, 246), Paint.Align.CENTER);
         textNormal(c, p, c2Temp, 40f, 417f, 16f, c2TempColor, Paint.Align.CENTER);
         textNormal(c, p, phoneTemp, 40f, 443f, 16f, phoneTempColor, Paint.Align.CENTER);
         textNormal(c, p, c2Cpu, 126f, 417f, 16f, c2CpuColor, Paint.Align.CENTER);
@@ -6440,14 +6429,14 @@ public final class HudService extends Service {
         String stat = readProcStat();
         long now = SystemClock.elapsedRealtime();
         if ((thermal == null || stat == null) && now >= nextSuStatsRetryElapsed) {
-            String dump = shellRead(PhoneStatsCommand.READ);
+            String dump = shellRead(
+                    "for z in /sys/class/thermal/thermal_zone*; do "
+                            + "echo \"T:$(cat $z/type 2>/dev/null):$(cat $z/temp 2>/dev/null)\"; done; "
+                            + "echo \"S:$(head -1 /proc/stat)\"");
             if (dump == null) {
                 // 패키지 교체/부팅 직후에는 Magisk 서비스가 늦게 준비될 수 있다.
                 // 한 번 실패했다고 영구 차단하지 말고 낮은 빈도로 계속 복구한다.
-                // Keep CPU independent of a slow or unavailable thermal node.
-                if (stat == null) stat = shellRead("head -1 /proc/stat");
-                if (stat == null) nextSuStatsRetryElapsed = now + 30000L;
-                else nextSuStatsRetryElapsed = 0L;
+                nextSuStatsRetryElapsed = now + 30000L;
             } else {
                 StringBuilder zones = new StringBuilder();
                 for (String line : dump.split("\n")) {

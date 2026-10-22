@@ -16,8 +16,7 @@ final class GpsSourcePolicy {
         return !car && source == PHONE ? GREEN : GREY;
     }
     static String symbol(int source) {
-        return source == -1 ? "권한" : source == -3 ? "오류"
-                : source == MOCK ? "M" : source == -2 ? "×" : source == WAITING ? "—" : "";
+        return source == MOCK ? "M" : source == -2 ? "×" : source == WAITING ? "—" : "";
     }
     static int badgeWidth(int source) {
         return symbol(source).isEmpty() ? 106 : 154;
@@ -61,7 +60,7 @@ final class GpsSourcePolicy {
     static String label(int source) {
         switch (source) {
             case VEHICLE: return "GPS 차량";
-            case PHONE: return "GPS 휴대폰";
+            case PHONE: return "GPS S9";
             case UNKNOWN: return "GPS 출처 미확인";
             case MOCK: return "GPS 모의 위치";
             default: return "GPS 수신 대기";

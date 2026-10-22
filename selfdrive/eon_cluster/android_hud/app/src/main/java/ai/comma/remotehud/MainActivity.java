@@ -55,7 +55,6 @@ public final class MainActivity extends Activity {
     private TextView mapValue;
     private TextView permissionValue;
     private TextView gpsSourceValue;
-    private TextView phoneStatsValue;
     private Button rescanUsbButton;
     private TextView serviceValue;
     private Button startButton;
@@ -270,7 +269,6 @@ public final class MainActivity extends Activity {
         usbValue = addStatusRow(statusCard, "외부 HUD USB");
         fpsValue = addStatusRow(statusCard, "전송 FPS");
         jpegValue = addStatusRow(statusCard, "JPEG 전송");
-        phoneStatsValue = addStatusRow(statusCard, "휴대폰 CPU / 온도");
         gpsSourceValue = addStatusRow(statusCard, "실제 GPS 수신 출처");
         Button gpsPermissionButton = button("GPS 출처 표시 권한 설정", Color.rgb(40, 92, 132));
         gpsPermissionButton.setOnClickListener(v -> {
@@ -583,7 +581,6 @@ public final class MainActivity extends Activity {
 
     private void refreshStatus() {
         if (gpsSourceValue != null) gpsSourceValue.setText(HudService.gpsSourceLabel());
-        if (phoneStatsValue != null) phoneStatsValue.setText(HudService.phoneStatsLabel());
         HudService.StatusSnapshot s = HudService.getStatusSnapshot();
         int navApp = AppPrefs.getNavApp(this);
         noneButton.setText(navApp == 0 ? "✓ 선택 안 함" : "선택 안 함");
