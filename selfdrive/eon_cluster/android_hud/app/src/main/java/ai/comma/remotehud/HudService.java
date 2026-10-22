@@ -6388,6 +6388,16 @@ public final class HudService extends Service {
         String thermal = readThermalDump();
         String stat = readProcStat();
         long now = SystemClock.elapsedRealtime();
+        // S20: 온도는 직접 읽히고 /proc/stat 만 막힌다. 그때 온도 존(80여 개)을 su 로 하나씩
+        // 다 읽으면 2초 제한에 걸려 마지막 CPU 줄까지 못 가 CPU 가 "--" 였다. CPU 만 따로 읽는다.
+        if (thermal != null && stat == null && now >= nextSuStatsRetryElapsed) {
+            String line = shellRead("head -1 /proc/stat");
+            if (line != null && line.trim().startsWith("cpu ")) {
+                stat = line.trim();
+            } else {
+                nextSuStatsRetryElapsed = now + 30000L;
+            }
+        }
         if ((thermal == null || stat == null) && now >= nextSuStatsRetryElapsed) {
             String dump = shellRead(
                     "for z in /sys/class/thermal/thermal_zone*; do "
