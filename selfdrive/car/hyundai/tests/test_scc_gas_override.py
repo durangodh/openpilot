@@ -1,4 +1,4 @@
-"""SCC12/14 ACCMode during driver gas override (aPilot c2-master: 2 / 4, zero request)."""
+"""SCC12/14 ACCMode during driver gas/brake override and AutoHold (aPilot c2-master)."""
 import ast
 import copy
 from pathlib import Path
@@ -49,3 +49,22 @@ def test_active_and_inactive_unchanged():
   assert _m14()['ACCMode'] == 0
   assert _m12(enabled=False, long_override=True)['ACCMode'] == 0
   assert _m14(enabled=False, long_override=True)['ACCMode'] == 0
+
+
+def test_brake_reports_override_on_scc14_only():
+  # aPilot: brake -> SCC12 0, SCC14 4
+  assert _m12(brakepressed=True)['ACCMode'] == 0
+  assert _m14(brakepressed=True)['ACCMode'] == 4
+  assert _m14(brakepressed=True, enabled=False)['ACCMode'] == 0
+
+
+def test_autohold_reports_scc12_0_scc14_4_with_zero_request():
+  m = _m12(long_active=True, apply_accel=-0.5, brake_hold=True)
+  assert m['ACCMode'] == 0 and m['aReqValue'] == 0.0 and m['StopReq'] == 0
+  assert _m14(long_active=True, brake_hold=True)['ACCMode'] == 4
+
+
+def test_soft_hold_mode2_keeps_control_while_braking():
+  m = _m12(brakepressed=True, soft_hold_active=True, standstill=True, apply_accel=-0.5)
+  assert m['ACCMode'] == 1 and m['StopReq'] == 1
+  assert _m14(brakepressed=True, soft_hold_active=True)['ACCMode'] == 1

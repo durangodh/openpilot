@@ -347,7 +347,8 @@ class CarController:
                                       CS.out.gasPressed, driver_braking,
                                       scc_stop_request,
                                       self.car_fingerprint, long_active=CC.longActive,
-                                      soft_hold_active=soft_hold_scc, long_override=long_override))
+                                      soft_hold_active=soft_hold_scc, long_override=long_override,
+                                      brake_hold=CS.out.brakeHoldActive))
 
         can_sends.append(create_scc11(self.packer, self.frame, CC.enabled, set_speed, hud_control.leadVisible, self.scc_live, CS.scc11,
                        controls.cruise_helper.active_cam, soft_hold=soft_hold and CC.longActive,
@@ -373,7 +374,8 @@ class CarController:
             create_scc14(self.packer, CC.enabled, CS.out.vEgo, scc_stop_request, apply_accel, CS.out.gasPressed,
                          obj_gap, obj_gap2, CS.scc14, jerk_upper, jerk_lower, cb_upper, cb_lower,
                          long_active=CC.longActive, brakepressed=CS.out.brakePressed,
-                         soft_hold_active=soft_hold_scc, long_override=long_override))
+                         soft_hold_active=soft_hold_scc, long_override=long_override,
+                         brake_hold=CS.out.brakeHoldActive))
     else:
       self.scc12_cnt = -1
       controls.scc_stop_request = False
