@@ -6519,15 +6519,8 @@ public final class HudService extends Service {
             if (!Float.isFinite(value) || value <= 0f || value >= 150f) {
                 continue;
             }
-            String type = line.substring(0, sep).trim().toLowerCase(Locale.US);
-            // 퀄컴(S20 국내 SM-G981N 등)의 "soc" 존은 온도가 아니라 배터리 잔량(BCL)이고,
-            // bcl/ibat/vbat/lvl 존은 전류·전압 트립값이다. 배터리리스 S9 에선 없었지만
-            // 배터리가 있는 폰에선 85~100 이 °C 로 잡히므로 폴백에서도 제외한다.
-            if (type.equals("soc") || type.contains("bcl") || type.contains("ibat")
-                    || type.contains("vbat") || type.contains("lvl")) {
-                continue;
-            }
-            if (type.contains("cpu") || type.contains("big")
+            String type = line.substring(0, sep).toLowerCase(Locale.US);
+            if (type.contains("cpu") || type.contains("big") || type.contains("soc")
                     || type.contains("apollo") || type.contains("atlas")) {
                 best = Math.max(best, value);
             }
