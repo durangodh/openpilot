@@ -71,3 +71,33 @@ def test_close_cut_in_is_left_alone():
     t = i * 0.05
     out = vls.update(_vision(27. - 9. * t, 12.2, 14.9), t, 14.9)
   assert out['vLead'] == 12.2
+
+
+def _load_prefer():
+  source = Path(__file__).resolve().parents[1] / 'radard.py'
+  tree = ast.parse(source.read_text(encoding='utf-8'))
+  keep = [n for n in tree.body if (isinstance(n, ast.FunctionDef) and n.name == 'prefer_nearer_vision') or
+          (isinstance(n, ast.Assign) and any(getattr(t, 'id', '').startswith('VISION_NEAR_') for t in n.targets))]
+  env = {}
+  exec(compile(ast.Module(body=keep, type_ignores=[]), str(source), 'exec'), env)
+  return env['prefer_nearer_vision']
+
+
+prefer_nearer_vision = _load_prefer()
+
+
+def _lead(d, v):
+  return {'status': True, 'dRel': d, 'vLead': v}
+
+
+def test_nearer_slow_camera_lead_replaces_far_radar_lead():
+  # 2026-10-22 420 s: radar 49 m, camera 36 m at ~2 m/s while we drive 10 m/s
+  assert prefer_nearer_vision(_lead(49., 2.), _lead(36., 1.5), 10., 0.9)
+
+
+def test_radar_kept_when_close_agreeing_fast_far_or_uncertain():
+  assert not prefer_nearer_vision(_lead(40., 9.), _lead(37., 2.), 10., 0.9)   # within 5 m
+  assert not prefer_nearer_vision(_lead(49., 9.), _lead(36., 9.5), 10., 0.9)  # camera lead not slower
+  assert not prefer_nearer_vision(_lead(90., 2.), _lead(70., 2.), 20., 0.9)   # camera too far to trust
+  assert not prefer_nearer_vision(_lead(49., 2.), _lead(36., 2.), 10., 0.6)   # low model prob
+  assert not prefer_nearer_vision({'status': False}, _lead(36., 2.), 10., 0.9)

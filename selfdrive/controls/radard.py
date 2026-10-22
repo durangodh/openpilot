@@ -120,6 +120,26 @@ def match_vision_to_cluster(v_ego, lead, clusters):
   else:
     return None
 
+# 레이더가 더 먼 물체(또는 거의 선 차를 버리고 그 뒤 차)를 잡고 있는데 카메라는 더 가깝고
+# 우리보다 느린 앞차를 보면 카메라 앞차를 쓴다. 2026-10-22 long 11:13 415~425 s: 거의 선 차를
+# 레이더는 49~62 m 로 보다가 놓쳤고, 카메라는 36 m 로 잡아 그때부터 -2.2 급제동했다.
+# 가까운 쪽으로만 바꾸므로 제동은 더 일찍·약하게 시작되고, 먼 카메라 오차(60 m 넘음)는 쓰지 않는다.
+VISION_NEAR_MAX_D = 60.0      # m
+VISION_NEAR_MIN_GAP = 5.0     # m, 레이더보다 이만큼(또는 15%) 이상 가까울 때만
+VISION_NEAR_GAP_RATIO = 0.15
+VISION_NEAR_MIN_PROB = 0.7
+VISION_NEAR_MIN_CLOSING = 1.0  # m/s, 우리보다 이만큼 이상 느린 앞차만
+
+
+def prefer_nearer_vision(radar_lead, vision_lead, v_ego, prob):
+  if prob < VISION_NEAR_MIN_PROB or not radar_lead.get('status') or not vision_lead.get('status'):
+    return False
+  d_vis, d_radar = vision_lead['dRel'], radar_lead['dRel']
+  return (0.0 < d_vis < VISION_NEAR_MAX_D and
+          d_radar - d_vis > max(VISION_NEAR_MIN_GAP, VISION_NEAR_GAP_RATIO * d_radar) and
+          vision_lead['vLead'] < v_ego - VISION_NEAR_MIN_CLOSING)
+
+
 def get_lead(v_ego, ready, clusters, lead_msg, model_v_ego, low_speed_override=True, mixRadarInfo=0):
   # Determine leads, this is where the essential logic happens
   if len(clusters) > 0 and ready and lead_msg.prob > .5:
@@ -130,6 +150,9 @@ def get_lead(v_ego, ready, clusters, lead_msg, model_v_ego, low_speed_override=T
   lead_dict = {'status': False}
   if cluster is not None:
     lead_dict = cluster.get_RadarState2(lead_msg.prob, lead_msg, mixRadarInfo)
+    vision_dict = Cluster().get_RadarState_from_vision(lead_msg, v_ego, model_v_ego)
+    if prefer_nearer_vision(lead_dict, vision_dict, v_ego, lead_msg.prob):
+      lead_dict = vision_dict
   elif (cluster is None) and ready and (lead_msg.prob > .5):
     lead_dict = Cluster().get_RadarState_from_vision(lead_msg, v_ego, model_v_ego)
 

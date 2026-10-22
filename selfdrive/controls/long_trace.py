@@ -42,6 +42,8 @@ COLUMNS = [
   "v_cruise", "set_speed", "apply_source",
   # ⑧ 차간시간(초): MPC 추종시간(간격 회복 여유 포함), 그중 간격 회복 여유
   "t_follow", "gap_extra_tf",
+  # ⑨ 카메라 모델 앞차 원값(레이더와 비교용): 거리(m, 레이더 기준), 속도(m/s), 확률
+  "vis_d", "vis_v", "vis_prob",
 ]
 
 
@@ -148,4 +150,13 @@ def _row(sm):
     _f(ctl.vCruise, 1), _f(ctl.vCruiseCluster, 1),
     str(sm['carControl'].sccSmoother.applySource).replace(",", " ") or "-",
     _f(plan.tFollow), _f(plan.gapExtraTf),
+    *_vision_lead(sm),
   ]
+
+
+def _vision_lead(sm):
+  try:
+    lead = sm['modelV2'].leadsV3[0]
+    return [_f(lead.x[0] - 1.52, 2), _f(lead.v[0]), _f(lead.prob, 2)]
+  except Exception:
+    return ["", "", ""]
