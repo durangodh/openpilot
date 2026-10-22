@@ -5,7 +5,7 @@ import hashlib
 import shutil
 from common.basedir import BASEDIR
 
-REMOVED_REMOTE_APPS = ("ai.comma.eonbleremote", "ai.comma.eonbleremote.probe", "ai.comma.eonbtpolicy")
+OPTIONAL_REMOTE_APPS = ("ai.comma.eonbleremote", "ai.comma.eonbtpolicy")
 
 android_packages = ("com.neokii.optool", )
 
@@ -60,38 +60,13 @@ def system(cmd):
 
 # *** external functions ***
 
-def remove_remote_apps(installed):
-  # Upgraded EONs may still have a privileged copy on read-only /system.
-  # Stop and disable that copy; uninstall regular /data applications.
-  env = os.environ.copy()
-  env["LD_LIBRARY_PATH"] = ""
-  for app in REMOVED_REMOTE_APPS:
-    path = installed.pop(app, None)
-    if path is None:
-      continue
-    commands = [["am", "force-stop", app], ["pm", "disable", app]]
-    if not path.startswith("/system/"):
-      commands.append(["pm", "uninstall", app])
-    for command in commands:
-      try:
-        result = subprocess.run(command, env=env, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, timeout=10, check=False)
-        if result.returncode:
-          print("remote app cleanup failed: %s" % " ".join(command))
-      except (OSError, subprocess.TimeoutExpired) as error:
-        print("remote app cleanup failed: %s" % error)
-
-
 def update_apks():
   # install apks
   installed = get_installed_apks()
-  remove_remote_apps(installed)
 
   install_apks = glob.glob(os.path.join(BASEDIR, "apk/*.apk"))
   for apk in install_apks:
     app = os.path.basename(apk)[:-4]
-    if app in REMOVED_REMOTE_APPS:
-      continue
     if app not in installed:
       installed[app] = None
 
@@ -100,6 +75,13 @@ def update_apks():
   for app in installed.keys():
     apk_path = os.path.join(BASEDIR, "apk/"+app+".apk")
     if not os.path.exists(apk_path):
+      continue
+
+    if app == "ai.comma.eonbleremote" and installed[app] is not None and \
+        installed[app].startswith("/system/priv-app/"):
+      # Android 6 protects HID reports with BLUETOOTH_PRIVILEGED. A regular
+      # package update can replace the privileged system installation.
+      print("keeping privileged EON BLE remote system APK")
       continue
 
     h1 = hashlib.sha1(open(apk_path, 'rb').read()).hexdigest()
@@ -113,11 +95,39 @@ def update_apks():
 
       success = install_apk(apk_path)
       if not success:
+        if app in OPTIONAL_REMOTE_APPS and installed[app] is None:
+          print("optional EON BLE remote APK install failed; continuing openpilot startup")
+          continue
         print("needing to uninstall %s" % app)
         system("pm uninstall %s" % app)
         success = install_apk(apk_path)
+        if not success and app in OPTIONAL_REMOTE_APPS:
+          print("optional EON BLE remote APK install failed; continuing openpilot startup")
+          continue
 
       assert success
+
+  # Android 6 revokes runtime permissions when a differently signed BLE APK
+  # must be uninstalled before reinstalling it. Without location permission,
+  # BLE scanning starts but delivers no advertisements.
+  # c7efc3b (remote removed, now restored) ran `pm disable` on these packages,
+  # including privileged /system copies that cannot be reinstalled from apk/.
+  # Re-enable them once per boot; enabling an enabled package is a no-op.
+  installed_now = get_installed_apks()
+  for app in OPTIONAL_REMOTE_APPS + ("ai.comma.eonbleremote.probe",):
+    if app in installed_now:
+      try:
+        subprocess.run(["pm", "enable", app], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=10, check=False)
+      except (OSError, subprocess.TimeoutExpired):
+        print("EON BLE remote enable failed: %s" % app)
+
+  if "ai.comma.eonbleremote" in installed_now:
+    try:
+      subprocess.check_call(["pm", "grant", "ai.comma.eonbleremote",
+                             "android.permission.ACCESS_COARSE_LOCATION"])
+    except subprocess.CalledProcessError:
+      print("EON BLE remote location permission grant failed")
 
 def pm_apply_packages(cmd):
   for p in android_packages:

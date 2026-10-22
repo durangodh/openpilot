@@ -1,0 +1,75 @@
+name: Build EON R1 BLE receiver
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [g_remote]
+    paths:
+      - 'selfdrive/eon_cluster/eon_ble_remote/**'
+      - '.github/workflows/build-eon-ble-remote.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Check R1 BLE report and bridge authentication
+        run: |
+          python3 -m unittest selfdrive.eon_cluster.test_ble_r1 selfdrive.eon_cluster.test_bluetooth_policy
+          python3 -m py_compile selfdrive/eon_cluster/direct_remote.py
+          python3 -m py_compile selfdrive/hardware/eon/apk.py
+      - name: Check exact R1 pairing allowlist
+        run: |
+          javac -d "$RUNNER_TEMP/r1-policy-check" selfdrive/eon_cluster/eon_ble_remote/app/src/main/java/ai/comma/eonbleremote/R1OnlyPolicy.java selfdrive/eon_cluster/eon_ble_remote/tests/R1OnlyPolicyCheck.java
+          java -cp "$RUNNER_TEMP/r1-policy-check" ai.comma.eonbleremote.R1OnlyPolicyCheck
+      - name: Build APK
+        working-directory: selfdrive/eon_cluster/eon_ble_remote
+        run: gradle :app:assembleDebug --no-daemon
+      - name: Check APK minimum Android API
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging \
+            selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk \
+            | grep -F "sdkVersion:'21'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions \
+            selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk \
+            | grep -F 'android.permission.BLUETOOTH_PRIVILEGED'
+          sh -n selfdrive/eon_cluster/eon_ble_remote/install_privileged_eon.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eon-ble-remote-apk
+          path: selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk
+      - name: Build separate diagnostic package
+        working-directory: selfdrive/eon_cluster/eon_ble_remote
+        run: gradle :app:assembleDebug -PremotePackage=ai.comma.eonbleremote.probe --no-daemon
+      - name: Check diagnostic APK identity and permissions
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging \
+            selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk \
+            | grep -F "package: name='ai.comma.eonbleremote.probe'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions \
+            selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk \
+            | grep -F 'android.permission.BLUETOOTH_PRIVILEGED'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eon-ble-remote-probe-apk
+          path: selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk
+      - name: Build standalone Bluetooth policy package
+        working-directory: selfdrive/eon_cluster/eon_ble_remote
+        run: gradle :app:assembleDebug -PremotePackage=ai.comma.eonbtpolicy --no-daemon
+      - name: Check Bluetooth policy package
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk | grep -F "package: name='ai.comma.eonbtpolicy'"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eon-bluetooth-policy-apk
+          path: selfdrive/eon_cluster/eon_ble_remote/app/build/outputs/apk/debug/app-debug.apk

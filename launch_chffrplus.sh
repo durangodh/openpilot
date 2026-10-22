@@ -82,8 +82,9 @@ function two_init {
   # the flippening!
   LD_LIBRARY_PATH="" content insert --uri content://settings/system --bind name:s:user_rotation --bind value:i:1
 
-  # EON no longer uses Bluetooth remote input.
-  LD_LIBRARY_PATH="" service call bluetooth_manager 8
+  # Keep Android's Bluetooth state across boot. Pairing and button learning
+  # happen before HudRemoteDirectEnabled is turned on, so disabling Bluetooth
+  # here would drop the HID input device after every restart or reinstall.
 
   # wifi scan
   wpa_cli IFNAME=wlan0 SCAN
