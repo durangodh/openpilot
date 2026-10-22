@@ -57,10 +57,13 @@ final class GpsSourcePolicy {
     static int current(int source, long fixMs, long nowMs) {
         return fixMs <= 0 || nowMs < fixMs || nowMs - fixMs >= 3000 ? WAITING : source;
     }
+    /** HudService 가 시작할 때 기기 이름(S20 / S9)으로 바꾼다. */
+    static volatile String phoneName = "S20";
+
     static String label(int source) {
         switch (source) {
             case VEHICLE: return "GPS 차량";
-            case PHONE: return "GPS S9";
+            case PHONE: return "GPS " + phoneName;
             case UNKNOWN: return "GPS 출처 미확인";
             case MOCK: return "GPS 모의 위치";
             default: return "GPS 수신 대기";

@@ -677,6 +677,7 @@ public final class HudService extends Service {
     public void onCreate() {
         super.onCreate();
         HudDiagnostics.init(this);
+        GpsSourcePolicy.phoneName = PHONE_NAME;
         gpsSourceMonitor = new GpsSourceMonitor(this);
         gpsSourceMonitor.start();
         gpsSourceIcons = new GpsSourceIcons(getResources());
@@ -4331,11 +4332,11 @@ public final class HudService extends Service {
         float phoneTemp = freshStat(this.s9TempC, s9TempSampleElapsed, statsNow);
         float phoneCpu = freshStat(this.s9CpuPercent, s9CpuSampleElapsed, statsNow);
         eonBoxRect(c, p, 15f, 125f, 135f, 100f, phoneTemp >= 70f ? red : green190, 2f, white);
-        eonTextIn(c, p, "S9 \u00B0C", 15f, 125f, 135f, 38f, 26f, white);
+        eonTextIn(c, p, PHONE_NAME + " \u00B0C", 15f, 125f, 135f, 38f, 26f, white);
         eonTextIn(c, p, phoneTemp < 0f ? "--" : String.format(Locale.US, "%.0f\u00B0C", phoneTemp),
                 15f, 163f, 135f, 62f, 46f, white);
         eonBoxRect(c, p, 160f, 125f, 135f, 100f, phoneCpu >= 90f ? red : green190, 2f, white);
-        eonTextIn(c, p, "S9 CPU", 160f, 125f, 135f, 38f, 26f, white);
+        eonTextIn(c, p, PHONE_NAME + " CPU", 160f, 125f, 135f, 38f, 26f, white);
         eonTextIn(c, p, phoneCpu < 0f ? "--" : String.format(Locale.US, "%.0f%%", phoneCpu),
                 160f, 163f, 135f, 62f, 46f, white);
 
@@ -6146,7 +6147,7 @@ public final class HudService extends Service {
         scratchRect.set(68f, 401f, 96f, 449f);
         c.drawRoundRect(scratchRect, 4f, 4f, p);
         textNormal(c, p, "C2", 82f, 417f, 14f, Color.rgb(238, 242, 246), Paint.Align.CENTER);
-        textNormal(c, p, "S9", 82f, 443f, 14f, Color.rgb(238, 242, 246), Paint.Align.CENTER);
+        textNormal(c, p, PHONE_NAME, 82f, 443f, 14f, Color.rgb(238, 242, 246), Paint.Align.CENTER);
         textNormal(c, p, c2Temp, 40f, 417f, 16f, c2TempColor, Paint.Align.CENTER);
         textNormal(c, p, phoneTemp, 40f, 443f, 16f, phoneTempColor, Paint.Align.CENTER);
         textNormal(c, p, c2Cpu, 126f, 417f, 16f, c2CpuColor, Paint.Align.CENTER);
@@ -6297,7 +6298,7 @@ public final class HudService extends Service {
         p.setStyle(Paint.Style.FILL);
         p.setColor(Color.rgb(7, 12, 18));
         c.drawRect(SYSTEM_LEFT, 0f, SYSTEM_RIGHT, HEIGHT, p);
-        text(c, p, lang("S9 리모트", "S9 REMOTE"), 1824f, 26f, 17f,
+        text(c, p, lang(PHONE_NAME + " 리모트", PHONE_NAME + " REMOTE"), 1824f, 26f, 17f,
                 Color.rgb(140, 210, 255), Paint.Align.CENTER);
 
         long now = SystemClock.elapsedRealtime();
@@ -6351,6 +6352,8 @@ public final class HudService extends Service {
     // 3초마다 돌린다.
 
     private static final long STATS_PERIOD_MS = 3000L;
+    /** HUD 에 보이는 휴대폰 이름(S20 / S9). */
+    static final String PHONE_NAME = PhoneName.of(Build.MODEL);
 
     /** 진단 로그를 EON(7714/trace)으로 올린다. 평소 1분, USB 기록이 생기면 10초 간격. */
     private void logUploadLoop() {
@@ -6700,7 +6703,7 @@ public final class HudService extends Service {
                 configuredFps, Math.max(2, Math.min(5, s.optInt("hudMapFps", 5))), jpegQuality),
                 MAP_LEFT + 40f, y, 22f, fg, Paint.Align.LEFT);
         y += 52f;
-        text(c, p, lang("S9 렌더링 / USB 출력", "S9 RENDER / USB OUTPUT"),
+        text(c, p, lang(PHONE_NAME + " 렌더링 / USB 출력", PHONE_NAME + " RENDER / USB OUTPUT"),
                 MAP_LEFT + 40f, y, 20f, sub, Paint.Align.LEFT);
     }
 

@@ -36,13 +36,13 @@ public final class GpsSourceDeviceCheck {
         location.setExtras(extras);
         location.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
         monitor.onLocationChanged(location);
-        check(monitor.label().equals("GPS S9"));
+        check(monitor.label().equals("GPS S20"));
         check(monitor.snapshot().accuracy.isEmpty());
         location.setAccuracy(4.1f);
         location.setElapsedRealtimeNanos(location.getElapsedRealtimeNanos() + 1L);
         monitor.onLocationChanged(location);
         check(monitor.snapshot().accuracy.equals("4.1m"));
-        check(monitor.label().equals("GPS S9 4.1m"));
+        check(monitor.label().equals("GPS S20 4.1m"));
         monitor.stop();
         check(monitor.label().equals("GPS 수신 대기"));
         location.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos() - 4000000000L);

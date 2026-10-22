@@ -662,7 +662,7 @@ public final class MainActivity extends Activity {
                 .setMessage("1. 알림 권한을 허용합니다.\n\n"
                         + "2. 외부 HUD 를 연결합니다. USB 권한은 루트로 자동 설정됩니다.\n\n"
                         + "3. 앱 상단에서 티맵/네이버/카카오를 선택할 수 있습니다. 선택은 EON에도 반영됩니다.\n\n"
-                        + "EON과 S9은 같은 네트워크에서 UDP 7210 / TCP 7211 통신이 가능해야 합니다.")
+                        + "EON과 " + HudService.PHONE_NAME + "은 같은 네트워크에서 UDP 7210 / TCP 7211 통신이 가능해야 합니다.")
                 .setPositiveButton("권한 확인", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
