@@ -1,8 +1,8 @@
 plugins { id "com.android.application" }
 
 def remoteHudKeystorePath = System.getenv("REMOTE_HUD_KEYSTORE_PATH")
-def remoteHudVersionCode = (System.getenv("REMOTE_HUD_VERSION_CODE") ?: "153").toInteger()
-def remoteHudVersionName = System.getenv("REMOTE_HUD_VERSION_NAME") ?: "1.42-revert-battery-stats"
+def remoteHudVersionCode = (System.getenv("REMOTE_HUD_VERSION_CODE") ?: "154").toInteger()
+def remoteHudVersionName = System.getenv("REMOTE_HUD_VERSION_NAME") ?: "1.43-revert-sign-column"
 
 android {
   namespace "ai.comma.remotehud"
