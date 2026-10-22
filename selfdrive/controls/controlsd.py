@@ -739,11 +739,14 @@ class Controls:
     CC.latActive = self.active and not CS.steerFaultTemporary and not CS.steerFaultPermanent and \
                      CS.vEgo > self.CP.minSteerSpeed and not CS.standstill \
                    and abs(CS.steeringAngleDeg) < self.CP.maxSteeringAngleDeg
-    CC.longActive = self.active and not self.events.any(ET.OVERRIDE) and self.CP.openpilotLongitudinalControl and \
-                    self.cruise_helper.long_active_user > 0
+    # aPilot c2-master longEnabled: longitudinal control only in D. Leaving D pauses it
+    # (longActiveUser = 0) like aPilot.
+    drive_gear = CS.gearShifter == GearShifter.drive
+    if self.enabled and not drive_gear:
+      self.cruise_helper.long_active_user = 0
+    CC.longActive = self.active and drive_gear and not self.events.any(ET.OVERRIDE) and \
+                    self.CP.openpilotLongitudinalControl and self.cruise_helper.long_active_user > 0
 
-    drive_gear = CS.gearShifter in (GearShifter.drive, GearShifter.eco, GearShifter.sport,
-                                    GearShifter.low, GearShifter.manumatic)
     CC.hudControl.softHold = long_plan.xState == XState.softHold and self.enabled and drive_gear and \
                              self.cruise_helper.auto_cruise_control
 

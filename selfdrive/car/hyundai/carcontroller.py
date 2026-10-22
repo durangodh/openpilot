@@ -18,8 +18,8 @@ from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 
 VisualAlert = car.CarControl.HUDControl.VisualAlert
 GearShifter = car.CarState.GearShifter
-# Same drive-gear set controlsd uses for soft hold / longitudinal ownership.
-DRIVE_GEARS = (GearShifter.drive, GearShifter.eco, GearShifter.sport, GearShifter.low, GearShifter.manumatic)
+# aPilot c2-master longEnabled: D only (same as controlsd).
+DRIVE_GEARS = (GearShifter.drive,)
 
 
 def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego):
@@ -313,7 +313,7 @@ class CarController:
         set_speed *= CV.MS_TO_MPH if CS.is_set_speed_in_mph else CV.MS_TO_KPH
 
         driver_braking = CS.out.brakePressed and not soft_hold_scc
-        # aPilot C2 longEnabled / longOverride: drive gear (same set as controlsd), gas pressed
+        # aPilot C2 longEnabled / longOverride: D gear (same as controlsd), gas pressed
         # while enabled -> SCC12 ACCMode 2 / SCC14 4 with a zero request.
         drive_gear = CS.out.gearShifter in DRIVE_GEARS
         long_override = CC.enabled and drive_gear and CS.out.gasPressed and not soft_hold_scc
