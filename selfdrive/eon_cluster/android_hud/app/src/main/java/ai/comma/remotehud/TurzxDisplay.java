@@ -266,8 +266,6 @@ public final class TurzxDisplay {
             close();
             return false;
         }
-        lastOpenFailure = "";
-        openFailureStreak = 0;
 
         // A freshly opened Android USB connection already starts with matching
         // host/device data toggles. Sending a raw CLEAR_FEATURE here can reset
@@ -287,6 +285,11 @@ public final class TurzxDisplay {
             close();
             return false;
         }
+        // 초기화까지 성공해야 실패 횟수를 지운다. 인터페이스를 잡은 직후에 지우면 초기화가
+        // 매번 실패해도 횟수가 1 에 머물러 포트 재바인딩이 끝내 돌지 않았다(2026-10-23 로그:
+        // 07:36~07:38, 07:43~07:49 "초기화 실패 streak=1" 만 반복, HUD 멈춤).
+        lastOpenFailure = "";
+        openFailureStreak = 0;
         return true;
     }
 

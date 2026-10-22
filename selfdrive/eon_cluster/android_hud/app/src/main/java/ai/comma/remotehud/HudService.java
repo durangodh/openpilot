@@ -2012,7 +2012,9 @@ public final class HudService extends Service {
                 usbNeedsPrimeFrame = true;
                 appliedBrightness = -1;
             }
-            HudDiagnostics.log("usb-open device=" + display.deviceNameOrNull());
+            if (openAfter > openBefore) {
+                HudDiagnostics.log("usb-open device=" + display.deviceNameOrNull());
+            }
             return true;
         } catch (Exception e) {
             handleUsbError(e);
@@ -2263,6 +2265,7 @@ public final class HudService extends Service {
             usbErrorStreak = 0;
 
             if (display.closeUnresponsive(15000L)) {
+                HudDiagnostics.log("usb-unresponsive silence>15s close");
                 usbStatus = "패널 무응답 · 재초기화 (휴대폰 HUD 정상)";
                 appliedBrightness = -1;
                 usbErrorStreak++;
