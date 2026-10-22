@@ -75,22 +75,6 @@ def scale_cruise_max_accel(cruise_max_accel, accel_factor=CRUISE_ACCEL_FACTOR_DE
   return float(max(0.0, cruise_max_accel * clip(accel_factor, 0.50, 1.50)))
 
 
-def cap_pid_accel_limits(accel_limits, v_ego, cruise_max_vals, driving_mode,
-                         eco_mode_factor=1.0, safe_mode_factor=1.0,
-                         accel_factor=CRUISE_ACCEL_FACTOR_DEFAULT):
-  """Apply the user-visible cruise acceleration limit to the final PID output.
-
-  The MPC already uses the CruiseMax table, but the speed-error PID previously
-  retained the Hyundai controller's 2.5 m/s^2 upper bound. A sufficiently large
-  speed error could therefore command more acceleration than the configured
-  table. Preserve the vehicle braking limit and cap only positive acceleration.
-  """
-  cruise_max = get_cruise_max_accel(v_ego, cruise_max_vals, driving_mode,
-                                    eco_mode_factor, safe_mode_factor)
-  cruise_max = scale_cruise_max_accel(cruise_max, accel_factor)
-  return [float(accel_limits[0]), float(min(accel_limits[1], cruise_max))]
-
-
 def select_auto_driving_mode(initial_mode, current_mode, driving_index):
   """Map AUTO to SAFE/NORMAL while preserving manually selected ECO/FAST."""
   if initial_mode != 5 or driving_index <= 0.0 or current_mode in (2, 4):

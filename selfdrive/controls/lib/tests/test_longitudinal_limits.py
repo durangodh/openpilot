@@ -5,7 +5,6 @@ DT_CTRL = 0.01
 from common.conversions import Conversions as CV
 from selfdrive.controls.lib.longitudinal_limits import (AUTO_SPEED_UP_RATE_KPH_S,
                                                         CRUISE_MAX_VAL_DEFAULTS,
-                                                        cap_pid_accel_limits,
                                                         get_auto_speed_up_target,
                                                         get_cruise_max_accel,
                                                         scale_cruise_max_accel,
@@ -56,21 +55,6 @@ def test_no_lead_cap_scales_cruise_max_over_the_whole_range():
   assert scale_cruise_max_accel(1.0, 0.95) == pytest.approx(0.95)
   assert scale_cruise_max_accel(1.0, 1.05) == pytest.approx(1.05)
   assert scale_cruise_max_accel(1.0, 3.0) == pytest.approx(1.5)  # clipped
-
-
-def test_final_pid_output_cannot_exceed_cruise_max_setting():
-  limits = cap_pid_accel_limits([-4.0, 2.5], 40.0 * CV.KPH_TO_MS,
-                                CRUISE_MAX_VAL_DEFAULTS, 3)
-  assert limits == pytest.approx([-4.0, 1.2])
-
-  safe_limits = cap_pid_accel_limits([-4.0, 2.5], 40.0 * CV.KPH_TO_MS,
-                                     CRUISE_MAX_VAL_DEFAULTS, 1, 0.8, 0.8)
-  assert safe_limits == pytest.approx([-4.0, 0.768])
-
-  no_lead_limits = cap_pid_accel_limits([-4.0, 2.5], 40.0 * CV.KPH_TO_MS,
-                                        CRUISE_MAX_VAL_DEFAULTS, 3,
-                                        accel_factor=0.75)
-  assert no_lead_limits == pytest.approx([-4.0, 0.9])
 
 
 def test_turn_limit_preserves_straight_road_acceleration():

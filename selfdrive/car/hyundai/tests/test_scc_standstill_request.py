@@ -13,25 +13,18 @@ def load_stop_request_gate():
   return env['should_request_scc_standstill']
 
 
-def test_stopping_does_not_request_stop_while_vehicle_is_moving():
+def test_stopping_requests_stop_while_still_rolling():
+  # aPilot c2-master: stopReq = stopping and longEnabled
   gate = load_stop_request_gate()
-  assert not gate(True, False, False, 1.9)
-  assert not gate(True, False, False, 0.1)
+  assert gate(True, False, False, 1.9)
+  assert gate(True, False, True, 0.0)
 
 
-def test_stopping_requests_stop_at_actual_standstill():
+def test_soft_hold_requests_stop():
   gate = load_stop_request_gate()
-  assert gate(True, False, True, 0.2)
-  assert gate(True, False, False, 0.09)
-
-
-def test_soft_hold_uses_the_same_actual_standstill_gate():
-  gate = load_stop_request_gate()
-  assert not gate(False, True, False, 0.5)
-  assert gate(False, True, True, 0.0)
+  assert gate(False, True, False, 0.5)
 
 
 def test_inactive_state_never_requests_stop():
   gate = load_stop_request_gate()
   assert not gate(False, False, True, 0.0)
-

@@ -20,11 +20,8 @@ VisualAlert = car.CarControl.HUDControl.VisualAlert
 
 
 def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego):
-  """Assert Hyundai StopReq only after the vehicle has actually stopped."""
-  actual_standstill = car_standstill or v_ego < 0.1
-  if soft_hold_scc:
-    return bool(actual_standstill)
-  return bool(stopping and actual_standstill)
+  """aPilot c2-master: StopReq for the whole stopping state (and soft hold mode 2 with brake)."""
+  return bool(stopping or soft_hold_scc)
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
