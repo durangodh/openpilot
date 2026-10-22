@@ -2,8 +2,9 @@
 
 carrot_navi_server(포트 7714)가 WebSocket 이 아닌 일반 GET /trace 요청을 여기로 넘긴다.
 폰 브라우저에서 http://EON_IP:7714/trace 를 열면 목록이 나오고, 누르면 받는다.
-두 기록 폴더의 *.csv 만 내려준다(경로 이동 불가). '전체 삭제' 버튼(/trace?delete=all)은
+기록 폴더의 *.csv / *.log 만 내려준다(경로 이동 불가). '전체 삭제' 버튼(/trace?delete=all)은
 같은 파일들을 지우되, 지금 기록 중인 파일(최근 RECORDING_S 초 안에 바뀐 것)은 남긴다.
+HUD 앱(S9/S20)은 자기 진단 로그를 POST /trace/upload/hud/<이름>.log 로 올린다.
 """
 import html
 import os
@@ -15,7 +16,11 @@ TRACE_DIRS = {
   # long_trace.TRACE_DIR / lat_trace.TRACE_DIR 와 같아야 한다.
   "long": ("가감속 (LONG TRACE)", "/data/media/0/long_trace"),
   "lat": ("조향 (LAT TRACE)", "/data/media/0/lat_trace"),
+  "hud": ("HUD 앱 로그 (휴대폰)", "/data/media/0/hud_log"),
 }
+# HUD 앱이 올릴 수 있는 파일. HudDiagnostics 는 512KB 에서 previous 로 넘긴다.
+HUD_UPLOAD_NAMES = ("hud-session.log", "hud-session.previous.log")
+HUD_UPLOAD_MAX = 1024 * 1024
 NAME_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}\.(csv|log)$")
 CHUNK = 64 * 1024
 RECORDING_S = 10.0
@@ -23,6 +28,10 @@ RECORDING_S = 10.0
 
 def is_trace_path(path):
   return path == "/trace" or path.startswith("/trace/") or path.startswith("/trace?")
+
+
+def is_upload_path(path):
+  return path.startswith("/trace/upload/")
 
 
 def _send(conn, status, ctype, body, extra=""):
@@ -61,7 +70,8 @@ def _listing(deleted=None):
       except OSError:
         pass
     if not files:
-      parts.append("<p>파일이 없습니다. 설정에서 기록을 켜고 주행하면 생깁니다.</p>")
+      parts.append("<p>파일이 없습니다. HUD 앱이 EON 과 연결되면 1분 안에 올라옵니다.</p>" if key == "hud" else
+                   "<p>파일이 없습니다. 설정에서 기록을 켜고 주행하면 생깁니다.</p>")
       continue
     for mtime, size, n in sorted(files, reverse=True):
       when = time.strftime("%m-%d %H:%M", time.localtime(mtime))
@@ -89,6 +99,35 @@ def _delete_all():
       except OSError:
         pass
   return count
+
+
+def receive(conn, path, headers, body):
+  """POST /trace/upload/hud/<이름>: HUD 앱 진단 로그를 받아 hud 폴더에 통째로 바꿔 쓴다."""
+  parts = unquote(path.split("?", 1)[0]).rstrip("/").split("/")   # ['', 'trace', 'upload', 'hud', name]
+  try:
+    length = int(headers.get("content-length", "-1"))
+  except ValueError:
+    length = -1
+  if len(parts) != 5 or parts[3] != "hud" or parts[4] not in HUD_UPLOAD_NAMES \
+     or not 0 <= length <= HUD_UPLOAD_MAX:
+    _send(conn, "400 Bad Request", "text/plain; charset=utf-8", b"bad upload")
+    return
+  while len(body) < length:
+    part = conn.recv(min(CHUNK, length - len(body)))
+    if not part:
+      return
+    body += part
+  directory = TRACE_DIRS["hud"][1]
+  try:
+    os.makedirs(directory, exist_ok=True)
+    tmp = os.path.join(directory, "." + parts[4] + ".tmp")
+    with open(tmp, "wb") as f:
+      f.write(body[:length])
+    os.replace(tmp, os.path.join(directory, parts[4]))
+  except OSError:
+    _send(conn, "500 Internal Server Error", "text/plain; charset=utf-8", b"write failed")
+    return
+  _send(conn, "200 OK", "text/plain; charset=utf-8", b"ok")
 
 
 def serve(conn, path):

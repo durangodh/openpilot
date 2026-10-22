@@ -509,6 +509,7 @@ public final class HudService extends Service {
     /** 부팅 직후 Magisk가 아직 준비되지 않았을 때의 다음 재시도 시각. */
     private volatile long nextSuStatsRetryElapsed = 0L;
     private Thread statsThread;
+    private Thread logUploadThread;
     private int configuredOrientation = 0;
     private boolean configuredMirror = false;
 
@@ -849,11 +850,13 @@ public final class HudService extends Service {
             }
         }, "hud-stats");
         localMapThread = new Thread(this::localMapLoop, "hud-local-map");
+        logUploadThread = new Thread(this::logUploadLoop, "hud-log-upload");
         receiverThread.start();
         mapThread.start();
         localMapThread.start();
         renderThread.start();
         statsThread.start();
+        logUploadThread.start();
 
     }
 
@@ -6349,6 +6352,26 @@ public final class HudService extends Service {
 
     private static final long STATS_PERIOD_MS = 3000L;
 
+    /** 진단 로그를 EON(7714/trace)으로 올린다. 평소 1분, USB 기록이 생기면 10초 간격. */
+    private void logUploadLoop() {
+        HudLogUploader uploader = new HudLogUploader(getFilesDir());
+        long lastUpload = 0L;
+        while (running.get()) {
+            if ("--".equals(lastEonAddress)) {   // EON 주소를 받기 전에는 올릴 곳이 없다
+                SystemClock.sleep(2000L);
+                continue;
+            }
+            long now = SystemClock.elapsedRealtime();
+            boolean urgent = HudDiagnostics.lastUsbEventElapsed() > lastUpload
+                    && now - lastUpload >= HudLogUploader.URGENT_MS;
+            if (lastUpload == 0L || urgent || now - lastUpload >= HudLogUploader.PERIOD_MS) {
+                lastUpload = now;
+                uploader.uploadChanged(lastEonAddress);
+            }
+            SystemClock.sleep(2000L);
+        }
+    }
+
     private void statsLoop() {
         while (running.get()) {
             try {
@@ -7453,6 +7476,7 @@ public final class HudService extends Service {
         interrupt(localMapThread);
         interrupt(renderThread);
         interrupt(statsThread);
+        interrupt(logUploadThread);
         interrupt(bootNavigationThread);
         interrupt(bootUsbThread);
         interrupt(usbRecoveryThread);
@@ -7462,7 +7486,7 @@ public final class HudService extends Service {
     private void cleanupAfterWorkers() {
         if (display != null) display.close();
         Thread[] workers = {receiverThread, mapThread, renderThread,
-                statsThread, bootNavigationThread, bootUsbThread, usbRecoveryThread};
+                statsThread, logUploadThread, bootNavigationThread, bootUsbThread, usbRecoveryThread};
         long deadline = SystemClock.elapsedRealtime() + 15_000L;
         boolean stopped = true;
         for (Thread worker : workers) {

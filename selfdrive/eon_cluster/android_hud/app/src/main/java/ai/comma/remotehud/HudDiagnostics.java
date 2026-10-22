@@ -10,6 +10,12 @@ import java.nio.charset.StandardCharsets;
 /** Bounded, app-private boot/session evidence which survives batteryless reboots. */
 final class HudDiagnostics {
     private static File file;
+    /** 마지막 USB 기록 시각(elapsedRealtime). HudLogUploader 가 이걸 보고 빨리 올린다. */
+    private static volatile long lastUsbEventElapsed;
+
+    static long lastUsbEventElapsed() {
+        return lastUsbEventElapsed;
+    }
     static synchronized void init(Context context) {
         file = new File(context.getFilesDir(), "hud-session.log");
         try {
@@ -19,6 +25,7 @@ final class HudDiagnostics {
     }
     static synchronized void log(String message) {
         Log.i("RemoteHudBoot", message);
+        if (message.startsWith("usb-")) lastUsbEventElapsed = SystemClock.elapsedRealtime();
         if (file == null) return;
         try {
             if (file.length() > 512 * 1024) {

@@ -759,6 +759,10 @@ def websocket_handshake(conn):
     # 폰 브라우저용 기록 파일 내려받기 페이지(일반 HTTP). 답한 뒤 연결을 닫는다.
     trace_http.serve(conn, path)
     raise EOFError()
+  if not key and lines[0].startswith("POST ") and trace_http.is_upload_path(path):
+    # HUD 앱 진단 로그 올리기(일반 HTTP). 받은 뒤 연결을 닫는다.
+    trace_http.receive(conn, path, headers, request.split(b"\r\n\r\n", 1)[1])
+    raise EOFError()
   if not key:
     raise ValueError("missing websocket key")
   accept = base64.b64encode(hashlib.sha1((key + WS_GUID).encode("ascii")).digest()).decode("ascii")
