@@ -64,6 +64,12 @@ public final class TurzxDisplay {
     static final int PID_123 = 0x0123;    // 12.3인치 (1920x720)
 
     private static final int CHUNK_BYTES = 16384;
+    // 정상 패널은 16KB 조각을 수 ms 안에 받는다. 패널이 멈췄을 때 렌더 스레드가
+    // 조각마다 3초씩 묶여 HUD 가 0.5fps 로 멈춰 보였다(2026-10-22). 빨리 실패하고
+    // 재연결로 넘어가도록 짧게 둔다.
+    private static final int FRAME_WRITE_TIMEOUT_MS = 1000;
+    private static final int COMMAND_WRITE_TIMEOUT_MS = 1000;
+    private static final int SYNC_READ_TIMEOUT_MS = 1500;
     private static final long COMMAND_GAP_MS = 200L;
     // Magisk can become available a few seconds after Android reports the USB
     // device. Retry the silent framework grant without ever opening Android's
@@ -344,6 +350,7 @@ public final class TurzxDisplay {
         if (openFailureStreak < Integer.MAX_VALUE) {
             openFailureStreak++;
         }
+        HudDiagnostics.log("usb-open-fail " + hardwareId() + " " + reason + " streak=" + openFailureStreak);
     }
 
     /** 전송 실패 뒤에만 부른다. 정상 경로에서 부르면 data toggle 이 어긋난다. */
@@ -407,7 +414,7 @@ public final class TurzxDisplay {
                 chunk = new byte[size];
             }
             System.arraycopy(payload, offset, chunk, 0, size);
-            int written = connection.bulkTransfer(out, chunk, size, 3000);
+            int written = connection.bulkTransfer(out, chunk, size, FRAME_WRITE_TIMEOUT_MS);
             if (written != size) {
                 int done = offset + Math.max(written, 0);
                 padRemainder(payload.length - done);
@@ -438,11 +445,11 @@ public final class TurzxDisplay {
     }
 
     private void exchange(byte[] payload, boolean expectResponse) throws Exception {
-        if (connection.bulkTransfer(out, payload, payload.length, 2000) != payload.length) {
+        if (connection.bulkTransfer(out, payload, payload.length, COMMAND_WRITE_TIMEOUT_MS) != payload.length) {
             throw new Exception("TURZX command failed");
         }
         if (expectResponse) {
-            int read = connection.bulkTransfer(in, drainBuffer, drainBuffer.length, 2000);
+            int read = connection.bulkTransfer(in, drainBuffer, drainBuffer.length, SYNC_READ_TIMEOUT_MS);
             if (read <= 0) {
                 throw new Exception("TURZX sync response missing");
             }

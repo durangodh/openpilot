@@ -265,8 +265,11 @@ public final class HudService extends Service {
 
     private static final int USB_RESET_AFTER_ERRORS = 3;
     private static final int USB_SLOWDOWN_AFTER_ERRORS = 5;
-    /** openDevice/claimInterface 가 조용히 실패한 횟수가 이만큼 쌓이면 포트를 재바인딩한다. */
-    private static final int USB_OPEN_STALL_ATTEMPTS = 5;
+    /**
+     * 열기·초기화가 연속으로 이만큼 실패하면 포트를 재바인딩(재열거)한다. 패널이 멈추면
+     * 같은 연결에서는 초기화가 계속 실패해, 예전 5회는 복구까지 20초 넘게 걸렸다.
+     */
+    private static final int USB_OPEN_STALL_ATTEMPTS = 2;
     /** 포트 재바인딩 재시도 간격. 너무 자주 하면 재열거만 반복된다. */
     private static final long USB_OPEN_STALL_COOLDOWN_MS = 15000L;
     /** 부팅 직후 Android USB 서비스와 Magisk가 준비될 때까지 첫 검색을 늦춘다. */
@@ -2028,6 +2031,7 @@ public final class HudService extends Service {
             return;
         }
         nextOpenStallRecoverElapsed = now + USB_OPEN_STALL_COOLDOWN_MS;
+        HudDiagnostics.log("usb-open-stall streak=" + display.openFailureStreak() + " port-reset");
         usbStatus = "휴대폰 HUD 실행 · USB 포트 재바인딩 시도";
         scheduleUsbPortReset(display.deviceNameOrNull(),
                 "USB 재바인딩 실패 · 자동 재시도");
