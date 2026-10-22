@@ -80,19 +80,7 @@ final class NaverHudMap {
     private Object surface;          // MapSurface
     private Object hudMap;           // NaverMap
     private Object hudNative;        // NativeMapView
-    private volatile ImageReader reader;
-    // 지도 SDK 는 카메라가 움직이는 동안 초당 수십 장을 그린다. 예전에는 그 프레임마다 2.2MB 비트맵을
-    // 만들어 복사했고 그대로 초당 최대 25장 JPEG 로 인코딩됐다(티맵·카카오는 5장). HUD 패널은 기본
-    // 8fps 라 그 이상은 화면에 안 쓰인다. 최소 간격 안에 온 프레임은 최신 1장만 들고 있다가
-    // 간격이 차면 변환한다(지도가 멈춰도 마지막 장면은 빠지지 않는다). 이미지 스레드 전용.
-    private static final long FRAME_MIN_MS = 90L;            // 약 10fps
-    // 카메라·위치·경로선 동기화 간격. 프레임 상한과 맞춘다(예전엔 캡처 틱 40ms 마다).
-    private static final long SYNC_MIN_MS = 100L;
-    private Image heldImage;
-    private ImageReader heldReader;
-    private long lastConvertAt;
-    private boolean convertScheduled;
-    private long lastSyncAt;
+    private ImageReader reader;
     private float ratio = 1f;        // HUD 밀도 / 폰 밀도
     private int width, height;       // 지금 만든 화면 크기
     private boolean builtWide;
@@ -198,11 +186,7 @@ final class NaverHudMap {
         }
         if (hudMap == null) return null;   // 지도 준비 중
         try {
-            long syncNow = SystemClock.elapsedRealtime();
-            if (syncNow - lastSyncAt >= SYNC_MIN_MS) {
-                lastSyncAt = syncNow;
-                sync(guided);
-            }
+            sync(guided);
         } catch (Throwable error) {
             fail("sync", error);
             return null;
@@ -281,64 +265,26 @@ final class NaverHudMap {
         NaverHudLog.line("HUD map surface " + width + "x" + height + " started");
     }
 
-    /** ImageReader 스레드: 최신 프레임만 Bitmap 으로 남긴다(최대 약 10fps). */
+    /** ImageReader 스레드: 최신 프레임만 Bitmap 으로 남긴다. */
     private void onImage(ImageReader r) {
         Image image = null;
         try {
             image = r.acquireLatestImage();
             if (image == null) return;
-            if (heldImage != null) {   // 더 새 프레임이 왔다: 들고 있던 옛 프레임은 버린다
-                heldImage.close();
-                heldImage = null;
-            }
-            long now = SystemClock.elapsedRealtime();
-            long wait = lastConvertAt + FRAME_MIN_MS - now;
-            if (wait > 0) {
-                heldImage = image;
-                heldReader = r;
-                image = null;
-                if (!convertScheduled) {
-                    convertScheduled = true;
-                    imageHandler.postDelayed(this::convertHeld, wait);
-                }
-                return;
-            }
-            convert(image, now);
+            Image.Plane plane = image.getPlanes()[0];
+            int w = image.getWidth(), h = image.getHeight();
+            int stride = plane.getRowStride() / plane.getPixelStride();
+            Bitmap padded = Bitmap.createBitmap(stride, h, Bitmap.Config.ARGB_8888);
+            padded.copyPixelsFromBuffer(plane.getBuffer());
+            Bitmap frame = stride == w ? padded : Bitmap.createBitmap(padded, 0, 0, w, h);
+            if (frame != padded) padded.recycle();
+            Bitmap old = latest.getAndSet(frame);
+            if (old != null) old.recycle();
         } catch (Throwable error) {
             NaverHudLog.status("HUD map frame: " + error);
         } finally {
             if (image != null) image.close();
         }
-    }
-
-    /** 이미지 스레드: 간격이 차면 들고 있던 최신 프레임을 변환한다. */
-    private void convertHeld() {
-        convertScheduled = false;
-        Image image = heldImage;
-        ImageReader from = heldReader;
-        heldImage = null;
-        heldReader = null;
-        if (image == null) return;
-        try {
-            if (from == reader) convert(image, SystemClock.elapsedRealtime());   // 지도를 다시 만들었으면 버린다
-        } catch (Throwable error) {
-            NaverHudLog.status("HUD map frame: " + error);
-        } finally {
-            try { image.close(); } catch (Throwable ignored) { }
-        }
-    }
-
-    private void convert(Image image, long now) {
-        lastConvertAt = now;
-        Image.Plane plane = image.getPlanes()[0];
-        int w = image.getWidth(), h = image.getHeight();
-        int stride = plane.getRowStride() / plane.getPixelStride();
-        Bitmap padded = Bitmap.createBitmap(stride, h, Bitmap.Config.ARGB_8888);
-        padded.copyPixelsFromBuffer(plane.getBuffer());
-        Bitmap frame = stride == w ? padded : Bitmap.createBitmap(padded, 0, 0, w, h);
-        if (frame != padded) padded.recycle();
-        Bitmap old = latest.getAndSet(frame);
-        if (old != null) old.recycle();
     }
 
     private void sync(Object guided) throws Exception {
