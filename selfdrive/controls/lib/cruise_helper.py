@@ -47,6 +47,8 @@ class SpeedBumpHold:
       self.remaining = max(0.0, self.remaining - max(0.0, float(traveled)))
     return self.remaining > 0.0
 NAVI_DISTANCE_MAX_DT = 0.2
+# NOO turn speed profile decel (m/s^2); also published to the planner bound.
+NOO_TURN_DECEL = 1.2
 MIN_SET_SPEED_KPH = V_CRUISE_MIN
 MAX_SET_SPEED_KPH = V_CRUISE_MAX
 
@@ -191,7 +193,12 @@ class CruiseHelper:
     self.auto_curve_speed_factor_in = float(clip(self.params.get_int("AutoCurveSpeedFactorIn"), 0, 300)) * 0.01
     self.auto_curve_speed_factor = self._param_or_default("AutoCurveSpeedFactor", 100, 50, 300) * 0.01
     self.auto_curve_speed_lower_limit = self._param_or_default("AutoCurveSpeedLowerLimit", 30, 5, 80)
+    self.map_turn_speed_factor = self._param_or_default("MapTurnSpeedFactor", 90, 50, 150) * 0.01
     self.auto_navi_speed_decel_rate = self._param_or_default("AutoNaviSpeedDecelRate", 80, 10, 300) * 0.01
+    # 경로 커브 감속 세기를 카메라와 분리. 0(미설정)이면 카메라 값을 따른다.
+    curve_decel = self.params.get_int("AutoCurveSpeedDecelRate")
+    self.auto_curve_speed_decel_rate = (float(clip(curve_decel, 10, 300)) * 0.01
+                                        if curve_decel > 0 else self.auto_navi_speed_decel_rate)
 
   def read_pedal_params(self):
     # C2 pedal-resume settings. Existing branch keys are used so no unregistered
@@ -976,6 +983,17 @@ class CruiseHelper:
     else:
       max_speed_clu = self.kph_to_clu(controls.v_cruise_kph)
 
+    if self.turn_vision_control:
+      map_speed = self.navigation_route.cached_map_curve_speed_kph(
+        navi_state, CS.out.vEgo * CV.MS_TO_KPH,
+        self.map_turn_speed_factor, self.auto_curve_speed_lower_limit,
+        self.auto_curve_speed_decel_rate)
+      if map_speed is not None:
+        map_speed_clu = self.kph_to_clu(map_speed)
+        if map_speed_clu < max_speed_clu:
+          max_speed_clu = map_speed_clu
+          self.apply_source = "route"
+
     self.active_cam = road_limit_speed > 0 and left_dist > 0
     # carrot_navi_server.accepts() already gates the shared state file by
     # EonClusterHudNavApp, so navi_state["road_limit_kph"] is valid for
@@ -1003,10 +1021,24 @@ class CruiseHelper:
       self.slowing_down_alert = False
       self.slowing_down = False
 
+    if self.noo_enabled and self.noo_mode in (0, 1, 3) and not CS.out.brakePressed:
+      limits = self.navigation_route.speed_limits_kph(navi_state, self.noo_turn_speed,
+                                                       self.noo_turn_end_time, NOO_TURN_DECEL)
+      limits = [value for value in limits if value is not None]
+      if limits:
+        noo_speed_clu = self.kph_to_clu(min(limits))
+        if noo_speed_clu < max_speed_clu:
+          max_speed_clu = noo_speed_clu
+          self.apply_source = "noo"
+
     # Tell the planner how hard the active limiter planned to slow down so its
     # cruise decel bound can follow the user's decel setting.
     if self.apply_source in ("cam", "bump", "section"):
       self.apply_decel_rate = self.auto_navi_speed_decel_rate
+    elif self.apply_source == "route":
+      self.apply_decel_rate = self.auto_curve_speed_decel_rate
+    elif self.apply_source == "noo":
+      self.apply_decel_rate = NOO_TURN_DECEL
     else:
       # aPilot 커브는 감속 세기 없이 목표속도만 내고, 감속은 플래너 기본 한계를 쓴다.
       self.apply_decel_rate = 0.0

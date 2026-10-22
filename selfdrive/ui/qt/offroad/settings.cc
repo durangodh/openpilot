@@ -1169,7 +1169,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   toggleLayout->addWidget(horizontal_line());
 
   toggleLayout->addWidget(new LabelControl("커브 자동감속",
-      "", "aPilot 방식: 카메라 모델의 1.4~3.5초 앞 회전율로 도로설계기준 표에서 커브 통과속도를 고릅니다."));
+      "", "비전 커브는 aPilot 방식(1.4~3.5초 앞 회전율로 도로설계기준 표에서 통과속도), 내비 경로 커브는 경로 곡률로 구해 더 낮은 쪽을 씁니다."));
   toggleLayout->addWidget(new ParamControl("TurnVisionControl",
                                            "커브 자동감속 사용",
                                            "켜짐: 커브 앞에서 자동으로 감속합니다. / 꺼짐: 커브 감속 없음.",
@@ -1184,9 +1184,17 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "현재 속도가 커브 통과속도보다 빠른 만큼에 이 비율을 곱해 목표속도를 더 낮춥니다. 값 증가(+): 진입 전에 더 줄임 / 값 감소(-): 덜 줄임. 기본값: 10.",
       "../assets/offroad/icon_road.png", 0, 300, 5, 0, 10, this));
   toggleLayout->addWidget(new ParamValueControlF(
+      "MapTurnSpeedFactor", "2-1. 경로 커브 속도 비율 (%)",
+      "내비 경로(티맵·네이버) 곡률로 계산한 커브 통과 속도에 곱하는 비율입니다. 값 증가(+): 더 빠르게 통과(감속 줄어듦) / 값 감소(-): 더 느리게. 기본값: 90.",
+      "../assets/offroad/icon_road.png", 50, 150, 5, 0, 90, this));
+  toggleLayout->addWidget(new ParamValueControlF(
       "AutoCurveSpeedLowerLimit", "3. 커브 최저 속도 (km/h)",
-      "커브 목표속도가 이 값 아래로는 내려가지 않습니다. 값 증가(+): 급커브에서도 이 속도 유지 / 값 감소(-): 더 느리게까지 감속. 기본값: 30.",
+      "비전·경로 커브 목표속도가 이 값 아래로는 내려가지 않습니다. 값 증가(+): 급커브에서도 이 속도 유지 / 값 감소(-): 더 느리게까지 감속. 기본값: 30.",
       "../assets/offroad/icon_speed_limit.png", 5, 80, 5, 0, 30, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoCurveSpeedDecelRate", "4. 경로 커브 감속 세기 (×0.01m/s²)",
+      "내비 경로 커브 앞에서 감속을 시작하는 세기입니다(남은 거리로 계산). 값 감소(-): 일찍·부드럽게 / 값 증가(+): 늦게·강하게. 0: 카메라 감속 세기와 같은 값 사용. 기본값: 0.",
+      "../assets/offroad/icon_road.png", 0, 300, 10, 0, 0, this));
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new LabelControl("과속카메라·구간단속 감속",
       "", "aPilot 방식: 남은 거리로 목표속도를 계산하고, 목표속도는 한 번에 조금씩만 내려갑니다."));
