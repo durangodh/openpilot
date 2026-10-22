@@ -447,6 +447,16 @@ public final class HudService extends Service {
     private long lastThemeMapElapsed = 0L;
     private int configuredFps = 8;
     private int jpegQuality = 55;
+    // 패널이 10만~12만 바이트 프레임을 받다 멈췄다(2026-10-23 로그, 쓰기 실패 10건 모두). 시험으로
+    // 한 장을 이 크기 아래로 맞춘다: 넘으면 화질을 낮춰 다시 인코딩하고, 작게 유지되면 천천히 되돌린다.
+    private static final int USB_JPEG_LIMIT = 90_000;
+    private static final int USB_JPEG_RAISE_BELOW = 75_000;
+    private static final int USB_JPEG_MIN_QUALITY = 30;
+    private int usbQualityCap = 95;
+    private long usbQualityRaiseElapsed;
+    private long usbQualityLogElapsed;
+    private final int[] recentJpegSizes = new int[6];
+    private int recentJpegCount;
     private int appliedBrightness = -1;
     private int configuredDayBrightness = 65;
     private int configuredNightBrightness = 35;
@@ -2254,8 +2264,8 @@ public final class HudService extends Service {
                 if (display.isWideOpen()) frame123 = renderUsb123FromPhone();
             }
 
-            byte[] jpeg = encodeJpeg(frame, jpegOut, jpegQuality);
-            byte[] jpeg123 = encodeJpeg(frame123, jpegOut123, jpegQuality);
+            byte[] jpeg = encodeUsbJpeg(frame, jpegOut);
+            byte[] jpeg123 = encodeUsbJpeg(frame123, jpegOut123);
             display.sendJpegs(jpeg, jpeg123);
             lastJpegBytes = (jpeg == null ? 0 : jpeg.length)
                     + (jpeg123 == null ? 0 : jpeg123.length);
@@ -2274,6 +2284,44 @@ public final class HudService extends Service {
         } catch (Exception e) {
             handleUsbError(e);
         }
+    }
+
+    /** 패널용 JPEG: USB_JPEG_LIMIT 를 넘으면 화질을 낮춰 다시 인코딩한다. */
+    private byte[] encodeUsbJpeg(Bitmap frame, ByteArrayOutputStream output) {
+        if (frame == null) return null;
+        int start = Math.min(jpegQuality, usbQualityCap);
+        int q = start;
+        byte[] jpeg = encodeJpeg(frame, output, q);
+        while (jpeg.length > USB_JPEG_LIMIT && q > USB_JPEG_MIN_QUALITY) {
+            q = Math.max(USB_JPEG_MIN_QUALITY, q - 8);
+            jpeg = encodeJpeg(frame, output, q);
+        }
+        long now = SystemClock.elapsedRealtime();
+        if (q < start) {
+            usbQualityCap = q;
+            usbQualityRaiseElapsed = now + 5000L;
+            if (now - usbQualityLogElapsed >= 30000L) {
+                usbQualityLogElapsed = now;
+                HudDiagnostics.log("usb-jpeg-cap q=" + q + " size=" + jpeg.length);
+            }
+        } else if (jpeg.length < USB_JPEG_RAISE_BELOW && usbQualityCap < jpegQuality
+                && now >= usbQualityRaiseElapsed) {
+            usbQualityCap = Math.min(jpegQuality, usbQualityCap + 2);
+            usbQualityRaiseElapsed = now + 5000L;
+        }
+        recentJpegSizes[recentJpegCount++ % recentJpegSizes.length] = jpeg.length;
+        return jpeg;
+    }
+
+    /** 최근 패널 JPEG 크기(오래된 것부터). 쓰기 실패 로그에 붙인다. */
+    private String recentJpegSizesText() {
+        StringBuilder sb = new StringBuilder();
+        int n = Math.min(recentJpegCount, recentJpegSizes.length);
+        for (int i = recentJpegCount - n; i < recentJpegCount; i++) {
+            if (sb.length() > 0) sb.append(',');
+            sb.append(recentJpegSizes[i % recentJpegSizes.length]);
+        }
+        return sb.toString();
     }
 
     private static byte[] encodeJpeg(Bitmap frame, ByteArrayOutputStream output, int quality) {
@@ -2328,7 +2376,8 @@ public final class HudService extends Service {
     }
 
     private void handleUsbError(Exception e) {
-        HudDiagnostics.log("usb-error " + safeMessage(e));
+        HudDiagnostics.log("usb-error " + safeMessage(e) + " recent=" + recentJpegSizesText()
+                + " q=" + Math.min(jpegQuality, usbQualityCap));
         usbConnected = false;
         usbError = true;
         usbNeedsPrimeFrame = true;
