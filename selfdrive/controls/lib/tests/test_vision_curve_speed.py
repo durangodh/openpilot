@@ -1,5 +1,3 @@
-import ast
-from pathlib import Path
 from types import SimpleNamespace as NS
 
 import numpy as np
@@ -132,30 +130,3 @@ def test_dropouts_hold_then_ramp_and_valid_detection_can_restrict_again():
   assert control.update(model(), 1, 5 / 3.6, 1.2, 0.2) == first
   control.reset()
   assert control.target == UNLIMITED_SPEED
-
-
-def test_cruise_helper_wiring_cadence_units_and_invalid_messages():
-  source = Path(__file__).parents[1] / 'cruise_helper.py'
-  tree = ast.parse(source.read_text())
-  cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'CruiseHelper')
-  method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'cal_curve_speed')
-  env = {'DT_CTRL': 0.01, 'CV': NS(KPH_TO_MS=1 / 3.6)}
-  exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), 'exec'), env)
-  helper = NS(curve_update_frame=None, auto_curve_speed_mode=0, vision_curve_speed=VisionCurveSpeed(),
-              curve_speed_ms=UNLIMITED_SPEED, auto_curve_speed_factor=1.2,
-              auto_curve_speed_lower_limit=30, auto_curve_speed_decel_rate=1.2)
-  class Messages(dict):
-    valid = {'modelV2': True}
-    alive = {'modelV2': True}
-  sm = Messages(modelV2=model())
-  sm.updated = {'modelV2': False}
-  env['cal_curve_speed'](helper, sm, 20, 1)
-  assert helper.curve_speed_ms == UNLIMITED_SPEED
-  sm.updated = {'modelV2': True}
-  env['cal_curve_speed'](helper, sm, 20, 5, 0.0)
-  expected = target(sm['modelV2'], factor=1.2, minimum_speed=30 / 3.6, v_ego=20)
-  assert helper.curve_speed_ms == pytest.approx(expected)
-  sm.valid = {'modelV2': False}
-  sm['modelV2'] = model(curvature=0.2)
-  env['cal_curve_speed'](helper, sm, 20, 10)
-  assert helper.curve_speed_ms == pytest.approx(expected)

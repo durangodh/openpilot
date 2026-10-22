@@ -45,12 +45,12 @@ def manager_init() -> None:
     ("AutoGasCancelSpeed", "30"),
     ("AutoGasTapSpeedIncrement", "5"),
     ("SpeedFromPCM", "2"),
-    ("AutoSpeedUptoRoadSpeedLimit", "0"),
+    ("AutoSpeedUptoRoadSpeedLimit", "100"),
     ("AutoSpeedUpMode", "1"),
     ("CruiseControlMode", "4"),
     ("AutoRoadSpeedAdjust", "0"),          # -100=limit immediately, 0=retain, 1..100=blend on limit drop
     ("AutoRoadSpeedLimitOffset", "0"),
-    ("AutoNaviSpeedCtrlEnd", "7"),
+    ("AutoNaviSpeedCtrlEnd", "6"),
     ("AutoNaviSpeedBumpTime", "1"),
     ("AutoNaviSpeedBumpSpeed", "35"),
     ("AutoNaviSpeedSafetyFactor", "105"),
@@ -169,7 +169,7 @@ def manager_init() -> None:
     ("LatMpcInputOffset", "4"),   # carrot c3 차선 경로 선행 입력 (4=0.04)
     ("OffsetTotal", "0.0"),        # 사용자 수동 오프셋(m)
     ("TurnVisionControl", "0"),
-    ("AutoCurveSpeedFactor", "120"),
+    ("AutoCurveSpeedFactor", "100"),
     ("AutoCurveSpeedLowerLimit", "30"),
     ("AutoCurveSpeedMode", "0"),
     ("AutoCurveSpeedFactorIn", "10"),

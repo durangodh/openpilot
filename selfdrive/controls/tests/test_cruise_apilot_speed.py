@@ -18,13 +18,13 @@ def _load(*names):
             any(isinstance(t, ast.Name) and t.id.startswith('AP_CURVE') for t in n.targets)]
   cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'CruiseHelper')
   fns = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name in names]
-  env = {'np': np, 'clip': clip, 'interp': interp, 'UNLIMITED_SPEED': 250.0 / 3.6,
+  env = {'np': np, 'clip': clip, 'interp': interp, 'UNLIMITED_SPEED': 250.0 / 3.6, 'DT_CTRL': 0.01,
          'CV': NS(KPH_TO_MS=1 / 3.6, MS_TO_KPH=3.6)}
   exec(compile(ast.fix_missing_locations(ast.Module(body=consts + fns, type_ignores=[])), str(SOURCE), 'exec'), env)
   return env
 
 
-ENV = _load('cruise_control_speed', 'cal_curve_speed_apilot')
+ENV = _load('cruise_control_speed', 'cal_curve_speed_apilot', 'decelerate_for_speed_camera')
 
 
 def _eco(mode=4.0, active=1):
@@ -79,3 +79,19 @@ def test_curve_table_and_entry_factor():
   assert 50 < speed < 65
   assert _curve(v / 190., v, factor_in=0.0) > speed
   assert abs(_curve(v / 15., v) - 30.0) < 1e-6  # 최저속도 설정 아래로 내려가지 않음
+
+
+def _cam(*args):
+  fn = ENV['decelerate_for_speed_camera']
+  return getattr(fn, '__func__', fn)(*args)
+
+
+def test_camera_decel_matches_apilot_formula():
+  # aPilot: temp = v^2 + 2*(d - sd)/rate, dV = (sqrt(temp) - v) * rate, 직전 목표에서 rate*0.02 넘게 안 내림
+  safe, sd, rate = 60 / 3.6, 100.0, 0.8
+  far = _cam(safe, sd, 30.0, rate, 600.0)
+  expected = safe + (np.sqrt(safe * safe + 2 * 500.0 / rate) - safe) * rate
+  assert abs(far - max(expected, 30.0 - rate * 0.02)) < 1e-6
+  assert _cam(safe, sd, 30.0, rate, 90.0) == safe          # 완료 지점 안쪽은 목표속도
+  # 목표가 한참 낮아도 한 번에 조금씩만 내려간다
+  assert abs(_cam(safe, sd, 30.0, rate, 101.0) - (30.0 - rate * 0.02)) < 1e-6

@@ -8,7 +8,7 @@ from common.params import Params, put_nonblocking
 from common.realtime import DT_CTRL, sec_since_boot
 from selfdrive.car.hyundai.values import Buttons
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
-from selfdrive.controls.lib.vision_curve_speed import VisionCurveSpeed, UNLIMITED_SPEED
+from selfdrive.controls.lib.vision_curve_speed import UNLIMITED_SPEED
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
 from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software_gap
 from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
@@ -26,6 +26,7 @@ NAVI_DISTANCE_HOLD_TIME = 1.0
 # 방지턱에는 AutoNaviSpeedReleaseDist(카메라 조기 해제)를 적용하지 않는다.
 BUMP_PASS_HOLD_DIST = 12.0   # m
 BUMP_MIN_SAFE_TIME = 2.0     # s
+AP_BUMP_SAFE_DIST = 10.0     # m, aPilot AutoNaviSpeedBumpDist 기본값
 BUMP_LOST_ARM_DIST = 30.0    # m, 이 안에서 안내가 끊기면 남은 거리+유지거리로 처리
 BRAKE_GAS_RESUME_WINDOW = 15.0  # s, brake pause followed by a deliberate gas handoff
 
@@ -46,8 +47,6 @@ class SpeedBumpHold:
       self.remaining = max(0.0, self.remaining - max(0.0, float(traveled)))
     return self.remaining > 0.0
 NAVI_DISTANCE_MAX_DT = 0.2
-# NOO turn speed profile decel (m/s^2); also published to the planner bound.
-NOO_TURN_DECEL = 1.2
 MIN_SET_SPEED_KPH = V_CRUISE_MIN
 MAX_SET_SPEED_KPH = V_CRUISE_MAX
 
@@ -118,8 +117,6 @@ class CruiseHelper:
     self.target_speed = 0.0
     self.max_speed_clu = 0.0
     self.curve_speed_ms = UNLIMITED_SPEED
-    self.vision_curve_speed = VisionCurveSpeed()
-    self.curve_update_frame = None
     self.apply_source = ""
     self.apply_decel_rate = 0.0
     self.active_cam = False
@@ -191,16 +188,10 @@ class CruiseHelper:
 
   def read_curve_params(self):
     self.turn_vision_control = self.params.get_bool("TurnVisionControl")
-    self.auto_curve_speed_mode = int(clip(self.params.get_int("AutoCurveSpeedMode"), 0, 1))
     self.auto_curve_speed_factor_in = float(clip(self.params.get_int("AutoCurveSpeedFactorIn"), 0, 300)) * 0.01
-    self.auto_curve_speed_factor = self._param_or_default("AutoCurveSpeedFactor", 120, 50, 300) * 0.01
+    self.auto_curve_speed_factor = self._param_or_default("AutoCurveSpeedFactor", 100, 50, 300) * 0.01
     self.auto_curve_speed_lower_limit = self._param_or_default("AutoCurveSpeedLowerLimit", 30, 5, 80)
-    self.map_turn_speed_factor = self._param_or_default("MapTurnSpeedFactor", 90, 50, 150) * 0.01
     self.auto_navi_speed_decel_rate = self._param_or_default("AutoNaviSpeedDecelRate", 80, 10, 300) * 0.01
-    # 커브(경로 곡률) 감속 세기를 카메라와 분리. 0(미설정)이면 카메라 값을 따른다.
-    curve_decel = self.params.get_int("AutoCurveSpeedDecelRate")
-    self.auto_curve_speed_decel_rate = (float(clip(curve_decel, 10, 300)) * 0.01
-                                        if curve_decel > 0 else self.auto_navi_speed_decel_rate)
 
   def read_pedal_params(self):
     # C2 pedal-resume settings. Existing branch keys are used so no unregistered
@@ -218,12 +209,10 @@ class CruiseHelper:
   def read_navigation_params(self):
     self.auto_speed_up_ratio = float(self.params.get_int("AutoSpeedUptoRoadSpeedLimit")) * 0.01
     self.auto_speed_up_mode = int(clip(self.params.get_int("AutoSpeedUpMode"), 0, 1))
-    self.auto_road_speed_adjust = float(clip(self.params.get_int("AutoRoadSpeedAdjust"), -100, 100)) * 0.01
     self.auto_road_speed_limit_offset = float(clip(self.params.get_int("AutoRoadSpeedLimitOffset"), -30, 30))
     # 카메라 이 거리(m) 앞에서 감속 유지를 끝내고 원래 속도로 복귀. 0 = 카메라를 지난 뒤.
     self.auto_navi_speed_release_dist = float(clip(self.params.get_int("AutoNaviSpeedReleaseDist"), 0, 50))
-    self.auto_navi_speed_ctrl_end = self._param_or_default("AutoNaviSpeedCtrlEnd", 7, 3, 20)
-    self.auto_navi_speed_bump_time = self._param_or_default("AutoNaviSpeedBumpTime", 1, 1, 50)
+    self.auto_navi_speed_ctrl_end = self._param_or_default("AutoNaviSpeedCtrlEnd", 6, 3, 20)
     self.auto_navi_speed_bump_speed = self._param_or_default("AutoNaviSpeedBumpSpeed", 35, 10, 100)
     self.auto_navi_speed_safety_factor = self._param_or_default("AutoNaviSpeedSafetyFactor", 105, 80, 120) * 0.01
     self.noo_enabled = self.params.get_bool("NavigationOnOpenpilot")
@@ -776,38 +765,25 @@ class CruiseHelper:
     return max(turn_speed, self.auto_curve_speed_lower_limit) * CV.KPH_TO_MS
 
   def cal_curve_speed(self, sm, v_ego, frame, a_ego=0.0):
-    if self.auto_curve_speed_mode == 1:
-      valid = getattr(sm, 'valid', {}).get('modelV2', True) and getattr(sm, 'alive', {}).get('modelV2', True)
-      self.curve_speed_ms = self.cal_curve_speed_apilot(sm, v_ego) if valid else UNLIMITED_SPEED
-      return
-    # carrot-wip: evaluate every new model frame (20 Hz) so a release can be
-    # confirmed by consecutive fresh frames. Never smooth a stricter cap.
-    updated = getattr(sm, 'updated', None)
-    new_frame = updated.get('modelV2', False) if isinstance(updated, dict) else frame % 5 == 0
-    if not new_frame:
-      return
-    dt = 5 * DT_CTRL if self.curve_update_frame is None else max(0, frame - self.curve_update_frame) * DT_CTRL
-    self.curve_update_frame = frame
+    # aPilot c2-master: 커브 목표속도는 apilot_curve() 하나만 쓴다.
     valid = getattr(sm, 'valid', {}).get('modelV2', True) and getattr(sm, 'alive', {}).get('modelV2', True)
-    self.curve_speed_ms = self.vision_curve_speed.update(
-      sm['modelV2'] if valid else None, self.auto_curve_speed_factor,
-      self.auto_curve_speed_lower_limit * CV.KPH_TO_MS,
-      self.auto_curve_speed_decel_rate, dt, v_ego=v_ego, a_ego=a_ego)
+    self.curve_speed_ms = self.cal_curve_speed_apilot(sm, v_ego) if valid else UNLIMITED_SPEED
+
+  @staticmethod
+  def decelerate_for_speed_camera(safe_speed, safe_dist, current_speed, decel_rate, left_dist):
+    """aPilot c2-master decelerate_for_speed_camera (m/s)."""
+    if left_dist <= safe_dist:
+      return safe_speed
+    temp = safe_speed * safe_speed + 2 * (left_dist - safe_dist) / decel_rate
+    dV = (-safe_speed + np.sqrt(temp)) * decel_rate
+    apply_speed = min(250, safe_speed + dV)
+    min_speed = current_speed - decel_rate * 2 * DT_CTRL
+    return max(apply_speed, min_speed)
 
   def update_max_speed(self, max_speed, longcontrol):
     # c3-wip applies the selected navigation target directly. The old 0.01
     # filter delayed both camera deceleration and speed recovery after passing.
     self.max_speed_clu = max_speed
-
-  @staticmethod
-  def calculate_navi_speed(left_dist, safe_speed_kph, safe_time, decel):
-    """C3 carrot_serv.calculate_current_speed navigation deceleration."""
-    safe_speed = safe_speed_kph * CV.KPH_TO_MS
-    decel_dist = left_dist - safe_speed * safe_time
-    if decel_dist <= 0.0:
-      return safe_speed_kph
-    return max(safe_speed_kph, min(250.0,
-               np.sqrt(max(0.0, safe_speed ** 2 + 2.0 * decel * decel_dist)) * CV.MS_TO_KPH))
 
   def cal_max_speed(self, frame, CS, sm, clu11_speed, controls):
     limiter = get_road_speed_limiter()
@@ -953,16 +929,21 @@ class CruiseHelper:
     if cam_dist > 0.0 and cam_limit > 0.0:
       left_dist = cam_dist
       road_limit_speed = cam_limit
+      # aPilot c2-master update_speed_apilot(): 방지턱은 AutoNaviSpeedBumpDist(기본 10 m) 앞,
+      # 카메라는 AutoNaviSpeedCtrlEnd 초 앞에서 목표속도에 닿게 하고, 직전 목표속도에서
+      # 한 번에 decel_rate*2*DT_CTRL 넘게 내리지 않는다.
       if cam_type == 22:
         navi_source = "bump"
-        navi_target_kph = self.auto_navi_speed_bump_speed
-        safe_time = max(self.auto_navi_speed_bump_time, BUMP_MIN_SAFE_TIME)
+        navi_target_kph = self.auto_navi_speed_bump_speed * self.auto_navi_speed_safety_factor
+        safe_dist = AP_BUMP_SAFE_DIST
       else:
         navi_source = "cam"
         navi_target_kph = cam_limit * self.auto_navi_speed_safety_factor
-        safe_time = self.auto_navi_speed_ctrl_end
-      apply_kph = self.calculate_navi_speed(left_dist, navi_target_kph, safe_time,
-                                            self.auto_navi_speed_decel_rate)
+        safe_dist = self.auto_navi_speed_ctrl_end * CS.out.vEgoCluster
+      prev_apply_kph = controls.applyMaxSpeed if controls.applyMaxSpeed > 0 else controls.v_cruise_kph
+      apply_kph = self.decelerate_for_speed_camera(navi_target_kph * CV.KPH_TO_MS, safe_dist,
+                                                   prev_apply_kph * CV.KPH_TO_MS,
+                                                   self.auto_navi_speed_decel_rate, left_dist) * CV.MS_TO_KPH
       apply_limit_speed = self.kph_to_clu(apply_kph)
     elif bump_holding:
       # 방지턱 통과 직후: 유지거리 동안 방지턱 속도 그대로.
@@ -980,30 +961,20 @@ class CruiseHelper:
     if self.turn_vision_control:
       self.cal_curve_speed(sm, CS.out.vEgo, frame, CS.out.aEgo)
     else:
-      self.vision_curve_speed.reset()
-      self.curve_update_frame = None
       self.curve_speed_ms = UNLIMITED_SPEED
       self.ap_curve_filter.set(0.0)
       self.ap_turn_speed_prev = 300.
     cruise_speed_ms = controls.v_cruise_kph * CV.KPH_TO_MS
     self.apply_source = ""
     self.apply_decel_rate = 0.0
-    if self.turn_vision_control and self.curve_speed_ms < cruise_speed_ms:
+    # aPilot: 카메라 제한 중이고 카메라까지 100 m 안이면 커브 감속을 하지 않는다.
+    navi_limiting = self.kph_to_clu(10) <= apply_limit_speed < self.kph_to_clu(controls.v_cruise_kph)
+    curve_allowed = not (navi_limiting and 0.0 < left_dist < 100.0)
+    if self.turn_vision_control and curve_allowed and self.curve_speed_ms < cruise_speed_ms:
       max_speed_clu = self.curve_speed_ms * self.speed_conv_to_clu
       self.apply_source = "vturn"
     else:
       max_speed_clu = self.kph_to_clu(controls.v_cruise_kph)
-
-    if self.turn_vision_control:
-      map_speed = self.navigation_route.cached_map_curve_speed_kph(
-        navi_state, CS.out.vEgo * CV.MS_TO_KPH,
-        self.map_turn_speed_factor, self.auto_curve_speed_lower_limit,
-        self.auto_curve_speed_decel_rate)
-      if map_speed is not None:
-        map_speed_clu = self.kph_to_clu(map_speed)
-        if map_speed_clu < max_speed_clu:
-          max_speed_clu = map_speed_clu
-          self.apply_source = "route"
 
     self.active_cam = road_limit_speed > 0 and left_dist > 0
     # carrot_navi_server.accepts() already gates the shared state file by
@@ -1032,28 +1003,12 @@ class CruiseHelper:
       self.slowing_down_alert = False
       self.slowing_down = False
 
-    if self.noo_enabled and self.noo_mode in (0, 1, 3) and not CS.out.brakePressed:
-      limits = self.navigation_route.speed_limits_kph(navi_state, self.noo_turn_speed,
-                                                       self.noo_turn_end_time, NOO_TURN_DECEL)
-      limits = [value for value in limits if value is not None]
-      if limits:
-        noo_speed_clu = self.kph_to_clu(min(limits))
-        if noo_speed_clu < max_speed_clu:
-          max_speed_clu = noo_speed_clu
-          self.apply_source = "noo"
-
     # Tell the planner how hard the active limiter planned to slow down so its
     # cruise decel bound can follow the user's decel setting.
     if self.apply_source in ("cam", "bump", "section"):
       self.apply_decel_rate = self.auto_navi_speed_decel_rate
-    elif self.apply_source == "vturn" and self.auto_curve_speed_mode == 1:
-      # aPilot 커브는 감속 세기 없이 목표속도만 내고, 감속은 플래너 기본 한계를 쓴다.
-      self.apply_decel_rate = 0.0
-    elif self.apply_source in ("vturn", "route"):
-      self.apply_decel_rate = self.auto_curve_speed_decel_rate
-    elif self.apply_source == "noo":
-      self.apply_decel_rate = NOO_TURN_DECEL
     else:
+      # aPilot 커브는 감속 세기 없이 목표속도만 내고, 감속은 플래너 기본 한계를 쓴다.
       self.apply_decel_rate = 0.0
 
     self.update_max_speed(int(max_speed_clu + 0.5), controls.CP.openpilotLongitudinalControl)
@@ -1119,20 +1074,7 @@ class CruiseHelper:
       self.last_road_limit_speed = road_limit_speed
       return
 
-    if self.last_road_limit_speed > 0 and road_limit_speed != self.last_road_limit_speed:
-      if self.auto_road_speed_adjust < 0.0:
-        set_speed_kph = road_limit_speed * self.auto_navi_speed_safety_factor if self.auto_road_speed_limit_offset < 0 \
-                        else road_limit_speed + self.auto_road_speed_limit_offset
-      elif road_limit_speed < self.last_road_limit_speed and self.auto_road_speed_adjust > 0.0:
-        adjusted = road_limit_speed * self.auto_road_speed_adjust + set_speed_kph * (1.0 - self.auto_road_speed_adjust)
-        set_speed_kph = min(set_speed_kph, adjusted)
-      set_speed_kph = self._clip_set_speed(set_speed_kph)
-      if longcontrol:
-        controls.v_cruise_kph = set_speed_kph
-        controls.v_cruise_cluster_kph = set_speed_kph
-      else:
-        self.target_speed = self.kph_to_clu(set_speed_kph)
-
+    # aPilot c2-master: 제한속도가 바뀌어도 설정속도는 그대로 둔다(앞차 증속만 사용).
     self.last_road_limit_speed = road_limit_speed
     road_limit_kph = float(clip(road_limit_speed * self.auto_speed_up_ratio,
                                 0.0, MAX_SET_SPEED_KPH))
