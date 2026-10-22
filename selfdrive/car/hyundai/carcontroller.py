@@ -17,6 +17,9 @@ from selfdrive.controls.lib.longcontrol import LongCtrlState
 from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 
 VisualAlert = car.CarControl.HUDControl.VisualAlert
+GearShifter = car.CarState.GearShifter
+# Same drive-gear set controlsd uses for soft hold / longitudinal ownership.
+DRIVE_GEARS = (GearShifter.drive, GearShifter.eco, GearShifter.sport, GearShifter.low, GearShifter.manumatic)
 
 
 def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego):
@@ -310,8 +313,10 @@ class CarController:
         set_speed *= CV.MS_TO_MPH if CS.is_set_speed_in_mph else CV.MS_TO_KPH
 
         driver_braking = CS.out.brakePressed and not soft_hold_scc
-        # aPilot C2 longOverride: gas pressed while enabled (SCC12 ACCMode 2 / SCC14 4, zero request).
-        long_override = CC.enabled and CS.out.gasPressed and not soft_hold_scc
+        # aPilot C2 longEnabled / longOverride: drive gear (same set as controlsd), gas pressed
+        # while enabled -> SCC12 ACCMode 2 / SCC14 4 with a zero request.
+        drive_gear = CS.out.gearShifter in DRIVE_GEARS
+        long_override = CC.enabled and drive_gear and CS.out.gasPressed and not soft_hold_scc
         requested_accel = actuators.accel if (CC.longActive or stopping or soft_hold_scc) else 0.0
         apply_accel = clip(requested_accel,
                            CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX)
@@ -375,7 +380,7 @@ class CarController:
                          obj_gap, obj_gap2, CS.scc14, jerk_upper, jerk_lower, cb_upper, cb_lower,
                          long_active=CC.longActive, brakepressed=CS.out.brakePressed,
                          soft_hold_active=soft_hold_scc, long_override=long_override,
-                         brake_hold=CS.out.brakeHoldActive))
+                         brake_hold=CS.out.brakeHoldActive, drive_gear=drive_gear))
     else:
       self.scc12_cnt = -1
       controls.scc_stop_request = False

@@ -159,7 +159,7 @@ def create_scc12(packer, apply_accel, enabled, cnt, scc_live, scc12, gaspressed,
   # longActive drop must not clear StopReq or the latched brake command.
   # aPilot C2 driver gas override: ACCMode 2 with a zero request.
   command_active = enabled and (long_active or standstill or soft_hold_active)
-  if enabled and brake_hold and not soft_hold_active:
+  if enabled and brake_hold:
     acc_mode = 0  # aPilot C2: AutoHold active
     command_active = False
   elif enabled and long_override:
@@ -197,16 +197,18 @@ def create_scc13(packer, scc13):
 def create_scc14(packer, enabled, e_vgo, standstill, accel, gaspressed, objgap, objgap2, scc14,
                  jerk_upper=5.0, jerk_lower=5.0, cb_upper=0.0, cb_lower=0.0,
                  long_active=False, brakepressed=False, soft_hold_active=False, long_override=False,
-                 brake_hold=False):
+                 brake_hold=False, drive_gear=True):
   values = copy.copy(scc14)
 
-  # aPilot C2 SCC14 state: 1=active control, 4=driver gas/brake override or
-  # AutoHold, 0=inactive. SCC14 ownership follows SCC12 through the stopping latch.
+  # aPilot C2 SCC14 state: 1=active control, 4=driver gas/brake override,
+  # AutoHold or not in a drive gear, 0=inactive. SCC14 ownership follows SCC12 through the stopping latch.
   command_active = enabled and (long_active or standstill or soft_hold_active)
-  if enabled and soft_hold_active:
+  if enabled and brake_hold:
+    acc_mode = 4  # aPilot C2: AutoHold
+  elif enabled and soft_hold_active:
     acc_mode = 1
-  elif enabled and (long_override or brakepressed or brake_hold):
-    acc_mode = 4  # aPilot C2: driver gas / brake override, AutoHold
+  elif enabled and (long_override or brakepressed or not drive_gear):
+    acc_mode = 4  # aPilot C2: driver gas / brake override, or not in a drive gear
   elif not command_active:
     acc_mode = 0
   elif gaspressed:

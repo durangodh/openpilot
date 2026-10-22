@@ -68,3 +68,15 @@ def test_soft_hold_mode2_keeps_control_while_braking():
   m = _m12(brakepressed=True, soft_hold_active=True, standstill=True, apply_accel=-0.5)
   assert m['ACCMode'] == 1 and m['StopReq'] == 1
   assert _m14(brakepressed=True, soft_hold_active=True)['ACCMode'] == 1
+
+
+def test_not_in_drive_gear_reports_override_on_scc14():
+  # aPilot: enabled but not longEnabled (no drive gear) -> SCC14 4, SCC12 0
+  assert _m14(drive_gear=False)['ACCMode'] == 4
+  assert _m14(drive_gear=False, enabled=False)['ACCMode'] == 0
+  assert _m12()['ACCMode'] == 0
+
+
+def test_autohold_wins_over_soft_hold():
+  assert _m12(soft_hold_active=True, standstill=True, brake_hold=True)['ACCMode'] == 0
+  assert _m14(soft_hold_active=True, brake_hold=True)['ACCMode'] == 4
