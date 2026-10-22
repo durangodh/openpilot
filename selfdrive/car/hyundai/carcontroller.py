@@ -310,6 +310,8 @@ class CarController:
         set_speed *= CV.MS_TO_MPH if CS.is_set_speed_in_mph else CV.MS_TO_KPH
 
         driver_braking = CS.out.brakePressed and not soft_hold_scc
+        # aPilot C2 longOverride: gas pressed while enabled (SCC12 ACCMode 2 / SCC14 4, zero request).
+        long_override = CC.enabled and CS.out.gasPressed and not soft_hold_scc
         requested_accel = actuators.accel if (CC.longActive or stopping or soft_hold_scc) else 0.0
         apply_accel = clip(requested_accel,
                            CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX)
@@ -345,7 +347,7 @@ class CarController:
                                       CS.out.gasPressed, driver_braking,
                                       scc_stop_request,
                                       self.car_fingerprint, long_active=CC.longActive,
-                                      soft_hold_active=soft_hold_scc))
+                                      soft_hold_active=soft_hold_scc, long_override=long_override))
 
         can_sends.append(create_scc11(self.packer, self.frame, CC.enabled, set_speed, hud_control.leadVisible, self.scc_live, CS.scc11,
                        controls.cruise_helper.active_cam, soft_hold=soft_hold and CC.longActive,
@@ -371,7 +373,7 @@ class CarController:
             create_scc14(self.packer, CC.enabled, CS.out.vEgo, scc_stop_request, apply_accel, CS.out.gasPressed,
                          obj_gap, obj_gap2, CS.scc14, jerk_upper, jerk_lower, cb_upper, cb_lower,
                          long_active=CC.longActive, brakepressed=CS.out.brakePressed,
-                         soft_hold_active=soft_hold_scc))
+                         soft_hold_active=soft_hold_scc, long_override=long_override))
     else:
       self.scc12_cnt = -1
       controls.scc_stop_request = False

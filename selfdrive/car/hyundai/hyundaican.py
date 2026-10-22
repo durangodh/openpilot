@@ -148,7 +148,7 @@ def create_scc11(packer, frame, enabled, set_speed, lead_visible, scc_live, scc1
 
 
 def create_scc12(packer, apply_accel, enabled, cnt, scc_live, scc12, gaspressed, brakepressed,
-                 standstill, car_fingerprint, long_active=False, soft_hold_active=False):
+                 standstill, car_fingerprint, long_active=False, soft_hold_active=False, long_override=False):
   values = copy.copy(scc12)
 
   # Match aPilot C2: openpilot owns ACCMode whenever it owns SCC acceleration.
@@ -156,8 +156,12 @@ def create_scc12(packer, apply_accel, enabled, cnt, scc_live, scc12, gaspressed,
   # depend on the stale stock state and can cause a harsh handoff.
   # Match the apilot-c2 longEnabled behaviour only while stopped: a transient
   # longActive drop must not clear StopReq or the latched brake command.
+  # aPilot C2 driver gas override: ACCMode 2 with a zero request.
   command_active = enabled and (long_active or standstill or soft_hold_active)
-  if not command_active:
+  if enabled and long_override:
+    acc_mode = 2
+    command_active = False
+  elif not command_active:
     acc_mode = 0
   elif soft_hold_active:
     acc_mode = 1
@@ -188,14 +192,16 @@ def create_scc13(packer, scc13):
 
 def create_scc14(packer, enabled, e_vgo, standstill, accel, gaspressed, objgap, objgap2, scc14,
                  jerk_upper=5.0, jerk_lower=5.0, cb_upper=0.0, cb_lower=0.0,
-                 long_active=False, brakepressed=False, soft_hold_active=False):
+                 long_active=False, brakepressed=False, soft_hold_active=False, long_override=False):
   values = copy.copy(scc14)
 
   # aPilot C2 SCC14 state: 1=active control, 4=driver/brake override,
   # 0=inactive. Never advertise an override without longitudinal ownership.
   # SCC14 ownership must follow SCC12 through the complete stopping latch.
   command_active = enabled and (long_active or standstill or soft_hold_active)
-  if not command_active:
+  if enabled and long_override:
+    acc_mode = 4  # aPilot C2: driver gas override
+  elif not command_active:
     acc_mode = 0
   elif soft_hold_active:
     acc_mode = 1
