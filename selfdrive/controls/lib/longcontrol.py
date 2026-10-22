@@ -89,15 +89,6 @@ class LongControl:
     self.pid.reset()
     self.v_pid = v_pid
 
-  @staticmethod
-  def _relax_stop_overbrake(output_accel, stop_accel, decel_rate, CS, v_ego_stopping):
-    # 정지 모드에 들어올 때 PID 출력이 STOPPING ACCEL 보다 이미 세면 그 값을 끝까지 들고 갔다.
-    # 2026-10-19 로그: STOPPING ACCEL 15(-0.30)인데 2 km/h 에서 -0.52 를 유지해 서기 직전
-    # 실제 감속이 -0.6 까지 올라 "꾹". 움직이는 동안만 STOPPING ACCEL 쪽으로 같은 속도로 푼다.
-    if CS.standstill or output_accel >= stop_accel or CS.vEgo > max(1.5, v_ego_stopping + 1.0):
-      return output_accel
-    return min(stop_accel, output_accel + decel_rate * DT_CTRL)
-
   def update(self, active, CS, long_plan, accel_limits, t_since_plan, CC):
     self.readParamCount += 1
     if self.readParamCount >= 100:
@@ -181,10 +172,6 @@ class LongControl:
         output_accel -= self.CP.stoppingDecelRate * DT_CTRL
         if CC.hudControl.softHold:
           output_accel = self.CP.stopAccel
-      else:
-        output_accel = self._relax_stop_overbrake(
-          output_accel, self.CP.stopAccel, self.CP.stoppingDecelRate, CS, self.CP.vEgoStopping,
-        )
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:

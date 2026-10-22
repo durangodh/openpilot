@@ -409,9 +409,6 @@ void ParamValueControlF::refresh() {
   if (param_ == "TrafficStopMode") {
     static const QStringList modes = {"ACC", "AUTO", "APILOT", "VISION"};
     value_label->setText(modes[v]);
-  } else if (param_ == "ApplyLongDynamicCost") {
-    static const QStringList modes = {"OFF", "MID", "ON"};
-    value_label->setText(modes[v]);
   } else if (param_ == "InitMyDrivingMode") {
     static const QStringList modes = {"SAFE", "ECO", "NORMAL", "FAST", "AUTO"};
     value_label->setText(modes[v - 1]);
@@ -1644,8 +1641,8 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(new ParamValueControlF(
       "ApplyLongDynamicCost", "DYNAMIC FOLLOWING RESPONSE",
       "aPilot·KRKeegan: 앞차가 더 빠를 때 36km/h 이하에서 가속 반응을 빠르게 하고, 차간시간에 따라 가감속 비용을 조정합니다. "
-      "OFF: 사용 안 함 / MID: ON 의 절반 세기 / ON: 전체 적용.",
-      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
+      "OFF: 사용 안 함 / ON: 적용.",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
 
   const std::array<std::tuple<const char*, const char*, int>, 4> gap_controls = {{
     {"TFollowGap1", "T-FOLLOW GAP1", 110},

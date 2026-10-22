@@ -19,7 +19,6 @@ def _param_int(key, default):
   except Exception:
     return default
 from common.realtime import DT_MDL
-from selfdrive.controls.lib.longitudinal_limits import CutInGapRelief
 from common.filter_simple import StreamingMovingAverage
 from cereal import log, car
 EventName = car.CarEvent.EventName
@@ -93,8 +92,7 @@ def get_stopped_equivalence_factor(v_lead, v_ego, t_follow=T_FOLLOW, stop_distan
     v_diff_offset = ((v_lead - v_ego) * 1.)
     v_diff_offset = np.clip(v_diff_offset, 0, stop_distance / 2)
     v_diff_offset = np.maximum(v_diff_offset * ((10 - v_ego)/10), 0)
-  # krkeegan: DYNAMIC FOLLOWING RESPONSE 세기(0~1, MID=0.5)
-  distance = (v_lead**2) / (2 * COMFORT_BRAKE) + v_diff_offset * krkeegan
+  distance = (v_lead**2) / (2 * COMFORT_BRAKE) + v_diff_offset
   return distance
 
 def get_safe_obstacle_distance(v_ego, t_follow=T_FOLLOW, comfort_brake=COMFORT_BRAKE, stop_distance=STOP_DISTANCE):
@@ -244,7 +242,7 @@ class LongitudinalMpc:
     self.debugLongText2 = ""
     self.trafficState = 0
     self.trafficStopDistanceAdjust = 0.
-    self.applyLongDynamicCost = 0.0   # 0 OFF / 0.5 MID / 1 ON
+    self.applyLongDynamicCost = False
     self.trafficStopAccel = 1.
     self.trafficStopModelSpeed = True
     self.trafficStopMode = 1
@@ -284,8 +282,6 @@ class LongitudinalMpc:
     self.source = SOURCES[2]
     self.x_obstacle_min = 0.0
     self.desired_distance = 0.0  # UI 표시용 목표 차간거리(m)
-    # 이 포크: 끼어든 차가 비슷하거나 빠르면 부족한 차간거리를 천천히 회복(급제동 없음).
-    self.cut_in_relief = CutInGapRelief()
     self.openpilotLongitudinalControl = False
     self.experimentalMode = False
     # 이 포크: aPilot 은 설정값을 200 프레임에 걸쳐 나눠 읽어, 켜진 직후 몇 초는 기본값
@@ -373,8 +369,7 @@ class LongitudinalMpc:
     if self.mode == 'acc':
       a_change_cost = A_CHANGE_COST if prev_accel_constraint else 40
       if self.applyLongDynamicCost:
-        # MID 는 켰을 때 배율과 1 사이의 중간
-        cost_mulitpliers = [1. + self.applyLongDynamicCost * (m - 1.) for m in self.get_cost_multipliers(v_lead0, v_lead1)]
+        cost_mulitpliers = self.get_cost_multipliers(v_lead0, v_lead1)
         cost_weights = [X_EGO_OBSTACLE_COST, X_EGO_COST, V_EGO_COST, A_EGO_COST, a_change_cost * cost_mulitpliers[0], J_EGO_COST * cost_mulitpliers[1]]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, DANGER_ZONE_COST * cost_mulitpliers[2]]
       else:
@@ -404,12 +399,12 @@ class LongitudinalMpc:
     lead_xv = np.column_stack((x_lead_traj, v_lead_traj))
     return lead_xv
 
-  def process_lead(self, lead, a_lead_override=None):
+  def process_lead(self, lead):
     v_ego = self.x0[1]
     if lead is not None and lead.status:
       x_lead = lead.dRel
       v_lead = lead.vLead
-      a_lead = lead.aLeadK if a_lead_override is None else a_lead_override
+      a_lead = lead.aLeadK
       a_lead_tau = lead.aLeadTau
     else:
       # Fake a fast lead car, so mpc can keep running in the same mode
@@ -446,7 +441,6 @@ class LongitudinalMpc:
     self.status = radarstate.leadOne.status or radarstate.leadTwo.status
 
     lead_xv_0 = self.process_lead(radarstate.leadOne)
-    lead_xv_0_fcw = lead_xv_0  # FCW always uses the raw lead prediction
     lead_xv_1 = self.process_lead(radarstate.leadTwo)
 
     self.update_gap_tf(controls, v_ego, a_ego)
@@ -461,11 +455,6 @@ class LongitudinalMpc:
     # and then treat that as a stopped car/obstacle at this new distance.
     lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(lead_xv_0[:,1], self.x_sol[:,1], self.t_follow, self.stopDistance, krkeegan=self.applyLongDynamicCost)
     lead_1_obstacle = lead_xv_1[:,0] + get_stopped_equivalence_factor(lead_xv_1[:,1], self.x_sol[:,1], self.t_follow, self.stopDistance, krkeegan=self.applyLongDynamicCost)
-    lead_one = radarstate.leadOne
-    lead_deficit = get_safe_obstacle_distance(v_ego, self.t_follow, self.comfort_brake, applyStopDistance) - lead_0_obstacle[0]
-    relief = self.cut_in_relief.update(not reset_state, lead_one.status, lead_one.dRel,
-                                       lead_one.vRel, lead_one.aLeadK, v_ego, lead_deficit, DT_MDL)
-    lead_0_obstacle = lead_0_obstacle + relief
     self.params[:,0] = MIN_ACCEL if not reset_state else a_ego
     self.params[:,1] = self.max_a if not reset_state else a_ego
 
@@ -534,7 +523,7 @@ class LongitudinalMpc:
     
 
     self.run()
-    if (np.any(lead_xv_0_fcw[FCW_IDXS,0] - self.x_sol[FCW_IDXS,0] < CRASH_DISTANCE) and
+    if (np.any(lead_xv_0[FCW_IDXS,0] - self.x_sol[FCW_IDXS,0] < CRASH_DISTANCE) and
             radarstate.leadOne.modelProb > 0.9):
       self.crash_cnt += 1
     else:
@@ -607,7 +596,7 @@ class LongitudinalMpc:
     elif self.lo_timer == 40:
       self.trafficStopDistanceAdjust = float(_param_int("TrafficStopDistanceAdjust", 400)) / 100.
     elif self.lo_timer == 60:
-      self.applyLongDynamicCost = min(max(_param_int("ApplyLongDynamicCost", 0), 0), 2) / 2.
+      self.applyLongDynamicCost = _param_int("ApplyLongDynamicCost", 0) > 0
       self.trafficStopAccel = float(_param_int("TrafficStopAccel", 80)) / 100.
     elif self.lo_timer == 80:
       self.trafficStopModelSpeed = Params().get_bool("TrafficStopModelSpeed")
