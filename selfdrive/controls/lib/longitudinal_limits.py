@@ -162,3 +162,45 @@ class CutInGapRelief:
       self.relief = max(0.0, self.relief - CUT_IN_RELIEF_DECAY * dt)
     self.relief = min(self.relief, deficit)
     return self.relief
+
+
+# Weak camera lead. A queue or stopped car is often seen by the model well before its
+# probability reaches the 0.5 that radard needs, and SCC radar ignores it until ~30-60 m.
+# Meanwhile the plan kept accelerating and then had to brake hard (2026-10-22 11:44 log:
+# 363 s 61 km/h -> -3.0, 1434 s -> -1.7, 1756 s -> -2.0; the model had the car at
+# prob 0.3-0.46 for 1-1.6 s before). While such a lead is seen, stop accelerating and
+# ease off at WEAK_LEAD_ACCEL; the planner's per-step accel clip turns that into a ramp.
+# The 39 min log triggered exactly those three spots and nowhere else.
+WEAK_LEAD_MIN_PROB = 0.3
+WEAK_LEAD_HOLD_S = 0.5
+WEAK_LEAD_MAX_D = 120.0       # m
+WEAK_LEAD_MIN_CLOSING = 20.0 * CV.KPH_TO_MS
+WEAK_LEAD_MIN_V_EGO = 5.0     # m/s
+WEAK_LEAD_CONFIRMED_GAP = 5.0  # m, a confirmed lead this near the camera lead already handles it
+WEAK_LEAD_ACCEL = -0.5        # m/s^2
+WEAK_LEAD_RELEASE_S = 1.0     # keep easing off through brief camera dropouts
+
+
+class WeakSlowLead:
+  def __init__(self):
+    self.held = 0.0
+    self.release = 0.0
+
+  def update(self, enabled, v_ego, prob, d_vis, v_vis, lead_status, d_lead, dt):
+    """Return True while a likely slow lead is seen only weakly by the camera."""
+    confirmed = lead_status and d_lead < d_vis + WEAK_LEAD_CONFIRMED_GAP
+    seen = (enabled and v_ego > WEAK_LEAD_MIN_V_EGO and prob >= WEAK_LEAD_MIN_PROB and
+            0.0 < d_vis < WEAK_LEAD_MAX_D and v_ego - v_vis >= WEAK_LEAD_MIN_CLOSING and
+            not confirmed)
+    # One missed model frame (prob or distance flicker) must not restart the wait.
+    self.held = self.held + dt if seen else max(0.0, self.held - 2.0 * dt)
+    if seen and self.held >= WEAK_LEAD_HOLD_S - 1e-6:
+      self.release = WEAK_LEAD_RELEASE_S
+    else:
+      self.release = max(0.0, self.release - dt)
+    if not enabled or v_ego <= WEAK_LEAD_MIN_V_EGO:
+      self.held = 0.0
+      self.release = 0.0
+    # While the lead is confirmed the MPC follows it itself. Keep the release timer so a
+    # lead that flickers back to unconfirmed is eased off again without a new wait.
+    return self.release > 0.0 and not confirmed

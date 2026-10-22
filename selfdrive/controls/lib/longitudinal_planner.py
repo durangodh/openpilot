@@ -12,6 +12,7 @@ from selfdrive.controls.lib.longcontrol import LongCtrlState
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, MIN_ACCEL, MAX_ACCEL, N, XState
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_speed_error
+from selfdrive.controls.lib.longitudinal_limits import WEAK_LEAD_ACCEL, WeakSlowLead
 from selfdrive.swaglog import cloudlog
 from common.params import Params
 
@@ -70,6 +71,7 @@ class LongitudinalPlanner:
     self.a_desired_trajectory = np.zeros(CONTROL_N)
     self.j_desired_trajectory = np.zeros(CONTROL_N)
     self.solverExecutionTime = 0.0
+    self.weak_slow_lead = WeakSlowLead()
     self.params = Params()
     self.param_read_counter = 0
     self.read_param()
@@ -134,6 +136,16 @@ class LongitudinalPlanner:
     
     return x, v, a, j, y
 
+  def _weak_slow_lead(self, sm, v_ego, reset_state):
+    try:
+      lead = sm['modelV2'].leadsV3[0]
+      prob, d_vis, v_vis = float(lead.prob), float(lead.x[0]) - 1.52, float(lead.v[0])
+    except (IndexError, AttributeError):
+      prob, d_vis, v_vis = 0.0, 0.0, 0.0
+    lead_one = sm['radarState'].leadOne
+    return self.weak_slow_lead.update(not reset_state, v_ego, prob, d_vis, v_vis,
+                                      lead_one.status, lead_one.dRel, DT_MDL)
+
   def update(self, sm):
     if self.param_read_counter % 50 == 0:
       self.read_param()
@@ -179,6 +191,8 @@ class LongitudinalPlanner:
         myMaxAccel *= self.noLeadAccelFactor
       accel_limits = [A_CRUISE_MIN, myMaxAccel]
       accel_limits_turns = limit_accel_in_turns(v_ego, sm['carState'].steeringAngleDeg, accel_limits, self.CP)
+      if self._weak_slow_lead(sm, v_ego, reset_state):
+        accel_limits_turns[1] = min(accel_limits_turns[1], WEAK_LEAD_ACCEL)
     else:
       accel_limits = [MIN_ACCEL, MAX_ACCEL]
       accel_limits_turns = [MIN_ACCEL, MAX_ACCEL]
