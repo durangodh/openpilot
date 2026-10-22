@@ -280,7 +280,7 @@ def manager_init() -> None:
   # 더 이상 어떤 코드도 읽지 않는 파라미터 파일을 지운다(2026-10-10 정리).
   # 키 목록에서 빠졌으므로 Params 로는 지울 수 없고 파일을 직접 지운다. 없으면 무시.
   for dead_key in ("PidJerkAccel", "PidJerkDecel", "LeadDepartCost",
-                   "LongCoastBand", "LongitudinalActuatorDelayUpperBound", "StoppingAccel",
+                   "LongCoastBand", "StoppingAccel",
                    "NoLeadCruiseJerkLimit", "EnableSpeedTF", "StockNaviDecelEnabled",
                    "VisionRadarToggle", "SccSmootherState",
                    "LateralTorqueKd", "CarrotLearnFrictionBase",

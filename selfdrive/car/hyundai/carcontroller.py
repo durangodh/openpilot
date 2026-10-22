@@ -19,14 +19,12 @@ from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 VisualAlert = car.CarControl.HUDControl.VisualAlert
 
 
-def should_request_scc_standstill(stopping, soft_hold_scc):
-  """aPilot c2-master StopReq: set for the whole stopping state, not only after standstill.
-
-  create_acc_commands_mix_scc() sends StopReq = stopping and longEnabled, and forces it
-  for SoftHoldMode 2 while the brake is held. Waiting for actual standstill left the
-  last ~1 km/h to the PID request alone, so the SCC/ESC stop hand-off came late.
-  """
-  return bool(stopping or soft_hold_scc)
+def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego):
+  """Assert Hyundai StopReq only after the vehicle has actually stopped."""
+  actual_standstill = car_standstill or v_ego < 0.1
+  if soft_hold_scc:
+    return bool(actual_standstill)
+  return bool(stopping and actual_standstill)
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
@@ -272,7 +270,8 @@ class CarController:
     soft_hold_scc = soft_hold and self.soft_hold_mode == 2 and CS.out.brakePressed
     stopping = controls.LoC.long_control_state == LongCtrlState.stopping
     jerk_stopping = stopping or soft_hold
-    scc_stop_request = should_request_scc_standstill(stopping, soft_hold_scc)
+    scc_stop_request = should_request_scc_standstill(
+      stopping, soft_hold_scc, CS.out.standstill, CS.out.vEgo)
 
     # aPilot c2-master SCC14 jerk: 5.0 while off, 0.5 up / 5.0 down while
     # stopping or soft hold, otherwise twice the planned jerk, capped by
