@@ -103,6 +103,7 @@ class LongControl:
   def __init__(self, CP):
     self.CP = CP
     self.long_control_state = LongCtrlState.off  # initialized to off
+    self.planned_stop = False  # 기록용(long_trace should_stop)
     self.pid = PIDController((CP.longitudinalTuning.kpBP, CP.longitudinalTuning.kpV),
                              (CP.longitudinalTuning.kiBP, CP.longitudinalTuning.kiV),
                              k_f=CP.longitudinalTuning.kf, rate=1 / DT_CTRL)
@@ -402,6 +403,7 @@ class LongControl:
       self.CP, active, self.long_control_state, CS.vEgo, v_target, v_target_1sec,
       CS.brakePressed, CS.cruiseState.standstill, soft_hold, a_target_now, start_gate,
       assisted_departure)
+    self.planned_stop = bool(planned_stop)
     departed_stopping = (prev_long_control_state == LongCtrlState.stopping and
                          self.long_control_state != LongCtrlState.stopping)
 

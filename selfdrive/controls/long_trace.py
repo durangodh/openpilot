@@ -30,9 +30,9 @@ COLUMNS = [
   "t", "radar_t", "plan_t", "cc_t", "cs_t",
   # ① ② 레이더·앞차 추정
   "lead", "lead_radar", "d_rel", "v_rel", "v_lead", "v_lead_k", "a_lead_k", "a_lead_tau",
-  # ④ 계획
+  # ④ 계획 (should_stop: LongControl 정지 판단 planned_stop)
   "plan_a0", "plan_a1s", "mpc_mode", "e2e_reason", "should_stop",
-  # 정지차 일정 감속 목표(m/s², 0 이면 MPC 계획 그대로)
+  # 정지·저속 앞차에 다가갈 때 MPC 가 쓰는 제동 상한(m/s², 0 이면 설정 COMFORT BRAKE 그대로)
   "const_stop",
   # ⑤ 명령
   "cmd_accel", "long_state", "enabled", "long_active", "scc_apply_accel", "scc_areq_value", "scc_stop_req",
@@ -40,7 +40,7 @@ COLUMNS = [
   "v_ego", "a_ego", "gas", "brake", "standstill",
   # ⑦ 속도 제한(km/h): 적용 최고속도(카메라·커브 반영), 설정속도, 제한 원인(cam/bump/section/vturn/route/noo)
   "v_cruise", "set_speed", "apply_source",
-  # ⑧ 차간시간(초): MPC 추종시간(간격 회복 여유 포함), 그중 간격 회복 여유
+  # ⑧ 차간시간(초): MPC 추종시간(접근 여유 포함), 그중 앞차에 다가갈 때 더한 접근 여유
   "t_follow", "gap_extra_tf",
   # ⑨ 카메라 모델 앞차 원값(레이더와 비교용): 거리(m, 레이더 기준), 속도(m/s), 확률
   "vis_d", "vis_v", "vis_prob",
@@ -141,7 +141,7 @@ def _row(sm):
     _f(accels[0] if accels else 0.0),
     # T_IDXS 10번째 근처가 약 1초 뒤(계획이 앞으로 무엇을 하려는지)
     _f(accels[10] if len(accels) > 10 else 0.0),
-    _i(plan.mpcMode), _i(plan.e2eReason), _i(plan.shouldStop),
+    _i(plan.mpcMode), _i(plan.e2eReason), _i(ctl.longPlannedStop),
     _f(plan.constStopDecel),
     _f(sm['carControl'].actuators.accel), _i(ctl.longControlState), _i(ctl.enabled),
     _i(sm['carControl'].longActive),

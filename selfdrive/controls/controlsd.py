@@ -262,6 +262,7 @@ class Controls:
     self.aReqValueMax = 0.
     self.sccStockCamStatus = 0
     self.sccStockCamAct = 0
+    self.scc_stop_request = False  # 기록용(long_trace scc_stop_req), carcontroller 가 채운다
 
     self.left_lane_visible = False
     self.right_lane_visible = False
@@ -1033,6 +1034,8 @@ class Controls:
     controlsState.aReqValueMax = self.aReqValueMax
     controlsState.sccStockCamAct = self.sccStockCamAct
     controlsState.sccStockCamStatus = self.sccStockCamStatus
+    controlsState.sccStopRequest = bool(self.scc_stop_request)
+    controlsState.longPlannedStop = bool(self.LoC.planned_stop)
 
     controlsState.steerRatio = self.VM.sR
     controlsState.steerActuatorDelay = live_tune.steer_actuator_delay()

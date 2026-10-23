@@ -602,6 +602,7 @@ struct ControlsState @0x97ff69c53601abf1 {
   sccStopRequest @81 :Bool;  # StopReq bit in the last openpilot SCC12 request
   longActiveUser @82 :Int32;       # cruise_helper long_active_user (aPilot long_mpc)
   cruiseButtonCounter @83 :Int32;  # +1 accel / -1 decel short press (aPilot long_mpc)
+  longPlannedStop @84 :Bool;       # LongControl planned_stop (v_target and 1 s target below vEgoStopping)
 
   steerRatio @69 :Float32;
   steerActuatorDelay @70 :Float32;

@@ -287,6 +287,9 @@ class LongitudinalMpc:
     self.params = np.zeros((N+1, PARAM_DIM))
     self.params[:,7] = self.comfort_brake
     self.t_follow = T_FOLLOW
+    # 기록용(long_trace gap_extra_tf / const_stop): 접근 여유 차간시간, 정지 앞차 제동 상한.
+    self.closing_margin = 0.0
+    self.stopped_lead_brake = 0.0
     self.stop_dist = self.stop_distance
     for i in range(N+1):
       self.solver.set(i, 'x', np.zeros(X_DIM))
@@ -490,13 +493,16 @@ class LongitudinalMpc:
       v_ego, lead_xv_0[0, 1], lead0_status,
       radarstate.leadOne.dRel if lead0_status else None)
     self.t_follow = self.t_follow_base + closing_margin
+    self.closing_margin = float(closing_margin)
 
     # apilot-c2: 안전모드일수록 comfort_brake 를 낮춰(=더 일찍 감속) 정지거리도 늘린다.
     # A confirmed stopped/slow lead with a large closing speed gets an additional
     # safety cap, preventing a high user setting from postponing highway braking.
     comfort_brake = self.comfort_brake * self.safe_mode_factor
+    base_comfort_brake = comfort_brake
     comfort_brake = get_stopped_lead_comfort_brake(
       comfort_brake, v_ego, lead_xv_0[0, 1], lead0_status)
+    self.stopped_lead_brake = float(comfort_brake) if comfort_brake < base_comfort_brake - 1e-3 else 0.0
     lead1_comfort_brake = get_stopped_lead_comfort_brake(
       self.comfort_brake * self.safe_mode_factor, v_ego, lead_xv_1[0, 1], radarstate.leadTwo.status)
     self.stop_dist = self.stop_distance * (2.0 - self.safe_mode_factor)
