@@ -6,7 +6,7 @@ from collections import defaultdict, deque
 
 import cereal.messaging as messaging
 from cereal import car
-from common.numpy_fast import clip, interp
+from common.numpy_fast import interp
 from common.params import Params
 from common.realtime import Ratekeeper, Priority, config_realtime_process
 from selfdrive.controls.lib.cluster.fastcluster_py import cluster_points_centroid

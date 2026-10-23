@@ -219,7 +219,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"UseClusterSpeed", PERSISTENT},
     {"LongControlEnabled", PERSISTENT},
     {"SccConnectedBus2", PERSISTENT},
-    {"EnableRadarTracks", PERSISTENT},
     {"MadModeEnabled", PERSISTENT},
     {"CruiseSpeedMin", PERSISTENT},
     {"JerkStartLimit", PERSISTENT},

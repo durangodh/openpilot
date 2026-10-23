@@ -75,7 +75,6 @@ def manager_init() -> None:
     ("UseClusterSpeed", "0"),
     ("LongControlEnabled", "0"),
     ("SccConnectedBus2", "0"),
-    ("EnableRadarTracks", "0"),
     ("MadModeEnabled", "1"),
     ("CruiseSpeedMin", "30"),
     ("LaneChangeEnabled", "0"),
@@ -279,7 +278,8 @@ def manager_init() -> None:
                    "NoLeadCruiseJerkLimit", "EnableSpeedTF", "StockNaviDecelEnabled",
                    "VisionRadarToggle", "SccSmootherState",
                    "LateralTorqueKd", "CarrotLearnFrictionBase",
-                   "OPKRTimeZone", "ShowBlindSpotAlways", "EonClusterHudPathFlipV2Migrated"):
+                   "OPKRTimeZone", "ShowBlindSpotAlways", "EonClusterHudPathFlipV2Migrated",
+                   "EnableRadarTracks", "LatTraceEnabled"):
     try:
       os.remove(os.path.join("/data/params/d", dead_key))
     except OSError:
