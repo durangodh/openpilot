@@ -126,8 +126,9 @@ final class TmapMapRender {
         // 엔진이 만들어진다. 이 엔진은 시작 뒤 밀도 변경을 무시해 네비모드 지도가 크게 나왔다.
         if (!EonDiscovery.received) return;
         try {
-            int dpi = ctx.getResources().getDisplayMetrics().densityDpi;
+            int dpi = PhoneDisplay.metrics(ctx).densityDpi;
             if (dpi > 0) phoneDpi = dpi;
+            TmapHudLog.line("HUD map display " + PhoneDisplay.describe(ctx));
         } catch (Throwable ignored) {
             // 기본값(420) 사용
         }

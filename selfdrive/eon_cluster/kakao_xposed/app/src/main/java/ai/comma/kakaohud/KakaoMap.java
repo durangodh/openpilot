@@ -158,8 +158,9 @@ final class KakaoMap {
         this.cl = cl;
         this.context = ctx;
         try {
-            int dpi = ctx.getResources().getDisplayMetrics().densityDpi;
+            int dpi = PhoneDisplay.metrics(ctx).densityDpi;
             if (dpi > 0) phoneDpi = dpi;
+            KakaoHudLog.line("HUD map display " + PhoneDisplay.describe(ctx));
         } catch (Throwable ignored) {
             // 기본값(420) 사용
         }

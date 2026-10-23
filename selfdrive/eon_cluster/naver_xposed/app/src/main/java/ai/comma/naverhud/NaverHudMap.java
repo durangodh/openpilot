@@ -219,9 +219,10 @@ final class NaverHudMap {
     private void create(Context app, ClassLoader cl) throws Exception {
         createdAt = SystemClock.elapsedRealtime();
         Context base = app.getApplicationContext();
-        float phoneDensity = base.getResources().getDisplayMetrics().density;
-        int phoneWidth = Math.min(base.getResources().getDisplayMetrics().widthPixels,
-                base.getResources().getDisplayMetrics().heightPixels);
+        android.util.DisplayMetrics phone = PhoneDisplay.metrics(base);
+        float phoneDensity = phone.density;
+        int phoneWidth = Math.min(phone.widthPixels, phone.heightPixels);
+        NaverHudLog.line("HUD map display " + PhoneDisplay.describe(base));
         builtWide = EonDiscovery.wideMap;
         builtScale = EonDiscovery.mapScale;
         width = builtWide ? WIDE_WIDTH : DRIVE_WIDTH;
