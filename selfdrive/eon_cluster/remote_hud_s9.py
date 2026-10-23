@@ -147,6 +147,11 @@ def _packet(sm, *args, **kwargs):
   packet["hudPitchDyn"] = _bounded_int("EonClusterHudPitchDyn", 60, 0, 200)
   packet["hudOutputMode"] = _bounded_int("EonClusterHudOutputMode", 1, 1, 3)
   packet["hudLayoutMode"] = _bounded_int("EonClusterHudLayoutMode", 1, 1, 2)
+  # 휴대폰 HUD 가 EON 연결 전에 마지막 축척으로 내비 모듈을 준비할 수 있도록
+  # telemetry 에도 discovery 와 같은 앱별 값을 싣는다.
+  packet["hudMapScaleTmap"] = _bounded_int("EonClusterHudMapScaleTmap", 70, 30, 200)
+  packet["hudMapScaleKakao"] = _bounded_int("EonClusterHudMapScaleKakao", 70, 30, 200)
+  packet["hudMapScaleNaver"] = _bounded_int("EonClusterHudMapScaleNaver", 70, 30, 200)
   # 네비모드(지도 8 : 주행 2). 자동이면 길안내 중에만. 같은 값을 휴대폰 지도 캡처에도 알린다.
   navi = packet.get("navi")
   guiding = isinstance(navi, dict) and bool(navi.get("active", False))

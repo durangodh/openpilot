@@ -226,6 +226,12 @@ def main():
     assert "boolean stale = linkStale || !drivingValid;" in driving
     assert 'lang("차량 데이터 대기", "WAITING FOR VEHICLE")' in driving
     assert 'boolean stale = eonStale() || !s.optBoolean("drivingValid", true);' not in driving
+    # Before EON is alive, keep the remembered navigation layout and tell the
+    # local map module to use the matching wide frame and saved map scale.
+    assert "private void localDiscoveryLoop()" in source
+    assert 'fallback.put("hud_wide_map", configuredNaviLayout ? 1 : 0);' in source
+    assert 'fallback.put("hud_map_scale_naver", configuredMapScaleNaver);' in source
+    assert "if (eonStale())" in source
     # GPS source replaces the old health badge, in its original top-row slot.
     badges = source.split("private void drawMapSourceBadge(", 1)[1].split(
         "private void drawJunction(", 1)[0]
