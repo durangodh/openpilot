@@ -4235,8 +4235,8 @@ public final class HudService extends Service {
         float cell = (right - left + gap) / GAUGE_SEGMENTS;
         int on = Math.max(0, Math.min(GAUGE_SEGMENTS, lit));
         int track = frameDark ? Color.rgb(84, 94, 106) : Color.rgb(205, 209, 214);
-        // Fuel/coolant bars use an opaque, saturated solid colour.
-        int fill = warn ? GAUGE_RED : Color.rgb(0, 160, 190);
+        // 켜진 칸은 계기판처럼 테마색(밤 흰색 / 낮 검정), 경고만 빨강.
+        int fill = warn ? GAUGE_RED : ink();
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         for (int i = 0; i < GAUGE_SEGMENTS; i++) {
