@@ -123,13 +123,14 @@ def create_mdps12(packer, frame, mdps12):
 
   return packer.make_can_msg("MDPS12", 2, values)
 
-def create_scc11(packer, frame, enabled, set_speed, lead_visible, scc_live, scc11, active_cam,
+def create_scc11(packer, frame, enabled, set_speed, lead_visible, scc_live, scc11, active_cam, stock_cam,
                  soft_hold=False, cruise_gap=None, lead_distance=0.0, lead_relative_speed=0.0):
   values = copy.copy(scc11)
   values["AliveCounterACC"] = frame // 2 % 0x10
 
-  values["Navi_SCC_Camera_Act"] = 2 if active_cam else 0
-  values["Navi_SCC_Camera_Status"] = 2 if active_cam else 0
+  if not stock_cam:
+    values["Navi_SCC_Camera_Act"] = 2 if active_cam else 0
+    values["Navi_SCC_Camera_Status"] = 2 if active_cam else 0
 
   # Match aPilot C2 SCC11 ownership for both ACC and E2E. Do not leave the
   # stock radar's standstill/object state latched on Genesis DH SCC bus 2.
@@ -148,8 +149,7 @@ def create_scc11(packer, frame, enabled, set_speed, lead_visible, scc_live, scc1
 
 
 def create_scc12(packer, apply_accel, enabled, cnt, scc_live, scc12, gaspressed, brakepressed,
-                 standstill, car_fingerprint, long_active=False, soft_hold_active=False, long_override=False,
-                 brake_hold=False):
+                 standstill, car_fingerprint, long_active=False, soft_hold_active=False):
   values = copy.copy(scc12)
 
   # Match aPilot C2: openpilot owns ACCMode whenever it owns SCC acceleration.
@@ -157,15 +157,8 @@ def create_scc12(packer, apply_accel, enabled, cnt, scc_live, scc12, gaspressed,
   # depend on the stale stock state and can cause a harsh handoff.
   # Match the apilot-c2 longEnabled behaviour only while stopped: a transient
   # longActive drop must not clear StopReq or the latched brake command.
-  # aPilot C2 driver gas override: ACCMode 2 with a zero request.
   command_active = enabled and (long_active or standstill or soft_hold_active)
-  if enabled and brake_hold:
-    acc_mode = 0  # aPilot C2: AutoHold active
-    command_active = False
-  elif enabled and long_override:
-    acc_mode = 2
-    command_active = False
-  elif not command_active:
+  if not command_active:
     acc_mode = 0
   elif soft_hold_active:
     acc_mode = 1
@@ -194,31 +187,26 @@ def create_scc13(packer, scc13):
   return packer.make_can_msg("SCC13", 0, values)
 
 
-def create_scc14(packer, enabled, e_vgo, standstill, accel, gaspressed, objgap, objgap2, scc14,
+def create_scc14(packer, enabled, e_vgo, standstill, accel, gaspressed, objgap, scc14,
                  jerk_upper=5.0, jerk_lower=5.0, cb_upper=0.0, cb_lower=0.0,
-                 long_active=False, brakepressed=False, soft_hold_active=False, long_override=False,
-                 brake_hold=False, drive_gear=True):
+                 long_active=False, brakepressed=False, soft_hold_active=False):
   values = copy.copy(scc14)
 
-  # aPilot C2 SCC14 state: 1=active control, 4=driver gas/brake override,
-  # AutoHold or not in a drive gear, 0=inactive. SCC14 ownership follows SCC12 through the stopping latch.
+  # aPilot C2 SCC14 state: 1=active control, 4=driver/brake override,
+  # 0=inactive. Never advertise an override without longitudinal ownership.
+  # SCC14 ownership must follow SCC12 through the complete stopping latch.
   command_active = enabled and (long_active or standstill or soft_hold_active)
-  if enabled and brake_hold:
-    acc_mode = 4  # aPilot C2: AutoHold
-  elif enabled and soft_hold_active:
-    acc_mode = 1
-  elif enabled and (long_override or brakepressed or not drive_gear):
-    acc_mode = 4  # aPilot C2: driver gas / brake override, or not in a drive gear
-  elif not command_active:
+  if not command_active:
     acc_mode = 0
-  elif gaspressed:
+  elif soft_hold_active:
+    acc_mode = 1
+  elif brakepressed or gaspressed:
     acc_mode = 4
   else:
     acc_mode = 1
 
   values["ACCMode"] = acc_mode
   values["ObjGap"] = objgap if enabled else 0
-  values["ObjGap2"] = objgap2 if enabled else 0
   values["JerkUpperLimit"] = max(0.0, min(12.7, jerk_upper))
   values["JerkLowerLimit"] = max(0.0, min(12.7, jerk_lower))
   values["ComfortBandUpper"] = cb_upper if enabled else 0.0

@@ -92,8 +92,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"AutoGasTapSpeedIncrement", PERSISTENT},
     {"SpeedFromPCM", PERSISTENT},
     {"AutoSpeedUptoRoadSpeedLimit", PERSISTENT},
-    {"AutoSpeedUpMode", PERSISTENT},            // 0: 단계식 증속, 1: aPilot 앞차 속도로 바로
-    {"CruiseControlMode", PERSISTENT},          // aPilot 크루즈 연비제어 가상 초과속도 km/h
     {"AutoRoadSpeedAdjust", PERSISTENT},
     {"AutoRoadSpeedLimitOffset", PERSISTENT},
     {"AutoNaviSpeedCtrlEnd", PERSISTENT},
@@ -224,6 +222,14 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EnableRadarTracks", PERSISTENT},
     {"MadModeEnabled", PERSISTENT},
     {"CruiseSpeedMin", PERSISTENT},
+    {"JerkStartLimit", PERSISTENT},
+    {"StoppingDecelRate", PERSISTENT},
+    {"PidJerkAccel", PERSISTENT},              // 정상주행 가속 저크 배율 (%, default 100)
+    {"PidJerkDecel", PERSISTENT},              // 정상주행 감속 저크 배율 (%, default 100)
+    {"LowSpeedJerkBoost", PERSISTENT},         // 저속(18km/h↓) 앞차출발 전용 부스트 (%, default 100)
+    {"StandstillHoldApply", PERSISTENT},      // 완전정지 유지 제동값 (x-0.02 m/s^2)
+    {"StandstillReleaseSpeed", PERSISTENT},   // 정차 후 자동출발 임계 목표속도 (x0.1 m/s, default 2)
+    {"StandstillReleaseMs", PERSISTENT},      // 자동출발 요구 지속시간 ms (default 100)
 
     {"DynamicLaneProfile", PERSISTENT},
     {"MpcPathCost", PERSISTENT},
@@ -236,7 +242,9 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LaneChangeNeedTorque", PERSISTENT},   // NOO 차선변경: -1 끔 / 0 즉시 / 1 토크필요 (carrot)
     {"OffsetTotal", PERSISTENT},
     {"AdjustLaneOffset", PERSISTENT},          // 좌우 여유공간 비대칭 보정 (cm, 0=off)     // 통합 오프셋(offset_total). 전 모드 공통, Auto-Tuner Phase2 학습 대상
+    {"SccSmootherState", PERSISTENT},
     {"SccSmootherSyncGasPressed", PERSISTENT},
+    {"StockNaviDecelEnabled", PERSISTENT},
     {"NewRadarInterface", PERSISTENT},
     {"WideCameraOnly", PERSISTENT},
     {"AutoLaneChangeTimer", PERSISTENT},
@@ -313,34 +321,35 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"TurnVisionControl", PERSISTENT},
     {"AutoCurveSpeedFactor", PERSISTENT},       // vision curvature multiplier, x100
     {"AutoCurveSpeedLowerLimit", PERSISTENT},   // minimum vision/map curve speed, km/h
-    {"AutoCurveSpeedMode", PERSISTENT},         // 0: carrot 비전 커브, 1: aPilot 회전율 표
-    {"AutoCurveSpeedFactorIn", PERSISTENT},     // aPilot 커브 진입 추가감속 비율 x0.01
     {"MapTurnSpeedFactor", PERSISTENT},         // Tmap route curve speed multiplier, x100
     {"AutoNaviSpeedDecelRate", PERSISTENT},     // map curve deceleration, x100 m/s^2
     {"SoftRestartTriggered", CLEAR_ON_MANAGER_START},
     // ── CarrotPilot Auto-Tuner (commit 9dd5e2c port) ──────────────────
+    {"LongCoastBand", PERSISTENT},             // 코스팅 데드밴드 (x100 정수, m/s², 기본 0=off; commit 10fa725 Phase9 추천·longcontrol 라이브 반영)
+    {"LongTuningKpV", PERSISTENT},
+    {"LongTuningKiV", PERSISTENT},
+    {"LongTuningKf", PERSISTENT},
     {"LongActuatorDelay", PERSISTENT},
     {"LongitudinalActuatorDelayLowerBound", PERSISTENT},
     {"LongitudinalActuatorDelayUpperBound", PERSISTENT},
-    {"LongitudinalTuningKpV", PERSISTENT},
-    {"JerkStartLimit", PERSISTENT},
-    {"NoLeadCruiseAccelFactor", PERSISTENT},
-    {"LongitudinalTuningKiV", PERSISTENT},
-    {"LongitudinalTuningKf", PERSISTENT},
-    {"TrafficStopModelSpeed", PERSISTENT},
-    {"ApplyModelDistOrder", PERSISTENT},
-    {"TrafficStopAdjustRatio", PERSISTENT},
+    {"StoppingAccel", PERSISTENT},
     // 학습 대상 파라미터 (x100 정수 저장)
     {"TFollowGap1", PERSISTENT},               // GAP1 (default 110 = 1.10s)
     {"TFollowGap2", PERSISTENT},               // GAP2 (default 120 = 1.20s)
     {"TFollowGap3", PERSISTENT},               // GAP3 (default 140 = 1.40s)
     {"TFollowGap4", PERSISTENT},               // GAP4 (default 160 = 1.60s)
+    {"ComfortBrake", PERSISTENT},              // 접근 감속 기준 (x100, default 250 = 2.50m/s^2)
+    {"XEgoObstacleCost", PERSISTENT},          // 차간거리 추종 강도 (x100, default 600 = 6.0)
+    {"EnableSpeedTF", PERSISTENT},
+    {"LeadDepartCost", PERSISTENT},            // 저속 출발 추종 코스트 배율 (x100, default 20, apilot=5 기존=45)
+    {"NoLeadCruiseAccelFactor", PERSISTENT},  // No-lead CruiseMax percentage
+    {"NoLeadCruiseJerkLimit", PERSISTENT},    // No-lead accel rise rate (x100 m/s^3)
     {"LongTraceEnabled", PERSISTENT},         // 가벼운 가감속 기록기(long_trace) 켜기, 기본 0
     {"LatTraceEnabled", PERSISTENT},          // 가벼운 조향 기록기(lat_trace) 켜기, 기본 0
     {"StartAccelApply", PERSISTENT},
     {"StopAccelApply", PERSISTENT},
     {"SoftHoldMode", PERSISTENT},
-    {"TrafficStopMode", PERSISTENT},         // 0: off/ACC, 1: conditional, 2: aPilot conditional, 3: ACC + vision-lead E2E
+    {"TrafficStopMode", PERSISTENT},         // 0: off/ACC, 1: conditional, 2: aPilot conditional
     {"TrafficStopAccel", PERSISTENT},        // traffic-signal deceleration factor, percent
     {"TrafficStopDistanceAdjust", PERSISTENT}, // traffic-stop line adjustment (cm), default +400
 

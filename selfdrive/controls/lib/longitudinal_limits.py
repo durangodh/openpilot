@@ -17,26 +17,14 @@ CRUISE_MAX_VAL_KEYS = ["CruiseMaxVals1", "CruiseMaxVals20", "CruiseMaxVals2", "C
 # Keep the emergency fallback identical to manager.py and apilot.json. These
 # values are used only when the persisted table is unavailable or malformed.
 CRUISE_MAX_VAL_DEFAULTS = [1.60, 1.00, 1.20, 1.00, 0.80, 0.70, 0.60]
-CRUISE_ACCEL_FACTOR_DEFAULT = 1.0
+NO_LEAD_CRUISE_ACCEL_FACTOR_DEFAULT = 0.65
+NO_LEAD_CRUISE_JERK_DEFAULT = 0.25
+FOLLOW_ACCEL_LIMIT_RISE = 0.35  # m/s^3, above the low-speed departure window
 
 # aPilot C2 total-acceleration envelope. Longitudinal acceleration is reduced
 # when the estimated lateral acceleration consumes the available tire force.
 TURN_ACCEL_MAX_BP = [20.0, 40.0]
 TURN_ACCEL_MAX_V = [2.5, 3.2]
-
-
-A_CRUISE_MIN = -1.2
-# Camera/section/curve limiters may plan a stronger decel than A_CRUISE_MIN.
-# Widen the cruise bound to that rate (plus a small tracking margin) so the car
-# reaches the target speed where the limiter expects it.
-A_CRUISE_MIN_LIMITER = -2.5
-CRUISE_DECEL_MARGIN = 0.2
-
-
-def get_cruise_min_accel(decel_limit):
-  if decel_limit <= 0.0:
-    return A_CRUISE_MIN
-  return float(clip(-(decel_limit + CRUISE_DECEL_MARGIN), A_CRUISE_MIN_LIMITER, A_CRUISE_MIN))
 
 
 def limit_accel_in_turns(v_ego, steering_angle_deg, accel_limits, steer_ratio, wheelbase):
@@ -66,13 +54,74 @@ def get_cruise_max_accel(v_ego, cruise_max_vals, driving_mode,
   return float(max(0.0, interp(v_ego, CRUISE_MAX_ACCEL_BP, values) * mode_factor))
 
 
-def scale_cruise_max_accel(cruise_max_accel, accel_factor=CRUISE_ACCEL_FACTOR_DEFAULT):
-  """Positive-acceleration cap: CruiseMax x the LEAD / NO-LEAD CRUISE ACCEL ratio.
+# 제동에서 벗어난 직후 상승 상한의 시작값(m/s^2). 승차감상 이 정도의 계단은
+# SCC 가 브레이크를 놓을 때 발생하는 변화보다 작다.
+NO_LEAD_RECOVERY_START_ACCEL = 0.30
 
-  100% keeps CruiseMax unchanged; the same ratio applies over the whole speed
-  range (95% = 5% lower, 105% = 5% higher). Braking is never affected.
+
+def apply_cruise_max_limit(accel, stopping, cruise_max_accel):
+  """Clamp the final SCC acceleration request to the CruiseMax policy.
+
+  CruiseMax used to bound the planner trajectory only. LongControl runs its PID
+  against CarControllerParams.ACCEL_MIN/MAX, so the error term could add
+  acceleration on top of the already-capped planned feedforward, and the
+  LongCtrlState.starting launch accel bypassed the cap entirely. Applying the
+  same policy to the last value before SCC12 makes the UI setting the real
+  upper bound. Braking and stopping requests are passed through untouched.
   """
-  return float(max(0.0, cruise_max_accel * clip(accel_factor, 0.50, 1.50)))
+  if stopping or accel <= 0.0:
+    return float(accel)
+  return float(min(accel, cruise_max_accel))
+
+
+def get_no_lead_cruise_accel_cap(cruise_max_accel, speed_error_kph,
+                                  accel_factor=NO_LEAD_CRUISE_ACCEL_FACTOR_DEFAULT):
+  """Return a gentler positive-acceleration cap when no lead is present.
+
+  A large set-speed error may use the configured fraction of CruiseMax, while
+  the allowance tapers further near the set speed. Braking is handled outside
+  this helper and is never weakened by the no-lead policy.
+  """
+  error_scale = interp(clip(speed_error_kph, 0.0, 30.0),
+                       [0.0, 5.0, 15.0, 30.0], [0.20, 0.40, 0.70, 1.0])
+  factor = clip(accel_factor, 0.30, 1.0)
+  return float(max(0.0, cruise_max_accel * factor * error_scale))
+
+
+def transition_follow_accel_limit(target, previous, v_ego, dt):
+  """Open a positive acceleration allowance gradually after acquiring a lead.
+
+  Reductions apply immediately. Preserve the existing launch response through
+  18 km/h and blend into the full rise limit by 30 km/h. This bounds an upper
+  limit only; it never delays a negative acceleration request.
+  """
+  target = max(0.0, float(target))
+  if previous is None:
+    return target
+  weight = interp(v_ego, [5.0, 30.0 / 3.6], [0.0, 1.0])
+  limited = min(target, max(0.0, previous) + FOLLOW_ACCEL_LIMIT_RISE * max(0.0, dt))
+  return float(target + weight * (limited - target))
+
+
+def apply_no_lead_cruise_accel_limit(accel, stopping, cruise_max_accel,
+                                      speed_error_kph, accel_factor,
+                                      previous_accel, rise_rate, dt):
+  """Apply the no-lead cap and rate-limit only increases in drive request."""
+  accel = apply_cruise_max_limit(accel, stopping, cruise_max_accel)
+  if stopping or accel <= 0.0:
+    return float(accel)
+
+  no_lead_cap = get_no_lead_cruise_accel_cap(cruise_max_accel, speed_error_kph,
+                                              accel_factor)
+  baseline = max(0.0, previous_accel)
+  if previous_accel <= 0.0:
+    # 제동·타행에서 벗어난 첫 프레임. 직전 요청이 음수라 그대로 두면 상승
+    # 상한이 0 에서 다시 기어오르고, 곡선·과속카메라 감속 뒤 재가속이 매번
+    # 몇 초씩 걸린다. 요청 부호가 음수에서 양수로 넘어가는 순간은 어차피
+    # 연속적이지 않으므로, 이 한 프레임만 작은 시작값을 허용한다.
+    baseline = min(no_lead_cap, NO_LEAD_RECOVERY_START_ACCEL)
+  rising_cap = baseline + max(0.0, rise_rate) * max(0.0, dt)
+  return float(min(accel, no_lead_cap, rising_cap))
 
 
 def select_auto_driving_mode(initial_mode, current_mode, driving_index):

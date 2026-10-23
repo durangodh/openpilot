@@ -45,12 +45,10 @@ def manager_init() -> None:
     ("AutoGasCancelSpeed", "30"),
     ("AutoGasTapSpeedIncrement", "5"),
     ("SpeedFromPCM", "2"),
-    ("AutoSpeedUptoRoadSpeedLimit", "100"),
-    ("AutoSpeedUpMode", "1"),
-    ("CruiseControlMode", "4"),
+    ("AutoSpeedUptoRoadSpeedLimit", "0"),
     ("AutoRoadSpeedAdjust", "0"),          # -100=limit immediately, 0=retain, 1..100=blend on limit drop
     ("AutoRoadSpeedLimitOffset", "0"),
-    ("AutoNaviSpeedCtrlEnd", "6"),
+    ("AutoNaviSpeedCtrlEnd", "7"),
     ("AutoNaviSpeedBumpTime", "1"),
     ("AutoNaviSpeedBumpSpeed", "35"),
     ("AutoNaviSpeedSafetyFactor", "105"),
@@ -90,6 +88,7 @@ def manager_init() -> None:
     ("LanelessOffset", "0"),
 
     ("SccSmootherSyncGasPressed", "0"),
+    ("StockNaviDecelEnabled", "0"),
     ("KeepSteeringTurnSignals", "0"),
     ("HapticFeedbackWhenSpeedCamera", "0"),
     ("NewRadarInterface", "0"),
@@ -138,6 +137,8 @@ def manager_init() -> None:
     ("CruiseMaxVals4", "80"),
     ("CruiseMaxVals5", "70"),
     ("CruiseMaxVals6", "60"),
+    ("NoLeadCruiseAccelFactor", "65"),
+    ("NoLeadCruiseJerkLimit", "25"),
     # 조향 기본값은 차량 공식값 기준으로 맞춘다 (2026-08-19, 학습 제거 후 정리)
     #  - CustomSteerRatio 1650  = hyundai/interface.py ret.steerRatio 16.5
     #  - SteerActuatorDelay 25  = 동 파일 ret.steerActuatorDelay 0.25s
@@ -169,32 +170,26 @@ def manager_init() -> None:
     ("LatMpcInputOffset", "4"),   # carrot c3 차선 경로 선행 입력 (4=0.04)
     ("OffsetTotal", "0.0"),        # 사용자 수동 오프셋(m)
     ("TurnVisionControl", "0"),
-    ("AutoCurveSpeedFactor", "100"),
+    ("AutoCurveSpeedFactor", "120"),
     ("AutoCurveSpeedLowerLimit", "30"),
-    ("AutoCurveSpeedMode", "0"),
-    ("AutoCurveSpeedFactorIn", "10"),
     ("MapTurnSpeedFactor", "90"),
     ("AutoNaviSpeedDecelRate", "80"),
+    ("JerkStartLimit", "10"),
     ("StartAccelApply", "0"),
     ("StopAccelApply", "30"),
+    ("StoppingDecelRate", "120"),
+    ("PidJerkAccel", "100"),
+    ("PidJerkDecel", "100"),
+    ("LowSpeedJerkBoost", "100"),
+    ("StandstillHoldApply", "55"),
     ("TrafficStopAccel", "80"),
     ("TrafficStopDistanceAdjust", "400"),
     ("StopDistance", "600"),
+    ("LongTuningKpV", "100"),
+    ("LongTuningKiV", "200"),
+    ("LongTuningKf", "100"),
     ("LongitudinalActuatorDelayLowerBound", "50"),
     ("LongitudinalActuatorDelayUpperBound", "50"),
-    ("LongitudinalTuningKpV", "100"),
-    ("JerkStartLimit", "10"),
-    ("TFollowSpeedRatio", "110"),
-    ("TFollowGap1", "110"),
-    ("TFollowGap2", "120"),
-    ("TFollowGap3", "140"),
-    ("TFollowGap4", "160"),
-    ("NoLeadCruiseAccelFactor", "100"),
-    ("LongitudinalTuningKiV", "200"),
-    ("LongitudinalTuningKf", "100"),
-    ("TrafficStopModelSpeed", "0"),
-    ("ApplyModelDistOrder", "30"),
-    ("TrafficStopAdjustRatio", "90"),
     ("SoftHoldMode", "1"),
   ]
   if not PC:
@@ -279,10 +274,7 @@ def manager_init() -> None:
 
   # 더 이상 어떤 코드도 읽지 않는 파라미터 파일을 지운다(2026-10-10 정리).
   # 키 목록에서 빠졌으므로 Params 로는 지울 수 없고 파일을 직접 지운다. 없으면 무시.
-  for dead_key in ("PidJerkAccel", "PidJerkDecel", "LeadDepartCost",
-                   "LongCoastBand", "StoppingAccel",
-                   "NoLeadCruiseJerkLimit", "EnableSpeedTF", "StockNaviDecelEnabled",
-                   "VisionRadarToggle", "SccSmootherState",
+  for dead_key in ("VisionRadarToggle",
                    "LateralTorqueKd", "CarrotLearnFrictionBase",
                    "OPKRTimeZone", "ShowBlindSpotAlways", "EonClusterHudPathFlipV2Migrated",
                    "HudRemoteDirectEnabled", "HudRemoteDirectDefaultOnMigrated",
@@ -303,6 +295,7 @@ def manager_init() -> None:
   # 더 이상 읽지 않는 옛 파라미터 파일을 지운다.
   if params.get("ApilotC2LongMigrated") is None:
     try:
+      params.put("LeadDepartCost", "5")
       for legacy_key in ("TFollowDecelBoost", "TFollowClosingMargin",
                          "RadarReactionFactor", "SccVisionMismatchFallback"):
         try:

@@ -179,8 +179,6 @@ class Controls:
     # read params
     self.is_metric = params.get_bool("IsMetric")
     self.cruise_helper = CruiseHelper(params)
-    # aPilot: +1 / -1 per short accel(resume) / decel(set) press, read by long_mpc (softHold, traffic stop).
-    self.cruise_button_counter = 0
     self.is_ldw_enabled = params.get_bool("IsLdwEnabled")
     openpilot_enabled_toggle = params.get_bool("OpenpilotEnabledToggle")
     passive = params.get_bool("Passive") or not openpilot_enabled_toggle
@@ -213,6 +211,7 @@ class Controls:
       params.remove("ExperimentalMode")
 
     self.CC = car.CarControl.new_message()
+    self.CS_prev = car.CarState.new_message()
     self.AM = AlertManager()
     self.events = Events()
 
@@ -240,6 +239,7 @@ class Controls:
     self.cruise_mismatch_counter = 0
     self.can_rcv_error_counter = 0
     self.last_blinker_frame = 0
+    self.distance_traveled = 0
     self.last_functional_fan_frame = 0
     self.events_prev = []
     self.current_alert_types = [ET.PERMANENT]
@@ -487,11 +487,7 @@ class Controls:
       #  if not self.sm['liveLocationKalman'].gpsOK and (self.distance_traveled > 1000):
       #    # Not show in first 1 km to allow for driving out of garage. This event shows after 5 minutes
       #    self.events.add(EventName.noGps)
-      # 시동을 끄면 thermald 가 started=False 로 바꾸고 manager 가 camerad 를 먼저 끄는 동안
-      # controlsd 가 잠시 살아 있어 "Camera Frame Rate Low" 가 남았다. 시동 중에만 확인한다.
-      if not self.sm['deviceState'].started:
-        pass
-      elif not self.sm.all_alive(self.camera_packets):
+      if not self.sm.all_alive(self.camera_packets):
         self.events.add(EventName.cameraMalfunction)
       elif not self.sm.all_freq_ok(self.camera_packets):
         self.events.add(EventName.cameraFrameRate)
@@ -602,6 +598,8 @@ class Controls:
       self.mismatch_counter = 0
     else:
       self.mismatch_counter += 1
+
+    self.distance_traveled += CS.vEgo * DT_CTRL
 
     return CS
 
@@ -739,14 +737,11 @@ class Controls:
     CC.latActive = self.active and not CS.steerFaultTemporary and not CS.steerFaultPermanent and \
                      CS.vEgo > self.CP.minSteerSpeed and not CS.standstill \
                    and abs(CS.steeringAngleDeg) < self.CP.maxSteeringAngleDeg
-    # aPilot c2-master longEnabled: longitudinal control only in D. Leaving D pauses it
-    # (longActiveUser = 0) like aPilot.
-    drive_gear = CS.gearShifter == GearShifter.drive
-    if self.enabled and not drive_gear:
-      self.cruise_helper.long_active_user = 0
-    CC.longActive = self.active and drive_gear and not self.events.any(ET.OVERRIDE) and \
-                    self.CP.openpilotLongitudinalControl and self.cruise_helper.long_active_user > 0
+    CC.longActive = self.active and not self.events.any(ET.OVERRIDE) and self.CP.openpilotLongitudinalControl and \
+                    self.cruise_helper.long_active_user > 0
 
+    drive_gear = CS.gearShifter in (GearShifter.drive, GearShifter.eco, GearShifter.sport,
+                                    GearShifter.low, GearShifter.manumatic)
     CC.hudControl.softHold = long_plan.xState == XState.softHold and self.enabled and drive_gear and \
                              self.cruise_helper.auto_cruise_control
 
@@ -765,8 +760,18 @@ class Controls:
     if not self.joystick_mode:
       # accel PID loop
       pid_accel_limits = self.CI.get_pid_accel_limits(self.CP, CS.vEgo, self.v_cruise_kph * CV.KPH_TO_MS)
+      # Share the positive allowance with SCC even while following a lead.
+      # This also prevents PID integration above a still-opening lead cap.
+      set_speed_kph = self.applyMaxSpeed if self.applyMaxSpeed > 0.0 else self.v_cruise_kph
+      cruise_max_accel = self.cruise_helper.get_longitudinal_accel_limit(CS, self.sm, set_speed_kph)
+      pid_accel_limits = (pid_accel_limits[0], min(pid_accel_limits[1], cruise_max_accel))
       t_since_plan = (self.sm.frame - self.sm.rcv_frame['longitudinalPlan']) * DT_CTRL
-      actuators.accel, actuators.jerk = self.LoC.update(CC.longActive, CS, long_plan, pid_accel_limits, t_since_plan, CC)
+      actuators.accel, actuators.jerk = self.LoC.update(
+        CC.longActive,
+        CS, long_plan, pid_accel_limits, t_since_plan, CC.hudControl.softHold,
+        self.sm['radarState'], self.sm.valid['radarState'] and self.sm.alive['radarState'],
+        self.sm.updated['radarState'],
+        plan_valid=self.sm.valid['longitudinalPlan'] and self.sm.alive['longitudinalPlan'])
 
       # Steering PID loop and lateral MPC
       self.desired_curvature, self.desired_curvature_rate = get_lag_adjusted_curvature(self.CP, CS.vEgo,
@@ -838,11 +843,6 @@ class Controls:
     for b in buttonEvents:
       if b.type.raw in self.button_timers:
         self.button_timers[b.type.raw] = 1 if b.pressed else 0
-      if not b.pressed:
-        if b.type in (ButtonType.accelCruise, ButtonType.resumeCruise):
-          self.cruise_button_counter += 1
-        elif b.type in (ButtonType.decelCruise, ButtonType.setCruise):
-          self.cruise_button_counter -= 1
 
   def publish_logs(self, CS, start_time, CC, lac_log):
     """Send actuators and hud commands to the car, send controlsstate and MPC logging"""
@@ -1017,17 +1017,15 @@ class Controls:
 
     controlsState.longCruiseGap = self.cruise_helper.long_cruise_gap
     controlsState.myDrivingMode = self.cruise_helper.my_driving_mode
-    controlsState.longActiveUser = int(self.cruise_helper.long_active_user)
-    controlsState.cruiseButtonCounter = int(self.cruise_button_counter)
     controlsState.mySafeModeFactor = self.cruise_helper.my_safe_mode_factor
-    controlsState.cruiseDecelLimit = float(self.cruise_helper.apply_decel_rate)
 
     controlsState.angleSteers = steer_angle_without_offset * CV.RAD_TO_DEG
     controlsState.applyAccel = self.apply_accel
-    controlsState.sccStopRequest = self.scc_stop_request
     controlsState.aReqValue = self.aReqValue
     controlsState.aReqValueMin = self.aReqValueMin
     controlsState.aReqValueMax = self.aReqValueMax
+    controlsState.sccStockCamAct = self.sccStockCamAct
+    controlsState.sccStockCamStatus = self.sccStockCamStatus
 
     controlsState.steerRatio = self.VM.sR
     controlsState.steerActuatorDelay = live_tune.steer_actuator_delay()
@@ -1078,6 +1076,7 @@ class Controls:
     self.prof.checkpoint("Sent")
 
     self.update_button_timers(CS.buttonEvents)
+    self.CS_prev = CS
 
   def controlsd_thread(self):
     while True:

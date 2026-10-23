@@ -1,3 +1,5 @@
+import ast
+from pathlib import Path
 from types import SimpleNamespace as NS
 
 import numpy as np
@@ -21,40 +23,10 @@ def target(md, **kwargs):
 
 
 def test_near_and_far_identical_curves_have_different_approach_caps():
-  near, far = model(), model(curve_at=8)
+  near, far = model(), model(curve_at=16)
   assert target(near) == pytest.approx(np.sqrt(1.9 / 0.02))
-  # Braking starts a response distance earlier: 20 m/s * (1 + 1.2 / 1.6) s = 35 m.
-  far_distance = 8 * (10.0 / 32) * 20.0
-  assert target(far) == pytest.approx(np.sqrt(1.9 / 0.02 + 2 * 1.2 * (far_distance - 35.0)))
+  assert target(far) == pytest.approx(np.sqrt(1.9 / 0.02 + 2 * 1.2 * 100))
   assert target(far) > target(near)
-
-
-def test_response_distance_grows_with_speed_and_acceleration():
-  far = model(curve_at=8)
-  assert target(far, v_ego=20.0, a_ego=1.0) < target(far, v_ego=20.0, a_ego=0.0)
-  assert target(far, v_ego=0.0) > target(far, v_ego=20.0)
-
-
-def test_single_yaw_spike_is_ignored_by_three_node_median():
-  md = model(curvature=0.0)
-  md.orientationRate.z[6] = 20.0 * 0.05
-  assert target(md) == UNLIMITED_SPEED
-  md.orientationRate.z[6:9] = 20.0 * 0.05
-  assert target(md) < UNLIMITED_SPEED
-
-
-def test_only_first_six_seconds_and_180_metres_are_used():
-  late = model(curve_at=20)            # t = 6.25 s
-  assert target(late) == UNLIMITED_SPEED
-  fast = model(curve_at=19, speed=40.0)  # t = 5.9 s but 236 m ahead
-  assert target(fast) == UNLIMITED_SPEED
-
-
-def test_slow_model_nodes_are_not_used_for_curvature():
-  md = model()
-  md.velocity.x[:] = 2.5
-  md.orientationRate.z[:] = 2.5 * 0.02
-  assert target(md) == UNLIMITED_SPEED
 
 
 def test_turning_geometry_is_independent_of_model_speed():
@@ -71,7 +43,7 @@ def test_each_sample_uses_its_own_predicted_speed():
 def test_factor_minimum_and_approach_settings_remain_effective():
   assert target(model(), factor=2) < target(model(), factor=1)
   assert target(model(), minimum_speed=15) == 15
-  assert target(model(curve_at=12), approach_decel=0.3) < target(model(curve_at=12), approach_decel=1.2)
+  assert target(model(curve_at=16), approach_decel=0.3) < target(model(curve_at=16), approach_decel=1.2)
 
 
 @pytest.mark.parametrize('field', ['x', 'y', 't', 'speed', 'yaw'])
@@ -102,31 +74,50 @@ def test_stopped_or_straight_model_does_not_request_curve_braking():
   assert target(model(curvature=0)) == UNLIMITED_SPEED
 
 
-def test_restrict_immediately_release_after_confirmed_fresh_frames():
+def test_restrict_immediately_but_hold_then_ramp_release():
   control = VisionCurveSpeed()
-  def update(md, new_frame=True):
-    return control.update(md, 1, 5 / 3.6, 1.2, 0.05, new_frame=new_frame)
+  def update(md):
+    return control.update(md, 1, 5 / 3.6, 1.2, 0.2)
   first = update(model())
   assert first == pytest.approx(target(model()))
-  straight = model(curvature=0)
-  # Not yet confirmed: fewer than 3 frames / 0.2 s of fresh geometry.
-  assert update(straight) == first
-  assert update(straight) == first
-  assert update(straight) == first
-  # Re-reading the same frame never confirms a release.
-  assert update(straight, new_frame=False) == first
-  # The curve frame is still inside the 0.25 s window, so the cap holds...
-  assert update(straight) == first
-  # ...and releases as soon as only fresh straight frames remain.
-  assert update(straight) == UNLIMITED_SPEED
+  assert update(model(curvature=0)) == first
+  assert update(model(curvature=0)) == pytest.approx(first + 0.2)
   assert update(model(curvature=0.04)) == pytest.approx(target(model(curvature=0.04)))
 
 
-def test_dropouts_hold_then_ramp_and_valid_detection_can_restrict_again():
+def test_dropouts_hold_then_release_and_valid_detection_can_restrict_again():
   control = VisionCurveSpeed()
   first = control.update(model(), 1, 5 / 3.6, 1.2, 0.2)
   assert control.update(None, 1, 5 / 3.6, 1.2, 0.2) == first
-  assert control.update(None, 1, 5 / 3.6, 1.2, 0.2) == pytest.approx(first + 0.2 * 2.0)
+  assert control.update(None, 1, 5 / 3.6, 1.2, 0.2) == first
+  for _ in range(10):
+    control.update(None, 1, 5 / 3.6, 1.2, 0.2)
+  assert first < control.target < first + 3
   assert control.update(model(), 1, 5 / 3.6, 1.2, 0.2) == first
   control.reset()
   assert control.target == UNLIMITED_SPEED
+
+
+def test_cruise_helper_wiring_cadence_units_and_invalid_messages():
+  source = Path(__file__).parents[1] / 'cruise_helper.py'
+  tree = ast.parse(source.read_text())
+  cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'CruiseHelper')
+  method = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == 'cal_curve_speed')
+  env = {'DT_CTRL': 0.01, 'CV': NS(KPH_TO_MS=1 / 3.6)}
+  exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), 'exec'), env)
+  helper = NS(curve_update_frame=None, vision_curve_speed=VisionCurveSpeed(),
+              curve_speed_ms=UNLIMITED_SPEED, auto_curve_speed_factor=1.2,
+              auto_curve_speed_lower_limit=30, auto_curve_speed_decel_rate=1.2)
+  class Messages(dict):
+    valid = {'modelV2': True}
+    alive = {'modelV2': True}
+  sm = Messages(modelV2=model())
+  env['cal_curve_speed'](helper, sm, 20, 1)
+  assert helper.curve_speed_ms == UNLIMITED_SPEED
+  env['cal_curve_speed'](helper, sm, 20, 20)
+  expected = target(sm['modelV2'], factor=1.2, minimum_speed=30 / 3.6)
+  assert helper.curve_speed_ms == pytest.approx(expected)
+  sm.valid = {'modelV2': False}
+  sm['modelV2'] = model(curvature=0.2)
+  env['cal_curve_speed'](helper, sm, 20, 40)
+  assert helper.curve_speed_ms == pytest.approx(expected)

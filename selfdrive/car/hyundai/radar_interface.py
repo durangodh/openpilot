@@ -131,7 +131,7 @@ class RadarInterface(RadarInterfaceBase):
             dRel = self.dRelFilter.process(cpt["SCC11"]['ACC_ObjDist'])
             vRel = self.vRelFilter.process(cpt["SCC11"]['ACC_ObjRelSpd'])
           self.pts[ii].dRel = dRel #cpt["SCC11"]['ACC_ObjDist']  # from front of car
-          self.pts[ii].yRel = 0 #-cpt["SCC11"]['ACC_ObjLatPos']  # aPilot c2-master: SCC lateral position unused
+          self.pts[ii].yRel = -cpt["SCC11"]['ACC_ObjLatPos']  # in car frame's y axis, left is negative
           self.pts[ii].vRel = vRel #cpt["SCC11"]['ACC_ObjRelSpd']
           self.pts[ii].aRel = float('nan')
           self.pts[ii].yvRel = float('nan')
