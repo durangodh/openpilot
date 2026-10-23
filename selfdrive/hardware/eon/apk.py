@@ -5,8 +5,6 @@ import hashlib
 import shutil
 from common.basedir import BASEDIR
 
-REMOVED_REMOTE_APPS = ("ai.comma.eonbleremote", "ai.comma.eonbleremote.probe", "ai.comma.eonbtpolicy")
-
 android_packages = ("com.neokii.optool", )
 
 def get_installed_apks():
@@ -60,38 +58,13 @@ def system(cmd):
 
 # *** external functions ***
 
-def remove_remote_apps(installed):
-  # Upgraded EONs may still have a privileged copy on read-only /system.
-  # Stop and disable that copy; uninstall regular /data applications.
-  env = os.environ.copy()
-  env["LD_LIBRARY_PATH"] = ""
-  for app in REMOVED_REMOTE_APPS:
-    path = installed.pop(app, None)
-    if path is None:
-      continue
-    commands = [["am", "force-stop", app], ["pm", "disable", app]]
-    if not path.startswith("/system/"):
-      commands.append(["pm", "uninstall", app])
-    for command in commands:
-      try:
-        result = subprocess.run(command, env=env, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, timeout=10, check=False)
-        if result.returncode:
-          print("remote app cleanup failed: %s" % " ".join(command))
-      except (OSError, subprocess.TimeoutExpired) as error:
-        print("remote app cleanup failed: %s" % error)
-
-
 def update_apks():
   # install apks
   installed = get_installed_apks()
-  remove_remote_apps(installed)
 
   install_apks = glob.glob(os.path.join(BASEDIR, "apk/*.apk"))
   for apk in install_apks:
     app = os.path.basename(apk)[:-4]
-    if app in REMOVED_REMOTE_APPS:
-      continue
     if app not in installed:
       installed[app] = None
 

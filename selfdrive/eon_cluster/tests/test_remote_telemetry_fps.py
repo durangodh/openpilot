@@ -1,4 +1,4 @@
-"""HUD telemetry respects the configured FPS without S9 remote tickets."""
+"""HUD telemetry respects the configured FPS."""
 import ast
 from pathlib import Path
 

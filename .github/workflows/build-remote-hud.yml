@@ -14,8 +14,6 @@ on:
     paths:
       - "selfdrive/carrot_navi_server.py"
       - "selfdrive/eon_cluster/remote_hud.py"
-      - "selfdrive/hardware/eon/apk.py"
-      - "selfdrive/hardware/eon/tests/test_removed_remote_apps.py"
       - "selfdrive/eon_cluster/remote_hud_s9.py"
       - "selfdrive/controls/lib/cruise_helper.py"
       - "selfdrive/eon_cluster/tests/test_traffic_signal_transport.py"
@@ -75,8 +73,6 @@ jobs:
           python3 ../tests/test_traffic_signal_transport.py
           python3 ../tests/test_e2e_signal_indicator.py
           python3 ../tests/test_navi_envelope.py
-      - name: Check legacy Bluetooth remote removal
-        run: python3 selfdrive/hardware/eon/tests/test_removed_remote_apps.py
       - name: Check navigation selection
         # Exercise retransmission and old acknowledgements before packaging.
         working-directory: selfdrive/eon_cluster/android_hud

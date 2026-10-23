@@ -276,18 +276,9 @@ def manager_init() -> None:
   # 키 목록에서 빠졌으므로 Params 로는 지울 수 없고 파일을 직접 지운다. 없으면 무시.
   for dead_key in ("VisionRadarToggle",
                    "LateralTorqueKd", "CarrotLearnFrictionBase",
-                   "OPKRTimeZone", "ShowBlindSpotAlways", "EonClusterHudPathFlipV2Migrated",
-                   "HudRemoteDirectEnabled", "HudRemoteDirectDefaultOnMigrated",
-                   "HudRemoteDirectDevice", "HudRemoteDirectMapping",
-                   "HudRemoteDirectLearn", "HudRemoteDirectStatus"):
+                   "OPKRTimeZone", "ShowBlindSpotAlways", "EonClusterHudPathFlipV2Migrated"):
     try:
       os.remove(os.path.join("/data/params/d", dead_key))
-    except OSError:
-      pass
-
-  for remote_file in ("/dev/shm/hud_remote_cmd.json", "/dev/shm/hud_remote_lane.json"):
-    try:
-      os.remove(remote_file)
     except OSError:
       pass
 
