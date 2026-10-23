@@ -101,6 +101,13 @@ public final class HudService extends Service {
     // 좌표로 그리고 beginElement 가 새 화면으로 옮긴다(글자 크기 그대로).
     private static final int HEIGHT = 720;
     private static final int HEIGHT_123 = 720;
+    /**
+     * The S20 can sustain the 1920x720 renderer at 8 fps, but doing so occupies
+     * almost a full CPU core once the TURZX panel is attached.  Five frames per
+     * second matches the configured local-map ceiling and leaves enough thermal
+     * headroom for navigation and USB host processing.
+     */
+    private static final int S20_RENDER_FPS_CAP = 5;
     /** 예전 1920x462 패널 출력 버퍼 높이(12.3인치 전용이 되면서 축소 출력만). */
     private static final int LEGACY_HEIGHT = 462;
     private static final int DESIGN_HEIGHT = 462;
@@ -1822,6 +1829,7 @@ public final class HudService extends Service {
             client.setSoTimeout(0);
             DataInputStream in = new DataInputStream(client.getInputStream());
             byte[] tag = new byte[4];
+            long lastDecodeElapsed = 0L;
             while (running.get()) {
                 in.readFully(tag);
                 if (!tagEquals(tag, "MAPL")) throw new Exception("bad local map tag");
@@ -1833,6 +1841,17 @@ public final class HudService extends Service {
                 // 지금 HUD 가 고른 네비의 지도만 쓴다(다른 네비가 뒤에서 돌고 있어도 섞이지 않게).
                 int selected = state.get().optInt("hudNavApp", app);
                 if (app != selected) continue;
+                long receivedAt = SystemClock.elapsedRealtime();
+                // Local navigation modules may publish much faster than the HUD
+                // can display.  Always drain the socket so the producer never
+                // blocks, but avoid decoding JPEGs that cannot become visible.
+                // A zero-length frame is a clear command and must remain immediate.
+                lastLocalMapElapsed = receivedAt;
+                if (length > 0 && lastDecodeElapsed > 0L
+                        && receivedAt - lastDecodeElapsed < mapFrameIntervalMs) {
+                    continue;
+                }
+                if (length > 0) lastDecodeElapsed = receivedAt;
                 Bitmap decoded = length > 0 ? decodeAsset(data) : null;
                 if (length > 0 && decoded == null) continue;
                 synchronized (assetLock) {
@@ -1873,7 +1892,9 @@ public final class HudService extends Service {
             JSONObject currentState = state.get();
             // 출력 대상은 FPS 0(패널 끄기) 상태에서도 즉시 바뀌어야 한다.
             applyFrameConfiguration(currentState);
-            int requestedFps = Math.max(0, Math.min(15, currentState.optInt("hudFps", 8)));
+            int maxRenderFps = PhoneName.isS20(Build.MODEL) ? S20_RENDER_FPS_CAP : 15;
+            int requestedFps = Math.max(0,
+                    Math.min(maxRenderFps, currentState.optInt("hudFps", 8)));
             if (requestedFps == 0) {
                 if (configuredFps != 0) {
                     configuredFps = 0;

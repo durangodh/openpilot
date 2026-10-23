@@ -625,7 +625,7 @@ public final class MainActivity extends Activity {
         setStatus(usbValue, s.usbStatus,
                 s.usbConnected ? GREEN : (s.usbError ? RED : AMBER));
         setStatus(fpsValue,
-                String.format(Locale.US, "%.1f / 목표 8", s.fps),
+                String.format(Locale.US, "%.1f fps", s.fps),
                 s.fps > 0.1f ? GREEN : Color.LTGRAY);
         setStatus(jpegValue,
                 s.lastJpegBytes > 0
