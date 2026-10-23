@@ -15,11 +15,12 @@ def radar_state(radar_accel, vision_accel, model_prob=0.9, enabled=True, track_f
   return cluster.get_RadarState2(model_prob, lead, enabled)
 
 
-def test_stronger_vision_acceleration_replaces_radar_and_shortens_tau():
+def test_stronger_vision_acceleration_replaces_radar_and_keeps_tau():
+  # apilot c3 원본: 비전 가속도만 바꾸고 aLeadTau는 레이더 추적값을 유지한다.
   for radar, vision in ((-1.0, -3.0), (0.5, 1.5), (-1.5, 2.0)):
     state = radar_state(radar, vision)
     assert state['aLeadK'] == vision
-    assert state['aLeadTau'] == 0.3
+    assert state['aLeadTau'] == 1.5
     assert state['radar'] and state['status']
     assert (state['dRel'], state['yRel'], state['vRel'], state['vLead']) == (20.0, 0.2, -1.0, 9.0)
 

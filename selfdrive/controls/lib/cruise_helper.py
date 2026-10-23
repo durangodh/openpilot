@@ -1,6 +1,6 @@
 import numpy as np
 
-from cereal import car, log
+from cereal import car
 from common.conversions import Conversions as CV
 from common.numpy_fast import clip, interp
 from common.params import Params, put_nonblocking
@@ -10,22 +10,45 @@ from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.controls.lib.vision_curve_speed import VisionCurveSpeed, UNLIMITED_SPEED
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
 from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software_gap
-from selfdrive.controls.lib.lead_following import APPROACH_ACCEL_LIMIT_FALL, get_follow_approach_limit
 from selfdrive.controls.lib.longitudinal_limits import (CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_auto_speed_up_target,
-                                                        apply_no_lead_cruise_accel_limit,
-                                                        apply_cruise_max_limit,
                                                         get_cruise_max_accel,
-                                                        get_no_lead_cruise_accel_cap,
-                                                        transition_follow_accel_limit,
+                                                        scale_cruise_max_accel,
                                                         select_auto_driving_mode)
 from selfdrive.road_speed_limiter import get_road_speed_limiter
 
 
 SYNC_MARGIN = 3.0
 NAVI_DISTANCE_HOLD_TIME = 1.0
+# 과속방지턱(SDI 22) 2026-10-02 영상: 바닥에서 V자로 바로 가속하던 문제.
+# 통과 직후 이 거리만큼 방지턱 속도를 유지(뒷바퀴까지 넘을 여유)하고,
+# 감속 완료 시점은 최소 이 시간 앞으로 당겨 늦고 깊은 감속을 줄인다.
+# 방지턱에는 AutoNaviSpeedReleaseDist(카메라 조기 해제)를 적용하지 않는다.
+BUMP_PASS_HOLD_DIST = 12.0   # m
+BUMP_MIN_SAFE_TIME = 2.0     # s
+BUMP_LOST_ARM_DIST = 30.0    # m, 이 안에서 안내가 끊기면 남은 거리+유지거리로 처리
+BRAKE_GAS_RESUME_WINDOW = 15.0  # s, brake pause followed by a deliberate gas handoff
+
+
+class SpeedBumpHold:
+  """방지턱 통과 직후 일정 거리 동안 방지턱 속도를 유지한다."""
+  def __init__(self):
+    self.remaining = 0.0
+
+  def reset(self):
+    self.remaining = 0.0
+
+  def arm(self, extra=0.0):
+    self.remaining = BUMP_PASS_HOLD_DIST + max(0.0, float(extra))
+
+  def update(self, traveled):
+    if self.remaining > 0.0:
+      self.remaining = max(0.0, self.remaining - max(0.0, float(traveled)))
+    return self.remaining > 0.0
 NAVI_DISTANCE_MAX_DT = 0.2
+# NOO turn speed profile decel (m/s^2); also published to the planner bound.
+NOO_TURN_DECEL = 1.2
 MIN_SET_SPEED_KPH = V_CRUISE_MIN
 MAX_SET_SPEED_KPH = V_CRUISE_MAX
 
@@ -35,7 +58,6 @@ MAX_SET_SPEED_KPH = V_CRUISE_MAX
 NAV_TOGGLE_HOLD_FRAMES = 150   # 1.5 s
 ButtonType = car.CarState.ButtonEvent.Type
 EventName = car.CarEvent.EventName
-XState = log.LongitudinalPlan.XState
 
 
 class CruiseHelper:
@@ -53,6 +75,8 @@ class CruiseHelper:
     self.is_cruise_enabled = False
     # aPilot C2 separates lateral engagement from longitudinal readiness.
     # CANCEL/brake can pause longitudinal control while steering remains enabled.
+    # Pedal/brake auto-resume is armed by the first SET/RES; CANCEL or the cruise
+    # main switch going off disarms it again.
     self.auto_cruise_control = False
     self.long_active_user = 0
     self.user_cruise_paused = False
@@ -63,8 +87,9 @@ class CruiseHelper:
     self.gas_tap_cruise_active = False
     self.gas_tap_set_speed_kph = 0.0
     self.gas_pressed_frame = 0
+    self.brake_gas_resume_pending = False
+    self.brake_gas_resume_frame = 0
     self.slow_speed_frame_count = 0
-    self.x_state = XState.cruise
     self.x_stop = 0.0
     self.traffic_state = 0
     self.traffic_state_prev = 0
@@ -84,11 +109,8 @@ class CruiseHelper:
     self.my_safe_mode_factor = 1.0
     self.my_eco_mode_factor = 0.8
     self.cruise_max_vals = list(CRUISE_MAX_VAL_DEFAULTS)
-    self.no_lead_cruise_accel_factor = 0.65
-    self.no_lead_cruise_jerk_limit = 0.25
-    self.last_apply_accel = 0.0
-    self.follow_accel_limit = None
-    self.current_set_speed_kph = 0.0
+    self.no_lead_cruise_accel_factor = 1.0
+    self.lead_cruise_accel_factor = 1.0
 
     self.target_speed = 0.0
     self.max_speed_clu = 0.0
@@ -96,17 +118,18 @@ class CruiseHelper:
     self.vision_curve_speed = VisionCurveSpeed()
     self.curve_update_frame = None
     self.apply_source = ""
+    self.apply_decel_rate = 0.0
     self.active_cam = False
     self.slowing_down = False
     self.slowing_down_alert = False
     self.slowing_down_sound_alert = False
     self.slowing_down_for_bump = False
-    self.stock_weight = 0.0
 
     # c3-wip style navigation distance tracking. This branch has no
     # selfdriveState.distanceTraveled, so integrate actual loop time and vEgo.
     self.navi_distance_time = sec_since_boot()
     self.cam_dist_est = 0.0
+    self.bump_hold = SpeedBumpHold()
     self.cam_raw_dist = 0.0
     self.cam_limit_est = 0.0
     self.cam_type_est = -1
@@ -150,21 +173,22 @@ class CruiseHelper:
       self.cruise_max_vals.append(float(raw * 0.01 if raw > 0 else default))
     no_lead_factor = self.params.get_int("NoLeadCruiseAccelFactor")
     self.no_lead_cruise_accel_factor = float(clip(
-      (no_lead_factor if no_lead_factor > 0 else 65) * 0.01, 0.30, 1.0))
-    no_lead_jerk = self.params.get_int("NoLeadCruiseJerkLimit")
-    self.no_lead_cruise_jerk_limit = float(clip(
-      (no_lead_jerk if no_lead_jerk > 0 else 25) * 0.01, 0.05, 1.0))
+      (no_lead_factor if no_lead_factor > 0 else 100) * 0.01, 0.50, 1.50))
+    lead_factor = self.params.get_int("LeadCruiseAccelFactor")
+    self.lead_cruise_accel_factor = float(clip(
+      (lead_factor if lead_factor > 0 else 100) * 0.01, 0.50, 1.50))
+
+  def _param_or_default(self, key, default, lo, hi):
+    # 0 이하(미설정)는 기본값, 그 뒤 범위 제한
+    raw = self.params.get_int(key)
+    return float(clip(raw if raw > 0 else default, lo, hi))
 
   def read_curve_params(self):
     self.turn_vision_control = self.params.get_bool("TurnVisionControl")
-    curve_factor = self.params.get_int("AutoCurveSpeedFactor")
-    curve_lower = self.params.get_int("AutoCurveSpeedLowerLimit")
-    map_factor = self.params.get_int("MapTurnSpeedFactor")
-    navi_decel = self.params.get_int("AutoNaviSpeedDecelRate")
-    self.auto_curve_speed_factor = float(clip(curve_factor if curve_factor > 0 else 120, 50, 300)) * 0.01
-    self.auto_curve_speed_lower_limit = float(clip(curve_lower if curve_lower > 0 else 30, 5, 80))
-    self.map_turn_speed_factor = float(clip(map_factor if map_factor > 0 else 90, 50, 150)) * 0.01
-    self.auto_navi_speed_decel_rate = float(clip(navi_decel if navi_decel > 0 else 80, 10, 300)) * 0.01
+    self.auto_curve_speed_factor = self._param_or_default("AutoCurveSpeedFactor", 120, 50, 300) * 0.01
+    self.auto_curve_speed_lower_limit = self._param_or_default("AutoCurveSpeedLowerLimit", 30, 5, 80)
+    self.map_turn_speed_factor = self._param_or_default("MapTurnSpeedFactor", 90, 50, 150) * 0.01
+    self.auto_navi_speed_decel_rate = self._param_or_default("AutoNaviSpeedDecelRate", 80, 10, 300) * 0.01
     # 커브(경로 곡률) 감속 세기를 카메라와 분리. 0(미설정)이면 카메라 값을 따른다.
     curve_decel = self.params.get_int("AutoCurveSpeedDecelRate")
     self.auto_curve_speed_decel_rate = (float(clip(curve_decel, 10, 300)) * 0.01
@@ -187,23 +211,17 @@ class CruiseHelper:
     self.auto_speed_up_ratio = float(self.params.get_int("AutoSpeedUptoRoadSpeedLimit")) * 0.01
     self.auto_road_speed_adjust = float(clip(self.params.get_int("AutoRoadSpeedAdjust"), -100, 100)) * 0.01
     self.auto_road_speed_limit_offset = float(clip(self.params.get_int("AutoRoadSpeedLimitOffset"), -30, 30))
-    ctrl_end = self.params.get_int("AutoNaviSpeedCtrlEnd")
-    bump_time = self.params.get_int("AutoNaviSpeedBumpTime")
-    bump_speed = self.params.get_int("AutoNaviSpeedBumpSpeed")
-    safety_factor = self.params.get_int("AutoNaviSpeedSafetyFactor")
-    release_dist = self.params.get_int("AutoNaviSpeedReleaseDist")
     # 카메라 이 거리(m) 앞에서 감속 유지를 끝내고 원래 속도로 복귀. 0 = 카메라를 지난 뒤.
-    self.auto_navi_speed_release_dist = float(clip(release_dist, 0, 50))
-    self.auto_navi_speed_ctrl_end = float(clip(ctrl_end if ctrl_end > 0 else 7, 3, 20))
-    self.auto_navi_speed_bump_time = float(clip(bump_time if bump_time > 0 else 1, 1, 50))
-    self.auto_navi_speed_bump_speed = float(clip(bump_speed if bump_speed > 0 else 35, 10, 100))
-    self.auto_navi_speed_safety_factor = float(clip(safety_factor if safety_factor > 0 else 105, 80, 120)) * 0.01
+    self.auto_navi_speed_release_dist = float(clip(self.params.get_int("AutoNaviSpeedReleaseDist"), 0, 50))
+    self.auto_navi_speed_ctrl_end = self._param_or_default("AutoNaviSpeedCtrlEnd", 7, 3, 20)
+    self.auto_navi_speed_bump_time = self._param_or_default("AutoNaviSpeedBumpTime", 1, 1, 50)
+    self.auto_navi_speed_bump_speed = self._param_or_default("AutoNaviSpeedBumpSpeed", 35, 10, 100)
+    self.auto_navi_speed_safety_factor = self._param_or_default("AutoNaviSpeedSafetyFactor", 105, 80, 120) * 0.01
     self.noo_enabled = self.params.get_bool("NavigationOnOpenpilot")
     # 0: all, 1: turn steering+speed, 2: lane preparation only,
     # 3: carrot-style speed only.
     self.noo_mode = int(clip(self.params.get_int("NooMode"), 0, 3))
-    turn_speed = self.params.get_int("NooTurnSpeed")
-    self.noo_turn_speed = float(clip(turn_speed if turn_speed > 0 else 20, 20, 80))
+    self.noo_turn_speed = self._param_or_default("NooTurnSpeed", 20, 20, 80)
     self.noo_turn_end_time = float(clip(self.params.get_int("NooTurnEndTime"), 1, 20))
 
   def read_driving_mode_params(self, initialize=False):
@@ -260,7 +278,7 @@ class CruiseHelper:
           value = road_limit * safety if offset < 0.0 else road_limit + offset
       if value <= 0.0:
         continue
-      resolved.append(float(clip(value, self.cruise_speed_min, MAX_SET_SPEED_KPH)))
+      resolved.append(self._clip_set_speed(value))
     return sorted(set(resolved))
 
   def _clear_speed_backup(self):
@@ -269,12 +287,22 @@ class CruiseHelper:
     # cannot reappear minutes later.
     self.v_cruise_kph_backup = 0.0
 
+  def _clip_set_speed(self, kph):
+    return float(clip(kph, self.cruise_speed_min, MAX_SET_SPEED_KPH))
+
   def kph_to_clu(self, kph):
     return int(kph * CV.KPH_TO_MS * self.speed_conv_to_clu)
 
   @staticmethod
   def get_lead(sm):
-    lead = sm['radarState'].leadOne
+    try:
+      radar_state = sm['radarState']
+      radar_valid = bool(sm.valid['radarState'] and sm.alive['radarState'])
+    except (AttributeError, KeyError, TypeError):
+      return None
+    if not radar_valid or len(getattr(radar_state, 'radarErrors', [])) > 0:
+      return None
+    lead = radar_state.leadOne
     return lead if lead.status else None
 
   def update_safe_mode_factor(self):
@@ -290,30 +318,12 @@ class CruiseHelper:
                                 self.my_eco_mode_factor, self.my_safe_mode_factor)
 
   def get_longitudinal_accel_limit(self, CS, sm, set_speed_kph):
-    """Return the live positive limit shared by LongControl and SCC output."""
-    cruise_max_accel = self.get_cruise_max_accel(CS.vEgo)
-    speed_error_kph = max(0.0, float(set_speed_kph) - CS.vEgo * CV.MS_TO_KPH)
-    no_lead_cap = get_no_lead_cruise_accel_cap(
-      cruise_max_accel, speed_error_kph, self.no_lead_cruise_accel_factor)
-    has_lead = sm['radarState'].leadOne.status or sm['radarState'].leadTwo.status
-    target = cruise_max_accel if has_lead else no_lead_cap
-    plan = sm['longitudinalPlan']
-    comfort_valid = all(sm.valid[s] and sm.alive[s] for s in ('radarState', 'longitudinalPlan'))
-    if comfort_valid and has_lead and plan.mpcMode == 0 and not (plan.onStop or plan.fcw):
-      target, comfortable = get_follow_approach_limit(
-        target, CS.vEgo, (sm['radarState'].leadOne, sm['radarState'].leadTwo),
-        float(plan.desiredDistance))
-      if comfortable and self.follow_accel_limit is not None:
-        # Ease throttle lift, but never delay an actual MPC/PID braking request
-        # or a lower user-configured acceleration ceiling.
-        target = min(cruise_max_accel, max(target, self.follow_accel_limit - APPROACH_ACCEL_LIMIT_FALL * DT_CTRL))
-    # An MPC source label change is not a new lead or a new acceleration
-    # demand. Preserve the allowance across lead/cruise switches; re-anchoring
-    # it to a small/coasting output repeatedly delayed normal gap recovery.
-    # Actual lead, distance and user-limit changes still set the target above.
-    self.follow_accel_limit = transition_follow_accel_limit(
-      target, self.follow_accel_limit, CS.vEgo, DT_CTRL)
-    return self.follow_accel_limit
+    """apilot-c2 speed/mode CruiseMax table x LEAD / NO-LEAD CRUISE ACCEL (planner 와 동일)."""
+    cruise_max_accel = max(0.0, float(self.get_cruise_max_accel(CS.vEgo)))
+    radar_state = sm['radarState']
+    has_lead = radar_state.leadOne.status or radar_state.leadTwo.status
+    accel_factor = self.lead_cruise_accel_factor if has_lead else self.no_lead_cruise_accel_factor
+    return scale_cruise_max_accel(cruise_max_accel, accel_factor)
 
   def _resume_longitudinal(self, controls, CS, active_mode=1):
     if self.long_active_user <= 0:
@@ -321,6 +331,7 @@ class CruiseHelper:
     self.long_active_user = active_mode
     self.user_cruise_paused = False
     self.auto_cruise_control = True
+    self.brake_gas_resume_pending = False
 
   def pause_longitudinal(self, controls, user_cancel=False):
     if self.long_active_user > 0 and self.cruise_speed_min <= controls.v_cruise_kph <= MAX_SET_SPEED_KPH:
@@ -329,21 +340,26 @@ class CruiseHelper:
     if user_cancel:
       self.user_cruise_paused = True
       self.auto_cruise_control = False
+      self.brake_gas_resume_pending = False
 
-  def _resume_guard_ok(self, CS):
+  def _resume_path_clear(self, CS, d_rel, require_lead=False):
     if abs(CS.steeringAngleDeg) >= 20.0:
       return False
-    if self.auto_gas_resume_guard:
+    if require_lead or self.auto_gas_resume_guard:
       if CS.leftBlinker or CS.rightBlinker:
         return False
       danger_dist = max(5.0, CS.vEgo * 0.8)
-      if 0.0 < self.d_rel < danger_dist:
+      if require_lead:
+        return danger_dist < d_rel <= 60.0
+      if 0.0 < d_rel < danger_dist:
         return False
     return True
 
+  def _resume_guard_ok(self, CS):
+    return self._resume_path_clear(CS, self.d_rel)
+
   def _select_resume_speed(self, controls, CS):
-    current_kph = float(clip(CS.vEgoCluster * CV.MS_TO_KPH,
-                             self.cruise_speed_min, MAX_SET_SPEED_KPH))
+    current_kph = self._clip_set_speed(CS.vEgoCluster * CV.MS_TO_KPH)
     backup_kph = self.v_cruise_kph_backup
     if not self.cruise_speed_min <= backup_kph <= MAX_SET_SPEED_KPH:
       backup_kph = current_kph
@@ -356,21 +372,49 @@ class CruiseHelper:
       selected = backup_kph if self.x_stop > 60.0 and self.gas_pressed_count * DT_CTRL > 1.0 else current_kph
     else:
       selected = current_kph
-    controls.v_cruise_kph = float(clip(selected, self.cruise_speed_min, MAX_SET_SPEED_KPH))
+    controls.v_cruise_kph = self._clip_set_speed(selected)
     if selected == backup_kph:
       self._clear_speed_backup()
+
+  def _resume_after_brake_gas_release(self, controls, CS, lead):
+    """Resume a temporary brake pause after the driver finishes a gas handoff.
+
+    This is intentionally narrower than the configurable gas-resume path. It
+    applies only when longitudinal control was active before the brake, and it
+    requires a fresh radar lead with enough stopping room. The pending request
+    is one-shot so an unsafe release cannot arm a later, unrelated launch.
+    """
+    if not self.brake_gas_resume_pending:
+      return False
+    self.brake_gas_resume_pending = False
+
+    pause_age = (self.param_read_counter - self.brake_gas_resume_frame) * DT_CTRL
+    temporary_pause = self.long_active_user == -2 and self.auto_cruise_control and not self.user_cruise_paused
+    try:
+      radar_valid = bool(controls.sm.valid['radarState'] and controls.sm.alive['radarState'])
+    except (AttributeError, KeyError, TypeError):
+      radar_valid = False
+    valid_lead = radar_valid and lead is not None and bool(getattr(lead, 'radar', False))
+    d_rel = float(getattr(lead, 'dRel', 0.0)) if valid_lead else 0.0
+    resume_configured = self.auto_resume_from_gas > 0 or self.auto_resume_from_brake_release
+    safe_path = self._resume_path_clear(CS, d_rel, require_lead=True)
+    if not (resume_configured and controls.enabled and temporary_pause and not CS.brakePressed and
+            0.0 <= pause_age <= BRAKE_GAS_RESUME_WINDOW and safe_path):
+      return False
+
+    self._resume_longitudinal(controls, CS, 3)
+    return True
 
   def _brake_release_resume(self, controls, CS):
     if not self.auto_cruise_control:
       return
     v_ego_kph = CS.vEgoCluster * CV.MS_TO_KPH
 
-    # C2 soft-hold release path.
-    if v_ego_kph < 5.0 and self.x_state == XState.softHold:
-      self._resume_longitudinal(controls, CS, 3)
-      return
-
     if not self.auto_resume_from_brake_release or abs(CS.steeringAngleDeg) >= 20.0:
+      return
+    # 2026-10-06: AUTO RESUME FROM BRAKE CAR SPEED 는 앞차 유무와 관계없는 최저 속도다.
+    # 예전에는 앞차가 10 m 안에 있으면 정지 상태에서도 브레이크를 놓자마자 재개했다.
+    if v_ego_kph < self.auto_resume_from_brake_car_speed:
       return
 
     gas_time = (self.param_read_counter - self.gas_pressed_frame) * DT_CTRL
@@ -382,7 +426,7 @@ class CruiseHelper:
         return
       if 0.0 < self.d_rel < 20.0 and (CS.leftBlinker or CS.rightBlinker):
         return
-      if 0.0 < self.d_rel <= max(10.0, self.auto_resume_from_brake_release_dist):
+      if self.d_rel >= self.auto_resume_from_brake_release_dist > 0.0:
         self._resume_longitudinal(controls, CS, 3)
       elif self.d_rel <= 0.0 and self.traffic_state == 1 and not (CS.leftBlinker or CS.rightBlinker):
         self._resume_longitudinal(controls, CS, 3)
@@ -399,11 +443,9 @@ class CruiseHelper:
     self.traffic_state_prev = self.traffic_state
     try:
       plan = controls.sm['longitudinalPlan']
-      self.x_state = plan.xState
       self.x_stop = float(getattr(plan, 'xStop', 0.0))
       self.traffic_state = int(getattr(plan, 'trafficState', 0)) % 100
     except Exception:
-      self.x_state = XState.cruise
       self.x_stop = 0.0
       self.traffic_state = 0
 
@@ -430,10 +472,16 @@ class CruiseHelper:
       self.pre_gas_pressed_max = 0.0
       self.gas_tap_cruise_active = False
       self.gas_tap_set_speed_kph = 0.0
+      self.brake_gas_resume_pending = False
     elif brake_pressed:
       # Match aPilot C2 pedal priority: brake input owns this control cycle.
       if not self.prev_brake_pressed:
+        resume_after_gas = self.long_active_user > 0 and self.auto_cruise_control
+        self.brake_gas_resume_pending = False
         self.pause_longitudinal(controls)
+        if resume_after_gas:
+          self.brake_gas_resume_pending = True
+          self.brake_gas_resume_frame = self.param_read_counter
       self.gas_tap_cruise_active = False
       self.gas_tap_set_speed_kph = 0.0
     elif CS.gasPressed:
@@ -458,19 +506,19 @@ class CruiseHelper:
         self.pause_longitudinal(controls)
 
       if self.auto_resume_from_gas_speed < v_ego_kph and v_ego_kph > controls.v_cruise_kph:
-        controls.v_cruise_kph = float(clip(v_ego_kph, self.cruise_speed_min, MAX_SET_SPEED_KPH))
+        controls.v_cruise_kph = self._clip_set_speed(v_ego_kph)
     elif self.gas_pressed_count > 0:
       # Match aPilot C2: process gas release before brake release.
       quick_release = self.gas_pressed_count * DT_CTRL < 0.6 and self.pre_gas_pressed_max > 0.03
       if quick_release and self.gas_tap_cruise_active and self.long_active_user > 0 and \
          self.auto_gas_tap_speed_increment > 0:
-        controls.v_cruise_kph = float(clip(
-          self.gas_tap_set_speed_kph + self.auto_gas_tap_speed_increment,
-          self.cruise_speed_min, MAX_SET_SPEED_KPH))
+        controls.v_cruise_kph = self._clip_set_speed(self.gas_tap_set_speed_kph + self.auto_gas_tap_speed_increment)
       elif quick_release and self.auto_resume_from_gas > 1 and self.long_active_user <= 0 and \
          self.auto_cruise_control and v_ego_kph >= self.auto_resume_from_gas_speed and self._resume_guard_ok(CS):
         self._select_resume_speed(controls, CS)
         self._resume_longitudinal(controls, CS, 3)
+      elif self.long_active_user <= 0:
+        self._resume_after_brake_gas_release(controls, CS, lead)
       self.gas_pressed_count = 0
       self.pre_gas_pressed_max = 0.0
       self.gas_tap_cruise_active = False
@@ -513,16 +561,13 @@ class CruiseHelper:
     # Pause on the CANCEL press, not its release. A held button must never
     # leave longitudinal control active while waiting for the release frame.
     # Lateral control remains engaged until cruise MAIN turns off.
-    if any(event.type == ButtonType.cancel and event.pressed for event in CS.buttonEvents):
+    cancel_pressed = any(event.type == ButtonType.cancel and event.pressed for event in CS.buttonEvents)
+    if cancel_pressed:
       self.pause_longitudinal(controls, user_cancel=True)
-      self.button_count = 0
-      self.button_long_pressed = False
-      self.button_prev = ButtonType.unknown
-      return
 
     # RES/SET controls longitudinal activation while lateral control remains
     # engaged, including after brake/cancel/standstill.
-    if not controls.enabled:
+    if cancel_pressed or not controls.enabled:
       self.button_count = 0
       self.button_long_pressed = False
       self.button_prev = ButtonType.unknown
@@ -544,16 +589,11 @@ class CruiseHelper:
           self.button_long_pressed = False
           self.button_prev = event.type
       elif self.button_count > 0:
+        # An unmatched release only clears the state; never keep repeating the old direction.
         if event.type != self.button_prev:
-          # Never keep repeating the old direction after an unmatched release.
-          self.button_count = 0
-          self.button_long_pressed = False
-          self.button_prev = ButtonType.unknown
-          continue
-
-        if self.long_active_user <= 0:
-          current_kph = float(clip(CS.vEgoCluster * CV.MS_TO_KPH,
-                                   self.cruise_speed_min, MAX_SET_SPEED_KPH))
+          pass
+        elif self.long_active_user <= 0:
+          current_kph = self._clip_set_speed(CS.vEgoCluster * CV.MS_TO_KPH)
           if event.type == ButtonType.accelCruise:
             controls.v_cruise_kph = max(current_kph, self.v_cruise_kph_backup,
                                         controls.v_cruise_kph if controls.v_cruise_kph <= MAX_SET_SPEED_KPH else 0.0)
@@ -635,14 +675,14 @@ class CruiseHelper:
     cruise_available = CS.cruiseState.available
 
     if acc_enabled:
-      if longcontrol and self.speed_from_pcm == 1 and (not controls.enabled or not self.is_cruise_enabled):
-        controls.v_cruise_kph = car_set_speed
-      elif controls.v_cruise_kph <= 0 or controls.v_cruise_kph > MAX_SET_SPEED_KPH:
+      if (longcontrol and self.speed_from_pcm == 1 and (not controls.enabled or not self.is_cruise_enabled)) or \
+         controls.v_cruise_kph <= 0 or controls.v_cruise_kph > MAX_SET_SPEED_KPH:
         controls.v_cruise_kph = car_set_speed
 
       if not self.is_cruise_enabled:
         self.is_cruise_enabled = True
-        self.auto_cruise_control = False 
+        # C2 와 같이 SCC 상태 변화로는 자동 재개 허용을 지우지 않는다(CANCEL·크루즈 메인 OFF 만 지움).
+        # 지우면 회전 중 정지·소프트홀드 뒤 페달·브레이크 재개가 막히고 RES/SET 으로만 재개된다.
       if controls.enabled and self.long_active_user == 0 and self.auto_cruise_control and not self.user_cruise_paused:
         self._resume_longitudinal(controls, CS, 1)
     elif self.is_cruise_enabled:
@@ -652,6 +692,8 @@ class CruiseHelper:
 
     if not cruise_available:
       self.long_active_user = 0
+      # 크루즈 메인 OFF 는 새 시작: 다시 켜면 SET/RES 를 한 번 눌러야 자동 재개가 살아난다.
+      self.auto_cruise_control = False
       controls.v_cruise_kph = 0
 
     if longcontrol:
@@ -684,7 +726,7 @@ class CruiseHelper:
         unit = self.cruise_speed_unit if self.cruise_button_mode in (1, 2, 3) else self.cruise_speed_unit_basic
         speed_kph -= unit if self.is_metric else unit * CV.MPH_TO_KPH
 
-    return float(clip(round(speed_kph, 1), self.cruise_speed_min, MAX_SET_SPEED_KPH))
+    return self._clip_set_speed(round(speed_kph, 1))
 
   def update_controls(self, controls, CS, longcontrol):
     self.param_read_counter += 1
@@ -712,18 +754,20 @@ class CruiseHelper:
     elif self.slowing_down_alert:
       events.add(EventName.speedBump if self.slowing_down_for_bump else EventName.slowingDownSpeed)
 
-  def cal_curve_speed(self, sm, v_ego, frame):
-    # Retain the existing 5 Hz cadence on EON. Never smooth a stricter cap;
-    # only debounce and ramp its release after a curve or a brief model dropout.
-    if frame % 20 != 0:
+  def cal_curve_speed(self, sm, v_ego, frame, a_ego=0.0):
+    # carrot-wip: evaluate every new model frame (20 Hz) so a release can be
+    # confirmed by consecutive fresh frames. Never smooth a stricter cap.
+    updated = getattr(sm, 'updated', None)
+    new_frame = updated.get('modelV2', False) if isinstance(updated, dict) else frame % 5 == 0
+    if not new_frame:
       return
-    dt = 20 * DT_CTRL if self.curve_update_frame is None else max(0, frame - self.curve_update_frame) * DT_CTRL
+    dt = 5 * DT_CTRL if self.curve_update_frame is None else max(0, frame - self.curve_update_frame) * DT_CTRL
     self.curve_update_frame = frame
     valid = getattr(sm, 'valid', {}).get('modelV2', True) and getattr(sm, 'alive', {}).get('modelV2', True)
     self.curve_speed_ms = self.vision_curve_speed.update(
       sm['modelV2'] if valid else None, self.auto_curve_speed_factor,
       self.auto_curve_speed_lower_limit * CV.KPH_TO_MS,
-      self.auto_curve_speed_decel_rate, dt)
+      self.auto_curve_speed_decel_rate, dt, v_ego=v_ego, a_ego=a_ego)
 
   def update_max_speed(self, max_speed, longcontrol):
     # c3-wip applies the selected navigation target directly. The old 0.01
@@ -759,17 +803,15 @@ class CruiseHelper:
     # NOO/curve toggles so 7714 SDI and section data can feed the existing C3
     # navigation limiter. Existing roadLimitSpeed packets retain priority.
     navi_state = self.navigation_route.update()
-    # TMAP prefers the legacy roadLimitSpeed camera/section fields when that
-    # path has an active sender; NAVER always skips it and uses NAVER's 7714
-    # SDI/section stream below instead. In this fork nothing currently sends
-    # to the legacy UDP 2843 path for either app, so cam_dist/section_dist
-    # stay 0 here and the navi_camera/navi_section fallback below (shared,
-    # not naver_selected-gated) is what actually supplies both apps today.
+    # Only TMAP (1) may use the legacy roadLimitSpeed camera/section fields;
+    # Naver (2) and Kakao (3) use their own 7714 SDI/section stream below.
+    # In this fork nothing currently sends to the legacy UDP 2843 path, so
+    # cam_dist/section_dist stay 0 here and the shared navi_camera/
+    # navi_section fallback below is what actually supplies every app today.
     # Params are file reads; refresh the app selection once a second instead of
     # on every 100 Hz control frame (switching still applies within 1 s).
     if frame % 100 == 0 or self.nav_app_selected is None:
       self.nav_app_selected = self.params.get_int("EonClusterHudNavApp")
-    naver_selected = self.nav_app_selected == 2
     if road_data is not None and self.nav_app_selected == 1:
       cam_type = int(road_data.camType)
       cam_dist = float(road_data.camLimitSpeedLeftDist)
@@ -801,12 +843,19 @@ class CruiseHelper:
     navi_dt = float(clip(now - self.navi_distance_time, 0.0, NAVI_DISTANCE_MAX_DT))
     self.navi_distance_time = now
     traveled = max(float(CS.out.vEgo), 0.0) * navi_dt
+    bump_holding = self.bump_hold.update(traveled)
 
     if self.cam_dist_est > 0.0 and not self.cam_passed:
       self.cam_dist_est = max(0.0, self.cam_dist_est - traveled)
       # AutoNaviSpeedReleaseDist: 카메라 앞 N m 에서 미리 "지난 것"으로 보고 가속을 허용.
-      if self.cam_dist_est <= self.auto_navi_speed_release_dist:
+      # 방지턱은 미리 풀면 턱 위에서 가속하므로 실제 위치(0 m)까지 간다.
+      is_bump = self.cam_type_est == 22
+      release_dist = 0.0 if is_bump else self.auto_navi_speed_release_dist
+      if self.cam_dist_est <= release_dist:
         self.cam_passed = True
+        if is_bump:
+          self.bump_hold.arm()
+          bump_holding = True
 
     if cam_dist > 0.0 and cam_limit > 0.0:
       new_cam = self.cam_type_est < 0 or cam_type != self.cam_type_est or \
@@ -830,6 +879,11 @@ class CruiseHelper:
       cam_limit = self.cam_limit_est
       cam_type = self.cam_type_est
     else:
+      # 방지턱 바로 앞에서 안내가 끊겨도 남은 거리 + 유지거리만큼은 방지턱 속도 유지.
+      if self.cam_type_est == 22 and not self.cam_passed and \
+         0.0 < self.cam_dist_est <= BUMP_LOST_ARM_DIST:
+        self.bump_hold.arm(self.cam_dist_est)
+        bump_holding = True
       self.cam_dist_est = 0.0
       self.cam_raw_dist = 0.0
       self.cam_limit_est = 0.0
@@ -877,7 +931,7 @@ class CruiseHelper:
       if cam_type == 22:
         navi_source = "bump"
         navi_target_kph = self.auto_navi_speed_bump_speed
-        safe_time = self.auto_navi_speed_bump_time
+        safe_time = max(self.auto_navi_speed_bump_time, BUMP_MIN_SAFE_TIME)
       else:
         navi_source = "cam"
         navi_target_kph = cam_limit * self.auto_navi_speed_safety_factor
@@ -885,6 +939,12 @@ class CruiseHelper:
       apply_kph = self.calculate_navi_speed(left_dist, navi_target_kph, safe_time,
                                             self.auto_navi_speed_decel_rate)
       apply_limit_speed = self.kph_to_clu(apply_kph)
+    elif bump_holding:
+      # 방지턱 통과 직후: 유지거리 동안 방지턱 속도 그대로.
+      road_limit_speed = self.auto_navi_speed_bump_speed
+      navi_source = "bump"
+      navi_target_kph = self.auto_navi_speed_bump_speed
+      apply_limit_speed = self.kph_to_clu(navi_target_kph)
     elif section_dist > 0.0 and section_limit > 0.0:
       left_dist = section_dist
       road_limit_speed = section_limit
@@ -893,13 +953,14 @@ class CruiseHelper:
       # C3 holds the section target directly while inside the section.
       apply_limit_speed = self.kph_to_clu(navi_target_kph)
     if self.turn_vision_control:
-      self.cal_curve_speed(sm, CS.out.vEgo, frame)
+      self.cal_curve_speed(sm, CS.out.vEgo, frame, CS.out.aEgo)
     else:
       self.vision_curve_speed.reset()
       self.curve_update_frame = None
       self.curve_speed_ms = UNLIMITED_SPEED
     cruise_speed_ms = controls.v_cruise_kph * CV.KPH_TO_MS
     self.apply_source = ""
+    self.apply_decel_rate = 0.0
     if self.turn_vision_control and self.curve_speed_ms < cruise_speed_ms:
       max_speed_clu = self.curve_speed_ms * self.speed_conv_to_clu
       self.apply_source = "vturn"
@@ -933,7 +994,7 @@ class CruiseHelper:
         max_speed_clu = apply_limit_speed
         self.apply_source = navi_source
       if clu11_speed > apply_limit_speed:
-        self.slowing_down_for_bump = cam_type == 22 and cam_dist > 0.0
+        self.slowing_down_for_bump = (cam_type == 22 and cam_dist > 0.0) or bump_holding
         if not self.slowing_down_alert and not self.slowing_down:
           self.slowing_down_sound_alert = True
           self.slowing_down = True
@@ -946,13 +1007,24 @@ class CruiseHelper:
 
     if self.noo_enabled and self.noo_mode in (0, 1, 3) and not CS.out.brakePressed:
       limits = self.navigation_route.speed_limits_kph(navi_state, self.noo_turn_speed,
-                                                       self.noo_turn_end_time)
+                                                       self.noo_turn_end_time, NOO_TURN_DECEL)
       limits = [value for value in limits if value is not None]
       if limits:
         noo_speed_clu = self.kph_to_clu(min(limits))
         if noo_speed_clu < max_speed_clu:
           max_speed_clu = noo_speed_clu
           self.apply_source = "noo"
+
+    # Tell the planner how hard the active limiter planned to slow down so its
+    # cruise decel bound can follow the user's decel setting.
+    if self.apply_source in ("cam", "bump", "section"):
+      self.apply_decel_rate = self.auto_navi_speed_decel_rate
+    elif self.apply_source in ("vturn", "route"):
+      self.apply_decel_rate = self.auto_curve_speed_decel_rate
+    elif self.apply_source == "noo":
+      self.apply_decel_rate = NOO_TURN_DECEL
+    else:
+      self.apply_decel_rate = 0.0
 
     self.update_max_speed(int(max_speed_clu + 0.5), controls.CP.openpilotLongitudinalControl)
     return normal_road_limit_speed
@@ -1000,7 +1072,7 @@ class CruiseHelper:
       elif road_limit_speed < self.last_road_limit_speed and self.auto_road_speed_adjust > 0.0:
         adjusted = road_limit_speed * self.auto_road_speed_adjust + set_speed_kph * (1.0 - self.auto_road_speed_adjust)
         set_speed_kph = min(set_speed_kph, adjusted)
-      set_speed_kph = float(clip(set_speed_kph, self.cruise_speed_min, MAX_SET_SPEED_KPH))
+      set_speed_kph = self._clip_set_speed(set_speed_kph)
       if longcontrol:
         controls.v_cruise_kph = set_speed_kph
         controls.v_cruise_cluster_kph = set_speed_kph
@@ -1030,7 +1102,6 @@ class CruiseHelper:
     cruise_set_speed = controls.v_cruise_kph if longcontrol else CS.cruiseState_speed * CV.MS_TO_KPH
     controls.applyMaxSpeed = float(clip(cruise_set_speed, self.cruise_speed_min,
                                        self.max_speed_clu * self.speed_conv_to_ms * CV.MS_TO_KPH))
-    self.current_set_speed_kph = controls.applyMaxSpeed
     CC.sccSmoother.longControl = longcontrol
     CC.sccSmoother.applyMaxSpeed = controls.applyMaxSpeed
     # In C2 mode MAIN engages lateral control before SET/RES activates
@@ -1050,29 +1121,6 @@ class CruiseHelper:
 
   def reset_scc_target(self):
     self.target_speed = 0.0
-
-  def get_apply_accel(self, CS, sm, accel, stopping, dt=DT_CTRL):
-    # Match the PID allowance at the final SCC12 boundary, including starts.
-    # Braking/stopping requests bypass this positive-acceleration policy.
-    cruise_max_accel = self.get_cruise_max_accel(CS.out.vEgo)
-    if sm['radarState'].leadOne.status or sm['radarState'].leadTwo.status:
-      cap = cruise_max_accel if self.follow_accel_limit is None else min(cruise_max_accel, self.follow_accel_limit)
-      apply_accel = apply_cruise_max_limit(accel, stopping, cap)
-    else:
-      speed_error_kph = max(0.0, self.current_set_speed_kph - CS.out.vEgo * CV.MS_TO_KPH)
-      apply_accel = apply_no_lead_cruise_accel_limit(
-        accel, stopping, cruise_max_accel, speed_error_kph,
-        self.no_lead_cruise_accel_factor, self.last_apply_accel,
-        self.no_lead_cruise_jerk_limit, dt)
-    self.last_apply_accel = float(apply_accel)
-    return self.last_apply_accel
-
-  def get_stock_cam_accel(self, apply_accel, stock_accel, scc11):
-    stock_cam = scc11["Navi_SCC_Camera_Act"] == 2 and scc11["Navi_SCC_Camera_Status"] == 2
-    self.stock_weight += DT_CTRL / 3.0 if stock_cam else -DT_CTRL / 3.0
-    self.stock_weight = clip(self.stock_weight, 0.0, 1.0)
-    accel = stock_accel * self.stock_weight + apply_accel * (1.0 - self.stock_weight)
-    return min(accel, apply_accel), stock_cam
 
   def get_button(self, current_set_speed):
     if self.target_speed < self.min_set_speed_clu:

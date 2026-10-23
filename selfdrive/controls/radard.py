@@ -11,6 +11,7 @@ from common.params import Params
 from common.realtime import Ratekeeper, Priority, config_realtime_process
 from selfdrive.controls.lib.cluster.fastcluster_py import cluster_points_centroid
 from selfdrive.controls.lib.radar_helpers import Cluster, Track, RADAR_TO_CAMERA
+from selfdrive.controls.lib.lead_departure import LeadDropoutHold
 from selfdrive.swaglog import cloudlog
 from selfdrive.hardware import TICI
 
@@ -37,12 +38,42 @@ class KalmanParams():
     self.K = [[interp(dt, dts, K0)], [interp(dt, dts, K1)]]
 
 
+
+# 정지차 조기 인식 (비전 단독)
+LEAD_PROB_DEFAULT = 0.5
+STOPPED_VISION_PROB_ON = 0.35
+STOPPED_VISION_PROB_OFF = 0.25
+STOPPED_VISION_SUSTAIN_S = 0.3
+STOPPED_VISION_MIN_EGO = 30.0 / 3.6
+STOPPED_VISION_MAX_LEAD_V = 3.0
+STOPPED_VISION_HOLD_LEAD_V = 4.0
+STOPPED_VISION_MIN_CLOSING = 5.0
+STOPPED_VISION_MAX_DIST = 100.0
+
+SCC_STRONG_MATCH_DIST_RATIO = 0.15
+SCC_STRONG_MATCH_DIST_MIN = 3.0
+SCC_STRONG_MATCH_LAT = 1.5
+
+# Closing on the vision lead: a radar point well beyond the vision distance is
+# another object (curve, next lane, a car further ahead), not this lead.
+RADAR_FAR_MATCH_RATIO = 0.15
+RADAR_FAR_MATCH_MIN = 5.0
+RADAR_FAR_MATCH_CLOSING = 2.0
+
+# Cut-out: the SCC radar keeps the car that is pulling away / leaving the lane
+# while vision already sees the much slower car behind it (2026-10-06 long_trace
+# 1426 s: radar lead 24 km/h accelerating at 17 m, vision lead 3 km/h; the plan
+# accelerated for 0.5 s toward a nearly stopped car). While closing on the
+# vision lead, a radar object clearly faster than it is a different car.
+CUTOUT_V_DIFF = 4.0      # m/s, radar lead faster than the vision lead by more than this
+CUTOUT_CLOSING = 2.0     # m/s, only while ego is closing on the vision lead
+
 def laplacian_cdf(x, mu, b):
   b = max(b, 1e-4)
   return math.exp(-abs(x-mu)/b)
 
 
-def match_vision_to_cluster(v_ego, lead, clusters):
+def match_vision_to_cluster(v_ego, lead, clusters, scc_only=False):
   # match vision point to best statistical cluster match
   offset_vision_dist = lead.x[0] - RADAR_TO_CAMERA
 
@@ -58,25 +89,36 @@ def match_vision_to_cluster(v_ego, lead, clusters):
 
   # if no 'sane' match is found return -1
   # stationary radar points can be false positives
-  dist_sane = abs(cluster.dRel - offset_vision_dist) < max([(offset_vision_dist)*.35, 5.0])
+  dist_err = cluster.dRel - offset_vision_dist
+  dist_sane = abs(dist_err) < max([(offset_vision_dist)*.35, 5.0])
+  if dist_err > 0 and v_ego - lead.v[0] > RADAR_FAR_MATCH_CLOSING:
+    dist_sane = dist_sane and dist_err < max(offset_vision_dist * RADAR_FAR_MATCH_RATIO, RADAR_FAR_MATCH_MIN)
   vel_sane = (abs(cluster.vRel + v_ego - lead.v[0]) < 10) or (v_ego + cluster.vRel > 3)
-  if dist_sane and vel_sane:
+  strong_scc = (scc_only and
+                abs(cluster.dRel - offset_vision_dist) < max(offset_vision_dist * SCC_STRONG_MATCH_DIST_RATIO,
+                                                             SCC_STRONG_MATCH_DIST_MIN) and
+                abs(cluster.yRel + lead.y[0]) < SCC_STRONG_MATCH_LAT)
+  cluster_v = cluster.vRel + v_ego
+  cut_out = (v_ego - lead.v[0] > CUTOUT_CLOSING and
+             cluster_v - lead.v[0] > max(CUTOUT_V_DIFF, 2.0 * lead.vStd[0]))
+  if dist_sane and (vel_sane or strong_scc) and not cut_out:
     return cluster
   else:
     return None
 
 
-def get_lead(v_ego, ready, clusters, lead_msg, model_v_ego, low_speed_override=True, mixRadarInfo=0):
+def get_lead(v_ego, ready, clusters, lead_msg, model_v_ego, low_speed_override=True, mixRadarInfo=0,
+             prob_threshold=LEAD_PROB_DEFAULT, scc_only=False):
   # Determine leads, this is where the essential logic happens
-  if len(clusters) > 0 and ready and lead_msg.prob > .5:
-    cluster = match_vision_to_cluster(v_ego, lead_msg, clusters)
+  if len(clusters) > 0 and ready and lead_msg.prob > prob_threshold:
+    cluster = match_vision_to_cluster(v_ego, lead_msg, clusters, scc_only)
   else:
     cluster = None
 
   lead_dict = {'status': False}
   if cluster is not None:
     lead_dict = cluster.get_RadarState2(lead_msg.prob, lead_msg, mixRadarInfo)
-  elif (cluster is None) and ready and (lead_msg.prob > .5):
+  elif (cluster is None) and ready and (lead_msg.prob > prob_threshold):
     lead_dict = Cluster().get_RadarState_from_vision(lead_msg, v_ego, model_v_ego)
 
   if low_speed_override:
@@ -107,6 +149,47 @@ class RadarD():
     self.mix_radar_info = False
     self.params = Params()
     self.next_mix_radar_info_read = 0.0
+
+    self.stopped_vision_since = None
+    self.stopped_vision_active = False
+    self.lead_hold = LeadDropoutHold()
+
+  def _stopped_vision_threshold(self, lead_msg, now):
+    try:
+      prob = float(lead_msg.prob)
+      x = float(lead_msg.x[0])
+      v_lead = float(lead_msg.v[0])
+    except (AttributeError, IndexError, TypeError, ValueError):
+      self.stopped_vision_since = None
+      self.stopped_vision_active = False
+      return LEAD_PROB_DEFAULT
+    if not all(math.isfinite(z) for z in (prob, x, v_lead)):
+      self.stopped_vision_since = None
+      self.stopped_vision_active = False
+      return LEAD_PROB_DEFAULT
+
+    approaching = (self.v_ego >= STOPPED_VISION_MIN_EGO and
+                   self.v_ego - v_lead >= STOPPED_VISION_MIN_CLOSING and
+                   0.0 < x <= STOPPED_VISION_MAX_DIST)
+
+    if self.stopped_vision_active:
+      keep = (approaching and prob >= STOPPED_VISION_PROB_OFF and
+              v_lead < STOPPED_VISION_HOLD_LEAD_V)
+      if not keep:
+        self.stopped_vision_active = False
+        self.stopped_vision_since = None
+    else:
+      candidate = (approaching and prob >= STOPPED_VISION_PROB_ON and
+                   v_lead < STOPPED_VISION_MAX_LEAD_V)
+      if candidate:
+        if self.stopped_vision_since is None:
+          self.stopped_vision_since = now
+        elif now - self.stopped_vision_since >= STOPPED_VISION_SUSTAIN_S:
+          self.stopped_vision_active = True
+      else:
+        self.stopped_vision_since = None
+
+    return STOPPED_VISION_PROB_OFF if self.stopped_vision_active else LEAD_PROB_DEFAULT
 
   def update(self, sm, rr):
     now = time.monotonic()
@@ -182,10 +265,16 @@ class RadarD():
     leads_v3 = sm['modelV2'].leadsV3
     if len(leads_v3) > 1:
       model_v_ego = sm['modelV2'].velocity.x[0] if len(sm['modelV2'].velocity.x) else self.v_ego
-      radarState.leadOne = get_lead(self.v_ego, self.ready, clusters, leads_v3[0], model_v_ego,
-                                    low_speed_override=True, mixRadarInfo=self.mix_radar_info)
+      lead0_threshold = self._stopped_vision_threshold(leads_v3[0], now)
+      lead_one = get_lead(self.v_ego, self.ready, clusters, leads_v3[0], model_v_ego,
+                          low_speed_override=True, mixRadarInfo=self.mix_radar_info,
+                          prob_threshold=lead0_threshold, scc_only=self.scc_only)
+      # 가까이서 다가가던 앞차를 잠깐 놓쳐도 최대 1.2초(거의 선 차는 80 m·3.5초)는
+      # 같은 앞차로 이어 간다.
+      radarState.leadOne = self.lead_hold.update(lead_one, now, self.v_ego)
       radarState.leadTwo = get_lead(self.v_ego, self.ready, clusters, leads_v3[1], model_v_ego,
-                                    low_speed_override=False, mixRadarInfo=self.mix_radar_info)
+                                    low_speed_override=False, mixRadarInfo=self.mix_radar_info,
+                                    scc_only=self.scc_only)
     return dat
 
 

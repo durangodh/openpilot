@@ -2,9 +2,10 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from selfdrive.controls.lib.lead_departure import (LeadDepartureAssist,
+from selfdrive.controls.lib.lead_departure import (LAUNCH_JERK_UPPER_MAX, LeadDepartureAssist,
                                                    departure_jerk_upper,
                                                    departure_motion_valid,
+                                                   lead_departure_jerk,
                                                    lead_is_departing)
 
 
@@ -29,18 +30,6 @@ def test_shared_departure_motion_predicate_rejects_boundaries_and_nonfinite_valu
   assert not lead_is_departing(lead)
 
 
-def test_floor_never_exceeds_planner_and_distinguishes_creep():
-  assist, args = LeadDepartureAssist(0.01), inputs()
-  assert assist.update(**args)
-  assert assist.accel_floor == 0.25
-  args['a_target'] = 0.8
-  assert assist.update(**args)
-  assert assist.accel_floor == 0.35
-  args['radar'].leadOne.vLeadK = 0.4
-  assert assist.update(**args)
-  assert assist.accel_floor == 0.18
-
-
 @pytest.mark.parametrize('key,value', [
   ('enabled', False), ('confirmed', False), ('radar_valid', False),
   ('plan_valid', False), ('plan_age', 0.21), ('plan_age', -0.01),
@@ -52,7 +41,7 @@ def test_rejected_requests_clear_all_assistance(key, value):
   assert assist.update(**args)
   args[key] = value
   assert not assist.update(**args)
-  assert assist.remaining == assist.accel_floor == 0.0
+  assert assist.remaining == 0.0 and not assist.active
 
 
 @pytest.mark.parametrize('key,value', [
@@ -96,6 +85,8 @@ def test_hold_expires_without_rearming_in_pid_and_cannot_survive_braking():
   assist, args = LeadDepartureAssist(0.01), inputs()
   assert assist.update(**args)
   args.update(stopping=False, confirmed=False)
+  args['cs'].vEgo = 0.2
+  args['v_future'] = 0.5
   for _ in range(99):
     assert assist.update(**args)
   for _ in range(20):
@@ -106,6 +97,27 @@ def test_hold_expires_without_rearming_in_pid_and_cannot_survive_braking():
   assert not assist.update(**args)
   args['a_now'] = 0.0
   assert not assist.update(**args)
+
+
+def test_scc_release_delay_preserves_rolling_assist_but_times_out():
+  assist, args = LeadDepartureAssist(0.01), inputs()
+  assert assist.update(**args)
+  args.update(stopping=False, confirmed=False)
+  for _ in range(140):
+    assert assist.update(**args)
+  assert assist.remaining == 1.0
+  args['cs'].vEgo = 0.2
+  args['v_future'] = 0.5
+  assert assist.update(**args)
+  assert assist.remaining < 1.0
+
+  assist, args = LeadDepartureAssist(0.01), inputs()
+  assert assist.update(**args)
+  args.update(stopping=False, confirmed=False)
+  for _ in range(180):
+    assist.update(**args)
+  assert not assist.active
+  assert assist.remaining == 0.0
 
 
 def test_positive_plan_alone_cannot_arm_assist_while_driving():
@@ -124,7 +136,63 @@ def test_no_positive_floor_when_ego_has_already_exceeded_planned_speed():
 
 def test_scc_jerk_change_is_scoped_and_bounded():
   assert departure_jerk_upper(0.5, 1.0, 2.0, False) == 0.5
-  assert departure_jerk_upper(0.5, 1.0, 2.0, True) == 2.0
+  assert departure_jerk_upper(0.5, 1.0, 2.0, True) == LAUNCH_JERK_UPPER_MAX
   assert departure_jerk_upper(0.5, 1.0, 0.6, True) == 0.6
   assert departure_jerk_upper(0.5, 0.5, 2.0, True) == 1.0
   assert departure_jerk_upper(4.0, 5.0, 6.0, True) == 4.0
+
+
+def test_launch_jerk_tracks_lead_motion_and_respects_user_limit():
+  gentle = NS(status=True, dRel=6.5, vLeadK=0.3, vRel=0.25, aLeadK=0.0)
+  normal = NS(status=True, dRel=7.0, vLeadK=0.8, vRel=0.7, aLeadK=0.2)
+  brisk = NS(status=True, dRel=9.0, vLeadK=1.8, vRel=1.6, aLeadK=0.8)
+  jerks = [lead_departure_jerk(lead, 4.0, 6.0) for lead in (gentle, normal, brisk)]
+  assert 0.8 <= jerks[0] < jerks[1] < jerks[2] <= 4.0
+  assert lead_departure_jerk(brisk, 1.0, 6.0) == pytest.approx(1.0)
+  assert lead_departure_jerk(brisk, 0.5, 6.0) == pytest.approx(0.5)
+  assert lead_departure_jerk(None, 4.0, 6.0) is None
+
+
+def test_lead_dropout_hold_keeps_close_closing_lead_briefly():
+  from selfdrive.controls.lib.lead_departure import LeadDropoutHold, LEAD_HOLD_S
+  hold = LeadDropoutHold()
+  lead = {'status': True, 'dRel': 16.6, 'vRel': -1.4, 'vLead': 5.6, 'fcw': False}
+  assert hold.update(lead, 0.0) is lead
+  held = hold.update({'status': False}, 0.5)
+  assert held['status'] and abs(held['dRel'] - (16.6 - 0.7)) < 1e-6
+  assert hold.update({'status': False}, LEAD_HOLD_S - 0.01)['status']
+  assert not hold.update({'status': False}, LEAD_HOLD_S + 0.1)['status']
+
+
+def test_lead_dropout_hold_ignores_far_or_opening_leads():
+  from selfdrive.controls.lib.lead_departure import LeadDropoutHold
+  hold = LeadDropoutHold()
+  hold.update({'status': True, 'dRel': 60.0, 'vRel': -2.0}, 0.0)
+  assert not hold.update({'status': False}, 0.1)['status']
+  hold.update({'status': True, 'dRel': 20.0, 'vRel': 0.5}, 1.0)
+  assert not hold.update({'status': False}, 1.1)['status']
+
+
+def test_lead_dropout_hold_long_keeps_far_slow_lead_longer():
+  from selfdrive.controls.lib.lead_departure import LeadDropoutHold, LEAD_HOLD_LONG_S
+  # 2026-10-14 long 1347.8 s: 61 m 앞 1.4 m/s 차에 10 m/s 로 다가가다 놓침.
+  lead = {'status': True, 'dRel': 60.7, 'vRel': -10.0, 'vLead': 1.4, 'fcw': False}
+  hold = LeadDropoutHold()
+  hold.update(lead, 0.0)
+  held = hold.update({'status': False}, 1.0, 10.4)
+  assert held['status'] and abs(held['vRel'] - (1.4 - 10.4)) < 1e-6
+  assert abs(held['dRel'] - (60.7 - 9.0)) < 1e-6
+  assert hold.update({'status': False}, LEAD_HOLD_LONG_S - 0.01, 10.4)['status']
+  assert not hold.update({'status': False}, LEAD_HOLD_LONG_S + 0.1, 10.4)['status']
+
+
+def test_lead_dropout_hold_long_ignores_moving_or_slowly_closed_leads():
+  from selfdrive.controls.lib.lead_departure import LeadDropoutHold
+  hold = LeadDropoutHold()
+  # 앞차가 빠르면(> 5 m/s) 기존 규칙: 40 m 넘으면 유지하지 않는다.
+  hold.update({'status': True, 'dRel': 60.0, 'vRel': -5.0, 'vLead': 8.0}, 0.0)
+  assert not hold.update({'status': False}, 0.1, 13.0)['status']
+  # 느린 앞차라도 천천히 다가가면(< 3 m/s) 기존 1.2초만.
+  hold.update({'status': True, 'dRel': 30.0, 'vRel': -1.0, 'vLead': 2.0}, 1.0)
+  assert hold.update({'status': False}, 2.1, 3.0)['status']
+  assert not hold.update({'status': False}, 2.3, 3.0)['status']

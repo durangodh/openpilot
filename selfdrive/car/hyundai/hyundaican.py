@@ -123,14 +123,13 @@ def create_mdps12(packer, frame, mdps12):
 
   return packer.make_can_msg("MDPS12", 2, values)
 
-def create_scc11(packer, frame, enabled, set_speed, lead_visible, scc_live, scc11, active_cam, stock_cam,
+def create_scc11(packer, frame, enabled, set_speed, lead_visible, scc_live, scc11, active_cam,
                  soft_hold=False, cruise_gap=None, lead_distance=0.0, lead_relative_speed=0.0):
   values = copy.copy(scc11)
   values["AliveCounterACC"] = frame // 2 % 0x10
 
-  if not stock_cam:
-    values["Navi_SCC_Camera_Act"] = 2 if active_cam else 0
-    values["Navi_SCC_Camera_Status"] = 2 if active_cam else 0
+  values["Navi_SCC_Camera_Act"] = 2 if active_cam else 0
+  values["Navi_SCC_Camera_Status"] = 2 if active_cam else 0
 
   # Match aPilot C2 SCC11 ownership for both ACC and E2E. Do not leave the
   # stock radar's standstill/object state latched on Genesis DH SCC bus 2.

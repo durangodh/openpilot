@@ -88,7 +88,6 @@ def manager_init() -> None:
     ("LanelessOffset", "0"),
 
     ("SccSmootherSyncGasPressed", "0"),
-    ("StockNaviDecelEnabled", "0"),
     ("KeepSteeringTurnSignals", "0"),
     ("HapticFeedbackWhenSpeedCamera", "0"),
     ("NewRadarInterface", "0"),
@@ -127,6 +126,8 @@ def manager_init() -> None:
     ("ShowPathStatusColor", "1"),
     ("PrevCruiseGap", "4"),
     ("ApplyLongDynamicCost", "0"),
+    ("HumanAcceleration", "0"),
+    ("HumanFollowing", "1"),
     ("MyDrivingMode", "3"),
     ("InitMyDrivingMode", "3"),
     ("MyEcoModeFactor", "80"),
@@ -137,8 +138,8 @@ def manager_init() -> None:
     ("CruiseMaxVals4", "80"),
     ("CruiseMaxVals5", "70"),
     ("CruiseMaxVals6", "60"),
-    ("NoLeadCruiseAccelFactor", "65"),
-    ("NoLeadCruiseJerkLimit", "25"),
+    ("NoLeadCruiseAccelFactor", "100"),
+    ("LeadCruiseAccelFactor", "100"),
     # 조향 기본값은 차량 공식값 기준으로 맞춘다 (2026-08-19, 학습 제거 후 정리)
     #  - CustomSteerRatio 1650  = hyundai/interface.py ret.steerRatio 16.5
     #  - SteerActuatorDelay 25  = 동 파일 ret.steerActuatorDelay 0.25s
@@ -178,10 +179,11 @@ def manager_init() -> None:
     ("StartAccelApply", "0"),
     ("StopAccelApply", "30"),
     ("StoppingDecelRate", "120"),
-    ("PidJerkAccel", "100"),
-    ("PidJerkDecel", "100"),
     ("LowSpeedJerkBoost", "100"),
     ("StandstillHoldApply", "55"),
+    ("EarlyHoldRelax", "1"),
+    ("FastLeadRelease", "1"),
+    ("EarlyStopReqRelease", "0"),
     ("TrafficStopAccel", "80"),
     ("TrafficStopDistanceAdjust", "400"),
     ("StopDistance", "600"),
@@ -189,7 +191,6 @@ def manager_init() -> None:
     ("LongTuningKiV", "200"),
     ("LongTuningKf", "100"),
     ("LongitudinalActuatorDelayLowerBound", "50"),
-    ("LongitudinalActuatorDelayUpperBound", "50"),
     ("SoftHoldMode", "1"),
   ]
   if not PC:
@@ -274,7 +275,10 @@ def manager_init() -> None:
 
   # 더 이상 어떤 코드도 읽지 않는 파라미터 파일을 지운다(2026-10-10 정리).
   # 키 목록에서 빠졌으므로 Params 로는 지울 수 없고 파일을 직접 지운다. 없으면 무시.
-  for dead_key in ("VisionRadarToggle",
+  for dead_key in ("PidJerkAccel", "PidJerkDecel", "LeadDepartCost",
+                   "LongCoastBand", "LongitudinalActuatorDelayUpperBound", "StoppingAccel",
+                   "NoLeadCruiseJerkLimit", "EnableSpeedTF", "StockNaviDecelEnabled",
+                   "VisionRadarToggle", "SccSmootherState",
                    "LateralTorqueKd", "CarrotLearnFrictionBase",
                    "OPKRTimeZone", "ShowBlindSpotAlways", "EonClusterHudPathFlipV2Migrated"):
     try:
@@ -286,7 +290,6 @@ def manager_init() -> None:
   # 더 이상 읽지 않는 옛 파라미터 파일을 지운다.
   if params.get("ApilotC2LongMigrated") is None:
     try:
-      params.put("LeadDepartCost", "5")
       for legacy_key in ("TFollowDecelBoost", "TFollowClosingMargin",
                          "RadarReactionFactor", "SccVisionMismatchFallback"):
         try:

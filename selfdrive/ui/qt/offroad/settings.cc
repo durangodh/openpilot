@@ -407,7 +407,7 @@ void ParamValueControlF::refresh() {
   int v = cur.empty() ? vdefault_ : std::atoi(cur.c_str());
   v = std::max(vmin_, std::min(vmax_, v));
   if (param_ == "TrafficStopMode") {
-    static const QStringList modes = {"ACC", "AUTO", "APILOT"};
+    static const QStringList modes = {"ACC", "AUTO", "APILOT", "VISION"};
     value_label->setText(modes[v]);
   } else if (param_ == "InitMyDrivingMode") {
     static const QStringList modes = {"SAFE", "ECO", "NORMAL", "FAST", "AUTO"};
@@ -1196,8 +1196,8 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "", "감속 시작 거리는 '감속 세기'와 목표속도에서 자동 계산됩니다. 세기를 낮출수록 더 멀리서 부드럽게 시작하고, 높일수록 카메라 가까이에서 급하게 줄입니다."));
   toggleLayout->addWidget(new ParamValueControlF(
       "AutoNaviSpeedDecelRate", "1. 감속 세기 (×0.01m/s²)",
-      "카메라·구간단속 감속 강도입니다(커브는 위 그룹의 '커브 감속 세기'가 0일 때만 이 값을 씀). 값 감소(-): 일찍·부드럽게 시작 / 값 증가(+): 늦게·강하게. 기본값: 120.",
-      "../assets/offroad/icon_speed_limit.png", 10, 300, 10, 0, 120, this));
+      "카메라·구간단속 감속 강도입니다(커브는 위 그룹의 '커브 감속 세기'가 0일 때만 이 값을 씀). 값 감소(-): 일찍·부드럽게 시작 / 값 증가(+): 늦게·강하게. 기본값: 80.",
+      "../assets/offroad/icon_speed_limit.png", 10, 300, 10, 0, 80, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "AutoNaviSpeedCtrlEnd", "2. 감속 완료 지점 (카메라 N초 전)",
       "이 시점(카메라까지 남은 주행시간)에 제한속도 도달을 완료합니다. 값 증가(+): 더 멀리서 완료(감속 시작도 앞당겨짐) / 값 감소(-): 카메라 직전에 완료. 기본값: 7.",
@@ -1217,21 +1217,15 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "방지턱까지 남은 주행시간이 이 값일 때 목표속도 도달을 완료합니다. 기본값: 1.",
       "../assets/offroad/icon_speed_limit.png", 1, 50, 1, 0, 1, this));
   toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new ParamControl("StockNaviDecelEnabled",
-                                            "STOCK NAVI DECEL",
-                                            "켜짐: 순정 내비게이션의 제한속도·카메라 정보를 종방향 감속에 사용합니다.",
-                                            "../assets/offroad/icon_road.png",
-                                            this));
-  toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("LongTraceEnabled",
                                             "LONG TRACE LOG",
-                                            "켜짐: 앞차 반응 분석용으로 레이더·계획·명령·차량 가감속 숫자만 /sdcard/long_trace 에 CSV 로 기록합니다(분당 약 100KB, 하루 지나거나 30개 넘으면 오래된 것부터 삭제). 분석이 끝나면 꺼 주세요.",
+                                            "켜짐: 앞차 반응 분석용으로 레이더·계획·명령·차량 가감속 숫자만 /sdcard/long_trace 에 CSV 로 기록합니다(분당 약 100KB, 30개 넘으면 오래된 것부터 삭제). 분석이 끝나면 꺼 주세요.",
                                             "../assets/offroad/icon_openpilot.png",
                                             this));
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new ParamControl("LatTraceEnabled",
                                             "LAT TRACE LOG",
-                                            "켜짐: 조향 분석용으로 목표 곡률·토크 제어기·조향 명령·핸들 각도 숫자만 /sdcard/lat_trace 에 CSV 로 기록합니다(분당 약 150KB, 하루 지나거나 30개 넘으면 오래된 것부터 삭제). 분석이 끝나면 꺼 주세요.",
+                                            "켜짐: 조향 분석용으로 목표 곡률·토크 제어기·조향 명령·핸들 각도 숫자만 /sdcard/lat_trace 에 CSV 로 기록합니다(분당 약 150KB, 30개 넘으면 오래된 것부터 삭제). 분석이 끝나면 꺼 주세요.",
                                             "../assets/offroad/icon_openpilot.png",
                                             this));
   toggleLayout->addWidget(horizontal_line());
@@ -1424,11 +1418,6 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
       "롱컨의 최저 설정속도입니다. 값 증가(+): 처음 설정되는 속도가 높아짐 / 값 감소(-): 더 낮은 속도로 설정 가능.",
       "../assets/offroad/icon_road.png", 5, 30, 1, 0, 30, this));
 
-  list->addItem(new ParamControl(
-      "ApplyLongDynamicCost", "DYNAMIC FOLLOWING RESPONSE",
-      "켜짐: 18km/h까지 앞차 출발 반응을 동적으로 조정하고, 18~30km/h에서 점차 줄여 30km/h부터 일반 추종으로 복귀합니다.",
-      "../assets/offroad/icon_road.png", this));
-
   list->addItem(new ParamValueControlF(
       "SpeedFromPCM", "SPEED FROM PCM",
       "1: 순정 SCC 설정속도 사용 / 2: 오픈파일럿 설정속도와 사용자 크루즈 버튼 설정 사용.",
@@ -1529,7 +1518,7 @@ CruisePanel::CruisePanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamValueControlF(
       "AutoResumeFromBrakeCarSpeed", "AUTO RESUME FROM BRAKE CAR SPEED (km/h)",
-      "앞차가 없을 때 필요한 최저 재개속도입니다. 값 증가(+): 더 높은 속도에서만 재개 / 값 감소(-): 저속에서도 재개.",
+      "브레이크 해제 재개가 동작하는 최저 속도입니다(앞차 유무와 관계없음). 이 속도 미만(정지 포함)에서는 브레이크를 놓아도 재개하지 않습니다. 값 증가(+): 더 높은 속도에서만 재개 / 값 감소(-): 저속에서도 재개.",
       "../assets/offroad/icon_road.png", 5, 60, 1, 0, 30, this));
 
   list->addItem(new ParamValueControlF(
@@ -1559,8 +1548,8 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamValueControlF(
       "TrafficStopMode", "E2E / ACC MODE",
-      "0 ACC: 신호정지 끔 / 1 AUTO: 원거리 신호정지·출발준비에서 E2E / 2 APILOT: AUTO 조건과 비전 앞차까지 E2E.",
-      "../assets/img_experimental_white.svg", 0, 2, 1, 0, 2, this));
+      "0 ACC: 신호정지 끔 / 1 AUTO: 원거리 신호정지·출발준비에서 E2E / 2 APILOT: AUTO 조건과 비전 앞차까지 E2E / 3 VISION: 신호정지 끔, 레이더 없이 카메라로만 잡힌 앞차(90m 이내)에서만 E2E.",
+      "../assets/img_experimental_white.svg", 0, 3, 1, 0, 2, this));
 
   list->addItem(new ParamControl(
       "MixRadarInfo", "RADAR / VISION ACCEL BLEND",
@@ -1588,18 +1577,8 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_openpilot.png", 20, 200, 1, 0, 120, this));
 
   list->addItem(new ParamValueControlF(
-      "PidJerkAccel", "CRUISE JERK ACCEL (%)",
-      "출발 이후 정상주행 중 가속 반응 속도 배율입니다. 값 증가(+): 더 즉각적으로 가속 / 값 감소(-): 더 부드럽게. 기본값: 100(=코드 기본 곡선 그대로).",
-      "../assets/offroad/icon_openpilot.png", 30, 300, 5, 0, 100, this));
-
-  list->addItem(new ParamValueControlF(
-      "PidJerkDecel", "CRUISE JERK DECEL (%)",
-      "출발 이후 정상주행 중 감속(제동) 반응 속도 배율입니다. 값 증가(+): 급제동 등에 더 빠르게 반응(반응 지연 감소) / 값 감소(-): 더 부드럽지만 반응이 늦어짐 — 낮출수록 안전 여유가 줄 수 있으니 주의. 기본값: 100.",
-      "../assets/offroad/icon_openpilot.png", 30, 300, 5, 0, 100, this));
-
-  list->addItem(new ParamValueControlF(
       "LowSpeedJerkBoost", "LOW SPEED DEPART BOOST (%)",
-      "시속 18km/h 이하에서 앞차 출발 추종 시에만 추가로 곱해지는 가속 반응 배율입니다(30km/h까지 서서히 해제, CRUISE JERK ACCEL과 무관). 값 증가(+): 정체구간 앞차 출발에 더 즉각 반응. 기본값: 100(=부스트 없음).",
+      "앞차를 따라 출발할 때 출발 가속이 올라가는 속도 배율입니다(18km/h까지 적용, 30km/h에서 해제, START JERK LIMIT을 넘지 않음). 값 증가(+): 정체구간 앞차 출발에 더 빨리 따라붙음. 기본값: 100(=부스트 없음).",
       "../assets/offroad/icon_openpilot.png", 100, 500, 10, 0, 100, this));
 
   list->addItem(new ParamValueControlF(
@@ -1616,6 +1595,21 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "StandstillReleaseMs", "STANDSTILL RELEASE DELAY",
       "플래너 출발 요구가 이어져야 하는 시간(ms)입니다. 정지 선행차가 확인되면 새 레이더 샘플 2회로 실제 이동을 확인하며, 레이더가 1.5초 이상 끊기면 이 지연값으로 자동 출발합니다. 기본값: 100.",
       "../assets/offroad/icon_openpilot.png", 50, 2000, 50, 0, 100, this));
+
+  list->addItem(new ParamControl(
+      "EarlyHoldRelax", "EARLY HOLD RELAX",
+      "켜짐: 정지한 앞차가 움직이기 시작하는 기미가 보이면 출발 판정 전부터 정지유지 제동을 정차 접근 수준(STOPPING ACCEL)과의 중간까지 미리 줄여 출발이 조금 빨라집니다. 완전히 선 뒤 1초가 지나야 동작하고, 0.5초 안에 출발이 이어지지 않으면 원래 유지 제동으로 돌아갑니다. 정지 중 차가 찔끔 움직이면 끄세요.",
+      "../assets/offroad/icon_openpilot.png", this));
+
+  list->addItem(new ParamControl(
+      "FastLeadRelease", "FAST LEAD RELEASE",
+      "켜짐: 정지 앞차의 출발을 필터 속도보다 0.1~0.25초 빠른 레이더 원래 속도로도 확인합니다(레이더 앞차·새 샘플 2회 연속 확인은 그대로). 잘못 출발하는 느낌이 있으면 끄세요.",
+      "../assets/offroad/icon_openpilot.png", this));
+
+  list->addItem(new ParamControl(
+      "EarlyStopReqRelease", "EARLY STOPREQ RELEASE (실험)",
+      "켜짐: 정지한 앞차가 움직이기 시작하면 브레이크 명령은 유지한 채 차량 정지유지 신호(StopReq)만 먼저 해제해, 차량이 정지유지를 푸는 시간(약 1.2초)을 앞당깁니다. 완전히 선 뒤 1초가 지나야 동작하고, 0.8초 안에 출발이 이어지지 않으면 다시 정지유지 신호를 보냅니다. 그 사이 차가 조금이라도 움직이면 즉시 되돌리고 그 정지 동안은 다시 시도하지 않습니다. 제동이 덜컥하거나 밀리면 끄세요. 기본값: 꺼짐.",
+      "../assets/offroad/icon_openpilot.png", this));
 
   list->addItem(new ParamValueControlF(
       "SoftHoldMode", "SOFT HOLD MODE",
@@ -1635,13 +1629,13 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(horizontal_line());
 
   const std::array<std::tuple<const char*, const char*, int>, 7> accel_controls = {{
-    {"CruiseMaxVals1", "CRUISE MAX VALS1 (0 km/h)", 110},
-    {"CruiseMaxVals20", "CRUISE MAX VALS20 (20 km/h)", 100},
-    {"CruiseMaxVals2", "CRUISE MAX VALS2 (40 km/h)", 90},
-    {"CruiseMaxVals3", "CRUISE MAX VALS3 (60 km/h)", 90},
-    {"CruiseMaxVals4", "CRUISE MAX VALS4 (80 km/h)", 80},
-    {"CruiseMaxVals5", "CRUISE MAX VALS5 (110 km/h)", 70},
-    {"CruiseMaxVals6", "CRUISE MAX VALS6 (140 km/h)", 60},
+    {"CruiseMaxVals1", "CRUISE MAX ACCEL 0 km/h", 110},
+    {"CruiseMaxVals20", "CRUISE MAX ACCEL 20 km/h", 100},
+    {"CruiseMaxVals2", "CRUISE MAX ACCEL 40 km/h", 90},
+    {"CruiseMaxVals3", "CRUISE MAX ACCEL 60 km/h", 90},
+    {"CruiseMaxVals4", "CRUISE MAX ACCEL 80 km/h", 80},
+    {"CruiseMaxVals5", "CRUISE MAX ACCEL 110 km/h", 70},
+    {"CruiseMaxVals6", "CRUISE MAX ACCEL 140 km/h", 60},
   }};
   for (const auto& [key, title, default_value] : accel_controls) {
     list->addItem(new ParamValueControlF(
@@ -1653,12 +1647,27 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamValueControlF(
       "NoLeadCruiseAccelFactor", "NO-LEAD CRUISE ACCEL (%)",
-      "앞차가 없을 때 설정속도로 복귀하는 최대가속 비율입니다. CRUISE MAX 값에 이 비율을 곱하며, 설정속도에 가까워질수록 자동으로 더 낮아집니다. 값 증가(+): 빠른 속도 복귀 / 값 감소(-): 부드러운 속도 복귀. 권장값: 65%.",
-      "../assets/offroad/icon_openpilot.png", 30, 100, 5, 0, 65, this));
+      "앞차가 없을 때 CRUISE MAX 가속 상한에 곱하는 비율입니다. 100%는 CRUISE MAX 그대로, 95%는 전 구간 5% 낮게, 105%는 전 구간 5% 높게 가속합니다. 감속에는 영향이 없습니다. 기본값: 100%.",
+      "../assets/offroad/icon_openpilot.png", 50, 150, 5, 0, 100, this));
   list->addItem(new ParamValueControlF(
-      "NoLeadCruiseJerkLimit", "NO-LEAD ACCEL RAMP (X0.01m/s³)",
-      "앞차가 없을 때 가속 명령이 증가하는 속도입니다. 값 증가(+): 가속이 빨리 강해짐 / 값 감소(-): 가속이 천천히 부드럽게 증가. 감속과 앞차 추종에는 적용하지 않습니다. 권장값: 25.",
-      "../assets/offroad/icon_openpilot.png", 5, 100, 5, 0, 25, this));
+      "LeadCruiseAccelFactor", "LEAD CRUISE ACCEL (%)",
+      "앞차가 있을 때 CRUISE MAX 가속 상한에 곱하는 비율입니다. 100%는 CRUISE MAX 그대로, 95%는 전 구간 5% 낮게, 105%는 전 구간 5% 높게 가속합니다. 감속과 차간거리 유지에는 영향이 없습니다. 기본값: 100%.",
+      "../assets/offroad/icon_openpilot.png", 50, 150, 5, 0, 100, this));
+
+  list->addItem(new ParamControl(
+      "HumanAcceleration", "HUMAN-LIKE ACCELERATION",
+      "켜짐: 목표 속도(커브·네비·카메라 제한 포함)에 가까워질수록 가속을 줄입니다. 18km/h 이내부터 줄이기 시작해 3.6km/h 차이에서 0.5m/s², 목표 속도에서 0. FrogPilot 방식.",
+      "../assets/offroad/icon_road.png", this));
+
+  list->addItem(new ParamControl(
+      "HumanFollowing", "HUMAN-LIKE FOLLOWING",
+      "켜짐: 앞차의 앞으로 움직임을 레이더 가속도 한 값이 아니라 주행 모델이 예측한 궤적으로 계산해, 앞차 따라갈 때 급가속·급감속을 줄입니다. FrogPilot 방식.",
+      "../assets/offroad/icon_road.png", this));
+
+  list->addItem(new ParamControl(
+      "ApplyLongDynamicCost", "DYNAMIC FOLLOWING RESPONSE",
+      "켜짐: 18km/h까지 앞차 출발 반응을 동적으로 조정하고, 18~30km/h에서 점차 줄여 30km/h부터 일반 추종으로 복귀합니다.",
+      "../assets/offroad/icon_road.png", this));
 
   const std::array<std::tuple<const char*, const char*, int>, 4> gap_controls = {{
     {"TFollowGap1", "T-FOLLOW GAP1", 110},
@@ -1676,10 +1685,6 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "TFollowSpeedRatio", "HIGH-SPEED T-FOLLOW RATIO (%)",
       "속도가 높아질 때 차간시간을 늘리는 비율입니다. 값 증가(+): 고속에서 차간거리 증가 / 값 감소(-): 고속 차간거리 감소.",
       "../assets/offroad/icon_openpilot.png", 100, 300, 5, 0, 120, this));
-  list->addItem(new ParamValueControlF(
-      "LeadDepartCost", "LEAD DEPART COST (X0.01)",
-      "18km/h까지 앞차 출발 추종 강도를 조정하고 18~30km/h에서 점차 해제합니다. 값 감소(-): 빠르게 따라붙음 / 값 증가(+): 부드럽지만 굼뜸. ApplyLongDynamicCost 켜야 동작. apilot-c2 기본값: 5.",
-      "../assets/offroad/icon_openpilot.png", 5, 100, 5, 0, 5, this));
   list->addItem(new ParamValueControlF(
       "PrevCruiseGap", "PREVIOUS CRUISE GAP",
       "마지막 GAP을 저장·복원합니다. 값 증가(+): 더 먼 GAP / 값 감소(-): 더 가까운 GAP.",
@@ -1709,12 +1714,8 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "LongTuningKf", "LONGITUDINAL KF", "목표 가속도 반영값(×0.01)입니다. 값 증가(+): 가감속 명령이 강해짐 / 값 감소(-): 명령이 약해짐.",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
   list->addItem(new ParamValueControlF(
-      "LongitudinalActuatorDelayLowerBound", "LONG ACTUATOR DELAY MIN",
-      "가속·제동의 짧은 지연 보정값(×0.01초)입니다. 값 증가(+): 더 미리 반응 / 값 감소(-): 반응 시점을 늦춤 / 0: 차량 기본값.",
-      "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
-  list->addItem(new ParamValueControlF(
-      "LongitudinalActuatorDelayUpperBound", "LONG ACTUATOR DELAY MAX",
-      "가속·제동의 긴 지연 보정값(×0.01초)입니다. 값 증가(+): 더 먼 미래를 보고 일찍 반응 / 값 감소(-): 반응이 늦어짐 / 0: 차량 기본값.",
+      "LongitudinalActuatorDelayLowerBound", "LONG ACTUATOR DELAY",
+      "가속·제동 지연 보정값(×0.01초)입니다. 값 증가(+): 더 미리 반응 / 값 감소(-): 반응 시점을 늦춤 / 0: 차량 기본값.",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
 
   list->addItem(horizontal_line());

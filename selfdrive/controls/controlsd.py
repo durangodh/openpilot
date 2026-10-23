@@ -211,7 +211,6 @@ class Controls:
       params.remove("ExperimentalMode")
 
     self.CC = car.CarControl.new_message()
-    self.CS_prev = car.CarState.new_message()
     self.AM = AlertManager()
     self.events = Events()
 
@@ -239,7 +238,6 @@ class Controls:
     self.cruise_mismatch_counter = 0
     self.can_rcv_error_counter = 0
     self.last_blinker_frame = 0
-    self.distance_traveled = 0
     self.last_functional_fan_frame = 0
     self.events_prev = []
     self.current_alert_types = [ET.PERMANENT]
@@ -255,14 +253,10 @@ class Controls:
     # CruiseHelper outputs shared with Hyundai SCC transport and UI
     self.applyMaxSpeed = 0
     self.apply_accel = 0.
-    self.fused_accel = 0.
-    self.lead_drel = 0.
+    self.scc_stop_request = False
     self.aReqValue = 0.
     self.aReqValueMin = 0.
     self.aReqValueMax = 0.
-    self.sccStockCamStatus = 0
-    self.sccStockCamAct = 0
-    self.scc_stop_request = False  # 기록용(long_trace scc_stop_req), carcontroller 가 채운다
 
     self.left_lane_visible = False
     self.right_lane_visible = False
@@ -607,8 +601,6 @@ class Controls:
     else:
       self.mismatch_counter += 1
 
-    self.distance_traveled += CS.vEgo * DT_CTRL
-
     return CS
 
   def state_transition(self, CS):
@@ -768,8 +760,8 @@ class Controls:
     if not self.joystick_mode:
       # accel PID loop
       pid_accel_limits = self.CI.get_pid_accel_limits(self.CP, CS.vEgo, self.v_cruise_kph * CV.KPH_TO_MS)
-      # Share the positive allowance with SCC even while following a lead.
-      # This also prevents PID integration above a still-opening lead cap.
+      # Positive allowance (CruiseMax / no-lead / approach). LongControl is
+      # the only place that applies it; its PID jerk limit ramps to it.
       set_speed_kph = self.applyMaxSpeed if self.applyMaxSpeed > 0.0 else self.v_cruise_kph
       cruise_max_accel = self.cruise_helper.get_longitudinal_accel_limit(CS, self.sm, set_speed_kph)
       pid_accel_limits = (pid_accel_limits[0], min(pid_accel_limits[1], cruise_max_accel))
@@ -1026,16 +1018,15 @@ class Controls:
     controlsState.longCruiseGap = self.cruise_helper.long_cruise_gap
     controlsState.myDrivingMode = self.cruise_helper.my_driving_mode
     controlsState.mySafeModeFactor = self.cruise_helper.my_safe_mode_factor
+    controlsState.cruiseDecelLimit = float(self.cruise_helper.apply_decel_rate)
 
     controlsState.angleSteers = steer_angle_without_offset * CV.RAD_TO_DEG
     controlsState.applyAccel = self.apply_accel
+    controlsState.sccStopRequest = self.scc_stop_request
+    controlsState.longPlannedStop = bool(self.LoC.planned_stop)  # 기록용(long_trace should_stop)
     controlsState.aReqValue = self.aReqValue
     controlsState.aReqValueMin = self.aReqValueMin
     controlsState.aReqValueMax = self.aReqValueMax
-    controlsState.sccStockCamAct = self.sccStockCamAct
-    controlsState.sccStockCamStatus = self.sccStockCamStatus
-    controlsState.sccStopRequest = bool(self.scc_stop_request)
-    controlsState.longPlannedStop = bool(self.LoC.planned_stop)
 
     controlsState.steerRatio = self.VM.sR
     controlsState.steerActuatorDelay = live_tune.steer_actuator_delay()
@@ -1086,7 +1077,6 @@ class Controls:
     self.prof.checkpoint("Sent")
 
     self.update_button_timers(CS.buttonEvents)
-    self.CS_prev = CS
 
   def controlsd_thread(self):
     while True:

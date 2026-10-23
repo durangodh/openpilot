@@ -8,12 +8,12 @@ from common.numpy_fast import clip, interp
 from selfdrive.swaglog import cloudlog
 from selfdrive.modeld.constants import index_function
 from selfdrive.controls.lib.radar_helpers import _LEAD_ACCEL_TAU
-from selfdrive.controls.lib.lead_following import get_follow_obstacle_cost
-from selfdrive.controls.lib.lead_departure import departure_motion_valid
+from selfdrive.controls.lib.lead_following import NO_LEAD, LeadConfirm
+from selfdrive.controls.lib.stopping_lead import HeldLead, StoppingLeadFilter
+from selfdrive.controls.lib.gap_recovery import DEFAULT_LEVEL as GAP_RECOVERY_LEVEL, LeadGapState
 from selfdrive.controls.lib.t_follow import (CRUISE_GAP_BP as _CRUISE_GAP_BP, CRUISE_GAP_V,
                                              clamp_desired_follow_distance,
-                                             get_stopped_lead_comfort_brake,
-                                             get_t_follow_closing_margin)
+                                             StoppedLeadComfortBrake, release_t_follow)
 from common.conversions import Conversions as CV
 
 if __name__ == '__main__':  # generating code
@@ -63,43 +63,32 @@ T_IDXS_LST = [index_function(idx, max_val=MAX_T, max_idx=N) for idx in range(N+1
 T_IDXS = np.array(T_IDXS_LST)
 FCW_IDXS = T_IDXS < 5.0
 T_DIFFS = np.diff(T_IDXS, prepend=[0.])
+# FrogPilot Human-Like Following: modelV2.leadsV3 예측 시각과, 즉시 충돌이 예상될 때
+# MPC 가 수렴하도록 첫 거리를 제동 가능한 거리로 올리는 비율.
+LEAD_T_IDXS_MODEL = np.array([0., 2., 4., 6., 8., 10.])
+MIN_X_LEAD_FACTOR = 0.5
+HUMAN_FOLLOW_MIN_PROB = 0.5
 MIN_ACCEL = -4.0
 MAX_ACCEL = 2.5
 T_FOLLOW = 1.45
 COMFORT_BRAKE = 2.5
 STOP_DISTANCE = 6.0
 
-# Apply the low-cost lead departure response only during an actual low-speed
-# pull-away.  Without these gates, merely acquiring a faster lead can drop the
-# acceleration/jerk costs and make the ego car chase the lead aggressively.
-LEAD_DEPARTURE_FULL_EGO_SPEED = 5.0          # 18 km/h
-LEAD_DEPARTURE_MAX_EGO_SPEED = 30.0 / 3.6   # fade out completely at 30 km/h
-LEAD_DEPARTURE_MIN_VREL = 0.3
-LEAD_DEPARTURE_MIN_ALEAD = -0.2
-
 def get_stopped_equivalence_factor(v_lead, v_ego=0., t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, krkeegan=False,
                                    comfort_brake=COMFORT_BRAKE):
+  distance = (v_lead**2) / (2 * comfort_brake)
   if not krkeegan:
-    return (v_lead**2) / (2 * comfort_brake)
+    return distance
 
   # KRKeegan: lead 거리값을 고의로 늘려 solver가 더 빠른 가속을 유발하도록 함
   v_diff_offset = 0
-  if np.all(v_lead - v_ego > 0):
-    v_diff_offset = ((v_lead - v_ego) * 1.)
+  relative_speed = v_lead - v_ego
+  if np.all(relative_speed > 0):
+    v_diff_offset = relative_speed * 1.
     v_diff_offset = np.clip(v_diff_offset, 0, stop_dist / 2)
-    # Keep the quicker pull-away response through 18 km/h, then fade it out
-    # smoothly by 30 km/h.  The former 10 m/s (36 km/h) tail made ego keep
-    # chasing a departing lead into medium speed.
-    dynamic_weight = np.interp(
-      v_ego,
-      [LEAD_DEPARTURE_FULL_EGO_SPEED, LEAD_DEPARTURE_MAX_EGO_SPEED],
-      [1.0, 0.0],
-    )
-    v_diff_offset = np.maximum(
-      v_diff_offset * dynamic_weight, 0)
+    v_diff_offset = np.maximum(v_diff_offset * ((10 - v_ego) / 10), 0)
 
-  distance = (v_lead**2) / (2 * comfort_brake) + v_diff_offset
-  return distance
+  return distance + v_diff_offset
 
 
 def get_safe_obstacle_distance(v_ego, t_follow=T_FOLLOW, stop_dist=STOP_DISTANCE, comfort_brake=COMFORT_BRAKE):
@@ -239,11 +228,10 @@ def gen_long_ocp():
 
 class LongitudinalMpc:
   def __init__(self, mode='acc'):
+    self.human_following = False
     self.mode = mode
     self.applyLongDynamicCost = False
     self.softHoldMode = 1
-    self.softHoldTimer = 0
-    self.xState = XState.cruise
     self.prev_accel_constraint = True
     self.solver = AcadosOcpSolverCython(MODEL_NAME, ACADOS_SOLVER_TYPE, N)
 
@@ -251,10 +239,8 @@ class LongitudinalMpc:
     # longitudinal_planner.read_param() refreshes these values periodically.
     self.tfollow_gaps = None
     self.t_follow_speed_ratio = 1.2
-    self.lead_depart_cost = 0.05       # LeadDepartCost: 저속 출발 추종 코스트 배율(0m/s 기준). apilot-c2 = 0.05
     # apilot-c2 방식 t_follow: 감속 중에는 갱신하지 않고, 가속·정속일 때만 갭/속도/안전계수로 계산
-    self.v_ego_kph_prev = 0.0
-    self.t_follow_base = T_FOLLOW
+    # (v_ego_kph_prev / cruise_gap_prev / t_follow_base 는 reset()에서 초기화)
     self.safe_mode_factor = 1.0
     # ────────────────────────────────────────────────────────────────────
 
@@ -267,6 +253,16 @@ class LongitudinalMpc:
     self.traffic_stop_active = False
     self.traffic_stop_distance = 0.0
     self.stop_distance = STOP_DISTANCE
+    self.lead0_comfort_brake = StoppedLeadComfortBrake()
+    self.lead1_comfort_brake = StoppedLeadComfortBrake()
+    self.lead0_confirm = LeadConfirm()
+    self.lead1_confirm = LeadConfirm()
+    self.stopping_lead0 = StoppingLeadFilter()
+    self.stopping_lead1 = StoppingLeadFilter()
+    self.lead0_gap = LeadGapState()
+    self.lead0_gap_track = 0
+    self.lead0_gap_prev_d = None
+    self.gap_extra_tf = 0.0
     # ────────────────────────────────────────────────────────────────────
 
     self.reset()
@@ -287,9 +283,6 @@ class LongitudinalMpc:
     self.params = np.zeros((N+1, PARAM_DIM))
     self.params[:,7] = self.comfort_brake
     self.t_follow = T_FOLLOW
-    # 기록용(long_trace gap_extra_tf / const_stop): 접근 여유 차간시간, 정지 앞차 제동 상한.
-    self.closing_margin = 0.0
-    self.stopped_lead_brake = 0.0
     self.stop_dist = self.stop_distance
     for i in range(N+1):
       self.solver.set(i, 'x', np.zeros(X_DIM))
@@ -307,6 +300,7 @@ class LongitudinalMpc:
     self.x0 = np.zeros(X_DIM)
 
     self.v_ego_kph_prev = 0.0
+    self.cruise_gap_prev = None
     self.t_follow_base = T_FOLLOW
 
     self.set_weights()
@@ -323,68 +317,40 @@ class LongitudinalMpc:
     for i in range(N):
       self.solver.cost_set(i, 'Zl', Zl)
 
-  def get_cost_multipliers(self, v_lead0, v_lead1, a_lead0=0.0, lead0_status=False):
-    # apilot-c2 (KRKeegan) cost multipliers
+  def get_cost_multipliers(self, v_lead0, v_lead1):
+    # Original apilot-c2 (KRKeegan) cost multipliers.
     v_ego = self.x0[1]
+    v_ego_bps = [0, 10]
     TFs = [1.2, 1.45, 1.8]
-    # TF에 의한 a, j, d cost 변경
-    # Dynamic response is useful for pulling away from rest, but leaving the
-    # reduced costs active at medium/high speed makes ego chase every lead
-    # acceleration. Keep the low-speed response through 18 km/h, then fade
-    # every multiplier back to normal by 30 km/h while retaining t-follow.
-    dynamic_weight = interp(
-      v_ego,
-      [LEAD_DEPARTURE_FULL_EGO_SPEED, LEAD_DEPARTURE_MAX_EGO_SPEED],
-      [1.0, 0.0])
-    a_change_tf_raw = interp(self.t_follow, TFs, [.8, 1., 1.1])
-    j_ego_tf_raw = interp(self.t_follow, TFs, [.8, 1., 1.1])
-    d_zone_tf_raw = interp(self.t_follow, TFs, [1.3, 1., 1.])
-    a_change_tf = 1.0 + (a_change_tf_raw - 1.0) * dynamic_weight
-    j_ego_tf = 1.0 + (j_ego_tf_raw - 1.0) * dynamic_weight
-    d_zone_tf = 1.0 + (d_zone_tf_raw - 1.0) * dynamic_weight
+    a_change_tf = interp(self.t_follow, TFs, [.8, 1., 1.1])
+    j_ego_tf = interp(self.t_follow, TFs, [.8, 1., 1.1])
+    d_zone_tf = interp(self.t_follow, TFs, [1.3, 1., 1.])
 
-    # KRKeegan adjustments to improve sluggish acceleration. do not apply to deceleration
-    j_ego_v_ego    = 1
+    j_ego_v_ego = 1
     a_change_v_ego = 1
-    lead_departing = (lead0_status and
-                      v_ego < LEAD_DEPARTURE_MAX_EGO_SPEED and
-                      departure_motion_valid(
-                        v_lead0, v_lead0 - v_ego, a_lead=a_lead0,
-                        min_speed=None, min_vrel=LEAD_DEPARTURE_MIN_VREL,
-                        min_accel=LEAD_DEPARTURE_MIN_ALEAD))
-    if lead_departing:
-      # Keep the configured quick response at standstill, then restore more
-      # accel/jerk smoothing once ego is rolling behind the departing lead.
-      # The old 0.05 multiplier persisted to 18 km/h and felt too forceful.
-      rolling_floor = interp(v_ego, [0.0, 2.0, LEAD_DEPARTURE_FULL_EGO_SPEED],
-                             [self.lead_depart_cost, max(self.lead_depart_cost, 0.35),
-                              max(self.lead_depart_cost, 0.55)])
-      departure_cost = 1.0 + (rolling_floor - 1.0) * dynamic_weight
-      j_ego_v_ego = departure_cost
-      a_change_v_ego = departure_cost
+    if (v_lead0 - v_ego >= 0) and (v_lead1 - v_ego >= 0):
+      j_ego_v_ego = interp(v_ego, v_ego_bps, [.05, 1.])
+      a_change_v_ego = interp(v_ego, v_ego_bps, [.05, 1.])
 
     j_ego    = min(j_ego_tf, j_ego_v_ego)
     a_change = min(a_change_tf, a_change_v_ego)
     return (a_change, j_ego, d_zone_tf)
 
-  def set_weights(self, prev_accel_constraint=True, v_lead0=0, v_lead1=0,
-                  a_lead0=0.0, lead0_status=False, obstacle_cost=None):
+  def set_weights(self, prev_accel_constraint=True, v_lead0=0, v_lead1=0):
     # apilot-c2 set_weights
     self.prev_accel_constraint = prev_accel_constraint
-    obstacle_cost = self.x_ego_obstacle_cost if obstacle_cost is None else obstacle_cost
-
     if self.mode == 'acc':
       a_change_cost = A_CHANGE_COST if prev_accel_constraint else 40
 
       if self.applyLongDynamicCost:
-        cost_multipliers = self.get_cost_multipliers(v_lead0, v_lead1, a_lead0, lead0_status)
-        cost_weights = [obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
+        cost_multipliers = self.get_cost_multipliers(v_lead0, v_lead1)
+        cost_weights = [self.x_ego_obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
                         a_change_cost * cost_multipliers[0],
                         J_EGO_COST * cost_multipliers[1]]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST,
                                    DANGER_ZONE_COST * cost_multipliers[2]]
       else:
-        cost_weights = [obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
+        cost_weights = [self.x_ego_obstacle_cost, X_EGO_COST, V_EGO_COST, A_EGO_COST,
                         a_change_cost, J_EGO_COST]
         constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, DANGER_ZONE_COST]
 
@@ -414,8 +380,30 @@ class LongitudinalMpc:
     lead_xv = np.column_stack((x_lead_traj, v_lead_traj))
     return lead_xv
 
-  def process_lead(self, lead):
+  def process_lead(self, lead, model_lead=None):
     v_ego = self.x0[1]
+    # FrogPilot Human-Like Following: 레이더가 잰 지금 거리·속도에 모델이 예측한 앞차의
+    # 앞으로 10초 움직임(감속·가속 모양)을 붙인다. 앞차 가속도(aLeadK) 하나로 지수 외삽하면
+    # 그 값이 튈 때마다 계획이 급가속·급감속으로 흔들렸다.
+    if (self.human_following and lead is not None and lead.status and model_lead is not None and
+        float(getattr(model_lead, 'prob', 0.0)) > HUMAN_FOLLOW_MIN_PROB and
+        len(model_lead.x) == len(LEAD_T_IDXS_MODEL) and len(model_lead.v) == len(LEAD_T_IDXS_MODEL)):
+      model_x = np.asarray(model_lead.x, dtype=np.float64)
+      model_v = np.asarray(model_lead.v, dtype=np.float64)
+      if np.all(np.isfinite(model_x)) and np.all(np.isfinite(model_v)):
+        x_lead_traj = float(lead.dRel) + (model_x - model_x[0])
+        v_lead_traj = float(lead.vLead) + (model_v - model_v[0])
+        v_lead_0 = v_lead_traj[0]
+        min_x_lead = MIN_X_LEAD_FACTOR * (v_ego + v_lead_0) * (v_ego - v_lead_0) / (-MIN_ACCEL * 2)
+        x_lead_traj[0] = max(x_lead_traj[0], min_x_lead)
+        v_lead_traj = np.clip(v_lead_traj, 0.0, 1e8)
+        x_lead_mpc = np.maximum.accumulate(np.interp(T_IDXS, LEAD_T_IDXS_MODEL, x_lead_traj))
+        v_lead_mpc = np.interp(T_IDXS, LEAD_T_IDXS_MODEL, v_lead_traj)
+        # 앞으로 간 거리는 보정한 속도로 갈 수 있는 거리를 넘지 않는다.
+        x_lead_max = x_lead_mpc[0] + np.cumsum(T_DIFFS[1:] * (v_lead_mpc[:-1] + v_lead_mpc[1:]) / 2)
+        x_lead_mpc[1:] = np.minimum(x_lead_mpc[1:], x_lead_max)
+        return np.column_stack((x_lead_mpc, v_lead_mpc))
+
     if lead is not None and lead.status:
       x_lead = lead.dRel
       v_lead = lead.vLead
@@ -440,23 +428,32 @@ class LongitudinalMpc:
 
   def update_gap_tf(self, controls, v_ego):
     # apilot-c2 update_gap_tf: 감속 중(v_ego 하강)에는 t_follow 를 갱신하지 않는다.
+    # 단, 갭 버튼을 바꾸면 감속 중이라도 바로 반영한다. 줄어드는 쪽(감속이
+    # 끝났을 때, 갭을 줄였을 때)은 한 번에 당기지 않고 release_t_follow 로 천천히.
     v_ego_kph = v_ego * CV.MS_TO_KPH
     cruise_gap = int(clip(controls.longCruiseGap, 1, 4))
-    if v_ego_kph >= self.v_ego_kph_prev:
+    gap_changed = cruise_gap != self.cruise_gap_prev
+    if v_ego_kph >= self.v_ego_kph_prev or gap_changed:
       gap_values = self.tfollow_gaps if self.tfollow_gaps is not None else CRUISE_GAP_V
       tf = float(interp(cruise_gap, CRUISE_GAP_BP, gap_values))
       cruise_gap_ratio = interp(v_ego_kph, [0, 100], [tf, tf * self.t_follow_speed_ratio])
-      self.t_follow_base = max(0.6, cruise_gap_ratio * (2.0 - self.safe_mode_factor))
+      target = max(0.6, cruise_gap_ratio * (2.0 - self.safe_mode_factor))
+      self.t_follow_base = release_t_follow(
+        target, None if self.cruise_gap_prev is None else self.t_follow_base, DT_MDL)
+    self.cruise_gap_prev = cruise_gap
     self.v_ego_kph_prev = v_ego_kph
 
   def update(self, carstate, radarstate, controls, v_cruise, x, v, a, j, prev_accel_constraint=True,
-             reset_state=False):
+             reset_state=False, model_leads=None):
     # engage 직후에는 직전 가속도 유지 비용(A_CHANGE_COST)을 빼서
-    # 필요한 감속으로 곧바로 갈 수 있게 한다. (upstream 동작 복원)
-    self.prev_accel_constraint = prev_accel_constraint
+    # 필요한 감속으로 곧바로 갈 수 있게 한다. (upstream 동작 복원, set_weights 에서 저장)
     v_ego = self.x0[1]
     a_ego = carstate.aEgo
-    self.status = radarstate.leadOne.status or radarstate.leadTwo.status
+    # Far, non-closing new leads must persist briefly before the plan uses
+    # them; close or closing leads are used at once (LeadConfirm).
+    lead_one = radarstate.leadOne if self.lead0_confirm.update(radarstate.leadOne, v_ego, DT_MDL) else NO_LEAD
+    lead_two = radarstate.leadTwo if self.lead1_confirm.update(radarstate.leadTwo, v_ego, DT_MDL) else NO_LEAD
+    self.status = lead_one.status or lead_two.status
     self.safe_mode_factor = float(clip(controls.mySafeModeFactor, 0.5, 1.0))
 
     # aPilot C2 soft hold state is owned by the longitudinal MPC.
@@ -479,49 +476,62 @@ class LongitudinalMpc:
       self.softHoldTimer = 0
       self.xState = XState.lead if self.status else XState.cruise
 
-    lead_xv_0 = self.process_lead(radarstate.leadOne)
-    lead_xv_1 = self.process_lead(radarstate.leadTwo)
+    model_lead_0 = model_leads[0] if model_leads is not None and len(model_leads) > 0 else None
+    model_lead_1 = model_leads[1] if model_leads is not None and len(model_leads) > 1 else None
+    # carrot-wip: while both cars are stopped, plan with a stopped lead until
+    # the radar range really opens (no creep on speed noise or model guesses).
+    if self.stopping_lead0.held(lead_one, v_ego, DT_MDL):
+      lead_one, model_lead_0 = HeldLead(lead_one), None
+    if self.stopping_lead1.held(lead_two, v_ego, DT_MDL):
+      lead_two, model_lead_1 = HeldLead(lead_two), None
+    lead_xv_0 = self.process_lead(lead_one, model_lead_0)
+    lead_xv_1 = self.process_lead(lead_two, model_lead_1)
 
     # apilot-c2: 갭/속도/안전계수 기반 t_follow (감속 중 유지)
     self.update_gap_tf(controls, v_ego)
 
-    # Restore a small, bounded approach margin as soon as a confirmed lead is
-    # closing. Keep it separate from the held base value so it cannot build up
-    # frame after frame while ego is decelerating.
-    lead0_status = radarstate.leadOne.status
-    closing_margin = get_t_follow_closing_margin(
-      v_ego, lead_xv_0[0, 1], lead0_status,
-      radarstate.leadOne.dRel if lead0_status else None)
-    self.t_follow = self.t_follow_base + closing_margin
-    self.closing_margin = float(closing_margin)
+    lead0_status = lead_one.status
+    self.t_follow = self.t_follow_base
 
     # apilot-c2: 안전모드일수록 comfort_brake 를 낮춰(=더 일찍 감속) 정지거리도 늘린다.
     # A confirmed stopped/slow lead with a large closing speed gets an additional
     # safety cap, preventing a high user setting from postponing highway braking.
-    comfort_brake = self.comfort_brake * self.safe_mode_factor
-    base_comfort_brake = comfort_brake
-    comfort_brake = get_stopped_lead_comfort_brake(
-      comfort_brake, v_ego, lead_xv_0[0, 1], lead0_status)
-    self.stopped_lead_brake = float(comfort_brake) if comfort_brake < base_comfort_brake - 1e-3 else 0.0
-    lead1_comfort_brake = get_stopped_lead_comfort_brake(
-      self.comfort_brake * self.safe_mode_factor, v_ego, lead_xv_1[0, 1], radarstate.leadTwo.status)
+    # The cap is held for the whole approach (StoppedLeadComfortBrake) so the
+    # planned deceleration does not ease off and then grow again as ego slows.
+    # It also never starts behind the car (see StoppedLeadComfortBrake), so
+    # a newly detected stopped lead does not cause a sudden brake stab.
     self.stop_dist = self.stop_distance * (2.0 - self.safe_mode_factor)
-    lead_v = lead_xv_0[0, 1] if radarstate.leadOne.status else v_ego
+    base_comfort_brake = self.comfort_brake * self.safe_mode_factor
+    comfort_brake = self.lead0_comfort_brake.update(
+      base_comfort_brake, v_ego, lead_xv_0[0, 1], lead0_status,
+      lead_xv_0[0, 0], self.t_follow, self.stop_dist)
+    lead1_comfort_brake = self.lead1_comfort_brake.update(
+      base_comfort_brake, v_ego, lead_xv_1[0, 1], lead_two.status,
+      lead_xv_1[0, 0], self.t_follow, self.stop_dist)
+    lead_v = lead_xv_0[0, 1] if lead0_status else v_ego
     self.desired_distance = float(desired_follow_distance(
       v_ego, lead_v, self.t_follow, self.stop_dist, comfort_brake,
       krkeegan=self.applyLongDynamicCost))
 
-    obstacle_cost = self.x_ego_obstacle_cost
-    if self.mode == 'acc' and not (reset_state or self.traffic_stop_active or self.xState == XState.softHold):
-      obstacle_cost = get_follow_obstacle_cost(
-        obstacle_cost, v_ego, a_ego, self.x0[2],
-        (radarstate.leadOne, radarstate.leadTwo), self.t_follow, self.stop_dist, comfort_brake)
+    # carrot-wip gap recovery: when the lead pulls away, keep part of the new
+    # gap as extra following time and give it back smoothly, instead of
+    # lunging to close it. A lost lead or a range jump counts as a new lead.
+    d_rel = float(lead_one.dRel) if lead0_status else None
+    if d_rel is None or self.lead0_gap_prev_d is None or abs(d_rel - self.lead0_gap_prev_d) > 3.0:
+      self.lead0_gap_track += 1
+    self.lead0_gap_prev_d = d_rel
+    self.gap_extra_tf = self.lead0_gap.update(
+      level=GAP_RECOVERY_LEVEL, track_id=self.lead0_gap_track,
+      enabled=bool(lead0_status) and self.mode == 'acc' and not reset_state,
+      dt=DT_MDL, ego_speed=v_ego, lead_speed=float(lead_xv_0[0, 1]),
+      relative_speed=float(lead_one.vRel) if lead0_status else 0.0,
+      distance=d_rel if d_rel is not None else 0.0,
+      desired_distance=self.desired_distance, base_tf=self.t_follow, stop_distance=self.stop_dist)
+    self.t_follow += self.gap_extra_tf
 
-    self.set_weights(prev_accel_constraint=self.prev_accel_constraint,
+    self.set_weights(prev_accel_constraint=prev_accel_constraint,
                      v_lead0=lead_xv_0[0, 1],
-                     v_lead1=lead_xv_1[0, 1],
-                     a_lead0=radarstate.leadOne.aLeadK if lead0_status else 0.0,
-                     lead0_status=lead0_status, obstacle_cost=obstacle_cost)
+                     v_lead1=lead_xv_1[0, 1])
 
     # apilot-c2: 리드 정지환산거리는 기본 comfort_brake/기본 stop_distance 로 계산
     lead_0_obstacle = lead_xv_0[:,0] + get_stopped_equivalence_factor(
@@ -535,6 +545,7 @@ class LongitudinalMpc:
     self.params[:,0] = MIN_ACCEL if not reset_state else a_ego
     self.params[:,1] = self.max_a if not reset_state else a_ego
 
+    traffic_stop_obstacle = [np.full(N+1, max(0.0, self.traffic_stop_distance))] if self.traffic_stop_active else []
     if self.mode == 'acc':
       self.params[:,5] = LEAD_DANGER_FACTOR
 
@@ -544,10 +555,7 @@ class LongitudinalMpc:
                                  v_lower,
                                  v_upper)
       cruise_obstacle = np.cumsum(T_DIFFS * v_cruise_clipped) + get_safe_obstacle_distance(v_cruise_clipped, self.t_follow, self.stop_dist, comfort_brake)
-      obstacles = [lead_0_obstacle, lead_1_obstacle, cruise_obstacle]
-      if self.traffic_stop_active:
-        obstacles.append(np.full(N+1, max(0.0, self.traffic_stop_distance)))
-      x_obstacles = np.column_stack(obstacles)
+      x_obstacles = np.column_stack([lead_0_obstacle, lead_1_obstacle, cruise_obstacle] + traffic_stop_obstacle)
       self.source = SOURCES[np.argmin(x_obstacles[0])]
 
       # aPilot C2 ACC is obstacle-based. Do not feed the model's E2E
@@ -558,10 +566,7 @@ class LongitudinalMpc:
 
       self.params[:,5] = 1.0
 
-      obstacles = [lead_0_obstacle, lead_1_obstacle]
-      if self.traffic_stop_active:
-        obstacles.append(np.full(N+1, max(0.0, self.traffic_stop_distance)))
-      x_obstacles = np.column_stack(obstacles)
+      x_obstacles = np.column_stack([lead_0_obstacle, lead_1_obstacle] + traffic_stop_obstacle)
       cruise_target = T_IDXS * np.clip(v_cruise, v_ego - 2.0, 1e3) + x[0]
       xforward = ((v[1:] + v[:-1]) / 2) * (T_IDXS[1:] - T_IDXS[:-1])
       x = np.cumsum(np.insert(xforward, 0, x[0]))
@@ -596,9 +601,10 @@ class LongitudinalMpc:
       self.crash_cnt = 0
 
     if self.mode == 'blended':
-      if any((lead_0_obstacle - get_safe_obstacle_distance(self.x_sol[:,1], self.t_follow, self.stop_distance, comfort_brake)) - self.x_sol[:, 0] < 0.0):
+      safe_x = get_safe_obstacle_distance(self.x_sol[:,1], self.t_follow, self.stop_distance, comfort_brake) + self.x_sol[:, 0]
+      if any(lead_0_obstacle - safe_x < 0.0):
         self.source = 'lead0'
-      if any((lead_1_obstacle - get_safe_obstacle_distance(self.x_sol[:,1], self.t_follow, self.stop_distance, comfort_brake)) - self.x_sol[:, 0] < 0.0) and \
+      if any(lead_1_obstacle - safe_x < 0.0) and \
          (lead_1_obstacle[0] - lead_0_obstacle[0]):
         self.source = 'lead1'
 

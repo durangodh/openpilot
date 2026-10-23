@@ -112,12 +112,26 @@ def test_stopped_lead_is_latched_and_planner_cannot_release_it():
 def test_lead_release_requires_two_fresh_moving_samples():
   control = make_long_control_for_lead_gate()
   control._update_standstill_lead(make_radar(), True, True)
-  moving = make_radar(v_lead=0.5, v_rel=0.5)
+  moving = make_radar(d_rel=5.8, v_lead=0.5, v_rel=0.5)
 
   assert not control._update_standstill_lead(moving, True, True)
   # Re-reading the same stale message does not count as a second confirmation.
   assert not control._update_standstill_lead(moving, True, False)
   assert control._update_standstill_lead(moving, True, True)
+
+
+def test_lead_twitch_without_real_movement_does_not_release():
+  # 2026-10-10: the stopped lead crept ~0.3-0.5 m/s for a moment and stopped
+  # again; the launch that followed ended in hard braking.
+  control = make_long_control_for_lead_gate()
+  control._update_standstill_lead(make_radar(), True, True)
+  twitch = make_radar(d_rel=5.3, v_lead=0.5, v_rel=0.5)
+  for _ in range(5):
+    assert not control._update_standstill_lead(twitch, True, True)
+  # A clearly departing lead releases even before the gap has grown.
+  clear = make_radar(d_rel=5.3, v_lead=1.2, v_rel=1.2)
+  assert not control._update_standstill_lead(clear, True, True)
+  assert control._update_standstill_lead(clear, True, True)
 
 
 def test_invalid_radar_never_releases_latched_lead():
@@ -138,3 +152,15 @@ def test_long_radar_dropout_enables_planner_fallback():
 
   # The state machine combines this timeout with the normal sustained planner
   # request; the timeout alone is not an acceleration command.
+
+
+def test_low_speed_jerk_boost_param_is_read_and_bounded():
+  control = LongControl.__new__(LongControl)
+  values = {"JerkStartLimit": "40", "LowSpeedJerkBoost": "150"}
+  control.params = SimpleNamespace(get=lambda key, encoding=None: values.get(key))
+  control._update_launch_jerk()
+  assert control.jerk_start_limit == 4.0
+  assert control.low_speed_jerk_boost == 1.5
+  values["LowSpeedJerkBoost"] = "900"
+  control._update_launch_jerk()
+  assert control.low_speed_jerk_boost == 3.0

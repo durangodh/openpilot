@@ -1,4 +1,6 @@
-from selfdrive.controls.lib.conditional_e2e import (E2E_LEAD_DROPOUT_CONFIRM_TIME,
+import pytest
+
+from selfdrive.controls.lib.conditional_e2e import (E2E_LEAD_DROPOUT_CONFIRM_TIME, E2E_PREPARE_ABORT_CONFIRM_TIME,
                                                     E2E_MODE_RELEASE_HOLD_TIME,
                                                     E2E_REASON_ACC,
                                                     E2E_REASON_DEPARTURE,
@@ -146,6 +148,18 @@ def test_confirmed_vision_lead_selects_e2e():
   assert mode == 'acc'
 
 
+def test_vision_mode_uses_e2e_only_for_vision_lead():
+  controller = ConditionalE2EController(DT_MDL)
+  # A clear model stop (signal) never starts a traffic stop in mode 3.
+  for _ in range(40):
+    assert update(controller, traffic_stop_mode=3, model_x=30.0, model_v_end=1.0, v_ego=15.0) == 'acc'
+  assert not controller.stopping
+  for _ in range(9):
+    assert update(controller, traffic_stop_mode=3, lead_present=True, vision_lead_present=True) == 'acc'
+  assert update(controller, traffic_stop_mode=3, lead_present=True, vision_lead_present=True) == 'blended'
+  assert controller.reason == E2E_REASON_VISION_LEAD
+
+
 def test_confirmed_vision_lead_release_is_hysteretic():
   controller = ConditionalE2EController(DT_MDL)
   confirm_frames = round(E2E_VISION_LEAD_CONFIRM_TIME / DT_MDL)
@@ -159,7 +173,7 @@ def test_confirmed_vision_lead_release_is_hysteretic():
   assert update(controller, lead_present=False, vision_lead_present=False) == 'acc'
 
 
-def test_radar_lead_stays_acc_and_suppresses_new_signal_stop():
+def test_radar_lead_before_the_stop_keeps_acc_and_suppresses_signal_stop():
   controller = ConditionalE2EController(DT_MDL)
   mode = enter_stop(controller, distance=80.0)
   assert mode == 'blended'
@@ -169,11 +183,18 @@ def test_radar_lead_stays_acc_and_suppresses_new_signal_stop():
   assert mode == 'acc'
   assert not controller.stopping
 
+  # A lead within E2E_LEAD_BEYOND_STOP_MARGIN of the stop still blocks it.
   controller.reset()
   mode = update(controller, model_x=80.0, model_v0=10.0, model_v_end=1.0,
-                lead_present=True, radar_lead_present=True, radar_lead_distance=100.0)
+                lead_present=True, radar_lead_present=True, radar_lead_distance=85.0)
   assert mode == 'acc'
   assert not controller.stopping
+
+  # One well beyond the stop point (e.g. through on amber) no longer does.
+  controller.reset()
+  update(controller, model_x=80.0, model_v0=10.0, model_v_end=1.0,
+         lead_present=True, radar_lead_present=True, radar_lead_distance=100.0)
+  assert controller.stopping
 
 
 def test_brief_lead_dropout_does_not_enter_signal_stop():
@@ -214,9 +235,12 @@ def test_turning_and_right_blinker_suppress_new_signal_stop():
   controller = ConditionalE2EController(DT_MDL)
   assert enter_stop(controller, distance=80.0, v_ego=10.0) == 'blended'
 
+  # A real turn suppresses the stop. Gentle curves up to
+  # _curve_stop_steer_limit (about 7 deg at 36 km/h) may still stop when the
+  # model plans a full stop; that relaxation is intentional.
   controller.reset()
   mode = update(controller, model_x=80.0, model_v0=10.0, model_v_end=1.0,
-                steering_angle_deg=6.0)
+                steering_angle_deg=15.0)
   assert mode == 'acc'
   assert not controller.stopping
 
@@ -268,10 +292,18 @@ def test_brake_cancels_departure_prepare():
   assert not controller.prepare
 
 
-def test_departure_prepare_stops_immediately_but_holds_blended_mode():
+def test_departure_prepare_stops_after_confirmation_but_holds_blended_mode():
   controller = ConditionalE2EController(DT_MDL)
   controller.prepare = True
   hold_frames = round(E2E_MODE_RELEASE_HOLD_TIME / DT_MDL)
+  abort_frames = round(E2E_PREPARE_ABORT_CONFIRM_TIME / DT_MDL)
+
+  for _ in range(abort_frames - 1):
+    mode = update(controller, model_x=10.0, model_v0=1.0,
+                  model_v_end=0.0, v_ego=0.1)
+    assert mode == 'blended'
+    assert controller.prepare
+    assert not controller.stopping
 
   mode = update(controller, model_x=10.0, model_v0=1.0,
                 model_v_end=0.0, v_ego=0.1)
@@ -288,7 +320,37 @@ def test_departure_prepare_stops_immediately_but_holds_blended_mode():
                 model_v_end=0.0, v_ego=0.1) == 'acc'
 
 
+def test_single_dropped_start_frame_does_not_rebrake_a_launch():
+  controller = ConditionalE2EController(DT_MDL)
+  controller.prepare = True
+  abort_frames = round(E2E_PREPARE_ABORT_CONFIRM_TIME / DT_MDL)
+  for frame in range(3 * abort_frames):
+    # Model path length hovers around the 60 m start threshold.
+    model_x = 50.0 if frame % (abort_frames - 1) == 0 else 80.0
+    update(controller, model_x=model_x, model_v0=1.0, model_v_end=8.0, v_ego=0.2)
+    assert controller.prepare
+    assert not controller.stopping
+
+
 def test_invalid_model_falls_back_safely():
   controller = ConditionalE2EController(DT_MDL)
   assert update(controller, model_valid=False) == 'acc'
   assert update(controller, model_valid=False, experimental_mode=True) == 'blended'
+
+
+def test_lead_well_beyond_the_stop_point_does_not_block_signal_stop():
+  # A lead that went through on amber is 70 m ahead; the model stops at 40 m.
+  controller = ConditionalE2EController(DT_MDL)
+  for _ in range(20):
+    update(controller, model_x=40.0, model_v0=10.0, model_v_end=1.0,
+           lead_present=True, radar_lead_present=True, radar_lead_distance=70.0)
+  assert controller.stopping
+
+
+@pytest.mark.parametrize('lead_distance', [25.0, 45.0])
+def test_lead_before_or_near_the_stop_point_still_blocks(lead_distance):
+  controller = ConditionalE2EController(DT_MDL)
+  for _ in range(20):
+    update(controller, model_x=40.0, model_v0=10.0, model_v_end=1.0,
+           lead_present=True, radar_lead_present=True, radar_lead_distance=lead_distance)
+  assert not controller.stopping

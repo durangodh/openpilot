@@ -12,7 +12,6 @@ SPEED, ACCEL = 0, 1   # Kalman filter states enum
 # stationary qualification parameters
 v_ego_stationary = 4.   # no stationary object flag below this speed
 
-RADAR_TO_CENTER = 2.7   # (deprecated) RADAR is ~ 2.7m ahead from center of car
 RADAR_TO_CAMERA = 1.52   # RADAR is ~ 1.5m ahead from center of mesh frame
 
 
@@ -122,21 +121,6 @@ class Cluster():
   @property
   def measured(self):
     return any(t.measured for t in self.tracks)
-
-  def get_RadarState(self, model_prob=0.0):
-    return {
-      "dRel": float(self.dRel),
-      "yRel": float(self.yRel),
-      "vRel": float(self.vRel),
-      "vLead": float(self.vLead),
-      "vLeadK": float(self.vLeadK),
-      "aLeadK": float(self.aLeadK),
-      "status": True,
-      "fcw": self.is_potential_fcw(model_prob),
-      "modelProb": model_prob,
-      "radar": True,
-      "aLeadTau": float(self.aLeadTau)
-    }
 
   def get_RadarState2(self, model_prob, lead_msg, mixRadarInfo):
     # ajouatom/apilot c3-master 원본: MixRadarInfo 켜짐 + 비전 prob>0.5 + |비전a| > |레이더a| 이면 비전 가속도를 그대로 사용.

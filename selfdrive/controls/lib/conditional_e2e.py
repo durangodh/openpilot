@@ -12,9 +12,60 @@ E2E_FAR_STOP_DISTANCE = 40.0
 E2E_VISION_LEAD_DISTANCE = 90.0
 E2E_VISION_LEAD_CONFIRM_TIME = 0.5
 E2E_LEAD_DROPOUT_CONFIRM_TIME = 0.5
+# A departure is only taken back to a stop after the start sign has been
+# missing this long; one dropped model frame must not re-brake a green launch.
+E2E_PREPARE_ABORT_CONFIRM_TIME = 0.5
+# A lead at least this far beyond the model stop point (e.g. it went through
+# on amber) no longer blocks entering a signal stop.
+E2E_LEAD_BEYOND_STOP_MARGIN = 10.0
 E2E_MODE_RELEASE_HOLD_TIME = 0.0
 TRAFFIC_STOP_SOLVER_COMFORT_BRAKE = 2.5
 TRAFFIC_STOP_APILOT_COMFORT_BRAKE = 2.5
+
+# 완만한 커브에서 모델 정지(앞 정지차 포함)를 막던 두 가드 완화.
+# 완화는 모델이 '완전 정지'(끝 속도 3m/s 미만)를 계획할 때만 적용한다.
+E2E_CURVE_STOP_LAT_RATIO = 0.15
+E2E_CURVE_STOP_STEER_BP = [30.0, 50.0]
+E2E_CURVE_STOP_STEER_V = [5.0, 12.0]
+
+
+# ── C-ITS signal assist (Naver/Kakao) ──────────────────────────────────────
+# The model has no traffic-light output; a stop is inferred from its slowing
+# trajectory, which often stays too weak for far, night or backlit signals.
+# A fresh red (or an amber ego cannot clear) for ego's movement accepts weaker
+# model slowing and a longer range. The stop position is still the model's:
+# the navigation distance may be to the far-side signal head, so it is never
+# used as a stop point.
+SIGNAL_ASSIST_MAX_DISTANCE = 200.0     # m, signal must be at most this far
+SIGNAL_ASSIST_MODEL_MARGIN = 30.0      # m, model stop must lie before signal + margin
+SIGNAL_ASSIST_MODEL_V = 6.0            # m/s, weaker model end speed accepted
+SIGNAL_ASSIST_MODEL_RATIO = 0.85       # or this fraction of the current model speed
+SIGNAL_GREEN_ON_ARRIVAL_MARGIN = 2.0   # s, red that turns green before arrival is ignored
+SIGNAL_AMBER_STOP_DECEL = 3.0          # m/s^2, amber is only a stop if this suffices
+
+
+def signal_requires_stop(phase, distance, remaining, v_ego):
+  """True when a fresh C-ITS signal says ego should stop before it."""
+  if phase not in ("red", "yellow") or not (0.0 < distance <= SIGNAL_ASSIST_MAX_DISTANCE):
+    return False
+  v = max(float(v_ego), 0.0)
+  arrival_s = distance / max(v, 1.0)
+  if phase == "red":
+    return not (remaining > 0.0 and remaining + SIGNAL_GREEN_ON_ARRIVAL_MARGIN < arrival_s)
+  # Amber: stop only if ego cannot clear it before red and can stop comfortably.
+  cannot_clear = remaining < 0.0 or v * remaining < distance
+  can_stop = v * v / (2.0 * SIGNAL_AMBER_STOP_DECEL) < distance
+  return cannot_clear and can_stop
+
+
+def _curve_stop_steer_limit(v_ego_kph):
+  lo_v, hi_v = E2E_CURVE_STOP_STEER_BP
+  lo_s, hi_s = E2E_CURVE_STOP_STEER_V
+  if v_ego_kph <= lo_v:
+    return lo_s
+  if v_ego_kph >= hi_v:
+    return hi_s
+  return lo_s + (hi_s - lo_s) * (v_ego_kph - lo_v) / (hi_v - lo_v)
 
 # Published through LongitudinalPlan.e2eReason for the compact onroad badge.
 # Keep these values stable because the Qt UI consumes them directly.
@@ -67,6 +118,8 @@ class ConditionalE2EController:
     self.vision_lead_count = 0
     self.vision_lead_latched = False
     self.lead_dropout_confirm_frames = max(1, round(E2E_LEAD_DROPOUT_CONFIRM_TIME / self.dt))
+    self.prepare_abort_confirm_frames = max(1, round(E2E_PREPARE_ABORT_CONFIRM_TIME / self.dt))
+    self.prepare_abort_count = 0
     self.lead_missing_count = 0
     self.lead_recent = False
     self.mode_release_hold_count = 0
@@ -91,7 +144,7 @@ class ConditionalE2EController:
       self.reason = E2E_REASON_ACC
       return 'acc'
     far_stop = self.stopping and self.stop_distance > E2E_FAR_STOP_DISTANCE
-    apilot_vision_lead = traffic_stop_mode == 2 and self.vision_lead_confirmed
+    apilot_vision_lead = traffic_stop_mode in (2, 3) and self.vision_lead_confirmed
     hold_blended = self.mode_release_hold_count > 0
     if self.prepare:
       self.reason = E2E_REASON_DEPARTURE
@@ -115,12 +168,13 @@ class ConditionalE2EController:
              model_x, model_y, model_v0, model_v_end, v_ego,
              steering_angle_deg, gas_pressed, brake_pressed, right_blinker,
              lead_present, radar_lead_present, radar_lead_distance,
-             vision_lead_present):
+             vision_lead_present, signal_phase=None, signal_distance=-1.0,
+             signal_remaining=-1.0):
     if not available:
       self.reset()
       return 'acc'
 
-    traffic_stop_mode = max(0, min(2, traffic_stop_mode))
+    traffic_stop_mode = max(0, min(3, traffic_stop_mode))
     if traffic_stop_mode == 0:
       self.reset()
       return self.select_mode(experimental_mode, traffic_stop_mode)
@@ -165,11 +219,25 @@ class ConditionalE2EController:
         distance_cap = 150.0
       else:
         distance_cap = 120.0 + (v_ego_kph - 60.0) * 1.5
-      raw_stop_sign = (model_x < lead_distance_guard - 3.0 and
-                       model_x < distance_cap and
-                       (model_v < 3.0 or model_v < model_v0 * 0.7) and
-                       abs(model_y) < 5.0)
+      signal_stop = signal_requires_stop(signal_phase, signal_distance, signal_remaining, v_ego)
+      if signal_stop:
+        distance_cap = max(distance_cap, min(SIGNAL_ASSIST_MAX_DISTANCE,
+                                             signal_distance + SIGNAL_ASSIST_MODEL_MARGIN))
+      in_range = model_x < lead_distance_guard - 3.0 and model_x < distance_cap
+      if signal_stop:
+        in_range = in_range and model_x < signal_distance + SIGNAL_ASSIST_MODEL_MARGIN
+      straight_stop = (abs(model_y) < 5.0 and
+                       (model_v < 3.0 or model_v < model_v0 * 0.7 or
+                        (signal_stop and (model_v < SIGNAL_ASSIST_MODEL_V or
+                                          model_v < model_v0 * SIGNAL_ASSIST_MODEL_RATIO))))
+      curve_stop = (model_v < 3.0 and
+                    abs(model_y) < max(5.0, E2E_CURVE_STOP_LAT_RATIO * model_x))
+      raw_stop_sign = in_range and (straight_stop or curve_stop)
     else:
+      raw_stop_sign = False
+    # 3 VISION: ACC plus E2E only for a confirmed vision-only lead. No signal
+    # stop, so stopping/prepare (and their launch) never start.
+    if traffic_stop_mode == 3:
       raw_stop_sign = False
 
     # Keep the aPilot start alternatives, with the existing distance guard and
@@ -216,10 +284,18 @@ class ConditionalE2EController:
                                   radar_lead_distance > 0.0 and
                                   radar_lead_distance - filtered_stop_x < 2.0)
 
+    # Any lead used to block entering a signal stop, even one already past the
+    # intersection, so ego followed it through instead of stopping. A lead
+    # well beyond the stop point no longer blocks; it stays an MPC obstacle,
+    # and a lead closer than the stop point still ends the stop (below).
+    lead_beyond_stop = (lead_present and radar_lead_distance >
+                        filtered_stop_x + E2E_LEAD_BEYOND_STOP_MARGIN)
+
     if self.stopping:
       if start_sign or gas_pressed:
         self.stopping = False
         self.prepare = True
+        self.prepare_abort_count = 0
         self.mode_release_hold_count = 0
         self.stop_distance = 0.0
       elif confirmed_lead_before_stop:
@@ -240,9 +316,12 @@ class ConditionalE2EController:
         self.stop_distance = max(0.0, self.stop_distance - v_ego * self.dt)
 
     elif self.prepare:
-      prepare_abort = (v_ego_kph < 2.0 and not start_sign and
-                       not lead_present and not gas_pressed)
+      abort_condition = (v_ego_kph < 2.0 and not start_sign and
+                         not lead_present and not gas_pressed)
+      self.prepare_abort_count = self.prepare_abort_count + 1 if abort_condition else 0
+      prepare_abort = self.prepare_abort_count >= self.prepare_abort_confirm_frames
       if brake_pressed or prepare_abort:
+        self.prepare_abort_count = 0
         self.prepare = False
         self.stopping = True
         self.mode_release_hold_count = self.mode_release_hold_frames
@@ -251,8 +330,9 @@ class ConditionalE2EController:
         self.prepare = False
         self.mode_release_hold_count = self.mode_release_hold_frames
 
-    elif (stop_sign and not effective_lead_present and
-          abs(steering_angle_deg) <= 5.0 and not gas_pressed):
+    elif (stop_sign and (not effective_lead_present or lead_beyond_stop) and not gas_pressed and
+          (abs(steering_angle_deg) <= 5.0 or
+           (model_v < 3.0 and abs(steering_angle_deg) <= _curve_stop_steer_limit(v_ego_kph)))):
       self.stopping = True
       self.stop_distance = 0.0 if v_ego < 0.1 else max(filtered_stop_x, v_ego ** 2 / 4.0)
 

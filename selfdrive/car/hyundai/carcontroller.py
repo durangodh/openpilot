@@ -2,28 +2,35 @@ from random import randint
 
 from cereal import car
 from common.realtime import DT_CTRL
-from common.numpy_fast import clip, interp
+from common.numpy_fast import clip
 from selfdrive.car import apply_std_steer_torque_limits
 from selfdrive.car.hyundai.hyundaican import create_lkas11, create_clu11, \
   create_scc11, create_scc12, create_scc13, create_scc14, \
   create_mdps12, create_lfahda_mfc, create_hda_mfc
 from selfdrive.car.hyundai.scc_smoother import SccSmoother
-from selfdrive.car.hyundai.values import Buttons, CAR, FEATURES, CarControllerParams
+from selfdrive.car.hyundai.values import Buttons, FEATURES, CarControllerParams
 from selfdrive.car.hyundai.cruise_buttons import button_pressed_in_samples
 from opendbc.can.packer import CANPacker
 from common.conversions import Conversions as CV
 from common.params import Params
 from selfdrive.controls.lib.longcontrol import LongCtrlState
-from selfdrive.controls.lib.lead_departure import departure_jerk_upper
 from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 
 VisualAlert = car.CarControl.HUDControl.VisualAlert
 
 
-def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego):
-  """Assert Hyundai StopReq only after the vehicle has actually stopped."""
+def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego, pre_release=False):
+  """Assert Hyundai StopReq only after the vehicle has actually stopped.
+
+  pre_release (EarlyStopReqRelease): LongControl saw the stopped lead start to
+  move, so StopReq is dropped early while the negative brake request stays, to
+  let the SCC begin leaving its standstill hold before the launch command.
+  Soft hold (driver brake) always keeps StopReq.
+  """
   actual_standstill = car_standstill or v_ego < 0.1
-  return bool((stopping or soft_hold_scc) and actual_standstill)
+  if soft_hold_scc:
+    return bool(actual_standstill)
+  return bool(stopping and actual_standstill and not pre_release)
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
@@ -77,17 +84,12 @@ class CarController:
     param = Params()
 
     self.mad_mode_enabled = param.get_bool('MadModeEnabled')
-    self.stock_navi_decel_enabled = param.get_bool('StockNaviDecelEnabled')
     self.keep_steering_turn_signals = param.get_bool('KeepSteeringTurnSignals')
     self.haptic_feedback_speed_camera = param.get_bool('HapticFeedbackWhenSpeedCamera')
     self.op_params = param
 
     self.scc_smoother = SccSmoother()
     self.soft_hold_mode = int(clip(param.get_int("SoftHoldMode"), 0, 2))
-    jerk_start_raw = param.get_int("JerkStartLimit")
-    self.jerk_start_limit = float(clip(jerk_start_raw * 0.1 if jerk_start_raw > 0 else 1.0, 0.5, 5.0))
-    self.jerk_count = 0.0
-    self.last_blinker_frame = 0
     self.prev_active_cam = False
     self.active_cam_timer = 0
     self.last_active_cam_frame = 0
@@ -189,6 +191,7 @@ class CarController:
         self.angle_limit_counter = 0
         self.cut_steer_frames += 1
 
+
     can_sends = []
     can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, apply_steer, lkas_active,
                                    CS.lkas11, sys_warning, sys_state, CC.enabled, hud_control.leftLaneVisible, hud_control.rightLaneVisible,
@@ -265,36 +268,28 @@ class CarController:
 
     if self.frame % 100 == 0:
       self.soft_hold_mode = int(clip(self.op_params.get_int("SoftHoldMode"), 0, 2))
-      jerk_start_raw = self.op_params.get_int("JerkStartLimit")
-      self.jerk_start_limit = float(clip(jerk_start_raw * 0.1 if jerk_start_raw > 0 else 1.0, 0.5, 5.0))
     soft_hold = bool(hud_control.softHold)
     soft_hold_scc = soft_hold and self.soft_hold_mode == 2 and CS.out.brakePressed
     stopping = controls.LoC.long_control_state == LongCtrlState.stopping
     jerk_stopping = stopping or soft_hold
+    pre_release = stopping and bool(getattr(controls.LoC, 'stopreq_release_active', False))
     scc_stop_request = should_request_scc_standstill(
-      stopping, soft_hold_scc, CS.out.standstill, CS.out.vEgo)
+      stopping, soft_hold_scc, CS.out.standstill, CS.out.vEgo, pre_release)
 
-    # aPilot C2 gradually expands the SCC jerk allowance after a stop. This
-    # keeps the brake release and launch acceleration in one continuous step.
-    planned_jerk = float(actuators.jerk)
+    # apilot-c2: MPC/PID chooses acceleration once; SCC14 is the sole
+    # command-side jerk owner. Follow planned jerk in normal driving and keep
+    # the dedicated stop/launch bounds only at those state transitions.
     jerk_limit = 5.0
-    self.jerk_count += DT_CTRL
-    jerk_max = interp(self.jerk_count, [0.0, 1.5, 2.5],
-                      [self.jerk_start_limit, self.jerk_start_limit, jerk_limit])
-    if actuators.longControlState == LongCtrlState.off:
-      jerk_upper = jerk_lower = jerk_limit
-      self.jerk_count = 0.0
-    elif jerk_stopping:
+    planned_jerk = float(actuators.jerk)
+    if jerk_stopping:
       jerk_upper = 0.5
       jerk_lower = jerk_limit
-      self.jerk_count = 0.0
     else:
-      jerk_upper = min(float(clip(planned_jerk * 2.0, 0.5, jerk_limit)), jerk_max)
-      jerk_lower = min(float(clip(-planned_jerk * 2.0, 1.0, jerk_limit)), jerk_max)
-      assisted_launch = (CC.longActive and controls.LoC.departure_assist.active and
-                         actuators.accel > 0.0 and not CS.out.brakePressed and not CS.out.gasPressed)
-      jerk_upper = departure_jerk_upper(
-        jerk_upper, self.jerk_start_limit, 2.0 * controls.LoC.pid_jerk_accel_mult, assisted_launch)
+      jerk_upper = min(max(0.5, planned_jerk * 2.0), jerk_limit)
+      jerk_lower = min(max(1.0, -planned_jerk * 2.0), jerk_limit)
+      launch_jerk = controls.LoC.scc_launch_jerk() if hasattr(controls.LoC, 'scc_launch_jerk') else None
+      if launch_jerk is not None:
+        jerk_upper = clip(launch_jerk, 0.5, jerk_limit)
 
     # Community safety now follows the physical SCC MAIN state independently
     # of stock ACC engagement. Start replacing SCC messages as soon as
@@ -310,10 +305,9 @@ class CarController:
           set_speed = max(CS.out.vEgo, min_set_speed)
         set_speed *= CV.MS_TO_MPH if CS.is_set_speed_in_mph else CV.MS_TO_KPH
 
+        driver_braking = CS.out.brakePressed and not soft_hold_scc
         requested_accel = actuators.accel if (CC.longActive or stopping or soft_hold_scc) else 0.0
-        apply_accel = controls.cruise_helper.get_apply_accel(
-          CS, controls.sm, requested_accel, stopping, dt=2 * DT_CTRL)
-        apply_accel = clip(apply_accel,
+        apply_accel = clip(requested_accel,
                            CarControllerParams.ACCEL_MIN, CarControllerParams.ACCEL_MAX)
 
         # Panda rejects any nonzero SCC12 request while the driver brake is
@@ -321,7 +315,7 @@ class CarController:
         # ownership of the SCC12 stream for one cycle and lets the stock SCC12
         # back onto the bus, which the cluster reports as a fault chime. Zero
         # the request here so the frame is always accepted.
-        if CS.out.brakePressed and not soft_hold_scc:
+        if driver_braking:
           apply_accel = 0.0
 
         self.accel = apply_accel
@@ -330,24 +324,9 @@ class CarController:
         aReqValue = CS.scc12["aReqValue"]
         controls.aReqValue = aReqValue
 
-        if aReqValue < controls.aReqValueMin:
-          controls.aReqValueMin = controls.aReqValue
+        controls.aReqValueMin = min(controls.aReqValueMin, aReqValue)
+        controls.aReqValueMax = max(controls.aReqValueMax, aReqValue)
 
-        if aReqValue > controls.aReqValueMax:
-          controls.aReqValueMax = controls.aReqValue
-
-        if self.stock_navi_decel_enabled:
-          controls.sccStockCamAct = CS.scc11["Navi_SCC_Camera_Act"]
-          controls.sccStockCamStatus = CS.scc11["Navi_SCC_Camera_Status"]
-          apply_accel, stock_cam = controls.cruise_helper.get_stock_cam_accel(apply_accel, aReqValue, CS.scc11)
-        else:
-          controls.sccStockCamAct = 0
-          controls.sccStockCamStatus = 0
-          stock_cam = False
-
-        # Base the next ramp step on the request actually sent, including brake
-        # override and stock navigation deceleration. SCC12 runs at 50 Hz.
-        controls.cruise_helper.last_apply_accel = float(apply_accel)
         lead = controls.cruise_helper.get_lead(controls.sm)
         lead_distance = float(lead.dRel) if lead is not None else 0.0
         lead_relative_speed = float(lead.vRel) if lead is not None else 0.0
@@ -359,13 +338,13 @@ class CarController:
         self.scc12_cnt %= 0xF
 
         can_sends.append(create_scc12(self.packer, apply_accel, CC.enabled, self.scc12_cnt, self.scc_live, CS.scc12,
-                                      CS.out.gasPressed, CS.out.brakePressed and not soft_hold_scc,
+                                      CS.out.gasPressed, driver_braking,
                                       scc_stop_request,
                                       self.car_fingerprint, long_active=CC.longActive,
                                       soft_hold_active=soft_hold_scc))
 
         can_sends.append(create_scc11(self.packer, self.frame, CC.enabled, set_speed, hud_control.leadVisible, self.scc_live, CS.scc11,
-                       controls.cruise_helper.active_cam, stock_cam, soft_hold=soft_hold and CC.longActive,
+                       controls.cruise_helper.active_cam, soft_hold=soft_hold and CC.longActive,
                        cruise_gap=controls.cruise_helper.long_cruise_gap,
                        lead_distance=lead_distance, lead_relative_speed=lead_relative_speed))
 
@@ -373,15 +352,8 @@ class CarController:
           can_sends.append(create_scc13(self.packer, CS.scc13))
 
         if CS.has_scc14:
-          acc_standstill = scc_stop_request
-
-          # apilot-c2 comfort bands: keep the SCC brake-to-accel handoff in
-          # the normal control range instead of switching from 0 to 50.
-          if jerk_stopping:
-            cb_upper = cb_lower = 0.0
-          else:
-            cb_upper = clip(0.9 + apply_accel * 0.2, 0.0, 1.2)
-            cb_lower = clip(0.8 + apply_accel * 0.2, 0.0, 1.2)
+          cb_upper = clip(0.9 + apply_accel * 0.2, 0.0, 1.2)
+          cb_lower = clip(0.8 + apply_accel * 0.2, 0.0, 1.2)
 
           if lead is not None:
             d = lead.dRel
@@ -391,7 +363,7 @@ class CarController:
             obj_gap = 0
 
           can_sends.append(
-            create_scc14(self.packer, CC.enabled, CS.out.vEgo, acc_standstill, apply_accel, CS.out.gasPressed,
+            create_scc14(self.packer, CC.enabled, CS.out.vEgo, scc_stop_request, apply_accel, CS.out.gasPressed,
                          obj_gap, CS.scc14, jerk_upper, jerk_lower, cb_upper, cb_lower,
                          long_active=CC.longActive, brakepressed=CS.out.brakePressed,
                          soft_hold_active=soft_hold_scc))
