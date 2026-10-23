@@ -366,8 +366,10 @@ def main():
     assert primer.count("display.sendJpegs") == 2
     assert "SystemClock.sleep(USB_PRIMER_WARMUP_MS)" in primer
     assert "SystemClock.sleep(USB_PRIMER_SETTLE_MS)" in primer
-    # S20 transport observed repeated DWC3 BULK -110 at 5 fps / 77-81 KB.
-    assert "S20_RENDER_FPS_CAP = 4" in source
+    # The 4 fps S20 cap did not prevent DWC3 BULK -110 stalls and made maps and
+    # driving-state widgets visibly lag. Honour the configured FPS again.
+    assert "S20_RENDER_FPS_CAP" not in source
+    assert 'Math.min(15, currentState.optInt("hudFps", 8))' in source
     assert "S20_USB_JPEG_LIMIT = 70_000" in source
     assert "S20_USB_JPEG_RAISE_BELOW = 60_000" in source
     assert "USB_ERROR_STABLE_RESET_MS" in source

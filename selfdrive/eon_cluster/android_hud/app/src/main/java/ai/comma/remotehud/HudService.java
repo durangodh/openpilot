@@ -101,14 +101,6 @@ public final class HudService extends Service {
     // 좌표로 그리고 beginElement 가 새 화면으로 옮긴다(글자 크기 그대로).
     private static final int HEIGHT = 720;
     private static final int HEIGHT_123 = 720;
-    /**
-     * The S20 can sustain the 1920x720 renderer at 8 fps, but doing so occupies
-     * almost a full CPU core once the TURZX panel is attached.  Five frames per
-     * second was still enough to make the SM-G981N host controller time out
-     * every few minutes with the 12.3-inch panel. Four keeps map motion smooth
-     * while reducing sustained USB traffic by another 20 percent.
-     */
-    private static final int S20_RENDER_FPS_CAP = 4;
     /** 예전 1920x462 패널 출력 버퍼 높이(12.3인치 전용이 되면서 축소 출력만). */
     private static final int LEGACY_HEIGHT = 462;
     private static final int DESIGN_HEIGHT = 462;
@@ -1901,9 +1893,8 @@ public final class HudService extends Service {
             JSONObject currentState = state.get();
             // 출력 대상은 FPS 0(패널 끄기) 상태에서도 즉시 바뀌어야 한다.
             applyFrameConfiguration(currentState);
-            int maxRenderFps = PhoneName.isS20(Build.MODEL) ? S20_RENDER_FPS_CAP : 15;
             int requestedFps = Math.max(0,
-                    Math.min(maxRenderFps, currentState.optInt("hudFps", 8)));
+                    Math.min(15, currentState.optInt("hudFps", 8)));
             if (requestedFps == 0) {
                 if (configuredFps != 0) {
                     configuredFps = 0;
