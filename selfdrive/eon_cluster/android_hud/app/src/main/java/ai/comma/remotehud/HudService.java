@@ -450,12 +450,12 @@ public final class HudService extends Service {
     private long lastThemeMapElapsed = 0L;
     private int configuredFps = 8;
     private int jpegQuality = 55;
-    // 패널이 큰 프레임을 계속 받으면 SM-G981N DWC3 가 BULK -110 으로 멈췄다. S20+12.3인치는
-    // 70KB 아래로 제한하고, 다른 기기는 기존 90KB를 유지한다.
+    // S20 도 90KB 로 되돌렸다: 70KB·최저 화질(q30)에서도 61~70KB 프레임에서 같은 간격(4~10분)으로
+    // "일괄 쓰기 실패 0/…" 가 났다(2026-10-23 b474 로그). 크기는 원인이 아니었다.
     private static final int USB_JPEG_LIMIT = 90_000;
-    private static final int S20_USB_JPEG_LIMIT = 70_000;
+    private static final int S20_USB_JPEG_LIMIT = USB_JPEG_LIMIT;
     private static final int USB_JPEG_RAISE_BELOW = 75_000;
-    private static final int S20_USB_JPEG_RAISE_BELOW = 60_000;
+    private static final int S20_USB_JPEG_RAISE_BELOW = USB_JPEG_RAISE_BELOW;
     private static final int USB_JPEG_MIN_QUALITY = 30;
     private int usbQualityCap = 95;
     private long usbQualityRaiseElapsed;
