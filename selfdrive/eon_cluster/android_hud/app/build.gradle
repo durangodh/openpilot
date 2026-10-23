@@ -1,8 +1,8 @@
 plugins { id "com.android.application" }
 
 def remoteHudKeystorePath = System.getenv("REMOTE_HUD_KEYSTORE_PATH")
-def remoteHudVersionCode = (System.getenv("REMOTE_HUD_VERSION_CODE") ?: "163").toInteger()
-def remoteHudVersionName = System.getenv("REMOTE_HUD_VERSION_NAME") ?: "1.52-gauge-ticks"
+def remoteHudVersionCode = (System.getenv("REMOTE_HUD_VERSION_CODE") ?: "164").toInteger()
+def remoteHudVersionName = System.getenv("REMOTE_HUD_VERSION_NAME") ?: "1.53-sign-column"
 
 android {
   namespace "ai.comma.remotehud"
