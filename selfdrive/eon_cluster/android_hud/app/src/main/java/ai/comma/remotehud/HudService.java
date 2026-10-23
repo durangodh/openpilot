@@ -2587,8 +2587,13 @@ public final class HudService extends Service {
         frameDark = darkTheme();
         c.drawColor(Color.rgb(5, 8, 12));
 
-        // 네비모드는 지도 화면(SCREEN MODE 1)일 때만. 디버그·주행리포트는 기존 배치.
-        naviLayout = configuredNaviLayout && configuredScreenMode != 2 && configuredScreenMode != 3;
+        // 차량 데이터가 없을 때는 마지막 네비모드 설정을 기억하고 있더라도 작은 기본 지도로
+        // 돌아간다. EON 이 끊긴 벤치 사용과 EON 은 켜졌지만 차량에 연결되지 않은 상태를
+        // 모두 포함한다. 네비모드는 실제 차량 데이터가 살아 있는 지도 화면에서만 사용한다.
+        boolean vehicleLayoutAvailable = !eonStale()
+                && s.optBoolean("drivingValid", true);
+        naviLayout = configuredNaviLayout && vehicleLayoutAvailable
+                && configuredScreenMode != 2 && configuredScreenMode != 3;
         if (naviLayout) {
             // 지도가 맨 아래, 그 위에 게이지·EON 박스, 그 위에 회전 안내·도착정보.
             drawMapImage(c, p, s, map);
