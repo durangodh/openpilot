@@ -226,6 +226,8 @@ def main():
     assert "boolean stale = linkStale || !drivingValid;" in driving
     assert 'lang("차량 데이터 대기", "WAITING FOR VEHICLE")' in driving
     assert 'boolean stale = eonStale() || !s.optBoolean("drivingValid", true);' not in driving
+    # Match navigation apps: any partial remaining minute is shown rounded up.
+    assert 'Integer.toString((remainTime + 59) / 60)' in source
     # GPS source replaces the old health badge, in its original top-row slot.
     badges = source.split("private void drawMapSourceBadge(", 1)[1].split(
         "private void drawJunction(", 1)[0]

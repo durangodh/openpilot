@@ -7399,7 +7399,9 @@ public final class HudService extends Service {
             eta = new SimpleDateFormat("HH:mm", Locale.KOREA)
                     .format(new Date(System.currentTimeMillis() + remainTime * 1000L));
         }
-        String minutes = remainTime > 0 ? Integer.toString(Math.max(1, remainTime / 60)) : "--";
+        // 내비 앱들은 남은 분을 올림 표시한다. 초를 버리면 매 분 경계 전까지
+        // 티맵·네이버·카카오보다 항상 1분 작게 보인다.
+        String minutes = remainTime > 0 ? Integer.toString((remainTime + 59) / 60) : "--";
         String kilometres = remainDist > 0
                 ? String.format(Locale.US, "%.1f", remainDist / 1000.0) : "--";
         int value = Color.rgb(20, 24, 28);
