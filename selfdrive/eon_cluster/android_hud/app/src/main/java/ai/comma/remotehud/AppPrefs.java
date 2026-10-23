@@ -12,9 +12,6 @@ public final class AppPrefs {
     private static final String MIRROR = "hud_mirror";
     private static final String NAVI_LAYOUT = "hud_navi_layout";
     private static final String NAV_APP = "hud_nav_app";
-    private static final String MAP_SCALE_TMAP = "hud_map_scale_tmap";
-    private static final String MAP_SCALE_NAVER = "hud_map_scale_naver";
-    private static final String MAP_SCALE_KAKAO = "hud_map_scale_kakao";
     private static final String NAV_REQUEST = "hud_nav_request";
     private static final String NAV_MIRROR_DISPLAY_ID = "hud_nav_mirror_display_id";
     private static final String USB_HOST_RECOVERY = "usb_host_recovery";
@@ -72,23 +69,6 @@ public final class AppPrefs {
 
     public static void setNaviLayout(Context context, boolean navi) {
         prefs(context).edit().putBoolean(NAVI_LAYOUT, navi).apply();
-    }
-
-    /** EON 연결 전에도 마지막 지도 축척으로 HUD 전용 지도를 준비한다. */
-    public static int getMapScale(Context context, int app) {
-        int value = prefs(context).getInt(mapScaleKey(app), 70);
-        return Math.max(30, Math.min(200, value));
-    }
-
-    public static void setMapScale(Context context, int app, int value) {
-        prefs(context).edit().putInt(mapScaleKey(app),
-                Math.max(30, Math.min(200, value))).apply();
-    }
-
-    private static String mapScaleKey(int app) {
-        if (app == 2) return MAP_SCALE_NAVER;
-        if (app == 3) return MAP_SCALE_KAKAO;
-        return MAP_SCALE_TMAP;
     }
 
     /**

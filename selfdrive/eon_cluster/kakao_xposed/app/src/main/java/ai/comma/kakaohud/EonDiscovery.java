@@ -1,5 +1,8 @@
 package ai.comma.kakaohud;
 
+import android.content.Context;
+import android.content.SharedPreferences;
+
 import org.json.JSONObject;
 
 import java.net.DatagramPacket;
@@ -16,14 +19,37 @@ final class EonDiscovery {
     static volatile boolean wideMap;
     /** 네비모드 HUD 지도 크기(휴대폰 앱 원본 축척 대비 비율, EON 설정 hud_map_scale_kakao). */
     static volatile float mapScale = 0.70f;
+    private static volatile boolean received;
 
     private static final int DISCOVERY_PORT = 7705;
+    private static final String PREFS = "eon_hud_ui_settings";
+    private static final String WIDE_MAP = "hud_wide_map";
+    private static final String MAP_SCALE = "hud_map_scale_kakao";
 
     private final KakaoNaviClient client;
+    private volatile SharedPreferences prefs;
     private volatile boolean running = true;
 
     EonDiscovery(KakaoNaviClient client) {
         this.client = client;
+    }
+
+    synchronized void initialize(Context context) {
+        if (prefs != null) return;
+        Context app = context.getApplicationContext();
+        SharedPreferences saved = (app == null ? context : app)
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (received) {
+            saved.edit().putBoolean(WIDE_MAP, wideMap)
+                    .putInt(MAP_SCALE, Math.round(mapScale * 100f)).apply();
+        } else {
+            wideMap = saved.getBoolean(WIDE_MAP, false);
+            mapScale = clampScale(saved.getInt(MAP_SCALE, 70)) / 100f;
+            received = saved.contains(MAP_SCALE);
+        }
+        prefs = saved;
+        KakaoHudLog.line("restored EON HUD UI: wide=" + wideMap
+                + " scale=" + Math.round(mapScale * 100f));
     }
 
     void start() {
@@ -53,11 +79,8 @@ final class EonDiscovery {
                         String ip = obj.optString("ip", "");
                         if (!ip.isEmpty()) {
                             client.setHost(ip);
+                            applyEonSettings(obj);
                         }
-                        // S9 HUD 네비모드(지도 8 : 주행 2)면 지도를 가로로 넓게 캡처한다.
-                        wideMap = obj.optInt("hud_wide_map", 0) == 1;
-                        int scale = obj.optInt("hud_map_scale_kakao", 70);
-                        mapScale = Math.max(30, Math.min(200, scale)) / 100f;
                     } catch (Throwable ignored) {
                         // 다른 브로드캐스트는 무시.
                     }
@@ -73,5 +96,24 @@ final class EonDiscovery {
                 }
             }
         }
+    }
+
+    /** 실제 EON UI 파라미터만 기억한다. ip 없는 로컬 방송은 호출되지 않는다. */
+    private synchronized void applyEonSettings(JSONObject obj) {
+        boolean previousWide = wideMap;
+        int previousScale = Math.round(mapScale * 100f);
+        wideMap = obj.optInt("hud_wide_map", previousWide ? 1 : 0) == 1;
+        int scale = clampScale(obj.optInt("hud_map_scale_kakao", previousScale));
+        mapScale = scale / 100f;
+        received = true;
+        SharedPreferences saved = prefs;
+        if (saved != null && (!saved.contains(MAP_SCALE) || previousWide != wideMap
+                || previousScale != scale)) {
+            saved.edit().putBoolean(WIDE_MAP, wideMap).putInt(MAP_SCALE, scale).apply();
+        }
+    }
+
+    private static int clampScale(int scale) {
+        return Math.max(30, Math.min(200, scale));
     }
 }

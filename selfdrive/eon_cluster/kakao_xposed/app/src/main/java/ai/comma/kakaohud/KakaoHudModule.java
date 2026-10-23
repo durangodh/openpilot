@@ -50,9 +50,10 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         final KakaoMap map = new KakaoMap(client);
         final KakaoBridge bridge = new KakaoBridge(client, map);
         bridge.setClassLoader(lpparam.classLoader);
-        new EonDiscovery(client).start();
+        final EonDiscovery discovery = new EonDiscovery(client);
+        discovery.start();
 
-        hookApplicationContext(lpparam, map);
+        hookApplicationContext(lpparam, map, discovery);
         hookForeground();
         hookScreenCamera(lpparam, map);
         hookJunction(lpparam, new KakaoJunction(client));
@@ -111,13 +112,16 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
 
     private boolean mapStarted;
 
-    private void startMap(LoadPackageParam target, KakaoMap map, Context context) {
+    private void startMap(LoadPackageParam target, KakaoMap map, EonDiscovery discovery,
+                          Context context) {
         if (!KAKAO_PKG.equals(context.getPackageName())) return;
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
             if (mapStarted) return;
             try {
                 Context app = context.getApplicationContext();
-                map.start(target.classLoader, app == null ? context : app);
+                Context actual = app == null ? context : app;
+                discovery.initialize(actual);
+                map.start(target.classLoader, actual);
                 mapStarted = true;
                 KakaoHudLog.line("app context ready, map capture started");
                 logAppVersion(context);
@@ -127,20 +131,23 @@ public final class KakaoHudModule implements IXposedHookLoadPackage {
         });
     }
 
-    private void hookApplicationContext(final LoadPackageParam target, final KakaoMap map) {
+    private void hookApplicationContext(final LoadPackageParam target, final KakaoMap map,
+                                        final EonDiscovery discovery) {
         try {
             // AppSuit/Application overrides can bypass the base Application.onCreate.
             // Instrumentation still dispatches both lifecycle methods.
             XposedBridge.hookMethod(android.app.Instrumentation.class.getDeclaredMethod(
                     "callApplicationOnCreate", Application.class), new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
-                    if (!param.hasThrowable()) startMap(target, map, (Application) param.args[0]);
+                    if (!param.hasThrowable()) startMap(target, map, discovery,
+                            (Application) param.args[0]);
                 }
             });
             XposedBridge.hookMethod(android.app.Instrumentation.class.getDeclaredMethod(
                     "callActivityOnResume", android.app.Activity.class), new XC_MethodHook() {
                 @Override protected void afterHookedMethod(MethodHookParam param) {
-                    if (!param.hasThrowable()) startMap(target, map, (Context) param.args[0]);
+                    if (!param.hasThrowable()) startMap(target, map, discovery,
+                            (Context) param.args[0]);
                 }
             });
         } catch (Throwable error) {

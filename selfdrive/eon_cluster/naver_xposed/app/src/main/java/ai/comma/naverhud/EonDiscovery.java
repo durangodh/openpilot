@@ -1,5 +1,8 @@
 package ai.comma.naverhud;
 
+import android.content.Context;
+import android.content.SharedPreferences;
+
 import org.json.JSONObject;
 
 import java.net.DatagramPacket;
@@ -18,12 +21,22 @@ final class EonDiscovery {
     static volatile float mapScale = 0.70f;
 
     private static final int DISCOVERY_PORT = 7705;
+    private static final String PREFS = "eon_hud_ui_settings";
+    private static final String WIDE_MAP = "hud_wide_map";
+    private static final String MAP_SCALE = "hud_map_scale_naver";
 
     private final NaverNaviClient client;
+    private final SharedPreferences prefs;
     private volatile boolean running = true;
 
-    EonDiscovery(NaverNaviClient client) {
+    EonDiscovery(Context context, NaverNaviClient client) {
         this.client = client;
+        Context app = context.getApplicationContext();
+        prefs = (app == null ? context : app).getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        wideMap = prefs.getBoolean(WIDE_MAP, false);
+        mapScale = clampScale(prefs.getInt(MAP_SCALE, 70)) / 100f;
+        NaverHudLog.line("restored EON HUD UI: wide=" + wideMap
+                + " scale=" + Math.round(mapScale * 100f));
     }
 
     void start() {
@@ -49,11 +62,20 @@ final class EonDiscovery {
                         String ip = obj.optString("ip", "");
                         if (!ip.isEmpty()) {
                             client.setHost(ip);
+                            // ip가 있는 패킷만 실제 EON 방송이다. UI 파라미터값을 저장해
+                            // 다음 부팅 때 EON 연결 전부터 같은 지도 크기로 시작한다.
+                            boolean previousWide = wideMap;
+                            int previousScale = Math.round(mapScale * 100f);
+                            wideMap = obj.optInt("hud_wide_map", previousWide ? 1 : 0) == 1;
+                            int scale = clampScale(obj.optInt("hud_map_scale_naver",
+                                    previousScale));
+                            mapScale = scale / 100f;
+                            if (!prefs.contains(MAP_SCALE) || previousWide != wideMap
+                                    || previousScale != scale) {
+                                prefs.edit().putBoolean(WIDE_MAP, wideMap)
+                                        .putInt(MAP_SCALE, scale).apply();
+                            }
                         }
-                        // S9 HUD 네비모드(지도 8 : 주행 2)면 지도를 가로로 넓게 캡처한다.
-                        wideMap = obj.optInt("hud_wide_map", 0) == 1;
-                        int scale = obj.optInt("hud_map_scale_naver", 70);
-                        mapScale = Math.max(30, Math.min(200, scale)) / 100f;
                     } catch (Throwable ignored) {
                         // 다른 브로드캐스트는 무시.
                     }
@@ -69,5 +91,9 @@ final class EonDiscovery {
                 }
             }
         }
+    }
+
+    private static int clampScale(int scale) {
+        return Math.max(30, Math.min(200, scale));
     }
 }

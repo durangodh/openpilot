@@ -47,7 +47,7 @@ public final class NaverHudModule implements IXposedHookLoadPackage {
                             String mode = verified ? "verified" : "UNVERIFIED (read-only features only)";
                             log("Naver " + info.versionName + " " + mode);
                             NaverHudLog.line("Naver " + info.versionName + " " + mode);
-                            bridge = new NaverBridge();
+                            bridge = new NaverBridge(app);
                             bridge.start();
                             int hooks = 0;
                             hooks += safeHook("NaviStore", () -> hookStore(target.classLoader));

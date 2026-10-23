@@ -1,6 +1,7 @@
 package ai.comma.naverhud;
 
 import android.app.Activity;
+import android.content.Context;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -13,6 +14,7 @@ import java.util.concurrent.TimeUnit;
 
 /** Reads Naver Maps 6.10.0.16's live NaviStore and publishes EON HUD state. */
 final class NaverBridge {
+    private final Context context;
     private final NaverNaviClient client = new NaverNaviClient();
     private final NaverMapCapture map = new NaverMapCapture(client);
     // 확인한 버전에서만: 화면 스냅샷 대신 지도 엔진으로 직접 그린다.
@@ -43,6 +45,11 @@ final class NaverBridge {
     private final java.util.HashMap<String, String> lastSent = new java.util.HashMap<>();
     private final java.util.HashMap<String, Long> lastSentAt = new java.util.HashMap<>();
     private boolean healthLogged;
+
+    NaverBridge(Context context) {
+        Context app = context.getApplicationContext();
+        this.context = app == null ? context : app;
+    }
     private int guidingTicks;
 
     private void send(String name, String value) {
@@ -204,7 +211,7 @@ final class NaverBridge {
         synchronized (this) {
             if (started) return;
             started = true;
-            new EonDiscovery(client).start();
+            new EonDiscovery(context, client).start();
             poller.scheduleWithFixedDelay(this::tick, 0, 250, TimeUnit.MILLISECONDS);
             // 지도는 상태 폴링(250ms, 처리시간만큼 더 밀림)과 분리해 자체 주기로 찍는다.
             map.start();

@@ -386,12 +386,8 @@ public final class HudService extends Service {
     // 이 지도가 LOCAL_MAP_FRESH_MS 안에 들어오고 있으면 EON 이 되돌려 주는 지도는 무시한다.
     private static final int LOCAL_MAP_PORT = 7213;
     private static final long LOCAL_MAP_FRESH_MS = 3000L;
-    private static final int NAV_DISCOVERY_PORT = 7705;
-    private static final long LOCAL_NAV_DISCOVERY_MS = 1000L;
     private Thread localMapThread;
-    private Thread localDiscoveryThread;
     private volatile java.net.ServerSocket localMapServer;
-    private volatile DatagramSocket localDiscoverySocket;
     private volatile long lastLocalMapElapsed = 0L;
     private int usbErrorStreak;
     private boolean usbReceiverRegistered;
@@ -501,9 +497,6 @@ public final class HudService extends Service {
     private boolean configuredNaviLayout;
     /** EON 선택 내비: 1=티맵, 2=네이버지도. */
     private volatile int configuredNavApp = 0;
-    private volatile int configuredMapScaleTmap = 70;
-    private volatile int configuredMapScaleNaver = 70;
-    private volatile int configuredMapScaleKakao = 70;
     /** 출력 대상 1: 외부 USB HUD, 2: S9 화면, 3: 동시 출력 */
 
     // 회전 카운트다운 (carrot-wip leftSec 방식: 단조감소)
@@ -717,9 +710,6 @@ public final class HudService extends Service {
         configuredOrientation = AppPrefs.getOrientation(this);
         configuredMirror = AppPrefs.isMirror(this);
         configuredNaviLayout = AppPrefs.isNaviLayout(this);
-        configuredMapScaleTmap = AppPrefs.getMapScale(this, 1);
-        configuredMapScaleNaver = AppPrefs.getMapScale(this, 2);
-        configuredMapScaleKakao = AppPrefs.getMapScale(this, 3);
         // 부팅 시 BootReceiver 가 이미 이 값으로 내비를 띄웠으므로, EON 이 같은 값을
         // 보내오면 다시 띄우지 않는다(0 이면 서비스 시작마다 재실행됐음).
         configuredNavApp = AppPrefs.getNavApp(this);
@@ -878,12 +868,10 @@ public final class HudService extends Service {
             }
         }, "hud-stats");
         localMapThread = new Thread(this::localMapLoop, "hud-local-map");
-        localDiscoveryThread = new Thread(this::localDiscoveryLoop, "hud-local-discovery");
         logUploadThread = new Thread(this::logUploadLoop, "hud-log-upload");
         receiverThread.start();
         mapThread.start();
         localMapThread.start();
-        localDiscoveryThread.start();
         renderThread.start();
         statsThread.start();
         logUploadThread.start();
@@ -1801,49 +1789,6 @@ public final class HudService extends Service {
         return at != 0L && SystemClock.elapsedRealtime() - at < LOCAL_MAP_FRESH_MS;
     }
 
-    /**
-     * EON 이 아직 부팅되지 않았을 때도 폰 내비 모듈이 HUD 의 마지막 네비 배치와 지도
-     * 축척을 알 수 있게 로컬 discovery 폴백을 보낸다. EON 패킷이 살아나면 즉시 멈춰
-     * carrot_navi_server 의 실제 설정이 항상 우선한다.
-     */
-    private void localDiscoveryLoop() {
-        DatagramSocket socket = null;
-        try {
-            socket = new DatagramSocket();
-            socket.setBroadcast(true);
-            localDiscoverySocket = socket;
-            while (running.get()) {
-                if (eonStale()) {
-                    JSONObject fallback = new JSONObject();
-                    fallback.put("hud_wide_map", configuredNaviLayout ? 1 : 0);
-                    fallback.put("hud_map_scale_tmap", configuredMapScaleTmap);
-                    fallback.put("hud_map_scale_naver", configuredMapScaleNaver);
-                    fallback.put("hud_map_scale_kakao", configuredMapScaleKakao);
-                    byte[] payload = fallback.toString().getBytes("UTF-8");
-                    sendLocalDiscovery(socket, payload, "127.0.0.1");
-                    sendLocalDiscovery(socket, payload, "127.255.255.255");
-                    sendLocalDiscovery(socket, payload, "255.255.255.255");
-                }
-                SystemClock.sleep(LOCAL_NAV_DISCOVERY_MS);
-            }
-        } catch (Exception ignored) {
-            // 다음 서비스 시작에서 다시 만든다. 지도 전송 자체는 이 폴백과 독립적이다.
-        } finally {
-            if (localDiscoverySocket == socket) localDiscoverySocket = null;
-            if (socket != null) socket.close();
-        }
-    }
-
-    private static void sendLocalDiscovery(DatagramSocket socket, byte[] payload, String host) {
-        try {
-            DatagramPacket packet = new DatagramPacket(payload, payload.length,
-                    InetAddress.getByName(host), NAV_DISCOVERY_PORT);
-            socket.send(packet);
-        } catch (Exception ignored) {
-            // 일부 Android 빌드는 전역 브로드캐스트를 막는다. 루프백 대상은 계속 시도한다.
-        }
-    }
-
     /** 같은 S9 의 네비 모듈(LocalHudMap)에서 오는 지도를 받는다. 와이파이를 거치지 않는다. */
     private void localMapLoop() {
         while (running.get()) {
@@ -2054,24 +1999,6 @@ public final class HudService extends Service {
         tmapIconEnabled = currentState.optInt("hudTmapIcon", 0) != 0;
         junctionMode = Math.max(0, Math.min(2, currentState.optInt("hudJunction", 2)));
         configuredLayoutMode = Math.max(1, Math.min(2, currentState.optInt("hudLayoutMode", 1)));
-        int mapScaleTmap = Math.max(30, Math.min(200,
-                currentState.optInt("hudMapScaleTmap", configuredMapScaleTmap)));
-        int mapScaleNaver = Math.max(30, Math.min(200,
-                currentState.optInt("hudMapScaleNaver", configuredMapScaleNaver)));
-        int mapScaleKakao = Math.max(30, Math.min(200,
-                currentState.optInt("hudMapScaleKakao", configuredMapScaleKakao)));
-        if (mapScaleTmap != configuredMapScaleTmap) {
-            configuredMapScaleTmap = mapScaleTmap;
-            AppPrefs.setMapScale(this, 1, mapScaleTmap);
-        }
-        if (mapScaleNaver != configuredMapScaleNaver) {
-            configuredMapScaleNaver = mapScaleNaver;
-            AppPrefs.setMapScale(this, 2, mapScaleNaver);
-        }
-        if (mapScaleKakao != configuredMapScaleKakao) {
-            configuredMapScaleKakao = mapScaleKakao;
-            AppPrefs.setMapScale(this, 3, mapScaleKakao);
-        }
         // EON 패킷 전(키 없음)에는 마지막 값을 유지한다(부팅 직후 주행모드가 잠깐 보이던 문제).
         boolean requestedNavi = currentState.optInt("hudNaviLayout", configuredNaviLayout ? 1 : 0) == 1;
         if (requestedNavi != configuredNaviLayout) {
@@ -7647,12 +7574,9 @@ public final class HudService extends Service {
             } catch (Exception ignored) {
             }
         }
-        DatagramSocket discovery = localDiscoverySocket;
-        if (discovery != null) discovery.close();
         interrupt(receiverThread);
         interrupt(mapThread);
         interrupt(localMapThread);
-        interrupt(localDiscoveryThread);
         interrupt(renderThread);
         interrupt(statsThread);
         interrupt(logUploadThread);
