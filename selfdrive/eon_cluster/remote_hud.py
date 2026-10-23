@@ -1143,7 +1143,9 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   engine_temp = engine_temp if -50.0 <= engine_temp <= 200.0 else None
   coolant_temp = coolant_temp if -50.0 <= coolant_temp <= 200.0 else None
   # 차량 CAN 이 안 붙어 있으면 0.0 이 그대로 올라와 실제 0도와 구분되지 않는다.
-  if not sm.alive.get("carState", False):
+  # 시동을 끄면 연료도 냉각수처럼 비운다(마지막 값이 계속 남아 보이지 않게).
+  car_alive = bool(sm.alive.get("carState", False))
+  if not car_alive:
     engine_temp = None
     coolant_temp = None
   gap = int(_finite(_field(controls, "longCruiseGap", 0)))
@@ -1335,9 +1337,9 @@ def _packet(sm, noo_enabled, path_offset=0.0):
       "rr": int(_finite(_field(parking_sensors, "rearRight", 0))),
     },
     "outsideTemp": round(_finite(_field(car, "outsideTempC", -1000.0), -1000.0), 1),
-    "distanceToEmpty": round(_finite(_field(car, "distanceToEmptyKm", -1.0)), 1),
+    "distanceToEmpty": round(_finite(_field(car, "distanceToEmptyKm", -1.0)), 1) if car_alive else -1.0,
     "odometer": round(_finite(_field(car, "odometerKm", -1.0), -1.0), 1),
-    "fuelLevel": round(_finite(_field(car, "fuelDispLevel", -1.0), -1.0), 1),
+    "fuelLevel": round(_finite(_field(car, "fuelDispLevel", -1.0), -1.0), 1) if car_alive else -1.0,
     "rpm": _engine_rpm(car),
     "tpms": {
       "fl": _finite(_field(tpms, "fl", -1.0), -1.0),
