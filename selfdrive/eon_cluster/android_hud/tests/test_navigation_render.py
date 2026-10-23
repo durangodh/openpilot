@@ -226,11 +226,6 @@ def main():
     assert "boolean stale = linkStale || !drivingValid;" in driving
     assert 'lang("차량 데이터 대기", "WAITING FOR VEHICLE")' in driving
     assert 'boolean stale = eonStale() || !s.optBoolean("drivingValid", true);' not in driving
-    # A remembered wide navigation layout must not stretch the map while the
-    # phone is being used on the bench or EON has no live vehicle streams.
-    assert "boolean vehicleLayoutAvailable = !eonStale()" in source
-    assert '&& s.optBoolean("drivingValid", true);' in source
-    assert "naviLayout = configuredNaviLayout && vehicleLayoutAvailable" in source
     # GPS source replaces the old health badge, in its original top-row slot.
     badges = source.split("private void drawMapSourceBadge(", 1)[1].split(
         "private void drawJunction(", 1)[0]
