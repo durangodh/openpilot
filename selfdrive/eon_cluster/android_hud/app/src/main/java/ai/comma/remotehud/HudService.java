@@ -104,10 +104,11 @@ public final class HudService extends Service {
     /**
      * The S20 can sustain the 1920x720 renderer at 8 fps, but doing so occupies
      * almost a full CPU core once the TURZX panel is attached.  Five frames per
-     * second matches the configured local-map ceiling and leaves enough thermal
-     * headroom for navigation and USB host processing.
+     * second was still enough to make the SM-G981N host controller time out
+     * every few minutes with the 12.3-inch panel. Four keeps map motion smooth
+     * while reducing sustained USB traffic by another 20 percent.
      */
-    private static final int S20_RENDER_FPS_CAP = 5;
+    private static final int S20_RENDER_FPS_CAP = 4;
     /** 예전 1920x462 패널 출력 버퍼 높이(12.3인치 전용이 되면서 축소 출력만). */
     private static final int LEGACY_HEIGHT = 462;
     private static final int DESIGN_HEIGHT = 462;
@@ -272,6 +273,8 @@ public final class HudService extends Service {
 
     private static final int USB_RESET_AFTER_ERRORS = 3;
     private static final int USB_SLOWDOWN_AFTER_ERRORS = 5;
+    /** Only a genuinely stable ten-minute session clears accumulated USB failures. */
+    private static final long USB_ERROR_STABLE_RESET_MS = 10 * 60_000L;
     /**
      * 열기·초기화가 연속으로 이만큼 실패하면 포트를 재바인딩(재열거)한다. 패널이 멈추면
      * 같은 연결에서는 초기화가 계속 실패해, 예전 5회는 복구까지 20초 넘게 걸렸다.
@@ -390,6 +393,7 @@ public final class HudService extends Service {
     private volatile java.net.ServerSocket localMapServer;
     private volatile long lastLocalMapElapsed = 0L;
     private int usbErrorStreak;
+    private long lastUsbErrorElapsed;
     private boolean usbReceiverRegistered;
     private android.hardware.display.DisplayManager mirrorDisplays;
     private final android.hardware.display.DisplayManager.DisplayListener mirrorDisplayListener =
@@ -454,10 +458,12 @@ public final class HudService extends Service {
     private long lastThemeMapElapsed = 0L;
     private int configuredFps = 8;
     private int jpegQuality = 55;
-    // 패널이 10만~12만 바이트 프레임을 받다 멈췄다(2026-10-23 로그, 쓰기 실패 10건 모두). 시험으로
-    // 한 장을 이 크기 아래로 맞춘다: 넘으면 화질을 낮춰 다시 인코딩하고, 작게 유지되면 천천히 되돌린다.
+    // 패널이 큰 프레임을 계속 받으면 SM-G981N DWC3 가 BULK -110 으로 멈췄다. S20+12.3인치는
+    // 70KB 아래로 제한하고, 다른 기기는 기존 90KB를 유지한다.
     private static final int USB_JPEG_LIMIT = 90_000;
+    private static final int S20_USB_JPEG_LIMIT = 70_000;
     private static final int USB_JPEG_RAISE_BELOW = 75_000;
+    private static final int S20_USB_JPEG_RAISE_BELOW = 60_000;
     private static final int USB_JPEG_MIN_QUALITY = 30;
     private int usbQualityCap = 95;
     private long usbQualityRaiseElapsed;
@@ -925,6 +931,7 @@ public final class HudService extends Service {
         measuredFps = 0.0f;
         lastJpegBytes = 0;
         usbErrorStreak = 0;
+        lastUsbErrorElapsed = 0L;
         usbDiag = "";
 
         // 진단 전용: UsbManager 에 패널이 없으면 sysfs 상태를 읽어 상태줄에 붙인다.
@@ -2038,7 +2045,6 @@ public final class HudService extends Service {
             usbDiag = "";
             usbConnected = true;
             usbError = false;
-            usbErrorStreak = 0;
             // Clear any incomplete/stale decoder surface before the first HUD
             // frame of every newly opened USB session.
             if (openAfter > openBefore) {
@@ -2278,13 +2284,9 @@ public final class HudService extends Service {
                 Bitmap primerLogFrame = frame != null ? frame : frame123;
                 HudDiagnostics.log("usb-primer bitmap=" + primerLogFrame.getWidth() + "x"
                         + primerLogFrame.getHeight() + " density=" + primerLogFrame.getDensity());
-                sendUsbPrimerFrame();
+                sendUsbPrimerFrame(frame, frame123);
                 usbNeedsPrimeFrame = false;
                 HudDiagnostics.log("usb-primer complete");
-                // The primer intentionally overwrites both physical buffers.
-                // Restore only the panels which are currently open.
-                if (display.isLegacyOpen()) frame = renderUsbFromPhone();
-                if (display.isWideOpen()) frame123 = renderUsb123FromPhone();
             }
 
             byte[] jpeg = encodeUsbJpeg(frame, jpegOut);
@@ -2295,13 +2297,21 @@ public final class HudService extends Service {
             lastJpegSentElapsed = SystemClock.elapsedRealtime();
             usbConnected = true;
             usbError = false;
-            usbErrorStreak = 0;
+            // A single good frame after reopening does not prove the link is
+            // stable. The old immediate reset kept the counter at one forever,
+            // so its slowdown/reset protection could never activate.
+            if (usbErrorStreak > 0 && lastUsbErrorElapsed > 0L
+                    && lastJpegSentElapsed - lastUsbErrorElapsed >= USB_ERROR_STABLE_RESET_MS) {
+                usbErrorStreak = 0;
+                lastUsbErrorElapsed = 0L;
+            }
 
             if (display.closeUnresponsive(15000L)) {
                 HudDiagnostics.log("usb-unresponsive silence>15s close");
                 usbStatus = "패널 무응답 · 재초기화 (휴대폰 HUD 정상)";
                 appliedBrightness = -1;
                 usbErrorStreak++;
+                lastUsbErrorElapsed = SystemClock.elapsedRealtime();
                 nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + 600L;
             }
         } catch (Exception e) {
@@ -2312,10 +2322,13 @@ public final class HudService extends Service {
     /** 패널용 JPEG: USB_JPEG_LIMIT 를 넘으면 화질을 낮춰 다시 인코딩한다. */
     private byte[] encodeUsbJpeg(Bitmap frame, ByteArrayOutputStream output) {
         if (frame == null) return null;
+        int jpegLimit = PhoneName.isS20(Build.MODEL) ? S20_USB_JPEG_LIMIT : USB_JPEG_LIMIT;
+        int raiseBelow = PhoneName.isS20(Build.MODEL)
+                ? S20_USB_JPEG_RAISE_BELOW : USB_JPEG_RAISE_BELOW;
         int start = Math.min(jpegQuality, usbQualityCap);
         int q = start;
         byte[] jpeg = encodeJpeg(frame, output, q);
-        while (jpeg.length > USB_JPEG_LIMIT && q > USB_JPEG_MIN_QUALITY) {
+        while (jpeg.length > jpegLimit && q > USB_JPEG_MIN_QUALITY) {
             q = Math.max(USB_JPEG_MIN_QUALITY, q - 8);
             jpeg = encodeJpeg(frame, output, q);
         }
@@ -2327,7 +2340,7 @@ public final class HudService extends Service {
                 usbQualityLogElapsed = now;
                 HudDiagnostics.log("usb-jpeg-cap q=" + q + " size=" + jpeg.length);
             }
-        } else if (jpeg.length < USB_JPEG_RAISE_BELOW && usbQualityCap < jpegQuality
+        } else if (jpeg.length < raiseBelow && usbQualityCap < jpegQuality
                 && now >= usbQualityRaiseElapsed) {
             usbQualityCap = Math.min(jpegQuality, usbQualityCap + 2);
             usbQualityRaiseElapsed = now + 5000L;
@@ -2354,42 +2367,19 @@ public final class HudService extends Service {
         return output.toByteArray();
     }
 
-    /** Reset the panel's JPEG surface at its exact native portrait size. */
-    private void sendUsbPrimerFrame() throws Exception {
-        // The first JPEG after USB enumeration is used only to wake/reset the
-        // panel decoder. Some powered TURZX units otherwise keep a small copy of
-        // the previous HUD in the top-left while decoding the first real frame.
-        Canvas c = beginUsbFrame();
-        c.setMatrix(null);
-        c.drawColor(Color.BLACK);
-        Canvas c123 = beginUsbFrame123();
-        c123.setMatrix(null);
-        c123.drawColor(Color.BLACK);
-        display.sendJpegs(
-                display.isLegacyOpen() ? encodeJpeg(outFrame, jpegOut, 40) : null,
-                display.isWideOpen() ? encodeJpeg(outFrame123, jpegOut123, 40) : null);
+    /** Prime the decoder at native size without flashing a synthetic black frame. */
+    private void sendUsbPrimerFrame(Bitmap frame, Bitmap frame123) throws Exception {
+        // A newly enumerated TURZX needs two correctly sized JPEGs before its
+        // decoder is reliable. Use the already rendered HUD for both: a black
+        // wake frame made every automatic recovery visible to the driver even
+        // though the content itself had remained available throughout.
+        byte[] legacyPrimer = display.isLegacyOpen() && frame != null
+                ? encodeJpeg(frame, jpegOut, 40) : null;
+        byte[] widePrimer = display.isWideOpen() && frame123 != null
+                ? encodeJpeg(frame123, jpegOut123, 40) : null;
+        display.sendJpegs(legacyPrimer, widePrimer);
         SystemClock.sleep(USB_PRIMER_WARMUP_MS);
-
-        // Clear both native backing bitmaps explicitly, then restore each
-        // panel's logical transform before drawing the user-visible message.
-        c = beginUsbFrame();
-        c.setMatrix(null);
-        c.drawColor(Color.BLACK);
-        c = beginUsbFrame();
-        c123 = beginUsbFrame123();
-        c123.setMatrix(null);
-        c123.drawColor(Color.BLACK);
-        c123 = beginUsbFrame123();
-        Paint primerPaint = paint;
-        primerPaint.reset();
-        primerPaint.setAntiAlias(true);
-        text(c, primerPaint, "연결중...", WIDTH / 2f, LEGACY_HEIGHT / 2f + 8f, 36f,
-                Color.rgb(150, 160, 170), Paint.Align.CENTER);
-        text(c123, primerPaint, "연결중...", WIDTH / 2f, HEIGHT_123 / 2f + 8f, 36f,
-                Color.rgb(150, 160, 170), Paint.Align.CENTER);
-        display.sendJpegs(
-                display.isLegacyOpen() ? encodeJpeg(outFrame, jpegOut, 40) : null,
-                display.isWideOpen() ? encodeJpeg(outFrame123, jpegOut123, 40) : null);
+        display.sendJpegs(legacyPrimer, widePrimer);
         // "첫 연결만 길게" 로 했다가, 부팅 초반(네비 동기화·GL 재시도 등이
         // 몰리는 구간)에 두 번째 재연결이 한 번 더 일어나면서 그 재연결엔
         // 0.2초로는 부족해 다시 화면이 구석에 박히는 게 재현됐다. 재연결
@@ -2405,6 +2395,7 @@ public final class HudService extends Service {
         usbError = true;
         usbNeedsPrimeFrame = true;
         usbErrorStreak++;
+        lastUsbErrorElapsed = SystemClock.elapsedRealtime();
         display.recoverAfterError();
         display.close();
         appliedBrightness = -1;

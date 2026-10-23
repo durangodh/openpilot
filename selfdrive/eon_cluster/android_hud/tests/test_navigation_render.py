@@ -354,15 +354,26 @@ def main():
     assert 'xml.contains(appName)' in usb_approver
     assert 'xml.contains("TURZX1.00")' in usb_approver
     assert 'attributeIsTrue(checkNode, "checked")' in usb_approver
-    # Every new session primes both native JPEG surfaces before live HUD.
+    # Every new session primes both native JPEG surfaces with the already
+    # rendered HUD. Recovery must not flash an intentional black frame.
     assert "usbNeedsPrimeFrame = true;" in source
-    assert "sendUsbPrimerFrame();" in source
-    primer = source.split("private void sendUsbPrimerFrame()", 1)[1].split(
+    assert "sendUsbPrimerFrame(frame, frame123);" in source
+    primer = source.split("private void sendUsbPrimerFrame(Bitmap frame, Bitmap frame123)", 1)[1].split(
         "private void handleUsbError", 1)[0]
-    assert "c.drawColor(Color.BLACK)" in primer
+    assert "c.drawColor(Color.BLACK)" not in primer
+    assert "encodeJpeg(frame, jpegOut, 40)" in primer
+    assert "encodeJpeg(frame123, jpegOut123, 40)" in primer
     assert primer.count("display.sendJpegs") == 2
     assert "SystemClock.sleep(USB_PRIMER_WARMUP_MS)" in primer
     assert "SystemClock.sleep(USB_PRIMER_SETTLE_MS)" in primer
+    # S20 transport observed repeated DWC3 BULK -110 at 5 fps / 77-81 KB.
+    assert "S20_RENDER_FPS_CAP = 4" in source
+    assert "S20_USB_JPEG_LIMIT = 70_000" in source
+    assert "S20_USB_JPEG_RAISE_BELOW = 60_000" in source
+    assert "USB_ERROR_STABLE_RESET_MS" in source
+    ensure_usb = source.split("private boolean ensureUsbReady", 1)[1].split(
+        "/**", 1)[0]
+    assert "usbErrorStreak = 0" not in ensure_usb
     # An S9-only reboot leaves the powered TURZX decoder in its previous USB
     # session. Even when VID/PID is already visible, boot must rebind it once
     # before the first JPEG. Duplicate boot broadcasts must not reset it twice.
