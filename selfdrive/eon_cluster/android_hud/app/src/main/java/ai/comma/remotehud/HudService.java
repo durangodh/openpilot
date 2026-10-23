@@ -4205,6 +4205,15 @@ public final class HudService extends Service {
             p.setColor(i < on ? fill : track);
             c.drawRect(x1, y - 3f, x1 + cell - gap, y + 3f, p);
         }
+        // 계기판처럼 칸 위에 가는 선과 0·1/4·1/2·3/4·끝 눈금(4칸마다)을 그린다.
+        float lineY = y - 7f;
+        float barRight = left + GAUGE_SEGMENTS * cell - gap;
+        p.setColor(ink());
+        c.drawRect(left, lineY - 0.5f, barRight, lineY + 0.5f, p);
+        for (int q = 0; q <= 4; q++) {
+            float x = q == 4 ? barRight - 0.6f : left + q * 4 * cell + (q == 0 ? 0.6f : -gap / 2f);
+            c.drawRect(x - 0.6f, lineY - 0.5f, x + 0.6f, y - 4f, p);
+        }
         text(c, p, lo, left, y - 14f, 20f, ink(), Paint.Align.CENTER);
         text(c, p, hi, right, y - 14f, 20f, ink(), Paint.Align.CENTER);
     }
