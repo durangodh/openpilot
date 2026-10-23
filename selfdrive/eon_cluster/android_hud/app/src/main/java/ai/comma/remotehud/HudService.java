@@ -2396,16 +2396,27 @@ public final class HudService extends Service {
         usbNeedsPrimeFrame = true;
         usbErrorStreak++;
         lastUsbErrorElapsed = SystemClock.elapsedRealtime();
-        display.recoverAfterError();
-        display.close();
         appliedBrightness = -1;
-        nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + 500L;
-        if (usbErrorStreak >= USB_RESET_AFTER_ERRORS) {
+        // On the S20 the observed failure is a DWC3 OUT timeout after the first
+        // 16 KiB of a frame. A software close/open reconnects briefly but the
+        // panel then goes silent and forces the same port reset 15 seconds
+        // later. Reset immediately so one fault produces one short recovery.
+        boolean resetImmediately = PhoneName.isS20(Build.MODEL);
+        if (resetImmediately) {
             usbStatus = "USB 복구 중 · 휴대폰 HUD는 계속 실행";
             scheduleUsbPortReset(display.deviceNameOrNull(),
                     "USB 오류 · " + safeMessage(e) + " (휴대폰 HUD 정상)");
         } else {
-            usbStatus = "USB 오류 · " + safeMessage(e) + " (휴대폰 HUD 정상)";
+            display.recoverAfterError();
+            display.close();
+            nextUsbAttemptElapsed = SystemClock.elapsedRealtime() + 500L;
+            if (usbErrorStreak >= USB_RESET_AFTER_ERRORS) {
+                usbStatus = "USB 복구 중 · 휴대폰 HUD는 계속 실행";
+                scheduleUsbPortReset(display.deviceNameOrNull(),
+                        "USB 오류 · " + safeMessage(e) + " (휴대폰 HUD 정상)");
+            } else {
+                usbStatus = "USB 오류 · " + safeMessage(e) + " (휴대폰 HUD 정상)";
+            }
         }
         if (usbErrorStreak >= USB_SLOWDOWN_AFTER_ERRORS && frameIntervalMs < 250L) {
             frameIntervalMs = 250L;

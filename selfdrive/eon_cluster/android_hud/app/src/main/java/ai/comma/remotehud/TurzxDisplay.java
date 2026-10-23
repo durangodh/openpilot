@@ -8,6 +8,7 @@ import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
+import android.os.Build;
 import android.os.SystemClock;
 
 import java.nio.ByteBuffer;
@@ -63,7 +64,7 @@ public final class TurzxDisplay {
     static final int PID_97 = 0x0092;     // 기존 9.7인치
     static final int PID_123 = 0x0123;    // 12.3인치 (1920x720)
 
-    private static final int CHUNK_BYTES = 16384;
+    private static final int LEGACY_CHUNK_BYTES = 16384;
     // 정상 패널은 16KB 조각을 수 ms 안에 받는다. 패널이 멈췄을 때 렌더 스레드가
     // 조각마다 3초씩 묶여 HUD 가 0.5fps 로 멈춰 보였다(2026-10-22). 빨리 실패하고
     // 재연결로 넘어가도록 짧게 둔다.
@@ -405,14 +406,30 @@ public final class TurzxDisplay {
 
         // 패널이 보낸 응답만 비운다. halt 해제는 하지 않는다 (클래스 주석 1번 참고).
         drainInput(2, 1);
-        writeChunked(payload);
+        writeFrame(payload);
     }
 
-    private void writeChunked(byte[] payload) throws Exception {
+    private void writeFrame(byte[] payload) throws Exception {
+        // Android P removed the old 16 KiB usbfs request limit. Submit a complete
+        // frame as one URB on current phones: the SM-G981N repeatedly accepted
+        // the first 16 KiB request and then timed out on the second request after
+        // several minutes. Keeping the header and JPEG in one request removes
+        // that vulnerable request boundary. Old Android releases retain the
+        // compatible 16 KiB path below.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            int written = connection.bulkTransfer(
+                    out, payload, 0, payload.length, FRAME_WRITE_TIMEOUT_MS);
+            if (written != payload.length) {
+                throw new Exception("USB 프레임 일괄 쓰기 실패 "
+                        + Math.max(written, 0) + "/" + payload.length);
+            }
+            return;
+        }
+
         int offset = 0;
         byte[] chunk = null;
         while (offset < payload.length) {
-            int size = Math.min(CHUNK_BYTES, payload.length - offset);
+            int size = Math.min(LEGACY_CHUNK_BYTES, payload.length - offset);
             if (chunk == null || chunk.length != size) {
                 chunk = new byte[size];
             }
@@ -435,7 +452,7 @@ public final class TurzxDisplay {
         if (remaining <= 0 || connection == null || out == null) {
             return;
         }
-        byte[] zeros = new byte[Math.min(CHUNK_BYTES, remaining)];
+        byte[] zeros = new byte[Math.min(LEGACY_CHUNK_BYTES, remaining)];
         int left = remaining;
         while (left > 0) {
             int size = Math.min(zeros.length, left);
