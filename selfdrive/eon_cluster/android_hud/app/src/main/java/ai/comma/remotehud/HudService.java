@@ -4023,8 +4023,16 @@ public final class HudService extends Service {
     private static final int GAUGE_SEGMENTS = 16;
     /** 정상 수온(75~105°C)일 때 계기판 냉각수 칸 수. */
     private static final int COOLANT_NORMAL_SEGMENTS = 7;
+    // 연료 막대: 주행가능거리 숫자 뒤부터 속도 원 오른쪽 아래까지(2026-10-23 요청으로 넓힘).
+    private static final float FUEL_GAUGE_LEFT = 178f;
+    private static final float FUEL_GAUGE_RIGHT = 364f;
+    /** 연료·냉각수 칸 두께. */
+    private static final float GAUGE_BAR_H = 10f;
     // 오른쪽 EON HUD 박스: EON onroad.cc drawCarrotHud 의 475x495 패널을 그 좌표 그대로 축소해 그린다.
     private static final float EON_BOX_LEFT = 865f;
+    // 냉각수 막대: EON 박스 왼쪽(네비모드는 도착정보 바 오른쪽) ~ 총주행거리 앞.
+    private static final float COOL_GAUGE_LEFT = EON_BOX_LEFT - 20f;
+    private static final float COOL_GAUGE_RIGHT = EON_BOX_LEFT + 122f;
     private static final float EON_BOX_TOP = 225f;
     private static final float EON_BOX_W = 270f;
     private static final float EON_BOX_SCALE = EON_BOX_W / 475f;
@@ -4229,8 +4237,8 @@ public final class HudService extends Service {
     /** 계기판처럼 GAUGE_SEGMENTS 칸으로 끊어 그린다. lit = 켜진 칸 수(왼쪽부터). */
     private void drawInfoGauge(Canvas c, Paint p, float left, float right, int lit,
                                String lo, String hi, boolean warn) {
-        float y = INFO_Y - 4f;
-        float gap = 1.5f;
+        float y = INFO_Y - 5f;
+        float gap = 2f;
         float cell = (right - left + gap) / GAUGE_SEGMENTS;
         int on = Math.max(0, Math.min(GAUGE_SEGMENTS, lit));
         int track = frameDark ? Color.rgb(84, 94, 106) : Color.rgb(205, 209, 214);
@@ -4241,19 +4249,19 @@ public final class HudService extends Service {
         for (int i = 0; i < GAUGE_SEGMENTS; i++) {
             float x1 = left + i * cell;
             p.setColor(i < on ? fill : track);
-            c.drawRect(x1, y - 3f, x1 + cell - gap, y + 3f, p);
+            c.drawRect(x1, y - GAUGE_BAR_H / 2f, x1 + cell - gap, y + GAUGE_BAR_H / 2f, p);
         }
         // 계기판처럼 칸 위에 가는 선과 0·1/4·1/2·3/4·끝 눈금(4칸마다)을 그린다.
-        float lineY = y - 7f;
+        float lineY = y - GAUGE_BAR_H / 2f - 5f;
         float barRight = left + GAUGE_SEGMENTS * cell - gap;
         p.setColor(ink());
         c.drawRect(left, lineY - 0.5f, barRight, lineY + 0.5f, p);
         for (int q = 0; q <= 4; q++) {
             float x = q == 4 ? barRight - 0.6f : left + q * 4 * cell + (q == 0 ? 0.6f : -gap / 2f);
-            c.drawRect(x - 0.6f, lineY - 0.5f, x + 0.6f, y - 4f, p);
+            c.drawRect(x - 0.6f, lineY - 0.5f, x + 0.6f, y - GAUGE_BAR_H / 2f - 1f, p);
         }
-        text(c, p, lo, left, y - 14f, 20f, ink(), Paint.Align.CENTER);
-        text(c, p, hi, right, y - 14f, 20f, ink(), Paint.Align.CENTER);
+        text(c, p, lo, left, lineY - 8f, 22f, ink(), Paint.Align.CENTER);
+        text(c, p, hi, right, lineY - 8f, 22f, ink(), Paint.Align.CENTER);
     }
 
     /** 아래 정보줄: 주유 아이콘·주행가능거리·연료 막대 | 냉각수 막대·총주행거리. */
@@ -4274,8 +4282,9 @@ public final class HudService extends Service {
                 ? (int) Math.round(fuelLevel) - FUEL_DISP_OFFSET
                 : (hasRange ? Math.round(Math.min(1f, (float) km / FULL_RANGE_KM) * GAUGE_SEGMENTS) : 0);
         fuelLit = Math.max(0, Math.min(GAUGE_SEGMENTS, fuelLit));
-        drawInfoGauge(c, p, 200f, 330f, fuelLit, "E", "F", fuelLit <= 2);
-        drawFuelIcon(c, p, 257f, INFO_Y - 24f, 18f);
+        drawInfoGauge(c, p, FUEL_GAUGE_LEFT, FUEL_GAUGE_RIGHT, fuelLit, "E", "F", fuelLit <= 2);
+        drawFuelIcon(c, p, (FUEL_GAUGE_LEFT + FUEL_GAUGE_RIGHT - fuelIconWidth(20f)) / 2f,
+                INFO_Y - 28f, 20f);
 
         JSONObject system = s.optJSONObject("system");
         double coolant = system == null ? Double.NaN : system.optDouble("coolantTemp", Double.NaN);
@@ -4288,14 +4297,14 @@ public final class HudService extends Service {
                     : (int) Math.round(Math.min(GAUGE_SEGMENTS, COOLANT_NORMAL_SEGMENTS
                             + (coolant - 105d) / 15d * (GAUGE_SEGMENTS - COOLANT_NORMAL_SEGMENTS)));
         }
-        // 냉각수 게이지 왼쪽 끝(C)을 EON 박스 왼쪽 끝(EON_BOX_LEFT)에 맞춘다.
+        // 냉각수 게이지는 EON 박스 왼쪽보다 조금 왼쪽(COOL_GAUGE_LEFT)에서 시작한다.
         // 네비모드에서는 오른쪽 칸 맨 아래로 옮긴다(그 위에 도착정보).
         int coolSave = c.save();
         if (naviLayout) {
             c.translate(NAVI_INFO_DX, 0f);
         }
-        drawInfoGauge(c, p, EON_BOX_LEFT, EON_BOX_LEFT + 100f, coolLit, "C", "H", coolLit >= 15);
-        drawCoolantThermometer(c, p, EON_BOX_LEFT + 50f, INFO_Y - 34f);
+        drawInfoGauge(c, p, COOL_GAUGE_LEFT, COOL_GAUGE_RIGHT, coolLit, "C", "H", coolLit >= 15);
+        drawCoolantThermometer(c, p, (COOL_GAUGE_LEFT + COOL_GAUGE_RIGHT) / 2f, INFO_Y - 40f);
 
         // 총주행거리(계기판 CLU12 적산거리)
         double odo = s.optDouble("odometer", -1d);
