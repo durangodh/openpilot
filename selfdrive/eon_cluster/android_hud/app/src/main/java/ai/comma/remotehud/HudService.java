@@ -4016,10 +4016,9 @@ public final class HudService extends Service {
     private static final float INFO_Y = 702f;
     // 연료량 신호가 없어 주행가능거리로 연료 막대를 추정한다(만충 약 650 km).
     private static final float FULL_RANGE_KM = 650f;
-    // CF_Clu_FuelDispLvl 는 계기판 연료 칸 수다. DH 계기판은 16칸(2026-10-23 확인: 16칸 중 15칸일 때
-    // HUD 막대가 85% 로 덜 차 보였다. 예전 20칸은 사진으로 어림한 값). 5비트 최댓값 31 로 나누면
-    // 거의 만충인데 막대가 절반이었다(2026-10-10, 주행가능 525 km).
-    private static final double FUEL_DISP_MAX = 16d;
+    // CF_Clu_FuelDispLvl 는 계기판 연료 칸 수보다 1 크다. DH 계기판 16칸 중 15칸일 때 원값 16
+    // (2026-10-23 EON 에서 확인). 그래서 켜진 칸 = 원값 - 1 로 쓴다.
+    private static final int FUEL_DISP_OFFSET = 1;
     /** 연료·냉각수 막대 칸 수(DH 계기판과 같게). */
     private static final int GAUGE_SEGMENTS = 16;
     /** 정상 수온(75~105°C)일 때 계기판 냉각수 칸 수. */
@@ -4269,12 +4268,12 @@ public final class HudService extends Service {
         float w = p.measureText(hasRange ? String.format(Locale.US, "%.0f", km) : "--");
         textNormal(c, p, "km", 66f + w, INFO_Y, 20f, ink(), Paint.Align.LEFT);
 
-        // 계기판 연료 표시값(CLU13, 켜진 칸 수 0~FUEL_DISP_MAX). 없으면 주행가능거리로 추정.
+        // 계기판 연료 표시값(CLU13, 켜진 칸 수 + 1). 없으면 주행가능거리로 추정.
         double fuelLevel = s.optDouble("fuelLevel", -1d);
-        float fuelFrac = Double.isFinite(fuelLevel) && fuelLevel >= 0d
-                ? (float) Math.min(1d, fuelLevel / FUEL_DISP_MAX)
-                : (hasRange ? (float) Math.min(1d, km / FULL_RANGE_KM) : 0f);
-        int fuelLit = Math.round(fuelFrac * GAUGE_SEGMENTS);
+        int fuelLit = Double.isFinite(fuelLevel) && fuelLevel >= 0d
+                ? (int) Math.round(fuelLevel) - FUEL_DISP_OFFSET
+                : (hasRange ? Math.round(Math.min(1f, (float) km / FULL_RANGE_KM) * GAUGE_SEGMENTS) : 0);
+        fuelLit = Math.max(0, Math.min(GAUGE_SEGMENTS, fuelLit));
         drawInfoGauge(c, p, 200f, 330f, fuelLit, "E", "F", fuelLit <= 2);
         drawFuelIcon(c, p, 257f, INFO_Y - 24f, 18f);
 
