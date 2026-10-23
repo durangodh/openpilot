@@ -89,7 +89,7 @@ public final class MainActivity extends Activity {
         // this Activity. The settings screen remains available on S9 display 0.
         if (Build.VERSION.SDK_INT >= 26 && getDisplay() != null
                 && getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY) {
-            // 확실한 값(자기 자신이 그 디스플레이 위에서 실행 중)이므로, 리모컨/
+            // 확실한 값(자기 자신이 그 디스플레이 위에서 실행 중)이므로,
             // 갭버튼처럼 창이 없는 경로가 dumpsys 탐지에 실패할 때 쓸 수 있게
             // 캐시해둔다.
             AppPrefs.setMirrorDisplayId(this, Display.DEFAULT_DISPLAY);

@@ -108,7 +108,7 @@ public final class AppPrefs {
      * nMirror의 가상 디스플레이 번호. 매번 dumpsys로 다시 찾는 대신, 한 번
      * 확실하게 알아낸 값(su 셸의 dumpsys 탐지 성공, 또는 MainActivity 자신이
      * 그 디스플레이 위에서 실행 중일 때의 getDisplay().getDisplayId())을
-     * 캐시해서 리모컨/갭버튼처럼 창(Activity)이 없는 경로에서도 재사용한다.
+     * 캐시해서 갭버튼처럼 창(Activity)이 없는 경로에서도 재사용한다.
      * -1 은 아직 모름.
      */
     public static int getMirrorDisplayId(Context context) {

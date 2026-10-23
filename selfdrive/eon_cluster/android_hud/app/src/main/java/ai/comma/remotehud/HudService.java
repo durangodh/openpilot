@@ -1282,7 +1282,7 @@ public final class HudService extends Service {
 
     /** displayAwareLaunchCommand 가 echo 로 찍는 실제 사용 디스플레이 번호를
      * 읽어 캐시(AppPrefs)에 갱신한다. dumpsys 탐지가 이번엔 성공했어도, 창이
-     * 없는 다음 번 호출(리모컨/갭버튼)에서 재사용할 수 있게 한다. */
+     * 없는 다음 번 호출(갭버튼)에서 재사용할 수 있게 한다. */
     private static void captureMirrorDisplayId(Context context, Process process) {
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(process.getInputStream()))) {
