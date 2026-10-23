@@ -228,6 +228,12 @@ def main():
     assert 'boolean stale = eonStale() || !s.optBoolean("drivingValid", true);' not in driving
     # Match navigation apps: any partial remaining minute is shown rounded up.
     assert 'Integer.toString((remainTime + 59) / 60)' in source
+    # Duplicate route heartbeats must preserve their original arrival clock.
+    eta = source.split("private void drawNaviEta(", 1)[1].split(
+        "/** 목적지 안내 중인지", 1)[0]
+    assert "navigationEtaClock.update(" in eta
+    assert ".format(new Date(arrivalWallMs))" in eta
+    assert "System.currentTimeMillis() + remainTime * 1000L" not in eta
     # GPS source replaces the old health badge, in its original top-row slot.
     badges = source.split("private void drawMapSourceBadge(", 1)[1].split(
         "private void drawJunction(", 1)[0]

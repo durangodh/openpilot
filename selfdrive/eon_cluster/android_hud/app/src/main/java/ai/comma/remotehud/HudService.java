@@ -497,6 +497,8 @@ public final class HudService extends Service {
     private boolean configuredNaviLayout;
     /** EON 선택 내비: 1=티맵, 2=네이버지도. */
     private volatile int configuredNavApp = 0;
+    /** 같은 내비 경로 스냅샷이 반복되어도 도착시각이 뒤로 밀리지 않게 유지한다. */
+    private final NavigationEtaClock navigationEtaClock = new NavigationEtaClock();
     /** 출력 대상 1: 외부 USB HUD, 2: S9 화면, 3: 동시 출력 */
 
     // 회전 카운트다운 (carrot-wip leftSec 방식: 단조감소)
@@ -7372,14 +7374,18 @@ public final class HudService extends Service {
 
     /** 폰 티맵 하단처럼 도착시각 · 남은 분 · 남은 km 를 한 줄로. */
     private void drawNaviEta(Canvas c, Paint p, JSONObject s) {
+        JSONObject navi = s.optJSONObject("navi");
+        boolean active = navi != null && navi.optBoolean("active", false);
+        int remainTime = navi == null ? 0 : navi.optInt("remainTime", 0);
+        int navApp = s.optInt("hudNavApp", configuredNavApp);
+        long arrivalWallMs = navigationEtaClock.update(
+                active, remainTime, navApp, System.currentTimeMillis());
         if (junctionMode < 2) {
             return;
         }
-        JSONObject navi = s.optJSONObject("navi");
-        if (navi == null || !navi.optBoolean("active", false)) {
+        if (!active) {
             return;
         }
-        int remainTime = navi.optInt("remainTime", 0);
         int remainDist = navi.optInt("remainDist", 0);
         if (remainTime <= 0 && remainDist <= 0) {
             return;
@@ -7395,9 +7401,9 @@ public final class HudService extends Service {
         c.drawRoundRect(scratchRect, 8f, 8f, p);
 
         String eta = "--:--";
-        if (remainTime > 0) {
+        if (arrivalWallMs > 0L) {
             eta = new SimpleDateFormat("HH:mm", Locale.KOREA)
-                    .format(new Date(System.currentTimeMillis() + remainTime * 1000L));
+                    .format(new Date(arrivalWallMs));
         }
         // 내비 앱들은 남은 분을 올림 표시한다. 초를 버리면 매 분 경계 전까지
         // 티맵·네이버·카카오보다 항상 1분 작게 보인다.
