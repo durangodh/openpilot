@@ -370,8 +370,9 @@ def main():
     # driving-state widgets visibly lag. Honour the configured FPS again.
     assert "S20_RENDER_FPS_CAP" not in source
     assert 'Math.min(15, currentState.optInt("hudFps", 8))' in source
-    assert "S20_USB_JPEG_LIMIT = 70_000" in source
-    assert "S20_USB_JPEG_RAISE_BELOW = 60_000" in source
+    # 70KB 제한에서도 같은 간격으로 끊겨(2026-10-23 b474) S20 도 90KB 로 되돌렸다.
+    assert "S20_USB_JPEG_LIMIT = USB_JPEG_LIMIT" in source
+    assert "USB_JPEG_LIMIT = 90_000" in source
     assert "USB_ERROR_STABLE_RESET_MS" in source
     ensure_usb = source.split("private boolean ensureUsbReady", 1)[1].split(
         "/**", 1)[0]

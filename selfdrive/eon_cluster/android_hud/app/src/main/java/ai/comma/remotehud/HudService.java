@@ -4876,7 +4876,10 @@ public final class HudService extends Service {
         int skyWidth = naviLayout ? WIDTH : DRIVE_W;
         int skyHeight = naviLayout ? NAVI_SKY_HEIGHT : ModelWorldGL.TOP;
         int fadeDepth = naviLayout ? NAVI_SKY_FADE_DEPTH : SkyBackground.DEFAULT_FADE_DEPTH;
-        SkyBackground.Sky sky = SkyBackground.get(icon, weather.isDay(),
+        // 하늘 낮/밤은 지도(주행화면) 테마를 따른다. 날씨의 낮/밤은 시간 단위로 바뀌어
+        // 해 질 무렵 어두운 지도 위에 밝은 낮 하늘이 겹쳐 경계가 보였다(2026-10-23 17:49).
+        boolean skyDay = !frameDark;
+        SkyBackground.Sky sky = SkyBackground.get(icon, skyDay,
                 weather.cloudPercent(), skyWidth, skyHeight, fadeDepth);
         if (sky == null || sky.bitmap == null || sky.bitmap.isRecycled()) {
             return;
@@ -4886,7 +4889,7 @@ public final class HudService extends Service {
         // 네비에서는 지도의 지명과 오른쪽 주행 장면이 아주 옅게 비치게 해
         // 별도 사진을 붙인 느낌을 줄인다. 주행모드는 기존 농도를 유지한다.
         // 흐린 밤 층운은 지도 지명이 구름 사이로 비치면 스티커처럼 보여 더 덮는다.
-        boolean nightOvercast = SkyBackground.isNightOvercast(icon, weather.isDay());
+        boolean nightOvercast = SkyBackground.isNightOvercast(icon, skyDay);
         p.setAlpha(naviLayout ? (nightOvercast ? NAVI_SKY_ALPHA_OVERCAST_NIGHT : NAVI_SKY_ALPHA) : 255);
         c.drawBitmap(sky.bitmap, 0f, 0f, p);
         p.setAlpha(255);
