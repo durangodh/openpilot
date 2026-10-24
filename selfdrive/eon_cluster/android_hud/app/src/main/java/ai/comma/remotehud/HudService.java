@@ -2248,6 +2248,18 @@ public final class HudService extends Service {
 
     private void sendUsbFrameUnderGate(Bitmap frame, Bitmap frame123, JSONObject currentState) {
         try {
+            // 밝기보다 primer 를 먼저 보낸다. 새로 연결된 패널은 primer 두 장 전에는 밝기
+            // 명령을 놓치고 기본(밝은) 값으로 남는데, 앱은 보냈다고 여겨 다시 보내지 않았다
+            // (2026-10-24: 주행 중 설정을 바꾸면 먹히고, 다음 주행·재연결 때는 다시 밝아짐).
+            if (usbNeedsPrimeFrame) {
+                Bitmap primerLogFrame = frame != null ? frame : frame123;
+                HudDiagnostics.log("usb-primer bitmap=" + primerLogFrame.getWidth() + "x"
+                        + primerLogFrame.getHeight() + " density=" + primerLogFrame.getDensity());
+                sendUsbPrimerFrame(frame, frame123);
+                usbNeedsPrimeFrame = false;
+                HudDiagnostics.log("usb-primer complete");
+            }
+
             int requestedBrightness = Math.max(0,
                     Math.min(100, currentState.optInt("hudBrightness", 0)));
             if (requestedBrightness == 0) {
@@ -2268,16 +2280,8 @@ public final class HudService extends Service {
                     display.setBrightness(requestedBrightness);
                     appliedBrightness = requestedBrightness;
                     lastBrightnessStepElapsed = now;
+                    HudDiagnostics.log("usb-brightness " + requestedBrightness);
                 }
-            }
-
-            if (usbNeedsPrimeFrame) {
-                Bitmap primerLogFrame = frame != null ? frame : frame123;
-                HudDiagnostics.log("usb-primer bitmap=" + primerLogFrame.getWidth() + "x"
-                        + primerLogFrame.getHeight() + " density=" + primerLogFrame.getDensity());
-                sendUsbPrimerFrame(frame, frame123);
-                usbNeedsPrimeFrame = false;
-                HudDiagnostics.log("usb-primer complete");
             }
 
             byte[] jpeg = encodeUsbJpeg(frame, jpegOut);
