@@ -11,6 +11,7 @@ import android.provider.Settings;
 import android.text.InputType;
 import android.view.InputDevice;
 import android.view.View;
+import android.view.WindowInsets;
 import android.widget.*;
 import java.util.ArrayList;
 
@@ -70,6 +71,14 @@ public final class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(20, 16, 20, 24);
         scroll.addView(root);
+        // Android 15 draws apps under the navigation bar; without this inset the
+        // last rows (the enable switch) stayed hidden behind it and could not be scrolled up.
+        scroll.setClipToPadding(false);
+        scroll.setOnApplyWindowInsetsListener((v, insets) -> {
+            android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+            v.setPadding(bars.left, 0, bars.right, bars.bottom + 48);
+            return insets;
+        });
         setContentView(scroll);
         root.addView(text("EON 리모컨 (S20 핫스팟 경유)"));
         root.addView(text("이 화면이 열려 있는 동안에는 버튼 확인만 하고 차량 명령은 보내지 않습니다."));
@@ -109,7 +118,9 @@ public final class MainActivity extends Activity {
             selected = names.size() - 1;
         }
         Spinner devices = new Spinner(this);
-        devices.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, names));
+        ArrayAdapter<String> deviceAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, names);
+        deviceAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        devices.setAdapter(deviceAdapter);
         devices.setSelection(selected);
         root.addView(devices);
         devices.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
@@ -179,7 +190,9 @@ public final class MainActivity extends Activity {
             String gesture = gestures[i];
             bindings.addView(text(labels[i]));
             Spinner select = new Spinner(this);
-            select.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, RemoteControl.LABELS));
+            ArrayAdapter<String> actionAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, RemoteControl.LABELS);
+            actionAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            select.setAdapter(actionAdapter);
             String action = RemoteControl.mapping(this, key, gesture);
             for (int n = 0; n < RemoteControl.ACTIONS.length; n++) if (RemoteControl.ACTIONS[n].equals(action)) select.setSelection(n);
             select.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
