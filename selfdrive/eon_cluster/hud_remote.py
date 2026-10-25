@@ -38,16 +38,13 @@ POLL_FRAMES = 5
 BUTTON_COMMANDS = {"res": "accelCruise", "set": "decelCruise",
                    "cancel": "cancel", "gap": "gapAdjustCruise"}
 # 핸들 버튼을 길게 누른 것과 같은 동작(carrot-wip accelCruiseLong 등, 2026-10-18).
-# RES/SET 길게 = 크루즈 속도 10단위, GAP 길게 = HUD 정보 박스 전환.
-LONG_BUTTON_COMMANDS = {"res_long": "accelCruise", "set_long": "decelCruise",
-                        "gap_long": "gapAdjustCruise"}
+# RES/SET 길게 = 크루즈 속도 10단위. 티맵↔네이버는 nav_toggle 이 직접 바꾼다.
+LONG_BUTTON_COMMANDS = {"res_long": "accelCruise", "set_long": "decelCruise"}
 PARAM_COMMANDS = ("nav_toggle", "nav_tmap", "nav_naver", "hud_box")
 LANE_COMMANDS = {"lane_left": -1, "lane_right": 1}
 ALL_COMMANDS = tuple(BUTTON_COMMANDS) + tuple(LONG_BUTTON_COMMANDS) + PARAM_COMMANDS + tuple(LANE_COMMANDS)
-# 길게 누름 유지 프레임(100Hz). RES/SET 은 CruiseButtonLongDelay 를 한 번만 넘기고,
-# GAP 은 cruise_helper.NAV_TOGGLE_HOLD_FRAMES(150) 를 넘긴다.
+# 길게 누름 유지 프레임(100Hz). RES/SET 은 CruiseButtonLongDelay 를 한 번만 넘긴다.
 LONG_DELAY_DEFAULT = 40
-GAP_LONG_HOLD_FRAMES = 152
 
 # 연결 키: 8자리(입력 편의). 32자리 키도 받는다.
 KEY_LENGTHS = (8, 32)
@@ -276,7 +273,7 @@ class RemoteButtonSource:
         continue
       if command in LONG_BUTTON_COMMANDS:
         self.hold_type = LONG_BUTTON_COMMANDS[command]
-        self.hold_frames = GAP_LONG_HOLD_FRAMES if command == "gap_long" else self._long_delay() + 2
+        self.hold_frames = self._long_delay() + 2
         return [(self.hold_type, True)]
       self.release_type = BUTTON_COMMANDS[command]
       return [(self.release_type, True)]
