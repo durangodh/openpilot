@@ -41,7 +41,7 @@ BUTTON_COMMANDS = {"res": "accelCruise", "set": "decelCruise",
 # RES/SET 길게 = 크루즈 속도 10단위, GAP 길게 = HUD 정보 박스 전환.
 LONG_BUTTON_COMMANDS = {"res_long": "accelCruise", "set_long": "decelCruise",
                         "gap_long": "gapAdjustCruise"}
-PARAM_COMMANDS = ("nav_toggle", "nav_tmap", "nav_naver")
+PARAM_COMMANDS = ("nav_toggle", "nav_tmap", "nav_naver", "hud_box")
 LANE_COMMANDS = {"lane_left": -1, "lane_right": 1}
 ALL_COMMANDS = tuple(BUTTON_COMMANDS) + tuple(LONG_BUTTON_COMMANDS) + PARAM_COMMANDS + tuple(LANE_COMMANDS)
 # 길게 누름 유지 프레임(100Hz). RES/SET 은 CruiseButtonLongDelay 를 한 번만 넘기고,
@@ -165,6 +165,13 @@ class RemoteCommandSync:
         self.events = events[-32:]
       elif command in LANE_COMMANDS:
         atomic_json(self.lane_file, {"direction": LANE_COMMANDS[command], "ts": now})
+      elif command == "hud_box":
+        # HUD info box: 1 = HUD info, 2 = trip summary.
+        try:
+          box = int(self.params.get("EonClusterHudInfoBox") or 1)
+        except (ValueError, TypeError):
+          box = 1
+        self.params.put("EonClusterHudInfoBox", "1" if box == 2 else "2")
       else:
         try:
           current = int(self.params.get("EonClusterHudNavApp") or 1)

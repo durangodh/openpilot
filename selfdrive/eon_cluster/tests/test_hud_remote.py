@@ -108,6 +108,14 @@ class HudRemoteTest(unittest.TestCase):
     session, token = self.hello()
     self.assertIsNone(self.cmd(session, token, "1" * 32, "reboot"))
 
+  def test_hud_box_toggles_info_box(self):
+    session, token = self.hello()
+    parked = hr.allowed_commands(True, True, False, False, False)
+    self.assertEqual(self.cmd(session, token, "4" * 32, "hud_box", parked)[2], "accepted")
+    self.assertEqual(self.params.get("EonClusterHudInfoBox"), b"2")
+    self.assertEqual(self.cmd(session, token, "5" * 32, "hud_box", parked)[2], "accepted")
+    self.assertEqual(self.params.get("EonClusterHudInfoBox"), b"1")
+
   def test_button_source_reads_journal_once(self):
     session, token = self.hello()
     source = hr.RemoteButtonSource(self.cmd_file, self.clock, long_delay=40)
