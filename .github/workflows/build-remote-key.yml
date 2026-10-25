@@ -1,0 +1,97 @@
+name: Build EON Remote Key APK
+
+concurrency:
+  group: remote-key-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [g_abcd, g_hud, g_remote]
+    paths:
+      - "selfdrive/eon_cluster/android_remote/**"
+      - "selfdrive/eon_cluster/hud_remote.py"
+      - "selfdrive/eon_cluster/tests/test_hud_remote.py"
+      - ".github/workflows/build-remote-key.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Check phone relay against EON receiver
+        run: |
+          python3 -m unittest selfdrive/eon_cluster/tests/test_hud_remote.py
+          python3 selfdrive/eon_cluster/android_remote/tests/test_relay_interop.py \
+            --java-home "$JAVA_HOME" --work "$RUNNER_TEMP/relay-interop"
+      - name: Restore permanent signing key
+        shell: bash
+        env:
+          REMOTE_HUD_KEYSTORE_BASE64: ${{ secrets.REMOTE_HUD_KEYSTORE_BASE64 }}
+          REMOTE_HUD_KEYSTORE_PASSWORD: ${{ secrets.REMOTE_HUD_KEYSTORE_PASSWORD }}
+          REMOTE_HUD_KEY_ALIAS: ${{ secrets.REMOTE_HUD_KEY_ALIAS }}
+          REMOTE_HUD_KEY_PASSWORD: ${{ secrets.REMOTE_HUD_KEY_PASSWORD }}
+        run: |
+          for required in REMOTE_HUD_KEYSTORE_BASE64 REMOTE_HUD_KEYSTORE_PASSWORD \
+            REMOTE_HUD_KEY_ALIAS REMOTE_HUD_KEY_PASSWORD; do
+            if [ -z "${!required}" ]; then
+              echo "$required secret is missing" >&2
+              exit 1
+            fi
+          done
+          printf '%s' "$REMOTE_HUD_KEYSTORE_BASE64" \
+            | base64 --decode > "$RUNNER_TEMP/remote-key-signing.p12"
+          chmod 600 "$RUNNER_TEMP/remote-key-signing.p12"
+          echo "REMOTE_HUD_KEYSTORE_PATH=$RUNNER_TEMP/remote-key-signing.p12" >> "$GITHUB_ENV"
+          echo "REMOTE_KEY_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          echo "REMOTE_KEY_VERSION_NAME=1.0-relay-b${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+      - name: Build debug APK
+        working-directory: selfdrive/eon_cluster/android_remote
+        env:
+          REMOTE_HUD_KEYSTORE_PASSWORD: ${{ secrets.REMOTE_HUD_KEYSTORE_PASSWORD }}
+          REMOTE_HUD_KEY_ALIAS: ${{ secrets.REMOTE_HUD_KEY_ALIAS }}
+          REMOTE_HUD_KEY_PASSWORD: ${{ secrets.REMOTE_HUD_KEY_PASSWORD }}
+        run: gradle :app:assembleDebug --stacktrace
+      - name: Verify permanent signing certificate
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re, subprocess
+          apk = pathlib.Path("selfdrive/eon_cluster/android_remote/app/build/outputs/apk/debug/app-debug.apk")
+          signer = sorted((pathlib.Path(os.environ["ANDROID_HOME"]) / "build-tools").glob("*/apksigner"))[-1]
+          report = subprocess.check_output([str(signer), "verify", "--verbose", "--print-certs", str(apk)], text=True)
+          matches = re.findall(r"certificate SHA-256 digest: ([0-9a-fA-F]{64})", report)
+          assert matches and len(set(x.lower() for x in matches)) == 1, report
+          cert = matches[0].lower()
+          assert cert == "8864e2b9ad307f5f189de9c747697854275089fc81296d6fbb5b2a9576d23c06", cert
+          print("Verified permanent certificate SHA-256: " + cert)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eon-remote-key-debug
+          path: selfdrive/eon_cluster/android_remote/app/build/outputs/apk/debug/app-debug.apk
+      - name: Publish latest APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset="$RUNNER_TEMP/EON-Remote-Key-latest.apk"
+          cp selfdrive/eon_cluster/android_remote/app/build/outputs/apk/debug/app-debug.apk "$asset"
+          if ! gh release view remote-key-auto >/dev/null 2>&1; then
+            gh release create remote-key-auto \
+              --title "EON Remote Key (phone relay)" \
+              --notes "Install on the everyday Android phone that pairs with the Bluetooth remote."
+          fi
+          gh release upload remote-key-auto "$asset" --clobber

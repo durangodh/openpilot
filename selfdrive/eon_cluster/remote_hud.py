@@ -18,6 +18,7 @@ import time
 import cereal.messaging as messaging
 from common.params import Params
 from selfdrive.eon_cluster.nav_selection import NavSelectionSync
+from selfdrive.eon_cluster.hud_remote import RemoteRelayServer, allowed_commands
 
 
 from selfdrive.modeld.constants import T_IDXS
@@ -54,6 +55,13 @@ MAP_IDLE_JPEG = base64.b64decode(
   "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAACAAIDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDz+iiigD//2Q==")
 MAX_TELEMETRY_FPS = 10
 PAUSED_TELEMETRY_FPS = 2
+# Keep sending to the HUD's own address through short Wi-Fi stalls. Falling
+# back to broadcast after 1.5 s made the large telemetry packet go out at the
+# lowest rate without retransmission, so one stall turned into a multi-second
+# HUD disconnect. A 1 Hz broadcast copy still finds a HUD whose address changed.
+HUD_UNICAST_HOLD_S = 30.0
+HUD_PROBE_AFTER_S = 1.5
+HUD_PROBE_INTERVAL_S = 1.0
 def _telemetry_fps(configured_fps):
   return PAUSED_TELEMETRY_FPS if configured_fps == 0 else min(MAX_TELEMETRY_FPS, configured_fps)
 
@@ -1428,6 +1436,12 @@ def main():
   map_thread = threading.Thread(target=map_server.run, args=(running, map_active, map_lock),
                                 name="remote-hud-assets", daemon=True)
   map_thread.start()
+  # Phone key remote relay (S23 on the S20 hotspot). Its own thread answers a
+  # press immediately; this loop only refreshes which commands the car allows.
+  relay = RemoteRelayServer(params)
+  relay_thread = threading.Thread(target=relay.run, args=(running,), name="remote-hud-relay", daemon=True)
+  relay_thread.start()
+  next_probe = 0.0
   noo_enabled = _param_bool(params, PARAM_NOO_ENABLED)
   path_offset = _path_offset(params)
   configured_fps = _param_int(params, PARAM_FPS, 10, 0, 15)
@@ -1441,6 +1455,7 @@ def main():
   while running[0]:
     started = time.monotonic()
     if not _remote_output_enabled(params):
+      relay.allowed = frozenset()
       connected = False
       last_ack = 0.0
       _publish_connected(params, published, False)
@@ -1462,13 +1477,22 @@ def main():
     try:
       packet = _packet(sm, noo_enabled, path_offset)
       packet.update(nav_selection.telemetry())
-      # S9 가 응답하는 동안은 그 주소로 직접(유니캐스트) 보낸다. 와이파이 브로드캐스트는
+      # HUD 가 응답한 적이 있으면 그 주소로 직접(유니캐스트) 보낸다. 와이파이 브로드캐스트는
       # 재전송 없이 최저 속도로 나가 여러 조각으로 나뉜 큰 패킷이 자주 통째로 사라졌다
-      # (2026-10-08: S9 응답 절반, 5~10초 공백 -> HUD "EON 연결 끊김"). 응답이 1.5초 끊기면
-      # 다시 브로드캐스트로 S9 를 찾는다.
-      unicast = hud_ip is not None and time.monotonic() - last_ack < 1.5
-      sock.sendto(json.dumps(packet, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
-                  (hud_ip if unicast else "255.255.255.255", PORT))
+      # (2026-10-08: S9 응답 절반, 5~10초 공백 -> HUD "EON 연결 끊김"). 응답이 끊겨도
+      # HUD_UNICAST_HOLD_S 동안은 유니캐스트를 유지하고, 1초마다 브로드캐스트 사본만 더 보낸다.
+      car = sm["carState"]
+      relay.allowed = allowed_commands(
+        sm.alive["deviceState"] and sm["deviceState"].started,
+        sm.alive["carState"] and sm.valid["carState"] and car.canValid,
+        car.gearShifter == "drive", car.brakePressed, car.gasPressed)
+      since_ack = time.monotonic() - last_ack
+      unicast = hud_ip is not None and since_ack < HUD_UNICAST_HOLD_S
+      data = json.dumps(packet, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+      sock.sendto(data, (hud_ip if unicast else "255.255.255.255", PORT))
+      if unicast and since_ack >= HUD_PROBE_AFTER_S and started >= next_probe:
+        sock.sendto(data, ("255.255.255.255", PORT))
+        next_probe = started + HUD_PROBE_INTERVAL_S
       try:
         for _ in range(64):
           reply, address = sock.recvfrom(256)
