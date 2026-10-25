@@ -58,8 +58,21 @@ def main():
     reply = eon.handle(datagram.encode(), drive)
     return reply.decode() if reply else None
 
-  # Before EON answers, presses are refused rather than silently queued forever.
-  assert phone("submit res").startswith("refused"), "press accepted without EON"
+  # A press before EON answers is queued, sent once a session arrives, and
+  # given up after GIVE_UP_MS if EON never answers.
+  assert phone("submit res") == "queued"
+  assert phone("command") == "-"
+  phone("advance 1600")
+  assert phone("command") == "-"  # the relay loop polls this; it expires the press
+  assert phone("state").startswith("idle|res · EON 연결 안 됨"), phone("state")
+  assert phone("submit set") == "queued"
+  sess = to_eon(phone("hello"))
+  assert sess and sess.startswith("SESS3 "), sess
+  assert phone("receive " + sess) == "eon"
+  ack = to_eon(phone("command"))
+  assert " accepted " in ack, ack
+  assert phone("receive " + ack) == "eon"
+  phone("advance 2100")
   sess = to_eon(phone("hello"))
   assert sess and sess.startswith("SESS3 "), sess
   assert phone("receive " + sess) == "eon"
@@ -77,7 +90,7 @@ def main():
   assert state.startswith("idle|res · EON 수신"), state
   # A late duplicate of the first datagram is answered but not applied twice.
   assert " accepted " in to_eon(first)
-  assert len(eon.events) == 1, eon.events
+  assert [e["cmd"] for e in eon.events].count("res") == 1, eon.events
 
   # Token expiry: EON answers 'stale', the phone re-hellos and resends the same request.
   assert phone("submit lane_left") == "queued"

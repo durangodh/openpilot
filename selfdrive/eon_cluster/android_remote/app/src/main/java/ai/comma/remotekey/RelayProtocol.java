@@ -21,7 +21,7 @@ final class RelayProtocol {
     static final long HELLO_FAST_MS = 300;
     /** A session younger than this is used for a command; EON keeps tokens for 6 s. */
     static final long SESSION_FRESH_MS = 5000;
-    /** Presses are refused when EON has not answered for this long. */
+    /** Status only: EON counts as connected while it answered within this time. */
     static final long EON_LOST_MS = 10000;
 
     final String client = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
@@ -67,7 +67,9 @@ final class RelayProtocol {
 
     /** HELLO3 when due: fast while a command waits for a session, otherwise every HELLO_MS. */
     byte[] hello(String key, long now) {
-        long interval = pending() && !sessionFresh(now) ? HELLO_FAST_MS : HELLO_MS;
+        boolean waiting = pending() && !sessionFresh(now);
+        if (waiting && sentAt < 0 && lastHelloAt < issuedAt) lastHelloAt = -100000;  // first HELLO for a queued press goes at once
+        long interval = waiting ? HELLO_FAST_MS : HELLO_MS;
         if (!key(key) || now - lastHelloAt < interval) return null;
         lastHelloAt = now;
         return signed(key, "HELLO3 " + client);
@@ -75,20 +77,23 @@ final class RelayProtocol {
 
     boolean submit(String action, long now) {
         expire(now);
-        if (!eonSeen(now)) { result = "EON 연결 안 됨 · 명령 보내지 않음"; return false; }
+        // A locked phone can let Wi-Fi doze for a few seconds. Instead of
+        // dropping the press, queue it: fast HELLOs reconnect and the command
+        // goes out if EON answers within GIVE_UP_MS.
         if (pending() && !action.equals("cancel")) { result = "이전 명령 확인 중"; return false; }
         pendingId = UUID.randomUUID().toString().replace("-", "");
         pendingCommand = action;
         issuedAt = now;
         sentAt = -100000;
-        result = action + " · 전송 중";
+        result = action + (sessionFresh(now) ? " · 전송 중" : " · EON 다시 연결 중");
         return true;
     }
 
     private void expire(long now) {
         if (pending() && (now < issuedAt || now - issuedAt >= GIVE_UP_MS)) {
             pendingId = "";
-            result = pendingCommand + " · 응답 없음 (와이파이 확인)";
+            result = pendingCommand + (eonSeen(now) ? " · 응답 없음 (와이파이 확인)"
+                    : " · EON 연결 안 됨 (핫스팟·시동 확인)");
         }
     }
 
