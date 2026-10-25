@@ -20,10 +20,13 @@ public final class MainActivity extends Activity {
     private TextView status, keyLabel, battery;
     private LinearLayout bindings;
     private int displayedKey = -1;
+    private String displayedDevice = "";
     private final Runnable refresh = new Runnable() {
         public void run() {
             status.setText(RemoteControl.status());
             battery.setText(batteryText());
+            String device = RemoteControl.prefs(MainActivity.this).getString("device", "");
+            if (!device.equals(displayedDevice)) build();  // a learned key picked another device
             if (displayedKey != RemoteControl.learnedKey) showBindings(RemoteControl.learnedKey);
             handler.postDelayed(this, 250);
         }
@@ -112,6 +115,7 @@ public final class MainActivity extends Activity {
             if (RemoteControl.selected(this, device)) selected = names.size() - 1;
         }
         String savedDevice = RemoteControl.prefs(this).getString("device", "");
+        displayedDevice = savedDevice;
         if (selected == 0 && !savedDevice.isEmpty()) {
             descriptors.add(savedDevice);
             names.add(RemoteControl.prefs(this).getString("deviceName", "저장된 리모컨") + " (연결 안 됨)");
@@ -131,9 +135,15 @@ public final class MainActivity extends Activity {
                     // Mappings must be learned again for a different device.
                     String secret = RemoteControl.prefs(MainActivity.this).getString("secret", "");
                     boolean enabled = RemoteControl.prefs(MainActivity.this).getBoolean("enabled", false);
+                    InputDevice chosen = null;
+                    for (int deviceId : InputDevice.getDeviceIds()) {
+                        InputDevice d = InputDevice.getDevice(deviceId);
+                        if (d != null && d.getDescriptor().equals(descriptor)) chosen = d;
+                    }
                     RemoteControl.prefs(MainActivity.this).edit().clear().putString("secret", secret)
                             .putBoolean("enabled", enabled)
-                            .putString("device", descriptor).putString("deviceName", names.get(position)).apply();
+                            .putString("device", descriptor).putString("deviceName", names.get(position))
+                            .putString("deviceVidPid", chosen != null ? RemoteControl.vidPid(chosen) : "").apply();
                     RemoteControl.learnedKey = -1;
                     build();
                 }
@@ -157,7 +167,7 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "연결 키 저장됨", Toast.LENGTH_SHORT).show();
         });
 
-        root.addView(text("6. 리모컨 버튼을 누르고 동작 지정\n길게 누르기: 0.7초. 두 번 누르기를 지정하면 그 버튼의 짧게 누르기는 최대 0.35초 늦어집니다. "
+        root.addView(text("6. 리모컨 버튼을 누르고 동작 지정 (이 화면에서 누른 리모컨이 자동으로 선택됩니다)\n길게 누르기: 0.7초. 두 번 누르기를 지정하면 그 버튼의 짧게 누르기는 최대 0.35초 늦어집니다. "
                 + "빠른 반응이 필요한 버튼(RES/SET/차선변경)에는 두 번 누르기를 지정하지 마세요.\n"
                 + "차선변경 요청은 방향지시등을 켜지 않으며 기존 속도·차선·사각지대 조건을 따릅니다."));
         keyLabel = text("");

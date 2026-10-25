@@ -46,7 +46,11 @@ public final class RemoteKeyService extends AccessibilityService implements Inpu
     }
 
     @Override protected boolean onKeyEvent(KeyEvent event) {
-        if (engine == null || !RemoteControl.selected(this, event.getDevice()) || !RemoteControl.keyAllowed(event.getKeyCode())) return false;
+        if (engine == null || !RemoteControl.keyAllowed(event.getKeyCode())) return false;
+        android.view.InputDevice device = event.getDevice();
+        // While the settings screen is open any external device may be learned;
+        // otherwise only the chosen remote is consumed.
+        if (RemoteControl.configuring ? !RemoteControl.external(device) : !RemoteControl.selected(this, device)) return false;
         int key = event.getKeyCode();
         boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
         boolean up = event.getAction() == KeyEvent.ACTION_UP;
@@ -63,11 +67,13 @@ public final class RemoteKeyService extends AccessibilityService implements Inpu
         }
         if (!RemoteControl.configuring && (!RemoteControl.enabled(this) || !RemoteControl.mapped(this, key))) return false;
         boolean locked = keyguard != null && keyguard.isKeyguardLocked();
-        RemoteControl.lastInput = KeyEvent.keyCodeToString(key) + " / " + (down ? "누름" : "뗌") + (locked ? " (잠금 중)" : "");
+        RemoteControl.lastInput = KeyEvent.keyCodeToString(key) + " / " + (down ? "누름" : "뗌") + (locked ? " (잠금 중)" : "")
+                + "\n입력 장치: " + device.getName();
         if (down) {
             consumed.add(key);
             if (locked && event.getRepeatCount() == 0) RemoteControl.lockedInputs++;
             if (RemoteControl.configuring) {
+                RemoteControl.adopt(this, device);
                 RemoteControl.learnedKey = key;
                 engine.reset();
             } else if (event.getRepeatCount() == 0) {

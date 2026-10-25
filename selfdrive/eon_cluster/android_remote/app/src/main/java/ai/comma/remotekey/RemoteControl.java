@@ -24,8 +24,30 @@ final class RemoteControl {
 
     static boolean external(InputDevice d) { return d != null && !d.isVirtual() && d.isExternal(); }
 
+    /** One remote can appear as several input devices (keyboard, mouse, consumer
+     *  control); they share vendor/product IDs, so any of them counts. */
+    static String vidPid(InputDevice d) { return d.getVendorId() + ":" + d.getProductId(); }
+
     static boolean selected(Context c, InputDevice d) {
-        return external(d) && d.getDescriptor().equals(prefs(c).getString("device", ""));
+        if (!external(d)) return false;
+        SharedPreferences p = prefs(c);
+        String id = p.getString("deviceVidPid", "");
+        return d.getDescriptor().equals(p.getString("device", "")) || (!id.isEmpty() && !id.equals("0:0") && id.equals(vidPid(d)));
+    }
+
+    /** Remember the device a learned key came from; mappings stay for the same remote. */
+    static void adopt(Context c, InputDevice d) {
+        SharedPreferences p = prefs(c);
+        if (d.getDescriptor().equals(p.getString("device", "")) && vidPid(d).equals(p.getString("deviceVidPid", ""))) return;
+        SharedPreferences.Editor e = p.edit();
+        if (!vidPid(d).equals(p.getString("deviceVidPid", ""))) {
+            // A different remote: its key codes need learning again.
+            String secret = p.getString("secret", "");
+            boolean enabled = p.getBoolean("enabled", false);
+            e.clear().putString("secret", secret).putBoolean("enabled", enabled);
+        }
+        e.putString("device", d.getDescriptor()).putString("deviceName", d.getName())
+                .putString("deviceVidPid", vidPid(d)).apply();
     }
 
     static boolean keyAllowed(int key) {
