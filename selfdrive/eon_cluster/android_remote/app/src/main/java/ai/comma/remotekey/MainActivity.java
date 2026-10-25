@@ -17,7 +17,9 @@ import java.util.ArrayList;
 
 public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private TextView status, keyLabel, battery;
+    private TextView status, keyLabel, battery, savedList;
+    /** Choices for the shown key; written only when 저장 is pressed. */
+    private final java.util.Map<String, String> pending = new java.util.HashMap<>();
     private LinearLayout bindings;
     private int displayedKey = -1;
     private String displayedDevice = "";
@@ -175,6 +177,9 @@ public final class MainActivity extends Activity {
         bindings = new LinearLayout(this);
         bindings.setOrientation(LinearLayout.VERTICAL);
         root.addView(bindings);
+        savedList = text("");
+        root.addView(savedList);
+        showSaved();
         displayedKey = -2;
         showBindings(RemoteControl.learnedKey);
 
@@ -190,6 +195,8 @@ public final class MainActivity extends Activity {
     }
 
     private void showBindings(int key) {
+        if (!pending.isEmpty()) Toast.makeText(this, "저장하지 않은 변경은 취소했습니다", Toast.LENGTH_SHORT).show();
+        pending.clear();
         displayedKey = key;
         bindings.removeAllViews();
         keyLabel.setText(key < 0 ? "선택한 리모컨의 버튼을 눌러주세요" : android.view.KeyEvent.keyCodeToString(key));
@@ -204,14 +211,55 @@ public final class MainActivity extends Activity {
             actionAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
             select.setAdapter(actionAdapter);
             String action = RemoteControl.mapping(this, key, gesture);
-            for (int n = 0; n < RemoteControl.ACTIONS.length; n++) if (RemoteControl.ACTIONS[n].equals(action)) select.setSelection(n);
+            for (int n = 0; n < RemoteControl.ACTIONS.length; n++) if (RemoteControl.ACTIONS[n].equals(action)) select.setSelection(n, false);
             select.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
                 public void onNothingSelected(AdapterView<?> p) { }
                 public void onItemSelected(AdapterView<?> p, View v, int position, long id) {
-                    RemoteControl.prefs(MainActivity.this).edit().putString(key + "." + gesture, RemoteControl.ACTIONS[position]).apply();
+                    String chosen = RemoteControl.ACTIONS[position];
+                    if (chosen.equals(RemoteControl.mapping(MainActivity.this, key, gesture))) pending.remove(gesture);
+                    else pending.put(gesture, chosen);
                 }
             });
             bindings.addView(select);
         }
+        Button save = new Button(this);
+        save.setText("저장");
+        save.setMinHeight(64);
+        save.setOnClickListener(v -> {
+            android.content.SharedPreferences.Editor e = RemoteControl.prefs(this).edit();
+            for (java.util.Map.Entry<String, String> entry : pending.entrySet()) e.putString(key + "." + entry.getKey(), entry.getValue());
+            e.apply();
+            Toast.makeText(this, pending.isEmpty() ? "바뀐 내용 없음" : "저장됨", Toast.LENGTH_SHORT).show();
+            pending.clear();
+            showSaved();
+        });
+        bindings.addView(save);
+    }
+
+    /** Every saved button assignment, so the result of 저장 is visible. */
+    private void showSaved() {
+        String[] gestures = {"short", "long", "double"};
+        String[] names = {"짧게", "길게", "두 번"};
+        StringBuilder out = new StringBuilder();
+        java.util.TreeSet<Integer> keys = new java.util.TreeSet<>();
+        for (String k : RemoteControl.prefs(this).getAll().keySet()) {
+            int dot = k.indexOf('.');
+            if (dot > 0) {
+                try { keys.add(Integer.parseInt(k.substring(0, dot))); } catch (NumberFormatException ignored) { }
+            }
+        }
+        for (int key : keys) {
+            for (int i = 0; i < gestures.length; i++) {
+                String action = RemoteControl.mapping(this, key, gestures[i]);
+                if (action.equals("none")) continue;
+                for (int n = 0; n < RemoteControl.ACTIONS.length; n++) {
+                    if (RemoteControl.ACTIONS[n].equals(action)) {
+                        out.append("\n").append(android.view.KeyEvent.keyCodeToString(key).replace("KEYCODE_", ""))
+                                .append(" ").append(names[i]).append(" → ").append(RemoteControl.LABELS[n]);
+                    }
+                }
+            }
+        }
+        savedList.setText(out.length() == 0 ? "저장된 버튼 없음" : "저장된 버튼:" + out);
     }
 }
