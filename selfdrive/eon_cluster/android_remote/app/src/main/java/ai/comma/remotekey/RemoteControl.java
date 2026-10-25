@@ -15,21 +15,28 @@ final class RemoteControl {
             "RES 길게 (속도 +10)", "SET 길게 (속도 −10)", "HUD 정보 박스 전환"};
     static volatile boolean configuring = false, connected = false;
     static volatile int learnedKey = -1;
-    static volatile String lastInput = "버튼 입력 대기";
+
     /** Presses that arrived while the phone was locked (lock-screen test). */
-    static volatile int lockedInputs = 0;
-    /** Distinct keys seen while locked, in the order they arrived. */
-    static final java.util.Set<String> lockedKeys = java.util.Collections.synchronizedSet(new java.util.LinkedHashSet<>());
+    /** Lock-test and last-input records live in their own file so they survive a
+     *  process restart while locked, and writing them does not fire the settings
+     *  listener that resets the gesture engine. */
+    static SharedPreferences diag(Context c) { return c.getSharedPreferences("lock_test", Context.MODE_PRIVATE); }
 
-    static void noteLocked(int key) {
-        lockedInputs++;
-        lockedKeys.add(KeyEvent.keyCodeToString(key).replace("KEYCODE_", ""));
+    static void setLastInput(Context c, String text) { diag(c).edit().putString("last", text).apply(); }
+
+    static void noteLocked(Context c, int key) {
+        SharedPreferences d = diag(c);
+        String name = KeyEvent.keyCodeToString(key).replace("KEYCODE_", "");
+        java.util.LinkedHashSet<String> keys = new java.util.LinkedHashSet<>(
+                java.util.Arrays.asList(d.getString("keys", "").split(",")));
+        keys.remove("");
+        keys.add(name);
+        d.edit().putInt("count", d.getInt("count", 0) + 1).putString("keys", String.join(",", keys)).apply();
     }
 
-    static void resetLocked() {
-        lockedInputs = 0;
-        lockedKeys.clear();
-    }
+    static void resetLocked(Context c) { diag(c).edit().remove("count").remove("keys").apply(); }
+
+    static void serviceStarted(Context c) { diag(c).edit().putLong("serviceStart", System.currentTimeMillis()).apply(); }
     static volatile RelayClient client;
 
     static SharedPreferences prefs(Context c) { return c.getSharedPreferences("key_remote", Context.MODE_PRIVATE); }
@@ -95,7 +102,7 @@ final class RemoteControl {
         synchronized (relay.protocol) { return relay.protocol.drive; }
     }
 
-    static String status() {
+    static String status(Context c) {
         RelayClient relay = client;
         String eon = "리모컨 입력 서비스 꺼짐 (접근성에서 켜세요)";
         if (relay != null) {
@@ -105,7 +112,12 @@ final class RemoteControl {
                         ? (relay.protocol.drive ? "\n차선변경 가능 (D단)" : "\n차선변경 대기 (D단 아님/페달)") : "");
             }
         }
-        return eon + "\n마지막 입력: " + lastInput + "\n잠금 중 받은 입력: " + lockedInputs + "회"
-                + (lockedKeys.isEmpty() ? "" : " (" + String.join(", ", lockedKeys) + ")");
+        SharedPreferences d = diag(c);
+        String keys = d.getString("keys", "");
+        long start = d.getLong("serviceStart", 0);
+        return eon + "\n마지막 입력: " + d.getString("last", "버튼 입력 대기")
+                + "\n잠금 중 받은 입력: " + d.getInt("count", 0) + "회" + (keys.isEmpty() ? "" : " (" + keys.replace(",", ", ") + ")")
+                + "\n입력 서비스 시작: " + (start == 0 ? "-" : new java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.KOREA)
+                .format(new java.util.Date(start)));
     }
 }

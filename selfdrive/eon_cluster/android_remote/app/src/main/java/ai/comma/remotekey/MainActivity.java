@@ -25,7 +25,7 @@ public final class MainActivity extends Activity {
     private String displayedDevice = "";
     private final Runnable refresh = new Runnable() {
         public void run() {
-            status.setText(RemoteControl.status());
+            status.setText(RemoteControl.status(MainActivity.this));
             battery.setText(batteryText());
             String device = RemoteControl.prefs(MainActivity.this).getString("device", "");
             if (!device.equals(displayedDevice)) build();  // a learned key picked another device
@@ -87,7 +87,7 @@ public final class MainActivity extends Activity {
         setContentView(scroll);
         root.addView(text("EON 리모컨 (S20 핫스팟 경유)"));
         root.addView(text("이 화면이 열려 있는 동안에는 버튼 확인만 하고 차량 명령은 보내지 않습니다."));
-        status = text(RemoteControl.status());
+        status = text(RemoteControl.status(this));
         root.addView(status);
 
         button(root, "1. 블루투스 설정 (리모컨 페어링)", () -> startActivity(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS)));
@@ -191,7 +191,7 @@ public final class MainActivity extends Activity {
         root.addView(enabled);
         root.addView(text("잠금 시험: 화면을 끄고 리모컨을 몇 번 누른 뒤 이 화면을 다시 열면 '잠금 중 받은 입력'이 늘어 있어야 합니다. "
                 + "늘지 않는 버튼은 잠금 중에 쓸 수 없으니 다른 버튼에 기능을 배정하세요."));
-        button(root, "잠금 시험 횟수 초기화", RemoteControl::resetLocked);
+        button(root, "잠금 시험 횟수 초기화", () -> RemoteControl.resetLocked(this));
     }
 
     private void showBindings(int key) {

@@ -37,6 +37,7 @@ public final class RemoteKeyService extends AccessibilityService implements Inpu
         inputs.registerInputDeviceListener(this, handler);
         keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
         RemoteControl.prefs(this).registerOnSharedPreferenceChangeListener(this);
+        RemoteControl.serviceStarted(this);
         relay = new RelayClient(this);
         relay.start();
         RemoteControl.client = relay;
@@ -69,9 +70,9 @@ public final class RemoteKeyService extends AccessibilityService implements Inpu
         // Record every press from the remote, mapped or not, so the lock-screen
         // test shows which keys Android still delivers while the phone is locked.
         boolean locked = keyguard != null && keyguard.isKeyguardLocked();
-        RemoteControl.lastInput = KeyEvent.keyCodeToString(key) + " / " + (down ? "누름" : "뗌") + (locked ? " (잠금 중)" : "")
-                + "\n입력 장치: " + device.getName();
-        if (down && locked && event.getRepeatCount() == 0) RemoteControl.noteLocked(key);
+        RemoteControl.setLastInput(this, KeyEvent.keyCodeToString(key) + " / " + (down ? "누름" : "뗌") + (locked ? " (잠금 중)" : "")
+                + "\n입력 장치: " + device.getName());
+        if (down && locked && event.getRepeatCount() == 0) RemoteControl.noteLocked(this, key);
         if (!RemoteControl.configuring && (!RemoteControl.enabled(this) || !RemoteControl.mapped(this, key))) return false;
         if (down) {
             consumed.add(key);
