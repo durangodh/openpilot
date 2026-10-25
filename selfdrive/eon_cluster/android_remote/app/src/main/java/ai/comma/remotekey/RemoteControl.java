@@ -18,6 +18,18 @@ final class RemoteControl {
     static volatile String lastInput = "버튼 입력 대기";
     /** Presses that arrived while the phone was locked (lock-screen test). */
     static volatile int lockedInputs = 0;
+    /** Distinct keys seen while locked, in the order they arrived. */
+    static final java.util.Set<String> lockedKeys = java.util.Collections.synchronizedSet(new java.util.LinkedHashSet<>());
+
+    static void noteLocked(int key) {
+        lockedInputs++;
+        lockedKeys.add(KeyEvent.keyCodeToString(key).replace("KEYCODE_", ""));
+    }
+
+    static void resetLocked() {
+        lockedInputs = 0;
+        lockedKeys.clear();
+    }
     static volatile RelayClient client;
 
     static SharedPreferences prefs(Context c) { return c.getSharedPreferences("key_remote", Context.MODE_PRIVATE); }
@@ -91,6 +103,7 @@ final class RemoteControl {
                         ? (relay.protocol.drive ? "\n차선변경 가능 (D단)" : "\n차선변경 대기 (D단 아님/페달)") : "");
             }
         }
-        return eon + "\n마지막 입력: " + lastInput + "\n잠금 중 받은 입력: " + lockedInputs + "회";
+        return eon + "\n마지막 입력: " + lastInput + "\n잠금 중 받은 입력: " + lockedInputs + "회"
+                + (lockedKeys.isEmpty() ? "" : " (" + String.join(", ", lockedKeys) + ")");
     }
 }

@@ -191,7 +191,7 @@ public final class MainActivity extends Activity {
         root.addView(enabled);
         root.addView(text("잠금 시험: 화면을 끄고 리모컨을 몇 번 누른 뒤 이 화면을 다시 열면 '잠금 중 받은 입력'이 늘어 있어야 합니다. "
                 + "늘지 않는 버튼은 잠금 중에 쓸 수 없으니 다른 버튼에 기능을 배정하세요."));
-        button(root, "잠금 시험 횟수 초기화", () -> RemoteControl.lockedInputs = 0);
+        button(root, "잠금 시험 횟수 초기화", RemoteControl::resetLocked);
     }
 
     private void showBindings(int key) {

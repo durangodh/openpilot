@@ -65,13 +65,15 @@ public final class RemoteKeyService extends AccessibilityService implements Inpu
             if (!RemoteControl.configuring) engine.release(key, now, event.isCanceled());
             return true;
         }
-        if (!RemoteControl.configuring && (!RemoteControl.enabled(this) || !RemoteControl.mapped(this, key))) return false;
+        // Record every press from the remote, mapped or not, so the lock-screen
+        // test shows which keys Android still delivers while the phone is locked.
         boolean locked = keyguard != null && keyguard.isKeyguardLocked();
         RemoteControl.lastInput = KeyEvent.keyCodeToString(key) + " / " + (down ? "누름" : "뗌") + (locked ? " (잠금 중)" : "")
                 + "\n입력 장치: " + device.getName();
+        if (down && locked && event.getRepeatCount() == 0) RemoteControl.noteLocked(key);
+        if (!RemoteControl.configuring && (!RemoteControl.enabled(this) || !RemoteControl.mapped(this, key))) return false;
         if (down) {
             consumed.add(key);
-            if (locked && event.getRepeatCount() == 0) RemoteControl.lockedInputs++;
             if (RemoteControl.configuring) {
                 RemoteControl.adopt(this, device);
                 RemoteControl.learnedKey = key;
