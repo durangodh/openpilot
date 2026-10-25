@@ -46,11 +46,12 @@ public final class RemoteKeyService extends AccessibilityService implements Inpu
     }
 
     @Override protected boolean onKeyEvent(KeyEvent event) {
-        if (engine == null || !RemoteControl.keyAllowed(event.getKeyCode())) return false;
+        if (engine == null) return false;
         android.view.InputDevice device = event.getDevice();
         // While the settings screen is open any external device may be learned;
         // otherwise only the chosen remote is consumed.
         if (RemoteControl.configuring ? !RemoteControl.external(device) : !RemoteControl.selected(this, device)) return false;
+        if (!RemoteControl.keyAllowed(event.getKeyCode())) return false;
         int key = event.getKeyCode();
         boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
         boolean up = event.getAction() == KeyEvent.ACTION_UP;

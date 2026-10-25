@@ -62,9 +62,11 @@ final class RemoteControl {
                 .putString("deviceVidPid", vidPid(d)).apply();
     }
 
+    /** Only events from the remote reach this check, so the phone's own BACK is unaffected.
+     *  The remote's BACK is allowed: it is one of the few keys Android delivers while locked. */
     static boolean keyAllowed(int key) {
         return key > 0 && key <= KeyEvent.getMaxKeyCode() && key != KeyEvent.KEYCODE_HOME &&
-                key != KeyEvent.KEYCODE_BACK && key != KeyEvent.KEYCODE_POWER && key != KeyEvent.KEYCODE_APP_SWITCH &&
+                key != KeyEvent.KEYCODE_POWER && key != KeyEvent.KEYCODE_APP_SWITCH &&
                 key != KeyEvent.KEYCODE_SLEEP && key != KeyEvent.KEYCODE_WAKEUP;
     }
 
