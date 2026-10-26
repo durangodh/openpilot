@@ -135,6 +135,30 @@ class HudRemoteTest(unittest.TestCase):
     self.clock.now += hr.LANE_CHANGE_HOLD_S + 0.05
     self.assertEqual(lane.poll(), 0)
 
+  def test_hud_status_link_and_event(self):
+    self.assertEqual(self.sync.hud_status(), {"link": 0})
+    self.sync.handle(signed("HELLO3 00112233445566aa 0"), self.drive)
+    self.assertEqual(self.sync.hud_status()["link"], 1)
+    session, token = self.hello()  # old phone app: no remote field counts as connected
+    self.assertEqual(self.sync.hud_status()["link"], 2)
+    self.sync.vehicle = (True, True, True, True, False)
+    braking = hr.allowed_commands(*self.sync.vehicle)
+    self.cmd(session, token, "6" * 32, "lane_right", braking)
+    status = self.sync.hud_status()
+    self.assertEqual((status["cmd"], status["ok"], status["why"]), ("차선 우", False, "브레이크"))
+    self.cmd(session, token, "7" * 32, "set")
+    status = self.sync.hud_status()
+    self.assertEqual((status["cmd"], status["ok"], status["why"]), ("SET", True, ""))
+    self.clock.now += hr.EVENT_SHOW_S + 0.1
+    self.assertNotIn("cmd", self.sync.hud_status())
+    self.clock.now += hr.LINK_LOST_S
+    self.assertEqual(self.sync.hud_status(), {"link": 0})
+
+  def test_hud_status_hidden_without_key(self):
+    self.params.store["HudRemoteKey"] = b""
+    self.sync.refresh_key()
+    self.assertIsNone(self.sync.hud_status())
+
 
 if __name__ == "__main__":
   unittest.main()

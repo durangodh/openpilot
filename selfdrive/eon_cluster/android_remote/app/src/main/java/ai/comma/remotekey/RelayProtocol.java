@@ -30,6 +30,7 @@ final class RelayProtocol {
     private String pendingId = "", pendingCommand = "";
     private long issuedAt, sentAt = -100000, lastHelloAt = -100000;
     boolean drive;
+    private boolean lastRemote = true;
     String result = "EON 찾는 중";
     long lastLatencyMs = -1;
 
@@ -65,14 +66,20 @@ final class RelayProtocol {
 
     boolean pending() { return !pendingId.isEmpty(); }
 
-    /** HELLO3 when due: fast while a command waits for a session, otherwise every HELLO_MS. */
-    byte[] hello(String key, long now) {
+    /** HELLO3 when due: fast while a command waits for a session, otherwise every HELLO_MS.
+     *  {@code remote} tells EON whether the paired remote is connected (HUD indicator);
+     *  a change goes out at once. */
+    byte[] hello(String key, long now, boolean remote) {
         boolean waiting = pending() && !sessionFresh(now);
+        if (remote != lastRemote) {
+            lastRemote = remote;
+            lastHelloAt = -100000;
+        }
         if (waiting && sentAt < 0 && lastHelloAt < issuedAt) lastHelloAt = -100000;  // first HELLO for a queued press goes at once
         long interval = waiting ? HELLO_FAST_MS : HELLO_MS;
         if (!key(key) || now - lastHelloAt < interval) return null;
         lastHelloAt = now;
-        return signed(key, "HELLO3 " + client);
+        return signed(key, "HELLO3 " + client + (remote ? " 1" : " 0"));
     }
 
     boolean submit(String action, long now) {

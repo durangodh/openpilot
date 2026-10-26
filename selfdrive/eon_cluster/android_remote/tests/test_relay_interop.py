@@ -108,6 +108,12 @@ def main():
   phone("receive " + ack)
   assert phone("state").startswith("idle|lane_left · EON 수신")
 
+  # Remote disconnected: the next HELLO goes out at once and the HUD shows it.
+  assert eon.hud_status()["link"] == 2
+  sess = to_eon(phone("hello0"))
+  assert sess and sess.startswith("SESS3 "), sess
+  assert eon.hud_status()["link"] == 1, eon.hud_status()
+
   # Wrong key on the phone: EON stays silent.
   bad = subprocess.run([java, "-cp", args.work, "ai.comma.remotekey.RelayDriver", "ffffffff"],
                        input="hello\n", capture_output=True, text=True).stdout.strip()

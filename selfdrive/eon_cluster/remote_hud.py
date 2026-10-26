@@ -18,7 +18,7 @@ import time
 import cereal.messaging as messaging
 from common.params import Params
 from selfdrive.eon_cluster.nav_selection import NavSelectionSync
-from selfdrive.eon_cluster.hud_remote import RemoteRelayServer, allowed_commands
+from selfdrive.eon_cluster.hud_remote import RemoteRelayServer
 
 
 from selfdrive.modeld.constants import T_IDXS
@@ -1455,7 +1455,7 @@ def main():
   while running[0]:
     started = time.monotonic()
     if not _remote_output_enabled(params):
-      relay.allowed = frozenset()
+      relay.disable()
       connected = False
       last_ack = 0.0
       _publish_connected(params, published, False)
@@ -1477,12 +1477,15 @@ def main():
     try:
       packet = _packet(sm, noo_enabled, path_offset)
       packet.update(nav_selection.telemetry())
+      remote = relay.sync.hud_status()
+      if remote is not None:
+        packet["remote"] = remote
       # HUD 가 응답한 적이 있으면 그 주소로 직접(유니캐스트) 보낸다. 와이파이 브로드캐스트는
       # 재전송 없이 최저 속도로 나가 여러 조각으로 나뉜 큰 패킷이 자주 통째로 사라졌다
       # (2026-10-08: S9 응답 절반, 5~10초 공백 -> HUD "EON 연결 끊김"). 응답이 끊겨도
       # HUD_UNICAST_HOLD_S 동안은 유니캐스트를 유지하고, 1초마다 브로드캐스트 사본만 더 보낸다.
       car = sm["carState"]
-      relay.allowed = allowed_commands(
+      relay.update_vehicle(
         sm.alive["deviceState"] and sm["deviceState"].started,
         sm.alive["carState"] and sm.valid["carState"] and car.canValid,
         car.gearShifter == "drive", car.brakePressed, car.gasPressed)

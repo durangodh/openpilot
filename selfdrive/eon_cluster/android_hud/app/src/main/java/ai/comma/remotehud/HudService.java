@@ -2950,6 +2950,9 @@ public final class HudService extends Service {
 
         drawLimitSign(c, p, s, stale, enabled);
         drawInfoRow(c, p, s);
+        if (!linkStale) {
+            drawRemoteStatus(c, p, s.optJSONObject("remote"));
+        }
 
         // Driving layout keeps NOO above the EON box. The navi layout
         // renders NOO separately at the map's bottom edge, after map overlays.
@@ -4266,6 +4269,66 @@ public final class HudService extends Service {
         }
         text(c, p, lo, left, lineY - 8f, 22f, ink(), Paint.Align.CENTER);
         text(c, p, hi, right, lineY - 8f, 22f, ink(), Paint.Align.CENTER);
+    }
+
+    // 리모컨(S23 중계) 표시: 속도 원 아래 ~ 연료 막대 위. 평소엔 아래 한 줄(연결 상태),
+    // 명령이 들어오면 REMOTE_EVENT_MS 동안 같은 자리를 키워 명령·결과를 보여 준다(2026-10-26).
+    private static final float REMOTE_LEFT = 70f;
+    private static final float REMOTE_RIGHT = 360f;
+    private static final float REMOTE_TOP = 548f;
+    private static final float REMOTE_BOTTOM = 642f;
+    private static final float REMOTE_LINE_H = 36f;
+    private static final long REMOTE_EVENT_MS = 1500L;
+    private int remoteSeq = -1;
+    private long remoteShowUntil;
+    private String remoteCmd = "", remoteResult = "";
+    private boolean remoteOk;
+
+    private void drawRemoteStatus(Canvas c, Paint p, JSONObject r) {
+        if (r == null) {
+            remoteShowUntil = 0L;
+            return;
+        }
+        long now = SystemClock.elapsedRealtime();
+        int seq = r.optInt("seq", -1);
+        if (seq >= 0 && seq != remoteSeq) {
+            remoteSeq = seq;
+            remoteCmd = r.optString("cmd", "");
+            remoteOk = r.optBoolean("ok", false);
+            String why = r.optString("why", "");
+            remoteResult = remoteOk ? "EON 수신" : why.isEmpty() ? "차단" : "차단 · " + why;
+            remoteShowUntil = now + Math.max(0L, REMOTE_EVENT_MS - Math.max(0, r.optInt("age", 0)));
+        }
+        int link = r.optInt("link", 0);
+        int dot = link == 2 ? Color.rgb(70, 220, 120) : link == 1 ? Color.rgb(255, 190, 60)
+                : Color.rgb(150, 150, 150);
+        boolean event = now < remoteShowUntil;
+        int edge = event ? (remoteOk ? Color.rgb(80, 200, 255) : Color.rgb(255, 170, 60)) : dot;
+        float top = event ? REMOTE_TOP : REMOTE_BOTTOM - REMOTE_LINE_H;
+        float radius = REMOTE_LINE_H / 2f;
+
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(175, 0, 0, 0));
+        scratchRect.set(REMOTE_LEFT, top, REMOTE_RIGHT, REMOTE_BOTTOM);
+        c.drawRoundRect(scratchRect, radius, radius, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(3f);
+        p.setColor(edge);
+        c.drawRoundRect(scratchRect, radius, radius, p);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(dot);
+        float dotY = top + REMOTE_LINE_H / 2f;
+        c.drawCircle(REMOTE_LEFT + 22f, dotY, 7f, p);
+
+        if (event) {
+            textNormal(c, p, remoteResult, REMOTE_RIGHT - 16f, dotY + 7f, 20f, edge, Paint.Align.RIGHT);
+            text(c, p, remoteCmd, REMOTE_LEFT + 16f, REMOTE_BOTTOM - 14f, 40f, Color.WHITE, Paint.Align.LEFT);
+        } else {
+            String label = link == 2 ? "리모컨 연결됨" : link == 1 ? "R1 연결 끊김" : "리모컨 연결 안 됨";
+            textNormal(c, p, label, REMOTE_LEFT + 38f, dotY + 8f, 22f, Color.rgb(230, 230, 230),
+                    Paint.Align.LEFT);
+        }
     }
 
     /** 아래 정보줄: 주유 아이콘·주행가능거리·연료 막대 | 냉각수 막대·총주행거리. */

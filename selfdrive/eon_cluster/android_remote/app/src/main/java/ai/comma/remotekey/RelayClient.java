@@ -87,10 +87,11 @@ final class RelayClient {
     private void flush() {
         long now = SystemClock.uptimeMillis();
         String key = key();
+        boolean remote = RemoteControl.remotePresent(context);
         byte[] hello, command;
         synchronized (protocol) {
             command = protocol.command(key, now);
-            hello = command == null ? protocol.hello(key, now) : null;
+            hello = command == null ? protocol.hello(key, now, remote) : null;
         }
         InetAddress target = eon;
         send(command, target);

@@ -54,6 +54,14 @@ final class RemoteControl {
         return d.getDescriptor().equals(p.getString("device", "")) || (!id.isEmpty() && !id.equals("0:0") && id.equals(vidPid(d)));
     }
 
+    /** True while the learned remote is connected (any of its input devices). */
+    static boolean remotePresent(Context c) {
+        for (int id : InputDevice.getDeviceIds()) {
+            if (selected(c, InputDevice.getDevice(id))) return true;
+        }
+        return false;
+    }
+
     /** Remember the device a learned key came from; mappings stay for the same remote. */
     static void adopt(Context c, InputDevice d) {
         SharedPreferences p = prefs(c);

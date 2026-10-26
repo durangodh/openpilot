@@ -16,7 +16,7 @@ public final class RelayDriver {
             String[] cmd = line.split(" ", 2);
             switch (cmd[0]) {
                 case "advance": now += Long.parseLong(cmd[1]); System.out.println("ok"); break;
-                case "hello": { byte[] b = p.hello(key, now); System.out.println(b == null ? "-" : new String(b, StandardCharsets.US_ASCII)); break; }
+                case "hello": case "hello0": { byte[] b = p.hello(key, now, cmd[0].equals("hello")); System.out.println(b == null ? "-" : new String(b, StandardCharsets.US_ASCII)); break; }
                 case "submit": System.out.println(p.submit(cmd[1], now) ? "queued" : "refused " + p.result); break;
                 case "command": { byte[] b = p.command(key, now); System.out.println(b == null ? "-" : new String(b, StandardCharsets.US_ASCII)); break; }
                 case "receive": System.out.println(p.receive(key, cmd[1], now) ? "eon" : "ignored"); break;

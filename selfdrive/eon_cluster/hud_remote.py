@@ -5,7 +5,7 @@ and forwards presses to EON over UDP. S20 then only serves the hotspot and the
 HUD, so Bluetooth no longer competes with the HUD link on one radio.
 
 Wire protocol (ASCII, every message ends with an HMAC-SHA256 of the rest):
-  phone -> EON  HELLO3 <client>                              (every ~2 s)
+  phone -> EON  HELLO3 <client> [<remote>]                   (every ~2 s; remote 1 = R1 connected)
   EON -> phone  SESS3 <client> <session> <token> <ttl_ms> <drive>
   phone -> EON  CMD3 <session> <token> <request> <command>    (resent until ACK)
   EON -> phone  ACK3 <request> <result>
@@ -46,6 +46,14 @@ ALL_COMMANDS = tuple(BUTTON_COMMANDS) + tuple(LONG_BUTTON_COMMANDS) + PARAM_COMM
 # 길게 누름 유지 프레임(100Hz). RES/SET 은 CruiseButtonLongDelay 를 한 번만 넘긴다.
 LONG_DELAY_DEFAULT = 40
 
+# HUD 리모컨 표시(2026-10-26). HELLO 가 이 시간 넘게 없으면 연결 안 됨.
+LINK_LOST_S = 6.0
+EVENT_SHOW_S = 1.5
+COMMAND_LABELS = {"res": "RES", "set": "SET", "gap": "GAP", "cancel": "취소",
+                  "res_long": "RES 길게", "set_long": "SET 길게",
+                  "nav_toggle": "맵 전환", "nav_tmap": "티맵", "nav_naver": "네이버",
+                  "hud_box": "정보 박스", "lane_left": "차선 좌", "lane_right": "차선 우"}
+
 # 연결 키: 8자리(입력 편의). 32자리 키도 받는다.
 KEY_LENGTHS = (8, 32)
 
@@ -85,6 +93,13 @@ class RemoteCommandSync:
     self.tokens = OrderedDict()
     self.applied = OrderedDict()
     self.events = []
+    self.vehicle = (False, False, False, False, False)
+    self.hello_at = None
+    self.remote_present = True
+    self.seq = 0
+    self.last_event = None
+    # Load the key now so the HUD shows "not connected" before the phone's first HELLO.
+    self.refresh_key()
 
   def refresh_key(self):
     raw = self.params.get("HudRemoteKey") or b""
@@ -97,6 +112,7 @@ class RemoteCommandSync:
       self.tokens.clear()
       self.applied.clear()
       self.events.clear()
+      self.hello_at = None
     return key
 
   def _signed(self, body):
@@ -125,7 +141,9 @@ class RemoteCommandSync:
       if not fresh(created, 0.0, now, TOKEN_TTL_S):
         del self.tokens[token]
 
-    if fields[0] == "HELLO3" and len(fields) == 2 and valid_hex(fields[1], 16):
+    if fields[0] == "HELLO3" and len(fields) in (2, 3) and valid_hex(fields[1], 16):
+      self.hello_at = now
+      self.remote_present = len(fields) == 2 or fields[2] == "1"
       token = uuid.uuid4().hex[:16]
       self.tokens[token] = now
       while len(self.tokens) > MAX_TOKENS:
@@ -149,9 +167,29 @@ class RemoteCommandSync:
     if command in allowed:
       result = "accepted" if self._apply(command, request, now) else "error"
     self.applied[request] = (command, result)
+    self.seq += 1
+    why = block_reason(command, *self.vehicle) if result == "blocked" else ("처리 실패" if result == "error" else "")
+    self.last_event = (self.seq, command, result, why, now)
     while len(self.applied) > MAX_APPLIED:
       self.applied.popitem(last=False)
     return self._signed("ACK3 %s %s" % (request, result))
+
+  def hud_status(self, now=None):
+    """HUD 리모컨 표시. link: 0 연결 안 됨, 1 폰만(R1 끊김), 2 정상. 키가 없으면 None."""
+    if not self.key:
+      return None
+    now = self.clock() if now is None else now
+    hello_at = self.hello_at
+    link = 0
+    if hello_at is not None and 0.0 <= now - hello_at <= LINK_LOST_S:
+      link = 2 if self.remote_present else 1
+    status = {"link": link}
+    event = self.last_event
+    if event is not None and 0.0 <= now - event[4] <= EVENT_SHOW_S:
+      seq, command, result, why, ts = event
+      status.update({"seq": seq, "cmd": COMMAND_LABELS.get(command, command),
+                     "ok": result == "accepted", "why": why, "age": int((now - ts) * 1000)})
+    return status
 
   def _apply(self, command, request, now):
     try:
@@ -187,6 +225,14 @@ class RemoteRelayServer:
   def __init__(self, params, port=REMOTE_PORT):
     self.sync = RemoteCommandSync(params)
     self.port = port
+    self.allowed = frozenset()
+
+  def update_vehicle(self, started, car_valid, drive, brake, gas):
+    self.sync.vehicle = (started, car_valid, drive, brake, gas)
+    self.allowed = allowed_commands(started, car_valid, drive, brake, gas)
+
+  def disable(self):
+    self.sync.vehicle = (False, False, False, False, False)
     self.allowed = frozenset()
 
   def run(self, running):
@@ -318,3 +364,21 @@ def allowed_commands(started, car_valid, drive, brake, gas):
     if drive and not brake and not gas:
       allowed.update(LANE_COMMANDS)
   return frozenset(allowed)
+
+
+def block_reason(command, started, car_valid, drive, brake, gas):
+  """allowed_commands 가 이 명령을 막은 이유(HUD 표시용)."""
+  if command in PARAM_COMMANDS:
+    return ""
+  if not started:
+    return "시동 꺼짐"
+  if not car_valid:
+    return "차량 데이터 없음"
+  if command in LANE_COMMANDS:
+    if not drive:
+      return "D단 아님"
+    if brake:
+      return "브레이크"
+    if gas:
+      return "가속페달"
+  return ""
