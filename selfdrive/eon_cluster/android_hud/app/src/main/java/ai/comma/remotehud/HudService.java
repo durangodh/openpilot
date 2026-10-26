@@ -462,6 +462,17 @@ public final class HudService extends Service {
     private long usbQualityLogElapsed;
     private final int[] recentJpegSizes = new int[6];
     private int recentJpegCount;
+    // 최근 패널 프레임 기록(인코딩 시작 시각·인코딩/쓰기 시간·바이트). 쓰기 실패 때
+    // 직전 USB_TRACE_WINDOW_MS 를 요약해 남긴다(2026-10-26: 네이버에서만 약 10분마다
+    // "일괄 쓰기 실패 0/…", 배선 교체 후에도 같음 → 직전 부하·간격을 보려고).
+    private static final int USB_TRACE_SIZE = 96;
+    private static final long USB_TRACE_WINDOW_MS = 5000L;
+    private final long[] usbTraceStart = new long[USB_TRACE_SIZE];
+    private final int[] usbTraceEncMs = new int[USB_TRACE_SIZE];
+    private final int[] usbTraceWriteMs = new int[USB_TRACE_SIZE];
+    private final int[] usbTraceBytes = new int[USB_TRACE_SIZE];
+    private int usbTraceCount;
+    private long usbFailEncStart, usbFailWriteStart;
     private int appliedBrightness = -1;
     private int configuredDayBrightness = 65;
     private int configuredNightBrightness = 35;
@@ -2284,12 +2295,23 @@ public final class HudService extends Service {
                 }
             }
 
+            long encStart = SystemClock.elapsedRealtime();
+            usbFailEncStart = encStart;
+            usbFailWriteStart = 0L;
             byte[] jpeg = encodeUsbJpeg(frame, jpegOut);
             byte[] jpeg123 = encodeUsbJpeg(frame123, jpegOut123);
+            long writeStart = SystemClock.elapsedRealtime();
+            usbFailWriteStart = writeStart;
             display.sendJpegs(jpeg, jpeg123);
             lastJpegBytes = (jpeg == null ? 0 : jpeg.length)
                     + (jpeg123 == null ? 0 : jpeg123.length);
             lastJpegSentElapsed = SystemClock.elapsedRealtime();
+            int slot = usbTraceCount++ % USB_TRACE_SIZE;
+            usbTraceStart[slot] = encStart;
+            usbTraceEncMs[slot] = (int) (writeStart - encStart);
+            usbTraceWriteMs[slot] = (int) (lastJpegSentElapsed - writeStart);
+            usbTraceBytes[slot] = lastJpegBytes;
+            usbFailEncStart = 0L;
             usbConnected = true;
             usbError = false;
             // A single good frame after reopening does not prove the link is
@@ -2383,9 +2405,61 @@ public final class HudService extends Service {
         SystemClock.sleep(USB_PRIMER_SETTLE_MS);
     }
 
+    /**
+     * 실패 직전 USB_TRACE_WINDOW_MS 동안 성공한 프레임 요약. gap = 인코딩 시작 간격,
+     * enc = JPEG 인코딩, write = USB 쓰기(ms). fail = 실패한 프레임의 인코딩·쓰기 시간.
+     */
+    private String usbTraceSummary(long now) {
+        int n = 0;
+        long gapSum = 0L, gapMax = 0L, encSum = 0L, encMax = 0L, writeSum = 0L, writeMax = 0L;
+        long previous = -1L;
+        StringBuilder lastWrites = new StringBuilder();
+        int first = Math.max(0, usbTraceCount - USB_TRACE_SIZE);
+        for (int i = first; i < usbTraceCount; i++) {
+            int slot = i % USB_TRACE_SIZE;
+            long start = usbTraceStart[slot];
+            if (now - start > USB_TRACE_WINDOW_MS) {
+                continue;
+            }
+            if (previous >= 0L) {
+                long gap = start - previous;
+                gapSum += gap;
+                gapMax = Math.max(gapMax, gap);
+            }
+            previous = start;
+            encSum += usbTraceEncMs[slot];
+            encMax = Math.max(encMax, usbTraceEncMs[slot]);
+            writeSum += usbTraceWriteMs[slot];
+            writeMax = Math.max(writeMax, usbTraceWriteMs[slot]);
+            if (i >= usbTraceCount - 8) {
+                if (lastWrites.length() > 0) lastWrites.append(',');
+                lastWrites.append(usbTraceWriteMs[slot]);
+            }
+            n++;
+        }
+        String fail = usbFailEncStart <= 0L ? "-"
+                : (usbFailWriteStart > 0L
+                        ? (usbFailWriteStart - usbFailEncStart) + "/" + (now - usbFailWriteStart)
+                        : (now - usbFailEncStart) + "/-");
+        long sinceLast = previous >= 0L ? now - previous : -1L;
+        return "n=" + n
+                + " gap=" + (n > 1 ? gapSum / (n - 1) : -1) + "/" + gapMax
+                + " enc=" + (n > 0 ? encSum / n : -1) + "/" + encMax
+                + " write=" + (n > 0 ? writeSum / n : -1) + "/" + writeMax
+                + " last_write=" + lastWrites
+                + " since_last=" + sinceLast
+                + " fail_enc/write=" + fail
+                + " fps_ms=" + frameIntervalMs
+                + String.format(Locale.US, " cpu=%.0f temp=%.1f",
+                        freshStat(s9CpuPercent, s9CpuSampleElapsed, now),
+                        freshStat(s9TempC, s9TempSampleElapsed, now));
+    }
+
     private void handleUsbError(Exception e) {
         HudDiagnostics.log("usb-error " + safeMessage(e) + " recent=" + recentJpegSizesText()
                 + " q=" + Math.min(jpegQuality, usbQualityCap));
+        HudDiagnostics.log("usb-pre-error " + usbTraceSummary(SystemClock.elapsedRealtime()));
+        usbFailEncStart = 0L;
         usbConnected = false;
         usbError = true;
         usbNeedsPrimeFrame = true;
@@ -2437,8 +2511,10 @@ public final class HudService extends Service {
                 usbNeedsPrimeFrame = true;
                 appliedBrightness = -1;
                 if (running.get()) {
+                    // 재바인딩 직후 패널이 아직 안 잡혔으면 open 이 실패하고 1초 뒤 다시
+                    // 시도하므로 길게 기다릴 필요가 없다(2026-10-26: 2.5초 → 1초).
                     nextUsbAttemptElapsed = SystemClock.elapsedRealtime()
-                            + (reset ? 2500L : 1500L);
+                            + 1000L;
                     usbStatus = reset
                             ? "USB 재바인딩 완료 · 패널 재연결 대기"
                             : failureStatus;

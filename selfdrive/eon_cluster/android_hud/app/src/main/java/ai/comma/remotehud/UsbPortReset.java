@@ -36,7 +36,7 @@ final class UsbPortReset {
         String script =
                 "all_ok=1; for port in " + ports + "; do " +
                 "  if echo $port > /sys/bus/usb/drivers/usb/unbind 2>/dev/null; then " +
-                "    sleep 2; ok=0; for n in 1 2 3; do " +
+                "    sleep 1; ok=0; for n in 1 2 3; do " +
                 "      if echo $port > /sys/bus/usb/drivers/usb/bind 2>/dev/null; then " +
                 "        ok=1; break; " +
                 "      fi; sleep 1; " +
