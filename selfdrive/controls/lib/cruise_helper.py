@@ -967,7 +967,9 @@ class CruiseHelper:
     else:
       max_speed_clu = self.kph_to_clu(controls.v_cruise_kph)
 
-    if self.turn_vision_control:
+    # 내비 경로 커브 감속(ROUTE)은 NOO 를 켰을 때만. 목적지만 넣어도 교차로 회전 지점을
+    # 커브로 보고 감속해, NOO 를 꺼도 NOO 가 켜진 것처럼 느껴졌다(2026-10-26 요청).
+    if self.turn_vision_control and self.noo_enabled:
       map_speed = self.navigation_route.cached_map_curve_speed_kph(
         navi_state, CS.out.vEgo * CV.MS_TO_KPH,
         self.map_turn_speed_factor, self.auto_curve_speed_lower_limit,

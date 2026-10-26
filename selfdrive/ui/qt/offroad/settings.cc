@@ -1181,7 +1181,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", 50, 300, 5, 0, 120, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "MapTurnSpeedFactor", "2. 경로 커브 속도 비율 (%)",
-      "내비 경로(티맵·네이버) 곡률로 계산한 커브 통과 속도에 곱하는 비율입니다. 값 증가(+): 더 빠르게 통과(감속 줄어듦) / 값 감소(-): 더 느리게. 기본값: 90.",
+      "내비 경로(티맵·네이버) 곡률로 계산한 커브 통과 속도에 곱하는 비율입니다. NOO 를 켰을 때만 적용됩니다. 값 증가(+): 더 빠르게 통과(감속 줄어듦) / 값 감소(-): 더 느리게. 기본값: 90.",
       "../assets/offroad/icon_road.png", 50, 150, 5, 0, 90, this));
   toggleLayout->addWidget(new ParamValueControlF(
       "AutoCurveSpeedLowerLimit", "3. 커브 최저 속도 (km/h)",
