@@ -40,8 +40,8 @@ COLUMNS = [
   "v_ego", "a_ego", "gas", "brake", "standstill",
   # ⑦ 속도 제한(km/h): 적용 최고속도(카메라·커브 반영), 설정속도, 제한 원인(cam/bump/section/vturn/route/noo)
   "v_cruise", "set_speed", "apply_source",
-  # ⑧ 차간시간(초): MPC 추종시간(접근 여유 포함), 그중 앞차에 다가갈 때 더한 접근 여유
-  "t_follow", "gap_extra_tf",
+  # ⑧ 차간시간(초): MPC 추종시간
+  "t_follow",
   # ⑨ 카메라 모델 앞차 원값(레이더와 비교용): 거리(m, 레이더 기준), 속도(m/s), 확률
   "vis_d", "vis_v", "vis_prob",
 ]
@@ -149,7 +149,7 @@ def _row(sm):
     _f(cs.vEgo), _f(cs.aEgo), _i(cs.gasPressed), _i(cs.brakePressed), _i(cs.standstill),
     _f(ctl.vCruise, 1), _f(ctl.vCruiseCluster, 1),
     str(sm['carControl'].sccSmoother.applySource).replace(",", " ") or "-",
-    _f(plan.tFollow), _f(plan.gapExtraTf),
+    _f(plan.tFollow),
     *_vision_lead(sm),
   ]
 

@@ -337,7 +337,6 @@ class LongitudinalPlanner:
     longitudinalPlan.hasLead = sm['radarState'].leadOne.status
     longitudinalPlan.longitudinalPlanSource = self.mpc.source if self.mpc.source != 'cruise' else self.cruise_source
     longitudinalPlan.tFollow = float(self.mpc.t_follow)
-    longitudinalPlan.gapExtraTf = float(self.mpc.gap_extra_tf)  # 기록용
     longitudinalPlan.desiredDistance = float(self.mpc.desired_distance)
     longitudinalPlan.mpcMode = 1 if self.mpc.mode == 'blended' else 0
     longitudinalPlan.xState = self.mpc.xState
