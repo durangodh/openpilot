@@ -158,6 +158,37 @@ final class UsbPortReset {
     }
 
     /** /sys/bus/usb/devices 에서 지원하는 9.7/12.3인치 포트를 모두 찾는다. */
+    /**
+     * 패널과 그 위쪽 허브·루트허브의 USB 절전(autosuspend, USB2 링크 LPM)을 끈다.
+     * 2026-10-26 S20 로그: 쓰기가 1.4초 멈춘 뒤 실패, 패널은 장치 목록에 그대로, 커널에는
+     * "msm-dwc3 ... unexpected PWR_EVNT, link state = 0x0005"(USB2 early suspend)만 찍혔다.
+     * 프레임 사이 쉬는 동안 링크가 절전에 들어갔다 깨어나지 못한 것으로 본다.
+     * @return 장치별 "경로 control=전->후 lpm=전->후" 줄, 루트가 없으면 null
+     */
+    static String disablePowerSaving() {
+        return runAsRoot(
+                "for d in /sys/bus/usb/devices/*; do " +
+                "  [ -f \"$d/idVendor\" ] || continue; " +
+                "  v=$(cat \"$d/idVendor\"); p=$(cat \"$d/idProduct\"); " +
+                "  if [ \"$v\" = \"1cbe\" ] && { [ \"$p\" = \"0092\" ] || [ \"$p\" = \"0123\" ]; }; then " +
+                "    n=$(readlink -f \"$d\"); " +
+                "    while [ -n \"$n\" ] && [ -f \"$n/idVendor\" ]; do " +
+                "      c0=$(cat \"$n/power/control\" 2>/dev/null); " +
+                "      echo on > \"$n/power/control\" 2>/dev/null; " +
+                "      echo -1 > \"$n/power/autosuspend_delay_ms\" 2>/dev/null; " +
+                "      l0=-; l1=-; " +
+                "      if [ -f \"$n/power/usb2_hardware_lpm\" ]; then " +
+                "        l0=$(cat \"$n/power/usb2_hardware_lpm\"); " +
+                "        echo 0 > \"$n/power/usb2_hardware_lpm\" 2>/dev/null; " +
+                "        l1=$(cat \"$n/power/usb2_hardware_lpm\"); " +
+                "      fi; " +
+                "      echo \"$(basename \"$n\") control=$c0->$(cat \"$n/power/control\" 2>/dev/null) lpm=$l0->$l1\"; " +
+                "      n=$(dirname \"$n\"); " +
+                "    done; " +
+                "  fi; " +
+                "done");
+    }
+
     private static String findPorts() {
         String out = runAsRoot(
                 "for d in /sys/bus/usb/devices/*; do " +

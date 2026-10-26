@@ -2055,6 +2055,7 @@ public final class HudService extends Service {
             }
             if (openAfter > openBefore) {
                 HudDiagnostics.log("usb-open device=" + display.deviceNameOrNull());
+                disableUsbPowerSaving();
             }
             return true;
         } catch (Exception e) {
@@ -2453,6 +2454,27 @@ public final class HudService extends Service {
                 + String.format(Locale.US, " cpu=%.0f temp=%.1f",
                         freshStat(s9CpuPercent, s9CpuSampleElapsed, now),
                         freshStat(s9TempC, s9TempSampleElapsed, now));
+    }
+
+    /** 패널을 열 때마다(재연결 포함) USB 절전을 끄고 결과를 남긴다. 렌더 스레드 밖에서. */
+    private void disableUsbPowerSaving() {
+        Thread worker = new Thread(() -> {
+            String out = UsbPortReset.disablePowerSaving();
+            if (out == null) {
+                HudDiagnostics.log("usb-power no root");
+                return;
+            }
+            int lines = 0;
+            for (String line : out.split("\n")) {
+                String trimmed = line.trim();
+                if (trimmed.isEmpty()) continue;
+                HudDiagnostics.log("usb-power " + trimmed);
+                if (++lines >= 6) break;
+            }
+            if (lines == 0) HudDiagnostics.log("usb-power device not found");
+        }, "hud-usb-power");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     /**
