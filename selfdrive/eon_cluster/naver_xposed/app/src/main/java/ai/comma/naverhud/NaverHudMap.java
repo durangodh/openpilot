@@ -85,8 +85,6 @@ final class NaverHudMap {
     private int width, height;       // 지금 만든 화면 크기
     private boolean builtWide;
     private float builtScale;
-    private int builtPhoneDpi, builtPhoneWidth;
-    private long phoneCheckedAt;
     private boolean failed;
     private long lastStyleAt;
     private long createdAt;
@@ -169,19 +167,6 @@ final class NaverHudMap {
             // 주행/네비모드나 지도 크기 설정이 바뀌었다: 새 크기·밀도로 다시 만든다.
             release();
         }
-        // 부팅 직후 HUD 지도만 크게 나오고 다른 내비를 갔다 오면 정상이었다(2026-10-26). 지도를 만들 때 한 번 읽은 휴대폰 화면 밀도·폭이 그 뒤 바뀌었을 가능성이 커서, 1초마다 다시 읽고 달라지면 HUD 지도를 새로 만든다. 값이 같으면 아무것도 하지 않는다.
-        long checkNow = SystemClock.elapsedRealtime();
-        if (surface != null && checkNow - phoneCheckedAt >= 1000) {
-            phoneCheckedAt = checkNow;
-            android.util.DisplayMetrics phone = PhoneDisplay.metrics(app.getApplicationContext());
-            int phoneWidth = Math.min(phone.widthPixels, phone.heightPixels);
-            if (phone.densityDpi > 0 && phoneWidth > 0
-                    && (phone.densityDpi != builtPhoneDpi || phoneWidth != builtPhoneWidth)) {
-                NaverHudLog.line("phone display changed " + builtPhoneDpi + "dpi/" + builtPhoneWidth
-                        + " -> " + phone.densityDpi + "dpi/" + phoneWidth + ", rebuilding HUD map");
-                release();
-            }
-        }
         if (surface == null && wide) {
             long now = SystemClock.elapsedRealtime();
             if (firstGuidedAt == 0) firstGuidedAt = now;
@@ -237,9 +222,6 @@ final class NaverHudMap {
         android.util.DisplayMetrics phone = PhoneDisplay.metrics(base);
         float phoneDensity = phone.density;
         int phoneWidth = Math.min(phone.widthPixels, phone.heightPixels);
-        builtPhoneDpi = phone.densityDpi;
-        builtPhoneWidth = phoneWidth;
-        phoneCheckedAt = SystemClock.elapsedRealtime();
         NaverHudLog.line("HUD map display " + PhoneDisplay.describe(base));
         builtWide = EonDiscovery.wideMap;
         builtScale = EonDiscovery.mapScale;
