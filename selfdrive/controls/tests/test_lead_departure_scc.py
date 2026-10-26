@@ -24,7 +24,7 @@ def scc_limits(assisted=True, state='pid', braking=False, gas=False, soft_hold=F
   env = dict(clip=clip, interp=interp, DT_CTRL=0.01, 
              LongCtrlState=NS(off='off', pid='pid', stopping='stopping', starting='starting'))
   exec(compile(module, str(source), 'exec'), env)
-  controller = NS(frame=1, soft_hold_mode=2,
+  controller = NS(frame=1, soft_hold_mode=2, scc_stop_latched=False,
                   scc_smoother=NS(update=lambda *args: None), packer=None)
   cc = NS(enabled=True, longActive=active)
   cs = NS(out=NS(vEgo=0.0, standstill=True, brakePressed=braking, gasPressed=gas))

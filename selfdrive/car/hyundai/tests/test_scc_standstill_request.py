@@ -45,3 +45,16 @@ def test_early_stopreq_release_drops_stop_request_only_when_stopping():
 def test_soft_hold_keeps_stop_request_even_with_pre_release():
   gate = load_stop_request_gate()
   assert gate(True, True, True, 0.0, pre_release=True)
+
+
+def test_latched_stop_request_survives_creep_around_threshold():
+  gate = load_stop_request_gate()
+  assert not gate(True, False, False, 0.104)
+  assert gate(True, False, False, 0.104, latched=True)
+  assert gate(True, False, False, 0.17, latched=True)
+
+
+def test_latch_never_outlives_stopping_or_pre_release():
+  gate = load_stop_request_gate()
+  assert not gate(False, False, False, 0.2, latched=True)
+  assert not gate(True, False, True, 0.0, pre_release=True, latched=True)

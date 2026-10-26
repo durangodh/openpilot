@@ -19,18 +19,24 @@ from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 VisualAlert = car.CarControl.HUDControl.VisualAlert
 
 
-def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego, pre_release=False):
+def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego, pre_release=False,
+                                  latched=False):
   """Assert Hyundai StopReq only after the vehicle has actually stopped.
 
   pre_release (EarlyStopReqRelease): LongControl saw the stopped lead start to
   move, so StopReq is dropped early while the negative brake request stays, to
   let the SCC begin leaving its standstill hold before the launch command.
   Soft hold (driver brake) always keeps StopReq.
+
+  latched: StopReq was already asserted in this stopping phase. Keep it until
+  stopping ends or pre_release, so a creep hovering around 0.1 m/s does not
+  toggle it. On 2026-10-26 it toggled four times in 1.2 s; the SCC released the
+  brake between toggles (+0.3 m/s2 forward) and then grabbed it again.
   """
   actual_standstill = car_standstill or v_ego < 0.1
   if soft_hold_scc:
     return bool(actual_standstill)
-  return bool(stopping and actual_standstill and not pre_release)
+  return bool(stopping and (actual_standstill or latched) and not pre_release)
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
@@ -90,6 +96,7 @@ class CarController:
 
     self.scc_smoother = SccSmoother()
     self.soft_hold_mode = int(clip(param.get_int("SoftHoldMode"), 0, 2))
+    self.scc_stop_latched = False
     self.prev_active_cam = False
     self.active_cam_timer = 0
     self.last_active_cam_frame = 0
@@ -274,7 +281,9 @@ class CarController:
     jerk_stopping = stopping or soft_hold
     pre_release = stopping and bool(getattr(controls.LoC, 'stopreq_release_active', False))
     scc_stop_request = should_request_scc_standstill(
-      stopping, soft_hold_scc, CS.out.standstill, CS.out.vEgo, pre_release)
+      stopping, soft_hold_scc, CS.out.standstill, CS.out.vEgo, pre_release,
+      latched=self.scc_stop_latched)
+    self.scc_stop_latched = scc_stop_request and stopping and not pre_release
 
     # apilot-c2: MPC/PID chooses acceleration once; SCC14 is the sole
     # command-side jerk owner. Follow planned jerk in normal driving and keep
