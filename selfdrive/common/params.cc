@@ -281,7 +281,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudMapScaleTmap", PERSISTENT},   // 네비모드 HUD 지도 크기(주행모드 대비 %), 30~100
     {"EonClusterHudMapScaleKakao", PERSISTENT},
     {"EonClusterHudMapScaleNaver", PERSISTENT},
-    {"HudRemoteKey", PERSISTENT | DONT_LOG},           // phone remote HMAC pairing key; never sent in telemetry
     {"EonClusterHudNavApp", PERSISTENT},      // 0=선택 안 함, 1=티맵, 2=네이버지도
     {"EonClusterHudConnected", CLEAR_ON_MANAGER_START},
     {"EonClusterHudHeartbeat", CLEAR_ON_MANAGER_START},

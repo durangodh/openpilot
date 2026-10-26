@@ -9,7 +9,6 @@
 #include <tuple>
 
 #include <QDebug>
-#include <QUuid>
 
 #ifndef QCOM
 #include "selfdrive/ui/qt/offroad/networking.h"
@@ -1233,41 +1232,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   toggleLayout->addWidget(horizontal_line());
 
   // ── S9 외부 클러스터 HUD ──────────────────────────────────
-
-  auto remotePair = new ButtonControl("REMOTE PAIR", "PAIR",
-      "휴대폰 리모컨 앱(EON 리모컨)에 입력할 연결 키입니다. 시동을 끄거나 P단에서 확인하세요.");
-  toggleLayout->addWidget(remotePair);
-  connect(remotePair, &ButtonControl::clicked, [=]() {
-    // 주행 중에는 키 창을 띄우지 않는다. 시동이 켜져 있어도 P단이면 허용.
-    const SubMaster &sm = *(uiState()->sm);
-    bool parked = sm.alive("carState") &&
-                  sm["carState"].getCarState().getGearShifter() == cereal::CarState::GearShifter::PARK;
-    if (!Params().getBool("IsOffroad") && !parked) {
-      ConfirmationDialog::alert("시동을 끄거나 P단에서 연결 키를 확인하세요.", this);
-      return;
-    }
-    auto key = Params().get("HudRemoteKey");
-    if (key.empty()) {
-      key = QUuid::createUuid().toString(QUuid::WithoutBraces).remove('-').left(8).toStdString();
-      if (Params().put("HudRemoteKey", key) != 0) {
-        ConfirmationDialog::alert("연결 키 저장 실패", this);
-        return;
-      }
-    }
-    // 키를 맨 위에 둔다. 안내문이 먼저 오면 작은 EON 화면에서 키가 창 밖으로 잘린다.
-    QString shown = QString::fromStdString(key);
-    if (shown.size() > 16) shown = shown.left(16) + "\n" + shown.mid(16);
-    ConfirmationDialog::alert(shown + "\n\n휴대폰 리모컨 연결 키", this);
-  });
-  auto remoteForget = new ButtonControl("REMOTE UNPAIR", "DELETE", "등록한 휴대폰 리모컨 연결 키를 삭제합니다.");
-  toggleLayout->addWidget(remoteForget);
-  connect(remoteForget, &ButtonControl::clicked, [=]() {
-    if (Params().remove("HudRemoteKey") != 0) {
-      ConfirmationDialog::alert("연결 키 삭제 실패. 다시 시도하세요.", this);
-      return;
-    }
-    ConfirmationDialog::alert("리모컨 연결 키를 삭제했습니다.", this);
-  });
 
   toggleLayout->addWidget(new ParamControl(
       "EonClusterHud", "S9 EXTERNAL HUD",

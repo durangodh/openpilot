@@ -279,7 +279,7 @@ def manager_init() -> None:
                    "VisionRadarToggle", "SccSmootherState",
                    "LateralTorqueKd", "CarrotLearnFrictionBase",
                    "OPKRTimeZone", "ShowBlindSpotAlways", "EonClusterHudPathFlipV2Migrated",
-                   "EnableRadarTracks", "LatTraceEnabled"):
+                   "EnableRadarTracks", "LatTraceEnabled", "HudRemoteKey"):
     try:
       os.remove(os.path.join("/data/params/d", dead_key))
     except OSError:
