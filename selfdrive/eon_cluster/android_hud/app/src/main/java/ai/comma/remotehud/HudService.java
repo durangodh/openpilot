@@ -2455,11 +2455,52 @@ public final class HudService extends Service {
                         freshStat(s9TempC, s9TempSampleElapsed, now));
     }
 
+    /**
+     * 실패 순간 패널이 USB 장치 목록에 남아 있는지와 커널 USB 메시지 끝부분을 남긴다.
+     * "USB disconnect" 가 찍히면 연결이 잠깐 끊긴 것(전원·배선), 장치가 그대로면 패널/USB
+     * 컨트롤러 응답 문제로 나눠 볼 수 있다(2026-10-26: 부하 없이 쓰기만 1ms/1.4s 만에 실패).
+     * su 왕복은 렌더 스레드 밖에서 하고, 오류 한 번에 한 번만 읽는다.
+     */
+    private void logUsbFailureContext() {
+        boolean present;
+        try {
+            present = hasTurzxUsbDevice();
+        } catch (Throwable t) {
+            present = false;
+        }
+        HudDiagnostics.log("usb-fail-device present=" + present);
+        Thread worker = new Thread(() -> {
+            Process process = null;
+            try {
+                process = Runtime.getRuntime().exec(new String[] {"su", "-c",
+                        "dmesg | grep -iE 'usb|dwc3|xhci|hub' | tail -n 12"});
+                BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(process.getInputStream()));
+                String line;
+                int count = 0;
+                while ((line = reader.readLine()) != null && count < 12) {
+                    HudDiagnostics.log("usb-kmsg " + line.trim());
+                    count++;
+                }
+                if (!process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                    process.destroyForcibly();
+                }
+                if (count == 0) HudDiagnostics.log("usb-kmsg (none)");
+            } catch (Throwable t) {
+                HudDiagnostics.log("usb-kmsg read failed " + t.getClass().getSimpleName());
+                if (process != null) process.destroyForcibly();
+            }
+        }, "hud-usb-kmsg");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
     private void handleUsbError(Exception e) {
         HudDiagnostics.log("usb-error " + safeMessage(e) + " recent=" + recentJpegSizesText()
                 + " q=" + Math.min(jpegQuality, usbQualityCap));
         HudDiagnostics.log("usb-pre-error " + usbTraceSummary(SystemClock.elapsedRealtime()));
         usbFailEncStart = 0L;
+        logUsbFailureContext();
         usbConnected = false;
         usbError = true;
         usbNeedsPrimeFrame = true;
