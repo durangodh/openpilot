@@ -462,8 +462,7 @@ class LongControl:
 
     output_accel = self.last_output_accel
 
-    # 정차 중 멈춘 선행차를 확인했다면 플래너 속도만으로 출발하지 않는다.
-    # 새 radarState 샘플에서 선행차 이동이 연속 확인될 때 빠르게 출발한다.
+    # 멈춘 선행차 뒤에서는 플래너(MPC) 출발 계획을 그대로 따른다(aPilot).
     # 선행차 없이 정차한 경우(신호 등)는 기존 속도/지연 설정을 사용한다.
     lead_release = False
     if self.long_control_state == LongCtrlState.stopping:
@@ -479,8 +478,12 @@ class LongControl:
                                                   CS.standstill or CS.vEgo < 0.05)
       radar_fallback = self.lead_missing_frames >= LEAD_DROPOUT_FALLBACK_FRAMES
       if self.standstill_lead_latched and not radar_fallback:
+        # aPilot 처럼 멈춘 앞차 뒤에서도 플래너(MPC)가 출발을 계획하면 바로 푼다.
+        # 앞차 0.7 m 이동/1.0 m/s 확인을 기다리면 앞차 출발 뒤 0.65~0.75 s 늦게 풀렸다
+        # (10/18·10/20 aPilot 로그 0.10~0.15 s, 2026-10-27 비교). lead_release 는 출발 보조·
+        # 미리 풀기 판단에만 쓴다.
         self.start_request_frames = 0
-        start_gate = driver_override or lead_release
+        start_gate = True
       else:
         strong_request = v_target_1sec > max(self.CP.vEgoStarting, self.standstill_release_speed)
         self.start_request_frames = self.start_request_frames + 1 if strong_request else 0
