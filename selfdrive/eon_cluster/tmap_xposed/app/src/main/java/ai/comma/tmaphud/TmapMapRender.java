@@ -335,9 +335,25 @@ final class TmapMapRender {
 
     // ---- 카메라 ----
 
+    private long phoneDpiCheckedAt;
+
+    /** 부팅 직후 HUD 지도만 크게 나오고 다른 내비를 갔다 오면 정상이었다(2026-10-26). 지도를 만들 때 한 번 읽은 휴대폰 화면 밀도·폭이 그 뒤 바뀌었을 가능성이 커서, 1초마다 다시 읽고 달라지면 HUD 지도를 새로 만든다. 값이 같으면 아무것도 하지 않는다. mapDpi() 가 바뀌므로 syncSize 가 엔진을 다시 만든다. */
+    private void refreshPhoneDpi() {
+        long now = SystemClock.elapsedRealtime();
+        if (context == null || now - phoneDpiCheckedAt < 1000) return;
+        phoneDpiCheckedAt = now;
+        int dpi = PhoneDisplay.metrics(context).densityDpi;
+        if (dpi > 0 && dpi != phoneDpi) {
+            TmapHudLog.line("phone display changed " + phoneDpi + "dpi -> " + dpi + "dpi ("
+                    + PhoneDisplay.describe(context) + ")");
+            phoneDpi = dpi;
+        }
+    }
+
     private void syncLoop(int gen) {
         if (!running || gen != loopGeneration) return;
         try {
+            refreshPhoneDpi();
             syncSize();
             syncRouteTraffic(mainEngine());
             syncNightMode();
