@@ -50,7 +50,7 @@ final class WeatherService {
     private volatile long cooldownUntil = 0L;
     private volatile boolean busy = false;
     private volatile String lastError = "";
-    /** 네비모드 날씨 칸용 상세값(기온·예보·미세먼지). 없으면 null. */
+    /** 네비모드 날씨 칸용 상세값(기온·예보·에어코리아 미세먼지). 없으면 null. */
     private volatile Detail detail;
 
     /** 기온은 °C, 미세먼지는 µg/m³. 값이 없으면 NaN. days 는 내일부터 3일. */
@@ -75,8 +75,10 @@ final class WeatherService {
         fetchedLon = Double.longBitsToDouble(
                 prefs.getLong("lon", Double.doubleToLongBits(Double.NaN)));
         try {
+            JSONObject cachedAir = System.currentTimeMillis() - prefs.getLong("aqAt", 0L) <= MAX_AGE_MS
+                    ? new JSONObject(prefs.getString("aq", "{}")) : null;
             detail = AppPrefs.getKmaApiKey(this.context).isEmpty() ? null
-                    : parseDetail(new JSONObject(prefs.getString("body", "{}")), null);
+                    : parseDetail(new JSONObject(prefs.getString("body", "{}")), cachedAir);
         } catch (Throwable ignored) {
             detail = null;
         }
@@ -190,10 +192,38 @@ final class WeatherService {
             fetchedLat = lat;
             fetchedLon = lon;
             lastError = "";
-            detail = parseDetail(root, null);
+            JSONObject air = null;
+            try {
+                AirKorea.Result aq = AirKorea.fetch(key, lat, lon,
+                        prefs.getString("airStation", ""),
+                        Double.longBitsToDouble(prefs.getLong("airStationLat",
+                                Double.doubleToLongBits(Double.NaN))),
+                        Double.longBitsToDouble(prefs.getLong("airStationLon",
+                                Double.doubleToLongBits(Double.NaN))));
+                air = aq.data;
+                prefs.edit().putString("aq", air.toString())
+                        .putLong("aqAt", System.currentTimeMillis())
+                        .putLong("aqLat", Double.doubleToLongBits(lat))
+                        .putLong("aqLon", Double.doubleToLongBits(lon))
+                        .putString("airStation", aq.stationName)
+                        .putLong("airStationLat", Double.doubleToLongBits(aq.stationLat))
+                        .putLong("airStationLon", Double.doubleToLongBits(aq.stationLon)).apply();
+            } catch (Throwable ignored) {
+                long aqAt = prefs.getLong("aqAt", 0L);
+                double aqLat = Double.longBitsToDouble(prefs.getLong("aqLat",
+                        Double.doubleToLongBits(Double.NaN)));
+                double aqLon = Double.longBitsToDouble(prefs.getLong("aqLon",
+                        Double.doubleToLongBits(Double.NaN)));
+                if (System.currentTimeMillis() - aqAt <= MAX_AGE_MS
+                        && isFinite(aqLat) && isFinite(aqLon)
+                        && distanceM(lat, lon, aqLat, aqLon) < 20000d) {
+                    try { air = new JSONObject(prefs.getString("aq", "{}")); }
+                    catch (Throwable ignoredAgain) { air = null; }
+                }
+            }
+            detail = parseDetail(root, air);
             prefs.edit()
                     .putString("body", body)
-                    .remove("aq")
                     .putInt("code", code)
                     .putBoolean("day", day)
                     .putInt("cloud", cloudPct)
@@ -266,7 +296,8 @@ final class WeatherService {
         code = -1;
         detail = null;
         fetchedAt = 0L;
-        prefs.edit().remove("body").remove("aq").putInt("code", -1).putLong("at", 0L).apply();
+        prefs.edit().remove("body").remove("aq").remove("aqAt")
+                .putInt("code", -1).putLong("at", 0L).apply();
         cooldownUntil = System.currentTimeMillis() + RETRY_EMPTY_MS;
     }
 

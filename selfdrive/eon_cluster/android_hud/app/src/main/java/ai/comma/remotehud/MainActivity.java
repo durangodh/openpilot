@@ -330,7 +330,7 @@ public final class MainActivity extends Activity {
         root.addView(statusCard, cardParams());
 
         LinearLayout weatherCard = card();
-        weatherCard.addView(text("기상청 날씨", 18.0f, Color.WHITE, Typeface.BOLD));
+        weatherCard.addView(text("기상청 날씨 · 에어코리아", 18.0f, Color.WHITE, Typeface.BOLD));
         weatherValue = text("", 14.0f, Color.rgb(190, 200, 210), Typeface.NORMAL);
         LinearLayout.LayoutParams weatherStatusParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -452,7 +452,7 @@ public final class MainActivity extends Activity {
         if (weatherValue == null) return;
         boolean configured = !AppPrefs.getKmaApiKey(this).isEmpty();
         weatherValue.setText(configured
-                ? "인증키 저장됨 · 현재 기온과 예보를 기상청에서 조회합니다."
+                ? "인증키 저장됨 · 날씨는 기상청, 미세먼지는 에어코리아에서 조회합니다."
                 : "인증키 없음 · PC에서 만든 kma_key.txt를 선택해 주세요.");
         weatherValue.setTextColor(configured ? GREEN : AMBER);
     }

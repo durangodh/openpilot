@@ -10,17 +10,22 @@ def test_weather_uses_kma_only_and_keeps_key_private():
   kma = (JAVA / "KmaWeather.java").read_text(encoding="utf-8")
   prefs = (JAVA / "AppPrefs.java").read_text(encoding="utf-8")
   activity = (JAVA / "MainActivity.java").read_text(encoding="utf-8")
+  air = (JAVA / "AirKorea.java").read_text(encoding="utf-8")
 
   assert "getUltraSrtNcst" in kma
   assert "getVilageFcst" in kma
   assert "T1H" in kma and "REH" in kma and "WSD" in kma
   assert "KmaWeather.fetch(key, lat, lon)" in service
-  assert "api.open-meteo.com" not in service + kma
-  assert "air-quality-api.open-meteo.com" not in service + kma
+  assert "getMsrstnList" in air
+  assert "getMsrstnAcctoRltmMesureDnsty" in air
+  assert "pm10Value" in air and "pm25Value" in air
+  assert "AirKorea.fetch(key, lat, lon" in service
+  assert "api.open-meteo.com" not in service + kma + air
+  assert "air-quality-api.open-meteo.com" not in service + kma + air
   assert 'private static final String KMA_API_KEY = "kma_api_key"' in prefs
   assert "ACTION_OPEN_DOCUMENT" in activity
   assert "KMA_KEY_FILE_REQUEST" in activity
-  assert "BuildConfig" not in service + kma
+  assert "BuildConfig" not in service + kma + air
 
 
 def test_kma_grid_reference_points():
