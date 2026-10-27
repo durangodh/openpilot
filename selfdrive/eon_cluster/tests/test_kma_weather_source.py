@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-ROOT = Path(__file__).parents[3]
+ROOT = Path(__file__).resolve().parents[3]
 JAVA = ROOT / "selfdrive/eon_cluster/android_hud/app/src/main/java/ai/comma/remotehud"
 
 
