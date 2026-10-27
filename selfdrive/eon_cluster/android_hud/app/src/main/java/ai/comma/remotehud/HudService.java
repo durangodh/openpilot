@@ -2267,7 +2267,11 @@ public final class HudService extends Service {
                 Bitmap primerLogFrame = frame != null ? frame : frame123;
                 HudDiagnostics.log("usb-primer bitmap=" + primerLogFrame.getWidth() + "x"
                         + primerLogFrame.getHeight() + " density=" + primerLogFrame.getDensity());
-                sendUsbPrimerFrame(frame, frame123);
+                int primerBrightness = Math.max(0, Math.min(100, currentState.optInt("hudBrightness", 0)));
+                if (primerBrightness == 0) {
+                    primerBrightness = darkTheme() ? configuredNightBrightness : configuredDayBrightness;
+                }
+                sendUsbPrimerFrame(frame, frame123, primerBrightness);
                 usbNeedsPrimeFrame = false;
                 HudDiagnostics.log("usb-primer complete");
             }
@@ -2386,7 +2390,7 @@ public final class HudService extends Service {
     }
 
     /** Prime the decoder at native size without flashing a synthetic black frame. */
-    private void sendUsbPrimerFrame(Bitmap frame, Bitmap frame123) throws Exception {
+    private void sendUsbPrimerFrame(Bitmap frame, Bitmap frame123, int brightness) throws Exception {
         // A newly enumerated TURZX needs two correctly sized JPEGs before its
         // decoder is reliable. Use the already rendered HUD for both: a black
         // wake frame made every automatic recovery visible to the driver even
@@ -2398,6 +2402,16 @@ public final class HudService extends Service {
         display.sendJpegs(legacyPrimer, widePrimer);
         SystemClock.sleep(USB_PRIMER_WARMUP_MS);
         display.sendJpegs(legacyPrimer, widePrimer);
+        // 재연결 직후 패널은 기본(밝은) 밝기다. 두 번째 준비 화면 바로 뒤에 밝기를 먼저 보내
+        // 아래 대기(USB_PRIMER_SETTLE_MS) 동안 밝게 보이지 않게 한다(2026-10-27). 패널이 이 명령을
+        // 놓쳐도 대기 뒤 평소 경로가 한 번 더 보낸다.
+        if (brightness > 0) {
+            try {
+                display.setBrightness(brightness);
+            } catch (Exception ignored) {
+                // 평소 경로에서 다시 보낸다.
+            }
+        }
         // "첫 연결만 길게" 로 했다가, 부팅 초반(네비 동기화·GL 재시도 등이
         // 몰리는 구간)에 두 번째 재연결이 한 번 더 일어나면서 그 재연결엔
         // 0.2초로는 부족해 다시 화면이 구석에 박히는 게 재현됐다. 재연결

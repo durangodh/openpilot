@@ -357,8 +357,8 @@ def main():
     # Every new session primes both native JPEG surfaces with the already
     # rendered HUD. Recovery must not flash an intentional black frame.
     assert "usbNeedsPrimeFrame = true;" in source
-    assert "sendUsbPrimerFrame(frame, frame123);" in source
-    primer = source.split("private void sendUsbPrimerFrame(Bitmap frame, Bitmap frame123)", 1)[1].split(
+    assert "sendUsbPrimerFrame(frame, frame123, primerBrightness);" in source
+    primer = source.split("private void sendUsbPrimerFrame(Bitmap frame, Bitmap frame123, int brightness)", 1)[1].split(
         "private void handleUsbError", 1)[0]
     assert "c.drawColor(Color.BLACK)" not in primer
     assert "encodeJpeg(frame, jpegOut, 40)" in primer
@@ -366,6 +366,9 @@ def main():
     assert primer.count("display.sendJpegs") == 2
     assert "SystemClock.sleep(USB_PRIMER_WARMUP_MS)" in primer
     assert "SystemClock.sleep(USB_PRIMER_SETTLE_MS)" in primer
+    # Brightness goes right after the second primer frame, before the settle wait.
+    assert primer.index("display.setBrightness(brightness)") < primer.index(
+        "SystemClock.sleep(USB_PRIMER_SETTLE_MS)")
     # The 4 fps S20 cap did not prevent DWC3 BULK -110 stalls and made maps and
     # driving-state widgets visibly lag. Honour the configured FPS again.
     assert "S20_RENDER_FPS_CAP" not in source

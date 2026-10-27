@@ -67,8 +67,9 @@ public final class TurzxDisplay {
     private static final int LEGACY_CHUNK_BYTES = 16384;
     // 정상 패널은 16KB 조각을 수 ms 안에 받는다. 패널이 멈췄을 때 렌더 스레드가
     // 조각마다 3초씩 묶여 HUD 가 0.5fps 로 멈춰 보였다(2026-10-22). 빨리 실패하고
-    // 재연결로 넘어가도록 짧게 둔다.
-    private static final int FRAME_WRITE_TIMEOUT_MS = 1000;
+    // 재연결로 넘어가도록 짧게 둔다. S20 정상 프레임 쓰기는 3~8 ms(2026-10-27 usb-pre-error)라
+    // 1초 → 0.4초로 줄여 패널이 멈췄을 때 화면이 굳어 있는 시간을 줄인다.
+    private static final int FRAME_WRITE_TIMEOUT_MS = 400;
     private static final int COMMAND_WRITE_TIMEOUT_MS = 1000;
     private static final int SYNC_READ_TIMEOUT_MS = 1500;
     private static final long COMMAND_GAP_MS = 200L;
