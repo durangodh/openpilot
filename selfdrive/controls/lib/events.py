@@ -493,9 +493,8 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
     ET.PERMANENT: NormalPermanentAlert("Camera Malfunction", "Likely Hardware Issue"),
   },
 
-  EventName.cameraFrameRate: {
-    ET.PERMANENT: NormalPermanentAlert("Camera Frame Rate Low", "Reboot your Device"),
-  },
+  # 화면 알림 없음(2026-10-27 요청). 이벤트는 그대로 남아 로그로는 확인할 수 있다.
+  EventName.cameraFrameRate: {},
 
   EventName.gpsMalfunction: {
     ET.PERMANENT: NormalPermanentAlert("GPS Malfunction", "Likely Hardware Issue"),
