@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Rebuild the APM APK with the "EON / SSH" launcher icon from res/ (run by .github/workflows/build-apm-ssh.yml).
+# Rebuild the APM APK with the launcher icon from res/ (run by .github/workflows/build-apm-ssh.yml).
 #
 #   build.sh <original.apk> <apktool.jar> <build-tools dir> <keystore.p12> <output.apk>
 #   env: KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD

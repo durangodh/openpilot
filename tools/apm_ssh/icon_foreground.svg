@@ -1,8 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
-  <!-- APM launcher icon: terminal window with "EON" over "SSH". Adaptive foreground, 108x108, art inside the 66 safe zone. -->
-  <rect x="22" y="28" width="64" height="52" rx="7" fill="#161B22" stroke="#3CE07A" stroke-width="2.5"/>
-  <circle cx="30" cy="35" r="1.8" fill="#FF5F56"/><circle cx="36" cy="35" r="1.8" fill="#FFBD2E"/><circle cx="42" cy="35" r="1.8" fill="#27C93F"/>
-  <text x="54" y="53" text-anchor="middle" font-family="DejaVu Sans,sans-serif" font-weight="bold" font-size="11" fill="#E6EDF3" letter-spacing="1.5">EON</text>
-  <text x="25.5" y="72" font-family="DejaVu Sans Mono,monospace" font-weight="bold" font-size="9" fill="#8B949E">&gt;</text>
-  <text x="56" y="73" text-anchor="middle" font-family="DejaVu Sans Mono,monospace" font-weight="bold" font-size="17" fill="#3CE07A">SSH</text>
+  <!-- APM launcher icon: green up arrow and red down arrow, rounded corners and a bevel. Adaptive foreground, 108x108, art inside the 66 safe zone. -->
+  <defs>
+    <linearGradient id="up" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8BF07F"/><stop offset="0.55" stop-color="#3CC63A"/><stop offset="1" stop-color="#1F8F22"/>
+    </linearGradient>
+    <linearGradient id="down" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF6A55"/><stop offset="0.55" stop-color="#E81E14"/><stop offset="1" stop-color="#A50C0C"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(54 54) scale(0.8) translate(-54 -54)" stroke-linejoin="round" stroke-linecap="round">
+    <g transform="translate(-3 0)">
+    <path d="M22,52 L37.5,22 L53,52 L45,52 L45,86 L30,86 L30,52 Z" fill="#14701A" stroke="#14701A" stroke-width="6.4" transform="translate(1.8 1.8)"/>
+    <path d="M22,52 L37.5,22 L53,52 L45,52 L45,86 L30,86 L30,52 Z" fill="#1B7E20" stroke="#1B7E20" stroke-width="6.4"/>
+    <path d="M22,52 L37.5,22 L53,52 L45,52 L45,86 L30,86 L30,52 Z" fill="url(#up)" stroke="url(#up)" stroke-width="4"/>
+    <path d="M27,49 L37.5,28.5 L40,33.5 L31.5,49 Z" fill="#FFFFFF" fill-opacity="0.35" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="2"/>
+    </g>
+    <g transform="translate(3 0)">
+    <path d="M63,22 L78,22 L78,56 L86,56 L70.5,86 L55,56 L63,56 Z" fill="#7A0808" stroke="#7A0808" stroke-width="6.4" transform="translate(1.8 1.8)"/>
+    <path d="M63,22 L78,22 L78,56 L86,56 L70.5,86 L55,56 L63,56 Z" fill="#8E0A0A" stroke="#8E0A0A" stroke-width="6.4"/>
+    <path d="M63,22 L78,22 L78,56 L86,56 L70.5,86 L55,56 L63,56 Z" fill="url(#down)" stroke="url(#down)" stroke-width="4"/>
+    <path d="M65,24 L69,24 L69,54 L65,54 Z" fill="#FFFFFF" fill-opacity="0.3" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="2"/>
+    </g>
+  </g>
 </svg>
