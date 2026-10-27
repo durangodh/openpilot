@@ -3104,14 +3104,6 @@ public final class HudService extends Service {
         drawEonHudBox(c, p, s, stale, enabled);
         c.restoreToCount(boxSave);
 
-        int alertSave;
-        if (naviLayout) {
-            // 네비모드: 오른쪽 주행 칸 맨 아래(이벤트 표시).
-            alertSave = c.save();
-            c.translate(NAVI_DRIVE_CX - DRIVE_CX, NAVI_ALERT_CY - 326f);
-        } else {
-            alertSave = beginElement(c, l, "alert", DRIVE_CX, 336f);
-        }
         JSONObject alertBox = stale ? null : s.optJSONObject("alert");
         if (stale) {
             resetCountdown();
@@ -3119,7 +3111,17 @@ public final class HudService extends Service {
             // openpilot 이벤트 알림이 우선. 없을 때만 회전 카운트다운을 같은 자리에 띄운다.
             alertBox = turnCountdownAlert(s);
         }
-        drawAlert(c, p, alertBox);
+        int alertSave;
+        if (naviLayout) {
+            // 네비모드: 이벤트 문구는 속도 원 아래(화면 좌표, 2026-10-27). 연결 끊김 상자는
+            // 예전처럼 오른쪽 주행 칸 맨 아래.
+            drawNaviAlert(c, p, alertBox);
+            alertSave = c.save();
+            c.translate(NAVI_DRIVE_CX - DRIVE_CX, NAVI_ALERT_CY - 326f);
+        } else {
+            alertSave = beginElement(c, l, "alert", DRIVE_CX, 336f);
+            drawAlert(c, p, alertBox);
+        }
 
         if (stale) {
             p.setShader(null);
@@ -3161,6 +3163,69 @@ public final class HudService extends Service {
             c.translate(-(EON_BOX_LEFT + EON_BOX_W / 2f), -(EON_BOX_TOP + EON_BOX_BOTTOM) / 2f);
         }
         return save;
+    }
+
+    // 네비모드 이벤트 문구 자리: 속도 원(x1000rpm 밑선 535) 아래 ~ 연료 막대(윗끝 약 655) 위,
+    // 왼쪽 게이지 칸 가운데. 어두운 반투명 상자, 테두리 없음(2026-10-27 요청 A안, 글자 약 37px).
+    private static final float NAVI_ALERT_BOX_CX = 350f;
+    private static final float NAVI_ALERT_BOX_CY = 602f;
+    private static final float NAVI_ALERT_MAX_W = 600f;
+    private static final float NAVI_ALERT_TITLE = 37f;
+
+    private void drawNaviAlert(Canvas c, Paint p, JSONObject alert) {
+        if (alert == null) {
+            return;
+        }
+        String text1 = collapse(alert.optString("text1", ""));
+        String text2 = collapse(alert.optString("text2", ""));
+        if (text1.length() == 0) {
+            text1 = text2;
+            text2 = "";
+        }
+        if (text1.length() == 0) {
+            return;
+        }
+        String status = alert.optString("status", "").toLowerCase(Locale.US);
+        int titleColor = status.contains("critical") ? Color.rgb(255, 82, 96)
+                : (status.contains("prompt") || status.contains("warning"))
+                ? Color.rgb(255, 174, 82) : Color.WHITE;
+        float maxText = NAVI_ALERT_MAX_W - 48f;
+        float titleSize = text2.length() > 0 ? NAVI_ALERT_TITLE - 7f : NAVI_ALERT_TITLE;
+        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        p.setTextSize(titleSize);
+        while (titleSize > 20f && p.measureText(text1) > maxText) {
+            titleSize -= 1f;
+            p.setTextSize(titleSize);
+        }
+        float width = p.measureText(text1);
+        float detailSize = 19f;
+        if (text2.length() > 0) {
+            p.setTypeface(Typeface.create("sans", Typeface.NORMAL));
+            p.setTextSize(detailSize);
+            while (detailSize > 14f && p.measureText(text2) > maxText) {
+                detailSize -= 1f;
+                p.setTextSize(detailSize);
+            }
+            width = Math.max(width, p.measureText(text2));
+        }
+        float boxW = Math.min(NAVI_ALERT_MAX_W, width + 48f);
+        float boxH = text2.length() > 0 ? titleSize + detailSize + 30f : titleSize + 28f;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(Color.argb(165, 0, 0, 0));
+        scratchRect.set(NAVI_ALERT_BOX_CX - boxW / 2f, NAVI_ALERT_BOX_CY - boxH / 2f,
+                NAVI_ALERT_BOX_CX + boxW / 2f, NAVI_ALERT_BOX_CY + boxH / 2f);
+        c.drawRoundRect(scratchRect, 16f, 16f, p);
+        if (text2.length() > 0) {
+            float top = scratchRect.top + 12f;
+            text(c, p, text1, NAVI_ALERT_BOX_CX, top + titleSize * 0.82f, titleSize, titleColor,
+                    Paint.Align.CENTER);
+            textNormal(c, p, text2, NAVI_ALERT_BOX_CX, top + titleSize + 6f + detailSize * 0.82f,
+                    detailSize, Color.rgb(228, 233, 237), Paint.Align.CENTER);
+        } else {
+            text(c, p, text1, NAVI_ALERT_BOX_CX, NAVI_ALERT_BOX_CY + titleSize * 0.36f, titleSize,
+                    titleColor, Paint.Align.CENTER);
+        }
     }
 
     /**
