@@ -24,10 +24,12 @@ import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.io.File;
+import java.io.InputStream;
 
 /**
  * v0.13 변경점
@@ -39,6 +41,7 @@ import java.io.File;
 public final class MainActivity extends Activity {
 
     private static final int NOTIFICATION_PERMISSION_REQUEST = 72;
+    private static final int KMA_KEY_FILE_REQUEST = 74;
 
     private static final int GREEN = Color.rgb(0, 208, 132);
     private static final int RED = Color.rgb(255, 92, 92);
@@ -66,6 +69,7 @@ public final class MainActivity extends Activity {
     private Button moduleButton;
     private TextView moduleValue;
     private TextView updateValue;
+    private TextView weatherValue;
     private File pendingUpdateApk;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -188,6 +192,44 @@ public final class MainActivity extends Activity {
         }
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != KMA_KEY_FILE_REQUEST || resultCode != RESULT_OK
+                || data == null || data.getData() == null) {
+            return;
+        }
+        try (InputStream in = getContentResolver().openInputStream(data.getData())) {
+            if (in == null) throw new IllegalArgumentException("파일을 열 수 없습니다.");
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[512];
+            int read;
+            while ((read = in.read(buffer)) > 0 && out.size() <= 4096) {
+                out.write(buffer, 0, read);
+            }
+            String key = out.toString("UTF-8").replace("\uFEFF", "").trim();
+            if (!validKmaKey(key)) {
+                throw new IllegalArgumentException("인증키 형식이 아닙니다.");
+            }
+            AppPrefs.setKmaApiKey(this, key);
+            updateWeatherKeyStatus();
+            startHudService();
+            new AlertDialog.Builder(this)
+                    .setTitle("기상청 인증키")
+                    .setMessage("인증키를 폰 내부에 저장했습니다. 원본 텍스트 파일은 파일 앱에서 삭제해 주세요.")
+                    .setPositiveButton("확인", null).show();
+        } catch (Throwable t) {
+            new AlertDialog.Builder(this).setTitle("인증키 가져오기 실패")
+                    .setMessage(t.getMessage() == null ? "파일을 확인해 주세요." : t.getMessage())
+                    .setPositiveButton("확인", null).show();
+        }
+    }
+
+    private static boolean validKmaKey(String key) {
+        return key != null && key.length() >= 20 && key.length() <= 1024
+                && key.matches("[A-Za-z0-9%+/_=\\-]+" );
+    }
+
     private View buildUi() {
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(Color.rgb(7, 11, 16));
@@ -287,6 +329,40 @@ public final class MainActivity extends Activity {
         statusCard.addView(gpsPermissionButton);
         root.addView(statusCard, cardParams());
 
+        LinearLayout weatherCard = card();
+        weatherCard.addView(text("기상청 날씨", 18.0f, Color.WHITE, Typeface.BOLD));
+        weatherValue = text("", 14.0f, Color.rgb(190, 200, 210), Typeface.NORMAL);
+        LinearLayout.LayoutParams weatherStatusParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        weatherStatusParams.setMargins(0, dp(10), 0, dp(10));
+        weatherCard.addView(weatherValue, weatherStatusParams);
+        LinearLayout weatherButtons = new LinearLayout(this);
+        weatherButtons.setOrientation(LinearLayout.HORIZONTAL);
+        Button importWeatherKey = button("kma_key.txt 선택", Color.rgb(40, 92, 132));
+        importWeatherKey.setOnClickListener(v -> {
+            Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            pick.addCategory(Intent.CATEGORY_OPENABLE);
+            pick.setType("text/plain");
+            startActivityForResult(pick, KMA_KEY_FILE_REQUEST);
+        });
+        Button clearWeatherKey = button("키 삭제", Color.rgb(168, 54, 64));
+        clearWeatherKey.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("기상청 인증키 삭제")
+                .setMessage("저장된 키를 삭제할까요? 삭제하면 날씨 칸은 표시되지 않습니다.")
+                .setPositiveButton("삭제", (dialog, which) -> {
+                    AppPrefs.setKmaApiKey(this, "");
+                    updateWeatherKeyStatus();
+                }).setNegativeButton("취소", null).show());
+        LinearLayout.LayoutParams importParams = new LinearLayout.LayoutParams(0, dp(48), 2f);
+        importParams.setMargins(0, 0, dp(5), 0);
+        weatherButtons.addView(importWeatherKey, importParams);
+        LinearLayout.LayoutParams clearParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        clearParams.setMargins(dp(5), 0, 0, 0);
+        weatherButtons.addView(clearWeatherKey, clearParams);
+        weatherCard.addView(weatherButtons);
+        root.addView(weatherCard, cardParams());
+        updateWeatherKeyStatus();
+
         LinearLayout autoCard = card();
         autoCard.addView(text("자동실행", 18.0f, Color.WHITE, Typeface.BOLD));
         LinearLayout autoRow = new LinearLayout(this);
@@ -370,6 +446,15 @@ public final class MainActivity extends Activity {
         root.addView(footer);
 
         return scroll;
+    }
+
+    private void updateWeatherKeyStatus() {
+        if (weatherValue == null) return;
+        boolean configured = !AppPrefs.getKmaApiKey(this).isEmpty();
+        weatherValue.setText(configured
+                ? "인증키 저장됨 · 현재 기온과 예보를 기상청에서 조회합니다."
+                : "인증키 없음 · PC에서 만든 kma_key.txt를 선택해 주세요.");
+        weatherValue.setTextColor(configured ? GREEN : AMBER);
     }
 
     private void checkForUpdate() {

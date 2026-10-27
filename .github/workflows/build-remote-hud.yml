@@ -75,6 +75,7 @@ jobs:
           python3 ../tests/test_traffic_signal_transport.py
           python3 ../tests/test_e2e_signal_indicator.py
           python3 ../tests/test_navi_envelope.py
+          python3 ../tests/test_kma_weather_source.py
       - name: Check navigation selection
         # Exercise retransmission and old acknowledgements before packaging.
         working-directory: selfdrive/eon_cluster/android_hud
