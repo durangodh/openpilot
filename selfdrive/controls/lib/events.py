@@ -870,22 +870,22 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
   },
   
   EventName.slowingDownSpeed: {
-    ET.PERMANENT: Alert("과속카메라 감지 : 감속중", "", AlertStatus.normal, AlertSize.small,
+    ET.PERMANENT: Alert("과속카메라감지 감속중", "", AlertStatus.normal, AlertSize.small,
       Priority.MID, VisualAlert.none, AudibleAlert.none, .1),
   },
 
   EventName.slowingDownSpeedSound: {
-    ET.PERMANENT: Alert("과속카메라 감지 : 감속중", "", AlertStatus.normal, AlertSize.small,
+    ET.PERMANENT: Alert("과속카메라감지 감속중", "", AlertStatus.normal, AlertSize.small,
       Priority.HIGH, VisualAlert.none, AudibleAlert.none, 2.),
   },
 
   EventName.speedBump: {
-    ET.PERMANENT: Alert("과속방지턱 감지 : 감속중", "", AlertStatus.normal, AlertSize.small,
+    ET.PERMANENT: Alert("과속방지턱감지 감속중", "", AlertStatus.normal, AlertSize.small,
       Priority.MID, VisualAlert.none, AudibleAlert.none, .1),
   },
 
   EventName.speedBumpSound: {
-    ET.PERMANENT: Alert("과속방지턱 감지 : 감속중", "", AlertStatus.normal, AlertSize.small,
+    ET.PERMANENT: Alert("과속방지턱감지 감속중", "", AlertStatus.normal, AlertSize.small,
       Priority.HIGH, VisualAlert.none, AudibleAlert.none, 2.),
   },
 
