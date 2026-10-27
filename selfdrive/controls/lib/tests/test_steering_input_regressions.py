@@ -40,15 +40,12 @@ def load_planner_module(name):
               laneChangeRight=4, keepLeft=5, keepRight=6),
     LaneChangeState=NS(off=0, preLaneChange=1, laneChangeStarting=2, laneChangeFinishing=3),
     LaneChangeDirection=NS(none=0, left=1, right=2)))
-  remote = ModuleType("selfdrive.eon_cluster.hud_remote")
-  remote.RemoteLaneChangeSource = lambda: NS(poll=lambda: 0)
   source = Path(__file__).parents[1] / (name + ".py")
   spec = importlib.util.spec_from_file_location(name + "_under_test", source)
   module = importlib.util.module_from_spec(spec)
   with patch.dict(sys.modules, {
     "common.params": params, "common.realtime": realtime,
     "selfdrive.swaglog": swaglog, "cereal": cereal,
-    "selfdrive.eon_cluster.hud_remote": remote,
   }):
     spec.loader.exec_module(module)
   return module
