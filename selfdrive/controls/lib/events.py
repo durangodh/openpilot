@@ -889,6 +889,17 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
       Priority.HIGH, VisualAlert.none, AudibleAlert.none, 2.),
   },
 
+  # 크루즈가 꺼져 있을 때는 감속하지 않으므로 "감속중" 없이 감지만 알린다(2026-10-27).
+  EventName.slowingDownSpeedNotice: {
+    ET.PERMANENT: Alert("과속카메라 감지", "", AlertStatus.normal, AlertSize.small,
+      Priority.MID, VisualAlert.none, AudibleAlert.none, .1),
+  },
+
+  EventName.speedBumpNotice: {
+    ET.PERMANENT: Alert("과속방지턱 감지", "", AlertStatus.normal, AlertSize.small,
+      Priority.MID, VisualAlert.none, AudibleAlert.none, .1),
+  },
+
   EventName.trafficStopping: {
     ET.WARNING: Alert("신호 감속정지중입니다.", "", AlertStatus.normal, AlertSize.small,
       Priority.LOW, VisualAlert.none, AudibleAlert.none, 3.),

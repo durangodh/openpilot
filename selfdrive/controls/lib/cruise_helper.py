@@ -729,6 +729,7 @@ class CruiseHelper:
     return self._clip_set_speed(round(speed_kph, 1))
 
   def update_controls(self, controls, CS, longcontrol):
+    self.cruise_engaged = bool(controls.enabled)
     self.param_read_counter += 1
     if self.param_read_counter % 100 == 0:
       # The onroad driving-mode button should react within one second.
@@ -748,6 +749,12 @@ class CruiseHelper:
     self._update_pedal_cruise(controls, CS)
 
   def inject_events(self, events):
+    if not getattr(self, 'cruise_engaged', False):
+      # 크루즈 꺼짐: 감속하지 않으므로 "감속중" 없는 문구만(소리 없음).
+      self.slowing_down_sound_alert = False
+      if self.slowing_down_alert:
+        events.add(EventName.speedBumpNotice if self.slowing_down_for_bump else EventName.slowingDownSpeedNotice)
+      return
     if self.slowing_down_sound_alert:
       self.slowing_down_sound_alert = False
       events.add(EventName.speedBumpSound if self.slowing_down_for_bump else EventName.slowingDownSpeedSound)
