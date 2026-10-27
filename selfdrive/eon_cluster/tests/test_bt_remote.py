@@ -98,9 +98,8 @@ class TestLinkTracker(unittest.TestCase):
 
 class TestMappingValidation(unittest.TestCase):
   def test_mappings_keep_only_known_tokens_and_commands(self):
-    raw = ('{"key:30@short":"res","hat:x:+@long":"set_long","blebtn:A@short":"res","key:31@short":"rm -rf",'
-           '"key:32@short":"lane_left"}')
-    self.assertEqual(bt_remote.mappings(raw), {"key:30@short": "res", "hat:x:+@long": "set_long"})
+    raw = '{"key:30@short":"res","hat:x:+@long":"lane_right","blebtn:A@short":"res","key:31@short":"rm -rf"}'
+    self.assertEqual(bt_remote.mappings(raw), {"key:30@short": "res", "hat:x:+@long": "lane_right"})
     self.assertEqual(bt_remote.mappings("not json"), {})
 
   def test_learn_request(self):
@@ -115,8 +114,9 @@ class TestCommandJournal(unittest.TestCase):
     self.dir = tempfile.TemporaryDirectory()
     self.clock = Clock()
     self.cmd = os.path.join(self.dir.name, "cmd.json")
+    self.lane = os.path.join(self.dir.name, "lane.json")
     self.status = os.path.join(self.dir.name, "status.json")
-    self.sync = hr.RemoteCommandSync(FakeParams(), self.cmd, clock=self.clock)
+    self.sync = hr.RemoteCommandSync(FakeParams(), self.cmd, self.lane, clock=self.clock)
 
   def tearDown(self):
     self.dir.cleanup()
@@ -132,16 +132,20 @@ class TestCommandJournal(unittest.TestCase):
     self.clock.now += hr.COMMAND_MAX_AGE_S + 0.1
     self.assertEqual([p for _ in range(10) for p in source.poll()], [])
 
-  def test_cruise_button_blocked_with_engine_off(self):
-    self.sync.vehicle = (False, False, False, False, False)
-    self.assertEqual(self.sync.apply("res", hr.allowed_commands(*self.sync.vehicle)), "blocked")
-    self.assertEqual(self.sync.event_status()["why"], "시동 꺼짐")
-    self.assertFalse(os.path.exists(self.cmd))
+  def test_lane_command_blocked_out_of_drive_with_reason(self):
+    self.sync.vehicle = (True, True, False, False, False)
+    allowed = hr.allowed_commands(*self.sync.vehicle)
+    self.assertEqual(self.sync.apply("lane_left", allowed), "blocked")
+    self.assertEqual(self.sync.event_status()["why"], "D단 아님")
+    self.assertFalse(os.path.exists(self.lane))
 
-  def test_no_lane_change_command(self):
-    self.assertNotIn("lane_left", hr.ALL_COMMANDS)
-    self.assertNotIn("lane_right", hr.ALL_COMMANDS)
-    self.assertFalse(hasattr(hr, "RemoteLaneChangeSource"))
+  def test_lane_command_pulse(self):
+    source = hr.RemoteLaneChangeSource(self.lane, clock=self.clock)
+    self.clock.now += 1
+    self.sync.apply("lane_right", hr.allowed_commands(True, True, True, False, False))
+    self.assertEqual(source.poll(), 1)
+    self.clock.now += hr.LANE_CHANGE_HOLD_S + 0.05
+    self.assertEqual(source.poll(), 0)
 
   def test_hud_status_needs_fresh_file(self):
     hr.atomic_json(self.status, {"link": hr.LINK_SLEEP, "event": {}, "ts": self.clock.now})
@@ -190,7 +194,7 @@ class TestInputNodeDecoding(unittest.TestCase):
     self.assertEqual(self.emitted, [("key:30", "short")])
 
   def test_hat_dpad(self):
-    self.open({"hat:x:-@short": "set"})
+    self.open({"hat:x:-@short": "lane_left"})
     self.send(3, 16, -1)
     self.send(3, 16, 0)
     self.reader.read(time.monotonic())

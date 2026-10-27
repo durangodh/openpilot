@@ -1235,7 +1235,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   // ── EON 블루투스 리모컨 (bt_remote) ───────────────────────
 
   auto btRemoteToggle = new ParamControl("BtRemoteEnabled", "BLUETOOTH REMOTE",
-      "EON에 직접 페어링한 클래식 블루투스 리모컨(예: 8BitDo Micro 키보드 모드)으로 크루즈 버튼(RES/SET/GAP/취소)을 보냅니다. 켜면 EON 블루투스도 켜지고 재부팅 후에도 유지됩니다. 차로변경·깜빡이는 지원하지 않습니다.",
+      "EON에 직접 페어링한 클래식 블루투스 리모컨(예: 8BitDo Micro 키보드 모드)으로 크루즈 버튼과 차로변경 요청을 보냅니다. 켜면 EON 블루투스도 켜지고 재부팅 후에도 유지됩니다. 깜빡이 램프는 켜지지 않습니다.",
       "../assets/offroad/icon_openpilot.png", this);
   toggleLayout->addWidget(btRemoteToggle);
   auto btRemotePair = new ButtonControl("리모컨 페어링 (Bluetooth 설정)", "OPEN",
@@ -1301,8 +1301,9 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     instructions->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
     contentLayout->addWidget(instructions);
     auto actions = new QComboBox(&dialog);
-    const std::array<std::pair<const char *, const char *>, 8> remoteActions = {{{"RES / 속도 +1", "res"},
+    const std::array<std::pair<const char *, const char *>, 10> remoteActions = {{{"RES / 속도 +1", "res"},
       {"SET / 속도 -1", "set"}, {"차간거리", "gap"}, {"ACC 취소", "cancel"},
+      {"왼쪽 차선변경 요청", "lane_left"}, {"오른쪽 차선변경 요청", "lane_right"},
       {"RES 길게 / +10", "res_long"}, {"SET 길게 / -10", "set_long"},
       {"티맵 / 네이버 전환", "nav_toggle"}, {"HUD 정보 박스 전환", "hud_box"}}};
     for (const auto &[label, command] : remoteActions) actions->addItem(label, command);

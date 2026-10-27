@@ -1,4 +1,4 @@
-"""EON Bluetooth remote (bt_remote) -> short-lived local cruise-button requests for carState.
+"""EON Bluetooth remote (bt_remote) -> short-lived local requests for carState and lateral planning.
 
 bt_remote reads the remote's kernel input node on EON itself; nothing goes over
 Wi-Fi or through a phone. Accepted commands are journaled in /dev/shm and
@@ -12,8 +12,10 @@ import time
 import uuid
 
 COMMAND_FILE = "/dev/shm/hud_remote_cmd.json"
+LANE_FILE = "/dev/shm/hud_remote_lane.json"
 STATUS_FILE = "/dev/shm/hud_remote_status.json"
 COMMAND_MAX_AGE_S = 0.4
+LANE_CHANGE_HOLD_S = 0.3
 POLL_FRAMES = 5
 BUTTON_COMMANDS = {"res": "accelCruise", "set": "decelCruise",
                    "cancel": "cancel", "gap": "gapAdjustCruise"}
@@ -21,8 +23,8 @@ BUTTON_COMMANDS = {"res": "accelCruise", "set": "decelCruise",
 # RES/SET 길게 = 크루즈 속도 10단위. 티맵↔네이버는 nav_toggle 이 직접 바꾼다.
 LONG_BUTTON_COMMANDS = {"res_long": "accelCruise", "set_long": "decelCruise"}
 PARAM_COMMANDS = ("nav_toggle", "nav_tmap", "nav_naver", "hud_box")
-# No lane-change command: DesireHelper stays untouched (the remote lane hook coincided with DH MDPS faults).
-ALL_COMMANDS = tuple(BUTTON_COMMANDS) + tuple(LONG_BUTTON_COMMANDS) + PARAM_COMMANDS
+LANE_COMMANDS = {"lane_left": -1, "lane_right": 1}
+ALL_COMMANDS = tuple(BUTTON_COMMANDS) + tuple(LONG_BUTTON_COMMANDS) + PARAM_COMMANDS + tuple(LANE_COMMANDS)
 # 길게 누름 유지 프레임(100Hz). RES/SET 은 CruiseButtonLongDelay 를 한 번만 넘긴다.
 LONG_DELAY_DEFAULT = 40
 
@@ -33,7 +35,7 @@ EVENT_SHOW_S = 1.5
 COMMAND_LABELS = {"res": "RES", "set": "SET", "gap": "GAP", "cancel": "취소",
                   "res_long": "RES 길게", "set_long": "SET 길게",
                   "nav_toggle": "맵 전환", "nav_tmap": "티맵", "nav_naver": "네이버",
-                  "hud_box": "정보 박스"}
+                  "hud_box": "정보 박스", "lane_left": "차선 좌", "lane_right": "차선 우"}
 
 
 def atomic_json(path, payload):
@@ -57,10 +59,10 @@ def fresh(created, started, now, max_age=COMMAND_MAX_AGE_S):
 
 
 class RemoteCommandSync:
-  """Journals accepted cruise-button commands for carState."""
+  """Journals accepted commands for carState (buttons) and DesireHelper (lane changes)."""
 
-  def __init__(self, params, command_file=COMMAND_FILE, clock=time.monotonic):
-    self.params, self.command_file = params, command_file
+  def __init__(self, params, command_file=COMMAND_FILE, lane_file=LANE_FILE, clock=time.monotonic):
+    self.params, self.command_file, self.lane_file = params, command_file, lane_file
     self.clock = clock
     self.session = uuid.uuid4().hex
     self.events = []
@@ -98,6 +100,8 @@ class RemoteCommandSync:
         events.append({"id": self.session + request, "cmd": command, "ts": now})
         atomic_json(self.command_file, {"events": events[-32:]})
         self.events = events[-32:]
+      elif command in LANE_COMMANDS:
+        atomic_json(self.lane_file, {"direction": LANE_COMMANDS[command], "ts": now})
       elif command == "hud_box":
         # HUD info box: 1 = HUD info, 2 = trip summary.
         try:
@@ -200,6 +204,23 @@ class RemoteButtonSource:
     return out
 
 
+class RemoteLaneChangeSource:
+  def __init__(self, lane_file=LANE_FILE, clock=time.monotonic):
+    self.lane_file, self.clock = lane_file, clock
+    self.started = clock()
+
+  def poll(self):
+    now = self.clock()
+    payload = read_json(self.lane_file)
+    if not isinstance(payload, dict):
+      return 0
+    ts = payload.get("ts")
+    direction = payload.get("direction")
+    if fresh(ts, self.started, now) and now - ts <= LANE_CHANGE_HOLD_S and direction in (-1, 1):
+      return direction
+    return 0
+
+
 def allowed_commands(started, car_valid, drive, brake, gas):
   allowed = set(PARAM_COMMANDS)
   if started and car_valid:
@@ -207,6 +228,8 @@ def allowed_commands(started, car_valid, drive, brake, gas):
     # 실제 동작 여부는 핸들 버튼과 똑같이 크루즈 로직이 판단한다(2026-10-18).
     allowed.update(BUTTON_COMMANDS)
     allowed.update(LONG_BUTTON_COMMANDS)
+    if drive and not brake and not gas:
+      allowed.update(LANE_COMMANDS)
   return frozenset(allowed)
 
 
@@ -218,4 +241,11 @@ def block_reason(command, started, car_valid, drive, brake, gas):
     return "시동 꺼짐"
   if not car_valid:
     return "차량 데이터 없음"
+  if command in LANE_COMMANDS:
+    if not drive:
+      return "D단 아님"
+    if brake:
+      return "브레이크"
+    if gas:
+      return "가속페달"
   return ""

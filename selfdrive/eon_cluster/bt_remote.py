@@ -4,7 +4,7 @@
 The remote (e.g. 8BitDo Micro in keyboard mode) is paired once in Android's
 Bluetooth settings. Android's HID host then creates /dev/input/eventN with bus
 type 0005; this process grabs that node exclusively, so Android never sees the
-keys, and turns learned presses into hud_remote cruise-button commands. No phone, no Wi-Fi
+keys, and turns learned presses into hud_remote commands. No phone, no Wi-Fi
 and no Android service is involved.
 """
 import fcntl
