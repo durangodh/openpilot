@@ -6,6 +6,7 @@ from cereal import car
 from common.conversions import Conversions as CV
 from selfdrive.car.hyundai.values import CAR, Buttons, CarControllerParams
 from selfdrive.car.hyundai.cruise_buttons import button_transitions, main_button_transitions
+from selfdrive.eon_cluster.hud_remote import RemoteButtonSource
 from selfdrive.car import STD_CARGO_KG, scale_rot_inertia, scale_tire_stiffness, gen_empty_fingerprint, get_safety_config
 from selfdrive.car.interfaces import CarInterfaceBase
 from common.params import Params
@@ -37,6 +38,8 @@ def use_scc_bus2(candidate, configured_bus2, long_control_enabled):
 class CarInterface(CarInterfaceBase):
   def __init__(self, CP, CarController, CarState):
     super().__init__(CP, CarController, CarState)
+    # EON Bluetooth remote (bt_remote): virtual RES/SET/CANCEL/GAP presses.
+    self.hud_remote = RemoteButtonSource()
     self.cp2 = self.CS.get_can2_parser(CP)
     # AutoLaneChangeSpeed 실시간 반영용 (VIP 패널에서 10km/h 단위 조절)
     self._lc_speed_params = Params()
@@ -385,6 +388,10 @@ class CarInterface(CarInterfaceBase):
       be.type = ButtonType.altButton3
       be.pressed = pressed
       buttonEvents.append(be)
+    # Presses from the Bluetooth remote look exactly like wheel-button transitions.
+    # Gear and pedals are judged by the cruise logic exactly as for wheel buttons.
+    buttonEvents.extend(self.hud_remote.button_events(
+      allowed=ret.canValid and not buttonEvents))
     ret.buttonEvents = buttonEvents
 
     events = self.create_common_events(ret)

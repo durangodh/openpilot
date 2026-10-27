@@ -37,6 +37,8 @@ procs = [
   # External HUD output is S9-only. EON publishes compact telemetry/native
   # TMAP assets plus live S9 render tuning; Android renders/JPEG-encodes/USB.
   PythonProcess("remote_hud", "selfdrive.eon_cluster.remote_hud_s9", enabled=EON, persistent=True),
+  # Bluetooth remote input is read locally on EON from the kernel HID node; no phone or Wi-Fi.
+  PythonProcess("bt_remote", "selfdrive.eon_cluster.bt_remote", enabled=EON, persistent=True),
   PythonProcess("controlsd", "selfdrive.controls.controlsd"),
   # loggerd 가 꺼져 있어 지울 로그가 없다.
   PythonProcess("deleter", "selfdrive.loggerd.deleter", enabled=False, persistent=True),
