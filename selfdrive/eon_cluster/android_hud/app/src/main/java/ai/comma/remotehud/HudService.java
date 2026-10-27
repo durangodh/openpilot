@@ -3189,7 +3189,9 @@ public final class HudService extends Service {
     private static final float NAVI_ALERT_BOX_CX = 215f;   // = RING_CX
     private static final float NAVI_ALERT_BOX_CY = 602f;
     private static final float NAVI_ALERT_MAX_W = 360f;
-    private static final float NAVI_ALERT_TITLE = 37f;
+    // 37 → 28(2026-10-27, 25% 작게). 칸을 넘는 문구는 아래에서 NAVI_ALERT_MIN 까지 줄인다.
+    private static final float NAVI_ALERT_TITLE = 28f;
+    private static final float NAVI_ALERT_MIN = 14f;
 
     private void drawNaviAlert(Canvas c, Paint p, JSONObject alert) {
         if (alert == null) {
@@ -3209,19 +3211,19 @@ public final class HudService extends Service {
                 : (status.contains("prompt") || status.contains("warning"))
                 ? Color.rgb(255, 174, 82) : Color.WHITE;
         float maxText = NAVI_ALERT_MAX_W - 48f;
-        float titleSize = text2.length() > 0 ? NAVI_ALERT_TITLE - 7f : NAVI_ALERT_TITLE;
+        float titleSize = text2.length() > 0 ? NAVI_ALERT_TITLE - 5f : NAVI_ALERT_TITLE;
         p.setTypeface(Typeface.create("sans", Typeface.BOLD));
         p.setTextSize(titleSize);
-        while (titleSize > 20f && p.measureText(text1) > maxText) {
+        while (titleSize > NAVI_ALERT_MIN && p.measureText(text1) > maxText) {
             titleSize -= 1f;
             p.setTextSize(titleSize);
         }
         float width = p.measureText(text1);
-        float detailSize = 19f;
+        float detailSize = 15f;
         if (text2.length() > 0) {
             p.setTypeface(Typeface.create("sans", Typeface.NORMAL));
             p.setTextSize(detailSize);
-            while (detailSize > 14f && p.measureText(text2) > maxText) {
+            while (detailSize > 11f && p.measureText(text2) > maxText) {
                 detailSize -= 1f;
                 p.setTextSize(detailSize);
             }
