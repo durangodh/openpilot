@@ -100,6 +100,15 @@ final class TurzxDisplays {
         }
     }
 
+    /** 열린 패널(12.3" 우선)의 마지막 프레임 응답 ms, 없으면 -1. */
+    int lastAckMs() {
+        return wide.isOpen() ? wide.lastAckMs() : legacy.isOpen() ? legacy.lastAckMs() : -1;
+    }
+
+    int ackMisses() {
+        return wide.ackMisses() + legacy.ackMisses();
+    }
+
     void sendJpegs(byte[] legacyJpeg, byte[] wideJpeg) throws Exception {
         Exception first = null;
         int attempted = 0;

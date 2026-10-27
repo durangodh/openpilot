@@ -72,6 +72,11 @@ public final class TurzxDisplay {
     private static final int FRAME_WRITE_TIMEOUT_MS = 400;
     private static final int COMMAND_WRITE_TIMEOUT_MS = 1000;
     private static final int SYNC_READ_TIMEOUT_MS = 1500;
+    // 프레임을 보낸 뒤 패널 응답(완료)을 기다리는 시간. turing-smart-screen-python 의 USB
+    // 드라이버는 매 프레임 쓰기 뒤 응답을 읽고 다음 장을 보낸다. 우리는 기다리지 않아 처리 중인
+    // 패널에 다음 장이 들어갈 수 있었다(2026-10-27, 12.3" 만 몇 분마다 멈춤). 프레임 간격(142 ms)
+    // 안에서 짧게 기다린다.
+    private static final int FRAME_ACK_TIMEOUT_MS = 150;
     private static final long COMMAND_GAP_MS = 200L;
     // Magisk can become available a few seconds after Android reports the USB
     // device. Retry the silent framework grant without ever opening Android's
@@ -277,6 +282,8 @@ public final class TurzxDisplay {
         drainInput(5, 2);
         sawInbound = false;
         lastInboundElapsed = SystemClock.elapsedRealtime();
+        ackConsecutiveMisses = 0;
+        ackDisabled = false;
         try {
             initialize();
         } catch (Exception first) {
@@ -408,6 +415,47 @@ public final class TurzxDisplay {
         // 패널이 보낸 응답만 비운다. halt 해제는 하지 않는다 (클래스 주석 1번 참고).
         drainInput(2, 1);
         writeFrame(payload);
+        awaitFrameAck();
+    }
+
+    private volatile int lastAckMs = -1;
+    private volatile int ackMisses;
+    private int ackConsecutiveMisses;
+    private boolean ackDisabled;
+    // 이 패널이 프레임마다 응답을 보내지 않는다면 매 장 150 ms 씩 기다려 FPS 만 떨어진다.
+    // 연속으로 이만큼 응답이 없으면 이번 연결에서는 기다리지 않는다.
+    private static final int ACK_DISABLE_AFTER_MISSES = 10;
+
+    /** 프레임 응답을 기다린다. 응답이 없어도 실패로 보지 않고 횟수만 센다. */
+    private void awaitFrameAck() {
+        if (connection == null || in == null || ackDisabled) {
+            lastAckMs = -1;
+            return;
+        }
+        long start = SystemClock.elapsedRealtime();
+        int read = connection.bulkTransfer(in, drainBuffer, drainBuffer.length, FRAME_ACK_TIMEOUT_MS);
+        if (read > 0) {
+            noteInbound();
+            lastAckMs = (int) (SystemClock.elapsedRealtime() - start);
+            ackConsecutiveMisses = 0;
+        } else {
+            lastAckMs = -1;
+            ackMisses++;
+            if (++ackConsecutiveMisses >= ACK_DISABLE_AFTER_MISSES) {
+                ackDisabled = true;
+                HudDiagnostics.log("usb-ack none for " + ackConsecutiveMisses + " frames; not waiting");
+            }
+        }
+    }
+
+    /** 마지막 프레임 응답까지 걸린 ms, 응답이 없었으면 -1. */
+    int lastAckMs() {
+        return lastAckMs;
+    }
+
+    /** 이 연결에서 응답이 오지 않은 프레임 수. */
+    int ackMisses() {
+        return ackMisses;
     }
 
     private void writeFrame(byte[] payload) throws Exception {

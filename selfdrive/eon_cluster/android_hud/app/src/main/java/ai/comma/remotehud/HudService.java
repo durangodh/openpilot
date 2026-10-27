@@ -471,6 +471,7 @@ public final class HudService extends Service {
     private final int[] usbTraceEncMs = new int[USB_TRACE_SIZE];
     private final int[] usbTraceWriteMs = new int[USB_TRACE_SIZE];
     private final int[] usbTraceBytes = new int[USB_TRACE_SIZE];
+    private final int[] usbTraceAckMs = new int[USB_TRACE_SIZE];
     private int usbTraceCount;
     private long usbFailEncStart, usbFailWriteStart;
     private int appliedBrightness = -1;
@@ -2316,6 +2317,7 @@ public final class HudService extends Service {
             usbTraceEncMs[slot] = (int) (writeStart - encStart);
             usbTraceWriteMs[slot] = (int) (lastJpegSentElapsed - writeStart);
             usbTraceBytes[slot] = lastJpegBytes;
+            usbTraceAckMs[slot] = display.lastAckMs();
             usbFailEncStart = 0L;
             usbConnected = true;
             usbError = false;
@@ -2429,6 +2431,9 @@ public final class HudService extends Service {
         long gapSum = 0L, gapMax = 0L, encSum = 0L, encMax = 0L, writeSum = 0L, writeMax = 0L;
         long previous = -1L;
         StringBuilder lastWrites = new StringBuilder();
+        StringBuilder lastAcks = new StringBuilder();
+        int ackSeen = 0;
+        long ackSum = 0L, ackMax = 0L;
         int first = Math.max(0, usbTraceCount - USB_TRACE_SIZE);
         for (int i = first; i < usbTraceCount; i++) {
             int slot = i % USB_TRACE_SIZE;
@@ -2446,9 +2451,16 @@ public final class HudService extends Service {
             encMax = Math.max(encMax, usbTraceEncMs[slot]);
             writeSum += usbTraceWriteMs[slot];
             writeMax = Math.max(writeMax, usbTraceWriteMs[slot]);
+            if (usbTraceAckMs[slot] >= 0) {
+                ackSeen++;
+                ackSum += usbTraceAckMs[slot];
+                ackMax = Math.max(ackMax, usbTraceAckMs[slot]);
+            }
             if (i >= usbTraceCount - 8) {
                 if (lastWrites.length() > 0) lastWrites.append(',');
                 lastWrites.append(usbTraceWriteMs[slot]);
+                if (lastAcks.length() > 0) lastAcks.append(',');
+                lastAcks.append(usbTraceAckMs[slot]);
             }
             n++;
         }
@@ -2462,6 +2474,10 @@ public final class HudService extends Service {
                 + " enc=" + (n > 0 ? encSum / n : -1) + "/" + encMax
                 + " write=" + (n > 0 ? writeSum / n : -1) + "/" + writeMax
                 + " last_write=" + lastWrites
+                + " ack=" + (ackSeen > 0 ? ackSum / ackSeen : -1) + "/" + ackMax
+                + " ack_seen=" + ackSeen + "/" + n
+                + " last_ack=" + lastAcks
+                + " ack_miss_total=" + display.ackMisses()
                 + " since_last=" + sinceLast
                 + " fail_enc/write=" + fail
                 + " fps_ms=" + frameIntervalMs
