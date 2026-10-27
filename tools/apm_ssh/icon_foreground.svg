@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
+  <!-- APM launcher icon: terminal window with "EON" over "SSH". Adaptive foreground, 108x108, art inside the 66 safe zone. -->
+  <rect x="22" y="28" width="64" height="52" rx="7" fill="#161B22" stroke="#3CE07A" stroke-width="2.5"/>
+  <circle cx="30" cy="35" r="1.8" fill="#FF5F56"/><circle cx="36" cy="35" r="1.8" fill="#FFBD2E"/><circle cx="42" cy="35" r="1.8" fill="#27C93F"/>
+  <text x="54" y="53" text-anchor="middle" font-family="DejaVu Sans,sans-serif" font-weight="bold" font-size="11" fill="#E6EDF3" letter-spacing="1.5">EON</text>
+  <text x="25.5" y="72" font-family="DejaVu Sans Mono,monospace" font-weight="bold" font-size="9" fill="#8B949E">&gt;</text>
+  <text x="56" y="73" text-anchor="middle" font-family="DejaVu Sans Mono,monospace" font-weight="bold" font-size="17" fill="#3CE07A">SSH</text>
+</svg>

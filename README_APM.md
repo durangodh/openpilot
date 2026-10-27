@@ -87,3 +87,10 @@ apilot_gen.py 는 `manager.py` 의 `default_params` 값을 정답으로 쓴다.
 
 EON UI 쪽도 맞추려면 settings.cc 의 vdefault(마지막에서 두 번째 인자)를
 위 표의 manager 값으로 바꾸면 된다. 이 zip 에는 settings.cc 를 넣지 않았다.
+
+## EON SSH 아이콘 APK (apm-ssh)
+원본 APK 는 그대로 두고, 런처 아이콘만 "EON / SSH" 터미널 아이콘으로 바꾼 사본을 따로 만든다.
+- 아이콘 원본: `tools/apm_ssh/icon_foreground.svg`, PNG 는 `node tools/apm_ssh/render_icons.js` 로 다시 만든다.
+- 빌드: `.github/workflows/build-apm-ssh.yml` (g_remote 푸시 또는 수동 실행) → 릴리즈 `apm-ssh-0.983_1` 의 `APM0.983_1-ssh.apk`.
+- Remote HUD 와 같은 키로 다시 서명하므로 원본 APM 과 서명이 다르다. **원본 APM 을 지운 뒤 설치**해야 하고, 앱 안의 접속 설정은 다시 입력해야 한다.
+- 패키지 이름·버전·앱 이름은 원본과 같다(빌드에서 확인).
