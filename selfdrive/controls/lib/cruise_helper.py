@@ -729,7 +729,6 @@ class CruiseHelper:
     return self._clip_set_speed(round(speed_kph, 1))
 
   def update_controls(self, controls, CS, longcontrol):
-    self.cruise_engaged = bool(controls.enabled)
     self.param_read_counter += 1
     if self.param_read_counter % 100 == 0:
       # The onroad driving-mode button should react within one second.
@@ -747,6 +746,11 @@ class CruiseHelper:
 
     self.update_button_events(controls, CS, longcontrol)
     self._update_pedal_cruise(controls, CS)
+    # 조향만 인게이지(롱컨 꺼짐)도 감속하지 않으므로 크루즈 꺼짐으로 본다.
+    if longcontrol:
+      self.cruise_engaged = bool(controls.enabled) and self.long_active_user > 0
+    else:
+      self.cruise_engaged = bool(controls.enabled) and bool(CS.cruiseState.enabled)
 
   def inject_events(self, events):
     if not getattr(self, 'cruise_engaged', False):
