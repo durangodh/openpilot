@@ -3184,9 +3184,11 @@ public final class HudService extends Service {
 
     // 네비모드 이벤트 문구 자리: 속도 원(x1000rpm 밑선 535) 아래 ~ 연료 막대(윗끝 약 655) 위,
     // 왼쪽 게이지 칸 가운데. 어두운 반투명 상자, 테두리 없음(2026-10-27 요청 A안, 글자 약 37px).
-    private static final float NAVI_ALERT_BOX_CX = 350f;
+    // 가로: 속도 원 가운데(RING_CX)에 맞추고, 왼쪽 화면 끝 ~ LIMIT/SET 원 왼쪽(약 x=396)을
+    // 넘지 않게 폭 360 으로 제한한다(2026-10-27 사진 요청).
+    private static final float NAVI_ALERT_BOX_CX = 215f;   // = RING_CX
     private static final float NAVI_ALERT_BOX_CY = 602f;
-    private static final float NAVI_ALERT_MAX_W = 600f;
+    private static final float NAVI_ALERT_MAX_W = 360f;
     private static final float NAVI_ALERT_TITLE = 37f;
 
     private void drawNaviAlert(Canvas c, Paint p, JSONObject alert) {
