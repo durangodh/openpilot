@@ -3207,9 +3207,15 @@ public final class HudService extends Service {
             return;
         }
         String status = alert.optString("status", "").toLowerCase(Locale.US);
-        int titleColor = status.contains("critical") ? Color.rgb(255, 82, 96)
-                : (status.contains("prompt") || status.contains("warning"))
-                ? Color.rgb(255, 174, 82) : Color.WHITE;
+        // 상황은 글자색이 아니라 상자색으로 나타낸다(2026-10-27): 위험 빨강, 주의 주황(글자 흰색).
+        // 일반은 게이지처럼 주야간을 따른다: 낮 밝은 상자 + 검은 글자, 밤 어두운 상자 + 흰 글자.
+        boolean critical = status.contains("critical");
+        boolean caution = !critical && (status.contains("prompt") || status.contains("warning"));
+        int boxColor = critical ? Color.argb(230, 210, 40, 50)
+                : caution ? Color.argb(225, 230, 120, 20)
+                : frameDark ? Color.argb(200, 20, 24, 28) : Color.argb(210, 240, 242, 245);
+        int titleColor = (critical || caution || frameDark) ? Color.WHITE : Color.rgb(15, 20, 26);
+        int detailColor = (critical || caution || frameDark) ? Color.rgb(236, 239, 242) : Color.rgb(45, 52, 60);
         float maxText = NAVI_ALERT_MAX_W - 48f;
         float titleSize = text2.length() > 0 ? NAVI_ALERT_TITLE - 5f : NAVI_ALERT_TITLE;
         p.setTypeface(Typeface.create("sans", Typeface.BOLD));
@@ -3233,7 +3239,7 @@ public final class HudService extends Service {
         float boxH = text2.length() > 0 ? titleSize + detailSize + 30f : titleSize + 28f;
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(165, 0, 0, 0));
+        p.setColor(boxColor);
         scratchRect.set(NAVI_ALERT_BOX_CX - boxW / 2f, NAVI_ALERT_BOX_CY - boxH / 2f,
                 NAVI_ALERT_BOX_CX + boxW / 2f, NAVI_ALERT_BOX_CY + boxH / 2f);
         c.drawRoundRect(scratchRect, 16f, 16f, p);
@@ -3242,7 +3248,7 @@ public final class HudService extends Service {
             text(c, p, text1, NAVI_ALERT_BOX_CX, top + titleSize * 0.82f, titleSize, titleColor,
                     Paint.Align.CENTER);
             textNormal(c, p, text2, NAVI_ALERT_BOX_CX, top + titleSize + 6f + detailSize * 0.82f,
-                    detailSize, Color.rgb(228, 233, 237), Paint.Align.CENTER);
+                    detailSize, detailColor, Paint.Align.CENTER);
         } else {
             text(c, p, text1, NAVI_ALERT_BOX_CX, NAVI_ALERT_BOX_CY + titleSize * 0.36f, titleSize,
                     titleColor, Paint.Align.CENTER);
