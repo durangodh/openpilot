@@ -281,6 +281,11 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudMapScaleTmap", PERSISTENT},   // 네비모드 HUD 지도 크기(주행모드 대비 %), 30~100
     {"EonClusterHudMapScaleKakao", PERSISTENT},
     {"EonClusterHudMapScaleNaver", PERSISTENT},
+    {"BtRemoteEnabled", PERSISTENT},       // EON 블루투스 리모컨(bt_remote) 사용
+    {"BtRemoteDevice", PERSISTENT},        // 학습한 리모컨의 Bluetooth 주소
+    {"BtRemoteMapping", PERSISTENT},       // 버튼@누르기 방식 -> 명령(JSON)
+    {"BtRemoteLearn", CLEAR_ON_MANAGER_START},
+    {"BtRemoteStatus", CLEAR_ON_MANAGER_START},
     {"EonClusterHudNavApp", PERSISTENT},      // 0=선택 안 함, 1=티맵, 2=네이버지도
     {"EonClusterHudConnected", CLEAR_ON_MANAGER_START},
     {"EonClusterHudHeartbeat", CLEAR_ON_MANAGER_START},

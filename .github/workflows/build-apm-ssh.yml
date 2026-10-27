@@ -1,0 +1,91 @@
+name: Build APM APK with the EON SSH icon
+
+# release_apk/APM0.983_1.apk 의 런처 아이콘만 tools/apm_ssh/res 로 바꾸고 Remote HUD 와 같은 키로
+# 다시 서명해 릴리즈 apm-ssh-0.983_1 에 올린다. 원본 APK 와 publish-apilotman 릴리즈는 그대로 둔다.
+# 서명이 원본과 달라서 기기에서는 원본 APM 을 지운 뒤 설치해야 한다.
+concurrency:
+  group: build-apm-ssh
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [g_remote]
+    paths:
+      - "release_apk/APM0.983_1.apk"
+      - "tools/apm_ssh/**"
+      - ".github/workflows/build-apm-ssh.yml"
+
+env:
+  APKTOOL_VERSION: "2.10.0"
+  APKTOOL_SHA256: "c0350abbab5314248dfe2ee0c907def4edd14f6faef1f5d372d3d4abd28f0431"
+  ORIGINAL_APK: release_apk/APM0.983_1.apk
+  OUTPUT_NAME: APM0.983_1-ssh.apk
+  RELEASE_TAG: apm-ssh-0.983_1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools build-tools;35.0.0
+      - name: Download apktool
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/apktool.jar" \
+            "https://github.com/iBotPeaches/Apktool/releases/download/v${APKTOOL_VERSION}/apktool_${APKTOOL_VERSION}.jar"
+          echo "${APKTOOL_SHA256}  $RUNNER_TEMP/apktool.jar" | sha256sum -c -
+      - name: Restore Remote HUD signing key
+        shell: bash
+        env:
+          REMOTE_HUD_KEYSTORE_BASE64: ${{ secrets.REMOTE_HUD_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$REMOTE_HUD_KEYSTORE_BASE64" ]; then
+            echo "REMOTE_HUD_KEYSTORE_BASE64 secret is missing" >&2
+            exit 1
+          fi
+          printf '%s' "$REMOTE_HUD_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          chmod 600 "$RUNNER_TEMP/signing.p12"
+      - name: Rebuild with the new icon
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.REMOTE_HUD_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.REMOTE_HUD_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.REMOTE_HUD_KEY_PASSWORD }}
+        run: |
+          bash tools/apm_ssh/build.sh "$ORIGINAL_APK" "$RUNNER_TEMP/apktool.jar" \
+            "$ANDROID_HOME/build-tools/35.0.0" "$RUNNER_TEMP/signing.p12" "$RUNNER_TEMP/$OUTPUT_NAME"
+      - name: Check package and version are unchanged
+        run: |
+          aapt="$ANDROID_HOME/build-tools/35.0.0/aapt"
+          "$aapt" dump badging "$ORIGINAL_APK" | head -1 > "$RUNNER_TEMP/original.txt"
+          "$aapt" dump badging "$RUNNER_TEMP/$OUTPUT_NAME" | head -1 > "$RUNNER_TEMP/rebuilt.txt"
+          cat "$RUNNER_TEMP/original.txt" "$RUNNER_TEMP/rebuilt.txt"
+          diff "$RUNNER_TEMP/original.txt" "$RUNNER_TEMP/rebuilt.txt"
+          "$aapt" dump badging "$RUNNER_TEMP/$OUTPUT_NAME" | grep -E "^application:|icon"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apm-ssh
+          path: ${{ runner.temp }}/${{ env.OUTPUT_NAME }}
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          asset="$RUNNER_TEMP/$OUTPUT_NAME"
+          sha=$(sha256sum "$asset" | cut -d' ' -f1)
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" \
+              --title "APM 0.983_1 (EON SSH 아이콘)" \
+              --notes "원본 APM0.983_1 의 런처 아이콘만 바꿔 다시 서명한 APK. 서명이 원본과 달라 원본 APM 을 지운 뒤 설치해야 합니다." \
+              || gh release view "$RELEASE_TAG" >/dev/null
+          fi
+          gh release upload "$RELEASE_TAG" "$asset" --clobber
+          echo "SHA-256: $sha"

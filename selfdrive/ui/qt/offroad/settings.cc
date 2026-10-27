@@ -9,6 +9,7 @@
 #include <tuple>
 
 #include <QDebug>
+#include <QUuid>
 
 #ifndef QCOM
 #include "selfdrive/ui/qt/offroad/networking.h"
@@ -1230,6 +1231,197 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
                                             this));
 
   toggleLayout->addWidget(horizontal_line());
+
+  // ── EON 블루투스 리모컨 (bt_remote) ───────────────────────
+
+  auto btRemoteToggle = new ParamControl("BtRemoteEnabled", "BLUETOOTH REMOTE",
+      "EON에 직접 페어링한 클래식 블루투스 리모컨(예: 8BitDo Micro 키보드 모드)으로 크루즈 버튼과 차로변경 요청을 보냅니다. 켜면 EON 블루투스도 켜지고 재부팅 후에도 유지됩니다. 깜빡이 램프는 켜지지 않습니다.",
+      "../assets/offroad/icon_openpilot.png", this);
+  toggleLayout->addWidget(btRemoteToggle);
+  auto btRemotePair = new ButtonControl("리모컨 페어링 (Bluetooth 설정)", "OPEN",
+      "Android Bluetooth 설정에서 리모컨을 페어링하세요. 위 BLUETOOTH REMOTE를 먼저 켜세요. 설정은 3분 후 닫힙니다. Android BACK은 누르지 마세요.");
+  toggleLayout->addWidget(btRemotePair);
+  connect(btRemotePair, &ButtonControl::clicked, [=]() {
+    if (!Params().getBool("IsOffroad")) {
+      ConfirmationDialog::alert("시동을 끈 상태에서 Bluetooth 설정을 여세요.", this);
+      return;
+    }
+    // Android Settings is a separate activity from openpilot's native Qt UI.
+    // Its Back button may reveal the NEOS setup launcher instead of returning
+    // here, so close Settings ourselves after enough time to pair.
+    if (!QProcess::startDetached("/system/bin/am", {"start", "-a", "android.settings.BLUETOOTH_SETTINGS"})) {
+      ConfirmationDialog::alert("EON Android Bluetooth 설정을 열지 못했습니다.", this);
+    } else {
+      QTimer::singleShot(180000, this, []() {
+        QProcess::startDetached("/system/bin/am", {"force-stop", "com.android.settings"});
+      });
+    }
+  });
+  auto remoteLearningAllowed = []() {
+    if (Params().getBool("IsOffroad")) return true;
+    const SubMaster &sm = *(uiState()->sm);
+    if (!sm.alive("carState") || !sm.valid("carState")) return false;
+    const auto car = sm["carState"].getCarState();
+    return car.getCanValid() && car.getStandstill() &&
+           car.getGearShifter() == cereal::CarState::GearShifter::PARK;
+  };
+  auto btRemoteSetup = new ButtonControl("리모컨 버튼 설정", "LEARN",
+      "기능과 누르기 방식을 고르고 리모컨 버튼을 눌러 배정합니다. 시동이 켜져 있어도 P단 정차 중에는 설정할 수 있습니다. 연결·끊김 기록과 반응 시간도 여기서 볼 수 있습니다.");
+  toggleLayout->addWidget(btRemoteSetup);
+  connect(btRemoteSetup, &ButtonControl::clicked, [=]() {
+    if (!remoteLearningAllowed()) {
+      ConfirmationDialog::alert("P단에 놓고 정차한 상태에서 버튼을 학습하세요.", this);
+      return;
+    }
+    QDialog dialog(this);
+    dialog.setWindowTitle("EON 블루투스 리모컨");
+    dialog.setStyleSheet(
+        "QDialog { background-color: #202020; }"
+        "QLabel, QComboBox, QPushButton { color: white; font-size: 42px; }"
+        "QComboBox { min-height: 90px; padding: 8px; background-color: #333333; }"
+        "QPushButton { border-radius: 12px; background-color: #333333; }"
+        "QPushButton:pressed { background-color: #555555; }"
+        "QPushButton:disabled { color: #888888; }");
+    auto layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(30, 30, 30, 30);
+    layout->setSpacing(20);
+    auto content = new QWidget(&dialog);
+    auto contentLayout = new QVBoxLayout(content);
+    contentLayout->setContentsMargins(10, 10, 30, 20);
+    contentLayout->setSpacing(24);
+    contentLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
+    auto scroll = new ScrollView(content, &dialog);
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    layout->addWidget(scroll, 1);
+    auto instructions = new QLabel("리모컨을 EON에 페어링하고 켜 두세요.\n"
+                                   "기능과 누르기 방식을 고른 다음 LEARN을 누르고 리모컨 버튼을 누르세요.\n"
+                                   "첫 학습 버튼의 Bluetooth 장치만 이후 명령을 보낼 수 있습니다.\n"
+                                   "아래 내용은 화면을 위로 밀어 확인하세요.");
+    instructions->setWordWrap(true);
+    instructions->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    contentLayout->addWidget(instructions);
+    auto actions = new QComboBox(&dialog);
+    const std::array<std::pair<const char *, const char *>, 10> remoteActions = {{{"RES / 속도 +1", "res"},
+      {"SET / 속도 -1", "set"}, {"차간거리", "gap"}, {"ACC 취소", "cancel"},
+      {"왼쪽 차선변경 요청", "lane_left"}, {"오른쪽 차선변경 요청", "lane_right"},
+      {"RES 길게 / +10", "res_long"}, {"SET 길게 / -10", "set_long"},
+      {"티맵 / 네이버 전환", "nav_toggle"}, {"HUD 정보 박스 전환", "hud_box"}}};
+    for (const auto &[label, command] : remoteActions) actions->addItem(label, command);
+    contentLayout->addWidget(actions);
+    auto gestures = new QComboBox(&dialog);
+    gestures->addItem("짧게 누르기", "short");
+    gestures->addItem("길게 누르기", "long");
+    gestures->addItem("두 번 누르기", "double");
+    contentLayout->addWidget(gestures);
+    auto status = new QLabel("LEARN을 누르면 45초 동안 리모컨 입력을 기다립니다.", &dialog);
+    status->setWordWrap(true);
+    status->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    contentLayout->addWidget(status);
+    auto link = new QLabel(&dialog);
+    link->setWordWrap(true);
+    link->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    contentLayout->addWidget(link);
+    auto saved = new QLabel(&dialog);
+    saved->setWordWrap(true);
+    saved->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    contentLayout->addWidget(saved);
+    contentLayout->addStretch();
+    auto showSaved = [&]() {
+      auto json = QJsonDocument::fromJson(QByteArray::fromStdString(Params().get("BtRemoteMapping")));
+      auto object = json.object();
+      QStringList rows;
+      for (auto it = object.begin(); it != object.end(); ++it) {
+        rows << it.key() + " → " + it.value().toString();
+      }
+      saved->setText(rows.isEmpty() ? "저장된 버튼 없음" : "저장된 버튼:\n" + rows.join("\n"));
+    };
+    showSaved();
+    // Keep these controls visible even when mappings and status span many lines.
+    auto buttons = new QHBoxLayout();
+    buttons->setSpacing(20);
+    layout->addLayout(buttons);
+    auto learn = new QPushButton("LEARN", &dialog);
+    learn->setFixedHeight(110);
+    buttons->addWidget(learn, 1);
+    auto clear = new QPushButton("기기·배정 초기화", &dialog);
+    clear->setFixedHeight(110);
+    buttons->addWidget(clear, 1);
+    auto close = new QPushButton("닫기", &dialog);
+    close->setFixedHeight(110);
+    buttons->addWidget(close, 1);
+    connect(close, &QPushButton::clicked, &dialog, &QDialog::accept);
+    QString request;
+    QDateTime started;
+    connect(clear, &QPushButton::clicked, &dialog, [&]() {
+      if (!ConfirmationDialog::confirm("리모컨 기기 선택과 모든 버튼 배정을 지울까요?", &dialog)) return;
+      if (!remoteLearningAllowed()) {
+        status->setText("P단 정차 중에만 배정을 초기화할 수 있습니다.");
+        return;
+      }
+      Params().remove("BtRemoteLearn");
+      Params().remove("BtRemoteDevice");
+      Params().remove("BtRemoteMapping");
+      request.clear();
+      learn->setEnabled(true);
+      status->setText("배정을 지웠습니다. 기능을 선택하고 다시 학습하세요.");
+      showSaved();
+    });
+    connect(learn, &QPushButton::clicked, &dialog, [&]() {
+      if (!remoteLearningAllowed()) {
+        status->setText("P단에 놓고 정차한 뒤 LEARN을 누르세요.");
+        return;
+      }
+      request = actions->currentData().toString() + "|" + gestures->currentData().toString() + "|" +
+                QUuid::createUuid().toString(QUuid::WithoutBraces).remove('-');
+      Params().remove("BtRemoteStatus");
+      if (Params().put("BtRemoteLearn", request.toStdString()) != 0) {
+        status->setText("학습 요청을 저장하지 못했습니다.");
+        request.clear();
+        return;
+      }
+      started = QDateTime::currentDateTimeUtc();
+      status->setText("리모컨 버튼을 누르세요. 마우스 커서 이동은 학습하지 않습니다.");
+      learn->setEnabled(false);
+    });
+    QTimer poll(&dialog);
+    connect(&poll, &QTimer::timeout, &dialog, [&]() {
+      const bool allowed = remoteLearningAllowed();
+      learn->setEnabled(allowed && request.isEmpty());
+      clear->setEnabled(allowed);
+      auto detail = QString::fromStdString(Params().get("BtRemoteStatus"));
+      if (request.isEmpty()) link->setText(detail);
+      if (!allowed) {
+        if (!request.isEmpty()) {
+          Params().remove("BtRemoteLearn");
+          request.clear();
+        }
+        status->setText("학습 중지: P단에 놓고 정차한 뒤 LEARN을 누르세요.");
+        return;
+      }
+      if (request.isEmpty()) return;
+      auto pending = QString::fromStdString(Params().get("BtRemoteLearn"));
+      if (pending.isEmpty()) {
+        status->setText(detail);
+        showSaved();
+        request.clear();
+        learn->setEnabled(true);
+      } else if (started.secsTo(QDateTime::currentDateTimeUtc()) >= 45) {
+        Params().remove("BtRemoteLearn");
+        status->setText("입력 대기 시간이 지났습니다. 마지막 상태: " + detail);
+        request.clear();
+        learn->setEnabled(true);
+      } else if (!detail.isEmpty()) {
+        status->setText(detail);
+      } else if (started.secsTo(QDateTime::currentDateTimeUtc()) >= 2) {
+        status->setText("리모컨 입력 프로세스(bt_remote) 응답 없음");
+      }
+    });
+    poll.start(250);
+    setMainWindow(&dialog);
+    dialog.exec();
+    if (!request.isEmpty()) Params().remove("BtRemoteLearn");
+    btRemoteToggle->refresh();
+  });
 
   // ── S9 외부 클러스터 HUD ──────────────────────────────────
 
