@@ -390,19 +390,27 @@ public final class HudService extends Service {
     private android.hardware.display.DisplayManager mirrorDisplays;
     /** Last nMirror capture geometry handled by the boot handoff. */
     private volatile String mirrorDisplaySignature = "";
+    private volatile int mirrorCaptureDisplayId = -1;
     /**
      * Do not accept frames produced against the pre-Android-Auto display while
      * nMirror is rebuilding its capture surface.  Without this gate a late
      * dongle connection can leave a correctly shaped JPEG whose contents were
      * rendered at the old phone density, so the HUD map looks hugely zoomed.
      */
-    private volatile long localMapResumeElapsed;
+    private volatile long mapResumeElapsed;
     private final android.hardware.display.DisplayManager.DisplayListener mirrorDisplayListener =
             new android.hardware.display.DisplayManager.DisplayListener() {
         public void onDisplayAdded(int id) { mirrorDisplayChanged(id); }
         public void onDisplayChanged(int id) { mirrorDisplayChanged(id); }
-        public void onDisplayRemoved(int id) { }
+        public void onDisplayRemoved(int id) { mirrorDisplayRemoved(id); }
     };
+
+    private synchronized void mirrorDisplayRemoved(int id) {
+        if (id != mirrorCaptureDisplayId) return;
+        mirrorCaptureDisplayId = -1;
+        mirrorDisplaySignature = "";
+        HudDiagnostics.log("mirror-display removed=" + id);
+    }
 
     private synchronized void mirrorDisplayChanged(int id) {
         if (!running.get() || mirrorDisplays == null) return;
@@ -413,18 +421,24 @@ public final class HudService extends Service {
         for (android.view.Display candidate : mirrorDisplays.getDisplays()) {
             if (candidate.getName().startsWith("nMirror")) {
                 android.view.Display.Mode mode = candidate.getMode();
+                android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
+                candidate.getRealMetrics(metrics);
                 String signature = candidate.getDisplayId() + ":"
                         + mode.getPhysicalWidth() + "x" + mode.getPhysicalHeight()
+                        + ":logical=" + metrics.widthPixels + "x" + metrics.heightPixels
+                        + "@" + metrics.densityDpi
                         + ":r" + candidate.getRotation();
                 if (signature.equals(mirrorDisplaySignature)) return;
                 mirrorDisplaySignature = signature;
+                mirrorCaptureDisplayId = candidate.getDisplayId();
                 HudDiagnostics.log("mirror-display event=" + id + " geometry=" + signature
-                        + " nav-target=0 dpi=" + getResources().getDisplayMetrics().densityDpi);
+                        + " nav-target=0");
                 // The selected navigation may already be foreground because it
                 // was launched before Android Auto connected.  Make the boot
                 // worker run once more for the newly created capture geometry.
                 bootNavigationReady.set(false);
-                localMapResumeElapsed = SystemClock.elapsedRealtime() + 3000L;
+                bootNavigationResyncPending.set(true);
+                mapResumeElapsed = SystemClock.elapsedRealtime() + 3000L;
                 clearNavigationAssets(false);
                 scheduleBootNavigationSync();
                 return;
@@ -610,6 +624,8 @@ public final class HudService extends Service {
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean bootNavigationSyncRunning = new AtomicBoolean(false);
+    /** A display change that arrived while the boot handoff worker was busy. */
+    private final AtomicBoolean bootNavigationResyncPending = new AtomicBoolean(false);
     /**
      * Latches after the boot-selected navigation has appeared once. From that
      * point a missing foreground Activity is a user action (Back/Home), not a
@@ -1376,6 +1392,9 @@ public final class HudService extends Service {
         final Context context = this;
         Thread worker = new Thread(() -> {
             try {
+                // This worker owns the event that scheduled it. A new display
+                // event during the work sets the flag again for one follow-up.
+                bootNavigationResyncPending.set(false);
                 // nMirrorOS creates its capture display after BOOT_COMPLETED,
                 // and separately launches its own "app to start on boot" once
                 // during that same window (its timing relative to ours is
@@ -1404,9 +1423,19 @@ public final class HudService extends Service {
                         // Foreground alone is not enough after a late Android
                         // Auto connection: nMirror must rebuild the selected
                         // map source against the new capture-display geometry.
+                        // Claim the pending event before rebinding. If another
+                        // display change arrives during these blocking calls it
+                        // sets the flag again and this worker makes another pass.
+                        bootNavigationResyncPending.set(false);
+                        mapResumeElapsed = SystemClock.elapsedRealtime() + 3000L;
                         launchNavAppOnMirrorDisplay(context, selected);
                         synchronizeNMirrorSelection(context, selected);
                         stopOtherNavApps(selected);
+                        mapResumeElapsed = SystemClock.elapsedRealtime() + 500L;
+                        if (bootNavigationResyncPending.get()) {
+                            bootNavigationReady.set(false);
+                            continue;
+                        }
                         bootNavigationReady.set(true);
                         HudDiagnostics.log("boot navigation handoff complete app=" + selected);
                         return;
@@ -1421,6 +1450,13 @@ public final class HudService extends Service {
                 }
             } finally {
                 bootNavigationSyncRunning.set(false);
+                // Close the narrow race where DisplayListener queued a rebind
+                // after the loop's last pending check but before this worker
+                // released its single-flight flag.
+                if (running.get() && bootNavigationResyncPending.get()) {
+                    bootNavigationReady.set(false);
+                    scheduleBootNavigationSync();
+                }
             }
         }, "hud-boot-nav-sync");
         bootNavigationThread = worker;
@@ -1784,6 +1820,13 @@ public final class HudService extends Service {
                     if (target == null) {
                         throw new Exception("bad asset tag");
                     }
+                    // The EON copy can contain the same pre-rebind map as the
+                    // local socket. Keep both transports on the waiting screen
+                    // until nMirror has adopted the new capture geometry.
+                    if (target == mapFrame
+                            && SystemClock.elapsedRealtime() < mapResumeElapsed) {
+                        continue;
+                    }
                     // 로컬(같은 S9) 지도가 들어오는 중이면 EON 이 되돌려 준 지도는 쓰지 않는다.
                     // EON 의 1초 keepalive 재전송이 더 새 로컬 지도를 덮어쓰지 않게 하기 위함.
                     if (target == mapFrame && localMapFresh()) {
@@ -1887,7 +1930,7 @@ public final class HudService extends Service {
                 // A late wireless Android Auto connection changes nMirror's
                 // capture geometry. Drain stale frames from the existing socket
                 // until the selection rebind above has had time to take effect.
-                if (receivedAt < localMapResumeElapsed) continue;
+                if (receivedAt < mapResumeElapsed) continue;
                 // Local navigation modules may publish much faster than the HUD
                 // can display.  Always drain the socket so the producer never
                 // blocks, but avoid decoding JPEGs that cannot become visible.
