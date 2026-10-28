@@ -1,19 +1,47 @@
-"""Regression checks for the simplified apilot-c2 LongControl path."""
+"""Regression checks for the apilot-c2 LongControl brake-feedback path."""
 import ast
 from pathlib import Path
 from types import SimpleNamespace as NS
 
 
 SOURCE = Path(__file__).parents[1] / 'lib' / 'longcontrol.py'
-TEXT = SOURCE.read_text()
+TEXT = SOURCE.read_text(encoding='utf-8')
 TREE = ast.parse(TEXT)
 
 
-def test_pid_executes_one_direct_acceleration_request():
-  assert "output_accel = pid_output" in TEXT
-  assert "jerk_upper =" not in TEXT
+def test_pid_limits_only_feedback_brake_rise():
+  assert "output_accel = self.pid.f + feedback_limited" in TEXT
+  assert "limit_brake_feedback(feedback_target, self.last_pid_feedback" in TEXT
+  assert "self.pid.f =" not in TEXT
   assert "pos_allowance" not in TEXT
   assert "NO_LEAD_ALLOWANCE_RISE" not in TEXT
+
+
+def test_feedback_limiter_prevents_integral_windup():
+  assert "previous_i = self.pid.i" in TEXT
+  assert "self.pid.i = previous_i" in TEXT
+
+
+def load_feedback_limiter():
+  names = {'FEEDBACK_BRAKE_JERK_BASE', 'FEEDBACK_BRAKE_JERK_KP',
+           'FEEDBACK_BRAKE_JERK_MIN', 'FEEDBACK_BRAKE_JERK_MAX'}
+  nodes = [node for node in TREE.body
+           if (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in names
+                                                    for target in node.targets)) or
+              (isinstance(node, ast.FunctionDef) and node.name == 'limit_brake_feedback')]
+  env = dict(DT_CTRL=0.01, clip=lambda value, lower, upper: max(lower, min(value, upper)))
+  exec(compile(ast.Module(body=nodes, type_ignores=[]), str(SOURCE), 'exec'), env)
+  return env['limit_brake_feedback']
+
+
+def test_default_kp_limits_extra_brake_to_two_meters_per_second_cubed():
+  limit_feedback = load_feedback_limiter()
+  assert limit_feedback(-1.3, 0.0, 1.0, dt=0.05) == -0.1
+
+
+def test_feedback_brake_release_is_not_delayed():
+  limit_feedback = load_feedback_limiter()
+  assert limit_feedback(0.2, -0.8, 1.0, dt=0.05) == 0.2
 
 
 def test_pid_does_not_keep_previous_launch_limiter_frozen():

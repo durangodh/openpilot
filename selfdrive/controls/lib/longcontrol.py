@@ -93,6 +93,24 @@ FINAL_STOP_TAPER_ACCEL = -0.6
 # configured stopping_decel_rate.
 LAUNCH_ABORT_DECEL_JERK = 3.5
 
+# The MPC/feedforward request must remain authoritative when a lead closes
+# quickly.  Only the extra speed-error feedback is rate limited: with the
+# default Kp=1.0 it may add braking at 2.0 m/s^3, and the existing Kp setting
+# makes that response softer/faster over a bounded 1.0..3.0 m/s^3 range.
+# Releasing feedback braking is deliberately not limited.
+FEEDBACK_BRAKE_JERK_BASE = 1.0
+FEEDBACK_BRAKE_JERK_KP = 1.0
+FEEDBACK_BRAKE_JERK_MIN = 1.0
+FEEDBACK_BRAKE_JERK_MAX = 3.0
+
+
+def limit_brake_feedback(target, previous, kp, dt=DT_CTRL):
+  """Limit only increasing feedback brake; positive release stays immediate."""
+  brake_jerk = float(clip(FEEDBACK_BRAKE_JERK_BASE + FEEDBACK_BRAKE_JERK_KP * kp,
+                          FEEDBACK_BRAKE_JERK_MIN, FEEDBACK_BRAKE_JERK_MAX))
+  return max(target, previous - brake_jerk * dt)
+
+
 # apilot-c2 상태전이.
 # planned_stop 조건인데 accel 이 이미 stopAccel 보다 낮은 상태로 stopping 에 들어가면 너무 급하게 서므로
 # a_target_now 가 -1.0 보다 커질 때까지(=제동이 완만해질 때까지) PID 를 유지한다. (apilot 2023-09-11)
@@ -158,6 +176,7 @@ class LongControl:
     self.read_param_count = 0
     self.v_pid = 0.0
     self.last_output_accel = 0.0
+    self.last_pid_feedback = 0.0
 
     # 지연보상 (LongitudinalActuatorDelayLowerBound, x100 저장, 기본 0.5초)
     self.actuator_delay = 0.5
@@ -429,6 +448,7 @@ class LongControl:
     """Reset PID controller and change setpoint"""
     self.pid.reset()
     self.v_pid = v_pid
+    self.last_pid_feedback = 0.0
 
   def update(self, active, CS, long_plan, accel_limits, t_since_plan, soft_hold=False,
              radar_state=None, radar_state_valid=False, radar_state_updated=False,
@@ -681,14 +701,28 @@ class LongControl:
 
       error = self.v_pid - CS.vEgo
       error_deadzone = apply_deadzone(error, deadzone)
-      pid_output = self.pid.update(error_deadzone, speed=CS.vEgo,
-                                   feedforward=a_target,
-                                   freeze_integrator=freeze_integrator)
+      previous_i = self.pid.i
+      self.pid.update(error_deadzone, speed=CS.vEgo,
+                      feedforward=a_target,
+                      freeze_integrator=freeze_integrator)
 
-
-      # apilot-c2: execute the PID result directly. The MPC already prices
-      # acceleration and jerk; SCC14 remains the single command-side jerk owner.
-      output_accel = pid_output
+      # Keep the planner/feedforward path untouched.  Rate-limit only a more
+      # negative P/I/D correction so a sudden speed error cannot add a second
+      # brake step on top of an already safe MPC request.  LONGITUDINAL KP
+      # continues to set the correction magnitude and now also scales its
+      # braking onset: Kp 0/1/2 -> 1/2/3 m/s^3.
+      feedback_target = self.pid.p + self.pid.i + self.pid.d
+      feedback_limited = limit_brake_feedback(feedback_target, self.last_pid_feedback,
+                                              self.pid.k_p)
+      if feedback_limited > feedback_target + 1e-6:
+        # Do not accumulate integral behind the limiter and release it later as
+        # a delayed brake pulse. P feedback will keep following the live error.
+        self.pid.i = previous_i
+        feedback_target = self.pid.p + self.pid.i + self.pid.d
+        feedback_limited = limit_brake_feedback(feedback_target, self.last_pid_feedback,
+                                                self.pid.k_p)
+      self.last_pid_feedback = feedback_limited
+      output_accel = self.pid.f + feedback_limited
 
     self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
 

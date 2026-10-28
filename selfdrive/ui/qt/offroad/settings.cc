@@ -1890,7 +1890,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(horizontal_line());
 
   list->addItem(new ParamValueControlF(
-      "LongTuningKpV", "LONGITUDINAL KP", "현재 속도오차 반응값(×0.01)입니다. 값 증가(+): 가감속 반응이 빠르고 강해짐 / 값 감소(-): 반응이 부드럽고 느려짐.",
+      "LongTuningKpV", "LONGITUDINAL KP", "현재 속도오차 반응값(×0.01)이며 급접근 시 추가 피드백 제동의 증가 속도도 함께 조절합니다. 값 증가(+): 가감속 반응이 빠르고 강해짐 / 값 감소(-): 반응이 부드럽고 느려짐.",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
   list->addItem(new ParamValueControlF(
       "LongTuningKiV", "LONGITUDINAL KI", "누적 속도오차 보정값(×0.001)입니다. 값 증가(+): 지속 오차를 빨리 보정 / 값 감소(-): 천천히 보정. 과도하면 출렁일 수 있습니다.",
