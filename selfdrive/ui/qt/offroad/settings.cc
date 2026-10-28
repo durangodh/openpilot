@@ -1142,6 +1142,129 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   setAutoFillBackground(true);
   setPalette(pal);
 
+  // ── S9 외부 클러스터 HUD ──────────────────────────────────
+
+  toggleLayout->addWidget(new ParamControl(
+      "EonClusterHud", "S9 EXTERNAL HUD",
+      "EON 주행 데이터를 S9 앱으로 전송합니다. 아래 출력 대상에서 외부 HUD와 S9 화면을 선택할 수 있습니다.",
+      "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamControl(
+      "EonClusterHudShowOwnMap", "EON SHOW OWN MAP",
+      "켜짐: S9 외부 HUD가 켜져 있어도 이온 자체 화면에 지도/ATC를 계속 표시합니다. 꺼짐(기본): S9 연결 중엔 이온 화면 지도가 숨겨집니다.",
+      "../assets/offroad/icon_road.png", this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudFps", "S9 HUD FPS",
+      "EON 주행정보 송신과 S9 렌더링 속도입니다. 권장값 10 / 0은 화면 정지(연결유지 2Hz) / 10 초과는 EON 송신 10Hz 상한.",
+      "../assets/offroad/icon_road.png", 0, 15, 1, 0, 10, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudMapFps", "S9 HUD MAP FPS",
+      "티맵 지도 수신·파일검사·S9 전송 속도입니다. 권장값 3 / 부하 최소 2 / 움직임 우선 5.",
+      "../assets/offroad/icon_road.png", 2, 5, 1, 0, 3, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudBrightness", "S9 HUD BRIGHTNESS", "S9 외부 HUD 밝기: 0 주야간 자동 / 1~100 고정",
+      "../assets/offroad/icon_road.png", 0, 100, 5, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudDayBrightness", "S9 HUD DAY BRIGHTNESS",
+      "자동 밝기(0)에서 오전 7시부터 오후 7시 전까지 적용할 주간 밝기입니다.",
+      "../assets/offroad/icon_road.png", 1, 100, 5, 0, 65, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudNightBrightness", "S9 HUD NIGHT BRIGHTNESS",
+      "자동 밝기(0)에서 오후 7시부터 다음 날 오전 7시 전까지 적용할 야간 밝기입니다.",
+      "../assets/offroad/icon_road.png", 1, 100, 5, 0, 35, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudJpegQuality", "S9 HUD JPEG QUALITY",
+      "S9에서 생성해 외부 HUD로 보내는 JPEG 품질입니다. 권장값 55 / 선명도 우선 60. EON CPU 영향은 작습니다.",
+      "../assets/offroad/icon_road.png", 20, 95, 1, 0, 55, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudOutputMode", "S9 HUD OUTPUT MODE",
+      "1: 주행 / 지도 / 시스템   2: 실시간 디버그   3: S9 리모트(폰 상태·USB 진단)",
+      "../assets/offroad/icon_road.png", 1, 3, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudLayoutMode", "S9 HUD LAYOUT MODE",
+      "1: 주행 + 티맵 + 시스템 정보 / 2: 주행 + 티맵만(우측 정보판 숨김, 티맵 폭 확장)",
+      "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudNaviLayout", "S9 HUD NAVI LAYOUT",
+      "0: 주행모드(위 LAYOUT MODE 배치) / 1: 네비모드(지도 8 : 주행 2) / 2: 자동(길안내 중에는 네비모드, 안내가 끝나고 5초 뒤 주행모드). 휴대폰 지도도 네비모드에서는 가로로 넓게 보냅니다.",
+      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudMapScaleTmap", "S9 HUD NAVI MAP SIZE TMAP",
+      "네비모드에서 티맵 지도 크기(%). 휴대폰 앱 원본 지도를 100으로 볼 때의 크기입니다. 작을수록 더 넓게, 100보다 크면 원본보다 크게 보입니다(최대 200). 기본 70.",
+      "../assets/offroad/icon_road.png", 30, 200, 5, 0, 70, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudMapScaleKakao", "S9 HUD NAVI MAP SIZE KAKAO",
+      "네비모드에서 카카오 지도 크기(%). 휴대폰 앱 원본 지도를 100으로 볼 때의 크기입니다. 작을수록 더 넓게, 100보다 크면 원본보다 크게 보입니다(최대 200). 기본 70.",
+      "../assets/offroad/icon_road.png", 30, 200, 5, 0, 70, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudMapScaleNaver", "S9 HUD NAVI MAP SIZE NAVER",
+      "네비모드에서 네이버 지도 크기(%). 휴대폰 앱 원본 지도를 100으로 볼 때의 크기입니다. 작을수록 더 넓게, 100보다 크면 원본보다 크게 보입니다(최대 200). 기본 70.",
+      "../assets/offroad/icon_road.png", 30, 200, 5, 0, 70, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudNavApp", "NAVIGATION APP",
+      "EON에서 휴대폰 내비를 선택합니다. 0: 선택 안 함 / 1: 티맵 / 2: 네이버지도 / 3: 카카오내비. 변경하면 S9에서 선택한 앱이 자동 실행됩니다.",
+      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudGuardrail", "S9 HUD GUARDRAIL",
+      "0: 끔 / 1: 켬. 모델이 인식한 도로경계 위에만 세웁니다. 경계가 없는 구간에는 나오지 않습니다.",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudHaze", "S9 HUD HAZE",
+      "지평선 근처 원경을 배경색으로 흐리는 정도(%). 0: 끔 / 55: 기본. 값이 클수록 먼 노면이 배경에 녹아듭니다.",
+      "../assets/offroad/icon_road.png", 0, 100, 5, 0, 55, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudRoadZ", "S9 HUD ROAD Z",
+      "오르막·내리막 표현 강도(%). 100: 모델 값 그대로 / 0: 평지 / 음수: 위아래 반전(오르막이 꺼져 보일 때 -100).",
+      "../assets/offroad/icon_road.png", -300, 300, 10, 0, 100, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudPitchDyn", "S9 HUD PITCH DYN",
+      "가감속·요철로 차가 기울 때 수평선이 따라 움직이는 정도(%). 0: 끔(정지 캘리브만), 클수록 화면이 많이 흔들립니다.",
+      "../assets/offroad/icon_road.png", 0, 200, 10, 0, 60, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudViewPitch", "S9 HUD VIEW PITCH (X0.1°)",
+      "주행씬 수평선의 차량별 장착 보정입니다. 값 증가(+): 도로가 화면 아래쪽으로 이동 / 값 감소(-): 위쪽으로 이동. 정지 상태에서 실제 도로 소실점과 맞추십시오.",
+      "../assets/offroad/icon_road.png", -50, 50, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudTmapIcon", "S9 HUD TMAP ICON",
+      "0(기본): 앱 내장 화살표 그림.\n1: 티맵 compact 스트림 사용 — 이 스트림은 아이콘이 아니라 화살표+거리+도로명이 한 장에 그려진 미니 배너라, 켜면 검은 박스나 배너 중복으로 보일 수 있습니다.",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudJunction", "S9 HUD JUNCTION",
+      "티맵 분기 실사 이미지와 도착정보 바.\n0: 끔 / 1: 실사 이미지만 / 2: 실사 + 도착·분·km 바",
+      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 2, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudScreenMode", "S9 HUD SCREEN MODE", "1: 자동(길안내/주행리포트) / 2: 실시간 디버그 / 3: 주행리포트 고정",
+      "../assets/offroad/icon_road.png", 1, 3, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudInfoBox", "S9 HUD INFO BOX",
+      "주행패널 오른쪽 정보 박스.\n1: HUD 정보(온도·CPU·TPMS·LIMIT) / 2: 주행요약(시간·거리·속도·자동주행·급가감속). 경고 팝업은 어느 쪽이든 그 위에 표시됩니다. 주행 중 GAP 버튼을 길게 눌러도 바뀝니다.",
+      "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudTheme", "S9 HUD THEME", "0: 지도 밝기 자동 / 1: 다크 / 2: 라이트. 자동은 네이버·티맵 지도 배경 밝기에 맞춰 주행화면을 전환합니다. 판별 불가·지도 끊김 시 시간 기준을 사용합니다.",
+      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudOrientation", "S9 HUD ORIENTATION", "0: 기본 / 2: 180도 회전",
+      "../assets/offroad/icon_road.png", 0, 2, 2, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudMirror", "S9 HUD MIRROR", "0: 기본 / 1: 좌우 미러",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudPathFlip", "S9 HUD SCENE FLIP",
+      "0: 정상 / 1: 주행화면 전체 좌우반전 (패스·차선·차량·배경·가드레일, 글자 제외)",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudLanguage", "S9 HUD LANGUAGE", "0: 한국어 / 1: English",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudRadarInfo", "S9 HUD RADAR INFO", "0: 숨김 / 1,3: 앞차 상대속도 / 2,4: 앞차 거리+상대속도",
+      "../assets/offroad/icon_road.png", 0, 4, 1, 0, 4, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "EonClusterHudNavRoute", "S9 HUD NAV ROUTE",
+      "1(기본): 근거리에서 modelV2 와 일치할 때만 티맵 경로 의도를 반투명 선으로 표시 / 0: 숨김",
+      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
+
+  toggleLayout->addWidget(horizontal_line());
+
+  // ── NOO ─────────────────────────────────────────────────
   toggleLayout->addWidget(new ParamControl(
       "NavigationOnOpenpilot", "NAVIGATION ON OPENPILOT",
       "티맵 경로 기반 회전조향·회전감속과 분기·권장차로 차선변경을 하나로 수행합니다. "
@@ -1422,126 +1545,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     if (!request.isEmpty()) Params().remove("BtRemoteLearn");
     btRemoteToggle->refresh();
   });
-
-  // ── S9 외부 클러스터 HUD ──────────────────────────────────
-
-  toggleLayout->addWidget(new ParamControl(
-      "EonClusterHud", "S9 EXTERNAL HUD",
-      "EON 주행 데이터를 S9 앱으로 전송합니다. 아래 출력 대상에서 외부 HUD와 S9 화면을 선택할 수 있습니다.",
-      "../assets/offroad/icon_road.png", this));
-  toggleLayout->addWidget(new ParamControl(
-      "EonClusterHudShowOwnMap", "EON SHOW OWN MAP",
-      "켜짐: S9 외부 HUD가 켜져 있어도 이온 자체 화면에 지도/ATC를 계속 표시합니다. 꺼짐(기본): S9 연결 중엔 이온 화면 지도가 숨겨집니다.",
-      "../assets/offroad/icon_road.png", this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudFps", "S9 HUD FPS",
-      "EON 주행정보 송신과 S9 렌더링 속도입니다. 권장값 10 / 0은 화면 정지(연결유지 2Hz) / 10 초과는 EON 송신 10Hz 상한.",
-      "../assets/offroad/icon_road.png", 0, 15, 1, 0, 10, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudMapFps", "S9 HUD MAP FPS",
-      "티맵 지도 수신·파일검사·S9 전송 속도입니다. 권장값 3 / 부하 최소 2 / 움직임 우선 5.",
-      "../assets/offroad/icon_road.png", 2, 5, 1, 0, 3, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudBrightness", "S9 HUD BRIGHTNESS", "S9 외부 HUD 밝기: 0 주야간 자동 / 1~100 고정",
-      "../assets/offroad/icon_road.png", 0, 100, 5, 0, 0, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudDayBrightness", "S9 HUD DAY BRIGHTNESS",
-      "자동 밝기(0)에서 오전 7시부터 오후 7시 전까지 적용할 주간 밝기입니다.",
-      "../assets/offroad/icon_road.png", 1, 100, 5, 0, 65, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudNightBrightness", "S9 HUD NIGHT BRIGHTNESS",
-      "자동 밝기(0)에서 오후 7시부터 다음 날 오전 7시 전까지 적용할 야간 밝기입니다.",
-      "../assets/offroad/icon_road.png", 1, 100, 5, 0, 35, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudJpegQuality", "S9 HUD JPEG QUALITY",
-      "S9에서 생성해 외부 HUD로 보내는 JPEG 품질입니다. 권장값 55 / 선명도 우선 60. EON CPU 영향은 작습니다.",
-      "../assets/offroad/icon_road.png", 20, 95, 1, 0, 55, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudOutputMode", "S9 HUD OUTPUT MODE",
-      "1: 주행 / 지도 / 시스템   2: 실시간 디버그   3: S9 리모트(폰 상태·USB 진단)",
-      "../assets/offroad/icon_road.png", 1, 3, 1, 0, 1, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudLayoutMode", "S9 HUD LAYOUT MODE",
-      "1: 주행 + 티맵 + 시스템 정보 / 2: 주행 + 티맵만(우측 정보판 숨김, 티맵 폭 확장)",
-      "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudNaviLayout", "S9 HUD NAVI LAYOUT",
-      "0: 주행모드(위 LAYOUT MODE 배치) / 1: 네비모드(지도 8 : 주행 2) / 2: 자동(길안내 중에는 네비모드, 안내가 끝나고 5초 뒤 주행모드). 휴대폰 지도도 네비모드에서는 가로로 넓게 보냅니다.",
-      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudMapScaleTmap", "S9 HUD NAVI MAP SIZE TMAP",
-      "네비모드에서 티맵 지도 크기(%). 휴대폰 앱 원본 지도를 100으로 볼 때의 크기입니다. 작을수록 더 넓게, 100보다 크면 원본보다 크게 보입니다(최대 200). 기본 70.",
-      "../assets/offroad/icon_road.png", 30, 200, 5, 0, 70, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudMapScaleKakao", "S9 HUD NAVI MAP SIZE KAKAO",
-      "네비모드에서 카카오 지도 크기(%). 휴대폰 앱 원본 지도를 100으로 볼 때의 크기입니다. 작을수록 더 넓게, 100보다 크면 원본보다 크게 보입니다(최대 200). 기본 70.",
-      "../assets/offroad/icon_road.png", 30, 200, 5, 0, 70, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudMapScaleNaver", "S9 HUD NAVI MAP SIZE NAVER",
-      "네비모드에서 네이버 지도 크기(%). 휴대폰 앱 원본 지도를 100으로 볼 때의 크기입니다. 작을수록 더 넓게, 100보다 크면 원본보다 크게 보입니다(최대 200). 기본 70.",
-      "../assets/offroad/icon_road.png", 30, 200, 5, 0, 70, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudNavApp", "NAVIGATION APP",
-      "EON에서 휴대폰 내비를 선택합니다. 0: 선택 안 함 / 1: 티맵 / 2: 네이버지도 / 3: 카카오내비. 변경하면 S9에서 선택한 앱이 자동 실행됩니다.",
-      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 1, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudGuardrail", "S9 HUD GUARDRAIL",
-      "0: 끔 / 1: 켬. 모델이 인식한 도로경계 위에만 세웁니다. 경계가 없는 구간에는 나오지 않습니다.",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudHaze", "S9 HUD HAZE",
-      "지평선 근처 원경을 배경색으로 흐리는 정도(%). 0: 끔 / 55: 기본. 값이 클수록 먼 노면이 배경에 녹아듭니다.",
-      "../assets/offroad/icon_road.png", 0, 100, 5, 0, 55, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudRoadZ", "S9 HUD ROAD Z",
-      "오르막·내리막 표현 강도(%). 100: 모델 값 그대로 / 0: 평지 / 음수: 위아래 반전(오르막이 꺼져 보일 때 -100).",
-      "../assets/offroad/icon_road.png", -300, 300, 10, 0, 100, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudPitchDyn", "S9 HUD PITCH DYN",
-      "가감속·요철로 차가 기울 때 수평선이 따라 움직이는 정도(%). 0: 끔(정지 캘리브만), 클수록 화면이 많이 흔들립니다.",
-      "../assets/offroad/icon_road.png", 0, 200, 10, 0, 60, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudViewPitch", "S9 HUD VIEW PITCH (X0.1°)",
-      "주행씬 수평선의 차량별 장착 보정입니다. 값 증가(+): 도로가 화면 아래쪽으로 이동 / 값 감소(-): 위쪽으로 이동. 정지 상태에서 실제 도로 소실점과 맞추십시오.",
-      "../assets/offroad/icon_road.png", -50, 50, 1, 0, 0, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudTmapIcon", "S9 HUD TMAP ICON",
-      "0(기본): 앱 내장 화살표 그림.\n1: 티맵 compact 스트림 사용 — 이 스트림은 아이콘이 아니라 화살표+거리+도로명이 한 장에 그려진 미니 배너라, 켜면 검은 박스나 배너 중복으로 보일 수 있습니다.",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudJunction", "S9 HUD JUNCTION",
-      "티맵 분기 실사 이미지와 도착정보 바.\n0: 끔 / 1: 실사 이미지만 / 2: 실사 + 도착·분·km 바",
-      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 2, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudScreenMode", "S9 HUD SCREEN MODE", "1: 자동(길안내/주행리포트) / 2: 실시간 디버그 / 3: 주행리포트 고정",
-      "../assets/offroad/icon_road.png", 1, 3, 1, 0, 1, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudInfoBox", "S9 HUD INFO BOX",
-      "주행패널 오른쪽 정보 박스.\n1: HUD 정보(온도·CPU·TPMS·LIMIT) / 2: 주행요약(시간·거리·속도·자동주행·급가감속). 경고 팝업은 어느 쪽이든 그 위에 표시됩니다. 주행 중 GAP 버튼을 길게 눌러도 바뀝니다.",
-      "../assets/offroad/icon_road.png", 1, 2, 1, 0, 1, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudTheme", "S9 HUD THEME", "0: 지도 밝기 자동 / 1: 다크 / 2: 라이트. 자동은 네이버·티맵 지도 배경 밝기에 맞춰 주행화면을 전환합니다. 판별 불가·지도 끊김 시 시간 기준을 사용합니다.",
-      "../assets/offroad/icon_road.png", 0, 2, 1, 0, 0, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudOrientation", "S9 HUD ORIENTATION", "0: 기본 / 2: 180도 회전",
-      "../assets/offroad/icon_road.png", 0, 2, 2, 0, 0, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudMirror", "S9 HUD MIRROR", "0: 기본 / 1: 좌우 미러",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudPathFlip", "S9 HUD SCENE FLIP",
-      "0: 정상 / 1: 주행화면 전체 좌우반전 (패스·차선·차량·배경·가드레일, 글자 제외)",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudLanguage", "S9 HUD LANGUAGE", "0: 한국어 / 1: English",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 0, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudRadarInfo", "S9 HUD RADAR INFO", "0: 숨김 / 1,3: 앞차 상대속도 / 2,4: 앞차 거리+상대속도",
-      "../assets/offroad/icon_road.png", 0, 4, 1, 0, 4, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "EonClusterHudNavRoute", "S9 HUD NAV ROUTE",
-      "1(기본): 근거리에서 modelV2 와 일치할 때만 티맵 경로 의도를 반투명 선으로 표시 / 0: 숨김",
-      "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
 }
 
 SelectCar::SelectCar(QWidget* parent): QWidget(parent) {
