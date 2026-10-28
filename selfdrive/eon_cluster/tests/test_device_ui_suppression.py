@@ -272,7 +272,7 @@ def test_s9_v6_visual_layers_and_local_map_context():
       encoding="utf-8")
 
   assert '"v": 6' in sender
-  assert '"mapPose": map_pose' in sender
+  assert '"mapPose"' not in sender
   assert '"desiredDistance":' in sender
   assert "drawPathLayers" in renderer
   assert "leadDistance[0] - 2.6f" in renderer
@@ -306,7 +306,7 @@ def test_hud_rejects_stale_sources_and_applies_fallback_path_offset():
   assert 's.optBoolean("worldValid", true)' in service
   assert 'scene.optDouble("pathOffset", 0d)' in renderer
   assert 'rawPath.y[i] += pathOffset' in renderer
-  assert '"pathFinal": path_final' in sender
+  assert '"pathOffset": 0.0 if path_final or not model_valid else float(path_offset)' in sender
   assert 'leadSpriteProbability' not in renderer
 
 

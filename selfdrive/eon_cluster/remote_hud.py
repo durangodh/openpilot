@@ -135,29 +135,14 @@ REMOTE_LAYOUT = {
   # 색은 여기서 강제하지 않는다. 넣으면 앱의 다크/라이트 테마를 덮어써서
   # hudTheme 설정이 주행씬에 반영되지 않는다. 특정 색을 고정하고 싶을 때만
   # driveBg / roadTop / roadBottom / pathColor 를 다시 넣을 것.
+  # 앱이 실제로 읽는 요소만 둔다(beginElement / beginGuideElement 이름).
   "lightsDx": 0, "lightsDy": 0, "lightsScale": 1.0,
-  "prndDx": 0, "prndDy": 0, "prndScale": 1.0,
-  "speedDx": 0, "speedDy": 0, "speedScale": 1.0,
-  "wheelDx": 0, "wheelDy": 0, "wheelScale": 1.0,
-  "setDx": 0, "setDy": 0, "setScale": 1.0,
-  "cameraDx": 0, "cameraDy": 0, "cameraScale": 1.0,
-  "leadDx": 0, "leadDy": 0, "leadScale": 1.0,
-  "tpmsDx": 0, "tpmsDy": 0, "tpmsScale": 1.0,
-  # NOO 안내는 주행 패널 중앙으로 옮겼다(구 atc* 키는 사라짐).
-  "nooDx": 0, "nooDy": 0, "nooScale": 1.0,
   "junctionDx": 0, "junctionDy": 0, "junctionScale": 1.0,
   "etaDx": 0, "etaDy": 0, "etaScale": 1.0,
   "systemDx": 0, "systemDy": 0, "systemScale": 1.0,
-  # 아래 값들은 주행패널이 765 폭이던 시절에 맞춘 것이라, 5:4:1 레이아웃
-  # (주행 952) 에서는 앱 기본값을 덮어써 요소를 왼쪽에 붙여 놓았다.
-  # tbt1Dx / tbt2Dx 가 서로 달라 TBT 두 줄의 왼쪽도 어긋나 있었다.
-  # 이제 앱 기본값(modeX 938 / etaRight 832 / TBT 오프셋 없음)을 그대로 쓴다.
-  "modeX": 938, "modeY": 116, "modeSize": 29,
-  "etaRight": 832, "etaY": 116, "etaTimeSize": 27, "etaLabelSize": 14, "etaGap": 8,
   "tbt1Dx": 0, "tbt1Dy": 0, "tbt1Scale": 1.0,
   "tbt2Dx": 0, "tbt2Dy": 0, "tbt2Scale": 1.0,
   "laneDx": 0, "laneDy": 0, "laneScale": 1.0,
-  "rpmDx": 0, "rpmDy": 0, "rpmScale": 1.0,
   "rpmRedline": 6500,   # DH 3.8 기준. 차종 바꾸면 여기만 고치면 됨
 }
 
@@ -684,7 +669,7 @@ def _navi_scene(state):
   파일 서명 단위(_NAVI_CACHE)로 캐시하므로 폴리라인 최근접점 탐색이 10Hz 마다
   돌지 않는다(파일 자체가 보통 1Hz 갱신).
 
-  결과: {"lane": {"n","cur","turns","avail","dist"}, "cat": roadcate,
+  결과: {"lane": {"n","cur","dist"},
         "curve": [[x, y], ...]}  (전방 x m, 좌 +y m — 주행씬 좌표계와 동일)
   """
   scene = {}
@@ -698,27 +683,11 @@ def _navi_scene(state):
   # A single-lane TMAP count is essential on bollard/median roads: without it
   # the camera-only road edge can be rounded into a phantom lane on the left.
   if 1 <= n <= 8 and 1 <= cur <= n:
-    def _ints(key):
-      raw = lane.get(key) or []
-      out = []
-      for i in range(n):
-        try:
-          out.append(int(raw[i]))
-        except (TypeError, ValueError, IndexError):
-          out.append(0)
-      return out
     try:
       lane_dist = max(0, int(round(float(lane.get("distance_m", 0) or 0))))
     except (TypeError, ValueError):
       lane_dist = 0
-    scene["lane"] = {"n": n, "cur": cur, "turns": _ints("turn_info"),
-                     "avail": _ints("available"), "dist": lane_dist}
-  try:
-    cat = int(lane.get("road_category", -1))
-  except (TypeError, ValueError):
-    cat = -1
-  if cat >= 0:
-    scene["cat"] = cat
+    scene["lane"] = {"n": n, "cur": cur, "dist": lane_dist}
 
   # route.polyline → 자차 로컬좌표. 위치/방위는 티맵 vehicle 스트림(EON GPS 불요).
   vehicle = state.get("vehicle") or {}
@@ -736,8 +705,6 @@ def _navi_scene(state):
   if lat0 is not None:
     # TMAP 경로를 차량 좌표계로 변환하기 위한 위치/방위.
     scene["pos"] = [round(lat0, 6), round(lon0, 6), round(math.degrees(heading), 1)]
-    scene["navSpeedKph"] = int(round(_finite(vehicle.get("speed_kph"), -1.0)))
-    scene["navVirtual"] = bool(vehicle.get("virtual_gps", False))
   if lat0 is not None and len(poly) >= 2:
     m_lat = 111320.0
     m_lon = 111320.0 * math.cos(math.radians(lat0))
@@ -885,7 +852,6 @@ def _read_navi_summary():
     scene.pop("curve", None)
   if not lane_live:
     scene.pop("lane", None)
-    scene.pop("cat", None)
 
   if not active:
     inactive = {"active": False}
@@ -952,70 +918,6 @@ def _congestion_bar(route):
     return None
   levels = "".join(ch for ch in levels[:200] if ch in "0123")
   return levels or None
-
-
-# GPS badge for the HUD navi panel. The phone lives in the console box, so
-# show whether the navigation app's position is actually moving:
-#   0 = no position (nav app not connected / no fix yet)
-#   1 = position frozen or stale while the car is moving (GPS lost)
-#   2 = position updating
-_GPS_TRACK = {"lat": None, "lon": None, "changed_at": 0.0, "changes": []}
-GPS_FROZEN_S = 4.0
-GPS_RATE_WINDOW_S = 5.0
-GPS_STALE_MS = 3000
-GPS_MOVING_MPS = 1.5
-
-
-def _gps_state(map_pose, pos_age_ms, v_ego):
-  if map_pose is None:
-    _GPS_TRACK["lat"] = None
-    return 0
-  now = time.monotonic()
-  lat, lon = map_pose[0], map_pose[1]
-  if (_GPS_TRACK["lat"] is None or abs(lat - _GPS_TRACK["lat"]) > 1e-6
-      or abs(lon - _GPS_TRACK["lon"]) > 1e-6):
-    _GPS_TRACK["lat"] = lat
-    _GPS_TRACK["lon"] = lon
-    _GPS_TRACK["changed_at"] = now
-    _GPS_TRACK["changes"].append(now)
-  changes = _GPS_TRACK["changes"]
-  while changes and now - changes[0] > GPS_RATE_WINDOW_S:
-    changes.pop(0)
-  frozen = now - _GPS_TRACK["changed_at"] > GPS_FROZEN_S
-  if pos_age_ms > GPS_STALE_MS:
-    return 1
-  if frozen and v_ego > GPS_MOVING_MPS:
-    return 1
-  return 2
-
-
-def _gps_info(map_pose, navi_scene, sm):
-  """Detail line under the HUD GPS badge (all optional, -1 = unknown)."""
-  now = time.monotonic()
-  info = {"age": -1, "hz": -1, "navKph": -1, "virtual": False,
-          "eonAcc": -1, "eonFix": 0, "delta": -1}
-  if map_pose is not None and _GPS_TRACK["lat"] is not None:
-    info["age"] = int(round((now - _GPS_TRACK["changed_at"]) * 1000))
-    info["hz"] = round(len(_GPS_TRACK["changes"]) / GPS_RATE_WINDOW_S, 1)
-  if isinstance(navi_scene, dict):
-    info["navKph"] = int(navi_scene.get("navSpeedKph", -1) or -1)
-    info["virtual"] = bool(navi_scene.get("navVirtual", False))
-  try:
-    if sm.alive["gpsLocationExternal"] and sm.valid["gpsLocationExternal"]:
-      g = sm["gpsLocationExternal"]
-      info["eonFix"] = 1 if _field(g, "flags", 0) & 1 else 0
-      info["eonAcc"] = int(round(_finite(_field(g, "accuracy", -1.0), -1.0)))
-      if map_pose is not None and info["eonFix"]:
-        lat = _finite(_field(g, "latitude", 0.0))
-        lon = _finite(_field(g, "longitude", 0.0))
-        if abs(lat) > 0.01:
-          m_lon = 111320.0 * math.cos(math.radians(lat))
-          dx = (map_pose[1] - lon) * m_lon
-          dy = (map_pose[0] - lat) * 111320.0
-          info["delta"] = int(round(math.hypot(dx, dy)))
-  except (KeyError, AttributeError, TypeError, ValueError):
-    pass
-  return info
 
 
 def _compensate_navi_pose(navi, v_ego):
@@ -1166,34 +1068,11 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   parking_sensors = _field(car, "parkingSensors", None)
   navi = _read_navi_summary()
   _compensate_navi_pose(navi, _finite(_field(car, "vEgo", 0.0)))
-  # Preserve the compensated TMAP pose for the phone-local, display-only map
-  # context before removing it from the diagnostic/navigation object.
-  map_pose = None
+  # The pose only predicts the route curve above; the app does not read it.
   navi_scene = navi.get("scene") if isinstance(navi, dict) else None
-  pos_age_ms = 0
   if isinstance(navi_scene, dict):
-    try:
-      pos_age_ms = int(navi_scene.get("posAgeMs", 0) or 0)
-    except (TypeError, ValueError):
-      pos_age_ms = 0
-    raw_map_pose = navi_scene.get("pos")
-    if isinstance(raw_map_pose, list) and len(raw_map_pose) >= 3:
-      try:
-        candidate = [float(raw_map_pose[0]), float(raw_map_pose[1]),
-                     float(raw_map_pose[2])]
-        if (all(math.isfinite(value) for value in candidate) and
-            -85.0 <= candidate[0] <= 85.0 and -180.0 <= candidate[1] <= 180.0):
-          map_pose = [round(candidate[0], 6), round(candidate[1], 6),
-                      round(candidate[2], 1)]
-      except (TypeError, ValueError):
-        pass
     navi_scene.pop("pos", None)
     navi_scene.pop("posAgeMs", None)
-  gps_state = _gps_state(map_pose, pos_age_ms, _finite(_field(car, "vEgo", 0.0)))
-  gps_info = _gps_info(map_pose, navi_scene, sm)
-  if isinstance(navi_scene, dict):
-    navi_scene.pop("navSpeedKph", None)
-    navi_scene.pop("navVirtual", None)
   raw_lane_position = camera_lane_position(sm["modelV2"])
   route_lane_count = 0
   try:
@@ -1214,18 +1093,6 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   noo_current_lane = int(_finite(_field(sm["lateralPlan"], "nooCurrentLane", 0)))
   noo_target_lane = int(_finite(_field(sm["lateralPlan"], "nooTargetLane", 0)))
   noo_lane_direction = int(_finite(_field(sm["lateralPlan"], "nooLaneChangeDirection", 0)))
-  planner_lane_valid = (noo_route_count == route_lane_count and
-                        1 <= noo_current_lane <= route_lane_count and
-                        1 <= noo_target_lane <= route_lane_count)
-  hud_camera_count = noo_camera_count or int((raw_lane_position or {}).get("n", 0))
-  if planner_lane_valid:
-    hud_route_count = noo_route_count
-    hud_current_lane = noo_current_lane
-    hud_target_lane = noo_target_lane
-  else:
-    hud_route_count = route_lane_count
-    hud_current_lane = int((lane_position or {}).get("cur", 0))
-    hud_target_lane = hud_current_lane
 
   apply_speed, apply_source = _apply_speed(sm["carControl"]) if car_control_valid else (0, "")
   hud_path = (final_lateral_path(sm["lateralPlan"], sm["modelV2"], T_IDXS)
@@ -1250,9 +1117,6 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "drivingValid": all(_stream_alive(sm, name) for name in ("carState", "carControl", "controlsState")),
     "speedValid": car_valid,
     "worldValid": model_valid,
-    "mapPose": map_pose,
-    "gpsState": gps_state,
-    "gpsInfo": gps_info,
     "layout": REMOTE_LAYOUT,
     "speed": int(round(_finite(_field(car, "vEgoCluster", _field(car, "vEgo", 0.0))) * 3.6)),
     "set": _set_speed(controls, sm["carControl"]),
@@ -1297,7 +1161,6 @@ def _packet(sm, noo_enabled, path_offset=0.0):
       "temp": round(temp_avg, 1),
       "engineTemp": engine_temp,
       "coolantTemp": coolant_temp,
-      "cores": [round(float(v), 1) for v in cpu[:8]],
     },
     "leftBlinker": bool(_field(car, "leftBlinker", False)),
     "rightBlinker": bool(_field(car, "rightBlinker", False)),
@@ -1362,12 +1225,6 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "atcDirection": int(_finite(_field(sm["lateralPlan"], "nooTurnDirection", 0))),
     # New key alongside the legacy atcMode above. Old APKs ignore it.
     "nooMode": 1 if noo_enabled else 0,
-    # The driving-scene renderer reads these flat wire keys. They must remain available alongside
-    # the nested diagnostic object below for already-installed APKs.
-    "nooCameraLaneCount": hud_camera_count,
-    "nooRouteLaneCount": hud_route_count,
-    "nooCurrentLane": hud_current_lane,
-    "nooTargetLane": hud_target_lane,
     # Lane-change diagnostics. cam/map are the camera and TMAP lane counts; a
     # permanent mismatch there is why a lane change never starts.
     "noo": {
@@ -1382,16 +1239,10 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     # OffsetTotal. Keep the old offset only when falling back to the raw model
     # path so old and new APKs both avoid adding it twice.
     "pathOffset": 0.0 if path_final or not model_valid else float(path_offset),
-    # Protocol-v6 compatibility for APKs that gated route blending on this bit.
-    "pathFinal": path_final,
     # 현재 차량 자세 pitch(rad). liveCalibration 의 정적 보정과 달리 주행 중
     # 가감속·요철로 실시간 변한다. 앱은 여기에 게인을 곱해 수평선을 움직인다.
     "pitch": round(_finite(_first(_field(_field(sm["modelV2"], "orientation", None), "y", []))), 4),
     "calibPitch": _calib_pitch(sm["liveCalibration"]),
-    # E2E 궤적으로 추정한 신호 상태. 0=없음, 1=정지(빨강), 2=출발(초록).
-    # 실제 신호등 색상 인식값이 아니므로 노란불 상태는 만들지 않는다.
-    "trafficState": (max(0, min(2, int(_finite(
-        _field(sm["longitudinalPlan"], "trafficState", 0))))) if longitudinal_valid else 0),
     # 모델이 추정한 자기 차로 폭(m). 앱의 폴백 도로폭 계산에 쓴다.
     "laneWidth": round(_finite(_field(sm["lateralPlan"], "laneWidth", 0.0)), 2),
     # 카메라 roadEdges/laneLines 로 추정한 도로 내 자차 위치. 화면 배치에만

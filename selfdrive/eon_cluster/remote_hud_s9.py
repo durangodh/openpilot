@@ -118,7 +118,6 @@ def _packet(sm, *args, **kwargs):
   view_pitch = _bounded_int("EonClusterHudViewPitch", 0, -50, 50)
   calibrated_pitch = float(packet.get("calibPitch", 0.0) or 0.0) + math.radians(view_pitch * 0.1)
   packet["calibPitch"] = round(max(-0.15, min(0.15, calibrated_pitch)), 4)
-  packet["hudViewPitch"] = view_pitch
 
   # Preserve 0 for FPS (pause) and brightness (auto), matching the UI.
   packet["hudFps"] = _bounded_int("EonClusterHudFps", 10, 0, 15)
