@@ -4696,6 +4696,14 @@ public final class HudService extends Service {
         drawInfoGauge(c, p, FUEL_GAUGE_LEFT, FUEL_GAUGE_RIGHT, fuelLit, "E", "F", fuelLit <= 2);
         drawFuelIcon(c, p, (FUEL_GAUGE_LEFT + FUEL_GAUGE_RIGHT - fuelIconWidth(20f)) / 2f,
                 INFO_Y - 28f, 20f);
+        if (naviLayout) {
+            // 네비모드: 연료게이지 F 오른쪽, 주행가능거리 줄에 맞춰 차량 외기온도(CAN).
+            double outside = s.optDouble("outsideTemp", -1000d);
+            if (Double.isFinite(outside) && outside >= -50d && outside <= 80d) {
+                textNormal(c, p, String.format(Locale.US, "%.0f°C", outside), FUEL_GAUGE_RIGHT + 22f,
+                        INFO_Y, 19f, ink(), Paint.Align.LEFT);
+            }
+        }
 
         JSONObject system = s.optJSONObject("system");
         double coolant = system == null ? Double.NaN : system.optDouble("coolantTemp", Double.NaN);
