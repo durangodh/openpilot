@@ -162,7 +162,6 @@ def manager_init() -> None:
     ("LatAccelFrictionFactor", "70"),
     ("LatJerkFrictionFactor", "40"),
     ("LatCurveIDeadzone", "20"),
-    ("LatYawMeasureBlend", "0"),
     ("AutoLaneChangeTimer", "0"),  # controlsd.py 크래시 수정
     ("AutoLaneChangeSpeed", "50"),  # 자동/방향지시등 차선변경 허용 최저 속도 (km/h)
     ("AdjustLaneOffset", "0"),    # 좌우 여유공간/커브 보정 (cm, 0=off)
@@ -181,7 +180,6 @@ def manager_init() -> None:
     ("StandstillHoldApply", "55"),
     ("EarlyHoldRelax", "1"),
     ("FastLeadRelease", "1"),
-    ("EarlyStopReqRelease", "0"),
     ("TrafficStopAccel", "80"),
     ("TrafficStopDistanceAdjust", "400"),
     ("StopDistance", "600"),
@@ -279,7 +277,8 @@ def manager_init() -> None:
                    "VisionRadarToggle", "SccSmootherState",
                    "LateralTorqueKd", "CarrotLearnFrictionBase",
                    "OPKRTimeZone", "ShowBlindSpotAlways", "EonClusterHudPathFlipV2Migrated",
-                   "EnableRadarTracks", "LatTraceEnabled", "HudRemoteKey"):
+                   "EnableRadarTracks", "LatTraceEnabled", "HudRemoteKey",
+                   "LatYawMeasureBlend", "EarlyStopReqRelease"):
     try:
       os.remove(os.path.join("/data/params/d", dead_key))
     except OSError:

@@ -72,7 +72,7 @@ def test_lead_start_accel_uses_configured_value_as_a_ceiling():
 
 
 def test_early_hold_relax_also_prereleases_stop_request():
-  assert "self._hold_relax_active() or" in TEXT
+  assert "if (self._hold_relax_active() and" in TEXT
   assert "self.stopreq_release_left = STOPREQ_RELEASE_KEEP_FRAMES" in TEXT
 
 

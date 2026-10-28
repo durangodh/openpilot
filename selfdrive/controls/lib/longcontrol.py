@@ -43,7 +43,7 @@ HOLD_RELAX_JERK = 2.5          # m/s^3, 유지 제동을 줄이는 속도(다시
 #  - 정차 접근 수준(stopAccel)까지 다 풀지 않고 유지 제동과의 중간까지만 푼다.
 HOLD_RELAX_SETTLE_FRAMES = round(1.0 / DT_CTRL)
 HOLD_RELAX_FRACTION = 0.5
-# C) EarlyStopReqRelease (실험, 기본 꺼짐): 앞차가 꿈틀하면 브레이크 명령(음수)은 그대로
+# C) StopReq 미리 내리기(EARLY HOLD RELAX 와 함께 동작): 앞차가 꿈틀하면 브레이크 명령(음수)은 그대로
 #    두고 Hyundai StopReq 만 먼저 내린다. 2026-10-03 기록에서 정지유지(StopReq)가 걸린
 #    상태의 출발은 명령 후 약 1.25초, 걸리기 전에는 0.8초였다. 0.8초 안에 실제 출발이
 #    이어지지 않거나 차가 조금이라도 움직이면 StopReq 를 다시 올리고, 그 정지 동안은
@@ -228,7 +228,6 @@ class LongControl:
     self.standstill_frames = 0
     self.hold_relaxing = False
     self.hold_restore_fast = False
-    self.early_stopreq_release = False
     self.stopreq_release_left = 0
     self.stopreq_release_blocked = False
     self.stopreq_release_active = False
@@ -301,7 +300,6 @@ class LongControl:
     try:
       self.early_hold_relax = self.params.get("EarlyHoldRelax", encoding="utf8") != "0"
       self.fast_lead_release = self.params.get("FastLeadRelease", encoding="utf8") != "0"
-      self.early_stopreq_release = self.params.get("EarlyStopReqRelease", encoding="utf8") == "1"
     except Exception:
       pass
 
@@ -373,10 +371,8 @@ class LongControl:
             # EARLY HOLD RELAX already requires a settled standstill, keeps a
             # negative brake request and restores it immediately on creep. Use
             # the same guarded window to let Hyundai SCC begin unlatching
-            # StopReq before the positive launch command arrives. The legacy
-            # EarlyStopReqRelease toggle can still enable this independently.
-            if ((self._hold_relax_active() or
-                 getattr(self, 'early_stopreq_release', False)) and
+            # StopReq before the positive launch command arrives.
+            if (self._hold_relax_active() and
                 not getattr(self, 'stopreq_release_blocked', False) and
                 getattr(self, 'standstill_frames', 0) >= HOLD_RELAX_SETTLE_FRAMES):
               self.stopreq_release_left = STOPREQ_RELEASE_KEEP_FRAMES

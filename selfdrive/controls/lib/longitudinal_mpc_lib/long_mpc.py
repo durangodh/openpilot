@@ -33,7 +33,6 @@ XState = log.LongitudinalPlan.XState
 ButtonType = car.CarState.ButtonEvent.Type
 
 X_DIM = 3
-U_DIM = 1
 PARAM_DIM = 8
 COST_E_DIM = 5
 COST_DIM = COST_E_DIM + 1
@@ -62,7 +61,6 @@ T_IDXS_LST = [index_function(idx, max_val=MAX_T, max_idx=N) for idx in range(N+1
 T_IDXS = np.array(T_IDXS_LST)
 FCW_IDXS = T_IDXS < 5.0
 T_DIFFS = np.diff(T_IDXS, prepend=[0.])
-MIN_X_LEAD_FACTOR = 0.5
 MIN_ACCEL = -4.0
 MAX_ACCEL = 2.5
 T_FOLLOW = 1.45

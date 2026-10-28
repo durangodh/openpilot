@@ -23,7 +23,7 @@ def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego
                                   latched=False):
   """Assert Hyundai StopReq only after the vehicle has actually stopped.
 
-  pre_release (EarlyStopReqRelease): LongControl saw the stopped lead start to
+  pre_release (EARLY HOLD RELAX): LongControl saw the stopped lead start to
   move, so StopReq is dropped early while the negative brake request stays, to
   let the SCC begin leaving its standstill hold before the launch command.
   Soft hold (driver brake) always keeps StopReq.

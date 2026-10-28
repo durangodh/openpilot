@@ -101,20 +101,6 @@ ERR_FREEZE_DEADZONE_V = [0.005, 0.02]
 CURVE_I_DEADZONE_DEFAULT = 20      # x0.001, 예전 값 70
 I_LEAK_FACTOR_V = [0.99975, 0.999]      # @100Hz τ≈[40s, 10s]. [직진, 커브]
 
-# ── 실제 회전량을 자이로(요레이트)로도 잰다 (LatYawMeasureBlend, %) ──────────
-# DH 는 핸들각으로 실제 곡률을 계산한다. 이 계산은 핸들 영점과 도로 기울기(roll)
-# 보정에 기대는데, EON 은 GPS 가 없어 locationd 의 roll 이 무효라 도로 기울기를
-# 모른다. 2026-10-03 lat_trace: 차체(요레이트)가 핸들각 계산보다 늘 약 0.06 m/s²
-# 오른쪽으로 더 돌아 오른쪽 긴 커브에서 인코스로 파고들었다. 보정된 자이로
-# 요레이트(liveLocationKalman, 원본 openpilot 이 대부분 차종에 쓰는 값)를 이 비율만큼
-# 섞으면 영점·기울기와 무관하게 실제 회전을 맞춘다. 저속은 핸들각만(8→12 m/s 점증).
-YAW_MEASURE_SPEED_BP = [8.0, 12.0]
-# ★ 2026-10-05 lat_trace: 자이로 요레이트는 노면 진동으로 핸들각보다 2~4배 떨려, 그대로
-#   섞으면 실제 횡가속 측정이 0.05초 사이 ±0.15 m/s² 씩 튀고 그게 P 를 거쳐 중고속에서
-#   핸들을 "툭" 쳤다. 자이로-핸들각 차이(=영점·기울기 오차)는 천천히 변하는 값이므로
-#   그 차이만 이 시간상수로 걸러 더한다: 측정 = 핸들각 + 비율 × LPF(자이로 - 핸들각).
-YAW_DIFF_TAU = 1.0   # s
-
 # ── 피드포워드는 출력 한계 바로 아래까지만 ─────────────────────────────────
 # 2026-10-03 lat_trace: 급한 커브(목표 3 m/s²)에서 피드포워드만 1.18 로 출력 한계(1.0)를
 # 넘었다. 커브 후반에 차가 목표보다 더 돌아 P 가 -0.1~-0.4 로 빼려 해도 합이 여전히 1 이상이라
@@ -207,7 +193,6 @@ class LatControlTorque(LatControl):
     self.lateral_torque_custom = custom
 
     self.curve_i_deadzone = max(0.0, min(0.2, self._pget("LatCurveIDeadzone", CURVE_I_DEADZONE_DEFAULT) * 0.001))
-    self.yaw_measure_blend = max(0.0, min(1.0, self._pget("LatYawMeasureBlend", 0) * 0.01))
     self.lat_accel_friction_factor = self._pget("LatAccelFrictionFactor", 70) * 0.01
     self.lat_jerk_friction_factor = self._pget("LatJerkFrictionFactor", 20) * 0.01
     self.low_speed_curv_tau = max(0.0, min(1.0, self._pget("LatLowSpeedCurvTauMs", 300) * 0.001))
@@ -243,22 +228,6 @@ class LatControlTorque(LatControl):
       if self.use_steering_angle:
         actual_curvature = steer_curvature
         curvature_deadzone = abs(VM.calc_curvature(math.radians(self.steering_angle_deadzone_deg), CS.vEgo, 0.0))
-        blend = getattr(self, 'yaw_measure_blend', 0.0) * interp(CS.vEgo, YAW_MEASURE_SPEED_BP, [0.0, 1.0])
-        yaw_diff = None
-        if blend > 0.0:
-          try:
-            yaw = llk.angularVelocityCalibrated
-            if yaw.valid and len(yaw.value) > 2 and math.isfinite(yaw.value[2]):
-              yaw_diff = yaw.value[2] / CS.vEgo - actual_curvature
-          except (AttributeError, IndexError, TypeError):
-            yaw_diff = None
-        if yaw_diff is None:
-          self.yaw_diff_filtered = None
-        else:
-          prev = getattr(self, 'yaw_diff_filtered', None)
-          alpha = DT_CTRL / (YAW_DIFF_TAU + DT_CTRL)
-          self.yaw_diff_filtered = yaw_diff if prev is None else prev + alpha * (yaw_diff - prev)
-          actual_curvature += blend * self.yaw_diff_filtered
       else:
         actual_curvature_llk = llk.angularVelocityCalibrated.value[2] / CS.vEgo
         actual_curvature = interp(CS.vEgo, [2.0, 5.0], [steer_curvature, actual_curvature_llk])
