@@ -284,10 +284,25 @@ def main():
     assert 'display_id=$(dumpsys activity activities' not in source
     assert "scheduleBootNavigationSync();" in source
     assert "launchNavAppOnMirrorDisplay(context, selected)" in source
-    # Once the selected navigation has appeared during boot, Back/Home is a
-    # user action. Neither later display events nor Magisk retries may reopen it.
+    # Once the selected navigation has appeared during boot, ordinary retries
+    # stop.  A genuinely new/changed nMirror capture geometry is the exception:
+    # late wireless Android Auto must rebind the source once and discard frames
+    # rendered against the phone-only density.
     assert "bootNavigationReady.get()" in source
     assert "bootNavigationReady.set(true)" in source
+    display_change = source.split("private synchronized void mirrorDisplayChanged", 1)[1].split(
+        "private PowerManager.WakeLock", 1)[0]
+    assert "signature.equals(mirrorDisplaySignature)" in display_change
+    assert "bootNavigationReady.set(false)" in display_change
+    assert "localMapResumeElapsed = SystemClock.elapsedRealtime() + 3000L" in display_change
+    assert "clearNavigationAssets(false)" in display_change
+    boot_sync = source.split("private void scheduleBootNavigationSync", 1)[1].split(
+        "private void scheduleBootUsbHostRecovery", 1)[0]
+    foreground_ready = boot_sync.split("if (isNavAppForegroundOnMirror", 1)[1].split(
+        "bootNavigationReady.set(true)", 1)[0]
+    assert "launchNavAppOnMirrorDisplay(context, selected)" in foreground_ready
+    assert "synchronizeNMirrorSelection(context, selected)" in foreground_ready
+    assert "if (receivedAt < localMapResumeElapsed) continue;" in source
     assert 'NAV_WAS_READY="$NAV_READY"' not in magisk_service
     assert '[ "$NAV_WAS_READY" != 1 ]' in magisk_service
     assert "displayAwareLaunchCommand(component, false,\n" in source

@@ -388,6 +388,15 @@ public final class HudService extends Service {
     private long lastUsbErrorElapsed;
     private boolean usbReceiverRegistered;
     private android.hardware.display.DisplayManager mirrorDisplays;
+    /** Last nMirror capture geometry handled by the boot handoff. */
+    private volatile String mirrorDisplaySignature = "";
+    /**
+     * Do not accept frames produced against the pre-Android-Auto display while
+     * nMirror is rebuilding its capture surface.  Without this gate a late
+     * dongle connection can leave a correctly shaped JPEG whose contents were
+     * rendered at the old phone density, so the HUD map looks hugely zoomed.
+     */
+    private volatile long localMapResumeElapsed;
     private final android.hardware.display.DisplayManager.DisplayListener mirrorDisplayListener =
             new android.hardware.display.DisplayManager.DisplayListener() {
         public void onDisplayAdded(int id) { mirrorDisplayChanged(id); }
@@ -395,14 +404,28 @@ public final class HudService extends Service {
         public void onDisplayRemoved(int id) { }
     };
 
-    private void mirrorDisplayChanged(int id) {
+    private synchronized void mirrorDisplayChanged(int id) {
         if (!running.get() || mirrorDisplays == null) return;
         // nMirror creates a capture display after its display-0 transition.
         // Retry then, even when the vehicle connects long after the boot window.
+        // DisplayListener can report the same change repeatedly, so only rebind
+        // when the capture display identity or physical geometry really changed.
         for (android.view.Display candidate : mirrorDisplays.getDisplays()) {
             if (candidate.getName().startsWith("nMirror")) {
-                HudDiagnostics.log("mirror-display event=" + id + " nav-target=0 dpi="
-                        + getResources().getDisplayMetrics().densityDpi);
+                android.view.Display.Mode mode = candidate.getMode();
+                String signature = candidate.getDisplayId() + ":"
+                        + mode.getPhysicalWidth() + "x" + mode.getPhysicalHeight()
+                        + ":r" + candidate.getRotation();
+                if (signature.equals(mirrorDisplaySignature)) return;
+                mirrorDisplaySignature = signature;
+                HudDiagnostics.log("mirror-display event=" + id + " geometry=" + signature
+                        + " nav-target=0 dpi=" + getResources().getDisplayMetrics().densityDpi);
+                // The selected navigation may already be foreground because it
+                // was launched before Android Auto connected.  Make the boot
+                // worker run once more for the newly created capture geometry.
+                bootNavigationReady.set(false);
+                localMapResumeElapsed = SystemClock.elapsedRealtime() + 3000L;
+                clearNavigationAssets(false);
                 scheduleBootNavigationSync();
                 return;
             }
@@ -1378,6 +1401,12 @@ public final class HudService extends Service {
                         return;
                     }
                     if (isNavAppForegroundOnMirror(context, selected)) {
+                        // Foreground alone is not enough after a late Android
+                        // Auto connection: nMirror must rebuild the selected
+                        // map source against the new capture-display geometry.
+                        launchNavAppOnMirrorDisplay(context, selected);
+                        synchronizeNMirrorSelection(context, selected);
+                        stopOtherNavApps(selected);
                         bootNavigationReady.set(true);
                         HudDiagnostics.log("boot navigation handoff complete app=" + selected);
                         return;
@@ -1855,6 +1884,10 @@ public final class HudService extends Service {
                 int selected = state.get().optInt("hudNavApp", app);
                 if (app != selected) continue;
                 long receivedAt = SystemClock.elapsedRealtime();
+                // A late wireless Android Auto connection changes nMirror's
+                // capture geometry. Drain stale frames from the existing socket
+                // until the selection rebind above has had time to take effect.
+                if (receivedAt < localMapResumeElapsed) continue;
                 // Local navigation modules may publish much faster than the HUD
                 // can display.  Always drain the socket so the producer never
                 // blocks, but avoid decoding JPEGs that cannot become visible.
