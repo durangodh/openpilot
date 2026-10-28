@@ -295,6 +295,7 @@ def main():
     assert "signature.equals(mirrorDisplaySignature)" in display_change
     assert "metrics.densityDpi" in display_change
     assert "bootNavigationReady.set(false)" in display_change
+    assert "bootNavigationRebindRequested.set(true)" in display_change
     assert "bootNavigationResyncPending.set(true)" in display_change
     assert "mapResumeElapsed = SystemClock.elapsedRealtime() + 3000L" in display_change
     assert "clearNavigationAssets(false)" in display_change
@@ -306,6 +307,11 @@ def main():
         "bootNavigationReady.set(true)", 1)[0]
     assert "launchNavAppOnMirrorDisplay(context, selected)" in foreground_ready
     assert "synchronizeNMirrorSelection(context, selected)" in foreground_ready
+    # An ordinary boot where the selected app is already foreground must retain
+    # the old no-flicker path. Re-launch/rebind only follows a real display event.
+    assert foreground_ready.index("bootNavigationRebindRequested.getAndSet(false)") \
+        < foreground_ready.index("launchNavAppOnMirrorDisplay(context, selected)")
+    assert "if (AppPrefs.getNavApp(context) != selected)" in boot_sync
     assert "bootNavigationResyncPending.get()" in boot_sync
     assert "if (receivedAt < mapResumeElapsed) continue;" in source
     assert "SystemClock.elapsedRealtime() < mapResumeElapsed" in source

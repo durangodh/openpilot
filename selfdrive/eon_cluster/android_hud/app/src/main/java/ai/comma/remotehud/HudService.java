@@ -437,6 +437,7 @@ public final class HudService extends Service {
                 // was launched before Android Auto connected.  Make the boot
                 // worker run once more for the newly created capture geometry.
                 bootNavigationReady.set(false);
+                bootNavigationRebindRequested.set(true);
                 bootNavigationResyncPending.set(true);
                 mapResumeElapsed = SystemClock.elapsedRealtime() + 3000L;
                 clearNavigationAssets(false);
@@ -624,12 +625,15 @@ public final class HudService extends Service {
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean bootNavigationSyncRunning = new AtomicBoolean(false);
+    /** True only when nMirror's actual capture geometry requires a source rebind. */
+    private final AtomicBoolean bootNavigationRebindRequested = new AtomicBoolean(false);
     /** A display change that arrived while the boot handoff worker was busy. */
     private final AtomicBoolean bootNavigationResyncPending = new AtomicBoolean(false);
     /**
      * Latches after the boot-selected navigation has appeared once. From that
      * point a missing foreground Activity is a user action (Back/Home), not a
-     * failed boot launch, so later display/Magisk events must not reopen it.
+     * failed boot launch. Only a real nMirror capture-geometry change may clear
+     * this latch and rebind the already-selected navigation.
      */
     private final AtomicBoolean bootNavigationReady = new AtomicBoolean(false);
     /** Serializes the transition from live USB output into session preparation. */
@@ -1403,15 +1407,15 @@ public final class HudService extends Service {
                 // after it, Back/Home must remain a user-owned action instead
                 // of being mistaken for another startup failure.
                 //
-                // Only actually re-launch when the selected app is NOT
-                // already the one showing -- re-asserting an already-correct
-                // app every 2 s made it visibly flicker on nMirror's mirrored
-                // screen for the whole 16 s window even when nothing needed
-                // fixing.
+                // Only re-launch an app which is already showing for a real
+                // capture-geometry rebind. Re-asserting it every 2 s made the
+                // nMirror screen flicker for the whole startup window.
                 for (int attempt = 0; attempt < 8 && running.get(); attempt++) {
                     if (!running.get() || bootNavigationReady.get()) return;
                     int selected = AppPrefs.getNavApp(context);
                     if (selected == 0) {
+                        bootNavigationRebindRequested.set(false);
+                        mapResumeElapsed = 0L;
                         synchronizeNMirrorSelection(context, 0);
                         stopNavApp(1);
                         stopNavApp(2);
@@ -1420,29 +1424,47 @@ public final class HudService extends Service {
                         return;
                     }
                     if (isNavAppForegroundOnMirror(context, selected)) {
-                        // Foreground alone is not enough after a late Android
-                        // Auto connection: nMirror must rebuild the selected
-                        // map source against the new capture-display geometry.
-                        // Claim the pending event before rebinding. If another
-                        // display change arrives during these blocking calls it
-                        // sets the flag again and this worker makes another pass.
-                        bootNavigationResyncPending.set(false);
-                        mapResumeElapsed = SystemClock.elapsedRealtime() + 3000L;
-                        launchNavAppOnMirrorDisplay(context, selected);
-                        synchronizeNMirrorSelection(context, selected);
-                        stopOtherNavApps(selected);
-                        mapResumeElapsed = SystemClock.elapsedRealtime() + 500L;
-                        if (bootNavigationResyncPending.get()) {
-                            bootNavigationReady.set(false);
-                            continue;
+                        if (bootNavigationRebindRequested.getAndSet(false)) {
+                            bootNavigationResyncPending.set(false);
+                            // Foreground alone is not enough after a late Android
+                            // Auto connection: nMirror must rebuild the selected
+                            // map source against the new capture-display geometry.
+                            mapResumeElapsed = SystemClock.elapsedRealtime() + 3000L;
+                            launchNavAppOnMirrorDisplay(context, selected);
+                            synchronizeNMirrorSelection(context, selected);
+                            mapResumeElapsed = SystemClock.elapsedRealtime() + 500L;
+                            // A second geometry event during the blocking rebind
+                            // needs one more pass. Ordinary boot never enters it.
+                            if (bootNavigationRebindRequested.get()) {
+                                bootNavigationReady.set(false);
+                                continue;
+                            }
                         }
                         bootNavigationReady.set(true);
                         HudDiagnostics.log("boot navigation handoff complete app=" + selected);
                         return;
                     }
                     if (launchNavAppOnMirrorDisplay(context, selected)) {
+                        boolean captureRebind = bootNavigationRebindRequested.getAndSet(false);
+                        if (captureRebind) {
+                            bootNavigationResyncPending.set(false);
+                        }
                         synchronizeNMirrorSelection(context, selected);
+                        // A user may tap another navigation while the root
+                        // launch/broadcast calls block. Never stop that newly
+                        // selected app using this worker's stale selection.
+                        if (AppPrefs.getNavApp(context) != selected) {
+                            mapResumeElapsed = 0L;
+                            bootNavigationReady.set(true);
+                            return;
+                        }
                         stopOtherNavApps(selected);
+                        if (captureRebind) {
+                            mapResumeElapsed = SystemClock.elapsedRealtime() + 500L;
+                        }
+                        if (bootNavigationRebindRequested.get()) {
+                            continue;
+                        }
                     }
                     if (attempt < 7) {
                         SystemClock.sleep(2000L);
