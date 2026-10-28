@@ -34,6 +34,17 @@ def load_feedback_limiter():
   return env['limit_brake_feedback']
 
 
+def load_lead_start_target():
+  names = {'LEAD_START_ACCEL_MIN'}
+  nodes = [node for node in TREE.body
+           if (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in names
+                                                    for target in node.targets)) or
+              (isinstance(node, ast.FunctionDef) and node.name == 'lead_start_accel_target')]
+  env = dict(clip=lambda value, lower, upper: max(lower, min(value, upper)))
+  exec(compile(ast.Module(body=nodes, type_ignores=[]), str(SOURCE), 'exec'), env)
+  return env['lead_start_accel_target']
+
+
 def test_default_kp_limits_extra_brake_to_two_meters_per_second_cubed():
   limit_feedback = load_feedback_limiter()
   assert limit_feedback(-1.3, 0.0, 1.0, dt=0.05) == -0.1
@@ -47,6 +58,22 @@ def test_feedback_brake_release_is_not_delayed():
 def test_positive_feedback_never_cancels_a_new_planner_brake_request():
   limit_feedback = load_feedback_limiter()
   assert limit_feedback(-1.3, 0.8, 1.0, dt=0.05) == -0.1
+
+
+def test_stopped_lead_launch_keeps_live_lead_shaping_after_mpc_release():
+  assert "self.lead_launch = self.standstill_lead_latched or lead_release" in TEXT
+
+
+def test_lead_start_accel_uses_configured_value_as_a_ceiling():
+  target = load_lead_start_target()
+  assert target(1.4, 0.02) == 0.2
+  assert target(1.4, 0.8) == 0.8
+  assert target(1.4, 1.8) == 1.4
+
+
+def test_early_hold_relax_also_prereleases_stop_request():
+  assert "self._hold_relax_active() or" in TEXT
+  assert "self.stopreq_release_left = STOPREQ_RELEASE_KEEP_FRAMES" in TEXT
 
 
 def test_pid_does_not_keep_previous_launch_limiter_frozen():

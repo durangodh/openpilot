@@ -102,6 +102,7 @@ FEEDBACK_BRAKE_JERK_BASE = 1.0
 FEEDBACK_BRAKE_JERK_KP = 1.0
 FEEDBACK_BRAKE_JERK_MIN = 1.0
 FEEDBACK_BRAKE_JERK_MAX = 3.0
+LEAD_START_ACCEL_MIN = 0.2
 
 
 def limit_brake_feedback(target, previous, kp, dt=DT_CTRL):
@@ -114,6 +115,12 @@ def limit_brake_feedback(target, previous, kp, dt=DT_CTRL):
   # Drop it to zero immediately, then build only the extra negative feedback.
   previous_brake = min(previous, 0.0)
   return max(target, previous_brake - brake_jerk * dt)
+
+
+def lead_start_accel_target(configured, planned):
+  """Treat START ACCEL as a ceiling while retaining enough request to release SCC."""
+  floor = min(configured, LEAD_START_ACCEL_MIN)
+  return float(clip(planned, floor, configured))
 
 
 # apilot-c2 상태전이.
@@ -363,7 +370,13 @@ class LongControl:
           if lead_moving or lead_is_creeping(lead):
             self.hold_relax_left = HOLD_RELAX_KEEP_FRAMES
             # C) 완전히 선 뒤 1초가 지났고, 이번 정지에서 막히지 않았으면 StopReq 를 먼저 내린다.
-            if (getattr(self, 'early_stopreq_release', False) and
+            # EARLY HOLD RELAX already requires a settled standstill, keeps a
+            # negative brake request and restores it immediately on creep. Use
+            # the same guarded window to let Hyundai SCC begin unlatching
+            # StopReq before the positive launch command arrives. The legacy
+            # EarlyStopReqRelease toggle can still enable this independently.
+            if ((self._hold_relax_active() or
+                 getattr(self, 'early_stopreq_release', False)) and
                 not getattr(self, 'stopreq_release_blocked', False) and
                 getattr(self, 'standstill_frames', 0) >= HOLD_RELAX_SETTLE_FRAMES):
               self.stopreq_release_left = STOPREQ_RELEASE_KEEP_FRAMES
@@ -547,8 +560,10 @@ class LongControl:
       self.lead_launch_jerk = None
     else:
       if prev_state == LongCtrlState.stopping:
-        # Remember why this launch started: a confirmed departing lead.
-        self.lead_launch = lead_release
+        # 840fbc6 lets a latched stopped lead follow the MPC start request
+        # before the stricter radar release gate. Preserve that launch reason
+        # so live lead motion still shapes its initial acceleration and jerk.
+        self.lead_launch = self.standstill_lead_latched or lead_release
       # SCC can take over a second to release its standstill latch. Do not
       # spend the launch protection window while the car is still stationary.
       if not CS.standstill and CS.vEgo > self.CP.vEgoStarting:
@@ -672,6 +687,11 @@ class LongControl:
 
     elif self.long_control_state == LongCtrlState.starting:
       start_target = float(clip(self.CP.startAccel, accel_limits[0], accel_limits[1]))
+      if self.lead_launch:
+        # START ACCEL is a user ceiling, not a command to outrun the MPC. This
+        # avoids the observed 1.4 m/s^2 request while plan_a0 was still near
+        # zero, but retains a small request so SCC can release its hold.
+        start_target = lead_start_accel_target(start_target, a_target_now)
       if getattr(self.CP, 'hasScc14', False):
         # SCC14-capable cars receive the launch jerk separately, so release the
         # hold immediately and let the vehicle ECU shape positive acceleration.

@@ -1743,7 +1743,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamValueControlF(
       "StartAccelApply", "START ACCEL",
-      "정지 후 출발 가속도(×0.02m/s²)입니다. 값 증가(+): 더 빠르고 강하게 출발 / 값 감소(-): 천천히 출발 / 0: 추가 출발가속 끔.",
+      "정지 후 출발 가속도 상한(×0.02m/s²)입니다. 앞차 출발 시 MPC 계획보다 높게 강제하지 않습니다. 값 증가(+): 더 빠르고 강하게 출발 / 값 감소(-): 천천히 출발 / 0: 추가 출발가속 끔.",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
 
   list->addItem(new ParamValueControlF(
@@ -1783,7 +1783,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamControl(
       "EarlyHoldRelax", "EARLY HOLD RELAX",
-      "켜짐: 정지한 앞차가 움직이기 시작하는 기미가 보이면 출발 판정 전부터 정지유지 제동을 정차 접근 수준(STOPPING ACCEL)과의 중간까지 미리 줄여 출발이 조금 빨라집니다. 완전히 선 뒤 1초가 지나야 동작하고, 0.5초 안에 출발이 이어지지 않으면 원래 유지 제동으로 돌아갑니다. 정지 중 차가 찔끔 움직이면 끄세요.",
+      "켜짐: 정지한 앞차가 움직이기 시작하는 기미가 보이면 출발 판정 전부터 정지유지 제동을 줄이고 StopReq를 미리 해제해 SCC 출발 지연을 줄입니다. 음수 제동 명령은 유지하며, 완전히 선 뒤 1초가 지나야 동작하고 0.8초 안에 출발이 이어지지 않거나 차가 움직이면 즉시 원래 유지 제동으로 돌아갑니다. 정지 중 차가 찔끔 움직이면 끄세요.",
       "../assets/offroad/icon_openpilot.png", this));
 
   list->addItem(new ParamControl(
