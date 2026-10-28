@@ -44,6 +44,11 @@ def test_feedback_brake_release_is_not_delayed():
   assert limit_feedback(0.2, -0.8, 1.0, dt=0.05) == 0.2
 
 
+def test_positive_feedback_never_cancels_a_new_planner_brake_request():
+  limit_feedback = load_feedback_limiter()
+  assert limit_feedback(-1.3, 0.8, 1.0, dt=0.05) == -0.1
+
+
 def test_pid_does_not_keep_previous_launch_limiter_frozen():
   assert "freeze_integrator = prevent_overshoot" in TEXT
   assert "prevent_overshoot or self.launch_limited" not in TEXT

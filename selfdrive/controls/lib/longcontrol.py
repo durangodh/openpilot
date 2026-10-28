@@ -105,10 +105,15 @@ FEEDBACK_BRAKE_JERK_MAX = 3.0
 
 
 def limit_brake_feedback(target, previous, kp, dt=DT_CTRL):
-  """Limit only increasing feedback brake; positive release stays immediate."""
+  """Limit only increasing feedback brake without carrying drive into braking."""
+  if target >= 0.0:
+    return target
   brake_jerk = float(clip(FEEDBACK_BRAKE_JERK_BASE + FEEDBACK_BRAKE_JERK_KP * kp,
                           FEEDBACK_BRAKE_JERK_MIN, FEEDBACK_BRAKE_JERK_MAX))
-  return max(target, previous - brake_jerk * dt)
+  # A stale positive correction must never cancel a new planner brake request.
+  # Drop it to zero immediately, then build only the extra negative feedback.
+  previous_brake = min(previous, 0.0)
+  return max(target, previous_brake - brake_jerk * dt)
 
 
 # apilot-c2 상태전이.
