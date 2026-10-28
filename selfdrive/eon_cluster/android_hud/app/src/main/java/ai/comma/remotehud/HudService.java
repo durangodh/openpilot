@@ -400,10 +400,36 @@ public final class HudService extends Service {
     private volatile long mapResumeElapsed;
     private final android.hardware.display.DisplayManager.DisplayListener mirrorDisplayListener =
             new android.hardware.display.DisplayManager.DisplayListener() {
-        public void onDisplayAdded(int id) { mirrorDisplayChanged(id); }
-        public void onDisplayChanged(int id) { mirrorDisplayChanged(id); }
-        public void onDisplayRemoved(int id) { mirrorDisplayRemoved(id); }
+        public void onDisplayAdded(int id) { logDisplayEvent("added", id); mirrorDisplayChanged(id); }
+        public void onDisplayChanged(int id) { logDisplayEvent("changed", id); mirrorDisplayChanged(id); }
+        public void onDisplayRemoved(int id) { logDisplayEvent("removed", id); mirrorDisplayRemoved(id); }
     };
+
+    /** Last logged description per display id; repeats of the same state are not logged. */
+    private final java.util.Map<Integer, String> displayLogState = new java.util.HashMap<>();
+
+    /**
+     * Diagnostics only: every display add/change/remove with its name and geometry,
+     * plus this app's own density, so a late wireless mirroring connection that
+     * enlarges the HUD map can be matched to what actually changed.
+     */
+    private synchronized void logDisplayEvent(String kind, int id) {
+        String desc = "gone";
+        android.view.Display display = mirrorDisplays == null ? null : mirrorDisplays.getDisplay(id);
+        if (display != null) {
+            android.view.Display.Mode mode = display.getMode();
+            android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
+            display.getRealMetrics(metrics);
+            desc = "name=\"" + display.getName() + "\" phys=" + mode.getPhysicalWidth() + "x"
+                    + mode.getPhysicalHeight() + " logical=" + metrics.widthPixels + "x"
+                    + metrics.heightPixels + "@" + metrics.densityDpi + " r" + display.getRotation()
+                    + " flags=0x" + Integer.toHexString(display.getFlags()) + " state=" + display.getState();
+        }
+        if (desc.equals(displayLogState.get(id)) && !"removed".equals(kind)) return;
+        displayLogState.put(id, desc);
+        HudDiagnostics.log("display-" + kind + " id=" + id + " " + desc
+                + " app-dpi=" + getResources().getDisplayMetrics().densityDpi);
+    }
 
     private synchronized void mirrorDisplayRemoved(int id) {
         if (id != mirrorCaptureDisplayId) return;
@@ -757,6 +783,9 @@ public final class HudService extends Service {
         if (mirrorDisplays != null) {
             mirrorDisplays.registerDisplayListener(mirrorDisplayListener,
                     new android.os.Handler(getMainLooper()));
+            for (android.view.Display display : mirrorDisplays.getDisplays()) {
+                logDisplayEvent("present", display.getDisplayId());
+            }
         }
         activeInstance = this;
         AppPrefs.removeLegacyStaticMapSettings(this);
