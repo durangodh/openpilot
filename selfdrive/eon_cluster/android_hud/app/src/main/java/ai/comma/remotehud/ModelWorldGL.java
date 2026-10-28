@@ -171,6 +171,8 @@ final class ModelWorldGL {
     private final Line[] fittedLanes = {new Line(), new Line(), new Line(), new Line()};
     private final Line[] drawnLanes = new Line[4];   // 이번 프레임에 그린 차선(없으면 null)
     private final Line virtualLane = new Line();
+    private final Line virtualEgoLeft = new Line();
+    private final Line virtualEgoRight = new Line();
     private final Line smoothedRoute = new Line();
     private final Line denseRoute = new Line();
     private final float[] laneConfidence = new float[4];
@@ -584,13 +586,13 @@ final class ModelWorldGL {
         cameraLaneCount = 1 + visibleLeft + visibleRight;
         cameraLanePosition = 1 + visibleLeft;
 
-        // 안내 중이면 티맵/네이버 lane_current 가 실제 총 차선수를 준다
-        // (navi.scene.lane, remote_hud.py _navi_scene 에서 이미 가공됨).
+        // 폰 네비(티맵·카카오·네이버) lane_current 가 실제 총 차선수와 내 차로를 준다
+        // (navi.scene.lane, remote_hud.py _navi_scene 에서 이미 가공됨). HUD 지도의 차로
+        // 그림과 같은 값이므로, 목적지 없는 안심주행이라도 차로가 오면 그대로 쓴다.
         JSONObject naviLaneRoot = scene.optJSONObject("navi");
         JSONObject naviLaneScene = naviLaneRoot == null ? null
                 : naviLaneRoot.optJSONObject("scene");
-        JSONObject laneInfo = (naviLaneRoot != null && naviLaneRoot.optBoolean("active", false)
-                && naviLaneScene != null) ? naviLaneScene.optJSONObject("lane") : null;
+        JSONObject laneInfo = naviLaneScene == null ? null : naviLaneScene.optJSONObject("lane");
         int naviCount = laneInfo == null ? 0 : laneInfo.optInt("n", 0);
         int naviPosition = laneInfo == null ? 0 : laneInfo.optInt("cur", 0);
         if (naviCount >= 1 && naviCount <= 8 && naviPosition >= 1 && naviPosition <= naviCount) {
@@ -817,11 +819,11 @@ final class ModelWorldGL {
     }
 
     /**
-     * 가상 차선. 카메라 모델은 내 차로 좌우 각 1개 차선까지만 보므로, 내비(티맵·네이버)
-     * 안내 중에 실제 총 차선수가 더 많으면 보이지 않는 차선을 내 차로 선 모양 그대로
-     * 차로 폭만큼 옆으로 이어서 옅게 그린다. 화면 표시 전용이며 제어에는 쓰지 않는다.
-     * 카메라가 이미 그린 옆 차선 자리는 건너뛰고, 카메라 도로경계 밖으로 나가는 선은
-     * 그리지 않는다.
+     * 가상 차선. 카메라 모델은 내 차로 좌우 각 1개 차선까지만 보므로, 폰 네비 차로
+     * 정보(HUD 지도 차로 그림과 같은 값)의 총 차선수·내 차로대로 보이지 않는 차선을 내 차로
+     * 선 모양 그대로 차로 폭만큼 옆으로 이어서 옅게 그린다. 화면 표시 전용이며 제어에는
+     * 쓰지 않는다. 카메라가 이미 그린 옆 차선 자리는 건너뛴다. 네비 차로 수를 그대로
+     * 보여주도록 카메라 도로경계로 자르지 않고, 내 차로 선이 안 보이면 경로 기준으로 그린다.
      */
     private void drawVirtualLanes(JSONObject scene, Line path, Line leftEdge, Line rightEdge,
                                   boolean dark) {
@@ -830,14 +832,20 @@ final class ModelWorldGL {
         }
         Line egoLeft = drawnLanes[1];
         Line egoRight = drawnLanes[2];
-        if (egoLeft == null || egoRight == null) {
-            return;
-        }
-        float width = yAt(egoLeft, 10f) - yAt(egoRight, 10f);
+        float width = egoLeft != null && egoRight != null
+                ? yAt(egoLeft, 10f) - yAt(egoRight, 10f) : Float.NaN;
         if (!(width > 2.4f && width < 4.6f)) {
             width = (float) scene.optDouble("laneWidth", 3.5d);
         }
         width = clamp(width, 2.8f, 4.2f);
+        if (egoLeft == null || egoRight == null) {
+            if (path == null || path.count < 2) {
+                return;
+            }
+            // 내 차로 선이 안 보이면 경로 양옆 반 차로 폭에 내 차로 선을 세운다.
+            egoLeft = offsetLane(path, width * 0.5f, virtualEgoLeft);
+            egoRight = offsetLane(path, -width * 0.5f, virtualEgoRight);
+        }
         int color = dark ? Color.rgb(220, 226, 232) : Color.rgb(249, 250, 250);
         int leftLanes = naviLanePosition - 1;
         int rightLanes = naviLaneCount - naviLanePosition;
@@ -857,17 +865,38 @@ final class ModelWorldGL {
                     virtualLane.y[i] = base.y[i] + sign * k * width;
                     virtualLane.z[i] = base.z[i];
                 }
-                if (!laneInsideRoadEdges(virtualLane, leftEdge, rightEdge)) {
-                    break;      // 카메라 도로경계 밖: 더 바깥 차선도 그리지 않는다
-                }
                 drawLaneMarking(virtualLane, path, color, 2.0f, 0.45f, dark);
             }
         }
     }
 
+    /** 경로를 옆으로 offset(좌 +) 만큼 옮긴 선. */
+    private static Line offsetLane(Line base, float offset, Line out) {
+        out.count = base.count;
+        out.confidence = 1f;
+        for (int i = 0; i < base.count; i++) {
+            out.x[i] = base.x[i];
+            out.y[i] = base.y[i] + offset;
+            out.z[i] = base.z[i];
+        }
+        return out;
+    }
+
     private static boolean laneAllowed(JSONObject scene, int index) {
         if (index == 1 || index == 2) {
             return true;
+        }
+        // 폰 네비 차로 정보(HUD 지도 차로 그림)가 있으면 그것을 따른다: 네비가 그쪽에
+        // 차로가 없다고 하면 카메라 옆 차선도 그리지 않는다.
+        JSONObject navi = scene.optJSONObject("navi");
+        JSONObject naviScene = navi == null ? null : navi.optJSONObject("scene");
+        JSONObject naviLane = naviScene == null ? null : naviScene.optJSONObject("lane");
+        if (naviLane != null) {
+            int naviCount = naviLane.optInt("n", 0);
+            int naviCurrent = naviLane.optInt("cur", 0);
+            if (naviCount >= 1 && naviCount <= 8 && naviCurrent >= 1 && naviCurrent <= naviCount) {
+                return index == 0 ? naviCurrent > 1 : naviCurrent < naviCount;
+            }
         }
         JSONObject position = scene.optJSONObject("lanePosition");
         // The model lane itself is the primary evidence for rendering.  The
