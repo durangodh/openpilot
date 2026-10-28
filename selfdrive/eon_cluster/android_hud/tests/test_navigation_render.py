@@ -473,9 +473,8 @@ def main():
     methods = []
     for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),
                        ("    private static boolean cameraWarningOn(", "    private void drawSpeedRing("),
-                       ("    private float drawTbtBanner(", "    private float drawTbtImage("),
-                       ("    private void drawTbtNext(", "    // 회전 방향 종류."),
-                       ("    private static boolean naviGuiding(", "    private Bitmap laneTrimSource;")):
+                       ("    private float drawTbtBanner(", "    private void drawTbtNext("),
+                       ("    private void drawTbtNext(", "    // 회전 방향 종류.")):
         methods.append(source[source.index(start):source.index(end)])
     methods.append(source[source.index("    private String nooSide("):source.index("    private static final int TBT_GREEN")])
     args.work.mkdir(parents=True, exist_ok=True)

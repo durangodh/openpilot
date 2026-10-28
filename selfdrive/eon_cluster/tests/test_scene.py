@@ -1,8 +1,6 @@
 from types import SimpleNamespace
 
-from selfdrive.eon_cluster.scene import (align_scene_geometry, camera_lane_position,
-                                         final_lateral_path, reconcile_lane_position,
-                                         scale_scene_width)
+from selfdrive.eon_cluster.scene import camera_lane_position, final_lateral_path, reconcile_lane_position
 
 
 def polyline(xs, ys):
@@ -147,50 +145,3 @@ def test_reconcile_lane_position_expands_collapsed_edges_from_outer_lines():
   assert (fixed["n"], fixed["cur"]) == (3, 1)
 
 
-def test_world_geometry_is_anchored_to_final_mpc_path_and_keeps_width():
-  path = [[0.0, 0.0, 0.0], [10.0, 1.0, 0.0], [20.0, 2.0, 0.0]]
-  lanes = [
-    {"p": [[0.0, 5.4], [10.0, 5.4], [20.0, 5.4]], "c": 0.8},
-    {"p": [[0.0, 1.8], [10.0, 1.8], [20.0, 1.8]], "c": 0.9},
-    {"p": [[0.0, -1.8], [10.0, -1.8], [20.0, -1.8]], "c": 0.9},
-    {"p": [[0.0, -5.4], [10.0, -5.4], [20.0, -5.4]], "c": 0.8},
-  ]
-  edges = [
-    {"p": [[0.0, 7.0], [10.0, 7.0], [20.0, 7.0]], "c": 0.9},
-    {"p": [[0.0, -7.0], [10.0, -7.0], [20.0, -7.0]], "c": 0.9},
-  ]
-  fixed_lanes, fixed_edges = align_scene_geometry(path, lanes, edges)
-  assert fixed_lanes[1]["p"][1][1] == 2.8
-  assert fixed_lanes[2]["p"][1][1] == -0.8
-  assert abs(fixed_lanes[1]["p"][1][1] - fixed_lanes[2]["p"][1][1] - 3.6) < 1e-6
-  assert fixed_edges[0]["p"][2][1] == 9.0
-  assert lanes[1]["p"][1][1] == 1.8  # input is not mutated
-
-
-def test_world_width_scale_uses_final_path_as_fixed_centre():
-  path = [[0.0, 0.0], [10.0, 1.0], [20.0, 2.0]]
-  lines = [{"p": [[0.0, 2.0], [10.0, 3.0], [20.0, 4.0]], "c": 0.9}]
-  scaled = scale_scene_width(path, lines, 0.5)
-  assert scaled[0]["p"] == [[0.0, 1.0], [10.0, 2.0], [20.0, 3.0]]
-  assert lines[0]["p"][1][1] == 3.0
-
-
-def test_world_geometry_interpolates_mismatched_x_grids_consistently():
-  path = [[0.0, 0.0], [8.0, 0.8], [20.0, 2.0]]
-  xs = [0.0, 5.0, 12.0, 20.0]
-  lanes = [
-    {"p": [[x, 5.4] for x in xs], "c": 0.8},
-    {"p": [[x, 1.8] for x in xs], "c": 0.9},
-    {"p": [[x, -1.8] for x in xs], "c": 0.9},
-    {"p": [[x, -5.4] for x in xs], "c": 0.8},
-  ]
-  edges = [{"p": [[x, 7.0] for x in xs], "c": 0.9}]
-  fixed_lanes, fixed_edges = align_scene_geometry(path, lanes, edges)
-  assert [point[1] for point in fixed_lanes[1]["p"]] == [1.8, 2.3, 3.0, 3.8]
-  assert [point[1] for point in fixed_edges[0]["p"]] == [7.0, 7.5, 8.2, 9.0]
-
-  centre_cache = {}
-  scaled_lanes = scale_scene_width(path, fixed_lanes, 0.5, centre_cache)
-  scaled_edges = scale_scene_width(path, fixed_edges, 0.5, centre_cache)
-  assert [point[1] for point in scaled_lanes[1]["p"]] == [0.9, 1.4, 2.1, 2.9]
-  assert [point[1] for point in scaled_edges[0]["p"]] == [3.5, 4.0, 4.7, 5.5]

@@ -134,7 +134,6 @@ public final class HudService extends Service {
             new PorterDuffXfermode(PorterDuff.Mode.SCREEN);
     private static final int MAP_LEFT = DRIVE_W + 8;
     private static final int MAP_RIGHT = 1720;
-    private static final float MAP_CX = 1340f;
     private static final int SYSTEM_LEFT = 1728;
     // 네비모드(hudNaviLayout=1): 지도가 왼쪽 0~1536 전체, 주행 화면은 오른쪽 좁은 칸.
     // 게이지·과속카메라는 지금 좌표 그대로 지도 위에, 회전 안내·EON 박스·도착정보는
@@ -251,17 +250,6 @@ public final class HudService extends Service {
     private static final float APPLY_DX = 52f;
     private static final int APPLY_OCHRE = Color.rgb(214, 168, 60);
 
-    /** 속도 숫자 기준선. 예전 KM 라벨이 있던 자리로, 위쪽 RPM 아크 공간용. */
-    private static final float SPEED_BASELINE = 118f;
-    /** "RPM" / 회전수 숫자를 아크 끝에서 좌우 바깥으로 띄우는 간격. */
-    private static final float RPM_LABEL_GAP = 16f;
-    /** RPM 인셋 바 게이지: 레일 두 줄 사이를 짧은 바로 채운다.
-     *  바깥 레일 반경 = 106+5 = 111 (예전 굵은 아크 바깥면과 동일),
-     *  안쪽 레일 반경 = 106-6-3 = 97 → 속도 숫자(2자리 88px)와 16px 여유. */
-    private static final int RPM_BARS = 44;
-    private static final float RPM_BAR_W = 12f;
-    private static final float RPM_RAIL_W = 2f;
-    private static final float RPM_RAIL_OFF = 5f;
 
     private static final int USB_RESET_AFTER_ERRORS = 3;
     private static final int USB_SLOWDOWN_AFTER_ERRORS = 5;
@@ -627,7 +615,6 @@ public final class HudService extends Service {
     private final Object phoneFrameLock = new Object();
     private final Paint phonePreviewPaint = new Paint(
             Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG | Paint.DITHER_FLAG);
-    private final RectF phoneViewport = new RectF();
     /** 부팅 재연결 스레드에서도 갱신하므로 volatile 이어야 한다. */
     private volatile long nextUsbAttemptElapsed;
     private long nextOpenStallRecoverElapsed;
@@ -2267,42 +2254,6 @@ public final class HudService extends Service {
         p.setAlpha(255);
     }
 
-    /**
-     * 총 차선수 안 내 차로 위치를 작은 박스 행 + 텍스트로 표시. info =
-     * [총차선수, 내차로번호, 출처(1=안내중 실제값, 0=카메라 추정)].
-     * 카메라 추정은 내 차로 좌우 각 1개(모델이 주는 라인 0/3)까지만 보여서
-     * 최대 3차로로 캡된다 — 그 이상은 안내 중일 때만(navi.scene.lane) 나옴.
-     */
-    private void drawLaneCounter(Canvas c, Paint p, int[] info) {
-        int laneCount = info[0];
-        int lanePosition = info[1];
-        if (laneCount < 1 || lanePosition < 1 || lanePosition > laneCount) {
-            return;
-        }
-        float boxW = 22f;
-        float boxH = 15f;
-        float gap = 5f;
-        float totalW = laneCount * boxW + (laneCount - 1) * gap;
-        float left = DRIVE_CX - totalW * 0.5f;
-        float boxY = ModelWorldGL.TOP + 16f;
-        p.setShader(null);
-        for (int i = 0; i < laneCount; i++) {
-            float x = left + i * (boxW + gap);
-            scratchRect.set(x, boxY, x + boxW, boxY + boxH);
-            boolean ego = (i + 1) == lanePosition;
-            p.setStyle(Paint.Style.FILL);
-            p.setColor(ego ? Color.rgb(238, 196, 70) : cardBg());
-            p.setAlpha(ego ? 235 : 180);
-            c.drawRoundRect(scratchRect, 3f, 3f, p);
-            p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(1.4f);
-            p.setColor(ego ? Color.rgb(120, 92, 16) : cardEdge());
-            p.setAlpha(ego ? 255 : 160);
-            c.drawRoundRect(scratchRect, 3f, 3f, p);
-        }
-        p.setStyle(Paint.Style.FILL);
-        p.setAlpha(255);
-    }
 
     /** Primary lead distance, placed beside the vehicle without source text. */
     private void drawLeadSourceLabel(Canvas c, Paint p, float[] info,
@@ -4336,13 +4287,6 @@ public final class HudService extends Service {
         return frameDark ? Color.rgb(60, 70, 82) : Color.rgb(158, 166, 171);
     }
 
-    private int hairline() {
-        if (skyBand) {
-            return skyLightInk ? Color.argb(110, 255, 255, 255)
-                    : Color.argb(70, 0, 0, 0);
-        }
-        return frameDark ? Color.rgb(58, 66, 76) : Color.rgb(202, 207, 210);
-    }
 
     /** 속도 숫자. 기준선을 84 -> SPEED_BASELINE(118, 예전 KM 라벨 자리)까지 내려서
      *  위쪽에 RPM 아크가 잘리지 않고 들어갈 공간을 만든다. 단위(KM) 라벨은 쓰지
@@ -4420,7 +4364,6 @@ public final class HudService extends Service {
     private static final float WARNING_CX = 960f;
     private static final float WARNING_SCALE = EON_BOX_W / 360f;
     private static final float WARNING_TOP = 257f - (EON_BOX_BOTTOM - EON_BOX_TOP) / WARNING_SCALE / 2f;
-    private static final int EON_GREEN = Color.rgb(0, 203, 0);
     // 제네시스 순정 계기판처럼 RPM·연료·냉각수 게이지를 짙은 청록 → 밝은 하늘색으로 채운다.
     private static final int GAUGE_DEEP = Color.rgb(0, 92, 118);
     private static final int GAUGE_BRIGHT = Color.rgb(96, 232, 255);
@@ -5004,194 +4947,9 @@ public final class HudService extends Service {
         c.restoreToCount(save);
     }
 
-    private void drawSpeed(Canvas c, Paint p, int speed) {
-        String value = speed < 0 ? "--" : Integer.toString(speed);
-        text(c, p, value, DRIVE_CX, SPEED_BASELINE, value.length() < 3 ? 88f : 72f,
-                ink(), Paint.Align.CENTER);
-    }
 
-    /** 속도 숫자를 위에서 감싸는 엔진 회전수 아크.
-     *  예전 값(cy=112, r=110, 굵기 10)은 아크 바깥선이 y = 112-110-5 = -3 이라
-     *  패널 위쪽에서 3px 잘렸다. cy=118 / r=106 이면 바깥선이 y=7 로 들어온다.
-     *  구분선(y=129) 바로 아래는 SET 원(반지름 36+테두리 3, y=132부터)이 차지해서
-     *  라벨을 아크 아래로 더 내릴 수 없다. 그래서 "RPM" 과 회전수 숫자는 아래가
-     *  아니라 아크 양 끝에서 좌우 바깥으로 LABEL_GAP 만큼 띄운다.
-     *  rpm < 0 (신호 없음 / EV) 이면 아무것도 그리지 않는다. */
-    private void drawRpm(Canvas c, Paint p, int rpm, float redline) {
-        if (rpm < 0) {
-            return;
-        }
-        float cx = DRIVE_CX;
-        float cy = 118f;
-        float r = 106f;
-        float start = 181f;
-        float sweep = 178f;
-        float limit = redline > 100f ? redline : 6500f;
-        float redFrac = Math.max(0f, Math.min(1f, 5000f / limit));
-        float frac = Math.max(0f, Math.min(1f, rpm / limit));
 
-        p.setShader(null);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeCap(Paint.Cap.BUTT);
-        p.setAlpha(255);
 
-        // 날씨 하늘과 RPM 색이 비슷해도 형태가 사라지지 않도록 아크 모양의 배경만
-        // 어둡게 받친다. 사각 패널을 쓰지 않아 기존 곡선형 디자인은 그대로 유지한다.
-        p.setStrokeWidth(frameDark ? 24f : 28f);
-        p.setColor(frameDark ? Color.argb(56, 5, 8, 13) : Color.argb(148, 7, 17, 26));
-        float backdropR = r - 4f;
-        scratchRect.set(cx - backdropR, cy - backdropR, cx + backdropR, cy + backdropR);
-        c.drawArc(scratchRect, start, sweep, false, p);
-
-        // 주간은 진한 레일, 야간은 중간 회색 레일을 사용한다. 레드존은 양쪽 모두
-        // 같은 경고색을 유지해 주야간 전환 시 의미가 달라지지 않게 한다.
-        int railColor = frameDark ? Color.rgb(150, 162, 173) : Color.rgb(52, 72, 82);
-        int railRed = Color.rgb(226, 72, 77);
-
-        // 바깥/안쪽 레일. 바깥면은 예전 아크(r=106, 굵기 10)와 같은 111 이라
-        // 위쪽 잘림(y=6)이나 RPM 라벨 간격에는 영향이 없다.
-        p.setStrokeWidth(RPM_RAIL_W);
-        float ro = r + RPM_RAIL_OFF;
-        float ri = r - RPM_BAR_W / 2f - 3f;
-        p.setColor(railColor);
-        scratchRect.set(cx - ro, cy - ro, cx + ro, cy + ro);
-        c.drawArc(scratchRect, start, sweep, false, p);
-        scratchRect.set(cx - ri, cy - ri, cx + ri, cy + ri);
-        c.drawArc(scratchRect, start, sweep, false, p);
-
-        p.setColor(railRed);
-        float redFrom = start + sweep * redFrac;
-        float redSweep = start + sweep - redFrom;
-        scratchRect.set(cx - ro, cy - ro, cx + ro, cy + ro);
-        c.drawArc(scratchRect, redFrom, redSweep, false, p);
-        scratchRect.set(cx - ri, cy - ri, cx + ri, cy + ri);
-        c.drawArc(scratchRect, redFrom, redSweep, false, p);
-
-        // 모든 바를 먼저 검정 외곽선으로 받친 다음 안쪽 색을 그린다. 주간 활성값은
-        // 파랑->청록, 야간 활성값은 흰색이다. 미점등 바도 회색으로 남겨 밝은 하늘
-        // 위에서 전체 RPM 범위를 한눈에 확인할 수 있게 한다.
-        float rb = r - 2f;
-        float step = sweep / RPM_BARS;
-        float gap = 0.55f;
-        scratchRect.set(cx - rb, cy - rb, cx + rb, cy + rb);
-        for (int i = 0; i < RPM_BARS; i++) {
-            float mid = (i + 0.5f) / RPM_BARS;
-            boolean active = mid <= frac;
-            int color;
-            if (mid <= frac) {
-                if (mid >= redFrac) {
-                    float redT = (mid - redFrac) / Math.max(0.001f, 1f - redFrac);
-                    color = mixColor(Color.rgb(255, 159, 50), Color.rgb(255, 63, 79), redT);
-                } else if (frameDark) {
-                    color = Color.rgb(248, 250, 252);
-                } else {
-                    color = mixColor(Color.rgb(40, 150, 255), Color.rgb(0, 240, 224),
-                            frac > 0.001f ? mid / frac : 0f);
-                }
-            } else if (mid >= redFrac) {
-                color = frameDark ? Color.rgb(108, 66, 70) : Color.rgb(104, 68, 66);
-            } else {
-                color = frameDark ? Color.rgb(120, 133, 146) : Color.rgb(52, 73, 88);
-            }
-
-            float barStart = start + step * i + gap;
-            float barSweep = step - gap * 2f;
-            p.setStrokeWidth(RPM_BAR_W + 4f);
-            p.setColor(frameDark ? Color.argb(122, 5, 9, 14) : Color.argb(196, 5, 9, 14));
-            c.drawArc(scratchRect, barStart, barSweep, false, p);
-
-            p.setStrokeWidth(active ? RPM_BAR_W : RPM_BAR_W - 4f);
-            p.setColor(color);
-            c.drawArc(scratchRect, barStart, barSweep, false, p);
-        }
-
-        p.setAlpha(255);
-
-        text(c, p, "RPM", cx - r - RPM_LABEL_GAP, 122f, 13f, dim(), Paint.Align.RIGHT);
-        text(c, p, String.format(Locale.US, "%,d", rpm), cx + r + RPM_LABEL_GAP, 124f, 22f,
-                ink(), Paint.Align.LEFT);
-    }
-
-    /** 두 색을 t(0~1) 비율로 섞는다. RPM 인셋 바 그라데이션용. */
-    private static int mixColor(int a, int b, float t) {
-        float u = Math.max(0f, Math.min(1f, t));
-        return Color.rgb(
-                (int) (Color.red(a) + (Color.red(b) - Color.red(a)) * u),
-                (int) (Color.green(a) + (Color.green(b) - Color.green(a)) * u),
-                (int) (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * u));
-    }
-
-    /** Active-gear tile, unboxed drive step and compact OEM-style coolant bar. */
-    private void drawGearAndCoolant(Canvas c, Paint p, JSONObject s) {
-        String gear = s.optString("gear", "--");
-        int gearStep = Math.max(0, Math.min(8, s.optInt("gearStep", 0)));
-        boolean parkingBrake = s.optBoolean("parkingBrake", false);
-        float boxLeft = 22f;
-        float boxTop = 82f;
-        float boxSize = 42f;
-
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(parkingBrake ? Color.rgb(210, 42, 52)
-                : (frameDark ? Color.rgb(42, 49, 58) : Color.rgb(248, 249, 250)));
-        scratchRect.set(boxLeft, boxTop, boxLeft + boxSize, boxTop + boxSize);
-        c.drawRoundRect(scratchRect, 6f, 6f, p);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(2f);
-        p.setColor(parkingBrake ? Color.rgb(145, 22, 31)
-                : (frameDark ? Color.rgb(112, 125, 136) : Color.rgb(176, 184, 190)));
-        c.drawRoundRect(scratchRect, 6f, 6f, p);
-        text(c, p, gear, boxLeft + boxSize * 0.5f, 114f, 28f,
-                parkingBrake ? Color.WHITE
-                        : (frameDark ? Color.rgb(240, 243, 246) : Color.rgb(28, 32, 36)),
-                Paint.Align.CENTER);
-        if ("D".equals(gear)) {
-            String stepText = gearStep >= 1 ? Integer.toString(gearStep) : "--";
-            text(c, p, stepText, boxLeft + boxSize + 20f, 114f, 28f,
-                    frameDark ? Color.rgb(240, 243, 246) : Color.rgb(28, 32, 36),
-                    Paint.Align.CENTER);
-        }
-
-        JSONObject system = s.optJSONObject("system");
-        double coolant = system == null ? Double.NaN
-                : system.optDouble("coolantTemp", Double.NaN);
-
-        // Enlarge the accepted gauge by 20% and add a small gap from the gear
-        // tile.  Scaling stays anchored to the tile bottom so the lower edge
-        // remains aligned exactly as approved on the vehicle preview.
-        final float coolantScale = 0.924f;
-        int coolantSave = c.save();
-        // Keep space reserved for the unboxed D-range step so the gauge does
-        // not jump sideways when the selector moves between P/R/N and D.
-        c.translate(122f, boxTop + boxSize);
-        c.scale(coolantScale, coolantScale);
-
-        final float railLeft = 23f;
-        final float railRight = 130f;
-        final float railY = -4f;
-        text(c, p, "C", 0f, -16f, 18f, ink(), Paint.Align.CENTER);
-        text(c, p, "H", 153f, -16f, 18f, ink(), Paint.Align.CENTER);
-        drawCoolantThermometer(c, p, 76f, -27f);
-
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeCap(Paint.Cap.ROUND);
-        p.setStrokeWidth(4f);
-        p.setColor(frameDark ? Color.rgb(110, 122, 132) : Color.rgb(164, 174, 181));
-        c.drawLine(railLeft, railY, railRight, railY, p);
-        for (int i = 0; i <= 4; i++) {
-            float x = railLeft + (railRight - railLeft) * i / 4f;
-            c.drawLine(x, railY - 4f, x, railY + 4f, p);
-        }
-        if (Double.isFinite(coolant) && coolant > -50d && coolant < 200d) {
-            float fraction = (float) Math.max(0d, Math.min(1d, (coolant - 50d) / 70d));
-            p.setStrokeWidth(7f);
-            p.setColor(fraction > 0.86f
-                    ? Color.rgb(226, 67, 70) : Color.rgb(42, 199, 218));
-            c.drawLine(railLeft, railY, railLeft + (railRight - railLeft) * fraction, railY, p);
-        }
-        p.setStrokeCap(Paint.Cap.BUTT);
-        c.restoreToCount(coolantSave);
-    }
 
     private void drawCoolantThermometer(Canvas c, Paint p, float x, float y) {
         p.setShader(null);
@@ -5205,82 +4963,8 @@ public final class HudService extends Service {
         c.drawLine(x - 4f, y + 3f, x + 4f, y + 3f, p);
     }
 
-    private void drawModeAndEta(Canvas c, Paint p, JSONObject s) {
-        JSONObject l = layout(s);
-        drawInferredTrafficSignal(c, p, s.optInt("trafficState", 0),
-                lv(l, "modeX", 938f), lv(l, "modeY", 116f));
 
-        Date now = new Date();
-        String clock = new SimpleDateFormat("h:mm", Locale.KOREA).format(now);
-        String period = new SimpleDateFormat("a", Locale.KOREA).format(now);
-        float etaRight = lv(l, "etaRight", 832f);
-        float etaY = lv(l, "etaY", 116f);
-        float etaTimeSize = lv(l, "etaTimeSize", 27f);
-        float etaLabelSize = lv(l, "etaLabelSize", 14f);
-        float gap = lv(l, "etaGap", 8f);
-        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        p.setTextSize(etaTimeSize);
-        float clockWidth = p.measureText(clock);
-        text(c, p, clock, etaRight, etaY, etaTimeSize, ink(), Paint.Align.RIGHT);
-        text(c, p, period, etaRight - clockWidth - gap, etaY - 1f, etaLabelSize,
-                dim(), Paint.Align.RIGHT);
-    }
 
-    /**
-     * Compact E2E stop/start indicator in the former drive-mode label slot.
-     * This is intentionally icon-only: 1 lights red, 2 lights green, and 0
-     * leaves all three lamps off. The housing stays visible so the indicator
-     * position does not appear and disappear. The model does not provide a
-     * trustworthy yellow state.
-     */
-    private void drawInferredTrafficSignal(Canvas c, Paint p, int state,
-                                           float right, float baseline) {
-        final float width = 82f;
-        final float height = 34f;
-        final float top = baseline - 27f;
-        final float cy = top + height * 0.5f;
-        final float radius = 9f;
-
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.argb(225, 20, 24, 28));
-        scratchRect.set(right - width, top, right, top + height);
-        c.drawRoundRect(scratchRect, 10f, 10f, p);
-
-        final int lampOff = frameDark ? Color.rgb(52, 61, 65) : Color.rgb(62, 70, 73);
-        final float redX = right - 62f;
-        final float amberX = right - 41f;
-        final float greenX = right - 20f;
-        p.setColor(state == 1 ? Color.rgb(255, 58, 70) : lampOff);
-        c.drawCircle(redX, cy, radius, p);
-        p.setColor(lampOff);
-        c.drawCircle(amberX, cy, radius, p);
-        p.setColor(state == 2 ? Color.rgb(47, 219, 119) : lampOff);
-        c.drawCircle(greenX, cy, radius, p);
-    }
-
-    /** 주행가능거리. "주행/RANGE" 글자 대신 주유기 아이콘을 거리 왼쪽에 붙인다.
-     *  숫자 오른쪽 끝(932)은 그대로 두고 아이콘 위치만 숫자 폭에 맞춰 계산한다. */
-    private void drawRange(Canvas c, Paint p, JSONObject s) {
-        double km = s.optDouble("distanceToEmpty", -1d);
-        if (!Double.isFinite(km) || km < 0d) {
-            return;
-        }
-        String value = String.format(Locale.US, "%.0f km", km);
-        float size = 22f;
-        float baseline = 44f;
-        float iconH = 26f;
-        float gap = 9f;
-
-        p.setShader(null);
-        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        p.setTextAlign(Paint.Align.LEFT);
-        p.setTextSize(size);
-        float valueWidth = p.measureText(value);
-
-        drawFuelIcon(c, p, 932f - valueWidth - gap - fuelIconWidth(iconH), baseline, iconH);
-        text(c, p, value, 932f, baseline, size, ink(), Paint.Align.RIGHT);
-    }
 
     private static float fuelIconWidth(float h) {
         return h * 0.80f;
@@ -5698,49 +5382,6 @@ public final class HudService extends Service {
         p.setColorFilter(null);
     }
 
-    /**
-     * 순정 PNG의 차체만 사용하고 실제 FL/FR/RL/RR 신호에 해당하는 문을
-     * 빨간색으로 표시한다. 기존 PNG에 고정된 운전석 문은 소스 크롭에서 제외한다.
-     */
-    private void drawDoorStatus(Canvas c, Paint p, float left, float cy, JSONObject doors) {
-        if (statusIcons == null || statusIcons.isRecycled()) {
-            drawDoorWarning(c, p, left + 9f, cy, doors);
-            return;
-        }
-
-        int sw = statusIcons.getWidth();
-        int sh = statusIcons.getHeight();
-        scratchIRect.set(Math.round(sw * 0.835f), Math.round(sh * 0.22f),
-                Math.round(sw * 0.95f), Math.round(sh * 0.78f));
-        float bodyLeft = left + 6f;
-        float bodyRight = left + 29f;
-        scratchRect.set(bodyLeft, cy - 15.5f, bodyRight, cy + 15.5f);
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setAlpha(255);
-        p.setColorFilter(!frameDark ? dayDoorFilter : null);
-        p.setFilterBitmap(true);
-        c.drawBitmap(statusIcons, scratchIRect, scratchRect, p);
-        p.setColorFilter(null);
-
-        p.setColor(Color.rgb(238, 45, 55));
-        if (doors.optBoolean("fl", false)) {
-            drawOpenDoorLeaf(c, p, bodyLeft + 1f, cy - 9f, cy - 3f,
-                    left - 1f, cy - 12f, cy - 6f);
-        }
-        if (doors.optBoolean("fr", false)) {
-            drawOpenDoorLeaf(c, p, bodyRight - 1f, cy - 9f, cy - 3f,
-                    left + 36f, cy - 12f, cy - 6f);
-        }
-        if (doors.optBoolean("rl", false)) {
-            drawOpenDoorLeaf(c, p, bodyLeft + 1f, cy + 3f, cy + 9f,
-                    left - 1f, cy + 6f, cy + 12f);
-        }
-        if (doors.optBoolean("rr", false)) {
-            drawOpenDoorLeaf(c, p, bodyRight - 1f, cy + 3f, cy + 9f,
-                    left + 36f, cy + 6f, cy + 12f);
-        }
-    }
 
     /**
      * 실제 차량(주행화면 자차 그림, 뒤에서 내려다본 모습) 위에 열린 문·트렁크·보닛을
@@ -5770,19 +5411,6 @@ public final class HudService extends Service {
         p.setStyle(Paint.Style.FILL);
     }
 
-    private void drawOpenDoorLeaf(Canvas c, Paint p, float hingeX, float hingeTop,
-                                  float hingeBottom, float outerX, float outerTop,
-                                  float outerBottom) {
-        float inward = outerX < hingeX ? 1.8f : -1.8f;
-        scratchPath.rewind();
-        scratchPath.moveTo(hingeX, hingeTop);
-        scratchPath.lineTo(outerX, outerTop);
-        scratchPath.lineTo(outerX + inward, outerBottom);
-        scratchPath.lineTo(hingeX, hingeBottom);
-        scratchPath.close();
-        p.setStyle(Paint.Style.FILL);
-        c.drawPath(scratchPath, p);
-    }
 
     private boolean hasOpenDoor(JSONObject doors) {
         return doors != null && (doors.optBoolean("fl", false)
@@ -5926,27 +5554,6 @@ public final class HudService extends Service {
         p.setStrokeCap(Paint.Cap.BUTT);
     }
 
-    private void drawDoorWarning(Canvas c, Paint p, float cx, float cy, JSONObject doors) {
-        final float left = cx - 7f, right = cx + 7f;
-        final float top = cy - 13f, bottom = cy + 13f;
-        p.setShader(null);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeJoin(Paint.Join.ROUND);
-        p.setStrokeCap(Paint.Cap.ROUND);
-        p.setStrokeWidth(2.5f);
-        p.setColor(ink());
-        scratchRect.set(left, top, right, bottom);
-        c.drawRoundRect(scratchRect, 4f, 4f, p);
-        c.drawLine(left + 2f, cy - 5f, right - 2f, cy - 5f, p);
-        c.drawLine(left + 2f, cy + 6f, right - 2f, cy + 6f, p);
-        p.setStrokeWidth(4f);
-        p.setColor(Color.rgb(230, 48, 58));
-        if (doors.optBoolean("fl", false)) c.drawLine(left, cy - 7f, left - 8f, cy - 12f, p);
-        if (doors.optBoolean("fr", false)) c.drawLine(right, cy - 7f, right + 8f, cy - 12f, p);
-        if (doors.optBoolean("rl", false)) c.drawLine(left, cy + 4f, left - 8f, cy + 10f, p);
-        if (doors.optBoolean("rr", false)) c.drawLine(right, cy + 4f, right + 8f, cy + 10f, p);
-        p.setStrokeCap(Paint.Cap.BUTT);
-    }
 
     private void drawLamp(Canvas c, Paint p, float x, float y, int kind) {
         int color = kind == 1 ? Color.rgb(44, 128, 238) : Color.rgb(39, 177, 89);
@@ -6246,32 +5853,6 @@ public final class HudService extends Service {
 
     private static final float TPMS_LOW_PSI = 30f;
 
-    private void drawTpms(Canvas c, Paint p, JSONObject s) {
-        JSONObject tpms = s.optJSONObject("tpms");
-        float fl = tpmsValue(tpms, "fl"), fr = tpmsValue(tpms, "fr");
-        float rl = tpmsValue(tpms, "rl"), rr = tpmsValue(tpms, "rr");
-        boolean lowFl = tpmsLow(fl), lowFr = tpmsLow(fr);
-        boolean lowRl = tpmsLow(rl), lowRr = tpmsLow(rr);
-        boolean warning = lowFl || lowFr || lowRl || lowRr;
-        // 카드 배경은 항상 기본. 경고는 가운데 차체 표시만 노란색으로 바꾼다.
-        scratchRect.set(791f, 376f, 939f, 454f);
-        drawCard(c, p, scratchRect);
-        int normalText = ink();
-        int titleColor = dim();
-        int lowText = Color.rgb(205, 30, 42);
-        text(c, p, "TPMS", 865f, 394f, 12f, titleColor, Paint.Align.CENTER);
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(warning
-                ? (frameDark ? Color.rgb(232, 176, 32) : Color.rgb(245, 190, 40))
-                : Color.rgb(95, 102, 107));
-        scratchRect.set(852f, 404f, 878f, 446f);
-        c.drawRoundRect(scratchRect, 4f, 4f, p);
-        text(c, p, tpmsText(fl), 840f, 417f, 16f, lowFl ? lowText : normalText, Paint.Align.RIGHT);
-        text(c, p, tpmsText(fr), 890f, 417f, 16f, lowFr ? lowText : normalText, Paint.Align.LEFT);
-        text(c, p, tpmsText(rl), 840f, 443f, 16f, lowRl ? lowText : normalText, Paint.Align.RIGHT);
-        text(c, p, tpmsText(rr), 890f, 443f, 16f, lowRr ? lowText : normalText, Paint.Align.LEFT);
-    }
 
     private boolean tpmsLow(float value) {
         return value >= 5f && value <= 60f && value <= TPMS_LOW_PSI;
@@ -6514,25 +6095,6 @@ public final class HudService extends Service {
         return top + h;
     }
 
-    /**
-     * (미사용 · 필요하면 되돌리기용) TBT 1행을 티맵 PNG 로 그린다. drawNativeOverlay 처럼
-     * 박스 안에서 세로 가운데 정렬을 하면 2행을 바로 밑에 붙일 수 없어서
-     * 실제로 그린 높이(아래쪽 y)를 돌려준다.
-     */
-    private float drawTbtImage(Canvas c, Paint p, Bitmap b, float left, float top,
-                               float maxWidth, float maxHeight) {
-        if (b == null || b.isRecycled() || b.getWidth() <= 0 || b.getHeight() <= 0) {
-            return top;
-        }
-        float scale = Math.min(maxWidth / b.getWidth(), maxHeight / b.getHeight());
-        float w = b.getWidth() * scale;
-        float h = b.getHeight() * scale;
-        p.setAlpha(255);
-        p.setFilterBitmap(true);
-        scratchRect.set(left, top, left + w, top + h);
-        c.drawBitmap(b, null, scratchRect, p);
-        return top + h;
-    }
 
     private void drawTbtNext(Canvas c, Paint p, JSONObject navi, float left, float top) {
         if (navi == null || !navi.optBoolean("active", false)) {
@@ -6718,84 +6280,8 @@ public final class HudService extends Service {
         c.drawRoundRect(box, 9f, 9f, p);
     }
 
-    /** 좌측 하단의 기존 148x78 카드에 C2(EON)와 S9 상태를 두 줄로 표시한다. */
-    private void drawC2S9StatusCard(Canvas c, Paint p, JSONObject s, boolean stale) {
-        long statsNow = SystemClock.elapsedRealtime();
-        float s9TempC = freshStat(this.s9TempC, s9TempSampleElapsed, statsNow);
-        float s9CpuPercent = freshStat(this.s9CpuPercent, s9CpuSampleElapsed, statsNow);
-        scratchRect.set(8f, 376f, 156f, 454f);
-        drawCard(c, p, scratchRect);
 
-        JSONObject system = stale ? null : s.optJSONObject("system");
-        if (system == null && !stale) {
-            system = s;
-        }
-        String c2Temp = systemValue(system, "temp", "°C");
-        String c2Cpu = systemValue(system, "cpu", "%");
-        String phoneTemp = s9TempC < 0f ? "--"
-                : String.format(Locale.US, "%.0f°C", s9TempC);
-        String phoneCpu = s9CpuPercent < 0f ? "--"
-                : String.format(Locale.US, "%.0f%%", s9CpuPercent);
 
-        double c2TempValue = system == null ? Double.NaN
-                : system.optDouble("temp", Double.NaN);
-        double c2CpuValue = system == null ? Double.NaN
-                : system.optDouble("cpu", Double.NaN);
-        int warningColor = Color.rgb(255, 58, 68);
-        int c2TempColor = Double.isFinite(c2TempValue) && c2TempValue >= 70d
-                ? warningColor : ink();
-        int c2CpuColor = Double.isFinite(c2CpuValue) && c2CpuValue >= 90d
-                ? warningColor : ink();
-        int phoneTempColor = s9TempC >= 70f ? warningColor : ink();
-        int phoneCpuColor = s9CpuPercent >= 90f ? warningColor : ink();
-
-        // Match the sketch: temperature | device | CPU, aligned with TPMS rows.
-        textNormal(c, p, "온도", 40f, 394f, 12f, dim(), Paint.Align.CENTER);
-        textNormal(c, p, "CPU", 126f, 394f, 12f, dim(), Paint.Align.CENTER);
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(Color.rgb(95, 102, 107)); // Same neutral fill as the TPMS body.
-        scratchRect.set(68f, 401f, 96f, 449f);
-        c.drawRoundRect(scratchRect, 4f, 4f, p);
-        textNormal(c, p, "C2", 82f, 417f, 14f, Color.rgb(238, 242, 246), Paint.Align.CENTER);
-        textNormal(c, p, PHONE_NAME, 82f, 443f, 14f, Color.rgb(238, 242, 246), Paint.Align.CENTER);
-        textNormal(c, p, c2Temp, 40f, 417f, 16f, c2TempColor, Paint.Align.CENTER);
-        textNormal(c, p, phoneTemp, 40f, 443f, 16f, phoneTempColor, Paint.Align.CENTER);
-        textNormal(c, p, c2Cpu, 126f, 417f, 16f, c2CpuColor, Paint.Align.CENTER);
-        textNormal(c, p, phoneCpu, 126f, 443f, 16f, phoneCpuColor, Paint.Align.CENTER);
-    }
-
-    private void drawThermometerGlyph(Canvas c, Paint p, float cx, float cy, int color) {
-        p.setShader(null);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeCap(Paint.Cap.ROUND);
-        p.setStrokeWidth(1.3f);
-        p.setColor(color);
-        scratchRect.set(cx - 2f, cy - 6f, cx + 2f, cy + 3f);
-        c.drawRoundRect(scratchRect, 2f, 2f, p);
-        c.drawLine(cx, cy - 3.5f, cx, cy + 3f, p);
-        p.setStyle(Paint.Style.FILL);
-        c.drawCircle(cx, cy + 4f, 2.5f, p);
-        p.setStrokeCap(Paint.Cap.BUTT);
-    }
-
-    private void drawCpuGlyph(Canvas c, Paint p, float cx, float cy, int color) {
-        p.setShader(null);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(1.2f);
-        p.setColor(color);
-        scratchRect.set(cx - 3.5f, cy - 3.5f, cx + 3.5f, cy + 3.5f);
-        c.drawRect(scratchRect, p);
-        for (int i = -2; i <= 2; i += 2) {
-            c.drawLine(cx + i, cy - 5.5f, cx + i, cy - 3.5f, p);
-            c.drawLine(cx + i, cy + 3.5f, cx + i, cy + 5.5f, p);
-            c.drawLine(cx - 5.5f, cy + i, cx - 3.5f, cy + i, p);
-            c.drawLine(cx + 3.5f, cy + i, cx + 5.5f, cy + i, p);
-        }
-        p.setStyle(Paint.Style.FILL);
-        scratchRect.set(cx - 1.5f, cy - 1.5f, cx + 1.5f, cy + 1.5f);
-        c.drawRect(scratchRect, p);
-    }
 
     private String distanceText(int meters) {
         return meters >= 1000
@@ -7942,12 +7428,6 @@ public final class HudService extends Service {
         }
     }
 
-    /** 목적지 안내 중인지: 내비가 켜져 있고 남은 거리·시간이 있다. */
-    private static boolean naviGuiding(JSONObject s) {
-        JSONObject navi = s == null ? null : s.optJSONObject("navi");
-        return navi != null && navi.optBoolean("active", false)
-                && (navi.optInt("remainDist", 0) > 0 || navi.optInt("remainTime", 0) > 0);
-    }
 
     private Bitmap laneTrimSource;
     private Bitmap laneTrimmed;

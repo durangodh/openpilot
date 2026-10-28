@@ -421,7 +421,7 @@ def test_driving_panel_uses_speed_ring_and_eon_hud_box():
   for removed in ("drawC2S9StatusCard(", "drawTpms(", "drawRpm(", "drawSpeed(c",
                   "drawSetSpeed(", "drawGearAndCoolant(", "drawModeAndEta(", "drawRange("):
     assert removed not in driving
-  box = service.split("private void drawEonHudBox", 1)[1].split("private void drawSpeed(", 1)[0]
+  box = service.split("private void drawEonHudBox", 1)[1].split("private void drawCoolantThermometer(", 1)[0]
   for item in ('"C2 CPU"', '"S9 CPU"', 's9TempC', '"LIMIT"', '"NORM"', '"OFF"', '"e2eReason"',
                'optInt("gap"', 'tpmsText(fl)', '"TPMS"', 'drawCard(c, p, scratchRect)',
                '"latAccelFactor"', '"latFriction"', '"steerRatio"'):

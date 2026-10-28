@@ -25,7 +25,7 @@ def test_sender_and_renderer_require_positive_distance():
 
   hud = (ROOT / "selfdrive/eon_cluster/android_hud/app/src/main/java/ai/comma/remotehud/HudService.java").read_text(
       encoding="utf-8")
-  draw_camera = hud.split("private void drawCamera(", 1)[1].split("private void drawTpms(", 1)[0]
+  draw_camera = hud.split("private void drawCamera(", 1)[1].split("private static final float TPMS_LOW_PSI", 1)[0]
   assert "if (limit <= 0 || dist <= 0)" in draw_camera
 
 
