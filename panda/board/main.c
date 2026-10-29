@@ -98,7 +98,7 @@ void set_safety_mode(uint16_t mode, int16_t param) {
       if (current_board->has_obd) {
         current_board->set_can_mode(CAN_MODE_NORMAL);
       }
-      can_silent = ALL_CAN_LIVE;
+      can_silent = ALL_CAN_LIVE | MCAN_SILENT_MASK;
       break;
     case SAFETY_ELM327:
       set_intercept_relay(true);
@@ -111,7 +111,7 @@ void set_safety_mode(uint16_t mode, int16_t param) {
           current_board->set_can_mode(CAN_MODE_NORMAL);
         }
       }
-      can_silent = ALL_CAN_LIVE;
+      can_silent = ALL_CAN_LIVE | MCAN_SILENT_MASK;
       break;
     default:
       set_intercept_relay(true);
@@ -120,7 +120,7 @@ void set_safety_mode(uint16_t mode, int16_t param) {
       if (current_board->has_obd) {
         current_board->set_can_mode(CAN_MODE_NORMAL);
       }
-      can_silent = ALL_CAN_LIVE;
+      can_silent = ALL_CAN_LIVE | MCAN_SILENT_MASK;
       break;
   }
   can_init_all();

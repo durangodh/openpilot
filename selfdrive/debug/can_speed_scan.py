@@ -51,6 +51,7 @@ def main():
   parser.add_argument("--bus", type=int, default=1, help="panda bus to scan (default 1)")
   parser.add_argument("--speeds", type=float, nargs="+", default=DEFAULT_SPEEDS, help="candidate speeds in kbps")
   parser.add_argument("--wait", action="store_true", help="wait for Enter before scanning (connect wires while SILENT)")
+  parser.add_argument("--restore", type=float, default=100, help="speed to leave the bus at (firmware default 100)")
   parser.add_argument("--seconds", type=float, default=3., help="listen time per speed")
   args = parser.parse_args()
 
@@ -84,8 +85,8 @@ def main():
       print(f"{speed:>6g} {total:>7} {len(counts):>5} {ref_cnt:>9}  {top}")
       results.append((total, len(counts), speed))
   finally:
-    # stay SILENT: going back live at 500 kbps on a slower bus would disturb it
-    p.set_can_speed_kbps(args.bus, 500)
+    # stay SILENT and go back to the firmware default (MCAN_SPEED, 100 kbps on bus 1)
+    p.set_can_speed_kbps(args.bus, args.restore)
     p.send_heartbeat(engaged=False)
 
   best = max(results)

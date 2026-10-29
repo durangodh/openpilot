@@ -126,7 +126,7 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
   }
 
   // check MDPS12 or MDPS11 on Bus
-  if ((addr == 593 || addr == 897) && MDPS_bus != bus) {
+  if ((addr == 593 || addr == 897) && MDPS_bus != bus && !(BUS1_IS_MCAN && bus == 1)) {
     if (bus != 1 || (!Lcan_bus1 || Fwd_obd)) {
       MDPS_bus = bus;
       if (bus == 1 && !Fwd_obd) {
@@ -142,7 +142,7 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
   }
 
   // check SCC11 or SCC12 on Bus
-  if ((addr == 1056 || addr == 1057) && SCC_bus != bus) {
+  if ((addr == 1056 || addr == 1057) && SCC_bus != bus && !(BUS1_IS_MCAN && bus == 1)) {
     if (bus != 1 || !Lcan_bus1) {
       SCC_bus = bus;
       if (bus == 1) {

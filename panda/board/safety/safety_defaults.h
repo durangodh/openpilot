@@ -9,6 +9,10 @@ int MDPS12_checksum = -1;
 int MDPS12_cnt = 0;
 int Last_StrColTq = 0;
 
+// Genesis DH: panda bus 1 is a listen-only MM-CAN tap (MCAN_BUS in
+// can_common.h), so never take it for an MDPS/SCC bus or forward to/from it.
+#define BUS1_IS_MCAN true
+
 const addr_checks default_rx_checks = {
   .check = NULL,
   .len = 0,
@@ -68,7 +72,7 @@ int default_rx_hook(CANPacket_t *to_push) {
     }
   }
   // check if we have a MDPS or SCC on Bus1
-  if (bus == 1 && (addr == 593 || addr == 897 || addr == 1057)) {
+  if (!BUS1_IS_MCAN && bus == 1 && (addr == 593 || addr == 897 || addr == 1057)) {
     if (!Fwd_bus1 && OBD_cnt > 1 && OBD_cnt < 11 && current_board->has_obd) {
       Fwd_obd = true;
       OBD_cnt = 0;

@@ -34,6 +34,13 @@ uint32_t ignition_can_cnt = 0U;
 #define ALL_CAN_SILENT 0xFF
 #define ALL_CAN_LIVE 0
 
+// Genesis DH: panda bus 1 (CAN2) is tapped in parallel onto the low-speed
+// MM-CAN. Keep it listen-only at the MM-CAN bitrate from boot on, so the panda
+// never ACKs, transmits or sends error frames there. Bus 1 never flips.
+#define MCAN_BUS 1U
+#define MCAN_SPEED 1000U  // 100 kbps
+#define MCAN_SILENT_MASK (1U << MCAN_BUS)
+
 int can_live = 0;
 int pending_can_live = 0;
 int can_loopback = 0;
@@ -162,7 +169,7 @@ void can_clear(can_ring *q) {
 // Panda:       Bus 0=CAN1   Bus 1=CAN2   Bus 2=CAN3
 bus_config_t bus_config[] = {
   { .bus_lookup = 0U, .can_num_lookup = 0U, .can_speed = 5000U, .can_data_speed = 20000U, .canfd_enabled = false, .brs_enabled = false },
-  { .bus_lookup = 1U, .can_num_lookup = 1U, .can_speed = 5000U, .can_data_speed = 20000U, .canfd_enabled = false, .brs_enabled = false },
+  { .bus_lookup = 1U, .can_num_lookup = 1U, .can_speed = MCAN_SPEED, .can_data_speed = 20000U, .canfd_enabled = false, .brs_enabled = false },
   { .bus_lookup = 2U, .can_num_lookup = 2U, .can_speed = 5000U, .can_data_speed = 20000U, .canfd_enabled = false, .brs_enabled = false },
   { .bus_lookup = 0xFFU, .can_num_lookup = 0xFFU, .can_speed = 333U, .can_data_speed = 333U, .canfd_enabled = false, .brs_enabled = false },
 };

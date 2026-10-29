@@ -30,6 +30,13 @@ class TestSccBus2Config(unittest.TestCase):
     self.assertEqual(scc_bus, 2)
     self.assertTrue(openpilot_long)
 
+  def test_mcan_on_bus1_is_never_taken_for_scc(self):
+    # bus 1 is the MM-CAN tap; an SCC-looking ID there must not move the SCC bus
+    fingerprint = gen_empty_fingerprint()
+    fingerprint[1][1056] = 8
+    scc_bus, _ = resolve_scc_bus_and_long_control(fingerprint, False, False)
+    self.assertEqual(scc_bus, -1)
+
 
 if __name__ == "__main__":
   unittest.main()

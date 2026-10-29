@@ -23,8 +23,16 @@ BUTTONS_DICT = {
 }
 
 
+# Genesis DH: panda bus 1 is a listen-only MM-CAN tap, never an MDPS/SAS/SCC bus.
+BUS1_IS_MCAN = True
+
+
+def bus1_has(fingerprint, addr):
+  return not BUS1_IS_MCAN and addr in fingerprint[1] and 1296 not in fingerprint[1]
+
+
 def resolve_scc_bus_and_long_control(fingerprint, scc_connected_bus2, long_control_enabled):
-  detected_scc_bus = 0 if 1056 in fingerprint[0] else 1 if 1056 in fingerprint[1] and 1296 not in fingerprint[1] \
+  detected_scc_bus = 0 if 1056 in fingerprint[0] else 1 if bus1_has(fingerprint, 1056) \
                                                         else 2 if 1056 in fingerprint[2] else -1
   scc_bus = 2 if scc_connected_bus2 else detected_scc_bus
   # c2-master treats the CAN2 SCC harness itself as longitudinal enablement.
@@ -297,8 +305,8 @@ class CarInterface(CarInterfaceBase):
     ret.enableBsm = 0x58b in fingerprint[0]
     ret.enableAutoHold = 1151 in fingerprint[0]
 
-    ret.mdpsBus = 1 if 593 in fingerprint[1] and 1296 not in fingerprint[1] else 0
-    ret.sasBus = 1 if 688 in fingerprint[1] and 1296 not in fingerprint[1] else 0
+    ret.mdpsBus = 1 if bus1_has(fingerprint, 593) else 0
+    ret.sasBus = 1 if bus1_has(fingerprint, 688) else 0
     # aPilot c2-master SCC harness layout: the harness moves the factory SCC
     # stream to panda CAN2.  Use the explicit installation setting instead of
     # relying on a startup fingerprint which can miss the first SCC frames.
