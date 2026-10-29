@@ -231,10 +231,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"FastLeadRelease", PERSISTENT},          // 레이더 원래 속도로 앞차 출발 빨리 확인 (default 1)
 
     {"DynamicLaneProfile", PERSISTENT},
-    {"MpcPathCost", PERSISTENT},
-    {"MpcLateralMotionCost", PERSISTENT},
-    {"MpcLateralAccelCost", PERSISTENT},
-    {"MpcLateralJerkCost", PERSISTENT},
     {"SteeringRateCost", PERSISTENT},
     {"LaneChangeEnabled", PERSISTENT},
     {"AutoLaneChangeEnabled", PERSISTENT},

@@ -813,46 +813,6 @@
   },
   {
    "group": "\ud6a1\ubc29\ud5a5",
-   "name": "MpcPathCost",
-   "title": "MPC PATH COST (X0.001)",
-   "descr": "\ubaa8\ub378 \uacbd\ub85c\ub97c \ub530\ub77c\uac00\ub824\ub294 \ube44\uc6a9\uc785\ub2c8\ub2e4. \uac12 \uc99d\uac00(+): \uacbd\ub85c \ucd94\uc885\uc774 \uac15\ud574\uc9d0 / \uac12 \uac10\uc18c(-): \uc6c0\uc9c1\uc784\uc774 \ubd80\ub4dc\ub7ec\uc6cc\uc9d0.\n\ud45c\uc2dc\uac12 1000 = \uc2e4\uc81c 1.000  /  \uae30\uc874 \uae30\ubcf8\uac12: 1000  /  \ubc94\uc704: 100 ~ 5000",
-   "min": 100,
-   "max": 5000,
-   "default": 1000,
-   "unit": 50
-  },
-  {
-   "group": "\ud6a1\ubc29\ud5a5",
-   "name": "MpcLateralMotionCost",
-   "title": "MPC LATERAL MOTION COST (X0.001)",
-   "descr": "\ucc28\ub7c9\uc758 \uc88c\uc6b0 \uc774\ub3d9 \uc790\uccb4\ub97c \uc5b5\uc81c\ud558\ub294 \ube44\uc6a9\uc785\ub2c8\ub2e4. \uac12 \uc99d\uac00(+): \uc548\uc815\uc801\uc774\uc9c0\ub9cc \uacbd\ub85c \ubcc0\ud654\uac00 \ub290\ub9bc / \uac12 \uac10\uc18c(-): \ube60\ub974\uac8c \uc774\ub3d9.\n\ud45c\uc2dc\uac12 110 = \uc2e4\uc81c 0.110  /  \uae30\uc874 \uae30\ubcf8\uac12: 110  /  \ubc94\uc704: 0 ~ 1000",
-   "min": 0,
-   "max": 1000,
-   "default": 110,
-   "unit": 10
-  },
-  {
-   "group": "\ud6a1\ubc29\ud5a5",
-   "name": "MpcLateralAccelCost",
-   "title": "MPC LATERAL ACCEL COST (X0.001)",
-   "descr": "\ud6a1\uac00\uc18d\uc744 \uc5b5\uc81c\ud558\ub294 \ube44\uc6a9\uc785\ub2c8\ub2e4. \uac12 \uc99d\uac00(+): \uc644\ub9cc\ud55c \uc870\ud5a5 / \uac12 \uac10\uc18c(-): \uacbd\ub85c \ubcc0\ud654\uc5d0 \uc801\uadf9 \ub300\uc751.\n\ud45c\uc2dc\uac12 0 = \uc2e4\uc81c 0.000  /  \uae30\uc874 \uae30\ubcf8\uac12: 0  /  \ubc94\uc704: 0 ~ 1000",
-   "min": 0,
-   "max": 1000,
-   "default": 0,
-   "unit": 10
-  },
-  {
-   "group": "\ud6a1\ubc29\ud5a5",
-   "name": "MpcLateralJerkCost",
-   "title": "MPC LATERAL JERK COST (X0.001)",
-   "descr": "\ud6a1\uac00\uc18d\ub3c4\uc758 \uae09\uaca9\ud55c \ubcc0\ud654\ub97c \uc5b5\uc81c\ud558\ub294 \ube44\uc6a9\uc785\ub2c8\ub2e4. \uac12 \uc99d\uac00(+): \ubd80\ub4dc\ub7ec\uc6c0 / \uac12 \uac10\uc18c(-): \ubc18\uc751\uc774 \ube68\ub77c\uc9d0.\n\ud45c\uc2dc\uac12 40 = \uc2e4\uc81c 0.040  /  \uae30\uc874 \uae30\ubcf8\uac12: 40  /  \ubc94\uc704: 0 ~ 500",
-   "min": 0,
-   "max": 500,
-   "default": 40,
-   "unit": 5
-  },
-  {
-   "group": "\ud6a1\ubc29\ud5a5",
    "name": "SteeringRateCost",
    "title": "MPC STEERING RATE COST",
    "descr": "\ubaa9\ud45c \uc870\ud5a5\uc758 \uae09\uaca9\ud55c \ubcc0\ud654\ub97c \uc5b5\uc81c\ud558\ub294 MPC \ube44\uc6a9\uac12\uc785\ub2c8\ub2e4.\n\uac12 \uac10\uc18c(-): \ucc28\uc120\u00b7\uacbd\ub85c \ubcc0\ud654\uc5d0 \ube60\ub974\uac8c \ubc18\uc751 / \uac12 \uc99d\uac00(+): \ubd80\ub4dc\ub7fd\uc9c0\ub9cc \ubc18\uc751\uc774 \ub290\ub824\uc9d0.\n\uc81c\ub124\uc2dc\uc2a4 DH \uad8c\uc7a5\uac12: 550  /  \uae30\uc874 \uace0\uc815\uac12: 700  /  \ubc94\uc704: 200 ~ 1200",

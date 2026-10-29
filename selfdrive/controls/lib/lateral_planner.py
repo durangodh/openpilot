@@ -19,6 +19,7 @@ LaneChangeState = log.LateralPlan.LaneChangeState
 
 TRAJECTORY_SIZE = 33
 
+# MPC 비용 고정값 (UI 설정 제거, 2026-10-29 실사용값 1000/110/0/40)
 DEFAULT_PATH_COST = 1.0
 DEFAULT_LATERAL_MOTION_COST = 0.11
 DEFAULT_LATERAL_ACCEL_COST = 0.0
@@ -120,16 +121,6 @@ class LateralPlanner:
       except (TypeError, ValueError):
         self.dynamic_lane_profile = 0
       self.offset_total = self._read_offset_total()
-      # Store fractional MPC weights as integers scaled by 1000 so the
-      # existing integer Params UI can adjust them without precision loss.
-      self.path_cost = self._read_mpc_cost(
-        "MpcPathCost", DEFAULT_PATH_COST, 0.1, 5.0)
-      self.lateral_motion_cost = self._read_mpc_cost(
-        "MpcLateralMotionCost", DEFAULT_LATERAL_MOTION_COST, 0.0, 1.0)
-      self.lateral_accel_cost = self._read_mpc_cost(
-        "MpcLateralAccelCost", DEFAULT_LATERAL_ACCEL_COST, 0.0, 1.0)
-      self.lateral_jerk_cost = self._read_mpc_cost(
-        "MpcLateralJerkCost", DEFAULT_LATERAL_JERK_COST, 0.0, 0.5)
       # Very small values can make the DH steering response abrupt, while
       # values above this range add little stability and noticeably delay
       # lane/path changes. Keep the live UI setting inside a safe range.
