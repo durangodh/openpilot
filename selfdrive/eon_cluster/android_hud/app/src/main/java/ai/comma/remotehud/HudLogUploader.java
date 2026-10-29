@@ -19,8 +19,14 @@ final class HudLogUploader {
     private static final int PORT = 7714;
     private static final int MAX_BYTES = 1024 * 1024;
 
+    /** 네이버 모듈 로그(안전운전 코드 기록 등). 네이버 앱 폴더라 루트로 읽는다. */
+    static final String NAVER_NAME = "naver-hud.log";
+    private static final String NAVER_LOG =
+            "/sdcard/Android/data/com.nhn.android.nmap/files/naver_hud.log";
+
     private final File dir;
     private final long[] sentStamp = new long[NAMES.length];
+    private String naverStamp = "";
 
     HudLogUploader(File dir) {
         this.dir = dir;
@@ -34,14 +40,55 @@ final class HudLogUploader {
             if (!file.isFile()) continue;
             long stamp = file.lastModified() * 31 + file.length();
             if (stamp == sentStamp[i]) continue;
-            if (upload(eonIp, NAMES[i], file)) sentStamp[i] = stamp;
+            if (upload(eonIp, NAMES[i], read(file))) sentStamp[i] = stamp;
+        }
+        uploadNaverLog(eonIp);
+    }
+
+    private void uploadNaverLog(String eonIp) {
+        byte[] raw = suRead("stat -c %s_%Y " + NAVER_LOG, 64);
+        String stamp = raw == null ? "" : new String(raw, java.nio.charset.StandardCharsets.UTF_8).trim();
+        if (stamp.isEmpty() || stamp.equals(naverStamp)) return;
+        byte[] body = suRead("tail -c " + MAX_BYTES + " " + NAVER_LOG, MAX_BYTES);
+        if (body != null && body.length > 0 && upload(eonIp, NAVER_NAME, body)) naverStamp = stamp;
+    }
+
+    /** Root command stdout, at most max bytes, null on failure or after 5 s. */
+    private static byte[] suRead(String command, int max) {
+        Process process = null;
+        try {
+            process = Runtime.getRuntime().exec(new String[] {"su", "-c", command});
+            final Process running = process;
+            final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            Thread reader = new Thread(() -> {
+                try (InputStream in = running.getInputStream()) {
+                    byte[] buffer = new byte[8192];
+                    int n;
+                    while ((n = in.read(buffer)) >= 0) {
+                        if (out.size() + n > max) n = max - out.size();
+                        if (n > 0) out.write(buffer, 0, n);
+                        if (out.size() >= max) break;
+                    }
+                } catch (Exception ignored) {
+                }
+            }, "hud-naver-log");
+            reader.setDaemon(true);
+            reader.start();
+            if (!process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS) || process.exitValue() != 0) {
+                return null;
+            }
+            reader.join(1000L);
+            return reader.isAlive() ? null : out.toByteArray();
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (process != null) process.destroy();
         }
     }
 
-    private static boolean upload(String eonIp, String name, File file) {
+    private static boolean upload(String eonIp, String name, byte[] body) {
         HttpURLConnection connection = null;
         try {
-            byte[] body = read(file);
             if (body == null) return false;
             connection = (HttpURLConnection) new URL("http://" + eonIp + ":" + PORT
                     + "/trace/upload/hud/" + name).openConnection();

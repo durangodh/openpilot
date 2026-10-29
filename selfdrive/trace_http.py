@@ -18,7 +18,7 @@ TRACE_DIRS = {
   "hud": ("HUD 앱 로그 (휴대폰)", "/data/media/0/hud_log"),
 }
 # HUD 앱이 올릴 수 있는 파일. HudDiagnostics 는 512KB 에서 previous 로 넘긴다.
-HUD_UPLOAD_NAMES = ("hud-session.log", "hud-session.previous.log")
+HUD_UPLOAD_NAMES = ("hud-session.log", "hud-session.previous.log", "naver-hud.log")
 HUD_UPLOAD_MAX = 1024 * 1024
 NAME_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}\.(csv|log)$")
 CHUNK = 64 * 1024

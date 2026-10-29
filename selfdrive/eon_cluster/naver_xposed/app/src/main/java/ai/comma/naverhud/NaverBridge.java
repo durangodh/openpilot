@@ -320,8 +320,50 @@ final class NaverBridge {
                 + ",\"main_text\":" + quote(main) + ",\"road_name\":" + quote(road.isEmpty() ? main : road) + "}";
     }
 
+    /** Last logged set of Naver safety codes (raw value, name, limit); distance is left out. */
+    private static String lastSafetySignature = "";
+
+    /**
+     * 후면 단속카메라 등 아직 분류하지 않은 코드를 찾기 위한 기록: 네이버가 주는 안전운전
+     * 항목의 원래 코드값·이름·제한속도·거리를, 항목 구성이 바뀔 때만 naver_hud.log 에 남긴다.
+     */
+    private static void logSafetyCodes(List<?> events, Object first, Object second) {
+        List<Object> items = new java.util.ArrayList<>();
+        if (events.isEmpty()) {
+            if (first != null) items.add(first);
+            if (second != null && second != first) items.add(second);
+        } else {
+            items.addAll(events);
+        }
+        StringBuilder signature = new StringBuilder();
+        StringBuilder detail = new StringBuilder();
+        for (Object item : items) {
+            if (item == null) continue;
+            Object code = call(item, "getCode");
+            int raw = (int) NaverCodes.number(call(code, "getValue"));
+            String name = String.valueOf(code);
+            int limit = NaverCodes.speedLimit(item);
+            signature.append(raw).append(':').append(name).append(':').append(limit).append(';');
+            detail.append(" [").append(raw).append(' ').append(name)
+                    .append(" type=").append(NaverCodes.sdiType(raw, name))
+                    .append(" limit=").append(limit)
+                    .append(" dist=").append(NaverCodes.round(NaverCodes.number(call(item, "distance"))))
+                    .append(']');
+        }
+        String sig = signature.toString();
+        if (sig.equals(lastSafetySignature)) return;
+        lastSafetySignature = sig;
+        NaverHudLog.line("safety-codes" + (detail.length() == 0 ? " none" : detail.toString()));
+    }
+
     private static String speed(Object store, int roadLimit) {
         List<?> events = asList(value(NaverStore.get(store, "List<GuidanceSafety>")));
+        try {
+            logSafetyCodes(events, events.isEmpty() ? value(NaverStore.get(store, "GuidanceSafety#0")) : null,
+                    events.isEmpty() ? value(NaverStore.get(store, "GuidanceSafety#1")) : null);
+        } catch (Throwable error) {
+            NaverHudLog.ex("safety-codes", error);
+        }
         Object primary = null, secondary = null, sectionOwner = null;
         if (events.isEmpty()) {
             Object first = value(NaverStore.get(store, "GuidanceSafety#0"));
