@@ -14,7 +14,7 @@ permissions:
 on:
   workflow_dispatch:
   push:
-    branches: [g_remote, claude/charming-galileo-wzem1z]
+    branches: [g_remote, g_mcan, claude/charming-galileo-wzem1z]
     paths:
       - "release_apk/APilotMan*.apk"
       - "release_apk/APM*.apk"

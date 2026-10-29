@@ -13,7 +13,7 @@ permissions:
 on:
   workflow_dispatch:
   push:
-    branches: [g_remote]
+    branches: [g_remote, g_mcan]
     paths:
       - "release_apk/APM0.983_1.apk"
       - "tools/apm_ssh/**"

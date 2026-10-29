@@ -1,7 +1,7 @@
 name: Navi Music Android 16
 on:
   push:
-    branches: [g_remote, 'codex/navi-music-*']
+    branches: [g_remote, g_mcan, 'codex/navi-music-*']
     paths: ['selfdrive/eon_cluster/android_music_panel/**', '.github/workflows/navi_music_android.yml']
   workflow_dispatch:
 permissions:
@@ -89,7 +89,7 @@ jobs:
             selfdrive/eon_cluster/android_music_panel/screenshots/
   publish:
     needs: build
-    if: github.ref == 'refs/heads/g_remote'
+    if: github.ref == 'refs/heads/g_remote' || github.ref == 'refs/heads/g_mcan'
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -3,7 +3,7 @@ name: Build Naver HUD Xposed module
 on:
   workflow_dispatch:
   push:
-    branches: [g_remote]
+    branches: [g_remote, g_mcan]
     paths:
       - "selfdrive/eon_cluster/naver_xposed/**"
       - "selfdrive/eon_cluster/android_common/**"

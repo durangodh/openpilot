@@ -10,7 +10,7 @@ permissions:
 on:
   workflow_dispatch:
   push:
-    branches: [g_remote, g_hud, g_abcd]
+    branches: [g_remote, g_mcan, g_hud, g_abcd]
     paths:
       - "selfdrive/eon_cluster/tmap_xposed/**"
       - "selfdrive/eon_cluster/android_common/**"

@@ -10,7 +10,7 @@ permissions:
 on:
   workflow_dispatch:
   push:
-    branches: [g_abcd, g_hud, g_remote]
+    branches: [g_abcd, g_hud, g_remote, g_mcan]
     paths:
       - "selfdrive/carrot_navi_server.py"
       - "selfdrive/eon_cluster/remote_hud.py"
