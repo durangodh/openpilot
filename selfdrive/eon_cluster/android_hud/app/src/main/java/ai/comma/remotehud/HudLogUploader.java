@@ -19,14 +19,16 @@ final class HudLogUploader {
     private static final int PORT = 7714;
     private static final int MAX_BYTES = 1024 * 1024;
 
-    /** 네이버 모듈 로그(안전운전 코드 기록 등). 네이버 앱 폴더라 루트로 읽는다. */
-    static final String NAVER_NAME = "naver-hud.log";
-    private static final String NAVER_LOG =
-            "/sdcard/Android/data/com.nhn.android.nmap/files/naver_hud.log";
+    /** 네비 모듈 로그(안전운전 코드 기록 등). 각 네비 앱 폴더라 루트로 읽는다. */
+    static final String[][] MODULE_LOGS = {
+            {"naver-hud.log", "/sdcard/Android/data/com.nhn.android.nmap/files/naver_hud.log"},
+            {"tmap-hud.log", "/sdcard/Android/data/com.skt.tmap.ku/files/tmap_hud.log"},
+            {"kakao-hud.log", "/sdcard/Android/data/com.locnall.KimGiSa/files/kakao_hud.log"},
+    };
 
     private final File dir;
     private final long[] sentStamp = new long[NAMES.length];
-    private String naverStamp = "";
+    private final String[] moduleStamp = {"", "", ""};
 
     HudLogUploader(File dir) {
         this.dir = dir;
@@ -42,15 +44,20 @@ final class HudLogUploader {
             if (stamp == sentStamp[i]) continue;
             if (upload(eonIp, NAMES[i], read(file))) sentStamp[i] = stamp;
         }
-        uploadNaverLog(eonIp);
+        for (int i = 0; i < MODULE_LOGS.length; i++) {
+            uploadModuleLog(eonIp, i);
+        }
     }
 
-    private void uploadNaverLog(String eonIp) {
-        byte[] raw = suRead("stat -c %s_%Y " + NAVER_LOG, 64);
+    private void uploadModuleLog(String eonIp, int index) {
+        String path = MODULE_LOGS[index][1];
+        byte[] raw = suRead("stat -c %s_%Y " + path, 64);
         String stamp = raw == null ? "" : new String(raw, java.nio.charset.StandardCharsets.UTF_8).trim();
-        if (stamp.isEmpty() || stamp.equals(naverStamp)) return;
-        byte[] body = suRead("tail -c " + MAX_BYTES + " " + NAVER_LOG, MAX_BYTES);
-        if (body != null && body.length > 0 && upload(eonIp, NAVER_NAME, body)) naverStamp = stamp;
+        if (stamp.isEmpty() || stamp.equals(moduleStamp[index])) return;
+        byte[] body = suRead("tail -c " + MAX_BYTES + " " + path, MAX_BYTES);
+        if (body != null && body.length > 0 && upload(eonIp, MODULE_LOGS[index][0], body)) {
+            moduleStamp[index] = stamp;
+        }
     }
 
     /** Root command stdout, at most max bytes, null on failure or after 5 s. */

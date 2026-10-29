@@ -264,9 +264,48 @@ final class TmapBridge {
         return TmapJson.array(lanes);
     }
 
+    /** Last logged set of TMAP SDI codes (type, limit, section); distance is left out. */
+    private static String lastSdiSignature = "";
+
+    /**
+     * 후면 단속카메라 등 분류가 확실치 않은 코드를 찾기 위한 기록: 티맵 sdiInfo 전체와 SDI+ 의
+     * 원래 nSdiType·제한속도·구간·거리를, 구성이 바뀔 때만 tmap_hud.log 에 남긴다.
+     */
+    private static void logSdiCodes(Object rg, Object[] sdis) {
+        StringBuilder signature = new StringBuilder();
+        StringBuilder detail = new StringBuilder();
+        if (sdis != null) {
+            for (Object s : sdis) {
+                if (s == null) continue;
+                int type = intField(s, "nSdiType");
+                int limit = intField(s, "nSdiSpeedLimit");
+                int section = intField(s, "nSdiSection");
+                signature.append(type).append(':').append(limit).append(':').append(section).append(';');
+                detail.append(" [").append(type).append(" limit=").append(limit).append(" section=")
+                        .append(section).append(" dist=").append(intField(s, "nSdiDist")).append(']');
+            }
+        }
+        if (booleanField(rg, "bSDIPlus")) {
+            int type = intField(rg, "nSdiPlusType");
+            int limit = intField(rg, "nSdiPlusSpeedLimit");
+            signature.append("plus ").append(type).append(':').append(limit).append(';');
+            detail.append(" [plus ").append(type).append(" limit=").append(limit)
+                    .append(" dist=").append(intField(rg, "nSdiPlusDist")).append(']');
+        }
+        String sig = signature.toString();
+        if (sig.equals(lastSdiSignature)) return;
+        lastSdiSignature = sig;
+        TmapHudLog.line("sdi-codes" + (detail.length() == 0 ? " none" : detail.toString()));
+    }
+
     /** Speed.from: sdiInfo[0]/[1], 없으면 SDI+ 로 대신. */
     private static String speed(Object rg, double lat, double lon, int speedKph) {
         Object[] sdis = objectArrayField(rg, "sdiInfo");
+        try {
+            logSdiCodes(rg, sdis);
+        } catch (Throwable error) {
+            TmapHudLog.ex("sdi-codes", error);
+        }
         String first = sdi(sdis, 0);
         String second = sdi(sdis, 1);
         String plus = booleanField(rg, "bSDIPlus") ? TmapJson.sdi(intField(rg, "nSdiPlusType"),
