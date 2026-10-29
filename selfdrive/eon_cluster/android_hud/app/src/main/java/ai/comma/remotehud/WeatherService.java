@@ -6,22 +6,17 @@ import android.content.SharedPreferences;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.Calendar;
 import java.util.Locale;
 
 /**
- * 하늘상태 조회. Open-Meteo 의 current 엔드포인트만 쓴다.
+ * 기상청 초단기실황·단기예보 조회.
  *
- * 키가 필요 없는 API 라 공개 저장소에 그대로 둘 수 있다. 위치는 티맵이
- * 주는 navi.scene.pos 를 쓰고, 티맵이 꺼져 있으면 마지막 좌표로 계속
- * 시도한다.
+ * 인증키는 설정 화면에서 파일로 가져와 앱 전용 SharedPreferences에만 저장한다.
+ * 위치는 내비가 주는 저정밀 GPS 좌표를 쓴다.
  *
- * 스레드는 요청이 있을 때만 하나 뜨고 끝나면 사라진다. 실패하면 120 초
- * 쉬었다가 다시 시도한다.
+ * 스레드는 요청이 있을 때만 하나 뜨고 끝나면 사라진다. 값이 없을 때는 60초,
+ * 이전 기상청 값이 있으면 120초 뒤 다시 시도한다.
  */
 final class WeatherService {
 
@@ -35,14 +30,15 @@ final class WeatherService {
     static final int ICON_THUNDER = 7;
 
     private static final String PREFS = "hud_weather";
-    private static final long REFRESH_MS = 15L * 60L * 1000L;
+    private static final long REFRESH_MS = 60L * 60L * 1000L;
     private static final long COOLDOWN_MS = 120L * 1000L;
-    private static final long RETRY_EMPTY_MS = 15L * 1000L;
+    private static final long RETRY_EMPTY_MS = 60L * 1000L;
     /** 이보다 오래된 값은 표시하지 않는다. */
     private static final long MAX_AGE_MS = 3L * 60L * 60L * 1000L;
     /** 이만큼 움직이면 갱신 주기를 기다리지 않는다. */
-    private static final double MOVE_M = 10000d;
+    private static final double MOVE_M = 3000d;
 
+    private final Context context;
     private final SharedPreferences prefs;
 
     private volatile int code = -1;
@@ -54,7 +50,7 @@ final class WeatherService {
     private volatile long cooldownUntil = 0L;
     private volatile boolean busy = false;
     private volatile String lastError = "";
-    /** 네비모드 날씨 칸용 상세값(기온·예보·미세먼지). 없으면 null. */
+    /** 네비모드 날씨 칸용 상세값(기온·예보·에어코리아 미세먼지). 없으면 null. */
     private volatile Detail detail;
 
     /** 기온은 °C, 미세먼지는 µg/m³. 값이 없으면 NaN. days 는 내일부터 3일. */
@@ -67,6 +63,7 @@ final class WeatherService {
     }
 
     WeatherService(Context context) {
+        this.context = context.getApplicationContext();
         prefs = context.getApplicationContext()
                 .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         code = prefs.getInt("code", -1);
@@ -78,8 +75,10 @@ final class WeatherService {
         fetchedLon = Double.longBitsToDouble(
                 prefs.getLong("lon", Double.doubleToLongBits(Double.NaN)));
         try {
-            detail = parseDetail(new JSONObject(prefs.getString("body", "{}")),
-                    new JSONObject(prefs.getString("aq", "{}")));
+            JSONObject cachedAir = System.currentTimeMillis() - prefs.getLong("aqAt", 0L) <= MAX_AGE_MS
+                    ? new JSONObject(prefs.getString("aq", "{}")) : null;
+            detail = AppPrefs.getKmaApiKey(this.context).isEmpty() ? null
+                    : parseDetail(new JSONObject(prefs.getString("body", "{}")), cachedAir);
         } catch (Throwable ignored) {
             detail = null;
         }
@@ -88,6 +87,10 @@ final class WeatherService {
     /** 매 프레임 호출해도 된다. 실제 요청은 조건이 맞을 때만 나간다. */
     void onPosition(double lat, double lon) {
         if (!isFinite(lat) || !isFinite(lon) || (lat == 0d && lon == 0d)) {
+            return;
+        }
+        if (AppPrefs.getKmaApiKey(context).isEmpty()) {
+            if (code >= 0 || detail != null) invalidate("key");
             return;
         }
         long now = System.currentTimeMillis();
@@ -163,25 +166,14 @@ final class WeatherService {
     }
 
     private void fetch(double lat, double lon) {
-        HttpURLConnection conn = null;
         try {
-            String url = String.format(Locale.US,
-                    "https://api.open-meteo.com/v1/forecast"
-                            + "?latitude=%.4f&longitude=%.4f"
-                            + "&current=weather_code,is_day,cloud_cover,temperature_2m,apparent_temperature"
-                            + "&daily=weather_code,temperature_2m_max,temperature_2m_min"
-                            + "&timezone=Asia%%2FSeoul&forecast_days=4", lat, lon);
-            conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setConnectTimeout(4000);
-            conn.setReadTimeout(6000);
-            conn.setRequestProperty("Accept", "application/json");
-            int status = conn.getResponseCode();
-            if (status != 200) {
-                fail("http" + status);
+            String key = AppPrefs.getKmaApiKey(context);
+            if (key.isEmpty()) {
+                invalidate("key");
                 return;
             }
-            String body = readAll(conn.getInputStream());
-            JSONObject root = new JSONObject(body);
+            JSONObject root = KmaWeather.fetch(key, lat, lon);
+            String body = root.toString();
             JSONObject current = root.optJSONObject("current");
             if (current == null) {
                 fail("json");
@@ -200,12 +192,38 @@ final class WeatherService {
             fetchedLat = lat;
             fetchedLon = lon;
             lastError = "";
-            // 미세먼지는 별도 주소. 실패해도 날씨는 그대로 쓴다.
-            String aq = fetchAirQuality(lat, lon);
-            detail = parseDetail(root, new JSONObject(aq));
+            JSONObject air = null;
+            try {
+                AirKorea.Result aq = AirKorea.fetch(key, lat, lon,
+                        prefs.getString("airStation", ""),
+                        Double.longBitsToDouble(prefs.getLong("airStationLat",
+                                Double.doubleToLongBits(Double.NaN))),
+                        Double.longBitsToDouble(prefs.getLong("airStationLon",
+                                Double.doubleToLongBits(Double.NaN))));
+                air = aq.data;
+                prefs.edit().putString("aq", air.toString())
+                        .putLong("aqAt", System.currentTimeMillis())
+                        .putLong("aqLat", Double.doubleToLongBits(lat))
+                        .putLong("aqLon", Double.doubleToLongBits(lon))
+                        .putString("airStation", aq.stationName)
+                        .putLong("airStationLat", Double.doubleToLongBits(aq.stationLat))
+                        .putLong("airStationLon", Double.doubleToLongBits(aq.stationLon)).apply();
+            } catch (Throwable ignored) {
+                long aqAt = prefs.getLong("aqAt", 0L);
+                double aqLat = Double.longBitsToDouble(prefs.getLong("aqLat",
+                        Double.doubleToLongBits(Double.NaN)));
+                double aqLon = Double.longBitsToDouble(prefs.getLong("aqLon",
+                        Double.doubleToLongBits(Double.NaN)));
+                if (System.currentTimeMillis() - aqAt <= MAX_AGE_MS
+                        && isFinite(aqLat) && isFinite(aqLon)
+                        && distanceM(lat, lon, aqLat, aqLon) < 20000d) {
+                    try { air = new JSONObject(prefs.getString("aq", "{}")); }
+                    catch (Throwable ignoredAgain) { air = null; }
+                }
+            }
+            detail = parseDetail(root, air);
             prefs.edit()
                     .putString("body", body)
-                    .putString("aq", aq)
                     .putInt("code", code)
                     .putBoolean("day", day)
                     .putInt("cloud", cloudPct)
@@ -214,37 +232,10 @@ final class WeatherService {
                     .putLong("lon", Double.doubleToLongBits(lon))
                     .apply();
         } catch (Throwable t) {
-            fail("net");
+            // 다른 공급자로 폴백하지 않는다. 이미 받은 기상청 값만 MAX_AGE_MS까지 유지한다.
+            fail("kma");
         } finally {
-            if (conn != null) {
-                conn.disconnect();
-            }
             busy = false;
-        }
-    }
-
-    private static String fetchAirQuality(double lat, double lon) {
-        HttpURLConnection conn = null;
-        try {
-            String url = String.format(Locale.US,
-                    "https://air-quality-api.open-meteo.com/v1/air-quality"
-                            + "?latitude=%.4f&longitude=%.4f&current=pm10,pm2_5", lat, lon);
-            conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setConnectTimeout(4000);
-            conn.setReadTimeout(6000);
-            conn.setRequestProperty("Accept", "application/json");
-            if (conn.getResponseCode() != 200) {
-                return "{}";
-            }
-            String body = readAll(conn.getInputStream());
-            new JSONObject(body);
-            return body;
-        } catch (Throwable t) {
-            return "{}";
-        } finally {
-            if (conn != null) {
-                conn.disconnect();
-            }
         }
     }
 
@@ -299,17 +290,15 @@ final class WeatherService {
         cooldownUntil = System.currentTimeMillis() + (detail() == null ? RETRY_EMPTY_MS : COOLDOWN_MS);
     }
 
-    private static String readAll(InputStream in) throws Exception {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] buffer = new byte[2048];
-        int read;
-        int total = 0;
-        while ((read = in.read(buffer)) > 0 && total < 65536) {
-            out.write(buffer, 0, read);
-            total += read;
-        }
-        in.close();
-        return out.toString("UTF-8");
+    /** 기상청 인증/통신 실패 시 다른 사업자의 값이나 오래된 값을 표시하지 않는다. */
+    private void invalidate(String reason) {
+        lastError = reason;
+        code = -1;
+        detail = null;
+        fetchedAt = 0L;
+        prefs.edit().remove("body").remove("aq").remove("aqAt")
+                .putInt("code", -1).putLong("at", 0L).apply();
+        cooldownUntil = System.currentTimeMillis() + RETRY_EMPTY_MS;
     }
 
     /** WMO 코드 → 아이콘 7종. */

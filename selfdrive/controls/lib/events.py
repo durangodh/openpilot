@@ -234,7 +234,7 @@ def below_steer_speed_alert(CP: car.CarParams, sm: messaging.SubMaster, metric: 
 
 def calibration_incomplete_alert(CP: car.CarParams, sm: messaging.SubMaster, metric: bool, soft_disable_time: int) -> Alert:
   return Alert(
-    "Calibration in Progress: %d%%" % sm['liveCalibration'].calPerc,
+    "캘리중: %d%%" % sm['liveCalibration'].calPerc,
     f"Drive Above {get_display_speed(MIN_SPEED_FILTER, metric)}",
     AlertStatus.normal, AlertSize.mid,
     Priority.LOWEST, VisualAlert.none, AudibleAlert.none, .2)
@@ -379,9 +379,10 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
     ET.SOFT_DISABLE: soft_disable_alert("Vehicle Parameter Identification Failed"),
   },
 
+  # 현대: steerFaultTemporary 는 MDPS12 폴트(ToiUnavail/ToiFlt/FailStat)일 때만 켜진다.
   EventName.steerTempUnavailableSilent: {
     ET.WARNING: Alert(
-      "Steering Temporarily Unavailable",
+      "MDPS Fault",
       "",
       AlertStatus.userPrompt, AlertSize.small,
       Priority.LOW, VisualAlert.steerRequired, AudibleAlert.none, 1.),
@@ -463,7 +464,7 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
 
   EventName.laneChangeBlocked: {
     ET.WARNING: Alert(
-      "Car Detected in Blindspot",
+      "후측방감지",
       "",
       AlertStatus.userPrompt, AlertSize.small,
       Priority.LOW, VisualAlert.none, AudibleAlert.prompt, .1),
@@ -471,7 +472,7 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
 
   EventName.laneChange: {
     ET.WARNING: Alert(
-      "Changing Lanes",
+      "차선변경중",
       "",
       AlertStatus.normal, AlertSize.small,
       Priority.LOW, VisualAlert.none, AudibleAlert.none, .1),
@@ -493,9 +494,8 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
     ET.PERMANENT: NormalPermanentAlert("Camera Malfunction", "Likely Hardware Issue"),
   },
 
-  EventName.cameraFrameRate: {
-    ET.PERMANENT: NormalPermanentAlert("Camera Frame Rate Low", "Reboot your Device"),
-  },
+  # 화면 알림 없음(2026-10-27 요청). 이벤트는 그대로 남아 로그로는 확인할 수 있다.
+  EventName.cameraFrameRate: {},
 
   EventName.gpsMalfunction: {
     ET.PERMANENT: NormalPermanentAlert("GPS Malfunction", "Likely Hardware Issue"),
@@ -598,8 +598,8 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
   },
 
   EventName.steerTempUnavailable: {
-    ET.SOFT_DISABLE: soft_disable_alert("Steering Temporarily Unavailable"),
-    ET.NO_ENTRY: NoEntryAlert("Steering Temporarily Unavailable"),
+    ET.SOFT_DISABLE: soft_disable_alert("MDPS Fault"),
+    ET.NO_ENTRY: NoEntryAlert("MDPS Fault"),
   },
 
   EventName.outOfSpace: {
@@ -678,8 +678,8 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
   },
 
   EventName.commIssue: {
-    ET.SOFT_DISABLE: soft_disable_alert("Communication Issue between Processes"),
-    ET.NO_ENTRY: NoEntryAlert("Communication Issue between Processes"),
+    ET.SOFT_DISABLE: soft_disable_alert("Communication Issue"),
+    ET.NO_ENTRY: NoEntryAlert("Communication Issue"),
   },
   EventName.commIssueAvgFreq: {
     ET.SOFT_DISABLE: soft_disable_alert("Low Communication Rate between Processes"),
@@ -790,12 +790,12 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
 
   EventName.reverseGear: {
     ET.PERMANENT: Alert(
-      "GENESIS",
+      "기어후진",
       "",
       AlertStatus.normal, AlertSize.full,
       Priority.LOWEST, VisualAlert.none, AudibleAlert.none, .2, creation_delay=0.5),
-    ET.SOFT_DISABLE: SoftDisableAlert("GENESIS"),
-    ET.NO_ENTRY: NoEntryAlert("GENESIS"),
+    ET.SOFT_DISABLE: SoftDisableAlert("Reverse Gear"),
+    ET.NO_ENTRY: NoEntryAlert("Reverse Gear"),
   },
 
   EventName.cruiseDisabled: {
@@ -863,30 +863,41 @@ EVENTS: Dict[int, Dict[str, Union[Alert, AlertCallbackType]]] = {
 
   EventName.laneChangeRoadEdge: {
     ET.WARNING: Alert(
-      "Lane Change Unavailable: Road Edge",
+      "차선변경불가:Road Edge",
       "",
       AlertStatus.userPrompt, AlertSize.small,
       Priority.LOW, VisualAlert.none, AudibleAlert.none, .1),
   },
   
   EventName.slowingDownSpeed: {
-    ET.PERMANENT: Alert("과속카메라 감지 : 감속중", "", AlertStatus.normal, AlertSize.small,
+    ET.PERMANENT: Alert("과속카메라감지 감속중", "", AlertStatus.normal, AlertSize.small,
       Priority.MID, VisualAlert.none, AudibleAlert.none, .1),
   },
 
   EventName.slowingDownSpeedSound: {
-    ET.PERMANENT: Alert("과속카메라 감지 : 감속중", "", AlertStatus.normal, AlertSize.small,
+    ET.PERMANENT: Alert("과속카메라감지 감속중", "", AlertStatus.normal, AlertSize.small,
       Priority.HIGH, VisualAlert.none, AudibleAlert.none, 2.),
   },
 
   EventName.speedBump: {
-    ET.PERMANENT: Alert("과속방지턱 감지 : 감속중", "", AlertStatus.normal, AlertSize.small,
+    ET.PERMANENT: Alert("과속방지턱감지 감속중", "", AlertStatus.normal, AlertSize.small,
       Priority.MID, VisualAlert.none, AudibleAlert.none, .1),
   },
 
   EventName.speedBumpSound: {
-    ET.PERMANENT: Alert("과속방지턱 감지 : 감속중", "", AlertStatus.normal, AlertSize.small,
+    ET.PERMANENT: Alert("과속방지턱감지 감속중", "", AlertStatus.normal, AlertSize.small,
       Priority.HIGH, VisualAlert.none, AudibleAlert.none, 2.),
+  },
+
+  # 크루즈가 꺼져 있을 때는 감속하지 않으므로 "감속중" 없이 감지만 알린다(2026-10-27).
+  EventName.slowingDownSpeedNotice: {
+    ET.PERMANENT: Alert("과속카메라감지", "", AlertStatus.normal, AlertSize.small,
+      Priority.MID, VisualAlert.none, AudibleAlert.none, .1),
+  },
+
+  EventName.speedBumpNotice: {
+    ET.PERMANENT: Alert("과속방지턱감지", "", AlertStatus.normal, AlertSize.small,
+      Priority.MID, VisualAlert.none, AudibleAlert.none, .1),
   },
 
   EventName.trafficStopping: {

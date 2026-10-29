@@ -1,5 +1,23 @@
 # Android remote HUD (experimental)
 
+## KMA weather source
+
+The navigation weather panel uses only Korea Meteorological Administration
+data: `getUltraSrtNcst` for the current temperature, humidity and wind, and
+`getVilageFcst` for sky/precipitation, daily highs/lows and the three-day
+forecast. Apparent temperature is calculated from those KMA observations.
+Latitude/longitude is converted locally to the KMA 5 km grid and a new request
+is made hourly or after moving three kilometres. PM10 and PM2.5 come from the
+nearest AirKorea station; the station list is reused until the vehicle moves
+30 km. The same public-data key is used after both AirKorea APIs have been
+approved. Open-Meteo is no longer used; without a valid key the weather panel
+stays empty instead of showing another provider's data.
+
+The key is imported on the phone from a user-selected `kma_key.txt` document
+and stored only in the app's private preferences. It is never checked into the
+repository or injected into the public APK. Delete the source text file after
+importing it.
+
 ## S9 telemetry freshness
 
 S9 temperature and CPU show `--` immediately after a failed/invalid sample and

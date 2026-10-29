@@ -17,8 +17,8 @@ on:
       - "selfdrive/eon_cluster/remote_hud_s9.py"
       - "selfdrive/controls/lib/cruise_helper.py"
       - "selfdrive/eon_cluster/tests/test_traffic_signal_transport.py"
-      - "selfdrive/eon_cluster/tests/test_e2e_signal_indicator.py"
       - "selfdrive/eon_cluster/tests/test_navi_envelope.py"
+      - "selfdrive/eon_cluster/tests/test_kma_weather_source.py"
       - "selfdrive/eon_cluster/android_hud/**"
       - "selfdrive/eon_cluster/naver_bridge/**"
       - ".github/workflows/build-remote-hud.yml"
@@ -73,8 +73,8 @@ jobs:
           python3 tests/test_s9_stats.py --java-home "$JAVA_HOME" --work "$RUNNER_TEMP/hud-stats-check"
           python3 ../tests/test_naver_guidance.py
           python3 ../tests/test_traffic_signal_transport.py
-          python3 ../tests/test_e2e_signal_indicator.py
           python3 ../tests/test_navi_envelope.py
+          python3 ../tests/test_kma_weather_source.py
       - name: Check navigation selection
         # Exercise retransmission and old acknowledgements before packaging.
         working-directory: selfdrive/eon_cluster/android_hud

@@ -746,8 +746,19 @@ class CruiseHelper:
 
     self.update_button_events(controls, CS, longcontrol)
     self._update_pedal_cruise(controls, CS)
+    # 조향만 인게이지(롱컨 꺼짐)도 감속하지 않으므로 크루즈 꺼짐으로 본다.
+    if longcontrol:
+      self.cruise_engaged = bool(controls.enabled) and self.long_active_user > 0
+    else:
+      self.cruise_engaged = bool(controls.enabled) and bool(CS.cruiseState.enabled)
 
   def inject_events(self, events):
+    if not getattr(self, 'cruise_engaged', False):
+      # 크루즈 꺼짐: 감속하지 않으므로 "감속중" 없는 문구만(소리 없음).
+      self.slowing_down_sound_alert = False
+      if self.slowing_down_alert:
+        events.add(EventName.speedBumpNotice if self.slowing_down_for_bump else EventName.slowingDownSpeedNotice)
+      return
     if self.slowing_down_sound_alert:
       self.slowing_down_sound_alert = False
       events.add(EventName.speedBumpSound if self.slowing_down_for_bump else EventName.slowingDownSpeedSound)

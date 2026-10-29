@@ -9,6 +9,7 @@
 #include <tuple>
 
 #include <QDebug>
+#include <QUuid>
 
 #ifndef QCOM
 #include "selfdrive/ui/qt/offroad/networking.h"
@@ -1141,96 +1142,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   setAutoFillBackground(true);
   setPalette(pal);
 
-  toggleLayout->addWidget(new ParamControl(
-      "NavigationOnOpenpilot", "NAVIGATION ON OPENPILOT",
-      "티맵 경로 기반 회전조향·회전감속과 분기·권장차로 차선변경을 하나로 수행합니다. "
-      "차선변경은 modelV2 현재차로, 차로 수, 도로경계와 BSD가 모두 확실할 때 한 차로씩만 작동합니다.",
-      "../assets/offroad/icon_road.png", this));
-
-  toggleLayout->addWidget(new ParamValueControlF(
-      "NooMode", "NOO MODE",
-      "캐럿식 적극 개입 기능을 고릅니다.\n0: 회전조향 + 조기 차로준비 + 감속 / 1: 회전조향 + 감속 / 2: 조기 차로준비만 / 3: 회전감속만",
-      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 3, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "NooTurnSpeed", "NOO TURN SPEED",
-      "NOO 회전 구간 목표속도(km/h)입니다. 값 증가(+): 더 빠르게 회전 / 값 감소(-): 더 많이 감속.",
-      "../assets/offroad/icon_speed_limit.png", 20, 60, 5, 0, 20, this));
-
-  toggleLayout->addWidget(new ParamValueControlF(
-      "NooTurnEndTime", "NOO DECEL TIMING",
-      "NOO 회전감속 준비시간(초)입니다. 값 증가(+): 더 일찍 감속 시작 / 값 감소(-): 회전에 가까워져 감속.",
-      "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "LaneChangeNeedTorque", "NOO 차선변경 시작 방식 (캐럿)",
-      "NOO(내비 연동) 가상 깜빡이 차선변경의 시작 조건입니다. -1: NOO 자동 차선변경 사용 안 함 / 0: 조건이 맞으면 즉시 시작 / 1: 깜빡이만 준비하고 운전자가 같은 방향으로 핸들을 살짝 밀어야 시작(토크 필요). 레버 깜빡이 차선변경에는 영향 없음. 기본값: 0.\\n"
-      "※ NOO MODE 가 1 또는 3(조기 차로준비 없음)이면 이 값과 무관하게 NOO 차선변경은 작동하지 않습니다 — 둘 다 확인하세요.",
-      "../assets/offroad/icon_road.png", -1, 1, 1, 0, 0, this));
-
-  toggleLayout->addWidget(horizontal_line());
-
-  toggleLayout->addWidget(new LabelControl("커브 자동감속",
-      "", "비전(카메라 모델)과 내비 경로(티맵·네이버 공통) 두 곳에서 커브 목표속도를 구해 더 낮은 쪽을 씁니다."));
-  toggleLayout->addWidget(new ParamControl("TurnVisionControl",
-                                           "커브 자동감속 사용",
-                                           "켜짐: 커브 앞에서 자동으로 감속합니다. / 꺼짐: 커브 감속 없음.",
-                                            "../assets/offroad/icon_road.png",
-                                            this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "AutoCurveSpeedFactor", "1. 비전 커브 민감도 (×0.01)",
-      "카메라 모델이 본 커브의 곡률을 얼마나 크게 볼지입니다. 값 증가(+): 같은 커브에서 더 많이 감속 / 값 감소(-): 덜 감속. 기본값: 120.",
-      "../assets/offroad/icon_road.png", 50, 300, 5, 0, 120, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "MapTurnSpeedFactor", "2. 경로 커브 속도 비율 (%)",
-      "내비 경로(티맵·네이버) 곡률로 계산한 커브 통과 속도에 곱하는 비율입니다. NOO 를 켰을 때만 적용됩니다. 값 증가(+): 더 빠르게 통과(감속 줄어듦) / 값 감소(-): 더 느리게. 기본값: 90.",
-      "../assets/offroad/icon_road.png", 50, 150, 5, 0, 90, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "AutoCurveSpeedLowerLimit", "3. 커브 최저 속도 (km/h)",
-      "비전·티맵 커브 목표속도가 이 값 아래로는 내려가지 않습니다. 값 증가(+): 급커브에서도 이 속도 유지 / 값 감소(-): 더 느리게까지 감속. 기본값: 30.",
-      "../assets/offroad/icon_speed_limit.png", 5, 80, 5, 0, 30, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "AutoCurveSpeedDecelRate", "4. 커브 감속 세기 (×0.01m/s²)",
-      "비전·내비 경로 커브 앞에서 감속을 시작하는 세기입니다(남은 거리로 계산). 값 감소(-): 일찍·부드럽게 / 값 증가(+): 늦게·강하게. 0: 카메라 감속 세기와 같은 값 사용. 기본값: 0.",
-      "../assets/offroad/icon_road.png", 0, 300, 10, 0, 0, this));
-  toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new LabelControl("과속카메라·구간단속 감속",
-      "", "감속 시작 거리는 '감속 세기'와 목표속도에서 자동 계산됩니다. 세기를 낮출수록 더 멀리서 부드럽게 시작하고, 높일수록 카메라 가까이에서 급하게 줄입니다."));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "AutoNaviSpeedDecelRate", "1. 감속 세기 (×0.01m/s²)",
-      "카메라·구간단속 감속 강도입니다(커브는 위 그룹의 '커브 감속 세기'가 0일 때만 이 값을 씀). 값 감소(-): 일찍·부드럽게 시작 / 값 증가(+): 늦게·강하게. 기본값: 80.",
-      "../assets/offroad/icon_speed_limit.png", 10, 300, 10, 0, 80, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "AutoNaviSpeedCtrlEnd", "2. 감속 완료 지점 (카메라 N초 전)",
-      "이 시점(카메라까지 남은 주행시간)에 제한속도 도달을 완료합니다. 값 증가(+): 더 멀리서 완료(감속 시작도 앞당겨짐) / 값 감소(-): 카메라 직전에 완료. 기본값: 7.",
-      "../assets/offroad/icon_speed_limit.png", 3, 20, 1, 0, 7, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "AutoNaviSpeedReleaseDist", "3. 가속 복귀 지점 (카메라 N m 전)",
-      "카메라 도달 N m 전에 감속 유지를 끝내고 설정속도로 복귀합니다. 0: 카메라를 지난 뒤 복귀(기본). 실제 단속 지점은 카메라보다 앞일 수 있어 10 이하를 권장합니다.",
-      "../assets/offroad/icon_speed_limit.png", 0, 50, 5, 0, 0, this));
-  toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new LabelControl("과속방지턱 감속", "", "카메라와 별도로 방지턱만의 목표속도·완료 지점입니다."));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "AutoNaviSpeedBumpSpeed", "방지턱 통과 속도 (km/h)",
-      "방지턱 통과 목표속도입니다(카메라 비율 미적용). 기본값: 35.",
-      "../assets/offroad/icon_speed_limit.png", 10, 100, 5, 0, 35, this));
-  toggleLayout->addWidget(new ParamValueControlF(
-      "AutoNaviSpeedBumpTime", "방지턱 감속 완료 지점 (N초 전)",
-      "방지턱까지 남은 주행시간이 이 값일 때 목표속도 도달을 완료합니다. 기본값: 1.",
-      "../assets/offroad/icon_speed_limit.png", 1, 50, 1, 0, 1, this));
-  toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new ParamControl("LongTraceEnabled",
-                                            "LONG TRACE LOG",
-                                            "켜짐: 앞차 반응 분석용으로 레이더·계획·명령·차량 가감속 숫자만 /sdcard/long_trace 에 CSV 로 기록합니다(분당 약 100KB, 30개 넘으면 오래된 것부터 삭제). 분석이 끝나면 꺼 주세요.",
-                                            "../assets/offroad/icon_openpilot.png",
-                                            this));
-  toggleLayout->addWidget(horizontal_line());
-  toggleLayout->addWidget(new ParamControl("HapticFeedbackWhenSpeedCamera",
-                                            "SPEED CAMERA HAPTIC",
-                                            "켜짐: 과속카메라가 감지되면 핸들 진동으로 알립니다.",
-                                            "../assets/offroad/icon_openpilot.png",
-                                            this));
-
-  toggleLayout->addWidget(horizontal_line());
-
   // ── S9 외부 클러스터 HUD ──────────────────────────────────
 
   toggleLayout->addWidget(new ParamControl(
@@ -1350,6 +1261,290 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "EonClusterHudNavRoute", "S9 HUD NAV ROUTE",
       "1(기본): 근거리에서 modelV2 와 일치할 때만 티맵 경로 의도를 반투명 선으로 표시 / 0: 숨김",
       "../assets/offroad/icon_road.png", 0, 1, 1, 0, 1, this));
+
+  toggleLayout->addWidget(horizontal_line());
+
+  // ── NOO ─────────────────────────────────────────────────
+  toggleLayout->addWidget(new ParamControl(
+      "NavigationOnOpenpilot", "NAVIGATION ON OPENPILOT",
+      "티맵 경로 기반 회전조향·회전감속과 분기·권장차로 차선변경을 하나로 수행합니다. "
+      "차선변경은 modelV2 현재차로, 차로 수, 도로경계와 BSD가 모두 확실할 때 한 차로씩만 작동합니다.",
+      "../assets/offroad/icon_road.png", this));
+
+  toggleLayout->addWidget(new ParamValueControlF(
+      "NooMode", "NOO MODE",
+      "캐럿식 적극 개입 기능을 고릅니다.\n0: 회전조향 + 조기 차로준비 + 감속 / 1: 회전조향 + 감속 / 2: 조기 차로준비만 / 3: 회전감속만",
+      "../assets/offroad/icon_road.png", 0, 3, 1, 0, 3, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "NooTurnSpeed", "NOO TURN SPEED",
+      "NOO 회전 구간 목표속도(km/h)입니다. 값 증가(+): 더 빠르게 회전 / 값 감소(-): 더 많이 감속.",
+      "../assets/offroad/icon_speed_limit.png", 20, 60, 5, 0, 20, this));
+
+  toggleLayout->addWidget(new ParamValueControlF(
+      "NooTurnEndTime", "NOO DECEL TIMING",
+      "NOO 회전감속 준비시간(초)입니다. 값 증가(+): 더 일찍 감속 시작 / 값 감소(-): 회전에 가까워져 감속.",
+      "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "LaneChangeNeedTorque", "NOO 차선변경 시작 방식 (캐럿)",
+      "NOO(내비 연동) 가상 깜빡이 차선변경의 시작 조건입니다. -1: NOO 자동 차선변경 사용 안 함 / 0: 조건이 맞으면 즉시 시작 / 1: 깜빡이만 준비하고 운전자가 같은 방향으로 핸들을 살짝 밀어야 시작(토크 필요). 레버 깜빡이 차선변경에는 영향 없음. 기본값: 0.\\n"
+      "※ NOO MODE 가 1 또는 3(조기 차로준비 없음)이면 이 값과 무관하게 NOO 차선변경은 작동하지 않습니다 — 둘 다 확인하세요.",
+      "../assets/offroad/icon_road.png", -1, 1, 1, 0, 0, this));
+
+  toggleLayout->addWidget(horizontal_line());
+
+  toggleLayout->addWidget(new LabelControl("커브 자동감속",
+      "", "비전(카메라 모델)과 내비 경로(티맵·네이버 공통) 두 곳에서 커브 목표속도를 구해 더 낮은 쪽을 씁니다."));
+  toggleLayout->addWidget(new ParamControl("TurnVisionControl",
+                                           "커브 자동감속 사용",
+                                           "켜짐: 커브 앞에서 자동으로 감속합니다. / 꺼짐: 커브 감속 없음.",
+                                            "../assets/offroad/icon_road.png",
+                                            this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoCurveSpeedFactor", "1. 비전 커브 민감도 (×0.01)",
+      "카메라 모델이 본 커브의 곡률을 얼마나 크게 볼지입니다. 값 증가(+): 같은 커브에서 더 많이 감속 / 값 감소(-): 덜 감속. 기본값: 120.",
+      "../assets/offroad/icon_road.png", 50, 300, 5, 0, 120, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "MapTurnSpeedFactor", "2. 경로 커브 속도 비율 (%)",
+      "내비 경로(티맵·네이버) 곡률로 계산한 커브 통과 속도에 곱하는 비율입니다. NOO 를 켰을 때만 적용됩니다. 값 증가(+): 더 빠르게 통과(감속 줄어듦) / 값 감소(-): 더 느리게. 기본값: 90.",
+      "../assets/offroad/icon_road.png", 50, 150, 5, 0, 90, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoCurveSpeedLowerLimit", "3. 커브 최저 속도 (km/h)",
+      "비전·티맵 커브 목표속도가 이 값 아래로는 내려가지 않습니다. 값 증가(+): 급커브에서도 이 속도 유지 / 값 감소(-): 더 느리게까지 감속. 기본값: 30.",
+      "../assets/offroad/icon_speed_limit.png", 5, 80, 5, 0, 30, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoCurveSpeedDecelRate", "4. 커브 감속 세기 (×0.01m/s²)",
+      "비전·내비 경로 커브 앞에서 감속을 시작하는 세기입니다(남은 거리로 계산). 값 감소(-): 일찍·부드럽게 / 값 증가(+): 늦게·강하게. 0: 카메라 감속 세기와 같은 값 사용. 기본값: 0.",
+      "../assets/offroad/icon_road.png", 0, 300, 10, 0, 0, this));
+  toggleLayout->addWidget(horizontal_line());
+  toggleLayout->addWidget(new LabelControl("과속카메라·구간단속 감속",
+      "", "감속 시작 거리는 '감속 세기'와 목표속도에서 자동 계산됩니다. 세기를 낮출수록 더 멀리서 부드럽게 시작하고, 높일수록 카메라 가까이에서 급하게 줄입니다."));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoNaviSpeedDecelRate", "1. 감속 세기 (×0.01m/s²)",
+      "카메라·구간단속 감속 강도입니다(커브는 위 그룹의 '커브 감속 세기'가 0일 때만 이 값을 씀). 값 감소(-): 일찍·부드럽게 시작 / 값 증가(+): 늦게·강하게. 기본값: 80.",
+      "../assets/offroad/icon_speed_limit.png", 10, 300, 10, 0, 80, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoNaviSpeedCtrlEnd", "2. 감속 완료 지점 (카메라 N초 전)",
+      "이 시점(카메라까지 남은 주행시간)에 제한속도 도달을 완료합니다. 값 증가(+): 더 멀리서 완료(감속 시작도 앞당겨짐) / 값 감소(-): 카메라 직전에 완료. 기본값: 7.",
+      "../assets/offroad/icon_speed_limit.png", 3, 20, 1, 0, 7, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoNaviSpeedReleaseDist", "3. 가속 복귀 지점 (카메라 N m 전)",
+      "카메라 도달 N m 전에 감속 유지를 끝내고 설정속도로 복귀합니다. 0: 카메라를 지난 뒤 복귀(기본). 실제 단속 지점은 카메라보다 앞일 수 있어 10 이하를 권장합니다.",
+      "../assets/offroad/icon_speed_limit.png", 0, 50, 5, 0, 0, this));
+  toggleLayout->addWidget(horizontal_line());
+  toggleLayout->addWidget(new LabelControl("과속방지턱 감속", "", "카메라와 별도로 방지턱만의 목표속도·완료 지점입니다."));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoNaviSpeedBumpSpeed", "방지턱 통과 속도 (km/h)",
+      "방지턱 통과 목표속도입니다(카메라 비율 미적용). 기본값: 35.",
+      "../assets/offroad/icon_speed_limit.png", 10, 100, 5, 0, 35, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoNaviSpeedBumpTime", "방지턱 감속 완료 지점 (N초 전)",
+      "방지턱까지 남은 주행시간이 이 값일 때 목표속도 도달을 완료합니다. 기본값: 1.",
+      "../assets/offroad/icon_speed_limit.png", 1, 50, 1, 0, 1, this));
+  toggleLayout->addWidget(horizontal_line());
+  toggleLayout->addWidget(new ParamControl("LongTraceEnabled",
+                                            "LONG TRACE LOG",
+                                            "켜짐: 앞차 반응 분석용으로 레이더·계획·명령·차량 가감속 숫자만 /sdcard/long_trace 에 CSV 로 기록합니다(분당 약 100KB, 30개 넘으면 오래된 것부터 삭제). 분석이 끝나면 꺼 주세요.",
+                                            "../assets/offroad/icon_openpilot.png",
+                                            this));
+  toggleLayout->addWidget(horizontal_line());
+  toggleLayout->addWidget(new ParamControl("HapticFeedbackWhenSpeedCamera",
+                                            "SPEED CAMERA HAPTIC",
+                                            "켜짐: 과속카메라가 감지되면 핸들 진동으로 알립니다.",
+                                            "../assets/offroad/icon_openpilot.png",
+                                            this));
+
+  toggleLayout->addWidget(horizontal_line());
+
+  // ── EON 블루투스 리모컨 (bt_remote) ───────────────────────
+
+  auto btRemoteToggle = new ParamControl("BtRemoteEnabled", "BLUETOOTH REMOTE",
+      "EON에 직접 페어링한 클래식 블루투스 리모컨(예: 8BitDo Micro 키보드 모드)으로 크루즈 버튼과 차로변경 요청을 보냅니다. 켜면 EON 블루투스도 켜지고 재부팅 후에도 유지됩니다. 깜빡이 램프는 켜지지 않습니다.",
+      "../assets/offroad/icon_openpilot.png", this);
+  toggleLayout->addWidget(btRemoteToggle);
+  auto btRemotePair = new ButtonControl("리모컨 페어링 (Bluetooth 설정)", "OPEN",
+      "Android Bluetooth 설정에서 리모컨을 페어링하세요. 위 BLUETOOTH REMOTE를 먼저 켜세요. 설정은 3분 후 닫힙니다. Android BACK은 누르지 마세요.");
+  toggleLayout->addWidget(btRemotePair);
+  connect(btRemotePair, &ButtonControl::clicked, [=]() {
+    if (!Params().getBool("IsOffroad")) {
+      ConfirmationDialog::alert("시동을 끈 상태에서 Bluetooth 설정을 여세요.", this);
+      return;
+    }
+    // Android Settings is a separate activity from openpilot's native Qt UI.
+    // Its Back button may reveal the NEOS setup launcher instead of returning
+    // here, so close Settings ourselves after enough time to pair.
+    if (!QProcess::startDetached("/system/bin/am", {"start", "-a", "android.settings.BLUETOOTH_SETTINGS"})) {
+      ConfirmationDialog::alert("EON Android Bluetooth 설정을 열지 못했습니다.", this);
+    } else {
+      QTimer::singleShot(180000, this, []() {
+        QProcess::startDetached("/system/bin/am", {"force-stop", "com.android.settings"});
+      });
+    }
+  });
+  auto remoteLearningAllowed = []() {
+    if (Params().getBool("IsOffroad")) return true;
+    const SubMaster &sm = *(uiState()->sm);
+    if (!sm.alive("carState") || !sm.valid("carState")) return false;
+    const auto car = sm["carState"].getCarState();
+    return car.getCanValid() && car.getStandstill() &&
+           car.getGearShifter() == cereal::CarState::GearShifter::PARK;
+  };
+  auto btRemoteSetup = new ButtonControl("리모컨 버튼 설정", "LEARN",
+      "기능과 누르기 방식을 고르고 리모컨 버튼을 눌러 배정합니다. 시동이 켜져 있어도 P단 정차 중에는 설정할 수 있습니다. 연결·끊김 기록과 반응 시간도 여기서 볼 수 있습니다.");
+  toggleLayout->addWidget(btRemoteSetup);
+  connect(btRemoteSetup, &ButtonControl::clicked, [=]() {
+    if (!remoteLearningAllowed()) {
+      ConfirmationDialog::alert("P단에 놓고 정차한 상태에서 버튼을 학습하세요.", this);
+      return;
+    }
+    QDialog dialog(this);
+    dialog.setWindowTitle("EON 블루투스 리모컨");
+    dialog.setStyleSheet(
+        "QDialog { background-color: #202020; }"
+        "QLabel, QComboBox, QPushButton { color: white; font-size: 42px; }"
+        "QComboBox { min-height: 90px; padding: 8px; background-color: #333333; }"
+        "QPushButton { border-radius: 12px; background-color: #333333; }"
+        "QPushButton:pressed { background-color: #555555; }"
+        "QPushButton:disabled { color: #888888; }");
+    auto layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(30, 30, 30, 30);
+    layout->setSpacing(20);
+    auto content = new QWidget(&dialog);
+    auto contentLayout = new QVBoxLayout(content);
+    contentLayout->setContentsMargins(10, 10, 30, 20);
+    contentLayout->setSpacing(24);
+    contentLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
+    auto scroll = new ScrollView(content, &dialog);
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    layout->addWidget(scroll, 1);
+    auto instructions = new QLabel("리모컨을 EON에 페어링하고 켜 두세요.\n"
+                                   "기능과 누르기 방식을 고른 다음 LEARN을 누르고 리모컨 버튼을 누르세요.\n"
+                                   "첫 학습 버튼의 Bluetooth 장치만 이후 명령을 보낼 수 있습니다.\n"
+                                   "아래 내용은 화면을 위로 밀어 확인하세요.");
+    instructions->setWordWrap(true);
+    instructions->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    contentLayout->addWidget(instructions);
+    auto actions = new QComboBox(&dialog);
+    const std::array<std::pair<const char *, const char *>, 10> remoteActions = {{{"RES / 속도 +1", "res"},
+      {"SET / 속도 -1", "set"}, {"차간거리", "gap"}, {"ACC 취소", "cancel"},
+      {"왼쪽 차선변경 요청", "lane_left"}, {"오른쪽 차선변경 요청", "lane_right"},
+      {"RES 길게 / +10", "res_long"}, {"SET 길게 / -10", "set_long"},
+      {"티맵 / 네이버 전환", "nav_toggle"}, {"HUD 정보 박스 전환", "hud_box"}}};
+    for (const auto &[label, command] : remoteActions) actions->addItem(label, command);
+    contentLayout->addWidget(actions);
+    auto gestures = new QComboBox(&dialog);
+    gestures->addItem("짧게 누르기", "short");
+    gestures->addItem("길게 누르기", "long");
+    gestures->addItem("두 번 누르기", "double");
+    contentLayout->addWidget(gestures);
+    auto status = new QLabel("LEARN을 누르면 45초 동안 리모컨 입력을 기다립니다.", &dialog);
+    status->setWordWrap(true);
+    status->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    contentLayout->addWidget(status);
+    auto link = new QLabel(&dialog);
+    link->setWordWrap(true);
+    link->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    contentLayout->addWidget(link);
+    auto saved = new QLabel(&dialog);
+    saved->setWordWrap(true);
+    saved->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
+    contentLayout->addWidget(saved);
+    contentLayout->addStretch();
+    auto showSaved = [&]() {
+      auto json = QJsonDocument::fromJson(QByteArray::fromStdString(Params().get("BtRemoteMapping")));
+      auto object = json.object();
+      QStringList rows;
+      for (auto it = object.begin(); it != object.end(); ++it) {
+        rows << it.key() + " → " + it.value().toString();
+      }
+      saved->setText(rows.isEmpty() ? "저장된 버튼 없음" : "저장된 버튼:\n" + rows.join("\n"));
+    };
+    showSaved();
+    // Keep these controls visible even when mappings and status span many lines.
+    auto buttons = new QHBoxLayout();
+    buttons->setSpacing(20);
+    layout->addLayout(buttons);
+    auto learn = new QPushButton("LEARN", &dialog);
+    learn->setFixedHeight(110);
+    buttons->addWidget(learn, 1);
+    auto clear = new QPushButton("기기·배정 초기화", &dialog);
+    clear->setFixedHeight(110);
+    buttons->addWidget(clear, 1);
+    auto close = new QPushButton("닫기", &dialog);
+    close->setFixedHeight(110);
+    buttons->addWidget(close, 1);
+    connect(close, &QPushButton::clicked, &dialog, &QDialog::accept);
+    QString request;
+    QDateTime started;
+    connect(clear, &QPushButton::clicked, &dialog, [&]() {
+      if (!ConfirmationDialog::confirm("리모컨 기기 선택과 모든 버튼 배정을 지울까요?", &dialog)) return;
+      if (!remoteLearningAllowed()) {
+        status->setText("P단 정차 중에만 배정을 초기화할 수 있습니다.");
+        return;
+      }
+      Params().remove("BtRemoteLearn");
+      Params().remove("BtRemoteDevice");
+      Params().remove("BtRemoteMapping");
+      request.clear();
+      learn->setEnabled(true);
+      status->setText("배정을 지웠습니다. 기능을 선택하고 다시 학습하세요.");
+      showSaved();
+    });
+    connect(learn, &QPushButton::clicked, &dialog, [&]() {
+      if (!remoteLearningAllowed()) {
+        status->setText("P단에 놓고 정차한 뒤 LEARN을 누르세요.");
+        return;
+      }
+      request = actions->currentData().toString() + "|" + gestures->currentData().toString() + "|" +
+                QUuid::createUuid().toString(QUuid::WithoutBraces).remove('-');
+      Params().remove("BtRemoteStatus");
+      if (Params().put("BtRemoteLearn", request.toStdString()) != 0) {
+        status->setText("학습 요청을 저장하지 못했습니다.");
+        request.clear();
+        return;
+      }
+      started = QDateTime::currentDateTimeUtc();
+      status->setText("리모컨 버튼을 누르세요. 마우스 커서 이동은 학습하지 않습니다.");
+      learn->setEnabled(false);
+    });
+    QTimer poll(&dialog);
+    connect(&poll, &QTimer::timeout, &dialog, [&]() {
+      const bool allowed = remoteLearningAllowed();
+      learn->setEnabled(allowed && request.isEmpty());
+      clear->setEnabled(allowed);
+      auto detail = QString::fromStdString(Params().get("BtRemoteStatus"));
+      if (request.isEmpty()) link->setText(detail);
+      if (!allowed) {
+        if (!request.isEmpty()) {
+          Params().remove("BtRemoteLearn");
+          request.clear();
+        }
+        status->setText("학습 중지: P단에 놓고 정차한 뒤 LEARN을 누르세요.");
+        return;
+      }
+      if (request.isEmpty()) return;
+      auto pending = QString::fromStdString(Params().get("BtRemoteLearn"));
+      if (pending.isEmpty()) {
+        status->setText(detail);
+        showSaved();
+        request.clear();
+        learn->setEnabled(true);
+      } else if (started.secsTo(QDateTime::currentDateTimeUtc()) >= 45) {
+        Params().remove("BtRemoteLearn");
+        status->setText("입력 대기 시간이 지났습니다. 마지막 상태: " + detail);
+        request.clear();
+        learn->setEnabled(true);
+      } else if (!detail.isEmpty()) {
+        status->setText(detail);
+      } else if (started.secsTo(QDateTime::currentDateTimeUtc()) >= 2) {
+        status->setText("리모컨 입력 프로세스(bt_remote) 응답 없음");
+      }
+    });
+    poll.start(250);
+    setMainWindow(&dialog);
+    dialog.exec();
+    if (!request.isEmpty()) Params().remove("BtRemoteLearn");
+    btRemoteToggle->refresh();
+  });
 }
 
 SelectCar::SelectCar(QWidget* parent): QWidget(parent) {
@@ -1551,7 +1746,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamValueControlF(
       "StartAccelApply", "START ACCEL",
-      "정지 후 출발 가속도(×0.02m/s²)입니다. 값 증가(+): 더 빠르고 강하게 출발 / 값 감소(-): 천천히 출발 / 0: 추가 출발가속 끔.",
+      "정지 후 출발 가속도 상한(×0.02m/s²)입니다. 앞차 출발 시 MPC 계획보다 높게 강제하지 않습니다. 값 증가(+): 더 빠르고 강하게 출발 / 값 감소(-): 천천히 출발 / 0: 추가 출발가속 끔.",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
 
   list->addItem(new ParamValueControlF(
@@ -1591,17 +1786,12 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamControl(
       "EarlyHoldRelax", "EARLY HOLD RELAX",
-      "켜짐: 정지한 앞차가 움직이기 시작하는 기미가 보이면 출발 판정 전부터 정지유지 제동을 정차 접근 수준(STOPPING ACCEL)과의 중간까지 미리 줄여 출발이 조금 빨라집니다. 완전히 선 뒤 1초가 지나야 동작하고, 0.5초 안에 출발이 이어지지 않으면 원래 유지 제동으로 돌아갑니다. 정지 중 차가 찔끔 움직이면 끄세요.",
+      "켜짐: 정지한 앞차가 움직이기 시작하는 기미가 보이면 출발 판정 전부터 정지유지 제동을 줄이고 StopReq를 미리 해제해 SCC 출발 지연을 줄입니다. 음수 제동 명령은 유지하며, 완전히 선 뒤 1초가 지나야 동작하고 0.8초 안에 출발이 이어지지 않거나 차가 움직이면 즉시 원래 유지 제동으로 돌아갑니다. 정지 중 차가 찔끔 움직이면 끄세요.",
       "../assets/offroad/icon_openpilot.png", this));
 
   list->addItem(new ParamControl(
       "FastLeadRelease", "FAST LEAD RELEASE",
       "켜짐: 정지 앞차의 출발을 필터 속도보다 0.1~0.25초 빠른 레이더 원래 속도로도 확인합니다(레이더 앞차·새 샘플 2회 연속 확인은 그대로). 잘못 출발하는 느낌이 있으면 끄세요.",
-      "../assets/offroad/icon_openpilot.png", this));
-
-  list->addItem(new ParamControl(
-      "EarlyStopReqRelease", "EARLY STOPREQ RELEASE (실험)",
-      "켜짐: 정지한 앞차가 움직이기 시작하면 브레이크 명령은 유지한 채 차량 정지유지 신호(StopReq)만 먼저 해제해, 차량이 정지유지를 푸는 시간(약 1.2초)을 앞당깁니다. 완전히 선 뒤 1초가 지나야 동작하고, 0.8초 안에 출발이 이어지지 않으면 다시 정지유지 신호를 보냅니다. 그 사이 차가 조금이라도 움직이면 즉시 되돌리고 그 정지 동안은 다시 시도하지 않습니다. 제동이 덜컥하거나 밀리면 끄세요. 기본값: 꺼짐.",
       "../assets/offroad/icon_openpilot.png", this));
 
   list->addItem(new ParamValueControlF(
@@ -1653,11 +1843,6 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_road.png", this));
 
   list->addItem(new ParamControl(
-      "HumanFollowing", "HUMAN-LIKE FOLLOWING",
-      "켜짐: 앞차의 앞으로 움직임을 레이더 가속도 한 값이 아니라 주행 모델이 예측한 궤적으로 계산해, 앞차 따라갈 때 급가속·급감속을 줄입니다. FrogPilot 방식.",
-      "../assets/offroad/icon_road.png", this));
-
-  list->addItem(new ParamControl(
       "ApplyLongDynamicCost", "DYNAMIC FOLLOWING RESPONSE",
       "켜짐: 18km/h까지 앞차 출발 반응을 동적으로 조정하고, 18~30km/h에서 점차 줄여 30km/h부터 일반 추종으로 복귀합니다.",
       "../assets/offroad/icon_road.png", this));
@@ -1698,7 +1883,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
   list->addItem(horizontal_line());
 
   list->addItem(new ParamValueControlF(
-      "LongTuningKpV", "LONGITUDINAL KP", "현재 속도오차 반응값(×0.01)입니다. 값 증가(+): 가감속 반응이 빠르고 강해짐 / 값 감소(-): 반응이 부드럽고 느려짐.",
+      "LongTuningKpV", "LONGITUDINAL KP", "현재 속도오차 반응값(×0.01)이며 급접근 시 추가 피드백 제동의 증가 속도도 함께 조절합니다. 값 증가(+): 가감속 반응이 빠르고 강해짐 / 값 감소(-): 반응이 부드럽고 느려짐.",
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
   list->addItem(new ParamValueControlF(
       "LongTuningKiV", "LONGITUDINAL KI", "누적 속도오차 보정값(×0.001)입니다. 값 증가(+): 지속 오차를 빨리 보정 / 값 감소(-): 천천히 보정. 과도하면 출렁일 수 있습니다.",
@@ -1808,30 +1993,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "범위: 0 ~ 80  /  기본값: 25 (=0.25초, 차량 정의값)",
       "../assets/offroad/icon_openpilot.png", 0, 80, 1, 0, 25, this));
 
-  list->addItem(new ParamValueControlF("MpcPathCost",
-      "MPC PATH COST (X0.001)",
-      "모델 경로를 따라가려는 비용입니다. 값 증가(+): 경로 추종이 강해짐 / 값 감소(-): 움직임이 부드러워짐.\n"
-      "표시값 1000 = 실제 1.000  /  기존 기본값: 1000  /  범위: 100 ~ 5000",
-      "../assets/offroad/icon_openpilot.png", 100, 5000, 50, 0, 1000, this));
-
-  list->addItem(new ParamValueControlF("MpcLateralMotionCost",
-      "MPC LATERAL MOTION COST (X0.001)",
-      "차량의 좌우 이동 자체를 억제하는 비용입니다. 값 증가(+): 안정적이지만 경로 변화가 느림 / 값 감소(-): 빠르게 이동.\n"
-      "표시값 110 = 실제 0.110  /  기존 기본값: 110  /  범위: 0 ~ 1000",
-      "../assets/offroad/icon_openpilot.png", 0, 1000, 10, 0, 110, this));
-
-  list->addItem(new ParamValueControlF("MpcLateralAccelCost",
-      "MPC LATERAL ACCEL COST (X0.001)",
-      "횡가속을 억제하는 비용입니다. 값 증가(+): 완만한 조향 / 값 감소(-): 경로 변화에 적극 대응.\n"
-      "표시값 0 = 실제 0.000  /  기존 기본값: 0  /  범위: 0 ~ 1000",
-      "../assets/offroad/icon_openpilot.png", 0, 1000, 10, 0, 0, this));
-
-  list->addItem(new ParamValueControlF("MpcLateralJerkCost",
-      "MPC LATERAL JERK COST (X0.001)",
-      "횡가속도의 급격한 변화를 억제하는 비용입니다. 값 증가(+): 부드러움 / 값 감소(-): 반응이 빨라짐.\n"
-      "표시값 40 = 실제 0.040  /  기존 기본값: 40  /  범위: 0 ~ 500",
-      "../assets/offroad/icon_openpilot.png", 0, 500, 5, 0, 40, this));
-
   list->addItem(new ParamValueControlF("SteeringRateCost",
       "MPC STEERING RATE COST",
       "목표 조향의 급격한 변화를 억제하는 MPC 비용값입니다.\n"
@@ -1887,11 +2048,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "CURVE I DEADZONE (x0.001)",
       "커브에서 이 값보다 작은 조향 오차는 적분(I)이 바로잡지 않습니다(토크 ×0.001). 값 감소(-): 긴 커브에서 더 돌거나 덜 도는 것을 적분이 서서히 바로잡음 / 값 증가(+): 적분 개입 줄임. 긴 커브에서 인코스로 파고들면 낮추고, 커브 중 핸들이 서서히 출렁이면 올리세요. 기본값: 20 (예전 70).",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 20, this));
-
-  list->addItem(new ParamValueControlF("LatYawMeasureBlend",
-      "YAW MEASURE BLEND (%)",
-      "실제 회전량을 핸들각 대신 자이로(요레이트)로 재는 비율입니다(시속 30~43km 에서 점증, 그 아래는 핸들각만). EON 은 GPS 가 없어 도로 기울기를 몰라 한쪽(주로 오른쪽) 커브에서 인코스로 파고들 수 있는데, 이 값을 올리면 실제 차체 회전 기준으로 맞춥니다. 권장 시작값 50, 직진에서 핸들이 잘게 흔들리면 낮추세요. 0: 사용 안 함(기존). 기본값: 0.",
-      "../assets/offroad/icon_openpilot.png", 0, 100, 10, 0, 0, this));
 
   list->addItem(new ParamValueControlF("LatLowSpeedCurvTauMs",
       "LOW SPEED JITTER FILTER (ms)",

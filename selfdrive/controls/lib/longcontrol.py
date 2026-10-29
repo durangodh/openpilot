@@ -43,7 +43,7 @@ HOLD_RELAX_JERK = 2.5          # m/s^3, 유지 제동을 줄이는 속도(다시
 #  - 정차 접근 수준(stopAccel)까지 다 풀지 않고 유지 제동과의 중간까지만 푼다.
 HOLD_RELAX_SETTLE_FRAMES = round(1.0 / DT_CTRL)
 HOLD_RELAX_FRACTION = 0.5
-# C) EarlyStopReqRelease (실험, 기본 꺼짐): 앞차가 꿈틀하면 브레이크 명령(음수)은 그대로
+# C) StopReq 미리 내리기(EARLY HOLD RELAX 와 함께 동작): 앞차가 꿈틀하면 브레이크 명령(음수)은 그대로
 #    두고 Hyundai StopReq 만 먼저 내린다. 2026-10-03 기록에서 정지유지(StopReq)가 걸린
 #    상태의 출발은 명령 후 약 1.25초, 걸리기 전에는 0.8초였다. 0.8초 안에 실제 출발이
 #    이어지지 않거나 차가 조금이라도 움직이면 StopReq 를 다시 올리고, 그 정지 동안은
@@ -92,6 +92,36 @@ FINAL_STOP_TAPER_ACCEL = -0.6
 # aborted starting -> stopping transition; ordinary approaches keep the
 # configured stopping_decel_rate.
 LAUNCH_ABORT_DECEL_JERK = 3.5
+
+# The MPC/feedforward request must remain authoritative when a lead closes
+# quickly.  Only the extra speed-error feedback is rate limited: with the
+# default Kp=1.0 it may add braking at 2.0 m/s^3, and the existing Kp setting
+# makes that response softer/faster over a bounded 1.0..3.0 m/s^3 range.
+# Releasing feedback braking is deliberately not limited.
+FEEDBACK_BRAKE_JERK_BASE = 1.0
+FEEDBACK_BRAKE_JERK_KP = 1.0
+FEEDBACK_BRAKE_JERK_MIN = 1.0
+FEEDBACK_BRAKE_JERK_MAX = 3.0
+LEAD_START_ACCEL_MIN = 0.2
+
+
+def limit_brake_feedback(target, previous, kp, dt=DT_CTRL):
+  """Limit only increasing feedback brake without carrying drive into braking."""
+  if target >= 0.0:
+    return target
+  brake_jerk = float(clip(FEEDBACK_BRAKE_JERK_BASE + FEEDBACK_BRAKE_JERK_KP * kp,
+                          FEEDBACK_BRAKE_JERK_MIN, FEEDBACK_BRAKE_JERK_MAX))
+  # A stale positive correction must never cancel a new planner brake request.
+  # Drop it to zero immediately, then build only the extra negative feedback.
+  previous_brake = min(previous, 0.0)
+  return max(target, previous_brake - brake_jerk * dt)
+
+
+def lead_start_accel_target(configured, planned):
+  """Treat START ACCEL as a ceiling while retaining enough request to release SCC."""
+  floor = min(configured, LEAD_START_ACCEL_MIN)
+  return float(clip(planned, floor, configured))
+
 
 # apilot-c2 상태전이.
 # planned_stop 조건인데 accel 이 이미 stopAccel 보다 낮은 상태로 stopping 에 들어가면 너무 급하게 서므로
@@ -158,6 +188,7 @@ class LongControl:
     self.read_param_count = 0
     self.v_pid = 0.0
     self.last_output_accel = 0.0
+    self.last_pid_feedback = 0.0
 
     # 지연보상 (LongitudinalActuatorDelayLowerBound, x100 저장, 기본 0.5초)
     self.actuator_delay = 0.5
@@ -197,7 +228,6 @@ class LongControl:
     self.standstill_frames = 0
     self.hold_relaxing = False
     self.hold_restore_fast = False
-    self.early_stopreq_release = False
     self.stopreq_release_left = 0
     self.stopreq_release_blocked = False
     self.stopreq_release_active = False
@@ -270,7 +300,6 @@ class LongControl:
     try:
       self.early_hold_relax = self.params.get("EarlyHoldRelax", encoding="utf8") != "0"
       self.fast_lead_release = self.params.get("FastLeadRelease", encoding="utf8") != "0"
-      self.early_stopreq_release = self.params.get("EarlyStopReqRelease", encoding="utf8") == "1"
     except Exception:
       pass
 
@@ -339,7 +368,11 @@ class LongControl:
           if lead_moving or lead_is_creeping(lead):
             self.hold_relax_left = HOLD_RELAX_KEEP_FRAMES
             # C) 완전히 선 뒤 1초가 지났고, 이번 정지에서 막히지 않았으면 StopReq 를 먼저 내린다.
-            if (getattr(self, 'early_stopreq_release', False) and
+            # EARLY HOLD RELAX already requires a settled standstill, keeps a
+            # negative brake request and restores it immediately on creep. Use
+            # the same guarded window to let Hyundai SCC begin unlatching
+            # StopReq before the positive launch command arrives.
+            if (self._hold_relax_active() and
                 not getattr(self, 'stopreq_release_blocked', False) and
                 getattr(self, 'standstill_frames', 0) >= HOLD_RELAX_SETTLE_FRAMES):
               self.stopreq_release_left = STOPREQ_RELEASE_KEEP_FRAMES
@@ -429,6 +462,7 @@ class LongControl:
     """Reset PID controller and change setpoint"""
     self.pid.reset()
     self.v_pid = v_pid
+    self.last_pid_feedback = 0.0
 
   def update(self, active, CS, long_plan, accel_limits, t_since_plan, soft_hold=False,
              radar_state=None, radar_state_valid=False, radar_state_updated=False,
@@ -522,8 +556,10 @@ class LongControl:
       self.lead_launch_jerk = None
     else:
       if prev_state == LongCtrlState.stopping:
-        # Remember why this launch started: a confirmed departing lead.
-        self.lead_launch = lead_release
+        # 840fbc6 lets a latched stopped lead follow the MPC start request
+        # before the stricter radar release gate. Preserve that launch reason
+        # so live lead motion still shapes its initial acceleration and jerk.
+        self.lead_launch = self.standstill_lead_latched or lead_release
       # SCC can take over a second to release its standstill latch. Do not
       # spend the launch protection window while the car is still stationary.
       if not CS.standstill and CS.vEgo > self.CP.vEgoStarting:
@@ -647,6 +683,11 @@ class LongControl:
 
     elif self.long_control_state == LongCtrlState.starting:
       start_target = float(clip(self.CP.startAccel, accel_limits[0], accel_limits[1]))
+      if self.lead_launch:
+        # START ACCEL is a user ceiling, not a command to outrun the MPC. This
+        # avoids the observed 1.4 m/s^2 request while plan_a0 was still near
+        # zero, but retains a small request so SCC can release its hold.
+        start_target = lead_start_accel_target(start_target, a_target_now)
       if getattr(self.CP, 'hasScc14', False):
         # SCC14-capable cars receive the launch jerk separately, so release the
         # hold immediately and let the vehicle ECU shape positive acceleration.
@@ -681,14 +722,28 @@ class LongControl:
 
       error = self.v_pid - CS.vEgo
       error_deadzone = apply_deadzone(error, deadzone)
-      pid_output = self.pid.update(error_deadzone, speed=CS.vEgo,
-                                   feedforward=a_target,
-                                   freeze_integrator=freeze_integrator)
+      previous_i = self.pid.i
+      self.pid.update(error_deadzone, speed=CS.vEgo,
+                      feedforward=a_target,
+                      freeze_integrator=freeze_integrator)
 
-
-      # apilot-c2: execute the PID result directly. The MPC already prices
-      # acceleration and jerk; SCC14 remains the single command-side jerk owner.
-      output_accel = pid_output
+      # Keep the planner/feedforward path untouched.  Rate-limit only a more
+      # negative P/I/D correction so a sudden speed error cannot add a second
+      # brake step on top of an already safe MPC request.  LONGITUDINAL KP
+      # continues to set the correction magnitude and now also scales its
+      # braking onset: Kp 0/1/2 -> 1/2/3 m/s^3.
+      feedback_target = self.pid.p + self.pid.i + self.pid.d
+      feedback_limited = limit_brake_feedback(feedback_target, self.last_pid_feedback,
+                                              self.pid.k_p)
+      if feedback_limited > feedback_target + 1e-6:
+        # Do not accumulate integral behind the limiter and release it later as
+        # a delayed brake pulse. P feedback will keep following the live error.
+        self.pid.i = previous_i
+        feedback_target = self.pid.p + self.pid.i + self.pid.d
+        feedback_limited = limit_brake_feedback(feedback_target, self.last_pid_feedback,
+                                                self.pid.k_p)
+      self.last_pid_feedback = feedback_limited
+      output_accel = self.pid.f + feedback_limited
 
     self.last_output_accel = clip(output_accel, accel_limits[0], accel_limits[1])
 

@@ -8,6 +8,7 @@ public final class AppPrefs {
     private static final String AUTO_START = "auto_start";
     private static final String FILE = "remote_hud_settings";
     private static final String GUIDE_SHOWN = "guide_shown_v37";
+    private static final String KMA_API_KEY = "kma_api_key";
     private static final String ORIENTATION = "hud_orientation";
     private static final String MIRROR = "hud_mirror";
     private static final String NAVI_LAYOUT = "hud_navi_layout";
@@ -39,6 +40,15 @@ public final class AppPrefs {
 
     public static void setUsbHostRecoveryEnabled(Context context, boolean enabled) {
         prefs(context).edit().putBoolean(USB_HOST_RECOVERY, enabled).apply();
+    }
+
+    /** 공공데이터포털 기상청 인증키. 공개 소스나 APK 빌드 설정에는 넣지 않는다. */
+    public static String getKmaApiKey(Context context) {
+        return prefs(context).getString(KMA_API_KEY, "").trim();
+    }
+
+    public static void setKmaApiKey(Context context, String key) {
+        prefs(context).edit().putString(KMA_API_KEY, key == null ? "" : key.trim()).apply();
     }
 
     /**

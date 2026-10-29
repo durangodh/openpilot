@@ -284,10 +284,37 @@ def main():
     assert 'display_id=$(dumpsys activity activities' not in source
     assert "scheduleBootNavigationSync();" in source
     assert "launchNavAppOnMirrorDisplay(context, selected)" in source
-    # Once the selected navigation has appeared during boot, Back/Home is a
-    # user action. Neither later display events nor Magisk retries may reopen it.
+    # Once the selected navigation has appeared during boot, ordinary retries
+    # stop.  A genuinely new/changed nMirror capture geometry is the exception:
+    # late wireless Android Auto must rebind the source once and discard frames
+    # rendered against the phone-only density.
     assert "bootNavigationReady.get()" in source
     assert "bootNavigationReady.set(true)" in source
+    display_change = source.split("private synchronized void mirrorDisplayChanged", 1)[1].split(
+        "private PowerManager.WakeLock", 1)[0]
+    assert "signature.equals(mirrorDisplaySignature)" in display_change
+    assert "metrics.densityDpi" in display_change
+    assert "bootNavigationReady.set(false)" in display_change
+    assert "bootNavigationRebindRequested.set(true)" in display_change
+    assert "bootNavigationResyncPending.set(true)" in display_change
+    assert "mapResumeElapsed = SystemClock.elapsedRealtime() + 3000L" in display_change
+    assert "clearNavigationAssets(false)" in display_change
+    assert "mirrorDisplayRemoved(id)" in source
+    assert 'mirrorDisplaySignature = ""' in source
+    boot_sync = source.split("private void scheduleBootNavigationSync", 1)[1].split(
+        "private void scheduleBootUsbHostRecovery", 1)[0]
+    foreground_ready = boot_sync.split("if (isNavAppForegroundOnMirror", 1)[1].split(
+        "bootNavigationReady.set(true)", 1)[0]
+    assert "launchNavAppOnMirrorDisplay(context, selected)" in foreground_ready
+    assert "synchronizeNMirrorSelection(context, selected)" in foreground_ready
+    # An ordinary boot where the selected app is already foreground must retain
+    # the old no-flicker path. Re-launch/rebind only follows a real display event.
+    assert foreground_ready.index("bootNavigationRebindRequested.getAndSet(false)") \
+        < foreground_ready.index("launchNavAppOnMirrorDisplay(context, selected)")
+    assert "if (AppPrefs.getNavApp(context) != selected)" in boot_sync
+    assert "bootNavigationResyncPending.get()" in boot_sync
+    assert "if (receivedAt < mapResumeElapsed) continue;" in source
+    assert "SystemClock.elapsedRealtime() < mapResumeElapsed" in source
     assert 'NAV_WAS_READY="$NAV_READY"' not in magisk_service
     assert '[ "$NAV_WAS_READY" != 1 ]' in magisk_service
     assert "displayAwareLaunchCommand(component, false,\n" in source
@@ -357,8 +384,8 @@ def main():
     # Every new session primes both native JPEG surfaces with the already
     # rendered HUD. Recovery must not flash an intentional black frame.
     assert "usbNeedsPrimeFrame = true;" in source
-    assert "sendUsbPrimerFrame(frame, frame123);" in source
-    primer = source.split("private void sendUsbPrimerFrame(Bitmap frame, Bitmap frame123)", 1)[1].split(
+    assert "sendUsbPrimerFrame(frame, frame123, primerBrightness);" in source
+    primer = source.split("private void sendUsbPrimerFrame(Bitmap frame, Bitmap frame123, int brightness)", 1)[1].split(
         "private void handleUsbError", 1)[0]
     assert "c.drawColor(Color.BLACK)" not in primer
     assert "encodeJpeg(frame, jpegOut, 40)" in primer
@@ -366,6 +393,9 @@ def main():
     assert primer.count("display.sendJpegs") == 2
     assert "SystemClock.sleep(USB_PRIMER_WARMUP_MS)" in primer
     assert "SystemClock.sleep(USB_PRIMER_SETTLE_MS)" in primer
+    # Brightness goes right after the second primer frame, before the settle wait.
+    assert primer.index("display.setBrightness(brightness)") < primer.index(
+        "SystemClock.sleep(USB_PRIMER_SETTLE_MS)")
     # The 4 fps S20 cap did not prevent DWC3 BULK -110 stalls and made maps and
     # driving-state widgets visibly lag. Honour the configured FPS again.
     assert "S20_RENDER_FPS_CAP" not in source
@@ -443,9 +473,8 @@ def main():
     methods = []
     for start, end in (("    private void drawMap(", "    private void drawMapSourceBadge("),
                        ("    private static boolean cameraWarningOn(", "    private void drawSpeedRing("),
-                       ("    private float drawTbtBanner(", "    private float drawTbtImage("),
-                       ("    private void drawTbtNext(", "    // 회전 방향 종류."),
-                       ("    private static boolean naviGuiding(", "    private Bitmap laneTrimSource;")):
+                       ("    private float drawTbtBanner(", "    private void drawTbtNext("),
+                       ("    private void drawTbtNext(", "    // 회전 방향 종류.")):
         methods.append(source[source.index(start):source.index(end)])
     methods.append(source[source.index("    private String nooSide("):source.index("    private static final int TBT_GREEN")])
     args.work.mkdir(parents=True, exist_ok=True)

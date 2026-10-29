@@ -228,14 +228,9 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"StandstillReleaseSpeed", PERSISTENT},   // 정차 후 자동출발 임계 목표속도 (x0.1 m/s, default 2)
     {"StandstillReleaseMs", PERSISTENT},      // 자동출발 요구 지속시간 ms (default 100)
     {"EarlyHoldRelax", PERSISTENT},           // 앞차 꿈틀 시 정지유지 제동 미리 줄이기 (default 1)
-    {"FastLeadRelease", PERSISTENT},
-    {"EarlyStopReqRelease", PERSISTENT},      // 앞차 꿈틀 시 StopReq 먼저 해제(실험, default 0)          // 레이더 원래 속도로 앞차 출발 빨리 확인 (default 1)
+    {"FastLeadRelease", PERSISTENT},          // 레이더 원래 속도로 앞차 출발 빨리 확인 (default 1)
 
     {"DynamicLaneProfile", PERSISTENT},
-    {"MpcPathCost", PERSISTENT},
-    {"MpcLateralMotionCost", PERSISTENT},
-    {"MpcLateralAccelCost", PERSISTENT},
-    {"MpcLateralJerkCost", PERSISTENT},
     {"SteeringRateCost", PERSISTENT},
     {"LaneChangeEnabled", PERSISTENT},
     {"AutoLaneChangeEnabled", PERSISTENT},
@@ -254,7 +249,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"NooTurnEndTime", PERSISTENT},
     {"StopDistance", PERSISTENT},                // shared ACC/E2E standstill distance (cm), default 600
     {"HumanAcceleration", PERSISTENT},
-    {"HumanFollowing", PERSISTENT},              // 모델 예측 앞차 궤적으로 추종 (FrogPilot)           // 목표속도 근접 시 가속 상한 감소 (FrogPilot)
     {"ApplyLongDynamicCost", PERSISTENT},        // 동적 longitudinal MPC cost 적용
     {"MyDrivingMode", PERSISTENT},             // 주행모드 1:SAFE 2:ECO 3:NORM 4:FAST
     {"InitMyDrivingMode", PERSISTENT},         // 부팅모드 1~4, 5=AUTO
@@ -281,6 +275,11 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"EonClusterHudMapScaleTmap", PERSISTENT},   // 네비모드 HUD 지도 크기(주행모드 대비 %), 30~100
     {"EonClusterHudMapScaleKakao", PERSISTENT},
     {"EonClusterHudMapScaleNaver", PERSISTENT},
+    {"BtRemoteEnabled", PERSISTENT},       // EON 블루투스 리모컨(bt_remote) 사용
+    {"BtRemoteDevice", PERSISTENT},        // 학습한 리모컨의 Bluetooth 주소
+    {"BtRemoteMapping", PERSISTENT},       // 버튼@누르기 방식 -> 명령(JSON)
+    {"BtRemoteLearn", CLEAR_ON_MANAGER_START},
+    {"BtRemoteStatus", CLEAR_ON_MANAGER_START},
     {"EonClusterHudNavApp", PERSISTENT},      // 0=선택 안 함, 1=티맵, 2=네이버지도
     {"EonClusterHudConnected", CLEAR_ON_MANAGER_START},
     {"EonClusterHudHeartbeat", CLEAR_ON_MANAGER_START},
@@ -312,8 +311,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LateralTorqueKf", PERSISTENT},           // kf x100
     {"LatAccelFrictionFactor", PERSISTENT},    // friction 입력 횡가속 비율 x100
     {"LatJerkFrictionFactor", PERSISTENT},     // friction 입력 횡저크 비율 x100
-    {"LatCurveIDeadzone", PERSISTENT},
-    {"LatYawMeasureBlend", PERSISTENT},        // 실제 곡률에 자이로 요레이트 섞는 비율 % (default 0)         // 커브 구간 적분 정지 기준 토크 x0.001 (default 20, 예전 70)
+    {"LatCurveIDeadzone", PERSISTENT},         // 커브 구간 적분 정지 기준 토크 x0.001 (default 20, 예전 70)
     {"LatLowSpeedCurvTauMs", PERSISTENT},      // 극저속(<2m/s) 목표곡률 저역통과 시간상수 ms (0=끔)
     // ── LiveTorque self-learning (backport from ajouatom/openpilot hoya/c3-atune) ──
     {"KeepSteeringTurnSignals", PERSISTENT},

@@ -272,7 +272,7 @@ def test_s9_v6_visual_layers_and_local_map_context():
       encoding="utf-8")
 
   assert '"v": 6' in sender
-  assert '"mapPose": map_pose' in sender
+  assert '"mapPose"' not in sender
   assert '"desiredDistance":' in sender
   assert "drawPathLayers" in renderer
   assert "leadDistance[0] - 2.6f" in renderer
@@ -306,7 +306,7 @@ def test_hud_rejects_stale_sources_and_applies_fallback_path_offset():
   assert 's.optBoolean("worldValid", true)' in service
   assert 'scene.optDouble("pathOffset", 0d)' in renderer
   assert 'rawPath.y[i] += pathOffset' in renderer
-  assert '"pathFinal": path_final' in sender
+  assert '"pathOffset": 0.0 if path_final or not model_valid else float(path_offset)' in sender
   assert 'leadSpriteProbability' not in renderer
 
 
@@ -421,7 +421,7 @@ def test_driving_panel_uses_speed_ring_and_eon_hud_box():
   for removed in ("drawC2S9StatusCard(", "drawTpms(", "drawRpm(", "drawSpeed(c",
                   "drawSetSpeed(", "drawGearAndCoolant(", "drawModeAndEta(", "drawRange("):
     assert removed not in driving
-  box = service.split("private void drawEonHudBox", 1)[1].split("private void drawSpeed(", 1)[0]
+  box = service.split("private void drawEonHudBox", 1)[1].split("private void drawCoolantThermometer(", 1)[0]
   for item in ('"C2 CPU"', '"S9 CPU"', 's9TempC', '"LIMIT"', '"NORM"', '"OFF"', '"e2eReason"',
                'optInt("gap"', 'tpmsText(fl)', '"TPMS"', 'drawCard(c, p, scratchRect)',
                '"latAccelFactor"', '"latFriction"', '"steerRatio"'):

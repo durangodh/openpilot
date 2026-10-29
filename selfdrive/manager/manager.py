@@ -93,6 +93,7 @@ def manager_init() -> None:
     ("ShowGearAnimation", "1"),
     ("ShowCarrotHud", "1"),
     ("EonClusterHud", "0"),
+    ("BtRemoteEnabled", "0"),
     ("EonClusterHudRoadZ", "100"),
     ("EonClusterHudPitchDyn", "60"),
     ("EonClusterHudViewPitch", "0"),
@@ -125,7 +126,6 @@ def manager_init() -> None:
     ("PrevCruiseGap", "4"),
     ("ApplyLongDynamicCost", "0"),
     ("HumanAcceleration", "0"),
-    ("HumanFollowing", "1"),
     ("MyDrivingMode", "3"),
     ("InitMyDrivingMode", "3"),
     ("MyEcoModeFactor", "80"),
@@ -148,10 +148,6 @@ def manager_init() -> None:
     ("CustomSteerRatio", "1650"),
     ("UseLiveSteerRatio", "0"),
     ("SteerActuatorDelay", "25"),
-    ("MpcPathCost", "1000"),          # 1.000, 경로 추종 비용
-    ("MpcLateralMotionCost", "110"), # 0.110, 횡이동 비용
-    ("MpcLateralAccelCost", "0"),    # 0.000, 횡가속 비용
-    ("MpcLateralJerkCost", "40"),    # 0.040, 횡저크 비용
     ("SteeringRateCost", "550"),  # DH 권장 MPC 조향변화 억제값 (낮을수록 빠른 반응)
     ("LateralTorqueCustom", "0"),
     ("LateralTorqueAccelFactor", "2747"),
@@ -162,7 +158,6 @@ def manager_init() -> None:
     ("LatAccelFrictionFactor", "70"),
     ("LatJerkFrictionFactor", "40"),
     ("LatCurveIDeadzone", "20"),
-    ("LatYawMeasureBlend", "0"),
     ("AutoLaneChangeTimer", "0"),  # controlsd.py 크래시 수정
     ("AutoLaneChangeSpeed", "50"),  # 자동/방향지시등 차선변경 허용 최저 속도 (km/h)
     ("AdjustLaneOffset", "0"),    # 좌우 여유공간/커브 보정 (cm, 0=off)
@@ -181,7 +176,6 @@ def manager_init() -> None:
     ("StandstillHoldApply", "55"),
     ("EarlyHoldRelax", "1"),
     ("FastLeadRelease", "1"),
-    ("EarlyStopReqRelease", "0"),
     ("TrafficStopAccel", "80"),
     ("TrafficStopDistanceAdjust", "400"),
     ("StopDistance", "600"),
@@ -279,7 +273,8 @@ def manager_init() -> None:
                    "VisionRadarToggle", "SccSmootherState",
                    "LateralTorqueKd", "CarrotLearnFrictionBase",
                    "OPKRTimeZone", "ShowBlindSpotAlways", "EonClusterHudPathFlipV2Migrated",
-                   "EnableRadarTracks", "LatTraceEnabled", "HudRemoteKey"):
+                   "EnableRadarTracks", "LatTraceEnabled", "HudRemoteKey",
+                   "LatYawMeasureBlend", "EarlyStopReqRelease"):
     try:
       os.remove(os.path.join("/data/params/d", dead_key))
     except OSError:

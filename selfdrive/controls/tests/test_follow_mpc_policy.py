@@ -11,6 +11,7 @@ from common.conversions import Conversions as CV
 from common.numpy_fast import clip, interp
 from selfdrive.controls.lib import t_follow
 from selfdrive.controls.lib.lead_following import NO_LEAD, LeadConfirm
+from selfdrive.controls.lib.stopping_lead import HeldLead, StoppingLeadFilter
 from selfdrive.modeld.constants import index_function
 
 
@@ -36,7 +37,8 @@ def load_mpc():
              _CRUISE_GAP_BP=t_follow.CRUISE_GAP_BP, DT_MDL=0.05,
              index_function=index_function, _LEAD_ACCEL_TAU=1.5,
              AcadosOcpSolverCython=RecordingSolver, NO_LEAD=NO_LEAD,
-             LeadConfirm=LeadConfirm, sec_since_boot=lambda: 0.0,
+             LeadConfirm=LeadConfirm, HeldLead=HeldLead, StoppingLeadFilter=StoppingLeadFilter,
+             sec_since_boot=lambda: 0.0,
              cloudlog=NS(error=lambda *args, **kwargs: None),
              car=NS(CarState=NS(ButtonEvent=NS(Type=NS(accelCruise=1, resumeCruise=2)))),
              log=NS(LongitudinalPlan=NS(XState=NS(cruise=0, lead=1, softHold=2))))

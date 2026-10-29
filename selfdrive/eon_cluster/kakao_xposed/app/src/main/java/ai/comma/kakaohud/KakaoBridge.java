@@ -504,11 +504,45 @@ final class KakaoBridge {
         onSafeties(safeties);
     }
 
+    /** Last logged set of Kakao safety codes (raw value, name, limit, passed); distance is left out. */
+    private String lastSafetySignature = "";
+
+    /**
+     * 후면 단속카메라 등 분류가 확실치 않은 코드를 찾기 위한 기록: 카카오가 주는 안전운전 항목의
+     * 원래 코드값·이름·제한속도·통과 여부를, 구성이 바뀔 때만 kakao_hud.log 에 남긴다.
+     */
+    private void logSafetyCodes(java.util.List<?> list) {
+        try {
+            StringBuilder signature = new StringBuilder();
+            StringBuilder detail = new StringBuilder();
+            for (Object item : list) {
+                if (item == null) continue;
+                Object code = tryCallAny(item, "getCode", "b");
+                int raw = enumValue(code);
+                String name = enumName(code);
+                int limit = getInt(item, "getSpeedLimit", "l");
+                boolean passed = getBoolean(item, "getPassed", "d");
+                signature.append(raw).append(':').append(name).append(':').append(limit)
+                        .append(':').append(passed).append(';');
+                detail.append(" [").append(raw).append(' ').append(name)
+                        .append(" type=").append(KakaoCodes.sdiType(name, raw))
+                        .append(" limit=").append(limit).append(passed ? " passed" : "").append(']');
+            }
+            String sig = signature.toString();
+            if (sig.equals(lastSafetySignature)) return;
+            lastSafetySignature = sig;
+            KakaoHudLog.line("safety-codes" + (detail.length() == 0 ? " none" : detail.toString()));
+        } catch (Throwable error) {
+            KakaoHudLog.ex("safety-codes", error);
+        }
+    }
+
     void onSafeties(Object safetyArg) {
         if (!(safetyArg instanceof java.util.List)) return;
         try {
             java.util.List<?> list = (java.util.List<?>) safetyArg;
             KakaoHudLog.status("safety callback count=" + list.size());
+            logSafetyCodes(list);
             Object best = null;
             int bestDistance = Integer.MAX_VALUE;
 
