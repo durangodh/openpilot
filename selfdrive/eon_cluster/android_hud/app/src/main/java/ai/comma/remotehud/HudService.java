@@ -389,9 +389,70 @@ public final class HudService extends Service {
     private final android.hardware.display.DisplayManager.DisplayListener mirrorDisplayListener =
             new android.hardware.display.DisplayManager.DisplayListener() {
         public void onDisplayAdded(int id) { logDisplayEvent("added", id); mirrorDisplayChanged(id); }
-        public void onDisplayChanged(int id) { logDisplayEvent("changed", id); mirrorDisplayChanged(id); }
+        public void onDisplayChanged(int id) {
+            logDisplayEvent("changed", id);
+            checkPhoneDensity(id);
+            mirrorDisplayChanged(id);
+        }
         public void onDisplayRemoved(int id) { logDisplayEvent("removed", id); mirrorDisplayRemoved(id); }
     };
+
+    /**
+     * nMirror(무선 미러링)는 별도 화면을 만들지 않고 휴대폰 기본 화면(0번)을 차량 화면
+     * 크기로 바꾼다(2026-10-28·29 HUD 로그: 1440x3200@450 -> 800x480@160). 네비가 450dpi 에서
+     * 지도를 다 그린 뒤 바뀌면(10-29: 실행 14초 뒤) HUD 지도가 크게 남는다. 실행 직후 바뀌면
+     * (10-28: 0.8초 뒤) 정상이다. 늦게 바뀐 경우에만, 화면이 가라앉은 뒤 선택 네비를 한 번
+     * 껐다 켜서 새 dpi 로 다시 그리게 한다(다른 네비 골랐다 돌아오는 것과 같은 동작).
+     */
+    private static volatile long lastNavLaunchElapsed;
+    private static final long DPI_RESTART_MIN_AGE_MS = 3000L;
+    private static final long DPI_RESTART_SETTLE_MS = 2000L;
+    private static final long DPI_RESTART_MIN_GAP_MS = 60000L;
+    private int phoneDensityDpi = -1;
+    private long lastDpiRestartElapsed = -DPI_RESTART_MIN_GAP_MS;
+    private android.os.Handler densityHandler;
+    private final Runnable densityRestart = this::restartNavForDensity;
+
+    private void checkPhoneDensity(int id) {
+        if (id != android.view.Display.DEFAULT_DISPLAY || mirrorDisplays == null) return;
+        android.view.Display display = mirrorDisplays.getDisplay(id);
+        if (display == null) return;
+        android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
+        display.getRealMetrics(metrics);
+        int dpi = metrics.densityDpi;
+        int previous = phoneDensityDpi;
+        phoneDensityDpi = dpi;
+        if (previous < 0 || previous == dpi || !running.get()) return;
+        long launchAge = SystemClock.elapsedRealtime() - lastNavLaunchElapsed;
+        // 미러링이 끊겨 dpi 가 다시 커질 때(시동 끔 등)는 네비를 건드리지 않는다.
+        if (lastNavLaunchElapsed == 0L || launchAge < DPI_RESTART_MIN_AGE_MS || dpi > previous) {
+            HudDiagnostics.log("nav-dpi " + previous + "->" + dpi + " launch-age=" + launchAge + " keep");
+            if (densityHandler != null) densityHandler.removeCallbacks(densityRestart);
+            return;
+        }
+        if (densityHandler == null) densityHandler = new android.os.Handler(getMainLooper());
+        densityHandler.removeCallbacks(densityRestart);
+        densityHandler.postDelayed(densityRestart, DPI_RESTART_SETTLE_MS);
+        HudDiagnostics.log("nav-dpi " + previous + "->" + dpi + " launch-age=" + launchAge + " restart-pending");
+    }
+
+    private void restartNavForDensity() {
+        long now = SystemClock.elapsedRealtime();
+        final int selected = AppPrefs.getNavApp(this);
+        if (!running.get() || selected == 0 || now - lastDpiRestartElapsed < DPI_RESTART_MIN_GAP_MS) return;
+        lastDpiRestartElapsed = now;
+        final Context context = this;
+        new Thread(() -> {
+            HudDiagnostics.log("nav-restart app=" + selected + " reason=dpi " + phoneDensityDpi);
+            mapResumeElapsed = SystemClock.elapsedRealtime() + 3000L;
+            clearNavigationAssets(false);
+            stopNavApp(selected);
+            SystemClock.sleep(500L);
+            launchNavAppOnMirrorDisplay(context, selected);
+            synchronizeNMirrorSelection(context, selected);
+            mapResumeElapsed = SystemClock.elapsedRealtime() + 500L;
+        }, "hud-nav-dpi-restart").start();
+    }
 
     /** Last logged description per display id; repeats of the same state are not logged. */
     private final java.util.Map<Integer, String> displayLogState = new java.util.HashMap<>();
@@ -773,6 +834,7 @@ public final class HudService extends Service {
             for (android.view.Display display : mirrorDisplays.getDisplays()) {
                 logDisplayEvent("present", display.getDisplayId());
             }
+            checkPhoneDensity(android.view.Display.DEFAULT_DISPLAY);
         }
         activeInstance = this;
         AppPrefs.removeLegacyStaticMapSettings(this);
@@ -1636,6 +1698,7 @@ public final class HudService extends Service {
             });
             captureMirrorDisplayId(context, process);
             int exit = process.waitFor();
+            if (exit == 0) lastNavLaunchElapsed = SystemClock.elapsedRealtime();
             HudDiagnostics.log("nav-launch target=0 app=" + navApp + " exit=" + exit);
             return exit == 0;
         } catch (Exception ignored) {
