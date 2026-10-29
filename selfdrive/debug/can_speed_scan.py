@@ -6,11 +6,14 @@ then each candidate speed is tried and the received frames are counted.
 The right speed shows many frames with a stable set of IDs; a wrong speed
 shows (almost) nothing.
 
-Stop openpilot first (it owns the panda):
+Stop openpilot first (it owns the panda), then run with --wait and connect
+the unknown bus only once the panda is SILENT:
   tmux kill-session -t comma
+  python3 selfdrive/debug/can_speed_scan.py --wait
 Afterwards reboot the device so boardd sets the panda up again.
 """
 import argparse
+import threading
 import time
 from collections import Counter
 
@@ -47,13 +50,29 @@ def main():
   parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
   parser.add_argument("--bus", type=int, default=1, help="panda bus to scan (default 1)")
   parser.add_argument("--speeds", type=float, nargs="+", default=DEFAULT_SPEEDS, help="candidate speeds in kbps")
+  parser.add_argument("--wait", action="store_true", help="wait for Enter before scanning (connect wires while SILENT)")
   parser.add_argument("--seconds", type=float, default=3., help="listen time per speed")
   args = parser.parse_args()
 
   p = Panda()
   p.set_safety_mode(Panda.SAFETY_SILENT)
   p.send_heartbeat(engaged=False)
-  print(f"panda in SILENT mode, scanning bus {args.bus}\n")
+  print("panda in SILENT mode on all buses")
+  if args.wait:
+    # the panda boots live at 500 kbps, so only connect the unknown bus once it is SILENT
+    # (send heartbeats while waiting, or the panda drops back to live NOOUTPUT)
+    stop = threading.Event()
+
+    def heartbeat():
+      while not stop.wait(0.5):
+        p.send_heartbeat(engaged=False)
+
+    hb = threading.Thread(target=heartbeat, daemon=True)
+    hb.start()
+    input("connect the bus wires now, then press Enter to start scanning...")
+    stop.set()
+    hb.join()
+  print(f"scanning bus {args.bus}\n")
   print(f"{'kbps':>6} {'frames':>7} {'ids':>5} {'bus0 ref':>9}  top ids")
 
   results = []
