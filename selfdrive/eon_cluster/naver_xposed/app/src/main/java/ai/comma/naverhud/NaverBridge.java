@@ -354,6 +354,14 @@ final class NaverBridge {
         if (sig.equals(lastSafetySignature)) return;
         lastSafetySignature = sig;
         NaverHudLog.line("safety-codes" + (detail.length() == 0 ? " none" : detail.toString()));
+        // 후면 단속카메라는 코드(1 SpeedCam)·제한속도가 전면과 같다(2026-10-30 07:18 실차).
+        // 원본 지도에는 후면으로 표시되므로 구분값을 찾게 항목의 필드를 모두 남긴다.
+        int index = 0;
+        for (Object item : items) {
+            if (item == null) continue;
+            NaverHudLog.line("safety-fields #" + index++ + " " + NaverObjectDump.describe(item, 3)
+                    + " | str=" + NaverObjectDump.describe(String.valueOf(item), 0));
+        }
     }
 
     private static String speed(Object store, int roadLimit) {
