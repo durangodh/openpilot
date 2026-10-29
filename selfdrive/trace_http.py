@@ -16,6 +16,12 @@ TRACE_DIRS = {
   # long_trace.TRACE_DIR 와 같아야 한다.
   "long": ("가감속 (LONG TRACE)", "/data/media/0/long_trace"),
   "hud": ("HUD 앱 로그 (휴대폰)", "/data/media/0/hud_log"),
+  # selfdrive/debug/mcan_logger.py 의 LOG_DIR 와 같아야 한다.
+  "mcan": ("M-CAN 로그 (버스 1)", "/data/media/0/mcan_logs"),
+}
+EMPTY_MSG = {
+  "hud": "파일이 없습니다. HUD 앱이 EON 과 연결되면 1분 안에 올라옵니다.",
+  "mcan": "파일이 없습니다. SSH 에서 python3 selfdrive/debug/mcan_logger.py 로 기록하면 생깁니다.",
 }
 # HUD 앱이 올릴 수 있는 파일. HudDiagnostics 는 512KB 에서 previous 로 넘긴다.
 HUD_UPLOAD_NAMES = ("hud-session.log", "hud-session.previous.log", "naver-hud.log",
@@ -70,8 +76,7 @@ def _listing(deleted=None):
       except OSError:
         pass
     if not files:
-      parts.append("<p>파일이 없습니다. HUD 앱이 EON 과 연결되면 1분 안에 올라옵니다.</p>" if key == "hud" else
-                   "<p>파일이 없습니다. 설정에서 기록을 켜고 주행하면 생깁니다.</p>")
+      parts.append("<p>%s</p>" % EMPTY_MSG.get(key, "파일이 없습니다. 설정에서 기록을 켜고 주행하면 생깁니다."))
       continue
     for mtime, size, n in sorted(files, reverse=True):
       when = time.strftime("%m-%d %H:%M", time.localtime(mtime))

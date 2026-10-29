@@ -9,8 +9,9 @@ python-can read:
 
 Run over SSH while openpilot is running (boardd publishes the frames):
   python3 selfdrive/debug/mcan_logger.py
+The files can be downloaded from http://<EON IP>:7714/trace.
 Press Enter to drop a numbered mark (e.g. "turn icon changed") into a
-separate *_marks.txt file, Ctrl+C to stop.
+separate *_marks.log file, Ctrl+C to stop.
 """
 import argparse
 import os
@@ -41,7 +42,7 @@ def main():
   os.makedirs(args.dir, exist_ok=True)
   name = time.strftime("mcan_%Y%m%d_%H%M%S")
   log_fn = os.path.join(args.dir, name + ".log")
-  marks_fn = os.path.join(args.dir, name + "_marks.txt")
+  marks_fn = os.path.join(args.dir, name + "_marks.log")
   buses = set(args.bus)
 
   can_sock = messaging.sub_sock("can", conflate=False)
