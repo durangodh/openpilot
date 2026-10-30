@@ -33,6 +33,29 @@ def test_real_departure_releases_after_0_15_m_for_0_1_s():
   assert not f.held(lead(5.4, v_lead=0.6, v_rel=0.6), 0.0, DT)
 
 
+def test_moving_and_accelerating_lead_releases_before_the_range_opens():
+  f = StoppingLeadFilter()
+  run(f, [lead(5.0)] * 6)
+  assert f.held(lead(5.0), 0.0, DT)
+  # Speed noise without acceleration stays held, even when it lasts.
+  assert all(run(f, [lead(5.0, v_lead=0.25, v_rel=0.25)] * 6))
+  # Radar motion with acceleration for 0.1 s releases at the same range.
+  assert f.held(lead(5.0, v_lead=0.15, v_rel=0.15, a=1.2), 0.0, DT)
+  assert f.held(lead(5.0, v_lead=0.17, v_rel=0.17, a=1.2), 0.0, DT)
+  assert not f.held(lead(5.0, v_lead=0.20, v_rel=0.20, a=1.3), 0.0, DT)
+  # Once departed it stays released for this lead.
+  assert not f.held(lead(5.0), 0.0, DT)
+
+
+def test_a_single_motion_spike_does_not_release():
+  f = StoppingLeadFilter()
+  run(f, [lead(5.0)] * 6)
+  assert f.held(lead(5.0, v_lead=0.2, v_rel=0.2, a=1.0), 0.0, DT)
+  assert f.held(lead(5.0), 0.0, DT)
+  assert f.held(lead(5.0, v_lead=0.2, v_rel=0.2, a=1.0), 0.0, DT)
+  assert f.held(lead(5.0), 0.0, DT)
+
+
 def test_closing_range_moving_ego_and_decelerating_lead_are_not_held():
   f = StoppingLeadFilter()
   run(f, [lead(5.0)] * 6)

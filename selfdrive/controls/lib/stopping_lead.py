@@ -4,8 +4,15 @@ Ported from carrot-wip longitudinal_stopping_lead.py (2026-10-15). While ego and
 the radar lead are both stopped, radar speed/acceleration noise could make the
 MPC predict the lead driving away and creep forward. Once the range has been
 stable for 0.2 s the planner input copy uses vLead = aLead = 0 until the range
-really opens by 0.15 m (three 5 cm range bins) for 0.1 s. Only the planner input
-copy is changed; a closing range is always passed through.
+really opens by 0.15 m (three 5 cm range bins) for 0.1 s, or the radar keeps
+reporting a lead that is both moving and accelerating (vLead >= 0.15 m/s and
+aLeadK >= 0.5 m/s^2) for 0.1 s. Only the planner input copy is changed; a closing
+range is always passed through.
+
+The motion release (2026-10-30, aPilot c2 comparison): the range alone opened
+0.15 m only 0.5-0.75 s after the lead had started (10-30 log: vLead 0.15 m/s with
+aLeadK 1.25 at 1785.39, range released at 1785.89), while aPilot feeds the raw
+radar motion to the MPC. Speed noise without acceleration still stays held.
 
 This fork's radarState has no radar track id, so a range jump of more than
 LEAD_CHANGE_DISTANCE is treated as a different lead.
@@ -19,6 +26,9 @@ STABLE_RANGE_SPAN = 0.10
 STABLE_TIME = 0.20
 DEPARTURE_DISTANCE = 0.15
 DEPARTURE_TIME = 0.10
+MOTION_LEAD_SPEED = 0.15
+MOTION_LEAD_ACCEL = 0.5
+MOTION_TIME = 0.10
 LEAD_CHANGE_DISTANCE = 1.5
 
 
@@ -30,6 +40,7 @@ class _Evidence:
     self.anchor_distance = distance
     self.held = False
     self.departure_since = None
+    self.motion_since = None
     self.departed = False
 
 
@@ -108,4 +119,14 @@ class StoppingLeadFilter:
         return False
     else:
       evidence.departure_since = None
+
+    moving = lead.vLead >= MOTION_LEAD_SPEED - 1e-6 and lead.aLeadK >= MOTION_LEAD_ACCEL - 1e-6 and lead.vRel > 0.0
+    if moving:
+      if evidence.motion_since is None:
+        evidence.motion_since = now
+      if now - evidence.motion_since >= MOTION_TIME - 1e-6:
+        evidence.departed = True
+        return False
+    else:
+      evidence.motion_since = None
     return True
