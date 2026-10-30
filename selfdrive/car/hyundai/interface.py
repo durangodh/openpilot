@@ -5,6 +5,7 @@ from typing import List
 from cereal import car
 from common.conversions import Conversions as CV
 from selfdrive.car.hyundai.values import CAR, Buttons, CarControllerParams
+from selfdrive.car.hyundai.mcan_hud import MCAN_TX_PARAM
 from selfdrive.car.hyundai.cruise_buttons import button_transitions, main_button_transitions
 from selfdrive.eon_cluster.hud_remote import RemoteButtonSource
 from selfdrive.car import STD_CARGO_KG, scale_rot_inertia, scale_tire_stiffness, gen_empty_fingerprint, get_safety_config
@@ -328,7 +329,9 @@ class CarInterface(CarInterfaceBase):
 
     # apilot-c2 engagement: lateral control is always available from the cruise
     # MAIN switch, so community safety must always be active for this model.
-    ret.safetyConfigs = [get_safety_config(car.CarParams.SafetyModel.hyundaiCommunity, 0)]
+    # McanHudTbt: the panda opens MM-CAN (bus 1) for the stock-HUD TBT messages.
+    safety_param = MCAN_TX_PARAM if Params().get_bool("McanHudTbt") else 0
+    ret.safetyConfigs = [get_safety_config(car.CarParams.SafetyModel.hyundaiCommunity, safety_param)]
     return ret
 
   def _update(self, c: car.CarControl) -> car.CarState:

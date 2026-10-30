@@ -191,6 +191,8 @@ class NavigationRouteData:
       self.state = self.guidance_state(
         root.get("guidance_current") or {}, guidance_fresh and not guidance_blocked)
       self.state["off_route"] = off_route
+      # Stream freshness alone (stock HUD TBT also shows straight/arrival guidance).
+      self.state["guidance_fresh"] = guidance_fresh and not guidance_blocked
       route_updated_at = stream_times.get("route", guidance_updated_at)
       vehicle_updated_at = stream_times.get("vehicle", guidance_updated_at)
       route_age = time.time() - _number(route_updated_at, 0.0) / 1000.0

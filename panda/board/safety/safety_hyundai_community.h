@@ -239,10 +239,24 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
   return valid;
 }
 
+// MM-CAN (bus 1) stock HUD turn-by-turn output, enabled by MCAN_TX_PARAM.
+static bool hyundai_community_mcan_tx = false;
+
+static bool hyundai_community_mcan_tx_allowed(int addr) {
+  // 0x115 HU_CLU_PE_02 (TBT), 0x123 HU_CLU_PE_07 (bar), 0x4A9 HUD text (ISO-TP)
+  return hyundai_community_mcan_tx && ((addr == 0x115) || (addr == 0x123) || (addr == 0x4A9));
+}
+
 static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_allowed) {
   int tx = 1;
   int addr = GET_ADDR(to_send);
   int bus = GET_BUS(to_send);
+
+  // Bus 1 is the MM-CAN tap: nothing but the HUD TBT messages may go there
+  // (the LKAS11/EMS11 bus 1 entries below are for cars with MDPS/SCC on bus 1).
+  if (BUS1_IS_MCAN && (bus == 1)) {
+    return hyundai_community_mcan_tx_allowed(addr) ? 1 : 0;
+  }
 
   if (!msg_allowed(to_send, HYUNDAI_COMMUNITY_TX_MSGS, sizeof(HYUNDAI_COMMUNITY_TX_MSGS)/sizeof(HYUNDAI_COMMUNITY_TX_MSGS[0]))) {
     tx = 0;
@@ -441,7 +455,7 @@ static int hyundai_community_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
 }
 
 static const addr_checks* hyundai_community_init(int16_t param) {
-  UNUSED(param);
+  hyundai_community_mcan_tx = (((uint16_t)param & MCAN_TX_PARAM) != 0U);
   controls_allowed = false;
   hyundai_community_main_on = false;
   hyundai_community_lat_allowed = false;

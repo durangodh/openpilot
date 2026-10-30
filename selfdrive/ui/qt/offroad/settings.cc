@@ -1142,6 +1142,11 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   setAutoFillBackground(true);
   setPalette(pal);
 
+  toggleLayout->addWidget(new ParamControl(
+      "McanHudTbt", "STOCK HUD NAVER TBT (M-CAN)",
+      "켜짐: 네이버 회전 안내(화살표·거리·방면)를 순정 HUD 에 보냅니다. 판다와 차 M-CAN 사이에 저속(내결함)↔고속 CAN 변환기가 있어야 합니다. 변환기 없이 켜지 마세요(판다가 저속 M-CAN 에 직접 신호를 냄). 순정 내비는 목적지 없이 두세요. 재부팅 후 적용.",
+      "../assets/offroad/icon_road.png", this));
+
   // ── S9 외부 클러스터 HUD ──────────────────────────────────
 
   toggleLayout->addWidget(new ParamControl(

@@ -8,6 +8,7 @@ from selfdrive.car.hyundai.hyundaican import create_lkas11, create_clu11, \
   create_scc11, create_scc12, create_scc13, create_scc14, \
   create_mdps12, create_lfahda_mfc, create_hda_mfc
 from selfdrive.car.hyundai.scc_smoother import SccSmoother
+from selfdrive.car.hyundai.mcan_hud import McanHud
 from selfdrive.car.hyundai.values import Buttons, FEATURES, CarControllerParams
 from selfdrive.car.hyundai.cruise_buttons import button_pressed_in_samples
 from opendbc.can.packer import CANPacker
@@ -125,6 +126,9 @@ class CarController:
     self.scc_smoother = SccSmoother()
     self.soft_hold_mode = int(clip(param.get_int("SoftHoldMode"), 0, 2))
     self.hud_wheel_state_mode = param.get_bool("HudWheelStateMode")
+    # Naver TBT on the stock HUD over MM-CAN (bus 1). The panda only opens bus 1
+    # when the same param was in the safety config at startup (interface.py).
+    self.mcan_hud = McanHud() if param.get_bool("McanHudTbt") else None
     self.lkas_state_test = None
     self.scc_stop_latched = False
     self.prev_active_cam = False
@@ -268,6 +272,9 @@ class CarController:
         can_sends.append(create_lfahda_mfc(self.packer, CC.enabled, activated_hda))
       elif CS.has_lfa_hda:
         can_sends.append(create_hda_mfc(self.packer, activated_hda, CS, hud_control.leftLaneVisible, hud_control.rightLaneVisible))
+
+    if self.mcan_hud is not None:
+      can_sends.extend(self.mcan_hud.update(self.frame, controls.cruise_helper.navigation_route.state))
 
     new_actuators = actuators.copy()
     new_actuators.steer = apply_steer / self.params.STEER_MAX

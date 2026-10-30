@@ -120,7 +120,8 @@ void set_safety_mode(uint16_t mode, int16_t param) {
       if (current_board->has_obd) {
         current_board->set_can_mode(CAN_MODE_NORMAL);
       }
-      can_silent = ALL_CAN_LIVE | MCAN_SILENT_MASK;
+      // MM-CAN stays listen-only unless the car safety asked for HUD output.
+      can_silent = ALL_CAN_LIVE | ((((uint16_t)param & MCAN_TX_PARAM) != 0U) ? 0U : MCAN_SILENT_MASK);
       break;
   }
   can_init_all();

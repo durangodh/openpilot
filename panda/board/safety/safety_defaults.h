@@ -12,6 +12,10 @@ int Last_StrColTq = 0;
 // Genesis DH: panda bus 1 is a listen-only MM-CAN tap (MCAN_BUS in
 // can_common.h), so never take it for an MDPS/SCC bus or forward to/from it.
 #define BUS1_IS_MCAN true
+// Safety param bit (host McanHudTbt): bus 1 goes live and the Hyundai community
+// safety lets only the stock-HUD turn-by-turn IDs out on it. Needs an MM-CAN
+// low-speed fault-tolerant <-> high-speed converter between the panda and the car.
+#define MCAN_TX_PARAM 0x0400
 
 const addr_checks default_rx_checks = {
   .check = NULL,
