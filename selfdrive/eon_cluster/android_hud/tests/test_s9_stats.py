@@ -27,6 +27,7 @@ public class S9StatsCheck {
   static class SystemClock { static long now = 1000; static long elapsedRealtime() { return now; } }
   long cpuLastTotal, cpuLastIdle, cpuLastSampleElapsed, s9CpuSampleElapsed, s9TempSampleElapsed;
   float s9TempC = -1, s9CpuPercent = -1;
+  volatile String lastThermalDump;
   static int checks;
   static void check(boolean ok) { checks++; if (!ok) throw new AssertionError("check " + checks); }
   METHODS
