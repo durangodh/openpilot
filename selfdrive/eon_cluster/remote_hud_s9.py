@@ -11,6 +11,7 @@ from common.params import Params, UnknownKeyName
 from selfdrive.eon_cluster import remote_hud as base
 from selfdrive.eon_cluster.hud_geometry import normalize_geometry
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
+from selfdrive.controls.lib.rear_camera import RearCameraHold
 from selfdrive.eon_cluster.section_average import SectionAverage
 from selfdrive.eon_cluster.navi_layout import NaviLayout
 from selfdrive.eon_cluster.trip_report import TripReport
@@ -19,6 +20,9 @@ from selfdrive.eon_cluster.trip_report import TripReport
 _params = Params()
 _nav_route = NavigationRouteData()
 _section_average = SectionAverage()
+# CruiseHelper 와 같은 규칙으로 후면 카메라 통과 후 유지거리를 HUD 에도 보여 준다.
+_rear_hold = RearCameraHold()
+_rear_hold_time = [None]
 _navi_layout = NaviLayout()
 _trip_report = TripReport()
 _original_packet = base._packet
@@ -65,12 +69,19 @@ def _apply_naver_speed(packet, v_ego=0.0):
   section = events.get("section")
   # Keep the section average running even while a camera/bump is shown, so
   # it is right again when the section comes back on screen.
-  section_avg = _section_average.update(section, v_ego, time.monotonic())
+  now = time.monotonic()
+  section_avg = _section_average.update(section, v_ego, now)
+  last = _rear_hold_time[0]
+  _rear_hold_time[0] = now
+  dt = 0.0 if last is None else max(0.0, min(0.5, now - last))
+  rear_holding = _rear_hold.update(camera, v_ego * dt)
   packet["limit"] = max(0, int(round(float(state.get("road_limit_kph", 0.0) or 0.0))))
   packet["camera"] = 0
   packet["cameraDist"] = 0
   packet["cameraSection"] = False
   packet["cameraSectionAvg"] = 0
+  packet["cameraRear"] = False
+  packet["cameraRearHold"] = False
   packet["bumpDist"] = 0
 
   if isinstance(camera, dict):
@@ -82,7 +93,14 @@ def _apply_naver_speed(packet, v_ego=0.0):
     else:
       packet["camera"] = limit
       packet["cameraDist"] = distance
-  elif isinstance(section, dict):
+      packet["cameraRear"] = bool(camera.get("rear", False))
+  if packet["camera"] <= 0 and rear_holding:
+    # 후면 카메라를 지난 뒤: 남은 유지거리를 거리 칸에 보여 준다(감속도 같은 거리 동안 유지).
+    packet["camera"] = max(0, int(round(_rear_hold.limit)))
+    packet["cameraDist"] = max(1, int(round(_rear_hold.remaining)))
+    packet["cameraRear"] = True
+    packet["cameraRearHold"] = True
+  elif packet["camera"] <= 0 and isinstance(section, dict):
     packet["camera"] = max(0, int(round(float(section.get("limit", 0.0) or 0.0))))
     packet["cameraDist"] = max(0, int(round(float(section.get("distance", 0.0) or 0.0))))
     packet["cameraSection"] = packet["camera"] > 0 and packet["cameraDist"] > 0

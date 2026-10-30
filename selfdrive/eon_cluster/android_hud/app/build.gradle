@@ -1,8 +1,8 @@
 plugins { id "com.android.application" }
 
 def remoteHudKeystorePath = System.getenv("REMOTE_HUD_KEYSTORE_PATH")
-def remoteHudVersionCode = (System.getenv("REMOTE_HUD_VERSION_CODE") ?: "189").toInteger()
-def remoteHudVersionName = System.getenv("REMOTE_HUD_VERSION_NAME") ?: "1.78-navi-module-logs"
+def remoteHudVersionCode = (System.getenv("REMOTE_HUD_VERSION_CODE") ?: "190").toInteger()
+def remoteHudVersionName = System.getenv("REMOTE_HUD_VERSION_NAME") ?: "1.79-rear-camera"
 
 android {
   namespace "ai.comma.remotehud"

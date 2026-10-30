@@ -301,6 +301,8 @@ class NavigationRouteData:
     if result["section"] is None and sdi_type >= 0 and sdi_distance > 0.0 and \
        (sdi_limit > 0.0 or sdi_type == 22):
       result["camera"] = {"type": sdi_type, "distance": sdi_distance, "limit": sdi_limit}
+      if primary.get("rear", False):
+        result["camera"]["rear"] = True
     elif result["section"] is None:
       secondary = speed.get("sdi_secondary")
       if isinstance(secondary, dict):
@@ -315,6 +317,8 @@ class NavigationRouteData:
            (secondary_limit > 0.0 or secondary_type == 22):
           result["camera"] = {"type": secondary_type, "distance": secondary_distance,
                               "limit": secondary_limit}
+          if secondary.get("rear", False):
+            result["camera"]["rear"] = True
     return result
 
   @staticmethod

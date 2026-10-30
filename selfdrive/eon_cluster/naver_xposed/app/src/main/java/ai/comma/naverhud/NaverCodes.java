@@ -258,7 +258,72 @@ public final class NaverCodes {
         int limit = sdiLimitAllowed(type) ? speedLimit(sdi) : 0;
         return "{\"type\":" + type + ",\"naver_type\":" + naver + ",\"code\":\"" + esc(name)
                 + "\",\"distance_m\":" + round(number(call(sdi, "distance")))
-                + ",\"speed_limit_kph\":" + limit + "}";
+                + ",\"speed_limit_kph\":" + limit
+                + (isRearCamera(sdi) ? ",\"rear\":true" : "") + "}";
+    }
+
+    /**
+     * 후면 단속카메라: 코드는 SpeedCam 그대로이고 카메라 속성 목록에 RearCamera 가 들어 있다
+     * (2026-10-30 09:17 실차: [RearCamera, Signal, SpeedEnforcement]). 목록을 담은 필드 이름은
+     * 난독화라 버전마다 바뀌므로, 항목과 그 안의 객체 필드 중 목록을 모두 훑어 이름으로 찾는다.
+     */
+    static boolean isRearCamera(Object sdi) {
+        return hasRearCamera(sdi, 2);
+    }
+
+    private static final java.util.Map<Class<?>, Field[]> SCAN_FIELDS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static boolean hasRearCamera(Object obj, int depth) {
+        if (obj == null || depth <= 0 || isPlatform(obj.getClass())) return false;
+        for (Field field : scanFields(obj.getClass())) {
+            Object value;
+            try {
+                value = field.get(obj);
+            } catch (Throwable ignored) {
+                continue;
+            }
+            if (value instanceof java.util.Collection) {
+                try {
+                    for (Object item : (java.util.Collection<?>) value) {
+                        String tag = item instanceof Enum ? ((Enum<?>) item).name() : String.valueOf(item);
+                        if ("RearCamera".equals(tag)) return true;
+                    }
+                } catch (Throwable ignored) {
+                    // Naver may replace the list while we read it; the next poll sees it again.
+                }
+            } else if (value != null && hasRearCamera(value, depth - 1)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Instance fields that can hold a list or a nested app object (cached per class). */
+    private static Field[] scanFields(Class<?> type) {
+        Field[] cached = SCAN_FIELDS.get(type);
+        if (cached != null) return cached;
+        java.util.List<Field> fields = new java.util.ArrayList<>();
+        for (Class<?> t = type; t != null && !isPlatform(t); t = t.getSuperclass()) {
+            for (Field field : t.getDeclaredFields()) {
+                Class<?> ft = field.getType();
+                if (Modifier.isStatic(field.getModifiers()) || ft.isPrimitive() || ft.isEnum()
+                        || ft == String.class || Number.class.isAssignableFrom(ft)) continue;
+                try {
+                    field.setAccessible(true);
+                    fields.add(field);
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        cached = fields.toArray(new Field[0]);
+        SCAN_FIELDS.put(type, cached);
+        return cached;
+    }
+
+    private static boolean isPlatform(Class<?> type) {
+        String name = type.getName();
+        return name.startsWith("java.") || name.startsWith("javax.") || name.startsWith("android.")
+                || name.startsWith("kotlin.") || name.startsWith("kotlinx.") || name.startsWith("androidx.");
     }
 
     // ---- small reflective helpers (same semantics as NaverBridge) ----

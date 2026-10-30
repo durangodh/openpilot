@@ -4598,7 +4598,8 @@ public final class HudService extends Service {
         if (!stale) {
             signSave = scaleAbout(c, CAM_X, CAM_Y);
             drawCamera(c, p, CAM_X, CAM_Y, s.optInt("camera", 0), s.optInt("cameraDist", 0),
-                    s.optBoolean("cameraSection", false), s.optInt("cameraSectionAvg", 0));
+                    s.optBoolean("cameraSection", false), s.optInt("cameraSectionAvg", 0),
+                    s.optBoolean("cameraRear", false), s.optBoolean("cameraRearHold", false));
             c.restoreToCount(signSave);
         }
         // 도로 제한속도(파란 원 + LIMIT). EON 박스 LIMIT 칸은 그대로 둔다.
@@ -5880,7 +5881,7 @@ public final class HudService extends Service {
     }
 
     private void drawCamera(Canvas c, Paint p, float cx, float cy, int limit, int dist, boolean section,
-                            int sectionAvg) {
+                            int sectionAvg, boolean rear, boolean rearHold) {
         // Match EON onroad.cc: a camera is valid only while both the limit and
         // positive remaining distance are present.  This also fails closed if
         // an older sender leaves only camLimitSpeed behind after passing it.
@@ -5903,7 +5904,11 @@ public final class HudService extends Service {
         float r = 36f * CAM_ICON_SCALE;
         float tx = cx + r + 10f / SIGN_SCALE;
         float base = cy + r - 3f / SIGN_SCALE;
-        String distText = (section ? lang("구간 ", "ZONE ") : "") + distanceText(dist);
+        // 후면 단속: 다가갈 때는 "후면 거리", 지난 뒤에는 남은 유지거리를 "후면 유지 거리"로.
+        String prefix = section ? lang("구간 ", "ZONE ")
+                : rearHold ? lang("후면 유지 ", "REAR HOLD ")
+                : rear ? lang("후면 ", "REAR ") : "";
+        String distText = prefix + distanceText(dist);
         if (section && sectionAvg > 0) {
             // 구간단속 평균속도. 제한속도를 넘으면 빨간색.
             int color = sectionAvg > limit ? Color.rgb(220, 45, 45) : ink();

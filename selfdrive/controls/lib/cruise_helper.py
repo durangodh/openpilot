@@ -7,6 +7,7 @@ from common.params import Params, put_nonblocking
 from common.realtime import DT_CTRL, sec_since_boot
 from selfdrive.car.hyundai.values import Buttons
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
+from selfdrive.controls.lib.rear_camera import RearCameraHold
 from selfdrive.controls.lib.vision_curve_speed import VisionCurveSpeed, UNLIMITED_SPEED
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
 from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software_gap
@@ -130,6 +131,8 @@ class CruiseHelper:
     self.navi_distance_time = sec_since_boot()
     self.cam_dist_est = 0.0
     self.bump_hold = SpeedBumpHold()
+    self.rear_hold = RearCameraHold()
+    self.cam_rear_est = False
     self.cam_raw_dist = 0.0
     self.cam_limit_est = 0.0
     self.cam_type_est = -1
@@ -833,10 +836,12 @@ class CruiseHelper:
     navi_events = self.navigation_route.speed_events(navi_state)
     navi_camera = navi_events["camera"]
     navi_section = navi_events["section"]
+    cam_rear = False
     if cam_dist <= 0.0 and navi_camera is not None:
       cam_type = int(navi_camera["type"])
       cam_dist = float(navi_camera["distance"])
       cam_limit = float(navi_camera["limit"])
+      cam_rear = bool(navi_camera.get("rear", False))
     if section_dist <= 0.0 and navi_section is not None:
       section_dist = float(navi_section["distance"])
       section_limit = float(navi_section["limit"])
@@ -855,13 +860,15 @@ class CruiseHelper:
     self.navi_distance_time = now
     traveled = max(float(CS.out.vEgo), 0.0) * navi_dt
     bump_holding = self.bump_hold.update(traveled)
+    rear_holding = self.rear_hold.update(navi_camera, traveled)
 
     if self.cam_dist_est > 0.0 and not self.cam_passed:
       self.cam_dist_est = max(0.0, self.cam_dist_est - traveled)
       # AutoNaviSpeedReleaseDist: 카메라 앞 N m 에서 미리 "지난 것"으로 보고 가속을 허용.
       # 방지턱은 미리 풀면 턱 위에서 가속하므로 실제 위치(0 m)까지 간다.
+      # 후면 카메라도 미리 풀지 않는다(통과 뒤 rear_hold 가 이어 받는다).
       is_bump = self.cam_type_est == 22
-      release_dist = 0.0 if is_bump else self.auto_navi_speed_release_dist
+      release_dist = 0.0 if (is_bump or self.cam_rear_est) else self.auto_navi_speed_release_dist
       if self.cam_dist_est <= release_dist:
         self.cam_passed = True
         if is_bump:
@@ -879,6 +886,7 @@ class CruiseHelper:
       self.cam_raw_dist = cam_dist
       self.cam_limit_est = cam_limit
       self.cam_type_est = cam_type
+      self.cam_rear_est = cam_rear
       self.cam_last_valid_time = now
       cam_dist = 0.0 if self.cam_passed else self.cam_dist_est
     elif self.cam_limit_est > 0.0 and \
@@ -899,6 +907,7 @@ class CruiseHelper:
       self.cam_raw_dist = 0.0
       self.cam_limit_est = 0.0
       self.cam_type_est = -1
+      self.cam_rear_est = False
       self.cam_last_valid_time = 0.0
       self.cam_passed = False
       cam_dist = 0.0
@@ -963,6 +972,17 @@ class CruiseHelper:
       navi_target_kph = section_limit * self.auto_navi_speed_safety_factor
       # C3 holds the section target directly while inside the section.
       apply_limit_speed = self.kph_to_clu(navi_target_kph)
+    if rear_holding:
+      # 후면 카메라 통과 후 유지거리 동안 카메라 제한속도. 그사이 다른 카메라·구간이
+      # 오면 둘 중 낮은 쪽을 쓴다.
+      rear_kph = self.rear_hold.limit * self.auto_navi_speed_safety_factor
+      rear_clu = self.kph_to_clu(rear_kph)
+      if apply_limit_speed <= 0.0 or rear_clu < apply_limit_speed:
+        road_limit_speed = self.rear_hold.limit
+        left_dist = self.rear_hold.remaining
+        navi_source = "cam"
+        navi_target_kph = rear_kph
+        apply_limit_speed = rear_clu
     if self.turn_vision_control:
       self.cal_curve_speed(sm, CS.out.vEgo, frame, CS.out.aEgo)
     else:
