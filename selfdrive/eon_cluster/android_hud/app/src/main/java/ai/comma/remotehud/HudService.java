@@ -423,6 +423,8 @@ public final class HudService extends Service {
         int previous = phoneDensityDpi;
         phoneDensityDpi = dpi;
         if (previous < 0 || previous == dpi || !running.get()) return;
+        // 미러링이 붙거나(dpi 내려감) 끊긴(dpi 올라감) 순간의 온도.
+        logTemperature(dpi > previous ? "mirror-end" : "mirror-start");
         long launchAge = SystemClock.elapsedRealtime() - lastNavLaunchElapsed;
         // 미러링이 끊겨 dpi 가 다시 커질 때(시동 끔 등)는 네비를 건드리지 않는다.
         if (lastNavLaunchElapsed == 0L || launchAge < DPI_RESTART_MIN_AGE_MS || dpi > previous) {
@@ -6548,8 +6550,72 @@ public final class HudService extends Service {
                 applyThermal(null);
                 applyCpu(null);
             }
+            if (SystemClock.elapsedRealtime() - lastTempLogElapsed >= TEMP_LOG_PERIOD_MS) {
+                logTemperature("periodic");
+            }
             SystemClock.sleep(STATS_PERIOD_MS);
         }
+    }
+
+    /**
+     * 휴대폰 온도 기록(무선 미러링 끊김이 열 때문인지 보려고). statsLoop 가 3초마다 이미 읽는
+     * 온도 존 값을 1분마다, 그리고 미러링이 붙거나 끊길 때 hud-session.log 에 한 줄 남긴다.
+     * 새로 읽지 않으므로 추가 부하는 1분에 한 줄 쓰기뿐이다.
+     */
+    private static final long TEMP_LOG_PERIOD_MS = 60_000L;
+    private static final java.util.regex.Pattern TEMP_LOG_ZONES = java.util.regex.Pattern.compile(
+            "skin|xo|quiet|sdm|wlan|wifi|cnss|modem|mdm|pa[-_]|battery|gpu|conn|usb|charg");
+    private volatile String lastThermalDump;
+    private volatile long lastTempLogElapsed;
+
+    private void logTemperature(String reason) {
+        lastTempLogElapsed = SystemClock.elapsedRealtime();
+        String dump = lastThermalDump;
+        StringBuilder out = new StringBuilder("temp reason=").append(reason);
+        if (Build.VERSION.SDK_INT >= 29) {
+            try {
+                android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+                // 0 없음, 1 약함, 2 보통, 3 심함, 4 위험, 5 비상, 6 종료 직전(시스템 열 제한 단계)
+                if (pm != null) out.append(" status=").append(pm.getCurrentThermalStatus());
+            } catch (Exception ignored) { }
+        }
+        if (dump == null) {
+            HudDiagnostics.log(out.append(" zones=none").toString());
+            return;
+        }
+        float cpu = -1f;
+        float hottest = -1f;
+        String hottestType = "";
+        java.util.List<String> picked = new java.util.ArrayList<>();
+        for (String line : dump.split("\n")) {
+            int sep = line.lastIndexOf(':');
+            if (sep < 0) continue;
+            float value;
+            try {
+                value = Float.parseFloat(line.substring(sep + 1).trim());
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            if (value > 1000f) value /= 1000f;
+            if (!Float.isFinite(value) || value <= 0f || value >= 150f) continue;
+            String type = line.substring(0, sep).trim();
+            String lower = type.toLowerCase(Locale.US);
+            if (lower.contains("cpu") || lower.contains("big") || lower.contains("soc")
+                    || lower.contains("apollo") || lower.contains("atlas")) {
+                cpu = Math.max(cpu, value);
+            }
+            if (value > hottest) {
+                hottest = value;
+                hottestType = type;
+            }
+            if (picked.size() < 12 && TEMP_LOG_ZONES.matcher(lower).find()) {
+                picked.add(type + "=" + String.format(Locale.US, "%.1f", value));
+            }
+        }
+        out.append(" cpu=").append(String.format(Locale.US, "%.1f", cpu));
+        out.append(" max=").append(String.format(Locale.US, "%.1f", hottest)).append('(').append(hottestType).append(')');
+        if (!picked.isEmpty()) out.append(" | ").append(android.text.TextUtils.join(" ", picked));
+        HudDiagnostics.log(out.toString());
     }
 
     private void sampleS9Stats() {
@@ -6622,6 +6688,7 @@ public final class HudService extends Service {
 
     /** cpu/big/soc 존을 우선하고, 없으면 가장 높은 온도를 쓴다. */
     private void applyThermal(String dump) {
+        lastThermalDump = dump;
         s9TempC = -1f;
         s9TempSampleElapsed = 0L;
         if (dump == null) {
