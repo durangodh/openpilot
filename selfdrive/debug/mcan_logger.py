@@ -28,8 +28,15 @@ def mark_reader(marks_f):
   n = 0
   for line in sys.stdin:
     n += 1
-    marks_f.write(f"{time.time():.6f} MARK {n} {line.strip()}\n")
-    marks_f.flush()
+    # Korean typed in Termux can arrive as broken surrogates; never let a
+    # label kill the mark thread, the time stamp is what matters.
+    label = line.strip().encode("utf-8", "replace").decode("utf-8", "replace")
+    try:
+      marks_f.write(f"{time.time():.6f} MARK {n} {label}\n")
+      marks_f.flush()
+    except Exception as e:
+      print(f"mark {n} write failed: {e}")
+      continue
     print(f"mark {n}")
 
 
@@ -48,7 +55,7 @@ def main():
   can_sock = messaging.sub_sock("can", conflate=False)
   count = 0
   ids = set()
-  with open(log_fn, "w") as log_f, open(marks_fn, "w") as marks_f:
+  with open(log_fn, "w") as log_f, open(marks_fn, "w", encoding="utf-8", errors="replace") as marks_f:
     if sys.stdin.isatty():
       threading.Thread(target=mark_reader, args=(marks_f,), daemon=True).start()
     print(f"recording bus {sorted(buses)} to {log_fn}")
