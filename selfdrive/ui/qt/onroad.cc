@@ -1179,8 +1179,12 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
     cam_rear = scc_smoother.getNaviCamRear();
     cam_rear_hold = scc_smoother.getNaviCamRearHold();
   }
-  const int sec_limit = road_limit.getSectionLimitSpeed();
-  const int sec_dist  = road_limit.getSectionLeftDist();
+  int sec_limit = road_limit.getSectionLimitSpeed();
+  int sec_dist  = road_limit.getSectionLeftDist();
+  if (sec_dist <= 0 && scc_smoother.getNaviSectionDist() > 0 && scc_smoother.getNaviSectionLimit() > 0) {
+    sec_limit = scc_smoother.getNaviSectionLimit();
+    sec_dist = scc_smoother.getNaviSectionDist();
+  }
   const bool bump_detected = cam_type == 22 && cam_dist > 0;
   const bool cam_detected = (!bump_detected && cam_limit > 0 && cam_dist > 0) ||
                             (sec_limit > 0 && sec_dist > 0);
@@ -1339,7 +1343,8 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
       disp_speed = (int)(limit * kph_to_disp + 0.5f);
       limit_color = (blink_timer <= 8) ? CT_RED_A(210) : CT_YELLOW_A(210);
       const QString cam_label = (cam_dist > 0 && cam_rear)
-          ? QString::fromUtf8(cam_rear_hold ? "후면유지" : "후면") : QString("CAM");
+          ? QString::fromUtf8(cam_rear_hold ? "후면유지" : "후면")
+          : (cam_dist > 0 ? QString("CAM") : QString::fromUtf8("구간"));
       ctText(p, dx, dy - 45, cam_label, 30, CT_WHITE, true);
     } else {
       int limit = road_limit.getRoadLimitSpeed();
@@ -1387,6 +1392,13 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
 
   int sectionLimitSpeed = roadLimitSpeed.getSectionLimitSpeed();
   int sectionLeftDist = roadLimitSpeed.getSectionLeftDist();
+  int sectionAvg = roadLimitSpeed.getSectionAvgSpeed();
+  if (sectionLeftDist <= 0 && scc_smoother.getNaviSectionDist() > 0 && scc_smoother.getNaviSectionLimit() > 0) {
+    sectionLimitSpeed = scc_smoother.getNaviSectionLimit();
+    sectionLeftDist = scc_smoother.getNaviSectionDist();
+    sectionAvg = scc_smoother.getNaviSectionAvg();
+  }
+  bool section_shown = false;
 
   int limit_speed = 0;
   int left_dist = 0;
@@ -1402,6 +1414,7 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
   else if(sectionLimitSpeed > 0 && sectionLeftDist > 0) {
     limit_speed = sectionLimitSpeed;
     left_dist = sectionLeftDist;
+    section_shown = true;
   }
 
   // NDA/HDA 아이콘 --- carrot hud panel 안의 NDA/HDA 텍스트로 대체되어 제거함
@@ -1463,6 +1476,9 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
     // 후면 단속: 다가갈 때 "후면 273m", 지난 뒤에는 남은 유지거리 "후면유지 120m".
     if(camRear && left_dist > 0 && left_dist == camLimitSpeedLeftDist)
       str_left_dist = QString::fromUtf8(camRearHold ? "후면유지 " : "후면 ") + str_left_dist;
+    // 구간단속: "구간 1.2km", 아래에 지금까지 평균속도(제한 넘으면 빨강).
+    if(section_shown && left_dist > 0)
+      str_left_dist = QString::fromUtf8("구간 ") + str_left_dist;
 
     configFont(p, "Open Sans", 64, "Bold");  // 기존 80에서 20% 축소
     p.setPen(QColor(0, 0, 0, 230));
@@ -1470,11 +1486,17 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
 
     if(str_left_dist.length() > 0) {
       // "후면유지 120m" 처럼 길어지면 원 폭 안에 들도록 글자를 줄인다.
-      configFont(p, "Open Sans", camRear ? 34 : 48, "Bold");  // 기존 60에서 20% 축소
+      const bool long_label = camRear || section_shown;
+      configFont(p, "Open Sans", long_label ? 34 : 48, "Bold");  // 기존 60에서 20% 축소
       rect.translate(0, radius_/2 + 36);  // 기존 +45에서 20% 축소
-      rect.adjust(camRear ? -30 : -24, 0, camRear ? 60 : 24, 0);  // 기존 ±30에서 20% 축소
+      rect.adjust(long_label ? -30 : -24, 0, long_label ? 60 : 24, 0);  // 기존 ±30에서 20% 축소
       p.setPen(QColor(255, 255, 255, 230));
       p.drawText(rect, Qt::AlignCenter, str_left_dist);
+      if(section_shown && sectionAvg > 0) {
+        rect.translate(0, 44);
+        p.setPen(sectionAvg > sectionLimitSpeed ? QColor(255, 60, 60, 255) : QColor(255, 255, 255, 230));
+        p.drawText(rect, Qt::AlignCenter, QString::fromUtf8("평균 %1").arg(sectionAvg));
+      }
     }
   }
 

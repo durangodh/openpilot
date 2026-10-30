@@ -431,6 +431,10 @@ struct CarControl {
     naviCamDist @7 :Int16;
     naviCamRear @8 :Bool;      # rear enforcement camera (photographs after passing)
     naviCamRearHold @9 :Bool;  # passed a rear camera, holding its limit; naviCamDist = hold left
+    # Navigation section enforcement (구간단속) as CruiseHelper applies it.
+    naviSectionLimit @10 :Int16;
+    naviSectionDist @11 :Int32;   # m left in the section
+    naviSectionAvg @12 :Int16;    # km/h average so far (app value, or measured since entry); 0 = unknown
   }
 
   struct Actuators {

@@ -8,6 +8,7 @@ from common.realtime import DT_CTRL, sec_since_boot
 from selfdrive.car.hyundai.values import Buttons
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.controls.lib.rear_camera import RearCameraHold
+from selfdrive.eon_cluster.section_average import SectionAverage
 from selfdrive.controls.lib.vision_curve_speed import VisionCurveSpeed, UNLIMITED_SPEED
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
 from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software_gap
@@ -135,6 +136,9 @@ class CruiseHelper:
     self.cam_rear_est = False
     # (type, limit, dist, rear, rear_hold) of the camera the limiter acts on, for the EON HUD.
     self.ui_cam = (0, 0.0, 0.0, False, False)
+    # (limit, dist, average kph) of the section the limiter acts on, for the EON HUD.
+    self.ui_section = (0.0, 0.0, 0.0)
+    self.section_average = SectionAverage()
     self.cam_raw_dist = 0.0
     self.cam_limit_est = 0.0
     self.cam_type_est = -1
@@ -993,6 +997,12 @@ class CruiseHelper:
       self.ui_cam = (1, self.rear_hold.limit, self.rear_hold.remaining, True, True)
     else:
       self.ui_cam = (0, 0.0, 0.0, False, False)
+    # Same average as the S9 HUD (app value, else measured since entering the section).
+    section_avg = self.section_average.update(navi_section, CS.out.vEgo, now)
+    if section_dist > 0.0 and section_limit > 0.0:
+      self.ui_section = (section_limit, section_dist, section_avg)
+    else:
+      self.ui_section = (0.0, 0.0, 0.0)
     if self.turn_vision_control:
       self.cal_curve_speed(sm, CS.out.vEgo, frame, CS.out.aEgo)
     else:
@@ -1159,6 +1169,10 @@ class CruiseHelper:
     CC.sccSmoother.naviCamDist = int(clip(round(cam_dist), 0, 32767))
     CC.sccSmoother.naviCamRear = bool(cam_rear)
     CC.sccSmoother.naviCamRearHold = bool(cam_rear_hold)
+    sec_limit, sec_dist, sec_avg = self.ui_section
+    CC.sccSmoother.naviSectionLimit = int(round(sec_limit))
+    CC.sccSmoother.naviSectionDist = int(max(0, round(sec_dist)))
+    CC.sccSmoother.naviSectionAvg = int(clip(round(sec_avg), 0, 300))
 
     self.update_target_speed(CS, clu11_speed, controls, longcontrol)
     self.auto_speed_up(CS, controls, road_limit_speed, longcontrol)
