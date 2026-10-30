@@ -1,22 +1,22 @@
-package ai.comma.naverhud;
+package ai.comma.hudcommon;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Collection;
 
 /**
- * 난독화된 네이버 객체의 모든 필드를 한 줄로 적는다(로그 분석용).
+ * 난독화된 네비 앱 객체의 모든 필드를 한 줄로 적는다(로그 분석용).
  * 후면 단속카메라처럼 코드값이 같아도 화면 표시가 다른 항목에서 구분값을 찾기 위해
- * 안전운전 항목(GuidanceSafety)의 필드 이름·값을 그대로 남긴다.
+ * 안전운전 항목의 필드 이름·값을 그대로 남긴다(네이버·티맵·카카오 공용).
  */
-final class NaverObjectDump {
+public final class ObjectDump {
     private static final int MAX_CHARS = 1500;
     private static final int MAX_TEXT = 60;
     private static final int MAX_ITEMS = 3;
 
-    private NaverObjectDump() {}
+    private ObjectDump() {}
 
-    static String describe(Object value, int depth) {
+    public static String describe(Object value, int depth) {
         StringBuilder out = new StringBuilder();
         append(out, value, depth);
         if (out.length() > MAX_CHARS) {
@@ -82,6 +82,6 @@ final class NaverObjectDump {
     private static boolean isPlatform(Class<?> type) {
         String name = type.getName();
         return name.startsWith("java.") || name.startsWith("javax.") || name.startsWith("android.")
-                || name.startsWith("kotlin.") || name.startsWith("androidx.");
+                || name.startsWith("kotlin.") || name.startsWith("kotlinx.") || name.startsWith("androidx.");
     }
 }

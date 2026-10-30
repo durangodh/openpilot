@@ -2,6 +2,8 @@ package ai.comma.tmaphud;
 
 import android.os.SystemClock;
 
+import ai.comma.hudcommon.ObjectDump;
+
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.HashMap;
@@ -296,6 +298,36 @@ final class TmapBridge {
         if (sig.equals(lastSdiSignature)) return;
         lastSdiSignature = sig;
         TmapHudLog.line("sdi-codes" + (detail.length() == 0 ? " none" : detail.toString()));
+        // 네이버는 후면 카메라를 코드가 아니라 속성 목록으로 구분했다(2026-10-30). 티맵도
+        // 숨은 구분값이 있는지 보도록 SDI 항목과 RGData 의 SDI+ 필드를 모두 남긴다.
+        if (sdis != null) {
+            int index = 0;
+            for (Object s : sdis) {
+                if (s == null) continue;
+                TmapHudLog.line("sdi-fields #" + index++ + " " + ObjectDump.describe(s, 3));
+            }
+        }
+        if (booleanField(rg, "bSDIPlus")) {
+            TmapHudLog.line("sdi-fields plus " + sdiPlusFields(rg));
+        }
+    }
+
+    /** RGData 의 SDI+ 관련 필드(이름에 sdiplus 가 들어간 것)만 모아 적는다. */
+    private static String sdiPlusFields(Object rg) {
+        StringBuilder out = new StringBuilder("{");
+        for (Class<?> type = rg.getClass(); type != null && type != Object.class; type = type.getSuperclass()) {
+            for (Field f : type.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(f.getModifiers())
+                        || !f.getName().toLowerCase(java.util.Locale.US).contains("sdiplus")) continue;
+                try {
+                    f.setAccessible(true);
+                    if (out.length() > 1) out.append(", ");
+                    out.append(f.getName()).append('=').append(ObjectDump.describe(f.get(rg), 1));
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        return out.append('}').toString();
     }
 
     /** Speed.from: sdiInfo[0]/[1], 없으면 SDI+ 로 대신. */

@@ -1,5 +1,7 @@
 package ai.comma.kakaohud;
 
+import ai.comma.hudcommon.ObjectDump;
+
 import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -532,6 +534,16 @@ final class KakaoBridge {
             if (sig.equals(lastSafetySignature)) return;
             lastSafetySignature = sig;
             KakaoHudLog.line("safety-codes" + (detail.length() == 0 ? " none" : detail.toString()));
+            // 네이버는 후면 카메라를 코드가 아니라 속성 목록으로 구분했다(2026-10-30). 카카오도
+            // 숨은 구분값이 있는지 보도록 항목의 필드를 모두 남긴다.
+            // 경로 전체 목록이 올 수 있어 앞의 6개만 적는다(로그 512KB 순환).
+            int index = 0;
+            for (Object item : list) {
+                if (item == null) continue;
+                if (index >= 6) break;
+                KakaoHudLog.line("safety-fields #" + index++ + " " + ObjectDump.describe(item, 3)
+                        + " | str=" + ObjectDump.describe(String.valueOf(item), 0));
+            }
         } catch (Throwable error) {
             KakaoHudLog.ex("safety-codes", error);
         }

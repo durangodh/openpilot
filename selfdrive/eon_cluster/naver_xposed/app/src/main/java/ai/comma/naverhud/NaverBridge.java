@@ -3,6 +3,8 @@ package ai.comma.naverhud;
 import android.app.Activity;
 import android.content.Context;
 
+import ai.comma.hudcommon.ObjectDump;
+
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Collections;
@@ -359,8 +361,8 @@ final class NaverBridge {
         int index = 0;
         for (Object item : items) {
             if (item == null) continue;
-            NaverHudLog.line("safety-fields #" + index++ + " " + NaverObjectDump.describe(item, 3)
-                    + " | str=" + NaverObjectDump.describe(String.valueOf(item), 0));
+            NaverHudLog.line("safety-fields #" + index++ + " " + ObjectDump.describe(item, 3)
+                    + " | str=" + ObjectDump.describe(String.valueOf(item), 0));
         }
     }
 
