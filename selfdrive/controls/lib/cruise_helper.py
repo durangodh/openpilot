@@ -990,9 +990,12 @@ class CruiseHelper:
         navi_target_kph = rear_kph
         apply_limit_speed = rear_clu
 
-    # EON HUD: the navigation camera this limiter acts on, rear holds included.
+    # EON HUD: the navigation camera/bump this limiter acts on, bump and rear holds included.
     if cam_dist > 0.0 and cam_limit > 0.0:
       self.ui_cam = (cam_type, cam_limit, cam_dist, self.cam_rear_est, False)
+    elif bump_holding:
+      # 방지턱 통과 직후 유지거리 동안에도 방지턱 표시를 남긴다.
+      self.ui_cam = (22, self.auto_navi_speed_bump_speed, self.bump_hold.remaining, False, False)
     elif rear_holding:
       self.ui_cam = (1, self.rear_hold.limit, self.rear_hold.remaining, True, True)
     else:
