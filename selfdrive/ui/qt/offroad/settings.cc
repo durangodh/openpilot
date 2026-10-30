@@ -2158,6 +2158,16 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "켜짐: 방향지시등 작동 중에도 조향 제어를 유지합니다. / 꺼짐: 차량 조건에 따라 조향이 제한될 수 있습니다.",
       "../assets/offroad/icon_openpilot.png", this));
 
+  list->addItem(new ParamControl(
+      "HudWheelStateMode", "STOCK HUD WHEEL BY OP STATE",
+      "켜짐: 순정 HUD·계기판 핸들 표시를 오픈파일럿 상태로 정합니다. 비인게이지 회색, 인게이지 초록, 조향(MDPS) 폴트는 아래 값의 색. 이 모드에서는 HUD 차선 그림이 항상 나옵니다. / 꺼짐: 기존처럼 양쪽 차선이 보일 때만 핸들 표시.",
+      "../assets/offroad/icon_openpilot.png", this));
+
+  list->addItem(new ParamValueControlF(
+      "HudWheelFaultState", "STOCK HUD WHEEL FAULT VALUE",
+      "조향 폴트 때 보낼 LKAS 상태값(0~15). 노란 핸들이 나오는 값을 lkas_hud_state_test.py 로 찾아 넣으세요.",
+      "../assets/offroad/icon_openpilot.png", 0, 15, 1, 0, 7, this));
+
   ScrollView *scroller = new ScrollView(list, this);
   scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   layout->addWidget(scroller);

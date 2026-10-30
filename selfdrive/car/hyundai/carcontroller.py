@@ -39,6 +39,38 @@ def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego
   return bool(stopping and (actual_standstill or latched) and not pre_release)
 
 
+# 순정 HUD/계기판 핸들 표시(LKAS11 CF_Lkas_LdwsSysState). 3=작동(초록), 4=대기(회색).
+LKAS_STATE_ACTIVE = 3
+LKAS_STATE_STANDBY = 4
+# 정차 중 상태값을 강제로 바꿔 보는 시험용 파일(selfdrive/debug/lkas_hud_state_test.py 가 쓴다).
+LKAS_STATE_TEST_FILE = "/dev/shm/lkas_sys_state_test"
+
+
+def hud_wheel_state(sys_state, enabled, steer_fault, state_mode, fault_state, test_state=None):
+  """state_mode: 핸들 색을 차선 인식 대신 오픈파일럿 상태로 정한다.
+
+  비인게이지 회색(4), 인게이지 초록(3), 조향 폴트 fault_state. 3/4 는 양쪽 차선 표시를
+  포함하므로 이 모드에서는 HUD 차선 그림이 항상 나온다. test_state 는 인게이지가
+  아닐 때만 적용한다(노란색 값 찾기용).
+  """
+  if test_state is not None and not enabled:
+    return int(test_state)
+  if not state_mode:
+    return sys_state
+  if steer_fault:
+    return int(fault_state)
+  return LKAS_STATE_ACTIVE if enabled else LKAS_STATE_STANDBY
+
+
+def read_lkas_state_test():
+  try:
+    with open(LKAS_STATE_TEST_FILE) as f:
+      value = int(f.read().strip())
+    return value if 0 <= value <= 15 else None
+  except (OSError, ValueError):
+    return None
+
+
 def process_hud_alert(enabled, fingerprint, hud_control):
 
   sys_warning = (hud_control.visualAlert in (VisualAlert.steerRequired, VisualAlert.ldw))
@@ -96,6 +128,9 @@ class CarController:
 
     self.scc_smoother = SccSmoother()
     self.soft_hold_mode = int(clip(param.get_int("SoftHoldMode"), 0, 2))
+    self.hud_wheel_state_mode = param.get_bool("HudWheelStateMode")
+    self.hud_wheel_fault_state = int(clip(param.get_int("HudWheelFaultState"), 0, 15))
+    self.lkas_state_test = None
     self.scc_stop_latched = False
     self.prev_active_cam = False
     self.active_cam_timer = 0
@@ -154,6 +189,13 @@ class CarController:
     self.apply_steer_last = apply_steer
 
     sys_warning, sys_state, left_lane_warning, right_lane_warning = process_hud_alert(CC.enabled, self.car_fingerprint, hud_control)
+    if self.frame % 50 == 0:
+      self.hud_wheel_state_mode = self.op_params.get_bool("HudWheelStateMode")
+      self.hud_wheel_fault_state = int(clip(self.op_params.get_int("HudWheelFaultState"), 0, 15))
+      self.lkas_state_test = read_lkas_state_test()
+    steer_fault = CS.out.steerFaultTemporary or CS.out.steerFaultPermanent
+    sys_state = hud_wheel_state(sys_state, CC.enabled, steer_fault, self.hud_wheel_state_mode,
+                                self.hud_wheel_fault_state, self.lkas_state_test)
 
     if self.haptic_feedback_speed_camera:
       if self.prev_active_cam != controls.cruise_helper.active_cam:
