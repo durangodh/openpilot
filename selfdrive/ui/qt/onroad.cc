@@ -1166,9 +1166,19 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
   const int by = y + 270;
 
   // ---- 단속 카메라 감지 ----
-  const int cam_limit = road_limit.getCamLimitSpeed();
-  const int cam_dist  = road_limit.getCamLimitSpeedLeftDist();
-  const int cam_type  = road_limit.getCamType();
+  int cam_limit = road_limit.getCamLimitSpeed();
+  int cam_dist  = road_limit.getCamLimitSpeedLeftDist();
+  int cam_type  = road_limit.getCamType();
+  bool cam_rear = false, cam_rear_hold = false;
+  // roadLimitSpeed(UDP)가 비어 있으면 감속 판단(CruiseHelper)이 쓰는 내비 카메라를 쓴다.
+  // 후면 단속은 통과 뒤 유지거리 동안에도 남은 거리를 보여 준다.
+  if (cam_dist <= 0 && scc_smoother.getNaviCamDist() > 0 && scc_smoother.getNaviCamLimit() > 0) {
+    cam_limit = scc_smoother.getNaviCamLimit();
+    cam_dist = scc_smoother.getNaviCamDist();
+    cam_type = scc_smoother.getNaviCamType();
+    cam_rear = scc_smoother.getNaviCamRear();
+    cam_rear_hold = scc_smoother.getNaviCamRearHold();
+  }
   const int sec_limit = road_limit.getSectionLimitSpeed();
   const int sec_dist  = road_limit.getSectionLeftDist();
   const bool bump_detected = cam_type == 22 && cam_dist > 0;
@@ -1328,7 +1338,9 @@ void NvgWindow::drawCarrotHud(QPainter &p) {
       int limit = (cam_dist > 0) ? cam_limit : sec_limit;
       disp_speed = (int)(limit * kph_to_disp + 0.5f);
       limit_color = (blink_timer <= 8) ? CT_RED_A(210) : CT_YELLOW_A(210);
-      ctText(p, dx, dy - 45, "CAM", 30, CT_WHITE, true);
+      const QString cam_label = (cam_dist > 0 && cam_rear)
+          ? QString::fromUtf8(cam_rear_hold ? "후면유지" : "후면") : QString("CAM");
+      ctText(p, dx, dy - 45, cam_label, 30, CT_WHITE, true);
     } else {
       int limit = road_limit.getRoadLimitSpeed();
       if (limit <= 0 && carrot_navi_speed_limit > 0 && carrot_navi_updated_at != 0 &&
@@ -1362,6 +1374,16 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
   int camLimitSpeed = roadLimitSpeed.getCamLimitSpeed();
   int camLimitSpeedLeftDist = roadLimitSpeed.getCamLimitSpeedLeftDist();
   int camType = roadLimitSpeed.getCamType();
+  bool camRear = false, camRearHold = false;
+  // drawCarrotHud 와 같이, roadLimitSpeed 가 비면 CruiseHelper 의 내비 카메라를 쓴다.
+  const auto scc_smoother = sm["carControl"].getCarControl().getSccSmoother();
+  if (camLimitSpeedLeftDist <= 0 && scc_smoother.getNaviCamDist() > 0 && scc_smoother.getNaviCamLimit() > 0) {
+    camLimitSpeed = scc_smoother.getNaviCamLimit();
+    camLimitSpeedLeftDist = scc_smoother.getNaviCamDist();
+    camType = scc_smoother.getNaviCamType();
+    camRear = scc_smoother.getNaviCamRear();
+    camRearHold = scc_smoother.getNaviCamRearHold();
+  }
 
   int sectionLimitSpeed = roadLimitSpeed.getSectionLimitSpeed();
   int sectionLeftDist = roadLimitSpeed.getSectionLeftDist();
@@ -1438,15 +1460,19 @@ void NvgWindow::drawSpeedLimit(QPainter &p) {
       str_left_dist.sprintf("%.1fkm", left_dist / 1000.f);
     else if(left_dist > 0)
       str_left_dist.sprintf("%dm", left_dist);
+    // 후면 단속: 다가갈 때 "후면 273m", 지난 뒤에는 남은 유지거리 "후면유지 120m".
+    if(camRear && left_dist > 0 && left_dist == camLimitSpeedLeftDist)
+      str_left_dist = QString::fromUtf8(camRearHold ? "후면유지 " : "후면 ") + str_left_dist;
 
     configFont(p, "Open Sans", 64, "Bold");  // 기존 80에서 20% 축소
     p.setPen(QColor(0, 0, 0, 230));
     p.drawText(rect, Qt::AlignCenter, str_limit_speed);
 
     if(str_left_dist.length() > 0) {
-      configFont(p, "Open Sans", 48, "Bold");  // 기존 60에서 20% 축소
+      // "후면유지 120m" 처럼 길어지면 원 폭 안에 들도록 글자를 줄인다.
+      configFont(p, "Open Sans", camRear ? 34 : 48, "Bold");  // 기존 60에서 20% 축소
       rect.translate(0, radius_/2 + 36);  // 기존 +45에서 20% 축소
-      rect.adjust(-24, 0, 24, 0);  // 기존 ±30에서 20% 축소
+      rect.adjust(camRear ? -30 : -24, 0, camRear ? 60 : 24, 0);  // 기존 ±30에서 20% 축소
       p.setPen(QColor(255, 255, 255, 230));
       p.drawText(rect, Qt::AlignCenter, str_left_dist);
     }

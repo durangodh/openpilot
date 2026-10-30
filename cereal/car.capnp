@@ -425,6 +425,12 @@ struct CarControl {
     cruiseMaxSpeed @2 :Float32;
     logMessage @3 :Text;
     applySource @4 :Text;
+    # Navigation speed camera as CruiseHelper applies it (for the EON HUD).
+    naviCamType @5 :Int16;
+    naviCamLimit @6 :Int16;
+    naviCamDist @7 :Int16;
+    naviCamRear @8 :Bool;      # rear enforcement camera (photographs after passing)
+    naviCamRearHold @9 :Bool;  # passed a rear camera, holding its limit; naviCamDist = hold left
   }
 
   struct Actuators {

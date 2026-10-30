@@ -133,6 +133,8 @@ class CruiseHelper:
     self.bump_hold = SpeedBumpHold()
     self.rear_hold = RearCameraHold()
     self.cam_rear_est = False
+    # (type, limit, dist, rear, rear_hold) of the camera the limiter acts on, for the EON HUD.
+    self.ui_cam = (0, 0.0, 0.0, False, False)
     self.cam_raw_dist = 0.0
     self.cam_limit_est = 0.0
     self.cam_type_est = -1
@@ -983,6 +985,14 @@ class CruiseHelper:
         navi_source = "cam"
         navi_target_kph = rear_kph
         apply_limit_speed = rear_clu
+
+    # EON HUD: the navigation camera this limiter acts on, rear holds included.
+    if cam_dist > 0.0 and cam_limit > 0.0:
+      self.ui_cam = (cam_type, cam_limit, cam_dist, self.cam_rear_est, False)
+    elif rear_holding:
+      self.ui_cam = (1, self.rear_hold.limit, self.rear_hold.remaining, True, True)
+    else:
+      self.ui_cam = (0, 0.0, 0.0, False, False)
     if self.turn_vision_control:
       self.cal_curve_speed(sm, CS.out.vEgo, frame, CS.out.aEgo)
     else:
@@ -1143,6 +1153,12 @@ class CruiseHelper:
     CC.sccSmoother.cruiseMaxSpeed = controls.v_cruise_kph if (not longcontrol or self.long_active_user > 0) else 0.0
     CC.sccSmoother.applySource = self.apply_source
     CC.sccSmoother.logMessage = ""
+    cam_type, cam_limit, cam_dist, cam_rear, cam_rear_hold = self.ui_cam
+    CC.sccSmoother.naviCamType = int(cam_type)
+    CC.sccSmoother.naviCamLimit = int(round(cam_limit))
+    CC.sccSmoother.naviCamDist = int(clip(round(cam_dist), 0, 32767))
+    CC.sccSmoother.naviCamRear = bool(cam_rear)
+    CC.sccSmoother.naviCamRearHold = bool(cam_rear_hold)
 
     self.update_target_speed(CS, clu11_speed, controls, longcontrol)
     self.auto_speed_up(CS, controls, road_limit_speed, longcontrol)
