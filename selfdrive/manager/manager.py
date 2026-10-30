@@ -185,7 +185,6 @@ def manager_init() -> None:
     ("LongitudinalActuatorDelayLowerBound", "50"),
     ("SoftHoldMode", "1"),
     ("HudWheelStateMode", "0"),
-    ("HudWheelFaultState", "7"),
   ]
   if not PC:
     default_params.append(("LastUpdateTime", datetime.datetime.utcnow().isoformat().encode('utf8')))
