@@ -17,17 +17,22 @@ public final class ObjectDump {
     private ObjectDump() {}
 
     public static String describe(Object value, int depth) {
+        return describe(value, depth, MAX_CHARS);
+    }
+
+    /** describe() with a larger budget, for objects with many fields (TBT items). */
+    public static String describe(Object value, int depth, int maxChars) {
         StringBuilder out = new StringBuilder();
-        append(out, value, depth);
-        if (out.length() > MAX_CHARS) {
-            out.setLength(MAX_CHARS);
+        append(out, value, depth, maxChars);
+        if (out.length() > maxChars) {
+            out.setLength(maxChars);
             out.append("...");
         }
         return out.toString();
     }
 
-    private static void append(StringBuilder out, Object value, int depth) {
-        if (out.length() > MAX_CHARS) return;
+    private static void append(StringBuilder out, Object value, int depth, int maxChars) {
+        if (out.length() > maxChars) return;
         if (value == null) {
             out.append("null");
         } else if (value instanceof Number || value instanceof Boolean || value instanceof Character) {
@@ -48,17 +53,17 @@ public final class ObjectDump {
                     break;
                 }
                 if (n > 1) out.append(',');
-                append(out, item, depth - 1);
+                append(out, item, depth - 1, maxChars);
             }
             out.append(']');
         } else if (depth <= 0 || isPlatform(value.getClass())) {
             out.append(value.getClass().getSimpleName());
         } else {
-            appendFields(out, value, depth);
+            appendFields(out, value, depth, maxChars);
         }
     }
 
-    private static void appendFields(StringBuilder out, Object value, int depth) {
+    private static void appendFields(StringBuilder out, Object value, int depth, int maxChars) {
         out.append(value.getClass().getName()).append('{');
         boolean first = true;
         for (Class<?> type = value.getClass(); type != null && !isPlatform(type); type = type.getSuperclass()) {
@@ -69,11 +74,11 @@ public final class ObjectDump {
                 out.append(field.getName()).append('=');
                 try {
                     field.setAccessible(true);
-                    append(out, field.get(value), depth - 1);
+                    append(out, field.get(value), depth - 1, maxChars);
                 } catch (Throwable error) {
                     out.append('?');
                 }
-                if (out.length() > MAX_CHARS) return;
+                if (out.length() > maxChars) return;
             }
         }
         out.append('}');

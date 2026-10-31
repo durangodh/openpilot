@@ -247,8 +247,8 @@ final class NaverBridge {
         send("app_status", "{\"source\":\"NAVER\",\"foreground\":true,\"guidance_active\":" + guiding + "}");
 
         Object directions = value(NaverStore.get(s, "TbtData"));
-        send("guidance_current", guidance(call(directions, "e")));
-        send("guidance_next", guidance(call(directions, "f")));
+        send("guidance_current", guidance(call(directions, "e"), true));
+        send("guidance_next", guidance(call(directions, "f"), false));
 
         Object route = value(NaverStore.get(s, "GuidanceRemaining"));
         Object goal = call(route, "getGoal");
@@ -304,7 +304,7 @@ final class NaverBridge {
         }
     }
 
-    private static String guidance(Object direction) {
+    private static String guidance(Object direction, boolean current) {
         if (direction == null) return "null";
         Object detail = call(direction, "i");
         Object turn = call(detail, "s");
@@ -317,9 +317,27 @@ final class NaverBridge {
         String road = text(call(detail, "v"));
         String towards = text(call(detail, "n")).replaceAll("\\s*,\\s*", ", ").trim();
         String main = towards.isEmpty() ? road : towards;
+        if (current) logTbtFields(direction, detail, raw, main);
         return "{\"source\":\"NAVER\",\"distance_m\":" + NaverCodes.round(NaverCodes.number(call(direction, "h")))
                 + ",\"turn_type\":" + mapped + ",\"naver_turn_type\":" + raw
                 + ",\"main_text\":" + quote(main) + ",\"road_name\":" + quote(road.isEmpty() ? main : road) + "}";
+    }
+
+    /** Last logged maneuver (raw turn code + direction text) for logTbtFields. */
+    private static String lastTbtSignature = "";
+
+    /**
+     * 순정 HUD 교차로 모양(삼거리/사거리, 램프)을 맞추기 위한 기록: 회전 안내가 바뀔 때만
+     * 안내 항목과 TbtDataItem 의 필드를 모두 naver_hud.log 에 남긴다. 교차로 이름이나
+     * 갈림길 각도가 들어 있는 필드를 찾는 용도.
+     */
+    private static void logTbtFields(Object direction, Object detail, int raw, String main) {
+        String sig = raw + ":" + main;
+        if (sig.equals(lastTbtSignature)) return;
+        lastTbtSignature = sig;
+        NaverHudLog.line("tbt-fields raw=" + raw + " main=" + main
+                + " | dir=" + ObjectDump.describe(direction, 2, 4000)
+                + " | item=" + ObjectDump.describe(detail, 3, 6000));
     }
 
     /** Last logged set of Naver safety codes (raw value, name, limit); distance is left out. */
