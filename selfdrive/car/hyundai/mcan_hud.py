@@ -82,15 +82,28 @@ TURN_ARRIVE = (2, 201)
 BAR_PREFIX_DEFAULT = bytes.fromhex("000000c0ffff0f")
 
 
-def bar_tenths(dist_m):
-  """10-step bar of 0x115 byte 7, as the AVN does it: full beyond 300 m, 30 m per step."""
-  if dist_m > 300:
+# The AVN's distance bar runs over 300 m for maneuvers announced close by, and over
+# 1 km for ones announced from further away (2026-11-01 07:41-07:43: from 1.2 km it lost
+# a step every 100 m and 0x123 read dist / 10; city turns from 300-400 m every 30 m and
+# dist / 3).
+BAR_SCALE_NEAR_M = 300
+BAR_SCALE_FAR_M = 1000
+BAR_FAR_START_M = 500
+
+
+def bar_scale(start_m):
+  return BAR_SCALE_FAR_M if start_m > BAR_FAR_START_M else BAR_SCALE_NEAR_M
+
+
+def bar_tenths(dist_m, scale_m=BAR_SCALE_NEAR_M):
+  """10-step bar of 0x115 byte 7: full beyond the scale, then one step per scale / 10."""
+  if dist_m > scale_m:
     return 10
-  return max(1, min(10, int(dist_m // 30)))
+  return max(1, min(10, int(dist_m // (scale_m // 10))))
 
 
-def bar_percent(dist_m):
-  return max(1, min(100, int(round(dist_m / 3.0))))
+def bar_percent(dist_m, scale_m=BAR_SCALE_NEAR_M):
+  return max(1, min(100, int(round(dist_m * 100.0 / scale_m))))
 
 
 def distance_fields(dist):
@@ -104,7 +117,7 @@ def distance_fields(dist):
   return km >> 8, km & 0xFF, 0x10, (dist % 1000) // 100
 
 
-def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1):
+def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE_NEAR_M):
   """0x115 payload for one Naver maneuver, or None to leave the AVN's frame alone.
   next_turn_type picks the keep-going preview icon; a 톨게이트 name on a straight
   maneuver shows the tollgate icon (the modules map tollgates to straight)."""
@@ -129,7 +142,7 @@ def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1):
     return None
   display, direction, side = code
   return bytes([display, side >> 8, side & 0xFF, direction, hi, lo, unit,
-                (bar_tenths(dist) << 4) | tenths])
+                (bar_tenths(dist, scale_m) << 4) | tenths])
 
 
 def camera_payload(camera, v_ego_kph=0.0):
@@ -181,6 +194,8 @@ class McanHud:
     self.text_queue = []
     self.text_wait = 0
     self.active = False
+    self.maneuver = None
+    self.maneuver_start = 0.0
 
   def _queue_text(self, text):
     self.text = text
@@ -200,8 +215,15 @@ class McanHud:
     # guidance_fresh, not fresh: "fresh" is false for straight/arrival guidance.
     if isinstance(nav_state, dict) and nav_state.get("guidance_fresh") and not nav_state.get("off_route"):
       nxt = nav_state.get("next") or {}
-      payload = tbt_payload(int(nav_state.get("turn_type", -1)), float(nav_state.get("distance", -1.0)),
-                            str(nav_state.get("text", "") or ""), int(nxt.get("turn_type", -1)))
+      turn_type = int(nav_state.get("turn_type", -1))
+      dist = float(nav_state.get("distance", -1.0))
+      text = str(nav_state.get("text", "") or "")
+      # The bar scale follows how far away this maneuver was first announced.
+      if (turn_type, text) != self.maneuver or dist > self.maneuver_start + 100.0:
+        self.maneuver = (turn_type, text)
+        self.maneuver_start = dist
+      payload = tbt_payload(turn_type, dist, text, int(nxt.get("turn_type", -1)),
+                            bar_scale(self.maneuver_start))
     elif isinstance(nav_state, dict) and nav_state.get("guidance_stream_fresh") and nav_state.get("off_route"):
       # The navi app is still guiding but recalculating the route.
       payload = REROUTE_PAYLOAD
@@ -220,7 +242,8 @@ class McanHud:
       if frame % SEND_PERIOD_FRAMES == 0:
         dist = float(nav_state.get("distance", 0.0))
         msgs.append(make_can_msg(TBT_ADDR, payload, MCAN_BUS))
-        percent = 100 if rerouting else bar_percent(dist)   # the AVN's idle bar while rerouting
+        # the AVN's idle bar while rerouting
+        percent = 100 if rerouting else bar_percent(dist, bar_scale(self.maneuver_start))
         msgs.append(make_can_msg(BAR_ADDR, BAR_PREFIX_DEFAULT + bytes([percent]), MCAN_BUS))
 
     if self.text_queue:

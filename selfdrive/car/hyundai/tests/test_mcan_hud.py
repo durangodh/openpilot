@@ -1,5 +1,5 @@
 """Stock HUD TBT frames must match what the Genesis DH AVN sends (2026-10-31 M-CAN logs)."""
-from selfdrive.car.hyundai.mcan_hud import (McanHud, isotp_frames, text_payload, tbt_payload, camera_payload,
+from selfdrive.car.hyundai.mcan_hud import (McanHud, isotp_frames, text_payload, tbt_payload, camera_payload, bar_percent,
                                             BAR_ADDR, TBT_ADDR, TEXT_ADDR, CAMERA_ADDR, MCAN_BUS)
 
 
@@ -102,3 +102,15 @@ def test_rerouting_shows_avn_reroute_frame_and_clears_text():
   msgs = run(hud, state, 10, start=10)
   assert {d.hex() for a, d, _ in msgs if a == TBT_ADDR} == {"0900000f000500f0"}
   assert [d.hex() for a, d, _ in msgs if a == TEXT_ADDR] == ["03f00000aaaaaaaa"]
+
+
+def test_bar_follows_announce_distance_like_avn():
+  far = 1000
+  assert [tbt_payload(13, d, scale_m=far)[7] >> 4 for d in (1200, 900, 800, 400, 290, 80)] == [10, 9, 8, 4, 2, 1]
+  assert [bar_percent(d, far) for d in (900, 500, 300, 90)] == [90, 50, 30, 9]   # AVN 0x123 (07:43)
+  hud = McanHud()
+  run(hud, nav(turn_type=13, dist=1200.0, text="병점, 정남"), 5)
+  msgs = run(hud, nav(turn_type=13, dist=400.0, text="병점, 정남"), 5, start=5)
+  assert [d[7] for a, d, _ in msgs if a == BAR_ADDR] == [40]                        # far scale kept
+  msgs = run(hud, nav(turn_type=12, dist=300.0, text="수원"), 5, start=10)
+  assert [d[7] for a, d, _ in msgs if a == BAR_ADDR] == [100]                       # new maneuver, near
