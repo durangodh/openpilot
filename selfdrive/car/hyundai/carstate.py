@@ -220,7 +220,10 @@ class CarState(CarStateBase):
     else:
       self.mdps_error_cnt = 0
 
-    ret.steerFaultTemporary = self.mdps_error_cnt > 50
+    # aPilot c2-master: the count is kept for reference, but an MDPS rejection is not
+    # reported as a fault. The MDPS recovers by itself and lateral control stays active
+    # instead of raising the alert and dropping latActive (user request 2026-10-31).
+    ret.steerFaultTemporary = False
 
     if self.CP.enableAutoHold:
       ret.autoHold = cp.vl["ESP11"]["AVH_STAT"]
