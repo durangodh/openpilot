@@ -35,12 +35,12 @@ def run(hud, state, frames, start=0):
   return out
 
 
-def test_update_sends_tbt_at_50hz_and_text_once():
+def test_update_sends_tbt_at_20hz_and_text_once():
   hud = McanHud()
   msgs = run(hud, nav(text="서동탄역"), 100)
   assert all(bus == MCAN_BUS for _, _, bus in msgs)
-  assert sum(1 for a, _, _ in msgs if a == TBT_ADDR) == 50
-  assert sum(1 for a, _, _ in msgs if a == BAR_ADDR) == 50
+  assert sum(1 for a, _, _ in msgs if a == TBT_ADDR) == 20
+  assert sum(1 for a, _, _ in msgs if a == BAR_ADDR) == 20
   text = [d.hex() for a, d, _ in msgs if a == TEXT_ADDR]
   assert text == ["1009f01cc1d9b3c4", "21d0edc5aaaaaaaa"]
 

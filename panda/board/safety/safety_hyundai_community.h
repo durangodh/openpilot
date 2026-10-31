@@ -247,6 +247,56 @@ static bool hyundai_community_mcan_tx_allowed(int addr) {
   return hyundai_community_mcan_tx && ((addr == 0x115) || (addr == 0x123) || (addr == 0x4A9));
 }
 
+// The AVN keeps sending its own 0x115/0x123 ("no guidance") at 5 Hz, which made
+// the HUD flicker between it and ours. Keep the host's last frame of each and
+// send it again right after every AVN frame, so the AVN value lasts only one
+// frame time on the bus. Only while the host keeps them fresh (it stops when
+// Naver guidance ends, and then the AVN frames go through untouched).
+#define MCAN_ECHO_FRESH_US 300000U
+void can_send(CANPacket_t *to_push, uint8_t bus_number, bool skip_tx_hook);
+static CANPacket_t hyundai_community_mcan_echo[2];
+static uint32_t hyundai_community_mcan_echo_ts[2] = {0U, 0U};
+static bool hyundai_community_mcan_echo_valid[2] = {false, false};
+
+static int hyundai_community_mcan_echo_index(int addr) {
+  int index = -1;
+  if (addr == 0x115) {
+    index = 0;
+  } else if (addr == 0x123) {
+    index = 1;
+  } else {
+  }
+  return index;
+}
+
+static void hyundai_community_mcan_remember(CANPacket_t *to_send, int addr) {
+  int index = hyundai_community_mcan_echo_index(addr);
+  if (index >= 0) {
+    // the CAN RX interrupt reads it (hyundai_community_mcan_answer)
+    ENTER_CRITICAL();
+    (void)memcpy(&hyundai_community_mcan_echo[index], to_send, sizeof(CANPacket_t));
+    hyundai_community_mcan_echo_ts[index] = microsecond_timer_get();
+    hyundai_community_mcan_echo_valid[index] = true;
+    EXIT_CRITICAL();
+  }
+}
+
+static void hyundai_community_mcan_answer(int addr) {
+  int index = hyundai_community_mcan_echo_index(addr);
+  if (hyundai_community_mcan_tx && (index >= 0) && hyundai_community_mcan_echo_valid[index]) {
+    uint32_t age = get_ts_elapsed(microsecond_timer_get(), hyundai_community_mcan_echo_ts[index]);
+    if (age < MCAN_ECHO_FRESH_US) {
+      CANPacket_t echo;
+      ENTER_CRITICAL();
+      (void)memcpy(&echo, &hyundai_community_mcan_echo[index], sizeof(CANPacket_t));
+      EXIT_CRITICAL();
+      can_send(&echo, 1U, true);
+    } else {
+      hyundai_community_mcan_echo_valid[index] = false;
+    }
+  }
+}
+
 static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_allowed) {
   int tx = 1;
   int addr = GET_ADDR(to_send);
@@ -255,7 +305,11 @@ static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_all
   // Bus 1 is the MM-CAN tap: nothing but the HUD TBT messages may go there
   // (the LKAS11/EMS11 bus 1 entries below are for cars with MDPS/SCC on bus 1).
   if (BUS1_IS_MCAN && (bus == 1)) {
-    return hyundai_community_mcan_tx_allowed(addr) ? 1 : 0;
+    int mcan_ok = hyundai_community_mcan_tx_allowed(addr) ? 1 : 0;
+    if (mcan_ok != 0) {
+      hyundai_community_mcan_remember(to_send, addr);
+    }
+    return mcan_ok;
   }
 
   if (!msg_allowed(to_send, HYUNDAI_COMMUNITY_TX_MSGS, sizeof(HYUNDAI_COMMUNITY_TX_MSGS)/sizeof(HYUNDAI_COMMUNITY_TX_MSGS[0]))) {
@@ -392,6 +446,10 @@ static int hyundai_community_tx_hook(CANPacket_t *to_send, bool longitudinal_all
 static int hyundai_community_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
   int bus_fwd = -1;
   int addr = GET_ADDR(to_fwd);
+
+  if (BUS1_IS_MCAN && (bus_num == 1)) {
+    hyundai_community_mcan_answer(addr);
+  }
   int fwd_to_bus1 = -1;
   if (Fwd_bus1 || Fwd_obd){fwd_to_bus1 = 1;}
 
@@ -456,6 +514,8 @@ static int hyundai_community_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
 
 static const addr_checks* hyundai_community_init(int16_t param) {
   hyundai_community_mcan_tx = (((uint16_t)param & MCAN_TX_PARAM) != 0U);
+  hyundai_community_mcan_echo_valid[0] = false;
+  hyundai_community_mcan_echo_valid[1] = false;
   controls_allowed = false;
   hyundai_community_main_on = false;
   hyundai_community_lat_allowed = false;

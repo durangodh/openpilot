@@ -9,8 +9,10 @@ checked against our 2026-10-31 M-CAN logs):
   0x123 HU_CLU_PE_07  byte 7 = distance bar in percent
   0x4A9 (ISO-TP)      HUD text: 0xF0 + UTF-16LE (direction/road name); HUD answers 0x4B9
 
-The AVN keeps sending its idle 0x115 even without a destination, so we send ours at
-50 Hz: the AVN value is on the bus for at most one 20 ms period out of its 200 ms.
+The AVN keeps sending its idle 0x115/0x123 even without a destination. Sending ours
+at 50 Hz alone still flickered on the car (2026-10-31), so the panda keeps our last
+frame of each and sends it again right after every AVN frame (safety_hyundai_community.h);
+we only need to keep it fresh, at 20 Hz.
 Sending requires the panda's bus 1 to be live (McanHudTbt, through an MM-CAN
 low-speed/fault-tolerant <-> high-speed converter); the panda only lets these three
 IDs out on bus 1.
@@ -33,7 +35,7 @@ DIRECTION_NONE = 15        # the AVN's direction byte on keep-going / reroute fr
 SIDE_TURN = 0x0811         # the AVN's most common intersection-shape value for turns
 BAR_NONE = 0xF
 ARRIVED_DIST_M = 15
-SEND_PERIOD_FRAMES = 2     # 50 Hz from the 100 Hz carcontroller
+SEND_PERIOD_FRAMES = 5     # 20 Hz from the 100 Hz carcontroller (panda echo freshness 300 ms)
 
 # Naver module turn_type (TMAP-style codes, NaverCodes.java) -> (display, direction)
 TURN_CODES = {
