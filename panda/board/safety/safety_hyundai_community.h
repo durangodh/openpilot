@@ -243,20 +243,23 @@ static int hyundai_community_rx_hook(CANPacket_t *to_push) {
 static bool hyundai_community_mcan_tx = false;
 
 static bool hyundai_community_mcan_tx_allowed(int addr) {
-  // 0x115 HU_CLU_PE_02 (TBT), 0x123 HU_CLU_PE_07 (bar), 0x4A9 HUD text (ISO-TP)
-  return hyundai_community_mcan_tx && ((addr == 0x115) || (addr == 0x123) || (addr == 0x4A9));
+  // 0x115 HU_CLU_PE_02 (TBT), 0x123 HU_CLU_PE_07 (bar), 0x1E5 HU_CLU_PE_11 (speed cameras),
+  // 0x4A9 HUD text (ISO-TP)
+  return hyundai_community_mcan_tx &&
+         ((addr == 0x115) || (addr == 0x123) || (addr == 0x1E5) || (addr == 0x4A9));
 }
 
-// The AVN keeps sending its own 0x115/0x123 ("no guidance") at 5 Hz, which made
+// The AVN keeps sending its own 0x115/0x123/0x1E5 ("no guidance", "no camera") at 5 Hz, which made
 // the HUD flicker between it and ours. Keep the host's last frame of each and
 // send it again right after every AVN frame, so the AVN value lasts only one
 // frame time on the bus. Only while the host keeps them fresh (it stops when
 // Naver guidance ends, and then the AVN frames go through untouched).
 #define MCAN_ECHO_FRESH_US 300000U
 void can_send(CANPacket_t *to_push, uint8_t bus_number, bool skip_tx_hook);
-static CANPacket_t hyundai_community_mcan_echo[2];
-static uint32_t hyundai_community_mcan_echo_ts[2] = {0U, 0U};
-static bool hyundai_community_mcan_echo_valid[2] = {false, false};
+#define MCAN_ECHO_CNT 3
+static CANPacket_t hyundai_community_mcan_echo[MCAN_ECHO_CNT];
+static uint32_t hyundai_community_mcan_echo_ts[MCAN_ECHO_CNT] = {0U, 0U, 0U};
+static bool hyundai_community_mcan_echo_valid[MCAN_ECHO_CNT] = {false, false, false};
 
 static int hyundai_community_mcan_echo_index(int addr) {
   int index = -1;
@@ -264,6 +267,8 @@ static int hyundai_community_mcan_echo_index(int addr) {
     index = 0;
   } else if (addr == 0x123) {
     index = 1;
+  } else if (addr == 0x1E5) {
+    index = 2;
   } else {
   }
   return index;
@@ -514,8 +519,9 @@ static int hyundai_community_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
 
 static const addr_checks* hyundai_community_init(int16_t param) {
   hyundai_community_mcan_tx = (((uint16_t)param & MCAN_TX_PARAM) != 0U);
-  hyundai_community_mcan_echo_valid[0] = false;
-  hyundai_community_mcan_echo_valid[1] = false;
+  for (int i = 0; i < MCAN_ECHO_CNT; i++) {
+    hyundai_community_mcan_echo_valid[i] = false;
+  }
   controls_allowed = false;
   hyundai_community_main_on = false;
   hyundai_community_lat_allowed = false;

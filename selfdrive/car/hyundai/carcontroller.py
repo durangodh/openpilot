@@ -274,7 +274,8 @@ class CarController:
         can_sends.append(create_hda_mfc(self.packer, activated_hda, CS, hud_control.leftLaneVisible, hud_control.rightLaneVisible))
 
     if self.mcan_hud is not None:
-      can_sends.extend(self.mcan_hud.update(self.frame, controls.cruise_helper.navigation_route.state))
+      can_sends.extend(self.mcan_hud.update(self.frame, controls.cruise_helper.navigation_route.state,
+                                            CS.out.vEgo))
 
     new_actuators = actuators.copy()
     new_actuators.steer = apply_steer / self.params.STEER_MAX

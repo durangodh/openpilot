@@ -18,6 +18,7 @@ low-speed/fault-tolerant <-> high-speed converter); the panda only lets these th
 IDs out on bus 1.
 """
 from selfdrive.car import make_can_msg
+from selfdrive.controls.lib.navigation_route import NavigationRouteData
 
 MCAN_BUS = 1
 # panda safety param bit that makes bus 1 live (board/safety/safety_defaults.h)
@@ -25,6 +26,16 @@ MCAN_TX_PARAM = 0x0400
 TBT_ADDR = 0x115
 BAR_ADDR = 0x123
 TEXT_ADDR = 0x4A9
+CAMERA_ADDR = 0x1E5
+
+# 0x1E5 HU_CLU_PE_11 speed camera, per camera kind a nibble of limit / 10 (2026-11-01 07:14
+# drive): byte 0 low = fixed camera (04 = the 40 circle in the 07:17 photo, 0a = 100),
+# byte 0 high = mobile, byte 1 high = signal+speed (00 50 = 50); byte 1 bits 2-3 =
+# over the limit. The rest of the frame is what the AVN sent with a camera.
+CAMERA_SHOW_M = 600.0
+SDI_SIGNAL_SPEED = 0       # navi module SDI types (NaverCodes / TMAP)
+SDI_SPEED = 1
+SDI_MOBILE = 7
 
 DISPLAY_TURN = 13
 DISPLAY_UTURN = 31
@@ -110,6 +121,23 @@ def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1):
                 (bar_tenths(dist) << 4) | tenths])
 
 
+def camera_payload(camera, v_ego_kph=0.0):
+  """0x1E5 for a navi speed camera within CAMERA_SHOW_M, or None (leave the AVN's)."""
+  if not isinstance(camera, dict):
+    return None
+  limit = float(camera.get("limit", 0.0) or 0.0)
+  dist = float(camera.get("distance", -1.0) or -1.0)
+  kind = int(camera.get("type", -1))
+  if limit <= 0.0 or not 0.0 < dist <= CAMERA_SHOW_M or kind not in (SDI_SIGNAL_SPEED, SDI_SPEED, SDI_MOBILE):
+    return None
+  step = max(1, min(15, int(round(limit / 10.0))))
+  fixed = step if kind == SDI_SPEED else 0
+  mobile = step if kind == SDI_MOBILE else 0
+  signal = step if kind == SDI_SIGNAL_SPEED else 0
+  over = 1 if v_ego_kph > limit else 0
+  return bytes([(mobile << 4) | fixed, (signal << 4) | (over << 2), 0, 0, 0xF0, 0, 0x0F, 0xFF])
+
+
 def text_payload(text):
   """HUD text message body: 0xF0 then UTF-16LE without terminator; the AVN clears
   the text with an empty string that is just a UTF-16 terminator (03 F0 00 00)."""
@@ -147,9 +175,14 @@ class McanHud:
     self.text_queue = isotp_frames(text_payload(text))
     self.text_wait = 0
 
-  def update(self, frame, nav_state):
+  def update(self, frame, nav_state, v_ego=0.0):
     """CAN messages for this 100 Hz frame. nav_state: NavigationRouteData.update()."""
     msgs = []
+    if frame % SEND_PERIOD_FRAMES == 0:
+      camera = NavigationRouteData.speed_events(nav_state)["camera"] if isinstance(nav_state, dict) else None
+      cam = camera_payload(camera, v_ego * 3.6)
+      if cam is not None:
+        msgs.append(make_can_msg(CAMERA_ADDR, cam, MCAN_BUS))
     payload = None
     # guidance_fresh, not fresh: "fresh" is false for straight/arrival guidance.
     if isinstance(nav_state, dict) and nav_state.get("guidance_fresh") and not nav_state.get("off_route"):

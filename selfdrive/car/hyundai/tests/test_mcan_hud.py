@@ -1,6 +1,6 @@
 """Stock HUD TBT frames must match what the Genesis DH AVN sends (2026-10-31 M-CAN logs)."""
-from selfdrive.car.hyundai.mcan_hud import (McanHud, isotp_frames, text_payload, tbt_payload,
-                                            BAR_ADDR, TBT_ADDR, TEXT_ADDR, MCAN_BUS)
+from selfdrive.car.hyundai.mcan_hud import (McanHud, isotp_frames, text_payload, tbt_payload, camera_payload,
+                                            BAR_ADDR, TBT_ADDR, TEXT_ADDR, CAMERA_ADDR, MCAN_BUS)
 
 
 def test_tbt_payload_matches_avn_frames():
@@ -68,3 +68,19 @@ def test_stale_guidance_clears_text_and_stops():
 
 def test_disabled_without_guidance():
   assert run(McanHud(), {}, 20) == []
+
+
+def test_camera_frames_match_avn():
+  assert camera_payload({"type": 1, "distance": 300, "limit": 40}).hex() == "04000000f0000fff"    # 07:17 photo
+  assert camera_payload({"type": 1, "distance": 300, "limit": 100}).hex() == "0a000000f0000fff"   # 07:19
+  assert camera_payload({"type": 0, "distance": 300, "limit": 50}).hex() == "00500000f0000fff"    # 07:16
+  assert camera_payload({"type": 1, "distance": 300, "limit": 40}, 48)[1] == 0x04               # over the limit
+  assert camera_payload({"type": 1, "distance": 900, "limit": 40}) is None                      # too far
+  assert camera_payload({"type": 22, "distance": 100, "limit": 30}) is None                     # speed bump
+
+
+def test_camera_sent_without_turn_guidance():
+  state = {"speed_fresh": True, "off_route": False,
+           "speed": {"sdi": {"type": 1, "distance_m": 250, "speed_limit_kph": 40}}}
+  msgs = run(McanHud(), state, 10)
+  assert [d.hex() for a, d, _ in msgs if a == CAMERA_ADDR] == ["04000000f0000fff"] * 2
