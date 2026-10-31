@@ -37,7 +37,7 @@ BAR_NONE = 0xF
 ARRIVED_DIST_M = 15
 SEND_PERIOD_FRAMES = 5     # 20 Hz from the 100 Hz carcontroller (panda echo freshness 300 ms)
 
-# Naver module turn_type (TMAP-style codes, NaverCodes.java) -> (display, direction)
+# turn_type (TMAP codes; the Naver and Kakao modules map theirs onto them) -> (display, direction)
 TURN_CODES = {
   12: (DISPLAY_TURN, 36),    # left (9 o'clock)
   13: (DISPLAY_TURN, 12),    # right (3 o'clock)
@@ -50,7 +50,8 @@ TURN_CODES = {
   21: (DISPLAY_TURN, 4),     # lane change right
 }
 TURN_STRAIGHT = 11
-TURN_ARRIVE = 2
+# Naver/Kakao modules map the destination to 2, TMAP sends its own 201.
+TURN_ARRIVE = (2, 201)
 
 # Fallback stock bytes 0-6 of 0x123 until the AVN's own frame has been seen.
 BAR_PREFIX_DEFAULT = bytes.fromhex("000000c0ffff0f")
@@ -70,7 +71,7 @@ def bar_percent(dist_m):
 def tbt_payload(turn_type, dist_m):
   """0x115 payload for one Naver maneuver, or None to leave the AVN's frame alone."""
   dist = max(0, min(0xFFFF, int(round(dist_m))))
-  if turn_type == TURN_ARRIVE:
+  if turn_type in TURN_ARRIVE:
     if dist <= ARRIVED_DIST_M:
       return bytes([DISPLAY_ARRIVED, 0, 0, 0, 0, 0, 0, 0xF0])
     return bytes([DISPLAY_DEST_AHEAD, 0, 0, 0, dist >> 8, dist & 0xFF, 0, BAR_NONE << 4])

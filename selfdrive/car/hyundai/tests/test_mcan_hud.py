@@ -9,6 +9,7 @@ def test_tbt_payload_matches_avn_frames():
   assert tbt_payload(11, 600).hex() == "4600000f025800f0"   # keep going 600 m, AVN frame verbatim
   assert tbt_payload(2, 900).hex() == "70000000038400f0"    # destination ahead 900 m, AVN frame verbatim
   assert tbt_payload(2, 5)[0] == 3                          # arrived
+  assert tbt_payload(201, 900) == tbt_payload(2, 900)       # TMAP destination code
   assert tbt_payload(12, 400)[3] == 36                      # left = 270 deg / 7.5
   assert tbt_payload(0, 100) is None                        # unknown: leave the AVN frame
 
