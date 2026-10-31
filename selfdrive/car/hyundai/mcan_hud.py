@@ -28,26 +28,33 @@ TEXT_ADDR = 0x4A9
 
 DISPLAY_TURN = 13
 DISPLAY_UTURN = 31
-DISPLAY_STRAIGHT = 70
 DISPLAY_DEST_AHEAD = 112
 DISPLAY_ARRIVED = 3
+DISPLAY_TOLLGATE = 178     # 0xB2 tollgate icon (2026-11-01 07:18 북오산톨게이트), uses the bar
+# Keep going: 0x40 + a preview of the next maneuver. 65 plain straight (07:19 "12.6km"),
+# 66 bear right (07:15 before the 북오산IC exit), 67 right, 70 left, 72 U-turn, as the
+# AVN sent them before each kind of maneuver in the 10-31/11-01 logs.
+DISPLAY_STRAIGHT = 65
+STRAIGHT_PREVIEW = {13: 67, 19: 67, 18: 66, 21: 66, 12: 70, 16: 70, 17: 70, 20: 70, 14: 72}
 DIRECTION_NONE = 15        # the AVN's direction byte on keep-going / reroute frames
 SIDE_TURN = 0x0811         # the AVN's most common intersection-shape value for turns
+SIDE_EXIT = 0x0003         # the AVN's exit/ramp shape ("r", 북오산IC 07:17, dir 3)
 BAR_NONE = 0xF
 ARRIVED_DIST_M = 15
 SEND_PERIOD_FRAMES = 5     # 20 Hz from the 100 Hz carcontroller (panda echo freshness 300 ms)
 
-# turn_type (TMAP codes; the Naver and Kakao modules map theirs onto them) -> (display, direction)
+# turn_type (TMAP codes; the Naver and Kakao modules map theirs onto them)
+#   -> (display, direction, intersection shape)
 TURN_CODES = {
-  12: (DISPLAY_TURN, 36),    # left (9 o'clock)
-  13: (DISPLAY_TURN, 12),    # right (3 o'clock)
-  14: (DISPLAY_UTURN, 36),   # U-turn, as the AVN draws it (2026-10-31 08:39 drive)
-  16: (DISPLAY_TURN, 32),    # 8 o'clock
-  17: (DISPLAY_TURN, 40),    # 10 o'clock / keep left
-  18: (DISPLAY_TURN, 8),     # 2 o'clock / keep right
-  19: (DISPLAY_TURN, 16),    # 4 o'clock
-  20: (DISPLAY_TURN, 44),    # lane change left
-  21: (DISPLAY_TURN, 4),     # lane change right
+  12: (DISPLAY_TURN, 36, SIDE_TURN),    # left (9 o'clock)
+  13: (DISPLAY_TURN, 12, SIDE_TURN),    # right (3 o'clock)
+  14: (DISPLAY_UTURN, 36, 0),           # U-turn, as the AVN draws it (2026-10-31 08:39 drive)
+  16: (DISPLAY_TURN, 32, SIDE_TURN),    # 8 o'clock
+  17: (DISPLAY_TURN, 45, SIDE_EXIT),    # keep left / left exit (mirror of the right exit)
+  18: (DISPLAY_TURN, 3, SIDE_EXIT),     # keep right / right exit, IC (AVN 0d 00 03 03 ..)
+  19: (DISPLAY_TURN, 16, SIDE_TURN),    # 4 o'clock
+  20: (DISPLAY_TURN, 44, SIDE_TURN),    # lane change left
+  21: (DISPLAY_TURN, 4, SIDE_TURN),     # lane change right
 }
 TURN_STRAIGHT = 11
 # Naver/Kakao modules map the destination to 2, TMAP sends its own 201.
@@ -79,8 +86,10 @@ def distance_fields(dist):
   return km >> 8, km & 0xFF, 0x10, (dist % 1000) // 100
 
 
-def tbt_payload(turn_type, dist_m):
-  """0x115 payload for one Naver maneuver, or None to leave the AVN's frame alone."""
+def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1):
+  """0x115 payload for one Naver maneuver, or None to leave the AVN's frame alone.
+  next_turn_type picks the keep-going preview icon; a 톨게이트 name on a straight
+  maneuver shows the tollgate icon (the modules map tollgates to straight)."""
   dist = max(0, min(0xFFFFFF, int(round(dist_m))))
   hi, lo, unit, tenths = distance_fields(dist)
   if turn_type in TURN_ARRIVE:
@@ -88,12 +97,15 @@ def tbt_payload(turn_type, dist_m):
       return bytes([DISPLAY_ARRIVED, 0, 0, 0, 0, 0, 0, 0xF0])
     return bytes([DISPLAY_DEST_AHEAD, 0, 0, 0, hi, lo, unit, (BAR_NONE << 4) | tenths])
   if turn_type == TURN_STRAIGHT:
-    return bytes([DISPLAY_STRAIGHT, 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
+    if "톨게이트" in (text or ""):
+      bar = BAR_NONE if dist > 300 else bar_tenths(dist)   # AVN: no bar until 300 m
+      return bytes([DISPLAY_TOLLGATE, 0, 0, DIRECTION_NONE, hi, lo, unit, (bar << 4) | tenths])
+    display = STRAIGHT_PREVIEW.get(next_turn_type, DISPLAY_STRAIGHT)
+    return bytes([display, 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
   code = TURN_CODES.get(turn_type)
   if code is None:
     return None
-  display, direction = code
-  side = 0 if display == DISPLAY_UTURN else SIDE_TURN
+  display, direction, side = code
   return bytes([display, side >> 8, side & 0xFF, direction, hi, lo, unit,
                 (bar_tenths(dist) << 4) | tenths])
 
@@ -141,7 +153,9 @@ class McanHud:
     payload = None
     # guidance_fresh, not fresh: "fresh" is false for straight/arrival guidance.
     if isinstance(nav_state, dict) and nav_state.get("guidance_fresh") and not nav_state.get("off_route"):
-      payload = tbt_payload(int(nav_state.get("turn_type", -1)), float(nav_state.get("distance", -1.0)))
+      nxt = nav_state.get("next") or {}
+      payload = tbt_payload(int(nav_state.get("turn_type", -1)), float(nav_state.get("distance", -1.0)),
+                            str(nav_state.get("text", "") or ""), int(nxt.get("turn_type", -1)))
 
     if payload is None:
       if self.active:

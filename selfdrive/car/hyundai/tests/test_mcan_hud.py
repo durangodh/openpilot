@@ -6,7 +6,12 @@ from selfdrive.car.hyundai.mcan_hud import (McanHud, isotp_frames, text_payload,
 def test_tbt_payload_matches_avn_frames():
   assert tbt_payload(13, 290).hex() == "0d08110c01220090"   # right, 290 m (AVN 0d08110c....0090)
   assert tbt_payload(14, 300).hex() == "1f000024012c00a0"   # U-turn 300 m, AVN frame verbatim
-  assert tbt_payload(11, 600).hex() == "4600000f025800f0"   # keep going 600 m, AVN frame verbatim
+  assert tbt_payload(11, 600, next_turn_type=12).hex() == "4600000f025800f0"  # keep going, left next (AVN)
+  assert tbt_payload(11, 400, next_turn_type=18).hex() == "4200000f019000f0"  # bear right next (AVN 07:16)
+  assert tbt_payload(11, 12700)[:1].hex() == "41"                              # plain straight
+  assert tbt_payload(18, 400).hex() == "0d000303019000a0"   # right exit / IC, AVN frame verbatim
+  assert tbt_payload(11, 700, "북오산톨게이트").hex() == "b200000f02bc00f0"     # tollgate 700 m, AVN verbatim
+  assert tbt_payload(11, 300, "북오산톨게이트").hex() == "b200000f012c00a0"     # tollgate 300 m, AVN verbatim
   assert tbt_payload(2, 900).hex() == "70000000038400f0"    # destination ahead 900 m, AVN frame verbatim
   assert tbt_payload(2, 5)[0] == 3                          # arrived
   assert tbt_payload(201, 900) == tbt_payload(2, 900)       # TMAP destination code
