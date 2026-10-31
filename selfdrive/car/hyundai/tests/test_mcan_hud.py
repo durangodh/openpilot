@@ -75,7 +75,8 @@ def test_camera_frames_match_avn():
   assert camera_payload({"type": 1, "distance": 300, "limit": 100}).hex() == "0a000000f0000fff"   # 07:19
   assert camera_payload({"type": 0, "distance": 300, "limit": 50}).hex() == "00500000f0000fff"    # 07:16
   assert camera_payload({"type": 1, "distance": 300, "limit": 40}, 48)[1] == 0x04               # over the limit
-  assert camera_payload({"type": 1, "distance": 900, "limit": 40}) is None                      # too far
+  assert camera_payload({"type": 1, "distance": 600, "limit": 40}) is None                      # city: too far
+  assert camera_payload({"type": 1, "distance": 650, "limit": 100}) is not None                 # highway: 700 m
   assert camera_payload({"type": 22, "distance": 100, "limit": 30}) is None                     # speed bump
 
 
@@ -84,3 +85,10 @@ def test_camera_sent_without_turn_guidance():
            "speed": {"sdi": {"type": 1, "distance_m": 250, "speed_limit_kph": 40}}}
   msgs = run(McanHud(), state, 10)
   assert [d.hex() for a, d, _ in msgs if a == CAMERA_ADDR] == ["04000000f0000fff"] * 2
+
+
+def test_highway_exit_and_left_fork_match_avn():
+  assert tbt_payload(18, 2200, "동탄, 북오산IC").hex() == "a400000f000210f2"  # EXIT sign 2.2 km (AVN)
+  assert tbt_payload(18, 900, "동탄, 북오산IC")[:7].hex() == "0d000303038400"  # near: "r" arrow (AVN)
+  assert tbt_payload(18, 2200, "")[0] == 13                                   # city keep right
+  assert tbt_payload(17, 50).hex() == "0d40012d00320010"                      # left fork 50 m (AVN)

@@ -32,7 +32,11 @@ CAMERA_ADDR = 0x1E5
 # drive): byte 0 low = fixed camera (04 = the 40 circle in the 07:17 photo, 0a = 100),
 # byte 0 high = mobile, byte 1 high = signal+speed (00 50 = 50); byte 1 bits 2-3 =
 # over the limit. The rest of the frame is what the AVN sent with a camera.
-CAMERA_SHOW_M = 600.0
+# When the AVN shows the camera (2026-11-01 07:41-07:46): 100 km/h highway cameras from
+# about 700 m, 40 km/h city cameras only near the camera (reported ~40 m; 400 m is used
+# until a log pins it down).
+CAMERA_SHOW_M_FAST = 700.0      # limit >= 80 km/h
+CAMERA_SHOW_M_SLOW = 400.0
 SDI_SIGNAL_SPEED = 0       # navi module SDI types (NaverCodes / TMAP)
 SDI_SPEED = 1
 SDI_MOBILE = 7
@@ -42,6 +46,8 @@ DISPLAY_UTURN = 31
 DISPLAY_DEST_AHEAD = 112
 DISPLAY_ARRIVED = 3
 DISPLAY_TOLLGATE = 178     # 0xB2 tollgate icon (2026-11-01 07:18 북오산톨게이트), uses the bar
+DISPLAY_HIGHWAY_EXIT = 164 # 0xA4 highway EXIT sign preview, km distance (11-01 07:42 "1.7km")
+HIGHWAY_EXIT_PREVIEW_M = 1000  # the AVN switches to the "r" exit arrow from ~900 m
 # Keep going: 0x40 + a preview of the next maneuver. 65 plain straight (07:19 "12.6km"),
 # 66 bear right (07:15 before the 북오산IC exit), 67 right, 70 left, 72 U-turn, as the
 # AVN sent them before each kind of maneuver in the 10-31/11-01 logs.
@@ -61,7 +67,7 @@ TURN_CODES = {
   13: (DISPLAY_TURN, 12, SIDE_TURN),    # right (3 o'clock)
   14: (DISPLAY_UTURN, 36, 0),           # U-turn, as the AVN draws it (2026-10-31 08:39 drive)
   16: (DISPLAY_TURN, 32, SIDE_TURN),    # 8 o'clock
-  17: (DISPLAY_TURN, 45, SIDE_EXIT),    # keep left / left exit (mirror of the right exit)
+  17: (DISPLAY_TURN, 45, 0x4001),       # keep left / left fork (AVN 07:45:46 서오산분기점)
   18: (DISPLAY_TURN, 3, SIDE_EXIT),     # keep right / right exit, IC (AVN 0d 00 03 03 ..)
   19: (DISPLAY_TURN, 16, SIDE_TURN),    # 4 o'clock
   20: (DISPLAY_TURN, 44, SIDE_TURN),    # lane change left
@@ -113,6 +119,10 @@ def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1):
       return bytes([DISPLAY_TOLLGATE, 0, 0, DIRECTION_NONE, hi, lo, unit, (bar << 4) | tenths])
     display = STRAIGHT_PREVIEW.get(next_turn_type, DISPLAY_STRAIGHT)
     return bytes([display, 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
+  if turn_type == 18 and dist > HIGHWAY_EXIT_PREVIEW_M and \
+     any(word in (text or "") for word in ("IC", "JC", "분기점", "출구")):
+    # A highway exit still far away: the AVN's EXIT sign, not the arrow.
+    return bytes([DISPLAY_HIGHWAY_EXIT, 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
   code = TURN_CODES.get(turn_type)
   if code is None:
     return None
@@ -122,13 +132,14 @@ def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1):
 
 
 def camera_payload(camera, v_ego_kph=0.0):
-  """0x1E5 for a navi speed camera within CAMERA_SHOW_M, or None (leave the AVN's)."""
+  """0x1E5 for a navi speed camera close enough to show, or None (leave the AVN's)."""
   if not isinstance(camera, dict):
     return None
   limit = float(camera.get("limit", 0.0) or 0.0)
   dist = float(camera.get("distance", -1.0) or -1.0)
   kind = int(camera.get("type", -1))
-  if limit <= 0.0 or not 0.0 < dist <= CAMERA_SHOW_M or kind not in (SDI_SIGNAL_SPEED, SDI_SPEED, SDI_MOBILE):
+  show_m = CAMERA_SHOW_M_FAST if limit >= 80.0 else CAMERA_SHOW_M_SLOW
+  if limit <= 0.0 or not 0.0 < dist <= show_m or kind not in (SDI_SIGNAL_SPEED, SDI_SPEED, SDI_MOBILE):
     return None
   step = max(1, min(15, int(round(limit / 10.0))))
   fixed = step if kind == SDI_SPEED else 0
