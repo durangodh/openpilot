@@ -68,22 +68,31 @@ def bar_percent(dist_m):
   return max(1, min(100, int(round(dist_m / 3.0))))
 
 
+def distance_fields(dist):
+  """0x115 bytes 4-6. Metres below 1 km; from 1 km the AVN sets byte 6 to 0x1T and
+  bytes 4-5 to whole km (its start screen showed 00 14 10 as "20.0km", 2026-10-31)."""
+  if dist < 1000:
+    return dist >> 8, dist & 0xFF, 0
+  km = min(0xFFFF, dist // 1000)
+  return km >> 8, km & 0xFF, 0x10 | ((dist % 1000) // 100)
+
+
 def tbt_payload(turn_type, dist_m):
   """0x115 payload for one Naver maneuver, or None to leave the AVN's frame alone."""
-  dist = max(0, min(0xFFFF, int(round(dist_m))))
+  dist = max(0, min(0xFFFFFF, int(round(dist_m))))
+  hi, lo, unit = distance_fields(dist)
   if turn_type in TURN_ARRIVE:
     if dist <= ARRIVED_DIST_M:
       return bytes([DISPLAY_ARRIVED, 0, 0, 0, 0, 0, 0, 0xF0])
-    return bytes([DISPLAY_DEST_AHEAD, 0, 0, 0, dist >> 8, dist & 0xFF, 0, BAR_NONE << 4])
+    return bytes([DISPLAY_DEST_AHEAD, 0, 0, 0, hi, lo, unit, BAR_NONE << 4])
   if turn_type == TURN_STRAIGHT:
-    return bytes([DISPLAY_STRAIGHT, 0, 0, DIRECTION_NONE, dist >> 8, dist & 0xFF, 0, BAR_NONE << 4])
+    return bytes([DISPLAY_STRAIGHT, 0, 0, DIRECTION_NONE, hi, lo, unit, BAR_NONE << 4])
   code = TURN_CODES.get(turn_type)
   if code is None:
     return None
   display, direction = code
   side = 0 if display == DISPLAY_UTURN else SIDE_TURN
-  return bytes([display, side >> 8, side & 0xFF, direction, dist >> 8, dist & 0xFF, 0,
-                bar_tenths(dist) << 4])
+  return bytes([display, side >> 8, side & 0xFF, direction, hi, lo, unit, bar_tenths(dist) << 4])
 
 
 def text_payload(text):

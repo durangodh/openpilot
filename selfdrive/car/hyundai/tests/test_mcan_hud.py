@@ -14,6 +14,12 @@ def test_tbt_payload_matches_avn_frames():
   assert tbt_payload(0, 100) is None                        # unknown: leave the AVN frame
 
 
+def test_km_distances_like_avn_start_screen():
+  assert tbt_payload(11, 20000)[4:7].hex() == "001410"      # AVN: 00 14 10 = "20.0km"
+  assert tbt_payload(11, 1500)[4:7].hex() == "000115"       # 1.5 km
+  assert tbt_payload(11, 999)[4:7].hex() == "03e700"        # metres below 1 km
+
+
 def test_bar_steps_like_avn():
   bars = {d: tbt_payload(13, d)[7] >> 4 for d in (400, 290, 260, 200, 110, 50, 20, 0)}
   assert bars == {400: 10, 290: 9, 260: 8, 200: 6, 110: 3, 50: 1, 20: 1, 0: 1}
