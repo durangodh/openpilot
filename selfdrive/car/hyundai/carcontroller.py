@@ -59,25 +59,6 @@ def hud_wheel_state(sys_state, enabled, state_mode, test_state=None):
   return sys_state
 
 
-# 깜빡이 회전에서 운전자가 핸들을 돌릴 때 조향 토크를 끊는다(MDPS 폴트 방지).
-BLINKER_TURN_CUT_ANGLE = 45.0      # deg, 교차로 회전처럼 크게 돌 때
-BLINKER_TURN_PRESSED_SPEED = 40.0 / 3.6   # m/s, 이 아래에서 운전자가 잡으면 끊는다
-BLINKER_TURN_RELEASE_ANGLE = 20.0  # deg, 깜빡이가 꺼지고 이 안으로 돌아오면 다시 조향
-
-
-def blinker_turn_cut(latched, blinker, angle_deg, pressed, v_ego):
-  """With the blinker on (or just off), a big steering angle or the driver steering at
-  low speed means a manual turn. Keeping torque then fought the driver and faulted the
-  DH MDPS near 90 deg (2026-10-16, 2026-10-31). Highway lane changes (small angle, fast)
-  are not affected. Returns the new latched state; True means no torque.
-  """
-  if blinker and (abs(angle_deg) >= BLINKER_TURN_CUT_ANGLE or (pressed and v_ego < BLINKER_TURN_PRESSED_SPEED)):
-    return True
-  if latched and (blinker or abs(angle_deg) > BLINKER_TURN_RELEASE_ANGLE):
-    return True
-  return False
-
-
 def read_lkas_state_test():
   try:
     with open(LKAS_STATE_TEST_FILE) as f:
@@ -134,7 +115,6 @@ class CarController:
     # NOO is steering a turn in the same direction as the driver's blinker.
     # Read by the interface (one frame later) to skip the low-speed blinker cut.
     self.noo_turn_keep = False
-    self.blinker_turn_cut = False
 
     param = Params()
 
@@ -198,13 +178,6 @@ class CarController:
     # signal, not a request to hand the wheel back.
     self.noo_turn_keep = self._noo_turn_matches_blinker(CS, controls)
     if self.turning_indicator_alert and not self.noo_turn_keep:  # set and clear by interface
-      lkas_active = 0
-    # NOO steers through its own turns and already cuts at 80 deg or driver steering.
-    blinker = (CS.out.leftBlinker or CS.out.rightBlinker or self.turning_signal_timer > 0) and \
-              not self.noo_turn_keep
-    self.blinker_turn_cut = blinker_turn_cut(self.blinker_turn_cut, blinker, CS.out.steeringAngleDeg,
-                                             CS.out.steeringPressed, CS.out.vEgo)
-    if self.blinker_turn_cut:
       lkas_active = 0
     if self.turning_signal_timer > 0:
       self.turning_signal_timer -= 1
