@@ -32,9 +32,8 @@ CAMERA_ADDR = 0x1E5
 # drive): byte 0 low = fixed camera (04 = the 40 circle in the 07:17 photo, 0a = 100),
 # byte 0 high = mobile, byte 1 high = signal+speed (00 50 = 50); byte 1 bits 2-3 =
 # over the limit. The rest of the frame is what the AVN sent with a camera.
-# When the AVN shows the camera (2026-11-01 07:41-07:46): 100 km/h highway cameras from
-# about 700 m, 40 km/h city cameras only near the camera (reported ~40 m; 400 m is used
-# until a log pins it down).
+# When the AVN shows the camera: 100 km/h highway cameras from about 700 m (2026-11-01
+# 07:46), city cameras from 400 m (a 50 km/h camera, confirmed by the driver 11-01).
 CAMERA_SHOW_M_FAST = 700.0      # limit >= 80 km/h
 CAMERA_SHOW_M_SLOW = 400.0
 SDI_SIGNAL_SPEED = 0       # navi module SDI types (NaverCodes / TMAP)
