@@ -32,10 +32,8 @@ CAMERA_ADDR = 0x1E5
 # drive): byte 0 low = fixed camera (04 = the 40 circle in the 07:17 photo, 0a = 100),
 # byte 0 high = mobile, byte 1 high = signal+speed (00 50 = 50); byte 1 bits 2-3 =
 # over the limit. The rest of the frame is what the AVN sent with a camera.
-# When the AVN shows the camera: 100 km/h highway cameras from about 700 m (2026-11-01
-# 07:46), city cameras from 400 m (a 50 km/h camera, confirmed by the driver 11-01).
-CAMERA_SHOW_M_FAST = 700.0      # limit >= 80 km/h
-CAMERA_SHOW_M_SLOW = 400.0
+# The camera is shown for as long as the navi app lists it (Naver adds a city camera
+# from about 670 m), so the HUD circle appears when the app's own alert does.
 SDI_SIGNAL_SPEED = 0       # navi module SDI types (NaverCodes / TMAP)
 SDI_SPEED = 1
 SDI_MOBILE = 7
@@ -146,14 +144,13 @@ def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE
 
 
 def camera_payload(camera, v_ego_kph=0.0):
-  """0x1E5 for a navi speed camera close enough to show, or None (leave the AVN's)."""
+  """0x1E5 for the speed camera the navi app currently alerts, or None (leave the AVN's)."""
   if not isinstance(camera, dict):
     return None
   limit = float(camera.get("limit", 0.0) or 0.0)
   dist = float(camera.get("distance", -1.0) or -1.0)
   kind = int(camera.get("type", -1))
-  show_m = CAMERA_SHOW_M_FAST if limit >= 80.0 else CAMERA_SHOW_M_SLOW
-  if limit <= 0.0 or not 0.0 < dist <= show_m or kind not in (SDI_SIGNAL_SPEED, SDI_SPEED, SDI_MOBILE):
+  if limit <= 0.0 or dist <= 0.0 or kind not in (SDI_SIGNAL_SPEED, SDI_SPEED, SDI_MOBILE):
     return None
   step = max(1, min(15, int(round(limit / 10.0))))
   fixed = step if kind == SDI_SPEED else 0

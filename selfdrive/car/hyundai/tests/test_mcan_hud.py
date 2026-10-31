@@ -75,8 +75,8 @@ def test_camera_frames_match_avn():
   assert camera_payload({"type": 1, "distance": 300, "limit": 100}).hex() == "0a000000f0000fff"   # 07:19
   assert camera_payload({"type": 0, "distance": 300, "limit": 50}).hex() == "00500000f0000fff"    # 07:16
   assert camera_payload({"type": 1, "distance": 300, "limit": 40}, 48)[1] == 0x04               # over the limit
-  assert camera_payload({"type": 1, "distance": 600, "limit": 40}) is None                      # city: too far
-  assert camera_payload({"type": 1, "distance": 650, "limit": 100}) is not None                 # highway: 700 m
+  assert camera_payload({"type": 1, "distance": 670, "limit": 60}) is not None                  # as soon as listed
+  assert camera_payload({"type": 1, "distance": 0, "limit": 60}) is None                        # passed
   assert camera_payload({"type": 22, "distance": 100, "limit": 30}) is None                     # speed bump
 
 
