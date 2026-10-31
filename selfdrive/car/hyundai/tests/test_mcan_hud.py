@@ -92,3 +92,13 @@ def test_highway_exit_and_left_fork_match_avn():
   assert tbt_payload(18, 900, "동탄, 북오산IC")[:7].hex() == "0d000303038400"  # near: "r" arrow (AVN)
   assert tbt_payload(18, 2200, "")[0] == 13                                   # city keep right
   assert tbt_payload(17, 50).hex() == "0d40012d00320010"                      # left fork 50 m (AVN)
+
+
+def test_rerouting_shows_avn_reroute_frame_and_clears_text():
+  hud = McanHud()
+  run(hud, nav(text="노작로"), 10)
+  state = {"guidance_fresh": False, "guidance_stream_fresh": True, "off_route": True,
+           "turn_type": 13, "distance": 200.0, "text": "노작로"}
+  msgs = run(hud, state, 10, start=10)
+  assert {d.hex() for a, d, _ in msgs if a == TBT_ADDR} == {"0900000f000500f0"}
+  assert [d.hex() for a, d, _ in msgs if a == TEXT_ADDR] == ["03f00000aaaaaaaa"]

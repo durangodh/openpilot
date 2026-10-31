@@ -53,6 +53,8 @@ HIGHWAY_EXIT_PREVIEW_M = 1000  # the AVN switches to the "r" exit arrow from ~90
 DISPLAY_STRAIGHT = 65
 STRAIGHT_PREVIEW = {13: 67, 19: 67, 18: 66, 21: 66, 12: 70, 16: 70, 17: 70, 20: 70, 14: 72}
 DIRECTION_NONE = 15        # the AVN's direction byte on keep-going / reroute frames
+# Off route / rerouting: the AVN's frame while its HUD shows "경로 탐색 중입니다".
+REROUTE_PAYLOAD = bytes.fromhex("0900000f000500f0")
 SIDE_TURN = 0x0811         # the AVN's most common intersection-shape value for turns
 SIDE_EXIT = 0x0003         # the AVN's exit/ramp shape ("r", 북오산IC 07:17, dir 3)
 BAR_NONE = 0xF
@@ -194,11 +196,16 @@ class McanHud:
       if cam is not None:
         msgs.append(make_can_msg(CAMERA_ADDR, cam, MCAN_BUS))
     payload = None
+    rerouting = False
     # guidance_fresh, not fresh: "fresh" is false for straight/arrival guidance.
     if isinstance(nav_state, dict) and nav_state.get("guidance_fresh") and not nav_state.get("off_route"):
       nxt = nav_state.get("next") or {}
       payload = tbt_payload(int(nav_state.get("turn_type", -1)), float(nav_state.get("distance", -1.0)),
                             str(nav_state.get("text", "") or ""), int(nxt.get("turn_type", -1)))
+    elif isinstance(nav_state, dict) and nav_state.get("guidance_stream_fresh") and nav_state.get("off_route"):
+      # The navi app is still guiding but recalculating the route.
+      payload = REROUTE_PAYLOAD
+      rerouting = True
 
     if payload is None:
       if self.active:
@@ -207,13 +214,14 @@ class McanHud:
         self.active = False
     else:
       self.active = True
-      text = str(nav_state.get("text", "") or "")
+      text = "" if rerouting else str(nav_state.get("text", "") or "")
       if text != self.text:
         self._queue_text(text)
       if frame % SEND_PERIOD_FRAMES == 0:
         dist = float(nav_state.get("distance", 0.0))
         msgs.append(make_can_msg(TBT_ADDR, payload, MCAN_BUS))
-        msgs.append(make_can_msg(BAR_ADDR, BAR_PREFIX_DEFAULT + bytes([bar_percent(dist)]), MCAN_BUS))
+        percent = 100 if rerouting else bar_percent(dist)   # the AVN's idle bar while rerouting
+        msgs.append(make_can_msg(BAR_ADDR, BAR_PREFIX_DEFAULT + bytes([percent]), MCAN_BUS))
 
     if self.text_queue:
       if self.text_wait > 0:
