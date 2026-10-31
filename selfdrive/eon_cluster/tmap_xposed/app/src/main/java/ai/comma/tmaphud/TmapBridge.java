@@ -204,7 +204,9 @@ final class TmapBridge {
         send("vehicle", vehicle);
 
         // Guidance.from: 현재/다음 안내·차로·앞 차로가 모두 없으면 안내 없음.
-        String current = guidePoint(field(rg, "stGuidePoint"));
+        Object currentPoint = field(rg, "stGuidePoint");
+        logTbtFields(currentPoint);
+        String current = guidePoint(currentPoint);
         String next = guidePoint(field(rg, "stGuidePointNext"));
         String lane = TmapJson.lane(intField(rg, "nLaneCount"), intField(rg, "nLaneDist"),
                 booleanField(rg, "bLane"), booleanField(rg, "bLanePlay"), intField(rg, "nCurrentLane"),
@@ -237,6 +239,21 @@ final class TmapBridge {
         publishSignal(now, lat, lon, speedKph);
         images.update(rg, guiding,
                 Boolean.TRUE.equals(call(call(nav, "getNaviConfigData"), "getNightMode")));
+    }
+
+    /** Last logged maneuver (turn code + main text) for logTbtFields. */
+    private static String lastTbtSignature = "";
+
+    /**
+     * 순정 HUD 교차로 모양(삼거리/사거리, 램프)을 맞추기 위한 기록: 현재 회전 안내가 바뀔 때만
+     * 안내 지점(stGuidePoint)의 필드를 모두 tmap_hud.log 에 남긴다.
+     */
+    private static void logTbtFields(Object tbt) {
+        if (tbt == null) return;
+        String sig = intField(tbt, "nTBTTurnType") + ":" + stringField(tbt, "szTBTMainText");
+        if (sig.equals(lastTbtSignature)) return;
+        lastTbtSignature = sig;
+        TmapHudLog.line("tbt-fields " + sig + " | " + ObjectDump.describe(tbt, 2, 6000));
     }
 
     private static String guidePoint(Object tbt) {

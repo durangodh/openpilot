@@ -24,6 +24,8 @@ final class KakaoBridge {
     /** 폰 신호등 표시(뷰모델)를 읽는 동안에는 그림을 그쪽에서만 그린다. */
     final KakaoCits cits;
     private final AtomicBoolean loggedRouteShape = new AtomicBoolean(false);
+    /** Last logged maneuver (raw turn code + name) for logTbtFields. */
+    private String lastTbtSignature = "";
     private final AtomicBoolean loggedLocShape = new AtomicBoolean(false);
     private final AtomicBoolean loggedSafety = new AtomicBoolean(false);
     private final AtomicBoolean loggedRouteSummary = new AtomicBoolean(false);
@@ -360,6 +362,18 @@ final class KakaoBridge {
                 + ",\"off_route\":false}";
     }
 
+    /**
+     * 순정 HUD 교차로 모양(삼거리/사거리, 램프)을 맞추기 위한 기록: 현재 회전 안내가 바뀔 때만
+     * 안내 항목의 필드를 모두 kakao_hud.log 에 남긴다.
+     */
+    private void logTbtFields(Object cur, int raw, String name) {
+        if (cur == null) return;
+        String sig = raw + ":" + name;
+        if (sig.equals(lastTbtSignature)) return;
+        lastTbtSignature = sig;
+        KakaoHudLog.line("tbt-fields " + sig + " | " + ObjectDump.describe(cur, 3, 6000));
+    }
+
     // ---- 경로 안내 ----
     void onRouteGuide(Object routeGuide) {
         // 카카오는 회전 안내를 방향이 바뀔 때만 준다. 경로 시작 판정(routeActive) 전에 온 첫 안내를
@@ -378,6 +392,7 @@ final class KakaoBridge {
             String nextName = rgName(next);
             int curTbt = KakaoCodes.turnType(curName, curRaw, dirAngle(cur));
             int nextTbt = KakaoCodes.turnType(nextName, nextRaw, dirAngle(next));
+            logTbtFields(cur, curRaw, curName);
 
             if (loggedRouteShape.compareAndSet(false, true)) {
                 KakaoHudLog.line("ROUTE shape: cur=" + curName + "/" + curRaw + "->" + curTbt
