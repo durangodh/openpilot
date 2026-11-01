@@ -3,6 +3,7 @@ package ai.comma.tmaphud;
 import android.os.SystemClock;
 
 import ai.comma.hudcommon.ObjectDump;
+import ai.comma.hudcommon.TollScan;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -206,7 +207,7 @@ final class TmapBridge {
         // Guidance.from: 현재/다음 안내·차로·앞 차로가 모두 없으면 안내 없음.
         Object currentPoint = field(rg, "stGuidePoint");
         logTbtFields(currentPoint);
-        String current = guidePoint(currentPoint);
+        String current = TollScan.withFee(guidePoint(currentPoint), tollFee(rg, currentPoint));
         String next = guidePoint(field(rg, "stGuidePointNext"));
         String lane = TmapJson.lane(intField(rg, "nLaneCount"), intField(rg, "nLaneDist"),
                 booleanField(rg, "bLane"), booleanField(rg, "bLanePlay"), intField(rg, "nCurrentLane"),
@@ -254,6 +255,44 @@ final class TmapBridge {
         if (sig.equals(lastTbtSignature)) return;
         lastTbtSignature = sig;
         TmapHudLog.line("tbt-fields " + sig + " | " + ObjectDump.describe(tbt, 2, 6000));
+    }
+
+    /** 톨게이트 안내 기록 상태: 마지막으로 남긴 후보 필드 묶음과 400m 안 덤프 여부. */
+    private static String lastTollSignature = "";
+    private static boolean tollNearLogged;
+
+    /**
+     * 현재 안내가 톨게이트(szTBTMainText/szRoadName 에 "톨게이트")일 때 통행료를 찾는다.
+     * 안내 지점과 RGData 에서 이름이 toll/fee/charge… 인 필드를 바뀔 때마다 tmap_hud.log 에
+     * "toll-fields" 로 남기고, 400m 안에 들어오면 RGData 전체를 한 번 더 덤프한다.
+     * 요금은 이름이 분명한 필드(예: nTollFee)에서만 꺼내고, 없으면 -1.
+     */
+    private static int tollFee(Object rg, Object tbt) {
+        if (tbt == null) return -1;
+        String main = stringField(tbt, "szTBTMainText");
+        String road = stringField(tbt, "szRoadName");
+        if (!TollScan.isTollText(main) && !TollScan.isTollText(road)) {
+            lastTollSignature = "";
+            tollNearLogged = false;
+            return -1;
+        }
+        int fee = TollScan.feeWon(tbt, 3);
+        if (fee < 0) fee = TollScan.feeWon(rg, 3);
+        String hits = TollScan.candidates(tbt, 3);
+        String rgHits = TollScan.candidates(rg, 3);
+        String sig = intField(tbt, "nTBTTurnType") + ":" + main + ":" + hits + ":" + rgHits;
+        if (!sig.equals(lastTollSignature)) {
+            lastTollSignature = sig;
+            TmapHudLog.line("toll-fields turn=" + intField(tbt, "nTBTTurnType") + " main=" + main
+                    + " road=" + road + " fee=" + fee + " | point=" + (hits.isEmpty() ? "-" : hits)
+                    + " | rg=" + (rgHits.isEmpty() ? "-" : rgHits));
+        }
+        int dist = intField(tbt, "nTBTDist");
+        if (!tollNearLogged && dist > 0 && dist <= 400) {
+            tollNearLogged = true;
+            TmapHudLog.line("toll-near dist=" + dist + " | rg=" + ObjectDump.describe(rg, 2, 12000));
+        }
+        return fee;
     }
 
     private static String guidePoint(Object tbt) {

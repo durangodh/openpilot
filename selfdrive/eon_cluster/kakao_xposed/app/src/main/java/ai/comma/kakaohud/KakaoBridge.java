@@ -1,6 +1,7 @@
 package ai.comma.kakaohud;
 
 import ai.comma.hudcommon.ObjectDump;
+import ai.comma.hudcommon.TollScan;
 
 import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -49,6 +50,7 @@ final class KakaoBridge {
     private Object lastVehicleLoc = null;
     private Object cachedCurLoc = null;
     private String cachedCurName = "";   // 방면 이름(getNodeName)
+    private int cachedTollFee = -1;      // 현재 안내가 톨게이트일 때 통행료(원), 모르면 -1
     private String cachedNextName = "";
     private Object cachedSafetyLoc = null;
     private int cachedNextAbs = -1, cachedNextTbt = KakaoCodes.TBT_NONE;
@@ -374,6 +376,41 @@ final class KakaoBridge {
         KakaoHudLog.line("tbt-fields " + sig + " | " + ObjectDump.describe(cur, 3, 6000));
     }
 
+    /** 톨게이트 안내 기록 상태: 마지막으로 남긴 후보 필드 묶음과 RouteGuide 덤프 여부. */
+    private String lastTollSignature = "";
+    private boolean tollNearLogged;
+
+    /**
+     * 현재 안내가 톨게이트(KNRGCode 84 톨게이트·85 하이패스, 또는 이름에 "톨게이트")일 때
+     * 통행료를 찾는다. 안내 항목과 RouteGuide 에서 이름·타입이 toll/fee/charge… 인 필드를
+     * 바뀔 때마다 kakao_hud.log 에 "toll-fields" 로 남기고, 톨게이트 안내마다 RouteGuide
+     * 전체를 한 번 덤프한다. 요금은 이름이 분명한 필드에서만 꺼내고, 없으면 -1.
+     */
+    private int tollFee(Object routeGuide, Object cur, int raw, String name) {
+        if (cur == null || !(raw == 84 || raw == 85 || TollScan.isTollText(name))) {
+            lastTollSignature = "";
+            tollNearLogged = false;
+            return -1;
+        }
+        int fee = TollScan.feeWon(cur, 3);
+        if (fee < 0) fee = TollScan.feeWon(routeGuide, 3);
+        String hits = TollScan.candidates(cur, 3);
+        String guideHits = TollScan.candidates(routeGuide, 3);
+        String sig = raw + ":" + name + ":" + hits + ":" + guideHits;
+        if (!sig.equals(lastTollSignature)) {
+            lastTollSignature = sig;
+            KakaoHudLog.line("toll-fields raw=" + raw + " name=" + name + " fee=" + fee
+                    + " | cur=" + (hits.isEmpty() ? "-" : hits)
+                    + " | guide=" + (guideHits.isEmpty() ? "-" : guideHits));
+        }
+        if (!tollNearLogged) {
+            // 카카오는 안내가 바뀔 때만 준다: 톨게이트 안내를 처음 받을 때 RouteGuide 전체를 한 번 덤프.
+            tollNearLogged = true;
+            KakaoHudLog.line("toll-guide | guide=" + ObjectDump.describe(routeGuide, 3, 12000));
+        }
+        return fee;
+    }
+
     // ---- 경로 안내 ----
     void onRouteGuide(Object routeGuide) {
         // 카카오는 회전 안내를 방향이 바뀔 때만 준다. 경로 시작 판정(routeActive) 전에 온 첫 안내를
@@ -393,6 +430,7 @@ final class KakaoBridge {
             int curTbt = KakaoCodes.turnType(curName, curRaw, dirAngle(cur));
             int nextTbt = KakaoCodes.turnType(nextName, nextRaw, dirAngle(next));
             logTbtFields(cur, curRaw, curName);
+            int tollFee = tollFee(routeGuide, cur, curRaw, curName);
 
             if (loggedRouteShape.compareAndSet(false, true)) {
                 KakaoHudLog.line("ROUTE shape: cur=" + curName + "/" + curRaw + "->" + curTbt
@@ -408,6 +446,7 @@ final class KakaoBridge {
             synchronized (guideLock) {
                 cachedCurLoc = curLoc;
                 cachedCurName = curNodeName == null ? "" : curNodeName;
+                cachedTollFee = tollFee;
                 cachedNextName = nextNodeName == null ? "" : nextNodeName;
                 cachedCurAbs = curDist;
                 cachedCurTbt = curTbt;
@@ -650,6 +689,7 @@ final class KakaoBridge {
         int curAbs, curTbt, nextAbs, nextTbt;
         Object vehicleLoc, curLoc;
         String curName, nextName;
+        int tollFee;
         if (!routeActive) return;
         synchronized (guideLock) {
             if (!hasCachedGuide) return;
@@ -658,6 +698,7 @@ final class KakaoBridge {
             vehicleLoc = lastVehicleLoc; curLoc = cachedCurLoc;
             curName = cachedCurName;
             nextName = cachedNextName;
+            tollFee = cachedTollFee;
         }
         int vehicle = vehicleDistFromS;
         if (curTbt != KakaoCodes.TBT_NONE) {
@@ -668,7 +709,8 @@ final class KakaoBridge {
                 client.sendState("guidance_current",
                         "{\"source\":\"KAKAO\",\"turn_type\":" + curTbt
                         + ",\"distance_m\":" + remaining
-                        + ",\"main_text\":" + nm + ",\"road_name\":" + nm + "}");
+                        + ",\"main_text\":" + nm + ",\"road_name\":" + nm
+                        + (tollFee > 0 ? ",\"toll_fee_won\":" + tollFee : "") + "}");
             }
         } else {
             map.updateTurnDistance(-1);

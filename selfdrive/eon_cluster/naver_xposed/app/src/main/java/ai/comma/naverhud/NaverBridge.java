@@ -247,8 +247,9 @@ final class NaverBridge {
         send("app_status", "{\"source\":\"NAVER\",\"foreground\":true,\"guidance_active\":" + guiding + "}");
 
         Object directions = value(NaverStore.get(s, "TbtData"));
-        send("guidance_current", guidance(call(directions, "e"), true));
-        send("guidance_next", guidance(call(directions, "f"), false));
+        Object currentDirection = call(directions, "e");
+        send("guidance_current", guidance(currentDirection, true, tollFee(s, currentDirection)));
+        send("guidance_next", guidance(call(directions, "f"), false, -1));
 
         Object route = value(NaverStore.get(s, "GuidanceRemaining"));
         Object goal = call(route, "getGoal");
@@ -304,7 +305,7 @@ final class NaverBridge {
         }
     }
 
-    private static String guidance(Object direction, boolean current) {
+    private static String guidance(Object direction, boolean current, int tollFeeWon) {
         if (direction == null) return "null";
         Object detail = call(direction, "i");
         Object turn = call(detail, "s");
@@ -320,7 +321,50 @@ final class NaverBridge {
         if (current) logTbtFields(direction, detail, raw, main);
         return "{\"source\":\"NAVER\",\"distance_m\":" + NaverCodes.round(NaverCodes.number(call(direction, "h")))
                 + ",\"turn_type\":" + mapped + ",\"naver_turn_type\":" + raw
-                + ",\"main_text\":" + quote(main) + ",\"road_name\":" + quote(road.isEmpty() ? main : road) + "}";
+                + ",\"main_text\":" + quote(main) + ",\"road_name\":" + quote(road.isEmpty() ? main : road)
+                + (tollFeeWon > 0 ? ",\"toll_fee_won\":" + tollFeeWon : "") + "}";
+    }
+
+    /** 톨게이트 안내 기록 상태: 마지막으로 남긴 후보 필드 묶음과 400m 안 덤프 여부. */
+    private static String lastTollSignature = "";
+    private static boolean tollNearLogged;
+
+    /**
+     * 현재 안내가 톨게이트(네이버 121~123 또는 글자 "톨게이트")일 때 통행료를 찾는다.
+     * 후보 필드(이름·타입에 toll/fee/charge…)와 스토어의 요금 관련 LiveData 를 바뀔 때마다
+     * naver_hud.log 에 "toll-fields" 로 남기고, 400m 안에 들어오면 안내 항목 전체를 한 번 더
+     * 덤프한다(난독화 필드 이름이라 요금이 늦게 채워져도 찾을 수 있게). 요금은 이름이 분명한
+     * 필드에서만 꺼내고, 없으면 -1.
+     */
+    private static int tollFee(Object store, Object direction) {
+        if (direction == null) return -1;
+        Object detail = call(direction, "i");
+        int raw = (int) NaverCodes.number(call(call(detail, "s"), "getValue"));
+        String towards = text(call(detail, "n"));
+        String road = text(call(detail, "v"));
+        boolean toll = (raw >= 121 && raw <= 123) || ai.comma.hudcommon.TollScan.isTollText(towards)
+                || ai.comma.hudcommon.TollScan.isTollText(road);
+        if (!toll) {
+            lastTollSignature = "";
+            tollNearLogged = false;
+            return -1;
+        }
+        int fee = ai.comma.hudcommon.TollScan.feeWon(direction, 4);
+        String hits = ai.comma.hudcommon.TollScan.candidates(direction, 4);
+        String items = NaverStore.tollItems(store);
+        String sig = raw + ":" + towards + ":" + hits + ":" + items;
+        if (!sig.equals(lastTollSignature)) {
+            lastTollSignature = sig;
+            NaverHudLog.line("toll-fields raw=" + raw + " main=" + towards + " road=" + road
+                    + " fee=" + fee + " | hits=" + (hits.isEmpty() ? "-" : hits)
+                    + " | store=" + (items.isEmpty() ? "-" : items));
+        }
+        int dist = (int) NaverCodes.number(call(direction, "h"));
+        if (!tollNearLogged && dist > 0 && dist <= 400) {
+            tollNearLogged = true;
+            NaverHudLog.line("toll-near dist=" + dist + " | dir=" + ObjectDump.describe(direction, 3, 8000));
+        }
+        return fee;
     }
 
     /** Last logged maneuver (raw turn code + direction text) for logTbtFields. */

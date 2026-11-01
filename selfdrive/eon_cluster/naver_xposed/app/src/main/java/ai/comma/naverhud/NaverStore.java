@@ -128,6 +128,36 @@ final class NaverStore {
         return null;
     }
 
+    /**
+     * 통행료 찾기용: 반환 타입 이름에 Toll/Fee/Charge/Fare/Cost/Price 가 들어간 LiveData 게터를
+     * 모두 불러 "타입=값" 으로 적는다. 없으면 빈 문자열.
+     */
+    static String tollItems(Object store) {
+        if (store == null) return "";
+        StringBuilder out = new StringBuilder();
+        for (Method m : store.getClass().getDeclaredMethods()) {
+            int mod = m.getModifiers();
+            if (!Modifier.isPublic(mod) || Modifier.isStatic(mod) || m.getParameterTypes().length != 0) continue;
+            String key = keyOf(m);
+            if (key == null || !TOLL_TYPE.matcher(key).find()) continue;
+            Object value;
+            try {
+                m.setAccessible(true);
+                value = m.invoke(store);
+                if (value != null) value = value.getClass().getMethod("getValue").invoke(value);
+            } catch (Throwable ignored) {
+                value = null;
+            }
+            if (out.length() > 0) out.append(" ; ");
+            out.append(key).append('(').append(m.getName()).append(")=")
+                    .append(ai.comma.hudcommon.ObjectDump.describe(value, 3, 2000));
+        }
+        return out.toString();
+    }
+
+    private static final java.util.regex.Pattern TOLL_TYPE =
+            java.util.regex.Pattern.compile("(?i)toll|fee|charge|fare|cost|price|payment");
+
     private static Method byName(Class<?> type, String name) {
         try {
             return type.getMethod(name);
