@@ -48,6 +48,8 @@ DISPLAY_TOLLGATE = 178     # 0xB2 tollgate (2026-11-01 07:18 북오산, 07:44 �
 TOLLGATE_GATE_M = 400
 BAR_PREFIX_TOLLGATE = bytes.fromhex("00000040000000")   # TG 1, no toll known
 DISPLAY_HIGHWAY_EXIT = 164 # 0xA4 highway EXIT sign preview, km distance (11-01 07:42 "1.7km")
+DISPLAY_RAMP_TURN = 17     # turn off a ramp, no intersection drawn (11-01 07:43 "병점, 정남")
+SIDE_T_JUNCTION = 0x0810   # left + right, no road straight on (11-01 07:44 "수원")
 HIGHWAY_EXIT_PREVIEW_M = 1000  # the AVN switches to the "r" exit arrow from ~900 m
 # Keep going: 0x40 + a preview of the next maneuver. 65 plain straight (07:19 "12.6km"),
 # 66 bear right (07:15 before the 북오산IC exit), 67 right, 70 left, 72 U-turn, as the
@@ -119,7 +121,11 @@ def distance_fields(dist):
   return km >> 8, km & 0xFF, 0x10, (dist % 1000) // 100
 
 
-def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE_NEAR_M):
+def is_highway_exit(turn_type, text):
+  return turn_type == 18 and any(word in (text or "") for word in ("IC", "JC", "분기점", "출구"))
+
+
+def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE_NEAR_M, after_exit=False):
   """0x115 payload for one Naver maneuver, or None to leave the AVN's frame alone.
   next_turn_type picks the keep-going preview icon; a 톨게이트 name on a straight
   maneuver shows the tollgate icon (the modules map tollgates to straight)."""
@@ -135,14 +141,20 @@ def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE
       return bytes([DISPLAY_TOLLGATE, 0, 0, DIRECTION_NONE, hi, lo, unit, (bar << 4) | tenths])
     display = STRAIGHT_PREVIEW.get(next_turn_type, DISPLAY_STRAIGHT)
     return bytes([display, 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
-  if turn_type == 18 and dist > HIGHWAY_EXIT_PREVIEW_M and \
-     any(word in (text or "") for word in ("IC", "JC", "분기점", "출구")):
+  if is_highway_exit(turn_type, text) and dist > HIGHWAY_EXIT_PREVIEW_M:
     # A highway exit still far away: the AVN's EXIT sign, not the arrow.
     return bytes([DISPLAY_HIGHWAY_EXIT, 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
   code = TURN_CODES.get(turn_type)
   if code is None:
     return None
   display, direction, side = code
+  if turn_type in (12, 13):
+    if after_exit:
+      # The turn right after leaving the highway, on the ramp: the AVN's ramp turn
+      # picture without an intersection (17 / 0x0000, 2026-11-01 07:43 "병점, 정남").
+      display, side = DISPLAY_RAMP_TURN, 0
+    elif "삼거리" in (text or ""):
+      side = SIDE_T_JUNCTION   # T junction, no road straight on (07:44 "수원")
   return bytes([display, side >> 8, side & 0xFF, direction, hi, lo, unit,
                 (bar_tenths(dist, scale_m) << 4) | tenths])
 
@@ -197,6 +209,8 @@ class McanHud:
     self.active = False
     self.maneuver = None
     self.maneuver_start = 0.0
+    self.prev_exit = False      # the maneuver before the current one was a highway exit
+    self.cur_exit = False
 
   def _queue_text(self, text):
     self.text = text
@@ -221,10 +235,13 @@ class McanHud:
       text = str(nav_state.get("text", "") or "")
       # The bar scale follows how far away this maneuver was first announced.
       if (turn_type, text) != self.maneuver or dist > self.maneuver_start + 100.0:
+        if (turn_type, text) != self.maneuver:
+          self.prev_exit = self.cur_exit
+          self.cur_exit = is_highway_exit(turn_type, text)
         self.maneuver = (turn_type, text)
         self.maneuver_start = dist
       payload = tbt_payload(turn_type, dist, text, int(nxt.get("turn_type", -1)),
-                            bar_scale(self.maneuver_start))
+                            bar_scale(self.maneuver_start), after_exit=self.prev_exit)
     elif isinstance(nav_state, dict) and nav_state.get("guidance_stream_fresh") and nav_state.get("off_route"):
       # The navi app is still guiding but recalculating the route.
       payload = REROUTE_PAYLOAD

@@ -123,3 +123,15 @@ def test_tollgate_card_then_gate_like_avn():
   assert [d.hex() for a, d, _ in far if a == BAR_ADDR] == ["000000c0ffff0f00"]   # TG card (AVN 07:18:42)
   near = run(hud, nav(turn_type=11, dist=290.0, text="북오산톨게이트"), 5, start=5)
   assert [d.hex() for a, d, _ in near if a == BAR_ADDR] == ["0000004000000061"]  # gate (AVN 07:19:05)
+
+
+def test_t_junction_and_ramp_turn_shapes_like_avn():
+  assert tbt_payload(12, 300, "문화센터삼거리")[:4].hex() == "0d081024"          # T junction left (AVN 07:44:51)
+  assert tbt_payload(13, 300, "", after_exit=True)[:4].hex() == "1100000c"      # ramp right (AVN 07:43:44)
+  assert tbt_payload(13, 300, "")[:4].hex() == "0d08110c"                       # otherwise crossroads
+  hud = McanHud()
+  run(hud, nav(turn_type=18, dist=500.0, text="동탄, 북오산IC"), 5)
+  msgs = run(hud, nav(turn_type=13, dist=1200.0, text="병점, 정남"), 5, start=5)
+  assert [d[:4].hex() for a, d, _ in msgs if a == TBT_ADDR] == ["1100000c"]
+  msgs = run(hud, nav(turn_type=12, dist=300.0, text="수원"), 5, start=10)
+  assert [d[:4].hex() for a, d, _ in msgs if a == TBT_ADDR] == ["0d081124"]    # next turn: normal again
