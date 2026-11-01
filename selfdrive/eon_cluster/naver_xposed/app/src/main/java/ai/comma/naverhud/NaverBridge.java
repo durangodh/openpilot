@@ -322,14 +322,17 @@ final class NaverBridge {
         return "{\"source\":\"NAVER\",\"distance_m\":" + NaverCodes.round(NaverCodes.number(call(direction, "h")))
                 + ",\"turn_type\":" + mapped + ",\"naver_turn_type\":" + raw
                 + ",\"main_text\":" + quote(main) + ",\"road_name\":" + quote(road.isEmpty() ? main : road)
-                + (current && isTollgate(raw, towards, road) ? ",\"tollgate\":true" : "")
+                + (current && isTollgate(raw, mapped, towards, road) ? ",\"tollgate\":true" : "")
                 + (tollFeeWon > 0 ? ",\"toll_fee_won\":" + tollFeeWon : "") + "}";
     }
 
-    /** 네이버 톨게이트 안내(121~123) 또는 방면·도로 이름에 "톨게이트/요금소". */
-    private static boolean isTollgate(int raw, String towards, String road) {
-        return (raw >= 121 && raw <= 123) || ai.comma.hudcommon.TollScan.isTollText(towards)
-                || ai.comma.hudcommon.TollScan.isTollText(road);
+    /**
+     * 네이버 톨게이트 안내(121~123), 또는 직진 안내인데 방면·도로 이름에 "톨게이트/요금소".
+     * "○○톨게이트 방면 우회전" 같은 회전 안내는 톨게이트가 아니다.
+     */
+    private static boolean isTollgate(int raw, int mapped, String towards, String road) {
+        return (raw >= 121 && raw <= 123) || (mapped == NaverCodes.TBT_STRAIGHT
+                && (ai.comma.hudcommon.TollScan.isTollText(towards) || ai.comma.hudcommon.TollScan.isTollText(road)));
     }
 
     /** 톨게이트 안내 기록 상태: 마지막으로 남긴 후보 필드 묶음과 400m 안 덤프 여부. */
@@ -346,10 +349,12 @@ final class NaverBridge {
     private static int tollFee(Object store, Object direction) {
         if (direction == null) return -1;
         Object detail = call(direction, "i");
-        int raw = (int) NaverCodes.number(call(call(detail, "s"), "getValue"));
+        Object turn = call(detail, "s");
+        int raw = (int) NaverCodes.number(call(turn, "getValue"));
+        int mapped = NaverCodes.turnType(raw, String.valueOf(turn));
         String towards = text(call(detail, "n"));
         String road = text(call(detail, "v"));
-        if (!isTollgate(raw, towards, road)) {
+        if (!isTollgate(raw, mapped, towards, road)) {
             lastTollSignature = "";
             tollNearLogged = false;
             return -1;

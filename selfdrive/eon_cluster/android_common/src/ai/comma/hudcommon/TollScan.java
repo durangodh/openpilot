@@ -12,10 +12,13 @@ import java.util.regex.Pattern;
  * 순정 HUD 0x123 은 톨게이트 그림과 함께 요금(10원 단위)을 보낸다. 네비 앱이 요금을 어느
  * 필드에 두는지 아직 모르므로, 톨게이트 안내 중에 이름이 toll/fee/charge/fare/cost/price 인
  * 필드를 모두 로그에 남기고, 이름이 분명한 요금 필드(예: tollFee, nTollFee)만 값으로 쓴다.
+ * 경로 전체 요금(total/sum/remain…)은 쓰지 않는다.
  */
 public final class TollScan {
     private static final Pattern CANDIDATE = Pattern.compile("toll|fee|charge|fare|cost|price|pay|money|won");
     private static final Pattern FEE = Pattern.compile("toll.*(fee|charge|fare|cost|price|money)|(fee|charge|fare)$|^(n|i|m)?(fee|charge|fare)");
+    /** 경로 전체·누적 요금은 이번 톨게이트 요금이 아니다(HUD 0x123 은 현재 지점 요금만). */
+    private static final Pattern NOT_CURRENT = Pattern.compile("total|sum|all|remain|acc|route|path|whole");
     private static final int MAX_ITEMS = 5;
     private static final int MAX_CHARS = 4000;
     public static final int MIN_FEE_WON = 10;
@@ -102,7 +105,8 @@ public final class TollScan {
                     if (out.length() > 0) out.append(", ");
                     out.append(childPath).append('=').append(ObjectDump.describe(child, 2, 600));
                 }
-                if (fee != null && child instanceof Number && FEE.matcher(lower).find()) {
+                if (fee != null && child instanceof Number && FEE.matcher(lower).find()
+                        && !NOT_CURRENT.matcher(lower).find()) {
                     fee[0] = ((Number) child).longValue();
                     return;
                 }

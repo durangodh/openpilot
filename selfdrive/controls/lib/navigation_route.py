@@ -152,8 +152,9 @@ class NavigationRouteData:
             "kind": kind, "direction": direction, "distance": distance,
             # Per-current-maneuver fee only, never the total route toll. Unknown is None.
             "toll_fee_won": cls.toll_fee_won(guidance) if fresh else None,
-            # The module's explicit tollgate flag (Naver 121-123, TMAP 153/154/249, Kakao 84/85) or the name.
-            "tollgate": fresh and (guidance.get("tollgate") is True or "톨게이트" in text or "요금소" in text),
+            # The module's explicit tollgate flag (Naver 121-123, TMAP 153/154/249, Kakao 84/85, or a
+            # straight maneuver named 톨게이트). Not the name alone: "…톨게이트 방면" can be a turn.
+            "tollgate": bool(fresh) and guidance.get("tollgate") is True,
             "turn_type": turn_type, "text": text, "sharp_turn": sharp_turn,
             "next_road_width": road_width if math.isfinite(road_width) and road_width > 0.0 else 0.0,
             "next": None}

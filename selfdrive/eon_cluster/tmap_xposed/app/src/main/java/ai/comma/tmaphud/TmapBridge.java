@@ -258,13 +258,16 @@ final class TmapBridge {
         TmapHudLog.line("tbt-fields " + sig + " | " + ObjectDump.describe(tbt, 2, 6000));
     }
 
-    /** 티맵 톨게이트 코드(153·154·249, TmapAssets sign_07) 또는 안내·도로 이름에 "톨게이트/요금소". */
+    /**
+     * 티맵 톨게이트 코드(153·154·249, TmapAssets sign_07), 또는 직진(11) 안내인데 안내·도로 이름에
+     * "톨게이트/요금소". "○○톨게이트 방면 우회전" 같은 회전 안내는 톨게이트가 아니다.
+     */
     private static boolean isTollgate(Object tbt) {
         if (tbt == null) return false;
         int turn = intField(tbt, "nTBTTurnType");
         return turn == 153 || turn == 154 || turn == 249
-                || TollScan.isTollText(stringField(tbt, "szTBTMainText"))
-                || TollScan.isTollText(stringField(tbt, "szRoadName"));
+                || (turn == 11 && (TollScan.isTollText(stringField(tbt, "szTBTMainText"))
+                        || TollScan.isTollText(stringField(tbt, "szRoadName"))));
     }
 
     /** 톨게이트 안내 기록 상태: 마지막으로 남긴 후보 필드 묶음과 400m 안 덤프 여부. */

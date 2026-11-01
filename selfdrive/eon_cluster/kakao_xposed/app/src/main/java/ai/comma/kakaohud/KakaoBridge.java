@@ -377,9 +377,12 @@ final class KakaoBridge {
         KakaoHudLog.line("tbt-fields " + sig + " | " + ObjectDump.describe(cur, 3, 6000));
     }
 
-    /** KNRGCode_Tollgate(84)·NonstopTollgate(85) 또는 이름에 "톨게이트/요금소". */
-    private static boolean isTollgate(int raw, String name) {
-        return raw == 84 || raw == 85 || TollScan.isTollText(name);
+    /**
+     * KNRGCode_Tollgate(84)·NonstopTollgate(85), 또는 직진 안내인데 이름에 "톨게이트/요금소".
+     * "○○톨게이트 방면 우회전" 같은 회전 안내는 톨게이트가 아니다.
+     */
+    private static boolean isTollgate(int raw, int tbt, String name) {
+        return raw == 84 || raw == 85 || (tbt == KakaoCodes.TBT_STRAIGHT && TollScan.isTollText(name));
     }
 
     /** 톨게이트 안내 기록 상태: 마지막으로 남긴 후보 필드 묶음과 RouteGuide 덤프 여부. */
@@ -392,8 +395,8 @@ final class KakaoBridge {
      * 바뀔 때마다 kakao_hud.log 에 "toll-fields" 로 남기고, 톨게이트 안내마다 RouteGuide
      * 전체를 한 번 덤프한다. 요금은 이름이 분명한 필드에서만 꺼내고, 없으면 -1.
      */
-    private int tollFee(Object routeGuide, Object cur, int raw, String name) {
-        if (cur == null || !isTollgate(raw, name)) {
+    private int tollFee(Object routeGuide, Object cur, int raw, int tbt, String name) {
+        if (cur == null || !isTollgate(raw, tbt, name)) {
             lastTollSignature = "";
             tollNearLogged = false;
             return -1;
@@ -436,7 +439,7 @@ final class KakaoBridge {
             int curTbt = KakaoCodes.turnType(curName, curRaw, dirAngle(cur));
             int nextTbt = KakaoCodes.turnType(nextName, nextRaw, dirAngle(next));
             logTbtFields(cur, curRaw, curName);
-            int tollFee = tollFee(routeGuide, cur, curRaw, curName);
+            int tollFee = tollFee(routeGuide, cur, curRaw, curTbt, curName);
 
             if (loggedRouteShape.compareAndSet(false, true)) {
                 KakaoHudLog.line("ROUTE shape: cur=" + curName + "/" + curRaw + "->" + curTbt
@@ -453,7 +456,7 @@ final class KakaoBridge {
                 cachedCurLoc = curLoc;
                 cachedCurName = curNodeName == null ? "" : curNodeName;
                 cachedTollFee = tollFee;
-                cachedTollgate = isTollgate(curRaw, curName);
+                cachedTollgate = isTollgate(curRaw, curTbt, curName);
                 cachedNextName = nextNodeName == null ? "" : nextNodeName;
                 cachedCurAbs = curDist;
                 cachedCurTbt = curTbt;

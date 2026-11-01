@@ -167,7 +167,9 @@ def test_tollgate_flag_without_name_or_straight_code():
   assert tbt_payload(11, 300, "서울", tollgate=True).hex() == "b200000f012c00a0"
   assert tbt_payload(11, 300, "서울")[0] != 0xB2
   assert NavigationRouteData.guidance_state({"turn_type": 153, "distance_m": 300, "tollgate": True}, True)["tollgate"]
-  assert NavigationRouteData.guidance_state({"turn_type": 11, "distance_m": 300, "main_text": "정남톨게이트"}, True)["tollgate"]
+  # A turn toward a tollgate (name only, no flag) keeps its turn arrow.
+  assert not NavigationRouteData.guidance_state({"turn_type": 13, "distance_m": 300, "main_text": "정남톨게이트"}, True)["tollgate"]
+  assert tbt_payload(13, 300, "정남톨게이트")[0] == 13
   assert not NavigationRouteData.guidance_state({"turn_type": 153, "tollgate": True}, False)["tollgate"]
   hud = McanHud()
   state = nav(turn_type=153, dist=300, text="서울")
