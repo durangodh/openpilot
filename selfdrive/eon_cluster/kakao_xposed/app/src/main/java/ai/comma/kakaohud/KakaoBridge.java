@@ -51,6 +51,7 @@ final class KakaoBridge {
     private Object cachedCurLoc = null;
     private String cachedCurName = "";   // 방면 이름(getNodeName)
     private int cachedTollFee = -1;      // 현재 안내가 톨게이트일 때 통행료(원), 모르면 -1
+    private boolean cachedTollgate;      // 현재 안내가 톨게이트(KNRGCode 84·85 또는 이름)
     private String cachedNextName = "";
     private Object cachedSafetyLoc = null;
     private int cachedNextAbs = -1, cachedNextTbt = KakaoCodes.TBT_NONE;
@@ -376,6 +377,11 @@ final class KakaoBridge {
         KakaoHudLog.line("tbt-fields " + sig + " | " + ObjectDump.describe(cur, 3, 6000));
     }
 
+    /** KNRGCode_Tollgate(84)·NonstopTollgate(85) 또는 이름에 "톨게이트/요금소". */
+    private static boolean isTollgate(int raw, String name) {
+        return raw == 84 || raw == 85 || TollScan.isTollText(name);
+    }
+
     /** 톨게이트 안내 기록 상태: 마지막으로 남긴 후보 필드 묶음과 RouteGuide 덤프 여부. */
     private String lastTollSignature = "";
     private boolean tollNearLogged;
@@ -387,7 +393,7 @@ final class KakaoBridge {
      * 전체를 한 번 덤프한다. 요금은 이름이 분명한 필드에서만 꺼내고, 없으면 -1.
      */
     private int tollFee(Object routeGuide, Object cur, int raw, String name) {
-        if (cur == null || !(raw == 84 || raw == 85 || TollScan.isTollText(name))) {
+        if (cur == null || !isTollgate(raw, name)) {
             lastTollSignature = "";
             tollNearLogged = false;
             return -1;
@@ -447,6 +453,7 @@ final class KakaoBridge {
                 cachedCurLoc = curLoc;
                 cachedCurName = curNodeName == null ? "" : curNodeName;
                 cachedTollFee = tollFee;
+                cachedTollgate = isTollgate(curRaw, curName);
                 cachedNextName = nextNodeName == null ? "" : nextNodeName;
                 cachedCurAbs = curDist;
                 cachedCurTbt = curTbt;
@@ -690,6 +697,7 @@ final class KakaoBridge {
         Object vehicleLoc, curLoc;
         String curName, nextName;
         int tollFee;
+        boolean tollgate;
         if (!routeActive) return;
         synchronized (guideLock) {
             if (!hasCachedGuide) return;
@@ -699,6 +707,7 @@ final class KakaoBridge {
             curName = cachedCurName;
             nextName = cachedNextName;
             tollFee = cachedTollFee;
+            tollgate = cachedTollgate;
         }
         int vehicle = vehicleDistFromS;
         if (curTbt != KakaoCodes.TBT_NONE) {
@@ -710,6 +719,7 @@ final class KakaoBridge {
                         "{\"source\":\"KAKAO\",\"turn_type\":" + curTbt
                         + ",\"distance_m\":" + remaining
                         + ",\"main_text\":" + nm + ",\"road_name\":" + nm
+                        + (tollgate ? ",\"tollgate\":true" : "")
                         + (tollFee > 0 ? ",\"toll_fee_won\":" + tollFee : "") + "}");
             }
         } else {

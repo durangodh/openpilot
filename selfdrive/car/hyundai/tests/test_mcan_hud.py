@@ -158,3 +158,21 @@ def test_toll_fee_matches_photo_and_does_not_leak_to_next_guidance():
   state.update(turn_type=12, text="수원", distance=210)
   msgs = run(hud, state, 5, start=15)
   assert all(d[:7].hex() == "000000c0ffff0f" for a, d, _ in msgs if a == BAR_ADDR)
+
+
+def test_tollgate_flag_without_name_or_straight_code():
+  from selfdrive.controls.lib.navigation_route import NavigationRouteData
+  # TMAP tollgate code 153 or a Naver/Kakao tollgate whose direction text has no "톨게이트".
+  assert tbt_payload(153, 300, "서울", tollgate=True).hex() == "b200000f012c00a0"
+  assert tbt_payload(11, 300, "서울", tollgate=True).hex() == "b200000f012c00a0"
+  assert tbt_payload(11, 300, "서울")[0] != 0xB2
+  assert NavigationRouteData.guidance_state({"turn_type": 153, "distance_m": 300, "tollgate": True}, True)["tollgate"]
+  assert NavigationRouteData.guidance_state({"turn_type": 11, "distance_m": 300, "main_text": "정남톨게이트"}, True)["tollgate"]
+  assert not NavigationRouteData.guidance_state({"turn_type": 153, "tollgate": True}, False)["tollgate"]
+  hud = McanHud()
+  state = nav(turn_type=153, dist=300, text="서울")
+  state["tollgate"] = True
+  state["toll_fee_won"] = 900
+  msgs = run(hud, state, 5)
+  assert [d.hex() for a, d, _ in msgs if a == TBT_ADDR] == ["b200000f012c00a0"]
+  assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["00000040005a0164"]

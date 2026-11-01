@@ -57,6 +57,12 @@ public final class TollScan {
         return json.substring(0, json.length() - 1) + ",\"toll_fee_won\":" + feeWon + "}";
     }
 
+    /** guidance JSON 끝에 "tollgate":true 를 붙인다(json 이 null 이면 그대로). */
+    public static String withFlag(String json) {
+        if (json == null || !json.endsWith("}")) return json;
+        return json.substring(0, json.length() - 1) + ",\"tollgate\":true}";
+    }
+
     private static void walk(Object value, String path, int depth, StringBuilder out, long[] fee) {
         if (value == null || depth <= 0) return;
         if (out != null && out.length() > MAX_CHARS) return;

@@ -322,7 +322,14 @@ final class NaverBridge {
         return "{\"source\":\"NAVER\",\"distance_m\":" + NaverCodes.round(NaverCodes.number(call(direction, "h")))
                 + ",\"turn_type\":" + mapped + ",\"naver_turn_type\":" + raw
                 + ",\"main_text\":" + quote(main) + ",\"road_name\":" + quote(road.isEmpty() ? main : road)
+                + (current && isTollgate(raw, towards, road) ? ",\"tollgate\":true" : "")
                 + (tollFeeWon > 0 ? ",\"toll_fee_won\":" + tollFeeWon : "") + "}";
+    }
+
+    /** 네이버 톨게이트 안내(121~123) 또는 방면·도로 이름에 "톨게이트/요금소". */
+    private static boolean isTollgate(int raw, String towards, String road) {
+        return (raw >= 121 && raw <= 123) || ai.comma.hudcommon.TollScan.isTollText(towards)
+                || ai.comma.hudcommon.TollScan.isTollText(road);
     }
 
     /** 톨게이트 안내 기록 상태: 마지막으로 남긴 후보 필드 묶음과 400m 안 덤프 여부. */
@@ -342,9 +349,7 @@ final class NaverBridge {
         int raw = (int) NaverCodes.number(call(call(detail, "s"), "getValue"));
         String towards = text(call(detail, "n"));
         String road = text(call(detail, "v"));
-        boolean toll = (raw >= 121 && raw <= 123) || ai.comma.hudcommon.TollScan.isTollText(towards)
-                || ai.comma.hudcommon.TollScan.isTollText(road);
-        if (!toll) {
+        if (!isTollgate(raw, towards, road)) {
             lastTollSignature = "";
             tollNearLogged = false;
             return -1;

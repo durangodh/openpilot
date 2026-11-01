@@ -125,20 +125,22 @@ def is_highway_exit(turn_type, text):
   return turn_type == 18 and any(word in (text or "") for word in ("IC", "JC", "분기점", "출구"))
 
 
-def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE_NEAR_M, after_exit=False):
+def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE_NEAR_M, after_exit=False,
+                tollgate=False):
   """0x115 payload for one Naver maneuver, or None to leave the AVN's frame alone.
   next_turn_type picks the keep-going preview icon; a 톨게이트 name on a straight
-  maneuver shows the tollgate icon (the modules map tollgates to straight)."""
+  maneuver shows the tollgate icon (the modules map tollgates to straight); tollgate=True
+  (the module's explicit flag) shows it whatever the turn code or name."""
   dist = max(0, min(0xFFFFFF, int(round(dist_m))))
   hi, lo, unit, tenths = distance_fields(dist)
   if turn_type in TURN_ARRIVE:
     if dist <= ARRIVED_DIST_M:
       return bytes([DISPLAY_ARRIVED, 0, 0, 0, 0, 0, 0, 0xF0])
     return bytes([DISPLAY_DEST_AHEAD, 0, 0, 0, hi, lo, unit, (BAR_NONE << 4) | tenths])
+  if tollgate or (turn_type == TURN_STRAIGHT and "톨게이트" in (text or "")):
+    bar = BAR_NONE if dist > TOLLGATE_GATE_M else bar_tenths(dist)   # 400 m = full bar
+    return bytes([DISPLAY_TOLLGATE, 0, 0, DIRECTION_NONE, hi, lo, unit, (bar << 4) | tenths])
   if turn_type == TURN_STRAIGHT:
-    if "톨게이트" in (text or ""):
-      bar = BAR_NONE if dist > TOLLGATE_GATE_M else bar_tenths(dist)   # 400 m = full bar
-      return bytes([DISPLAY_TOLLGATE, 0, 0, DIRECTION_NONE, hi, lo, unit, (bar << 4) | tenths])
     display = STRAIGHT_PREVIEW.get(next_turn_type, DISPLAY_STRAIGHT)
     return bytes([display, 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
   if is_highway_exit(turn_type, text) and dist > HIGHWAY_EXIT_PREVIEW_M:
@@ -257,7 +259,8 @@ class McanHud:
         self.maneuver = (turn_type, text)
         self.maneuver_start = dist
       payload = tbt_payload(turn_type, dist, text, int(nxt.get("turn_type", -1)),
-                            bar_scale(self.maneuver_start), after_exit=self.prev_exit)
+                            bar_scale(self.maneuver_start), after_exit=self.prev_exit,
+                            tollgate=bool(nav_state.get("tollgate")))
     elif isinstance(nav_state, dict) and nav_state.get("guidance_stream_fresh") and nav_state.get("off_route"):
       # The navi app is still guiding but recalculating the route.
       payload = REROUTE_PAYLOAD

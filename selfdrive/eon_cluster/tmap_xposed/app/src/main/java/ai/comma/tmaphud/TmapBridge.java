@@ -208,6 +208,7 @@ final class TmapBridge {
         Object currentPoint = field(rg, "stGuidePoint");
         logTbtFields(currentPoint);
         String current = TollScan.withFee(guidePoint(currentPoint), tollFee(rg, currentPoint));
+        if (isTollgate(currentPoint)) current = TollScan.withFlag(current);
         String next = guidePoint(field(rg, "stGuidePointNext"));
         String lane = TmapJson.lane(intField(rg, "nLaneCount"), intField(rg, "nLaneDist"),
                 booleanField(rg, "bLane"), booleanField(rg, "bLanePlay"), intField(rg, "nCurrentLane"),
@@ -257,6 +258,15 @@ final class TmapBridge {
         TmapHudLog.line("tbt-fields " + sig + " | " + ObjectDump.describe(tbt, 2, 6000));
     }
 
+    /** 티맵 톨게이트 코드(153·154·249, TmapAssets sign_07) 또는 안내·도로 이름에 "톨게이트/요금소". */
+    private static boolean isTollgate(Object tbt) {
+        if (tbt == null) return false;
+        int turn = intField(tbt, "nTBTTurnType");
+        return turn == 153 || turn == 154 || turn == 249
+                || TollScan.isTollText(stringField(tbt, "szTBTMainText"))
+                || TollScan.isTollText(stringField(tbt, "szRoadName"));
+    }
+
     /** 톨게이트 안내 기록 상태: 마지막으로 남긴 후보 필드 묶음과 400m 안 덤프 여부. */
     private static String lastTollSignature = "";
     private static boolean tollNearLogged;
@@ -271,7 +281,7 @@ final class TmapBridge {
         if (tbt == null) return -1;
         String main = stringField(tbt, "szTBTMainText");
         String road = stringField(tbt, "szRoadName");
-        if (!TollScan.isTollText(main) && !TollScan.isTollText(road)) {
+        if (!isTollgate(tbt)) {
             lastTollSignature = "";
             tollNearLogged = false;
             return -1;
