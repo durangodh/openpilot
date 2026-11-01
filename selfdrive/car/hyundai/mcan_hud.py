@@ -159,6 +159,22 @@ def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE
                 (bar_tenths(dist, scale_m) << 4) | tenths])
 
 
+def tollgate_bar_payload(dist_m, toll_fee_won=None):
+  """0x123: TG card >400 m, gate <=400 m; current-point KRW fee only.
+
+  AVN 07:44:11: 00 00 00 40 00 5a 01 64 accompanied the 900-won photo.
+  Unknown/zero/unrepresentable fees deliberately use the observed no-fee frame.
+  No caching: changing guidance or losing the fee clears the previous amount.
+  """
+  if dist_m > TOLLGATE_GATE_M:
+    return BAR_PREFIX_DEFAULT + b"\x00"
+  fee = NavigationRouteData.toll_fee_won({"toll_fee_won": toll_fee_won})
+  prefix = BAR_PREFIX_TOLLGATE
+  if fee is not None:
+    prefix = prefix[:4] + (fee // 10).to_bytes(2, "big") + b"\x01"
+  return prefix + bytes([bar_percent(dist_m)])
+
+
 def camera_payload(camera, v_ego_kph=0.0):
   """0x1E5 for the speed camera the navi app currently alerts, or None (leave the AVN's)."""
   if not isinstance(camera, dict):
@@ -262,15 +278,10 @@ class McanHud:
         msgs.append(make_can_msg(TBT_ADDR, payload, MCAN_BUS))
         # the AVN's idle bar while rerouting
         percent = 100 if rerouting else bar_percent(dist, bar_scale(self.maneuver_start))
-        prefix = BAR_PREFIX_DEFAULT
+        bar_payload = BAR_PREFIX_DEFAULT + bytes([percent])
         if payload[0] == DISPLAY_TOLLGATE:
-          # TG card first, then the gate picture from 400 m (the AVN's 0x123, same drive).
-          if dist > TOLLGATE_GATE_M:
-            percent = 0
-          else:
-            prefix = BAR_PREFIX_TOLLGATE
-            percent = bar_percent(dist)
-        msgs.append(make_can_msg(BAR_ADDR, prefix + bytes([percent]), MCAN_BUS))
+          bar_payload = tollgate_bar_payload(dist, nav_state.get("toll_fee_won"))
+        msgs.append(make_can_msg(BAR_ADDR, bar_payload, MCAN_BUS))
 
     if self.text_queue:
       if self.text_wait > 0:

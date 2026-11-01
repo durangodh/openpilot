@@ -135,3 +135,26 @@ def test_t_junction_and_ramp_turn_shapes_like_avn():
   assert [d[:4].hex() for a, d, _ in msgs if a == TBT_ADDR] == ["1100000c"]
   msgs = run(hud, nav(turn_type=12, dist=300.0, text="수원"), 5, start=10)
   assert [d[:4].hex() for a, d, _ in msgs if a == TBT_ADDR] == ["0d081124"]    # next turn: normal again
+
+
+def test_toll_fee_matches_photo_and_does_not_leak_to_next_guidance():
+  from selfdrive.controls.lib.navigation_route import NavigationRouteData
+  assert NavigationRouteData.guidance_state(
+    {"turn_type": 11, "distance_m": 400, "toll_fee_won": 900}, True)["toll_fee_won"] == 900
+  assert NavigationRouteData.guidance_state({"toll_fee_won": 900}, False)["toll_fee_won"] is None
+  hud = McanHud()
+  state = nav(turn_type=11, dist=400, text="정남톨게이트")
+  state["toll_fee_won"] = 900
+  msgs = run(hud, state, 5)
+  assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["00000040005a0164"]
+  for amount in (None, 0, -10, 901, 655350, True, "nan", "inf", "bad"):
+    state["toll_fee_won"] = amount
+    msgs = run(hud, state, 5, start=5)
+    assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["0000004000000064"]
+  state["toll_fee_won"] = 900
+  state["distance"] = 500
+  msgs = run(hud, state, 5, start=10)
+  assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["000000c0ffff0f00"]
+  state.update(turn_type=12, text="수원", distance=210)
+  msgs = run(hud, state, 5, start=15)
+  assert all(d[:7].hex() == "000000c0ffff0f" for a, d, _ in msgs if a == BAR_ADDR)

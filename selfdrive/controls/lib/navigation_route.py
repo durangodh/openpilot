@@ -67,7 +67,7 @@ class NavigationRouteData:
   @staticmethod
   def empty_state():
     return {"fresh": False, "kind": "none", "direction": 0,
-            "distance": -1.0, "turn_type": -1, "text": "", "next": None,
+            "distance": -1.0, "turn_type": -1, "text": "", "next": None, "toll_fee_won": None,
             "route_fresh": False, "route": None, "vehicle": None,
             "lane_fresh": False, "lane_current": None, "lane_ahead_fresh": False,
             "lane_ahead": None,
@@ -150,9 +150,25 @@ class NavigationRouteData:
     road_width = _number(_first(guidance, ("next_road_width_m", "nTBTNextRoadWidth")), 0.0)
     return {"fresh": fresh and kind != "none" and distance >= 0.0,
             "kind": kind, "direction": direction, "distance": distance,
+            # Per-current-maneuver fee only, never the total route toll. Unknown is None.
+            "toll_fee_won": cls.toll_fee_won(guidance) if fresh else None,
             "turn_type": turn_type, "text": text, "sharp_turn": sharp_turn,
             "next_road_width": road_width if math.isfinite(road_width) and road_width > 0.0 else 0.0,
             "next": None}
+
+  @staticmethod
+  def toll_fee_won(guidance):
+    """Explicit KRW fee of this guidance point; do not infer from unrelated numbers."""
+    if not isinstance(guidance, dict):
+      return None
+    value = guidance.get("toll_fee_won")
+    if isinstance(value, bool):
+      return None
+    fee = _number(value, -1.0)
+    # The verified HUD encoding is 16-bit tens of won with unit 1.
+    if not math.isfinite(fee) or fee <= 0 or fee > 655340 or fee % 10 != 0:
+      return None
+    return int(fee)
 
   def update(self):
     now = time.monotonic()
