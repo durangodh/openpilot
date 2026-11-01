@@ -27,6 +27,11 @@ EMPTY_MSG = {
 HUD_UPLOAD_NAMES = ("hud-session.log", "hud-session.previous.log", "naver-hud.log",
                     "tmap-hud.log", "kakao-hud.log")
 HUD_UPLOAD_MAX = 1024 * 1024
+# 네비 모듈 로그는 폰에서 512KB 가 넘으면 지우고 새로 시작한다. 그러면 다음 업로드가
+# 톨게이트·교차로 기록(toll-*, tbt-fields)을 덮어써 잃으므로, 그 줄만 따로 날짜별
+# 파일(naver-fields-1101.log 등, 줄의 MM-dd)에 중복 없이 쌓아 둔다.
+MODULE_FIELD_LOGS = {"naver-hud.log": "naver", "tmap-hud.log": "tmap", "kakao-hud.log": "kakao"}
+FIELD_LINE_RE = re.compile(r"^(\d\d)-(\d\d) \d\d:\d\d:\d\d\.\d{3}\s+(toll-|tbt-fields)")
 NAME_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}\.(csv|log)$")
 CHUNK = 64 * 1024
 RECORDING_S = 10.0
@@ -129,10 +134,36 @@ def receive(conn, path, headers, body):
     with open(tmp, "wb") as f:
       f.write(body[:length])
     os.replace(tmp, os.path.join(directory, parts[4]))
+    if parts[4] in MODULE_FIELD_LOGS:
+      keep_field_lines(directory, MODULE_FIELD_LOGS[parts[4]], body[:length])
   except OSError:
     _send(conn, "500 Internal Server Error", "text/plain; charset=utf-8", b"write failed")
     return
   _send(conn, "200 OK", "text/plain; charset=utf-8", b"ok")
+
+
+def keep_field_lines(directory, app, body):
+  """모듈 로그에서 toll-*/tbt-fields 줄을 <app>-fields-MMDD.log 에 새 줄만 덧붙인다."""
+  by_day = {}
+  for line in body.decode("utf-8", "replace").splitlines():
+    m = FIELD_LINE_RE.match(line)
+    if m:
+      by_day.setdefault(m.group(1) + m.group(2), []).append(line)
+  for day, lines in by_day.items():
+    full = os.path.join(directory, "%s-fields-%s.log" % (app, day))
+    try:
+      with open(full, encoding="utf-8", errors="replace") as f:
+        seen = set(f.read().splitlines())
+    except OSError:
+      seen = set()
+    new = []
+    for line in lines:
+      if line not in seen:
+        seen.add(line)
+        new.append(line)
+    if new:
+      with open(full, "a", encoding="utf-8") as f:
+        f.write("\n".join(new) + "\n")
 
 
 def serve(conn, path):

@@ -73,3 +73,21 @@ def test_upload_rejects_other_names_and_oversize(tmp_path, monkeypatch):
   big = b"x" * (trace_http.HUD_UPLOAD_MAX + 1)
   assert _upload("hud-session.log", big, first=b"") == b"HTTP/1.1 400 Bad Request"
   assert not any(tmp_path.iterdir())
+
+
+def test_module_field_lines_survive_log_rollover(tmp_path, monkeypatch):
+  monkeypatch.setitem(trace_http.TRACE_DIRS, "hud", ("HUD", str(tmp_path)))
+  first = ("11-01 07:44:10.100  health: ok\n"
+           "11-01 07:44:11.200  toll-fields raw=121 main=정남톨게이트 fee=-1 | hits=-\n"
+           "11-01 07:44:12.300  tbt-fields raw=2 main=수원 | dir=x\n").encode("utf-8")
+  assert _upload("naver-hud.log", first) == b"HTTP/1.1 200 OK"
+  # The phone log rolled over: the next upload no longer has the toll line.
+  second = ("11-01 07:44:12.300  tbt-fields raw=2 main=수원 | dir=x\n"
+            "11-01 07:50:00.000  toll-near dist=390 | dir=y\n").encode("utf-8")
+  assert _upload("naver-hud.log", second) == b"HTTP/1.1 200 OK"
+  kept = (tmp_path / "naver-fields-1101.log").read_text(encoding="utf-8").splitlines()
+  assert kept == ["11-01 07:44:11.200  toll-fields raw=121 main=정남톨게이트 fee=-1 | hits=-",
+                  "11-01 07:44:12.300  tbt-fields raw=2 main=수원 | dir=x",
+                  "11-01 07:50:00.000  toll-near dist=390 | dir=y"]
+  assert "naver-fields-1101.log" in trace_http._listing().decode("utf-8")
+  assert not (tmp_path / "hud-fields-1101.log").exists()
