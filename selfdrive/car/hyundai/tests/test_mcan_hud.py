@@ -12,6 +12,7 @@ def test_tbt_payload_matches_avn_frames():
   assert tbt_payload(18, 400).hex() == "0d000303019000a0"   # right exit / IC, AVN frame verbatim
   assert tbt_payload(11, 700, "북오산톨게이트").hex() == "b200000f02bc00f0"     # tollgate 700 m, AVN verbatim
   assert tbt_payload(11, 300, "북오산톨게이트").hex() == "b200000f012c00a0"     # tollgate 300 m, AVN verbatim
+  assert tbt_payload(11, 400, "북오산톨게이트").hex() == "b200000f019000a0"     # gate from 400 m (AVN 07:18:58)
   assert tbt_payload(2, 900).hex() == "70000000038400f0"    # destination ahead 900 m, AVN frame verbatim
   assert tbt_payload(2, 5)[0] == 3                          # arrived
   assert tbt_payload(201, 900) == tbt_payload(2, 900)       # TMAP destination code
@@ -114,3 +115,11 @@ def test_bar_follows_announce_distance_like_avn():
   assert [d[7] for a, d, _ in msgs if a == BAR_ADDR] == [40]                        # far scale kept
   msgs = run(hud, nav(turn_type=12, dist=300.0, text="수원"), 5, start=10)
   assert [d[7] for a, d, _ in msgs if a == BAR_ADDR] == [100]                       # new maneuver, near
+
+
+def test_tollgate_card_then_gate_like_avn():
+  hud = McanHud()
+  far = run(hud, nav(turn_type=11, dist=500.0, text="북오산톨게이트"), 5)
+  assert [d.hex() for a, d, _ in far if a == BAR_ADDR] == ["000000c0ffff0f00"]   # TG card (AVN 07:18:42)
+  near = run(hud, nav(turn_type=11, dist=290.0, text="북오산톨게이트"), 5, start=5)
+  assert [d.hex() for a, d, _ in near if a == BAR_ADDR] == ["0000004000000061"]  # gate (AVN 07:19:05)

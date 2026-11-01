@@ -42,7 +42,11 @@ DISPLAY_TURN = 13
 DISPLAY_UTURN = 31
 DISPLAY_DEST_AHEAD = 112
 DISPLAY_ARRIVED = 3
-DISPLAY_TOLLGATE = 178     # 0xB2 tollgate icon (2026-11-01 07:18 북오산톨게이트), uses the bar
+DISPLAY_TOLLGATE = 178     # 0xB2 tollgate (2026-11-01 07:18 북오산, 07:44 정남톨게이트)
+# Tollgate: beyond 400 m the HUD shows the purple TG card (0x115 bar off, 0x123 TG field 3);
+# from 400 m the gate picture with the bar (0x123 TG field 1 + the toll: 00 5a 01 = 900원).
+TOLLGATE_GATE_M = 400
+BAR_PREFIX_TOLLGATE = bytes.fromhex("00000040000000")   # TG 1, no toll known
 DISPLAY_HIGHWAY_EXIT = 164 # 0xA4 highway EXIT sign preview, km distance (11-01 07:42 "1.7km")
 HIGHWAY_EXIT_PREVIEW_M = 1000  # the AVN switches to the "r" exit arrow from ~900 m
 # Keep going: 0x40 + a preview of the next maneuver. 65 plain straight (07:19 "12.6km"),
@@ -127,7 +131,7 @@ def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE
     return bytes([DISPLAY_DEST_AHEAD, 0, 0, 0, hi, lo, unit, (BAR_NONE << 4) | tenths])
   if turn_type == TURN_STRAIGHT:
     if "톨게이트" in (text or ""):
-      bar = BAR_NONE if dist > 300 else bar_tenths(dist)   # AVN: no bar until 300 m
+      bar = BAR_NONE if dist > TOLLGATE_GATE_M else bar_tenths(dist)   # 400 m = full bar
       return bytes([DISPLAY_TOLLGATE, 0, 0, DIRECTION_NONE, hi, lo, unit, (bar << 4) | tenths])
     display = STRAIGHT_PREVIEW.get(next_turn_type, DISPLAY_STRAIGHT)
     return bytes([display, 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
@@ -241,7 +245,15 @@ class McanHud:
         msgs.append(make_can_msg(TBT_ADDR, payload, MCAN_BUS))
         # the AVN's idle bar while rerouting
         percent = 100 if rerouting else bar_percent(dist, bar_scale(self.maneuver_start))
-        msgs.append(make_can_msg(BAR_ADDR, BAR_PREFIX_DEFAULT + bytes([percent]), MCAN_BUS))
+        prefix = BAR_PREFIX_DEFAULT
+        if payload[0] == DISPLAY_TOLLGATE:
+          # TG card first, then the gate picture from 400 m (the AVN's 0x123, same drive).
+          if dist > TOLLGATE_GATE_M:
+            percent = 0
+          else:
+            prefix = BAR_PREFIX_TOLLGATE
+            percent = bar_percent(dist)
+        msgs.append(make_can_msg(BAR_ADDR, prefix + bytes([percent]), MCAN_BUS))
 
     if self.text_queue:
       if self.text_wait > 0:
