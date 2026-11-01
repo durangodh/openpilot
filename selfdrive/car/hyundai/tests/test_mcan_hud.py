@@ -126,7 +126,8 @@ def test_tollgate_card_then_gate_like_avn():
 
 
 def test_t_junction_and_ramp_turn_shapes_like_avn():
-  assert tbt_payload(12, 300, "문화센터삼거리")[:4].hex() == "0d081024"          # T junction left (AVN 07:44:51)
+  # T junction shape (AVN 0d081024 at 07:44:51) is on hold: 삼거리 keeps the crossroads shape.
+  assert tbt_payload(12, 300, "문화센터삼거리")[:4].hex() == "0d081124"
   assert tbt_payload(13, 300, "", after_exit=True)[:4].hex() == "1100000c"      # ramp right (AVN 07:43:44)
   assert tbt_payload(13, 300, "")[:4].hex() == "0d08110c"                       # otherwise crossroads
   hud = McanHud()

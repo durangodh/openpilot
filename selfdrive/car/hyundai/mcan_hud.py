@@ -49,7 +49,9 @@ TOLLGATE_GATE_M = 400
 BAR_PREFIX_TOLLGATE = bytes.fromhex("00000040000000")   # TG 1, no toll known
 DISPLAY_HIGHWAY_EXIT = 164 # 0xA4 highway EXIT sign preview, km distance (11-01 07:42 "1.7km")
 DISPLAY_RAMP_TURN = 17     # turn off a ramp, no intersection drawn (11-01 07:43 "병점, 정남")
-SIDE_T_JUNCTION = 0x0810   # left + right, no road straight on (11-01 07:44 "수원")
+# T junction shape (left + right, no road straight on, 11-01 07:44 "수원"). On hold: turns
+# keep SIDE_TURN until the navi apps' junction shape is known (the tbt-fields logs).
+SIDE_T_JUNCTION = 0x0810
 HIGHWAY_EXIT_PREVIEW_M = 1000  # the AVN switches to the "r" exit arrow from ~900 m
 # Keep going: 0x40 + a preview of the next maneuver. 65 plain straight (07:19 "12.6km"),
 # 66 bear right (07:15 before the 북오산IC exit), 67 right, 70 left, 72 U-turn, as the
@@ -155,8 +157,6 @@ def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE
       # The turn right after leaving the highway, on the ramp: the AVN's ramp turn
       # picture without an intersection (17 / 0x0000, 2026-11-01 07:43 "병점, 정남").
       display, side = DISPLAY_RAMP_TURN, 0
-    elif "삼거리" in (text or ""):
-      side = SIDE_T_JUNCTION   # T junction, no road straight on (07:44 "수원")
   return bytes([display, side >> 8, side & 0xFF, direction, hi, lo, unit,
                 (bar_tenths(dist, scale_m) << 4) | tenths])
 
