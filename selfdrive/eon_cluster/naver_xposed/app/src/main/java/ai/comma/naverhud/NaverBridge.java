@@ -508,6 +508,7 @@ final class NaverBridge {
         StringBuilder details = new StringBuilder("[");
         StringBuilder turns = new StringBuilder("[");
         StringBuilder available = new StringBuilder("[");
+        StringBuilder dirs = new StringBuilder("[");
         int current = 1;
         for (int i = 0; i < lanes.size() && i < 8; i++) {
             Object entry = lanes.get(i);
@@ -516,7 +517,8 @@ final class NaverBridge {
             if (guide == null) guide = call(entry, "g");
             int turn = NaverCodes.laneTurn(String.valueOf(guide));
             if (recommended) current = i + 1;
-            if (i > 0) { details.append(','); turns.append(','); available.append(','); }
+            if (i > 0) { details.append(','); turns.append(','); available.append(','); dirs.append(','); }
+            dirs.append(NaverCodes.laneDirs(String.valueOf(guide)));
             details.append("{\"turn_type\":").append(turn).append(",\"recommended\":").append(recommended).append('}');
             turns.append(turn);
             available.append(recommended ? 1 : 0);
@@ -524,7 +526,7 @@ final class NaverBridge {
         return "{\"source\":\"NAVER\",\"count\":" + Math.min(8, lanes.size())
                 + ",\"current_lane\":" + current + ",\"distance_m\":" + NaverCodes.round(NaverCodes.number(call(item, "g")))
                 + ",\"lanes\":" + details.append(']') + ",\"turn_info\":" + turns.append(']')
-                + ",\"available\":" + available.append(']') + "}";
+                + ",\"available\":" + available.append(']') + ",\"dirs\":" + dirs.append(']') + "}";
     }
 
     private boolean signalLogged;

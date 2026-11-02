@@ -38,6 +38,10 @@ public final class TmapJsonCheck {
         emit("lane_current", lane);
         check(lane.contains("\"count\":4") && lane.contains("\"visible\":true")
                 && !lane.contains("guide_line_color"), "lane fields");
+        // nLaneTurnInfo 1 U-turn, 2 left, 8 straight, 32 right -> dirs 8, 2, 1|4 (straight-right)
+        check(java.util.Arrays.equals(TmapJson.laneDirs(new int[]{1, 2, 8 | 32}, 3), new int[]{8, 2, 5}),
+                "lane dirs");
+        check(lane.contains("\"dirs\":["), "lane dirs field");
         check(TmapJson.laneCount(2, new int[]{1, 1, 1}, null) == 3, "lane count follows arrays");
         check(TmapJson.lane(0, 0, false, false, 0, 0, null, null, null, 0, 0) == null, "no lanes");
         emit("lane_ahead", TmapJson.array(new String[]{TmapJson.aheadLane(3, 800, false, 0,

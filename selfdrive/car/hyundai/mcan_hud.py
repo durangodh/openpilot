@@ -49,9 +49,16 @@ TOLLGATE_GATE_M = 400
 BAR_PREFIX_TOLLGATE = bytes.fromhex("00000040000000")   # TG 1, no toll known
 DISPLAY_HIGHWAY_EXIT = 164 # 0xA4 highway EXIT sign preview, km distance (11-01 07:42 "1.7km")
 DISPLAY_RAMP_TURN = 17     # turn off a ramp, no intersection drawn (11-01 07:43 "병점, 정남")
-# T junction shape (left + right, no road straight on, 11-01 07:44 "수원"). On hold: turns
-# keep SIDE_TURN until the navi apps' junction shape is known (the tbt-fields logs).
-SIDE_T_JUNCTION = 0x0810
+# The side-street word is a bitmap of the junction's road arms: bit 0 straight on, bit 4
+# right, bit 11 left (bit 1 / 14 bear right / left). AVN: 0811 crossroads, 0810 T junction
+# (11-01 07:44 "수원"), 0011 straight + right (11-02 12:20/12:26), 0801 straight + left.
+ARM_STRAIGHT = 0x0001
+ARM_RIGHT = 0x0010
+ARM_LEFT = 0x0800
+SIDE_T_JUNCTION = ARM_LEFT | ARM_RIGHT
+# Navi lane arrows (lane_current "dirs", same in all three modules): 1 straight, 2 left, 4 right.
+LANE_DIR_ARMS = ((1, ARM_STRAIGHT), (2, ARM_LEFT), (4, ARM_RIGHT))
+TURN_ARM = {12: ARM_LEFT, 13: ARM_RIGHT}
 HIGHWAY_EXIT_PREVIEW_M = 1000  # the AVN switches to the "r" exit arrow from ~900 m
 # Keep going: 0x40 + a preview of the next maneuver. 65 plain straight (07:19 "12.6km"),
 # 66 bear right (07:15 before the 북오산IC exit), 67 right, 70 left, 72 U-turn, as the
@@ -138,26 +145,49 @@ def is_highway_exit(turn_type, text):
   return turn_type == 18 and any(word in (text or "") for word in ("IC", "JC", "분기점", "출구"))
 
 
+def lane_matches(lane, dist_m):
+  """The navi's lane guidance is for this maneuver (its distance agrees with the turn's)."""
+  if not isinstance(lane, dict):
+    return False
+  try:
+    lane_dist = float(lane.get("distance_m", -1.0))
+  except (TypeError, ValueError):
+    return False
+  return lane_dist > 0.0 and abs(lane_dist - dist_m) <= LANE_MATCH_M
+
+
+def lane_side(turn_type, lane):
+  """Junction shape for a left/right turn from the navi's lane arrows at that junction, as
+  the AVN draws it: an arm for every direction some lane may take, plus the turn's own arm.
+  None (keep the crossroads) without usable lanes or when only the turn's own arm is known."""
+  if turn_type not in TURN_ARM or not isinstance(lane, dict) or not isinstance(lane.get("dirs"), list):
+    return None
+  dirs = 0
+  for d in lane["dirs"]:
+    if isinstance(d, int) and not isinstance(d, bool):
+      dirs |= d
+  side = TURN_ARM[turn_type]
+  for bit, arm in LANE_DIR_ARMS:
+    if dirs & bit:
+      side |= arm
+  return side if side != TURN_ARM[turn_type] else None
+
+
 def show_turn(turn_type, dist_m, lane=None, after_exit=False):
   """Whether the AVN would draw this turn now, or still keep going with its preview."""
   if turn_type not in PREVIEW_TURNS or after_exit or dist_m <= TURN_SHOW_M:
     return True
-  if isinstance(lane, dict) and dist_m <= TURN_SHOW_LANE_M:
-    try:
-      lane_dist = float(lane.get("distance_m", -1.0))
-    except (TypeError, ValueError):
-      return False
-    return lane_dist > 0.0 and abs(lane_dist - dist_m) <= LANE_MATCH_M
-  return False
+  return dist_m <= TURN_SHOW_LANE_M and lane_matches(lane, dist_m)
 
 
 def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE_NEAR_M, after_exit=False,
-                tollgate=False, preview=False):
+                tollgate=False, preview=False, junction=None):
   """0x115 payload for one Naver maneuver, or None to leave the AVN's frame alone.
   next_turn_type picks the keep-going preview icon; a 톨게이트 name on a straight
   maneuver shows the tollgate icon (the modules map tollgates to straight); tollgate=True
   (the module's explicit flag) shows it whatever the turn code or name; preview=True keeps
-  going with this turn as the preview (see show_turn)."""
+  going with this turn as the preview (see show_turn); junction overrides the shape of
+  a left/right turn (lane_side)."""
   dist = max(0, min(0xFFFFFF, int(round(dist_m))))
   hi, lo, unit, tenths = distance_fields(dist)
   if turn_type in TURN_ARRIVE:
@@ -184,6 +214,8 @@ def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE
       # The turn right after leaving the highway, on the ramp: the AVN's ramp turn
       # picture without an intersection (17 / 0x0000, 2026-11-01 07:43 "병점, 정남").
       display, side = DISPLAY_RAMP_TURN, 0
+    elif junction is not None:
+      side = junction
   return bytes([display, side >> 8, side & 0xFF, direction, hi, lo, unit,
                 (bar_tenths(dist, scale_m) << 4) | tenths])
 
@@ -257,6 +289,7 @@ class McanHud:
     self.prev_exit = False      # the maneuver before the current one was a highway exit
     self.cur_exit = False
     self.shown = False          # the current turn is drawn (not the keep-going preview)
+    self.junction = None        # junction shape from the navi's lanes at this turn
 
   def _queue_text(self, text):
     self.text = text
@@ -284,16 +317,22 @@ class McanHud:
         self.cur_exit = is_highway_exit(turn_type, text)
         self.maneuver = (turn_type, text)
         self.shown = False
+        self.junction = None
+      lane = nav_state.get("lane_current")
+      if lane_matches(lane, dist):
+        # Kept for the rest of the maneuver: the lanes go away close to the junction.
+        self.junction = lane_side(turn_type, lane) or self.junction
       # Far turns keep going with their preview until the AVN would draw them; once drawn
       # they stay drawn (a lane flicker must not bring the preview back).
-      shown = self.shown or show_turn(turn_type, dist, nav_state.get("lane_current"), self.prev_exit)
+      shown = self.shown or show_turn(turn_type, dist, lane, self.prev_exit)
       # The bar scale follows how far away this maneuver was first drawn.
       if (shown and not self.shown) or dist > self.maneuver_start + 100.0:
         self.maneuver_start = dist
       self.shown = shown
       payload = tbt_payload(turn_type, dist, text, int(nxt.get("turn_type", -1)),
                             bar_scale(self.maneuver_start), after_exit=self.prev_exit,
-                            tollgate=bool(nav_state.get("tollgate")), preview=not shown)
+                            tollgate=bool(nav_state.get("tollgate")), preview=not shown,
+                            junction=self.junction)
     elif isinstance(nav_state, dict) and nav_state.get("guidance_stream_fresh") and nav_state.get("off_route"):
       # The navi app is still guiding but recalculating the route.
       payload = REROUTE_PAYLOAD

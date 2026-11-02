@@ -161,8 +161,28 @@ final class TmapJson {
                 .num("current_lane", positive(currentLane)).num("turn_code", nonZero(turnCode))
                 .ints("turn_info", copyLane(turnInfo, count)).ints("etc_info", copyLane(etcInfo, count))
                 .ints("available", copyLane(available, count))
+                .ints("dirs", laneDirs(turnInfo, count))
                 .num("guide_line_color", nonZero(guideLineColor))
                 .num("road_category", roadCategory).build();
+    }
+
+    /**
+     * 차로 화살표 방향 비트(세 모듈 공통 lane "dirs"): 1 직진, 2 좌, 4 우, 8 유턴.
+     * 티맵 nLaneTurnInfo 비트(laneguid 그림 번호 순): 1 유턴, 2 좌, 4 왼쪽 비스듬히, 8 직진,
+     * 16 오른쪽 비스듬히, 32 우. EON 이 회전 지점 차로들의 합으로 순정 HUD 교차로 모양을 만든다.
+     */
+    static int[] laneDirs(int[] turnInfo, int count) {
+        if (turnInfo == null) return null;
+        int[] out = new int[count];
+        for (int i = 0; i < count && i < turnInfo.length; i++) {
+            int t = turnInfo[i], dirs = 0;
+            if ((t & 8) != 0) dirs |= 1;
+            if ((t & (2 | 4)) != 0) dirs |= 2;
+            if ((t & (16 | 32)) != 0) dirs |= 4;
+            if ((t & 1) != 0) dirs |= 8;
+            out[i] = dirs;
+        }
+        return out;
     }
 
     /** Lane.from(LaneInfoData): 앞 차로(lane_ahead 원소). */

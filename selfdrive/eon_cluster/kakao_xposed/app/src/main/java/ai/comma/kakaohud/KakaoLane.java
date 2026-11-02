@@ -114,14 +114,17 @@ final class KakaoLane {
         StringBuilder details = new StringBuilder("[");
         StringBuilder turns = new StringBuilder("[");
         StringBuilder available = new StringBuilder("[");
+        StringBuilder dirs = new StringBuilder("[");
         int current = 0;
         for (int i = 0; i < n; i++) {
             Object info = list.get(i);
             Object turnType = field(info, "a");          // KNULaneInfo.turnType
             boolean suggest = Boolean.TRUE.equals(field(info, "f"));   // KNULaneInfo.suggest
-            int turn = laneTurn(turnType instanceof Enum ? ((Enum<?>) turnType).name() : String.valueOf(turnType));
+            String turnName = turnType instanceof Enum ? ((Enum<?>) turnType).name() : String.valueOf(turnType);
+            int turn = laneTurn(turnName);
             if (suggest && current == 0) current = i + 1;
-            if (i > 0) { details.append(','); turns.append(','); available.append(','); }
+            if (i > 0) { details.append(','); turns.append(','); available.append(','); dirs.append(','); }
+            dirs.append(laneDirs(turnName));
             details.append("{\"turn_type\":").append(turn).append(",\"recommended\":").append(suggest).append('}');
             turns.append(turn);
             available.append(suggest ? 1 : 0);
@@ -130,7 +133,21 @@ final class KakaoLane {
         return "{\"source\":\"KAKAO\",\"count\":" + n + ",\"current_lane\":" + current
                 + ",\"distance_m\":" + Math.max(0, distance)
                 + ",\"lanes\":" + details.append(']') + ",\"turn_info\":" + turns.append(']')
-                + ",\"available\":" + available.append(']') + "}";
+                + ",\"available\":" + available.append(']') + ",\"dirs\":" + dirs.append(']') + "}";
+    }
+
+    /**
+     * 차로 화살표 방향 비트(세 모듈 공통 lane "dirs"): 1 직진, 2 좌, 4 우, 8 유턴.
+     * EON 이 회전 지점 차로들의 합으로 순정 HUD 교차로 모양(사거리/T자/├)을 만든다.
+     */
+    static int laneDirs(String name) {
+        String v = name == null ? "" : name.toUpperCase(Locale.US);
+        int dirs = 0;
+        if (v.contains("STRAIGHT")) dirs |= 1;
+        if (v.contains("LEFT")) dirs |= 2;
+        if (v.contains("RIGHT")) dirs |= 4;
+        if (v.contains("UTURN")) dirs |= 8;
+        return dirs;
     }
 
     /** KNULaneTurnType 이름 → 티맵/네이버와 같은 HUD 차로 화살표 코드(NaverCodes.laneTurn 규칙). */

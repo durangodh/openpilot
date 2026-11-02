@@ -1,5 +1,5 @@
 """Stock HUD TBT frames must match what the Genesis DH AVN sends (2026-10-31 M-CAN logs)."""
-from selfdrive.car.hyundai.mcan_hud import (McanHud, isotp_frames, text_payload, tbt_payload, camera_payload, bar_percent,
+from selfdrive.car.hyundai.mcan_hud import (McanHud, lane_side, isotp_frames, text_payload, tbt_payload, camera_payload, bar_percent,
                                             BAR_ADDR, TBT_ADDR, TEXT_ADDR, CAMERA_ADDR, MCAN_BUS)
 
 
@@ -127,7 +127,7 @@ def test_tollgate_card_then_gate_like_avn():
 
 
 def test_t_junction_and_ramp_turn_shapes_like_avn():
-  # T junction shape (AVN 0d081024 at 07:44:51) is on hold: 삼거리 keeps the crossroads shape.
+  # The T junction (AVN 0d081024 at 07:44:51) comes from the lanes, not from a 삼거리 name.
   assert tbt_payload(12, 300, "문화센터삼거리")[:4].hex() == "0d081124"
   assert tbt_payload(13, 300, "", after_exit=True)[:4].hex() == "1100000c"      # ramp right (AVN 07:43:44)
   assert tbt_payload(13, 300, "")[:4].hex() == "0d08110c"                       # otherwise crossroads
@@ -205,3 +205,34 @@ def test_far_town_turn_keeps_going_with_preview_until_lanes_like_avn():
   state["lane_current"] = {"distance_m": 120}
   assert run(hud, state, 5)[0][1][0] == 70
   assert run(hud, nav(turn_type=12, dist=300.0, text="수원"), 5, start=5)[0][1][0] == 13
+
+
+def test_junction_shape_from_the_navi_lanes_like_avn():
+  # lane "dirs": 1 straight, 2 left, 4 right
+  assert lane_side(13, {"dirs": [2, 1, 5]}) == 0x0811        # crossroads (AVN 12:08:28)
+  assert lane_side(12, {"dirs": [2, 2, 4]}) == 0x0810        # T junction, no straight lane (07:44)
+  assert lane_side(13, {"dirs": [1, 1, 5]}) == 0x0011        # straight + right (AVN 12:20, 12:26)
+  assert lane_side(12, {"dirs": [2, 1, 1]}) == 0x0801        # straight + left
+  assert lane_side(13, {"dirs": [4, 4]}) is None             # only the turn's own arm: crossroads
+  assert lane_side(13, {"dirs": []}) is None and lane_side(13, {"count": 2}) is None
+  assert lane_side(14, {"dirs": [8, 1]}) is None             # U-turn keeps the AVN's U-turn picture
+  hud = McanHud()
+  state = nav(turn_type=13, dist=300.0, text="오산, 용인")
+  state["lane_current"] = {"distance_m": 310, "dirs": [1, 1, 5]}
+  msgs = run(hud, state, 5)
+  assert [d[:4].hex() for a, d, _ in msgs if a == TBT_ADDR] == ["0d00110c"]
+  # The lanes disappear near the junction: the shape stays.
+  msgs = run(hud, nav(turn_type=13, dist=40.0, text="오산, 용인"), 5, start=5)
+  assert [d[:4].hex() for a, d, _ in msgs if a == TBT_ADDR] == ["0d00110c"]
+  # Lanes of another junction (distance off) do not shape this turn; a new turn starts over.
+  state = nav(turn_type=12, dist=300.0, text="수원")
+  state["lane_current"] = {"distance_m": 120, "dirs": [2, 2, 4]}
+  msgs = run(hud, state, 5, start=10)
+  assert [d[:4].hex() for a, d, _ in msgs if a == TBT_ADDR] == ["0d081124"]
+  # After a highway exit the ramp turn keeps its own picture.
+  hud = McanHud()
+  run(hud, nav(turn_type=18, dist=500.0, text="동탄, 북오산IC"), 5)
+  state = nav(turn_type=13, dist=400.0, text="병점, 정남")
+  state["lane_current"] = {"distance_m": 400, "dirs": [1, 5]}
+  msgs = run(hud, state, 5, start=5)
+  assert [d[:4].hex() for a, d, _ in msgs if a == TBT_ADDR] == ["1100000c"]

@@ -166,6 +166,20 @@ public final class NaverCodes {
     }
 
     /** Naver LaneDirection set (e.g. "[Forward, Left]") -> TMAP lane arrow code. */
+    /**
+     * 차로 화살표 방향 비트(세 모듈 공통 lane "dirs"): 1 직진, 2 좌, 4 우, 8 유턴.
+     * EON 이 회전 지점 차로들의 합으로 순정 HUD 교차로 모양(사거리/T자/├)을 만든다.
+     */
+    public static int laneDirs(String guideSet) {
+        String v = guideSet == null ? "" : guideSet.toLowerCase(Locale.US);
+        int dirs = 0;
+        if (v.contains("forward")) dirs |= 1;
+        if (v.contains("left")) dirs |= 2;
+        if (v.contains("right")) dirs |= 4;
+        if (v.contains("backward") || v.contains("uturn")) dirs |= 8;
+        return dirs;
+    }
+
     public static int laneTurn(String guideSet) {
         String v = guideSet == null ? "" : guideSet.toLowerCase(Locale.US);
         boolean back = v.contains("backward");
