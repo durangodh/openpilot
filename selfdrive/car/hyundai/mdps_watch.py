@@ -12,6 +12,16 @@ False: no alert, lateral stays requested). This only records:
   - a log line on every change of our request or the MDPS12 status bits, with a
     snapshot (speed, angle, torques, blinkers), written to LOG_DIR and served at
     http://EON_IP:7714/trace ("MDPS 로그").
+  - LKAS11 frames the panda safety rejected. The panda returns a rejected TX
+    frame to the host (src = bus + 192, boardd CANPACKET_REJECTED); the interface
+    parses LKAS11 there and passes the rejected torques to note_rejected(). On a
+    rejection the panda drops the frame and resets its own last torque to 0
+    (safety_hyundai_community.h), while we keep ramping from our last torque, so a
+    torque/rate mismatch can keep every following frame rejected and the MDPS gets
+    no LKAS11 at all. Each rejection streak is logged ("LKAS11 REJECTED" with the
+    rejected torque, our previous torque, the panda's estimated last torque, the
+    driver torque in panda scale, MAIN state and the panda check that would fail;
+    then "LKAS11 rejection end" with the count). Nothing acts on it.
 """
 import os
 import time
@@ -25,6 +35,30 @@ MDPS_BITS = ("CF_Mdps_ToiActive", "CF_Mdps_ToiUnavail", "CF_Mdps_ToiFlt", "CF_Md
              "CF_Mdps_SErr", "CF_Mdps_Def")
 MAX_LINES_PER_DAY = 5000
 
+# panda safety_hyundai.h limits (LKAS11 tx hook)
+PANDA_MAX_STEER = 409
+PANDA_MAX_RATE_UP = 3
+PANDA_MAX_RATE_DOWN = 7
+PANDA_DRIVER_ALLOWANCE = 50
+PANDA_DRIVER_FACTOR = 2
+PANDA_DRIVER_SCALE = 0.79   # panda scales MDPS12 driver torque: raw * 0.79 - 808
+LKAS11_REJECTED_SRC = 192   # boardd CANPACKET_REJECTED + bus
+
+
+def panda_rejection_check(torque, last, driver_torque):
+  """Which panda LKAS11 check this torque fails against the panda's last torque, or None
+  (then: the 250 ms real time limit, or lateral not allowed)."""
+  if abs(torque) > PANDA_MAX_STEER:
+    return "limit"
+  driver = driver_torque * PANDA_DRIVER_SCALE
+  driver_max = PANDA_MAX_STEER + (PANDA_DRIVER_ALLOWANCE + driver) * PANDA_DRIVER_FACTOR
+  driver_min = -PANDA_MAX_STEER + (-PANDA_DRIVER_ALLOWANCE + driver) * PANDA_DRIVER_FACTOR
+  highest = min(max(last, 0) + PANDA_MAX_RATE_UP, max(last - PANDA_MAX_RATE_DOWN, max(driver_max, 0)))
+  lowest = max(min(last, 0) - PANDA_MAX_RATE_UP, min(last + PANDA_MAX_RATE_DOWN, min(driver_min, 0)))
+  if torque > highest or torque < lowest:
+    return "rate(last=%d allowed %d..%d)" % (last, lowest, highest)
+  return None
+
 
 class MdpsWatch:
   def __init__(self, dt, log_dir=LOG_DIR):
@@ -36,6 +70,16 @@ class MdpsWatch:
     self.last_key = None
     self.lines = 0
     self.day = None
+    self.sent_torque = 0          # torque of our last LKAS11
+    self.panda_last = 0           # estimate of the panda's desired_torque_last
+    self.rejected = []            # rejected LKAS11 torques since the last update()
+    self.reject_streak = 0
+    self.reject_total = 0
+    self.reject_start = 0.0
+
+  def note_rejected(self, torques):
+    """LKAS11 torques the panda returned as rejected in this CAN update."""
+    self.rejected.extend(int(t) for t in torques)
 
   def update(self, CS, lat_active, lkas_active, apply_steer, cut_steer):
     mdps = getattr(CS, "mdps12", None) or {}
@@ -51,6 +95,8 @@ class MdpsWatch:
       self.inactive_frames = 0
     not_steering = self.inactive_frames * self.dt >= NOT_STEERING_S
 
+    self._rejections(out, apply_steer)
+
     key = (bool(lat_active), bool(lkas_active), bool(cut_steer), not_steering, tuple(bits.values()))
     if key != self.last_key:
       reason = self._reason(lat_active, lkas_active, cut_steer, not_steering, bits)
@@ -63,6 +109,34 @@ class MdpsWatch:
       self.last_key = key
     self.not_steering = not_steering
     return not_steering
+
+  def _rejections(self, out, apply_steer):
+    rejected, self.rejected = self.rejected, []
+    if rejected:
+      if self.reject_streak == 0:
+        torque = rejected[0]
+        check = panda_rejection_check(torque, self.panda_last, out.steeringTorque)
+        main = getattr(out.cruiseState, "available", None) if hasattr(out, "cruiseState") else None
+        # The rejected frame is the one we sent last cycle; its reference is the
+        # panda's last torque before it (panda_last).
+        self._log("LKAS11 REJECTED | torque=%d pandaLast(est)=%d driverTq=%.0f(panda %.0f) "
+                  "main=%s check=%s | v=%.1fkph angle=%.1f" % (
+                    torque, self.panda_last, out.steeringTorque,
+                    out.steeringTorque * PANDA_DRIVER_SCALE, main,
+                    check or ("lateral-not-allowed(main)" if main is False else "rt-250ms/lat_allowed"),
+                    out.vEgo * 3.6, out.steeringAngleDeg))
+        self.reject_start = time.monotonic()
+      self.reject_streak += len(rejected)
+      self.reject_total += len(rejected)
+      # The panda resets its last torque to 0 on every rejection.
+      self.panda_last = 0
+    else:
+      if self.reject_streak:
+        self._log("LKAS11 rejection end | frames=%d for %.2fs total=%d | next torque=%d" % (
+          self.reject_streak, time.monotonic() - self.reject_start, self.reject_total, apply_steer))
+        self.reject_streak = 0
+      self.panda_last = self.sent_torque
+    self.sent_torque = int(apply_steer)
 
   @staticmethod
   def _reason(lat_active, lkas_active, cut_steer, not_steering, bits):

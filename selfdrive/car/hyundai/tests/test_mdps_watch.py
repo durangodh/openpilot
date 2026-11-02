@@ -36,3 +36,30 @@ def test_no_warning_when_not_requesting_or_stopped_or_starting(tmp_path):
   assert not run(w, cs(toi_active=0, v=0.0, standstill=True), 200)
   w = MdpsWatch(DT, str(tmp_path))
   assert not run(w, cs(toi_active=0), 90)                   # just started requesting (grace)
+
+
+def test_panda_rejection_check_mirrors_the_panda():
+  from selfdrive.car.hyundai.mdps_watch import panda_rejection_check
+  assert panda_rejection_check(410, 0, 0) == "limit"
+  assert panda_rejection_check(3, 0, 0) is None                 # +3 from 0 is fine
+  assert panda_rejection_check(80, 0, 0).startswith("rate")     # panda reset to 0, we kept 80
+  assert panda_rejection_check(83, 80, 0) is None               # in sync
+  assert panda_rejection_check(-80, 0, 0).startswith("rate")
+
+
+def test_rejection_streak_is_logged_with_cause(tmp_path):
+  w = MdpsWatch(DT, str(tmp_path))
+  state = cs()
+  state.out.cruiseState = SimpleNamespace(available=True)
+  for t in range(0, 81, 3):                                     # in sync up to 78
+    w.update(state, True, True, t, False)
+  w.note_rejected([78, 78])                                     # panda rejected our 78 (bus 0 and 1)
+  w.update(state, True, True, 81, False)
+  for t in (84, 87):
+    w.note_rejected([t - 3])                                    # keeps rejecting: panda reset to 0
+    w.update(state, True, True, t, False)
+  w.update(state, True, True, 90, False)                        # accepted again (no rejection reported)
+  log = "".join(p.read_text(encoding="utf-8") for p in tmp_path.iterdir())
+  assert "LKAS11 REJECTED | torque=78 pandaLast(est)=75" in log
+  assert "main=True check=rt-250ms/lat_allowed" in log
+  assert "LKAS11 rejection end | frames=4" in log and "total=4" in log
