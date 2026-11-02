@@ -34,17 +34,6 @@ def load_feedback_limiter():
   return env['limit_brake_feedback']
 
 
-def load_lead_start_target():
-  names = {'LEAD_START_ACCEL_MIN'}
-  nodes = [node for node in TREE.body
-           if (isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id in names
-                                                    for target in node.targets)) or
-              (isinstance(node, ast.FunctionDef) and node.name == 'lead_start_accel_target')]
-  env = dict(clip=lambda value, lower, upper: max(lower, min(value, upper)))
-  exec(compile(ast.Module(body=nodes, type_ignores=[]), str(SOURCE), 'exec'), env)
-  return env['lead_start_accel_target']
-
-
 def test_default_kp_limits_extra_brake_to_two_meters_per_second_cubed():
   limit_feedback = load_feedback_limiter()
   assert limit_feedback(-1.3, 0.0, 1.0, dt=0.05) == -0.1
@@ -64,11 +53,12 @@ def test_stopped_lead_launch_keeps_live_lead_shaping_after_mpc_release():
   assert "self.lead_launch = self.standstill_lead_latched or lead_release" in TEXT
 
 
-def test_lead_start_accel_uses_configured_value_as_a_ceiling():
-  target = load_lead_start_target()
-  assert target(1.4, 0.02) == 0.2
-  assert target(1.4, 0.8) == 0.8
-  assert target(1.4, 1.8) == 1.4
+def test_starting_state_requests_start_accel_like_apilot():
+  # 2026-11-03: the plan cap kept the launch request at 0.2..plan_a0 for ~1 s.
+  assert "lead_start_accel_target" not in TEXT
+  assert "start_target = float(clip(self.CP.startAccel, accel_limits[0], accel_limits[1]))" in TEXT
+  assert "self.lead_launch and self.launch_motion_started and self.lead_launch_jerk is not None" in TEXT
+
 
 
 def test_early_hold_relax_also_prereleases_stop_request():

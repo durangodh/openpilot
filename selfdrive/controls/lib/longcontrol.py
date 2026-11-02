@@ -102,7 +102,6 @@ FEEDBACK_BRAKE_JERK_BASE = 1.0
 FEEDBACK_BRAKE_JERK_KP = 1.0
 FEEDBACK_BRAKE_JERK_MIN = 1.0
 FEEDBACK_BRAKE_JERK_MAX = 3.0
-LEAD_START_ACCEL_MIN = 0.2
 
 
 def limit_brake_feedback(target, previous, kp, dt=DT_CTRL):
@@ -115,12 +114,6 @@ def limit_brake_feedback(target, previous, kp, dt=DT_CTRL):
   # Drop it to zero immediately, then build only the extra negative feedback.
   previous_brake = min(previous, 0.0)
   return max(target, previous_brake - brake_jerk * dt)
-
-
-def lead_start_accel_target(configured, planned):
-  """Treat START ACCEL as a ceiling while retaining enough request to release SCC."""
-  floor = min(configured, LEAD_START_ACCEL_MIN)
-  return float(clip(planned, floor, configured))
 
 
 # apilot-c2 상태전이.
@@ -444,7 +437,9 @@ class LongControl:
     # 앞차 출발로 이미 움직이기 시작했으면 출발 보조 상향은 쓰지 않는다.
     result = departure_jerk_upper(limit, self.jerk_start_limit, 2.0,
                                   assisted and not (self.lead_launch and self.launch_motion_started))
-    if self.lead_launch and self.lead_launch_jerk is not None:
+    # Live lead motion shapes the launch only once the car moves; releasing the
+    # standstill hold uses the full start jerk (aPilot c2-master, 2026-11-03).
+    if self.lead_launch and self.launch_motion_started and self.lead_launch_jerk is not None:
       result = min(result, self.lead_launch_jerk)
     return result
 
@@ -682,12 +677,11 @@ class LongControl:
       self.reset(CS.vEgo)
 
     elif self.long_control_state == LongCtrlState.starting:
+      # aPilot c2-master: the starting state requests START ACCEL as is. Capping it to
+      # the MPC plan for lead launches (0.2 rising with plan_a0) left the car standing
+      # 2.5-2.8 s after the lead moved (2026-11-03 long trace: ~1 s of that was the
+      # request creeping up to 1.2 behind the plan).
       start_target = float(clip(self.CP.startAccel, accel_limits[0], accel_limits[1]))
-      if self.lead_launch:
-        # START ACCEL is a user ceiling, not a command to outrun the MPC. This
-        # avoids the observed 1.4 m/s^2 request while plan_a0 was still near
-        # zero, but retains a small request so SCC can release its hold.
-        start_target = lead_start_accel_target(start_target, a_target_now)
       if getattr(self.CP, 'hasScc14', False):
         # SCC14-capable cars receive the launch jerk separately, so release the
         # hold immediately and let the vehicle ECU shape positive acceleration.
