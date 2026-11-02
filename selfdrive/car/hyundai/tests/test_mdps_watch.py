@@ -61,5 +61,5 @@ def test_rejection_streak_is_logged_with_cause(tmp_path):
   w.update(state, True, True, 90, False)                        # accepted again (no rejection reported)
   log = "".join(p.read_text(encoding="utf-8") for p in tmp_path.iterdir())
   assert "LKAS11 REJECTED | torque=78 pandaLast(est)=75" in log
-  assert "main=True check=rt-250ms/lat_allowed" in log
+  assert "hostMain=True hostEstCheck=rt-250ms-or-lat_allowed?" in log
   assert "LKAS11 rejection end | frames=4" in log and "total=4" in log

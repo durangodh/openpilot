@@ -1,3 +1,4 @@
+import os
 from random import randint
 
 from cereal import car
@@ -45,6 +46,12 @@ def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego
 LKAS_STATE_ACTIVE = 3
 # 정차 중 상태값을 강제로 바꿔 보는 시험용 파일(selfdrive/debug/lkas_hud_state_test.py 가 쓴다).
 LKAS_STATE_TEST_FILE = "/dev/shm/lkas_sys_state_test"
+# Bench check that the host sees LKAS11 frames the panda rejects (MDPS log). While this
+# file exists, parked and not engaged, LKAS11 carries LKAS11_REJECT_TEST_TORQUE with the
+# request bit off: a step of 10 from the panda's 0 always fails its rate check (and with
+# MAIN off its lateral check), so the frame never reaches the MDPS.
+LKAS11_REJECT_TEST_FILE = "/dev/shm/lkas11_reject_test"
+LKAS11_REJECT_TEST_TORQUE = 10
 
 
 def hud_wheel_state(sys_state, enabled, state_mode, test_state=None):
@@ -133,6 +140,7 @@ class CarController:
     # Log only: MDPS faults are handled as in aPilot c2-master (no alert, lateral stays on).
     self.mdps_watch = MdpsWatch(DT_CTRL)
     self.lkas_state_test = None
+    self.lkas11_reject_test = False
     self.scc_stop_latched = False
     self.prev_active_cam = False
     self.active_cam_timer = 0
@@ -194,6 +202,7 @@ class CarController:
     if self.frame % 50 == 0:
       self.hud_wheel_state_mode = self.op_params.get_bool("HudWheelStateMode")
       self.lkas_state_test = read_lkas_state_test()
+      self.lkas11_reject_test = os.path.exists(LKAS11_REJECT_TEST_FILE)
     sys_state = hud_wheel_state(sys_state, CC.enabled, self.hud_wheel_state_mode, self.lkas_state_test)
 
     if self.haptic_feedback_speed_camera:
@@ -240,16 +249,21 @@ class CarController:
         self.cut_steer_frames += 1
 
 
+    # Bench rejection test (see LKAS11_REJECT_TEST_FILE): parked, not engaged, no request.
+    lkas11_torque = apply_steer
+    if self.lkas11_reject_test and not CC.enabled and not lkas_active and CS.out.standstill:
+      lkas11_torque = LKAS11_REJECT_TEST_TORQUE
+
     # Log why the MDPS drops our torque (MDPS 로그 on the trace page); no alert, no effect.
-    self.mdps_watch.update(CS, CC.latActive, lkas_active, apply_steer, cut_steer_temp)
+    self.mdps_watch.update(CS, CC.latActive, lkas_active, lkas11_torque, cut_steer_temp)
 
     can_sends = []
-    can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, apply_steer, lkas_active,
+    can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, lkas11_torque, lkas_active,
                                    CS.lkas11, sys_warning, sys_state, CC.enabled, hud_control.leftLaneVisible, hud_control.rightLaneVisible,
                                    left_lane_warning, right_lane_warning, 0, False, cut_steer_temp))
 
     if CS.mdps_bus or CS.scc_bus == 1:  # send lkas11 bus 1 if mdps or scc is on bus 1
-      can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, apply_steer, lkas_active,
+      can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, lkas11_torque, lkas_active,
                                      CS.lkas11, sys_warning, sys_state, CC.enabled, hud_control.leftLaneVisible, hud_control.rightLaneVisible,
                                      left_lane_warning, right_lane_warning, 1, False, cut_steer_temp))
 

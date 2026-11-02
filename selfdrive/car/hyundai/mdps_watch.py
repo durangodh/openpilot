@@ -19,9 +19,14 @@ False: no alert, lateral stays requested). This only records:
     (safety_hyundai_community.h), while we keep ramping from our last torque, so a
     torque/rate mismatch can keep every following frame rejected and the MDPS gets
     no LKAS11 at all. Each rejection streak is logged ("LKAS11 REJECTED" with the
-    rejected torque, our previous torque, the panda's estimated last torque, the
-    driver torque in panda scale, MAIN state and the panda check that would fail;
-    then "LKAS11 rejection end" with the count). Nothing acts on it.
+    rejected torque, then "LKAS11 rejection end" with the count). Nothing acts on it.
+    The rest of that line is reconstructed on the host, not read from the panda:
+    pandaLast(est) and hostEstCheck replay the panda checks with our sent torques
+    and the current driver torque (the panda uses its own driver samples), and
+    hostMain is the host's MAIN state, not the panda's lat_allowed (which keeps
+    lateral allowed for ~0.5 s of MAIN off). A rejection proves the panda dropped
+    that frame, not why; no rejection line does not prove the MDPS is at fault.
+    Bench check: selfdrive/debug/lkas11_reject_test.py.
 """
 import os
 import time
@@ -120,10 +125,10 @@ class MdpsWatch:
         # The rejected frame is the one we sent last cycle; its reference is the
         # panda's last torque before it (panda_last).
         self._log("LKAS11 REJECTED | torque=%d pandaLast(est)=%d driverTq=%.0f(panda %.0f) "
-                  "main=%s check=%s | v=%.1fkph angle=%.1f" % (
+                  "hostMain=%s hostEstCheck=%s | v=%.1fkph angle=%.1f" % (
                     torque, self.panda_last, out.steeringTorque,
                     out.steeringTorque * PANDA_DRIVER_SCALE, main,
-                    check or ("lateral-not-allowed(main)" if main is False else "rt-250ms/lat_allowed"),
+                    check or ("lat-not-allowed?(main off)" if main is False else "rt-250ms-or-lat_allowed?"),
                     out.vEgo * 3.6, out.steeringAngleDeg))
         self.reject_start = time.monotonic()
       self.reject_streak += len(rejected)
