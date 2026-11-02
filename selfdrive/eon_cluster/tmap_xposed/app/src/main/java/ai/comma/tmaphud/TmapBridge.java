@@ -3,6 +3,7 @@ package ai.comma.tmaphud;
 import android.os.SystemClock;
 
 import ai.comma.hudcommon.ObjectDump;
+import ai.comma.hudcommon.NaviNotice;
 import ai.comma.hudcommon.RearCamera;
 import ai.comma.hudcommon.TollScan;
 
@@ -426,8 +427,20 @@ final class TmapBridge {
                 intField(sec, "remainingTime"), doubleField(sec, "sectionProgress"));
         boolean hasPosition = !(lat == 0.0 && lon == 0.0);
         Integer current = hasPosition || speedKph > 0 ? Integer.valueOf(Math.max(0, speedKph)) : null;
-        return TmapJson.speed(current, TmapJson.validRoadLimitKph(intField(rg, "nRoadLimitSpeed")),
-                primary, secondary, section);
+        return NaviNotice.with(TmapJson.speed(current, TmapJson.validRoadLimitKph(intField(rg, "nRoadLimitSpeed")),
+                primary, secondary, section), NaviNotice.TRAFFIC_INFO, trafficInfoDistance(sdis));
+    }
+
+    /** 티맵 SDI 13 = 교통정보수집 카메라. 가장 가까운 것의 거리(m), 없으면 -1. */
+    private static int trafficInfoDistance(Object[] sdis) {
+        int best = -1;
+        if (sdis == null) return best;
+        for (Object s : sdis) {
+            if (s == null || intField(s, "nSdiType") != 13) continue;
+            int dist = intField(s, "nSdiDist");
+            if (dist > 0 && (best < 0 || dist < best)) best = dist;
+        }
+        return best;
     }
 
     private static String sdi(Object[] sdis, int index) {

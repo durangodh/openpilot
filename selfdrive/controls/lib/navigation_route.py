@@ -132,6 +132,21 @@ class NavigationRouteData:
     return {"phase": phase, "distance": distance,
             "remaining": _number(_first(chosen[0], ("remaining_sec", "remain_sec")), -1.0)}
 
+  @staticmethod
+  def speed_notice(state):
+    """HUD-only notice from the navi (e.g. a traffic information camera), never a speed
+    event: {"kind", "distance"} or None."""
+    if not isinstance(state, dict) or not state.get("speed_fresh", False) or state.get("off_route", False):
+      return None
+    speed = state.get("speed")
+    notice = speed.get("notice") if isinstance(speed, dict) else None
+    if not isinstance(notice, dict) or not isinstance(notice.get("kind"), str):
+      return None
+    distance = _number(notice.get("distance_m"), -1.0)
+    if not math.isfinite(distance) or distance <= 0.0:
+      return None
+    return {"kind": notice["kind"], "distance": distance}
+
   @classmethod
   def guidance_state(cls, guidance, fresh):
     turn_type = int(_number(_first(guidance, (

@@ -38,6 +38,9 @@ SDI_SIGNAL_SPEED = 0       # navi module SDI types (NaverCodes / TMAP)
 SDI_SPEED = 1
 SDI_MOBILE = 7
 REAR_CAMERA_TEXT = "후면단속"
+# Non-speed notices: every camera nibble off (F), the notice in its own field. AVN 11-02
+# 12:08:09 "교통정보수집" circle: byte 2 (Navi_NonSpdTrap) = 9.
+NOTICE_PAYLOADS = {"traffic_info": bytes.fromhex("fff00900f00f0fff")}
 
 DISPLAY_TURN = 13
 DISPLAY_UTURN = 31
@@ -305,6 +308,9 @@ class McanHud:
     # The AVN's map has no rear-facing cameras and the HUD no picture for them: while the navi
     # alerts one, its circle shows the limit as usual and the text line says so.
     rear_camera = cam is not None and bool(camera.get("rear"))
+    if cam is None:
+      notice = NavigationRouteData.speed_notice(nav_state)
+      cam = NOTICE_PAYLOADS.get(notice["kind"]) if notice is not None else None
     if frame % SEND_PERIOD_FRAMES == 0 and cam is not None:
       msgs.append(make_can_msg(CAMERA_ADDR, cam, MCAN_BUS))
     payload = None

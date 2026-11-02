@@ -255,3 +255,15 @@ def test_rear_camera_says_so_on_the_text_line():
   state["speed"]["sdi"]["rear"] = False
   msgs = run(hud, state, 20)
   assert "북".encode("utf-16-le") in b"".join(d for a, d, _ in msgs if a == TEXT_ADDR)
+
+
+def test_traffic_info_camera_like_avn():
+  hud = McanHud()
+  state = {"speed_fresh": True, "speed": {"notice": {"kind": "traffic_info", "distance_m": 250}}}
+  msgs = run(hud, state, 5)
+  assert [d.hex() for a, d, _ in msgs if a == CAMERA_ADDR] == ["fff00900f00f0fff"]   # AVN 11-02 12:08:09
+  # A speed camera wins over the notice; nothing once the notice is gone.
+  state["speed"]["sdi"] = {"type": 1, "distance_m": 300, "speed_limit_kph": 50}
+  assert [d.hex() for a, d, _ in run(hud, state, 5) if a == CAMERA_ADDR] == ["05000000f0000fff"]
+  assert run(hud, {"speed_fresh": True, "speed": {}}, 5) == []
+  assert run(hud, {"speed_fresh": True, "speed": {"notice": {"kind": "traffic_info", "distance_m": 0}}}, 5) == []

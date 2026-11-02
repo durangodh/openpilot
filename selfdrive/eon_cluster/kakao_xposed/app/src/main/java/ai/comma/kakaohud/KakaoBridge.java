@@ -1,6 +1,7 @@
 package ai.comma.kakaohud;
 
 import ai.comma.hudcommon.ObjectDump;
+import ai.comma.hudcommon.NaviNotice;
 import ai.comma.hudcommon.RearCamera;
 import ai.comma.hudcommon.TollScan;
 
@@ -620,6 +621,17 @@ final class KakaoBridge {
             java.util.List<?> list = (java.util.List<?>) safetyArg;
             KakaoHudLog.status("safety callback count=" + list.size());
             logSafetyCodes(list);
+            // 교통정보수집 카메라(KNSafetyCode_TrafficCollectionCamera, 11-02 19:49)는 감속 대상이
+            // 아니라 HUD 표시용으로만 따로 기억한다(시작점부터 거리).
+            int notice = -1;
+            for (Object item : list) {
+                if (item == null || getBoolean(item, "getPassed", "d")) continue;
+                if (!String.valueOf(enumName(tryCallAny(item, "getCode", "b"))).contains("TrafficCollection")) continue;
+                Object location = tryCallAny(item, "getLocation", "c");
+                int absolute = location == null ? -1 : getInt(location, "getDistFromS", "f");
+                if (absolute > vehicleDistFromS && (notice < 0 || absolute < notice)) notice = absolute;
+            }
+            trafficInfoAbs = notice;
             Object best = null;
             int bestDistance = Integer.MAX_VALUE;
 
@@ -824,8 +836,13 @@ final class KakaoBridge {
 
     /** speed 스트림은 매번 통째로 바뀌므로 도로 제한속도를 항상 같이 싣는다. */
     private void sendSpeed(String events) {
-        client.sendState("speed", "{\"source\":\"KAKAO\",\"road_limit_kph\":" + roadLimitKph + events + "}");
+        int notice = trafficInfoAbs, vehicle = vehicleDistFromS;
+        client.sendState("speed", NaviNotice.with("{\"source\":\"KAKAO\",\"road_limit_kph\":" + roadLimitKph + events + "}",
+                NaviNotice.TRAFFIC_INFO, notice >= 0 && vehicle >= 0 ? notice - vehicle : -1));
     }
+
+    /** 가장 가까운 교통정보수집 카메라의 시작점부터 거리(m), 없으면 -1. */
+    private volatile int trafficInfoAbs = -1;
 
     private static final String[] ROAD_LIMIT_NAMES = {
             "getSpeedLimit", "getLimitSpeed", "getRoadSpeedLimit", "getRoadLimitSpeed",

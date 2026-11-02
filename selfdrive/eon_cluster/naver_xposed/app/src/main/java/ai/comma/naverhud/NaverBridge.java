@@ -484,7 +484,28 @@ final class NaverBridge {
                     .append(NaverCodes.round(NaverCodes.number(NaverCodes.callPrefix(section, "getAverageSpeed"))))
                     .append('}');
         }
-        return out.append('}').toString();
+        return ai.comma.hudcommon.NaviNotice.with(out.append('}').toString(),
+                ai.comma.hudcommon.NaviNotice.TRAFFIC_INFO, trafficInfoDistance(events.isEmpty()
+                        ? java.util.Arrays.asList(value(NaverStore.get(store, "GuidanceSafety#0")),
+                                value(NaverStore.get(store, "GuidanceSafety#1")))
+                        : events));
+    }
+
+    /**
+     * 교통정보수집 카메라(HUD 표시용, 감속 안 함)의 가장 가까운 거리, 없으면 -1. 네이버 코드
+     * 이름은 아직 실차 기록이 없어 이름에 TrafficInfo / Collect / InfoCam 이 들어간 것으로 찾는다
+     * (safety-codes 로그로 확인할 것).
+     */
+    private static int trafficInfoDistance(List<?> events) {
+        int best = -1;
+        for (Object event : events) {
+            if (event == null) continue;
+            String name = String.valueOf(call(event, "getCode"));
+            if (!(name.contains("TrafficInfo") || name.contains("Collect") || name.contains("InfoCam"))) continue;
+            int dist = (int) NaverCodes.number(call(event, "distance"));
+            if (dist > 0 && (best < 0 || dist < best)) best = dist;
+        }
+        return best;
     }
 
     private static boolean isDisplayableSafety(Object sdi) {
