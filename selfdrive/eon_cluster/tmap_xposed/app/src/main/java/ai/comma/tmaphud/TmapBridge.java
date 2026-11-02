@@ -3,6 +3,7 @@ package ai.comma.tmaphud;
 import android.os.SystemClock;
 
 import ai.comma.hudcommon.ObjectDump;
+import ai.comma.hudcommon.RearCamera;
 import ai.comma.hudcommon.TollScan;
 
 import java.lang.reflect.Field;
@@ -432,13 +433,21 @@ final class TmapBridge {
     private static String sdi(Object[] sdis, int index) {
         if (sdis == null || sdis.length <= index || sdis[index] == null) return null;
         Object s = sdis[index];
-        return TmapJson.sdi(intField(s, "nSdiType"), intField(s, "nSdiDist"),
+        boolean rear = RearCamera.isRear(s);
+        if (rear && !rearLogged) {
+            rearLogged = true;
+            TmapHudLog.line("rear camera: " + ObjectDump.describe(s, 3));
+        }
+        return RearCamera.withRear(TmapJson.sdi(intField(s, "nSdiType"), intField(s, "nSdiDist"),
                 intField(s, "nSdiSpeedLimit"), intField(s, "nSdiSection"),
                 intField(s, "nSdiBlockType"), intField(s, "nSdiBlockSpeed"),
                 intField(s, "nSdiBlockDist"), intField(s, "nSdiBlockAverageSpeed"),
                 intField(s, "nSdiBlockTime"), doubleField(s, "vpSdiPointLat"),
-                doubleField(s, "vpSdiPointLon"));
+                doubleField(s, "vpSdiPointLon")), rear);
     }
+
+    /** 후면 카메라로 판단한 첫 항목을 한 번 기록한다(구분 필드 확인용). */
+    private static boolean rearLogged;
 
     // ---- 신호등 ----
 

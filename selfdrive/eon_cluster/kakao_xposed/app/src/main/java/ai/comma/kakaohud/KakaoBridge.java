@@ -1,6 +1,7 @@
 package ai.comma.kakaohud;
 
 import ai.comma.hudcommon.ObjectDump;
+import ai.comma.hudcommon.RearCamera;
 import ai.comma.hudcommon.TollScan;
 
 import java.lang.reflect.Method;
@@ -806,10 +807,18 @@ final class KakaoBridge {
             sendSpeed("");
             return;
         }
+        boolean rear = item != null && RearCamera.isRear(item);
+        if (rear && !rearLogged) {
+            rearLogged = true;
+            KakaoHudLog.line("rear camera: " + ObjectDump.describe(item, 3));
+        }
         sendSpeed(",\"sdi\":{\"type\":" + type
                 + ",\"distance_m\":" + distance
-                + ",\"speed_limit_kph\":" + limit + "}");
+                + ",\"speed_limit_kph\":" + limit + (rear ? ",\"rear\":true" : "") + "}");
     }
+
+    /** 후면 카메라로 판단한 첫 항목을 한 번 기록한다(구분 필드 확인용). */
+    private boolean rearLogged;
 
     /** speed 스트림은 매번 통째로 바뀌므로 도로 제한속도를 항상 같이 싣는다. */
     private void sendSpeed(String events) {
