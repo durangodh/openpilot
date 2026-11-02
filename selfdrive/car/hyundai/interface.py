@@ -427,11 +427,6 @@ class CarInterface(CarInterfaceBase):
       events.add(EventName.belowSteerSpeed)
     if self.CC.turning_indicator_alert:
       events.add(EventName.turningIndicatorOn)
-    # The MDPS did not take our torque (CF_Mdps_ToiActive 0 while requesting): warn,
-    # without disengaging, so a silent drop of steering is visible (2026-11-03).
-    if self.CC.mdps_watch.not_steering and EventName.steerTempUnavailable not in events.events:
-      events.add(EventName.steerTempUnavailableSilent)
-
     # handle button presses
     for b in ret.buttonEvents:
       # CANCEL stops ACC and blocks automatic resume in CruiseHelper, but keeps

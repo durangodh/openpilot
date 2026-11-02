@@ -209,18 +209,16 @@ class CarState(CarStateBase):
     ret.steeringTorqueEps = cp_mdps.vl["MDPS12"]["CR_Mdps_OutTq"] / 10.  # scale to Nm
     ret.steeringPressed = abs(ret.steeringTorque) > self.params.STEER_THRESHOLD
 
-    # Only ToiUnavail (the MDPS is not taking torque right now), as aPilot c2-master
-    # counts it. ToiFlt/FailStat could stay set until the ignition was cycled while the
-    # MDPS took torque again, so including them kept lateral off and needed a restart
-    # after a manual blinker turn (2026-10-31); aPilot never faulted there. Debounced so
-    # the intentional two-frame high-angle reset pulse is ignored.
+    # Match aPilot c2-master: keep the ToiUnavail counter for diagnostics, but do not
+    # publish it as steerFaultTemporary. The MDPS can recover while lateral remains
+    # requested instead of controlsd dropping latActive on a transient rejection.
     mdps_fault = cp_mdps.vl["MDPS12"]["CF_Mdps_ToiUnavail"] != 0
     if not ret.standstill and mdps_fault:
       self.mdps_error_cnt += 1
     else:
       self.mdps_error_cnt = 0
 
-    ret.steerFaultTemporary = self.mdps_error_cnt > 50
+    ret.steerFaultTemporary = False
 
     if self.CP.enableAutoHold:
       ret.autoHold = cp.vl["ESP11"]["AVH_STAT"]
