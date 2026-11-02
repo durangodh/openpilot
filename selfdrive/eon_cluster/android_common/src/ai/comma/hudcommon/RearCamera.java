@@ -10,7 +10,9 @@ import java.util.Locale;
  * 들어 있었다(2026-10-30 실차). 티맵·카카오는 아직 실차 기록이 없어, 안전운전 항목의
  * 필드에서 같은 종류의 표시를 찾는다:
  *  - 이름에 rear 가 들어간 필드가 true 이거나 0 이 아니면,
- *  - 값(enum 이름·문자열·목록 항목)에 Rear / REAR / 후면 이 들어 있으면 후면 카메라.
+ *  - 값(enum 이름·문자열·목록 항목)에 Rear / REAR / 후면 / Backward 가 들어 있으면 후면 카메라.
+ * 카카오는 코드 이름이 ...BackwardCamera 다(2026-11-02 19:46 실차:
+ * KNSafetyCode_SignalAndSpeedViolationBackwardCamera, raw 103).
  */
 public final class RearCamera {
     private RearCamera() {}
@@ -67,7 +69,8 @@ public final class RearCamera {
         if (value instanceof Enum) text = ((Enum<?>) value).name();
         else if (value instanceof CharSequence) text = value.toString();
         else return false;
-        return text.contains("Rear") || text.contains("REAR") || text.contains("후면");
+        return text.contains("Rear") || text.contains("REAR") || text.contains("후면")
+                || text.contains("Backward") || text.contains("BACKWARD");
     }
 
     private static boolean isPlatform(Class<?> type) {

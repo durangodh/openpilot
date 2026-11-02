@@ -807,7 +807,9 @@ final class KakaoBridge {
             sendSpeed("");
             return;
         }
-        boolean rear = item != null && RearCamera.isRear(item);
+        // 카카오 후면 카메라: KNSafetyCode_...BackwardCamera (2026-11-02 19:46, raw 103).
+        boolean rear = item != null && (String.valueOf(enumName(tryCallAny(item, "getCode", "b"))).contains("Backward")
+                || RearCamera.isRear(item));
         if (rear && !rearLogged) {
             rearLogged = true;
             KakaoHudLog.line("rear camera: " + ObjectDump.describe(item, 3));
