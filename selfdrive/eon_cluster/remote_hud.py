@@ -1191,10 +1191,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "batteryVoltage": _battery_voltage(sm),
     "oilPressureWarning": bool(_field(car, "oilPressureWarning", False)),
     "absWarning": bool(_field(car, "absWarning", False)),
-    # Also yellow while the "MDPS Fault" warning is up for an MDPS that silently stopped
-    # steering (selfdrive/car/hyundai/mdps_watch.py, steerTempUnavailableSilent).
-    "steerFaultTemporary": bool(_field(car, "steerFaultTemporary", False)) or
-                           str(_field(controls, "alertType", "") or "").startswith("steerTempUnavailableSilent"),
+    "steerFaultTemporary": bool(_field(car, "steerFaultTemporary", False)),
     "steerFaultPermanent": bool(_field(car, "steerFaultPermanent", False)),
     "stockFcw": bool(_field(car, "stockFcw", False)),
     "stockAeb": bool(_field(car, "stockAeb", False)),

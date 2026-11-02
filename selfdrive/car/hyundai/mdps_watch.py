@@ -1,14 +1,14 @@
-"""Watch the MDPS for silently dropping our steering, warn, and log why.
+"""Log why the MDPS silently drops our steering (diagnostics only).
 
 On 2026-11-03 the MDPS stopped steering on a straight road with no alert: the
 fault check only counts CF_Mdps_ToiUnavail (ToiFlt/FailStat could stay latched,
 2026-10-31), so a refusal reported any other way went unnoticed.
 
-Two things here:
+MDPS faults are handled as in aPilot c2-master (steerFaultTemporary always
+False: no alert, lateral stays requested). This only records:
   - not_steering: we request torque (LKAS active, not in the intentional
     high-angle cut) while moving, and MDPS12 CF_Mdps_ToiActive stays 0 for
-    NOT_STEERING_S. The interface shows the non-disengaging "MDPS Fault"
-    warning for it; lateral stays requested so the MDPS can pick it up again.
+    NOT_STEERING_S ("MDPS NOT STEERING" line). Nothing acts on it.
   - a log line on every change of our request or the MDPS12 status bits, with a
     snapshot (speed, angle, torques, blinkers), written to LOG_DIR and served at
     http://EON_IP:7714/trace ("MDPS 로그").
