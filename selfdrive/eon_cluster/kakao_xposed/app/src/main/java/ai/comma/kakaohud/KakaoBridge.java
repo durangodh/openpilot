@@ -640,8 +640,11 @@ final class KakaoBridge {
                 // 사고다발·급커브처럼 제한속도가 없는 안내가 먼저 잡혀서 뒤의
                 // 과속카메라를 가리지 않도록, 감속 대상(방지턱/제한속도 있음)만 고른다.
                 int itemLimit = getInt(item, "getSpeedLimit", "l");
-                int itemType = KakaoCodes.sdiType(enumName(tryCallAny(item, "getCode", "b")),
-                        enumValue(tryCallAny(item, "getCode", "b")));
+                String itemName = enumName(tryCallAny(item, "getCode", "b"));
+                int itemType = KakaoCodes.sdiType(itemName, enumValue(tryCallAny(item, "getCode", "b")));
+                // 교통정보수집 카메라는 단속이 아닌데도 도로 제한속도(60)를 달고 온다(11-02 19:49).
+                // 감속 대상에서 빼고 HUD 표시(notice)로만 쓴다.
+                if (String.valueOf(itemName).contains("TrafficCollection")) continue;
                 if (!KakaoCodes.isSpeedRelevant(itemType, itemLimit)) continue;
                 Object location = tryCallAny(item, "getLocation", "c");
                 int absolute = location == null ? -1 : getInt(location, "getDistFromS", "f");
