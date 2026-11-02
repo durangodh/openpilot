@@ -37,6 +37,7 @@ CAMERA_ADDR = 0x1E5
 SDI_SIGNAL_SPEED = 0       # navi module SDI types (NaverCodes / TMAP)
 SDI_SPEED = 1
 SDI_MOBILE = 7
+REAR_CAMERA_TEXT = "후면단속"
 
 DISPLAY_TURN = 13
 DISPLAY_UTURN = 31
@@ -299,11 +300,13 @@ class McanHud:
   def update(self, frame, nav_state, v_ego=0.0):
     """CAN messages for this 100 Hz frame. nav_state: NavigationRouteData.update()."""
     msgs = []
-    if frame % SEND_PERIOD_FRAMES == 0:
-      camera = NavigationRouteData.speed_events(nav_state)["camera"] if isinstance(nav_state, dict) else None
-      cam = camera_payload(camera, v_ego * 3.6)
-      if cam is not None:
-        msgs.append(make_can_msg(CAMERA_ADDR, cam, MCAN_BUS))
+    camera = NavigationRouteData.speed_events(nav_state)["camera"] if isinstance(nav_state, dict) else None
+    cam = camera_payload(camera, v_ego * 3.6)
+    # The AVN's map has no rear-facing cameras and the HUD no picture for them: while the navi
+    # alerts one, its circle shows the limit as usual and the text line says so.
+    rear_camera = cam is not None and bool(camera.get("rear"))
+    if frame % SEND_PERIOD_FRAMES == 0 and cam is not None:
+      msgs.append(make_can_msg(CAMERA_ADDR, cam, MCAN_BUS))
     payload = None
     rerouting = False
     # guidance_fresh, not fresh: "fresh" is false for straight/arrival guidance.
@@ -346,6 +349,8 @@ class McanHud:
     else:
       self.active = True
       text = "" if rerouting else str(nav_state.get("text", "") or "")
+      if rear_camera and not rerouting:
+        text = REAR_CAMERA_TEXT
       if text != self.text:
         self._queue_text(text)
       if frame % SEND_PERIOD_FRAMES == 0:

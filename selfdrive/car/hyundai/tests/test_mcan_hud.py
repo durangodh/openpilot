@@ -236,3 +236,22 @@ def test_junction_shape_from_the_navi_lanes_like_avn():
   state["lane_current"] = {"distance_m": 400, "dirs": [1, 5]}
   msgs = run(hud, state, 5, start=5)
   assert [d[:4].hex() for a, d, _ in msgs if a == TBT_ADDR] == ["1100000c"]
+
+
+def test_rear_camera_says_so_on_the_text_line():
+  from selfdrive.car.hyundai.mcan_hud import REAR_CAMERA_TEXT
+  hud = McanHud()
+  state = nav(turn_type=13, dist=200.0, text="북오산IC")
+  state.update(speed_fresh=True, speed={"sdi": {"type": 1, "distance_m": 300, "speed_limit_kph": 50, "rear": True}})
+  msgs = run(hud, state, 20)
+  assert [d.hex() for a, d, _ in msgs if a == CAMERA_ADDR][0] == "05000000f0000fff"   # limit circle as usual
+  sent = b"".join(d for a, d, _ in msgs if a == TEXT_ADDR)
+  assert REAR_CAMERA_TEXT.encode("utf-16-le")[:4] in sent
+  # Past the camera: back to the direction name.
+  msgs = run(hud, nav(turn_type=13, dist=150.0, text="북오산IC"), 20, start=20)
+  assert "북".encode("utf-16-le") in b"".join(d for a, d, _ in msgs if a == TEXT_ADDR)
+  # A front camera keeps the direction name.
+  hud = McanHud()
+  state["speed"]["sdi"]["rear"] = False
+  msgs = run(hud, state, 20)
+  assert "북".encode("utf-16-le") in b"".join(d for a, d, _ in msgs if a == TEXT_ADDR)
