@@ -100,6 +100,7 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"AutoNaviSpeedBumpTime", PERSISTENT},
     {"AutoNaviSpeedBumpSpeed", PERSISTENT},
     {"AutoNaviSpeedSafetyFactor", PERSISTENT},
+    {"AutoNaviSectionBoost", PERSISTENT},      // 구간단속 보상 가속 상한 km/h (0=off)
     {"CruiseButtonMode", PERSISTENT},
     {"CruiseSpeedUnit", PERSISTENT},
     {"CruiseSpeedUnitBasic", PERSISTENT},

@@ -8,7 +8,7 @@ from common.realtime import DT_CTRL, sec_since_boot
 from selfdrive.car.hyundai.values import Buttons
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.controls.lib.rear_camera import RearCameraHold
-from selfdrive.eon_cluster.section_average import SectionAverage
+from selfdrive.eon_cluster.section_average import SectionAverage, section_boost_speed
 from selfdrive.controls.lib.vision_curve_speed import VisionCurveSpeed, UNLIMITED_SPEED
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, V_CRUISE_MIN, V_CRUISE_DELTA_KM, V_CRUISE_DELTA_MI
 from selfdrive.controls.lib.gap_sync import select_physical_gap, select_software_gap
@@ -31,6 +31,9 @@ BUMP_PASS_HOLD_DIST = 12.0   # m
 BUMP_MIN_SAFE_TIME = 2.0     # s
 BUMP_LOST_ARM_DIST = 30.0    # m, 이 안에서 안내가 끊기면 남은 거리+유지거리로 처리
 BRAKE_GAS_RESUME_WINDOW = 15.0  # s, brake pause followed by a deliberate gas handoff
+# 구간단속 보상 가속: 평균속도 목표 = 구간 제한속도 - 이 여유(km/h).
+# 평균은 GPS/실제 속도 기준이므로 계기판 보정(SafetyFactor)을 쓰지 않는다.
+SECTION_BOOST_AVG_MARGIN_KPH = 2.0
 
 
 class SpeedBumpHold:
@@ -226,6 +229,9 @@ class CruiseHelper:
     self.auto_navi_speed_bump_time = self._param_or_default("AutoNaviSpeedBumpTime", 1, 1, 50)
     self.auto_navi_speed_bump_speed = self._param_or_default("AutoNaviSpeedBumpSpeed", 35, 10, 100)
     self.auto_navi_speed_safety_factor = self._param_or_default("AutoNaviSpeedSafetyFactor", 105, 80, 120) * 0.01
+    # 구간단속 보상 가속 상한(km/h, 구간 목표속도 대비). 0 = 끔.
+    self.auto_navi_section_boost = float(clip(self.params.get_int("AutoNaviSectionBoost"), 0, 30))
+    self.section_boost_kph = 0.0
     self.noo_enabled = self.params.get_bool("NavigationOnOpenpilot")
     # 0: all, 1: turn steering+speed, 2: lane preparation only,
     # 3: carrot-style speed only.
@@ -804,6 +810,31 @@ class CruiseHelper:
     return max(safe_speed_kph, min(250.0,
                np.sqrt(max(0.0, safe_speed ** 2 + 2.0 * decel * decel_dist)) * CV.MS_TO_KPH))
 
+  def section_boost_target(self, base_kph, section_limit, section_avg, section_dist, now):
+    """구간단속 보상 가속: 평균속도가 제한속도보다 낮으면 남은 거리에서 평균을
+    목표(제한속도 - 여유)까지 끌어올리는 속도로 목표를 올린다.
+
+    상한은 base_kph + AutoNaviSectionBoost 이고, 구간 끝(종점 카메라) 앞에서는
+    감속 세기/완료 시점으로 base_kph 까지 다시 내려온다.
+    """
+    if self.auto_navi_section_boost <= 0.0:
+      return base_kph
+    target_avg = section_limit - SECTION_BOOST_AVG_MARGIN_KPH
+    required = section_boost_speed(section_avg, self.section_average.elapsed(now),
+                                   section_dist, target_avg)
+    if required <= 0.0:
+      return base_kph
+    # required 는 실제 속도 기준 → 계기판 목표와 같은 비율로 환산.
+    boost_kph = min(required * self.auto_navi_speed_safety_factor,
+                    base_kph + self.auto_navi_section_boost)
+    exit_kph = self.calculate_navi_speed(section_dist, base_kph, self.auto_navi_speed_ctrl_end,
+                                         self.auto_navi_speed_decel_rate)
+    boost_kph = min(boost_kph, exit_kph)
+    if boost_kph <= base_kph:
+      return base_kph
+    self.section_boost_kph = boost_kph - base_kph
+    return boost_kph
+
   def cal_max_speed(self, frame, CS, sm, clu11_speed, controls):
     limiter = get_road_speed_limiter()
     # Read only the raw roadLimitSpeed packet. The legacy limiter calculation
@@ -951,6 +982,16 @@ class CruiseHelper:
       section_dist = 0.0
       section_limit = 0.0
 
+    # Same average as the S9 HUD (app value, else measured since entering the section).
+    section_avg = self.section_average.update(navi_section, CS.out.vEgo, now)
+    section_active = section_dist > 0.0 and section_limit > 0.0
+    section_apply_kph = 0.0
+    self.section_boost_kph = 0.0
+    if section_active:
+      section_apply_kph = section_limit * self.auto_navi_speed_safety_factor
+      section_apply_kph = self.section_boost_target(section_apply_kph, section_limit, section_avg,
+                                                    section_dist, now)
+
     if cam_dist > 0.0 and cam_limit > 0.0:
       left_dist = cam_dist
       road_limit_speed = cam_limit
@@ -964,6 +1005,14 @@ class CruiseHelper:
         safe_time = self.auto_navi_speed_ctrl_end
       apply_kph = self.calculate_navi_speed(left_dist, navi_target_kph, safe_time,
                                             self.auto_navi_speed_decel_rate)
+      if section_active and section_apply_kph < apply_kph:
+        # A camera still far ahead inside a section must not lift the section
+        # target (or its boost cap) while counting down.
+        apply_kph = section_apply_kph
+        left_dist = section_dist
+        road_limit_speed = section_limit
+        navi_source = "section"
+        navi_target_kph = section_apply_kph
       apply_limit_speed = self.kph_to_clu(apply_kph)
     elif bump_holding:
       # 방지턱 통과 직후: 유지거리 동안 방지턱 속도 그대로.
@@ -971,12 +1020,13 @@ class CruiseHelper:
       navi_source = "bump"
       navi_target_kph = self.auto_navi_speed_bump_speed
       apply_limit_speed = self.kph_to_clu(navi_target_kph)
-    elif section_dist > 0.0 and section_limit > 0.0:
+    elif section_active:
       left_dist = section_dist
       road_limit_speed = section_limit
       navi_source = "section"
-      navi_target_kph = section_limit * self.auto_navi_speed_safety_factor
-      # C3 holds the section target directly while inside the section.
+      # C3 holds the section target directly while inside the section, raised
+      # by the boost while the average is below the limit.
+      navi_target_kph = section_apply_kph
       apply_limit_speed = self.kph_to_clu(navi_target_kph)
     if rear_holding:
       # 후면 카메라 통과 후 유지거리 동안 카메라 제한속도. 그사이 다른 카메라·구간이
@@ -1000,9 +1050,7 @@ class CruiseHelper:
       self.ui_cam = (1, self.rear_hold.limit, self.rear_hold.remaining, True, True)
     else:
       self.ui_cam = (0, 0.0, 0.0, False, False)
-    # Same average as the S9 HUD (app value, else measured since entering the section).
-    section_avg = self.section_average.update(navi_section, CS.out.vEgo, now)
-    if section_dist > 0.0 and section_limit > 0.0:
+    if section_active:
       self.ui_section = (section_limit, section_dist, section_avg)
     else:
       self.ui_section = (0.0, 0.0, 0.0)

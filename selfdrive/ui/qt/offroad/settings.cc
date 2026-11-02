@@ -1335,6 +1335,10 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "AutoNaviSpeedReleaseDist", "3. 가속 복귀 지점 (카메라 N m 전)",
       "카메라 도달 N m 전에 감속 유지를 끝내고 설정속도로 복귀합니다. 0: 카메라를 지난 뒤 복귀(기본). 실제 단속 지점은 카메라보다 앞일 수 있어 10 이하를 권장합니다.",
       "../assets/offroad/icon_speed_limit.png", 0, 50, 5, 0, 0, this));
+  toggleLayout->addWidget(new ParamValueControlF(
+      "AutoNaviSectionBoost", "4. 구간단속 보상 가속 (km/h)",
+      "구간단속 중 평균속도가 제한속도보다 낮으면, 남은 거리에서 평균을 (제한속도-2)까지 맞추도록 목표속도를 최대 N km/h 올립니다. 구간 종점 앞에서는 다시 목표속도로 감속하며, 설정속도는 넘지 않습니다. 0: 끔. 기본값: 10.",
+      "../assets/offroad/icon_speed_limit.png", 0, 30, 1, 0, 10, this));
   toggleLayout->addWidget(horizontal_line());
   toggleLayout->addWidget(new LabelControl("과속방지턱 감속", "", "카메라와 별도로 방지턱만의 목표속도·완료 지점입니다."));
   toggleLayout->addWidget(new ParamValueControlF(

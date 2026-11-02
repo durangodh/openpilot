@@ -52,6 +52,7 @@ def manager_init() -> None:
     ("AutoNaviSpeedBumpTime", "1"),
     ("AutoNaviSpeedBumpSpeed", "35"),
     ("AutoNaviSpeedSafetyFactor", "105"),
+    ("AutoNaviSectionBoost", "10"),        # 구간단속 평균 미달 시 보상 가속 상한 km/h, 0=off
     ("NavigationOnOpenpilot", "0"),
     ("NooTurnSpeed", "30"),
     ("NooMode", "0"),
