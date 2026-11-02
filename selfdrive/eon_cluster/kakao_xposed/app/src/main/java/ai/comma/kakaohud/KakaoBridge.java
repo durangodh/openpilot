@@ -642,9 +642,11 @@ final class KakaoBridge {
                 int itemLimit = getInt(item, "getSpeedLimit", "l");
                 String itemName = enumName(tryCallAny(item, "getCode", "b"));
                 int itemType = KakaoCodes.sdiType(itemName, enumValue(tryCallAny(item, "getCode", "b")));
-                // 교통정보수집 카메라는 단속이 아닌데도 도로 제한속도(60)를 달고 온다(11-02 19:49).
-                // 감속 대상에서 빼고 HUD 표시(notice)로만 쓴다.
-                if (String.valueOf(itemName).contains("TrafficCollection")) continue;
+                // 교통정보수집·주차단속 카메라는 과속 단속이 아닌데도 도로 제한속도(60)를 달고 온다
+                // (11-02 19:49, 10-30·11-01 ParkingViolationCamera). 감속 대상에서 뺀다.
+                // 교통정보수집은 HUD 표시(notice)로만 쓴다.
+                String itemText = String.valueOf(itemName);
+                if (itemText.contains("TrafficCollection") || itemText.contains("Parking")) continue;
                 if (!KakaoCodes.isSpeedRelevant(itemType, itemLimit)) continue;
                 Object location = tryCallAny(item, "getLocation", "c");
                 int absolute = location == null ? -1 : getInt(location, "getDistFromS", "f");
