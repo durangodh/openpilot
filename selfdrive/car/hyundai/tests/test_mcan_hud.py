@@ -110,10 +110,11 @@ def test_bar_follows_announce_distance_like_avn():
   assert [tbt_payload(13, d, scale_m=far)[7] >> 4 for d in (1200, 900, 800, 400, 290, 80)] == [10, 9, 8, 4, 2, 1]
   assert [bar_percent(d, far) for d in (900, 500, 300, 90)] == [90, 50, 30, 9]   # AVN 0x123 (07:43)
   hud = McanHud()
-  run(hud, nav(turn_type=13, dist=1200.0, text="병점, 정남"), 5)
-  msgs = run(hud, nav(turn_type=13, dist=400.0, text="병점, 정남"), 5, start=5)
+  run(hud, nav(turn_type=18, dist=500.0, text="동탄, 북오산IC"), 5)
+  run(hud, nav(turn_type=13, dist=1200.0, text="병점, 정남"), 5, start=5)        # ramp turn, drawn at once
+  msgs = run(hud, nav(turn_type=13, dist=400.0, text="병점, 정남"), 5, start=10)
   assert [d[7] for a, d, _ in msgs if a == BAR_ADDR] == [40]                        # far scale kept
-  msgs = run(hud, nav(turn_type=12, dist=300.0, text="수원"), 5, start=10)
+  msgs = run(hud, nav(turn_type=12, dist=300.0, text="수원"), 5, start=15)
   assert [d[7] for a, d, _ in msgs if a == BAR_ADDR] == [100]                       # new maneuver, near
 
 
@@ -179,3 +180,28 @@ def test_tollgate_flag_without_name_or_straight_code():
   msgs = run(hud, state, 5)
   assert [d.hex() for a, d, _ in msgs if a == TBT_ADDR] == ["b200000f012c00a0"]
   assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["00000040005a0164"]
+
+
+def test_far_town_turn_keeps_going_with_preview_until_lanes_like_avn():
+  hud = McanHud()
+  # AVN 11-02 12:08:10: 700 m right turn = keep going with the right preview (67), no bar.
+  msgs = run(hud, nav(turn_type=13, dist=700.0, text="북오산IC, 반송초.중학교"), 5)
+  assert [d.hex() for a, d, _ in msgs if a == TBT_ADDR] == ["4300000f02bc00f0"]
+  assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["000000c0ffff0f00"]   # AVN 12:08:10
+  # 450 m, no lanes yet: still the preview. Left far away: 70 (12:09:29).
+  assert run(hud, nav(turn_type=13, dist=450.0, text="북오산IC, 반송초.중학교"), 5, start=5)[0][1][0] == 67
+  assert tbt_payload(12, 900, preview=True)[0] == 70
+  # The navi's lanes for this turn come up at 400 m: the intersection (12:08:28 0d08110c..a0).
+  state = nav(turn_type=13, dist=400.0, text="북오산IC, 반송초.중학교")
+  state["lane_current"] = {"distance_m": 405}
+  msgs = run(hud, state, 5, start=10)
+  assert [d.hex() for a, d, _ in msgs if a == TBT_ADDR] == ["0d08110c019000a0"]
+  # Lanes gone again: stays drawn.
+  msgs = run(hud, nav(turn_type=13, dist=380.0, text="북오산IC, 반송초.중학교"), 5, start=15)
+  assert [d[0] for a, d, _ in msgs if a == TBT_ADDR] == [13]
+  # Without lanes a town turn is drawn from 300 m; lanes for another junction do not count.
+  hud = McanHud()
+  state = nav(turn_type=12, dist=450.0, text="수원")
+  state["lane_current"] = {"distance_m": 120}
+  assert run(hud, state, 5)[0][1][0] == 70
+  assert run(hud, nav(turn_type=12, dist=300.0, text="수원"), 5, start=5)[0][1][0] == 13

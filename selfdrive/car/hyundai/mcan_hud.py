@@ -81,8 +81,19 @@ TURN_CODES = {
   21: (DISPLAY_TURN, 4, SIDE_TURN),     # lane change right
 }
 TURN_STRAIGHT = 11
+# Turns the AVN announces as "keep going + preview" until close: it draws the intersection
+# only from 300-400 m in town (11-02 12:08 700 m 67 -> 400 m 13, 12:14 700 m -> 300 m), when
+# the navi's lane guidance for that turn comes up; right after a highway exit, on the ramp,
+# from the start (11-01 07:43 17 at 1.2 km).
+PREVIEW_TURNS = (12, 13, 14, 16, 19)
+TURN_SHOW_M = 300
+TURN_SHOW_LANE_M = 500     # with the navi's lanes for this turn, from up to here
+LANE_MATCH_M = 50
 # Naver/Kakao modules map the destination to 2, TMAP sends its own 201.
 TURN_ARRIVE = (2, 201)
+
+# The AVN's 0x123 bar is 0 % with keep-going (65-72) and EXIT sign frames (10-31..11-02 logs).
+BAR_EMPTY_DISPLAYS = (DISPLAY_STRAIGHT, 66, 67, 70, 72, DISPLAY_HIGHWAY_EXIT)
 
 # Fallback stock bytes 0-6 of 0x123 until the AVN's own frame has been seen.
 BAR_PREFIX_DEFAULT = bytes.fromhex("000000c0ffff0f")
@@ -127,12 +138,26 @@ def is_highway_exit(turn_type, text):
   return turn_type == 18 and any(word in (text or "") for word in ("IC", "JC", "분기점", "출구"))
 
 
+def show_turn(turn_type, dist_m, lane=None, after_exit=False):
+  """Whether the AVN would draw this turn now, or still keep going with its preview."""
+  if turn_type not in PREVIEW_TURNS or after_exit or dist_m <= TURN_SHOW_M:
+    return True
+  if isinstance(lane, dict) and dist_m <= TURN_SHOW_LANE_M:
+    try:
+      lane_dist = float(lane.get("distance_m", -1.0))
+    except (TypeError, ValueError):
+      return False
+    return lane_dist > 0.0 and abs(lane_dist - dist_m) <= LANE_MATCH_M
+  return False
+
+
 def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE_NEAR_M, after_exit=False,
-                tollgate=False):
+                tollgate=False, preview=False):
   """0x115 payload for one Naver maneuver, or None to leave the AVN's frame alone.
   next_turn_type picks the keep-going preview icon; a 톨게이트 name on a straight
   maneuver shows the tollgate icon (the modules map tollgates to straight); tollgate=True
-  (the module's explicit flag) shows it whatever the turn code or name."""
+  (the module's explicit flag) shows it whatever the turn code or name; preview=True keeps
+  going with this turn as the preview (see show_turn)."""
   dist = max(0, min(0xFFFFFF, int(round(dist_m))))
   hi, lo, unit, tenths = distance_fields(dist)
   if turn_type in TURN_ARRIVE:
@@ -145,6 +170,8 @@ def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE
   if turn_type == TURN_STRAIGHT:
     display = STRAIGHT_PREVIEW.get(next_turn_type, DISPLAY_STRAIGHT)
     return bytes([display, 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
+  if preview and turn_type in STRAIGHT_PREVIEW:
+    return bytes([STRAIGHT_PREVIEW[turn_type], 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
   if is_highway_exit(turn_type, text) and dist > HIGHWAY_EXIT_PREVIEW_M:
     # A highway exit still far away: the AVN's EXIT sign, not the arrow.
     return bytes([DISPLAY_HIGHWAY_EXIT, 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
@@ -229,6 +256,7 @@ class McanHud:
     self.maneuver_start = 0.0
     self.prev_exit = False      # the maneuver before the current one was a highway exit
     self.cur_exit = False
+    self.shown = False          # the current turn is drawn (not the keep-going preview)
 
   def _queue_text(self, text):
     self.text = text
@@ -251,16 +279,21 @@ class McanHud:
       turn_type = int(nav_state.get("turn_type", -1))
       dist = float(nav_state.get("distance", -1.0))
       text = str(nav_state.get("text", "") or "")
-      # The bar scale follows how far away this maneuver was first announced.
-      if (turn_type, text) != self.maneuver or dist > self.maneuver_start + 100.0:
-        if (turn_type, text) != self.maneuver:
-          self.prev_exit = self.cur_exit
-          self.cur_exit = is_highway_exit(turn_type, text)
+      if (turn_type, text) != self.maneuver:
+        self.prev_exit = self.cur_exit
+        self.cur_exit = is_highway_exit(turn_type, text)
         self.maneuver = (turn_type, text)
+        self.shown = False
+      # Far turns keep going with their preview until the AVN would draw them; once drawn
+      # they stay drawn (a lane flicker must not bring the preview back).
+      shown = self.shown or show_turn(turn_type, dist, nav_state.get("lane_current"), self.prev_exit)
+      # The bar scale follows how far away this maneuver was first drawn.
+      if (shown and not self.shown) or dist > self.maneuver_start + 100.0:
         self.maneuver_start = dist
+      self.shown = shown
       payload = tbt_payload(turn_type, dist, text, int(nxt.get("turn_type", -1)),
                             bar_scale(self.maneuver_start), after_exit=self.prev_exit,
-                            tollgate=bool(nav_state.get("tollgate")))
+                            tollgate=bool(nav_state.get("tollgate")), preview=not shown)
     elif isinstance(nav_state, dict) and nav_state.get("guidance_stream_fresh") and nav_state.get("off_route"):
       # The navi app is still guiding but recalculating the route.
       payload = REROUTE_PAYLOAD
@@ -282,6 +315,8 @@ class McanHud:
         # the AVN's idle bar while rerouting
         percent = 100 if rerouting else bar_percent(dist, bar_scale(self.maneuver_start))
         bar_payload = BAR_PREFIX_DEFAULT + bytes([percent])
+        if payload[0] in BAR_EMPTY_DISPLAYS:
+          bar_payload = BAR_PREFIX_DEFAULT + b"\x00"
         if payload[0] == DISPLAY_TOLLGATE:
           bar_payload = tollgate_bar_payload(dist, nav_state.get("toll_fee_won"))
         msgs.append(make_can_msg(BAR_ADDR, bar_payload, MCAN_BUS))
