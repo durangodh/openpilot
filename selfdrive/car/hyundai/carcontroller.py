@@ -11,6 +11,7 @@ from selfdrive.car.hyundai.hyundaican import create_lkas11, create_clu11, \
 from selfdrive.car.hyundai.scc_smoother import SccSmoother
 from selfdrive.car.hyundai.mcan_hud import McanHud
 from selfdrive.car.hyundai.mdps_watch import MdpsWatch
+from selfdrive.car.hyundai.steer_rejection_guard import SteerRejectionGuard
 from selfdrive.car.hyundai.values import Buttons, FEATURES, CarControllerParams
 from selfdrive.car.hyundai.cruise_buttons import button_pressed_in_samples
 from opendbc.can.packer import CANPacker
@@ -139,6 +140,7 @@ class CarController:
     self.mcan_hud = McanHud() if param.get_bool("McanHudTbt") else None
     # Log only: MDPS faults are handled as in aPilot c2-master (no alert, lateral stays on).
     self.mdps_watch = MdpsWatch(DT_CTRL)
+    self.steer_rejection_guard = SteerRejectionGuard()
     self.lkas_state_test = None
     self.lkas11_reject_test = False
     self.scc_stop_latched = False
