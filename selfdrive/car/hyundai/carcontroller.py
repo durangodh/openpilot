@@ -9,6 +9,7 @@ from selfdrive.car.hyundai.hyundaican import create_lkas11, create_clu11, \
   create_mdps12, create_lfahda_mfc, create_hda_mfc
 from selfdrive.car.hyundai.scc_smoother import SccSmoother
 from selfdrive.car.hyundai.mcan_hud import McanHud
+from selfdrive.car.hyundai.mdps_watch import MdpsWatch
 from selfdrive.car.hyundai.values import Buttons, FEATURES, CarControllerParams
 from selfdrive.car.hyundai.cruise_buttons import button_pressed_in_samples
 from opendbc.can.packer import CANPacker
@@ -129,6 +130,7 @@ class CarController:
     # Naver TBT on the stock HUD over MM-CAN (bus 1). The panda only opens bus 1
     # when the same param was in the safety config at startup (interface.py).
     self.mcan_hud = McanHud() if param.get_bool("McanHudTbt") else None
+    self.mdps_watch = MdpsWatch(DT_CTRL)
     self.lkas_state_test = None
     self.scc_stop_latched = False
     self.prev_active_cam = False
@@ -236,6 +238,9 @@ class CarController:
         self.angle_limit_counter = 0
         self.cut_steer_frames += 1
 
+
+    # Warn (interface: "MDPS Fault") and log when the MDPS does not take our torque.
+    self.mdps_watch.update(CS, CC.latActive, lkas_active, apply_steer, cut_steer_temp)
 
     can_sends = []
     can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, apply_steer, lkas_active,
