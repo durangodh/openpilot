@@ -17,7 +17,11 @@ def create_lkas11(packer, frame, car_fingerprint, apply_steer, steer_req,
   values["CF_Lkas_LdwsRHWarning"] = right_lane_depart
   values["CR_Lkas_StrToqReq"] = apply_steer
   values["CF_Lkas_ActToi"] = steer_req and not cut_steer_temp
-  values["CF_Lkas_ToiFlt"] = cut_steer_temp  # seems to allow actuation on CR_Lkas_StrToqReq
+  # The high-angle cut only drops the request bit. Raising ToiFlt with it (the usual
+  # "induced temporary fault" that holds torque through the cut) made the DH MDPS flash
+  # FailStat on every cut and, after a few, latch ToiFlt/FailStat until the ignition was
+  # cycled (2026-11-03 17:34 after 2 cuts, 18:09 after ~13). Try the cut without it.
+  values["CF_Lkas_ToiFlt"] = 0
   values["CF_Lkas_MsgCount"] = frame % 0x10
   values["CF_Lkas_Chksum"] = 0
 
