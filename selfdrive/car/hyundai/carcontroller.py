@@ -50,11 +50,17 @@ LKAS11_REJECT_TEST_FILE = "/dev/shm/lkas11_reject_test"
 LKAS11_REJECT_TEST_TORQUE = 10
 
 
+# Past this the DH MDPS latched ToiFlt/FailStat even on a turn that began below the high
+# angle (2026-11-04 05:10 at 263-266 deg, 06:34:39 at 289 deg; up to 258-263 deg was fine).
+EXTREME_ANGLE_DEG = 240.0
+
+
 def high_angle_start_gate(request, was_requesting, holding, angle_deg, max_angle):
-  """(request, holding): hold a new steering request while |angle| >= max_angle."""
+  """(request, holding): hold a new steering request while |angle| >= max_angle, and drop
+  an ongoing one past EXTREME_ANGLE_DEG; either way it restarts once |angle| < max_angle."""
   if not request or max_angle <= 0:
     return False, False
-  if not was_requesting and abs(angle_deg) >= max_angle:
+  if (not was_requesting and abs(angle_deg) >= max_angle) or abs(angle_deg) > EXTREME_ANGLE_DEG:
     holding = True
   if holding and abs(angle_deg) >= max_angle:
     return False, True
