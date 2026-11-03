@@ -51,16 +51,30 @@ LKAS11_REJECT_TEST_TORQUE = 10
 
 
 # Past this the DH MDPS latched ToiFlt/FailStat even on a turn that began below the high
-# angle (2026-11-04 05:10 at 263-266 deg, 06:34:39 at 289 deg; up to 258-263 deg was fine).
-EXTREME_ANGLE_DEG = 240.0
+# angle, and the limit drops with speed (2026-11-04, with no torque of ours at 06:53):
+#   ~7-10 km/h: fine to 258-263 deg, latched at 263-266 (05:10) and 289 deg (06:34:39)
+#   ~19-23 km/h: fine to 101-110 deg, latched at 126 (06:53:33) and 138-147 deg (11-03 17:34)
+EXTREME_ANGLE_SPEED_KPH = (10.0, 20.0)
+EXTREME_ANGLE_DEG = (240.0, 110.0)
 
 
-def high_angle_start_gate(request, was_requesting, holding, angle_deg, max_angle):
+def extreme_angle_deg(v_ego):
+  """Speed dependent angle past which a steering request is dropped."""
+  v = v_ego * 3.6
+  (v0, v1), (a0, a1) = EXTREME_ANGLE_SPEED_KPH, EXTREME_ANGLE_DEG
+  if v <= v0:
+    return a0
+  if v >= v1:
+    return a1
+  return a0 + (a1 - a0) * (v - v0) / (v1 - v0)
+
+
+def high_angle_start_gate(request, was_requesting, holding, angle_deg, max_angle, v_ego=0.0):
   """(request, holding): hold a new steering request while |angle| >= max_angle, and drop
-  an ongoing one past EXTREME_ANGLE_DEG; either way it restarts once |angle| < max_angle."""
+  an ongoing one past extreme_angle_deg(v_ego); either way it restarts once |angle| < max_angle."""
   if not request or max_angle <= 0:
     return False, False
-  if (not was_requesting and abs(angle_deg) >= max_angle) or abs(angle_deg) > EXTREME_ANGLE_DEG:
+  if (not was_requesting and abs(angle_deg) >= max_angle) or abs(angle_deg) > extreme_angle_deg(v_ego):
     holding = True
   if holding and abs(angle_deg) >= max_angle:
     return False, True
@@ -192,7 +206,7 @@ class CarController:
     # the wheel is back under the angle, then start; an ongoing request keeps steering.
     lkas_active, self.high_angle_start_hold = high_angle_start_gate(
       lkas_active, self.lkas_requesting, self.high_angle_start_hold,
-      CS.out.steeringAngleDeg, self.steer_fault_max_angle)
+      CS.out.steeringAngleDeg, self.steer_fault_max_angle, CS.out.vEgo)
     self.lkas_requesting = bool(lkas_active)
 
     if not lkas_active:
