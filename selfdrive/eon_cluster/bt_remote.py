@@ -255,6 +255,7 @@ def main():
   published_hud = None
   last_emitted = {}
   allowed = frozenset()
+  last_scan_seen = None
   log.write('start')
 
   def observe(node, token, state, at):
@@ -357,6 +358,13 @@ def main():
       allowed = allowed_commands(*vehicle)
       if now >= next_scan:
         available, scan_summary = bluetooth_nodes()
+        # Log what the scan sees whenever it changes, so "not recognised" can be told
+        # apart: no Bluetooth HID node, a node without identity, or a node in use.
+        scan_seen = (scan_summary, tuple(sorted((n, j) for _, n, j in available.values())))
+        if scan_seen != last_scan_seen:
+          last_scan_seen = scan_seen
+          log.write('scan: %s%s' % (scan_summary, ''.join(
+            ' / %s%s' % (n, ' (joystick)' if j else ' (keys)') for n, j in scan_seen[1])))
         if request and not available:
           status = '인식 가능한 Bluetooth 입력 장치 없음 / ' + scan_summary
         for path, node in list(nodes.items()):
