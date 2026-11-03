@@ -54,6 +54,66 @@ public final class TollScan {
         return fee[0] < 0 ? -1 : validFee(fee[0]);
     }
 
+    /** "5,800" / "5800" / "5,800원" 같은 금액 글자. */
+    private static final Pattern MONEY_TEXT = Pattern.compile("^([0-9]{1,3}(,[0-9]{3})+|[0-9]{2,6})(원)?$");
+
+    /**
+     * 톨게이트 이름 글자와 같은 객체 안에 있는 금액 글자(원). 없거나 범위 밖이면 -1.
+     *
+     * 네이버 TbtDataItem 은 난독화 필드에 이름(d="광주톨게이트")과 요금(g="5,800")을 글자로
+     * 둔다(2026-11-04 05:52 naver-hud.log toll-near). 같은 g 칸이 휴게소에서는 다른 숫자라
+     * 톨게이트 이름이 함께 있는 객체에서만 읽는다. 거리 글자(DisplayDistance stringValue)는
+     * 다른 객체라 섞이지 않는다.
+     */
+    public static int feeTextWon(Object root, int depth) {
+        long[] fee = {-1};
+        walkText(root, depth, fee);
+        return fee[0] < 0 ? -1 : validFee(fee[0]);
+    }
+
+    private static void walkText(Object value, int depth, long[] fee) {
+        if (value == null || depth <= 0 || fee[0] >= 0) return;
+        if (value instanceof Collection) {
+            int n = 0;
+            for (Object item : (Collection<?>) value) {
+                if (n++ >= MAX_ITEMS) break;
+                walkText(item, depth - 1, fee);
+            }
+            return;
+        }
+        if (isLeaf(value) || isPlatform(value.getClass()) || value.getClass().isArray()) return;
+        boolean tollName = false;
+        long money = -1;
+        java.util.List<Object> children = new java.util.ArrayList<>();
+        for (Class<?> type = value.getClass(); type != null && !isPlatform(type); type = type.getSuperclass()) {
+            for (Field field : type.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) continue;
+                Object child;
+                try {
+                    field.setAccessible(true);
+                    child = field.get(value);
+                } catch (Throwable error) {
+                    continue;
+                }
+                if (child instanceof CharSequence) {
+                    String s = child.toString().trim();
+                    if (isTollText(s)) {
+                        tollName = true;
+                    } else if (money < 0 && MONEY_TEXT.matcher(s).matches()) {
+                        money = Long.parseLong(s.replace(",", "").replace("원", ""));
+                    }
+                } else if (child != null && !isLeaf(child)) {
+                    children.add(child);
+                }
+            }
+        }
+        if (tollName && money >= 0) {
+            fee[0] = money;
+            return;
+        }
+        for (Object child : children) walkText(child, depth - 1, fee);
+    }
+
     /** guidance JSON 끝에 toll_fee_won 을 붙인다(요금이 없거나 json 이 null 이면 그대로). */
     public static String withFee(String json, int feeWon) {
         if (json == null || feeWon <= 0 || !json.endsWith("}")) return json;

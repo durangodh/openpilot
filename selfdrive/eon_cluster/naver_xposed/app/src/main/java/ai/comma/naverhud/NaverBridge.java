@@ -360,9 +360,11 @@ final class NaverBridge {
             return -1;
         }
         int fee = ai.comma.hudcommon.TollScan.feeWon(direction, 4);
+        // 네이버는 요금을 톨게이트 항목 안에 글자로 둔다(g="5,800", 2026-11-04 광주톨게이트).
+        if (fee < 0) fee = ai.comma.hudcommon.TollScan.feeTextWon(direction, 4);
         String hits = ai.comma.hudcommon.TollScan.candidates(direction, 4);
         String items = NaverStore.tollItems(store);
-        String sig = raw + ":" + towards + ":" + hits + ":" + items;
+        String sig = raw + ":" + towards + ":" + fee + ":" + hits + ":" + items;
         if (!sig.equals(lastTollSignature)) {
             lastTollSignature = sig;
             NaverHudLog.line("toll-fields raw=" + raw + " main=" + towards + " road=" + road
