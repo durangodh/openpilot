@@ -50,6 +50,17 @@ LKAS11_REJECT_TEST_FILE = "/dev/shm/lkas11_reject_test"
 LKAS11_REJECT_TEST_TORQUE = 10
 
 
+def high_angle_start_gate(request, was_requesting, holding, angle_deg, max_angle):
+  """(request, holding): hold a new steering request while |angle| >= max_angle."""
+  if not request or max_angle <= 0:
+    return False, False
+  if not was_requesting and abs(angle_deg) >= max_angle:
+    holding = True
+  if holding and abs(angle_deg) >= max_angle:
+    return False, True
+  return True, False
+
+
 def process_hud_alert(enabled, fingerprint, hud_control):
 
   sys_warning = (hud_control.visualAlert in (VisualAlert.steerRequired, VisualAlert.ldw))
@@ -97,6 +108,9 @@ class CarController:
     # NOO is steering a turn in the same direction as the driver's blinker.
     # Read by the interface (one frame later) to skip the low-speed blinker cut.
     self.noo_turn_keep = False
+    # Steering request starts only below the high angle (see high_angle_start_hold).
+    self.lkas_requesting = False
+    self.high_angle_start_hold = False
 
     param = Params()
 
@@ -164,6 +178,16 @@ class CarController:
       lkas_active = 0
     if self.turning_signal_timer > 0:
       self.turning_signal_timer -= 1
+
+    # Do not start a steering request with the wheel already past the high angle.
+    # 2026-11-04 05:10: lateral came on at 338 deg (5 km/h), the first high-angle cut
+    # followed within a second and the DH MDPS latched ToiFlt/FailStat; cuts during a
+    # turn that began below it (05:02-05:03, up to 258 deg) did not fault. Wait until
+    # the wheel is back under the angle, then start; an ongoing request keeps steering.
+    lkas_active, self.high_angle_start_hold = high_angle_start_gate(
+      lkas_active, self.lkas_requesting, self.high_angle_start_hold,
+      CS.out.steeringAngleDeg, self.steer_fault_max_angle)
+    self.lkas_requesting = bool(lkas_active)
 
     if not lkas_active:
       apply_steer = 0
