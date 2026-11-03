@@ -185,7 +185,6 @@ def manager_init() -> None:
     ("LongTuningKf", "100"),
     ("LongitudinalActuatorDelayLowerBound", "50"),
     ("SoftHoldMode", "1"),
-    ("HudWheelStateMode", "0"),
     ("McanHudTbt", "0"),
   ]
   if not PC:

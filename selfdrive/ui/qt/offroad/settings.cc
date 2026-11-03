@@ -2169,11 +2169,6 @@ VIPPanel::VIPPanel(QWidget* parent) : QWidget(parent) {
       "켜짐: 방향지시등 작동 중에도 조향 제어를 유지합니다. / 꺼짐: 차량 조건에 따라 조향이 제한될 수 있습니다.",
       "../assets/offroad/icon_openpilot.png", this));
 
-  list->addItem(new ParamControl(
-      "HudWheelStateMode", "STOCK HUD GREEN WHEEL WHEN ENGAGED",
-      "켜짐: 인게이지 중이면 차선 인식과 관계없이 순정 HUD·계기판에 녹색 핸들(과 양쪽 차선)을 표시합니다. 비인게이지는 기존과 같습니다. / 꺼짐: 기존처럼 인게이지 중에도 양쪽 차선이 보일 때만 녹색 핸들.",
-      "../assets/offroad/icon_openpilot.png", this));
-
   ScrollView *scroller = new ScrollView(list, this);
   scroller->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   layout->addWidget(scroller);
