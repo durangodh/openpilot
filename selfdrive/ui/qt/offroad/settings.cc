@@ -1370,12 +1370,22 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "EON에 직접 페어링한 클래식 블루투스 리모컨(예: 8BitDo Micro 키보드 모드)으로 크루즈 버튼과 차로변경 요청을 보냅니다. 켜면 EON 블루투스도 켜지고 재부팅 후에도 유지됩니다. 깜빡이 램프는 켜지지 않습니다.",
       "../assets/offroad/icon_openpilot.png", this);
   toggleLayout->addWidget(btRemoteToggle);
+  auto remoteLearningAllowed = []() {
+    if (Params().getBool("IsOffroad")) return true;
+    const SubMaster &sm = *(uiState()->sm);
+    if (!sm.alive("carState") || !sm.valid("carState")) return false;
+    const auto car = sm["carState"].getCarState();
+    return car.getCanValid() && car.getStandstill() &&
+           car.getGearShifter() == cereal::CarState::GearShifter::PARK;
+  };
+  // A batteryless EON only runs with the ignition on, so pairing is allowed with the
+  // engine running as long as the car is stopped in P (same rule as button learning).
   auto btRemotePair = new ButtonControl("리모컨 페어링 (Bluetooth 설정)", "OPEN",
-      "Android Bluetooth 설정에서 리모컨을 페어링하세요. 위 BLUETOOTH REMOTE를 먼저 켜세요. 설정은 3분 후 닫힙니다. Android BACK은 누르지 마세요.");
+      "Android Bluetooth 설정에서 리모컨을 페어링하세요. 위 BLUETOOTH REMOTE를 먼저 켜세요. 시동을 끄거나, 시동이 켜져 있으면 P단 정차 중에 여세요. 설정은 3분 후 닫힙니다. Android BACK은 누르지 마세요.");
   toggleLayout->addWidget(btRemotePair);
   connect(btRemotePair, &ButtonControl::clicked, [=]() {
-    if (!Params().getBool("IsOffroad")) {
-      ConfirmationDialog::alert("시동을 끈 상태에서 Bluetooth 설정을 여세요.", this);
+    if (!remoteLearningAllowed()) {
+      ConfirmationDialog::alert("P단에 놓고 정차한 상태에서 Bluetooth 설정을 여세요.", this);
       return;
     }
     // Android Settings is a separate activity from openpilot's native Qt UI.
@@ -1389,14 +1399,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       });
     }
   });
-  auto remoteLearningAllowed = []() {
-    if (Params().getBool("IsOffroad")) return true;
-    const SubMaster &sm = *(uiState()->sm);
-    if (!sm.alive("carState") || !sm.valid("carState")) return false;
-    const auto car = sm["carState"].getCarState();
-    return car.getCanValid() && car.getStandstill() &&
-           car.getGearShifter() == cereal::CarState::GearShifter::PARK;
-  };
   auto btRemoteSetup = new ButtonControl("리모컨 버튼 설정", "LEARN",
       "기능과 누르기 방식을 고르고 리모컨 버튼을 눌러 배정합니다. 시동이 켜져 있어도 P단 정차 중에는 설정할 수 있습니다. 연결·끊김 기록과 반응 시간도 여기서 볼 수 있습니다.");
   toggleLayout->addWidget(btRemoteSetup);
