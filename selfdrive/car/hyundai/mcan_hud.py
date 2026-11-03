@@ -257,6 +257,20 @@ def camera_payload(camera, v_ego_kph=0.0):
   return bytes([(mobile << 4) | fixed, (signal << 4) | (over << 2), 0, 0, 0xF0, 0, 0x0F, 0xFF])
 
 
+def section_payload(section, v_ego_kph=0.0):
+  """0x1E5 while inside a section-control (구간단속) zone, or None.
+
+  The AVN shows a section zone on the HUD as a plain fixed-camera limit circle for the whole
+  zone: 2026-11-04 08:15:50-08:16:34 (limit 100, avg 89, 10 km left on the AVN) every 0x1E5
+  was 0a000000f0000fff, the same frame as a fixed 100 camera, with no average or distance.
+  """
+  if not isinstance(section, dict):
+    return None
+  limit = float(section.get("limit", 0.0) or 0.0)
+  dist = float(section.get("distance", -1.0) or -1.0)
+  return camera_payload({"type": SDI_SPEED, "limit": limit, "distance": dist}, v_ego_kph)
+
+
 def text_payload(text):
   """HUD text message body: 0xF0 then UTF-16LE without terminator; the AVN clears
   the text with an empty string that is just a UTF-16 terminator (03 F0 00 00)."""
@@ -308,6 +322,8 @@ class McanHud:
     # The AVN's map has no rear-facing cameras and the HUD no picture for them: while the navi
     # alerts one, its circle shows the limit as usual and the text line says so.
     rear_camera = cam is not None and bool(camera.get("rear"))
+    if cam is None and isinstance(nav_state, dict):
+      cam = section_payload(NavigationRouteData.speed_events(nav_state)["section"], v_ego * 3.6)
     if cam is None:
       notice = NavigationRouteData.speed_notice(nav_state)
       cam = NOTICE_PAYLOADS.get(notice["kind"]) if notice is not None else None

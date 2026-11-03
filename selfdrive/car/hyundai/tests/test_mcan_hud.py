@@ -1,5 +1,5 @@
 """Stock HUD TBT frames must match what the Genesis DH AVN sends (2026-10-31 M-CAN logs)."""
-from selfdrive.car.hyundai.mcan_hud import (McanHud, lane_side, isotp_frames, text_payload, tbt_payload, camera_payload, bar_percent,
+from selfdrive.car.hyundai.mcan_hud import (McanHud, lane_side, isotp_frames, text_payload, tbt_payload, camera_payload, section_payload, bar_percent,
                                             BAR_ADDR, TBT_ADDR, TEXT_ADDR, CAMERA_ADDR, MCAN_BUS)
 
 
@@ -267,3 +267,15 @@ def test_traffic_info_camera_like_avn():
   assert [d.hex() for a, d, _ in run(hud, state, 5) if a == CAMERA_ADDR] == ["05000000f0000fff"]
   assert run(hud, {"speed_fresh": True, "speed": {}}, 5) == []
   assert run(hud, {"speed_fresh": True, "speed": {"notice": {"kind": "traffic_info", "distance_m": 0}}}, 5) == []
+
+
+def test_section_zone_shows_the_limit_like_avn():
+  # 2026-11-04 08:15:50 AVN in a 100 section (avg 89, 10 km left): 0x1E5 = fixed 100 the whole zone
+  assert section_payload({"distance": 10000, "limit": 100, "average": 89}, 98).hex() == "0a000000f0000fff"
+  assert section_payload({"distance": 10000, "limit": 100}, 105)[1] == 0x04   # over the limit
+  assert section_payload(None) is None
+  state = dict(nav(turn_type=11, dist=11400, text=""), speed_fresh=True,
+               speed={"section": {"active": True, "speed_limit_kph": 100, "remaining_distance_m": 10000,
+                                  "average_speed_kph": 89}})
+  msgs = run(McanHud(), state, 10)
+  assert [d.hex() for a, d, _ in msgs if a == CAMERA_ADDR] == ["0a000000f0000fff"] * 2
