@@ -331,6 +331,9 @@ def main():
           node.gestures.reset()
         if learn_request(request_raw):
           status = '학습 요청 확인: Bluetooth 입력 장치 검색 중'
+          # The settings dialog clears BtRemoteStatus when it starts a request; publish
+          # again even if the text is the same as before, or it reads "응답 없음".
+          published_status = None
       request = learn_request(request_raw)
       if not enabled and not request:
         for node in nodes.values():
