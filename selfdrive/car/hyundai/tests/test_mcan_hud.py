@@ -10,9 +10,10 @@ def test_tbt_payload_matches_avn_frames():
   assert tbt_payload(11, 400, next_turn_type=18).hex() == "4200000f019000f0"  # bear right next (AVN 07:16)
   assert tbt_payload(11, 12700)[:1].hex() == "41"                              # plain straight
   assert tbt_payload(18, 400).hex() == "0d000303019000a0"   # right exit / IC, AVN frame verbatim
-  assert tbt_payload(11, 700, "북오산톨게이트").hex() == "b200000f02bc00f0"     # tollgate 700 m, AVN verbatim
-  assert tbt_payload(11, 300, "북오산톨게이트").hex() == "b200000f012c00a0"     # tollgate 300 m, AVN verbatim
-  assert tbt_payload(11, 400, "북오산톨게이트").hex() == "b200000f019000a0"     # gate from 400 m (AVN 07:18:58)
+  # Tollgates: TG card beyond 1 km, then the gate with a 1 km bar (on request, 남논산 AVN 11-04)
+  assert tbt_payload(11, 1500, "북오산톨게이트").hex() == "b200000f000110f5"    # TG card 1.5 km, no bar
+  assert tbt_payload(11, 700, "북오산톨게이트").hex() == "b200000f02bc0070"     # gate, bar 7
+  assert tbt_payload(11, 300, "북오산톨게이트").hex() == "b200000f012c0030"     # gate, bar 3
   assert tbt_payload(2, 900).hex() == "70000000038400f0"    # destination ahead 900 m, AVN frame verbatim
   assert tbt_payload(2, 5)[0] == 3                          # arrived
   assert tbt_payload(201, 900) == tbt_payload(2, 900)       # TMAP destination code
@@ -120,10 +121,10 @@ def test_bar_follows_announce_distance_like_avn():
 
 def test_tollgate_card_then_gate_like_avn():
   hud = McanHud()
-  far = run(hud, nav(turn_type=11, dist=500.0, text="북오산톨게이트"), 5)
-  assert [d.hex() for a, d, _ in far if a == BAR_ADDR] == ["000000c0ffff0f00"]   # TG card (AVN 07:18:42)
+  far = run(hud, nav(turn_type=11, dist=1500.0, text="북오산톨게이트"), 5)
+  assert [d.hex() for a, d, _ in far if a == BAR_ADDR] == ["000000c0ffff0f00"]   # TG card
   near = run(hud, nav(turn_type=11, dist=290.0, text="북오산톨게이트"), 5, start=5)
-  assert [d.hex() for a, d, _ in near if a == BAR_ADDR] == ["0000004000000061"]  # gate (AVN 07:19:05)
+  assert [d.hex() for a, d, _ in near if a == BAR_ADDR] == ["000000400000001d"]  # gate, 1 km bar
 
 
 def test_t_junction_and_ramp_turn_shapes_like_avn():
@@ -148,19 +149,15 @@ def test_toll_fee_matches_photo_and_does_not_leak_to_next_guidance():
   state = nav(turn_type=11, dist=400, text="정남톨게이트")
   state["toll_fee_won"] = 900
   msgs = run(hud, state, 5)
-  assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["00000040005a0164"]
+  assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["00000040005a0128"]
   for amount in (None, 0, -10, 901, 655350, True, "nan", "inf", "bad"):
     state["toll_fee_won"] = amount
     msgs = run(hud, state, 5, start=5)
-    assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["0000004000000064"]
+    assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["0000004000000028"]
   state["toll_fee_won"] = 900
-  state["distance"] = 500
+  state["distance"] = 1500
   msgs = run(hud, state, 5, start=10)
-  # With the fee the gate and the fee show as soon as the navi gives it, also past 400 m.
-  assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["00000040005a0164"]
-  state["toll_fee_won"] = None
-  msgs = run(hud, state, 5, start=10)
-  assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["000000c0ffff0f00"]   # no fee: TG card
+  assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["000000c0ffff0f00"]   # beyond 1 km: TG card
   state.update(turn_type=12, text="수원", distance=210)
   msgs = run(hud, state, 5, start=15)
   assert all(d[:7].hex() == "000000c0ffff0f" for a, d, _ in msgs if a == BAR_ADDR)
@@ -169,8 +166,8 @@ def test_toll_fee_matches_photo_and_does_not_leak_to_next_guidance():
 def test_tollgate_flag_without_name_or_straight_code():
   from selfdrive.controls.lib.navigation_route import NavigationRouteData
   # TMAP tollgate code 153 or a Naver/Kakao tollgate whose direction text has no "톨게이트".
-  assert tbt_payload(153, 300, "서울", tollgate=True).hex() == "b200000f012c00a0"
-  assert tbt_payload(11, 300, "서울", tollgate=True).hex() == "b200000f012c00a0"
+  assert tbt_payload(153, 300, "서울", tollgate=True).hex() == "b200000f012c0030"
+  assert tbt_payload(11, 300, "서울", tollgate=True).hex() == "b200000f012c0030"
   assert tbt_payload(11, 300, "서울")[0] != 0xB2
   assert NavigationRouteData.guidance_state({"turn_type": 153, "distance_m": 300, "tollgate": True}, True)["tollgate"]
   # A turn toward a tollgate (name only, no flag) keeps its turn arrow.
@@ -182,8 +179,8 @@ def test_tollgate_flag_without_name_or_straight_code():
   state["tollgate"] = True
   state["toll_fee_won"] = 900
   msgs = run(hud, state, 5)
-  assert [d.hex() for a, d, _ in msgs if a == TBT_ADDR] == ["b200000f012c00a0"]
-  assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["00000040005a0164"]
+  assert [d.hex() for a, d, _ in msgs if a == TBT_ADDR] == ["b200000f012c0030"]
+  assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["00000040005a011e"]
 
 
 def test_far_town_turn_keeps_going_with_preview_until_lanes_like_avn():
@@ -286,18 +283,33 @@ def test_section_zone_shows_the_limit_like_avn():
   assert [d.hex() for a, d, _ in msgs if a == TEXT_ADDR] == [f.hex() for f in isotp_frames(text_payload("구간단속"))]
 
 
-def test_tollgate_fee_from_far_runs_the_1km_bar_like_avn():
-  # 2026-11-04 08:24 남논산 5,800원: the AVN showed the gate + fee from 1.2 km, bar over 1 km
-  # (1.2 km / 900 m frames verbatim; the AVN bar reads one step lower at 400 m: it counts
-  # the exact distance, the display rounds it)
+def test_tollgate_next_after_rest_area_then_gate_from_1km():
+  from selfdrive.controls.lib.navigation_route import NavigationRouteData
+  # 2026-11-04: Naver current = 이인휴게소 3.5 km, next 47.1 km after it; the AVN showed 풍세톨게이트.
+  hud = McanHud()
+  state = nav(turn_type=11, dist=3500, text="이인휴게소")
+  state["next"] = NavigationRouteData.guidance_state(
+    {"turn_type": 11, "distance_m": 47100, "main_text": "풍세톨게이트"}, True)
+  msgs = run(hud, state, 30)
+  assert [d.hex() for a, d, _ in msgs if a == TBT_ADDR][0] == tbt_payload(11, 50600, "풍세톨게이트").hex()
+  assert {d.hex() for a, d, _ in msgs if a == BAR_ADDR} == {"000000c0ffff0f00"}           # TG card
+  assert [d.hex() for a, d, _ in msgs if a == TEXT_ADDR] == [f.hex() for f in isotp_frames(text_payload("풍세톨게이트"))]
+  # TMAP keeps distance_m from the car; its segment is display_distance_m.
+  assert NavigationRouteData.guidance_state({"turn_type": 11, "distance_m": 50600,
+                                             "display_distance_m": 47100}, True)["segment"] == 47100
+  # A real turn first keeps its own arrow.
+  turn = nav(turn_type=13, dist=300, text="수원")
+  turn["next"] = state["next"]
+  assert [d[0] for a, d, _ in run(McanHud(), turn, 5) if a == TBT_ADDR] == [13]
+
+
+def test_tollgate_gate_from_1km_with_fee_like_avn():
+  # 2026-11-04 08:24 남논산 5,800원 AVN: gate + fee, bar over 1 km (900 m frames verbatim)
   hud = McanHud()
   state = nav(turn_type=11, dist=2400, text="남논산톨게이트")
-  run(hud, state, 5)                                   # no fee yet: TG card
   state["toll_fee_won"] = 5800
-  avn = {1200: ("b200000f000110a2", "0000004002440164"), 900: ("b200000f03840090", "000000400244015a"),
-         400: ("b200000f01900040", "0000004002440128")}
-  for n, (dist, (tbt, bar)) in enumerate(sorted(avn.items(), reverse=True)):
-    state["distance"] = dist
-    msgs = run(hud, state, 5, start=5 * (n + 2))
-    assert [d.hex() for a, d, _ in msgs if a == TBT_ADDR] == [tbt]
-    assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == [bar]
+  assert {d.hex() for a, d, _ in run(hud, state, 5) if a == BAR_ADDR} == {"000000c0ffff0f00"}
+  state["distance"] = 900
+  msgs = run(hud, state, 5, start=5)
+  assert [d.hex() for a, d, _ in msgs if a == TBT_ADDR] == ["b200000f03840090"]
+  assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["000000400244015a"]

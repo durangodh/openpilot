@@ -171,6 +171,10 @@ class NavigationRouteData:
             # straight maneuver named 톨게이트). Not the name alone: "…톨게이트 방면" can be a turn.
             "tollgate": bool(fresh) and guidance.get("tollgate") is True,
             "turn_type": turn_type, "text": text, "sharp_turn": sharp_turn,
+            # A next item's distance after the current one: carrot_navi_server gives TMAP's as
+            # display_distance_m (distance_m stays the vehicle distance); Naver/Kakao send it as
+            # distance_m. On a current item it is the same as distance.
+            "segment": _number(_first(guidance, ("display_distance_m", "distance_m", "distance")), -1.0),
             "next_road_width": road_width if math.isfinite(road_width) and road_width > 0.0 else 0.0,
             "next": None}
 
