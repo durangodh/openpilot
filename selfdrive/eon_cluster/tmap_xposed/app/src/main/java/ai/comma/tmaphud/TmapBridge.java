@@ -446,12 +446,17 @@ final class TmapBridge {
     private static String sdi(Object[] sdis, int index) {
         if (sdis == null || sdis.length <= index || sdis[index] == null) return null;
         Object s = sdis[index];
-        boolean rear = RearCamera.isRear(s);
+        int type = intField(s, "nSdiType");
+        // 티맵 76 = 후면 과속 단속(2026-11-03 17:32 실차, 티맵 안내 "후면 단속", 제한 60,
+        // 지나간 뒤에도 -90m 로 남음). 카메라 항목에 후면 필드는 없고 코드로만 구분된다.
+        // EON 에는 고정식 과속(1) + rear 로 보낸다(네이버·카카오 후면 카메라와 같은 처리).
+        boolean rear = type == TMAP_SDI_REAR_SPEED || RearCamera.isRear(s);
+        if (type == TMAP_SDI_REAR_SPEED) type = TMAP_SDI_SPEED;
         if (rear && !rearLogged) {
             rearLogged = true;
             TmapHudLog.line("rear camera: " + ObjectDump.describe(s, 3));
         }
-        return RearCamera.withRear(TmapJson.sdi(intField(s, "nSdiType"), intField(s, "nSdiDist"),
+        return RearCamera.withRear(TmapJson.sdi(type, intField(s, "nSdiDist"),
                 intField(s, "nSdiSpeedLimit"), intField(s, "nSdiSection"),
                 intField(s, "nSdiBlockType"), intField(s, "nSdiBlockSpeed"),
                 intField(s, "nSdiBlockDist"), intField(s, "nSdiBlockAverageSpeed"),
@@ -461,6 +466,8 @@ final class TmapBridge {
 
     /** 후면 카메라로 판단한 첫 항목을 한 번 기록한다(구분 필드 확인용). */
     private static boolean rearLogged;
+    private static final int TMAP_SDI_SPEED = 1;
+    private static final int TMAP_SDI_REAR_SPEED = 76;
 
     // ---- 신호등 ----
 
