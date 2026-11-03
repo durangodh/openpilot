@@ -1,4 +1,3 @@
-import os
 from random import randint
 
 from cereal import car
@@ -10,7 +9,6 @@ from selfdrive.car.hyundai.hyundaican import create_lkas11, create_clu11, \
   create_mdps12, create_lfahda_mfc, create_hda_mfc
 from selfdrive.car.hyundai.scc_smoother import SccSmoother
 from selfdrive.car.hyundai.mcan_hud import McanHud
-from selfdrive.car.hyundai.mdps_watch import MdpsWatch
 from selfdrive.car.hyundai.values import Buttons, FEATURES, CarControllerParams
 from selfdrive.car.hyundai.cruise_buttons import button_pressed_in_samples
 from opendbc.can.packer import CANPacker
@@ -40,45 +38,6 @@ def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego
   if soft_hold_scc:
     return bool(actual_standstill)
   return bool(stopping and (actual_standstill or latched) and not pre_release)
-
-
-# Bench check that the host sees LKAS11 frames the panda rejects (MDPS log). While this
-# file exists, parked and not engaged, LKAS11 carries LKAS11_REJECT_TEST_TORQUE with the
-# request bit off: a step of 10 from the panda's 0 always fails its rate check (and with
-# MAIN off its lateral check), so the frame never reaches the MDPS.
-LKAS11_REJECT_TEST_FILE = "/dev/shm/lkas11_reject_test"
-LKAS11_REJECT_TEST_TORQUE = 10
-
-
-# Past this the DH MDPS latched ToiFlt/FailStat even on a turn that began below the high
-# angle, and the limit drops with speed (2026-11-04, with no torque of ours at 06:53):
-#   ~7-10 km/h: fine to 258-263 deg, latched at 263-266 (05:10) and 289 deg (06:34:39)
-#   ~19-23 km/h: fine to 101-110 deg, latched at 126 (06:53:33) and 138-147 deg (11-03 17:34)
-EXTREME_ANGLE_SPEED_KPH = (10.0, 20.0)
-EXTREME_ANGLE_DEG = (240.0, 110.0)
-
-
-def extreme_angle_deg(v_ego):
-  """Speed dependent angle past which a steering request is dropped."""
-  v = v_ego * 3.6
-  (v0, v1), (a0, a1) = EXTREME_ANGLE_SPEED_KPH, EXTREME_ANGLE_DEG
-  if v <= v0:
-    return a0
-  if v >= v1:
-    return a1
-  return a0 + (a1 - a0) * (v - v0) / (v1 - v0)
-
-
-def high_angle_start_gate(request, was_requesting, holding, angle_deg, max_angle, v_ego=0.0):
-  """(request, holding): hold a new steering request while |angle| >= max_angle, and drop
-  an ongoing one past extreme_angle_deg(v_ego); either way it restarts once |angle| < max_angle."""
-  if not request or max_angle <= 0:
-    return False, False
-  if (not was_requesting and abs(angle_deg) >= max_angle) or abs(angle_deg) > extreme_angle_deg(v_ego):
-    holding = True
-  if holding and abs(angle_deg) >= max_angle:
-    return False, True
-  return True, False
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
@@ -128,9 +87,6 @@ class CarController:
     # NOO is steering a turn in the same direction as the driver's blinker.
     # Read by the interface (one frame later) to skip the low-speed blinker cut.
     self.noo_turn_keep = False
-    # Steering request starts only below the high angle (see high_angle_start_hold).
-    self.lkas_requesting = False
-    self.high_angle_start_hold = False
 
     param = Params()
 
@@ -144,9 +100,6 @@ class CarController:
     # Naver TBT on the stock HUD over MM-CAN (bus 1). The panda only opens bus 1
     # when the same param was in the safety config at startup (interface.py).
     self.mcan_hud = McanHud() if param.get_bool("McanHudTbt") else None
-    # Log only: MDPS faults are handled as in aPilot c2-master (no alert, lateral stays on).
-    self.mdps_watch = MdpsWatch(DT_CTRL)
-    self.lkas11_reject_test = False
     self.scc_stop_latched = False
     self.prev_active_cam = False
     self.active_cam_timer = 0
@@ -199,24 +152,12 @@ class CarController:
     if self.turning_signal_timer > 0:
       self.turning_signal_timer -= 1
 
-    # Do not start a steering request with the wheel already past the high angle.
-    # 2026-11-04 05:10: lateral came on at 338 deg (5 km/h), the first high-angle cut
-    # followed within a second and the DH MDPS latched ToiFlt/FailStat; cuts during a
-    # turn that began below it (05:02-05:03, up to 258 deg) did not fault. Wait until
-    # the wheel is back under the angle, then start; an ongoing request keeps steering.
-    lkas_active, self.high_angle_start_hold = high_angle_start_gate(
-      lkas_active, self.lkas_requesting, self.high_angle_start_hold,
-      CS.out.steeringAngleDeg, self.steer_fault_max_angle, CS.out.vEgo)
-    self.lkas_requesting = bool(lkas_active)
-
     if not lkas_active:
       apply_steer = 0
 
     self.apply_steer_last = apply_steer
 
     sys_warning, sys_state, left_lane_warning, right_lane_warning = process_hud_alert(CC.enabled, self.car_fingerprint, hud_control)
-    if self.frame % 50 == 0:
-      self.lkas11_reject_test = os.path.exists(LKAS11_REJECT_TEST_FILE)
 
     if self.haptic_feedback_speed_camera:
       if self.prev_active_cam != controls.cruise_helper.active_cam:
@@ -262,21 +203,13 @@ class CarController:
         self.cut_steer_frames += 1
 
 
-    # Bench rejection test (see LKAS11_REJECT_TEST_FILE): parked, not engaged, no request.
-    lkas11_torque = apply_steer
-    if self.lkas11_reject_test and not CC.enabled and not lkas_active and CS.out.standstill:
-      lkas11_torque = LKAS11_REJECT_TEST_TORQUE
-
-    # Log why the MDPS drops our torque (MDPS 로그 on the trace page); no alert, no effect.
-    self.mdps_watch.update(CS, CC.latActive, lkas_active, lkas11_torque, cut_steer_temp)
-
     can_sends = []
-    can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, lkas11_torque, lkas_active,
+    can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, apply_steer, lkas_active,
                                    CS.lkas11, sys_warning, sys_state, CC.enabled, hud_control.leftLaneVisible, hud_control.rightLaneVisible,
                                    left_lane_warning, right_lane_warning, 0, False, cut_steer_temp))
 
     if CS.mdps_bus or CS.scc_bus == 1:  # send lkas11 bus 1 if mdps or scc is on bus 1
-      can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, lkas11_torque, lkas_active,
+      can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, apply_steer, lkas_active,
                                      CS.lkas11, sys_warning, sys_state, CC.enabled, hud_control.leftLaneVisible, hud_control.rightLaneVisible,
                                      left_lane_warning, right_lane_warning, 1, False, cut_steer_temp))
 

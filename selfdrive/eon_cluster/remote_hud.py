@@ -1012,22 +1012,6 @@ def _battery_voltage(sm):
   return round(millivolts / 1000.0, 1) if 5000.0 < millivolts < 20000.0 else -1.0
 
 
-MDPS_FAULT_FILE = "/dev/shm/mdps_fault"   # selfdrive/car/hyundai/mdps_watch.py FAULT_FILE
-MDPS_FAULT_STALE_S = 1.5
-
-
-def _mdps_fault(path=MDPS_FAULT_FILE, now=None):
-  """MDPS faulted while engaged (yellow wheel); written by the Hyundai MdpsWatch."""
-  try:
-    with open(path) as f:
-      parts = f.read().split()
-    now = time.monotonic() if now is None else now
-    # The writer rounds its time to 1 ms, so a fresh "1" can read as up to 0.5 ms ahead.
-    return len(parts) == 2 and parts[0] == "1" and -0.01 <= now - float(parts[1]) <= MDPS_FAULT_STALE_S
-  except (OSError, ValueError):
-    return False
-
-
 def _packet(sm, noo_enabled, path_offset=0.0):
   car_valid = _stream_ok(sm, "carState")
   car_control_valid = _stream_ok(sm, "carControl")
@@ -1207,7 +1191,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
     "batteryVoltage": _battery_voltage(sm),
     "oilPressureWarning": bool(_field(car, "oilPressureWarning", False)),
     "absWarning": bool(_field(car, "absWarning", False)),
-    "steerFaultTemporary": bool(_field(car, "steerFaultTemporary", False)) or _mdps_fault(),
+    "steerFaultTemporary": bool(_field(car, "steerFaultTemporary", False)),
     "steerFaultPermanent": bool(_field(car, "steerFaultPermanent", False)),
     "stockFcw": bool(_field(car, "stockFcw", False)),
     "stockAeb": bool(_field(car, "stockAeb", False)),

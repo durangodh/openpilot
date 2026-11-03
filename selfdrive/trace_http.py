@@ -18,13 +18,10 @@ TRACE_DIRS = {
   "hud": ("HUD 앱 로그 (휴대폰)", "/data/media/0/hud_log"),
   # selfdrive/debug/mcan_logger.py 의 LOG_DIR 와 같아야 한다.
   "mcan": ("M-CAN 로그 (버스 1)", "/data/media/0/mcan_logs"),
-  # selfdrive/car/hyundai/mdps_watch.py 의 LOG_DIR 와 같아야 한다.
-  "mdps": ("MDPS 로그 (조향 끊김 원인)", "/data/media/0/mdps_log"),
 }
 EMPTY_MSG = {
   "hud": "파일이 없습니다. HUD 앱이 EON 과 연결되면 1분 안에 올라옵니다.",
   "mcan": "파일이 없습니다. SSH 에서 python3 selfdrive/debug/mcan_logger.py 로 기록하면 생깁니다.",
-  "mdps": "파일이 없습니다. 주행하면 조향 요청·MDPS 상태가 바뀔 때마다 기록됩니다.",
 }
 # HUD 앱이 올릴 수 있는 파일. HudDiagnostics 는 512KB 에서 previous 로 넘긴다.
 HUD_UPLOAD_NAMES = ("hud-session.log", "hud-session.previous.log", "naver-hud.log",

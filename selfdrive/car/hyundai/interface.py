@@ -4,10 +4,8 @@ from typing import List
 
 from cereal import car
 from common.conversions import Conversions as CV
-from selfdrive.car.hyundai.values import CAR, DBC, Buttons, CarControllerParams
+from selfdrive.car.hyundai.values import CAR, Buttons, CarControllerParams
 from selfdrive.car.hyundai.mcan_hud import MCAN_TX_PARAM
-from selfdrive.car.hyundai.mdps_watch import LKAS11_REJECTED_SRC
-from opendbc.can.parser import CANParser
 from selfdrive.car.hyundai.cruise_buttons import button_transitions, main_button_transitions
 from selfdrive.eon_cluster.hud_remote import RemoteButtonSource
 from selfdrive.car import STD_CARGO_KG, scale_rot_inertia, scale_tire_stiffness, gen_empty_fingerprint, get_safety_config
@@ -339,27 +337,6 @@ class CarInterface(CarInterfaceBase):
   def _update(self, c: car.CarControl) -> car.CarState:
     pass
 
-  def _note_lkas11_rejections(self, can_strings):
-    """Rejected LKAS11 frames the panda returned (src = bus + 192) -> MDPS log only."""
-    watch = getattr(self.CC, "mdps_watch", None)
-    if watch is None:
-      return
-    try:
-      if getattr(self, "lkas11_rejected_parsers", None) is None:
-        signals = [("CR_Lkas_StrToqReq", "LKAS11")]
-        buses = [0, 1] if (self.CS.mdps_bus or self.CS.scc_bus == 1) else [0]
-        self.lkas11_rejected_parsers = [
-          CANParser(DBC[self.CP.carFingerprint]["pt"], list(signals), [], LKAS11_REJECTED_SRC + b, enforce_checks=False)
-          for b in buses]
-      torques = []
-      for p in self.lkas11_rejected_parsers:
-        if 832 in p.update_strings(can_strings):
-          torques.extend(p.vl_all["LKAS11"]["CR_Lkas_StrToqReq"])
-      if torques:
-        watch.note_rejected(torques)
-    except Exception:  # diagnostics must never affect control
-      self.lkas11_rejected_parsers = []
-
   def update(self, c: car.CarControl, can_strings: List[bytes]) -> car.CarState:
     _t0 = time.monotonic()  # _prof
     self.cp.update_strings(can_strings)
@@ -368,7 +345,6 @@ class CarInterface(CarInterfaceBase):
     _t1 = time.monotonic()  # _prof
 
     ret = self.CS.update(self.cp, self.cp2, self.cp_cam)
-    self._note_lkas11_rejections(can_strings)
     _t2 = time.monotonic()  # _prof
     self.prof_parse = _t1 - _t0  # _prof
     self.prof_cstate = _t2 - _t1  # _prof
@@ -451,6 +427,7 @@ class CarInterface(CarInterfaceBase):
       events.add(EventName.belowSteerSpeed)
     if self.CC.turning_indicator_alert:
       events.add(EventName.turningIndicatorOn)
+
     # handle button presses
     for b in ret.buttonEvents:
       # CANCEL stops ACC and blocks automatic resume in CruiseHelper, but keeps

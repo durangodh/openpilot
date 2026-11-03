@@ -212,7 +212,6 @@ class CarState(CarStateBase):
     # MDPS12 exposes independent LKAS fault indicators. Debounce them so the
     # intentional two-frame high-angle reset pulse is ignored, while a real
     # MDPS rejection still releases latActive and gets a chance to recover.
-    # (Restored to the 2026-10-30 behaviour on request, 2026-11-03.)
     mdps_fault = (cp_mdps.vl["MDPS12"]["CF_Mdps_ToiUnavail"] != 0 or
                   cp_mdps.vl["MDPS12"]["CF_Mdps_ToiFlt"] != 0 or
                   cp_mdps.vl["MDPS12"]["CF_Mdps_FailStat"] != 0)
