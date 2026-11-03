@@ -1022,7 +1022,8 @@ def _mdps_fault(path=MDPS_FAULT_FILE, now=None):
     with open(path) as f:
       parts = f.read().split()
     now = time.monotonic() if now is None else now
-    return len(parts) == 2 and parts[0] == "1" and 0.0 <= now - float(parts[1]) <= MDPS_FAULT_STALE_S
+    # The writer rounds its time to 1 ms, so a fresh "1" can read as up to 0.5 ms ahead.
+    return len(parts) == 2 and parts[0] == "1" and -0.01 <= now - float(parts[1]) <= MDPS_FAULT_STALE_S
   except (OSError, ValueError):
     return False
 
