@@ -32,6 +32,12 @@ import os
 import time
 
 LOG_DIR = "/data/media/0/mdps_log"
+# Display only: the phone HUD wheel turns yellow while this says the MDPS is faulted
+# (steerFaultTemporary stays False as in aPilot c2-master). "1 <monotonic>" refreshed
+# every FAULT_REFRESH_S while faulted, "0" when clear; remote_hud ignores a stale "1".
+FAULT_FILE = "/dev/shm/mdps_fault"
+FAULT_REFRESH_S = 0.5
+FAULT_STATUS_BITS = ("CF_Mdps_ToiUnavail", "CF_Mdps_ToiFlt", "CF_Mdps_FailStat", "CF_Mdps_SErr")
 NOT_STEERING_S = 0.5
 # After LKAS starts requesting the MDPS takes a moment to report ToiActive.
 START_GRACE_S = 1.0
@@ -66,9 +72,12 @@ def panda_rejection_check(torque, last, driver_torque):
 
 
 class MdpsWatch:
-  def __init__(self, dt, log_dir=LOG_DIR):
+  def __init__(self, dt, log_dir=LOG_DIR, fault_file=FAULT_FILE):
     self.dt = dt
     self.log_dir = log_dir
+    self.fault_file = fault_file
+    self.fault = False
+    self.fault_written = None   # (state, monotonic) of the last write
     self.inactive_frames = 0
     self.request_frames = 0
     self.not_steering = False
@@ -113,7 +122,24 @@ class MdpsWatch:
                   apply_steer, out.leftBlinker, out.rightBlinker, out.steerFaultTemporary))
       self.last_key = key
     self.not_steering = not_steering
+    # Faulted for the HUD: engaged and the MDPS reports a fault bit or does not steer.
+    self._publish_fault(bool(lat_active) and (not_steering or any(bits[b] for b in FAULT_STATUS_BITS)))
     return not_steering
+
+  def _publish_fault(self, fault):
+    self.fault = fault
+    now = time.monotonic()
+    last = self.fault_written
+    if last is not None and last[0] == fault and (not fault or now - last[1] < FAULT_REFRESH_S):
+      return
+    try:
+      tmp = self.fault_file + ".tmp"
+      with open(tmp, "w") as f:
+        f.write("1 %.3f" % now if fault else "0")
+      os.replace(tmp, self.fault_file)
+      self.fault_written = (fault, now)
+    except OSError:
+      pass
 
   def _rejections(self, out, apply_steer):
     rejected, self.rejected = self.rejected, []

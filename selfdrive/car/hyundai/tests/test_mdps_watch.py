@@ -15,6 +15,19 @@ def cs(toi_active=1, toi_flt=0, v=20.0, standstill=False):
                                           "CF_Mdps_SErr": 0, "CF_Mdps_Def": 0})
 
 
+def test_fault_file_for_the_hud_wheel(tmp_path):
+  fault = tmp_path / "mdps_fault"
+  w = MdpsWatch(DT, str(tmp_path / "log"), str(fault))
+  run(w, cs(), 50)
+  assert fault.read_text() == "0"
+  run(w, cs(toi_active=0, toi_flt=1), 1)                 # ToiFlt while engaged: yellow at once
+  assert fault.read_text().startswith("1 ")
+  run(w, cs(), 1)
+  assert fault.read_text() == "0"
+  w.update(cs(toi_active=0, toi_flt=1), False, False, 0, False)   # not engaged: no yellow
+  assert fault.read_text() == "0"
+
+
 def run(w, state, frames, lkas=True, cut=False):
   return [w.update(state, True, lkas, 50, cut) for _ in range(frames)][-1]
 
