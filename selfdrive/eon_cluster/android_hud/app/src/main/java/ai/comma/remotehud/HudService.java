@@ -4392,10 +4392,13 @@ public final class HudService extends Service {
     /** 도로 제한속도 원: SET 과 같은 크기. "LIMIT" 글자 밑선이 SET 원 윗선보다 SIGN_GAP 위. */
     private static final float LIMIT_Y = SET_Y - (36f * 1.15f - 36f) * 0.85f - 36f * 1.15f * 0.85f
             - SIGN_GAP - 55f * 0.85f;
-    /** 감속(적용)속도 원: SET 원의 2/3 크기, SET 오른쪽. 출처 글자 밑선이 SIGN_BASELINE. */
-    private static final float APPLY_R = 36f * 1.15f * 0.85f * 2f / 3f;
+    /**
+     * 감속(적용)속도 원: SET 원과 같은 크기·같은 높이, SET 오른쪽.
+     * 숫자는 SET 숫자, 원인 글자는 "SET" 글자와 같은 크기이고 밑선이 SIGN_BASELINE.
+     */
+    private static final float APPLY_R = 36f * 1.15f * 0.85f;
     private static final float APPLY_X = SIGN_COL_X + 36f * 1.15f * 0.85f + 12f + APPLY_R;
-    private static final float APPLY_Y = SIGN_BASELINE - 14f * 0.85f - 6f - APPLY_R;
+    private static final float APPLY_Y = SIGN_BASELINE - 55f * 0.85f - (36f * 1.15f - 36f) * 0.85f;
     // 휠·과속카메라·SET 원은 원래 그림(반지름 36)의 85% 로 그린다.
     private static final float SIGN_SCALE = 0.85f;
     private static final float TOP_ROW_SCALE = 1.1f;
@@ -5810,7 +5813,7 @@ public final class HudService extends Service {
 
     /** 감속(적용)속도: SET 원 2/3 크기의 주황 테두리 원, 숫자는 SET 숫자색, 아래 출처(CAM/SEC…). 화면 좌표. */
     private void drawApplySpeed(Canvas c, Paint p, int apply, String source) {
-        float k = SIGN_SCALE * 2f / 3f;
+        float k = SIGN_SCALE;  // SET 원과 같은 배율
         int orange = Color.rgb(236, 104, 12);
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);

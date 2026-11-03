@@ -1011,7 +1011,7 @@ class CruiseHelper:
         apply_kph = section_apply_kph
         left_dist = section_dist
         road_limit_speed = section_limit
-        navi_source = "section"
+        navi_source = "boost" if self.section_boost_kph > 0.0 else "section"
         navi_target_kph = section_apply_kph
       apply_limit_speed = self.kph_to_clu(apply_kph)
     elif bump_holding:
@@ -1023,7 +1023,8 @@ class CruiseHelper:
     elif section_active:
       left_dist = section_dist
       road_limit_speed = section_limit
-      navi_source = "section"
+      # 보상 가속 중이면 HUD 원인 표시를 BOOST 로.
+      navi_source = "boost" if self.section_boost_kph > 0.0 else "section"
       # C3 holds the section target directly while inside the section, raised
       # by the boost while the average is below the limit.
       navi_target_kph = section_apply_kph
@@ -1121,7 +1122,7 @@ class CruiseHelper:
 
     # Tell the planner how hard the active limiter planned to slow down so its
     # cruise decel bound can follow the user's decel setting.
-    if self.apply_source in ("cam", "bump", "section"):
+    if self.apply_source in ("cam", "bump", "section", "boost"):
       self.apply_decel_rate = self.auto_navi_speed_decel_rate
     elif self.apply_source in ("vturn", "route"):
       self.apply_decel_rate = self.auto_curve_speed_decel_rate
