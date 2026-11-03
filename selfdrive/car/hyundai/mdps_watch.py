@@ -4,8 +4,8 @@ On 2026-11-03 the MDPS stopped steering on a straight road with no alert: the
 fault check only counts CF_Mdps_ToiUnavail (ToiFlt/FailStat could stay latched,
 2026-10-31), so a refusal reported any other way went unnoticed.
 
-MDPS faults are handled as in aPilot c2-master (steerFaultTemporary always
-False: no alert, lateral stays requested). This only records:
+MDPS faults are handled in carstate (ToiUnavail/ToiFlt/FailStat for 0.5 s ->
+steerFaultTemporary, the 2026-10-30 behaviour). This only records:
   - not_steering: we request torque (LKAS active, not in the intentional
     high-angle cut) while moving, and MDPS12 CF_Mdps_ToiActive stays 0 for
     NOT_STEERING_S ("MDPS NOT STEERING" line). Nothing acts on it.
@@ -33,7 +33,7 @@ import time
 
 LOG_DIR = "/data/media/0/mdps_log"
 # Display only: the phone HUD wheel turns yellow while this says the MDPS is faulted
-# (steerFaultTemporary stays False as in aPilot c2-master). "1 <monotonic>" refreshed
+# (also before carstate's 0.5 s debounce, and for an MDPS that silently does not steer). "1 <monotonic>" refreshed
 # every FAULT_REFRESH_S while faulted, "0" when clear; remote_hud ignores a stale "1".
 FAULT_FILE = "/dev/shm/mdps_fault"
 FAULT_REFRESH_S = 0.5

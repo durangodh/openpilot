@@ -369,12 +369,6 @@ class CarInterface(CarInterfaceBase):
 
     ret = self.CS.update(self.cp, self.cp2, self.cp_cam)
     self._note_lkas11_rejections(can_strings)
-    # A confirmed nonzero TX denial must not leave the host ramping from a
-    # torque panda rejected. controlsd drops latActive on this fault; the
-    # controller then sends zero and resets apply_steer_last. Hold the fault
-    # until engagement ends, rather than silently retrying steering.
-    ret.steerFaultTemporary |= self.CC.steer_rejection_guard.update(
-      c.enabled, self.CC.mdps_watch.rejected)
     _t2 = time.monotonic()  # _prof
     self.prof_parse = _t1 - _t0  # _prof
     self.prof_cstate = _t2 - _t1  # _prof

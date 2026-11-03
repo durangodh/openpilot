@@ -209,16 +209,19 @@ class CarState(CarStateBase):
     ret.steeringTorqueEps = cp_mdps.vl["MDPS12"]["CR_Mdps_OutTq"] / 10.  # scale to Nm
     ret.steeringPressed = abs(ret.steeringTorque) > self.params.STEER_THRESHOLD
 
-    # Match aPilot c2-master: keep the ToiUnavail counter for diagnostics, but do not
-    # publish it as steerFaultTemporary. The MDPS can recover while lateral remains
-    # requested instead of controlsd dropping latActive on a transient rejection.
-    mdps_fault = cp_mdps.vl["MDPS12"]["CF_Mdps_ToiUnavail"] != 0
+    # MDPS12 exposes independent LKAS fault indicators. Debounce them so the
+    # intentional two-frame high-angle reset pulse is ignored, while a real
+    # MDPS rejection still releases latActive and gets a chance to recover.
+    # (Restored to the 2026-10-30 behaviour on request, 2026-11-03.)
+    mdps_fault = (cp_mdps.vl["MDPS12"]["CF_Mdps_ToiUnavail"] != 0 or
+                  cp_mdps.vl["MDPS12"]["CF_Mdps_ToiFlt"] != 0 or
+                  cp_mdps.vl["MDPS12"]["CF_Mdps_FailStat"] != 0)
     if not ret.standstill and mdps_fault:
       self.mdps_error_cnt += 1
     else:
       self.mdps_error_cnt = 0
 
-    ret.steerFaultTemporary = False
+    ret.steerFaultTemporary = self.mdps_error_cnt > 50
 
     if self.CP.enableAutoHold:
       ret.autoHold = cp.vl["ESP11"]["AVH_STAT"]
