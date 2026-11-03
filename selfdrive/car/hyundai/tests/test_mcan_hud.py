@@ -279,3 +279,4 @@ def test_section_zone_shows_the_limit_like_avn():
                                   "average_speed_kph": 89}})
   msgs = run(McanHud(), state, 10)
   assert [d.hex() for a, d, _ in msgs if a == CAMERA_ADDR] == ["0a000000f0000fff"] * 2
+  assert [d.hex() for a, d, _ in msgs if a == TEXT_ADDR] == [f.hex() for f in isotp_frames(text_payload("구간단속"))]

@@ -38,6 +38,7 @@ SDI_SIGNAL_SPEED = 0       # navi module SDI types (NaverCodes / TMAP)
 SDI_SPEED = 1
 SDI_MOBILE = 7
 REAR_CAMERA_TEXT = "후면단속"
+SECTION_TEXT = "구간단속"
 # Non-speed notices: every camera nibble off (F), the notice in its own field. AVN 11-02
 # 12:08:09 "교통정보수집" circle: byte 2 (Navi_NonSpdTrap) = 9.
 NOTICE_PAYLOADS = {"traffic_info": bytes.fromhex("fff00900f00f0fff")}
@@ -317,13 +318,17 @@ class McanHud:
   def update(self, frame, nav_state, v_ego=0.0):
     """CAN messages for this 100 Hz frame. nav_state: NavigationRouteData.update()."""
     msgs = []
-    camera = NavigationRouteData.speed_events(nav_state)["camera"] if isinstance(nav_state, dict) else None
+    events = NavigationRouteData.speed_events(nav_state) if isinstance(nav_state, dict) else {}
+    camera = events.get("camera")
+    section = events.get("section")
     cam = camera_payload(camera, v_ego * 3.6)
     # The AVN's map has no rear-facing cameras and the HUD no picture for them: while the navi
     # alerts one, its circle shows the limit as usual and the text line says so.
     rear_camera = cam is not None and bool(camera.get("rear"))
-    if cam is None and isinstance(nav_state, dict):
-      cam = section_payload(NavigationRouteData.speed_events(nav_state)["section"], v_ego * 3.6)
+    in_section = False
+    if cam is None:
+      cam = section_payload(section, v_ego * 3.6)
+      in_section = cam is not None
     if cam is None:
       notice = NavigationRouteData.speed_notice(nav_state)
       cam = NOTICE_PAYLOADS.get(notice["kind"]) if notice is not None else None
@@ -373,6 +378,9 @@ class McanHud:
       text = "" if rerouting else str(nav_state.get("text", "") or "")
       if rear_camera and not rerouting:
         text = REAR_CAMERA_TEXT
+      elif in_section and not rerouting:
+        # The AVN only shows the limit circle in a section zone; say what it is on the text line.
+        text = SECTION_TEXT
       if text != self.text:
         self._queue_text(text)
       if frame % SEND_PERIOD_FRAMES == 0:
