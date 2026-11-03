@@ -51,6 +51,10 @@ DISPLAY_TOLLGATE = 178     # 0xB2 tollgate (2026-11-01 07:18 북오산, 07:44 �
 # Tollgate: beyond 400 m the HUD shows the purple TG card (0x115 bar off, 0x123 TG field 3);
 # from 400 m the gate picture with the bar (0x123 TG field 1 + the toll: 00 5a 01 = 900원).
 TOLLGATE_GATE_M = 400
+# With the fee known the gate picture and the fee come up as soon as the navi gives the fee.
+# The bar runs over where the gate picture first came up, as for turns (bar_scale): from
+# 1.2 km at 남논산 the AVN used 1 km (2026-11-04 08:24: 0x123 = dist / 10, 0x115 bar 9 at
+# 900 m, fee 02 44 = 5,800원), from 400 m at 정남 the short scale (11-01 07:44, 900원).
 BAR_PREFIX_TOLLGATE = bytes.fromhex("00000040000000")   # TG 1, no toll known
 DISPLAY_HIGHWAY_EXIT = 164 # 0xA4 highway EXIT sign preview, km distance (11-01 07:42 "1.7km")
 DISPLAY_RAMP_TURN = 17     # turn off a ramp, no intersection drawn (11-01 07:43 "병점, 정남")
@@ -186,7 +190,8 @@ def show_turn(turn_type, dist_m, lane=None, after_exit=False):
 
 
 def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE_NEAR_M, after_exit=False,
-                tollgate=False, preview=False, junction=None):
+                tollgate=False, preview=False, junction=None, toll_fee=False,
+                toll_scale_m=BAR_SCALE_NEAR_M):
   """0x115 payload for one Naver maneuver, or None to leave the AVN's frame alone.
   next_turn_type picks the keep-going preview icon; a 톨게이트 name on a straight
   maneuver shows the tollgate icon (the modules map tollgates to straight); tollgate=True
@@ -200,7 +205,10 @@ def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE
       return bytes([DISPLAY_ARRIVED, 0, 0, 0, 0, 0, 0, 0xF0])
     return bytes([DISPLAY_DEST_AHEAD, 0, 0, 0, hi, lo, unit, (BAR_NONE << 4) | tenths])
   if tollgate or (turn_type == TURN_STRAIGHT and "톨게이트" in (text or "")):
-    bar = BAR_NONE if dist > TOLLGATE_GATE_M else bar_tenths(dist)   # 400 m = full bar
+    if toll_fee:
+      bar = bar_tenths(dist, toll_scale_m)
+    else:
+      bar = BAR_NONE if dist > TOLLGATE_GATE_M else bar_tenths(dist)   # 400 m = full bar
     return bytes([DISPLAY_TOLLGATE, 0, 0, DIRECTION_NONE, hi, lo, unit, (bar << 4) | tenths])
   if turn_type == TURN_STRAIGHT:
     display = STRAIGHT_PREVIEW.get(next_turn_type, DISPLAY_STRAIGHT)
@@ -225,20 +233,21 @@ def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE
                 (bar_tenths(dist, scale_m) << 4) | tenths])
 
 
-def tollgate_bar_payload(dist_m, toll_fee_won=None):
+def tollgate_bar_payload(dist_m, toll_fee_won=None, scale_m=BAR_SCALE_NEAR_M):
   """0x123: TG card >400 m, gate <=400 m; current-point KRW fee only.
 
   AVN 07:44:11: 00 00 00 40 00 5a 01 64 accompanied the 900-won photo.
   Unknown/zero/unrepresentable fees deliberately use the observed no-fee frame.
   No caching: changing guidance or losing the fee clears the previous amount.
   """
-  if dist_m > TOLLGATE_GATE_M:
-    return BAR_PREFIX_DEFAULT + b"\x00"
   fee = NavigationRouteData.toll_fee_won({"toll_fee_won": toll_fee_won})
+  if fee is None and dist_m > TOLLGATE_GATE_M:
+    return BAR_PREFIX_DEFAULT + b"\x00"
   prefix = BAR_PREFIX_TOLLGATE
-  if fee is not None:
-    prefix = prefix[:4] + (fee // 10).to_bytes(2, "big") + b"\x01"
-  return prefix + bytes([bar_percent(dist_m)])
+  if fee is None:
+    return prefix + bytes([bar_percent(dist_m)])
+  prefix = prefix[:4] + (fee // 10).to_bytes(2, "big") + b"\x01"
+  return prefix + bytes([bar_percent(dist_m, scale_m)])
 
 
 def camera_payload(camera, v_ego_kph=0.0):
@@ -309,6 +318,7 @@ class McanHud:
     self.cur_exit = False
     self.shown = False          # the current turn is drawn (not the keep-going preview)
     self.junction = None        # junction shape from the navi's lanes at this turn
+    self.gate_start = None      # distance where the tollgate picture first came up
 
   def _queue_text(self, text):
     self.text = text
@@ -348,6 +358,7 @@ class McanHud:
         self.maneuver = (turn_type, text)
         self.shown = False
         self.junction = None
+        self.gate_start = None
       lane = nav_state.get("lane_current")
       if lane_matches(lane, dist):
         # Kept for the rest of the maneuver: the lanes go away close to the junction.
@@ -359,10 +370,18 @@ class McanHud:
       if (shown and not self.shown) or dist > self.maneuver_start + 100.0:
         self.maneuver_start = dist
       self.shown = shown
+      toll_fee = NavigationRouteData.toll_fee_won({"toll_fee_won": nav_state.get("toll_fee_won")}) is not None
+      # Where the gate picture came up (fee known, or the 400 m gate without one).
+      if toll_fee or dist <= TOLLGATE_GATE_M:
+        if self.gate_start is None:
+          self.gate_start = dist
+      else:
+        self.gate_start = None
       payload = tbt_payload(turn_type, dist, text, int(nxt.get("turn_type", -1)),
                             bar_scale(self.maneuver_start), after_exit=self.prev_exit,
                             tollgate=bool(nav_state.get("tollgate")), preview=not shown,
-                            junction=self.junction)
+                            junction=self.junction,
+                            toll_fee=toll_fee, toll_scale_m=bar_scale(self.gate_start or 0))
     elif isinstance(nav_state, dict) and nav_state.get("guidance_stream_fresh") and nav_state.get("off_route"):
       # The navi app is still guiding but recalculating the route.
       payload = REROUTE_PAYLOAD
@@ -392,7 +411,7 @@ class McanHud:
         if payload[0] in BAR_EMPTY_DISPLAYS:
           bar_payload = BAR_PREFIX_DEFAULT + b"\x00"
         if payload[0] == DISPLAY_TOLLGATE:
-          bar_payload = tollgate_bar_payload(dist, nav_state.get("toll_fee_won"))
+          bar_payload = tollgate_bar_payload(dist, nav_state.get("toll_fee_won"), bar_scale(self.gate_start or 0))
         msgs.append(make_can_msg(BAR_ADDR, bar_payload, MCAN_BUS))
 
     if self.text_queue:

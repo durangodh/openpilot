@@ -156,7 +156,11 @@ def test_toll_fee_matches_photo_and_does_not_leak_to_next_guidance():
   state["toll_fee_won"] = 900
   state["distance"] = 500
   msgs = run(hud, state, 5, start=10)
-  assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["000000c0ffff0f00"]
+  # With the fee the gate and the fee show as soon as the navi gives it, also past 400 m.
+  assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["00000040005a0164"]
+  state["toll_fee_won"] = None
+  msgs = run(hud, state, 5, start=10)
+  assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["000000c0ffff0f00"]   # no fee: TG card
   state.update(turn_type=12, text="수원", distance=210)
   msgs = run(hud, state, 5, start=15)
   assert all(d[:7].hex() == "000000c0ffff0f" for a, d, _ in msgs if a == BAR_ADDR)
@@ -280,3 +284,20 @@ def test_section_zone_shows_the_limit_like_avn():
   msgs = run(McanHud(), state, 10)
   assert [d.hex() for a, d, _ in msgs if a == CAMERA_ADDR] == ["0a000000f0000fff"] * 2
   assert [d.hex() for a, d, _ in msgs if a == TEXT_ADDR] == [f.hex() for f in isotp_frames(text_payload("구간단속"))]
+
+
+def test_tollgate_fee_from_far_runs_the_1km_bar_like_avn():
+  # 2026-11-04 08:24 남논산 5,800원: the AVN showed the gate + fee from 1.2 km, bar over 1 km
+  # (1.2 km / 900 m frames verbatim; the AVN bar reads one step lower at 400 m: it counts
+  # the exact distance, the display rounds it)
+  hud = McanHud()
+  state = nav(turn_type=11, dist=2400, text="남논산톨게이트")
+  run(hud, state, 5)                                   # no fee yet: TG card
+  state["toll_fee_won"] = 5800
+  avn = {1200: ("b200000f000110a2", "0000004002440164"), 900: ("b200000f03840090", "000000400244015a"),
+         400: ("b200000f01900040", "0000004002440128")}
+  for n, (dist, (tbt, bar)) in enumerate(sorted(avn.items(), reverse=True)):
+    state["distance"] = dist
+    msgs = run(hud, state, 5, start=5 * (n + 2))
+    assert [d.hex() for a, d, _ in msgs if a == TBT_ADDR] == [tbt]
+    assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == [bar]
