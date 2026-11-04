@@ -452,8 +452,8 @@ final class KakaoBridge {
             Object curLoc = cur == null ? null : tryCallAny(cur, "getLocation", "e");
             // 방면 이름(시범다은마을 방면 등). r60.c.getNodeName(난독화 f).
             // 카카오 화면 배너와 같은 텍스트. 도로명(getRoadName)이 아니다.
-            String curNodeName = cur == null ? "" : getString(cur, "getNodeName", "f");
-            String nextNodeName = next == null ? "" : getString(next, "getNodeName", "f");
+            String curNodeName = guideText(cur);
+            String nextNodeName = guideText(next);
             synchronized (guideLock) {
                 cachedCurLoc = curLoc;
                 cachedCurName = curNodeName == null ? "" : curNodeName;
@@ -1104,6 +1104,50 @@ final class KakaoBridge {
             Object v = callAny(obj, names);
             return v instanceof Number ? ((Number) v).intValue() : -1;
         } catch (Throwable t) { return -1; }
+    }
+
+    /**
+     * HUD text of a guidance item: its 방면 names (r60.c field e, e.g. list2["죽미마을","금암마을"]),
+     * joined like Naver's "a, b"; else the node name (field d, e.g. "오산육교삼거리", or a
+     * tollgate). 2026-11-03 tbt-fields: turns mostly have d=null and the 방면 only in e, so
+     * reading the node name alone left the stock HUD's text line empty for Kakao.
+     */
+    static String guideText(Object item) {
+        if (item == null) return "";
+        String dirs = dirNames(item);
+        if (!dirs.isEmpty()) return dirs;
+        String node = getString(item, "getNodeName", "f");
+        return node == null ? "" : node.trim();
+    }
+
+    /** First List field whose items are all text (the 방면 list), joined with ", ". */
+    static String dirNames(Object item) {
+        for (Class<?> type = item.getClass(); type != null && !type.getName().startsWith("java."); type = type.getSuperclass()) {
+            for (java.lang.reflect.Field field : type.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(field.getModifiers())
+                        || !java.util.List.class.isAssignableFrom(field.getType())) continue;
+                Object value;
+                try {
+                    field.setAccessible(true);
+                    value = field.get(item);
+                } catch (Throwable t) {
+                    continue;
+                }
+                java.util.List<?> list = (java.util.List<?>) value;
+                if (list == null || list.isEmpty()) continue;
+                StringBuilder out = new StringBuilder();
+                boolean text = true;
+                for (Object o : list) {
+                    if (!(o instanceof CharSequence)) { text = false; break; }
+                    String t = o.toString().trim();
+                    if (t.isEmpty()) continue;
+                    if (out.length() > 0) out.append(", ");
+                    out.append(t);
+                }
+                if (text && out.length() > 0) return out.toString();
+            }
+        }
+        return "";
     }
 
     private static String getString(Object obj, String... names) {
