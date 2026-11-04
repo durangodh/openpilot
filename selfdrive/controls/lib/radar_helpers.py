@@ -24,10 +24,14 @@ class Track():
     self.K_K = kalman_params.K
     self.kf = KF1D([[v_lead], [0.0]], self.K_A, self.K_C, self.K_K)
     self.vLead = v_lead
+    self.dRel = 0.0
 
   def update(self, d_rel, y_rel, v_rel, v_lead, measured):
-    #apilot: changed radar target
-    if abs(self.vLead - v_lead) > 0.5:
+    # apilot: the radar target changed. aPilot c2-master (0cd4072, 2023-11-23)
+    # and c3 reset only on a 3 m distance jump; the 0.5 m/s speed-jump reset it
+    # replaced (a day older) also fired on ordinary SCC speed noise and kept
+    # throwing away the lead acceleration estimate.
+    if abs(self.dRel - d_rel) > 3.0:
       self.cnt = 0
       self.kf = KF1D([[v_lead], [0.0]], self.K_A, self.K_C, self.K_K)
 

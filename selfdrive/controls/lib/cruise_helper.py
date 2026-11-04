@@ -31,6 +31,9 @@ BUMP_PASS_HOLD_DIST = 12.0   # m
 BUMP_MIN_SAFE_TIME = 2.0     # s
 BUMP_LOST_ARM_DIST = 30.0    # m, 이 안에서 안내가 끊기면 남은 거리+유지거리로 처리
 BRAKE_GAS_RESUME_WINDOW = 15.0  # s, brake pause followed by a deliberate gas handoff
+# Brake release during a detected signal stop (aPilot c2/c3 check_brake_cruise_on).
+BRAKE_RELEASE_SIGNAL_MAX_KPH = 70.0
+BRAKE_RELEASE_SIGNAL_DECEL = 2.5   # m/s^2, the stop must still fit at this decel
 # 구간단속 보상 가속: 평균속도 목표 = 구간 제한속도 - 이 여유(km/h).
 # 평균은 GPS/실제 속도 기준이므로 계기판 보정(SafetyFactor)을 쓰지 않는다.
 SECTION_BOOST_AVG_MARGIN_KPH = 2.0
@@ -450,6 +453,15 @@ class CruiseHelper:
       # instead of always clamping the set speed down to the current speed.
       self._select_resume_speed(controls, CS)
       self._resume_longitudinal(controls, CS, 3)
+    elif self.d_rel <= 0.0 and self.traffic_state == 1:
+      # aPilot c2/c3: the driver braked toward a detected signal stop. Hand the
+      # stop back only below 70 km/h and when a 2.5 m/s^2 stop still fits before
+      # the model stop, and keep the set speed (the planner owns the stop).
+      # Otherwise stay paused instead of resuming into a late, hard stop.
+      v_ego = v_ego_kph / CV.MS_TO_KPH
+      if v_ego_kph < BRAKE_RELEASE_SIGNAL_MAX_KPH and \
+         v_ego ** 2 / (2.0 * BRAKE_RELEASE_SIGNAL_DECEL) < self.x_stop:
+        self._resume_longitudinal(controls, CS, 3)
     elif self.d_rel <= 0.0 and v_ego_kph >= self.auto_resume_from_brake_car_speed > 0.0:
       self._select_resume_speed(controls, CS)
       self._resume_longitudinal(controls, CS, 3)
@@ -458,11 +470,17 @@ class CruiseHelper:
     self.traffic_state_prev = self.traffic_state
     try:
       plan = controls.sm['longitudinalPlan']
-      self.x_stop = float(getattr(plan, 'xStop', 0.0))
       self.traffic_state = int(getattr(plan, 'trafficState', 0)) % 100
     except Exception:
-      self.x_stop = 0.0
       self.traffic_state = 0
+    # aPilot xStop is the model path end point. LongitudinalPlan has no xStop
+    # field here, so reading it from the plan always gave 0 and the
+    # AutoResumeFromGasSpeedMode 3 straight-road check never passed.
+    try:
+      model_x = controls.sm['modelV2'].position.x
+      self.x_stop = float(model_x[-1]) if len(model_x) else 0.0
+    except Exception:
+      self.x_stop = 0.0
 
     # C2-style traffic events: publish only on a state edge so there is no
     # per-frame UI work. A pedal-assisted departure is a driver action, not a

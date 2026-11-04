@@ -11,7 +11,8 @@ def _load():
   tree = ast.parse(source.read_text(encoding='utf-8'))
   cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'CruiseHelper')
   fn = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == '_brake_release_resume')
-  env = {'CV': NS(MS_TO_KPH=3.6), 'DT_CTRL': 0.01, 'XState': NS(softHold='softHold', cruise='cruise')}
+  env = {'CV': NS(MS_TO_KPH=3.6), 'DT_CTRL': 0.01, 'XState': NS(softHold='softHold', cruise='cruise'),
+         'BRAKE_RELEASE_SIGNAL_MAX_KPH': 70.0, 'BRAKE_RELEASE_SIGNAL_DECEL': 2.5}
   exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])), str(source), 'exec'), env)
   return env['_brake_release_resume']
 
@@ -23,10 +24,11 @@ def _helper(**kw):
   h = NS(auto_cruise_control=True, x_state='cruise', auto_resume_from_brake_release=True,
          auto_resume_from_brake_car_speed=20.0, auto_resume_from_brake_release_dist=10.0,
          auto_resume_from_gas_speed=20.0, param_read_counter=1000, gas_pressed_frame=0,
-         slow_speed_frame_count=0, d_rel=5.2, traffic_state=0, resumed=[])
+         slow_speed_frame_count=0, d_rel=5.2, traffic_state=0, x_stop=0.0, resumed=[],
+         speed_selected=[])
   h.__dict__.update(kw)
   h._resume_longitudinal = lambda controls, CS, mode: h.resumed.append(mode)
-  h._select_resume_speed = lambda controls, CS: None
+  h._select_resume_speed = lambda controls, CS: h.speed_selected.append(True)
   return h
 
 
@@ -61,3 +63,16 @@ def test_resume_above_brake_car_speed(d_rel):
   h = _helper(d_rel=d_rel, auto_resume_from_brake_release_dist=10.0)
   _resume(h, NS(), _cs(40.0))
   assert h.resumed == [3]
+
+
+@pytest.mark.parametrize(('kph', 'x_stop', 'expected'), [
+  (50.0, 60.0, [3]),   # 2.5 m/s^2 stop needs ~38.6 m: fits, hand the stop back
+  (50.0, 30.0, []),    # too close for a comfortable stop: stay paused
+  (75.0, 200.0, []),   # 70 km/h and above: stay paused
+])
+def test_signal_stop_brake_release_needs_room_to_stop(kph, x_stop, expected):
+  h = _helper(d_rel=0.0, traffic_state=1, x_stop=x_stop)
+  _resume(h, NS(), _cs(kph))
+  assert h.resumed == expected
+  # The planner owns the stop, so the set speed is not changed.
+  assert h.speed_selected == []
