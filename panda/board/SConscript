@@ -45,8 +45,15 @@ build_projects["panda"] = {
   ],
 }
 
+# Spare black panda as the Genesis DH MM-CAN gateway (safety/safety_mcan_gateway.h):
+#   MCAN_GATEWAY=1 scons  ->  obj/panda_mcan_gw.bin.signed (built on its own)
+if os.getenv("MCAN_GATEWAY"):
+  gw = dict(build_projects["panda"])
+  gw["PROJECT_FLAGS"] = build_projects["panda"]["PROJECT_FLAGS"] + ["-DMCAN_GATEWAY"]
+  build_projects = {"panda_mcan_gw": gw}
+
 # arm-none-eabi-gcc on comma two has no cortex-m7 support
-if not os.path.exists("/EON"):
+if not os.path.exists("/EON") and not os.getenv("MCAN_GATEWAY"):
   build_projects["panda_h7"] = {
     "MAIN": "main.c",
     "STARTUP_FILE": "stm32h7/startup_stm32h7x5xx.s",

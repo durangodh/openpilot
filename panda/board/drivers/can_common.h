@@ -167,10 +167,16 @@ void can_clear(can_ring *q) {
 
 // Helpers
 // Panda:       Bus 0=CAN1   Bus 1=CAN2   Bus 2=CAN3
+#ifdef MCAN_GATEWAY
+// spare panda MM-CAN gateway (safety_mcan_gateway.h): bus 0 car side, bus 2 HUD side, both MM-CAN
+#define GW_BUS02_SPEED MCAN_SPEED
+#else
+#define GW_BUS02_SPEED 5000U
+#endif
 bus_config_t bus_config[] = {
-  { .bus_lookup = 0U, .can_num_lookup = 0U, .can_speed = 5000U, .can_data_speed = 20000U, .canfd_enabled = false, .brs_enabled = false },
+  { .bus_lookup = 0U, .can_num_lookup = 0U, .can_speed = GW_BUS02_SPEED, .can_data_speed = 20000U, .canfd_enabled = false, .brs_enabled = false },
   { .bus_lookup = 1U, .can_num_lookup = 1U, .can_speed = MCAN_SPEED, .can_data_speed = 20000U, .canfd_enabled = false, .brs_enabled = false },
-  { .bus_lookup = 2U, .can_num_lookup = 2U, .can_speed = 5000U, .can_data_speed = 20000U, .canfd_enabled = false, .brs_enabled = false },
+  { .bus_lookup = 2U, .can_num_lookup = 2U, .can_speed = GW_BUS02_SPEED, .can_data_speed = 20000U, .canfd_enabled = false, .brs_enabled = false },
   { .bus_lookup = 0xFFU, .can_num_lookup = 0xFFU, .can_speed = 333U, .can_data_speed = 333U, .canfd_enabled = false, .brs_enabled = false },
 };
 

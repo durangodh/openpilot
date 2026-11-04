@@ -71,6 +71,12 @@ void debug_ring_callback(uart_ring *ring) {
 // this is the only way to leave silent mode
 void set_safety_mode(uint16_t mode, int16_t param) {
   uint16_t mode_copy = mode;
+#ifdef MCAN_GATEWAY
+  // the gateway build runs on its own: whatever a host asks, stay the gateway
+  UNUSED(mode);
+  mode_copy = SAFETY_MCAN_GATEWAY;
+  heartbeat_disabled = true;
+#endif
   int err = set_safety_hooks(mode_copy, param);
   if (err == -1) {
     puts("Error: safety set mode failed. Falling back to SILENT\n");
@@ -213,6 +219,9 @@ void tick_handler(void) {
         heartbeat_engaged_mismatches = 0U;
       }
 
+#ifdef MCAN_GATEWAY
+      heartbeat_disabled = true;
+#endif
       if (!heartbeat_disabled) {
         // if the heartbeat has been gone for a while, go to SILENT safety mode and enter power save
 		// MDPS will hard fault if SAFETY_SILENT set or panda slept

@@ -17,6 +17,9 @@
 #include "safety/safety_elm327.h"
 //#include "safety/safety_body.h"
 #include "safety/safety_hyundai_community.h"
+#ifdef MCAN_GATEWAY
+#include "safety/safety_mcan_gateway.h"
+#endif
 
 // from cereal.car.CarParams.SafetyModel
 #define SAFETY_SILENT 0U
@@ -44,6 +47,8 @@
 #define SAFETY_STELLANTIS 25U
 #define SAFETY_FAW 26U
 #define SAFETY_BODY 27U
+// panda-internal (spare panda MM-CAN gateway build, never set by the host)
+#define SAFETY_MCAN_GATEWAY 0xC0U
 
 uint16_t current_safety_mode = SAFETY_SILENT;
 int16_t current_safety_param = 0;
@@ -255,6 +260,9 @@ const safety_hook_config safety_hook_registry[] = {
   {SAFETY_HYUNDAI, &hyundai_hooks},
   {SAFETY_HYUNDAI_LEGACY, &hyundai_legacy_hooks},
   {SAFETY_HYUNDAI_COMMUNITY, &hyundai_community_hooks},
+#ifdef MCAN_GATEWAY
+  {SAFETY_MCAN_GATEWAY, &mcan_gateway_hooks},
+#endif
 #ifdef ALLOW_DEBUG
   //{SAFETY_TESLA, &tesla_hooks},
   //{SAFETY_SUBARU_LEGACY, &subaru_legacy_hooks},
