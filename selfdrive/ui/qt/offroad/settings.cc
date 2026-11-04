@@ -1872,7 +1872,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamValueControlF(
       "TFollowSpeedRatio", "HIGH-SPEED T-FOLLOW RATIO (%)",
-      "속도가 높아질 때 차간시간을 늘리는 비율입니다. 값 증가(+): 고속에서 차간거리 증가 / 값 감소(-): 고속 차간거리 감소.",
+      "100km/h에서 차간시간을 늘리는 비율입니다. 40km/h까지는 그대로이고 그 위로 점차 늘어납니다. 값 증가(+): 고속에서 차간거리 증가 / 값 감소(-): 고속 차간거리 감소.",
       "../assets/offroad/icon_openpilot.png", 100, 300, 5, 0, 120, this));
   list->addItem(new ParamValueControlF(
       "PrevCruiseGap", "PREVIOUS CRUISE GAP",

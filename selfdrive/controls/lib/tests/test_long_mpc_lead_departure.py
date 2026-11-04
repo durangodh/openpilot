@@ -51,7 +51,10 @@ def test_cost_reduction_is_not_applied_while_either_lead_is_slower():
 
 
 def test_time_gap_cost_matches_apilot_without_speed_window_gate():
-  assert cost_multipliers(5.0, 4.0, 4.0, 1.2) == pytest.approx((0.8, 0.8, 1.3))
+  # aPilot c3-wip1213 table: TFs [0.8, 1.2, 1.45].
+  assert cost_multipliers(5.0, 4.0, 4.0, 0.8) == pytest.approx((0.9, 0.5, 1.1))
+  assert cost_multipliers(5.0, 4.0, 4.0, 1.0) == pytest.approx((0.95, 0.75, 1.05))
+  assert cost_multipliers(5.0, 4.0, 4.0, 1.2) == pytest.approx((1.0, 1.0, 1.0))
   assert cost_multipliers(5.0, 4.0, 4.0, 1.8) == pytest.approx((1.0, 1.0, 1.0))
 
 

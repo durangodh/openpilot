@@ -306,13 +306,15 @@ class LongitudinalMpc:
       self.solver.cost_set(i, 'Zl', Zl)
 
   def get_cost_multipliers(self, v_lead0, v_lead1):
-    # Original apilot-c2 (KRKeegan) cost multipliers.
+    # aPilot c3-wip1213 (KRKeegan) cost multipliers. c2 used TFs [1.2, 1.45, 1.8]
+    # with [.8, 1, 1.1] / [.8, 1, 1.1] / [1.3, 1, 1]; c3 keeps the costs at 1.0
+    # from the normal gaps up and only relaxes jerk at a very short t_follow.
     v_ego = self.x0[1]
     v_ego_bps = [0, 10]
-    TFs = [1.2, 1.45, 1.8]
-    a_change_tf = interp(self.t_follow, TFs, [.8, 1., 1.1])
-    j_ego_tf = interp(self.t_follow, TFs, [.8, 1., 1.1])
-    d_zone_tf = interp(self.t_follow, TFs, [1.3, 1., 1.])
+    TFs = [0.8, 1.2, 1.45]
+    a_change_tf = interp(self.t_follow, TFs, [.9, 1., 1.])
+    j_ego_tf = interp(self.t_follow, TFs, [.5, 1., 1.])
+    d_zone_tf = interp(self.t_follow, TFs, [1.1, 1., 1.])
 
     j_ego_v_ego = 1
     a_change_v_ego = 1
@@ -402,7 +404,9 @@ class LongitudinalMpc:
     if v_ego_kph >= self.v_ego_kph_prev or gap_changed:
       gap_values = self.tfollow_gaps if self.tfollow_gaps is not None else CRUISE_GAP_V
       tf = float(interp(cruise_gap, CRUISE_GAP_BP, gap_values))
-      cruise_gap_ratio = interp(v_ego_kph, [0, 100], [tf, tf * self.t_follow_speed_ratio])
+      # aPilot c3-wip1213 shape: no speed increase up to 40 km/h, then ramp to
+      # the TFollowSpeedRatio value at 100 km/h (c2 ramped from 0 km/h).
+      cruise_gap_ratio = interp(v_ego_kph, [0, 40, 100], [tf, tf, tf * self.t_follow_speed_ratio])
       target = max(0.6, cruise_gap_ratio * (2.0 - self.safe_mode_factor))
       self.t_follow_base = release_t_follow(
         target, None if self.cruise_gap_prev is None else self.t_follow_base, DT_MDL)

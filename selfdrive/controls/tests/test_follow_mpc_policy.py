@@ -146,3 +146,11 @@ def test_held_gap_releases_gradually_after_deceleration():
     values.append(mpc.t_follow_base)
   steps = [a - b for a, b in zip([high] + values, values)]
   assert max(steps) <= 0.3 * 0.05 + 1e-9
+
+
+def test_gap_speed_increase_starts_above_40kph():
+  # aPilot c3-wip1213 shape: flat to 40 km/h, then ramp to the ratio at 100 km/h.
+  for kph, expected in ((20.0, 1.2), (40.0, 1.2), (70.0, 1.2 * 1.1), (100.0, 1.2 * 1.2)):
+    mpc = gap_mpc()
+    mpc.update_gap_tf(NS(longCruiseGap=2), kph / 3.6)
+    assert mpc.t_follow_base == pytest.approx(expected)
