@@ -49,7 +49,7 @@ def update(controller, **overrides):
   args = dict(
     available=True,
     experimental_mode=False,
-    traffic_stop_mode=2,
+    traffic_stop_mode=1,
     driving_mode=3,
     model_valid=True,
     model_x=200.0,
@@ -112,7 +112,7 @@ def test_mode_reason_matches_selected_control_path():
   controller.reset()
   confirm_frames = round(E2E_VISION_LEAD_CONFIRM_TIME / DT_MDL)
   for _ in range(confirm_frames):
-    update(controller, lead_present=True, vision_lead_present=True)
+    update(controller, traffic_stop_mode=3, lead_present=True, vision_lead_present=True)
   assert controller.reason == E2E_REASON_VISION_LEAD
 
   controller.reset()
@@ -138,14 +138,31 @@ def test_auto_uses_e2e_for_far_stop_and_acc_for_close_stop():
 def test_confirmed_vision_lead_selects_e2e():
   controller = ConditionalE2EController(DT_MDL)
   for _ in range(9):
-    assert update(controller, lead_present=True, vision_lead_present=True) == 'acc'
-  assert update(controller, lead_present=True, vision_lead_present=True) == 'blended'
+    assert update(controller, traffic_stop_mode=3, lead_present=True, vision_lead_present=True) == 'acc'
+  assert update(controller, traffic_stop_mode=3, lead_present=True, vision_lead_present=True) == 'blended'
 
-  controller.reset()
-  for _ in range(10):
-    mode = update(controller, traffic_stop_mode=1, lead_present=True,
-                  vision_lead_present=True)
-  assert mode == 'acc'
+  # Modes 1 and 2 never use E2E for a vision-only lead (aPilot c2-master).
+  for traffic_stop_mode in (1, 2):
+    controller.reset()
+    for _ in range(10):
+      mode = update(controller, traffic_stop_mode=traffic_stop_mode, lead_present=True,
+                    vision_lead_present=True)
+    assert mode == 'acc'
+
+
+def test_mode2_uses_e2e_only_for_departure():
+  # aPilot c2-master TrafficStopMode 2: the signal stop runs in ACC however
+  # far it is, and only the departure (prepare) runs blended.
+  controller = ConditionalE2EController(DT_MDL)
+  assert update(controller, traffic_stop_mode=2, model_x=80.0, model_v0=10.0,
+                model_v_end=1.0) == 'acc'
+  assert controller.stopping
+  assert controller.reason == E2E_REASON_ACC
+
+  assert update(controller, traffic_stop_mode=2, model_x=80.0, model_v0=10.0,
+                model_v_end=1.0, gas_pressed=True) == 'blended'
+  assert controller.prepare
+  assert controller.reason == E2E_REASON_DEPARTURE
 
 
 def test_vision_mode_uses_e2e_only_for_vision_lead():
@@ -164,13 +181,13 @@ def test_confirmed_vision_lead_release_is_hysteretic():
   controller = ConditionalE2EController(DT_MDL)
   confirm_frames = round(E2E_VISION_LEAD_CONFIRM_TIME / DT_MDL)
   for _ in range(confirm_frames):
-    mode = update(controller, lead_present=True, vision_lead_present=True)
+    mode = update(controller, traffic_stop_mode=3, lead_present=True, vision_lead_present=True)
   assert mode == 'blended'
 
   for _ in range(confirm_frames - 1):
-    mode = update(controller, lead_present=False, vision_lead_present=False)
+    mode = update(controller, traffic_stop_mode=3, lead_present=False, vision_lead_present=False)
     assert mode == 'blended'
-  assert update(controller, lead_present=False, vision_lead_present=False) == 'acc'
+  assert update(controller, traffic_stop_mode=3, lead_present=False, vision_lead_present=False) == 'acc'
 
 
 def test_radar_lead_before_the_stop_keeps_acc_and_suppresses_signal_stop():

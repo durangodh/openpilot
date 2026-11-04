@@ -143,8 +143,10 @@ class ConditionalE2EController:
     if traffic_stop_mode == 0:
       self.reason = E2E_REASON_ACC
       return 'acc'
-    far_stop = self.stopping and self.stop_distance > E2E_FAR_STOP_DISTANCE
-    apilot_vision_lead = traffic_stop_mode in (2, 3) and self.vision_lead_confirmed
+    # aPilot c2-master: 1 = E2E for departure and a far (>40 m) signal stop,
+    # 2 = E2E only for departure, 3 = E2E for departure and a vision-only lead.
+    far_stop = traffic_stop_mode == 1 and self.stopping and self.stop_distance > E2E_FAR_STOP_DISTANCE
+    apilot_vision_lead = traffic_stop_mode == 3 and self.vision_lead_confirmed
     hold_blended = self.mode_release_hold_count > 0
     if self.prepare:
       self.reason = E2E_REASON_DEPARTURE

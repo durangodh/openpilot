@@ -1747,7 +1747,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
 
   list->addItem(new ParamValueControlF(
       "TrafficStopMode", "E2E / ACC MODE",
-      "0 ACC: 신호정지 끔 / 1 AUTO: 원거리 신호정지·출발준비에서 E2E / 2 APILOT: AUTO 조건과 비전 앞차까지 E2E / 3 VISION: 신호정지 끔, 레이더 없이 카메라로만 잡힌 앞차(90m 이내)에서만 E2E.",
+      "0 ACC: 신호정지 끔 / 1 AUTO: 원거리 신호정지·출발준비에서 E2E / 2 APILOT: 신호정지는 ACC, 출발준비에서만 E2E / 3 VISION: 신호정지 끔, 레이더 없이 카메라로만 잡힌 앞차(90m 이내)에서만 E2E.",
       "../assets/img_experimental_white.svg", 0, 3, 1, 0, 2, this));
 
   list->addItem(new ParamControl(
