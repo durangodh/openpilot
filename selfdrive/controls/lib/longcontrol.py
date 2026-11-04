@@ -171,6 +171,16 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
   return long_control_state, planned_stop
 
 
+def delayed_targets(speeds, v_target_now, a_target_now, t_since_plan, delay_lower, delay_upper):
+  """aPilot c2 dual actuator delay: read the plan at both delays and take the
+  smaller speed and acceleration target."""
+  v_lower = interp(delay_lower + t_since_plan, T_IDXS[:CONTROL_N], speeds)
+  a_lower = 2 * (v_lower - v_target_now) / delay_lower - a_target_now
+  v_upper = interp(delay_upper + t_since_plan, T_IDXS[:CONTROL_N], speeds)
+  a_upper = 2 * (v_upper - v_target_now) / delay_upper - a_target_now
+  return min(v_lower, v_upper), min(a_lower, a_upper)
+
+
 class LongControl:
   def __init__(self, CP):
     self.CP = CP
@@ -185,8 +195,10 @@ class LongControl:
     self.last_output_accel = 0.0
     self.last_pid_feedback = 0.0
 
-    # 지연보상 (LongitudinalActuatorDelayLowerBound, x100 저장, 기본 0.5초)
+    # 지연보상 (aPilot c2 이중지연). 하한 = LONG ACTUATOR DELAY 설정
+    # (LongitudinalActuatorDelayLowerBound, x100 저장, 0 = 차량값), 상한 = 차량값.
     self.actuator_delay = 0.5
+    self.actuator_delay_upper = 0.5
     self.start_accel_apply = 0.0
     self.stop_accel_apply = 0.3
     self.stopping_decel_rate = CP.stoppingDecelRate
@@ -249,8 +261,13 @@ class LongControl:
       pass
 
   def _update_actuator_delays(self):
-    # 예전 apilot-c2 이중지연(하한/상한 두 예측 중 작은 쪽)은 기본값이 둘 다
-    # 0.5라 같은 계산을 두 번 하고 있었다. 지연 하나로 통일한다.
+    # aPilot c2: the plan is read at two actuator delays and the smaller
+    # speed/accel target is used. A setting above the car value reads further
+    # ahead only while slowing (earlier braking); one below it softens and
+    # delays acceleration. Neither makes acceleration more eager.
+    # aPilot exposes the upper bound as a second setting (default 0.5 s, the
+    # same as the car value); here it stays the car value instead of a new
+    # setting.
     try:
       delay = float(int(self.params.get("LongitudinalActuatorDelayLowerBound", encoding="utf8") or 0)) * 0.01
     except (TypeError, ValueError):
@@ -258,6 +275,8 @@ class LongControl:
     if delay <= 0.0:
       delay = self.CP.longitudinalActuatorDelayLowerBound if self.CP.longitudinalActuatorDelayLowerBound > 0.0 else 0.5
     self.actuator_delay = float(clip(delay, 0.1, 1.0))
+    upper = self.CP.longitudinalActuatorDelayUpperBound
+    self.actuator_delay_upper = float(clip(upper if upper > 0.0 else 0.5, 0.1, 1.0))
 
   def _update_start_stop_accel(self):
     try:
@@ -475,9 +494,8 @@ class LongControl:
       a_target_now = interp(t_since_plan, T_IDXS[:CONTROL_N], long_plan.accels)
       j_target = long_plan.jerks[0] if len(long_plan.jerks) else 0.0
 
-      # 액추에이터 지연만큼 앞의 계획을 목표로 삼는다(원본 openpilot 방식).
-      v_target = interp(self.actuator_delay + t_since_plan, T_IDXS[:CONTROL_N], speeds)
-      a_target = 2 * (v_target - v_target_now) / self.actuator_delay - a_target_now
+      v_target, a_target = delayed_targets(speeds, v_target_now, a_target_now, t_since_plan,
+                                           self.actuator_delay, self.actuator_delay_upper)
 
       v_target_1sec = interp(self.actuator_delay + t_since_plan + 1.0, T_IDXS[:CONTROL_N], speeds)
     else:

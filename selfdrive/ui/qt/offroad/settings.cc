@@ -1904,7 +1904,7 @@ LongitudinalPanel::LongitudinalPanel(QWidget* parent) : QWidget(parent) {
       "../assets/offroad/icon_openpilot.png", 0, 200, 5, 0, 100, this));
   list->addItem(new ParamValueControlF(
       "LongitudinalActuatorDelayLowerBound", "LONG ACTUATOR DELAY",
-      "가속·제동 지연 보정값(×0.01초)입니다. 값 증가(+): 더 미리 반응 / 값 감소(-): 반응 시점을 늦춤 / 0: 차량 기본값.",
+      "가속·제동 지연 보정값(×0.01초, aPilot 하한)입니다. 이 값과 차량값(0.5초) 두 시점의 계획 중 작은 목표를 씁니다. 0.5초보다 크게: 제동을 더 일찍 / 0.5초보다 작게: 가속을 더 늦고 부드럽게 / 0: 차량 기본값.",
       "../assets/offroad/icon_openpilot.png", 0, 100, 5, 0, 0, this));
 
   list->addItem(horizontal_line());
