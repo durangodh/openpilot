@@ -21,6 +21,10 @@ E2E_LEAD_BEYOND_STOP_MARGIN = 10.0
 E2E_MODE_RELEASE_HOLD_TIME = 0.0
 TRAFFIC_STOP_SOLVER_COMFORT_BRAKE = 2.5
 TRAFFIC_STOP_APILOT_COMFORT_BRAKE = 2.5
+# Shortest stop distance accepted for a signal stop, as the deceleration it
+# implies (m/s^2). aPilot c2 uses 2.0 (v^2/4), c3-wip1213 2.5 (v^2/5); this is
+# between them so a late model stop line is overrun less without a hard stab.
+E2E_STOP_MIN_DECEL = 2.25
 
 # 완만한 커브에서 모델 정지(앞 정지차 포함)를 막던 두 가드 완화.
 # 완화는 모델이 '완전 정지'(끝 속도 3m/s 미만)를 계획할 때만 적용한다.
@@ -311,7 +315,7 @@ class ConditionalE2EController:
         # The model can shift its endpoint from the stop line toward overhead
         # signal heads in a large intersection. Keep the road-fixed stop point
         # acquired on entry, while still accepting a newly observed closer stop.
-        observed_stop_distance = max(filtered_stop_x, v_ego ** 2 / 4.0)
+        observed_stop_distance = max(filtered_stop_x, v_ego ** 2 / (2.0 * E2E_STOP_MIN_DECEL))
         self.stop_distance = update_latched_stop_distance(
           self.stop_distance, observed_stop_distance, v_ego, self.dt)
       else:
@@ -336,6 +340,6 @@ class ConditionalE2EController:
           (abs(steering_angle_deg) <= 5.0 or
            (model_v < 3.0 and abs(steering_angle_deg) <= _curve_stop_steer_limit(v_ego_kph)))):
       self.stopping = True
-      self.stop_distance = 0.0 if v_ego < 0.1 else max(filtered_stop_x, v_ego ** 2 / 4.0)
+      self.stop_distance = 0.0 if v_ego < 0.1 else max(filtered_stop_x, v_ego ** 2 / (2.0 * E2E_STOP_MIN_DECEL))
 
     return self.select_mode(experimental_mode, traffic_stop_mode)

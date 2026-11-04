@@ -65,8 +65,8 @@ def test_inactive_control_overrides_soft_hold():
 
 def test_strong_planned_braking_stays_in_pid_until_braking_eases():
   cp = make_cp()
-  assert transition(cp, state=LongCtrlState.pid, a_target_now=-1.0) == LongCtrlState.pid
-  assert transition(cp, state=LongCtrlState.pid, a_target_now=-0.99) == LongCtrlState.stopping
+  assert transition(cp, state=LongCtrlState.pid, a_target_now=-0.8) == LongCtrlState.pid
+  assert transition(cp, state=LongCtrlState.pid, a_target_now=-0.79) == LongCtrlState.stopping
 
 
 def test_starting_returns_to_pid_once_vehicle_is_moving():

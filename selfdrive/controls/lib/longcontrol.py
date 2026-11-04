@@ -148,7 +148,9 @@ def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
   else:
     if long_control_state in (LongCtrlState.off, LongCtrlState.pid):
       long_control_state = LongCtrlState.pid
-      if stopping_condition and a_target_now > -1.0:
+      # aPilot c3-wip1213: hand over to the stopping state only once the planned
+      # braking has eased below 0.8 m/s^2 (c2: 1.0), for a softer final stop.
+      if stopping_condition and a_target_now > -0.8:
         long_control_state = LongCtrlState.stopping
 
     elif long_control_state == LongCtrlState.stopping:
