@@ -63,7 +63,7 @@ def test_update_sends_tbt_at_20hz_and_text_once():
 def test_stale_guidance_clears_text_and_stops():
   hud = McanHud()
   run(hud, nav(text="노작로"), 10)
-  msgs = run(hud, nav(fresh=False), 10, start=10)
+  msgs = run(hud, nav(fresh=False), 30, start=10)
   assert [d.hex() for a, d, _ in msgs if a == TEXT_ADDR] == ["03f00000aaaaaaaa"]
   assert not any(a == TBT_ADDR for a, _, _ in msgs)
 
@@ -101,7 +101,7 @@ def test_rerouting_shows_avn_reroute_frame_and_clears_text():
   run(hud, nav(text="노작로"), 10)
   state = {"guidance_fresh": False, "guidance_stream_fresh": True, "off_route": True,
            "turn_type": 13, "distance": 200.0, "text": "노작로"}
-  msgs = run(hud, state, 10, start=10)
+  msgs = run(hud, state, 30, start=10)
   assert {d.hex() for a, d, _ in msgs if a == TBT_ADDR} == {"0900000f000500f0"}
   assert [d.hex() for a, d, _ in msgs if a == TEXT_ADDR] == ["03f00000aaaaaaaa"]
 
@@ -278,8 +278,8 @@ def test_section_zone_shows_the_limit_like_avn():
   state = dict(nav(turn_type=11, dist=11400, text=""), speed_fresh=True,
                speed={"section": {"active": True, "speed_limit_kph": 100, "remaining_distance_m": 10000,
                                   "average_speed_kph": 89}})
-  msgs = run(McanHud(), state, 10)
-  assert [d.hex() for a, d, _ in msgs if a == CAMERA_ADDR] == ["0a000000f0000fff"] * 2
+  msgs = run(McanHud(), state, 30)
+  assert [d.hex() for a, d, _ in msgs if a == CAMERA_ADDR] == ["0a000000f0000fff"] * 6
   assert [d.hex() for a, d, _ in msgs if a == TEXT_ADDR] == [f.hex() for f in isotp_frames(text_payload("구간단속"))]
 
 
@@ -313,3 +313,15 @@ def test_tollgate_gate_from_1km_with_fee_like_avn():
   msgs = run(hud, state, 5, start=5)
   assert [d.hex() for a, d, _ in msgs if a == TBT_ADDR] == ["b200000f03840090"]
   assert [d.hex() for a, d, _ in msgs if a == BAR_ADDR] == ["000000400244015a"]
+
+
+def test_text_goes_out_after_the_new_maneuver_frame_like_avn():
+  # AVN 2026-11-04 08:24:42: 0x115 -> B2 at .832, then 0x4A9 "남논산톨게이트" at .952.
+  hud = McanHud()
+  run(hud, nav(turn_type=11, dist=5000, text="이인휴게소"), 40)
+  for start in range(41, 46):   # any phase of the 5-frame 0x115 cycle
+    h = McanHud()
+    run(h, nav(turn_type=11, dist=5000, text="이인휴게소"), start)
+    msgs = run(h, nav(turn_type=11, dist=2400, text="남논산톨게이트"), 30, start=start)
+    order = [a for a, d, _ in msgs if a == TEXT_ADDR or (a == TBT_ADDR and d[0] == 0xB2)]
+    assert order[0] == TBT_ADDR and order.count(TEXT_ADDR) == 3

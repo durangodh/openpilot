@@ -324,6 +324,11 @@ class McanHud:
   # Wait this long after a first frame before the consecutive frames (the HUD's
   # flow control came back within a few ms in the logs).
   FC_WAIT_FRAMES = 3
+  # The AVN sends a new text ~120 ms after the 0x115 of the new maneuver (2026-11-04 08:24:42
+  # 남논산: 0x115 -> B2 at .832, 0x4A9 "남논산톨게이트" at .952). Ours went out in the same
+  # cycle, often before the new 0x115 (sent every 5th frame), and the HUD showed no name on a
+  # TG card (09:11 풍세상톨게이트). Start the text after the new 0x115 like the AVN.
+  TEXT_DELAY_FRAMES = 12
 
   def __init__(self):
     self.text = None
@@ -340,7 +345,7 @@ class McanHud:
   def _queue_text(self, text):
     self.text = text
     self.text_queue = isotp_frames(text_payload(text))
-    self.text_wait = 0
+    self.text_wait = self.TEXT_DELAY_FRAMES
 
   def update(self, frame, nav_state, v_ego=0.0):
     """CAN messages for this 100 Hz frame. nav_state: NavigationRouteData.update()."""
