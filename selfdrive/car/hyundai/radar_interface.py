@@ -1,56 +1,34 @@
 #!/usr/bin/env python3
-import math
-
 from cereal import car
 from opendbc.can.parser import CANParser
 from selfdrive.car.interfaces import RadarInterfaceBase
 from common.filter_simple import StreamingMovingAverage
 from selfdrive.car.hyundai.values import DBC
 
-RADAR_START_ADDR = 0x500
-RADAR_MSG_COUNT = 32
-
 def get_radar_can_parser(CP):
-
-  if False: #Params().get_bool("NewRadarInterface"):
-
-    signals = []
-    checks = []
-
-    for addr in range(RADAR_START_ADDR, RADAR_START_ADDR + RADAR_MSG_COUNT):
-      msg = f"RADAR_TRACK_{addr:x}"
-      signals += [
-        ("STATE", msg),
-        ("AZIMUTH", msg),
-        ("LONG_DIST", msg),
-        ("REL_ACCEL", msg),
-        ("REL_SPEED", msg),
-      ]
-      checks += [(msg, 50)]
-    return CANParser('hyundai_kia_mando_front_radar', signals, checks, 1)
-
-  else:
-    signals = [
-      # sig_name, sig_address, default
-      ("ObjValid", "SCC11"),
-      ("ACC_ObjStatus", "SCC11"),
-      ("ACC_ObjLatPos", "SCC11"),
-      ("ACC_ObjDist", "SCC11"),
-      ("ACC_ObjRelSpd", "SCC11"),
-    ]
-    checks = [
-      ("SCC11", 50),
-    ]
-    return CANParser(DBC[CP.carFingerprint]['pt'], signals, checks, CP.sccBus)
+  # SCC11 lead only. The mando radar-track branch (NewRadarInterface) was
+  # hard-disabled and is removed; this car has no radar tracks.
+  signals = [
+    # sig_name, sig_address
+    ("ObjValid", "SCC11"),
+    ("ACC_ObjStatus", "SCC11"),
+    ("ACC_ObjLatPos", "SCC11"),
+    ("ACC_ObjDist", "SCC11"),
+    ("ACC_ObjRelSpd", "SCC11"),
+  ]
+  checks = [
+    ("SCC11", 50),
+  ]
+  return CANParser(DBC[CP.carFingerprint]['pt'], signals, checks, CP.sccBus)
 
 
 class RadarInterface(RadarInterfaceBase):
   def __init__(self, CP):
     super().__init__(CP)
-    self.new_radar = False #Params().get_bool("NewRadarInterface")
-    self.scc_only = not self.new_radar
+    # radard uses scc_only to match the single SCC11 lead to the vision lead.
+    self.scc_only = True
     self.updated_messages = set()
-    self.trigger_msg = 0x420 if not self.new_radar else RADAR_START_ADDR + RADAR_MSG_COUNT - 1
+    self.trigger_msg = 0x420  # SCC11
     self.track_id = 0
 
     self.radar_off_can = CP.radarOffCan
@@ -86,61 +64,34 @@ class RadarInterface(RadarInterfaceBase):
       errors.append("canError")
     ret.errors = errors
 
-    if self.new_radar:
+    cpt = self.rcp.vl
 
-      for addr in range(RADAR_START_ADDR, RADAR_START_ADDR + RADAR_MSG_COUNT):
-        msg = self.rcp.vl[f"RADAR_TRACK_{addr:x}"]
+    valid = cpt["SCC11"]['ACC_ObjStatus']
 
-        if addr not in self.pts:
-          self.pts[addr] = car.RadarData.RadarPoint.new_message()
-          self.pts[addr].trackId = self.track_id
+    for ii in range(1):
+      if valid:
+        if ii not in self.pts:
+          self.pts[ii] = car.RadarData.RadarPoint.new_message()
+          self.pts[ii].trackId = self.track_id
           self.track_id += 1
 
-        valid = msg['STATE'] in [3, 4]
-        if valid:
-          azimuth = math.radians(msg['AZIMUTH'])
-          self.pts[addr].measured = True
-          self.pts[addr].dRel = math.cos(azimuth) * msg['LONG_DIST']
-          self.pts[addr].yRel = 0.5 * -math.sin(azimuth) * msg['LONG_DIST']
-          self.pts[addr].vRel = msg['REL_SPEED']
-          self.pts[addr].aRel = msg['REL_ACCEL']
-          self.pts[addr].yvRel = float('nan')
-
+        if not self.valid_prev:
+          dRel = self.dRelFilter.set(cpt["SCC11"]['ACC_ObjDist'])
+          vRel = self.vRelFilter.set(cpt["SCC11"]['ACC_ObjRelSpd'])
         else:
-          del self.pts[addr]
+          dRel = self.dRelFilter.process(cpt["SCC11"]['ACC_ObjDist'])
+          vRel = self.vRelFilter.process(cpt["SCC11"]['ACC_ObjRelSpd'])
+        self.pts[ii].dRel = dRel #cpt["SCC11"]['ACC_ObjDist']  # from front of car
+        self.pts[ii].yRel = -cpt["SCC11"]['ACC_ObjLatPos']  # in car frame's y axis, left is negative
+        self.pts[ii].vRel = vRel #cpt["SCC11"]['ACC_ObjRelSpd']
+        self.pts[ii].aRel = float('nan')
+        self.pts[ii].yvRel = float('nan')
+        self.pts[ii].measured = True
 
-      ret.points = list(self.pts.values())
-      return ret
+      else:
+        if ii in self.pts:
+          del self.pts[ii]
 
-    else:
-      cpt = self.rcp.vl
-
-      valid = cpt["SCC11"]['ACC_ObjStatus']
-
-      for ii in range(1):
-        if valid:
-          if ii not in self.pts:
-            self.pts[ii] = car.RadarData.RadarPoint.new_message()
-            self.pts[ii].trackId = self.track_id
-            self.track_id += 1
-
-          if not self.valid_prev:
-            dRel = self.dRelFilter.set(cpt["SCC11"]['ACC_ObjDist'])
-            vRel = self.vRelFilter.set(cpt["SCC11"]['ACC_ObjRelSpd'])
-          else:
-            dRel = self.dRelFilter.process(cpt["SCC11"]['ACC_ObjDist'])
-            vRel = self.vRelFilter.process(cpt["SCC11"]['ACC_ObjRelSpd'])
-          self.pts[ii].dRel = dRel #cpt["SCC11"]['ACC_ObjDist']  # from front of car
-          self.pts[ii].yRel = -cpt["SCC11"]['ACC_ObjLatPos']  # in car frame's y axis, left is negative
-          self.pts[ii].vRel = vRel #cpt["SCC11"]['ACC_ObjRelSpd']
-          self.pts[ii].aRel = float('nan')
-          self.pts[ii].yvRel = float('nan')
-          self.pts[ii].measured = True
-
-        else:
-          if ii in self.pts:
-            del self.pts[ii]
-
-      self.valid_prev = valid
-      ret.points = list(self.pts.values())
-      return ret
+    self.valid_prev = valid
+    ret.points = list(self.pts.values())
+    return ret

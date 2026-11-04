@@ -89,20 +89,8 @@ class Cluster():
     return mean([t.vRel for t in self.tracks])
 
   @property
-  def aRel(self):
-    return mean([t.aRel for t in self.tracks])
-
-  @property
   def vLead(self):
     return mean([t.vLead for t in self.tracks])
-
-  @property
-  def dPath(self):
-    return mean([t.dPath for t in self.tracks])
-
-  @property
-  def vLat(self):
-    return mean([t.vLat for t in self.tracks])
 
   @property
   def vLeadK(self):
