@@ -60,8 +60,12 @@ def test_camera_lane_position_accepts_edge_order_and_rejects_weak_geometry():
   }
   assert camera_lane_position(lane_position_model(
     5.4, -5.4, lane_probs=(0.8, 0.2, 0.9, 0.8))) is None
+  # Shared with NOO: road-edge std up to 1.2 m is accepted (0.5 failed on
+  # roads with three or more lanes); above it the estimate fails closed.
   assert camera_lane_position(lane_position_model(
-    5.4, -5.4, edge_stds=(0.8, 0.1))) is None
+    5.4, -5.4, edge_stds=(0.8, 0.1)))["n"] == 3
+  assert camera_lane_position(lane_position_model(
+    5.4, -5.4, edge_stds=(1.5, 0.1))) is None
 
 
 def sampled_lane_position_model(left_offsets, right_offsets, centers=None):
@@ -128,8 +132,22 @@ def test_reconcile_lane_position_removes_right_shoulder_phantom_lane():
   assert (fixed["n"], fixed["cur"]) == (2, 1)
 
 
+def test_reconcile_lane_position_removes_median_and_shoulder_together():
+  # Partial median on the left and a partial shoulder beyond a real right lane:
+  # the camera counts 4, the route says 2. Both partial sides are phantoms, so
+  # the car is in lane 1 (the same answer NOO acts on).
+  raw = camera_lane_position(lane_position_model(4.8, -8.4))
+  assert (raw["n"], raw["cur"]) == (4, 2)
+  fixed = reconcile_lane_position(raw, 2)
+  assert fixed["reconciled"]
+  assert (fixed["n"], fixed["cur"]) == (2, 1)
+
+
 def test_reconcile_lane_position_rejects_ambiguous_or_real_extra_lane():
-  ambiguous = camera_lane_position(lane_position_model(4.8, -8.4))
+  # Same partial width on both sides, one lane too many: either could be the
+  # phantom, so it fails closed.
+  ambiguous = camera_lane_position(lane_position_model(4.8, -4.8))
+  assert (ambiguous["n"], ambiguous["cur"]) == (3, 2)
   assert reconcile_lane_position(ambiguous, 2) is None
 
   whole_extra_lane = camera_lane_position(lane_position_model(5.4, -5.4))
