@@ -130,6 +130,10 @@ void set_safety_mode(uint16_t mode, int16_t param) {
       can_silent = ALL_CAN_LIVE | ((((uint16_t)param & MCAN_TX_PARAM) != 0U) ? 0U : MCAN_SILENT_MASK);
       break;
   }
+#ifdef MCAN_GATEWAY
+  // both gateway sides send (forwarding); bus 1 is otherwise listen-only without McanHudTbt
+  can_silent = ALL_CAN_LIVE;
+#endif
   can_init_all();
 }
 

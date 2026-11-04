@@ -4,17 +4,21 @@
 // destination; on a bus shared with the HUD they make the HUD flicker against the
 // openpilot (main panda) turn-by-turn frames (2026-11-04 14:13 log). This panda sits in
 // series in the MM-CAN wires in front of the HUD, through a low-speed fault-tolerant <->
-// high-speed CAN converter on each side:
-//   bus 0 = car side (AVN, cluster, ...)     bus 2 = HUD side (HUD + the main panda's bus 1)
+// high-speed CAN converter on each side. Both buses are on the harness box's 8-pin
+// power/OBD connector (no car harness needed):
+//   bus 0 = car side (AVN, cluster, ...), pins 6 CAN0-H / 5 CAN0-L
+//   bus 1 = HUD side (HUD + the main panda's bus 1), pins 8 CAN3-H / 7 CAN3-L
+//   power pin 1 (12 V), GND pin 4
 // Everything is forwarded both ways, except:
 //   - car -> HUD: the AVN's HUD guidance IDs while the main panda's own frame with that ID
 //     was seen on the HUD side within MCAN_GW_FRESH_US (0x4A9 text follows 0x115), so the
 //     HUD only gets ours; once ours stop, the AVN's frames pass again (stock navi guidance).
 //   - HUD -> car: the main panda's guidance frames are not sent to the car side.
-// Unpowered, the black panda's harness relay is in passthrough, so car and HUD side are
-// connected directly as before.
+// Nothing bridges the two sides while this panda is unpowered: power it with the car.
 
 #define MCAN_GW_FRESH_US 300000U
+#define MCAN_GW_CAR_BUS 0
+#define MCAN_GW_HUD_BUS 1
 #define MCAN_GW_IDS 4
 
 static const int mcan_gw_ids[MCAN_GW_IDS] = {0x115, 0x123, 0x1E5, 0x4A9};
@@ -72,22 +76,22 @@ static int mcan_gateway_fwd_hook(int bus_num, CANPacket_t *to_fwd) {
   int addr = GET_ADDR(to_fwd);
   int index = mcan_gw_index(addr);
 
-  if (bus_num == 2) {
+  if (bus_num == MCAN_GW_HUD_BUS) {
     if (index >= 0) {
       // the main panda's guidance frame: remember it, keep it on the HUD side
       mcan_gw_seen_ts[index] = microsecond_timer_get();
       mcan_gw_seen[index] = true;
     } else {
-      bus_fwd = 0;
+      bus_fwd = MCAN_GW_CAR_BUS;
     }
-  } else if (bus_num == 0) {
+  } else if (bus_num == MCAN_GW_CAR_BUS) {
     bool block = false;
     if (index >= 0) {
       // the text goes with the turn-by-turn frame
       block = (addr == 0x4A9) ? mcan_gw_fresh(0) : mcan_gw_fresh(index);
     }
     if (!block) {
-      bus_fwd = 2;
+      bus_fwd = MCAN_GW_HUD_BUS;
     }
   } else {
   }

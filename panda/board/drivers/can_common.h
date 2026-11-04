@@ -168,7 +168,7 @@ void can_clear(can_ring *q) {
 // Helpers
 // Panda:       Bus 0=CAN1   Bus 1=CAN2   Bus 2=CAN3
 #ifdef MCAN_GATEWAY
-// spare panda MM-CAN gateway (safety_mcan_gateway.h): bus 0 car side, bus 2 HUD side, both MM-CAN
+// spare panda MM-CAN gateway (safety_mcan_gateway.h): bus 0 car side, bus 1 HUD side, both MM-CAN
 #define GW_BUS02_SPEED MCAN_SPEED
 #else
 #define GW_BUS02_SPEED 5000U
