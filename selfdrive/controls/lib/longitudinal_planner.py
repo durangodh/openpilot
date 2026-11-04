@@ -93,8 +93,7 @@ class LongitudinalPlanner:
     self.mpc.softHoldMode = int(clip(self.params.get_int("SoftHoldMode"), 0, 2))
     self.auto_e2e_enabled = self.CP.openpilotLongitudinalControl
     self.experimental_mode_enabled = self.params.get_bool('ExperimentalMode')
-    # The E2EAccMode -> TrafficStopMode migration runs once in manager.py,
-    # which also writes the default, so the value is always set here.
+    # manager.py writes the TrafficStopMode default, so it is always set here.
     try:
       self.traffic_stop_mode = int(self.params.get('TrafficStopMode', encoding='utf8'))
     except (TypeError, ValueError):

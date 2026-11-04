@@ -89,7 +89,6 @@ def manager_init() -> None:
     ("SccSmootherSyncGasPressed", "0"),
     ("KeepSteeringTurnSignals", "0"),
     ("HapticFeedbackWhenSpeedCamera", "0"),
-    ("NewRadarInterface", "0"),
     ("WideCameraOnly", "0"),       # plannerd.py 크래시 수정
     ("ShowGearAnimation", "1"),
     ("ShowCarrotHud", "1"),
@@ -219,25 +218,6 @@ def manager_init() -> None:
     finally:
       params.put_bool("NooUnifiedMigrated", True)
 
-  # 기존 단일 ACC/AUTO/E2E 선택값을 aPilot 방식의 ExperimentalMode +
-  # TrafficStopMode 조합으로 1회 이관한다.
-  try:
-    if params.get("TrafficStopMode") is None:
-      legacy_e2e_mode = params.get("E2EAccMode", encoding='utf8')
-      if legacy_e2e_mode is not None:
-        legacy_e2e_mode = max(0, min(2, int(legacy_e2e_mode)))
-        params.put("TrafficStopMode", "0" if legacy_e2e_mode == 0 else "2")
-        params.put_bool("ExperimentalMode", legacy_e2e_mode == 2)
-  except (TypeError, ValueError):
-    pass
-
-  # Move devices still using the old 0.70 s default to the C2 0.40 s value
-  # once. Preserve any value the driver already changed from the old default.
-  if params.get("CruiseButtonLongDelayC2Migrated") is None:
-    if params.get("CruiseButtonLongDelay", encoding='utf8') == "70":
-      params.put("CruiseButtonLongDelay", "40")
-    params.put_bool("CruiseButtonLongDelayC2Migrated", True)
-
   # The old HUD schema stored 65 as the default fixed brightness. When the
   # day/night controls first appear, migrate only that legacy default to auto.
   # Other fixed values are user choices and remain unchanged.
@@ -276,24 +256,16 @@ def manager_init() -> None:
                    "LateralTorqueKd", "CarrotLearnFrictionBase",
                    "OPKRTimeZone", "ShowBlindSpotAlways", "EonClusterHudPathFlipV2Migrated",
                    "EnableRadarTracks", "LatTraceEnabled", "HudRemoteKey",
-                   "LatYawMeasureBlend", "EarlyStopReqRelease"):
+                   "LatYawMeasureBlend", "EarlyStopReqRelease",
+                   # 2026-11-05: unused longitudinal params and finished one-time migrations.
+                   "LongActuatorDelay", "NewRadarInterface", "E2EAccMode",
+                   "ApilotC2LongMigrated", "CruiseButtonLongDelayC2Migrated",
+                   "TFollowDecelBoost", "TFollowClosingMargin",
+                   "RadarReactionFactor", "SccVisionMismatchFallback"):
     try:
       os.remove(os.path.join("/data/params/d", dead_key))
     except OSError:
       pass
-
-  # apilot-c2 종제어 이식(2026-09) 1회 이관: 저속 출발 코스트를 C2 기본값(5)으로 맞추고,
-  # 더 이상 읽지 않는 옛 파라미터 파일을 지운다.
-  if params.get("ApilotC2LongMigrated") is None:
-    try:
-      for legacy_key in ("TFollowDecelBoost", "TFollowClosingMargin",
-                         "RadarReactionFactor", "SccVisionMismatchFallback"):
-        try:
-          os.remove(os.path.join("/data/params/d", legacy_key))
-        except OSError:
-          pass
-    finally:
-      params.put_bool("ApilotC2LongMigrated", True)
 
   # This EON build targets Korean left-hand-drive vehicles only.
   params.put_bool("IsRHD", False)

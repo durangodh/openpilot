@@ -108,8 +108,9 @@ class CarInterface(CarInterfaceBase):
     ret.longitudinalTuning.kiV = [0.0]
     ret.longitudinalTuning.kf = 1.0
 
-    long_delay = params.get_int("LongActuatorDelay")
-    ret.longitudinalActuatorDelay = (long_delay * 0.01) if long_delay > 0 else 0.5
+    # The live longitudinal delay is LongitudinalActuatorDelayLowerBound
+    # (longcontrol.py); this field is not read by the controller.
+    ret.longitudinalActuatorDelay = 0.5
     ret.longitudinalActuatorDelayLowerBound = 0.5
     ret.longitudinalActuatorDelayUpperBound = 0.5
 

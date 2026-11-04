@@ -105,8 +105,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"CruiseSpeedUnit", PERSISTENT},
     {"CruiseSpeedUnitBasic", PERSISTENT},
     {"CruiseButtonLongDelay", PERSISTENT},
-    {"CruiseButtonLongDelayC2Migrated", PERSISTENT},
-    {"ApilotC2LongMigrated", PERSISTENT},
     {"CruiseSpeed1", PERSISTENT},
     {"CruiseSpeed2", PERSISTENT},
     {"CruiseSpeed3", PERSISTENT},
@@ -137,7 +135,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"DoShutdown", CLEAR_ON_MANAGER_START},
     {"DoUninstall", CLEAR_ON_MANAGER_START},
     {"ExperimentalMode", PERSISTENT},
-    {"E2EAccMode", PERSISTENT},             // 0: ACC, 1: AUTO, 2: E2E
     {"EnableWideCamera", CLEAR_ON_MANAGER_START},
     {"ForcePowerDown", CLEAR_ON_MANAGER_START},
     {"GitBranch", PERSISTENT},
@@ -239,7 +236,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"OffsetTotal", PERSISTENT},
     {"AdjustLaneOffset", PERSISTENT},          // 좌우 여유공간 비대칭 보정 (cm, 0=off)     // 통합 오프셋(offset_total). 전 모드 공통, Auto-Tuner Phase2 학습 대상
     {"SccSmootherSyncGasPressed", PERSISTENT},
-    {"NewRadarInterface", PERSISTENT},
     {"WideCameraOnly", PERSISTENT},
     {"AutoLaneChangeTimer", PERSISTENT},
     {"AutoLaneChangeSpeed", PERSISTENT},        // 자동/방향지시등 차선변경 허용 최저 속도 (km/h)
@@ -327,7 +323,6 @@ std::unordered_map<std::string, uint32_t> keys = {
     {"LongTuningKpV", PERSISTENT},
     {"LongTuningKiV", PERSISTENT},
     {"LongTuningKf", PERSISTENT},
-    {"LongActuatorDelay", PERSISTENT},
     {"LongitudinalActuatorDelayLowerBound", PERSISTENT},
     // 학습 대상 파라미터 (x100 정수 저장)
     {"TFollowGap1", PERSISTENT},               // GAP1 (default 110 = 1.10s)
