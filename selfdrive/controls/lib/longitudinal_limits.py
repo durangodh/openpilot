@@ -25,6 +25,41 @@ TURN_ACCEL_MAX_BP = [20.0, 40.0]
 TURN_ACCEL_MAX_V = [2.5, 3.2]
 
 
+# Stop-and-go: once ego is already faster than a slow, near lead, stop
+# building closing speed. Otherwise a late launch opens a gap, the car sprints
+# to close it, the lead brakes meanwhile and the car has to stop hard.
+SLOW_LEAD_MAX_SPEED = 30.0 * CV.KPH_TO_MS
+SLOW_LEAD_MAX_DIST = 40.0
+SLOW_LEAD_CLOSING_BP = [0.5, 2.5]   # m/s ego faster than the lead
+SLOW_LEAD_ACCEL_FLOOR = 0.2         # m/s^2 cap at the high end of the closing range
+
+
+def limit_accel_behind_slow_lead(max_accel, v_ego, lead):
+  """Cap acceleration while closing on a slow lead in city traffic.
+
+  Only lowers the cap, and never below what the lead itself is accelerating
+  at, so following a departing lead is unchanged.
+  """
+  if lead is None or not getattr(lead, 'status', False):
+    return max_accel
+  try:
+    v_lead = float(lead.vLead)
+    d_rel = float(lead.dRel)
+    a_lead = float(lead.aLeadK)
+  except (AttributeError, TypeError, ValueError):
+    return max_accel
+  if not (math.isfinite(v_lead) and math.isfinite(d_rel)) or \
+     v_lead > SLOW_LEAD_MAX_SPEED or not 0.0 < d_rel < SLOW_LEAD_MAX_DIST:
+    return max_accel
+  closing = v_ego - v_lead
+  if closing <= SLOW_LEAD_CLOSING_BP[0]:
+    return max_accel
+  cap = interp(closing, SLOW_LEAD_CLOSING_BP, [max_accel, SLOW_LEAD_ACCEL_FLOOR])
+  if math.isfinite(a_lead) and a_lead > 0.0:
+    cap = max(cap, a_lead)
+  return min(max_accel, cap)
+
+
 A_CRUISE_MIN = -1.2
 # Camera/section/curve limiters may plan a stronger decel than A_CRUISE_MIN.
 # Widen the cruise bound to that rate (plus a small tracking margin) so the car

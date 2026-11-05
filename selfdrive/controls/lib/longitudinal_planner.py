@@ -13,7 +13,7 @@ from selfdrive.controls.lib.navigation_route import GUIDE_FILE, NavigationRouteD
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, MIN_ACCEL, MAX_ACCEL, N
 from selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
 from selfdrive.controls.lib.drive_helpers import V_CRUISE_MAX, CONTROL_N, get_speed_error
-from selfdrive.controls.lib.longitudinal_limits import (get_cruise_min_accel, CRUISE_MAX_VAL_DEFAULTS,
+from selfdrive.controls.lib.longitudinal_limits import (get_cruise_min_accel, limit_accel_behind_slow_lead, CRUISE_MAX_VAL_DEFAULTS,
                                                         CRUISE_MAX_VAL_KEYS,
                                                         get_cruise_max_accel,
                                                         scale_cruise_max_accel,
@@ -261,6 +261,7 @@ class LongitudinalPlanner:
         accel_limits, 3.0, model_msg=sm['modelV2'], v_cruise=v_cruise,
         current_curvature=sm['controlsState'].curvature)
       accel_limits[1] = min(accel_limits[1], future_limits[1])
+      accel_limits[1] = limit_accel_behind_slow_lead(accel_limits[1], v_ego, sm['radarState'].leadOne)
     else:
       # E2E/blended 도 사용자 CruiseMax 상한은 유지(apilot-c2 는 MAX_ACCEL 2.5 고정)
       accel_limits = [MIN_ACCEL, cruise_max_accel]
