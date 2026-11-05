@@ -178,6 +178,40 @@ class NavigationRouteData:
             "next_road_width": road_width if math.isfinite(road_width) and road_width > 0.0 else 0.0,
             "next": None}
 
+  # A lane point within this distance of the next maneuver belongs to it.
+  LANE_AHEAD_MATCH_MIN_M = 100.0
+  LANE_AHEAD_MATCH_RATIO = 0.3
+
+  @classmethod
+  def select_lane_ahead(cls, lane_ahead, current_distance, next_state):
+    """The lane_ahead entry for the next maneuver, or None.
+
+    A dict is used as is. From a list (TMAP), take the entry whose distance is
+    closest to the next maneuver (current distance + its segment); fail closed
+    when none is near it, so another junction's lanes are never used.
+    """
+    if isinstance(lane_ahead, dict):
+      return lane_ahead
+    if not isinstance(lane_ahead, list) or not isinstance(next_state, dict):
+      return None
+    current = _number(current_distance, -1.0)
+    segment = _number(next_state.get("segment"), -1.0)
+    if current < 0.0 or segment < 0.0:
+      return None
+    target = current + segment
+    best, best_error = None, None
+    for item in lane_ahead:
+      if not isinstance(item, dict):
+        continue
+      distance = _number(item.get("distance_m"), -1.0)
+      if distance < 0.0:
+        continue
+      error = abs(distance - target)
+      if best_error is None or error < best_error:
+        best, best_error = item, error
+    tolerance = max(cls.LANE_AHEAD_MATCH_MIN_M, cls.LANE_AHEAD_MATCH_RATIO * target)
+    return best if best is not None and best_error <= tolerance else None
+
   @staticmethod
   def toll_fee_won(guidance):
     """Explicit KRW fee of this guidance point; do not infer from unrelated numbers."""
@@ -259,10 +293,10 @@ class NavigationRouteData:
       lane_ahead = root.get("lane_ahead")
       lane_ahead_updated_at = stream_times.get("lane_ahead", lane_updated_at)
       lane_ahead_age = time.time() - _number(lane_ahead_updated_at, 0.0) / 1000.0
-      self.state["lane_ahead_fresh"] = (-5.0 <= lane_ahead_age <= STALE_TIMEOUT and
-                                        isinstance(lane_ahead, dict) and
-                                        not guidance_blocked)
-      self.state["lane_ahead"] = lane_ahead if self.state["lane_ahead_fresh"] else None
+      # TMAP sends lane_ahead as a list (up to 4 lane points ahead); pick the
+      # one for the next maneuver below, once its distance is known.
+      lane_ahead_ok = (-5.0 <= lane_ahead_age <= STALE_TIMEOUT and
+                       isinstance(lane_ahead, (dict, list)) and not guidance_blocked)
       speed_state = root.get("speed") or {}
       speed_updated_at = stream_times.get("speed", root.get("updated_at_ms"))
       speed_age = time.time() - _number(speed_updated_at, 0.0) / 1000.0
@@ -287,6 +321,10 @@ class NavigationRouteData:
       next_fresh = -5.0 <= next_age <= STALE_TIMEOUT and not guidance_blocked
       next_state = self.guidance_state(root.get("guidance_next") or {}, next_fresh)
       self.state["next"] = next_state if next_state["fresh"] else None
+      selected_ahead = self.select_lane_ahead(lane_ahead, self.state["distance"],
+                                              self.state["next"]) if lane_ahead_ok else None
+      self.state["lane_ahead_fresh"] = selected_ahead is not None
+      self.state["lane_ahead"] = selected_ahead
     except (IOError, OSError, ValueError, TypeError):
       self.file_signature = None
       self.cached_root = None
