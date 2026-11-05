@@ -4,6 +4,7 @@ from cereal import log
 from common.realtime import DT_MDL
 from common.conversions import Conversions as CV
 from common.params import Params
+from selfdrive.controls.lib import lane_count
 from selfdrive.controls.lib.navigation_route import GUIDE_FILE, NavigationRouteData
 from selfdrive.controls.lib.navigation_noo import NavigationLaneChangeController
 from selfdrive.eon_cluster.hud_remote import RemoteLaneChangeSource
@@ -181,6 +182,22 @@ class DesireHelper:
                                   not target_lane_space)
 
     return close_physical_edge or c2_single_lane_edge or left_centre_line or uncertain_single_lane_edge
+
+  @staticmethod
+  def _camera_reason_code(reason):
+    """Short code for lane_count.estimate()'s failure text (HUD diagnostics)."""
+    reason = reason or ""
+    if reason.startswith("lane prob"):
+      return "cam_prob"
+    if reason.startswith("roadEdgeStd"):
+      return "cam_edge"
+    if reason.startswith("only"):
+      return "cam_sect"
+    if reason.startswith("inconsistent"):
+      return "cam_fork"
+    if reason.startswith("lane count"):
+      return "cam_count"
+    return "cam_none"
 
   def _road_edge_blocked(self, model_data, direction):
     raw_blocked = self._road_edge_detected(model_data, direction)
@@ -438,6 +455,13 @@ class DesireHelper:
     self.noo_direction = noo_direction
     # Diagnostics only: keep every lane-change gate and request unchanged.
     self.noo_reason = self.noo_controller.reason if noo_lane_change_available else ""
+    # Why the camera lane count is missing, so the HUD does not show a bare
+    # "lane detection failed" (and NOO with lane changes off is not reported
+    # as a camera failure at all).
+    if noo_available and not noo_lane_change_available:
+      self.noo_reason = "lc_off"
+    elif noo_lane_change_available and ego_lane is None and self.noo_reason == "no_plan":
+      self.noo_reason = self._camera_reason_code(lane_count.estimate(model_data)[1])
     if self.noo_reason == "lane_blocked":
       blocked_left = self.noo_controller.target_lane < self.noo_controller.current_lane
       blindspot = carstate.leftBlindspot if blocked_left else carstate.rightBlindspot
