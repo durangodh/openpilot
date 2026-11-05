@@ -118,7 +118,8 @@ def limit_brake_feedback(target, previous, kp, dt=DT_CTRL):
 
 # apilot-c2 상태전이.
 # planned_stop 조건인데 accel 이 이미 stopAccel 보다 낮은 상태로 stopping 에 들어가면 너무 급하게 서므로
-# a_target_now 가 -1.0 보다 커질 때까지(=제동이 완만해질 때까지) PID 를 유지한다. (apilot 2023-09-11)
+# a_target_now 가 -0.8 보다 커질 때까지(=제동이 완만해질 때까지) PID 를 유지한다.
+# (apilot 2023-09-11 은 -1.0, c3-wip1213 에서 -0.8)
 def long_control_state_trans(CP, active, long_control_state, v_ego, v_target,
                              v_target_1sec, brake_pressed, cruise_standstill, soft_hold, a_target_now,
                              start_gate=True, lead_departure=False):

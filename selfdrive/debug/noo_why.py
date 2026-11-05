@@ -80,7 +80,7 @@ def main():
     if plan is not None:
       dist = plan['distance']
       delta = abs(plan['target'] - plan['current'])
-      if plan.get('source') == 'carrot_prepare':
+      if plan.get('source') in ('carrot_prepare', 'next_prepare'):
         lo = NavigationLaneChangeController.CARROT_PREPARE_MIN_DISTANCE
         hi = NavigationLaneChangeController.carrot_prepare_distance(st, v_ego)
       else:
