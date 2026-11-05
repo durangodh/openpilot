@@ -229,9 +229,13 @@ void ignition_can_hook(CANPacket_t *to_push) {
 }
 
 bool can_tx_check_min_slots_free(uint32_t min) {
+  // Bus 1 (can_tx2_q) is the MM-CAN tap (MCAN_BUS). When nothing on it ACKs our HUD frames
+  // (MM-CAN wire switched away from the panda, no converter power, ...) the controller
+  // retransmits forever and can_tx2_q fills up. It must never pause the USB OUT endpoint:
+  // that would drop every host frame on the other buses too, LKAS11 and SCC included.
+  // A full can_tx2_q just drops further bus 1 frames (can_push fails, can_fwd_errs).
   return
     (can_slots_empty(&can_tx1_q) >= min) &&
-    (can_slots_empty(&can_tx2_q) >= min) &&
     (can_slots_empty(&can_tx3_q) >= min) &&
     (can_slots_empty(&can_txgmlan_q) >= min);
 }
