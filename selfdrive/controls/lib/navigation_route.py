@@ -52,6 +52,80 @@ def _first(data, names, default=None):
   return default
 
 
+# Navigation pose trust (2026-11-06): leaving an underground car park with
+# Naver guidance on, NOO steered at once and the MDPS faulted. Without GPS the
+# app keeps an old or dead-reckoned position, so the turn trigger and the map
+# curvature (anchored at that position) belonged to the street, not the ramp.
+# The pose is trusted only while it moves with the car and the app's speed
+# agrees with the car's.
+POSE_FROZEN_MIN_EGO = 3.0          # m/s, frozen-position check above this speed
+POSE_FROZEN_MOVE_M = 1.0           # m, less than this movement ...
+POSE_FROZEN_TIME = 2.0             # s, ... for this long = frozen
+POSE_SPEED_TOL_KPH = 8.0           # app speed vs car speed, absolute ...
+POSE_SPEED_TOL_RATIO = 0.35        # ... or relative, whichever is larger
+POSE_SPEED_BAD_TIME = 1.0          # s of disagreement before distrust
+POSE_RECOVER_TIME = 2.0            # s of agreement before trusting again
+
+
+class NavigationPoseTrust:
+  """Whether the navigation app's vehicle pose can steer the car."""
+
+  def __init__(self):
+    self.reset()
+
+  def reset(self):
+    self.trusted = False
+    self.anchor = None
+    self.anchor_time = 0.0
+    self.bad_time = 0.0
+    self.good_time = 0.0
+
+  def update(self, state, v_ego, dt):
+    vehicle = state.get("vehicle") if isinstance(state, dict) else None
+    if not isinstance(state, dict) or not state.get("route_fresh", False) or not isinstance(vehicle, dict):
+      self.reset()
+      return False
+    try:
+      lat = float(vehicle.get("lat"))
+      lon = float(vehicle.get("lon"))
+    except (TypeError, ValueError):
+      self.reset()
+      return False
+    if not (math.isfinite(lat) and math.isfinite(lon)):
+      self.reset()
+      return False
+
+    # Frozen position while the car moves.
+    frozen = False
+    if self.anchor is None:
+      self.anchor, self.anchor_time = (lat, lon), 0.0
+    else:
+      moved = math.hypot(math.radians(lon - self.anchor[1]) * EARTH_RADIUS_M * math.cos(math.radians(lat)),
+                         math.radians(lat - self.anchor[0]) * EARTH_RADIUS_M)
+      if moved >= POSE_FROZEN_MOVE_M or v_ego < POSE_FROZEN_MIN_EGO:
+        self.anchor, self.anchor_time = (lat, lon), 0.0
+      else:
+        self.anchor_time += dt
+        frozen = self.anchor_time >= POSE_FROZEN_TIME
+
+    # The app's own speed must agree with the car (missing speed is not held against it).
+    speed_bad = False
+    nav_speed = _number(vehicle.get("speed_kph"), float("nan"))
+    if math.isfinite(nav_speed):
+      ego_kph = v_ego * 3.6
+      speed_bad = abs(nav_speed - ego_kph) > max(POSE_SPEED_TOL_KPH, POSE_SPEED_TOL_RATIO * ego_kph)
+    self.bad_time = self.bad_time + dt if speed_bad else 0.0
+
+    if frozen or self.bad_time >= POSE_SPEED_BAD_TIME:
+      self.trusted = False
+      self.good_time = 0.0
+    elif not speed_bad:
+      self.good_time += dt
+      if self.good_time >= POSE_RECOVER_TIME:
+        self.trusted = True
+    return self.trusted
+
+
 class NavigationRouteData:
   """Read navigation guidance without adding a cereal dependency."""
 

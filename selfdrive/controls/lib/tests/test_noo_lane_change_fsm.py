@@ -66,6 +66,7 @@ class TestNooLaneChangeFsm(unittest.TestCase):
     helper.auto_lane_change_timer_setting = 0
     helper.noo_controller = FakeNoo()
     helper.navigation_route = FakeRoute(helper.empty_navigation_state)
+    helper.noo_pose_trust = NS(update=lambda *args: True, reset=lambda: None)
     self.edge = {-1: False, 1: False}
     helper._road_edge_blocked = lambda model_data, direction: self.edge[direction]
     self.helper = helper

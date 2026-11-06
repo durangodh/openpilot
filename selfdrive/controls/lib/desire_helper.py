@@ -5,7 +5,7 @@ from common.realtime import DT_MDL
 from common.conversions import Conversions as CV
 from common.params import Params
 from selfdrive.controls.lib import lane_count
-from selfdrive.controls.lib.navigation_route import GUIDE_FILE, NavigationRouteData
+from selfdrive.controls.lib.navigation_route import GUIDE_FILE, NavigationRouteData, NavigationPoseTrust
 from selfdrive.controls.lib.navigation_noo import NavigationLaneChangeController
 from selfdrive.eon_cluster.hud_remote import RemoteLaneChangeSource
 
@@ -102,6 +102,8 @@ class DesireHelper:
     self.navigation_route = NavigationRouteData(GUIDE_FILE)
     self.empty_navigation_state = self.navigation_route.empty_state()
     self.noo_controller = NavigationLaneChangeController()
+    self.noo_pose_trust = NavigationPoseTrust()
+    self.noo_pose_trusted = False
     self.noo_enabled = False
     # NavigationOnOpenpilot 안에서 기능을 분리한다. 기존 0/1/2 의미는
     # 유지하고 carrot-wip의 속도 전용 모드만 3으로 확장한다.
@@ -407,6 +409,17 @@ class DesireHelper:
     # Keep the current fork event while steering is configured so a brake
     # press can latch cancellation instead of resetting and re-acquiring it.
     navigation_state = self.navigation_route.update() if noo_available else self.empty_navigation_state
+    # Turn steering, the map path and lane preparation all use the app's
+    # vehicle position. Hold them while that position does not follow the car
+    # (no GPS, e.g. leaving an underground car park).
+    if noo_available:
+      self.noo_pose_trusted = self.noo_pose_trust.update(navigation_state, v_ego, DT_MDL)
+    else:
+      self.noo_pose_trust.reset()
+      self.noo_pose_trusted = False
+    noo_lane_change_configured = noo_lane_change_available
+    noo_steering = noo_steering and self.noo_pose_trusted
+    noo_lane_change_available = noo_lane_change_available and self.noo_pose_trusted
     # Pre-compute both sides every model frame, like carrot-wip SideState.
     # This prevents a single open frame from releasing a last-lane block.
     left_road_edge = self._road_edge_blocked(model_data, -1)
@@ -474,8 +487,10 @@ class DesireHelper:
     # Why the camera lane count is missing, so the HUD does not show a bare
     # "lane detection failed" (and NOO with lane changes off is not reported
     # as a camera failure at all).
-    if noo_available and not noo_lane_change_available:
+    if noo_available and not noo_lane_change_configured:
       self.noo_reason = "lc_off"
+    elif noo_available and not self.noo_pose_trusted:
+      self.noo_reason = "nav_gps"
     elif noo_lane_change_available and ego_lane is None and self.noo_reason == "no_plan":
       self.noo_reason = self._camera_reason_code(camera_reason)
     if self.noo_reason == "lane_blocked":
