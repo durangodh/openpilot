@@ -25,7 +25,11 @@ class Priority:
   # CORE 2
   # - modeld = 55
   # - camerad = 54
-  CTRL_LOW = 51 # plannerd & radard
+  CTRL_LOW = 51 # plannerd
+  # radard shares core 2 with plannerd. Same-priority SCHED_FIFO never
+  # preempts, so an overloaded plannerd starved radard (radarState not alive
+  # -> commIssue with NOO on). radard's work per CAN trigger is short.
+  RADARD = 52
 
   # CORE 3
   # - boardd = 55

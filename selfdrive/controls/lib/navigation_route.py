@@ -9,6 +9,8 @@ STATE_FILE = "/dev/shm/carrot_navi_route.json"
 # 폴리라인 없는 축약본. 지도 곡률(폴리라인)이 필요 없는 쪽은 이걸 읽는다.
 GUIDE_FILE = "/dev/shm/carrot_navi_guide.json"
 STALE_TIMEOUT = 3.0
+# Last parsed version of each navigation file, shared by readers in one process.
+_SHARED_ROOTS = {}
 # C-ITS signal phase changes every few seconds; never use an older reading.
 SIGNAL_STALE_TIMEOUT = 2.0
 # A turn guidance point this close to the signal decides which signal applies.
@@ -238,10 +240,17 @@ class NavigationRouteData:
       stat = os.stat(self.state_file)
       signature = (getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1e9)), stat.st_size)
       if signature != self.file_signature:
-        with open(self.state_file, "r") as f:
-          root = json.load(f)
-        if not isinstance(root, dict):
-          raise ValueError("navigation state must be an object")
+        # plannerd reads the guide file from both DesireHelper and the
+        # longitudinal planner; parse each written version once per process.
+        shared = _SHARED_ROOTS.get(self.state_file)
+        if shared is not None and shared[0] == signature:
+          root = shared[1]
+        else:
+          with open(self.state_file, "r") as f:
+            root = json.load(f)
+          if not isinstance(root, dict):
+            raise ValueError("navigation state must be an object")
+          _SHARED_ROOTS[self.state_file] = (signature, root)
         self.cached_root = root
         self.file_signature = signature
       # Reuse the parsed payload, not its freshness decision. A silent sender
