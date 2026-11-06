@@ -37,6 +37,9 @@ class FakeRoute:
   def camera_lane_position(self, model_data):
     return {"count": 3, "current": 2, "left_adjacent": True, "right_adjacent": True}
 
+  def camera_lane_estimate(self, model_data):
+    return self.camera_lane_position(model_data), "test"
+
   def steering_request(self, state, v_ego):
     return 0
 

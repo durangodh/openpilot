@@ -10,7 +10,8 @@ lane count is only used to reconcile a shoulder/median over-count or a
 road-edge under-count (resolve_current_lane).
 """
 import math
-import statistics
+
+import numpy as np
 
 # Lane lines and road edges are compared at the same forward distances, so a
 # curve does not compare unrelated points.
@@ -45,6 +46,8 @@ PHANTOM_LANE_MIN_ERROR = 0.10
 # least this much is taken as the shoulder.
 PHANTOM_AMBIGUOUS_MARGIN = 0.15
 MAX_LANES = 8
+_SAMPLE_XS_ARRAY = np.asarray(SAMPLE_XS, dtype=float)
+_NAN_SAMPLES = np.full(len(SAMPLE_XS), np.nan)
 
 
 def _finite(value, default=float("nan")):
@@ -62,24 +65,53 @@ def _field(message, name, default=None):
     return default
 
 
+def _median(values):
+  # np.median costs more than the rest of this module on <= 5 samples.
+  v = sorted(float(x) for x in values)
+  n = len(v)
+  return v[n // 2] if n % 2 else 0.5 * (v[n // 2 - 1] + v[n // 2])
+
+
+def _line_samples(line):
+  """One model line read once, interpolated at SAMPLE_XS (nan outside its range).
+
+  Reading each capnp line once (instead of once per sample) keeps this as
+  cheap as the per-line medians NOO used before the HUD/NOO merge; plannerd
+  shares a CPU core with radard on EON.
+  """
+  try:
+    xs = np.asarray(list(_field(line, "x", []) or []), dtype=float)
+    ys = np.asarray(list(_field(line, "y", []) or []), dtype=float)
+  except (TypeError, ValueError):
+    return _NAN_SAMPLES
+  n = min(len(xs), len(ys))
+  if n < 2:
+    return _NAN_SAMPLES
+  xs, ys = xs[:n], ys[:n]
+  ok = np.isfinite(xs) & np.isfinite(ys)
+  if np.count_nonzero(ok) < 2:
+    return _NAN_SAMPLES
+  xs, ys = xs[ok], ys[ok]
+  order = np.argsort(xs, kind="stable")
+  xs, ys = xs[order], ys[order]
+  return np.interp(_SAMPLE_XS_ARRAY, xs, ys, left=np.nan, right=np.nan)
+
+
 def line_y_at(line, x):
   """Interpolate one model line at an exact forward distance (None if out of range)."""
-  points = []
-  for raw_x, raw_y in zip(list(_field(line, "x", []) or []), list(_field(line, "y", []) or [])):
-    px, py = _finite(raw_x), _finite(raw_y)
-    if math.isfinite(px) and math.isfinite(py):
-      points.append((px, py))
-  if len(points) < 2:
+  try:
+    xs = np.asarray(list(_field(line, "x", []) or []), dtype=float)
+    ys = np.asarray(list(_field(line, "y", []) or []), dtype=float)
+  except (TypeError, ValueError):
     return None
-  points.sort(key=lambda point: point[0])
-  if x < points[0][0] or x > points[-1][0]:
+  n = min(len(xs), len(ys))
+  ok = np.isfinite(xs[:n]) & np.isfinite(ys[:n])
+  xs, ys = xs[:n][ok], ys[:n][ok]
+  if len(xs) < 2:
     return None
-  for (x0, y0), (x1, y1) in zip(points, points[1:]):
-    if x <= x1:
-      if x1 <= x0:
-        continue
-      return y0 + (x - x0) / (x1 - x0) * (y1 - y0)
-  return None
+  order = np.argsort(xs, kind="stable")
+  value = float(np.interp(x, xs[order], ys[order], left=np.nan, right=np.nan))
+  return value if math.isfinite(value) else None
 
 
 def estimate(model):
@@ -106,53 +138,41 @@ def estimate(model):
   if edge_std > ROAD_EDGE_STD_MAX:
     return None, "roadEdgeStd %.2f > %.2f" % (edge_std, ROAD_EDGE_STD_MAX)
 
-  widths, left_ratios, right_ratios = [], [], []
-  rejected = {"missing": 0, "width": 0, "edge_inside": 0}
-  for x in SAMPLE_XS:
-    inner = [line_y_at(lanes[1], x), line_y_at(lanes[2], x)]
-    road = [line_y_at(edges[0], x), line_y_at(edges[1], x)]
-    if any(value is None for value in inner + road):
-      rejected["missing"] += 1
-      continue
-    lane_left, lane_right = max(inner), min(inner)
-    road_left, road_right = max(road), min(road)
-    width = lane_left - lane_right
-    if not LANE_WIDTH_MIN <= width <= LANE_WIDTH_MAX:
-      rejected["width"] += 1
-      continue
-    if lane_left - road_left > EDGE_INSIDE_TOL or road_right - lane_right > EDGE_INSIDE_TOL:
-      rejected["edge_inside"] += 1
-      continue
-    road_left = max(road_left, lane_left)
-    road_right = min(road_right, lane_right)
-    widths.append(width)
-    left_ratios.append((road_left - lane_left) / width)
-    right_ratios.append((lane_right - road_right) / width)
-
-  if len(widths) < MIN_SECTIONS:
+  inner_a, inner_b = _line_samples(lanes[1]), _line_samples(lanes[2])
+  road_a, road_b = _line_samples(edges[0]), _line_samples(edges[1])
+  lane_left, lane_right = np.fmax(inner_a, inner_b), np.fmin(inner_a, inner_b)
+  road_left, road_right = np.fmax(road_a, road_b), np.fmin(road_a, road_b)
+  present = np.isfinite(inner_a) & np.isfinite(inner_b) & np.isfinite(road_a) & np.isfinite(road_b)
+  width = lane_left - lane_right
+  width_ok = present & (width >= LANE_WIDTH_MIN) & (width <= LANE_WIDTH_MAX)
+  inside_ok = width_ok & (lane_left - road_left <= EDGE_INSIDE_TOL) & (road_right - lane_right <= EDGE_INSIDE_TOL)
+  rejected = {"missing": int(np.count_nonzero(~present)),
+              "width": int(np.count_nonzero(present & ~width_ok)),
+              "edge_inside": int(np.count_nonzero(width_ok & ~inside_ok))}
+  if np.count_nonzero(inside_ok) < MIN_SECTIONS:
     worst = max(rejected, key=rejected.get)
-    return None, "only %d/%d sections usable (%s)" % (len(widths), len(SAMPLE_XS), worst)
+    return None, "only %d/%d sections usable (%s)" % (int(np.count_nonzero(inside_ok)), len(SAMPLE_XS), worst)
 
-  width = statistics.median(widths)
-  left_ratio = statistics.median(left_ratios)
-  right_ratio = statistics.median(right_ratios)
-  mad = max(statistics.median(abs(value - left_ratio) for value in left_ratios),
-            statistics.median(abs(value - right_ratio) for value in right_ratios))
+  widths = width[inside_ok]
+  left_ratios = (np.fmax(road_left, lane_left)[inside_ok] - lane_left[inside_ok]) / widths
+  right_ratios = (lane_right[inside_ok] - np.fmin(road_right, lane_right)[inside_ok]) / widths
+
+  width = _median(widths)
+  left_ratio = _median(left_ratios)
+  right_ratio = _median(right_ratios)
+  mad = max(_median(np.abs(left_ratios - left_ratio)),
+            _median(np.abs(right_ratios - right_ratio)))
   if mad > GEOMETRY_MAD_MAX:
     return None, "inconsistent geometry (fork/merge) mad %.2f" % mad
 
-  def adjacent_visible(outer_index, inner_index):
+  def adjacent_visible(outer_index, inner_samples):
     if outer_index >= len(lanes) or outer_index >= len(lane_probs):
       return False
-    gaps = []
-    for x in SAMPLE_XS:
-      outer_y = line_y_at(lanes[outer_index], x)
-      inner_y = line_y_at(lanes[inner_index], x)
-      if outer_y is not None and inner_y is not None:
-        gaps.append(abs(outer_y - inner_y))
+    gaps = np.abs(_line_samples(lanes[outer_index]) - inner_samples)
+    gaps = gaps[np.isfinite(gaps)]
     if len(gaps) < MIN_SECTIONS:
       return False
-    spacing = statistics.median(gaps)
+    spacing = _median(gaps)
     return (_finite(lane_probs[outer_index], 0.0) >= ADJACENT_LANE_PROB_MIN and
             width * ADJACENT_SPACING_RATIO[0] <= spacing <= width * ADJACENT_SPACING_RATIO[1])
 
@@ -170,8 +190,8 @@ def estimate(model):
     "width": width,
     "left_frac": left_ratio - math.floor(left_ratio),
     "right_frac": right_ratio - math.floor(right_ratio),
-    "left_adjacent": adjacent_visible(0, 1),
-    "right_adjacent": adjacent_visible(3, 2),
+    "left_adjacent": adjacent_visible(0, inner_a),
+    "right_adjacent": adjacent_visible(3, inner_b),
     "edge_std": edge_std,
   }
   return position, "cam %d lanes, in %d (std %.2f, width %.2f, L%.2f R%.2f, adjacent=%s/%s)" % (

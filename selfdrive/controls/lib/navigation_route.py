@@ -430,6 +430,11 @@ class NavigationRouteData:
     return lane_count.camera_lane_position(model_data)
 
   @staticmethod
+  def camera_lane_estimate(model_data):
+    """(camera_lane_position, reason) from one estimate (lane_count.py)."""
+    return lane_count.estimate(model_data)
+
+  @staticmethod
   def _lat_lon(point):
     if not isinstance(point, dict):
       return None

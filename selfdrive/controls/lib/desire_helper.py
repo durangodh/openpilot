@@ -426,7 +426,9 @@ class DesireHelper:
     noo_turn_matches_blinker = (noo_steering and turn_event and
                                ((turn_direction < 0 and carstate.leftBlinker) or
                                 (turn_direction > 0 and carstate.rightBlinker)))
-    ego_lane = self.navigation_route.camera_lane_position(model_data) if noo_lane_change_available else None
+    # One estimate per model frame; its reason is reused for HUD diagnostics.
+    ego_lane, camera_reason = (self.navigation_route.camera_lane_estimate(model_data)
+                               if noo_lane_change_available else (None, ""))
     self.noo_camera_lane_count = int(ego_lane['count']) if isinstance(ego_lane, dict) else 0
     route_lane = navigation_state.get('lane_current')
     try:
@@ -475,7 +477,7 @@ class DesireHelper:
     if noo_available and not noo_lane_change_available:
       self.noo_reason = "lc_off"
     elif noo_lane_change_available and ego_lane is None and self.noo_reason == "no_plan":
-      self.noo_reason = self._camera_reason_code(lane_count.estimate(model_data)[1])
+      self.noo_reason = self._camera_reason_code(camera_reason)
     if self.noo_reason == "lane_blocked":
       blocked_left = self.noo_controller.target_lane < self.noo_controller.current_lane
       blindspot = carstate.leftBlindspot if blocked_left else carstate.rightBlindspot
