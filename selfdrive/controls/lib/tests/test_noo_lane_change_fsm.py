@@ -59,6 +59,7 @@ class TestNooLaneChangeFsm(unittest.TestCase):
     helper.noo_enabled = True
     helper.noo_mode = 2
     helper.lane_change_speed_min = 50 / 3.6
+    helper.noo_lane_change_speed_min = 30 / 3.6
     helper.auto_lane_change_timer_setting = 0
     helper.noo_controller = FakeNoo()
     helper.navigation_route = FakeRoute(helper.empty_navigation_state)
@@ -67,7 +68,7 @@ class TestNooLaneChangeFsm(unittest.TestCase):
     self.helper = helper
 
   def test_request_raised_below_speed_starts_once_speed_gate_opens(self):
-    # NOO uses min(AutoLaneChangeSpeed, 30 km/h) so it also works in city traffic.
+    # NooLaneChangeSpeed (30 km/h here) so it also works in city traffic.
     self.helper.noo_controller.direction = -1
     self.helper.update(car(25), True, 0.0)
     self.assertEqual(self.helper.lane_change_state, OFF)
@@ -160,6 +161,14 @@ class TestRemoteLaneLatch(TestNooLaneChangeFsm):
     c.brakePressed = True
     self.helper.update(c, True, 0.5)
     self.assertEqual(self.helper.remote_direction, 0)
+
+
+  def test_noo_lane_change_speed_setting_moves_the_gate(self):
+    self.helper.noo_lane_change_speed_min = 45 / 3.6
+    self.helper.noo_controller.direction = -1
+    self.helper.update(car(40), True, 0.0)
+    self.assertEqual(self.helper.lane_change_state, OFF)
+    self.assertEqual(self.helper.noo_reason, "low_speed")
 
 
 if __name__ == "__main__":

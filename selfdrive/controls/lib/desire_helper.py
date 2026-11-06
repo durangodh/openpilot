@@ -23,9 +23,10 @@ LaneChangeDirection = log.LateralPlan.LaneChangeDirection
 LANE_CHANGE_SPEED_MIN = 50 * CV.KPH_TO_MS
 # NOO lane preparation for a turn must also work in city traffic, where the car
 # rarely reaches AutoLaneChangeSpeed (default 50 km/h); otherwise it stays in
-# lane 2/3 and drives past a left turn. NOO uses the lower of the two. Driver
-# blinker lane changes keep AutoLaneChangeSpeed.
-NOO_LANE_CHANGE_SPEED_MIN = 30 * CV.KPH_TO_MS
+# lane 2/3 and drives past a left turn. NooLaneChangeSpeed (km/h) sets it.
+# Driver blinker lane changes keep AutoLaneChangeSpeed.
+NOO_LANE_CHANGE_SPEED_DEFAULT_KPH = 30
+NOO_LANE_CHANGE_SPEED_RANGE_KPH = (10, 60)
 LANE_CHANGE_TIME_MAX = 10.
 
 DESIRES = {
@@ -70,6 +71,7 @@ class DesireHelper:
     self.lane_change_enabled = self.params.get_bool('LaneChangeEnabled')
     self.auto_lane_change_enabled = self.params.get_bool('AutoLaneChangeEnabled')
     self.lane_change_speed_min = LANE_CHANGE_SPEED_MIN
+    self.noo_lane_change_speed_min = NOO_LANE_CHANGE_SPEED_DEFAULT_KPH * CV.KPH_TO_MS
     self.last_params_update = 0.0
 
     self.auto_lane_change_timer = 0.0
@@ -371,6 +373,13 @@ class DesireHelper:
         auto_lc_speed_kph = 50
       self.lane_change_speed_min = auto_lc_speed_kph * CV.KPH_TO_MS
       try:
+        noo_lc_speed_kph = int(self.params.get('NooLaneChangeSpeed', encoding='utf8') or
+                               NOO_LANE_CHANGE_SPEED_DEFAULT_KPH)
+      except (TypeError, ValueError):
+        noo_lc_speed_kph = NOO_LANE_CHANGE_SPEED_DEFAULT_KPH
+      lo, hi = NOO_LANE_CHANGE_SPEED_RANGE_KPH
+      self.noo_lane_change_speed_min = max(lo, min(hi, noo_lc_speed_kph)) * CV.KPH_TO_MS
+      try:
         self.auto_lane_change_timer_setting = int(
           self.params.get("AutoLaneChangeTimer", encoding="utf8") or "0")
       except (TypeError, ValueError):
@@ -471,7 +480,7 @@ class DesireHelper:
       blocked_left = self.noo_controller.target_lane < self.noo_controller.current_lane
       blindspot = carstate.leftBlindspot if blocked_left else carstate.rightBlindspot
       self.noo_reason = "blindspot" if blindspot else "road_edge"
-    noo_lane_change_speed_min = min(self.lane_change_speed_min, NOO_LANE_CHANGE_SPEED_MIN)
+    noo_lane_change_speed_min = self.noo_lane_change_speed_min
     if noo_direction and v_ego < noo_lane_change_speed_min:
       self.noo_reason = "low_speed"
     if self.noo_enabled and not lateral_active:
