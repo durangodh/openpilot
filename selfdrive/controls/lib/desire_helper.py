@@ -21,6 +21,11 @@ LaneChangeState = log.LateralPlan.LaneChangeState
 LaneChangeDirection = log.LateralPlan.LaneChangeDirection
 
 LANE_CHANGE_SPEED_MIN = 50 * CV.KPH_TO_MS
+# NOO lane preparation for a turn must also work in city traffic, where the car
+# rarely reaches AutoLaneChangeSpeed (default 50 km/h); otherwise it stays in
+# lane 2/3 and drives past a left turn. NOO uses the lower of the two. Driver
+# blinker lane changes keep AutoLaneChangeSpeed.
+NOO_LANE_CHANGE_SPEED_MIN = 30 * CV.KPH_TO_MS
 LANE_CHANGE_TIME_MAX = 10.
 
 DESIRES = {
@@ -466,7 +471,8 @@ class DesireHelper:
       blocked_left = self.noo_controller.target_lane < self.noo_controller.current_lane
       blindspot = carstate.leftBlindspot if blocked_left else carstate.rightBlindspot
       self.noo_reason = "blindspot" if blindspot else "road_edge"
-    if noo_direction and v_ego < self.lane_change_speed_min:
+    noo_lane_change_speed_min = min(self.lane_change_speed_min, NOO_LANE_CHANGE_SPEED_MIN)
+    if noo_direction and v_ego < noo_lane_change_speed_min:
       self.noo_reason = "low_speed"
     if self.noo_enabled and not lateral_active:
       self.noo_reason = "standby"
@@ -483,8 +489,6 @@ class DesireHelper:
     left_blinker = carstate.leftBlinker or navigation_lane_direction < 0
     right_blinker = carstate.rightBlinker or navigation_lane_direction > 0
     one_blinker = left_blinker != right_blinker
-    below_lane_change_speed = v_ego < self.lane_change_speed_min
-
     # Driver lane changes retain the original road-edge gate. NOO raises its
     # virtual blinker only after model geometry and matching BSD are clear.
     direction = -1 if left_blinker else 1 if right_blinker else 0
@@ -492,6 +496,8 @@ class DesireHelper:
     # override) the NOO controller used to raise the request. Otherwise the
     # request opens while the FSM below stays edge-blocked.
     noo_auto_request = noo_direction != 0 and direction == noo_direction
+    below_lane_change_speed = v_ego < (noo_lane_change_speed_min if noo_auto_request
+                                       else self.lane_change_speed_min)
     if noo_auto_request:
       self.road_edge = not (noo_left_open if direction < 0 else noo_right_open)
     else:

@@ -67,14 +67,21 @@ class TestNooLaneChangeFsm(unittest.TestCase):
     self.helper = helper
 
   def test_request_raised_below_speed_starts_once_speed_gate_opens(self):
+    # NOO uses min(AutoLaneChangeSpeed, 30 km/h) so it also works in city traffic.
     self.helper.noo_controller.direction = -1
-    self.helper.update(car(40), True, 0.0)
+    self.helper.update(car(25), True, 0.0)
     self.assertEqual(self.helper.lane_change_state, OFF)
     self.assertEqual(self.helper.noo_reason, "low_speed")
-    self.helper.update(car(55), True, 0.0)
+    self.helper.update(car(35), True, 0.0)
     self.assertEqual(self.helper.lane_change_state, PRE)
-    self.helper.update(car(55), True, 0.0)
+    self.helper.update(car(35), True, 0.0)
     self.assertEqual(self.helper.lane_change_state, STARTING)
+
+  def test_driver_blinker_keeps_auto_lane_change_speed(self):
+    driver = car(40)
+    driver.leftBlinker = True
+    self.helper.update(driver, True, 0.0)
+    self.assertEqual(self.helper.lane_change_state, OFF)
 
   def test_adjacent_line_override_also_opens_the_fsm_edge_gate(self):
     # The raw road edge reads blocked, but the NOO adjacent-lane override opens it.
