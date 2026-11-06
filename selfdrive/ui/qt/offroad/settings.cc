@@ -1371,7 +1371,7 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
   // ── EON 블루투스 리모컨 (bt_remote) ───────────────────────
 
   auto btRemoteToggle = new ParamControl("BtRemoteEnabled", "BLUETOOTH REMOTE",
-      "EON에 직접 페어링한 클래식 블루투스 리모컨(예: 8BitDo Micro 키보드 모드)으로 크루즈 버튼과 차로변경 요청을 보냅니다. 켜면 EON 블루투스도 켜지고 재부팅 후에도 유지됩니다. 깜빡이 램프는 켜지지 않습니다.",
+      "주의: EON 커널에 UHID가 없어 블루투스 HID 리모컨은 페어링돼도 입력이 생기지 않습니다(실차 확인). EON에 직접 페어링한 클래식 블루투스 리모컨으로 크루즈 버튼과 차로변경 요청을 보냅니다. 켜면 EON 블루투스도 켜지고 재부팅 후에도 유지됩니다. 깜빡이 램프는 켜지지 않습니다.",
       "../assets/offroad/icon_openpilot.png", this);
   toggleLayout->addWidget(btRemoteToggle);
   auto remoteLearningAllowed = []() {
