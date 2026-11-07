@@ -246,6 +246,9 @@ class NavigationRouteData:
             # The module's explicit tollgate flag (Naver 121-123, TMAP 153/154/249, Kakao 84/85, or a
             # straight maneuver named 톨게이트). Not the name alone: "…톨게이트 방면" can be a turn.
             "tollgate": bool(fresh) and guidance.get("tollgate") is True,
+            # Underpass guidance kind from the module (Naver: side_right / access_left /
+            # access_straight); the stock HUD draws its own underpass picture for it.
+            "underpass": str(guidance.get("underpass") or "") if fresh else "",
             "turn_type": turn_type, "text": text, "sharp_turn": sharp_turn,
             # A next item's distance after the current one: carrot_navi_server gives TMAP's as
             # display_distance_m (distance_m stays the vehicle distance); Naver/Kakao send it as

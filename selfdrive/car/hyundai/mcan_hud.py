@@ -103,6 +103,14 @@ TURN_STRAIGHT = 11
 # the navi's lane guidance for that turn comes up; right after a highway exit, on the ramp,
 # from the start (11-01 07:43 17 at 1.2 km).
 PREVIEW_TURNS = (12, 13, 14, 16, 19)
+# Underpasses: the AVN's own picture 46 (0x2E) with a direction, and a keep-going preview
+# until 400 m (2026-11-05 12:50 AVN, same road as Naver 11-07 07:25-07:30):
+#   신리IC side road right of the underpass (Naver SideUnderpassRight): 84 from 1.5 km, then 46/12
+#   물향기지하차도 entry (Naver AccessUnderpassStraight): 91 from 1.8 km, then 46/36
+#   오산IC underpass entry (Naver AccessUnderpassLeft): 46/36 (log started at 140 m)
+DISPLAY_UNDERPASS = 46
+UNDERPASS = {"side_right": (12, 84), "access_left": (36, 91), "access_straight": (36, 91)}
+UNDERPASS_SHOW_M = 400
 TURN_SHOW_M = 300
 TURN_SHOW_LANE_M = 500     # with the navi's lanes for this turn, from up to here
 LANE_MATCH_M = 50
@@ -191,7 +199,7 @@ def show_turn(turn_type, dist_m, lane=None, after_exit=False):
 
 
 def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE_NEAR_M, after_exit=False,
-                tollgate=False, preview=False, junction=None):
+                tollgate=False, preview=False, junction=None, underpass=""):
   """0x115 payload for one Naver maneuver, or None to leave the AVN's frame alone.
   next_turn_type picks the keep-going preview icon; a 톨게이트 name on a straight
   maneuver shows the tollgate icon (the modules map tollgates to straight); tollgate=True
@@ -207,6 +215,11 @@ def tbt_payload(turn_type, dist_m, text="", next_turn_type=-1, scale_m=BAR_SCALE
   if tollgate or (turn_type == TURN_STRAIGHT and "톨게이트" in (text or "")):
     bar = BAR_NONE if dist > TOLLGATE_GATE_M else bar_tenths(dist, TOLLGATE_BAR_M)
     return bytes([DISPLAY_TOLLGATE, 0, 0, DIRECTION_NONE, hi, lo, unit, (bar << 4) | tenths])
+  if underpass in UNDERPASS:
+    direction, preview_display = UNDERPASS[underpass]
+    if preview:
+      return bytes([preview_display, 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
+    return bytes([DISPLAY_UNDERPASS, 0, 0, direction, hi, lo, unit, (bar_tenths(dist, scale_m) << 4) | tenths])
   if turn_type == TURN_STRAIGHT:
     display = STRAIGHT_PREVIEW.get(next_turn_type, DISPLAY_STRAIGHT)
     return bytes([display, 0, 0, DIRECTION_NONE, hi, lo, unit, (BAR_NONE << 4) | tenths])
@@ -394,14 +407,18 @@ class McanHud:
         self.junction = lane_side(turn_type, lane) or self.junction
       # Far turns keep going with their preview until the AVN would draw them; once drawn
       # they stay drawn (a lane flicker must not bring the preview back).
-      shown = self.shown or show_turn(turn_type, dist, lane, self.prev_exit)
+      underpass = "" if ahead is not None else str(nav_state.get("underpass") or "")
+      if underpass in UNDERPASS:
+        shown = self.shown or dist <= UNDERPASS_SHOW_M
+      else:
+        shown = self.shown or show_turn(turn_type, dist, lane, self.prev_exit)
       # The bar scale follows how far away this maneuver was first drawn.
       if (shown and not self.shown) or dist > self.maneuver_start + 100.0:
         self.maneuver_start = dist
       self.shown = shown
       payload = tbt_payload(turn_type, dist, text, int(nxt.get("turn_type", -1)),
                             bar_scale(self.maneuver_start), after_exit=self.prev_exit,
-                            tollgate=tollgate, preview=not shown,
+                            tollgate=tollgate, preview=not shown, underpass=underpass,
                             junction=self.junction)
     elif isinstance(nav_state, dict) and nav_state.get("guidance_stream_fresh") and nav_state.get("off_route"):
       # The navi app is still guiding but recalculating the route.

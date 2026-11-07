@@ -323,7 +323,21 @@ final class NaverBridge {
                 + ",\"turn_type\":" + mapped + ",\"naver_turn_type\":" + raw
                 + ",\"main_text\":" + quote(main) + ",\"road_name\":" + quote(road.isEmpty() ? main : road)
                 + (current && isTollgate(raw, mapped, towards, road) ? ",\"tollgate\":true" : "")
+                + underpass(String.valueOf(turn))
                 + (tollFeeWon > 0 ? ",\"toll_fee_won\":" + tollFeeWon : "") + "}";
+    }
+
+    /**
+     * 지하차도 안내: 순정 HUD 는 지하차도 전용 그림을 쓴다(2026-11-05 AVN / 11-07 네이버 같은 길).
+     * SideUnderpassRight(74) = 지하차도 옆길 우측, AccessUnderpassLeft(64)·AccessUnderpassStraight(56)
+     * = 지하차도 진입. 다른 지하차도 종류는 AVN 값을 아직 몰라 보내지 않는다.
+     */
+    private static String underpass(String name) {
+        if (name == null) return "";
+        if (name.startsWith("SideUnderpassRight")) return ",\"underpass\":\"side_right\"";
+        if (name.startsWith("AccessUnderpassLeft")) return ",\"underpass\":\"access_left\"";
+        if (name.startsWith("AccessUnderpassStraight")) return ",\"underpass\":\"access_straight\"";
+        return "";
     }
 
     /**

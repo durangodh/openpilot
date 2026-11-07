@@ -325,3 +325,19 @@ def test_text_goes_out_after_the_new_maneuver_frame_like_avn():
     msgs = run(h, nav(turn_type=11, dist=2400, text="남논산톨게이트"), 30, start=start)
     order = [a for a, d, _ in msgs if a == TEXT_ADDR or (a == TBT_ADDR and d[0] == 0xB2)]
     assert order[0] == TBT_ADDR and order.count(TEXT_ADDR) == 3
+
+
+def test_underpass_like_avn():
+  # 2026-11-05 12:50 AVN frames on the road Naver drove on 11-07 07:25-07:30
+  assert tbt_payload(13, 1500, preview=True, underpass="side_right").hex() == "5400000f000110f5"
+  assert tbt_payload(13, 400, underpass="side_right").hex() == "2e00000c019000a0"
+  assert tbt_payload(11, 1800, preview=True, underpass="access_straight").hex() == "5b00000f000110f8"
+  assert tbt_payload(11, 400, underpass="access_straight").hex() == "2e000024019000a0"
+  hud = McanHud()
+  state = nav(turn_type=18, dist=1500.0, text="신리IC, 동탄호수공원, 북오산IC")
+  state["underpass"] = "side_right"
+  assert [d.hex() for a, d, _ in run(hud, state, 5) if a == TBT_ADDR] == ["5400000f000110f5"]
+  state["distance"] = 400.0
+  assert [d.hex() for a, d, _ in run(hud, state, 5, start=5) if a == TBT_ADDR] == ["2e00000c019000a0"]
+  # unknown underpass kinds keep the normal turn
+  assert tbt_payload(13, 400, underpass="side_left")[0] == 13
