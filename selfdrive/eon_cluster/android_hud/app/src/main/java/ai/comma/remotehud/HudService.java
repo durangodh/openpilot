@@ -4406,7 +4406,7 @@ public final class HudService extends Service {
     private static final float APPLY_Y = SIGN_BASELINE - 55f * 0.85f - (36f * 1.15f - 36f) * 0.85f;
     // 휠·과속카메라·SET 원은 원래 그림(반지름 36)의 85% 로 그린다.
     private static final float SIGN_SCALE = 0.85f;
-    /** LIMIT·SET 글자: 2026-11-07 요청으로 감속 출처(CURVE 등)·카메라 거리 글자와 같은 크기, 굵게(textHeavy). */
+    /** LIMIT·SET 글자: 감속 출처(CURVE 등)·카메라 거리 글자와 같은 크기, 굵기는 "x1000rpm" 글자와 같게(textNormal). */
     private static final float SIGN_LABEL_SIZE = CAM_SIDE_TEXT_SIZE;
     /**
      * LIMIT·SET 글자 밑선(기준점 아래, 원 그림 배율 기준). 원 아래선(cy + 39.5, 테두리 포함)
@@ -5802,7 +5802,7 @@ public final class HudService extends Service {
         c.drawCircle(cx, ccy, SET_R, p);
         text(c, p, valid ? Integer.toString(set) : "--", cx, ccy + 9f * SET_SCALE, 29f * SET_SCALE,
                 valueColor, Paint.Align.CENTER);
-        textHeavy(c, p, "SET", cx, cy + SIGN_LABEL_BASE, SIGN_LABEL_SIZE, accent, Paint.Align.CENTER);
+        textNormal(c, p, "SET", cx, cy + SIGN_LABEL_BASE, SIGN_LABEL_SIZE, accent, Paint.Align.CENTER);
     }
 
     /** 도로 제한속도: SET 원과 같은 크기의 파란 원(흰 테두리·어두운 가장자리), 흰 숫자, 아래 "LIMIT". */
@@ -5822,7 +5822,7 @@ public final class HudService extends Service {
         // 2026-11-07 요청: 과속카메라 남은거리 글자처럼 원 오른쪽, 아랫줄을 원 아래선에 맞춘다.
         float outerR = SET_R + 1.8f;
         // 색은 카메라·감속 출처 글자처럼 주야 배경에 따라 검정/흰색(ink()).
-        textHeavy(c, p, "LIMIT", cx + outerR + 10f / SIGN_SCALE, ccy + outerR - 3f / SIGN_SCALE, SIGN_LABEL_SIZE,
+        textNormal(c, p, "LIMIT", cx + outerR + 10f / SIGN_SCALE, ccy + outerR - 3f / SIGN_SCALE, SIGN_LABEL_SIZE,
                 ink(), Paint.Align.LEFT);
     }
 
@@ -7702,21 +7702,6 @@ public final class HudService extends Service {
         p.setTextAlign(align);
         p.setColor(color);
         c.drawText(value, x, y, p);
-    }
-
-    /** 굵은 글자를 한 번 더 굵게(글자 윤곽선을 같은 색으로 덧그림). LIMIT·SET·감속 출처 글자용(2026-11-07). */
-    private static void textHeavy(Canvas c, Paint p, String value, float x, float y,
-                                  float size, int color, Paint.Align align) {
-        p.setShader(null);
-        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        p.setTextSize(size);
-        p.setTextAlign(align);
-        p.setColor(color);
-        p.setStyle(Paint.Style.FILL_AND_STROKE);
-        p.setStrokeWidth(size * 0.09f);
-        c.drawText(value, x, y, p);
-        p.setStyle(Paint.Style.FILL);
-        p.setStrokeWidth(0f);
     }
 
     private static void textNormal(Canvas c, Paint p, String value, float x, float y,
