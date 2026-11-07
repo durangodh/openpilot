@@ -8,6 +8,9 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -691,6 +694,16 @@ public final class VoiceAssistant {
         if (s != State.ERROR) speak(b);
     }
 
+    /**
+     * 내비 안내 음성과 같은 용도(USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)로 낸다. 안드로이드오토는
+     * 이 소리를 안내 채널로 보내 라디오·음악 중에도 차량 스피커에서 (배경음을 줄이고) 들린다.
+     */
+    private static final AudioAttributes SPEECH = new AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+            .build();
+    private AudioFocusRequest focus;
+
     private void speak(final String text) {
         if (!AppPrefs.isVoiceTtsEnabled(context) || text == null || text.isEmpty()) return;
         main.post(() -> {
@@ -699,19 +712,42 @@ public final class VoiceAssistant {
                     ttsReady = status == TextToSpeech.SUCCESS;
                     if (ttsReady) {
                         tts.setLanguage(Locale.KOREAN);
-                        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "hud-voice");
+                        tts.setAudioAttributes(SPEECH);
+                        tts.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
+                            @Override public void onStart(String id) { }
+                            @Override public void onDone(String id) { main.post(VoiceAssistant.this::releaseFocus); }
+                            @Override public void onError(String id) { main.post(VoiceAssistant.this::releaseFocus); }
+                        });
+                        say(text);
                     }
                 });
             } else if (ttsReady) {
-                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "hud-voice");
+                say(text);
             }
         });
+    }
+
+    private void say(String text) {
+        AudioManager audio = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+        if (audio != null && focus == null) {
+            focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                    .setAudioAttributes(SPEECH).build();
+            audio.requestAudioFocus(focus);
+        }
+        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "hud-voice");
+    }
+
+    private void releaseFocus() {
+        AudioManager audio = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+        if (audio != null && focus != null) audio.abandonAudioFocusRequest(focus);
+        focus = null;
     }
 
     void shutdown() {
         session++;
         cancelRecognition();
         main.post(() -> {
+            releaseFocus();
             if (tts != null) tts.shutdown();
             tts = null;
             ttsReady = false;
