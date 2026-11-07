@@ -236,7 +236,8 @@ public final class VoiceAssistant {
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")
                 .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
+                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1000L)
                 .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.getPackageName());
     }
 
@@ -417,8 +418,10 @@ public final class VoiceAssistant {
             + "오픈파일럿 설정 질문이면 search_settings 로 찾는다. 설정 제목은 영어, 설명은 한국어이므로 "
             + "한국어 키워드와 영어 키워드(예: 차간→follow, gap / 가속→accel / 정지→stop)를 함께 넣는다. "
             + "값을 알려줄 때는 현재값과 범위를 말한다. "
+            + "search_settings 결과에 이미 현재값(value)·범위가 들어 있으니 get_setting 을 다시 부르지 말고 "
+            + "바로 답하거나 set_setting 한다(응답 속도). get_setting 은 이름을 정확히 알 때만 쓴다. "
             + "운전자가 숫자를 직접 말했으면 set_setting 에 user_stated_value=true. "
-            + "'10 내려', '5 올려'처럼 변화량을 말한 경우도 운전자가 정한 값이니 get_setting 으로 현재값을 읽고 "
+            + "'10 내려', '5 올려'처럼 변화량을 말한 경우도 운전자가 정한 값이니 검색 결과의 현재값에 "
             + "더하거나 뺀 값을 user_stated_value=true 로 바로 설정한다. "
             + "운전자가 '부드럽게' 같은 말만 했고 네가 값을 정했으면 user_stated_value=false 로 한 번만 제안한다. "
             + "그러면 앱이 운전자 확인을 받으니, 버튼을 누르면 적용된다고 짧게 말한다. "
