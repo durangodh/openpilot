@@ -11,6 +11,7 @@ public final class AppPrefs {
     private static final String KMA_API_KEY = "kma_api_key";
     private static final String CLAUDE_API_KEY = "claude_api_key";
     private static final String VOICE_TTS = "voice_tts";
+    private static final String CLAUDE_WORKSPACE = "claude_workspace_id";
     private static final String ORIENTATION = "hud_orientation";
     private static final String MIRROR = "hud_mirror";
     private static final String NAVI_LAYOUT = "hud_navi_layout";
@@ -60,6 +61,15 @@ public final class AppPrefs {
 
     public static void setClaudeApiKey(Context context, String key) {
         prefs(context).edit().putString(CLAUDE_API_KEY, key == null ? "" : key.trim()).apply();
+    }
+
+    /** 워크스페이스에 묶이지 않은 키일 때만 필요한 anthropic-workspace-id (wrkspc_...). */
+    public static String getClaudeWorkspaceId(Context context) {
+        return prefs(context).getString(CLAUDE_WORKSPACE, "").trim();
+    }
+
+    public static void setClaudeWorkspaceId(Context context, String id) {
+        prefs(context).edit().putString(CLAUDE_WORKSPACE, id == null ? "" : id.trim()).apply();
     }
 
     /** 음성 비서 답변을 소리로 읽을지. 기본 꺼짐. */

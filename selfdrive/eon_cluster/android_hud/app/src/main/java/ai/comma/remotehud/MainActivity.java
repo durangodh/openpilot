@@ -853,11 +853,31 @@ public final class MainActivity extends Activity {
                 | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
         voiceCard.addView(keyInput, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        EditText workspaceInput = new EditText(this);
+        workspaceInput.setHint("워크스페이스 ID wrkspc_... (키를 워크스페이스로 만들었으면 비움)");
+        workspaceInput.setSingleLine(true);
+        workspaceInput.setTextColor(Color.WHITE);
+        workspaceInput.setHintTextColor(Color.rgb(120, 130, 140));
+        workspaceInput.setText(AppPrefs.getClaudeWorkspaceId(this));
+        voiceCard.addView(workspaceInput, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         LinearLayout keyButtons = new LinearLayout(this);
         keyButtons.setOrientation(LinearLayout.HORIZONTAL);
         Button saveKey = button("키 저장", Color.rgb(40, 92, 132));
         saveKey.setOnClickListener(v -> {
             String key = keyInput.getText().toString().trim();
+            String workspace = workspaceInput.getText().toString().trim();
+            if (!workspace.isEmpty() && !workspace.startsWith("wrkspc_")) {
+                new AlertDialog.Builder(this).setTitle("워크스페이스 ID")
+                        .setMessage("wrkspc_ 로 시작하는 ID를 넣거나 비워 두세요.")
+                        .setPositiveButton("확인", null).show();
+                return;
+            }
+            AppPrefs.setClaudeWorkspaceId(this, workspace);
+            if (key.isEmpty() && !AppPrefs.getClaudeApiKey(this).isEmpty()) {
+                refresh.run();   // 워크스페이스 ID 만 바꾼 경우
+                return;
+            }
             if (!key.startsWith("sk-ant-")) {
                 new AlertDialog.Builder(this).setTitle("Claude API 키")
                         .setMessage("sk-ant- 로 시작하는 키를 붙여넣어 주세요.")

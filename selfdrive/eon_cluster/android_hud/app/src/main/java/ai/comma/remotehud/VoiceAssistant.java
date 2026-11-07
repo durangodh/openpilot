@@ -791,6 +791,8 @@ public final class VoiceAssistant {
             conn.setRequestProperty("content-type", "application/json");
             conn.setRequestProperty("anthropic-version", "2023-06-01");
             conn.setRequestProperty("x-api-key", AppPrefs.getClaudeApiKey(context));
+            String workspace = AppPrefs.getClaudeWorkspaceId(context);
+            if (!workspace.isEmpty()) conn.setRequestProperty("anthropic-workspace-id", workspace);
             try (OutputStream out = conn.getOutputStream()) {
                 out.write(body.toString().getBytes(StandardCharsets.UTF_8));
             }
@@ -800,6 +802,10 @@ public final class VoiceAssistant {
             if (code == 401) throw new ApiError("API 키가 올바르지 않아요");
             if (code == 429) throw new ApiError("요청이 많아요. 잠시 후 다시");
             if (code == 529 || code >= 500) throw new ApiError("AI 서버 혼잡. 잠시 후 다시");
+            if (code == 400 && raw.contains("workspace")) {
+                throw new ApiError("워크스페이스 ID 필요: HUD 앱 AI 설정에 wrkspc_ 입력");
+            }
+            if (code == 404 && raw.contains("workspace")) throw new ApiError("워크스페이스 ID가 맞지 않아요");
             if (code >= 400) {
                 String message = "요청 오류 " + code;
                 try {
