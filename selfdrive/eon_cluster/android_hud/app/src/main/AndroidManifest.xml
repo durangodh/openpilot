@@ -11,6 +11,13 @@
         <package android:name="ai.comma.tmaphud" />
         <package android:name="ai.comma.naverhud" />
         <package android:name="ai.comma.kakaohud" />
+        <!-- 음성 비서: 음성 인식·TTS 엔진 찾기(Android 11+ 패키지 공개 범위) -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
     </queries>
 
     <uses-feature
@@ -30,6 +37,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- v0.13: 화면 꺼짐/도즈 상태에서 렌더·전송 스레드 유지 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- 리모컨 음성 비서(VoiceActivity 가 전경에서만 듣는다) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
         android:allowBackup="false"
@@ -47,6 +56,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".VoiceActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:launchMode="singleTask"
+            android:taskAffinity=".voice"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <receiver
             android:name=".BootReceiver"

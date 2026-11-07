@@ -731,6 +731,9 @@ public final class HudService extends Service {
     private final AtomicReference<Bitmap> trafficSignalFrame = new AtomicReference<>();
     /** Latest compressed road preview; inference takes only the newest frame. */
     private final AtomicReference<InetAddress> eonAddress = new AtomicReference<>();
+    // EON 이 텔레메트리를 보내는 소켓 포트. 음성 비서 설정 요청(HUDPRM1)을 여기로 보낸다.
+    private volatile int lastEonPort;
+    private volatile VoiceAssistant voice;
     private final Object assetLock = new Object();
 
     private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
@@ -840,6 +843,18 @@ public final class HudService extends Service {
         }
         activeInstance = this;
         AppPrefs.removeLegacyStaticMapSettings(this);
+        voice = new VoiceAssistant(this, data -> {
+            DatagramSocket socket = receiverSocket;
+            InetAddress address = eonAddress.get();
+            int port = lastEonPort;
+            if (socket == null || address == null || port <= 0) return false;
+            try {
+                socket.send(new DatagramPacket(data, data.length, address, port));
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        });
         weather = new WeatherService(this);
         // EON 이 붙기 전 첫 프레임부터 올바른 방향으로 그리기 위해 마지막 값을 복원한다.
         configuredOrientation = AppPrefs.getOrientation(this);
@@ -1108,6 +1123,13 @@ public final class HudService extends Service {
                         udpRawPacketCount++;
                         udpLastRawBytes = packet.getLength();
                         udpLastRawRxElapsed = SystemClock.elapsedRealtime();
+                        if (isVoiceReply(packet)) {
+                            VoiceAssistant assistant = voice;
+                            if (assistant != null) {
+                                assistant.onEonReply(packet.getData(), packet.getOffset(), packet.getLength());
+                            }
+                            continue;
+                        }
                         JSONObject decoded;
                         try {
                             decoded = new JSONObject(new String(packet.getData(), packet.getOffset(),
@@ -1126,7 +1148,10 @@ public final class HudService extends Service {
                         state.set(decoded);
                         udpReceiverError = "";
                         eonAddress.set(packet.getAddress());
+                        lastEonPort = packet.getPort();
                         lastEonRxElapsed = SystemClock.elapsedRealtime();
+                        VoiceAssistant assistant = voice;
+                        if (assistant != null) assistant.onTelemetry(decoded.optInt("voiceReq", -1));
                         lastEonAddress = packet.getAddress().getHostAddress();
                         byte[] ack = "HUD1".getBytes("US-ASCII");
                         try {
@@ -1169,6 +1194,23 @@ public final class HudService extends Service {
                 }
             }
         }
+    }
+
+    private static final byte[] VOICE_REPLY_PREFIX = {'H', 'U', 'D', 'P', 'R', 'M', '1', 'R', ' '};
+
+    private static boolean isVoiceReply(DatagramPacket packet) {
+        if (packet.getLength() < VOICE_REPLY_PREFIX.length) return false;
+        byte[] data = packet.getData();
+        int offset = packet.getOffset();
+        for (int i = 0; i < VOICE_REPLY_PREFIX.length; i++) {
+            if (data[offset + i] != VOICE_REPLY_PREFIX[i]) return false;
+        }
+        return true;
+    }
+
+    private void drawVoiceCard(Canvas c) {
+        VoiceAssistant assistant = voice;
+        if (assistant != null) assistant.draw(c, mapCenterX(), frameDark);
     }
 
     private void synchronizeNavigation(JSONObject decoded, DatagramSocket socket, DatagramPacket packet) throws Exception {
@@ -2913,6 +2955,7 @@ public final class HudService extends Service {
             drawNaviWeatherPanel(c, p, s);
             drawNaviJunctionPopup(c, p, s);
             applyThemeOverlay(c, p);
+            drawVoiceCard(c);
             drawOemWarningPopup(c, p, s);
             return;
         }
@@ -2940,6 +2983,7 @@ public final class HudService extends Service {
             drawMap(c, p, s, map, tbtCurrent, tbtNext, lane, trafficSignal);
         }
         applyThemeOverlay(c, p);
+        drawVoiceCard(c);
         // 순정 계기판 경고는 주행패널 오른쪽 EON HUD 박스 자리에 흰색 팝업으로 덮는다.
         // 야간 지도 마스크 뒤에 그려 항상 선명한 흰색을 유지한다.
         drawOemWarningPopup(c, p, s);
@@ -7834,6 +7878,9 @@ public final class HudService extends Service {
 
     @Override
     public void onDestroy() {
+        VoiceAssistant assistant = voice;
+        if (assistant != null) assistant.shutdown();
+        voice = null;
         if (gpsSourceMonitor != null) gpsSourceMonitor.stop();
         if (mirrorDisplays != null) mirrorDisplays.unregisterDisplayListener(mirrorDisplayListener);
         running.set(false);

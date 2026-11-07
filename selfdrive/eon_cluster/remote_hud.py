@@ -19,6 +19,8 @@ import cereal.messaging as messaging
 from common.params import Params
 from selfdrive.eon_cluster.nav_selection import NavSelectionSync
 from selfdrive.eon_cluster.hud_remote import hud_status as remote_status
+from selfdrive.eon_cluster.hud_remote import voice_request
+from selfdrive.eon_cluster.voice_params import VoiceParams
 
 
 from selfdrive.modeld.constants import T_IDXS
@@ -1267,6 +1269,7 @@ def _packet(sm, noo_enabled, path_offset=0.0):
 def main():
   params = Params()
   nav_selection = NavSelectionSync(params)
+  voice_params = VoiceParams(params)
   running = [True]
   signal.signal(signal.SIGINT, lambda *_: running.__setitem__(0, False))
   signal.signal(signal.SIGTERM, lambda *_: running.__setitem__(0, False))
@@ -1326,6 +1329,9 @@ def main():
       remote = remote_status()
       if remote is not None:
         packet["remote"] = remote
+      voice = voice_request()
+      if voice is not None:
+        packet["voiceReq"] = voice
       # HUD 가 응답한 적이 있으면 그 주소로 직접(유니캐스트) 보낸다. 와이파이 브로드캐스트는
       # 재전송 없이 최저 속도로 나가 여러 조각으로 나뉜 큰 패킷이 자주 통째로 사라졌다
       # (2026-10-08: S9 응답 절반, 5~10초 공백 -> HUD "EON 연결 끊김"). 응답이 끊겨도
@@ -1339,12 +1345,20 @@ def main():
         next_probe = started + HUD_PROBE_INTERVAL_S
       try:
         for _ in range(64):
-          reply, address = sock.recvfrom(256)
+          reply, address = sock.recvfrom(2048)
           if reply == b"HUD1":
             last_ack = time.monotonic()
             hud_ip = address[0]
           elif reply.startswith(b"GPSL"):
             pass  # S9 GPS 지연 보고. 기록하지 않는다.
+          elif reply.startswith(b"HUDPRM1 "):
+            # S20 음성 비서의 설정 조회·변경. 범위·주행 중 제한은 voice_params 가 강제한다.
+            car = sm["carState"]
+            # 차량 데이터가 없으면(시동 꺼짐) 정차로 본다.
+            moving = sm.alive["carState"] and (not car.standstill or car.vEgo > 0.3)
+            answer = voice_params.handle(reply, moving)
+            if answer is not None:
+              sock.sendto(answer, address)
           elif nav_selection.receive(reply, address):
             last_ack = time.monotonic()
       except (BlockingIOError, socket.error):

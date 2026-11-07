@@ -9,6 +9,8 @@ public final class AppPrefs {
     private static final String FILE = "remote_hud_settings";
     private static final String GUIDE_SHOWN = "guide_shown_v37";
     private static final String KMA_API_KEY = "kma_api_key";
+    private static final String CLAUDE_API_KEY = "claude_api_key";
+    private static final String VOICE_TTS = "voice_tts";
     private static final String ORIENTATION = "hud_orientation";
     private static final String MIRROR = "hud_mirror";
     private static final String NAVI_LAYOUT = "hud_navi_layout";
@@ -49,6 +51,24 @@ public final class AppPrefs {
 
     public static void setKmaApiKey(Context context, String key) {
         prefs(context).edit().putString(KMA_API_KEY, key == null ? "" : key.trim()).apply();
+    }
+
+    /** 음성 비서용 Claude API 키. 이 폰에만 저장하고 소스·빌드에는 넣지 않는다. */
+    public static String getClaudeApiKey(Context context) {
+        return prefs(context).getString(CLAUDE_API_KEY, "").trim();
+    }
+
+    public static void setClaudeApiKey(Context context, String key) {
+        prefs(context).edit().putString(CLAUDE_API_KEY, key == null ? "" : key.trim()).apply();
+    }
+
+    /** 음성 비서 답변을 소리로 읽을지. 기본 꺼짐. */
+    public static boolean isVoiceTtsEnabled(Context context) {
+        return prefs(context).getBoolean(VOICE_TTS, false);
+    }
+
+    public static void setVoiceTtsEnabled(Context context, boolean enabled) {
+        prefs(context).edit().putBoolean(VOICE_TTS, enabled).apply();
     }
 
     /**

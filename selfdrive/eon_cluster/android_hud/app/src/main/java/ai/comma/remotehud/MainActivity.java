@@ -18,6 +18,7 @@ import android.view.Display;
 import android.view.View;
 import android.widget.Button;
 import android.widget.CompoundButton;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -362,6 +363,7 @@ public final class MainActivity extends Activity {
         weatherCard.addView(weatherButtons);
         root.addView(weatherCard, cardParams());
         updateWeatherKeyStatus();
+        root.addView(buildVoiceCard(), cardParams());
 
         LinearLayout autoCard = card();
         autoCard.addView(text("자동실행", 18.0f, Color.WHITE, Typeface.BOLD));
@@ -819,6 +821,94 @@ public final class MainActivity extends Activity {
         } catch (Exception ignored) {
             return "?";
         }
+    }
+
+    /** 리모컨 음성 비서: Claude API 키, 마이크 권한, 답변 읽기. */
+    private LinearLayout buildVoiceCard() {
+        LinearLayout voiceCard = card();
+        voiceCard.addView(text("AI 음성 비서", 18.0f, Color.WHITE, Typeface.BOLD));
+        TextView voiceStatus = text("", 14.0f, Color.rgb(190, 200, 210), Typeface.NORMAL);
+        voiceStatus.setLineSpacing(0.0f, 1.18f);
+        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        statusParams.setMargins(0, dp(10), 0, dp(10));
+        voiceCard.addView(voiceStatus, statusParams);
+        Runnable refresh = () -> {
+            boolean hasKey = !AppPrefs.getClaudeApiKey(this).isEmpty();
+            boolean mic = checkSelfPermission("android.permission.RECORD_AUDIO") == PackageManager.PERMISSION_GRANTED;
+            voiceStatus.setText("API 키: " + (hasKey ? "저장됨" : "없음") + "   마이크: " + (mic ? "허용" : "미허용")
+                    + "\nEON 리모컨 버튼 설정에서 '음성 비서 (AI)'를 버튼에 배정하세요."
+                    + "\n한 번 누르면 듣기, 듣는 중 다시 누르면 취소, 제안 카드가 뜬 뒤 누르면 적용.");
+        };
+        refresh.run();
+        EditText keyInput = new EditText(this);
+        keyInput.setHint("sk-ant-... 붙여넣기");
+        keyInput.setSingleLine(true);
+        keyInput.setTextColor(Color.WHITE);
+        keyInput.setHintTextColor(Color.rgb(120, 130, 140));
+        keyInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        voiceCard.addView(keyInput, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        LinearLayout keyButtons = new LinearLayout(this);
+        keyButtons.setOrientation(LinearLayout.HORIZONTAL);
+        Button saveKey = button("키 저장", Color.rgb(40, 92, 132));
+        saveKey.setOnClickListener(v -> {
+            String key = keyInput.getText().toString().trim();
+            if (!key.startsWith("sk-ant-")) {
+                new AlertDialog.Builder(this).setTitle("Claude API 키")
+                        .setMessage("sk-ant- 로 시작하는 키를 붙여넣어 주세요.")
+                        .setPositiveButton("확인", null).show();
+                return;
+            }
+            AppPrefs.setClaudeApiKey(this, key);
+            keyInput.setText("");
+            refresh.run();
+        });
+        Button clearKey = button("키 삭제", Color.rgb(168, 54, 64));
+        clearKey.setOnClickListener(v -> {
+            AppPrefs.setClaudeApiKey(this, "");
+            refresh.run();
+        });
+        Button micButton = button("마이크 허용", Color.rgb(40, 92, 132));
+        micButton.setOnClickListener(v -> requestPermissions(
+                new String[]{"android.permission.RECORD_AUDIO"}, 74));
+        LinearLayout.LayoutParams first = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        first.setMargins(0, dp(8), dp(5), 0);
+        LinearLayout.LayoutParams middle = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        middle.setMargins(dp(5), dp(8), dp(5), 0);
+        LinearLayout.LayoutParams last = new LinearLayout.LayoutParams(0, dp(48), 1f);
+        last.setMargins(dp(5), dp(8), 0, 0);
+        keyButtons.addView(saveKey, first);
+        keyButtons.addView(micButton, middle);
+        keyButtons.addView(clearKey, last);
+        voiceCard.addView(keyButtons);
+        LinearLayout ttsRow = new LinearLayout(this);
+        ttsRow.setOrientation(LinearLayout.HORIZONTAL);
+        ttsRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        ttsRow.setPadding(0, dp(12), 0, 0);
+        ttsRow.addView(text("답변을 소리로 읽기", 15.0f, Color.rgb(190, 200, 210), Typeface.NORMAL),
+                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+        Switch ttsSwitch = new Switch(this);
+        ttsSwitch.setChecked(AppPrefs.isVoiceTtsEnabled(this));
+        ttsSwitch.setOnCheckedChangeListener((b, on) -> AppPrefs.setVoiceTtsEnabled(this, on));
+        ttsRow.addView(ttsSwitch);
+        voiceCard.addView(ttsRow);
+        Button test = button("음성 테스트 (폰에서 바로)", Color.rgb(52, 60, 70));
+        test.setOnClickListener(v -> {
+            VoiceAssistant assistant = VoiceAssistant.get();
+            if (assistant == null) {
+                new AlertDialog.Builder(this).setMessage("HUD 서비스를 먼저 시작하세요.")
+                        .setPositiveButton("확인", null).show();
+            } else {
+                assistant.onButton();
+            }
+        });
+        LinearLayout.LayoutParams testParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(48));
+        testParams.setMargins(0, dp(10), 0, 0);
+        voiceCard.addView(test, testParams);
+        return voiceCard;
     }
 
     private LinearLayout card() {
