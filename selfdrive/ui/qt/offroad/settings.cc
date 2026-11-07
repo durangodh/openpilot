@@ -1451,7 +1451,11 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     // 화면 안에 들어가는 8개만 펼치고, 나머지는 목록을 손가락으로 끌어 스크롤한다.
     actions->setMaxVisibleItems(8);
     actions->view()->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    actions->view()->setStyleSheet("QScrollBar:vertical { width: 60px; }");
+    // 손가락으로 잡을 수 있게 스크롤바를 크게(폭 100px, 손잡이 최소 150px).
+    actions->view()->setStyleSheet(
+        "QScrollBar:vertical { width: 100px; background: #333333; }"
+        "QScrollBar::handle:vertical { min-height: 150px; background: #888888; border-radius: 10px; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }");
     QScroller::grabGesture(actions->view()->viewport(), QScroller::LeftMouseButtonGesture);
     contentLayout->addWidget(actions);
     auto gestures = new QComboBox(&dialog);
