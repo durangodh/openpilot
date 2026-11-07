@@ -1439,15 +1439,20 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     instructions->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
     contentLayout->addWidget(instructions);
     auto actions = new QComboBox(&dialog);
-    const std::array<std::pair<const char *, const char *>, 12> remoteActions = {{{"RES / 속도 +1", "res"},
+    // 음성 두 항목을 맨 위에 둔다. 12개는 EON 화면 높이를 넘어 아래쪽이 잘리고 스크롤바가 너무 작았다.
+    const std::array<std::pair<const char *, const char *>, 12> remoteActions = {{
+      {"음성 비서 (AI)", "voice"}, {"내비 음성 검색 (티맵·네이버·카카오)", "nav_voice"},
+      {"RES / 속도 +1", "res"},
       {"SET / 속도 -1", "set"}, {"차간거리", "gap"}, {"ACC 취소", "cancel"},
       {"왼쪽 차선변경 요청", "lane_left"}, {"오른쪽 차선변경 요청", "lane_right"},
       {"RES 길게 / +10", "res_long"}, {"SET 길게 / -10", "set_long"},
-      {"티맵 / 네이버 전환", "nav_toggle"}, {"HUD 정보 박스 전환", "hud_box"},
-      {"음성 비서 (AI)", "voice"}, {"내비 음성 검색 (티맵·네이버·카카오)", "nav_voice"}}};
+      {"티맵 / 네이버 전환", "nav_toggle"}, {"HUD 정보 박스 전환", "hud_box"}}};
     for (const auto &[label, command] : remoteActions) actions->addItem(label, command);
-    // QComboBox 는 기본으로 10개만 보여 11·12번째(음성 비서·내비 음성)가 스크롤 아래로 숨었다.
-    actions->setMaxVisibleItems(static_cast<int>(remoteActions.size()));
+    // 화면 안에 들어가는 8개만 펼치고, 나머지는 목록을 손가락으로 끌어 스크롤한다.
+    actions->setMaxVisibleItems(8);
+    actions->view()->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    actions->view()->setStyleSheet("QScrollBar:vertical { width: 60px; }");
+    QScroller::grabGesture(actions->view()->viewport(), QScroller::LeftMouseButtonGesture);
     contentLayout->addWidget(actions);
     auto gestures = new QComboBox(&dialog);
     gestures->addItem("짧게 누르기", "short");
