@@ -4666,13 +4666,15 @@ public final class HudService extends Service {
         text(c, p, hi, right, lineY - 8f, 22f, ink(), Paint.Align.CENTER);
     }
 
-    // EON 블루투스 리모컨 표시: 속도 원 아래 ~ 연료 막대 위. 평소엔 아래 한 줄(연결 상태),
-    // 명령이 들어오면 REMOTE_EVENT_MS 동안 같은 자리를 키워 명령·결과를 보여 준다(2026-10-26).
-    private static final float REMOTE_LEFT = 70f;
-    private static final float REMOTE_RIGHT = 360f;
-    private static final float REMOTE_TOP = 548f;
-    private static final float REMOTE_BOTTOM = 642f;
+    // EON 블루투스 리모컨 표시: 왼쪽 위 등화·경고등 배지(11~60, TOP_ROW_SCALE 1.1 로 화면 10~62.4)
+    // 바로 아래(2026-11-07 요청). 평소엔 연결 상태 한 줄, 명령이 들어오면 REMOTE_EVENT_MS 동안
+    // 같은 크기 상자에 명령·결과를 보여 준다(크기·글자 통일 요청).
+    private static final float REMOTE_LEFT = 10f;
+    private static final float REMOTE_RIGHT = 300f;
+    private static final float REMOTE_TOP = 62.4f + 8f;
     private static final float REMOTE_LINE_H = 36f;
+    private static final float REMOTE_BOTTOM = REMOTE_TOP + REMOTE_LINE_H;
+    private static final float REMOTE_TEXT_SIZE = 22f;
     private static final long REMOTE_EVENT_MS = 1500L;
     private int remoteSeq = -1;
     private long remoteShowUntil;
@@ -4700,13 +4702,12 @@ public final class HudService extends Service {
                 : link == 1 ? Color.rgb(255, 190, 60) : Color.rgb(150, 150, 150);
         boolean event = now < remoteShowUntil;
         int edge = event ? (remoteOk ? Color.rgb(80, 200, 255) : Color.rgb(255, 170, 60)) : dot;
-        float top = event ? REMOTE_TOP : REMOTE_BOTTOM - REMOTE_LINE_H;
         float radius = REMOTE_LINE_H / 2f;
 
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(Color.argb(175, 0, 0, 0));
-        scratchRect.set(REMOTE_LEFT, top, REMOTE_RIGHT, REMOTE_BOTTOM);
+        scratchRect.set(REMOTE_LEFT, REMOTE_TOP, REMOTE_RIGHT, REMOTE_BOTTOM);
         c.drawRoundRect(scratchRect, radius, radius, p);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(3f);
@@ -4714,16 +4715,28 @@ public final class HudService extends Service {
         c.drawRoundRect(scratchRect, radius, radius, p);
         p.setStyle(Paint.Style.FILL);
         p.setColor(dot);
-        float dotY = top + REMOTE_LINE_H / 2f;
+        float dotY = REMOTE_TOP + REMOTE_LINE_H / 2f;
         c.drawCircle(REMOTE_LEFT + 22f, dotY, 7f, p);
 
         if (event) {
-            textNormal(c, p, remoteResult, REMOTE_RIGHT - 16f, dotY + 7f, 20f, edge, Paint.Align.RIGHT);
-            text(c, p, remoteCmd, REMOTE_LEFT + 16f, REMOTE_BOTTOM - 14f, 40f, Color.WHITE, Paint.Align.LEFT);
+            // 명령(흰색)은 왼쪽, 결과(EON 수신/차단, 테두리색)는 오른쪽. 같은 글자 크기.
+            float resultSize = REMOTE_TEXT_SIZE;
+            p.setTypeface(Typeface.create("sans", Typeface.NORMAL));
+            p.setTextSize(resultSize);
+            float cmdRight = REMOTE_LEFT + 38f + p.measureText(remoteCmd);
+            float room = REMOTE_RIGHT - 14f - cmdRight - 10f;
+            float resultW = p.measureText(remoteResult);
+            if (resultW > room && room > 0f) {
+                resultSize = Math.max(12f, resultSize * room / resultW);
+            }
+            textNormal(c, p, remoteCmd, REMOTE_LEFT + 38f, dotY + 8f, REMOTE_TEXT_SIZE, Color.WHITE,
+                    Paint.Align.LEFT);
+            textNormal(c, p, remoteResult, REMOTE_RIGHT - 14f, dotY + 8f, resultSize, edge,
+                    Paint.Align.RIGHT);
         } else {
             String label = link == 2 ? "리모컨 연결됨" : link == 1 ? "절전 · 눌러 깨우기"
                     : link == 3 ? "리모컨 연결 끊김" : "리모컨 연결 안 됨";
-            textNormal(c, p, label, REMOTE_LEFT + 38f, dotY + 8f, 22f, Color.rgb(230, 230, 230),
+            textNormal(c, p, label, REMOTE_LEFT + 38f, dotY + 8f, REMOTE_TEXT_SIZE, Color.rgb(230, 230, 230),
                     Paint.Align.LEFT);
         }
     }
