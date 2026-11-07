@@ -42,6 +42,20 @@ public final class MapThemePolicyCheck {
         check(p.current(later + 1500) == 0, "recovery settles");
         p.reset();
         check(p.current(13000) == -1, "app switch resets theme");
+        // Daytime tunnel: the navi map turns night, the HUD follows only after 15 s.
+        MapThemePolicy d = new MapThemePolicy();
+        d.observe(0, 0, true); d.observe(0, 1500, true);
+        check(d.current(1500) == 0, "daytime day");
+        for (long t = 2000; t <= 15000; t += 500) d.observe(1, t, true);
+        check(d.current(15000) == 0, "short daytime tunnel keeps day");
+        d.observe(0, 15500, true); d.observe(0, 17000, true);
+        check(d.current(17000) == 0, "out of the tunnel");
+        for (long t = 18000; t <= 32500; t += 500) d.observe(1, t, true);
+        check(d.current(32500) == 0, "night map under 15 s still day");
+        d.observe(1, 33000, true);
+        check(d.current(33000) == 1, "night map for 15 s switches");
+        d.observe(0, 34000, true); d.observe(0, 35500, true);
+        check(d.current(35500) == 0, "back to day after 1.5 s");
         System.out.println("Map theme policy checks passed");
     }
 }

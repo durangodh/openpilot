@@ -6934,7 +6934,8 @@ public final class HudService extends Service {
                 mapThemePixels[index++] = map.getPixel(x, y);
             }
         }
-        mapThemePolicy.observe(MapThemePolicy.classify(mapThemePixels), now);
+        mapThemePolicy.observe(MapThemePolicy.classify(mapThemePixels), now,
+                !SunTimes.isNight(System.currentTimeMillis()));
     }
 
     private void applyThemeOverlay(Canvas c, Paint p) {

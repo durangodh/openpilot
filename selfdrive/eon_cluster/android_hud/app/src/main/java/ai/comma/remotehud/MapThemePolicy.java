@@ -10,6 +10,14 @@ package ai.comma.remotehud;
 final class MapThemePolicy {
     static final int UNKNOWN = -1, DAY = 0, NIGHT = 1;
     static final long HOLD_MS = 60_000L;
+    /** Frames of one theme needed before switching to it. */
+    static final long SETTLE_MS = 1500L;
+    /**
+     * In daytime the navi app goes to its night map in every tunnel. Switching the HUD with it
+     * made short tunnels flip the whole panel back and forth, so in daytime the HUD only follows
+     * a night map that lasts this long (2026-11-07 request: 15 s). Back to day stays SETTLE_MS.
+     */
+    static final long DAYTIME_NIGHT_MS = 15_000L;
     private int stable = UNKNOWN, candidate = UNKNOWN;
     private long candidateSince, lastConfident = -1;
 
@@ -42,7 +50,12 @@ final class MapThemePolicy {
         return UNKNOWN;
     }
 
-    synchronized void observe(int value, long now) {
+    void observe(int value, long now) {
+        observe(value, now, false);
+    }
+
+    /** daytime: it is day by the sun, so a night map (tunnel) must last DAYTIME_NIGHT_MS. */
+    synchronized void observe(int value, long now, boolean daytime) {
         if (lastConfident >= 0 && now - lastConfident > HOLD_MS) reset();
         if (value == UNKNOWN) {
             candidate = UNKNOWN;
@@ -52,7 +65,7 @@ final class MapThemePolicy {
         if (candidate != value) {
             candidate = value;
             candidateSince = now;
-        } else if (now - candidateSince >= 1500L) {
+        } else if (now - candidateSince >= (value == NIGHT && daytime ? DAYTIME_NIGHT_MS : SETTLE_MS)) {
             stable = value;
         }
     }
