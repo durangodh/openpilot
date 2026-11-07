@@ -138,7 +138,11 @@ public class VoiceActivity extends Activity implements RecognitionListener {
         end(null, message);
     }
 
-    @Override public void onReadyForSpeech(Bundle params) { }
+    @Override
+    public void onReadyForSpeech(Bundle params) {
+        VoiceAssistant assistant = VoiceAssistant.get();
+        if (assistant != null) assistant.onReady();
+    }
     @Override public void onBeginningOfSpeech() { }
     @Override public void onRmsChanged(float rmsdB) { }
     @Override public void onBufferReceived(byte[] buffer) { }

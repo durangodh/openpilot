@@ -133,7 +133,8 @@ public final class VoiceAssistant {
             return;
         }
         session++;
-        show(State.LISTENING, "듣는 중", "말씀하세요", LISTEN_TIMEOUT_MS);
+        // 마이크가 실제로 열리기 전(투명 창 실행·인식기 준비)에는 "준비 중"으로 둔다.
+        show(State.LISTENING, "준비 중", "잠시만요", LISTEN_TIMEOUT_MS);
         new Thread(this::launchListener, "hud-voice-launch").start();
     }
 
@@ -160,6 +161,14 @@ public final class VoiceAssistant {
     }
 
     // ── VoiceActivity 콜백 ─────────────────────────────────────────────
+
+    /** 인식기가 소리를 받기 시작함: 이때부터 말하면 된다. */
+    void onReady() {
+        if (state == State.LISTENING) {
+            title = "듣는 중";
+            body = "말씀하세요";
+        }
+    }
 
     void onPartial(String text) {
         if (state == State.LISTENING && text != null && !text.isEmpty()) {
