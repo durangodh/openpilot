@@ -51,7 +51,6 @@ import java.util.UUID;
  */
 public final class VoiceAssistant {
     private static final String TAG = "HudVoice";
-    private static final String MODEL = "claude-haiku-5-5";
     private static final String API_URL = "https://api.anthropic.com/v1/messages";
     private static final int MAX_ROUNDS = 6;
     private static final long CONTEXT_KEEP_MS = 60_000L;
@@ -837,7 +836,7 @@ public final class VoiceAssistant {
 
     private JSONObject callClaude(JSONArray messages) throws Exception {
         JSONObject body = new JSONObject()
-                .put("model", MODEL)
+                .put("model", AppPrefs.getClaudeModel(context))
                 .put("max_tokens", 600)
                 .put("system", SYSTEM)
                 .put("tools", tools())

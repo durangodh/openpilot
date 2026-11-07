@@ -12,6 +12,12 @@ public final class AppPrefs {
     private static final String CLAUDE_API_KEY = "claude_api_key";
     private static final String VOICE_TTS = "voice_tts";
     private static final String CLAUDE_WORKSPACE = "claude_workspace_id";
+    private static final String CLAUDE_MODEL = "claude_model";
+    /** 음성 비서 모델 {id, 표시 이름}. 첫 항목이 기본값. */
+    public static final String[][] CLAUDE_MODELS = {
+            {"claude-haiku-5-5", "Haiku 5.5 · 빠름"},
+            {"claude-sonnet-5-5", "Sonnet 5.5 · 균형"},
+            {"claude-opus-5-5", "Opus 5.5 · 고성능"}};
     private static final String ORIENTATION = "hud_orientation";
     private static final String MIRROR = "hud_mirror";
     private static final String NAVI_LAYOUT = "hud_navi_layout";
@@ -70,6 +76,16 @@ public final class AppPrefs {
 
     public static void setClaudeWorkspaceId(Context context, String id) {
         prefs(context).edit().putString(CLAUDE_WORKSPACE, id == null ? "" : id.trim()).apply();
+    }
+
+    public static String getClaudeModel(Context context) {
+        String model = prefs(context).getString(CLAUDE_MODEL, CLAUDE_MODELS[0][0]);
+        for (String[] m : CLAUDE_MODELS) if (m[0].equals(model)) return model;
+        return CLAUDE_MODELS[0][0];
+    }
+
+    public static void setClaudeModel(Context context, String model) {
+        prefs(context).edit().putString(CLAUDE_MODEL, model).apply();
     }
 
     /** 음성 비서 답변을 소리로 읽을지. 기본 꺼짐. */

@@ -906,6 +906,28 @@ public final class MainActivity extends Activity {
         keyButtons.addView(micButton, middle);
         keyButtons.addView(clearKey, last);
         voiceCard.addView(keyButtons);
+        voiceCard.addView(text("AI 모델 (빠를수록 저렴, 높을수록 판단이 좋지만 느리고 비쌈)", 14.0f,
+                Color.rgb(148, 162, 175), Typeface.NORMAL), new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        android.widget.RadioGroup models = new android.widget.RadioGroup(this);
+        models.setOrientation(LinearLayout.VERTICAL);
+        String currentModel = AppPrefs.getClaudeModel(this);
+        for (int i = 0; i < AppPrefs.CLAUDE_MODELS.length; i++) {
+            android.widget.RadioButton option = new android.widget.RadioButton(this);
+            option.setId(1000 + i);
+            option.setText(AppPrefs.CLAUDE_MODELS[i][1]);
+            option.setTextColor(Color.WHITE);
+            option.setTextSize(15.0f);
+            option.setChecked(AppPrefs.CLAUDE_MODELS[i][0].equals(currentModel));
+            models.addView(option);
+        }
+        models.setOnCheckedChangeListener((group, id) -> {
+            int index = id - 1000;
+            if (index >= 0 && index < AppPrefs.CLAUDE_MODELS.length) {
+                AppPrefs.setClaudeModel(this, AppPrefs.CLAUDE_MODELS[index][0]);
+            }
+        });
+        voiceCard.addView(models);
         LinearLayout ttsRow = new LinearLayout(this);
         ttsRow.setOrientation(LinearLayout.HORIZONTAL);
         ttsRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
