@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """EON Bluetooth remote: classic Bluetooth HID input read straight from the kernel.
 
-NOTE: does not work on the EON. Android's Bluetooth HID host needs the kernel's UHID
-(/dev/uhid), which the EON kernel lacks, so a paired, "connected" HID remote never gets an
-input node (Mocute 052, 2026-11). Any Bluetooth HID remote (8BitDo Micro/Zero 2, ...) is the same.
+Android's Bluetooth HID host needs the kernel's UHID (/dev/uhid). The stock EON kernel
+lacked it (Mocute 052, early 2026-11); with UHID set up on the EON (2026-11-07, in use)
+the remote works directly.
 
-On a kernel with UHID, the remote is paired once in Android's
+With UHID, the remote is paired once in Android's
 Bluetooth settings. Android's HID host then creates /dev/input/eventN with bus
 type 0005; this process grabs that node exclusively, so Android never sees the
 keys, and turns learned presses into hud_remote commands. No phone, no Wi-Fi
