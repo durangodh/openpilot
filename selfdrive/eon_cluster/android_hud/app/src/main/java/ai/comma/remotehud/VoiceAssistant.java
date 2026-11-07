@@ -72,6 +72,9 @@ public final class VoiceAssistant {
 
     /** Current cruise gap step (1..4) from the latest EON packet, 0 when unknown. */
     volatile java.util.function.IntSupplier gapReader = () -> 0;
+    /** Latest EON packet and its age in ms (Long.MAX_VALUE when none yet). */
+    volatile java.util.function.Supplier<JSONObject> packetReader = () -> null;
+    volatile java.util.function.LongSupplier packetAgeMs = () -> Long.MAX_VALUE;
 
     private final Context context;
     private final EonLink eon;
@@ -395,6 +398,60 @@ public final class VoiceAssistant {
         return new JSONObject().put("ok", false).put("error", "EON 응답 없음(연결 확인)");
     }
 
+    private static final String[][] WARNINGS = {
+            {"engineWarning", "엔진 경고등"}, {"airbagWarning", "에어백 경고등"},
+            {"batteryWarning", "충전 경고등"}, {"oilPressureWarning", "엔진오일 압력 경고등"},
+            {"absWarning", "ABS 경고등"}, {"steerFaultPermanent", "조향(MDPS) 고장"},
+            {"steerFaultTemporary", "조향(MDPS) 일시 오류"}, {"aebSystemFault", "AEB 시스템 고장"},
+            {"blindSpotSystemFault", "후측방(BSD) 시스템 고장"}, {"lowFuelWarning", "연료 부족"},
+            {"parkingBrake", "주차브레이크 체결"}, {"seatbeltUnlatched", "안전벨트 미착용"}};
+    private static final String[][] OPENINGS = {
+            {"fl", "운전석"}, {"fr", "조수석"}, {"rl", "뒤 왼쪽"}, {"rr", "뒤 오른쪽"},
+            {"trunk", "트렁크"}, {"hood", "보닛"}};
+
+    /** Vehicle health from the HUD packet the app already receives (no extra EON work). */
+    private JSONObject vehicleStatus() throws JSONException {
+        JSONObject s = packetReader.get();
+        long age = packetAgeMs.getAsLong();
+        if (s == null || age > 3_000L) {
+            return new JSONObject().put("ok", false).put("error", "EON 데이터 없음(연결 확인)");
+        }
+        JSONObject out = new JSONObject().put("ok", true);
+        JSONArray warnings = new JSONArray();
+        for (String[] w : WARNINGS) if (s.optBoolean(w[0], false)) warnings.put(w[1]);
+        out.put("warnings", warnings);
+        JSONObject tpms = s.optJSONObject("tpms");
+        if (tpms != null && tpms.optDouble("fl", -1) > 0) {
+            out.put("tpms_psi", new JSONObject().put("앞왼쪽", tpms.optDouble("fl")).put("앞오른쪽", tpms.optDouble("fr"))
+                    .put("뒤왼쪽", tpms.optDouble("rl")).put("뒤오른쪽", tpms.optDouble("rr")));
+        }
+        double volt = s.optDouble("batteryVoltage", -1);
+        if (volt > 0) out.put("battery_v", volt);
+        if (s.optDouble("fuelLevel", -1) >= 0) out.put("fuel_level", s.optDouble("fuelLevel"));
+        if (s.optDouble("distanceToEmpty", -1) >= 0) out.put("range_km", s.optDouble("distanceToEmpty"));
+        if (s.optDouble("odometer", -1) >= 0) out.put("odometer_km", s.optDouble("odometer"));
+        if (s.optDouble("outsideTemp", -1000) > -100) out.put("outside_c", s.optDouble("outsideTemp"));
+        JSONObject sys = s.optJSONObject("system");
+        if (sys != null) {
+            if (!sys.isNull("engineTemp")) out.put("engine_oil_c", sys.opt("engineTemp"));
+            if (!sys.isNull("coolantTemp")) out.put("coolant_c", sys.opt("coolantTemp"));
+            out.put("eon", new JSONObject().put("temp_c", sys.optDouble("temp")).put("cpu", sys.optDouble("cpu")));
+        }
+        JSONArray open = new JSONArray();
+        JSONObject doors = s.optJSONObject("doors");
+        if (doors != null) for (String[] d : OPENINGS) if (doors.optBoolean(d[0], false)) open.put(d[1] + " 문");
+        JSONObject windows = s.optJSONObject("windows");
+        if (windows != null) for (int i = 0; i < 4; i++) {
+            if (windows.optBoolean(OPENINGS[i][0], false)) open.put(OPENINGS[i][1] + " 창문");
+        }
+        out.put("open", open);
+        JSONObject alert = s.optJSONObject("alert");
+        if (alert != null && !alert.optString("text1", "").isEmpty()) {
+            out.put("openpilot_alert", (alert.optString("text1") + " " + alert.optString("text2", "")).trim());
+        }
+        return out;
+    }
+
     static String systemLabel(String action) {
         if ("pull".equals(action)) return "git pull";
         if ("reboot".equals(action)) return "EON 재부팅";
@@ -468,6 +525,7 @@ public final class VoiceAssistant {
             + "'한 칸 늘려'는 현재 단계+1, '줄여'는 -1. 결과는 '차간 2→3단'처럼 말한다. "
             + "길안내·목적지·경유지 요청(예: 집으로 가자)은 open_nav_voice 로 내비 음성창을 열고 "
             + "'내비에 목적지를 말씀하세요'라고만 답한다. "
+            + "차 상태·경고등·타이어·배터리 질문은 vehicle_status 를 쓰고, 이상 있는 것만 짧게 말한다(없으면 '이상 없어요'). "
             + "깃풀·재부팅 요청은 system_command 로 확인 카드만 띄우고 '버튼을 누르면 실행해요'라고 답한다. "
             + "코드 수정·버그·이상 동작 신고나 '메모해 줘'는 고칠 수 없으니 save_memo 로 기록하고 '메모했어요'라고만 답한다. "
             + "관련 설정이 떠오르면 settings 에 이름을 넣는다(검색 없이 아는 이름만). "
@@ -522,6 +580,10 @@ public final class VoiceAssistant {
                         .put("properties", new JSONObject().put("action", new JSONObject().put("type", "string")
                                 .put("enum", new JSONArray().put("pull").put("reboot").put("pull_reboot"))))
                         .put("required", new JSONArray().put("action"))));
+        t.put(new JSONObject().put("name", "vehicle_status")
+                .put("description", "차량 상태 진단: 켜진 경고등, 타이어 공기압(psi), 배터리 전압, 연료·주행가능거리, "
+                        + "엔진오일·냉각수 온도, 열린 문·창문, 주차브레이크, 오파 경고, EON 온도. '차 상태 어때?' 등에 쓴다.")
+                .put("input_schema", new JSONObject().put("type", "object").put("properties", new JSONObject())));
         t.put(new JSONObject().put("name", "open_nav_voice")
                 .put("description", "선택된 내비(티맵·네이버·카카오)의 자체 음성 검색창을 연다. 길안내·목적지·경유지 요청일 때 쓴다. "
                         + "열린 뒤 운전자가 내비에 목적지를 다시 말해야 한다.")
@@ -610,6 +672,7 @@ public final class VoiceAssistant {
         if ("cruise_gap".equals(name)) return "차간 단계 맞추는 중";
         if ("save_memo".equals(name)) return "메모 저장 중";
         if ("system_command".equals(name)) return "실행 가능 여부 확인 중";
+        if ("vehicle_status".equals(name)) return "차량 상태 확인 중";
         return name;
     }
 
@@ -642,6 +705,8 @@ public final class VoiceAssistant {
             }
             reply = askEon(new JSONObject().put("op", "set").put("name", input.optString("name"))
                     .put("value", input.optInt("value")));
+        } else if ("vehicle_status".equals(name)) {
+            reply = vehicleStatus();
         } else if ("system_command".equals(name)) {
             String action = input.optString("action");
             reply = askEon(new JSONObject().put("op", "system_check").put("action", action));

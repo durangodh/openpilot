@@ -861,6 +861,11 @@ public final class HudService extends Service {
             JSONObject current = state.get();
             return current == null ? 0 : current.optInt("gap", 0);
         };
+        assistantInit.packetReader = state::get;
+        assistantInit.packetAgeMs = () -> {
+            long last = lastEonRxElapsed;
+            return last == 0L ? Long.MAX_VALUE : SystemClock.elapsedRealtime() - last;
+        };
         voice = assistantInit;
         weather = new WeatherService(this);
         // EON 이 붙기 전 첫 프레임부터 올바른 방향으로 그리기 위해 마지막 값을 복원한다.
