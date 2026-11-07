@@ -70,6 +70,15 @@ class VoiceParamsTest(unittest.TestCase):
     self.assertNotIn("SteerActuatorDelay", self.params.store)
     self.assertTrue(request(self.vp, True, op="set", name="TFollowGap2", value=130)["ok"])
 
+  def test_press_only_gap(self):
+    pressed = []
+    def press(cmd):
+      pressed.append(cmd)
+      return "accepted"
+    self.assertTrue(json.loads(self.vp.handle(b'HUDPRM1 {"op":"press","cmd":"gap"}', True, press)[len(REPLY_PREFIX):])["ok"])
+    self.assertFalse(json.loads(self.vp.handle(b'HUDPRM1 {"op":"press","cmd":"cancel"}', True, press)[len(REPLY_PREFIX):])["ok"])
+    self.assertEqual(pressed, ["gap"])
+
   def test_foreign_datagram_ignored(self):
     self.assertIsNone(self.vp.handle(b"HUD1", False))
     self.assertIsNone(self.vp.handle(b"HUDPRM1 not-json", False))

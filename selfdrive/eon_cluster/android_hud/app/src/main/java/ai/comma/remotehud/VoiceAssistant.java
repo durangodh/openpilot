@@ -67,6 +67,9 @@ public final class VoiceAssistant {
 
     private static volatile VoiceAssistant instance;
 
+    /** Current cruise gap step (1..4) from the latest EON packet, 0 when unknown. */
+    volatile java.util.function.IntSupplier gapReader = () -> 0;
+
     private final Context context;
     private final EonLink eon;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -417,6 +420,8 @@ public final class VoiceAssistant {
             + "운전자가 '부드럽게' 같은 말만 했고 네가 값을 정했으면 user_stated_value=false 로 한 번만 제안한다. "
             + "그러면 앱이 운전자 확인을 받으니, 버튼을 누르면 적용된다고 짧게 말한다. "
             + "후보가 여러 개면 가장 맞는 것을 고르고, 애매하면 상위 2~3개 제목을 짧게 말해 다시 묻는다. "
+            + "차간거리 몇 칸·단계 요청은 cruise_gap 을 쓴다(TFollowGap 설정이 아님). "
+            + "'한 칸 늘려'는 현재 단계+1, '줄여'는 -1. 결과는 '차간 2→3단'처럼 말한다. "
             + "길안내·목적지·경유지 요청(예: 집으로 가자)은 open_nav_voice 로 내비 음성창을 열고 "
             + "'내비에 목적지를 말씀하세요'라고만 답한다. "
             + "날씨·뉴스 같은 일반 질문은 web_search 를 쓴다. 차량 조작(조향·가감속 직접 명령)은 하지 않는다.";
@@ -444,6 +449,14 @@ public final class VoiceAssistant {
                                 .put("user_stated_value", new JSONObject().put("type", "boolean")
                                         .put("description", "운전자가 이 숫자를 직접 말했으면 true")))
                         .put("required", new JSONArray().put("name").put("value").put("user_stated_value"))));
+        t.put(new JSONObject().put("name", "cruise_gap")
+                .put("description", "크루즈 차간 단계(1~4칸)를 목표 단계로 맞춘다. 차간 단계는 설정값이 아니라 GAP 버튼 상태이므로 "
+                        + "'차간거리 한 칸 늘려줘' 같은 요청에 쓴다. 현재 단계는 current_gap 으로 먼저 확인할 수 있다.")
+                .put("input_schema", new JSONObject().put("type", "object")
+                        .put("properties", new JSONObject()
+                                .put("target", new JSONObject().put("type", "integer")
+                                        .put("description", "목표 단계 1~4. 0 이면 현재 단계만 읽는다")))
+                        .put("required", new JSONArray().put("target"))));
         t.put(new JSONObject().put("name", "open_nav_voice")
                 .put("description", "선택된 내비(티맵·네이버·카카오)의 자체 음성 검색창을 연다. 길안내·목적지·경유지 요청일 때 쓴다. "
                         + "열린 뒤 운전자가 내비에 목적지를 다시 말해야 한다.")
@@ -527,6 +540,7 @@ public final class VoiceAssistant {
         if ("get_setting".equals(name)) return "현재값 읽는 중";
         if ("set_setting".equals(name)) return "설정 바꾸는 중";
         if ("open_nav_voice".equals(name)) return "내비 음성창 여는 중";
+        if ("cruise_gap".equals(name)) return "차간 단계 맞추는 중";
         return name;
     }
 
@@ -559,6 +573,8 @@ public final class VoiceAssistant {
             }
             reply = askEon(new JSONObject().put("op", "set").put("name", input.optString("name"))
                     .put("value", input.optInt("value")));
+        } else if ("cruise_gap".equals(name)) {
+            reply = cruiseGap(input.optInt("target", 0));
         } else if ("open_nav_voice".equals(name)) {
             String error = openNavVoice();
             reply = error == null
@@ -568,6 +584,42 @@ public final class VoiceAssistant {
             reply = new JSONObject().put("ok", false).put("error", "알 수 없는 도구");
         }
         return reply.toString();
+    }
+
+    /**
+     * Presses GAP until the HUD packet shows the target step (max 4 presses), reading the
+     * real step back after each press because the car decides the cycle order.
+     */
+    private JSONObject cruiseGap(int target) throws JSONException {
+        int current = gapReader.getAsInt();
+        if (current < 1 || current > 4) {
+            return new JSONObject().put("ok", false).put("error", "현재 차간 단계를 알 수 없음(시동·크루즈 확인)");
+        }
+        if (target == 0 || target == current) {
+            return new JSONObject().put("ok", true).put("gap", current);
+        }
+        if (target < 1 || target > 4) {
+            return new JSONObject().put("ok", false).put("error", "차간 단계는 1~4").put("gap", current);
+        }
+        int before = current;
+        for (int press = 0; press < 4; press++) {
+            JSONObject r = askEon(new JSONObject().put("op", "press").put("cmd", "gap"));
+            if (!r.optBoolean("ok")) {
+                return r.put("gap", gapReader.getAsInt()).put("before", before);
+            }
+            // 버튼 → 차량 → 다음 패킷까지 기다렸다가 실제 단계를 다시 읽는다.
+            int seen = current;
+            for (int wait = 0; wait < 10 && seen == current; wait++) {
+                SystemClock.sleep(120L);
+                seen = gapReader.getAsInt();
+            }
+            current = seen;
+            if (current == target) {
+                return new JSONObject().put("ok", true).put("before", before).put("after", current);
+            }
+        }
+        return new JSONObject().put("ok", false).put("error", "목표 단계에 도달하지 못함")
+                .put("before", before).put("after", current);
     }
 
     static final class ApiError extends Exception {
@@ -717,25 +769,26 @@ public final class VoiceAssistant {
         boolean blink = (s == State.LISTENING || s == State.THINKING) && ((now - stateSince) / 450L) % 2 == 1;
         p.setStyle(Paint.Style.FILL);
         p.setColor(blink ? Color.argb(80, Color.red(accent), Color.green(accent), Color.blue(accent)) : accent);
-        c.drawCircle(32f, 40f, 12f, p);
+        c.drawCircle(34f, 44f, 14f, p);
 
         p.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        p.setTextSize(34f);
+        p.setTextSize(42f);
         p.setTextAlign(Paint.Align.LEFT);
         p.setColor(accent);
         String head = title;
         if (s == State.CONFIRM) {
             head += "  " + Math.max(0L, (shownUntil - now + 999L) / 1000L) + "초";
         }
-        c.drawText(head, 56f, 52f, p);
+        c.drawText(head, 60f, 58f, p);
 
+        // 정보 박스는 HUD 에서 작게 보여(약 0.57배) 글씨를 크게 쓴다(2026-11-07 실차 사진 기준).
         p.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        p.setTextSize(32f);
+        p.setTextSize(44f);
         p.setColor(Color.WHITE);
-        float lineH = 44f;
-        int maxLines = Math.max(1, (int) ((h - 84f - 16f) / lineH) + 1);
+        float lineH = 58f;
+        int maxLines = Math.max(1, (int) ((h - 118f - 16f) / lineH) + 1);
         List<String> lines = wrap(body, w - 40f, p, maxLines);
-        float y = 104f;
+        float y = 124f;
         for (String line : lines) {
             c.drawText(line, 20f, y, p);
             y += lineH;

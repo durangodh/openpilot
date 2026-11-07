@@ -5,7 +5,8 @@ sender. Only settings listed in selfdrive/apilot.json (the APM list) can be read
 written, every write is range-checked here, and while the car moves only the cruise and
 longitudinal groups can change. Whatever the AI on the phone asks for, these rules hold.
 
-Request : HUDPRM1 {"id": "...", "op": "search"|"get"|"set", ...}
+Request : HUDPRM1 {"id": "...", "op": "search"|"get"|"set"|"press", ...}
+          press only accepts cmd "gap" (차간 단계 = 크루즈 GAP 버튼 상태, 설정값 아님).
 Reply   : HUDPRM1R {"id": "...", "ok": true|false, ...}
 """
 import json
@@ -119,7 +120,18 @@ class VoiceParams:
             "before": before, "after": after, "min": lo, "max": hi,
             "error": "" if after == target else "저장값 확인 실패"}
 
-  def handle(self, data, moving):
+  @staticmethod
+  def press(command, press):
+    """Cruise button for the AI. Only GAP: speed and cancel stay with the driver."""
+    if command != "gap":
+      return {"ok": False, "error": "AI 는 GAP 버튼만 누를 수 있음"}
+    if press is None:
+      return {"ok": False, "error": "버튼 경로 없음"}
+    result = press(command)
+    return {"ok": result == "accepted", "result": result,
+            "error": "" if result == "accepted" else "지금은 버튼을 보낼 수 없음(시동·차량 데이터 확인)"}
+
+  def handle(self, data, moving, press=None):
     """Raw HUDPRM1 datagram -> reply bytes, or None when it is not ours or malformed."""
     if not data.startswith(PREFIX):
       return None
@@ -135,6 +147,8 @@ class VoiceParams:
       out = self.get(req.get("name"))
     elif op == "set":
       out = self.set(req.get("name"), req.get("value"), moving)
+    elif op == "press":
+      out = self.press(req.get("cmd"), press)
     else:
       out = {"ok": False, "error": "알 수 없는 요청"}
     out["id"] = rid

@@ -845,7 +845,7 @@ public final class HudService extends Service {
         AppPrefs.removeLegacyStaticMapSettings(this);
         // 리모컨 내비 음성 버튼용 접근성 서비스(nMirror 서비스는 그대로 둔다).
         new Thread(() -> NavVoiceService.ensureEnabled(this), "hud-nav-voice-enable").start();
-        voice = new VoiceAssistant(this, data -> {
+        final VoiceAssistant assistantInit = new VoiceAssistant(this, data -> {
             DatagramSocket socket = receiverSocket;
             InetAddress address = eonAddress.get();
             int port = lastEonPort;
@@ -857,6 +857,11 @@ public final class HudService extends Service {
                 return false;
             }
         });
+        assistantInit.gapReader = () -> {
+            JSONObject current = state.get();
+            return current == null ? 0 : current.optInt("gap", 0);
+        };
+        voice = assistantInit;
         weather = new WeatherService(this);
         // EON 이 붙기 전 첫 프레임부터 올바른 방향으로 그리기 위해 마지막 값을 복원한다.
         configuredOrientation = AppPrefs.getOrientation(this);
