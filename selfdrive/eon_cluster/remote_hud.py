@@ -19,7 +19,7 @@ import cereal.messaging as messaging
 from common.params import Params
 from selfdrive.eon_cluster.nav_selection import NavSelectionSync
 from selfdrive.eon_cluster.hud_remote import hud_status as remote_status
-from selfdrive.eon_cluster.hud_remote import RemoteCommandSync, allowed_commands, voice_request
+from selfdrive.eon_cluster.hud_remote import VOICE_FILE, RemoteCommandSync, allowed_commands, voice_request
 from selfdrive.eon_cluster.voice_params import VoiceParams
 
 
@@ -1266,6 +1266,13 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   }
 
 
+def _voice_mtime():
+  try:
+    return os.stat(VOICE_FILE).st_mtime_ns
+  except OSError:
+    return 0
+
+
 def main():
   params = Params()
   nav_selection = NavSelectionSync(params)
@@ -1374,7 +1381,17 @@ def main():
       connected = False
       _publish_connected(params, published, False)
       print("remote HUD send failed: %s" % exc, flush=True)
-    time.sleep(max(0.0, 1.0 / telemetry_fps - (time.monotonic() - started)))
+    # 리모컨 음성 호출은 다음 패킷 주기(최대 1/fps)를 기다리지 않고 바로 보낸다.
+    # 파일 mtime 만 보므로 20ms 마다 stat 한 번 정도의 부하다.
+    deadline = started + 1.0 / telemetry_fps
+    voice_mtime = _voice_mtime()
+    while running[0]:
+      remaining = deadline - time.monotonic()
+      if remaining <= 0.0:
+        break
+      time.sleep(min(0.02, remaining))
+      if _voice_mtime() != voice_mtime:
+        break
   _publish_connected(params, published, False)
   map_active[0] = False
   map_thread.join(1.0)

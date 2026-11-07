@@ -12,6 +12,9 @@ WAKE_IGNORE_S = 1.0
 # A disconnect after this much idle time is the remote's own power saving.
 # A disconnect soon after a press is reported as a real link loss.
 SLEEP_IDLE_S = 60.0
+# 음성 호출은 손을 뗄 때까지 기다리지 않고 누르는 순간 보낸다(2026-11-07). 같은 버튼에
+# 길게·두 번 누르기가 배정돼 있으면 구분해야 하므로 예전처럼 뗄 때 판정한다.
+FIRE_ON_PRESS = ("voice", "nav_voice")
 
 
 def learning_allowed(offroad, alive=False, valid=False, can_valid=False, standstill=False, parked=False):
@@ -48,7 +51,15 @@ class Gestures:
   def key(self, token, value, now):
     """value 1 press / 0 release at kernel time now; emit gets the time the gesture completed."""
     if value == 1:
-      self.down.setdefault(token, {'start': now, 'last': None, 'fired': False, 'blocked': False})
+      if token in self.down:
+        return
+      held = {'start': now, 'last': None, 'fired': False, 'blocked': False}
+      self.down[token] = held
+      if (self.learn_gesture is None and self.mapping.get(token + '@short', 'none') in FIRE_ON_PRESS
+          and not self.assigned(token, 'long') and not self.assigned(token, 'double')):
+        held['fired'] = True
+        self.pending.pop(token, None)
+        self.emit(token, 'short', now)
     elif value == 0:
       held = self.down.pop(token, None)
       if held is None or held['blocked'] or not 0 <= now - held['start'] <= MAX_HOLD_S or held['fired']:

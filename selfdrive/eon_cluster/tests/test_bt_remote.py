@@ -35,6 +35,20 @@ class TestGestures(unittest.TestCase):
     self.g = core.Gestures({"key:30@short": "res", "key:31@long": "set_long", "key:32@double": "gap",
                             "key:32@short": "cancel"}, lambda t, g, at: self.out.append((t, g)))
 
+  def test_voice_fires_on_press(self):
+    out = []
+    g = core.Gestures({"key:40@short": "nav_voice", "key:41@short": "voice", "key:41@long": "gap"},
+                      lambda t, gesture, at: out.append((t, gesture)))
+    g.key("key:40", 1, 0.0)
+    self.assertEqual(out, [("key:40", "short")])
+    g.key("key:40", 0, 0.1)
+    g.tick(0.2)
+    self.assertEqual(out, [("key:40", "short")])   # 뗄 때 두 번 보내지 않는다
+    g.key("key:41", 1, 1.0)                         # 길게가 배정된 버튼은 뗄 때 판정
+    self.assertEqual(len(out), 1)
+    g.key("key:41", 0, 1.1)
+    self.assertEqual(out[-1], ("key:41", "short"))
+
   def test_short_fires_on_release(self):
     self.g.key("key:30", 1, 0.0)
     self.assertEqual(self.out, [])
