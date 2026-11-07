@@ -5821,8 +5821,9 @@ public final class HudService extends Service {
                 Color.WHITE, Paint.Align.CENTER);
         // 2026-11-07 요청: 과속카메라 남은거리 글자처럼 원 오른쪽, 아랫줄을 원 아래선에 맞춘다.
         float outerR = SET_R + 1.8f;
+        // 색은 카메라·감속 출처 글자처럼 주야 배경에 따라 검정/흰색(ink()).
         textHeavy(c, p, "LIMIT", cx + outerR + 10f / SIGN_SCALE, ccy + outerR - 3f / SIGN_SCALE, SIGN_LABEL_SIZE,
-                frameDark ? Color.rgb(120, 176, 240) : blue, Paint.Align.LEFT);
+                ink(), Paint.Align.LEFT);
     }
 
     /** 감속(적용)속도: SET 원 2/3 크기의 주황 테두리 원, 숫자는 SET 숫자색, 아래 출처(CAM/SEC…). 화면 좌표. */
