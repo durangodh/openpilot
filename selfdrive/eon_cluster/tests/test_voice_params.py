@@ -76,8 +76,10 @@ class VoiceParamsTest(unittest.TestCase):
       pressed.append(cmd)
       return "accepted"
     self.assertTrue(json.loads(self.vp.handle(b'HUDPRM1 {"op":"press","cmd":"gap"}', True, press)[len(REPLY_PREFIX):])["ok"])
+    self.assertTrue(json.loads(self.vp.handle(b'HUDPRM1 {"op":"press","cmd":"res_long"}', True, press)[len(REPLY_PREFIX):])["ok"])
     self.assertFalse(json.loads(self.vp.handle(b'HUDPRM1 {"op":"press","cmd":"cancel"}', True, press)[len(REPLY_PREFIX):])["ok"])
-    self.assertEqual(pressed, ["gap"])
+    self.assertFalse(json.loads(self.vp.handle(b'HUDPRM1 {"op":"press","cmd":"lane_left"}', True, press)[len(REPLY_PREFIX):])["ok"])
+    self.assertEqual(pressed, ["gap", "res_long"])
 
   def test_memo_line(self):
     with tempfile.TemporaryDirectory() as tmp:

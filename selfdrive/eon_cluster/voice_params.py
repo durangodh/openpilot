@@ -152,11 +152,15 @@ class VoiceParams:
       return {"ok": False, "error": "메모 저장 실패: %s" % e}
     return {"ok": True, "file": os.path.basename(path), "line": line}
 
+  # AI 가 누를 수 있는 크루즈 버튼: 차간(GAP)과 설정속도(RES/SET, 길게=10 단위).
+  # 취소(CANCEL)·차선변경은 운전자 몫이라 넣지 않는다.
+  AI_BUTTONS = ("gap", "res", "set", "res_long", "set_long")
+
   @staticmethod
   def press(command, press):
-    """Cruise button for the AI. Only GAP: speed and cancel stay with the driver."""
-    if command != "gap":
-      return {"ok": False, "error": "AI 는 GAP 버튼만 누를 수 있음"}
+    """Cruise button for the AI (gap and set speed only)."""
+    if command not in VoiceParams.AI_BUTTONS:
+      return {"ok": False, "error": "AI 는 GAP·설정속도 버튼만 누를 수 있음"}
     if press is None:
       return {"ok": False, "error": "버튼 경로 없음"}
     result = press(command)

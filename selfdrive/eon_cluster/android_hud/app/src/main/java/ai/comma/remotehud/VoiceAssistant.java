@@ -521,6 +521,7 @@ public final class VoiceAssistant {
             + "운전자가 '부드럽게' 같은 말만 했고 네가 값을 정했으면 user_stated_value=false 로 한 번만 제안한다. "
             + "그러면 앱이 운전자 확인을 받으니, 버튼을 누르면 적용된다고 짧게 말한다. "
             + "후보가 여러 개면 가장 맞는 것을 고르고, 애매하면 상위 2~3개 제목을 짧게 말해 다시 묻는다. "
+            + "설정속도 요청은 cruise_speed 를 쓰고 결과는 '설정속도 80→100'처럼 말한다. "
             + "차간거리 몇 칸·단계 요청은 cruise_gap 을 쓴다(TFollowGap 설정이 아님). "
             + "'한 칸 늘려'는 현재 단계+1, '줄여'는 -1. 결과는 '차간 2→3단'처럼 말한다. "
             + "길안내·목적지·경유지 요청(예: 집으로 가자)은 open_nav_voice 로 내비 음성창을 열고 "
@@ -580,6 +581,13 @@ public final class VoiceAssistant {
                         .put("properties", new JSONObject().put("action", new JSONObject().put("type", "string")
                                 .put("enum", new JSONArray().put("pull").put("reboot").put("pull_reboot"))))
                         .put("required", new JSONArray().put("action"))));
+        t.put(new JSONObject().put("name", "cruise_speed")
+                .put("description", "크루즈 설정속도(km/h)를 바꾼다. '속도 100으로'는 target=100, '10 올려'는 delta=10, "
+                        + "'속도 내려'처럼 숫자가 없으면 delta=-10. 크루즈가 켜져 있어야 한다.")
+                .put("input_schema", new JSONObject().put("type", "object")
+                        .put("properties", new JSONObject()
+                                .put("target", new JSONObject().put("type", "integer").put("description", "목표 km/h"))
+                                .put("delta", new JSONObject().put("type", "integer").put("description", "변화량 km/h")))));
         t.put(new JSONObject().put("name", "vehicle_status")
                 .put("description", "차량 상태 진단: 켜진 경고등, 타이어 공기압(psi), 배터리 전압, 연료·주행가능거리, "
                         + "엔진오일·냉각수 온도, 열린 문·창문, 주차브레이크, 오파 경고, EON 온도. '차 상태 어때?' 등에 쓴다.")
@@ -673,6 +681,7 @@ public final class VoiceAssistant {
         if ("save_memo".equals(name)) return "메모 저장 중";
         if ("system_command".equals(name)) return "실행 가능 여부 확인 중";
         if ("vehicle_status".equals(name)) return "차량 상태 확인 중";
+        if ("cruise_speed".equals(name)) return "설정속도 맞추는 중";
         return name;
     }
 
@@ -705,6 +714,9 @@ public final class VoiceAssistant {
             }
             reply = askEon(new JSONObject().put("op", "set").put("name", input.optString("name"))
                     .put("value", input.optInt("value")));
+        } else if ("cruise_speed".equals(name)) {
+            reply = cruiseSpeed(input.has("target") ? input.optInt("target") : Integer.MIN_VALUE,
+                    input.optInt("delta", 0));
         } else if ("vehicle_status".equals(name)) {
             reply = vehicleStatus();
         } else if ("system_command".equals(name)) {
@@ -731,6 +743,54 @@ public final class VoiceAssistant {
             reply = new JSONObject().put("ok", false).put("error", "알 수 없는 도구");
         }
         return reply.toString();
+    }
+
+    private static final int SPEED_MIN = 30;
+    private static final int SPEED_MAX = 150;
+
+    private int setSpeed() {
+        JSONObject s = packetReader.get();
+        int v = s == null ? 0 : s.optInt("set", 0);
+        return v > 0 && v < 250 ? v : 0;
+    }
+
+    /**
+     * Steps the cruise set speed with the virtual RES/SET buttons (long = 10 km/h steps),
+     * reading the real set speed back from the HUD packet after each press.
+     */
+    private JSONObject cruiseSpeed(int target, int delta) throws JSONException {
+        int current = setSpeed();
+        if (current == 0 || packetAgeMs.getAsLong() > 3_000L) {
+            return new JSONObject().put("ok", false).put("error", "크루즈 설정속도가 없음(크루즈 켠 뒤 다시)");
+        }
+        if (target == Integer.MIN_VALUE) target = current + (delta == 0 ? 0 : delta);
+        target = Math.max(SPEED_MIN, Math.min(SPEED_MAX, target));
+        int before = current;
+        for (int press = 0; press < 25 && current != target; press++) {
+            int diff = target - current;
+            String cmd = Math.abs(diff) >= 10 ? (diff > 0 ? "res_long" : "set_long") : (diff > 0 ? "res" : "set");
+            JSONObject r = askEon(new JSONObject().put("op", "press").put("cmd", cmd));
+            if (!r.optBoolean("ok")) {
+                return r.put("before", before).put("after", setSpeed());
+            }
+            int seen = current;
+            long wait = cmd.endsWith("_long") ? 2_000L : 1_200L;   // 길게 누름은 0.4초 이상 눌렀다 뗀다
+            long until = SystemClock.elapsedRealtime() + wait;
+            while (seen == current && SystemClock.elapsedRealtime() < until) {
+                SystemClock.sleep(100L);
+                seen = setSpeed();
+            }
+            if (seen == current) {
+                return new JSONObject().put("ok", false).put("error", "설정속도가 바뀌지 않음")
+                        .put("before", before).put("after", current);
+            }
+            current = seen;
+            // 짧게 누름으로 목표를 지나쳤으면(버튼 단위가 1 이 아닌 경우) 그 자리에서 멈춘다.
+            // 길게 누름(10 단위)이 넘친 경우는 다음 루프에서 짧게 눌러 되돌린다.
+            if (!cmd.endsWith("_long") && Integer.signum(target - current) == -Integer.signum(diff)) break;
+        }
+        return new JSONObject().put("ok", current == target).put("before", before).put("after", current)
+                .put("error", current == target ? "" : "목표에 도달하지 못함");
     }
 
     /**
