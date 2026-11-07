@@ -4399,7 +4399,7 @@ public final class HudService extends Service {
             + (36f * 1.15f - 36f) * 0.85f;
     /**
      * 감속(적용)속도 원: SET 원과 같은 크기·같은 높이, SET 오른쪽.
-     * 숫자는 SET 숫자, 원인 글자는 "SET" 글자와 같은 크기이고 밑선이 SIGN_BASELINE.
+     * 숫자는 SET 숫자, 원인 글자는 원 오른쪽 아래(과속카메라 남은거리 글자와 같은 크기·색).
      */
     private static final float APPLY_R = 36f * 1.15f * 0.85f;
     private static final float APPLY_X = SIGN_COL_X + 36f * 1.15f * 0.85f + 12f + APPLY_R;
@@ -5831,8 +5831,10 @@ public final class HudService extends Service {
         text(c, p, Integer.toString(apply), APPLY_X, APPLY_Y + 9f * SET_SCALE * k, 29f * SET_SCALE * k,
                 frameDark ? Color.rgb(238, 242, 246) : Color.rgb(18, 18, 18), Paint.Align.CENTER);
         if (source != null && !source.isEmpty()) {
-            textHeavy(c, p, source.toUpperCase(Locale.US), APPLY_X, SIGN_BASELINE, 14f * SIGN_SCALE, orange,
-                    Paint.Align.CENTER);
+            // 2026-11-07 요청: 과속카메라 남은거리 글자처럼 원 오른쪽, 아랫줄을 원 아래선에 맞추고
+            // 같은 크기(CAM_SIDE_TEXT_SIZE, 화면 배율 SIGN_SCALE)·같은 색(주야 배경에 따라 ink()).
+            text(c, p, source.toUpperCase(Locale.US), APPLY_X + APPLY_R + 10f, APPLY_Y + APPLY_R - 3f,
+                    CAM_SIDE_TEXT_SIZE * SIGN_SCALE, ink(), Paint.Align.LEFT);
         }
     }
 
