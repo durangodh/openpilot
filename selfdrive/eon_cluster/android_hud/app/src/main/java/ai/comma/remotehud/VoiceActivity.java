@@ -15,11 +15,11 @@ import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 
 /**
- * Invisible activity that runs one speech recognition for the HUD voice assistant.
+ * Fallback for the HUD voice assistant when the service cannot open the microphone.
  *
- * Android only lets an app use the microphone while it is in the foreground, and the HUD
- * runs as a background service, so each remote press briefly brings this transparent
- * activity up on the phone's own (hidden) screen. A USB microphone, when attached, is
+ * Normally VoiceAssistant listens inside the HUD service. nMirror mirrors the phone's
+ * display 0 to the car, so this transparent activity shows over the navigation app and
+ * may pause its map for a few seconds; it is used only when the service path is blocked. A USB microphone, when attached, is
  * picked by Android as the input device automatically.
  */
 public class VoiceActivity extends Activity implements RecognitionListener {
@@ -52,14 +52,7 @@ public class VoiceActivity extends Activity implements RecognitionListener {
         }
         recognizer = SpeechRecognizer.createSpeechRecognizer(this);
         recognizer.setRecognitionListener(this);
-        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")
-                .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
-                .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
-        recognizer.startListening(intent);
+        recognizer.startListening(VoiceAssistant.recognizerIntent(this));
         handler.postDelayed(() -> end(null, "시간 초과"), TIMEOUT_MS);
     }
 
@@ -94,7 +87,7 @@ public class VoiceActivity extends Activity implements RecognitionListener {
         super.onDestroy();
     }
 
-    private static String first(Bundle results) {
+    static String first(Bundle results) {
         ArrayList<String> list = results == null ? null
                 : results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
         return list == null || list.isEmpty() ? "" : list.get(0);
@@ -113,29 +106,26 @@ public class VoiceActivity extends Activity implements RecognitionListener {
 
     @Override
     public void onError(int error) {
-        String message;
+        end(null, errorText(error));
+    }
+
+    static String errorText(int error) {
         switch (error) {
             case SpeechRecognizer.ERROR_NO_MATCH:
             case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
-                message = "말씀을 못 들었어요";
-                break;
+                return "말씀을 못 들었어요";
             case SpeechRecognizer.ERROR_AUDIO:
-                message = "마이크 오류";
-                break;
+                return "마이크 오류";
             case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:
-                message = "마이크 권한 없음(HUD 앱에서 허용)";
-                break;
+                return "마이크 권한 없음(HUD 앱에서 허용)";
             case SpeechRecognizer.ERROR_NETWORK:
             case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:
-                message = "음성 인식 네트워크 오류";
-                break;
+                return "음성 인식 네트워크 오류";
             case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
-                message = "음성 인식 사용 중";
-                break;
+                return "음성 인식 사용 중";
             default:
-                message = "음성 인식 오류 " + error;
+                return "음성 인식 오류 " + error;
         }
-        end(null, message);
     }
 
     @Override

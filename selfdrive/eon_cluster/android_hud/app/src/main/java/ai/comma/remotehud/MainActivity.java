@@ -837,8 +837,11 @@ public final class MainActivity extends Activity {
             boolean hasKey = !AppPrefs.getClaudeApiKey(this).isEmpty();
             boolean mic = checkSelfPermission("android.permission.RECORD_AUDIO") == PackageManager.PERMISSION_GRANTED;
             voiceStatus.setText("API 키: " + (hasKey ? "저장됨" : "없음") + "   마이크: " + (mic ? "허용" : "미허용")
-                    + "\nEON 리모컨 버튼 설정에서 '음성 비서 (AI)'를 버튼에 배정하세요."
-                    + "\n한 번 누르면 듣기, 듣는 중 다시 누르면 취소, 제안 카드가 뜬 뒤 누르면 적용.");
+                    + "   내비 음성: " + (NavVoiceService.connected() ? "준비됨" : "꺼짐")
+                    + "\nEON 리모컨 버튼 설정에서 '음성 비서 (AI)'와 '내비 음성 검색'을 버튼에 배정하세요"
+                    + " (예: 짧게 = AI, 길게 = 내비 음성)."
+                    + "\nAI: 한 번 누르면 듣기, 듣는 중 다시 누르면 취소, 제안 카드가 뜬 뒤 누르면 적용."
+                    + "\n내비 음성: 티맵·네이버·카카오 화면의 음성 버튼을 nMirror 와 같은 방식으로 누릅니다.");
         };
         refresh.run();
         EditText keyInput = new EditText(this);

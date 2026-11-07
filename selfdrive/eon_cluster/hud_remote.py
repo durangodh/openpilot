@@ -25,7 +25,7 @@ BUTTON_COMMANDS = {"res": "accelCruise", "set": "decelCruise",
 # 핸들 버튼을 길게 누른 것과 같은 동작(carrot-wip accelCruiseLong 등, 2026-10-18).
 # RES/SET 길게 = 크루즈 속도 10단위. 티맵↔네이버는 nav_toggle 이 직접 바꾼다.
 LONG_BUTTON_COMMANDS = {"res_long": "accelCruise", "set_long": "decelCruise"}
-PARAM_COMMANDS = ("nav_toggle", "nav_tmap", "nav_naver", "hud_box", "voice")
+PARAM_COMMANDS = ("nav_toggle", "nav_tmap", "nav_naver", "hud_box", "voice", "nav_voice")
 LANE_COMMANDS = {"lane_left": -1, "lane_right": 1}
 ALL_COMMANDS = tuple(BUTTON_COMMANDS) + tuple(LONG_BUTTON_COMMANDS) + PARAM_COMMANDS + tuple(LANE_COMMANDS)
 # 길게 누름 유지 프레임(100Hz). RES/SET 은 CruiseButtonLongDelay 를 한 번만 넘긴다.
@@ -38,7 +38,7 @@ EVENT_SHOW_S = 1.5
 COMMAND_LABELS = {"res": "RES", "set": "SET", "gap": "GAP", "cancel": "취소",
                   "res_long": "RES 길게", "set_long": "SET 길게",
                   "nav_toggle": "맵 전환", "nav_tmap": "티맵", "nav_naver": "네이버",
-                  "hud_box": "정보 박스", "voice": "음성", "lane_left": "차선 좌", "lane_right": "차선 우"}
+                  "hud_box": "정보 박스", "voice": "음성", "nav_voice": "내비 음성", "lane_left": "차선 좌", "lane_right": "차선 우"}
 
 
 def atomic_json(path, payload):
@@ -112,11 +112,12 @@ class RemoteCommandSync:
         except (ValueError, TypeError):
           box = 1
         self.params.put("EonClusterHudInfoBox", "1" if box == 2 else "2")
-      elif command == "voice":
+      elif command in ("voice", "nav_voice"):
+        # voice = AI 비서, nav_voice = 선택된 내비(티맵·네이버·카카오)의 자체 음성 검색.
         previous = read_json(VOICE_FILE)
         seq = previous.get("seq", 0) if isinstance(previous, dict) else 0
         seq = (seq + 1) % 1000000 if isinstance(seq, int) else 1
-        atomic_json(VOICE_FILE, {"seq": seq, "ts": now})
+        atomic_json(VOICE_FILE, {"seq": seq, "ts": now, "mode": "nav" if command == "nav_voice" else "ai"})
       else:
         try:
           current = int(self.params.get("EonClusterHudNavApp") or 1)
@@ -142,13 +143,13 @@ def hud_status(status_file=STATUS_FILE, clock=time.monotonic):
 
 
 def voice_request(voice_file=VOICE_FILE, clock=time.monotonic):
-  """Latest remote voice press as a seq number for the HUD packet, or None when stale."""
+  """Latest remote voice press as (seq, mode) for the HUD packet, or None when stale."""
   payload = read_json(voice_file)
   if not isinstance(payload, dict) or not isinstance(payload.get("seq"), int):
     return None
   if not fresh(payload.get("ts"), 0.0, clock(), VOICE_MAX_AGE_S):
     return None
-  return payload["seq"]
+  return payload["seq"], "nav" if payload.get("mode") == "nav" else "ai"
 
 
 class RemoteButtonSource:

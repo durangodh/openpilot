@@ -11,6 +11,10 @@ import android.graphics.Typeface;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.os.Bundle;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.util.Log;
 
@@ -97,8 +101,8 @@ public final class VoiceAssistant {
 
     // ── 트리거 ──────────────────────────────────────────────────────────
 
-    /** Called for every EON packet: -1 when no fresh voice press is in the packet. */
-    void onTelemetry(int seq) {
+    /** Called for every EON packet: seq -1 when no fresh voice press is in the packet. */
+    void onTelemetry(int seq, String mode) {
         int previous = lastSeq;
         if (seq < 0) {
             if (previous == -2) lastSeq = -1;
@@ -107,7 +111,47 @@ public final class VoiceAssistant {
         if (seq == previous) return;
         lastSeq = seq;
         if (previous == -2) return;   // 앱 시작 직전의 누름은 무시
-        onButton();
+        if ("nav".equals(mode)) {
+            onNavButton();
+        } else {
+            onButton();
+        }
+    }
+
+    static String navPackage(int navApp) {
+        if (navApp == 2) return "com.nhn.android.nmap";
+        if (navApp == 3) return "com.locnall.KimGiSa";
+        return "com.skt.tmap.ku";
+    }
+
+    /** Remote "내비 음성": press the selected navigation app's own voice button, like nMirror. */
+    void onNavButton() {
+        synchronized (this) {
+            if (state == State.LISTENING || state == State.THINKING) {
+                session++;
+                cancelRecognition();
+            }
+            pending = null;
+        }
+        new Thread(() -> {
+            String error = openNavVoice();
+            if (error == null) {
+                show(State.RESULT, "내비 음성", "목적지를 말씀하세요", 2_500L);
+            } else {
+                show(State.ERROR, "내비 음성 실패", error, ERROR_MS);
+            }
+        }, "hud-nav-voice").start();
+    }
+
+    /** null on success, otherwise a short reason for the card. */
+    String openNavVoice() {
+        int navApp = AppPrefs.getNavApp(context);
+        if (navApp < 1 || navApp > 3) return "선택된 내비 없음";
+        if (!NavVoiceService.connected()) {
+            NavVoiceService.ensureEnabled(context);
+            SystemClock.sleep(800L);
+        }
+        return NavVoiceService.clickVoice(navPackage(navApp));
     }
 
     /** Remote button: confirm a pending proposal, cancel a running request, or start listening. */
@@ -123,7 +167,7 @@ public final class VoiceAssistant {
         }
         if (state == State.LISTENING || state == State.THINKING) {
             session++;
-            VoiceActivity.cancelActive();
+            cancelRecognition();
             show(State.ERROR, "취소됨", "", 1_500L);
             return;
         }
@@ -138,26 +182,135 @@ public final class VoiceAssistant {
         new Thread(this::launchListener, "hud-voice-launch").start();
     }
 
+    private static volatile boolean micOpsGranted;
+    private SpeechRecognizer recognizer;   // main thread only
+
+    /**
+     * Listens inside the HUD service so nothing is drawn on the phone screen: nMirror
+     * mirrors display 0 to the car, and a window there would pause the navigation map.
+     * Root grants the microphone app-op as "allow" (not just while in use) for that.
+     * If the recognizer still cannot open the microphone, the transparent VoiceActivity
+     * is the fallback (the map may pause for those few seconds).
+     */
     private void launchListener() {
-        try {
-            if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
-                    != PackageManager.PERMISSION_GRANTED) {
-                Runtime.getRuntime().exec(new String[]{"su", "-c",
-                        "pm grant " + context.getPackageName() + " android.permission.RECORD_AUDIO"}).waitFor();
-            }
-            // 서비스는 백그라운드라 액티비티를 직접 못 띄운다. 기존 내비 전환처럼 루트로 띄운다.
-            int code = Runtime.getRuntime().exec(new String[]{"su", "-c",
-                    "am start -n " + context.getPackageName() + "/.VoiceActivity"}).waitFor();
-            if (code != 0) throw new IllegalStateException("am start " + code);
-        } catch (Exception e) {
+        final int mySession = session;
+        if (!micOpsGranted) {
+            String pkg = context.getPackageName();
             try {
-                Intent intent = new Intent(context, VoiceActivity.class)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
-                context.startActivity(intent);
-            } catch (Exception second) {
-                show(State.ERROR, "음성 인식 실행 실패", String.valueOf(second.getMessage()), ERROR_MS);
+                Runtime.getRuntime().exec(new String[]{"su", "-c",
+                        "pm grant " + pkg + " android.permission.RECORD_AUDIO; "
+                                + "appops set " + pkg + " RECORD_AUDIO allow"}).waitFor();
+                micOpsGranted = true;
+            } catch (Exception ignored) {
             }
         }
+        main.post(() -> startServiceRecognizer(mySession));
+    }
+
+    private void startServiceRecognizer(int mySession) {
+        if (mySession != session || state != State.LISTENING) return;
+        destroyRecognizer();
+        try {
+            if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+                show(State.ERROR, "음성 인식 서비스 없음", "Google 앱을 확인하세요", ERROR_MS);
+                return;
+            }
+            recognizer = SpeechRecognizer.createSpeechRecognizer(context);
+            recognizer.setRecognitionListener(new ServiceListener(mySession));
+            recognizer.startListening(recognizerIntent(context));
+        } catch (Exception e) {
+            Log.w(TAG, "service recognizer failed", e);
+            launchActivityFallback();
+        }
+    }
+
+    static Intent recognizerIntent(Context context) {
+        return new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ko-KR")
+                .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
+                .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.getPackageName());
+    }
+
+    private void destroyRecognizer() {
+        if (recognizer != null) {
+            try {
+                recognizer.cancel();
+                recognizer.destroy();
+            } catch (Exception ignored) {
+            }
+            recognizer = null;
+        }
+    }
+
+    private void cancelRecognition() {
+        main.post(this::destroyRecognizer);
+        VoiceActivity.cancelActive();
+    }
+
+    private void launchActivityFallback() {
+        main.post(this::destroyRecognizer);
+        new Thread(() -> {
+            try {
+                int code = Runtime.getRuntime().exec(new String[]{"su", "-c",
+                        "am start -n " + context.getPackageName() + "/.VoiceActivity"}).waitFor();
+                if (code != 0) throw new IllegalStateException("am start " + code);
+            } catch (Exception e) {
+                show(State.ERROR, "음성 인식 실행 실패", String.valueOf(e.getMessage()), ERROR_MS);
+            }
+        }, "hud-voice-fallback").start();
+    }
+
+    private final class ServiceListener implements RecognitionListener {
+        private final int mySession;
+        private boolean ready;
+
+        ServiceListener(int mySession) {
+            this.mySession = mySession;
+        }
+
+        private boolean current() {
+            return mySession == session;
+        }
+
+        @Override
+        public void onReadyForSpeech(Bundle params) {
+            ready = true;
+            if (current()) onReady();
+        }
+
+        @Override
+        public void onPartialResults(Bundle partial) {
+            if (current()) onPartial(VoiceActivity.first(partial));
+        }
+
+        @Override
+        public void onResults(Bundle results) {
+            destroyRecognizer();
+            if (current()) onSpeech(VoiceActivity.first(results));
+        }
+
+        @Override
+        public void onError(int error) {
+            destroyRecognizer();
+            if (!current()) return;
+            boolean micBlocked = error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
+                    || error == SpeechRecognizer.ERROR_AUDIO || error == SpeechRecognizer.ERROR_CLIENT;
+            if (!ready && micBlocked) {
+                Log.w(TAG, "background microphone blocked (" + error + "), using VoiceActivity");
+                launchActivityFallback();
+            } else {
+                onSpeechError(VoiceActivity.errorText(error));
+            }
+        }
+
+        @Override public void onBeginningOfSpeech() { }
+        @Override public void onRmsChanged(float rmsdB) { }
+        @Override public void onBufferReceived(byte[] buffer) { }
+        @Override public void onEndOfSpeech() { }
+        @Override public void onEvent(int eventType, Bundle params) { }
     }
 
     // ── VoiceActivity 콜백 ─────────────────────────────────────────────
@@ -262,7 +415,9 @@ public final class VoiceAssistant {
             + "운전자가 '부드럽게' 같은 말만 했고 네가 값을 정했으면 user_stated_value=false 로 한 번만 제안한다. "
             + "그러면 앱이 운전자 확인을 받으니, 버튼을 누르면 적용된다고 짧게 말한다. "
             + "후보가 여러 개면 가장 맞는 것을 고르고, 애매하면 상위 2~3개 제목을 짧게 말해 다시 묻는다. "
-            + "날씨·뉴스·장소 같은 일반 질문은 web_search 를 쓴다. 차량 조작(조향·가감속 직접 명령)은 하지 않는다.";
+            + "길안내·목적지·경유지 요청(예: 집으로 가자)은 open_nav_voice 로 내비 음성창을 열고 "
+            + "'내비에 목적지를 말씀하세요'라고만 답한다. "
+            + "날씨·뉴스 같은 일반 질문은 web_search 를 쓴다. 차량 조작(조향·가감속 직접 명령)은 하지 않는다.";
 
     private static JSONArray tools() throws JSONException {
         JSONArray t = new JSONArray();
@@ -287,6 +442,10 @@ public final class VoiceAssistant {
                                 .put("user_stated_value", new JSONObject().put("type", "boolean")
                                         .put("description", "운전자가 이 숫자를 직접 말했으면 true")))
                         .put("required", new JSONArray().put("name").put("value").put("user_stated_value"))));
+        t.put(new JSONObject().put("name", "open_nav_voice")
+                .put("description", "선택된 내비(티맵·네이버·카카오)의 자체 음성 검색창을 연다. 길안내·목적지·경유지 요청일 때 쓴다. "
+                        + "열린 뒤 운전자가 내비에 목적지를 다시 말해야 한다.")
+                .put("input_schema", new JSONObject().put("type", "object").put("properties", new JSONObject())));
         t.put(new JSONObject().put("type", "web_search_20250305").put("name", "web_search").put("max_uses", 2)
                 .put("user_location", new JSONObject().put("type", "approximate")
                         .put("country", "KR").put("timezone", "Asia/Seoul")));
@@ -365,6 +524,7 @@ public final class VoiceAssistant {
         if ("search_settings".equals(name)) return "설정 찾는 중";
         if ("get_setting".equals(name)) return "현재값 읽는 중";
         if ("set_setting".equals(name)) return "설정 바꾸는 중";
+        if ("open_nav_voice".equals(name)) return "내비 음성창 여는 중";
         return name;
     }
 
@@ -397,6 +557,11 @@ public final class VoiceAssistant {
             }
             reply = askEon(new JSONObject().put("op", "set").put("name", input.optString("name"))
                     .put("value", input.optInt("value")));
+        } else if ("open_nav_voice".equals(name)) {
+            String error = openNavVoice();
+            reply = error == null
+                    ? new JSONObject().put("ok", true).put("note", "내비 음성창이 열림. 운전자에게 목적지를 내비에 말하라고 안내")
+                    : new JSONObject().put("ok", false).put("error", error);
         } else {
             reply = new JSONObject().put("ok", false).put("error", "알 수 없는 도구");
         }
@@ -491,6 +656,7 @@ public final class VoiceAssistant {
 
     void shutdown() {
         session++;
+        cancelRecognition();
         main.post(() -> {
             if (tts != null) tts.shutdown();
             tts = null;
@@ -506,7 +672,7 @@ public final class VoiceAssistant {
         State s = state;
         if (s == State.IDLE) return false;
         if (SystemClock.elapsedRealtime() <= shownUntil) return true;
-        if (s == State.LISTENING) VoiceActivity.cancelActive();
+        if (s == State.LISTENING) cancelRecognition();
         if (s == State.CONFIRM) {
             synchronized (this) {
                 pending = null;

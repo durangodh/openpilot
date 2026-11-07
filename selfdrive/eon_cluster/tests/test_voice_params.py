@@ -92,9 +92,11 @@ class VoiceRequestTest(unittest.TestCase):
         allowed = hud_remote.allowed_commands(False, False, False, False, False)
         self.assertIn("voice", allowed)
         self.assertEqual(sync.apply("voice", allowed), "accepted")
-        self.assertEqual(hud_remote.voice_request(path, clock=lambda: 11.0), 1)
+        self.assertEqual(hud_remote.voice_request(path, clock=lambda: 11.0), (1, "ai"))
         self.assertEqual(sync.apply("voice", allowed), "accepted")
-        self.assertEqual(hud_remote.voice_request(path, clock=lambda: 11.0), 2)
+        self.assertEqual(hud_remote.voice_request(path, clock=lambda: 11.0), (2, "ai"))
+        self.assertEqual(sync.apply("nav_voice", allowed), "accepted")
+        self.assertEqual(hud_remote.voice_request(path, clock=lambda: 11.0), (3, "nav"))
         self.assertIsNone(hud_remote.voice_request(path, clock=lambda: 20.0))
       finally:
         hud_remote.VOICE_FILE = old

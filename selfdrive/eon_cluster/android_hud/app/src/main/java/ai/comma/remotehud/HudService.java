@@ -843,6 +843,8 @@ public final class HudService extends Service {
         }
         activeInstance = this;
         AppPrefs.removeLegacyStaticMapSettings(this);
+        // 리모컨 내비 음성 버튼용 접근성 서비스(nMirror 서비스는 그대로 둔다).
+        new Thread(() -> NavVoiceService.ensureEnabled(this), "hud-nav-voice-enable").start();
         voice = new VoiceAssistant(this, data -> {
             DatagramSocket socket = receiverSocket;
             InetAddress address = eonAddress.get();
@@ -1151,7 +1153,9 @@ public final class HudService extends Service {
                         lastEonPort = packet.getPort();
                         lastEonRxElapsed = SystemClock.elapsedRealtime();
                         VoiceAssistant assistant = voice;
-                        if (assistant != null) assistant.onTelemetry(decoded.optInt("voiceReq", -1));
+                        if (assistant != null) {
+                            assistant.onTelemetry(decoded.optInt("voiceReq", -1), decoded.optString("voiceMode", "ai"));
+                        }
                         lastEonAddress = packet.getAddress().getHostAddress();
                         byte[] ack = "HUD1".getBytes("US-ASCII");
                         try {

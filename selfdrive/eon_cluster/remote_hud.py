@@ -1331,7 +1331,7 @@ def main():
         packet["remote"] = remote
       voice = voice_request()
       if voice is not None:
-        packet["voiceReq"] = voice
+        packet["voiceReq"], packet["voiceMode"] = voice
       # HUD 가 응답한 적이 있으면 그 주소로 직접(유니캐스트) 보낸다. 와이파이 브로드캐스트는
       # 재전송 없이 최저 속도로 나가 여러 조각으로 나뉜 큰 패킷이 자주 통째로 사라졌다
       # (2026-10-08: S9 응답 절반, 5~10초 공백 -> HUD "EON 연결 끊김"). 응답이 끊겨도

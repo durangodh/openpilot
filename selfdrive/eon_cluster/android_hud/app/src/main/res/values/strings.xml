@@ -1,2 +1,3 @@
 <resources><string name="app_name">EON Remote HUD</string>
+    <string name="nav_voice_accessibility">리모컨 버튼으로 내비(티맵·네이버·카카오) 화면의 음성 버튼을 누릅니다. 화면 내용을 저장하거나 전송하지 않습니다.</string>
 </resources>

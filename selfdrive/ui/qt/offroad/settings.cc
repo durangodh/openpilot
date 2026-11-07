@@ -1439,12 +1439,12 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
     instructions->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Minimum);
     contentLayout->addWidget(instructions);
     auto actions = new QComboBox(&dialog);
-    const std::array<std::pair<const char *, const char *>, 11> remoteActions = {{{"RES / 속도 +1", "res"},
+    const std::array<std::pair<const char *, const char *>, 12> remoteActions = {{{"RES / 속도 +1", "res"},
       {"SET / 속도 -1", "set"}, {"차간거리", "gap"}, {"ACC 취소", "cancel"},
       {"왼쪽 차선변경 요청", "lane_left"}, {"오른쪽 차선변경 요청", "lane_right"},
       {"RES 길게 / +10", "res_long"}, {"SET 길게 / -10", "set_long"},
       {"티맵 / 네이버 전환", "nav_toggle"}, {"HUD 정보 박스 전환", "hud_box"},
-      {"음성 비서 (AI)", "voice"}}};
+      {"음성 비서 (AI)", "voice"}, {"내비 음성 검색 (티맵·네이버·카카오)", "nav_voice"}}};
     for (const auto &[label, command] : remoteActions) actions->addItem(label, command);
     contentLayout->addWidget(actions);
     auto gestures = new QComboBox(&dialog);

@@ -66,6 +66,20 @@
             android:taskAffinity=".voice"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- 리모컨 내비 음성: nMirror 처럼 내비 화면의 음성 버튼을 접근성 클릭 -->
+        <service
+            android:name=".NavVoiceService"
+            android:exported="true"
+            android:label="EON HUD 내비 음성 버튼"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/nav_voice_accessibility" />
+        </service>
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">
