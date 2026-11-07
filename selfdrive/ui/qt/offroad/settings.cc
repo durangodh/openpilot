@@ -1446,6 +1446,8 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       {"티맵 / 네이버 전환", "nav_toggle"}, {"HUD 정보 박스 전환", "hud_box"},
       {"음성 비서 (AI)", "voice"}, {"내비 음성 검색 (티맵·네이버·카카오)", "nav_voice"}}};
     for (const auto &[label, command] : remoteActions) actions->addItem(label, command);
+    // QComboBox 는 기본으로 10개만 보여 11·12번째(음성 비서·내비 음성)가 스크롤 아래로 숨었다.
+    actions->setMaxVisibleItems(static_cast<int>(remoteActions.size()));
     contentLayout->addWidget(actions);
     auto gestures = new QComboBox(&dialog);
     gestures->addItem("짧게 누르기", "short");
