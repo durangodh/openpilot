@@ -4372,9 +4372,12 @@ public final class HudService extends Service {
     private static final float SIGN_BASELINE = 535f;
     private static final float SIGN_GAP = 14f;          // LIMIT 글자 밑선 ~ SET 원 윗선
     private static final float CAM_X = SIGN_COL_X;
-    private static final float CAM_Y = 298f;
+    // 2026-11-07 요청: 과속카메라 원 윗선(빨간 테두리 바깥)을 게이지 링 바깥 윗선
+    // (RING_CY - RING_R - RING_BAND/2 = 227)에 맞춘다. 원 반지름 36 x CAM_ICON_SCALE(1.15) +
+    // 테두리 절반 3 x 1.15, 화면에서는 SIGN_SCALE(0.85) 배 → 227 + 38.1.
+    private static final float CAM_Y = 227f + (36f + 3f) * 1.15f * 0.85f;
     /** 방지턱 그림의 기준점. 보이는 아래선이 과속카메라 원 윗선보다 10px 위에 온다. */
-    private static final float BUMP_Y = 221.4f;
+    private static final float BUMP_Y = 221.4f - (298f - CAM_Y);   // 카메라와 같이 올린다
     /** hud_speed_bump.png(120x150)에서 그림이 실제로 끝나는 세로 위치(아래 투명 여백 제외). */
     private static final float BUMP_VISIBLE_BOTTOM = 128f / 150f;
     // 과속카메라·방지턱: 그림은 1.15배, 아래 거리(·구간 평균) 글자는 1.2배(2026-10-15 요청).
@@ -4390,8 +4393,10 @@ public final class HudService extends Service {
     private static final float SET_X = SIGN_COL_X;
     private static final float SET_Y = SIGN_BASELINE - 55f * 0.85f;
     /** 도로 제한속도 원: SET 과 같은 크기. "LIMIT" 글자 밑선이 SET 원 윗선보다 SIGN_GAP 위. */
-    private static final float LIMIT_Y = SET_Y - (36f * 1.15f - 36f) * 0.85f - 36f * 1.15f * 0.85f
-            - SIGN_GAP - 55f * 0.85f;
+    // 2026-11-07 요청: LIMIT 원 중심을 과속카메라 원 중심(CAM_Y)과 SET 원 중심의 정확히 가운데에.
+    // 원 중심은 기준점보다 (SET_R - 36) x 0.85 위에 그려진다(drawRoadLimit / drawSetSpeed).
+    private static final float LIMIT_Y = (CAM_Y + (SET_Y - (36f * 1.15f - 36f) * 0.85f)) / 2f
+            + (36f * 1.15f - 36f) * 0.85f;
     /**
      * 감속(적용)속도 원: SET 원과 같은 크기·같은 높이, SET 오른쪽.
      * 숫자는 SET 숫자, 원인 글자는 "SET" 글자와 같은 크기이고 밑선이 SIGN_BASELINE.
@@ -5790,7 +5795,7 @@ public final class HudService extends Service {
         c.drawCircle(cx, ccy, SET_R, p);
         text(c, p, valid ? Integer.toString(set) : "--", cx, ccy + 9f * SET_SCALE, 29f * SET_SCALE,
                 valueColor, Paint.Align.CENTER);
-        text(c, p, "SET", cx, cy + 55f, 14f, accent, Paint.Align.CENTER);
+        textHeavy(c, p, "SET", cx, cy + 55f, 14f, accent, Paint.Align.CENTER);
     }
 
     /** 도로 제한속도: SET 원과 같은 크기의 파란 원(흰 테두리·어두운 가장자리), 흰 숫자, 아래 "LIMIT". */
@@ -5807,7 +5812,7 @@ public final class HudService extends Service {
         c.drawCircle(cx, ccy, SET_R - 6.5f, p);
         text(c, p, Integer.toString(limit), cx, ccy + 9f * SET_SCALE, 29f * SET_SCALE,
                 Color.WHITE, Paint.Align.CENTER);
-        text(c, p, "LIMIT", cx, cy + 55f, 14f,
+        textHeavy(c, p, "LIMIT", cx, cy + 55f, 14f,
                 frameDark ? Color.rgb(120, 176, 240) : blue, Paint.Align.CENTER);
     }
 
@@ -5826,7 +5831,7 @@ public final class HudService extends Service {
         text(c, p, Integer.toString(apply), APPLY_X, APPLY_Y + 9f * SET_SCALE * k, 29f * SET_SCALE * k,
                 frameDark ? Color.rgb(238, 242, 246) : Color.rgb(18, 18, 18), Paint.Align.CENTER);
         if (source != null && !source.isEmpty()) {
-            text(c, p, source.toUpperCase(Locale.US), APPLY_X, SIGN_BASELINE, 14f * SIGN_SCALE, orange,
+            textHeavy(c, p, source.toUpperCase(Locale.US), APPLY_X, SIGN_BASELINE, 14f * SIGN_SCALE, orange,
                     Paint.Align.CENTER);
         }
     }
@@ -7685,6 +7690,21 @@ public final class HudService extends Service {
         p.setTextAlign(align);
         p.setColor(color);
         c.drawText(value, x, y, p);
+    }
+
+    /** 굵은 글자를 한 번 더 굵게(글자 윤곽선을 같은 색으로 덧그림). LIMIT·SET·감속 출처 글자용(2026-11-07). */
+    private static void textHeavy(Canvas c, Paint p, String value, float x, float y,
+                                  float size, int color, Paint.Align align) {
+        p.setShader(null);
+        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        p.setTextSize(size);
+        p.setTextAlign(align);
+        p.setColor(color);
+        p.setStyle(Paint.Style.FILL_AND_STROKE);
+        p.setStrokeWidth(size * 0.09f);
+        c.drawText(value, x, y, p);
+        p.setStyle(Paint.Style.FILL);
+        p.setStrokeWidth(0f);
     }
 
     private static void textNormal(Canvas c, Paint p, String value, float x, float y,
