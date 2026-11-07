@@ -430,6 +430,8 @@ public final class VoiceAssistant {
             + "'한 칸 늘려'는 현재 단계+1, '줄여'는 -1. 결과는 '차간 2→3단'처럼 말한다. "
             + "길안내·목적지·경유지 요청(예: 집으로 가자)은 open_nav_voice 로 내비 음성창을 열고 "
             + "'내비에 목적지를 말씀하세요'라고만 답한다. "
+            + "코드 수정·버그·이상 동작 신고나 '메모해 줘'는 고칠 수 없으니 save_memo 로 기록하고 '메모했어요'라고만 답한다. "
+            + "관련 설정이 떠오르면 settings 에 이름을 넣는다(검색 없이 아는 이름만). "
             + "날씨·뉴스 같은 일반 질문은 web_search 를 쓴다. 차량 조작(조향·가감속 직접 명령)은 하지 않는다.";
 
     private static JSONArray tools() throws JSONException {
@@ -463,6 +465,17 @@ public final class VoiceAssistant {
                                 .put("target", new JSONObject().put("type", "integer")
                                         .put("description", "목표 단계 1~4. 0 이면 현재 단계만 읽는다")))
                         .put("required", new JSONArray().put("target"))));
+        t.put(new JSONObject().put("name", "save_memo")
+                .put("description", "운전자가 말한 문제·개선 요청을 EON 음성 메모(7714/trace)에 저장한다. 그 순간 차속·앞차·갭·"
+                        + "설정속도는 EON 이 자동으로 붙인다. 코드 수정·버그·이상 동작 신고, '메모해 줘'에 쓴다.")
+                .put("input_schema", new JSONObject().put("type", "object")
+                        .put("properties", new JSONObject()
+                                .put("text", new JSONObject().put("type", "string")
+                                        .put("description", "운전자 말 요약(상황 포함, 한국어 한두 문장)"))
+                                .put("settings", new JSONObject().put("type", "array")
+                                        .put("items", new JSONObject().put("type", "string"))
+                                        .put("description", "관련 있어 보이는 설정 이름(현재값을 함께 기록), 없으면 빈 배열")))
+                        .put("required", new JSONArray().put("text"))));
         t.put(new JSONObject().put("name", "open_nav_voice")
                 .put("description", "선택된 내비(티맵·네이버·카카오)의 자체 음성 검색창을 연다. 길안내·목적지·경유지 요청일 때 쓴다. "
                         + "열린 뒤 운전자가 내비에 목적지를 다시 말해야 한다.")
@@ -547,6 +560,7 @@ public final class VoiceAssistant {
         if ("set_setting".equals(name)) return "설정 바꾸는 중";
         if ("open_nav_voice".equals(name)) return "내비 음성창 여는 중";
         if ("cruise_gap".equals(name)) return "차간 단계 맞추는 중";
+        if ("save_memo".equals(name)) return "메모 저장 중";
         return name;
     }
 
@@ -579,6 +593,10 @@ public final class VoiceAssistant {
             }
             reply = askEon(new JSONObject().put("op", "set").put("name", input.optString("name"))
                     .put("value", input.optInt("value")));
+        } else if ("save_memo".equals(name)) {
+            reply = askEon(new JSONObject().put("op", "memo").put("text", input.optString("text"))
+                    .put("settings", input.optJSONArray("settings") == null ? new JSONArray()
+                            : input.optJSONArray("settings")));
         } else if ("cruise_gap".equals(name)) {
             reply = cruiseGap(input.optInt("target", 0));
         } else if ("open_nav_voice".equals(name)) {

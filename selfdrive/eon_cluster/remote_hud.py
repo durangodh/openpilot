@@ -1266,6 +1266,29 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   }
 
 
+def _memo_snapshot(sm):
+  """음성 메모용 그 순간 상태 한 줄(loggerd 가 꺼져 있어 다른 주행 기록이 없다)."""
+  try:
+    car = sm["carState"]
+    controls = sm["controlsState"]
+    parts = ["차속 %.0fkm/h 가속 %+.2f" % (_finite(_field(car, "vEgo", 0.0)) * 3.6, _finite(_field(car, "aEgo", 0.0))),
+             "설정속도 %.0f" % _finite(_field(controls, "vCruiseCluster", _field(controls, "vCruise", 0.0))),
+             "조향각 %.1f" % _finite(_field(car, "steeringAngleDeg", 0.0)),
+             "오파 %s" % ("ON" if bool(_field(controls, "enabled", False)) else "OFF")]
+    gap = int(_finite(_field(controls, "longCruiseGap", 0)))
+    if not 1 <= gap <= 4:
+      gap = int(_finite(_field(car, "cruiseGap", 0)))
+    if 1 <= gap <= 4:
+      parts.append("갭 %d" % gap)
+    lead = _lead(sm["radarState"], "leadOne") if sm.alive["radarState"] else None
+    parts.append("앞차 %.1fm 상대 %+.1fkm/h" % (lead["d"], lead["v"]) if lead else "앞차 없음")
+    if not sm.alive["carState"]:
+      parts.append("차량 데이터 없음")
+    return " ".join(parts)
+  except Exception:
+    return ""
+
+
 def _voice_mtime():
   try:
     return os.stat(VOICE_FILE).st_mtime_ns
@@ -1368,7 +1391,8 @@ def main():
             car_valid = sm.alive["carState"] and sm.valid["carState"] and car.canValid
             allowed = allowed_commands(started, car_valid, car.gearShifter == "drive",
                                        car.brakePressed, car.gasPressed)
-            answer = voice_params.handle(reply, moving, lambda cmd: voice_buttons.apply(cmd, allowed))
+            answer = voice_params.handle(reply, moving, lambda cmd: voice_buttons.apply(cmd, allowed),
+                                         lambda: _memo_snapshot(sm))
             if answer is not None:
               sock.sendto(answer, address)
           elif nav_selection.receive(reply, address):
