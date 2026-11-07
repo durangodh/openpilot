@@ -4406,8 +4406,14 @@ public final class HudService extends Service {
     private static final float APPLY_Y = SIGN_BASELINE - 55f * 0.85f - (36f * 1.15f - 36f) * 0.85f;
     // 휠·과속카메라·SET 원은 원래 그림(반지름 36)의 85% 로 그린다.
     private static final float SIGN_SCALE = 0.85f;
-    /** LIMIT·SET 글자: 2026-11-07 두 번째 시안 크기(원래 14 의 약 1.15배), 굵게(textHeavy). */
-    private static final float SIGN_LABEL_SIZE = 16f;
+    /** LIMIT·SET 글자: 2026-11-07 요청으로 원래(14)의 3배, 굵게(textHeavy). */
+    private static final float SIGN_LABEL_SIZE = 42f;
+    /**
+     * LIMIT·SET 글자 밑선(기준점 아래, 원 그림 배율 기준). 원 아래선(cy + 39.5, 테두리 포함)
+     * + 간격 4.7 + 대문자 높이(0.72 x 42) 이라 큰 글자가 원과 겹치지 않는다. 화면에서 LIMIT 글자
+     * 아래선 ~442, SET 원 윗선 ~446.
+     */
+    private static final float SIGN_LABEL_BASE = 74f;
     private static final float TOP_ROW_SCALE = 1.1f;
     // 아래 정보줄 기준선
     private static final float INFO_Y = 702f;
@@ -5797,7 +5803,7 @@ public final class HudService extends Service {
         c.drawCircle(cx, ccy, SET_R, p);
         text(c, p, valid ? Integer.toString(set) : "--", cx, ccy + 9f * SET_SCALE, 29f * SET_SCALE,
                 valueColor, Paint.Align.CENTER);
-        textHeavy(c, p, "SET", cx, cy + 55f, SIGN_LABEL_SIZE, accent, Paint.Align.CENTER);
+        textHeavy(c, p, "SET", cx, cy + SIGN_LABEL_BASE, SIGN_LABEL_SIZE, accent, Paint.Align.CENTER);
     }
 
     /** 도로 제한속도: SET 원과 같은 크기의 파란 원(흰 테두리·어두운 가장자리), 흰 숫자, 아래 "LIMIT". */
@@ -5814,7 +5820,7 @@ public final class HudService extends Service {
         c.drawCircle(cx, ccy, SET_R - 6.5f, p);
         text(c, p, Integer.toString(limit), cx, ccy + 9f * SET_SCALE, 29f * SET_SCALE,
                 Color.WHITE, Paint.Align.CENTER);
-        textHeavy(c, p, "LIMIT", cx, cy + 55f, SIGN_LABEL_SIZE,
+        textHeavy(c, p, "LIMIT", cx, cy + SIGN_LABEL_BASE, SIGN_LABEL_SIZE,
                 frameDark ? Color.rgb(120, 176, 240) : blue, Paint.Align.CENTER);
     }
 
