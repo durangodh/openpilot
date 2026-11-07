@@ -9,6 +9,7 @@ import base64
 import json
 import math
 import os
+import select
 import signal
 import socket
 import struct
@@ -19,7 +20,7 @@ import cereal.messaging as messaging
 from common.params import Params
 from selfdrive.eon_cluster.nav_selection import NavSelectionSync
 from selfdrive.eon_cluster.hud_remote import hud_status as remote_status
-from selfdrive.eon_cluster.hud_remote import VOICE_FILE, RemoteCommandSync, allowed_commands, voice_request
+from selfdrive.eon_cluster.hud_remote import VOICE_WAKE_PORT, RemoteCommandSync, allowed_commands, voice_request
 from selfdrive.eon_cluster.voice_params import VoiceParams
 from selfdrive.eon_cluster import voice_system
 
@@ -1336,19 +1337,18 @@ class MemoRecorder:
     return out + " | 저장 시점 " + current
 
 
-def _voice_mtime():
-  try:
-    return os.stat(VOICE_FILE).st_mtime_ns
-  except OSError:
-    return 0
-
-
 def main():
   params = Params()
   nav_selection = NavSelectionSync(params)
   voice_params = VoiceParams(params)
   voice_buttons = RemoteCommandSync(params)
   memo = MemoRecorder()
+  try:
+    voice_wake = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    voice_wake.bind(("127.0.0.1", VOICE_WAKE_PORT))
+    voice_wake.setblocking(False)
+  except OSError:
+    voice_wake = None
   system_jobs = voice_system.SystemJobs()
   running = [True]
   signal.signal(signal.SIGINT, lambda *_: running.__setitem__(0, False))
@@ -1457,17 +1457,21 @@ def main():
       connected = False
       _publish_connected(params, published, False)
       print("remote HUD send failed: %s" % exc, flush=True)
-    # 리모컨 음성 호출은 다음 패킷 주기(최대 1/fps)를 기다리지 않고 바로 보낸다.
-    # 파일 mtime 만 보므로 20ms 마다 stat 한 번 정도의 부하다.
-    deadline = started + 1.0 / telemetry_fps
-    voice_mtime = _voice_mtime()
-    while running[0]:
-      remaining = deadline - time.monotonic()
-      if remaining <= 0.0:
-        break
-      time.sleep(min(0.02, remaining))
-      if _voice_mtime() != voice_mtime:
-        break
+    # 남은 주기만큼 쉬되, 리모컨 음성 누름(bt_remote 의 로컬 UDP 신호)이 오면 바로 깨어나
+    # 다음 패킷을 보낸다. 폴링이 없어 평소 부하는 예전 sleep 과 같다(2026-11-08: 20ms 폴링이
+    # EON CPU 를 올렸다는 보고로 교체).
+    remaining = 1.0 / telemetry_fps - (time.monotonic() - started)
+    if remaining > 0.0:
+      if voice_wake is not None:
+        try:
+          ready, _, _ = select.select([voice_wake], [], [], remaining)
+          if ready:
+            while True:
+              voice_wake.recv(16)
+        except (BlockingIOError, OSError, ValueError):
+          pass
+      else:
+        time.sleep(remaining)
   _publish_connected(params, published, False)
   map_active[0] = False
   map_thread.join(1.0)

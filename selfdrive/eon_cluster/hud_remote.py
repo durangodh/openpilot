@@ -17,6 +17,8 @@ STATUS_FILE = "/dev/shm/hud_remote_status.json"
 # 리모컨 음성 호출: S20 HUD 앱이 이 seq 가 바뀌면 듣기를 시작한다(2026-11-07).
 VOICE_FILE = "/dev/shm/hud_voice_req.json"
 VOICE_MAX_AGE_S = 3.0
+# 음성 누름을 remote_hud 에 바로 알리는 로컬 UDP 포트(폴링 없이 깨우기).
+VOICE_WAKE_PORT = 7212
 COMMAND_MAX_AGE_S = 0.4
 LANE_CHANGE_HOLD_S = 0.3
 POLL_FRAMES = 5
@@ -118,6 +120,7 @@ class RemoteCommandSync:
         seq = previous.get("seq", 0) if isinstance(previous, dict) else 0
         seq = (seq + 1) % 1000000 if isinstance(seq, int) else 1
         atomic_json(VOICE_FILE, {"seq": seq, "ts": now, "mode": "nav" if command == "nav_voice" else "ai"})
+        _wake_remote_hud()
       else:
         try:
           current = int(self.params.get("EonClusterHudNavApp") or 1)
@@ -140,6 +143,19 @@ def hud_status(status_file=STATUS_FILE, clock=time.monotonic):
   if isinstance(event, dict) and event:
     out.update(event)
   return out
+
+
+def _wake_remote_hud():
+  """remote_hud 의 대기를 깨워 음성 요청을 다음 주기까지 기다리지 않고 보내게 한다."""
+  try:
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+      s.sendto(b"v", ("127.0.0.1", VOICE_WAKE_PORT))
+    finally:
+      s.close()
+  except OSError:
+    pass
 
 
 def voice_request(voice_file=VOICE_FILE, clock=time.monotonic):
