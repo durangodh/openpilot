@@ -4406,14 +4406,13 @@ public final class HudService extends Service {
     private static final float APPLY_Y = SIGN_BASELINE - 55f * 0.85f - (36f * 1.15f - 36f) * 0.85f;
     // 휠·과속카메라·SET 원은 원래 그림(반지름 36)의 85% 로 그린다.
     private static final float SIGN_SCALE = 0.85f;
-    /** LIMIT·SET 글자: 2026-11-07 요청으로 원래(14)의 3배, 굵게(textHeavy). */
-    private static final float SIGN_LABEL_SIZE = 42f;
+    /** LIMIT·SET 글자: 2026-11-07 요청으로 감속 출처(CURVE 등)·카메라 거리 글자와 같은 크기, 굵게(textHeavy). */
+    private static final float SIGN_LABEL_SIZE = CAM_SIDE_TEXT_SIZE;
     /**
      * LIMIT·SET 글자 밑선(기준점 아래, 원 그림 배율 기준). 원 아래선(cy + 39.5, 테두리 포함)
-     * + 간격 4.7 + 대문자 높이(0.72 x 42) 이라 큰 글자가 원과 겹치지 않는다. 화면에서 LIMIT 글자
-     * 아래선 ~442, SET 원 윗선 ~446.
+     * + 간격 4.7 + 대문자 높이(0.72 x SIGN_LABEL_SIZE) 이라 글자가 원과 겹치지 않는다(SET 글자).
      */
-    private static final float SIGN_LABEL_BASE = 74f;
+    private static final float SIGN_LABEL_BASE = 39.5f + 4.7f + 0.72f * SIGN_LABEL_SIZE;
     private static final float TOP_ROW_SCALE = 1.1f;
     // 아래 정보줄 기준선
     private static final float INFO_Y = 702f;
