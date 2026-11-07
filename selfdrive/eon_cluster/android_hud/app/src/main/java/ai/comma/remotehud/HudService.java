@@ -1208,11 +1208,6 @@ public final class HudService extends Service {
         return true;
     }
 
-    private void drawVoiceCard(Canvas c) {
-        VoiceAssistant assistant = voice;
-        if (assistant != null) assistant.draw(c, mapCenterX(), frameDark);
-    }
-
     private void synchronizeNavigation(JSONObject decoded, DatagramSocket socket, DatagramPacket packet) throws Exception {
         synchronized (AppPrefs.class) {
             String session = decoded.optString("hudNavSession", "");
@@ -2955,7 +2950,6 @@ public final class HudService extends Service {
             drawNaviWeatherPanel(c, p, s);
             drawNaviJunctionPopup(c, p, s);
             applyThemeOverlay(c, p);
-            drawVoiceCard(c);
             drawOemWarningPopup(c, p, s);
             return;
         }
@@ -2983,7 +2977,6 @@ public final class HudService extends Service {
             drawMap(c, p, s, map, tbtCurrent, tbtNext, lane, trafficSignal);
         }
         applyThemeOverlay(c, p);
-        drawVoiceCard(c);
         // 순정 계기판 경고는 주행패널 오른쪽 EON HUD 박스 자리에 흰색 팝업으로 덮는다.
         // 야간 지도 마스크 뒤에 그려 항상 선명한 흰색을 유지한다.
         drawOemWarningPopup(c, p, s);
@@ -4948,6 +4941,12 @@ public final class HudService extends Service {
         c.translate(EON_BOX_LEFT, EON_BOX_TOP);
         c.scale(EON_BOX_SCALE, EON_BOX_SCALE);
         eonBoxRect(c, p, 0f, 0f, 475f, EON_BOX_H, Color.argb(frameDark ? 90 : 120, 0, 0, 0), 2f, Color.WHITE);
+        // 리모컨 음성 비서가 동작 중이면 정보 박스 자리를 음성 카드로 잠시 바꾼다.
+        VoiceAssistant assistant = voice;
+        if (assistant != null && assistant.drawInBox(c, 475f, EON_BOX_H)) {
+            c.restoreToCount(save);
+            return;
+        }
         if (stale) {
             c.restoreToCount(save);
             return;

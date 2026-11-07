@@ -501,71 +501,78 @@ public final class VoiceAssistant {
 
     // ── HUD 카드 ──────────────────────────────────────────────────────
 
-    /** Draws the card centred at cx near the top of the HUD; nothing when idle. */
-    void draw(Canvas c, float cx, boolean dark) {
+    /** True while a card should replace the HUD info box. */
+    boolean isActive() {
+        State s = state;
+        if (s == State.IDLE) return false;
+        if (SystemClock.elapsedRealtime() <= shownUntil) return true;
+        if (s == State.LISTENING) VoiceActivity.cancelActive();
+        if (s == State.CONFIRM) {
+            synchronized (this) {
+                pending = null;
+            }
+        }
+        state = State.IDLE;
+        return false;
+    }
+
+    /**
+     * Draws the card filling the HUD info box (local box coordinates, 0..w x 0..h).
+     * Returns false when idle so the box shows its normal content.
+     */
+    boolean drawInBox(Canvas c, float w, float h) {
+        if (!isActive()) return false;
         State s = state;
         long now = SystemClock.elapsedRealtime();
-        if (s == State.IDLE) return;
-        if (now > shownUntil) {
-            if (s == State.LISTENING) {
-                VoiceActivity.cancelActive();
-            }
-            if (s == State.CONFIRM) {
-                synchronized (this) {
-                    pending = null;
-                }
-            }
-            state = State.IDLE;
-            return;
-        }
         int accent;
         switch (s) {
             case LISTENING: accent = Color.rgb(64, 156, 255); break;
-            case THINKING: accent = Color.rgb(160, 170, 180); break;
+            case THINKING: accent = Color.rgb(170, 180, 190); break;
             case RESULT: accent = Color.rgb(60, 200, 120); break;
             case CONFIRM: accent = Color.rgb(255, 184, 48); break;
             default: accent = Color.rgb(235, 80, 80); break;
         }
-        float width = 700f;
         Paint p = paint;
-        p.setTypeface(Typeface.create("sans", Typeface.NORMAL));
-        p.setTextSize(34f);
-        List<String> lines = wrap(body, width - 48f, p, 3);
-        float height = 74f + lines.size() * 44f + 18f;
-        box.set(cx - width / 2f, 22f, cx + width / 2f, 22f + height);
         p.setShader(null);
+        // 정보 박스와 같은 불투명 어두운 카드(낮에도 글자가 보이게).
+        box.set(0f, 0f, w, h);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(dark ? Color.argb(236, 12, 16, 22) : Color.argb(240, 248, 249, 250));
-        c.drawRoundRect(box, 14f, 14f, p);
+        p.setColor(Color.argb(240, 16, 22, 40));
+        c.drawRoundRect(box, 10f, 10f, p);
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(4f);
+        p.setStrokeWidth(5f);
         p.setColor(accent);
-        c.drawRoundRect(box, 14f, 14f, p);
+        box.inset(2.5f, 2.5f);
+        c.drawRoundRect(box, 10f, 10f, p);
 
-        // 상태 점(듣는 중·확인 중은 깜빡임)
+        // 상태 점(준비·듣는 중·확인 중은 깜빡임)
         boolean blink = (s == State.LISTENING || s == State.THINKING) && ((now - stateSince) / 450L) % 2 == 1;
         p.setStyle(Paint.Style.FILL);
-        p.setColor(blink ? Color.argb(90, Color.red(accent), Color.green(accent), Color.blue(accent)) : accent);
-        c.drawCircle(box.left + 34f, box.top + 42f, 11f, p);
+        p.setColor(blink ? Color.argb(80, Color.red(accent), Color.green(accent), Color.blue(accent)) : accent);
+        c.drawCircle(32f, 40f, 12f, p);
 
         p.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        p.setTextSize(36f);
+        p.setTextSize(34f);
         p.setTextAlign(Paint.Align.LEFT);
         p.setColor(accent);
         String head = title;
         if (s == State.CONFIRM) {
             head += "  " + Math.max(0L, (shownUntil - now + 999L) / 1000L) + "초";
         }
-        c.drawText(head, box.left + 58f, box.top + 54f, p);
+        c.drawText(head, 56f, 52f, p);
 
-        p.setTypeface(Typeface.create("sans", Typeface.NORMAL));
-        p.setTextSize(34f);
-        p.setColor(dark ? Color.WHITE : Color.rgb(25, 30, 34));
-        float y = box.top + 54f + 48f;
+        p.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        p.setTextSize(32f);
+        p.setColor(Color.WHITE);
+        float lineH = 44f;
+        int maxLines = Math.max(1, (int) ((h - 84f - 16f) / lineH) + 1);
+        List<String> lines = wrap(body, w - 40f, p, maxLines);
+        float y = 104f;
         for (String line : lines) {
-            c.drawText(line, box.left + 24f, y, p);
-            y += 44f;
+            c.drawText(line, 20f, y, p);
+            y += lineH;
         }
+        return true;
     }
 
     /** Greedy character wrap (Korean has few spaces); the last line gets an ellipsis. */
