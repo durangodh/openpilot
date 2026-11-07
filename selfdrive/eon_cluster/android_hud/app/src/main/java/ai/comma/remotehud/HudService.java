@@ -5820,8 +5820,10 @@ public final class HudService extends Service {
         c.drawCircle(cx, ccy, SET_R - 6.5f, p);
         text(c, p, Integer.toString(limit), cx, ccy + 9f * SET_SCALE, 29f * SET_SCALE,
                 Color.WHITE, Paint.Align.CENTER);
-        textHeavy(c, p, "LIMIT", cx, cy + SIGN_LABEL_BASE, SIGN_LABEL_SIZE,
-                frameDark ? Color.rgb(120, 176, 240) : blue, Paint.Align.CENTER);
+        // 2026-11-07 요청: 과속카메라 남은거리 글자처럼 원 오른쪽, 아랫줄을 원 아래선에 맞춘다.
+        float outerR = SET_R + 1.8f;
+        textHeavy(c, p, "LIMIT", cx + outerR + 10f / SIGN_SCALE, ccy + outerR - 3f / SIGN_SCALE, SIGN_LABEL_SIZE,
+                frameDark ? Color.rgb(120, 176, 240) : blue, Paint.Align.LEFT);
     }
 
     /** 감속(적용)속도: SET 원 2/3 크기의 주황 테두리 원, 숫자는 SET 숫자색, 아래 출처(CAM/SEC…). 화면 좌표. */
