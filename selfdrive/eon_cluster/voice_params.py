@@ -5,7 +5,9 @@ sender. Only settings listed in selfdrive/apilot.json (the APM list) can be read
 written, every write is range-checked here, and while the car moves only the cruise and
 longitudinal groups can change. Whatever the AI on the phone asks for, these rules hold.
 
-Request : HUDPRM1 {"id": "...", "op": "search"|"get"|"set"|"press"|"memo", ...}
+Request : HUDPRM1 {"id": "...", "op": "search"|"get"|"set"|"press"|"memo"|
+                                   "system_check"|"system"|"system_status", ...}
+          system ops are git pull / reboot (voice_system.py: parked or off only).
           press only accepts cmd "gap" (차간 단계 = 크루즈 GAP 버튼 상태, 설정값 아님).
 Reply   : HUDPRM1R {"id": "...", "ok": true|false, ...}
 """
@@ -161,7 +163,7 @@ class VoiceParams:
     return {"ok": result == "accepted", "result": result,
             "error": "" if result == "accepted" else "지금은 버튼을 보낼 수 없음(시동·차량 데이터 확인)"}
 
-  def handle(self, data, moving, press=None, snapshot=None):
+  def handle(self, data, moving, press=None, snapshot=None, system=None, system_state=None):
     """Raw HUDPRM1 datagram -> reply bytes, or None when it is not ours or malformed."""
     if not data.startswith(PREFIX):
       return None
@@ -179,6 +181,15 @@ class VoiceParams:
       out = self.set(req.get("name"), req.get("value"), moving)
     elif op == "press":
       out = self.press(req.get("cmd"), press)
+    elif op in ("system_check", "system", "system_status"):
+      if system is None or system_state is None:
+        out = {"ok": False, "error": "시스템 작업 경로 없음"}
+      elif op == "system_check":
+        out = system.check(req.get("action"), system_state())
+      elif op == "system":
+        out = system.start(req.get("action"), system_state())
+      else:
+        out = system.status(str(req.get("job", "")))
     elif op == "memo":
       out = self.memo(req.get("text"), req.get("settings"), snapshot() if snapshot else "")
     else:

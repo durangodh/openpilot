@@ -21,6 +21,7 @@ from selfdrive.eon_cluster.nav_selection import NavSelectionSync
 from selfdrive.eon_cluster.hud_remote import hud_status as remote_status
 from selfdrive.eon_cluster.hud_remote import VOICE_FILE, RemoteCommandSync, allowed_commands, voice_request
 from selfdrive.eon_cluster.voice_params import VoiceParams
+from selfdrive.eon_cluster import voice_system
 
 
 from selfdrive.modeld.constants import T_IDXS
@@ -1348,6 +1349,7 @@ def main():
   voice_params = VoiceParams(params)
   voice_buttons = RemoteCommandSync(params)
   memo = MemoRecorder()
+  system_jobs = voice_system.SystemJobs()
   running = [True]
   signal.signal(signal.SIGINT, lambda *_: running.__setitem__(0, False))
   signal.signal(signal.SIGTERM, lambda *_: running.__setitem__(0, False))
@@ -1441,7 +1443,8 @@ def main():
             allowed = allowed_commands(started, car_valid, car.gearShifter == "drive",
                                        car.brakePressed, car.gasPressed)
             answer = voice_params.handle(reply, moving, lambda cmd: voice_buttons.apply(cmd, allowed),
-                                         lambda: memo.text(sm, time.monotonic()))
+                                         lambda: memo.text(sm, time.monotonic()),
+                                         system_jobs, lambda: voice_system.allowed(sm))
             if answer is not None:
               sock.sendto(answer, address)
           elif nav_selection.receive(reply, address):

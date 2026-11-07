@@ -395,8 +395,46 @@ public final class VoiceAssistant {
         return new JSONObject().put("ok", false).put("error", "EON 응답 없음(연결 확인)");
     }
 
+    static String systemLabel(String action) {
+        if ("pull".equals(action)) return "git pull";
+        if ("reboot".equals(action)) return "EON 재부팅";
+        return "git pull + 재부팅";
+    }
+
+    /** Runs the confirmed git pull / reboot on EON and follows it until it finishes. */
+    private void applySystem(JSONObject p, int mySession) throws JSONException {
+        String action = p.optString("action");
+        JSONObject r = askEon(new JSONObject().put("op", "system").put("action", action));
+        if (!r.optBoolean("ok")) {
+            finish(State.ERROR, "실행 안 됨", r.optString("error"));
+            return;
+        }
+        String job = r.optString("job");
+        long deadline = SystemClock.elapsedRealtime() + 150_000L;
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (mySession != session) return;
+            show(State.THINKING, systemLabel(action), "EON 에서 실행 중", 0);
+            SystemClock.sleep(1_000L);
+            JSONObject st = askEon(new JSONObject().put("op", "system_status").put("job", job));
+            if (st.optBoolean("running")) continue;
+            if (st.has("result")) {
+                finish(st.optBoolean("ok") ? State.RESULT : State.ERROR, systemLabel(action), st.optString("result"));
+                return;
+            }
+            if (action.contains("reboot") && "EON 응답 없음(연결 확인)".equals(st.optString("error"))) {
+                finish(State.RESULT, systemLabel(action), "EON 재부팅 중");
+                return;
+            }
+        }
+        finish(State.ERROR, systemLabel(action), "시간 초과(EON 상태 확인)");
+    }
+
     private void applyPending(JSONObject p, int mySession) {
         try {
+            if ("system".equals(p.optString("kind"))) {
+                applySystem(p, mySession);
+                return;
+            }
             JSONObject r = askEon(new JSONObject().put("op", "set")
                     .put("name", p.optString("name")).put("value", p.optInt("value")));
             if (mySession != session) return;
@@ -430,6 +468,7 @@ public final class VoiceAssistant {
             + "'한 칸 늘려'는 현재 단계+1, '줄여'는 -1. 결과는 '차간 2→3단'처럼 말한다. "
             + "길안내·목적지·경유지 요청(예: 집으로 가자)은 open_nav_voice 로 내비 음성창을 열고 "
             + "'내비에 목적지를 말씀하세요'라고만 답한다. "
+            + "깃풀·재부팅 요청은 system_command 로 확인 카드만 띄우고 '버튼을 누르면 실행해요'라고 답한다. "
             + "코드 수정·버그·이상 동작 신고나 '메모해 줘'는 고칠 수 없으니 save_memo 로 기록하고 '메모했어요'라고만 답한다. "
             + "관련 설정이 떠오르면 settings 에 이름을 넣는다(검색 없이 아는 이름만). "
             + "날씨·뉴스 같은 일반 질문은 web_search 를 쓴다. 차량 조작(조향·가감속 직접 명령)은 하지 않는다.";
@@ -476,6 +515,13 @@ public final class VoiceAssistant {
                                         .put("items", new JSONObject().put("type", "string"))
                                         .put("description", "관련 있어 보이는 설정 이름(현재값을 함께 기록), 없으면 빈 배열")))
                         .put("required", new JSONArray().put("text"))));
+        t.put(new JSONObject().put("name", "system_command")
+                .put("description", "EON git pull / 재부팅. 인게이지 중이 아니면 가능. 바로 실행되지 않고 운전자가 리모컨 "
+                        + "버튼으로 확인해야 실행된다. 'pull 하고 재부팅'은 pull_reboot.")
+                .put("input_schema", new JSONObject().put("type", "object")
+                        .put("properties", new JSONObject().put("action", new JSONObject().put("type", "string")
+                                .put("enum", new JSONArray().put("pull").put("reboot").put("pull_reboot"))))
+                        .put("required", new JSONArray().put("action"))));
         t.put(new JSONObject().put("name", "open_nav_voice")
                 .put("description", "선택된 내비(티맵·네이버·카카오)의 자체 음성 검색창을 연다. 길안내·목적지·경유지 요청일 때 쓴다. "
                         + "열린 뒤 운전자가 내비에 목적지를 다시 말해야 한다.")
@@ -541,7 +587,9 @@ public final class VoiceAssistant {
                     pending = proposal;
                     pendingAt = SystemClock.elapsedRealtime();
                 }
-                finish(State.CONFIRM, "적용할까요?  버튼 = 적용", answer);
+                boolean system = "system".equals(proposal.optString("kind"));
+                finish(State.CONFIRM, system ? "실행할까요?  버튼 = 실행" : "적용할까요?  버튼 = 적용",
+                        system ? proposal.optString("title") + " · " + answer : answer);
             } else {
                 finish(State.RESULT, "AI", answer);
             }
@@ -561,6 +609,7 @@ public final class VoiceAssistant {
         if ("open_nav_voice".equals(name)) return "내비 음성창 여는 중";
         if ("cruise_gap".equals(name)) return "차간 단계 맞추는 중";
         if ("save_memo".equals(name)) return "메모 저장 중";
+        if ("system_command".equals(name)) return "실행 가능 여부 확인 중";
         return name;
     }
 
@@ -593,6 +642,15 @@ public final class VoiceAssistant {
             }
             reply = askEon(new JSONObject().put("op", "set").put("name", input.optString("name"))
                     .put("value", input.optInt("value")));
+        } else if ("system_command".equals(name)) {
+            String action = input.optString("action");
+            reply = askEon(new JSONObject().put("op", "system_check").put("action", action));
+            if (reply.optBoolean("ok")) {
+                proposed[0] = new JSONObject().put("kind", "system").put("action", action)
+                        .put("title", systemLabel(action));
+                reply = new JSONObject().put("ok", true).put("status", "운전자 확인 대기")
+                        .put("note", "아직 실행 안 됨. 운전자가 리모컨 버튼을 누르면 실행된다.");
+            }
         } else if ("save_memo".equals(name)) {
             reply = askEon(new JSONObject().put("op", "memo").put("text", input.optString("text"))
                     .put("settings", input.optJSONArray("settings") == null ? new JSONArray()
