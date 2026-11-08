@@ -12,10 +12,12 @@ import time as _ptime
 
 class _SectionProf:
   """controlsd 구간 타이머. /tmp/controlsd_prof 파일이 있을 때만 켜지고,
-  500 루프마다 /tmp/controlsd_prof.txt 를 덮어쓴다. 제거 = _prof 표시 줄 전부 삭제."""
+  500 루프마다 /tmp/controlsd_prof.txt 를 덮어쓰고 /data/media/0/cpu_log/controlsd_prof_MMDD.log 에
+  덧붙인다(와이파이 /trace "CPU 로그"). 제거 = _prof 표시 줄 전부 삭제."""
   PERIOD = 500
   OUT = "/tmp/controlsd_prof.txt"
   FLAG = "/tmp/controlsd_prof"
+  LOG_DIR = "/data/media/0/cpu_log"   # selfdrive/debug/proc_cpu_log.py LOG_DIR
 
   def __init__(self):
     self.on = False
@@ -58,6 +60,13 @@ class _SectionProf:
     try:
       with open(self.OUT, "w") as f:
         f.write("\n".join(lines) + "\n")
+    except OSError:
+      pass
+    # Also keep a history next to the per-process CPU log (http://EON_IP:7714/trace "CPU 로그").
+    try:
+      os.makedirs(self.LOG_DIR, exist_ok=True)
+      with open(os.path.join(self.LOG_DIR, "controlsd_prof_%s.log" % _ptime.strftime("%m%d")), "a") as f:
+        f.write("== %s %s\n" % (_ptime.strftime("%H:%M:%S"), "\n".join(lines)))
     except OSError:
       pass
     self.acc, self.n, self.wall0 = {}, 0, _ptime.monotonic()
