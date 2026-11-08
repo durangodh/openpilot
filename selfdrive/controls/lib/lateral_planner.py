@@ -256,7 +256,6 @@ class LateralPlanner:
     map_path = None
     navigation_state = self.DH.navigation_state
     noo_map_candidate = (self.DH.noo_turn_direction != 0 and not self.DH.noo_driver_cancel and
-                         getattr(self.DH, 'noo_pose_trusted', False) and
                          navigation_state.get('fresh', False) and
                          navigation_state.get('route_fresh', False) and
                          navigation_state.get('kind') in ('turn', 'uturn') and

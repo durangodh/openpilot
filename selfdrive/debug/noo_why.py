@@ -6,11 +6,11 @@ EON 에서 주행/정차 중 그대로 실행:
 
 각 줄의 [X] 가 처음 나오는 곳이 그 프레임에서 NOO 를 막은 조건이다.
 """
+import math
 import time
 
 import cereal.messaging as messaging
 from common.params import Params
-from selfdrive.controls.lib import lane_count
 from selfdrive.controls.lib.navigation_route import NavigationRouteData
 from selfdrive.controls.lib.navigation_noo import NavigationLaneChangeController
 from selfdrive.controls.lib.desire_helper import DesireHelper
@@ -21,8 +21,72 @@ def mark(ok):
 
 
 def camera_reason(md):
-  """camera_lane_position 결과와, None 이면 그 이유 (HUD 와 같은 판정)."""
-  return lane_count.estimate(md)
+  """camera_lane_position 이 None 을 주는 이유를 그대로 되짚는다."""
+  if md is None:
+    return None, "modelV2 없음"
+
+  def near_y(line):
+    try:
+      values = [float(y) for x, y in zip(line.x, line.y)
+                if math.isfinite(float(x)) and 0.0 <= float(x) <= 30.0 and math.isfinite(float(y))]
+    except (AttributeError, TypeError, ValueError):
+      return None
+    return sorted(values)[len(values) // 2] if len(values) >= 2 else None
+
+  try:
+    lanes, edges = md.laneLines, md.roadEdges
+    if len(lanes) < 3 or len(edges) < 2:
+      return None, "laneLines/roadEdges 개수 부족"
+    inner = [near_y(lanes[1]), near_y(lanes[2])]
+    road = [near_y(edges[0]), near_y(edges[1])]
+    conf = min(float(md.laneLineProbs[1]), float(md.laneLineProbs[2]))
+    edge_std = max(float(md.roadEdgeStds[0]), float(md.roadEdgeStds[1]))
+  except (AttributeError, IndexError, TypeError, ValueError) as e:
+    return None, "모델 필드 오류 %s" % e
+
+  if any(v is None for v in inner + road):
+    return None, "차선/도로경계 y 표본 부족"
+  if conf < NavigationRouteData.LANE_PROB_MIN:
+    return None, "차선확률 %.2f < %.2f" % (conf, NavigationRouteData.LANE_PROB_MIN)
+  if not math.isfinite(edge_std) or edge_std > NavigationRouteData.ROAD_EDGE_STD_MAX:
+    return None, "roadEdgeStd %.2f > %.2f (경계 불확실)" % (
+      edge_std, NavigationRouteData.ROAD_EDGE_STD_MAX)
+
+  lane_left, lane_right = max(inner), min(inner)
+  road_left, road_right = max(road), min(road)
+  width = lane_left - lane_right
+  if not 2.5 <= width <= 4.5:
+    return None, "차로폭 %.2fm 범위밖" % width
+  if road_left < lane_left:
+    if lane_left - road_left > NavigationRouteData.EDGE_INSIDE_TOL:
+      return None, "좌 도로경계가 자차차선 안쪽 (%.1f/%.1f)" % (road_left, lane_left)
+    road_left = lane_left
+  if road_right > lane_right:
+    if road_right - lane_right > NavigationRouteData.EDGE_INSIDE_TOL:
+      return None, "우 도로경계가 자차차선 안쪽 (%.1f/%.1f)" % (road_right, lane_right)
+    road_right = lane_right
+
+  lr = max(0.0, road_left - lane_left) / width
+  rr = max(0.0, lane_right - road_right) / width
+  total = 1 + int(round(lr)) + int(round(rr))
+  cur = 1 + int(round(lr))
+  def adjacent(index, outer_y, inner_y):
+    try:
+      probability = float(md.laneLineProbs[index])
+    except (AttributeError, IndexError, TypeError, ValueError):
+      return False
+    return (outer_y is not None and probability >= NavigationRouteData.ADJACENT_LANE_PROB_MIN and
+            width * 0.65 <= abs(outer_y - inner_y) <= width * 1.35)
+
+  outer_left = near_y(lanes[0]) if len(lanes) > 0 else None
+  outer_right = near_y(lanes[3]) if len(lanes) > 3 else None
+  left_adjacent = adjacent(0, outer_left, lane_left)
+  right_adjacent = adjacent(3, outer_right, lane_right)
+  return ({"count": total, "current": cur, "confidence": conf, "width": width,
+           "left_frac": lr - math.floor(lr), "right_frac": rr - math.floor(rr),
+           "left_adjacent": left_adjacent, "right_adjacent": right_adjacent},
+          "cam %d차로 중 %d (std %.2f, 폭 %.2f, L%.2f R%.2f, 옆차로=%s/%s)" %
+          (total, cur, edge_std, width, lr, rr, left_adjacent, right_adjacent))
 
 
 def main():
@@ -80,12 +144,12 @@ def main():
     if plan is not None:
       dist = plan['distance']
       delta = abs(plan['target'] - plan['current'])
-      if plan.get('source') in ('carrot_prepare', 'next_prepare'):
+      if plan.get('source') == 'carrot_prepare':
         lo = NavigationLaneChangeController.CARROT_PREPARE_MIN_DISTANCE
         hi = NavigationLaneChangeController.carrot_prepare_distance(st, v_ego)
       else:
         lo = NavigationLaneChangeController.MIN_DISTANCE
-        hi = min(NavigationLaneChangeController.MAX_DISTANCE, max(300.0, v_ego * 20.0, 200.0 * delta))
+        hi = min(controller.MAX_DISTANCE, max(300.0, v_ego * 20.0, 200.0 * delta))
       lines.append("[%s] 거리창      %.0fm (허용 %.0f~%.0f, source=%s)" %
                    (mark(lo <= dist <= hi), dist, lo, hi, plan.get('source')))
 

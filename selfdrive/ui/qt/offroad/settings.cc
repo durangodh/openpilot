@@ -1290,10 +1290,6 @@ CommunityPanel::CommunityPanel(QWidget* parent) : QWidget(parent) {
       "NOO 회전감속 준비시간(초)입니다. 값 증가(+): 더 일찍 감속 시작 / 값 감소(-): 회전에 가까워져 감속.",
       "../assets/offroad/icon_road.png", 2, 12, 1, 0, 6, this));
   toggleLayout->addWidget(new ParamValueControlF(
-      "NooLaneChangeSpeed", "NOO LANE CHANGE MIN SPEED",
-      "내비 안내에 따라 회전·분기 차로로 미리 옮기는 차선변경의 최저속도(km/h)입니다. 값 증가(+): 더 빠를 때만 차선 준비 / 값 감소(-): 정체 시내에서도 차선 준비. 깜빡이 자동 차선변경(AUTO LANE CHANGE MIN SPEED)과 별개입니다. 기본값: 30.",
-      "../assets/offroad/icon_road.png", 10, 60, 10, 0, 30, this));
-  toggleLayout->addWidget(new ParamValueControlF(
       "LaneChangeNeedTorque", "NOO 차선변경 시작 방식 (캐럿)",
       "NOO(내비 연동) 가상 깜빡이 차선변경의 시작 조건입니다. -1: NOO 자동 차선변경 사용 안 함 / 0: 조건이 맞으면 즉시 시작 / 1: 깜빡이만 준비하고 운전자가 같은 방향으로 핸들을 살짝 밀어야 시작(토크 필요). 레버 깜빡이 차선변경에는 영향 없음. 기본값: 0.\\n"
       "※ NOO MODE 가 1 또는 3(조기 차로준비 없음)이면 이 값과 무관하게 NOO 차선변경은 작동하지 않습니다 — 둘 다 확인하세요.",

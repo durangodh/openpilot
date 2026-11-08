@@ -1,7 +1,5 @@
 import math
 
-from selfdrive.controls.lib import lane_count
-
 
 class NavigationLaneChangeController:
   """Fail-closed map lane planner for Navigation on Openpilot.
@@ -19,8 +17,13 @@ class NavigationLaneChangeController:
   CARROT_PREPARE_DISTANCE_BP = (160.0, 200.0, 350.0)
   CONFIRM_FRAMES = 6        # 0.3 s at model rate
   # 자차 차선 확률 하한. camera_lane_position 과 같은 값을 쓴다.
-  LANE_CONF_MIN = lane_count.LANE_PROB_MIN
+  LANE_CONF_MIN = 0.35
   LANE_UPDATE_FRAMES = 40   # fail closed after 2 s without camera confirmation
+  # A shoulder or median counted as one extra camera lane is only dropped when
+  # that side is clearly not a whole number of lanes wide.
+  PHANTOM_LANE_MIN_ERROR = 0.10
+  # 양쪽 다 유령 후보가 아닐 때, 여유폭 소수부 차이가 이만큼 나면 큰 쪽을 갓길로 본다.
+  PHANTOM_AMBIGUOUS_MARGIN = 0.15
 
   def __init__(self):
     self.reset()
@@ -49,10 +52,70 @@ class NavigationLaneChangeController:
     except (TypeError, ValueError):
       return None
 
-  @staticmethod
-  def _resolve_current_lane(ego_lane, route_count):
-    """Camera ego lane renumbered against the route lane count (shared with the HUD)."""
-    return lane_count.resolve_current_lane(ego_lane, route_count)
+  @classmethod
+  def _resolve_current_lane(cls, ego_lane, route_count):
+    """Reconcile the camera lane estimate with the navigation lane count.
+
+    Korean roads normally have a paved shoulder, so the road edge sits about
+    one lane beyond the outermost lane line and the camera counts one lane too
+    many.  Requiring an exact match made NOO silently never act.  A single
+    extra camera lane is dropped from the side whose width is clearly not a
+    whole number of lanes; anything else still fails closed.
+    """
+    try:
+      camera_count = int(ego_lane.get("count", 0))
+      current = int(ego_lane.get("current", 0))
+    except (TypeError, ValueError):
+      return None
+    diff = camera_count - route_count
+    if diff == 0:
+      return current
+    # roadEdges can briefly collapse onto the ego lane and report one lane on
+    # a multi-lane road.  For two- and three-lane TMAP guidance, the model's
+    # fixed outer lane lines uniquely identify the ego lane without trusting
+    # provider current_lane (Naver publishes its recommended lane there).
+    if diff < 0 and route_count in (2, 3):
+      left_adjacent = ego_lane.get("left_adjacent") is True
+      right_adjacent = ego_lane.get("right_adjacent") is True
+      adjacency = (left_adjacent, right_adjacent)
+      resolved = ({
+        (False, True): 1,
+        (True, False): route_count,
+        (True, True): 2 if route_count == 3 else None,
+      }).get(adjacency)
+      return resolved if resolved is not None and 1 <= resolved <= route_count else None
+    # 갓길 하나(+1)뿐 아니라 갓길+중앙분리대가 같이 잡히는 경우(+2)까지 받는다.
+    if diff not in (1, 2):
+      return None
+    try:
+      left_frac = float(ego_lane.get("left_frac", 0.0))
+      right_frac = float(ego_lane.get("right_frac", 0.0))
+    except (TypeError, ValueError):
+      return None
+    # 유령차로 후보 = 반올림에서 차로 하나가 "올라간"(소수부 0.5 이상) 쪽.
+    # 소수부가 1.0 에 가까우면 폭이 실제 차로와 같다는 뜻이라 진짜 차로로 본다.
+    # 소수부가 0.5 미만인 쪽(예: 1 m 중앙분리대)은 애초에 세지 않았으므로
+    # 후보가 아니다 — 이 구분이 없으면 갓길과 중앙분리대가 같이 있는 흔한
+    # 고속도로에서 판정이 통째로 막힌다.
+    def phantom(frac):
+      return 0.5 <= frac <= 1.0 - cls.PHANTOM_LANE_MIN_ERROR
+
+    phantom_left = phantom(left_frac)
+    phantom_right = phantom(right_frac)
+    if diff == 2:
+      # 두 칸이 남으려면 양쪽 다 유령이어야 한다. 그 외는 종전대로 실패.
+      if not (phantom_left and phantom_right):
+        return None
+      resolved = current - 1
+    elif phantom_left != phantom_right:
+      resolved = current - 1 if phantom_left else current
+    else:
+      # 양쪽 모두 애매하면 예전엔 무조건 포기했다. 한쪽 여유폭이 뚜렷하게
+      # 더 크면 그쪽을 유령으로 본다. 차이가 작으면 여전히 실패 처리.
+      if abs(left_frac - right_frac) < cls.PHANTOM_AMBIGUOUS_MARGIN:
+        return None
+      resolved = current - 1 if left_frac > right_frac else current
+    return resolved if 1 <= resolved <= route_count else None
 
   @staticmethod
   def _interp(value, breakpoints, values):
@@ -119,55 +182,6 @@ class NavigationLaneChangeController:
             "maneuver_direction": int(state.get("direction", 0)),
             "turn_type": int(state.get("turn_type", -1))}
 
-  @staticmethod
-  def _next_vehicle_distance(state, following):
-    """Distance from the vehicle to the next maneuver, the same for every app.
-
-    The next item's segment (TMAP display_distance_m, Naver/Kakao distance_m)
-    is measured from the current maneuver, so add the current distance.
-    """
-    if not isinstance(following, dict):
-      return -1.0
-    try:
-      current = float(state.get("distance", -1.0))
-      segment = float(following.get("segment", -1.0))
-    except (TypeError, ValueError):
-      return -1.0
-    if not (math.isfinite(current) and math.isfinite(segment)) or current < 0.0 or segment < 0.0:
-      return -1.0
-    return current + segment
-
-  @classmethod
-  def _next_prepare_plan(cls, state, following, current_plan, next_distance, v_ego):
-    """Move one lane toward the next turn, never out of the current lanes.
-
-    Used only when the vehicle is already in a lane the current maneuver
-    allows and there is no lane guidance for the next maneuver.
-    """
-    if current_plan.get("direction", 0) != 0 or state.get("kind") == "fork":
-      return None
-    if not isinstance(following, dict) or not following.get("fresh", False) or \
-       following.get("kind") not in ("turn", "uturn", "fork"):
-      return None
-    try:
-      direction = int(following.get("direction", 0))
-    except (TypeError, ValueError):
-      return None
-    if direction not in (-1, 1) or not math.isfinite(next_distance):
-      return None
-    if next_distance < cls.CARROT_PREPARE_MIN_DISTANCE or \
-       next_distance > cls.carrot_prepare_distance(state, v_ego):
-      return None
-    current = int(current_plan["current"])
-    target = current + direction
-    if target not in current_plan.get("recommended", []):
-      return None
-    return {"count": int(current_plan["count"]), "current": current, "target": target,
-            "direction": direction, "distance": next_distance,
-            "recommended": [target], "source": "next_prepare",
-            "maneuver_direction": direction,
-            "turn_type": int(following.get("turn_type", -1))}
-
   @classmethod
   def lane_plan(cls, state, ego_lane, v_ego=0.0, proactive=True):
     # 차선계획은 경로 폴리라인(route/vehicle 스트림)을 쓰지 않는다. route_fresh 를
@@ -198,17 +212,14 @@ class NavigationLaneChangeController:
                          float(state.get("distance", -1.0)),
                          int(state.get("turn_type", -1))))
     following = state.get("next")
-    next_distance = cls._next_vehicle_distance(state, following)
-    ahead_lane_present = False
     # Finish the current fork before positioning for the next maneuver. Ahead
     # guidance must not pull a route-compatible lane across the current split.
     if state.get("kind") != "fork" and state.get("lane_ahead_fresh", False) and \
        isinstance(following, dict) and following.get("fresh", False):
-      ahead_lane_present = isinstance(state.get("lane_ahead"), dict)
-      lane_guidance_present = lane_guidance_present or ahead_lane_present
+      lane_guidance_present = lane_guidance_present or isinstance(state.get("lane_ahead"), dict)
       candidates.append(("ahead", state.get("lane_ahead"),
                          int(following.get("direction", 0)),
-                         next_distance,
+                         float(following.get("distance", -1.0)),
                          int(following.get("turn_type", -1))))
 
     current_plan = None
@@ -245,12 +256,6 @@ class NavigationLaneChangeController:
         return plan
       if source == "current":
         current_plan = plan
-    # Naver/Kakao send no lane guidance for the next maneuver (TMAP's can also
-    # be missing). Prepare for it within the current maneuver's own lanes.
-    if current_plan is not None and proactive and not ahead_lane_present:
-      next_plan = cls._next_prepare_plan(state, following, current_plan, next_distance, v_ego)
-      if next_plan is not None:
-        return next_plan
     if current_plan is not None or lane_guidance_present or not proactive:
       return current_plan
     return cls._carrot_direction_plan(state, ego_lane, v_ego)
@@ -369,7 +374,7 @@ class NavigationLaneChangeController:
 
     distance = plan["distance"]
     lane_delta = abs(self.target_lane - self.current_lane)
-    if plan.get("source") in ("carrot_prepare", "next_prepare"):
+    if plan.get("source") == "carrot_prepare":
       minimum_distance = self.CARROT_PREPARE_MIN_DISTANCE
       action_distance = self.carrot_prepare_distance(state, v_ego)
     else:
