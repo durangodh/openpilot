@@ -11,6 +11,11 @@ Run over SSH while openpilot runs (survives the SSH session ending):
 
   cd /data/openpilot && nohup python3 selfdrive/debug/proc_cpu_log.py >/dev/null 2>&1 &
 
+A short spike (e.g. while the Bluetooth remote connects) disappears in a 10 s average; give
+the interval in seconds as an argument to see it, e.g. every second:
+
+  cd /data/openpilot && nohup python3 selfdrive/debug/proc_cpu_log.py 1 >/dev/null 2>&1 &
+
 Stop it with: pkill -f proc_cpu_log.py
 """
 import os
@@ -71,6 +76,12 @@ def read_procs():
 
 
 def main():
+  interval = INTERVAL_S
+  if len(sys.argv) > 1:
+    try:
+      interval = min(max(float(sys.argv[1]), 0.5), 60.0)
+    except ValueError:
+      pass
   hz = os.sysconf("SC_CLK_TCK")
   os.makedirs(LOG_DIR, exist_ok=True)
   names = {}
@@ -78,7 +89,7 @@ def main():
   prev_procs = read_procs()
   prev_time = time.monotonic()
   while True:
-    time.sleep(INTERVAL_S)
+    time.sleep(interval)
     total = read_total()
     procs = read_procs()
     now = time.monotonic()
