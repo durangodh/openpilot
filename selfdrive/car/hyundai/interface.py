@@ -3,6 +3,7 @@ import time
 from typing import List
 
 from cereal import car
+from common import section_prof as _subprof  # _prof
 from common.conversions import Conversions as CV
 from selfdrive.car.hyundai.values import CAR, Buttons, CarControllerParams
 from selfdrive.car.hyundai.mcan_hud import MCAN_TX_PARAM
@@ -349,6 +350,7 @@ class CarInterface(CarInterfaceBase):
     _t2 = time.monotonic()  # _prof
     self.prof_parse = _t1 - _t0  # _prof
     self.prof_cstate = _t2 - _t1  # _prof
+    _st = _subprof.start()  # _prof
     ret.canValid = self.cp.can_valid and self.cp2.can_valid and self.cp_cam.can_valid
     ret.canTimeout = any(cp.bus_timeout for cp in self.can_parsers if cp is not None)
 
@@ -405,8 +407,10 @@ class CarInterface(CarInterfaceBase):
     buttonEvents.extend(self.hud_remote.button_events(
       allowed=ret.canValid and not buttonEvents))
     ret.buttonEvents = buttonEvents
+    _st = _subprof.lap("ci.buttons", _st)  # _prof
 
     events = self.create_common_events(ret)
+    _st = _subprof.lap("ci.common_events", _st)  # _prof
 
     # ---- apilot-c2 engagement model (ajouatom/openpilot apilot-c2) ----
     # Engage on the cruise MAIN switch rising edge; disengage only when MAIN
@@ -456,8 +460,10 @@ class CarInterface(CarInterfaceBase):
       self.CC.scc_smoother.inject_events(events)
 
     ret.events = events.to_msg()
+    _st = _subprof.lap("ci.events_rest", _st)  # _prof
 
     self.CS.out = ret.as_reader()
+    _subprof.lap("ci.as_reader", _st)  # _prof
     return self.CS.out
 
   # scc smoother - hyundai only

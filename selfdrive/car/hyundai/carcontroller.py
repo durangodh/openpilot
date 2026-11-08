@@ -14,6 +14,7 @@ from selfdrive.car.hyundai.cruise_buttons import button_pressed_in_samples
 from opendbc.can.packer import CANPacker
 from common.conversions import Conversions as CV
 from common.params import Params
+from common import section_prof as _subprof  # _prof
 from selfdrive.controls.lib.longcontrol import LongCtrlState
 from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 
@@ -130,6 +131,7 @@ class CarController:
     return (noo_turn < 0 and not right) or (noo_turn > 0 and not left)
 
   def update(self, CC, CS, controls):
+    _st = _subprof.start()  # _prof
     actuators = CC.actuators
     hud_control = CC.hudControl
     pcm_cancel_cmd = CC.cruiseControl.cancel
@@ -203,6 +205,7 @@ class CarController:
         self.cut_steer_frames += 1
 
 
+    _st = _subprof.lap("cc.steer_logic", _st)  # _prof
     can_sends = []
     can_sends.append(create_lkas11(self.packer, self.frame, self.car_fingerprint, apply_steer, lkas_active,
                                    CS.lkas11, sys_warning, sys_state, CC.enabled, hud_control.leftLaneVisible, hud_control.rightLaneVisible,
@@ -226,9 +229,11 @@ class CarController:
     # Openpilot longitudinal control already commands the SCC messages needed
     # to launch, and an extra RES pulse makes the cluster report an invalid
     # cruise-setting condition during an otherwise normal departure.
+    _st = _subprof.lap("cc.lkas_clu_mdps", _st)  # _prof
     if not self.longcontrol:
       self.update_auto_resume(CC, CS, clu11_speed, can_sends)
     self.update_scc(CC, CS, actuators, controls, hud_control, can_sends)
+    _st = _subprof.lap("cc.scc", _st)  # _prof
 
     # 20 Hz LFA MFA message
     if self.frame % 5 == 0:
@@ -239,13 +244,16 @@ class CarController:
       elif CS.has_lfa_hda:
         can_sends.append(create_hda_mfc(self.packer, activated_hda, CS, hud_control.leftLaneVisible, hud_control.rightLaneVisible))
 
+    _st = _subprof.lap("cc.lfahda", _st)  # _prof
     if self.mcan_hud is not None:
       can_sends.extend(self.mcan_hud.update(self.frame, controls.cruise_helper.navigation_route.state,
                                             CS.out.vEgo))
 
+    _st = _subprof.lap("cc.mcan_hud", _st)  # _prof
     new_actuators = actuators.copy()
     new_actuators.steer = apply_steer / self.params.STEER_MAX
     new_actuators.accel = self.accel
+    _subprof.lap("cc.copy", _st)  # _prof
 
     self.frame += 1
     return new_actuators, can_sends
