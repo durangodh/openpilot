@@ -5,7 +5,7 @@ sender. Only settings listed in selfdrive/apilot.json (the APM list) can be read
 written, every write is range-checked here, and while the car moves only the cruise and
 longitudinal groups can change. Whatever the AI on the phone asks for, these rules hold.
 
-Request : HUDPRM1 {"id": "...", "op": "search"|"get"|"set"|"press"|"memo"|
+Request : HUDPRM1 {"id": "...", "op": "search"|"get"|"set"|"press"|
                                    "system_check"|"system"|"system_status", ...}
           system ops are git pull / reboot (voice_system.py: parked or off only).
           press only accepts cmd "gap" (차간 단계 = 크루즈 GAP 버튼 상태, 설정값 아님).
@@ -13,7 +13,6 @@ Reply   : HUDPRM1R {"id": "...", "ok": true|false, ...}
 """
 import json
 import os
-import time
 
 PREFIX = b"HUDPRM1 "
 REPLY_PREFIX = b"HUDPRM1R "
@@ -23,9 +22,6 @@ DRIVING_GROUPS = ("크루즈", "종방향")
 SEARCH_LIMIT = 8
 DESCR_MAX = 90
 REPLY_MAX_BYTES = 6000
-# 음성 메모: trace_http.TRACE_DIRS["memo"] 와 같아야 한다. 하루 한 파일에 한 줄씩 쌓는다.
-MEMO_DIR = "/data/media/0/voice_memo"
-MEMO_TEXT_MAX = 300
 
 
 def load_definitions(path=APILOT_JSON):
@@ -126,32 +122,6 @@ class VoiceParams:
             "before": before, "after": after, "min": lo, "max": hi,
             "error": "" if after == target else "저장값 확인 실패"}
 
-  def memo(self, text, settings, snapshot, memo_dir=MEMO_DIR, now=None):
-    """Driver's spoken note + the car state at that moment, one line in voice-memo-MMDD.log."""
-    text = " ".join(str(text or "").split())[:MEMO_TEXT_MAX]
-    if not text:
-      return {"ok": False, "error": "메모 내용 없음"}
-    values = []
-    for name in (settings or [])[:6]:
-      d = self.definitions.get(name)
-      if d is not None:
-        values.append("%s=%s" % (name, self._value(d)))
-    parts = [time.strftime("%m-%d %H:%M:%S", time.localtime(now))]
-    if snapshot:
-      parts.append(snapshot)
-    if values:
-      parts.append("설정 " + " ".join(values))
-    parts.append("메모: " + text)
-    line = " | ".join(parts)
-    path = os.path.join(memo_dir, "voice-memo-%s.log" % time.strftime("%m%d", time.localtime(now)))
-    try:
-      os.makedirs(memo_dir, exist_ok=True)
-      with open(path, "a", encoding="utf-8") as f:
-        f.write(line + "\n")
-    except OSError as e:
-      return {"ok": False, "error": "메모 저장 실패: %s" % e}
-    return {"ok": True, "file": os.path.basename(path), "line": line}
-
   # AI 가 누를 수 있는 크루즈 버튼: 차간(GAP)과 설정속도(RES/SET, 길게=10 단위).
   # 취소(CANCEL)·차선변경은 운전자 몫이라 넣지 않는다.
   AI_BUTTONS = ("gap", "res", "set", "res_long", "set_long")
@@ -167,7 +137,7 @@ class VoiceParams:
     return {"ok": result == "accepted", "result": result,
             "error": "" if result == "accepted" else "지금은 버튼을 보낼 수 없음(시동·차량 데이터 확인)"}
 
-  def handle(self, data, moving, press=None, snapshot=None, system=None, system_state=None):
+  def handle(self, data, moving, press=None, system=None, system_state=None):
     """Raw HUDPRM1 datagram -> reply bytes, or None when it is not ours or malformed."""
     if not data.startswith(PREFIX):
       return None
@@ -194,8 +164,6 @@ class VoiceParams:
         out = system.start(req.get("action"), system_state())
       else:
         out = system.status(str(req.get("job", "")))
-    elif op == "memo":
-      out = self.memo(req.get("text"), req.get("settings"), snapshot() if snapshot else "")
     else:
       out = {"ok": False, "error": "알 수 없는 요청"}
     out["id"] = rid

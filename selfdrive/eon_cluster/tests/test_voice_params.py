@@ -81,18 +81,6 @@ class VoiceParamsTest(unittest.TestCase):
     self.assertFalse(json.loads(self.vp.handle(b'HUDPRM1 {"op":"press","cmd":"lane_left"}', True, press)[len(REPLY_PREFIX):])["ok"])
     self.assertEqual(pressed, ["gap", "res_long"])
 
-  def test_memo_line(self):
-    with tempfile.TemporaryDirectory() as tmp:
-      out = self.vp.memo("출발할 때 흔들림", ["TFollowGap2", "Nope"], "차속 12km/h", memo_dir=tmp, now=0)
-      self.assertTrue(out["ok"])
-      with open(os.path.join(tmp, out["file"]), encoding="utf-8") as f:
-        line = f.read()
-      self.assertIn("차속 12km/h", line)
-      self.assertIn("TFollowGap2=120", line)
-      self.assertIn("메모: 출발할 때 흔들림", line)
-      self.assertTrue(line.endswith("\n"))
-      self.assertFalse(self.vp.memo("  ", [], "", memo_dir=tmp)["ok"])
-
   def test_foreign_datagram_ignored(self):
     self.assertIsNone(self.vp.handle(b"HUD1", False))
     self.assertIsNone(self.vp.handle(b"HUDPRM1 not-json", False))

@@ -1268,81 +1268,11 @@ def _packet(sm, noo_enabled, path_offset=0.0):
   }
 
 
-def _memo_snapshot(sm):
-  """음성 메모용 그 순간 상태 한 줄(loggerd 가 꺼져 있어 다른 주행 기록이 없다)."""
-  try:
-    car = sm["carState"]
-    controls = sm["controlsState"]
-    parts = ["차속 %.0fkm/h 가속 %+.2f" % (_finite(_field(car, "vEgo", 0.0)) * 3.6, _finite(_field(car, "aEgo", 0.0))),
-             "설정속도 %.0f" % _finite(_field(controls, "vCruiseCluster", _field(controls, "vCruise", 0.0))),
-             "조향각 %.1f" % _finite(_field(car, "steeringAngleDeg", 0.0)),
-             "오파 %s" % ("ON" if bool(_field(controls, "enabled", False)) else "OFF")]
-    gap = int(_finite(_field(controls, "longCruiseGap", 0)))
-    if not 1 <= gap <= 4:
-      gap = int(_finite(_field(car, "cruiseGap", 0)))
-    if 1 <= gap <= 4:
-      parts.append("갭 %d" % gap)
-    lead = _lead(sm["radarState"], "leadOne") if sm.alive["radarState"] else None
-    parts.append("앞차 %.1fm 상대 %+.1fkm/h" % (lead["d"], lead["v"]) if lead else "앞차 없음")
-    if not sm.alive["carState"]:
-      parts.append("차량 데이터 없음")
-    return " ".join(parts)
-  except Exception:
-    return ""
-
-
-class MemoRecorder:
-  """리모컨 AI 를 누른 순간과 그 직전 10초(0.5초 간격)를 잡아 둔다.
-
-  메모는 말을 다 알아듣고 AI 가 처리한 뒤(3~6초 뒤)에 저장되므로, 그때의 상태가 아니라
-  운전자가 문제를 느끼고 버튼을 누른 순간을 남긴다. 0.5초마다 숫자 3개만 덧붙여 부하가 없다.
-  """
-  PERIOD_S = 0.5
-  KEEP_S = 10.0
-  PRESS_KEEP_S = 120.0
-
-  def __init__(self):
-    self.samples = []
-    self.next_at = 0.0
-    self.seq = None
-    self.press = None   # (monotonic, wall, snapshot, history)
-
-  def sample(self, sm, now):
-    if now < self.next_at:
-      return
-    self.next_at = now + self.PERIOD_S
-    car = sm["carState"]
-    lead = _lead(sm["radarState"], "leadOne") if sm.alive["radarState"] else None
-    self.samples.append((now, _finite(_field(car, "vEgo", 0.0)) * 3.6, _finite(_field(car, "aEgo", 0.0)),
-                         lead["d"] if lead else None))
-    self.samples = [x for x in self.samples if now - x[0] <= self.KEEP_S]
-
-  def voice_pressed(self, voice, sm, now):
-    seq = voice[0] if voice is not None else None
-    if seq is None or seq == self.seq:
-      return
-    self.seq = seq
-    history = " ".join("%.0f/%+.1f/%s" % (v, a, "-" if d is None else "%.0f" % d)
-                       for _, v, a, d in self.samples)
-    self.press = (now, time.time(), _memo_snapshot(sm), history)
-
-  def text(self, sm, now):
-    current = _memo_snapshot(sm)
-    press = self.press
-    if press is None or now - press[0] > self.PRESS_KEEP_S:
-      return current
-    out = "누름 %s %s" % (time.strftime("%H:%M:%S", time.localtime(press[1])), press[2])
-    if press[3]:
-      out += " | 직전10초 차속/가속/앞차m: " + press[3]
-    return out + " | 저장 시점 " + current
-
-
 def main():
   params = Params()
   nav_selection = NavSelectionSync(params)
   voice_params = VoiceParams(params)
   voice_buttons = RemoteCommandSync(params)
-  memo = MemoRecorder()
   try:
     voice_wake = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     voice_wake.bind(("127.0.0.1", VOICE_WAKE_PORT))
@@ -1410,8 +1340,6 @@ def main():
       if remote is not None:
         packet["remote"] = remote
       voice = voice_request()
-      memo.sample(sm, started)
-      memo.voice_pressed(voice, sm, started)
       if voice is not None:
         packet["voiceReq"], packet["voiceMode"] = voice
       # HUD 가 응답한 적이 있으면 그 주소로 직접(유니캐스트) 보낸다. 와이파이 브로드캐스트는
@@ -1443,7 +1371,6 @@ def main():
             allowed = allowed_commands(started, car_valid, car.gearShifter == "drive",
                                        car.brakePressed, car.gasPressed)
             answer = voice_params.handle(reply, moving, lambda cmd: voice_buttons.apply(cmd, allowed),
-                                         lambda: memo.text(sm, time.monotonic()),
                                          system_jobs, lambda: voice_system.allowed(sm))
             if answer is not None:
               sock.sendto(answer, address)

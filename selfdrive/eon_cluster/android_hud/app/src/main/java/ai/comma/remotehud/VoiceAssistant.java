@@ -527,8 +527,6 @@ public final class VoiceAssistant {
             + "'내비에 목적지를 말씀하세요'라고만 답한다. "
             + "차 상태·경고등·타이어·배터리 질문은 vehicle_status 를 쓰고, 이상 있는 것만 짧게 말한다(없으면 '이상 없어요'). "
             + "깃풀·재부팅 요청은 system_command 로 확인 카드만 띄우고 '버튼을 누르면 실행해요'라고 답한다. "
-            + "코드 수정·버그·이상 동작 신고나 '메모해 줘'는 고칠 수 없으니 save_memo 로 기록하고 '메모했어요'라고만 답한다. "
-            + "관련 설정이 떠오르면 settings 에 이름을 넣는다(검색 없이 아는 이름만). "
             + "날씨·뉴스 같은 일반 질문은 web_search 를 쓴다. 차량 조작(조향·가감속 직접 명령)은 하지 않는다.";
 
     private static JSONArray tools() throws JSONException {
@@ -562,17 +560,6 @@ public final class VoiceAssistant {
                                 .put("target", new JSONObject().put("type", "integer")
                                         .put("description", "목표 단계 1~4. 0 이면 현재 단계만 읽는다")))
                         .put("required", new JSONArray().put("target"))));
-        t.put(new JSONObject().put("name", "save_memo")
-                .put("description", "운전자가 말한 문제·개선 요청을 EON 음성 메모(7714/trace)에 저장한다. 그 순간 차속·앞차·갭·"
-                        + "설정속도는 EON 이 자동으로 붙인다. 코드 수정·버그·이상 동작 신고, '메모해 줘'에 쓴다.")
-                .put("input_schema", new JSONObject().put("type", "object")
-                        .put("properties", new JSONObject()
-                                .put("text", new JSONObject().put("type", "string")
-                                        .put("description", "운전자 말 요약(상황 포함, 한국어 한두 문장)"))
-                                .put("settings", new JSONObject().put("type", "array")
-                                        .put("items", new JSONObject().put("type", "string"))
-                                        .put("description", "관련 있어 보이는 설정 이름(현재값을 함께 기록), 없으면 빈 배열")))
-                        .put("required", new JSONArray().put("text"))));
         t.put(new JSONObject().put("name", "system_command")
                 .put("description", "EON git pull / 재부팅. 인게이지 중이 아니면 가능. 바로 실행되지 않고 운전자가 리모컨 "
                         + "버튼으로 확인해야 실행된다. 'pull 하고 재부팅'은 pull_reboot.")
@@ -677,7 +664,6 @@ public final class VoiceAssistant {
         if ("set_setting".equals(name)) return "설정 바꾸는 중";
         if ("open_nav_voice".equals(name)) return "내비 음성창 여는 중";
         if ("cruise_gap".equals(name)) return "차간 단계 맞추는 중";
-        if ("save_memo".equals(name)) return "메모 저장 중";
         if ("system_command".equals(name)) return "실행 가능 여부 확인 중";
         if ("vehicle_status".equals(name)) return "차량 상태 확인 중";
         if ("cruise_speed".equals(name)) return "설정속도 맞추는 중";
@@ -727,10 +713,6 @@ public final class VoiceAssistant {
                 reply = new JSONObject().put("ok", true).put("status", "운전자 확인 대기")
                         .put("note", "아직 실행 안 됨. 운전자가 리모컨 버튼을 누르면 실행된다.");
             }
-        } else if ("save_memo".equals(name)) {
-            reply = askEon(new JSONObject().put("op", "memo").put("text", input.optString("text"))
-                    .put("settings", input.optJSONArray("settings") == null ? new JSONArray()
-                            : input.optJSONArray("settings")));
         } else if ("cruise_gap".equals(name)) {
             reply = cruiseGap(input.optInt("target", 0));
         } else if ("open_nav_voice".equals(name)) {
