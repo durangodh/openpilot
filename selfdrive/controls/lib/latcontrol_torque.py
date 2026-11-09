@@ -57,6 +57,8 @@ class LatControlTorque(LatControl):
   def update(self, active, CS, VM, params, last_actuators, steer_limited, desired_curvature, desired_curvature_rate, llk):
     self.update_params()
     pid_log = log.ControlsState.LateralTorqueState.new_message()
+    pid_log.latAccelFactor = self.torque_params.latAccelFactor
+    pid_log.friction = self.torque_params.friction
 
     if not active:
       output_torque = 0.0
