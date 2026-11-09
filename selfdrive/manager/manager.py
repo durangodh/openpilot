@@ -149,8 +149,8 @@ def manager_init() -> None:
     ("LateralAccelCost", "0"),
     ("LateralJerkCost", "5"),
     ("LateralTorqueCustom", "0"),
-    ("LateralTorqueAccelFactor", "2500"),
-    ("LateralTorqueFriction", "100"),
+    ("LateralTorqueAccelFactor", "2747"),
+    ("LateralTorqueFriction", "98"),
     ("SteerDeltaUp", "3"),
     ("SteerDeltaDown", "7"),
     ("AutoLaneChangeTimer", "0"),  # controlsd.py 크래시 수정
@@ -240,12 +240,12 @@ def manager_init() -> None:
     if params.get(k) is None:
       params.put(k, v)
 
-  # Migrate this fork's former torque defaults to the aPilot values. Custom
-  # values are preserved; only the exact old defaults are changed.
+  # Restore the Genesis G-MCAN torque defaults. Custom values are preserved;
+  # only the exact aPilot defaults introduced by the previous migration change.
   for key, old_value, apilot_value in (
       ("SteerActuatorDelay", "25", "30"),
-      ("LateralTorqueAccelFactor", "2747", "2500"),
-      ("LateralTorqueFriction", "98", "100")):
+      ("LateralTorqueAccelFactor", "2500", "2747"),
+      ("LateralTorqueFriction", "100", "98")):
     if params.get(key, encoding="utf8") == old_value:
       params.put(key, apilot_value)
 
