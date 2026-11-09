@@ -40,6 +40,17 @@ def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego
   return bool(stopping and (actual_standstill or latched) and not pre_release)
 
 
+# High-angle reset pulse (CF_Lkas_ToiFlt for two frames) only while the wheel is nearly
+# still. 2026-11-09 10:32 left turn: four pulses at 0-40 deg/s each gave a 2-frame
+# FailStat blip and recovered; the pulse at 84 deg/s, with the wheel unwinding through
+# -93 deg and the command changing, latched ToiFlt + FailStat (MDPS fault, steering off).
+HIGH_ANGLE_PULSE_MAX_RATE = 60.0   # deg/s
+
+
+def high_angle_pulse_allowed(steering_rate_deg):
+  return abs(steering_rate_deg) < HIGH_ANGLE_PULSE_MAX_RATE
+
+
 def process_hud_alert(enabled, fingerprint, hud_control):
 
   sys_warning = (hud_control.visualAlert in (VisualAlert.steerRequired, VisualAlert.ldw))
@@ -109,6 +120,9 @@ class CarController:
     self.cut_steer_frames = 0
     self.cut_steer = False
     self.cut_steer_temp = False   # last frame's high-angle cut pulse (MDPS fault recorder)
+    # Torque off instead of a reset pulse while the wheel moves fast past the high angle;
+    # held until the angle is back under steerFaultMaxAngle.
+    self.high_angle_release = False
 
     self.steer_fault_max_angle = CP.steerFaultMaxAngle
     self.steer_fault_max_frames = CP.steerFaultMaxFrames
@@ -153,6 +167,12 @@ class CarController:
     if self.turning_signal_timer > 0:
       self.turning_signal_timer -= 1
 
+    if self.high_angle_release:
+      if abs(CS.out.steeringAngleDeg) < self.steer_fault_max_angle:
+        self.high_angle_release = False
+      else:
+        lkas_active = 0
+
     if not lkas_active:
       apply_steer = 0
 
@@ -193,7 +213,12 @@ class CarController:
       # stop requesting torque to avoid 90 degree fault and hold torque with induced temporary fault
       # two cycles avoids race conditions every few minutes
       if self.angle_limit_counter > self.steer_fault_max_frames:
-        self.cut_steer = True
+        if high_angle_pulse_allowed(CS.out.steeringRateDeg):
+          self.cut_steer = True
+        else:
+          # Wheel moving fast: no pulse; release torque from the next frame instead.
+          self.high_angle_release = True
+          self.angle_limit_counter = 0
       elif self.cut_steer_frames > 1:
         self.cut_steer_frames = 0
         self.cut_steer = False
