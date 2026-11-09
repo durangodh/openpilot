@@ -13,7 +13,7 @@ from selfdrive.car.hyundai.values import Buttons, FEATURES, CarControllerParams
 from selfdrive.car.hyundai.cruise_buttons import button_pressed_in_samples
 from opendbc.can.packer import CANPacker
 from common.conversions import Conversions as CV
-from common.params import Params, UnknownKeyName
+from common.params import Params
 from selfdrive.controls.lib.longcontrol import LongCtrlState
 from selfdrive.road_speed_limiter import road_speed_limiter_get_active
 
@@ -45,32 +45,6 @@ def should_request_scc_standstill(stopping, soft_hold_scc, car_standstill, v_ego
   if soft_hold_scc:
     return bool(actual_standstill)
   return bool(stopping and (actual_standstill or latched) and not pre_release)
-
-
-# 순정 HUD/계기판 핸들 표시(LKAS11 CF_Lkas_LdwsSysState). 실차(DH): 3 일 때만 녹색 핸들.
-LKAS_STATE_ACTIVE = 3
-# 정차 중 상태값을 강제로 바꿔 보는 시험용 파일(selfdrive/debug/lkas_hud_state_test.py 가 쓴다).
-LKAS_STATE_TEST_FILE = "/dev/shm/lkas_sys_state_test"
-def hud_wheel_state(sys_state, enabled, state_mode, test_state=None):
-  """state_mode: 인게이지 중이면 차선 인식과 관계없이 녹색 핸들(3).
-
-  비인게이지는 기존(차선 인식) 값 그대로. 3 은 양쪽 차선 표시를 포함하므로 인게이지 중
-  HUD 차선 그림이 항상 나온다. test_state 는 인게이지가 아닐 때만 적용한다.
-  """
-  if test_state is not None and not enabled:
-    return int(test_state)
-  if state_mode and enabled:
-    return LKAS_STATE_ACTIVE
-  return sys_state
-
-
-def read_lkas_state_test():
-  try:
-    with open(LKAS_STATE_TEST_FILE) as f:
-      value = int(f.read().strip())
-    return value if 0 <= value <= 15 else None
-  except (OSError, ValueError):
-    return None
 
 
 def process_hud_alert(enabled, fingerprint, hud_control):
@@ -126,7 +100,6 @@ class CarController:
     # Naver TBT on the stock HUD over MM-CAN (bus 1). The panda only opens bus 1
     # when the same param was in the safety config at startup (interface.py).
     self.mcan_hud = McanHud() if param.get_bool("McanHudTbt") else None
-    self.lkas_state_test = None
     self.scc_stop_latched = False
     self.prev_active_cam = False
     self.active_cam_timer = 0
@@ -163,14 +136,6 @@ class CarController:
     self.apply_steer_last = apply_steer
 
     sys_warning, sys_state, left_lane_warning, right_lane_warning = process_hud_alert(CC.enabled, self.car_fingerprint, hud_control)
-    if self.frame % 50 == 0:
-      try:
-        self.hud_wheel_state_mode = self.op_params.get_bool("HudWheelStateMode")
-      except UnknownKeyName:
-        # Older Params binaries may still be loaded after a source-only update.
-        self.hud_wheel_state_mode = False
-      self.lkas_state_test = read_lkas_state_test()
-    sys_state = hud_wheel_state(sys_state, CC.enabled, self.hud_wheel_state_mode, self.lkas_state_test)
 
     if self.haptic_feedback_speed_camera:
       if self.prev_active_cam != controls.cruise_helper.active_cam:
