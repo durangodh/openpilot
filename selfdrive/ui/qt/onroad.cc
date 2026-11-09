@@ -770,7 +770,7 @@ void NvgWindow::drawCarrotInfoContent(QPainter &p) {
   const auto car_params      = sm["carParams"].getCarParams();
   const auto controls_state  = sm["controlsState"].getControlsState();
   const auto live_params     = sm["liveParameters"].getLiveParameters();
-  const auto torque_state    = controls_state.getLateralControlState().getTorqueState();
+  const auto live_torque     = sm["liveTorqueParameters"].getLiveTorqueParameters();
 
   // ---- 좌상단 : wifi IP / SCC ----
   QString ip_head = QString::fromUtf8(sm["deviceState"].getDeviceState().getWifiIpAddress().cStr());
@@ -782,13 +782,16 @@ void NvgWindow::drawCarrotInfoContent(QPainter &p) {
                      QString(car_params.getHasScc14() ? "+14" : "");
   QString left_head = ip_head + "  SCC ";
 
-  // ---- 우상단 : 토크값 / SR ----
+  // ---- 우상단 : 학습 조향비 / LiveTorque 학습값 ----
   QString right_str;
-  right_str.sprintf("LT(%.2f/%.3f)  SR(%.2f/%.2f)",
-                    torque_state.getLatAccelFactor(),
-                    torque_state.getFriction(),
-                    controls_state.getSteerRatio(),
-                    live_params.getSteerRatio());
+  if (live_torque.getLiveValid()) {
+    right_str.sprintf("SR-L %.2f  LT-L %.3f/%.3f",
+                      live_params.getSteerRatio(),
+                      live_torque.getLatAccelFactorFiltered(),
+                      live_torque.getFrictionCoefficientFiltered());
+  } else {
+    right_str.sprintf("SR-L %.2f  LT-L --/--", live_params.getSteerRatio());
+  }
 
   configFont(p, "Open Sans", 34, "Regular");
   QRect line(35, 12, width() - 55, 48);   // 상태바(bdr_s=20) 안쪽
