@@ -1043,6 +1043,8 @@ struct LateralPlan @0xe1e9318e2ae8b51e {
   
   autoLaneChangeEnabled @32 :Bool;
   autoLaneChangeTimer @33 :Int8;
+  desireEvent @34 :Int32;
+  desireReady @35 :Int32;
   laneChangePrev @36 :Bool;
 
   solverCost @39 :Float32;
